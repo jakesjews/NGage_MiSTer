@@ -211,3 +211,22 @@ found, and what comes next. Research material lives in `research/`
      with OSD flash loading to DDR3, Verilator tests, and
      `./build.sh remote map`.
   3. Decide the CPU path once the model boots.
+
+### 2026-10-19, late: LCD controller research (agent finished after stop)
+- The controller IC is still unidentified. The interface and command set
+  are pinned down:
+  - Interface: Nokia "MeSSI-8" 8-bit 8080 bus (later MIPI DBI-B).
+  - Frame memory: 176x208x16 RAM (RGB565). The OS uses COLMOD 12 bpp,
+    packed as 3 bytes per 2 pixels.
+  - Commands: the Nokia/MIPI DCS-style set: CASET 0x2A, PASET 0x2B,
+    RAMWR 0x2C, RAMRD 0x2E, MADCTL 0x36, COLMOD 0x3A, RGBSET 0x2D (48 bytes),
+    TEON 0x35, PTLAR 0x30, GAMSET 0x26, RDDID 0x04, RDDST 0x09. 0x24 (one
+    parameter) is not in any datasheet; accept and ignore it.
+- Boot LCD helper 0x6E9C:
+  - Writes 0x09280000 to 0x0C121200, then the command byte to +0x04.
+  - For n parameters, writes 0x09240000|(n-1) to +0x00, then the bytes
+    to +0x04.
+  - The LUT upload uses control word 0x092C002F.
+- The original N-Gage panel also sits on the 8080 bus, without CS and TE.
+- Full report, datasheets and the sibling Nokia LCD table:
+  `research/upp-wd2/` (downloads/lcd/, repos/).
