@@ -80,6 +80,30 @@ def image_header(buf, foff):
     return dict(zip(IMG_FIELDS, struct.unpack_from("<25I", buf, foff)))
 
 
+def is_entry(buf, off, base, addr):
+    """True when addr holds a TRomEntry (size, address, attributes, UTF-16 name)."""
+    f = lin(off, base, addr)
+    nlen = buf[f + 9]
+    if not 1 <= nlen <= 64:
+        return False
+    name = buf[f + 10:f + 10 + 2 * nlen]
+    return all(name[i + 1] == 0 and 0x20 <= name[i] < 0x7F for i in range(0, len(name), 2))
+
+
+def entry_name(buf, off, base, addr):
+    if not is_entry(buf, off, base, addr):
+        return "(no entry)"
+    f = lin(off, base, addr)
+    return buf[f + 10:f + 10 + 2 * buf[f + 9]].decode("utf-16-le")
+
+
+def image_addr(buf, off, base, addr):
+    """EKA1 header fields point at the file's TRomEntry; follow it to the TRomImageHeader."""
+    if is_entry(buf, off, base, addr):
+        return u32(buf, lin(off, base, addr) + 4)
+    return addr
+
+
 def walk(buf, off, base, dir_addr, path, out, depth=0):
     if depth > 32:
         return
@@ -129,9 +153,13 @@ def cmd_info(args):
     end = min(len(buf), off + h["iRomSize"])
     s = sum(struct.unpack_from("<%dI" % ((end - off) // 4), buf, off)) & 0xFFFFFFFF
     print("  word sum of image      0x%08X" % s)
-    for label, key in (("kernel (primary)", "iPrimaryFile"), ("file server (secondary)", "iSecondaryFile")):
-        ih = image_header(buf, lin(off, base, h[key]))
-        print("%s TRomImageHeader at 0x%08X" % (label, h[key]))
+    for label, key in (("kernel (primary)", "iPrimaryFile"), ("file server (secondary)", "iSecondaryFile"),
+                       ("variant", "iVariantFile"), ("first extension", "iExtensionFile")):
+        if not h[key]:
+            continue
+        addr = image_addr(buf, off, base, h[key])
+        ih = image_header(buf, lin(off, base, addr))
+        print("%s %s, TRomImageHeader at 0x%08X" % (label, entry_name(buf, off, base, h[key]), addr))
         for k in ("iUid1", "iUid2", "iUid3", "iEntryPoint", "iCodeAddress", "iCodeSize", "iDataAddress",
                   "iDataSize", "iBssSize", "iDataBssLinearBase", "iFlags", "iHardwareVariant"):
             print("    %-20s 0x%08X" % (k, ih[k]))
