@@ -38,3 +38,7 @@ c5_pin_model_dump.txt
 *_netlist
 *.cdf
 **/.DS_Store
+# untracked research material
+research/
+build/
+sim/build/
