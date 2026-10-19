@@ -8,6 +8,7 @@
 #define HW_ARM_NGAGE_H
 
 #include "system/memory.h"
+#include "hw/core/irq.h"
 
 /* Physical addresses as the Phoenix flash files place the two NOR chips. */
 #define NGAGE_FLASH0_BASE   0x00000000u
@@ -32,5 +33,11 @@ uint32_t ngage_guest_pc(void);
 void ngage_upp_block(MemoryRegion *sysmem, const char *name, hwaddr base, uint32_t size);
 void ngage_upp_set_log(FILE *fp);
 void ngage_upp_load_quirks(const char *path);
+
+/* Interrupt controller and timers (ngage_intc.c). */
+void ngage_intc_create(MemoryRegion *sysmem, qemu_irq cpu_irq);
+
+/* CBUS master and UEMK model (ngage_cbus.c). */
+void ngage_cbus_create(MemoryRegion *sysmem, const char *uemk_regs, FILE *log);
 
 #endif

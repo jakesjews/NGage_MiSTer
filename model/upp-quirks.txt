@@ -2,4 +2,4 @@
 # <physical address> <or-mask> <and-mask>   # meaning, evidence (firmware RH-29 v4.60 PC)
 0x0C120020 0x1C000000 0xFFFFFFFF   # bits 26-28 = DPLL locked (three DPLLs per service manual); boot polls bit 26 at 0x3770, bit 27 at 0x382C
 0x0C149000 0x00000001 0xFFFFFFFF   # bit 0 = ready; boot 0x37FC polls after writing 0x2210
-0x0C150420 0x04000000 0xFFFFFFFF   # halfword +0x422 bit 10 = transfer done; serial bus (likely CBUS to UEMK) polled at 0x35D4 after 0x10 to +0x420, data to +0x424
+# 0x0C150420 now modelled by ngage_cbus.c (was: 0x04000000 0xFFFFFFFF)   # halfword +0x422 bit 10 = transfer done; serial bus (likely CBUS to UEMK) polled at 0x35D4 after 0x10 to +0x420, data to +0x424

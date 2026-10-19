@@ -9,7 +9,7 @@ out=${NGAGE_OUT:-model/.out}
 mkdir -p "$out"
 flash0=${NGAGE_FLASH0:-research/firmware/images/nor/rh29-4.60-cs0-model.bin}
 flash1=${NGAGE_FLASH1:-research/firmware/images/nor/rh29-4.60-cs1.bin}
-model/.build/qemu-system-arm -M "ngage-qd,flash0=$flash0,flash1=$flash1,probe-log=$out/probe.log,upp-log=$out/regs.log,quirks=model/upp-quirks.txt" \
+model/.build/qemu-system-arm -M "ngage-qd,flash0=$flash0,flash1=$flash1,probe-log=$out/probe.log,upp-log=$out/regs.log,quirks=model/upp-quirks.txt,uemk-regs=model/uemk-regs.txt,cbus-log=$out/cbus.log" \
     -display none -serial none -monitor none -d guest_errors,unimp -D "$out/qemu.log" -s &
 qpid=$!
 sleep "$secs"

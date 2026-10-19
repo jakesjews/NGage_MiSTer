@@ -27,7 +27,7 @@ flash1=${NGAGE_FLASH1:-research/firmware/images/nor/rh29-4.60-cs1.bin}
 out=${NGAGE_OUT:-model/.out}
 mkdir -p "$out"
 
-cmd=(model/.build/qemu-system-arm -M "ngage-qd,flash0=$flash0,flash1=$flash1,probe-log=$out/probe.log,upp-log=$out/regs.log,quirks=model/upp-quirks.txt"
+cmd=(model/.build/qemu-system-arm -M "ngage-qd,flash0=$flash0,flash1=$flash1,probe-log=$out/probe.log,upp-log=$out/regs.log,quirks=model/upp-quirks.txt,uemk-regs=model/uemk-regs.txt,cbus-log=$out/cbus.log"
      -display none -serial none -monitor none -d guest_errors,unimp -D "$out/qemu.log" "${gdb[@]}" "$@")
 if (( timeout > 0 )); then
     timeout -s INT "$timeout" "${cmd[@]}" || true

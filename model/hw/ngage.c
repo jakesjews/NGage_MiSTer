@@ -35,6 +35,8 @@ struct NGageMachineState {
     char *probe_log;
     char *upp_log;
     char *quirks;
+    char *uemk_regs;
+    char *cbus_log;
     NGageFlash *flash[2];
     MemoryRegion probe;
     MemoryRegion sdram;
@@ -144,6 +146,18 @@ static void ngage_init(MachineState *machine)
     /* UPP peripherals: Symbian maps 0x0C000000 at virtual 0x58000000. */
     ngage_upp_block(sysmem, "upp", 0x0C100000, 0x100000);
 
+    ngage_intc_create(sysmem, qdev_get_gpio_in(DEVICE(s->cpu), ARM_CPU_IRQ));
+    {
+        FILE *cl = NULL;
+        if (s->cbus_log) {
+            cl = fopen(s->cbus_log, "w");
+            if (cl) {
+                setvbuf(cl, NULL, _IOLBF, 0);
+            }
+        }
+        ngage_cbus_create(sysmem, s->uemk_regs, cl);
+    }
+
     /* Everything nothing else claims: log it. */
     memory_region_init_io(&s->probe, NULL, &probe_ops, s, "ngage.probe",
                           UINT64_C(0x100000000));
@@ -175,6 +189,10 @@ static char *get_upp(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->u
 static void set_upp(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->upp_log = g_strdup(v); }
 static char *get_quirks(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->quirks); }
 static void set_quirks(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->quirks = g_strdup(v); }
+static char *get_uemk(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->uemk_regs); }
+static void set_uemk(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->uemk_regs = g_strdup(v); }
+static char *get_cbuslog(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->cbus_log); }
+static void set_cbuslog(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->cbus_log = g_strdup(v); }
 static char *get_probe(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->probe_log); }
 static void set_probe(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->probe_log = g_strdup(v); }
 
@@ -192,6 +210,10 @@ static void ngage_machine_class_init(ObjectClass *oc, const void *data)
     object_class_property_add_str(oc, "flash1", get_flash1, set_flash1);
     object_class_property_set_description(oc, "flash1", "CS1 NOR image (8 MB)");
     object_class_property_add_str(oc, "probe-log", get_probe, set_probe);
+    object_class_property_add_str(oc, "uemk-regs", get_uemk, set_uemk);
+    object_class_property_set_description(oc, "uemk-regs", "UEMK initial register values");
+    object_class_property_add_str(oc, "cbus-log", get_cbuslog, set_cbuslog);
+    object_class_property_set_description(oc, "cbus-log", "file that receives every CBUS transaction");
     object_class_property_add_str(oc, "quirks", get_quirks, set_quirks);
     object_class_property_set_description(oc, "quirks", "register read quirks file");
     object_class_property_add_str(oc, "upp-log", get_upp, set_upp);

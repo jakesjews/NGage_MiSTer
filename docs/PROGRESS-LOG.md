@@ -159,3 +159,36 @@ found, and what comes next. Research material lives in `research/`
   +08=0, then 0x0C120108=1), enables IRQs, and waits at 0x3208 for
   0x0C120A08 to become nonzero. Next: model the timer and the interrupt
   controller. The IRQ vector is at 0x18 and goes to the handler at 0x418.
+
+### 2026-10-19, later: kernel starts
+- `model/hw/ngage_cbus.c`: the CBUS master at 0x0C150420, with a UEMK
+  register file loaded from `model/uemk-regs.txt`.
+  - Read: device to +0x420, register|0x100 to +0x422, then poll bit 10
+    of +0x422 and read the data at +0x426.
+  - Write: device to +0x420, register to +0x422, data to +0x426.
+  - The boot reads UEMK 0x3F, 0x36 and 0x35. It continues only if UEMK
+    0x35 bit 3 or bit 4 is set; otherwise it writes UEMK 0x32 = 0, which
+    is power off. The model returns 0x35 = 0x0008, read-only.
+- `model/hw/ngage_intc.c`: the interrupt controller at 0x0C120100 and
+  timer 0 at 0x0C120A00.
+  - Interrupt controller: +08 enable, +0C acknowledge, +14 "current IRQ
+    number" (0 = none). The kernel also reads the +0x14 registers of banks
+    at +0x40 and +0x80, adding 32 and 64, and dispatches through ISR
+    table index number + 0x5C (dispatch code at 0x5031C87C).
+  - Timer: +10 live down-counter, +18 reload, +04 bit 1 run. The kernel
+    reload of 0x843E2 gives a 1/64 s tick at 104/3 MHz, so the timer
+    clock is 34.67 MHz (inferred).
+- Kernel interrupt-source names, in kernel order:
+  `research/firmware/analysis/ekern-interrupt-table.txt`. FIQ STIAbort
+  ... RTCWBStatus; then IRQ Timer0-5, DMA0-7, FlashCopyRdy, LCDBuffer,
+  Ir4M x5, MMC x4, CTSI x2, APIIOAbort, APIMissAlign, GPIO0..26 Low/High.
+  The bit numbering is not confirmed: the boot enables bit 0 for timer 0,
+  and the kernel enables bit 25.
+- Other facts:
+  - EKA1 runs kernel code in UND mode (0xDB) and calls SVC from there.
+    The interrupt exit at 0x50321B00 reloads DACR from the current thread
+    at offset 0x168.
+  - Register access in ekern goes through helpers at 0x5031E6B0 (read)
+    and 0x5031E6BC (write), with 0x58000000 + offset.
+- Now: the kernel reaches its halt at 0x5031E394, entered from 0x5032DFEC,
+  which looks like a fault/restart path. The cause is not yet known.

@@ -1,0 +1,4 @@
+# UEMK register initial values for the reference model (CBUS device 0x0F).
+# <register> <value> [ro]   # meaning, evidence (firmware RH-29 v4.60 PC)
+# "ro": reads always return the value; writes go elsewhere (status vs. control).
+0x35 0x0008 ro   # status read; boot 0x2EE8 continues if bit 3 (assumed: power key) or bit 4 set; boot also writes 0x200 here (0x2F54)
