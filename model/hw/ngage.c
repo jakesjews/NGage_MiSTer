@@ -21,6 +21,7 @@
 #include "system/address-spaces.h"
 #include "system/reset.h"
 #include "accel/tcg/cpu-loop.h"
+#include "exec/target_page.h"
 #include "target/arm/cpu.h"
 #include "hw/arm/ngage.h"
 
@@ -32,6 +33,8 @@ struct NGageMachineState {
     char *flash0_path;
     char *flash1_path;
     char *probe_log;
+    char *upp_log;
+    char *quirks;
     NGageFlash *flash[2];
     MemoryRegion probe;
     MemoryRegion sdram;
@@ -48,6 +51,14 @@ uint32_t ngage_guest_pc(void)
 
     if (current_cpu && current_cpu->mem_io_pc &&
         cpu_unwind_state_data(current_cpu, current_cpu->mem_io_pc, data)) {
+        /*
+         * ARM translates page-relative (CF_PCREL): the saved value is the
+         * offset in the page; the page comes from the PC at block entry.
+         */
+        uint64_t mask = (uint64_t)(int64_t)qemu_target_page_mask();
+        if ((data[0] & mask) == 0) {
+            return (ARM_CPU(current_cpu)->env.regs[15] & mask) | data[0];
+        }
         return data[0];
     }
     if (current_cpu) {
@@ -116,6 +127,23 @@ static void ngage_init(MachineState *machine)
         setvbuf(s->probe_fp, NULL, _IOLBF, 0);
     }
 
+    if (s->upp_log) {
+        FILE *fp = fopen(s->upp_log, "w");
+        if (!fp) {
+            error_report("ngage: cannot open register log %s", s->upp_log);
+            exit(1);
+        }
+        setvbuf(fp, NULL, _IOLBF, 0);
+        ngage_upp_set_log(fp);
+    }
+    if (s->quirks) {
+        ngage_upp_load_quirks(s->quirks);
+    }
+    /* Memory controller (boot writes 0x08000000..0x08000014 first thing). */
+    ngage_upp_block(sysmem, "emif", 0x08000000, 0x10000);
+    /* UPP peripherals: Symbian maps 0x0C000000 at virtual 0x58000000. */
+    ngage_upp_block(sysmem, "upp", 0x0C100000, 0x100000);
+
     /* Everything nothing else claims: log it. */
     memory_region_init_io(&s->probe, NULL, &probe_ops, s, "ngage.probe",
                           UINT64_C(0x100000000));
@@ -143,6 +171,10 @@ static char *get_flash0(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)
 static void set_flash0(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->flash0_path = g_strdup(v); }
 static char *get_flash1(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->flash1_path); }
 static void set_flash1(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->flash1_path = g_strdup(v); }
+static char *get_upp(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->upp_log); }
+static void set_upp(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->upp_log = g_strdup(v); }
+static char *get_quirks(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->quirks); }
+static void set_quirks(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->quirks = g_strdup(v); }
 static char *get_probe(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->probe_log); }
 static void set_probe(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->probe_log = g_strdup(v); }
 
@@ -160,6 +192,10 @@ static void ngage_machine_class_init(ObjectClass *oc, const void *data)
     object_class_property_add_str(oc, "flash1", get_flash1, set_flash1);
     object_class_property_set_description(oc, "flash1", "CS1 NOR image (8 MB)");
     object_class_property_add_str(oc, "probe-log", get_probe, set_probe);
+    object_class_property_add_str(oc, "quirks", get_quirks, set_quirks);
+    object_class_property_set_description(oc, "quirks", "register read quirks file");
+    object_class_property_add_str(oc, "upp-log", get_upp, set_upp);
+    object_class_property_set_description(oc, "upp-log", "file that receives the first access to each register");
     object_class_property_set_description(oc, "probe-log",
                                           "file that receives every unclaimed access");
 }

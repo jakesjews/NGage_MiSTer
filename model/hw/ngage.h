@@ -28,4 +28,9 @@ NGageFlash *ngage_flash_create(MemoryRegion *sysmem, const char *name,
 
 uint32_t ngage_guest_pc(void);
 
+/* Register blocks modelled as storage with first-access logging (ngage_upp.c). */
+void ngage_upp_block(MemoryRegion *sysmem, const char *name, hwaddr base, uint32_t size);
+void ngage_upp_set_log(FILE *fp);
+void ngage_upp_load_quirks(const char *path);
+
 #endif

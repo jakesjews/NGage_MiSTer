@@ -104,3 +104,58 @@ found, and what comes next. Research material lives in `research/`
    around the MD5 check and the 0x0C12xxxx/0x0C15xxxx registers.
 3. Then the shared fabric peripherals with Verilator tests, then the CPU
    path decision.
+
+### 2026-10-19, later: boot reaches the MMU and the integrity check
+- `model/upp-quirks.txt` holds read-status facts; editing it needs no rebuild:
+  - 0x0C120020 bits 26-28: DPLL lock.
+  - 0x0C149000 bit 0: ready.
+  - 0x0C150422 bit 10: serial (CBUS) transfer done.
+- `model/hw/ngage_upp.c` models register blocks as storage. It logs the
+  first access to each register with its PC in `model/.out/regs.log`.
+- `model/where.sh N` runs N seconds and then prints the CPU state under GDB.
+  Extra GDB commands go in `NGAGE_GDB_EXTRA`.
+- Facts learned from running the boot code:
+  - The boot code runs flash-ID routines from on-chip RAM at 0x0C004748
+    and probes a third chip select at 0x04000000. That one is empty on
+    the QD.
+  - Stack at 0x0AFFF348, which confirms SDRAM is 16 MB at 0x0A000000.
+  - LCD block at 0x0C121200/04/08, as the peripheral agent found.
+  - Registers at 0x0C1502xx and 0x0C150034.
+- MMU page tables, from the model:
+  - Page directory at 0x0A078000, superpage at 0x40000000.
+  - ROM: VA 0x50000000-0x50EFFFFF maps CS0 linearly, and 0x50F00000 up
+    maps CS1. The extension ROM pages are at 0x51100000-0x513FFFFF.
+  - Registers: VA 0x58000000/0x58100000 map PA 0x0C000000/0x0C100000,
+    and VA 0x58200000/0x58300000 map **PA 0x0D000000/0x0D100000**. That
+    is a second register space, still to identify.
+- **Correction to the earlier entry:** the SDumper "plaintext" at
+  0x5000A000-0x50310FFF is not plaintext. After the integrity check,
+  routine 0x3384 adds 0x500000 to the physical address of every page in
+  that range. Symbian therefore sees ROM content from 0x5050A000 there,
+  which hides the region. The dump region is byte-identical to
+  0x5050A000-0x50810FFF.
+- The hidden region holds a high-entropy blob at flash
+  [0xA000, 0xA000+0x2AD000), described at 0x174 (start 0xA000, length
+  0x2AD000, then 0x11C4 and 0xE3DEFE99). Data after 0x2B7000 looks like
+  normal code. It is probably the cellular (ISA) software. It is
+  encrypted or compressed, and the algorithm is unknown.
+- Integrity check:
+  - Routine 0x3238 checks MD5 per table entry {start, end, digest} at
+    0x8F00. It is called from 0x3568/0x3574; a mismatch reaches the halt
+    loop at 0x3230.
+  - Entry 0x8F18 covers 0x50009000-0x51169FFF with digest
+    2f00b1ff1b8f03f0592c4355f3177651. That matches neither the raw bytes
+    (4704ca03...) nor the alias (194165af...). So a real phone reads
+    different bytes in the blob at boot, most likely through hardware
+    decryption of a flash window. This is unproven.
+  - Entry 0x8F00 covers 0x51230000-0x5138EFFF (language-pack ROM) and
+    passes with our image. That confirms the flash image and the mapping.
+- Model image `research/firmware/images/nor/rh29-4.60-cs0-model.bin`:
+  the raw flash, the 56 per-phone bytes restored from the dump, and digest
+  0x8F20 replaced with the MD5 the model sees. This is a deliberate model
+  shortcut. If the blob turns out to be needed at run time, its
+  decryption is a blocker.
+- Now: the boot starts a timer at 0x0C120A00 (+04=2, +10/+18=0x016B28C0,
+  +08=0, then 0x0C120108=1), enables IRQs, and waits at 0x3208 for
+  0x0C120A08 to become nonzero. Next: model the timer and the interrupt
+  controller. The IRQ vector is at 0x18 and goes to the handler at 0x418.
