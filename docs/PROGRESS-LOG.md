@@ -192,3 +192,22 @@ found, and what comes next. Research material lives in `research/`
     and 0x5031E6BC (write), with 0x58000000 + offset.
 - Now: the kernel reaches its halt at 0x5031E394, entered from 0x5032DFEC,
   which looks like a fault/restart path. The cause is not yet known.
+
+### 2026-10-19, end of session (usage limit)
+- Three agents were stopped before they produced anything:
+  - firmware bring-up in the model;
+  - the FPGA board-level devices and MiSTer shell;
+  - the UPP_WD2 community register-map research. That one's partial
+    notes may be in `research/upp-wd2/`.
+- Resume plan:
+  1. Model: find why the kernel faults (halt at 0x5031E394 via
+     0x5032DFEC; decode Kern::Fault's category and reason). Then fix the
+     interrupt-controller numbering. Then the LCD panel model with
+     on-screen output, the MMC card, keys. Document registers in
+     `docs/UPP_WD2.md`.
+  2. FPGA, independent of the CPU choice: `rtl/board/` lcd_panel,
+     video_out, mmc_card (native 1-bit, CID/CSD sidecar), nor_flash (AMD
+     set, IDs 0xEC/0x22F8/0x22FA), keypad_matrix. Then a minimal NGage.sv
+     with OSD flash loading to DDR3, Verilator tests, and
+     `./build.sh remote map`.
+  3. Decide the CPU path once the model boots.
