@@ -42,3 +42,6 @@ c5_pin_model_dump.txt
 research/
 build/
 sim/build/
+model/.qemu-src/
+model/.build/
+model/.out/
