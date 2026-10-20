@@ -20,6 +20,12 @@ qemu=$dir/build/qemu-system-arm
 m="ngage-qd,flash0=$run/cs0.bin,flash1=$run/cs1.bin,probe-log=$run/probe.log,upp-log=$run/regs.log"
 m+=",quirks=$run/upp-quirks.txt,cbus-regs=$run/cbus-regs.txt,cbus-log=$run/cbus.log"
 m+=",kern-log=$run/kern.log,mmc-log=$run/mmc.log,lcd-log=$run/lcd.log,shot-dir=$run,screenshot=0"
+# MODEL_MMC: a game card (the model's raw image with .cid/.csd beside it);
+# MODEL_KEYS: a key script; MODEL_SHOT: a screenshot every N guest seconds
+[[ -n ${MODEL_MMC:-} ]] && m+=",mmc=$MODEL_MMC"
+[[ -n ${MODEL_KEYS:-} ]] && m+=",keys=$MODEL_KEYS"
+[[ -n ${MODEL_SHOT:-} ]] && m="${m/screenshot=0/screenshot=$MODEL_SHOT}"
+m+=",audio-wav=$run/audio.wav,audio-log=$run/audio.log"
 args=(-M "$m" -serial none -display none -monitor none -icount shift=4,sleep=off
       -rtc base=2004-06-01T12:00:00 -d guest_errors,unimp -D "$run/qemu.log")
 if [[ -n $trace ]]; then

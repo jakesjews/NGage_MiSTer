@@ -3,7 +3,8 @@
 # at a time with `make -C sim lcd` (lcd, video, keypad, flash, mmc, sdram,
 # sdram-faults, ddrflash, upp, intc, timers, periph, save, top). Each bench is built
 # into sim/build/<name> and run at once; pictures go to sim/build/out.
-# The benches run one after the other.
+# The benches run one after the other. `make -C sim coreboot` (not part of
+# `make test`) boots the firmware on the whole core; see its target below.
 ROOT      := $(abspath ..)
 BUILD     := $(ROOT)/sim/build
 OUT       := $(BUILD)/out
@@ -19,7 +20,7 @@ RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
 BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash upp intc timers haudio periph save top
 
-.PHONY: test $(BENCHES) clean
+.PHONY: test $(BENCHES) coreboot clean
 
 test:
 	@for b in $(BENCHES); do $(MAKE) --no-print-directory $$b || exit 1; done
@@ -197,4 +198,24 @@ $(BUILD)/top/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/top_main.cpp
 		$(TOP_RTL) $(ROOT)/sim/harness/top_main.cpp
 top: $(BUILD)/top/Vemu | $(OUT)
 	$< $(RUNFLAGS) --out $(OUT)
+
+# The firmware on the whole core (sim/harness/coreboot_main.cpp): not in
+# `make test`, it needs the flash images (tools/mkimage.py; firmware, never
+# committed) and runs for hours. CORE_THREADS > 1 builds a multithreaded model
+# (slower here: 4 threads ran at a quarter of the single-threaded speed).
+CORE_CS0     ?= $(ROOT)/build/coreboot/cs0.bin
+CORE_CS1     ?= $(ROOT)/build/coreboot/cs1.bin
+CORE_MMC     ?=
+CORE_ARGS    ?= --cycles 1000000000
+CORE_OUT     ?= $(BUILD)/coreboot/out
+CORE_THREADS ?= 1
+$(BUILD)/coreboot/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/coreboot_main.cpp $(ROOT)/sim/harness/coreboot.vlt \
+                        $(ROOT)/sim/harness/common.h $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h
+	mkdir -p $(BUILD)/coreboot && cd $(ROOT) && $(VERILATOR) $(VFLAGS) --timescale 1ns/1ps --pins-inout-enables \
+		$(if $(filter-out 1,$(CORE_THREADS)),--threads $(CORE_THREADS)) \
+		--top-module emu --Mdir $(BUILD)/coreboot -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
+		$(ROOT)/sim/harness/coreboot.vlt $(TOP_RTL) $(ROOT)/sim/harness/coreboot_main.cpp
+coreboot: $(BUILD)/coreboot/Vemu
+	mkdir -p $(CORE_OUT)
+	$< $(RUNFLAGS) --cs0 $(CORE_CS0) --cs1 $(CORE_CS1) $(if $(CORE_MMC),--mmc $(CORE_MMC)) --out $(CORE_OUT) $(CORE_ARGS)
 

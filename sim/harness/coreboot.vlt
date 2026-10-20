@@ -1,0 +1,18 @@
+`verilator_config
+
+// sim/harness/coreboot_main.cpp watches the CPU as tb/tb_cpu.sv does in the
+// CPU bench: the writeback stage for retired instructions and exceptions,
+// the register file, the PC of the instruction at the memory stage.
+public_flat_rd -module "zap_writeback" -var "i_valid"
+public_flat_rd -module "zap_writeback" -var "i_decompile_valid"
+public_flat_rd -module "zap_writeback" -var "i_uop_last"
+public_flat_rd -module "zap_writeback" -var "i_data_abt"
+public_flat_rd -module "zap_writeback" -var "i_fiq"
+public_flat_rd -module "zap_writeback" -var "i_irq"
+public_flat_rd -module "zap_writeback" -var "i_instr_abt"
+public_flat_rd -module "zap_writeback" -var "i_swi"
+public_flat_rd -module "zap_writeback" -var "i_und"
+public_flat_rd -module "zap_writeback" -var "i_pc_plus_8_buf_ff"
+public_flat_rd -module "zap_writeback" -var "cpsr_ff"
+public_flat_rd -module "zap_register_file" -var "mem"
+public_flat_rd -module "zap_core" -var "postalu_pc_plus_8_ff"
