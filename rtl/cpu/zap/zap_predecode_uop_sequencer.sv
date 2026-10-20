@@ -751,6 +751,11 @@ begin:next_state_logic_and_output_logic
                                                                 28'h24FE001};
                                 end
 
+                                // ARM925T: a data-processing micro-op: clear the
+                                // extend bits a Thumb branch carries (bit 34, its
+                                // offset shift), which zap_decode now reads as Rn's.
+                                o_instruction[34:32] = 3'd0;
+
                                 // Sell it as a valid instruction
                                 o_instruction_valid = 1;
 

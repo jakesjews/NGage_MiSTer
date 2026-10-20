@@ -9801,7 +9801,7 @@ module zap_decode (
 					o_alu_operation = {2'd0, instruction[24:21]};
 					o_flag_update = instruction[20];
 					o_destination_index = {instruction[ZAP_DP_RD_EXTEND], instruction[15:12]};
-					o_alu_source = {29'd0, instruction[19:16]};
+					o_alu_source = {28'd0, instruction[ZAP_DP_RA_EXTEND], instruction[19:16]};
 					o_alu_source[32] = INDEX_EN;
 					o_mem_srcdest_index = ARCH_CURR_SPSR;
 					if ((((o_alu_operation == {2'd0, CMP}) || (o_alu_operation == {2'd0, CMN})) || (o_alu_operation == {2'd0, TST})) || (o_alu_operation == {2'd0, TEQ}))
@@ -15182,6 +15182,7 @@ module zap_predecode_uop_sequencer (
 						o_instruction[31:0] = {i_instruction[31:28], 28'h24fe004};
 					else
 						o_instruction[31:0] = {i_instruction[31:28], 28'h24fe001};
+					o_instruction[34:32] = 3'd0;
 					o_instruction_valid = 1;
 					o_irq = i_irq;
 					o_fiq = i_fiq;

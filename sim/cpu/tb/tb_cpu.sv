@@ -70,7 +70,13 @@ module tb_cpu #(
 	output logic [31:0]   p_pd_pred,
 	output logic [15:0]   p_pd_flags,
 	output logic [31:0]   p_alu_ppc,
-	output logic [7:0]    p_alu_flags
+	output logic [7:0]    p_alu_flags,
+	// --pddbg: the pre-decoder's output micro-op and the ALU's result
+	output logic [39:0]   p_uop_ins,
+	output logic [3:0]    p_uop_flags,
+	output logic [31:0]   p_alu_res,
+	output logic [7:0]    p_alu_dst,
+	output logic [63:0]   p_sh_dbg
 );
 
 	arm925t #(
@@ -128,6 +134,14 @@ module tb_cpu #(
 	                     `PD.ras_we_ff, 3'(`PD.ras_ptr_ff), `PD.o_taken_ff, `PD.o_instruction_valid_ff};
 	assign p_alu_ppc   = `AL.i_ppc_ff;
 	assign p_alu_flags = {`AL.i_taken_ff, `AL.o_clear_from_alu, `AL.i_data_stall, 4'd0};
+	assign p_uop_ins   = `PD.o_instruction_ff;
+	assign p_uop_flags = {`PD.o_instruction_valid_ff, `PD.o_uop_last, `PD.o_irq_ff, `PD.o_stall_from_decode};
+	assign p_alu_res   = `AL.o_alu_result_ff;
+	assign p_alu_dst   = {`AL.o_dav_ff, 7'(`AL.o_destination_index_ff)};
+	`define SH dut.u_zap.u_zap_core.u_zap_shifter_main
+	assign p_sh_dbg    = {8'(`SH.i_alu_source_ff), 8'(`SH.o_destination_index_ff), 7'd0, `SH.i_alu_dav_nxt,
+	                      `SH.rn};
+	`undef SH
 	`undef PD
 	`undef AL
 	assign p_dc_state = 16'(dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.state_ff);

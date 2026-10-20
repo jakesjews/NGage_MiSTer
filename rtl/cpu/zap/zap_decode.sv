@@ -546,7 +546,10 @@ begin
                         o_alu_operation         = {2'd0, instruction[24:21]};
                         o_flag_update           = instruction[20];
                         o_destination_index     = {instruction[ZAP_DP_RD_EXTEND], instruction[`ZAP_DP_RD]};
-                        o_alu_source            = {29'd0, instruction[`ZAP_DP_RA]};
+                        // ARM925T bug fix: Rn's extend bit was dropped, so a
+                        // micro-op reading DUMMY0 as Rn read r9 (the Thumb BL
+                        // second half after an interrupt; upstream, BLX1).
+                        o_alu_source            = {28'd0, instruction[ZAP_DP_RA_EXTEND], instruction[`ZAP_DP_RA]};
                         o_alu_source[32]        = INDEX_EN;
                         o_mem_srcdest_index     = ARCH_CURR_SPSR;
 

@@ -349,10 +349,12 @@ int main(int argc, char **argv) {
 
 		// pre-decoder and ALU prediction state before the edge (--pddbg)
 		if (pddbg && trace && retired >= trace_after)
-			fprintf(trace, "P %" PRIu64 " pc %08x i %08x ppc %08x w %08x bp %08x f %04x | alu ppc %08x f %02x\n",
+			fprintf(trace, "P %" PRIu64 " pc %08x i %08x ppc %08x w %08x bp %08x f %04x | alu ppc %08x f %02x"
+				" | uop %010" PRIx64 " f %x | res %08x dst %02x | sh %016" PRIx64 "\n",
 				cycle, (uint32_t)t->p_pd_pc, (uint32_t)t->p_pd_ins, (uint32_t)t->p_pd_ppc,
 				(uint32_t)t->p_pd_wpc, (uint32_t)t->p_pd_pred, (unsigned)t->p_pd_flags,
-				(uint32_t)t->p_alu_ppc, (unsigned)t->p_alu_flags);
+				(uint32_t)t->p_alu_ppc, (unsigned)t->p_alu_flags, (uint64_t)t->p_uop_ins,
+				(unsigned)t->p_uop_flags, (uint32_t)t->p_alu_res, (unsigned)t->p_alu_dst, (uint64_t)t->p_sh_dbg);
 		// D-cache state machine before the edge, in the trace window (--dcdbg)
 		if (dcdbg && trace && retired >= trace_after)
 			fprintf(trace, "C %" PRIu64 " st %04x f %04x a %08x d %08x o %08x\n", cycle, (unsigned)t->p_dc_state,
