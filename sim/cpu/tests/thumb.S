@@ -71,6 +71,10 @@ arm_back:				@ the Thumb code returns here with BX
 	CHECK	r0, 0x1A
 	ldr	r0, [r7, #0x9C]		@ conditions after 1 - 1
 	CHECK	r0, 0x25
+	ldr	r0, [r7, #0xB4]		@ STR Rd, [SP, #4] read through ADD Rd, SP, #4
+	CHECK	r0, 0x5A5A0001
+	ldr	r0, [r7, #0xB8]		@ LDR Rd, [SP, #12] of a store through another register
+	CHECK	r0, 0x5A5A0002
 	ldmfd	sp!, {r4-r11, pc}
 
 swi_handler:				@ store LR and SPSR, return
@@ -242,6 +246,20 @@ t_und_ret:
 	add	r2, r7
 	str	r0, [r2, #0x10]
 	str	r1, [r2, #0x14]
+	@ SP-relative addresses are SP + offset: store through SP, load through
+	@ another register, and the other way round (upstream ZAP used SP - offset,
+	@ which a store and load both through SP do not show)
+	sub	sp, #16
+	ldr	r0, =0x5A5A0001
+	str	r0, [sp, #4]
+	add	r1, sp, #4
+	ldr	r3, [r1]		@ 0x5A5A0001
+	ldr	r0, =0x5A5A0002
+	str	r0, [r1, #8]		@ SP + 12
+	ldr	r0, [sp, #12]		@ 0x5A5A0002
+	add	sp, #16
+	str	r3, [r2, #0x34]		@ +0xB4
+	str	r0, [r2, #0x38]		@ +0xB8
 	push	{r0-r3, lr}
 	pop	{r4-r7}
 	pop	{r0}

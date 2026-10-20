@@ -13060,7 +13060,7 @@ module zap_mode16_decoder (
 						srcdest = {1'd0, i_instruction[10:8]};
 						base = ARCH_SP;
 						imm = {2'd0, i_instruction[7:0], 2'd0};
-						o_instruction[34:0] = {3'd0, AL, 7'h28, i_instruction[11], base, srcdest, imm};
+						o_instruction[34:0] = {3'd0, AL, 7'h2c, i_instruction[11], base, srcdest, imm};
 					end
 					T_LDMIA_STMIA: begin : sv2v_autoblock_3
 						reg [3:0] base;

@@ -515,7 +515,10 @@ begin
                             base    = ARCH_SP;
                             imm    = {2'd0, i_instruction[7:0], 2'd0};
 
-                            o_instruction[34:0] = {3'd0, AL, 3'b010, 1'd1, 1'd0, 1'd0, 1'd0, i_instruction[11],
+                            // Bug fix (ARM925T port): U = 1, the offset is added. Upstream had
+                            // U = 0, so LDR/STR Rd, [SP, #imm] used SP - imm (found by the boot
+                            // bench: a local stored through SP was read back through ADD Rd, SP).
+                            o_instruction[34:0] = {3'd0, AL, 3'b010, 1'd1, 1'd1, 1'd0, 1'd0, i_instruction[11],
                             base, srcdest, imm};
                         end
 
