@@ -14204,18 +14204,36 @@ module zap_predecode_main (
 	reg [31:0] skid_pc_ff;
 	reg [31:0] skid_pc_plus_8_ff;
 	reg [(RAS_DEPTH * 32) - 1:0] ras_ff;
-	reg [(RAS_DEPTH * 32) - 1:0] ras_nxt;
 	reg [$clog2(RAS_DEPTH) - 1:0] ras_ptr_ff;
 	reg [$clog2(RAS_DEPTH) - 1:0] ras_ptr_nxt;
+	reg ras_we_ff;
+	reg ras_we_nxt;
+	reg [$clog2(RAS_DEPTH) - 1:0] ras_widx_ff;
+	reg [31:0] ras_wdata_ff;
+	reg [31:0] ras_wdata_nxt;
+	wire ras_upd;
 	wire align_nxt;
 	wire switch_nxt;
 	wire stall;
 	wire cp15_release;
 	reg v5_und_nxt;
 	assign stall = (i_data_stall || i_stall_from_shifter) || i_stall_from_issue;
+	assign ras_upd = (!((i_clear_from_writeback || (i_clear_from_alu && !i_data_stall)) || (o_clear_from_decode && !stall)) && !stall) && (mem_fetch_stall == 1'd0);
+	always @(posedge i_clk) begin
+		if (i_reset)
+			ras_we_ff <= 1'd0;
+		else
+			ras_we_ff <= ras_we_nxt && ras_upd;
+		ras_widx_ff <= ras_ptr_ff;
+		ras_wdata_ff <= ras_wdata_nxt;
+	end
+	always @(posedge i_clk)
+		if (i_reset)
+			ras_ff <= 1'sb0;
+		else if (ras_we_ff)
+			ras_ff[ras_widx_ff * 32+:32] <= ras_wdata_ff;
 	always @(posedge i_clk)
 		if (i_reset) begin
-			ras_ff <= 1'sb0;
 			ras_ptr_ff <= 1'sb0;
 			o_irq_ff <= 0;
 			o_fiq_ff <= 0;
@@ -14269,7 +14287,6 @@ module zap_predecode_main (
 				o_clear_from_decode <= w_clear_from_decode;
 				o_pc_from_decode <= w_pc_from_decode;
 				o_ppc_ff <= ppc_nxt;
-				ras_ff <= ras_nxt;
 				ras_ptr_ff <= ras_ptr_nxt;
 			end
 		end
@@ -14363,8 +14380,9 @@ module zap_predecode_main (
 		w_pc_from_decode = 32'd0;
 		taken_nxt = skid_taken;
 		ppc_nxt = o_ppc_ff;
-		ras_nxt = ras_ff;
 		ras_ptr_nxt = ras_ptr_ff;
+		ras_we_nxt = 1'd0;
+		ras_wdata_nxt = skid_pc_ff + (i_cpu_mode_t ? 32'd2 : 32'd4);
 		addr = {{8 {mode32_instruction[23]}}, mode32_instruction[23:0]};
 		if (mode32_instruction[34])
 			addr_final = addr << 1;
@@ -14383,7 +14401,7 @@ module zap_predecode_main (
 				if (mode32_instruction[31:28] == AL)
 					taken_nxt = ST;
 				if (mode32_instruction[24]) begin
-					ras_nxt[ras_ptr_ff * 32+:32] = skid_pc_ff + (i_cpu_mode_t ? 32'd2 : 32'd4);
+					ras_we_nxt = 1'd1;
 					ras_ptr_nxt = ras_ptr_nxt + 1;
 				end
 			end
@@ -14396,7 +14414,7 @@ module zap_predecode_main (
 		else if (((((((mode32_instruction[31:0] | 32'b11110000000000000000000000001111) == 32'b11110001001011111111111100011111) && (mode32_instruction[3:0] == 4'd14)) && mode32_instruction_valid) || (((({10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00f} ^ (mode32_instruction[34:0] ^ mode32_instruction[34:0])) === (mode32_instruction[34:0] ^ ({10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00f} ^ {10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00f}))) & ((((mode32_instruction[34:0] ^ mode32_instruction[34:0]) ^ ({10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00f} ^ {10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00f})) === ({10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00f} ^ {10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00f})) | 1'bx)) && mode32_instruction_valid)) || ((((mode32_instruction[27:25] == 3'b100) && mode32_instruction[20]) && mode32_instruction_valid) && mode32_instruction[15])) || (((((((mode32_instruction[31:0] | 32'b11110001111111111111111111111111) == 32'b11110111111111111111111111111111) || ((mode32_instruction[31:0] | 32'b11110001111111111111111111111111) == 32'b11110101111111111111111111111111)) && (mode32_instruction[15:12] == ARCH_PC)) && mode32_instruction[20]) && mode32_instruction_valid) && (mode32_instruction[19:16] == ARCH_SP))) begin
 			if (((skid_taken == WT) || (skid_taken == ST)) || (mode32_instruction[31:28] == AL)) begin
 				ras_ptr_nxt = ras_ptr_nxt - 1;
-				w_pc_from_decode = ras_ff[ras_ptr_nxt * 32+:32];
+				w_pc_from_decode = (ras_we_ff && (ras_widx_ff == ras_ptr_nxt) ? ras_wdata_ff : ras_ff[ras_ptr_nxt * 32+:32]);
 				if (skid_pred[32] && (skid_pred[31:0] != w_pc_from_decode))
 					w_clear_from_decode = 1'd1;
 				else if (!skid_pred[32])

@@ -151,8 +151,12 @@ logic                               skid_fiq;
 logic                               skid_abt;
 logic [31:0]                        skid_pc_ff;
 logic [31:0]                        skid_pc_plus_8_ff;
-logic [RAS_DEPTH-1:0][31:0]         ras_ff, ras_nxt;
+logic [RAS_DEPTH-1:0][31:0]         ras_ff;
 logic [$clog2(RAS_DEPTH)-1:0]       ras_ptr_ff, ras_ptr_nxt;
+logic                               ras_we_ff, ras_we_nxt;          // ARM925T
+logic [$clog2(RAS_DEPTH)-1:0]       ras_widx_ff;                    // ARM925T
+logic [31:0]                        ras_wdata_ff, ras_wdata_nxt;    // ARM925T
+logic                               ras_upd;                        // ARM925T
 logic                               align_nxt;
 logic                               switch_nxt;
 logic                               stall;
@@ -161,12 +165,50 @@ logic                               v5_und_nxt;     // ARM925T
 
 assign stall = i_data_stall || i_stall_from_shifter || i_stall_from_issue;
 
+//
+// ARM925T: a push onto the return address stack is written one cycle late
+// (the pointer moves at once), so that the late stall, clear and call
+// decision drive one write-enable flop instead of the enable and data mux
+// of every RAS flop (timing). A pop in the next cycle takes the pending
+// value. The RAS only predicts: the ALU checks every predicted target.
+//
+assign ras_upd = !( i_clear_from_writeback ||
+                   ( i_clear_from_alu && !i_data_stall ) ||
+                   ( o_clear_from_decode && !stall ) ) &&
+                 !stall && mem_fetch_stall == 1'd0;
+
+always_ff @ ( posedge i_clk )
+begin
+        if ( i_reset )
+        begin
+                ras_we_ff <= 1'd0;
+        end
+        else
+        begin
+                ras_we_ff <= ras_we_nxt && ras_upd;
+        end
+
+        ras_widx_ff  <= ras_ptr_ff;
+        ras_wdata_ff <= ras_wdata_nxt;
+end
+
+always_ff @ ( posedge i_clk )
+begin
+        if ( i_reset )
+        begin
+                ras_ff <= '0;
+        end
+        else if ( ras_we_ff )
+        begin
+                ras_ff[ras_widx_ff] <= ras_wdata_ff;
+        end
+end
+
 // Flop the outputs to break the pipeline at this point.
 always_ff @ (posedge i_clk)
 begin
         if ( i_reset )
         begin
-                ras_ff                 <= '0;
                 ras_ptr_ff             <= '0;
                 o_irq_ff               <= 0;
                 o_fiq_ff               <= 0;
@@ -228,7 +270,6 @@ begin
                         o_clear_from_decode    <= w_clear_from_decode;
                         o_pc_from_decode       <= w_pc_from_decode;
                         o_ppc_ff               <= ppc_nxt;
-                        ras_ff                 <= ras_nxt;
                         ras_ptr_ff             <= ras_ptr_nxt;
                 end
         end
@@ -381,8 +422,9 @@ begin:bprblk1
         w_pc_from_decode        = 32'd0;
         taken_nxt               = skid_taken;
         ppc_nxt                 = o_ppc_ff;
-        ras_nxt                 = ras_ff;
         ras_ptr_nxt             = ras_ptr_ff;
+        ras_we_nxt              = 1'd0;
+        ras_wdata_nxt           = skid_pc_ff + (i_cpu_mode_t ? 32'd2 : 32'd4);
         addr                    = {{8{mode32_instruction[23]}},mode32_instruction[23:0]}; // Offset.
 
         // Indicates a left shift of 1 i.e., X = X * 2.
@@ -436,8 +478,7 @@ begin:bprblk1
                         // If Link=1, push next address onto RAS.
                         if ( mode32_instruction[24] )
                         begin
-                               ras_nxt[ras_ptr_ff] = skid_pc_ff +
-                                                     (i_cpu_mode_t ? 32'd2 : 32'd4);
+                               ras_we_nxt = 1'd1; // ARM925T: written next cycle
                                ras_ptr_nxt++;
                         end
                 end
@@ -490,7 +531,9 @@ begin:bprblk1
                 if ( skid_taken == WT || skid_taken == ST || mode32_instruction[31:28] == AL )
                 begin
                         ras_ptr_nxt--;
-                        w_pc_from_decode    = ras_ff[ras_ptr_nxt];
+                        // ARM925T: a push still pending is taken from its register.
+                        w_pc_from_decode    = ras_we_ff && ras_widx_ff == ras_ptr_nxt ?
+                                              ras_wdata_ff : ras_ff[ras_ptr_nxt];
 
                         if ( skid_pred[32] && skid_pred[31:0] != w_pc_from_decode )
                         begin
