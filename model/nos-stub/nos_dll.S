@@ -6,35 +6,18 @@
  * imports them through 0x511690C8 and 0x511690D0:
  *   ordinal 6 = 0x514A261C (obj, unit): called on an 8-byte allocation
  *     (nosdriver 0x511691EC); the channel later calls methods through the
- *     vtable at obj+4: +0x08 with 3 (delete, 0x511691A4), +0x0C, +0x10,
- *     +0x14 (0x51169288, 0x51169270, 0x51169258).
+ *     vtable at obj+4: +0x08 with 3 (delete, 0x511691A4), +0x0C cancel,
+ *     +0x10 request, +0x14 control (0x51169288, 0x51169270, 0x51169258).
  *   ordinal 4 = 0x514A1CA0 (channel, unit & 0xFF) (nosdriver 0x511691FC).
- * The stand-in builds the object with a vtable whose methods return 0, and
- * makes ordinal 4 a no-op. Linked at 0x514A1CA0 (CS0 0xA1CA0); the space
- * between the two entry points is encrypted NOS code that nothing else
- * reads.
+ * Both branch to the ISI responder in nos_isi.c. Linked by nos_dll.ld at
+ * 0x514A1CA0 (CS0 0xA1CA0); the space between the two entry points and
+ * after them is encrypted NOS code that nothing else reads.
  */
     .arm
-    .text
+    .section .entry4, "ax"
     .global _start
 _start:                                 @ 0x514A1CA0: NOS DLL ordinal 4
-    mov     r0, #0
-    bx      lr
+    b       nos_channel_open
 
-ret0:
-    mov     r0, #0
-    bx      lr
-
-vtable:
-    .rept   32
-    .word   ret0
-    .endr
-
-    .org    0x514A261C - 0x514A1CA0
-nos_obj_ctor:                           @ 0x514A261C: NOS DLL ordinal 6
-    mov     r1, #0
-    str     r1, [r0]
-    ldr     r1, =vtable
-    str     r1, [r0, #4]
-    bx      lr
-    .ltorg
+    .section .entry6, "ax"
+    b       nos_obj_ctor                @ 0x514A261C: NOS DLL ordinal 6

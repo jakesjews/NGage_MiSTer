@@ -28,9 +28,13 @@ def word(a):
 def name_of(t):
     if t in fn:
         return fn[t]
-    lit = word((t + 8) & ~3)
-    if lit in slot:
-        return slot[lit]
+    # Import thunks keep the export-table slot in a literal: Thumb "ldr r3,
+    # [pc,#4]" (+8), Thumb "push {r6}; ldr r6, [pc,#8]" (+12), ARM "ldr ip,
+    # [pc]" (+8) or "ldr ip, [pc,#4]; ldr ip,[ip]; bx ip" (+12).
+    for off in (8, 12):
+        lit = word((t + off) & ~3)
+        if lit in slot:
+            return slot[lit]
     return None
 
 

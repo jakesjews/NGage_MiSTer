@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Name the exports of every ROM DLL that has an SDK import library.
+"""Name the exports of every ROM DLL: by the SDK import library where one
+exists, otherwise as "ord<N>" (e.g. isimsg.dll ord834).
 
 usage: romsyms.py ROM LIBDIR [-o OUT]
 Writes "address name dll ordinal" lines for each export, both the function
@@ -22,7 +23,7 @@ def main():
     out = []
     for name, addr, size in romdis.files(rom):
         base = name.lower().rsplit('.', 1)[0]
-        if base not in libs or size < 0x64:
+        if size < 0x64:
             continue
         h = addr - romdis.BASE
         if struct.unpack_from('<I', rom, h)[0] not in (0x10000079, 0x1000007A):
@@ -31,7 +32,7 @@ def main():
         if not count or not (romdis.BASE <= edir and edir + 4 * count <= romdis.BASE + len(rom)):
             continue
         table = {}
-        for mname, obj in implib.members(open(libs[base], 'rb').read()):
+        for mname, obj in (implib.members(open(libs[base], 'rb').read()) if base in libs else []):
             if mname in ('/', '//'):
                 continue
             try:
@@ -43,7 +44,7 @@ def main():
         for k in range(count):
             slot = edir + 4 * k
             fn = struct.unpack_from('<I', rom, slot - romdis.BASE)[0]
-            sym = table.get(k + 1, '?')
+            sym = table.get(k + 1, 'ord%d' % (k + 1))
             out.append('%08X %s %s %d' % (fn & ~1, sym, name, k + 1))
             out.append('%08X slot:%s %s %d' % (slot, sym, name, k + 1))
     out.sort()

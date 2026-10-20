@@ -52,6 +52,10 @@ arm-none-eabi-as -march=armv4t -o "$BUILD/nos_stub.o" nos-stub/nos_stub.S
 arm-none-eabi-ld -Ttext=0x5149E4D4 -o "$BUILD/nos_stub.elf" "$BUILD/nos_stub.o"
 arm-none-eabi-objcopy -O binary "$BUILD/nos_stub.elf" "$BUILD/nos-stub.bin"
 arm-none-eabi-as -march=armv4t -o "$BUILD/nos_dll.o" nos-stub/nos_dll.S
-arm-none-eabi-ld -Ttext=0x514A1CA0 -o "$BUILD/nos_dll.elf" "$BUILD/nos_dll.o"
+arm-none-eabi-gcc -march=armv4t -marm -mthumb-interwork -Os -std=gnu11 -ffreestanding \
+    -fno-builtin -fno-pic -fno-common -fno-unwind-tables -fno-asynchronous-unwind-tables \
+    -Wall -Wextra -c -o "$BUILD/nos_isi.o" nos-stub/nos_isi.c
+arm-none-eabi-ld -T nos-stub/nos_dll.ld -o "$BUILD/nos_dll.elf" "$BUILD/nos_dll.o" "$BUILD/nos_isi.o" \
+    "$(arm-none-eabi-gcc -march=armv4t -marm -print-libgcc-file-name)"
 arm-none-eabi-objcopy -O binary "$BUILD/nos_dll.elf" "$BUILD/nos-dll.bin"
 ls -la "$BUILD/nos-stub.bin" "$BUILD/nos-dll.bin"

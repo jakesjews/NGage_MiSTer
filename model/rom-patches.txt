@@ -17,7 +17,11 @@ cs0file 0x9E4D4 model/.build/nos-stub.bin
 # The hidden NOS DLL (header 0x51168FF0) exports two functions inside the
 # encrypted code, used by nosdriver.ldd: ordinals 4 (0x514A1CA0) and 6
 # (0x514A261C). Without them EStart's NOSDRIVER channel jumps into the
-# encrypted bytes (Kern restart 0x10000000). Stand-in: model/nos-stub/nos_dll.S.
+# encrypted bytes (Kern restart 0x10000000). Stand-in: model/nos-stub/nos_dll.S
+# (entry points) and nos_isi.c (an offline modem answering the ISI messages
+# that reach NOS through nosdriver.ldd; replies and evidence in
+# docs/NOS_STANDIN.md). Linked by nos_dll.ld: code from CS0 0xA1CA0 upward
+# inside the encrypted region, state in NOS BSS (RAM 0x8000D000).
 cs0file 0xA1CA0 model/.build/nos-dll.bin
 
 # The bootstrap checks MD5 digests of ROM ranges (0x3238, table at CS0 0x8F00).
