@@ -15,3 +15,5 @@ rtl/board/video_out.sv
 rtl/board/ngage_keys.sv
 rtl/board/keypad_matrix.sv
 rtl/board/nor_flash.sv
+rtl/board/tdp_ram.sv
+rtl/board/mmc_card.sv

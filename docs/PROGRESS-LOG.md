@@ -391,3 +391,26 @@ found, and what comes next. Research material lives in `research/`
   request, and Main waits inside ELocal (FAT) code; the cause is not yet found.
   Candidates: rtc.dll's alarm path through NOS/UEMK, or the FIQ tick
   (`0x0C120050` bit 1), which nothing raises yet.
+
+### 2026-10-20: MMC card (`rtl/board/mmc_card.sv`)
+- MMC 3.x card in 1-bit native mode, clocked by the host's CLK (sampled
+  in clk; CLK high and low >= 2 clocks): CMD0/1/2/3/4/7/9/10/12/13/15/16/
+  17/18/24/25, R1/R2/R3 with CRC7, data with CRC16, CRC status token and
+  busy, card states idle..dis/ina, error bits reported in the next R1.
+  Reads of 1-512 bytes across block boundaries; a two-sector buffer
+  prefetches the next block of CMD18. Backed by hps_io slot 0 (WIDE=1).
+- Sidecar: the last 512 bytes of the image, "NGAGEMMC", version, CID at
+  16, CSD at 32, OCR at 48 (big-endian); the card's data is the rest.
+  CRC7 bytes are computed. Without the sidecar: a writable default card
+  (CID "MiSTer", CCC 0x015, capacity from the file size up to 1 GB,
+  TMP_WRITE_PROTECT when mounted read-only). Retail CSDs (CCC 0x007) make
+  CMD24/25 illegal; write-protected writable classes give WP_VIOLATION.
+- Bench `make -C sim mmc`: C++ host on the bus plus an hps_io model; the
+  SonicN CID/CSD sidecar must come back with CRC bytes 0x5D/0xDB as
+  computed in MMC.md; identification timing (NID 5, NCR 2), reads
+  (single, multiple + CMD12, partial, across blocks, past the CSD end,
+  past the file end -> zeros), writes (token, busy, CMD25 + CMD12, bad
+  CRC), errors, deselect, inactive, read-only. Passes on 8 seeds.
+- Not modelled: CMD11 stream read (the retail CSD claims class 1), erase,
+  write-protect groups, CMD42 lock. Open question: does the firmware use
+  CMD11? If it does, the card needs it.

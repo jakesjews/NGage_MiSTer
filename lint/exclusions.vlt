@@ -15,6 +15,19 @@ lint_off -rule UNUSEDSIGNAL -file "rtl/board/lcd_panel.sv" -match "*Signal is no
 // bits that select a sector or a bank.
 lint_off -rule UNUSEDSIGNAL -file "rtl/board/nor_flash.sv" -match "*Bits of function variable are not used*"
 
+// mmc_card: a transfer with the HPS is one block, so the buffer address
+// within it is 8 bits; the image size counts whole blocks up to 2 TB; the
+// card's busy bit and the command classes it does not act on are kept in the
+// registers as loaded; sec_of takes a whole byte address.
+lint_off -rule UNUSEDSIGNAL -file "rtl/board/mmc_card.sv" -match "*Bits of signal are not used: 'img_size'[63:41,8:0]*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/board/mmc_card.sv" -match "*Bits of signal are not used: 'sd_buff_addr'[12:8]*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/board/mmc_card.sv" -match "*Bits of signal are not used: 'ocr'[31]*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/board/mmc_card.sv" -match "*Bits of signal are not used: 'ccc'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/board/mmc_card.sv" -match "*Bits of function variable are not used: 'a'*"
+
+// tdp_ram: the two ports write one array, as the Quartus template does.
+lint_off -rule MULTIDRIVEN -file "rtl/board/tdp_ram.sv"
+
 // ngage_keys is a package of key positions; each user takes the ones it needs.
 lint_off -rule UNUSEDPARAM -file "rtl/board/ngage_keys.sv"
 
