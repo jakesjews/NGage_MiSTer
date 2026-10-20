@@ -87,23 +87,36 @@ ret0:
     mov     r0, #0
     mov     pc, lr
 
-@ Service 3, vtable +0x48: read(this, id, r2, buf, [sp] ?, [sp+4] length, [sp+8] ?)
-@ (product_info.dll 0x5041AD5C reads ids 14 and 15 into 4-byte words; ekern
-@ 0x5032BB7C id 13; ecust 0x50342BE0 id 5). The value NOS returns is unknown;
-@ the stand-in returns zeros: product_info then takes its "known product,
-@ variant 0" path (0x5041AD98).
+@ Service 3, vtable +0x48: read(this, id, dfc, buf, [sp] ?, [sp+4] length, [sp+8] ?)
+@ Synchronous when dfc is 0 (product_info.dll 0x5041AD5C ids 14, 15; ekern
+@ 0x5032BB7C id 13). With a DFC (a kernel TDfc made by ekern ordinal 504:
+@ {next, prev, callback function, callback pointer}) the read completes
+@ later: helper.ldd 0x5037F1C8 (id 12, 2 bytes, DFC at channel+0x44 whose
+@ callback 0x5037F840 completes the client request with the value) and
+@ ecust 0x50342BE0 (id 5). The value NOS returns is unknown; the stand-in
+@ returns zeros, then queues the DFC with TDfc::Add (ekern ordinal 7,
+@ 0x5033F304). product_info then takes its "known product, variant 0" path.
 svc3_read:
-    ldr     r2, [sp, #4]
+    stmfd   sp!, {r4, lr}
+    ldr     r12, [sp, #12]          @ length (caller's [sp+4])
+    mov     r4, r2
     cmp     r3, #0
     beq     2f
-    cmp     r2, #64
-    movhi   r2, #64
+    cmp     r12, #64
+    movhi   r12, #64
     mov     r1, #0
-1:  subs    r2, r2, #1
-    strgeb  r1, [r3, r2]
+1:  subs    r12, r12, #1
+    strgeb  r1, [r3, r12]
     bgt     1b
-2:  mov     r0, #0
-    mov     pc, lr
+2:  cmp     r4, #0
+    beq     3f
+    mov     r0, r4
+    ldr     r3, =0x50342080         @ ekern ordinal 7: TDfc::Add
+    ldr     r3, [r3]
+    mov     lr, pc
+    mov     pc, r3
+3:  mov     r0, #0
+    ldmfd   sp!, {r4, pc}
 
     .ltorg
 @ Power-model vtable: slots 0-6 as the kernel's base class (0x503414B8);

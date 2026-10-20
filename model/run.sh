@@ -9,6 +9,7 @@
 #   NGAGE_FLASH1  CS1 image (default research/firmware/images/nor/rh29-4.60-cs1.bin)
 #   NGAGE_OUT     output directory for logs and screenshots (default model/.out)
 #   NGAGE_MMC     game-card image (raw); CID/CSD from <image>.cid / <image>.csd
+#   NGAGE_TRACE   lo-hi[:lo-hi] physical ranges whose every access goes to regs.log
 #   NGAGE_SHOT    screenshot period in seconds (0 = only on exit; default: off)
 set -euo pipefail
 cd "$(dirname "$0")/.."

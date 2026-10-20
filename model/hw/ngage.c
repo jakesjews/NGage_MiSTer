@@ -39,6 +39,9 @@ struct NGageMachineState {
     char *cbus_log;
     char *rom_patches;
     char *kern_log;
+    char *trace;
+    char *mmc;
+    char *mmc_log;
     NGageFlash *flash[2];
     MemoryRegion probe;
     MemoryRegion sdram;
@@ -143,6 +146,9 @@ static void ngage_init(MachineState *machine)
     if (s->quirks) {
         ngage_upp_load_quirks(s->quirks);
     }
+    if (s->trace) {
+        ngage_upp_set_trace(s->trace);
+    }
     /* Memory controller (boot writes 0x08000000..0x08000014 first thing). */
     ngage_upp_block(sysmem, "emif", 0x08000000, 0x10000);
     /* UPP peripherals: Symbian maps 0x0C000000 at virtual 0x58000000. */
@@ -170,6 +176,17 @@ static void ngage_init(MachineState *machine)
             }
         }
         ngage_sti_create(sysmem, kl);
+    }
+
+    {
+        FILE *ml = NULL;
+        if (s->mmc_log) {
+            ml = fopen(s->mmc_log, "w");
+            if (ml) {
+                setvbuf(ml, NULL, _IOLBF, 0);
+            }
+        }
+        ngage_mmc_create(sysmem, s->mmc, ml);
     }
 
     /* Everything nothing else claims: log it. */
@@ -214,6 +231,12 @@ static char *get_patches(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o
 static void set_patches(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->rom_patches = g_strdup(v); }
 static char *get_kernlog(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->kern_log); }
 static void set_kernlog(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->kern_log = g_strdup(v); }
+static char *get_trace(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->trace); }
+static void set_trace(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->trace = g_strdup(v); }
+static char *get_mmc(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->mmc); }
+static void set_mmc(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->mmc = g_strdup(v); }
+static char *get_mmclog(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->mmc_log); }
+static void set_mmclog(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->mmc_log = g_strdup(v); }
 static char *get_probe(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->probe_log); }
 static void set_probe(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->probe_log = g_strdup(v); }
 
@@ -235,6 +258,12 @@ static void ngage_machine_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "cbus-regs", "CBUS device register initial values");
     object_class_property_add_str(oc, "cbus-log", get_cbuslog, set_cbuslog);
     object_class_property_set_description(oc, "cbus-log", "file that receives every CBUS transaction");
+    object_class_property_add_str(oc, "mmc", get_mmc, set_mmc);
+    object_class_property_set_description(oc, "mmc", "game card image (raw); CID/CSD from <image>.cid/.csd");
+    object_class_property_add_str(oc, "mmc-log", get_mmclog, set_mmclog);
+    object_class_property_set_description(oc, "mmc-log", "file that receives every MMC command");
+    object_class_property_add_str(oc, "trace", get_trace, set_trace);
+    object_class_property_set_description(oc, "trace", "lo-hi[:lo-hi]: log every register access in these physical ranges");
     object_class_property_add_str(oc, "kern-log", get_kernlog, set_kernlog);
     object_class_property_set_description(oc, "kern-log", "file that receives the kernel's STI debug text");
     object_class_property_add_str(oc, "rom-patches", get_patches, set_patches);

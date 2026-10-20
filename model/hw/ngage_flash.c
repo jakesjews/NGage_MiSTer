@@ -112,6 +112,13 @@ static void flash_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
     case ST_READ:
         if (w == 0x555 && (d & 0xFF) == 0xAA) {
             f->state = ST_UNLOCK1;
+        } else if ((d & 0xFF) == 0x60) {
+            /*
+             * Samsung block lock/unlock: 0x60 then 0x60 at the block, A6
+             * selecting unlock (medint.pdd 0x50380020 writes 0x60 at the
+             * block twice and at block + 0x84, then 0xF0, and checks the
+             * autoselect protect word). Blocks are never locked in the model.
+             */
         } else if (w == 0x55 && (d & 0xFF) == 0x98) {
             set_mode(f, ST_CFI);
         } else {

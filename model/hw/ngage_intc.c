@@ -37,14 +37,19 @@
  *
  * Timers, 0x0C120A00 + 0x20*n, n = 0..5 (stride inferred from timer 4 at
  * +0x80 using IRQ bit 4):
- *   +0x04 control, bit 1 = run (the kernel rewrites it until it reads back,
- *         0x5031EA58)
- *   +0x08 interrupt flag: set to 1 by the timer on underflow; the source
- *         is asserted while bit 0 is set. Software writes it directly: the
- *         kernel's timer-0 ISR acknowledges with 0 (0x5031C5C0), a start
- *         clears it (boot 0x31C8, ekern 0x5031C758), the boot ISR and the
- *         timer-4 ISR write 1 after disabling the source (0x3064, 0x5031C86C),
- *         and the boot polls it for nonzero (0x3208).
+ *   +0x04 control: bit 1 = run, reloading from +0x18 on underflow (kernel
+ *         tick timer 0, 0x5031C6E4; boot timer 0, 0x31AC; timer 4); bit 0
+ *         alone = run once and stop at zero (guess: the high-resolution
+ *         timer 1 is started with 1 and re-armed by writing +0x10 for each
+ *         expiry, 0x5031CA78/0x5031CB1C). The kernel rewrites it until it
+ *         reads back (0x5031EA58).
+ *   +0x08 interrupt acknowledge: any write clears the timer's interrupt
+ *         latch, which underflow sets; reads return the last value written.
+ *         This is the one reading that fits all users: the tick ISR writes 0
+ *         (0x5031C5C0), the high-resolution timer-1 ISR writes 1 without
+ *         disabling its source (0x5031CACC), the boot and timer-4 ISRs write
+ *         1 (0x3064, 0x5031C86C), starts write 0, and the boot then polls
+ *         the value it wrote for nonzero (0x3208).
  *   +0x10 counter: write loads it, read returns the live down-count
  *   +0x18 reload value, loaded on underflow
  *
@@ -58,7 +63,10 @@
 #include "hw/core/irq.h"
 #include "hw/arm/ngage.h"
 
-/* Inferred: the kernel's reload of 0x843E2 gives the EKA1 1/64 s tick at 104/3 MHz. */
+/*
+ * 104/3 MHz: the kernel converts microseconds with x34666/1000 (0x5031CB74)
+ * and its tick reload 0x843E2 (0x5031C6F0) then gives the EKA1 1/64 s tick.
+ */
 #define TIMER_HZ    34666667u
 #define NTIMERS     6
 #define NBANKS      3
@@ -114,9 +122,18 @@ void ngage_intc_set_source(int src, int level)
     intc_update(s);
 }
 
+static uint64_t intc_read_(NGageIntc *s, hwaddr off);
+
 static uint64_t intc_read(void *opaque, hwaddr off, unsigned size)
 {
-    NGageIntc *s = opaque;
+    uint64_t v = intc_read_(opaque, off);
+
+    ngage_trace_log("intc", false, 0x0C120100 + off, size, v);
+    return v;
+}
+
+static uint64_t intc_read_(NGageIntc *s, hwaddr off)
+{
     int plane = off >= 0xC0;
     hwaddr o = off - (plane ? 0xC0 : 0);
     int k = o >> 6;
@@ -143,6 +160,7 @@ static uint64_t intc_read(void *opaque, hwaddr off, unsigned size)
 static void intc_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
 {
     NGageIntc *s = opaque;
+    ngage_trace_log("intc", true, 0x0C120100 + off, size, val);
     int plane = off >= 0xC0;
     hwaddr o = off - (plane ? 0xC0 : 0);
     int k = o >> 6;
@@ -165,14 +183,17 @@ static void intc_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
 static uint64_t ostu_read(void *opaque, hwaddr off, unsigned size)
 {
     NGageIntc *s = opaque;
+    uint32_t v = s->ostu[(off >> 2) & 15];
 
-    return s->ostu[(off >> 2) & 15];
+    ngage_trace_log("ostimer", false, 0x0C120040 + off, size, v);
+    return v;
 }
 
 static void ostu_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
 {
     NGageIntc *s = opaque;
 
+    ngage_trace_log("ostimer", true, 0x0C120040 + off, size, val);
     if (off == 0x10) {
         s->ostu[4] &= ~(uint32_t)val;
     } else {
@@ -205,9 +226,13 @@ static void ngtimer_expired(void *opaque)
 {
     NGageTimer *t = opaque;
 
-    t->regs[0x08 >> 2] = 1;
     ngage_intc_set_source(t->n, 1);
-    ngtimer_schedule(t, t->regs[0x18 >> 2]);
+    if (t->regs[0x04 >> 2] & 2) {
+        ngtimer_schedule(t, t->regs[0x18 >> 2]);
+    } else {
+        t->running = false;
+        t->regs[0x10 >> 2] = 0;
+    }
 }
 
 static uint64_t timer_read(void *opaque, hwaddr off, unsigned size)
@@ -216,7 +241,10 @@ static uint64_t timer_read(void *opaque, hwaddr off, unsigned size)
     NGageTimer *t = &s->timer[(off >> 5) % NTIMERS];
     hwaddr o = off & 0x1F;
 
-    return o == 0x10 ? ngtimer_count(t) : t->regs[o >> 2];
+    uint32_t v = o == 0x10 ? ngtimer_count(t) : t->regs[o >> 2];
+
+    ngage_trace_log("timer", false, 0x0C120A00 + off, size, v);
+    return v;
 }
 
 static void timer_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
@@ -225,22 +253,27 @@ static void timer_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
     NGageTimer *t = &s->timer[(off >> 5) % NTIMERS];
     hwaddr o = off & 0x1F;
 
+    ngage_trace_log("timer", true, 0x0C120A00 + off, size, val);
     switch (o) {
     case 0x04:
-        if ((val & 2) && !t->running) {
+        if ((val & 3) && !t->running) {
             t->running = true;
             ngtimer_schedule(t, t->regs[0x10 >> 2]);
-        } else if (!(val & 2) && t->running) {
+        } else if (!(val & 3) && t->running) {
             t->regs[0x10 >> 2] = ngtimer_count(t);
             t->running = false;
             timer_del(t->qt);
         }
         break;
     case 0x08:
-        ngage_intc_set_source(t->n, val & 1);
+        ngage_intc_set_source(t->n, 0);
         break;
     case 0x10:
         if (t->running) {
+            ngtimer_schedule(t, val);
+        } else if (t->regs[0x04 >> 2] & 3) {
+            /* a one-shot timer that ran out is re-armed by a new count */
+            t->running = true;
             ngtimer_schedule(t, val);
         }
         break;

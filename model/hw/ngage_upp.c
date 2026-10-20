@@ -31,11 +31,48 @@ void ngage_upp_set_log(FILE *fp)
     upp_log = fp;
 }
 
+/* Address ranges whose every access is logged (machine option trace=). */
+typedef struct TraceRange { uint32_t lo, hi; } TraceRange;
+static TraceRange *trace_ranges;
+static int ntrace;
+
+void ngage_upp_set_trace(const char *spec)
+{
+    g_auto(GStrv) parts = g_strsplit(spec, ":", -1);
+
+    for (int i = 0; parts[i]; i++) {
+        unsigned long lo, hi;
+        if (sscanf(parts[i], "%li-%li", (long *)&lo, (long *)&hi) == 2) {
+            trace_ranges = g_renew(TraceRange, trace_ranges, ntrace + 1);
+            trace_ranges[ntrace++] = (TraceRange){ lo, hi };
+        }
+    }
+}
+
+bool ngage_trace_hit(uint32_t pa)
+{
+    for (int i = 0; i < ntrace; i++) {
+        if (pa >= trace_ranges[i].lo && pa < trace_ranges[i].hi) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ngage_trace_log(const char *dev, bool write, uint32_t pa, unsigned size, uint64_t val)
+{
+    if (upp_log && ngage_trace_hit(pa)) {
+        fprintf(upp_log, "T%s %-9s %08x size=%u val=%08" PRIx64 " pc=%08x\n",
+                write ? "W" : "R", dev, pa, size, val, ngage_guest_pc());
+    }
+}
+
 static void upp_note(UPPBlock *b, hwaddr off, bool write, uint64_t val, unsigned size)
 {
     uint32_t i = off >> 2;
     uint8_t bit = write ? 2 : 1;
 
+    ngage_trace_log(b->name, write, b->base + off, size, val);
     if (!upp_log || (b->seen[i] & bit)) {
         return;
     }

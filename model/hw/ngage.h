@@ -39,6 +39,10 @@ uint32_t ngage_guest_pc(void);
 void ngage_upp_block(MemoryRegion *sysmem, const char *name, hwaddr base, uint32_t size);
 void ngage_upp_set_log(FILE *fp);
 void ngage_upp_load_quirks(const char *path);
+/* Log every access in "lo-hi:lo-hi" physical ranges to the register log. */
+void ngage_upp_set_trace(const char *spec);
+bool ngage_trace_hit(uint32_t pa);
+void ngage_trace_log(const char *dev, bool write, uint32_t pa, unsigned size, uint64_t val);
 
 /* Interrupt controller and timers (ngage_intc.c). */
 void ngage_intc_create(MemoryRegion *sysmem, qemu_irq cpu_irq, qemu_irq cpu_fiq);
@@ -59,6 +63,9 @@ void ngage_intc_set_source(int src, int level);
 
 /* STI trace output window: kernel debug text (ngage_sti.c). */
 void ngage_sti_create(MemoryRegion *sysmem, FILE *log);
+
+/* MMC host and card (ngage_mmc.c). image may be NULL (empty slot). */
+void ngage_mmc_create(MemoryRegion *sysmem, const char *image, FILE *log);
 
 /* CBUS master and UEMK model (ngage_cbus.c). */
 void ngage_cbus_create(MemoryRegion *sysmem, const char *regs_path, FILE *log);
