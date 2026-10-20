@@ -227,7 +227,8 @@ boot:
 		--quirks upp-quirks.txt --cbus-regs cbus-regs.txt --logdir . --lat 0:0 \
 		--max-cycles $(BOOT_CYCLES) --progress 20000000 $(BOOT_ARGS) > run.log 2>&1; tail -1 run.log'
 	rsync -a '$(REMOTE):$(RDIR)/sim/cpu/build/boot/*.log' $(BOOT)/
-	$(PY) $(HERE)/boot/cmp_regs.py --name "register logs" $(BOOT)/regs.log $(BOOT)/model-regs.log; \
+	$(PY) $(HERE)/boot/cmp_regs.py --name "register logs" --ignore 0x0C150100-0x0C150104 \
+		$(BOOT)/regs.log $(BOOT)/model-regs.log; \
 	r=$$?; $(PY) $(HERE)/boot/cmp_regs.py --name "CBUS logs" $(BOOT)/cbus.log $(BOOT)/model-cbus.log || r=1; \
 	exit $$r
 

@@ -10,6 +10,7 @@
 //                       ends when the instruction there retires
 //     --sig FILE        dump the signature area (--sig-base, --sig-size)
 //     --trace FILE      write one line per retired instruction or exception
+//     --trace-after N   start the trace after N retired instructions
 //     --buslog FILE     write one line per bus access
 //     --lat MIN:MAX     bus latency, cycles from request to ack (default 0:3)
 //     --seed N          RNG seed for the latency (default 1)
@@ -138,6 +139,7 @@ int main(int argc, char **argv) {
 	uint32_t seed = 1;
 	uint64_t max_cycles = 50000000;
 	uint64_t progress = 0;
+	uint64_t trace_after = 0;
 	bool quiet = false;
 	bool halt_given = false;
 	std::string machine;
@@ -175,6 +177,7 @@ int main(int argc, char **argv) {
 		else if (a == "--max-cycles") max_cycles = strtoull(next(), nullptr, 0);
 		else if (a == "--quiet") quiet = true;
 		else if (a == "--progress") progress = strtoull(next(), nullptr, 0);
+		else if (a == "--trace-after") trace_after = strtoull(next(), nullptr, 0);
 		else if (a == "--watch") watch.push_back((uint32_t)strtoul(next(), nullptr, 0));
 		else if (a == "--dump") {
 			std::string v = next();
@@ -335,7 +338,7 @@ int main(int argc, char **argv) {
 		if (ev) {
 			uint32_t cpsr = t->p_cpsr;
 			if (ev == 'R') retired++;
-			if (trace) {
+			if (trace && retired >= trace_after) {
 				fprintf(trace, "%c %08x", ev, pc);
 				for (int r = 0; r < 15; r++) {
 					int p = phys_index(r, cpsr);
