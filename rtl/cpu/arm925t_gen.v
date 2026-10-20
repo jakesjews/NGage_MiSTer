@@ -2353,7 +2353,7 @@ module zap_cache_fsm (
 						o_ack = 1'd0;
 						o_wb_stb_nxt = 1'd1;
 						o_wb_cyc_nxt = 1'd1;
-						o_wb_adr_nxt = i_address;
+						o_wb_adr_nxt = i_phy_addr;
 						o_wb_dat_nxt = i_din;
 						o_wb_wen_nxt = i_wr;
 						o_wb_sel_nxt = i_ben;
@@ -7200,7 +7200,7 @@ module zap_dcache_fsm (
 						o_ack = 1'd0;
 						o_wb_stb_nxt = 1'd1;
 						o_wb_cyc_nxt = 1'd1;
-						o_wb_adr_nxt = i_address;
+						o_wb_adr_nxt = i_phy_addr;
 						o_wb_wen_nxt = i_wr;
 						o_wb_cti_nxt = CTI_EOB;
 						o_wb_dat_nxt = i_din;

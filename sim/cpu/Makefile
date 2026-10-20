@@ -49,10 +49,10 @@ all: bins remote qemu diff
 # ---------------------------------------------------------------- tests
 bins: $(foreach t,$(T),$(TB)/$(t).bin $(TB)/$(t).lst)
 
-$(TB)/crt0.o: $(HERE)/tests/crt0.S $(HERE)/tests/test.inc
+$(TB)/crt0.o: $(HERE)/tests/crt0.S $(wildcard $(HERE)/tests/*.inc)
 	@mkdir -p $(TB)
 	$(CROSS)as $(ASFLAGS) -o $@ $<
-$(TB)/%.o: $(HERE)/tests/%.S $(HERE)/tests/test.inc
+$(TB)/%.o: $(HERE)/tests/%.S $(wildcard $(HERE)/tests/*.inc)
 	@mkdir -p $(TB)
 	$(CROSS)as $(ASFLAGS) -o $@ $<
 $(TB)/%.elf: $(TB)/%.o $(TB)/crt0.o $(HERE)/tests/link.ld

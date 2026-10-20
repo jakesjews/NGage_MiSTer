@@ -414,7 +414,10 @@ begin:next_state_logic
                                 o_ack           = 1'd0; // Wait...
                                 o_wb_stb_nxt    = 1'd1;
                                 o_wb_cyc_nxt    = 1'd1;
-                                o_wb_adr_nxt    = i_address;
+                                // ARM925T: the translated address (the VA with
+                                // the MMU off); upstream put the VA on the bus
+                                // whenever the D-cache was off, MMU on or not.
+                                o_wb_adr_nxt    = i_phy_addr;
                                 o_wb_wen_nxt    = i_wr;
                                 o_wb_cti_nxt    = CTI_EOB;
                                 o_wb_dat_nxt    = i_din;

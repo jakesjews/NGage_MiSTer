@@ -16,7 +16,8 @@ instruction.
 
 Both become a list of (PC, registers before): the RTL list shifted by one,
 starting from the reset state, with interrupt events folded into the
-following instruction. They must agree up to (not including) the first visit to the
+following instruction, and so are prefetch aborts (QEMU never logs the
+instruction it could not fetch). They must agree up to (not including) the first visit to the
 halt loop. PSR bit 8 is ignored (QEMU sets the ARMv6 A bit on an ARMv4 CPU), and
 so are the flags until the two first agree (they are unknown after reset;
 QEMU starts with Z set, ZAP with none).
@@ -67,7 +68,7 @@ def rtl_stream(path, halt):
             after = regs + [int(p[17], 16)]
             if kind == "R" and pc == halt:
                 break
-            if kind not in ("I", "F"):
+            if kind not in ("I", "F", "P"):
                 out.append((pc, kind, state))
             state = after
     return out
