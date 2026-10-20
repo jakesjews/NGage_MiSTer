@@ -14,6 +14,8 @@
 #   make all       bins, remote, qemu, diff
 #   make T=alu ... restrict to some tests
 #   RAND_SEEDS=..  the random tests rand<seed> (tools/gen_random.py)
+#   gba_*          jsmolka/gba-tests (ext/gba-tests), translated by
+#                  tools/fasm2gas.py; GBA_SKIP_* lists the tests left out
 #
 # Test tags (lines in the .S file):
 #   @@ qemu: no        the test needs the bench (bench registers, interrupts,
@@ -37,8 +39,18 @@ SHELL     := bash
 
 RAND_SEEDS ?= 1 2 3 4 5 6 7 8
 RAND_TESTS := $(foreach s,$(RAND_SEEDS),rand$(s))
+# jsmolka/gba-tests (ext/gba-tests, tools/fasm2gas.py); docs/CPU.md says
+# why these are skipped. gba_arm/gba_thumb run on the RTL only; the _q
+# versions also leave out the unaligned word accesses QEMU aborts on, and
+# are compared with QEMU.
+GBA_TESTS := gba_arm gba_thumb gba_arm_q gba_thumb_q
+GBA_SKIP_arm    ?= 224 225 234 235 356 362 408 409 510 513 514 515 522 523 524 \
+                   525 526 527 528 529 530 531 532
+GBA_SKIP_thumb  ?= 211 212 219 227 228 229 230 231
+GBA_QSKIP_arm   := 354 355 407 452 508
+GBA_QSKIP_thumb := 204 216 221 225 233
 ALL_TESTS := $(sort $(basename $(notdir $(filter-out %/crt0.S,$(wildcard $(HERE)/tests/*.S))))) \
-             $(RAND_TESTS)
+             $(RAND_TESTS) $(GBA_TESTS)
 T         ?= $(ALL_TESTS)
 TB        := $(BUILD)/tests
 MODEL_DIR := $(BUILD)/obj-$(RTL)
@@ -64,6 +76,16 @@ $(TB)/rand%.S: $(HERE)/tools/gen_random.py
 	@mkdir -p $(TB)
 	$(PY) $< --seed $* > $@
 $(TB)/rand%.o: $(TB)/rand%.S $(wildcard $(HERE)/tests/*.inc)
+	$(CROSS)as $(ASFLAGS) -o $@ $<
+# gba-tests, translated into the build directory
+GBA_DEP := $(HERE)/tools/fasm2gas.py $(wildcard $(HERE)/ext/gba-tests/*/*.asm) $(HERE)/Makefile
+$(TB)/gba_arm.S $(TB)/gba_thumb.S: $(TB)/gba_%.S: $(GBA_DEP)
+	@mkdir -p $(TB)
+	$(PY) $< --set $* $(HERE)/ext/gba-tests --tag "qemu: no" --skip $(GBA_SKIP_$*) > $@
+$(TB)/gba_arm_q.S $(TB)/gba_thumb_q.S: $(TB)/gba_%_q.S: $(GBA_DEP)
+	@mkdir -p $(TB)
+	$(PY) $< --set $* $(HERE)/ext/gba-tests --skip $(GBA_SKIP_$*) $(GBA_QSKIP_$*) > $@
+$(TB)/gba_%.o: $(TB)/gba_%.S $(wildcard $(HERE)/tests/*.inc)
 	$(CROSS)as $(ASFLAGS) -o $@ $<
 $(TB)/%.elf: $(TB)/%.o $(TB)/crt0.o $(HERE)/tests/link.ld
 	$(CROSS)ld -T $(HERE)/tests/link.ld -o $@ $(TB)/crt0.o $<

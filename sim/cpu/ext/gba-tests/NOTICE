@@ -1,0 +1,10 @@
+ARM and Thumb CPU tests from jsmolka/gba-tests
+https://github.com/jsmolka/gba-tests
+commit a7113b67e63f83a9b321696ddd7042ccfad6c881 (2025-04-19)
+Copyright (c) 2019 Julian Smolka, MIT licence (LICENSE in this directory).
+
+arm/*.asm and thumb/*.asm are the upstream test bodies, unmodified (the
+GBA drivers arm.asm/thumb.asm, the text library and the ROMs are not
+included). sim/cpu/tools/fasm2gas.py translates them from FASMARM syntax
+to GNU as with a driver for this bench; docs/CPU.md lists the tests that
+are skipped and why.
