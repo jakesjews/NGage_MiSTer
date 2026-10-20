@@ -15,12 +15,16 @@
 // wins a fight is not documented].
 //
 // The firmware drives columns and reads rows; rows may be driven too, for a
-// scan the other way round. The paths are combinational, as through the
-// switches; register them on the ASIC side.
+// scan the other way round. From the drive to the levels the path is
+// combinational, as through the switches. Which lines are joined depends only
+// on the keys, and is worked out in registers, one step of a path a clock: a
+// change of the keys has reached every line of a net ten clocks later (a
+// tenth of a microsecond, against key presses of tens of milliseconds).
 //
 // keys: bit row * 5 + column (ngage_keys); positions without a switch are
 // ignored.
 module keypad_matrix (
+	input  logic                         clk,
 	input  logic [ngage_keys::NKEYS-1:0] keys,
 	input  logic                         power,
 
@@ -38,31 +42,51 @@ module keypad_matrix (
 
 	import ngage_keys::*;
 
+	// lines 0-4 are the columns, 5-10 the rows
+	localparam int N = COLS + ROWS;
+
 	logic [NKEYS-1:0] k;
-	logic [COLS-1:0]  col_low;
-	logic [ROWS-1:0]  row_low;
+	// all ones never matches the fitted keys, so the first clock loads the joins
+	logic [NKEYS-1:0] k_q = '1;
+	logic [N-1:0]     adj   [0:N-1];   // joined by one pressed key
+	logic [N-1:0]     reach [0:N-1];   // joined by a path of pressed keys
 
 	assign k = keys & FITTED;
 
-	// Spread "low" through the pressed keys. A path between two lines visits
-	// each of the 11 lines at most once, so it has at most 10 steps; each
-	// pass below takes a step from the columns to the rows and one back, and
-	// a path that starts on a row gains nothing from the first half-pass.
 	always_comb begin
-		col_low = col_oe & ~col_out;
-		row_low = row_oe & ~row_out;
-		for (int pass = 0; pass < 6; pass++) begin
-			for (int r = 0; r < ROWS; r++)
-				for (int c = 0; c < COLS; c++)
-					if (k[r * COLS + c] && col_low[c]) row_low[r] = 1'b1;
+		for (int i = 0; i < N; i++) adj[i] = '0;
+		for (int r = 0; r < ROWS; r++)
 			for (int c = 0; c < COLS; c++)
-				for (int r = 0; r < ROWS; r++)
-					if (k[r * COLS + c] && row_low[r]) col_low[c] = 1'b1;
+				if (k[r * COLS + c]) begin
+					adj[c][COLS + r] = 1'b1;
+					adj[COLS + r][c] = 1'b1;
+				end
+	end
+
+	// the joins, a step longer each clock; started again when the keys change
+	always_ff @(posedge clk) begin
+		k_q <= k;
+		for (int i = 0; i < N; i++) begin
+			if (k != k_q) begin
+				reach[i] <= adj[i];
+			end else begin
+				logic [N-1:0] next;
+				next = reach[i];
+				for (int j = 0; j < N; j++) if (reach[i][j]) next = next | adj[j];
+				reach[i] <= next;
+			end
 		end
 	end
 
-	assign col_in = ~col_low;
-	assign row_in = ~row_low;
+	logic [N-1:0] drv_low, low;
+	assign drv_low = {row_oe & ~row_out, col_oe & ~col_out};
+
+	always_comb begin
+		for (int i = 0; i < N; i++) low[i] = drv_low[i] | |(reach[i] & drv_low);
+	end
+
+	assign col_in = ~low[COLS-1:0];
+	assign row_in = ~low[N-1:COLS];
 	assign pwronx = ~power;
 
 endmodule

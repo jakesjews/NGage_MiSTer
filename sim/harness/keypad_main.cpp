@@ -11,7 +11,9 @@
 //  * random keys and random drive patterns against a reference that joins
 //    lines into nets (union-find): a net is low if any line in it is driven
 //    low;
-//  * the power key is outside the matrix and only moves PWRONX.
+//  * the power key is outside the matrix and only moves PWRONX;
+//  * a change of the keys has reached every line ten clocks later, and the
+//    drive-to-level path needs no clock at all.
 #include "Vkeypad_matrix.h"
 #include "verilated.h"
 #include "common.h"
@@ -51,10 +53,15 @@ struct Ref {
 
 struct Bench {
 	Vkeypad_matrix *t = new Vkeypad_matrix;
+	uint32_t keys_now = 0xFFFFFFFFu;
+	Bench() { t->clk = 0; t->keys = 0; t->eval(); }
 	~Bench() { t->final(); delete t; }
+	void tick() { t->clk = 1; t->eval(); t->clk = 0; t->eval(); }
+	// new keys take ten clocks to reach every line; drives take none
 	void set(uint32_t keys, int coe, int cout, int roe, int rout) {
 		t->keys = keys; t->col_oe = coe; t->col_out = cout; t->row_oe = roe; t->row_out = rout;
 		t->eval();
+		if (keys != keys_now) { for (int i = 0; i < 10; i++) tick(); keys_now = keys; }
 	}
 	// the firmware's way: each column low in turn, rows read active-low
 	uint32_t scan_cols(uint32_t keys) {
@@ -140,6 +147,22 @@ int main(int argc, char **argv) {
 			sim::fail("keys %08x col oe/out %02x/%02x row oe/out %02x/%02x: cols %02x rows %02x, want %02x %02x",
 				keys, coe, cout, roe, rout, b.t->col_in, b.t->row_in, cin, rin);
 		}
+	}
+
+	// a long chain: under way after two clocks, complete by ten (its farthest
+	// row is eight steps from ROW5)
+	{
+		uint32_t k = 1u << (0 * 5 + 0) | 1u << (1 * 5 + 0) | 1u << (1 * 5 + 1) | 1u << (0 * 5 + 1) |
+			1u << (0 * 5 + 2) | 1u << (2 * 5 + 2) | 1u << (2 * 5 + 3) | 1u << (3 * 5 + 3) |
+			1u << (3 * 5 + 4) | 1u << (4 * 5 + 4) | 1u << (5 * 5 + 4);
+		b.set(0, 0, 0, 0, 0);
+		b.t->keys = k; b.t->row_oe = 1u << 5; b.t->row_out = 0; b.t->col_oe = 0;
+		b.t->eval();
+		for (int i = 0; i < 2; i++) b.tick();
+		CHECK(b.t->row_in != 0x00 && b.t->row_in != 0x3F, "chain after two clocks: rows %02x", b.t->row_in);
+		for (int i = 0; i < 8; i++) b.tick();
+		CHECK_EQ(b.t->row_in, 0x00, "chain after ten clocks");
+		b.keys_now = k;
 	}
 
 	b.set(0, 0, 0, 0, 0);

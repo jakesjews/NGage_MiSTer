@@ -325,6 +325,7 @@ ngage_input ngage_input
 
 keypad_matrix keypad_matrix
 (
+	.clk(clk_sys),
 	.keys(keys),
 	.power(power_key),
 	.col_oe(kp_col_oe),

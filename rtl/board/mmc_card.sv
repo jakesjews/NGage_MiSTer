@@ -296,44 +296,69 @@ module mmc_card #(
 		return a[31:9];
 	endfunction
 
-	logic [22:0] r_lo, r_hi, n_lo, n_hi;
+	// The sectors the current block still needs and the next block's, and
+	// whether they are in the buffer, take two register stages (the sums and
+	// comparisons are too long for one clock). The results are used only once
+	// the inputs have stayed the same long enough for both stages to see them.
+	logic [22:0] a_rlo, a_rhi, a_nlo, a_nhi, a_tag0, a_tag1;
+	logic  [1:0] a_tv;
+	logic        a_act, a_multi;
 	logic        have_lo, have_hi;
 	logic [22:0] want;
 	logic        want_v;
+	logic [102:0] bk_in, bk_q;
+	logic  [1:0] settle;
+	wire         bk_chg = bk_in != bk_q;
+	wire         bk_ok  = settle == 2'd0 && !bk_chg;
 
 	function automatic logic holds(input logic [22:0] s, input logic [22:0] t0, input logic [22:0] t1,
 			input logic [1:0] v);
 		return s[0] ? (v[1] && t1 == s) : (v[0] && t0 == s);
 	endfunction
 
-	always_comb begin
-		// the sectors the current block still needs, and the next block's
-		r_lo = sec_of(d_addr + {23'd0, d_pos});
-		r_hi = sec_of(d_addr + {23'd0, bl} - 33'd1);
-		n_lo = sec_of(d_addr + {23'd0, bl});
-		n_hi = sec_of(d_addr + {22'd0, bl, 1'b0} - 33'd1);
-		have_lo = holds(r_lo, tag[0], tag[1], tvalid);
-		have_hi = holds(r_hi, tag[0], tag[1], tvalid);
-		want_v = 1'b0;
-		want = r_lo;
-		if (d_state != D_IDLE) begin
-			if (!have_lo) begin
-				want = r_lo; want_v = 1'b1;
-			end else if (!have_hi) begin
-				want = r_hi; want_v = 1'b1;
-			end else if (d_multi) begin
-				// the next block's sectors, into a slot this block is done with
-				if (!holds(n_lo, tag[0], tag[1], tvalid) &&
-						!(tvalid[n_lo[0]] && (n_lo[0] ? tag[1] : tag[0]) >= r_lo &&
-						  (n_lo[0] ? tag[1] : tag[0]) <= r_hi)) begin
-					want = n_lo; want_v = 1'b1;
-				end else if (!holds(n_hi, tag[0], tag[1], tvalid) &&
-						!(tvalid[n_hi[0]] && (n_hi[0] ? tag[1] : tag[0]) >= r_lo &&
-						  (n_hi[0] ? tag[1] : tag[0]) <= r_hi)) begin
-					want = n_hi; want_v = 1'b1;
+	// is the slot for a sector of parity p free of the sectors the block still needs?
+	function automatic logic free_for(input logic p, input logic [22:0] t0, input logic [22:0] t1,
+			input logic [1:0] v, input logic [22:0] lo, input logic [22:0] hi);
+		logic [22:0] t;
+		t = p ? t1 : t0;
+		return !(v[p] && t >= lo && t <= hi);
+	endfunction
+
+	assign bk_in = {d_addr, d_pos, bl, tag[0], tag[1], tvalid, d_state != D_IDLE, d_multi};
+
+	always_ff @(posedge clk) begin
+		// stage A
+		a_rlo   <= sec_of(d_addr + {23'd0, d_pos});
+		a_rhi   <= sec_of(d_addr + {23'd0, bl} - 33'd1);
+		a_nlo   <= sec_of(d_addr + {23'd0, bl});
+		a_nhi   <= sec_of(d_addr + {22'd0, bl, 1'b0} - 33'd1);
+		a_tag0  <= tag[0];
+		a_tag1  <= tag[1];
+		a_tv    <= tvalid;
+		a_act   <= d_state != D_IDLE;
+		a_multi <= d_multi;
+		// stage B
+		have_lo <= holds(a_rlo, a_tag0, a_tag1, a_tv);
+		have_hi <= holds(a_rhi, a_tag0, a_tag1, a_tv);
+		want_v  <= 1'b0;
+		want    <= a_rlo;
+		if (a_act) begin
+			if (!holds(a_rlo, a_tag0, a_tag1, a_tv)) begin
+				want <= a_rlo; want_v <= 1'b1;
+			end else if (!holds(a_rhi, a_tag0, a_tag1, a_tv)) begin
+				want <= a_rhi; want_v <= 1'b1;
+			end else if (a_multi) begin
+				if (!holds(a_nlo, a_tag0, a_tag1, a_tv) && free_for(a_nlo[0], a_tag0, a_tag1, a_tv, a_rlo, a_rhi)) begin
+					want <= a_nlo; want_v <= 1'b1;
+				end else if (!holds(a_nhi, a_tag0, a_tag1, a_tv) && free_for(a_nhi[0], a_tag0, a_tag1, a_tv, a_rlo, a_rhi)) begin
+					want <= a_nhi; want_v <= 1'b1;
 				end
 			end
 		end
+		// how long since the inputs changed
+		bk_q <= bk_in;
+		if (bk_chg) settle <= 2'd3;
+		else if (settle != 2'd0) settle <= settle - 2'd1;
 	end
 
 	// ------------------------------------------------------------------
@@ -592,7 +617,7 @@ module mmc_card #(
 			nxt_ok   <= 1'b1;
 		end
 		// sectors for the read, one at a time
-		if (d_state != D_IDLE && want_v && h_state == H_IDLE && !h_done && l_state == L_READY) begin
+		if (d_state != D_IDLE && bk_ok && want_v && h_state == H_IDLE && !h_done && l_state == L_READY) begin
 			if ({9'd0, want} >= nblk) begin
 				tag[want[0]]    <= want;
 				tvalid[want[0]] <= 1'b1;
@@ -608,7 +633,7 @@ module mmc_card #(
 		end
 		case (d_state)
 			D_WAIT: begin
-				if (!nxt_ok && !f_go && !f_v && have_lo && have_hi) begin
+				if (!nxt_ok && !f_go && !f_v && bk_ok && have_lo && have_hi) begin
 					f_go   <= 1'b1;
 					f_slot <= d_addr[9];
 					f_odd  <= d_addr[0];
