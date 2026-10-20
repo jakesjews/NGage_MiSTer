@@ -956,3 +956,84 @@ found, and what comes next. Research material lives in `research/`
   flash image (`tools/mkimage.py` applies `model/rom-patches.txt`).
 - Running the real NOS is infeasible: its cipher and key are in the ASIC.
 - Replies will be documented per message in `docs/NOS_STANDIN.md`.
+
+## UPP peripherals (RTL)
+
+### 2026-10-20: the UPP_WD2 peripherals in the core
+- `rtl/upp/upp_periph.sv` replaces `upp_periph_stub` on upp_bus's register
+  bus. Each block follows its model file register for register and cites
+  the firmware evidence in its header:
+  - `upp_intc`: IRQ/FIQ planes x 3 banks and the OS-timer unit.
+  - `upp_timers`: timers 0-5 at 104/3 MHz.
+  - `upp_dma`: 8 channels, 3 engines, its own bus master.
+  - `upp_mmc`: 1-bit host on mmc_card's CLK/CMD/DAT0.
+  - `upp_lcdif`: packing modes, read phase, ready bits, 8080 bus.
+  - `upp_uif`: ports D/E to keypad_matrix, CTSI key interrupt.
+  - `upp_cbus`: UEMK (ADC/BSI, 0x15, 0x1F with the power key), device 4
+    ID, device 5 and the rest as storage.
+  - The top: the clock-page and DPLL read quirks, the STI window
+    (`sti_*` debug outputs, reads 0), and storage for every other
+    0x0C1xxxxx register. 0x0Dxxxxxx and 0x0C2xxxxx read 0, as in the model.
+- `ngage_mem` has a second Wishbone port for the DMA. `wb_arb2` switches
+  masters only between transactions; upp_bus reports `idle`, and a
+  simulation check asserts it. NGage.sv: lcd_testgen keeps the panel and
+  the key lines until the UPP LCD interface first drives the bus.
+  `cpu_irq`/`cpu_fiq` are wires waiting for arm925t.
+- Benches, all in `make test`:
+  - `intc`, `timers`: against C++ ports of `ngage_intc.c`; underflow edges
+    exact in clocks.
+  - `periph`: ngage_mem + upp_periph + lcd_panel + mmc_card +
+    keypad_matrix under a scripted CPU:
+    - storage, quirks, and access sizes the model's regions refuse;
+    - `model/.out/regs.log` and `cbus.log` replayed;
+    - DMA in every width pair, five transfers at once, stop, with CPU
+      bursts through the arbiter;
+    - three LCD pictures (12 bpp by CPU, lcd.ldd-style DMA frame, 16 bpp by
+      DMA) and RDDID;
+    - MMC CID/CSD, CMD17/18 + CMD12, CMD24/25 via DMA channel 5, time-outs;
+    - every key by ekeyb's scan;
+    - UEMK reads.
+  - Mutants in every block are caught.
+- `tools/mkimage.py` turns Phoenix files or flat dumps into cs0.bin/cs1.bin
+  with `model/rom-patches.txt`. The stand-ins are committed in
+  `tools/standin` (`make standin` / `standin-check`, built from the
+  committed `model/nos-stub`). The bootstrap's integrity table is checked
+  through the bootstrap's ROM mapping: the language-pack entry 0x8F00 spans
+  the end of CS1 and the top of CS0. `make image-check` builds the model's
+  own `ngage_patch.c` outside QEMU (`tools/patchcheck`) and compares. The
+  output equals the model's byte for byte, both for the model's image and
+  for RH2946.0C1/.0S5 plus `--phone-data` from the SDumper dump. That dump
+  supplies the 56 per-phone bytes the flash files leave out; whether the
+  firmware needs them is unknown.
+- Quartus 17 full compile: every corner met at 104 MHz.
+  - Worst setup +0.257 ns (slow -40C), hold +0.097 ns.
+  - The first run was +0.014 ns, with the arbiter mux in upp_bus's flash
+    read-ahead path. That path's adder is gone now: the test is
+    `fe_adr == wb_adr`.
+  - Whole core 18,506 ALMs (44%), 23,940 registers, 250 M10K, 33 DSP.
+  - upp_periph 2,839 ALMs: DMA 828, MMC 758, timers 346, top 324, intc 208,
+    CBUS 177, UIF 117, LCD 79. Storage is 32 M10K. The arbiter is 26 ALMs.
+  - mmc_card grew from 109 to 1,763 ALMs now that its bus is live.
+  - With the CPU (about 12.7K) the core comes to about 31.2K of 41.9K (74%).
+- Deviations from the model, each marked in the headers:
+  - Real time where the model is instant: LCD ready (control bit 30 = queue
+    empty and bus idle, aux bit 2 = room), MMC busy bits, DMA duration,
+    CBUS done 2 clocks.
+  - Storage is 8 x 4 KB slots by page instead of 1 MB (unknown pages share
+    two slots), cleared at reset.
+  - The power key counts as held for 3 s and until the first read of
+    UEMK 0x1F.
+  - DMA paced by the MMC/LCD FIFOs when that side is fixed;
+    0x0C120064/68 stay storage.
+  - MMC CLK 104/12, response CRC checked, time-outs 64 / 2^21 clocks, R1b
+    busy for types 4 and 7.
+  - LCD bus 2+2 clocks a write, 4+6 a read; /CS low, /RES high.
+- Open:
+  - 0x0C120064/68 request-line semantics.
+  - GENIO4 as LCD /RES.
+  - The MMC registers +0x60C/+0x610/+0x614.
+  - The GPIO interrupts (GPIO8High for the UEMK, GPIO23Low for ekeyb);
+    the model drives neither.
+  - The DMA LCD frame takes about 5 ms (27 clocks a word); bursts would
+    speed it up.
+  - A QEMU flash dump against mkimage's output was not made (QEMU in use).
