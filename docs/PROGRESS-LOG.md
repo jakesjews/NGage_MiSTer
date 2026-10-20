@@ -1497,3 +1497,6 @@ found, and what comes next. Research material lives in `research/`
   - 18,722 ALMs (45 %, +649 since the C: drive build), 256 M10K, 40 DSP
     blocks.
   - upp_haudio is 479 ALMs and 6 DSP blocks; rtc_wall is 110 ALMs.
+
+### 2026-10-20: MiSTer free again
+- The user says the MiSTer is available; the hold is lifted.
