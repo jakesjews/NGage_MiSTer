@@ -2953,6 +2953,9 @@ module zap_cache_tag_ram (
 	reg line_done_ff;
 	reg line_done_nxt;
 	reg line_clear;
+	reg pend_en;
+	reg pend_dirty;
+	reg [$clog2(CACHE_SIZE / CACHE_LINE) - 1:0] pend_addr;
 	wire unused;
 	reg [BLK_CTR_PAD - 1:0] dummy;
 	reg [(CACHE_LINE * 8) - 33:0] line_dummy;
@@ -2994,6 +2997,14 @@ module zap_cache_tag_ram (
 			tag_ram_rd_addr_del <= tag_ram_rd_addr;
 			tag_ram_rd_addr_del2 <= tag_ram_rd_addr_del;
 		end
+	always @(posedge i_clk) begin
+		if (i_reset)
+			pend_en <= 1'd0;
+		else
+			pend_en <= tag_ram_wr_en && !i_hold;
+		pend_addr <= tag_ram_wr_addr;
+		pend_dirty <= i_cache_tag_dirty;
+	end
 	always @(posedge i_clk)
 		if (i_reset) begin
 			o_cache_tag_dirty <= 1'sb0;
@@ -3001,13 +3012,15 @@ module zap_cache_tag_ram (
 			cache_tag_dirty <= 1'sb0;
 			dirty <= 1'sb0;
 		end
-		else if ((!i_hold || tag_ram_clean) || line_clear) begin
-			o_cache_tag_dirty <= ((tag_ram_rd_addr_del2 == tag_ram_wr_addr) && tag_ram_wr_en ? i_cache_tag_dirty : cache_tag_dirty_del);
-			cache_tag_dirty_del <= ((tag_ram_rd_addr_del == tag_ram_wr_addr) && tag_ram_wr_en ? i_cache_tag_dirty : cache_tag_dirty);
-			cache_tag_dirty <= ((tag_ram_rd_addr == tag_ram_wr_addr) && tag_ram_wr_en ? i_cache_tag_dirty : dirty[tag_ram_rd_addr]);
-			if (tag_ram_wr_en)
-				dirty[tag_ram_wr_addr] <= i_cache_tag_dirty;
-			else if (tag_ram_clean || line_clear)
+		else begin
+			if ((!i_hold || tag_ram_clean) || line_clear) begin
+				o_cache_tag_dirty <= ((tag_ram_rd_addr_del2 == tag_ram_wr_addr) && tag_ram_wr_en ? i_cache_tag_dirty : cache_tag_dirty_del);
+				cache_tag_dirty_del <= ((tag_ram_rd_addr_del == tag_ram_wr_addr) && tag_ram_wr_en ? i_cache_tag_dirty : cache_tag_dirty);
+				cache_tag_dirty <= ((tag_ram_rd_addr == tag_ram_wr_addr) && tag_ram_wr_en ? i_cache_tag_dirty : ((tag_ram_rd_addr == pend_addr) && pend_en ? pend_dirty : dirty[tag_ram_rd_addr]));
+			end
+			if (pend_en)
+				dirty[pend_addr] <= pend_dirty;
+			if (tag_ram_clean || line_clear)
 				dirty[tag_ram_rd_addr] <= 1'd0;
 		end
 	always @(posedge i_clk)
@@ -3017,14 +3030,16 @@ module zap_cache_tag_ram (
 			cache_tag_valid <= 1'sb0;
 			valid <= 1'sb0;
 		end
-		else if ((!i_hold || tag_ram_clear) || line_clear) begin
-			o_cache_tag_valid <= ((tag_ram_rd_addr_del2 == tag_ram_wr_addr) && tag_ram_wr_en ? 1'd1 : cache_tag_valid_del);
-			cache_tag_valid_del <= ((tag_ram_rd_addr_del == tag_ram_wr_addr) && tag_ram_wr_en ? 1'd1 : cache_tag_valid);
-			cache_tag_valid <= ((tag_ram_rd_addr == tag_ram_wr_addr) && tag_ram_wr_en ? 1'd1 : valid[tag_ram_rd_addr]);
-			if (tag_ram_clear || !i_cache_en)
+		else begin
+			if ((!i_hold || tag_ram_clear) || line_clear) begin
+				o_cache_tag_valid <= ((tag_ram_rd_addr_del2 == tag_ram_wr_addr) && tag_ram_wr_en ? 1'd1 : cache_tag_valid_del);
+				cache_tag_valid_del <= ((tag_ram_rd_addr_del == tag_ram_wr_addr) && tag_ram_wr_en ? 1'd1 : cache_tag_valid);
+				cache_tag_valid <= ((tag_ram_rd_addr == tag_ram_wr_addr) && tag_ram_wr_en ? 1'd1 : ((tag_ram_rd_addr == pend_addr) && pend_en ? 1'd1 : valid[tag_ram_rd_addr]));
+			end
+			if (pend_en)
+				valid[pend_addr] <= 1'd1;
+			if (((!i_hold || tag_ram_clear) || line_clear) && (tag_ram_clear || !i_cache_en))
 				valid <= 1'sb0;
-			else if (tag_ram_wr_en)
-				valid[tag_ram_wr_addr] <= 1'd1;
 			else if (line_clear)
 				valid[tag_ram_rd_addr] <= 1'd0;
 		end
