@@ -50,9 +50,9 @@
 //  * wb_selftest, a diagnostic: with "Memory test" on it has the Wishbone
 //    port instead of the CPU (held in reset), tests the SDRAM, the on-chip
 //    RAM, the EMIF block and the flash path in passes, shows the result on
-//    the OSD after the first pass and after a failure, and blinks the power
-//    LED (slow: passing, fast: failed). Switching it on or off resets the
-//    board.
+//    the OSD after the first pass and after a failure and in a square at
+//    the panel's top-left corner, and blinks the power LED (slow: passing,
+//    fast: failed). Switching it on or off resets the board.
 // clk_sys is 104 MHz: 4 x 26 MHz, the phone's reference, so the MCU clock
 // (104 MHz), the flash and timer clock (104/3) and the MMC clock (26/3)
 // divide from it exactly.
