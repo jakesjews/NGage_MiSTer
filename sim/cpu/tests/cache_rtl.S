@@ -3,7 +3,8 @@
 @ write-back data stays in the D-cache until cleaned; the single-line
 @ operations by VA and by index (TI operand) clean, discard or both, and
 @ leave other lines alone; a write-through page updates memory at once;
-@ the I-cache keeps old code until it is flushed.
+@ unaligned loads that miss are rotated; the I-cache keeps old code until it
+@ is flushed.
 @@ qemu: no
 	.include "test.inc"
 	.include "mmu.inc"
@@ -141,7 +142,27 @@ test_main:
 	CHECK	r1, 0xCCCCCCCC		@ the line (still valid) wins
 	CHECKPOINT
 
-	@ 8. the I-cache keeps old code until flushed
+	@ 8. unaligned LDR and SWPB that miss: rotated / byte, as from memory
+	ldr	r4, =BUF + 0x500
+	ldr	r5, =UBUF + 0x500
+	ldr	r0, =0x44332211
+	str	r0, [r5]
+	mov	r0, #0
+	mcr	p15, 0, r0, c7, c10, 0
+	mcr	p15, 0, r0, c7, c6, 0
+	ldr	r1, [r4, #1]
+	CHECK	r1, 0x11443322
+	mcr	p15, 0, r0, c7, c10, 0
+	mcr	p15, 0, r0, c7, c6, 0
+	mov	r2, #0x99
+	add	r6, r4, #2
+	swpb	r1, r2, [r6]
+	CHECK	r1, 0x33
+	ldr	r1, [r4]
+	CHECK	r1, 0x44992211
+	CHECKPOINT
+
+	@ 9. the I-cache keeps old code until flushed
 	ldr	r4, =0x00480000
 	ldr	r0, =0xE3A00011		@ mov r0, #0x11
 	ldr	r1, =0xE1A0F00E		@ mov pc, lr

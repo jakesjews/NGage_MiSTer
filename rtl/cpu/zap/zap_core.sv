@@ -103,6 +103,10 @@ output logic                             o_mem_translate,
 // A) and its full virtual address, for the FAR.
 output logic                             o_data_wb_align_fault,
 output logic [31:0]                      o_data_wb_va,
+// ARM925T: how a load on o_data_wb_* turns the word into the register
+// value (address bits 1:0, signed byte, unsigned byte, signed halfword,
+// unsigned halfword), for loads the D-cache completes in the background.
+output logic [5:0]                       o_data_wb_ldfmt,
 
 // ARM925T: single-line D-cache operation (zap_cp15_cb).
 output logic                             o_dcache_line_req,
@@ -541,6 +545,8 @@ assign o_data_wb_adr            = {postalu_address_ff[31:2], 2'd0};
 // made on the stage before and registered with it (timing).
 //
 assign o_data_wb_va             = {postalu_address_ff[31:2], postalu_va_lo};
+assign o_data_wb_ldfmt          = {postalu_address_ff[1:0], postalu_sbyte_ff, postalu_ubyte_ff,
+                                   postalu_shalf_ff, postalu_uhalf_ff};
 assign postalu1_align_fault     = align_en && (
         ( !(postalu1_ubyte_ff | postalu1_sbyte_ff | postalu1_uhalf_ff | postalu1_shalf_ff) &&
           postalu1_va_lo != 2'd0 ) ||

@@ -61,6 +61,7 @@ input   logic [3:0]      i_ben,
 input   logic [31:0]     i_dat,
 input   logic            i_align_fault,  // ARM925T: alignment fault (see zap_core).
 input   logic [31:0]     i_va,           // ARM925T: full address, for the FAR.
+input   logic [5:0]      i_ldfmt,        // ARM925T: load format (see zap_core).
 output logic  [31:0]     o_dat,
 output  logic            o_ack,
 output  logic            o_err,
@@ -164,6 +165,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_din                  (i_dat),
         .i_align_fault          (i_align_fault),
         .i_va                   (i_va),
+        .i_ldfmt                (i_ldfmt),
         .o_idle                 (idle),
         .i_ben                  (i_ben),
         .o_dat                  (o_dat),

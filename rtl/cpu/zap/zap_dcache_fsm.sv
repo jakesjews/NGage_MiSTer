@@ -51,6 +51,7 @@ input   logic    [31:0]            i_din,
 input   logic    [3:0]             i_ben,
 input   logic                      i_align_fault, // ARM925T: alignment fault.
 input   logic    [31:0]            i_va,          // ARM925T: full address.
+input   logic    [5:0]             i_ldfmt,       // ARM925T: load format (zap_core).
 input   logic    [63:0]            i_reg_idx,
 input   logic    [5:0]             i_reg_idx_bin,
 output  logic     [63:0]           o_lock,
@@ -179,6 +180,7 @@ logic    [31:0]                           phy_addr;
 logic    [63:0]                           reg_idx;
 logic    [63:0]                           lock_nxt, lock_ff;
 logic                                     wt_hit, wt_dirty; // ARM925T: write-through store.
+logic    [5:0]                            ldfmt;            // ARM925T: format of a background load.
 
 logic                                     unused;
 
@@ -188,6 +190,38 @@ logic                                     unused;
 
 // Unused
 assign      unused = |{phy_addr[$clog2(CACHE_LINE)-1:0]};
+
+//
+// ARM925T: the memory stage's load transform (zap_memory_main), for a load
+// that misses and is written to its register when the line arrives. f is
+// {address[1:0], signed byte, unsigned byte, signed halfword, unsigned
+// halfword}; a word is rotated by the address (ARMv4 unaligned LDR).
+//
+function automatic [31:0] ld_transform ( input [31:0] d, input [5:0] f );
+        logic [7:0]  b;
+        logic [15:0] h;
+
+        case ( f[5:4] )
+        2'd0:    b = d[7:0];
+        2'd1:    b = d[15:8];
+        2'd2:    b = d[23:16];
+        default: b = d[31:24];
+        endcase
+
+        h = f[5] ? d[31:16] : d[15:0];
+
+        if      ( f[2] ) ld_transform = {24'd0, b};
+        else if ( f[3] ) ld_transform = {{24{b[7]}}, b};
+        else if ( f[1] ) ld_transform = {{16{h[15]}}, h};
+        else if ( f[0] ) ld_transform = {16'd0, h};
+        else
+        case ( f[5:4] )
+        2'd0:    ld_transform = d;
+        2'd1:    ld_transform = {d[7:0],  d[31:8]};
+        2'd2:    ld_transform = {d[15:0], d[31:16]};
+        default: ld_transform = {d[23:0], d[31:24]};
+        endcase
+endfunction
 
 // Tie flops to the output
 assign o_cache_clean_req = cache_clean_req_ff; // Tie req flop to output.
@@ -229,6 +263,7 @@ begin
                 cache_tag       <= i_cache_tag;
                 phy_addr        <= i_phy_addr;
                 reg_idx         <= i_reg_idx;
+                ldfmt           <= i_ldfmt;
                 wt_hit          <= i_wr && i_wt && i_cacheable && cache_cmp && i_cache_tag_valid;
                 wt_dirty        <= i_cache_tag_dirty;
         end
@@ -759,9 +794,11 @@ begin:next_state_logic
 
                 if ( !wr )
                 begin
-                        // Write to register file
-                        o_reg_dat = adapt_cache_data(address[$clog2(CACHE_LINE)-1:2],
-                                                     cache_line);
+                        // Write to register file. ARM925T: with the load's
+                        // byte/halfword selection, sign extension or rotation
+                        // (upstream wrote the whole word for every load).
+                        o_reg_dat = ld_transform(adapt_cache_data(address[$clog2(CACHE_LINE)-1:2],
+                                                                  cache_line), ldfmt);
                         o_reg_idx = reg_idx;
                 end
                 else // Update cache line.

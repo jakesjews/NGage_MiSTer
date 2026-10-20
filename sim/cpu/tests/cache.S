@@ -3,7 +3,8 @@
 @ D-cache, so lines are evicted and written back), bytes and halfwords in
 @ cached lines, LDM/STM across lines, clean and clean+flush operations
 @ followed by reads through an uncached alias, a write-through alias,
-@ and self-modifying code (D clean + I flush). Everything checked here
+@ loads of every size that miss, and self-modifying code (D clean + I
+@ flush). Everything checked here
 @ holds with or without caches, so QEMU (which has none) must agree.
 	.include "test.inc"
 	.include "mmu.inc"
@@ -160,7 +161,44 @@ test_main:
 	CHECK	r1, 0x5AEDF00D
 	CHECKPOINT
 
-	@ 6. self-modifying code: write "mov r0, #n; mov pc, lr", clean D,
+	@ 6. loads of every size that miss the D-cache (the line is filled
+	@ after the load has been acknowledged and the register is written
+	@ in the background)
+	ldr	r4, =BUF + 0x400
+	ldr	r5, =UNC + 0x10400
+	ldr	r0, =0x8899AABB
+	str	r0, [r5]		@ memory only
+	ldr	r0, =0xF1E2D3C4
+	str	r0, [r5, #4]
+	mov	r0, #0
+	mcr	p15, 0, r0, c7, c10, 0
+	mcr	p15, 0, r0, c7, c6, 0	@ nothing cached
+	ldrb	r1, [r4, #1]
+	CHECK	r1, 0xAA
+	mcr	p15, 0, r0, c7, c6, 0
+	ldrh	r1, [r4, #2]
+	CHECK	r1, 0x8899
+	mcr	p15, 0, r0, c7, c6, 0
+	ldrsb	r1, [r4, #3]
+	CHECK	r1, 0xFFFFFF88
+	mcr	p15, 0, r0, c7, c6, 0
+	ldrsh	r1, [r4, #6]
+	CHECK	r1, 0xFFFFF1E2
+	mcr	p15, 0, r0, c7, c6, 0
+	ldrb	r1, [r4, #4]
+	add	r2, r1, #1		@ used at once
+	CHECK	r2, 0xC5
+	mcr	p15, 0, r0, c7, c6, 0
+	ldrsh	r1, [r4, #4]
+	mov	r3, #0			@ not used at once
+	mov	r3, #1
+	CHECK	r1, 0xFFFFD3C4
+	mcr	p15, 0, r0, c7, c6, 0
+	ldr	r1, [r4, #4]
+	CHECK	r1, 0xF1E2D3C4
+	CHECKPOINT
+
+	@ 7. self-modifying code: write "mov r0, #n; mov pc, lr", clean D,
 	@ flush I, call; twice with different n
 	ldr	r4, =CODE_PA
 	ldr	r0, =0xE3A00011		@ mov r0, #0x11

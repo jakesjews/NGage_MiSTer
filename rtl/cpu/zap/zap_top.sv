@@ -214,6 +214,7 @@ logic            cpu_dline_req, cpu_dline_va, dc_line_done;   // ARM925T
 logic [1:0]      cpu_dline_op;                                // ARM925T
 logic [31:0]     cpu_dline_addr;                              // ARM925T
 logic [31:0]     cpu_daddr_va;      // ARM925T
+logic [5:0]      cpu_dldfmt;        // ARM925T
 logic            code_stall;
 
 assign          s_reset = i_reset;
@@ -308,6 +309,7 @@ zap_core #(
 .o_mem_translate        (cpu_mem_translate),
 .o_data_wb_align_fault  (cpu_align_fault),
 .o_data_wb_va           (cpu_daddr_va),
+.o_data_wb_ldfmt        (cpu_dldfmt),
 .o_dcache_line_req      (cpu_dline_req),
 .o_dcache_line_op       (cpu_dline_op),
 .o_dcache_line_va       (cpu_dline_va),
@@ -582,6 +584,7 @@ u_data_cache (
 .i_dat                  (cpu_dc_dat),
 .i_align_fault          (cpu_align_fault),
 .i_va                   (cpu_daddr_va),
+.i_ldfmt                (cpu_dldfmt),
 .i_line_req             (cpu_dline_req),
 .i_line_op              (cpu_dline_op),
 .i_line_va              (cpu_dline_va),

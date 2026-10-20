@@ -3961,6 +3961,7 @@ module zap_core (
 	o_mem_translate,
 	o_data_wb_align_fault,
 	o_data_wb_va,
+	o_data_wb_ldfmt,
 	o_dcache_line_req,
 	o_dcache_line_op,
 	o_dcache_line_va,
@@ -4046,6 +4047,7 @@ module zap_core (
 	output wire o_mem_translate;
 	output wire o_data_wb_align_fault;
 	output wire [31:0] o_data_wb_va;
+	output wire [5:0] o_data_wb_ldfmt;
 	output wire o_dcache_line_req;
 	output wire [1:0] o_dcache_line_op;
 	output wire o_dcache_line_va;
@@ -4676,6 +4678,7 @@ module zap_core (
 	assign o_cpsr = alu_flags_ff[ZAP_CPSR_MODE:0];
 	assign o_data_wb_adr = {postalu_address_ff[31:2], 2'd0};
 	assign o_data_wb_va = {postalu_address_ff[31:2], postalu_va_lo};
+	assign o_data_wb_ldfmt = {postalu_address_ff[1:0], postalu_sbyte_ff, postalu_ubyte_ff, postalu_shalf_ff, postalu_uhalf_ff};
 	assign postalu1_align_fault = align_en && ((!(((postalu1_ubyte_ff | postalu1_sbyte_ff) | postalu1_uhalf_ff) | postalu1_shalf_ff) && (postalu1_va_lo != 2'd0)) || ((postalu1_uhalf_ff | postalu1_shalf_ff) && postalu1_va_lo[0]));
 	assign o_data_wb_align_fault = postalu_align_fault;
 	assign o_data_wb_adr_nxt = {alu_address_ff[31:2], 2'd0};
@@ -6579,6 +6582,7 @@ module zap_dcache_fsm (
 	i_ben,
 	i_align_fault,
 	i_va,
+	i_ldfmt,
 	i_reg_idx,
 	i_reg_idx_bin,
 	o_lock,
@@ -6654,6 +6658,7 @@ module zap_dcache_fsm (
 	input wire [3:0] i_ben;
 	input wire i_align_fault;
 	input wire [31:0] i_va;
+	input wire [5:0] i_ldfmt;
 	input wire [63:0] i_reg_idx;
 	input wire [5:0] i_reg_idx_bin;
 	output reg [63:0] o_lock;
@@ -7176,8 +7181,39 @@ module zap_dcache_fsm (
 	reg [63:0] lock_ff;
 	reg wt_hit;
 	reg wt_dirty;
+	reg [5:0] ldfmt;
 	wire unused;
 	assign unused = |{phy_addr[$clog2(CACHE_LINE) - 1:0]};
+	function automatic [31:0] ld_transform;
+		input [31:0] d;
+		input [5:0] f;
+		reg [7:0] b;
+		reg [15:0] h;
+		begin
+			case (f[5:4])
+				2'd0: b = d[7:0];
+				2'd1: b = d[15:8];
+				2'd2: b = d[23:16];
+				default: b = d[31:24];
+			endcase
+			h = (f[5] ? d[31:16] : d[15:0]);
+			if (f[2])
+				ld_transform = {24'd0, b};
+			else if (f[3])
+				ld_transform = {{24 {b[7]}}, b};
+			else if (f[1])
+				ld_transform = {{16 {h[15]}}, h};
+			else if (f[0])
+				ld_transform = {16'd0, h};
+			else
+				case (f[5:4])
+					2'd0: ld_transform = d;
+					2'd1: ld_transform = {d[7:0], d[31:8]};
+					2'd2: ld_transform = {d[15:0], d[31:16]};
+					default: ld_transform = {d[23:0], d[31:24]};
+				endcase
+		end
+	endfunction
 	assign o_cache_clean_req = cache_clean_req_ff;
 	assign o_cache_inv_req = cache_inv_req_ff;
 	assign o_line_req = line_req_ff;
@@ -7200,6 +7236,7 @@ module zap_dcache_fsm (
 			cache_tag <= i_cache_tag;
 			phy_addr <= i_phy_addr;
 			reg_idx <= i_reg_idx;
+			ldfmt <= i_ldfmt;
 			wt_hit <= (((i_wr && i_wt) && i_cacheable) && cache_cmp) && i_cache_tag_valid;
 			wt_dirty <= i_cache_tag_dirty;
 		end
@@ -7573,7 +7610,7 @@ module zap_dcache_fsm (
 					o_err2 = (i_rd || i_wr ? 1'd1 : 1'd0);
 				end
 				if (!wr) begin
-					o_reg_dat = adapt_cache_data(address[$clog2(CACHE_LINE) - 1:2], cache_line);
+					o_reg_dat = ld_transform(adapt_cache_data(address[$clog2(CACHE_LINE) - 1:2], cache_line), ldfmt);
 					o_reg_idx = reg_idx;
 				end
 				else begin
@@ -7682,6 +7719,7 @@ module zap_dcache (
 	i_dat,
 	i_align_fault,
 	i_va,
+	i_ldfmt,
 	o_dat,
 	o_ack,
 	o_err,
@@ -7751,6 +7789,7 @@ module zap_dcache (
 	input wire [31:0] i_dat;
 	input wire i_align_fault;
 	input wire [31:0] i_va;
+	input wire [5:0] i_ldfmt;
 	output wire [31:0] o_dat;
 	output wire o_ack;
 	output wire o_err;
@@ -8123,6 +8162,7 @@ module zap_dcache (
 		.i_din(i_dat),
 		.i_align_fault(i_align_fault),
 		.i_va(i_va),
+		.i_ldfmt(i_ldfmt),
 		.o_idle(idle),
 		.i_ben(i_ben),
 		.o_dat(o_dat),
@@ -19169,6 +19209,7 @@ module zap_top (
 	wire [1:0] cpu_dline_op;
 	wire [31:0] cpu_dline_addr;
 	wire [31:0] cpu_daddr_va;
+	wire [5:0] cpu_dldfmt;
 	wire code_stall;
 	assign s_reset = i_reset;
 	zap_dual_rank_synchronizer #(.WIDTH(2)) u_sync(
@@ -19241,6 +19282,7 @@ module zap_top (
 		.o_mem_translate(cpu_mem_translate),
 		.o_data_wb_align_fault(cpu_align_fault),
 		.o_data_wb_va(cpu_daddr_va),
+		.o_data_wb_ldfmt(cpu_dldfmt),
 		.o_dcache_line_req(cpu_dline_req),
 		.o_dcache_line_op(cpu_dline_op),
 		.o_dcache_line_va(cpu_dline_va),
@@ -19416,6 +19458,7 @@ module zap_top (
 				.i_dat(cpu_dc_dat),
 				.i_align_fault(cpu_align_fault),
 				.i_va(cpu_daddr_va),
+				.i_ldfmt(cpu_dldfmt),
 				.i_line_req(cpu_dline_req),
 				.i_line_op(cpu_dline_op),
 				.i_line_va(cpu_dline_va),
