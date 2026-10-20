@@ -193,6 +193,7 @@ static void ngage_init(MachineState *machine)
             }
         }
         ngage_mmc_create(sysmem, s->mmc, ml);
+        ngage_dma_create(sysmem, ml);
     }
     {
         FILE *ll = NULL;

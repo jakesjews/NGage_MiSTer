@@ -26,7 +26,14 @@
  *           give bits 39:8 in one read; R2 gives four words, most
  *           significant first, the driver waiting for bit 8 before each
  *           (0x503F54F4, 0x503F555C).
- *   +0x624  read before +0x618 when powering down (0x503F4D30): unknown.
+ *   +0x624  data FIFO, 8 bits wide for the DMA (ekern table 0x503401D0 gives
+ *           the DMA address 0x10120624 for device type 5 = MMC); also read
+ *           once before +0x618 when powering down (0x503F4D30).
+ * Data phases (control bits 5:2, epbus 0x503F5688-0x503F57A8): 8 (0x20) =
+ * command with R1 and a block read (CMD17 is issued with 0x21), 9 (0x24) =
+ * read the next block, 10 (0x28) = CMD12 after reading; 5 (0x14), 6
+ * (0x18), 7 (0x1C) = the same for writing. +0x608 holds the block length for the phase. The driver
+ * starts the DMA after the command (0x503F57D0, 0x503F585C).
  * Interrupts (bound by name in epbus 0x503F6180-0x503F62E8): MMCCmdIdle,
  * MMCDataIdle, MMCCmdRdy (sources 23, 21, 24) are modelled as levels that
  * follow the status bits; the driver disables each in its ISR. Data moves by
@@ -64,6 +71,10 @@ typedef struct NGageMmc {
     uint32_t status;
     uint32_t resp[4];
     int resp_words, resp_pos;
+    uint8_t blk[4096];
+    uint32_t blk_len, blk_pos;
+    uint64_t data_addr;
+    bool writing;
     FILE *log;
     /* card */
     bool present;
@@ -82,6 +93,7 @@ static void mmc_irq_update(NGageMmc *s)
     ngage_intc_set_source(NGAGE_IRQ_MMC_CMDIDLE, !(s->status & ST_CMD_BUSY));
     ngage_intc_set_source(NGAGE_IRQ_MMC_DATAIDLE, !(s->status & ST_DATA_BUSY));
     ngage_intc_set_source(NGAGE_IRQ_MMC_CMDRDY, (s->status & ST_RESP) != 0);
+    ngage_intc_set_source(NGAGE_IRQ_MMC_DATARDY, (s->status & ST_DATA_BUSY) != 0);
 }
 
 static uint32_t card_status(NGageMmc *s)
@@ -169,6 +181,17 @@ static bool mmc_command(NGageMmc *s, unsigned cmd, uint32_t arg)
         }
         resp48(s, card_status(s));
         return true;
+    case 17:                                    /* READ_SINGLE_BLOCK */
+    case 18:                                    /* READ_MULTIPLE_BLOCK */
+    case 24:                                    /* WRITE_BLOCK */
+    case 25:                                    /* WRITE_MULTIPLE_BLOCK */
+        if (s->state != CARD_TRAN) {
+            return false;
+        }
+        resp48(s, card_status(s) | (cmd >= 24 && s->read_only ? (1u << 26) : 0));
+        /* single-block transfers are over before the next command */
+        s->state = (cmd == 18 || cmd == 25) ? CARD_DATA : CARD_TRAN;
+        return true;
     case 16:                                    /* SET_BLOCKLEN */
         s->blocklen = arg;
         resp48(s, card_status(s));
@@ -179,6 +202,33 @@ static bool mmc_command(NGageMmc *s, unsigned cmd, uint32_t arg)
     }
 }
 
+static void mmc_load_block(NGageMmc *s)
+{
+    uint32_t len = s->regs[0x08 >> 2] ? s->regs[0x08 >> 2] : s->blocklen;
+
+    len = MIN(len, sizeof(s->blk));
+    memset(s->blk, 0xFF, len);
+    if (s->data_addr < s->size) {
+        memcpy(s->blk, s->data + s->data_addr, MIN(len, s->size - s->data_addr));
+    }
+    s->blk_len = len;
+    s->blk_pos = 0;
+    s->writing = false;
+    s->status |= ST_DATA_BUSY;
+}
+
+static void mmc_flush_block(NGageMmc *s)
+{
+    if (!s->read_only && s->data_addr < s->size) {
+        memcpy(s->data + s->data_addr, s->blk, MIN(s->blk_len, s->size - s->data_addr));
+    }
+    if (s->log) {
+        fprintf(s->log, "  write block @%08" PRIx64 " %u bytes%s\n", s->data_addr, s->blk_len,
+                s->read_only ? " (read-only card: dropped)" : "");
+    }
+    s->data_addr += s->blk_len;
+}
+
 static void mmc_start(NGageMmc *s, uint32_t ctrl)
 {
     unsigned cmd = s->regs[0x1C >> 2] & 0x3F, type = (ctrl >> 2) & 0xF;
@@ -187,12 +237,37 @@ static void mmc_start(NGageMmc *s, uint32_t ctrl)
 
     s->status = 0;
     s->resp_words = 0;
-    answered = mmc_command(s, cmd, arg);
-    if (type != 0) {
+    if (type == 6 || type == 9) {
+        /* next block of a multi-block transfer: no command on the bus */
+        if (type == 9) {
+            s->data_addr += s->blk_len;
+            mmc_load_block(s);
+        } else {
+            s->blk_pos = 0;
+            s->blk_len = MIN(s->regs[0x08 >> 2] ? s->regs[0x08 >> 2] : s->blocklen, sizeof(s->blk));
+            s->writing = true;
+            s->status |= ST_DATA_BUSY;
+        }
+        answered = true;
+    } else {
+        answered = mmc_command(s, cmd, arg);
+    }
+    if (type != 0 && type != 6 && type != 9) {
         if (answered && s->resp_words) {
             s->status |= ST_RESP;
         } else {
             s->status |= ST_RESP_TIMEOUT;
+        }
+    }
+    if (answered && (type == 5 || type == 8)) {
+        s->data_addr = arg;
+        if (type == 8) {
+            mmc_load_block(s);
+        } else {
+            s->blk_pos = 0;
+            s->blk_len = MIN(s->regs[0x08 >> 2] ? s->regs[0x08 >> 2] : s->blocklen, sizeof(s->blk));
+            s->writing = true;
+            s->status |= ST_DATA_BUSY;
         }
     }
     if (s->log) {
@@ -213,6 +288,18 @@ static uint64_t mmc_read(void *opaque, hwaddr off, unsigned size)
         break;
     case 0x18:
         v = s->status;
+        break;
+    case 0x24:
+        v = 0;
+        for (unsigned i = 0; i < size; i++) {
+            if (!s->writing && s->blk_pos < s->blk_len) {
+                v |= (uint32_t)s->blk[s->blk_pos++] << (8 * i);
+            }
+        }
+        if (!s->writing && s->blk_pos >= s->blk_len && (s->status & ST_DATA_BUSY)) {
+            s->status &= ~ST_DATA_BUSY;
+            mmc_irq_update(s);
+        }
         break;
     case 0x20:
         if (s->resp_pos < s->resp_words) {
@@ -237,6 +324,18 @@ static void mmc_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
     NGageMmc *s = opaque;
 
     ngage_trace_log("mmc", true, MMC_BASE + off, size, val);
+    if (off == 0x24) {
+        for (unsigned i = 0; i < size && s->writing && s->blk_pos < s->blk_len; i++) {
+            s->blk[s->blk_pos++] = val >> (8 * i);
+        }
+        if (s->writing && s->blk_pos >= s->blk_len) {
+            mmc_flush_block(s);
+            s->writing = false;
+            s->status &= ~ST_DATA_BUSY;
+            mmc_irq_update(s);
+        }
+        return;
+    }
     s->regs[(off >> 2) & 15] = val;
     if (off == 0x04 && (val & 1)) {
         mmc_start(s, val);
@@ -246,7 +345,8 @@ static void mmc_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
 static const MemoryRegionOps mmc_ops = {
     .read = mmc_read, .write = mmc_write,
     .endianness = DEVICE_LITTLE_ENDIAN,
-    .valid = { .min_access_size = 4, .max_access_size = 4 },
+    .valid = { .min_access_size = 1, .max_access_size = 4 },
+    .impl = { .min_access_size = 1, .max_access_size = 4 },
 };
 
 static uint8_t crc7(const uint8_t *d, int n)

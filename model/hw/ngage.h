@@ -51,6 +51,7 @@ void ngage_intc_set_source(int src, int level);
 
 /* Interrupt source numbers (ngage_intc.c). */
 #define NGAGE_IRQ_TIMER(n)      (n)
+#define NGAGE_IRQ_DMA(n)        (6 + (n))
 #define NGAGE_IRQ_LCDBUFFER     15
 #define NGAGE_IRQ_MMC_DATAIDLE  21
 #define NGAGE_IRQ_MMC_DATARDY   22
@@ -70,6 +71,9 @@ void ngage_lcd_create(MemoryRegion *sysmem, FILE *log, const char *shot_dir,
 
 /* UIF ports D/E and the key matrix (ngage_keypad.c). */
 void ngage_keypad_create(MemoryRegion *sysmem, const char *script, FILE *log);
+
+/* DMA controller (ngage_dma.c). */
+void ngage_dma_create(MemoryRegion *sysmem, FILE *log);
 
 /* MMC host and card (ngage_mmc.c). image may be NULL (empty slot). */
 void ngage_mmc_create(MemoryRegion *sysmem, const char *image, FILE *log);
