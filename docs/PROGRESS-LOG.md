@@ -600,3 +600,17 @@ found, and what comes next. Research material lives in `research/`
 - For a working first version: clock the CPU domain lower, or retime the
   critical paths. ZAP's IPC is likely at or above an ARM9TDMI's, so a
   slightly lower clock should not cost speed against the real phone.
+
+### 2026-10-20: first run on the MiSTer
+- The board-level core (RBF from the FPGA-side agent's full compile) loads
+  on the MiSTer and shows the test picture: colour bars, gradient grid,
+  and key boxes. It was captured with the Zaparoo `screenshot` API at
+  880x1040, which is 176x208 at 5x. The capture is
+  `build/hardware/ngage-testpattern.png`, untracked.
+- MiSTer setup for captures:
+  - Zaparoo service started (`zaparoo.sh -service start`).
+  - `[NGage]` section with `direct_video=0` added to /media/fat/MiSTer.ini,
+    so only this core uses the scaler. Backup:
+    /media/fat/MiSTer.ini.ngagebak.
+- Not yet checked on hardware: key input through the test picture, OSD
+  flash loading, MMC mount.
