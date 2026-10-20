@@ -1395,3 +1395,11 @@ found, and what comes next. Research material lives in `research/`
   the driver's PASET rows: the bar it draws falls in them. The screen saver
   is black with a moving bar, as on the phone, instead of white
   (`model/.out/ss1`). `rtl/board/lcd_panel.sv` needs the same.
+
+### 2026-10-20: model agent done; screensaver modes already in the panel RTL
+- Model status: saves persist (tested with Sega Rally options), and sound
+  plays on every boot after the 0x1F/0x06 release-answer fix. The
+  screensaver's partial and idle modes are modelled.
+- `rtl/board/lcd_panel.sv` already implements the same behaviour
+  (PTLAR/PTLON blank outside the area with PARTIAL_RGB = 0, and IDMON keeps
+  the top bit of each channel), so nothing needs porting.
