@@ -1226,3 +1226,27 @@ found, and what comes next. Research material lives in `research/`
     write-back, as the memory system entry describes;
   - the HLE audio block in RTL;
   - the RTC from hps_io into the UEMK registers.
+
+### 2026-10-20, UPP peripherals (RTL): MMC types 10 and 7 carry the last block
+- `rtl/upp/upp_mmc.sv` now follows the corrected model (71b0d8a). Types 10
+  and 7 move one more block (a read like type 9, a write like 6), then send
+  the command the driver loaded into `+0x1C`/`+0x20` (CMD12). For 10 it
+  goes after the block's end bit; for 7 after the card's busy, as R1b.
+  Command busy covers the block. That is safe: epbus starts the DMA
+  straight after the control write and then waits for command idle, data
+  idle and the DMA in any order (`0x503F57D0`-`0x503F5A94`). Before, type
+  10 was CMD12 alone, so the RTL had the model's old bug: the last block of
+  every read came back as zeros.
+- periph bench: multi-block transfers run the way epbus runs them, 3 blocks
+  and 4 KB (8, six 9s, 10; 5, six 6s, 7).
+  - Every block is checked against the card image, plus a 4 KB read-back
+    and the R1 states (CMD18/25 tran; CMD12 data or rcv).
+  - The previous host fails these with exactly the games' symptom: the last
+    block zeros or unwritten.
+  - `--card FILE.mmc` (`MMC_CARD` in sim/Makefile, default
+    `model/.out/cards/sonicn.mmc`): the real card's CID and CSD and its first
+    16 sectors match. It is local data, not committed, and skipped when the
+    file is absent.
+- Quartus: every corner met at 104 MHz.
+  - Worst setup +0.335 ns (slow -40C), hold +0.107 ns.
+  - 18,247 ALMs (44%); upp_mmc 812 ALMs, up from 758.
