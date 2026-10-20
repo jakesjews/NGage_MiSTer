@@ -905,6 +905,22 @@ void test_mmc(Bench &b) {
 	read_check(SD + 0xC10000, 100, 3, "CMD18");
 	s = m.cmd(13, 0x00010000, 0x05);
 	CHECK_EQ((m.resp() >> 9) & 15, 4, "CMD13: back in tran");
+	// past the capacity: OUT_OF_RANGE and no block; the host times out (2^16
+	// clocks here), the paced DMA then reads zeros and finishes
+	{
+		uint64_t t0 = b.cyc;
+		s = m.cmd(17, 0x7FFFFE00, 0x21, 0x200);
+		CHECK_EQ(s & ~4u, 0x100, "CMD17 out of range: answered");
+		uint32_t r1 = m.resp();
+		for (int i = 0; i < 64; i++) b.sd_poke(SD + 0xC20000 + i, 0x55);
+		b.dma_setup(5, 0x10120624, 0, 0x08, SD + 0xC20000, 4, 0x20, 512);
+		b.dma_start(5, 2);
+		m.wait_data(5);
+		CHECK_EQ(m.status() & 0x80, 0x80, "data time-out");
+		CHECK_EQ(b.sd_byte(SD + 0xC20000), 0, "the DMA read zeros");
+		printf("  CMD17 out of range (R1 %08x): data time-out after %llu clocks\n", r1, (unsigned long long)(b.cyc - t0));
+		CHECK_EQ(r1 >> 31, 1, "OUT_OF_RANGE in the R1");
+	}
 	// a retail card refuses writes: CMD24 gets no response (illegal for class 0/1/2)
 	s = m.cmd(24, 0, 0x15, 0x200);
 	CHECK_EQ(s & 0x40, 0x40, "CMD24 to a retail card: no response");
@@ -1041,10 +1057,19 @@ struct Cbus {
 void test_cbus(Bench &b, const std::string &dir) {
 	printf("CBUS\n");
 	Cbus c(b);
-	// the power key counts as held for POWER_ON_HOLD_CLKS (20000 here) after reset
+	// the power key counts as held for POWER_ON_HOLD_CLKS (20000 here) after
+	// reset, and until 0x1F has been read once
+	b.reset_core();
+	b.run(5000);
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0002, "UEMK 0x1F: power key held at power-on");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0002, "UEMK 0x1F: still held within the hold time");
 	b.run(30000);
 	CHECK_EQ(c.read(1, 0x15, 16), 0x0008, "UEMK 0x15");
 	CHECK_EQ(c.read(1, 0x1F, 16), 0x0000, "UEMK 0x1F, power key up");
+	b.reset_core();
+	b.run(30000);
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0002, "UEMK 0x1F: the first read after the hold time still sees the key");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0000, "UEMK 0x1F: released after the first read");
 	b.power = true;
 	b.run(20);
 	CHECK_EQ(c.read(1, 0x1F, 16), 0x0002, "UEMK 0x1F bit 1: power key held");
@@ -1097,13 +1122,15 @@ void test_cbus(Bench &b, const std::string &dir) {
 			c.wait_done();
 			nw++;
 		} else if (rw == 'R') {
-			// the power key as the model had it then (UEMK 0x1F bit 1); the
-			// directed checks above test the key itself
+			// the power key as the model had it then (UEMK 0x1F bit 1); its
+			// timing is guest time against clocks, so bit 1 is not compared
+			// here (the directed checks above test the key itself)
 			if (dev == 1 && reg == 0x1F) { b.power = val >> 1 & 1; b.run(20); }
 			b.wr16(CBUS + 0, len);
 			b.wr16(CBUS + 2, ctrl);
 			c.wait_done();
 			uint32_t got = b.rd16(CBUS + 6) | (bits > 16 ? b.rd16(CBUS + 4) << 16 : 0);
+			if (dev == 1 && reg == 0x1F) { got &= ~2u; val &= ~2u; }
 			nr++;
 			if (got != val) sim::fail("cbus.log: dev %u reg %02x read 0x%x, the model logged 0x%x", dev, reg, got, val);
 		}

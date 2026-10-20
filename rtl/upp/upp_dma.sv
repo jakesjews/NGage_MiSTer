@@ -75,8 +75,7 @@ module upp_dma #(
 	logic [1:0] sw [0:7];
 	logic [1:0] dw [0:7];
 
-	wire [11:0] doff = off - 12'h300;
-	wire [2:0]  ch   = doff[8:6];
+	wire [2:0]  ch   = 3'((off - 12'h300) >> 6);
 	wire [5:0]  r    = off[5:0];
 
 	function automatic logic [1:0] wlog(input logic [31:0] code);
@@ -355,7 +354,5 @@ module upp_dma #(
 		end
 	end
 
-	logic unused;
-	assign unused = ^{doff[11:9], doff[5:0]};
 
 endmodule

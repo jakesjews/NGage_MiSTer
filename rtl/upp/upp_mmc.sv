@@ -584,7 +584,5 @@ module upp_mmc #(
 
 	assign irq = {status[B_RESP], !status[B_CMD_BUSY], status[B_DATA_BUSY], !status[B_DATA_BUSY]};
 
-	logic unused;
-	assign unused = ^{ty[3], ty[1:0]};
 
 endmodule

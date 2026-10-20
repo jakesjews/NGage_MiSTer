@@ -70,20 +70,17 @@ module wb_arb2 (
 	wire txn_end = (s_ack || s_err) && s_cti != 3'b010;
 	wire swap    = other && (txn_end || (!s_cyc && s_idle));
 
-	logic swapped = 1'b0;
-
 	always_ff @(posedge clk) begin
 		if (swap) gnt <= !gnt;
-		swapped <= swap;
-		if (reset) begin
-			gnt     <= 1'b0;
-			swapped <= 1'b0;
-		end
+		if (reset) gnt <= 1'b0;
 	end
 
+	// simulation: upp_bus is idle in the clock after every change of grant
 	// synthesis translate_off
+	logic swapped = 1'b0;
 	always_ff @(posedge clk) begin
 		if (swapped && !s_idle && !reset) $error("wb_arb2: the grant changed while upp_bus was busy");
+		swapped <= swap && !reset;
 	end
 	// synthesis translate_on
 

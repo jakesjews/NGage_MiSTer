@@ -50,7 +50,7 @@ module upp_periph #(
 	parameter int LCD_RD_LOW         = 4,
 	parameter int LCD_RD_HIGH        = 6,
 	parameter int DMA_ENGINES        = 3,
-	parameter int POWER_ON_HOLD_CLKS = 104_000_000     // 1 s
+	parameter int POWER_ON_HOLD_CLKS = 312_000_000     // 3 s, as the model
 ) (
 	input  logic        clk,
 	input  logic        reset,
@@ -330,7 +330,7 @@ module upp_periph #(
 		.acc(acc && (s_ctsi || s_kp)),
 		.wr(wr && (s_ctsi || s_kp)),
 		.off(off),
-		.be(p_be),
+		.hi(p_be[2]),
 		.wdata(p_wdata),
 		.rmask(m_uif),
 		.rdata(d_uif),
@@ -349,7 +349,7 @@ module upp_periph #(
 		.acc(acc && s_cbus),
 		.we(p_we),
 		.wr(wr && s_cbus),
-		.off(off[2:0] | {1'b0, p_addr[1:0]}),
+		.off_hi(p_addr[2]),
 		.be(p_be),
 		.wdata(p_wdata),
 		.rmask(m_cbus),

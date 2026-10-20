@@ -55,8 +55,7 @@ module upp_intc (
 
 	// the bank an offset in 0x100-0x27F names, and the register in it
 	wire        is_ost  = off[11:6] == 6'h01;                 // 0x040-0x07F
-	wire [11:0] ioff    = off - 12'h100;
-	wire [2:0]  idx     = ioff[8:6];                          // 0..5
+	wire [2:0]  idx     = 3'((off - 12'h100) >> 6);           // 0..5
 	wire [1:0]  bank    = (idx >= 3'd3) ? 2'(idx - 3'd3) : idx[1:0];
 	wire [5:0]  r       = off[5:0];
 
@@ -108,8 +107,6 @@ module upp_intc (
 		end
 	end
 
-	logic unused;
-	assign unused = ^{ioff[11:9], ioff[5:0]};
 
 	always_ff @(posedge clk) begin
 		irq <= |(src[31:0] & en[0]) | |(src[63:32] & en[1]) | |(src[95:64] & en[2]);

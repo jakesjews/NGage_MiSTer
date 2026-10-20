@@ -57,8 +57,7 @@ module upp_timers #(
 	logic [PW-1:0] pre    [0:5];
 	logic [5:0]    running;
 
-	wire [11:0] toff = off - 12'hA00;
-	wire [2:0]  n    = toff[7:5];
+	wire [2:0]  n    = 3'((off - 12'hA00) >> 5);
 	wire [4:0]  r    = off[4:0];
 
 	always_comb begin
@@ -144,7 +143,5 @@ module upp_timers #(
 		end
 	endgenerate
 
-	logic unused;
-	assign unused = ^{toff[11:8], toff[4:0]};
 
 endmodule

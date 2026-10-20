@@ -35,7 +35,7 @@ module upp_uif (
 	input  logic        acc,
 	input  logic        wr,
 	input  logic [11:0] off,          // byte offset in the 0x0C150000 page
-	input  logic [3:0]  be,
+	input  logic        hi,           // the access is to the upper halfword (bytes 3:2)
 	input  logic [31:0] wdata,
 	output logic [31:0] rmask,
 	output logic [31:0] rdata,
@@ -68,8 +68,8 @@ module upp_uif (
 	assign row_out = data_e;
 
 	wire is_ctsi = off == 12'h100;
-	wire [4:0] w = {off[4:2], be[2], 1'b0};       // the 16-bit register's offset
-	wire [15:0] wv = be[2] ? wdata[31:16] : wdata[15:0];
+	wire [4:0] w = {off[4:2], hi, 1'b0};          // the 16-bit register's offset
+	wire [15:0] wv = hi ? wdata[31:16] : wdata[15:0];
 
 	always_comb begin
 		rmask = 32'd0;
@@ -149,7 +149,5 @@ module upp_uif (
 
 	assign ctsi_irq = ctsi[2] | ctsi[3];
 
-	logic unused;
-	assign unused = ^{off[11:5], off[1:0], be[3], be[1:0], dir_d[7:5], dir_e[7:6], ien_d[7:5], ien_e[7:6]};
 
 endmodule

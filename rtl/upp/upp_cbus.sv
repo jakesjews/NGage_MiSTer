@@ -22,8 +22,12 @@
 //     0x1F power-on status reads 0 except bit 1 = the power key held (ekeyb
 //     0x5041CCBC reads it as the power key; the bootstrap at 0x3090 takes the
 //     normal power-on path with it set, start-up reason 0). As in the model the
-//     key counts as held for POWER_ON_HOLD_CLKS after reset (a user switching
-//     the phone on) and while power_key is high.
+//     key counts as held for POWER_ON_HOLD_CLKS after reset (3 s, a user
+//     switching the phone on; the model holds it 3 guest seconds because the
+//     bootstrap reads it only after its flash digest check) and while
+//     power_key is high. [deviation] It also stays held until the first read
+//     of 0x1F, so that the bootstrap sees it however long the digest check
+//     takes on this CPU; in the model that read comes after 1-2 s.
 //     A/D converter: a write of 0x19 with bit 11 set converts channel bits
 //     15:12 into 0x1A (10 bits): channel 6, the battery-size indicator, reads
 //     485 ([model guess], inside cbus.dll's 380-590 "normal battery" range,
@@ -34,7 +38,7 @@
 // "ro" registers keep the written value but read their fixed one, as the
 // model's ro lines. Reads and writes are masked to the transfer length.
 module upp_cbus #(
-	parameter int POWER_ON_HOLD_CLKS = 104_000_000
+	parameter int POWER_ON_HOLD_CLKS = 312_000_000
 ) (
 	input  logic        clk,
 	input  logic        reset,
@@ -42,7 +46,7 @@ module upp_cbus #(
 	input  logic        acc,
 	input  logic        we,
 	input  logic        wr,
-	input  logic [2:0]  off,          // byte offset from 0x0C150420
+	input  logic        off_hi,       // the word at 0x0C150424 (0: 0x0C150420)
 	input  logic [3:0]  be,
 	input  logic [31:0] wdata,
 	output logic [31:0] rmask,
@@ -71,7 +75,8 @@ module upp_cbus #(
 
 	localparam int HW = $clog2(POWER_ON_HOLD_CLKS + 1);
 
-	logic [15:0] len, ctrl, data_hi, data_lo;
+	logic [15:0] len, data_hi, data_lo;
+	logic [9:0]  ctrl;
 	logic [9:0]  adc;                   // UEMK 0x1A
 	logic        rd_pend, rd_q;
 	logic [2:0]  rd_dev;
@@ -79,9 +84,10 @@ module upp_cbus #(
 	logic [5:0]  rd_bits;
 	logic [8:0]  clr;                   // the reset fill of the register file
 	logic [HW-1:0] hold;
+	logic          read_1f;            // UEMK 0x1F has been read since reset
 
 	wire  clearing = !clr[8];
-	wire  power    = power_key || hold != '0;
+	wire  power    = power_key || hold != '0 || !read_1f;
 
 	// the register file
 	logic        rf_we;
@@ -104,10 +110,10 @@ module upp_cbus #(
 	// the halves this access writes, and the values they leave
 	wire        w_lo = wr && be[1:0] != 2'b00;
 	wire        w_hi = wr && be[3:2] != 2'b00;
-	wire [4:0]  len_n  = (w_lo && off[2] == 1'b0) ? wdata[4:0] : len[4:0];
-	wire [15:0] dhi_n  = (w_lo && off[2] == 1'b1) ? wdata[15:0] : data_hi;
-	wire        start_rd = w_hi && off[2] == 1'b0 && wdata[24];
-	wire        start_wr = w_hi && off[2] == 1'b1;
+	wire [4:0]  len_n  = (w_lo && !off_hi) ? wdata[4:0] : len[4:0];
+	wire [15:0] dhi_n  = (w_lo && off_hi) ? wdata[15:0] : data_hi;
+	wire        start_rd = w_hi && !off_hi && wdata[24];
+	wire        start_wr = w_hi && off_hi;
 	wire [2:0]  w_dev  = ctrl[7:5];
 	wire [4:0]  w_reg  = ctrl[4:0];
 	wire [5:0]  w_bits = {1'b0, len[4:0]} + 6'd1;
@@ -121,7 +127,7 @@ module upp_cbus #(
 		busy  = 1'b0;
 		if (acc) begin
 			rmask = '1;
-			if (off[2] == 1'b0) begin
+			if (!off_hi) begin
 				rdata = {5'd0, !xfer_busy, ctrl[9:0], len};
 			end else begin
 				rdata = {data_lo, data_hi};
@@ -137,11 +143,11 @@ module upp_cbus #(
 		if (hold != '0) hold <= hold - 1'd1;
 
 		if (w_lo) begin
-			if (off[2] == 1'b0) len <= wdata[15:0];
+			if (!off_hi) len <= wdata[15:0];
 			else                data_hi <= wdata[15:0];
 		end
 		if (w_hi) begin
-			if (off[2] == 1'b0) ctrl <= {6'd0, wdata[25:16]};
+			if (!off_hi) ctrl <= wdata[25:16];
 			else                data_lo <= wdata[31:16];
 		end
 
@@ -155,7 +161,10 @@ module upp_cbus #(
 			logic [31:0] v;
 			v = is_ro(rd_dev, rd_reg) ? ro_val(rd_dev, rd_reg) :
 			    (rd_dev == 3'd1 && rd_reg == 5'h1A) ? {22'd0, adc} : rf_q;
-			if (rd_dev == 3'd1 && rd_reg == 5'h1F) v[1] = power;
+			if (rd_dev == 3'd1 && rd_reg == 5'h1F) begin
+				v[1] = power;
+				read_1f <= 1'b1;
+			end
 			v = v & bmask(rd_bits);
 			data_lo <= v[15:0];
 			data_hi <= v[31:16];
@@ -177,7 +186,7 @@ module upp_cbus #(
 
 		if (reset) begin
 			len     <= 16'd0;
-			ctrl    <= 16'd0;
+			ctrl    <= 10'd0;
 			data_hi <= 16'd0;
 			data_lo <= 16'd0;
 			adc     <= 10'd0;
@@ -187,10 +196,9 @@ module upp_cbus #(
 			rd_reg  <= 5'd0;
 			clr     <= 9'd0;
 			hold    <= HW'(POWER_ON_HOLD_CLKS);
+			read_1f <= 1'b0;
 		end
 	end
 
-	logic unused;
-	assign unused = ^{off[1:0], len[15:5], ctrl[15:10]};
 
 endmodule

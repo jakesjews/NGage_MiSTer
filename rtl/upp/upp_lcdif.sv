@@ -100,7 +100,6 @@ module upp_lcdif #(
 	logic        q_pop;
 	wire         q_full, q_empty, q_valid;
 	wire [32:0]  q_dout;
-	wire [QAW:0] q_room;
 
 	wire push = wr && (off == 4'h0 || off == 4'h8);
 	wire want_read = acc && !we && off == 4'h8 && read_phase;
@@ -115,7 +114,7 @@ module upp_lcdif #(
 		.valid(q_valid),
 		.full(q_full),
 		.empty(q_empty),
-		.room(q_room)
+		.room()
 	);
 
 	assign tx_ready = !q_full;
@@ -273,7 +272,5 @@ module upp_lcdif #(
 	assign csx  = 1'b0;
 	assign resx = 1'b1;
 
-	logic unused;
-	assign unused = ^{q_room, q_dout[30:28], q_dout[15:12]};
 
 endmodule
