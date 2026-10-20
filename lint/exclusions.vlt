@@ -16,6 +16,9 @@ lint_off -rule UNUSEDSIGNAL -file "rtl/board/lcd_panel.sv" -match "*Signal is no
 // bits that select a sector or a bank.
 lint_off -rule UNUSEDSIGNAL -file "rtl/board/nor_flash.sv" -match "*Bits of function variable are not used*"
 
+// ddram_flash: the index and tag helpers take a whole {chip, word} address.
+lint_off -rule UNUSEDSIGNAL -file "rtl/mem/ddram_flash.sv" -match "*Bits of function variable are not used: 'g'*"
+
 // mmc_card: a transfer with the HPS is one block, so the buffer address
 // within it is 8 bits; the image size counts whole blocks up to 2 TB; the
 // card's busy bit and the command classes it does not act on are kept in the

@@ -2,14 +2,15 @@ VERILATOR ?= verilator
 
 # Modules linted as tops of their own, so that a block is checked with its
 # default parameters even where the shell ties ports off.
-LINT_TOPS := emu lcd_panel video_out keypad_matrix nor_flash mmc_card ngage_input ddram_loader lcd_testgen
+LINT_TOPS := emu lcd_panel video_out keypad_matrix nor_flash mmc_card ngage_input ddram_loader lcd_testgen \
+             sdram ddram_flash
 
 .PHONY: help lint lint-prepare test clean cpu-gen cpu-gen-check
 
 help:
 	@echo "make lint   Lint the RTL with Verilator (-Wall)"
 	@echo "make test   Build and run every Verilator bench in sim/ (one at a time)"
-	@echo "make -C sim <bench>   One bench: lcd video keypad flash mmc top"
+	@echo "make -C sim <bench>   One bench: lcd video keypad flash mmc sdram sdram-faults ddrflash upp top"
 	@echo "make clean  Remove sim/build"
 	@echo "make cpu-gen        Regenerate rtl/cpu/arm925t_gen.v (tools/gen_cpu.sh, needs sv2v)"
 	@echo "make cpu-gen-check  Check that rtl/cpu/arm925t_gen.v matches its sources"

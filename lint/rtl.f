@@ -25,6 +25,8 @@ rtl/board/video_out.sv
 rtl/board/keypad_matrix.sv
 rtl/board/nor_flash.sv
 rtl/board/mmc_card.sv
+rtl/mem/sdram.sv
+rtl/mem/ddram_flash.sv
 rtl/mister/ngage_input.sv
 rtl/mister/ddram_loader.sv
 rtl/mister/lcd_testgen.sv

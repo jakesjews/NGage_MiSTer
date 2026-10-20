@@ -1,6 +1,7 @@
-# Verilator benches for the board-level devices and the MiSTer shell.
-# Run from the repository root with `make test`, or one bench at a time with
-# `make -C sim lcd` (lcd, video, keypad, flash, mmc, top). Each bench is built
+# Verilator benches for the board-level devices, the memory system and the
+# MiSTer shell. Run from the repository root with `make test`, or one bench
+# at a time with `make -C sim lcd` (lcd, video, keypad, flash, mmc, sdram,
+# sdram-faults, ddrflash, upp, top). Each bench is built
 # into sim/build/<name> and run at once; pictures go to sim/build/out.
 # The benches run one after the other.
 ROOT      := $(abspath ..)
@@ -16,7 +17,7 @@ VFLAGS := --cc --exe --build -j 4 -O3 --x-assign unique --x-initial unique \
           -CFLAGS "-O2 -std=c++17 -I$(ROOT)/sim/harness"
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
-BENCHES := lcd video keypad flash mmc top
+BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash top
 
 .PHONY: test $(BENCHES) clean
 
@@ -73,6 +74,34 @@ $(BUILD)/mmc/Vmmc_card: $(MMC_RTL) $(ROOT)/sim/harness/mmc_main.cpp $(ROOT)/sim/
 	mkdir -p $(BUILD)/mmc && $(VERILATOR) $(VFLAGS) --top-module mmc_card --Mdir $(BUILD)/mmc -o Vmmc_card \
 		$(MMC_RTL) $(ROOT)/sim/harness/mmc_main.cpp
 mmc: $(BUILD)/mmc/Vmmc_card
+	$< $(RUNFLAGS) --seed $(SEED)
+
+# The SDRAM controller against the chip model (sim/harness/sdram_model.h)
+SDRAM_RTL := $(ROOT)/rtl/mem/sdram.sv
+SDRAM_DEPS := $(SDRAM_RTL) $(ROOT)/sim/harness/sdram_main.cpp $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/common.h
+$(BUILD)/sdram/Vsdram: $(SDRAM_DEPS)
+	mkdir -p $(BUILD)/sdram && $(VERILATOR) $(VFLAGS) --top-module sdram --Mdir $(BUILD)/sdram -o Vsdram \
+		$(SDRAM_RTL) $(ROOT)/sim/harness/sdram_main.cpp
+sdram: $(BUILD)/sdram/Vsdram
+	$< $(RUNFLAGS) --seed $(SEED)
+
+# The same with a timing fault each, which the chip model must report: read
+# capture a clock early, tRCD of one clock, tRFC of five clocks, refreshes
+# too far apart
+SDRAM_FAULTS := capture:-GCAPTURE_CLKS=0 rcd:-GT_RCD_NS=10 rfc:-GT_RFC_NS=50 refresh:-GREFRESH_SLACK=-150
+SDRAM_FAULT_BINS := $(foreach f,$(SDRAM_FAULTS),$(BUILD)/sdram_$(word 1,$(subst :, ,$(f)))/Vsdram)
+$(BUILD)/sdram_%/Vsdram: $(SDRAM_DEPS)
+	mkdir -p $(BUILD)/sdram_$* && $(VERILATOR) $(VFLAGS) --top-module sdram --Mdir $(BUILD)/sdram_$* -o Vsdram \
+		$(word 2,$(subst :, ,$(filter $*:%,$(SDRAM_FAULTS)))) $(SDRAM_RTL) $(ROOT)/sim/harness/sdram_main.cpp
+sdram-faults: $(SDRAM_FAULT_BINS)
+	@for b in $(SDRAM_FAULT_BINS); do echo "$$b"; $$b $(RUNFLAGS) --seed $(SEED) --cycles 60000 --expect-fail || exit 1; done
+
+# The flash arrays in DDR3 against the DDRAM port model
+DDRFLASH_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/mem/ddram_flash.sv
+$(BUILD)/ddrflash/Vddram_flash: $(DDRFLASH_RTL) $(ROOT)/sim/harness/ddrflash_main.cpp $(ROOT)/sim/harness/ddram_model.h $(ROOT)/sim/harness/common.h
+	mkdir -p $(BUILD)/ddrflash && $(VERILATOR) $(VFLAGS) --top-module ddram_flash --Mdir $(BUILD)/ddrflash -o Vddram_flash \
+		$(DDRFLASH_RTL) $(ROOT)/sim/harness/ddrflash_main.cpp
+ddrflash: $(BUILD)/ddrflash/Vddram_flash
 	$< $(RUNFLAGS) --seed $(SEED)
 
 # The whole core: NGage.sv with the board devices; hps_io, the PLL and
