@@ -883,3 +883,17 @@ found, and what comes next. Research material lives in `research/`
 - `model/threads.sh` now dumps the kernel heap one page at a time (it is
   committed sparsely), so all threads are listed: 5 AppRun processes,
   Watcher, LogServ, MSexe, Sysamob, Loadersrv, WAPSTKSRV, SplashScreen.
+
+### 2026-10-20: memory self-test passes on the MiSTer
+- The core with the memory-test status square (commit 6ef5adf; full
+  compile: worst setup +0.142 ns, slow -40C, all corners met) was deployed.
+  "Memory test" was switched on through the OSD with Zaparoo key presses
+  (F12, six downs, Enter, Esc). The square went from blue to green: one
+  or more full passes over 16 MB SDRAM, on-chip RAM, EMIF registers and
+  the CS0 flash path, with no errors.
+- The one-minute soak check was stopped before it finished, because the
+  user took the MiSTer back. **Do not use the MiSTer (deploy, ssh,
+  screenshots) until the user says it is free again.**
+- The OSD menu order, for key macros: Load CS0, Load CS1, Mount MMC,
+  Rotate, Aspect ratio, Scandoubler Fx, Memory test, then Reset. The
+  cursor starts on Load CS0.
