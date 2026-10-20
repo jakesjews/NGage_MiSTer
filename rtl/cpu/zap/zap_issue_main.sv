@@ -886,6 +886,40 @@ assign  load_lock =     determine_load_lock
                         )
                         ||
                         //
+                        // ARM925T: nor an instruction that writes a register that an
+                        // older load still in the pipeline will write. The load may
+                        // miss the D-cache, which then writes the register in the
+                        // background after this instruction (upstream only checked
+                        // the lock, which is set once the load has reached the cache).
+                        //
+                        determine_load_lock
+                        ( {27'd0, skid_destination_index_ff},
+                        o_mem_srcdest_index_ff,
+                        o_condition_code_ff,
+                        o_mem_load_ff,
+                        i_shifter_mem_srcdest_index_ff,
+                        i_shifter_dav_ff,
+                        i_shifter_mem_load_ff,
+                        i_alu_mem_srcdest_index_ff,
+                        i_alu_dav_ff,
+                        i_alu_mem_load_ff,
+                        i_postalu0_mem_srcdest_index_ff,
+                        i_postalu0_mem_load_ff,
+                        i_postalu0_dav_ff,
+                        i_postalu1_mem_srcdest_index_ff,
+                        i_postalu1_mem_load_ff,
+                        i_postalu1_dav_ff,
+                        i_postalu_mem_srcdest_index_ff,
+                        i_postalu_mem_load_ff,
+                        i_postalu_dav_ff,
+                        i_memory_mem_srcdest_index_ff,
+                        i_memory_mem_load_ff,
+                        i_memory_dav_ff,
+                        i_dc_lock,
+                        i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_abt_ff
+                        )
+                        ||
+                        //
                         // If a register is locked by load, don't issue an instruction that
                         // writes to that register. Assert load lock. Else, background
                         // load will overwrite the latest value.

@@ -13,8 +13,8 @@
 #                  machine), and fetch the results back
 #   make all       bins, remote, qemu, diff
 #   make T=alu ... restrict to some tests
-#   RAND_SEEDS=..  the random tests rand<seed> and trand<seed> (Thumb),
-#                  tools/gen_random.py
+#   RAND_SEEDS=..  the random tests rand<seed>, trand<seed> (Thumb) and
+#                  crand/ctrand<seed> (caches on), tools/gen_random.py
 #   gba_*          jsmolka/gba-tests (ext/gba-tests), translated by
 #                  tools/fasm2gas.py; GBA_SKIP_* lists the tests left out
 #
@@ -39,7 +39,7 @@ JOBS      ?= 8
 SHELL     := bash
 
 RAND_SEEDS ?= 1 2 3 4 5 6 7 8
-RAND_TESTS := $(foreach s,$(RAND_SEEDS),rand$(s) trand$(s))
+RAND_TESTS := $(foreach s,$(RAND_SEEDS),rand$(s) trand$(s) crand$(s) ctrand$(s))
 # jsmolka/gba-tests (ext/gba-tests, tools/fasm2gas.py); docs/CPU.md says
 # why these are skipped. gba_arm/gba_thumb run on the RTL only; the _q
 # versions also leave out the unaligned word accesses QEMU aborts on, and
@@ -81,6 +81,16 @@ $(TB)/rand%.o: $(TB)/rand%.S $(wildcard $(HERE)/tests/*.inc)
 $(TB)/trand%.S: $(HERE)/tools/gen_random.py
 	@mkdir -p $(TB)
 	$(PY) $< --thumb --seed $* > $@
+$(TB)/crand%.S: $(HERE)/tools/gen_random.py
+	@mkdir -p $(TB)
+	$(PY) $< --cache --seed $* > $@
+$(TB)/ctrand%.S: $(HERE)/tools/gen_random.py
+	@mkdir -p $(TB)
+	$(PY) $< --cache --thumb --seed $* > $@
+$(TB)/crand%.o: $(TB)/crand%.S $(wildcard $(HERE)/tests/*.inc)
+	$(CROSS)as $(ASFLAGS) -o $@ $<
+$(TB)/ctrand%.o: $(TB)/ctrand%.S $(wildcard $(HERE)/tests/*.inc)
+	$(CROSS)as $(ASFLAGS) -o $@ $<
 $(TB)/trand%.o: $(TB)/trand%.S $(wildcard $(HERE)/tests/*.inc)
 	$(CROSS)as $(ASFLAGS) -o $@ $<
 # gba-tests, translated into the build directory
