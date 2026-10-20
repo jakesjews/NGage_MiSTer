@@ -1211,3 +1211,18 @@ found, and what comes next. Research material lives in `research/`
   `docs/NOS_STANDIN.md` "Audio" (PCM through audio.ldd into a 60 KB SDRAM
   buffer at 0x0A061000, control over ISI resources 0x0B, 0x1F, 0xE8 and
   0x00, none answered).
+
+### 2026-10-20: next steps after the games (coordinator)
+- The MMC transfer-type fix (types 10/7) goes to the UPP RTL agent for
+  `rtl/upp/upp_mmc.sv`.
+- The model agent takes on HLE audio and the real-time clock:
+  - Audio: decode the NOS audio protocol and add an emulator-only "HLE
+    audio" device that the stand-in drives. The FPGA reads PCM from SDRAM
+    and outputs it to AUDIO_L/R.
+  - Clock: the UEMK RTC model, fed from MiSTer's RTC on the FPGA.
+- Still to do on the FPGA side:
+  - integrate the CPU when its agent reports;
+  - C: drive saves: mount CS1 as an hps_io block device with dirty-block
+    write-back, as the memory system entry describes;
+  - the HLE audio block in RTL;
+  - the RTC from hps_io into the UEMK registers.
