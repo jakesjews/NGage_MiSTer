@@ -22,8 +22,8 @@
 //    resume; chip erase;
 //  * unlock bypass, reset in the middle of a sequence, and RP#;
 //  * Samsung block lock/unlock (60, 60 at the block with A6 choosing):
-//    autoselect +02 shows it, programs and erases skip locked sectors, also
-//    a chip erase; RP# unlocks.
+//    autoselect +02 shows it (main and parameter sectors), programs and
+//    erases skip locked sectors, also a chip erase; RP# unlocks.
 #include "Vnor_flash.h"
 #include "verilated.h"
 #include "common.h"
@@ -395,6 +395,13 @@ void test_lock(Bench &b) {
 	b.wait_done(base + 5);
 	CHECK_EQ(b.mem[base + 5], 0x0000, "program after unlocking");
 	b.mem[base + 5] = Bench::pattern(base + 5);
+	// a parameter sector has its own bit
+	uint32_t pa = sector_base(b.aw, sectors(b.aw) - 3), pn = sector_base(b.aw, sectors(b.aw) - 2);
+	b.wr(0x0, 0x60); b.wr(pa, 0x60);
+	CHECK_EQ(lock_status(b, pa + 9), 1, "parameter sector's lock status after locking");
+	CHECK_EQ(lock_status(b, pn), 0, "the next parameter sector locked too");
+	b.wr(0x0, 0x60); b.wr(pa + 0x40, 0x60);
+	CHECK_EQ(lock_status(b, pa), 0, "parameter sector's lock status after unlocking");
 	// RP# unlocks everything
 	b.wr(0x0, 0x60); b.wr(other, 0x60);
 	CHECK_EQ(lock_status(b, other), 1, "lock before RP#");

@@ -249,9 +249,10 @@ struct Bench {
 	}
 };
 
-// colour of the memory-test status square (panel pixels x, y < 12), RGB565:
-// blue = test off, yellow = running, green = passed, magenta = errors
-uint16_t square565 = 0x001F;
+// colour of the memory-test status square (panel pixels x, y < 12) in the
+// frames compared, RGB565, or -1: there is none while the test is off
+// (yellow = running, green = passed, magenta = errors)
+int square565 = -1;
 
 // compare a captured frame with the pattern for key state st, turned by rot
 int compare(const sim::Image &got, uint32_t st, int rot, const char *what) {
@@ -264,7 +265,8 @@ int compare(const sim::Image &got, uint32_t st, int rot, const char *what) {
 			int sx = x, sy = y;
 			if (rot == 1) { sx = y; sy = H - 1 - x; }
 			if (rot == 2) { sx = W - 1 - y; sy = x; }
-			uint32_t want = sim::rgb565_to_888((sx < 12 && sy < 12) ? square565 : to565(pattern(sx, sy, st)));
+			uint32_t want = sim::rgb565_to_888((square565 >= 0 && sx < 12 && sy < 12) ? (uint16_t)square565
+			                                                                           : to565(pattern(sx, sy, st)));
 			if (got.get(x, y) != want && bad++ < 4)
 				sim::fail("%s: pixel (%d,%d) = %06x, want %06x", what, x, y, got.get(x, y), want);
 		}

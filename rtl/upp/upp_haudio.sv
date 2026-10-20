@@ -249,7 +249,12 @@ module upp_haudio #(
 	logic        w_st, w_hi, drop;
 	logic [29:0] w_nxt;                // the word after the first
 	logic [8:0]  w_vol;
-	logic [15:0] s_l;
+	// The frame's samples as read: the products are formed after these
+	// registers, in the clock of frame_we (w_vol changes at the earliest at
+	// the end of it), so the multipliers' inputs are this block's registers.
+	// (The fitter had packed upp_bus's read data register into them, which
+	// put the bus's longest enable path on a DSP block.)
+	logic [15:0] r_l, r_r;
 
 	function automatic logic [15:0] gain(input logic [15:0] s, input logic [8:0] v);
 		logic signed [25:0] m;
@@ -268,6 +273,9 @@ module upp_haudio #(
 	// the last read of a frame ends
 	wire        fin = bus_end && ((fst == F_L && !(w_st && w_hi)) || fst == F_R);
 
+	assign frame_l = gain(r_l, w_vol);
+	assign frame_r = gain(r_r, w_vol);
+
 	always_ff @(posedge clk) begin
 		frame_we <= 1'b0;
 		case (fst)
@@ -282,12 +290,12 @@ module upp_haudio #(
 					fst   <= F_L;
 				end else begin
 					frame_we <= 1'b1;
-					frame_l  <= 16'd0;
-					frame_r  <= 16'd0;
+					r_l      <= 16'd0;
+					r_r      <= 16'd0;
 				end
 			end
 			F_L: if (bus_end) begin
-				s_l <= gain(w_hi ? hi : lo, w_vol);
+				r_l <= w_hi ? hi : lo;
 				if (w_st && w_hi) begin
 					m_adr <= {w_nxt, 2'b00};        // R in the next word
 					fst   <= F_R;
@@ -295,16 +303,14 @@ module upp_haudio #(
 					m_cyc    <= 1'b0;
 					fst      <= F_IDLE;
 					frame_we <= !drop && !start;
-					frame_l  <= gain(w_hi ? hi : lo, w_vol);
-					frame_r  <= w_st ? gain(hi, w_vol) : gain(w_hi ? hi : lo, w_vol);
+					r_r      <= w_st ? hi : (w_hi ? hi : lo);
 				end
 			end
 			F_R: if (bus_end) begin
 				m_cyc    <= 1'b0;
 				fst      <= F_IDLE;
 				frame_we <= !drop && !start;
-				frame_l  <= s_l;
-				frame_r  <= gain(lo, w_vol);
+				r_r      <= lo;
 			end
 			default: fst <= F_IDLE;
 		endcase

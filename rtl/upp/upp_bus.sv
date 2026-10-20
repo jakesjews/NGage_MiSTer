@@ -370,15 +370,20 @@ module upp_bus #(
 			end
 			default: ;
 		endcase
+		// write data: only a transaction's first beat (from S_IDLE) can be a
+		// write, so it is taken from the bus in every idle clock with no
+		// halfword access out, whatever the target (off the decode's path)
+		if (state == S_IDLE && !fl_req) begin
+			fe_wd_hi <= wb_dat_i[31:16];
+			fl_wdata <= (wb_sel[1:0] != 2'b00 || wb_sel == 4'b0000) ? wb_dat_i[15:0] : wb_dat_i[31:16];
+		end
 		if (fs_go) begin
 			fl_req     <= 1'b1;
 			fl_we      <= fs_we;
 			fe_adr     <= fs_adr;
-			fe_wd_hi   <= wb_dat_i[31:16];
 			fe_hi      <= !fs_h[0];
 			fe_need_hi <= fs_h[0] && fs_h[1];
 			fl_ha      <= {fs_adr[FL_AW:2], !fs_h[0]};
-			fl_wdata   <= fs_h[0] ? wb_dat_i[15:0] : wb_dat_i[31:16];
 			fe_next    <= nxt(fs_adr, wb_bte);
 		end
 

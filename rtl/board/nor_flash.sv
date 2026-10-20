@@ -44,6 +44,8 @@
 // Timing: an operation lasts at least its busy time and at least as long as
 // its memory accesses take: PROGRAM_CLKS a word, SECTOR_ERASE_CLKS a sector
 // (chip erase = every sector in turn), ERASE_WINDOW_CLKS for more sectors.
+// On the bus, a read of the array with nothing running goes to the memory
+// port in its first clock; any other request is answered a clock later.
 //
 // Ports, both req/ack: a request is held, unchanged, until the cycle in which
 // ack is high, which completes it; read data comes with that ack. The next
@@ -131,6 +133,22 @@ module nor_flash #(
 		end else begin
 			if (a[AW-1:15] == '0) return {{(SW-3){1'b0}}, a[14:12]};
 			return blk + SEVEN_S;
+		end
+	endfunction
+
+	// v[sector_of(a)], with the main and the small sectors looked up side by
+	// side (no sector number on the way)
+	function automatic logic bit_at(input logic [NSECT-1:0] v, input logic [AW-1:0] a);
+		logic [NMAIN:0] vm;
+		logic [7:0]     vs;
+		if (TOP_BOOT) begin
+			vm = {1'b0, v[NMAIN-1:0]};
+			vs = v[NSECT-1 -: 8];
+			return (&a[AW-1:15]) ? vs[a[14:12]] : vm[a[AW-1:15]];
+		end else begin
+			vm = {v[NSECT-1:8], 1'b0};
+			vs = v[7:0];
+			return (a[AW-1:15] == '0) ? vs[a[14:12]] : vm[a[AW-1:15]];
 		end
 	endfunction
 
@@ -292,25 +310,41 @@ module nor_flash #(
 	logic [AW-1:0]     b_addr;
 
 	wire alive = ~reset & rst_n;
-	// a bus write is taken this cycle (it may restart or end the erase window)
+	// a bus write is waiting (when decided it may restart or end the erase
+	// window, so the window's timer holds meanwhile)
 	wire bus_wr_now = alive & bus_req & ~bus_ack & ~b_wait & bus_we;
 
 	// ------------------------------------------------------------------
 	// Decisions on the current bus request
 	// ------------------------------------------------------------------
-	wire [BANKS_LOG2-1:0] rq_bank = bank_of(bus_addr);
-	wire [SW-1:0]         rq_sec  = sector_of(bus_addr);
-	wire                  rq_sel  = sel[rq_sec];
-	wire                  rq_lock = lock[rq_sec];
-	wire                  rq_ul1  = bus_addr[10:0] == 11'h555;
-	wire                  rq_ul2  = bus_addr[10:0] == 11'h2AA;
-	wire [7:0]            rq_cmd  = bus_wdata[7:0];
+	// A read of the array while nothing runs is taken in the request's first
+	// clock: the state alone decides it. Any other request is decided in its
+	// second clock, from registers: its address, data and direction, and its
+	// sector's selection and lock bits, looked up in the first clock. The
+	// sector decode and the status, command and autoselect logic stay off the
+	// path from the bus (it was the core's worst path with the CPU in). The
+	// request is held unchanged until its ack, so the registers still match.
+	wire                  rq_pend = bus_req && !bus_ack && !b_wait;
+	wire                  rq_fast = alive && !bus_we && mode == M_READ && p_state == P_IDLE && e_state == E_IDLE;
+	logic                 d_v = 1'b0;         // rq_pend's second clock: decide it
+	logic                 d_we, d_sel, d_lock;
+	logic [AW-1:0]        d_addr;
+	logic [15:0]          d_wdata;
+	logic [SW-1:0]        d_sec;
+
+	wire [BANKS_LOG2-1:0] rq_bank = bank_of(d_addr);
+	wire [SW-1:0]         rq_sec  = d_sec;
+	wire                  rq_sel  = d_sel;
+	wire                  rq_lock = d_lock;
+	wire                  rq_ul1  = d_addr[10:0] == 11'h555;
+	wire                  rq_ul2  = d_addr[10:0] == 11'h2AA;
+	wire [7:0]            rq_cmd  = d_wdata[7:0];
 
 	wire prog_status  = p_state != P_IDLE && rq_bank == bank_of(p_addr);
 	wire erase_status = (e_state == E_WINDOW || e_state == E_RUN) && bank_sel[rq_bank];
 	wire susp_status  = e_state == E_SUSP && rq_sel;
 
-	// may a program start at bus_addr now?
+	// may a program start at the request's address now?
 	wire prog_ok = p_state == P_IDLE && (e_state == E_IDLE || (e_state == E_SUSP && !rq_sel));
 	wire idle_ok = p_state == P_IDLE && e_state == E_IDLE;
 
@@ -321,8 +355,8 @@ module nor_flash #(
 	// ------------------------------------------------------------------
 	task automatic start_program();
 		p_state <= P_RUN;
-		p_addr  <= bus_addr;
-		p_data  <= bus_wdata;
+		p_addr  <= d_addr;
+		p_data  <= d_wdata;
 		p_step  <= 2'd0;
 		p_timer <= 32'(PROGRAM_CLKS);
 		mode    <= M_READ;
@@ -397,7 +431,7 @@ module nor_flash #(
 						endcase
 					end else if (rq_ul1 && rq_cmd == 8'hAA) begin
 						cseq <= C_U1;
-					end else if (rq_cmd == 8'h98 && (bus_addr[7:0] == 8'h55 || rq_ul1)) begin
+					end else if (rq_cmd == 8'h98 && (d_addr[7:0] == 8'h55 || rq_ul1)) begin
 						mode <= M_CFI;
 					end else if (rq_cmd == 8'h30 && e_state == E_SUSP) begin
 						e_state <= E_RUN;
@@ -428,7 +462,7 @@ module nor_flash #(
 					cseq <= C_IDLE;
 					if (rq_cmd == 8'h60) begin
 						lock_set_q <= 1'b1;
-						lock_v_q   <= ~bus_addr[6];
+						lock_v_q   <= ~d_addr[6];
 						sec_q      <= rq_sec;
 					end
 				end
@@ -463,11 +497,21 @@ module nor_flash #(
 		sector_bits();
 
 		// ---- bus requests ----
-		if (bus_req && !bus_ack && !b_wait) begin
+		d_v     <= rq_pend && !d_v && !rq_fast;
+		d_we    <= bus_we;
+		d_addr  <= bus_addr;
+		d_wdata <= bus_wdata;
+		d_sec   <= sector_of(bus_addr);
+		d_sel   <= bit_at(sel, bus_addr);
+		d_lock  <= bit_at(lock, bus_addr);
+		if (rq_pend && !d_v && rq_fast) begin
+			b_wait <= 1'b1;
+			b_addr <= bus_addr;
+		end else if (rq_pend && d_v) begin
 			if (!alive) begin
 				bus_rdata <= 16'hFFFF;
 				bus_ack   <= 1'b1;
-			end else if (bus_we) begin
+			end else if (d_we) begin
 				bus_write();
 				bus_ack <= 1'b1;
 			end else if (prog_status) begin
@@ -484,14 +528,14 @@ module nor_flash #(
 				tog2      <= ~tog2;
 				bus_ack   <= 1'b1;
 			end else if (mode == M_AUTO) begin
-				bus_rdata <= autoselect(bus_addr[7:0], rq_lock);
+				bus_rdata <= autoselect(d_addr[7:0], rq_lock);
 				bus_ack   <= 1'b1;
 			end else if (mode == M_CFI) begin
-				bus_rdata <= {8'h00, cfi(bus_addr[7:0])};
+				bus_rdata <= {8'h00, cfi(d_addr[7:0])};
 				bus_ack   <= 1'b1;
 			end else begin
 				b_wait <= 1'b1;
-				b_addr <= bus_addr;
+				b_addr <= d_addr;
 			end
 		end
 

@@ -262,6 +262,10 @@ always @(posedge clk_sys) begin
 	test_sw   <= (test_on != test_on_q) ? 4'hF : {test_sw[2:0], 1'b0};
 end
 wire reset = sys_reset | status[0] | buttons[1] | ioctl_download | fs_loading | test_sw[3];
+// The Wishbone port's master select (CPU or memory test): test_on a clock
+// later, from a register that can sit by the multiplexer (hps_io's status
+// register is far away). It changes in the first clock of the reset pulse.
+wire test_sel = test_on_q;
 
 ///////////////////////   MEMORY   ///////////////////////////////
 
@@ -587,25 +591,25 @@ arm925t arm925t
 	.bus_wdata(cpu_wdata),
 	.bus_burst(cpu_burst),
 	.bus_rdata(wb_dat_r),
-	.bus_ack(wb_ack & ~test_on),
-	.bus_err(wb_err & ~test_on)
+	.bus_ack(wb_ack & ~test_sel),
+	.bus_err(wb_err & ~test_sel)
 );
 
-// the Wishbone port: the CPU, or the self-test while it runs
+// the Wishbone port: the CPU, or the self-test while it runs (test_sel)
 wire        st_cyc, st_stb, st_we;
 wire [31:0] st_adr, st_dat;
 wire  [3:0] st_sel;
 wire  [2:0] st_cti;
 wire  [1:0] st_bte;
 
-assign wb_cyc   = test_on ? st_cyc : cpu_req;
-assign wb_stb   = test_on ? st_stb : cpu_req;
-assign wb_we    = test_on ? st_we  : cpu_we;
-assign wb_adr   = test_on ? st_adr : cpu_addr;
-assign wb_dat_w = test_on ? st_dat : cpu_wdata;
-assign wb_sel   = test_on ? st_sel : cpu_be;
-assign wb_cti   = test_on ? st_cti : (cpu_burst ? 3'b010 : 3'b111);
-assign wb_bte   = test_on ? st_bte : 2'b00;
+assign wb_cyc   = test_sel ? st_cyc : cpu_req;
+assign wb_stb   = test_sel ? st_stb : cpu_req;
+assign wb_we    = test_sel ? st_we  : cpu_we;
+assign wb_adr   = test_sel ? st_adr : cpu_addr;
+assign wb_dat_w = test_sel ? st_dat : cpu_wdata;
+assign wb_sel   = test_sel ? st_sel : cpu_be;
+assign wb_cti   = test_sel ? st_cti : (cpu_burst ? 3'b010 : 3'b111);
+assign wb_bte   = test_sel ? st_bte : 2'b00;
 
 wire [15:0] test_errors;
 wire        test_pass_done;
@@ -626,8 +630,8 @@ wb_selftest #(
 	.wb_sel(st_sel),
 	.wb_cti(st_cti),
 	.wb_bte(st_bte),
-	.wb_ack(wb_ack & test_on),
-	.wb_err(wb_err & test_on),
+	.wb_ack(wb_ack & test_sel),
+	.wb_err(wb_err & test_sel),
 	.wb_dat_i(wb_dat_r),
 	.passes(),
 	.errors(test_errors),
@@ -798,20 +802,19 @@ lcd_panel lcd_panel
 	.display_on(lcd_on)
 );
 
-// Memory-test status square in the top-left 12x12 panel pixels, so the
-// result can be read from a screenshot (MiSTer screenshots leave out the
-// OSD): blue = test off, yellow = running before the first pass ends,
-// green = passes without errors, magenta = errors seen. scan_x/scan_y hold
-// for a whole pixel, so the substitution lines up exactly.
+// Memory-test status square in the top-left 12x12 panel pixels while the
+// test runs, so the result can be read from a screenshot (MiSTer screenshots
+// leave out the OSD): yellow = running before the first pass ends, green =
+// passes without errors, magenta = errors seen. scan_x/scan_y hold for a
+// whole pixel, so the substitution lines up exactly.
 reg test_any_pass = 0;
 always @(posedge clk_sys) begin
 	if (!test_on) test_any_pass <= 1'b0;
 	else if (test_pass_done) test_any_pass <= 1'b1;
 end
-wire [15:0] test_rgb = !test_on                ? 16'h001F :
-                       (test_errors != 16'd0)  ? 16'hF81F :
+wire [15:0] test_rgb = (test_errors != 16'd0)  ? 16'hF81F :
                        test_any_pass           ? 16'h07E0 : 16'hFFE0;
-assign scan_rgb = (scan_x < 8'd12 && scan_y < 8'd12) ? test_rgb : panel_rgb;
+assign scan_rgb = (test_on && scan_x < 8'd12 && scan_y < 8'd12) ? test_rgb : panel_rgb;
 
 wire       ce_pix;
 wire       hs, vs, hblank, vblank;
