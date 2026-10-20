@@ -256,3 +256,18 @@ found, and what comes next. Research material lives in `research/`
   firmware is the only evidence for them.
 - Material: `research/upp-wd2/` (MEMORY-MAP.md, REGISTERS.md,
   OPEN-QUESTIONS.md, downloads/web, repos).
+
+### 2026-10-19/20: resumed after the usage-limit reset
+- Restarted two agents: firmware bring-up in the model, and the FPGA
+  board-level devices with the MiSTer shell. Both log under their own
+  headings here.
+- ZAP trial build: Quartus 17.0.2 on ubuntu (`~/dev/mister/zap-eval`,
+  sources in `research/fpga-cores/quartus-zap/`).
+  - ZAP was converted to Verilog with sv2v and set to 16 KB I-cache and
+    8 KB D-cache with 16-byte lines, targeting 104 MHz.
+  - Quartus 17 rejects sv2v's empty `begin ; end` generate branches;
+    they were stripped. A stub replaces the debug decompiler.
+  - The result goes here when the compile finishes.
+- MiSTer SSH: the MiSTer accepts the 1Password agent key. Logins fail
+  when 1Password is locked, because the agent doesn't sign. Unlock
+  1Password before hardware tests.
