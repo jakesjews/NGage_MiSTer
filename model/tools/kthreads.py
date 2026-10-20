@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """List EKA1 kernel threads from memory dumps made by model/threads.sh.
 
-DThread objects are found by the vtable of the current thread (pointer at
+Kernel heap from model/.out/kpages/pNNNN.bin (one 4 KB page each) or the
+older kheapN.bin (128 KB each). DThread objects are found by the vtable of
+the current thread (pointer at
 kernel data 0x80006740). Owning process at +0x8; thread name at +0x170
 (length word, then UTF-16) for kernel-created threads; process name at
 +0xE0 (same layout) when present. Context saved at +0x124 (r0-r12, sp, lr)
@@ -11,12 +13,24 @@ import os, struct, sys
 
 out = sys.argv[1] if len(sys.argv) > 1 else 'model/.out'
 kd = open(out + '/kdata.bin', 'rb').read()
-kh = b''
-for i in range(8):
-    p = '%s/kheap%d.bin' % (out, i)
-    if not os.path.exists(p) or os.path.getsize(p) != 0x20000:
-        break
-    kh += open(p, 'rb').read()
+kh = bytearray()
+pdir = out + '/kpages'
+if os.path.isdir(pdir):
+    # One 4 KB page per file (p0000.bin = 0x80400000); unreadable pages are
+    # missing and read as zeros.
+    n = max([int(f[1:5]) for f in os.listdir(pdir) if f.endswith('.bin')] + [-1]) + 1
+    kh = bytearray(n * 0x1000)
+    for i in range(n):
+        p = '%s/p%04d.bin' % (pdir, i)
+        if os.path.exists(p) and os.path.getsize(p) == 0x1000:
+            kh[i * 0x1000:(i + 1) * 0x1000] = open(p, 'rb').read()
+else:
+    for i in range(8):
+        p = '%s/kheap%d.bin' % (out, i)
+        if not os.path.exists(p) or os.path.getsize(p) != 0x20000:
+            break
+        kh += open(p, 'rb').read()
+kh = bytes(kh)
 HEAP_END = 0x80400000 + len(kh)
 
 
