@@ -47,3 +47,4 @@ model/.build/
 model/.out/
 lint/gen/
 sim/cpu/build/
+__pycache__/
