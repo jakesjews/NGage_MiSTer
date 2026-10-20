@@ -1403,3 +1403,97 @@ found, and what comes next. Research material lives in `research/`
 - `rtl/board/lcd_panel.sv` already implements the same behaviour
   (PTLAR/PTLON blank outside the area with PARTIAL_RGB = 0, and IDMON keeps
   the top bit of each channel), so nothing needs porting.
+
+### 2026-10-20, UPP peripherals (RTL): HLE audio and the RTC in the core
+- On the MiSTer nothing needs setting up. Game audio comes out of MiSTer's
+  audio outputs at 48 kHz. The phone's clock is set from the time the HPS
+  sends the core (MiSTer's clock: NTP or an RTC board). Neither has run on
+  the MiSTer yet: there is no CPU in the core.
+- `rtl/upp/upp_haudio.sv`, the HLE audio device at `0x0C1F0000`, follows
+  `model/hw/ngage_audio.c` register for register:
+  - A frame is due each time a RATE-per-second frame clock comes round,
+    counted from the RUN write, or from a RATE write that changes the rate.
+  - It plays frame by frame as the model's catch-up does: buffer switching,
+    starving, DONE, STATUS, POS and PLAYED, and VOLUME as `(v * vol) >> 8`.
+    A frame due at the edge of a register write is played first.
+  - The interrupt is source 5, ORed with timer 5.
+  - Samples are read through the DMA controller's master port. upp_periph
+    alternates the two, a cycle each.
+  - AUDIO_L/R are interpolated linearly at 48 kHz between the two frames
+    before the latest, at the frame clock's phase. The extra frame gives
+    the reads a whole frame period. The output is 0 while stopped; AUDIO_S
+    is 1.
+  - Deviations:
+    - Frame by frame instead of in chunks. This differs only when LEN is
+      rewritten below POS for the buffer being played.
+    - The phase is real time. The model's 16.16 step is truncated, so its
+      48 kHz stream runs slightly fast.
+- Model note (not changed): in `out_put`, `(l - last) * a` is an `int`. It
+  overflows for a step of more than half of full scale (for example
+  -20000 to 20000) near phase 1, which gives a wrong host sample. Only
+  host playback is affected, not the WAV. The FPGA computes it in 34 bits.
+- RTC:
+  - `rtl/mister/rtc_wall.sv` takes hps_io's RTC (BCD, MSM6242B layout)
+    each time the HPS sends it, and counts seconds and the calendar
+    (2000-2099) in between. It is not reset with the core.
+  - upp_cbus: UEMK `0x11`-`0x13` read its time of day.
+  - `0x01` is the 8-bit day counter. It is days since 2000 modulo 256 plus
+    an offset, so it steps with the date, also when the HPS changes the
+    date. Writing `0x01` sets the counter, as `rtc_day_off` does in the
+    model.
+  - `0x04` reads `0xC0` after reset (cbus-regs.txt).
+  - The date register at `0x0C1F0100` is 32-bit only, and `+4` to `+C`
+    read 0. At reset it takes the wall clock's date, with the counter at 0.
+    If the HPS's first time comes after reset, it takes the date then.
+  - Deviation: until the HPS sends a time, the date register reads 0
+    ("unknown", docs/UPP_WD2.md) and the time runs from 00:00:00. The model
+    always has a time.
+- wb_selftest's register check moved from `0x0C1F0010`, which is now ADDR0,
+  to `0x0C1E0010`.
+- Benches:
+  - `make -C sim haudio` runs the block against a port of ngage_audio.c,
+    at 104 MHz and again at 2 MHz (many more buffers per clock). It
+    checks:
+    - every frame read (value, order, silence, volume, bus errors) and
+      every register read;
+    - the interrupt line every clock, so the edge of each DONE;
+    - the 48 kHz output against a separate model of the interpolation.
+  - Cases: registers and clamps; mono and stereo, aligned or not; rate
+    and volume changes; restarts with reads under way; reads that take a
+    whole frame period; random sessions in the stand-in's style (about 200
+    sessions, 300,000 frames).
+  - With a model recording (`--wav`, default
+    `model/.out/au-rayman/audio.wav`, 8000 frames; local data), played the
+    stand-in's way in halves of 5600 samples:
+    - the frames come out unchanged (au-rayman, au-sega, au-sonic,
+      au-host);
+    - the 48 kHz output against the model's own resampler on the same
+      frames gives an SNR of 25-29 dB (Rayman), 25.7 dB (Sega Rally) and
+      19.0 dB (Sonic), at the best whole-sample offset. The model's stream
+      against itself half a sample later gives 24.6, 24.2 and 18.7 dB, so
+      what is left is the phase alignment;
+    - both streams are written to `sim/build/out` as WAV files.
+  - periph:
+    - audio through the bus with a DMA transfer running at the same time:
+      DONE0 on source 5 at its frame's clock, IRQ number 6, the output
+      levels, stop;
+    - RTC: before the HPS time, the HPS time, midnight, month, year and
+      leap-day ends, the counter written and wrapping, the clock set back,
+      core reset.
+    - The CBUS log replay no longer compares the RTC registers (wall clock)
+      or `0x04`, because the log is older than `0xC0`.
+  - All 21 mutants are caught (12 in upp_haudio, 9 in the RTC path). They
+    include: a buffer ending a frame late; no phase restart at a rate
+    change; switching, starving or stop not clearing; wrong gain or phase
+    bits; the unaligned stereo read; the drop at restart; IRQ enable
+    ignored; a frame arriving in the clock of the next one; the day offset, write, rebase, `0xC0`,
+    the date before the HPS time, leap years, month lengths, and the
+    month-end compare. The month-end compare survived until the periph
+    bench checked the date after each kind of day's end.
+- Quartus: every corner met at 104 MHz.
+  - Worst setup +0.102 ns (slow -40C: lcd_panel `tfa` to `s2_row`, then
+    the scaler); worst hold +0.067 ns (the scaler). The audio and RTC
+    logic is not in the worst 20 paths.
+  - 18,722 ALMs (45 %, +649 since the C: drive build), 256 M10K, 40 DSP
+    blocks.
+  - upp_haudio is 479 ALMs and 6 DSP blocks; rtc_wall is 110 ALMs.
