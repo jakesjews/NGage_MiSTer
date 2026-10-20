@@ -945,3 +945,14 @@ found, and what comes next. Research material lives in `research/`
 - Starter now runs past Startup.app to the end of its list (state 2) with
   no fault in 60 s. The screen still shows the splash logo; see the
   previous entry (NOS ISI).
+
+### 2026-10-20: decision: offline no-SIM NOS stand-in
+- S60 start-up completes in the model, but the UI waits on modem replies.
+  The decision is to emulate NOS at the message (ISI/PhoNet) level as an
+  offline phone with no SIM: SIM absent, no PIN, no network, modem state
+  normal/offline.
+- The responder lives in the NOS stand-in ARM code (`model/nos-stub/`),
+  not in QEMU. The FPGA core then runs the same binary from the patched
+  flash image (`tools/mkimage.py` applies `model/rom-patches.txt`).
+- Running the real NOS is infeasible: its cipher and key are in the ASIC.
+- Replies will be documented per message in `docs/NOS_STANDIN.md`.
