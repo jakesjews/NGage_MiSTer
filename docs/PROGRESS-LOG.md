@@ -414,3 +414,34 @@ found, and what comes next. Research material lives in `research/`
 - Not modelled: CMD11 stream read (the retail CSD claims class 1), erase,
   write-protect groups, CMD42 lock. Open question: does the firmware use
   CMD11? If it does, the card needs it.
+
+### 2026-10-20: ZAP fits and meets 104 MHz on the 5CSEBA6
+- Quartus 17.0.2 full compile of ZAP (HEAD fc7bd75, sv2v-converted),
+  configured with 16 KB I-cache and 8 KB D-cache, 16-byte lines, MMU on,
+  behind a 16 KB test RAM:
+
+  | Resource | Used |
+  |---|---|
+  | ALMs | 12,076 of 41,910 (29%) |
+  | Registers | 12,687 |
+  | M10K blocks | 64 (12%) |
+  | DSP blocks | 4 |
+  | Worst setup slack at 104 MHz (9.615 ns) | +0.082 ns, slow 100C corner |
+
+  All corners pass.
+- Two Quartus 17 fixes were needed:
+  - Strip sv2v's empty `begin ; end` generate branches.
+  - Rewrite `zap_ram_simple_ben` as one `zap_ram_simple` per byte lane,
+    because Quartus did not infer the byte-enable RAM after sv2v and
+    built 24 KB of cache from flip-flops.
+  - Also add a stub for the debug `zap_decompile`.
+- Project: `research/fpga-cores/quartus-zap/` (on ubuntu:
+  `~/dev/mister/zap-eval`).
+- Meaning for the CPU decision: a fabric ARM at the real clock, with
+  ARM925T cache sizes, fits with room for the peripherals and the
+  framework. Timing margin is thin, so the CPU may need its own clock
+  domain or a couple of pipeline tweaks once inside the full core. ZAP
+  still needs the ARM925T changes listed in research/fpga-cores/README.md
+  (CP15 identity, alignment faults, high vectors, ARMv4T-only decoding,
+  cache geometry and maintenance ops). GPL: HEAD is GPLv3; the last
+  GPLv2 commit is 93b3553.
