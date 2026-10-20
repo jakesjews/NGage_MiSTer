@@ -247,6 +247,7 @@ struct Bench {
 	Rng rng;
 	uint64_t clocks = 0;
 	bool fast = false;  // shortest bus cycles
+	bool bg_scan = false;  // the video's scan requests, one every 16 clocks
 
 	Bench(uint32_t seed) : t(new Vlcd_panel), rng(seed) {
 		t->clk = 0; t->reset = 1; t->csx = 1; t->dcx = 1; t->wrx = 1; t->rdx = 1; t->resx = 1;
@@ -259,6 +260,11 @@ struct Bench {
 	~Bench() { t->final(); delete t; }
 
 	void tick() {
+		if (bg_scan) {
+			t->scan_en = clocks % 16 == 0;
+			t->scan_x = (uint8_t)(clocks / 16 % W);
+			t->scan_y = (uint8_t)(clocks / 16 / W % H);
+		}
 		t->clk = 1; t->eval();
 		t->clk = 0; t->eval();
 		clocks++;
@@ -288,6 +294,7 @@ struct Bench {
 		return v;
 	}
 	uint16_t scan(int x, int y) {
+		bg_scan = false;
 		t->scan_en = 1; t->scan_x = x; t->scan_y = y;
 		tick();
 		t->scan_en = 0;
@@ -296,6 +303,7 @@ struct Bench {
 	}
 	// the whole viewer frame, one request a clock
 	void frame(std::vector<uint16_t> &out) {
+		bg_scan = false;
 		out.assign(W * H, 0);
 		int n = W * H;
 		for (int i = 0; i < n + 3; i++) {
@@ -627,6 +635,8 @@ int main(int argc, char **argv) {
 		d.cmd(0x29);
 		compare_frame(b, m, "after clearing");
 		for (int k = 0; k < rounds; k++) {
+			// half the rounds with the video scanning, as in the core
+			b.bg_scan = k % 2 == 1;
 			random_round(d, r);
 			char what[32];
 			snprintf(what, sizeof what, "round %d", k);
