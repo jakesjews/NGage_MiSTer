@@ -207,8 +207,10 @@ static void out_put(NGageAudio *s, const int16_t *f, unsigned n, int ch)
 
         while (s->out_phase < 0x10000) {
             int32_t a = s->out_phase;
-            out_push(s, s->out_last[0] + (((l - s->out_last[0]) * a) >> 16),
-                     s->out_last[1] + (((r - s->out_last[1]) * a) >> 16));
+            /* 64-bit products: a sample step near full scale times a phase
+             * near 1.0 overflows int (the FPGA computes this in 34 bits) */
+            out_push(s, s->out_last[0] + (int)(((int64_t)(l - s->out_last[0]) * a) >> 16),
+                     s->out_last[1] + (int)(((int64_t)(r - s->out_last[1]) * a) >> 16));
             s->out_phase += step;
         }
         s->out_phase -= 0x10000;
