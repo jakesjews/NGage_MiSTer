@@ -168,6 +168,7 @@ logic            wb_err;
 logic            cpu_mmu_en;
 logic [ZAP_CPSR_MODE:0] cpu_cpsr;
 logic            cpu_mem_translate;
+logic [ZAP_CPSR_MODE:0] cpu_mem_cpsr;   // ARM925T: see zap_core o_mem_cpsr
 logic [31:0]     cpu_daddr, cpu_daddr_nxt, cpu_daddr_check;
 logic [31:0]     cpu_iaddr, cpu_iaddr_nxt, cpu_iaddr_check;
 logic [7:0]      dc_fsr;
@@ -307,6 +308,7 @@ zap_core #(
 .i_far                  (!ONLY_CORE ? dc_far : '0),
 
 .o_mem_translate        (cpu_mem_translate),
+.o_mem_cpsr             (cpu_mem_cpsr),
 .o_data_wb_align_fault  (cpu_align_fault),
 .o_data_wb_va           (cpu_daddr_va),
 .o_data_wb_ldfmt        (cpu_dldfmt),
@@ -608,7 +610,7 @@ u_data_cache (
 .i_cache_en             (cpu_dc_en),
 .i_cache_inv_req        (cpu_dc_inv),
 .i_cache_clean_req      (cpu_dc_clean),
-.i_cpsr                 (cpu_mem_translate ? USR : cpu_cpsr[ZAP_CPSR_MODE:0]),
+.i_cpsr                 (cpu_mem_translate ? USR : cpu_mem_cpsr),
 .i_sr                   (cpu_sr),
 .i_baddr                (cpu_baddr),
 .i_dac_reg              (cpu_dac_reg),

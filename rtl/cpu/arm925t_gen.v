@@ -4006,6 +4006,7 @@ module zap_core (
 	o_instr_wb_adr_nxt,
 	o_instr_wb_adr_check,
 	o_cpsr,
+	o_mem_cpsr,
 	o_code_stall,
 	i_fsr,
 	i_far,
@@ -4092,6 +4093,7 @@ module zap_core (
 	output wire [31:0] o_instr_wb_adr_nxt;
 	output wire [31:0] o_instr_wb_adr_check;
 	output wire [CPSR_MODE:0] o_cpsr;
+	output wire [CPSR_MODE:0] o_mem_cpsr;
 	output wire o_code_stall;
 	input wire [31:0] i_fsr;
 	input wire [31:0] i_far;
@@ -4717,6 +4719,7 @@ module zap_core (
 	assign instr_valid = ((o_instr_wb_stb & o_instr_wb_cyc) & i_instr_wb_ack) & ~shelve;
 	assign pipeline_is_not_empty = (((((((((((((predecode_val || (decode_condition_code != NV)) || (issue_condition_code_ff != NV)) || (shifter_condition_code_ff != NV)) || alu_dav_ff) || postalu0_dav_ff) || postalu1_dav_ff) || postalu_dav_ff) || memory_dav_ff) || alu_decompile_valid) || postalu0_decompile_valid) || postalu1_decompile_valid) || postalu_decompile_valid) || memory_decompile_valid) || |i_dc_lock;
 	assign o_mem_translate = postalu1_mem_translate_ff;
+	assign o_mem_cpsr = postalu1_flags_ff[ZAP_CPSR_MODE:0];
 	assign code_stall = fifo_full | ((o_instr_wb_stb & o_instr_wb_cyc) & ~i_instr_wb_ack);
 	assign o_data_wb_adr_check = {postalu1_address_ff[31:2], 2'd0};
 	assign o_data_wb_we_check = postalu1_data_wb_we && postalu1_data_wb_cyc;
@@ -19206,6 +19209,7 @@ module zap_top (
 	wire cpu_mmu_en;
 	wire [ZAP_CPSR_MODE:0] cpu_cpsr;
 	wire cpu_mem_translate;
+	wire [ZAP_CPSR_MODE:0] cpu_mem_cpsr;
 	wire [31:0] cpu_daddr;
 	wire [31:0] cpu_daddr_nxt;
 	wire [31:0] cpu_daddr_check;
@@ -19348,6 +19352,7 @@ module zap_top (
 		.i_fsr((!ONLY_CORE ? {24'd0, dc_fsr} : sv2v_uu_u_zap_core_ext_i_fsr_0)),
 		.i_far((!ONLY_CORE ? dc_far : sv2v_uu_u_zap_core_ext_i_far_0)),
 		.o_mem_translate(cpu_mem_translate),
+		.o_mem_cpsr(cpu_mem_cpsr),
 		.o_data_wb_align_fault(cpu_align_fault),
 		.o_data_wb_va(cpu_daddr_va),
 		.o_data_wb_ldfmt(cpu_dldfmt),
@@ -19548,7 +19553,7 @@ module zap_top (
 				.i_cache_en(cpu_dc_en),
 				.i_cache_inv_req(cpu_dc_inv),
 				.i_cache_clean_req(cpu_dc_clean),
-				.i_cpsr((cpu_mem_translate ? USR : cpu_cpsr[ZAP_CPSR_MODE:0])),
+				.i_cpsr((cpu_mem_translate ? USR : cpu_mem_cpsr)),
 				.i_sr(cpu_sr),
 				.i_baddr(cpu_baddr),
 				.i_dac_reg(cpu_dac_reg),

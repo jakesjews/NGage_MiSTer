@@ -144,6 +144,9 @@ output logic    [31:0]                   o_instr_wb_adr_check,
 // Determines user or supervisory mode. Cache must use this for VM.
 output logic      [CPSR_MODE:0]           o_cpsr,
 
+// ARM925T: the mode of the data access being checked (with o_mem_translate)
+output logic      [CPSR_MODE:0]           o_mem_cpsr,
+
 // -----------------------------------------------------
 // For MMU/cache connectivity.
 // -----------------------------------------------------
@@ -586,6 +589,11 @@ assign pipeline_is_not_empty    = predecode_val                      ||
                                   (|i_dc_lock);
 
 assign o_mem_translate = postalu1_mem_translate_ff;
+// ARM925T: the data access's permissions are checked in the mode of its own
+// instruction (upstream: the ALU's current mode, which a younger MOVS PC or
+// MSR may already have changed while the access waited, so a privileged
+// store right before a return to user mode took a permission fault)
+assign o_mem_cpsr      = postalu1_flags_ff[ZAP_CPSR_MODE:0];
 
 assign code_stall = fifo_full |
                    (o_instr_wb_stb & o_instr_wb_cyc & ~i_instr_wb_ack);
