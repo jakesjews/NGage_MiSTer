@@ -45,6 +45,11 @@
 // completes the access, and p_rdata is taken then. p_sel is low for at least
 // one clock between accesses.
 //
+// idle is high in the clocks the bus is between transactions (it then takes
+// a new one from whichever master is on the port; ngage_mem's arbiter changes
+// masters only then). After a beat with CTI other than 010 has been answered,
+// the bus is idle in the following clock.
+//
 // SDRAM port: see rtl/mem/sdram.sv. Flash ports: nor_flash's bus port (a
 // request is held until the clock in which ack is high).
 //
@@ -113,7 +118,8 @@ module upp_bus #(
 	input  logic [31:0]       p_rdata,
 	input  logic              p_wait,
 
-	output logic              unmapped     // a pulse for each unmapped access
+	output logic              unmapped,    // a pulse for each unmapped access
+	output logic              idle         // between transactions (for an arbiter in front)
 );
 
 	localparam bit ONCHIP_IN_SDRAM = ONCHIP_BYTES > ONCHIP_BRAM_MAX;
@@ -194,6 +200,7 @@ module upp_bus #(
 	assign wb_ack   = ack_q;
 	assign wb_err   = err_q;
 	assign wb_dat_o = dat_q;
+	assign idle     = state == S_IDLE;
 
 	// the beat whose data is wanted next, and whether there is one: in a
 	// clock with ack high the bus shows the beat being answered

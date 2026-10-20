@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// The N-Gage QD's memory system behind the CPU's Wishbone master:
+// The N-Gage QD's memory system behind the CPU's Wishbone master and the DMA
+// controller's (rtl/upp/upp_dma.sv), which wb_arb2 takes in turns:
 //   upp_bus      the UPP_WD2 map (flash, EMIF registers, SDRAM, on-chip RAM,
 //                the peripheral register bus)
 //   nor_flash    CS0 (16 MB, K8S2815ETA) and CS1 (8 MB, K8S6415ETA)
@@ -8,7 +9,7 @@
 //                with the image loader
 //   sdram        the 16 MB SDRAM on the MiSTer SDRAM module
 // The peripheral register bus leaves this module for the UPP peripheral
-// models (upp_periph_stub until they exist).
+// models (rtl/upp/upp_periph.sv); the DMA master port comes back from them.
 //
 // Clocks and resets: one clock (clk_sys). sdram_init restarts the SDRAM's
 // power-up (tie it to the power-on reset only: the guest's RAM survives a
@@ -40,6 +41,17 @@ module ngage_mem #(
 	output logic         wb_ack,
 	output logic         wb_err,
 	output logic [31:0]  wb_dat_o,
+
+	// the DMA controller: Wishbone B3 classic single beats
+	input  logic         dma_cyc,
+	input  logic         dma_stb,
+	input  logic         dma_we,
+	input  logic [31:0]  dma_adr,
+	input  logic [31:0]  dma_dat_i,
+	input  logic [3:0]   dma_sel,
+	output logic         dma_ack,
+	output logic         dma_err,
+	output logic [31:0]  dma_dat_o,
 
 	output logic         p_sel,
 	output logic         p_we,
@@ -101,17 +113,39 @@ module ngage_mem #(
 	logic [1:0]   sdr_rword;
 	logic [31:0]  sdr_rdata;
 
+	// the masters onto the bus
+	logic        b_cyc, b_stb, b_we, b_ack, b_err, b_idle;
+	logic [31:0] b_adr, b_dat_w, b_dat_r;
+	logic [3:0]  b_sel;
+	logic [2:0]  b_cti;
+	logic [1:0]  b_bte;
+
+	wb_arb2 arb (
+		.clk(clk),
+		.reset(reset),
+		.m0_cyc(wb_cyc), .m0_stb(wb_stb), .m0_we(wb_we), .m0_adr(wb_adr), .m0_dat(wb_dat_i),
+		.m0_sel(wb_sel), .m0_cti(wb_cti), .m0_bte(wb_bte), .m0_ack(wb_ack), .m0_err(wb_err),
+		.m1_cyc(dma_cyc), .m1_stb(dma_stb), .m1_we(dma_we), .m1_adr(dma_adr), .m1_dat(dma_dat_i),
+		.m1_sel(dma_sel), .m1_ack(dma_ack), .m1_err(dma_err),
+		.s_cyc(b_cyc), .s_stb(b_stb), .s_we(b_we), .s_adr(b_adr), .s_dat(b_dat_w), .s_sel(b_sel),
+		.s_cti(b_cti), .s_bte(b_bte), .s_ack(b_ack), .s_err(b_err), .s_idle(b_idle)
+	);
+
+	assign wb_dat_o  = b_dat_r;
+	assign dma_dat_o = b_dat_r;
+
 	upp_bus #(.ONCHIP_BYTES(ONCHIP_BYTES)) bus (
 		.clk(clk),
 		.reset(reset),
-		.wb_cyc(wb_cyc), .wb_stb(wb_stb), .wb_we(wb_we), .wb_adr(wb_adr), .wb_dat_i(wb_dat_i),
-		.wb_sel(wb_sel), .wb_cti(wb_cti), .wb_bte(wb_bte), .wb_ack(wb_ack), .wb_err(wb_err), .wb_dat_o(wb_dat_o),
+		.wb_cyc(b_cyc), .wb_stb(b_stb), .wb_we(b_we), .wb_adr(b_adr), .wb_dat_i(b_dat_w),
+		.wb_sel(b_sel), .wb_cti(b_cti), .wb_bte(b_bte), .wb_ack(b_ack), .wb_err(b_err), .wb_dat_o(b_dat_r),
 		.fl0_req(fl0_req), .fl0_we(fl0_we), .fl0_addr(fl0_addr), .fl0_wdata(fl0_wdata), .fl0_rdata(fl0_rdata), .fl0_ack(fl0_ack),
 		.fl1_req(fl1_req), .fl1_we(fl1_we), .fl1_addr(fl1_addr), .fl1_wdata(fl1_wdata), .fl1_rdata(fl1_rdata), .fl1_ack(fl1_ack),
 		.sdr_req(sdr_req), .sdr_we(sdr_we), .sdr_line(sdr_line), .sdr_addr(sdr_addr), .sdr_wdata(sdr_wdata),
 		.sdr_wbe(sdr_wbe), .sdr_busy(sdr_busy), .sdr_rvalid(sdr_rvalid), .sdr_rword(sdr_rword), .sdr_rdata(sdr_rdata),
 		.p_sel(p_sel), .p_we(p_we), .p_addr(p_addr), .p_wdata(p_wdata), .p_be(p_be), .p_rdata(p_rdata), .p_wait(p_wait),
-		.unmapped(unmapped)
+		.unmapped(unmapped),
+		.idle(b_idle)
 	);
 
 	nor_flash #(.AW(23), .DEVICE_ID(16'h22F8), .CLK_HZ(CLK_HZ),

@@ -19,22 +19,27 @@
 //============================================================================
 //
 // There is no CPU yet; wb_selftest stands in for it on the memory system's
-// Wishbone port (a memory test, run from the OSD). What is here:
+// Wishbone port (a memory test, run from the OSD), and cpu_irq / cpu_fiq wait
+// for it. What is here:
 //  * the OSD: the two NOR flash images are loaded into DDR3 (CS0 at
 //    0x31000000, CS1 at 0x32000000); an MMC image is mounted on hps_io's
 //    SD slot 0; controls, rotation, aspect ratio, scandoubler, reset;
-//  * the display module (lcd_panel) and its scan-out (video_out), with
-//    lcd_testgen standing in for the CPU: it draws a test picture through
-//    the panel's 8080 bus and shows the keypad state as the matrix reports
-//    it;
-//  * the keypad matrix, fed from the joystick and keyboard;
-//  * the MMC card on the SD slot (it loads the CID/CSD sidecar when an image
-//    is mounted; its bus is idle until the ASIC's MMC host exists);
+//  * the display module (lcd_panel) and its scan-out (video_out). Its 8080
+//    bus and the key matrix lines belong to lcd_testgen until the UPP's LCD
+//    interface first drives the bus (so with no CPU the test picture shows,
+//    drawn by lcd_testgen with the keypad state as the matrix reports it),
+//    and to the UPP from then on;
+//  * the keypad matrix, fed from the joystick and keyboard; its power key
+//    goes to the UEMK model (UEMK register 0x1F bit 1);
+//  * the MMC card on the SD slot, on the UPP's MMC host (CLK/CMD/DAT0 with
+//    pull-ups); it loads the CID/CSD sidecar when an image is mounted;
 //  * the memory system (rtl/upp/ngage_mem.sv): the UPP_WD2 bus map, the two
 //    NOR flash chips with their arrays in DDR3 (the loaded images), the
 //    16 MB SDRAM on the MiSTer SDRAM module, the on-chip RAM and the EMIF
-//    registers; a storage stub (upp_periph_stub) on the peripheral register
-//    bus until the UPP peripheral models exist;
+//    registers; the DMA controller is its second bus master;
+//  * the UPP_WD2 peripherals (rtl/upp/upp_periph.sv) on the peripheral
+//    register bus: interrupt controller, timers, DMA, MMC host, LCD
+//    interface, keypad ports, CBUS with the UEMK model, storage for the rest;
 //  * wb_selftest on the Wishbone port: with "Memory test" on, it tests the
 //    SDRAM, the on-chip RAM, the EMIF block and the flash path in passes,
 //    shows the result on the OSD after the first pass and after a failure,
@@ -264,6 +269,11 @@ wire [27:0] p_addr;
 wire [31:0] p_wdata, p_rdata;
 wire  [3:0] p_be;
 
+// the DMA controller's bus master
+wire        dma_cyc, dma_stb, dma_we, dma_ack, dma_err;
+wire [31:0] dma_adr, dma_dat_w, dma_dat_r;
+wire  [3:0] dma_sel;
+
 wire        sdram_ready;
 wire [15:0] sdram_dq_o, sdram_dq_oe;
 wire        mem_reset = reset | ~sdram_ready;
@@ -287,6 +297,16 @@ ngage_mem ngage_mem
 	.wb_ack(wb_ack),
 	.wb_err(wb_err),
 	.wb_dat_o(wb_dat_r),
+
+	.dma_cyc(dma_cyc),
+	.dma_stb(dma_stb),
+	.dma_we(dma_we),
+	.dma_adr(dma_adr),
+	.dma_dat_i(dma_dat_w),
+	.dma_sel(dma_sel),
+	.dma_ack(dma_ack),
+	.dma_err(dma_err),
+	.dma_dat_o(dma_dat_r),
 
 	.p_sel(p_sel),
 	.p_we(p_we),
@@ -342,7 +362,25 @@ sdram_clkout sdram_clkout
 	.sdram_clk(SDRAM_CLK)
 );
 
-upp_periph_stub upp_periph_stub
+///////////////////////   UPP PERIPHERALS   ////////////////////
+
+// interrupts for the CPU (arm925t's irq / fiq, active high)
+wire        cpu_irq, cpu_fiq;
+
+wire        upp_lcd_csx, upp_lcd_dcx, upp_lcd_wrx, upp_lcd_rdx, upp_lcd_resx, upp_lcd_d_oe, upp_lcd_on;
+wire  [7:0] upp_lcd_d;
+wire  [7:0] panel_d;
+wire        mmc_clk, mmc_cmd_o, mmc_cmd_oe, mmc_dat_o, mmc_dat_oe;
+wire        card_cmd_o, card_cmd_oe, card_dat_o, card_dat_oe;
+wire  [4:0] upp_col_oe, upp_col_out, kp_col_in;
+wire  [5:0] upp_row_oe, upp_row_out, kp_row_in;
+wire        pwronx;                  // the power key, low while held (keypad_matrix)
+
+// the MMC lines, pulled up, driven by the host and the card
+wire mmc_cmd = (mmc_cmd_oe ? mmc_cmd_o : 1'b1) & (card_cmd_oe ? card_cmd_o : 1'b1);
+wire mmc_dat = (mmc_dat_oe ? mmc_dat_o : 1'b1) & (card_dat_oe ? card_dat_o : 1'b1);
+
+upp_periph upp_periph
 (
 	.clk(clk_sys),
 	.reset(mem_reset),
@@ -352,7 +390,45 @@ upp_periph_stub upp_periph_stub
 	.p_wdata(p_wdata),
 	.p_be(p_be),
 	.p_rdata(p_rdata),
-	.p_wait(p_wait)
+	.p_wait(p_wait),
+	.dma_cyc(dma_cyc),
+	.dma_stb(dma_stb),
+	.dma_we(dma_we),
+	.dma_adr(dma_adr),
+	.dma_dat_o(dma_dat_w),
+	.dma_sel(dma_sel),
+	.dma_ack(dma_ack),
+	.dma_err(dma_err),
+	.dma_dat_i(dma_dat_r),
+	.irq(cpu_irq),
+	.fiq(cpu_fiq),
+	.lcd_csx(upp_lcd_csx),
+	.lcd_dcx(upp_lcd_dcx),
+	.lcd_wrx(upp_lcd_wrx),
+	.lcd_rdx(upp_lcd_rdx),
+	.lcd_resx(upp_lcd_resx),
+	.lcd_d_o(upp_lcd_d),
+	.lcd_d_oe(upp_lcd_d_oe),
+	.lcd_d_i(panel_d),
+	.lcd_active(upp_lcd_on),
+	.mmc_clk(mmc_clk),
+	.mmc_cmd_o(mmc_cmd_o),
+	.mmc_cmd_oe(mmc_cmd_oe),
+	.mmc_cmd_i(mmc_cmd),
+	.mmc_dat_o(mmc_dat_o),
+	.mmc_dat_oe(mmc_dat_oe),
+	.mmc_dat_i(mmc_dat),
+	.kp_col_oe(upp_col_oe),
+	.kp_col_out(upp_col_out),
+	.kp_row_oe(upp_row_oe),
+	.kp_row_out(upp_row_out),
+	.kp_col_in(kp_col_in),
+	.kp_row_in(kp_row_in),
+	.power_key(~pwronx),
+	.sti_we(),
+	.sti_addr(),
+	.sti_be(),
+	.sti_data()
 );
 
 wire [15:0] test_errors;
@@ -416,19 +492,18 @@ assign LED_POWER = {test_on, test_on & ((test_errors != 16'd0) ? blink[21] : bli
 
 wire mmc_active;
 
-// The card's bus: CLK low and CMD/DAT0 pulled up until the ASIC's MMC host
-// drives them.
+// on the UPP's MMC host
 mmc_card mmc_card
 (
 	.clk(clk_sys),
 	.reset(sys_reset),
-	.mmc_clk(1'b0),
-	.cmd_i(1'b1),
-	.cmd_o(),
-	.cmd_oe(),
-	.dat_i(1'b1),
-	.dat_o(),
-	.dat_oe(),
+	.mmc_clk(mmc_clk),
+	.cmd_i(mmc_cmd),
+	.cmd_o(card_cmd_o),
+	.cmd_oe(card_cmd_oe),
+	.dat_i(mmc_dat),
+	.dat_o(card_dat_o),
+	.dat_oe(card_dat_oe),
 	.present(),
 	.write_protected(),
 	.active(mmc_active),
@@ -452,9 +527,14 @@ assign LED_DISK = {1'b0, mmc_active};
 
 wire [ngage_keys::NKEYS-1:0] keys;
 wire       power_key;
-wire [4:0] kp_col_oe, kp_col_out;
-wire [5:0] kp_row_in;
-wire       pwronx;
+wire [4:0] kp_col_oe, kp_col_out, tg_col_oe, tg_col_out;
+wire [5:0] kp_row_oe, kp_row_out;
+
+// the matrix lines: lcd_testgen's until the UPP drives the display
+assign kp_col_oe  = upp_lcd_on ? upp_col_oe  : tg_col_oe;
+assign kp_col_out = upp_lcd_on ? upp_col_out : tg_col_out;
+assign kp_row_oe  = upp_lcd_on ? upp_row_oe  : 6'd0;
+assign kp_row_out = upp_lcd_on ? upp_row_out : 6'd0;
 
 ngage_input ngage_input
 (
@@ -474,33 +554,42 @@ keypad_matrix keypad_matrix
 	.power(power_key),
 	.col_oe(kp_col_oe),
 	.col_out(kp_col_out),
-	.row_oe(6'd0),
-	.row_out(6'd0),
-	.col_in(),
+	.row_oe(kp_row_oe),
+	.row_out(kp_row_out),
+	.col_in(kp_col_in),
 	.row_in(kp_row_in),
 	.pwronx(pwronx)
 );
 
 ///////////////////////   DISPLAY   //////////////////////////////
 
-wire       lcd_csx, lcd_dcx, lcd_wrx, lcd_rdx, lcd_resx;
-wire [7:0] lcd_d;
+wire       tg_csx, tg_dcx, tg_wrx, tg_rdx, tg_resx;
+wire [7:0] tg_d;
 
 lcd_testgen lcd_testgen
 (
 	.clk(clk_sys),
 	.reset(reset),
-	.csx(lcd_csx),
-	.dcx(lcd_dcx),
-	.wrx(lcd_wrx),
-	.rdx(lcd_rdx),
-	.resx(lcd_resx),
-	.d(lcd_d),
-	.col_oe(kp_col_oe),
-	.col_out(kp_col_out),
+	.csx(tg_csx),
+	.dcx(tg_dcx),
+	.wrx(tg_wrx),
+	.rdx(tg_rdx),
+	.resx(tg_resx),
+	.d(tg_d),
+	.col_oe(tg_col_oe),
+	.col_out(tg_col_out),
 	.row_in(kp_row_in),
 	.pwronx(pwronx)
 );
+
+// the panel's bus: lcd_testgen's until the UPP's LCD interface first drives it
+wire       lcd_csx  = upp_lcd_on ? upp_lcd_csx  : tg_csx;
+wire       lcd_dcx  = upp_lcd_on ? upp_lcd_dcx  : tg_dcx;
+wire       lcd_wrx  = upp_lcd_on ? upp_lcd_wrx  : tg_wrx;
+wire       lcd_rdx  = upp_lcd_on ? upp_lcd_rdx  : tg_rdx;
+wire       lcd_resx = upp_lcd_on ? upp_lcd_resx : tg_resx;
+wire       panel_d_oe;
+wire [7:0] lcd_d    = !upp_lcd_on ? tg_d : upp_lcd_d_oe ? upp_lcd_d : panel_d_oe ? panel_d : 8'hFF;
 
 wire        scan_en;
 wire  [7:0] scan_x, scan_y;
@@ -518,8 +607,8 @@ lcd_panel lcd_panel
 	.rdx(lcd_rdx),
 	.resx(lcd_resx),
 	.d_i(lcd_d),
-	.d_o(),
-	.d_oe(),
+	.d_o(panel_d),
+	.d_oe(panel_d_oe),
 	.te(),
 	.te_ext_sel(1'b0),
 	.te_ext(1'b0),

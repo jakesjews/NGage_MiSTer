@@ -3,7 +3,8 @@ VERILATOR ?= verilator
 # Modules linted as tops of their own, so that a block is checked with its
 # default parameters even where the shell ties ports off.
 LINT_TOPS := emu lcd_panel video_out keypad_matrix nor_flash mmc_card ngage_input ddram_loader lcd_testgen \
-             sdram ddram_flash upp_bus ngage_mem upp_periph_stub wb_selftest
+             sdram ddram_flash upp_bus ngage_mem wb_selftest \
+             upp_periph upp_intc upp_timers upp_dma upp_mmc upp_lcdif upp_uif upp_cbus wb_arb2
 
 .PHONY: help lint lint-prepare test clean cpu-gen cpu-gen-check
 

@@ -24,8 +24,9 @@ lint_off -rule UNUSEDSIGNAL -file "rtl/mem/ddram_flash.sv" -match "*Bits of func
 lint_off -rule UNUSEDSIGNAL -file "rtl/upp/upp_bus.sv" -match "*Bits of function variable are not used*"
 lint_off -rule UNUSEDSIGNAL -file "rtl/upp/upp_bus.sv" -match "*Bits of signal are not used: 'ram_raddr'*"
 
-// upp_periph_stub: a store indexed by a fold of the address, not a decoder.
-lint_off -rule UNUSEDSIGNAL -file "rtl/upp/upp_periph_stub.sv" -match "*Bits of signal are not used: 'p_addr'*"
+// NGage.sv: the UPP's interrupt outputs wait for the CPU (rtl/cpu/arm925t.sv).
+lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Signal is not used: 'cpu_irq'*"
+lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Signal is not used: 'cpu_fiq'*"
 
 // mmc_card: a transfer with the HPS is one block, so the buffer address
 // within it is 8 bits; the image size counts whole blocks up to 2 TB; the
