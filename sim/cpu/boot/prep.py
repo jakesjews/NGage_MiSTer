@@ -8,9 +8,10 @@
 Applies model/rom-patches.txt as model/hw/ngage_patch.c does: "cs0|cs1 OFF
 HEX" bytes, "cs0file|cs1file OFF PATH" file contents (PATH relative to the
 repository), then "md5 ENTRY": the integrity-table entry {start, end,
-digest} at CS0 ENTRY gets the MD5 of ROM virtual addresses start..end
-(0x50000000 + x is CS0 x below 0xF00000, CS1 above). Writes DIR/cs0.bin and
-DIR/cs1.bin.
+digest} at CS0 ENTRY gets the MD5 of ROM virtual addresses start..end.
+The bootstrap's ROM map (table at CS0 0x744) puts CS0 0-15 MB at
+0x50000000, CS1 0-4 MB at 0x50F00000 and CS0 15 MB up at 0x51300000. Writes
+DIR/cs0.bin and DIR/cs1.bin.
 """
 import argparse
 import hashlib
@@ -19,7 +20,26 @@ import struct
 import sys
 
 ROM_VA = 0x50000000
-ROM_CS0_LEN = 0x00F00000
+# (VA offset, chip, chip offset, length) from the table at CS0 0x744
+ROM_MAP = [(0x0000000, "cs0", 0x000000, 0xF00000),
+           (0x0F00000, "cs1", 0x000000, 0x400000),
+           (0x1300000, "cs0", 0xF00000, 0x0F0000)]
+
+
+def rom_bytes(img, start, end):
+    """ROM virtual addresses start..end (inclusive) through ROM_MAP."""
+    out = bytearray()
+    va = start - ROM_VA
+    while va <= end - ROM_VA:
+        for base, chip, off, length in ROM_MAP:
+            if base <= va < base + length:
+                n = min(base + length, end - ROM_VA + 1) - va
+                out += img[chip][off + va - base:off + va - base + n]
+                va += n
+                break
+        else:
+            sys.exit(f"prep: 0x{va + ROM_VA:08x} is outside the ROM map")
+    return bytes(out)
 
 
 def main():
@@ -62,8 +82,7 @@ def main():
                 print(f"prep: {kind} 0x{off:x} <- {line[2]}")
     for e in md5s:
         start, end = struct.unpack_from("<II", img["cs0"], e)
-        rom = bytes(img["cs0"][:ROM_CS0_LEN]) + bytes(img["cs1"])
-        digest = hashlib.md5(rom[start - ROM_VA:end - ROM_VA + 1]).digest()
+        digest = hashlib.md5(rom_bytes(img, start, end)).digest()
         img["cs0"][e + 8:e + 24] = digest
         print(f"prep: md5 entry 0x{e:x} (0x{start:08x}-0x{end:08x}) = {digest.hex()}")
 
