@@ -45,3 +45,4 @@ sim/build/
 model/.qemu-src/
 model/.build/
 model/.out/
+lint/gen/

@@ -271,3 +271,25 @@ found, and what comes next. Research material lives in `research/`
 - MiSTer SSH: the MiSTer accepts the 1Password agent key. Logins fail
   when 1Password is locked, because the agent doesn't sign. Unlock
   1Password before hardware tests.
+
+## FPGA side
+
+### 2026-10-20: LCD panel (`rtl/board/lcd_panel.sv`)
+- Display module on the 8080 bus: 176x208 RGB565 frame memory in block
+  RAM with a second read port for scan-out; the DCS command set from the
+  brief plus RDDPM/RDDMADCTL/RDDCOLMOD/RDDIM/RDDSM/RDDSDR and RDID1-3
+  (cheap, and standard DCS). 12 bpp through the RGBSET table, 16 bpp, and
+  18 bpp. 0x24 takes its parameter and is ignored; other opcodes are NOPs.
+- Bench `make -C sim lcd`: firmware-style start-up and a picture written
+  three ways (MADCTL 0xD4 in 12 bpp, MADCTL 0 with mirrored coordinates in
+  16 bpp, MV in 18 bpp) must equal a reference built from the source
+  pictures (PPMs in `sim/build/out`); then 40 random rounds against a C++
+  model, byte-exact reads, TE timing, /RES. Passes; injected bugs are caught.
+- Assumptions, each a parameter or noted in the file header:
+  - `PANEL_ROT180=1`: memory (175-x, 207-y) is the viewer's (x, y). Both
+    lcd.ldd variants (MADCTL 0xD4; MADCTL 0 with software mirroring) only
+    come out upright that way, given that ML/MH change refresh order only.
+  - TE from an internal 74 Hz refresh over 208+12 lines; `te_ext_sel`
+    switches TE to an outside signal (e.g. the video's vertical blank).
+  - RDDID bytes (`ID1-3`), blank colours, COLMOD after reset, RAMRD always
+    16 bpp, scroll area counted from the top whatever ML says.

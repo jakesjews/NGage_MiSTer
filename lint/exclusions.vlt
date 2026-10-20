@@ -1,0 +1,25 @@
+`verilator_config
+
+// MiSTer module/file naming, explicitly unused outputs, FPGA power-up values,
+// and local names do not need style diagnostics. Keep functional checks enabled.
+lint_off -rule DECLFILENAME
+lint_off -rule PINCONNECTEMPTY
+lint_off -rule PROCASSINIT
+lint_off -rule VARHIDDEN
+
+// lcd_panel: the bottom fixed area of VSCRDEF follows from the other two
+// (TFA + VSA + BFA = 208); it is kept so that the register is complete.
+lint_off -rule UNUSEDSIGNAL -file "rtl/board/lcd_panel.sv" -match "*Signal is not used: 'bfa'*"
+
+// Keep the MiSTer framework out of lint diagnostics while using its real
+// module interfaces for elaboration.
+lint_off -file "sys/*"
+lint_off -rule TIMESCALEMOD -file "sys/*"
+lint_off -rule SIMILARNAME -file "sys/*"
+lint_off -rule PROCASSWIRE -file "sys/*"
+lint_off -rule UNOPTFLAT -file "sys/*"
+lint_off -rule MULTIDRIVEN -file "sys/*"
+
+// The PLL is a port-only boundary, not a behavioral model.
+lint_off -file "lint/pll.sv"
+lint_off -rule TIMESCALEMOD -file "lint/pll.sv"
