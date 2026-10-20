@@ -297,7 +297,10 @@ module upp_bus #(
 	wire fq_next = fl_push ? (fl_pop ? fq_v : fw_v) : (fl_pop ? 1'b0 : fq_v);
 	// the engine reads ahead the beat that is on the bus or promised by it,
 	// when it is free (or frees now) and the queue will have room
-	wire fe_allowed = wb_cyc && (fe_next == wb_adr || (fe_next == adr_n && burst));
+	// (fe_next is nxt(fe_adr) with the burst's BTE, and nxt is one-to-one, so
+	// "fe_next is the beat after the bus's" is fe_adr == wb_adr: no adder on
+	// this path)
+	wire fe_allowed = wb_cyc && (fe_next == wb_adr || (fe_adr == wb_adr && burst));
 	wire fe_ahead   = state == S_FLASH && !fe_we_op && fe_allowed && (!fl_req || fe_last) && !fq_next;
 
 	// the halfwords a beat needs
