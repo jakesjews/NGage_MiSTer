@@ -614,3 +614,53 @@ found, and what comes next. Research material lives in `research/`
     /media/fat/MiSTer.ini.ngagebak.
 - Not yet checked on hardware: key input through the test picture, OSD
   flash loading, MMC mount.
+
+### 2026-10-20, model: keypad, DMA, MMC data, S60 start-up analysis
+- **Keypad** (`model/hw/ngage_keypad.c`, from ekeyb.dll): UIF port D
+  (0x0C150400, 5 column lines) and port E (6 row lines). Each port has
+  data, direction set/clear, interrupt-enable set/clear and pull-up
+  set/clear registers (set = low byte, clear = high byte of one word).
+  Rows are inputs with pull-ups, columns are driven low to scan. A row
+  falling edge latches CTSI `+0x100` bit 2 (W1C; ekeyb writes 0xC), which
+  raises source 25 (CTSI_IRQ). The key matrix is ekeyb's table 3. A
+  scripted '5' (`NGAGE_KEYS=file`, lines `<sec> down|up <key>`) is scanned
+  and decoded at row 3, column 2. Host keys work in the `-w` window.
+- **DMA** (`model/hw/ngage_dma.c`, from ekern 0x5031B2C0-0x5031B868): 8
+  channels at `0x0C120300 + 0x40n`; source/destination address, mode
+  (0 fixed, 2/4 increment) and width (8/0x10/0x20); count - 1 at `+0x2C`;
+  `+0x08` = 1/2 starts, 0 stops and acknowledges. The DMA side sees
+  register 0x0Cxxxxxx at 0x1xxxxxxx (MMC FIFO 0x10120624, LCD FIFO
+  0x10121208). Transfers complete at once and raise source 6+n; the ISR
+  reads no status.
+- **MMC data**: read/write phases (control types 8/9/10 = read first,
+  next, stop; 5/6/7 = write; CMD17 goes out as 0x21) and the FIFO at
+  `+0x624`. A **FAT12 test card mounts**: MBR, boot sector, FATs and the
+  root directory are read with CMD17/18 through DMA channel 5.
+  `model/tools/mkcard.sh OUT.img` makes one (16 MB, FAT12 at LBA 32,
+  GAME.ID); `NGAGE_MMC=OUT.img` inserts it. A card made with FAT32 is not
+  recognised (Symbian 6.1 has no FAT32).
+- **Starter blocker, more detail.** Starter takes the WD2-reason-0 path
+  (state machine at 0x5096178C) and starts the minimal list, SysAp.app and
+  Startup.app (both through AppRun.exe), not the full list from
+  Starter_Arm.RSC (SplashScreen, SelfTestServer and the rest). It then
+  builds `CBaBackupSessionWrapper` (Bafl 0x50903B00, connect at
+  0x509032E0 to "BackupServer"). The backup server is in EikSrv.dll
+  (eiksrvs.exe, started on demand by EikSrvc), which is not running, so the
+  connect fails with KErrNotFound and Starter crashes in cleanup.
+- **Start-up reasons** come through sysutil (GetStartupReasons) to
+  DosServer, then Nokia.dsy. That uses HelperDrv: request 0 reads variant
+  `+0x80`, which comes from superpage 0x4000101C, set by the bootstrap at
+  0x3178 from UEMK register 0x1F bit 1 and register 0x15. It also uses
+  NOSDRIVER over ISI (PermRecordRead, NetCsControl). Without NOS answering
+  ISI messages (through the nosdriver channel to the NOS object's vtable
+  `+0x0C/+0x10/+0x14`), the DOS phone services cannot answer. That is the
+  likely next blocker after the backup server.
+- **Audio** needs NOS and the DSP: audio.ldd touches no UPP registers, and
+  SoundDevice.mda reaches the audio path over PhoNet/ISI to the cellular
+  side. The encrypted blob alone would not be enough; the DSP firmware and
+  its interface would also have to be modelled or high-level emulated.
+- New tools: `model/tools/romsyms.py` (every ROM DLL export named from the
+  SDK import libraries, to `research/firmware/analysis/romsyms.txt`),
+  `model/tools/annotate.py` (names `bl` targets in a disassembly),
+  `model/monitor.sh` (QEMU monitor commands on a running model),
+  `model/gdb/desc.gdb` with `model/tools/gdbdesc.py` (print a TDesC16).
