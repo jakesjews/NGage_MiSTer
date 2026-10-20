@@ -18,14 +18,14 @@ reference model's model/hw/ngage_patch.c applies them at load:
   md5 <CS0 offset of an entry>        after all byte patches: recompute the
                                       bootstrap's integrity digest of that
                                       table entry {start, end, digest[16]}
-The md5 lines read ROM virtual address 0x50000000 + x as CS0 x below
-0xF00000 and CS1 x - 0xF00000 above, as the patcher does. The integrity table
-(CS0 0x8F00) is then checked the way the bootstrap does (routine 0x3238):
-every entry that is not erased must hold the MD5 of its ROM virtual
-addresses, mapped as the bootstrap's page table has them (CS0 to
-0x50EFFFFF, CS1 0x000000-0x3FFFFF at 0x50F00000-0x512FFFFF, CS0 0xF00000
-and up at 0x51300000: the language pack's ROM, entry 0x8F00, spans the end of
-CS1 and the top of CS0).
+The md5 lines and the integrity check read ROM virtual addresses as the
+bootstrap's page table maps them (entries at CS0 0x744, as the model's
+patcher and sim/cpu/boot/prep.py do): CS0 to 0x50EFFFFF, CS1 0x000000-0x3FFFFF
+at 0x50F00000-0x512FFFFF, CS0 0xF00000-0xFEFFFF at 0x51300000-0x513EFFFF (the
+language pack's ROM, entry 0x8F00, spans the end of CS1 and the top of CS0).
+The integrity table (CS0 0x8F00) is checked the way the bootstrap does
+(routine 0x3238): every entry that is not erased must hold the MD5 of its ROM
+virtual addresses.
 
 The flash files leave out 56 per-phone bytes at CS0 0x12C (after the marker
 "KaeP"); --phone-data copies them from a ROM dump that starts at flash 0
@@ -59,7 +59,6 @@ CS0_SIZE = 16 << 20
 CS1_SIZE = 8 << 20
 CS1_BASE = 0x02000000
 ROM_VA = 0x50000000
-ROM_CS0_LEN = 0x00F00000
 TABLE = (0x8F00, 0x8F18)          # the entries the bootstrap checks (0x359C, 0x35A0)
 PHONE_DATA = (0x12C, 0x164)       # the 56 per-phone bytes: [start, end)
 
@@ -175,20 +174,7 @@ def md5_entry(entry, cs0, cs1):
     start = int.from_bytes(cs0[entry:entry + 4], "little")
     end = int.from_bytes(cs0[entry + 4:entry + 8], "little")
     length = (end - start + 1) & 0xFFFFFFFF
-    off = (start - ROM_VA) & 0xFFFFFFFF
-    if off + length > ROM_CS0_LEN + CS1_SIZE:
-        fail("md5 entry 0x%X: 0x%08X-0x%08X is outside the ROM" % (entry, start, end))
-    return start, end, rom_md5(cs0, cs1, off, length)
-
-
-def rom_md5(cs0, cs1, off, length):
-    h = hashlib.md5()
-    a, b = off, off + length
-    if a < ROM_CS0_LEN:
-        h.update(cs0[a:min(b, ROM_CS0_LEN)])
-    if b > ROM_CS0_LEN:
-        h.update(cs1[max(a, ROM_CS0_LEN) - ROM_CS0_LEN:b - ROM_CS0_LEN])
-    return h.digest()
+    return start, end, hashlib.md5(rom_read(cs0, cs1, start, length)).digest()
 
 
 def apply_patches(path, cs0, cs1, standin, model_build):
@@ -239,11 +225,12 @@ def rom_read(cs0, cs1, va, length):
     out = bytearray()
     x = va - ROM_VA
     end = x + length
-    for lo, hi, img, base in ((0, 0xF00000, cs0, 0), (0xF00000, 0x1300000, cs1, 0xF00000),
-                              (0x1300000, 0x1400000, cs0, 0x1300000 - 0xF00000)):
-        a, b = max(x, lo), min(end, hi)
+    for va_off, img, off, n in ((0x0000000, cs0, 0x000000, 0xF00000),
+                                (0x0F00000, cs1, 0x000000, 0x400000),
+                                (0x1300000, cs0, 0xF00000, 0x0F0000)):
+        a, b = max(x, va_off), min(end, va_off + n)
         if a < b:
-            out += img[a - base:b - base]
+            out += img[a - va_off + off:b - va_off + off]
     if len(out) != length:
         fail("ROM 0x%08X+0x%X is outside the mapped ROM" % (va, length))
     return bytes(out)

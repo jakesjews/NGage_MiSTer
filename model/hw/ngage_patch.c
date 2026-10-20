@@ -10,8 +10,10 @@
  *                                     digest[16]} (bootstrap 0x3238, table 0x8F00)
  *
  * The md5 lines run after all byte patches. The digest covers ROM virtual
- * addresses start..end, which the bootstrap maps linearly: 0x50000000 +
- * x -> CS0 x for x < 0xF00000, then CS1 from 0x50F00000.
+ * addresses start..end through the bootstrap's ROM map (its page-table
+ * entries at CS0 0x744; sim/cpu/boot/prep.py and tools/mkimage.py use the
+ * same map): 0x50000000 + x -> CS0 x for x < 0xF00000, CS1 0-4 MB at
+ * 0x50F00000, CS0 0xF00000-0xFEFFFF at 0x51300000.
  *
  * Copyright (c) 2026 the NGage_MiSTer authors
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -25,7 +27,14 @@
 #include "hw/arm/ngage.h"
 
 #define ROM_VA      0x50000000u
-#define ROM_CS0_LEN 0x00F00000u
+
+static const struct {
+    uint32_t va, cs, off, len;      /* VA offset, chip, chip offset, length */
+} rom_map[] = {
+    { 0x0000000, 0, 0x000000, 0xF00000 },
+    { 0x0F00000, 1, 0x000000, 0x400000 },
+    { 0x1300000, 0, 0xF00000, 0x0F0000 },
+};
 
 static void md5_entry(uint32_t entry, NGageFlash *cs0, NGageFlash *cs1)
 {
@@ -40,7 +49,20 @@ static void md5_entry(uint32_t entry, NGageFlash *cs0, NGageFlash *cs1)
 
     for (uint32_t i = 0; i < len; i++) {
         uint32_t x = off + i;
-        buf[i] = x < ROM_CS0_LEN ? d0[x] : d1[x - ROM_CS0_LEN];
+        unsigned k;
+
+        for (k = 0; k < sizeof(rom_map) / sizeof(rom_map[0]); k++) {
+            if (x - rom_map[k].va < rom_map[k].len) {
+                uint32_t o = rom_map[k].off + x - rom_map[k].va;
+                buf[i] = rom_map[k].cs ? (o < s1 ? d1[o] : 0xFF) : (o < s0 ? d0[o] : 0xFF);
+                break;
+            }
+        }
+        if (k == sizeof(rom_map) / sizeof(rom_map[0])) {
+            error_report("ngage: rom-patch: digest entry 0x%x: 0x%08x is outside the ROM map",
+                         entry, ROM_VA + x);
+            exit(1);
+        }
     }
     if (qcrypto_hash_bytes(QCRYPTO_HASH_ALGO_MD5, buf, len, &res, &rlen, &error_fatal) < 0) {
         exit(1);
