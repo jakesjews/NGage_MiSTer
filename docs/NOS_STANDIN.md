@@ -127,6 +127,7 @@ Event 1 is the self-test result, read by Startup.app directly.
 | `0x17` battery | `0x08` [`01 00`] (DOS) | `0x09` [`01 01` + `13 04 01 00`] | charger state 1 → DosSrv ord7(0) → SA `0x100052C9` = ESAChargerDisconnected | Nokia.dsy `0x50FFAF00`: [10] = 1, [11] count, sub-block 0x13 at [12], state at its byte 2 (isimsg ord1524), 1..5 → ord7(state - 1); sae `0x50BF251C` |
 | `0x17` battery | `0x0A` [`02 00`] (DOS) | `0x0B` [`01 02` + `15 04 01 00` + `16 04 00 07`] | battery fine (DosSrv ord4(0)), 7 bars (DosSrv ord2(7) → SA `0x100052D3`); the idle screen shows a full battery | Nokia.dsy `0x50FFB00C`: [10] = 1, sub-blocks 0x15 (state at byte 2: 1 → 0, 3 → 1, 4 → 2) and 0x16 (bars at byte 3); gnokii nk6510 reads the 0x0B level at the same byte, 0..7 |
 | `0x1B` info | `0x02` INFO_PP_READ_REQ [`00 01` + `47 08 00 02 01 00 00 00`] (TSY) | `0x03` [`00 01` + `47 08 00 02 01 00 00 00`] | product profile feature value 0: completes RCtmGsmPhone::CheckAlsPpSupport (SysAp, synchronous) | phonetsy.tsy `0x5093EB38`: [10] status 0 = INFO_OK (oFono info.h), [11] sub-block count, INFO_SB_PP at [12], value at its byte 5 (isimsg ord1028) → `0x5092F248` |
+| `0x1F` audio resource | `0x04` [`00 00 00`] (SoundDevice, object `0x4A`) | `0x06` [`0D 00`] | SoundDevice's teardown sends this release when `+0x1D8` is set and stays in state 14 until resource `0x1F` message 3, or 6 with [10] = 13, arrives; then state 0. Without it every later stream start is refused (PlayInit `0x505AC264`). It happens from the second boot on: a sound at start-up reserves (`0x1F/0x01`) and releases | receiver `0x505AF722` (ord524 reads [10] for message 6), state table `0x505AF7C4` |
 | `0x0B` | `0x11` [`06 01`] (TSY) | `0x12` [`06 01 06 08 00 00 00 00 00 00`] | completes RCtmGsmPhone::GetHandsfreeMode (hands-free off), which PhoneServer waits on at start-up | phonetsy.tsy `0x5093E1D8`: [10] setting, [11] sub-block count = 1, sub-block at [12], 16-bit big-endian value at its bytes 4-5 (isimsg ord1568); `0x5092E16C` setting 6: 13 → on, else off. Sub-block id and length are guesses |
 
 ## Audio
@@ -220,7 +221,7 @@ Requests seen but left without a reply (the client keeps waiting):
 | `0x0A` network | `0x00` | TSY | |
 | `0x09` SIM | `0x19` [`2F`] | object `0x4C` | READ_HPLMN (oFono) |
 | `0x09` SIM | `0x3D` [`FA 00`] | TSY | reply `0x3E`, phonetsy.tsy `0x5093FA20` (request type 0x4C, reads a string at [11] = 1) |
-| `0x1F` | `0x01` [long], `0x04` [`00 00 00`] | object `0x4A` (SoundDevice.mda) | before every audio start and at teardown; playback needs no reply ([Audio](#audio)) |
+| `0x1F` | `0x01` [long] | object `0x4A` (SoundDevice.mda) | reserve, before audio starts after the first boot; playback needs no reply (`0x04`, the release, is answered above) |
 | `0x00` | `0x02` [`00 00`], to object `0x44` | object `0x55` | before every audio start; playback needs no reply |
 | `0x0B` | `0x19` [`00 04 02`], [`00 04 00`], [`00 05 05`] | object `0x4A` | audio routing at teardown (ord850) |
 | `0x23` | `0x04` [`00 32 00 01 ...`] | DOS object `0x4F` | |

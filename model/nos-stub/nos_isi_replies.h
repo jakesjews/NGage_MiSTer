@@ -15,6 +15,7 @@
 #define RES_SELFTEST    0x35        /* DOS self test (RDosSelfTest, Nokia.dsy object 0x4D) */
 #define RES_59          0x59        /* last step of the DOS self test */
 #define RES_AUDIO       0xE8        /* DSP PCM stream (SoundDevice.mda, nos_audio.h) */
+#define RES_AUDIO_RES   0x1F        /* audio resource reserve/release (SoundDevice.mda) */
 
 /* SIM_IND (PN_SIM 0xEF, oFono sim.h) as Nokia.dsy reads it (0x50FFB21C):
  * [10] service, [11] status, [12] SIM state 1..8 -> DosSrv ord31(state - 1)
@@ -249,6 +250,20 @@ static void isi_request(struct slot *s, const u8 *m, int len)
         r[n++] = 0x00;                  /* value, big-endian */
         r[n++] = 0x00;
         r[n++] = 0x00;
+        r[n++] = 0x00;
+        isi_send(s, r, n);
+        break;
+    case RES_AUDIO_RES << 8 | 0x04:
+        /* SoundDevice's release (isimsg ord798, [00 00 00]; sent by its
+         * teardown 0x505ADCB8 when +0x1D8 is set) leaves it in state 14
+         * until resource 0x1F message 3, or message 6 with [10] = 13,
+         * arrives (receiver 0x505AF722: ord524 reads [10]); state 14 then
+         * goes to 0 (table at 0x505AF7C4). Without it every later start
+         * is refused (PlayInit 0x505AC264, state 14): after the first
+         * boot a start-up sound reserves and releases at boot. Answer with
+         * message 6, [10] = 13 (the reason as SoundDevice tests it). */
+        n = isi_reply_hdr(r, m, 0x06);
+        r[n++] = 0x0D;
         r[n++] = 0x00;
         isi_send(s, r, n);
         break;

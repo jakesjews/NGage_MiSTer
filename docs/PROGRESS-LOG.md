@@ -1363,3 +1363,35 @@ found, and what comes next. Research material lives in `research/`
 - Quartus: every corner met at 104 MHz.
   - Worst setup +0.305 ns (the framework's scaler), hold +0.016 ns.
   - 18,073 ALMs (43%), 256 M10K. flash_save is 207 ALMs and 6 M10K.
+
+### 2026-10-20, model: saves persist; audio after the first boot; screen saver
+- **Saves persist.** Sega Rally, Options: SPEED km/h → mph, SOUND 1 → 6,
+  END (the game writes `c:\System\Apps\6R12\6R12.dat`). The model wrote C:
+  back to `cs1-save.bin` on exit; a reboot on that C: shows mph and 6 in the
+  Options screen, and the game's sound runs at volume 6
+  (`model/.out/sv1`, `sv3`). `C:\system\bootdata\FirstBoot.dat`, written on
+  the first boot, is also read back (no time query on the second). The
+  flash and LFFS handling need no change. Save files of the others:
+  SonicN `c:\system\apps\SonicN\sonic.da0-2`, Rayman 3
+  `c:\system\apps\rayman3\save.dat`.
+- The sound option is SoundDevice's volume: `0x0B/0x14` parameter 2 follows
+  it live (1 to 6 while the bar moves), on a 0-9 scale (the game's bar has
+  ten steps).
+- **Fixed: no game sound from the second boot on.** From then on a sound at
+  start-up makes SoundDevice reserve (`0x1F/0x01`) and release
+  (`0x1F/0x04`) the audio resource; after the release it waits in state 14
+  for NOS's resource `0x1F` message 3 or 6, and refuses every start until
+  then (PlayInit `0x505AC264`; the games retry forever, sending `0x00/0x02`
+  each time). The stand-in now answers the release with `0x06 [0D 00]`
+  (`docs/NOS_STANDIN.md`). Sega Rally and SonicN play on a second boot.
+- **Screen saver (LCD partial and idle mode).** lcd.ldd `0x50406278` sends:
+  - PTLAR `0x30` with start and end row (16 bits each: `00 04 00 1a`, then
+    `00 80 00 96`, `00 a4 00 ba` a minute apart), PTLON `0x12`, IDMON `0x39`,
+    then a full frame (PASET `00 00 00 d0`, RAMWR) with a date bar in those
+    rows;
+  - on a key: IDMOFF `0x38`, NORON `0x13`, then the normal screen.
+  `ngage_lcd.c` now shows rows outside the partial area black and, in idle
+  mode, each colour component as its top bit (eight colours). The rows are
+  the driver's PASET rows: the bar it draws falls in them. The screen saver
+  is black with a moving bar, as on the phone, instead of white
+  (`model/.out/ss1`). `rtl/board/lcd_panel.sv` needs the same.

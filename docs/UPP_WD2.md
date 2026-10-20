@@ -147,6 +147,18 @@ stores the type at SDRAM 0x0A012000+24 and ecust copies it to variant +0x7C.
 MADCTL 0xD4 gives an upright image if the panel is mounted rotated by 180°
 (inferred from the rendered boot logo).
 
+Partial and idle mode, used only by the screen saver (lcd.ldd `0x50406278`):
+it sends PTLAR `0x30` [SR SR ER ER] (rows, 16 bits each), PTLON `0x12`, IDMON
+`0x39`, then a full frame (PASET 0-208, RAMWR) with the date bar in rows SR-ER;
+every minute again with the bar moved (rows 4-26, 128-150, 164-186 seen).
+A key press sends IDMOFF `0x38`, NORON `0x13` and redraws. The model shows
+rows outside SR-ER black and, in idle mode, each colour component as its top
+bit (eight colours, as DCS defines idle mode): the bar backgrounds the saver
+cycles through (`#000000`, `#319A63`, `#737573`) become black, green, black.
+The rows are the ones the driver addresses with PASET (the bar it draws falls
+in them), whatever MADCTL's row order. Black outside the area is what the
+phone shows; idle mode's colours are DCS behaviour, not checked on a phone.
+
 ## DPLLs and test interface (0x0C14xxxx)
 
 | Address | Name / guess | Behaviour | Evidence | Conf. |

@@ -34,6 +34,14 @@
  * sets MADCTL 0xD4 (MY, MX) and sends coordinates as they are, module 4
  * mirrors coordinates itself; both then appear upright.
  *
+ * Partial and idle mode (the screen saver, lcd.ldd 0x50406278): PTLAR 0x30
+ * (start row, end row, 16 bits each), PTLON 0x12 and IDMON 0x39, then a full
+ * frame with the date bar in those rows; every minute again with the bar
+ * moved (rows 4-26, 128-150, 164-186 seen). NORON 0x13 and IDMOFF 0x38 end
+ * it. The model shows rows outside the partial area black (the rows are the
+ * driver's PASET rows: the bar it draws falls in them) and, in idle mode,
+ * each colour component as its top bit (eight colours).
+ *
  * Copyright (c) 2026 the NGage_MiSTer authors
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -65,7 +73,8 @@ typedef struct NGageLcd {
     uint8_t param[64];
     uint16_t xs, xe, ys, ye, x, y;
     uint8_t madctl, colmod;
-    bool sleep, display_on, idle, te_on;
+    bool sleep, display_on, idle, te_on, partial;
+    uint16_t ptl_sr, ptl_er;
     uint8_t lut[48];
     bool lut_valid;
     uint8_t pix[3];
@@ -187,6 +196,11 @@ static void panel_params_done(NGageLcd *s)
         memcpy(s->lut, p, 48);
         s->lut_valid = true;
         break;
+    case 0x30:                                  /* PTLAR */
+        s->ptl_sr = p[0] << 8 | p[1];
+        s->ptl_er = p[2] << 8 | p[3];
+        s->dirty = true;
+        break;
     }
     lcd_log(s, "  params %02x:", s->cmd);
     for (int i = 0; i < s->nparam && i < 8; i++) {
@@ -206,13 +220,17 @@ static void panel_command(NGageLcd *s, uint8_t cmd)
     switch (cmd) {
     case 0x01:                                  /* SWRESET */
         s->madctl = 0; s->colmod = 6; s->sleep = true; s->display_on = false;
+        s->partial = false; s->idle = false;
+        s->ptl_sr = 0; s->ptl_er = LCD_H - 1;
         break;
+    case 0x12: s->partial = true; s->dirty = true; break;      /* PTLON */
+    case 0x13: s->partial = false; s->dirty = true; break;     /* NORON */
     case 0x10: s->sleep = true; break;
     case 0x11: s->sleep = false; break;
     case 0x28: s->display_on = false; s->dirty = true; break;
     case 0x29: s->display_on = true; s->dirty = true; break;
-    case 0x38: s->idle = false; break;
-    case 0x39: s->idle = true; break;
+    case 0x38: s->idle = false; s->dirty = true; break;
+    case 0x39: s->idle = true; s->dirty = true; break;
     case 0x34: s->te_on = false; break;
     case 0x35: s->te_on = true; break;
     case 0x2C:                                  /* RAMWR */
@@ -359,10 +377,21 @@ static const MemoryRegionOps lcd_ops = {
 /* What the user sees: the physical memory rotated by 180 degrees. */
 static uint32_t view_pixel(NGageLcd *s, int x, int y)
 {
+    int r = LCD_H - 1 - y;                      /* panel memory row */
+    int row = (s->madctl & 0x80) ? LCD_H - 1 - r : r;   /* as the driver addresses it */
+    uint32_t p;
+
     if (!s->display_on || s->sleep) {
         return 0;
     }
-    return s->gram[LCD_H - 1 - y][LCD_W - 1 - x];
+    if (s->partial && (row < s->ptl_sr || row > s->ptl_er)) {
+        return 0;
+    }
+    p = s->gram[r][LCD_W - 1 - x];
+    if (s->idle) {                              /* eight colours: top bit of each */
+        p = (p & 0x800000 ? 0xFF0000 : 0) | (p & 0x8000 ? 0xFF00 : 0) | (p & 0x80 ? 0xFF : 0);
+    }
+    return p;
 }
 
 static void lcd_invalidate(void *opaque)
@@ -489,6 +518,7 @@ void ngage_lcd_create(MemoryRegion *sysmem, FILE *log, const char *shot_dir,
     s->sleep = true;
     s->xe = LCD_W - 1;
     s->ye = LCD_H - 1;
+    s->ptl_er = LCD_H - 1;
     s->con = qemu_graphic_console_create(NULL, 0, &lcd_hw_ops, s);
     qemu_console_resize(s->con, LCD_W * s->scale, LCD_H * s->scale);
     memory_region_init_io(&s->mr, NULL, &lcd_ops, s, "ngage.lcd", 0x10);
