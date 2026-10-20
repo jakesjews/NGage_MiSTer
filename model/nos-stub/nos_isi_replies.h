@@ -1,7 +1,17 @@
 /*
- * ISI replies of the offline-modem stand-in (included by nos_isi.c).
- * See docs/NOS_STANDIN.md for the table of replies and their evidence.
+ * ISI replies of the offline-modem stand-in (included by nos_isi.c): a
+ * phone with no SIM card and no network. docs/NOS_STANDIN.md lists every
+ * reply with the client code that parses it.
  */
+
+/* Resources (PhoNet resource ids as the clients use them). */
+#define RES_SIM         0x09
+#define RES_1C          0x1C        /* subscribed by DOS and the TSY with message 0x10 */
+
+/* SIM_IND (PN_SIM 0xEF, oFono sim.h) as Nokia.dsy reads it (0x50FFB21C):
+ * [10] service, [11] status, [12] SIM state 1..8 -> DosSrv ord31(state - 1). */
+#define SIM_IND             0xEF
+#define SIM_STATE_NO_CARD   0x05
 
 /* Start a reply in r[]: devices and objects swapped, same resource and
  * transaction, message id `id`. Returns the header length (10). */
@@ -18,6 +28,20 @@ static int isi_reply_hdr(u8 *r, const u8 *m, u8 id)
     return 10;
 }
 
+/* An indication from object `from` of resource `res` to the client. */
+static int isi_ind_hdr(u8 *r, const struct slot *s, u8 res, u8 from, u8 id)
+{
+    r[0] = 0;
+    r[1] = 0;
+    r[2] = 0;
+    r[3] = res;
+    r[6] = (u8)s->obj_id;
+    r[7] = from;
+    r[8] = 0;
+    r[9] = id;
+    return 10;
+}
+
 static void isi_send(struct slot *s, u8 *r, int n)
 {
     r[4] = (u8)(n - 6);
@@ -27,7 +51,37 @@ static void isi_send(struct slot *s, u8 *r, int n)
 
 static void isi_request(struct slot *s, const u8 *m, int len)
 {
-    (void)s;
-    (void)m;
+    u8 r[64];
+    int n;
+
     (void)len;
+    switch (m[3] << 8 | m[9]) {
+    case RES_1C << 8 | 0x10:
+        /* Nokia.dsy 0x50FFAD98 reads the reply 0x11 at [10]: 0 -> DosSrv
+         * ord22(0); 1 -> 2; 0x10/0x11/0x20/0x21 -> 1. */
+        n = isi_reply_hdr(r, m, 0x11);
+        r[n++] = 0x00;
+        isi_send(s, r, n);
+        /* The SIM state follows as an indication: no card. */
+        n = isi_ind_hdr(r, s, RES_SIM, m[6], SIM_IND);
+        r[n++] = 0x00;                  /* service: card status */
+        r[n++] = 0x06;                  /* SIM_SERV_SIM_DISCONNECTED (oFono sim.h) */
+        r[n++] = SIM_STATE_NO_CARD;
+        r[n++] = 0x00;
+        isi_send(s, r, n);
+        /* SIM message 0x2C as Nokia.dsy reads it (0x50FFB4BC): [11] = 1
+         * (OK), [12] bit 0 = flags valid, [13..14] = 16-bit flags. All
+         * clear: DOS events 19, 20 and 21 = 0 (SA 0x100052F0 = 0). */
+        n = isi_ind_hdr(r, s, RES_SIM, m[6], 0x2C);
+        r[n++] = 0x00;
+        r[n++] = 0x01;
+        r[n++] = 0x01;
+        r[n++] = 0x00;
+        r[n++] = 0x00;
+        r[n++] = 0x00;
+        isi_send(s, r, n);
+        break;
+    default:
+        break;
+    }
 }

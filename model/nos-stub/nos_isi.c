@@ -52,8 +52,10 @@ struct slot {
     void *obj;                  /* NOS object (nosdriver channel + 0x38) */
     void *chan;                 /* nosdriver channel (DLogicalChannel) */
     int unit;
+    int obj_id;                 /* PhoNet object of the client (byte 7 of its sends) */
     int rx_pending;
     u32 *rx_des;                /* client's TDes8 for request 0 */
+    u32 *rx_len;                /* its TPckgBuf<TUint16> */
     int qlen;                   /* queued replies, length-prefixed */
     u8 q[QBYTES];
 };
@@ -172,6 +174,12 @@ static void deliver(struct slot *s)
         }
         copy(buf, s->q + 2, n);
         des_set_len(s->rx_des, n);
+        if (s->rx_len && (s->rx_len[0] >> 28) == 3 && s->rx_len[1] >= 2) {
+            u8 *l = (u8 *)&s->rx_len[2];    /* TBuf8<2>: data at +8 */
+            l[0] = (u8)n;
+            l[1] = (u8)(n >> 8);
+            s->rx_len[0] = (s->rx_len[0] & 0xF0000000u) | 2;
+        }
         log_text("NOS> ", buf, n);
     }
     n = (s->q[0] | s->q[1] << 8) + 2;
@@ -229,17 +237,19 @@ static int m_cancel(void *obj, u32 mask)
     return 0;
 }
 
-static int m_request(void *obj, int fn, void *status, u32 *a1, void *a2)
+/* EKA1 DLogicalChannel::DoRequest(reqNo, a1, a2); the kernel keeps the
+ * TRequestStatus (channel + 24 + 4 * reqNo). For request 0 phonet.dll
+ * passes a1 = the message TDes8, a2 = a TPckgBuf<TUint16> (TBuf8<2>). */
+static int m_request(void *obj, int fn, u32 *a1, u32 *a2)
 {
     struct slot *s = slot_by_obj(obj);
 
-    (void)status;
-    (void)a2;
     if (!s) {
         return 0;
     }
     if (fn == 0) {
         s->rx_des = a1;
+        s->rx_len = a2;
         s->rx_pending = 1;
         deliver(s);
     } else {
@@ -266,6 +276,7 @@ static int m_control(void *obj, int fn, u32 *a1, void *a2)
         return 0;
     }
     log_text(fn == 4 ? "NOS< " : "NOS<6 ", m, len);
+    s->obj_id = m[7];
     isi_request(s, m, len);
     deliver(s);
     return 0;
