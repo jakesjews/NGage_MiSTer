@@ -3764,6 +3764,7 @@ module zap_cache (
 		.o_fsr(tlb_fsr),
 		.o_far(tlb_far),
 		.o_fault(tlb_fault),
+		.o_wt(),
 		.o_cacheable(tlb_cacheable),
 		.o_busy(tlb_busy),
 		.o_wb_stb_nxt(wb_stb[2]),
@@ -6468,6 +6469,7 @@ module zap_dcache_fsm (
 	i_far,
 	i_fault,
 	i_cacheable,
+	i_wt,
 	i_busy,
 	o_hold,
 	o_idle,
@@ -6538,6 +6540,7 @@ module zap_dcache_fsm (
 	input wire [31:0] i_far;
 	input wire i_fault;
 	input wire i_cacheable;
+	input wire i_wt;
 	input wire i_busy;
 	output reg o_hold;
 	output reg o_idle;
@@ -7015,6 +7018,8 @@ module zap_dcache_fsm (
 	reg [63:0] reg_idx;
 	reg [63:0] lock_nxt;
 	reg [63:0] lock_ff;
+	reg wt_hit;
+	reg wt_dirty;
 	wire unused;
 	assign unused = |{phy_addr[$clog2(CACHE_LINE) - 1:0]};
 	assign o_cache_clean_req = cache_clean_req_ff;
@@ -7038,6 +7043,8 @@ module zap_dcache_fsm (
 			cache_tag <= i_cache_tag;
 			phy_addr <= i_phy_addr;
 			reg_idx <= i_reg_idx;
+			wt_hit <= (((i_wr && i_wt) && i_cacheable) && cache_cmp) && i_cache_tag_valid;
+			wt_dirty <= i_cache_tag_dirty;
 		end
 	always @(posedge i_clk)
 		if (i_reset) begin
@@ -7209,6 +7216,12 @@ module zap_dcache_fsm (
 						else
 							o_wb_sel_nxt = i_ben;
 					end
+					else if ((i_cacheable && i_wr) && i_wt) begin
+						state_nxt[IDLE] = 1'd0;
+						state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
+						o_ack = 1'd0;
+						o_hold = 1'd1;
+					end
 					else if (i_cacheable)
 						case ({cache_cmp, i_cache_tag_valid})
 							2'b11:
@@ -7292,6 +7305,15 @@ module zap_dcache_fsm (
 						o_fsr[3:0] = EXT_ABORT_FS;
 						o_far = i_va;
 					end
+					else if (wt_hit) begin
+						o_cache_line = {CACHE_LINE / 4 {din}};
+						o_cache_line_ben = ben_comp(address[$clog2(CACHE_LINE) - 1:2], ben);
+						o_cache_tag_wr_en = 1'd1;
+						o_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2(CACHE_SIZE / CACHE_LINE)) + 0:0] = address[31:$clog2(CACHE_LINE) + $clog2(CACHE_SIZE / CACHE_LINE)];
+						o_cache_tag_dirty = wt_dirty;
+						o_cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2(CACHE_SIZE / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2(CACHE_SIZE / CACHE_LINE)) + 1] = phy_addr[31:$clog2(CACHE_LINE)];
+						o_address = address;
+					end
 					o_wb_cyc_nxt = 0;
 					o_wb_stb_nxt = 0;
 					o_wb_wen_nxt = 0;
@@ -7304,7 +7326,7 @@ module zap_dcache_fsm (
 			state_ff[CLEAN_SINGLE]: begin
 				rhit = 1'd0;
 				whit = 1'd0;
-				if (((((((!i_busy && !i_fault) && !i_align_fault) && (i_rd || i_wr)) && !i_cache_en) && i_cacheable) && cache_cmp) && i_cache_tag_valid) begin
+				if ((((((((!i_busy && !i_fault) && !i_align_fault) && (i_rd || i_wr)) && !i_cache_en) && i_cacheable) && !(i_wr && i_wt)) && cache_cmp) && i_cache_tag_valid) begin
 					if (i_rd) begin
 						rhit = 1'd1;
 						o_ack = 1'd1;
@@ -7365,7 +7387,7 @@ module zap_dcache_fsm (
 			state_ff[FETCH_SINGLE]: begin
 				rhit = 1'd0;
 				whit = 1'd0;
-				if (((((((!i_busy && !i_fault) && !i_align_fault) && (i_rd || i_wr)) && !i_cache_en) && i_cacheable) && cache_cmp) && i_cache_tag_valid) begin
+				if ((((((((!i_busy && !i_fault) && !i_align_fault) && (i_rd || i_wr)) && !i_cache_en) && i_cacheable) && !(i_wr && i_wt)) && cache_cmp) && i_cache_tag_valid) begin
 					if (i_rd) begin
 						rhit = 1'd1;
 						o_ack = 1'd1;
@@ -7440,7 +7462,7 @@ module zap_dcache_fsm (
 			state_ff[UNLOCK_REG]: begin
 				rhit = 1'd0;
 				whit = 1'd0;
-				if (((((((!i_busy && !i_fault) && !i_align_fault) && (i_rd || i_wr)) && !i_cache_en) && i_cacheable) && cache_cmp) && i_cache_tag_valid) begin
+				if ((((((((!i_busy && !i_fault) && !i_align_fault) && (i_rd || i_wr)) && !i_cache_en) && i_cacheable) && !(i_wr && i_wt)) && cache_cmp) && i_cache_tag_valid) begin
 					if (i_rd) begin
 						rhit = 1'd1;
 						o_ack = 1'd1;
@@ -7958,6 +7980,7 @@ module zap_dcache (
 	wire [31:0] tlb_far;
 	wire tlb_fault;
 	wire tlb_cacheable;
+	wire tlb_wt;
 	wire tlb_busy;
 	wire [(CACHE_LINE * 8) - 1:0] tr_cache_line;
 	wire [(CACHE_LINE * 8) - 1:0] cf_cache_line;
@@ -8026,6 +8049,7 @@ module zap_dcache (
 		.i_far(tlb_far),
 		.i_fault(tlb_fault),
 		.i_cacheable(tlb_cacheable),
+		.i_wt(tlb_wt),
 		.i_busy(tlb_busy),
 		.o_err2(o_err2),
 		.o_address(cache_address),
@@ -8119,6 +8143,7 @@ module zap_dcache (
 		.o_far(tlb_far),
 		.o_fault(tlb_fault),
 		.o_cacheable(tlb_cacheable),
+		.o_wt(tlb_wt),
 		.o_busy(tlb_busy),
 		.o_wb_stb_nxt(wb_stb[2]),
 		.o_wb_cyc_nxt(wb_cyc[2]),
@@ -16828,6 +16853,7 @@ module zap_tlb_check (
 	o_fsr,
 	o_far,
 	o_cacheable,
+	o_wt,
 	o_phy_addr
 );
 	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
@@ -16856,6 +16882,7 @@ module zap_tlb_check (
 	output reg [7:0] o_fsr;
 	output reg [31:0] o_far;
 	output reg o_cacheable;
+	output reg o_wt;
 	output reg [31:0] o_phy_addr;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
@@ -17279,27 +17306,32 @@ module zap_tlb_check (
 			o_phy_addr <= i_va;
 			o_walk <= 0;
 			o_cacheable <= 0;
+			o_wt <= 0;
 			if (i_mmu_en && (i_rd || i_wr))
 				case (match[3:0])
 					4'b0001: begin
 						o_fsr <= get_fsr_spage(i_va[11:10], i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_sptlb_rdata[15:0]);
 						o_phy_addr <= {i_sptlb_rdata[35:16], i_va[11:0]};
 						{dummy, o_cacheable} <= i_sptlb_rdata[3:2] >> 1;
+						o_wt <= i_sptlb_rdata[3:2] == 2'b10;
 					end
 					4'b0010: begin
 						o_fsr <= get_fsr_lpage(i_va[15:14], i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_lptlb_rdata[15:0]);
 						o_phy_addr <= {i_lptlb_rdata[31:16], i_va[15:0]};
 						{dummy, o_cacheable} <= i_lptlb_rdata[3:2] >> 1;
+						o_wt <= i_lptlb_rdata[3:2] == 2'b10;
 					end
 					4'b0100: begin
 						o_fsr <= get_fsr_section(i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_setlb_rdata[19:0]);
 						o_phy_addr <= {i_setlb_rdata[31:20], i_va[19:0]};
 						{dummy, o_cacheable} <= i_setlb_rdata[3:2] >> 1;
+						o_wt <= i_setlb_rdata[3:2] == 2'b10;
 					end
 					4'b1000: begin
 						o_fsr <= get_fsr_fpage(i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_fptlb_rdata[9:0]);
 						o_phy_addr <= {i_fptlb_rdata[31:10], i_va[9:0]};
 						{dummy, o_cacheable} <= i_fptlb_rdata[3:2] >> 1;
+						o_wt <= i_fptlb_rdata[3:2] == 2'b10;
 					end
 					4'b0000: o_walk <= 1'd1;
 					default: begin
@@ -17308,6 +17340,7 @@ module zap_tlb_check (
 						o_walk <= 1'sbx;
 						o_far <= 1'sbx;
 						o_cacheable <= 1'sbx;
+						o_wt <= 1'sbx;
 					end
 				endcase
 		end
@@ -17872,6 +17905,7 @@ module zap_tlb (
 	o_far,
 	o_fault,
 	o_cacheable,
+	o_wt,
 	o_busy,
 	i_idle,
 	o_wb_stb_nxt,
@@ -17908,6 +17942,7 @@ module zap_tlb (
 	output wire [31:0] o_far;
 	output wire o_fault;
 	output wire o_cacheable;
+	output wire o_wt;
 	output wire o_busy;
 	input wire i_idle;
 	output wire o_wb_stb_nxt;
@@ -18220,6 +18255,7 @@ module zap_tlb (
 	wire [7:0] fsr;
 	wire [31:0] far;
 	wire cacheable;
+	wire wt;
 	wire [31:0] phy_addr;
 	wire [31:0] tlb_address;
 	wire u0;
@@ -18403,6 +18439,7 @@ module zap_tlb (
 		.o_fsr(fsr),
 		.o_far(far),
 		.o_cacheable(cacheable),
+		.o_wt(wt),
 		.o_phy_addr(phy_addr)
 	);
 	zap_tlb_fsm #(
@@ -18450,6 +18487,7 @@ module zap_tlb (
 		.o_wb_stb_nxt(o_wb_stb_nxt),
 		.o_wb_adr_nxt(o_wb_adr_nxt)
 	);
+	assign o_wt = wt;
 endmodule
 module zap_top (
 	i_clk,

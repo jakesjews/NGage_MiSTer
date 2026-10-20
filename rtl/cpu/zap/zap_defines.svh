@@ -232,7 +232,7 @@ begin \
         rhit = 1'd0; \
         whit = 1'd0; \
 \
-        if (!i_busy && !i_fault && !i_align_fault && (i_rd || i_wr) && !i_cache_en && i_cacheable \
+        if (!i_busy && !i_fault && !i_align_fault && (i_rd || i_wr) && !i_cache_en && i_cacheable && !(i_wr && i_wt) \
            && cache_cmp && i_cache_tag_valid) \
         begin \
                 if ( i_rd ) \

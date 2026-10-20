@@ -61,6 +61,7 @@ output  logic    [7:0]   o_fsr,
 output  logic    [31:0]  o_far,
 output  logic            o_fault,
 output  logic            o_cacheable,
+output  logic            o_wt,          // ARM925T: write-through page (C=1 B=0).
 output  logic            o_busy,
 input   logic            i_idle,
 
@@ -97,6 +98,7 @@ logic                            walk;
 logic [7:0]                      fsr;
 logic [31:0]                     far;
 logic                            cacheable;
+logic                            wt;           // ARM925T
 logic [31:0]                     phy_addr;
 logic [31:0]                     tlb_address;
 logic                            u0, u1, u2, u3, u4, u5;
@@ -350,6 +352,7 @@ u_zap_tlb_check (
 .o_fsr          (fsr),
 .o_far          (far),
 .o_cacheable    (cacheable),
+.o_wt           (wt),
 .o_phy_addr     (phy_addr)
 
 );
@@ -414,6 +417,9 @@ zap_tlb_fsm #(
 );
 
 // ----------------------------------------------------------------------------
+
+// ARM925T: passed straight on, like o_cacheable through zap_tlb_fsm.
+assign o_wt = wt;
 
 endmodule : zap_tlb
 

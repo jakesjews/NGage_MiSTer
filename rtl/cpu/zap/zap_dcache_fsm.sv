@@ -99,6 +99,7 @@ input   logic    [7:0]             i_fsr,
 input   logic    [31:0]            i_far,
 input   logic                      i_fault,
 input   logic                      i_cacheable,
+input   logic                      i_wt,          // ARM925T: write-through page.
 input   logic                      i_busy,
 output  logic                      o_hold,
 
@@ -169,6 +170,7 @@ logic  [`ZAP_CACHE_TAG_WDT-1:0]           cache_tag; // Tag
 logic    [31:0]                           phy_addr;
 logic    [63:0]                           reg_idx;
 logic    [63:0]                           lock_nxt, lock_ff;
+logic                                     wt_hit, wt_dirty; // ARM925T: write-through store.
 
 logic                                     unused;
 
@@ -218,6 +220,8 @@ begin
                 cache_tag       <= i_cache_tag;
                 phy_addr        <= i_phy_addr;
                 reg_idx         <= i_reg_idx;
+                wt_hit          <= i_wr && i_wt && i_cacheable && cache_cmp && i_cache_tag_valid;
+                wt_dirty        <= i_cache_tag_dirty;
         end
 end
 
@@ -431,6 +435,22 @@ begin:next_state_logic
                                         o_wb_sel_nxt = i_ben;
                                 end
                         end
+                        else if ( i_cacheable && i_wr && i_wt )
+                        begin
+                                //
+                                // ARM925T: a store to a write-through page (C=1
+                                // B=0) goes to memory as an uncached write; on a
+                                // hit the line is updated when the write is
+                                // acknowledged (UNCACHEABLE). There is no write
+                                // allocation. Upstream treated every cacheable
+                                // page as write-back.
+                                //
+                                state_nxt[IDLE] = 1'd0;
+                                state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
+
+                                o_ack           = 1'd0; // Wait...
+                                o_hold          = 1'd1;
+                        end
                         else if ( i_cacheable )
                         begin
                                 case ({cache_cmp,i_cache_tag_valid})
@@ -575,6 +595,17 @@ begin:next_state_logic
                         begin
                                 o_fsr[3:0] = EXT_ABORT_FS;
                                 o_far      = i_va;
+                        end
+                        else if ( wt_hit )
+                        begin
+                                // ARM925T: write-through hit: update the line too.
+                                o_cache_line                     = {(CACHE_LINE/4){din}};
+                                o_cache_line_ben                 = ben_comp (address[$clog2(CACHE_LINE)-1:2], ben);
+                                o_cache_tag_wr_en                = 1'd1;
+                                o_cache_tag[`ZAP_CACHE_TAG__TAG] = address[`ZAP_VA__CACHE_TAG];
+                                o_cache_tag_dirty                = wt_dirty;
+                                o_cache_tag[`ZAP_CACHE_TAG__PA]  = phy_addr[31 : $clog2(CACHE_LINE)];
+                                o_address                        = address;
                         end
 
                         `zap_kill_access;

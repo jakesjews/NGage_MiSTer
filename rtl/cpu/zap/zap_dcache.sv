@@ -120,6 +120,7 @@ logic [7:0]                      tlb_fsr;
 logic [31:0]                     tlb_far;
 logic                            tlb_fault;
 logic                            tlb_cacheable;
+logic                            tlb_wt;        // ARM925T
 logic                            tlb_busy;
 logic [CACHE_LINE*8-1:0]         tr_cache_line;
 logic [CACHE_LINE*8-1:0]         cf_cache_line;
@@ -185,6 +186,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_far                  (tlb_far),
         .i_fault                (tlb_fault),
         .i_cacheable            (tlb_cacheable),
+        .i_wt                   (tlb_wt),
         .i_busy                 (tlb_busy),
         .o_err2                 (o_err2),
         .o_address              (cache_address),
@@ -288,6 +290,7 @@ u_zap_tlb (
         .o_far          (tlb_far),
         .o_fault        (tlb_fault),
         .o_cacheable    (tlb_cacheable),
+        .o_wt           (tlb_wt),
         .o_busy         (tlb_busy),
         .o_wb_stb_nxt   (wb_stb[2]),
         .o_wb_cyc_nxt   (wb_cyc[2]),

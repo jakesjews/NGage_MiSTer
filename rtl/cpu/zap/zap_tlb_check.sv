@@ -60,6 +60,7 @@ output logic                            o_walk,         // Signal page walk.
 output logic [7:0]                      o_fsr,          // FSR. 0 means all OK.
 output logic [31:0]                     o_far,          // Fault Address Register.
 output logic                            o_cacheable,    // Cacheble stats of the PTE.
+output logic                            o_wt,           // ARM925T: C=1 B=0, write-through.
 output logic [31:0]                     o_phy_addr      // Physical address.
 );
 
@@ -103,6 +104,7 @@ begin
                 o_phy_addr  <= i_va;     // VA = PA
                 o_walk      <= 0;        // Walk disabled.
                 o_cacheable <= 0;        // Uncacheable.
+                o_wt        <= 0;
 
 
                 // ==========================================
@@ -129,6 +131,7 @@ begin
 
                                 o_phy_addr <= {i_sptlb_rdata[`ZAP_SPAGE_TLB__BASE], i_va[11:0]};
                                 {dummy, o_cacheable} <= i_sptlb_rdata[`ZAP_SECTION_TLB__CB] >> 1;
+                                o_wt <= i_sptlb_rdata[3:2] == 2'b10;
 
                         end
 
@@ -148,6 +151,7 @@ begin
 
                                 o_phy_addr <= {i_lptlb_rdata[`ZAP_LPAGE_TLB__BASE], i_va[15:0]};
                                 {dummy, o_cacheable} <= i_lptlb_rdata[`ZAP_LPAGE_TLB__CB] >> 1;
+                                o_wt <= i_lptlb_rdata[3:2] == 2'b10;
                         end
 
                         4'b0100:
@@ -165,6 +169,7 @@ begin
 
                                 o_phy_addr <= {i_setlb_rdata[`ZAP_SECTION_TLB__BASE], i_va[19:0]};
                                 {dummy, o_cacheable} <= i_setlb_rdata[`ZAP_SECTION_TLB__CB] >> 1;
+                                o_wt <= i_setlb_rdata[3:2] == 2'b10;
                         end
 
                         4'b1000:
@@ -182,6 +187,7 @@ begin
 
                                 o_phy_addr <= {i_fptlb_rdata[`ZAP_FPAGE_TLB__BASE], i_va[9:0]};
                                 {dummy, o_cacheable} <= i_fptlb_rdata[`ZAP_FPAGE_TLB__CB] >> 1;
+                                o_wt <= i_fptlb_rdata[3:2] == 2'b10;
                         end
 
                         4'b0000:
@@ -205,6 +211,7 @@ begin
                                 o_walk      <= 'X;
                                 o_far       <= 'X;
                                 o_cacheable <= 'X;
+                                o_wt        <= 'X;
                         end
                         endcase
 
