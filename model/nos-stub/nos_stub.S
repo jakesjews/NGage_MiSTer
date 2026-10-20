@@ -78,14 +78,15 @@ _start:
     mov     lr, pc
     mov     pc, r3
     mov     r0, #0
-    ldmfd   sp!, {r4-r6, pc}
+    ldmfd   sp!, {r4-r6, lr}
+    bx      lr
 
 services:
     .word   3, 6, 7, -1
 
 ret0:
     mov     r0, #0
-    mov     pc, lr
+    bx      lr
 
 @ Service 3, vtable +0x48: read(this, id, dfc, buf, [sp] ?, [sp+4] length, [sp+8] ?)
 @ Synchronous when dfc is 0 (product_info.dll 0x5041AD5C ids 14, 15; ekern
@@ -116,7 +117,8 @@ svc3_read:
     mov     lr, pc
     mov     pc, r3
 3:  mov     r0, #0
-    ldmfd   sp!, {r4, pc}
+    ldmfd   sp!, {r4, lr}
+    bx      lr
 
     .ltorg
 @ Power-model vtable: slots 0-6 as the kernel's base class (0x503414B8);

@@ -3,5 +3,7 @@
 # Usage: model/threads.sh [SECONDS]  (default 8)
 set -euo pipefail
 cd "$(dirname "$0")/.."
-model/gdbat.sh "${1:-8}" model/gdb/dumpkern.gdb | grep -E "^(pc|lr|cpsr)" || true
-python3 -I model/tools/kthreads.py "${NGAGE_OUT:-model/.out}"
+out=${NGAGE_OUT:-model/.out}
+rm -f "$out"/kheap*.bin
+model/gdbat.sh "${1:-8}" model/gdb/dumpkern.gdb model/gdb/dumpheap{0..7}.gdb | grep -E "^(pc|lr|cpsr)" || true
+python3 -I model/tools/kthreads.py "$out"

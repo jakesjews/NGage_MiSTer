@@ -475,3 +475,54 @@ found, and what comes next. Research material lives in `research/`
   242 ALUTs; lcd_testgen 521; video_out 126; mmc_card 109 / 149 / 8192 with
   its bus idle; the idle flash chips are optimised away).
 - Removed the template's demo core (rtl/mycore.v, cos.sv, lfsr.v).
+
+### 2026-10-19, night: LCD shows the boot logo; S60 start-up reaches Starter
+- **LCD**: `model/hw/ngage_lcd.c` models the LCD bus interface (0x0C121200)
+  and a DCS-style 176x208 panel, with a QEMU graphic console
+  (`model/run.sh -w` opens a cocoa window) and PNG/PPM screenshots
+  (`model/.out/lcd-last.png` on exit; `NGAGE_SHOT=N` for every N guest
+  seconds). The **Nokia boot logo renders correctly**, upright and in the
+  right colours. Interface facts (lcd.ldd `0x50406928`, bootstrap 0x6600-0x6F40):
+  - Control bits 19:18 select the FIFO-word-to-bus-byte packing: 2 = one
+    command byte; 1 = 3 bytes from two 12-bit units (LSB first, or with
+    bit 31 the DCS pixel order R0G0 B0R1 G1B1); 3 = 4 bytes, LSB first.
+    Bits 15:0 = bytes - 1. 0x0784xxxx = read phase, one byte per +0x08 read.
+  - Control bit 30 reads 1 (ready). Aux bit 2 reads 1 (FIFO can take a word).
+  - Panel RDDID ID1 0x29 selects module "0x10" in both drivers (0x83
+    selects module 4). The bootstrap stores the module type at SDRAM
+    `0x0A012000+24` (0x39B0); ecust copies it to variant `+0x7C`, which
+    lcd.ldd reads. With 0x29 the image comes out upright under MADCTL 0xD4,
+    so the panel is assumed mounted rotated 180 degrees.
+- **Timers**: high-resolution timer 1 (kernel object 0x80000558) uses
+  control = 1, i.e. one-shot; control bit 1 = periodic. Any write to +0x08
+  acknowledges. The timer clock of 34.67 MHz is confirmed by the kernel's
+  microsecond conversion (x34666/1000 at 0x5031CB74).
+- **MMC**: `model/hw/ngage_mmc.c` covers the command and response path from
+  epbus.dll; register details are in `docs/UPP_WD2.md`. An empty slot now
+  times out cleanly. The data path uses DMA channel 5 through kernel DMA
+  objects and is not modelled yet.
+- **Flash**: medint.pdd uses the Samsung block lock/unlock command (0x60,
+  0x60 with A6), which is now accepted.
+- **NOS stand-in additions**:
+  - service 3 reads that carry a DFC complete by queueing it (TDfc::Add =
+    ekern ordinal 7);
+  - the hidden NOS DLL (header 0x51168FF0) exports ordinals 4 (0x514A1CA0)
+    and 6 (0x514A261C) into the encrypted code, and nosdriver.ldd uses them;
+    stand-in `model/nos-stub/nos_dll.S` at CS0 0xA1CA0.
+- **State after 20 s**: processes EFile, EStart, EwSrv (window server),
+  FbServ, SharedDataServer, DosServer, Starter, and two AppRun.exe (started
+  by EikCore for the Eikon server). Starter then fails:
+  `CBaBackupSessionWrapper` cannot find the backup server, which EikSrv.dll
+  hosts ("BackupServerThread"). It leaves with KErrNotFound, crashes in its
+  own cleanup (RArrayBase::Count on NULL), and the kernel restarts. The two
+  AppRun processes are blocked in a session connect and a SendReceive.
+- New tools:
+  - `model/tools/implib.py LIB --rom ROM --image NAME` names a ROM DLL's
+    exports from the SDK's ARMI import libraries. EUser and Bafl tables are
+    in `research/firmware/analysis/*.exports.txt`. The EUser ordinals check
+    out: `User::Leave` = 0x503A188C, `LeaveIfError` = 0x503BA5CC,
+    `WaitForRequest` = 0x503AD5D0, `RProcess::Create` = 0x503B36A4.
+  - `model/threads.sh` lists threads with their process (named by code
+    address).
+  - GDB command files with `commands` blocks log leaves and process creation
+    (examples in this session's notes; see the next entry).

@@ -9,6 +9,6 @@ machine+=",quirks=model/upp-quirks.txt,cbus-regs=model/cbus-regs.txt,cbus-log=$o
 machine+=",rom-patches=${NGAGE_PATCHES:-model/rom-patches.txt},kern-log=$out/kern.log,mmc-log=$out/mmc.log"
 [[ -n "${NGAGE_TRACE:-}" ]] && machine+=",trace=$NGAGE_TRACE"
 [[ -n "${NGAGE_MMC:-}" ]] && machine+=",mmc=$NGAGE_MMC"
-[[ -n "${NGAGE_SHOT:-}" ]] && machine+=",screenshot=$NGAGE_SHOT"
+machine+=",lcd-log=$out/lcd.log,shot-dir=$out,screenshot=${NGAGE_SHOT:-0}"
 qemu=(model/.build/qemu-system-arm -M "$machine" -serial none
       -d guest_errors,unimp -D "$out/qemu.log")

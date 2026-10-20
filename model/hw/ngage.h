@@ -64,6 +64,10 @@ void ngage_intc_set_source(int src, int level);
 /* STI trace output window: kernel debug text (ngage_sti.c). */
 void ngage_sti_create(MemoryRegion *sysmem, FILE *log);
 
+/* LCD bus interface and display module (ngage_lcd.c). shot_period < 0 = no screenshots. */
+void ngage_lcd_create(MemoryRegion *sysmem, FILE *log, const char *shot_dir,
+                      int shot_period, int scale, uint32_t id);
+
 /* MMC host and card (ngage_mmc.c). image may be NULL (empty slot). */
 void ngage_mmc_create(MemoryRegion *sysmem, const char *image, FILE *log);
 

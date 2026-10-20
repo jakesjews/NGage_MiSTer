@@ -42,6 +42,11 @@ struct NGageMachineState {
     char *trace;
     char *mmc;
     char *mmc_log;
+    char *lcd_log;
+    char *shot_dir;
+    char *screenshot;
+    char *lcd_scale;
+    char *lcd_id;
     NGageFlash *flash[2];
     MemoryRegion probe;
     MemoryRegion sdram;
@@ -188,6 +193,19 @@ static void ngage_init(MachineState *machine)
         }
         ngage_mmc_create(sysmem, s->mmc, ml);
     }
+    {
+        FILE *ll = NULL;
+        if (s->lcd_log) {
+            ll = fopen(s->lcd_log, "w");
+            if (ll) {
+                setvbuf(ll, NULL, _IOFBF, 1 << 16);
+            }
+        }
+        ngage_lcd_create(sysmem, ll, s->shot_dir,
+                         s->screenshot ? atoi(s->screenshot) : -1,
+                         s->lcd_scale ? atoi(s->lcd_scale) : 2,
+                         s->lcd_id ? strtoul(s->lcd_id, NULL, 0) : 0x290000);
+    }
 
     /* Everything nothing else claims: log it. */
     memory_region_init_io(&s->probe, NULL, &probe_ops, s, "ngage.probe",
@@ -237,6 +255,16 @@ static char *get_mmc(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->m
 static void set_mmc(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->mmc = g_strdup(v); }
 static char *get_mmclog(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->mmc_log); }
 static void set_mmclog(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->mmc_log = g_strdup(v); }
+static char *get_lcd_log(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->lcd_log); }
+static void set_lcd_log(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->lcd_log = g_strdup(v); }
+static char *get_shot_dir(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->shot_dir); }
+static void set_shot_dir(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->shot_dir = g_strdup(v); }
+static char *get_screenshot(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->screenshot); }
+static void set_screenshot(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->screenshot = g_strdup(v); }
+static char *get_lcd_scale(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->lcd_scale); }
+static void set_lcd_scale(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->lcd_scale = g_strdup(v); }
+static char *get_lcd_id(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->lcd_id); }
+static void set_lcd_id(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->lcd_id = g_strdup(v); }
 static char *get_probe(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->probe_log); }
 static void set_probe(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->probe_log = g_strdup(v); }
 
@@ -258,6 +286,16 @@ static void ngage_machine_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "cbus-regs", "CBUS device register initial values");
     object_class_property_add_str(oc, "cbus-log", get_cbuslog, set_cbuslog);
     object_class_property_set_description(oc, "cbus-log", "file that receives every CBUS transaction");
+    object_class_property_add_str(oc, "lcd-log", get_lcd_log, set_lcd_log);
+    object_class_property_set_description(oc, "lcd-log", "file that receives LCD commands");
+    object_class_property_add_str(oc, "shot-dir", get_shot_dir, set_shot_dir);
+    object_class_property_set_description(oc, "shot-dir", "directory for LCD screenshots");
+    object_class_property_add_str(oc, "screenshot", get_screenshot, set_screenshot);
+    object_class_property_set_description(oc, "screenshot", "LCD screenshot period in guest seconds (0 = on exit only)");
+    object_class_property_add_str(oc, "lcd-scale", get_lcd_scale, set_lcd_scale);
+    object_class_property_set_description(oc, "lcd-scale", "LCD console magnification (default 2)");
+    object_class_property_add_str(oc, "lcd-id", get_lcd_id, set_lcd_id);
+    object_class_property_set_description(oc, "lcd-id", "panel RDDID value (default 0x290000: module 0x10)");
     object_class_property_add_str(oc, "mmc", get_mmc, set_mmc);
     object_class_property_set_description(oc, "mmc", "game card image (raw); CID/CSD from <image>.cid/.csd");
     object_class_property_add_str(oc, "mmc-log", get_mmclog, set_mmclog);

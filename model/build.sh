@@ -51,4 +51,7 @@ ls -la "$BUILD/qemu-system-arm"
 arm-none-eabi-as -march=armv4t -o "$BUILD/nos_stub.o" nos-stub/nos_stub.S
 arm-none-eabi-ld -Ttext=0x5149E4D4 -o "$BUILD/nos_stub.elf" "$BUILD/nos_stub.o"
 arm-none-eabi-objcopy -O binary "$BUILD/nos_stub.elf" "$BUILD/nos-stub.bin"
-ls -la "$BUILD/nos-stub.bin"
+arm-none-eabi-as -march=armv4t -o "$BUILD/nos_dll.o" nos-stub/nos_dll.S
+arm-none-eabi-ld -Ttext=0x514A1CA0 -o "$BUILD/nos_dll.elf" "$BUILD/nos_dll.o"
+arm-none-eabi-objcopy -O binary "$BUILD/nos_dll.elf" "$BUILD/nos-dll.bin"
+ls -la "$BUILD/nos-stub.bin" "$BUILD/nos-dll.bin"
