@@ -19,7 +19,8 @@
 //   --devlog           DIR/dev.log: every CPU access to a device, in the format
 //                      of sim/cpu/model/trace_plugin.c ("M n R|W size pa value
 //                      pc"; n = instructions executed, counted as QEMU's
-//                      icount counts them), for sim/cpu/boot/cmp_dev.py
+//                      icount counts them), for sim/cpu/boot/cmp_dev.py, and
+//                      every interrupt and exception ("X n exc from vector")
 //   --trace FILE --trace-after N --trace-count M
 //                      an instruction window (sim/cpu/boot/cmp_window.py)
 //   --progress N       a line every N clocks (with wall-clock time)
@@ -298,6 +299,12 @@ struct Bench {
 		if (ev == 'R' && pending_thumb && last_ev == 'R' && pc == last_r_pc + 2 && (pc & 0x3FF))
 			bl_second = reg(phys_index(14, cpsr)) == ((pc + 2) | 1);
 		if ((ev == 'R' && !bl_second) || ev == 'S' || ev == 'U') retired++;
+		if (devlog && ev != 'R') {
+			// interrupts and exceptions as the plugin records them: "X n exc
+			// from vector" (low vectors; n before an SWI or UND counts it)
+			uint32_t vec = ev == 'U' ? 0x04 : ev == 'S' ? 0x08 : ev == 'P' ? 0x0C : ev == 'D' ? 0x10 : ev == 'I' ? 0x18 : 0x1C;
+			fprintf(devlog, "X %" PRIu64 " exc %08x %08x\n", (ev == 'S' || ev == 'U') ? retired - 1 : retired, pc, vec);
+		}
 		if (trace && !trace_done && retired >= trace_after) {
 			fprintf(trace, "%c %08x", ev, pc);
 			for (int i = 0; i < 15; i++) fprintf(trace, " %08x", reg(phys_index(i, cpsr)));
