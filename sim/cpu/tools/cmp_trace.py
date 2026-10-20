@@ -33,7 +33,9 @@ RESET_CPSR = 0xD3
 def merge_thumb_bl(events, image):
     """QEMU runs a Thumb BL pair (prefix 11110, suffix 11111) as one
     instruction; ZAP retires the halves separately. Keep the prefix's line
-    (its registers are those before the pair) and drop the suffix's."""
+    (its registers are those before the pair) and drop the suffix's. QEMU
+    runs the halves separately when the prefix is the last halfword of a
+    1 KB page (its page size for ARMv5 and earlier), and so do we then."""
     if image is None:
         return events
 
@@ -46,7 +48,7 @@ def merge_thumb_bl(events, image):
         pc, kind, state = events[i]
         out.append(events[i])
         thumb = state[15] is not None and (state[15] >> 5) & 1
-        if (kind == "R" and thumb and i + 1 < len(events) and
+        if (kind == "R" and thumb and i + 1 < len(events) and (pc & 0x3FF) != 0x3FE and
                 (half(pc) & 0xF800) == 0xF000 and events[i + 1][0] == pc + 2 and
                 events[i + 1][1] == "R" and (half(pc + 2) & 0xF800) == 0xF800):
             i += 2
