@@ -141,6 +141,8 @@ logic                                      line_mode_ff, line_mode_nxt;   // ARM
 logic                                      line_hit_ff, line_hit_nxt;     // ARM925T
 logic                                      line_done_ff, line_done_nxt;   // ARM925T
 logic                                      line_clear;                    // ARM925T
+logic                                      pend_en, pend_dirty;           // ARM925T: write-behind
+logic [$clog2(CACHE_SIZE/CACHE_LINE)-1:0]  pend_addr;                     // ARM925T
 
 logic                                      unused;
 logic [BLK_CTR_PAD-1:0]                    dummy;
@@ -193,6 +195,29 @@ begin
         end
 end
 
+//
+// ARM925T: the valid and dirty bits are written one cycle after the tag RAM
+// (write-behind), so that the late write enable from the D-cache FSM drives
+// one register instead of the enables of every valid and dirty flop
+// (timing). The array reads in that cycle take the pending write from
+// pend_*. Tag writes happen only in IDLE, where no clean, clear or line
+// operation is active, and the arrays are read directly only outside IDLE.
+//
+always_ff @ ( posedge i_clk )
+begin
+        if ( i_reset )
+        begin
+                pend_en <= 1'd0;
+        end
+        else
+        begin
+                pend_en <= tag_ram_wr_en && !i_hold;
+        end
+
+        pend_addr  <= tag_ram_wr_addr;
+        pend_dirty <= i_cache_tag_dirty;
+end
+
 always_ff @ ( posedge i_clk )
 begin
         if ( i_reset )
@@ -202,17 +227,23 @@ begin
                 cache_tag_dirty       <= '0;
                 dirty                 <= '0;
         end
-        else if ( !i_hold || tag_ram_clean || line_clear )
+        else
         begin
-                o_cache_tag_dirty  <= tag_ram_rd_addr_del2 == tag_ram_wr_addr && tag_ram_wr_en ? i_cache_tag_dirty : cache_tag_dirty_del;
-                cache_tag_dirty_del<= tag_ram_rd_addr_del  == tag_ram_wr_addr && tag_ram_wr_en ? i_cache_tag_dirty : cache_tag_dirty;
-                cache_tag_dirty    <= tag_ram_rd_addr      == tag_ram_wr_addr && tag_ram_wr_en ? i_cache_tag_dirty : dirty [ tag_ram_rd_addr ];
-
-                if ( tag_ram_wr_en )
+                if ( !i_hold || tag_ram_clean || line_clear )
                 begin
-                        dirty [ tag_ram_wr_addr ]   <= i_cache_tag_dirty;
+                        o_cache_tag_dirty  <= tag_ram_rd_addr_del2 == tag_ram_wr_addr && tag_ram_wr_en ? i_cache_tag_dirty : cache_tag_dirty_del;
+                        cache_tag_dirty_del<= tag_ram_rd_addr_del  == tag_ram_wr_addr && tag_ram_wr_en ? i_cache_tag_dirty : cache_tag_dirty;
+                        cache_tag_dirty    <= tag_ram_rd_addr      == tag_ram_wr_addr && tag_ram_wr_en ? i_cache_tag_dirty :
+                                              tag_ram_rd_addr      == pend_addr       && pend_en       ? pend_dirty        :
+                                              dirty [ tag_ram_rd_addr ];
                 end
-                else if ( tag_ram_clean || line_clear )
+
+                if ( pend_en )
+                begin
+                        dirty [ pend_addr ] <= pend_dirty;
+                end
+
+                if ( tag_ram_clean || line_clear )
                 begin
                         dirty[tag_ram_rd_addr] <= 1'd0;
                 end
@@ -228,19 +259,26 @@ begin
                 cache_tag_valid     <= '0;
                 valid               <= '0;
         end
-        else if ( !i_hold || tag_ram_clear || line_clear )
+        else
         begin
-                o_cache_tag_valid   <= tag_ram_rd_addr_del2 == tag_ram_wr_addr && tag_ram_wr_en ? 1'd1 : cache_tag_valid_del;
-                cache_tag_valid_del <= tag_ram_rd_addr_del  == tag_ram_wr_addr && tag_ram_wr_en ? 1'd1 : cache_tag_valid;
-                cache_tag_valid     <= tag_ram_rd_addr      == tag_ram_wr_addr && tag_ram_wr_en ? 1'd1 : valid [ tag_ram_rd_addr ];
+                if ( !i_hold || tag_ram_clear || line_clear )
+                begin
+                        o_cache_tag_valid   <= tag_ram_rd_addr_del2 == tag_ram_wr_addr && tag_ram_wr_en ? 1'd1 : cache_tag_valid_del;
+                        cache_tag_valid_del <= tag_ram_rd_addr_del  == tag_ram_wr_addr && tag_ram_wr_en ? 1'd1 : cache_tag_valid;
+                        cache_tag_valid     <= tag_ram_rd_addr      == tag_ram_wr_addr && tag_ram_wr_en ? 1'd1 :
+                                               tag_ram_rd_addr      == pend_addr       && pend_en       ? 1'd1 :
+                                               valid [ tag_ram_rd_addr ];
+                end
 
-                if ( tag_ram_clear || !i_cache_en )
+                // ARM925T: the pending write (above) first, then the clears.
+                if ( pend_en )
+                begin
+                        valid [ pend_addr ] <= 1'd1;
+                end
+
+                if ( (!i_hold || tag_ram_clear || line_clear) && (tag_ram_clear || !i_cache_en) )
                 begin
                         valid <= '0;
-                end
-                else if ( tag_ram_wr_en )
-                begin
-                        valid [ tag_ram_wr_addr ]   <= 1'd1;
                 end
                 else if ( line_clear )
                 begin

@@ -145,7 +145,9 @@ localparam [2:0] INVALIDATE           = 3'd5; // Cache invalidate parent state
 localparam [2:0] CLEAN                = 3'd6; // Cache clean parent state
 localparam [2:0] UNLOCK_REG           = 3'd7; // Unlock register
 localparam [3:0] LINEOP               = 4'd8; // ARM925T: single-line operation
-localparam [31:0] NUMBER_OF_STATES    = 32'd9;
+localparam [3:0] UNC_DONE             = 4'd9; // ARM925T: uncacheable access completes
+localparam [3:0] UNLOCK_WR            = 4'd10; // ARM925T: background load written
+localparam [31:0] NUMBER_OF_STATES    = 32'd11;
 
 localparam [31:0] ADR_PAD              =  32'd32 - $clog2(CACHE_LINE/4) - 32'd1;
 localparam [31:0] ADR_PAD_MINUS_2      =  ADR_PAD - 32'd2;
@@ -181,6 +183,9 @@ logic    [63:0]                           reg_idx;
 logic    [63:0]                           lock_nxt, lock_ff;
 logic                                     wt_hit, wt_dirty; // ARM925T: write-through store.
 logic    [5:0]                            ldfmt;            // ARM925T: format of a background load.
+logic    [31:0]                           unc_dat_ff;       // ARM925T: registered bus response
+logic    [31:0]                           reg_dat_ff;       // ARM925T: background load value
+logic                                     unc_err_ff;       // ARM925T
 
 logic                                     unused;
 
@@ -253,6 +258,31 @@ begin
         else if ( state_nxt[UNLOCK_REG] )
         begin
                 cache_line      <= o_cache_line;
+        end
+end
+
+//
+// ARM925T: the bus response of an uncacheable access is registered and
+// passed on in UNC_DONE, a cycle later, so that the bus acknowledge and
+// error are not in the same cycle as the pipeline's stall (timing).
+//
+// ARM925T: the value of a background load, written to its register in
+// UNLOCK_WR, a cycle after the line arrives (timing).
+always_ff @ ( posedge i_clk )
+begin
+        if ( state_ff[UNLOCK_REG] )
+        begin
+                reg_dat_ff <= ld_transform(adapt_cache_data(address[$clog2(CACHE_LINE)-1:2],
+                                                            cache_line), ldfmt);
+        end
+end
+
+always_ff @ ( posedge i_clk )
+begin
+        if ( state_ff[UNCACHEABLE] && (i_wb_ack || i_wb_err) )
+        begin
+                unc_dat_ff <= BE_32_ENABLE ? be_32(i_wb_dat, o_wb_sel_ff) : i_wb_dat;
+                unc_err_ff <= i_wb_err;
         end
 end
 
@@ -388,16 +418,9 @@ begin:next_state_logic
         // Generate output data.
         // ======================================================
 
-        if(state_ff[UNCACHEABLE])
+        if(state_ff[UNC_DONE])
         begin
-            if ( BE_32_ENABLE )
-            begin
-                o_dat = be_32(i_wb_dat, o_wb_sel_ff);
-            end
-            else
-            begin
-                o_dat = i_wb_dat;
-            end
+            o_dat = unc_dat_ff; // ARM925T
         end
         else
         begin
@@ -641,18 +664,29 @@ begin:next_state_logic
 
                 if ( i_wb_ack | i_wb_err )
                 begin
-                        o_ack           = 1'd1;
-                        o_hold          = 1'd0;
-
+                        // ARM925T: complete in UNC_DONE (registered response).
                         state_nxt[UNCACHEABLE] = 1'd0;
-                        state_nxt[IDLE]        = 1'd1;
+                        state_nxt[UNC_DONE]    = 1'd1;
 
-                        o_err      = i_wb_err;
+                        `zap_kill_access;
+                end
+        end
+
+        state_ff[UNC_DONE]: // ARM925T: the uncacheable access completes.
+        begin
+                o_ack           = 1'd1;
+                o_hold          = 1'd0;
+
+                state_nxt[UNC_DONE] = 1'd0;
+                state_nxt[IDLE]     = 1'd1;
+
+                begin
+                        o_err      = unc_err_ff;
 
                         // ARM925T: report a fault only for an error. Upstream
                         // set the FSR on every uncached access, so CP15 c5/c6
                         // were overwritten (FAR with 0) after any abort.
-                        if ( i_wb_err )
+                        if ( unc_err_ff )
                         begin
                                 o_fsr[3:0] = EXT_ABORT_FS;
                                 o_far      = i_va;
@@ -794,12 +828,10 @@ begin:next_state_logic
 
                 if ( !wr )
                 begin
-                        // Write to register file. ARM925T: with the load's
-                        // byte/halfword selection, sign extension or rotation
-                        // (upstream wrote the whole word for every load).
-                        o_reg_dat = ld_transform(adapt_cache_data(address[$clog2(CACHE_LINE)-1:2],
-                                                                  cache_line), ldfmt);
-                        o_reg_idx = reg_idx;
+                        // ARM925T: the register is written in UNLOCK_WR, from
+                        // reg_dat_ff (the load's byte/halfword selection, sign
+                        // extension or rotation; upstream wrote the whole word
+                        // for every load, here, in the same cycle).
                 end
                 else // Update cache line.
                 begin
@@ -820,18 +852,28 @@ begin:next_state_logic
                         o_address                        = address;
                 end
 
+                // Back to IDLE (ARM925T: through UNLOCK_WR for a load)
+                state_nxt[UNLOCK_REG] = 1'd0;
+                state_nxt[UNLOCK_WR]  = !wr;
+                state_nxt[IDLE]       = wr;
+        end
+
+        state_ff[UNLOCK_WR]: // ARM925T: write the loaded register, unlock it.
+        begin
+                o_ack  = 1'd1;
+                o_err2 = i_rd || i_wr ? 1'd1 : 1'd0;
+
+                o_reg_dat = reg_dat_ff;
+                o_reg_idx = reg_idx;
+
                 //
                 // Unlock the register on load. Clear the bit. Invert reg
                 // idx and AND. Removes bits that were marked as 1 in reg_idx.
                 //
-                if ( !wr )
-                begin
-                        lock_nxt &= ~(reg_idx);
-                end
+                lock_nxt &= ~(reg_idx);
 
-                // Back to IDLE
-                state_nxt[UNLOCK_REG] = 1'd0;
-                state_nxt[IDLE]       = 1'd1;
+                state_nxt[UNLOCK_WR] = 1'd0;
+                state_nxt[IDLE]      = 1'd1;
         end
 
         state_ff[INVALIDATE]: // Invalidate the cache - Almost Single Cycle

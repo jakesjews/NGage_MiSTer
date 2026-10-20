@@ -123,8 +123,9 @@ localparam [2:0] CLEAN_SINGLE         = 3'd3; // Ultimately cleans up cache line
 localparam [2:0] FETCH_SINGLE         = 3'd4; // Ultimately validates cache line. Parent state
 localparam [2:0] INVALIDATE           = 3'd5; // Cache invalidate parent state
 localparam [2:0] CLEAN                = 3'd6; // Cache clean parent state
+localparam [2:0] UNC_DONE             = 3'd7; // ARM925T: uncacheable access completes
 
-localparam [31:0] NUMBER_OF_STATES    = 32'd7;
+localparam [31:0] NUMBER_OF_STATES    = 32'd8;
 
 localparam [31:0] ADR_PAD              =  32'd32 - $clog2(CACHE_LINE/4) - 32'd1;
 localparam [31:0] ADR_PAD_MINUS_2      =  ADR_PAD - 32'd2;
@@ -237,6 +238,23 @@ begin
         end
 end
 
+//
+// ARM925T: the bus response of an uncacheable access is registered and
+// passed on in UNC_DONE, a cycle later, so that the bus acknowledge is not
+// in the same cycle as the pipeline's stall (timing).
+//
+logic [31:0] unc_dat_ff;
+logic        unc_err_ff;
+
+always_ff @ ( posedge i_clk )
+begin
+        if ( state_ff == UNCACHEABLE && (i_wb_ack || i_wb_err) )
+        begin
+                unc_dat_ff <= i_wb_dat;
+                unc_err_ff <= i_wb_err;
+        end
+end
+
 // Idle indication
 always_ff @ ( posedge i_clk )
 begin
@@ -244,8 +262,8 @@ begin
 end
 
 // Output data port.
-assign o_dat = state_ff == UNCACHEABLE ?
-               i_wb_dat :
+assign o_dat = state_ff == UNC_DONE ?
+               unc_dat_ff :
                adapt_cache_data(i_address[$clog2(CACHE_LINE)-1:2], i_cache_line);
 
 // ==========================================================
@@ -453,21 +471,25 @@ begin:blk1
         UNCACHEABLE:
         // Uncacheable reads and writes definitely go through this.
         begin
+                o_ack  = 1'd0;
+                o_hold = 1'd1;
+
                 if ( i_wb_ack | i_wb_err )
                 begin
-                        o_ack           = 1'd1;
-                        o_hold          = 1'd0;
-                        state_nxt       = IDLE;
-                        o_err           = i_wb_err;
-                        o_fsr[3:0]      = TERMINAL_EXCEPTION;
+                        // ARM925T: complete in UNC_DONE (registered response).
+                        state_nxt       = UNC_DONE;
 
                         `zap_kill_access;
                 end
-                else
-                begin
-                        o_ack  = 1'd0;
-                        o_hold = 1'd1;
-                end
+        end
+
+        UNC_DONE: // ARM925T
+        begin
+                o_ack           = 1'd1;
+                o_hold          = 1'd0;
+                state_nxt       = IDLE;
+                o_err           = unc_err_ff;
+                o_fsr[3:0]      = TERMINAL_EXCEPTION;
         end
 
         CLEAN_SINGLE: // Clean single cache line
