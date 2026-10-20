@@ -4,6 +4,7 @@
 # "ro": reads always return the value; writes are stored but do not change reads.
 # Device 1 = UEMK. Register names follow TriX's DCT4 UEM model where they agree.
 1 0x15 0x0008 ro   # interrupt/status read; bootstrap 0x2EE8 continues only if bit 3 (assumed: power-key power-on) or bit 4 is set; bootstrap also writes 0x200 here (0x2F54)
+1 0x04 0x00C0      # RTC calibration. rtc.dll treats 0 (or a day counter of 255) as a clock that lost power (0x50349030) and writes 0xC0 into bits 7:6 when it reads 0 (0x50349CB0): 0xC0 is what an earlier boot leaves
 1 0x1F 0x0000 ro   # power-on status. Bit 1 = power key held (ngage_cbus.c; the keypad model holds it for the first three guest seconds): ekeyb 0x5041CCBC reads it as the power key (scan code 0xA6) and polls it while it is down. Set at reset, the bootstrap (0x3090) takes the normal power-on path (backlight and regulators on at 0x2F64, superpage 0x4000101C = 1), which ecust turns into start-up reason 0 (0x50342AF4, 0x50343A6C). Clear, only a bit 3/4 interrupt in register 0x15 keeps the phone on. TriX's DCT4 emulator has the opposite polarity; the QD firmware's use decides here.
 # Device 4: unknown chip, probably ZOCUS (guess). cbus.dll self-test 0x5037E008 requires (reg0 & 0xFF00) == 0x0400, otherwise Kern::Fault("CBus:", 25).
 4 0x00 0x0400 ro   # ID/version; only the high byte is checked

@@ -19,13 +19,16 @@ The stand-in is ARMv4T code in the patched flash image, so the model and
 the FPGA core run the same binary:
 
 - `model/nos-stub/nos_stub.S`: the NOS entry that nosstarter.ext calls
-  (variant services, flags, power model, rtc event).
+  (variant services, flags, power model, rtc event with the base date; see
+  [Clock](#clock)).
 - `model/nos-stub/nos_dll.S`, `nos_dll.ld`: entry points of the hidden NOS
   DLL at its fixed ROM addresses (ordinal 4 `0x514A1CA0`, ordinal 6
   `0x514A261C`); state lives in NOS BSS at `0x8000D000`.
 - `model/nos-stub/nos_isi.c`: the channel object nosdriver.ldd talks to,
   queues and delivery.
 - `model/nos-stub/nos_isi_replies.h`: the replies listed below.
+- `model/nos-stub/nos_audio.h`: PCM playback through the HLE audio device
+  (see [Audio](#audio)).
 - `model/rom-patches.txt` places both binaries (`cs0file` lines);
   `tools/mkimage.py` applies the same file for the core.
 
@@ -128,15 +131,83 @@ Event 1 is the self-test result, read by Startup.app directly.
 
 ## Audio
 
-Not emulated: games run without sound and do not wait for it. Games use
-CMdaAudioOutputStream (MEDIACLIENTAUDIOSTREAM.DLL) → MediaServer →
-AUDIOSTREAM.MDA → SoundDevice.mda ("Galaxy" DevSound), which opens
-AUDIO.LDD and NOSDRIVER. PCM goes through audio.ldd into a 60 KB buffer that
-ecust maps from SDRAM physical `0x0A061000` (variant vtable `+0xF0` address,
-`+0xF4` size `0xF000`; ecust `0x50343108`); control goes to NOS over ISI
-(resources `0x0B`, `0x1F`, `0xE8`, `0x00`, below). For sound the stand-in
-would have to act as NOS and the DSP: answer those requests (format not yet
-decoded) and play the buffer through an audio output in the core.
+Games use CMdaAudioOutputStream (MEDIACLIENTAUDIOSTREAM.DLL) → MediaServer
+→ AUDIOSTREAM.MDA → SoundDevice.mda ("Galaxy" DevSound). SoundDevice copies
+PCM into a shared chunk that audio.ldd maps at SDRAM physical `0x0A061000`
+(60 KB: variant vtable `+0xF0` address, `+0xF4` size `0xF000`, ecust
+`0x50343108`; audio.ldd control 0 returns it) and drives NOS over ISI from
+two PhoNet objects. On the phone NOS has the DSP play the chunk; here the
+stand-in (`nos_audio.h`) plays it with the HLE audio device, an emulator
+invention (`docs/UPP_WD2.md`, "HLE audio device").
+
+**Resource `0xE8`, object `0x48`** (receiver `0x505AF8F8`, switch on [9] at
+`0x505AF914`; builders in isimsg.dll):
+
+| Message | Direction | Bytes from [10] | Meaning, evidence |
+|---|---|---|---|
+| `0x20` | → NOS | `82`, path, half length (16-bit BE, samples), half A, half B (32-bit BE physical), `00`, rate code | Start (ord951 `0x5034F56C`, sent at `0x505AC65A`). Seen: `82 02 15E0 0A061000 0A063BC0 00 46`: two halves of 5600 samples (11200 bytes) at the start of the chunk. Path 3 instead of 2 when a call is active (SA event flag at `+0x28`, `0x505AFDB8`). Rate code 50 only for sources up to 8 kHz during a call, else 70 (`0x505AC5B8`-`0x505AC62C`); outside a call SoundDevice upsamples 8 kHz sources x2 with an 8-tap filter (`0x505AEFEC`) and sends 70. Read as 50 = 8 kHz, 70 = 16 kHz, mono 16-bit (the filter works on one channel) |
+| `0x21` | → client | not read | Start accepted: in a playing state SoundDevice asks for data for half 0 (`0x505AFAE0` → `0x505ABBDC`) |
+| `0x23` | → NOS | half, `1` last buffer / `2` more, samples (16-bit BE) | A half was filled (ord962 `0x5034F6B0`, sent at `0x505AE17A` after the copy at `0x505ADFD2`; the flag is the CMMFBuffer last-buffer bit, `0x505B001A`). Sent only in the playing states |
+| `0x26` | → client | `00`, half | That half is free: SoundDevice fills it next ([11] → `+0x1F9`, `0x505AFB8E` → `0x505ABBDC`) and adds the last buffer's length to the position (`0x505ABBA8`). When two halves are free it sends `0x2A` (underflow, `0x505ABC44`) unless a grace count runs |
+| `0x2A` | → NOS | none | Stop (ord952), on the client's stop (`0x505ADC94`) or underflow |
+| `0x2B` | → client | bytes played (16-bit BE) | Stop done: added to the position, then teardown (`0x505AFBC2` → `0x505ADCB8`: `0x1F/0x04`, audio.ldd control 2, `0x0B/0x19`) |
+| `0x22`, `0x25` | → client | | Treated as an error stop (-13, `0x505AFB08`); not sent |
+| `0x24` | → client | | Leaves the playing states (`0x505AFB56`); not sent |
+| `0x19`, `0x1C`, `0x1E`, `0x27` | → NOS | | Other builders (ord925, 924, 926, 960); replies `0x1A`, `0x1B`, `0x1D`, `0x1F` are handled; not seen in the three games |
+
+**Resource `0x0B`, object `0x4A`** (receiver `0x505AF6B8`, which only takes
+`0x0B` messages 1 and 2 and `0x1F` messages 3 and 6): `0x14` [`00` 4/5 `FF FF
+FF` count, sub-blocks `03 08` param `00` value(16-bit BE) `FF FF`] sets a
+parameter (ord691 with ord649 sub-blocks). Parameter 2 carries SoundDevice's
+volume (`+0x164`, from the stream settings: Sonic 9, Rayman 6, Sega Rally 1),
+sent before every buffer (`0x505AE286`); the constructor puts 9 next to it
+(`+0x38`, `0x505AB6B0`), read as the maximum. `0x19` [`00 04 02`] and similar
+route audio (ord850, at teardown). `0x00` [`01`] at start-up. `0x1F/0x01` (ord688) and
+`0x00/0x02` (object `0x55` to `0x44`) come before every start. None of them
+needs a reply for playback to run.
+
+What the stand-in does:
+
+| Event | Stand-in |
+|---|---|
+| `0xE8/0x20` | binds IrqTimer5 once, programs the device (rate 8000 for code 50, else 16000; mono; the two half addresses), runs it, replies `0x21 [00 00]` |
+| `0xE8/0x23` | writes the half's sample count to the device (marks it full); on the first one after a start also sends `0x26` for the other half, so both are full while the first plays |
+| device DONE (IRQ) | ISR acknowledges and queues a DFC; the DFC sends `0x26 [00 half]` to SoundDevice's channel (written through the channel's DThread, `+0x54` raw write, then DLogicalChannel::Complete) |
+| `0xE8/0x2A` | stops the device, replies `0x2B` with the bytes played of the current half |
+| `0x0B/0x14` parameter 2 | device volume = value × 256 / 9, 9 and up = unity (a guess) |
+
+Formats seen (stream settings read at `0x505AC5B8`; buffers from the copy
+at `0x505ADF38`), all mono 16-bit, played by the DSP path at 16 kHz:
+
+| Game | Source rate | Buffer | Volume | Notes |
+|---|---|---|---|---|
+| SonicN | 8000 Hz | 400 samples (50 ms), upsampled to 800 | 9 | one continuous stream; streams silence while paused |
+| Rayman 3 | 16000 Hz | 1000 samples (62.5 ms) | 6 | one continuous stream; stops when the screen saver takes over |
+| Sega Rally | 8000 Hz | 360 samples (45 ms), upsampled to 720 | 1 | a stream per music piece or screen; each ends by underflow (two halves free → `0x2A`) |
+
+Sega Rally's music files (`bgm*_8.snd`, raw 16-bit) match the 16 kHz
+recording decimated by two with correlation 0.986, so rate and pitch are
+right. The recordings in `model/.out/au-*/audio.wav` have no device
+underruns after the first buffer of each stream (`audio.log`).
+
+## Clock
+
+rtc.dll (variant service 1) waits for NOS's event 1 (method `+0x20`,
+`0x50349394` → `0x50349088`) with three 64-bit values. The first two must
+agree and be nonzero; they are a base date, which NOS kept in its own flash:
+rtc.dll sets the time to that date with the UEMK time of day, plus the UEMK
+day counter (`0x5034A678`, `0x5034A2C4`; `model/hw/ngage_cbus.c`). The
+third is the alarm, 0 for none (`0x503491CC`). Otherwise the clock counts
+as unset, DOS `GetRTCStatus` (304) reports 0 and Startup.app asks for the
+time and date at every start (`0x50BBB08E`; the earlier stand-in sent
+zeros). The stand-in now reads the HLE RTC date register (an emulator
+invention at `0x0C1F0100`, fed from the host or MiSTer clock) in
+`nos_rtc_base` (`0x514A1CA4`), converts it to a TTime in EUser's calendar
+(Julian leap years up to 1600, so 12 days ahead of a proleptic Gregorian
+count: `0x503B8340`, `0x503BA508`), and sends it twice with no alarm.
+After a C: format Startup.app still asks once, because
+`C:\system\bootdata\FirstBoot.dat` is missing (`0x50BBB614`); later
+starts go straight to the idle screen with the host's date and time.
 
 ## Not answered yet
 
@@ -149,9 +220,9 @@ Requests seen but left without a reply (the client keeps waiting):
 | `0x0A` network | `0x00` | TSY | |
 | `0x09` SIM | `0x19` [`2F`] | object `0x4C` | READ_HPLMN (oFono) |
 | `0x09` SIM | `0x3D` [`FA 00`] | TSY | reply `0x3E`, phonetsy.tsy `0x5093FA20` (request type 0x4C, reads a string at [11] = 1) |
-| `0x1F` | `0x01` [long], `0x04` [`00 00 00`] | object `0x4A` (SoundDevice.mda) | sent at start-up |
-| `0xE8` | `0x20` [`82 02 15 e0 0a 06 10 00 0a 06 3b c0 00 46`], `0x2A` | object `0x48` (SoundDevice.mda) | sent when a game opens its audio stream; audio control (isimsg ord951 builds 0x20) |
-| `0x00` | `0x02` [`00 00`], to object `0x44` | object `0x55` | sent at game start, audio path |
+| `0x1F` | `0x01` [long], `0x04` [`00 00 00`] | object `0x4A` (SoundDevice.mda) | before every audio start and at teardown; playback needs no reply ([Audio](#audio)) |
+| `0x00` | `0x02` [`00 00`], to object `0x44` | object `0x55` | before every audio start; playback needs no reply |
+| `0x0B` | `0x19` [`00 04 02`], [`00 04 00`], [`00 05 05`] | object `0x4A` | audio routing at teardown (ord850) |
 | `0x23` | `0x04` [`00 32 00 01 ...`] | DOS object `0x4F` | |
 | `0x02` | `0x14` [`01 00`] | object `0x4C` | gnokii: 0x02 SMS |
 | `0x15` MTC | `0x01` [`01 00`] | DOS object `0x4F` | MTC_STATE_REQ(normal), oFono mtc.h; object `0x4F`'s handler (`0x50FFBE6C`) takes MTC 0x66, 0x67, 0x69 and MTC_STATE_INFO_IND 0xC0, not 0x64 |

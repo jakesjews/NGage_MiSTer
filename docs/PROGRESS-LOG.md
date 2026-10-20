@@ -1258,3 +1258,52 @@ found, and what comes next. Research material lives in `research/`
   makes no more device accesses where the model goes on with CBUS device 5
   and an emif read (0x08000040); the cause is not known yet. Next: a model
   instruction trace around that point (needs a QEMU slot).
+
+### 2026-10-20, model: game audio and the real-time clock
+- **Audio plays in all three games.** SoundDevice.mda streams PCM to NOS
+  with ISI resource `0xE8` from object `0x48`: `0x20` start (two halves of
+  the audio.ldd chunk at `0x0A061000`, 5600 samples each, rate code 70 =
+  16 kHz), `0x21` reply, `0x23` half filled, `0x26` half free, `0x2A` stop,
+  `0x2B` bytes played. Volume 0-9 comes as `0x0B/0x14` parameter 2. Details,
+  evidence and the stand-in's answers: `docs/NOS_STANDIN.md`, Audio.
+- New emulator device, `0x0C1F0000` (`model/hw/ngage_audio.c`, documented in
+  `docs/UPP_WD2.md` under its own heading): two SDRAM buffers, RATE,
+  FORMAT, VOLUME, DONE interrupt on source 5 (IrqTimer5). The stand-in binds
+  the interrupt by name, acknowledges DONE in its ISR and sends `0x26` from
+  a DFC. Delivery to a client now always goes through the channel's
+  DThread (vtable `+0x54` raw write), so it works outside the client's
+  context.
+- The model writes what the device plays to `model/.out/audio.wav` and
+  events to `audio.log`; `NGAGE_AUDIO=coreaudio` also plays it on the host,
+  in real time with `NGAGE_ICOUNT=shift=4,sleep=on,align=on` (tried: Sonic,
+  45 s of host audio, no errors).
+- Formats (stream settings at SoundDevice `0x505AC5B8`), all mono 16-bit:
+  SonicN 8 kHz, 400-sample buffers, volume 9; Rayman 3 16 kHz, 1000
+  samples, volume 6; Sega Rally 8 kHz, 360 samples, volume 1, one stream
+  per piece. SoundDevice upsamples 8 kHz x2, so the DSP side is always
+  16 kHz. Recordings: no device underruns after each stream's first buffer;
+  Sega Rally's `bgm02_select_8.snd` matches its recording (decimated by 2)
+  with correlation 0.986, so the rate is right.
+- Fixed on the way: the stand-in's NOS object constructor did not return
+  the object, which nosdriver stores (`0x511691F0`); the old binary worked
+  by luck of register allocation.
+- **The clock is set at start-up.** rtc.dll needs NOS's event 1 with a base
+  date (two equal copies) to which it adds the UEMK RTC's time of day and
+  8-bit day counter (UEMK `0x11`-`0x13`, `0x01`, read through cbus.dll
+  entries 32-34). The stand-in sent zeros, so DOS reported the clock unset
+  and Startup.app asked for time and date at every start. Now:
+  - the UEMK model counts real time (QEMU RTC at start, local time by
+    default, `NGAGE_RTC` overrides) and `0x04` calibration reads `0xC0`;
+  - an emulator register at `0x0C1F0100` holds the start-up date;
+  - the stand-in turns it into a TTime in EUser's calendar (Julian leap
+    years up to 1600: 12 days ahead of proleptic Gregorian, the first try
+    showed the date 12 days early) and sends it.
+  A second boot goes straight to the idle screen showing today's date and
+  time (`model/.out/rtc3/lcd-0005.png`). The first boot after a C: format
+  still asks once (`FirstBoot.dat` missing), as a new phone does.
+- `model/hw/ngage_patch.c` and `tools/mkimage.py` compute digests through
+  the bootstrap's ROM map (CS0 `0xF00000`+ at `0x51300000`), as
+  `sim/cpu/boot/prep.py` does (9385f28).
+- FPGA: the HLE audio block (SDRAM reads at RATE, linear resampling to
+  48 kHz) and loading the UEMK RTC and the date register from hps_io's RTC
+  at reset.

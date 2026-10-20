@@ -15,7 +15,18 @@ machine+=",rom-patches=${NGAGE_PATCHES:-model/rom-patches.txt},kern-log=$out/ker
 [[ -n "${NGAGE_KEYS:-}" ]] && machine+=",keys=$NGAGE_KEYS"
 [[ -n "${NGAGE_MMC:-}" ]] && machine+=",mmc=$NGAGE_MMC"
 machine+=",lcd-log=$out/lcd.log,shot-dir=$out,screenshot=${NGAGE_SHOT:-0}"
-qemu=(model/.build/qemu-system-arm -M "$machine" -serial none
+# HLE audio device (an emulator invention): what it plays goes to audio.wav;
+# NGAGE_AUDIO=coreaudio (or another -audiodev driver) also plays it on the host.
+machine+=",audio-wav=$out/audio.wav,audio-log=$out/audio.log"
+audiodev=()
+if [[ -n "${NGAGE_AUDIO:-}" && "${NGAGE_AUDIO}" != none ]]; then
+    audiodev=(-audiodev "${NGAGE_AUDIO},id=snd0")
+    machine+=",audiodev=snd0"
+fi
+# The UEMK RTC starts at the QEMU RTC: local time unless NGAGE_RTC says otherwise
+# (a -rtc base= value, e.g. 2004-06-01T12:00:00).
+qemu=(model/.build/qemu-system-arm "${audiodev[@]}" -M "$machine" -serial none
+      -rtc "base=${NGAGE_RTC:-localtime}"
       -d guest_errors,unimp -D "$out/qemu.log")
 # Guest time follows executed instructions (16 ns each, about 62 MIPS) and
 # skips ahead when the CPU idles: timers fire on time however busy the host

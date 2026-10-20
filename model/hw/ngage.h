@@ -9,6 +9,7 @@
 
 #include "system/memory.h"
 #include "hw/core/irq.h"
+#include "qemu/audio.h"
 
 /* Physical addresses as the Phoenix flash files place the two NOR chips. */
 #define NGAGE_FLASH0_BASE   0x00000000u
@@ -78,6 +79,10 @@ void ngage_dma_create(MemoryRegion *sysmem, FILE *log);
 
 /* MMC host and card (ngage_mmc.c). image may be NULL (empty slot). */
 void ngage_mmc_create(MemoryRegion *sysmem, const char *image, FILE *log);
+
+/* HLE audio device, an emulator invention (ngage_audio.c). be and wav_path may be NULL. */
+void ngage_audio_create(MemoryRegion *sysmem, AudioBackend *be, const char *wav_path,
+                        FILE *log);
 
 /* CBUS master and UEMK model (ngage_cbus.c). */
 void ngage_cbus_create(MemoryRegion *sysmem, const char *regs_path, FILE *log);

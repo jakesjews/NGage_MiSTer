@@ -18,6 +18,7 @@
     .global _start
 _start:                                 @ 0x514A1CA0: NOS DLL ordinal 4
     b       nos_channel_open
+    b       nos_rtc_base                @ 0x514A1CA4: for the entry stub (nos_stub.S)
 
     .section .entry6, "ax"
     b       nos_obj_ctor                @ 0x514A261C: NOS DLL ordinal 6

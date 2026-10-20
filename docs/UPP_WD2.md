@@ -26,6 +26,7 @@ first access is logged to `model/.out/regs.log`.
 | `0x0A000000` | 16 MB | SDRAM | bootstrap memory test `0x264`, stack | A |
 | `0x0C000000` | 256 KB modelled | on-chip RAM; bootstrap copies flash routines to `0x0C004748` | bootstrap | A (exists), C (size) |
 | `0x0C100000` | 1 MB | peripheral registers | bootstrap page table | A |
+| `0x0C1F0000` | 4 KB | **emulator devices** (HLE audio, HLE RTC date): not UPP_WD2 hardware, see the last section | no firmware access to the page (no ROM constant, no access in any run) | - |
 | `0x0D000000` | 16 MB | second I/O window; only the STI trace window at `0x0DE00000` is used so far | bootstrap table, ekern `0x5031E4A8` | B |
 
 ## Clock and system page (0x0C120000)
@@ -68,6 +69,7 @@ timer 4 (`0x0C120A80`) is bit 4 (`0x5031C968`); the kernel enables bit 25
 | 22 | MMCDataRdy | | 29 + 2*n*, 30 + 2*n* | GPIO*n* Low, High (n = 0-21 named in the kernel) |
 
 Sources enabled so far: IRQ 0 (tick), 1 (high-resolution timer), 4,
+5 (IrqTimer5, bound by the NOS stand-in for the HLE audio device),
 6-12 (DMA), 21-24 (MMC), 25 (CTSI: cbus.dll and ekeyb.dll), 46 (GPIO8High,
 bound by cbus.dll; probably the UEMK interrupt line); FIQ 27.
 
@@ -194,6 +196,10 @@ converter in `ngage_cbus.c`):
 | `0x19` | A/D control: bits 15:12 channel, bit 11 start, bit 7 set by cbus.dll beforehand | starts a conversion | bootstrap `0x3604` writes `0x6800`, cbus.dll `0x5037E1E8` writes `0x6880` (channel 6); TriX names it ADC control | A (use), B (fields) |
 | `0x1A` | A/D result, 10 bits | channel value from `adc` lines | bootstrap `0x3104`, cbus.dll `0x5037E228` read it and mask `0x3FF` | A |
 | ADC channel 6 | battery-size indicator (BSI) | 485 | cbus.dll `0x5037E240`: 5-49 → state 2 (ecust start-up 6, reported as 5), 50-93 → state 3 (5), 380-590 → state 1 (normal battery), else 0 (ecust reports 9, a list Starter does not have); bootstrap `0x3124`: 5-93 = test jig, > `0x3DD` powers off | A (ranges), C (value) |
+| `0x11`, `0x12`, `0x13` (read) | RTC seconds (bits 5:0), minutes (5:0), hours (4:0); writes go to other functions (vibra PWM, watchdog in TriX's names) | time of day: the QEMU RTC at start-up (`-rtc base=`, local time by default) plus guest time | cbus.dll table entries 32-34 (`0x5037E544`) are read-only aliases of these registers; rtc.dll `0x5034A2C4` reads 32, 33, 34, then register `0x01`, until the seconds read the same twice | A |
+| `0x01` | RTC day counter, 8 bits | days since start-up midnight; a write sets it | rtc.dll adds it to its base date (`0x5034A678`), clears it (`0x5034932C`) and treats 255 as a clock that lost power (`0x50349030`) | A (use), B (meaning) |
+| `0x02`, `0x03` | RTC alarm minutes, hours (bit 7 of `0x03` enables) | storage | rtc.dll `0x5034A3C8` | B |
+| `0x04` | RTC calibration | `0xC0` at start (cbus-regs.txt) | rtc.dll treats 0 as a clock that lost power (`0x50349030`) and sets bits 7:6 when it reads 0 (`0x50349CB0`) | B |
 | `0x1F` | power-on status; bit 1 = power key held | bit 1 follows the power key (held for the first 3 guest seconds, then key "power" in the key script, F6 in the window) | ekeyb `0x5041CC9C`-`0x5041CCC4` reads bit 1 as key bit 28 (scan code `0xA6`, the power key) and polls it while set; bootstrap `0x3090`: set at power-on → normal power-on (backlight and regulators on at `0x2F64`, superpage `0x4000101C` = 1), which ecust copies to variant `+0x80` (`0x50342AF4`) and turns into start-up reason 0 (`0x50343A6C`). If the key stays held, SysAp sees a held power key; if it is released before the bootstrap reads it, the reason becomes 9 and Starter faults. TriX's DCT4 emulator has the opposite polarity | A (use), B (hold time) |
 
 Start-up reason (`TWD2StartupReason`) as ecust computes it (variant
@@ -233,3 +239,55 @@ the flags to 3 and answers 0.
 | Address | Name / guess | Behaviour | Evidence | Conf. |
 |---|---|---|---|---|
 | `0x0DE00000`-`0x0DFFFFFF` | STI trace output: kernel debug text, one byte per address, `0xC0` at the start, `0xE0` at `0x0DFD0000` on wrap | write sink, text to `model/.out/kern.log` | ekern `0x5031E4A8`, `0x5031E538`; trace mask bit 30 (ROM header `iTraceMask` `0xC0008003`) | B |
+
+## Emulator devices (0x0C1F0000) — not UPP_WD2 hardware
+
+Two inventions of this project, for what NOS and the DSP did on the phone
+(both encrypted). Only the NOS stand-in uses them (`model/nos-stub`,
+`docs/NOS_STANDIN.md`); the FPGA core implements them as small blocks.
+Nothing in the firmware touches this page: no ROM constant points into it
+and no run accesses it. Symbian maps it at virtual `0x581F0000` with the
+rest of `0x0C1xxxxx`.
+
+### HLE audio device (0x0C1F0000) — `ngage_audio.c`
+
+Plays two PCM buffers from SDRAM alternately. All registers are 32-bit.
+
+| Offset | Name | Access | Meaning |
+|---|---|---|---|
+| `+0x00` | ID | R | `0x41554431` ("AUD1") |
+| `+0x04` | CTRL | RW | bit 0 RUN: 0 → 1 starts at buffer 0, position 0; 1 → 0 stops and empties both buffers. Bit 1 IRQ enable |
+| `+0x08` | FORMAT | RW | bit 0: stereo (L, R frames). Samples are signed 16-bit little-endian |
+| `+0x0C` | RATE | RW | frames per second, 4000-48000 |
+| `+0x10`, `+0x14` | ADDR0, ADDR1 | RW | physical byte address of buffer 0 / 1 (even) |
+| `+0x18`, `+0x1C` | LEN0, LEN1 | RW | frames in buffer 0 / 1; writing a nonzero value marks the buffer full |
+| `+0x20` | STATUS | R, W1C | bits 0/1 DONE0/1: the buffer was played to its end (write 1 to clear); bits 4/5 FULL0/1; bit 8 running; bit 9 buffer being played; bit 10 starved |
+| `+0x24` | POS | R | frames played from the current buffer |
+| `+0x28` | VOLUME | RW | gain, `0x100` = unity (reset value), values above are clamped |
+| `+0x2C` | PLAYED | R | frames played since RUN, silence included |
+
+While RUN is set the device plays the current buffer at RATE, multiplying
+each sample by VOLUME / 256. At the end of a buffer it marks it empty,
+sets its DONE bit and moves to the other one. If the current buffer is
+empty it takes the other one when that is full, otherwise it outputs
+silence (starved) until one is filled. The interrupt is DONE0 | DONE1 with
+IRQ enable, on interrupt source 5 (IrqTimer5: nothing in Symbian binds it
+and no timer 5 runs; the stand-in binds it by name, id 98).
+
+FPGA: a block that fetches 16-bit words from SDRAM at RATE and resamples to
+MiSTer's 48 kHz AUDIO_L/R (the model interpolates linearly with a 16.16
+phase step RATE / 48000; mono goes to both channels). The stand-in only uses
+mono at 8000 or 16000 Hz with halves of up to 5600 samples.
+
+### HLE RTC date register (0x0C1F0100) — `ngage_cbus.c`
+
+| Offset | Name | Access | Meaning |
+|---|---|---|---|
+| `+0x00` | DATE | R | the date on which the UEMK RTC day counter read 0: bits 31:16 year, 15:8 month (1-12), 7:0 day (1-31); 0 = unknown |
+
+On the phone NOS kept this base date in its flash. The model sets it and the
+UEMK RTC registers (`0x11`-`0x13` time of day, `0x01` day counter = 0) from
+the QEMU RTC at start-up. The FPGA loads them the same way from MiSTer's RTC
+(hps_io, BCD date and time) at reset. The stand-in reads DATE once, at the
+NOS entry, and gives rtc.dll the base date (`docs/NOS_STANDIN.md`, Clock).
+

@@ -18,6 +18,12 @@
 #   NGAGE_SHOT    LCD screenshot period in guest seconds (default 0 = only on exit)
 #   NGAGE_ICOUNT  QEMU -icount setting (default shift=4,sleep=off: 16 ns per
 #                 instruction, idle time skipped); "none" for wall-clock time
+#   NGAGE_AUDIO   host audio driver for the HLE audio device, e.g. coreaudio
+#                 (default none; $NGAGE_OUT/audio.wav and audio.log are always
+#                 written). Host playback keeps pace only when guest time runs
+#                 in real time: NGAGE_ICOUNT=shift=4,sleep=on,align=on
+#   NGAGE_RTC     start of the UEMK real-time clock, a -rtc base= value
+#                 (default localtime; e.g. 2004-06-01T12:00:00)
 #   NGAGE_KEYS    key script: lines "<guest seconds> down|up <key>"; keys: up down
 #                 left right ok lsk rsk menu call end clear edit 0-9 star hash
 #                 power (held for the first 3 guest seconds, as at switch-on)

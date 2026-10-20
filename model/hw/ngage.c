@@ -50,6 +50,8 @@ struct NGageMachineState {
     char *lcd_scale;
     char *lcd_id;
     char *keys;
+    char *audio_wav;
+    char *audio_log;
     NGageFlash *flash[2];
     MemoryRegion probe;
     MemoryRegion sdram;
@@ -212,6 +214,21 @@ static void ngage_init(MachineState *machine)
                          s->lcd_id ? strtoul(s->lcd_id, NULL, 0) : 0x290000);
     }
 
+    {
+        FILE *al = NULL;
+        AudioBackend *be = NULL;
+        if (s->audio_log) {
+            al = fopen(s->audio_log, "w");
+            if (al) {
+                setvbuf(al, NULL, _IOLBF, 0);
+            }
+        }
+        if (machine->audiodev) {
+            be = audio_be_by_name(machine->audiodev, &error_fatal);
+        }
+        ngage_audio_create(sysmem, be, s->audio_wav, al);
+    }
+
     /* Everything nothing else claims: log it. */
     memory_region_init_io(&s->probe, NULL, &probe_ops, s, "ngage.probe",
                           UINT64_C(0x100000000));
@@ -276,6 +293,10 @@ static char *get_lcd_id(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)
 static void set_lcd_id(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->lcd_id = g_strdup(v); }
 static char *get_keys(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->keys); }
 static void set_keys(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->keys = g_strdup(v); }
+static char *get_audio_wav(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->audio_wav); }
+static void set_audio_wav(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->audio_wav = g_strdup(v); }
+static char *get_audio_log(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->audio_log); }
+static void set_audio_log(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->audio_log = g_strdup(v); }
 static char *get_probe(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->probe_log); }
 static void set_probe(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->probe_log = g_strdup(v); }
 
@@ -315,6 +336,11 @@ static void ngage_machine_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "lcd-id", "panel RDDID value (default 0x290000: module 0x10)");
     object_class_property_add_str(oc, "keys", get_keys, set_keys);
     object_class_property_set_description(oc, "keys", "key script: lines '<guest seconds> down|up <key>'");
+    object_class_property_add_str(oc, "audio-wav", get_audio_wav, set_audio_wav);
+    object_class_property_set_description(oc, "audio-wav", "WAV file that receives what the HLE audio device plays");
+    object_class_property_add_str(oc, "audio-log", get_audio_log, set_audio_log);
+    object_class_property_set_description(oc, "audio-log", "file that receives HLE audio device events");
+    machine_add_audiodev_property(mc);
     object_class_property_add_str(oc, "mmc", get_mmc, set_mmc);
     object_class_property_set_description(oc, "mmc", "game card image (raw); CID/CSD from <image>.cid/.csd");
     object_class_property_add_str(oc, "mmc-log", get_mmclog, set_mmclog);

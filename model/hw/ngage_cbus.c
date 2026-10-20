@@ -35,6 +35,23 @@
  * 9). Channel values come from "adc <channel> <value>" lines in
  * cbus-regs.txt; unset channels read 0.
  *
+ * UEMK real-time clock. cbus.dll's register table (0x5037E544) has three
+ * read-only entries, 32-34, for UEMK registers 0x11-0x13, whose writes are
+ * vibra PWM and watchdog (TriX names the reads "RTC Current Time"). rtc.dll
+ * reads them as seconds (bits 5:0), minutes (5:0) and hours (4:0), plus
+ * register 0x01 as an 8-bit day counter, until the seconds read twice the
+ * same (0x5034A2C4); the time is its base date (from NOS, see the stand-in)
+ * with that time of day, plus the day counter (0x5034A678). Writing 0x01
+ * sets the counter (rtc.dll clears it, 0x5034932C). Registers 0x02/0x03 are
+ * the alarm minutes/hours (0x5034A3C8), 0x04 calibration: rtc.dll treats 0
+ * or a day counter of 255 as a clock that lost power (0x50349030) and puts
+ * 0xC0 in its top bits when it finds 0 (0x50349CB0). The model's clock is
+ * the QEMU RTC at start-up (-rtc base=...; args.sh uses local time) with
+ * the day counter at 0, advancing with guest time. The date of that start,
+ * which NOS would have kept in its flash, is the HLE RTC date register at
+ * 0x0C1F0100 (an emulator invention, docs/UPP_WD2.md): bits 31:16 year,
+ * 15:8 month, 7:0 day. The FPGA loads both from MiSTer's RTC (hps_io).
+ *
  * Power key: UEMK register 0x1F bit 1 reads 1 while the power key is held.
  * ekeyb's key-state read (0x5041CC9C) reports it as key bit 28 (scan code
  * 0xA6) and polls it while it is down; the bootstrap (0x3090) takes the
@@ -49,10 +66,13 @@
 #include "qemu/osdep.h"
 #include "qemu/log.h"
 #include "qemu/error-report.h"
+#include "qemu/timer.h"
+#include "system/rtc.h"
 #include "hw/arm/ngage.h"
 
 #define CBUS_BASE       0x0C150420
 #define CBUS_DONE       (1u << 10)
+#define HLE_RTC_BASE    0x0C1F0100
 
 typedef struct NGageCbus {
     MemoryRegion mr;
@@ -63,6 +83,11 @@ typedef struct NGageCbus {
     uint16_t adc[16];
     bool power_key;
     FILE *log;
+    /* UEMK RTC */
+    uint32_t rtc_tod0;          /* seconds since midnight at start-up */
+    int32_t rtc_day_off;        /* day counter = rtc_day_off + days since start-up midnight */
+    uint32_t rtc_date;          /* HLE RTC date register */
+    MemoryRegion rtc_mr;
 } NGageCbus;
 
 static NGageCbus *the_cbus;
@@ -83,6 +108,25 @@ static void cbus_log(NGageCbus *s, const char *what, unsigned dev, unsigned reg,
     }
 }
 
+/* Seconds since midnight of the start-up day, in guest time. */
+static uint64_t rtc_now(NGageCbus *s)
+{
+    return s->rtc_tod0 + qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / NANOSECONDS_PER_SECOND;
+}
+
+static bool rtc_read(NGageCbus *s, unsigned reg, uint32_t *v)
+{
+    uint64_t t = rtc_now(s);
+
+    switch (reg) {
+    case 0x11: *v = t % 60; return true;
+    case 0x12: *v = t / 60 % 60; return true;
+    case 0x13: *v = t / 3600 % 24; return true;
+    case 0x01: *v = (uint8_t)(s->rtc_day_off + (int64_t)(t / 86400)); return true;
+    }
+    return false;
+}
+
 static unsigned cbus_bits(NGageCbus *s)
 {
     return (s->len & 0x1F) + 1;
@@ -93,6 +137,9 @@ static void cbus_do_read(NGageCbus *s)
     unsigned dev = (s->ctrl >> 5) & 7, reg = s->ctrl & 0x1F, bits = cbus_bits(s);
     uint32_t v = s->is_ro[dev][reg] ? s->ro_val[dev][reg] : s->regs[dev][reg];
 
+    if (dev == 1) {
+        rtc_read(s, reg, &v);
+    }
     if (dev == 1 && reg == 0x1F) {
         v = (v & ~2u) | (s->power_key ? 2u : 0);
     }
@@ -115,6 +162,9 @@ static void cbus_do_write(NGageCbus *s)
     }
     cbus_log(s, "W", dev, reg, bits, v);
     s->regs[dev][reg] = v;
+    if (dev == 1 && reg == 0x01) {
+        s->rtc_day_off = (int32_t)(v & 0xFF) - (int32_t)(rtc_now(s) / 86400);
+    }
     if (dev == 1 && reg == 0x19 && (v & 0x800) && !s->is_ro[1][0x1A]) {
         s->regs[1][0x1A] = s->adc[(v >> 12) & 15];
         if (s->log) {
@@ -178,6 +228,23 @@ static const MemoryRegionOps cbus_ops = {
     .impl = { .min_access_size = 2, .max_access_size = 4 },
 };
 
+static uint64_t hle_rtc_read(void *opaque, hwaddr off, unsigned size)
+{
+    NGageCbus *s = opaque;
+
+    return off == 0 ? s->rtc_date : 0;
+}
+
+static void hle_rtc_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
+{
+}
+
+static const MemoryRegionOps hle_rtc_ops = {
+    .read = hle_rtc_read, .write = hle_rtc_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 4, .max_access_size = 4 },
+};
+
 /*
  * model/cbus-regs.txt: "<device> <register> <value> [ro]" or
  * "adc <channel> <value>" per line, '#' comments.
@@ -226,4 +293,17 @@ void ngage_cbus_create(MemoryRegion *sysmem, const char *regs_path, FILE *log)
     }
     memory_region_init_io(&s->mr, NULL, &cbus_ops, s, "ngage.cbus", 0x8);
     memory_region_add_subregion(sysmem, CBUS_BASE, &s->mr);
+
+    {
+        struct tm tm;
+
+        qemu_get_timedate(&tm, 0);
+        s->rtc_tod0 = tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec;
+        s->rtc_date = (uint32_t)(tm.tm_year + 1900) << 16 | (tm.tm_mon + 1) << 8 | tm.tm_mday;
+        info_report("ngage: UEMK RTC starts at %04d-%02d-%02d %02d:%02d:%02d",
+                    tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                    tm.tm_hour, tm.tm_min, tm.tm_sec);
+    }
+    memory_region_init_io(&s->rtc_mr, NULL, &hle_rtc_ops, s, "ngage.hle-rtc", 0x10);
+    memory_region_add_subregion(sysmem, HLE_RTC_BASE, &s->rtc_mr);
 }

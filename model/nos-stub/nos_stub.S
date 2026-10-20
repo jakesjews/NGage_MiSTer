@@ -37,10 +37,17 @@
  *      the kernel at 0x5034A944. Event 1 carries three 64-bit values (time
  *      pointers in r2, r3 and on the stack); rtc treats A != B or A == 0 as
  *      "time not valid" (state 9, 0x5034910C) and then reads the UEMK RTC
- *      itself. The stub sends event 1 with all three zero (a guess: NOS's
- *      real values are not known).
+ *      itself. Read further (0x50349088): the first two are the base date
+ *      (NOS keeps it in its flash: the UEMK RTC has only the time of day
+ *      and an 8-bit day counter, see model/hw/ngage_cbus.c), to which
+ *      rtc.dll adds the UEMK time (0x5034A678); the third is the alarm (0 =
+ *      none). The stub gets the base date from nos_rtc_base (0x514A1CA4,
+ *      nos_isi.c), which reads the HLE RTC date register, an emulator
+ *      invention fed from the host or MiSTer clock, and sends it twice with
+ *      no alarm. With no date (0) rtc.dll asks for the time at start-up.
  * This stub registers placeholder objects for 3, 6 and 7, installs a
- * placeholder object for item 3, and sends rtc.dll event 1; all placeholder
+ * placeholder object for item 3, and sends rtc.dll event 1 with the base
+ * date; all placeholder
  * methods return 0 (KErrNone) without touching their arguments. It is assembled to
  * model/.build/nos-stub.bin and placed at the NOS entry by rom-patches.txt.
  * It deliberately implements nothing else: every behaviour added here is a
@@ -95,10 +102,16 @@ _start:
     ldr     pc, [r3, #0x100]        @ variant->GetService(1)
     subs    r4, r0, #0
     beq     3f
-    ldr     r2, =0x8000C378 + 0x200 @ 8 zero bytes in NOS BSS
+    ldr     r0, =0x8000C378 + 0x200 @ the base date: 8 bytes in NOS BSS
+    ldr     r3, =0x514A1CA4         @ nos_rtc_base (nos_dll.S, nos_isi.c)
+    mov     lr, pc
+    mov     pc, r3
+    ldr     r2, =0x8000C378 + 0x200
+    add     r3, r2, #8              @ 8 zero bytes after it
     sub     sp, sp, #8
-    str     r2, [sp]                @ third value
-    mov     r3, r2
+    str     r3, [sp]                @ third value: no alarm
+    mov     r3, r2                  @ second value = first, as rtc.dll checks
+    mov     r0, r4
     mov     r1, #1
     ldr     r12, [r4]
     mov     lr, pc

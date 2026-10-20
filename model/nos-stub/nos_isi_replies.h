@@ -14,6 +14,7 @@
 #define RES_SOUND       0x0B        /* audio settings (gnokii nk6510: 0x0B sound) */
 #define RES_SELFTEST    0x35        /* DOS self test (RDosSelfTest, Nokia.dsy object 0x4D) */
 #define RES_59          0x59        /* last step of the DOS self test */
+#define RES_AUDIO       0xE8        /* DSP PCM stream (SoundDevice.mda, nos_audio.h) */
 
 /* SIM_IND (PN_SIM 0xEF, oFono sim.h) as Nokia.dsy reads it (0x50FFB21C):
  * [10] service, [11] status, [12] SIM state 1..8 -> DosSrv ord31(state - 1)
@@ -65,6 +66,9 @@ static void isi_send(struct slot *s, u8 *r, int n)
     r[5] = (u8)((n - 6) >> 8);
     queue(s, r, n);
 }
+
+static void audio_request(struct slot *s, const u8 *m, int len);
+static void audio_param(const u8 *m, int len);
 
 static void isi_request(struct slot *s, const u8 *m, int len)
 {
@@ -248,6 +252,9 @@ static void isi_request(struct slot *s, const u8 *m, int len)
         r[n++] = 0x00;
         isi_send(s, r, n);
         break;
+    case RES_SOUND << 8 | 0x14:
+        audio_param(m, len);            /* no reply: nos_audio.h */
+        break;
     case RES_BATTERY << 8 | 0x08:
         /* DOS charger query [01 00]. Nokia.dsy 0x50FFAF00 reads the reply
          * 0x09: [10] = 1 (OK), [11] sub-block count, sub-block 0x13 at [12]
@@ -301,6 +308,9 @@ static void isi_request(struct slot *s, const u8 *m, int len)
         isi_send(s, r, n);
         break;
     default:
+        if (m[3] == RES_AUDIO) {
+            audio_request(s, m, len);
+        }
         break;
     }
 }
