@@ -198,6 +198,10 @@ struct Bench {
 	}
 };
 
+// colour of the memory-test status square (panel pixels x, y < 12), RGB565:
+// blue = test off, yellow = running, green = passed, magenta = errors
+uint16_t square565 = 0x001F;
+
 // compare a captured frame with the pattern for key state st, turned by rot
 int compare(const sim::Image &got, uint32_t st, int rot, const char *what) {
 	bool turned = rot == 1 || rot == 2;
@@ -209,7 +213,7 @@ int compare(const sim::Image &got, uint32_t st, int rot, const char *what) {
 			int sx = x, sy = y;
 			if (rot == 1) { sx = y; sy = H - 1 - x; }
 			if (rot == 2) { sx = W - 1 - y; sy = x; }
-			uint32_t want = sim::rgb565_to_888(to565(pattern(sx, sy, st)));
+			uint32_t want = sim::rgb565_to_888((sx < 12 && sy < 12) ? square565 : to565(pattern(sx, sy, st)));
 			if (got.get(x, y) != want && bad++ < 4)
 				sim::fail("%s: pixel (%d,%d) = %06x, want %06x", what, x, y, got.get(x, y), want);
 		}
@@ -324,6 +328,10 @@ int main(int argc, char **argv) {
 	CHECK(b.infos.size() == 1 && b.infos[0] == 1, "memory test: no 'passed' message after the first pass");
 	printf("memory test: first pass in %llu clocks\n", (unsigned long long)(b.clocks - t0));
 	CHECK((b.t->LED_POWER & 2) != 0, "power LED not taken over by the memory test");
+	{
+		sim::Image f = b.frame();
+		CHECK_EQ(f.get(0, 0), sim::rgb565_to_888(0x07E0), "status square after a passing pass (green)");
+	}
 	// flip SDRAM bits under the test: it must report the failure
 	t0 = b.clocks;
 	while (b.infos.size() < 2 && b.clocks < t0 + 3000000) {
@@ -331,6 +339,10 @@ int main(int argc, char **argv) {
 		b.tick();
 	}
 	CHECK(b.infos.size() == 2 && b.infos[1] == 2, "memory test: no 'FAILED' message with SDRAM bits flipped");
+	{
+		sim::Image f = b.frame();
+		CHECK_EQ(f.get(0, 0), sim::rgb565_to_888(0xF81F), "status square after errors (magenta)");
+	}
 	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
 	b.ticks(2000);
 	CHECK_EQ(b.t->LED_POWER, 0, "power LED after the memory test");

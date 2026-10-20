@@ -505,6 +505,7 @@ lcd_testgen lcd_testgen
 wire        scan_en;
 wire  [7:0] scan_x, scan_y;
 wire [15:0] scan_rgb;
+wire [15:0] panel_rgb;
 wire        lcd_on;
 
 lcd_panel lcd_panel
@@ -525,9 +526,24 @@ lcd_panel lcd_panel
 	.scan_en(scan_en),
 	.scan_x(scan_x),
 	.scan_y(scan_y),
-	.scan_rgb(scan_rgb),
+	.scan_rgb(panel_rgb),
 	.display_on(lcd_on)
 );
+
+// Memory-test status square in the top-left 12x12 panel pixels, so the
+// result can be read from a screenshot (MiSTer screenshots leave out the
+// OSD): blue = test off, yellow = running before the first pass ends,
+// green = passes without errors, magenta = errors seen. scan_x/scan_y hold
+// for a whole pixel, so the substitution lines up exactly.
+reg test_any_pass = 0;
+always @(posedge clk_sys) begin
+	if (!test_on) test_any_pass <= 1'b0;
+	else if (test_pass_done) test_any_pass <= 1'b1;
+end
+wire [15:0] test_rgb = !test_on                ? 16'h001F :
+                       (test_errors != 16'd0)  ? 16'hF81F :
+                       test_any_pass           ? 16'h07E0 : 16'hFFE0;
+assign scan_rgb = (scan_x < 8'd12 && scan_y < 8'd12) ? test_rgb : panel_rgb;
 
 wire       ce_pix;
 wire       hs, vs, hblank, vblank;
