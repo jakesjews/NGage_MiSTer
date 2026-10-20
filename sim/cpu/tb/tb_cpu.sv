@@ -47,7 +47,9 @@ module tb_cpu #(
 	// address, alignment fault
 	output logic          p_dreq,
 	output logic [31:0]   p_dva,
-	output logic          p_dalign
+	output logic          p_dalign,
+	// address + 8 (+ 4 in Thumb) of the instruction making the data access
+	output logic [31:0]   p_dpc8
 );
 
 	arm925t #(
@@ -88,5 +90,6 @@ module tb_cpu #(
 	assign p_dreq  = dut.u_zap.cpu_dc_stb;
 	assign p_dva   = dut.u_zap.cpu_daddr_va;
 	assign p_dalign = dut.u_zap.cpu_align_fault;
+	assign p_dpc8  = dut.u_zap.u_zap_core.postalu_pc_plus_8_ff;
 
 endmodule

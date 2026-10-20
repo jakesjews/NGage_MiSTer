@@ -15,6 +15,17 @@
 //     --seed N          RNG seed for the latency (default 1)
 //     --max-cycles N    give up after N cycles (default 50,000,000)
 //     --quiet           no console echo
+//     --progress N      print the cycle count and PC every N cycles
+//     --watch ADDR      print the registers whenever the instruction at ADDR
+//                       retires (repeatable)
+//     --dump ADDR:LEN:FILE  write memory (as the CPU's bus sees it) at the end
+//   N-Gage machine (ngage.h) instead of the test memory map:
+//     --machine ngage   the reference model's memory map and devices; the
+//                       CPU boots from CS0; no signature, --halt optional
+//     --flash0 FILE     CS0 image (16 MB)       --flash1 FILE  CS1 image (8 MB)
+//     --quirks FILE     model/upp-quirks.txt    --cbus-regs FILE  model/cbus-regs.txt
+//     --logdir DIR      where regs.log, cbus.log and probe.log go
+//     --timer-div N     CPU cycles per timer tick (default 3: 104 MHz / 3)
 //
 // Memory map seen by the CPU (physical):
 //   0x00000000-0x00FFFFFF  16 MB RAM (QEMU -M none -m 16M has the same)
@@ -33,6 +44,7 @@
 // Bus protocol checks: a request must stay unchanged until acked, and a
 // burst beat must be followed by the next word of the same line.
 #include "Vtb_cpu.h"
+#include "ngage.h"
 #include "verilated.h"
 
 #include <cinttypes>
@@ -125,7 +137,14 @@ int main(int argc, char **argv) {
 	int lat_min = 0, lat_max = 3;
 	uint32_t seed = 1;
 	uint64_t max_cycles = 50000000;
+	uint64_t progress = 0;
 	bool quiet = false;
+	bool halt_given = false;
+	std::string machine;
+	NGage::Options nopt;
+	std::vector<uint32_t> watch;
+	struct Dump { uint32_t addr, len; std::string path; };
+	std::vector<Dump> dumps;
 
 	for (int i = 1; i < argc; i++) {
 		std::string a = argv[i];
@@ -140,7 +159,7 @@ int main(int argc, char **argv) {
 			if (c == std::string::npos) { fprintf(stderr, "--load ADDR:FILE\n"); return 2; }
 			loads.push_back({(uint32_t)strtoul(v.substr(0, c).c_str(), nullptr, 0), v.substr(c + 1)});
 		}
-		else if (a == "--halt") halt = (uint32_t)strtoul(next(), nullptr, 0);
+		else if (a == "--halt") { halt = (uint32_t)strtoul(next(), nullptr, 0); halt_given = true; }
 		else if (a == "--sig") sig_path = next();
 		else if (a == "--sig-base") sig_base = (uint32_t)strtoul(next(), nullptr, 0);
 		else if (a == "--sig-size") sig_size = (uint32_t)strtoul(next(), nullptr, 0);
@@ -155,10 +174,34 @@ int main(int argc, char **argv) {
 		else if (a == "--seed") seed = (uint32_t)strtoul(next(), nullptr, 0);
 		else if (a == "--max-cycles") max_cycles = strtoull(next(), nullptr, 0);
 		else if (a == "--quiet") quiet = true;
+		else if (a == "--progress") progress = strtoull(next(), nullptr, 0);
+		else if (a == "--watch") watch.push_back((uint32_t)strtoul(next(), nullptr, 0));
+		else if (a == "--dump") {
+			std::string v = next();
+			size_t c1 = v.find(':'), c2 = v.find(':', c1 + 1);
+			if (c1 == std::string::npos || c2 == std::string::npos) { fprintf(stderr, "--dump ADDR:LEN:FILE\n"); return 2; }
+			dumps.push_back({ (uint32_t)strtoul(v.substr(0, c1).c_str(), nullptr, 0),
+					  (uint32_t)strtoul(v.substr(c1 + 1, c2 - c1 - 1).c_str(), nullptr, 0), v.substr(c2 + 1) });
+		}
+		else if (a == "--machine") machine = next();
+		else if (a == "--flash0") nopt.flash0 = next();
+		else if (a == "--flash1") nopt.flash1 = next();
+		else if (a == "--quirks") nopt.quirks = next();
+		else if (a == "--cbus-regs") nopt.cbus_regs = next();
+		else if (a == "--logdir") nopt.logdir = next();
+		else if (a == "--timer-div") nopt.timer_div = atoi(next());
 		else if (a[0] == '+') continue;  // Verilator's own
 		else { fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
 	}
-	if (loads.empty()) { fprintf(stderr, "no --bin given\n"); return 2; }
+	NGage *ng = nullptr;
+	if (machine == "ngage") {
+		ng = new NGage;
+		if (!ng->init(nopt)) return 2;
+		if (!halt_given) halt = 0xFFFFFFFFu;
+	} else if (!machine.empty()) {
+		fprintf(stderr, "unknown machine %s\n", machine.c_str());
+		return 2;
+	} else if (loads.empty()) { fprintf(stderr, "no --bin given\n"); return 2; }
 	for (auto &l : loads)
 		if (!load_file(l.first, l.second.c_str())) return 2;
 
@@ -174,7 +217,7 @@ int main(int argc, char **argv) {
 	// bus responder state
 	bool busy = false, ack_out = false, err_out = false;
 	int wait = 0;
-	uint32_t req_addr = 0, req_wdata = 0;
+	uint32_t req_addr = 0, req_wdata = 0, req_pc = 0;
 	uint8_t req_be = 0;
 	bool req_we = false, req_burst = false;
 	bool prev_burst_beat = false;
@@ -268,6 +311,7 @@ int main(int argc, char **argv) {
 			req_be = t->bus_be;
 			req_wdata = t->bus_wdata;
 			req_burst = t->bus_burst;
+			req_pc = t->p_dpc8 - (((t->p_cpsr >> 5) & 1) ? 4 : 8);
 			if (prev_burst_beat && req_addr != prev_burst_addr + 4)
 				error("cycle %" PRIu64 ": burst continued at 0x%08x after 0x%08x", cycle, req_addr, prev_burst_addr);
 			if ((req_addr & 3) != 0) error("cycle %" PRIu64 ": unaligned bus address 0x%08x", cycle, req_addr);
@@ -302,6 +346,12 @@ int main(int argc, char **argv) {
 				fprintf(trace, " %08x\n", cpsr);
 			}
 			if (ev == 'R' && pc == halt) halted = true;
+			for (uint32_t w : watch) {
+				if (ev != 'R' || pc != w) continue;
+				fprintf(stderr, "watch %08x cycle %" PRIu64 " retired %" PRIu64 ":", pc, cycle, retired);
+				for (int r = 0; r < 15; r++) fprintf(stderr, " %08x", reg_word(t, phys_index(r, cpsr)));
+				fprintf(stderr, " cpsr %08x\n", cpsr);
+			}
 			last_pc = pc;
 		}
 
@@ -316,10 +366,13 @@ int main(int argc, char **argv) {
 			prev_burst_addr = req_addr;
 		} else if (respond) {
 			uint32_t a = req_addr & ~3u;
-			uint8_t *p = mem_ptr(a);
-			bool mmio = (a & 0xFFFFFF00u) == MMIO_BASE;
+			uint8_t *p = ng ? nullptr : mem_ptr(a);
+			bool mmio = !ng && (a & 0xFFFFFF00u) == MMIO_BASE;
 			uint32_t rdata = 0;
-			if (p) {
+			if (ng) {
+				ng->cycle = cycle;
+				rdata = ng->access(a, req_we, req_be, req_wdata, req_pc);
+			} else if (p) {
 				if (req_we) {
 					for (int b = 0; b < 4; b++)
 						if (req_be & (1 << b)) p[b] = (uint8_t)(req_wdata >> (8 * b));
@@ -343,6 +396,15 @@ int main(int argc, char **argv) {
 		if (fiq_timer >= 0 && --fiq_timer < 0) irq_lines |= 2;
 		t->irq = irq_lines & 1;
 		t->fiq = (irq_lines >> 1) & 1;
+		if (ng) {
+			ng->tick();
+			t->irq = ng->irq();
+			t->fiq = ng->fiq();
+		}
+		if (progress && cycle % progress == 0) {
+			fprintf(stderr, "cycle %" PRIu64 " retired %" PRIu64 " pc %08x cpsr %08x\n", cycle, retired, last_pc,
+				(uint32_t)t->p_cpsr);
+		}
 
 		t->clk = 0;
 		t->eval();
@@ -352,6 +414,15 @@ int main(int argc, char **argv) {
 
 	if (trace) fclose(trace);
 	if (buslog) fclose(buslog);
+	for (auto &d : dumps) {
+		FILE *f = fopen(d.path.c_str(), "wb");
+		if (!f) { fprintf(stderr, "cannot write %s\n", d.path.c_str()); return 2; }
+		for (uint32_t a = d.addr; a < d.addr + d.len; a++) {
+			uint8_t *p = ng ? ng->mem_ptr(a) : mem_ptr(a);
+			fputc(p ? *p : 0, f);
+		}
+		fclose(f);
+	}
 
 	uint32_t result = rd32(sig_base);
 	if (sig_path) {
@@ -365,7 +436,13 @@ int main(int argc, char **argv) {
 	}
 
 	int rc;
-	if (errors) {
+	if (ng) {
+		if (errors) printf("BENCH ERROR (%d bus protocol errors)\n", errors);
+		else if (halted) printf("HALT at 0x%08x, cycle %" PRIu64 ", %" PRIu64 " instructions\n", halt, cycle, retired);
+		else printf("END after %" PRIu64 " cycles, %" PRIu64 " instructions, last pc 0x%08x\n", cycle, retired, last_pc);
+		rc = errors ? 3 : 0;
+		delete ng;
+	} else if (errors) {
 		printf("BENCH ERROR (%d bus protocol errors)\n", errors);
 		rc = 3;
 	} else if (stop) {

@@ -13,7 +13,8 @@
 #                  machine), and fetch the results back
 #   make all       bins, remote, qemu, diff
 #   make T=alu ... restrict to some tests
-#   RAND_SEEDS=..  the random tests rand<seed> (tools/gen_random.py)
+#   RAND_SEEDS=..  the random tests rand<seed> and trand<seed> (Thumb),
+#                  tools/gen_random.py
 #   gba_*          jsmolka/gba-tests (ext/gba-tests), translated by
 #                  tools/fasm2gas.py; GBA_SKIP_* lists the tests left out
 #
@@ -38,7 +39,7 @@ JOBS      ?= 8
 SHELL     := bash
 
 RAND_SEEDS ?= 1 2 3 4 5 6 7 8
-RAND_TESTS := $(foreach s,$(RAND_SEEDS),rand$(s))
+RAND_TESTS := $(foreach s,$(RAND_SEEDS),rand$(s) trand$(s))
 # jsmolka/gba-tests (ext/gba-tests, tools/fasm2gas.py); docs/CPU.md says
 # why these are skipped. gba_arm/gba_thumb run on the RTL only; the _q
 # versions also leave out the unaligned word accesses QEMU aborts on, and
@@ -58,7 +59,7 @@ MODEL     := $(MODEL_DIR)/Vtb_cpu
 
 ASFLAGS := -mcpu=arm9tdmi -mfloat-abi=soft -I $(HERE)/tests
 
-.PHONY: all bins model run qemu diff remote clean
+.PHONY: all bins model run qemu diff remote boot clean
 .SECONDARY:
 all: bins remote qemu diff
 
@@ -76,6 +77,11 @@ $(TB)/rand%.S: $(HERE)/tools/gen_random.py
 	@mkdir -p $(TB)
 	$(PY) $< --seed $* > $@
 $(TB)/rand%.o: $(TB)/rand%.S $(wildcard $(HERE)/tests/*.inc)
+	$(CROSS)as $(ASFLAGS) -o $@ $<
+$(TB)/trand%.S: $(HERE)/tools/gen_random.py
+	@mkdir -p $(TB)
+	$(PY) $< --thumb --seed $* > $@
+$(TB)/trand%.o: $(TB)/trand%.S $(wildcard $(HERE)/tests/*.inc)
 	$(CROSS)as $(ASFLAGS) -o $@ $<
 # gba-tests, translated into the build directory
 GBA_DEP := $(HERE)/tools/fasm2gas.py $(wildcard $(HERE)/ext/gba-tests/*/*.asm) $(HERE)/Makefile
@@ -108,7 +114,7 @@ RTL_DEP := $(RTL_SRC)
 endif
 
 model: $(MODEL)
-$(MODEL): $(RTL_DEP) $(HERE)/tb/tb_cpu.sv $(HERE)/tb/main.cpp
+$(MODEL): $(RTL_DEP) $(HERE)/tb/tb_cpu.sv $(HERE)/tb/main.cpp $(HERE)/tb/ngage.h
 	@mkdir -p $(MODEL_DIR)
 	$(VERILATOR) $(VFLAGS) --Mdir $(MODEL_DIR) -o Vtb_cpu $(RTL_SRC) \
 		$(HERE)/tb/tb_cpu.sv $(HERE)/tb/main.cpp
@@ -183,6 +189,37 @@ remote: bins
 	mkdir -p $(BUILD)/rtl; \
 	rsync -a $(REMOTE):$(RDIR)/sim/cpu/build/rtl/ $(BUILD)/rtl/; \
 	exit $${st:-0}
+
+# ---------------------------------------------------------------- boot
+# The real boot code on the RTL (tb/ngage.h: the reference model's memory
+# map and devices), on $(REMOTE); its register log is compared with the
+# model's (BOOT_REF, from model/run.sh). Images are patched here as the
+# model patches them (boot/prep.py).
+BOOT_CS0    ?= $(ROOT)/research/firmware/images/nor/rh29-4.60-cs0-model.bin
+BOOT_CS1    ?= $(ROOT)/research/firmware/images/nor/rh29-4.60-cs1.bin
+BOOT_REF    ?= $(ROOT)/model/.out/regs.log
+BOOT_CYCLES ?= 400000000
+BOOT_ARGS   ?=
+BOOT        := $(BUILD)/boot
+boot:
+	@mkdir -p $(BOOT)
+	$(PY) $(HERE)/boot/prep.py --cs0 $(BOOT_CS0) --cs1 $(BOOT_CS1) \
+		--patches $(ROOT)/model/rom-patches.txt --root $(ROOT) --out $(BOOT)
+	cp $(ROOT)/model/upp-quirks.txt $(ROOT)/model/cbus-regs.txt $(BOOT)/
+	cp $(BOOT_REF) $(BOOT)/model-regs.log
+	cp $(dir $(BOOT_REF))cbus.log $(BOOT)/model-cbus.log
+	ssh $(REMOTE) 'mkdir -p $(RDIR)/rtl/cpu $(RDIR)/sim/cpu'
+	rsync -a --delete $(ROOT)/rtl/cpu/ $(REMOTE):$(RDIR)/rtl/cpu/
+	rsync -a --delete --exclude 'build/obj-*' --exclude build/rtl --exclude build/qemu \
+		$(HERE)/ $(REMOTE):$(RDIR)/sim/cpu/
+	ssh $(REMOTE) 'make -C $(RDIR)/sim/cpu RTL=$(RTL) model >/dev/null 2>&1 && cd $(RDIR)/sim/cpu/build/boot && \
+		../obj-$(RTL)/Vtb_cpu --machine ngage --flash0 cs0.bin --flash1 cs1.bin \
+		--quirks upp-quirks.txt --cbus-regs cbus-regs.txt --logdir . --lat 0:0 \
+		--max-cycles $(BOOT_CYCLES) --progress 20000000 $(BOOT_ARGS) > run.log 2>&1; tail -1 run.log'
+	rsync -a '$(REMOTE):$(RDIR)/sim/cpu/build/boot/*.log' $(BOOT)/
+	$(PY) $(HERE)/boot/cmp_regs.py --name "register logs" $(BOOT)/regs.log $(BOOT)/model-regs.log; \
+	r=$$?; $(PY) $(HERE)/boot/cmp_regs.py --name "CBUS logs" $(BOOT)/cbus.log $(BOOT)/model-cbus.log || r=1; \
+	exit $$r
 
 clean:
 	rm -rf $(BUILD)
