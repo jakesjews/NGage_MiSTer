@@ -315,3 +315,24 @@ found, and what comes next. Research material lives in `research/`
 - Bench `make -C sim keypad`: every key alone by the firmware-style column
   scan and the reverse scan, unfitted positions, the ghost case, a long
   chain, 200k random cases against a union-find reference, PWRONX.
+
+### 2026-10-20: NOR flash (`rtl/board/nor_flash.sv`)
+- AMD command set on a 16-bit word device: read array, autoselect (0xEC,
+  `DEVICE_ID` 0x22F8 / 0x22FA), CFI (QRY, PRI 1.3, sector map), word
+  program (only clears bits; DQ5 on a 0-to-1 program until F0), sector
+  erase with the 50 us window for more sectors, chip erase, erase
+  suspend/resume with programs outside the suspended sectors, unlock
+  bypass, F0 and RP#. DQ7/DQ6/DQ3/DQ2 status per bank; other banks read
+  the array (read-while-write).
+- The array is behind a req/ack word port for a later SDRAM/DDR3
+  controller; erase writes 0xFFFF word by word. An operation lasts
+  max(busy time, memory time): `PROGRAM_CLKS` (10 us), `SECTOR_ERASE_CLKS`
+  (0.7 s), `ERASE_WINDOW_CLKS` (50 us); chip erase = every sector in turn.
+- Assumed: top-boot map (8 x 4K-word sectors at the top, 32K-word
+  elsewhere: 263 / 135 sectors), 16 banks, busy times, CFI timing/voltage
+  fields, extra IDs 0, autoselect/CFI answered at every address, 555/C0
+  burst configuration taken and ignored.
+- Bench `make -C sim flash` runs the 16 MB and the 8 MB chip against a
+  memory with random 1-12 clock latency: reads, IDs, CFI, program with
+  status and busy time, erase (main, parameter, two banks in one window,
+  window abort), suspend/resume, bypass, RP#, chip erase. Passes (4 seeds).

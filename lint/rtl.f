@@ -14,3 +14,4 @@ rtl/board/lcd_panel.sv
 rtl/board/video_out.sv
 rtl/board/ngage_keys.sv
 rtl/board/keypad_matrix.sv
+rtl/board/nor_flash.sv

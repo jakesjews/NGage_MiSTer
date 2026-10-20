@@ -11,6 +11,10 @@ lint_off -rule VARHIDDEN
 // (TFA + VSA + BFA = 208); it is kept so that the register is complete.
 lint_off -rule UNUSEDSIGNAL -file "rtl/board/lcd_panel.sv" -match "*Signal is not used: 'bfa'*"
 
+// nor_flash: the sector and bank helpers take whole addresses and use the
+// bits that select a sector or a bank.
+lint_off -rule UNUSEDSIGNAL -file "rtl/board/nor_flash.sv" -match "*Bits of function variable are not used*"
+
 // ngage_keys is a package of key positions; each user takes the ones it needs.
 lint_off -rule UNUSEDPARAM -file "rtl/board/ngage_keys.sv"
 
