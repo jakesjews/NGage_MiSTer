@@ -268,9 +268,10 @@ found, and what comes next. Research material lives in `research/`
   - Quartus 17 rejects sv2v's empty `begin ; end` generate branches;
     they were stripped. A stub replaces the debug decompiler.
   - The result goes here when the compile finishes.
-- MiSTer SSH: the MiSTer accepts the 1Password agent key. Logins fail
-  when 1Password is locked, because the agent doesn't sign. Unlock
-  1Password before hardware tests.
+- SSH: `root@mister` authorizes only the 1Password-held key, so logins
+  depend on the 1Password agent signing. One login failed for that reason
+  and the retry worked. `ubuntu` also authorizes `~/.ssh/id_ed25519` (no
+  passphrase), so it never depends on 1Password.
 
 ## FPGA side
 
