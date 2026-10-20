@@ -617,11 +617,9 @@ begin
                         end
                         else if ( i_cp_word.ZAP_CRN == CACHE_REG && TI925T )
                         // ARM925T: TI925T cache operations (CP15.md section 6).
-                        // The single-entry operations act on the whole cache:
-                        // invalidating an I-cache entry invalidates all of it,
-                        // and a D-cache entry operation cleans (and, for the
-                        // flush forms, invalidates) the whole D-cache, which
-                        // keeps memory coherent and loses no dirty data.
+                        // D-cache entry operations act on one line (LINE_D);
+                        // invalidating an I-cache entry invalidates the whole
+                        // I-cache, which is safe (it holds no dirty data).
                         begin
                                 // Any cache operation resets the dirty-index
                                 // registers, as QEMU's ti925t does.

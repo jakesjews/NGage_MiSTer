@@ -380,27 +380,32 @@ begin:next_state_logic
         begin
                 `zap_kill_access
 
-                if ( i_cache_inv )
+                if ( !i_rd && !i_wr )
                 begin
-                        o_ack     = 1'd0;
-                        state_nxt[IDLE] = 1'd0;
-                        state_nxt[INVALIDATE] = 1'd1;
-                end
-                else if ( i_cache_clean )
-                begin
-                        o_ack     = 1'd0;
-                        state_nxt[IDLE] = 1'd0;
-                        state_nxt[CLEAN] = 1'd1;
-                end
-                else if ( i_line_req )
-                begin
-                        o_ack     = 1'd0;
-                        state_nxt[IDLE] = 1'd0;
-                        state_nxt[LINEOP] = 1'd1;
-                end
-                else if ( !i_rd && !i_wr )
-                begin
+                        //
+                        // ARM925T: maintenance is only looked at when there
+                        // is no access (CP15 starts it with the pipeline
+                        // empty), and is acknowledged like an idle cycle, so
+                        // that the requests from CP15 are not in the path
+                        // from o_ack to the pipeline stall (timing).
+                        //
                         o_ack = 1'd1;
+
+                        if ( i_cache_inv )
+                        begin
+                                state_nxt[IDLE] = 1'd0;
+                                state_nxt[INVALIDATE] = 1'd1;
+                        end
+                        else if ( i_cache_clean )
+                        begin
+                                state_nxt[IDLE] = 1'd0;
+                                state_nxt[CLEAN] = 1'd1;
+                        end
+                        else if ( i_line_req )
+                        begin
+                                state_nxt[IDLE] = 1'd0;
+                                state_nxt[LINEOP] = 1'd1;
+                        end
                 end
                 else if ( i_align_fault )
                 begin
@@ -508,11 +513,14 @@ begin:next_state_logic
                                         // Acknowledge current entry. Lock the register.
                                         o_ack               = 1'd1;
 
-                                        // Lock register on load
+                                        // Lock register on load. ARM925T: upstream also
+                                        // raised o_err2 if that register was locked, but
+                                        // no register is locked in IDLE (a lock lasts
+                                        // until UNLOCK_REG), and the term was in the
+                                        // critical tag-compare to pipeline-stall path.
                                         if ( i_rd )
                                         begin
                                                 lock_nxt[i_reg_idx_bin] = 1'd1;
-                                                o_err2    = lock_ff [i_reg_idx_bin];
                                         end
 
                                         if ( cache_dirty )
@@ -547,11 +555,10 @@ begin:next_state_logic
                                                 state_nxt[IDLE] = 1'd0;
                                                 state_nxt[FETCH_SINGLE] = 1'd1;
 
-                                                // Lock register on load
+                                                // Lock register on load (see above).
                                                 if ( i_rd )
                                                 begin
                                                         lock_nxt[i_reg_idx_bin] = 1'd1;
-                                                        o_err2    = lock_ff[i_reg_idx_bin];
                                                 end
                                 end
                                 endcase

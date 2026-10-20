@@ -227,46 +227,15 @@ end
 
 // Allow hit under miss. At end, write to tag and also write out physical
 // address. In i_rd, i_wr, we check read or write coherent conditions.
+//
+// ARM925T: removed. Upstream only allowed it with the cache disabled
+// (!i_cache_en), when the tag RAM holds no valid lines (zap_cache_tag_ram
+// clears them while the cache is off), so it never hit; its terms were in
+// the timing-critical o_ack and tag write-enable paths.
 `define zap_hit_under_miss \
 begin \
         rhit = 1'd0; \
         whit = 1'd0; \
-\
-        if (!i_busy && !i_fault && !i_align_fault && (i_rd || i_wr) && !i_cache_en && i_cacheable && !(i_wr && i_wt) \
-           && cache_cmp && i_cache_tag_valid) \
-        begin \
-                if ( i_rd ) \
-                begin \
-                        rhit    = 1'd1; \
-                        o_ack   = 1'd1; \
-\
-                        if ( i_address == address && wr ) \
-                        begin \
-                                if(i_ben[0])   o_dat[7:0] = din[7:0]; \
-                                if(i_ben[1])  o_dat[15:8] = din[15:8]; \
-                                if(i_ben[2]) o_dat[23:16] = din[23:16]; \
-                                if(i_ben[3]) o_dat[31:24] = din[31:24]; \
-                        end \
-                end \
-                else if ( i_wr ) \
-                begin \
-                        o_ack        = 1'd1; \
-                        whit         = 1'd1; \
-\
-                        o_cache_line = {(CACHE_LINE/4){i_din}}; \
-\
-                        o_cache_line_ben  = ben_comp ( \
-                                i_address[$clog2(CACHE_LINE)-1:2], \
-                                i_ben ); \
-\
-                        o_cache_tag_wr_en                = 1'd1; \
-                        o_cache_tag[`ZAP_CACHE_TAG__TAG] = i_address[`ZAP_VA__CACHE_TAG]; \
-                        o_cache_tag_dirty                = 1'd1; \
-                        o_cache_tag[`ZAP_CACHE_TAG__PA]  = i_phy_addr[31 : \
-                                                           $clog2(CACHE_LINE)]; \
-                        o_address                        = i_address; \
-                end \
-        end \
 end
 
 // Task to generate Wishbone read signals.
