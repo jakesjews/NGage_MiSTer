@@ -897,3 +897,24 @@ found, and what comes next. Research material lives in `research/`
 - The OSD menu order, for key macros: Load CS0, Load CS1, Mount MMC,
   Rotate, Aspect ratio, Scandoubler Fx, Memory test, then Reset. The
   cursor starts on Load CS0.
+
+### 2026-10-20, CPU: tests, ZAP bugs found, 104 MHz met standalone
+- 15 tests in `sim/cpu/tests` (ALU, shifts, multiplies, loads/stores, LDM/STM
+  with aborts, modes/PSRs/SWP, SWI/UND, Thumb, CP15, alignment, ARMv5 opcodes,
+  MMU sections and pages, IRQ/FIQ, RTL-only ARM925T details). All pass at
+  three bus latencies; the 13 that QEMU can run match it instruction by
+  instruction.
+- Upstream ZAP bugs fixed on the way (all tagged `ARM925T:`): uncached
+  accesses with the MMU on used the virtual address whenever that cache was
+  off; fine page tables were walked with the coarse layout; page faults
+  reported the wrong domain; Thumb SWI/UND returned to themselves; Thumb B
+  with condition 1110 branched; LDM loading its own base lost the
+  base-restored behaviour; the 011x..1 space decoded as a load.
+- Quartus 17 standalone trial (`sim/cpu/quartus/run.sh`, every input and bus
+  output registered to pins): 12,573 ALMs (30%), 14,167 registers, 57 M10K,
+  4 DSP. Worst setup slack at 104 MHz: **+0.270 ns** (slow 100C), +0.285 ns
+  (slow -40C), all corners met (about 107 MHz). The first run, before two
+  timing fixes (ARMv5/UND classification moved from decode to predecode,
+  alignment check registered a stage early), was -0.501 ns. Margin is thin:
+  in the full core, keep the CPU on clk_sys at 104 MHz and recheck; the
+  fallback is a CPU clock of 96 MHz (see docs/CPU.md).
