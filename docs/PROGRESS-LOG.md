@@ -230,3 +230,29 @@ found, and what comes next. Research material lives in `research/`
 - The original N-Gage panel also sits on the 8080 bus, without CS and TE.
 - Full report, datasheets and the sibling Nokia LCD table:
   `research/upp-wd2/` (downloads/lcd/, repos/).
+
+### 2026-10-19, late: DCT4 flasher-community findings (agent report)
+- Flash chip selects on WD2 are four windows 32 MB apart: 0x00000000,
+  0x02000000, 0x04000000, 0x06000000. On the QD, UFS shows 16 MB at CS0
+  and 8 MB at CS1; NEM-4 also fills CS2. This matches the model.
+  - One QD (UFS) reports AMD 29BDS128J/29BDS064J parts.
+  - JAF reports CS1 ID 0x22FA00EC (Samsung 0xEC, device 0x22FA), which
+    the model already uses.
+- WD2 hardware IDs: 0x0082 = WD2 v2.x (N-Gage, 6600), 0x1080/0x1081 =
+  WD2 v3.x (QD, 7610). TI is the likely maker: the parts are marked
+  "F7xxxxx", and TechInsights has a report CAR-0501-005 on "TI UPPWD2".
+- Flasher boot sequence:
+  - The boot ROM answers over FBUS ("1st Boot Ok, WD2, UPP: xxxx").
+  - Then the w3_2nd.fia second stage (about 4 KB), then w3_amd.fia, the
+    flash algorithm (about 32 KB).
+  - The boot ROM itself has never been dumped publicly.
+- The ARM core is named only in secondary sources (ARM920T). The
+  firmware's CP15 use (ARM925T-only c7,c10,0) remains the best evidence.
+- UPP8M (Series 40) differs: flash at 0x01000000, boot ROM at 0x008xxxxx
+  with a "hardware decryptor" set up by ROM calls (g3gg0, 2006). This
+  supports the idea that WD2 decrypts its encrypted flash region in
+  hardware.
+- No public source confirms the 0x0Cxxxxxx register addresses, so the
+  firmware is the only evidence for them.
+- Material: `research/upp-wd2/` (MEMORY-MAP.md, REGISTERS.md,
+  OPEN-QUESTIONS.md, downloads/web, repos).
