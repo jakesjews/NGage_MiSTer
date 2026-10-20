@@ -45,3 +45,11 @@ $(BUILD)/video/Vvideo_out: $(VIDEO_RTL) $(ROOT)/sim/harness/video_main.cpp $(ROO
 		$(VIDEO_RTL) $(ROOT)/sim/harness/video_main.cpp
 video: $(BUILD)/video/Vvideo_out | $(OUT)
 	$< $(RUNFLAGS) --out $(OUT)
+
+# The keypad matrix
+KEYPAD_RTL := $(ROOT)/rtl/board/ngage_keys.sv $(ROOT)/rtl/board/keypad_matrix.sv
+$(BUILD)/keypad/Vkeypad_matrix: $(KEYPAD_RTL) $(ROOT)/sim/harness/keypad_main.cpp $(ROOT)/sim/harness/common.h
+	mkdir -p $(BUILD)/keypad && $(VERILATOR) $(VFLAGS) --top-module keypad_matrix --Mdir $(BUILD)/keypad -o Vkeypad_matrix \
+		$(KEYPAD_RTL) $(ROOT)/sim/harness/keypad_main.cpp
+keypad: $(BUILD)/keypad/Vkeypad_matrix
+	$< $(RUNFLAGS) --seed $(SEED)

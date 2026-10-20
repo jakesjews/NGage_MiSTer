@@ -303,3 +303,15 @@ found, and what comes next. Research material lives in `research/`
 - Bench `make -C sim video`: pixel clock, line/frame totals, sync widths,
   rates, DE/blanking placement and the captured picture in all four
   rotate settings, plus a mid-frame change. PPMs in `sim/build/out`.
+
+### 2026-10-20: keypad (`rtl/board/keypad_matrix.sv`, `rtl/board/ngage_keys.sv`)
+- 6x5 matrix with the firmware table's positions (Clear ROW0/COL3, Edit
+  ROW1/COL3); `ngage_keys` names the bits (row * 5 + column). Lines joined
+  through pressed keys form nets, so ghosting is as on the real matrix;
+  either side may be driven. Power key is a separate PWRONX output.
+- Assumed: a line driven high against a low one reads low (100 ohm column
+  resistors; not documented). Lines have pull-ups (firmware reads them
+  active-low).
+- Bench `make -C sim keypad`: every key alone by the firmware-style column
+  scan and the reverse scan, unfitted positions, the ghost case, a long
+  chain, 200k random cases against a union-find reference, PWRONX.

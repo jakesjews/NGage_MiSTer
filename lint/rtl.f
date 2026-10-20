@@ -12,3 +12,5 @@ lint/exclusions.vlt
 rtl/board/sdp_ram.sv
 rtl/board/lcd_panel.sv
 rtl/board/video_out.sv
+rtl/board/ngage_keys.sv
+rtl/board/keypad_matrix.sv
