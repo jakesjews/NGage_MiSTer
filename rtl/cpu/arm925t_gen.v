@@ -986,9 +986,8 @@ module zap_alu_main (
 		if (_sv2v_0)
 			;
 		case (r_clear_from_alu)
-			2'd1: o_pc_from_alu = w_pc_from_alu_btarget;
 			2'd2: o_pc_from_alu = w_pc_from_alu_resync;
-			default: o_pc_from_alu = 'bx;
+			default: o_pc_from_alu = w_pc_from_alu_btarget;
 		endcase
 	end
 	always @(posedge i_clk)

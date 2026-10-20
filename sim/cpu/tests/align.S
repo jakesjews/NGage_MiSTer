@@ -113,7 +113,7 @@ t_code:
 a_back:
 	ATRY	SCRATCH + 6
 
-	@ A off again: no fault (the access itself is checked in align_rot.S)
+	@ A off again: no fault (rotated accesses are checked in rtl_misc.S)
 	bic	r2, r2, #CR_A
 	mrc	p15, 0, r2, c1, c0, 0
 	bic	r2, r2, #CR_A

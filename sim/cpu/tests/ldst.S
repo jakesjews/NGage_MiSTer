@@ -2,7 +2,7 @@
 @ Single loads and stores: word, byte, halfword, signed byte and halfword;
 @ immediate, register and scaled-register offsets; pre/post-indexing,
 @ writeback, subtraction; PC-relative loads; load-use; aligned only (the
-@ unaligned cases are in align*.S).
+@ unaligned cases are in align.S and rtl_misc.S).
 	.include "test.inc"
 	.text
 	.arm

@@ -676,10 +676,14 @@ end
 always_comb
 begin
         case ( r_clear_from_alu )
-        BRANCH_TARGET     : o_pc_from_alu = w_pc_from_alu_btarget;
         NEXT_INSTR_RESYNC : o_pc_from_alu = w_pc_from_alu_resync;
-        default:            o_pc_from_alu = 'dx; // Synthesis will OPTIMIZE.
-                                                 // OK to do for FPGA synthesis.
+        //
+        // ARM925T: the branch target also when nothing is cleared. The BTB
+        // writes this address on a confirmed prediction; upstream left it
+        // 'x, so the entry got an arbitrary target (in simulation random
+        // addresses were fetched; in hardware whatever synthesis chose).
+        //
+        default:            o_pc_from_alu = w_pc_from_alu_btarget;
         endcase
 end
 
