@@ -1037,3 +1037,30 @@ found, and what comes next. Research material lives in `research/`
   - The DMA LCD frame takes about 5 ms (27 clocks a word); bursts would
     speed it up.
   - A QEMU flash dump against mkimage's output was not made (QEMU in use).
+
+### 2026-10-20: ISI responder in the NOS stand-in; DOS self test passes
+- `model/nos-stub/nos_isi.c` (C, ARMv4T, freestanding) is now the object
+  behind nosdriver.ldd's channels: it takes sends (control 4), completes
+  receives (request 0) from a per-channel queue and logs each message to
+  the kernel log (`NOS<` request, `NOS>` reply). Replies are in
+  `nos_isi_replies.h`; `docs/NOS_STANDIN.md` lists each with the client
+  code that parses it. Size and place are unchanged in
+  `model/rom-patches.txt` (NOS DLL entry points `0x514A1CA0`,
+  `0x514A261C`; BSS in NOS RAM).
+- Assumed replies so far (all **guesses from the client parsers**):
+  - `0x1C/0x10` → `0x11 [00]` (Nokia.dsy `0x50FFAD98`), followed by SIM_IND
+    `0x09/0xEF [00 06 05 00]`: SIM state 5 → SA `0x100052E9` = 4, "SIM not
+    present". State 8 had given 7 ("SIM usable") and was wrong.
+  - DOS self test: `0x35/0x02` → `0x03 [00]`, `0x35/0x00` → `0x01 [00]`,
+    `0x59/0x01` → `0x02 [00]`: DOS event 1 = 3, self test passed
+    (Nokia.dsy `0x50FFBB04`, `0x50FFBBBC`, `0x50FFBC74`). Status 12 in the
+    first reply gives "Device start-up failed. Contact the retailer."
+  - An unsolicited SIM `0x2C` message tried earlier is removed: its
+    handler (`0x50FFB4BC`) expects a reply to a request DOS never sent.
+- Result: Startup.app's state machine goes 0 → 1 → 2 → 4 and sets the
+  start-up state 211. It now waits for state 213, which Phone.app sets
+  (`0x50CA1A66`) from a step of its construction that has not run yet.
+  Phone.app, SysAp, ScreenSaver, Autolock and Startup are all started; the
+  screen is white, then the screensaver's date bar (partial mode, not in
+  the panel model). The TSY, DOS battery and sound requests are not
+  answered yet; Phone.app is likely waiting on the TSY.

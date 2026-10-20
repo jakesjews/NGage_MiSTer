@@ -7,6 +7,9 @@
 /* Resources (PhoNet resource ids as the clients use them). */
 #define RES_SIM         0x09
 #define RES_1C          0x1C        /* subscribed by DOS and the TSY with message 0x10 */
+#define RES_MTC         0x15        /* modem state (oFono mtc.h PN_MTC) */
+#define RES_SELFTEST    0x35        /* DOS self test (RDosSelfTest, Nokia.dsy object 0x4D) */
+#define RES_59          0x59        /* last step of the DOS self test */
 
 /* SIM_IND (PN_SIM 0xEF, oFono sim.h) as Nokia.dsy reads it (0x50FFB21C):
  * [10] service, [11] status, [12] SIM state 1..8 -> DosSrv ord31(state - 1). */
@@ -69,15 +72,30 @@ static void isi_request(struct slot *s, const u8 *m, int len)
         r[n++] = SIM_STATE_NO_CARD;
         r[n++] = 0x00;
         isi_send(s, r, n);
-        /* SIM message 0x2C as Nokia.dsy reads it (0x50FFB4BC): [11] = 1
-         * (OK), [12] bit 0 = flags valid, [13..14] = 16-bit flags. All
-         * clear: DOS events 19, 20 and 21 = 0 (SA 0x100052F0 = 0). */
-        n = isi_ind_hdr(r, s, RES_SIM, m[6], 0x2C);
+        break;
+    case RES_SELFTEST << 8 | 0x02:
+        /* Nokia.dsy 0x50FFBB04 reads the reply 0x03 at [10]: 12 -> DOS
+         * event 1 = 2 (DosSrv ord24 via 0x50FFBA2C), which Startup.app
+         * shows as "Device start-up failed" (tried); 0/10/11 -> DOS goes on
+         * with the next self-test message (0x50FFBDC4); other values ->
+         * 0x50FFBD98. */
+        n = isi_reply_hdr(r, m, 0x03);
         r[n++] = 0x00;
-        r[n++] = 0x01;
-        r[n++] = 0x01;
+        isi_send(s, r, n);
+        break;
+    case RES_SELFTEST << 8 | 0x00:
+        /* Nokia.dsy 0x50FFBBBC reads the reply 0x01 at [10]: 0 -> the
+         * next step, 0x59/0x01 (0x50FFBD6C); 1/2 -> asks again; 12 -> DOS
+         * event 1 = 2 and MTC_STATE_REQ(SELFTEST_FAIL) (0x50FFBD40). */
+        n = isi_reply_hdr(r, m, 0x01);
         r[n++] = 0x00;
-        r[n++] = 0x00;
+        isi_send(s, r, n);
+        break;
+    case RES_59 << 8 | 0x01:
+        /* Nokia.dsy 0x50FFBC74 reads the reply 0x02 at [10]: 0 -> DOS
+         * event 1 = 3, the self test passed (0x50FFBCBC); otherwise it
+         * asks again (0x50FFBD6C). */
+        n = isi_reply_hdr(r, m, 0x02);
         r[n++] = 0x00;
         isi_send(s, r, n);
         break;
