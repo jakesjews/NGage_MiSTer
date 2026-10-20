@@ -215,7 +215,7 @@ remote: bins
 #                     (boot/cmp_dev.py)
 BOOT_CS0    ?= $(ROOT)/research/firmware/images/nor/rh29-4.60-cs0-model.bin
 BOOT_CS1    ?= $(ROOT)/research/firmware/images/nor/rh29-4.60-cs1.bin
-BOOT_CYCLES ?= 1200000000
+BOOT_CYCLES ?= 2700000000
 BOOT_ARGS   ?=
 BOOT        := $(BUILD)/boot
 HEADM       := $(BOOT)/head

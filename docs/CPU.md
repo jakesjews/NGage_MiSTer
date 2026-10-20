@@ -191,9 +191,40 @@ Upstream bugs fixed (found by the tests; all configurations):
   happened to resolve it to the branch target (the netlist is the same
   after the fix), but in simulation loops mispredicted on every iteration
   and fetched from random addresses (found by the boot bench).
+- Thumb LDR/STR Rd, [SP, #imm] subtracted the offset (the ARM form was
+  built with U = 0). A store and a load both through SP agree with each
+  other, so the tests passed; the kernel stores a local through SP and
+  passes its address (ADD Rd, SP, #imm) to a function that reads it, and
+  one of its threads then waited for ever (found by the boot bench, by
+  comparing instruction traces with the model's).
+- For MOV/ADD to PC the pre-decoder kept the predicted PC of an older
+  instruction, and the ALU takes MOV/ADD PC as correctly predicted when
+  the predicted PC equals the result. A MOV PC, LR whose predictor entry
+  held the taken state of another address (no target, so the fetch went
+  on) therefore ran the instructions after it whenever that stale value
+  was LR, which is what a conditional BL predicted not taken leaves (found
+  by the boot bench: a kernel helper returned into the next function).
+  The predicted PC is now where the fetch goes next.
 
-Timing-only changes (no change in behaviour):
+Timing changes (no change in behaviour; the first two cost cycles, see
+FPGA resources and timing):
 
+- Registered bus responses: both cache state machines latch the bus
+  acknowledge, error and data of an uncacheable access and complete it in
+  a new state (UNC_DONE) one cycle later, so that the bus acknowledge is
+  not in the same cycle as the pipeline stall. One more cycle per
+  uncacheable access.
+- A load that missed the D-cache writes its register in a new state
+  (UNLOCK_WR) from a latched value instead of straight from the line
+  buffer. One more cycle per load miss.
+- The cache valid and dirty bits are written one cycle after the tag RAM
+  (write-behind), with the reads in that cycle taking the pending write.
+- The cache RAMs' last read stage registers the write collision check and
+  the write data and chooses after the registers.
+- The memory stage rotates, extends and selects load data before its
+  register instead of after it.
+- Return-address-stack pushes are written one cycle late (the pointer
+  moves at once; a pop in that cycle takes the pending value).
 - ARMv5/UNDEFINED classification moved from the decoder to the
   pre-decoder, and the alignment check registered one stage early.
 - The D-cache looks at maintenance requests only when it has no access,
@@ -295,7 +326,11 @@ checkpoints (all registers and the CPSR) in the signature.
   instructions (which coprocessor instructions trap), IRQ and FIQ entry,
   masking, nesting, interrupts in Thumb state, a long computation
   interrupted hundreds of times.
-- `thumb`: every Thumb format, interworking, BL, SWI and UND from Thumb.
+- `thumb`: every Thumb format, interworking, BL, SWI and UND from Thumb;
+  SP-relative stores read back through another register and the other way
+  round.
+- `bpred`: a MOV PC, LR that shares a branch-predictor entry with a taken
+  branch, called by a conditional BL predicted not taken.
 - `cp15`, `v5und`, `align`, `rtl_misc`: CP15 as the firmware uses it, the
   ARMv5 instructions that must trap, alignment faults, and ARM925T details
   QEMU does not model (control register read-as values, PID masking,
@@ -380,27 +415,52 @@ PSRs carry the ARMv6 A bit; the second half of a Thumb BLX pair executes.
 
 ### The real boot code
 
-`make -C sim/cpu boot` runs the N-Gage boot code from the CS0 image on the
-RTL. `sim/cpu/tb/ngage.h` gives the bench the reference model's memory
-map and the devices the boot uses, ported from `model/hw`: both NOR flash
-chips (AMD command set), SDRAM, on-chip RAM, the emif and upp register
-blocks as storage with `model/upp-quirks.txt`, the interrupt controller and
-timers, the CBUS master with the UEMK registers of `model/cbus-regs.txt`,
-the LCD interface's panel ID and status reads, and the STI window, whose
-kernel debug text goes to `kern.log`. `sim/cpu/boot/prep.py` patches the
-images as the model does (`model/rom-patches.txt`, with the integrity
-digests computed through the bootstrap's ROM map). The register blocks log the first read and write of every
-register as the model's `regs.log` does, the CBUS logs every transfer as
-the model's `cbus.log` does, and `sim/cpu/boot/cmp_regs.py` compares each
-pair entry by entry (address, size, value, PC). `--watch ADDR` prints the
-registers whenever an instruction retires at ADDR, and `--dump` writes
-memory at the end.
+The N-Gage boot code from the CS0 image runs on the RTL and on the
+reference model from the same flash images, and their device accesses are
+compared. Three targets:
+
+- `make -C sim/cpu boot-prep` builds the images from git HEAD's model
+  files: the NOS stand-in assembled, `model/rom-patches.txt` applied as the
+  model applies it, and the integrity digests computed through the
+  bootstrap's ROM map (`sim/cpu/boot/prep.py`).
+- `make -C sim/cpu boot-model` builds the model from git HEAD on the
+  Verilator server (`sim/cpu/model/build_linux.sh`: the steps of
+  `model/build.sh` for Linux) and runs it on those images
+  (`sim/cpu/model/run_model.sh`: `-icount shift=4,sleep=off`, RTC at
+  2004-06-01 12:00:00) with a QEMU plugin (`sim/cpu/model/trace_plugin.c`)
+  that logs every device access and interrupt, and instructions in a
+  window if asked (`MODEL_TRACE=start=N,count=M`).
+- `make -C sim/cpu boot` runs the RTL on the same images and compares the
+  register logs and CBUS logs (`sim/cpu/boot/cmp_regs.py`) and the whole
+  sequence of device accesses (`sim/cpu/boot/cmp_dev.py`).
+
+`sim/cpu/tb/ngage.h` gives the bench the model's memory map and the
+devices the boot uses, ported from `model/hw`: both NOR flash chips (AMD
+command set), SDRAM, on-chip RAM, the emif and upp register blocks as
+storage with `model/upp-quirks.txt`, the interrupt controller and timers,
+the CBUS master with the UEMK registers of `model/cbus-regs.txt` and the
+UEMK RTC, the HLE RTC date register, the keypad ports and CTSI register
+(no key pressed), the MMC host with an empty slot, the LCD interface's
+panel ID and status reads, and the STI window, whose kernel debug text goes
+to `kern.log`. Guest time follows executed instructions, counted as QEMU's
+icount counts them (16 ns each; an SWI or undefined instruction counts, a
+Thumb BL pair counts once), and skips ahead while the CPU waits for an
+interrupt, as the model's `-icount shift=4,sleep=off` does, so timer and
+RTC values agree with the model's to within a few instructions. `--devlog`
+writes every device access in the plugin's format; `--watch ADDR` prints
+the registers whenever an instruction retires at ADDR; `--trace` with
+`--trace-after N` and `--trace-count M` writes an instruction window
+(`--dcdbg` and `--pddbg` add the D-cache state machine and the branch
+prediction every cycle), which
+`sim/cpu/boot/cmp_window.py` compares with the model's (`--pc-only`: the
+plugin's PCs and registers are not reliable for code reached through a
+virtual alias, see the plugin's header).
 
 ### Results
 
-- Default regression (`make -C sim/cpu all`): 53 tests (17 directed, 32
-  random, 4 gba-tests) at 3 bus latencies, 159 RTL runs, all pass. The 48
-  that QEMU can run (14 directed, 32 random, `gba_arm_q`, `gba_thumb_q`)
+- Default regression (`make -C sim/cpu all`): 54 tests (18 directed, 32
+  random, 4 gba-tests) at 3 bus latencies, 162 RTL runs, all pass. The 49
+  that QEMU can run (15 directed, 32 random, `gba_arm_q`, `gba_thumb_q`)
   agree with it in signature and instruction by instruction.
 - Random seeds 1-100 of all four kinds (400 programs): all pass on the RTL
   and agree with QEMU.
@@ -408,65 +468,76 @@ memory at the end.
   same results, which checks the sv2v conversion.
 - gba-tests: 161 of 183 ARM and 101 of 109 Thumb tests pass on the RTL; the
   QEMU-comparable subsets match QEMU over 1144 and 712 instructions.
-- Boot code (`make -C sim/cpu boot`, about 770 million cycles to the
-  kernel, 20-30 minutes): the whole bootstrap matches the model: its 32
-  register accesses, the CBUS traffic to the UEMK (including the battery
-  ADC), the flash ID and CFI probes, and both MD5 integrity checks over
-  19.6 MB of flash with the MMU and caches on. The kernel starts, enters
-  the NOS stand-in, and matches the model for 23 more register accesses and
-  67 CBUS transfers in all; its first debug text is the model's. Running it
-  found four of the bugs listed above. Earlier differences came from the
-  bench's devices (the LCD ID, the power key timing), not the CPU. At 2.5
-  billion cycles the kernel is running but makes no more device accesses
-  where the model goes on with CBUS device 5 and an emif read; whether it
-  waits for a device or interrupt the bench lacks is not known yet. The
-  next step is an instruction trace from the model around that point.
+- Boot code (`make -C sim/cpu boot-prep boot-model boot`; the RTL run is
+  2.7 billion cycles, about an hour on the server): from the same images
+  the RTL makes every device access the model makes, in the same order and
+  with the same values, 76,975 of them (only the timers' free-running
+  counters read differently, by a few ticks), through the bootstrap, the
+  kernel start, the NOS stand-in, the LCD and MMC driver start-up and the
+  RTC, up to the model's last one at 581 million instructions; after it
+  both wait (in this configuration: no card, no key presses). The register
+  logs (61 entries), the CBUS logs (79 transfers), the MMC log and the
+  kernel's debug text are identical, and the instruction numbers of the
+  accesses stay within about 40 of the model's. Running it found six of the
+  bugs listed above: the four found earlier, then the Thumb SP-relative
+  offset and the predicted PC of MOV/ADD PC (each by comparing an
+  instruction window with the model's around the first difference). It
+  also showed what the bench lacked: the keypad ports, the RTCs of the
+  current model, the MMC host, and instruction counting as QEMU's icount
+  does (an SWI or undefined instruction counts, a Thumb BL pair counts
+  once), without which the bench's guest time drifted from the model's.
+  The cycle count says nothing about the phone's speed: the bench answers
+  the bus with zero wait states.
 
 ## FPGA resources and timing
 
-Standalone trial in Quartus 17.0.2 Lite (`sim/cpu/quartus/run.sh`, on the
-build server in Docker): `cpu_trial.v` registers every input and every bus
+Standalone trial in Quartus 17.0.2 Lite (`sim/cpu/quartus/run.sh` for one
+compile, `sim/cpu/quartus/sweep.sh` for a fitter-seed sweep, on the build
+server in Docker): `cpu_trial.v` registers every input and every bus
 output to pins, so nothing is optimised away; same device (5CSEBA6U23I7)
 and fitter settings as `NGage.qsf`; 104 MHz (9.615 ns).
 
-- Resources (seed 1): 13,217 ALMs (32% of 41,910), 14,038 registers, 57
-  M10K blocks (303,604 bits: cache data and tags, TLBs, branch predictor,
-  register file), 4 DSP blocks (the multiplier). Other seeds are within
-  ±1%.
-- Worst setup slack at 104 MHz over four fitter seeds (slow 100C / slow
-  -40C corner): seed 1 +0.317 / +0.379 ns, seed 2 -0.124 / +0.191, seed 3
-  -0.239 / -0.294, seed 4 +0.049 / +0.137. The fast corners have about 4 ns
-  to spare. So the CPU sits at 104 MHz give or take 0.3 ns: about 101 to
-  107 MHz depending on placement. With seed 3, the worst, constrained
-  for 100 MHz: +0.156 / +0.006 ns; for 96 MHz: +0.732 / +0.719 ns.
-- What limits it: ZAP stalls every pipeline stage in the same cycle as the
-  D-cache decides an access (hit, bus acknowledge or error on an uncached
-  access, TLB walk busy). The worst paths run from the bus acknowledge or
-  error input, or from the TLB walker state, through the D-cache
-  acknowledge to `data_stall` and on into the pre-decoder and the micro-op
-  sequencer, or through the issue-stage load interlock. They are mostly
-  routing between distant parts of the core.
+- Resources (seed 1): 12,637 ALMs (30% of 41,910), 13,978 registers, 58
+  M10K blocks (303,732 bits: cache data and tags, TLBs, branch predictor),
+  4 DSP blocks (the multiplier). Other seeds are within 1%.
+- Worst setup slack at 104 MHz over eight fitter seeds (slow 100C / slow
+  -40C corner): seed 1 +0.335 / +0.357 ns, seed 2 +0.434 / +0.580, seed 3
+  +0.325 / +0.326, seed 4 +0.602 / +0.768, seed 5 +0.659 / +0.721, seed 6
+  +0.250 / +0.338, seed 7 +0.200 / +0.531, seed 8 +0.371 / +0.376. Every
+  seed closes at every corner, with 0.20 ns or more; the fast corners have
+  about 4 ns to spare, and hold slack is at least +0.09 ns. Placement
+  alone moves the worst slack by about ±0.3 ns: a netlist one constant bit
+  different (before the Thumb SP fix) gave between -0.095 and +0.808 ns
+  over the same seeds.
+- Before the timing changes (commit 1e4010a) the same four seeds gave
+  +0.317 / +0.379, -0.124 / +0.191, -0.239 / -0.294 and +0.049 / +0.137:
+  ZAP stalled every pipeline stage in the same cycle as the D-cache
+  decided an access, and the worst paths ran from the bus acknowledge,
+  the TLB result or the cache state machine through the stall into the
+  front end, or through the cache RAMs' write forwarding. Each change in
+  "Timing changes" above removed the worst path family of at least one
+  seed. The worst paths left (0.20-0.77 ns) are spread over the issue
+  stage (the register read for the shift operand and the interlock), the
+  TLB result into the front end and the D-cache RAMs, and the decoder
+  (pattern match and register renaming into the operand registers). None
+  dominates; more margin would take one of them each, for example
+  classifying the instruction in the pre-decoder.
+- Cost in cycles: one more cycle per uncacheable access and per load that
+  misses the D-cache; the other changes cost nothing. On the boot bench
+  (zero wait states, so the worst case): the bootstrap, which runs
+  uncached from flash, takes 21% more cycles (5.8 to 7.1 cycles per
+  instruction); with the MMU and caches on (the integrity checks) 6% more
+  (2.39 to 2.54); the kernel with caches on the same (1.57 to 1.56 and
+  2.12 to 2.12 cycles per instruction over 110-290 million instructions).
+  The bench tests, mostly uncached: +12% at zero wait states, +5% at 0-3
+  and +4% at 2-9 wait states (directed tests); `cache` (cached loops with
+  misses) +5%, +3%, +2%.
 - History: upstream ZAP with every output observed missed by 0.448 ns
   (about 99 MHz). Moving the ARMv5/UNDEFINED classification to the
   pre-decoder, registering the alignment check, taking the cache
   maintenance requests out of the acknowledge path and removing two terms
-  that could never be true kept the ARM925T changes and the bug fixes
-  (which add logic to the issue interlock and the D-cache) at about the
-  same speed. A write-behind for the cache valid and dirty bits was tried
-  and reverted: no measurable gain over four seeds.
-- Recommendation: plan for a CPU clock of 96 MHz (clk_sys at 96 MHz, or the
-  CPU on its own 96 MHz clock with a crossing to the memory system) until
-  the full core shows that 104 MHz closes there. Running at 104 MHz needs
-  either a lucky seed or the fix below. Since ZAP retires more ARM
-  instructions per clock than an ARM9TDMI on cached code, 96 MHz is not
-  slower than the phone for most code, and the timing-fidelity pass
-  (below) throttles it anyway.
-- The fix for 104 MHz with margin: give the stall a cycle. Register the bus
-  acknowledge and error inside the cache state machines (one more cycle per
-  uncached access or line beat) and the TLB walker's busy flag, so that
-  `data_stall` depends only on the tag compare; then duplicate the stall
-  per stage. This is a pipeline change in ZAP's memory stages and needs the
-  full regression and the boot bench again.
+  that could never be true kept the ARM925T changes and the bug fixes at
+  about the same speed; the changes above then made 104 MHz close.
 
 ## Plan for the timing-fidelity pass
 
@@ -495,9 +566,13 @@ The goal is ARM9TDMI cycle counts at 104 MHz, without changing behaviour.
 
 ## Remaining gaps
 
-- 104 MHz closes standalone on some fitter seeds and not others (±0.3 ns);
-  96 MHz is the safe CPU clock until the stall is retimed (see above).
+- 104 MHz closes standalone on eight of eight fitter seeds with 0.20 ns
+  or more; the margin inside the whole core (other logic, a PLL clock) is
+  still to be seen.
 - Direct-mapped caches; no cache or TLB lockdown; cache disable discards
   the D-cache contents; external aborts on line fills are lost.
 - Stored PC is + 8 (probably + 12 on the ARM925T).
 - Cycle timing is ZAP's (see the plan above).
+- The pre-decoder's return pattern for MOV PC, LR has Rm = 15 (upstream),
+  so MOV PC, LR is predicted from the BTB, not the return-address stack:
+  slower returns, no wrong results.

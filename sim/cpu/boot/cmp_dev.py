@@ -14,8 +14,8 @@ interrupts arrive a few instructions apart on the two sides, and the
 plugin reports the PC a QEMU translation block was first translated at,
 which can be another virtual alias of the same code. --loose names
 addresses whose values are not compared (free-running counters such as
-the timers' current-count registers). The last line of the RTL log is
-skipped (the run may still be writing it).
+the timers' current-count registers). An unfinished last line of the RTL
+log is skipped (the run may still be writing it).
 """
 import argparse
 import sys
@@ -32,7 +32,7 @@ def device(a):
 def load(path, skip_last):
     with open(path) as f:
         lines = f.readlines()
-    if skip_last:
+    if skip_last and lines and not lines[-1].endswith("\n"):
         lines = lines[:-1]
     out = []
     for line in lines:
