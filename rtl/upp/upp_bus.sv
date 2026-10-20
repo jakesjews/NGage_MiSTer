@@ -267,6 +267,7 @@ module upp_bus #(
 	logic [15:0] fl_wdata;
 	logic        fe_we_op;               // the flash transaction is a write
 	logic [31:0] fe_adr;                 // the beat the engine works on
+	logic [31:0] fe_prev;                // the beat before it in its burst
 	logic [15:0] fe_wd_hi;               // its high write halfword
 	logic        fe_hi;                  // the access out is the high halfword
 	logic        fe_need_hi;             // the high halfword follows the low
@@ -274,6 +275,7 @@ module upp_bus #(
 	logic [31:0] fe_next;                // the next beat of the burst to read
 	logic        fw_v = 1'b0, fq_v = 1'b0;   // queue: fw (head), fq
 	logic [31:0] fw_dat, fw_adr, fq_dat, fq_adr;
+	logic [31:0] fw_prev, fq_prev;       // the beat before each in its burst
 
 	wire [15:0] fl_rdata = fl_chip ? fl1_rdata : fl0_rdata;
 	wire        fl_ack   = fl_req && (fl_chip ? fl1_ack : fl0_ack);
@@ -290,8 +292,12 @@ module upp_bus #(
 	assign fl0_wdata = fl_wdata;
 	assign fl1_wdata = fl_wdata;
 
-	// a read beat is answered from the head of the queue
-	wire fl_pop  = state == S_FLASH && !fe_we_op && tb_ok && fw_v && fw_adr == tb;
+	// a read beat is answered from the head of the queue: the head is tb.
+	// In a clock with ack high tb is nxt(wb_adr), and as nxt is one-to-one
+	// that is "the beat before the head is wb_adr": no adder on this path.
+	// (The head has a beat before it then: the first beat of a transaction
+	// is popped in a clock with ack low.)
+	wire fl_pop  = state == S_FLASH && !fe_we_op && tb_ok && fw_v && (ack_q ? fw_prev : fw_adr) == wb_adr;
 	wire fl_push = fe_last && !fl_we;
 	// fq is in use after this edge
 	wire fq_next = fl_push ? (fl_pop ? fq_v : fw_v) : (fl_pop ? 1'b0 : fq_v);
@@ -351,21 +357,22 @@ module upp_bus #(
 		end
 		case ({fl_push, fl_pop})
 			2'b10: begin
-				if (!fw_v) begin fw_v <= 1'b1; fw_dat <= fe_word; fw_adr <= fe_adr; end
-				else begin fq_v <= 1'b1; fq_dat <= fe_word; fq_adr <= fe_adr; end
+				if (!fw_v) begin fw_v <= 1'b1; fw_dat <= fe_word; fw_adr <= fe_adr; fw_prev <= fe_prev; end
+				else begin fq_v <= 1'b1; fq_dat <= fe_word; fq_adr <= fe_adr; fq_prev <= fe_prev; end
 			end
 			2'b01: begin
 				fw_v   <= fq_v;
 				fw_dat <= fq_dat;
 				fw_adr <= fq_adr;
+				fw_prev <= fq_prev;
 				fq_v   <= 1'b0;
 			end
 			2'b11: begin
 				if (fq_v) begin
-					fw_dat <= fq_dat; fw_adr <= fq_adr;
-					fq_dat <= fe_word; fq_adr <= fe_adr;
+					fw_dat <= fq_dat; fw_adr <= fq_adr; fw_prev <= fq_prev;
+					fq_dat <= fe_word; fq_adr <= fe_adr; fq_prev <= fe_prev;
 				end else begin
-					fw_dat <= fe_word; fw_adr <= fe_adr;
+					fw_dat <= fe_word; fw_adr <= fe_adr; fw_prev <= fe_prev;
 				end
 			end
 			default: ;
@@ -381,6 +388,7 @@ module upp_bus #(
 			fl_req     <= 1'b1;
 			fl_we      <= fs_we;
 			fe_adr     <= fs_adr;
+			fe_prev    <= fe_adr;            // fs_adr = nxt(fe_adr) when it matters
 			fe_hi      <= !fs_h[0];
 			fe_need_hi <= fs_h[0] && fs_h[1];
 			fl_ha      <= {fs_adr[FL_AW:2], !fs_h[0]};

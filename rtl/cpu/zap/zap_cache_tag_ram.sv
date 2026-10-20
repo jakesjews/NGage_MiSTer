@@ -276,7 +276,12 @@ begin
                         valid [ pend_addr ] <= 1'd1;
                 end
 
-                if ( (!i_hold || tag_ram_clear || line_clear) && (tag_ram_clear || !i_cache_en) )
+                // ARM925T: a disabled cache is cleared in every cycle, held
+                // or not (upstream: only when not held). Nothing reads the
+                // valid bits while the cache is off, and the hold, which
+                // comes late from the cache FSM, no longer drives the
+                // synchronous clear of every valid flop (timing).
+                if ( tag_ram_clear || !i_cache_en )
                 begin
                         valid <= '0;
                 end

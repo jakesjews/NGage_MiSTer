@@ -3048,7 +3048,7 @@ module zap_cache_tag_ram (
 			end
 			if (pend_en)
 				valid[pend_addr] <= 1'd1;
-			if (((!i_hold || tag_ram_clear) || line_clear) && (tag_ram_clear || !i_cache_en))
+			if (tag_ram_clear || !i_cache_en)
 				valid <= 1'sb0;
 			else if (line_clear)
 				valid[tag_ram_rd_addr] <= 1'd0;
