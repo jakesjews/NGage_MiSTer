@@ -2,7 +2,8 @@
 @ MMU with sections: translation, translation faults, domains (no access,
 @ client, manager), access permissions with the S and R bits, user-mode
 @ accesses (LDRT/STRT and USR mode), FSR (status and domain) and FAR,
-@ prefetch aborts (FSR/FAR untouched), TLB flush after a remap.
+@ prefetch aborts (FSR/FAR untouched), TLB flush after a remap, code in a
+@ privileged-only section running LDRT/STRT.
 	.include "test.inc"
 	.include "mmu.inc"
 	.text
@@ -156,6 +157,35 @@ test_main:
 	mcr	p15, 0, r0, c8, c6, 1	@ D-TLB entry (flushes the D-TLB here)
 	ldr	r0, [r4, #0x100]
 	CHECK	r0, 0xAAAA5555
+	CHECKPOINT
+
+	@ code in a privileged-only section (AP 01): fetches are checked in the
+	@ current mode, also while LDRT/STRT (user view of data) and taken
+	@ branches pass through the pipeline
+	ldr	r0, =ab_state
+	adr	r1, 9f
+	str	r1, [r0, #20]		@ a prefetch abort would resume at 9
+	bl	ab_clear
+	SECT	r1, 0x00000000, 1, 0, 0
+	SETL1	0x00000000, r1
+	TLBFLUSH
+	mov	r6, #200
+	mov	r7, #0
+1:	ldrt	r0, [r4]
+	add	r7, r7, r0, lsr #24
+	strt	r7, [r5]
+	tst	r6, #1
+	bne	2f
+	add	r7, r7, #1
+2:	subs	r6, r6, #1
+	bne	1b
+9:	NOABT
+	SECT	r1, 0x00000000, 3, 0, 0
+	SETL1	0x00000000, r1
+	TLBFLUSH
+	ldr	r0, [r5]
+	CHECKR	r0, r7
+	STORE_RESULT r7, 0
 	CHECKPOINT
 
 	ldmfd	sp!, {r4-r11, pc}

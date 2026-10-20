@@ -19550,7 +19550,7 @@ module zap_top (
 				.i_cache_clean_req(cpu_ic_clean),
 				.o_cache_inv_done(ic_inv_done),
 				.o_cache_clean_done(ic_clean_done),
-				.i_cpsr((cpu_mem_translate ? USR : cpu_cpsr[ZAP_CPSR_MODE:0])),
+				.i_cpsr(cpu_cpsr[ZAP_CPSR_MODE:0]),
 				.i_sr(cpu_sr),
 				.i_baddr(cpu_baddr),
 				.i_dac_reg(cpu_dac_reg),

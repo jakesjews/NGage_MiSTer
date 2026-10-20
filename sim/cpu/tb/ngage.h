@@ -16,6 +16,8 @@
 //               UEMK registers of model/cbus-regs.txt (ngage_cbus.c)
 //   0x0C121200  LCD interface, only what the boot reads back: the panel ID
 //               (RDDID, 0x290000 as the model's default) and status (RDDST)
+//   0x0DE00000  STI trace window: the kernel's debug text goes to kern.log,
+//               filtered as the model's ngage_sti.c does
 //   anything else reads 0 and ignores writes (the model's probe)
 //
 // The register blocks log the first read and the first write of every
@@ -57,7 +59,8 @@ public:
 		regs_log = fopen((d + "/regs.log").c_str(), "w");
 		cbus.log = fopen((d + "/cbus.log").c_str(), "w");
 		probe_log = fopen((d + "/probe.log").c_str(), "w");
-		if (!regs_log || !cbus.log || !probe_log) {
+		kern_log = fopen((d + "/kern.log").c_str(), "w");
+		if (!regs_log || !cbus.log || !probe_log || !kern_log) {
 			fprintf(stderr, "cannot write the logs in %s\n", d.c_str());
 			return false;
 		}
@@ -68,6 +71,7 @@ public:
 		if (regs_log) fclose(regs_log);
 		if (cbus.log) fclose(cbus.log);
 		if (probe_log) fclose(probe_log);
+		if (kern_log) fclose(kern_log);
 	}
 
 	// Direct memory for cached line fills and the like (nullptr: a device).
@@ -109,6 +113,11 @@ public:
 		if (a - 0x0C121200u < 0x10) return lcd.access(a - 0x0C121200u, we, wdata);
 		if (emif.has(a)) return emif.access(this, a, off, size, we, val, logged(a));
 		if (upp.has(a)) return upp.access(this, a, off, size, we, val, logged(a));
+		if (a - 0x0DE00000u < 0x200000u) {
+			if (we)
+				for (unsigned i = 0; i < size; i++) sti_byte((uint8_t)(val >> (8 * i)));
+			return 0;
+		}
 		// probe: nothing there
 		if (probe_count++ < 200000)
 			fprintf(probe_log, "%s pc=%08x addr=%08x size=%u val=%08x cycle=%" PRIu64 "\n", we ? "W" : "R", pc,
@@ -508,7 +517,14 @@ private:
 	std::vector<uint8_t> sdram, iram;
 	Block emif, upp;
 	Cbus cbus;
-	FILE *regs_log = nullptr, *probe_log = nullptr;
+	FILE *regs_log = nullptr, *probe_log = nullptr, *kern_log = nullptr;
+
+	void sti_byte(uint8_t c) {
+		if (c == 0xC0 || c == 0xE0 || c == '\r') return;
+		if (c == '\n' || c == '\t' || (c >= 0x20 && c < 0x7F)) fputc(c, kern_log);
+		else fprintf(kern_log, "<%02x>", c);
+		if (c == '\n') fflush(kern_log);
+	}
 	uint32_t probe_count = 0;
 	uint32_t cur_pc = 0;
 	uint64_t now = 0;

@@ -49,7 +49,11 @@ module tb_cpu #(
 	output logic [31:0]   p_dva,
 	output logic          p_dalign,
 	// address + 8 (+ 4 in Thumb) of the instruction making the data access
-	output logic [31:0]   p_dpc8
+	output logic [31:0]   p_dpc8,
+	// CP15 state: translation table base, domain access, MMU enable
+	output logic [31:0]   p_ttb,
+	output logic [31:0]   p_dacr,
+	output logic          p_mmu
 );
 
 	arm925t #(
@@ -91,5 +95,8 @@ module tb_cpu #(
 	assign p_dva   = dut.u_zap.cpu_daddr_va;
 	assign p_dalign = dut.u_zap.cpu_align_fault;
 	assign p_dpc8  = dut.u_zap.u_zap_core.postalu_pc_plus_8_ff;
+	assign p_ttb   = dut.u_zap.cpu_baddr;
+	assign p_dacr  = dut.u_zap.cpu_dac_reg;
+	assign p_mmu   = dut.u_zap.cpu_mmu_en;
 
 endmodule

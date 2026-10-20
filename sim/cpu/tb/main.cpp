@@ -10,7 +10,8 @@
 //                       ends when the instruction there retires
 //     --sig FILE        dump the signature area (--sig-base, --sig-size)
 //     --trace FILE      write one line per retired instruction or exception
-//     --trace-after N   start the trace after N retired instructions
+//     --trace-after N   start the trace and the bus log after N retired
+//                       instructions
 //     --buslog FILE     write one line per bus access
 //     --lat MIN:MAX     bus latency, cycles from request to ack (default 0:3)
 //     --seed N          RNG seed for the latency (default 1)
@@ -326,7 +327,7 @@ int main(int argc, char **argv) {
 			else wait--;
 		}
 
-		if (buslog && t->p_dreq)
+		if (buslog && retired >= trace_after && t->p_dreq)
 			fprintf(buslog, "%" PRIu64 " d va=%08x%s\n", cycle, (uint32_t)t->p_dva, t->p_dalign ? " ALIGN" : "");
 
 		// ---- rising edge ----
@@ -353,7 +354,8 @@ int main(int argc, char **argv) {
 				if (ev != 'R' || pc != w) continue;
 				fprintf(stderr, "watch %08x cycle %" PRIu64 " retired %" PRIu64 ":", pc, cycle, retired);
 				for (int r = 0; r < 15; r++) fprintf(stderr, " %08x", reg_word(t, phys_index(r, cpsr)));
-				fprintf(stderr, " cpsr %08x\n", cpsr);
+				fprintf(stderr, " cpsr %08x ttb %08x dacr %08x mmu %d\n", cpsr, (uint32_t)t->p_ttb,
+					(uint32_t)t->p_dacr, (int)t->p_mmu);
 			}
 			last_pc = pc;
 		}
@@ -388,7 +390,7 @@ int main(int argc, char **argv) {
 				err_out = true;
 			}
 			ack_out = true;
-			if (buslog)
+			if (buslog && retired >= trace_after)
 				fprintf(buslog, "%" PRIu64 " %c %08x be=%x %08x%s%s\n", cycle, req_we ? 'W' : 'R', a, req_be,
 					req_we ? req_wdata : rdata, req_burst ? " burst" : "", err_out ? " ERR" : "");
 			t->bus_ack = !err_out;

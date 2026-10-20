@@ -678,7 +678,11 @@ u_code_cache (
 .i_cache_clean_req (cpu_ic_clean),
 .o_cache_inv_done  (ic_inv_done),
 .o_cache_clean_done(ic_clean_done),
-.i_cpsr            (cpu_mem_translate ? USR : cpu_cpsr[ZAP_CPSR_MODE:0]),
+// ARM925T: fetches are checked in the current mode. Upstream also applied
+// the data side's LDRT/STRT "user view" flag, which is undefined ('x)
+// whenever that pipeline stage is empty, so fetches from privileged-only
+// pages could abort at random.
+.i_cpsr            (cpu_cpsr[ZAP_CPSR_MODE:0]),
 .i_sr              (cpu_sr),
 .i_baddr           (cpu_baddr),
 .i_dac_reg         (cpu_dac_reg),
