@@ -21,7 +21,8 @@
 //    ended by another command; erase suspend with reads and a program, and
 //    resume; chip erase;
 //  * unlock bypass, reset in the middle of a sequence, and RP#;
-//  * Samsung block lock/unlock (60, 60 at the block with A6 choosing):
+//  * Samsung block lock/unlock (60, 60, 60 at the block with A6 choosing;
+//    the firmware's medint.pdd sequence):
 //    autoselect +02 shows it (main and parameter sectors), programs and
 //    erases skip locked sectors, also a chip erase; RP# unlocks.
 #include "Vnor_flash.h"
@@ -378,7 +379,7 @@ uint16_t lock_status(Bench &b, uint32_t a) {
 void test_lock(Bench &b) {
 	uint32_t base = sector_base(b.aw, 40), other = sector_base(b.aw, 41);
 	CHECK_EQ(lock_status(b, base), 0, "sector locked at power-up");
-	b.wr(0x123, 0x60); b.wr(base + 0x1000, 0x60);           // A6 = 0: lock
+	b.wr(0x123, 0x60); b.wr(base, 0x60); b.wr(base + 0x1000, 0x60);   // A6 = 0: lock
 	CHECK_EQ(lock_status(b, base + 77), 1, "lock status after locking");
 	CHECK_EQ(lock_status(b, other), 0, "the next sector locked too");
 	b.unlock(); b.wr(0x555, 0xA0); b.wr(base + 5, 0x0000);
@@ -389,21 +390,27 @@ void test_lock(Bench &b) {
 	b.ticks(ERASE_WINDOW_CLKS + 2000);
 	b.wait_done(base);
 	check_range(b, base, 32768, false, "locked sector erased");
-	b.wr(0x0, 0x60); b.wr(base + 0x40, 0x60);               // A6 = 1: unlock
+	b.wr(0x0, 0x60); b.wr(base, 0x60); b.wr(base + 0x40, 0x60);       // A6 = 1: unlock
 	CHECK_EQ(lock_status(b, base), 0, "lock status after unlocking");
 	b.unlock(); b.wr(0x555, 0xA0); b.wr(base + 5, 0x0000);
 	b.wait_done(base + 5);
 	CHECK_EQ(b.mem[base + 5], 0x0000, "program after unlocking");
 	b.mem[base + 5] = Bench::pattern(base + 5);
+	// medint.pdd's unlock (0x50380020): 60 and 60 at the block, 60 at its
+	// word 0x42 (byte 0x84, A6 = 1), F0; the driver faults unless +02 reads 0
+	b.wr(0x0, 0x60); b.wr(base, 0x60); b.wr(base, 0x60);
+	CHECK_EQ(lock_status(b, base), 1, "locked before medint's unlock");
+	b.wr(base, 0x60); b.wr(base, 0x60); b.wr(base + 0x42, 0x60); b.wr(base, 0xF0);
+	CHECK_EQ(lock_status(b, base), 0, "lock status after medint's unlock sequence");
 	// a parameter sector has its own bit
 	uint32_t pa = sector_base(b.aw, sectors(b.aw) - 3), pn = sector_base(b.aw, sectors(b.aw) - 2);
-	b.wr(0x0, 0x60); b.wr(pa, 0x60);
+	b.wr(0x0, 0x60); b.wr(pa, 0x60); b.wr(pa, 0x60);
 	CHECK_EQ(lock_status(b, pa + 9), 1, "parameter sector's lock status after locking");
 	CHECK_EQ(lock_status(b, pn), 0, "the next parameter sector locked too");
-	b.wr(0x0, 0x60); b.wr(pa + 0x40, 0x60);
+	b.wr(0x0, 0x60); b.wr(pa, 0x60); b.wr(pa + 0x40, 0x60);
 	CHECK_EQ(lock_status(b, pa), 0, "parameter sector's lock status after unlocking");
 	// RP# unlocks everything
-	b.wr(0x0, 0x60); b.wr(other, 0x60);
+	b.wr(0x0, 0x60); b.wr(other, 0x60); b.wr(other, 0x60);
 	CHECK_EQ(lock_status(b, other), 1, "lock before RP#");
 	b.t->rst_n = 0; b.ticks(3); b.t->rst_n = 1; b.ticks(2);
 	CHECK_EQ(lock_status(b, other), 0, "lock after RP#");
@@ -413,7 +420,7 @@ void test_chip_erase(Bench &b) {
 	// a locked parameter sector survives the chip erase
 	int locked = sectors(b.aw) - 1;
 	uint32_t lb = sector_base(b.aw, locked);
-	b.wr(0x0, 0x60); b.wr(lb, 0x60);
+	b.wr(0x0, 0x60); b.wr(lb, 0x60); b.wr(lb, 0x60);
 	b.unlock(); b.wr(0x555, 0x80); b.unlock(); b.wr(0x555, 0x10);
 	uint16_t s1 = b.rd(0), s2 = b.rd(0);
 	CHECK((s1 ^ s2) & 0x40, "chip erase status");

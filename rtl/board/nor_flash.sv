@@ -22,12 +22,16 @@
 //                            xxx/80 xxx/10 or SA/30 erases, xxx/90 xxx/00 leaves
 //   555/AA 2AA/55 555/C0     burst configuration [taken and ignored: the
 //                            burst interface is not modelled]
-//   xxx/60 BA/60             Samsung block lock (A6 = 0) or unlock (A6 = 1)
+//   xxx/60 xxx/60 BA/60      Samsung block lock (A6 = 0) or unlock (A6 = 1)
 //                            of the sector at BA; autoselect +02 there reads
 //                            1 while it is locked. A locked sector is not
 //                            programmed or erased (the command is dropped).
-//                            The firmware's LFFS driver medint.pdd unlocks
-//                            this way and checks +02 (model/hw/ngage_flash.c).
+//                            The firmware's LFFS driver medint.pdd
+//                            (0x50380020) writes 60 at the block twice, then
+//                            60 at block + 0x84 (A6 = 1) and F0, and faults
+//                            unless +02 then reads 0 in every block; so the
+//                            third cycle carries A6 [the cycle count is
+//                            inferred from the driver].
 // Programming can only clear bits (new = old & data).
 //
 // Status (reads in a bank that is busy; DQ15-DQ8 read 0):
@@ -252,6 +256,7 @@ module nor_flash #(
 	localparam logic [3:0] C_BERASE = 4'd7;   // unlock bypass, after 80
 	localparam logic [3:0] C_BEXIT  = 4'd8;   // unlock bypass, after 90
 	localparam logic [3:0] C_LOCK   = 4'd9;   // after 60
+	localparam logic [3:0] C_LOCK2  = 4'd10;  // after 60 60
 
 	localparam logic [1:0] P_IDLE = 2'd0;
 	localparam logic [1:0] P_RUN  = 2'd1;
@@ -458,7 +463,8 @@ module nor_flash #(
 					cseq <= C_IDLE;
 					if (prog_ok && !rq_lock) start_program();
 				end
-				C_LOCK: begin
+				C_LOCK: cseq <= (rq_cmd == 8'h60) ? C_LOCK2 : C_IDLE;
+				C_LOCK2: begin
 					cseq <= C_IDLE;
 					if (rq_cmd == 8'h60) begin
 						lock_set_q <= 1'b1;
