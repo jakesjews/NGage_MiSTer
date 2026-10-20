@@ -7,6 +7,7 @@
 /* Resources (PhoNet resource ids as the clients use them). */
 #define RES_SECURITY    0x08        /* oFono sim.h PN_SECURITY */
 #define RES_SIM         0x09
+#define RES_BATTERY     0x17        /* gnokii nk6510: 0x17 battery */
 #define RES_INFO        0x1B        /* oFono info.h PN_PHONE_INFO */
 #define RES_1C          0x1C        /* subscribed by DOS and the TSY with message 0x10 */
 #define RES_MTC         0x15        /* modem state (oFono mtc.h PN_MTC) */
@@ -245,6 +246,41 @@ static void isi_request(struct slot *s, const u8 *m, int len)
         r[n++] = 0x00;
         r[n++] = 0x00;
         r[n++] = 0x00;
+        isi_send(s, r, n);
+        break;
+    case RES_BATTERY << 8 | 0x08:
+        /* DOS charger query [01 00]. Nokia.dsy 0x50FFAF00 reads the reply
+         * 0x09: [10] = 1 (OK), [11] sub-block count, sub-block 0x13 at [12]
+         * with the state at its byte 2 (isimsg ord1524); state 1..5 ->
+         * DosSrv ord7(state - 1) -> SA 0x100052C9 (sae 0x50BF251C: 0 ->
+         * ESAChargerDisconnected). No charger: 1. */
+        n = isi_reply_hdr(r, m, 0x09);
+        r[n++] = 0x01;
+        r[n++] = 0x01;
+        r[n++] = 0x13;
+        r[n++] = 0x04;
+        r[n++] = 0x01;
+        r[n++] = 0x00;
+        isi_send(s, r, n);
+        break;
+    case RES_BATTERY << 8 | 0x0A:
+        /* DOS battery query [02 00]. Nokia.dsy 0x50FFB00C reads the reply
+         * 0x0B: [10] = 1, [11] sub-block count, sub-blocks from [12]:
+         * 0x15 state at byte 2 (1 -> DosSrv ord4(0), battery fine; 3 -> 1;
+         * 4 -> 2) and 0x16 bars at byte 3 -> DosSrv ord2 (SA 0x100052D3).
+         * gnokii nk6510 reads the 0x0B level at the same place, 0..7. Full:
+         * state 1, 7 bars. */
+        n = isi_reply_hdr(r, m, 0x0B);
+        r[n++] = 0x01;
+        r[n++] = 0x02;
+        r[n++] = 0x15;
+        r[n++] = 0x04;
+        r[n++] = 0x01;
+        r[n++] = 0x00;
+        r[n++] = 0x16;
+        r[n++] = 0x04;
+        r[n++] = 0x00;
+        r[n++] = 0x07;
         isi_send(s, r, n);
         break;
     case RES_INFO << 8 | 0x02:

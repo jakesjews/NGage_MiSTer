@@ -121,6 +121,8 @@ Event 1 is the self-test result, read by Startup.app directly.
 | `0x09` SIM | `0x33` [`3E`] (TSY) | `0x34` [`3E 24`] | SIM read of the operator name for GetNetworkProviderName (Phone.app, synchronous); completes with an error | phonetsy.tsy `0x5093EDD0` reads [11]: 1 → parse by service [10]; service 0x13 with 0x24 → parse; others → `0x50930458` error |
 | `0x09` SIM | `0x13` [`11`] (TSY) | `0x14` [`11 24`] | SIM service table for RAdvGsmPhone::GetSimServiceTable (Menu.app's MenuEng, synchronous) → -21, read as "no SIM toolkit" | phonetsy.tsy `0x5093FD60` reads [11]: 1 → parse, 0x24 → -21, others → no completion; MenuEng `0x50A13064` |
 | `0x09` SIM | `0x31` [`3B 00 00`] (TSY) | `0x32` [`3B 24`] | ReadSimAlsLine (SysAp, Phone.app through sssettings, synchronous) → line 3, KErrNone; the CSP read (Menu.app) → -21 | phonetsy.tsy `0x5093F114` reads [11]: type 0x89 (ALS) 1 → parse, else `0x5092F3B0` (0x24 → line 3); type 0x4E (CSP) 1 → parse, else -21 |
+| `0x17` battery | `0x08` [`01 00`] (DOS) | `0x09` [`01 01` + `13 04 01 00`] | charger state 1 → DosSrv ord7(0) → SA `0x100052C9` = ESAChargerDisconnected | Nokia.dsy `0x50FFAF00`: [10] = 1, [11] count, sub-block 0x13 at [12], state at its byte 2 (isimsg ord1524), 1..5 → ord7(state - 1); sae `0x50BF251C` |
+| `0x17` battery | `0x0A` [`02 00`] (DOS) | `0x0B` [`01 02` + `15 04 01 00` + `16 04 00 07`] | battery fine (DosSrv ord4(0)), 7 bars (DosSrv ord2(7) → SA `0x100052D3`); the idle screen shows a full battery | Nokia.dsy `0x50FFB00C`: [10] = 1, sub-blocks 0x15 (state at byte 2: 1 → 0, 3 → 1, 4 → 2) and 0x16 (bars at byte 3); gnokii nk6510 reads the 0x0B level at the same byte, 0..7 |
 | `0x1B` info | `0x02` INFO_PP_READ_REQ [`00 01` + `47 08 00 02 01 00 00 00`] (TSY) | `0x03` [`00 01` + `47 08 00 02 01 00 00 00`] | product profile feature value 0: completes RCtmGsmPhone::CheckAlsPpSupport (SysAp, synchronous) | phonetsy.tsy `0x5093EB38`: [10] status 0 = INFO_OK (oFono info.h), [11] sub-block count, INFO_SB_PP at [12], value at its byte 5 (isimsg ord1028) → `0x5092F248` |
 | `0x0B` | `0x11` [`06 01`] (TSY) | `0x12` [`06 01 06 08 00 00 00 00 00 00`] | completes RCtmGsmPhone::GetHandsfreeMode (hands-free off), which PhoneServer waits on at start-up | phonetsy.tsy `0x5093E1D8`: [10] setting, [11] sub-block count = 1, sub-block at [12], 16-bit big-endian value at its bytes 4-5 (isimsg ord1568); `0x5092E16C` setting 6: 13 → on, else off. Sub-block id and length are guesses |
 
@@ -130,7 +132,6 @@ Requests seen but left without a reply (the client keeps waiting):
 
 | Resource | Request | From | Notes |
 |---|---|---|---|
-| `0x17` | `0x08` [`01 00`], `0x0A` [`02 00`] | DOS | battery (gnokii nk6510: 0x17 battery). Replies `0x09`, `0x0B` parsed at Nokia.dsy `0x50FFAF00`, `0x50FFB00C` |
 | `0x3A` | `0x05` [`03 01 00 00 00 00`], [`03 02 ...`] | DOS object `0x4F` | |
 | `0x31` GPDS | `0x19` | TSY | |
 | `0x0A` network | `0x00` | TSY | |
@@ -139,6 +140,6 @@ Requests seen but left without a reply (the client keeps waiting):
 | `0x1F` | `0x01` [long], `0x04` [`00 00 00`] | object `0x4A` | |
 | `0x23` | `0x04` [`00 32 00 01 ...`] | DOS object `0x4F` | |
 | `0x02` | `0x14` [`01 00`] | object `0x4C` | gnokii: 0x02 SMS |
-| `0x15` MTC | `0x01` [`01 00`] | DOS object `0x4F` | MTC_STATE_REQ(normal), oFono mtc.h |
+| `0x15` MTC | `0x01` [`01 00`] | DOS object `0x4F` | MTC_STATE_REQ(normal), oFono mtc.h; object `0x4F`'s handler (`0x50FFBE6C`) takes MTC 0x66, 0x67, 0x69 and MTC_STATE_INFO_IND 0xC0, not 0x64 |
 | `0x0B` | `0x00` [`01`] | object `0x4A` | |
 | - | channel request 2 on unit 2 | TSY | stays pending |

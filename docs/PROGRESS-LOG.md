@@ -1120,3 +1120,11 @@ found, and what comes next. Research material lives in `research/`
 - New debug tool: `model/stacks.sh [SECONDS]` lists each thread's user-stack
   return addresses (`model/tools/kstacks.py` reads the process's data
   chunk at its home address). It is how the blocked calls were found.
+- Battery: DOS's charger and battery queries (`0x17/0x08`, `0x17/0x0A`)
+  now get "no charger, battery fine, 7 bars"; the idle screen shows a full
+  battery. A 120 s run (several guest minutes) with the menu and the
+  Juegos folder open ends without a kernel fault.
+- Juegos (games) opens; on this movistar ROM it is the operator's games
+  portal list. Installed N-Gage games appear as their own menu icons from
+  the game card; not tested, as there is no game image (`NGAGE_MMC` with a
+  blank `model/tools/mkcard.sh` card mounts without errors).
