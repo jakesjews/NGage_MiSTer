@@ -4,8 +4,16 @@ The N-Gage's cellular software (NOS) is encrypted in flash and its key is
 in the UPP_WD2 silicon, so the core cannot run it. Symbian still expects a
 modem: start-up servers and the telephony stack send ISI messages over
 PhoNet and wait for answers. The stand-in answers them as a phone with
-**no SIM card, no network, no PIN or security code, modem state normal**.
-A real N-Gage in that state reaches the idle screen and runs games.
+**an inactive SIM card inserted (ready, no PIN or security code, no SIM
+lock), no network, modem state normal**.
+
+Why not "no SIM card": Startup.app only finishes start-up when the SIM
+status (System Agent `0x100052E9`) is 7 and the security-code state
+(`0x100052F0`) is 0 (`0x50BBBCD6`, `0x50BBBDDC`). With no card (SIM state 5,
+SA value 4) it removes the splash, shows a blank view behind the "Insert
+SIM card" note and never goes further (tried: `model/.out/lcd-*` of
+2026-10-20). This matches the S60 1.x behaviour of needing a SIM card, even
+an expired one, to reach the idle screen.
 
 The stand-in is ARMv4T code in the patched flash image, so the model and
 the FPGA core run the same binary:
@@ -57,6 +65,35 @@ PhoNet frame (`phonet.dll 0x5036700E` sets the length):
 A reply swaps devices and objects and keeps the resource and transaction
 id. Indications go from object 0 of the resource to the client.
 
+## System Agent variables
+
+DOS turns ISI state into DOS events (DosSrv ordinals), sae.exe turns
+events into System Agent variables. The event → variable map comes from
+DSClient.dll's switch (`0x50FF6B2C`, event n → observer slot) and sae.exe's
+observer (vtable `0x50BF36AC`):
+
+| DOS event | DosSrv ord | SA variable `0x1000xxxx` |
+|---|---|---|
+| 3 | - | `52C5` |
+| 4 | 22 | `52D5` |
+| 5 | 7 | `52D7`, `52C9` |
+| 6 | 4 | `52D8`, `52CA` |
+| 7 | 2 | `52D3` |
+| 8 | 30 | `52E8` |
+| 9 | 28 | `52EA` |
+| 16 | 29 | `52F4` |
+| 17 | 31 | `52E9` (SIM status; 7 = ready) |
+| 18 | 6 | `52E0` |
+| 19 | 33 | `52E3` |
+| 20 | 20 | `52EC` |
+| 21 | 12 | `52ED` |
+| 22 | 23 | `52D4`, `52C7`, `52C8` (network bars from res `0x0A`) |
+| 23 | 27 | `52F0` (security-code state; 0 = none) |
+| 24 | - | `52D8`, `52CA`, `52D9` |
+| 25 | - | `52F6` |
+
+Event 1 is the self-test result, read by Startup.app directly.
+
 ## Clients
 
 | Object | Client | Notes |
@@ -71,10 +108,15 @@ id. Indications go from object 0 of the resource to the client.
 | Resource | Request | Our reply | Effect | Evidence |
 |---|---|---|---|---|
 | `0x1C` | `0x10` (no payload), from DOS and the TSY | `0x11` [`00`] | DosSrv ord22(0) | Nokia.dsy `0x50FFAD98` reads [10]: 0 → 0; 1 → 2; 0x10/0x11/0x20/0x21 → 1 |
-| `0x09` SIM | after the `0x1C` reply, unsolicited | `0xEF` SIM_IND [`00 06 05 00`] | SIM state 5 → DosSrv ord31(4) → DOS event 17 → SA `0x100052E9` = 4 (`ESASimNotPresent`) | Nokia.dsy `0x50FFB21C` reads [12] as state 1..8; Startup.app gate at `0x50BBBCBC` (state 8 gave SA 7, "SIM usable") |
+| `0x09` SIM | after the `0x1C` reply, unsolicited | `0xEF` SIM_IND [`0D 0B 08 00`]: SIM_ST_INFO, SIM_SERV_INIT_OK, state 8 | state 8 → DosSrv ord31(7) → DOS event 17 → SA `0x100052E9` = 7 (SIM ready); INFO/INIT_OK → DOS reads the SIM flags (`0x2D`, `0x2B`); state 8 → DOS compares the IMSI (`0x3B`) | Nokia.dsy `0x50FFB21C` reads [10] service, [11] status, [12] state 1..8; `0x50FFB2A0` (13/11 → `0x50FFB610`), `0x50FFB27A`. State 5 gives SA 4 and Startup.app stops (see above) |
+| `0x08` security | after the `0x1C` reply, unsolicited | `0x10` [`05 00 00 00`] | DosSrv ord27(0) → DOS event 23 → SA `0x100052F0` = 0 (no code query) | Nokia.dsy `0x50FFB734` reads [10]: 5 → ord27(0), [13] 0x12/0x13 → ord9; 1/4 with [11] 1/6 → code required. phonetsy.tsy `0x5093D9FC` reads [10..] as one sub-block; id 5 is ignored (`0x5092C568`). 5 = SEC_STARTUP_OK in oFono |
+| `0x09` SIM | `0x3B` [`FA`] (DOS) | `0x3C` [`FA 2A`] | DosSrv ord28(0) → event 9; no more `0x3B` | Nokia.dsy `0x50FFB388` reads [11]: 0x2A SIM_SERV_IMSI_EQUAL → 0, 0x2B → 1 |
+| `0x09` SIM | `0x2D` [`3A`] (DOS) | `0x2E` [`3A 01 00 00`] | DosSrv ord6(0) → event 18 | Nokia.dsy `0x50FFB400`: [10] = 0x3A, [11] = 1 (SIM_SERV_OK), [12]: 0x0A/0x5A → 2, 0xA0/0xA5 → 3, 0xAA → 4, else 0 |
+| `0x09` SIM | `0x2B` [`3A`] (DOS) | `0x2C` [`3A 01 01 00 00 00`] | DosSrv ord33(0), ord20(0), ord12(0) → events 19, 20, 21 = 0 | Nokia.dsy `0x50FFB4BC`: [10] = 0x3A, [11] = 1, [12] bit 0 = valid, [13..14] 16-bit flags. Writes with service 0x39 get the same reply shape, which DOS ignores |
 | `0x35` | `0x02` [`01 00`], DOS self test | `0x03` [`00`] | DOS sends `0x35/0x00` | Nokia.dsy `0x50FFBB04` reads [10]: 0/10/11 → next step (`0x50FFBDC4`); 12 → DOS event 1 = 2, "Device start-up failed" (tried); others → ask again |
 | `0x35` | `0x00` [`02 00`] | `0x01` [`00`] | DOS sends `0x59/0x01` | Nokia.dsy `0x50FFBBBC` reads [10]: 0 → next step (`0x50FFBD6C`); 1/2 → ask again; 12 → failure and MTC_STATE_REQ(SELFTEST_FAIL) |
 | `0x59` | `0x01` [`08 00`] | `0x02` [`00`] | DOS event 1 = 3: self test passed; Startup.app state 1 → 2 → 4 | Nokia.dsy `0x50FFBC74` reads [10]: 0 → event 1 = 3 (`0x50FFBCBC`); others → ask again; Startup.app `0x50BBAF60` |
+| `0x0B` | `0x11` [`06 01`] (TSY) | `0x12` [`06 01 06 08 00 00 00 00 00 00`] | completes RCtmGsmPhone::GetHandsfreeMode (hands-free off), which PhoneServer waits on at start-up | phonetsy.tsy `0x5093E1D8`: [10] setting, [11] sub-block count = 1, sub-block at [12], 16-bit big-endian value at its bytes 4-5 (isimsg ord1568); `0x5092E16C` setting 6: 13 → on, else off. Sub-block id and length are guesses |
 
 ## Not answered yet
 
@@ -86,7 +128,8 @@ Requests seen but left without a reply (the client keeps waiting):
 | `0x3A` | `0x05` [`03 01 00 00 00 00`], [`03 02 ...`] | DOS object `0x4F` | |
 | `0x31` GPDS | `0x19` | TSY | |
 | `0x0A` network | `0x00` | TSY | |
-| `0x09` SIM | `0x19` [`2F`] | object `0x4C` | |
-| `0x0B` | `0x11` [`06 01`] | TSY | gnokii: 0x0B sound |
+| `0x09` SIM | `0x19` [`2F`] | object `0x4C` | READ_HPLMN (oFono) |
+| `0x09` SIM | `0x3D` [`FA 00`] | TSY | reply `0x3E`, phonetsy.tsy `0x5093FA20` |
+| `0x15` MTC | `0x01` [`01 00`] | DOS object `0x4F` | MTC_STATE_REQ(normal), oFono mtc.h |
 | `0x0B` | `0x00` [`01`] | object `0x4A` | |
 | - | channel request 2 on unit 2 | TSY | stays pending |

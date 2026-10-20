@@ -1064,3 +1064,35 @@ found, and what comes next. Research material lives in `research/`
   screen is white, then the screensaver's date bar (partial mode, not in
   the panel model). The TSY, DOS battery and sound requests are not
   answered yet; Phone.app is likely waiting on the TSY.
+
+### 2026-10-20: idle screen reached with an inactive SIM; no-SIM start-up stops
+- **No SIM card cannot reach the idle screen.** Startup.app finishes only
+  with System Agent `0x100052E9` (SIM status) = 7 and `0x100052F0`
+  (security-code state) = 0 (`0x50BBBCD6`, `0x50BBBDDC`). With SIM state 5
+  (no card) it removes the splash, shows a blank view behind the "Insert
+  SIM card" note and never leaves state 5. The stand-in now reports an
+  **inserted, ready SIM without PIN** (as with an expired SIM card); network
+  stays absent. This deviates from the "SIM absent" brief, on firmware
+  evidence.
+- The earlier DOS event → SA variable map was off; the real one, from
+  DSClient.dll's switch (`0x50FF6B2C`) and sae.exe's observer (vtable
+  `0x50BF36AC`), is in `docs/NOS_STANDIN.md`. `0x100052F0` is DOS event 23
+  (DosSrv ord27), raised by the security indication.
+- New assumed replies (details and evidence in `docs/NOS_STANDIN.md`):
+  - SIM_IND `0x09/0xEF [0D 0B 08 00]` (SIM_ST_INFO, INIT_OK, state 8)
+    instead of state 5;
+  - security indication `0x08/0x10 [05 00 00 00]` → SA `0x100052F0` = 0;
+  - SIM `0x3B` → `0x3C [FA 2A]` (IMSI equal), `0x2D` → `0x2E [3A 01 00 00]`,
+    `0x2B` → `0x2C [3A 01 01 00 00 00]` (DOS SIM flags all clear);
+  - sound `0x0B/0x11` → `0x12`, which completes PhoneServer's
+    GetHandsfreeMode (it was blocking Phone.app and Autolock in
+    RPhCltServer::Connect).
+- Result: Startup.app runs 0 → 8, the operator start-up animation plays
+  (this ROM is Telefónica/movistar branded), then the time and date queries
+  of a first start-up. With `model/keys/first-boot.txt` (left soft key at
+  30 s and 40 s guest time) the **idle screen draws**: N-GAGE wallpaper,
+  analog clock, signal and battery icons (`model/.out/idle-first.png`). The
+  soft-key labels at the bottom are not drawn yet.
+- Still unanswered: DOS battery (`0x17`), `0x3A/0x05`, MTC_STATE_REQ from
+  DOS object `0x4F`, TSY network/GPDS/SIM reads, `0x0B/0x00` from object
+  `0x4A`.

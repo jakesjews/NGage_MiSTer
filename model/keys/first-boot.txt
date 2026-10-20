@@ -1,0 +1,6 @@
+# First start-up after a C: format: Startup.app asks for the time, then the
+# date. Accept both with the left soft key (OK).
+30 down lsk
+30.2 up lsk
+40 down lsk
+40.2 up lsk
