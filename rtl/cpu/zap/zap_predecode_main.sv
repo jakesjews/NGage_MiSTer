@@ -412,6 +412,10 @@ assign mode32_instruction_valid    = cp_instruction_valid;
 assign mode32_irq                  = cp_irq;
 assign mode32_fiq                  = cp_fiq;
 
+// ARM925T: the address the fetch goes to after this instruction.
+logic [31:0] btb_next_pc;
+assign btb_next_pc = skid_pred[32] ? skid_pred[31:0] : skid_pc_ff + (i_cpu_mode_t ? 32'd2 : 32'd4);
+
 always_comb
 begin:bprblk1
         logic [31:0] addr;
@@ -572,6 +576,7 @@ begin:bprblk1
                 )
         begin
                 // Jump table. Do what the BTB says. Dont correct it.
+                ppc_nxt = btb_next_pc; // ARM925T: see below.
         end
         else if (
                         // Data processing instructions for MOV/ADD with
@@ -585,6 +590,17 @@ begin:bprblk1
                 )
         begin
                 // Jump table. Do what the BTB says. Dont correct it.
+                //
+                // Bug fix (ARM925T port): the predicted PC is where the
+                // fetch goes next, the BTB's target or the next instruction.
+                // Upstream left the predicted PC of an older instruction, and
+                // the ALU takes MOV/ADD PC as correctly predicted when that
+                // equals the result: after a conditional BL predicted not
+                // taken (BL + 4) the callee's MOV PC, LR with a taken BTB
+                // state of another address ran on past itself (found by the
+                // boot bench in the kernel).
+                //
+                ppc_nxt = btb_next_pc;
         end
         else if (mode32_instruction_valid)
         // Predict non supported instructions as strongly not taken.

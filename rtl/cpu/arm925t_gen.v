@@ -14370,6 +14370,8 @@ module zap_predecode_main (
 	assign mode32_instruction_valid = cp_instruction_valid;
 	assign mode32_irq = cp_irq;
 	assign mode32_fiq = cp_fiq;
+	wire [31:0] btb_next_pc;
+	assign btb_next_pc = (skid_pred[32] ? skid_pred[31:0] : skid_pc_ff + (i_cpu_mode_t ? 32'd2 : 32'd4));
 	always @(*) begin : bprblk1
 		reg [31:0] addr;
 		reg [31:0] addr_final;
@@ -14432,9 +14434,9 @@ module zap_predecode_main (
 			end
 		end
 		else if (((mode32_instruction_valid && (((mode32_instruction[31:0] | 32'b11110001111111111111111111111111) == 32'b11110111111111111111111111111111) || ((mode32_instruction[31:0] | 32'b11110001111111111111111111111111) == 32'b11110101111111111111111111111111))) && (mode32_instruction[15:12] == ARCH_PC)) && mode32_instruction[20])
-			;
+			ppc_nxt = btb_next_pc;
 		else if ((((mode32_instruction_valid && (mode32_instruction[27:26] == 2'b00)) && (mode32_instruction[15:12] == ARCH_PC)) && ((mode32_instruction[25] || !mode32_instruction[4]) || !mode32_instruction[7])) && ((mode32_instruction[24:21] == ADD) || (mode32_instruction[24:21] == MOV)))
-			;
+			ppc_nxt = btb_next_pc;
 		else if (mode32_instruction_valid) begin
 			taken_nxt = SNT;
 			if (skid_pred[32]) begin
