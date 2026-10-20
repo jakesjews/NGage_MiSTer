@@ -664,3 +664,36 @@ found, and what comes next. Research material lives in `research/`
   `model/tools/annotate.py` (names `bl` targets in a disassembly),
   `model/monitor.sh` (QEMU monitor commands on a running model),
   `model/gdb/desc.gdb` with `model/tools/gdbdesc.py` (print a TDesC16).
+
+### 2026-10-20, model: start-up reason 0, C: drive on flash, full start-up list
+- **Why Starter took the minimal list.** Starter reads (hardware reason,
+  software reason) from sysutil and looks up its list in
+  `Starter_Arm.RSC` resource 2. It got hardware reason 9 (no list) and then
+  forced (0, 210), the SysAp + Startup list, because `RFs::Drive(C:)` said
+  RAM, not flash (`0x50961FDC`).
+- Reason 9 came from the UEMK: ecust (`0x50343A10`) wants the battery-size
+  indicator (UEMK ADC channel 6, read through registers `0x19`/`0x1A`) in
+  380-590 for a normal battery, and UEMK register `0x1F` bit 1 for a
+  normal power-on (bootstrap `0x3090` → superpage `0x4000101C` → variant
+  `+0x80`). `model/hw/ngage_cbus.c` now has the A/D converter (`adc`
+  lines in `model/cbus-regs.txt`); BSI = 485 and `0x1F` = `0x0002` give
+  **reason 0**. Values are guesses inside the firmware's ranges.
+- C: was a RAM drive because LFFS will not mount the blank C: area (CS1
+  `0x400000-0x7FFFFF`, all `0xFF` in the image) and EStart falls back to
+  RAM. The firmware's own fix is the reset key combination: holding Call +
+  * + 3 at power-on makes EStart erase and format C: (`model/keys/format-c.txt`).
+- That needed a real erase in the flash model: medint.pdd waits for the
+  erase-busy status and uses erase suspend/resume. Sector erase now takes
+  20 ms of guest time, with status reads in the erasing sector only, and
+  `0xB0`/`0x30` suspend and resume. The sector map is top boot (8 KB
+  sectors in the top 64 KB, from medint's sector-size rule).
+- New: `flash1-save` keeps CS1 across runs (`model/.out/cs1-save.bin` by
+  default; `NGAGE_SAVE1=none` starts from the image).
+  First boot: `NGAGE_KEYS=model/keys/format-c.txt model/run.sh -t 40`.
+- **State** after the format: LFFS mounts on C:; Starter gets reason 0 and
+  runs the full list. SplashScreen, SelfTestServer (which starts RfsServer and
+  BTTestServer), EInfoServer and randsvr start; then Starter waits, with
+  the next entries (Sae, SysAp, Phone) not started after 60 s. The screen
+  still shows the boot logo.
+- Details: `docs/UPP_WD2.md` (UEMK registers, start-up reason table, NOR
+  flash section).

@@ -25,7 +25,8 @@
 typedef struct NGageFlash NGageFlash;
 
 NGageFlash *ngage_flash_create(MemoryRegion *sysmem, const char *name,
-                               hwaddr base, uint32_t size, const char *path);
+                               hwaddr base, uint32_t size, const char *path,
+                               const char *save_path);
 
 uint8_t *ngage_flash_data(NGageFlash *f, uint32_t *size);
 void ngage_flash_changed(NGageFlash *f, uint32_t off, uint32_t len);

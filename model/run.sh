@@ -8,6 +8,10 @@
 #   NGAGE_FLASH0  CS0 image (default research/firmware/images/nor/rh29-4.60-cs0-model.bin)
 #   NGAGE_FLASH1  CS1 image (default research/firmware/images/nor/rh29-4.60-cs1.bin)
 #   NGAGE_OUT     output directory for logs and screenshots (default model/.out)
+#   NGAGE_SAVE1   CS1 save file, the C: drive (default $NGAGE_OUT/cs1-save.bin):
+#                 used instead of NGAGE_FLASH1 when present, written on exit
+#                 after flash writes; "none" disables it. The image has no C:
+#                 file system: format it once with NGAGE_KEYS=model/keys/format-c.txt
 #   NGAGE_MMC     game-card image (raw); CID/CSD from <image>.cid / <image>.csd
 #   NGAGE_TRACE   lo-hi[:lo-hi] physical ranges whose every access goes to regs.log
 #   NGAGE_SHOT    LCD screenshot period in guest seconds (default 0 = only on exit)

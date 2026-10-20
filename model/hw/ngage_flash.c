@@ -1,8 +1,29 @@
 /*
  * Samsung K8S2815ETA / K8S6415ETA style NOR flash with the AMD command set,
  * as fitted to the N-Gage QD. Array reads go straight to host memory
- * (ROM device in "romd" mode); writes are decoded as commands. Programs and
- * erases complete at once, so status polling sees the final data.
+ * (ROM device in "romd" mode); writes are decoded as commands. Programs
+ * complete at once, so data polling sees the final data.
+ *
+ * Sector erase is timed, with erase suspend/resume, because medint.pdd (the
+ * C: drive driver) depends on it: after 0x30 it polls the sector until
+ * DQ7 = 0 and DQ3 = 1 (0x5037FEAC), checks completion by reading 0xFFFF
+ * twice (0x5037FF34: DQ7 = 1 means suspended, DQ5 = time-out, anything else
+ * busy), suspends with 0xB0 and waits for DQ7 = 1 (0x5037FEE4), and resumes
+ * with 0x30 (0x5037FDEC). While an erase is in progress only the erasing
+ * sector reads status (an I/O overlay over that sector); the rest of the chip
+ * reads array data, as in a multi-bank part whose other banks are readable
+ * (the bank layout is not known). Status: erasing DQ7 = 0, DQ6 and DQ2
+ * toggle, DQ3 = 1; suspended DQ7 = 1, DQ2 toggles.
+ *
+ * Sector map: 64 KB sectors with the top 64 KB in eight 8 KB sectors (top
+ * boot), from medint.pdd's sector-size rule at 0x5037FC28 (8 KB at and above
+ * region size - 64 KB, with its 4 MB region ending at the top of CS1).
+ *
+ * Persistence: with a save file the chip starts from that file when it
+ * exists (instead of the image) and writes its whole contents back to it on
+ * exit after any program or erase. CS1 0x400000-0x7FFFFF is the C: drive
+ * (medint.pdd maps it at 0x59200000/0x59600000), so this keeps user data
+ * across runs as on the phone.
  *
  * Copyright (c) 2026 the NGage_MiSTer authors
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -11,7 +32,10 @@
 #include "qemu/osdep.h"
 #include "qemu/log.h"
 #include "qemu/error-report.h"
+#include "qemu/notify.h"
+#include "qemu/timer.h"
 #include "qapi/error.h"
+#include "system/system.h"
 #include "hw/arm/ngage.h"
 
 /* JAF reads "Flash ID is 0x22F800EC" on RH-29: manufacturer 0xEC, device 0x22F8. */
@@ -19,7 +43,10 @@
 #define FLASH_DEVICE_CS0    0x22F8
 #define FLASH_DEVICE_CS1    0x22FA      /* boot code at 0xA40 accepts 0x22F2 or 0x22FA for CS1 */
 
-#define SECTOR_SIZE         (64u << 10)  /* TODO: confirm sector map from the datasheet */
+#define SECTOR_SIZE         (64u << 10)
+#define BOOT_SECTOR_SIZE    (8u << 10)
+/* Shorter than a real sector erase (typically 0.7 s) to keep runs short. */
+#define ERASE_NS            (20 * 1000 * 1000)
 
 enum { ST_READ, ST_UNLOCK1, ST_UNLOCK2, ST_CMD80, ST_CMD80_U1, ST_CMD80_U2,
        ST_PROGRAM, ST_AUTOSELECT, ST_CFI };
@@ -33,6 +60,17 @@ struct NGageFlash {
     int state;
     int mode;           /* ST_READ, ST_AUTOSELECT or ST_CFI */
     char *path;
+    char *save_path;
+    bool dirty;
+    Notifier exit_notifier;
+    /* Sector erase in progress: 0 none, 1 erasing, 2 suspended. */
+    int busy;
+    uint32_t busy_off, busy_len;
+    int64_t busy_left;              /* ns of erase left when suspended */
+    uint16_t toggle;
+    QEMUTimer *timer;
+    MemoryRegion busy_mr;
+    MemoryRegion *sysmem;
 };
 
 static void set_mode(NGageFlash *f, int mode)
@@ -79,13 +117,96 @@ static uint64_t flash_read(void *opaque, hwaddr addr, unsigned size)
     return v;
 }
 
+static uint32_t sector_len(NGageFlash *f, uint32_t off)
+{
+    return off >= f->size - SECTOR_SIZE ? BOOT_SECTOR_SIZE : SECTOR_SIZE;
+}
+
 static void erase(NGageFlash *f, uint32_t off, uint32_t len)
 {
     if (off < f->size) {
         memset(f->data + off, 0xFF, MIN(len, f->size - off));
         memory_region_flush_rom_device(&f->mr, off, MIN(len, f->size - off));
+        f->dirty = true;
     }
 }
+
+static void erase_done(void *opaque)
+{
+    NGageFlash *f = opaque;
+
+    erase(f, f->busy_off, f->busy_len);
+    memory_region_del_subregion(f->sysmem, &f->busy_mr);
+    f->busy = 0;
+}
+
+static void erase_start(NGageFlash *f, uint32_t off)
+{
+    if (f->busy || off >= f->size) {
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: sector erase at %08x while busy pc=%08x\n",
+                      memory_region_name(&f->mr), off, ngage_guest_pc());
+        return;
+    }
+    f->busy_len = sector_len(f, off);
+    f->busy_off = off & ~(f->busy_len - 1);
+    f->busy = 1;
+    memory_region_set_size(&f->busy_mr, f->busy_len);
+    memory_region_add_subregion_overlap(f->sysmem, f->base + f->busy_off, &f->busy_mr, 1);
+    timer_mod(f->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + ERASE_NS);
+}
+
+/* Erase suspend (0xB0) and resume (0x30) are accepted at any address while busy. */
+static bool erase_suspend_resume(NGageFlash *f, uint16_t d)
+{
+    int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+
+    if (f->busy == 1 && d == 0xB0) {
+        f->busy_left = MAX(timer_expire_time_ns(f->timer) - now, 0);
+        timer_del(f->timer);
+        f->busy = 2;
+        return true;
+    }
+    if (f->busy == 2 && d == 0x30) {
+        timer_mod(f->timer, now + f->busy_left);
+        f->busy = 1;
+        return true;
+    }
+    return false;
+}
+
+static void flash_write(void *opaque, hwaddr addr, uint64_t val, unsigned size);
+
+static uint64_t busy_read(void *opaque, hwaddr addr, unsigned size)
+{
+    NGageFlash *f = opaque;
+    uint64_t v;
+
+    f->toggle ^= 0x44;      /* DQ6 and DQ2 */
+    if (f->busy == 1) {
+        v = 0x0008 | f->toggle;
+    } else {
+        v = 0x0080 | (f->toggle & 0x04);
+    }
+    if (size == 4) {
+        v |= v << 16;
+    }
+    return v;
+}
+
+static void busy_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
+{
+    NGageFlash *f = opaque;
+
+    flash_write(f, f->busy_off + addr, val, size);
+}
+
+static const MemoryRegionOps busy_ops = {
+    .read = busy_read,
+    .write = busy_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 4 },
+    .impl = { .min_access_size = 1, .max_access_size = 4 },
+};
 
 static void flash_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
 {
@@ -100,7 +221,11 @@ static void flash_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
             p[i] &= val >> (8 * i);
         }
         memory_region_flush_rom_device(&f->mr, addr, size);
+        f->dirty = true;
         f->state = ST_READ;
+        return;
+    }
+    if (f->state == ST_READ && erase_suspend_resume(f, d & 0xFF)) {
         return;
     }
     if (d == 0xF0 || d == 0xFF) {
@@ -148,7 +273,7 @@ static void flash_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
         break;
     case ST_CMD80_U2:
         if ((d & 0xFF) == 0x30) {
-            erase(f, addr & ~(SECTOR_SIZE - 1), SECTOR_SIZE);
+            erase_start(f, addr);
         } else if ((d & 0xFF) == 0x10) {
             erase(f, 0, f->size);
         }
@@ -167,10 +292,38 @@ static const MemoryRegionOps flash_ops = {
     .impl = { .min_access_size = 1, .max_access_size = 4 },
 };
 
+static void flash_exit(Notifier *n, void *data)
+{
+    NGageFlash *f = container_of(n, NGageFlash, exit_notifier);
+    GError *err = NULL;
+
+    if (!f->dirty) {
+        return;
+    }
+    if (!g_file_set_contents(f->save_path, (const char *)f->data, f->size, &err)) {
+        error_report("%s: cannot save %s: %s", memory_region_name(&f->mr), f->save_path,
+                     err->message);
+        g_error_free(err);
+        return;
+    }
+    info_report("ngage: %s saved to %s", memory_region_name(&f->mr), f->save_path);
+}
+
 NGageFlash *ngage_flash_create(MemoryRegion *sysmem, const char *name,
-                               hwaddr base, uint32_t size, const char *path)
+                               hwaddr base, uint32_t size, const char *path,
+                               const char *save_path)
 {
     NGageFlash *f = g_new0(NGageFlash, 1);
+
+    if (save_path && *save_path) {
+        f->save_path = g_strdup(save_path);
+        f->exit_notifier.notify = flash_exit;
+        qemu_add_exit_notifier(&f->exit_notifier);
+        if (g_file_test(save_path, G_FILE_TEST_EXISTS)) {
+            info_report("ngage: %s starts from %s", name, save_path);
+            path = save_path;
+        }
+    }
 
     f->size = size;
     f->base = base;
@@ -193,6 +346,9 @@ NGageFlash *ngage_flash_create(MemoryRegion *sysmem, const char *name,
     }
     memory_region_add_subregion(sysmem, base, &f->mr);
     f->mode = ST_READ;
+    f->sysmem = sysmem;
+    memory_region_init_io(&f->busy_mr, NULL, &busy_ops, f, "ngage.flash-busy", SECTOR_SIZE);
+    f->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, erase_done, f);
     return f;
 }
 

@@ -1,0 +1,11 @@
+# Hold Call (green), * and 3 from power-on: EStart (0x503EA48C) asks HelperDrv
+# (control 13: ekeyb's key state for scan codes 0xC4, '3', '*' and none of 21
+# others) every 0.1 s for 2.5 s, then erases the C: area (CS1 0x400000-0x7FFFFF,
+# 0x503EA4D4) and formats it as LFFS (0x503E9A30). Use once on a blank C: drive
+# (the firmware image has none); with flash1-save the result is kept.
+0 down call
+0 down star
+0 down 3
+14 up call
+14 up star
+14 up 3

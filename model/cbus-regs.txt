@@ -1,7 +1,11 @@
 # CBUS device register initial values for the reference model.
 # <device> <register> <value> [ro]   # meaning, evidence (firmware RH-29 v4.60 PC)
+# adc <channel> <value>               # UEMK A/D result for that channel (10 bits)
 # "ro": reads always return the value; writes are stored but do not change reads.
 # Device 1 = UEMK. Register names follow TriX's DCT4 UEM model where they agree.
 1 0x15 0x0008 ro   # interrupt/status read; bootstrap 0x2EE8 continues only if bit 3 (assumed: power-key power-on) or bit 4 is set; bootstrap also writes 0x200 here (0x2F54)
+1 0x1F 0x0002 ro   # power-on status. Bit 1 set: bootstrap 0x3090 takes the normal power-on path (backlight and regulators on at 0x2F64, superpage 0x4000101C = 1), which ecust copies to variant +0x80 (0x50342AF4) and turns into start-up reason 0 (0x50343A6C) = full start-up list in Starter. Bit 1 clear: only a bit 3/4 interrupt in register 0x15 keeps the phone on. TriX's DCT4 emulator reads bit 1 as "power key not pressed"; its default sets it too.
 # Device 4: unknown chip, probably ZOCUS (guess). cbus.dll self-test 0x5037E008 requires (reg0 & 0xFF00) == 0x0400, otherwise Kern::Fault("CBus:", 25).
 4 0x00 0x0400 ro   # ID/version; only the high byte is checked
+# UEMK ADC channels (TriX: 6 = BSI, 12 = battery voltage).
+adc 6 485          # BSI: cbus.dll 0x5037E240 treats 380-590 as a normal battery (middle of the range; the real resistor value is not known)

@@ -157,7 +157,7 @@ MADCTL 0xD4 gives an upright image if the panel is mounted rotated by 180°
 
 | Address | Name / guess | Behaviour | Evidence | Conf. |
 |---|---|---|---|---|
-| `0x0C150000` | CTSI reset reason | storage (reads 0) | bootstrap `0x2E58` masks `0x0E` | B |
+| `0x0C150000` | CTSI reset reason | storage (reads 0) | bootstrap `0x2E58` masks `0x0E`; ecust's start-up reason (`0x503439C0`) takes a different path (boot data in on-chip RAM `0x0C00420x`/`0x0C00428E`) when bits 3:1 are nonzero, i.e. after a reset that was not a power-on | B |
 | `0x0C150024`, `0x0C150028` | CTSI IRQ / FIQ controller enable | storage | ekern `0x5031C730`/`0x5031C73C` write 1 | C |
 | `0x0C150100` | CTSI interrupt status: bit 2 = port E (key rows) interrupt, bit 3 = port D (guess); write 1 to clear; behind main source 25 | `ngage_keypad.c` | ekeyb CTSI ISR 0x5041B9E0 tests bit 2, acks with 0xC at 0x5041CD6C; bootstrap writes 0x8000 (0x2EE4) | B |
 | `0x0C150200`-`0x0C150218` | PUP GENIO set/reset/input/direction | storage | bootstrap `0x3A24`, `0x67C0` (LCD /RES = GENIO4) | B |
@@ -183,6 +183,50 @@ DCT4 UEM); 4 = unknown (probably ZOCUS), register 0 must read `0x04xx`
 (cbus.dll self-test `0x5037E008`, else `Kern::Fault("CBus:", 25)`); 5 =
 unknown. cbus.dll's register table is at `0x5037E544` ({device, type,
 register, shadow, width} x 69).
+
+UEMK registers the start-up path depends on (`model/cbus-regs.txt`, A/D
+converter in `ngage_cbus.c`):
+
+| Register | Name / guess | Model | Evidence | Conf. |
+|---|---|---|---|---|
+| `0x15` | interrupt status | reads `0x0008` | bootstrap `0x2E6C`: without `0x1F` bit 1 the phone stays on only if bit 3 or 4 is set, otherwise it writes `0x12` = 0 (power off, `0x2F00`); ecust `0x50343B64`: bit 4 gives start-up reason 4 | B (bits), C (value) |
+| `0x16` | interrupt mask | storage | bootstrap `0x2E88` unmasks bits 3-4 around the `0x15` read | B |
+| `0x19` | A/D control: bits 15:12 channel, bit 11 start, bit 7 set by cbus.dll beforehand | starts a conversion | bootstrap `0x3604` writes `0x6800`, cbus.dll `0x5037E1E8` writes `0x6880` (channel 6); TriX names it ADC control | A (use), B (fields) |
+| `0x1A` | A/D result, 10 bits | channel value from `adc` lines | bootstrap `0x3104`, cbus.dll `0x5037E228` read it and mask `0x3FF` | A |
+| ADC channel 6 | battery-size indicator (BSI) | 485 | cbus.dll `0x5037E240`: 5-49 → state 2 (ecust start-up 6, reported as 5), 50-93 → state 3 (5), 380-590 → state 1 (normal battery), else 0 (ecust reports 9, a list Starter does not have); bootstrap `0x3124`: 5-93 = test jig, > `0x3DD` powers off | A (ranges), C (value) |
+| `0x1F` | power-on status | reads `0x0002` | bootstrap `0x3090`: bit 1 set → normal power-on (backlight and regulators on at `0x2F64`, superpage `0x4000101C` = 1); ecust copies that to variant `+0x80` (`0x50342AF4`), which gives start-up reason 0 (`0x50343A6C`), Starter's full start-up list | A (use), B (meaning) |
+
+Start-up reason (`TWD2StartupReason`) as ecust computes it (variant
+`+0xD0` = `0x503439AC`, read by HelperDrv control 0 for EStart and through
+sysutil, DosServer and Nokia.dsy for Starter): 0 = normal; 1/2 = from
+service 1 (rtc.dll), probably alarm; 4 = UEMK `0x15` bit 4; 5 and 6 = test
+modes from the BSI; 9 = unknown battery. Starter's table
+(`Starter_Arm.RSC` resource 2) maps (reason, software reason) to a start-up
+list: (0, 100) = resource 3, the full list; (4, 100) and (1, 100) =
+resources 6 and 7 (no phone application); (5, 100) = test servers;
+(7, 100) = resource 5 (Startup.app); (0, 210) = SysAp and Startup only. Starter
+forces (0, 210) itself when C: is not flash (`0x50961FDC`: `RFs::Drive(C:)`
+media type must be 6, EMediaFlash).
+
+## NOR flash (CS0, CS1) — `ngage_flash.c`
+
+| Item | Model | Evidence | Conf. |
+|---|---|---|---|
+| Command set | AMD: unlock `0xAAA`/`0x554` (word `0x555`/`0x2AA`), `0xA0` program, `0x80`…`0x30` sector erase, `0x90` autoselect, `0x98` CFI, `0xF0` reset; Samsung `0x60` block lock/unlock accepted, blocks never locked | bootstrap `0x0C004748` routines; medint.pdd `0x5037FE44`, `0x50380020` | A |
+| Sector map | 64 KB sectors, the top 64 KB of each chip in eight 8 KB sectors (top boot) | medint.pdd `0x5037FC28`: 8 KB at and above region size - 64 KB, for a region that ends at the top of CS1 | B (CS1), C (CS0) |
+| Sector erase | takes 20 ms of guest time; only the erasing sector reads status (DQ7 = 0, DQ6/DQ2 toggle, DQ3 = 1); other sectors read array data | medint.pdd waits for DQ7 = 0 and DQ3 = 1 after `0x30` (`0x5037FEAC`), then for `0xFFFF` twice (`0x5037FF34`); a real erase takes about 0.7 s | A (status), C (time, bank layout) |
+| Erase suspend/resume | `0xB0` suspends (status DQ7 = 1, DQ2 toggles), `0x30` resumes | medint.pdd `0x5037FEE4`, `0x5037FDEC`; completion check treats DQ7 = 1 as suspended | A |
+| C: drive | CS1 `0x400000`-`0x7FFFFF` (4 MB, LFFS), mapped at virtual `0x59200000` and `0x59600000` | medint.pdd object at `0x5037FD64` (base, alias, size `0x400000`), QEMU `gva2gpa` | A |
+| Persistence | `flash1-save` file replaces the image when present, written on exit after changes | model feature | - |
+
+The firmware image's C: area is blank (all `0xFF`); LFFS refuses to mount it
+(KErrCorrupt) and EStart falls back to a RAM drive (`0x503E9D40`-`0x503E9E40`),
+which makes Starter take the (0, 210) list. Holding Call + * + 3 at power-on
+(`model/keys/format-c.txt`) makes EStart erase and format C: as LFFS; the
+same happens without keys when HelperDrv request 1 ("auxstart",
+`0x5037F1C8`) answers 105. HelperDrv answers 100 itself unless variant flag
+bit 0 is set; then it asks NOS service 3 (request 12). The NOS stand-in sets
+the flags to 3 and answers 0.
 
 ## Trace window (0x0DE00000) — `ngage_sti.c`
 

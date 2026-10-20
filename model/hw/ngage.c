@@ -32,6 +32,8 @@ struct NGageMachineState {
     MachineState parent;
     char *flash0_path;
     char *flash1_path;
+    char *flash0_save;
+    char *flash1_save;
     char *probe_log;
     char *upp_log;
     char *quirks;
@@ -228,9 +230,9 @@ static void ngage_init(MachineState *machine)
         exit(1);
     }
     s->flash[0] = ngage_flash_create(sysmem, "ngage.flash0", NGAGE_FLASH0_BASE,
-                                     NGAGE_FLASH0_SIZE, s->flash0_path);
+                                     NGAGE_FLASH0_SIZE, s->flash0_path, s->flash0_save);
     s->flash[1] = ngage_flash_create(sysmem, "ngage.flash1", NGAGE_FLASH1_BASE,
-                                     NGAGE_FLASH1_SIZE, s->flash1_path);
+                                     NGAGE_FLASH1_SIZE, s->flash1_path, s->flash1_save);
     if (s->rom_patches) {
         ngage_apply_rom_patches(s->rom_patches, s->flash[0], s->flash[1]);
     }
@@ -240,6 +242,10 @@ static char *get_flash0(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)
 static void set_flash0(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->flash0_path = g_strdup(v); }
 static char *get_flash1(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->flash1_path); }
 static void set_flash1(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->flash1_path = g_strdup(v); }
+static char *get_save0(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->flash0_save); }
+static void set_save0(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->flash0_save = g_strdup(v); }
+static char *get_save1(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->flash1_save); }
+static void set_save1(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->flash1_save = g_strdup(v); }
 static char *get_upp(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->upp_log); }
 static void set_upp(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->upp_log = g_strdup(v); }
 static char *get_quirks(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->quirks); }
@@ -286,6 +292,12 @@ static void ngage_machine_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "flash0", "CS0 NOR image (16 MB)");
     object_class_property_add_str(oc, "flash1", get_flash1, set_flash1);
     object_class_property_set_description(oc, "flash1", "CS1 NOR image (8 MB)");
+    object_class_property_add_str(oc, "flash0-save", get_save0, set_save0);
+    object_class_property_set_description(oc, "flash0-save",
+                                          "CS0 contents: loaded instead of flash0 if present, written on exit after changes");
+    object_class_property_add_str(oc, "flash1-save", get_save1, set_save1);
+    object_class_property_set_description(oc, "flash1-save",
+                                          "CS1 contents (C: drive at 0x400000): loaded instead of flash1 if present, written on exit after changes");
     object_class_property_add_str(oc, "probe-log", get_probe, set_probe);
     object_class_property_add_str(oc, "cbus-regs", get_cbusregs, set_cbusregs);
     object_class_property_set_description(oc, "cbus-regs", "CBUS device register initial values");

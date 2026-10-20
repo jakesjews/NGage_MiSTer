@@ -25,6 +25,16 @@
  *   5  unknown, 8 registers.
  * Register values come from model/cbus-regs.txt; every transaction is logged.
  *
+ * UEMK A/D converter (register numbers as TriX's DCT4 UEM): writing register
+ * 0x19 with bit 11 set starts a conversion of channel bits 15:12; register
+ * 0x1A then reads the 10-bit result. The bootstrap (0x3104) and cbus.dll
+ * (0x5037E194) both write 0x68xx (channel 6, start) and read 0x1A & 0x3FF;
+ * cbus.dll classifies the value as the battery-size indicator (BSI):
+ * 5-49 and 50-93 select two test modes, 380-590 a normal battery, anything
+ * else "unknown" (0x5037E240-0x5037E280; ecust then reports start-up reason
+ * 9). Channel values come from "adc <channel> <value>" lines in
+ * cbus-regs.txt; unset channels read 0.
+ *
  * Copyright (c) 2026 the NGage_MiSTer authors
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -43,6 +53,7 @@ typedef struct NGageCbus {
     uint32_t regs[8][32];
     uint32_t ro_val[8][32];
     uint8_t is_ro[8][32];
+    uint16_t adc[16];
     FILE *log;
 } NGageCbus;
 
@@ -83,6 +94,12 @@ static void cbus_do_write(NGageCbus *s)
     }
     cbus_log(s, "W", dev, reg, bits, v);
     s->regs[dev][reg] = v;
+    if (dev == 1 && reg == 0x19 && (v & 0x800) && !s->is_ro[1][0x1A]) {
+        s->regs[1][0x1A] = s->adc[(v >> 12) & 15];
+        if (s->log) {
+            fprintf(s->log, "  ADC channel %u -> %u\n", (v >> 12) & 15, s->regs[1][0x1A]);
+        }
+    }
     if (dev == 1 && reg == 0x12 && v == 0) {
         qemu_log("ngage: UEMK register 0x12 = 0 (bootstrap power-off path) pc=%08x\n",
                  ngage_guest_pc());
@@ -140,7 +157,10 @@ static const MemoryRegionOps cbus_ops = {
     .impl = { .min_access_size = 2, .max_access_size = 4 },
 };
 
-/* model/cbus-regs.txt: "<device> <register> <value> [ro]" per line, '#' comments. */
+/*
+ * model/cbus-regs.txt: "<device> <register> <value> [ro]" or
+ * "adc <channel> <value>" per line, '#' comments.
+ */
 static void cbus_load(NGageCbus *s, const char *path)
 {
     FILE *fp = fopen(path, "r");
@@ -156,6 +176,10 @@ static void cbus_load(NGageCbus *s, const char *path)
         char *h = strchr(line, '#');
         if (h) {
             *h = 0;
+        }
+        if (sscanf(line, " adc %li %li", &r, &v) == 2) {
+            s->adc[r & 15] = v;
+            continue;
         }
         int n = sscanf(line, "%li %li %li %7s", &d, &r, &v, kind);
         if (n >= 3) {
