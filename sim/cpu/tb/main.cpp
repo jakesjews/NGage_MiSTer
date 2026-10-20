@@ -13,6 +13,7 @@
 //     --trace-after N   start the trace and the bus log after N retired
 //                       instructions
 //     --trace-count N   end the run N instructions after that
+//     --dcdbg           also trace the D-cache state machine every cycle
 //     --buslog FILE     write one line per bus access
 //     --lat MIN:MAX     bus latency, cycles from request to ack (default 0:3)
 //     --seed N          RNG seed for the latency (default 1)
@@ -148,6 +149,7 @@ int main(int argc, char **argv) {
 	uint64_t max_cycles = 50000000;
 	uint64_t progress = 0;
 	uint64_t trace_after = 0, trace_count = 0;
+	bool dcdbg = false;
 	bool quiet = false;
 	bool halt_given = false;
 	std::string machine;
@@ -187,6 +189,7 @@ int main(int argc, char **argv) {
 		else if (a == "--progress") progress = strtoull(next(), nullptr, 0);
 		else if (a == "--trace-after") trace_after = strtoull(next(), nullptr, 0);
 		else if (a == "--trace-count") trace_count = strtoull(next(), nullptr, 0);
+		else if (a == "--dcdbg") dcdbg = true;
 		else if (a == "--watch") watch.push_back((uint32_t)strtoul(next(), nullptr, 0));
 		else if (a == "--dump") {
 			std::string v = next();
@@ -291,7 +294,8 @@ int main(int argc, char **argv) {
 	t->eval();
 
 	bool halted = false;
-	uint32_t last_pc = 0;
+	uint32_t last_pc = 0, last_r_pc = 0;
+	char last_ev = 0;
 	while (!stop && cycle < max_cycles) {
 		// ---- before the rising edge: sample what commits at this edge ----
 		uint32_t cpsr_before = t->p_cpsr;
@@ -341,6 +345,11 @@ int main(int argc, char **argv) {
 		if (buslog && retired >= trace_after && t->p_dreq)
 			fprintf(buslog, "%" PRIu64 " d va=%08x%s\n", cycle, (uint32_t)t->p_dva, t->p_dalign ? " ALIGN" : "");
 
+		// D-cache state machine before the edge, in the trace window (--dcdbg)
+		if (dcdbg && trace && retired >= trace_after)
+			fprintf(trace, "C %" PRIu64 " st %04x f %04x a %08x d %08x o %08x\n", cycle, (unsigned)t->p_dc_state,
+				(unsigned)t->p_dc_flags, (uint32_t)t->p_dc_addr, (uint32_t)t->p_dc_din, (uint32_t)t->p_dc_dat);
+
 		// ---- rising edge ----
 		t->clk = 1;
 		t->eval();
@@ -349,7 +358,20 @@ int main(int argc, char **argv) {
 		// ---- after the edge: state after the committed instruction ----
 		if (ev) {
 			uint32_t cpsr = t->p_cpsr;
-			if (ev == 'R') retired++;
+			// N-Gage machine: count instructions as QEMU's icount does, so that
+			// guest time and instruction numbers follow the model. An SWI or
+			// undefined instruction counts (it completes; an aborted one does
+			// not), and a Thumb BL pair counts once: QEMU runs the two halves as
+			// one instruction, ZAP as two (QEMU splits it too when the first
+			// half ends a 1 KB page, its smallest page size, as in
+			// tools/cmp_trace.py). The second half is recognised by its
+			// position (right after the first) and its effect (LR = next | 1).
+			bool bl_second = false;
+			if (ng && ev == 'R' && thumb && last_ev == 'R' && pc == last_r_pc + 2 && (pc & 0x3FF)) {
+				int lr = phys_index(14, cpsr);
+				bl_second = !((t->p_lock >> lr) & 1) && reg_word(t, lr) == ((pc + 2) | 1);
+			}
+			if ((ev == 'R' && !bl_second) || (ng && (ev == 'S' || ev == 'U'))) retired++;
 			if (trace && retired >= trace_after) {
 				fprintf(trace, "%c %08x", ev, pc);
 				for (int r = 0; r < 15; r++) {
@@ -370,6 +392,8 @@ int main(int argc, char **argv) {
 					(uint32_t)t->p_dacr, (int)t->p_mmu);
 			}
 			last_pc = pc;
+			last_ev = ev;
+			if (ev == 'R') last_r_pc = pc;
 		}
 
 		// bus outputs for the next cycle

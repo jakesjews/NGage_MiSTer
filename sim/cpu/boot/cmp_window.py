@@ -25,7 +25,7 @@ IRQ_VEC = (0x18, 0x1C, 0xFFFF0018, 0xFFFF001C)
 
 
 def rtl_list(path):
-    out, prev = [], None
+    out, prev, last = [], None, None
     with open(path) as f:
         for line in f:
             p = line.split()
@@ -33,9 +33,16 @@ def rtl_list(path):
                 continue
             kind, pc = p[0], int(p[1], 16)
             regs = [None if v.startswith("-") else int(v, 16) for v in p[2:17]] + [int(p[17], 16)]
-            if kind == "R" and prev is not None:
+            # The second half of a Thumb BL pair right after the first: QEMU
+            # runs the pair as one instruction unless the first half ends a
+            # 1 KB page (as tb/main.cpp counts it).
+            bl_second = (kind == "R" and last is not None and last[0] == "R" and pc == last[1] + 2
+                         and pc & 0x3FF and regs[15] & 0x20 and regs[14] == (pc + 2) | 1)
+            # An SWI or undefined instruction is an exception event in the
+            # RTL trace but an executed instruction in the model's.
+            if kind in ("R", "S", "U") and prev is not None and not bl_second:
                 out.append((pc, prev))
-            prev = regs
+            prev, last = regs, (kind, pc)
     return out
 
 

@@ -55,7 +55,13 @@ module tb_cpu #(
 	output logic [31:0]   p_dacr,
 	output logic          p_mmu,
 	// CP15 waits for an interrupt (WFI)
-	output logic          p_wfi
+	output logic          p_wfi,
+	// D-cache state machine, for main.cpp --dcdbg
+	output logic [15:0]   p_dc_state,
+	output logic [31:0]   p_dc_addr,
+	output logic [31:0]   p_dc_din,
+	output logic [31:0]   p_dc_dat,
+	output logic [15:0]   p_dc_flags
 );
 
 	arm925t #(
@@ -101,5 +107,24 @@ module tb_cpu #(
 	assign p_dacr  = dut.u_zap.cpu_dac_reg;
 	assign p_mmu   = dut.u_zap.cpu_mmu_en;
 	assign p_wfi   = dut.u_zap.u_zap_core.u_zap_cp15_cb.state == 4'd12;
+	assign p_dc_state = 16'(dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.state_ff);
+	assign p_dc_addr  = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_address;
+	assign p_dc_din   = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_din;
+	assign p_dc_dat   = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_dat;
+	assign p_dc_flags = {
+		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_ben,         // 15:12
+		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_cache_tag_wr_en, // 11
+		|dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_cache_line_ben, // 10
+		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_cache_tag_valid, // 9
+		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_cacheable,   // 8
+		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_wt,          // 7
+		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_cache_tag_dirty, // 6
+		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_hold,        // 5
+		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_err2,        // 4
+		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_err,         // 3
+		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_ack,         // 2
+		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_wr,          // 1
+		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_rd           // 0
+	};
 
 endmodule

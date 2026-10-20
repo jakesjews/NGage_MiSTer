@@ -33,7 +33,9 @@
 // sim/cpu/boot/cmp_dev.py.
 //
 // Timers count at 104/3 MHz (34,666,667 Hz) as in ngage_intc.c. Guest time
-// follows retired instructions, 16 ns each, and jumps ahead to the next
+// follows executed instructions, 16 ns each (an SWI or undefined instruction
+// counts, as in QEMU's icount; an aborted one does not; main.cpp keeps the
+// count), and jumps ahead to the next
 // timer expiry while the CPU waits for an interrupt (WFI), as the model's
 // -icount shift=4,sleep=off does; --time cycles uses the CPU clock instead
 // (TIMER_DIV cycles per tick). The RTCs start at 2004-06-01 12:00:00, as

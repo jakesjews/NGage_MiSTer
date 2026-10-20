@@ -7,11 +7,12 @@
  * device accesses (physical 0x08000000-0x0DFFFFFF without SDRAM and
  * on-chip RAM).
  *
- *   -plugin libtrace_plugin.so,start=N,count=M,out=FILE[,regs=0][,insns=0][,stop=1]
+ *   -plugin libtrace_plugin.so,start=N,count=M,out=FILE[,regs=0][,insns=0][,stop=1][,flashw=1]
  *
  * Lines: "I n pc r0 .. r14 cpsr" (instruction n, about to execute; without
  * regs only "I n pc"; insns=0 leaves them out), "X n kind from to"
- * (interrupt or exception), "M n R|W size pa value pc" (device access). n
+ * (interrupt or exception), "M n R|W size pa value pc" (device access;
+ * flashw=1 adds the writes below 0x08000000, i.e. flash commands). n
  * counts executed instructions from reset, as -icount does. stop=1 raises
  * SIGINT after the window (run_model.sh's timeout ends the run anyway).
  *
@@ -32,7 +33,7 @@
 QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
 static uint64_t start, count = 1000000, n;
-static int with_regs = 1, with_insns = 1, stop;
+static int with_regs = 1, with_insns = 1, stop, flash_writes;
 static FILE *out;
 static struct qemu_plugin_register *reg[17];
 static GByteArray *buf;
@@ -94,7 +95,9 @@ static void mem_cb(unsigned int vcpu, qemu_plugin_meminfo_t info, uint64_t va, v
         return;
     }
     pa = qemu_plugin_hwaddr_phys_addr(hw);
-    if (pa < 0x08000000 || pa >= 0x0E000000 ||            /* devices only: */
+    if (pa < 0x08000000 && flash_writes && qemu_plugin_mem_is_store(info)) {
+        /* a flash command: logged below */
+    } else if (pa < 0x08000000 || pa >= 0x0E000000 ||     /* devices only: */
         (pa >= 0x0A000000 && pa < 0x0B000000) ||          /* not SDRAM */
         (pa >= 0x0C000000 && pa < 0x0C040000)) {          /* not on-chip RAM */
         return;
@@ -174,6 +177,8 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_
             with_insns = atoi(argv[i] + 6);
         } else if (!strncmp(argv[i], "stop=", 5)) {
             stop = atoi(argv[i] + 5);
+        } else if (!strncmp(argv[i], "flashw=", 7)) {
+            flash_writes = atoi(argv[i] + 7);
         }
     }
     out = fopen(path, "w");
