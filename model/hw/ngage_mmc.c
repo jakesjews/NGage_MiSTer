@@ -31,8 +31,9 @@
  *           once before +0x618 when powering down (0x503F4D30).
  * Data phases (control bits 5:2, epbus 0x503F5688-0x503F57A8): 8 (0x20) =
  * command with R1 and a block read (CMD17 is issued with 0x21), 9 (0x24) =
- * read the next block, 10 (0x28) = CMD12 after reading; 5 (0x14), 6
- * (0x18), 7 (0x1C) = the same for writing. +0x608 holds the block length for the phase. The driver
+ * read the next block, 10 (0x28) = read the last block, then CMD12 (loaded
+ * into +0x1C/+0x20 before the phase); 5 (0x14), 6 (0x18), 7 (0x1C) = the
+ * same for writing. +0x608 holds the block length for the phase. The driver
  * starts the DMA after the command (0x503F57D0, 0x503F585C).
  * Interrupts (bound by name in epbus 0x503F6180-0x503F62E8): MMCCmdIdle,
  * MMCDataIdle, MMCCmdRdy (sources 23, 21, 24) are modelled as levels that
@@ -237,9 +238,15 @@ static void mmc_start(NGageMmc *s, uint32_t ctrl)
 
     s->status = 0;
     s->resp_words = 0;
-    if (type == 6 || type == 9) {
-        /* next block of a multi-block transfer: no command on the bus */
-        if (type == 9) {
+    if (type == 6 || type == 9 || type == 7 || type == 10) {
+        /*
+         * Next block of a multi-block transfer: no command on the bus. The
+         * last block is phase 10 (read) or 7 (write): the driver loads
+         * CMD12 into +0x1C/+0x20 and the block length into +0x08 before it
+         * (epbus 0x503F56E4-0x503F57A8), and DMAs that block in the phase;
+         * the controller sends CMD12 after it.
+         */
+        if (type == 9 || type == 10) {
             s->data_addr += s->blk_len;
             mmc_load_block(s);
         } else {
@@ -249,6 +256,12 @@ static void mmc_start(NGageMmc *s, uint32_t ctrl)
             s->status |= ST_DATA_BUSY;
         }
         answered = true;
+        if (type == 7 || type == 10) {
+            /* STOP_TRANSMISSION: the card goes back to tran (for a write,
+             * after the block, which mmc_flush_block stores whenever it
+             * completes) */
+            answered = mmc_command(s, cmd, arg);
+        }
     } else {
         answered = mmc_command(s, cmd, arg);
     }

@@ -115,7 +115,7 @@ From epbus.dll's WD2MMC layer.
 
 | Offset | Name / guess | Behaviour | Evidence | Conf. |
 |---|---|---|---|---|
-| `+0x04` | control | bit 0 starts a transfer (reads 1 until taken; the driver polls it up to 120 times); bits 5:2 = type: 0 none, 1 R1, 2 R3 (with bit 6, CMD1), 3 R2, 4 R1b?, 8/9/10 = read first block / next block / CMD12, 5/6/7 = the same for writing. Without bit 0: 0x40 at power-up, 0 at power-down | 0x503F53DC jump table, 0x503F5474, 0x503F57D0; CMD17 seen as 0x21 | A (cmd types), B (data types) |
+| `+0x04` | control | bit 0 starts a transfer (reads 1 until taken; the driver polls it up to 120 times); bits 5:2 = type: 0 none, 1 R1, 2 R3 (with bit 6, CMD1), 3 R2, 4 R1b?, 8/9/10 = read first block (with the command in `+0x1C`) / next block / **last block, then CMD12**, 5/6/7 = the same for writing. For 10 and 7 the driver loads CMD12 into `+0x1C`/`+0x20` and the block length into `+0x08` first, and DMAs that block during the phase (a 4 KB read is 8 + 6 × 9 + 10). Without bit 0: 0x40 at power-up, 0 at power-down | 0x503F53DC jump table, 0x503F5474, 0x503F57D0; last block: 0x503F56E4-0x503F57A8; CMD17 seen as 0x21 | A (cmd types), B (data types) |
 | `+0x608` | data length | block length of the following data phase | 0x503F53A0 | B |
 | `+0x60C`, `+0x610` | time-outs? | 0x1DC130 at power-up; stored | 0x503F5E18, 0x503F5DDC | C |
 | `+0x614` | clock divider? | 0x280 at power-up; stored | 0x503F5DA4 | C |

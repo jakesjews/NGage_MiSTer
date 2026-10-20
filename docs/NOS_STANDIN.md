@@ -126,6 +126,18 @@ Event 1 is the self-test result, read by Startup.app directly.
 | `0x1B` info | `0x02` INFO_PP_READ_REQ [`00 01` + `47 08 00 02 01 00 00 00`] (TSY) | `0x03` [`00 01` + `47 08 00 02 01 00 00 00`] | product profile feature value 0: completes RCtmGsmPhone::CheckAlsPpSupport (SysAp, synchronous) | phonetsy.tsy `0x5093EB38`: [10] status 0 = INFO_OK (oFono info.h), [11] sub-block count, INFO_SB_PP at [12], value at its byte 5 (isimsg ord1028) → `0x5092F248` |
 | `0x0B` | `0x11` [`06 01`] (TSY) | `0x12` [`06 01 06 08 00 00 00 00 00 00`] | completes RCtmGsmPhone::GetHandsfreeMode (hands-free off), which PhoneServer waits on at start-up | phonetsy.tsy `0x5093E1D8`: [10] setting, [11] sub-block count = 1, sub-block at [12], 16-bit big-endian value at its bytes 4-5 (isimsg ord1568); `0x5092E16C` setting 6: 13 → on, else off. Sub-block id and length are guesses |
 
+## Audio
+
+Not emulated: games run without sound and do not wait for it. Games use
+CMdaAudioOutputStream (MEDIACLIENTAUDIOSTREAM.DLL) → MediaServer →
+AUDIOSTREAM.MDA → SoundDevice.mda ("Galaxy" DevSound), which opens
+AUDIO.LDD and NOSDRIVER. PCM goes through audio.ldd into a 60 KB buffer that
+ecust maps from SDRAM physical `0x0A061000` (variant vtable `+0xF0` address,
+`+0xF4` size `0xF000`; ecust `0x50343108`); control goes to NOS over ISI
+(resources `0x0B`, `0x1F`, `0xE8`, `0x00`, below). For sound the stand-in
+would have to act as NOS and the DSP: answer those requests (format not yet
+decoded) and play the buffer through an audio output in the core.
+
 ## Not answered yet
 
 Requests seen but left without a reply (the client keeps waiting):
@@ -137,7 +149,9 @@ Requests seen but left without a reply (the client keeps waiting):
 | `0x0A` network | `0x00` | TSY | |
 | `0x09` SIM | `0x19` [`2F`] | object `0x4C` | READ_HPLMN (oFono) |
 | `0x09` SIM | `0x3D` [`FA 00`] | TSY | reply `0x3E`, phonetsy.tsy `0x5093FA20` (request type 0x4C, reads a string at [11] = 1) |
-| `0x1F` | `0x01` [long], `0x04` [`00 00 00`] | object `0x4A` | |
+| `0x1F` | `0x01` [long], `0x04` [`00 00 00`] | object `0x4A` (SoundDevice.mda) | sent at start-up |
+| `0xE8` | `0x20` [`82 02 15 e0 0a 06 10 00 0a 06 3b c0 00 46`], `0x2A` | object `0x48` (SoundDevice.mda) | sent when a game opens its audio stream; audio control (isimsg ord951 builds 0x20) |
+| `0x00` | `0x02` [`00 00`], to object `0x44` | object `0x55` | sent at game start, audio path |
 | `0x23` | `0x04` [`00 32 00 01 ...`] | DOS object `0x4F` | |
 | `0x02` | `0x14` [`01 00`] | object `0x4C` | gnokii: 0x02 SMS |
 | `0x15` MTC | `0x01` [`01 00`] | DOS object `0x4F` | MTC_STATE_REQ(normal), oFono mtc.h; object `0x4F`'s handler (`0x50FFBE6C`) takes MTC 0x66, 0x67, 0x69 and MTC_STATE_INFO_IND 0xC0, not 0x64 |

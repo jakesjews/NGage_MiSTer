@@ -201,7 +201,8 @@ static void panel_command(NGageLcd *s, uint8_t cmd)
     s->nparam = 0;
     s->npix = 0;
     s->cmds++;
-    lcd_log(s, "cmd %02x pc=%08x\n", cmd, ngage_guest_pc());
+    lcd_log(s, "cmd %02x pc=%08x t=%" PRId64 "\n", cmd, ngage_guest_pc(),
+            qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL));
     switch (cmd) {
     case 0x01:                                  /* SWRESET */
         s->madctl = 0; s->colmod = 6; s->sleep = true; s->display_on = false;

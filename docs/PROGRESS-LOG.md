@@ -1164,3 +1164,50 @@ found, and what comes next. Research material lives in `research/`
   docs/CPU.md.
 - docs/CPU.md: design, interface, every known difference from a real
   ARM925T, tests, timing, and the plan for the timing-fidelity pass.
+
+### 2026-10-20: game cards (`tools/mkcard.py`); SonicN, Rayman 3 and Sega Rally play
+- `tools/mkcard.py` turns an Aaru dump (`.aaruf` or its `.zip`) or a raw
+  image plus `--cid`/`--csd` into the model's card (`OUT.img`, `.cid`,
+  `.csd`) and the core's (`OUT.mmc`: sectors plus the `NGAGEMMC` trailer of
+  `rtl/board/mmc_card.sv`). CID and CSD are the card's own, with CRC7
+  computed (SonicN 5D/DB, Rayman 3 23/DB, Sega Rally 3D/FD, as in
+  `research/peripherals/MMC.md`). Sectors are checked against the dump's
+  own MD5/SHA-1/SHA-256, or its CICM sidecar (Sega Rally). Aaru's OCR
+  (0x00200000) is the voltage Linux negotiated; the OCR written is
+  0x00FF8000. Card images stay untracked in `model/.out/cards/`.
+- **MMC types 10 and 7 carry the last block (register-semantics change for
+  the RTL).** The model took type 10 as "CMD12 only", so the last block of
+  every multi-block read came back as zeros. SonicN's relocation table was
+  cut short, and the loader died ("App. closed LoaderThread", KERN-EXEC 3
+  at EFile `0x503CDCD0`). epbus `0x503F56E4`-`0x503F57A8` loads CMD12 and
+  the block length before the last phase and DMAs that block in it. The
+  model now reads (10) or writes (7) one more block, then does CMD12.
+  `rtl/upp/upp_mmc.sv` reads type 10 as the model did and needs the same
+  change (not touched here). `docs/UPP_WD2.md` updated.
+- The LCD log now gives the guest time (ms) of each RAMWR, for frame rates.
+- Each card's game shows up in the menu (fourth row) and runs with its real
+  CID and no patching. Screenshots in `model/.out/`:
+  - SonicN: intro, title, demo; 5 opens the menu, then character select and
+    play in Neo Green Hill (`game-sonicn.png`). 30 frames/s.
+  - Rayman 3: intro, menus, save slots, story, level 1 play with running
+    and jumping (`game-rayman3.png`). 21.3 frames/s.
+  - Sega Rally: menus, cup and car select, a race (5 accelerates, steering,
+    time-up) (`game-segarally.png`). 12.8 frames/s.
+- Graphics show no defects. Keys (5, directions, soft keys) work. In-game
+  clocks follow guest time. Frame rates are 2, 3 and 5 kernel ticks
+  (1/64 s) and stay the same with a twice-as-fast emulated CPU (icount
+  shift 3), so the model is not CPU-bound; it runs faster than real time.
+- Copy protection: all three import NokiaFC.DLL, which needs `game.id` and
+  `nokia.dat` on the app's drive and compares `game.id` with text the game
+  passes; on a mismatch it shows a note and exits (NokiaFC `0x510F2E04`).
+  SysAp reads the CID once at card detection through MmcIf (GD1DRV.ldd
+  controls 4 and 6). With one CID byte changed, SonicN still plays and Sega
+  Rally reaches its title: these titles do not check the CID.
+- Saves: Rayman 3 writes `save.dat` to C: (in the flash image after play).
+  After a reboot on that C: its slots still read EMPTY; no level had been
+  finished, so this is not conclusive. Every boot asks for time and date
+  again: the stand-in reports the RTC as unset.
+- **Audio:** silent; no game blocks on it. Details and what sound needs:
+  `docs/NOS_STANDIN.md` "Audio" (PCM through audio.ldd into a 60 KB SDRAM
+  buffer at 0x0A061000, control over ISI resources 0x0B, 0x1F, 0xE8 and
+  0x00, none answered).
