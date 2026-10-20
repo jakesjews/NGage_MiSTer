@@ -9541,8 +9541,8 @@ module zap_decode (
 			o_shift_length[32] = IMMED_EN;
 		end
 		else if (i_instruction_valid)
-			casez (instruction[31:0])
-				PLD: begin
+			casez ({1'd0, instruction[31:0]})
+				{V4T, PLD}: begin
 					o_condition_code = AL;
 					o_alu_operation = {2'd0, AND};
 					o_alu_source = 0;
@@ -9554,7 +9554,7 @@ module zap_decode (
 					o_shift_length = 0;
 					o_shift_length[32] = IMMED_EN;
 				end
-				SMLAxy, SMLAWy, SMLALxy: begin : tskLDecodeMultDsp
+				{V4T, SMLAxy}, {V4T, SMLAWy}, {V4T, SMLALxy}: begin : tskLDecodeMultDsp
 					o_condition_code = instruction[31:28];
 					o_flag_update = 1'd1;
 					o_destination_index = {instruction[ZAP_DP_RD_EXTEND], instruction[19:16]};
@@ -9584,7 +9584,7 @@ module zap_decode (
 						o_alu_operation = (instruction[6:5] == 2'b00 ? SMLAL00L : (instruction[6:5] == 2'b01 ? SMLAL01L : (instruction[6:5] == 2'b10 ? SMLAL10L : SMLAL11L)));
 					end
 				end
-				SMULWy, SMULxy: begin
+				{V4T, SMULWy}, {V4T, SMULxy}: begin
 					o_condition_code = instruction[31:28];
 					o_flag_update = 1'd1;
 					o_alu_operation = (((instruction[22:21] == 2'b01) && instruction[5]) && (instruction[15:12] == 0) ? (instruction[6] ? OP_SMULW0 : OP_SMULW1) : (instruction[6:5] == 2'b00 ? OP_SMUL00 : (instruction[6:5] == 2'b01 ? OP_SMUL01 : (instruction[6:5] == 2'b10 ? OP_SMUL10 : (instruction[6:5] == 2'b11 ? OP_SMUL11 : OP_SMUL11)))));
@@ -9597,7 +9597,7 @@ module zap_decode (
 					o_shift_length[32] = INDEX_EN;
 					o_mem_srcdest_index = RAZ_REGISTER;
 				end
-				QADD: begin
+				{V4T, QADD}: begin
 					o_condition_code = instruction[31:28];
 					o_flag_update = 1'd1;
 					case (instruction[22:21])
@@ -9616,7 +9616,7 @@ module zap_decode (
 					o_shift_length[32] = IMMED_EN;
 					o_destination_index = {1'd0, instruction[15:12]};
 				end
-				QSUB: begin
+				{V4T, QSUB}: begin
 					o_condition_code = instruction[31:28];
 					o_flag_update = 1'd1;
 					case (instruction[22:21])
@@ -9635,7 +9635,7 @@ module zap_decode (
 					o_shift_length[32] = IMMED_EN;
 					o_destination_index = {1'd0, instruction[15:12]};
 				end
-				QDADD: begin
+				{V4T, QDADD}: begin
 					o_condition_code = instruction[31:28];
 					o_flag_update = 1'd1;
 					case (instruction[22:21])
@@ -9654,7 +9654,7 @@ module zap_decode (
 					o_shift_length[32] = IMMED_EN;
 					o_destination_index = {1'd0, instruction[15:12]};
 				end
-				QDSUB: begin
+				{V4T, QDSUB}: begin
 					o_condition_code = instruction[31:28];
 					o_flag_update = 1'd1;
 					case (instruction[22:21])
@@ -9673,7 +9673,7 @@ module zap_decode (
 					o_shift_length[32] = IMMED_EN;
 					o_destination_index = {1'd0, instruction[15:12]};
 				end
-				CLZ_INSTRUCTION: begin : tskDecodeClz
+				{V4T, CLZ_INSTRUCTION}: begin : tskDecodeClz
 					o_condition_code = instruction[31:28];
 					o_flag_update = 1'd0;
 					o_alu_operation = {1'd0, CLZ};
@@ -9686,7 +9686,7 @@ module zap_decode (
 					o_shift_length[32] = IMMED_EN;
 					o_destination_index = {1'd0, instruction[15:12]};
 				end
-				BX_INST: begin : tskDecodeBx
+				{1'd0, BX_INST}: begin : tskDecodeBx
 					reg [32:0] temp;
 					temp = {1'd0, instruction[31:0]};
 					temp[31:4] = 0;
@@ -9722,7 +9722,7 @@ module zap_decode (
 					o_alu_source[32] = IMMED_EN;
 					o_switch = 1;
 				end
-				MRS: begin
+				{1'd0, MRS}: begin
 					begin : sv2v_autoblock_2
 						reg [11:0] xinstruction;
 						xinstruction = {instruction[11:0]};
@@ -9745,7 +9745,7 @@ module zap_decode (
 					o_alu_source[32] = INDEX_EN;
 					o_alu_operation = (instruction[22] ? {2'd0, ADD} : FADD);
 				end
-				MSR, MSR_IMMEDIATE: begin
+				{1'd0, MSR}, {1'd0, MSR_IMMEDIATE}: begin
 					if (instruction[25]) begin : sv2v_autoblock_3
 						reg [11:0] xinstruction;
 						xinstruction = {instruction[11:0]};
@@ -9795,7 +9795,7 @@ module zap_decode (
 					o_alu_source = {29'd0, instruction[19:16]};
 					o_alu_source[32] = IMMED_EN;
 				end
-				DATA_PROCESSING_IMMEDIATE, DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT, DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT: begin
+				{1'd0, DATA_PROCESSING_IMMEDIATE}, {1'd0, DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT}, {1'd0, DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT}: begin
 					o_condition_code = instruction[31:28];
 					o_alu_operation = {2'd0, instruction[24:21]};
 					o_flag_update = instruction[20];
@@ -9857,7 +9857,7 @@ module zap_decode (
 						default: {o_condition_code, o_alu_operation, o_flag_update, o_destination_index, o_alu_source, o_mem_srcdest_index} = 1'sbx;
 					endcase
 				end
-				BRANCH_INSTRUCTION: begin
+				{1'd0, BRANCH_INSTRUCTION}: begin
 					o_condition_code = instruction[31:28];
 					o_alu_operation = {2'd0, ADD};
 					o_destination_index = {1'd0, ARCH_PC};
@@ -9869,7 +9869,7 @@ module zap_decode (
 					o_shift_length = (instruction[34] ? 1 : 2);
 					o_shift_length[32] = IMMED_EN;
 				end
-				LS_INSTRUCTION_SPECIFIED_SHIFT, LS_IMMEDIATE: begin : tskDecodeLs
+				{1'd0, LS_INSTRUCTION_SPECIFIED_SHIFT}, {1'd0, LS_IMMEDIATE}: begin : tskDecodeLs
 					o_condition_code = instruction[31:28];
 					if (!instruction[25]) begin
 						o_shift_source = {21'd0, instruction[11:0]};
@@ -9917,7 +9917,7 @@ module zap_decode (
 							o_mem_translate = 1'd1;
 					end
 				end
-				MULT_INST: begin : tskDecodeMult
+				{1'd0, MULT_INST}: begin : tskDecodeMult
 					o_condition_code = instruction[31:28];
 					o_flag_update = instruction[20];
 					o_alu_operation = {1'd0, UMLALL};
@@ -9930,7 +9930,7 @@ module zap_decode (
 					o_shift_length[32] = (instruction[21] ? INDEX_EN : IMMED_EN);
 					o_mem_srcdest_index = RAZ_REGISTER;
 				end
-				LMULT_INST: begin : tskLDecodeMult
+				{1'd0, LMULT_INST}: begin : tskLDecodeMult
 					o_condition_code = instruction[31:28];
 					o_flag_update = instruction[20];
 					o_destination_index = {instruction[ZAP_DP_RD_EXTEND], instruction[19:16]};
@@ -9972,7 +9972,7 @@ module zap_decode (
 						o_flag_update = 1'd0;
 					end
 				end
-				HALFWORD_LS: begin : tskDecodeHalfWordLs
+				{1'd0, HALFWORD_LS}: begin : tskDecodeHalfWordLs
 					reg [11:0] temp;
 					reg [11:0] temp1;
 					temp = instruction[11:0];
@@ -10041,7 +10041,7 @@ module zap_decode (
 						end
 					endcase
 				end
-				SOFTWARE_INTERRUPT: begin : tskDecodeSWI
+				{1'd0, SOFTWARE_INTERRUPT}: begin : tskDecodeSWI
 					o_condition_code = instruction[31:28];
 					o_alu_operation = {2'd0, SUB};
 					o_alu_source = {29'd0, ARCH_PC};

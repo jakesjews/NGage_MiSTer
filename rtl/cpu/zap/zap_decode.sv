@@ -157,9 +157,17 @@ begin
         end
         else if ( i_instruction_valid )
         begin
-                casez ( instruction[31:0] )
+                //
+                // ARM925T: with V4T the ARMv5 patterns (PLD, the DSP
+                // multiplies, QADD and friends, CLZ) can never match: the
+                // pre-decoder marks them v5_und, handled above. Their items
+                // carry V4T as bit 32 against a 0, so that synthesis drops
+                // them from the priority chain in front of the ARMv4 ones
+                // (timing).
+                //
+                casez ( {1'd0, instruction[31:0]} )
 
-                PLD:
+                {V4T, PLD}:
                 begin
                         // Generate a NOP i.e., R0 = R0 & R0.
                         o_condition_code    = AL;
@@ -174,8 +182,8 @@ begin
                         o_shift_length[32]  = IMMED_EN;
                 end
 
-                SMLAxy, SMLAWy,
-                SMLALxy:
+                {V4T, SMLAxy}, {V4T, SMLAWy},
+                {V4T, SMLALxy}:
                 begin: tskLDecodeMultDsp
 
                         o_condition_code        =       instruction[31:28];
@@ -264,7 +272,7 @@ begin
 
 
 
-                SMULWy, SMULxy:
+                {V4T, SMULWy}, {V4T, SMULxy}:
                 begin
                         o_condition_code    = instruction[31:28];
                         o_flag_update       = 1'd1;
@@ -296,7 +304,7 @@ begin
                 end
 
 
-                QADD:
+                {V4T, QADD}:
                 begin
                         o_condition_code        = instruction[31:28];
                         o_flag_update           = 1'd1;
@@ -329,7 +337,7 @@ begin
                 end
 
 
-                QSUB:
+                {V4T, QSUB}:
                 begin
                         o_condition_code        = instruction[31:28];
                         o_flag_update           = 1'd1;
@@ -362,7 +370,7 @@ begin
                 end
 
 
-                QDADD:
+                {V4T, QDADD}:
                 begin
                         o_condition_code        = instruction[31:28];
                         o_flag_update           = 1'd1;
@@ -395,7 +403,7 @@ begin
                 end
 
 
-                QDSUB:
+                {V4T, QDSUB}:
                 begin
                         o_condition_code        = instruction[31:28];
                         o_flag_update           = 1'd1;
@@ -429,7 +437,7 @@ begin
 
 
 
-                CLZ_INSTRUCTION:
+                {V4T, CLZ_INSTRUCTION}:
                 begin: tskDecodeClz
                         o_condition_code        =       instruction[31:28];
                         o_flag_update           =       1'd0; // Instruction does not update any flags.
@@ -457,7 +465,7 @@ begin
                 end
 
 
-                BX_INST:
+                {1'd0, BX_INST}:
                 begin: tskDecodeBx
                         logic [32:0] temp;
 
@@ -485,7 +493,7 @@ begin
                 end
 
 
-                MRS:
+                {1'd0, MRS}:
                 begin
 
                         `zap_process_immediate({instruction[11:0]});
@@ -498,7 +506,7 @@ begin
                 end
 
 
-                MSR,MSR_IMMEDIATE:
+                {1'd0, MSR},{1'd0, MSR_IMMEDIATE}:
                 begin
 
                         if ( instruction[25] ) // Immediate present.
@@ -530,9 +538,9 @@ begin
 
 
 
-                DATA_PROCESSING_IMMEDIATE,
-                DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT,
-                DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT:
+                {1'd0, DATA_PROCESSING_IMMEDIATE},
+                {1'd0, DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT},
+                {1'd0, DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT}:
                 begin
                         o_condition_code        = instruction[31:28];
                         o_alu_operation         = {2'd0, instruction[24:21]};
@@ -583,7 +591,7 @@ begin
                 end
 
 
-                BRANCH_INSTRUCTION:
+                {1'd0, BRANCH_INSTRUCTION}:
                 begin
                         // A branch is decayed into PC = PC + $signed(immed)
                         o_condition_code        = instruction[31:28];
@@ -599,8 +607,8 @@ begin
                 end
 
 
-                LS_INSTRUCTION_SPECIFIED_SHIFT,
-                LS_IMMEDIATE:
+                {1'd0, LS_INSTRUCTION_SPECIFIED_SHIFT},
+                {1'd0, LS_IMMEDIATE}:
                 begin: tskDecodeLs
 
 
@@ -658,7 +666,7 @@ begin
                 end
 
 
-                MULT_INST:
+                {1'd0, MULT_INST}:
                 begin: tskDecodeMult
 
 
@@ -688,7 +696,7 @@ begin
                 end
 
 
-                LMULT_INST:
+                {1'd0, LMULT_INST}:
                 begin: tskLDecodeMult
 
                         o_condition_code        =       instruction[31:28];
@@ -774,7 +782,7 @@ begin
                 end
 
 
-                HALFWORD_LS:
+                {1'd0, HALFWORD_LS}:
                 begin: tskDecodeHalfWordLs
                         logic [11:0] temp, temp1;
 
@@ -835,7 +843,7 @@ begin
                 end
 
 
-                SOFTWARE_INTERRUPT:
+                {1'd0, SOFTWARE_INTERRUPT}:
                 begin: tskDecodeSWI
 
                         // Generate LR = PC - 4
