@@ -53,7 +53,10 @@
 //     lines (TEON mode 0) and also for TE_HPULSE_CLKS at each line (mode 1).
 //     te_ext_sel = 1 makes TE follow te_ext instead (for example the video
 //     output's vertical blank).
-//   * ID1-ID3, the RDDID / RDID1-3 bytes.
+//   * ID1-ID3, the RDDID / RDID1-3 bytes. The boot code turns ID1 into the
+//     module variant (0x62D8: 0x29 -> module 0x10, 0x83 -> module 4, found
+//     by the QEMU model work); 0x29 00 00 is what model/hw/ngage_lcd.c
+//     answers. Which module a QD has is not known.
 //   * BLANK_RGB (sleep, DISPOFF) and PARTIAL_RGB (outside the partial area).
 //   * COLMOD_RESET, the pixel format after reset.
 //   * RAMRD returns 16 bpp whatever COLMOD says (as the ST7637, whose frame
@@ -69,8 +72,8 @@ module lcd_panel #(
 	parameter int          TE_HZ           = 74,
 	parameter int          TE_VBLANK_LINES = 12,
 	parameter int          TE_HPULSE_CLKS  = 64,
-	parameter logic [7:0]  ID1             = 8'h00,
-	parameter logic [7:0]  ID2             = 8'h80,
+	parameter logic [7:0]  ID1             = 8'h29,
+	parameter logic [7:0]  ID2             = 8'h00,
 	parameter logic [7:0]  ID3             = 8'h00,
 	parameter bit          PANEL_ROT180    = 1'b1,
 	parameter logic [15:0] BLANK_RGB       = 16'h0000,
