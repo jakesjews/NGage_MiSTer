@@ -152,6 +152,12 @@ Memory system:
   index loops and by drivers for DMA buffers.
 - With the MMU on and a cache off, uncached accesses use the physical
   address (upstream put the virtual address on the bus).
+- With the MMU off and the I-cache on, instruction fetches are cacheable,
+  as on the ARM920T family (upstream cached nothing with the MMU off); data
+  accesses stay uncached. The firmware's bootstrap runs this way (control
+  0x1272 from its first instructions). Uncached, its flash code took about
+  20 clocks an instruction, and its delay loops, which count instructions,
+  ran about 15 times longer than on the phone.
 
 Upstream bugs fixed (found by the tests; all configurations):
 
@@ -346,7 +352,7 @@ checkpoints (all registers and the CPSR) in the signature.
   clean and flush by VA and by index with uncached aliases, write-through
   pages, self-modifying code; and what only the RTL can show (dirty data
   stays in the cache until cleaned, line operations touch only their line,
-  the I-cache keeps old code until flushed).
+  the I-cache keeps old code until flushed, also with the MMU off).
 
 ### Random tests
 

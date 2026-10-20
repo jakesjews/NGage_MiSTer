@@ -3842,7 +3842,8 @@ module zap_cache (
 		.SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
 		.SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
 		.FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES),
-		.CPSR_MODE(ZAP_CPSR_MODE)
+		.CPSR_MODE(ZAP_CPSR_MODE),
+		.MMU_OFF_CACHEABLE(1'd1)
 	) u_zap_tlb(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -17078,6 +17079,7 @@ module zap_tlb_check (
 	parameter [31:0] SECTION_TLB_ENTRIES = 32'd8;
 	parameter [31:0] FPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] CPSR_MODE = 32'd4;
+	parameter [0:0] MMU_OFF_CACHEABLE = 1'd0;
 	input wire i_clk;
 	input wire i_clkena;
 	input wire i_mmu_en;
@@ -17522,7 +17524,7 @@ module zap_tlb_check (
 			o_far <= i_va;
 			o_phy_addr <= i_va;
 			o_walk <= 0;
-			o_cacheable <= 0;
+			o_cacheable <= MMU_OFF_CACHEABLE;
 			o_wt <= 0;
 			if (i_mmu_en && (i_rd || i_wr))
 				case (match[3:0])
@@ -18140,6 +18142,7 @@ module zap_tlb (
 	parameter [31:0] SECTION_TLB_ENTRIES = 32'd8;
 	parameter [31:0] FPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] CPSR_MODE = 32'd4;
+	parameter [0:0] MMU_OFF_CACHEABLE = 1'd0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire [31:0] i_address;
@@ -18633,7 +18636,8 @@ module zap_tlb (
 		.SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
 		.SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
 		.FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES),
-		.CPSR_MODE(ZAP_CPSR_MODE)
+		.CPSR_MODE(ZAP_CPSR_MODE),
+		.MMU_OFF_CACHEABLE(MMU_OFF_CACHEABLE)
 	) u_zap_tlb_check(
 		.i_clk(i_clk),
 		.i_clkena(!i_hold),

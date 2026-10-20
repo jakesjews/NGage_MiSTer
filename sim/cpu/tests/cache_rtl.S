@@ -4,7 +4,7 @@
 @ operations by VA and by index (TI operand) clean, discard or both, and
 @ leave other lines alone; a write-through page updates memory at once;
 @ unaligned loads that miss are rotated; the I-cache keeps old code until it
-@ is flushed.
+@ is flushed, also with the MMU off (every fetch is cacheable then).
 @@ qemu: no
 	.include "test.inc"
 	.include "mmu.inc"
@@ -183,6 +183,36 @@ test_main:
 	mov	lr, pc
 	mov	pc, r4
 	CHECK	r0, 0x22
+	CHECKPOINT
+
+	@ 10. with the MMU off and the I-cache on, fetches are still cached (as
+	@ on the ARM920T family; data accesses are not). The firmware's
+	@ bootstrap runs this way.
+	mov	r0, #0
+	mcr	p15, 0, r0, c7, c10, 0	@ clean the D-cache before it goes off
+	mrc	p15, 0, r0, c1, c0, 0
+	bic	r0, r0, #(CR_M | CR_C | CR_W)
+	mcr	p15, 0, r0, c1, c0, 0
+	nop
+	nop
+	ldr	r4, =0x00490000
+	ldr	r0, =0xE3A00033		@ mov r0, #0x33
+	ldr	r1, =0xE1A0F00E		@ mov pc, lr
+	stmia	r4, {r0, r1}
+	mov	r0, #0
+	mcr	p15, 0, r0, c7, c5, 0
+	mov	lr, pc
+	mov	pc, r4			@ fills the I-cache line
+	CHECK	r0, 0x33
+	ldr	r0, =0xE3A00044
+	str	r0, [r4]		@ to memory (no D-cache)
+	mov	lr, pc
+	mov	pc, r4
+	CHECK	r0, 0x33		@ old code, from the I-cache
+	mcr	p15, 0, r4, c7, c5, 1
+	mov	lr, pc
+	mov	pc, r4
+	CHECK	r0, 0x44
 	CHECKPOINT
 
 	ldmfd	sp!, {r4-r11, pc}

@@ -255,7 +255,8 @@ zap_tlb #(
         .SPAGE_TLB_ENTRIES      (SPAGE_TLB_ENTRIES),
         .SECTION_TLB_ENTRIES    (SECTION_TLB_ENTRIES),
         .FPAGE_TLB_ENTRIES      (FPAGE_TLB_ENTRIES),
-        .CPSR_MODE              (ZAP_CPSR_MODE)
+        .CPSR_MODE              (ZAP_CPSR_MODE),
+        .MMU_OFF_CACHEABLE      (1'd1)          // ARM925T: fetches with the MMU off are cacheable
 )
 u_zap_tlb (
         .i_clk          (i_clk),

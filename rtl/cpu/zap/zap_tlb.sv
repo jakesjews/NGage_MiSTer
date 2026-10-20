@@ -27,7 +27,8 @@ parameter logic [31:0] LPAGE_TLB_ENTRIES   = 32'd8,
 parameter logic [31:0] SPAGE_TLB_ENTRIES   = 32'd8,
 parameter logic [31:0] SECTION_TLB_ENTRIES = 32'd8,
 parameter logic [31:0] FPAGE_TLB_ENTRIES   = 32'd8,
-parameter logic [31:0] CPSR_MODE           = 32'd4
+parameter logic [31:0] CPSR_MODE           = 32'd4,
+parameter logic        MMU_OFF_CACHEABLE   = 1'd0     // ARM925T: see zap_tlb_check
 
 ) (
 
@@ -321,7 +322,8 @@ zap_tlb_check #(
 .SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
 .SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
 .FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES),
-.CPSR_MODE(ZAP_CPSR_MODE)
+.CPSR_MODE(ZAP_CPSR_MODE),
+.MMU_OFF_CACHEABLE(MMU_OFF_CACHEABLE)
 )
 u_zap_tlb_check (
 .i_clk          (i_clk),

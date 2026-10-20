@@ -27,7 +27,11 @@ module zap_tlb_check #(
         parameter logic [31:0] SPAGE_TLB_ENTRIES   = 32'd8,
         parameter logic [31:0] SECTION_TLB_ENTRIES = 32'd8,
         parameter logic [31:0] FPAGE_TLB_ENTRIES   = 32'd8,
-        parameter logic [31:0] CPSR_MODE           = 32'd4
+        parameter logic [31:0] CPSR_MODE           = 32'd4,
+        // ARM925T: accesses with the MMU off are cacheable (1 for the
+        // instruction side: with the MMU off and the I-cache on, every
+        // instruction fetch is cacheable; data accesses are not).
+        parameter logic        MMU_OFF_CACHEABLE   = 1'd0
 
 )
 (
@@ -103,7 +107,7 @@ begin
                 o_far       <= i_va;     // Fault address.
                 o_phy_addr  <= i_va;     // VA = PA
                 o_walk      <= 0;        // Walk disabled.
-                o_cacheable <= 0;        // Uncacheable.
+                o_cacheable <= MMU_OFF_CACHEABLE; // ARM925T: was 0 (uncacheable).
                 o_wt        <= 0;
 
 
