@@ -571,3 +571,21 @@ found, and what comes next. Research material lives in `research/`
   - Keypad: which side wins a drive fight; the firmware's scan timing.
   - Next for the shell: a DDR3 controller for the flash memory ports
     (images at 0x31000000/0x32000000) and the 16 MB SDRAM at 0x30000000.
+
+### 2026-10-20: priorities and CPU decision
+- The user's priorities: working first, then accuracy, and only what fits.
+- CPU: ZAP in the fabric, made functionally ARM925T-correct first. Timing
+  fidelity to the ARM9TDMI comes in a later pass. The HPS-native hybrid is
+  dropped.
+- Budget estimate, in ALMs:
+
+  | Part | ALMs |
+  |---|---|
+  | ZAP | about 12K |
+  | Board devices | about 6K |
+  | Framework | about 7K |
+  | UPP peripherals | 5-8K, estimated |
+  | Total | about 30-33K of 41.9K (75-80%) |
+
+- Licence: ZAP HEAD is GPL-3.0-or-later. The framework's hps_io.sv is
+  also GPL-3.0-or-later, so the combined core is GPLv3 either way.
