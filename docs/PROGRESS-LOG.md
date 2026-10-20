@@ -752,3 +752,108 @@ found, and what comes next. Research material lives in `research/`
   `0x0A000020` still holds the logo. Next step: find out whether nothing has
   drawn yet (Startup.app and SysAp may be waiting on DOS/ISI answers from
   NOS) or whether lcd.ldd's update path (DMA + LCD FIFO) is not modelled.
+
+## Memory system
+
+### 2026-10-20: SDRAM, flash in DDR3, UPP bus map, self-test in the core
+- New: `rtl/mem/sdram.sv`, `rtl/mem/ddram_flash.sv`, `rtl/mem/bram32.sv`,
+  `rtl/upp/upp_bus.sv`, `rtl/upp/ngage_mem.sv` (the memory system as one
+  block: bus, SDRAM, both flash chips, their DDR3 path),
+  `rtl/upp/upp_periph_stub.sv`, `rtl/upp/wb_selftest.sv`. NGage.sv
+  instantiates them; the OSD has "Memory test".
+- **SDRAM** (`sdram.sv`, GPL-3.0-or-later: derived from Sorgelig's MiSTer
+  `sdram.sv`): 104 MHz on clk_sys (2 x 52 MHz), SDRAM_CLK = inverted clock
+  from a DDIO output, CL2, capture CAS latency + 1 clocks after READ.
+  Closed page, burst 8 reads (wrapping, asked word first), single-location
+  writes with DQM. Timing is the slowest of the module chips' data sheets
+  (tRCD/tRP 20 ns, tRAS 45, tRC/tRFC 70, tWR 15), i.e. 3/3/5/8/8/2 clocks.
+  A word read reaches the port 7 clocks after the request is taken, a line
+  7, 9, 11, 13; refresh every 780 clocks between accesses (longest gap
+  7.6 us). The guest's 16 MB is the first 16 MB of the module.
+- **Flash arrays in DDR3** (`ddram_flash.sv`): CS0 at 0x31000000, CS1 at
+  0x32000000. Per chip a one-beat (8-byte) buffer answers in the request
+  clock; an 8 KB direct-mapped cache (32-byte lines) answers in 2 clocks;
+  a miss is one 4-beat DDR3 burst (about 20 clocks). Writes (program,
+  erase) go through to DDR3 and update the cached copy. The loader shares
+  the port; the cache empties after every reset and any loader write.
+- **Bus** (`upp_bus.sv`): Wishbone B3 slave, registered ack. Map as in the
+  task; 0x0C100000-0x0DFFFFFF all go to the peripheral register bus
+  (p_sel/p_addr/p_we/p_be/p_wdata, p_rdata/p_wait). Bursts read ahead in
+  every target. On a quiet bus, clocks from a beat appearing to its ack:
+  SDRAM word 10, line 10 + 2 + 2 + 2; on-chip RAM and EMIF 2, then one a
+  clock; flash line 12 + 3 x 8 (beat buffer/cache) to 29 + 3 x 8 (DDR3
+  miss); posted SDRAM writes 1 (a burst beat every 2 clocks); empty CS2/3
+  and unmapped 1.
+- Flash is a 16-bit chip behind nor_flash's req/ack port, so a word is two
+  halfword accesses of about 4 clocks each. Reads ask only for the halves
+  SEL names (the other half reads 0): a second status read would toggle
+  DQ6. Read-ahead in a burst never passes the burst's end for the same
+  reason.
+- **CPU hookup**: the CPU agent's `arm925t` req/ack bus maps straight onto
+  the port (`wb_cyc = wb_stb = bus_req`, `wb_cti = bus_burst ? 010 : 111`,
+  `wb_bte = 0`, rest by name); NGage.sv has the mapping in a comment.
+- **Self-test** (`wb_selftest.sv`, the placeholder master): with "Memory
+  test" on it runs passes over the EMIF block, the CS2 probe, on-chip RAM
+  and all 16 MB of SDRAM (bursts, byte and halfword writes with the other
+  lanes inverted), and CS0 (classic vs burst reads must agree), about
+  0.8 s a pass. It shows "Memory test passed" / "FAILED" on the OSD after
+  the first pass and after new errors; the power LED blinks slowly while it
+  passes, fast after a failure. Not yet run on hardware.
+- **Benches** (all in `make test`): `sdram` (C++ chip model,
+  `sim/harness/sdram_model.h`: power-up, tRCD, tRP, tRAS, tRC, tRRD, tRFC,
+  tWR, tMRD, refresh interval, DQM, contention, and the read capture window
+  with 4.5-7 ns board delay); `sdram-faults` (four builds with a timing
+  fault, each must be reported); `ddrflash` (DDRAM port model from
+  Cray1_MiSTer, now with Avalon checks, `sim/harness/ddram_model.h`);
+  `upp` (ngage_mem under a scripted Wishbone master: classic cycles with
+  every SEL, ZAP-style 4-beat bursts, longer and wrap-4 bursts, mirrors,
+  peripheral waits, AMD program/erase/autoselect through the bus; again with
+  a 256 KB on-chip RAM in SDRAM); `top` (the self-test in the whole core
+  against the SDRAM and DDR3 models, and its failure report with SDRAM bits
+  flipped). Injected bugs in sdram, ddram_flash and upp_bus are caught (the
+  few that are not are redundant checks).
+- Unknowns, each a named parameter: on-chip RAM size `ONCHIP_BYTES` (64 KB
+  of block RAM; the firmware's literals point into 0x0C000000-0x0C005FFF
+  only, the model maps 256 KB; above `ONCHIP_BRAM_MAX` it moves to SDRAM
+  at 16 MB); `EMPTY_DATA` and `UNMAPPED_DATA` (0, as the model);
+  `UNMAPPED_ERR` (0: no abort); `EMIF_WORDS_LOG2` (64 words, mirrored);
+  the SDRAM timing and `CAPTURE_CLKS`; the cache geometry. Mirroring of the
+  flash, SDRAM and RAM windows is assumed (incomplete decoding).
+- **Saves (not built)**: the C: drive (LFFS, CS1 0x400000-0x7FFFFF per the
+  model) changes only DDR3. To keep it, mount the CS1 image as a second
+  hps_io block device instead of loading it with ioctl: read it into DDR3
+  at mount, let ddram_flash mark each 512-byte block it writes dirty, and
+  write dirty blocks back with sd_wr when the bus is idle (like other
+  cores' save RAM). A whole-image ioctl upload on an OSD "Save" would also
+  work but rewrites 8 MB.
+- **Quartus** (`./build.sh remote map`, then `compile`): 0 errors. Every
+  corner meets 104 MHz: worst setup +0.374 ns (slow 100C, the SDRAM
+  controller's step counter to the SDRAM_A I/O register), worst hold
+  +0.088 ns (slow -40C). All SDRAM command, address, DQM, DQ and DQ-enable
+  registers are in the I/O cells. Whole core 13,112 ALMs (31%), 18,960
+  registers, 218 M10K (39%), 33 DSP; before: 9,472 ALMs, 137 M10K.
+  Fitter figures (ALMs / registers / M10K): ngage_mem 3,323 / 3,343 / 77
+  (upp_bus 504 / 846 / 68 with the 64 KB on-chip RAM; sdram 173 / 254;
+  ddram_flash 302 / 316 / 9; nor_flash CS0 1,396 / 1,178 and CS1 948 / 749,
+  no longer optimised away); wb_selftest 243 / 188; upp_periph_stub 5 / 1 / 4.
+- Quartus 17 notes: loop and conditional generates need `generate`, a
+  genvar declared apart, no nets of a typedef type, and a module variable
+  read inside a function is not counted as a use (pass it as an argument).
+- Open questions:
+  - On-chip RAM size; whether 0x0C000000-0x0C003FFF is the boot ROM rather
+    than RAM (research says a ROM entry point sits at 0x0C000D01).
+  - What CS2/CS3 and unmapped addresses really read, and whether unmapped
+    accesses abort (APIIOAbort is an interrupt source name).
+  - DMA: the model has 8 DMA channels addressing memory (and registers at
+    0x1xxxxxxx). upp_bus has one master; DMA needs a second master port and
+    an arbiter in front of it.
+  - Flash speed: nor_flash's req/ack takes 4 clocks a halfword, so a 16-byte
+    line from flash is about 40-55 clocks against 16 from SDRAM. A
+    read-array fast path in nor_flash (answer array reads from its memory
+    port directly) would halve it, if XIP misses turn out to matter.
+  - SDRAM: open-page or bank interleaving would cut 3-6 clocks a miss;
+    tRCD/tRP at 18 ns (2 clocks) suit most modules but not the slowest data
+    sheet. Board delay for the capture is assumed 4.5-7 ns; confirm on
+    hardware with the memory test (and CAPTURE_CLKS if it fails).
+  - The core needs the SDRAM module; hps_io's sdram_sz could warn when none
+    is fitted.
