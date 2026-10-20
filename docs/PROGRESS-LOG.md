@@ -1250,3 +1250,11 @@ found, and what comes next. Research material lives in `research/`
 - Quartus: every corner met at 104 MHz.
   - Worst setup +0.335 ns (slow -40C), hold +0.107 ns.
   - 18,247 ALMs (44%); upp_mmc 812 ALMs, up from 758.
+
+### 2026-10-20, CPU: boot bench follow-up
+- The bench now releases the power key after 187.5M instructions, as the
+  model does (3 guest s at 16 ns per instruction). The CBUS logs then agree
+  for all 67 transfers the RTL makes. At 2.5 billion cycles the RTL kernel
+  makes no more device accesses where the model goes on with CBUS device 5
+  and an emif read (0x08000040); the cause is not known yet. Next: a model
+  instruction trace around that point (needs a QEMU slot).
