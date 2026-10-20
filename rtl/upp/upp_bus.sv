@@ -166,7 +166,8 @@ module upp_bus #(
 		return b[24:2];
 	endfunction
 
-	wire tgt_t tgt     = decode(wb_adr);
+	tgt_t      tgt;
+	assign     tgt     = decode(wb_adr);
 	wire       is_sdr  = tgt == T_SDRAM || (ONCHIP_IN_SDRAM && tgt == T_ONCHIP);
 	wire       is_bram = tgt == T_EMIF || (!ONCHIP_IN_SDRAM && tgt == T_ONCHIP);
 	wire       burst   = wb_cti == CTI_INCR;
@@ -217,19 +218,21 @@ module upp_bus #(
 		.rdata(emif_q)
 	);
 
-	if (!ONCHIP_IN_SDRAM) begin : g_onchip
-		bram32 #(.AW(OC_AW)) onchip (
-			.clk(clk),
-			.we(ram_we && tgt == T_ONCHIP),
-			.be(wb_sel),
-			.waddr(wb_adr[2 +: OC_AW]),
-			.wdata(wb_dat_i),
-			.raddr(ram_raddr[2 +: OC_AW]),
-			.rdata(oc_q)
-		);
-	end else begin : g_no_onchip
-		assign oc_q = 32'd0;
-	end
+	generate
+		if (!ONCHIP_IN_SDRAM) begin : g_onchip
+			bram32 #(.AW(OC_AW)) onchip (
+				.clk(clk),
+				.we(ram_we && tgt == T_ONCHIP),
+				.be(wb_sel),
+				.waddr(wb_adr[2 +: OC_AW]),
+				.wdata(wb_dat_i),
+				.raddr(ram_raddr[2 +: OC_AW]),
+				.rdata(oc_q)
+			);
+		end else begin : g_no_onchip
+			assign oc_q = 32'd0;
+		end
+	endgenerate
 
 	wire [31:0] ram_q = ram_emif ? emif_q : oc_q;
 

@@ -82,9 +82,11 @@ module wb_selftest #(
 	logic [15:0] pass_n = '0;
 	logic [15:0] errors_q = '0;
 
-	function automatic logic [31:0] pat(input logic [31:0] a);
+	// (functions take everything as arguments: Quartus 17 does not see a
+	// module variable read inside a function as a use)
+	function automatic logic [31:0] pat(input logic [31:0] a, input logic [15:0] p);
 		logic [31:0] x;
-		x = a ^ {pass_n, pass_n};
+		x = a ^ {p, p};
 		return x ^ {x[7:0], x[31:8]} ^ {x[18:0], x[31:19]} ^ 32'h5A3C_96E1;
 	endfunction
 
@@ -139,16 +141,17 @@ module wb_selftest #(
 			P_PER_R: begin t_adr = PER_REG; end
 			default: ;
 		endcase
-		if (t_we && phase != P_EMIF_W) t_dat = pat(t_adr);
+		if (t_we && phase != P_EMIF_W) t_dat = pat(t_adr, pass_n);
 	end
 
 	// the expected data of a read beat
-	function automatic logic [31:0] expect_of(input phase_t ph, input logic [31:0] a);
+	function automatic logic [31:0] expect_of(input phase_t ph, input logic [31:0] a, input logic [2:0] i,
+			input logic [31:0] ff, input logic [15:0] p);
 		case (ph)
-			P_EMIF_R: return emif_val(idx[2:0]);
+			P_EMIF_R: return emif_val(i);
 			P_CS2:    return 32'd0;
-			P_FLASH:  return flash_first;
-			default:  return pat(a);
+			P_FLASH:  return ff;
+			default:  return pat(a, p);
 		endcase
 	endfunction
 
@@ -162,8 +165,8 @@ module wb_selftest #(
 				wb_we  <= t_we;
 				wb_adr <= t_adr;
 				wb_dat <= t_we && (phase == P_OC_BYTES || phase == P_SD_BYTES)
-				          ? (pat(t_adr) & {{8{t_sel[3]}}, {8{t_sel[2]}}, {8{t_sel[1]}}, {8{t_sel[0]}}}) |
-				            (~pat(t_adr) & ~{{8{t_sel[3]}}, {8{t_sel[2]}}, {8{t_sel[1]}}, {8{t_sel[0]}}})
+				          ? (pat(t_adr, pass_n) & {{8{t_sel[3]}}, {8{t_sel[2]}}, {8{t_sel[1]}}, {8{t_sel[0]}}}) |
+				            (~pat(t_adr, pass_n) & ~{{8{t_sel[3]}}, {8{t_sel[2]}}, {8{t_sel[1]}}, {8{t_sel[0]}}})
 				          : t_dat;
 				wb_sel <= t_sel;
 				wb_cti <= t_burst ? 3'b010 : 3'b111;
@@ -176,11 +179,11 @@ module wb_selftest #(
 			// the beat on the bus is done
 			if (!wb_we && check) begin
 				if (wb_err || (wb_dat_i & {{8{wb_sel[3]}}, {8{wb_sel[2]}}, {8{wb_sel[1]}}, {8{wb_sel[0]}}}) !=
-				              (expect_of(phase, wb_adr) & {{8{wb_sel[3]}}, {8{wb_sel[2]}}, {8{wb_sel[1]}}, {8{wb_sel[0]}}})) begin
+				              (expect_of(phase, wb_adr, idx[2:0], flash_first, pass_n) & {{8{wb_sel[3]}}, {8{wb_sel[2]}}, {8{wb_sel[1]}}, {8{wb_sel[0]}}})) begin
 					if (errors_q == 16'd0) begin
 						err_adr  <= wb_adr;
 						err_got  <= wb_dat_i;
-						err_want <= expect_of(phase, wb_adr);
+						err_want <= expect_of(phase, wb_adr, idx[2:0], flash_first, pass_n);
 					end
 					if (errors_q != 16'hFFFF) errors_q <= errors_q + 16'd1;
 				end
@@ -189,7 +192,7 @@ module wb_selftest #(
 			if (was_burst && beat != 2'd3) begin
 				beat   <= beat + 2'd1;
 				wb_adr <= wb_adr + 32'd4;
-				wb_dat <= pat(wb_adr + 32'd4);
+				wb_dat <= pat(wb_adr + 32'd4, pass_n);
 				wb_cti <= (beat == 2'd2) ? 3'b111 : 3'b010;
 				if (phase == P_FLASH) check <= 1'b0;   // only the first beat is compared
 			end else begin

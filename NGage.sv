@@ -323,9 +323,10 @@ ngage_mem ngage_mem
 	.sdram_dq_i(SDRAM_DQ)
 );
 
+genvar dq_i;
 generate
-	for (genvar i = 0; i < 16; i++) begin : g_sdram_dq
-		assign SDRAM_DQ[i] = sdram_dq_oe[i] ? sdram_dq_o[i] : 1'bZ;
+	for (dq_i = 0; dq_i < 16; dq_i++) begin : g_sdram_dq
+		assign SDRAM_DQ[dq_i] = sdram_dq_oe[dq_i] ? sdram_dq_o[dq_i] : 1'bZ;
 	end
 endgenerate
 

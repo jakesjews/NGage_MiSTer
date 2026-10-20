@@ -158,12 +158,15 @@ module ddram_flash #(
 		.clk(clk), .we(tag_we), .waddr(tag_waddr), .wdata(tag_wdata), .raddr(tag_raddr), .rdata(tag_q)
 	);
 
-	for (genvar i = 0; i < 4; i++) begin : g_lane
-		sdp_ram #(.AW(DAW), .DW(16)) data (
-			.clk(clk), .we(dat_we[i]), .waddr(dat_waddr), .wdata(dat_wdata[16 * i +: 16]),
-			.raddr(dat_raddr), .rdata(dat_q[16 * i +: 16])
-		);
-	end
+	genvar i;
+	generate
+		for (i = 0; i < 4; i++) begin : g_lane
+			sdp_ram #(.AW(DAW), .DW(16)) data (
+				.clk(clk), .we(dat_we[i]), .waddr(dat_waddr), .wdata(dat_wdata[16 * i +: 16]),
+				.raddr(dat_raddr), .rdata(dat_q[16 * i +: 16])
+			);
+		end
+	endgenerate
 
 	// ------------------------------------------------------------------
 	// DDRAM port: our command or the loader's

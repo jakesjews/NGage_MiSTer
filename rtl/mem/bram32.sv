@@ -15,15 +15,18 @@ module bram32 #(
 	output logic [31:0]   rdata
 );
 
-	for (genvar i = 0; i < 4; i++) begin : g_lane
-		sdp_ram #(.AW(AW), .DW(8)) lane (
-			.clk(clk),
-			.we(we && be[i]),
-			.waddr(waddr),
-			.wdata(wdata[8 * i +: 8]),
-			.raddr(raddr),
-			.rdata(rdata[8 * i +: 8])
-		);
-	end
+	genvar i;
+	generate
+		for (i = 0; i < 4; i++) begin : g_lane
+			sdp_ram #(.AW(AW), .DW(8)) lane (
+				.clk(clk),
+				.we(we && be[i]),
+				.waddr(waddr),
+				.wdata(wdata[8 * i +: 8]),
+				.raddr(raddr),
+				.rdata(rdata[8 * i +: 8])
+			);
+		end
+	endgenerate
 
 endmodule
