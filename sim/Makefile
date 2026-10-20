@@ -1,7 +1,7 @@
 # Verilator benches for the board-level devices, the memory system and the
 # MiSTer shell. Run from the repository root with `make test`, or one bench
 # at a time with `make -C sim lcd` (lcd, video, keypad, flash, mmc, sdram,
-# sdram-faults, ddrflash, upp, top). Each bench is built
+# sdram-faults, ddrflash, upp, intc, timers, top). Each bench is built
 # into sim/build/<name> and run at once; pictures go to sim/build/out.
 # The benches run one after the other.
 ROOT      := $(abspath ..)
@@ -17,7 +17,7 @@ VFLAGS := --cc --exe --build -j 4 -O3 --x-assign unique --x-initial unique \
           -CFLAGS "-O2 -std=c++17 -I$(ROOT)/sim/harness"
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
-BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash upp top
+BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash upp intc timers top
 
 .PHONY: test $(BENCHES) clean
 
@@ -120,6 +120,19 @@ $(BUILD)/upp256/Vngage_mem: $(UPP_DEPS)
 upp: $(BUILD)/upp/Vngage_mem $(BUILD)/upp256/Vngage_mem
 	$(BUILD)/upp/Vngage_mem $(RUNFLAGS) --seed $(SEED)
 	$(BUILD)/upp256/Vngage_mem $(RUNFLAGS) --seed $(SEED) --onchip 262144 --txns 8000
+
+# The UPP interrupt controller and timers, each against a port of the model
+$(BUILD)/intc/Vupp_intc: $(ROOT)/rtl/upp/upp_intc.sv $(ROOT)/sim/harness/intc_main.cpp $(ROOT)/sim/harness/common.h
+	mkdir -p $(BUILD)/intc && $(VERILATOR) $(VFLAGS) --top-module upp_intc --Mdir $(BUILD)/intc -o Vupp_intc \
+		$(ROOT)/rtl/upp/upp_intc.sv $(ROOT)/sim/harness/intc_main.cpp
+intc: $(BUILD)/intc/Vupp_intc
+	$< $(RUNFLAGS) --seed $(SEED)
+
+$(BUILD)/timers/Vupp_timers: $(ROOT)/rtl/upp/upp_timers.sv $(ROOT)/sim/harness/timers_main.cpp $(ROOT)/sim/harness/common.h
+	mkdir -p $(BUILD)/timers && $(VERILATOR) $(VFLAGS) --top-module upp_timers --Mdir $(BUILD)/timers -o Vupp_timers \
+		$(ROOT)/rtl/upp/upp_timers.sv $(ROOT)/sim/harness/timers_main.cpp
+timers: $(BUILD)/timers/Vupp_timers
+	$< $(RUNFLAGS) --seed $(SEED)
 
 # The whole core: NGage.sv with the board devices; hps_io, the PLL and
 # video_mixer stood in for (sim/stubs)
