@@ -589,3 +589,14 @@ found, and what comes next. Research material lives in `research/`
 
 - Licence: ZAP HEAD is GPL-3.0-or-later. The framework's hps_io.sv is
   also GPL-3.0-or-later, so the combined core is GPLv3 either way.
+
+### 2026-10-20: correction to the ZAP timing result
+- With every Wishbone output wired to an observed pin (nothing can be
+  optimised away), ZAP is 12,679 ALMs (30%), 13,363 registers, 73 M10K
+  and 4 DSP.
+- Worst setup slack at 104 MHz is **-0.448 ns** at the slow 100C corner,
+  and -0.025 ns at the next corner. That is about 99 MHz standalone.
+- The earlier +0.082 ns result had about 5% of the logic pruned.
+- For a working first version: clock the CPU domain lower, or retime the
+  critical paths. ZAP's IPC is likely at or above an ARM9TDMI's, so a
+  slightly lower clock should not cost speed against the real phone.
