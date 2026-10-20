@@ -663,7 +663,7 @@ zap_fifo #( .WDT(67 + 33), .DEPTH(FIFO_DEPTH) ) U_ZAP_FIFO (
 //
 // Compresssed instruction inflater.
 //
-zap_mode16_decoder_main u_zap_mode16_decoder (
+zap_mode16_decoder_main #(.V4T(V4T)) u_zap_mode16_decoder (
 .i_clk                                  (i_clk),
 .i_reset                                (i_reset),
 .i_clear_from_writeback                 (clear_from_writeback),
@@ -799,6 +799,7 @@ zap_decode_main #(
         .CPSR_MODE(ZAP_CPSR_MODE)
 )
 u_zap_decode_main (
+        .i_thumb                        (alu_flags_ff[T]),
         .o_decompile                    (decode_decompile),
         .i_uop_last                     (predecode_uop_last),
         .o_uop_last                     (decode_uop_last),

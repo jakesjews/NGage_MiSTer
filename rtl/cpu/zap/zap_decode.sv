@@ -42,6 +42,7 @@ input   logic                             i_abt,
 
 input    logic   [35:0]                   i_instruction,
 input    logic                            i_instruction_valid,
+input    logic                            i_thumb,  // ARM925T: CPSR T (instruction is Thumb)
 
 output   logic    [3:0]                   o_condition_code,
 output   logic    [$clog2(ARCH_REGS)-1:0] o_destination_index,
@@ -90,8 +91,12 @@ logic [35:0] instruction;
 //
 logic v5_und;
 
-assign v5_und = (i_instruction[27:25] == 3'b011 && i_instruction[4]) || V4T && (
-        i_instruction[31:28] == NV                      ||
+assign v5_und = (!i_thumb && i_instruction[27:25] == 3'b011 && i_instruction[4]) || V4T && (
+        // ARM state: anything with condition NV. Thumb: the BL prefix is
+        // passed on as a NOP with condition NV and must stay one; the BLX
+        // suffix becomes BLX(1) (NV, 101) and is UNDEFINED.
+        (!i_thumb && i_instruction[31:28] == NV)        ||
+        (i_thumb && i_instruction[31:25] == 7'b1111_101) ||
         i_instruction[31:0] ==? CLZ_INSTRUCTION         ||
         i_instruction[31:0] ==? BLX2                    ||
         i_instruction[31:0] ==? BKPT                    ||

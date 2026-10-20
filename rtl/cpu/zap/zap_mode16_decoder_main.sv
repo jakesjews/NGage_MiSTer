@@ -23,7 +23,10 @@
 
 
 
-module zap_mode16_decoder_main (
+module zap_mode16_decoder_main #(
+        parameter logic V4T = 1'd0      // ARM925T: ARMv4T BL (zap_mode16_decoder).
+)
+(
         // Clock and reset.
         input logic              i_clk,
         input logic              i_reset,
@@ -95,13 +98,15 @@ logic force32_nxt;
 logic irq_nxt;
 logic fiq_nxt;
 logic stall;
+logic prev_prefix;  // ARM925T: last instruction passed on was a BL first half.
 
-zap_mode16_decoder u_zap_mode16_decoder (
+zap_mode16_decoder #(.V4T(V4T)) u_zap_mode16_decoder (
         .i_instruction(i_instruction),
         .i_instruction_valid(i_instruction_valid),
         .i_irq(i_irq),
         .i_fiq(i_fiq),
         .i_offset(o_instruction[10:0]),
+        .i_prev_prefix(prev_prefix),
         .i_cpsr_ff_t(i_cpsr_ff_t),
         .o_instruction(instruction_nxt),
         .o_instruction_valid(instruction_valid_nxt),
@@ -160,6 +165,22 @@ begin
                 o_fiq                   <= fiq_nxt;
                 o_taken_ff              <= i_taken;
                 o_pred                  <= i_pred;
+        end
+end
+
+// ARM925T: remember whether the instruction just passed on was the first half
+// of a Thumb BL (condition NV, bits 27:12 zero), until the next one or a flush.
+always_ff @ (posedge i_clk)
+begin
+        if ( i_reset || i_clear_from_writeback || ( i_clear_from_alu && !i_data_stall ) ||
+             ( i_clear_from_decode && !stall ) )
+        begin
+                prev_prefix <= 1'd0;
+        end
+        else if ( !stall && instruction_valid_nxt )
+        begin
+                prev_prefix <= i_cpsr_ff_t && instruction_nxt[31:28] == 4'b1111 &&
+                               instruction_nxt[27:12] == 16'd0 && instruction_nxt[34:32] == 3'd0;
         end
 end
 

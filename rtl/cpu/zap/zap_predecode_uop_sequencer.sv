@@ -114,6 +114,16 @@ logic  [11:0]  oc_offset;                  // Ones counter offset.
 logic  [15:0]  reglist_ff, reglist_nxt;    // Register list.
 logic  [31:0]  const_ff, const_nxt;        // For BLX - const reg.
 logic          cp15_done;                  // ARM925T: CP15 carried it out.
+logic [10:0]   blp_mag;                    // ARM925T: |offset| of a Thumb BL first half.
+logic          blp_neg;
+logic          t_bl_prefix, t_bl_alone;    // ARM925T: Thumb BL markers (zap_mode16_decoder).
+
+assign blp_neg     = i_instruction[10];
+assign blp_mag     = blp_neg ? (~i_instruction[10:0] + 11'd1) : i_instruction[10:0];
+assign t_bl_prefix = V4T && i_cpsr_t && i_instruction_valid && i_instruction[34:32] == 3'd0 &&
+                     i_instruction[31:28] == NV && i_instruction[27:12] == 16'd0;
+assign t_bl_alone  = V4T && i_cpsr_t && i_instruction_valid && i_instruction[34:32] == 3'd0 &&
+                     i_instruction[31:28] == NV && i_instruction[27:12] == 16'd1;
 
 // ARM925T: the condition under which zap_predecode_coproc hands an
 // instruction to zap_cp15_cb (keep the two in step).
@@ -133,7 +143,7 @@ assign unused = |{pre_index};
 
 ///////////////////////////////////////////////////////////////////////////////
 
-enum logic [20:0] {
+enum logic [24:0] {
         IDLE            = 1 << 0 ,
         MEMOP           = 1 << 1 ,
         WRITE_PC        = 1 << 2 ,
@@ -155,6 +165,10 @@ enum logic [20:0] {
         DEP_WAIT_1      = 1 << 18 ,
         DEP_WAIT_2      = 1 << 19 ,
         DEP_WAIT_3      = 1 << 20 ,
+        BLP_S1          = 1 << 21 , // ARM925T: Thumb BL first half, 2nd uop.
+        BLS_S1          = 1 << 22 , // ARM925T: Thumb BL second half alone.
+        BLS_S2          = 1 << 23 ,
+        BLS_S3          = 1 << 24 ,
         `ZAP_DEFAULT_XX
 } state_ff, state_nxt;
 
@@ -413,6 +427,33 @@ begin:next_state_logic_and_output_logic
                              i_instruction_valid )
                         begin
                                 o_instruction       = {5'd0, i_instruction};
+                                o_irq               = i_irq;
+                                o_fiq               = i_fiq;
+                        end
+                        // ARM925T: Thumb BL first half, as on the ARM9TDMI:
+                        // LR = PC + 4 + (offset << 12), in two steps (bits
+                        // 22:16 and 15:12 of the shifted offset).
+                        else if ( t_bl_prefix )
+                        begin
+                                o_instruction       = '0;
+                                o_instruction[31:0] = {AL, 2'b00, 1'b1, blp_neg ? SUB : ADD, 1'b0,
+                                                       4'd15, 4'd14, 4'd8, 1'b0, blp_mag[10:4]};
+                                o_stall_from_decode = 1'd1;
+                                state_nxt           = BLP_S1;
+                                o_irq               = i_irq;
+                                o_fiq               = i_fiq;
+                        end
+                        // ARM925T: Thumb BL second half on its own: DUMMY0 =
+                        // LR + (offset << 1), then LR = next | 1, PC = DUMMY0.
+                        else if ( t_bl_alone )
+                        begin
+                                o_instruction       = '0;
+                                o_instruction[31:0] = {AL, 2'b00, 1'b1, ADD, 1'b0,
+                                                       4'd14, 4'd0, 4'd14, i_instruction[10:3]};
+                                {o_instruction[ZAP_DP_RD_EXTEND],
+                                 o_instruction[`ZAP_DP_RD]} = ARCH_DUMMY_REG0;
+                                o_stall_from_decode = 1'd1;
+                                state_nxt           = BLS_S1;
                                 o_irq               = i_irq;
                                 o_fiq               = i_fiq;
                         end
@@ -741,6 +782,54 @@ begin:next_state_logic_and_output_logic
                                 o_irq                   = i_irq;
                                 o_fiq                   = i_fiq;
                         end
+                end
+
+                // ARM925T: Thumb BL first half, second step.
+                BLP_S1:
+                begin
+                        o_instruction       = '0;
+                        o_instruction[31:0] = {AL, 2'b00, 1'b1, blp_neg ? SUB : ADD, 1'b0,
+                                               4'd14, 4'd14, 4'd10, 4'd0, blp_mag[3:0]};
+                        o_instruction_valid = 1'd1;
+                        o_stall_from_decode = 1'd0;
+                        state_nxt           = IDLE;
+                end
+
+                // ARM925T: Thumb BL second half on its own.
+                BLS_S1:
+                begin
+                        o_instruction       = '0;
+                        o_instruction[31:0] = {AL, 2'b00, 1'b1, ADD, 1'b0, 4'd0, 4'd0,
+                                               4'd0, 4'd0, i_instruction[2:0], 1'b0};
+                        {o_instruction[ZAP_DP_RD_EXTEND],
+                         o_instruction[`ZAP_DP_RD]} = ARCH_DUMMY_REG0;
+                        {o_instruction[ZAP_DP_RA_EXTEND],
+                         o_instruction[`ZAP_DP_RA]} = ARCH_DUMMY_REG0;
+                        o_instruction_valid = 1'd1;
+                        o_stall_from_decode = 1'd1;
+                        state_nxt           = BLS_S2;
+                end
+
+                BLS_S2:
+                begin
+                        // SUB LR, PC, #1: PC reads as this + 4, so LR = next | 1.
+                        o_instruction       = '0;
+                        o_instruction[31:0] = {AL, 2'b00, 1'b1, SUB, 1'b0, 4'd15, 4'd14, 12'd1};
+                        o_instruction_valid = 1'd1;
+                        o_stall_from_decode = 1'd1;
+                        state_nxt           = BLS_S3;
+                end
+
+                BLS_S3:
+                begin
+                        // MOV PC, DUMMY0 (stays in Thumb state).
+                        o_instruction       = '0;
+                        o_instruction[31:0] = {AL, 2'b00, 1'b0, MOV, 1'b0, 4'd0, 4'd15, 8'd0, 4'd0};
+                        {o_instruction[ZAP_DP_RB_EXTEND],
+                         o_instruction[`ZAP_DP_RB]} = ARCH_DUMMY_REG0;
+                        o_instruction_valid = 1'd1;
+                        o_stall_from_decode = 1'd0;
+                        state_nxt           = IDLE;
                 end
 
                 BL_S1:

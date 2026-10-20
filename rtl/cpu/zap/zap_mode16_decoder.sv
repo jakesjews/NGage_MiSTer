@@ -21,7 +21,10 @@
 // seem a bit complex.
 //
 
-module zap_mode16_decoder (
+module zap_mode16_decoder #(
+        parameter logic V4T = 1'd0      // ARM925T: ARMv4T BL (see T_BL).
+)
+(
         // Input from I-cache.
         // Instruction and valid qualifier.
         input logic [31:0]       i_instruction,
@@ -29,6 +32,9 @@ module zap_mode16_decoder (
 
         // Offset input.
         input logic [10:0]       i_offset,
+
+        // ARM925T: the previous instruction was the first half of a BL.
+        input logic              i_prev_prefix,
 
         // Interrupts. Active high level sensitive signals.
         input logic              i_irq,
@@ -189,6 +195,13 @@ begin
                                 // An MSB of 1 indicates a left shift of 1 in the down stages.
                                 o_instruction[34:0]     = {1'd1, 2'b0, i_instruction[11:8], 3'b101, 1'b0, 24'd0};
                                 o_instruction[23:0]     = $signed({{16{i_instruction[7]}}, i_instruction[7:0]});
+
+                                // ARM925T: condition 1110 is UNDEFINED (1111 is SWI);
+                                // upstream branched always.
+                                if ( i_instruction[11:8] == 4'b1110 )
+                                begin
+                                        o_und = 1'd1;
+                                end
                         end
 
 
@@ -214,11 +227,32 @@ begin
                                                 o_instruction[27:12] = 16'd0;
                                                 o_instruction[31:28] = 4'b1111;
                                                 o_instruction[34:32] = 3'b000;
-                                                o_irq                = 1'd0;
-                                                o_fiq                = 1'd0;
+
+                                                // ARM925T: with V4T, the uop sequencer turns this
+                                                // into LR = PC + 4 + (offset << 12), as on the
+                                                // ARM9TDMI, and an interrupt may come before it.
+                                                o_irq                = V4T ? i_irq : 1'd0;
+                                                o_fiq                = V4T ? i_fiq : 1'd0;
                                         end
                                         1'd1:
                                         begin
+                                                if ( V4T && !i_prev_prefix )
+                                                begin
+                                                        //
+                                                        // ARM925T: second half without the first just
+                                                        // before it (an exception came between them):
+                                                        // PC = LR + (offset << 1), LR = next | 1. The
+                                                        // uop sequencer expands this NV-coded marker.
+                                                        //
+                                                        o_instruction[34:0]  = 35'd0;
+                                                        o_instruction[10:0]  = i_instruction[10:0];
+                                                        o_instruction[27:12] = 16'd1;
+                                                        o_instruction[31:28] = 4'b1111;
+                                                        o_irq                = i_irq;
+                                                        o_fiq                = i_fiq;
+                                                end
+                                                else
+                                                begin
                                                 //
                                                 // Generate a full jump. Subtract 1 to keep relative to
                                                 // previous one.
@@ -226,8 +260,9 @@ begin
                                                 o_instruction[34:0] = {1'd1, 2'b0, AL, 3'b101, 1'b1, 24'd0};
                                                 o_instruction[23:0] = ($signed({offset_w[10], offset_w[10], offset_w[10:0], i_instruction[10:0]}));
                                                 o_instruction[23:0]--;
-                                                o_irq               = 1'd0;
-                                                o_fiq               = 1'd0;
+                                                o_irq               = V4T ? i_irq : 1'd0; // ARM925T
+                                                o_fiq               = V4T ? i_fiq : 1'd0; // ARM925T
+                                                end
                                         end
                                         default:
                                         begin

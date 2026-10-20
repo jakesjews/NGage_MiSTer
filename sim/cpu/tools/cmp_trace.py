@@ -29,6 +29,31 @@ PSR_MASK = 0xFFFFFEFF
 RESET_CPSR = 0xD3
 
 
+def merge_thumb_bl(events, image):
+    """QEMU runs a Thumb BL pair (prefix 11110, suffix 11111) as one
+    instruction; ZAP retires the halves separately. Keep the prefix's line
+    (its registers are those before the pair) and drop the suffix's."""
+    if image is None:
+        return events
+
+    def half(pc):
+        return int.from_bytes(image[pc:pc + 2], "little") if pc + 2 <= len(image) else 0
+
+    out = []
+    i = 0
+    while i < len(events):
+        pc, kind, state = events[i]
+        out.append(events[i])
+        thumb = state[15] is not None and (state[15] >> 5) & 1
+        if (kind == "R" and thumb and i + 1 < len(events) and
+                (half(pc) & 0xF800) == 0xF000 and events[i + 1][0] == pc + 2 and
+                events[i + 1][1] == "R" and (half(pc + 2) & 0xF800) == 0xF800):
+            i += 2
+            continue
+        i += 1
+    return out
+
+
 def rtl_stream(path, halt):
     out = []
     state = [0] * 15 + [RESET_CPSR]
@@ -89,11 +114,16 @@ def main():
     ap.add_argument("--halt", default="0x40")
     ap.add_argument("--name", default="")
     ap.add_argument("--max", type=int, default=5, help="mismatches to show")
+    ap.add_argument("--bin", help="the test image at 0 (to pair Thumb BL halves)")
     opt = ap.parse_args()
     halt = int(opt.halt, 0)
     name = opt.name + ": " if opt.name else ""
+    image = None
+    if opt.bin:
+        with open(opt.bin, "rb") as f:
+            image = f.read()
 
-    r = rtl_stream(opt.rtl, halt)
+    r = merge_thumb_bl(rtl_stream(opt.rtl, halt), image)
     q = qemu_stream(opt.qemu, halt)
     shown = 0
     flags_known = False

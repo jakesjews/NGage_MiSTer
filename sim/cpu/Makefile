@@ -130,7 +130,8 @@ diff:
 		r=0; \
 		$(PY) $(HERE)/tools/cmp_sig.py --name $$t $(BUILD)/rtl/$$t.sig $(BUILD)/qemu/$$t.sig || r=1; \
 		if [ -f $(BUILD)/qemu/$$t.qlog ]; then \
-			$(PY) $(HERE)/tools/cmp_trace.py --name $$t $(BUILD)/rtl/$$t.trace $(BUILD)/qemu/$$t.qlog || r=1; \
+			$(PY) $(HERE)/tools/cmp_trace.py --name $$t --bin $(TB)/$$t.bin \
+				$(BUILD)/rtl/$$t.trace $(BUILD)/qemu/$$t.qlog || r=1; \
 		fi; \
 		if [ $$r = 0 ]; then ok=$$((ok+1)); else bad=$$((bad+1)); badl="$$badl $$t"; fi; \
 	done; \
