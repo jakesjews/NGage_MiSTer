@@ -526,3 +526,48 @@ found, and what comes next. Research material lives in `research/`
     address).
   - GDB command files with `commands` blocks log leaves and process creation
     (examples in this session's notes; see the next entry).
+
+### 2026-10-20, FPGA side: 104 MHz timing, flash block lock, open questions
+- Full compile of the core (`./build.sh remote compile`): the first run
+  missed 104 MHz by 0.263 ns, all in keypad_matrix (six-pass propagation
+  between lcd_testgen's column register and its row capture; the
+  framework's worst path is +0.56 ns). keypad_matrix now works the joins
+  out in registers (one step a clock, settled ten clocks after a key
+  change); the drive-to-level path is one AND-OR. Second run meets
+  every corner: worst setup +0.354 ns (slow -40C), hold +0.058 ns; 9,472
+  ALMs (23%), 15,282 registers, 137 M10K, 33 DSP, 3 PLLs. RBF builds.
+- Block-level compile (every board device, ports on virtual pins, 104 MHz;
+  project kept outside the repo): the MMC card's buffer bookkeeping was
+  about 15 ns (now two register stages, used only once their inputs have
+  been stable) and its CMD17/18/24 range checks 0.5 ns over (now
+  registered a clock after the frame). Final: every
+  corner met, worst setup +0.031 ns (slow -40C); 5,264 ALMs for all six.
+  Per block (ALUTs / registers / block bits): keypad_matrix 401 / 146;
+  lcd_panel 1117 / 712 / 585728 (72 M10K); video_out 117 / 69; mmc_card
+  2739 / 1355 / 8192; nor_flash 16 MB 2271 / 824; nor_flash 8 MB
+  1411 / 563.
+- Final `./build.sh remote map` on HEAD: 0 errors, 20 warnings (ours: the
+  unused BFA register only). sys_top 14,843 ALUTs / 14,795 registers /
+  1,045,761 block bits / 33 DSP; emu 3,988 / 3,509 / 661,504 (the flash
+  chips and most of the MMC card are optimised away while their buses are
+  idle; see the block figures above).
+- Flash: Samsung block lock/unlock (60, 60 at the block, A6 = unlock), as
+  the model found medint.pdd using; lock state at autoselect +02; locked
+  sectors are not programmed or erased. `LOCKED_AT_RESET = 0` [assumed].
+- MMC sidecar formats differ: the FPGA card reads a trailer block in the
+  image (MiSTer mounts one file a slot); the QEMU model reads
+  `<image>.cid` / `.csd`. A small converter would let one dump serve both.
+- Open questions for the FPGA side:
+  - LCD: which module a QD has (RDDID now defaults to 0x29 00 00, the
+    module-0x10 answer the boot code and the model use); whether the panel is mounted rotated (`PANEL_ROT180`);
+    whether TE should follow the 60 Hz video (tear-free on MiSTer) rather
+    than the panel's own 74 Hz; blank colours; ML and the scroll area.
+  - MMC: the retail CSD lists command class 1 (CMD11 stream read), not
+    implemented; card-detect for hotswapdrv.ldd; the UPP_WD2 host's
+    time-outs against HPS latency (TAAC in the default CSD says 10 ms).
+  - Flash: sector map (top boot assumed), bank count, busy times, lock
+    state at power-up, burst configuration (C0) and secured-silicon (88)
+    commands, CFI fields.
+  - Keypad: which side wins a drive fight; the firmware's scan timing.
+  - Next for the shell: a DDR3 controller for the flash memory ports
+    (images at 0x31000000/0x32000000) and the 16 MB SDRAM at 0x30000000.
