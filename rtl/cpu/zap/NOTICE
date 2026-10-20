@@ -1,0 +1,23 @@
+ZAP processor RTL, vendored for the N-Gage QD MiSTer core
+=========================================================
+
+Origin:    https://github.com/krevanth/ZAP
+Commit:    fc7bd75f0e5049535f0774b3bd0ee20787f9a6fa (2024-05-29), src/rtl/
+Author:    Copyright (C) 2016-2024 Revanth Kamaraj (krevanth)
+           <revanth91kamaraj@gmail.com>
+Licence:   GNU General Public License, version 3 or (at your option) any
+           later version. The full text is in LICENSE in this directory.
+           Every file keeps its original copyright and licence header.
+
+The files in this directory were copied unchanged from the commit above
+(LICENSE from the repository root). Changes made for this project, which
+turn ZAP into a functional model of the TI ARM925T (ARMv4T) used in Nokia's
+UPP_WD2 ASIC, are marked in the source with the tag "ARM925T:" and are
+described in docs/CPU.md. The upstream behaviour stays the default of each
+new parameter where that is possible; rtl/cpu/arm925t.sv sets the ARM925T
+values. Bug fixes that apply in every configuration are listed in
+docs/CPU.md as well.
+
+rtl/cpu/arm925t_gen.v is generated from these files by tools/gen_cpu.sh
+(sv2v and the fixes Quartus 17 needs); it is a derived work under the same
+licence.
