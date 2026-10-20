@@ -23,7 +23,11 @@
 // [1.5T + tAC + D, 2.5T + tOH + D] after the READ edge, 27.4-31.0 ns at
 // 104 MHz worst case, and the capture edge at 3T = 28.8 ns sits inside it
 // with about 1.4 ns either side. Command, address, DQM and DQ registers sit in
-// the I/O cells (sys/sys.tcl sets FAST_*_REGISTER for SDRAM_*).
+// the I/O cells (sys/sys.tcl sets FAST_*_REGISTER for SDRAM_*). They copy a
+// stage of internal registers (p_*), where the schedule's decisions land,
+// so that the I/O registers at the chip's edge need no logic before them
+// (timing); everything reaches the pins a clock later, and the capture
+// clock (CAP) counts that clock too.
 //
 // Policy: closed page. Each access opens its row with ACTIVE, reads or
 // writes, and closes it with PRECHARGE; there is no bank interleaving. The
@@ -36,12 +40,14 @@
 // Schedule at the defaults (clocks after the ACTIVE edge; tRCD, tRP 20 ns,
 // tRAS 45 ns, tRC, tRFC 70 ns, tWR 15 ns: the slowest of the modules' data
 // sheets, rounded up at 104 MHz to 3, 3, 5, 8, 8 and 2 clocks):
-//   word read:   READ 3, PRECHARGE 5, word at the port 7, next ACTIVE 8
-//   line read:   READ 3, PRECHARGE 11, words at 7, 9, 11, 13, next ACTIVE 14
+//   word read:   READ 3, PRECHARGE 5, word at the port 8, next ACTIVE 9
+//   line read:   READ 3, PRECHARGE 11, words at 8, 10, 12, 14, next ACTIVE 15
 //   word write:  WRITE 3-4, PRECHARGE 6, next ACTIVE 9
 //   line write:  WRITE 3-10, PRECHARGE 12, next ACTIVE 15
-// The request is taken at the ACTIVE edge, so a read's first word reaches
-// rvalid 7 clocks (67 ns) after the request is taken.
+// (as the schedule sets them; each command reaches the pins a clock later,
+// through the output stage). The request is taken at the ACTIVE edge, so a
+// read's first word reaches rvalid 8 clocks (77 ns) after the request is
+// taken.
 //
 // Refresh: one AUTO REFRESH every REFRESH_CLKS (780 at 104 MHz, 7.5 us),
 // issued between accesses; an access never waits more than tRFC (8 clocks)
@@ -129,7 +135,8 @@ module sdram #(
 	localparam int RFC = imax(1, clks(T_RFC_NS));
 	localparam int WR  = imax(2, clks(T_WR_NS));
 	localparam int MRD = 2;
-	localparam int CAP = RCD + CAS_LATENCY + CAPTURE_CLKS;   // first halfword captured
+	// first halfword captured (+ 1: the output stage before the I/O registers)
+	localparam int CAP = RCD + CAS_LATENCY + CAPTURE_CLKS + 1;
 
 	// read of n halfwords: PRECHARGE after the last one leaves the chip (a
 	// PRECHARGE CL-1 clocks before the edge of the last wanted halfword cuts
@@ -199,6 +206,24 @@ module sdram #(
 
 	wire idle = !active || t == t_end;
 
+	// the output stage (see Clocking): the schedule sets these, the I/O
+	// registers take them a clock later
+	logic        p_ras_n = 1'b1, p_cas_n = 1'b1, p_we_n = 1'b1;
+	logic [1:0]  p_ba;
+	logic [12:0] p_a;
+	logic        p_dqml, p_dqmh;
+	logic [15:0] p_dq_o;
+	logic [15:0] p_dq_oe = 16'h0000;
+	always_ff @(posedge clk) begin
+		{sdram_ras_n, sdram_cas_n, sdram_we_n} <= {p_ras_n, p_cas_n, p_we_n};
+		sdram_ba    <= p_ba;
+		sdram_a     <= p_a;
+		sdram_dqml  <= p_dqml;
+		sdram_dqmh  <= p_dqmh;
+		sdram_dq_o  <= p_dq_o;
+		sdram_dq_oe <= p_dq_oe;
+	end
+
 	logic           rvalid_q = 1'b0;
 
 	assign ready     = ready_q;
@@ -222,15 +247,15 @@ module sdram #(
 		dq_q    <= sdram_dq_i;
 		dq_hold <= dq_q;
 
-		// I/O registers, loaded every clock: a NOP unless set below; the
+		// output stage, loaded every clock: a NOP unless set below; the
 		// bank of the access throughout it, DQ released
-		{sdram_ras_n, sdram_cas_n, sdram_we_n} <= CMD_NOP;
-		sdram_a     <= 13'd0;
-		sdram_ba    <= op_ba;
-		sdram_dqml  <= 1'b0;
-		sdram_dqmh  <= 1'b0;
-		sdram_dq_o  <= wsh[15:0];
-		sdram_dq_oe <= 16'h0000;
+		{p_ras_n, p_cas_n, p_we_n} <= CMD_NOP;
+		p_a     <= 13'd0;
+		p_ba    <= op_ba;
+		p_dqml  <= 1'b0;
+		p_dqmh  <= 1'b0;
+		p_dq_o  <= wsh[15:0];
+		p_dq_oe <= 16'h0000;
 
 		rvalid_q <= 1'b0;
 		if (cap_word) begin
@@ -257,8 +282,8 @@ module sdram #(
 				end
 				I_PRECHARGE: begin
 					if (icnt == 16'd0) begin
-						{sdram_ras_n, sdram_cas_n, sdram_we_n} <= CMD_PRECHARGE;
-						sdram_a[10] <= 1'b1;                  // all banks
+						{p_ras_n, p_cas_n, p_we_n} <= CMD_PRECHARGE;
+						p_a[10] <= 1'b1;                  // all banks
 					end
 					icnt <= icnt + 16'd1;
 					if (icnt == 16'(RP - 1)) begin
@@ -268,7 +293,7 @@ module sdram #(
 					end
 				end
 				I_REFRESH: begin
-					if (icnt == 16'd0) {sdram_ras_n, sdram_cas_n, sdram_we_n} <= CMD_REFRESH;
+					if (icnt == 16'd0) {p_ras_n, p_cas_n, p_we_n} <= CMD_REFRESH;
 					icnt <= icnt + 16'd1;
 					if (icnt == 16'(RFC - 1)) begin
 						icnt  <= '0;
@@ -278,9 +303,9 @@ module sdram #(
 				end
 				I_MODE: begin
 					if (icnt == 16'd0) begin
-						{sdram_ras_n, sdram_cas_n, sdram_we_n} <= CMD_MODE;
-						sdram_a  <= MODE;
-						sdram_ba <= 2'b00;
+						{p_ras_n, p_cas_n, p_we_n} <= CMD_MODE;
+						p_a  <= MODE;
+						p_ba <= 2'b00;
 					end
 					icnt <= icnt + 16'd1;
 					if (icnt == 16'(MRD - 1)) istate <= I_DONE;
@@ -298,29 +323,29 @@ module sdram #(
 			t <= t + 1'd1;
 			if (!op_ref) begin
 				if (!op_we && t == TW'(RCD)) begin
-					{sdram_ras_n, sdram_cas_n, sdram_we_n} <= CMD_READ;
-					sdram_a[8:0] <= op_col;
+					{p_ras_n, p_cas_n, p_we_n} <= CMD_READ;
+					p_a[8:0] <= op_col;
 				end
 				if (op_we && t >= TW'(RCD) && t < TW'(RCD) + (op_line ? TW'(8) : TW'(2))) begin
-					{sdram_ras_n, sdram_cas_n, sdram_we_n} <= CMD_WRITE;
-					sdram_a     <= {wmask[1], wmask[0], 2'b00, op_col};
-					sdram_dqml  <= wmask[0];
-					sdram_dqmh  <= wmask[1];
-					sdram_dq_oe <= 16'hFFFF;
+					{p_ras_n, p_cas_n, p_we_n} <= CMD_WRITE;
+					p_a     <= {wmask[1], wmask[0], 2'b00, op_col};
+					p_dqml  <= wmask[0];
+					p_dqmh  <= wmask[1];
+					p_dq_oe <= 16'hFFFF;
 					wsh         <= {16'h0000, wsh[127:16]};
 					wmask       <= {2'b11, wmask[15:2]};
 					op_col      <= {op_col[8:3], op_col[2:0] + 3'd1};
 				end
 				if (t == (op_we ? (op_line ? TW'(PRE_WL) : TW'(PRE_WW))
 				                : (op_line ? TW'(PRE_RL) : TW'(PRE_RW)))) begin
-					{sdram_ras_n, sdram_cas_n, sdram_we_n} <= CMD_PRECHARGE;
+					{p_ras_n, p_cas_n, p_we_n} <= CMD_PRECHARGE;
 				end
 			end
 		end else if (ready_q) begin
 			active <= 1'b0;
 			if (ref_due) begin
 				// AUTO REFRESH (every bank is closed between accesses)
-				{sdram_ras_n, sdram_cas_n, sdram_we_n} <= CMD_REFRESH;
+				{p_ras_n, p_cas_n, p_we_n} <= CMD_REFRESH;
 				active  <= 1'b1;
 				op_ref  <= 1'b1;
 				t       <= TW'(1);
@@ -328,9 +353,9 @@ module sdram #(
 				ref_due <= 1'b0;
 				rcnt    <= '0;
 			end else if (req) begin
-				{sdram_ras_n, sdram_cas_n, sdram_we_n} <= CMD_ACTIVE;
-				sdram_a  <= h[21:9];
-				sdram_ba <= h[23:22];
+				{p_ras_n, p_cas_n, p_we_n} <= CMD_ACTIVE;
+				p_a  <= h[21:9];
+				p_ba <= h[23:22];
 				op_ba    <= h[23:22];
 				active   <= 1'b1;
 				op_ref   <= 1'b0;
