@@ -7,6 +7,7 @@
 /* Resources (PhoNet resource ids as the clients use them). */
 #define RES_SECURITY    0x08        /* oFono sim.h PN_SECURITY */
 #define RES_SIM         0x09
+#define RES_INFO        0x1B        /* oFono info.h PN_PHONE_INFO */
 #define RES_1C          0x1C        /* subscribed by DOS and the TSY with message 0x10 */
 #define RES_MTC         0x15        /* modem state (oFono mtc.h PN_MTC) */
 #define RES_SOUND       0x0B        /* audio settings (gnokii nk6510: 0x0B sound) */
@@ -25,6 +26,8 @@
 #define SIM_SERV_OK         0x01        /* oFono sim.h causes */
 #define SIM_SERV_INIT_OK    0x0B
 #define SIM_SERV_IMSI_EQUAL 0x2A
+#define SIM_SERV_CIPHERING_NOT_REQUIRED 0x31
+#define SIM_SERV_DATA_NOT_AVAIL 0x24
 
 /* Start a reply in r[]: devices and objects swapped, same resource and
  * transaction, message id `id`. Returns the header length (10). */
@@ -108,6 +111,68 @@ static void isi_request(struct slot *s, const u8 *m, int len)
         r[n++] = SIM_SERV_IMSI_EQUAL;
         isi_send(s, r, n);
         break;
+    case RES_SIM << 8 | 0x60:
+        /* Ciphering indicator query (RCtmGsmPhone::GetCipheringInfo, which
+         * Phone.app calls synchronously when its idle view activates; the
+         * view server panics it after a timeout otherwise). phonetsy.tsy
+         * 0x5093F4C0 / 0x50930EDC read the reply 0x61 at [11]: 0x30
+         * SIM_SERV_CIPHERING_INDICATOR_DISPLAY_REQUIRED -> 1, 0x31 NOT_
+         * REQUIRED -> 0, others -> KErrUnknown. */
+        n = isi_reply_hdr(r, m, 0x61);
+        r[n++] = m[10];
+        r[n++] = SIM_SERV_CIPHERING_NOT_REQUIRED;
+        isi_send(s, r, n);
+        break;
+    case RES_SIM << 8 | 0x21:
+        /* SIM_SERV_PROV_NAME_REQ [2C] (oFono sim.h), from
+         * RCtmGsmPhone::GetServiceProviderDisplayInfo, which Phone.app calls
+         * synchronously. phonetsy.tsy 0x5093ED20 reads the reply 0x22 at
+         * [11]: 1 -> parse the name (0x5093024C), others -> complete with
+         * the error of 0x5094E290 (0x24 -> KErrGeneral). The SIM has no
+         * service provider name: SIM_SERV_DATA_NOT_AVAIL. */
+        n = isi_reply_hdr(r, m, 0x22);
+        r[n++] = m[10];
+        r[n++] = SIM_SERV_DATA_NOT_AVAIL;
+        isi_send(s, r, n);
+        break;
+    case RES_SIM << 8 | 0x33:
+        /* SIM read, [10] = service (0x3E: operator name for
+         * RCtmGsmPhone::GetNetworkProviderName, which Phone.app calls
+         * synchronously). phonetsy.tsy 0x5093EDD0 reads the reply 0x34 at
+         * [11]: 1 -> parse by service (0x50930310); service 0x13 with
+         * 0x24 -> parse; others -> complete with the error of 0x5094E290
+         * (0x50930458). The SIM holds none of these: DATA_NOT_AVAIL. */
+        n = isi_reply_hdr(r, m, 0x34);
+        r[n++] = m[10];
+        r[n++] = SIM_SERV_DATA_NOT_AVAIL;
+        isi_send(s, r, n);
+        break;
+    case RES_SIM << 8 | 0x13:
+        /* SIM read [11] (service table, for RAdvGsmPhone::GetSimServiceTable,
+         * which Menu.app's MenuEng calls synchronously at start-up).
+         * phonetsy.tsy 0x5093FD60 reads the reply 0x14 at [11]: 1 -> parse
+         * (0x509310F0), 0x24 -> complete with -21; other values leave the
+         * request waiting. MenuEng (0x50A13064) takes an error as "no SIM
+         * toolkit". DATA_NOT_AVAIL. */
+        n = isi_reply_hdr(r, m, 0x14);
+        r[n++] = m[10];
+        r[n++] = SIM_SERV_DATA_NOT_AVAIL;
+        isi_send(s, r, n);
+        break;
+    case RES_SIM << 8 | 0x31:
+        /* SIM read [service 00 00]: 0x3B is the ALS line
+         * (RCtmGsmPhone::ReadSimAlsLine, called synchronously by SysAp and
+         * Phone.app through sssettings); the customer service profile
+         * (RAdvGsmPhone::GetCustomerServiceProfile, Menu.app) also ends here.
+         * phonetsy.tsy 0x5093F114 reads the reply 0x32 at [11]: ALS (request
+         * type 0x89): 1 -> parse, 0x24 -> line "3" and KErrNone
+         * (0x5092F3B0); CSP (type 0x4E): 1 -> parse, else -21. DATA_NOT_
+         * AVAIL: no ALS, no CSP on this SIM. */
+        n = isi_reply_hdr(r, m, 0x32);
+        r[n++] = m[10];
+        r[n++] = SIM_SERV_DATA_NOT_AVAIL;
+        isi_send(s, r, n);
+        break;
     case RES_SIM << 8 | 0x2D:
         /* Nokia.dsy 0x50FFB400 reads the reply 0x2E: [10] service (must
          * echo 0x3A), [11] SIM_SERV_OK, [12] value: 0x0A/0x5A -> DosSrv
@@ -180,6 +245,23 @@ static void isi_request(struct slot *s, const u8 *m, int len)
         r[n++] = 0x00;
         r[n++] = 0x00;
         r[n++] = 0x00;
+        isi_send(s, r, n);
+        break;
+    case RES_INFO << 8 | 0x02:
+        /* INFO_PP_READ_REQ [00 01] + sub-block INFO_SB_PP [47 08 00 02
+         * feature 00 00 00] (oFono info.h; isimsg ord980). Sent for
+         * RCtmGsmPhone::CheckAlsPpSupport, which SysAp calls synchronously.
+         * phonetsy.tsy 0x5093EB38 reads INFO_PP_READ_RESP 0x03: [10] status
+         * (0 = INFO_OK), [11] sub-block count, sub-block at [12] with the
+         * value at its byte 5 (isimsg ord1028); then 0x5092F248 completes
+         * the request. Product profile value 0 (feature off). */
+        n = isi_reply_hdr(r, m, 0x03);
+        r[n++] = 0x00;
+        r[n++] = 0x01;
+        for (int i = 12; i < 20; i++) {
+            r[n++] = i < len ? m[i] : 0;
+        }
+        r[n - 3] = 0x00;                /* value: sub-block byte 5 */
         isi_send(s, r, n);
         break;
     default:

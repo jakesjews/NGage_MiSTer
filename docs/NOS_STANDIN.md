@@ -116,6 +116,12 @@ Event 1 is the self-test result, read by Startup.app directly.
 | `0x35` | `0x02` [`01 00`], DOS self test | `0x03` [`00`] | DOS sends `0x35/0x00` | Nokia.dsy `0x50FFBB04` reads [10]: 0/10/11 → next step (`0x50FFBDC4`); 12 → DOS event 1 = 2, "Device start-up failed" (tried); others → ask again |
 | `0x35` | `0x00` [`02 00`] | `0x01` [`00`] | DOS sends `0x59/0x01` | Nokia.dsy `0x50FFBBBC` reads [10]: 0 → next step (`0x50FFBD6C`); 1/2 → ask again; 12 → failure and MTC_STATE_REQ(SELFTEST_FAIL) |
 | `0x59` | `0x01` [`08 00`] | `0x02` [`00`] | DOS event 1 = 3: self test passed; Startup.app state 1 → 2 → 4 | Nokia.dsy `0x50FFBC74` reads [10]: 0 → event 1 = 3 (`0x50FFBCBC`); others → ask again; Startup.app `0x50BBAF60` |
+| `0x09` SIM | `0x60` [`FA 00`] (TSY) | `0x61` [`FA 31`] | completes RCtmGsmPhone::GetCipheringInfo (indicator not required); Phone.app calls it synchronously when the idle view activates, and the view server panics it (`ViewSrv 11`, then Starter and the kernel, `PLAT`) if it hangs | phonetsy.tsy `0x5093F4C0`, `0x50930EDC` read [11]: 0x30 SIM_SERV_CIPHERING_INDICATOR_DISPLAY_REQUIRED → 1, 0x31 → 0, others → KErrUnknown |
+| `0x09` SIM | `0x21` [`2C`] (TSY) | `0x22` [`2C 24`] | SIM_SERV_PROV_NAME_REQ: no service provider name; GetServiceProviderDisplayInfo (Phone.app, synchronous) completes with KErrGeneral | phonetsy.tsy `0x5093ED20` reads [11]: 1 → parse, others → error from `0x5094E290` (0x24 → -2) |
+| `0x09` SIM | `0x33` [`3E`] (TSY) | `0x34` [`3E 24`] | SIM read of the operator name for GetNetworkProviderName (Phone.app, synchronous); completes with an error | phonetsy.tsy `0x5093EDD0` reads [11]: 1 → parse by service [10]; service 0x13 with 0x24 → parse; others → `0x50930458` error |
+| `0x09` SIM | `0x13` [`11`] (TSY) | `0x14` [`11 24`] | SIM service table for RAdvGsmPhone::GetSimServiceTable (Menu.app's MenuEng, synchronous) → -21, read as "no SIM toolkit" | phonetsy.tsy `0x5093FD60` reads [11]: 1 → parse, 0x24 → -21, others → no completion; MenuEng `0x50A13064` |
+| `0x09` SIM | `0x31` [`3B 00 00`] (TSY) | `0x32` [`3B 24`] | ReadSimAlsLine (SysAp, Phone.app through sssettings, synchronous) → line 3, KErrNone; the CSP read (Menu.app) → -21 | phonetsy.tsy `0x5093F114` reads [11]: type 0x89 (ALS) 1 → parse, else `0x5092F3B0` (0x24 → line 3); type 0x4E (CSP) 1 → parse, else -21 |
+| `0x1B` info | `0x02` INFO_PP_READ_REQ [`00 01` + `47 08 00 02 01 00 00 00`] (TSY) | `0x03` [`00 01` + `47 08 00 02 01 00 00 00`] | product profile feature value 0: completes RCtmGsmPhone::CheckAlsPpSupport (SysAp, synchronous) | phonetsy.tsy `0x5093EB38`: [10] status 0 = INFO_OK (oFono info.h), [11] sub-block count, INFO_SB_PP at [12], value at its byte 5 (isimsg ord1028) → `0x5092F248` |
 | `0x0B` | `0x11` [`06 01`] (TSY) | `0x12` [`06 01 06 08 00 00 00 00 00 00`] | completes RCtmGsmPhone::GetHandsfreeMode (hands-free off), which PhoneServer waits on at start-up | phonetsy.tsy `0x5093E1D8`: [10] setting, [11] sub-block count = 1, sub-block at [12], 16-bit big-endian value at its bytes 4-5 (isimsg ord1568); `0x5092E16C` setting 6: 13 → on, else off. Sub-block id and length are guesses |
 
 ## Not answered yet
@@ -129,7 +135,10 @@ Requests seen but left without a reply (the client keeps waiting):
 | `0x31` GPDS | `0x19` | TSY | |
 | `0x0A` network | `0x00` | TSY | |
 | `0x09` SIM | `0x19` [`2F`] | object `0x4C` | READ_HPLMN (oFono) |
-| `0x09` SIM | `0x3D` [`FA 00`] | TSY | reply `0x3E`, phonetsy.tsy `0x5093FA20` |
+| `0x09` SIM | `0x3D` [`FA 00`] | TSY | reply `0x3E`, phonetsy.tsy `0x5093FA20` (request type 0x4C, reads a string at [11] = 1) |
+| `0x1F` | `0x01` [long], `0x04` [`00 00 00`] | object `0x4A` | |
+| `0x23` | `0x04` [`00 32 00 01 ...`] | DOS object `0x4F` | |
+| `0x02` | `0x14` [`01 00`] | object `0x4C` | gnokii: 0x02 SMS |
 | `0x15` MTC | `0x01` [`01 00`] | DOS object `0x4F` | MTC_STATE_REQ(normal), oFono mtc.h |
 | `0x0B` | `0x00` [`01`] | object `0x4A` | |
 | - | channel request 2 on unit 2 | TSY | stays pending |

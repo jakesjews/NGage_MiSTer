@@ -1096,3 +1096,27 @@ found, and what comes next. Research material lives in `research/`
 - Still unanswered: DOS battery (`0x17`), `0x3A/0x05`, MTC_STATE_REQ from
   DOS object `0x4F`, TSY network/GPDS/SIM reads, `0x0B/0x00` from object
   `0x4A`.
+
+### 2026-10-20: idle screen stays up; the menu opens
+- After the date query the system restarted: Phone.app was panicked by the
+  view server (`ViewSrv 11`: no answer to its idle-view activation),
+  Starter re-raised the panic, and Starter being system-critical, the
+  kernel faulted (`PLAT` 0x1005B, halt loop at ekern `0x5031E394`). Phone.app
+  was blocked in synchronous custom-TSY calls. The same pattern held SysAp
+  and Menu.app. Each is now answered (details in `docs/NOS_STANDIN.md`):
+  - `0x09/0x60` → `0x61 [FA 31]` ciphering indicator not required
+    (GetCipheringInfo);
+  - `0x09/0x21` → `0x22 [2C 24]`, `0x09/0x33` → `0x34 [3E 24]`: no service
+    provider or operator name on the SIM;
+  - `0x09/0x13` → `0x14 [11 24]`: no SIM service table (no SIM toolkit);
+  - `0x09/0x31` → `0x32 [3B 24]`: no ALS line, no CSP;
+  - `0x1B/0x02` INFO_PP_READ → `0x03`, product profile value 0
+    (CheckAlsPpSupport).
+- Result: the operator idle screen draws and stays (movistar wallpaper,
+  date, analog clock, soft keys "Contacts" and "emoción";
+  `model/.out/idle-movistar.png`), and the Menu key opens the application
+  grid (Juegos, Contacts, Calendar, Bluetooth, Messaging, Web, Extras,
+  Tools, N-Gage Arena; `model/.out/menu.png`).
+- New debug tool: `model/stacks.sh [SECONDS]` lists each thread's user-stack
+  return addresses (`model/tools/kstacks.py` reads the process's data
+  chunk at its home address). It is how the blocked calls were found.
