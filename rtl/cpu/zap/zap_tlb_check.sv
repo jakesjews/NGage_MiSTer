@@ -326,13 +326,16 @@ input [15:0]            tlb                            // TLB entry.
 
         unused[1:0]            |= tlb[`ZAP_SPAGE_TLB__CB];
 
+        // ARM925T: the domain of a small-page TLB entry is in its own field
+        // (15:12); upstream took bits 8:5, part of the AP bits, so a page
+        // translation fault reported the wrong domain.
         if ( tlb[1:0] == 2'b00 ) // Check needed only for section and small page.
         begin
-                return {tlb[`ZAP_L1_PAGE__DAC_SEL], FSR_PAGE_TRANSLATION_FAULT};
+                return {tlb[`ZAP_SPAGE_TLB__DAC_SEL], FSR_PAGE_TRANSLATION_FAULT};
         end
         else if ( tlb[1:0] == 2'b11 )
         begin
-                return {tlb[`ZAP_L1_PAGE__DAC_SEL], FSR_L2_EXTERNAL_ABORT};
+                return {tlb[`ZAP_SPAGE_TLB__DAC_SEL], FSR_L2_EXTERNAL_ABORT};
         end
         else
         begin

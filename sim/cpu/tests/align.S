@@ -7,16 +7,17 @@
 	.include "test.inc"
 
 	@ ATRY n: the instruction before this macro must abort; check FSR/FAR
+	@ (r9, r10 and r12 are used)
 	.macro	ATRY far
-	ldr	r12, [r11, #0]
-	CHECK	r12, 1
-	ldr	r12, [r11, #8]
-	CHECK	r12, 1			@ FSR: alignment, domain 0
-	ldr	r12, [r11, #12]
-	ldr	r10, =\far
-	CHECKR	r12, r10
-	mov	r12, #0
-	str	r12, [r11, #0]
+	ldr	r10, [r11, #0]
+	CHECK	r10, 1
+	ldr	r10, [r11, #8]
+	CHECK	r10, 1			@ FSR: alignment, domain 0
+	ldr	r10, [r11, #12]
+	ldr	r9, =\far
+	CHECKR	r10, r9
+	mov	r10, #0
+	str	r10, [r11, #0]
 	.endm
 
 	.text
@@ -38,9 +39,9 @@ test_main:
 1:	ldr	r3, [r0, #1]
 	ATRY	SCRATCH + 1
 	CHECK	r3, 0x77		@ not loaded
-	ldr	r12, [r11, #4]		@ LR_abt = instruction + 8
+	ldr	r9, [r11, #4]		@ LR_abt = instruction + 8
 	adr	r10, 1b + 8
-	CHECKR	r12, r10
+	CHECKR	r9, r10
 	mvn	r3, #0
 	str	r3, [r0, #2]
 	ATRY	SCRATCH + 2

@@ -85,8 +85,8 @@ test_main:
 	CHECKPOINT
 
 	@ S and R with AP 00: S = privileged read-only, R = read-only for all
-	mrc	p15, 0, r9, c1, c0, 0
-	orr	r0, r9, #CR_S
+	mrc	p15, 0, r11, c1, c0, 0
+	orr	r0, r11, #CR_S
 	mcr	p15, 0, r0, c1, c0, 0
 	TLBFLUSH
 	ldr	r0, [r6]		@ privileged read
@@ -95,14 +95,14 @@ test_main:
 	DABT	0x0D, 0x10200000
 	ldrt	r0, [r6]		@ user: fault
 	DABT	0x0D, 0x10200000
-	orr	r0, r9, #CR_R
+	orr	r0, r11, #CR_R
 	mcr	p15, 0, r0, c1, c0, 0
 	TLBFLUSH
 	ldrt	r0, [r6]		@ user read
 	NOABT
 	strt	r0, [r6]
 	DABT	0x0D, 0x10200000
-	mcr	p15, 0, r9, c1, c0, 0
+	mcr	p15, 0, r11, c1, c0, 0
 	TLBFLUSH
 	CHECKPOINT
 

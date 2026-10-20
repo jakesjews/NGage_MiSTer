@@ -17256,9 +17256,9 @@ module zap_tlb_check (
 			apsr[1:0] = sr[1:0];
 			unused[1:0] = unused[1:0] | tlb[3:2];
 			if (tlb[1:0] == 2'b00)
-				get_fsr_spage = {tlb[8:5], FSR_PAGE_TRANSLATION_FAULT};
+				get_fsr_spage = {tlb[15:12], FSR_PAGE_TRANSLATION_FAULT};
 			else if (tlb[1:0] == 2'b11)
-				get_fsr_spage = {tlb[8:5], FSR_L2_EXTERNAL_ABORT};
+				get_fsr_spage = {tlb[15:12], FSR_L2_EXTERNAL_ABORT};
 			else
 				case (dac)
 					DAC_MANAGER: get_fsr_spage = 1'sb0;
@@ -17697,7 +17697,7 @@ module zap_tlb_fsm (
 	wire examine_fsr;
 	assign addr0 = {i_baddr[31:14], address[31:20], 2'd0};
 	assign addr1 = {dff[31:10], address[19:12], 2'd0};
-	assign addr2 = {dff[31:10], address[19:12], 2'd0};
+	assign addr2 = {dff[31:12], address[19:10], 2'd0};
 	assign o_wb_cyc = wb_cyc_ff;
 	assign o_wb_stb = wb_stb_ff;
 	assign o_wb_adr = wb_adr_ff;

@@ -85,6 +85,12 @@
 
 @ CHECK reg, value: fail unless reg == value (r12 and flags are used)
 	.macro	CHECK reg, val
+	.ifc	\reg, r12
+	.error	"CHECK cannot test r12, which it uses"
+	.endif
+	.ifc	\reg, ip
+	.error	"CHECK cannot test r12, which it uses"
+	.endif
 	.set	_chk, _chk + 1
 	ldr	r12, =\val
 	cmp	\reg, r12

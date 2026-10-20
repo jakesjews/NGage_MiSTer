@@ -18,28 +18,27 @@
 	.endm
 
 	@ the access just before this macro must have taken a data abort with
-	@ this FSR and FAR (r10, r12 used); clears the record
+	@ this FSR and FAR (r9, r10, r12 used); clears the record
 	.macro	DABT fsr, far
-	ldr	r10, =ab_state
-	ldr	r12, [r10, #0]
-	CHECK	r12, 1
-	ldr	r12, [r10, #24]
-	CHECK	r12, 1
-	ldr	r12, [r10, #8]
-	and	r12, r12, #0xFF
-	CHECK	r12, \fsr
-	ldr	r10, =ab_state
-	ldr	r12, [r10, #12]
-	ldr	r10, =\far
-	CHECKR	r12, r10
+	ldr	r9, =ab_state
+	ldr	r10, [r9, #0]
+	CHECK	r10, 1
+	ldr	r10, [r9, #24]
+	CHECK	r10, 1
+	ldr	r10, [r9, #8]
+	and	r10, r10, #0xFF
+	CHECK	r10, \fsr
+	ldr	r10, [r9, #12]
+	ldr	r9, =\far
+	CHECKR	r10, r9
 	bl	ab_clear
 	.endm
 
-	@ the access just before must not have aborted
+	@ the access just before must not have aborted (r9, r10, r12 used)
 	.macro	NOABT
-	ldr	r10, =ab_state
-	ldr	r12, [r10, #0]
-	CHECK	r12, 0
+	ldr	r9, =ab_state
+	ldr	r10, [r9, #0]
+	CHECK	r10, 0
 	.endm
 
 	@ flush both TLBs (r12)

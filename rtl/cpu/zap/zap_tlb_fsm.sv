@@ -136,7 +136,10 @@ logic                                walk, examine_fsr;
 
 assign addr0 = {i_baddr[`ZAP_VA__TRANSLATION_BASE],address[`ZAP_VA__TABLE_INDEX], 2'd0};
 assign addr1 = {dff[`ZAP_L1_PAGE__PTBR],address[`ZAP_VA__L2_TABLE_INDEX], 2'd0};
-assign addr2 = {dff[`ZAP_L1_FINE__PTBR],address[`ZAP_VA__L2_TABLE_INDEX], 2'd0};
+// ARM925T: a fine table (1024 entries) is at descriptor bits 31:12 and
+// indexed by VA bits 19:10; upstream used the coarse layout (31:10, 19:12),
+// so every fine-table walk read the wrong entry.
+assign addr2 = {dff[31:12], address[19:10], 2'd0};
 
 assign o_wb_cyc         = wb_cyc_ff;
 assign o_wb_stb         = wb_stb_ff;
