@@ -220,6 +220,13 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE)) u_zap_cach
         .o_cache_inv_done       (tr_cache_inv_done),
         .i_cache_clean_req      (cf_cache_clean_req),
         .o_cache_clean_done     (tr_cache_clean_done),
+        .i_line_req             (1'd0),         // ARM925T: D-side only
+        .i_line_op              (2'd0),
+        .i_line_va              (1'd0),
+        .i_line_addr            (32'd0),
+        /* verilator lint_off PINCONNECTEMPTY */
+        .o_line_done            (),
+        /* verilator lint_on PINCONNECTEMPTY */
 
         /* verilator lint_off PINCONNECTEMPTY */
         .o_wb_cyc_ff            (),

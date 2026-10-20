@@ -81,6 +81,13 @@ input   logic            i_cache_clean_req,
 output logic             o_cache_inv_done,
 output  logic            o_cache_clean_done,
 
+// ARM925T: single-line clean/invalidate (zap_cache_tag_ram).
+input   logic            i_line_req,
+input   logic [1:0]      i_line_op,
+input   logic            i_line_va,
+input   logic [31:0]     i_line_addr,
+output  logic            o_line_done,
+
 input   logic [CPSR_MODE:0]    i_cpsr,
 input   logic [1:0]            i_sr,
 input   logic [31:0]           i_baddr,
@@ -130,6 +137,7 @@ logic [`ZAP_CACHE_TAG_WDT-1:0]   tr_cache_tag, cf_cache_tag;
 logic                            tr_cache_tag_valid;
 logic                            tr_cache_tag_dirty, cf_cache_tag_dirty;
 logic                            cf_cache_clean_req, cf_cache_inv_req;
+logic                            cf_line_req, tr_line_done;   // ARM925T
 logic                            tr_cache_inv_done, tr_cache_clean_done;
 logic [2:0]                      wb_ack;
 logic [2:0]                      state_ff, state_nxt;
@@ -168,6 +176,10 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_cache_clean          (i_cache_clean_req),
         .o_cache_inv_done       (o_cache_inv_done),
         .o_cache_clean_done     (o_cache_clean_done),
+        .i_line_req             (i_line_req),
+        .o_line_done            (o_line_done),
+        .o_line_req             (cf_line_req),
+        .i_line_done_tr         (tr_line_done),
         .i_cache_line           (tr_cache_line),
         .i_cache_tag_dirty      (tr_cache_tag_dirty),
         .i_cache_tag            (tr_cache_tag),
@@ -240,6 +252,11 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE)) u_zap_cach
         .o_cache_inv_done       (tr_cache_inv_done),
         .i_cache_clean_req      (cf_cache_clean_req),
         .o_cache_clean_done     (tr_cache_clean_done),
+        .i_line_req             (cf_line_req),
+        .i_line_op              (i_line_op),
+        .i_line_va              (i_line_va),
+        .i_line_addr            (i_line_addr),
+        .o_line_done            (tr_line_done),
 
         /* verilator lint_off PINCONNECTEMPTY */
         .o_wb_cyc_ff            (),

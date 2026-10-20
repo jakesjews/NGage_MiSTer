@@ -71,6 +71,12 @@ input   logic                      i_cache_clean,
 output  logic                       o_cache_inv_done,
 output  logic                       o_cache_clean_done,
 
+// ARM925T: single-line operation from CP15 (see zap_cache_tag_ram).
+input   logic                       i_line_req,
+output  logic                       o_line_done,
+output  logic                       o_line_req,       // to the tag RAM
+input   logic                       i_line_done_tr,   // from the tag RAM
+
 // From/to cache.
 input   logic    [CACHE_LINE*8-1:0]     i_cache_line,
 
@@ -137,7 +143,8 @@ localparam [2:0] FETCH_SINGLE         = 3'd4; // Ultimately validates cache line
 localparam [2:0] INVALIDATE           = 3'd5; // Cache invalidate parent state
 localparam [2:0] CLEAN                = 3'd6; // Cache clean parent state
 localparam [2:0] UNLOCK_REG           = 3'd7; // Unlock register
-localparam [31:0] NUMBER_OF_STATES    = 32'd8;
+localparam [3:0] LINEOP               = 4'd8; // ARM925T: single-line operation
+localparam [31:0] NUMBER_OF_STATES    = 32'd9;
 
 localparam [31:0] ADR_PAD              =  32'd32 - $clog2(CACHE_LINE/4) - 32'd1;
 localparam [31:0] ADR_PAD_MINUS_2      =  ADR_PAD - 32'd2;
@@ -157,6 +164,7 @@ logic                                     cache_clean_req_nxt,
                                           cache_clean_req_ff;
 logic                                     cache_inv_req_nxt,
                                           cache_inv_req_ff;
+logic                                     line_req_nxt, line_req_ff; // ARM925T
 logic [$clog2(CACHE_LINE/4):0]            adr_ctr_ff, adr_ctr_nxt; // Needs to take on 0,1,2,3, ... CACHE_LINE/4
 logic                                     rhit, whit;
 
@@ -184,6 +192,7 @@ assign      unused = |{phy_addr[$clog2(CACHE_LINE)-1:0]};
 // Tie flops to the output
 assign o_cache_clean_req = cache_clean_req_ff; // Tie req flop to output.
 assign o_cache_inv_req   = cache_inv_req_ff;   // Tie inv flop to output.
+assign o_line_req        = line_req_ff;        // ARM925T
 
 // Alias
 assign cache_cmp   = (i_cache_tag[`ZAP_CACHE_TAG__TAG] == i_address[`ZAP_VA__CACHE_TAG]);
@@ -239,6 +248,7 @@ begin
                 o_wb_adr_ff             <= 'x;
                 cache_clean_req_ff      <= 0;
                 cache_inv_req_ff        <= 0;
+                line_req_ff             <= 0;
                 adr_ctr_ff              <= 0;
                 lock_ff                 <= 64'd0;
 
@@ -260,6 +270,7 @@ begin
                 o_wb_adr_ff             <= o_wb_adr_nxt;
                 cache_clean_req_ff      <= cache_clean_req_nxt;
                 cache_inv_req_ff        <= cache_inv_req_nxt;
+                line_req_ff             <= line_req_nxt;
                 adr_ctr_ff              <= adr_ctr_nxt;
                 lock_ff                 <= lock_nxt;
 
@@ -310,6 +321,8 @@ begin:next_state_logic
         o_wb_sel_nxt            = o_wb_sel_ff;
         cache_clean_req_nxt     = cache_clean_req_ff;
         cache_inv_req_nxt       = cache_clean_req_ff;
+        line_req_nxt            = line_req_ff;
+        o_line_done             = 0;
         o_lock                  = lock_ff;
         o_fsr                   = 0;
         o_far                   = 0;
@@ -378,6 +391,12 @@ begin:next_state_logic
                         o_ack     = 1'd0;
                         state_nxt[IDLE] = 1'd0;
                         state_nxt[CLEAN] = 1'd1;
+                end
+                else if ( i_line_req )
+                begin
+                        o_ack     = 1'd0;
+                        state_nxt[IDLE] = 1'd0;
+                        state_nxt[LINEOP] = 1'd1;
                 end
                 else if ( !i_rd && !i_wr )
                 begin
@@ -787,6 +806,21 @@ begin:next_state_logic
                 end
         end
 
+        state_ff[LINEOP]: // ARM925T: let the tag RAM do one line
+        begin
+                line_req_nxt        = 1'd1;
+                cache_clean_req_nxt = 1'd0;
+                cache_inv_req_nxt   = 1'd0;
+
+                if ( i_line_done_tr )
+                begin
+                        line_req_nxt          = 1'd0;
+                        state_nxt[LINEOP]     = 1'd0;
+                        state_nxt[IDLE]       = 1'd1;
+                        o_line_done           = 1'd1;
+                end
+        end
+
         state_ff[CLEAN]:  // Force cache to clean itself
         begin
                 cache_clean_req_nxt = 1'd1;
@@ -822,6 +856,8 @@ begin:next_state_logic
                 o_wb_sel_nxt            = 'x;
                 cache_clean_req_nxt     = 'x;
                 cache_inv_req_nxt       = 'x;
+                line_req_nxt            = 'x;
+                o_line_done             = 'x;
                 o_lock                  = 'x;
                 o_fsr                   = 'x;
                 o_far                   = 'x;

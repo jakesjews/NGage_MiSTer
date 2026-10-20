@@ -62,6 +62,19 @@ output  logic                             o_cache_inv_done,
 /* verilator lint_on UNOPTFLAT */
 
 //
+// ARM925T: single-line operation. While i_line_req is high, clean
+// (i_line_op[0]) and/or invalidate (i_line_op[1]) the line at
+// i_line_addr's index; with i_line_va, only if its tag matches i_line_addr
+// (an operation by VA), else whatever the line holds (by index).
+// o_line_done answers until i_line_req falls.
+//
+input   logic                             i_line_req,
+input   logic    [1:0]                    i_line_op,
+input   logic                             i_line_va,
+input   logic    [31:0]                   i_line_addr,
+output  logic                             o_line_done,
+
+//
 // Cache clean operations occur through these ports.
 // Bus access ports.
 //
@@ -84,14 +97,20 @@ input logic                               i_wb_ack
 localparam [31:0] NUMBER_OF_DIRTY_BLOCKS = ((CACHE_SIZE/CACHE_LINE)/16); // Keep cache size > 16 bytes.
 
 // States.
-typedef enum logic [6:0] {
-        IDLE                           = 7'b000_0001,
-        CACHE_CLEAN_GET_ADDRESS        = 7'b000_0010,
-        CACHE_CLEAN_WRITE_PRE_PRE_WAIT = 7'b000_0100,
-        CACHE_CLEAN_WRITE_PRE_WAIT     = 7'b000_1000,
-        CACHE_CLEAN_WRITE_PRE          = 7'b001_0000,
-        CACHE_CLEAN_WRITE              = 7'b010_0000,
-        CACHE_INV                      = 7'b100_0000,
+typedef enum logic [12:0] {
+        IDLE                           = 13'b0_0000_0000_0001,
+        CACHE_CLEAN_GET_ADDRESS        = 13'b0_0000_0000_0010,
+        CACHE_CLEAN_WRITE_PRE_PRE_WAIT = 13'b0_0000_0000_0100,
+        CACHE_CLEAN_WRITE_PRE_WAIT     = 13'b0_0000_0000_1000,
+        CACHE_CLEAN_WRITE_PRE          = 13'b0_0000_0001_0000,
+        CACHE_CLEAN_WRITE              = 13'b0_0000_0010_0000,
+        CACHE_INV                      = 13'b0_0000_0100_0000,
+        LINE_W0                        = 13'b0_0000_1000_0000, // ARM925T: line operation
+        LINE_W1                        = 13'b0_0001_0000_0000,
+        LINE_W2                        = 13'b0_0010_0000_0000,
+        LINE_W3                        = 13'b0_0100_0000_0000,
+        LINE_CHECK                     = 13'b0_1000_0000_0000,
+        LINE_INV                       = 13'b1_0000_0000_0000,
         `ZAP_DEFAULT_XX
 } t_state;
 
@@ -118,6 +137,10 @@ logic [$clog2(CACHE_LINE/4):0]             adr_ctr_ff, adr_ctr_nxt;
 logic                                      cache_tag_dirty, cache_tag_dirty_del;
 logic                                      cache_tag_valid, cache_tag_valid_del;
 logic                                      cache_clean_done_nxt, cache_clean_done_ff;
+logic                                      line_mode_ff, line_mode_nxt;   // ARM925T
+logic                                      line_hit_ff, line_hit_nxt;     // ARM925T
+logic                                      line_done_ff, line_done_nxt;   // ARM925T
+logic                                      line_clear;                    // ARM925T
 
 logic                                      unused;
 logic [BLK_CTR_PAD-1:0]                    dummy;
@@ -179,7 +202,7 @@ begin
                 cache_tag_dirty       <= '0;
                 dirty                 <= '0;
         end
-        else if ( !i_hold || tag_ram_clean )
+        else if ( !i_hold || tag_ram_clean || line_clear )
         begin
                 o_cache_tag_dirty  <= tag_ram_rd_addr_del2 == tag_ram_wr_addr && tag_ram_wr_en ? i_cache_tag_dirty : cache_tag_dirty_del;
                 cache_tag_dirty_del<= tag_ram_rd_addr_del  == tag_ram_wr_addr && tag_ram_wr_en ? i_cache_tag_dirty : cache_tag_dirty;
@@ -189,7 +212,7 @@ begin
                 begin
                         dirty [ tag_ram_wr_addr ]   <= i_cache_tag_dirty;
                 end
-                else if ( tag_ram_clean )
+                else if ( tag_ram_clean || line_clear )
                 begin
                         dirty[tag_ram_rd_addr] <= 1'd0;
                 end
@@ -205,7 +228,7 @@ begin
                 cache_tag_valid     <= '0;
                 valid               <= '0;
         end
-        else if ( !i_hold || tag_ram_clear )
+        else if ( !i_hold || tag_ram_clear || line_clear )
         begin
                 o_cache_tag_valid   <= tag_ram_rd_addr_del2 == tag_ram_wr_addr && tag_ram_wr_en ? 1'd1 : cache_tag_valid_del;
                 cache_tag_valid_del <= tag_ram_rd_addr_del  == tag_ram_wr_addr && tag_ram_wr_en ? 1'd1 : cache_tag_valid;
@@ -218,6 +241,10 @@ begin
                 else if ( tag_ram_wr_en )
                 begin
                         valid [ tag_ram_wr_addr ]   <= 1'd1;
+                end
+                else if ( line_clear )
+                begin
+                        valid [ tag_ram_rd_addr ]   <= 1'd0; // ARM925T
                 end
         end
 end
@@ -239,6 +266,9 @@ begin
                 blk_ctr_ff              <= 0;
                 cache_clean_done_ff     <= 0;
                 tag_ram_rd_addr_ff      <= 0;
+                line_mode_ff            <= 0;
+                line_hit_ff             <= 0;
+                line_done_ff            <= 0;
 
                 // STATE
                 state_ff                <= IDLE;
@@ -256,6 +286,9 @@ begin
                 blk_ctr_ff              <= blk_ctr_nxt;
                 cache_clean_done_ff     <= cache_clean_done_nxt;
                 tag_ram_rd_addr_ff      <= tag_ram_rd_addr_nxt;
+                line_mode_ff            <= line_mode_nxt;
+                line_hit_ff             <= line_hit_nxt;
+                line_done_ff            <= line_done_nxt;
 
                 // STATE
                 state_ff                <= state_nxt;
@@ -297,6 +330,10 @@ begin:blk1
         blk_ctr_nxt             = blk_ctr_ff;
         cache_clean_done_nxt    = cache_clean_done_ff;
         o_cache_inv_done        = 0;
+        line_mode_nxt           = line_mode_ff;
+        line_hit_nxt            = line_hit_ff;
+        line_done_nxt           = line_done_ff & i_line_req;
+        line_clear              = 0;
         o_wb_cyc_nxt            = o_wb_cyc_ff;
         o_wb_stb_nxt            = o_wb_stb_ff;
         o_wb_adr_nxt            = o_wb_adr_ff;
@@ -306,6 +343,7 @@ begin:blk1
         o_wb_cti_nxt            = o_wb_cti_ff;
         tag_ram_wr_data         = 0;
         o_cache_clean_done      = cache_clean_done_ff;
+        o_line_done             = line_done_ff;
 
         // --------------------------------------------------
         // FSM Code Section
@@ -335,6 +373,48 @@ begin:blk1
                         tag_ram_wr_en = 0;
                         state_nxt     = CACHE_INV;
                 end
+                else if ( i_line_req && !line_done_ff )
+                begin
+                        // ARM925T: read the line's tag, data, valid, dirty.
+                        tag_ram_wr_en       = 0;
+                        tag_ram_rd_addr_nxt = i_line_addr[`ZAP_VA__CACHE_INDEX];
+                        line_mode_nxt       = 1'd1;
+                        state_nxt           = LINE_W0;
+                end
+        end
+
+        // ARM925T: wait for the pipelined RAMs (as for a clean).
+        LINE_W0: begin tag_ram_rd_addr_nxt = tag_ram_rd_addr_ff; state_nxt = LINE_W1; end
+        LINE_W1: begin tag_ram_rd_addr_nxt = tag_ram_rd_addr_ff; state_nxt = LINE_W2; end
+        LINE_W2: begin tag_ram_rd_addr_nxt = tag_ram_rd_addr_ff; state_nxt = LINE_W3; end
+        LINE_W3: begin tag_ram_rd_addr_nxt = tag_ram_rd_addr_ff; state_nxt = LINE_CHECK; end
+
+        LINE_CHECK:
+        begin
+                tag_ram_rd_addr_nxt = tag_ram_rd_addr_ff;
+                line_hit_nxt        = valid[tag_ram_rd_addr_ff] &&
+                                      ( !i_line_va ||
+                                        o_cache_tag[`ZAP_CACHE_TAG__TAG] == i_line_addr[`ZAP_VA__CACHE_TAG] );
+                adr_ctr_nxt         = 0;
+
+                if ( i_line_op[0] && line_hit_nxt && dirty[tag_ram_rd_addr_ff] )
+                begin
+                        // Write the line back (CACHE_CLEAN_WRITE returns to LINE_INV).
+                        state_nxt = CACHE_CLEAN_WRITE;
+                end
+                else
+                begin
+                        state_nxt = LINE_INV;
+                end
+        end
+
+        LINE_INV:
+        begin
+                tag_ram_rd_addr_nxt = tag_ram_rd_addr_ff;
+                line_clear          = i_line_op[1] && line_hit_ff;
+                line_mode_nxt       = 1'd0;
+                line_done_nxt       = 1'd1;
+                state_nxt           = IDLE;
         end
 
         CACHE_CLEAN_GET_ADDRESS:
@@ -376,6 +456,11 @@ begin:blk1
 
         CACHE_CLEAN_WRITE:
         begin
+                // ARM925T: a single-line write-back keeps reading its line.
+                if ( line_mode_ff )
+                begin
+                        tag_ram_rd_addr_nxt = tag_ram_rd_addr_ff;
+                end
 
                 adr_ctr_nxt = adr_ctr_ff + ((i_wb_ack && o_wb_stb_ff) ?
                               {{(ZERO_WDT-1){1'd0}}, 1'd1} :
@@ -389,8 +474,8 @@ begin:blk1
                         // Kill access.
                         `zap_kill_access;
 
-                        // Go to new state.
-                        state_nxt = CACHE_CLEAN_GET_ADDRESS;
+                        // Go to new state (ARM925T: back to the line operation).
+                        state_nxt = line_mode_ff ? LINE_INV : CACHE_CLEAN_GET_ADDRESS;
                 end
                 else
                 begin

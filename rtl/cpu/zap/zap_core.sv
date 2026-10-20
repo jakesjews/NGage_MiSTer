@@ -104,6 +104,13 @@ output logic                             o_mem_translate,
 output logic                             o_data_wb_align_fault,
 output logic [31:0]                      o_data_wb_va,
 
+// ARM925T: single-line D-cache operation (zap_cp15_cb).
+output logic                             o_dcache_line_req,
+output logic [1:0]                       o_dcache_line_op,
+output logic                             o_dcache_line_va,
+output logic [31:0]                      o_dcache_line_addr,
+input  logic                             i_dcache_line_done,
+
 // --------------------------------------------------
 // Interrupts. Active high.
 // --------------------------------------------------
@@ -1669,7 +1676,12 @@ zap_cp15_cb #(
         .i_irq                  (irq),
         .i_fiq                  (fiq),
         .o_hivecs               (hivecs),
-        .o_align_en             (align_en)
+        .o_align_en             (align_en),
+        .o_dcache_line_req      (o_dcache_line_req),
+        .o_dcache_line_op       (o_dcache_line_op),
+        .o_dcache_line_va       (o_dcache_line_va),
+        .o_dcache_line_addr     (o_dcache_line_addr),
+        .i_dcache_line_done     (i_dcache_line_done)
 );
 
 // Readout of CPU mode. Useful for debugging.

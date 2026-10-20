@@ -160,7 +160,15 @@ module zap_cp15_cb
         // ARM925T: control register V (vectors at 0xFFFF0000) and A
         // (alignment faults). Both read 0 unless TI925T.
         output  logic                            o_hivecs,
-        output  logic                            o_align_en
+        output  logic                            o_align_en,
+
+        // ARM925T: single-line D-cache operation (TI925T c7 entry ops):
+        // op[0] clean, op[1] invalidate; va = match the tag of addr.
+        output  logic                            o_dcache_line_req,
+        output  logic     [1:0]                  o_dcache_line_op,
+        output  logic                            o_dcache_line_va,
+        output  logic     [31:0]                 o_dcache_line_addr,
+        input   logic                            i_dcache_line_done
 );
 
 `include "zap_localparams.svh"
@@ -185,6 +193,16 @@ logic [31:0] ti_lock_d;   // c10,c0,0 D-TLB lockdown (stored only)
 logic [31:0] ti_lock_i;   // c10,c0,1 I-TLB lockdown (stored only)
 logic [31:0] ti_rd_data;  // MRC result
 logic [2:0]  cp_op1;      // opcode_1 of the current instruction
+logic        line_both;   // ARM925T: index op on both "ways" (TI config C = 0)
+
+// ARM925T: line address for an index operand, way w
+function automatic [31:0] index_line ( input [31:0] d, input logic w );
+        logic [31:0] a;
+        a = '0;
+        a[DLINE_LO +: DLINE_W-1]  = d[DLINE_LO +: DLINE_W-1];
+        a[DLINE_LO + DLINE_W - 1] = w;
+        return a;
+endfunction
 
 // ---------------------------------------------
 // Localparams
@@ -204,6 +222,13 @@ localparam [3:0] CLEAN_D_CACHE        = 9;
 localparam [3:0] CLFLUSH_ID_CACHE     = 10;
 localparam [3:0] CLFLUSH_D_CACHE      = 11;
 localparam [3:0] WFI                  = 12; // ARM925T: wait for interrupt.
+localparam [3:0] LINE_D               = 13; // ARM925T: single-line D-cache operation.
+localparam [3:0] LINE_GAP             = 14; // ARM925T: between the two ways' lines.
+
+// ARM925T: index operands (TI format: way in bit 31, set from bit
+// log2(line) up) mapped to this direct-mapped cache's lines.
+localparam [31:0] DLINE_LO = $clog2(DATA_CACHE_LINE);
+localparam [31:0] DLINE_W  = $clog2(DATA_CACHE_SIZE / DATA_CACHE_LINE);
 
 // Register numbers.
 localparam [3:0] FSR_REG              = 5;
@@ -417,6 +442,11 @@ begin
                 ti_thread      <= 16'd0;
                 ti_lock_d      <= 32'd0;
                 ti_lock_i      <= 32'd0;
+                o_dcache_line_req  <= 1'd0;
+                o_dcache_line_op   <= 2'd0;
+                o_dcache_line_va   <= 1'd0;
+                o_dcache_line_addr <= 32'd0;
+                line_both          <= 1'd0;
         end
         else
         begin
@@ -619,14 +649,35 @@ begin
                                         state           <= CLR_D_CACHE;
                                 end
 
-                                7'b0??_1010: // c7,c10,0/1/2: clean D (entry)
+                                7'b000_1010: // c7,c10,0: clean D
                                 begin
                                         o_dcache_clean  <= 1'd1;
                                         state           <= CLEAN_D_CACHE;
                                 end
 
-                                7'b001_0110, 7'b010_0110, // c7,c6,1/2: flush D entry
-                                7'b0??_1110:              // c7,c14,x: clean+flush D entry
+                                //
+                                // Single-line D-cache operations: by VA (op2 1:
+                                // the line is touched only if it holds that VA)
+                                // and by index (op2 2: TI operand; with TI
+                                // config C = 0 both "ways" of the set, i.e. both
+                                // lines here, with C = 1 the way in bit 31).
+                                //
+                                7'b001_0110, 7'b010_0110, // c7,c6,1/2: flush (discard)
+                                7'b001_1010, 7'b010_1010, // c7,c10,1/2: clean
+                                7'b001_1110, 7'b010_1110: // c7,c14,1/2: clean and flush
+                                begin
+                                        o_dcache_line_op   <= { i_cp_word.ZAP_CRM[2],     // 0110, 1110: flush
+                                                                i_cp_word.ZAP_CRM[3] };   // 1010, 1110: clean
+                                        o_dcache_line_va   <= i_cp_word.ZAP_OPCODE_2[0];
+                                        o_dcache_line_addr <= i_cp_word.ZAP_OPCODE_2[0] ? i_reg_rd_data :
+                                                              index_line ( i_reg_rd_data,
+                                                                           ti_config[2] ? i_reg_rd_data[31] : 1'd0 );
+                                        line_both          <= !i_cp_word.ZAP_OPCODE_2[0] && !ti_config[2];
+                                        o_dcache_line_req  <= 1'd1;
+                                        state              <= LINE_D;
+                                end
+
+                                7'b000_1110: // c7,c14,0 (not ARM925T): clean+flush D
                                 begin
                                         o_dcache_clean  <= 1'd1;
                                         state           <= CLFLUSH_D_CACHE;
@@ -765,6 +816,34 @@ begin
                                 o_icache_inv <= 1'd0;
                                 state        <= DONE;
                         end
+                end
+
+                LINE_D: // ARM925T: single-line operation in progress.
+                begin
+                        o_dcache_line_req <= 1'd1;
+
+                        if ( i_dcache_line_done )
+                        begin
+                                o_dcache_line_req <= 1'd0;
+
+                                if ( line_both )
+                                begin
+                                        // and the other way's line
+                                        line_both                                  <= 1'd0;
+                                        o_dcache_line_addr[DLINE_LO + DLINE_W - 1] <= 1'd1;
+                                        state                                      <= LINE_GAP;
+                                end
+                                else
+                                begin
+                                        state                                      <= DONE;
+                                end
+                        end
+                end
+
+                LINE_GAP: // ARM925T: request low for a cycle between two lines.
+                begin
+                        o_dcache_line_req <= 1'd1;
+                        state             <= LINE_D;
                 end
 
                 WFI: // ARM925T: wait until IRQ or FIQ is asserted (masked or not).
