@@ -13,23 +13,33 @@
 //   0x0C100000  "upp" register block, 1 MB    } model/upp-quirks.txt
 //   0x0C120040  OS-timer interrupt unit, 0x0C120100 interrupt controller,
 //   0x0C120A00  timers 0-5 (ngage_intc.c), 0x0C150420 CBUS master and the
-//               UEMK registers of model/cbus-regs.txt (ngage_cbus.c)
+//               UEMK registers of model/cbus-regs.txt, with the UEMK RTC
+//               (registers 0x11-0x13 and 0x01; ngage_cbus.c)
+//   0x0C1F0100  the HLE RTC date register (ngage_cbus.c)
 //   0x0C121200  LCD interface, only what the boot reads back: the panel ID
 //               (RDDID, 0x290000 as the model's default) and status (RDDST)
 //   0x0DE00000  STI trace window: the kernel's debug text goes to kern.log,
 //               filtered as the model's ngage_sti.c does
+//   0x0C150400  UIF ports D/E with the key matrix and the CTSI register at
+//               0x0C150100 (ngage_keypad.c), with no key pressed
 //   anything else reads 0 and ignores writes (the model's probe)
 //
 // The register blocks log the first read and the first write of every
 // register in the format of the model's regs.log, so the two can be
 // compared (sim/cpu/boot/cmp_regs.py). The model's other devices inside the
-// upp block (DMA, MMC, keypad, CTSI) are plain storage here and are left out
-// of the log, as they are left out of the model's.
+// upp block (DMA, MMC) are plain storage here and are left out of the log,
+// as they are left out of the model's. With --devlog every device access
+// also goes to dev.log, in the format of sim/cpu/model/trace_plugin.c, for
+// sim/cpu/boot/cmp_dev.py.
 //
-// Timers count at 104/3 MHz, one tick per TIMER_DIV CPU cycles (3 for a
-// 104 MHz CPU). The power key reads as held from reset, as at switch-on,
-// and is released after 187,500,000 instructions: the model holds it for
-// 3 guest seconds and runs 16 ns per instruction (-icount shift=4).
+// Timers count at 104/3 MHz (34,666,667 Hz) as in ngage_intc.c. Guest time
+// follows retired instructions, 16 ns each, and jumps ahead to the next
+// timer expiry while the CPU waits for an interrupt (WFI), as the model's
+// -icount shift=4,sleep=off does; --time cycles uses the CPU clock instead
+// (TIMER_DIV cycles per tick). The RTCs start at 2004-06-01 12:00:00, as
+// sim/cpu/model/run_model.sh starts the model. The power key reads as held
+// from reset, as at switch-on, and is released after 187,500,000
+// instructions: the model holds it for 3 guest seconds.
 #pragma once
 
 #include <cinttypes>
@@ -44,11 +54,17 @@ public:
 	struct Options {
 		std::string flash0, flash1, quirks, cbus_regs, logdir;
 		int timer_div = 3;
+		bool icount = true;                   // time from instructions (as the model)
+		bool dev_log = false;                 // dev.log: every device access
 		uint64_t power_release = 187500000;   // retired instructions; 0 = never
+		// RTC at reset, as sim/cpu/model/run_model.sh starts the model
+		// (-rtc base=2004-06-01T12:00:00): HLE RTC date and time of day
+		uint32_t rtc_date = 2004u << 16 | 6u << 8 | 1u, rtc_tod = 12 * 3600;
 	};
 
 	bool init(const Options &o) {
 		opt = o;
+		cbus.rtc_tod0 = o.rtc_tod;
 		cs0.init(0x00000000u, 16u << 20, 0x22F8);
 		cs1.init(0x02000000u, 8u << 20, 0x22FA);
 		if (!cs0.load(o.flash0) || !cs1.load(o.flash1)) return false;
@@ -63,6 +79,7 @@ public:
 		cbus.log = fopen((d + "/cbus.log").c_str(), "w");
 		probe_log = fopen((d + "/probe.log").c_str(), "w");
 		kern_log = fopen((d + "/kern.log").c_str(), "w");
+		if (o.dev_log) dev_log = fopen((d + "/dev.log").c_str(), "w");
 		if (!regs_log || !cbus.log || !probe_log || !kern_log) {
 			fprintf(stderr, "cannot write the logs in %s\n", d.c_str());
 			return false;
@@ -75,6 +92,7 @@ public:
 		if (cbus.log) fclose(cbus.log);
 		if (probe_log) fclose(probe_log);
 		if (kern_log) fclose(kern_log);
+		if (dev_log) fclose(dev_log);
 	}
 
 	// Direct memory for cached line fills and the like (nullptr: a device).
@@ -87,8 +105,24 @@ public:
 	}
 
 	// One bus beat (word address a, byte enables be). pc: the instruction
-	// that made it, for the logs.
+	// that made it, for the logs. Device accesses (everything but flash,
+	// SDRAM and on-chip RAM) also go to the device log, in the format of
+	// the model's trace plugin (sim/cpu/model/trace_plugin.c): "M n R|W size
+	// pa value pc", n = instructions retired.
 	uint32_t access(uint32_t a, bool we, uint8_t be, uint32_t wdata, uint32_t pc) {
+		uint32_t r = access_(a, we, be, wdata, pc);
+		if (dev_log && !cs0.has(a) && !cs1.has(a) && !mem_ptr(a)) {
+			int off = be ? __builtin_ctz(be) : 0;
+			unsigned size = (unsigned)__builtin_popcount(be);
+			if (size == 0) size = 4;
+			uint32_t mask = size == 4 ? 0xFFFFFFFFu : (1u << (8 * size)) - 1;
+			fprintf(dev_log, "M %" PRIu64 " %c %u %08x %08x %08x\n", retired, we ? 'W' : 'R', size, a + off,
+				((we ? wdata : r) >> (8 * off)) & mask, pc);
+		}
+		return r;
+	}
+
+	uint32_t access_(uint32_t a, bool we, uint8_t be, uint32_t wdata, uint32_t pc) {
 		cur_pc = pc;
 		int off = be ? __builtin_ctz(be) : 0;
 		unsigned size = (unsigned)__builtin_popcount(be);
@@ -110,10 +144,24 @@ public:
 			return rd_mem(p);
 		}
 		if (a - 0x0C150420u < 8) return cbus.access(pa, we, val, size) << (8 * off);
+		if (a - 0x0C1F0100u < 0x10) return !we && a == 0x0C1F0100u ? opt.rtc_date : 0;
 		if (a - 0x0C120100u < 0x180) return intc_access(a - 0x0C120100u, we, wdata);
 		if (a - 0x0C120040u < 0x40) return ostu_access(a - 0x0C120040u, we, wdata);
 		if (a - 0x0C120A00u < 0x20 * NTIMERS) return timer_access(a - 0x0C120A00u, we, wdata);
 		if (a - 0x0C121200u < 0x10) return lcd.access(a - 0x0C121200u, we, wdata);
+		if (a - 0x0C150400u < 0x20 || a - 0x0C150100u < 4) {
+			// 16-bit registers: a word access is two halfword accesses
+			uint32_t v = 0;
+			for (int h = 0; h < 2; h++) {
+				if (!(be & (3 << (2 * h)))) continue;
+				uint32_t ha = a + 2 * h;
+				uint16_t hv = (uint16_t)(wdata >> (16 * h));
+				uint16_t r = ha - 0x0C150100u < 4 ? keypad.ctsi(ha - 0x0C150100u, we, hv)
+								 : keypad.uif(ha - 0x0C150400u, we, hv);
+				v |= (uint32_t)r << (16 * h);
+			}
+			return v;
+		}
 		if (emif.has(a)) return emif.access(this, a, off, size, we, val, logged(a));
 		if (upp.has(a)) return upp.access(this, a, off, size, we, val, logged(a));
 		if (a - 0x0DE00000u < 0x200000u) {
@@ -131,9 +179,18 @@ public:
 	// One CPU cycle.
 	void tick() {
 		if (cbus.power_key && opt.power_release && retired >= opt.power_release) cbus.power_key = false;
-		if (++div < opt.timer_div) return;
-		div = 0;
-		now++;
+		if (opt.icount) {
+			now = retired * 16 + warp;
+			if (wfi && !irq() && !fiq()) {
+				// idle: jump to the next timer expiry (sleep=off)
+				uint64_t next = UINT64_MAX;
+				for (auto &t : timer)
+					if (t.running && t.expire < next) next = t.expire;
+				if (next != UINT64_MAX && next > now) { warp += next - now; now = next; }
+			}
+		} else {
+			now = cycle * (uint64_t)opt.timer_div * 1000000000ull / TIMER_HZ;
+		}
 		for (auto &t : timer)
 			if (t.running && now >= t.expire) expire(t);
 	}
@@ -302,6 +359,11 @@ private:
 		bool power_key = true;
 		FILE *log = nullptr;
 		uint32_t *pc = nullptr;
+		const uint64_t *now = nullptr;   // guest time, ns
+		uint32_t rtc_tod0 = 0;           // seconds since midnight at reset
+		int32_t rtc_day_off = 0;         // day counter - days since that midnight
+
+		uint64_t rtc_now() const { return rtc_tod0 + *now / 1000000000ull; }
 
 		bool load(const std::string &path) {
 			FILE *f = fopen(path.c_str(), "r");
@@ -329,6 +391,15 @@ private:
 		void do_read() {
 			unsigned dev = (ctrl >> 5) & 7, reg = ctrl & 0x1F, b = bits();
 			uint32_t v = is_ro[dev][reg] ? ro_val[dev][reg] : regs[dev][reg];
+			if (dev == 1) {
+				uint64_t t = rtc_now();
+				switch (reg) {
+				case 0x11: v = (uint32_t)(t % 60); break;
+				case 0x12: v = (uint32_t)(t / 60 % 60); break;
+				case 0x13: v = (uint32_t)(t / 3600 % 24); break;
+				case 0x01: v = (uint8_t)(rtc_day_off + (int64_t)(t / 86400)); break;
+				}
+			}
 			if (dev == 1 && reg == 0x1F) v = (v & ~2u) | (power_key ? 2u : 0);
 			if (b < 32) v &= (1u << b) - 1;
 			data_lo = (uint16_t)v;
@@ -341,6 +412,7 @@ private:
 			if (b < 32) v &= (1u << b) - 1;
 			logit("W", dev, reg, b, v);
 			regs[dev][reg] = v;
+			if (dev == 1 && reg == 0x01) rtc_day_off = (int32_t)(v & 0xFF) - (int32_t)(rtc_now() / 86400);
 			if (dev == 1 && reg == 0x19 && (v & 0x800) && !is_ro[1][0x1A]) {
 				regs[1][0x1A] = adc[(v >> 12) & 15];
 				fprintf(log, "  ADC channel %u -> %u\n", (v >> 12) & 15, regs[1][0x1A]);
@@ -440,10 +512,87 @@ private:
 		}
 	} lcd;
 
+	// ------------------------------------------------------------ keypad (ngage_keypad.c)
+	struct Keypad {
+		uint16_t data[2] = {}, dir[2] = {}, ien[2] = {}, misc[2] = {}, pull[2] = {}, reg18 = 0;
+		uint16_t ctsi100 = 0, last_r = 0, last_c = 0;
+		NGage *m = nullptr;
+
+		static void setclr(uint16_t &r, uint16_t v) { r = (uint16_t)((r | (v & 0xFF)) & ~(v >> 8)); }
+		void pins(uint16_t &c, uint16_t &r) const {      // no key is pressed
+			c = 0x1F;
+			r = 0x3F;
+			for (int i = 0; i < 5; i++)
+				if (dir[0] & (1 << i)) c = (uint16_t)((c & ~(1 << i)) | (data[0] & (1 << i)));
+			for (int i = 0; i < 6; i++)
+				if (dir[1] & (1 << i)) r = (uint16_t)((r & ~(1 << i)) | (data[1] & (1 << i)));
+		}
+		void update() {
+			uint16_t c, r;
+			pins(c, r);
+			if (last_r & ~r & ien[1] & ~dir[1] & 0x3F) ctsi100 |= 1u << 2;
+			if (last_c & ~c & ien[0] & ~dir[0] & 0x1F) ctsi100 |= 1u << 3;
+			last_r = r;
+			last_c = c;
+			m->set_source(25, (ctsi100 & 0xC) != 0);
+		}
+		uint16_t uif(uint32_t off, bool we, uint16_t v) {
+			if (we) {
+				switch (off & ~1u) {
+				case 0x00: data[0] = v & 0x1F; break;
+				case 0x02: setclr(dir[0], v); break;
+				case 0x04: setclr(ien[0], v); break;
+				case 0x08: setclr(misc[0], v); break;
+				case 0x0A: setclr(pull[0], v); break;
+				case 0x0C: data[1] = v & 0x3F; break;
+				case 0x0E: setclr(dir[1], v); break;
+				case 0x10: setclr(ien[1], v); break;
+				case 0x14: setclr(misc[1], v); break;
+				case 0x16: setclr(pull[1], v); break;
+				case 0x18: reg18 = v; break;
+				}
+				update();
+				return 0;
+			}
+			uint16_t c, r;
+			pins(c, r);
+			switch (off & ~1u) {
+			case 0x00: return c;
+			case 0x02: return dir[0];
+			case 0x04: return ien[0];
+			case 0x08: return misc[0];
+			case 0x0A: return pull[0];
+			case 0x0C: return r;
+			case 0x0E: return dir[1];
+			case 0x10: return ien[1];
+			case 0x14: return misc[1];
+			case 0x16: return pull[1];
+			case 0x18: return reg18;
+			default: return 0;
+			}
+		}
+		uint16_t ctsi(uint32_t off, bool we, uint16_t v) {
+			if (off >= 2) return 0;
+			if (!we) return ctsi100;
+			ctsi100 &= (uint16_t)~(v & 0xC);
+			ctsi100 = (uint16_t)((ctsi100 & 0xC) | (v & ~0xC));
+			update();
+			return 0;
+		}
+	} keypad;
+
+	void set_source(int src, bool level) {
+		uint32_t bit = 1u << (src & 31);
+		if (level) pending[src >> 5] |= bit;
+		else pending[src >> 5] &= ~bit;
+	}
+
 	// ------------------------------------------------------------ interrupts, timers
 	static constexpr int NBANKS = 3, NTIMERS = 6;
 	uint32_t pending[NBANKS] = {}, enable[2][NBANKS] = {}, other[2][NBANKS][16] = {}, ostu[16] = {};
 
+	// times in ns, as ngage_intc.c (muldiv64 rounds down)
+	static constexpr uint64_t TIMER_HZ = 34666667;
 	struct Timer {
 		int n = 0;
 		uint32_t regs[8] = {};
@@ -452,13 +601,17 @@ private:
 		uint64_t start = 0, expire = 0;
 	} timer[NTIMERS];
 
+	static uint64_t muldiv(uint64_t a, uint64_t b, uint64_t c) {
+		return (uint64_t)((unsigned __int128)a * b / c);
+	}
 	uint32_t count(const Timer &t) const {
-		return t.running ? t.start_count - (uint32_t)(now - t.start) : t.regs[0x10 >> 2];
+		return t.running ? t.start_count - (uint32_t)muldiv(now - t.start, TIMER_HZ, 1000000000ull)
+				 : t.regs[0x10 >> 2];
 	}
 	void schedule(Timer &t, uint32_t c) {
 		t.start_count = c;
 		t.start = now;
-		t.expire = now + (c ? (uint64_t)c : (1ull << 32));
+		t.expire = now + muldiv(c ? (uint64_t)c : (1ull << 32), 1000000000ull, TIMER_HZ);
 	}
 	void expire(Timer &t) {
 		pending[0] |= 1u << t.n;
@@ -521,7 +674,7 @@ private:
 	std::vector<uint8_t> sdram, iram;
 	Block emif, upp;
 	Cbus cbus;
-	FILE *regs_log = nullptr, *probe_log = nullptr, *kern_log = nullptr;
+	FILE *regs_log = nullptr, *probe_log = nullptr, *kern_log = nullptr, *dev_log = nullptr;
 
 	void sti_byte(uint8_t c) {
 		if (c == 0xC0 || c == 0xE0 || c == '\r') return;
@@ -531,14 +684,16 @@ private:
 	}
 	uint32_t probe_count = 0;
 	uint32_t cur_pc = 0;
-	uint64_t now = 0;
-	int div = 0;
+	uint64_t now = 0, warp = 0;      // guest time (ns), idle time skipped
 
 public:
 	uint64_t cycle = 0;     // set by the bench, for the logs
 	uint64_t retired = 0;   // set by the bench: instructions retired
+	bool wfi = false;       // set by the bench: the CPU waits for an interrupt
 	NGage() {
 		for (int n = 0; n < NTIMERS; n++) timer[n].n = n;
+		keypad.m = this;
 		cbus.pc = &cur_pc;
+		cbus.now = &now;
 	}
 };

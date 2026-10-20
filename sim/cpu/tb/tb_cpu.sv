@@ -53,7 +53,9 @@ module tb_cpu #(
 	// CP15 state: translation table base, domain access, MMU enable
 	output logic [31:0]   p_ttb,
 	output logic [31:0]   p_dacr,
-	output logic          p_mmu
+	output logic          p_mmu,
+	// CP15 waits for an interrupt (WFI)
+	output logic          p_wfi
 );
 
 	arm925t #(
@@ -98,5 +100,6 @@ module tb_cpu #(
 	assign p_ttb   = dut.u_zap.cpu_baddr;
 	assign p_dacr  = dut.u_zap.cpu_dac_reg;
 	assign p_mmu   = dut.u_zap.cpu_mmu_en;
+	assign p_wfi   = dut.u_zap.u_zap_core.u_zap_cp15_cb.state == 4'd12;
 
 endmodule

@@ -12,6 +12,7 @@
 //     --trace FILE      write one line per retired instruction or exception
 //     --trace-after N   start the trace and the bus log after N retired
 //                       instructions
+//     --trace-count N   end the run N instructions after that
 //     --buslog FILE     write one line per bus access
 //     --lat MIN:MAX     bus latency, cycles from request to ack (default 0:3)
 //     --seed N          RNG seed for the latency (default 1)
@@ -27,7 +28,11 @@
 //     --flash0 FILE     CS0 image (16 MB)       --flash1 FILE  CS1 image (8 MB)
 //     --quirks FILE     model/upp-quirks.txt    --cbus-regs FILE  model/cbus-regs.txt
 //     --logdir DIR      where regs.log, cbus.log and probe.log go
-//     --timer-div N     CPU cycles per timer tick (default 3: 104 MHz / 3)
+//     --time icount|cycles  guest time from instructions (16 ns each, idle
+//                       skipped: the model's -icount shift=4,sleep=off; the
+//                       default) or from the CPU clock
+//     --timer-div N     with --time cycles: CPU cycles per timer tick (3)
+//     --devlog          write dev.log: every device access (for model traces)
 //     --power-release N release the power key after N instructions
 //                       (default 187500000, as the model; 0 = hold it)
 //
@@ -142,7 +147,7 @@ int main(int argc, char **argv) {
 	uint32_t seed = 1;
 	uint64_t max_cycles = 50000000;
 	uint64_t progress = 0;
-	uint64_t trace_after = 0;
+	uint64_t trace_after = 0, trace_count = 0;
 	bool quiet = false;
 	bool halt_given = false;
 	std::string machine;
@@ -181,6 +186,7 @@ int main(int argc, char **argv) {
 		else if (a == "--quiet") quiet = true;
 		else if (a == "--progress") progress = strtoull(next(), nullptr, 0);
 		else if (a == "--trace-after") trace_after = strtoull(next(), nullptr, 0);
+		else if (a == "--trace-count") trace_count = strtoull(next(), nullptr, 0);
 		else if (a == "--watch") watch.push_back((uint32_t)strtoul(next(), nullptr, 0));
 		else if (a == "--dump") {
 			std::string v = next();
@@ -196,6 +202,8 @@ int main(int argc, char **argv) {
 		else if (a == "--cbus-regs") nopt.cbus_regs = next();
 		else if (a == "--logdir") nopt.logdir = next();
 		else if (a == "--timer-div") nopt.timer_div = atoi(next());
+		else if (a == "--time") nopt.icount = std::string(next()) != "cycles";
+		else if (a == "--devlog") nopt.dev_log = true;
 		else if (a == "--power-release") nopt.power_release = strtoull(next(), nullptr, 0);
 		else if (a[0] == '+') continue;  // Verilator's own
 		else { fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
@@ -353,6 +361,7 @@ int main(int argc, char **argv) {
 				fprintf(trace, " %08x\n", cpsr);
 			}
 			if (ev == 'R' && pc == halt) halted = true;
+			if (trace_count && retired >= trace_after + trace_count) halted = true;
 			for (uint32_t w : watch) {
 				if (ev != 'R' || pc != w) continue;
 				fprintf(stderr, "watch %08x cycle %" PRIu64 " retired %" PRIu64 ":", pc, cycle, retired);
@@ -406,6 +415,8 @@ int main(int argc, char **argv) {
 		t->fiq = (irq_lines >> 1) & 1;
 		if (ng) {
 			ng->retired = retired;
+			ng->cycle = cycle;
+			ng->wfi = t->p_wfi;
 			ng->tick();
 			t->irq = ng->irq();
 			t->fiq = ng->fiq();

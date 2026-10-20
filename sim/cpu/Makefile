@@ -59,7 +59,7 @@ MODEL     := $(MODEL_DIR)/Vtb_cpu
 
 ASFLAGS := -mcpu=arm9tdmi -mfloat-abi=soft -I $(HERE)/tests
 
-.PHONY: all bins model run qemu diff remote boot clean
+.PHONY: all bins model run qemu diff remote boot boot-prep boot-model clean
 .SECONDARY:
 all: bins remote qemu diff
 
@@ -194,7 +194,7 @@ remote: bins
 	ssh $(REMOTE) 'mkdir -p $(RDIR)/rtl/cpu $(RDIR)/sim/cpu'
 	rsync -a --delete $(ROOT)/rtl/cpu/ $(REMOTE):$(RDIR)/rtl/cpu/
 	rsync -a --delete --exclude 'build/obj-*' --exclude build/rtl --exclude build/qemu \
-		$(HERE)/ $(REMOTE):$(RDIR)/sim/cpu/
+		--exclude build/boot $(HERE)/ $(REMOTE):$(RDIR)/sim/cpu/
 	ssh $(REMOTE) 'make -C $(RDIR)/sim/cpu RTL=$(RTL) T="$(T)" LATS="$(LATS)" run' || st=$$?; \
 	mkdir -p $(BUILD)/rtl; \
 	rsync -a $(REMOTE):$(RDIR)/sim/cpu/build/rtl/ $(BUILD)/rtl/; \
@@ -202,34 +202,70 @@ remote: bins
 
 # ---------------------------------------------------------------- boot
 # The real boot code on the RTL (tb/ngage.h: the reference model's memory
-# map and devices), on $(REMOTE); its register log is compared with the
-# model's (BOOT_REF, from model/run.sh). Images are patched here as the
-# model patches them (boot/prep.py).
+# map and devices) and on the reference model, both on $(REMOTE), from the
+# same flash images, with their register and CBUS logs compared.
+#   make boot-prep    images from git HEAD's model files (NOS stand-in
+#                     assembled here, patches applied as model/hw does)
+#   make boot-model   the model, built on $(REMOTE) from git HEAD
+#                     (model/build_linux.sh) and run on those images, with
+#                     every device access in trace.log (model/trace_plugin.c;
+#                     MODEL_TRACE=start=N,count=M traces instructions too)
+#   make boot         the RTL on the same images, then the comparisons:
+#                     register and CBUS logs, and every device access
+#                     (boot/cmp_dev.py)
 BOOT_CS0    ?= $(ROOT)/research/firmware/images/nor/rh29-4.60-cs0-model.bin
 BOOT_CS1    ?= $(ROOT)/research/firmware/images/nor/rh29-4.60-cs1.bin
-BOOT_REF    ?= $(ROOT)/model/.out/regs.log
-BOOT_CYCLES ?= 400000000
+BOOT_CYCLES ?= 1200000000
 BOOT_ARGS   ?=
 BOOT        := $(BUILD)/boot
+HEADM       := $(BOOT)/head
+MDIR        ?= dev/mister/ngage-model
+MODEL_SECS  ?= 120
+MODEL_TRACE ?= start=0,count=100000000000,insns=0
+ARMAS       := $(CROSS)as -march=armv4t
+boot-prep:
+	@mkdir -p $(BOOT)
+	rm -rf $(HEADM) && mkdir -p $(HEADM)/.build
+	git -C $(ROOT) archive HEAD model | tar -x -C $(HEADM) --strip-components=1
+	$(ARMAS) -o $(HEADM)/.build/nos_stub.o $(HEADM)/nos-stub/nos_stub.S
+	$(CROSS)ld -Ttext=0x5149E4D4 -o $(HEADM)/.build/nos_stub.elf $(HEADM)/.build/nos_stub.o
+	$(CROSS)objcopy -O binary $(HEADM)/.build/nos_stub.elf $(HEADM)/.build/nos-stub.bin
+	$(ARMAS) -o $(HEADM)/.build/nos_dll.o $(HEADM)/nos-stub/nos_dll.S
+	$(CROSS)gcc -march=armv4t -marm -mthumb-interwork -Os -std=gnu11 -ffreestanding \
+		-fno-builtin -fno-pic -fno-common -fno-unwind-tables -fno-asynchronous-unwind-tables \
+		-c -o $(HEADM)/.build/nos_isi.o $(HEADM)/nos-stub/nos_isi.c
+	$(CROSS)ld -T $(HEADM)/nos-stub/nos_dll.ld -o $(HEADM)/.build/nos_dll.elf $(HEADM)/.build/nos_dll.o \
+		$(HEADM)/.build/nos_isi.o "$$($(CROSS)gcc -march=armv4t -marm -print-libgcc-file-name)"
+	$(CROSS)objcopy -O binary $(HEADM)/.build/nos_dll.elf $(HEADM)/.build/nos-dll.bin
+	sed 's|model/.build/|$(HEADM)/.build/|' $(HEADM)/rom-patches.txt > $(BOOT)/rom-patches.txt
+	$(PY) $(HERE)/boot/prep.py --cs0 $(BOOT_CS0) --cs1 $(BOOT_CS1) \
+		--patches $(BOOT)/rom-patches.txt --root $(ROOT) --out $(BOOT)
+	cp $(HEADM)/upp-quirks.txt $(HEADM)/cbus-regs.txt $(BOOT)/
+
+boot-model:
+	ssh $(REMOTE) 'mkdir -p $(MDIR)/src $(MDIR)/run'
+	git -C $(ROOT) archive HEAD model | ssh $(REMOTE) 'rm -rf $(MDIR)/src/model && tar -x -C $(MDIR)/src'
+	rsync -a $(HERE)/model/ $(REMOTE):$(MDIR)/tools/
+	rsync -a $(BOOT)/cs0.bin $(BOOT)/cs1.bin $(BOOT)/upp-quirks.txt $(BOOT)/cbus-regs.txt $(REMOTE):$(MDIR)/run/
+	ssh $(REMOTE) 'cd $(MDIR) && tools/build_linux.sh src/model . $$PWD/deps/root >/dev/null && \
+		tools/run_model.sh . run $(MODEL_SECS) $(MODEL_TRACE)'
+	rsync -a '$(REMOTE):$(MDIR)/run/*.log' $(BOOT)/model/
+
 boot:
 	@mkdir -p $(BOOT)
-	$(PY) $(HERE)/boot/prep.py --cs0 $(BOOT_CS0) --cs1 $(BOOT_CS1) \
-		--patches $(ROOT)/model/rom-patches.txt --root $(ROOT) --out $(BOOT)
-	cp $(ROOT)/model/upp-quirks.txt $(ROOT)/model/cbus-regs.txt $(BOOT)/
-	cp $(BOOT_REF) $(BOOT)/model-regs.log
-	cp $(dir $(BOOT_REF))cbus.log $(BOOT)/model-cbus.log
 	ssh $(REMOTE) 'mkdir -p $(RDIR)/rtl/cpu $(RDIR)/sim/cpu'
 	rsync -a --delete $(ROOT)/rtl/cpu/ $(REMOTE):$(RDIR)/rtl/cpu/
 	rsync -a --delete --exclude 'build/obj-*' --exclude build/rtl --exclude build/qemu \
-		$(HERE)/ $(REMOTE):$(RDIR)/sim/cpu/
+		--exclude build/boot/head $(HERE)/ $(REMOTE):$(RDIR)/sim/cpu/
 	ssh $(REMOTE) 'make -C $(RDIR)/sim/cpu RTL=$(RTL) model >/dev/null 2>&1 && cd $(RDIR)/sim/cpu/build/boot && \
 		../obj-$(RTL)/Vtb_cpu --machine ngage --flash0 cs0.bin --flash1 cs1.bin \
 		--quirks upp-quirks.txt --cbus-regs cbus-regs.txt --logdir . --lat 0:0 \
-		--max-cycles $(BOOT_CYCLES) --progress 20000000 $(BOOT_ARGS) > run.log 2>&1; tail -1 run.log'
+		--max-cycles $(BOOT_CYCLES) --progress 100000000 --devlog $(BOOT_ARGS) > run.log 2>&1; tail -1 run.log'
 	rsync -a '$(REMOTE):$(RDIR)/sim/cpu/build/boot/*.log' $(BOOT)/
 	$(PY) $(HERE)/boot/cmp_regs.py --name "register logs" --ignore 0x0C150100-0x0C150104 \
-		$(BOOT)/regs.log $(BOOT)/model-regs.log; \
-	r=$$?; $(PY) $(HERE)/boot/cmp_regs.py --name "CBUS logs" $(BOOT)/cbus.log $(BOOT)/model-cbus.log || r=1; \
+		$(BOOT)/regs.log $(BOOT)/model/regs.log; \
+	r=$$?; $(PY) $(HERE)/boot/cmp_regs.py --name "CBUS logs" $(BOOT)/cbus.log $(BOOT)/model/cbus.log || r=1; \
+	$(PY) $(HERE)/boot/cmp_dev.py $(BOOT)/dev.log $(BOOT)/model/trace.log || r=1; \
 	exit $$r
 
 clean:

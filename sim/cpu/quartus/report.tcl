@@ -11,6 +11,9 @@ foreach_in_collection op [get_available_operating_conditions] {
 	foreach_in_collection p $s {
 		puts "CORNER $name setup slack [get_path_info -slack $p]"
 	}
+	foreach_in_collection p [get_timing_paths -hold -npaths 1] {
+		puts "HOLD $name hold slack [get_path_info -slack $p]"
+	}
 	report_timing -setup -npaths 12 -detail summary -file "output_files/paths_[string map {" " _} $name].txt"
 }
 project_close
