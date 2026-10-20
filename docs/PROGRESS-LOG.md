@@ -918,3 +918,30 @@ found, and what comes next. Research material lives in `research/`
   alignment check registered a stage early), was -0.501 ns. Margin is thin:
   in the full core, keep the CPU on clk_sys at 104 MHz and recheck; the
   fallback is a CPU clock of 96 MHz (see docs/CPU.md).
+
+### 2026-10-20, model: power key; key interrupts verified; MMC polling
+- **UEMK register `0x1F` bit 1 is the power key** (register semantics
+  change for the RTL). ekeyb `0x5041CC9C` reads it as key bit 28
+  (scan code `0xA6`) and polls it while set. With the earlier constant
+  `0x0002` the power key looked held forever: ekeyb polled the CBUS about
+  1500 times a second and posted a power-key-down event. Now
+  `ngage_cbus.c` takes bit 1 from the power key. The keypad model holds the
+  key for the first 3 guest seconds after reset; after that it comes from
+  key `power` in the key script or F6 in the window.
+  The bootstrap reads it only after its flash digest check (about 1-2 guest
+  seconds). If the key is already up, the start-up reason is 9 and Starter
+  reads resource 0, leaves with -1 and panics. Starter is system-critical,
+  so the kernel faults with `PLAT` 0x1005B. Hence the 3 s hold.
+- **Key input works by interrupt**: a scripted '5' at 20 s latches CTSI
+  `+0x100` bit 2, source 25 runs ekeyb's CTSI ISR (`0x5041B9E0`), and
+  ekeyb posts EKeyDown scan code `0x35`. The window server's event request
+  completes. (The earlier '5' test was decoded only because ekeyb was
+  polling the stuck power key.)
+- **MMC**: the card mounts. Afterwards the stack polls it about every 1.6
+  guest seconds: a status session (CMD13 x13, then power-up and CMD0, CMD0,
+  CMD1, CMD2 without CMD3). The main session re-acquires with CMD3, CMD9
+  and CMD7 when it needs the card. This looks like card-presence polling
+  and appears with and without icount, so it is left as is.
+- Starter now runs past Startup.app to the end of its list (state 2) with
+  no fault in 60 s. The screen still shows the splash logo; see the
+  previous entry (NOS ISI).

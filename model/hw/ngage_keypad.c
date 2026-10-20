@@ -35,7 +35,9 @@
  * other bits are stored.
  *
  * Host keys come from QEMU's keyboard (see key_map) and from an optional
- * key script: lines "<guest seconds> down|up <key name>".
+ * key script: lines "<guest seconds> down|up <key name>". The power key is
+ * not in the matrix: it is UEMK register 0x1F bit 1 (ngage_cbus.c), held
+ * from reset for three guest seconds.
  *
  * Copyright (c) 2026 the NGage_MiSTer authors
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -61,7 +63,11 @@ static const NGageKey keys[] = {
     { "call", 3, 0 }, { "5", 3, 2 }, { "7", 3, 3 }, { "hash", 3, 4 },
     { "9", 4, 2 }, { "0", 4, 3 }, { "3", 4, 4 },
     { "star", 5, 2 }, { "2", 5, 3 }, { "4", 5, 4 },
+    { "power", -1, -1 },                /* UEMK register 0x1F bit 1, not in the matrix */
 };
+
+/* The power key is held this long from reset, as when switching the phone on. */
+#define POWER_ON_HOLD_NS    (3LL * 1000 * 1000 * 1000)
 
 typedef struct NGageKeypad {
     MemoryRegion mr;
@@ -76,6 +82,7 @@ typedef struct NGageKeypad {
     struct { int64_t ns; bool down; int key; } *script;
     int nscript, next;
     QEMUTimer *timer;
+    QEMUTimer *power_timer;
 } NGageKeypad;
 
 static int key_index(const char *name)
@@ -132,6 +139,9 @@ static void kp_update(NGageKeypad *s)
     fell_c = s->last_c & ~c & s->ien[0] & ~s->dir[0] & 0x1F;
     if (fell_r) {
         s->ctsi100 |= 1u << 2;
+    }
+    if ((fell_r || fell_c) && s->log) {
+        fprintf(s->log, "keypad interrupt: rows %02x cols %02x fell %02x/%02x\n", r, c, fell_r, fell_c);
     }
     if (fell_c) {
         s->ctsi100 |= 1u << 3;
@@ -226,15 +236,23 @@ static void set_key(NGageKeypad *s, int k, bool down)
     if (k < 0) {
         return;
     }
+    if (keys[k].row < 0) {
+        ngage_cbus_set_power_key(down);
+        if (s->log) {
+            fprintf(s->log, "key %s %s\n", keys[k].name, down ? "down" : "up");
+        }
+        return;
+    }
     s->pressed[keys[k].row][keys[k].col] = down;
     if (s->log) {
-        fprintf(s->log, "key %s %s\n", keys[k].name, down ? "down" : "up");
+        fprintf(s->log, "key %s %s (dir %02x/%02x data %02x/%02x ien %02x)\n", keys[k].name,
+                down ? "down" : "up", s->dir[0], s->dir[1], s->data[0], s->data[1], s->ien[1]);
     }
     kp_update(s);
 }
 
 /* Host keyboard: arrows, Return = OK, F1/F2 = soft keys, F3 = Menu,
- * F4 = Call, F5/Escape = End, Backspace = Clear, Shift = Edit, digits and
+ * F4 = Call, F5/Escape = End, F6 = Power, Backspace = Clear, Shift = Edit, digits and
  * keypad digits, '*' (keypad *), '#' (keypad /). */
 static int key_map(int qcode)
 {
@@ -249,6 +267,7 @@ static int key_map(int qcode)
     case Q_KEY_CODE_F3: return key_index("menu");
     case Q_KEY_CODE_F4: return key_index("call");
     case Q_KEY_CODE_F5: case Q_KEY_CODE_ESC: return key_index("end");
+    case Q_KEY_CODE_F6: return key_index("power");
     case Q_KEY_CODE_BACKSPACE: return key_index("clear");
     case Q_KEY_CODE_SHIFT: return key_index("edit");
     case Q_KEY_CODE_KP_MULTIPLY: return key_index("star");
@@ -281,6 +300,11 @@ static const QemuInputHandler kp_handler = {
     .mask = INPUT_EVENT_MASK_KEY,
     .event = kp_event,
 };
+
+static void kp_power_release(void *opaque)
+{
+    set_key(opaque, key_index("power"), false);
+}
 
 static void kp_script_tick(void *opaque)
 {
@@ -351,6 +375,8 @@ void ngage_keypad_create(MemoryRegion *sysmem, const char *script, FILE *log)
     memory_region_init_io(&s->mr, NULL, &kp_ops, s, "ngage.keypad", 0x20);
     memory_region_add_subregion(sysmem, UIF_BASE, &s->mr);
     (void)qemu_input_handler_register(NULL, &kp_handler);
+    s->power_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, kp_power_release, s);
+    timer_mod(s->power_timer, POWER_ON_HOLD_NS);
     if (script) {
         kp_load_script(s, script);
     }

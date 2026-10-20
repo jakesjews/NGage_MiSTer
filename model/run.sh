@@ -20,8 +20,9 @@
 #                 instruction, idle time skipped); "none" for wall-clock time
 #   NGAGE_KEYS    key script: lines "<guest seconds> down|up <key>"; keys: up down
 #                 left right ok lsk rsk menu call end clear edit 0-9 star hash
+#                 power (held for the first 3 guest seconds, as at switch-on)
 # Window keys (-w): arrows, Return = OK, F1/F2 soft keys, F3 Menu, F4 Call,
-# F5/Esc End, Backspace Clear, Shift Edit, digits, keypad * and / for * and #.
+# F5/Esc End, F6 Power, Backspace Clear, Shift Edit, digits, keypad * and / for * and #.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

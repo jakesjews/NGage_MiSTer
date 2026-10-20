@@ -35,6 +35,13 @@
  * 9). Channel values come from "adc <channel> <value>" lines in
  * cbus-regs.txt; unset channels read 0.
  *
+ * Power key: UEMK register 0x1F bit 1 reads 1 while the power key is held.
+ * ekeyb's key-state read (0x5041CC9C) reports it as key bit 28 (scan code
+ * 0xA6) and polls it while it is down; the bootstrap (0x3090) takes the
+ * normal power-on path when it is set. The keypad model holds the key from
+ * reset for one guest second (a user switching the phone on) and takes
+ * "power" from the key script.
+ *
  * Copyright (c) 2026 the NGage_MiSTer authors
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -54,8 +61,18 @@ typedef struct NGageCbus {
     uint32_t ro_val[8][32];
     uint8_t is_ro[8][32];
     uint16_t adc[16];
+    bool power_key;
     FILE *log;
 } NGageCbus;
+
+static NGageCbus *the_cbus;
+
+void ngage_cbus_set_power_key(bool down)
+{
+    if (the_cbus) {
+        the_cbus->power_key = down;
+    }
+}
 
 static void cbus_log(NGageCbus *s, const char *what, unsigned dev, unsigned reg,
                      unsigned bits, uint32_t val)
@@ -75,6 +92,10 @@ static void cbus_do_read(NGageCbus *s)
 {
     unsigned dev = (s->ctrl >> 5) & 7, reg = s->ctrl & 0x1F, bits = cbus_bits(s);
     uint32_t v = s->is_ro[dev][reg] ? s->ro_val[dev][reg] : s->regs[dev][reg];
+
+    if (dev == 1 && reg == 0x1F) {
+        v = (v & ~2u) | (s->power_key ? 2u : 0);
+    }
 
     if (bits < 32) {
         v &= (1u << bits) - 1;
@@ -197,6 +218,8 @@ void ngage_cbus_create(MemoryRegion *sysmem, const char *regs_path, FILE *log)
 {
     NGageCbus *s = g_new0(NGageCbus, 1);
 
+    the_cbus = s;
+    s->power_key = true;                /* held at power-on, see ngage_keypad.c */
     s->log = log;
     if (regs_path) {
         cbus_load(s, regs_path);

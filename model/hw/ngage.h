@@ -81,5 +81,6 @@ void ngage_mmc_create(MemoryRegion *sysmem, const char *image, FILE *log);
 
 /* CBUS master and UEMK model (ngage_cbus.c). */
 void ngage_cbus_create(MemoryRegion *sysmem, const char *regs_path, FILE *log);
+void ngage_cbus_set_power_key(bool down);
 
 #endif
