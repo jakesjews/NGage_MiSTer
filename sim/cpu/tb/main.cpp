@@ -1,0 +1,375 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// CPU bench driver: memory and a few bench registers on the arm925t bus,
+// a retirement trace from the writeback probes, and the test result.
+//
+//   Vtb_cpu --bin test.bin [options]
+//     --bin FILE        raw image loaded at 0 (the test, see tests/crt0.S)
+//     --load ADDR:FILE  extra raw image at ADDR (RAM or high RAM)
+//     --halt ADDR       address of the halt loop (default 0x40); the test
+//                       ends when the instruction there retires
+//     --sig FILE        dump the signature area (--sig-base, --sig-size)
+//     --trace FILE      write one line per retired instruction or exception
+//     --lat MIN:MAX     bus latency, cycles from request to ack (default 0:3)
+//     --seed N          RNG seed for the latency (default 1)
+//     --max-cycles N    give up after N cycles (default 50,000,000)
+//     --quiet           no console echo
+//
+// Memory map seen by the CPU (physical):
+//   0x00000000-0x00FFFFFF  16 MB RAM (QEMU -M none -m 16M has the same)
+//   0xFFFF0000-0xFFFFFFFF  64 KB RAM, for high vectors with the MMU off
+//   0xF0000000-0xF00000FF  bench registers (RTL only):
+//      +00 W  console character
+//      +04 W  stop the simulation now; the value is the exit code
+//      +08 RW interrupt lines: bit 0 IRQ, bit 1 FIQ (level, active high)
+//      +0C W  raise IRQ (bit 0 of +08) after this many cycles
+//      +10 W  raise FIQ (bit 1 of +08) after this many cycles
+//      +14 R  cycle counter
+//      +18 R  retired instruction counter
+//      +1C RW scratch word
+//      +20 RW fixed bus latency when nonzero (overrides --lat), for tests
+//   anything else          bus error (external abort)
+// Bus protocol checks: a request must stay unchanged until acked, and a
+// burst beat must be followed by the next word of the same line.
+#include "Vtb_cpu.h"
+#include "verilated.h"
+
+#include <cinttypes>
+#include <cstdarg>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <random>
+#include <string>
+#include <vector>
+
+namespace {
+
+constexpr uint32_t RAM_SIZE = 16u << 20;
+constexpr uint32_t HIRAM_BASE = 0xFFFF0000u;
+constexpr uint32_t HIRAM_SIZE = 0x10000u;
+constexpr uint32_t MMIO_BASE = 0xF0000000u;
+
+std::vector<uint8_t> ram(RAM_SIZE), hiram(HIRAM_SIZE);
+
+int errors = 0;
+void error(const char *fmt, ...) {
+	va_list ap;
+	va_start(ap, fmt);
+	fprintf(stderr, "ERROR: ");
+	vfprintf(stderr, fmt, ap);
+	fprintf(stderr, "\n");
+	va_end(ap);
+	if (++errors > 20) exit(3);
+}
+
+uint8_t *mem_ptr(uint32_t a) {
+	if (a < RAM_SIZE) return &ram[a];
+	if (a >= HIRAM_BASE) return &hiram[a - HIRAM_BASE];
+	return nullptr;
+}
+
+bool load_file(uint32_t addr, const char *path) {
+	FILE *f = fopen(path, "rb");
+	if (!f) { fprintf(stderr, "cannot open %s\n", path); return false; }
+	uint8_t buf[4096];
+	size_t n;
+	uint32_t a = addr;
+	while ((n = fread(buf, 1, sizeof buf, f)) > 0) {
+		for (size_t i = 0; i < n; i++, a++) {
+			uint8_t *p = mem_ptr(a);
+			if (!p) { fprintf(stderr, "%s does not fit at 0x%08x\n", path, addr); fclose(f); return false; }
+			*p = buf[i];
+		}
+	}
+	fclose(f);
+	return true;
+}
+
+uint32_t rd32(uint32_t a) {
+	uint8_t *p = mem_ptr(a);
+	return p ? (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24 : 0;
+}
+
+// Current-mode view of ZAP's physical registers (zap_localparams.svh).
+int phys_index(int r, uint32_t mode) {
+	if (r < 8) return r;
+	switch (mode & 0x1F) {
+	case 0x11: // FIQ
+		if (r <= 14) return 18 + (r - 8);
+		break;
+	case 0x12: if (r == 13) return 25; if (r == 14) return 26; break; // IRQ
+	case 0x13: if (r == 13) return 27; if (r == 14) return 28; break; // SVC
+	case 0x1B: if (r == 13) return 29; if (r == 14) return 30; break; // UND
+	case 0x17: if (r == 13) return 31; if (r == 14) return 32; break; // ABT
+	default: break;
+	}
+	return r;
+}
+
+uint32_t reg_word(const Vtb_cpu *t, int phys) {
+	return t->p_regs[phys];
+}
+
+}  // namespace
+
+int main(int argc, char **argv) {
+	Verilated::commandArgs(argc, argv);
+
+	std::vector<std::pair<uint32_t, std::string>> loads;
+	uint32_t halt = 0x40;
+	uint32_t sig_base = 0x00F00000, sig_size = 0x10000;
+	const char *sig_path = nullptr, *trace_path = nullptr;
+	int lat_min = 0, lat_max = 3;
+	uint32_t seed = 1;
+	uint64_t max_cycles = 50000000;
+	bool quiet = false;
+
+	for (int i = 1; i < argc; i++) {
+		std::string a = argv[i];
+		auto next = [&]() -> const char * {
+			if (i + 1 >= argc) { fprintf(stderr, "%s needs a value\n", a.c_str()); exit(2); }
+			return argv[++i];
+		};
+		if (a == "--bin") loads.push_back({0, next()});
+		else if (a == "--load") {
+			std::string v = next();
+			size_t c = v.find(':');
+			if (c == std::string::npos) { fprintf(stderr, "--load ADDR:FILE\n"); return 2; }
+			loads.push_back({(uint32_t)strtoul(v.substr(0, c).c_str(), nullptr, 0), v.substr(c + 1)});
+		}
+		else if (a == "--halt") halt = (uint32_t)strtoul(next(), nullptr, 0);
+		else if (a == "--sig") sig_path = next();
+		else if (a == "--sig-base") sig_base = (uint32_t)strtoul(next(), nullptr, 0);
+		else if (a == "--sig-size") sig_size = (uint32_t)strtoul(next(), nullptr, 0);
+		else if (a == "--trace") trace_path = next();
+		else if (a == "--lat") {
+			if (sscanf(next(), "%d:%d", &lat_min, &lat_max) != 2 || lat_min < 0 || lat_max < lat_min) {
+				fprintf(stderr, "--lat MIN:MAX\n");
+				return 2;
+			}
+		}
+		else if (a == "--seed") seed = (uint32_t)strtoul(next(), nullptr, 0);
+		else if (a == "--max-cycles") max_cycles = strtoull(next(), nullptr, 0);
+		else if (a == "--quiet") quiet = true;
+		else if (a[0] == '+') continue;  // Verilator's own
+		else { fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
+	}
+	if (loads.empty()) { fprintf(stderr, "no --bin given\n"); return 2; }
+	for (auto &l : loads)
+		if (!load_file(l.first, l.second.c_str())) return 2;
+
+	FILE *trace = nullptr;
+	if (trace_path && !(trace = fopen(trace_path, "w"))) { fprintf(stderr, "cannot write %s\n", trace_path); return 2; }
+
+	std::mt19937 rng(seed);
+	Vtb_cpu *t = new Vtb_cpu;
+
+	// bus responder state
+	bool busy = false, ack_out = false, err_out = false;
+	int wait = 0;
+	uint32_t req_addr = 0, req_wdata = 0;
+	uint8_t req_be = 0;
+	bool req_we = false, req_burst = false;
+	bool prev_burst_beat = false;
+	uint32_t prev_burst_addr = 0;
+	// bench registers
+	uint32_t irq_lines = 0, scratch = 0, fixed_lat = 0;
+	int64_t irq_timer = -1, fiq_timer = -1;
+	bool stop = false;
+	int exit_code = -1;
+	uint64_t cycle = 0, retired = 0;
+	std::string console;
+
+	auto mmio_read = [&](uint32_t off) -> uint32_t {
+		switch (off) {
+		case 0x08: return irq_lines;
+		case 0x14: return (uint32_t)cycle;
+		case 0x18: return (uint32_t)retired;
+		case 0x1C: return scratch;
+		case 0x20: return fixed_lat;
+		default: return 0;
+		}
+	};
+	auto mmio_write = [&](uint32_t off, uint32_t v, uint8_t be) {
+		switch (off) {
+		case 0x00:
+			if (be & 1) {
+				char c = (char)(v & 0xFF);
+				if (!quiet) fputc(c, stdout);
+				console += c;
+			}
+			break;
+		case 0x04: stop = true; exit_code = (int)v; break;
+		case 0x08: irq_lines = v & 3; break;
+		case 0x0C: irq_timer = v; break;
+		case 0x10: fiq_timer = v; break;
+		case 0x1C: scratch = v; break;
+		case 0x20: fixed_lat = v; break;
+		default: break;
+		}
+	};
+
+	// reset
+	t->clk = 0;
+	t->reset = 1;
+	t->irq = 0;
+	t->fiq = 0;
+	t->bus_ack = 0;
+	t->bus_err = 0;
+	t->bus_rdata = 0;
+	t->eval();
+	for (int i = 0; i < 8; i++) {
+		t->clk = 1; t->eval();
+		t->clk = 0; t->eval();
+	}
+	t->reset = 0;
+	t->eval();
+
+	bool halted = false;
+	uint32_t last_pc = 0;
+	while (!stop && cycle < max_cycles) {
+		// ---- before the rising edge: sample what commits at this edge ----
+		uint32_t cpsr_before = t->p_cpsr;
+		bool thumb = (cpsr_before >> 5) & 1;
+		uint32_t pc = t->p_pc8 - (thumb ? 4 : 8);
+		char ev = 0;
+		if (t->p_dabt & 2) ev = 0;               // replay: no architectural effect
+		else if (t->p_dabt & 1) ev = 'D';
+		else if (t->p_fiq) ev = 'F';
+		else if (t->p_irq) ev = 'I';
+		else if (t->p_iabt) ev = 'P';
+		else if (t->p_swi) ev = 'S';
+		else if (t->p_und) ev = 'U';
+		else if ((t->p_valid || t->p_cfail) && t->p_last) ev = 'R';
+
+		// bus: protocol checks and the responder
+		bool req = t->bus_req;
+		if (busy && !ack_out) {
+			if (!req) error("cycle %" PRIu64 ": request at 0x%08x withdrawn before ack", cycle, req_addr);
+			else if (t->bus_addr != req_addr || t->bus_we != req_we || t->bus_be != req_be ||
+				 (req_we && t->bus_wdata != req_wdata) || t->bus_burst != req_burst)
+				error("cycle %" PRIu64 ": request at 0x%08x changed before ack (now 0x%08x)", cycle, req_addr,
+				      (uint32_t)t->bus_addr);
+		}
+		bool complete = false;
+		if (ack_out) {
+			complete = true;  // this edge completes the request
+		} else if (req && !busy) {
+			busy = true;
+			req_addr = t->bus_addr;
+			req_we = t->bus_we;
+			req_be = t->bus_be;
+			req_wdata = t->bus_wdata;
+			req_burst = t->bus_burst;
+			if (prev_burst_beat && req_addr != prev_burst_addr + 4)
+				error("cycle %" PRIu64 ": burst continued at 0x%08x after 0x%08x", cycle, req_addr, prev_burst_addr);
+			if ((req_addr & 3) != 0) error("cycle %" PRIu64 ": unaligned bus address 0x%08x", cycle, req_addr);
+			wait = fixed_lat ? (int)fixed_lat - 1 : lat_min + (int)(rng() % (uint32_t)(lat_max - lat_min + 1));
+		}
+		bool respond = false;
+		if (busy && !ack_out) {
+			if (wait <= 0) respond = true;
+			else wait--;
+		}
+
+		// ---- rising edge ----
+		t->clk = 1;
+		t->eval();
+		cycle++;
+
+		// ---- after the edge: state after the committed instruction ----
+		if (ev) {
+			uint32_t cpsr = t->p_cpsr;
+			if (ev == 'R') retired++;
+			if (trace) {
+				fprintf(trace, "%c %08x", ev, pc);
+				for (int r = 0; r < 15; r++) {
+					int p = phys_index(r, cpsr);
+					bool locked = (t->p_lock >> p) & 1;
+					if (locked) fprintf(trace, " --------");
+					else fprintf(trace, " %08x", reg_word(t, p));
+				}
+				fprintf(trace, " %08x\n", cpsr);
+			}
+			if (ev == 'R' && pc == halt) halted = true;
+			last_pc = pc;
+		}
+
+		// bus outputs for the next cycle
+		t->bus_ack = 0;
+		t->bus_err = 0;
+		if (complete) {
+			busy = false;
+			ack_out = false;
+			err_out = false;
+			prev_burst_beat = req_burst;
+			prev_burst_addr = req_addr;
+		} else if (respond) {
+			uint32_t a = req_addr & ~3u;
+			uint8_t *p = mem_ptr(a);
+			bool mmio = (a & 0xFFFFFF00u) == MMIO_BASE;
+			uint32_t rdata = 0;
+			if (p) {
+				if (req_we) {
+					for (int b = 0; b < 4; b++)
+						if (req_be & (1 << b)) p[b] = (uint8_t)(req_wdata >> (8 * b));
+				}
+				rdata = (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+			} else if (mmio) {
+				if (req_we) mmio_write(a & 0xFF, req_wdata, req_be);
+				rdata = mmio_read(a & 0xFF);
+			} else {
+				err_out = true;
+			}
+			ack_out = true;
+			t->bus_ack = !err_out;
+			t->bus_err = err_out;
+			t->bus_rdata = err_out ? 0xDEADBEEFu : rdata;
+		}
+		if (irq_timer >= 0 && --irq_timer < 0) irq_lines |= 1;
+		if (fiq_timer >= 0 && --fiq_timer < 0) irq_lines |= 2;
+		t->irq = irq_lines & 1;
+		t->fiq = (irq_lines >> 1) & 1;
+
+		t->clk = 0;
+		t->eval();
+
+		if (halted) break;
+	}
+
+	if (trace) fclose(trace);
+
+	uint32_t result = rd32(sig_base);
+	if (sig_path) {
+		FILE *f = fopen(sig_path, "wb");
+		if (!f) { fprintf(stderr, "cannot write %s\n", sig_path); return 2; }
+		for (uint32_t a = sig_base; a < sig_base + sig_size; a++) {
+			uint8_t *p = mem_ptr(a);
+			fputc(p ? *p : 0, f);
+		}
+		fclose(f);
+	}
+
+	int rc;
+	if (errors) {
+		printf("BENCH ERROR (%d bus protocol errors)\n", errors);
+		rc = 3;
+	} else if (stop) {
+		printf("STOP code %d at cycle %" PRIu64 "\n", exit_code, cycle);
+		rc = exit_code == 0 ? 0 : 1;
+	} else if (!halted) {
+		printf("TIMEOUT after %" PRIu64 " cycles, last retired pc 0x%08x\n", cycle, last_pc);
+		rc = 1;
+	} else if (result == 1) {
+		printf("PASS (%" PRIu64 " cycles, %" PRIu64 " instructions)\n", cycle, retired);
+		rc = 0;
+	} else {
+		printf("FAIL result 0x%08x (check %u) at cycle %" PRIu64 "\n", result, result & 0xFFFF, cycle);
+		rc = 1;
+	}
+	t->final();
+	delete t;
+	return rc;
+}

@@ -1,0 +1,94 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// The N-Gage QD's processor: a TI ARM925T (ARMv4T ARM9TDMI integer core,
+// CP15 with the TI extensions, MMU, 16 KB I-cache, 8 KB D-cache) as found in
+// Nokia's UPP_WD2 ASIC. Built from the ZAP core (rtl/cpu/zap, GPL-3.0-or-
+// later, see rtl/cpu/zap/NOTICE) with ARMv4T and ARM925T behaviour switched
+// on through its parameters. docs/CPU.md describes the design, the deviations
+// from a real ARM925T and the tests.
+//
+// Quartus compiles rtl/cpu/arm925t_gen.v, which tools/gen_cpu.sh makes from
+// this file and rtl/cpu/zap with sv2v.
+//
+// Memory bus (one master, req/ack, as elsewhere in this core):
+//   * A request is held, unchanged, until the cycle in which bus_ack (or
+//     bus_err) is high; that cycle completes it and carries the read data.
+//     The next request can start in the following cycle, so a responder must
+//     not take bus_req in its ack cycle as a new request.
+//   * bus_addr is a byte address with bits 1:0 zero; bus_be selects the bytes
+//     (bus_be[0] = bits 7:0). Reads always return the whole word.
+//   * bus_burst = 1: this beat is part of a cache-line burst and another beat
+//     follows at bus_addr + 4. Line fills and write-backs are CACHE_LINE / 4
+//     beats from the line's first word, with bus_burst high on all but the
+//     last. Everything else (uncached data, MMU table walks, cache-off
+//     fetches) is a single beat with bus_burst = 0.
+//   * bus_err ends the request with an external abort: a data abort for a
+//     data access or table walk, a prefetch abort for a fetch.
+//   * The bus outputs come straight from flip-flops in ZAP's bus merger.
+// Interrupts are level-sensitive and active high (the inverse of the
+// ARM925T's nIRQ/nFIQ); they pass a two-flop synchroniser inside ZAP.
+// reset is synchronous and active high; drive it from a flip-flop.
+module arm925t #(
+	// Reset value of control register bit V (the ARM925T's HIVECS pin):
+	// 1 puts the exception vectors, and the reset address, at 0xFFFF0000.
+	parameter bit          HIVECS      = 1'b0,
+	// Cache geometry. The ARM925T has 16 KB I / 8 KB D, 2-way, 16-byte lines;
+	// the ZAP caches here are direct-mapped (docs/CPU.md).
+	parameter int          ICACHE_SIZE = 16384,
+	parameter int          DCACHE_SIZE = 8192,
+	parameter int          CACHE_LINE  = 16
+) (
+	input  logic        clk,
+	input  logic        reset,
+
+	input  logic        irq,
+	input  logic        fiq,
+
+	output logic        bus_req,
+	output logic        bus_we,
+	output logic [31:0] bus_addr,
+	output logic [3:0]  bus_be,
+	output logic [31:0] bus_wdata,
+	output logic        bus_burst,
+	input  logic [31:0] bus_rdata,
+	input  logic        bus_ack,
+	input  logic        bus_err
+);
+
+	localparam logic [31:0] RESET_VECTOR = HIVECS ? 32'hFFFF0000 : 32'h00000000;
+
+	logic       wb_cyc, wb_stb;
+	logic [2:0] wb_cti;
+	logic [1:0] wb_bte;
+
+	zap_top #(
+		.RESET_VECTOR    (RESET_VECTOR),
+		.CODE_CACHE_SIZE (32'(ICACHE_SIZE)),
+		.CODE_CACHE_LINE (32'(CACHE_LINE)),
+		.DATA_CACHE_SIZE (32'(DCACHE_SIZE)),
+		.DATA_CACHE_LINE (32'(CACHE_LINE))
+	) u_zap (
+		.i_clk    (clk),
+		.i_reset  (reset),
+		.i_irq    (irq),
+		.i_fiq    (fiq),
+		.o_wb_cyc (wb_cyc),
+		.o_wb_stb (wb_stb),
+		.o_wb_adr (bus_addr),
+		.o_wb_we  (bus_we),
+		.o_wb_dat (bus_wdata),
+		.o_wb_sel (bus_be),
+		.o_wb_cti (wb_cti),
+		.o_wb_bte (wb_bte),
+		.i_wb_ack (bus_ack),
+		.i_wb_dat (bus_rdata),
+		.i_wb_err (bus_err)
+	);
+
+	assign bus_req   = wb_cyc & wb_stb;
+	assign bus_burst = wb_cti == 3'b010;
+
+	logic unused;
+	assign unused = |wb_bte;
+
+endmodule
