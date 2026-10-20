@@ -337,3 +337,57 @@ found, and what comes next. Research material lives in `research/`
   memory with random 1-12 clock latency: reads, IDs, CFI, program with
   status and busy time, erase (main, parameter, two banks in one window,
   window abort), suspend/resume, bypass, RP#, chip erase. Passes (4 seeds).
+
+### 2026-10-19, night: kernel faults found and fixed; file server starts
+- **The kernel halt was `Kern::Fault("CBus:", 25)`.** Restart path
+  `0x5032DF68` stores the reason at superpage `0x40000410` and the category
+  (8 chars) at `0x40000418`, then copies both to on-chip RAM `0x0C0047F0`.
+  Read them with `NGAGE_GDB_EXTRA=$'x/4wx 0x40000410\nx/8c 0x40000418'`.
+- CBUS was decoded wrongly. Correct layout (cbus.dll `0x5037CF4C`/`0x5037D28C`):
+  `+0x420` = bits - 1; `+0x422` = register (4:0) | device (7:5) | read (bit 8);
+  bit 10 = done; `+0x424`/`+0x426` = data high/low; writing `+0x426` starts a
+  write. So the bootstrap's "UEMK 0x35" is device 1 (UEMK) register 0x15.
+  cbus.dll self-tests device 4 (register 0 must read `0x04xx`, register 0x0D
+  must hold a value). `model/uemk-regs.txt` is now `model/cbus-regs.txt`
+  (`<device> <register> <value> [ro]`).
+- Interrupt controller rebuilt from the kernel (IRQ dispatcher `0x5031C87C`,
+  FIQ dispatcher `0x5031C99C`, enable/disable helpers `0x5031E874-0x5031EA44`):
+  IRQ plane at `0x0C120100`, FIQ plane at `0x0C1201C0`, three 32-source banks
+  each; `+08` enable set, `+0C` enable clear, `+10` pending, `+14` active
+  source (1-based). Source numbering follows the kernel's name table, e.g.
+  Timer0-5 = 0-5, LCDBuffer 15, MMC 21-24, CTSI_IRQ 25. Six timers at
+  `0x0C120A00 + 0x20n`; `+08` is the interrupt flag (the tick ISR
+  `0x5031C5B0` acks it with 0). Details in `docs/UPP_WD2.md` (new).
+- **NOS (cellular RTOS) blocker.** nosstarter.ext calls the NOS entry
+  `0x5149E4D4` = CS0 `0x9E4D4`, inside the encrypted region, and the kernel
+  restarts. NOS also provides kernel interfaces Symbian depends on:
+  - variant services 3, 6, 7 (`RegisterService` = ecust vtable `+0xFC`,
+    `GetService` = `+0x100`; no Symbian file registers these);
+  - the kernel's power-model object (ekern ordinal 394 installs it at
+    `0x80006BC4`; base class constructor = ordinal 493);
+  - the variant flag word `+0x90` (setter vtable `+0x128`), which ecust waits on.
+- Model shortcut: `model/rom-patches.txt`, applied at load by
+  `model/hw/ngage_patch.c` and logged. It places a small NOS stand-in
+  (`model/nos-stub/nos_stub.S`, linked at `0x5149E4D4`) at the NOS entry, and
+  recomputes the integrity digest of table entry `0x8F18`. The digest is
+  MD5(CS0[0x9000:0xF00000] + CS1[0:0x26A000]). The stand-in registers
+  placeholder services (methods return 0; service 3's read zeroes its output),
+  builds the power model with the kernel's own base constructor, and sets the
+  flags to 3. Every behaviour in it is a guess about NOS.
+- Kernel debug text goes to the STI trace window at PA `0x0DE00000` (virtual
+  `0x59000000`), because ROM `iTraceMask` = `0xC0008003` has bit 30 set. The
+  model writes it to `model/.out/kern.log`; so far it only shows
+  "TRtcQueue::Add: 2" from rtc.dll.
+- New tools: `model/sample.sh` (PC histogram via the monitor),
+  `model/gdbrun.sh CMDFILE` (start halted, run GDB commands),
+  `model/gdbat.sh SECS CMDFILE`, `model/threads.sh` (lists EKA1 threads from a
+  kernel-memory dump), `model/tools/romdis.py ROM NAME [-t]` (disassemble one
+  ROM file at its address). Disassemblies of cbus.dll, ecust.dll, epbus.dll,
+  medint.pdd, lcd.ldd, EUser, ELocal, EFile and others are in
+  `research/firmware/analysis/`.
+- State: kernel, ecust.dll, extensions rtc, nosstarter, epbus, product_info,
+  ekeyb, and the file server start. Threads: Supervisor, NULL, EFile's Main,
+  LoaderThread and StartupThread. The StartupThread waits on a file-server
+  request, and Main waits inside ELocal (FAT) code; the cause is not yet found.
+  Candidates: rtc.dll's alarm path through NOS/UEMK, or the FIQ tick
+  (`0x0C120050` bit 1), which nothing raises yet.

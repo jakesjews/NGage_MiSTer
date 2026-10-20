@@ -35,8 +35,10 @@ struct NGageMachineState {
     char *probe_log;
     char *upp_log;
     char *quirks;
-    char *uemk_regs;
+    char *cbus_regs;
     char *cbus_log;
+    char *rom_patches;
+    char *kern_log;
     NGageFlash *flash[2];
     MemoryRegion probe;
     MemoryRegion sdram;
@@ -146,7 +148,8 @@ static void ngage_init(MachineState *machine)
     /* UPP peripherals: Symbian maps 0x0C000000 at virtual 0x58000000. */
     ngage_upp_block(sysmem, "upp", 0x0C100000, 0x100000);
 
-    ngage_intc_create(sysmem, qdev_get_gpio_in(DEVICE(s->cpu), ARM_CPU_IRQ));
+    ngage_intc_create(sysmem, qdev_get_gpio_in(DEVICE(s->cpu), ARM_CPU_IRQ),
+                      qdev_get_gpio_in(DEVICE(s->cpu), ARM_CPU_FIQ));
     {
         FILE *cl = NULL;
         if (s->cbus_log) {
@@ -155,7 +158,18 @@ static void ngage_init(MachineState *machine)
                 setvbuf(cl, NULL, _IOLBF, 0);
             }
         }
-        ngage_cbus_create(sysmem, s->uemk_regs, cl);
+        ngage_cbus_create(sysmem, s->cbus_regs, cl);
+    }
+
+    {
+        FILE *kl = NULL;
+        if (s->kern_log) {
+            kl = fopen(s->kern_log, "w");
+            if (kl) {
+                setvbuf(kl, NULL, _IOLBF, 0);
+            }
+        }
+        ngage_sti_create(sysmem, kl);
     }
 
     /* Everything nothing else claims: log it. */
@@ -179,6 +193,9 @@ static void ngage_init(MachineState *machine)
                                      NGAGE_FLASH0_SIZE, s->flash0_path);
     s->flash[1] = ngage_flash_create(sysmem, "ngage.flash1", NGAGE_FLASH1_BASE,
                                      NGAGE_FLASH1_SIZE, s->flash1_path);
+    if (s->rom_patches) {
+        ngage_apply_rom_patches(s->rom_patches, s->flash[0], s->flash[1]);
+    }
 }
 
 static char *get_flash0(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->flash0_path); }
@@ -189,10 +206,14 @@ static char *get_upp(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->u
 static void set_upp(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->upp_log = g_strdup(v); }
 static char *get_quirks(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->quirks); }
 static void set_quirks(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->quirks = g_strdup(v); }
-static char *get_uemk(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->uemk_regs); }
-static void set_uemk(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->uemk_regs = g_strdup(v); }
+static char *get_cbusregs(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->cbus_regs); }
+static void set_cbusregs(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->cbus_regs = g_strdup(v); }
 static char *get_cbuslog(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->cbus_log); }
 static void set_cbuslog(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->cbus_log = g_strdup(v); }
+static char *get_patches(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->rom_patches); }
+static void set_patches(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->rom_patches = g_strdup(v); }
+static char *get_kernlog(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->kern_log); }
+static void set_kernlog(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->kern_log = g_strdup(v); }
 static char *get_probe(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->probe_log); }
 static void set_probe(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->probe_log = g_strdup(v); }
 
@@ -210,10 +231,14 @@ static void ngage_machine_class_init(ObjectClass *oc, const void *data)
     object_class_property_add_str(oc, "flash1", get_flash1, set_flash1);
     object_class_property_set_description(oc, "flash1", "CS1 NOR image (8 MB)");
     object_class_property_add_str(oc, "probe-log", get_probe, set_probe);
-    object_class_property_add_str(oc, "uemk-regs", get_uemk, set_uemk);
-    object_class_property_set_description(oc, "uemk-regs", "UEMK initial register values");
+    object_class_property_add_str(oc, "cbus-regs", get_cbusregs, set_cbusregs);
+    object_class_property_set_description(oc, "cbus-regs", "CBUS device register initial values");
     object_class_property_add_str(oc, "cbus-log", get_cbuslog, set_cbuslog);
     object_class_property_set_description(oc, "cbus-log", "file that receives every CBUS transaction");
+    object_class_property_add_str(oc, "kern-log", get_kernlog, set_kernlog);
+    object_class_property_set_description(oc, "kern-log", "file that receives the kernel's STI debug text");
+    object_class_property_add_str(oc, "rom-patches", get_patches, set_patches);
+    object_class_property_set_description(oc, "rom-patches", "model shortcuts applied to the flash contents");
     object_class_property_add_str(oc, "quirks", get_quirks, set_quirks);
     object_class_property_set_description(oc, "quirks", "register read quirks file");
     object_class_property_add_str(oc, "upp-log", get_upp, set_upp);

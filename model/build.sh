@@ -45,3 +45,10 @@ if [[ ! -f $BUILD/build.ninja ]]; then
 fi
 ninja -C "$BUILD" qemu-system-arm
 ls -la "$BUILD/qemu-system-arm"
+
+# NOS stand-in (model shortcut, see rom-patches.txt), linked at the NOS entry
+# 0x5149E4D4 (CS0 0x9E4D4 seen through the kernel's NOS window at 0x51400000).
+arm-none-eabi-as -march=armv4t -o "$BUILD/nos_stub.o" nos-stub/nos_stub.S
+arm-none-eabi-ld -Ttext=0x5149E4D4 -o "$BUILD/nos_stub.elf" "$BUILD/nos_stub.o"
+arm-none-eabi-objcopy -O binary "$BUILD/nos_stub.elf" "$BUILD/nos-stub.bin"
+ls -la "$BUILD/nos-stub.bin"

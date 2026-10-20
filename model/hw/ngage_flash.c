@@ -188,3 +188,14 @@ NGageFlash *ngage_flash_create(MemoryRegion *sysmem, const char *name,
     f->mode = ST_READ;
     return f;
 }
+
+uint8_t *ngage_flash_data(NGageFlash *f, uint32_t *size)
+{
+    *size = f->size;
+    return f->data;
+}
+
+void ngage_flash_changed(NGageFlash *f, uint32_t off, uint32_t len)
+{
+    memory_region_flush_rom_device(&f->mr, off, len);
+}

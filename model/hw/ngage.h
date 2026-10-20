@@ -27,6 +27,12 @@ typedef struct NGageFlash NGageFlash;
 NGageFlash *ngage_flash_create(MemoryRegion *sysmem, const char *name,
                                hwaddr base, uint32_t size, const char *path);
 
+uint8_t *ngage_flash_data(NGageFlash *f, uint32_t *size);
+void ngage_flash_changed(NGageFlash *f, uint32_t off, uint32_t len);
+
+/* Model shortcuts applied to the flash images at load (ngage_patch.c). */
+void ngage_apply_rom_patches(const char *path, NGageFlash *cs0, NGageFlash *cs1);
+
 uint32_t ngage_guest_pc(void);
 
 /* Register blocks modelled as storage with first-access logging (ngage_upp.c). */
@@ -35,9 +41,26 @@ void ngage_upp_set_log(FILE *fp);
 void ngage_upp_load_quirks(const char *path);
 
 /* Interrupt controller and timers (ngage_intc.c). */
-void ngage_intc_create(MemoryRegion *sysmem, qemu_irq cpu_irq);
+void ngage_intc_create(MemoryRegion *sysmem, qemu_irq cpu_irq, qemu_irq cpu_fiq);
+/* Drive interrupt source 0..95 (numbering in ngage_intc.c). */
+void ngage_intc_set_source(int src, int level);
+
+/* Interrupt source numbers (ngage_intc.c). */
+#define NGAGE_IRQ_TIMER(n)      (n)
+#define NGAGE_IRQ_LCDBUFFER     15
+#define NGAGE_IRQ_MMC_DATAIDLE  21
+#define NGAGE_IRQ_MMC_DATARDY   22
+#define NGAGE_IRQ_MMC_CMDIDLE   23
+#define NGAGE_IRQ_MMC_CMDRDY    24
+#define NGAGE_IRQ_CTSI_IRQ      25
+#define NGAGE_IRQ_CTSI_FIQ      26
+#define NGAGE_IRQ_GPIO_LOW(n)   (29 + 2 * (n))
+#define NGAGE_IRQ_GPIO_HIGH(n)  (30 + 2 * (n))
+
+/* STI trace output window: kernel debug text (ngage_sti.c). */
+void ngage_sti_create(MemoryRegion *sysmem, FILE *log);
 
 /* CBUS master and UEMK model (ngage_cbus.c). */
-void ngage_cbus_create(MemoryRegion *sysmem, const char *uemk_regs, FILE *log);
+void ngage_cbus_create(MemoryRegion *sysmem, const char *regs_path, FILE *log);
 
 #endif

@@ -1,19 +1,15 @@
 #!/bin/zsh
 # Run the model for N seconds, then stop it under GDB and show where the
-# CPU is: registers, CP15 control, code around the PC and the call return
-# address. Usage: model/where.sh [SECONDS]  (default 3)
+# CPU is: registers, code around the PC and the call return address.
+# Usage: model/where.sh [SECONDS]  (default 3)
+# Extra GDB commands, one per line, in NGAGE_GDB_EXTRA.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 secs=${1:-3}
-out=${NGAGE_OUT:-model/.out}
-mkdir -p "$out"
-flash0=${NGAGE_FLASH0:-research/firmware/images/nor/rh29-4.60-cs0-model.bin}
-flash1=${NGAGE_FLASH1:-research/firmware/images/nor/rh29-4.60-cs1.bin}
-model/.build/qemu-system-arm -M "ngage-qd,flash0=$flash0,flash1=$flash1,probe-log=$out/probe.log,upp-log=$out/regs.log,quirks=model/upp-quirks.txt,uemk-regs=model/uemk-regs.txt,cbus-log=$out/cbus.log" \
-    -display none -serial none -monitor none -d guest_errors,unimp -D "$out/qemu.log" -s &
+source model/args.sh
+"${qemu[@]}" -display none -monitor none -s &
 qpid=$!
 sleep "$secs"
-# Extra GDB commands, one per line, in NGAGE_GDB_EXTRA.
 extra=()
 for c in "${(@f)${NGAGE_GDB_EXTRA:-}}"; do
     [[ -n "$c" ]] && extra+=(-ex "$c")

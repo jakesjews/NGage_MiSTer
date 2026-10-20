@@ -1,0 +1,20 @@
+# Model shortcuts: changes to the flash contents the model presents. The image
+# files are not modified; ngage_patch.c applies these at load and logs them.
+# Every line here is a deviation from real hardware and must say why.
+# <cs0|cs1> <offset> <hex bytes as stored>   # reason (evidence)
+# md5 <CS0 offset of an integrity-table entry>   # recompute its digest after the patches
+
+# NOS (the cellular RTOS) is encrypted in flash at CS0 0xA000-0x2B6FFF and the
+# decryption is unknown. nosstarter.ext (code 0x5034B454) copies NOS data, then
+# calls the NOS entry at virtual 0x5149E4D4 (CS0 0x9E4D4, ARM, r0 = -1) and
+# ignores its return value; the encrypted bytes raise an undefined-instruction
+# exception and the kernel restarts (reason 0x10000000). Without NOS,
+# product_info.dll faults because variant service 3 is missing, and services
+# 3, 6 and 7 are registered by nothing in the Symbian ROM. Stand-in: register
+# placeholder service objects and return (model/nos-stub/nos_stub.S).
+cs0file 0x9E4D4 model/.build/nos-stub.bin
+
+# The bootstrap checks MD5 digests of ROM ranges (0x3238, table at CS0 0x8F00).
+# Entry 0x8F18 covers 0x50009000-0x51169FFF, which includes the encrypted
+# region, so its stored digest cannot match our image; recompute it.
+md5 0x8F18
