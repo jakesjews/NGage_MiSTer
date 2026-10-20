@@ -82,7 +82,19 @@ parameter logic [31:0] CODE_LPAGE_TLB_ENTRIES   =  32'd8,    // Large page TLB e
 parameter logic [31:0] CODE_SPAGE_TLB_ENTRIES   =  32'd16,   // Small page TLB entries.
 parameter logic [31:0] CODE_FPAGE_TLB_ENTRIES   =  32'd32,   // Fine page TLB entries.
 parameter logic [31:0] CODE_CACHE_SIZE          =  32'd8192, // Cache size in bytes.
-parameter logic [31:0] CODE_CACHE_LINE          =  32'd64    // Ccahe line size in bytes.
+parameter logic [31:0] CODE_CACHE_LINE          =  32'd64,   // Ccahe line size in bytes.
+
+// ----------------------------------
+// ARM925T options. The defaults give upstream ZAP; rtl/cpu/arm925t.sv
+// sets the ARM925T values. See docs/CPU.md.
+// ----------------------------------
+parameter logic        V4T          = 1'd0,          // ARMv4T: ARMv5 instructions are UNDEFINED,
+                                                     // v4T interworking, ARMv4 PSRs.
+parameter logic        TI925T       = 1'd0,          // TI925T CP15: control register, A and V bits,
+                                                     // c15 registers, c7 operations, FSR codes.
+parameter logic [31:0] CP15_ID      = 32'h0005AAA0,  // c0 main ID (with TI925T: TI config O = 0).
+parameter logic [31:0] CP15_CTYPE   = 32'd0,         // c0 cache type; 0 = from the cache parameters.
+parameter logic        HIVECS       = 1'd0           // Reset value of control bit V (TI925T).
 
 )(
         `ifndef SYNTHESIS
@@ -197,6 +209,8 @@ logic [31:0]     dc_reg_data;
 logic            icache_err2, dcache_err2;
 logic            cpu_dwe_check, cpu_dre_check;
 logic            s_reset, s_fiq, s_irq;
+logic            cpu_align_fault;   // ARM925T
+logic [31:0]     cpu_daddr_va;      // ARM925T
 logic            code_stall;
 
 assign          s_reset = i_reset;
@@ -232,7 +246,12 @@ zap_core #(
         .DATA_CACHE_LINE(DATA_CACHE_LINE),
         .CODE_CACHE_SIZE(CODE_CACHE_SIZE),
         .CODE_CACHE_LINE(CODE_CACHE_LINE),
-        .CPSR_MODE(ZAP_CPSR_MODE)
+        .CPSR_MODE(ZAP_CPSR_MODE),
+        .V4T(V4T),
+        .TI925T(TI925T),
+        .CP15_ID(CP15_ID),
+        .CP15_CTYPE(CP15_CTYPE),
+        .HIVECS(HIVECS)
 ) u_zap_core
 (
 // Trace
@@ -284,6 +303,8 @@ zap_core #(
 .i_far                  (!ONLY_CORE ? dc_far : '0),
 
 .o_mem_translate        (cpu_mem_translate),
+.o_data_wb_align_fault  (cpu_align_fault),
+.o_data_wb_va           (cpu_daddr_va),
 .o_dac                  (cpu_dac_reg),
 .o_baddr                (cpu_baddr),
 .o_mmu_en               (cpu_mmu_en),
@@ -534,8 +555,9 @@ zap_dcache #(
         .LPAGE_TLB_ENTRIES(DATA_LPAGE_TLB_ENTRIES),
         .SECTION_TLB_ENTRIES(DATA_SECTION_TLB_ENTRIES),
         .FPAGE_TLB_ENTRIES(DATA_FPAGE_TLB_ENTRIES),
-        .CACHE_LINE(CODE_CACHE_LINE),
-        .BE_32_ENABLE(BE_32_ENABLE)
+        .CACHE_LINE(DATA_CACHE_LINE), // ARM925T: upstream passed CODE_CACHE_LINE.
+        .BE_32_ENABLE(BE_32_ENABLE),
+        .EXT_ABORT_FS(TI925T ? 4'b1000 : 4'b0010)
 )
 u_data_cache (
 .i_clk                  (i_clk),
@@ -550,6 +572,8 @@ u_data_cache (
 .i_wr                   ( cpu_dc_we && cpu_dc_stb),
 .i_ben                  (cpu_dc_sel),
 .i_dat                  (cpu_dc_dat),
+.i_align_fault          (cpu_align_fault),
+.i_va                   (cpu_daddr_va),
 .i_reg_idx              (dc_rreg_idx),
 .i_reg_idx_bin          (dc_rreg_idx_bin),
 
@@ -605,7 +629,7 @@ zap_cache #(
 .LPAGE_TLB_ENTRIES(CODE_LPAGE_TLB_ENTRIES),
 .SECTION_TLB_ENTRIES(CODE_SECTION_TLB_ENTRIES),
 .FPAGE_TLB_ENTRIES(CODE_FPAGE_TLB_ENTRIES),
-.CACHE_LINE(DATA_CACHE_LINE)
+.CACHE_LINE(CODE_CACHE_LINE) // ARM925T: upstream passed DATA_CACHE_LINE.
 )
 u_code_cache (
 .i_clk              (i_clk),

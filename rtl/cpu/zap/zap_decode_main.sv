@@ -33,6 +33,9 @@ module zap_decode_main #(
         // Number of physical registers.
         parameter [31:0] PHY_REGS = 32'd46,
 
+        // ARM925T: ARMv4T only.
+        parameter logic V4T = 1'd0,
+
         // CPSR mode.
         parameter [31:0] CPSR_MODE = 32'd4
 )
@@ -344,7 +347,11 @@ begin
                 o_swi_ff                                <= o_swi_nxt;
                 o_abt_ff                                <= o_abt_nxt;
                 o_und_ff                                <= o_und_nxt | i_mode16_und;
-                o_condition_code_ff                     <= o_condition_code_nxt;
+
+                // ARM925T: an undefined Thumb instruction is always taken; the
+                // decoder's condition for an undefined ARM instruction is its
+                // own (see zap_decode).
+                o_condition_code_ff                     <= i_mode16_und ? AL : o_condition_code_nxt;
                 o_destination_index_ff                  <= o_destination_index_nxt;
                 o_alu_source_ff                         <= o_alu_source_nxt;
                 o_alu_operation_ff                      <= o_alu_operation_nxt;
@@ -378,7 +385,8 @@ end
 zap_decode #(
         .ARCH_REGS      (ARCH_REGS),
         .ALU_OPS        (ALU_OPS),
-        .SHIFT_OPS      (SHIFT_OPS)
+        .SHIFT_OPS      (SHIFT_OPS),
+        .V4T            (V4T)
 )
 u_zap_decode (
         .i_irq(i_irq),

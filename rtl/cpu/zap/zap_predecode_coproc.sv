@@ -127,8 +127,16 @@ begin
         case ( state_ff )
         IDLE:
                 // Activate only if no 16-bit, not in USER mode and CP15 access is requested.
-                casez ( (!i_cpsr_ff_t && (i_instruction[34:32] == 3'd0) && i_valid) ? i_instruction[31:0] : 32'd0 )
-                MRC, MCR, LDC, STC, CDP, MRC2, MCR2, LDC2, STC2:
+                //
+                // ARM925T: only MCR/MRC (not MCR2/MRC2, cond = NV) to CP15 in a
+                // privileged mode go to CP15. CDP/LDC/STC to CP15, any access
+                // to another coprocessor and user-mode accesses pass through
+                // and become UNDEFINED (zap_predecode_uop_sequencer keeps the
+                // same condition in cp15_done).
+                //
+                casez ( (!i_cpsr_ff_t && (i_instruction[34:32] == 3'd0) && i_valid &&
+                         i_instruction[31:28] != NV) ? i_instruction[31:0] : 32'd0 )
+                MRC, MCR:
                 begin
                         if ( i_instruction[11:8] == 4'b1111 && i_cpsr_ff_mode != USR )  // CP15 and root access -- perfectly fine.
                         begin

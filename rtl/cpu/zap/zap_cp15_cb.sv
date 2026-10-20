@@ -36,6 +36,14 @@ module zap_cp15_cb
         parameter logic [31:0] CODE_CACHE_SIZE   = 32'd1024,
         parameter logic [31:0] DATA_CACHE_SIZE   = 32'd1024,
 
+        // ARM925T options (see zap_top). TI925T selects the TI925T register
+        // set described in research/arm925t/CP15.md and docs/CPU.md.
+        parameter logic        V4T               = 1'd0,
+        parameter logic        TI925T            = 1'd0,
+        parameter logic [31:0] CP15_ID           = 32'h0005AAA0,
+        parameter logic [31:0] CP15_CTYPE        = 32'd0,
+        parameter logic        HIVECS            = 1'd0,
+
         localparam type t_cp_instruction =
                         struct packed   {
                         logic [11:0]  cp_rsvd_fld_1;          // 31:20 - 12 (32)
@@ -142,7 +150,17 @@ module zap_cp15_cb
 
         // From MMU. Specify that cache clean is done.
         input   logic                            i_dcache_clean_done,
-        input   logic                            i_icache_clean_done
+        input   logic                            i_icache_clean_done,
+
+        // ARM925T: interrupt lines (after the synchroniser, not masked by the
+        // CPSR) end a wait for interrupt.
+        input   logic                            i_irq,
+        input   logic                            i_fiq,
+
+        // ARM925T: control register V (vectors at 0xFFFF0000) and A
+        // (alignment faults). Both read 0 unless TI925T.
+        output  logic                            o_hivecs,
+        output  logic                            o_align_en
 );
 
 `include "zap_localparams.svh"
@@ -153,8 +171,20 @@ module zap_cp15_cb
 // Variables
 // ---------------------------------------------
 
-logic [31:0] r [13:0];// Coprocessor registers. R7, R8 is write-only.
+// ARM925T: 16 entries; upstream had 14, so writes to c14/c15 went out of range
+// and reads of them returned X.
+logic [31:0] r [15:0];// Coprocessor registers. R7, R8 is write-only.
 logic [3:0]    state; // State variable.
+
+// ARM925T: TI925T registers (CP15.md section 9).
+logic [7:0]  ti_config;   // c15,c1,0: S R O W W C T L, kept as value & 0xE7
+logic [31:0] ti_imax;     // c15,c2,0
+logic [31:0] ti_imin;     // c15,c3,0
+logic [15:0] ti_thread;   // c15,c4,0
+logic [31:0] ti_lock_d;   // c10,c0,0 D-TLB lockdown (stored only)
+logic [31:0] ti_lock_i;   // c10,c0,1 I-TLB lockdown (stored only)
+logic [31:0] ti_rd_data;  // MRC result
+logic [2:0]  cp_op1;      // opcode_1 of the current instruction
 
 // ---------------------------------------------
 // Localparams
@@ -173,6 +203,7 @@ localparam [3:0] CLR_I_CACHE          = 8;
 localparam [3:0] CLEAN_D_CACHE        = 9;
 localparam [3:0] CLFLUSH_ID_CACHE     = 10;
 localparam [3:0] CLFLUSH_D_CACHE      = 11;
+localparam [3:0] WFI                  = 12; // ARM925T: wait for interrupt.
 
 // Register numbers.
 localparam [3:0] FSR_REG              = 5;
@@ -194,6 +225,7 @@ localparam [6:0] CASE_FLUSH_D_TLB          = 7'b00?_0110;
 
 logic [1:0][11:0] xCACHE_TYPE_WORD;
 logic [31:0]      CACHE_TYPE_WORD ; // Provides cache info.
+logic [31:0]      CTYPE_BUILT;      // ARM925T: built from the cache parameters.
 
 assign xCACHE_TYPE_WORD[0][1:0]  = CODE_CACHE_LINE == 16 ? 2'd1 :
                                    CODE_CACHE_LINE == 32 ? 2'd2 : 2'd3;
@@ -256,9 +288,50 @@ assign xCACHE_TYPE_WORD[1][11:9] = '0;
 ////////////////////////////////////////////////////////////////////////////
 
 // Build the CACHE_TYPE word.
-assign CACHE_TYPE_WORD[23:0]     = xCACHE_TYPE_WORD;
-assign CACHE_TYPE_WORD[24]       = 1'd1;     // S = 1, split cache.
-assign CACHE_TYPE_WORD[31:25]    = 7'h1;     // Block replacement policy = 0x1.
+assign CTYPE_BUILT[23:0]         = xCACHE_TYPE_WORD;
+assign CTYPE_BUILT[24]           = 1'd1;     // S = 1, split cache.
+assign CTYPE_BUILT[31:25]        = 7'h1;     // Block replacement policy = 0x1.
+
+// ARM925T: CP15_CTYPE, when given, is reported instead (the ARM925T's
+// 0x05109149: 2-way, 16-byte lines, 16 KB I, 8 KB D).
+assign CACHE_TYPE_WORD           = CP15_CTYPE != 32'd0 ? CP15_CTYPE : CTYPE_BUILT;
+
+assign cp_op1 = i_cp_word[23:21];
+
+//
+// ARM925T: what MRC reads in TI925T mode. Registers without contents read 0
+// (CP15.md: c4, c7, c8, c9, c11, c12, c14 and unused c15 entries are UNP or
+// write-only); the ID depends on the TI configuration O bit (part 0x915 when
+// set, as QEMU's ti925t does).
+//
+always_comb
+begin
+        case ( i_cp_word.ZAP_CRN )
+        4'd0:    ti_rd_data = i_cp_word.ZAP_OPCODE_2 == 3'd1 ? CACHE_TYPE_WORD :
+                              ti_config[5] ? (CP15_ID ^ 32'h0000_0300) : CP15_ID;
+        4'd1,
+        4'd2,
+        4'd3,
+        4'd5,
+        4'd6,
+        4'd13:   ti_rd_data = r[ i_cp_word.ZAP_CRN ];
+        4'd10:   ti_rd_data = i_cp_word.ZAP_OPCODE_2[0] ? ti_lock_i : ti_lock_d;
+        4'd15:
+        begin
+                if ( cp_op1 != 3'd0 )
+                        ti_rd_data = 32'd0;
+                else
+                case ( i_cp_word.ZAP_CRM )
+                4'd1:    ti_rd_data = {24'd0, ti_config};
+                4'd2:    ti_rd_data = ti_imax;
+                4'd3:    ti_rd_data = ti_imin;
+                4'd4:    ti_rd_data = {16'd0, ti_thread};
+                default: ti_rd_data = 32'd0; // c15,c8,0 status: nothing to report.
+                endcase
+        end
+        default: ti_rd_data = 32'd0;
+        endcase
+end
 
 // ---------------------------------------------
 // Sequential Logic
@@ -273,7 +346,9 @@ begin
                 o_icache_en <= 1'd0;
                 o_mmu_en    <= 1'd0;
                 o_pid       <= 8'd0;
-                o_l4_enable <= CP15_L4_DEFAULT;
+                o_l4_enable <= V4T ? 1'd1 : CP15_L4_DEFAULT;
+                o_hivecs    <= TI925T ? HIVECS : 1'd0;
+                o_align_en  <= 1'd0;
         end
         else
         begin
@@ -281,7 +356,11 @@ begin
                 o_icache_en <= r[1][12];             // Instruction cache enable.
                 o_mmu_en    <= r[1][0];              // MMU enable.
                 o_pid       <= {1'd0, r[13][31:25]}; // PID register.
-                o_l4_enable <= r[1][14];             // 1 for v4T compatibility.
+
+                // ARM925T: ARMv4T interworking is fixed with V4T (no L4 bit).
+                o_l4_enable <= V4T ? 1'd1 : r[1][14]; // 1 for v4T compatibility.
+                o_hivecs    <= TI925T ? r[1][13] : 1'd0;
+                o_align_en  <= TI925T ? r[1][1]  : 1'd0;
         end
 end
 
@@ -324,6 +403,20 @@ begin
                 r[1][7]        <= BE_32_ENABLE;
                 r[1][6:3]      <= 4'b1111;
                 r[1][11]       <= 1'd1;
+
+                // ARM925T: control register 0x70 with V from HIVECS; TI config
+                // with L (SWP lock) set; I_min/I_max as after a flush.
+                if ( TI925T )
+                begin
+                        r[1]   <= {18'd0, HIVECS, 13'h0070};
+                end
+
+                ti_config      <= 8'h01;
+                ti_imax        <= 32'd0;
+                ti_imin        <= 32'h0000_0FF0;
+                ti_thread      <= 16'd0;
+                ti_lock_d      <= 32'd0;
+                ti_lock_i      <= 32'd0;
         end
         else
         begin
@@ -396,7 +489,69 @@ begin
                 begin
                         state <= DONE;
 
-                        r [ i_cp_word.ZAP_CRN ] <= i_reg_rd_data;
+                        if ( !TI925T )
+                        begin
+                                r [ i_cp_word.ZAP_CRN ] <= i_reg_rd_data;
+                        end
+                        else
+                        begin
+                                //
+                                // ARM925T: TI925T register writes. c0, c4, c9, c11,
+                                // c12, c14 ignore writes; c7/c8 are operations.
+                                //
+                                case ( i_cp_word.ZAP_CRN )
+                                4'd1:
+                                begin
+                                        // M A C W, S R, I V are writable; 6:4 read 1,
+                                        // B (7) reads 0 (little-endian only).
+                                        r[1] <= {18'd0, i_reg_rd_data[13:12], 2'b00,
+                                                 i_reg_rd_data[9:8], 1'b0, 3'b111,
+                                                 i_reg_rd_data[3:0]};
+                                end
+                                4'd2, 4'd3, 4'd5, 4'd6:
+                                begin
+                                        r[ i_cp_word.ZAP_CRN ] <= i_reg_rd_data;
+                                end
+                                4'd13:
+                                begin
+                                        r[13] <= i_reg_rd_data & 32'hFE00_0000; // PID 31:25
+                                end
+                                4'd10:
+                                begin
+                                        // Base 31:26, victim 25:20, P 0. Stored only:
+                                        // the TLBs here are direct-mapped.
+                                        if ( i_cp_word.ZAP_OPCODE_2[0] )
+                                                ti_lock_i <= i_reg_rd_data & 32'hFFF0_0001;
+                                        else
+                                                ti_lock_d <= i_reg_rd_data & 32'hFFF0_0001;
+                                end
+                                4'd15:
+                                begin
+                                        if ( cp_op1 == 3'd0 )
+                                        begin
+                                                case ( i_cp_word.ZAP_CRM )
+                                                4'd1: ti_config <= i_reg_rd_data[7:0] & 8'hE7;
+                                                4'd2: ti_imax   <= i_reg_rd_data;
+                                                4'd3: ti_imin   <= i_reg_rd_data;
+                                                4'd4: ti_thread <= i_reg_rd_data[15:0];
+                                                4'd8:
+                                                begin
+                                                        // c15,c8,2 is the legacy WFI;
+                                                        // QEMU's ti925t takes c15,c8,0.
+                                                        if ( i_cp_word.ZAP_OPCODE_2 == 3'd0 ||
+                                                             i_cp_word.ZAP_OPCODE_2 == 3'd2 )
+                                                        begin
+                                                                state <= WFI;
+                                                        end
+                                                end
+                                                default: ;
+                                                endcase
+                                        end
+                                        // op1 = 7, c15,c0,0 (Linux "write-back off"): ignored.
+                                end
+                                default: ;
+                                endcase
+                        end
 
                         if
                         (
@@ -428,6 +583,71 @@ begin
                                         o_dtlb_inv <= 1'd1;
                                 end
 
+                                endcase
+                        end
+                        else if ( i_cp_word.ZAP_CRN == CACHE_REG && TI925T )
+                        // ARM925T: TI925T cache operations (CP15.md section 6).
+                        // The single-entry operations act on the whole cache:
+                        // invalidating an I-cache entry invalidates all of it,
+                        // and a D-cache entry operation cleans (and, for the
+                        // flush forms, invalidates) the whole D-cache, which
+                        // keeps memory coherent and loses no dirty data.
+                        begin
+                                // Any cache operation resets the dirty-index
+                                // registers, as QEMU's ti925t does.
+                                ti_imax <= 32'd0;
+                                ti_imin <= 32'h0000_0FF0;
+
+                                casez({i_cp_word.ZAP_OPCODE_2,
+                                       i_cp_word.ZAP_CRM})
+
+                                7'b000_0111: // c7,c7,0: flush I and D
+                                begin
+                                        o_dcache_inv    <= 1'd1;
+                                        state           <= CLR_D_CACHE_AND;
+                                end
+
+                                7'b0??_0101: // c7,c5,0/1: flush I (entry)
+                                begin
+                                        o_icache_inv    <= 1'd1;
+                                        state           <= CLR_I_CACHE;
+                                end
+
+                                7'b000_0110: // c7,c6,0: flush D (no clean)
+                                begin
+                                        o_dcache_inv    <= 1'd1;
+                                        state           <= CLR_D_CACHE;
+                                end
+
+                                7'b0??_1010: // c7,c10,0/1/2: clean D (entry)
+                                begin
+                                        o_dcache_clean  <= 1'd1;
+                                        state           <= CLEAN_D_CACHE;
+                                end
+
+                                7'b001_0110, 7'b010_0110, // c7,c6,1/2: flush D entry
+                                7'b0??_1110:              // c7,c14,x: clean+flush D entry
+                                begin
+                                        o_dcache_clean  <= 1'd1;
+                                        state           <= CLFLUSH_D_CACHE;
+                                end
+
+                                7'b100_1010, // c7,c10,4: drain write buffer (there is none)
+                                7'b001_1101: // c7,c13,1: prefetch I-cache line
+                                begin
+                                        state           <= DONE;
+                                end
+
+                                7'b100_0000: // c7,c0,4: wait for interrupt
+                                begin
+                                        state           <= WFI;
+                                end
+
+                                default: // Not an ARM925T operation: clean+flush both.
+                                begin
+                                        o_dcache_clean  <= 1'd1;
+                                        state           <= CLFLUSH_ID_CACHE;
+                                end
                                 endcase
                         end
                         else if ( i_cp_word.ZAP_CRN == CACHE_REG )
@@ -547,6 +767,14 @@ begin
                         end
                 end
 
+                WFI: // ARM925T: wait until IRQ or FIQ is asserted (masked or not).
+                begin
+                        if ( i_irq || i_fiq )
+                        begin
+                                state        <= DONE;
+                        end
+                end
+
                 ACTIVE: // Access processor registers.
                 begin
                         if ( is_cc_satisfied ( i_cp_word[31:28], i_cpsr[31:28] ) ||
@@ -560,7 +788,8 @@ begin
                                                 // Register write command.
                                                 o_reg_en        <= 1'd1;
                                                 o_reg_wr_index  <= translate( {1'd0, i_cp_word[15:12]}, i_cpsr[ZAP_CPSR_MODE:0] );
-                                                o_reg_wr_data   <= i_cp_word[19:16] == 0 && i_cp_word.ZAP_OPCODE_2 == 1 ?
+                                                o_reg_wr_data   <= TI925T ? ti_rd_data :
+                                                                   i_cp_word[19:16] == 0 && i_cp_word.ZAP_OPCODE_2 == 1 ?
                                                                    CACHE_TYPE_WORD : r[ i_cp_word[19:16] ];
                                                 state           <= DONE;
                                         end
@@ -613,10 +842,21 @@ begin
                 r[0][19:16] <= 4'h5;
                 r[0][23:20] <= 4'd0;
                 r[0][31:24] <= 8'd0;
-                r[1][1]     <= 1'd0;
-                r[1][7]     <= BE_32_ENABLE ? 1'd1 : 1'd0;
-                r[1][6:3]   <= 4'b1111;
-                r[1][11]    <= 1'd1;
+
+                if ( TI925T )
+                begin
+                        // ARM925T: bits 31:14, 11:10 and 7 read 0, 6:4 read 1.
+                        r[1][31:14] <= 18'd0;
+                        r[1][11:10] <= 2'd0;
+                        r[1][7:4]   <= 4'b0111;
+                end
+                else
+                begin
+                        r[1][1]     <= 1'd0;
+                        r[1][7]     <= BE_32_ENABLE ? 1'd1 : 1'd0;
+                        r[1][6:3]   <= 4'b1111;
+                        r[1][11]    <= 1'd1;
+                end
 
                 if ( ONLY_CORE )
                 begin
@@ -648,7 +888,8 @@ assign r6 = r[6];
 logic unused;
 
 assign unused = |{r0, r1, r2, r3, r4, r5, r6, i_cpsr[27:5],
-                  i_icache_clean_done};
+                  i_icache_clean_done, r[14], r[15], r[4], r[7], r[8], r[9],
+                  r[10], r[11], r[12]};
 
 endmodule : zap_cp15_cb
 

@@ -52,6 +52,11 @@ module arm925t (
 	wire [2:0] wb_cti;
 	wire [1:0] wb_bte;
 	zap_top #(
+		.V4T(1'b1),
+		.TI925T(1'b1),
+		.CP15_ID(32'h54029252),
+		.CP15_CTYPE(32'h05109149),
+		.HIVECS(HIVECS),
 		.RESET_VECTOR(RESET_VECTOR),
 		.CODE_CACHE_SIZE(ICACHE_SIZE),
 		.CODE_CACHE_LINE(CACHE_LINE),
@@ -214,6 +219,7 @@ module zap_alu_main (
 	parameter [31:0] ALU_OPS = 32'd32;
 	parameter [31:0] FLAG_WDT = 32'd32;
 	parameter [31:0] CPSR_INIT = 32'd0;
+	parameter [0:0] V4T = 1'd0;
 	input wire [511:0] i_decompile;
 	output reg [511:0] o_decompile;
 	output reg o_decompile_valid;
@@ -966,7 +972,7 @@ module zap_alu_main (
 			o_mem_unsigned_halfword_enable_ff <= i_mem_unsigned_halfword_enable_ff;
 			o_mem_translate_ff <= i_mem_translate_ff;
 			sleep_ff <= sleep_nxt;
-			o_und_ff <= i_und_ff;
+			o_und_ff <= i_und_ff && o_dav_nxt;
 			o_clear_from_alu <= |w_clear_from_alu;
 			r_clear_from_alu <= w_clear_from_alu;
 			w_pc_from_alu_btarget <= tmp_sum;
@@ -1106,20 +1112,26 @@ module zap_alu_main (
 			else
 				tmp_flags[27:0] = flags_ff[27:0];
 		end
-		else if ((opcode == {1'd0, FMOV}) || (opcode == {1'd0, MMOV})) begin : sv2v_autoblock_1
-			reg signed [31:0] i;
-			for (i = 0; i < 32; i = i + 1)
-				case (opcode)
-					{1'd0, FMOV}: begin
-						tmp_flags[i] = (exp_mask[i] ? rm[i] : flags_ff[i]);
-						tmp_sum[i] = 1'bx;
-					end
-					{1'd0, MMOV}: begin
-						tmp_sum[i] = (exp_mask[i] ? rm[i] : i_mem_srcdest_value_ff[i]);
-						tmp_flags[i] = flags_ff[i];
-					end
-					default: {tmp_flags[i], tmp_sum[i]} = {2 {1'bx}};
-				endcase
+		else if ((opcode == {1'd0, FMOV}) || (opcode == {1'd0, MMOV})) begin
+			begin : sv2v_autoblock_1
+				reg signed [31:0] i;
+				for (i = 0; i < 32; i = i + 1)
+					case (opcode)
+						{1'd0, FMOV}: begin
+							tmp_flags[i] = (exp_mask[i] ? rm[i] : flags_ff[i]);
+							tmp_sum[i] = 1'bx;
+						end
+						{1'd0, MMOV}: begin
+							tmp_sum[i] = (exp_mask[i] ? rm[i] : i_mem_srcdest_value_ff[i]);
+							tmp_flags[i] = flags_ff[i];
+						end
+						default: {tmp_flags[i], tmp_sum[i]} = {2 {1'bx}};
+					endcase
+			end
+			if (V4T) begin
+				tmp_flags[27:8] = flags_ff[27:8];
+				tmp_sum[27:8] = 20'd0;
+			end
 		end
 		else if (opcode == FADD) begin
 			tmp_sum = flags_ff;
@@ -1157,8 +1169,8 @@ module zap_alu_main (
 		end
 	end
 	assign load_to_pc = ((i_mem_srcdest_index_ff == {2'd0, ARCH_PC}) && o_dav_nxt) && i_mem_load_ff;
-	assign o_dav_nxt = (((is_cc_satisfied(i_condition_code_ff, flags_ff[31:28]) || i_irq_ff) || i_fiq_ff) || i_abt_ff) || i_und_ff;
-	assign sleep_nxt = ((((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_und_ff) || load_to_pc) || (i_swi_ff && o_dav_nxt);
+	assign o_dav_nxt = ((is_cc_satisfied(i_condition_code_ff, flags_ff[31:28]) || i_irq_ff) || i_fiq_ff) || i_abt_ff;
+	assign sleep_nxt = ((((i_irq_ff || i_fiq_ff) || i_abt_ff) || (i_und_ff && o_dav_nxt)) || load_to_pc) || (i_swi_ff && o_dav_nxt);
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -3872,6 +3884,8 @@ module zap_core (
 	o_data_wb_we_check,
 	o_data_wb_re_check,
 	o_mem_translate,
+	o_data_wb_align_fault,
+	o_data_wb_va,
 	i_fiq,
 	i_irq,
 	o_instr_wb_adr,
@@ -3926,6 +3940,11 @@ module zap_core (
 	parameter [31:0] FIFO_DEPTH = 32'd4;
 	parameter [31:0] RAS_DEPTH = 32'd4;
 	parameter [31:0] CPSR_MODE = 32'd4;
+	parameter [0:0] V4T = 1'd0;
+	parameter [0:0] TI925T = 1'd0;
+	parameter [31:0] CP15_ID = 32'h0005aaa0;
+	parameter [31:0] CP15_CTYPE = 32'd0;
+	parameter [0:0] HIVECS = 1'd0;
 	output wire [1023:0] o_trace;
 	output wire o_trace_valid;
 	output wire o_trace_uop_last;
@@ -3945,6 +3964,8 @@ module zap_core (
 	output wire o_data_wb_we_check;
 	output wire o_data_wb_re_check;
 	output wire o_mem_translate;
+	output wire o_data_wb_align_fault;
+	output wire [31:0] o_data_wb_va;
 	input wire i_fiq;
 	input wire i_irq;
 	output wire [31:0] o_instr_wb_adr;
@@ -4275,6 +4296,8 @@ module zap_core (
 	wire fiq;
 	wire irq;
 	wire l4_enable;
+	wire hivecs;
+	wire align_en;
 	wire stall_from_decode;
 	wire clear_from_alu;
 	wire stall_from_issue;
@@ -4561,6 +4584,8 @@ module zap_core (
 	assign unused = |{rb_decompile, CPU_MODE, alu_cpsr_nxt[31:30], alu_cpsr_nxt[28:0], predecode_inst[39:36], postalu_mem_translate_ff, i_dc_reg_idx[63:PHY_REGS]};
 	assign o_cpsr = alu_flags_ff[ZAP_CPSR_MODE:0];
 	assign o_data_wb_adr = {postalu_address_ff[31:2], 2'd0};
+	assign o_data_wb_va = postalu_address_ff;
+	assign o_data_wb_align_fault = align_en && ((!(((postalu_ubyte_ff | postalu_sbyte_ff) | postalu_uhalf_ff) | postalu_shalf_ff) && (postalu_address_ff[1:0] != 2'd0)) || ((postalu_uhalf_ff | postalu_shalf_ff) && postalu_address_ff[0]));
 	assign o_data_wb_adr_nxt = {alu_address_ff[31:2], 2'd0};
 	assign o_instr_wb_we = 1'd0;
 	assign o_instr_wb_sel = 4'b1111;
@@ -4596,7 +4621,7 @@ module zap_core (
 			default: alu_x_ppr = {32 {1'bx}};
 		endcase
 	end
-	zap_fetch_main u_zap_fetch_main(
+	zap_fetch_main #(.V4T(V4T)) u_zap_fetch_main(
 		.i_clk(i_clk),
 		.i_reset(reset),
 		.i_code_stall(code_stall),
@@ -4672,7 +4697,8 @@ module zap_core (
 	);
 	zap_predecode_main #(
 		.PHY_REGS(PHY_REGS),
-		.RAS_DEPTH(RAS_DEPTH)
+		.RAS_DEPTH(RAS_DEPTH),
+		.V4T(V4T)
 	) u_zap_predecode(
 		.i_clk(i_clk),
 		.i_reset(reset),
@@ -4722,6 +4748,7 @@ module zap_core (
 		.PHY_REGS(PHY_REGS),
 		.SHIFT_OPS(SHIFT_OPS),
 		.ALU_OPS(ALU_OPS),
+		.V4T(V4T),
 		.CPSR_MODE(ZAP_CPSR_MODE)
 	) u_zap_decode_main(
 		.o_decompile(decode_decompile),
@@ -4984,7 +5011,8 @@ module zap_core (
 	zap_alu_main #(
 		.PHY_REGS(PHY_REGS),
 		.ALU_OPS(ALU_OPS),
-		.CPSR_INIT(CPSR_INIT)
+		.CPSR_INIT(CPSR_INIT),
+		.V4T(V4T)
 	) u_zap_alu_main(
 		.i_uop_last(shifter_uop_last),
 		.i_clk(i_clk),
@@ -5317,6 +5345,7 @@ module zap_core (
 		.i_clk(i_clk),
 		.i_reset(reset),
 		.i_l4_enable(l4_enable),
+		.i_hivecs(hivecs),
 		.i_valid(memory_dav_ff),
 		.i_clear_from_alu(clear_from_alu),
 		.i_pc_from_alu(pc_from_alu),
@@ -5367,6 +5396,11 @@ module zap_core (
 		.BE_32_ENABLE(BE_32_ENABLE),
 		.PHY_REGS(PHY_REGS),
 		.CP15_L4_DEFAULT(CP15_L4_DEFAULT),
+		.V4T(V4T),
+		.TI925T(TI925T),
+		.CP15_ID(CP15_ID),
+		.CP15_CTYPE(CP15_CTYPE),
+		.HIVECS(HIVECS),
 		.DATA_CACHE_SIZE(DATA_CACHE_SIZE),
 		.CODE_CACHE_SIZE(CODE_CACHE_SIZE),
 		.DATA_CACHE_LINE(DATA_CACHE_LINE),
@@ -5402,7 +5436,11 @@ module zap_core (
 		.i_dcache_inv_done(i_dcache_inv_done),
 		.i_icache_inv_done(i_icache_inv_done),
 		.i_dcache_clean_done(i_dcache_clean_done),
-		.i_icache_clean_done(i_icache_clean_done)
+		.i_icache_clean_done(i_icache_clean_done),
+		.i_irq(irq),
+		.i_fiq(fiq),
+		.o_hivecs(hivecs),
+		.o_align_en(align_en)
 	);
 	always @(*) begin
 		if (_sv2v_0)
@@ -5454,7 +5492,11 @@ module zap_cp15_cb (
 	i_dcache_inv_done,
 	i_icache_inv_done,
 	i_dcache_clean_done,
-	i_icache_clean_done
+	i_icache_clean_done,
+	i_irq,
+	i_fiq,
+	o_hivecs,
+	o_align_en
 );
 	reg _sv2v_0;
 	parameter [0:0] CP15_L4_DEFAULT = 1'd0;
@@ -5465,6 +5507,11 @@ module zap_cp15_cb (
 	parameter [31:0] DATA_CACHE_LINE = 32'd64;
 	parameter [31:0] CODE_CACHE_SIZE = 32'd1024;
 	parameter [31:0] DATA_CACHE_SIZE = 32'd1024;
+	parameter [0:0] V4T = 1'd0;
+	parameter [0:0] TI925T = 1'd0;
+	parameter [31:0] CP15_ID = 32'h0005aaa0;
+	parameter [31:0] CP15_CTYPE = 32'd0;
+	parameter [0:0] HIVECS = 1'd0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire [31:0] i_cp_word;
@@ -5496,6 +5543,10 @@ module zap_cp15_cb (
 	input wire i_icache_inv_done;
 	input wire i_dcache_clean_done;
 	input wire i_icache_clean_done;
+	input wire i_irq;
+	input wire i_fiq;
+	output reg o_hivecs;
+	output reg o_align_en;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
 	localparam [1:0] FINE_ID = 2'b11;
@@ -5917,8 +5968,16 @@ module zap_cp15_cb (
 				;
 		end
 	endfunction
-	reg [31:0] r [13:0];
+	reg [31:0] r [15:0];
 	reg [3:0] state;
+	reg [7:0] ti_config;
+	reg [31:0] ti_imax;
+	reg [31:0] ti_imin;
+	reg [15:0] ti_thread;
+	reg [31:0] ti_lock_d;
+	reg [31:0] ti_lock_i;
+	reg [31:0] ti_rd_data;
+	wire [2:0] cp_op1;
 	localparam [3:0] IDLE = 0;
 	localparam [3:0] ACTIVE = 1;
 	localparam [3:0] DONE = 2;
@@ -5931,6 +5990,7 @@ module zap_cp15_cb (
 	localparam [3:0] CLEAN_D_CACHE = 9;
 	localparam [3:0] CLFLUSH_ID_CACHE = 10;
 	localparam [3:0] CLFLUSH_D_CACHE = 11;
+	localparam [3:0] WFI = 12;
 	localparam [3:0] FSR_REG = 5;
 	localparam [3:0] FAR_REG = 6;
 	localparam [3:0] CACHE_REG = 7;
@@ -5947,6 +6007,7 @@ module zap_cp15_cb (
 	localparam [6:0] CASE_FLUSH_D_TLB = 7'b00z0110;
 	reg [23:0] xCACHE_TYPE_WORD;
 	wire [31:0] CACHE_TYPE_WORD;
+	wire [31:0] CTYPE_BUILT;
 	wire [2:1] sv2v_tmp_B0209;
 	assign sv2v_tmp_B0209 = (CODE_CACHE_LINE == 16 ? 2'd1 : (CODE_CACHE_LINE == 32 ? 2'd2 : 2'd3));
 	always @(*) xCACHE_TYPE_WORD[1-:2] = sv2v_tmp_B0209;
@@ -6001,23 +6062,50 @@ module zap_cp15_cb (
 	wire [3:1] sv2v_tmp_369EF;
 	assign sv2v_tmp_369EF = 1'sb0;
 	always @(*) xCACHE_TYPE_WORD[23-:3] = sv2v_tmp_369EF;
-	assign CACHE_TYPE_WORD[23:0] = xCACHE_TYPE_WORD;
-	assign CACHE_TYPE_WORD[24] = 1'd1;
-	assign CACHE_TYPE_WORD[31:25] = 7'h01;
+	assign CTYPE_BUILT[23:0] = xCACHE_TYPE_WORD;
+	assign CTYPE_BUILT[24] = 1'd1;
+	assign CTYPE_BUILT[31:25] = 7'h01;
+	assign CACHE_TYPE_WORD = (CP15_CTYPE != 32'd0 ? CP15_CTYPE : CTYPE_BUILT);
+	assign cp_op1 = i_cp_word[23:21];
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		case (i_cp_word[19-:4])
+			4'd0: ti_rd_data = (i_cp_word[7-:3] == 3'd1 ? CACHE_TYPE_WORD : (ti_config[5] ? CP15_ID ^ 32'h00000300 : CP15_ID));
+			4'd1, 4'd2, 4'd3, 4'd5, 4'd6, 4'd13: ti_rd_data = r[i_cp_word[19-:4]];
+			4'd10: ti_rd_data = (i_cp_word[5] ? ti_lock_i : ti_lock_d);
+			4'd15:
+				if (cp_op1 != 3'd0)
+					ti_rd_data = 32'd0;
+				else
+					case (i_cp_word[3-:4])
+						4'd1: ti_rd_data = {24'd0, ti_config};
+						4'd2: ti_rd_data = ti_imax;
+						4'd3: ti_rd_data = ti_imin;
+						4'd4: ti_rd_data = {16'd0, ti_thread};
+						default: ti_rd_data = 32'd0;
+					endcase
+			default: ti_rd_data = 32'd0;
+		endcase
+	end
 	always @(posedge i_clk)
 		if (i_reset) begin
 			o_dcache_en <= 1'd0;
 			o_icache_en <= 1'd0;
 			o_mmu_en <= 1'd0;
 			o_pid <= 8'd0;
-			o_l4_enable <= CP15_L4_DEFAULT;
+			o_l4_enable <= (V4T ? 1'd1 : CP15_L4_DEFAULT);
+			o_hivecs <= (TI925T ? HIVECS : 1'd0);
+			o_align_en <= 1'd0;
 		end
 		else begin
 			o_dcache_en <= r[1][2];
 			o_icache_en <= r[1][12];
 			o_mmu_en <= r[1][0];
 			o_pid <= {1'd0, r[13][31:25]};
-			o_l4_enable <= r[1][14];
+			o_l4_enable <= (V4T ? 1'd1 : r[1][14]);
+			o_hivecs <= (TI925T ? r[1][13] : 1'd0);
+			o_align_en <= (TI925T ? r[1][1] : 1'd0);
 		end
 	always @(posedge i_clk) begin
 		o_dac <= r[3];
@@ -6052,6 +6140,14 @@ module zap_cp15_cb (
 			r[1][7] <= BE_32_ENABLE;
 			r[1][6:3] <= 4'b1111;
 			r[1][11] <= 1'd1;
+			if (TI925T)
+				r[1] <= {18'd0, HIVECS, 13'h0070};
+			ti_config <= 8'h01;
+			ti_imax <= 32'd0;
+			ti_imin <= 32'h00000ff0;
+			ti_thread <= 16'd0;
+			ti_lock_d <= 32'd0;
+			ti_lock_i <= 32'd0;
 		end
 		else begin
 			o_itlb_inv <= 1'd0;
@@ -6086,7 +6182,34 @@ module zap_cp15_cb (
 				READ_DLY: state <= READ;
 				READ: begin
 					state <= DONE;
-					r[i_cp_word[19-:4]] <= i_reg_rd_data;
+					if (!TI925T)
+						r[i_cp_word[19-:4]] <= i_reg_rd_data;
+					else
+						case (i_cp_word[19-:4])
+							4'd1: r[1] <= {18'd0, i_reg_rd_data[13:12], 2'b00, i_reg_rd_data[9:8], 4'b0111, i_reg_rd_data[3:0]};
+							4'd2, 4'd3, 4'd5, 4'd6: r[i_cp_word[19-:4]] <= i_reg_rd_data;
+							4'd13: r[13] <= i_reg_rd_data & 32'hfe000000;
+							4'd10:
+								if (i_cp_word[5])
+									ti_lock_i <= i_reg_rd_data & 32'hfff00001;
+								else
+									ti_lock_d <= i_reg_rd_data & 32'hfff00001;
+							4'd15:
+								if (cp_op1 == 3'd0)
+									case (i_cp_word[3-:4])
+										4'd1: ti_config <= i_reg_rd_data[7:0] & 8'he7;
+										4'd2: ti_imax <= i_reg_rd_data;
+										4'd3: ti_imin <= i_reg_rd_data;
+										4'd4: ti_thread <= i_reg_rd_data[15:0];
+										4'd8:
+											if ((i_cp_word[7-:3] == 3'd0) || (i_cp_word[7-:3] == 3'd2))
+												state <= WFI;
+										default:
+											;
+									endcase
+							default:
+								;
+						endcase
 					if (i_cp_word[19-:4] == TLB_REG)
 						casez ({i_cp_word[7-:3], i_cp_word[3-:4]})
 							CASE_FLUSH_ID_TLB: begin
@@ -6100,6 +6223,38 @@ module zap_cp15_cb (
 								o_dtlb_inv <= 1'd1;
 							end
 						endcase
+					else if ((i_cp_word[19-:4] == CACHE_REG) && TI925T) begin
+						ti_imax <= 32'd0;
+						ti_imin <= 32'h00000ff0;
+						casez ({i_cp_word[7-:3], i_cp_word[3-:4]})
+							7'b0000111: begin
+								o_dcache_inv <= 1'd1;
+								state <= CLR_D_CACHE_AND;
+							end
+							7'b0zz0101: begin
+								o_icache_inv <= 1'd1;
+								state <= CLR_I_CACHE;
+							end
+							7'b0000110: begin
+								o_dcache_inv <= 1'd1;
+								state <= CLR_D_CACHE;
+							end
+							7'b0zz1010: begin
+								o_dcache_clean <= 1'd1;
+								state <= CLEAN_D_CACHE;
+							end
+							7'b0010110, 7'b0100110, 7'b0zz1110: begin
+								o_dcache_clean <= 1'd1;
+								state <= CLFLUSH_D_CACHE;
+							end
+							7'b1001010, 7'b0011101: state <= DONE;
+							7'b1000000: state <= WFI;
+							default: begin
+								o_dcache_clean <= 1'd1;
+								state <= CLFLUSH_ID_CACHE;
+							end
+						endcase
+					end
 					else if (i_cp_word[19-:4] == CACHE_REG)
 						casez ({i_cp_word[7-:3], i_cp_word[3-:4]})
 							CASE_FLUSH_ID_CACHE: begin
@@ -6167,12 +6322,15 @@ module zap_cp15_cb (
 						state <= DONE;
 					end
 				end
+				WFI:
+					if (i_irq || i_fiq)
+						state <= DONE;
 				ACTIVE:
 					if ((((is_cc_satisfied(i_cp_word[31:28], i_cpsr[31:28]) || ((i_cp_word | 32'b00000000111011111111111111101111) == 32'b11111110111111111111111111111111)) || ((i_cp_word | 32'b00000000111011111111111111101111) == 32'b11111110111011111111111111111111)) || ((i_cp_word | 32'b00000001111011111111111111111111) == 32'b11111101111111111111111111111111)) || ((i_cp_word | 32'b00000001111011111111111111111111) == 32'b11111101111011111111111111111111)) begin
 						if (i_cp_word[20]) begin
 							o_reg_en <= 1'd1;
 							o_reg_wr_index <= translate({1'd0, i_cp_word[15:12]}, i_cpsr[ZAP_CPSR_MODE:0]);
-							o_reg_wr_data <= ((i_cp_word[19:16] == 0) && (i_cp_word[7-:3] == 1) ? CACHE_TYPE_WORD : r[i_cp_word[19:16]]);
+							o_reg_wr_data <= (TI925T ? ti_rd_data : ((i_cp_word[19:16] == 0) && (i_cp_word[7-:3] == 1) ? CACHE_TYPE_WORD : r[i_cp_word[19:16]]));
 							state <= DONE;
 						end
 						else begin
@@ -6199,7 +6357,7 @@ module zap_cp15_cb (
 					o_reg_rd_index <= 1'sbx;
 					begin : sv2v_autoblock_1
 						integer i;
-						for (i = 13; i >= 0; i = i - 1)
+						for (i = 15; i >= 0; i = i - 1)
 							r[i] <= 1'sbx;
 					end
 				end
@@ -6209,10 +6367,17 @@ module zap_cp15_cb (
 			r[0][19:16] <= 4'h5;
 			r[0][23:20] <= 4'd0;
 			r[0][31:24] <= 8'd0;
-			r[1][1] <= 1'd0;
-			r[1][7] <= (BE_32_ENABLE ? 1'd1 : 1'd0);
-			r[1][6:3] <= 4'b1111;
-			r[1][11] <= 1'd1;
+			if (TI925T) begin
+				r[1][31:14] <= 18'd0;
+				r[1][11:10] <= 2'd0;
+				r[1][7:4] <= 4'b0111;
+			end
+			else begin
+				r[1][1] <= 1'd0;
+				r[1][7] <= (BE_32_ENABLE ? 1'd1 : 1'd0);
+				r[1][6:3] <= 4'b1111;
+				r[1][11] <= 1'd1;
+			end
 			if (ONLY_CORE) begin
 				r[1][2] <= 1'd0;
 				r[1][12] <= 1'd0;
@@ -6234,7 +6399,7 @@ module zap_cp15_cb (
 	assign r5 = r[5];
 	assign r6 = r[6];
 	wire unused;
-	assign unused = |{r0, r1, r2, r3, r4, r5, r6, i_cpsr[27:5], i_icache_clean_done};
+	assign unused = |{r0, r1, r2, r3, r4, r5, r6, i_cpsr[27:5], i_icache_clean_done, r[14], r[15], r[4], r[7], r[8], r[9], r[10], r[11], r[12]};
 	initial _sv2v_0 = 0;
 endmodule
 module zap_dcache_fsm (
@@ -6245,6 +6410,8 @@ module zap_dcache_fsm (
 	i_wr,
 	i_din,
 	i_ben,
+	i_align_fault,
+	i_va,
 	i_reg_idx,
 	i_reg_idx_bin,
 	o_lock,
@@ -6305,6 +6472,7 @@ module zap_dcache_fsm (
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] CACHE_LINE = 32'd8;
 	parameter [0:0] BE_32_ENABLE = 1'd0;
+	parameter [3:0] EXT_ABORT_FS = 4'b0010;
 	input wire i_clk;
 	input wire i_reset;
 	input wire [31:0] i_address;
@@ -6312,6 +6480,8 @@ module zap_dcache_fsm (
 	input wire i_wr;
 	input wire [31:0] i_din;
 	input wire [3:0] i_ben;
+	input wire i_align_fault;
+	input wire [31:0] i_va;
 	input wire [63:0] i_reg_idx;
 	input wire [5:0] i_reg_idx_bin;
 	output reg [63:0] o_lock;
@@ -6985,6 +7155,12 @@ module zap_dcache_fsm (
 				end
 				else if (!i_rd && !i_wr)
 					o_ack = 1'd1;
+				else if (i_align_fault) begin
+					o_err = 1'd1;
+					o_ack = 1'd1;
+					o_fsr = 8'b00000001;
+					o_far = i_va;
+				end
 				else if (i_fault) begin
 					o_err = 1'd1;
 					o_ack = 1'd1;
@@ -7091,7 +7267,10 @@ module zap_dcache_fsm (
 					state_nxt[UNCACHEABLE] = 1'd0;
 					state_nxt[IDLE] = 1'd1;
 					o_err = i_wb_err;
-					o_fsr[3:0] = TERMINAL_EXCEPTION;
+					if (i_wb_err) begin
+						o_fsr[3:0] = EXT_ABORT_FS;
+						o_far = i_va;
+					end
 					o_wb_cyc_nxt = 0;
 					o_wb_stb_nxt = 0;
 					o_wb_wen_nxt = 0;
@@ -7104,7 +7283,7 @@ module zap_dcache_fsm (
 			state_ff[CLEAN_SINGLE]: begin
 				rhit = 1'd0;
 				whit = 1'd0;
-				if ((((((!i_busy && !i_fault) && (i_rd || i_wr)) && !i_cache_en) && i_cacheable) && cache_cmp) && i_cache_tag_valid) begin
+				if (((((((!i_busy && !i_fault) && !i_align_fault) && (i_rd || i_wr)) && !i_cache_en) && i_cacheable) && cache_cmp) && i_cache_tag_valid) begin
 					if (i_rd) begin
 						rhit = 1'd1;
 						o_ack = 1'd1;
@@ -7165,7 +7344,7 @@ module zap_dcache_fsm (
 			state_ff[FETCH_SINGLE]: begin
 				rhit = 1'd0;
 				whit = 1'd0;
-				if ((((((!i_busy && !i_fault) && (i_rd || i_wr)) && !i_cache_en) && i_cacheable) && cache_cmp) && i_cache_tag_valid) begin
+				if (((((((!i_busy && !i_fault) && !i_align_fault) && (i_rd || i_wr)) && !i_cache_en) && i_cacheable) && cache_cmp) && i_cache_tag_valid) begin
 					if (i_rd) begin
 						rhit = 1'd1;
 						o_ack = 1'd1;
@@ -7240,7 +7419,7 @@ module zap_dcache_fsm (
 			state_ff[UNLOCK_REG]: begin
 				rhit = 1'd0;
 				whit = 1'd0;
-				if ((((((!i_busy && !i_fault) && (i_rd || i_wr)) && !i_cache_en) && i_cacheable) && cache_cmp) && i_cache_tag_valid) begin
+				if (((((((!i_busy && !i_fault) && !i_align_fault) && (i_rd || i_wr)) && !i_cache_en) && i_cacheable) && cache_cmp) && i_cache_tag_valid) begin
 					if (i_rd) begin
 						rhit = 1'd1;
 						o_ack = 1'd1;
@@ -7366,6 +7545,8 @@ module zap_dcache (
 	i_wr,
 	i_ben,
 	i_dat,
+	i_align_fault,
+	i_va,
 	o_dat,
 	o_ack,
 	o_err,
@@ -7414,6 +7595,7 @@ module zap_dcache (
 	parameter [31:0] FPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] CACHE_LINE = 32'd8;
 	parameter [0:0] BE_32_ENABLE = 1'd0;
+	parameter [3:0] EXT_ABORT_FS = 4'b0010;
 	parameter [31:0] CPSR_MODE = 32'd4;
 	input wire i_clk;
 	input wire i_reset;
@@ -7427,6 +7609,8 @@ module zap_dcache (
 	input wire i_wr;
 	input wire [3:0] i_ben;
 	input wire [31:0] i_dat;
+	input wire i_align_fault;
+	input wire [31:0] i_va;
 	output wire [31:0] o_dat;
 	output wire o_ack;
 	output wire o_err;
@@ -7780,7 +7964,8 @@ module zap_dcache (
 	zap_dcache_fsm #(
 		.CACHE_SIZE(CACHE_SIZE),
 		.CACHE_LINE(CACHE_LINE),
-		.BE_32_ENABLE(BE_32_ENABLE)
+		.BE_32_ENABLE(BE_32_ENABLE),
+		.EXT_ABORT_FS(EXT_ABORT_FS)
 	) u_zap_cache_fsm(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -7788,6 +7973,8 @@ module zap_dcache (
 		.i_rd(i_rd),
 		.i_wr(i_wr),
 		.i_din(i_dat),
+		.i_align_fault(i_align_fault),
+		.i_va(i_va),
 		.o_idle(idle),
 		.i_ben(i_ben),
 		.o_dat(o_dat),
@@ -8067,6 +8254,7 @@ module zap_decode_main (
 	parameter [31:0] ALU_OPS = 32'd32;
 	parameter [31:0] SHIFT_OPS = 32'd6;
 	parameter [31:0] PHY_REGS = 32'd46;
+	parameter [0:0] V4T = 1'd0;
 	parameter [31:0] CPSR_MODE = 32'd4;
 	output reg [511:0] o_decompile;
 	input wire i_uop_last;
@@ -8649,7 +8837,7 @@ module zap_decode_main (
 			o_swi_ff <= o_swi_nxt;
 			o_abt_ff <= o_abt_nxt;
 			o_und_ff <= o_und_nxt | i_mode16_und;
-			o_condition_code_ff <= o_condition_code_nxt;
+			o_condition_code_ff <= (i_mode16_und ? AL : o_condition_code_nxt);
 			o_destination_index_ff <= o_destination_index_nxt;
 			o_alu_source_ff <= o_alu_source_nxt;
 			o_alu_operation_ff <= o_alu_operation_nxt;
@@ -8678,7 +8866,8 @@ module zap_decode_main (
 	zap_decode #(
 		.ARCH_REGS(ARCH_REGS),
 		.ALU_OPS(ALU_OPS),
-		.SHIFT_OPS(SHIFT_OPS)
+		.SHIFT_OPS(SHIFT_OPS),
+		.V4T(V4T)
 	) u_zap_decode(
 		.i_irq(i_irq),
 		.i_fiq(i_fiq),
@@ -8741,6 +8930,7 @@ module zap_decode (
 	parameter [31:0] ARCH_REGS = 32;
 	parameter [31:0] ALU_OPS = 32;
 	parameter [31:0] SHIFT_OPS = 6;
+	parameter [0:0] V4T = 1'd0;
 	input wire i_irq;
 	input wire i_fiq;
 	input wire i_abt;
@@ -9041,6 +9231,8 @@ module zap_decode (
 	localparam [1:0] UNSIGNED_HALF_WORD = 2'd1;
 	localparam [1:0] SIGNED_HALF_WORD = 2'd3;
 	reg [35:0] instruction;
+	wire v5_und;
+	assign v5_und = ((i_instruction[27:25] == 3'b011) && i_instruction[4]) || (V4T && ((((((((((((((i_instruction[31:28] == NV) || ((i_instruction[31:0] | 32'b11110000000000001111000000001111) == 32'b11110001011011111111111100011111)) || ((i_instruction[31:0] | 32'b11110000000000000000000000001111) == 32'b11110001001011111111111100111111)) || ((i_instruction[31:0] | 32'b00000000000011111111111100001111) == 32'b11100001001011111111111101111111)) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001000011111111000001011111)) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001001011111111000001011111)) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001010011111111000001011111)) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001011011111111000001011111)) || ((i_instruction[31:0] | 32'b11110000000011111111111101101111) == 32'b11110001000011111111111111101111)) || ((i_instruction[31:0] | 32'b11110000000011111111111101001111) == 32'b11110001001011111111111111001111)) || ((i_instruction[31:0] | 32'b11110000000011111111111101101111) == 32'b11110001010011111111111111101111)) || ((i_instruction[31:0] | 32'b11110000000011110000111101001111) == 32'b11110001001011110000111111101111)) || ((i_instruction[31:0] | 32'b11110000000011110000111101101111) == 32'b11110001011011110000111111101111)) || (((i_instruction[27:25] == 3'b000) && !i_instruction[20]) && ((i_instruction[7:4] | 4'b0010) == 4'b1111))));
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -9078,6 +9270,19 @@ module zap_decode (
 			o_shift_source[32] = IMMED_EN;
 			o_shift_operation = {1'd0, LSL};
 			o_shift_length = 0;
+			o_shift_length[32] = IMMED_EN;
+		end
+		else if (i_instruction_valid && v5_und) begin
+			o_und = 1'd1;
+			o_condition_code = (instruction[31:28] == NV ? AL : instruction[31:28]);
+			o_alu_operation = {2'd0, SUB};
+			o_alu_source = {29'd0, ARCH_PC};
+			o_alu_source[32] = INDEX_EN;
+			o_destination_index = {1'd0, ARCH_LR};
+			o_shift_source = 33'd4;
+			o_shift_source[32] = IMMED_EN;
+			o_shift_operation = {1'd0, LSL};
+			o_shift_length = 33'd0;
 			o_shift_length[32] = IMMED_EN;
 		end
 		else if (i_instruction_valid)
@@ -9594,7 +9799,7 @@ module zap_decode (
 				end
 				default: begin
 					o_und = 1'd1;
-					o_condition_code = AL;
+					o_condition_code = (instruction[31:28] == NV ? AL : instruction[31:28]);
 					o_alu_operation = {2'd0, SUB};
 					o_alu_source = {29'd0, ARCH_PC};
 					o_alu_source[32] = INDEX_EN;
@@ -9654,6 +9859,7 @@ module zap_fetch_main (
 	i_pred,
 	o_pred
 );
+	parameter [0:0] V4T = 1'd0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_code_stall;
@@ -10120,9 +10326,9 @@ module zap_fetch_main (
 			o_valid <= 1'd1;
 			o_instr_abort <= i_instr_abort;
 			o_taken <= i_taken;
-			if (~i_cpsr_ff_t & ((i_instruction | 32'b00000000000011111111111100001111) == 32'b11100001001011111111111101111111))
+			if (!V4T && (~i_cpsr_ff_t & ((i_instruction | 32'b00000000000011111111111100001111) == 32'b11100001001011111111111101111111)))
 				o_instr_abort <= 1'd1;
-			else if (i_cpsr_ff_t) begin
+			else if (!V4T && i_cpsr_ff_t) begin
 				if (i_pc_ff[1] && ((i_instruction[31:16] | 16'b0000000011111111) == 16'b1011111011111111))
 					o_instr_abort <= 1'd1;
 				else if (!i_pc_ff[1] && ((i_instruction[15:0] | 16'b0000000011111111) == 16'b1011111011111111))
@@ -13248,8 +13454,8 @@ module zap_predecode_coproc (
 		o_fiq = i_fiq;
 		case (state_ff)
 			1'd0:
-				casez (((!i_cpsr_ff_t && (i_instruction[34:32] == 3'd0)) && i_valid ? i_instruction[31:0] : 32'd0))
-					MRC, MCR, LDC, STC, CDP, MRC2, MCR2, LDC2, STC2:
+				casez ((((!i_cpsr_ff_t && (i_instruction[34:32] == 3'd0)) && i_valid) && (i_instruction[31:28] != NV) ? i_instruction[31:0] : 32'd0))
+					MRC, MCR:
 						if ((i_instruction[11:8] == 4'b1111) && (i_cpsr_ff_mode != USR)) begin
 							o_instruction = i_instruction;
 							o_valid = i_valid;
@@ -13370,6 +13576,7 @@ module zap_predecode_main (
 	reg _sv2v_0;
 	parameter [31:0] PHY_REGS = 32'd64;
 	parameter [31:0] RAS_DEPTH = 32'd8;
+	parameter [0:0] V4T = 1'd0;
 	input wire i_clk;
 	input wire i_reset;
 	output reg o_uop_last;
@@ -13724,6 +13931,7 @@ module zap_predecode_main (
 	wire align_nxt;
 	wire switch_nxt;
 	wire stall;
+	wire cp15_release;
 	assign stall = (i_data_stall || i_stall_from_shifter) || i_stall_from_issue;
 	always @(posedge i_clk)
 		if (i_reset) begin
@@ -13937,11 +14145,20 @@ module zap_predecode_main (
 		end
 		else
 			taken_nxt = SNT;
+		if (cp15_release) begin
+			w_clear_from_decode = 1'd1;
+			w_pc_from_decode = skid_pc_ff + 32'd4;
+			ppc_nxt = w_pc_from_decode;
+			taken_nxt = SNT;
+		end
 	end
-	zap_predecode_uop_sequencer u_zap_uop_sequencer(
+	zap_predecode_uop_sequencer #(.V4T(V4T)) u_zap_uop_sequencer(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
 		.i_cpsr_t(i_cpu_mode_t),
+		.i_cpsr_mode(i_cpu_mode_mode),
+		.i_cp_stall(cp_stall),
+		.o_cp15_release(cp15_release),
 		.i_instruction(mode32_instruction),
 		.i_instruction_valid(mode32_instruction_valid),
 		.i_fiq(mode32_fiq),
@@ -13972,6 +14189,9 @@ module zap_predecode_uop_sequencer (
 	i_irq,
 	i_fiq,
 	i_cpsr_t,
+	i_cpsr_mode,
+	i_cp_stall,
+	o_cp15_release,
 	i_l4_enable,
 	i_clear_from_writeback,
 	i_data_stall,
@@ -13989,6 +14209,7 @@ module zap_predecode_uop_sequencer (
 	o_uop_last
 );
 	reg _sv2v_0;
+	parameter [0:0] V4T = 1'd0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire [34:0] i_instruction;
@@ -13996,6 +14217,9 @@ module zap_predecode_uop_sequencer (
 	input wire i_irq;
 	input wire i_fiq;
 	input wire i_cpsr_t;
+	input wire [4:0] i_cpsr_mode;
+	input wire i_cp_stall;
+	output wire o_cp15_release;
 	input wire i_l4_enable;
 	input wire i_clear_from_writeback;
 	input wire i_data_stall;
@@ -14299,10 +14523,13 @@ module zap_predecode_uop_sequencer (
 	reg [15:0] reglist_nxt;
 	reg [31:0] const_ff;
 	reg [31:0] const_nxt;
+	wire cp15_done;
+	assign cp15_done = ((((!i_cpsr_t && (i_instruction[34:32] == 3'd0)) && (((i_instruction[31:0] | 32'b11110000111011111111000011101111) == 32'b11111110111111111111111111111111) || ((i_instruction[31:0] | 32'b11110000111011111111000011101111) == 32'b11111110111011111111111111111111))) && (i_instruction[31:28] != NV)) && (i_instruction[11:8] == 4'b1111)) && (i_cpsr_mode != USR);
+	reg [20:0] state_ff;
+	assign o_cp15_release = ((cp15_done && !i_cp_stall) && i_instruction_valid) && (state_ff == 21'd1);
 	assign {cc, id, pre_index, up, s_bit, writeback, load, base, reglist} = i_instruction[31:0];
 	assign store = ~load;
 	assign unused = |{pre_index};
-	reg [20:0] state_ff;
 	reg [20:0] state_nxt;
 	function automatic [33:0] map;
 		input [31:0] instr;
@@ -14369,7 +14596,7 @@ module zap_predecode_uop_sequencer (
 			default: pri_enc = 4'h0;
 		endcase
 	endfunction
-	always @(s_bit or cc or i_l4_enable or load or i_instruction[{2'd0, ARCH_PC}] or reglist_ff or o_instruction[27:26] or reglist_ff or reglist_ff or i_instruction[31:0] or load or s_bit or load or s_bit or store or oc_offset or base or base or cc or base or cc or up or writeback or up or reglist_ff or reglist_ff or i_instruction[15:12] or cc or i_instruction[3:0] or i_instruction[19:16] or i_instruction[22] or cc or i_instruction_valid or i_instruction or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction or state_ff or i_fiq or i_irq or i_instruction[20] or i_instruction[15:12] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction[31:28] or i_instruction[31:28] or i_cpsr_t or i_instruction_valid or i_instruction[24] or i_instruction[27:25] or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction[4] or i_instruction[7] or i_instruction[20] or i_instruction[22:21] or i_instruction[27:23] or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[7:4] or i_instruction[27:23] or i_instruction[19:16] or i_instruction[22] or cc or i_fiq or i_irq or i_instruction_valid or i_instruction[31:0] or i_fiq or i_irq or reglist or oc_offset or base or cc or base or cc or up or i_instruction_valid or id or i_fiq or i_irq or i_cpsr_t or i_instruction[31:28] or i_instruction_valid or i_instruction[27:4] or i_fiq or i_irq or i_cpsr_t or i_instruction_valid or i_instruction[31:25] or i_fiq or i_irq or i_instruction[19:12] or i_instruction[6:5] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[3:0] or i_instruction[11:8] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[22] or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[12] or i_instruction[6:5] or i_instruction[6:5] or i_instruction[20] or i_instruction[27:25] or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or state_ff or state_ff or state_ff or state_ff or i_instruction[6:5] or i_instruction[15:12] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[15:12] or i_instruction[31:28] or i_instruction[6:5] or i_instruction[19:16] or o_instruction[11:0] or i_instruction[22] or i_instruction[21] or i_instruction[19:16] or i_instruction[24:23] or i_instruction[15:12] or i_instruction[31:28] or i_instruction or i_cpsr_t or const_nxt[31:24] or const_nxt[23:16] or const_nxt[15:8] or const_nxt[7:0] or i_instruction[24] or i_instruction[23:0] or i_instruction[23] or cc or state_ff or reglist_ff or i_instruction_valid or i_instruction or state_ff or const_ff or _sv2v_0) begin : next_state_logic_and_output_logic
+	always @(s_bit or cc or i_l4_enable or load or i_instruction[{2'd0, ARCH_PC}] or reglist_ff or o_instruction[27:26] or reglist_ff or reglist_ff or i_instruction[31:0] or load or s_bit or load or s_bit or store or oc_offset or base or base or cc or base or cc or up or writeback or up or reglist_ff or reglist_ff or i_instruction[15:12] or cc or i_instruction[3:0] or i_instruction[19:16] or i_instruction[22] or cc or i_instruction_valid or i_instruction or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction or state_ff or i_fiq or i_irq or i_instruction[20] or i_instruction[15:12] or i_instruction[4] or i_instruction[25] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction[31:28] or i_instruction[31:28] or i_cpsr_t or i_instruction_valid or i_instruction[24] or i_instruction[27:25] or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[20] or i_instruction[22:21] or i_instruction[27:23] or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[7:4] or i_instruction[27:23] or i_instruction[19:16] or i_instruction[22] or cc or i_fiq or i_irq or i_instruction_valid or i_instruction[31:0] or i_fiq or i_irq or reglist or oc_offset or base or cc or base or cc or up or i_instruction_valid or id or i_fiq or i_irq or i_cpsr_t or i_instruction[31:28] or i_instruction_valid or i_instruction[27:4] or i_fiq or i_irq or i_cpsr_t or i_instruction_valid or i_instruction[31:25] or i_fiq or i_irq or i_instruction[19:12] or i_instruction[6:5] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[3:0] or i_instruction[11:8] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[22] or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[12] or i_instruction[6:5] or i_instruction[6:5] or i_instruction[20] or i_instruction[27:25] or i_fiq or i_irq or i_instruction or cc or cp15_done or i_cp_stall or cp15_done or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:28] or i_cpsr_t or state_ff or state_ff or state_ff or state_ff or i_instruction[6:5] or i_instruction[15:12] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[15:12] or i_instruction[31:28] or i_instruction[6:5] or i_instruction[19:16] or o_instruction[11:0] or i_instruction[22] or i_instruction[21] or i_instruction[19:16] or i_instruction[24:23] or i_instruction[15:12] or i_instruction[31:28] or i_instruction or i_cpsr_t or const_nxt[31:24] or const_nxt[23:16] or const_nxt[15:8] or const_nxt[7:0] or i_instruction[24] or i_instruction[23:0] or i_instruction[23] or cc or state_ff or reglist_ff or i_instruction_valid or i_instruction or state_ff or const_ff or _sv2v_0) begin : next_state_logic_and_output_logic
 		if (_sv2v_0)
 			;
 		const_nxt = const_ff;
@@ -14497,16 +14724,36 @@ module zap_predecode_uop_sequencer (
 				state_nxt = 21'd1;
 			end
 			21'd1:
-				if (((((((i_instruction[31:0] | 32'b11110000000000001111000000001111) == 32'b11110001011011111111111100011111) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001000011111111000001011111)) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001001011111111000001011111)) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001010011111111000001011111)) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001011011111111000001011111)) && i_instruction_valid) begin
+				if (((V4T && !i_cpsr_t) && (i_instruction[31:28] == NV)) && i_instruction_valid) begin
+					o_instruction = {5'd0, i_instruction};
+					o_irq = i_irq;
+					o_fiq = i_fiq;
+				end
+				else if ((!V4T && ((((((i_instruction[31:0] | 32'b11110000000000001111000000001111) == 32'b11110001011011111111111100011111) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001000011111111000001011111)) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001001011111111000001011111)) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001010011111111000001011111)) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001011011111111000001011111))) && i_instruction_valid) begin
 					state_nxt = 21'd131072;
 					o_stall_from_decode = 1'd1;
 					o_instruction = {5'd0, i_instruction};
 					o_irq = i_irq;
 					o_fiq = i_fiq;
 				end
-				else if ((((((((((i_instruction[31:0] | 32'b11110000111011111111000011101111) == 32'b11111110111111111111111111111111) || ((i_instruction[31:0] | 32'b11110000111011111111000011101111) == 32'b11111110111011111111111111111111)) || ((i_instruction[31:0] | 32'b11110001111011111111111111111111) == 32'b11111101111111111111111111111111)) || ((i_instruction[31:0] | 32'b11110001111011111111111111111111) == 32'b11111101111011111111111111111111)) || ((i_instruction[31:0] | 32'b11110000111111111111111111111111) == 32'b11111110111111111111111111111111)) || ((i_instruction[31:0] | 32'b00000000111011111111111111101111) == 32'b11111110111011111111111111111111)) || ((i_instruction[31:0] | 32'b00000001111011111111111111111111) == 32'b11111101111111111111111111111111)) || ((i_instruction[31:0] | 32'b00000001111011111111111111111111) == 32'b11111101111011111111111111111111)) && i_instruction_valid)
-					o_instruction_valid = 1'd0;
-				else if (((((((i_instruction[27:25] == 3'b000) && (i_instruction[20] == 1'd0)) && ((i_instruction[6:5] == 2'b10) || (i_instruction[6:5] == 2'b11))) && (i_instruction[12] == 1'd0)) && (i_instruction[7] == 1'd1)) && (i_instruction[4] == 1'd1)) && i_instruction_valid) begin
+				else if ((((((((((i_instruction[31:0] | 32'b11110000111011111111000011101111) == 32'b11111110111111111111111111111111) || ((i_instruction[31:0] | 32'b11110000111011111111000011101111) == 32'b11111110111011111111111111111111)) || ((i_instruction[31:0] | 32'b11110001111011111111111111111111) == 32'b11111101111111111111111111111111)) || ((i_instruction[31:0] | 32'b11110001111011111111111111111111) == 32'b11111101111011111111111111111111)) || ((i_instruction[31:0] | 32'b11110000111111111111111111111111) == 32'b11111110111111111111111111111111)) || ((i_instruction[31:0] | 32'b00000000111011111111111111101111) == 32'b11111110111011111111111111111111)) || ((i_instruction[31:0] | 32'b00000001111011111111111111111111) == 32'b11111101111111111111111111111111)) || ((i_instruction[31:0] | 32'b00000001111011111111111111111111) == 32'b11111101111011111111111111111111)) && i_instruction_valid) begin
+					if (cp15_done && i_cp_stall)
+						o_instruction_valid = 1'd0;
+					else if (cp15_done) begin
+						o_instruction = 1'sb0;
+						o_instruction[31:0] = {cc, 3'b000, MOV, 21'h000000};
+						{o_instruction[ZAP_DP_RD_EXTEND], o_instruction[15:12]} = RAZ_REGISTER;
+						{o_instruction[ZAP_DP_RB_EXTEND], o_instruction[3:0]} = RAZ_REGISTER;
+						o_irq = 1'd0;
+						o_fiq = 1'd0;
+					end
+					else begin
+						o_instruction = {5'd0, i_instruction};
+						o_irq = i_irq;
+						o_fiq = i_fiq;
+					end
+				end
+				else if (((((((!V4T && (i_instruction[27:25] == 3'b000)) && (i_instruction[20] == 1'd0)) && ((i_instruction[6:5] == 2'b10) || (i_instruction[6:5] == 2'b11))) && (i_instruction[12] == 1'd0)) && (i_instruction[7] == 1'd1)) && (i_instruction[4] == 1'd1)) && i_instruction_valid) begin
 					o_stall_from_decode = 1'd1;
 					o_instruction[27:26] = 2'b01;
 					if (i_instruction[22]) begin
@@ -14529,7 +14776,7 @@ module zap_predecode_uop_sequencer (
 					o_irq = i_irq;
 					o_fiq = i_fiq;
 				end
-				else if ((i_instruction[31:25] == BLX1[31:25]) && i_instruction_valid) begin
+				else if ((!V4T && (i_instruction[31:25] == BLX1[31:25])) && i_instruction_valid) begin
 					o_instruction[31:0] = {AL, 3'b001, SUB, 21'h0fe004};
 					if (i_cpsr_t)
 						o_instruction[11:0] = 12'd2;
@@ -14538,7 +14785,7 @@ module zap_predecode_uop_sequencer (
 					o_irq = i_irq;
 					o_fiq = i_fiq;
 				end
-				else if ((i_instruction[27:4] == BLX2[27:4]) && i_instruction_valid) begin
+				else if ((!V4T && (i_instruction[27:4] == BLX2[27:4])) && i_instruction_valid) begin
 					o_instruction[31:0] = {i_instruction[31:28], 3'b001, SUB, 21'h0fe004};
 					if (i_cpsr_t)
 						o_instruction[11:0] = 12'd2;
@@ -14580,7 +14827,7 @@ module zap_predecode_uop_sequencer (
 					o_instruction = {5'd0, i_instruction};
 					o_instruction_valid = i_instruction_valid;
 				end
-				else if (((((i_instruction[27:23] == 5'b00010) && (i_instruction[22:21] == 2'b10)) && !i_instruction[20]) && i_instruction[7]) && i_instruction[4]) begin
+				else if ((((((!V4T && (i_instruction[27:23] == 5'b00010)) && (i_instruction[22:21] == 2'b10)) && !i_instruction[20]) && i_instruction[7]) && !i_instruction[4]) && i_instruction_valid) begin
 					state_nxt = 21'd32;
 					o_stall_from_decode = 1'd1;
 					o_irq = i_irq;
@@ -14599,7 +14846,7 @@ module zap_predecode_uop_sequencer (
 					o_irq = i_irq;
 					o_fiq = i_fiq;
 				end
-				else if (((((i_instruction[31:0] | 32'b11110001111111111111111111111111) == 32'b11110111111111111111111111111111) || ((i_instruction[31:0] | 32'b11110001111111111111111111111111) == 32'b11110101111111111111111111111111)) && (i_instruction[15:12] == ARCH_PC)) && i_instruction[20]) begin
+				else if ((((((i_instruction[31:0] | 32'b11110001111111111111111111111111) == 32'b11110111111111111111111111111111) || ((i_instruction[31:0] | 32'b11110001111111111111111111111111) == 32'b11110101111111111111111111111111)) && !(i_instruction[25] && i_instruction[4])) && (i_instruction[15:12] == ARCH_PC)) && i_instruction[20]) begin
 					o_irq = i_irq;
 					o_fiq = i_fiq;
 					o_stall_from_decode = 1'd1;
@@ -18097,6 +18344,11 @@ module zap_top (
 	parameter [31:0] CODE_FPAGE_TLB_ENTRIES = 32'd32;
 	parameter [31:0] CODE_CACHE_SIZE = 32'd8192;
 	parameter [31:0] CODE_CACHE_LINE = 32'd64;
+	parameter [0:0] V4T = 1'd0;
+	parameter [0:0] TI925T = 1'd0;
+	parameter [31:0] CP15_ID = 32'h0005aaa0;
+	parameter [31:0] CP15_CTYPE = 32'd0;
+	parameter [0:0] HIVECS = 1'd0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_irq;
@@ -18614,6 +18866,8 @@ module zap_top (
 	wire s_reset;
 	wire s_fiq;
 	wire s_irq;
+	wire cpu_align_fault;
+	wire [31:0] cpu_daddr_va;
 	wire code_stall;
 	assign s_reset = i_reset;
 	zap_dual_rank_synchronizer #(.WIDTH(2)) u_sync(
@@ -18648,7 +18902,12 @@ module zap_top (
 		.DATA_CACHE_LINE(DATA_CACHE_LINE),
 		.CODE_CACHE_SIZE(CODE_CACHE_SIZE),
 		.CODE_CACHE_LINE(CODE_CACHE_LINE),
-		.CPSR_MODE(ZAP_CPSR_MODE)
+		.CPSR_MODE(ZAP_CPSR_MODE),
+		.V4T(V4T),
+		.TI925T(TI925T),
+		.CP15_ID(CP15_ID),
+		.CP15_CTYPE(CP15_CTYPE),
+		.HIVECS(HIVECS)
 	) u_zap_core(
 		.o_trace(o_trace),
 		.o_trace_valid(o_trace_valid),
@@ -18679,6 +18938,8 @@ module zap_top (
 		.i_fsr((!ONLY_CORE ? {24'd0, dc_fsr} : sv2v_uu_u_zap_core_ext_i_fsr_0)),
 		.i_far((!ONLY_CORE ? dc_far : sv2v_uu_u_zap_core_ext_i_far_0)),
 		.o_mem_translate(cpu_mem_translate),
+		.o_data_wb_align_fault(cpu_align_fault),
+		.o_data_wb_va(cpu_daddr_va),
 		.o_dac(cpu_dac_reg),
 		.o_baddr(cpu_baddr),
 		.o_mmu_en(cpu_mmu_en),
@@ -18831,8 +19092,9 @@ module zap_top (
 				.LPAGE_TLB_ENTRIES(DATA_LPAGE_TLB_ENTRIES),
 				.SECTION_TLB_ENTRIES(DATA_SECTION_TLB_ENTRIES),
 				.FPAGE_TLB_ENTRIES(DATA_FPAGE_TLB_ENTRIES),
-				.CACHE_LINE(CODE_CACHE_LINE),
-				.BE_32_ENABLE(BE_32_ENABLE)
+				.CACHE_LINE(DATA_CACHE_LINE),
+				.BE_32_ENABLE(BE_32_ENABLE),
+				.EXT_ABORT_FS((TI925T ? 4'b1000 : 4'b0010))
 			) u_data_cache(
 				.i_clk(i_clk),
 				.i_stall(1'd0),
@@ -18846,6 +19108,8 @@ module zap_top (
 				.i_wr(cpu_dc_we && cpu_dc_stb),
 				.i_ben(cpu_dc_sel),
 				.i_dat(cpu_dc_dat),
+				.i_align_fault(cpu_align_fault),
+				.i_va(cpu_daddr_va),
 				.i_reg_idx(dc_rreg_idx),
 				.i_reg_idx_bin(dc_rreg_idx_bin),
 				.o_dat(dc_data),
@@ -18892,7 +19156,7 @@ module zap_top (
 				.LPAGE_TLB_ENTRIES(CODE_LPAGE_TLB_ENTRIES),
 				.SECTION_TLB_ENTRIES(CODE_SECTION_TLB_ENTRIES),
 				.FPAGE_TLB_ENTRIES(CODE_FPAGE_TLB_ENTRIES),
-				.CACHE_LINE(DATA_CACHE_LINE)
+				.CACHE_LINE(CODE_CACHE_LINE)
 			) u_code_cache(
 				.i_clk(i_clk),
 				.i_stall(code_stall),
@@ -19388,6 +19652,7 @@ module zap_writeback (
 	o_shelve,
 	i_cpu_pid,
 	i_l4_enable,
+	i_hivecs,
 	i_clear_btb,
 	i_clk,
 	i_reset,
@@ -19456,6 +19721,7 @@ module zap_writeback (
 	output wire o_shelve;
 	input wire [6:0] i_cpu_pid;
 	input wire i_l4_enable;
+	input wire i_hivecs;
 	input wire i_clear_btb;
 	input wire i_clk;
 	input wire i_reset;
@@ -19804,6 +20070,8 @@ module zap_writeback (
 	reg [32:0] pc_del3_nxt;
 	wire mode32;
 	wire clear_from_btb;
+	wire [31:0] vector_base;
+	assign vector_base = (i_hivecs ? 32'hffff0000 : 32'h00000000);
 	wire [31:0] pc_from_btb;
 	assign mode32 = (cpsr_ff[T] == 1'd0 ? 1'd1 : 1'd0);
 	assign o_shelve = shelve_ff;
@@ -19864,7 +20132,7 @@ module zap_writeback (
 			end
 		end
 		else if (i_data_abt[0]) begin
-			new_pc = DABT_VECTOR;
+			new_pc = vector_base | DABT_VECTOR;
 			if (!i_code_stall) begin
 				pc_nxt_tmp = {1'd1, new_pc};
 				pc_del_nxt = {1'd0, pc_ff[31:0]};
@@ -19882,7 +20150,7 @@ module zap_writeback (
 			end
 		end
 		else if (i_fiq) begin
-			new_pc = FIQ_VECTOR;
+			new_pc = vector_base | FIQ_VECTOR;
 			if (!i_code_stall) begin
 				pc_nxt_tmp = {1'd1, new_pc};
 				pc_del_nxt = {1'd0, pc_ff[31:0]};
@@ -19900,7 +20168,7 @@ module zap_writeback (
 			end
 		end
 		else if (i_irq) begin
-			new_pc = IRQ_VECTOR;
+			new_pc = vector_base | IRQ_VECTOR;
 			if (!i_code_stall) begin
 				pc_nxt_tmp = {1'd1, new_pc};
 				pc_del_nxt = {1'd0, pc_ff[31:0]};
@@ -19918,7 +20186,7 @@ module zap_writeback (
 			end
 		end
 		else if (i_instr_abt) begin
-			new_pc = PABT_VECTOR;
+			new_pc = vector_base | PABT_VECTOR;
 			if (!i_code_stall) begin
 				pc_nxt_tmp = {1'd1, new_pc};
 				pc_del_nxt = {1'd0, pc_ff[31:0]};
@@ -19936,7 +20204,7 @@ module zap_writeback (
 			end
 		end
 		else if (i_swi) begin
-			new_pc = SWI_VECTOR;
+			new_pc = vector_base | SWI_VECTOR;
 			if (!i_code_stall) begin
 				pc_nxt_tmp = {1'd1, new_pc};
 				pc_del_nxt = {1'd0, pc_ff[31:0]};
@@ -19954,7 +20222,7 @@ module zap_writeback (
 			end
 		end
 		else if (i_und) begin
-			new_pc = UND_VECTOR;
+			new_pc = vector_base | UND_VECTOR;
 			if (!i_code_stall) begin
 				pc_nxt_tmp = {1'd1, new_pc};
 				pc_del_nxt = {1'd0, pc_ff[31:0]};

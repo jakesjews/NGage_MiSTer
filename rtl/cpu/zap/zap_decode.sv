@@ -32,7 +32,8 @@
 module zap_decode #(
 parameter [31:0] ARCH_REGS  = 32,
 parameter [31:0] ALU_OPS    = 32,
-parameter [31:0] SHIFT_OPS  = 6
+parameter [31:0] SHIFT_OPS  = 6,
+parameter logic  V4T        = 1'd0  // ARM925T: ARMv4T only.
 )
 (
 input   logic                             i_irq,
@@ -73,6 +74,39 @@ localparam [1:0] SIGNED_HALF_WORD       = 2'd3;
 
 // Global variables.
 logic [35:0] instruction;
+
+//
+// ARM925T: with V4T, the ARMv5(TE) instructions are UNDEFINED, as they are
+// on the ARM9TDMI (and in QEMU's ti925t): CLZ, BLX (register; the immediate
+// form has condition NV), BKPT, QADD/QSUB/QDADD/QDSUB, the 16-bit multiplies,
+// LDRD/STRD (the halfword encodings with L=0 and S=1), and everything with
+// condition NV (BLX, PLD, MCR2/MRC2/CDP2/LDC2/STC2; NV is UNPREDICTABLE on
+// ARMv4 and QEMU makes it UNDEFINED). Without this, several of them would
+// decode as MSR or as halfword transfers.
+//
+// ARM925T: also, in every configuration, the space cond 011x ... xxx1 xxxx
+// is UNDEFINED (ARMv4/v5); upstream decoded it as a register-offset load or
+// store, so the "permanently undefined" 0xE7FxxxFx loaded instead of trapping.
+//
+logic v5_und;
+
+assign v5_und = (i_instruction[27:25] == 3'b011 && i_instruction[4]) || V4T && (
+        i_instruction[31:28] == NV                      ||
+        i_instruction[31:0] ==? CLZ_INSTRUCTION         ||
+        i_instruction[31:0] ==? BLX2                    ||
+        i_instruction[31:0] ==? BKPT                    ||
+        i_instruction[31:0] ==? QADD                    ||
+        i_instruction[31:0] ==? QSUB                    ||
+        i_instruction[31:0] ==? QDADD                   ||
+        i_instruction[31:0] ==? QDSUB                   ||
+        i_instruction[31:0] ==? SMLAxy                  ||
+        i_instruction[31:0] ==? SMLAWy                  ||
+        i_instruction[31:0] ==? SMLALxy                 ||
+        i_instruction[31:0] ==? SMULWy                  ||
+        i_instruction[31:0] ==? SMULxy                  ||
+        (i_instruction[27:25] == 3'b000 && !i_instruction[20] &&
+         i_instruction[7:4] ==? 4'b11?1)
+);
 
 always_comb
 begin
@@ -126,6 +160,21 @@ begin
                 o_shift_source[32]  = IMMED_EN;
                 o_shift_operation   = {1'd0, LSL};
                 o_shift_length      = 0;
+                o_shift_length[32]  = IMMED_EN;
+        end
+        else if ( i_instruction_valid && v5_und )
+        begin
+                // ARM925T: ARMv5 instruction on an ARMv4T core.
+                o_und               = 1'd1;
+                o_condition_code    = instruction[31:28] == NV ? AL : instruction[31:28];
+                o_alu_operation     = {2'd0, SUB};
+                o_alu_source        = {29'd0, ARCH_PC};
+                o_alu_source[32]    = INDEX_EN;
+                o_destination_index = {1'd0, ARCH_LR};
+                o_shift_source      = 33'd4;
+                o_shift_source[32]  = IMMED_EN;
+                o_shift_operation   = {1'd0, LSL};
+                o_shift_length      = 33'd0;
                 o_shift_length[32]  = IMMED_EN;
         end
         else if ( i_instruction_valid )
@@ -825,7 +874,12 @@ begin
                     o_und = 1'd1;
 
                     // Generate LR = PC - 4
-                    o_condition_code    = AL;
+                    //
+                    // ARM925T: the exception is taken only when the condition
+                    // passes, as on ARM9TDMI (and in QEMU). Condition NV is
+                    // UNPREDICTABLE on ARMv4; it is UNDEFINED here, as in
+                    // QEMU. Upstream ZAP took every one unconditionally.
+                    o_condition_code    = instruction[31:28] == NV ? AL : instruction[31:28];
                     o_alu_operation     = {2'd0, SUB};
                     o_alu_source        = {29'd0, ARCH_PC};
                     o_alu_source[32]    = INDEX_EN;

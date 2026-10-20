@@ -22,7 +22,10 @@ GDB=${GDB:-arm-none-eabi-gdb}
 HALT=${HALT:-0x40}
 SIG_BASE=${SIG_BASE:-0xF00000}
 SIG_SIZE=${SIG_SIZE:-0x10000}
-TIMEOUT=${TIMEOUT:-60}
+TIMEOUT=${TIMEOUT:-20}
+# A test that loops (an exception loop, say) must not fill the disk with
+# its log: QEMU stops when the log reaches 128 MB.
+ulimit -f 131072
 
 qargs=(-M none -cpu ti925t -m 16M -device "loader,file=$bin,addr=0"
        -nographic -monitor none -serial none -S -gdb stdio)

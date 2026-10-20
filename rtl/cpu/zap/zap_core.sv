@@ -48,7 +48,14 @@ module zap_core #(
         parameter logic [31:0] RAS_DEPTH        = 32'd4,
 
         // CPSR mode.
-        parameter logic [31:0] CPSR_MODE        = 32'd4
+        parameter logic [31:0] CPSR_MODE        = 32'd4,
+
+        // ARM925T options (see zap_top).
+        parameter logic        V4T              = 1'd0,
+        parameter logic        TI925T           = 1'd0,
+        parameter logic [31:0] CP15_ID          = 32'h0005AAA0,
+        parameter logic [31:0] CP15_CTYPE       = 32'd0,
+        parameter logic        HIVECS           = 1'd0
 )
 (
 
@@ -91,6 +98,11 @@ output logic                             o_data_wb_re_check,
 
 // Force user view.
 output logic                             o_mem_translate,
+
+// ARM925T: the access on o_data_wb_* breaks the alignment rule (control bit
+// A) and its full virtual address, for the FAR.
+output logic                             o_data_wb_align_fault,
+output logic [31:0]                      o_data_wb_va,
 
 // --------------------------------------------------
 // Interrupts. Active high.
@@ -185,6 +197,8 @@ logic                            fiq;                 // Tied to FIQ.
 logic                            irq;                 // Tied to IRQ.
 
 logic                            l4_enable;
+logic                            hivecs;      // ARM925T: control bit V.
+logic                            align_en;    // ARM925T: control bit A.
 
 // Clear and stall signals.
 logic                            stall_from_decode;
@@ -506,6 +520,17 @@ assign unused = |{rb_decompile, CPU_MODE, alu_cpsr_nxt[31:30], alu_cpsr_nxt[28:0
 
 assign o_cpsr                   = alu_flags_ff[ZAP_CPSR_MODE:0];
 assign o_data_wb_adr            = {postalu_address_ff[31:2], 2'd0};
+
+//
+// ARM925T: alignment fault when control bit A is set: a word access with
+// address bits 1:0 nonzero, a halfword access with bit 0 set (LDM/STM and
+// SWP are word accesses). Bytes never fault.
+//
+assign o_data_wb_va             = postalu_address_ff;
+assign o_data_wb_align_fault    = align_en && (
+        ( !(postalu_ubyte_ff | postalu_sbyte_ff | postalu_uhalf_ff | postalu_shalf_ff) &&
+          postalu_address_ff[1:0] != 2'd0 ) ||
+        ( (postalu_uhalf_ff | postalu_shalf_ff) && postalu_address_ff[0] ) );
 assign o_data_wb_adr_nxt        = {alu_address_ff[31:2], 2'd0};
 assign o_instr_wb_we            = 1'd0;
 assign o_instr_wb_sel           = 4'b1111;
@@ -583,7 +608,7 @@ end
 //
 // Instruction fetch stage.
 //
-zap_fetch_main u_zap_fetch_main (
+zap_fetch_main #(.V4T(V4T)) u_zap_fetch_main (
         // Input.
         .i_clk                          (i_clk),
         .i_reset                        (reset),
@@ -692,7 +717,8 @@ zap_mode16_decoder_main u_zap_mode16_decoder (
 //
 zap_predecode_main #(
         .PHY_REGS(PHY_REGS),
-        .RAS_DEPTH(RAS_DEPTH)
+        .RAS_DEPTH(RAS_DEPTH),
+        .V4T(V4T)
 )
 u_zap_predecode (
         // Input.
@@ -769,6 +795,7 @@ zap_decode_main #(
         .PHY_REGS(PHY_REGS),
         .SHIFT_OPS(SHIFT_OPS),
         .ALU_OPS(ALU_OPS),
+        .V4T(V4T),
         .CPSR_MODE(ZAP_CPSR_MODE)
 )
 u_zap_decode_main (
@@ -1101,7 +1128,8 @@ u_zap_shifter_main
 zap_alu_main #(
         .PHY_REGS(PHY_REGS),
         .ALU_OPS(ALU_OPS),
-        .CPSR_INIT(CPSR_INIT)
+        .CPSR_INIT(CPSR_INIT),
+        .V4T(V4T)
 )
 u_zap_alu_main
 (
@@ -1498,6 +1526,7 @@ u_zap_writeback
         .i_reset                (reset),        // ZAP reset.
 
         .i_l4_enable            (l4_enable),
+        .i_hivecs               (hivecs),
 
         .i_valid                (memory_dav_ff),
         .i_clear_from_alu       (clear_from_alu),
@@ -1569,6 +1598,11 @@ zap_cp15_cb #(
 .BE_32_ENABLE(BE_32_ENABLE),
 .PHY_REGS(PHY_REGS),
 .CP15_L4_DEFAULT(CP15_L4_DEFAULT),
+.V4T(V4T),
+.TI925T(TI925T),
+.CP15_ID(CP15_ID),
+.CP15_CTYPE(CP15_CTYPE),
+.HIVECS(HIVECS),
 .DATA_CACHE_SIZE(DATA_CACHE_SIZE),
 .CODE_CACHE_SIZE(CODE_CACHE_SIZE),
 .DATA_CACHE_LINE(DATA_CACHE_LINE),
@@ -1605,7 +1639,11 @@ zap_cp15_cb #(
         .i_dcache_inv_done      (i_dcache_inv_done),
         .i_icache_inv_done      (i_icache_inv_done),
         .i_dcache_clean_done    (i_dcache_clean_done),
-        .i_icache_clean_done    (i_icache_clean_done)
+        .i_icache_clean_done    (i_icache_clean_done),
+        .i_irq                  (irq),
+        .i_fiq                  (fiq),
+        .o_hivecs               (hivecs),
+        .o_align_en             (align_en)
 );
 
 // Readout of CPU mode. Useful for debugging.

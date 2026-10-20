@@ -30,7 +30,12 @@
 // - Copy data from DUMMY to Rd.     - MOV Rd, DUMMY0
 //
 
-module zap_predecode_uop_sequencer
+module zap_predecode_uop_sequencer #(
+        // ARM925T: 1 = ARMv4T. The ARMv5 instructions this unit sequences
+        // (CLZ/QADD.., LDRD/STRD, BLX, SMLALxy) are passed on unchanged and
+        // the decoder makes them UNDEFINED.
+        parameter logic V4T = 1'd0
+)
 (
         // Clock and reset.
         input logic              i_clk,                  // ZAP clock.
@@ -46,6 +51,16 @@ module zap_predecode_uop_sequencer
 
         // CPSR
         input logic              i_cpsr_t,
+
+        // ARM925T: CPSR mode, to tell which coprocessor instructions the
+        // CP15 block carried out (see zap_predecode_coproc), and its stall:
+        // the instruction is released when the stall ends.
+        input logic [4:0]        i_cpsr_mode,
+        input logic              i_cp_stall,
+
+        // ARM925T: a CP15 instruction is released; the fetch is restarted
+        // after it (zap_predecode_main).
+        output logic             o_cp15_release,
 
         // L4 behavior.
         input   logic            i_l4_enable,
@@ -98,6 +113,17 @@ logic          unused;
 logic  [11:0]  oc_offset;                  // Ones counter offset.
 logic  [15:0]  reglist_ff, reglist_nxt;    // Register list.
 logic  [31:0]  const_ff, const_nxt;        // For BLX - const reg.
+logic          cp15_done;                  // ARM925T: CP15 carried it out.
+
+// ARM925T: the condition under which zap_predecode_coproc hands an
+// instruction to zap_cp15_cb (keep the two in step).
+assign cp15_done = !i_cpsr_t && i_instruction[34:32] == 3'd0 &&
+                   (i_instruction[31:0] ==? MRC || i_instruction[31:0] ==? MCR) &&
+                   i_instruction[31:28] != NV &&
+                   i_instruction[11:8] == 4'b1111 && i_cpsr_mode != USR;
+
+assign o_cp15_release = cp15_done && !i_cp_stall && i_instruction_valid &&
+                        state_ff == IDLE;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -381,8 +407,18 @@ begin:next_state_logic_and_output_logic
 
                 IDLE:
                 begin
+                        // ARM925T: on ARMv4T, condition NV is UNDEFINED: pass
+                        // the instruction to the decoder unsequenced.
+                        if ( V4T && !i_cpsr_t && i_instruction[31:28] == NV &&
+                             i_instruction_valid )
+                        begin
+                                o_instruction       = {5'd0, i_instruction};
+                                o_irq               = i_irq;
+                                o_fiq               = i_fiq;
+                        end
                         // CLZ and saturating instruction - gap the issue.
-                        if (
+                        else if (
+                               !V4T && // ARM925T: not in ARMv4T.
                                (i_instruction[31:0] ==? CLZ_INSTRUCTION ||
                                 i_instruction[31:0] ==? QADD            ||
                                 i_instruction[31:0] ==? QSUB            ||
@@ -398,6 +434,17 @@ begin:next_state_logic_and_output_logic
                                 o_fiq               = i_fiq;
                         end
                         // Instruction in coprocessor space.
+                        //
+                        // ARM925T: an MCR/MRC to CP15 in a privileged mode has
+                        // been carried out by zap_cp15_cb while the pipeline
+                        // was held (zap_predecode_coproc); it continues as a
+                        // NOP with its own condition, so that it retires like
+                        // any instruction (MOV RAZ, RAZ: no register, no
+                        // flags). Every other coprocessor instruction (other
+                        // coprocessors, CDP/LDC/STC, user mode) is passed on
+                        // as it is; the decoder does not know it and makes it
+                        // UNDEFINED when its condition passes. Upstream ZAP
+                        // dropped all of them silently.
                         else if (
                              (i_instruction[31:0] ==? MRC   ||
                               i_instruction[31:0] ==? MCR   ||
@@ -410,11 +457,34 @@ begin:next_state_logic_and_output_logic
                               i_instruction_valid
                         )
                         begin
-                                o_instruction_valid = 1'd0;
+                                if ( cp15_done && i_cp_stall )
+                                begin
+                                        // Still with CP15: nothing goes on yet.
+                                        o_instruction_valid              = 1'd0;
+                                end
+                                else if ( cp15_done )
+                                begin
+                                        o_instruction                    = '0;
+                                        o_instruction[31:0]              = {cc, 2'b00, 1'b0, MOV, 1'b0,
+                                                                            4'd0, 4'd0, 12'd0};
+                                        {o_instruction[ZAP_DP_RD_EXTEND],
+                                         o_instruction[`ZAP_DP_RD]}      = RAZ_REGISTER;
+                                        {o_instruction[ZAP_DP_RB_EXTEND],
+                                         o_instruction[`ZAP_DP_RB]}      = RAZ_REGISTER;
+                                        o_irq                            = 1'd0;
+                                        o_fiq                            = 1'd0;
+                                end
+                                else
+                                begin
+                                        o_instruction                    = {5'd0, i_instruction};
+                                        o_irq                            = i_irq;
+                                        o_fiq                            = i_fiq;
+                                end
                         end
                         // LDRD and STRD. First reg should be EVEN.
                         else if
-                            ( i_instruction[27:25] == 3'b000                                &&
+                            ( !V4T && // ARM925T: not in ARMv4T.
+                             i_instruction[27:25] == 3'b000                                &&
                              i_instruction[20]    == 1'd0                                   &&
                              ( i_instruction[6:5] == 2'b10 || i_instruction[6:5] == 2'b11 ) &&
                              i_instruction[12]    == 1'd0                                   &&
@@ -474,7 +544,7 @@ begin:next_state_logic_and_output_logic
                         end
                         // BLX1 detected. Unconditional!!!
                         // Immediate Offset.
-                        else if ( i_instruction[31:25] == BLX1[31:25] && i_instruction_valid )
+                        else if ( !V4T && i_instruction[31:25] == BLX1[31:25] && i_instruction_valid ) // ARM925T: not in ARMv4T.
                         begin
                                 // We must generate a SUBAL LR,PC,4 ROR 0
                                 // This makes LR have the value
@@ -495,7 +565,7 @@ begin:next_state_logic_and_output_logic
                                 o_fiq = i_fiq;
                         end
                         // BLX2 detected. Register offset. CONDITIONAL.
-                        else if ( i_instruction[27:4] == BLX2[27:4] && i_instruction_valid )
+                        else if ( !V4T && i_instruction[27:4] == BLX2[27:4] && i_instruction_valid ) // ARM925T: not in ARMv4T.
                         begin
                                 // Write address of next instruction to LR. Now this
                                 // depends on the mode we're in. Mode in the sense
@@ -586,10 +656,17 @@ begin:next_state_logic_and_output_logic
                                  o_instruction       = {5'd0, i_instruction};
                                  o_instruction_valid = i_instruction_valid;
                         end
-                        else if (  i_instruction[27:23] == 5'b00010 &&
+                        //
+                        // ARM925T: SMLALxy (ARMv5TE only) has bit 4 = 0. Upstream
+                        // tested bit 4 = 1, which missed SMLALxy and took STRH
+                        // Rd, [Rn, #-imm] (no writeback) for it, storing twice.
+                        //
+                        else if (  !V4T                             &&
+                                   i_instruction[27:23] == 5'b00010 &&
                                    i_instruction[22:21] == 2'b10    &&
                                   !i_instruction[20]                &&
-                                   i_instruction[7] && i_instruction[4] )
+                                   i_instruction[7] && !i_instruction[4] &&
+                                   i_instruction_valid )
                         begin
                                 // LMULT
                                 state_nxt = LMULT_BUSY;
@@ -636,6 +713,7 @@ begin:next_state_logic_and_output_logic
                         end
                         else if ( (i_instruction[31:0] ==? LS_INSTRUCTION_SPECIFIED_SHIFT ||
                                    i_instruction[31:0] ==? LS_IMMEDIATE)                  &&
+                                   !(i_instruction[25] && i_instruction[4])               && // ARM925T: UNDEFINED space
                                    i_instruction[15:12] == ARCH_PC                        &&
                                    i_instruction[20] )
                         // Load to PC. First load to local, then to PC.

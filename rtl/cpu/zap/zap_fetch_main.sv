@@ -22,7 +22,9 @@
 //  AND R0, R0, R0.
 //
 
-module zap_fetch_main
+module zap_fetch_main #(
+        parameter logic V4T = 1'd0      // ARM925T: ARMv4T only (no BKPT).
+)
 (
 
 // Clock and reset.
@@ -129,11 +131,13 @@ begin
                 o_taken         <= i_taken;
 
                 // Detect breakpoint. These are unconditional.
-                if ( (~i_cpsr_ff_t) & (i_instruction ==? BKPT) )
+                // ARM925T: BKPT is ARMv5; with V4T it is left to the decoder,
+                // which makes it UNDEFINED.
+                if ( !V4T && (~i_cpsr_ff_t) & (i_instruction ==? BKPT) )
                 begin
                         o_instr_abort <= 1'd1;
                 end
-                else if ( i_cpsr_ff_t )
+                else if ( !V4T && i_cpsr_ff_t )
                 begin
                         if ( i_pc_ff[1] && i_instruction[31:16] ==? T_BKPT )
                         begin

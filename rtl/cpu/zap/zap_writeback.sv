@@ -41,6 +41,9 @@ module zap_writeback #(
         // L4 enable.
         input   logic                         i_l4_enable,
 
+        // ARM925T: control bit V, vectors at 0xFFFF0000.
+        input   logic                         i_hivecs,
+
         // Clear BTB
         input   logic                         i_clear_btb,
 
@@ -161,6 +164,9 @@ logic [32:0]                      pc_del3_ff, pc_del3_nxt;
 
 logic                             mode32;
 logic                             clear_from_btb;
+logic [31:0]                      vector_base;  // ARM925T: 0 or 0xFFFF0000.
+
+assign vector_base = i_hivecs ? 32'hFFFF_0000 : 32'h0000_0000;
 logic [31:0]                      pc_from_btb;
 
 assign  mode32     = (cpsr_ff[T] == 1'd0) ? 1'd1 : 1'd0;
@@ -244,32 +250,32 @@ begin: pc_control_tree
         else if ( i_data_abt[0] )
         begin
                 // Returns do LR - 8 to get back to the same instruction.
-                `zap_pc_shelve( DABT_VECTOR );
+                `zap_pc_shelve( vector_base | DABT_VECTOR );
         end
         else if ( i_fiq )
         begin
                 // Returns do LR - 4 to get back to the same instruction.
-                `zap_pc_shelve ( FIQ_VECTOR );
+                `zap_pc_shelve ( vector_base | FIQ_VECTOR );
         end
         else if ( i_irq  )
         begin
                 // Returns do LR - 4 to get back to the same instruction.
-                `zap_pc_shelve ( IRQ_VECTOR );
+                `zap_pc_shelve ( vector_base | IRQ_VECTOR );
         end
         else if ( i_instr_abt )
         begin
                 // Returns do LR - 4 to get back to the same instruction.
-                `zap_pc_shelve ( PABT_VECTOR );
+                `zap_pc_shelve ( vector_base | PABT_VECTOR );
         end
         else if ( i_swi )
         begin
                 // Returns to LR to return next instruction.
-                `zap_pc_shelve (SWI_VECTOR);
+                `zap_pc_shelve ( vector_base | SWI_VECTOR );
         end
         else if ( i_und )
         begin
                 // Returns do LR to return to the next instruction.
-                `zap_pc_shelve(UND_VECTOR);
+                `zap_pc_shelve ( vector_base | UND_VECTOR );
         end
         else if ( i_valid && i_mem_load_ff && i_wr_index_1 == {2'd0, ARCH_PC} )
         begin

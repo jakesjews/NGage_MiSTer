@@ -30,6 +30,7 @@ parameter logic [31:0] SECTION_TLB_ENTRIES    = 32'd8,
 parameter logic [31:0] FPAGE_TLB_ENTRIES      = 32'd8,
 parameter logic [31:0] CACHE_LINE             = 32'd8,
 parameter logic        BE_32_ENABLE           = 1'd0,
+parameter logic [3:0]  EXT_ABORT_FS           = 4'b0010, // ARM925T: see zap_dcache_fsm.
 parameter logic [31:0] CPSR_MODE              = 32'd4
 
 )
@@ -58,6 +59,8 @@ input   logic            i_rd,
 input   logic            i_wr,
 input   logic [3:0]      i_ben,
 input   logic [31:0]     i_dat,
+input   logic            i_align_fault,  // ARM925T: alignment fault (see zap_core).
+input   logic [31:0]     i_va,           // ARM925T: full address, for the FAR.
 output logic  [31:0]     o_dat,
 output  logic            o_ack,
 output  logic            o_err,
@@ -142,13 +145,16 @@ assign wb_cti[2] = CTI_EOB;
 assign unused = |{wb_err[1]};
 
 // Basic cache FSM - serves as manager 0.
-zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE(BE_32_ENABLE)) u_zap_cache_fsm (
+zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE(BE_32_ENABLE),
+                 .EXT_ABORT_FS(EXT_ABORT_FS)) u_zap_cache_fsm (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address              (i_address),
         .i_rd                   (i_rd),
         .i_wr                   (i_wr),
         .i_din                  (i_dat),
+        .i_align_fault          (i_align_fault),
+        .i_va                   (i_va),
         .o_idle                 (idle),
         .i_ben                  (i_ben),
         .o_dat                  (o_dat),

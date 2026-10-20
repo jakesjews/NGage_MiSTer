@@ -62,6 +62,11 @@ module arm925t #(
 	logic [1:0] wb_bte;
 
 	zap_top #(
+		.V4T             (1'b1),
+		.TI925T          (1'b1),
+		.CP15_ID         (32'h54029252),
+		.CP15_CTYPE      (32'h05109149),
+		.HIVECS          (HIVECS),
 		.RESET_VECTOR    (RESET_VECTOR),
 		.CODE_CACHE_SIZE (32'(ICACHE_SIZE)),
 		.CODE_CACHE_LINE (32'(CACHE_LINE)),

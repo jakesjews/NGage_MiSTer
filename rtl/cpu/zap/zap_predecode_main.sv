@@ -22,7 +22,8 @@
 
 module zap_predecode_main #(
         parameter logic [31:0] PHY_REGS  = 32'd64,
-        parameter logic [31:0] RAS_DEPTH = 32'd8
+        parameter logic [31:0] RAS_DEPTH = 32'd8,
+        parameter logic        V4T       = 1'd0      // ARM925T: ARMv4T only.
 )
 (
         // Clock and reset.
@@ -151,6 +152,7 @@ logic [$clog2(RAS_DEPTH)-1:0]       ras_ptr_ff, ras_ptr_nxt;
 logic                               align_nxt;
 logic                               switch_nxt;
 logic                               stall;
+logic                               cp15_release;   // ARM925T
 
 assign stall = i_data_stall || i_stall_from_shifter || i_stall_from_issue;
 
@@ -551,13 +553,32 @@ begin:bprblk1
         begin
                 taken_nxt = SNT;
         end
+
+        //
+        // ARM925T: after an MCR/MRC to CP15, fetch again from the next
+        // instruction, so that nothing fetched before the operation (from
+        // the old I-cache contents or translation) runs after it. Upstream
+        // ran on with what was already in the fetch queue (up to its depth);
+        // the ARM925T runs at most a few such instructions, and software
+        // allows for them, so restarting is the safe choice.
+        //
+        if ( cp15_release )
+        begin
+                w_clear_from_decode = 1'd1;
+                w_pc_from_decode    = skid_pc_ff + 32'd4;
+                ppc_nxt             = w_pc_from_decode;
+                taken_nxt           = SNT;
+        end
 end
 
 // This FSM handles LDM/STM/SWAP/SWAPB/BL/LMULT
-zap_predecode_uop_sequencer u_zap_uop_sequencer (
+zap_predecode_uop_sequencer #(.V4T(V4T)) u_zap_uop_sequencer (
         .i_clk(i_clk),
         .i_reset(i_reset),
         .i_cpsr_t(i_cpu_mode_t),
+        .i_cpsr_mode(i_cpu_mode_mode),
+        .i_cp_stall(cp_stall),
+        .o_cp15_release(cp15_release),
 
         .i_instruction(mode32_instruction),                // Skid version
         .i_instruction_valid(mode32_instruction_valid),    // Skid version

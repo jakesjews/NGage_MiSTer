@@ -101,8 +101,9 @@
 	.set	_chk, _chk + 1
 	cmp	\ra, \rb
 	beq	.Lok\@
+	mov	r12, \rb
 	mov	r0, \ra
-	mov	r1, \rb
+	mov	r1, r12
 	ldr	r2, =_chk
 	bl	check_failed
 .Lok\@:

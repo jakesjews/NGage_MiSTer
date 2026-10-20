@@ -26,7 +26,8 @@ module zap_alu_main #(
         parameter logic [31:0] PHY_REGS  = 32'd46, // Number of physical registers.
         parameter logic [31:0] ALU_OPS   = 32'd32, // Number of arithmetic operations.
         parameter logic [31:0] FLAG_WDT  = 32'd32, // Width of active CPSR.
-        parameter logic [31:0] CPSR_INIT = 32'd0   // Initial value of CPSR.
+        parameter logic [31:0] CPSR_INIT = 32'd0,  // Initial value of CPSR.
+        parameter logic        V4T       = 1'd0    // ARM925T: ARMv4T PSRs.
 )
 (
         // ------------------------------------------------------------------
@@ -655,7 +656,7 @@ begin
                 o_mem_unsigned_halfword_enable_ff<= i_mem_unsigned_halfword_enable_ff;
                 o_mem_translate_ff               <= i_mem_translate_ff;
                 sleep_ff                         <= sleep_nxt;
-                o_und_ff                         <= i_und_ff;
+                o_und_ff                         <= i_und_ff && o_dav_nxt;
 
                 o_clear_from_alu                <= |w_clear_from_alu;
                 r_clear_from_alu                <=  w_clear_from_alu;
@@ -880,6 +881,14 @@ begin: alu_result
                             end
                         endcase
                 end
+
+                // ARM925T: ARMv4 PSRs have only NZCV, I, F, T and the mode;
+                // bits 27:8 (Q and the reserved bits) read as zero.
+                if ( V4T )
+                begin
+                        tmp_flags[27:8] = flags_ff[27:8];
+                        tmp_sum[27:8]   = 20'd0;
+                end
         end
         else if ( opcode == FADD )
         begin
@@ -954,13 +963,17 @@ assign load_to_pc = i_mem_srcdest_index_ff == {2'd0, ARCH_PC} &&
                     o_dav_nxt                                 &&
                     i_mem_load_ff;
 
+//
+// ARM925T: an undefined instruction executes (takes the exception) only if
+// its condition passes; the decoder supplies AL where it must always be taken.
+//
 assign  o_dav_nxt  = is_cc_satisfied ( i_condition_code_ff, flags_ff[31:28] )
-                     || i_irq_ff || i_fiq_ff || i_abt_ff || i_und_ff;
+                     || i_irq_ff || i_fiq_ff || i_abt_ff;
 
 assign  sleep_nxt  =    i_irq_ff   ||
                         i_fiq_ff   ||
                         i_abt_ff   ||
-                        i_und_ff   ||
+                        (i_und_ff && o_dav_nxt) ||
                         load_to_pc ||
                         (i_swi_ff && o_dav_nxt);
 

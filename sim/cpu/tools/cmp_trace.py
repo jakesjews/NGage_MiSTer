@@ -16,8 +16,8 @@ instruction.
 
 Both become a list of (PC, registers before): the RTL list shifted by one,
 starting from the reset state, with interrupt events folded into the
-following instruction. They must agree up to the first visit to the halt
-loop. PSR bit 8 is ignored (QEMU sets the ARMv6 A bit on an ARMv4 CPU), and
+following instruction. They must agree up to (not including) the first visit to the
+halt loop. PSR bit 8 is ignored (QEMU sets the ARMv6 A bit on an ARMv4 CPU), and
 so are the flags until the two first agree (they are unknown after reset;
 QEMU starts with Z set, ZAP with none).
 """
@@ -40,10 +40,10 @@ def rtl_stream(path, halt):
             kind, pc = p[0], int(p[1], 16)
             regs = [None if v.startswith("-") else int(v, 16) for v in p[2:17]]
             after = regs + [int(p[17], 16)]
+            if kind == "R" and pc == halt:
+                break
             if kind not in ("I", "F"):
                 out.append((pc, kind, state))
-                if kind == "R" and pc == halt:
-                    break
             state = after
     return out
 
@@ -70,10 +70,10 @@ def qemu_stream(path, halt):
                 regs[int(r)] = int(v, 16)
             m = PSR_RE.match(line)
             if m:
-                state = [regs.get(i, 0) for i in range(15)] + [int(m.group(1), 16)]
-                out.append((pc, state))
                 if pc == halt:
                     break
+                state = [regs.get(i, 0) for i in range(15)] + [int(m.group(1), 16)]
+                out.append((pc, state))
                 pc = None
     return out
 

@@ -26,7 +26,11 @@
 module zap_dcache_fsm   #(
         parameter logic [31:0] CACHE_SIZE    = 32'd1024,  // Bytes.
         parameter logic [31:0] CACHE_LINE    = 32'd8,
-        parameter logic        BE_32_ENABLE  = 1'd0
+        parameter logic        BE_32_ENABLE  = 1'd0,
+        // ARM925T: FSR status for an external abort on an uncached access:
+        // upstream's "terminal exception" 0b0010, or the ARM925T's 0b1000
+        // (external abort on a non-cacheable access, section).
+        parameter logic [3:0]  EXT_ABORT_FS  = 4'b0010
 )
 
 // ----------------------------------------------
@@ -45,6 +49,8 @@ input   logic                      i_rd,
 input   logic                      i_wr,
 input   logic    [31:0]            i_din,
 input   logic    [3:0]             i_ben,
+input   logic                      i_align_fault, // ARM925T: alignment fault.
+input   logic    [31:0]            i_va,          // ARM925T: full address.
 input   logic    [63:0]            i_reg_idx,
 input   logic    [5:0]             i_reg_idx_bin,
 output  logic     [63:0]           o_lock,
@@ -373,6 +379,15 @@ begin:next_state_logic
                 begin
                         o_ack = 1'd1;
                 end
+                else if ( i_align_fault )
+                begin
+                        // ARM925T: alignment fault, highest priority: FSR
+                        // status 0b0001 (no domain), FAR = the address.
+                        o_err = 1'd1;
+                        o_ack = 1'd1;
+                        o_fsr = 8'b0000_0001;
+                        o_far = i_va;
+                end
                 else if ( i_fault )
                 begin
                         // MMU access fault.
@@ -549,7 +564,15 @@ begin:next_state_logic
                         state_nxt[IDLE]        = 1'd1;
 
                         o_err      = i_wb_err;
-                        o_fsr[3:0] = TERMINAL_EXCEPTION;
+
+                        // ARM925T: report a fault only for an error. Upstream
+                        // set the FSR on every uncached access, so CP15 c5/c6
+                        // were overwritten (FAR with 0) after any abort.
+                        if ( i_wb_err )
+                        begin
+                                o_fsr[3:0] = EXT_ABORT_FS;
+                                o_far      = i_va;
+                        end
 
                         `zap_kill_access;
                 end
