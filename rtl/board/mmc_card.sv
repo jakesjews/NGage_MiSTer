@@ -197,6 +197,9 @@ module mmc_card #(
 	logic  [47:0] rx_sr;
 	logic   [5:0] rx_cnt;
 	logic         rx_on, rx_done;
+	// the frame's checks, a clock after it is in; the command is decoded then
+	logic         rx_dec;
+	logic         p_ok, p_crc, p_rd_oor, p_rd_cross, p_wr_oor;
 
 	// response transmitter
 	localparam logic [1:0] T_IDLE = 2'd0;
@@ -460,6 +463,17 @@ module mmc_card #(
 		w_issued <= 1'b0;
 		w_stop12 <= 1'b0;
 	endtask
+
+	always_ff @(posedge clk) begin
+		rx_dec <= rx_done;
+		if (rx_done) begin
+			p_ok       <= cmd_ok;
+			p_crc      <= crc_ok;
+			p_rd_oor   <= rd_end > cap;
+			p_rd_cross <= rd_cross;
+			p_wr_oor   <= {2'b00, cmd_arg} + 34'd512 > cap;
+		end
+	end
 
 	always_ff @(posedge clk) begin
 		rx_done <= 1'b0;
@@ -817,10 +831,10 @@ module mmc_card #(
 		endcase
 
 		// ---------------- commands ----------------
-		if (rx_done) begin
-			if (!cmd_ok) begin
+		if (rx_dec) begin
+			if (!p_ok) begin
 				// not a command frame: ignore
-			end else if (!crc_ok) begin
+			end else if (!p_crc) begin
 				err[E_COM_CRC] <= 1'b1;
 			end else if (st == ST_INA) begin
 				// an inactive card answers nothing
@@ -933,9 +947,9 @@ module mmc_card #(
 					end
 					6'd17, 6'd18: begin
 						if (st == ST_TRAN && ccc[2]) begin
-							if (rd_end > cap) begin
+							if (p_rd_oor) begin
 								respond_r1(32'd1 << E_OUT_OF_RANGE);
-							end else if (rd_cross && !rd_misalign) begin
+							end else if (p_rd_cross && !rd_misalign) begin
 								respond_r1(32'd1 << E_MISALIGN);
 							end else begin
 								respond_r1(32'd0);
@@ -956,7 +970,7 @@ module mmc_card #(
 								respond_r1(32'd1 << E_BLOCK_LEN);
 							end else if (cmd_arg[8:0] != 9'd0) begin
 								respond_r1(32'd1 << E_MISALIGN);
-							end else if ({2'b00, cmd_arg} + 34'd512 > cap) begin
+							end else if (p_wr_oor) begin
 								respond_r1(32'd1 << E_OUT_OF_RANGE);
 							end else begin
 								respond_r1(32'd0);
