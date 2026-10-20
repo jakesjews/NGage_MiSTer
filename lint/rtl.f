@@ -43,5 +43,6 @@ rtl/upp/ngage_mem.sv
 rtl/upp/wb_selftest.sv
 rtl/mister/ngage_input.sv
 rtl/mister/ddram_loader.sv
+rtl/mister/flash_save.sv
 rtl/mister/lcd_testgen.sv
 NGage.sv

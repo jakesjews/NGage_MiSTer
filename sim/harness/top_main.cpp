@@ -86,6 +86,11 @@ struct Bench {
 	std::vector<uint8_t> img;
 	int sd_state = 0, sd_delay = 0, sd_word = 0;
 	std::vector<uint32_t> sd_lbas;
+	// slot 1: the CS1 save file
+	std::vector<uint8_t> img1;
+	int s1_state = 0, s1_delay = 0, s1_word = 0, s1_words = 0;
+	uint32_t s1_lba = 0;
+	uint64_t s1_reads = 0, s1_writes = 0;
 	bool disk_led = false;
 
 	Bench() : r(t->rootp) {
@@ -101,9 +106,46 @@ struct Bench {
 	}
 	~Bench() { t->final(); delete t; }
 
+	// slot 1, served when slot 0 is quiet: reads of blk_cnt + 1 blocks; a
+	// write request is only counted (nothing should ask for one here)
+	void s1_step() {
+		auto &h = *r;
+		if (h.emu__DOT__hps_io__DOT__sim_sd_wr1) s1_writes++;
+		switch (s1_state) {
+		case 0:
+			if (h.emu__DOT__hps_io__DOT__sim_sd_rd1 && sd_state == 0) {
+				s1_lba = h.emu__DOT__hps_io__DOT__sim_sd_lba1;
+				s1_words = 256 * (h.emu__DOT__hps_io__DOT__sim_sd_blk_cnt1 + 1);
+				s1_delay = 40;
+				s1_state = 1;
+			}
+			break;
+		case 1:
+			if (--s1_delay == 0) { h.emu__DOT__hps_io__DOT__sim_sd_ack = 2; s1_word = 0; s1_delay = 3; s1_state = 2; }
+			break;
+		case 2:
+			if (--s1_delay > 0) break;
+			s1_delay = 3;
+			if (s1_word < s1_words) {
+				size_t off = (size_t)s1_lba * 512 + s1_word * 2;
+				h.emu__DOT__hps_io__DOT__sim_sd_addr = s1_word;
+				h.emu__DOT__hps_io__DOT__sim_sd_dout = (uint16_t)(img1[off] | img1[off + 1] << 8);
+				h.emu__DOT__hps_io__DOT__sim_sd_wr_buf = 1;
+				s1_word++;
+			} else {
+				h.emu__DOT__hps_io__DOT__sim_sd_ack = 0;
+				s1_reads++;
+				s1_state = 0;
+			}
+			break;
+		}
+	}
+
 	void sd_step() {
 		r->emu__DOT__hps_io__DOT__sim_sd_wr_buf = 0;
 		r->emu__DOT__hps_io__DOT__sim_mounted = 0;
+		if (s1_state) { s1_step(); return; }
+		s1_step();
 		switch (sd_state) {
 		case 0:
 			if (r->emu__DOT__hps_io__DOT__sim_sd_rd) {
@@ -319,6 +361,38 @@ int main(int argc, char **argv) {
 	CHECK_EQ(b.sd_lbas.size(), 1, "SD reads after mounting");
 	if (!b.sd_lbas.empty()) CHECK_EQ(b.sd_lbas[0], 4096, "SD block read on mounting (the sidecar)");
 	CHECK(b.disk_led, "LED_DISK never lit");
+
+	// the CS1 save file on slot 1: copied into DDR3 at 0x32000000 while the
+	// board is held, the OSD told; nothing changes it here, so nothing goes back
+	{
+		b.img1.resize(8u << 20);
+		uint32_t x = 99;
+		for (auto &c : b.img1) { x = x * 1664525u + 1013904223u; c = (uint8_t)(x >> 24); }
+		b.infos.clear();
+		b.disk_led = false;
+		R.emu__DOT__hps_io__DOT__sim_size = b.img1.size();
+		R.emu__DOT__hps_io__DOT__sim_readonly = 0;
+		R.emu__DOT__hps_io__DOT__sim_mounted = 2;
+		uint64_t t1 = b.clocks;
+		b.ticks(100);
+		CHECK(R.emu__DOT__fs_loading, "the board held while the CS1 save loads");
+		while (R.emu__DOT__fs_loading && b.clocks < t1 + 30000000) b.tick();
+		CHECK(!R.emu__DOT__fs_loading, "the CS1 save loaded");
+		printf("CS1 save: loaded in %llu clocks, %llu requests\n", (unsigned long long)(b.clocks - t1), (unsigned long long)b.s1_reads);
+		CHECK_EQ(b.s1_reads, 2048, "4 KB requests for 8 MB");
+		CHECK(memcmp(&b.ddr[0x01000000], b.img1.data(), b.img1.size()) == 0, "CS1 save image in DDR3 at 0x32000000");
+		CHECK(b.infos.size() == 1 && b.infos[0] == 3, "OSD message 3 (CS1 mounted)");
+		CHECK(b.disk_led, "LED_DISK while the save loads");
+		// Save C: now with nothing changed: "C: saved" at once, nothing written
+		R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 7;
+		b.ticks(200);
+		R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
+		b.ticks(200);
+		CHECK(b.infos.size() == 2 && b.infos[1] == 6, "OSD message 6 (C: saved)");
+		CHECK_EQ(b.s1_writes, 0, "no write-back with nothing changed");
+		b.frame();
+		compare(b.frame(), 0, 0, "picture after the CS1 save loaded");
+	}
 
 	// the memory system under the self-test
 	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 6;

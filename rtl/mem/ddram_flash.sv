@@ -28,6 +28,16 @@
 // read or write in flight when reset comes is finished on the DDR3 side but
 // not answered, and a line read then is not kept.
 //
+// Saving CS1 (rtl/mister/flash_save.sv): every CS1 word written pulses
+// mark with its 512-byte block (mark_blk). A block read (bk_req, bk_blk)
+// reads that block of CS1 from DDR3 as one 64-beat burst; bk_taken pulses
+// in the clock the read is issued and bk_valid / bk_data carry its beats.
+// mark and bk_taken come from the same state machine and are never high
+// together; a write issued before bk_taken is in the block's data (the port
+// serves requests in order), one after it marks the block again. A block
+// read alternates with flash requests when both wait, and a reset does not
+// cut one short (its beats still arrive).
+//
 // Ports: nor_flash's req/ack memory port (see rtl/board/nor_flash.sv): a
 // request is held until the clock in which ack is high; addr is the word
 // address in the chip.
@@ -61,6 +71,14 @@ module ddram_flash #(
 	input  logic [63:0]       ld_din,
 	input  logic [7:0]        ld_be,
 	output logic              ld_busy,
+
+	output logic              mark,
+	output logic [CS1_AW-9:0] mark_blk,
+	input  logic              bk_req,
+	input  logic [CS1_AW-9:0] bk_blk,
+	output logic              bk_taken,
+	output logic              bk_valid,
+	output logic [63:0]       bk_data,
 
 	input  logic              ddram_busy,
 	output logic [7:0]        ddram_burstcnt,
@@ -114,8 +132,11 @@ module ddram_flash #(
 		S_IDLE,
 		S_LOOK,
 		S_FILL,
-		S_WRITE
+		S_WRITE,
+		S_BULK
 	} state_t;
+
+	localparam int BK_BEATS = 64;                          // 512 bytes
 
 	state_t state = S_SWEEP;
 	logic   sweep_req = 1'b1;
@@ -171,7 +192,7 @@ module ddram_flash #(
 	// ------------------------------------------------------------------
 	// DDRAM port: our command or the loader's
 	// ------------------------------------------------------------------
-	logic        own_rd = 1'b0, own_we = 1'b0;
+	logic        own_rd = 1'b0, own_we = 1'b0, own_bulk = 1'b0;
 	logic [28:0] own_addr;
 	logic [63:0] own_din;
 	logic [7:0]  own_be;
@@ -187,7 +208,7 @@ module ddram_flash #(
 	assign ddram_addr     = sel_ld ? ld_addr : own_addr;
 	assign ddram_din      = sel_ld ? ld_din : own_din;
 	assign ddram_be       = sel_ld ? ld_be : own_be;
-	assign ddram_burstcnt = (!sel_ld && own_rd) ? 8'(BEATS) : 8'd1;
+	assign ddram_burstcnt = (!sel_ld && own_rd) ? (own_bulk ? 8'(BK_BEATS) : 8'(BEATS)) : 8'd1;
 	assign ld_busy        = !(sel_ld && !ddram_busy);
 
 	// ------------------------------------------------------------------
@@ -200,6 +221,17 @@ module ddram_flash #(
 	logic                  abandon;
 	logic [LINE_LOG2-1:0]  fill_cnt;
 	logic [LINES_LOG2-1:0] sweep_ptr = '0;
+	logic [5:0]            bk_cnt;
+	logic                  bk_turn = 1'b0;   // a block read goes first when both wait
+
+	// a block read now, rather than a flash request
+	wire bk_go = state == S_IDLE && !sweep_req && !reset && bk_req && (bk_turn || !take);
+
+	assign bk_taken = bk_go;
+	assign bk_valid = state == S_BULK && ddram_dout_ready;
+	assign bk_data  = ddram_dout;
+	assign mark     = state == S_LOOK && cur_we && !abandon && cur_g[GW-1];
+	assign mark_blk = cur_g[CS1_AW-1:8];
 
 	wire                  cur_hit  = tag_q[TAGW] && tag_q[TAGW-1:0] == tag_of(cur_g);
 	wire [LINE_LOG2-1:0]  cur_beat = cur_g[2 +: LINE_LOG2];
@@ -268,7 +300,15 @@ module ddram_flash #(
 					state     <= S_SWEEP;
 					sweep_ptr <= '0;
 					sweep_req <= 1'b0;
+				end else if (bk_go) begin
+					own_rd   <= 1'b1;
+					own_bulk <= 1'b1;
+					own_addr <= CS1_BASE + 29'({bk_blk, 6'd0});
+					bk_cnt   <= 6'd0;
+					bk_turn  <= 1'b0;
+					state    <= S_BULK;
 				end else if (take) begin
+					bk_turn   <= 1'b1;
 					// the tag and the beat are read at this edge
 					cur_port  <= pick;
 					last_port <= pick;
@@ -300,6 +340,7 @@ module ddram_flash #(
 					state <= S_IDLE;
 				end else begin
 					own_rd   <= 1'b1;
+					own_bulk <= 1'b0;
 					own_addr <= beat_of({cur_g[GW-1:2 + LINE_LOG2], {LINE_LOG2{1'b0}}, 2'b00});
 					fill_cnt <= '0;
 					state    <= S_FILL;
@@ -324,6 +365,14 @@ module ddram_flash #(
 				if (own_taken) begin
 					if (!abandon && !reset) ack_q[cur_port] <= 1'b1;
 					state <= S_IDLE;
+				end
+			end
+
+			// a block read for flash_save: its beats arrive whatever reset does
+			S_BULK: begin
+				if (ddram_dout_ready) begin
+					bk_cnt <= bk_cnt + 6'd1;
+					if (bk_cnt == 6'(BK_BEATS - 1)) state <= S_IDLE;
 				end
 			end
 

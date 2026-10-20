@@ -93,6 +93,7 @@ localparam CONF_STR = {
 	"-;",
 	"F1,BIN,Load flash CS0 (16 MB);",
 	"F2,BIN,Load flash CS1 (8 MB);",
+	"S1,BIN,Mount flash CS1 (save);",
 	"S0,IMGBIN,Mount MMC card;",
 	"-;",
 	"O[2:1],Rotate,Off,Clockwise,Anticlockwise;",
@@ -101,11 +102,12 @@ localparam CONF_STR = {
 	"-;",
 	"O[6],Memory test,Off,On;",
 	"-;",
+	"T[7],Save C: now;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
 	"J,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power;",
 	"jn,A,B,X,L,R,Start,Select;",
-	"I,Memory test passed,Memory test FAILED;",
+	"I,Memory test passed,Memory test FAILED,CS1 mounted: C: saves to it,CS1 save file must be 8 MB,CS1 read-only: no C: saves,C: saved;",
 	"V,v",`BUILD_DATE
 };
 
@@ -140,18 +142,19 @@ wire  [26:0] ioctl_addr;
 wire  [15:0] ioctl_dout;
 wire         ioctl_wait;
 
-wire   [0:0] img_mounted;
+wire   [1:0] img_mounted;
 wire         img_readonly;
 wire  [63:0] img_size;
-wire  [31:0] sd_lba[1];
-wire   [5:0] sd_blk_cnt[1];
-wire   [0:0] sd_rd, sd_wr, sd_ack;
+wire  [31:0] sd_lba[2];
+wire   [5:0] sd_blk_cnt[2];
+wire   [1:0] sd_rd, sd_wr, sd_ack;
 wire  [12:0] sd_buff_addr;
 wire  [15:0] sd_buff_dout;
-wire  [15:0] sd_buff_din[1];
+wire  [15:0] sd_buff_din[2];
 wire         sd_buff_wr;
 
-hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(1)) hps_io
+// SD slot 0: the MMC card; slot 1: the CS1 flash image as a save file
+hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -217,16 +220,30 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(1)) hps_io
 reg [1:0] por = 2'b11;
 always @(posedge clk_sys) por <= {por[0], RESET | ~pll_locked};
 wire sys_reset = por[1];
-wire reset = sys_reset | status[0] | buttons[1] | ioctl_download;
+// (and while a mounted CS1 save image is copied in)
+wire fs_loading;
+wire reset = sys_reset | status[0] | buttons[1] | ioctl_download | fs_loading;
 
 ///////////////////////   MEMORY   ///////////////////////////////
 
-// The flash images go to DDR3 through the loader, which shares the DDRAM
-// port with the flash chips' arrays (ddram_flash in ngage_mem).
-wire        ld_busy, ld_we;
-wire  [7:0] ld_be;
-wire [28:0] ld_addr;
-wire [63:0] ld_din;
+// The flash images go to DDR3 through the loader port, which shares the
+// DDRAM port with the flash chips' arrays (ddram_flash in ngage_mem): the
+// ioctl loader's (F1/F2), or flash_save's while it copies a mounted CS1 save
+// image in (S1). The port changes hands only between commands.
+wire        ld_busy, ld_we, dl_we, fs_we;
+wire  [7:0] ld_be, dl_be, fs_be;
+wire [28:0] ld_addr, dl_addr, fs_addr;
+wire [63:0] ld_din, dl_din, fs_din;
+reg         ld_own = 1'b0;             // 1: flash_save
+
+always @(posedge clk_sys) begin
+	if (!ld_own && !dl_we && fs_we) ld_own <= 1'b1;
+	else if (ld_own && !fs_we && dl_we) ld_own <= 1'b0;
+end
+assign ld_we   = ld_own ? fs_we   : dl_we;
+assign ld_addr = ld_own ? fs_addr : dl_addr;
+assign ld_din  = ld_own ? fs_din  : dl_din;
+assign ld_be   = ld_own ? fs_be   : dl_be;
 
 ddram_loader ddram_loader
 (
@@ -238,12 +255,12 @@ ddram_loader ddram_loader
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
 	.ioctl_wait(ioctl_wait),
-	.ddram_busy(ld_busy),
+	.ddram_busy(ld_busy || ld_own),
 	.ddram_burstcnt(),           // single writes
-	.ddram_addr(ld_addr),
-	.ddram_din(ld_din),
-	.ddram_be(ld_be),
-	.ddram_we(ld_we),
+	.ddram_addr(dl_addr),
+	.ddram_din(dl_din),
+	.ddram_be(dl_be),
+	.ddram_we(dl_we),
 	.ddram_rd(),
 	.loaded()                    // for the CPU: both images are in
 );
@@ -325,6 +342,14 @@ ngage_mem ngage_mem
 	.ld_be(ld_be),
 	.ld_busy(ld_busy),
 
+	.save_mark(save_mark),
+	.save_mark_blk(save_mark_blk),
+	.save_rd(save_rd),
+	.save_blk(save_blk),
+	.save_taken(save_taken),
+	.save_valid(save_valid),
+	.save_data(save_data),
+
 	.ddram_busy(DDRAM_BUSY),
 	.ddram_burstcnt(DDRAM_BURSTCNT),
 	.ddram_addr(DDRAM_ADDR),
@@ -355,6 +380,59 @@ generate
 		assign SDRAM_DQ[dq_i] = sdram_dq_oe[dq_i] ? sdram_dq_o[dq_i] : 1'bZ;
 	end
 endgenerate
+
+///////////////////////   CS1 SAVE   ///////////////////////////
+
+// The CS1 image mounted on SD slot 1 ("Mount flash CS1 (save)") is copied
+// into DDR3, and the 512-byte blocks the firmware changes in it (the C:
+// drive) are written back to the file: rtl/mister/flash_save.sv. "Save C:
+// now" writes back at once; otherwise 100 ms after the last change.
+wire        save_mark, save_rd, save_taken, save_valid;
+wire [13:0] save_mark_blk, save_blk;
+wire [63:0] save_data;
+wire        fs_active, fs_saved;
+wire  [1:0] fs_note;
+reg   [1:0] dl_cs1 = 2'b00;            // an ioctl load of CS1 starts: the file is detached
+
+always @(posedge clk_sys) dl_cs1 <= {dl_cs1[0], ioctl_download && ioctl_index[5:0] == 6'd2};
+
+flash_save flash_save
+(
+	.clk(clk_sys),
+	.reset(sys_reset),
+	.img_mounted(img_mounted[1]),
+	.img_readonly(img_readonly),
+	.img_size(img_size),
+	.sd_lba(sd_lba[1]),
+	.sd_blk_cnt(sd_blk_cnt[1]),
+	.sd_rd(sd_rd[1]),
+	.sd_wr(sd_wr[1]),
+	.sd_ack(sd_ack[1]),
+	.sd_buff_addr(sd_buff_addr),
+	.sd_buff_dout(sd_buff_dout),
+	.sd_buff_din(sd_buff_din[1]),
+	.sd_buff_wr(sd_buff_wr),
+	.ld_we(fs_we),
+	.ld_addr(fs_addr),
+	.ld_din(fs_din),
+	.ld_be(fs_be),
+	.ld_busy(ld_busy || !ld_own),
+	.mark(save_mark),
+	.mark_blk(save_mark_blk),
+	.bk_req(save_rd),
+	.bk_blk(save_blk),
+	.bk_taken(save_taken),
+	.bk_valid(save_valid),
+	.bk_data(save_data),
+	.detach(dl_cs1 == 2'b01),
+	.save_now(status[7]),
+	.loading(fs_loading),
+	.saving_on(),
+	.unsaved(),
+	.active(fs_active),
+	.note(fs_note),
+	.saved(fs_saved)
+);
 
 sdram_clkout sdram_clkout
 (
@@ -469,7 +547,11 @@ reg   [7:0] info_q = 0;
 reg         info_req_q = 0;
 always @(posedge clk_sys) begin
 	info_req_q <= 1'b0;
-	if (test_pass_done && (test_first || test_errors != test_reported)) begin
+	// the CS1 save's messages: 3 mounted, 4 not 8 MB, 5 read-only, 6 saved
+	if (fs_note != 2'd0 || fs_saved) begin
+		info_q     <= fs_saved ? 8'd6 : 8'd2 + {6'd0, fs_note};
+		info_req_q <= 1'b1;
+	end else if (test_pass_done && (test_first || test_errors != test_reported)) begin
 		info_q        <= (test_errors == 16'd0) ? 8'd1 : 8'd2;
 		info_req_q    <= 1'b1;
 		test_first    <= 1'b0;
@@ -518,10 +600,10 @@ mmc_card mmc_card
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din[0]),
-	.sd_buff_wr(sd_buff_wr)
+	.sd_buff_wr(sd_buff_wr & sd_ack[0])      // the buffer is shared by both slots
 );
 
-assign LED_DISK = {1'b0, mmc_active};
+assign LED_DISK = {1'b0, mmc_active | fs_active};
 
 ///////////////////////   KEYS   /////////////////////////////////
 

@@ -66,7 +66,7 @@ struct Bench {
 		ddr.prof.gap_pct = 10;
 		ddr.prof.stall_pct_x1000 = 500;
 		t->clk = 0; t->reset = 1;
-		t->cs0_req = 0; t->cs1_req = 0; t->ld_we = 0;
+		t->cs0_req = 0; t->cs1_req = 0; t->ld_we = 0; t->bk_req = 0; t->bk_blk = 0;
 		t->ddram_busy = 0; t->ddram_dout = 0; t->ddram_dout_ready = 0;
 		t->eval();
 	}

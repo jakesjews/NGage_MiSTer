@@ -1,7 +1,7 @@
 # Verilator benches for the board-level devices, the memory system and the
 # MiSTer shell. Run from the repository root with `make test`, or one bench
 # at a time with `make -C sim lcd` (lcd, video, keypad, flash, mmc, sdram,
-# sdram-faults, ddrflash, upp, intc, timers, periph, top). Each bench is built
+# sdram-faults, ddrflash, upp, intc, timers, periph, save, top). Each bench is built
 # into sim/build/<name> and run at once; pictures go to sim/build/out.
 # The benches run one after the other.
 ROOT      := $(abspath ..)
@@ -17,7 +17,7 @@ VFLAGS := --cc --exe --build -j 4 -O3 --x-assign unique --x-initial unique \
           -CFLAGS "-O2 -std=c++17 -I$(ROOT)/sim/harness"
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
-BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash upp intc timers periph top
+BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash upp intc timers periph save top
 
 .PHONY: test $(BENCHES) clean
 
@@ -155,6 +155,19 @@ $(BUILD)/periph/Vperiph_tb: $(PERIPH_RTL) $(ROOT)/sim/harness/periph_main.cpp $(
 MMC_CARD ?= $(ROOT)/model/.out/cards/sonicn.mmc
 periph: $(BUILD)/periph/Vperiph_tb | $(OUT)
 	$< $(RUNFLAGS) --seed $(SEED) --out $(OUT) --model-out $(ROOT)/model/.out --card $(MMC_CARD)
+
+# The CS1 save file (rtl/mister/flash_save.sv) with the memory system: mount,
+# marks, write-back (sim/harness/save_tb.sv)
+SAVE_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/nor_flash.sv $(ROOT)/rtl/mem/bram32.sv \
+            $(ROOT)/rtl/mem/sdram.sv $(ROOT)/rtl/mem/ddram_flash.sv $(ROOT)/rtl/upp/upp_bus.sv \
+            $(ROOT)/rtl/upp/wb_arb2.sv $(ROOT)/rtl/upp/ngage_mem.sv $(ROOT)/rtl/mister/flash_save.sv \
+            $(ROOT)/sim/harness/save_tb.sv
+$(BUILD)/save/Vsave_tb: $(SAVE_RTL) $(ROOT)/sim/harness/save_main.cpp $(ROOT)/sim/harness/common.h \
+                        $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h
+	mkdir -p $(BUILD)/save && $(VERILATOR) $(VFLAGS) --top-module save_tb --Mdir $(BUILD)/save -o Vsave_tb \
+		$(SAVE_RTL) $(ROOT)/sim/harness/save_main.cpp
+save: $(BUILD)/save/Vsave_tb
+	$< $(RUNFLAGS) --seed $(SEED)
 
 # The whole core: NGage.sv with the board devices; hps_io, the PLL and
 # video_mixer stood in for (sim/stubs)

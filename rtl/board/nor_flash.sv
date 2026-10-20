@@ -268,6 +268,13 @@ module nor_flash #(
 	logic [1:0]        e_state;
 	logic [NSECT-1:0]  sel;
 	logic [NSECT-1:0]  lock;
+	// A sector's erase selection or lock bit is set a clock after the command
+	// that names it, from a registered sector number: the decode of bus_addr
+	// into NSECT bits stays off the bus path (it was the core's worst path).
+	// The erase engine looks at sel only after the erase window, and the next
+	// bus access comes clocks later, so the delay shows nowhere.
+	logic              sec_set_q, lock_set_q, lock_v_q;
+	logic [SW-1:0]     sec_q;
 	logic [NBANKS-1:0] bank_sel;
 	logic [SW-1:0]     e_sector;
 	logic [1:0]        e_step;
@@ -331,13 +338,21 @@ module nor_flash #(
 	endtask
 
 	task automatic start_sector_erase();
-		sel[rq_sec]       <= ~rq_lock;
+		sec_set_q         <= 1'b1;        // sel[rq_sec], unless locked, next clock
+		sec_q             <= rq_sec;
 		bank_sel[rq_bank] <= 1'b1;
 		e_state           <= E_WINDOW;
 		e_timer           <= 32'(ERASE_WINDOW_CLKS);
 		e_sector          <= '0;
 		e_step            <= S_FIND;
 		mode              <= M_READ;
+	endtask
+
+	task automatic sector_bits();
+		sec_set_q  <= 1'b0;
+		lock_set_q <= 1'b0;
+		if (sec_set_q && !lock[sec_q]) sel[sec_q] <= 1'b1;
+		if (lock_set_q) lock[sec_q] <= lock_v_q;
 	endtask
 
 	task automatic bus_write();
@@ -351,7 +366,8 @@ module nor_flash #(
 			// commands are ignored while a word is programmed
 		end else if (e_state == E_WINDOW) begin
 			if (rq_cmd == 8'h30) begin
-				if (!rq_lock) sel[rq_sec] <= 1'b1;
+				sec_set_q         <= 1'b1;
+				sec_q             <= rq_sec;
 				bank_sel[rq_bank] <= 1'b1;
 				e_timer           <= 32'(ERASE_WINDOW_CLKS);
 			end else if (rq_cmd == 8'hB0) begin
@@ -410,7 +426,11 @@ module nor_flash #(
 				end
 				C_LOCK: begin
 					cseq <= C_IDLE;
-					if (rq_cmd == 8'h60) lock[rq_sec] <= ~bus_addr[6];
+					if (rq_cmd == 8'h60) begin
+						lock_set_q <= 1'b1;
+						lock_v_q   <= ~bus_addr[6];
+						sec_q      <= rq_sec;
+					end
 				end
 				C_E1: cseq <= (rq_ul1 && rq_cmd == 8'hAA) ? C_E2 : C_IDLE;
 				C_E2: cseq <= (rq_ul2 && rq_cmd == 8'h55) ? C_E3 : C_IDLE;
@@ -438,6 +458,9 @@ module nor_flash #(
 
 	always_ff @(posedge clk) begin
 		bus_ack <= 1'b0;
+
+		// ---- the sector bit a command named a clock ago ----
+		sector_bits();
 
 		// ---- bus requests ----
 		if (bus_req && !bus_ack && !b_wait) begin
@@ -575,6 +598,8 @@ module nor_flash #(
 			sel      <= '0;
 			bank_sel <= '0;
 			lock     <= {NSECT{LOCKED_AT_RESET}};
+			sec_set_q  <= 1'b0;
+			lock_set_q <= 1'b0;
 			b_wait   <= 1'b0;
 			if (m_active && !mem_ack) m_stale <= 1'b1;
 		end
