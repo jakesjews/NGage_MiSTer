@@ -11,3 +11,4 @@ lint/exclusions.vlt
 // Board-level devices and the shell; keep in sync with files.qip.
 rtl/board/sdp_ram.sv
 rtl/board/lcd_panel.sv
+rtl/board/video_out.sv

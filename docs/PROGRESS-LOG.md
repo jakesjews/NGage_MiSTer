@@ -293,3 +293,13 @@ found, and what comes next. Research material lives in `research/`
     switches TE to an outside signal (e.g. the video's vertical blank).
   - RDDID bytes (`ID1-3`), blank colours, COLMOD after reset, RAMRD always
     16 bpp, scroll area counted from the top whatever ML says.
+
+### 2026-10-20: video output (`rtl/board/video_out.sv`)
+- Scan-out of the panel's picture: 176x208 portrait in a 240p-compatible
+  frame (104 MHz clock, a pixel every 16 clocks = 6.5 MHz; 413 x 262,
+  15.74 kHz, 60.07 Hz), centred on the TV's visible area, DE only over the
+  picture so the HDMI scaler gets just the picture. `rotate` turns it a
+  quarter turn either way (208x176), switching at a frame boundary.
+- Bench `make -C sim video`: pixel clock, line/frame totals, sync widths,
+  rates, DE/blanking placement and the captured picture in all four
+  rotate settings, plus a mid-frame change. PPMs in `sim/build/out`.

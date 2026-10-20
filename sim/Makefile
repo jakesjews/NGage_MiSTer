@@ -37,3 +37,11 @@ lcd: $(BUILD)/lcd/Vlcd_panel | $(OUT)
 
 clean:
 	rm -rf $(BUILD)
+
+# The scan-out to MiSTer video
+VIDEO_RTL := $(ROOT)/rtl/board/video_out.sv
+$(BUILD)/video/Vvideo_out: $(VIDEO_RTL) $(ROOT)/sim/harness/video_main.cpp $(ROOT)/sim/harness/common.h
+	mkdir -p $(BUILD)/video && $(VERILATOR) $(VFLAGS) --top-module video_out --Mdir $(BUILD)/video -o Vvideo_out \
+		$(VIDEO_RTL) $(ROOT)/sim/harness/video_main.cpp
+video: $(BUILD)/video/Vvideo_out | $(OUT)
+	$< $(RUNFLAGS) --out $(OUT)
