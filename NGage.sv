@@ -18,12 +18,15 @@
 //
 //============================================================================
 //
-// There is no CPU yet; wb_selftest stands in for it on the memory system's
-// Wishbone port (a memory test, run from the OSD), and cpu_irq / cpu_fiq wait
-// for it. What is here:
+// What is here:
+//  * the CPU, a TI ARM925T (rtl/cpu/arm925t.sv: ZAP made to behave as one;
+//    docs/CPU.md), the master of the memory system's Wishbone port. It boots
+//    from CS0 once both flash images are in DDR3 and runs until the next
+//    reset;
 //  * the OSD: the two NOR flash images are loaded into DDR3 (CS0 at
-//    0x31000000, CS1 at 0x32000000); an MMC image is mounted on hps_io's
-//    SD slot 0; controls, rotation, aspect ratio, scandoubler, reset;
+//    0x31000000, CS1 at 0x32000000; CS1 can also be mounted as a save file);
+//    an MMC image is mounted on hps_io's SD slot 0; controls, rotation,
+//    aspect ratio, scandoubler, reset;
 //  * the display module (lcd_panel) and its scan-out (video_out). Its 8080
 //    bus and the key matrix lines belong to lcd_testgen until the UPP's LCD
 //    interface first drives the bus (so with no CPU the test picture shows,
@@ -44,10 +47,12 @@
 //    whose output is AUDIO_L/R (48 kHz, signed), and the HLE RTC date
 //    register. The UEMK's real-time clock and that date come from MiSTer's
 //    RTC (rtc_wall: set by the HPS, counting in real time);
-//  * wb_selftest on the Wishbone port: with "Memory test" on, it tests the
-//    SDRAM, the on-chip RAM, the EMIF block and the flash path in passes,
-//    shows the result on the OSD after the first pass and after a failure,
-//    and blinks the power LED (slow: passing, fast: failed).
+//  * wb_selftest, a diagnostic: with "Memory test" on it has the Wishbone
+//    port instead of the CPU (held in reset), tests the SDRAM, the on-chip
+//    RAM, the EMIF block and the flash path in passes, shows the result on
+//    the OSD after the first pass and after a failure, and blinks the power
+//    LED (slow: passing, fast: failed). Switching it on or off resets the
+//    board.
 // clk_sys is 104 MHz: 4 x 26 MHz, the phone's reference, so the MCU clock
 // (104 MHz), the flash and timer clock (104/3) and the MMC clock (26/3)
 // divide from it exactly.
@@ -246,9 +251,17 @@ rtc_wall rtc_wall
 reg [1:0] por = 2'b11;
 always @(posedge clk_sys) por <= {por[0], RESET | ~pll_locked};
 wire sys_reset = por[1];
-// (and while a mounted CS1 save image is copied in)
+// (and while a mounted CS1 save image is copied in, and for a moment when the
+// memory test is switched on or off: the Wishbone port changes masters)
 wire fs_loading;
-wire reset = sys_reset | status[0] | buttons[1] | ioctl_download | fs_loading;
+wire test_on /* verilator public_flat_rd */ = status[6];
+reg  test_on_q = 1'b0;
+reg  [3:0] test_sw = 4'd0;
+always @(posedge clk_sys) begin
+	test_on_q <= test_on;
+	test_sw   <= (test_on != test_on_q) ? 4'hF : {test_sw[2:0], 1'b0};
+end
+wire reset = sys_reset | status[0] | buttons[1] | ioctl_download | fs_loading | test_sw[3];
 
 ///////////////////////   MEMORY   ///////////////////////////////
 
@@ -257,6 +270,7 @@ wire reset = sys_reset | status[0] | buttons[1] | ioctl_download | fs_loading;
 // ioctl loader's (F1/F2), or flash_save's while it copies a mounted CS1 save
 // image in (S1). The port changes hands only between commands.
 wire        ld_busy, ld_we, dl_we, fs_we;
+wire  [1:0] dl_loaded;                 // CS0 / CS1 loaded through ioctl
 wire  [7:0] ld_be, dl_be, fs_be;
 wire [28:0] ld_addr, dl_addr, fs_addr;
 wire [63:0] ld_din, dl_din, fs_din;
@@ -288,21 +302,24 @@ ddram_loader ddram_loader
 	.ddram_be(dl_be),
 	.ddram_we(dl_we),
 	.ddram_rd(),
-	.loaded()                    // for the CPU: both images are in
+	.loaded(dl_loaded)           // for the CPU: which images are in
 );
 
 assign DDRAM_CLK = clk_sys;
 
-// The CPU's Wishbone port: the self-test until the CPU exists. The CPU
-// (rtl/cpu/arm925t.sv, req/ack with a burst flag) connects as
+// The CPU's Wishbone port: the CPU (rtl/cpu/arm925t.sv, req/ack with a burst
+// flag), or wb_selftest while "Memory test" is on. The CPU connects as
 //   wb_cyc = wb_stb = bus_req, wb_we = bus_we, wb_adr = bus_addr,
 //   wb_sel = bus_be, wb_dat_w = bus_wdata, wb_cti = bus_burst ? 3'b010 : 3'b111,
 //   wb_bte = 2'b00; bus_rdata = wb_dat_r, bus_ack = wb_ack, bus_err = wb_err.
 // Flash reads return only the halfwords bus_be asks for (the others read 0):
 // reading the other half would be a second status read, which toggles DQ6.
-wire        wb_cyc, wb_stb, wb_we, wb_ack, wb_err;
-wire [31:0] wb_adr, wb_dat_w, wb_dat_r;
-wire  [3:0] wb_sel;
+// (the simulation benches watch this port: sim/harness)
+wire        wb_cyc /* verilator public_flat_rd */, wb_stb, wb_we /* verilator public_flat_rd */;
+wire        wb_ack /* verilator public_flat_rd */, wb_err /* verilator public_flat_rd */;
+wire [31:0] wb_adr /* verilator public_flat_rd */, wb_dat_w /* verilator public_flat_rd */;
+wire [31:0] wb_dat_r /* verilator public_flat_rd */;
+wire  [3:0] wb_sel /* verilator public_flat_rd */;
 wire  [2:0] wb_cti;
 wire  [1:0] wb_bte;
 
@@ -417,6 +434,7 @@ wire        save_mark, save_rd, save_taken, save_valid;
 wire [13:0] save_mark_blk, save_blk;
 wire [63:0] save_data;
 wire        fs_active, fs_saved;
+wire        fs_present;                // the save file is mounted and in DDR3
 wire  [1:0] fs_note;
 reg   [1:0] dl_cs1 = 2'b00;            // an ioctl load of CS1 starts: the file is detached
 
@@ -455,6 +473,7 @@ flash_save flash_save
 	.loading(fs_loading),
 	.saving_on(),
 	.unsaved(),
+	.present(fs_present),
 	.active(fs_active),
 	.note(fs_note),
 	.saved(fs_saved)
@@ -543,9 +562,53 @@ upp_periph upp_periph
 	.sti_data()
 );
 
+///////////////////////   CPU   ////////////////////////////////
+
+// In reset with the board, while the memory test has the bus, and until both
+// flash images are in DDR3: CS0 loaded (F1), CS1 loaded (F2) or mounted as
+// the save file (S1). Out of reset it boots from CS0 at address 0.
+reg         cpu_reset /* verilator public_flat_rd */ = 1'b1;
+always @(posedge clk_sys) cpu_reset <= mem_reset | test_on | ~dl_loaded[0] | ~(dl_loaded[1] | fs_present);
+
+wire        cpu_req, cpu_we, cpu_burst;
+wire [31:0] cpu_addr, cpu_wdata;
+wire  [3:0] cpu_be;
+
+arm925t arm925t
+(
+	.clk(clk_sys),
+	.reset(cpu_reset),
+	.irq(cpu_irq),
+	.fiq(cpu_fiq),
+	.bus_req(cpu_req),
+	.bus_we(cpu_we),
+	.bus_addr(cpu_addr),
+	.bus_be(cpu_be),
+	.bus_wdata(cpu_wdata),
+	.bus_burst(cpu_burst),
+	.bus_rdata(wb_dat_r),
+	.bus_ack(wb_ack & ~test_on),
+	.bus_err(wb_err & ~test_on)
+);
+
+// the Wishbone port: the CPU, or the self-test while it runs
+wire        st_cyc, st_stb, st_we;
+wire [31:0] st_adr, st_dat;
+wire  [3:0] st_sel;
+wire  [2:0] st_cti;
+wire  [1:0] st_bte;
+
+assign wb_cyc   = test_on ? st_cyc : cpu_req;
+assign wb_stb   = test_on ? st_stb : cpu_req;
+assign wb_we    = test_on ? st_we  : cpu_we;
+assign wb_adr   = test_on ? st_adr : cpu_addr;
+assign wb_dat_w = test_on ? st_dat : cpu_wdata;
+assign wb_sel   = test_on ? st_sel : cpu_be;
+assign wb_cti   = test_on ? st_cti : (cpu_burst ? 3'b010 : 3'b111);
+assign wb_bte   = test_on ? st_bte : 2'b00;
+
 wire [15:0] test_errors;
 wire        test_pass_done;
-wire        test_on = status[6];
 
 wb_selftest #(
 	.SDRAM_WORDS_LOG2(SELFTEST_SDRAM_WORDS_LOG2),
@@ -555,16 +618,16 @@ wb_selftest #(
 	.clk(clk_sys),
 	.reset(mem_reset),
 	.enable(test_on),
-	.wb_cyc(wb_cyc),
-	.wb_stb(wb_stb),
-	.wb_we(wb_we),
-	.wb_adr(wb_adr),
-	.wb_dat(wb_dat_w),
-	.wb_sel(wb_sel),
-	.wb_cti(wb_cti),
-	.wb_bte(wb_bte),
-	.wb_ack(wb_ack),
-	.wb_err(wb_err),
+	.wb_cyc(st_cyc),
+	.wb_stb(st_stb),
+	.wb_we(st_we),
+	.wb_adr(st_adr),
+	.wb_dat(st_dat),
+	.wb_sel(st_sel),
+	.wb_cti(st_cti),
+	.wb_bte(st_bte),
+	.wb_ack(wb_ack & test_on),
+	.wb_err(wb_err & test_on),
 	.wb_dat_i(wb_dat_r),
 	.passes(),
 	.errors(test_errors),

@@ -118,7 +118,7 @@ module save_tb #(
 		.mark(mark), .mark_blk(mark_blk), .bk_req(bk_req), .bk_blk(bk_blk), .bk_taken(bk_taken),
 		.bk_valid(bk_valid), .bk_data(bk_data),
 		.detach(detach), .save_now(save_now),
-		.loading(loading), .saving_on(saving_on), .unsaved(unsaved), .active(active), .note(note), .saved(saved)
+		.loading(loading), .saving_on(saving_on), .unsaved(unsaved), .present(), .active(active), .note(note), .saved(saved)
 	);
 
 endmodule

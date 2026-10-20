@@ -69,6 +69,7 @@ module flash_save #(
 	output logic        loading = 1'b0,
 	output logic        saving_on,
 	output logic        unsaved,
+	output logic        present,       // an image is mounted and in DDR3
 	output logic        active,
 	output logic [1:0]  note = 2'd0,   // pulse: 1 mounted, 2 not 8 MB, 3 read-only
 	output logic        saved = 1'b0   // pulse: a write-back asked for with save_now is done
@@ -161,6 +162,7 @@ module flash_save #(
 	// ------------------------------------------------------------------
 	assign saving_on = attached && !ro && st != S_OFF && st != S_INIT && !loading;
 	assign unsaved   = saving_on && pending;
+	assign present   = attached && !loading;
 	assign active    = st == S_LREQ || st == S_LXFER || st == S_LCOPY || st == S_RD ||
 	                   st == S_RDATA || st == S_WREQ || st == S_WXFER;
 	assign bk_blk    = blk;

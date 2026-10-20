@@ -12,6 +12,9 @@
 //  * rotation turns the frame and the aspect ratio with it;
 //  * flash images loaded through ioctl land in DDR3 at 0x31000000 (CS0) and
 //    0x32000000 (CS1), byte for byte, with the port busy at random;
+//  * the CPU stays in reset until both images are in, then runs the small
+//    program at the start of the CS0 image (a store to SDRAM, a load back, a
+//    second store), and is held again while the memory test runs;
 //  * mounting an MMC image makes the card read its last block (the sidecar);
 //  * the memory system: the SDRAM chip model on the SDRAM pins and the DDRAM
 //    port model behind DDR3; with "Memory test" on, wb_selftest passes over
@@ -28,6 +31,8 @@
 #include "sdram_model.h"
 
 #include <cstring>
+#include <utility>
+#include <vector>
 #include <string>
 
 namespace {
@@ -92,6 +97,8 @@ struct Bench {
 	uint32_t s1_lba = 0;
 	uint64_t s1_reads = 0, s1_writes = 0;
 	bool disk_led = false;
+	// writes the CPU makes on the Wishbone port (address, data)
+	std::vector<std::pair<uint32_t, uint32_t>> cpu_writes;
 
 	Bench() : r(t->rootp) {
 		ddr = &dm.mem[DDR_BASE - DdramModel::BASE];
@@ -206,6 +213,8 @@ struct Bench {
 		if (ir && !info_prev) infos.push_back(r->emu__DOT__hps_io__DOT__sim_info);
 		info_prev = ir;
 		if (t->LED_DISK & 1) disk_led = true;
+		if (!r->emu__DOT__test_on && r->emu__DOT__wb_cyc && r->emu__DOT__wb_we && r->emu__DOT__wb_ack)
+			cpu_writes.emplace_back(r->emu__DOT__wb_adr, r->emu__DOT__wb_dat_w);
 		sd_step();
 		t->CLK_50M = 0; t->eval();
 	}
@@ -339,7 +348,17 @@ int main(int argc, char **argv) {
 	std::vector<uint8_t> cs0(65536), cs1(32768);
 	for (size_t i = 0; i < cs0.size(); i++) cs0[i] = (uint8_t)(i * 13 + (i >> 8));
 	for (size_t i = 0; i < cs1.size(); i++) cs1[i] = (uint8_t)(i * 7 ^ 0xA5);
+	// the CPU's program at the reset address:
+	//   mov r0, #0x0A000000; ldr r1, =0x12345678; str r1, [r0]; ldr r2, [r0];
+	//   add r2, r2, #1; str r2, [r0, #4]; b .
+	static const uint32_t prog[] = {0xE3A0040A, 0xE59F1010, 0xE5801000, 0xE5902000,
+	                                0xE2822001, 0xE5802004, 0xEAFFFFFE, 0x12345678};
+	memcpy(cs0.data(), prog, sizeof prog);
+	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset with no flash image");
 	download(1, cs0);
+	b.ticks(1000);
+	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset with only CS0 loaded");
+	CHECK(b.cpu_writes.empty(), "CPU writes before CS1 is loaded");
 	download(2, cs1);
 	CHECK(memcmp(&b.ddr[0], cs0.data(), cs0.size()) == 0, "CS0 image in DDR3 at 0x31000000");
 	CHECK(memcmp(&b.ddr[0x01000000], cs1.data(), cs1.size()) == 0, "CS1 image in DDR3 at 0x32000000");
@@ -348,7 +367,20 @@ int main(int argc, char **argv) {
 	CHECK(!b.ddr_stray, "DDR3 write outside the flash windows");
 	CHECK_EQ(b.ddr_writes, (cs0.size() + cs1.size()) / 2, "DDR3 writes");
 	printf("flash images: %llu DDR3 writes\n", (unsigned long long)b.ddr_writes);
-	// the board restarts after a download and draws again
+	// both images in: the CPU runs its program from CS0
+	{
+		uint64_t t1 = b.clocks;
+		while (b.cpu_writes.size() < 2 && b.clocks < t1 + 200000) b.tick();
+		CHECK(!R.emu__DOT__cpu_reset, "the CPU still in reset with both images loaded");
+		CHECK_EQ(b.cpu_writes.size(), 2, "CPU writes");
+		if (b.cpu_writes.size() >= 2) {
+			CHECK(b.cpu_writes[0] == std::make_pair(0x0A000000u, 0x12345678u), "the CPU's first store");
+			CHECK(b.cpu_writes[1] == std::make_pair(0x0A000004u, 0x12345679u), "the CPU's store of the value read back");
+			printf("CPU: program ran, stores %llu clocks after the CS1 download\n", (unsigned long long)(b.clocks - t1));
+		}
+	}
+	// the board restarts after a download and draws again; the CPU does not
+	// touch the display, so the test picture stays
 	b.frame();
 	compare(b.frame(), 0, 0, "picture after loading flash");
 
@@ -394,11 +426,15 @@ int main(int argc, char **argv) {
 		compare(b.frame(), 0, 0, "picture after the CS1 save loaded");
 	}
 
-	// the memory system under the self-test
+	// the memory system under the self-test, with the CPU held in reset
 	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 6;
 	b.infos.clear();
 	uint64_t t0 = b.clocks;
+	b.ticks(10);
+	b.cpu_writes.clear();
+	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset during the memory test");
 	while (b.infos.empty() && b.clocks < t0 + 3000000) b.tick();
+	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset during the memory test");
 	CHECK(b.infos.size() == 1 && b.infos[0] == 1, "memory test: no 'passed' message after the first pass");
 	printf("memory test: first pass in %llu clocks\n", (unsigned long long)(b.clocks - t0));
 	CHECK((b.t->LED_POWER & 2) != 0, "power LED not taken over by the memory test");
@@ -417,9 +453,15 @@ int main(int argc, char **argv) {
 		sim::Image f = b.frame();
 		CHECK_EQ(f.get(0, 0), sim::rgb565_to_888(0xF81F), "status square after errors (magenta)");
 	}
+	b.cpu_writes.clear();
 	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
 	b.ticks(2000);
 	CHECK_EQ(b.t->LED_POWER, 0, "power LED after the memory test");
+	// the memory test off again: the board restarts and the CPU runs again
+	t0 = b.clocks;
+	while (b.cpu_writes.size() < 2 && b.clocks < t0 + 200000) b.tick();
+	CHECK(b.cpu_writes.size() == 2 && b.cpu_writes[1] == std::make_pair(0x0A000004u, 0x12345679u),
+	      "the CPU's program after the memory test");
 	if (b.chip.errors) sim::fail("the SDRAM chip model reported %d error(s)", b.chip.errors);
 	if (b.dm.protocol_errors) sim::fail("%d DDRAM port protocol error(s)", b.dm.protocol_errors);
 	CHECK(!b.dm.bad_access, "DDR3 access outside the model");
