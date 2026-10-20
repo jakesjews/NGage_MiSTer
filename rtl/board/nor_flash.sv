@@ -22,6 +22,12 @@
 //                            xxx/80 xxx/10 or SA/30 erases, xxx/90 xxx/00 leaves
 //   555/AA 2AA/55 555/C0     burst configuration [taken and ignored: the
 //                            burst interface is not modelled]
+//   xxx/60 BA/60             Samsung block lock (A6 = 0) or unlock (A6 = 1)
+//                            of the sector at BA; autoselect +02 there reads
+//                            1 while it is locked. A locked sector is not
+//                            programmed or erased (the command is dropped).
+//                            The firmware's LFFS driver medint.pdd unlocks
+//                            this way and checks +02 (model/hw/ngage_flash.c).
 // Programming can only clear bits (new = old & data).
 //
 // Status (reads in a bank that is busy; DQ15-DQ8 read 0):
@@ -54,7 +60,10 @@
 //   * the busy times (typical figures for 1.8 V NOR of the time), and the
 //     CFI timing, voltage and burst fields derived from them;
 //   * DEVICE_ID2/3, the extra autoselect words;
-//   * autoselect and CFI answer at every address, not per bank.
+//   * autoselect and CFI answer at every address, not per bank;
+//   * LOCKED_AT_RESET = 0: every sector unlocked at power-up and on RP# (the
+//     QEMU model never locks and the firmware runs; on some Samsung parts
+//     every block powers up locked).
 module nor_flash #(
 	parameter int          AW                = 23,          // word address bits: 23 = 16 MB, 22 = 8 MB
 	parameter logic [15:0] MANUFACTURER      = 16'h00EC,
@@ -67,7 +76,8 @@ module nor_flash #(
 	parameter int          PROGRAM_CLKS      = CLK_HZ / 100_000,      // 10 us
 	parameter int          SECTOR_ERASE_CLKS = CLK_HZ / 10 * 7,       // 0.7 s
 	parameter int          ERASE_WINDOW_CLKS = CLK_HZ / 20_000,       // 50 us
-	parameter bit          PROGRAM_FAIL_DQ5  = 1'b1
+	parameter bit          PROGRAM_FAIL_DQ5  = 1'b1,
+	parameter bit          LOCKED_AT_RESET   = 1'b0
 ) (
 	input  logic          clk,
 	input  logic          reset,
@@ -153,13 +163,14 @@ module nor_flash #(
 		return {8'h00, dq7, dq6, dq5, 1'b0, dq3, dq2, 2'b00};
 	endfunction
 
-	function automatic logic [15:0] autoselect(input logic [7:0] a);
+	function automatic logic [15:0] autoselect(input logic [7:0] a, input logic locked);
 		case (a)
 			8'h00:   return MANUFACTURER;
 			8'h01:   return DEVICE_ID;
+			8'h02:   return {15'd0, locked};
 			8'h0E:   return DEVICE_ID2;
 			8'h0F:   return DEVICE_ID3;
-			default: return 16'h0000;       // +02 sector protection: none
+			default: return 16'h0000;
 		endcase
 	endfunction
 
@@ -222,6 +233,7 @@ module nor_flash #(
 	localparam logic [3:0] C_E3     = 4'd6;   // after 80 AA 55
 	localparam logic [3:0] C_BERASE = 4'd7;   // unlock bypass, after 80
 	localparam logic [3:0] C_BEXIT  = 4'd8;   // unlock bypass, after 90
+	localparam logic [3:0] C_LOCK   = 4'd9;   // after 60
 
 	localparam logic [1:0] P_IDLE = 2'd0;
 	localparam logic [1:0] P_RUN  = 2'd1;
@@ -255,6 +267,7 @@ module nor_flash #(
 	// erase engine
 	logic [1:0]        e_state;
 	logic [NSECT-1:0]  sel;
+	logic [NSECT-1:0]  lock;
 	logic [NBANKS-1:0] bank_sel;
 	logic [SW-1:0]     e_sector;
 	logic [1:0]        e_step;
@@ -281,6 +294,7 @@ module nor_flash #(
 	wire [BANKS_LOG2-1:0] rq_bank = bank_of(bus_addr);
 	wire [SW-1:0]         rq_sec  = sector_of(bus_addr);
 	wire                  rq_sel  = sel[rq_sec];
+	wire                  rq_lock = lock[rq_sec];
 	wire                  rq_ul1  = bus_addr[10:0] == 11'h555;
 	wire                  rq_ul2  = bus_addr[10:0] == 11'h2AA;
 	wire [7:0]            rq_cmd  = bus_wdata[7:0];
@@ -308,7 +322,7 @@ module nor_flash #(
 	endtask
 
 	task automatic start_chip_erase();
-		sel      <= '1;
+		sel      <= ~lock;
 		bank_sel <= '1;
 		e_state  <= E_RUN;
 		e_sector <= '0;
@@ -317,7 +331,7 @@ module nor_flash #(
 	endtask
 
 	task automatic start_sector_erase();
-		sel[rq_sec]       <= 1'b1;
+		sel[rq_sec]       <= ~rq_lock;
 		bank_sel[rq_bank] <= 1'b1;
 		e_state           <= E_WINDOW;
 		e_timer           <= 32'(ERASE_WINDOW_CLKS);
@@ -337,7 +351,7 @@ module nor_flash #(
 			// commands are ignored while a word is programmed
 		end else if (e_state == E_WINDOW) begin
 			if (rq_cmd == 8'h30) begin
-				sel[rq_sec]       <= 1'b1;
+				if (!rq_lock) sel[rq_sec] <= 1'b1;
 				bank_sel[rq_bank] <= 1'b1;
 				e_timer           <= 32'(ERASE_WINDOW_CLKS);
 			end else if (rq_cmd == 8'hB0) begin
@@ -372,6 +386,8 @@ module nor_flash #(
 					end else if (rq_cmd == 8'h30 && e_state == E_SUSP) begin
 						e_state <= E_RUN;
 						mode    <= M_READ;
+					end else if (rq_cmd == 8'h60) begin
+						cseq <= C_LOCK;
 					end
 				end
 				C_U1: cseq <= (rq_ul2 && rq_cmd == 8'h55) ? C_U2 : C_IDLE;
@@ -390,7 +406,11 @@ module nor_flash #(
 				end
 				C_PROG: begin
 					cseq <= C_IDLE;
-					if (prog_ok) start_program();
+					if (prog_ok && !rq_lock) start_program();
+				end
+				C_LOCK: begin
+					cseq <= C_IDLE;
+					if (rq_cmd == 8'h60) lock[rq_sec] <= ~bus_addr[6];
 				end
 				C_E1: cseq <= (rq_ul1 && rq_cmd == 8'hAA) ? C_E2 : C_IDLE;
 				C_E2: cseq <= (rq_ul2 && rq_cmd == 8'h55) ? C_E3 : C_IDLE;
@@ -441,7 +461,7 @@ module nor_flash #(
 				tog2      <= ~tog2;
 				bus_ack   <= 1'b1;
 			end else if (mode == M_AUTO) begin
-				bus_rdata <= autoselect(bus_addr[7:0]);
+				bus_rdata <= autoselect(bus_addr[7:0], rq_lock);
 				bus_ack   <= 1'b1;
 			end else if (mode == M_CFI) begin
 				bus_rdata <= {8'h00, cfi(bus_addr[7:0])};
@@ -554,6 +574,7 @@ module nor_flash #(
 			e_state  <= E_IDLE;
 			sel      <= '0;
 			bank_sel <= '0;
+			lock     <= {NSECT{LOCKED_AT_RESET}};
 			b_wait   <= 1'b0;
 			if (m_active && !mem_ack) m_stale <= 1'b1;
 		end

@@ -20,7 +20,10 @@
 //    erased and its neighbours kept; several sectors in one window; a window
 //    ended by another command; erase suspend with reads and a program, and
 //    resume; chip erase;
-//  * unlock bypass, reset in the middle of a sequence, and RP#.
+//  * unlock bypass, reset in the middle of a sequence, and RP#;
+//  * Samsung block lock/unlock (60, 60 at the block with A6 choosing):
+//    autoselect +02 shows it, programs and erases skip locked sectors, also
+//    a chip erase; RP# unlocks.
 #include "Vnor_flash.h"
 #include "verilated.h"
 #include "common.h"
@@ -365,14 +368,53 @@ void test_rp(Bench &b) {
 	for (uint32_t a = base; a < base + 32768; a++) b.mem[a] = Bench::pattern(a);
 }
 
+uint16_t lock_status(Bench &b, uint32_t a) {
+	b.unlock(); b.wr(0x555, 0x90);
+	uint16_t v = b.rd((a & ~0xFFu) | 0x02);
+	b.wr(0, 0xF0);
+	return v;
+}
+
+void test_lock(Bench &b) {
+	uint32_t base = sector_base(b.aw, 40), other = sector_base(b.aw, 41);
+	CHECK_EQ(lock_status(b, base), 0, "sector locked at power-up");
+	b.wr(0x123, 0x60); b.wr(base + 0x1000, 0x60);           // A6 = 0: lock
+	CHECK_EQ(lock_status(b, base + 77), 1, "lock status after locking");
+	CHECK_EQ(lock_status(b, other), 0, "the next sector locked too");
+	b.unlock(); b.wr(0x555, 0xA0); b.wr(base + 5, 0x0000);
+	CHECK(!b.t->busy, "program of a locked sector started");
+	b.ticks(PROGRAM_CLKS * 2);
+	CHECK_EQ(b.mem[base + 5], Bench::pattern(base + 5), "locked sector programmed");
+	erase_cmd(b, base);
+	b.ticks(ERASE_WINDOW_CLKS + 2000);
+	b.wait_done(base);
+	check_range(b, base, 32768, false, "locked sector erased");
+	b.wr(0x0, 0x60); b.wr(base + 0x40, 0x60);               // A6 = 1: unlock
+	CHECK_EQ(lock_status(b, base), 0, "lock status after unlocking");
+	b.unlock(); b.wr(0x555, 0xA0); b.wr(base + 5, 0x0000);
+	b.wait_done(base + 5);
+	CHECK_EQ(b.mem[base + 5], 0x0000, "program after unlocking");
+	b.mem[base + 5] = Bench::pattern(base + 5);
+	// RP# unlocks everything
+	b.wr(0x0, 0x60); b.wr(other, 0x60);
+	CHECK_EQ(lock_status(b, other), 1, "lock before RP#");
+	b.t->rst_n = 0; b.ticks(3); b.t->rst_n = 1; b.ticks(2);
+	CHECK_EQ(lock_status(b, other), 0, "lock after RP#");
+}
+
 void test_chip_erase(Bench &b) {
+	// a locked parameter sector survives the chip erase
+	int locked = sectors(b.aw) - 1;
+	uint32_t lb = sector_base(b.aw, locked);
+	b.wr(0x0, 0x60); b.wr(lb, 0x60);
 	b.unlock(); b.wr(0x555, 0x80); b.unlock(); b.wr(0x555, 0x10);
 	uint16_t s1 = b.rd(0), s2 = b.rd(0);
 	CHECK((s1 ^ s2) & 0x40, "chip erase status");
-	uint64_t t = b.wait_done(b.words - 1);
+	uint64_t t = b.wait_done(0);
 	int bad = 0;
-	for (uint32_t a = 0; a < b.words; a++) if (b.mem[a] != 0xFFFF && bad++ < 3) sim::fail("chip erase left %06x = %04x", a, b.mem[a]);
-	CHECK(t >= (uint64_t)SECTOR_ERASE_CLKS * sectors(b.aw), "chip erase took %llu clocks", (unsigned long long)t);
+	for (uint32_t a = 0; a < lb; a++) if (b.mem[a] != 0xFFFF && bad++ < 3) sim::fail("chip erase left %06x = %04x", a, b.mem[a]);
+	check_range(b, lb, 4096, false, "locked sector in a chip erase");
+	CHECK(t >= (uint64_t)SECTOR_ERASE_CLKS * (sectors(b.aw) - 1), "chip erase took %llu clocks", (unsigned long long)t);
 	printf("chip erase: %llu clocks for %d sectors\n", (unsigned long long)t, sectors(b.aw));
 }
 
@@ -396,6 +438,7 @@ int main(int argc, char **argv) {
 	test_suspend(b);
 	test_bypass(b);
 	test_rp(b);
+	test_lock(b);
 	test_reads(b);
 	test_chip_erase(b);
 	printf("%d-word chip, %llu clocks\n", 1 << aw, (unsigned long long)b.clocks);
