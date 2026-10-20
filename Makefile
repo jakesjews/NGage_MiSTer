@@ -6,7 +6,7 @@ LINT_TOPS := emu lcd_panel video_out keypad_matrix nor_flash mmc_card ngage_inpu
              sdram ddram_flash upp_bus ngage_mem wb_selftest \
              upp_periph upp_intc upp_timers upp_dma upp_mmc upp_lcdif upp_uif upp_cbus wb_arb2
 
-.PHONY: help lint lint-prepare test clean cpu-gen cpu-gen-check
+.PHONY: help lint lint-prepare test clean cpu-gen cpu-gen-check standin standin-check image-check
 
 help:
 	@echo "make lint   Lint the RTL with Verilator (-Wall)"
@@ -16,6 +16,9 @@ help:
 	@echo "make cpu-gen        Regenerate rtl/cpu/arm925t_gen.v (tools/gen_cpu.sh, needs sv2v)"
 	@echo "make cpu-gen-check  Check that rtl/cpu/arm925t_gen.v matches its sources"
 	@echo "make -C sim/cpu     CPU tests (see sim/cpu/Makefile)"
+	@echo "make standin        Rebuild tools/standin (the NOS stand-in binaries mkimage.py puts in CS0)"
+	@echo "make standin-check  Check that tools/standin matches model/nos-stub"
+	@echo "make image-check CS0=.. CS1=..  Check tools/mkimage.py against the model's own patcher"
 
 lint: lint-prepare
 	@for t in $(LINT_TOPS); do \
@@ -45,3 +48,28 @@ cpu-gen-check:
 	else \
 		rm -f $$tmp; echo "rtl/cpu/arm925t_gen.v is out of date: run make cpu-gen"; exit 1; \
 	fi
+
+# The NOS stand-in binaries that tools/mkimage.py writes into CS0 (model
+# shortcut, model/rom-patches.txt), built as model/build.sh builds them (needs
+# arm-none-eabi-gcc) from the committed model/nos-stub, so that the committed
+# binaries always go with committed sources; tools/build_standin.sh builds
+# from any directory.
+standin:
+	@tmp=$$(mktemp -d); git archive HEAD model/nos-stub | tar -x -C $$tmp && \
+	tools/build_standin.sh $$tmp/model/nos-stub tools/standin && chmod 644 tools/standin/*.bin; s=$$?; rm -rf $$tmp; exit $$s
+
+standin-check:
+	@tmp=$$(mktemp -d); git archive HEAD model/nos-stub | tar -x -C $$tmp; \
+	if tools/build_standin.sh $$tmp/model/nos-stub $$tmp/out >/dev/null 2>&1 && \
+	   cmp -s $$tmp/out/nos-stub.bin tools/standin/nos-stub.bin && cmp -s $$tmp/out/nos-dll.bin tools/standin/nos-dll.bin; then \
+		rm -rf $$tmp; echo "tools/standin is current"; \
+	else \
+		rm -rf $$tmp; echo "tools/standin is out of date: run make standin"; exit 1; \
+	fi
+
+# mkimage.py against the reference model's patcher on a pair of images
+# (default: the model's own; the firmware is not in the repository)
+CS0 ?= research/firmware/images/nor/rh29-4.60-cs0-model.bin
+CS1 ?= research/firmware/images/nor/rh29-4.60-cs1.bin
+image-check:
+	tools/patchcheck.sh $(CS0) $(CS1)
