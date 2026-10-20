@@ -68,6 +68,9 @@ void ngage_sti_create(MemoryRegion *sysmem, FILE *log);
 void ngage_lcd_create(MemoryRegion *sysmem, FILE *log, const char *shot_dir,
                       int shot_period, int scale, uint32_t id);
 
+/* UIF ports D/E and the key matrix (ngage_keypad.c). */
+void ngage_keypad_create(MemoryRegion *sysmem, const char *script, FILE *log);
+
 /* MMC host and card (ngage_mmc.c). image may be NULL (empty slot). */
 void ngage_mmc_create(MemoryRegion *sysmem, const char *image, FILE *log);
 

@@ -10,7 +10,11 @@
 #   NGAGE_OUT     output directory for logs and screenshots (default model/.out)
 #   NGAGE_MMC     game-card image (raw); CID/CSD from <image>.cid / <image>.csd
 #   NGAGE_TRACE   lo-hi[:lo-hi] physical ranges whose every access goes to regs.log
-#   NGAGE_SHOT    screenshot period in seconds (0 = only on exit; default: off)
+#   NGAGE_SHOT    LCD screenshot period in guest seconds (default 0 = only on exit)
+#   NGAGE_KEYS    key script: lines "<guest seconds> down|up <key>"; keys: up down
+#                 left right ok lsk rsk menu call end clear edit 0-9 star hash
+# Window keys (-w): arrows, Return = OK, F1/F2 soft keys, F3 Menu, F4 Call,
+# F5/Esc End, Backspace Clear, Shift Edit, digits, keypad * and / for * and #.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

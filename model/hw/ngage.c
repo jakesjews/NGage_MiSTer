@@ -47,6 +47,7 @@ struct NGageMachineState {
     char *screenshot;
     char *lcd_scale;
     char *lcd_id;
+    char *keys;
     NGageFlash *flash[2];
     MemoryRegion probe;
     MemoryRegion sdram;
@@ -201,6 +202,7 @@ static void ngage_init(MachineState *machine)
                 setvbuf(ll, NULL, _IOFBF, 1 << 16);
             }
         }
+        ngage_keypad_create(sysmem, s->keys, ll);
         ngage_lcd_create(sysmem, ll, s->shot_dir,
                          s->screenshot ? atoi(s->screenshot) : -1,
                          s->lcd_scale ? atoi(s->lcd_scale) : 2,
@@ -265,6 +267,8 @@ static char *get_lcd_scale(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE
 static void set_lcd_scale(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->lcd_scale = g_strdup(v); }
 static char *get_lcd_id(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->lcd_id); }
 static void set_lcd_id(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->lcd_id = g_strdup(v); }
+static char *get_keys(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->keys); }
+static void set_keys(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->keys = g_strdup(v); }
 static char *get_probe(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->probe_log); }
 static void set_probe(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->probe_log = g_strdup(v); }
 
@@ -296,6 +300,8 @@ static void ngage_machine_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "lcd-scale", "LCD console magnification (default 2)");
     object_class_property_add_str(oc, "lcd-id", get_lcd_id, set_lcd_id);
     object_class_property_set_description(oc, "lcd-id", "panel RDDID value (default 0x290000: module 0x10)");
+    object_class_property_add_str(oc, "keys", get_keys, set_keys);
+    object_class_property_set_description(oc, "keys", "key script: lines '<guest seconds> down|up <key>'");
     object_class_property_add_str(oc, "mmc", get_mmc, set_mmc);
     object_class_property_set_description(oc, "mmc", "game card image (raw); CID/CSD from <image>.cid/.csd");
     object_class_property_add_str(oc, "mmc-log", get_mmclog, set_mmclog);
