@@ -697,3 +697,24 @@ found, and what comes next. Research material lives in `research/`
   still shows the boot logo.
 - Details: `docs/UPP_WD2.md` (UEMK registers, start-up reason table, NOR
   flash section).
+
+## CPU
+
+### 2026-10-20: ZAP vendored, wrapper, generator, bench, first ARM925T changes
+- `rtl/cpu/zap/`: ZAP fc7bd75 (GPL-3.0-or-later) with NOTICE; changes are
+  tagged `ARM925T:`. `rtl/cpu/arm925t.sv` wraps it with a req/ack bus (with
+  a burst flag) and sets the ARM925T parameters. `tools/gen_cpu.sh` (sv2v +
+  the Quartus fixes) writes `rtl/cpu/arm925t_gen.v`; `make cpu-gen-check`.
+- `sim/cpu/`: Verilator bench on ubuntu (`make -C sim/cpu remote`), tests
+  assembled here, the same binaries on QEMU's ti925t (`-M none`, GDB stops at
+  the halt loop), signatures and per-instruction traces compared. All six
+  tests so far agree with QEMU instruction by instruction.
+- Done: CP15 ID/cache type, control register (A, V, 6:4), TI c15 registers,
+  ARM925T c7 decode (drain/WFI/prefetch no longer flush both caches), FSR/FAR
+  only on aborts (upstream overwrote them on every uncached access), MCR/MRC
+  retire and refetch, UND for user-mode CP15, other coprocessors and the
+  ARMv5 instructions, conditional UND, the 011x..1 UNDEFINED space (upstream
+  decoded `0xE7F000F0` as a load).
+- QEMU differs from the ARM925T in places the tests avoid: every unaligned
+  word access aborts even with A=0, c13 adds the unmasked PID, a CP14 read
+  returns 0, PSRs carry the ARMv6 A bit.
