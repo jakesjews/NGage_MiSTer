@@ -4,7 +4,7 @@
 // the reference model's semantics (model/hw/ngage*.c), with the SDRAM chip
 // model, the DDRAM port model and hps_io's SD interface around it.
 //
-//   Vperiph_tb [--seed N] [--out DIR] [--model-out DIR]
+//   Vperiph_tb [--seed N] [--out DIR] [--model-out DIR] [--card FILE.mmc]
 //
 //  * storage: every register the model keeps as storage reads back what was
 //    written (bytes, halfwords, words) in the known pages and elsewhere in
@@ -31,6 +31,10 @@
 //    CMD18 through DMA channel 5 into SDRAM against the image; a writable
 //    card: CMD24 and CMD25 + CMD12 with the data from SDRAM by DMA, against
 //    what the HPS receives; status bits and the four MMC interrupt sources;
+//    multi-block transfers as epbus runs them, the last block in the phase
+//    that sends CMD12 (types 10 and 7), every block checked;
+//  * a real game card's image (--card, tools/mkcard.py's .mmc, local data):
+//    CID, CSD and its first sectors; skipped when the file is absent;
 //  * keypad: ekeyb's idle state, a key press raising CTSI bit 2 and
 //    CTSI_IRQ, the column scan finding every key, the acknowledge;
 //  * CBUS: UEMK 0x15, the power-on status and the power key, the A/D
@@ -46,6 +50,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <sstream>
 #include <string>
@@ -771,6 +776,51 @@ struct Mmc {
 		return s;
 	}
 	uint32_t resp() { return b.rd(MMC + 0x20); }
+	// A multi-block transfer as epbus runs it (0x503F5688-0x503F57A8): the
+	// first phase with the command (type 8 CMD18 / 5 CMD25), one phase a block
+	// after it (9 / 6), and the last block's phase (10 / 7) with CMD12 and the
+	// block length loaded into +0x1C/+0x20/+0x08 first. Each phase: control
+	// written, its DMA (channel 5) started at once, then command idle, data
+	// idle and the DMA awaited in any order (0x503F5888-0x503F5A94). The SDRAM
+	// side's width changes from block to block. Returns the last status.
+	uint32_t multi(bool write, uint32_t lba, int nblk, uint32_t sdaddr, const char *what) {
+		uint32_t st = 0;
+		for (int k = 0; k < nblk; k++) {
+			bool first = k == 0, last = k == nblk - 1;
+			if (first) {
+				b.wr(MMC + 0x14, 0x280); b.wr(MMC + 0x10, 0x1DC130); b.wr(MMC + 0x0C, 0x1DC130);
+				b.wr(MMC + 0x1C, write ? 25 : 18); b.wr(MMC + 0x20, lba * 512);
+			} else if (last) {
+				b.wr(MMC + 0x1C, 12); b.wr(MMC + 0x20, 0);
+			}
+			b.wr(MMC + 0x08, 0x200);
+			uint32_t ty = first ? (write ? 5 : 8) : last ? (write ? 7 : 10) : (write ? 6 : 9);
+			b.wr(MMC + 0x04, ty << 2 | 1);
+			int n = 120;
+			while ((b.rd(MMC + 0x04) & 1) && --n > 0) {}
+			static const uint32_t widths[3] = {0x20, 0x08, 0x10};
+			// the count is in source units: FIFO bytes for a read, the SDRAM width for a write
+			uint32_t w = widths[k % 3], units = write ? 512 / (w == 0x20 ? 4 : w == 0x10 ? 2 : 1) : 512;
+			if (write) b.dma_setup(5, sdaddr + 512 * k, 4, w, 0x10120624, 0, 0x08, units);
+			else       b.dma_setup(5, 0x10120624, 0, 0x08, sdaddr + 512 * k, 4, w, units);
+			b.dma_start(5, 2);
+			uint64_t limit = b.cyc + 4000000;
+			while (b.cyc < limit && !(b.dma_done(5) && !((st = status()) & 0xC))) {}
+			if (b.cyc >= limit) { sim::fail("%s: phase %d (type %u) did not finish", what, k, ty); return st; }
+			b.dma_finish(5);
+			if (st & 0x6E3) sim::fail("%s: phase %d (type %u): status %03x", what, k, ty, st);
+			if (first || last) {
+				// the command's R1: CMD18/25 in tran; CMD12 while sending (data) or receiving (rcv)
+				if (!(st & 0x100)) sim::fail("%s: phase %d (type %u): no response (status %03x)", what, k, ty, st);
+				uint32_t r1 = resp();
+				int want = first ? 4 : (write ? 6 : 5);
+				if ((int)((r1 >> 9) & 15) != want) sim::fail("%s: phase %d (type %u): R1 state %u, want %d", what, k, ty, (r1 >> 9) & 15, want);
+			} else if (st & 0x100) {
+				sim::fail("%s: phase %d (type %u): a response without a command", what, k, ty);
+			}
+		}
+		return st;
+	}
 	// a data phase's end: DMA done, then data idle
 	void wait_data(int ch) {
 		uint64_t limit = b.cyc + 4000000;
@@ -889,22 +939,16 @@ void test_mmc(Bench &b) {
 	m.wait_data(5);
 	CHECK_EQ(m.status() & 0x7FF, 0, "status after the block");
 	read_check(SD + 0xC00000, 7, 1, "CMD17");
-	// CMD18: three blocks, type 9 for each after the first, then CMD12 (type 10);
-	// an 8-bit destination this time
-	s = m.cmd(18, 100 * 512, 0x21, 0x200);
-	m.resp();
-	for (int k = 0; k < 3; k++) {
-		if (k) { b.wr(MMC + 0x08, 0x200); b.wr(MMC + 0x04, 0x25); }
-		b.dma_setup(5, 0x10120624, 0, 0x08, SD + 0xC10000 + 512 * k, 4, k == 1 ? 0x08 : 0x20, 512);
-		b.dma_start(5, 2);
-		m.wait_data(5);
-		CHECK(!(m.status() & 0x481), "no data error");
-	}
-	s = m.cmd(12, 0, 0x29);
-	CHECK_EQ(s, 0x100, "CMD12 status");
-	read_check(SD + 0xC10000, 100, 3, "CMD18");
+	// CMD18 as epbus reads: three blocks (8, 9, 10), then 4 KB (8, six 9s,
+	// 10); every block checked, the last one (type 10) included
+	m.multi(false, 100, 3, SD + 0xC10000, "CMD18 3 blocks");
+	read_check(SD + 0xC10000, 100, 3, "CMD18 3 blocks");
 	s = m.cmd(13, 0x00010000, 0x05);
-	CHECK_EQ((m.resp() >> 9) & 15, 4, "CMD13: back in tran");
+	CHECK_EQ((m.resp() >> 9) & 15, 4, "CMD13: back in tran after type 10");
+	m.multi(false, 40, 8, SD + 0xC30000, "CMD18 4 KB");
+	read_check(SD + 0xC30000, 40, 8, "CMD18 4 KB");
+	s = m.cmd(13, 0x00010000, 0x05);
+	CHECK_EQ((m.resp() >> 9) & 15, 4, "CMD13: back in tran after 4 KB");
 	// past the capacity: OUT_OF_RANGE and no block; the host times out (2^16
 	// clocks here), the paced DMA then reads zeros and finishes
 	{
@@ -946,21 +990,29 @@ void test_mmc(Bench &b) {
 	CHECK_EQ(m.status() & 0x7FF, 0, "status after a written block");
 	for (int i = 0; i < 512; i++)
 		if (b.hps.img[9 * 512 + i] != b.sd_byte(SD + 0xD00000 + i)) { sim::fail("CMD24: byte %d not written", i); break; }
-	s = m.cmd(25, 20 * 512, 0x15, 0x200);
-	m.resp();
-	for (int k = 0; k < 3; k++) {
-		if (k) { b.wr(MMC + 0x08, 0x200); b.wr(MMC + 0x04, 0x19); }
-		b.dma_setup(5, SD + 0xD00000 + 512 * (k + 1), 4, k == 2 ? 0x08 : 0x20, 0x10120624, 0, 0x08, k == 2 ? 512 : 128);
-		b.dma_start(5, 2);
-		m.wait_data(5);
-		CHECK(!(m.status() & 0x4A1), "no data error");
-	}
-	s = m.cmd(12, 0, 0x1D);
-	CHECK_EQ(s & 0x60, 0, "CMD12 after writing");
-	m.resp();
-	for (int k = 0; k < 3; k++)
-		for (int i = 0; i < 512; i++)
-			if (b.hps.img[(20 + k) * 512 + i] != b.sd_byte(SD + 0xD00000 + 512 * (k + 1) + i)) { sim::fail("CMD25 block %d byte %d not written", k, i); k = 3; break; }
+	// CMD25 as epbus writes: three blocks (5, 6, 7), then 4 KB (5, six 6s, 7);
+	// every block reaches the image, the last one (type 7) included
+	auto write_check = [&](uint32_t sdaddr, uint32_t lba, int nblk, const char *what) {
+		for (int k = 0; k < nblk; k++)
+			for (int i = 0; i < 512; i++)
+				if (b.hps.img[(size_t)(lba + k) * 512 + i] != b.sd_byte(sdaddr + 512 * k + i)) {
+					sim::fail("%s: block %d byte %d not written", what, k, i);
+					return;
+				}
+	};
+	m.multi(true, 20, 3, SD + 0xD00000 + 512, "CMD25 3 blocks");
+	write_check(SD + 0xD00000 + 512, 20, 3, "CMD25 3 blocks");
+	s = m.cmd(13, 0x00020000, 0x05);
+	CHECK_EQ((m.resp() >> 9) & 15, 4, "CMD13: back in tran after type 7");
+	fill_sdram(b, SD + 0xD10000, 8 * 512, 4321);
+	m.multi(true, 64, 8, SD + 0xD10000, "CMD25 4 KB");
+	write_check(SD + 0xD10000, 64, 8, "CMD25 4 KB");
+	s = m.cmd(13, 0x00020000, 0x05);
+	CHECK_EQ((m.resp() >> 9) & 15, 4, "CMD13: back in tran after 4 KB");
+	// and read back through the host
+	m.multi(false, 64, 8, SD + 0xD30000, "CMD18 read-back");
+	for (int i = 0; i < 8 * 512; i++)
+		if (b.sd_byte(SD + 0xD30000 + i) != b.sd_byte(SD + 0xD10000 + i)) { sim::fail("4 KB read-back byte %d", i); break; }
 	// read one back through the host
 	s = m.cmd(17, 21 * 512, 0x21, 0x200);
 	m.resp();
@@ -970,6 +1022,51 @@ void test_mmc(Bench &b) {
 	for (int i = 0; i < 512; i++)
 		if (b.sd_byte(SD + 0xD20000 + i) != b.sd_byte(SD + 0xD00000 + 1024 + i)) { sim::fail("read-back byte %d", i); break; }
 	printf("  HPS: %llu block reads, %llu block writes\n", (unsigned long long)b.hps.reads, (unsigned long long)b.hps.writes);
+}
+
+// A real game card's image (tools/mkcard.py's OUT.mmc: the sectors, then the
+// NGAGEMMC trailer with the card's CID/CSD): identification, its CID and CSD,
+// and the first 16 sectors read as two 4 KB transfers, against the file.
+// Local test data, not in the repository: skipped when the file is absent.
+void test_card(Bench &b, const std::string &path) {
+	std::ifstream f(path, std::ios::binary);
+	if (!f) { printf("game card: %s not found, skipped\n", path.c_str()); return; }
+	std::vector<uint8_t> img((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+	if (img.size() < 32 * 512 || memcmp(img.data() + img.size() - 512, "NGAGEMMC", 8)) {
+		sim::fail("game card: %s has no NGAGEMMC trailer", path.c_str());
+		return;
+	}
+	printf("game card %s\n", path.c_str());
+	const uint8_t *tr = img.data() + img.size() - 512;
+	Mmc m(b);
+	mount(b, img, true);
+	m.cmd(0, 0, 0x01);
+	uint32_t ocr = 0;
+	int tries = 0;
+	do { m.cmd(1, 0x80008000, 0x49); ocr = m.resp(); } while (!(ocr >> 31) && ++tries < 10);
+	auto r2 = [&](const uint8_t *want, const char *what) {
+		uint8_t w[16];
+		memcpy(w, want, 15);
+		w[15] = (uint8_t)(crc7(want, 15) << 1 | 1);
+		for (int i = 0; i < 4; i++) {
+			uint32_t v = m.resp(), e = (uint32_t)w[4 * i] << 24 | w[4 * i + 1] << 16 | w[4 * i + 2] << 8 | w[4 * i + 3];
+			if (v != e) sim::fail("game card %s word %d: %08x, want %08x", what, i, v, e);
+		}
+	};
+	CHECK_EQ(m.cmd(2, 0, 0x0D), 0x100, "game card CMD2");
+	r2(tr + 16, "CID");
+	m.cmd(3, 0x00010000, 0x05); m.resp();
+	CHECK_EQ(m.cmd(9, 0x00010000, 0x0D), 0x100, "game card CMD9");
+	r2(tr + 32, "CSD");
+	m.cmd(7, 0x00010000, 0x05); m.resp();
+	m.cmd(16, 512, 0x05); m.resp();
+	m.multi(false, 0, 8, SD + 0xE00000, "game card sectors 0-7");
+	m.multi(false, 8, 8, SD + 0xE00000 + 4096, "game card sectors 8-15");
+	int bad = 0;
+	for (int i = 0; i < 16 * 512; i++)
+		if (b.sd_byte(SD + 0xE00000 + i) != img[i] && bad++ < 3) sim::fail("game card: byte %d is %02x, want %02x", i, b.sd_byte(SD + 0xE00000 + i), img[i]);
+	CHECK_EQ(bad, 0, "game card sector bytes wrong");
+	printf("  CID %02x%02x... read, sectors 0-15 match (sector 0 ends %02x%02x)\n", tr[16], tr[17], img[510], img[511]);
 }
 
 // -------------------------------------------------------------------------
@@ -1164,11 +1261,12 @@ void test_reset(Bench &b) {
 int main(int argc, char **argv) {
 	Verilated::commandArgs(argc, argv);
 	uint32_t seed = 1;
-	std::string out = ".", model_out = "../model/.out";
+	std::string out = ".", model_out = "../model/.out", card;
 	for (int i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "--seed") && i + 1 < argc) seed = (uint32_t)strtoul(argv[++i], nullptr, 0);
 		else if (!strcmp(argv[i], "--out") && i + 1 < argc) out = argv[++i];
 		else if (!strcmp(argv[i], "--model-out") && i + 1 < argc) model_out = argv[++i];
+		else if (!strcmp(argv[i], "--card") && i + 1 < argc) card = argv[++i];
 	}
 	Bench b(seed);
 	b.out = out;
@@ -1183,6 +1281,7 @@ int main(int argc, char **argv) {
 	test_dma(b);
 	test_lcd(b);
 	test_mmc(b);
+	if (!card.empty()) test_card(b, card);
 	test_reset(b);
 	CHECK_EQ(b.chip.errors, 0, "SDRAM chip model errors");
 	CHECK_EQ(b.ddr.protocol_errors, 0, "DDRAM port protocol errors");

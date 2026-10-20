@@ -8,9 +8,14 @@
 //           0 command, no response          1 R1        2 R3 (CMD1)
 //           3 R2 (CID, CSD)                 4 R1 + busy ([model guess] "R1b?")
 //           8 command (CMD17/18) + read a block   9 read the next block (no command)
-//          10 CMD12 after reading
+//          10 read the last block, then the command (CMD12, R1)
 //           5 command (CMD24/25) + write a block  6 write the next block (no command)
-//           7 CMD12 after writing (R1 + busy)
+//           7 write the last block, then the command (CMD12, R1 + busy)
+//         For 10 and 7 epbus loads CMD12 into +0x1C/+0x20 and the block length
+//         into +0x08 first, and DMAs that block during the phase (0x503F56E4-
+//         0x503F57A8; a 4 KB read is 8, six 9s, 10), as the corrected model has
+//         it (model/hw/ngage_mmc.c, 71b0d8a); the command goes out after the
+//         block: after its end bit (10), after the card's busy (7).
 //         bit 6 = no response CRC check (set with CMD1's R3). Bit 0 reads 0:
 //         the transfer is taken at once (the driver polls it, 0x503F5490).
 //         Other bits and writes without bit 0 (0x40 at power-up, 0 at
@@ -38,7 +43,9 @@
 //
 // Where the model is instant this is real time. Command busy lasts until the
 // response and NRC (8 clocks) after it, or the busy signal on DAT0 after it
-// for types 4 and 7. A read block's data busy lasts until the block, CRC
+// for types 4 and 7; for 10 and 7 it covers the block before the command
+// (epbus waits for command idle, data idle and the DMA in any order, with the
+// DMA already running, 0x503F5888-0x503F5A94). A read block's data busy lasts until the block, CRC
 // included, has arrived and every byte has been read from the FIFO (the model
 // clears it with the last byte read); a written block's until the card's
 // busy after its CRC status token ends (the model: the last byte written).
@@ -95,7 +102,8 @@ module upp_mmc #(
 
 	// command engine
 	localparam logic [2:0] C_IDLE = 3'd0, C_SEND = 3'd1, C_RWAIT = 3'd2, C_RECV = 3'd3,
-	                       C_BUSY = 3'd4, C_TAIL = 3'd5;
+	                       C_BUSY = 3'd4, C_TAIL = 3'd5,
+	                       C_AFTER = 3'd6;    // types 10 and 7: the command waits for the block
 	// data engine
 	localparam logic [3:0] D_IDLE = 4'd0, D_RWAIT = 4'd1, D_RX = 4'd2, D_RDONE = 4'd3,
 	                       D_TWAIT = 4'd4, D_TX = 4'd5, D_TSTAT = 4'd6, D_TBUSY = 4'd7,
@@ -235,6 +243,8 @@ module upp_mmc #(
 	logic         resp_busy;           // types 4, 7
 	logic         want_resp;
 	logic         resp_ok;             // the response of this transfer has arrived
+	logic         cmd_first;           // types 5, 8: the data phase needs the command's response
+	logic         blk_done;            // the data phase of a type 10 / 7 is over: the command may go
 	logic [TIMEOUT_LOG2-1:0] cto;      // busy time-out after a response
 
 	logic [TIMEOUT_LOG2-1:0] dto;      // data / busy time-out
@@ -256,7 +266,7 @@ module upp_mmc #(
 	wire [12:0] len_eff = (len_reg != 13'd0) ? len_reg : blocklen;
 
 	always_comb begin
-		cmd_need = cstate != C_IDLE;
+		cmd_need = cstate != C_IDLE && cstate != C_AFTER;
 		case (dstate)
 			D_RWAIT, D_RX, D_TX, D_TSTAT, D_TBUSY, D_TAIL: dat_need = 1'b1;
 			D_TWAIT: dat_need = fcnt != '0;
@@ -294,7 +304,12 @@ module upp_mmc #(
 		end
 
 		// ---- command engine ----
+		blk_done <= 1'b0;
 		case (cstate)
+			C_AFTER: if (blk_done) begin
+				ccnt   <= 8'd0;
+				cstate <= C_SEND;
+			end
 			C_SEND: if (fall) begin
 				if (ccnt == 8'd48) begin
 					cmd_oe <= 1'b0;
@@ -314,8 +329,8 @@ module upp_mmc #(
 					rcrc   <= crc7_bit(7'd0, 1'b0);
 					cstate <= C_RECV;
 				end else if (ccnt == 8'(RESP_WAIT)) begin
-					status[B_RESP_TO]   <= 1'b1;
-					status[B_DATA_BUSY] <= 1'b0;   // no data phase without a response
+					status[B_RESP_TO] <= 1'b1;
+					if (cmd_first) status[B_DATA_BUSY] <= 1'b0;   // no data phase without a response
 					ccnt   <= 8'd0;
 					cstate <= C_TAIL;
 				end else begin
@@ -374,11 +389,12 @@ module upp_mmc #(
 						dstate <= D_RX;
 					end else if (&dto) begin
 						status[B_DATA_TO] <= 1'b1;
+						blk_done <= 1'b1;
 						dstate <= D_RDONE;
 					end
 				end
 				// a command that went unanswered has no data phase
-				if (status[B_RESP_TO]) dstate <= D_IDLE;
+				if (cmd_first && status[B_RESP_TO]) dstate <= D_IDLE;
 			end
 			D_RX: if (rise) begin
 				if (nrx < blen) begin
@@ -397,7 +413,9 @@ module upp_mmc #(
 					dcbit   <= dcbit + 5'd1;
 				end else begin
 					// the end bit; the clock stops here until the next transfer
+					// (or the command of a type 10)
 					if (dcrc_rx != dcrc || !dat_i) status[B_DATA_CRC] <= 1'b1;
+					blk_done <= 1'b1;
 					dstate <= D_RDONE;
 				end
 			end
@@ -409,7 +427,7 @@ module upp_mmc #(
 				end
 			end
 			D_TWAIT: begin
-				if (status[B_RESP_TO]) begin
+				if (cmd_first && status[B_RESP_TO]) begin
 					dstate <= D_IDLE;
 				end else if (fall && resp_ok) begin
 					if (gap != 2'd2) begin
@@ -484,6 +502,7 @@ module upp_mmc #(
 			D_TAIL: if (fall) begin
 				if (dtail == 4'd8) begin
 					status[B_DATA_BUSY] <= 1'b0;
+					blk_done <= 1'b1;
 					dstate <= D_IDLE;
 				end else begin
 					dtail <= dtail + 4'd1;
@@ -526,7 +545,9 @@ module upp_mmc #(
 			status     <= 11'd0;
 			resp_words <= 3'd0;
 			resp_pos   <= 3'd0;
-			resp_ok    <= sty == 4'd6;
+			resp_ok    <= sty == 4'd6 || sty == 4'd7;
+			cmd_first  <= sty == 4'd5 || sty == 4'd8;
+			blk_done   <= 1'b0;
 			cmd_oe     <= 1'b0;
 			dat_oe     <= 1'b0;
 			fwp        <= '0;
@@ -545,13 +566,13 @@ module upp_mmc #(
 				status[B_CMD_BUSY] <= 1'b1;
 				csr    <= {1'b0, 1'b1, cmd_idx, arg, crc7_40({1'b0, 1'b1, cmd_idx, arg}), 1'b1};
 				ccnt   <= 8'd0;
-				cstate <= C_SEND;
+				cstate <= (sty == 4'd7 || sty == 4'd10) ? C_AFTER : C_SEND;
 			end else begin
 				cstate <= C_IDLE;
 			end
 			case (sty)
-				4'd8, 4'd9: begin status[B_DATA_BUSY] <= 1'b1; dstate <= D_RWAIT; end
-				4'd5, 4'd6: begin status[B_DATA_BUSY] <= 1'b1; dstate <= D_TWAIT; end
+				4'd8, 4'd9, 4'd10: begin status[B_DATA_BUSY] <= 1'b1; dstate <= D_RWAIT; end
+				4'd5, 4'd6, 4'd7:  begin status[B_DATA_BUSY] <= 1'b1; dstate <= D_TWAIT; end
 				default: dstate <= D_IDLE;
 			endcase
 		end
@@ -561,6 +582,7 @@ module upp_mmc #(
 			ph         <= '0;
 			cstate     <= C_IDLE;
 			dstate     <= D_IDLE;
+			blk_done   <= 1'b0;
 			status     <= 11'd0;
 			resp_words <= 3'd0;
 			resp_pos   <= 3'd0;

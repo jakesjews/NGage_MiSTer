@@ -150,8 +150,11 @@ $(BUILD)/periph/Vperiph_tb: $(PERIPH_RTL) $(ROOT)/sim/harness/periph_main.cpp $(
                             $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h
 	mkdir -p $(BUILD)/periph && $(VERILATOR) $(VFLAGS) --top-module periph_tb --Mdir $(BUILD)/periph -o Vperiph_tb \
 		$(PERIPH_RTL) $(ROOT)/sim/harness/periph_main.cpp
+# a real game card's image (tools/mkcard.py; local data, never committed): the
+# bench reads its first sectors when the file is there
+MMC_CARD ?= $(ROOT)/model/.out/cards/sonicn.mmc
 periph: $(BUILD)/periph/Vperiph_tb | $(OUT)
-	$< $(RUNFLAGS) --seed $(SEED) --out $(OUT) --model-out $(ROOT)/model/.out
+	$< $(RUNFLAGS) --seed $(SEED) --out $(OUT) --model-out $(ROOT)/model/.out --card $(MMC_CARD)
 
 # The whole core: NGage.sv with the board devices; hps_io, the PLL and
 # video_mixer stood in for (sim/stubs)
