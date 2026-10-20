@@ -763,6 +763,13 @@ begin
                         begin
                                         o_destination_index = {1'd0, instruction[15:12]}; // Low register.
                                         o_alu_operation[0]  = 1'd0;                       // Request low operation.
+
+                                        // ARM925T: only the high half sets the flags (N from
+                                        // bit 63, Z from all 64 bits, through nozero). When the
+                                        // low half set them too, the high half's condition was
+                                        // tested against the low result's flags and a
+                                        // conditional UMULLS/SMLALS etc. could lose RdHi.
+                                        o_flag_update       = 1'd0;
                         end
                 end
 

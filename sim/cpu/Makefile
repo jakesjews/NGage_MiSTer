@@ -13,6 +13,7 @@
 #                  machine), and fetch the results back
 #   make all       bins, remote, qemu, diff
 #   make T=alu ... restrict to some tests
+#   RAND_SEEDS=..  the random tests rand<seed> (tools/gen_random.py)
 #
 # Test tags (lines in the .S file):
 #   @@ qemu: no        the test needs the bench (bench registers, interrupts,
@@ -34,7 +35,10 @@ LATS      ?= 0:0 0:3 2:9
 JOBS      ?= 8
 SHELL     := bash
 
-ALL_TESTS := $(sort $(basename $(notdir $(filter-out %/crt0.S,$(wildcard $(HERE)/tests/*.S)))))
+RAND_SEEDS ?= 1 2 3 4 5 6 7 8
+RAND_TESTS := $(foreach s,$(RAND_SEEDS),rand$(s))
+ALL_TESTS := $(sort $(basename $(notdir $(filter-out %/crt0.S,$(wildcard $(HERE)/tests/*.S))))) \
+             $(RAND_TESTS)
 T         ?= $(ALL_TESTS)
 TB        := $(BUILD)/tests
 MODEL_DIR := $(BUILD)/obj-$(RTL)
@@ -54,6 +58,12 @@ $(TB)/crt0.o: $(HERE)/tests/crt0.S $(wildcard $(HERE)/tests/*.inc)
 	$(CROSS)as $(ASFLAGS) -o $@ $<
 $(TB)/%.o: $(HERE)/tests/%.S $(wildcard $(HERE)/tests/*.inc)
 	@mkdir -p $(TB)
+	$(CROSS)as $(ASFLAGS) -o $@ $<
+# random tests (tools/gen_random.py), generated into the build directory
+$(TB)/rand%.S: $(HERE)/tools/gen_random.py
+	@mkdir -p $(TB)
+	$(PY) $< --seed $* > $@
+$(TB)/rand%.o: $(TB)/rand%.S $(wildcard $(HERE)/tests/*.inc)
 	$(CROSS)as $(ASFLAGS) -o $@ $<
 $(TB)/%.elf: $(TB)/%.o $(TB)/crt0.o $(HERE)/tests/link.ld
 	$(CROSS)ld -T $(HERE)/tests/link.ld -o $@ $(TB)/crt0.o $<
@@ -92,7 +102,8 @@ run: $(MODEL)
 	for t in $(T); do \
 		bin=$(TB)/$$t.bin; \
 		[ -f $$bin ] || { echo "$$t: no binary (make bins)"; fail=$$((fail+1)); failed="$$failed $$t"; continue; }; \
-		extra=$$(sed -n 's/^@@ bench: *//p' $(HERE)/tests/$$t.S); \
+		src=$(HERE)/tests/$$t.S; [ -f $$src ] || src=$(TB)/$$t.S; \
+		extra=$$(sed -n 's/^@@ bench: *//p' $$src); \
 		first=1; \
 		for lat in $(LATS); do \
 			if [ $$first = 1 ]; then keep="--sig $(BUILD)/rtl/$$t.sig --trace $(BUILD)/rtl/$$t.trace"; else keep=""; fi; \
@@ -114,8 +125,9 @@ qemu: bins
 	@mkdir -p $(BUILD)/qemu
 	@n=0; skip=0; bad=0; \
 	for t in $(T); do \
-		if grep -q '^@@ qemu: *no' $(HERE)/tests/$$t.S; then skip=$$((skip+1)); continue; fi; \
-		tr=1; grep -q '^@@ trace: *no' $(HERE)/tests/$$t.S && tr=0; \
+		src=$(HERE)/tests/$$t.S; [ -f $$src ] || src=$(TB)/$$t.S; \
+		if grep -q '^@@ qemu: *no' $$src; then skip=$$((skip+1)); continue; fi; \
+		tr=1; grep -q '^@@ trace: *no' $$src && tr=0; \
 		if QEMU=$(QEMU) GDB=$(GDB) $(HERE)/qemu/run.sh $(TB)/$$t.bin $(BUILD)/qemu/$$t $$tr; then n=$$((n+1)); \
 		else bad=$$((bad+1)); fi; \
 	done; \

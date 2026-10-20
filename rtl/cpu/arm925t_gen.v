@@ -9966,6 +9966,7 @@ module zap_decode (
 					if (instruction[ZAP_OPCODE_EXTEND] == 1'd0) begin
 						o_destination_index = {1'd0, instruction[15:12]};
 						o_alu_operation[0] = 1'd0;
+						o_flag_update = 1'd0;
 					end
 				end
 				HALFWORD_LS: begin : tskDecodeHalfWordLs
