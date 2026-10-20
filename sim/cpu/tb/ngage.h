@@ -27,7 +27,9 @@
 // of the log, as they are left out of the model's.
 //
 // Timers count at 104/3 MHz, one tick per TIMER_DIV CPU cycles (3 for a
-// 104 MHz CPU). The power key reads as held, as at switch-on.
+// 104 MHz CPU). The power key reads as held from reset, as at switch-on,
+// and is released after 187,500,000 instructions: the model holds it for
+// 3 guest seconds and runs 16 ns per instruction (-icount shift=4).
 #pragma once
 
 #include <cinttypes>
@@ -42,6 +44,7 @@ public:
 	struct Options {
 		std::string flash0, flash1, quirks, cbus_regs, logdir;
 		int timer_div = 3;
+		uint64_t power_release = 187500000;   // retired instructions; 0 = never
 	};
 
 	bool init(const Options &o) {
@@ -127,6 +130,7 @@ public:
 
 	// One CPU cycle.
 	void tick() {
+		if (cbus.power_key && opt.power_release && retired >= opt.power_release) cbus.power_key = false;
 		if (++div < opt.timer_div) return;
 		div = 0;
 		now++;
@@ -532,6 +536,7 @@ private:
 
 public:
 	uint64_t cycle = 0;     // set by the bench, for the logs
+	uint64_t retired = 0;   // set by the bench: instructions retired
 	NGage() {
 		for (int n = 0; n < NTIMERS; n++) timer[n].n = n;
 		cbus.pc = &cur_pc;

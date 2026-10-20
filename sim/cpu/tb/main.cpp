@@ -28,6 +28,8 @@
 //     --quirks FILE     model/upp-quirks.txt    --cbus-regs FILE  model/cbus-regs.txt
 //     --logdir DIR      where regs.log, cbus.log and probe.log go
 //     --timer-div N     CPU cycles per timer tick (default 3: 104 MHz / 3)
+//     --power-release N release the power key after N instructions
+//                       (default 187500000, as the model; 0 = hold it)
 //
 // Memory map seen by the CPU (physical):
 //   0x00000000-0x00FFFFFF  16 MB RAM (QEMU -M none -m 16M has the same)
@@ -194,6 +196,7 @@ int main(int argc, char **argv) {
 		else if (a == "--cbus-regs") nopt.cbus_regs = next();
 		else if (a == "--logdir") nopt.logdir = next();
 		else if (a == "--timer-div") nopt.timer_div = atoi(next());
+		else if (a == "--power-release") nopt.power_release = strtoull(next(), nullptr, 0);
 		else if (a[0] == '+') continue;  // Verilator's own
 		else { fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
 	}
@@ -402,6 +405,7 @@ int main(int argc, char **argv) {
 		t->irq = irq_lines & 1;
 		t->fiq = (irq_lines >> 1) & 1;
 		if (ng) {
+			ng->retired = retired;
 			ng->tick();
 			t->irq = ng->irq();
 			t->fiq = ng->fiq();
