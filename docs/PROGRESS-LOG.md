@@ -718,3 +718,37 @@ found, and what comes next. Research material lives in `research/`
 - QEMU differs from the ARM925T in places the tests avoid: every unaligned
   word access aborts even with A=0, c13 adds the unmasked PID, a CP14 read
   returns 0, PSRs carry the ARMv6 A bit.
+
+### 2026-10-20, model: deterministic timing; Starter runs its whole list
+- **Guest time now follows executed instructions** (`-icount shift=4,sleep=off`,
+  the default in `model/args.sh`; `NGAGE_ICOUNT=none` restores wall-clock
+  time). medint.pdd programs the C: drive one word per timer-3 FIQ (reload
+  `0x1FE`, 14.7 us); with host timers only about 1000 FIQs per second got
+  through, so the first-boot file work (RfsServer) took minutes. With
+  icount the timers fire on time, idle time is skipped, and runs repeat.
+  `-t` stays wall time; about 400 guest seconds pass in 60 wall seconds
+  once the system idles.
+- First boot after the C: format: Starter finds no
+  `C:\system\bootdata\FirstBoot.dat` and runs RfsServer (restore factory
+  settings) before the Eikon step; that is file-server work and finishes
+  under icount.
+- **Kernel fault in rtc.dll fixed in the NOS stand-in.** rtc.dll gets
+  service 3 only when its service method `+0x20` receives event 1
+  (`0x50349394`), which nothing in the Symbian ROM sends. Without it,
+  HelperDrv control 7 from DosServer calls through a NULL pointer
+  (`0x5034A944`, kernel restart 0x10000000, type 0xC). The stand-in now
+  sends event 1 with zero times, which rtc treats as "time not set".
+  The values are a guess.
+- **State:** Starter starts every entry: SplashScreen, SelfTestServer,
+  EInfoServer, randsvr, DbRecovery, Sae, SysAp, Phone, Watcher,
+  ScreenSaver, Autolock and Startup (through AppRun), and more. Other
+  processes now running: EDbsrv, Sysagx, C32exe, Ealwls, MediaServerStub,
+  PhoneServer, btmanserver, and the AppArc, backup and key-sound servers.
+  No kernel fault in 60 s.
+- **Display:** the screen still shows the boot logo. The window server opens
+  the `Lcd` channel (scdv.dll `0x50418A94`) and calls controls 0x2001,
+  0x100D, 0x2006 and 0x2002 (twice). lcd.ldd then sends no panel
+  transfers after its first full frame, and the frame buffer at
+  `0x0A000020` still holds the logo. Next step: find out whether nothing has
+  drawn yet (Startup.app and SysAp may be waiting on DOS/ISI answers from
+  NOS) or whether lcd.ldd's update path (DMA + LCD FIFO) is not modelled.

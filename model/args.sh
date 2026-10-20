@@ -17,3 +17,9 @@ machine+=",rom-patches=${NGAGE_PATCHES:-model/rom-patches.txt},kern-log=$out/ker
 machine+=",lcd-log=$out/lcd.log,shot-dir=$out,screenshot=${NGAGE_SHOT:-0}"
 qemu=(model/.build/qemu-system-arm -M "$machine" -serial none
       -d guest_errors,unimp -D "$out/qemu.log")
+# Guest time follows executed instructions (16 ns each, about 62 MIPS) and
+# skips ahead when the CPU idles: timers fire on time however busy the host
+# is (medint.pdd programs C: one word per 14.7 us timer FIQ) and runs repeat.
+# NGAGE_ICOUNT=none uses wall-clock time instead.
+icount=${NGAGE_ICOUNT:-shift=4,sleep=off}
+[[ "$icount" != none ]] && qemu+=(-icount "$icount")

@@ -30,9 +30,18 @@
  *      (ecust 0x50343F5C); nothing in the Symbian ROM calls it. ecust
  *      0x50342B68 spins until bit 1 is set, then faults (12) unless bit 0
  *      is set (0x50342BB0) and reads service 3 id 5. The stub sets 3.
- * This stub registers placeholder objects for 3, 6 and 7 and installs a
- * placeholder object for item 3; all their methods return 0 (KErrNone) without
- * touching their arguments. It is assembled to
+ *   5. rtc.dll (service 1) fetches service 3 only inside its service method
+ *      +0x20 with event 1 (0x50349394 -> 0x50349088), which nothing in the
+ *      Symbian ROM calls. Until then its service-3 pointer (+0x120) is 0, and
+ *      HelperDrv control 7 (DosServer, rtc method +0x10 -> 0x5034A8F8) faults
+ *      the kernel at 0x5034A944. Event 1 carries three 64-bit values (time
+ *      pointers in r2, r3 and on the stack); rtc treats A != B or A == 0 as
+ *      "time not valid" (state 9, 0x5034910C) and then reads the UEMK RTC
+ *      itself. The stub sends event 1 with all three zero (a guess: NOS's
+ *      real values are not known).
+ * This stub registers placeholder objects for 3, 6 and 7, installs a
+ * placeholder object for item 3, and sends rtc.dll event 1; all placeholder
+ * methods return 0 (KErrNone) without touching their arguments. It is assembled to
  * model/.build/nos-stub.bin and placed at the NOS entry by rom-patches.txt.
  * It deliberately implements nothing else: every behaviour added here is a
  * guess about NOS and must be justified by the caller's code.
@@ -77,7 +86,25 @@ _start:
     ldr     r3, [r3]
     mov     lr, pc
     mov     pc, r3
-    mov     r0, #0
+    ldr     r4, =0x8000038C         @ rtc.dll event 1, see 5. above
+    ldr     r4, [r4]
+    mov     r0, r4
+    mov     r1, #1
+    ldr     r3, [r4]
+    mov     lr, pc
+    ldr     pc, [r3, #0x100]        @ variant->GetService(1)
+    subs    r4, r0, #0
+    beq     3f
+    ldr     r2, =0x8000C378 + 0x200 @ 8 zero bytes in NOS BSS
+    sub     sp, sp, #8
+    str     r2, [sp]                @ third value
+    mov     r3, r2
+    mov     r1, #1
+    ldr     r12, [r4]
+    mov     lr, pc
+    ldr     pc, [r12, #0x20]
+    add     sp, sp, #8
+3:  mov     r0, #0
     ldmfd   sp!, {r4-r6, lr}
     bx      lr
 

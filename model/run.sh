@@ -3,7 +3,8 @@
 # Usage: model/run.sh [-g] [-w] [-t SECONDS] [-- extra qemu args]
 #   -g   wait for GDB on :1234 (arm-none-eabi-gdb -ex 'target remote :1234')
 #   -w   show the LCD in a window (cocoa); default is no display
-#   -t   stop after SECONDS of wall time (default: run until killed)
+#   -t   stop after SECONDS of wall time (default: run until killed); guest
+#        time runs ahead of it while the guest idles (see NGAGE_ICOUNT)
 # Environment:
 #   NGAGE_FLASH0  CS0 image (default research/firmware/images/nor/rh29-4.60-cs0-model.bin)
 #   NGAGE_FLASH1  CS1 image (default research/firmware/images/nor/rh29-4.60-cs1.bin)
@@ -15,6 +16,8 @@
 #   NGAGE_MMC     game-card image (raw); CID/CSD from <image>.cid / <image>.csd
 #   NGAGE_TRACE   lo-hi[:lo-hi] physical ranges whose every access goes to regs.log
 #   NGAGE_SHOT    LCD screenshot period in guest seconds (default 0 = only on exit)
+#   NGAGE_ICOUNT  QEMU -icount setting (default shift=4,sleep=off: 16 ns per
+#                 instruction, idle time skipped); "none" for wall-clock time
 #   NGAGE_KEYS    key script: lines "<guest seconds> down|up <key>"; keys: up down
 #                 left right ok lsk rsk menu call end clear edit 0-9 star hash
 # Window keys (-w): arrows, Return = OK, F1/F2 soft keys, F3 Menu, F4 Call,
