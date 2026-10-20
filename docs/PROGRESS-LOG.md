@@ -1307,3 +1307,59 @@ found, and what comes next. Research material lives in `research/`
 - FPGA: the HLE audio block (SDRAM reads at RATE, linear resampling to
   48 kHz) and loading the UEMK RTC and the date register from hps_io's RTC
   at reset.
+
+### 2026-10-20, FPGA side: C: drive saves (CS1 as a save file)
+- Setup on the MiSTer:
+  1. Make `cs1.bin` with `tools/mkimage.py` and copy it to the core's games
+     folder. The file must be exactly 8 MB. It is the save file: keep a
+     copy of the fresh one.
+  2. Load CS0 with "Load flash CS0" as before.
+  3. Mount `cs1.bin` with **"Mount flash CS1 (save)"**. The OSD says "CS1
+     mounted: C: saves to it". The core holds while the 8 MB load runs.
+  4. A fresh image has a blank C: drive. On the first boot hold Call + * +
+     3 at power-on to format it (model finding).
+- Changes go back to the file 100 ms after the last flash write, and at
+  most 2 s after the first. "Save C: now" writes them at once and says "C:
+  saved"; use it before switching off. LED_DISK shows the transfers.
+- "Load flash CS1" (ioctl) still loads a throwaway CS1. It detaches the
+  save file: nothing more is written to it until the next mount. A
+  read-only file loads but is never written ("CS1 read-only: no C:
+  saves"). A file of another size is refused ("CS1 save file must be 8
+  MB").
+- OSD order for key macros: Load flash CS0, Load flash CS1, Mount flash
+  CS1 (save), Mount MMC card, Rotate, Aspect ratio, Scandoubler Fx, Memory
+  test, Save C: now, Reset.
+- How it works:
+  - `rtl/mister/flash_save.sv` (SD slot 1) reads the file in 4 KB requests
+    and copies it into DDR3 at 0x32000000.
+  - ddram_flash marks each CS1 block it writes in a 16K-bit bitmap.
+  - A pass then reads each dirty block back from DDR3 (64-beat burst) and
+    sends it with sd_wr. The bit clears in the clock that read is issued,
+    so a block written during its write-back goes out again.
+  - The state survives a core reset.
+  - mmc_card's buffer writes are now gated with its own sd_ack (both slots
+    share hps_io's buffer signals).
+- CS0 stays on ioctl.
+  - In the RH-29 v4.60 ROM only medint.pdd issues program or erase
+    sequences, in its CS1 region. ecust's command is the burst
+    configuration (0x60/0x03); the 0xAAA in ekern is table data.
+  - Every saved CS1 the model wrote differs from the firmware's only in
+    0x400000-0x7FFFFF.
+  - A model run with `flash0-save` would confirm it dynamically; it was not
+    run, as QEMU is in use.
+- nor_flash: the erase and lock sector bits are now set a clock after
+  their command, from a registered sector number. The decode had become
+  the worst path (−0.219 ns). Bench and behaviour are unchanged, and it is
+  880 ALMs smaller.
+- Benches:
+  - `make -C sim save` covers mount, programs and an erase through the
+    bus, exactly the dirty blocks written back with the right data, a
+    re-dirtied block sent again, nothing sent while nothing changed, save
+    now, the 2 s limit, core reset, detach, read-only, and a refused size.
+  - Mutants are caught: lost marks, the bit cleared at the end of the
+    write instead of at the read, the quiet time ignored, a dropped load
+    write.
+  - The top bench mounts a save image through the shell.
+- Quartus: every corner met at 104 MHz.
+  - Worst setup +0.305 ns (the framework's scaler), hold +0.016 ns.
+  - 18,073 ALMs (43%), 256 M10K. flash_save is 207 ALMs and 6 M10K.
