@@ -67,30 +67,83 @@ timer 4 (`0x0C120A80`) is bit 4 (`0x5031C968`); the kernel enables bit 25
 | 21 | MMCDataIdle | | 28 | APIMissAlign |
 | 22 | MMCDataRdy | | 29 + 2*n*, 30 + 2*n* | GPIO*n* Low, High (n = 0-21 named in the kernel) |
 
-Sources enabled so far: IRQ 0 (tick), 25, 46 (GPIO8High); FIQ 27.
+Sources enabled so far: IRQ 0 (tick), 1 (high-resolution timer), 4,
+6-12 (DMA), 21-24 (MMC), 25 (CTSI: cbus.dll and ekeyb.dll), 46 (GPIO8High,
+bound by cbus.dll; probably the UEMK interrupt line); FIQ 27.
 
 ## Timers (0x0C120A00) — `ngage_intc.c`
 
-Timer *n* at `0x0C120A00 + 0x20n`, *n* = 0-5 (stride from timer 4 at `+0x80`
-using source 4). Clock assumed 104/3 MHz (34.67 MHz): the kernel's reload
-`0x843E2` (`0x5031C6F0`) then gives the EKA1 1/64 s tick (C).
+Timer *n* at `0x0C120A00 + 0x20n`, *n* = 0-5 (stride from timer 1 at `+0x20`
+and timer 4 at `+0x80` using sources 1 and 4). Clock 104/3 MHz = 34.67 MHz:
+the kernel converts microseconds with ×34666/1000 (`0x5031CB74`), and its
+reload `0x843E2` (`0x5031C6F0`) gives the EKA1 1/64 s tick (B). Uses: timer 0
+= system tick (IRQ ISR `0x5031C5B0`); timer 1 = high-resolution timer
+(kernel object 0x80000558, ISR `0x5031CAC0`); timer 4 = one-shot
+(`0x5031C968`).
 
 | Offset | Name / guess | Behaviour | Evidence | Conf. |
 |---|---|---|---|---|
-| `+0x04` | control | bit 1 = run; reads back what was written | boot `0x31AC`; ekern `0x5031EA58` rewrites until it reads back | B |
-| `+0x08` | interrupt flag | set to 1 on underflow; source asserted while bit 0 = 1; software writes it | kernel tick ISR acks with 0 (`0x5031C5C0`); boot and timer-4 ISRs write 1 after disabling the source (`0x3064`, `0x5031C86C`); boot polls it (`0x3208`) | B |
+| `+0x04` | control | bit 1 = run, reload from +0x18 on underflow; bit 0 alone = run once and stop at 0 (guess); reads back what was written | boot `0x31AC`; timer 1 started with 1 (`0x5031CA78`); ekern `0x5031EA58` rewrites until it reads back | B (bit 1), C (bit 0) |
+| `+0x08` | interrupt acknowledge | any write clears the latched underflow interrupt; reads return the last value written | tick ISR writes 0 (`0x5031C5C0`); timer-1 ISR writes 1 without disabling its source (`0x5031CACC`); boot and timer-4 ISRs write 1 (`0x3064`, `0x5031C86C`); boot polls the value it wrote (`0x3208`) | B |
 | `+0x10` | counter | live down-count; a write reloads | kernel reads it as a free-running time base (`0x5031E6B4`) | B |
 | `+0x18` | reload | loaded on underflow | boot `0x31B4`, ekern `0x5031EAC4` | B |
 
-## LCD bus interface (0x0C121200)
+## DMA controller (0x0C120300) — `ngage_dma.c`
 
-Storage only so far (panel model pending). See `research/peripherals/DISPLAY.md`.
+Channel *n* at `0x0C120300 + 0x40n`; the kernel allocates channels 0-6 per
+transfer (ekern 0x5031B17C).
 
-| Address | Name / guess | Evidence | Conf. |
-|---|---|---|---|
-| `0x0C121200` | sequencer control (`0x09280000` command, `0x09240000|(n-1)` n parameters) | bootstrap `0x6E9C`, lcd.ldd | B |
-| `0x0C121204` | aux control / status (bit 2 polled) | bootstrap `0x669C`, lcd.ldd | C |
-| `0x0C121208` | data FIFO | bootstrap `0x66E0` | B |
+| Offset | Name / guess | Behaviour | Evidence | Conf. |
+|---|---|---|---|---|
+| `+0x04` | channel enable / clear | written 1 before programming, 0 when stopping; 0 acknowledges | ekern 0x5031B2E8, 0x5031B4F0 | B |
+| `+0x08` | start / busy | 1 = start memory-to-memory, 2 = start paced by the peripheral, 0 = stop and acknowledge; reads 0 when idle | 0x5031B43C, 0x5031B5D8, polled 0x5031B2D4 | B |
+| `+0x0C`, `+0x10` | status? | read 0 | read after a stop, 0x5031B2F4 | C |
+| `+0x14` / `+0x20` | source / destination address | physical; `0x1xxxxxxx` = the peripheral at `0x0Cxxxxxx` | tables 0x503401F4, 0x503401D0 | B |
+| `+0x18` / `+0x24` | source / destination mode | 0 fixed (FIFO), 2 incrementing in on-chip RAM, 4 incrementing in SDRAM | 0x5031B344 | B |
+| `+0x1C` / `+0x28` | source / destination width | 8, 0x10, 0x20 = 8, 16, 32 bits | MMC FIFO 8, LCD FIFO 0x20 (0x5034025C) | B |
+| `+0x2C` | count − 1 | in source-width units | 0x5031B5CC | B |
+| `0x0C120064`/`68` | request-line select | 4 bits per channel (MMC = 2, LCD = 7); not modelled | 0x5031EDF8 | B |
+
+DMA peripheral targets: `0x10121208` LCD FIFO (type 4), `0x10120624` MMC FIFO
+(type 5), `0x10150554`/`0x10150500` accessory interface. Completion raises
+IrqDmaChannel*n* (source 6+*n*); the kernel's DMA ISR (0x50326B08) reads no
+status and stops the channel.
+
+## MMC host (0x0C120600) — `ngage_mmc.c`
+
+From epbus.dll's WD2MMC layer.
+
+| Offset | Name / guess | Behaviour | Evidence | Conf. |
+|---|---|---|---|---|
+| `+0x04` | control | bit 0 starts a transfer (reads 1 until taken; the driver polls it up to 120 times); bits 5:2 = type: 0 none, 1 R1, 2 R3 (with bit 6, CMD1), 3 R2, 4 R1b?, 8/9/10 = read first block / next block / CMD12, 5/6/7 = the same for writing. Without bit 0: 0x40 at power-up, 0 at power-down | 0x503F53DC jump table, 0x503F5474, 0x503F57D0; CMD17 seen as 0x21 | A (cmd types), B (data types) |
+| `+0x608` | data length | block length of the following data phase | 0x503F53A0 | B |
+| `+0x60C`, `+0x610` | time-outs? | 0x1DC130 at power-up; stored | 0x503F5E18, 0x503F5DDC | C |
+| `+0x614` | clock divider? | 0x280 at power-up; stored | 0x503F5DA4 | C |
+| `+0x618` | status | bit 3 command busy, 2 data busy, 8 response word ready; errors: 6 response time-out, 1 response CRC, 9 other; data 0 CRC, 5 busy time-out, 7 time-out, 10 other | decoder 0x503F5E4C | A |
+| `+0x61C` | command index | | 0x503F52A4 | A |
+| `+0x620` | argument (write) / response (read) | 48-bit responses in one word; R2 as four words, MSB first, each after status bit 8 | 0x503F5350, 0x503F54F4, 0x503F555C | A |
+| `+0x624` | data FIFO | 8-bit DMA target 0x10120624 | ekern 0x503401D0 | B |
+
+Interrupts are bound by name (epbus 0x503F6180-0x503F62E8): MMCCmdIdle 23,
+MMCDataIdle 21, MMCCmdRdy 24, MMCDataRdy 22. The model drives them as
+levels from the status bits. The card model does MMC 3.x identification
+(CMD0/1/2/3/9/10/7/13/16) and block reads/writes (CMD17/18/24/25/12). Its
+CID/CSD come from `<image>.cid`/`.csd` sidecars (16 bytes binary, or hex);
+without them it uses a generic CID and a CSD sized to the image.
+
+## LCD bus interface (0x0C121200) — `ngage_lcd.c`
+
+| Offset | Name / guess | Behaviour | Evidence | Conf. |
+|---|---|---|---|---|
+| `+0x00` | control | read: last value with bit 30 (ready) set. Write: phase for `+0x08`; bits 15:0 = bytes − 1; bits 19:18 = packing: 2 one command byte (`0x09280000`), 1 three bytes from two 12-bit units (`0x0924xxxx` parameters LSB first; bit 31 set, `0x8314xxxx`/`0x8924xxxx`, = DCS pixel order R0G0 B0R1 G1B1), 3 four bytes LSB first (`0x092Cxxxx` LUT, `0x082Cxxxx` 16-bit pixels). `0x0784xxxx` = read phase | lcd.ldd 0x50406928, 0x50402188; bootstrap 0x6E9C, 0x694C | A (phases), B (bit 31) |
+| `+0x04` | auxiliary | bit 2 reads 1 = FIFO can take a word; writes 2 then 1 reset the FIFO | bootstrap 0x6858, 0x6834; lcd.ldd 0x50401F14 | B |
+| `+0x08` | FIFO | write: data per phase; read: next byte in a read phase (first a dummy) | bootstrap RDDID 0x6C44 | A |
+
+Panel: DCS-style commands (DISPLAY.md). RDDID returns 0x29xxxx, which selects
+LCD module type 0x10 (bootstrap 0x62D8; 0x83 → module 4); the bootstrap
+stores the type at SDRAM 0x0A012000+24 and ecust copies it to variant +0x7C.
+MADCTL 0xD4 gives an upright image if the panel is mounted rotated by 180°
+(inferred from the rendered boot logo).
 
 ## DPLLs and test interface (0x0C14xxxx)
 
@@ -106,13 +159,24 @@ Storage only so far (panel model pending). See `research/peripherals/DISPLAY.md`
 |---|---|---|---|---|
 | `0x0C150000` | CTSI reset reason | storage (reads 0) | bootstrap `0x2E58` masks `0x0E` | B |
 | `0x0C150024`, `0x0C150028` | CTSI IRQ / FIQ controller enable | storage | ekern `0x5031C730`/`0x5031C73C` write 1 | C |
+| `0x0C150100` | CTSI interrupt status: bit 2 = port E (key rows) interrupt, bit 3 = port D (guess); write 1 to clear; behind main source 25 | `ngage_keypad.c` | ekeyb CTSI ISR 0x5041B9E0 tests bit 2, acks with 0xC at 0x5041CD6C; bootstrap writes 0x8000 (0x2EE4) | B |
 | `0x0C150200`-`0x0C150218` | PUP GENIO set/reset/input/direction | storage | bootstrap `0x3A24`, `0x67C0` (LCD /RES = GENIO4) | B |
-| `0x0C150400`-`0x0C150418` | UIF GPIO D/E (keypad lines) | storage | ekeyb.dll; ekern `0x5031E70C` | B |
+| `0x0C150400`/`0x0C15040C` | UIF port D (key columns, 5 bits) / port E (key rows, 6 bits) data: output latch, reads pin levels | `ngage_keypad.c` | ekeyb 0x5041CBA8 (reads, inverts, keeps 0x1F/0x3F) | A |
+| `+0x02`/`+0x0E` | direction, 1 = output; write: low byte sets, high byte clears | | ekeyb ops 2/3 at 0x5041C804 | A |
+| `+0x04`/`+0x10` | interrupt enable, set/clear format | | ops 4/5 | B |
+| `+0x08`/`+0x14` | unknown, set/clear format | stored | ops 6/7 | C |
+| `+0x0A`/`+0x16` | pull-up enable, set/clear format | | ops 8/9; idle state 0x5041CCE0 | B |
+| `0x0C150418` | unknown | written 0 at keypad init | 0x5041CCFC | C |
 | `0x0C150420` | CBUS transfer length: bits 4:0 = bits - 1 | `ngage_cbus.c` | cbus.dll `0x5037D014`, bootstrap `0x35F4` | A |
 | `0x0C150422` | CBUS control: bits 4:0 register, 7:5 device, bit 8 read (starts it), bit 9 on some writes; bit 10 reads 1 = done | `ngage_cbus.c` | cbus.dll `0x5037D028`, `0x5037CF74`; bootstrap `0x3644` | A |
 | `0x0C150424` | CBUS data bits 31:16 | `ngage_cbus.c` | cbus.dll `0x5037D388`, `0x5037D074` | A |
 | `0x0C150426` | CBUS data bits 15:0; a write starts a write transfer | `ngage_cbus.c` | bootstrap `0x3604`, cbus.dll `0x5037D39C` | A |
 | `0x0C150538`, `0x0C15053C` | unknown, written before STI set-up | storage | ekern `0x5031E410` | C |
+
+Key matrix (ekeyb table 3, row × column): ROW0 Up Left RSK Clear Menu; ROW1
+Down Right End Edit OK; ROW2 LSK – 1 6 8; ROW3 Call – 5 7 #; ROW4 – – 9 0 3;
+ROW5 – – * 2 4. In the idle state the columns drive 0 and the rows are
+pulled-up inputs with interrupts enabled; a scan drives one line at a time.
 
 CBUS devices (`model/cbus-regs.txt`): 1 = UEMK (register numbers as TriX's
 DCT4 UEM); 4 = unknown (probably ZOCUS), register 0 must read `0x04xx`
