@@ -245,7 +245,13 @@ ddram_loader ddram_loader
 
 assign DDRAM_CLK = clk_sys;
 
-// The CPU's Wishbone port: the self-test until the CPU exists
+// The CPU's Wishbone port: the self-test until the CPU exists. The CPU
+// (rtl/cpu/arm925t.sv, req/ack with a burst flag) connects as
+//   wb_cyc = wb_stb = bus_req, wb_we = bus_we, wb_adr = bus_addr,
+//   wb_sel = bus_be, wb_dat_w = bus_wdata, wb_cti = bus_burst ? 3'b010 : 3'b111,
+//   wb_bte = 2'b00; bus_rdata = wb_dat_r, bus_ack = wb_ack, bus_err = wb_err.
+// Flash reads return only the halfwords bus_be asks for (the others read 0):
+// reading the other half would be a second status read, which toggles DQ6.
 wire        wb_cyc, wb_stb, wb_we, wb_ack, wb_err;
 wire [31:0] wb_adr, wb_dat_w, wb_dat_r;
 wire  [3:0] wb_sel;
