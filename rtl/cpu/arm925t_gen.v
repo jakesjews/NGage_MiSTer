@@ -4687,7 +4687,7 @@ module zap_core (
 	assign fiq = i_fiq;
 	assign data_stall = (o_data_wb_stb & o_data_wb_cyc) & ~i_data_wb_ack;
 	assign instr_valid = ((o_instr_wb_stb & o_instr_wb_cyc) & i_instr_wb_ack) & ~shelve;
-	assign pipeline_is_not_empty = ((((((((predecode_val || (decode_condition_code != NV)) || (issue_condition_code_ff != NV)) || (shifter_condition_code_ff != NV)) || alu_dav_ff) || postalu0_dav_ff) || postalu1_dav_ff) || postalu_dav_ff) || memory_dav_ff) || |i_dc_lock;
+	assign pipeline_is_not_empty = (((((((((((((predecode_val || (decode_condition_code != NV)) || (issue_condition_code_ff != NV)) || (shifter_condition_code_ff != NV)) || alu_dav_ff) || postalu0_dav_ff) || postalu1_dav_ff) || postalu_dav_ff) || memory_dav_ff) || alu_decompile_valid) || postalu0_decompile_valid) || postalu1_decompile_valid) || postalu_decompile_valid) || memory_decompile_valid) || |i_dc_lock;
 	assign o_mem_translate = postalu1_mem_translate_ff;
 	assign code_stall = fifo_full | ((o_instr_wb_stb & o_instr_wb_cyc) & ~i_instr_wb_ack);
 	assign o_data_wb_adr_check = {postalu1_address_ff[31:2], 2'd0};

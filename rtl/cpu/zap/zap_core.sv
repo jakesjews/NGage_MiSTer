@@ -569,6 +569,14 @@ assign pipeline_is_not_empty    = predecode_val                      ||
                                   postalu1_dav_ff                    ||
                                   postalu_dav_ff                     ||
                                   memory_dav_ff                      ||
+                                  // ARM925T: and instructions whose condition
+                                  // failed, so that a CP15 operation starts
+                                  // only after everything older has retired.
+                                  alu_decompile_valid                ||
+                                  postalu0_decompile_valid           ||
+                                  postalu1_decompile_valid           ||
+                                  postalu_decompile_valid            ||
+                                  memory_decompile_valid             ||
                                   (|i_dc_lock);
 
 assign o_mem_translate = postalu1_mem_translate_ff;
