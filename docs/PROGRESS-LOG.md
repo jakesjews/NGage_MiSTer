@@ -1500,3 +1500,48 @@ found, and what comes next. Research material lives in `research/`
 
 ### 2026-10-20: MiSTer free again
 - The user says the MiSTer is available; the hold is lifted.
+
+### 2026-10-20, CPU: the boot matches the model; 104 MHz closes on eight seeds
+- Kernel divergence found and fixed. Causes were in both the CPU and the
+  bench. The RTL now makes every device access of the model's run, in the
+  same order and with the same values: 76,975 accesses, through the MMC
+  and LCD driver start-up and the RTC, to the model's last one at 581M
+  instructions. Register logs (61), CBUS logs (79), mmc.log and the kernel
+  text are identical.
+  - CPU, two upstream ZAP bugs, each with a test that fails on the old
+    netlist:
+    - Thumb `LDR/STR Rd, [SP, #imm]` used SP - imm (tests/thumb.S);
+    - MOV/ADD PC kept an older instruction's predicted PC, so a
+      `MOV PC, LR` could run on past itself after a conditional BL
+      predicted not taken (tests/bpred.S).
+  - Bench:
+    - keypad UIF/CTSI;
+    - the current model's UEMK and HLE RTCs;
+    - the MMC host (empty slot);
+    - instructions counted as QEMU's icount counts them. SWI and UND
+      count, and a Thumb BL pair counts once. Before, guest time drifted
+      240 instructions by the first ticks.
+  - Method: the model is built from git HEAD on the ubuntu server
+    (sim/cpu/model/build_linux.sh, run_model.sh, a TCG plugin for device,
+    interrupt and instruction traces). sim/cpu/boot/cmp_dev.py and
+    cmp_window.py compare the two sides. `make -C sim/cpu boot-prep
+    boot-model boot` runs it all.
+- Timing at 104 MHz, standalone, every output observed, Quartus seeds 1-8:
+  every seed positive at every corner. Worst setup slack is +0.20 ns at
+  slow 100C / +0.33 ns at slow -40C (seed 7 and seed 3 give the minimums),
+  hold is at least +0.09 ns, and the fast corners have about 4 ns spare.
+  - Changes:
+    - registered bus responses in both caches;
+    - background-load register write from a latch;
+    - valid/dirty write-behind;
+    - registered RAM collision checks;
+    - load transform before the memory-stage register;
+    - RAS pushes one cycle late;
+    - the ARMv5 patterns folded out of the decoder.
+  - Placement noise is about ±0.3 ns.
+- Cost: one cycle per uncacheable access and per D-cache load miss.
+  - Boot bench (zero wait states): the uncached bootstrap +21% cycles,
+    cached integrity checks +6%, cached kernel code about 0%.
+  - Bench tests: +12% at zero wait states, +4% at 2-9.
+- Regression: 162 runs (49 agree with QEMU), 400 random programs,
+  gba-tests, RTL=sv. All pass.
