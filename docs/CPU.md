@@ -414,10 +414,13 @@ memory at the end.
   ADC), the flash ID and CFI probes, and both MD5 integrity checks over
   19.6 MB of flash with the MMU and caches on. The kernel starts, enters
   the NOS stand-in, and matches the model for 23 more register accesses and
-  64 CBUS transfers in all; its first debug text is the model's. Running it
-  found four of the bugs listed above. Where the logs part later, the cause
-  so far has been the bench's devices (the LCD ID, the power key timing),
-  not the CPU.
+  67 CBUS transfers in all; its first debug text is the model's. Running it
+  found four of the bugs listed above. Earlier differences came from the
+  bench's devices (the LCD ID, the power key timing), not the CPU. At 2.5
+  billion cycles the kernel is running but makes no more device accesses
+  where the model goes on with CBUS device 5 and an emif read; whether it
+  waits for a device or interrupt the bench lacks is not known yet. The
+  next step is an instruction trace from the model around that point.
 
 ## FPGA resources and timing
 
