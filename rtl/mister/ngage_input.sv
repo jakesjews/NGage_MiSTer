@@ -3,7 +3,7 @@
 // MiSTer controls to N-Gage QD keys: a key vector for keypad_matrix
 // (ngage_keys positions) and the power key.
 //
-// Joystick (both of the first two pads), in the order of CONF_STR's J1 line:
+// Joystick (both of the first two pads), in the order of CONF_STR's J line:
 //   d-pad = rocker; 4: 5, 5: 7 (the game keys); 6: OK; 7: left soft key;
 //   8: right soft key; 9: Menu; 10: Call; 11: End; 12: *; 13: #; 14: Clear;
 //   15: Edit; 16: Power.

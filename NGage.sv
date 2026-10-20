@@ -87,7 +87,7 @@ localparam CONF_STR = {
 	"-;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
-	"J1,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power;",
+	"J,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power;",
 	"jn,A,B,X,L,R,Start,Select;",
 	"V,v",`BUILD_DATE
 };
