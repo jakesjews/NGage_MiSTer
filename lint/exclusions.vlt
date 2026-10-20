@@ -23,6 +23,11 @@ lint_off -rule UNUSEDSIGNAL -file "rtl/mem/ddram_flash.sv" -match "*Bits of func
 // the address bits of their size.
 lint_off -rule UNUSEDSIGNAL -file "rtl/upp/upp_bus.sv" -match "*Bits of function variable are not used*"
 lint_off -rule UNUSEDSIGNAL -file "rtl/upp/upp_bus.sv" -match "*Bits of signal are not used: 'ram_raddr'*"
+// the gain product's dropped bits; the interpolation phase is the top of a product
+lint_off -rule UNUSEDSIGNAL -file "rtl/upp/upp_haudio.sv" -match "*Bits of function variable are not used: 'm'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/upp/upp_haudio.sv" -match "*Bits of signal are not used: 'ph'*"
+// hps_io's RTC: the weekday and the last byte are not used
+lint_off -rule UNUSEDSIGNAL -file "rtl/mister/rtc_wall.sv" -match "*Bits of signal are not used: 'rtc'[63:48]*"
 
 // NGage.sv: the UPP's interrupt outputs wait for the CPU (rtl/cpu/arm925t.sv).
 lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Signal is not used: 'cpu_irq'*"
@@ -97,7 +102,6 @@ lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'i
 lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'ioctl_rd'"
 lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'ioctl_file_ext'"
 lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'sdram_sz'"
-lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'RTC'"
 lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'TIMESTAMP'"
 lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'uart_mode'"
 lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'uart_speed'"

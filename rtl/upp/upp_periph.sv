@@ -18,6 +18,9 @@
 //   0x0C150100             CTSI interrupt status            upp_uif
 //   0x0C150400-0x0C15041F  UIF ports D/E (keypad)           upp_uif
 //   0x0C150420-0x0C150427  CBUS master, UEMK and the rest   upp_cbus
+//   0x0C1F0000-0x0C1F00FF  HLE audio device (emulator)      upp_haudio
+//   0x0C1F0100-0x0C1F010F  HLE RTC date register (emulator): +0 the date,
+//                          the rest 0, writes dropped        upp_cbus
 //   0x0DE00000-0x0DFFFFFF  STI trace window: writes go to sti_* (the kernel's
 //                          debug text, ngage_sti.c), reads 0
 //   the rest of 0x0C1xxxxx registers with no known behaviour: storage, as the
@@ -30,6 +33,16 @@
 // (rmask). Accesses of a size a block's model region does not take (32-bit
 // only for the intc, timers, DMA and LCD; 16-bit for the keypad and CTSI;
 // 16/32-bit for CBUS) are dropped and read 0, as QEMU does with them.
+//
+// The two emulator devices are inventions of this project for what NOS and
+// the DSP did on the phone (docs/UPP_WD2.md, "Emulator devices"); only the
+// NOS stand-in uses them. Their windows take 32-bit accesses only and hide
+// the storage behind them, as the model's regions do over its storage block.
+// The audio device reads its samples through the DMA controller's bus master
+// port: the two take it in turns, a cycle each (the DMA controller's is one
+// beat, the audio device's the one or two of a frame). Its interrupt is
+// source 5 (IrqTimer5) ORed with timer 5's (in the model whichever changed
+// last sets the line; nothing runs timer 5).
 //
 // Storage is a block RAM of 8 slots of 4 KB, one per page the firmware is
 // known to use (0x0C120, 0x0C121, 0x0C149, 0x0C14D, 0x0C14F, 0x0C150) and two
@@ -50,7 +63,8 @@ module upp_periph #(
 	parameter int LCD_RD_LOW         = 4,
 	parameter int LCD_RD_HIGH        = 6,
 	parameter int DMA_ENGINES        = 3,
-	parameter int POWER_ON_HOLD_CLKS = 312_000_000     // 3 s, as the model
+	parameter int POWER_ON_HOLD_CLKS = 312_000_000,    // 3 s, as the model
+	parameter int CLK_HZ             = 104_000_000     // for the audio device
 ) (
 	input  logic        clk,
 	input  logic        reset,
@@ -64,7 +78,8 @@ module upp_periph #(
 	output logic [31:0] p_rdata,
 	output logic        p_wait,
 
-	// the DMA controller's bus master (Wishbone B3 classic)
+	// the bus master of the DMA controller and the audio device (Wishbone B3
+	// classic, single beats)
 	output logic        dma_cyc,
 	output logic        dma_stb,
 	output logic        dma_we,
@@ -108,6 +123,18 @@ module upp_periph #(
 	input  logic [5:0]  kp_row_in,
 	input  logic        power_key,
 
+	// the wall clock (rtc_wall) for the UEMK RTC and the date register
+	input  logic        rtc_valid,
+	input  logic [5:0]  rtc_sec,
+	input  logic [5:0]  rtc_min,
+	input  logic [4:0]  rtc_hour,
+	input  logic [7:0]  rtc_days,
+	input  logic [31:0] rtc_date,
+
+	// the audio device's output, signed, at 48 kHz
+	output logic [15:0] audio_l,
+	output logic [15:0] audio_r,
+
 	// writes to the STI trace window (debug)
 	output logic        sti_we,
 	output logic [20:0] sti_addr,
@@ -126,6 +153,7 @@ module upp_periph #(
 	wire pg21 = in_c1 && page == 8'h21;
 	wire pg49 = in_c1 && page == 8'h49;
 	wire pg50 = in_c1 && page == 8'h50;
+	wire pgF0 = in_c1 && page == 8'hF0;
 
 	wire s_intc = pg20 && ((off >= 12'h040 && off < 12'h080) || (off >= 12'h100 && off < 12'h280));
 	wire s_dma  = pg20 && off >= 12'h300 && off < 12'h500;
@@ -135,11 +163,13 @@ module upp_periph #(
 	wire s_ctsi = pg50 && off == 12'h100;
 	wire s_kp   = pg50 && off >= 12'h400 && off < 12'h420;
 	wire s_cbus = pg50 && off >= 12'h420 && off < 12'h428;
+	wire s_aud  = pgF0 && off < 12'h100;
+	wire s_date = pgF0 && off >= 12'h100 && off < 12'h110;
 	wire s_sti  = p_addr[27:21] == 7'b1101_111;
 
 	wire be32 = p_be == 4'b1111;
 	wire be16 = p_be == 4'b0011 || p_be == 4'b1100;
-	wire size_ok = (s_intc || s_dma || s_tmr || s_lcd) ? be32 :
+	wire size_ok = (s_intc || s_dma || s_tmr || s_lcd || s_aud || s_date) ? be32 :
 	               s_ctsi ? p_be == 4'b0011 :
 	               s_kp ? be16 :
 	               s_cbus ? (be16 || be32) : 1'b1;
@@ -206,13 +236,20 @@ module upp_periph #(
 	// The blocks
 	// ------------------------------------------------------------------
 	logic [31:0] m_intc, d_intc, m_tmr, d_tmr, m_dma, d_dma, m_mmc, d_mmc, m_lcd, d_lcd,
-	             m_uif, d_uif, m_cbus, d_cbus;
+	             m_uif, d_uif, m_cbus, d_cbus, m_aud, d_aud, rtc_base;
 	logic        b_mmc, b_lcd, b_cbus;
 	logic [5:0]  tmr_irq;
 	logic [7:0]  dma_irq;
 	logic [3:0]  mmc_irq;
 	logic        ctsi_irq;
+	logic        aud_irq;
 	logic        mmc_rx_ready, mmc_tx_ready, lcd_tx_ready;
+
+	// the two masters behind the DMA port
+	logic        d_cyc, d_stb, d_we, a_cyc, a_stb, a_we;
+	logic [31:0] d_adr, d_dat, a_adr, a_dat;
+	logic [3:0]  d_sel, a_sel;
+	logic        own_au;               // 1: the audio device has the port
 
 	// interrupt sources, bit 32k + b = bank k bit b (docs/UPP_WD2.md)
 	wire [95:0] src = {70'd0,
@@ -221,7 +258,8 @@ module upp_periph #(
 		5'd0,                          // 16-20 Ir4M
 		2'd0,                          // 14 FlashCopyRdy, 15 LCDBuffer
 		dma_irq,                       // 6-13 DmaChannel0-7
-		tmr_irq};                      // 0-5 Timer0-5
+		tmr_irq[5] | aud_irq,          // 5 Timer5, the HLE audio device
+		tmr_irq[4:0]};                 // 0-4 Timer0-4
 
 	upp_intc intc (
 		.clk(clk),
@@ -263,16 +301,54 @@ module upp_periph #(
 		.mmc_rx_ready(mmc_rx_ready),
 		.mmc_tx_ready(mmc_tx_ready),
 		.lcd_tx_ready(lcd_tx_ready),
-		.m_cyc(dma_cyc),
-		.m_stb(dma_stb),
-		.m_we(dma_we),
-		.m_adr(dma_adr),
-		.m_dat_o(dma_dat_o),
-		.m_sel(dma_sel),
-		.m_ack(dma_ack),
-		.m_err(dma_err),
+		.m_cyc(d_cyc),
+		.m_stb(d_stb),
+		.m_we(d_we),
+		.m_adr(d_adr),
+		.m_dat_o(d_dat),
+		.m_sel(d_sel),
+		.m_ack(dma_ack && !own_au),
+		.m_err(dma_err && !own_au),
 		.m_dat_i(dma_dat_i)
 	);
+
+	upp_haudio #(.CLK_HZ(CLK_HZ)) haudio (
+		.clk(clk),
+		.reset(reset),
+		.acc(acc && s_aud),
+		.wr(wr && s_aud),
+		.off(off[7:0]),
+		.wdata(p_wdata),
+		.rmask(m_aud),
+		.rdata(d_aud),
+		.irq(aud_irq),
+		.m_cyc(a_cyc),
+		.m_stb(a_stb),
+		.m_we(a_we),
+		.m_adr(a_adr),
+		.m_dat_o(a_dat),
+		.m_sel(a_sel),
+		.m_ack(dma_ack && own_au),
+		.m_err(dma_err && own_au),
+		.m_dat_i(dma_dat_i),
+		.out_l(audio_l),
+		.out_r(audio_r),
+		.frame_we(),
+		.frame_l(),
+		.frame_r()
+	);
+
+	// the shared master port: the owner keeps it while it has CYC up
+	always_ff @(posedge clk) begin
+		if (own_au ? (!a_cyc && d_cyc) : (!d_cyc && a_cyc)) own_au <= !own_au;
+		if (reset) own_au <= 1'b0;
+	end
+	assign dma_cyc   = own_au ? a_cyc : d_cyc;
+	assign dma_stb   = own_au ? a_stb : d_stb;
+	assign dma_we    = own_au ? a_we  : d_we;
+	assign dma_adr   = own_au ? a_adr : d_adr;
+	assign dma_dat_o = own_au ? a_dat : d_dat;
+	assign dma_sel   = own_au ? a_sel : d_sel;
 
 	upp_mmc #(.DIV(MMC_DIV), .TIMEOUT_LOG2(MMC_TIMEOUT_LOG2)) mmc (
 		.clk(clk),
@@ -355,16 +431,27 @@ module upp_periph #(
 		.rmask(m_cbus),
 		.rdata(d_cbus),
 		.busy(b_cbus),
-		.power_key(power_key)
+		.power_key(power_key),
+		.rtc_valid(rtc_valid),
+		.rtc_sec(rtc_sec),
+		.rtc_min(rtc_min),
+		.rtc_hour(rtc_hour),
+		.rtc_days(rtc_days),
+		.rtc_date(rtc_date),
+		.rtc_base(rtc_base)
 	);
 
 	// the read quirks of the clock page and the DPLL (model/upp-quirks.txt)
 	wire [31:0] m_q = (acc && pg20 && off == 12'h020) ? 32'h1C00_0000 :
 	                  (acc && pg49 && off == 12'h000) ? 32'h0000_0001 : 32'd0;
+	// the HLE RTC date register
+	wire [31:0] m_date = (acc && s_date) ? 32'hFFFF_FFFF : 32'd0;
+	wire [31:0] d_date = (off[3:0] == 4'h0) ? rtc_base : 32'd0;
 
-	wire [31:0] rmask = m_intc | m_tmr | m_dma | m_mmc | m_lcd | m_uif | m_cbus | m_q;
+	wire [31:0] rmask = m_intc | m_tmr | m_dma | m_mmc | m_lcd | m_uif | m_cbus | m_aud | m_date | m_q;
 	wire [31:0] rbits = (d_intc & m_intc) | (d_tmr & m_tmr) | (d_dma & m_dma) | (d_mmc & m_mmc) |
-	                    (d_lcd & m_lcd) | (d_uif & m_uif) | (d_cbus & m_cbus) | m_q;
+	                    (d_lcd & m_lcd) | (d_uif & m_uif) | (d_cbus & m_cbus) | (d_aud & m_aud) |
+	                    (d_date & m_date) | m_q;
 	assign blk_busy = (s_mmc && b_mmc) || (s_lcd && b_lcd) || (s_cbus && b_cbus);
 
 	always_ff @(posedge clk) begin

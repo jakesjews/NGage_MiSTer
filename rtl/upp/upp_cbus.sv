@@ -32,6 +32,18 @@
 //     15:12 into 0x1A (10 bits): channel 6, the battery-size indicator, reads
 //     485 ([model guess], inside cbus.dll's 380-590 "normal battery" range,
 //     0x5037E240); other channels read 0.
+//     Real-time clock (rtc.dll; the model's rtc_read): 0x11, 0x12 and 0x13
+//     read the seconds, minutes and hours of the wall clock (rtl/mister/
+//     rtc_wall.sv, MiSTer's RTC, counting in real time), 0x01 the day
+//     counter, 8 bits, which steps when the wall clock's date does. A write
+//     of 0x01 sets the counter. 0x04 (calibration; rtc.dll takes 0 for a
+//     clock that lost power) is 0x00C0 after reset, as cbus-regs.txt.
+//     At reset, and when the wall clock gets its first time from the HPS,
+//     the counter is 0 and the HLE RTC date register (0x0C1F0100, an
+//     emulator invention that upp_periph reads from rtc_base) takes the
+//     wall clock's date: so date + counter days + time of day is the time.
+//     Before the HPS has sent a time, the date register reads 0 (unknown)
+//     and the clock runs from 00:00:00.
 //   Device 4 (probably ZOCUS; cbus.dll's self-test 0x5037E008 needs register 0
 //     to read 0x04xx): register 0 reads 0x0400.
 //   Device 5 and everything else: storage, 0 after reset.
@@ -53,7 +65,16 @@ module upp_cbus #(
 	output logic [31:0] rdata,
 	output logic        busy,
 
-	input  logic        power_key
+	input  logic        power_key,
+
+	// the wall clock (rtc_wall)
+	input  logic        rtc_valid,
+	input  logic [5:0]  rtc_sec,
+	input  logic [5:0]  rtc_min,
+	input  logic [4:0]  rtc_hour,
+	input  logic [7:0]  rtc_days,
+	input  logic [31:0] rtc_date,
+	output logic [31:0] rtc_base       // the HLE RTC date register
 );
 
 	// ---- the device model (model/cbus-regs.txt) ----
@@ -68,9 +89,9 @@ module upp_cbus #(
 	function automatic logic [9:0] adc_val(input logic [3:0] ch);
 		return (ch == 4'd6) ? 10'd485 : 10'd0;
 	endfunction
-	// initial values of registers that are not ro (none in cbus-regs.txt)
+	// initial values of registers that are not ro: UEMK 0x04 = 0x00C0
 	function automatic logic [31:0] init_val(input logic [7:0] i);
-		return 32'd0 & {24'd0, i};
+		return (i == {3'd1, 5'h04}) ? 32'h0000_00C0 : 32'd0;
 	endfunction
 
 	localparam int HW = $clog2(POWER_ON_HOLD_CLKS + 1);
@@ -85,6 +106,8 @@ module upp_cbus #(
 	logic [8:0]  clr;                   // the reset fill of the register file
 	logic [HW-1:0] hold;
 	logic          read_1f;            // UEMK 0x1F has been read since reset
+	logic [7:0]    day_off;            // day counter = day_off + rtc_days
+	logic          rtc_vq;
 
 	wire  clearing = !clr[8];
 	wire  power    = power_key || hold != '0 || !read_1f;
@@ -161,6 +184,15 @@ module upp_cbus #(
 			logic [31:0] v;
 			v = is_ro(rd_dev, rd_reg) ? ro_val(rd_dev, rd_reg) :
 			    (rd_dev == 3'd1 && rd_reg == 5'h1A) ? {22'd0, adc} : rf_q;
+			if (rd_dev == 3'd1) begin
+				case (rd_reg)
+					5'h11: v = {26'd0, rtc_sec};
+					5'h12: v = {26'd0, rtc_min};
+					5'h13: v = {27'd0, rtc_hour};
+					5'h01: v = {24'd0, day_off + rtc_days};
+					default: ;
+				endcase
+			end
 			if (rd_dev == 3'd1 && rd_reg == 5'h1F) begin
 				v[1] = power;
 				read_1f <= 1'b1;
@@ -175,6 +207,14 @@ module upp_cbus #(
 			rf_wdata <= w_val;
 			if (w_dev == 3'd1 && w_reg == 5'h1A) adc <= w_val[9:0];
 			if (w_dev == 3'd1 && w_reg == 5'h19 && w_val[11]) adc <= adc_val(w_val[15:12]);
+			if (w_dev == 3'd1 && w_reg == 5'h01) day_off <= w_val[7:0] - rtc_days;
+		end
+
+		// the wall clock's first time from the HPS: the counter starts again
+		rtc_vq <= rtc_valid;
+		if (rtc_valid && !rtc_vq) begin
+			day_off  <= 8'd0 - rtc_days;
+			rtc_base <= rtc_date;
 		end
 
 		if (clearing) begin
@@ -197,6 +237,9 @@ module upp_cbus #(
 			clr     <= 9'd0;
 			hold    <= HW'(POWER_ON_HOLD_CLKS);
 			read_1f <= 1'b0;
+			day_off <= 8'd0 - rtc_days;
+			rtc_vq  <= rtc_valid;
+			rtc_base <= rtc_valid ? rtc_date : 32'd0;
 		end
 	end
 

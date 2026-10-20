@@ -37,6 +37,7 @@ rtl/upp/upp_mmc.sv
 rtl/upp/upp_lcdif.sv
 rtl/upp/upp_uif.sv
 rtl/upp/upp_cbus.sv
+rtl/upp/upp_haudio.sv
 rtl/upp/upp_periph.sv
 rtl/upp/wb_arb2.sv
 rtl/upp/ngage_mem.sv
@@ -44,5 +45,6 @@ rtl/upp/wb_selftest.sv
 rtl/mister/ngage_input.sv
 rtl/mister/ddram_loader.sv
 rtl/mister/flash_save.sv
+rtl/mister/rtc_wall.sv
 rtl/mister/lcd_testgen.sv
 NGage.sv

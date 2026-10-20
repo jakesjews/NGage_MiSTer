@@ -17,7 +17,7 @@ VFLAGS := --cc --exe --build -j 4 -O3 --x-assign unique --x-initial unique \
           -CFLAGS "-O2 -std=c++17 -I$(ROOT)/sim/harness"
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
-BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash upp intc timers periph save top
+BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash upp intc timers haudio periph save top
 
 .PHONY: test $(BENCHES) clean
 
@@ -135,6 +135,20 @@ $(BUILD)/timers/Vupp_timers: $(ROOT)/rtl/upp/upp_timers.sv $(ROOT)/sim/harness/t
 timers: $(BUILD)/timers/Vupp_timers
 	$< $(RUNFLAGS) --seed $(SEED)
 
+# The HLE audio device against a port of the model, at the core's clock and at
+# 2 MHz (many more frames a clock: buffer ends, restarts); with the model's
+# recording when it is there (local data)
+$(BUILD)/haudio/Vupp_haudio: $(ROOT)/rtl/upp/upp_haudio.sv $(ROOT)/sim/harness/haudio_main.cpp $(ROOT)/sim/harness/common.h
+	mkdir -p $(BUILD)/haudio && $(VERILATOR) $(VFLAGS) --top-module upp_haudio --Mdir $(BUILD)/haudio -o Vupp_haudio \
+		$(ROOT)/rtl/upp/upp_haudio.sv $(ROOT)/sim/harness/haudio_main.cpp
+$(BUILD)/haudio2m/Vupp_haudio: $(ROOT)/rtl/upp/upp_haudio.sv $(ROOT)/sim/harness/haudio_main.cpp $(ROOT)/sim/harness/common.h
+	mkdir -p $(BUILD)/haudio2m && $(VERILATOR) $(VFLAGS) --top-module upp_haudio --Mdir $(BUILD)/haudio2m -o Vupp_haudio \
+		-GCLK_HZ=2000000 $(ROOT)/rtl/upp/upp_haudio.sv $(ROOT)/sim/harness/haudio_main.cpp
+AUDIO_WAV ?= $(ROOT)/model/.out/au-rayman/audio.wav
+haudio: $(BUILD)/haudio/Vupp_haudio $(BUILD)/haudio2m/Vupp_haudio | $(OUT)
+	$(BUILD)/haudio/Vupp_haudio $(RUNFLAGS) --seed $(SEED) --wav $(AUDIO_WAV) --out $(OUT)
+	$(BUILD)/haudio2m/Vupp_haudio $(RUNFLAGS) --seed $(SEED) --clk-hz 2000000
+
 # The UPP peripherals in the memory system, with the board devices they drive
 # (sim/harness/periph_tb.sv), under a scripted CPU; replays the model's logs
 # from model/.out when they are there
@@ -145,7 +159,8 @@ PERIPH_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/tdp_ram.sv $(ROOT)/
               $(ROOT)/rtl/upp/ngage_mem.sv $(ROOT)/rtl/upp/upp_fifo.sv $(ROOT)/rtl/upp/upp_intc.sv \
               $(ROOT)/rtl/upp/upp_timers.sv $(ROOT)/rtl/upp/upp_dma.sv $(ROOT)/rtl/upp/upp_mmc.sv \
               $(ROOT)/rtl/upp/upp_lcdif.sv $(ROOT)/rtl/upp/upp_uif.sv $(ROOT)/rtl/upp/upp_cbus.sv \
-              $(ROOT)/rtl/upp/upp_periph.sv $(ROOT)/sim/harness/periph_tb.sv
+              $(ROOT)/rtl/upp/upp_haudio.sv $(ROOT)/rtl/upp/upp_periph.sv $(ROOT)/rtl/mister/rtc_wall.sv \
+              $(ROOT)/sim/harness/periph_tb.sv
 $(BUILD)/periph/Vperiph_tb: $(PERIPH_RTL) $(ROOT)/sim/harness/periph_main.cpp $(ROOT)/sim/harness/common.h \
                             $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h
 	mkdir -p $(BUILD)/periph && $(VERILATOR) $(VFLAGS) --top-module periph_tb --Mdir $(BUILD)/periph -o Vperiph_tb \

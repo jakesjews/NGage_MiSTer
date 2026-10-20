@@ -4,13 +4,15 @@
 // path) with the UPP peripherals (upp_periph) on its register bus and their
 // DMA master on its second port, and the board devices they drive: the
 // display module (lcd_panel), the MMC card (mmc_card) and the key matrix
-// (keypad_matrix), wired as in NGage.sv. The C++ side plays the CPU's
+// (keypad_matrix), and the wall clock (rtc_wall, its second RTC_CLK_HZ
+// clocks long here), wired as in NGage.sv. The C++ side plays the CPU's
 // Wishbone master, the SDRAM chip, the DDRAM port and hps_io's SD interface,
 // and watches the register bus.
 module periph_tb #(
 	parameter int MMC_DIV            = 4,
 	parameter int MMC_TIMEOUT_LOG2   = 16,
-	parameter int POWER_ON_HOLD_CLKS = 20000
+	parameter int POWER_ON_HOLD_CLKS = 20000,
+	parameter int RTC_CLK_HZ         = 20000
 ) (
 	input  logic         clk,
 	input  logic         reset,
@@ -68,6 +70,7 @@ module periph_tb #(
 
 	input  logic [29:0]  keys,
 	input  logic         power,
+	input  logic [64:0]  rtc,            // hps_io's RTC output
 
 	input  logic         scan_en,
 	input  logic [7:0]   scan_x,
@@ -90,7 +93,9 @@ module periph_tb #(
 	output logic         lcd_wrx,
 	output logic         mmc_clk,
 	output logic         mmc_cmd,
-	output logic         mmc_dat
+	output logic         mmc_dat,
+	output logic [15:0]  audio_l,
+	output logic [15:0]  audio_r
 );
 
 	logic [31:0] p_rdata;
@@ -129,6 +134,16 @@ module periph_tb #(
 	logic [4:0] col_oe, col_out, col_in;
 	logic [5:0] row_oe, row_out, row_in;
 	logic       pwronx;
+	logic        rtc_valid;
+	logic [5:0]  rtc_sec, rtc_min;
+	logic [4:0]  rtc_hour;
+	logic [7:0]  rtc_days;
+	logic [31:0] rtc_date;
+
+	rtc_wall #(.CLK_HZ(RTC_CLK_HZ)) wall (
+		.clk(clk), .rtc(rtc), .valid(rtc_valid), .sec(rtc_sec), .min(rtc_min), .hour(rtc_hour),
+		.date(rtc_date), .days(rtc_days)
+	);
 
 	assign mmc_cmd = (mmc_cmd_oe ? mmc_cmd_o : 1'b1) & (card_cmd_oe ? card_cmd_o : 1'b1);
 	assign mmc_dat = (mmc_dat_oe ? mmc_dat_o : 1'b1) & (card_dat_oe ? card_dat_o : 1'b1);
@@ -148,6 +163,8 @@ module periph_tb #(
 		.mmc_dat_o(mmc_dat_o), .mmc_dat_oe(mmc_dat_oe), .mmc_dat_i(mmc_dat),
 		.kp_col_oe(col_oe), .kp_col_out(col_out), .kp_row_oe(row_oe), .kp_row_out(row_out),
 		.kp_col_in(col_in), .kp_row_in(row_in), .power_key(!pwronx),
+		.rtc_valid(rtc_valid), .rtc_sec(rtc_sec), .rtc_min(rtc_min), .rtc_hour(rtc_hour), .rtc_days(rtc_days),
+		.rtc_date(rtc_date), .audio_l(audio_l), .audio_r(audio_r),
 		.sti_we(sti_we), .sti_addr(), .sti_be(sti_be), .sti_data(sti_data)
 	);
 

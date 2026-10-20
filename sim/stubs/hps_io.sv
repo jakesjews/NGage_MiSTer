@@ -64,7 +64,10 @@ module hps_io #(
 	output wire      [12:0] sd_buff_addr,
 	output wire      [15:0] sd_buff_dout,
 	input  wire      [15:0] sd_buff_din[VDNUM],
-	output wire             sd_buff_wr
+	output wire             sd_buff_wr,
+
+	// RTC, MSM6242B layout (BCD); bit 64 toggles with each time sent
+	output wire      [64:0] RTC
 );
 	reg [127:0] sim_status /* verilator public_flat_rw */ = 0;
 	reg   [1:0] sim_buttons /* verilator public_flat_rw */ = 0;
@@ -99,6 +102,7 @@ module hps_io #(
 	reg         sim_sd_wr_buf /* verilator public_flat_rw */ = 0;
 	wire        sim_info_req /* verilator public_flat_rd */ = info_req;
 	wire  [7:0] sim_info /* verilator public_flat_rd */ = info;
+	reg  [64:0] sim_rtc /* verilator public_flat_rw */ = 0;
 
 	assign forced_scandoubler = sim_scandoubler;
 	assign buttons      = sim_buttons;
@@ -118,6 +122,7 @@ module hps_io #(
 	assign sd_buff_addr = sim_sd_addr;
 	assign sd_buff_dout = sim_sd_dout;
 	assign sd_buff_wr   = sim_sd_wr_buf;
+	assign RTC          = sim_rtc;
 
 	// gamma table off, as hps_io leaves it until the menu loads one
 	assign gamma_bus[20:0] = {clk_sys, 20'd0};

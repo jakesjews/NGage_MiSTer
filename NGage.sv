@@ -40,6 +40,10 @@
 //  * the UPP_WD2 peripherals (rtl/upp/upp_periph.sv) on the peripheral
 //    register bus: interrupt controller, timers, DMA, MMC host, LCD
 //    interface, keypad ports, CBUS with the UEMK model, storage for the rest;
+//    and the two emulator devices the NOS stand-in uses: the HLE audio device,
+//    whose output is AUDIO_L/R (48 kHz, signed), and the HLE RTC date
+//    register. The UEMK's real-time clock and that date come from MiSTer's
+//    RTC (rtc_wall: set by the HPS, counting in real time);
 //  * wb_selftest on the Wishbone port: with "Memory test" on, it tests the
 //    SDRAM, the on-chip RAM, the EMIF block and the flash path in passes,
 //    shows the result on the OSD after the first pass and after a failure,
@@ -71,9 +75,7 @@ assign HDMI_FREEZE = 0;
 assign HDMI_BLACKOUT = 0;
 assign HDMI_BOB_DEINT = 0;
 
-assign AUDIO_S = 0;
-assign AUDIO_L = 0;
-assign AUDIO_R = 0;
+assign AUDIO_S = 1;                     // AUDIO_L/R: the HLE audio device
 assign AUDIO_MIX = 0;
 
 assign BUTTONS = 0;
@@ -210,7 +212,31 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din),
-	.sd_buff_wr(sd_buff_wr)
+	.sd_buff_wr(sd_buff_wr),
+
+	.RTC(rtc_hps)
+);
+
+///////////////////////   CLOCK   ////////////////////////////////
+
+// the wall clock for the UEMK RTC model, from MiSTer's RTC
+wire [64:0] rtc_hps;
+wire        rtc_valid;
+wire  [5:0] rtc_sec, rtc_min;
+wire  [4:0] rtc_hour;
+wire  [7:0] rtc_days;
+wire [31:0] rtc_date;
+
+rtc_wall rtc_wall
+(
+	.clk(clk_sys),
+	.rtc(rtc_hps),
+	.valid(rtc_valid),
+	.sec(rtc_sec),
+	.min(rtc_min),
+	.hour(rtc_hour),
+	.date(rtc_date),
+	.days(rtc_days)
 );
 
 ///////////////////////   RESET   ////////////////////////////////
@@ -503,6 +529,14 @@ upp_periph upp_periph
 	.kp_col_in(kp_col_in),
 	.kp_row_in(kp_row_in),
 	.power_key(~pwronx),
+	.rtc_valid(rtc_valid),
+	.rtc_sec(rtc_sec),
+	.rtc_min(rtc_min),
+	.rtc_hour(rtc_hour),
+	.rtc_days(rtc_days),
+	.rtc_date(rtc_date),
+	.audio_l(AUDIO_L),
+	.audio_r(AUDIO_R),
 	.sti_we(),
 	.sti_addr(),
 	.sti_be(),

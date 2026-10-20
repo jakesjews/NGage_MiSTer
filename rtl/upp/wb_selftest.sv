@@ -55,7 +55,7 @@ module wb_selftest #(
 
 	localparam logic [31:0] OC_BASE = 32'h0C00_0000;
 	localparam logic [31:0] SD_BASE = 32'h0A00_0000;
-	localparam logic [31:0] PER_REG = 32'h0C1F_0010;
+	localparam logic [31:0] PER_REG = 32'h0C1E_0010;
 
 	// the boot code's EMIF writes
 	function automatic logic [31:0] emif_val(input logic [2:0] i);

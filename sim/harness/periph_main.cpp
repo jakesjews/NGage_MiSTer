@@ -41,6 +41,15 @@
 //    converter's battery-size channel, device 4's ID, storage and read-back,
 //    the transfer length masking; the model's CBUS log (model/.out/cbus.log)
 //    replayed;
+//  * the HLE audio device (0x0C1F0000) through the register bus: 32-bit
+//    only, two buffers from SDRAM read through the DMA port while a DMA
+//    transfer runs, DONE0 on interrupt source 5 at the model's time, the
+//    48 kHz output with the volume (rtl/upp/upp_haudio.sv has its own bench);
+//  * the UEMK RTC and the HLE RTC date register (0x0C1F0100) with the wall
+//    clock (a second is 20000 clocks here): 0 / counting from 00:00:00
+//    before the HPS sends a time, then set from it, midnight, month, year and
+//    leap-day ends, the day counter written and stepping with the date, a
+//    core reset taking the date again, UEMK 0x04 = 0xC0;
 //  * the STI trace window takes bytes and reads 0.
 #include "Vperiph_tb.h"
 #include "verilated.h"
@@ -113,6 +122,7 @@ struct Bench {
 		t->img_mounted = 0; t->img_readonly = 0; t->img_size = 0; t->sd_ack = 0; t->sd_buff_addr = 0;
 		t->sd_buff_dout = 0; t->sd_buff_wr = 0; t->keys = 0; t->power = 0;
 		t->scan_en = 0; t->scan_x = 0; t->scan_y = 0;
+		t->rtc[0] = 0; t->rtc[1] = 0; t->rtc[2] = 0;
 		t->eval();
 		for (int i = 0; i < 4; i++) tick();
 		t->sdram_init = 0;
@@ -305,7 +315,7 @@ void test_storage(Bench &b) {
 		0x0C120004, 0x0C120008, 0x0C120014, 0x0C120018, 0x0C120034, 0x0C120038, 0x0C120064, 0x0C120068,
 		0x0C120074, 0x0C120C04, 0x0C120C10, 0x0C120C14, 0x0C120C18, 0x0C121000, 0x0C121034, 0x0C12103C,
 		0x0C14D000, 0x0C14D004, 0x0C14F000, 0x0C14F008, 0x0C150000, 0x0C150010, 0x0C150024, 0x0C150200,
-		0x0C150210, 0x0C150538, 0x0C15053C, 0x0C1F0010, 0x0C100100, 0x0C180800,
+		0x0C150210, 0x0C150538, 0x0C15053C, 0x0C1F0200, 0x0C1E0010, 0x0C100100, 0x0C180800,
 		// inside the blocks' windows
 		INTC + 0x00, INTC + 0x18, FINTC + 0x3C, TMR + 0x18, TMR + 0x24, TMR + 0x5C, DMA + 0x14, DMA + 0x20 + 0x40 * 3,
 		DMA + 0x30, MMC + 0x00, MMC + 0x0C, MMC + 0x10, MMC + 0x14, MMC + 0x28, MMC + 0x3C, LCD + 0x0C,
@@ -1228,12 +1238,170 @@ void test_cbus(Bench &b, const std::string &dir) {
 			c.wait_done();
 			uint32_t got = b.rd16(CBUS + 6) | (bits > 16 ? b.rd16(CBUS + 4) << 16 : 0);
 			if (dev == 1 && reg == 0x1F) { got &= ~2u; val &= ~2u; }
+			// the RTC's time and day counter are the wall clock's (test_rtc); the
+			// calibration register's 0xC0 (cbus-regs.txt) is newer than some logs
+			if (dev == 1 && (reg == 0x11 || reg == 0x12 || reg == 0x13 || reg == 0x01 || reg == 0x04)) { nr++; continue; }
 			nr++;
 			if (got != val) sim::fail("cbus.log: dev %u reg %02x read 0x%x, the model logged 0x%x", dev, reg, got, val);
 		}
 	}
 	b.power = false;
 	printf("cbus.log replay: %d writes, %d reads checked\n", nw, nr);
+}
+
+// -------------------------------------------------------------------------
+// the emulator devices: HLE audio, the RTC and its date register
+// -------------------------------------------------------------------------
+constexpr uint32_t AU = 0x0C1F0000u, RTC_DATE = 0x0C1F0100u;
+constexpr uint64_t CLK = 104000000, RTC_SEC = 20000;
+
+void test_audio(Bench &b) {
+	printf("HLE audio device\n");
+	CHECK_EQ(b.rd(AU), 0x41554431, "ID");
+	CHECK_EQ(b.rd16(AU), 0, "a 16-bit read is dropped");
+	b.wr16(AU + 0x0C, 8000);
+	CHECK_EQ(b.rd(AU + 0x0C), 16000, "a 16-bit write is dropped");
+	b.wr(AU + 0xFC, 0x12345678);
+	CHECK_EQ(b.rd(AU + 0xFC), 0, "the rest of the window reads 0, not storage");
+	// 40 frames of 0x2000 and 30 of -0x1000 at an odd halfword, mono, half volume
+	const uint32_t A0 = SD + 0xD00000, A1 = SD + 0xD01002, L0 = 40, L1 = 30, R = 48000;
+	for (uint32_t i = 0; i < L0; i++) { b.sd_poke(A0 + 2 * i, 0x00); b.sd_poke(A0 + 2 * i + 1, 0x20); }
+	for (uint32_t i = 0; i < L1; i++) { b.sd_poke(A1 + 2 * i, 0x00); b.sd_poke(A1 + 2 * i + 1, 0xF0); }
+	b.wr(AU + 0x0C, R);
+	b.wr(AU + 0x10, A0);
+	b.wr(AU + 0x14, A1);
+	b.wr(AU + 0x18, L0);
+	b.wr(AU + 0x1C, L1);
+	b.wr(AU + 0x28, 0x80);
+	b.wr(INTC + 0x08, 1u << 5);
+	// a DMA transfer at the same time: the two take the master port in turns
+	const uint32_t units = 3000, src = SD + 0xD10000, dst = SD + 0xD20000;
+	fill_sdram(b, src, units * 4, 555);
+	b.dma_setup(1, src, 4, 0x20, dst, 4, 0x20, units);
+	b.wr(AU + 0x04, 3);
+	uint64_t run_edge = b.p_edge;
+	b.dma_start(1);
+	auto frame_edge = [&](uint64_t n) { return run_edge + (n * CLK + R - 1) / R; };
+	b.run(frame_edge(10) - b.cyc);
+	CHECK_EQ((int16_t)b.t->audio_l, 0x1000, "output in buffer 0, left");
+	CHECK_EQ((int16_t)b.t->audio_r, 0x1000, "output in buffer 0, right");
+	while (!b.t->irq && b.cyc < frame_edge(L0) + 1000) b.run(1);
+	CHECK(b.cyc >= frame_edge(L0) && b.cyc <= frame_edge(L0) + 4, "DONE0 interrupt %lld clocks from its frame",
+	      (long long)(b.cyc - frame_edge(L0)));
+	CHECK_EQ(b.rd(INTC + 0x14), 6, "IRQ number 6: source 5");
+	CHECK_EQ(b.rd(AU + 0x20), 0x321, "STATUS: DONE0, FULL1, running, buffer 1");
+	b.wr(AU + 0x20, 1);
+	b.run(4);
+	CHECK(!b.t->irq, "DONE0 acknowledged");
+	b.run(frame_edge(L0 + 10) - b.cyc);
+	CHECK_EQ((int16_t)b.t->audio_l, -0x800, "output in buffer 1");
+	while (!b.dma_done(1) && b.cyc < run_edge + 3000000) b.run(16);
+	for (uint32_t i = 0; i < units * 4; i++) {
+		if (b.sd_byte(dst + i) != b.sd_byte(src + i)) { sim::fail("DMA with the audio device: byte %u differs", i); break; }
+	}
+	b.dma_finish(1);
+	while (!b.t->irq && b.cyc < frame_edge(L0 + L1) + 1000) b.run(1);
+	CHECK(b.cyc >= frame_edge(L0 + L1) && b.cyc <= frame_edge(L0 + L1) + 4, "DONE1 interrupt");
+	CHECK_EQ(b.rd(AU + 0x2C) >= L0 + L1, 1, "PLAYED");
+	b.wr(AU + 0x04, 0);
+	b.run(CLK / 48000 * 3);
+	CHECK_EQ(b.t->audio_l, 0, "output 0 when stopped");
+	CHECK(!b.t->irq, "stop clears DONE");
+	b.wr(INTC + 0x0C, 1u << 5);
+}
+
+struct Clock { int y, mo, d, h, mi, s; };
+
+int days_since_2000(int y, int mo, int d) {
+	static const int cum[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+	int n = 0;
+	for (int i = 2000; i < y; i++) n += (i % 4 == 0) ? 366 : 365;
+	return n + cum[mo - 1] + (mo > 2 && y % 4 == 0) + d - 1;
+}
+
+void set_rtc(Bench &b, const Clock &c) {
+	auto bcd = [](int v) { return (uint32_t)((v / 10) << 4 | v % 10); };
+	b.t->rtc[0] = bcd(c.s) | bcd(c.mi) << 8 | bcd(c.h) << 16 | bcd(c.d) << 24;
+	b.t->rtc[1] = bcd(c.mo) | bcd(c.y % 100) << 8 | 2u << 16 | 0x40u << 24;   // weekday, the last byte
+	b.t->rtc[2] ^= 1;
+	b.run(4);
+}
+
+void test_rtc(Bench &b) {
+	printf("UEMK RTC and the HLE RTC date register\n");
+	Cbus c(b);
+	b.reset_core();                 // after the CBUS log's writes
+	// before the HPS has sent a time: date unknown, the clock runs from 00:00:00
+	CHECK_EQ(b.rd(RTC_DATE), 0, "date register before the HPS sends a time");
+	CHECK_EQ(c.read(1, 0x04, 8), 0xC0, "UEMK 0x04 (calibration) after reset");
+	CHECK_EQ(c.read(1, 0x01, 8), 0, "day counter after reset");
+	uint32_t s0 = c.read(1, 0x11, 8);
+	b.run(RTC_SEC);
+	CHECK_EQ(c.read(1, 0x11, 8), (s0 + 1) % 60, "the clock counts seconds");
+	// the HPS's time
+	set_rtc(b, {2026, 10, 20, 23, 59, 58});
+	CHECK_EQ(b.rd(RTC_DATE), 2026u << 16 | 10 << 8 | 20, "date register: the HPS's date");
+	CHECK_EQ(c.read(1, 0x13, 8), 23, "hours");
+	CHECK_EQ(c.read(1, 0x12, 8), 59, "minutes");
+	CHECK_EQ(c.read(1, 0x11, 8), 58, "seconds");
+	CHECK_EQ(c.read(1, 0x01, 8), 0, "day counter 0 at the first time");
+	CHECK_EQ(b.rd16(RTC_DATE), 0, "date register: a 16-bit read is dropped");
+	CHECK_EQ(b.rd(RTC_DATE + 4), 0, "date register +4");
+	b.wr(RTC_DATE, 0x12345678);
+	CHECK_EQ(b.rd(RTC_DATE), 2026u << 16 | 10 << 8 | 20, "date register: writes are dropped");
+	// midnight
+	b.run(RTC_SEC * 5 / 2);
+	CHECK_EQ(c.read(1, 0x11, 8), 0, "seconds after midnight");
+	CHECK_EQ(c.read(1, 0x12, 8), 0, "minutes after midnight");
+	CHECK_EQ(c.read(1, 0x13, 8), 0, "hours after midnight");
+	CHECK_EQ(c.read(1, 0x01, 8), 1, "day counter after midnight");
+	CHECK_EQ(b.rd(RTC_DATE), 2026u << 16 | 10 << 8 | 20, "the date register keeps the base date");
+	// a written counter steps with the date from there
+	c.write(1, 0x01, 8, 0x37);
+	CHECK_EQ(c.read(1, 0x01, 8), 0x37, "day counter written");
+	int base = days_since_2000(2026, 10, 21);
+	struct { Clock t; const char *what; } steps[] = {
+		{{2026, 10, 23, 10, 0, 0}, "two days on (an HPS time)"},
+		{{2026, 12, 31, 23, 59, 59}, "the last day of the year"},
+		{{2028, 2, 28, 23, 59, 59}, "the day before a leap day"},
+		{{2027, 6, 30, 23, 59, 59}, "a time set back"},
+	};
+	for (auto &st : steps) {
+		set_rtc(b, st.t);
+		int want = (0x37 + days_since_2000(st.t.y, st.t.mo, st.t.d) - base) & 0xFF;
+		CHECK_EQ(c.read(1, 0x01, 8), want, st.what);
+		b.run(RTC_SEC * 3 / 2);
+		CHECK_EQ(c.read(1, 0x01, 8), st.t.h == 23 ? (want + 1) & 0xFF : want, "the next day");
+	}
+	// a core reset: the date register takes the date, the counter starts at 0
+	set_rtc(b, {2028, 2, 28, 23, 59, 59});
+	b.run(RTC_SEC * 3 / 2);
+	b.reset_core();
+	CHECK_EQ(b.rd(RTC_DATE), 2028u << 16 | 2 << 8 | 29, "date register after a core reset: the leap day");
+	CHECK_EQ(c.read(1, 0x01, 8), 0, "day counter after a core reset");
+	CHECK_EQ(c.read(1, 0x13, 8), 0, "the wall clock runs through a core reset");
+	// the 8-bit counter wraps
+	c.write(1, 0x01, 8, 0xFF);
+	set_rtc(b, {2028, 3, 1, 12, 0, 0});
+	CHECK_EQ(c.read(1, 0x01, 8), 0x00, "day counter wraps");
+	CHECK_EQ(c.read(1, 0x01, 4), 0x0, "masked to the transfer length");
+	set_rtc(b, {2028, 3, 3, 12, 0, 0});
+	CHECK_EQ(c.read(1, 0x01, 4), 0x2, "masked to the transfer length");
+	// the calendar's ends, seen through the date register after a core reset
+	struct { Clock t; uint32_t next; } ends[] = {
+		{{2026, 12, 31, 23, 59, 59}, 2027u << 16 | 1 << 8 | 1},
+		{{2026, 4, 30, 23, 59, 59}, 2026u << 16 | 5 << 8 | 1},
+		{{2026, 2, 28, 23, 59, 59}, 2026u << 16 | 3 << 8 | 1},
+		{{2028, 2, 29, 23, 59, 59}, 2028u << 16 | 3 << 8 | 1},
+		{{2026, 7, 31, 23, 59, 59}, 2026u << 16 | 8 << 8 | 1},
+		{{2026, 9, 29, 23, 59, 59}, 2026u << 16 | 9 << 8 | 30},
+	};
+	for (auto &e : ends) {
+		set_rtc(b, e.t);
+		b.run(RTC_SEC * 3 / 2);
+		b.reset_core();
+		CHECK_EQ(b.rd(RTC_DATE), e.next, "the date after a day's end");
+	}
 }
 
 void test_sti(Bench &b) {
@@ -1277,6 +1445,8 @@ int main(int argc, char **argv) {
 	test_timers(b);
 	test_keypad(b);
 	test_cbus(b, model_out);
+	test_rtc(b);
+	test_audio(b);
 	test_sti(b);
 	test_dma(b);
 	test_lcd(b);
