@@ -214,20 +214,27 @@ end
 // will override any replacements done in the previous stages for this
 // read packet.
 //
+//
+// ARM925T: the last collision check is registered (fwd_st3) together with
+// the write data and the read data, and the choice is made after the
+// registers. Upstream chose before them, so the late write enable from the
+// cache FSM went through a mux into every output flop (timing). Same
+// values: when i_clken is 0, all three hold.
+//
+logic             fwd_st3;
+logic [WIDTH-1:0] fwd_data_st3, rd_data_st3;
+
 always_ff @ ( posedge i_clk )
 begin
         if ( i_clken )
         begin
-                if ( i_wr_addr == rd_addr_st2 && i_wr_en )
-                begin
-                        o_rd_data <= i_wr_data;
-                end
-                else
-                begin
-                        o_rd_data <= o_rd_data_pre;
-                end
+                fwd_st3      <= i_wr_addr == rd_addr_st2 && i_wr_en;
+                fwd_data_st3 <= i_wr_data;
+                rd_data_st3  <= o_rd_data_pre;
         end
 end
+
+assign o_rd_data = fwd_st3 ? fwd_data_st3 : rd_data_st3;
 
 endmodule : zap_ram_simple
 

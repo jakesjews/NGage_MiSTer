@@ -119,13 +119,6 @@ module zap_memory_main
 `include "zap_localparams.svh"
 
 logic                             mem_load_ff2          ;
-logic [31:0]                      mem_srcdest_value_ff2 ;
-logic [1:0]                       mem_address_ff2       ;
-logic                             sbyte_ff2             ;
-logic                             ubyte_ff2             ;
-logic                             shalf_ff2             ;
-logic                             uhalf_ff2             ;
-logic [31:0]                      mem_rd_data           ;
 
 // On reset or on a clear from WB, we will disable the vectors
 // in this unit. Else, we will just flop everything out.
@@ -149,7 +142,6 @@ begin
                 o_pc_plus_8_ff            <= 'x;
                 o_instr_abort_ff          <= 0;
                 o_mem_load_ff             <= 'x;
-                mem_rd_data               <= 'x;
                 o_decompile               <= 0;
         end
         else if ( i_clear_from_writeback )
@@ -170,7 +162,6 @@ begin
                 o_pc_plus_8_ff            <= 'x;
                 o_instr_abort_ff          <= 0;
                 o_mem_load_ff             <= 'x;
-                mem_rd_data               <= 'x;
                 o_decompile               <= 0;
         end
         else if ( i_data_stall )
@@ -214,7 +205,6 @@ begin
 
                 o_mem_load_ff         <= i_mem_load_ff;
                 o_mem_fault           <= i_mem_fault;
-                mem_rd_data           <= i_mem_rd_data;
 
                 // Debug.
                 o_decompile           <= i_decompile;
@@ -229,30 +219,41 @@ begin
         if ( !i_data_stall )
         begin
                 mem_load_ff2          <= i_mem_load_ff;
-                mem_srcdest_value_ff2 <= i_mem_srcdest_value_ff;
-                mem_address_ff2       <= i_mem_address_ff[1:0];
-                sbyte_ff2             <= i_sbyte_ff;
-                ubyte_ff2             <= i_ubyte_ff;
-                shalf_ff2             <= i_shalf_ff;
-                uhalf_ff2             <= i_uhalf_ff;
         end
 end
 
-assign  o_mem_rd_data         = transform
+//
+// ARM925T: the load data is rotated, extended and selected before it is
+// registered, not after, so that the writeback's register-file write starts
+// from a register (timing). Upstream registered the raw data and did this
+// after the register. Updated like mem_load_ff2 (a clear only invalidates
+// the stage, o_dav_ff, which then ignores this value).
+//
+logic [31:0] mem_rd_data_t;
+
+always_ff @ (posedge i_clk)
+begin
+        if ( !i_data_stall )
+        begin
+                mem_rd_data_t <= transform
                                 (
                                         (
-                                                mem_load_ff2 ?
-                                                mem_rd_data    :
-                                                mem_srcdest_value_ff2
+                                                i_mem_load_ff ?
+                                                i_mem_rd_data :
+                                                i_mem_srcdest_value_ff
                                         ),
 
-                                        mem_address_ff2[1:0],
-                                        sbyte_ff2,
-                                        ubyte_ff2,
-                                        shalf_ff2,
-                                        uhalf_ff2,
-                                        mem_load_ff2
+                                        i_mem_address_ff[1:0],
+                                        i_sbyte_ff,
+                                        i_ubyte_ff,
+                                        i_shalf_ff,
+                                        i_uhalf_ff,
+                                        i_mem_load_ff
                                 );
+        end
+end
+
+assign  o_mem_rd_data         = mem_rd_data_t;
 
 //
 // Memory always loads 32-bit to processor.

@@ -192,21 +192,32 @@ end
 // Stage 3
 // ----------------------------------------------------------------------------
 
+//
+// ARM925T: the collision check is registered and the choice made after the
+// registers, as in zap_ram_simple (timing).
+//
+logic [WIDTH/8-1:0] fwd_st3;
+logic [WIDTH-1:0]   fwd_data_st3, rd_data_st3;
+
 always_ff @ ( posedge i_clk )
 begin
         if ( i_clken )
         begin
                 for(int i=0;i<WIDTH/8;i++)
                 begin
-                        if ( i_wr_addr == rd_addr_st2 && i_wr_en[i] )
-                        begin
-                                o_rd_data[i*8 +: 8] <= i_wr_data[i*8 +: 8];
-                        end
-                        else
-                        begin
-                                o_rd_data[i*8 +: 8] <= o_rd_data_pre[i*8 +: 8];
-                        end
+                        fwd_st3[i] <= i_wr_addr == rd_addr_st2 && i_wr_en[i];
                 end
+
+                fwd_data_st3 <= i_wr_data;
+                rd_data_st3  <= o_rd_data_pre;
+        end
+end
+
+always_comb
+begin
+        for(int i=0;i<WIDTH/8;i++)
+        begin
+                o_rd_data[i*8 +: 8] = fwd_st3[i] ? fwd_data_st3[i*8 +: 8] : rd_data_st3[i*8 +: 8];
         end
 end
 

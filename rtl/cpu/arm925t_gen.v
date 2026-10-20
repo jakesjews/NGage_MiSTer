@@ -11652,6 +11652,7 @@ module zap_memory_main (
 	o_mem_load_ff,
 	o_mem_rd_data
 );
+	reg _sv2v_0;
 	parameter [31:0] FLAG_WDT = 32;
 	parameter [31:0] PHY_REGS = 46;
 	input wire [511:0] i_decompile;
@@ -11971,13 +11972,6 @@ module zap_memory_main (
 	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
 	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
 	reg mem_load_ff2;
-	reg [31:0] mem_srcdest_value_ff2;
-	reg [1:0] mem_address_ff2;
-	reg sbyte_ff2;
-	reg ubyte_ff2;
-	reg shalf_ff2;
-	reg uhalf_ff2;
-	reg [31:0] mem_rd_data;
 	always @(posedge i_clk)
 		if (i_reset) begin
 			o_dav_ff <= 0;
@@ -11996,7 +11990,6 @@ module zap_memory_main (
 			o_pc_plus_8_ff <= 1'sbx;
 			o_instr_abort_ff <= 0;
 			o_mem_load_ff <= 1'sbx;
-			mem_rd_data <= 1'sbx;
 			o_decompile <= 0;
 		end
 		else if (i_clear_from_writeback) begin
@@ -12016,7 +12009,6 @@ module zap_memory_main (
 			o_pc_plus_8_ff <= 1'sbx;
 			o_instr_abort_ff <= 0;
 			o_mem_load_ff <= 1'sbx;
-			mem_rd_data <= 1'sbx;
 			o_decompile <= 0;
 		end
 		else if (i_data_stall) begin
@@ -12047,21 +12039,14 @@ module zap_memory_main (
 			o_dav_ff <= (i_und_ff ? 1'd0 : (i_fiq_ff ? 1'd0 : (i_irq_ff ? 1'd0 : (i_swi_ff ? 1'd0 : (i_instr_abort_ff ? 1'd0 : i_dav_ff)))));
 			o_mem_load_ff <= i_mem_load_ff;
 			o_mem_fault <= i_mem_fault;
-			mem_rd_data <= i_mem_rd_data;
 			o_decompile <= i_decompile;
 			o_decompile_valid <= i_decompile_valid;
 			o_uop_last <= i_uop_last;
 		end
 	always @(posedge i_clk)
-		if (!i_data_stall) begin
+		if (!i_data_stall)
 			mem_load_ff2 <= i_mem_load_ff;
-			mem_srcdest_value_ff2 <= i_mem_srcdest_value_ff;
-			mem_address_ff2 <= i_mem_address_ff[1:0];
-			sbyte_ff2 <= i_sbyte_ff;
-			ubyte_ff2 <= i_ubyte_ff;
-			shalf_ff2 <= i_shalf_ff;
-			uhalf_ff2 <= i_uhalf_ff;
-		end
+	reg [31:0] mem_rd_data_t;
 	function automatic [31:0] transform;
 		input [31:0] data;
 		input [1:0] address;
@@ -12117,7 +12102,11 @@ module zap_memory_main (
 				endcase
 		end
 	endfunction
-	assign o_mem_rd_data = transform((mem_load_ff2 ? mem_rd_data : mem_srcdest_value_ff2), mem_address_ff2[1:0], sbyte_ff2, ubyte_ff2, shalf_ff2, uhalf_ff2, mem_load_ff2);
+	always @(posedge i_clk)
+		if (!i_data_stall)
+			mem_rd_data_t <= transform((i_mem_load_ff ? i_mem_rd_data : i_mem_srcdest_value_ff), i_mem_address_ff[1:0], i_sbyte_ff, i_ubyte_ff, i_shalf_ff, i_uhalf_ff, i_mem_load_ff);
+	assign o_mem_rd_data = mem_rd_data_t;
+	initial _sv2v_0 = 0;
 endmodule
 module zap_mode16_decoder_main (
 	i_clk,
@@ -15414,7 +15403,7 @@ module zap_ram_simple (
 	input wire [$clog2(DEPTH) - 1:0] i_wr_addr;
 	input wire [$clog2(DEPTH) - 1:0] i_rd_addr;
 	output reg [WIDTH - 1:0] o_rd_data_pre;
-	output reg [WIDTH - 1:0] o_rd_data;
+	output wire [WIDTH - 1:0] o_rd_data;
 	reg [WIDTH - 1:0] mem [DEPTH - 1:0];
 	reg [WIDTH - 1:0] mem_data_st1;
 	reg [WIDTH - 1:0] mem_data_st2;
@@ -15473,13 +15462,16 @@ module zap_ram_simple (
 			default: o_rd_data_pre = {WIDTH {1'bx}};
 		endcase
 	end
+	reg fwd_st3;
+	reg [WIDTH - 1:0] fwd_data_st3;
+	reg [WIDTH - 1:0] rd_data_st3;
 	always @(posedge i_clk)
 		if (i_clken) begin
-			if ((i_wr_addr == rd_addr_st2) && i_wr_en)
-				o_rd_data <= i_wr_data;
-			else
-				o_rd_data <= o_rd_data_pre;
+			fwd_st3 <= (i_wr_addr == rd_addr_st2) && i_wr_en;
+			fwd_data_st3 <= i_wr_data;
+			rd_data_st3 <= o_rd_data_pre;
 		end
+	assign o_rd_data = (fwd_st3 ? fwd_data_st3 : rd_data_st3);
 	initial _sv2v_0 = 0;
 endmodule
 module zap_register_file (
