@@ -42,7 +42,12 @@ module tb_cpu #(
 	// state
 	output logic [31:0]   p_cpsr,
 	output logic [1279:0] p_regs,      // 40 physical registers, 32 bits each
-	output logic [63:0]   p_lock       // registers waiting for a background load
+	output logic [63:0]   p_lock,      // registers waiting for a background load
+	// data side, for the bus log: request to the D-cache, its virtual
+	// address, alignment fault
+	output logic          p_dreq,
+	output logic [31:0]   p_dva,
+	output logic          p_dalign
 );
 
 	arm925t #(
@@ -80,5 +85,8 @@ module tb_cpu #(
 	assign p_cpsr  = dut.u_zap.u_zap_core.u_zap_writeback.cpsr_ff;
 	assign p_regs  = dut.u_zap.u_zap_core.u_zap_writeback.u_zap_register_file.mem;
 	assign p_lock  = dut.u_zap.dc_lock;
+	assign p_dreq  = dut.u_zap.cpu_dc_stb;
+	assign p_dva   = dut.u_zap.cpu_daddr_va;
+	assign p_dalign = dut.u_zap.cpu_align_fault;
 
 endmodule

@@ -55,6 +55,9 @@ module zap_postalu_main #(
         input logic  [$clog2   (PHY_REGS)-1:0]   i_mem_srcdest_index_ff,                // LD/ST data register.
         input logic                              i_mem_load_ff,                         // LD/ST load indicator.
         input logic [31:0]                       i_mem_address_ff,                      // LD/ST address to access.
+        input logic [1:0]                        i_mem_va_lo_ff,                        // ARM925T: address bits 1:0 before
+                                                                                        // the LDM word alignment (for faults).
+        input logic                              i_align_fault_ff,                      // ARM925T: alignment fault (zap_core).
         input logic                              i_mem_unsigned_byte_enable_ff,         // uint8_t
         input logic                              i_mem_signed_byte_enable_ff,           // int8_t
         input logic                              i_mem_signed_halfword_enable_ff,       // int16_t
@@ -86,6 +89,8 @@ module zap_postalu_main #(
         output logic  [$clog2   (PHY_REGS)-1:0]   o_mem_srcdest_index_ff,        // LD/ST data register.
         output logic                              o_mem_load_ff,                 // LD/ST load indicator.
         output logic [31:0]                       o_mem_address_ff,              // LD/ST address to access.
+        output logic [1:0]                        o_mem_va_lo_ff,                // ARM925T: see i_mem_va_lo_ff.
+        output logic                              o_align_fault_ff,              // ARM925T: see i_align_fault_ff.
         output logic                              o_mem_unsigned_byte_enable_ff, // uint8_t
         output logic                              o_mem_signed_byte_enable_ff,   // int8_t
         output logic                              o_mem_signed_halfword_enable_ff,   // int16_t
@@ -220,6 +225,8 @@ begin
                         o_mem_srcdest_index_ff           <= i_mem_srcdest_index_ff;
                         o_mem_load_ff                    <= i_mem_load_ff;
                         o_mem_address_ff                 <= i_mem_address_ff;
+                        o_mem_va_lo_ff                   <= i_mem_va_lo_ff;
+                        o_align_fault_ff                 <= i_align_fault_ff;
                         o_mem_unsigned_byte_enable_ff    <= i_mem_unsigned_byte_enable_ff;
                         o_mem_signed_byte_enable_ff      <= i_mem_signed_byte_enable_ff;
                         o_mem_signed_halfword_enable_ff  <= i_mem_signed_halfword_enable_ff;

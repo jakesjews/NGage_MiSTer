@@ -1157,9 +1157,15 @@ function automatic [31:0] get_register_value (
 
         // If it's not a store or load, then align this to 4 bytes. Use
         // *skid* versions.
-        get_register_value = !skid_mem_load_ff  &&
-                             !skid_mem_store_ff &&
-                             force32_align_ff   ? (get & 32'hffff_fffc) : get;
+        //
+        // ARM925T: a Thumb PC-relative load (force32 with PC as the base) gets
+        // its PC aligned here too, so its address is aligned from the start
+        // and the alignment check in zap_core sees no fault.
+        //
+        get_register_value = force32_align_ff &&
+                             ((!skid_mem_load_ff && !skid_mem_store_ff) ||
+                              (!index[32] && index[5:0] == {2'd0, ARCH_PC[3:0]})) ?
+                             (get & 32'hffff_fffc) : get;
 
 endfunction : get_register_value
 

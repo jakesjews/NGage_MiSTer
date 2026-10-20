@@ -4297,6 +4297,11 @@ module zap_core (
 	wire irq;
 	wire l4_enable;
 	wire hivecs;
+	wire [1:0] postalu0_va_lo;
+	wire [1:0] postalu1_va_lo;
+	wire [1:0] postalu_va_lo;
+	wire postalu1_align_fault;
+	wire postalu_align_fault;
 	wire align_en;
 	wire stall_from_decode;
 	wire clear_from_alu;
@@ -4338,6 +4343,7 @@ module zap_core (
 	wire predecode_val;
 	wire predecode_force32;
 	wire predecode_und;
+	wire predecode_v5_und;
 	wire [1:0] predecode_taken;
 	wire [31:0] predecode_ppc_ff;
 	wire predecode_clear_btb;
@@ -4584,8 +4590,9 @@ module zap_core (
 	assign unused = |{rb_decompile, CPU_MODE, alu_cpsr_nxt[31:30], alu_cpsr_nxt[28:0], predecode_inst[39:36], postalu_mem_translate_ff, i_dc_reg_idx[63:PHY_REGS]};
 	assign o_cpsr = alu_flags_ff[ZAP_CPSR_MODE:0];
 	assign o_data_wb_adr = {postalu_address_ff[31:2], 2'd0};
-	assign o_data_wb_va = postalu_address_ff;
-	assign o_data_wb_align_fault = align_en && ((!(((postalu_ubyte_ff | postalu_sbyte_ff) | postalu_uhalf_ff) | postalu_shalf_ff) && (postalu_address_ff[1:0] != 2'd0)) || ((postalu_uhalf_ff | postalu_shalf_ff) && postalu_address_ff[0]));
+	assign o_data_wb_va = {postalu_address_ff[31:2], postalu_va_lo};
+	assign postalu1_align_fault = align_en && ((!(((postalu1_ubyte_ff | postalu1_sbyte_ff) | postalu1_uhalf_ff) | postalu1_shalf_ff) && (postalu1_va_lo != 2'd0)) || ((postalu1_uhalf_ff | postalu1_shalf_ff) && postalu1_va_lo[0]));
+	assign o_data_wb_align_fault = postalu_align_fault;
 	assign o_data_wb_adr_nxt = {alu_address_ff[31:2], 2'd0};
 	assign o_instr_wb_we = 1'd0;
 	assign o_instr_wb_sel = 4'b1111;
@@ -4732,6 +4739,7 @@ module zap_core (
 		.o_fiq_ff(predecode_fiq),
 		.o_abt_ff(predecode_abt),
 		.o_und_ff(predecode_und),
+		.o_v5_und_ff(predecode_v5_und),
 		.o_force32align_ff(predecode_force32),
 		.o_copro_dav_ff(copro_dav),
 		.o_copro_word_ff(copro_word),
@@ -4751,7 +4759,7 @@ module zap_core (
 		.V4T(V4T),
 		.CPSR_MODE(ZAP_CPSR_MODE)
 	) u_zap_decode_main(
-		.i_thumb(alu_flags_ff[T]),
+		.i_v5_und(predecode_v5_und),
 		.o_decompile(decode_decompile),
 		.i_uop_last(predecode_uop_last),
 		.o_uop_last(decode_uop_last),
@@ -5113,6 +5121,10 @@ module zap_core (
 		.i_dav_ff(alu_dav_ff),
 		.i_pc_plus_8_ff(alu_pc_plus_8_ff),
 		.i_mem_address_ff((alu_force32align_ff ? alu_address_ff & 32'hfffffffc : alu_address_ff)),
+		.i_mem_va_lo_ff(alu_address_ff[1:0]),
+		.o_mem_va_lo_ff(postalu0_va_lo),
+		.i_align_fault_ff(1'd0),
+		.o_align_fault_ff(),
 		.i_destination_index_ff(alu_destination_index_ff),
 		.i_flags_ff(alu_flags_ff),
 		.i_mem_srcdest_index_ff(alu_mem_srcdest_index_ff),
@@ -5175,6 +5187,10 @@ module zap_core (
 		.i_dav_ff(postalu0_dav_ff),
 		.i_pc_plus_8_ff(postalu0_pc_plus_8_ff),
 		.i_mem_address_ff(postalu0_address_ff),
+		.i_mem_va_lo_ff(postalu0_va_lo),
+		.o_mem_va_lo_ff(postalu1_va_lo),
+		.i_align_fault_ff(1'd0),
+		.o_align_fault_ff(),
 		.i_destination_index_ff(postalu0_destination_index_ff),
 		.i_flags_ff(postalu0_flags_ff),
 		.i_mem_srcdest_index_ff(postalu0_mem_srcdest_index_ff),
@@ -5237,6 +5253,10 @@ module zap_core (
 		.i_dav_ff(postalu1_dav_ff),
 		.i_pc_plus_8_ff(postalu1_pc_plus_8_ff),
 		.i_mem_address_ff(postalu1_address_ff),
+		.i_mem_va_lo_ff(postalu1_va_lo),
+		.o_mem_va_lo_ff(postalu_va_lo),
+		.i_align_fault_ff(postalu1_align_fault),
+		.o_align_fault_ff(postalu_align_fault),
 		.i_destination_index_ff(postalu1_destination_index_ff),
 		.i_flags_ff(postalu1_flags_ff),
 		.i_mem_srcdest_index_ff(postalu1_mem_srcdest_index_ff),
@@ -8208,7 +8228,7 @@ module zap_decode_main (
 	i_ppc_ff,
 	i_switch,
 	i_mode16_und,
-	i_thumb,
+	i_v5_und,
 	i_force32align,
 	i_clear_from_writeback,
 	i_data_stall,
@@ -8267,7 +8287,7 @@ module zap_decode_main (
 	input wire [31:0] i_ppc_ff;
 	input wire i_switch;
 	input wire i_mode16_und;
-	input wire i_thumb;
+	input wire i_v5_und;
 	input wire i_force32align;
 	input wire i_clear_from_writeback;
 	input wire i_data_stall;
@@ -8877,7 +8897,7 @@ module zap_decode_main (
 		.i_abt(i_abt),
 		.i_instruction(i_instruction[35:0]),
 		.i_instruction_valid(i_instruction_valid),
-		.i_thumb(i_thumb),
+		.i_v5_und(i_v5_und),
 		.o_condition_code(o_condition_code_nxt),
 		.o_destination_index(destination_index_nxt),
 		.o_alu_source(alu_source_nxt),
@@ -8910,7 +8930,7 @@ module zap_decode (
 	i_abt,
 	i_instruction,
 	i_instruction_valid,
-	i_thumb,
+	i_v5_und,
 	o_condition_code,
 	o_destination_index,
 	o_alu_source,
@@ -8941,7 +8961,7 @@ module zap_decode (
 	input wire i_abt;
 	input wire [35:0] i_instruction;
 	input wire i_instruction_valid;
-	input wire i_thumb;
+	input wire i_v5_und;
 	output reg [3:0] o_condition_code;
 	output reg [$clog2(ARCH_REGS) - 1:0] o_destination_index;
 	output reg [32:0] o_alu_source;
@@ -9238,7 +9258,7 @@ module zap_decode (
 	localparam [1:0] SIGNED_HALF_WORD = 2'd3;
 	reg [35:0] instruction;
 	wire v5_und;
-	assign v5_und = ((!i_thumb && (i_instruction[27:25] == 3'b011)) && i_instruction[4]) || (V4T && (((((((((((((((!i_thumb && (i_instruction[31:28] == NV)) || (i_thumb && (i_instruction[31:25] == 7'b1111101))) || ((i_instruction[31:0] | 32'b11110000000000001111000000001111) == 32'b11110001011011111111111100011111)) || ((i_instruction[31:0] | 32'b11110000000000000000000000001111) == 32'b11110001001011111111111100111111)) || ((i_instruction[31:0] | 32'b00000000000011111111111100001111) == 32'b11100001001011111111111101111111)) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001000011111111000001011111)) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001001011111111000001011111)) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001010011111111000001011111)) || ((i_instruction[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001011011111111000001011111)) || ((i_instruction[31:0] | 32'b11110000000011111111111101101111) == 32'b11110001000011111111111111101111)) || ((i_instruction[31:0] | 32'b11110000000011111111111101001111) == 32'b11110001001011111111111111001111)) || ((i_instruction[31:0] | 32'b11110000000011111111111101101111) == 32'b11110001010011111111111111101111)) || ((i_instruction[31:0] | 32'b11110000000011110000111101001111) == 32'b11110001001011110000111111101111)) || ((i_instruction[31:0] | 32'b11110000000011110000111101101111) == 32'b11110001011011110000111111101111)) || (((i_instruction[27:25] == 3'b000) && !i_instruction[20]) && ((i_instruction[7:4] | 4'b0010) == 4'b1111))));
+	assign v5_und = i_v5_und;
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -11177,7 +11197,7 @@ module zap_issue_main (
 					2'd3: get = rd_data_3;
 					default: get = 1'sbx;
 				endcase
-			get_register_value = ((!skid_mem_load_ff && !skid_mem_store_ff) && force32_align_ff ? get & 32'hfffffffc : get);
+			get_register_value = (force32_align_ff && ((!skid_mem_load_ff && !skid_mem_store_ff) || (!index[32] && (index[5:0] == {2'd0, ARCH_PC[3:0]}))) ? get & 32'hfffffffc : get);
 		end
 	endfunction
 	assign o_alu_source_value_nxt = get_register_value(skid_alu_source_ff, 2'd0, i_shifter_destination_index_ff[5:0], i_alu_dav_nxt, i_alu_destination_value_nxt, i_alu_destination_value_ff, i_alu_destination_index_ff[5:0], i_alu_dav_ff, i_postalu0_destination_index_ff[5:0], i_postalu0_destination_value_ff, i_postalu0_dav_ff, i_postalu1_destination_index_ff[5:0], i_postalu1_destination_value_ff, i_postalu1_dav_ff, i_postalu_destination_index_ff[5:0], i_postalu_destination_value_ff, i_postalu_dav_ff, i_memory_destination_index_ff[5:0], i_memory_destination_value_ff, i_memory_dav_ff, i_rd_data_0, i_rd_data_1, i_rd_data_2, i_rd_data_3, i_cpu_mode, skid_pc_plus_8_ff, skid_force32align_ff);
@@ -12916,6 +12936,8 @@ module zap_postalu_main (
 	i_mem_srcdest_index_ff,
 	i_mem_load_ff,
 	i_mem_address_ff,
+	i_mem_va_lo_ff,
+	i_align_fault_ff,
 	i_mem_unsigned_byte_enable_ff,
 	i_mem_signed_byte_enable_ff,
 	i_mem_signed_halfword_enable_ff,
@@ -12942,6 +12964,8 @@ module zap_postalu_main (
 	o_mem_srcdest_index_ff,
 	o_mem_load_ff,
 	o_mem_address_ff,
+	o_mem_va_lo_ff,
+	o_align_fault_ff,
 	o_mem_unsigned_byte_enable_ff,
 	o_mem_signed_byte_enable_ff,
 	o_mem_signed_halfword_enable_ff,
@@ -12976,6 +13000,8 @@ module zap_postalu_main (
 	input wire [$clog2(PHY_REGS) - 1:0] i_mem_srcdest_index_ff;
 	input wire i_mem_load_ff;
 	input wire [31:0] i_mem_address_ff;
+	input wire [1:0] i_mem_va_lo_ff;
+	input wire i_align_fault_ff;
 	input wire i_mem_unsigned_byte_enable_ff;
 	input wire i_mem_signed_byte_enable_ff;
 	input wire i_mem_signed_halfword_enable_ff;
@@ -13002,6 +13028,8 @@ module zap_postalu_main (
 	output reg [$clog2(PHY_REGS) - 1:0] o_mem_srcdest_index_ff;
 	output reg o_mem_load_ff;
 	output reg [31:0] o_mem_address_ff;
+	output reg [1:0] o_mem_va_lo_ff;
+	output reg o_align_fault_ff;
 	output reg o_mem_unsigned_byte_enable_ff;
 	output reg o_mem_signed_byte_enable_ff;
 	output reg o_mem_signed_halfword_enable_ff;
@@ -13124,6 +13152,8 @@ module zap_postalu_main (
 				o_mem_srcdest_index_ff <= i_mem_srcdest_index_ff;
 				o_mem_load_ff <= i_mem_load_ff;
 				o_mem_address_ff <= i_mem_address_ff;
+				o_mem_va_lo_ff <= i_mem_va_lo_ff;
+				o_align_fault_ff <= i_align_fault_ff;
 				o_mem_unsigned_byte_enable_ff <= i_mem_unsigned_byte_enable_ff;
 				o_mem_signed_byte_enable_ff <= i_mem_signed_byte_enable_ff;
 				o_mem_signed_halfword_enable_ff <= i_mem_signed_halfword_enable_ff;
@@ -13594,6 +13624,7 @@ module zap_predecode_main (
 	o_fiq_ff,
 	o_abt_ff,
 	o_und_ff,
+	o_v5_und_ff,
 	o_force32align_ff,
 	o_copro_dav_ff,
 	o_copro_word_ff,
@@ -13641,6 +13672,7 @@ module zap_predecode_main (
 	output reg o_fiq_ff;
 	output reg o_abt_ff;
 	output reg o_und_ff;
+	output reg o_v5_und_ff;
 	output reg o_force32align_ff;
 	output reg o_copro_dav_ff;
 	output reg [31:0] o_copro_word_ff;
@@ -13960,6 +13992,7 @@ module zap_predecode_main (
 	wire switch_nxt;
 	wire stall;
 	wire cp15_release;
+	reg v5_und_nxt;
 	assign stall = (i_data_stall || i_stall_from_shifter) || i_stall_from_issue;
 	always @(posedge i_clk)
 		if (i_reset) begin
@@ -13969,6 +14002,7 @@ module zap_predecode_main (
 			o_fiq_ff <= 0;
 			o_abt_ff <= 0;
 			o_und_ff <= 0;
+			o_v5_und_ff <= 0;
 			o_pc_plus_8_ff <= 0;
 			o_pc_ff <= 0;
 			o_force32align_ff <= 0;
@@ -13988,6 +14022,7 @@ module zap_predecode_main (
 			o_fiq_ff <= 0;
 			o_abt_ff <= 0;
 			o_und_ff <= 0;
+			o_v5_und_ff <= 0;
 			o_taken_ff <= 0;
 			o_instruction_valid_ff <= 0;
 			o_uop_last <= 0;
@@ -14000,6 +14035,7 @@ module zap_predecode_main (
 			o_fiq_ff <= skid_fiq & fiq_mask;
 			o_abt_ff <= skid_abt;
 			o_und_ff <= skid_und && skid_instruction_valid;
+			o_v5_und_ff <= v5_und_nxt;
 			o_pc_plus_8_ff <= skid_pc_plus_8_ff;
 			o_pc_ff <= skid_pc_ff;
 			o_force32align_ff <= skid_force32 | align_nxt;
@@ -14179,6 +14215,13 @@ module zap_predecode_main (
 			ppc_nxt = w_pc_from_decode;
 			taken_nxt = SNT;
 		end
+	end
+	always @(*) begin : v5_classify
+		reg [34:0] x;
+		if (_sv2v_0)
+			;
+		x = o_instruction_nxt[34:0];
+		v5_und_nxt = ((!i_cpu_mode_t && (x[27:25] == 3'b011)) && x[4]) || (V4T && (((((((((((((((!i_cpu_mode_t && (x[31:28] == NV)) || (i_cpu_mode_t && (x[31:25] == 7'b1111101))) || ((x[31:0] | 32'b11110000000000001111000000001111) == 32'b11110001011011111111111100011111)) || ((x[31:0] | 32'b11110000000000000000000000001111) == 32'b11110001001011111111111100111111)) || ((x[31:0] | 32'b00000000000011111111111100001111) == 32'b11100001001011111111111101111111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001000011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001001011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001010011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001011011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111111101101111) == 32'b11110001000011111111111111101111)) || ((x[31:0] | 32'b11110000000011111111111101001111) == 32'b11110001001011111111111111001111)) || ((x[31:0] | 32'b11110000000011111111111101101111) == 32'b11110001010011111111111111101111)) || ((x[31:0] | 32'b11110000000011110000111101001111) == 32'b11110001001011110000111111101111)) || ((x[31:0] | 32'b11110000000011110000111101101111) == 32'b11110001011011110000111111101111)) || (((x[27:25] == 3'b000) && !x[20]) && ((x[7:4] | 4'b0010) == 4'b1111))));
 	end
 	zap_predecode_uop_sequencer #(.V4T(V4T)) u_zap_uop_sequencer(
 		.i_clk(i_clk),
@@ -15855,7 +15898,7 @@ module zap_shifter_main (
 				resolve_conflict = result_from_alu;
 			else
 				resolve_conflict = value_from_issue[31:0];
-			if ((align32 && !i_mem_load_ff) && !i_mem_store_ff)
+			if (align32 && ((!i_mem_load_ff && !i_mem_store_ff) || ((index_from_issue[32] != IMMED_EN) && (index_from_issue[5:0] == PHY_PC))))
 				resolve_conflict[1:0] = 2'b00;
 		end
 	endfunction

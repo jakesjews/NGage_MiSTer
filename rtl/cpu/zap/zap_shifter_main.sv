@@ -492,7 +492,9 @@ function automatic [31:0] resolve_conflict (
 
         // If not load or store, align to 4 bytes. All i_ signals
         // for this.
-        if ( align32 && !i_mem_load_ff && !i_mem_store_ff )
+        // ARM925T: and PC as the base of a load or store (Thumb PC-relative).
+        if ( align32 && ((!i_mem_load_ff && !i_mem_store_ff) ||
+                         (index_from_issue[32] != IMMED_EN && index_from_issue[5:0] == PHY_PC)) )
         begin
                 resolve_conflict[1:0] = 2'b00;
         end

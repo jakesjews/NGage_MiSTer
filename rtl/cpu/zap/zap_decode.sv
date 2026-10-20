@@ -42,7 +42,7 @@ input   logic                             i_abt,
 
 input    logic   [35:0]                   i_instruction,
 input    logic                            i_instruction_valid,
-input    logic                            i_thumb,  // ARM925T: CPSR T (instruction is Thumb)
+input    logic                            i_v5_und, // ARM925T: see v5_und
 
 output   logic    [3:0]                   o_condition_code,
 output   logic    [$clog2(ARCH_REGS)-1:0] o_destination_index,
@@ -77,41 +77,14 @@ localparam [1:0] SIGNED_HALF_WORD       = 2'd3;
 logic [35:0] instruction;
 
 //
-// ARM925T: with V4T, the ARMv5(TE) instructions are UNDEFINED, as they are
-// on the ARM9TDMI (and in QEMU's ti925t): CLZ, BLX (register; the immediate
-// form has condition NV), BKPT, QADD/QSUB/QDADD/QDSUB, the 16-bit multiplies,
-// LDRD/STRD (the halfword encodings with L=0 and S=1), and everything with
-// condition NV (BLX, PLD, MCR2/MRC2/CDP2/LDC2/STC2; NV is UNPREDICTABLE on
-// ARMv4 and QEMU makes it UNDEFINED). Without this, several of them would
-// decode as MSR or as halfword transfers.
-//
-// ARM925T: also, in every configuration, the space cond 011x ... xxx1 xxxx
-// is UNDEFINED (ARMv4/v5); upstream decoded it as a register-offset load or
-// store, so the "permanently undefined" 0xE7FxxxFx loaded instead of trapping.
+// ARM925T: i_v5_und (from zap_predecode_main, a stage earlier for timing)
+// marks an instruction that is UNDEFINED here although the patterns below
+// would decode it: the ARMv5 instructions with V4T, and the space
+// cond 011x ... xxx1 xxxx.
 //
 logic v5_und;
 
-assign v5_und = (!i_thumb && i_instruction[27:25] == 3'b011 && i_instruction[4]) || V4T && (
-        // ARM state: anything with condition NV. Thumb: the BL prefix is
-        // passed on as a NOP with condition NV and must stay one; the BLX
-        // suffix becomes BLX(1) (NV, 101) and is UNDEFINED.
-        (!i_thumb && i_instruction[31:28] == NV)        ||
-        (i_thumb && i_instruction[31:25] == 7'b1111_101) ||
-        i_instruction[31:0] ==? CLZ_INSTRUCTION         ||
-        i_instruction[31:0] ==? BLX2                    ||
-        i_instruction[31:0] ==? BKPT                    ||
-        i_instruction[31:0] ==? QADD                    ||
-        i_instruction[31:0] ==? QSUB                    ||
-        i_instruction[31:0] ==? QDADD                   ||
-        i_instruction[31:0] ==? QDSUB                   ||
-        i_instruction[31:0] ==? SMLAxy                  ||
-        i_instruction[31:0] ==? SMLAWy                  ||
-        i_instruction[31:0] ==? SMLALxy                 ||
-        i_instruction[31:0] ==? SMULWy                  ||
-        i_instruction[31:0] ==? SMULxy                  ||
-        (i_instruction[27:25] == 3'b000 && !i_instruction[20] &&
-         i_instruction[7:4] ==? 4'b11?1)
-);
+assign v5_und = i_v5_und;
 
 always_comb
 begin

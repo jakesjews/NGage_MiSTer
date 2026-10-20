@@ -61,7 +61,7 @@ module zap_decode_main #(
 
         // mode16 undefined.
         input   logic                            i_mode16_und,
-        input   logic                            i_thumb,     // ARM925T: CPSR T
+        input   logic                            i_v5_und,    // ARM925T: zap_predecode_main
 
         // Force 32-bit
         input   logic                            i_force32align,
@@ -395,7 +395,7 @@ u_zap_decode (
         .i_abt(i_abt),
         .i_instruction(i_instruction[35:0]),
         .i_instruction_valid(i_instruction_valid),
-        .i_thumb(i_thumb),
+        .i_v5_und(i_v5_und),
         .o_condition_code(o_condition_code_nxt),
         .o_destination_index(destination_index_nxt),
         .o_alu_source(alu_source_nxt),

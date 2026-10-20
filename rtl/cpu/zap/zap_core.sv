@@ -198,6 +198,8 @@ logic                            irq;                 // Tied to IRQ.
 
 logic                            l4_enable;
 logic                            hivecs;      // ARM925T: control bit V.
+logic [1:0]                      postalu0_va_lo, postalu1_va_lo, postalu_va_lo; // ARM925T
+logic                            postalu1_align_fault, postalu_align_fault;      // ARM925T
 logic                            align_en;    // ARM925T: control bit A.
 
 // Clear and stall signals.
@@ -249,6 +251,7 @@ logic [39:0]                     predecode_inst;
 logic                            predecode_val;
 logic                            predecode_force32;
 logic                            predecode_und;
+logic                            predecode_v5_und;   // ARM925T
 logic [1:0]                      predecode_taken;
 logic [31:0]                     predecode_ppc_ff;
 logic                            predecode_clear_btb;
@@ -524,13 +527,18 @@ assign o_data_wb_adr            = {postalu_address_ff[31:2], 2'd0};
 //
 // ARM925T: alignment fault when control bit A is set: a word access with
 // address bits 1:0 nonzero, a halfword access with bit 0 set (LDM/STM and
-// SWP are word accesses). Bytes never fault.
+// SWP are word accesses). Bytes never fault. LDM/STM words reach the
+// D-cache aligned (ARMv4 ignores the base's bits 1:0 when A is clear), so
+// the bits from before that alignment (va_lo) are checked; Thumb
+// PC-relative loads have their PC aligned at issue instead. The check is
+// made on the stage before and registered with it (timing).
 //
-assign o_data_wb_va             = postalu_address_ff;
-assign o_data_wb_align_fault    = align_en && (
-        ( !(postalu_ubyte_ff | postalu_sbyte_ff | postalu_uhalf_ff | postalu_shalf_ff) &&
-          postalu_address_ff[1:0] != 2'd0 ) ||
-        ( (postalu_uhalf_ff | postalu_shalf_ff) && postalu_address_ff[0] ) );
+assign o_data_wb_va             = {postalu_address_ff[31:2], postalu_va_lo};
+assign postalu1_align_fault     = align_en && (
+        ( !(postalu1_ubyte_ff | postalu1_sbyte_ff | postalu1_uhalf_ff | postalu1_shalf_ff) &&
+          postalu1_va_lo != 2'd0 ) ||
+        ( (postalu1_uhalf_ff | postalu1_shalf_ff) && postalu1_va_lo[0] ) );
+assign o_data_wb_align_fault    = postalu_align_fault;
 assign o_data_wb_adr_nxt        = {alu_address_ff[31:2], 2'd0};
 assign o_instr_wb_we            = 1'd0;
 assign o_instr_wb_sel           = 4'b1111;
@@ -768,6 +776,7 @@ u_zap_predecode (
         .o_fiq_ff                       (predecode_fiq),
         .o_abt_ff                       (predecode_abt),
         .o_und_ff                       (predecode_und),
+        .o_v5_und_ff                    (predecode_v5_und),
 
         .o_force32align_ff              (predecode_force32),
 
@@ -799,7 +808,7 @@ zap_decode_main #(
         .CPSR_MODE(ZAP_CPSR_MODE)
 )
 u_zap_decode_main (
-        .i_thumb                        (alu_flags_ff[T]),
+        .i_v5_und                       (predecode_v5_und),
         .o_decompile                    (decode_decompile),
         .i_uop_last                     (predecode_uop_last),
         .o_uop_last                     (decode_uop_last),
@@ -1243,6 +1252,12 @@ zap_postalu_main #(
          .i_mem_address_ff                 (alu_force32align_ff ?
                                              (alu_address_ff & 32'hffff_fffc)
                                             : alu_address_ff),
+         .i_mem_va_lo_ff                   (alu_address_ff[1:0]),
+         .o_mem_va_lo_ff                   (postalu0_va_lo),
+         .i_align_fault_ff                 (1'd0),
+         /* verilator lint_off PINCONNECTEMPTY */
+         .o_align_fault_ff                 (),
+         /* verilator lint_on PINCONNECTEMPTY */
          .i_destination_index_ff           (alu_destination_index_ff),
          .i_flags_ff                       (alu_flags_ff),
          .i_mem_srcdest_index_ff           (alu_mem_srcdest_index_ff),
@@ -1314,6 +1329,12 @@ zap_postalu_main #(
          .i_dav_ff                         (postalu0_dav_ff),
          .i_pc_plus_8_ff                   (postalu0_pc_plus_8_ff),
          .i_mem_address_ff                 (postalu0_address_ff),
+         .i_mem_va_lo_ff                   (postalu0_va_lo),
+         .o_mem_va_lo_ff                   (postalu1_va_lo),
+         .i_align_fault_ff                 (1'd0),
+         /* verilator lint_off PINCONNECTEMPTY */
+         .o_align_fault_ff                 (),
+         /* verilator lint_on PINCONNECTEMPTY */
          .i_destination_index_ff           (postalu0_destination_index_ff),
          .i_flags_ff                       (postalu0_flags_ff),
          .i_mem_srcdest_index_ff           (postalu0_mem_srcdest_index_ff),
@@ -1385,6 +1406,10 @@ zap_postalu_main #(
          .i_dav_ff                         (postalu1_dav_ff),
          .i_pc_plus_8_ff                   (postalu1_pc_plus_8_ff),
          .i_mem_address_ff                 (postalu1_address_ff),
+         .i_mem_va_lo_ff                   (postalu1_va_lo),
+         .o_mem_va_lo_ff                   (postalu_va_lo),
+         .i_align_fault_ff                 (postalu1_align_fault),
+         .o_align_fault_ff                 (postalu_align_fault),
          .i_destination_index_ff           (postalu1_destination_index_ff),
          .i_flags_ff                       (postalu1_flags_ff),
          .i_mem_srcdest_index_ff           (postalu1_mem_srcdest_index_ff),

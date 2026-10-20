@@ -96,6 +96,10 @@ module zap_predecode_main #(
         output  logic                             o_abt_ff,
         output  logic                             o_und_ff,
 
+        // ARM925T: the instruction passed on is UNDEFINED although the
+        // decoder's patterns would take it (see v5_und_nxt).
+        output  logic                             o_v5_und_ff,
+
         // Force 32-bit alignment on memory accesses.
         output logic                              o_force32align_ff,
 
@@ -153,6 +157,7 @@ logic                               align_nxt;
 logic                               switch_nxt;
 logic                               stall;
 logic                               cp15_release;   // ARM925T
+logic                               v5_und_nxt;     // ARM925T
 
 assign stall = i_data_stall || i_stall_from_shifter || i_stall_from_issue;
 
@@ -167,6 +172,7 @@ begin
                 o_fiq_ff               <= 0;
                 o_abt_ff               <= 0;
                 o_und_ff               <= 0;
+                o_v5_und_ff            <= 0;
                 o_pc_plus_8_ff         <= 0;
                 o_pc_ff                <= 0;
                 o_force32align_ff      <= 0;
@@ -189,6 +195,7 @@ begin
                 o_fiq_ff                <= 0;
                 o_abt_ff                <= 0;
                 o_und_ff                <= 0;
+                o_v5_und_ff             <= 0;
                 o_taken_ff              <= 0;
                 o_instruction_valid_ff  <= 0;
                 o_uop_last              <= 0;
@@ -204,6 +211,7 @@ begin
                 o_fiq_ff               <= skid_fiq & fiq_mask;
                 o_abt_ff               <= skid_abt;
                 o_und_ff               <= skid_und && skid_instruction_valid;
+                o_v5_und_ff            <= v5_und_nxt;
                 o_pc_plus_8_ff         <= skid_pc_plus_8_ff;
                 o_pc_ff                <= skid_pc_ff;
                 o_force32align_ff      <= skid_force32 | align_nxt;
@@ -569,6 +577,42 @@ begin:bprblk1
                 ppc_nxt             = w_pc_from_decode;
                 taken_nxt           = SNT;
         end
+end
+
+//
+// ARM925T: UNDEFINED instructions that the decoder's patterns would take,
+// worked out here so that the decoder only has a flop to look at (timing):
+//   * in every configuration, the space cond 011x ... xxx1 xxxx (upstream
+//     decoded it as a register-offset load or store, so the "permanently
+//     undefined" 0xE7FxxxFx loaded instead of trapping);
+//   * with V4T, the ARMv5(TE) instructions, UNDEFINED on the ARM9TDMI and
+//     in QEMU's ti925t: CLZ, BLX (register; the immediate form has
+//     condition NV), BKPT, QADD/QSUB/QDADD/QDSUB, the 16-bit multiplies,
+//     LDRD/STRD (the halfword encodings with L=0 and S=1), and in ARM state
+//     everything with condition NV (UNPREDICTABLE on ARMv4; QEMU makes it
+//     UNDEFINED). In Thumb state the BL first half is a NOP with condition
+//     NV and stays one; the BLX suffix becomes BLX(1) (NV, 101).
+//
+always_comb
+begin: v5_classify
+        logic [34:0] x;
+        x          = o_instruction_nxt[34:0];
+        v5_und_nxt = (!i_cpu_mode_t && x[27:25] == 3'b011 && x[4]) || V4T && (
+                (!i_cpu_mode_t && x[31:28] == NV)        ||
+                (i_cpu_mode_t && x[31:25] == 7'b1111_101) ||
+                x[31:0] ==? CLZ_INSTRUCTION              ||
+                x[31:0] ==? BLX2                         ||
+                x[31:0] ==? BKPT                         ||
+                x[31:0] ==? QADD                         ||
+                x[31:0] ==? QSUB                         ||
+                x[31:0] ==? QDADD                        ||
+                x[31:0] ==? QDSUB                        ||
+                x[31:0] ==? SMLAxy                       ||
+                x[31:0] ==? SMLAWy                       ||
+                x[31:0] ==? SMLALxy                      ||
+                x[31:0] ==? SMULWy                       ||
+                x[31:0] ==? SMULxy                       ||
+                (x[27:25] == 3'b000 && !x[20] && x[7:4] ==? 4'b11?1) );
 end
 
 // This FSM handles LDM/STM/SWAP/SWAPB/BL/LMULT
