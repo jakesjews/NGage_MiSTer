@@ -17,7 +17,7 @@ VFLAGS := --cc --exe --build -j 4 -O3 --x-assign unique --x-initial unique \
           -CFLAGS "-O2 -std=c++17 -I$(ROOT)/sim/harness"
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
-BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash top
+BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash upp top
 
 .PHONY: test $(BENCHES) clean
 
@@ -94,7 +94,7 @@ $(BUILD)/sdram_%/Vsdram: $(SDRAM_DEPS)
 	mkdir -p $(BUILD)/sdram_$* && $(VERILATOR) $(VFLAGS) --top-module sdram --Mdir $(BUILD)/sdram_$* -o Vsdram \
 		$(word 2,$(subst :, ,$(filter $*:%,$(SDRAM_FAULTS)))) $(SDRAM_RTL) $(ROOT)/sim/harness/sdram_main.cpp
 sdram-faults: $(SDRAM_FAULT_BINS)
-	@for b in $(SDRAM_FAULT_BINS); do echo "$$b"; $$b $(RUNFLAGS) --seed $(SEED) --cycles 60000 --expect-fail || exit 1; done
+	@for b in $(SDRAM_FAULT_BINS); do echo "$$b"; $$b $(RUNFLAGS) --seed $(SEED) --cycles 60000 --expect-fail 2>/dev/null || exit 1; done
 
 # The flash arrays in DDR3 against the DDRAM port model
 DDRFLASH_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/mem/ddram_flash.sv
@@ -104,13 +104,32 @@ $(BUILD)/ddrflash/Vddram_flash: $(DDRFLASH_RTL) $(ROOT)/sim/harness/ddrflash_mai
 ddrflash: $(BUILD)/ddrflash/Vddram_flash
 	$< $(RUNFLAGS) --seed $(SEED)
 
+# The memory system (upp_bus, SDRAM, flash chips, DDR3 path) under a scripted
+# Wishbone master; again with a 256 KB on-chip RAM, which then lives in SDRAM
+UPP_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/nor_flash.sv $(ROOT)/rtl/mem/bram32.sv \
+           $(ROOT)/rtl/mem/sdram.sv $(ROOT)/rtl/mem/ddram_flash.sv $(ROOT)/rtl/upp/upp_bus.sv $(ROOT)/rtl/upp/ngage_mem.sv
+UPP_DEPS := $(UPP_RTL) $(ROOT)/sim/harness/upp_main.cpp $(ROOT)/sim/harness/sdram_model.h \
+            $(ROOT)/sim/harness/ddram_model.h $(ROOT)/sim/harness/common.h
+UPP_G := -GFLASH_PROGRAM_CLKS=40 -GFLASH_SECTOR_ERASE_CLKS=3000 -GFLASH_ERASE_WINDOW_CLKS=200
+$(BUILD)/upp/Vngage_mem: $(UPP_DEPS)
+	mkdir -p $(BUILD)/upp && $(VERILATOR) $(VFLAGS) --top-module ngage_mem --Mdir $(BUILD)/upp -o Vngage_mem \
+		$(UPP_G) $(UPP_RTL) $(ROOT)/sim/harness/upp_main.cpp
+$(BUILD)/upp256/Vngage_mem: $(UPP_DEPS)
+	mkdir -p $(BUILD)/upp256 && $(VERILATOR) $(VFLAGS) --top-module ngage_mem --Mdir $(BUILD)/upp256 -o Vngage_mem \
+		$(UPP_G) -GONCHIP_BYTES=262144 $(UPP_RTL) $(ROOT)/sim/harness/upp_main.cpp
+upp: $(BUILD)/upp/Vngage_mem $(BUILD)/upp256/Vngage_mem
+	$(BUILD)/upp/Vngage_mem $(RUNFLAGS) --seed $(SEED)
+	$(BUILD)/upp256/Vngage_mem $(RUNFLAGS) --seed $(SEED) --onchip 262144 --txns 8000
+
 # The whole core: NGage.sv with the board devices; hps_io, the PLL and
 # video_mixer stood in for (sim/stubs)
 TOP_RTL := $(ROOT)/sim/stubs/hps_io.sv $(ROOT)/sim/stubs/pll.sv $(ROOT)/sim/stubs/video_mixer.sv \
            $(shell sed -n 's/^set_global_assignment -name SYSTEMVERILOG_FILE //p' $(ROOT)/files.qip | sed 's|^|$(ROOT)/|') \
 
-$(BUILD)/top/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/top_main.cpp $(ROOT)/sim/harness/common.h
-	mkdir -p $(BUILD)/top && cd $(ROOT) && $(VERILATOR) $(VFLAGS) --timescale 1ns/1ps \
+$(BUILD)/top/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/top_main.cpp $(ROOT)/sim/harness/common.h \
+                   $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h
+	mkdir -p $(BUILD)/top && cd $(ROOT) && $(VERILATOR) $(VFLAGS) --timescale 1ns/1ps --pins-inout-enables \
+		-GSELFTEST_SDRAM_WORDS_LOG2=12 -GSELFTEST_ONCHIP_WORDS_LOG2=12 -GSELFTEST_FLASH_WORDS_LOG2=10 \
 		--top-module emu --Mdir $(BUILD)/top -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
 		$(TOP_RTL) $(ROOT)/sim/harness/top_main.cpp
 top: $(BUILD)/top/Vemu | $(OUT)

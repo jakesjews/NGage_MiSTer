@@ -91,6 +91,8 @@ module hps_io #(
 	reg  [12:0] sim_sd_addr /* verilator public_flat_rw */ = 0;
 	reg  [15:0] sim_sd_dout /* verilator public_flat_rw */ = 0;
 	reg         sim_sd_wr_buf /* verilator public_flat_rw */ = 0;
+	wire        sim_info_req /* verilator public_flat_rd */ = info_req;
+	wire  [7:0] sim_info /* verilator public_flat_rd */ = info;
 
 	assign forced_scandoubler = sim_scandoubler;
 	assign buttons      = sim_buttons;

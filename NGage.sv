@@ -18,8 +18,8 @@
 //
 //============================================================================
 //
-// There is no CPU yet (the UPP_WD2 ASIC is still being reverse engineered).
-// What is here:
+// There is no CPU yet; wb_selftest stands in for it on the memory system's
+// Wishbone port (a memory test, run from the OSD). What is here:
 //  * the OSD: the two NOR flash images are loaded into DDR3 (CS0 at
 //    0x31000000, CS1 at 0x32000000); an MMC image is mounted on hps_io's
 //    SD slot 0; controls, rotation, aspect ratio, scandoubler, reset;
@@ -30,14 +30,25 @@
 //  * the keypad matrix, fed from the joystick and keyboard;
 //  * the MMC card on the SD slot (it loads the CID/CSD sidecar when an image
 //    is mounted; its bus is idle until the ASIC's MMC host exists);
-//  * the two NOR flash chips, idle until there is a CPU, with their memory
-//    ports unconnected until there is a DDR3/SDRAM controller for them.
+//  * the memory system (rtl/upp/ngage_mem.sv): the UPP_WD2 bus map, the two
+//    NOR flash chips with their arrays in DDR3 (the loaded images), the
+//    16 MB SDRAM on the MiSTer SDRAM module, the on-chip RAM and the EMIF
+//    registers; a storage stub (upp_periph_stub) on the peripheral register
+//    bus until the UPP peripheral models exist;
+//  * wb_selftest on the Wishbone port: with "Memory test" on, it tests the
+//    SDRAM, the on-chip RAM, the EMIF block and the flash path in passes,
+//    shows the result on the OSD after the first pass and after a failure,
+//    and blinks the power LED (slow: passing, fast: failed).
 // clk_sys is 104 MHz: 4 x 26 MHz, the phone's reference, so the MCU clock
 // (104 MHz), the flash and timer clock (104/3) and the MMC clock (26/3)
 // divide from it exactly.
 
-module emu
-(
+module emu #(
+	// the self-test's coverage (the simulation tests a part)
+	parameter int SELFTEST_SDRAM_WORDS_LOG2  = 22,
+	parameter int SELFTEST_ONCHIP_WORDS_LOG2 = 14,
+	parameter int SELFTEST_FLASH_WORDS_LOG2  = 12
+) (
 	`include "sys/emu_ports.vh"
 );
 
@@ -47,7 +58,6 @@ assign ADC_BUS  = 'Z;
 assign USER_OUT = '1;
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
-assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
 
 assign VGA_F1 = 0;
 assign VGA_SCALER  = 0;
@@ -61,7 +71,6 @@ assign AUDIO_L = 0;
 assign AUDIO_R = 0;
 assign AUDIO_MIX = 0;
 
-assign LED_POWER = 0;
 assign BUTTONS = 0;
 
 //////////////////////////////////////////////////////////////////
@@ -85,10 +94,13 @@ localparam CONF_STR = {
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[5:3],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"-;",
+	"O[6],Memory test,Off,On;",
+	"-;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
 	"J,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power;",
 	"jn,A,B,X,L,R,Start,Select;",
+	"I,Memory test passed,Memory test FAILED;",
 	"V,v",`BUILD_DATE
 };
 
@@ -112,6 +124,9 @@ wire [127:0] status;
 wire  [10:0] ps2_key;
 wire  [31:0] joystick_0, joystick_1;
 wire  [21:0] gamma_bus;
+
+wire         info_req;
+wire   [7:0] info;
 
 wire         ioctl_download;
 wire  [15:0] ioctl_index;
@@ -144,8 +159,8 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(1)) hps_io
 	.status_menumask(16'd0),
 	.status_in(128'd0),
 	.status_set(1'b0),
-	.info_req(1'b0),
-	.info(8'd0),
+	.info_req(info_req),
+	.info(info),
 	.new_vmode(1'b0),
 	.video_rotated(1'b0),
 
@@ -199,9 +214,14 @@ always @(posedge clk_sys) por <= {por[0], RESET | ~pll_locked};
 wire sys_reset = por[1];
 wire reset = sys_reset | status[0] | buttons[1] | ioctl_download;
 
-///////////////////////   FLASH IMAGES   /////////////////////////
+///////////////////////   MEMORY   ///////////////////////////////
 
-assign DDRAM_CLK = clk_sys;
+// The flash images go to DDR3 through the loader, which shares the DDRAM
+// port with the flash chips' arrays (ddram_flash in ngage_mem).
+wire        ld_busy, ld_we;
+wire  [7:0] ld_be;
+wire [28:0] ld_addr;
+wire [63:0] ld_din;
 
 ddram_loader ddram_loader
 (
@@ -213,60 +233,177 @@ ddram_loader ddram_loader
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
 	.ioctl_wait(ioctl_wait),
-	.ddram_busy(DDRAM_BUSY),
-	.ddram_burstcnt(DDRAM_BURSTCNT),
-	.ddram_addr(DDRAM_ADDR),
-	.ddram_din(DDRAM_DIN),
-	.ddram_be(DDRAM_BE),
-	.ddram_we(DDRAM_WE),
-	.ddram_rd(DDRAM_RD),
+	.ddram_busy(ld_busy),
+	.ddram_burstcnt(),           // single writes
+	.ddram_addr(ld_addr),
+	.ddram_din(ld_din),
+	.ddram_be(ld_be),
+	.ddram_we(ld_we),
+	.ddram_rd(),
 	.loaded()                    // for the CPU: both images are in
 );
 
-// The flash chips, on CS0 and CS1. Their bus side waits for the CPU and their
-// memory side for the controller that will serve it from the images above.
-wire [15:0] cs0_mem_rdata = 16'hFFFF, cs1_mem_rdata = 16'hFFFF;
-wire        cs0_mem_ack = 1'b0, cs1_mem_ack = 1'b0;
+assign DDRAM_CLK = clk_sys;
 
-nor_flash #(.AW(23), .DEVICE_ID(16'h22F8)) flash_cs0
+// The CPU's Wishbone port: the self-test until the CPU exists
+wire        wb_cyc, wb_stb, wb_we, wb_ack, wb_err;
+wire [31:0] wb_adr, wb_dat_w, wb_dat_r;
+wire  [3:0] wb_sel;
+wire  [2:0] wb_cti;
+wire  [1:0] wb_bte;
+
+// the peripheral register bus
+wire        p_sel, p_we, p_wait;
+wire [27:0] p_addr;
+wire [31:0] p_wdata, p_rdata;
+wire  [3:0] p_be;
+
+wire        sdram_ready;
+wire [15:0] sdram_dq_o, sdram_dq_oe;
+wire        mem_reset = reset | ~sdram_ready;
+
+ngage_mem ngage_mem
 (
 	.clk(clk_sys),
-	.reset(reset),
-	.rst_n(1'b1),
-	.bus_req(1'b0),
-	.bus_we(1'b0),
-	.bus_addr(23'd0),
-	.bus_wdata(16'd0),
-	.bus_rdata(),
-	.bus_ack(),
-	.mem_req(),
-	.mem_we(),
-	.mem_addr(),
-	.mem_wdata(),
-	.mem_rdata(cs0_mem_rdata),
-	.mem_ack(cs0_mem_ack),
-	.busy()
+	.reset(mem_reset),
+	.sdram_init(sys_reset),
+	.sdram_ready(sdram_ready),
+	.flash_rst_n(1'b1),
+
+	.wb_cyc(wb_cyc),
+	.wb_stb(wb_stb),
+	.wb_we(wb_we),
+	.wb_adr(wb_adr),
+	.wb_dat_i(wb_dat_w),
+	.wb_sel(wb_sel),
+	.wb_cti(wb_cti),
+	.wb_bte(wb_bte),
+	.wb_ack(wb_ack),
+	.wb_err(wb_err),
+	.wb_dat_o(wb_dat_r),
+
+	.p_sel(p_sel),
+	.p_we(p_we),
+	.p_addr(p_addr),
+	.p_wdata(p_wdata),
+	.p_be(p_be),
+	.p_rdata(p_rdata),
+	.p_wait(p_wait),
+
+	.flash_busy(),
+	.unmapped(),
+
+	.ld_we(ld_we),
+	.ld_addr(ld_addr),
+	.ld_din(ld_din),
+	.ld_be(ld_be),
+	.ld_busy(ld_busy),
+
+	.ddram_busy(DDRAM_BUSY),
+	.ddram_burstcnt(DDRAM_BURSTCNT),
+	.ddram_addr(DDRAM_ADDR),
+	.ddram_dout(DDRAM_DOUT),
+	.ddram_dout_ready(DDRAM_DOUT_READY),
+	.ddram_rd(DDRAM_RD),
+	.ddram_din(DDRAM_DIN),
+	.ddram_be(DDRAM_BE),
+	.ddram_we(DDRAM_WE),
+
+	.sdram_cke(SDRAM_CKE),
+	.sdram_cs_n(SDRAM_nCS),
+	.sdram_ras_n(SDRAM_nRAS),
+	.sdram_cas_n(SDRAM_nCAS),
+	.sdram_we_n(SDRAM_nWE),
+	.sdram_ba(SDRAM_BA),
+	.sdram_a(SDRAM_A),
+	.sdram_dqml(SDRAM_DQML),
+	.sdram_dqmh(SDRAM_DQMH),
+	.sdram_dq_o(sdram_dq_o),
+	.sdram_dq_oe(sdram_dq_oe),
+	.sdram_dq_i(SDRAM_DQ)
 );
 
-nor_flash #(.AW(22), .DEVICE_ID(16'h22FA)) flash_cs1
+generate
+	for (genvar i = 0; i < 16; i++) begin : g_sdram_dq
+		assign SDRAM_DQ[i] = sdram_dq_oe[i] ? sdram_dq_o[i] : 1'bZ;
+	end
+endgenerate
+
+sdram_clkout sdram_clkout
 (
 	.clk(clk_sys),
-	.reset(reset),
-	.rst_n(1'b1),
-	.bus_req(1'b0),
-	.bus_we(1'b0),
-	.bus_addr(22'd0),
-	.bus_wdata(16'd0),
-	.bus_rdata(),
-	.bus_ack(),
-	.mem_req(),
-	.mem_we(),
-	.mem_addr(),
-	.mem_wdata(),
-	.mem_rdata(cs1_mem_rdata),
-	.mem_ack(cs1_mem_ack),
-	.busy()
+	.sdram_clk(SDRAM_CLK)
 );
+
+upp_periph_stub upp_periph_stub
+(
+	.clk(clk_sys),
+	.reset(mem_reset),
+	.p_sel(p_sel),
+	.p_we(p_we),
+	.p_addr(p_addr),
+	.p_wdata(p_wdata),
+	.p_be(p_be),
+	.p_rdata(p_rdata),
+	.p_wait(p_wait)
+);
+
+wire [15:0] test_errors;
+wire        test_pass_done;
+wire        test_on = status[6];
+
+wb_selftest #(
+	.SDRAM_WORDS_LOG2(SELFTEST_SDRAM_WORDS_LOG2),
+	.ONCHIP_WORDS_LOG2(SELFTEST_ONCHIP_WORDS_LOG2),
+	.FLASH_WORDS_LOG2(SELFTEST_FLASH_WORDS_LOG2)
+) wb_selftest (
+	.clk(clk_sys),
+	.reset(mem_reset),
+	.enable(test_on),
+	.wb_cyc(wb_cyc),
+	.wb_stb(wb_stb),
+	.wb_we(wb_we),
+	.wb_adr(wb_adr),
+	.wb_dat(wb_dat_w),
+	.wb_sel(wb_sel),
+	.wb_cti(wb_cti),
+	.wb_bte(wb_bte),
+	.wb_ack(wb_ack),
+	.wb_err(wb_err),
+	.wb_dat_i(wb_dat_r),
+	.passes(),
+	.errors(test_errors),
+	.err_adr(),
+	.err_got(),
+	.err_want(),
+	.pass_done(test_pass_done)
+);
+
+// OSD message after the first pass, and after a pass that found new errors
+reg  [15:0] test_reported = 0;
+reg         test_first = 1;
+reg   [7:0] info_q = 0;
+reg         info_req_q = 0;
+always @(posedge clk_sys) begin
+	info_req_q <= 1'b0;
+	if (test_pass_done && (test_first || test_errors != test_reported)) begin
+		info_q        <= (test_errors == 16'd0) ? 8'd1 : 8'd2;
+		info_req_q    <= 1'b1;
+		test_first    <= 1'b0;
+		test_reported <= test_errors;
+	end
+	if (!test_on) begin
+		test_first    <= 1'b1;
+		test_reported <= 16'd0;
+	end
+end
+assign info_req = info_req_q;
+assign info     = info_q;
+
+// power LED while the test runs: slow blink passing, fast blink failed
+reg [24:0] blink = 0;
+always @(posedge clk_sys) blink <= blink + 1'd1;
+assign LED_POWER = {test_on, test_on & ((test_errors != 16'd0) ? blink[21] : blink[24])};
 
 ///////////////////////   MMC CARD   /////////////////////////////
 

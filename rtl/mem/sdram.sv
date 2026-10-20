@@ -199,7 +199,10 @@ module sdram #(
 
 	wire idle = !active || t == t_end;
 
+	logic           rvalid_q = 1'b0;
+
 	assign ready     = ready_q;
+	assign rvalid    = rvalid_q;
 	assign busy      = !ready_q || !idle || ref_due;
 	assign sdram_cke = 1'b1;
 	assign sdram_cs_n = 1'b0;
@@ -229,9 +232,9 @@ module sdram #(
 		sdram_dq_o  <= wsh[15:0];
 		sdram_dq_oe <= 16'h0000;
 
-		rvalid <= 1'b0;
+		rvalid_q <= 1'b0;
 		if (cap_word) begin
-			rvalid <= 1'b1;
+			rvalid_q <= 1'b1;
 			rword  <= word;
 			word   <= word + 2'd1;
 		end

@@ -12,12 +12,20 @@
 //  * rotation turns the frame and the aspect ratio with it;
 //  * flash images loaded through ioctl land in DDR3 at 0x31000000 (CS0) and
 //    0x32000000 (CS1), byte for byte, with the port busy at random;
-//  * mounting an MMC image makes the card read its last block (the sidecar).
+//  * mounting an MMC image makes the card read its last block (the sidecar);
+//  * the memory system: the SDRAM chip model on the SDRAM pins and the DDRAM
+//    port model behind DDR3; with "Memory test" on, wb_selftest passes over
+//    SDRAM, on-chip RAM, the EMIF block, CS2 and the flash path (built with
+//    small regions) and reports it on the OSD; with SDRAM bits flipped under
+//    it, it reports a failure; the SDRAM and DDRAM models see no timing or
+//    protocol error.
 // Frames go to DIR as PPM.
 #include "Vemu.h"
 #include "Vemu___024root.h"
 #include "verilated.h"
 #include "common.h"
+#include "ddram_model.h"
+#include "sdram_model.h"
 
 #include <cstring>
 #include <string>
@@ -66,9 +74,14 @@ struct Bench {
 	uint64_t clocks = 0;
 	// DDR3, 0x31000000 to 0x327FFFFF
 	static constexpr uint32_t DDR_BASE = 0x31000000u, DDR_SIZE = 0x01800000u;
-	std::vector<uint8_t> ddr = std::vector<uint8_t>(DDR_SIZE, 0x5A);
+	DdramModel dm{40u << 20, 5};
+	uint8_t *ddr;                    // the flash windows in dm
 	uint64_t ddr_writes = 0;
 	bool ddr_stray = false;
+	SdramChip chip{9};
+	// OSD info messages
+	std::vector<int> infos;
+	bool info_prev = false;
 	// MMC image served on SD slot 0
 	std::vector<uint8_t> img;
 	int sd_state = 0, sd_delay = 0, sd_word = 0;
@@ -76,6 +89,9 @@ struct Bench {
 	bool disk_led = false;
 
 	Bench() : r(t->rootp) {
+		ddr = &dm.mem[DDR_BASE - DdramModel::BASE];
+		memset(ddr, 0x5A, DDR_SIZE);
+		dm.prof.busy_pct = 25;
 		t->CLK_50M = 0; t->RESET = 1; t->DDRAM_BUSY = 0; t->DDRAM_DOUT = 0; t->DDRAM_DOUT_READY = 0;
 		t->HDMI_WIDTH = 0; t->HDMI_HEIGHT = 0; t->OSD_STATUS = 0; t->SD_MISO = 1; t->SD_CD = 1;
 		t->UART_CTS = 0; t->UART_RXD = 1; t->UART_DSR = 0; t->USER_IN = 0x7F; t->CLK_AUDIO = 0;
@@ -117,24 +133,39 @@ struct Bench {
 	}
 
 	void tick() {
+		t->DDRAM_BUSY = dm.busy;
+		t->DDRAM_DOUT = dm.dout;
+		t->DDRAM_DOUT_READY = dm.dout_ready;
+		t->SDRAM_DQ = chip.sample(clocks + 1);
+		t->eval();
 		// the DDRAM port takes a write at an edge where WE is high and BUSY low
 		// (registers start at 0 on the FPGA, at random here: skip the reset)
-		if (t->DDRAM_WE && !t->DDRAM_BUSY && clocks > 16) {
-			uint64_t byte = (uint64_t)t->DDRAM_ADDR << 3;
-			for (int i = 0; i < 8; i++) {
-				if (!(t->DDRAM_BE >> i & 1)) continue;
-				uint64_t a = byte + i;
-				if (a < DDR_BASE || a >= (uint64_t)DDR_BASE + DDR_SIZE) { ddr_stray = true; continue; }
-				ddr[a - DDR_BASE] = (uint8_t)(t->DDRAM_DIN >> (8 * i));
+		if (clocks > 16) {
+			if (t->DDRAM_WE && !t->DDRAM_BUSY) {
+				uint64_t byte = (uint64_t)t->DDRAM_ADDR << 3;
+				for (int i = 0; i < 8; i++) {
+					if (!(t->DDRAM_BE >> i & 1)) continue;
+					uint64_t a = byte + i;
+					if (a < DDR_BASE || a >= (uint64_t)DDR_BASE + DDR_SIZE) ddr_stray = true;
+				}
+				ddr_writes++;
 			}
-			ddr_writes++;
+			dm.step(t->DDRAM_RD, t->DDRAM_WE, t->DDRAM_ADDR, t->DDRAM_BURSTCNT, t->DDRAM_DIN, t->DDRAM_BE);
 		}
 		t->CLK_50M = 1; t->eval();
-		t->DDRAM_BUSY = rng.chance(25);
+		clocks++;
+		SdramPins p;
+		p.cs_n = t->SDRAM_nCS; p.ras_n = t->SDRAM_nRAS; p.cas_n = t->SDRAM_nCAS; p.we_n = t->SDRAM_nWE;
+		p.ba = t->SDRAM_BA; p.a = t->SDRAM_A; p.dqm = t->SDRAM_DQML | t->SDRAM_DQMH << 1;
+		p.dq_oe = t->SDRAM_DQ__en != 0; p.dq_o = t->SDRAM_DQ__out;
+		if (!t->SDRAM_CKE) sim::fail("SDRAM CKE low");
+		if (clocks > 2) chip.edge(clocks, p);
+		bool ir = r->emu__DOT__hps_io__DOT__sim_info_req;
+		if (ir && !info_prev) infos.push_back(r->emu__DOT__hps_io__DOT__sim_info);
+		info_prev = ir;
 		if (t->LED_DISK & 1) disk_led = true;
 		sd_step();
 		t->CLK_50M = 0; t->eval();
-		clocks++;
 	}
 	void ticks(uint64_t n) { while (n--) tick(); }
 
@@ -284,6 +315,30 @@ int main(int argc, char **argv) {
 	CHECK_EQ(b.sd_lbas.size(), 1, "SD reads after mounting");
 	if (!b.sd_lbas.empty()) CHECK_EQ(b.sd_lbas[0], 4096, "SD block read on mounting (the sidecar)");
 	CHECK(b.disk_led, "LED_DISK never lit");
+
+	// the memory system under the self-test
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 6;
+	b.infos.clear();
+	uint64_t t0 = b.clocks;
+	while (b.infos.empty() && b.clocks < t0 + 3000000) b.tick();
+	CHECK(b.infos.size() == 1 && b.infos[0] == 1, "memory test: no 'passed' message after the first pass");
+	printf("memory test: first pass in %llu clocks\n", (unsigned long long)(b.clocks - t0));
+	CHECK((b.t->LED_POWER & 2) != 0, "power LED not taken over by the memory test");
+	// flip SDRAM bits under the test: it must report the failure
+	t0 = b.clocks;
+	while (b.infos.size() < 2 && b.clocks < t0 + 3000000) {
+		if (b.clocks % 64 == 0) b.chip.lin(b.rng.range(0, 8191)) ^= 0x0100;
+		b.tick();
+	}
+	CHECK(b.infos.size() == 2 && b.infos[1] == 2, "memory test: no 'FAILED' message with SDRAM bits flipped");
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
+	b.ticks(2000);
+	CHECK_EQ(b.t->LED_POWER, 0, "power LED after the memory test");
+	if (b.chip.errors) sim::fail("the SDRAM chip model reported %d error(s)", b.chip.errors);
+	if (b.dm.protocol_errors) sim::fail("%d DDRAM port protocol error(s)", b.dm.protocol_errors);
+	CHECK(!b.dm.bad_access, "DDR3 access outside the model");
+	printf("SDRAM: %llu refreshes, %llu reads, %llu writes; DDR3: %llu reads\n", (unsigned long long)b.chip.refreshes,
+		(unsigned long long)b.chip.reads, (unsigned long long)b.chip.writes, (unsigned long long)b.dm.reads);
 
 	printf("%llu clocks\n", (unsigned long long)b.clocks);
 	return sim::finish("emu");
