@@ -445,3 +445,33 @@ found, and what comes next. Research material lives in `research/`
   (CP15 identity, alignment faults, high vectors, ARMv4T-only decoding,
   cache geometry and maintenance ops). GPL: HEAD is GPLv3; the last
   GPLv2 commit is 93b3553.
+
+### 2026-10-20, FPGA side: shell (`NGage.sv`, `rtl/mister/`)
+- clk_sys is now 104 MHz (rtl/pll: 4 x 26 MHz, so 104/3 and 26/3 divide
+  exactly). Video: a pixel every 16 clocks.
+- OSD: F1/F2 load the CS0/CS1 flash images into DDR3 at 0x31000000 /
+  0x32000000 (`ddram_loader`, one DDR3 write per 16-bit word, ioctl_wait
+  while the port is busy); S0 mounts the MMC image (`mmc_card` on hps_io
+  slot 0, WIDE=1); rotation, aspect ratio (11:13 / 13:11), scandoubler
+  through the framework's video_mixer, reset. Joystick J1 buttons: 5, 7,
+  OK, soft keys, Menu, Call, End, *, #, Clear, Edit, Power; keyboard map in
+  `rtl/mister/ngage_input.sv` (arrows, Enter/Space OK, digits, Z/X = 5/7,
+  F1/F2 soft, F3/F4 call/end, F5 menu, Backspace clear, Shift edit, F8 power).
+- No CPU yet: `lcd_testgen` drives the panel's 8080 bus like the firmware
+  (MADCTL 0xD4, COLMOD 3, RGBSET) with a test picture, and scans the keypad
+  matrix to draw each key's state. The flash chips are instantiated with an
+  idle bus and an unserved memory port; the MMC card has an idle bus.
+- Bench `make -C sim top` (emu with hps_io/PLL/video_mixer stand-ins): the
+  picture at the video outputs equals the reference, upright and turned;
+  held keys light their boxes (Up+Call+5 also light RSoft: a real ghost);
+  ioctl images land in DDR3 byte for byte; mounting reads the sidecar.
+- Verilator cannot simulate sys/video_mixer.sv: it declares R_in/G_in/B_in
+  in unnamed generate blocks and uses them outside (Quartus accepts it), so
+  the bench uses a pass-through stand-in.
+- Quartus 17.0.2 map (`./build.sh remote map`): 0 errors, 20 warnings (the
+  only one in our files: the unused BFA register). Whole design 14847 ALUTs,
+  14532 registers, 1045860 block bits, 33 DSPs; emu 4015 ALUTs, 3343
+  registers, 661603 bits (lcd_panel 1000 / 644 / 585728; keypad_matrix
+  242 ALUTs; lcd_testgen 521; video_out 126; mmc_card 109 / 149 / 8192 with
+  its bus idle; the idle flash chips are optimised away).
+- Removed the template's demo core (rtl/mycore.v, cos.sv, lfsr.v).

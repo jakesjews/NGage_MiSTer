@@ -6,6 +6,7 @@ lint_off -rule DECLFILENAME
 lint_off -rule PINCONNECTEMPTY
 lint_off -rule PROCASSINIT
 lint_off -rule VARHIDDEN
+lint_off -rule SIMILARNAME
 
 // lcd_panel: the bottom fixed area of VSCRDEF follows from the other two
 // (TFA + VSA + BFA = 208); it is kept so that the register is complete.
@@ -28,8 +29,66 @@ lint_off -rule UNUSEDSIGNAL -file "rtl/board/mmc_card.sv" -match "*Bits of funct
 // tdp_ram: the two ports write one array, as the Quartus template does.
 lint_off -rule MULTIDRIVEN -file "rtl/board/tdp_ram.sv"
 
+// MiSTer provides wider controls than the core consumes: of the status word
+// the reset, rotation, scandoubler and aspect ratio bits; of the buttons the
+// user button; of a joystick the 17 the J1 line names; of ioctl_index the
+// file number (the upper bits number the extension).
+lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Bits of signal are not used: 'status'[127:123,120:6]*"
+lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Bits of signal are not used: 'buttons'[0]*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/mister/ngage_input.sv" -match "*Bits of signal are not used: 'j'[31:17]*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/mister/ddram_loader.sv" -match "*Bits of signal are not used: 'ioctl_index'[15:6]*"
+
+// lcd_testgen: the test picture divides 3x by powers of two.
+lint_off -rule UNUSEDSIGNAL -file "rtl/mister/lcd_testgen.sv" -match "*Bits of function variable are not used: 'x3'*"
+
 // ngage_keys is a package of key positions; each user takes the ones it needs.
 lint_off -rule UNUSEDPARAM -file "rtl/board/ngage_keys.sv"
+
+// Only waive the hps_io outputs this core does not use. Name each port so that
+// dropping a needed connection still produces PINMISSING; every input is tied.
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_2'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_3'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_4'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_5'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_l_analog_0'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_l_analog_1'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_l_analog_2'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_l_analog_3'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_l_analog_4'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_l_analog_5'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_r_analog_0'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_r_analog_1'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_r_analog_2'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_r_analog_3'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_r_analog_4'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'joystick_r_analog_5'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'paddle_0'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'paddle_1'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'paddle_2'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'paddle_3'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'paddle_4'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'paddle_5'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'spinner_0'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'spinner_1'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'spinner_2'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'spinner_3'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'spinner_4'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'spinner_5'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'ps2_kbd_clk_out'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'ps2_kbd_data_out'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'ps2_mouse_clk_out'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'ps2_mouse_data_out'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'ps2_mouse'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'ps2_mouse_ext'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'direct_video'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'ioctl_upload'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'ioctl_rd'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'ioctl_file_ext'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'sdram_sz'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'RTC'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'TIMESTAMP'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'uart_mode'"
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'uart_speed'"
 
 // Keep the MiSTer framework out of lint diagnostics while using its real
 // module interfaces for elaboration.

@@ -2,7 +2,7 @@ VERILATOR ?= verilator
 
 # Modules linted as tops of their own, so that a block is checked with its
 # default parameters even where the shell ties ports off.
-LINT_TOPS := lcd_panel video_out keypad_matrix nor_flash mmc_card
+LINT_TOPS := emu lcd_panel video_out keypad_matrix nor_flash mmc_card ngage_input ddram_loader lcd_testgen
 
 .PHONY: help lint lint-prepare test clean
 
