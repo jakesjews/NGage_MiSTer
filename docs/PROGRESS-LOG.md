@@ -857,3 +857,29 @@ found, and what comes next. Research material lives in `research/`
     hardware with the memory test (and CAPTURE_CLKS if it fails).
   - The core needs the SDRAM module; hps_io's sdram_sz could warn when none
     is fitted.
+
+### 2026-10-20, model: why the screen stays on the Nokia logo
+- **The LCD update path works; nothing new has been drawn.** The window
+  server opens the `Lcd` channel through scdv.dll and sends update requests
+  (control `0x2002`, lcd.ldd `0x504042B4`); each one makes lcd.ldd push a
+  full 176x208 frame through the LCD FIFO (CPU writes, ctrl `0x8314D67F`),
+  and the panel model takes every frame. The frames hold the Nokia logo
+  because that is what is on screen: SplashScreen.exe shows
+  `SplashScreen.mbm`, a 176x208 256-colour bitmap of the same logo (decoded
+  from the ROM).
+- Starter has started every item up to Startup.app and is waiting at the
+  next list entry (type 12), which only Startup.app's "ready" signal ends.
+  Startup.app, SysAp and the rest are waiting on the modem side:
+  nosdriver.ldd forwards every request to the NOS object (vtable
+  `+0x10` request, `+0x14` control, `+0x0C` cancel), and the stand-in
+  answers none. In 60 s, DosServer and the telephony server sent 12 ISI
+  messages through NOSDRIVER control 4, with resources 0x17, 0x1C, 0x3A,
+  0x35, 0x31, 0x0A, 0x09 and 0x0B. Ten receive requests (request 0) stay
+  pending.
+- So the next display step needs the modem's answers (SIM, security and
+  start-up state). That means emulating NOS at the ISI message level, or
+  running the real NOS. This is a design decision for the user; it is
+  not done here.
+- `model/threads.sh` now dumps the kernel heap one page at a time (it is
+  committed sparsely), so all threads are listed: 5 AppRun processes,
+  Watcher, LogServ, MSexe, Sysamob, Loadersrv, WAPSTKSRV, SplashScreen.
