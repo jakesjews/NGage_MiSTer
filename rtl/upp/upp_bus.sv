@@ -164,6 +164,16 @@ module upp_bus #(
 		endcase
 	endfunction
 
+	// nxt(nxt(a)) with one adder (it is on the block RAMs' read address path)
+	function automatic logic [31:0] nxt2(input logic [31:0] a, input logic [1:0] bte);
+		case (bte)
+			2'b01: return {a[31:4], a[3:2] + 2'd2, 2'b00};
+			2'b10: return {a[31:5], a[4:2] + 3'd2, 2'b00};
+			2'b11: return {a[31:6], a[5:2] + 4'd2, 2'b00};
+			default: return {a[31:2] + 30'd2, 2'b00};
+		endcase
+	endfunction
+
 	// the SDRAM module's word address of a guest address
 	function automatic logic [24:2] sdr_word(input logic [31:0] a, input logic oc);
 		logic [24:0] b;
@@ -178,7 +188,7 @@ module upp_bus #(
 	wire       is_bram = tgt == T_EMIF || (!ONCHIP_IN_SDRAM && tgt == T_ONCHIP);
 	wire       burst   = wb_cti == CTI_INCR;
 	wire [31:0] adr_n  = nxt(wb_adr, wb_bte);
-	wire [31:0] adr_nn = nxt(adr_n, wb_bte);
+	wire [31:0] adr_nn = nxt2(wb_adr, wb_bte);
 
 	// ------------------------------------------------------------------
 	// State
@@ -344,7 +354,11 @@ module upp_bus #(
 			lb_v[sdr_rword] <= 1'b1;
 		end
 
-		// flash: the halfword engine
+		// flash: the halfword engine. The halfword address is loaded with the
+		// next beat's in every clock in which no access is out or one ends
+		// (it matters only once fl_req is up), so the target decode and the
+		// engine's decisions are not on its path.
+		if (!fl_req || fl_ack) fl_ha <= {fs_adr[FL_AW:2], !fs_h[0]};
 		if (fl_ack) begin
 			if (!fe_hi && fe_need_hi) begin
 				fe_lo    <= fl_rdata;
@@ -377,6 +391,10 @@ module upp_bus #(
 			end
 			default: ;
 		endcase
+		// SDRAM write data: the controller latches it when it takes the
+		// request, so with none waiting the bus's word is taken in every idle
+		// clock, whatever the target (off the decode's path)
+		if (state == S_IDLE && sdr_free) sdr_wdata[32 * wb_adr[3:2] +: 32] <= wb_dat_i;
 		// write data: only a transaction's first beat (from S_IDLE) can be a
 		// write, so it is taken from the bus in every idle clock with no
 		// halfword access out, whatever the target (off the decode's path)
@@ -391,7 +409,6 @@ module upp_bus #(
 			fe_prev    <= fe_adr;            // fs_adr = nxt(fe_adr) when it matters
 			fe_hi      <= !fs_h[0];
 			fe_need_hi <= fs_h[0] && fs_h[1];
-			fl_ha      <= {fs_adr[FL_AW:2], !fs_h[0]};
 			fe_next    <= nxt(fs_adr, wb_bte);
 		end
 
@@ -437,7 +454,6 @@ module upp_bus #(
 									blk_oc <= tgt == T_ONCHIP;
 									sdr_we <= 1'b1;
 									sdr_addr <= sdr_word(wb_adr, tgt == T_ONCHIP);
-									sdr_wdata[32 * wb_adr[3:2] +: 32] <= wb_dat_i;
 									sdr_wbe  <= 16'(wb_sel) << (4 * wb_adr[3:2]);
 									ack_q    <= 1'b1;
 									if (burst) begin

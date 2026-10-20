@@ -51,13 +51,16 @@ module wb_arb2 (
 );
 
 	logic gnt = 1'b0;                  // 1: m1
+	// a copy for the address and data multiplexers (the grant reaches far
+	// into upp_bus through them; timing), kept apart from gnt
+	(* preserve *) logic gnt_ad = 1'b0;
 
 	assign s_cyc = gnt ? m1_cyc : m0_cyc;
 	assign s_stb = gnt ? m1_stb : m0_stb;
-	assign s_we  = gnt ? m1_we  : m0_we;
-	assign s_adr = gnt ? m1_adr : m0_adr;
-	assign s_dat = gnt ? m1_dat : m0_dat;
-	assign s_sel = gnt ? m1_sel : m0_sel;
+	assign s_we  = gnt_ad ? m1_we  : m0_we;
+	assign s_adr = gnt_ad ? m1_adr : m0_adr;
+	assign s_dat = gnt_ad ? m1_dat : m0_dat;
+	assign s_sel = gnt_ad ? m1_sel : m0_sel;
 	assign s_cti = gnt ? 3'b111 : m0_cti;
 	assign s_bte = gnt ? 2'b00  : m0_bte;
 
@@ -71,8 +74,14 @@ module wb_arb2 (
 	wire swap    = other && (txn_end || (!s_cyc && s_idle));
 
 	always_ff @(posedge clk) begin
-		if (swap) gnt <= !gnt;
-		if (reset) gnt <= 1'b0;
+		if (swap) begin
+			gnt    <= !gnt;
+			gnt_ad <= !gnt;
+		end
+		if (reset) begin
+			gnt    <= 1'b0;
+			gnt_ad <= 1'b0;
+		end
 	end
 
 	// simulation: upp_bus is idle in the clock after every change of grant
