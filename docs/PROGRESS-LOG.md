@@ -1128,3 +1128,39 @@ found, and what comes next. Research material lives in `research/`
   portal list. Installed N-Gage games appear as their own menu icons from
   the game card; not tested, as there is no game image (`NGAGE_MMC` with a
   blank `model/tools/mkcard.sh` card mounts without errors).
+
+### 2026-10-20, CPU: boot code on the RTL, four ZAP bugs, 104 MHz is marginal
+- `make -C sim/cpu boot` runs the real CS0 boot code on the RTL in Verilator,
+  with the model's memory map and the devices the boot uses ported into the
+  bench (`sim/cpu/tb/ngage.h`), and compares the register and CBUS logs
+  with the model's. The whole bootstrap matches (32 register accesses,
+  CBUS/UEMK and ADC traffic, both MD5 integrity checks over 19.6 MB with
+  the caches on), and the kernel starts and matches for 23 more register
+  accesses and the first 64 CBUS transfers. The kernel's first debug text
+  (`TRtcQueue::Add: 2TRtcQueue::Add: 4`) is the same as the model's.
+- It found four upstream ZAP bugs that the instruction tests had missed
+  (they ran mostly with the caches off), all fixed and covered by tests now:
+  - byte, halfword, signed and unaligned loads that missed the D-cache got
+    the whole word (the bootstrap's digest compare reads bytes from flash);
+  - an instruction writing a register could be overtaken by an older load
+    to it that missed (found by the new cache-on random tests);
+  - instruction fetches were permission-checked as User mode during
+    LDRT/STRT and at random after flushes (`'x`), so the kernel took a
+    prefetch abort in a privileged-only section;
+  - the branch target buffer stored an undefined target (simulation only;
+    Quartus had resolved it).
+- Tests: 17 directed tests, random ARM/Thumb programs with caches off and
+  on (seeds 1-100 of each, 400 programs, agree with QEMU instruction by
+  instruction), jsmolka/gba-tests (161/183 ARM, 101/109 Thumb; the rest
+  are ARM7TDMI-specific UNPREDICTABLE cases). Default regression: 159 RTL
+  runs pass, 48 agree with QEMU, on the netlist and on the SV sources.
+- Quartus 17 standalone (every output on a pin): 13,217 ALMs (32%), 14,038
+  registers, 57 M10K, 4 DSP. **104 MHz is marginal:** worst slack over four
+  fitter seeds +0.317, -0.124, -0.294, +0.049 ns (about 101-107 MHz); on
+  the worst seed 100 MHz gives +0.006 ns and 96 MHz +0.719 ns. The limit
+  is ZAP's single-cycle stall broadcast (bus acknowledge, TLB walker, cache
+  hit to every stage). **Recommendation: plan for a 96 MHz CPU clock** (or
+  clk_sys at 96 MHz) until the stall is retimed; the fix is described in
+  docs/CPU.md.
+- docs/CPU.md: design, interface, every known difference from a real
+  ARM925T, tests, timing, and the plan for the timing-fidelity pass.
