@@ -114,9 +114,14 @@ logic  [11:0]  oc_offset;                  // Ones counter offset.
 logic  [15:0]  reglist_ff, reglist_nxt;    // Register list.
 logic  [31:0]  const_ff, const_nxt;        // For BLX - const reg.
 logic          cp15_done;                  // ARM925T: CP15 carried it out.
+logic          base_in_list;               // ARM925T: LDM loads its base (see BASE_LOAD).
 logic [10:0]   blp_mag;                    // ARM925T: |offset| of a Thumb BL first half.
 logic          blp_neg;
 logic          t_bl_prefix, t_bl_alone;    // ARM925T: Thumb BL markers (zap_mode16_decoder).
+
+// With PC in the list DUMMY1 is taken (WRITE_PC), and with S the list is the
+// user bank: those keep the upstream behaviour.
+assign base_in_list = load && !s_bit && i_instruction[base] && !i_instruction[15];
 
 assign blp_neg     = i_instruction[10];
 assign blp_mag     = blp_neg ? (~i_instruction[10:0] + 11'd1) : i_instruction[10:0];
@@ -143,7 +148,7 @@ assign unused = |{pre_index};
 
 ///////////////////////////////////////////////////////////////////////////////
 
-enum logic [24:0] {
+enum logic [25:0] {
         IDLE            = 1 << 0 ,
         MEMOP           = 1 << 1 ,
         WRITE_PC        = 1 << 2 ,
@@ -169,6 +174,7 @@ enum logic [24:0] {
         BLS_S1          = 1 << 22 , // ARM925T: Thumb BL second half alone.
         BLS_S2          = 1 << 23 ,
         BLS_S3          = 1 << 24 ,
+        BASE_LOAD       = 1 << 25 , // ARM925T: LDM base in list, write it last.
         `ZAP_DEFAULT_XX
 } state_ff, state_nxt;
 
@@ -921,6 +927,12 @@ begin:next_state_logic_and_output_logic
                                         o_stall_from_decode     = 1'd1;
                                         state_nxt               = WRITE_PC;
                                 end
+                                else if ( base_in_list )
+                                begin
+                                        // ARM925T: the base's word waits in DUMMY1.
+                                        o_stall_from_decode     = 1'd1;
+                                        state_nxt               = BASE_LOAD;
+                                end
                                 else
                                 begin
                                         o_stall_from_decode     = 1'd0;
@@ -932,6 +944,26 @@ begin:next_state_logic_and_output_logic
                                 state_nxt = MEMOP;
                                 o_stall_from_decode = 1'd1;
                         end
+                end
+
+                //
+                // ARM925T: an LDM that loads its own base register (no PC, no
+                // user bank) loaded the base's word into DUMMY1; now that no
+                // beat can abort any more, move it in: MOV Rbase, DUMMY1. If a
+                // beat aborted, the base keeps its value (base-restored abort
+                // model); upstream overwrote it as soon as its beat ran.
+                //
+                BASE_LOAD:
+                begin
+                        state_nxt               = IDLE;
+                        o_stall_from_decode     = 1'd0;
+                        o_instruction[31:0]     = { cc, 2'b00, 1'd0, MOV, 1'd0, 4'd0, base,
+                                                    8'd0, 4'd0 };
+                        {o_instruction[ZAP_DP_RB_EXTEND], o_instruction[`ZAP_DP_RB]}
+                                                = ARCH_DUMMY_REG1;
+                        o_instruction_valid     = 1'd1;
+                        o_irq                   = 1'd0;
+                        o_fiq                   = 1'd0;
                 end
 
                 // If needed, we finally write to the program counter as
@@ -1047,6 +1079,13 @@ begin
                         14:{map[ZAP_SRCDEST_EXTEND],map[`ZAP_SRCDEST]} = ARCH_USR2_R14;
                         default:; // Propagate map as usual.
                         endcase
+        end
+        else if ( load && enc == base && base_in_list )
+        //
+        // ARM925T: the base register's own word goes to DUMMY1 (BASE_LOAD).
+        //
+        begin
+                        {map[ZAP_SRCDEST_EXTEND],map[`ZAP_SRCDEST]} = ARCH_DUMMY_REG1;
         end
         else if ( load && enc == 4'd15  )
         //
