@@ -22,6 +22,7 @@
 //               filtered as the model's ngage_sti.c does
 //   0x0C150400  UIF ports D/E with the key matrix and the CTSI register at
 //               0x0C150100 (ngage_keypad.c), with no key pressed
+//   0x0C120600  MMC host with an empty slot (ngage_mmc.c; mmc.log)
 //   anything else reads 0 and ignores writes (the model's probe)
 //
 // The register blocks log the first read and the first write of every
@@ -44,6 +45,7 @@
 // instructions: the model holds it for 3 guest seconds.
 #pragma once
 
+#include <algorithm>
 #include <cinttypes>
 #include <cstdint>
 #include <cstdio>
@@ -81,8 +83,11 @@ public:
 		cbus.log = fopen((d + "/cbus.log").c_str(), "w");
 		probe_log = fopen((d + "/probe.log").c_str(), "w");
 		kern_log = fopen((d + "/kern.log").c_str(), "w");
+		mmc.log = fopen((d + "/mmc.log").c_str(), "w");
 		if (o.dev_log) dev_log = fopen((d + "/dev.log").c_str(), "w");
-		if (!regs_log || !cbus.log || !probe_log || !kern_log) {
+		mmc.m = this;
+		mmc.irq_update();
+		if (!regs_log || !cbus.log || !probe_log || !kern_log || !mmc.log) {
 			fprintf(stderr, "cannot write the logs in %s\n", d.c_str());
 			return false;
 		}
@@ -94,6 +99,7 @@ public:
 		if (cbus.log) fclose(cbus.log);
 		if (probe_log) fclose(probe_log);
 		if (kern_log) fclose(kern_log);
+		if (mmc.log) fclose(mmc.log);
 		if (dev_log) fclose(dev_log);
 	}
 
@@ -147,6 +153,7 @@ public:
 		}
 		if (a - 0x0C150420u < 8) return cbus.access(pa, we, val, size) << (8 * off);
 		if (a - 0x0C1F0100u < 0x10) return !we && a == 0x0C1F0100u ? opt.rtc_date : 0;
+		if (a - 0x0C120600u < 0x40) return mmc.access(pa - 0x0C120600u, we, val, size) << (8 * off);
 		if (a - 0x0C120100u < 0x180) return intc_access(a - 0x0C120100u, we, wdata);
 		if (a - 0x0C120040u < 0x40) return ostu_access(a - 0x0C120040u, we, wdata);
 		if (a - 0x0C120A00u < 0x20 * NTIMERS) return timer_access(a - 0x0C120A00u, we, wdata);
@@ -179,6 +186,10 @@ public:
 	}
 
 	// One CPU cycle.
+	void flush() {          // the logs, so that a running bench can be compared
+		for (FILE *f : { regs_log, cbus.log, probe_log, kern_log, mmc.log, dev_log })
+			if (f) fflush(f);
+	}
 	void tick() {
 		if (cbus.power_key && opt.power_release && retired >= opt.power_release) cbus.power_key = false;
 		if (opt.icount) {
@@ -582,6 +593,106 @@ private:
 			return 0;
 		}
 	} keypad;
+
+	// ------------------------------------------------------------ MMC host (ngage_mmc.c), empty slot
+	struct Mmc {
+		static constexpr uint32_t DATA_BUSY = 1u << 2, CMD_BUSY = 1u << 3, RESP_TIMEOUT = 1u << 6, RESP = 1u << 8;
+		uint32_t regs[16] = {}, status = 0, resp[4] = {}, blk_len = 0, blk_pos = 0, blocklen = 512;
+		int resp_words = 0, resp_pos = 0;
+		bool writing = false;
+		FILE *log = nullptr;
+		NGage *m = nullptr;
+
+		void irq_update() {
+			m->set_source(23, !(status & CMD_BUSY));      // MMCCmdIdle
+			m->set_source(21, !(status & DATA_BUSY));     // MMCDataIdle
+			m->set_source(24, (status & RESP) != 0);      // MMCCmdRdy
+			m->set_source(22, (status & DATA_BUSY) != 0); // data ready
+		}
+		// No card: only CMD0 "answers" (it has no response).
+		static bool command(unsigned cmd) { return cmd == 0; }
+		void load_block() {        // a card-less read block: all 0xFF
+			blk_len = std::min<uint32_t>(regs[2] ? regs[2] : blocklen, 4096);
+			blk_pos = 0;
+			writing = false;
+			status |= DATA_BUSY;
+		}
+		void start(uint32_t ctrl) {
+			unsigned cmd = regs[7] & 0x3F, type = (ctrl >> 2) & 0xF;
+			uint32_t arg = regs[8];
+			bool answered;
+			status = 0;
+			resp_words = 0;
+			if (type == 6 || type == 9 || type == 7 || type == 10) {
+				if (type == 9 || type == 10) {
+					load_block();
+				} else {
+					blk_pos = 0;
+					blk_len = std::min<uint32_t>(regs[2] ? regs[2] : blocklen, 4096);
+					writing = true;
+					status |= DATA_BUSY;
+				}
+				answered = (type == 7 || type == 10) ? command(cmd) : true;
+			} else {
+				answered = command(cmd);
+			}
+			if (type != 0 && type != 6 && type != 9) status |= answered && resp_words ? RESP : RESP_TIMEOUT;
+			if (answered && (type == 5 || type == 8)) {
+				if (type == 8) load_block();
+				else {
+					blk_pos = 0;
+					blk_len = std::min<uint32_t>(regs[2] ? regs[2] : blocklen, 4096);
+					writing = true;
+					status |= DATA_BUSY;
+				}
+			}
+			fprintf(log, "CMD%-2u arg=%08x ctrl=%02x -> status=%03x resp=%08x pc=%08x\n", cmd, arg, ctrl, status,
+				resp[0], m->cur_pc);
+			irq_update();
+		}
+		// off: byte offset in the block; returns the value of the access
+		uint32_t access(uint32_t off, bool we, uint32_t val, unsigned size) {
+			if (we) {
+				if (off == 0x24) {
+					for (unsigned i = 0; i < size && writing && blk_pos < blk_len; i++) blk_pos++;
+					if (writing && blk_pos >= blk_len) {
+						writing = false;
+						status &= ~DATA_BUSY;
+						irq_update();
+					}
+					return 0;
+				}
+				regs[(off >> 2) & 15] = val;
+				if (off == 0x04 && (val & 1)) start(val);
+				return 0;
+			}
+			uint32_t v;
+			switch (off) {
+			case 0x04: v = regs[1] & ~1u; break;      // command taken at once
+			case 0x18: v = status; break;
+			case 0x24:
+				v = 0;
+				for (unsigned i = 0; i < size; i++)
+					if (!writing && blk_pos < blk_len) { v |= 0xFFu << (8 * i); blk_pos++; }
+				if (!writing && blk_pos >= blk_len && (status & DATA_BUSY)) {
+					status &= ~DATA_BUSY;
+					irq_update();
+				}
+				break;
+			case 0x20:
+				if (resp_pos < resp_words) {
+					v = resp[resp_pos++];
+					if (resp_pos >= resp_words) {
+						status &= ~RESP;
+						irq_update();
+					}
+				} else v = 0;
+				break;
+			default: v = regs[(off >> 2) & 15];
+			}
+			return size == 4 ? v : v & ((1u << (8 * size)) - 1);
+		}
+	} mmc;
 
 	void set_source(int src, bool level) {
 		uint32_t bit = 1u << (src & 31);

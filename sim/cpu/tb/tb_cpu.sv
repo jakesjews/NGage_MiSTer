@@ -61,7 +61,16 @@ module tb_cpu #(
 	output logic [31:0]   p_dc_addr,
 	output logic [31:0]   p_dc_din,
 	output logic [31:0]   p_dc_dat,
-	output logic [15:0]   p_dc_flags
+	output logic [15:0]   p_dc_flags,
+	// pre-decoder's prediction and the ALU's check, for main.cpp --pddbg
+	output logic [31:0]   p_pd_pc,
+	output logic [31:0]   p_pd_ins,
+	output logic [31:0]   p_pd_ppc,
+	output logic [31:0]   p_pd_wpc,
+	output logic [31:0]   p_pd_pred,
+	output logic [15:0]   p_pd_flags,
+	output logic [31:0]   p_alu_ppc,
+	output logic [7:0]    p_alu_flags
 );
 
 	arm925t #(
@@ -107,6 +116,20 @@ module tb_cpu #(
 	assign p_dacr  = dut.u_zap.cpu_dac_reg;
 	assign p_mmu   = dut.u_zap.cpu_mmu_en;
 	assign p_wfi   = dut.u_zap.u_zap_core.u_zap_cp15_cb.state == 4'd12;
+	`define PD dut.u_zap.u_zap_core.u_zap_predecode
+	`define AL dut.u_zap.u_zap_core.u_zap_alu_main
+	assign p_pd_pc    = `PD.skid_pc_ff;
+	assign p_pd_ins   = `PD.mode32_instruction[31:0];
+	assign p_pd_ppc   = `PD.o_ppc_ff;
+	assign p_pd_wpc   = `PD.w_pc_from_decode;
+	assign p_pd_pred  = `PD.skid_pred[31:0];
+	assign p_pd_flags = {`PD.skid_pred[32], `PD.skid_taken, `PD.mode32_instruction_valid,
+	                     `PD.w_clear_from_decode, `PD.o_clear_from_decode, `PD.mem_fetch_stall, `PD.stall,
+	                     `PD.ras_we_ff, 3'(`PD.ras_ptr_ff), `PD.o_taken_ff, `PD.o_instruction_valid_ff};
+	assign p_alu_ppc   = `AL.i_ppc_ff;
+	assign p_alu_flags = {`AL.i_taken_ff, `AL.o_clear_from_alu, `AL.i_data_stall, 4'd0};
+	`undef PD
+	`undef AL
 	assign p_dc_state = 16'(dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.state_ff);
 	assign p_dc_addr  = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_address;
 	assign p_dc_din   = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_din;

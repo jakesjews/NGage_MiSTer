@@ -14,6 +14,7 @@
 //                       instructions
 //     --trace-count N   end the run N instructions after that
 //     --dcdbg           also trace the D-cache state machine every cycle
+//     --pddbg           also trace the branch prediction every cycle
 //     --buslog FILE     write one line per bus access
 //     --lat MIN:MAX     bus latency, cycles from request to ack (default 0:3)
 //     --seed N          RNG seed for the latency (default 1)
@@ -149,7 +150,7 @@ int main(int argc, char **argv) {
 	uint64_t max_cycles = 50000000;
 	uint64_t progress = 0;
 	uint64_t trace_after = 0, trace_count = 0;
-	bool dcdbg = false;
+	bool dcdbg = false, pddbg = false;
 	bool quiet = false;
 	bool halt_given = false;
 	std::string machine;
@@ -190,6 +191,7 @@ int main(int argc, char **argv) {
 		else if (a == "--trace-after") trace_after = strtoull(next(), nullptr, 0);
 		else if (a == "--trace-count") trace_count = strtoull(next(), nullptr, 0);
 		else if (a == "--dcdbg") dcdbg = true;
+		else if (a == "--pddbg") pddbg = true;
 		else if (a == "--watch") watch.push_back((uint32_t)strtoul(next(), nullptr, 0));
 		else if (a == "--dump") {
 			std::string v = next();
@@ -345,6 +347,12 @@ int main(int argc, char **argv) {
 		if (buslog && retired >= trace_after && t->p_dreq)
 			fprintf(buslog, "%" PRIu64 " d va=%08x%s\n", cycle, (uint32_t)t->p_dva, t->p_dalign ? " ALIGN" : "");
 
+		// pre-decoder and ALU prediction state before the edge (--pddbg)
+		if (pddbg && trace && retired >= trace_after)
+			fprintf(trace, "P %" PRIu64 " pc %08x i %08x ppc %08x w %08x bp %08x f %04x | alu ppc %08x f %02x\n",
+				cycle, (uint32_t)t->p_pd_pc, (uint32_t)t->p_pd_ins, (uint32_t)t->p_pd_ppc,
+				(uint32_t)t->p_pd_wpc, (uint32_t)t->p_pd_pred, (unsigned)t->p_pd_flags,
+				(uint32_t)t->p_alu_ppc, (unsigned)t->p_alu_flags);
 		// D-cache state machine before the edge, in the trace window (--dcdbg)
 		if (dcdbg && trace && retired >= trace_after)
 			fprintf(trace, "C %" PRIu64 " st %04x f %04x a %08x d %08x o %08x\n", cycle, (unsigned)t->p_dc_state,
@@ -446,6 +454,7 @@ int main(int argc, char **argv) {
 			t->fiq = ng->fiq();
 		}
 		if (progress && cycle % progress == 0) {
+			if (ng) ng->flush();
 			fprintf(stderr, "cycle %" PRIu64 " retired %" PRIu64 " pc %08x cpsr %08x\n", cycle, retired, last_pc,
 				(uint32_t)t->p_cpsr);
 		}
