@@ -1850,3 +1850,14 @@ found, and what comes next. Research material lives in `research/`
   UEMK reads. Next build: the trace also triggers 16 clocks after a read of
   `0x0C1F0100` (`DBG_TRIG_RD` in NGage.sv), so the dump shows the value the
   stand-in got and the accesses around it.
+- Date-trigger trace build (2af9a2f) meets timing at every corner (+0.087
+  ns slow 100C, +0.024 ns slow -40C); `build/hardware/NGage-datetrig.rbf`
+  and `output_files/NGage.rbf`. Its hardware run was cut short by the SSH
+  agent; to redo: `build/hwboot-dbg.sh NGage-SonicN 40`, then
+  `tools/mister_trace.py fetch build/hardware/dt-trace.bin` and `show
+  --dump 0 --rom build/hwtest/cs0.bin build/hwtest/cs1.bin`: the data ring
+  holds the stand-in's read of `0x0C1F0100` (virtual `0x581F0100`).
+- README.md written for users (eb443ad); the MiSTer template's notes
+  moved to docs/MISTER-TEMPLATE.md. A warm OSD reset boots (bootstrap,
+  flash driver, file server PCs) but stays on the Nokia logo with the
+  system mostly idle; still open.
