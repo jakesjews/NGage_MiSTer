@@ -1836,3 +1836,8 @@ found, and what comes next. Research material lives in `research/`
   A QEMU `system_reset` through the monitor did not restart the model
   (the machine does not implement it), so no model analogue yet. The
   phone itself resets this way after a Kern::Fault, so it matters later.
+- Sonic N on the MiSTer: SEGA logo, title screen and the attract demo
+  (Tails in a level) render correctly from the mounted card
+  (`build/hardware/sonic2-k5b.png`, `sonic2-k5c.png`); the game's code
+  runs from RAM (fetch addresses `0xFFE0xxxx`). Keys in the game, sound
+  and other cards are not tested yet.
