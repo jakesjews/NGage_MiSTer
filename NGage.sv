@@ -953,8 +953,15 @@ end
 // from the superpage to on-chip RAM 0x0C0047F0/F4/F8 before halting
 // (ekern 0x5031E340); the writes are snooped on the bus.
 reg [31:0] dbg_f0 = 0, dbg_f4 = 0, dbg_f8 = 0;
-assign dbg_trig = wb_cyc && wb_stb && wb_we && wb_ack && wb_adr[31:20] == 12'h0C0 &&
-                  wb_adr[15:2] == 14'(32'h47F0 >> 2);
+// The trace also triggers 16 clocks after a read of DBG_TRIG_RD (a physical
+// word address; 0 = off), so that the read and what follows it are in the
+// dump: the HLE RTC date register, which the NOS stand-in reads once.
+localparam [31:0] DBG_TRIG_RD = 32'h0C1F0100;
+reg  [15:0] dbg_trd_q = 0;
+always @(posedge clk_sys) dbg_trd_q <= {dbg_trd_q[14:0],
+	DBG_TRIG_RD != 32'd0 && cpu_req && wb_ack && !wb_we && wb_adr[31:2] == DBG_TRIG_RD[31:2]};
+assign dbg_trig = (wb_cyc && wb_stb && wb_we && wb_ack && wb_adr[31:20] == 12'h0C0 &&
+                   wb_adr[15:2] == 14'(32'h47F0 >> 2)) || dbg_trd_q[15];
 always @(posedge clk_sys) begin
 	if (wb_cyc && wb_stb && wb_we && wb_ack && wb_adr[31:20] == 12'h0C0) begin
 		if (wb_adr[15:2] == 14'(32'h47F0 >> 2)) dbg_f0 <= wb_dat_w;

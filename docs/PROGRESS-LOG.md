@@ -1841,3 +1841,12 @@ found, and what comes next. Research material lives in `research/`
   (`build/hardware/sonic2-k5b.png`, `sonic2-k5c.png`); the game's code
   runs from RAM (fetch addresses `0xFFE0xxxx`). Keys in the game, sound
   and other cards are not tested yet.
+- Clock-wait build (5f646c2) on the MiSTer: the overlay's clock rows read
+  `valid=1 17:14:38 2026-10-21` from the first screenshot on, so the wall
+  clock is set and right before the CPU starts, yet Startup.app still
+  asks for the time (the model shows the same dialog for a few seconds
+  and drops it once rtc.dll has the stand-in's base date). So the fault is
+  downstream: the HLE date register as the stand-in reads it, or rtc.dll's
+  UEMK reads. Next build: the trace also triggers 16 clocks after a read of
+  `0x0C1F0100` (`DBG_TRIG_RD` in NGage.sv), so the dump shows the value the
+  stand-in got and the accesses around it.
