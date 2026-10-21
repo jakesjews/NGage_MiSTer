@@ -108,6 +108,7 @@ localparam CONF_STR = {
 	"O[5:3],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"-;",
 	"O[6],Memory test,Off,On;",
+	"O[8],Debug overlay,Off,On;",
 	"-;",
 	"T[7],Save C: now;",
 	"T[0],Reset;",
@@ -578,6 +579,8 @@ wire        cpu_req, cpu_we, cpu_burst;
 wire [31:0] cpu_addr, cpu_wdata;
 wire  [3:0] cpu_be;
 
+wire [31:0] cpu_dbg_pc;
+
 arm925t arm925t
 (
 	.clk(clk_sys),
@@ -592,7 +595,8 @@ arm925t arm925t
 	.bus_burst(cpu_burst),
 	.bus_rdata(wb_dat_r),
 	.bus_ack(wb_ack & ~test_sel),
-	.bus_err(wb_err & ~test_sel)
+	.bus_err(wb_err & ~test_sel),
+	.dbg_pc(cpu_dbg_pc)
 );
 
 // the Wishbone port: the CPU, or the self-test while it runs (test_sel)
@@ -814,7 +818,28 @@ always @(posedge clk_sys) begin
 end
 wire [15:0] test_rgb = (test_errors != 16'd0)  ? 16'hF81F :
                        test_any_pass           ? 16'h07E0 : 16'hFFE0;
-assign scan_rgb = (test_on && scan_x < 8'd12 && scan_y < 8'd12) ? test_rgb : panel_rgb;
+// Debug overlay (OSD "Debug overlay"): rows 0-2, x 16..47 show the CPU's
+// committed PC, bit 31 leftmost, latched once per frame (white = 1); rows
+// 4-6, x 16..23 show cpu_reset, irq, fiq, bus activity, CS0 loaded, CS1
+// loaded, CS1 save present, memory-test master (white = 1).
+reg  [31:0] dbg_pc_q = 0;
+reg         dbg_bus_q = 0;
+reg   [7:0] dbg_bits_q = 0;
+always @(posedge clk_sys) begin
+	if (cpu_req & wb_ack) dbg_bus_q <= 1'b1;
+	if (scan_en && scan_x == 8'd0 && scan_y == 8'd0) begin
+		dbg_pc_q   <= cpu_dbg_pc;
+		dbg_bits_q <= {cpu_reset, cpu_irq, cpu_fiq, dbg_bus_q, dl_loaded[0], dl_loaded[1], fs_present, test_sel};
+		dbg_bus_q  <= 1'b0;
+	end
+end
+wire        dbg_on    = status[8];
+wire        dbg_pcrow = scan_y < 8'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
+wire        dbg_strow = scan_y >= 8'd4 && scan_y < 8'd7 && scan_x >= 8'd16 && scan_x < 8'd24;
+wire        dbg_bit   = dbg_pcrow ? dbg_pc_q[5'd31 - 5'(scan_x - 8'd16)] : dbg_bits_q[3'd7 - 3'(scan_x - 8'd16)];
+wire [15:0] dbg_rgb   = dbg_bit ? 16'hFFFF : 16'h0000;
+assign scan_rgb = (test_on && scan_x < 8'd12 && scan_y < 8'd12) ? test_rgb :
+                  (dbg_on && (dbg_pcrow || dbg_strow)) ? dbg_rgb : panel_rgb;
 
 wire       ce_pix;
 wire       hs, vs, hblank, vblank;

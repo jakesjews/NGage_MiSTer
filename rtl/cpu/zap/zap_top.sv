@@ -113,6 +113,9 @@ parameter logic        HIVECS       = 1'd0           // Reset value of control b
         // Clock and reset
         // --------------------------------------
 
+        // ARM925T: committed PC, for the core's debug overlay.
+        output  logic  [31:0]    o_dbg_pc,
+
         input   logic            i_clk,
         input   logic            i_reset,
 
@@ -171,6 +174,7 @@ logic            cpu_mem_translate;
 logic [ZAP_CPSR_MODE:0] cpu_mem_cpsr;   // ARM925T: see zap_core o_mem_cpsr
 logic [31:0]     cpu_daddr, cpu_daddr_nxt, cpu_daddr_check;
 logic [31:0]     cpu_iaddr, cpu_iaddr_nxt, cpu_iaddr_check;
+assign o_dbg_pc = cpu_iaddr; // ARM925T: debug overlay
 logic [7:0]      dc_fsr;
 logic [31:0]     dc_far;
 logic            cpu_dc_en, cpu_ic_en;

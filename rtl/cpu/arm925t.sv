@@ -52,7 +52,8 @@ module arm925t #(
 	output logic        bus_burst,
 	input  logic [31:0] bus_rdata,
 	input  logic        bus_ack,
-	input  logic        bus_err
+	input  logic        bus_err,
+	output logic [31:0] dbg_pc       // committed PC (debug overlay)
 );
 
 	localparam logic [31:0] RESET_VECTOR = HIVECS ? 32'hFFFF0000 : 32'h00000000;
@@ -77,6 +78,7 @@ module arm925t #(
 		.i_reset  (reset),
 		.i_irq    (irq),
 		.i_fiq    (fiq),
+		.o_dbg_pc(dbg_pc),
 		.o_wb_cyc (wb_cyc),
 		.o_wb_stb (wb_stb),
 		.o_wb_adr (bus_addr),

@@ -27,7 +27,8 @@ module arm925t (
 	bus_burst,
 	bus_rdata,
 	bus_ack,
-	bus_err
+	bus_err,
+	dbg_pc
 );
 	parameter [0:0] HIVECS = 1'b0;
 	parameter signed [31:0] ICACHE_SIZE = 16384;
@@ -46,6 +47,7 @@ module arm925t (
 	input wire [31:0] bus_rdata;
 	input wire bus_ack;
 	input wire bus_err;
+	output wire [31:0] dbg_pc;
 	localparam [31:0] RESET_VECTOR = (HIVECS ? 32'hffff0000 : 32'h00000000);
 	wire wb_cyc;
 	wire wb_stb;
@@ -67,6 +69,7 @@ module arm925t (
 		.i_reset(reset),
 		.i_irq(irq),
 		.i_fiq(fiq),
+		.o_dbg_pc(dbg_pc),
 		.o_wb_cyc(wb_cyc),
 		.o_wb_stb(wb_stb),
 		.o_wb_adr(bus_addr),
@@ -18715,6 +18718,7 @@ module zap_tlb (
 	assign o_wt = wt;
 endmodule
 module zap_top (
+	o_dbg_pc,
 	i_clk,
 	i_reset,
 	i_irq,
@@ -18756,6 +18760,7 @@ module zap_top (
 	parameter [31:0] CP15_ID = 32'h0005aaa0;
 	parameter [31:0] CP15_CTYPE = 32'd0;
 	parameter [0:0] HIVECS = 1'd0;
+	output wire [31:0] o_dbg_pc;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_irq;
@@ -19216,6 +19221,7 @@ module zap_top (
 	wire [31:0] cpu_iaddr;
 	wire [31:0] cpu_iaddr_nxt;
 	wire [31:0] cpu_iaddr_check;
+	assign o_dbg_pc = cpu_iaddr;
 	wire [7:0] dc_fsr;
 	wire [31:0] dc_far;
 	wire cpu_dc_en;
