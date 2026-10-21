@@ -1779,3 +1779,15 @@ found, and what comes next. Research material lives in `research/`
   the hardware images (`tools/mkimage.py`) rebuilt. On the FPGA a format
   erases 64 sectors at the chip's 0.7 s each, so the first boot of a blank
   image takes about a minute longer.
+  Confirmed with a persisted image (`build/dis/cs1-105.bin`): after the
+  boot the C: area holds a formatted LFFS (776 KB written) and the kernel
+  log runs on. A whole-core Verilator run of the same (new cs0.bin, blank
+  cs1.bin) is on the server in `~/dev/mister/coreboot/fmt1`, to see the
+  RTL's flash erase under the firmware's format before the hardware does.
+- Next on hardware (blocked at the time of writing by the SSH agent
+  refusing the MiSTer key): `build/hwtest-fmt.sh 60 120 200 300` copies the
+  rebuilt `build/hwtest/cs0.bin` over, deploys the trace build RBF
+  (`build/hardware/NGage-trace.rbf`, setup -0.060 ns at slow 100C, fine
+  for debugging) and boots the no-save MGL; the firmware should format C:
+  (about a minute of sector erases) and reach the idle screen. The MiSTer
+  still has the old `rh29-460-cs0-nophone.bin` copy to delete.
