@@ -581,8 +581,23 @@ upp_periph upp_periph
 // In reset with the board, while the memory test has the bus, and until both
 // flash images are in DDR3: CS0 loaded (F1), CS1 loaded (F2) or mounted as
 // the save file (S1). Out of reset it boots from CS0 at address 0.
+// MiSTer sends its clock once, at the end of the core's start-up, after
+// the files the launcher loads: with the CPU released the moment the images
+// are in, the firmware's one-time read of the HLE RTC date (the NOS stand-in
+// at its entry) came first and the clock counted as unset. So the start
+// also waits for the clock, up to RTC_WAIT_CLKS (3 s) after the images.
+localparam int RTC_WAIT_CLKS = 312_000_000;
+wire        images_in = dl_loaded[0] & (dl_loaded[1] | fs_present);
+reg  [28:0] rtc_timer = 0;
+reg         rtc_wait = 1'b1;
+always @(posedge clk_sys) begin
+	if (!images_in || mem_reset) rtc_timer <= 0;
+	else if (rtc_timer != 29'(RTC_WAIT_CLKS)) rtc_timer <= rtc_timer + 1'd1;
+	rtc_wait <= !rtc_valid && rtc_timer != 29'(RTC_WAIT_CLKS);
+end
+
 reg         cpu_reset /* verilator public_flat_rd */ = 1'b1;
-always @(posedge clk_sys) cpu_reset <= mem_reset | test_on | ~dl_loaded[0] | ~(dl_loaded[1] | fs_present);
+always @(posedge clk_sys) cpu_reset <= mem_reset | test_on | ~images_in | rtc_wait;
 
 wire        cpu_req, cpu_we, cpu_burst;
 wire [31:0] cpu_addr, cpu_wdata;
@@ -950,9 +965,10 @@ end
 wire        dbg_on    = status[8];
 wire        dbg_pcrow = scan_y < 8'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire        dbg_strow = scan_y >= 8'd4 && scan_y < 8'd7 && scan_x >= 8'd16 && scan_x < 8'd24;
-// further 32-bit rows at y = 8, 12, ..., 36 (3 lines each): the interrupt
-// words, the fault record, the trace's first trigger PC and its counts
-wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < 8'd39 && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
+// further 32-bit rows at y = 8, 12, ..., 44 (3 lines each): the interrupt
+// words, the fault record, the trace's first trigger PC and its counts, the
+// wall clock {valid, 7'b0, hour, min, sec} and its date
+wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < 8'd47 && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd3) ? dbg_en0_irq :
                         (scan_y[7:2] == 6'd4) ? dbg_en0_fiq :
@@ -960,7 +976,9 @@ wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd6) ? dbg_f4 :
                         (scan_y[7:2] == 6'd7) ? dbg_f8 :
                         (scan_y[7:2] == 6'd8) ? tr_trig_pc :
-                                                {tr_dumps, tr_triggers, 15'd0, tr_dumping};
+                        (scan_y[7:2] == 6'd9) ? {tr_dumps, tr_triggers, 15'd0, tr_dumping} :
+                        (scan_y[7:2] == 6'd10) ? {rtc_valid, 7'd0, 3'd0, rtc_hour, 2'd0, rtc_min, 2'd0, rtc_sec} :
+                                                 rtc_date;
 wire        dbg_bit   = dbg_pcrow ? dbg_pc_q[5'd31 - 5'(scan_x - 8'd16)] :
                         dbg_strow ? dbg_bits_q[3'd7 - 3'(scan_x - 8'd16)] :
                                     dbg_word[5'd31 - 5'(scan_x - 8'd16)];

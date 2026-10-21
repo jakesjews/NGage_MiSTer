@@ -1810,3 +1810,29 @@ found, and what comes next. Research material lives in `research/`
 - Next: boot with the save mount so the format persists and the second
   boot goes straight to the idle screen; mount `sonicn.mmc` and start the
   game; then the date register, keys, sound.
+- **Saves and the game card work on the MiSTer.** With `NGage-SonicN.mgl`
+  (CS1 mounted as the save, `sonicn.mmc` on SD 0) the first boot formats
+  C: and "Save C: now" writes the formatted image back to the SD card
+  (ROM part untouched, 766 KB of LFFS in the C: area). A cold boot from
+  that save skips the format: Nokia logo, operator splash, idle screen in
+  about two minutes. Menu (F5) shows Juegos … N-Gage Arena and the card's
+  SonicN icon in a fourth row; OK on it starts the game ("PRESENTED BY
+  SEGA"; `build/hardware/sonic2-game.png`).
+- **MiSTer's clock arrives after the CPU has started.** Main_MiSTer sends
+  the RTC once, at the end of the core's start-up, after the files the
+  launcher loads (`user_io.cpp` `send_rtc(3)` after the mounts; only
+  Minimig and a few others get it again every minute). The CPU was
+  released the moment both images were in, so the stand-in's one-time
+  read of the HLE RTC date (at the NOS entry) saw 0: rtc.dll counts the
+  clock as unset and Startup.app asks for the time and date at every
+  start (its dialog defaults, 10:26 PM and 01/01/2005, are the firmware's
+  own; the model shows the same dialog and drops it once the date is
+  valid). Fix in NGage.sv: the CPU start also waits for `rtc_valid`, up to
+  3 s after the images; the overlay gained the wall clock and its date
+  (rows 40 and 44, `tools/mister_dbg.py`). Quartus build running.
+- Open: after "Reset and close OSD" (a warm reset, DDR3 and on-chip RAM
+  kept) the firmware stays on the Nokia logo with the CPU running user
+  code for minutes and no fault; a cold start from the same save is fine.
+  A QEMU `system_reset` through the monitor did not restart the model
+  (the machine does not implement it), so no model analogue yet. The
+  phone itself resets this way after a Kern::Fault, so it matters later.
