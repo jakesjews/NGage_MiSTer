@@ -47,7 +47,9 @@ module upp_intc (
 	output logic [31:0] rdata,
 
 	output logic        irq,
-	output logic        fiq
+	output logic        fiq,
+	output logic [31:0] dbg_en0_irq,     // debug overlay: IRQ-plane enables, bank 0
+	output logic [31:0] dbg_en0_fiq      // debug overlay: FIQ-plane enables, bank 0
 );
 
 	logic [31:0] en [0:5];            // 0-2 IRQ banks, 3-5 FIQ banks
@@ -59,6 +61,8 @@ module upp_intc (
 	wire [1:0]  bank    = (idx >= 3'd3) ? 2'(idx - 3'd3) : idx[1:0];
 	wire [5:0]  r       = off[5:0];
 
+	assign dbg_en0_irq = en[0];
+	assign dbg_en0_fiq = en[3];
 	wire [31:0] pend_b  = src[32 * bank +: 32];
 	wire [31:0] act_b   = pend_b & en[idx];
 

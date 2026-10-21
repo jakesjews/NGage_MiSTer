@@ -93,6 +93,9 @@ module upp_periph #(
 	// to the CPU, active high (the ARM925T's nIRQ / nFIQ inverted)
 	output logic        irq,
 	output logic        fiq,
+	output logic [31:0] dbg_src0,        // debug overlay: interrupt sources, bank 0
+	output logic [31:0] dbg_en0_irq,
+	output logic [31:0] dbg_en0_fiq,
 
 	// the display module's 8080 bus
 	output logic        lcd_csx,
@@ -273,8 +276,11 @@ module upp_periph #(
 		.rmask(m_intc),
 		.rdata(d_intc),
 		.irq(irq),
-		.fiq(fiq)
+		.fiq(fiq),
+		.dbg_en0_irq(dbg_en0_irq),
+		.dbg_en0_fiq(dbg_en0_fiq)
 	);
+	assign dbg_src0 = src[31:0];
 
 	upp_timers #(.TIMER_DIV(TIMER_DIV)) timers (
 		.clk(clk),

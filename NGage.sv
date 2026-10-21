@@ -508,6 +508,8 @@ wire        pwronx;                  // the power key, low while held (keypad_ma
 wire mmc_cmd = (mmc_cmd_oe ? mmc_cmd_o : 1'b1) & (card_cmd_oe ? card_cmd_o : 1'b1);
 wire mmc_dat = (mmc_dat_oe ? mmc_dat_o : 1'b1) & (card_dat_oe ? card_dat_o : 1'b1);
 
+wire [31:0] dbg_src0, dbg_en0_irq, dbg_en0_fiq;
+
 upp_periph upp_periph
 (
 	.clk(clk_sys),
@@ -529,6 +531,9 @@ upp_periph upp_periph
 	.dma_err(dma_err),
 	.dma_dat_i(dma_dat_r),
 	.irq(cpu_irq),
+	.dbg_src0(dbg_src0),
+	.dbg_en0_irq(dbg_en0_irq),
+	.dbg_en0_fiq(dbg_en0_fiq),
 	.fiq(cpu_fiq),
 	.lcd_csx(upp_lcd_csx),
 	.lcd_dcx(upp_lcd_dcx),
@@ -833,13 +838,33 @@ always @(posedge clk_sys) begin
 		dbg_bus_q  <= 1'b0;
 	end
 end
+// Kern::Fault's record: the kernel copies the fault category and reason
+// from the superpage to on-chip RAM 0x0C0047F0/F4/F8 before halting
+// (ekern 0x5031E340); the writes are snooped on the bus.
+reg [31:0] dbg_f0 = 0, dbg_f4 = 0, dbg_f8 = 0;
+always @(posedge clk_sys) begin
+	if (wb_cyc && wb_stb && wb_we && wb_ack && wb_adr[31:20] == 12'h0C0) begin
+		if (wb_adr[15:2] == 14'(32'h47F0 >> 2)) dbg_f0 <= wb_dat_w;
+		if (wb_adr[15:2] == 14'(32'h47F4 >> 2)) dbg_f4 <= wb_dat_w;
+		if (wb_adr[15:2] == 14'(32'h47F8 >> 2)) dbg_f8 <= wb_dat_w;
+	end
+end
 wire        dbg_on    = status[8];
 wire        dbg_pcrow = scan_y < 8'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire        dbg_strow = scan_y >= 8'd4 && scan_y < 8'd7 && scan_x >= 8'd16 && scan_x < 8'd24;
-wire        dbg_bit   = dbg_pcrow ? dbg_pc_q[5'd31 - 5'(scan_x - 8'd16)] : dbg_bits_q[3'd7 - 3'(scan_x - 8'd16)];
+// further 32-bit rows at y = 8, 12, 16, 20, 24, 28 (3 lines each)
+wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < 8'd31 && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
+wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
+                        (scan_y[7:2] == 6'd3) ? dbg_en0_irq :
+                        (scan_y[7:2] == 6'd4) ? dbg_en0_fiq :
+                        (scan_y[7:2] == 6'd5) ? dbg_f0 :
+                        (scan_y[7:2] == 6'd6) ? dbg_f4 : dbg_f8;
+wire        dbg_bit   = dbg_pcrow ? dbg_pc_q[5'd31 - 5'(scan_x - 8'd16)] :
+                        dbg_strow ? dbg_bits_q[3'd7 - 3'(scan_x - 8'd16)] :
+                                    dbg_word[5'd31 - 5'(scan_x - 8'd16)];
 wire [15:0] dbg_rgb   = dbg_bit ? 16'hFFFF : 16'h0000;
 assign scan_rgb = (test_on && scan_x < 8'd12 && scan_y < 8'd12) ? test_rgb :
-                  (dbg_on && (dbg_pcrow || dbg_strow)) ? dbg_rgb : panel_rgb;
+                  (dbg_on && (dbg_pcrow || dbg_strow || dbg_wrow)) ? dbg_rgb : panel_rgb;
 
 wire       ce_pix;
 wire       hs, vs, hblank, vblank;
