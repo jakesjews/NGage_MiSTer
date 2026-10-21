@@ -1545,3 +1545,21 @@ found, and what comes next. Research material lives in `research/`
   - Bench tests: +12% at zero wait states, +4% at 2-9.
 - Regression: 162 runs (49 agree with QEMU), 400 random programs,
   gba-tests, RTL=sv. All pass.
+
+### 2026-10-20: paused by the user (conserving usage)
+- The CPU integration agent was stopped mid-task. Its last commits are
+  the full-core boot bench (`sim/cpu/boot/cmp_flow.py`, coreboot), timing
+  fixes in the memory system and SDRAM, two CPU fixes (Thumb BL second
+  half after an interrupt; data permission checks in the instruction's own
+  mode), and `NGage.qsf` with fitter seed 3. Any uncommitted changes it
+  left are in the working tree.
+- Background jobs it started on the ubuntu server (Quartus in Docker,
+  Verilator boot runs) may still finish on their own.
+- On the MiSTer, in /media/fat/games/NGage/, ready for the first hardware
+  boot: rh29-460-cs0.bin, rh29-460-cs1.bin (from tools/mkimage.py) and
+  sonicn.mmc (test data). MiSTer.ini has an `[NGage]` direct_video=0
+  section; the backup is MiSTer.ini.ngagebak.
+- Resume: finish the CPU integration (full-core boot sim to the idle
+  screen; a full Quartus compile at 104 MHz with the CPU), fetch the RBF,
+  deploy, boot with the images and the card on the MiSTer, then write the
+  README.
