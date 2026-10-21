@@ -19,6 +19,13 @@ if [[ ! -d $SRC ]]; then
     git clone -q --depth 1 --branch "$QEMU_TAG" https://gitlab.com/qemu-project/qemu.git "$SRC"
 fi
 
+# QEMU changes the model needs (qemu-patches/*.patch), each applied once.
+for p in qemu-patches/*.patch(N); do
+    if ! git -C "$SRC" apply --reverse --check "../$p" 2>/dev/null; then
+        git -C "$SRC" apply "../$p"
+    fi
+done
+
 # Our sources go into the tree as copies so the checkout stays a plain release.
 cp hw/ngage.h "$SRC/include/hw/arm/ngage.h"
 for f in hw/ngage*.c; do

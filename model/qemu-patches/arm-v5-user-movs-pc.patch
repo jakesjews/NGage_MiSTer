@@ -1,0 +1,62 @@
+diff --git a/target/arm/tcg/translate.c b/target/arm/tcg/translate.c
+index 86c3c30..b3a76b3 100644
+--- a/target/arm/tcg/translate.c
++++ b/target/arm/tcg/translate.c
+@@ -2633,16 +2633,23 @@ DO_ANY3(SUB, a->s ? gen_sub_CC : tcg_gen_sub_i32, false,
+             if (a->rd == 15 && a->s) {
+                 /*
+                  * See ALUExceptionReturn:
+-                 * In User mode, UNPREDICTABLE; we choose UNDEF.
++                 * In User mode, UNPREDICTABLE; we choose UNDEF, except on
++                 * ARMv4/v5 cores, which have no SPSR in User mode and
++                 * copy the CPSR to itself: a plain write of the PC, flags
++                 * unchanged (N-Gage games return with MOVS PC, LR).
+                  * In Hyp mode, UNDEFINED.
+                  */
+-                if (IS_USER(s) || s->current_el == 2) {
++                if (IS_USER(s) && !ENABLE_ARCH_6) {
++                    a->s = 0;
++                    ret = STREG_NORMAL;
++                } else if (IS_USER(s) || s->current_el == 2) {
+                     unallocated_encoding(s);
+                     return true;
++                } else {
++                    /* There is no writeback of nzcv to PSTATE.  */
++                    a->s = 0;
++                    ret = STREG_EXC_RET;
+                 }
+-                /* There is no writeback of nzcv to PSTATE.  */
+-                a->s = 0;
+-                ret = STREG_EXC_RET;
+             } else if (a->rd == 13 && a->rn == 13) {
+                 ret = STREG_SP_CHECK;
+             }
+@@ -2655,16 +2662,23 @@ DO_ANY2(MOV, tcg_gen_mov_i32, a->s,
+             if (a->rd == 15 && a->s) {
+                 /*
+                  * See ALUExceptionReturn:
+-                 * In User mode, UNPREDICTABLE; we choose UNDEF.
++                 * In User mode, UNPREDICTABLE; we choose UNDEF, except on
++                 * ARMv4/v5 cores, which have no SPSR in User mode and
++                 * copy the CPSR to itself: a plain write of the PC, flags
++                 * unchanged (N-Gage games return with MOVS PC, LR).
+                  * In Hyp mode, UNDEFINED.
+                  */
+-                if (IS_USER(s) || s->current_el == 2) {
++                if (IS_USER(s) && !ENABLE_ARCH_6) {
++                    a->s = 0;
++                    ret = STREG_NORMAL;
++                } else if (IS_USER(s) || s->current_el == 2) {
+                     unallocated_encoding(s);
+                     return true;
++                } else {
++                    /* There is no writeback of nzcv to PSTATE.  */
++                    a->s = 0;
++                    ret = STREG_EXC_RET;
+                 }
+-                /* There is no writeback of nzcv to PSTATE.  */
+-                a->s = 0;
+-                ret = STREG_EXC_RET;
+             } else if (a->rd == 13) {
+                 ret = STREG_SP_CHECK;
+             }
