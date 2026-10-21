@@ -210,6 +210,15 @@ After a C: format Startup.app still asks once, because
 `C:\system\bootdata\FirstBoot.dat` is missing (`0x50BBB614`); later
 starts go straight to the idle screen with the host's date and time.
 
+HelperDrv's "auxstart" query (variant service 3 read, id 12, 2 bytes with a
+DFC; `0x5037F1C8`) is made only when EStart cannot mount C: (the CS1 area
+`0x400000`-`0x7FFFFF` blank). The stand-in answers 105, on which EStart
+erases and formats C: and the boot goes on. Answering 0 left C: a RAM
+drive, Starter then took its (0, 210) start-up list, found no backup server
+and the kernel faulted in Starter's cleanup (`RArrayBase::Count` on NULL,
+progress log 2026-10-21). What NOS answers on a phone is unknown; a phone's
+C: is formatted at the factory, so the question does not come up there.
+
 ## Not answered yet
 
 Requests seen but left without a reply (the client keeps waiting):

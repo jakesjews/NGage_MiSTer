@@ -137,6 +137,12 @@ ret0:
 @ ecust 0x50342BE0 (id 5). The value NOS returns is unknown; the stand-in
 @ returns zeros, then queues the DFC with TDfc::Add (ekern ordinal 7,
 @ 0x5033F304). product_info then takes its "known product, variant 0" path.
+@ Id 12 is HelperDrv's "auxstart" query, which EStart makes only when the
+@ C: area of CS1 does not mount (blank flash): 105 makes it erase and
+@ format C: and the boot goes on; 0 leaves C: a RAM drive, Starter then
+@ takes the (0, 210) list, finds no backup server and the kernel faults
+@ (docs/UPP_WD2.md, docs/PROGRESS-LOG.md 2026-10-21). A phone comes with C:
+@ formatted; this makes a blank image format itself the firmware's own way.
 svc3_read:
     stmfd   sp!, {r4, lr}
     ldr     r12, [sp, #12]          @ length (caller's [sp+4])
@@ -145,10 +151,13 @@ svc3_read:
     beq     2f
     cmp     r12, #64
     movhi   r12, #64
-    mov     r1, #0
+    mov     lr, #0
 1:  subs    r12, r12, #1
-    strgeb  r1, [r3, r12]
+    strgeb  lr, [r3, r12]
     bgt     1b
+    cmp     r1, #12                 @ auxstart: 105 = format C:
+    moveq   lr, #105
+    streqh  lr, [r3]
 2:  cmp     r4, #0
     beq     3f
     mov     r0, r4

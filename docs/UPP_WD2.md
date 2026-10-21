@@ -244,7 +244,10 @@ which makes Starter take the (0, 210) list. Holding Call + * + 3 at power-on
 same happens without keys when HelperDrv request 1 ("auxstart",
 `0x5037F1C8`) answers 105. HelperDrv answers 100 itself unless variant flag
 bit 0 is set; then it asks NOS service 3 (request 12). The NOS stand-in sets
-the flags to 3 and answers 0.
+the flags to 3 and answers 105, so a blank C: formats itself at the first
+boot (the query is only made when C: does not mount). With 0, C: stayed a
+RAM drive, Starter took the (0, 210) list, found no backup server and the
+kernel faulted in Starter's cleanup (`RArrayBase::Count` on NULL).
 
 ## Trace window (0x0DE00000) — `ngage_sti.c`
 

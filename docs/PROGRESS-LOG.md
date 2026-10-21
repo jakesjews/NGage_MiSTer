@@ -1739,3 +1739,43 @@ found, and what comes next. Research material lives in `research/`
     capacity from the CSD, so nothing new is needed.
   - Folder cards are writable (class 4, no write protect): CMD24/25 reach
     the .mmc file unless it is mounted read-only.
+- **Found (same day, later): the fault is the firmware's blank-C: path,
+  not a hardware bug.** The model takes the identical exception: its
+  superpage holds the same record (`0x503A879C`, `0xE59FF044`), and under
+  GDB the kernel's dispatcher classifies it as a user-mode data abort
+  (type 12) in thread `0x8040ce7c` (Starter), finds no handler, and runs
+  the Kern::Fault epilogue at `0x5031E340`: it copies the record to on-chip
+  RAM, writes `0x200` to `0x0C120004` and 4 to `0x0C150000` (reset reason),
+  masks IRQ and FIQ and spins, waiting for the phone's reset. It is the
+  crash the bring-up notes of 2026-10-19 describe: with the C: area of CS1
+  blank, LFFS cannot mount it, EStart falls back to a RAM drive, Starter
+  takes the (0, 210) start-up list, `CBaBackupSessionWrapper` finds no
+  backup server and Starter's cleanup calls `RArrayBase::Count` through a
+  null pointer (the `this` value is the exception vector's instruction,
+  read through the page at virtual 0). The kernel log shows `auxstart 0`
+  (HelperDrv's start-up query, answered 0 by the NOS stand-in) and stops.
+- Model matrix (`build/dis/matrix.sh`, GDB breakpoints on the abort
+  handler and the fault epilogue): the pristine CS1 image (`cs1.bin` from
+  `tools/mkimage.py`, C: all `0xFF`) faults; the freshly formatted C:
+  (`model/.out/fc-base/cs1-base.bin`) boots on. The hardware runs so far
+  all used the pristine image or a save file of unknown state, and the
+  whole-core simulation that reached the idle screen used a formatted one.
+  The word `0x10000000` the overlay showed is the superpage word at
+  `+0x10`, the same in the model; it is not a fault reason.
+- Consequences: (1) the core needs a formatted C: to boot, as the phone
+  has from the factory: test the hardware with `cs1-base.bin` mounted as
+  the CS1 save; (2) a blank C: should format itself as on the phone: the
+  firmware does that when HelperDrv's "auxstart" answers 105
+  (docs/UPP_WD2.md); the stand-in answering 105 is being tried in the
+  model; (3) after a Kern::Fault the phone restarts; the core (and the
+  model) spin instead. The hardware trace build (above) was not needed
+  for this but stays for the next fault.
+- **Fix: the NOS stand-in answers 105 to HelperDrv's "auxstart" query**
+  (service 3 id 12, `model/nos-stub/nos_stub.S`). In the model with the
+  pristine CS1 image the kernel log then reads `auxstart 105` and the boot
+  goes on (Bluetooth driver, NOS traffic) with no abort. The query is only
+  made when C: does not mount (no `auxstart` line in a boot with a
+  formatted C:), so a healthy C: is never reformatted. `tools/standin` and
+  the hardware images (`tools/mkimage.py`) rebuilt. On the FPGA a format
+  erases 64 sectors at the chip's 0.7 s each, so the first boot of a blank
+  image takes about a minute longer.
