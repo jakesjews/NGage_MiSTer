@@ -55,6 +55,11 @@ lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Bits of signal are not use
 lint_off -rule UNUSEDSIGNAL -file "rtl/mister/ngage_input.sv" -match "*Bits of signal are not used: 'j'[31:17]*"
 lint_off -rule UNUSEDSIGNAL -file "rtl/mister/ddram_loader.sv" -match "*Bits of signal are not used: 'ioctl_index'[15:6]*"
 
+// dbg_trace: the PC ring keeps the mode byte of the CPSR before an
+// instruction and the flags after it.
+lint_off -rule UNUSEDSIGNAL -file "rtl/mister/dbg_trace.sv" -match "*Bits of signal are not used: 'wb_cpsr'[31:8]*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/mister/dbg_trace.sv" -match "*Bits of signal are not used: 'wb_cpsr_nxt'[27:0]*"
+
 // lcd_testgen: the test picture divides 3x by powers of two.
 lint_off -rule UNUSEDSIGNAL -file "rtl/mister/lcd_testgen.sv" -match "*Bits of function variable are not used: 'x3'*"
 

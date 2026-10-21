@@ -28,7 +28,25 @@ module arm925t (
 	bus_rdata,
 	bus_ack,
 	bus_err,
-	dbg_pc
+	dbg_pc,
+	dbg_wb_valid,
+	dbg_wb_dvalid,
+	dbg_wb_uop_last,
+	dbg_wb_dabt,
+	dbg_wb_pabt,
+	dbg_wb_und,
+	dbg_wb_swi,
+	dbg_wb_irq,
+	dbg_wb_fiq,
+	dbg_wb_pc,
+	dbg_wb_cpsr,
+	dbg_wb_cpsr_nxt,
+	dbg_d_done,
+	dbg_d_we,
+	dbg_d_va,
+	dbg_d_sel,
+	dbg_d_wdata,
+	dbg_d_rdata
 );
 	parameter [0:0] HIVECS = 1'b0;
 	parameter signed [31:0] ICACHE_SIZE = 16384;
@@ -48,6 +66,24 @@ module arm925t (
 	input wire bus_ack;
 	input wire bus_err;
 	output wire [31:0] dbg_pc;
+	output wire dbg_wb_valid;
+	output wire dbg_wb_dvalid;
+	output wire dbg_wb_uop_last;
+	output wire [1:0] dbg_wb_dabt;
+	output wire dbg_wb_pabt;
+	output wire dbg_wb_und;
+	output wire dbg_wb_swi;
+	output wire dbg_wb_irq;
+	output wire dbg_wb_fiq;
+	output wire [31:0] dbg_wb_pc;
+	output wire [31:0] dbg_wb_cpsr;
+	output wire [31:0] dbg_wb_cpsr_nxt;
+	output wire dbg_d_done;
+	output wire dbg_d_we;
+	output wire [31:0] dbg_d_va;
+	output wire [3:0] dbg_d_sel;
+	output wire [31:0] dbg_d_wdata;
+	output wire [31:0] dbg_d_rdata;
 	localparam [31:0] RESET_VECTOR = (HIVECS ? 32'hffff0000 : 32'h00000000);
 	wire wb_cyc;
 	wire wb_stb;
@@ -70,6 +106,24 @@ module arm925t (
 		.i_irq(irq),
 		.i_fiq(fiq),
 		.o_dbg_pc(dbg_pc),
+		.o_dbg_wb_valid(dbg_wb_valid),
+		.o_dbg_wb_dvalid(dbg_wb_dvalid),
+		.o_dbg_wb_uop_last(dbg_wb_uop_last),
+		.o_dbg_wb_dabt(dbg_wb_dabt),
+		.o_dbg_wb_pabt(dbg_wb_pabt),
+		.o_dbg_wb_und(dbg_wb_und),
+		.o_dbg_wb_swi(dbg_wb_swi),
+		.o_dbg_wb_irq(dbg_wb_irq),
+		.o_dbg_wb_fiq(dbg_wb_fiq),
+		.o_dbg_wb_pc(dbg_wb_pc),
+		.o_dbg_wb_cpsr(dbg_wb_cpsr),
+		.o_dbg_wb_cpsr_nxt(dbg_wb_cpsr_nxt),
+		.o_dbg_d_done(dbg_d_done),
+		.o_dbg_d_we(dbg_d_we),
+		.o_dbg_d_va(dbg_d_va),
+		.o_dbg_d_sel(dbg_d_sel),
+		.o_dbg_d_wdata(dbg_d_wdata),
+		.o_dbg_d_rdata(dbg_d_rdata),
 		.o_wb_cyc(wb_cyc),
 		.o_wb_stb(wb_stb),
 		.o_wb_adr(bus_addr),
@@ -4036,7 +4090,19 @@ module zap_core (
 	i_dc_reg_dat,
 	i_dc_lock,
 	o_dc_reg_idx,
-	o_dc_reg_idx_bin
+	o_dc_reg_idx_bin,
+	o_dbg_wb_valid,
+	o_dbg_wb_dvalid,
+	o_dbg_wb_uop_last,
+	o_dbg_wb_dabt,
+	o_dbg_wb_pabt,
+	o_dbg_wb_und,
+	o_dbg_wb_swi,
+	o_dbg_wb_irq,
+	o_dbg_wb_fiq,
+	o_dbg_wb_pc,
+	o_dbg_wb_cpsr,
+	o_dbg_wb_cpsr_nxt
 );
 	reg _sv2v_0;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
@@ -4124,6 +4190,18 @@ module zap_core (
 	input wire [63:0] i_dc_lock;
 	output reg [63:0] o_dc_reg_idx;
 	output wire [5:0] o_dc_reg_idx_bin;
+	output wire o_dbg_wb_valid;
+	output wire o_dbg_wb_dvalid;
+	output wire o_dbg_wb_uop_last;
+	output wire [1:0] o_dbg_wb_dabt;
+	output wire o_dbg_wb_pabt;
+	output wire o_dbg_wb_und;
+	output wire o_dbg_wb_swi;
+	output wire o_dbg_wb_irq;
+	output wire o_dbg_wb_fiq;
+	output wire [31:0] o_dbg_wb_pc;
+	output wire [31:0] o_dbg_wb_cpsr;
+	output wire [31:0] o_dbg_wb_cpsr_nxt;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
 	localparam [1:0] FINE_ID = 2'b11;
@@ -5529,10 +5607,22 @@ module zap_core (
 		.o_pc_nxt(o_instr_wb_adr_nxt),
 		.o_pc_check(o_instr_wb_adr_check),
 		.o_cpsr_nxt(cpsr_nxt),
+		.o_dbg_cpsr_ff(o_dbg_wb_cpsr),
 		.o_clear_from_writeback(clear_from_writeback),
 		.o_wb_stb(o_instr_wb_stb),
 		.o_wb_cyc(o_instr_wb_cyc)
 	);
+	assign o_dbg_wb_valid = memory_dav_ff;
+	assign o_dbg_wb_dvalid = memory_decompile_valid;
+	assign o_dbg_wb_uop_last = memory_uop_last;
+	assign o_dbg_wb_dabt = memory_data_abt_ff[1:0];
+	assign o_dbg_wb_pabt = memory_instr_abort_ff;
+	assign o_dbg_wb_und = memory_und_ff;
+	assign o_dbg_wb_swi = memory_swi_ff;
+	assign o_dbg_wb_irq = memory_irq_ff;
+	assign o_dbg_wb_fiq = memory_fiq_ff;
+	assign o_dbg_wb_pc = memory_pc_plus_8_ff;
+	assign o_dbg_wb_cpsr_nxt = cpsr_nxt;
 	zap_cp15_cb #(
 		.BE_32_ENABLE(BE_32_ENABLE),
 		.PHY_REGS(PHY_REGS),
@@ -18719,6 +18809,24 @@ module zap_tlb (
 endmodule
 module zap_top (
 	o_dbg_pc,
+	o_dbg_wb_valid,
+	o_dbg_wb_dvalid,
+	o_dbg_wb_uop_last,
+	o_dbg_wb_dabt,
+	o_dbg_wb_pabt,
+	o_dbg_wb_und,
+	o_dbg_wb_swi,
+	o_dbg_wb_irq,
+	o_dbg_wb_fiq,
+	o_dbg_wb_pc,
+	o_dbg_wb_cpsr,
+	o_dbg_wb_cpsr_nxt,
+	o_dbg_d_done,
+	o_dbg_d_we,
+	o_dbg_d_va,
+	o_dbg_d_sel,
+	o_dbg_d_wdata,
+	o_dbg_d_rdata,
 	i_clk,
 	i_reset,
 	i_irq,
@@ -18761,6 +18869,24 @@ module zap_top (
 	parameter [31:0] CP15_CTYPE = 32'd0;
 	parameter [0:0] HIVECS = 1'd0;
 	output wire [31:0] o_dbg_pc;
+	output wire o_dbg_wb_valid;
+	output wire o_dbg_wb_dvalid;
+	output wire o_dbg_wb_uop_last;
+	output wire [1:0] o_dbg_wb_dabt;
+	output wire o_dbg_wb_pabt;
+	output wire o_dbg_wb_und;
+	output wire o_dbg_wb_swi;
+	output wire o_dbg_wb_irq;
+	output wire o_dbg_wb_fiq;
+	output wire [31:0] o_dbg_wb_pc;
+	output wire [31:0] o_dbg_wb_cpsr;
+	output wire [31:0] o_dbg_wb_cpsr_nxt;
+	output wire o_dbg_d_done;
+	output wire o_dbg_d_we;
+	output wire [31:0] o_dbg_d_va;
+	output wire [3:0] o_dbg_d_sel;
+	output wire [31:0] o_dbg_d_wdata;
+	output wire [31:0] o_dbg_d_rdata;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_irq;
@@ -19222,6 +19348,19 @@ module zap_top (
 	wire [31:0] cpu_iaddr_nxt;
 	wire [31:0] cpu_iaddr_check;
 	assign o_dbg_pc = cpu_iaddr;
+	wire cpu_dc_stb;
+	wire data_ack;
+	wire dcache_err2;
+	assign o_dbg_d_done = (cpu_dc_stb && data_ack) && !dcache_err2;
+	wire cpu_dc_we;
+	assign o_dbg_d_we = cpu_dc_we;
+	assign o_dbg_d_va = cpu_daddr;
+	wire [3:0] cpu_dc_sel;
+	assign o_dbg_d_sel = cpu_dc_sel;
+	wire [31:0] cpu_dc_dat;
+	assign o_dbg_d_wdata = cpu_dc_dat;
+	wire [31:0] dc_data;
+	assign o_dbg_d_rdata = dc_data;
 	wire [7:0] dc_fsr;
 	wire [31:0] dc_far;
 	wire cpu_dc_en;
@@ -19239,17 +19378,11 @@ module zap_top (
 	wire ic_clean_done;
 	wire cpu_dtlb_inv;
 	wire cpu_itlb_inv;
-	wire data_ack;
 	wire data_err;
 	wire instr_ack;
 	wire instr_err;
 	wire [31:0] ic_data;
-	wire [31:0] dc_data;
-	wire [31:0] cpu_dc_dat;
 	wire cpu_instr_stb;
-	wire cpu_dc_we;
-	wire cpu_dc_stb;
-	wire [3:0] cpu_dc_sel;
 	wire c_wb_stb;
 	wire c_wb_cyc;
 	wire c_wb_wen;
@@ -19274,7 +19407,6 @@ module zap_top (
 	wire [63:0] dc_lock;
 	wire [31:0] dc_reg_data;
 	wire icache_err2;
-	wire dcache_err2;
 	wire cpu_dwe_check;
 	wire cpu_dre_check;
 	wire s_reset;
@@ -19332,6 +19464,18 @@ module zap_top (
 		.o_trace(o_trace),
 		.o_trace_valid(o_trace_valid),
 		.o_trace_uop_last(o_trace_uop_last),
+		.o_dbg_wb_valid(o_dbg_wb_valid),
+		.o_dbg_wb_dvalid(o_dbg_wb_dvalid),
+		.o_dbg_wb_uop_last(o_dbg_wb_uop_last),
+		.o_dbg_wb_dabt(o_dbg_wb_dabt),
+		.o_dbg_wb_pabt(o_dbg_wb_pabt),
+		.o_dbg_wb_und(o_dbg_wb_und),
+		.o_dbg_wb_swi(o_dbg_wb_swi),
+		.o_dbg_wb_irq(o_dbg_wb_irq),
+		.o_dbg_wb_fiq(o_dbg_wb_fiq),
+		.o_dbg_wb_pc(o_dbg_wb_pc),
+		.o_dbg_wb_cpsr(o_dbg_wb_cpsr),
+		.o_dbg_wb_cpsr_nxt(o_dbg_wb_cpsr_nxt),
 		.i_clk(i_clk),
 		.i_reset(s_reset),
 		.o_instr_wb_adr(cpu_iaddr),
@@ -20134,6 +20278,7 @@ module zap_writeback (
 	o_taken,
 	o_pred,
 	o_cpsr_nxt,
+	o_dbg_cpsr_ff,
 	o_clear_from_writeback,
 	o_wb_stb,
 	o_wb_cyc,
@@ -20203,6 +20348,7 @@ module zap_writeback (
 	output wire [1:0] o_taken;
 	output reg [32:0] o_pred;
 	output wire [31:0] o_cpsr_nxt;
+	output wire [31:0] o_dbg_cpsr_ff;
 	output reg o_clear_from_writeback;
 	output wire o_wb_stb;
 	output wire o_wb_cyc;
@@ -20512,6 +20658,7 @@ module zap_writeback (
 	assign o_pc_check = pc_del2_ff[31:0];
 	assign o_pc_nxt = pc_ff[31:0];
 	assign o_cpsr_nxt = cpsr_nxt;
+	assign o_dbg_cpsr_ff = cpsr_ff;
 	assign o_wb_stb = pc_del3_ff[32];
 	assign o_wb_cyc = pc_del3_ff[32];
 	zap_register_file u_zap_register_file(

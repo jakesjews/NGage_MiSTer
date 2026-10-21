@@ -18,7 +18,7 @@ VFLAGS := --cc --exe --build -j 4 -O3 --x-assign unique --x-initial unique \
           -CFLAGS "-O2 -std=c++17 -I$(ROOT)/sim/harness"
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
-BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash upp intc timers haudio periph save top
+BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash trace upp intc timers haudio periph save top
 
 .PHONY: test $(BENCHES) coreboot clean
 
@@ -103,6 +103,14 @@ $(BUILD)/ddrflash/Vddram_flash: $(DDRFLASH_RTL) $(ROOT)/sim/harness/ddrflash_mai
 	mkdir -p $(BUILD)/ddrflash && $(VERILATOR) $(VFLAGS) --top-module ddram_flash --Mdir $(BUILD)/ddrflash -o Vddram_flash \
 		$(DDRFLASH_RTL) $(ROOT)/sim/harness/ddrflash_main.cpp
 ddrflash: $(BUILD)/ddrflash/Vddram_flash
+	$< $(RUNFLAGS) --seed $(SEED)
+
+# The hardware trace rings and their dump through the loader port
+TRACE_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/mister/dbg_trace.sv
+$(BUILD)/trace/Vdbg_trace: $(TRACE_RTL) $(ROOT)/sim/harness/trace_main.cpp $(ROOT)/sim/harness/common.h
+	mkdir -p $(BUILD)/trace && $(VERILATOR) $(VFLAGS) --top-module dbg_trace --Mdir $(BUILD)/trace -o Vdbg_trace \
+		$(TRACE_RTL) $(ROOT)/sim/harness/trace_main.cpp
+trace: $(BUILD)/trace/Vdbg_trace
 	$< $(RUNFLAGS) --seed $(SEED)
 
 # The memory system (upp_bus, SDRAM, flash chips, DDR3 path) under a scripted

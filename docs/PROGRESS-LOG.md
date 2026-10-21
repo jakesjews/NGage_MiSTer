@@ -1584,6 +1584,51 @@ found, and what comes next. Research material lives in `research/`
   on S0. Keyboard: arrows = rocker, Enter = OK, F1/F2 = soft keys,
   F5 = Menu, F8 = Power (rtl/mister/ngage_input.sv).
 
+### 2026-10-21: hardware boots to the Nokia logo, then a kernel fault
+- The CPU build on the MiSTer shows the Nokia logo and stops. Two Quartus
+  rounds of a debug overlay (OSD "Debug overlay": the fetch address,
+  status bits, interrupt words and the Kern::Fault record words the kernel
+  copies to on-chip RAM 0x0C0047F0, decoded from Zaparoo screenshots by
+  `tools/mister_dbg.py`) show the CPU in the kernel halt loop at
+  0x5031E394 with IRQ pending and masked, and the fault record
+  `503A879C E59FF044 10000000`: an exception at 0x503A879C, which is
+  `RArrayBase::Count` in EUser (`ldr r0,[r0]; bx lr`), with 0xE59FF044 as
+  the data address: the `this` pointer held an instruction word
+  (`ldr pc,[pc,#68]`, the shape of an exception vector).
+- The fault is deterministic and independent of the inputs: five boots
+  gave the same record, with the save mount or without, with the CS0
+  image with the 56 per-phone bytes or without them, with the MiSTer's
+  clock at 2026-10-21 or set to 2004-06-01 (the simulation's date). It
+  happens before the C: format (no CS1 writes), within the first 25 s.
+- Ruled out: the image in DDR3 (the bootstrap's MD5 over 0x50009000-
+  0x51169FFF passes before the kernel starts, and the file on the card
+  matches `tools/mkimage.py`'s output); the sv2v netlist (the whole-core
+  simulation compiles `rtl/cpu/arm925t_gen.v`, the file Quartus builds,
+  and reaches the idle screen with the same images); the memory test
+  (passes on the same build). The whole-core simulation takes no abort,
+  undefined-instruction or prefetch-abort exception at all in 86 s (1.4 M
+  exceptions: SWI, IRQ, FIQ only), so the first one on hardware is the
+  anomaly. Quartus's warnings for our RTL are benign (the V4T-only case
+  items that never match, sv2v width casts).
+- Still open: Verilator's X choices (the simulation ran with
+  `--x-assign unique --x-initial unique`, one seed, so a reachable
+  don't-care that Quartus resolves the other way would never show). Four
+  whole-core runs with `--x-assign 0`, `--x-assign 1`, `--x-initial 0` and
+  another seed are running on the server (`~/dev/mister/coreboot/x*`,
+  `xvar.sh`); their `dev.log` would show the abort ("X n exc pc 00000010").
+- A hardware trace, to see the fault happen: `rtl/mister/dbg_trace.sv`
+  keeps the last 8192 retired instructions (PC, CPSR, event, clock), 4096
+  data-port accesses and 2048 bus beats in block RAM and, on the first
+  abort or undefined instruction (or the fault-record write), writes them
+  to DDR3 at 0x33000000 through the loader port, up to four dumps.
+  `tools/mister_trace.py fetch` reads them over ssh from /dev/mem and
+  `show` decodes them with the ROM disassembly. Taps come out of ZAP's
+  writeback stage and data port (`dbg_wb_*`, `dbg_d_*` on arm925t).
+  Verilator bench `make -C sim trace`; `make test` and lint pass; the
+  overlay gained the trigger PC and the dump counts (rows 32 and 36).
+  `localparam DBG_TRACE` in NGage.sv switches it off for a release build
+  (about 1.3 Mbit of block RAM).
+
 ### 2026-10-21: Game cards from game folders (`tools/mkcard.py` folder mode); five cracked games play
 - **Folder mode.** `tools/mkcard.py` now also takes a game folder (the card's
   root, holding `System/Apps/...`) or an archive of one (.rar, .7z, a .zip

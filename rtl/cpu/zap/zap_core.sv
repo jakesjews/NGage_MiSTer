@@ -182,7 +182,25 @@ input   logic [63:0]                     i_dc_reg_idx, // Register to load to.
 input   logic [31:0]                     i_dc_reg_dat, // Register data.
 input   logic [63:0]                     i_dc_lock,    // Register that is locked.
 output  logic [63:0]                     o_dc_reg_idx, // Register index.
-output  logic [5:0]                      o_dc_reg_idx_bin // Binary index.
+output  logic [5:0]                      o_dc_reg_idx_bin, // Binary index.
+
+// -----------------------------------------------------
+// ARM925T: debug trace taps, the writeback stage's inputs
+// (rtl/mister/dbg_trace.sv watches them as sim/harness/coreboot_main.cpp does).
+// -----------------------------------------------------
+
+output  logic                            o_dbg_wb_valid,
+output  logic                            o_dbg_wb_dvalid,
+output  logic                            o_dbg_wb_uop_last,
+output  logic [1:0]                      o_dbg_wb_dabt,
+output  logic                            o_dbg_wb_pabt,
+output  logic                            o_dbg_wb_und,
+output  logic                            o_dbg_wb_swi,
+output  logic                            o_dbg_wb_irq,
+output  logic                            o_dbg_wb_fiq,
+output  logic [31:0]                     o_dbg_wb_pc,
+output  logic [31:0]                     o_dbg_wb_cpsr,
+output  logic [31:0]                     o_dbg_wb_cpsr_nxt
 
 );
 
@@ -1640,11 +1658,25 @@ u_zap_writeback
         .o_pc_nxt               (o_instr_wb_adr_nxt),
         .o_pc_check             (o_instr_wb_adr_check),
         .o_cpsr_nxt             (cpsr_nxt),
+        .o_dbg_cpsr_ff          (o_dbg_wb_cpsr),
         .o_clear_from_writeback (clear_from_writeback),
 
         .o_wb_stb               (o_instr_wb_stb),
         .o_wb_cyc               (o_instr_wb_cyc)
 );
+
+// ARM925T: debug trace taps.
+assign o_dbg_wb_valid    = memory_dav_ff;
+assign o_dbg_wb_dvalid   = memory_decompile_valid;
+assign o_dbg_wb_uop_last = memory_uop_last;
+assign o_dbg_wb_dabt     = memory_data_abt_ff[1:0];
+assign o_dbg_wb_pabt     = memory_instr_abort_ff;
+assign o_dbg_wb_und      = memory_und_ff;
+assign o_dbg_wb_swi      = memory_swi_ff;
+assign o_dbg_wb_irq      = memory_irq_ff;
+assign o_dbg_wb_fiq      = memory_fiq_ff;
+assign o_dbg_wb_pc       = memory_pc_plus_8_ff;
+assign o_dbg_wb_cpsr_nxt = cpsr_nxt;
 
 //
 // Coprocessor 15 registers.

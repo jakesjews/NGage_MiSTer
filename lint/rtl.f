@@ -47,5 +47,6 @@ rtl/mister/ddram_loader.sv
 rtl/mister/flash_save.sv
 rtl/mister/rtc_wall.sv
 rtl/mister/lcd_testgen.sv
+rtl/mister/dbg_trace.sv
 rtl/cpu/arm925t_gen.v
 NGage.sv

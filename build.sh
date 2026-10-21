@@ -21,7 +21,8 @@ if [[ "$where" == remote ]]; then
     image=theypsilon/quartus-lite-c5:17.0.2.docker0
     ssh "$host" "mkdir -p \$HOME/$dir"
     rsync -a --delete --exclude build --exclude db --exclude incremental_db --exclude output_files \
-        --exclude research --exclude .git --exclude '*.rbf' --exclude 'sim/build' ./ "$host:$dir/"
+        --exclude research --exclude .git --exclude '*.rbf' --exclude 'sim/build' --exclude 'sim/cpu/build' \
+        --exclude 'model/.out' --exclude 'model/qemu*' ./ "$host:$dir/"
     docker_run="docker run --rm --user \$(id -u):\$(id -g) -e HOME=/tmp -v \$HOME/$dir:/project -w /project $image"
     if [[ "$build_mode" == map ]]; then
         ssh "$host" "$docker_run /opt/intelFPGA_lite/quartus/bin/quartus_map --read_settings_files=on --write_settings_files=off $proj -c $proj" \

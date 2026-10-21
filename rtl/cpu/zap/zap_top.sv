@@ -116,6 +116,27 @@ parameter logic        HIVECS       = 1'd0           // Reset value of control b
         // ARM925T: committed PC, for the core's debug overlay.
         output  logic  [31:0]    o_dbg_pc,
 
+        // ARM925T: debug trace taps (rtl/mister/dbg_trace.sv): the
+        // writeback stage, and the data port's completed accesses.
+        output  logic            o_dbg_wb_valid,
+        output  logic            o_dbg_wb_dvalid,
+        output  logic            o_dbg_wb_uop_last,
+        output  logic  [1:0]     o_dbg_wb_dabt,
+        output  logic            o_dbg_wb_pabt,
+        output  logic            o_dbg_wb_und,
+        output  logic            o_dbg_wb_swi,
+        output  logic            o_dbg_wb_irq,
+        output  logic            o_dbg_wb_fiq,
+        output  logic  [31:0]    o_dbg_wb_pc,
+        output  logic  [31:0]    o_dbg_wb_cpsr,
+        output  logic  [31:0]    o_dbg_wb_cpsr_nxt,
+        output  logic            o_dbg_d_done,
+        output  logic            o_dbg_d_we,
+        output  logic  [31:0]    o_dbg_d_va,
+        output  logic  [3:0]     o_dbg_d_sel,
+        output  logic  [31:0]    o_dbg_d_wdata,
+        output  logic  [31:0]    o_dbg_d_rdata,
+
         input   logic            i_clk,
         input   logic            i_reset,
 
@@ -175,6 +196,15 @@ logic [ZAP_CPSR_MODE:0] cpu_mem_cpsr;   // ARM925T: see zap_core o_mem_cpsr
 logic [31:0]     cpu_daddr, cpu_daddr_nxt, cpu_daddr_check;
 logic [31:0]     cpu_iaddr, cpu_iaddr_nxt, cpu_iaddr_check;
 assign o_dbg_pc = cpu_iaddr; // ARM925T: debug overlay
+
+// ARM925T: debug trace taps. A data access is done in a clock in which the
+// data cache acks it and does not ask for it again (err2).
+assign o_dbg_d_done  = cpu_dc_stb && data_ack && !dcache_err2;
+assign o_dbg_d_we    = cpu_dc_we;
+assign o_dbg_d_va    = cpu_daddr;
+assign o_dbg_d_sel   = cpu_dc_sel;
+assign o_dbg_d_wdata = cpu_dc_dat;
+assign o_dbg_d_rdata = dc_data;
 logic [7:0]      dc_fsr;
 logic [31:0]     dc_far;
 logic            cpu_dc_en, cpu_ic_en;
@@ -267,6 +297,20 @@ zap_core #(
 .o_trace                (o_trace),
 .o_trace_valid          (o_trace_valid),
 .o_trace_uop_last       (o_trace_uop_last),
+
+// ARM925T: debug trace taps.
+.o_dbg_wb_valid         (o_dbg_wb_valid),
+.o_dbg_wb_dvalid        (o_dbg_wb_dvalid),
+.o_dbg_wb_uop_last      (o_dbg_wb_uop_last),
+.o_dbg_wb_dabt          (o_dbg_wb_dabt),
+.o_dbg_wb_pabt          (o_dbg_wb_pabt),
+.o_dbg_wb_und           (o_dbg_wb_und),
+.o_dbg_wb_swi           (o_dbg_wb_swi),
+.o_dbg_wb_irq           (o_dbg_wb_irq),
+.o_dbg_wb_fiq           (o_dbg_wb_fiq),
+.o_dbg_wb_pc            (o_dbg_wb_pc),
+.o_dbg_wb_cpsr          (o_dbg_wb_cpsr),
+.o_dbg_wb_cpsr_nxt      (o_dbg_wb_cpsr_nxt),
 
 // Clock and reset.
 .i_clk                  (i_clk),

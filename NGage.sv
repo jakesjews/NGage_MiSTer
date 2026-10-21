@@ -274,21 +274,25 @@ wire test_sel = test_on_q;
 // DDRAM port with the flash chips' arrays (ddram_flash in ngage_mem): the
 // ioctl loader's (F1/F2), or flash_save's while it copies a mounted CS1 save
 // image in (S1). The port changes hands only between commands.
-wire        ld_busy, ld_we, dl_we, fs_we;
+wire        ld_busy, ld_we, dl_we, fs_we, tr_we;
 wire  [1:0] dl_loaded;                 // CS0 / CS1 loaded through ioctl
-wire  [7:0] ld_be, dl_be, fs_be;
-wire [28:0] ld_addr, dl_addr, fs_addr;
-wire [63:0] ld_din, dl_din, fs_din;
-reg         ld_own = 1'b0;             // 1: flash_save
+wire  [7:0] ld_be, dl_be, fs_be, tr_be;
+wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr;
+wire [63:0] ld_din, dl_din, fs_din, tr_din;
+reg   [1:0] ld_own = 2'd0;             // 0: loader, 1: flash_save, 2: debug trace
 
+wire ld_own_we = (ld_own == 2'd1) ? fs_we : (ld_own == 2'd2) ? tr_we : dl_we;
 always @(posedge clk_sys) begin
-	if (!ld_own && !dl_we && fs_we) ld_own <= 1'b1;
-	else if (ld_own && !fs_we && dl_we) ld_own <= 1'b0;
+	if (!ld_own_we) begin
+		if (dl_we)      ld_own <= 2'd0;
+		else if (fs_we) ld_own <= 2'd1;
+		else if (tr_we) ld_own <= 2'd2;
+	end
 end
-assign ld_we   = ld_own ? fs_we   : dl_we;
-assign ld_addr = ld_own ? fs_addr : dl_addr;
-assign ld_din  = ld_own ? fs_din  : dl_din;
-assign ld_be   = ld_own ? fs_be   : dl_be;
+assign ld_we   = (ld_own == 2'd1) ? fs_we   : (ld_own == 2'd2) ? tr_we   : dl_we;
+assign ld_addr = (ld_own == 2'd1) ? fs_addr : (ld_own == 2'd2) ? tr_addr : dl_addr;
+assign ld_din  = (ld_own == 2'd1) ? fs_din  : (ld_own == 2'd2) ? tr_din  : dl_din;
+assign ld_be   = (ld_own == 2'd1) ? fs_be   : (ld_own == 2'd2) ? tr_be   : dl_be;
 
 ddram_loader ddram_loader
 (
@@ -300,7 +304,7 @@ ddram_loader ddram_loader
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
 	.ioctl_wait(ioctl_wait),
-	.ddram_busy(ld_busy || ld_own),
+	.ddram_busy(ld_busy || ld_own != 2'd0),
 	.ddram_burstcnt(),           // single writes
 	.ddram_addr(dl_addr),
 	.ddram_din(dl_din),
@@ -465,7 +469,7 @@ flash_save flash_save
 	.ld_addr(fs_addr),
 	.ld_din(fs_din),
 	.ld_be(fs_be),
-	.ld_busy(ld_busy || !ld_own),
+	.ld_busy(ld_busy || ld_own != 2'd1),
 	.mark(save_mark),
 	.mark_blk(save_mark_blk),
 	.bk_req(save_rd),
@@ -586,6 +590,14 @@ wire  [3:0] cpu_be;
 
 wire [31:0] cpu_dbg_pc;
 
+// debug trace taps (dbg_trace below)
+wire        tr_wb_valid, tr_wb_dvalid, tr_wb_uop_last, tr_wb_pabt, tr_wb_und, tr_wb_swi, tr_wb_irq, tr_wb_fiq;
+wire  [1:0] tr_wb_dabt;
+wire [31:0] tr_wb_pc, tr_wb_cpsr, tr_wb_cpsr_nxt;
+wire        tr_d_done, tr_d_we;
+wire [31:0] tr_d_va, tr_d_wdata, tr_d_rdata;
+wire  [3:0] tr_d_sel;
+
 arm925t arm925t
 (
 	.clk(clk_sys),
@@ -601,8 +613,92 @@ arm925t arm925t
 	.bus_rdata(wb_dat_r),
 	.bus_ack(wb_ack & ~test_sel),
 	.bus_err(wb_err & ~test_sel),
-	.dbg_pc(cpu_dbg_pc)
+	.dbg_pc(cpu_dbg_pc),
+	.dbg_wb_valid(tr_wb_valid),
+	.dbg_wb_dvalid(tr_wb_dvalid),
+	.dbg_wb_uop_last(tr_wb_uop_last),
+	.dbg_wb_dabt(tr_wb_dabt),
+	.dbg_wb_pabt(tr_wb_pabt),
+	.dbg_wb_und(tr_wb_und),
+	.dbg_wb_swi(tr_wb_swi),
+	.dbg_wb_irq(tr_wb_irq),
+	.dbg_wb_fiq(tr_wb_fiq),
+	.dbg_wb_pc(tr_wb_pc),
+	.dbg_wb_cpsr(tr_wb_cpsr),
+	.dbg_wb_cpsr_nxt(tr_wb_cpsr_nxt),
+	.dbg_d_done(tr_d_done),
+	.dbg_d_we(tr_d_we),
+	.dbg_d_va(tr_d_va),
+	.dbg_d_sel(tr_d_sel),
+	.dbg_d_wdata(tr_d_wdata),
+	.dbg_d_rdata(tr_d_rdata)
 );
+
+// Hardware trace (rtl/mister/dbg_trace.sv), while DBG_TRACE is set: rings
+// of retired instructions, data-port accesses and bus beats, dumped to DDR3
+// at 0x33000000 on the first abort or undefined instruction, or when the
+// kernel writes its fault record (dbg_trig below); tools/mister_trace.py
+// reads them back. Costs about 1.3 Mbit of block RAM.
+localparam DBG_TRACE = 1;
+
+wire        dbg_trig;
+wire  [7:0] tr_dumps, tr_triggers;
+wire        tr_dumping;
+wire [31:0] tr_trig_pc;
+
+generate if (DBG_TRACE) begin : g_trace
+dbg_trace dbg_trace
+(
+	.clk(clk_sys),
+	.reset(sys_reset),
+	.cpu_reset(cpu_reset),
+	.wb_valid(tr_wb_valid),
+	.wb_dvalid(tr_wb_dvalid),
+	.wb_uop_last(tr_wb_uop_last),
+	.wb_dabt(tr_wb_dabt),
+	.wb_pabt(tr_wb_pabt),
+	.wb_und(tr_wb_und),
+	.wb_swi(tr_wb_swi),
+	.wb_irq(tr_wb_irq),
+	.wb_fiq(tr_wb_fiq),
+	.wb_pc(tr_wb_pc),
+	.wb_cpsr(tr_wb_cpsr),
+	.wb_cpsr_nxt(tr_wb_cpsr_nxt),
+	.d_done(tr_d_done),
+	.d_we(tr_d_we),
+	.d_va(tr_d_va),
+	.d_sel(tr_d_sel),
+	.d_wdata(tr_d_wdata),
+	.d_rdata(tr_d_rdata),
+	.b_ack(cpu_req & wb_ack),
+	.b_err(wb_err),
+	.b_we(wb_we),
+	.b_adr(wb_adr),
+	.b_sel(wb_sel),
+	.b_cti(wb_cti),
+	.b_wdata(wb_dat_w),
+	.b_rdata(wb_dat_r),
+	.trig_in(dbg_trig),
+	.ld_we(tr_we),
+	.ld_addr(tr_addr),
+	.ld_din(tr_din),
+	.ld_be(tr_be),
+	.ld_busy(ld_busy || ld_own != 2'd2),
+	.dumps(tr_dumps),
+	.triggers(tr_triggers),
+	.dumping(tr_dumping),
+	.trig_pc(tr_trig_pc)
+);
+end else begin : g_notrace
+assign tr_we = 1'b0;
+assign tr_addr = 29'd0;
+assign tr_din = 64'd0;
+assign tr_be = 8'd0;
+assign tr_dumps = 8'd0;
+assign tr_triggers = 8'd0;
+assign tr_dumping = 1'b0;
+assign tr_trig_pc = 32'd0;
+end endgenerate
 
 // the Wishbone port: the CPU, or the self-test while it runs (test_sel)
 wire        st_cyc, st_stb, st_we;
@@ -842,6 +938,8 @@ end
 // from the superpage to on-chip RAM 0x0C0047F0/F4/F8 before halting
 // (ekern 0x5031E340); the writes are snooped on the bus.
 reg [31:0] dbg_f0 = 0, dbg_f4 = 0, dbg_f8 = 0;
+assign dbg_trig = wb_cyc && wb_stb && wb_we && wb_ack && wb_adr[31:20] == 12'h0C0 &&
+                  wb_adr[15:2] == 14'(32'h47F0 >> 2);
 always @(posedge clk_sys) begin
 	if (wb_cyc && wb_stb && wb_we && wb_ack && wb_adr[31:20] == 12'h0C0) begin
 		if (wb_adr[15:2] == 14'(32'h47F0 >> 2)) dbg_f0 <= wb_dat_w;
@@ -852,13 +950,17 @@ end
 wire        dbg_on    = status[8];
 wire        dbg_pcrow = scan_y < 8'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire        dbg_strow = scan_y >= 8'd4 && scan_y < 8'd7 && scan_x >= 8'd16 && scan_x < 8'd24;
-// further 32-bit rows at y = 8, 12, 16, 20, 24, 28 (3 lines each)
-wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < 8'd31 && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
+// further 32-bit rows at y = 8, 12, ..., 36 (3 lines each): the interrupt
+// words, the fault record, the trace's first trigger PC and its counts
+wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < 8'd39 && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd3) ? dbg_en0_irq :
                         (scan_y[7:2] == 6'd4) ? dbg_en0_fiq :
                         (scan_y[7:2] == 6'd5) ? dbg_f0 :
-                        (scan_y[7:2] == 6'd6) ? dbg_f4 : dbg_f8;
+                        (scan_y[7:2] == 6'd6) ? dbg_f4 :
+                        (scan_y[7:2] == 6'd7) ? dbg_f8 :
+                        (scan_y[7:2] == 6'd8) ? tr_trig_pc :
+                                                {tr_dumps, tr_triggers, 15'd0, tr_dumping};
 wire        dbg_bit   = dbg_pcrow ? dbg_pc_q[5'd31 - 5'(scan_x - 8'd16)] :
                         dbg_strow ? dbg_bits_q[3'd7 - 3'(scan_x - 8'd16)] :
                                     dbg_word[5'd31 - 5'(scan_x - 8'd16)];

@@ -9,10 +9,12 @@ With the OSD option "Debug overlay" on, NGage.sv draws the CPU's committed
 PC (32 bits, bit 31 leftmost) in panel rows 0-2 at x 16..47 and eight status
 bits in rows 4-6 at x 16..23: cpu_reset, irq, fiq, bus activity, CS0 loaded,
 CS1 loaded, CS1 save present, memory-test master. White = 1. Rows 8, 12, 16,
-20, 24 and 28 (3 lines each, x 16..47) hold 32-bit words: interrupt sources
-of bank 0, the IRQ-plane and FIQ-plane enables of bank 0, and the three
+20, 24, 28, 32 and 36 (3 lines each, x 16..47) hold 32-bit words: interrupt
+sources of bank 0, the IRQ-plane and FIQ-plane enables of bank 0, the three
 words the kernel writes to on-chip RAM 0x0C0047F0/F4/F8 on Kern::Fault
-(category text, then the reason).
+(category text, then the reason), the hardware trace's first trigger PC
+(rtl/mister/dbg_trace.sv) and its counts {dumps[7:0], triggers[7:0], 15'b0,
+dumping}.
 
 usage: tools/mister_dbg.py SHOT.png [SHOT.png ...]
 The screenshot must be the whole 176x208 picture at an integer scale
@@ -41,15 +43,16 @@ def decode(path):
     bits = [bit(im, scale, 16 + i, 5) for i in range(8)]
     flags = " ".join("%s=%d" % (n, v) for n, v in zip(NAMES, bits))
     words = []
-    for row in (9, 13, 17, 21, 25, 29):
+    for row in (9, 13, 17, 21, 25, 29, 33, 37):
         w = 0
         for i in range(32):
             w = (w << 1) | bit(im, scale, 16 + i, row)
         words.append(w)
     cat = (words[3].to_bytes(4, "little") + words[4].to_bytes(4, "little")).rstrip(b"\0")
     cat = cat.decode("latin-1") if cat and all(32 <= c < 127 for c in cat) else ""
-    return "%s: pc=%08x %s src0=%08x en_irq0=%08x en_fiq0=%08x fault=%08x %08x %08x %r" % (
-        path, pc, flags, words[0], words[1], words[2], words[3], words[4], words[5], cat)
+    return "%s: pc=%08x %s src0=%08x en_irq0=%08x en_fiq0=%08x fault=%08x %08x %08x %r trace: pc=%08x dumps=%d triggers=%d dumping=%d" % (
+        path, pc, flags, words[0], words[1], words[2], words[3], words[4], words[5], cat,
+        words[6], words[7] >> 24, (words[7] >> 16) & 0xFF, words[7] & 1)
 
 
 if __name__ == "__main__":

@@ -53,7 +53,29 @@ module arm925t #(
 	input  logic [31:0] bus_rdata,
 	input  logic        bus_ack,
 	input  logic        bus_err,
-	output logic [31:0] dbg_pc       // committed PC (debug overlay)
+	output logic [31:0] dbg_pc,      // committed PC (debug overlay)
+
+	// Debug trace taps (rtl/mister/dbg_trace.sv): the writeback stage as
+	// sim/harness/coreboot_main.cpp watches it, and the data port's
+	// completed accesses (dbg_d_done: the data cache answered one).
+	output logic        dbg_wb_valid,
+	output logic        dbg_wb_dvalid,
+	output logic        dbg_wb_uop_last,
+	output logic [1:0]  dbg_wb_dabt,
+	output logic        dbg_wb_pabt,
+	output logic        dbg_wb_und,
+	output logic        dbg_wb_swi,
+	output logic        dbg_wb_irq,
+	output logic        dbg_wb_fiq,
+	output logic [31:0] dbg_wb_pc,       // the stage's PC: address + 8 (+ 4 in Thumb)
+	output logic [31:0] dbg_wb_cpsr,     // before the instruction
+	output logic [31:0] dbg_wb_cpsr_nxt, // after it
+	output logic        dbg_d_done,
+	output logic        dbg_d_we,
+	output logic [31:0] dbg_d_va,
+	output logic [3:0]  dbg_d_sel,
+	output logic [31:0] dbg_d_wdata,
+	output logic [31:0] dbg_d_rdata
 );
 
 	localparam logic [31:0] RESET_VECTOR = HIVECS ? 32'hFFFF0000 : 32'h00000000;
@@ -79,6 +101,24 @@ module arm925t #(
 		.i_irq    (irq),
 		.i_fiq    (fiq),
 		.o_dbg_pc(dbg_pc),
+		.o_dbg_wb_valid    (dbg_wb_valid),
+		.o_dbg_wb_dvalid   (dbg_wb_dvalid),
+		.o_dbg_wb_uop_last (dbg_wb_uop_last),
+		.o_dbg_wb_dabt     (dbg_wb_dabt),
+		.o_dbg_wb_pabt     (dbg_wb_pabt),
+		.o_dbg_wb_und      (dbg_wb_und),
+		.o_dbg_wb_swi      (dbg_wb_swi),
+		.o_dbg_wb_irq      (dbg_wb_irq),
+		.o_dbg_wb_fiq      (dbg_wb_fiq),
+		.o_dbg_wb_pc       (dbg_wb_pc),
+		.o_dbg_wb_cpsr     (dbg_wb_cpsr),
+		.o_dbg_wb_cpsr_nxt (dbg_wb_cpsr_nxt),
+		.o_dbg_d_done      (dbg_d_done),
+		.o_dbg_d_we        (dbg_d_we),
+		.o_dbg_d_va        (dbg_d_va),
+		.o_dbg_d_sel       (dbg_d_sel),
+		.o_dbg_d_wdata     (dbg_d_wdata),
+		.o_dbg_d_rdata     (dbg_d_rdata),
 		.o_wb_cyc (wb_cyc),
 		.o_wb_stb (wb_stb),
 		.o_wb_adr (bus_addr),

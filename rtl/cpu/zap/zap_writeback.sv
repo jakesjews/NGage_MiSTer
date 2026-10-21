@@ -130,6 +130,9 @@ module zap_writeback #(
         // CPSR output
         output logic      [31:0]              o_cpsr_nxt,
 
+        // ARM925T: the CPSR as the stage holds it, for the debug trace.
+        output logic      [31:0]              o_dbg_cpsr_ff,
+
         // Clear from writeback
         output logic                         o_clear_from_writeback,
 
@@ -175,6 +178,7 @@ assign  o_pc         = pc_del3_ff[31:0];
 assign  o_pc_check   = pc_del2_ff[31:0];
 assign  o_pc_nxt     = pc_ff[31:0];
 assign  o_cpsr_nxt   = cpsr_nxt;
+assign  o_dbg_cpsr_ff = cpsr_ff;    // ARM925T: debug trace
 assign  o_wb_stb     = pc_del3_ff[32];
 assign  o_wb_cyc     = pc_del3_ff[32];
 
