@@ -1583,3 +1583,114 @@ found, and what comes next. Research material lives in `research/`
   CS0 (F1 index 1), mounts `rh29-460-cs1-save.bin` on S1 and `sonicn.mmc`
   on S0. Keyboard: arrows = rocker, Enter = OK, F1/F2 = soft keys,
   F5 = Menu, F8 = Power (rtl/mister/ngage_input.sv).
+
+### 2026-10-21: Game cards from game folders (`tools/mkcard.py` folder mode); five cracked games play
+- **Folder mode.** `tools/mkcard.py` now also takes a game folder (the card's
+  root, holding `System/Apps/...`) or an archive of one (.rar, .7z, a .zip
+  without an .aaruf), as cracked games are passed around. Archives are
+  extracted with unar into `model/.out/cards/src/<name>/` (untracked; reused
+  on the next run). The output is the same `OUT.img` + `.cid`/`.csd` and
+  `OUT.mmc` as the other modes. `--batch OUTDIR INPUT...` builds many and
+  writes `OUTDIR/cards.csv`. Aaru and raw output is byte-identical to before
+  (Rayman 3, SonicN).
+- **Layout** as the retail cards (MMC.md 3.3), on 16, 32, 64 or 128 MB:
+  - MBR with one partition at LBA 32, ending on a cylinder (32 sectors a
+    track; 2, 4, 8 or 16 heads); type 0x01 (FAT12), 0x04 (32 MB) or 0x06.
+  - FAT12 on 16 MB, FAT16 above; 4 KB clusters, 1 reserved sector, 2 FATs,
+    512 root entries, media 0xF8, `MSWIN4.1`, serial 0, `NO NAME`.
+  - Capacities 32760, 65520, 131040 and 262080 blocks (C_SIZE 4094,
+    C_SIZE_MULT 1-4), as the MID 0x07 retail cards of 16, 32 and 64 MB.
+  - The size is the smallest with 128 KB free (`--free`, `--size`).
+- **Files** go in with mtools (mmd, mcopy) with their dates; directories
+  get the newest file's date (SOURCE_DATE_EPOCH), so an input always gives
+  the same image.
+  - Long names keep the folder's case. mcopy stores an 8.3 name with an
+    all-lower-case part (`AFO.cfl`) with the NT case flags instead of a long
+    name; Symbian, whose FAT ignores case, may show it in capitals.
+  - Thumbs.db, desktop.ini, .DS_Store, `._*` and `__MACOSX` are left out.
+  - Two packaging slips are fixed and reported (`--as-is` turns this off):
+    Apps, Libs or Programs beside System instead of in it (Ghost Recon:
+    built as is, it stops with "System error", its DLLs not found), and
+    `System/App` for `System/Apps` (TechWars).
+  - Every file is read back from the image with the tool's own FAT12/16
+    reader and compared with the source. macOS `fsck_msdos` passes on every
+    card of the collection.
+- **CID and CSD** (`--cid`/`--csd` override them):
+  - CID synthetic: MID 0, OID 0, PNM the first six letters and digits of the
+    name, PRV 1.0, PSN the CRC-32 of the name, MDT the newest file's month.
+    Cracked games do not check it.
+  - CSD: SonicN's made writable. CCC 0x017 (block write added), WRITE_BL_LEN
+    9, R2W_FACTOR 2, no PERM/TMP_WRITE_PROTECT. TAAC 10 ms and NSAC 0 as the
+    core's default card, since its reads wait for the HPS. C_SIZE_MULT
+    follows the size.
+- **The user's collection** (73 .rar, a .zip, a .7z, two .sis; "N-Gage
+  cracked games collection"): 67 cards in `model/.out/cards/collection/`
+  (untracked) with `cards.csv`.
+  - Sizes: 40 of 16 MB, 25 of 32 MB, 2 of 64 MB (Glimmerati, Pathway to
+    Glory: Ikusa Islands). None needs 128 MB.
+  - Not built: six BLZ packages (MLB Slam!, MotoGP, Pandemonium, Puyo Pop,
+    Puzzle Bobble VS, Tomb Raider), the BLZ installer and a patched-libraries
+    installer (.sis), loose patched libraries (libs.rar), and save games for
+    C: (Game Cheats.rar).
+  - The CSV notes the rest: Habbo Island (extras; the readme says dev kits
+    only; not tested), Polish versions, prototypes, the unused Bomberman
+    "fix" APP (its nfo calls it a placebo, not needed on the QD), Sango's
+    English patch (a .sis), crack-group intro .sis files on some card roots.
+- **BLZ packages** (not implemented): header "NGPK", version 0x100, packed
+  and unpacked sizes, and a 661-byte packed directory at the end. The payload
+  is neither zlib nor raw deflate, so it is compressed or enciphered. A BLZ
+  game needs the BLZ installer (BLZinstapp.sis) installed on the phone, the
+  .blz in the card root and room for the unpacked game. Tomb Raider: 7.5 MB
+  package, 7.8 MB unpacked, so a 32 MB card. The installer then unpacks it
+  onto the card. The model keeps card writes in memory only
+  (`ngage_mmc.c`), so an unpacked game would last one run there; the core
+  writes them back to the .mmc file.
+- **Model runs.** C: formatted and booted once
+  (`model/.out/fc-base/cs1-base.bin`), then copied for each game. Key
+  scripts are in `model/.out/fc-keys/`. Launch: Menu at 30 s, down, down,
+  OK; the card's game is in the fourth row. Frames are counted as bursts of
+  RAMWR in the LCD log; Asphalt writes each frame in strips.
+  - Alien Front (16 MB): "Bluetooth is switched off" answered No; logos,
+    title, campaign, tank and difficulty, briefing, then Mufthasa Base:
+    driving, turning, firing, taking hits. 16.8 frames/s.
+    `model/.out/game-alienfront.png`.
+  - Tony Hawk's Pro Skater (16 MB; needs the model fix below): logos, menus,
+    career, Warehouse: skating, grinding, a box smashed. 27.8 frames/s.
+    `game-tonyhawk.png`.
+  - Asphalt Urban GT (16 MB): menus, Instant Play (a random race), 5
+    accelerates. 20.5 frames/s, 3 ticks. `game-asphalt.png`.
+  - Glimmerati (64 MB, FAT16, type 0x06): crack intro, menus, name entry,
+    Quick Race in Milan, driving. 29.5 frames/s. `game-glimmerati.png`.
+  - X-Men Legends (32 MB, FAT16, type 0x04): new game, cutscene, dialogue,
+    walking, breaking a barrier (25 Quest XP). 21.3 frames/s, 3 ticks.
+    `game-xmenlegends.png`.
+  - Alien Front and Tony Hawk's frame times vary instead of following the
+    1/64 s tick, which suggests they are CPU-bound in the model (62 MIPS),
+    unlike the three retail games of 2026-10-20. An icount
+    shift 3 run (twice the CPU) showed "App. closed EmonServer" at boot and
+    the key script missed the menu; not followed up.
+  - None of these games wrote to the card.
+  - Also checked: Ghost Recon: Jungle Storm (title and attract demo) and
+    TechWars (starts).
+  - Tomb Raider, from the task's list, is a BLZ package and was not tried.
+- **Model bug fixed: MOVS PC, LR in User mode.** Tony Hawk's first stopped
+  with "App. closed Main" (KERN-EXEC 3).
+  - Cause: an undefined-instruction exception at `0xFF947D98` in the game's
+    RAM-loaded code, a division helper that returns with `movs pc, lr` in
+    User mode.
+  - The ARM ARM calls this UNPREDICTABLE and QEMU UNDEFs. ARMv4/v5 cores have
+    no User-mode SPSR, and the game runs on the phone, so the ARM925T must
+    take it as a plain return with the CPSR unchanged.
+  - Fix: `model/qemu-patches/arm-v5-user-movs-pc.patch` (QEMU
+    `target/arm/tcg/translate.c`: on pre-v6 cores, MOVS/SUBS PC in User mode
+    writes the PC and leaves the flags). `model/build.sh` applies the
+    patches in `model/qemu-patches/` once.
+  - The core needs no change: ZAP keeps the CPSR for an S-bit write of the
+    PC in USR/SYS mode (`rtl/cpu/zap/zap_alu_main.sv`, "Restore CPSR from
+    SPSR if not in USR/SYS mode").
+- **For the core:**
+  - Folder cards above 16 MB are FAT16 cards of 65520 or 131040 blocks
+    (.mmc files of 33,546,752 and 67,092,992 bytes). `mmc_card.sv` takes the
+    capacity from the CSD, so nothing new is needed.
+  - Folder cards are writable (class 4, no write protect): CMD24/25 reach
+    the .mmc file unless it is mounted read-only.
