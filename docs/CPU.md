@@ -65,6 +65,24 @@ Bus protocol:
 - On the core's Wishbone port (the memory system): `wb_cyc = wb_stb =
   bus_req`, `wb_cti = bus_burst ? 3'b010 : 3'b111`, `wb_bte = 2'b00`.
 
+## In the core
+
+`NGage.sv` instantiates `arm925t` as the master of the memory system's
+Wishbone port (`ngage_mem`, CPU side of its arbiter; the DMA controller is
+the other master), with `irq`/`fiq` from the UPP interrupt controller
+(`upp_periph`).
+
+- Reset: a flip-flop holds the CPU in reset with the memory system, while
+  the memory test runs, and until both flash images are in DDR3: CS0
+  loaded through the OSD (F1) and CS1 loaded (F2) or mounted as the save
+  file (S1, once its copy is in). It then boots from CS0 at 0 and runs
+  until the next core reset (OSD reset, the user button, a new image).
+- The OSD's "Memory test" gives the port to `wb_selftest` instead, with
+  the CPU in reset; switching it on or off resets the board. The port's
+  multiplexer select is a register (`test_sel`).
+- The test picture (`lcd_testgen`) shows until the UPP's LCD interface
+  first drives the panel, as before.
+
 ## Architecture
 
 ZAP is a single-issue, in-order core with a 17-stage pipeline: fetch
@@ -211,6 +229,22 @@ Upstream bugs fixed (found by the tests; all configurations):
   was LR, which is what a conditional BL predicted not taken leaves (found
   by the boot bench: a kernel helper returned into the next function).
   The predicted PC is now where the fetch goes next.
+- A data-processing micro-op's Rn was decoded without its extend bit, so
+  one that read DUMMY0 as Rn read r9 (upstream this hits the ARMv5 BLX
+  immediate sequence). It broke the Thumb BL second half that runs alone
+  after an interrupt between the halves (found by the full-core boot
+  bench: an IRQ split a BL in a user thread, which then branched into
+  data, and the kernel restarted). The BL link micro-op made from a Thumb
+  branch no longer passes on the branch's bit 34 (its offset shift),
+  which is the Rn extend bit position.
+- Data accesses were permission-checked in the ALU's current mode, which
+  a younger MOVS PC or MSR may already have changed while the access
+  waited at the post-ALU stage. A privileged store right before a return
+  to user mode was checked as user (found by the full-core boot bench: the
+  flash driver's FIQ handler writes the program command through a
+  privileged-only section and returns with MOVEQS PC, LR two instructions
+  later; the kernel restarted after the permission fault). The check now
+  uses the mode carried with the access.
 
 Timing changes (no change in behaviour; the first two cost cycles, see
 FPGA resources and timing):
@@ -233,6 +267,9 @@ FPGA resources and timing):
   moves at once; a pop in that cycle takes the pending value).
 - ARMv5/UNDEFINED classification moved from the decoder to the
   pre-decoder, and the alignment check registered one stage early.
+- A disabled cache clears its valid bits in every cycle, held or not
+  (upstream only when not held), so the late hold from the cache state
+  machine no longer drives the clear of every valid flip-flop.
 - The D-cache looks at maintenance requests only when it has no access,
   so they are not in the acknowledge-to-stall path; two terms that could
   never be true (upstream's hit-under-miss, which it enabled only with the
@@ -337,6 +374,13 @@ checkpoints (all registers and the CPSR) in the signature.
   round.
 - `bpred`: a MOV PC, LR that shares a branch-predictor entry with a taken
   branch, called by a conditional BL predicted not taken.
+- `tbl_irq`: Thumb BL pairs interrupted at every cycle offset (also
+  between the halves), the handler returning as the Symbian kernel does
+  (a CP15 write, then LDM ^ with the PC).
+- `fiq_movs`, `fiq_perm`: FIQ at every point around the kernel's MOVS PC,
+  LR mode switch (the FIQ bank checked), and a privileged FIQ handler
+  doing the flash driver's stores to a privileged-only section followed
+  by MOVEQS PC, LR back to user mode.
 - `cp15`, `v5und`, `align`, `rtl_misc`: CP15 as the firmware uses it, the
   ARMv5 instructions that must trap, alignment faults, and ARM925T details
   QEMU does not model (control register read-as values, PID masking,
@@ -462,14 +506,36 @@ prediction every cycle), which
 plugin's PCs and registers are not reliable for code reached through a
 virtual alias, see the plugin's header).
 
+### The whole core
+
+`sim/harness/coreboot_main.cpp` (`make -C sim coreboot`, on the Verilator
+server) runs `NGage.sv`'s `emu` with everything in it: the CPU, the memory
+system with the SDRAM chip model and the DDRAM port model, the UPP
+peripherals, the LCD and the keypad. The flash images (`tools/mkimage.py`)
+go into DDR3 and are marked loaded with a one-word ioctl download each, as
+the OSD's load does; an MMC image sits on SD slot 0; MiSTer's RTC is set
+to 2004-06-01 12:00:00. The bench writes the LCD picture as a PNG each
+time it changes, the HLE audio output as a WAV, the kernel's STI text,
+and with `--devlog` every device access and every interrupt and exception
+in the plugin's format. `--keys` plays a key script (simulated seconds).
+
+Here the peripherals run in real time (104 MHz clocks), while the model's
+time follows its instruction count, so interrupts land on other
+instructions. `cmp_dev.py` is exact up to the first timer interrupt that
+lands elsewhere; after that `sim/cpu/boot/cmp_flow.py` compares what does
+not depend on it: the synchronous exceptions (SWIs, aborts) in order, the
+device accesses outside the interrupt controller, timers and CBUS in
+order, and the writes per device block.
+
 ### Results
 
-- Default regression (`make -C sim/cpu all`): 54 tests (18 directed, 32
-  random, 4 gba-tests) at 3 bus latencies, 162 RTL runs, all pass. The 49
+- Default regression (`make -C sim/cpu all`): 57 tests (21 directed, 32
+  random, 4 gba-tests) at 3 bus latencies, 171 RTL runs, all pass. The 49
   that QEMU can run (15 directed, 32 random, `gba_arm_q`, `gba_thumb_q`)
   agree with it in signature and instruction by instruction.
 - Random seeds 1-100 of all four kinds (400 programs): all pass on the RTL
-  and agree with QEMU.
+  and agree with QEMU (seeds 1-40 rerun after the Thumb BL and permission
+  fixes).
 - The same regression on the SystemVerilog sources (`RTL=sv`) gives the
   same results, which checks the sv2v conversion.
 - gba-tests: 161 of 183 ARM and 101 of 109 Thumb tests pass on the RTL; the
@@ -545,6 +611,39 @@ and fitter settings as `NGage.qsf`; 104 MHz (9.615 ns).
   that could never be true kept the ARM925T changes and the bug fixes at
   about the same speed; the changes above then made 104 MHz close.
 
+### In the whole core
+
+Full compiles of `NGage.qsf` on the build server
+(`tools/quartus_seeds.sh TAG "SEEDS"`, two at a time in Docker; Quartus is
+deterministic, so a seed's result repeats):
+
+- With the CPU added and nothing else changed, two seeds missed 104 MHz by
+  1.3 and 1.8 ns, mostly outside the CPU: the memory-test master select
+  straight from hps_io, the NOR flash command decode, upp_bus's read data
+  register packed into an audio DSP block.
+- After the core-side changes (commits cd98c10, c330d6e, b9a38da, 5f2f8ad:
+  a registered master select, the flash's two-clock decode, the audio
+  products after local registers, the flash pop without an adder, the
+  valid-bit clear without the hold, the memory system's request paths, the
+  SDRAM output stage), three of four seeds closed (c12). The CPU fix for
+  the data-side permission mode changed the netlist again; of seeds 1-6
+  then (c13, c14), seeds 3 and 5 meet 104 MHz at every corner, and seed 5,
+  with more margin, is the one in `NGage.qsf`: setup +0.074 ns (slow
+  100C), +0.089 ns (slow -40C), +3.06 / +3.66 ns (fast); hold +0.089 ns or
+  more; recovery and removal positive. The others missed by 0.08-0.26 ns.
+  The worst paths move between families from seed to seed (the CPU's
+  stall and issue paths, the D-cache tag forwarding and fill, the CPU's
+  bus registers into upp_bus), each within about 0.3 ns now. The build
+  date is part of the netlist (build_id.v), so a rebuild on another day
+  can land elsewhere.
+- Resources (seed 5): 30,578 ALMs (73% of 41,910), 38,702 registers, 314
+  M10K blocks (2,265,832 bits), 43 DSP blocks, 3 PLLs. The CPU is about
+  12,600 ALMs of that.
+- `MISTER_DISABLE_YC` and `MISTER_DISABLE_ALSA` saved about 200 ALMs and
+  did not help timing; Physical Synthesis effort Extra gave a bit-identical
+  result in the Lite edition, and LogicLock regions need a subscription
+  licence. None of these is used.
+
 ## Plan for the timing-fidelity pass
 
 The goal is ARM9TDMI cycle counts at 104 MHz, without changing behaviour.
@@ -572,9 +671,10 @@ The goal is ARM9TDMI cycle counts at 104 MHz, without changing behaviour.
 
 ## Remaining gaps
 
-- 104 MHz closes standalone on eight of eight fitter seeds with 0.20 ns
-  or more; the margin inside the whole core (other logic, a PLL clock) is
-  still to be seen.
+- In the whole core 104 MHz closes with little margin (+0.07 ns on the
+  seed in use, two seeds in six). The next changes would take the
+  CPU's issue-stage register read and the D-cache's stall into the
+  pipeline one stage earlier.
 - Direct-mapped caches; no cache or TLB lockdown; cache disable discards
   the D-cache contents; external aborts on line fills are lost.
 - Stored PC is + 8 (probably + 12 on the ARM925T).
