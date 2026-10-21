@@ -1563,3 +1563,23 @@ found, and what comes next. Research material lives in `research/`
   screen; a full Quartus compile at 104 MHz with the CPU), fetch the RBF,
   deploy, boot with the images and the card on the MiSTer, then write the
   README.
+
+### 2026-10-21: CPU integrated; the whole core boots to the idle screen in simulation
+- Resumed after the pause. The stopped CPU agent had committed everything
+  but docs/CPU.md, now committed (5c77791).
+- Whole core (seed 5, commit 260d356): 30,578 ALMs (73%), 314 M10K, 43
+  DSP. Timing at 104 MHz meets every corner: setup +0.074 ns (slow 100C),
+  +0.089 ns (slow -40C); hold +0.089 ns or more; recovery and removal
+  positive. The RBF from the server's `ngage-q-c14-5` build is
+  `output_files/NGage.rbf` (md5 62afab6b...).
+- Whole-core Verilator boot (server, `~/dev/mister/coreboot/run16`): 86.5
+  guest seconds in 6.6 hours, 1.02 G instructions, 17 LCD frames. The
+  kernel log shows the full S60 start-up with NOS stand-in replies, and the
+  last frame is the movistar idle screen with the bench's date
+  (Tu 01/06/2004). The FPGA design therefore boots the real firmware to
+  the idle screen in simulation.
+- Hardware test set up on the MiSTer: `/media/fat/_Console/NGage_20261021.rbf`
+  and an MGL launcher `/media/fat/_Console/NGage-SonicN.mgl` that loads
+  CS0 (F1 index 1), mounts `rh29-460-cs1-save.bin` on S1 and `sonicn.mmc`
+  on S0. Keyboard: arrows = rocker, Enter = OK, F1/F2 = soft keys,
+  F5 = Menu, F8 = Power (rtl/mister/ngage_input.sv).
