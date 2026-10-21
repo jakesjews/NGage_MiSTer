@@ -1791,3 +1791,22 @@ found, and what comes next. Research material lives in `research/`
   for debugging) and boots the no-save MGL; the firmware should format C:
   (about a minute of sector erases) and reach the idle screen. The MiSTer
   still has the old `rh29-460-cs0-nophone.bin` copy to delete.
+
+### 2026-10-21, evening: the N-Gage boots to the idle screen on the MiSTer
+- With the rebuilt `cs0.bin` (stand-in answering 105) and the pristine
+  `cs1.bin` loaded as plain files (`NGage-nosave.mgl`), the trace build
+  boots on the MiSTer: the Nokia logo, about two minutes of C: format (the
+  flash model's 0.7 s sector erases), the N-Gage splash with the first-boot
+  Time and Date dialogs, and after OK, OK the movistar idle screen with
+  signal and battery bars (`build/hardware/fmt-ok2.png`). The overlay
+  shows no fault record and no trace trigger throughout.
+- Open: the Date dialog offered 01/01/2005 and the idle screen shows it,
+  while the model's first boot shows the host's date (21/10/2026): the HLE
+  RTC date register path on the FPGA (rtc_wall → upp register 0x0C1F0100 →
+  the stand-in's base date) is to be checked. The Time dialog had the
+  MiSTer's time, so the UEMK time of day works.
+- The MiSTer's `rh29-460-cs1-save.bin` is the pristine image too (C:
+  blank), which is why the save-mounted boot stalled the same way.
+- Next: boot with the save mount so the format persists and the second
+  boot goes straight to the idle screen; mount `sonicn.mmc` and start the
+  game; then the date register, keys, sound.
