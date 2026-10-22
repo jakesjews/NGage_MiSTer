@@ -2720,3 +2720,16 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   -0.212/-0.499, 5 (Mac) -0.219; hold +0.03 or better. video_freak costs about 500
   ALMs (33,600-33,800). Round 2: seeds 6-8 on three lanes, the fourth
   left for the comment-trim session's synthesis check.
+
+### 2026-10-22: NGage.sv comments trimmed to the template's shape
+
+- 8f56f08: the top's comments cut to the framework template's style, a
+  short "why" with a pointer where a choice is not obvious (the CPU
+  start's clock wait, the master-select register, the `DBG_*` triggers,
+  the overlay layout in `tools/mister_dbg.py`, the crop gate); the history
+  stays in this log. Comments only: the code lines are identical, `make
+  lint` and the top bench pass, and a synthesis-only map of the trimmed
+  tree (ubuntu `dev/mister/NGage_MiSTer-map`) matches the video_freak
+  build's Analysis & Synthesis report table for table: 34,508 ALMs
+  estimated, 51,253 ALUTs, 39,897 registers, 3,429,401 bits, 43 DSP, and
+  the same per-entity, RAM and removed-register tables.
