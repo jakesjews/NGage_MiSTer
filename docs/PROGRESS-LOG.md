@@ -2575,3 +2575,19 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   what remains of the kernel phase is about 5 clocks an instruction of
   pipeline (CP15 drains, exception entries, mispredicts, interlocks) and
   a quarter of the clocks in the flash's 24-clock line fills.
+
+### 2026-10-22: seed sweep 3, for a release with the two-way caches
+
+- Sweep 3 from the tree at 8bcf36d (both caches 2-way, the 128 KB flash
+  cache, the counters, no rings; seed 2 was the measurement build above
+  at -0.170/-0.129): seeds 1, 3, 4, 5 on the server through
+  tools/quartus_seeds.sh with `LANES=4` (the script now takes the lane
+  count; it was fixed at two), seed 6 on the Mac from a detached
+  worktree (../NGage_MiSTer-sweep).
+- The overlay's render path was the measurement build's worst setup
+  path (video_out's scan line into the pixel registers, -0.170): the 19-way
+  row mux into the 32:1 bit select into the RGB mux, all in one clock.
+  The row select and the word are now registered once (NGage.sv
+  dbg_*_q); scan_x and scan_y hold for the 16 clocks of a pixel (video_out
+  CE_DIV), so nothing changes on the screen. `make lint`, the video bench
+  and the top bench pass. Later seeds carry it; the first five do not.

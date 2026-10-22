@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Full Quartus compiles of the core with several fitter seeds on the build
-# server, never more than two Quartus builds there at a time.
+# server, LANES (default 2, the user's limit is 4) Quartus builds there at
+# a time.
 #
 #   tools/quartus_seeds.sh TAG "SEEDS" [QSF_EDIT]   start (returns at once)
 #   tools/quartus_seeds.sh TAG                      print the results so far
@@ -10,11 +11,12 @@
 # TAG names the run: the server directories are ~/dev/mister/ngage-q-TAG-SEED.
 # The sources are the working tree as it is now (as build.sh sends them).
 # QSF_EDIT is a sed expression applied to NGage.qsf (for example to enable a
-# framework macro). Seeds run one after the other in each of two lanes; a
-# lock on the server keeps the number of Quartus containers at two at most.
+# framework macro). Seeds run one after the other in each of LANES lanes; a
+# lock on the server keeps the number of Quartus containers at LANES at most.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 host=${BUILD_HOST:-ubuntu}
+lanes=${LANES:-2}
 image=theypsilon/quartus-lite-c5:17.0.2.docker0
 tag=$1
 
@@ -42,7 +44,7 @@ rsync -a --delete --exclude build --exclude db --exclude incremental_db --exclud
 	--exclude 'model/.out' --exclude 'model/.build' ./ "$host:$src/"
 print_build_id | ssh "$host" "cat > $src/build_id.v"
 [[ -n $edit ]] && ssh "$host" "sed -i '$edit' $src/NGage.qsf"
-# two lanes
+# the lanes
 lane() {
 	local list=$1 i=$2
 	cat <<EOF
@@ -52,7 +54,7 @@ for s in $list; do
 	rm -rf \$d; cp -r \$HOME/$src \$d
 	sed -i "s/^set_global_assignment -name SEED .*/set_global_assignment -name SEED \$s/" \$d/NGage.qsf
 	name=ngq-$tag-\$s
-	flock /tmp/ngage-quartus.lock sh -c 'while [ "\$(docker ps --format "{{.Image}}" | grep -c quartus)" -ge 2 ]; do sleep 30; done; \\
+	flock /tmp/ngage-quartus.lock sh -c 'while [ "\$(docker ps --format "{{.Image}}" | grep -c quartus)" -ge $lanes ]; do sleep 30; done; \\
 		docker run -d --name '\$name' --user \$(id -u):\$(id -g) -e HOME=/tmp -v '\$d':/project -w /project $image \\
 		sh -c "/opt/intelFPGA_lite/quartus/bin/quartus_sh --flow compile NGage > build_compile.log 2>&1; \\
 		       /opt/intelFPGA_lite/quartus/bin/quartus_sta -t tools/report_timing.tcl > build_sta.log 2>&1" > /dev/null'
@@ -60,12 +62,10 @@ for s in $list; do
 done
 EOF
 }
-a=() b=()
-for ((k = 0; k < ${#seeds[@]}; k++)); do
-	if ((k % 2 == 0)); then a+=("${seeds[k]}"); else b+=("${seeds[k]}"); fi
-done
-for l in 0 1; do
-	if ((l == 0)); then list="${a[*]:-}"; else list="${b[*]:-}"; fi
+for ((l = 0; l < lanes; l++)); do
+	list=""
+	for ((k = l; k < ${#seeds[@]}; k += lanes)); do list="$list ${seeds[k]}"; done
+	list=${list# }
 	[[ -z $list ]] && continue
 	lane "$list" $l | ssh "$host" "cat > $src/lane$l.sh && chmod +x $src/lane$l.sh"
 	ssh "$host" "(nohup $src/lane$l.sh > $src/lane$l.log 2>&1 < /dev/null &)"

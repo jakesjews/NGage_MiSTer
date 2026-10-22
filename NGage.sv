@@ -1117,12 +1117,25 @@ wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd19) ? cnt_wflash :
                         (scan_y[7:2] == 6'd20) ? cnt_wother :
                                                  cnt_beats;
-wire        dbg_bit   = dbg_pcrow ? dbg_pc_q[5'd31 - 5'(scan_x - 8'd16)] :
-                        dbg_strow ? dbg_bits_q[3'd7 - 3'(scan_x - 8'd16)] :
-                                    dbg_word[5'd31 - 5'(scan_x - 8'd16)];
+// The row select and the word are registered once: scan_x and scan_y hold
+// for the 16 clocks of a pixel (video_out CE_DIV), and the row mux into
+// the bit select into the pixel registers was the core's worst setup path.
+logic        dbg_pcrow_q, dbg_strow_q, dbg_wrow_q;
+logic [31:0] dbg_word_q;
+logic [4:0]  dbg_col_q;
+always_ff @(posedge clk_sys) begin
+	dbg_pcrow_q <= dbg_pcrow;
+	dbg_strow_q <= dbg_strow;
+	dbg_wrow_q  <= dbg_wrow;
+	dbg_word_q  <= dbg_word;
+	dbg_col_q   <= 5'(scan_x - 8'd16);
+end
+wire        dbg_bit   = dbg_pcrow_q ? dbg_pc_q[5'd31 - dbg_col_q] :
+                        dbg_strow_q ? dbg_bits_q[3'd7 - 3'(dbg_col_q)] :
+                                      dbg_word_q[5'd31 - dbg_col_q];
 wire [15:0] dbg_rgb   = dbg_bit ? 16'hFFFF : 16'h0000;
 assign scan_rgb = (test_on && scan_x < 8'd12 && scan_y < 8'd12) ? test_rgb :
-                  (dbg_on && (dbg_pcrow || dbg_strow || dbg_wrow)) ? dbg_rgb : panel_rgb;
+                  (dbg_on && (dbg_pcrow_q || dbg_strow_q || dbg_wrow_q)) ? dbg_rgb : panel_rgb;
 
 wire       ce_pix;
 wire       hs, vs, hblank, vblank;
