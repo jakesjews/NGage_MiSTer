@@ -87,12 +87,17 @@ assign BUTTONS = 0;
 
 //////////////////////////////////////////////////////////////////
 
+// The OSD's video options go through the framework's video_freak at the end
+// of the video section: the aspect ratio, the vertical crop with its offset,
+// and the integer scaling. The crop is offered where it applies to the
+// frame (crop_ok; OSD menumask bit 0 greys the two crop entries out
+// otherwise).
 wire        rotated;
-wire  [1:0] ar = status[122:121];
-
-// the picture is 176x208 (11:13), or 208x176 turned
-assign VIDEO_ARX = (ar == 2'd0) ? (rotated ? 13'd13 : 13'd11) : {11'd0, ar - 2'd1};
-assign VIDEO_ARY = (ar == 2'd0) ? (rotated ? 13'd11 : 13'd13) : 13'd0;
+wire  [1:0] ar       = status[122:121];
+wire        vcrop_en = status[9];
+wire  [3:0] vcopt    = status[13:10];
+wire  [1:0] vscale   = status[15:14];
+reg         crop_ok;
 
 `include "build_id.v"
 localparam CONF_STR = {
@@ -106,6 +111,9 @@ localparam CONF_STR = {
 	"O[2:1],Rotate,Off,Clockwise,Anticlockwise;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[5:3],Scandoubler Fx,None,CRT 25%,CRT 50%,CRT 75%;",
+	"d0O[9],Vertical Crop,Disabled,180p(6x);",
+	"d0O[13:10],Crop Offset,0,2,4,6,8,10,-12,-10,-8,-6,-4,-2;",
+	"O[15:14],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
 	"O[6],Memory test,Off,On;",
 	"O[8],Debug overlay,Off,On;",
@@ -172,7 +180,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 	.forced_scandoubler(forced_scandoubler),
 	.buttons(buttons),
 	.status(status),
-	.status_menumask(16'd0),
+	.status_menumask({15'd0, crop_ok}),
 	.status_in(128'd0),
 	.status_set(1'b0),
 	.info_req(info_req),
@@ -1164,16 +1172,19 @@ video_out video_out
 
 wire [2:0] scale = status[5:3];
 wire [1:0] sl = scale[1:0];
+wire       scandoubler = (scale != 3'd0) || forced_scandoubler;
 
 assign CLK_VIDEO = clk_sys;
 assign VGA_SL = sl;
+
+wire       vga_de;
 
 video_mixer #(.LINE_LENGTH(256), .GAMMA(1)) video_mixer
 (
 	.CLK_VIDEO(CLK_VIDEO),
 	.CE_PIXEL(CE_PIXEL),
 	.ce_pix(ce_pix),
-	.scandoubler((scale != 3'd0) || forced_scandoubler),
+	.scandoubler(scandoubler),
 	.hq2x(1'b0),           // HQ2x left out: its blend logic is unused and synthesis drops it
 	.gamma_bus(gamma_bus),
 	.R(r),
@@ -1190,7 +1201,43 @@ video_mixer #(.LINE_LENGTH(256), .GAMMA(1)) video_mixer
 	.VGA_B(VGA_B),
 	.VGA_VS(VGA_VS),
 	.VGA_HS(VGA_HS),
-	.VGA_DE(VGA_DE)
+	.VGA_DE(vga_de)
+);
+
+// The framework's aspect ratio, vertical crop and integer scaling between
+// the mixer and the scaler (sys/video_freak, as the NES and SNES cores wire
+// it). Original is the panel's own ratio: 176:208 upright, 208:176 turned.
+// The crop takes the upright picture's 208 lines to 180, the 6x integer fit
+// of 1080p (1056x1080 at the original ratio); it is offered whenever it
+// applies to the frame, upright with the scandoubler off (turned, the 176
+// lines are 6x already), and greyed out otherwise. Those cores offer theirs
+// at 1920x1080 only, but HDMI_HEIGHT is the height Main lets the scaler
+// fill, the integer-scaled one (1040 for this picture) under MiSTer.ini's
+// vscale_mode 1-3 (UIO_SETHEIGHT), so a 1080 test fails on such a setup.
+// The offset moves the 180-line window down (positive) or up by that many
+// lines from the centre.
+always @(posedge CLK_VIDEO) begin
+	crop_ok <= !scandoubler && !rotated;
+end
+
+wire [4:0] voff = (vcopt < 4'd6) ? {vcopt, 1'b0} : ({vcopt, 1'b0} - 5'd24);
+
+video_freak video_freak
+(
+	.CLK_VIDEO(CLK_VIDEO),
+	.CE_PIXEL(CE_PIXEL),
+	.VGA_VS(VGA_VS),
+	.HDMI_WIDTH(HDMI_WIDTH),
+	.HDMI_HEIGHT(HDMI_HEIGHT),
+	.VGA_DE(VGA_DE),
+	.VIDEO_ARX(VIDEO_ARX),
+	.VIDEO_ARY(VIDEO_ARY),
+	.VGA_DE_IN(vga_de),
+	.ARX((ar == 2'd0) ? (rotated ? 12'd208 : 12'd176) : {10'd0, ar - 2'd1}),
+	.ARY((ar == 2'd0) ? (rotated ? 12'd176 : 12'd208) : 12'd0),
+	.CROP_SIZE((crop_ok && vcrop_en) ? 12'd180 : 12'd0),
+	.CROP_OFF(voff),
+	.SCALE({1'b0, vscale})
 );
 
 // on while a flash image loads, and while the panel is lit

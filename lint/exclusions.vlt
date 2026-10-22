@@ -47,10 +47,10 @@ lint_off -rule UNUSEDSIGNAL -file "rtl/board/mmc_card.sv" -match "*Bits of funct
 lint_off -rule MULTIDRIVEN -file "rtl/board/tdp_ram.sv"
 
 // MiSTer provides wider controls than the core consumes: of the status word
-// the reset, rotation, scandoubler and aspect ratio bits; of the buttons the
-// user button; of a joystick the 17 the J1 line names; of ioctl_index the
-// file number (the upper bits number the extension).
-lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Bits of signal are not used: 'status'[127:123,120:9]*"
+// the reset, rotation, scandoubler, video and aspect ratio bits; of the
+// buttons the user button; of a joystick the 17 the J1 line names; of
+// ioctl_index the file number (the upper bits number the extension).
+lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Bits of signal are not used: 'status'[127:123,120:16]*"
 lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Bits of signal are not used: 'buttons'[0]*"
 lint_off -rule UNUSEDSIGNAL -file "rtl/mister/ngage_input.sv" -match "*Bits of signal are not used: 'j'[31:17]*"
 lint_off -rule UNUSEDSIGNAL -file "rtl/mister/ddram_loader.sv" -match "*Bits of signal are not used: 'ioctl_index'[15:6]*"

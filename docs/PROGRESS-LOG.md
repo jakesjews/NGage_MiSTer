@@ -2667,26 +2667,46 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the 6x integer fit of 1080p (1056x1080 at the original ratio); it is
   offered only at 1920x1080 with the scandoubler off and the picture
   upright (turned, 176 lines are 6x already), greyed out otherwise through
-  `status_menumask` bit 0, as the NES's 216p(5x) is. The offset moves the
-  180-line window by that many lines from the centre (14 cut at each
-  end); the offset labels are the lines they give (the NES and SNES
-  labels say 8,10,12 for 6,8,10).
+  `status_menumask` bit 0. The NES and SNES offer theirs at 1920x1080
+  only; a first build gated the same way had the entry greyed out on the
+  MiSTer: `HDMI_HEIGHT` is not the display's height but the one Main lets
+  the scaler fill (`UIO_SETHEIGHT` in Main's video.cpp), which under
+  MiSTer.ini's `vscale_mode` 1-3 is the integer-scaled picture height,
+  1040 for 208 lines at 1080p (the user's ini has vscale_mode=1), so the
+  gate is the frame alone. The offset moves the 180-line window by that
+  many lines from the centre (14 cut at each end); the offset labels are
+  the lines they give (the NES and SNES labels say 8,10,12 for 6,8,10).
 - The top bench runs the real video_freak (and sys/math's multiplier and
   divider) and checks it: the aspect pair 176/208 and 208/176 turned,
   [ARC2] as 2:0, V-Integer at 1080p as 880x1040 (bit 12 set), the crop
   as 176x180 frames carrying picture lines 14-193 and 24-203 with offset
-  +10, the cropped ratio 2288:2340 (176*208 : 208*180 normalised), and a
-  whole 208x176 frame turned with the crop set. `make lint` (the status
+  +10 (with Main's 1040 as the HDMI height), the cropped ratio 2288:2340
+  (176*208 : 208*180 normalised), and a whole 208x176 frame turned with
+  the crop set. `make lint` (the status
   waiver now spares bits 16-120) and the video bench pass.
-- Quartus (seed 2, the committed qsf, the overlay's register stage in):
-  33,359 ALMs (80 %), 42,095 registers, 3,429,401 bits, 471 M10K, 43
-  DSP (seed 8's debug build: 33,037 ALMs, 41,534 registers); setup
-  -0.469 ns at slow 100C, -0.600 at slow -40C, hold +0.232/+0.116,
-  the fast corners +0.13/+0.10: the I-cache's valid bits into the
-  writeback PC and the D-cache's tag RAM into the memory stage, the
-  seed-luck family of sweep 3, nothing of video_freak in the 30 worst
-  paths (its multiplier and divider are serial; the framework's own
-  sys_udiv is the second hold path, +0.245). The bitstream is the debug
-  core on the MiSTer, `_Console/_NGage/_Debug/NGageDbg_20261022.rbf`
-  (md5 6071748f; the seed-8 one it replaced is kept at
+- Quartus (seed 2, the committed qsf, the overlay's register stage in),
+  the build with the frame-only gate: 33,795 ALMs (81 %), 42,371
+  registers, 3,429,401 bits, 471 M10K, 43 DSP (seed 8's debug build:
+  33,037 ALMs, 41,534 registers); setup -0.362 ns at slow 100C, -0.196 at
+  slow -40C, hold +0.246/+0.150, the fast corners' hold +0.133/+0.086:
+  the issue stall into the ALU source value, decode's shift source into
+  the issue stall, the UPP DMA ownership into the on-chip RAM's write
+  enable, the seed-luck family of sweep 3; nothing of video_freak in the
+  30 worst paths (its multiplier and divider are serial; the framework's
+  own sys_udiv is the second hold path, +0.248). The 1080-gated build
+  before it: 33,359 ALMs, -0.469/-0.600, the I-cache's valid bits into
+  the writeback PC. The bitstream is the debug core on the MiSTer,
+  `_Console/_NGage/_Debug/NGageDbg_20261022.rbf` (md5 ace1d31e; the
+  seed-8 one it replaced is kept at
   `/media/fat/NGageDbg_20261022.rbf.before-video_freak.bak`).
+- On the MiSTer (NGageDbg-sonicn.mgl, the firmware at its Time dialog by
+  170 s): Main's native screenshot, the scaler's input, is 176x208; with
+  Vertical Crop set through the OSD (tools/mister_input.py: F12, seven
+  downs, Enter) it is 176x180, the centre of the picture, and 176x180
+  moved down ten lines with Crop Offset +10 (the OK softkey whole, more
+  of the logo area gone). The OSD cursor does not skip greyed entries
+  (Main's menu counts them), so the same key sequences reach the entries
+  whether or not the crop is offered. The aspect ratio, the scaling and
+  the crop's look on the TV are for the user to confirm: the native
+  capture stops before the scaler (a Zaparoo screenshot is the Linux
+  framebuffer, black under a core).

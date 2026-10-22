@@ -194,8 +194,10 @@ save: $(BUILD)/save/Vsave_tb
 	$< $(RUNFLAGS) --seed $(SEED)
 
 # The whole core: NGage.sv with the board devices; hps_io, the PLL and
-# video_mixer stood in for (sim/stubs)
+# video_mixer stood in for (sim/stubs); the framework's video_freak (the
+# aspect ratio, the vertical crop and the integer scaling) as it is
 TOP_RTL := $(ROOT)/sim/stubs/hps_io.sv $(ROOT)/sim/stubs/pll.sv $(ROOT)/sim/stubs/video_mixer.sv \
+           $(ROOT)/sys/video_freak.sv $(ROOT)/sys/math.sv \
            $(shell sed -n 's/^set_global_assignment -name \(SYSTEM\)*VERILOG_FILE //p' $(ROOT)/files.qip | sed 's|^|$(ROOT)/|') \
 
 $(BUILD)/top/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/top_main.cpp $(ROOT)/sim/harness/common.h \

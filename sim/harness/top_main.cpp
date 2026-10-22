@@ -289,8 +289,8 @@ int main(int argc, char **argv) {
 	sim::Image f = b.frame();
 	f.write_ppm(out + "/top_portrait.ppm");
 	printf("portrait frame %dx%d: %s\n", f.w, f.h, compare(f, 0, 0, "test picture") == 0 ? "matches" : "differs");
-	CHECK_EQ(b.t->VIDEO_ARX, 11, "aspect X");
-	CHECK_EQ(b.t->VIDEO_ARY, 13, "aspect Y");
+	CHECK_EQ(b.t->VIDEO_ARX, W, "aspect X");
+	CHECK_EQ(b.t->VIDEO_ARY, H, "aspect Y");
 	CHECK(b.t->LED_USER, "LED_USER off with the panel lit");
 
 	// keys: Up and 5 on the joystick, Call (F3) and Power (F8) on the keyboard
@@ -323,10 +323,56 @@ int main(int argc, char **argv) {
 		f = b.frame();
 		f.write_ppm(out + (rot == 1 ? "/top_cw.ppm" : "/top_ccw.ppm"));
 		compare(f, 0, rot, rot == 1 ? "turned clockwise" : "turned anticlockwise");
-		CHECK_EQ(b.t->VIDEO_ARX, 13, "aspect X turned");
-		CHECK_EQ(b.t->VIDEO_ARY, 11, "aspect Y turned");
+		CHECK_EQ(b.t->VIDEO_ARX, H, "aspect X turned");
+		CHECK_EQ(b.t->VIDEO_ARY, W, "aspect Y turned");
 	}
 	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
+
+	// the OSD's video options through video_freak, at 1080p: the aspect
+	// ratio [ARC2] (status 122:121 = 3) is 2:0 to the scaler; V-Integer
+	// scaling (status 14) asks for 5x, 880x1040 (bit 12 set: a size, not a
+	// ratio); the vertical crop (status 9) cuts the 208 lines to 180 for 6x,
+	// centred (lines 14-193), moved by the offset (status 13:10; 5 is +10
+	// lines), whatever height Main reports (1040, the integer-scaled one
+	// its vscale_mode 1-3 send, is the case on the user's MiSTer); turned,
+	// the crop is not offered and the frame stays whole
+	b.t->HDMI_WIDTH = 1920; b.t->HDMI_HEIGHT = 1080;
+	R.emu__DOT__hps_io__DOT__sim_status[3] = 3u << (121 - 96);
+	b.frame(); b.frame();
+	CHECK_EQ(b.t->VIDEO_ARX, 2, "aspect X [ARC2]");
+	CHECK_EQ(b.t->VIDEO_ARY, 0, "aspect Y [ARC2]");
+	R.emu__DOT__hps_io__DOT__sim_status[3] = 0;
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 14;
+	b.frame(); b.frame();
+	CHECK_EQ(b.t->VIDEO_ARX, 0x1000 | 5 * W, "V-Integer X");
+	CHECK_EQ(b.t->VIDEO_ARY, 0x1000 | 5 * H, "V-Integer Y");
+	auto crop = [&](int off, int top, const char *what) {
+		b.frame(); b.frame();
+		sim::Image c = b.frame();
+		if (c.w != W || c.h != 180) { sim::fail("%s: frame is %dx%d, want %dx180", what, c.w, c.h, W); return; }
+		int bad = 0;
+		for (int y = 0; y < 180; y++)
+			for (int x = 0; x < W; x++)
+				if (c.get(x, y) != sim::rgb565_to_888(to565(pattern(x, y + top, 0))) && bad++ < 4)
+					sim::fail("%s: pixel (%d,%d) = %06x, want line %d of the picture", what, x, y, c.get(x, y), y + top);
+		if (bad > 4) sim::fail("%s: %d pixels differ", what, bad);
+		printf("vertical crop, offset %+d: %s (lines %d-%d)\n", off, bad ? "differs" : "matches", top, top + 179);
+	};
+	b.t->HDMI_HEIGHT = 1040;
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 9;
+	crop(0, 14, "vertical crop");
+	CHECK_EQ(b.t->VIDEO_ARX, 2288, "cropped aspect X");   // 176:180 (176*208 : 208*180, normalised)
+	CHECK_EQ(b.t->VIDEO_ARY, 2340, "cropped aspect Y");
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 9 | 5u << 10;
+	crop(10, 24, "vertical crop, offset +10");
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 9 | 1u << 1;
+	b.frame(); b.frame();
+	f = b.frame();
+	if (f.w != H || f.h != W) sim::fail("turned with the crop on: frame is %dx%d, want %dx%d", f.w, f.h, H, W);
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
+	b.t->HDMI_WIDTH = 0; b.t->HDMI_HEIGHT = 0;
+	b.frame(); b.frame();
+	compare(b.frame(), 0, 0, "whole again");
 
 	// MiSTer's clock, as hps_io sends it when the core starts (the CPU start
 	// waits for it, up to 3 s): 2004-06-01 12:00:00 in BCD
