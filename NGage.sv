@@ -18,44 +18,14 @@
 //
 //============================================================================
 //
-// What is here:
-//  * the CPU, a TI ARM925T (rtl/cpu/arm925t.sv: ZAP made to behave as one;
-//    docs/CPU.md), the master of the memory system's Wishbone port. It boots
-//    from CS0 once both flash images are in DDR3 and runs until the next
-//    reset;
-//  * the OSD: the two NOR flash images are loaded into DDR3 (CS0 at
-//    0x31000000, CS1 at 0x32000000; CS1 can also be mounted as a save file);
-//    an MMC image is mounted on hps_io's SD slot 0; controls, rotation,
-//    aspect ratio, scandoubler, reset;
-//  * the display module (lcd_panel) and its scan-out (video_out). Its 8080
-//    bus and the key matrix lines belong to lcd_testgen until the UPP's LCD
-//    interface first drives the bus (so with no CPU the test picture shows,
-//    drawn by lcd_testgen with the keypad state as the matrix reports it),
-//    and to the UPP from then on;
-//  * the keypad matrix, fed from the joystick and keyboard; its power key
-//    goes to the UEMK model (UEMK register 0x1F bit 1);
-//  * the MMC card on the SD slot, on the UPP's MMC host (CLK/CMD/DAT0 with
-//    pull-ups); it loads the CID/CSD sidecar when an image is mounted;
-//  * the memory system (rtl/upp/ngage_mem.sv): the UPP_WD2 bus map, the two
-//    NOR flash chips with their arrays in DDR3 (the loaded images), the
-//    16 MB SDRAM on the MiSTer SDRAM module, the on-chip RAM and the EMIF
-//    registers; the DMA controller is its second bus master;
-//  * the UPP_WD2 peripherals (rtl/upp/upp_periph.sv) on the peripheral
-//    register bus: interrupt controller, timers, DMA, MMC host, LCD
-//    interface, keypad ports, CBUS with the UEMK model, storage for the rest;
-//    and the two emulator devices the NOS stand-in uses: the HLE audio device,
-//    whose output is AUDIO_L/R (48 kHz, signed), and the HLE RTC date
-//    register. The UEMK's real-time clock and that date come from MiSTer's
-//    RTC (rtc_wall: set by the HPS, counting in real time);
-//  * wb_selftest, a diagnostic: with "Memory test" on it has the Wishbone
-//    port instead of the CPU (held in reset), tests the SDRAM, the on-chip
-//    RAM, the EMIF block and the flash path in passes, shows the result on
-//    the OSD after the first pass and after a failure and in a square at
-//    the panel's top-left corner, and blinks the power LED (slow: passing,
-//    fast: failed). Switching it on or off resets the board.
-// clk_sys is 104 MHz: 4 x 26 MHz, the phone's reference, so the MCU clock
-// (104 MHz), the flash and timer clock (104/3) and the MMC clock (26/3)
-// divide from it exactly.
+// The MiSTer shell around the N-Gage's parts: the CPU (rtl/cpu, a TI ARM925T
+// made from ZAP: docs/CPU.md), the UPP_WD2 ASIC's memory system and
+// peripherals (rtl/upp, docs/UPP_WD2.md), the board devices (rtl/board) and
+// the MiSTer-side blocks (rtl/mister: the flash images in DDR3, the C: save
+// file, the wall clock, the test picture, the debug rings). The reasons for
+// the choices below are in docs/PROGRESS-LOG.md.
+// clk_sys is 104 MHz, 4 x 26 MHz, the phone's reference: the MCU, flash,
+// timer and MMC clocks divide from it exactly.
 
 module emu #(
 	// the self-test's coverage (the simulation tests a part)
@@ -87,11 +57,8 @@ assign BUTTONS = 0;
 
 //////////////////////////////////////////////////////////////////
 
-// The OSD's video options go through the framework's video_freak at the end
-// of the video section: the aspect ratio, the vertical crop with its offset,
-// and the integer scaling. The crop is offered where it applies to the
-// frame (crop_ok; OSD menumask bit 0 greys the two crop entries out
-// otherwise).
+// the OSD's video options, applied by video_freak at the end of the video
+// section; crop_ok (status_menumask bit 0) offers the crop where it applies
 wire        rotated;
 wire  [1:0] ar       = status[122:121];
 wire        vcrop_en = status[9];
@@ -256,13 +223,12 @@ rtc_wall rtc_wall
 
 ///////////////////////   RESET   ////////////////////////////////
 
-// power-on reset of the whole core; the board is also held while a flash
-// image loads
+// power-on reset of the whole core
 reg [1:0] por = 2'b11;
 always @(posedge clk_sys) por <= {por[0], RESET | ~pll_locked};
 wire sys_reset = por[1];
-// (and while a mounted CS1 save image is copied in, and for a moment when the
-// memory test is switched on or off: the Wishbone port changes masters)
+// the board: also held while a flash image loads or a CS1 save image is
+// copied in, and for a moment when the memory test is switched on or off
 wire fs_loading;
 wire test_on /* verilator public_flat_rd */ = status[6];
 reg  test_on_q = 1'b0;
@@ -272,17 +238,14 @@ always @(posedge clk_sys) begin
 	test_sw   <= (test_on != test_on_q) ? 4'hF : {test_sw[2:0], 1'b0};
 end
 wire reset = sys_reset | status[0] | buttons[1] | ioctl_download | fs_loading | test_sw[3];
-// The Wishbone port's master select (CPU or memory test): test_on a clock
-// later, from a register that can sit by the multiplexer (hps_io's status
-// register is far away). It changes in the first clock of the reset pulse.
+// the Wishbone port's master select, from a local register (hps_io's status
+// bit is far away); it changes in the first clock of the reset pulse
 wire test_sel = test_on_q;
 
 ///////////////////////   MEMORY   ///////////////////////////////
 
-// The flash images go to DDR3 through the loader port, which shares the
-// DDRAM port with the flash chips' arrays (ddram_flash in ngage_mem): the
-// ioctl loader's (F1/F2), or flash_save's while it copies a mounted CS1 save
-// image in (S1). The port changes hands only between commands.
+// the loader port into DDR3 (ddram_flash in ngage_mem), shared by the ioctl
+// loader, flash_save and the debug rings; it changes hands between commands
 wire        ld_busy, ld_we, dl_we, fs_we, tr_we, kt_we;
 wire  [1:0] dl_loaded;                 // CS0 / CS1 loaded through ioctl
 wire  [7:0] ld_be, dl_be, fs_be, tr_be, kt_be;
@@ -327,14 +290,8 @@ ddram_loader ddram_loader
 
 assign DDRAM_CLK = clk_sys;
 
-// The CPU's Wishbone port: the CPU (rtl/cpu/arm925t.sv, req/ack with a burst
-// flag), or wb_selftest while "Memory test" is on. The CPU connects as
-//   wb_cyc = wb_stb = bus_req, wb_we = bus_we, wb_adr = bus_addr,
-//   wb_sel = bus_be, wb_dat_w = bus_wdata, wb_cti = bus_burst ? 3'b010 : 3'b111,
-//   wb_bte = 2'b00; bus_rdata = wb_dat_r, bus_ack = wb_ack, bus_err = wb_err.
-// Flash reads return only the halfwords bus_be asks for (the others read 0):
-// reading the other half would be a second status read, which toggles DQ6.
-// (the simulation benches watch this port: sim/harness)
+// the memory system's Wishbone port: the CPU's (docs/CPU.md, "In the core")
+// or wb_selftest's while "Memory test" is on; the benches watch it (sim/harness)
 wire        wb_cyc /* verilator public_flat_rd */, wb_stb, wb_we /* verilator public_flat_rd */;
 wire        wb_ack /* verilator public_flat_rd */, wb_err /* verilator public_flat_rd */;
 wire [31:0] wb_adr /* verilator public_flat_rd */, wb_dat_w /* verilator public_flat_rd */;
@@ -447,10 +404,8 @@ endgenerate
 
 ///////////////////////   CS1 SAVE   ///////////////////////////
 
-// The CS1 image mounted on SD slot 1 ("Mount flash CS1 (save)") is copied
-// into DDR3, and the 512-byte blocks the firmware changes in it (the C:
-// drive) are written back to the file: rtl/mister/flash_save.sv. "Save C:
-// now" writes back at once; otherwise 100 ms after the last change.
+// the CS1 image on SD slot 1 is copied into DDR3 and the blocks the firmware
+// changes (the C: drive) go back to the file: rtl/mister/flash_save.sv
 wire        save_mark, save_rd, save_taken, save_valid;
 wire [13:0] save_mark_blk, save_blk;
 wire [63:0] save_data;
@@ -589,9 +544,8 @@ upp_periph upp_periph
 	.sti_data(sti_data)
 );
 
-// The firmware's debug text (rtl/mister/dbg_sti.sv): the STI window's
-// bytes go to a 64 KB ring in DDR3 at 0x33100000; tools/mister_trace.py
-// fetch-sti reads it, the model's kern.log on hardware.
+// the firmware's debug text (STI) to a ring in DDR3 (rtl/mister/dbg_sti.sv),
+// read by tools/mister_trace.py fetch-sti
 wire        sti_we;
 wire  [3:0] sti_be;
 wire [31:0] sti_data;
@@ -626,14 +580,11 @@ end endgenerate
 
 ///////////////////////   CPU   ////////////////////////////////
 
-// In reset with the board, while the memory test has the bus, and until both
-// flash images are in DDR3: CS0 loaded (F1), CS1 loaded (F2) or mounted as
-// the save file (S1). Out of reset it boots from CS0 at address 0.
-// MiSTer sends its clock once, at the end of the core's start-up, after
-// the files the launcher loads: with the CPU released the moment the images
-// are in, the firmware's one-time read of the HLE RTC date (the NOS stand-in
-// at its entry) came first and the clock counted as unset. So the start
-// also waits for the clock, up to RTC_WAIT_CLKS (3 s) after the images.
+// Out of reset once the board is, the memory test is off and both flash
+// images are in (CS1 loaded, or mounted as the save file). The start also
+// waits for MiSTer's clock, up to RTC_WAIT_CLKS: Main sends it once, after
+// the launcher's files, and the stand-in reads the HLE date once at its entry
+// (docs/PROGRESS-LOG.md, 2026-10-21 evening).
 localparam int RTC_WAIT_CLKS = 312_000_000;
 wire        images_in = dl_loaded[0] & (dl_loaded[1] | fs_present);
 reg  [28:0] rtc_timer = 0;
@@ -699,11 +650,9 @@ arm925t arm925t
 	.dbg_d_rdata(tr_d_rdata)
 );
 
-// Hardware trace (rtl/mister/dbg_trace.sv), while DBG_TRACE is set: rings
-// of retired instructions, data-port accesses and bus beats, dumped to DDR3
-// at 0x33000000 on the first abort or undefined instruction, or when the
-// kernel writes its fault record (dbg_trig below); tools/mister_trace.py
-// reads them back. Costs about 1.3 Mbit of block RAM.
+// the hardware trace (rtl/mister/dbg_trace.sv, DBG_TRACE): rings dumped to
+// DDR3 on an abort, an undefined instruction or a trigger (dbg_trig below);
+// tools/mister_trace.py reads them
 wire        dbg_trig;
 wire  [7:0] tr_dumps, tr_triggers;
 wire        tr_dumping;
@@ -977,11 +926,9 @@ lcd_panel lcd_panel
 	.pix_ev(lcd_pix_ev)
 );
 
-// Memory-test status square in the top-left 12x12 panel pixels while the
-// test runs, so the result can be read from a screenshot (MiSTer screenshots
-// leave out the OSD): yellow = running before the first pass ends, green =
-// passes without errors, magenta = errors seen. scan_x/scan_y hold for a
-// whole pixel, so the substitution lines up exactly.
+// the memory test's status square, the top-left 12x12 panel pixels (so a
+// screenshot shows the result): yellow until the first pass ends, green
+// passing, magenta errors seen
 reg test_any_pass = 0;
 always @(posedge clk_sys) begin
 	if (!test_on) test_any_pass <= 1'b0;
@@ -989,10 +936,9 @@ always @(posedge clk_sys) begin
 end
 wire [15:0] test_rgb = (test_errors != 16'd0)  ? 16'hF81F :
                        test_any_pass           ? 16'h07E0 : 16'hFFE0;
-// Debug overlay (OSD "Debug overlay"): rows 0-2, x 16..47 show the CPU's
-// committed PC, bit 31 leftmost, latched once per frame (white = 1); rows
-// 4-6, x 16..23 show cpu_reset, irq, fiq, bus activity, CS0 loaded, CS1
-// loaded, CS1 save present, memory-test master (white = 1).
+// the debug overlay (OSD "Debug overlay"): the CPU's PC, status bits and
+// 32-bit words as white pixels; tools/mister_dbg.py has the row layout and
+// decodes a screenshot
 reg  [31:0] dbg_pc_q = 0;
 reg         dbg_bus_q = 0;
 reg   [7:0] dbg_bits_q = 0;
@@ -1014,20 +960,16 @@ always @(posedge clk_sys) begin
 		aud_peak_r <= 16'd0;
 	end
 end
-// Kern::Fault's record: the kernel copies the fault category and reason
-// from the superpage to on-chip RAM 0x0C0047F0/F4/F8 before halting
-// (ekern 0x5031E340); the writes are snooped on the bus.
+// Kern::Fault's record, snooped from the kernel's writes to on-chip RAM
+// 0x0C0047F0/F4/F8 (tools/mister_dbg.py, docs/PROGRESS-LOG.md 2026-10-21)
 reg [31:0] dbg_f0 = 0, dbg_f4 = 0, dbg_f8 = 0;
-// The trace also triggers 16 clocks after a read of DBG_TRIG_RD (a physical
-// word address; 0 = off), so that the read and what follows it are in the
-// dump: the HLE RTC date register, which the NOS stand-in reads once.
+// trace triggers besides the faults (0 = off): 16 clocks after a read of the
+// physical word address DBG_TRIG_RD (the HLE RTC date register), on a write
+// to flash CS1 from DBG_TRIG_WR_AFTER_S seconds after the CPU start, and at
+// DBG_TRIG_AT1_S / DBG_TRIG_AT2_S seconds, a sample of a slow boot phase
+// (docs/PROGRESS-LOG.md, 2026-10-21 and 2026-10-22)
 localparam [31:0] DBG_TRIG_RD = 32'h0C1F0100;
-// ... and after a write to flash CS1 (a program or erase command) once
-// DBG_TRIG_WR_AFTER_S seconds have passed since the CPU started (0 = off):
-// the flash traffic of a boot stuck in the C: mount.
 localparam [7:0] DBG_TRIG_WR_AFTER_S = 8'd0;
-// ... and at DBG_TRIG_AT1_S and DBG_TRIG_AT2_S seconds after the CPU started
-// (0 = off): a sample of what the CPU is doing in a slow phase of the boot.
 localparam [7:0] DBG_TRIG_AT1_S = 8'd55;
 localparam [7:0] DBG_TRIG_AT2_S = 8'd130;
 reg  [26:0] dbg_sec_pre = 0;
@@ -1045,9 +987,7 @@ always @(posedge clk_sys) begin
 end
 wire        dbg_tick = dbg_sec_pre == 27'd103_999_999;   // the second's last clock
 
-// Per-second counters (rtl/mister/dbg_counters.sv): frames and pixels at
-// the panel, instructions retired, clocks in wait-for-interrupt, clocks a
-// CPU bus beat waited on the SDRAM / the flash / anything else, beats.
+// per-second counters for the overlay (rtl/mister/dbg_counters.sv)
 wire        dbg_bus_pend  = wb_cyc && wb_stb && !wb_ack && !wb_err;
 wire        dbg_bus_beat  = wb_cyc && wb_stb && (wb_ack || wb_err);
 wire        dbg_bus_sdram = wb_adr[27:25] == 3'b101;      // 0x0A000000 window
@@ -1097,13 +1037,7 @@ end
 wire        dbg_on    = status[8];
 wire        dbg_pcrow = scan_y < 8'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire        dbg_strow = scan_y >= 8'd4 && scan_y < 8'd7 && scan_x >= 8'd16 && scan_x < 8'd24;
-// further 32-bit rows at y = 8, 12, ..., 52 (3 lines each): the interrupt
-// words, the fault record, the trace's first trigger PC, {dumps, triggers,
-// kernel-text bytes}, the wall clock {valid, 7'b0, hour, min, sec} and its
-// date, the audio peaks, {kernel-text writes dropped, 7'b0, dumping, 16'b0};
-// then at y = 56, ..., 84 the per-second counters: frames, pixels,
-// instructions retired, wait-for-interrupt clocks, bus wait clocks on the
-// SDRAM, the flash and elsewhere, bus beats
+// the 32-bit rows at y = 8, 12, ..., 84 (3 lines each): tools/mister_dbg.py
 wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < 8'd87 && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd3) ? dbg_en0_irq :
@@ -1125,9 +1059,8 @@ wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd19) ? cnt_wflash :
                         (scan_y[7:2] == 6'd20) ? cnt_wother :
                                                  cnt_beats;
-// The row select and the word are registered once: scan_x and scan_y hold
-// for the 16 clocks of a pixel (video_out CE_DIV), and the row mux into
-// the bit select into the pixel registers was the core's worst setup path.
+// the row select and the word are registered once (scan_x/y hold for the 16
+// clocks of a pixel); the row mux into the bit select was the worst setup path
 logic        dbg_pcrow_q, dbg_strow_q, dbg_wrow_q;
 logic [31:0] dbg_word_q;
 logic [4:0]  dbg_col_q;
@@ -1204,18 +1137,13 @@ video_mixer #(.LINE_LENGTH(256), .GAMMA(1)) video_mixer
 	.VGA_DE(vga_de)
 );
 
-// The framework's aspect ratio, vertical crop and integer scaling between
-// the mixer and the scaler (sys/video_freak, as the NES and SNES cores wire
-// it). Original is the panel's own ratio: 176:208 upright, 208:176 turned.
-// The crop takes the upright picture's 208 lines to 180, the 6x integer fit
-// of 1080p (1056x1080 at the original ratio); it is offered whenever it
-// applies to the frame, upright with the scandoubler off (turned, the 176
-// lines are 6x already), and greyed out otherwise. Those cores offer theirs
-// at 1920x1080 only, but HDMI_HEIGHT is the height Main lets the scaler
-// fill, the integer-scaled one (1040 for this picture) under MiSTer.ini's
-// vscale_mode 1-3 (UIO_SETHEIGHT), so a 1080 test fails on such a setup.
-// The offset moves the 180-line window down (positive) or up by that many
-// lines from the centre.
+// the framework's aspect ratio, vertical crop and integer scaling
+// (sys/video_freak, wired as the NES and SNES cores do). Original is the
+// panel's own ratio, 176:208 upright; the crop takes the upright 208 lines
+// to 180, the 6x fit of 1080p, and is offered whenever it applies to the
+// frame: not gated on HDMI_HEIGHT, which is the height Main lets the scaler
+// fill, not the display's (docs/PROGRESS-LOG.md, 2026-10-22). The offset
+// moves the 180-line window by that many lines from the centre.
 always @(posedge CLK_VIDEO) begin
 	crop_ok <= !scandoubler && !rotated;
 end
