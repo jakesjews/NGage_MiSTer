@@ -1951,3 +1951,13 @@ found, and what comes next. Research material lives in `research/`
   the normal pace (kernel text with NOS traffic and SysAp within 2.5
   minutes), where before one such reload left the next boot in minutes of
   recovery. Saves now survive stopping the core at any moment.
+- **Sound on hardware:** with the overlay's audio rows (the largest sample
+  magnitude of each channel per frame) the idle screen reads 0 and Sonic
+  N's intro reads 60-2076 of 32767, left and right alike (mono), through
+  the Eggman cut-scene (`build/hardware/snd-g8.png`): the HLE audio device
+  plays on the MiSTer. Listening level and quality not checked by ear.
+- State at the end of 2026-10-21: boots, formats, saves (reload-safe),
+  card games, keys and sound all verified on the MiSTer with debug builds.
+  Next: a release build with `DBG_TRACE` off (timing-clean, no trace
+  rings), the Time dialog at every start (the stand-in's RTC status), and
+  more games from the collection.

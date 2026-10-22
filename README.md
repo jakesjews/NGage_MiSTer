@@ -68,8 +68,8 @@ load) or mount slot 1 (CS1 save) and slot 0 (card).
 Verified on a MiSTer: boot to the idle screen, the first-start format of
 C:, saves written back to the mounted image, Sonic N from its card (menu
 entry, title screen, demo) and its keys (5 skips the intro, the rocker
-moves through the character select). Sound has not been checked on
-hardware yet.
+moves through the character select), and the game's sound reaches the
+audio output (checked by measurement, not yet by ear).
 
 ## Troubleshooting
 
