@@ -2717,6 +2717,6 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the sweep-3 candidate seed 8 predates it): seeds 1-4 on the server,
   5 on the Mac, from the same tree. Round 1, worst setup at slow 100C /
   slow -40C, ns: 1 -0.234/-0.007, 2 -0.362/-0.196, 3 -0.049/-0.008, 4
-  -0.212/-0.499; hold +0.03 or better. video_freak costs about 500
+  -0.212/-0.499, 5 (Mac) -0.219; hold +0.03 or better. video_freak costs about 500
   ALMs (33,600-33,800). Round 2: seeds 6-8 on three lanes, the fourth
   left for the comment-trim session's synthesis check.
