@@ -10,7 +10,8 @@ rather than waited on.
     tools/jev_play.py GAME [--core NGage] [--overlay] [--out DIR] [--play 60] [--max 600] [--no-boot]
     tools/jev_play.py --dry-run DIR_OF_PNGS      (classify saved captures only)
 
-GAME names the launcher /media/fat/_Console/CORE-GAME.mgl (--core, default
+GAME names the launcher CORE-GAME.mgl under /media/fat/_Console/_NGage (the
+release) or its _Debug folder (the counters and trace builds) (--core, default
 NGage; NGageDbg for the counters build). The run boots it (the formatted
 save, so the Time and Date dialogs come first), goes to the phone's menu,
 finds the game's entry, launches it, and then lets Jev pick every key from
@@ -130,7 +131,7 @@ class Board:
                     raise
                 time.sleep(2)
         with open(path, "wb") as out:
-            subprocess.run(SSH + [f"cat '{remote}'"], stdout=out, check=True, timeout=60)
+            subprocess.run(SSH + [f"cat '{remote}' && rm -f '{remote}'"], stdout=out, check=True, timeout=60)
         return float(t)
 
     def close(self):
@@ -142,8 +143,13 @@ class Board:
             pass
 
 
+LAUNCHERS = {"NGage": "/media/fat/_Console/_NGage", "NGageDbg": "/media/fat/_Console/_NGage/_Debug",
+             "NGageTrc": "/media/fat/_Console/_NGage/_Debug"}
+
+
 def load_launcher(game, core="NGage"):
-    out = ssh(f"date +%s.%N; echo 'load_core /media/fat/_Console/{core}-{game}.mgl' > /dev/MiSTer_cmd")
+    folder = LAUNCHERS.get(core, "/media/fat/_Console/_NGage/_Debug")
+    out = ssh(f"date +%s.%N; echo 'load_core {folder}/{core}-{game}.mgl' > /dev/MiSTer_cmd")
     return float(out.split()[0]) if out.split() else 0.0
 
 

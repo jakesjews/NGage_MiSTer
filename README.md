@@ -25,7 +25,8 @@ is not emulated; the phone comes up as an offline handset with no SIM.
    for a dump, or `tools/mkcard.py folder GAMEDIR -o game` for a folder;
    each gives `game.mmc`.
 3. Copy the newest `NGage_YYYYMMDD.rbf` from [releases/](releases/) to
-   `/media/fat/_Console/` on the MiSTer and the images to
+   `/media/fat/_Console/` on the MiSTer (or a folder of its own such as
+   `_Console/_NGage/`, which the menu shows as "NGage") and the images to
    `/media/fat/games/NGage/` ([MiSTer file
    transfer](https://mister-devel.github.io/MkDocs_MiSTer/)).
 4. Start the core. In the OSD: **Load flash CS0** → `cs0.bin`, **Mount
