@@ -2630,3 +2630,7 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   seeds, so still seed luck, with 0.05 ns to spare at slow 100C). Round
   3 (seeds 13-15) runs from the trimmed tree f48999c for a candidate
   with margin, and seed 12 on the Mac.
+- Seed 8 on the MiSTer (as the debug core, the same 2 s boot profile):
+  kernel phase 30-86 s at 13.1 M instructions/s, flash waits 24.8 %,
+  SDRAM 12.6 %, the boot's bus traffic 30-96 s, the idle screen after:
+  the same as the measurement build (build/hardware/boot/seed8-p2).
