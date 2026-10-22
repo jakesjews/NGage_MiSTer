@@ -2498,3 +2498,33 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   24-clock line fills the next (a quarter of the clocks), the D-cache's
   SDRAM misses after that. Profiles under build/hardware/boot/fcache-p2
   and icache2-p2.
+
+### 2026-10-22: the two-way data cache
+
+- **The D-cache is 2-way with LRU too** (rtl/cpu/arm925t.sv DCACHE_WAYS =
+  2): the same tag RAM, 256 sets of VA[11:4] with 20-bit tags, a dirty bit
+  per way, the victim's line and tag presented on a miss so that the
+  D-FSM's clean-then-fill sequence writes the dirty victim back and fills
+  its way, unchanged in its states. The FSM's only lookup-way write is
+  the write hit in IDLE (the hit-under-miss macro is a no-op in this
+  core), every other tag or line write uses the way buffered with the
+  address; the clean's tag rewrite marks the way most recently used, but
+  the fill into the same way follows at once, so the LRU bit ends where
+  the fill leaves it. The CP15's index operand (TI format: set in bits
+  11:4, way in bit 31) now names a way on a new output (zap_cp15_cb
+  DATA_CACHE_WAYS, o_dcache_line_way through zap_core and zap_top into
+  zap_dcache's i_line_way); with one way the way bit still selects one
+  of the two lines that stood in for a set, as before. TI configuration
+  C clear still runs the operation on both ways.
+- Verification: sim/cpu/tests/dcache_rtl.S dirties three lines of one
+  set in turn and reads memory back through an uncached alias: what was
+  written back shows the two ways and the LRU victim (order of use, not
+  of filling), then the index operations with C = 1 clean or flush the
+  named way only, C = 0 both, and the whole-cache clean covers both
+  ways. It fails on a direct-mapped D-cache (`VEXTRA=-GDCACHE_WAYS=1`)
+  at the first "not written back" check. cache_rtl.S's way test holds as
+  written (the line it flushes by index sits in way 0, allocated into a
+  set the previous step had emptied); its stale comment is fixed. The
+  set it uses, 0xE0, is one nothing else in the test touches: the
+  checkpoints' signature pointer lives in set 0, which is why the first
+  draft of the test, on set 0, could not have tracked the LRU.

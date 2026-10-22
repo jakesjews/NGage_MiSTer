@@ -88,6 +88,7 @@ input   logic            i_line_req,
 input   logic [1:0]      i_line_op,
 input   logic            i_line_va,
 input   logic [31:0]     i_line_addr,
+input   logic            i_line_way,     // ARM925T: of an operation by index
 output  logic            o_line_done,
 
 input   logic [CPSR_MODE:0]    i_cpsr,
@@ -269,7 +270,7 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .i_line_op              (i_line_op),
         .i_line_va              (i_line_va),
         .i_line_addr            (i_line_addr),
-        .i_line_way             ('0),     // ARM925T: one way; the CP15's index operand selects a line
+        .i_line_way             (i_line_way),
         .o_line_done            (tr_line_done),
 
         /* verilator lint_off PINCONNECTEMPTY */

@@ -27,6 +27,7 @@ module zap_core #(
         parameter logic [31:0] DATA_CACHE_SIZE = 1024,
         parameter logic [31:0] CODE_CACHE_SIZE = 1024,
         parameter logic [31:0] DATA_CACHE_LINE = 64,
+        parameter logic [31:0] DATA_CACHE_WAYS = 1,     // ARM925T
         parameter logic [31:0] CODE_CACHE_LINE = 64,
 
         // Reset vector. Safe to not override.
@@ -113,6 +114,7 @@ output logic                             o_dcache_line_req,
 output logic [1:0]                       o_dcache_line_op,
 output logic                             o_dcache_line_va,
 output logic [31:0]                      o_dcache_line_addr,
+output logic                             o_dcache_line_way,   // ARM925T
 input  logic                             i_dcache_line_done,
 
 // --------------------------------------------------
@@ -1694,6 +1696,7 @@ zap_cp15_cb #(
 .DATA_CACHE_SIZE(DATA_CACHE_SIZE),
 .CODE_CACHE_SIZE(CODE_CACHE_SIZE),
 .DATA_CACHE_LINE(DATA_CACHE_LINE),
+.DATA_CACHE_WAYS(DATA_CACHE_WAYS),
 .CODE_CACHE_LINE(CODE_CACHE_LINE)
 ) u_zap_cp15_cb (
         .i_clk                  (i_clk),
@@ -1737,6 +1740,7 @@ zap_cp15_cb #(
         .o_dcache_line_op       (o_dcache_line_op),
         .o_dcache_line_va       (o_dcache_line_va),
         .o_dcache_line_addr     (o_dcache_line_addr),
+        .o_dcache_line_way      (o_dcache_line_way),
         .i_dcache_line_done     (i_dcache_line_done)
 );
 

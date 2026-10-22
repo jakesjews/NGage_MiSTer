@@ -11,7 +11,7 @@ module tb_cpu #(
 	parameter int ICACHE_SIZE = 16384,
 	parameter int ICACHE_WAYS = 2,
 	parameter int DCACHE_SIZE = 8192,
-	parameter int DCACHE_WAYS = 1,
+	parameter int DCACHE_WAYS = 2,
 	parameter int CACHE_LINE  = 16
 ) (
 	input  logic          clk,

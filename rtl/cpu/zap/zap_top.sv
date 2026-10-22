@@ -258,6 +258,7 @@ logic            cpu_align_fault;   // ARM925T
 logic            cpu_dline_req, cpu_dline_va, dc_line_done;   // ARM925T
 logic [1:0]      cpu_dline_op;                                // ARM925T
 logic [31:0]     cpu_dline_addr;                              // ARM925T
+logic            cpu_dline_way;                               // ARM925T
 logic [31:0]     cpu_daddr_va;      // ARM925T
 logic [5:0]      cpu_dldfmt;        // ARM925T
 logic            code_stall;
@@ -293,6 +294,7 @@ zap_core #(
         .CPSR_INIT(CPSR_INIT),
         .DATA_CACHE_SIZE(DATA_CACHE_SIZE),
         .DATA_CACHE_LINE(DATA_CACHE_LINE),
+        .DATA_CACHE_WAYS(DATA_CACHE_WAYS),
         .CODE_CACHE_SIZE(CODE_CACHE_SIZE),
         .CODE_CACHE_LINE(CODE_CACHE_LINE),
         .CPSR_MODE(ZAP_CPSR_MODE),
@@ -375,6 +377,7 @@ zap_core #(
 .o_dcache_line_op       (cpu_dline_op),
 .o_dcache_line_va       (cpu_dline_va),
 .o_dcache_line_addr     (cpu_dline_addr),
+.o_dcache_line_way      (cpu_dline_way),
 .i_dcache_line_done     (!ONLY_CORE ? dc_line_done : 1'd1),
 .o_dac                  (cpu_dac_reg),
 .o_baddr                (cpu_baddr),
@@ -651,6 +654,7 @@ u_data_cache (
 .i_line_op              (cpu_dline_op),
 .i_line_va              (cpu_dline_va),
 .i_line_addr            (cpu_dline_addr),
+.i_line_way             (cpu_dline_way),
 .o_line_done            (dc_line_done),
 .i_reg_idx              (dc_rreg_idx),
 .i_reg_idx_bin          (dc_rreg_idx_bin),

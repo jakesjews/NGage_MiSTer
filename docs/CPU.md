@@ -96,14 +96,14 @@ the line arrives).
 
 The memory system is ZAP's:
 
-- Caches: virtually indexed and tagged, write-back with write allocate
-  (and write-through per page, below), 16-byte lines here. The I-cache is
-  2-way set-associative with the ARM925T's LRU replacement (two tag and
-  data RAMs of 512 lines read at the same set, VA[12:4]; one LRU bit per
-  set, the way to fill next, updated on hits and fills; an invalid way is
-  filled first). The D-cache is still direct-mapped (512 lines, VA[12:4]).
-  The D-cache keeps each line's physical address, so cleaning needs no
-  table walk.
+- Caches: the ARM925T's geometry, 2-way set-associative with its LRU
+  replacement, virtually indexed and tagged, write-back with write
+  allocate (and write-through per page, below), 16-byte lines. Each way
+  is a tag RAM and a data RAM read at the same set (I: 512 sets, VA[12:4];
+  D: 256 sets, VA[11:4]); one LRU bit per set names the way to fill next,
+  updated on hits and fills, an invalid way filled first; a dirty victim
+  is written back before the fill. The D-cache keeps each line's physical
+  address, so cleaning needs no table walk.
 - MMU: ARMv4 sections, coarse and fine tables with large, small and tiny
   pages, domains, access permissions with S and R, FCSE PID. Separate I and
   D TLBs, each four direct-mapped buffers (one per page size: 4 sections,
@@ -284,14 +284,10 @@ FPGA resources and timing):
 
 Functional:
 
-- The D-cache is direct-mapped, not 2-way set-associative, so its hit rate
-  and which line an index operation touches differ. Index operations map
-  (set, way) to the line with that index and way bit (index bit 8 = way):
-  with TI configuration C clear they act on both lines of the set, with C
-  set on the line the way bit selects. Code that cleans or flushes whole
-  caches by index loops (as Symbian does) is unaffected. The I-cache has
-  the part's geometry and LRU (TI SPRU671 names the replacement as fixed
-  LRU; the control register's RR bit reads zero).
+- Replacement is the TI925T's fixed LRU (TI SPRU671; the control
+  register's RR bit reads zero), one bit per set. Index operations take
+  the TI operand (set in bits 11:4, way in bit 31): with TI configuration
+  C clear they act on both ways of the set, with C set on the named way.
 - No cache lockdown (c9 reads 0, writes ignored).
 - Turning a cache off invalidates it (ZAP clears the valid bits while the
   cache is disabled). Dirty D-cache lines are lost if the D-cache is turned
@@ -396,9 +392,12 @@ checkpoints (all registers and the CPSR) in the signature.
   sizes, domains, permissions with S and R, user-mode accesses, every fault
   type with FSR and FAR, prefetch aborts, LDRT/STRT from a privileged-only
   code section.
-- `icache_rtl`: three code lines of one I-cache set run in turn and
-  rewritten in memory behind the cache; which still returns its old code
-  shows the two ways and the LRU choice (fails on a direct-mapped build).
+- `icache_rtl`, `dcache_rtl`: three lines of one set, code run in turn
+  and rewritten behind the cache, or data dirtied in turn and read back
+  through an uncached alias; what the cache still holds shows the two
+  ways and the LRU choice, and the D-side's index operations act on the
+  named way. Both fail on a direct-mapped build (`VEXTRA=-GICACHE_WAYS=1`,
+  `-GDCACHE_WAYS=1`).
 - `cache`, `cache_rtl`: 64 KB through the 8 KB D-cache (evictions and
   write-backs), bytes and halfwords in cached lines, loads of every size
   and unaligned loads that miss, LDM/STM across lines,
@@ -671,11 +670,10 @@ The goal is ARM9TDMI cycle counts at 104 MHz, without changing behaviour.
    ARM9TDMI time. ZAP is faster on most code, so it mainly waits; where it
    is slower (mispredicted branches) the debt is paid back later. The
    peripherals see accesses at times close to the real phone's.
-3. Real cache geometry: the I-cache is 2-way with LRU; make the D-cache
-   the same (dirty victims written back, the forwarding and the
-   background-load lock per way, the CP15's index operand naming a way),
-   so that hit rates (and so the time between bus accesses) match, and
-   the index operations address real ways.
+3. Real cache geometry: done, both caches 2-way with LRU, so that hit
+   rates (and so the time between bus accesses) match and the index
+   operations address real ways. Still unlike the part: a store miss
+   allocates a line here, and a cache turned off loses its contents.
 4. Measure against the model and known firmware timing loops (the boot's
    delay loops, the kernel's tick calibration), then tune.
 

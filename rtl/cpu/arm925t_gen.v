@@ -53,7 +53,7 @@ module arm925t (
 	parameter signed [31:0] ICACHE_SIZE = 16384;
 	parameter signed [31:0] ICACHE_WAYS = 2;
 	parameter signed [31:0] DCACHE_SIZE = 8192;
-	parameter signed [31:0] DCACHE_WAYS = 1;
+	parameter signed [31:0] DCACHE_WAYS = 2;
 	parameter signed [31:0] CACHE_LINE = 16;
 	input wire clk;
 	input wire reset;
@@ -4255,6 +4255,7 @@ module zap_core (
 	o_dcache_line_op,
 	o_dcache_line_va,
 	o_dcache_line_addr,
+	o_dcache_line_way,
 	i_dcache_line_done,
 	i_fiq,
 	i_irq,
@@ -4316,6 +4317,7 @@ module zap_core (
 	parameter [31:0] DATA_CACHE_SIZE = 1024;
 	parameter [31:0] CODE_CACHE_SIZE = 1024;
 	parameter [31:0] DATA_CACHE_LINE = 64;
+	parameter [31:0] DATA_CACHE_WAYS = 1;
 	parameter [31:0] CODE_CACHE_LINE = 64;
 	parameter [31:0] RESET_VECTOR = 32'd0;
 	parameter [31:0] CPSR_INIT = 32'h000000d3;
@@ -4355,6 +4357,7 @@ module zap_core (
 	output wire [1:0] o_dcache_line_op;
 	output wire o_dcache_line_va;
 	output wire [31:0] o_dcache_line_addr;
+	output wire o_dcache_line_way;
 	input wire i_dcache_line_done;
 	input wire i_fiq;
 	input wire i_irq;
@@ -5843,6 +5846,7 @@ module zap_core (
 		.DATA_CACHE_SIZE(DATA_CACHE_SIZE),
 		.CODE_CACHE_SIZE(CODE_CACHE_SIZE),
 		.DATA_CACHE_LINE(DATA_CACHE_LINE),
+		.DATA_CACHE_WAYS(DATA_CACHE_WAYS),
 		.CODE_CACHE_LINE(CODE_CACHE_LINE)
 	) u_zap_cp15_cb(
 		.i_clk(i_clk),
@@ -5885,6 +5889,7 @@ module zap_core (
 		.o_dcache_line_op(o_dcache_line_op),
 		.o_dcache_line_va(o_dcache_line_va),
 		.o_dcache_line_addr(o_dcache_line_addr),
+		.o_dcache_line_way(o_dcache_line_way),
 		.i_dcache_line_done(i_dcache_line_done)
 	);
 	always @(*) begin
@@ -5947,6 +5952,7 @@ module zap_cp15_cb (
 	o_dcache_line_op,
 	o_dcache_line_va,
 	o_dcache_line_addr,
+	o_dcache_line_way,
 	i_dcache_line_done
 );
 	reg _sv2v_0;
@@ -5958,6 +5964,7 @@ module zap_cp15_cb (
 	parameter [31:0] DATA_CACHE_LINE = 32'd64;
 	parameter [31:0] CODE_CACHE_SIZE = 32'd1024;
 	parameter [31:0] DATA_CACHE_SIZE = 32'd1024;
+	parameter [31:0] DATA_CACHE_WAYS = 32'd1;
 	parameter [0:0] V4T = 1'd0;
 	parameter [0:0] TI925T = 1'd0;
 	parameter [31:0] CP15_ID = 32'h0005aaa0;
@@ -6003,6 +6010,7 @@ module zap_cp15_cb (
 	output reg [1:0] o_dcache_line_op;
 	output reg o_dcache_line_va;
 	output reg [31:0] o_dcache_line_addr;
+	output reg o_dcache_line_way;
 	input wire i_dcache_line_done;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
@@ -6437,15 +6445,16 @@ module zap_cp15_cb (
 	wire [2:0] cp_op1;
 	reg line_both;
 	localparam [31:0] DLINE_LO = $clog2(DATA_CACHE_LINE);
-	localparam [31:0] DLINE_W = $clog2(DATA_CACHE_SIZE / DATA_CACHE_LINE);
+	localparam [31:0] DSET_W = $clog2((DATA_CACHE_SIZE / 2) / DATA_CACHE_LINE);
 	function automatic [31:0] index_line;
 		input [31:0] d;
 		input reg w;
 		reg [31:0] a;
 		begin
 			a = 1'sb0;
-			a[DLINE_LO+:DLINE_W - 1] = d[DLINE_LO+:DLINE_W - 1];
-			a[(DLINE_LO + DLINE_W) - 1] = w;
+			a[DLINE_LO+:DSET_W] = d[DLINE_LO+:DSET_W];
+			if (DATA_CACHE_WAYS == 1)
+				a[DLINE_LO + DSET_W] = w;
 			index_line = a;
 		end
 	endfunction
@@ -6625,6 +6634,7 @@ module zap_cp15_cb (
 			o_dcache_line_op <= 2'd0;
 			o_dcache_line_va <= 1'd0;
 			o_dcache_line_addr <= 32'd0;
+			o_dcache_line_way <= 1'd0;
 			line_both <= 1'd0;
 		end
 		else begin
@@ -6725,6 +6735,7 @@ module zap_cp15_cb (
 								o_dcache_line_op <= {i_cp_word[2], i_cp_word[3]};
 								o_dcache_line_va <= i_cp_word[5];
 								o_dcache_line_addr <= (i_cp_word[5] ? i_reg_rd_data : index_line(i_reg_rd_data, (ti_config[2] ? i_reg_rd_data[31] : 1'd0)));
+								o_dcache_line_way <= (DATA_CACHE_WAYS == 1 ? 1'd0 : (ti_config[2] ? i_reg_rd_data[31] : 1'd0));
 								line_both <= !i_cp_word[5] && !ti_config[2];
 								o_dcache_line_req <= 1'd1;
 								state <= LINE_D;
@@ -6814,7 +6825,10 @@ module zap_cp15_cb (
 						o_dcache_line_req <= 1'd0;
 						if (line_both) begin
 							line_both <= 1'd0;
-							o_dcache_line_addr[(DLINE_LO + DLINE_W) - 1] <= 1'd1;
+							if (DATA_CACHE_WAYS == 1)
+								o_dcache_line_addr[DLINE_LO + DSET_W] <= 1'd1;
+							else
+								o_dcache_line_way <= 1'd1;
 							state <= LINE_GAP;
 						end
 						else
@@ -8111,6 +8125,7 @@ module zap_dcache (
 	i_line_op,
 	i_line_va,
 	i_line_addr,
+	i_line_way,
 	o_line_done,
 	i_cpsr,
 	i_sr,
@@ -8182,6 +8197,7 @@ module zap_dcache (
 	input wire [1:0] i_line_op;
 	input wire i_line_va;
 	input wire [31:0] i_line_addr;
+	input wire i_line_way;
 	output wire o_line_done;
 	input wire [CPSR_MODE:0] i_cpsr;
 	input wire [1:0] i_sr;
@@ -8603,8 +8619,6 @@ module zap_dcache (
 		.i_wb_ack(wb_ack[0]),
 		.i_wb_err(wb_err[0])
 	);
-	localparam [31:0] sv2v_uu_u_zap_cache_tag_ram_WAYS = WAYS;
-	localparam [(sv2v_uu_u_zap_cache_tag_ram_WAYS > 1 ? $clog2(sv2v_uu_u_zap_cache_tag_ram_WAYS) : 1) - 1:0] sv2v_uu_u_zap_cache_tag_ram_ext_i_line_way_0 = 1'sb0;
 	zap_cache_tag_ram #(
 		.CACHE_SIZE(CACHE_SIZE),
 		.CACHE_LINE(CACHE_LINE),
@@ -8638,7 +8652,7 @@ module zap_dcache (
 		.i_line_op(i_line_op),
 		.i_line_va(i_line_va),
 		.i_line_addr(i_line_addr),
-		.i_line_way(sv2v_uu_u_zap_cache_tag_ram_ext_i_line_way_0),
+		.i_line_way(i_line_way),
 		.o_line_done(tr_line_done),
 		.o_wb_cyc_ff(),
 		.o_wb_stb_ff(),
@@ -19661,6 +19675,7 @@ module zap_top (
 	wire dc_line_done;
 	wire [1:0] cpu_dline_op;
 	wire [31:0] cpu_dline_addr;
+	wire cpu_dline_way;
 	wire [31:0] cpu_daddr_va;
 	wire [5:0] cpu_dldfmt;
 	wire code_stall;
@@ -19695,6 +19710,7 @@ module zap_top (
 		.CPSR_INIT(CPSR_INIT),
 		.DATA_CACHE_SIZE(DATA_CACHE_SIZE),
 		.DATA_CACHE_LINE(DATA_CACHE_LINE),
+		.DATA_CACHE_WAYS(DATA_CACHE_WAYS),
 		.CODE_CACHE_SIZE(CODE_CACHE_SIZE),
 		.CODE_CACHE_LINE(CODE_CACHE_LINE),
 		.CPSR_MODE(ZAP_CPSR_MODE),
@@ -19754,6 +19770,7 @@ module zap_top (
 		.o_dcache_line_op(cpu_dline_op),
 		.o_dcache_line_va(cpu_dline_va),
 		.o_dcache_line_addr(cpu_dline_addr),
+		.o_dcache_line_way(cpu_dline_way),
 		.i_dcache_line_done((!ONLY_CORE ? dc_line_done : 1'd1)),
 		.o_dac(cpu_dac_reg),
 		.o_baddr(cpu_baddr),
@@ -19931,6 +19948,7 @@ module zap_top (
 				.i_line_op(cpu_dline_op),
 				.i_line_va(cpu_dline_va),
 				.i_line_addr(cpu_dline_addr),
+				.i_line_way(cpu_dline_way),
 				.o_line_done(dc_line_done),
 				.i_reg_idx(dc_rreg_idx),
 				.i_reg_idx_bin(dc_rreg_idx_bin),

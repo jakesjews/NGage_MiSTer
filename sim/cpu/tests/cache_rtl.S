@@ -103,11 +103,12 @@ test_main:
 	str	r0, [r5]
 	ldr	r1, [r4]		@ still valid in the cache
 	CHECK	r1, 0x88888888
-	@ TI config C = 1: bit 31 selects the way (line); the other is untouched
+	@ TI config C = 1: bit 31 selects the way; the other is untouched. The
+	@ line is in way 0: it was allocated into the set that 4 had emptied.
 	mov	r0, #0x04
 	mcr	p15, 0, r0, c15, c1, 0
 	ldr	r0, =0xAAAAAAAA
-	str	r0, [r4]		@ dirty, line index bit 8 = VA bit 12 = 0
+	str	r0, [r4]		@ dirty, in way 0
 	orr	r8, r7, #0x80000000	@ the other way
 	mcr	p15, 0, r8, c7, c6, 2
 	ldr	r1, [r4]

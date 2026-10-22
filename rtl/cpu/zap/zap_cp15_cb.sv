@@ -35,6 +35,7 @@ module zap_cp15_cb
         parameter logic [31:0] DATA_CACHE_LINE   = 32'd64,
         parameter logic [31:0] CODE_CACHE_SIZE   = 32'd1024,
         parameter logic [31:0] DATA_CACHE_SIZE   = 32'd1024,
+        parameter logic [31:0] DATA_CACHE_WAYS   = 32'd1,     // ARM925T: 1 or 2 (zap_cache_tag_ram).
 
         // ARM925T options (see zap_top). TI925T selects the TI925T register
         // set described in research/arm925t/CP15.md and docs/CPU.md.
@@ -164,11 +165,13 @@ module zap_cp15_cb
         output  logic                            o_align_en,
 
         // ARM925T: single-line D-cache operation (TI925T c7 entry ops):
-        // op[0] clean, op[1] invalidate; va = match the tag of addr.
+        // op[0] clean, op[1] invalidate; va = match the tag of addr, else
+        // the line of way o_dcache_line_way at addr's index.
         output  logic                            o_dcache_line_req,
         output  logic     [1:0]                  o_dcache_line_op,
         output  logic                            o_dcache_line_va,
         output  logic     [31:0]                 o_dcache_line_addr,
+        output  logic                            o_dcache_line_way,
         input   logic                            i_dcache_line_done
 );
 
@@ -196,12 +199,16 @@ logic [31:0] ti_rd_data;  // MRC result
 logic [2:0]  cp_op1;      // opcode_1 of the current instruction
 logic        line_both;   // ARM925T: index op on both "ways" (TI config C = 0)
 
-// ARM925T: line address for an index operand, way w
+// ARM925T: line address for an index operand (the set); with one way the
+// operand's way w selects one of the two lines that stand in for a set.
 function automatic [31:0] index_line ( input [31:0] d, input logic w );
         logic [31:0] a;
         a = '0;
-        a[DLINE_LO +: DLINE_W-1]  = d[DLINE_LO +: DLINE_W-1];
-        a[DLINE_LO + DLINE_W - 1] = w;
+        a[DLINE_LO +: DSET_W] = d[DLINE_LO +: DSET_W];
+        if ( DATA_CACHE_WAYS == 1 )
+        begin
+                a[DLINE_LO + DSET_W] = w;
+        end
         return a;
 endfunction
 
@@ -227,9 +234,10 @@ localparam [3:0] LINE_D               = 13; // ARM925T: single-line D-cache oper
 localparam [3:0] LINE_GAP             = 14; // ARM925T: between the two ways' lines.
 
 // ARM925T: index operands (TI format: way in bit 31, set from bit
-// log2(line) up) mapped to this direct-mapped cache's lines.
+// log2(line) up, the part's 256 sets of two ways). With two ways the way
+// goes out as o_dcache_line_way; with one, into the line index.
 localparam [31:0] DLINE_LO = $clog2(DATA_CACHE_LINE);
-localparam [31:0] DLINE_W  = $clog2(DATA_CACHE_SIZE / DATA_CACHE_LINE);
+localparam [31:0] DSET_W   = $clog2(DATA_CACHE_SIZE / 2 / DATA_CACHE_LINE);
 
 // Register numbers.
 localparam [3:0] FSR_REG              = 5;
@@ -447,6 +455,7 @@ begin
                 o_dcache_line_op   <= 2'd0;
                 o_dcache_line_va   <= 1'd0;
                 o_dcache_line_addr <= 32'd0;
+                o_dcache_line_way  <= 1'd0;
                 line_both          <= 1'd0;
         end
         else
@@ -671,6 +680,8 @@ begin
                                         o_dcache_line_addr <= i_cp_word.ZAP_OPCODE_2[0] ? i_reg_rd_data :
                                                               index_line ( i_reg_rd_data,
                                                                            ti_config[2] ? i_reg_rd_data[31] : 1'd0 );
+                                        o_dcache_line_way  <= DATA_CACHE_WAYS == 1 ? 1'd0 :
+                                                              ti_config[2] ? i_reg_rd_data[31] : 1'd0;
                                         line_both          <= !i_cp_word.ZAP_OPCODE_2[0] && !ti_config[2];
                                         o_dcache_line_req  <= 1'd1;
                                         state              <= LINE_D;
@@ -828,9 +839,16 @@ begin
                                 if ( line_both )
                                 begin
                                         // and the other way's line
-                                        line_both                                  <= 1'd0;
-                                        o_dcache_line_addr[DLINE_LO + DLINE_W - 1] <= 1'd1;
-                                        state                                      <= LINE_GAP;
+                                        line_both <= 1'd0;
+                                        if ( DATA_CACHE_WAYS == 1 )
+                                        begin
+                                                o_dcache_line_addr[DLINE_LO + DSET_W] <= 1'd1;
+                                        end
+                                        else
+                                        begin
+                                                o_dcache_line_way <= 1'd1;
+                                        end
+                                        state     <= LINE_GAP;
                                 end
                                 else
                                 begin

@@ -13,9 +13,9 @@
 #                  machine), and fetch the results back
 #   make all       bins, remote, qemu, diff
 #   make T=alu ... restrict to some tests
-#   VEXTRA=..      extra Verilator options, e.g. -GICACHE_WAYS=1 for a
-#                  direct-mapped I-cache (with MODEL_DIR=... for a model of
-#                  its own)
+#   VEXTRA=..      extra Verilator options, e.g. -GICACHE_WAYS=1 or
+#                  -GDCACHE_WAYS=1 for a direct-mapped cache (with
+#                  MODEL_DIR=... for a model of its own)
 #   RAND_SEEDS=..  the random tests rand<seed>, trand<seed> (Thumb) and
 #                  crand/ctrand<seed> (caches on), tools/gen_random.py
 #   gba_*          jsmolka/gba-tests (ext/gba-tests), translated by
