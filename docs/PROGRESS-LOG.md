@@ -2796,3 +2796,7 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   (address, CTI, write-back word), chosen by the acknowledge, instead of
   a counter increment and an address add after it. Cycle-exact the same
   way. The TLB walker was left alone (its addresses are concatenations).
+  CPU-only trial at seed 1: +0.477 ns at slow 100C, **+0.785** at slow
+  -40C; the bus paths are gone from the top, the worst is now the issue
+  stage's forwarding (family 3), with that margin. Sweep 5 from this
+  tree: seeds 1-4 on the server, 5 on the Mac.
