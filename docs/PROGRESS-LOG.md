@@ -2027,3 +2027,34 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   fitter knobs to the next five. Prepare option 2 at 100 MHz as the
   release fallback in parallel, and plan 3(a) and 3(b) after the release
   so that later releases do not depend on seed luck.
+- The seeds' worst paths (from the release session's per-seed reports at
+  the slow 100C corner; the directories of seeds 1-8 were reused, so only
+  the endpoints survive; from seed 9 on a full STA report of each
+  finished seed is kept in ~/dev/mister/sta/ on the server):
+  * Setup, the recurring family (seeds 1, 3, 5, 6, 7, 8): the D-cache
+    state machine's state register, the TLB state machine's state
+    register or the MMU-enable bit fanning into the pre-decoder's
+    micro-op sequencer or the prefetch FIFO's full flag, that is the
+    data stall reaching the front end in the same clock. Seed 5's worst
+    (-0.685 ns) is 7 logic levels with 9.5 ns of data delay, 5.9 ns of it
+    interconnect, and -0.5 ns of clock skew: distance between the D-cache
+    and the front end, not logic depth. Seeds 3, 6 and 8 miss by under
+    0.035 ns on it.
+  * Setup, the others: the D-cache tag RAM's forwarding into the valid
+    and dirty bits (seed 2, -0.287); the shifter's operation register
+    into the ALU flags (seed 1, -0.226); the bus acknowledge register
+    into the CPU's Wishbone merger (seed 2, -0.156); the peripheral bus
+    address into the DMA engine's destination register (seed 4, -0.118,
+    the only miss outside the CPU).
+  * Hold: the SDRAM output stage's internal register into the DQ I/O
+    register (seeds 1 and 3, -0.058 to -0.141 ns, worst at the -40C
+    corner); the other seeds' hold is fine (+0.18 ns in the scaler).
+- What that changes in the options above: the stall-into-the-front-end
+  family is the one to attack for structural margin (option 3b), and it
+  is placement-dominated, so the fitter knobs (option 1) can move it;
+  the SDRAM hold pair is exactly what OPTIMIZE_HOLD_TIMING "ALL PATHS"
+  addresses (the default fixes hold only on pin paths and minimum-delay
+  paths); the DMA decode miss is a one-register fix outside the CPU. If
+  the five seeds now building miss, the next five should carry the hold
+  setting, the placement and router knobs, and the DMA register, rather
+  than the knobs alone.
