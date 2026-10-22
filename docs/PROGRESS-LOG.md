@@ -2388,3 +2388,24 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   each, and a 16-byte line is eight of them, against 15 clocks for an
   SDRAM line. So the conflict-miss rate is the lever (the 2-way I-cache),
   and a line path through the flash model the second one.
+- **Two-way caches: the two plans** (mine first, Codex from the facts;
+  both under docs/consults/). Same shape: two half-depth tag and data
+  banks per cache read together (I: 512 sets x 2, index VA[12:4], tag
+  VA[31:13]; D: 256 x 2, VA[11:4]), hit = either way's valid tag match,
+  the word picked per bank before one 2:1 mux, the victim chosen outside
+  the acknowledge path, (set, way) maintenance from bits 4 and 31 with
+  TI's C bit selecting one way or both, the I-cache first and the D-cache
+  after with its dirty victims, forwarding and the background-load lock
+  made way-aware. Codex corrects my replacement policy: the TI925T uses
+  fixed LRU (TI SPRU671, sections 3.1 and 4.1), the control register's
+  bit 14 reads zero, so one LRU bit per set, updated on accepted hits and
+  fills. It names the riskiest part (the D-cache's transaction identity
+  across retimed completion, forwarding and replay) and the timing
+  question (try the I-cache at today's latency; budget an extra
+  registered stage for the D-cache, with the cycle costs it lists), and
+  puts the gain at about 10.6 -> 13 M instructions/s on the kernel phase
+  as a hypothesis, with a 1.45x ceiling from the flash waits alone. Its
+  cheapest experiment is an I-index XOR with VA bit 19; two-way is the
+  cleaner destination, and the user chose it for the part's geometry.
+  Also noted for later fidelity: TI specifies no store-miss allocation
+  and cache contents preserved across a cache disable, both unlike ZAP.
