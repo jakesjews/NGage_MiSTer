@@ -66,17 +66,22 @@ load) or mount slot 1 (CS1 save) and slot 0 (card).
 ## Status
 
 Verified on a MiSTer: boot to the idle screen, the first-start format of
-C:, saves written back to the mounted image, and Sonic N from its card
-(menu entry, title screen, demo). Sound and in-game controls have not been
-checked on hardware yet, and a warm reset from the OSD does not come back
-up; start the core again instead.
+C:, saves written back to the mounted image, Sonic N from its card (menu
+entry, title screen, demo) and its keys (5 skips the intro, the rocker
+moves through the character select). Sound has not been checked on
+hardware yet.
 
 ## Troubleshooting
 
 - Nokia logo and nothing else for minutes: the first start is formatting
-  C:; a second start with a plain-loaded CS1 formats it again.
+  C:; a second start with a plain-loaded CS1 formats it again. After the
+  core was stopped in the middle of writing saves, the next start spends
+  minutes recovering the phone's file system (its sector erases take the
+  chip's 0.7 s each); it does come up.
 - "CS1 save file must be 8 MB": the mounted file is a different size.
-- The phone asks for the time at every start: known, under investigation.
+- The phone asks for the time at every start: the firmware does that in
+  this environment (the model too); OK accepts the clock it shows, or
+  enter the real one.
 - Nothing on screen at all: the core needs both flash images before the
   CPU starts; check that CS0 loaded.
 
