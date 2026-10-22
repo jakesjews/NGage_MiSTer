@@ -2617,6 +2617,11 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   otherwise (fills, cleans, write-through updates). The lane enables are
   then one level past the compares instead of four (through the hit OR,
   the FSM's case, its way mux and the way compare).
+  CPU-only trial of the trimmed netlist at seed 1: **+0.537 ns** at slow
+  100C, +0.462 at slow -40C (the same seed: +0.041/-0.082 with the first
+  two-way D-cache, +0.362/+0.444 after the victim select), the worst
+  path now the load data itself, the tag RAM through the line mux into
+  the memory stage; 15,389 ALMs, 17,539 registers, 76 M10K.
 - Round 2 (seeds 7-10 on the server, from the overlay-fix tree 5ee8e16,
   before the D-cache trims; 11 on the Mac the same): 7 -0.289/-0.402, **8
   +0.047/+0.131, hold +0.142 and +0.246 at the slow corners, +0.106 and
