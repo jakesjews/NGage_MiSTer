@@ -2285,3 +2285,24 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   meeting a kernel that takes an exception every 40 instructions, plus
   the drain on every CP15 operation. Both are inside the CPU and
   specific.
+- **Two independent plans for the speed** (the user's rule: mine first,
+  then Codex from the facts alone; both under docs/consults/). They
+  agree on the order of the first two items: (1) take the small-page
+  TLB conflicts away (Codex: 64 entries indexed by VA[17:12] as the
+  cheap experiment, then a victim TLB rather than associativity on the
+  critical path; mine: 256 entries in M10K indexed by VA[19:12], and 64
+  section entries); (2) CP15 maintenance without the universal drain
+  and refetch (Codex points at zap_core.sv:591, zap_predecode_main.sv:625,
+  zap_cache_tag_ram.sv:429; c7,c14,2 is D-only). Both put the 48-second
+  wait outside the CPU: a startup service waiting out a timeout, the
+  Bluetooth/CBUS link the leading suspect; a WFI in the stand-in's idle
+  service ends the spinning, not the wait. Codex adds: the I-cache
+  refetches need their eviction cause measured before a 2-way cache is
+  built (a TLB miss does not invalidate a VIVT cache); the bridge already
+  posts SDRAM writes (upp_bus.sv:451), so a CPU write buffer is worth
+  6 % at most; MOV PC, LR's return pattern matches Rm = 15 instead of 14
+  (zap_predecode_main.sv:504), a free fix; and the trace rings cover
+  different windows, so the walk arithmetic and the flash share must not
+  be added across them. It also asks for the kernel's tick rate to be
+  verified, since every firmware timeout scales with it. Mine adds the
+  timestamped kernel text to name what the 48 s waits for.
