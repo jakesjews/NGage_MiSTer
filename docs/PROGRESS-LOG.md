@@ -2069,3 +2069,17 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   pass through the framework's Hq2x block, whose line buffers stay (the
   core's 15.7 kHz picture needs the scandoubler for VGA), so only the
   blend logic goes, not block RAM.
+- DMA decode registered (the user's call, after an Opus 5.5 review of
+  upp_dma.sv): seed 4's miss was the peripheral page bit through the DMA
+  select and the size check into the DMA's write strobe, and from there
+  through the start-register cancel guard into every engine field's
+  enable. upp_periph now registers `s_dma && size_ok` and the offset in
+  the access's first clock and feeds the DMA block from those; a write
+  completes a clock later at the earliest and a read two, so nothing
+  changes in when writes land or what reads return. Lint clean; periph,
+  upp, intc, timers, mmc and lcd benches pass. The same pattern is there
+  for the interrupt controller, the timers and the storage block if they
+  show up in a seed.
+- Sweep restarted at seed 1 (the user's call): every build in flight
+  killed, five builds (four on the server, one on the Mac) from seed 1 on
+  the tree with the knobs, HQ2x off and the DMA register.

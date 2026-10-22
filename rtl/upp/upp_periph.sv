@@ -182,6 +182,11 @@ module upp_periph #(
 	// ------------------------------------------------------------------
 	logic [1:0]  cnt;                   // clocks of the access so far
 	logic        rdy_q;
+	logic        dma_hit_q;             // the DMA select and the offset, registered in the
+	logic [11:0] off_q;                 // access's first clock (an access completes a clock
+	                                    // later at the earliest), so the page and range
+	                                    // decode is not in the same clock as the DMA's
+	                                    // register writes (timing)
 	logic [31:0] rd_q;
 	logic        init_busy;
 	logic        blk_busy;
@@ -298,8 +303,8 @@ module upp_periph #(
 		.clk(clk),
 		.reset(reset),
 		.acc(acc && s_dma),
-		.wr(wr && s_dma),
-		.off(off),
+		.wr(done && p_we && dma_hit_q),
+		.off(off_q),
 		.wdata(p_wdata),
 		.rmask(m_dma),
 		.rdata(d_dma),
@@ -463,6 +468,8 @@ module upp_periph #(
 	always_ff @(posedge clk) begin
 		cnt   <= p_sel ? (cnt == 2'd3 ? 2'd3 : cnt + 2'd1) : 2'd0;
 		rdy_q <= !init_busy && !(size_ok && blk_busy);
+		dma_hit_q <= s_dma && size_ok;
+		off_q     <= off;
 		rd_q  <= (in_c1 && size_ok) ? ((st_q & ~rmask) | rbits) : 32'd0;
 		if (reset) begin
 			cnt   <= 2'd0;
