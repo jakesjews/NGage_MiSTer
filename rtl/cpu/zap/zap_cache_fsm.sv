@@ -62,7 +62,9 @@ output  logic                       o_cache_inv_done,
 output  logic                       o_cache_clean_done,
 
 // From/to cache.
-input   logic    [CACHE_LINE*8-1:0]     i_cache_line,
+input   logic    [CACHE_LINE*8-1:0]     i_cache_line,       // the victim's line
+input   logic    [WAYS-1:0][31:0]       i_cache_words,      // ARM925T: each way's word at i_address
+input   logic                           i_cache_word_sel,   // ARM925T: the hit way's is [1]
 
 input   logic                           i_cache_tag_dirty,
 input   logic  [`ZAP_CACHE_TAG_WDT-1:0] i_cache_tag,
@@ -267,10 +269,11 @@ begin
         o_idle <= ~(|state_nxt);
 end
 
-// Output data port.
+// Output data port (ARM925T: the word of the way that hits, selected in
+// the tag RAM by the address before the hit; only the hit chooses here).
 assign o_dat = state_ff == UNC_DONE ?
                unc_dat_ff :
-               adapt_cache_data(i_address[$clog2(CACHE_LINE)-1:2], i_cache_line);
+               i_cache_word_sel ? i_cache_words[(WAYS > 1) ? 1 : 0] : i_cache_words[0];
 
 // ==========================================================
 // STATE MACHINE (Next State Logic)

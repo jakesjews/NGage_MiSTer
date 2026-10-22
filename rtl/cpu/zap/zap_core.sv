@@ -28,6 +28,7 @@ module zap_core #(
         parameter logic [31:0] CODE_CACHE_SIZE = 1024,
         parameter logic [31:0] DATA_CACHE_LINE = 64,
         parameter logic [31:0] DATA_CACHE_WAYS = 1,     // ARM925T
+        parameter logic        LOAD_FORMATTED  = 1'd0,  // ARM925T: the D-cache formats loads (zap_memory_main)
         parameter logic [31:0] CODE_CACHE_LINE = 64,
 
         // Reset vector. Safe to not override.
@@ -1508,7 +1509,8 @@ zap_postalu_main #(
 // rotates it as required.
 //
 zap_memory_main #(
-       .PHY_REGS(PHY_REGS)
+       .PHY_REGS(PHY_REGS),
+       .LOAD_FORMATTED(LOAD_FORMATTED)  // ARM925T: the D-cache formats loads
 )
 u_zap_memory_main
 (

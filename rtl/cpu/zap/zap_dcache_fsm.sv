@@ -80,7 +80,9 @@ output  logic                       o_line_req,       // to the tag RAM
 input   logic                       i_line_done_tr,   // from the tag RAM
 
 // From/to cache.
-input   logic    [CACHE_LINE*8-1:0]     i_cache_line,
+input   logic    [CACHE_LINE*8-1:0]     i_cache_line,       // the victim's line
+input   logic    [WAYS-1:0][31:0]       i_cache_words,      // ARM925T: each way's word at i_address
+input   logic                           i_cache_word_sel,   // ARM925T: the hit way's is [1]
 
 input   logic                           i_cache_tag_dirty,
 input   logic  [`ZAP_CACHE_TAG_WDT-1:0] i_cache_tag,
@@ -426,13 +428,23 @@ begin:next_state_logic
         // Generate output data.
         // ======================================================
 
+        //
+        // ARM925T: the load's data goes out formatted (rotated, sign or
+        // zero extended; ld_transform, the memory stage's transform), each
+        // way's word in parallel with the tag compares and the uncached
+        // data from its register, so that the hit chooses a finished
+        // value and the memory stage registers it as it is
+        // (zap_memory_main LOAD_FORMATTED). The live format for a hit,
+        // the latched one for the uncached access that began in IDLE.
+        //
         if(state_ff[UNC_DONE])
         begin
-            o_dat = unc_dat_ff; // ARM925T
+            o_dat = ld_transform(unc_dat_ff, ldfmt);
         end
         else
         begin
-            o_dat = adapt_cache_data(i_address[$clog2(CACHE_LINE)-1:2], i_cache_line);
+            o_dat = i_cache_word_sel ? ld_transform(i_cache_words[(WAYS > 1) ? 1 : 0], i_ldfmt)
+                                     : ld_transform(i_cache_words[0], i_ldfmt);
         end
 
 

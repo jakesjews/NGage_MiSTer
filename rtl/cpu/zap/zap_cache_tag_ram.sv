@@ -28,9 +28,13 @@
 // i_address_nxt. The hit (o_cache_hit) and the way of interest
 // (o_cache_way: the way holding i_lookup_address, else the way a fill
 // would take: an invalid way, else the least recently used) are found
-// here. o_cache_line is the way of interest's (the data of a hit, the
-// victim's line for a write-back); o_cache_tag, o_cache_tag_valid and
-// o_cache_tag_dirty are the victim's, chosen from registers alone, so the
+// here. o_cache_words are the ways' words at the lookup address, chosen
+// from the lines by the address bits (registers) before the hit chooses
+// the way (o_cache_word_sel, the hit on way 1), so that the late select
+// passes one 32-bit mux and the FSM can format each word in parallel
+// with the compares; o_cache_line is the victim's line for a write-back;
+// o_cache_tag, o_cache_tag_valid and o_cache_tag_dirty are the victim's
+// too, all chosen from registers alone, so the
 // FSM's miss decision does not wait for the compares (a hit is a hit
 // whatever they say); o_cache_hit_dirty is the hit way's dirty bit. A
 // write while the FSM is idle (i_idle) is a store hit: it goes to the way
@@ -64,6 +68,8 @@ input   logic                            i_cache_en,
 input   logic    [CACHE_LINE*8-1:0]      i_cache_line,
 input   logic    [CACHE_LINE-1:0]        i_cache_line_ben,
 output  logic    [CACHE_LINE*8-1:0]      o_cache_line,
+output  logic    [WAYS-1:0][31:0]        o_cache_words,     // ARM925T: each way's word at the lookup address
+output  logic                             o_cache_word_sel,  // ARM925T: the hit way's word is o_cache_words[1]
 input   logic                            i_cache_tag_wr_en,
 input   logic    [`ZAP_CACHE_TAG_WDT-1:0]i_cache_tag,
 input   logic                            i_cache_tag_dirty,
@@ -189,6 +195,7 @@ logic [WAY_W-1:0]                          sel, victim;         // ARM925T: the 
 logic [WAYS-1:0][`ZAP_CACHE_TAG_WDT-1:0]   tag_q;               // ARM925T: the tag RAMs' outputs.
 logic [WAYS-1:0][CACHE_LINE*8-1:0]         line_q;              // ARM925T: the data RAMs' outputs.
 logic [`ZAP_CACHE_TAG_WDT-1:0]             walk_tag;            // ARM925T: the walk's or line operation's line.
+logic [$clog2(CACHE_LINE)-3:0]             lk_word;             // ARM925T: the lookup's word in its line.
 logic [CACHE_LINE*8-1:0]                   walk_line;
 logic                                      lru_s1, lru_s2, lru_q; // ARM925T: the set's LRU bit, aligned with the RAMs' reads.
 logic                                      hit_upd_en;          // ARM925T: a hit updates the LRU bit of lk_set.
@@ -272,7 +279,18 @@ end : g_way
 // sees are that way's: on a hit the line it reads or writes, on a miss the
 // line a fill replaces (its tag and dirty bit decide a write-back).
 //
-assign lk_set = i_lookup_address[`ZAP_VA__CACHE_INDEX];
+assign lk_set  = i_lookup_address[`ZAP_VA__CACHE_INDEX];
+assign lk_word = i_lookup_address[$clog2(CACHE_LINE)-1:2];
+
+// Each way's word at the lookup address, from registers: the way is
+// chosen after, by the hit.
+always_comb
+begin
+        for ( int w = 0; w < WAYS; w++ )
+        begin
+                o_cache_words[w] = line_q[w][32 * lk_word +: 32];
+        end
+end
 
 always_comb
 begin
@@ -296,6 +314,7 @@ begin : g_direct
         assign hit_pend_set      = '0;
         assign o_cache_tag       = tag_q[0];
         assign o_cache_line      = line_q[0];
+        assign o_cache_word_sel  = 1'd0;
         assign o_cache_tag_valid = valid_q[0];
         assign o_cache_tag_dirty = dirty_q[0];
         assign o_cache_hit_dirty = dirty_q[0];
@@ -319,11 +338,13 @@ begin : g_lru
 
         // Explicit 2:1 muxes: a variable part-select of the packed arrays
         // became a multiply by the tag width in the generated netlist, and
-        // Quartus put it in a DSP block on the hit path. The tag, valid
-        // and dirty bits are the victim's (registers only); the line is
-        // the way of interest's, after the compares.
+        // Quartus put it in a DSP block on the hit path. The tag, valid,
+        // dirty bits and the line are the victim's (registers only); the
+        // hit chooses only between the two words, and only way 1's hit
+        // matters for that (on a miss the word is not used).
         assign o_cache_tag       = victim ? tag_q[1]   : tag_q[0];
-        assign o_cache_line      = sel    ? line_q[1]  : line_q[0];
+        assign o_cache_line      = victim ? line_q[1]  : line_q[0];
+        assign o_cache_word_sel  = hit[1];
         assign o_cache_tag_valid = victim ? valid_q[1] : valid_q[0];
         assign o_cache_tag_dirty = victim ? dirty_q[1] : dirty_q[0];
         assign o_cache_hit_dirty = hit[1] ? dirty_q[1] : dirty_q[0];

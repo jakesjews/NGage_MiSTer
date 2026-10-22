@@ -113,6 +113,8 @@ logic                            tlb_fault;
 logic                            tlb_cacheable;
 logic                            tlb_busy;
 logic [CACHE_LINE*8-1:0]         tr_cache_line;
+logic [WAYS-1:0][31:0]           tr_cache_words;   // ARM925T
+logic                            tr_cache_word_sel; // ARM925T
 logic [CACHE_LINE*8-1:0]         cf_cache_line;
 logic [CACHE_LINE-1:0]           cf_cache_line_ben;
 logic                            cf_cache_tag_wr_en;
@@ -158,6 +160,8 @@ zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u
         .o_cache_inv_done       (o_cache_inv_done),
         .o_cache_clean_done     (o_cache_clean_done),
         .i_cache_line           (tr_cache_line),
+        .i_cache_words          (tr_cache_words),
+        .i_cache_word_sel       (tr_cache_word_sel),
         .i_cache_tag_dirty      (tr_cache_tag_dirty),
         .i_cache_tag            (tr_cache_tag),
         .i_cache_tag_valid      (tr_cache_tag_valid),
@@ -224,6 +228,8 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .i_cache_en             (i_cache_en),
         .i_cache_line           (cf_cache_line),
         .o_cache_line           (tr_cache_line),
+        .o_cache_words          (tr_cache_words),
+        .o_cache_word_sel       (tr_cache_word_sel),
         .i_cache_line_ben       (cf_cache_line_ben),
         .i_cache_tag_wr_en      (cf_cache_tag_wr_en),
         .i_cache_tag            (cf_cache_tag),

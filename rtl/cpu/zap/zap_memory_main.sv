@@ -28,7 +28,11 @@ module zap_memory_main
         parameter [31:0] FLAG_WDT = 32,
 
         // Number of physical registers.
-        parameter [31:0] PHY_REGS = 46
+        parameter [31:0] PHY_REGS = 46,
+
+        // ARM925T: the data cache delivers loads rotated and extended
+        // (zap_dcache_fsm ld_transform); 0 for a core without it.
+        parameter        LOAD_FORMATTED = 1'd0
 )
 (
         // Debug
@@ -235,7 +239,13 @@ always_ff @ (posedge i_clk)
 begin
         if ( !i_data_stall )
         begin
-                mem_rd_data_t <= transform
+                mem_rd_data_t <= LOAD_FORMATTED ?
+                                (
+                                        i_mem_load_ff ?
+                                        i_mem_rd_data :
+                                        i_mem_srcdest_value_ff
+                                ) :
+                                transform
                                 (
                                         (
                                                 i_mem_load_ff ?
