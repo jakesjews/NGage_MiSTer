@@ -2744,3 +2744,30 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   build's Analysis & Synthesis report table for table: 34,508 ALMs
   estimated, 51,253 ALUTs, 39,897 registers, 3,429,401 bits, 43 DSP, and
   the same per-entity, RAM and removed-register tables.
+
+### 2026-10-22: structural timing work after sweep 4
+
+- The user chose structural work over more seeds. Full-path reports of
+  the three recurring families (build/hardware/sweep4/paths): in each,
+  interconnect is two thirds of the 9.3 ns (the load path spends 1.7 ns
+  reaching the 128-bit line mux, whose select `sel` has 131 loads, and
+  1.8 ns reaching the memory stage; the bus path crosses four modules
+  and the die from X39 to X55 and back; the issue path is the register
+  file's read mux reached through the skid-index mux, 3.6 ns of routing,
+  365 loads on the stall register). My plan first
+  (docs/consults/2026-10-22-timing-plan-mine.md), then Codex's from the
+  facts (docs/consults/2026-10-22-codex-timing-2.md). They agree on
+  family 1 (word select before way select in both caches, the D-cache's
+  load transform per way before the way mux with the live format, the
+  victim's line register-selected for the write-back) and family 2 (the
+  merger's mux after its registers, precomputed burst alternatives
+  chosen by the acknowledge); Codex adds a direct derivation of the
+  wrapper's CYC, corrects two of my claims (the TLB walker's addresses
+  are already concatenations; the register file is 40 x 32, six-bit
+  addressed, so the 64:1 reading was wrong), rejects my early register
+  lock for family 3 (a lock can change while the instruction is
+  stalled) and suggests a banked read mux, local copies of the stall
+  register and forwarding priority split there, plus fitter experiments
+  (ALM packing LOW, placement effort) before any RTL on family 3.
+  LogicLock is probably not in the Lite edition. Order taken: family 1
+  both parts, a CPU trial; family 2; family 3 only if it still tops.
