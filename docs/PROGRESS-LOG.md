@@ -1908,3 +1908,8 @@ found, and what comes next. Research material lives in `research/`
   text), so this is an RTL flash-path divergence on what LFFS does with
   this image. A whole-core Verilator run with it is on the server
   (`~/dev/mister/coreboot/stall1`, `--devlog`).
+- Kernel text of a good boot (fresh save, `build/hardware/sti-fresh.txt`)
+  matches the model's log line for line, apart from the Bluetooth driver
+  retrying its CBUS open a few more times on hardware before the NOS
+  traffic starts, through to Startup.app's animation; so the firmware's
+  own view of the two can now be compared directly.
