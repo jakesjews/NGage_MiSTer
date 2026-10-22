@@ -2116,3 +2116,17 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   Deferred like the rest: these go in only if ten seeds of the current
   tree miss, 2 and 1 first, verified on the CPU bench for cycle
   equivalence.
+- Branch `timing-frontend` (e5159ba, worktree ../NGage_MiSTer-timing, not in
+  the sweep's tree): Codex's two zero-cycle changes, prepared on the
+  user's go-ahead. The prefetch FIFO's full and empty flags take the pop
+  (the data stall) at the last gate, with occupancy from the registered
+  pointers; the TLB's busy output and the D-cache's acknowledge decode
+  their own copies of the state (preserve, dont_merge), the acknowledge
+  as a transcription of the FSM's decisions. Each keeps its original form
+  as a reference asserted equal in simulation. Verified cycle-identical:
+  171 CPU tests with assertions on (the benches run without --assert by
+  default, and the flattened arm925t_gen.v drops assertions, so the
+  SystemVerilog build was used for that), the flattened build's traces
+  identical to master's, the whole-core boot bench to the clock. Not yet
+  fitted: a Quartus trial waits for a free build slot. To fold into the
+  sweep when the user says so (the ten-seed threshold, or earlier).
