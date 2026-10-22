@@ -2617,3 +2617,16 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   otherwise (fills, cleans, write-through updates). The lane enables are
   then one level past the compares instead of four (through the hit OR,
   the FSM's case, its way mux and the way compare).
+- Round 2 (seeds 7-10 on the server, from the overlay-fix tree 5ee8e16,
+  before the D-cache trims; 11 on the Mac the same): 7 -0.289/-0.402, **8
+  +0.047/+0.131, hold +0.142 and +0.246 at the slow corners, +0.106 and
+  +0.132 at the fast: every corner met**, 9 -0.404/-0.599, 10
+  -0.180/-0.244, 11 (Mac) -0.317. Seed 8: 33,037 ALMs (79 %), 41,534
+  registers, 471 M10K, 43 DSP; its worst paths the D-TLB's walk state
+  into the Wishbone merger's address (+0.047) and the D-cache's bus
+  select into its data RAM (+0.054). The bitstream, md5
+  f5e2391cef5c5a3747fcfcf8df1fc31a, is build/hardware/sweep3/NGage-s8.rbf
+  with its reports beside it; it is the release candidate (one of twelve
+  seeds, so still seed luck, with 0.05 ns to spare at slow 100C). Round
+  3 (seeds 13-15) runs from the trimmed tree f48999c for a candidate
+  with margin, and seed 12 on the Mac.
