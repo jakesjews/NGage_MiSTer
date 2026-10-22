@@ -65,10 +65,39 @@ assign o_full    = full_ff;
 assign  o_data   = mem[rptr_ff[PTR_WDT-2:0]];
 
 // Flags
-assign empty_nxt =   i_clear ? 1'd1 : (wptr_nxt == rptr_nxt);
-assign full_nxt  =   i_clear ? 1'd0 :
+// Timing: the pop (read_ok carries the pipeline's data stall) decides the
+// flags at the last gate instead of going through the pointer adders and the
+// compares. Occupancy comes from the registered pointers: a pop this cycle
+// means not full next cycle (a push is only allowed when not full); with no
+// pop, full stays full and almost-full fills with a push. Empty likewise: a
+// push means not empty next cycle; with no push, a pop empties a single
+// entry, else empty stays. The reference forms are checked in simulation.
+logic [PTR_WDT-1:0] occupancy;
+logic               almost_full, one_entry;
+logic               empty_ref, full_ref;
+
+assign occupancy   = wptr_ff - rptr_ff;
+assign almost_full = occupancy == PTR_WDT'(DEPTH - 1);
+assign one_entry   = occupancy == PTR_WDT'(1);
+
+assign full_nxt  =   i_clear  ? 1'd0 :
+                     read_ok  ? 1'd0 : (full_ff | (write_ok & almost_full));
+assign empty_nxt =   i_clear  ? 1'd1 :
+                     write_ok ? 1'd0 : (read_ok ? one_entry : empty_ff);
+
+assign empty_ref =   i_clear ? 1'd1 : (wptr_nxt == rptr_nxt);
+assign full_ref  =   i_clear ? 1'd0 :
                      (( wptr_nxt[PTR_WDT-2:0] == rptr_nxt[PTR_WDT-2:0] ) &
                       ( wptr_nxt[PTR_WDT-1]   != rptr_nxt[PTR_WDT-1]   ));
+
+always_ff @ ( posedge i_clk )
+begin
+        if ( !i_reset )
+        begin
+                assert(full_nxt == full_ref && empty_nxt == empty_ref) else
+                $fatal(2, "FIFO flags differ from the reference form.");
+        end
+end
 
 always_ff @ ( posedge i_clk )
 begin

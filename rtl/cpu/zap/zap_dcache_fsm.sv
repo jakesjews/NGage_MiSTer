@@ -161,6 +161,9 @@ logic                                     cache_cmp;
 logic                                     cache_dirty;
 
 logic [NUMBER_OF_STATES-1:0]              state_ff, state_nxt;
+logic                                     ack_fsm;      // the FSM's own acknowledge (reference)
+(* preserve, dont_merge *)
+logic [NUMBER_OF_STATES-1:0]              state_ack_ff; // the acknowledge cone's copy of the state
 logic [31:0]                              buf_ff [(CACHE_LINE/4)-1:0];
 logic [31:0]                              buf_nxt[(CACHE_LINE/4)-1:0];
 logic                                     cache_clean_req_nxt,
@@ -358,6 +361,72 @@ begin
         o_idle <= state_nxt[IDLE];
 end
 
+// ----------------------------------------------------------------------------
+// Acknowledge cone (timing)
+// ----------------------------------------------------------------------------
+//
+// o_ack goes to the pipeline stall and from there to the front end, the
+// longest routes in the core. It is computed here from its own copy of the
+// state register (kept from being merged back) and a transcription of the
+// FSM's acknowledge decisions, so the FSM's state register keeps only its
+// local fan-out. ack_fsm, the FSM's own value, is the reference: simulation
+// checks the two agree every cycle, and synthesis drops it as unused.
+//
+// The decisions: IDLE acknowledges when there is no access, on an alignment
+// or MMU fault, when the TLB is busy, and for a cacheable access with the
+// cache on that is not a write-through write (hit, miss and unrelated tag
+// alike: a miss acknowledges and locks the register); an uncached access
+// and a write-through write wait. CLEAN_SINGLE, FETCH_SINGLE, UNLOCK_REG
+// (hit-under-miss is never true), UNLOCK_WR and UNC_DONE acknowledge
+// unconditionally; the other states never do.
+
+always_ff @ ( posedge i_clk )
+begin
+        if ( i_reset )
+        begin
+                state_ack_ff       <= 0;
+                state_ack_ff[IDLE] <= 1'd1;
+        end
+        else
+        begin
+                state_ack_ff       <= state_nxt;
+        end
+end
+
+always_comb
+begin
+        case ( 1'd1 )
+        state_ack_ff[IDLE]:
+                o_ack = (!i_rd && !i_wr) || i_align_fault || i_fault || i_busy ||
+                        (i_cache_en && i_cacheable && !(i_wr && i_wt));
+        state_ack_ff[CLEAN_SINGLE],
+        state_ack_ff[FETCH_SINGLE],
+        state_ack_ff[UNLOCK_REG],
+        state_ack_ff[UNLOCK_WR],
+        state_ack_ff[UNC_DONE]:
+                o_ack = 1'd1;
+        state_ack_ff[UNCACHEABLE],
+        state_ack_ff[UNCACHEABLE_PREPARE],
+        state_ack_ff[INVALIDATE],
+        state_ack_ff[CLEAN],
+        state_ack_ff[LINEOP]:
+                o_ack = 1'd0;
+        default:
+                o_ack = 'x;
+        endcase
+end
+
+always_ff @ ( posedge i_clk )
+begin
+        if ( !i_reset )
+        begin
+                assert(state_ack_ff == state_ff) else
+                $fatal(2, "D-cache state copy differs from the state register.");
+                assert(o_ack === ack_fsm) else
+                $fatal(2, "D-cache acknowledge cone differs from the FSM.");
+        end
+end
+
 // STATE MACHINE (Next State Logic)
 always_comb
 begin:next_state_logic
@@ -401,7 +470,7 @@ begin:next_state_logic
         o_hold                  = 1'd0;
         o_reg_dat               = 32'd0;
         o_reg_idx               = 64'd0;
-        o_ack                   = 0;
+        ack_fsm                   = 0;
         o_err                   = 0;
         o_err2                  = 0;
         o_address               = address;
@@ -447,7 +516,7 @@ begin:next_state_logic
                         // that the requests from CP15 are not in the path
                         // from o_ack to the pipeline stall (timing).
                         //
-                        o_ack = 1'd1;
+                        ack_fsm = 1'd1;
 
                         if ( i_cache_inv )
                         begin
@@ -470,7 +539,7 @@ begin:next_state_logic
                         // ARM925T: alignment fault, highest priority: FSR
                         // status 0b0001 (no domain), FAR = the address.
                         o_err = 1'd1;
-                        o_ack = 1'd1;
+                        ack_fsm = 1'd1;
                         o_fsr = 8'b0000_0001;
                         o_far = i_va;
                 end
@@ -478,7 +547,7 @@ begin:next_state_logic
                 begin
                         // MMU access fault.
                         o_err = 1'd1;
-                        o_ack = 1'd1;
+                        ack_fsm = 1'd1;
                         o_fsr = i_fsr;
                         o_far = i_far;
                 end
@@ -486,7 +555,7 @@ begin:next_state_logic
                 begin
                         // Wait it out - this is what err2 is for.
                         o_err2 = 1'd1;
-                        o_ack  = 1'd1;
+                        ack_fsm  = 1'd1;
                 end
                 else if ( i_rd || i_wr )
                 begin
@@ -497,7 +566,7 @@ begin:next_state_logic
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[UNCACHEABLE] = 1'd1;
 
-                                o_ack           = 1'd0; // Wait...
+                                ack_fsm           = 1'd0; // Wait...
                                 o_wb_stb_nxt    = 1'd1;
                                 o_wb_cyc_nxt    = 1'd1;
                                 // ARM925T: the translated address (the VA with
@@ -530,7 +599,7 @@ begin:next_state_logic
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
 
-                                o_ack           = 1'd0; // Wait...
+                                ack_fsm           = 1'd0; // Wait...
                                 o_hold          = 1'd1;
                         end
                         else if ( i_cacheable )
@@ -542,11 +611,11 @@ begin:next_state_logic
                                         if ( i_rd ) // Read request.
                                         begin
                                                 rhit    = 1'd1;
-                                                o_ack   = 1'd1;
+                                                ack_fsm   = 1'd1;
                                         end
                                         else if ( i_wr ) // Write request
                                         begin
-                                                o_ack        = 1'd1;
+                                                ack_fsm        = 1'd1;
                                                 whit         = 1'd1;
 
                                                 o_cache_line =
@@ -569,7 +638,7 @@ begin:next_state_logic
                                 2'b01: // Unrelated tag, possibly dirty.
                                 begin
                                         // Acknowledge current entry. Lock the register.
-                                        o_ack               = 1'd1;
+                                        ack_fsm               = 1'd1;
 
                                         // Lock register on load. ARM925T: upstream also
                                         // raised o_err2 if that register was locked, but
@@ -604,7 +673,7 @@ begin:next_state_logic
                                 default: // Need to generate a new tag.
                                 begin
                                                 // CPU should wait.
-                                                o_ack  = 1'd1;
+                                                ack_fsm  = 1'd1;
 
                                                 // Set up counter
                                                 adr_ctr_nxt = 0;
@@ -626,7 +695,7 @@ begin:next_state_logic
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
 
-                                o_ack           = 1'd0; // Wait...
+                                ack_fsm           = 1'd0; // Wait...
                                 o_hold          = 1'd1;
                         end
                 end
@@ -634,7 +703,7 @@ begin:next_state_logic
 
         state_ff[UNCACHEABLE_PREPARE]:
         begin
-                o_ack           = 1'd0;
+                ack_fsm           = 1'd0;
                 o_hold          = 1'd1;
 
                 state_nxt[UNCACHEABLE_PREPARE] = 1'd0;
@@ -659,7 +728,7 @@ begin:next_state_logic
 
         state_ff[UNCACHEABLE]: // Uncacheable reads and writes definitely go through this.
         begin
-                o_ack  = 1'd0;
+                ack_fsm  = 1'd0;
                 o_hold = 1'd1;
 
                 if ( i_wb_ack | i_wb_err )
@@ -674,7 +743,7 @@ begin:next_state_logic
 
         state_ff[UNC_DONE]: // ARM925T: the uncacheable access completes.
         begin
-                o_ack           = 1'd1;
+                ack_fsm           = 1'd1;
                 o_hold          = 1'd0;
 
                 state_nxt[UNC_DONE] = 1'd0;
@@ -713,7 +782,7 @@ begin:next_state_logic
 
                 if(!rhit && !whit)
                 begin
-                        o_ack  = 1'd1;
+                        ack_fsm  = 1'd1;
                         o_err2 = i_rd || i_wr ? 1'd1 : 1'd0;
                 end
 
@@ -757,7 +826,7 @@ begin:next_state_logic
 
                 if(!rhit && !whit)
                 begin
-                        o_ack  = 1'd1;
+                        ack_fsm  = 1'd1;
                         o_err2 = i_rd || i_wr ? 1'd1 : 1'd0;
                 end
 
@@ -822,7 +891,7 @@ begin:next_state_logic
 
                 if(!rhit && !whit)
                 begin
-                        o_ack  = 1'd1;
+                        ack_fsm  = 1'd1;
                         o_err2 = i_rd || i_wr ? 1'd1 : 1'd0;
                 end
 
@@ -835,7 +904,7 @@ begin:next_state_logic
                 end
                 else // Update cache line.
                 begin
-                        o_ack        = 1'd1;
+                        ack_fsm        = 1'd1;
 
                         o_cache_line =
                         {(CACHE_LINE/4){din}};
@@ -860,7 +929,7 @@ begin:next_state_logic
 
         state_ff[UNLOCK_WR]: // ARM925T: write the loaded register, unlock it.
         begin
-                o_ack  = 1'd1;
+                ack_fsm  = 1'd1;
                 o_err2 = i_rd || i_wr ? 1'd1 : 1'd0;
 
                 o_reg_dat = reg_dat_ff;
@@ -957,7 +1026,7 @@ begin:next_state_logic
                 o_hold                  = 'x;
                 o_reg_dat               = 'x;
                 o_reg_idx               = 'x;
-                o_ack                   = 'x;
+                ack_fsm                   = 'x;
                 o_err                   = 'x;
                 o_err2                  = 'x;
                 o_address               = 'x;

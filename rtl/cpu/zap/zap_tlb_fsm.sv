@@ -169,7 +169,34 @@ assign walk        = state_ff[IDLE] & i_mmu_en & i_idle &  i_walk;
 assign examine_fsr = state_ff[IDLE] & i_mmu_en & i_idle & ~i_walk;
 
 // Busy when going to walk or walking.
-assign o_busy  = walk | (~state_ff[IDLE]);
+// Timing: the busy output, which reaches the D-cache's acknowledge and from
+// there the pipeline stall, decodes its own copy of the IDLE bit, so the FSM's
+// own state register keeps only its local fan-out. The copy is kept from being
+// merged back; simulation checks it against the state register.
+(* preserve, dont_merge *) logic idle_busy_ff;
+
+always_ff @ ( posedge i_clk )
+begin
+        if ( i_reset )
+        begin
+                idle_busy_ff <= 1'd1;
+        end
+        else
+        begin
+                idle_busy_ff <= state_nxt[IDLE];
+        end
+end
+
+assign o_busy  = (idle_busy_ff & i_mmu_en & i_idle & i_walk) | (~idle_busy_ff);
+
+always_ff @ ( posedge i_clk )
+begin
+        if ( !i_reset )
+        begin
+                assert(idle_busy_ff == state_ff[IDLE]) else
+                $fatal(2, "TLB IDLE copy differs from the state register.");
+        end
+end
 
 // Access violation detection condition.
 assign o_fault = examine_fsr & |i_fsr[3:0];

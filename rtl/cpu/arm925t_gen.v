@@ -7281,6 +7281,8 @@ module zap_dcache_fsm (
 	wire cache_dirty;
 	reg [10:0] state_ff;
 	reg [10:0] state_nxt;
+	reg ack_fsm;
+	(* preserve, dont_merge *) reg [10:0] state_ack_ff;
 	reg [31:0] buf_ff [(CACHE_LINE / 4) - 1:0];
 	reg [31:0] buf_nxt [(CACHE_LINE / 4) - 1:0];
 	reg cache_clean_req_nxt;
@@ -7424,6 +7426,26 @@ module zap_dcache_fsm (
 			buf_ff[i] <= buf_nxt[i];
 	end
 	always @(posedge i_clk) o_idle <= state_nxt[IDLE];
+	always @(posedge i_clk)
+		if (i_reset) begin
+			state_ack_ff <= 0;
+			state_ack_ff[IDLE] <= 1'd1;
+		end
+		else
+			state_ack_ff <= state_nxt;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		case (1'd1)
+			state_ack_ff[IDLE]: o_ack = ((((!i_rd && !i_wr) || i_align_fault) || i_fault) || i_busy) || ((i_cache_en && i_cacheable) && !(i_wr && i_wt));
+			state_ack_ff[CLEAN_SINGLE], state_ack_ff[FETCH_SINGLE], state_ack_ff[UNLOCK_REG], state_ack_ff[UNLOCK_WR], state_ack_ff[UNC_DONE]: o_ack = 1'd1;
+			state_ack_ff[UNCACHEABLE], state_ack_ff[UNCACHEABLE_PREPARE], state_ack_ff[INVALIDATE], state_ack_ff[CLEAN], state_ack_ff[LINEOP]: o_ack = 1'd0;
+			default: o_ack = 1'sbx;
+		endcase
+	end
+	always @(posedge i_clk)
+		if (!i_reset)
+			;
 	function automatic [CACHE_LINE - 1:0] ben_comp;
 		input [$clog2(CACHE_LINE) - 3:0] shift;
 		input [3:0] bv;
@@ -7476,7 +7498,7 @@ module zap_dcache_fsm (
 		o_hold = 1'd0;
 		o_reg_dat = 32'd0;
 		o_reg_idx = 64'd0;
-		o_ack = 0;
+		ack_fsm = 0;
 		o_err = 0;
 		o_err2 = 0;
 		o_address = address;
@@ -7501,7 +7523,7 @@ module zap_dcache_fsm (
 				o_wb_sel_nxt = 0;
 				o_wb_cti_nxt = CTI_EOB;
 				if (!i_rd && !i_wr) begin
-					o_ack = 1'd1;
+					ack_fsm = 1'd1;
 					if (i_cache_inv) begin
 						state_nxt[IDLE] = 1'd0;
 						state_nxt[INVALIDATE] = 1'd1;
@@ -7517,26 +7539,26 @@ module zap_dcache_fsm (
 				end
 				else if (i_align_fault) begin
 					o_err = 1'd1;
-					o_ack = 1'd1;
+					ack_fsm = 1'd1;
 					o_fsr = 8'b00000001;
 					o_far = i_va;
 				end
 				else if (i_fault) begin
 					o_err = 1'd1;
-					o_ack = 1'd1;
+					ack_fsm = 1'd1;
 					o_fsr = i_fsr;
 					o_far = i_far;
 				end
 				else if (i_busy) begin
 					o_err2 = 1'd1;
-					o_ack = 1'd1;
+					ack_fsm = 1'd1;
 				end
 				else if (i_rd || i_wr) begin
 					if (!i_cache_en) begin
 						o_hold = 1'd1;
 						state_nxt[IDLE] = 1'd0;
 						state_nxt[UNCACHEABLE] = 1'd1;
-						o_ack = 1'd0;
+						ack_fsm = 1'd0;
 						o_wb_stb_nxt = 1'd1;
 						o_wb_cyc_nxt = 1'd1;
 						o_wb_adr_nxt = i_phy_addr;
@@ -7551,7 +7573,7 @@ module zap_dcache_fsm (
 					else if ((i_cacheable && i_wr) && i_wt) begin
 						state_nxt[IDLE] = 1'd0;
 						state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
-						o_ack = 1'd0;
+						ack_fsm = 1'd0;
 						o_hold = 1'd1;
 					end
 					else if (i_cacheable)
@@ -7559,10 +7581,10 @@ module zap_dcache_fsm (
 							2'b11:
 								if (i_rd) begin
 									rhit = 1'd1;
-									o_ack = 1'd1;
+									ack_fsm = 1'd1;
 								end
 								else if (i_wr) begin
-									o_ack = 1'd1;
+									ack_fsm = 1'd1;
 									whit = 1'd1;
 									o_cache_line = {CACHE_LINE / 4 {i_din}};
 									o_cache_line_ben = ben_comp(i_address[$clog2(CACHE_LINE) - 1:2], i_ben);
@@ -7573,7 +7595,7 @@ module zap_dcache_fsm (
 									o_address = i_address;
 								end
 							2'b01: begin
-								o_ack = 1'd1;
+								ack_fsm = 1'd1;
 								if (i_rd)
 									lock_nxt[i_reg_idx_bin] = 1'd1;
 								if (cache_dirty) begin
@@ -7588,7 +7610,7 @@ module zap_dcache_fsm (
 								end
 							end
 							default: begin
-								o_ack = 1'd1;
+								ack_fsm = 1'd1;
 								adr_ctr_nxt = 0;
 								state_nxt[IDLE] = 1'd0;
 								state_nxt[FETCH_SINGLE] = 1'd1;
@@ -7599,13 +7621,13 @@ module zap_dcache_fsm (
 					else begin
 						state_nxt[IDLE] = 1'd0;
 						state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
-						o_ack = 1'd0;
+						ack_fsm = 1'd0;
 						o_hold = 1'd1;
 					end
 				end
 			end
 			state_ff[UNCACHEABLE_PREPARE]: begin
-				o_ack = 1'd0;
+				ack_fsm = 1'd0;
 				o_hold = 1'd1;
 				state_nxt[UNCACHEABLE_PREPARE] = 1'd0;
 				state_nxt[UNCACHEABLE] = 1'd1;
@@ -7621,7 +7643,7 @@ module zap_dcache_fsm (
 					o_wb_sel_nxt = i_ben;
 			end
 			state_ff[UNCACHEABLE]: begin
-				o_ack = 1'd0;
+				ack_fsm = 1'd0;
 				o_hold = 1'd1;
 				if (i_wb_ack | i_wb_err) begin
 					state_nxt[UNCACHEABLE] = 1'd0;
@@ -7636,7 +7658,7 @@ module zap_dcache_fsm (
 				end
 			end
 			state_ff[UNC_DONE]: begin
-				o_ack = 1'd1;
+				ack_fsm = 1'd1;
 				o_hold = 1'd0;
 				state_nxt[UNC_DONE] = 1'd0;
 				state_nxt[IDLE] = 1'd1;
@@ -7666,7 +7688,7 @@ module zap_dcache_fsm (
 				rhit = 1'd0;
 				whit = 1'd0;
 				if (!rhit && !whit) begin
-					o_ack = 1'd1;
+					ack_fsm = 1'd1;
 					o_err2 = (i_rd || i_wr ? 1'd1 : 1'd0);
 				end
 				adr_ctr_nxt = adr_ctr_ff + (o_wb_stb_ff && (i_wb_ack | i_wb_err) ? {{$clog2(CACHE_LINE / 4) {1'd0}}, 1'd1} : {$clog2(CACHE_LINE / 4) + 1 {1'd0}});
@@ -7700,7 +7722,7 @@ module zap_dcache_fsm (
 				rhit = 1'd0;
 				whit = 1'd0;
 				if (!rhit && !whit) begin
-					o_ack = 1'd1;
+					ack_fsm = 1'd1;
 					o_err2 = (i_rd || i_wr ? 1'd1 : 1'd0);
 				end
 				adr_ctr_nxt = adr_ctr_ff + (o_wb_stb_ff && (i_wb_ack | i_wb_err) ? {{$clog2(CACHE_LINE / 4) {1'd0}}, 1'd1} : {$clog2(CACHE_LINE / 4) + 1 {1'd0}});
@@ -7748,13 +7770,13 @@ module zap_dcache_fsm (
 				rhit = 1'd0;
 				whit = 1'd0;
 				if (!rhit && !whit) begin
-					o_ack = 1'd1;
+					ack_fsm = 1'd1;
 					o_err2 = (i_rd || i_wr ? 1'd1 : 1'd0);
 				end
 				if (!wr)
 					;
 				else begin
-					o_ack = 1'd1;
+					ack_fsm = 1'd1;
 					o_cache_line = {CACHE_LINE / 4 {din}};
 					o_cache_line_ben = ben_comp(address[$clog2(CACHE_LINE) - 1:2], ben);
 					o_cache_tag_wr_en = 1'd1;
@@ -7768,7 +7790,7 @@ module zap_dcache_fsm (
 				state_nxt[IDLE] = wr;
 			end
 			state_ff[UNLOCK_WR]: begin
-				o_ack = 1'd1;
+				ack_fsm = 1'd1;
 				o_err2 = (i_rd || i_wr ? 1'd1 : 1'd0);
 				o_reg_dat = reg_dat_ff;
 				o_reg_idx = reg_idx;
@@ -7836,7 +7858,7 @@ module zap_dcache_fsm (
 				o_hold = 1'sbx;
 				o_reg_dat = 1'sbx;
 				o_reg_idx = 1'sbx;
-				o_ack = 1'sbx;
+				ack_fsm = 1'sbx;
 				o_err = 1'sbx;
 				o_err2 = 1'sbx;
 				o_address = 1'sbx;
@@ -17118,8 +17140,29 @@ module zap_sync_fifo (
 	assign o_full_n = ~o_full;
 	assign o_full = full_ff;
 	assign o_data = mem[rptr_ff[PTR_WDT - 2:0]];
-	assign empty_nxt = (i_clear ? 1'd1 : wptr_nxt == rptr_nxt);
-	assign full_nxt = (i_clear ? 1'd0 : (wptr_nxt[PTR_WDT - 2:0] == rptr_nxt[PTR_WDT - 2:0]) & (wptr_nxt[PTR_WDT - 1] != rptr_nxt[PTR_WDT - 1]));
+	wire [PTR_WDT - 1:0] occupancy;
+	wire almost_full;
+	wire one_entry;
+	wire empty_ref;
+	wire full_ref;
+	assign occupancy = wptr_ff - rptr_ff;
+	function automatic [PTR_WDT - 1:0] sv2v_cast_4C618;
+		input reg [PTR_WDT - 1:0] inp;
+		sv2v_cast_4C618 = inp;
+	endfunction
+	assign almost_full = occupancy == sv2v_cast_4C618(DEPTH - 1);
+	function automatic signed [PTR_WDT - 1:0] sv2v_cast_4C618_signed;
+		input reg signed [PTR_WDT - 1:0] inp;
+		sv2v_cast_4C618_signed = inp;
+	endfunction
+	assign one_entry = occupancy == sv2v_cast_4C618_signed(1);
+	assign full_nxt = (i_clear ? 1'd0 : (read_ok ? 1'd0 : full_ff | (write_ok & almost_full)));
+	assign empty_nxt = (i_clear ? 1'd1 : (write_ok ? 1'd0 : (read_ok ? one_entry : empty_ff)));
+	assign empty_ref = (i_clear ? 1'd1 : wptr_nxt == rptr_nxt);
+	assign full_ref = (i_clear ? 1'd0 : (wptr_nxt[PTR_WDT - 2:0] == rptr_nxt[PTR_WDT - 2:0]) & (wptr_nxt[PTR_WDT - 1] != rptr_nxt[PTR_WDT - 1]));
+	always @(posedge i_clk)
+		if (!i_reset)
+			;
 	always @(posedge i_clk)
 		if (i_reset) begin
 			empty_ff <= 1'd1;
@@ -18066,7 +18109,16 @@ module zap_tlb_fsm (
 	assign o_cacheable = i_cacheable;
 	assign walk = ((state_ff[IDLE] & i_mmu_en) & i_idle) & i_walk;
 	assign examine_fsr = ((state_ff[IDLE] & i_mmu_en) & i_idle) & ~i_walk;
-	assign o_busy = walk | ~state_ff[IDLE];
+	(* preserve, dont_merge *) reg idle_busy_ff;
+	always @(posedge i_clk)
+		if (i_reset)
+			idle_busy_ff <= 1'd1;
+		else
+			idle_busy_ff <= state_nxt[IDLE];
+	assign o_busy = (((idle_busy_ff & i_mmu_en) & i_idle) & i_walk) | ~idle_busy_ff;
+	always @(posedge i_clk)
+		if (!i_reset)
+			;
 	assign o_fault = examine_fsr & |i_fsr[3:0];
 	assign o_fsr = (o_fault ? i_fsr : 'd0);
 	assign o_far = (o_fault ? i_far : 'd0);
