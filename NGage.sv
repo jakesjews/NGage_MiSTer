@@ -281,7 +281,7 @@ wire  [7:0] ld_be, dl_be, fs_be, tr_be, kt_be;
 wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr, kt_addr;
 wire [63:0] ld_din, dl_din, fs_din, tr_din, kt_din;
 reg   [1:0] ld_own = 2'd0;             // 0: loader, 1: flash_save, 2: debug trace, 3: kernel text
-localparam DBG_TRACE = 1;              // the debug trace and the kernel-text ring (off for a release build)
+localparam DBG_TRACE = 0;              // the debug trace and the kernel-text ring (off for a release build)
 
 wire ld_own_we = (ld_own == 2'd1) ? fs_we : (ld_own == 2'd2) ? tr_we : (ld_own == 2'd3) ? kt_we : dl_we;
 always @(posedge clk_sys) begin

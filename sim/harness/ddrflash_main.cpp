@@ -178,7 +178,7 @@ struct Bench {
 	}
 	// let the requests in flight finish
 	void settle() {
-		for (int i = 0; i < 5000 && (p[0].req || p[1].req); i++) tick();
+		for (int i = 0; i < 20000 && (p[0].req || p[1].req); i++) tick();   // a sweep is 4096 clocks
 		CHECK(!p[0].req && !p[1].req, "requests not answered");
 	}
 

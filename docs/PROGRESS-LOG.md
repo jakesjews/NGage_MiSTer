@@ -2344,3 +2344,28 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   beats: I-cache line fills, with the user library (EUser at 0x503A1xxx)
   and the kernel (0x50321xxx) colliding at the same I-cache index (VA
   bits 13:4) on every system call.
+- Second boot from the save the no-format boot wrote back: the Time dialog
+  still comes (the firmware asks for the time at every start for a reason
+  other than the format; the stand-in's RTC status stays the open item
+  the README names). The boot itself again reached its end state about
+  105 s after the load.
+- Flash read cache 8 KB -> 128 KB (rtl/mem/ddram_flash.sv LINES_LOG2 12,
+  in M10K; 224 blocks were free): a conflict miss in the direct-mapped
+  I-cache then costs a few clocks instead of a DDR3 burst. The cache is
+  also no longer emptied by the trace's and the kernel-text ring's writes,
+  which share the loader port but go elsewhere in DDR3 (only writes into
+  the flash images empty it): a debug-build artefact before.
+- **The blank-C: register verified on hardware** (build with it, launcher
+  on a copy of the pristine cs1.bin): the first boot formats (the idle
+  stretch of erases at 25-85 s, the kernel phase after, the dialog at
+  about 170 s), the second boot from the written-back save does not and
+  reaches the dialog at about 105 s. A fresh image now formats exactly
+  once, as a phone would.
+- Flash cache at 128 KB: the trace rings (about 130 M10K) and the cache
+  do not fit together, so measurement builds with it run without the
+  rings (DBG_TRACE 0; the counters stay). Two fixes found by the cache's
+  bench on the way: a reset of more than one clock made the cache sweep
+  its tags twice, and the sweep of 4096 tags needs the bench's patience
+  raised (a per-line invalidation on loader writes was tried, lost a
+  write to DDR3 in the bench, and was taken out again: the sweep stays,
+  and only writes into the images trigger it).

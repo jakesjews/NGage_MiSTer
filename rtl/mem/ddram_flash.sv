@@ -6,7 +6,7 @@
 // (ddram_loader, writes only) on the same port.
 //
 // Reads go through a direct-mapped read cache in block RAM (LINES of
-// 8 << LINE_LOG2 bytes, 256 x 32 bytes = 8 KB by default) and a one-beat
+// 8 << LINE_LOG2 bytes, 4096 x 32 bytes = 128 KB by default, in M10K) and a one-beat
 // buffer per chip in registers:
 //   * the chip's last 8-byte beat answers a read in the clock it is asked
 //     (sequential fetches hit it three times in four);
@@ -47,7 +47,7 @@ module ddram_flash #(
 	parameter int          CS0_AW     = 23,
 	parameter int          CS1_AW     = 22,
 	parameter int          LINE_LOG2  = 2,               // 8-byte beats a line
-	parameter int          LINES_LOG2 = 8
+	parameter int          LINES_LOG2 = 12              // 4096 x 32 bytes = 128 KB
 ) (
 	input  logic              clk,
 	input  logic              reset,
@@ -211,6 +211,10 @@ module ddram_flash #(
 	wire sel_ld  = hold_q ? hold_ld : (ld_we && !own_cmd);
 	wire own_taken = !sel_ld && own_cmd && !ddram_busy;
 	wire ld_taken  = sel_ld && ld_we && !ddram_busy;
+	// Only a write into the flash images themselves empties the cache: the
+	// debug trace and the kernel-text ring share the loader port and write
+	// elsewhere in DDR3 (NGage.sv), and must not.
+	wire ld_flash  = ld_taken && (ld_addr[28:21] == CS0_BASE[28:21] || ld_addr[28:20] == CS1_BASE[28:20]);
 
 	assign ddram_rd       = !sel_ld && own_rd;
 	assign ddram_we       = sel_ld ? ld_we : own_we;
@@ -297,12 +301,14 @@ module ddram_flash #(
 		end
 		hold_q  <= (ddram_rd || ddram_we) && ddram_busy;
 		hold_ld <= sel_ld;
-		if (ld_taken) begin
+		if (ld_flash) begin
 			sweep_req <= 1'b1;
 			bb_v      <= 2'b00;
 		end
 		if (reset) begin
-			sweep_req <= 1'b1;
+			// a sweep already running covers every line; asking for another
+			// made a reset of more than one clock sweep twice
+			if (state != S_SWEEP) sweep_req <= 1'b1;
 			bb_v      <= 2'b00;
 			abandon   <= 1'b1;
 		end
@@ -312,7 +318,7 @@ module ddram_flash #(
 				sweep_ptr <= sweep_ptr + 1'd1;
 				bb_v      <= 2'b00;
 				if (&sweep_ptr && !reset && !sweep_req) state <= S_IDLE;
-				if (&sweep_ptr) sweep_req <= reset || ld_taken;
+				if (&sweep_ptr) sweep_req <= reset || ld_flash;
 			end
 
 			S_IDLE: begin
