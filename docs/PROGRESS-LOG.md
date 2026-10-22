@@ -1970,3 +1970,60 @@ found, and what comes next. Research material lives in `research/`
   runs. It frees a little logic and block RAM; it does not touch the
   paths that miss timing (SDRAM data-out registers, the CPU). The release
   seeds already building keep ALSA; every build after them drops it.
+
+### 2026-10-21, late: what to do if no seed meets 104 MHz
+
+Investigated while the release seeds build (seeds 9-12 on the server,
+13 on the Mac, all without ALSA; the eight before missed, the nearest
+three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
+
+- The CPU alone closes 104 MHz on every seed with 0.20-0.77 ns to spare.
+  In the whole core (74% of the ALMs) the seeds land within about ±0.3 ns
+  of zero, and the worst paths move between families from seed to seed:
+  the CPU's stall and issue paths, the D-cache tag forwarding and fill,
+  the CPU's bus registers into upp_bus, plus one hold miss at the -40C
+  corner in the SDRAM output stage (seed 1). An earlier netlist passed 2
+  of 6 seeds, so passes exist; the netlist changes since (debug taps,
+  rtc wait, the ordered write-back, DBG_TRACE off) reshuffled it, and so
+  does the build date in build_id.v. Already tried without effect: the
+  ALSA and YC macros (about 200 ALMs), Physical Synthesis effort Extra
+  (a no-op in Lite), LogicLock regions (licence).
+- Options, cheapest first:
+  1. Keep sweeping, five at a time (running). A pass is luck, not
+     margin: every release needs its own sweep, and a passing RBF is tied
+     to its build. Fitter knobs not yet used, cheap to add to the next
+     seeds: OPTIMIZE_HOLD_TIMING "ALL PATHS" (if the hold miss is an
+     internal path), PLACEMENT_EFFORT_MULTIPLIER 2-4,
+     ROUTER_TIMING_OPTIMIZATION_LEVEL MAXIMUM. They move the distribution
+     a little and lengthen the fit.
+  2. A lower system clock, the fallback that always works. 100 MHz adds
+     0.385 ns to the period, more than the whole seed spread; 96 MHz adds
+     0.8 ns and every seed so far would have passed. Everything times
+     itself from CLK_HZ already (sdram, flash, audio, LCD, holds, the RTC
+     wait); only TIMER_DIV = 3 and MMC_DIV = 12 in upp_periph are integer
+     dividers and would become phase-accumulator enables so the timers,
+     the MMC clock and the audio keep their real rates (one clock of
+     jitter, invisible). Cost: the CPU runs 4% (100) or 8% (96) under the
+     phone's 104 MHz. ZAP retires more instructions a cycle than the
+     ARM9TDMI on most code, so the games would most likely still run at or
+     above the phone's speed; the planned cycle accountant (docs/CPU.md)
+     would absorb the difference anyway. A day's work with the model and
+     benches; the user prefers accuracy, so 100 MHz before 96.
+  3. Margin in the design, so passes stop depending on the seed:
+     (a) a register slice on the CPU's request into upp_bus (one more
+     clock per uncached access and line fill; removes that family);
+     (b) the CPU families one at a time, as docs/CPU.md suggests
+     (classify in the pre-decoder, the issue stage's shift-operand read
+     and interlock, the TLB result into the front end, the D-cache tag
+     forwarding), each a focused pipeline change checked on the CPU and
+     boot benches; (c) less congestion: HQ2x and the scandoubler out of
+     video_mixer (the panel is 176x208 and the scaler upscales it), which
+     frees ALMs and M10K but touches timing only indirectly.
+  4. Not worth it: 2-way caches (adds a way-select mux to the hit path,
+     so worse), dual SDRAM (a second controller with the same paths and
+     no analog output), timing exceptions (none of the families is a
+     multicycle path).
+- Recommendation: let the sweep run; if the five miss, add the three
+  fitter knobs to the next five. Prepare option 2 at 100 MHz as the
+  release fallback in parallel, and plan 3(a) and 3(b) after the release
+  so that later releases do not depend on seed luck.
