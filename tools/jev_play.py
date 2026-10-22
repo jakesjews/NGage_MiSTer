@@ -106,6 +106,7 @@ class Board:
         else:
             sys.exit("mister_input.py did not come up on the board; see /tmp/mister_input.log there")
         self.f = self.sock.makefile("rw")
+        time.sleep(3)                    # Main opens a new input device a moment after it appears
 
     def cmd(self, line):
         self.f.write(line + "\n")
