@@ -3083,6 +3083,7 @@ module zap_cache_tag_ram (
 	reg pend_dirty;
 	reg [SET_W - 1:0] pend_addr;
 	reg [WAYS - 1:0] pend_sel;
+	reg [(WAYS * FLAT_W) - 1:0] pend_flat;
 	wire unused;
 	reg [BLK_CTR_PAD - 1:0] dummy;
 	reg [(CACHE_LINE * 8) - 33:0] line_dummy;
@@ -3240,7 +3241,10 @@ module zap_cache_tag_ram (
 		begin : sv2v_autoblock_2
 			reg signed [31:0] w;
 			for (w = 0; w < WAYS; w = w + 1)
-				wr_sel[w] = (i_idle ? hit[w] : i_cache_way == sv2v_cast_4BDF2_signed(w));
+				begin
+					wr_sel[w] = (i_idle ? hit[w] : i_cache_way == sv2v_cast_4BDF2_signed(w));
+					pend_flat[w * FLAT_W+:FLAT_W] = flat(sv2v_cast_4BDF2_signed(w), pend_addr);
+				end
 		end
 	end
 	always @(posedge i_clk)
@@ -3278,7 +3282,7 @@ module zap_cache_tag_ram (
 				reg signed [31:0] w;
 				for (w = 0; w < WAYS; w = w + 1)
 					if (pend_en && pend_sel[w])
-						dirty[flat(sv2v_cast_4BDF2_signed(w), pend_addr)] <= pend_dirty;
+						dirty[pend_flat[w * FLAT_W+:FLAT_W]] <= pend_dirty;
 			end
 			if (tag_ram_clean || line_clear)
 				dirty[rd_flat_ff] <= 1'd0;
@@ -3304,7 +3308,7 @@ module zap_cache_tag_ram (
 				reg signed [31:0] w;
 				for (w = 0; w < WAYS; w = w + 1)
 					if (pend_en && pend_sel[w])
-						valid[flat(sv2v_cast_4BDF2_signed(w), pend_addr)] <= 1'd1;
+						valid[pend_flat[w * FLAT_W+:FLAT_W]] <= 1'd1;
 			end
 			if (tag_ram_clear || !i_cache_en)
 				valid <= 1'sb0;

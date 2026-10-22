@@ -202,6 +202,7 @@ logic                                      line_clear;                    // ARM
 logic                                      pend_en, pend_dirty;           // ARM925T: write-behind
 logic [SET_W-1:0]                          pend_addr;                     // ARM925T
 logic [WAYS-1:0]                           pend_sel;                      // ARM925T: its way, one-hot
+logic [WAYS-1:0][FLAT_W-1:0]               pend_flat;                     // ARM925T: its line in each way
 
 logic                                      unused;
 logic [BLK_CTR_PAD-1:0]                    dummy;
@@ -400,11 +401,14 @@ assign o_cache_way       = sel;
 
 // The way a write goes to: idle, the way that hits (a store hit); else the
 // way the FSM buffered with the address (a fill, a clean, a write-through).
+// (pend_flat: the pending write's line, a wire so that no function call
+// indexes a nonblocking assignment, which Verilator 5.032 rejects.)
 always_comb
 begin
         for ( int w = 0; w < WAYS; w++ )
         begin
-                wr_sel[w] = i_idle ? hit[w] : ( i_cache_way == WAY_W'(w) );
+                wr_sel[w]    = i_idle ? hit[w] : ( i_cache_way == WAY_W'(w) );
+                pend_flat[w] = flat ( WAY_W'(w), pend_addr );
         end
 end
 
@@ -475,7 +479,7 @@ begin
                 begin
                         if ( pend_en && pend_sel[w] )
                         begin
-                                dirty [ flat(WAY_W'(w), pend_addr) ] <= pend_dirty;
+                                dirty [ pend_flat[w] ] <= pend_dirty;
                         end
                 end
 
@@ -515,7 +519,7 @@ begin
                 begin
                         if ( pend_en && pend_sel[w] )
                         begin
-                                valid [ flat(WAY_W'(w), pend_addr) ] <= 1'd1;
+                                valid [ pend_flat[w] ] <= 1'd1;
                         end
                 end
 
