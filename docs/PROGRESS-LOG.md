@@ -2083,3 +2083,36 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
 - Sweep restarted at seed 1 (the user's call): every build in flight
   killed, five builds (four on the server, one on the Mac) from seed 1 on
   the tree with the knobs, HQ2x off and the DMA register.
+- Codex CLI (gpt-6-astra, xhigh reasoning, read-only on this checkout)
+  consulted on options not in the plan (full answer in
+  docs/consults/2026-10-21-codex-timing.md). The ones that hold up, all
+  zero-cycle and behaviour-identical, in its order:
+  1. Sink-directed duplicates of the D-cache FSM's IDLE bit (and then the
+     TLB FSM's IDLE bit and cp15's MMU-enable) for the acknowledge/stall
+     cone only, as explicit RTL copies with dont_merge, fed from the same
+     next-state as the original. The fitter's own duplicates are not
+     sink-directed. Risk: the long route moves to the copy's D input.
+  2. The prefetch FIFO's full flag with the late pop at the last gate:
+     `full_nxt = !i_clear && !read_ok && (full_ff || (write_ok &&
+     almost_full))` with almost_full from the current pointers; today
+     read_ok (which carries the data stall) goes through the pointer
+     adders and the compare. Provably equivalent; simply ignoring the
+     pop would not be (it delays reopening after full).
+  3. Registered state-class predicates: the D-cache acknowledges
+     unconditionally in five states; register their OR from the next
+     state beside the FSM and hand preserved copies to the stall logic,
+     so the predecoder sees one flip-flop instead of a state decode.
+  4. (Conditional) the Wishbone merger registering both data candidates
+     and selecting with the registered state, if a detailed path shows
+     the merger's acknowledge-dependent select.
+  5. Fitter experiments: auto packed registers off for the CPU instance,
+     MUX_RESTRUCTURE off on the predecode cones; global-signal promotion
+     of data_stall is low-confidence (insertion delay); a scoped, slightly
+     tighter set_max_delay on the stall family to push placement.
+  It confirmed what the plan already says: no SDC relaxation is
+  legitimate (the ack_q -> merger path is a real next-edge path), and
+  none of this is a guarantee on an interconnect-dominated path; judge
+  by margin across families over several seeds, not one endpoint.
+  Deferred like the rest: these go in only if ten seeds of the current
+  tree miss, 2 and 1 first, verified on the CPU bench for cycle
+  equivalence.
