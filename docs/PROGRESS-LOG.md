@@ -2548,3 +2548,23 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   (the same seed had +0.041 and -0.082 before the trim), the worst path
   now the D-cache's tag RAM forwarding into its FSM state; 15,608 ALMs,
   17,696 registers.
+- **Whole-core measurement build** (counters, no rings, the 128 KB flash
+  cache, both caches 2-way, seed 2 with the knobs): 33,361 ALMs (80 %),
+  41,437 registers, 471 M10K (85 %; the I-cache build had 454), 43 DSP.
+  Setup -0.170 ns at slow 100C and -0.129 at slow -40C, the top paths the
+  debug overlay's scan line into the video output and the D-TLB's fault
+  status into the data RAM's write, then the D-cache's tag forwarding;
+  hold positive at every corner. Kept as build/hardware/NGage-dcache2.rbf
+  and deployed as the debug core.
+- **On hardware** (the same 2 s-period Alien Front boot as this morning's
+  A/B, build/hardware/boot/dcache2-p2): the kernel phase runs from 30 to
+  about 87 s after the load, the lighter tail to 96 s. **The boot is
+  another 4 s shorter: 76 s before either cache, 70 s with the two-way
+  I-cache, 66 s with both** (first to last second of bus traffic).
+  Kernel phase: 13.0 M instructions/s (12.6 with the I-cache alone, 11.5
+  before), flash waits 24.9 % (unchanged: those are the I-side's line
+  fills), SDRAM waits 12.5 % (13.4), bus beats over the boot 157 M (178,
+  205), cycles an instruction 8.1 (8.4, 9.3). The geometry work is done;
+  what remains of the kernel phase is about 5 clocks an instruction of
+  pipeline (CP15 drains, exception entries, mispredicts, interlocks) and
+  a quarter of the clocks in the flash's 24-clock line fills.
