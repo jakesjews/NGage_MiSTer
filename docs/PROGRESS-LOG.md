@@ -2306,3 +2306,12 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   be added across them. It also asks for the kernel's tick rate to be
   verified, since every firmware timeout scales with it. Mine adds the
   timestamped kernel text to name what the 48 s waits for.
+- **TLBs enlarged** (rtl/cpu/zap/zap_top.sv, both sides): small pages 16
+  -> 256 entries (index VA[19:12]), sections 4 -> 64 (VA[25:20]), large
+  pages 8 -> 32, tiny pages 32 -> 64. The TLBs are RAM blocks with a
+  valid vector and the entry widths and tag compares derive from the
+  counts, so it is the parameters only. 171 CPU tests pass (the MMU tests
+  among them), the whole-core boot bench is identical to the clock (its
+  window is the uncached bootstrap, so no change expected there), lint
+  clean. Trace build with it: -0.150 ns at the slow 100C corner, +0.070
+  at -40C (a measurement build). Hardware boot profile to follow.

@@ -67,20 +67,27 @@ parameter logic  [31:0]       RAS_DEPTH          = 32'd4,    // Depth of RAS.
 // ----------------------------------
 // Data MMU/Cache configuration.
 // ----------------------------------
-parameter logic [31:0] DATA_SECTION_TLB_ENTRIES =  32'd4,    // Section TLB entries.
-parameter logic [31:0] DATA_LPAGE_TLB_ENTRIES   =  32'd8,    // Large page TLB entries.
-parameter logic [31:0] DATA_SPAGE_TLB_ENTRIES   =  32'd16,   // Small page TLB entries.
-parameter logic [31:0] DATA_FPAGE_TLB_ENTRIES   =  32'd32,   // Tiny page TLB entries.
+// ARM925T: the TLBs are direct-mapped buffers indexed by the low bits of
+// the page number (sections VA[25:20], large VA[20:16], small VA[19:12],
+// tiny VA[15:10]). With the upstream sizes (4/8/16/32) the firmware's
+// exception-vector page at virtual 0 and its kernel code pages at
+// 0x50320000 shared small-page slot 0 and evicted each other on every
+// exception, a two-level walk each time (the measured boot: a walk every
+// 78 clocks). The real part has 64-entry associative TLBs.
+parameter logic [31:0] DATA_SECTION_TLB_ENTRIES =  32'd64,    // Section TLB entries.
+parameter logic [31:0] DATA_LPAGE_TLB_ENTRIES   =  32'd32,    // Large page TLB entries.
+parameter logic [31:0] DATA_SPAGE_TLB_ENTRIES   =  32'd256,   // Small page TLB entries.
+parameter logic [31:0] DATA_FPAGE_TLB_ENTRIES   =  32'd64,   // Tiny page TLB entries.
 parameter logic [31:0] DATA_CACHE_SIZE          =  32'd8192, // Cache size in bytes.
 parameter logic [31:0] DATA_CACHE_LINE          =  32'd64,   // Cache line size in bytes.
 
 // ----------------------------------
 // Code MMU/Cache configuration.
 // ----------------------------------
-parameter logic [31:0] CODE_SECTION_TLB_ENTRIES =  32'd4,    // Section TLB entries.
-parameter logic [31:0] CODE_LPAGE_TLB_ENTRIES   =  32'd8,    // Large page TLB entries.
-parameter logic [31:0] CODE_SPAGE_TLB_ENTRIES   =  32'd16,   // Small page TLB entries.
-parameter logic [31:0] CODE_FPAGE_TLB_ENTRIES   =  32'd32,   // Fine page TLB entries.
+parameter logic [31:0] CODE_SECTION_TLB_ENTRIES =  32'd64,    // Section TLB entries.
+parameter logic [31:0] CODE_LPAGE_TLB_ENTRIES   =  32'd32,    // Large page TLB entries.
+parameter logic [31:0] CODE_SPAGE_TLB_ENTRIES   =  32'd256,   // Small page TLB entries.
+parameter logic [31:0] CODE_FPAGE_TLB_ENTRIES   =  32'd64,   // Fine page TLB entries.
 parameter logic [31:0] CODE_CACHE_SIZE          =  32'd8192, // Cache size in bytes.
 parameter logic [31:0] CODE_CACHE_LINE          =  32'd64,   // Ccahe line size in bytes.
 
