@@ -2369,3 +2369,13 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   raised (a per-line invalidation on loader writes was tried, lost a
   write to DDR3 in the bench, and was taken out again: the sweep stays,
   and only writes into the images trigger it).
+- Timing of the 128 KB-cache measurement build (one seed, counters, no
+  rings): setup -0.470 ns at the slow 100C corner, the worst path the bus
+  arbiter's grant into the CPU's Wishbone merger and the D-cache into the
+  merger (the known family, this netlist's placement); hold -0.037 to
+  -0.146 ns at every corner, all the SDRAM output pair p_dq_o ->
+  sdram_dq_o again, which OPTIMIZE_HOLD_TIMING "ALL PATHS" did not cure.
+  Fine for measuring at room temperature; a release needs that pair fixed
+  structurally (the core register feeding the I/O register sees a
+  different clock arrival; a deliberate delay or a dedicated clock phase
+  for the output registers), not by seed luck.
