@@ -941,12 +941,22 @@ wire [15:0] test_rgb = (test_errors != 16'd0)  ? 16'hF81F :
 reg  [31:0] dbg_pc_q = 0;
 reg         dbg_bus_q = 0;
 reg   [7:0] dbg_bits_q = 0;
+// audio: the largest sample magnitude of each channel over the last frame
+wire [15:0] aud_abs_l = AUDIO_L[15] ? -AUDIO_L : AUDIO_L;
+wire [15:0] aud_abs_r = AUDIO_R[15] ? -AUDIO_R : AUDIO_R;
+reg  [15:0] aud_peak_l = 0, aud_peak_r = 0, dbg_aud_l = 0, dbg_aud_r = 0;
 always @(posedge clk_sys) begin
 	if (cpu_req & wb_ack) dbg_bus_q <= 1'b1;
+	if (aud_abs_l > aud_peak_l) aud_peak_l <= aud_abs_l;
+	if (aud_abs_r > aud_peak_r) aud_peak_r <= aud_abs_r;
 	if (scan_en && scan_x == 8'd0 && scan_y == 8'd0) begin
 		dbg_pc_q   <= cpu_dbg_pc;
 		dbg_bits_q <= {cpu_reset, cpu_irq, cpu_fiq, dbg_bus_q, dl_loaded[0], dl_loaded[1], fs_present, test_sel};
 		dbg_bus_q  <= 1'b0;
+		dbg_aud_l  <= aud_peak_l;
+		dbg_aud_r  <= aud_peak_r;
+		aud_peak_l <= 16'd0;
+		aud_peak_r <= 16'd0;
 	end
 end
 // Kern::Fault's record: the kernel copies the fault category and reason
@@ -972,10 +982,10 @@ end
 wire        dbg_on    = status[8];
 wire        dbg_pcrow = scan_y < 8'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire        dbg_strow = scan_y >= 8'd4 && scan_y < 8'd7 && scan_x >= 8'd16 && scan_x < 8'd24;
-// further 32-bit rows at y = 8, 12, ..., 44 (3 lines each): the interrupt
+// further 32-bit rows at y = 8, 12, ..., 48 (3 lines each): the interrupt
 // words, the fault record, the trace's first trigger PC and its counts, the
-// wall clock {valid, 7'b0, hour, min, sec} and its date
-wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < 8'd47 && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
+// wall clock {valid, 7'b0, hour, min, sec} and its date, the audio peaks
+wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < 8'd51 && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd3) ? dbg_en0_irq :
                         (scan_y[7:2] == 6'd4) ? dbg_en0_fiq :
@@ -985,7 +995,7 @@ wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd8) ? tr_trig_pc :
                         (scan_y[7:2] == 6'd9) ? {tr_dumps, tr_triggers, 15'd0, tr_dumping} :
                         (scan_y[7:2] == 6'd10) ? {rtc_valid, 7'd0, 3'd0, rtc_hour, 2'd0, rtc_min, 2'd0, rtc_sec} :
-                                                 rtc_date;
+                        (scan_y[7:2] == 6'd11) ? rtc_date : {dbg_aud_l, dbg_aud_r};
 wire        dbg_bit   = dbg_pcrow ? dbg_pc_q[5'd31 - 5'(scan_x - 8'd16)] :
                         dbg_strow ? dbg_bits_q[3'd7 - 3'(scan_x - 8'd16)] :
                                     dbg_word[5'd31 - 5'(scan_x - 8'd16)];

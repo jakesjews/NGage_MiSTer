@@ -6,6 +6,10 @@ aborts; the MiSTer's Linux side reads DDR3 through /dev/mem.
 
 usage:
   tools/mister_trace.py fetch OUT.bin [--dumps N]      read N dumps (default 4) over ssh
+  tools/mister_trace.py fetch-devmem OUT.bin [--dump N] [--pc N] [--data N] [--bus N]
+                      the same through devmem (one word a call: the MiSTer
+                      kernel refuses read() of /dev/mem there): the header
+                      and the newest entries only (defaults 200, 200, 100)
   tools/mister_trace.py show DUMP.bin [options]        decode
     --dump N        which dump of the file (default: the last one written)
     --pc N          PC entries to show, newest last (default 400)
@@ -40,6 +44,52 @@ def fetch(out, dumps, host):
     for n in range(dumps):
         d = data[n * DUMP_BYTES:(n + 1) * DUMP_BYTES]
         print("dump %d: %s" % (n, "present" if d[:8] == MAGIC else "empty"))
+
+
+def devmem_words(host, addrs):
+    """Read 32-bit words at byte addresses through busybox devmem (mmap)."""
+    out = []
+    for i in range(0, len(addrs), 200):
+        chunk = addrs[i:i + 200]
+        cmd = "for a in %s; do devmem $a 32; done" % " ".join("0x%x" % a for a in chunk)
+        r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "LogLevel=ERROR", "root@" + host, cmd],
+                           capture_output=True, text=True)
+        words = r.stdout.split()
+        if len(words) != len(chunk):
+            sys.exit("devmem: %d words for %d addresses: %s" % (len(words), len(chunk), r.stderr[:200]))
+        out += [int(w, 16) for w in words]
+    return out
+
+
+def fetch_devmem(out, which, npc, nd, nb, host):
+    base = 0x33000000 + which * DUMP_BYTES
+    d = bytearray(DUMP_BYTES)
+
+    def put_words(byte_off, words):
+        for i, w in enumerate(words):
+            struct.pack_into("<I", d, byte_off + 4 * i, w)
+
+    hdr = devmem_words(host, [base + 4 * i for i in range(16)])
+    put_words(0, hdr)
+    if d[:8] != MAGIC:
+        sys.exit("dump %d: no NGAGETRC header at 0x%x" % (which, base))
+    w2 = u64(d, 16)
+    pc_w, d_w, b_w = (w2 >> 32) & 0xFFFF, (w2 >> 16) & 0xFFFF, w2 & 0xFFFF
+    addrs, offs = [], []
+    for k in range(1, min(npc, PC_N) + 1):
+        o = PC_OFF + 8 * ((pc_w - k) % PC_N)
+        offs.append(o); addrs += [base + o, base + o + 4]
+    for k in range(1, min(nd, D_N) + 1):
+        o = D_OFF + 16 * ((d_w - k) % D_N)
+        offs.append(o); addrs += [base + o + 4 * j for j in range(4)]
+    for k in range(1, min(nb, B_N) + 1):
+        o = B_OFF + 16 * ((b_w - k) % B_N)
+        offs.append(o); addrs += [base + o + 4 * j for j in range(4)]
+    words = devmem_words(host, addrs)
+    for a, w in zip(addrs, words):
+        struct.pack_into("<I", d, a - base, w)
+    open(out, "wb").write(bytes(d))
+    print("dump %d: header and the newest %d pc, %d data, %d bus entries (%d words)" % (which, npc, nd, nb, len(words)))
 
 
 class Dis:
@@ -111,7 +161,7 @@ def show(path, which, npc, nd, nb, rom):
     print("dump %d of %s: trigger at clock %d (%.6f s), reason %s, trigger pc %08x" % (
         w2 >> 56, present, clk, clk / 104e6,
         "+".join(n for b, n in ((1, "exception"), (2, "fault-record")) if reason & b) or "?", w5 & 0xFFFFFFFF))
-    print("retired %d, triggers %d, data accesses %d, bus beats %d" % (w3 >> 32, (w3 >> 8) & 0xFFFFFF, w4 >> 32, w4 & 0xFFFFFFFF))
+    print("retired %d, triggers %d, data accesses %d, bus beats %d" % (w3 >> 32, (w3 >> 24) & 0xFF, w4 >> 32, w4 & 0xFFFFFFFF))
     dis = Dis(*rom) if rom else None
 
     print("\n== retired instructions (newest last; clock low 16 bits, mode, flags after) ==")
@@ -162,6 +212,23 @@ def main():
         if "--dumps" in a:
             dumps = int(a[a.index("--dumps") + 1])
         fetch(a[1], dumps, host)
+        return
+    if a[0] == "fetch-devmem":
+        host = os.environ.get("MISTER_HOST", "mister")
+        which, npc, nd, nb = 0, 200, 200, 100
+        i = 2
+        while i < len(a):
+            if a[i] == "--dump":
+                which = int(a[i + 1]); i += 2
+            elif a[i] == "--pc":
+                npc = int(a[i + 1]); i += 2
+            elif a[i] == "--data":
+                nd = int(a[i + 1]); i += 2
+            elif a[i] == "--bus":
+                nb = int(a[i + 1]); i += 2
+            else:
+                sys.exit("unknown option %s" % a[i])
+        fetch_devmem(a[1], which, npc, nd, nb, host)
         return
     if a[0] == "show":
         which, npc, nd, nb, rom = None, 400, 200, 100, None

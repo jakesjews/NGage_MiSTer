@@ -1861,3 +1861,17 @@ found, and what comes next. Research material lives in `research/`
   moved to docs/MISTER-TEMPLATE.md. A warm OSD reset boots (bootstrap,
   flash driver, file server PCs) but stays on the Nokia logo with the
   system mostly idle; still open.
+- Date-trigger trace on the MiSTer (`build/hardware/dt-trace.bin`, fetched
+  with the new `tools/mister_trace.py fetch-devmem`: the MiSTer kernel
+  refuses `read()` of `/dev/mem` above RAM, busybox `devmem` maps it): the
+  stand-in's read of `0x581F0100` at 5.67 s returns `0x07EA0A15` =
+  2026-10-21, so the date reaches rtc.dll's event 1 intact. The model
+  shows the same Time dialog at every start too (it stays until the
+  screensaver covers it at about 40 s, which then shows the right date and
+  time), so the dialog is the firmware's behaviour in this environment,
+  not a hardware fault; what the hardware lacks is the screensaver (none
+  after 200 s), to be checked next. The overlay gained the audio peaks of
+  each frame (rows 48-50) for the sound check.
+- SSH: `~/.ssh/config` now has a `Host mister` entry using the key the
+  MiSTer has (`mister-sinden_ed25519`, `IdentityAgent none`) ahead of the
+  1Password `Host *` block, so the tools no longer depend on the agent.
