@@ -2784,6 +2784,8 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   32-bit mux instead of a 128-bit line mux, a 4:1 word mux and the
   transform, and `sel` loses its 131 loads. Cycle-exact: 177 runs on the
   sources and the netlist, 49 matching QEMU, every count unchanged.
+  CPU-only trial at seed 1: **+0.618 ns** at slow 100C, +0.613 at slow
+  -40C (+0.537/+0.462 before it).
 - **Family 2 done** (2559a99): the merger registers both caches' NXT
   signals and chooses the side after the registers by its registered
   state (the same values as before, one mux later; 74 flops); the
