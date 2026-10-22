@@ -2719,7 +2719,14 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   slow -40C, ns: 1 -0.234/-0.007, 2 -0.362/-0.196, 3 -0.049/-0.008, 4
   -0.212/-0.499, 5 (Mac) -0.219; hold +0.03 or better. video_freak costs about 500
   ALMs (33,600-33,800). Round 2: seeds 6-8 on three lanes, the fourth
-  left for the comment-trim session's synthesis check.
+  left for the comment-trim session's synthesis check: 6 -0.428/-0.337,
+  7 -0.534/-0.432, 9 (Mac) -0.325, 8 and 10 (Mac) running, 11-13 queued.
+  The worst paths differ from seed to seed: the SWI flag into the
+  register file, the bus arbiter's grant into the merger, the D-cache's
+  load data, the issue stall, the audio FIFO, the bus data into the
+  D-cache RAM. That is a design uniformly 0.2-0.5 ns short at the slow
+  corner with the device 80 % full, not one bad path; a clean seed is a
+  one-in-ten draw, as sweep 3 showed.
 
 ### 2026-10-22: NGage.sv comments trimmed to the template's shape
 
