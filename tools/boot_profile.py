@@ -28,7 +28,11 @@ CLK = 104_000_000
 
 
 def overlay_on(board):
-    for k in ["f12"] + ["down"] * 8 + ["enter", "esc"]:
+    # OSD rows before "Debug overlay" (NGage.sv CONF_STR): the four file
+    # slots, Rotate, Aspect ratio, Scandoubler Fx, Vertical Crop, Crop
+    # Offset, Scale, Memory test; the crop rows are selectable in a profile
+    # run (upright, scandoubler off).
+    for k in ["f12"] + ["down"] * 11 + ["enter", "esc"]:
         board.press(k)
         time.sleep(0.4)
 
