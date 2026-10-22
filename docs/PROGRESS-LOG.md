@@ -1944,3 +1944,10 @@ found, and what comes next. Research material lives in `research/`
   and a phone would recover a power-loss image the same slow way.
 - The screensaver does start on hardware, after a longer idle than the
   model's 40 s (seen after minutes); fine.
+- Ordered write-back on hardware (build of 54512fa, `NGage-order.rbf`,
+  -0.114/-0.180 ns at the slow corners with all debug rows): a fresh
+  image booted, the core reloaded through the launcher while the firmware
+  was running (twice, 100 s apart), and each following boot started up at
+  the normal pace (kernel text with NOS traffic and SysAp within 2.5
+  minutes), where before one such reload left the next boot in minutes of
+  recovery. Saves now survive stopping the core at any moment.
