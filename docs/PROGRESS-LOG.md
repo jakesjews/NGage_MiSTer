@@ -1885,3 +1885,26 @@ found, and what comes next. Research material lives in `research/`
   a DDR3 ring on hardware (`rtl/mister/dbg_sti.sv`, 0x33100000, the
   model's kern.log; `tools/mister_trace.py fetch-sti`); overlay row 36
   carries its byte count in bits 15:1.
+- **Boot stalls on the Nokia logo with a save that was warm-reset mid-write.**
+  After "Reset and close OSD" right after the first-boot dialogs, every
+  start with that save (`build/hardware/cs1-save-after3.bin`) stays on
+  the logo with the system mostly idle (PCs in medint.pdd, EUser, the
+  kernel idle), with the timing-clean build too; the freshly formatted
+  image (`model/.out/fc-base/cs1-base.bin`, on the MiSTer as
+  `rh29-460-cs1-fresh.bin`, launcher `NGage-Fresh.mgl`) boots to the
+  dialogs in two minutes. So the earlier "warm reset does not come back"
+  was the same thing: the state C: was left in. Being checked: the model
+  with the same image, and the kernel text of the stalled boot.
+- Builds: audio meter (a482fc1) -0.202/-0.257 ns, kernel text (1800aa6)
+  -0.276/-0.172 ns at the slow corners (`build/hardware/NGage-audio.rbf`,
+  `NGage-sti.rbf`), usable for these checks; the date-trigger build
+  (2af9a2f, `NGage-datetrig.rbf`) meets timing. The audio check with the
+  stalled save read 0 throughout, which says nothing yet.
+- Kernel text on hardware works (`tools/mister_trace.py fetch-sti`): the
+  stalled boot's text stops after the Bluetooth driver's first lines (841
+  bytes, no NOS traffic), i.e. before Starter and DOS, so the hang is in
+  the file-system start (EStart's C: mount); the PCs agree (medint.pdd).
+  The model boots the same image through to the screensaver (3.5 KB of
+  text), so this is an RTL flash-path divergence on what LFFS does with
+  this image. A whole-core Verilator run with it is on the server
+  (`~/dev/mister/coreboot/stall1`, `--devlog`).
