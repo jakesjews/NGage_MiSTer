@@ -1875,3 +1875,13 @@ found, and what comes next. Research material lives in `research/`
 - SSH: `~/.ssh/config` now has a `Host mister` entry using the key the
   MiSTer has (`mister-sinden_ed25519`, `IdentityAgent none`) ahead of the
   1Password `Host *` block, so the tools no longer depend on the agent.
+- Keys in Sonic N on the MiSTer: at the SEGA intro, 5 (keyboard 5 through
+  Zaparoo) skips to the character select, down moves from Sonic to Tails
+  (`build/hardware/k-5a.png`, `k-down.png`), so key presses reach the
+  game. The screensaver does not start on the idle screen after 105 s
+  (the model's starts at about 40 s and shows the clock); the panel model
+  supports the partial and idle modes it uses, so the saver is not being
+  started. To see what the firmware says, the STI debug text now goes to
+  a DDR3 ring on hardware (`rtl/mister/dbg_sti.sv`, 0x33100000, the
+  model's kern.log; `tools/mister_trace.py fetch-sti`); overlay row 36
+  carries its byte count in bits 15:1.

@@ -10,6 +10,9 @@ usage:
                       the same through devmem (one word a call: the MiSTer
                       kernel refuses read() of /dev/mem there): the header
                       and the newest entries only (defaults 200, 200, 100)
+  tools/mister_trace.py fetch-sti OUT.txt               the firmware's debug text
+                      (rtl/mister/dbg_sti.sv: a 64 KB ring at 0x33100000 and
+                      its byte count at +0x10000), through devmem
   tools/mister_trace.py show DUMP.bin [options]        decode
     --dump N        which dump of the file (default: the last one written)
     --pc N          PC entries to show, newest last (default 400)
@@ -90,6 +93,32 @@ def fetch_devmem(out, which, npc, nd, nb, host):
         struct.pack_into("<I", d, a - base, w)
     open(out, "wb").write(bytes(d))
     print("dump %d: header and the newest %d pc, %d data, %d bus entries (%d words)" % (which, npc, nd, nb, len(words)))
+
+
+def fetch_sti(out, host):
+    base = 0x33100000
+    count = devmem_words(host, [base + 0x10000])[0]
+    n = count & 0xFFFF
+    wrapped = (count >> 16) & 1
+    # the bytes in order: the whole ring from the pointer when wrapped
+    if wrapped:
+        order = list(range(n, 0x10000)) + list(range(0, n))
+    else:
+        order = list(range(0, n))
+    words = devmem_words(host, [base + (o & ~3) for o in sorted(set(o & ~3 for o in order))])
+    byaddr = dict(zip(sorted(set(o & ~3 for o in order)), words))
+    text = bytearray()
+    for o in order:
+        text.append((byaddr[o & ~3] >> (8 * (o & 3))) & 0xFF)
+    with open(out, "w") as f:
+        for c in text:
+            if c in (0xC0, 0xE0, 0x0D):
+                continue
+            if c == 0x0A or c == 0x09 or 0x20 <= c < 0x7F:
+                f.write(chr(c))
+            else:
+                f.write("<%02x>" % c)
+    print("%d bytes%s -> %s" % (len(text), " (ring wrapped)" if wrapped else "", out))
 
 
 class Dis:
@@ -212,6 +241,9 @@ def main():
         if "--dumps" in a:
             dumps = int(a[a.index("--dumps") + 1])
         fetch(a[1], dumps, host)
+        return
+    if a[0] == "fetch-sti":
+        fetch_sti(a[1], os.environ.get("MISTER_HOST", "mister"))
         return
     if a[0] == "fetch-devmem":
         host = os.environ.get("MISTER_HOST", "mister")

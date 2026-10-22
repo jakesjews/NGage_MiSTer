@@ -274,25 +274,27 @@ wire test_sel = test_on_q;
 // DDRAM port with the flash chips' arrays (ddram_flash in ngage_mem): the
 // ioctl loader's (F1/F2), or flash_save's while it copies a mounted CS1 save
 // image in (S1). The port changes hands only between commands.
-wire        ld_busy, ld_we, dl_we, fs_we, tr_we;
+wire        ld_busy, ld_we, dl_we, fs_we, tr_we, kt_we;
 wire  [1:0] dl_loaded;                 // CS0 / CS1 loaded through ioctl
-wire  [7:0] ld_be, dl_be, fs_be, tr_be;
-wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr;
-wire [63:0] ld_din, dl_din, fs_din, tr_din;
-reg   [1:0] ld_own = 2'd0;             // 0: loader, 1: flash_save, 2: debug trace
+wire  [7:0] ld_be, dl_be, fs_be, tr_be, kt_be;
+wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr, kt_addr;
+wire [63:0] ld_din, dl_din, fs_din, tr_din, kt_din;
+reg   [1:0] ld_own = 2'd0;             // 0: loader, 1: flash_save, 2: debug trace, 3: kernel text
+localparam DBG_TRACE = 1;              // the debug trace and the kernel-text ring (off for a release build)
 
-wire ld_own_we = (ld_own == 2'd1) ? fs_we : (ld_own == 2'd2) ? tr_we : dl_we;
+wire ld_own_we = (ld_own == 2'd1) ? fs_we : (ld_own == 2'd2) ? tr_we : (ld_own == 2'd3) ? kt_we : dl_we;
 always @(posedge clk_sys) begin
 	if (!ld_own_we) begin
 		if (dl_we)      ld_own <= 2'd0;
 		else if (fs_we) ld_own <= 2'd1;
 		else if (tr_we) ld_own <= 2'd2;
+		else if (kt_we) ld_own <= 2'd3;
 	end
 end
-assign ld_we   = (ld_own == 2'd1) ? fs_we   : (ld_own == 2'd2) ? tr_we   : dl_we;
-assign ld_addr = (ld_own == 2'd1) ? fs_addr : (ld_own == 2'd2) ? tr_addr : dl_addr;
-assign ld_din  = (ld_own == 2'd1) ? fs_din  : (ld_own == 2'd2) ? tr_din  : dl_din;
-assign ld_be   = (ld_own == 2'd1) ? fs_be   : (ld_own == 2'd2) ? tr_be   : dl_be;
+assign ld_we   = (ld_own == 2'd1) ? fs_we   : (ld_own == 2'd2) ? tr_we   : (ld_own == 2'd3) ? kt_we   : dl_we;
+assign ld_addr = (ld_own == 2'd1) ? fs_addr : (ld_own == 2'd2) ? tr_addr : (ld_own == 2'd3) ? kt_addr : dl_addr;
+assign ld_din  = (ld_own == 2'd1) ? fs_din  : (ld_own == 2'd2) ? tr_din  : (ld_own == 2'd3) ? kt_din  : dl_din;
+assign ld_be   = (ld_own == 2'd1) ? fs_be   : (ld_own == 2'd2) ? tr_be   : (ld_own == 2'd3) ? kt_be   : dl_be;
 
 ddram_loader ddram_loader
 (
@@ -570,11 +572,45 @@ upp_periph upp_periph
 	.rtc_date(rtc_date),
 	.audio_l(AUDIO_L),
 	.audio_r(AUDIO_R),
-	.sti_we(),
+	.sti_we(sti_we),
 	.sti_addr(),
-	.sti_be(),
-	.sti_data()
+	.sti_be(sti_be),
+	.sti_data(sti_data)
 );
+
+// The firmware's debug text (rtl/mister/dbg_sti.sv): the STI window's
+// bytes go to a 64 KB ring in DDR3 at 0x33100000; tools/mister_trace.py
+// fetch-sti reads it, the model's kern.log on hardware.
+wire        sti_we;
+wire  [3:0] sti_be;
+wire [31:0] sti_data;
+wire [15:0] kt_count;
+wire  [7:0] kt_dropped;
+
+generate if (DBG_TRACE) begin : g_sti
+dbg_sti dbg_sti
+(
+	.clk(clk_sys),
+	.reset(sys_reset),
+	.sti_we(sti_we),
+	.sti_be(sti_be),
+	.sti_data(sti_data),
+	.ld_we(kt_we),
+	.ld_addr(kt_addr),
+	.ld_din(kt_din),
+	.ld_be(kt_be),
+	.ld_busy(ld_busy || ld_own != 2'd3),
+	.count(kt_count),
+	.dropped(kt_dropped)
+);
+end else begin : g_nosti
+assign kt_we = 1'b0;
+assign kt_addr = 29'd0;
+assign kt_din = 64'd0;
+assign kt_be = 8'd0;
+assign kt_count = 16'd0;
+assign kt_dropped = 8'd0;
+end endgenerate
 
 ///////////////////////   CPU   ////////////////////////////////
 
@@ -654,8 +690,6 @@ arm925t arm925t
 // at 0x33000000 on the first abort or undefined instruction, or when the
 // kernel writes its fault record (dbg_trig below); tools/mister_trace.py
 // reads them back. Costs about 1.3 Mbit of block RAM.
-localparam DBG_TRACE = 1;
-
 wire        dbg_trig;
 wire  [7:0] tr_dumps, tr_triggers;
 wire        tr_dumping;
@@ -982,10 +1016,11 @@ end
 wire        dbg_on    = status[8];
 wire        dbg_pcrow = scan_y < 8'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire        dbg_strow = scan_y >= 8'd4 && scan_y < 8'd7 && scan_x >= 8'd16 && scan_x < 8'd24;
-// further 32-bit rows at y = 8, 12, ..., 48 (3 lines each): the interrupt
-// words, the fault record, the trace's first trigger PC and its counts, the
-// wall clock {valid, 7'b0, hour, min, sec} and its date, the audio peaks
-wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < 8'd51 && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
+// further 32-bit rows at y = 8, 12, ..., 52 (3 lines each): the interrupt
+// words, the fault record, the trace's first trigger PC, {dumps, triggers,
+// kernel-text bytes}, the wall clock {valid, 7'b0, hour, min, sec} and its
+// date, the audio peaks, {kernel-text writes dropped, 7'b0, dumping, 16'b0}
+wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < 8'd55 && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd3) ? dbg_en0_irq :
                         (scan_y[7:2] == 6'd4) ? dbg_en0_fiq :
@@ -993,9 +1028,11 @@ wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd6) ? dbg_f4 :
                         (scan_y[7:2] == 6'd7) ? dbg_f8 :
                         (scan_y[7:2] == 6'd8) ? tr_trig_pc :
-                        (scan_y[7:2] == 6'd9) ? {tr_dumps, tr_triggers, 15'd0, tr_dumping} :
+                        (scan_y[7:2] == 6'd9) ? {tr_dumps, tr_triggers, kt_count} :
                         (scan_y[7:2] == 6'd10) ? {rtc_valid, 7'd0, 3'd0, rtc_hour, 2'd0, rtc_min, 2'd0, rtc_sec} :
-                        (scan_y[7:2] == 6'd11) ? rtc_date : {dbg_aud_l, dbg_aud_r};
+                        (scan_y[7:2] == 6'd11) ? rtc_date :
+                        (scan_y[7:2] == 6'd12) ? {dbg_aud_l, dbg_aud_r} :
+                                                 {kt_dropped, 7'd0, tr_dumping, 16'd0};
 wire        dbg_bit   = dbg_pcrow ? dbg_pc_q[5'd31 - 5'(scan_x - 8'd16)] :
                         dbg_strow ? dbg_bits_q[3'd7 - 3'(scan_x - 8'd16)] :
                                     dbg_word[5'd31 - 5'(scan_x - 8'd16)];
