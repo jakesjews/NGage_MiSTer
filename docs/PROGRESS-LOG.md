@@ -2379,3 +2379,12 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   structurally (the core register feeding the I/O register sees a
   different clock arrival; a deliberate delay or a dedicated clock phase
   for the output registers), not by seed luck.
+- **128 KB flash cache on hardware** (formatted save, no format): the
+  kernel phase's flash waits 36-40 % -> 29-34 % of the clocks, 10.0 -> 10.6
+  M instructions/s, the boot's end about 98 s after the load against
+  100-105. Less than the cache's hit rate would suggest, because a line
+  fill from the flash model costs about 24 clocks even on a DDR3-cache
+  hit: the chip port serves one 16-bit halfword at a time, two clocks
+  each, and a 16-byte line is eight of them, against 15 clocks for an
+  SDRAM line. So the conflict-miss rate is the lever (the 2-way I-cache),
+  and a line path through the flash model the second one.
