@@ -13,6 +13,7 @@
 #include "qemu/osdep.h"
 #include "qemu/units.h"
 #include "qemu/log.h"
+#include "qemu/timer.h"
 #include "qemu/error-report.h"
 #include "qapi/error.h"
 #include "hw/core/boards.h"
@@ -52,6 +53,10 @@ struct NGageMachineState {
     char *keys;
     char *audio_wav;
     char *audio_log;
+    char *log_time;
+    char *pc_sample;
+    FILE *pc_sample_fp;
+    QEMUTimer *pc_sample_timer;
     NGageFlash *flash[2];
     MemoryRegion probe;
     MemoryRegion sdram;
@@ -60,6 +65,14 @@ struct NGageMachineState {
     uint64_t probe_count;
     ARMCPU *cpu;
 };
+
+bool ngage_log_time;
+
+/* Guest virtual clock in seconds (follows executed instructions under -icount). */
+double ngage_guest_seconds(void)
+{
+    return qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1e9;
+}
 
 /* Guest PC of the instruction performing the current memory access. */
 uint32_t ngage_guest_pc(void)
@@ -123,6 +136,25 @@ static const MemoryRegionOps probe_ops = {
     .impl = { .min_access_size = 1, .max_access_size = 4 },
 };
 
+/* ---------------------------------------------------------------- PC samples */
+
+/*
+ * pc-sample=FILE: every millisecond of guest time, the guest time, PC and
+ * mode of the CPU (at the block boundary where the timer runs), so busy
+ * and idle stretches can be placed on the guest clock next to the logs.
+ */
+#define PC_SAMPLE_NS 1000000
+
+static void pc_sample_tick(void *opaque)
+{
+    NGageMachineState *s = opaque;
+    CPUARMState *env = &s->cpu->env;
+
+    fprintf(s->pc_sample_fp, "%.6f %08x %02x\n", ngage_guest_seconds(),
+            env->regs[15], env->uncached_cpsr & 0x1F);
+    timer_mod_ns(s->pc_sample_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + PC_SAMPLE_NS);
+}
+
 /* ---------------------------------------------------------------- board */
 
 static void ngage_init(MachineState *machine)
@@ -134,6 +166,7 @@ static void ngage_init(MachineState *machine)
     cpuobj = object_new(machine->cpu_type);
     qdev_realize(DEVICE(cpuobj), NULL, &error_fatal);
     s->cpu = ARM_CPU(cpuobj);
+    ngage_log_time = s->log_time && !strcmp(s->log_time, "on");
 
     if (s->probe_log) {
         s->probe_fp = fopen(s->probe_log, "w");
@@ -142,6 +175,17 @@ static void ngage_init(MachineState *machine)
             exit(1);
         }
         setvbuf(s->probe_fp, NULL, _IOLBF, 0);
+    }
+
+    if (s->pc_sample) {
+        s->pc_sample_fp = fopen(s->pc_sample, "w");
+        if (!s->pc_sample_fp) {
+            error_report("ngage: cannot open PC sample file %s", s->pc_sample);
+            exit(1);
+        }
+        setvbuf(s->pc_sample_fp, NULL, _IOFBF, 1 << 16);
+        s->pc_sample_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, pc_sample_tick, s);
+        timer_mod_ns(s->pc_sample_timer, PC_SAMPLE_NS);
     }
 
     if (s->upp_log) {
@@ -250,6 +294,10 @@ static void ngage_init(MachineState *machine)
                                      NGAGE_FLASH0_SIZE, s->flash0_path, s->flash0_save);
     s->flash[1] = ngage_flash_create(sysmem, "ngage.flash1", NGAGE_FLASH1_BASE,
                                      NGAGE_FLASH1_SIZE, s->flash1_path, s->flash1_save);
+    {
+        uint32_t cs1_size;
+        ngage_cbus_set_cs1_data(ngage_flash_data(s->flash[1], &cs1_size));
+    }
     if (s->rom_patches) {
         ngage_apply_rom_patches(s->rom_patches, s->flash[0], s->flash[1]);
     }
@@ -297,6 +345,10 @@ static char *get_audio_wav(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE
 static void set_audio_wav(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->audio_wav = g_strdup(v); }
 static char *get_audio_log(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->audio_log); }
 static void set_audio_log(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->audio_log = g_strdup(v); }
+static char *get_log_time(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->log_time); }
+static void set_log_time(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->log_time = g_strdup(v); }
+static char *get_pc_sample(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->pc_sample); }
+static void set_pc_sample(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->pc_sample = g_strdup(v); }
 static char *get_probe(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->probe_log); }
 static void set_probe(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->probe_log = g_strdup(v); }
 
@@ -349,6 +401,12 @@ static void ngage_machine_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "trace", "lo-hi[:lo-hi]: log every register access in these physical ranges");
     object_class_property_add_str(oc, "kern-log", get_kernlog, set_kernlog);
     object_class_property_set_description(oc, "kern-log", "file that receives the kernel's STI debug text");
+    object_class_property_add_str(oc, "log-time", get_log_time, set_log_time);
+    object_class_property_set_description(oc, "log-time",
+                                          "on: kern.log one line per message and cbus.log lines, each led by the guest time in seconds");
+    object_class_property_add_str(oc, "pc-sample", get_pc_sample, set_pc_sample);
+    object_class_property_set_description(oc, "pc-sample",
+                                          "file that receives the guest time, PC and mode every guest millisecond");
     object_class_property_add_str(oc, "rom-patches", get_patches, set_patches);
     object_class_property_set_description(oc, "rom-patches", "model shortcuts applied to the flash contents");
     object_class_property_add_str(oc, "quirks", get_quirks, set_quirks);

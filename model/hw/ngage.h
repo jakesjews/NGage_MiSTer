@@ -37,6 +37,15 @@ void ngage_apply_rom_patches(const char *path, NGageFlash *cs0, NGageFlash *cs1)
 
 uint32_t ngage_guest_pc(void);
 
+/*
+ * Guest-time stamps in the logs (machine property log-time=on): kern.log
+ * then gets one line per kernel message, cbus.log a time column and the
+ * QEMU log (-D) a line per flash sector erase start and end, each starting
+ * with the guest virtual clock in seconds.
+ */
+extern bool ngage_log_time;
+double ngage_guest_seconds(void);
+
 /* Register blocks modelled as storage with first-access logging (ngage_upp.c). */
 void ngage_upp_block(MemoryRegion *sysmem, const char *name, hwaddr base, uint32_t size);
 void ngage_upp_set_log(FILE *fp);
@@ -86,6 +95,7 @@ void ngage_audio_create(MemoryRegion *sysmem, AudioBackend *be, const char *wav_
 
 /* CBUS master and UEMK model (ngage_cbus.c). */
 void ngage_cbus_create(MemoryRegion *sysmem, const char *regs_path, FILE *log);
+void ngage_cbus_set_cs1_data(const uint8_t *data);
 void ngage_cbus_set_power_key(bool down);
 
 #endif

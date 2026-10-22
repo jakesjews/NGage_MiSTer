@@ -2315,3 +2315,32 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   window is the uncached bootstrap, so no change expected there), lint
   clean. Trace build with it: -0.150 ns at the slow 100C corner, +0.070
   at -40C (a measurement build). Hardware boot profile to follow.
+- **The 48-second wait was a format of C: at every boot** (an Opus 5.5
+  subagent in the model, with guest-time stamps it added to the model's
+  logs: `log-time=on` in args.sh, kern.log/cbus.log lines prefixed with
+  the guest second, erases in qemu.log, and `pc-sample=FILE` sampling the
+  PC every guest millisecond). EStart asks HelperDrv's "auxstart" at
+  every boot, up to seven times, not only when C: fails to mount; the
+  stand-in answered 105 every time, so every boot erased all 71 sectors
+  of C: (0.7 s each on the core = 50 s with the CPU idle; 20 ms each in
+  the model, which is why it boots in 24 guest seconds). The Bluetooth
+  stack's ten CBUS timeouts (1.5 s each) overlap it and gate nothing.
+  Fix: the stand-in answers 105 only while C: is blank. Neither it nor the
+  firmware can read the C: area at that point, so the core keeps the C:
+  area's first word in a register as the loader and the chip write it
+  (ddram_flash.sv) and exposes "erased" at HLE 0x0C1F0104 bit 0
+  (upp_periph beside the date register); the model answers the same from
+  its flash array. Model: a blank image formats once (142 erase lines), a
+  formatted one never. Hardware (enlarged-TLB build, formatted save, the
+  old RTL reads the register as 0 = formatted): no idle phase at all, the
+  kernel phase runs 28-105 s and the Time dialog is up at about 110 s
+  after the load, against 175-200 s before. The Time dialog still comes
+  on this boot (the save had been formatted by the previous boot); a
+  second boot from the written-back save will say whether it stays.
+- With the enlarged TLBs (trace at 130 s after the CPU start): the
+  vectors-page walk is one every 545 clocks instead of 78, the rest after
+  the kernel's own TLB flushes; SDRAM waits in the kernel phase 23 % ->
+  10-13 %, instructions/s 8.3 M -> 9.6 M. The flash is now 71 % of bus
+  beats: I-cache line fills, with the user library (EUser at 0x503A1xxx)
+  and the kernel (0x50321xxx) colliding at the same I-cache index (VA
+  bits 13:4) on every system call.

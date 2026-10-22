@@ -13,7 +13,8 @@
  * sector reads status (an I/O overlay over that sector); the rest of the chip
  * reads array data, as in a multi-bank part whose other banks are readable
  * (the bank layout is not known). Status: erasing DQ7 = 0, DQ6 and DQ2
- * toggle, DQ3 = 1; suspended DQ7 = 1, DQ2 toggles.
+ * toggle, DQ3 = 1; suspended DQ7 = 1, DQ2 toggles. With log-time=on each
+ * erase start and end goes to the QEMU log with the guest time.
  *
  * Sector map: 64 KB sectors with the top 64 KB in eight 8 KB sectors (top
  * boot), from medint.pdd's sector-size rule at 0x5037FC28 (8 KB at and above
@@ -138,6 +139,10 @@ static void erase_done(void *opaque)
     erase(f, f->busy_off, f->busy_len);
     memory_region_del_subregion(f->sysmem, &f->busy_mr);
     f->busy = 0;
+    if (ngage_log_time) {
+        qemu_log("%11.6f %s: sector erase done at %08x\n", ngage_guest_seconds(),
+                 memory_region_name(&f->mr), f->busy_off);
+    }
 }
 
 static void erase_start(NGageFlash *f, uint32_t off)
@@ -153,6 +158,10 @@ static void erase_start(NGageFlash *f, uint32_t off)
     memory_region_set_size(&f->busy_mr, f->busy_len);
     memory_region_add_subregion_overlap(f->sysmem, f->base + f->busy_off, &f->busy_mr, 1);
     timer_mod(f->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + ERASE_NS);
+    if (ngage_log_time) {
+        qemu_log("%11.6f %s: sector erase at %08x pc=%08x\n", ngage_guest_seconds(),
+                 memory_region_name(&f->mr), f->busy_off, ngage_guest_pc());
+    }
 }
 
 /* Erase suspend (0xB0) and resume (0x30) are accepted at any address while busy. */

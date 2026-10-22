@@ -137,12 +137,16 @@ ret0:
 @ ecust 0x50342BE0 (id 5). The value NOS returns is unknown; the stand-in
 @ returns zeros, then queues the DFC with TDfc::Add (ekern ordinal 7,
 @ 0x5033F304). product_info then takes its "known product, variant 0" path.
-@ Id 12 is HelperDrv's "auxstart" query, which EStart makes only when the
-@ C: area of CS1 does not mount (blank flash): 105 makes it erase and
-@ format C: and the boot goes on; 0 leaves C: a RAM drive, Starter then
-@ takes the (0, 210) list, finds no backup server and the kernel faults
-@ (docs/UPP_WD2.md, docs/PROGRESS-LOG.md 2026-10-21). A phone comes with C:
-@ formatted; this makes a blank image format itself the firmware's own way.
+@ Id 12 is HelperDrv's "auxstart" query, which EStart makes at every boot
+@ (up to seven times): 105 makes it erase and format C: and the boot goes
+@ on; 0 leaves C: as it is. With a blank C: (a fresh image) 0 would leave
+@ C: a RAM drive, Starter then takes the (0, 210) list, finds no backup
+@ server and the kernel faults (docs/UPP_WD2.md, docs/PROGRESS-LOG.md
+@ 2026-10-21); with a formatted C: 105 erased all 71 sectors at every boot
+@ (50 s at the chip's erase time, and the Time dialog at every start, the
+@ format having removed the first-boot marker; 2026-10-22). So the answer
+@ is 105 only while C: is blank, which the core and the model report in
+@ the HLE register 0x0C1F0104 (bit 0: the C: area's first word is erased).
 svc3_read:
     stmfd   sp!, {r4, lr}
     ldr     r12, [sp, #12]          @ length (caller's [sp+4])
@@ -155,9 +159,13 @@ svc3_read:
 1:  subs    r12, r12, #1
     strgeb  lr, [r3, r12]
     bgt     1b
-    cmp     r1, #12                 @ auxstart: 105 = format C:
-    moveq   lr, #105
-    streqh  lr, [r3]
+    cmp     r1, #12                 @ auxstart: 105 = format C:, only while it is blank
+    bne     2f
+    ldr     r12, =0x581F0104        @ HLE: C: area blank (core upp_periph, model hw/ngage_cbus.c)
+    ldr     r12, [r12]
+    tst     r12, #1
+    movne   lr, #105
+    strh    lr, [r3]                @ 0 when C: has a file system
 2:  cmp     r4, #0
     beq     3f
     mov     r0, r4

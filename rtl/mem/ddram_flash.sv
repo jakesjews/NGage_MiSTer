@@ -74,6 +74,7 @@ module ddram_flash #(
 
 	output logic              mark,
 	output logic [CS1_AW-9:0] mark_blk,
+	output logic              c_blank,     // CS1's C: area starts erased (0xFFFFFFFF)
 	input  logic              bk_req,
 	input  logic [CS1_AW-9:0] bk_blk,
 	output logic              bk_taken,
@@ -198,6 +199,14 @@ module ddram_flash #(
 	logic [7:0]  own_be;
 	logic        hold_q = 1'b0, hold_ld = 1'b0;
 
+	// The first word of CS1's C: area (chip offset 0x400000), kept as the loader
+	// and the chip write it: the NOS stand-in asks through the HLE register
+	// at 0x0C1F0104 whether C: is blank (erased), to tell the firmware to
+	// format it only then (docs/NOS_STANDIN.md).
+	localparam logic [28:0] C_FIRST_BEAT = CS1_BASE + 29'h8_0000;      // 0x400000 / 8
+	logic [31:0] c_first = 32'hFFFF_FFFF;
+	assign c_blank = c_first == 32'hFFFF_FFFF;
+
 	wire own_cmd = own_rd | own_we;
 	wire sel_ld  = hold_q ? hold_ld : (ld_we && !own_cmd);
 	wire own_taken = !sel_ld && own_cmd && !ddram_busy;
@@ -210,6 +219,17 @@ module ddram_flash #(
 	assign ddram_be       = sel_ld ? ld_be : own_be;
 	assign ddram_burstcnt = (!sel_ld && own_rd) ? (own_bulk ? 8'(BK_BEATS) : 8'(BEATS)) : 8'd1;
 	assign ld_busy        = !(sel_ld && !ddram_busy);
+
+	// (one process: the loader's write of that beat, and the chip's write of
+	// either halfword, which S_LOOK issues)
+	always_ff @(posedge clk) begin
+		if (ld_taken && ld_addr == C_FIRST_BEAT)
+			for (int i = 0; i < 4; i++)
+				if (ld_be[i]) c_first[8 * i +: 8] <= ld_din[8 * i +: 8];
+		if (state == S_LOOK && !abandon && cur_we && cur_g[GW-1] &&
+		    cur_g[AW-1:2] == (AW-2)'(22'h8_0000) && !cur_g[1])
+			c_first[16 * cur_g[0] +: 16] <= cur_wdata;
+	end
 
 	// ------------------------------------------------------------------
 	// The state machine

@@ -299,6 +299,7 @@ mono at 8000 or 16000 Hz with halves of up to 5600 samples.
 | Offset | Name | Access | Meaning |
 |---|---|---|---|
 | `+0x00` | DATE | R | the date on which the UEMK RTC day counter read 0: bits 31:16 year, 15:8 month (1-12), 7:0 day (1-31); 0 = unknown |
+| `+0x04` | CBLANK | R | bit 0: the first word of CS1's C: area (chip offset `0x400000`) is erased (0xFFFFFFFF), i.e. C: has never been formatted. The NOS stand-in answers HelperDrv's "auxstart" query with 105 (format C:) only while this is set (`docs/NOS_STANDIN.md`). The core tracks the word as the image loader and the chip write it (`rtl/mem/ddram_flash.sv`); the model reads its flash array. |
 
 On the phone NOS kept this base date in its flash. The model sets it and the
 UEMK RTC registers (`0x11`-`0x13` time of day, `0x01` day counter = 0) from

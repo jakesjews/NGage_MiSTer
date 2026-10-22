@@ -232,6 +232,7 @@ wire  [5:0] rtc_sec, rtc_min;
 wire  [4:0] rtc_hour;
 wire  [7:0] rtc_days;
 wire [31:0] rtc_date;
+wire        c_blank;         // from ddram_flash: CS1's C: area is erased
 
 rtc_wall rtc_wall
 (
@@ -280,7 +281,7 @@ wire  [7:0] ld_be, dl_be, fs_be, tr_be, kt_be;
 wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr, kt_addr;
 wire [63:0] ld_din, dl_din, fs_din, tr_din, kt_din;
 reg   [1:0] ld_own = 2'd0;             // 0: loader, 1: flash_save, 2: debug trace, 3: kernel text
-localparam DBG_TRACE = 0;              // the debug trace and the kernel-text ring (off for a release build)
+localparam DBG_TRACE = 1;              // the debug trace and the kernel-text ring (off for a release build)
 
 wire ld_own_we = (ld_own == 2'd1) ? fs_we : (ld_own == 2'd2) ? tr_we : (ld_own == 2'd3) ? kt_we : dl_we;
 always @(posedge clk_sys) begin
@@ -398,6 +399,7 @@ ngage_mem ngage_mem
 
 	.save_mark(save_mark),
 	.save_mark_blk(save_mark_blk),
+	.c_blank(c_blank),
 	.save_rd(save_rd),
 	.save_blk(save_blk),
 	.save_taken(save_taken),
@@ -570,6 +572,7 @@ upp_periph upp_periph
 	.rtc_hour(rtc_hour),
 	.rtc_days(rtc_days),
 	.rtc_date(rtc_date),
+	.c_blank(c_blank),
 	.audio_l(AUDIO_L),
 	.audio_r(AUDIO_R),
 	.sti_we(sti_we),
@@ -1014,7 +1017,11 @@ localparam [31:0] DBG_TRIG_RD = 32'h0C1F0100;
 // ... and after a write to flash CS1 (a program or erase command) once
 // DBG_TRIG_WR_AFTER_S seconds have passed since the CPU started (0 = off):
 // the flash traffic of a boot stuck in the C: mount.
-localparam [7:0] DBG_TRIG_WR_AFTER_S = 8'd40;
+localparam [7:0] DBG_TRIG_WR_AFTER_S = 8'd0;
+// ... and at DBG_TRIG_AT1_S and DBG_TRIG_AT2_S seconds after the CPU started
+// (0 = off): a sample of what the CPU is doing in a slow phase of the boot.
+localparam [7:0] DBG_TRIG_AT1_S = 8'd55;
+localparam [7:0] DBG_TRIG_AT2_S = 8'd130;
 reg  [26:0] dbg_sec_pre = 0;
 reg   [7:0] dbg_sec = 0;
 always @(posedge clk_sys) begin
@@ -1064,9 +1071,12 @@ dbg_counters dbg_counters
 
 wire dbg_trig_wr = DBG_TRIG_WR_AFTER_S != 8'd0 && dbg_sec >= DBG_TRIG_WR_AFTER_S &&
                    cpu_req && wb_ack && wb_we && wb_adr[31:24] == 8'h02;
+wire dbg_trig_at = dbg_sec_pre == 27'd0 &&
+                   ((DBG_TRIG_AT1_S != 8'd0 && dbg_sec == DBG_TRIG_AT1_S) ||
+                    (DBG_TRIG_AT2_S != 8'd0 && dbg_sec == DBG_TRIG_AT2_S));
 reg  [15:0] dbg_trd_q = 0;
 always @(posedge clk_sys) dbg_trd_q <= {dbg_trd_q[14:0],
-	(DBG_TRIG_RD != 32'd0 && cpu_req && wb_ack && !wb_we && wb_adr[31:2] == DBG_TRIG_RD[31:2]) || dbg_trig_wr};
+	(DBG_TRIG_RD != 32'd0 && cpu_req && wb_ack && !wb_we && wb_adr[31:2] == DBG_TRIG_RD[31:2]) || dbg_trig_wr || dbg_trig_at};
 assign dbg_trig = (wb_cyc && wb_stb && wb_we && wb_ack && wb_adr[31:20] == 12'h0C0 &&
                    wb_adr[15:2] == 14'(32'h47F0 >> 2)) || dbg_trd_q[15];
 always @(posedge clk_sys) begin

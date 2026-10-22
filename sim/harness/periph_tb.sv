@@ -164,7 +164,7 @@ module periph_tb #(
 		.kp_col_oe(col_oe), .kp_col_out(col_out), .kp_row_oe(row_oe), .kp_row_out(row_out),
 		.kp_col_in(col_in), .kp_row_in(row_in), .power_key(!pwronx),
 		.rtc_valid(rtc_valid), .rtc_sec(rtc_sec), .rtc_min(rtc_min), .rtc_hour(rtc_hour), .rtc_days(rtc_days),
-		.rtc_date(rtc_date), .audio_l(audio_l), .audio_r(audio_r),
+		.rtc_date(rtc_date), .c_blank(1'b0), .audio_l(audio_l), .audio_r(audio_r),
 		.sti_we(sti_we), .sti_addr(), .sti_be(sti_be), .sti_data(sti_data)
 	);
 

@@ -15,6 +15,12 @@ machine+=",rom-patches=${NGAGE_PATCHES:-model/rom-patches.txt},kern-log=$out/ker
 [[ -n "${NGAGE_KEYS:-}" ]] && machine+=",keys=$NGAGE_KEYS"
 [[ -n "${NGAGE_MMC:-}" ]] && machine+=",mmc=$NGAGE_MMC"
 machine+=",lcd-log=$out/lcd.log,shot-dir=$out,screenshot=${NGAGE_SHOT:-0}"
+# Guest-time stamps: kern.log one line per kernel message, cbus.log lines,
+# each led by the guest time in seconds. NGAGE_LOGTIME=off gives the bare
+# text (as the hardware's STI ring holds it) and the boot bench's CBUS format.
+machine+=",log-time=${NGAGE_LOGTIME:-on}"
+# NGAGE_PCSAMPLE=FILE: guest time, PC and mode every guest millisecond.
+[[ -n "${NGAGE_PCSAMPLE:-}" ]] && machine+=",pc-sample=$NGAGE_PCSAMPLE"
 # HLE audio device (an emulator invention): what it plays goes to audio.wav;
 # NGAGE_AUDIO=coreaudio (or another -audiodev driver) also plays it on the host.
 machine+=",audio-wav=$out/audio.wav,audio-log=$out/audio.log"

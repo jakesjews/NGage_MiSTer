@@ -211,13 +211,22 @@ After a C: format Startup.app still asks once, because
 starts go straight to the idle screen with the host's date and time.
 
 HelperDrv's "auxstart" query (variant service 3 read, id 12, 2 bytes with a
-DFC; `0x5037F1C8`) is made only when EStart cannot mount C: (the CS1 area
-`0x400000`-`0x7FFFFF` blank). The stand-in answers 105, on which EStart
-erases and formats C: and the boot goes on. Answering 0 left C: a RAM
-drive, Starter then took its (0, 210) start-up list, found no backup server
-and the kernel faulted in Starter's cleanup (`RArrayBase::Count` on NULL,
-progress log 2026-10-21). What NOS answers on a phone is unknown; a phone's
-C: is formatted at the factory, so the question does not come up there.
+DFC; `0x5037F1C8`) is made by EStart at every boot, up to seven times (the
+model with timestamps, 2026-10-22; the earlier belief that it came only
+when C: failed to mount was wrong). 105 makes EStart erase and format C:
+(the CS1 area `0x400000`-`0x7FFFFF`) and the boot goes on; 0 leaves C: as
+it is. With a blank C: (a fresh image) 0 leaves C: a RAM drive, Starter
+then takes its (0, 210) start-up list, finds no backup server and the
+kernel faults in Starter's cleanup (`RArrayBase::Count` on NULL, progress
+log 2026-10-21). With a formatted C:, 105 at every boot erased all 71
+sectors every time: 50 s of idle on the core (the chip's 0.7 s an erase,
+20 ms in the model, which is why the model never showed it), and the Time
+and Date dialogs at every start, the format having removed the first-boot
+marker. So the stand-in answers 105 only while C: is blank, which it reads
+from the HLE register `0x0C1F0104` (bit 0: the C: area's first word is
+erased; the core keeps it as the loader and the chip write that word, the
+model reads its flash array; `docs/UPP_WD2.md`), and 0 otherwise. What NOS
+answers on a phone is unknown; a phone's C: is formatted at the factory.
 
 ## Not answered yet
 

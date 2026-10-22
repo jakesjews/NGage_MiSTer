@@ -23,7 +23,8 @@
  *      because of the 20-bit counters (guess). cbus.dll self-test 0x5037E008:
  *      register 0 must read 0x04xx, register 0x0D must read back what is written.
  *   5  unknown, 8 registers.
- * Register values come from model/cbus-regs.txt; every transaction is logged.
+ * Register values come from model/cbus-regs.txt; every transaction is logged
+ * (with log-time=on led by the guest time in seconds).
  *
  * UEMK A/D converter (register numbers as TriX's DCT4 UEM): writing register
  * 0x19 with bit 11 set starts a conversion of channel bits 15:12; register
@@ -87,6 +88,7 @@ typedef struct NGageCbus {
     uint32_t rtc_tod0;          /* seconds since midnight at start-up */
     int32_t rtc_day_off;        /* day counter = rtc_day_off + days since start-up midnight */
     uint32_t rtc_date;          /* HLE RTC date register */
+    const uint8_t *cs1_data;    /* CS1's array, for the C:-blank register at +4 */
     MemoryRegion rtc_mr;
 } NGageCbus;
 
@@ -103,6 +105,9 @@ static void cbus_log(NGageCbus *s, const char *what, unsigned dev, unsigned reg,
                      unsigned bits, uint32_t val)
 {
     if (s->log) {
+        if (ngage_log_time) {
+            fprintf(s->log, "%11.6f ", ngage_guest_seconds());
+        }
         fprintf(s->log, "%s dev=%u reg=%02x bits=%2u val=%05x len=%04x ctrl=%04x pc=%08x\n",
                 what, dev, reg, bits, val, s->len, s->ctrl, ngage_guest_pc());
     }
@@ -232,6 +237,10 @@ static uint64_t hle_rtc_read(void *opaque, hwaddr off, unsigned size)
 {
     NGageCbus *s = opaque;
 
+    if (off == 4) {             /* bit 0: the C: area (CS1 + 0x400000) starts erased */
+        const uint8_t *p = s->cs1_data ? s->cs1_data + 0x400000 : NULL;
+        return p && p[0] == 0xFF && p[1] == 0xFF && p[2] == 0xFF && p[3] == 0xFF;
+    }
     return off == 0 ? s->rtc_date : 0;
 }
 
@@ -279,6 +288,13 @@ static void cbus_load(NGageCbus *s, const char *path)
         }
     }
     fclose(fp);
+}
+
+void ngage_cbus_set_cs1_data(const uint8_t *data)
+{
+    if (the_cbus) {
+        the_cbus->cs1_data = data;
+    }
 }
 
 void ngage_cbus_create(MemoryRegion *sysmem, const char *regs_path, FILE *log)

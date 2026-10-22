@@ -75,6 +75,7 @@ module ngage_mem #(
 	// change, and block reads of CS1 (ddram_flash)
 	output logic         save_mark,
 	output logic [13:0]  save_mark_blk,
+	output logic         c_blank,       // CS1's C: area starts erased (HLE 0x0C1F0104)
 	input  logic         save_rd,
 	input  logic [13:0]  save_blk,
 	output logic         save_taken,
@@ -206,7 +207,7 @@ module ngage_mem #(
 		.cs0_req(m0_req), .cs0_we(m0_we), .cs0_addr(m0_addr), .cs0_wdata(m0_wdata), .cs0_rdata(m0_rdata), .cs0_ack(m0_ack),
 		.cs1_req(m1_req), .cs1_we(m1_we), .cs1_addr(m1_addr), .cs1_wdata(m1_wdata), .cs1_rdata(m1_rdata), .cs1_ack(m1_ack),
 		.ld_we(ld_we), .ld_addr(ld_addr), .ld_din(ld_din), .ld_be(ld_be), .ld_busy(ld_busy),
-		.mark(save_mark), .mark_blk(save_mark_blk), .bk_req(save_rd), .bk_blk(save_blk),
+		.mark(save_mark), .mark_blk(save_mark_blk), .c_blank(c_blank), .bk_req(save_rd), .bk_blk(save_blk),
 		.bk_taken(save_taken), .bk_valid(save_valid), .bk_data(save_data),
 		.ddram_busy(ddram_busy), .ddram_burstcnt(ddram_burstcnt), .ddram_addr(ddram_addr), .ddram_dout(ddram_dout),
 		.ddram_dout_ready(ddram_dout_ready), .ddram_rd(ddram_rd), .ddram_din(ddram_din), .ddram_be(ddram_be),

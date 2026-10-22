@@ -133,6 +133,7 @@ module upp_periph #(
 	input  logic [4:0]  rtc_hour,
 	input  logic [7:0]  rtc_days,
 	input  logic [31:0] rtc_date,
+	input  logic        c_blank,       // HLE 0x0C1F0104 bit 0: CS1's C: area is erased
 
 	// the audio device's output, signed, at 48 kHz
 	output logic [15:0] audio_l,
@@ -457,7 +458,8 @@ module upp_periph #(
 	                  (acc && pg49 && off == 12'h000) ? 32'h0000_0001 : 32'd0;
 	// the HLE RTC date register
 	wire [31:0] m_date = (acc && s_date) ? 32'hFFFF_FFFF : 32'd0;
-	wire [31:0] d_date = (off[3:0] == 4'h0) ? rtc_base : 32'd0;
+	wire [31:0] d_date = (off[3:0] == 4'h0) ? rtc_base :
+	                     (off[3:0] == 4'h4) ? {31'd0, c_blank} : 32'd0;
 
 	wire [31:0] rmask = m_intc | m_tmr | m_dma | m_mmc | m_lcd | m_uif | m_cbus | m_aud | m_date | m_q;
 	wire [31:0] rbits = (d_intc & m_intc) | (d_tmr & m_tmr) | (d_dma & m_dma) | (d_mmc & m_mmc) |

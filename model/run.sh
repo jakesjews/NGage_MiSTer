@@ -16,6 +16,11 @@
 #   NGAGE_MMC     game-card image (raw); CID/CSD from <image>.cid / <image>.csd
 #   NGAGE_TRACE   lo-hi[:lo-hi] physical ranges whose every access goes to regs.log
 #   NGAGE_SHOT    LCD screenshot period in guest seconds (default 0 = only on exit)
+#   NGAGE_LOGTIME on (default): kern.log has a line per kernel message and
+#                 cbus.log a leading column, the guest time in seconds;
+#                 off: kern.log is the bare text, as on the hardware
+#   NGAGE_PCSAMPLE file for a PC sample every guest millisecond: "<guest
+#                 seconds> <pc> <mode>" (busy and idle stretches on the clock)
 #   NGAGE_ICOUNT  QEMU -icount setting (default shift=4,sleep=off: 16 ns per
 #                 instruction, idle time skipped); "none" for wall-clock time
 #   NGAGE_AUDIO   host audio driver for the HLE audio device, e.g. coreaudio
