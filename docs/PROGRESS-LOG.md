@@ -2185,3 +2185,34 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   Screenshots in `build/hardware/rel/`.
 - README: the setup step points at `releases/`; the status names the
   release.
+
+### 2026-10-22: per-second counters for the speed question
+
+- The accuracy assessment (build/accuracy-assessment-draft.md, an Opus
+  5.5 draft on the user's request) found that nobody has measured the
+  core's speed against the phone and that the evidence (ZAP's load-use
+  interlock, the kernel's 1.56-2.12 cycles an instruction, the 150 s boot
+  from a save against the model's under 30 guest seconds, the Bluetooth
+  driver's extra retries) points to a slower core, not the faster one the
+  timing-fidelity plan assumed. So: measure first. The user has no real
+  N-Gage QD; the references left are the firmware's memory-controller
+  and flash constants (the phone's wait states), TI's ARM925T TRM for the
+  cycle costs, and videos at best as a coarse check.
+- `rtl/mister/dbg_counters.sv`: eight 32-bit counters latched once a
+  second (dbg_tick, the second's last clock of the overlay's wall clock)
+  on overlay rows y = 56..84: LCD frames (a RAMWR starting at page 0;
+  lcd_panel's new frame_ev) and pixels written (pix_ev), instructions
+  retired (the writeback taps that the trace used), clocks in
+  wait-for-interrupt (cp15's WFI state, brought out as o_wfi through
+  zap_core, zap_top and arm925t as dbg_wfi), clocks a CPU bus beat waited
+  on the SDRAM (0x0A window), the flash (CS0-CS3) or elsewhere, and beats
+  answered. `tools/mister_dbg.py` prints them (frames, px, M instr, idle
+  %, bus wait % by target, beats). Lint clean; the whole-core boot bench
+  identical to the clock (64,059,964). Not gated by DBG_TRACE: a few
+  hundred ALMs, present in release builds too (the overlay is off unless
+  the OSD switches it on).
+- Zaparoo (the user's question): its captures read the scaler buffer in
+  DDR3, where the flash images live and system code runs in place, so a
+  capture is a brief hit on flash waits, not a steady slowdown; the flash
+  wait row will show it. The injection path does not touch the core's
+  memory.

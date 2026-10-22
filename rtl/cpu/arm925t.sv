@@ -59,6 +59,7 @@ module arm925t #(
 	// sim/harness/coreboot_main.cpp watches it, and the data port's
 	// completed accesses (dbg_d_done: the data cache answered one).
 	output logic        dbg_wb_valid,
+	output logic        dbg_wfi,
 	output logic        dbg_wb_dvalid,
 	output logic        dbg_wb_uop_last,
 	output logic [1:0]  dbg_wb_dabt,
@@ -102,6 +103,7 @@ module arm925t #(
 		.i_fiq    (fiq),
 		.o_dbg_pc(dbg_pc),
 		.o_dbg_wb_valid    (dbg_wb_valid),
+		.o_dbg_wfi         (dbg_wfi),
 		.o_dbg_wb_dvalid   (dbg_wb_dvalid),
 		.o_dbg_wb_uop_last (dbg_wb_uop_last),
 		.o_dbg_wb_dabt     (dbg_wb_dabt),

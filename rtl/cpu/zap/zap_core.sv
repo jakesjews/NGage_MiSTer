@@ -190,6 +190,7 @@ output  logic [5:0]                      o_dc_reg_idx_bin, // Binary index.
 // -----------------------------------------------------
 
 output  logic                            o_dbg_wb_valid,
+output  logic                            o_dbg_wfi,       // ARM925T: in wait for interrupt
 output  logic                            o_dbg_wb_dvalid,
 output  logic                            o_dbg_wb_uop_last,
 output  logic [1:0]                      o_dbg_wb_dabt,
@@ -1712,6 +1713,7 @@ zap_cp15_cb #(
         .o_dac                  (o_dac),
         .o_baddr                (o_baddr),
         .o_mmu_en               (o_mmu_en),
+        .o_wfi                  (o_dbg_wfi),
         .o_sr                   (o_sr),
         .o_pid                  (o_pid),
         .o_l4_enable            (l4_enable),

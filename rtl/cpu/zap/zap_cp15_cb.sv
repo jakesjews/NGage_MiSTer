@@ -114,6 +114,7 @@ module zap_cp15_cb
 
         // MMU enable.
         output logic                              o_mmu_en,
+        output logic                              o_wfi,       // ARM925T: waiting for an interrupt (debug)
 
         // SR register.
         output logic      [1:0]                   o_sr,
@@ -967,6 +968,9 @@ logic unused;
 assign unused = |{r0, r1, r2, r3, r4, r5, r6, i_cpsr[27:5],
                   i_icache_clean_done, r[14], r[15], r[4], r[7], r[8], r[9],
                   r[10], r[11], r[12]};
+
+// ARM925T: the wait-for-interrupt state, for the debug counters.
+assign o_wfi = state == WFI;
 
 endmodule : zap_cp15_cb
 

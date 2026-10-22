@@ -647,6 +647,7 @@ wire        tr_wb_valid, tr_wb_dvalid, tr_wb_uop_last, tr_wb_pabt, tr_wb_und, tr
 wire  [1:0] tr_wb_dabt;
 wire [31:0] tr_wb_pc, tr_wb_cpsr, tr_wb_cpsr_nxt;
 wire        tr_d_done, tr_d_we;
+wire        cpu_dbg_wfi;
 wire [31:0] tr_d_va, tr_d_wdata, tr_d_rdata;
 wire  [3:0] tr_d_sel;
 
@@ -667,6 +668,7 @@ arm925t arm925t
 	.bus_err(wb_err & ~test_sel),
 	.dbg_pc(cpu_dbg_pc),
 	.dbg_wb_valid(tr_wb_valid),
+	.dbg_wfi(cpu_dbg_wfi),
 	.dbg_wb_dvalid(tr_wb_dvalid),
 	.dbg_wb_uop_last(tr_wb_uop_last),
 	.dbg_wb_dabt(tr_wb_dabt),
@@ -938,6 +940,8 @@ wire [15:0] scan_rgb;
 wire [15:0] panel_rgb;
 wire        lcd_on;
 
+wire lcd_frame_ev, lcd_pix_ev;
+
 lcd_panel lcd_panel
 (
 	.clk(clk_sys),
@@ -957,7 +961,9 @@ lcd_panel lcd_panel
 	.scan_x(scan_x),
 	.scan_y(scan_y),
 	.scan_rgb(panel_rgb),
-	.display_on(lcd_on)
+	.display_on(lcd_on),
+	.frame_ev(lcd_frame_ev),
+	.pix_ev(lcd_pix_ev)
 );
 
 // Memory-test status square in the top-left 12x12 panel pixels while the
@@ -1022,6 +1028,40 @@ always @(posedge clk_sys) begin
 		dbg_sec_pre <= dbg_sec_pre + 1'd1;
 	end
 end
+wire        dbg_tick = dbg_sec_pre == 27'd103_999_999;   // the second's last clock
+
+// Per-second counters (rtl/mister/dbg_counters.sv): frames and pixels at
+// the panel, instructions retired, clocks in wait-for-interrupt, clocks a
+// CPU bus beat waited on the SDRAM / the flash / anything else, beats.
+wire        dbg_bus_pend  = wb_cyc && wb_stb && !wb_ack && !wb_err;
+wire        dbg_bus_beat  = wb_cyc && wb_stb && (wb_ack || wb_err);
+wire        dbg_bus_sdram = wb_adr[27:25] == 3'b101;      // 0x0A000000 window
+wire        dbg_bus_flash = wb_adr[27:26] == 2'b00;       // CS0-CS3
+wire [31:0] cnt_frames, cnt_pix, cnt_retired, cnt_wfi, cnt_wsdram, cnt_wflash, cnt_wother, cnt_beats;
+
+dbg_counters dbg_counters
+(
+	.clk(clk_sys),
+	.reset(sys_reset),
+	.tick(dbg_tick),
+	.frame(lcd_frame_ev),
+	.pix(lcd_pix_ev),
+	.retired((tr_wb_valid || tr_wb_dvalid) && tr_wb_uop_last),
+	.wfi(cpu_dbg_wfi),
+	.wait_sdram(dbg_bus_pend && dbg_bus_sdram),
+	.wait_flash(dbg_bus_pend && dbg_bus_flash),
+	.wait_other(dbg_bus_pend && !dbg_bus_sdram && !dbg_bus_flash),
+	.beat(dbg_bus_beat),
+	.frames_s(cnt_frames),
+	.pix_s(cnt_pix),
+	.retired_s(cnt_retired),
+	.wfi_s(cnt_wfi),
+	.wait_sdram_s(cnt_wsdram),
+	.wait_flash_s(cnt_wflash),
+	.wait_other_s(cnt_wother),
+	.beats_s(cnt_beats)
+);
+
 wire dbg_trig_wr = DBG_TRIG_WR_AFTER_S != 8'd0 && dbg_sec >= DBG_TRIG_WR_AFTER_S &&
                    cpu_req && wb_ack && wb_we && wb_adr[31:24] == 8'h02;
 reg  [15:0] dbg_trd_q = 0;
@@ -1042,8 +1082,11 @@ wire        dbg_strow = scan_y >= 8'd4 && scan_y < 8'd7 && scan_x >= 8'd16 && sc
 // further 32-bit rows at y = 8, 12, ..., 52 (3 lines each): the interrupt
 // words, the fault record, the trace's first trigger PC, {dumps, triggers,
 // kernel-text bytes}, the wall clock {valid, 7'b0, hour, min, sec} and its
-// date, the audio peaks, {kernel-text writes dropped, 7'b0, dumping, 16'b0}
-wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < 8'd55 && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
+// date, the audio peaks, {kernel-text writes dropped, 7'b0, dumping, 16'b0};
+// then at y = 56, ..., 84 the per-second counters: frames, pixels,
+// instructions retired, wait-for-interrupt clocks, bus wait clocks on the
+// SDRAM, the flash and elsewhere, bus beats
+wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < 8'd87 && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd3) ? dbg_en0_irq :
                         (scan_y[7:2] == 6'd4) ? dbg_en0_fiq :
@@ -1055,7 +1098,15 @@ wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd10) ? {rtc_valid, 7'd0, 3'd0, rtc_hour, 2'd0, rtc_min, 2'd0, rtc_sec} :
                         (scan_y[7:2] == 6'd11) ? rtc_date :
                         (scan_y[7:2] == 6'd12) ? {dbg_aud_l, dbg_aud_r} :
-                                                 {kt_dropped, 7'd0, tr_dumping, 16'd0};
+                        (scan_y[7:2] == 6'd13) ? {kt_dropped, 7'd0, tr_dumping, 16'd0} :
+                        (scan_y[7:2] == 6'd14) ? cnt_frames :
+                        (scan_y[7:2] == 6'd15) ? cnt_pix :
+                        (scan_y[7:2] == 6'd16) ? cnt_retired :
+                        (scan_y[7:2] == 6'd17) ? cnt_wfi :
+                        (scan_y[7:2] == 6'd18) ? cnt_wsdram :
+                        (scan_y[7:2] == 6'd19) ? cnt_wflash :
+                        (scan_y[7:2] == 6'd20) ? cnt_wother :
+                                                 cnt_beats;
 wire        dbg_bit   = dbg_pcrow ? dbg_pc_q[5'd31 - 5'(scan_x - 8'd16)] :
                         dbg_strow ? dbg_bits_q[3'd7 - 3'(scan_x - 8'd16)] :
                                     dbg_word[5'd31 - 5'(scan_x - 8'd16)];

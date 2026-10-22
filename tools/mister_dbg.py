@@ -47,7 +47,7 @@ def decode(path):
     bits = [bit(im, scale, 16 + i, 5) for i in range(8)]
     flags = " ".join("%s=%d" % (n, v) for n, v in zip(NAMES, bits))
     words = []
-    for row in (9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53):
+    for row in (9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85):
         w = 0
         for i in range(32):
             w = (w << 1) | bit(im, scale, 16 + i, row)
@@ -59,7 +59,17 @@ def decode(path):
         path, pc, flags, words[0], words[1], words[2], words[3], words[4], words[5], cat,
         words[6], words[7] >> 24, (words[7] >> 16) & 0xFF, words[7] & 0xFFFF, w11 >> 24,
         w8 >> 31, (w8 >> 16) & 0x1F, (w8 >> 8) & 0x3F, w8 & 0x3F, w9 >> 16, (w9 >> 8) & 0xFF, w9 & 0xFF,
-        w10 >> 16, w10 & 0xFFFF)
+        w10 >> 16, w10 & 0xFFFF) + counters(words[12:20])
+
+
+def counters(w):
+    # per second: frames, pixels, instructions retired, wait-for-interrupt
+    # clocks, bus wait clocks on the SDRAM / the flash / elsewhere, bus beats
+    frames, pix, retired, wfi, wsd, wfl, wot, beats = w
+    clk = 104_000_000
+    pct = lambda n: 100.0 * n / clk
+    return " | per s: %d frames, %d px, %.2f M instr, idle %.1f%%, bus wait sdram %.1f%% flash %.1f%% other %.1f%%, %d beats" % (
+        frames, pix, retired / 1e6, pct(wfi), pct(wsd), pct(wfl), pct(wot), beats)
 
 
 if __name__ == "__main__":

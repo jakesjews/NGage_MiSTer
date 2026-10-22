@@ -119,6 +119,7 @@ parameter logic        HIVECS       = 1'd0           // Reset value of control b
         // ARM925T: debug trace taps (rtl/mister/dbg_trace.sv): the
         // writeback stage, and the data port's completed accesses.
         output  logic            o_dbg_wb_valid,
+        output  logic            o_dbg_wfi,
         output  logic            o_dbg_wb_dvalid,
         output  logic            o_dbg_wb_uop_last,
         output  logic  [1:0]     o_dbg_wb_dabt,
@@ -300,6 +301,7 @@ zap_core #(
 
 // ARM925T: debug trace taps.
 .o_dbg_wb_valid         (o_dbg_wb_valid),
+.o_dbg_wfi              (o_dbg_wfi),
 .o_dbg_wb_dvalid        (o_dbg_wb_dvalid),
 .o_dbg_wb_uop_last      (o_dbg_wb_uop_last),
 .o_dbg_wb_dabt          (o_dbg_wb_dabt),

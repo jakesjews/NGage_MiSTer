@@ -30,6 +30,7 @@ module arm925t (
 	bus_err,
 	dbg_pc,
 	dbg_wb_valid,
+	dbg_wfi,
 	dbg_wb_dvalid,
 	dbg_wb_uop_last,
 	dbg_wb_dabt,
@@ -67,6 +68,7 @@ module arm925t (
 	input wire bus_err;
 	output wire [31:0] dbg_pc;
 	output wire dbg_wb_valid;
+	output wire dbg_wfi;
 	output wire dbg_wb_dvalid;
 	output wire dbg_wb_uop_last;
 	output wire [1:0] dbg_wb_dabt;
@@ -107,6 +109,7 @@ module arm925t (
 		.i_fiq(fiq),
 		.o_dbg_pc(dbg_pc),
 		.o_dbg_wb_valid(dbg_wb_valid),
+		.o_dbg_wfi(dbg_wfi),
 		.o_dbg_wb_dvalid(dbg_wb_dvalid),
 		.o_dbg_wb_uop_last(dbg_wb_uop_last),
 		.o_dbg_wb_dabt(dbg_wb_dabt),
@@ -4092,6 +4095,7 @@ module zap_core (
 	o_dc_reg_idx,
 	o_dc_reg_idx_bin,
 	o_dbg_wb_valid,
+	o_dbg_wfi,
 	o_dbg_wb_dvalid,
 	o_dbg_wb_uop_last,
 	o_dbg_wb_dabt,
@@ -4191,6 +4195,7 @@ module zap_core (
 	output reg [63:0] o_dc_reg_idx;
 	output wire [5:0] o_dc_reg_idx_bin;
 	output wire o_dbg_wb_valid;
+	output wire o_dbg_wfi;
 	output wire o_dbg_wb_dvalid;
 	output wire o_dbg_wb_uop_last;
 	output wire [1:0] o_dbg_wb_dabt;
@@ -5653,6 +5658,7 @@ module zap_core (
 		.o_dac(o_dac),
 		.o_baddr(o_baddr),
 		.o_mmu_en(o_mmu_en),
+		.o_wfi(o_dbg_wfi),
 		.o_sr(o_sr),
 		.o_pid(o_pid),
 		.o_l4_enable(l4_enable),
@@ -5714,6 +5720,7 @@ module zap_cp15_cb (
 	o_dac,
 	o_baddr,
 	o_mmu_en,
+	o_wfi,
 	o_sr,
 	o_pid,
 	o_l4_enable,
@@ -5769,6 +5776,7 @@ module zap_cp15_cb (
 	output reg [31:0] o_dac;
 	output reg [31:0] o_baddr;
 	output reg o_mmu_en;
+	output wire o_wfi;
 	output reg [1:0] o_sr;
 	output reg [7:0] o_pid;
 	output reg o_l4_enable;
@@ -6692,6 +6700,7 @@ module zap_cp15_cb (
 	assign r6 = r[6];
 	wire unused;
 	assign unused = |{r0, r1, r2, r3, r4, r5, r6, i_cpsr[27:5], i_icache_clean_done, r[14], r[15], r[4], r[7], r[8], r[9], r[10], r[11], r[12]};
+	assign o_wfi = state == WFI;
 	initial _sv2v_0 = 0;
 endmodule
 module zap_dcache_fsm (
@@ -18810,6 +18819,7 @@ endmodule
 module zap_top (
 	o_dbg_pc,
 	o_dbg_wb_valid,
+	o_dbg_wfi,
 	o_dbg_wb_dvalid,
 	o_dbg_wb_uop_last,
 	o_dbg_wb_dabt,
@@ -18870,6 +18880,7 @@ module zap_top (
 	parameter [0:0] HIVECS = 1'd0;
 	output wire [31:0] o_dbg_pc;
 	output wire o_dbg_wb_valid;
+	output wire o_dbg_wfi;
 	output wire o_dbg_wb_dvalid;
 	output wire o_dbg_wb_uop_last;
 	output wire [1:0] o_dbg_wb_dabt;
@@ -19465,6 +19476,7 @@ module zap_top (
 		.o_trace_valid(o_trace_valid),
 		.o_trace_uop_last(o_trace_uop_last),
 		.o_dbg_wb_valid(o_dbg_wb_valid),
+		.o_dbg_wfi(o_dbg_wfi),
 		.o_dbg_wb_dvalid(o_dbg_wb_dvalid),
 		.o_dbg_wb_uop_last(o_dbg_wb_uop_last),
 		.o_dbg_wb_dabt(o_dbg_wb_dabt),

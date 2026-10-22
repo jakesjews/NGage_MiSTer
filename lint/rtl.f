@@ -49,5 +49,6 @@ rtl/mister/rtc_wall.sv
 rtl/mister/lcd_testgen.sv
 rtl/mister/dbg_trace.sv
 rtl/mister/dbg_sti.sv
+rtl/mister/dbg_counters.sv
 rtl/cpu/arm925t_gen.v
 NGage.sv

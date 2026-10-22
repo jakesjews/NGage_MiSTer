@@ -104,7 +104,11 @@ module lcd_panel #(
 	input  logic  [7:0] scan_y,
 	output logic [15:0] scan_rgb,
 
-	output logic        display_on
+	output logic        display_on,
+
+	// debug counters: a RAMWR starting at page 0 (a frame), a pixel written
+	output logic        frame_ev,
+	output logic        pix_ev
 );
 
 	localparam int W = 176;
@@ -271,9 +275,12 @@ module lcd_panel #(
 		end
 	endtask
 
+	assign pix_ev = pix_v;
+
 	always_ff @(posedge clk) begin
 		pix_v    <= 1'b0;
 		rr_start <= 1'b0;
+		frame_ev <= 1'b0;
 
 		if (hw_rst) begin
 			set_defaults();
@@ -304,6 +311,7 @@ module lcd_panel #(
 					cc  <= xs;
 					pc  <= ys;
 					pph <= 2'd0;
+					frame_ev <= ys == '0;
 				end
 				8'h2E: begin
 					cc       <= xs;

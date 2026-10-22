@@ -30,6 +30,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/mister/rtc_wall.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mister/lcd_testgen.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mister/dbg_trace.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mister/dbg_sti.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/mister/dbg_counters.sv
 set_global_assignment -name VERILOG_FILE rtl/cpu/arm925t_gen.v
 set_global_assignment -name SDC_FILE NGage.sdc
 set_global_assignment -name SYSTEMVERILOG_FILE NGage.sv
