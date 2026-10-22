@@ -20,6 +20,8 @@
 //    reports at once;
 //  * a stream of changes is written back at the latest MAX_CLKS after the
 //    first;
+//  * blocks reach the file in the order they were first changed, not by
+//    address;
 //  * unsaved changes survive a core reset;
 //  * after a detach (an ioctl load of CS1) nothing is written back;
 //  * a read-only mount loads but never writes back (note 3).
@@ -357,6 +359,19 @@ int main(int argc, char **argv) {
 	CHECK(b.first_wr_req && b.first_wr_req < tf + MAXC + SCAN, "write-back within MAX_CLKS of the first change");
 	b.settle(4000000);
 	CHECK_EQ(b.file_mismatches(), 0, "file bytes wrong after the stream");
+
+	// blocks go to the file in the order they were first changed, not by
+	// address, so an interruption leaves a prefix of the firmware's writes
+	printf("write-back order\n");
+	b.hps.written.clear();
+	for (uint32_t w : {0x3C0000u, 0x390000u, 0x3B0000u, 0x390001u, 0x380000u}) b.program(w, 0x00FF);
+	b.settle(4000000);
+	{
+		std::vector<uint32_t> want = {0x3C00, 0x3900, 0x3B00, 0x3800};
+		CHECK(b.hps.written == want, "write-back order: %zu blocks, first 0x%04x", b.hps.written.size(),
+		      b.hps.written.empty() ? 0u : b.hps.written[0]);
+	}
+	CHECK_EQ(b.file_mismatches(), 0, "file bytes wrong after the ordered write-back");
 
 	// unsaved changes survive a core reset
 	printf("core reset\n");
