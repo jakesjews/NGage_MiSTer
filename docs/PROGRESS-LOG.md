@@ -2242,3 +2242,46 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   records a boot's counters, tools/jev_profile.py prints a run's timeline.
   Next: a trace build with time triggers (55 s and 130 s after the CPU
   start) to see the code of the compute phase and the memory-bound phase.
+- **Trace of the slow phases** (trace build NGageTrc with time triggers 55
+  and 130 s after the CPU start; dumps in build/hardware/trace/,
+  tools/trace_hist.py):
+  * The 48-second "compute" phase is the idle thread. It loops in
+    ekern.exe at 0x5032bb58: call the variant's service 13 through the
+    stand-in (0x5149e5e8, nine instructions, returns at once), test a
+    flag, repeat; 25 instructions an iteration at 4.9 cycles each, no
+    memory traffic, never a WFI. The same loop runs at the Time dialog:
+    the "21 M instructions/s, 4.9 CPI, no beats" signature means idle,
+    and the WFI counter is useless until the stand-in's idle service
+    actually sleeps. What the boot waits 48 s for is not yet named; the
+    kernel text shows the Bluetooth stack timing out on CBUS (KErrTimedOut
+    -33, several retries).
+  * The 93-second kernel phase is system-call traffic between EFile.exe
+    (user Thumb), EUser.dll and ekern.exe: 25 SWIs per 1000 instructions,
+    and 83 % of the clocks in stalls of 30 clocks or more. The bus ring
+    shows what they are: a two-level page-table walk every 78 clocks, the
+    same two translations over and over: the exception-vector page at
+    virtual 0 (L1 at 0x0A074000 -> coarse table 0x0A073800 -> ROM page
+    0x31B000) and the kernel's code pages at 0x50320000-0x50323000 (L1
+    0x0A07540C -> coarse table 0x0A078400 -> entries at 0x0A078480). The
+    small-page TLBs are 16 entries direct-mapped, indexed by VA[15:12]:
+    virtual 0 and 0x50320000 share slot 0 and evict each other on every
+    exception; the 4-entry section TLBs index by VA[21:20]. Nearly all of
+    the phase's 2.9 M SDRAM reads a second are these walks (the three
+    hottest lines are 134 of 800 beats), about 35 clocks each.
+  * The flash reads of the phase (39 % of beats, 512 of 999, 73 distinct
+    lines) are I-cache refills of the same kernel lines: the vectors page
+    (VA 0) and the kernel code at 0x50320000 also share I-cache indices
+    (VA[13:4]), so each exception evicts the kernel's first lines.
+  * CP15: 20 of every 1000 instructions are `mcr p15, c7, c14, 2` (clean
+    and invalidate a D-cache line by index: the kernel's flush loop) and
+    cost about 38 clocks each, because the core drains and refetches the
+    pipeline for every CP15 operation; the real part does these in a
+    cycle or two. Three DACR writes (c3) in the same window.
+  * The SWI path itself: entry about 68 clocks, the dispatcher's
+    `msr CPSR` mode switches (31 in the window), the two walks above,
+    and the 12-cycle mispredict on returns.
+  So the slow boot is not the memory's speed and not the caches as such:
+  it is the TLBs' organisation (small, direct-mapped, low bits as index)
+  meeting a kernel that takes an exception every 40 instructions, plus
+  the drain on every CP15 operation. Both are inside the CPU and
+  specific.
