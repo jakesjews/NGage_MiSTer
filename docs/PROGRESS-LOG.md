@@ -2058,3 +2058,14 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the five seeds now building miss, the next five should carry the hold
   setting, the placement and router knobs, and the DMA register, rather
   than the knobs alone.
+- Fitter knobs on from now on (the user's call, 2026-10-21 late, after
+  thirteen seeds missed): `OPTIMIZE_HOLD_TIMING "ALL PATHS"` (for the
+  SDRAM output register pair), `PLACEMENT_EFFORT_MULTIPLIER 2.0` and
+  `ROUTER_TIMING_OPTIMIZATION_LEVEL MAXIMUM`. Builds that had run for
+  more than five minutes finish as they were; younger ones restart with
+  the knobs. HQ2x is off as well (NGage.sv ties video_mixer's `hq2x` low
+  and the OSD's Scandoubler Fx list loses its HQ2x entry; `sl` is now the
+  option value itself). sys/ is untouched: the scandoubler's pixels still
+  pass through the framework's Hq2x block, whose line buffers stay (the
+  core's 15.7 kHz picture needs the scandoubler for VGA), so only the
+  blend logic goes, not block RAM.
