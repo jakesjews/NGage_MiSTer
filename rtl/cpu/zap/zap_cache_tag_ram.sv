@@ -33,7 +33,10 @@
 // o_cache_tag_dirty are the victim's, chosen from registers alone, so the
 // FSM's miss decision does not wait for the compares (a hit is a hit
 // whatever they say); o_cache_hit_dirty is the hit way's dirty bit. A
-// write goes to i_cache_way, which the FSM returns from
+// write while the FSM is idle (i_idle) is a store hit: it goes to the way
+// that hits, to no way on a miss, so the FSM presents it whatever the
+// compares say and they gate the write enables directly. Any other write
+// goes to i_cache_way, which the FSM returns from
 // o_cache_way (buffered across a fill). One LRU bit per set, the TI925T's
 // fixed LRU (TI SPRU671), updated on hits and fills; it is read with the
 // set, pipelined and forwarded like the valid bits, so that the way of
@@ -77,6 +80,7 @@ output  logic                             o_cache_tag_dirty,
 //
 input   logic    [31:0]                   i_lookup_address,
 input   logic                             i_access,
+input   logic                             i_idle,
 output  logic                             o_cache_hit,
 output  logic                             o_cache_hit_dirty,
 output  logic    [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] o_cache_way,
@@ -168,7 +172,7 @@ logic [LINES-1:0]                          lru;                 // ARM925T: the 
 logic [`ZAP_CACHE_TAG_WDT-1:0]             tag_ram_wr_data;
 logic                                      tag_ram_wr_en;
 logic [SET_W-1:0]                          tag_ram_wr_addr;     // The set written.
-logic [WAY_W-1:0]                          wr_way;              // ARM925T: the way written.
+logic [WAYS-1:0]                           wr_sel;              // ARM925T: the way written, one-hot (none: no write).
 logic [SET_W-1:0]                          rd_set, rd_set_del, rd_set_del2;   // The set read, in every way.
 logic [FLAT_W-1:0]                         rd_flat_ff, rd_flat_nxt;           // ARM925T: the clean walk's or line operation's line.
 logic [WAY_W-1:0]                          rd_way;                            // ARM925T: its way.
@@ -197,8 +201,7 @@ logic                                      line_done_ff, line_done_nxt;   // ARM
 logic                                      line_clear;                    // ARM925T
 logic                                      pend_en, pend_dirty;           // ARM925T: write-behind
 logic [SET_W-1:0]                          pend_addr;                     // ARM925T
-logic [WAY_W-1:0]                          pend_way;                      // ARM925T
-logic [FLAT_W-1:0]                         pend_flat;                     // ARM925T: its line
+logic [WAYS-1:0]                           pend_sel;                      // ARM925T: its way, one-hot
 
 logic                                      unused;
 logic [BLK_CTR_PAD-1:0]                    dummy;
@@ -234,7 +237,7 @@ zap_ram_simple_ben #(.WIDTH(CACHE_LINE*8), .DEPTH(LINES)) u_zap_ram_simple_data_
         .i_clk(i_clk),
         .i_clken(!i_hold),
 
-        .i_wr_en(i_cache_line_ben & {CACHE_LINE{wr_way == WAY_W'(w)}}),
+        .i_wr_en(i_cache_line_ben & {CACHE_LINE{wr_sel[w]}}),
         .i_wr_data(i_cache_line),
 
         .o_rd_data_pre(w_dummy[w]),
@@ -248,7 +251,7 @@ zap_ram_simple #(.WIDTH(`ZAP_CACHE_TAG_WDT), .DEPTH(LINES)) u_zap_ram_simple_tag
         .i_clk(i_clk),
         .i_clken(!i_hold),
 
-        .i_wr_en(tag_ram_wr_en && wr_way == WAY_W'(w)),
+        .i_wr_en(tag_ram_wr_en && wr_sel[w]),
         .i_wr_data(tag_ram_wr_data),
 
         .o_rd_data_pre(w_dummy_1[w]),
@@ -303,12 +306,11 @@ begin : g_lru
         //
         // The LRU bit of a set names the way to fill next: after a hit or a
         // fill, the other way. The bit is read with the set the RAMs read
-        // and pipelined three deep with the updates in flight forwarded
-        // (as the valid bits are), so that the victim is a register's
-        // worth of logic at the output. Both updates are written a cycle
-        // behind (write-behind, as the tag writes): the hit's through
-        // hit_pend_*, the fill's through pend_*. The hit, the later event,
-        // wins a set.
+        // and pipelined three deep with the pending updates forwarded (as
+        // the valid bits are), so that the victim is a register's worth of
+        // logic at the output. Both updates are written a cycle behind
+        // (write-behind, as the tag writes): the hit's through hit_pend_*,
+        // the fill's through pend_*. The hit, the later event, wins a set.
         //
         assign victim            = !valid_q[0] ? 1'd0 : !valid_q[1] ? 1'd1 : lru_q;
         assign sel               = hit[1] ? 1'd1 : hit[0] ? 1'd0 : victim;
@@ -327,11 +329,18 @@ begin : g_lru
         assign walk_tag          = rd_way ? tag_q[1]  : tag_q[0];
         assign walk_line         = rd_way ? line_q[1] : line_q[0];
 
-        // This cycle's updates, forwarded into the reads in flight.
+        // The pending updates (last cycle's, registered), forwarded into the
+        // reads in flight at every stage, and this cycle's into the output
+        // stage (as the valid bits); the hit's wins a set.
         function automatic logic lru_fwd ( input [SET_W-1:0] set, input logic prev );
-                return set == lk_set          && hit_upd_en    ? ~sel    :
-                       set == tag_ram_wr_addr && tag_ram_wr_en ? ~wr_way :
+                return set == hit_pend_set && hit_pend_en              ? hit_pend_val :
+                       set == pend_addr    && pend_en && (|pend_sel) ? pend_sel[0]  :
                        prev;
+        endfunction
+        function automatic logic lru_fwd_now ( input [SET_W-1:0] set, input logic prev );
+                return set == lk_set          && hit_upd_en                 ? ~sel      :
+                       set == tag_ram_wr_addr && tag_ram_wr_en && (|wr_sel) ? wr_sel[0] :
+                       lru_fwd ( set, prev );
         endfunction
 
         always_ff @ ( posedge i_clk )
@@ -357,9 +366,9 @@ begin : g_lru
                 end
                 else
                 begin
-                        if ( pend_en )
+                        if ( pend_en && (|pend_sel) )
                         begin
-                                lru [ pend_addr ] <= ~pend_way;
+                                lru [ pend_addr ] <= pend_sel[0]; // way 0 written: fill way 1 next
                         end
 
                         if ( hit_pend_en )
@@ -379,20 +388,25 @@ begin : g_lru
                 end
                 else if ( !i_hold || tag_ram_clear || line_clear )
                 begin
-                        lru_q  <= lru_fwd ( rd_set_del2, lru_s2 );
+                        lru_q  <= lru_fwd_now ( rd_set_del2, lru_s2 );
                         lru_s2 <= lru_fwd ( rd_set_del,  lru_s1 );
-                        lru_s1 <= lru_fwd ( rd_set,
-                                            rd_set == hit_pend_set && hit_pend_en ? hit_pend_val :
-                                            rd_set == pend_addr    && pend_en     ? ~pend_way    :
-                                            lru [ rd_set ] );
+                        lru_s1 <= lru_fwd ( rd_set,      lru [ rd_set ] );
                 end
         end
 end
 
 assign o_cache_hit       = |hit;
 assign o_cache_way       = sel;
-assign wr_way            = i_cache_way;
-assign pend_flat         = flat ( pend_way, pend_addr );
+
+// The way a write goes to: idle, the way that hits (a store hit); else the
+// way the FSM buffered with the address (a fill, a clean, a write-through).
+always_comb
+begin
+        for ( int w = 0; w < WAYS; w++ )
+        begin
+                wr_sel[w] = i_idle ? hit[w] : ( i_cache_way == WAY_W'(w) );
+        end
+end
 
 // ----------------------------------------------------------------------------
 
@@ -409,8 +423,12 @@ end
 // ARM925T: the valid and dirty bits are written one cycle after the tag RAM
 // (write-behind), so that the late write enable from the D-cache FSM drives
 // one register instead of the enables of every valid and dirty flop
-// (timing). The array reads in that cycle take the pending write from
-// pend_*. Tag writes happen only in IDLE, where no clean, clear or line
+// (timing). The reads in flight take the live write only into the output
+// stage (the lookup two behind the writer, which is at the output in the
+// cycle after the write) and the pending write, from pend_*, into every
+// stage; upstream forwarded the live write into all three stages, so the
+// live enable, a function of the tag compare, sat in front of each. Same
+// cycles. Tag writes happen only in IDLE, where no clean, clear or line
 // operation is active, and the arrays are read directly only outside IDLE.
 //
 always_ff @ ( posedge i_clk )
@@ -425,7 +443,7 @@ begin
         end
 
         pend_addr  <= tag_ram_wr_addr;
-        pend_way   <= wr_way;
+        pend_sel   <= wr_sel;
         pend_dirty <= i_cache_tag_dirty;
 end
 
@@ -444,17 +462,21 @@ begin
                 begin
                         for ( int w = 0; w < WAYS; w++ )
                         begin
-                                dirty_q[w]  <= rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_way == WAY_W'(w) ? i_cache_tag_dirty : dirty_s2[w];
-                                dirty_s2[w] <= rd_set_del  == tag_ram_wr_addr && tag_ram_wr_en && wr_way == WAY_W'(w) ? i_cache_tag_dirty : dirty_s1[w];
-                                dirty_s1[w] <= rd_set      == tag_ram_wr_addr && tag_ram_wr_en && wr_way   == WAY_W'(w) ? i_cache_tag_dirty :
-                                               rd_set      == pend_addr       && pend_en       && pend_way == WAY_W'(w) ? pend_dirty        :
+                                dirty_q[w]  <= rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w]   ? i_cache_tag_dirty :
+                                               rd_set_del2 == pend_addr       && pend_en       && pend_sel[w] ? pend_dirty        :
+                                               dirty_s2[w];
+                                dirty_s2[w] <= rd_set_del  == pend_addr && pend_en && pend_sel[w] ? pend_dirty : dirty_s1[w];
+                                dirty_s1[w] <= rd_set      == pend_addr && pend_en && pend_sel[w] ? pend_dirty :
                                                dirty [ flat(WAY_W'(w), rd_set) ];
                         end
                 end
 
-                if ( pend_en )
+                for ( int w = 0; w < WAYS; w++ )
                 begin
-                        dirty [ pend_flat ] <= pend_dirty;
+                        if ( pend_en && pend_sel[w] )
+                        begin
+                                dirty [ flat(WAY_W'(w), pend_addr) ] <= pend_dirty;
+                        end
                 end
 
                 if ( tag_ram_clean || line_clear )
@@ -479,18 +501,22 @@ begin
                 begin
                         for ( int w = 0; w < WAYS; w++ )
                         begin
-                                valid_q[w]  <= rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_way == WAY_W'(w) ? 1'd1 : valid_s2[w];
-                                valid_s2[w] <= rd_set_del  == tag_ram_wr_addr && tag_ram_wr_en && wr_way == WAY_W'(w) ? 1'd1 : valid_s1[w];
-                                valid_s1[w] <= rd_set      == tag_ram_wr_addr && tag_ram_wr_en && wr_way   == WAY_W'(w) ? 1'd1 :
-                                               rd_set      == pend_addr       && pend_en       && pend_way == WAY_W'(w) ? 1'd1 :
+                                valid_q[w]  <= rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w]   ? 1'd1 :
+                                               rd_set_del2 == pend_addr       && pend_en       && pend_sel[w] ? 1'd1 :
+                                               valid_s2[w];
+                                valid_s2[w] <= rd_set_del  == pend_addr && pend_en && pend_sel[w] ? 1'd1 : valid_s1[w];
+                                valid_s1[w] <= rd_set      == pend_addr && pend_en && pend_sel[w] ? 1'd1 :
                                                valid [ flat(WAY_W'(w), rd_set) ];
                         end
                 end
 
                 // ARM925T: the pending write (above) first, then the clears.
-                if ( pend_en )
+                for ( int w = 0; w < WAYS; w++ )
                 begin
-                        valid [ pend_flat ] <= 1'd1;
+                        if ( pend_en && pend_sel[w] )
+                        begin
+                                valid [ flat(WAY_W'(w), pend_addr) ] <= 1'd1;
+                        end
                 end
 
                 // ARM925T: a disabled cache is cleared in every cycle, held

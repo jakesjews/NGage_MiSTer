@@ -543,6 +543,26 @@ begin:next_state_logic
                         end
                         else if ( i_cacheable )
                         begin
+                                //
+                                // ARM925T: a store's line and tag write is
+                                // presented whatever the compare says: the
+                                // tag RAM writes the way that hits, none on
+                                // a miss, so the compare gates the write
+                                // enables directly instead of through this
+                                // state machine (timing).
+                                //
+                                if ( i_wr )
+                                begin
+                                        o_cache_line                     = {(CACHE_LINE/4){i_din}};
+                                        o_cache_line_ben                 = ben_comp ( i_address[$clog2(CACHE_LINE)-1:2], i_ben );
+                                        o_cache_tag_wr_en                = 1'd1;
+                                        o_cache_tag[`ZAP_CACHE_TAG__TAG] = i_address[`ZAP_VA__CACHE_TAG];
+                                        o_cache_tag_dirty                = 1'd1;
+                                        o_cache_tag[`ZAP_CACHE_TAG__PA]  = i_phy_addr[31 : $clog2(CACHE_LINE)];
+                                        o_address                        = i_address;
+                                        o_cache_way                      = i_cache_way;
+                                end
+
                                 // ARM925T: the valid bit is the victim's: a
                                 // hit is a hit whatever it says.
                                 casez ({i_cache_hit,i_cache_tag_valid})
@@ -554,26 +574,10 @@ begin:next_state_logic
                                                 rhit    = 1'd1;
                                                 o_ack   = 1'd1;
                                         end
-                                        else if ( i_wr ) // Write request
+                                        else if ( i_wr ) // Write request (the write itself is above)
                                         begin
                                                 o_ack        = 1'd1;
                                                 whit         = 1'd1;
-
-                                                o_cache_line =
-                                                {(CACHE_LINE/4){i_din}};
-
-                                                o_cache_line_ben  = ben_comp (
-                                                        i_address[$clog2(CACHE_LINE)-1:2],
-                                                        i_ben );
-
-                                                // Write to tag and also write out physical address.
-                                                o_cache_tag_wr_en                = 1'd1;
-                                                o_cache_tag[`ZAP_CACHE_TAG__TAG] = i_address[`ZAP_VA__CACHE_TAG];
-                                                o_cache_tag_dirty                = 1'd1;
-                                                o_cache_tag[`ZAP_CACHE_TAG__PA]  = i_phy_addr[31 :
-                                                                                   $clog2(CACHE_LINE)];
-                                                o_address                        = i_address;
-                                                o_cache_way                      = i_cache_way;
                                         end
                                 end
 

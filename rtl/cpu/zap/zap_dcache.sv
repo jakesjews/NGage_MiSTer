@@ -249,6 +249,7 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .i_address              (cache_address),
         .i_lookup_address       (i_address),            // ARM925T
         .i_access               (i_rd || i_wr),
+        .i_idle                 (idle),
         .o_cache_hit            (tr_cache_hit),
         .o_cache_hit_dirty      (tr_cache_hit_dirty),
         .o_cache_way            (tr_cache_way),

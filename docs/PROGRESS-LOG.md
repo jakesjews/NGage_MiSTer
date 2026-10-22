@@ -2591,3 +2591,29 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   dbg_*_q); scan_x and scan_y hold for the 16 clocks of a pixel (video_out
   CE_DIV), so nothing changes on the screen. `make lint`, the video bench
   and the top bench pass. Later seeds carry it; the first five do not.
+- Round 1 (seeds 1, 3, 4, 5 on the server, 6 on the Mac), worst setup at
+  slow 100C / slow -40C, ns: 1 -0.346/-0.632, 3 -0.651/-0.602, 4
+  -0.383/-0.232, 5 -0.401/-0.361, 6 (Mac) -0.478; hold +0.09 or better
+  everywhere. With seed 2's -0.170/-0.129 that is six of six short by
+  0.2-0.65 ns: not seed luck. The paths, across seeds: the D-cache's tag
+  RAM output through the compare into the data RAM lanes' write enables
+  (a store hit writes the line in the cycle the compare decides it) and
+  into the valid, dirty and LRU forwarding chains; the D-FSM's state into
+  the Wishbone merger's address; the self-test enable into the bus
+  acknowledge; the overlay (seed 1, fixed above); predecode into decode.
+- Two structural trims on the D-cache, both cycle-exact (every suite
+  test's cycle count unchanged; 177 runs on the sources and on the
+  netlist, 49 matching QEMU): (1) the valid, dirty and LRU chains take
+  the live tag write only into their output stage (the lookup two behind
+  the writer, which is at the output in the cycle after the write) and
+  the pending, registered write into every stage; upstream forwarded the
+  live enable, a function of the compare, into all three. A first draft
+  with no live forwarding at all cost cycles: the lookup at the output
+  the cycle after a fill saw a stale valid bit and the I-cache refetched
+  a line it had. (2) A store's line and tag write is presented by the
+  D-FSM whatever the compare says, and the tag RAM gates each way's
+  write enables with that way's own compare while the FSM is idle (a
+  store hit: the way that hits, none on a miss), the buffered way
+  otherwise (fills, cleans, write-through updates). The lane enables are
+  then one level past the compares instead of four (through the hit OR,
+  the FSM's case, its way mux and the way compare).
