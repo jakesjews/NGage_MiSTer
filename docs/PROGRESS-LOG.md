@@ -1913,3 +1913,21 @@ found, and what comes next. Research material lives in `research/`
   retrying its CBUS open a few more times on hardware before the NOS
   traffic starts, through to Startup.app's animation; so the firmware's
   own view of the two can now be compared directly.
+- The fresh image stalls too once it has been booted twice, each boot
+  ended by a core reload while the firmware was at the Time dialog
+  (`build/hardware/cs1-fresh-after2.bin`; 1.4 MB of the C: area changed
+  over the two boots, LFFS compacting its log). So the stall needs no warm
+  reset: a reload while flash_save is writing dirty blocks back leaves the
+  SD file with a mix of old and new blocks (the write-back scans the dirty
+  bitmap in address order), which is not a state a power loss can leave a
+  log-structured file system in; the model boots such an image anyway, so
+  the RTL's C: mount also mishandles it (to be seen in the CS1-write trace).
+  Fix planned: write dirty blocks back in the order they were dirtied, so
+  an interruption leaves a prefix, as a power loss does on the phone.
+- Fix: `flash_save` writes dirty blocks back in the order they were first
+  dirtied (queue of 8192, bitmap sweep as the fallback; 54512fa, the save
+  bench checks the order). Quartus build running; to verify on hardware:
+  boot the fresh image several times with reloads at arbitrary moments,
+  then check it still mounts. The images already corrupted
+  (`cs1-save-after3.bin`, `cs1-fresh-after2.bin`) stay as test cases for
+  the C: mount hang, which the CS1-write trace build is to show.
