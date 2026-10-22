@@ -2448,6 +2448,12 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   generated netlist, 49 tests matching QEMU instruction by instruction.
   Cycle counts of the directed tests are identical between one and two
   ways (their code fits a way), as intended: only conflict misses differ.
+  The firmware boot bench on the server (`make -C sim/cpu boot`, 2.7 G
+  cycles of the real boot at zero bus latency): register, CBUS and all
+  76,975 device accesses agree with the reference model, and the
+  register and CBUS logs are identical to the direct-mapped run's;
+  660.6 M instructions retired against 651.1 M in the same cycles (+1.5
+  %: a miss costs little in the bench, the hardware numbers are below).
 - Two things the netlist taught. Verilator 5.032 (the build server's)
   rejects a function call in the index of a nonblocking assignment's
   left side ("Multiple Write refs on LHS of NBA"); 5.052 on the Mac took
