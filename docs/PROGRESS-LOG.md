@@ -2720,8 +2720,11 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   -0.212/-0.499, 5 (Mac) -0.219; hold +0.03 or better. video_freak costs about 500
   ALMs (33,600-33,800). Round 2: seeds 6-8 on three lanes, the fourth
   left for the comment-trim session's synthesis check: 6 -0.428/-0.337,
-  7 -0.534/-0.432, 8 -0.460/-0.574, 9 (Mac) -0.325, 10 (Mac) -0.110; 11-13
-  on the server.
+  7 -0.534/-0.432, 8 -0.460/-0.574, 9 (Mac) -0.325, 10 (Mac) -0.110, 11
+  -0.018/-0.100, 12 -0.175/-0.082, 13 -0.465/-0.440. Thirteen seeds, none
+  clean; the best overall stays seed 3 (-0.049/-0.008), kept with the
+  others under build/hardware/sweep4 (the Mac's) and the server's
+  ngage-q-vf* directories.
   The worst paths differ from seed to seed: the SWI flag into the
   register file, the bus arbiter's grant into the merger, the D-cache's
   load data, the issue stall, the audio FIFO, the bus data into the
