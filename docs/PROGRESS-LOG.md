@@ -2529,7 +2529,13 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   checkpoints' signature pointer lives in set 0, which is why the first
   draft of the test, on set 0, could not have tracked the LRU.
 - Suites: 177 runs on the sources and 177 on the netlist (the new test's
-  three), 49 matching QEMU. CPU-only Quartus trials at 104 MHz: seed 1
+  three), 49 matching QEMU. The firmware boot bench on the server:
+  register, CBUS and all 76,975 device accesses agree with the model,
+  the logs identical to the I-cache-only run's; 661.5 M instructions in
+  2.7 G cycles (660.6 M with the I-cache alone, 651.1 M before). That
+  run took the netlist before the victim-select trim below (same
+  cycles on every suite test); a run on the final netlist follows.
+  CPU-only Quartus trials at 104 MHz: seed 1
   +0.041 ns at slow 100C and -0.082 at slow -40C, the worst paths way
   1's tag RAM through the compare; seed 2 of the same netlist +0.598 and
   +0.776, so the near miss was placement (the I-cache-only trial, seed
