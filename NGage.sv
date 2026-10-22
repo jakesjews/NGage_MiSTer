@@ -105,7 +105,7 @@ localparam CONF_STR = {
 	"-;",
 	"O[2:1],Rotate,Off,Clockwise,Anticlockwise;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
-	"O[5:3],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
+	"O[5:3],Scandoubler Fx,None,CRT 25%,CRT 50%,CRT 75%;",
 	"-;",
 	"O[6],Memory test,Off,On;",
 	"O[8],Debug overlay,Off,On;",
@@ -280,7 +280,7 @@ wire  [7:0] ld_be, dl_be, fs_be, tr_be, kt_be;
 wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr, kt_addr;
 wire [63:0] ld_din, dl_din, fs_din, tr_din, kt_din;
 reg   [1:0] ld_own = 2'd0;             // 0: loader, 1: flash_save, 2: debug trace, 3: kernel text
-localparam DBG_TRACE = 1;              // the debug trace and the kernel-text ring (off for a release build)
+localparam DBG_TRACE = 0;              // the debug trace and the kernel-text ring (off for a release build)
 
 wire ld_own_we = (ld_own == 2'd1) ? fs_we : (ld_own == 2'd2) ? tr_we : (ld_own == 2'd3) ? kt_we : dl_we;
 always @(posedge clk_sys) begin
@@ -610,6 +610,7 @@ assign kt_din = 64'd0;
 assign kt_be = 8'd0;
 assign kt_count = 16'd0;
 assign kt_dropped = 8'd0;
+wire unused_sti = &{1'b0, sti_we, sti_be, sti_data};
 end endgenerate
 
 ///////////////////////   CPU   ////////////////////////////////
@@ -747,6 +748,9 @@ assign tr_dumps = 8'd0;
 assign tr_triggers = 8'd0;
 assign tr_dumping = 1'b0;
 assign tr_trig_pc = 32'd0;
+wire unused_trace = &{1'b0, tr_wb_valid, tr_wb_dvalid, tr_wb_uop_last, tr_wb_dabt, tr_wb_pabt, tr_wb_und,
+                      tr_wb_swi, tr_wb_irq, tr_wb_fiq, tr_wb_pc, tr_wb_cpsr, tr_wb_cpsr_nxt, tr_d_done, tr_d_we,
+                      tr_d_va, tr_d_sel, tr_d_wdata, tr_d_rdata, dbg_trig};
 end endgenerate
 
 // the Wishbone port: the CPU, or the self-test while it runs (test_sel)
@@ -1085,7 +1089,7 @@ video_out video_out
 );
 
 wire [2:0] scale = status[5:3];
-wire [1:0] sl = (scale != 3'd0) ? 2'(scale - 3'd1) : 2'd0;
+wire [1:0] sl = scale[1:0];
 
 assign CLK_VIDEO = clk_sys;
 assign VGA_SL = sl;
@@ -1096,7 +1100,7 @@ video_mixer #(.LINE_LENGTH(256), .GAMMA(1)) video_mixer
 	.CE_PIXEL(CE_PIXEL),
 	.ce_pix(ce_pix),
 	.scandoubler((scale != 3'd0) || forced_scandoubler),
-	.hq2x(scale == 3'd1),
+	.hq2x(1'b0),           // HQ2x left out: its blend logic is unused and synthesis drops it
 	.gamma_bus(gamma_bus),
 	.R(r),
 	.G(g),

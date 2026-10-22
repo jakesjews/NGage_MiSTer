@@ -24,8 +24,9 @@ is not emulated; the phone comes up as an offline handset with no SIM.
 2. Build a card image per game: `tools/mkcard.py aaru DUMP.aaruf -o game`
    for a dump, or `tools/mkcard.py folder GAMEDIR -o game` for a folder;
    each gives `game.mmc`.
-3. Copy the core's `.rbf` to `/media/fat/_Console/` on the MiSTer and the
-   images to `/media/fat/games/NGage/` ([MiSTer file
+3. Copy the newest `NGage_YYYYMMDD.rbf` from [releases/](releases/) to
+   `/media/fat/_Console/` on the MiSTer and the images to
+   `/media/fat/games/NGage/` ([MiSTer file
    transfer](https://mister-devel.github.io/MkDocs_MiSTer/)).
 4. Start the core. In the OSD: **Load flash CS0** → `cs0.bin`, **Mount
    flash CS1 (save)** → a copy of `cs1.bin` (the core writes your saves
@@ -65,11 +66,12 @@ load) or mount slot 1 (CS1 save) and slot 0 (card).
 
 ## Status
 
-Verified on a MiSTer: boot to the idle screen, the first-start format of
-C:, saves written back to the mounted image, Sonic N from its card (menu
-entry, title screen, demo) and its keys (5 skips the intro, the rocker
-moves through the character select), and the game's sound reaches the
-audio output (checked by measurement, not yet by ear).
+Verified on a MiSTer with the release build in [releases/](releases/):
+boot to the idle screen, the first-start format of C:, saves written back
+to the mounted image, Sonic N from its card (menu entry, title screen,
+demo) and its keys (5 skips the intro, the rocker moves through the
+character select), and the game's sound reaches the audio output (checked
+by measurement, not yet by ear).
 
 ## Troubleshooting
 

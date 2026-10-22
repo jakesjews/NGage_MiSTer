@@ -2130,3 +2130,58 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   identical to master's, the whole-core boot bench to the clock. Not yet
   fitted: a Quartus trial waits for a free build slot. To fold into the
   sweep when the user says so (the ten-seed threshold, or earlier).
+
+### 2026-10-22: release build, NGage_20261022.rbf
+- `DBG_TRACE = 0` in NGage.sv: no trace rings, no kernel-text ring, no
+  triggers (the `DBG_TRIG_*` logic has no reader and drops out). The two
+  `else` generate branches sink the CPU's trace taps and the STI wires so
+  the -Wall lint stays clean. The overlay keeps the PC, the status bits,
+  the interrupt words, the fault record, the wall clock and the audio
+  peaks; its trace, kernel-text and trigger rows read 0. `make lint` and
+  `make test` pass (the `top` bench with 516e887).
+- Seed sweep 1 (DBG_TRACE off; ALSA in for seeds 1-8, out from 9): 14
+  seeds, none clean. Worst setup slack at slow 100C / slow -40C, ns:
+  5 -0.685/-0.654, 1 -0.259/-0.119 (hold -0.074/-0.141), 2 -0.287/-0.399,
+  3 -0.019/-0.044 (hold -0.058), 4 -0.118/+0.008, 6 -0.033/-0.086,
+  7 -0.069/-0.126, 8 -0.017/+0.008, 9 -0.058/-0.006, 10 -0.051/+0.170,
+  11 -0.184/+0.160, 12 -0.196/+0.013, 13 (Mac) -0.116, 14 -0.084/-0.007.
+  The worst paths are in the entry above. Without the trace: 31,003-31,153
+  ALMs, 2,380,517 block memory bits (42 %), 328 M10K (the debug build:
+  31,186 ALMs, 3,402,469 bits, 448 M10K). ALSA out freed about 100-240
+  ALMs and 700 registers, no memory (30,637-30,914 ALMs).
+- Seed sweep 2, from the tree with the fitter knobs (d704f78), HQ2x off
+  and the registered DMA decode (335ce98), seeds 1-5 at once (four on the
+  server, one on the Mac): **seeds 2 and 5 meet every corner**; 1
+  -0.260/-0.191, 3 -0.132/+0.094, 4 -0.061/+0.028 (worst paths now the
+  issue stage's stall into its operand registers, the TLB's fault status
+  into the Wishbone merger, the Thumb decoder into the BTB). The knobs
+  cost nothing visible: the fit took 18-19 min on the server with four
+  builds running (17-18 before), 16 min on the Mac; a whole build 22-23
+  min.
+- **The release is seed 2** (server, Quartus 17.0.2 in Docker, the
+  standard `./build.sh remote compile` with `SEED 2` in NGage.qsf):
+  setup +0.209 ns at slow 100C and +0.256 at slow -40C; hold +0.142 and
+  +0.043 (fast corners +0.128, +0.061); recovery 3.45 ns or more, removal
+  0.35 or more. 30,142 ALMs (72 %), 37,077 registers, 2,380,589 block
+  memory bits (42 %), 329 M10K, 43 DSP. `releases/NGage_20261022.rbf`
+  (md5 02af9d7d4631976e937ba2e885208be7); its BUILD_DATE reads 261021,
+  the date the build started. Seed 5 on the Mac (CrossOver) is clean as
+  well (+0.232/+0.175, hold +0.058 at worst, 30,206 ALMs) and is kept as
+  a spare in the session's scratch area only. A pass is still seed luck
+  (2 of 5): every later release needs its own sweep until the front-end
+  margin work lands.
+- On the MiSTer (`/media/fat/_Console/NGage_20261022.rbf`,
+  `NGage-SonicN.mgl`): boot from the save to the N-Gage splash and the
+  Time and Date dialogs by 150 s, the movistar idle screen after OK, OK;
+  no fault record, clock valid, trace rows 0. Menu, three rows down to
+  SonicN, OK: SEGA logo, the title wipe, 5 skips to the Eggman cut-scene
+  with audio peaks 796-1124 of 32767 on both channels; the game's PCs are
+  in RAM (0xFFEECBE8); a second 5 reaches the title menu, where the
+  rocker moves the highlight. Keys through Zaparoo's macro reach the
+  game about one press in three (three downs in one macro move one
+  row; the S60 shell catches every press): the game polls the key
+  state per frame and the macro's pulse is short, so retries are
+  needed in scripted key tests, same as with the debug builds.
+  Screenshots in `build/hardware/rel/`.
+- README: the setup step points at `releases/`; the status names the
+  release.
