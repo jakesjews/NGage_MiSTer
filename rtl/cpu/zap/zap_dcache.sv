@@ -31,6 +31,7 @@ parameter logic [31:0] FPAGE_TLB_ENTRIES      = 32'd8,
 parameter logic [31:0] CACHE_LINE             = 32'd8,
 parameter logic        BE_32_ENABLE           = 1'd0,
 parameter logic [3:0]  EXT_ABORT_FS           = 4'b0010, // ARM925T: see zap_dcache_fsm.
+parameter logic [31:0] WAYS                   = 32'd1,   // ARM925T: 1 or 2 (zap_cache_tag_ram).
 parameter logic [31:0] CPSR_MODE              = 32'd4
 
 )
@@ -136,6 +137,8 @@ logic [CACHE_LINE-1:0]           cf_cache_line_ben;
 logic                            cf_cache_tag_wr_en;
 logic [`ZAP_CACHE_TAG_WDT-1:0]   tr_cache_tag, cf_cache_tag;
 logic                            tr_cache_tag_valid;
+logic                            tr_cache_hit;                  // ARM925T
+logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] tr_cache_way, cf_cache_way; // ARM925T
 logic                            tr_cache_tag_dirty, cf_cache_tag_dirty;
 logic                            cf_cache_clean_req, cf_cache_inv_req;
 logic                            cf_line_req, tr_line_done;   // ARM925T
@@ -156,7 +159,7 @@ assign unused = |{wb_err[1]};
 
 // Basic cache FSM - serves as manager 0.
 zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE(BE_32_ENABLE),
-                 .EXT_ABORT_FS(EXT_ABORT_FS)) u_zap_cache_fsm (
+                 .EXT_ABORT_FS(EXT_ABORT_FS), .WAYS(WAYS)) u_zap_cache_fsm (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address              (i_address),
@@ -186,6 +189,9 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_cache_tag_dirty      (tr_cache_tag_dirty),
         .i_cache_tag            (tr_cache_tag),
         .i_cache_tag_valid      (tr_cache_tag_valid),
+        .i_cache_hit            (tr_cache_hit),
+        .i_cache_way            (tr_cache_way),
+        .o_cache_way            (cf_cache_way),
         .o_cache_tag            (cf_cache_tag),
         .o_cache_tag_dirty      (cf_cache_tag_dirty),
         .o_cache_tag_wr_en      (cf_cache_tag_wr_en),
@@ -234,11 +240,16 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
 );
 
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
-zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE)) u_zap_cache_tag_ram     (
+zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u_zap_cache_tag_ram     (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address_nxt          (i_address_nxt),
         .i_address              (cache_address),
+        .i_lookup_address       (i_address),            // ARM925T
+        .i_access               (i_rd || i_wr),
+        .o_cache_hit            (tr_cache_hit),
+        .o_cache_way            (tr_cache_way),
+        .i_cache_way            (cf_cache_way),
         .i_hold                 (hold || i_stall),
         .i_cache_en             (i_cache_en),
         .i_cache_line           (cf_cache_line),
@@ -258,6 +269,7 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE)) u_zap_cach
         .i_line_op              (i_line_op),
         .i_line_va              (i_line_va),
         .i_line_addr            (i_line_addr),
+        .i_line_way             ('0),     // ARM925T: one way; the CP15's index operand selects a line
         .o_line_done            (tr_line_done),
 
         /* verilator lint_off PINCONNECTEMPTY */

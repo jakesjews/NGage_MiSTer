@@ -80,6 +80,7 @@ parameter logic [31:0] DATA_SPAGE_TLB_ENTRIES   =  32'd256,   // Small page TLB 
 parameter logic [31:0] DATA_FPAGE_TLB_ENTRIES   =  32'd64,   // Tiny page TLB entries.
 parameter logic [31:0] DATA_CACHE_SIZE          =  32'd8192, // Cache size in bytes.
 parameter logic [31:0] DATA_CACHE_LINE          =  32'd64,   // Cache line size in bytes.
+parameter logic [31:0] DATA_CACHE_WAYS          =  32'd1,    // ARM925T: 1 or 2.
 
 // ----------------------------------
 // Code MMU/Cache configuration.
@@ -90,6 +91,7 @@ parameter logic [31:0] CODE_SPAGE_TLB_ENTRIES   =  32'd256,   // Small page TLB 
 parameter logic [31:0] CODE_FPAGE_TLB_ENTRIES   =  32'd64,   // Fine page TLB entries.
 parameter logic [31:0] CODE_CACHE_SIZE          =  32'd8192, // Cache size in bytes.
 parameter logic [31:0] CODE_CACHE_LINE          =  32'd64,   // Ccahe line size in bytes.
+parameter logic [31:0] CODE_CACHE_WAYS          =  32'd1,    // ARM925T: 1 or 2.
 
 // ----------------------------------
 // ARM925T options. The defaults give upstream ZAP; rtl/cpu/arm925t.sv
@@ -625,6 +627,7 @@ zap_dcache #(
         .SECTION_TLB_ENTRIES(DATA_SECTION_TLB_ENTRIES),
         .FPAGE_TLB_ENTRIES(DATA_FPAGE_TLB_ENTRIES),
         .CACHE_LINE(DATA_CACHE_LINE), // ARM925T: upstream passed CODE_CACHE_LINE.
+        .WAYS(DATA_CACHE_WAYS),
         .BE_32_ENABLE(BE_32_ENABLE),
         .EXT_ABORT_FS(TI925T ? 4'b1000 : 4'b0010)
 )
@@ -704,7 +707,8 @@ zap_cache #(
 .LPAGE_TLB_ENTRIES(CODE_LPAGE_TLB_ENTRIES),
 .SECTION_TLB_ENTRIES(CODE_SECTION_TLB_ENTRIES),
 .FPAGE_TLB_ENTRIES(CODE_FPAGE_TLB_ENTRIES),
-.CACHE_LINE(CODE_CACHE_LINE) // ARM925T: upstream passed DATA_CACHE_LINE.
+.CACHE_LINE(CODE_CACHE_LINE), // ARM925T: upstream passed DATA_CACHE_LINE.
+.WAYS(CODE_CACHE_WAYS)
 )
 u_code_cache (
 .i_clk              (i_clk),

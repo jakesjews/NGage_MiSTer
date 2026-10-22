@@ -25,7 +25,8 @@
 
 module zap_cache_fsm   #(
         parameter logic [31:0] CACHE_SIZE    = 32'd1024,  // Bytes.
-        parameter logic [31:0] CACHE_LINE    = 32'd8
+        parameter logic [31:0] CACHE_LINE    = 32'd8,
+        parameter logic [31:0] WAYS          = 32'd1      // ARM925T: ways (zap_cache_tag_ram).
 )
 
 // ----------------------------------------------
@@ -66,6 +67,11 @@ input   logic    [CACHE_LINE*8-1:0]     i_cache_line,
 input   logic                           i_cache_tag_dirty,
 input   logic  [`ZAP_CACHE_TAG_WDT-1:0] i_cache_tag,
 input   logic                           i_cache_tag_valid,
+// ARM925T: the tag RAM's hit and way of interest for i_address; the way a
+// tag or line write goes to (the lookup's way, kept across a fill).
+input   logic                           i_cache_hit,
+input   logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] i_cache_way,
+output  logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] o_cache_way,
 
 output  logic   [`ZAP_CACHE_TAG_WDT-1:0] o_cache_tag,
 output  logic                            o_cache_tag_dirty,
@@ -135,7 +141,6 @@ localparam [31:0] LINE_PAD             = (CACHE_LINE * 32'd8) - 32'd32;
 // Variables
 // ----------------------------------------------------------------------------
 
-logic                                     cache_cmp;
 logic                                     cache_dirty;
 
 logic [$clog2(NUMBER_OF_STATES)-1:0]      state_ff, state_nxt;
@@ -156,6 +161,7 @@ logic    [3:0]                            ben; // Valid only for writes.
 logic    [CACHE_LINE*8-1:0]               cache_line;
 logic  [`ZAP_CACHE_TAG_WDT-1:0]           cache_tag; // Tag
 logic    [31:0]                           phy_addr;
+logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] way;       // ARM925T: the line's way
 
 logic                                     unused;
 
@@ -170,8 +176,7 @@ assign unused = |{rhit, whit, phy_addr[$clog2(CACHE_LINE)-1:0]};
 assign o_cache_clean_req = cache_clean_req_ff; // Tie req flop to output.
 assign o_cache_inv_req   = cache_inv_req_ff;   // Tie inv flop to output.
 
-// Alias
-assign cache_cmp   = (i_cache_tag[`ZAP_CACHE_TAG__TAG] == i_address[`ZAP_VA__CACHE_TAG]);
+// Alias (ARM925T: the tag compare is in the tag RAM, i_cache_hit)
 assign cache_dirty = i_cache_tag_dirty;
 
 // Buffers
@@ -186,6 +191,7 @@ begin
                 cache_line      <= i_cache_line;
                 cache_tag       <= i_cache_tag;
                 phy_addr        <= i_phy_addr;
+                way             <= i_cache_way;
         end
 end
 
@@ -310,6 +316,7 @@ begin:blk1
         o_err                   = 0;
         o_err2                  = 0;
         o_address               = address;
+        o_cache_way             = way;
 
         for(int i=0;i<CACHE_LINE/4;i++)
         begin
@@ -374,7 +381,7 @@ begin:blk1
                         end
                         else if ( i_cacheable )
                         begin
-                                case ({cache_cmp,i_cache_tag_valid})
+                                case ({i_cache_hit,i_cache_tag_valid})
 
                                 2'b11: // Cache Hit
                                 begin
@@ -404,6 +411,7 @@ begin:blk1
                                                 i_phy_addr[31:$clog2(CACHE_LINE)];
 
                                                 o_address                        = i_address;
+                                                o_cache_way                      = i_cache_way;
                                         end
                                 end
 
@@ -649,6 +657,7 @@ begin:blk1
                 o_err                   = 'x;
                 o_err2                  = 'x;
                 o_address               = 'x;
+                o_cache_way             = 'x;
 
                 for(int i=0;i<CACHE_LINE/4;i++)
                 begin

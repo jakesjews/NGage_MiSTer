@@ -32,10 +32,13 @@ module arm925t #(
 	// Reset value of control register bit V (the ARM925T's HIVECS pin):
 	// 1 puts the exception vectors, and the reset address, at 0xFFFF0000.
 	parameter bit          HIVECS      = 1'b0,
-	// Cache geometry. The ARM925T has 16 KB I / 8 KB D, 2-way, 16-byte lines;
-	// the ZAP caches here are direct-mapped (docs/CPU.md).
+	// Cache geometry. The ARM925T has 16 KB I / 8 KB D, 2-way with LRU
+	// replacement, 16-byte lines. The D-cache here is still direct-mapped
+	// (docs/CPU.md).
 	parameter int          ICACHE_SIZE = 16384,
+	parameter int          ICACHE_WAYS = 2,
 	parameter int          DCACHE_SIZE = 8192,
+	parameter int          DCACHE_WAYS = 1,
 	parameter int          CACHE_LINE  = 16
 ) (
 	input  logic        clk,
@@ -94,8 +97,10 @@ module arm925t #(
 		.RESET_VECTOR    (RESET_VECTOR),
 		.CODE_CACHE_SIZE (32'(ICACHE_SIZE)),
 		.CODE_CACHE_LINE (32'(CACHE_LINE)),
+		.CODE_CACHE_WAYS (32'(ICACHE_WAYS)),
 		.DATA_CACHE_SIZE (32'(DCACHE_SIZE)),
-		.DATA_CACHE_LINE (32'(CACHE_LINE))
+		.DATA_CACHE_LINE (32'(CACHE_LINE)),
+		.DATA_CACHE_WAYS (32'(DCACHE_WAYS))
 	) u_zap (
 		.i_clk    (clk),
 		.i_reset  (reset),

@@ -30,7 +30,8 @@ module zap_dcache_fsm   #(
         // ARM925T: FSR status for an external abort on an uncached access:
         // upstream's "terminal exception" 0b0010, or the ARM925T's 0b1000
         // (external abort on a non-cacheable access, section).
-        parameter logic [3:0]  EXT_ABORT_FS  = 4'b0010
+        parameter logic [3:0]  EXT_ABORT_FS  = 4'b0010,
+        parameter logic [31:0] WAYS          = 32'd1      // ARM925T: ways (zap_cache_tag_ram).
 )
 
 // ----------------------------------------------
@@ -84,6 +85,11 @@ input   logic    [CACHE_LINE*8-1:0]     i_cache_line,
 input   logic                           i_cache_tag_dirty,
 input   logic  [`ZAP_CACHE_TAG_WDT-1:0] i_cache_tag,
 input   logic                           i_cache_tag_valid,
+// ARM925T: the tag RAM's hit and way of interest for i_address; the way a
+// tag or line write goes to (the lookup's way, kept across a fill).
+input   logic                           i_cache_hit,
+input   logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] i_cache_way,
+output  logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] o_cache_way,
 
 output  logic   [`ZAP_CACHE_TAG_WDT-1:0] o_cache_tag,
 output  logic                            o_cache_tag_dirty,
@@ -157,7 +163,6 @@ localparam [31:0] LINE_PAD             = (CACHE_LINE * 32'd8) - 32'd32;
 // Variables
 // ----------------------------------------------------------------------------
 
-logic                                     cache_cmp;
 logic                                     cache_dirty;
 
 logic [NUMBER_OF_STATES-1:0]              state_ff, state_nxt;
@@ -179,6 +184,7 @@ logic    [3:0]                            ben; // Valid only for writes.
 logic    [CACHE_LINE*8-1:0]               cache_line;
 logic  [`ZAP_CACHE_TAG_WDT-1:0]           cache_tag; // Tag
 logic    [31:0]                           phy_addr;
+logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] way;       // ARM925T: the line's way
 logic    [63:0]                           reg_idx;
 logic    [63:0]                           lock_nxt, lock_ff;
 logic                                     wt_hit, wt_dirty; // ARM925T: write-through store.
@@ -233,8 +239,7 @@ assign o_cache_clean_req = cache_clean_req_ff; // Tie req flop to output.
 assign o_cache_inv_req   = cache_inv_req_ff;   // Tie inv flop to output.
 assign o_line_req        = line_req_ff;        // ARM925T
 
-// Alias
-assign cache_cmp   = (i_cache_tag[`ZAP_CACHE_TAG__TAG] == i_address[`ZAP_VA__CACHE_TAG]);
+// Alias (ARM925T: the tag compare is in the tag RAM, i_cache_hit)
 assign cache_dirty = i_cache_tag_dirty;
 
 // Buffers
@@ -292,9 +297,10 @@ begin
         begin
                 cache_tag       <= i_cache_tag;
                 phy_addr        <= i_phy_addr;
+                way             <= i_cache_way;
                 reg_idx         <= i_reg_idx;
                 ldfmt           <= i_ldfmt;
-                wt_hit          <= i_wr && i_wt && i_cacheable && cache_cmp && i_cache_tag_valid;
+                wt_hit          <= i_wr && i_wt && i_cacheable && i_cache_hit;
                 wt_dirty        <= i_cache_tag_dirty;
         end
 end
@@ -405,6 +411,7 @@ begin:next_state_logic
         o_err                   = 0;
         o_err2                  = 0;
         o_address               = address;
+        o_cache_way             = way;
 
         for(int i=0;i<CACHE_LINE/4;i++)
         begin
@@ -535,7 +542,7 @@ begin:next_state_logic
                         end
                         else if ( i_cacheable )
                         begin
-                                case ({cache_cmp,i_cache_tag_valid})
+                                case ({i_cache_hit,i_cache_tag_valid})
 
                                 2'b11: // Cache Hit
                                 begin
@@ -563,6 +570,7 @@ begin:next_state_logic
                                                 o_cache_tag[`ZAP_CACHE_TAG__PA]  = i_phy_addr[31 :
                                                                                    $clog2(CACHE_LINE)];
                                                 o_address                        = i_address;
+                                                o_cache_way                      = i_cache_way;
                                         end
                                 end
 
@@ -961,6 +969,7 @@ begin:next_state_logic
                 o_err                   = 'x;
                 o_err2                  = 'x;
                 o_address               = 'x;
+                o_cache_way             = 'x;
                 rhit                    = 'x;
                 whit                    = 'x;
 

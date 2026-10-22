@@ -2409,3 +2409,58 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   cleaner destination, and the user chose it for the part's geometry.
   Also noted for later fidelity: TI specifies no store-miss allocation
   and cache contents preserved across a cache disable, both unlike ZAP.
+
+### 2026-10-22: the two-way instruction cache
+
+- **The I-cache is 2-way set-associative with the TI925T's LRU**
+  (rtl/cpu/zap/zap_cache_tag_ram.sv, parameter WAYS; the D-cache stays
+  at one way for now). Each way is a tag RAM and a data RAM of 512 lines,
+  both read at the set VA[12:4] of the next fetch, as the single RAM was.
+  The tag compares moved from the cache FSM into the tag RAM (one per way,
+  o_cache_hit), which also names the way of interest (o_cache_way: the
+  way that hits, else the way a fill takes: an invalid way first, else
+  the set's LRU bit) and presents that way's tag, line, valid and dirty
+  bits, so the FSM still sees one line and its states are unchanged. The
+  FSM buffers the way with the address across a fill and returns it with
+  the tag write (i_cache_way). One LRU bit per set, the way to fill next:
+  after a hit or a fill, the other way; cleared with the valid bits. Both
+  updates are written a cycle behind through pending registers (as the
+  valid bits' tag writes are), and the bit is read with the set and
+  pipelined three deep with the updates in flight forwarded, like the
+  valid bits, so the victim is one level of logic at the output. The
+  whole-cache clean walks the lines of both ways ({way, set} as the dirty
+  vector's index); a line operation by VA finds the way holding the tag,
+  one by index takes a way input (the D-side's CP15 will drive it when
+  the D-cache goes 2-way). Hit latency as before: the ways' data are
+  muxed by the hit after the compares, no extra cycle.
+- Macros: ZAP_VA__CACHE_INDEX/TAG and ZAP_CACHE_TAG__* now count the
+  lines of one way (CACHE_SIZE/WAYS), so every module using them carries
+  a WAYS parameter (default 1 = upstream ZAP); zap_top has
+  CODE/DATA_CACHE_WAYS, arm925t.sv ICACHE_WAYS = 2, DCACHE_WAYS = 1, the
+  bench's tb_cpu passes them through (`VEXTRA=-GICACHE_WAYS=1` builds a
+  direct-mapped model for comparison).
+- Verification: the new sim/cpu/tests/icache_rtl.S runs three code
+  lines of one set in turn and rewrites them in memory behind the cache;
+  which still returns its old code shows the two ways and the LRU choice
+  (order of use, not of filling). It fails on the direct-mapped build at
+  the "A still cached after B" check and passes on the 2-way one. The
+  whole suite: 174 runs on the SystemVerilog sources and 174 on the
+  generated netlist, 49 tests matching QEMU instruction by instruction.
+  Cycle counts of the directed tests are identical between one and two
+  ways (their code fits a way), as intended: only conflict misses differ.
+- Two things the netlist taught. Verilator 5.032 (the build server's)
+  rejects a function call in the index of a nonblocking assignment's
+  left side ("Multiple Write refs on LHS of NBA"); 5.052 on the Mac took
+  it. And a variable index into a packed array whose element width is not
+  a power of two (tag_q[sel], 47 bits) becomes `sel * 47` in sv2v's
+  output, which Quartus mapped onto a DSP block: the first CPU trial had
+  every worst path ending at that DSP's input register, -1.167 ns at 104
+  MHz, with physical synthesis retiming the fetch PC register into the
+  tag RAM through the 512:1 LRU read mux that sat on the same path. Both
+  fixed structurally: explicit 2:1 muxes, and the LRU read pipelined.
+- **CPU-only Quartus trial** (sim/cpu/quartus/run.sh, seed 1, 104 MHz) after
+  the fixes: setup slack **+0.479 ns** at the slow 100C corner, +0.433 at
+  slow -40C (the direct-mapped CPU's last trial: +0.112), the worst path
+  now the D-cache's RAM forwarding. 14,483 ALMs (direct-mapped: 14,014),
+  16,539 registers, 59 M10K, 4 DSP. Before the fixes: -1.167 ns, 14,751
+  ALMs, 6 DSP.

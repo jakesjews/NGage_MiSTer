@@ -13,6 +13,9 @@
 #                  machine), and fetch the results back
 #   make all       bins, remote, qemu, diff
 #   make T=alu ... restrict to some tests
+#   VEXTRA=..      extra Verilator options, e.g. -GICACHE_WAYS=1 for a
+#                  direct-mapped I-cache (with MODEL_DIR=... for a model of
+#                  its own)
 #   RAND_SEEDS=..  the random tests rand<seed>, trand<seed> (Thumb) and
 #                  crand/ctrand<seed> (caches on), tools/gen_random.py
 #   gba_*          jsmolka/gba-tests (ext/gba-tests), translated by
@@ -113,7 +116,7 @@ $(TB)/%.lst: $(TB)/%.elf
 # ---------------------------------------------------------------- model
 VFLAGS := --cc --exe --build -j $(JOBS) -O3 --x-assign unique --x-initial unique \
           -Wno-fatal -Wno-lint -Wno-style -Wno-MULTIDRIVEN -Wno-ASSIGNIN \
-          --top-module tb_cpu -CFLAGS "-O2 -std=c++17"
+          --top-module tb_cpu -CFLAGS "-O2 -std=c++17" $(VEXTRA)
 ZAP_SV  := $(wildcard $(ROOT)/rtl/cpu/zap/*.sv)
 ifeq ($(RTL),sv)
 RTL_SRC := +incdir+$(ROOT)/rtl/cpu/zap $(ROOT)/rtl/cpu/arm925t.sv $(ZAP_SV)

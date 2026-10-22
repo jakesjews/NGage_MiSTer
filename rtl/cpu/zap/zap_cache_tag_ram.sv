@@ -23,13 +23,29 @@
 // because it can perform global clean and flush by itself without
 // depending on the cache controller.
 //
+// ARM925T: WAYS ways (1 or 2). Each way is a tag RAM and a data RAM of
+// CACHE_SIZE/WAYS bytes, all read together at the set index of
+// i_address_nxt. The hit (o_cache_hit) and the way of interest
+// (o_cache_way: the way holding i_lookup_address, else the way a fill
+// would take: an invalid way, else the least recently used) are found
+// here, and o_cache_tag, o_cache_line, o_cache_tag_valid and
+// o_cache_tag_dirty are that way's, so the cache FSM sees a single line
+// as before. A write goes to i_cache_way, which the FSM returns from
+// o_cache_way (buffered across a fill). One LRU bit per set, the TI925T's
+// fixed LRU (TI SPRU671), updated on hits and fills; it is read with the
+// set, pipelined and forwarded like the valid bits, so that the way of
+// interest is one level of logic past the tag compares. A whole-cache clean
+// walks the lines of every way; a single-line operation by VA finds the
+// way holding the tag, one by index takes i_line_way.
+//
 
 `include "zap_defines.svh"
 
 module zap_cache_tag_ram #(
 
-parameter logic [31:0] CACHE_SIZE = 32'd1024, // Bytes.
-parameter logic [31:0] CACHE_LINE = 32'd8
+parameter logic [31:0] CACHE_SIZE = 32'd1024, // Bytes, all ways together.
+parameter logic [31:0] CACHE_LINE = 32'd8,
+parameter logic [31:0] WAYS       = 32'd1     // ARM925T: 1 or 2.
 
 )(
 
@@ -49,6 +65,19 @@ input   logic                            i_cache_tag_dirty,
 output  logic    [`ZAP_CACHE_TAG_WDT-1:0] o_cache_tag,
 output  logic                             o_cache_tag_valid,
 output  logic                             o_cache_tag_dirty,
+
+//
+// ARM925T: the access being looked up (the FSM's i_address, three cycles
+// after i_address_nxt, as the RAMs' outputs) and whether it is an access
+// at all (for the LRU); the hit and the way of interest for it; the way
+// a write (i_cache_tag_wr_en, i_cache_line_ben at i_address) goes to.
+//
+input   logic    [31:0]                   i_lookup_address,
+input   logic                             i_access,
+output  logic                             o_cache_hit,
+output  logic    [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] o_cache_way,
+input   logic    [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] i_cache_way,
+
 input   logic                             i_cache_clean_req,
 
 /* verilator lint_off UNOPTFLAT */
@@ -64,14 +93,15 @@ output  logic                             o_cache_inv_done,
 //
 // ARM925T: single-line operation. While i_line_req is high, clean
 // (i_line_op[0]) and/or invalidate (i_line_op[1]) the line at
-// i_line_addr's index; with i_line_va, only if its tag matches i_line_addr
-// (an operation by VA), else whatever the line holds (by index).
-// o_line_done answers until i_line_req falls.
+// i_line_addr's index; with i_line_va, the way whose tag matches
+// i_line_addr, if any (an operation by VA), else way i_line_way, whatever
+// it holds (by index). o_line_done answers until i_line_req falls.
 //
 input   logic                             i_line_req,
 input   logic    [1:0]                    i_line_op,
 input   logic                             i_line_va,
 input   logic    [31:0]                   i_line_addr,
+input   logic    [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] i_line_way,
 output  logic                             o_line_done,
 
 //
@@ -94,7 +124,14 @@ input logic                               i_wb_ack
 
 `include "zap_localparams.svh"
 
-localparam [31:0] NUMBER_OF_DIRTY_BLOCKS = ((CACHE_SIZE/CACHE_LINE)/16); // Keep cache size > 16 bytes.
+// ARM925T: lines of a way (sets), lines of all ways, and their widths.
+localparam [31:0] LINES     = CACHE_SIZE / WAYS / CACHE_LINE;
+localparam [31:0] LINES_ALL = CACHE_SIZE / CACHE_LINE;
+localparam [31:0] SET_W     = $clog2(LINES);
+localparam [31:0] WAY_W     = WAYS > 1 ? $clog2(WAYS) : 32'd1;
+localparam [31:0] FLAT_W    = $clog2(LINES_ALL);      // A line of any way: {way, set}.
+
+localparam [31:0] NUMBER_OF_DIRTY_BLOCKS = LINES_ALL/16; // Keep cache size > 16 bytes.
 
 // States.
 typedef enum logic [12:0] {
@@ -121,68 +158,233 @@ localparam [31:0] ZERO_WDT    = $clog2(CACHE_LINE/4) + 1;
 
 // ----------------------------------------------------------------------------
 
-logic [(CACHE_SIZE/CACHE_LINE)-1:0]        dirty;
-logic [(CACHE_SIZE/CACHE_LINE)-1:0]        valid;
+logic [LINES_ALL-1:0]                      dirty;
+logic [LINES_ALL-1:0]                      valid;
+logic [LINES-1:0]                          lru;                 // ARM925T: the way to fill next (WAYS = 2).
 logic [`ZAP_CACHE_TAG_WDT-1:0]             tag_ram_wr_data;
 logic                                      tag_ram_wr_en;
-logic [$clog2(CACHE_SIZE/CACHE_LINE)-1:0]  tag_ram_wr_addr;
-logic [$clog2(CACHE_SIZE/CACHE_LINE)-1:0]  tag_ram_rd_addr, tag_ram_rd_addr_del,
-                                           tag_ram_rd_addr_del2, tag_ram_rd_addr_ff,
-                                           tag_ram_rd_addr_nxt;
+logic [SET_W-1:0]                          tag_ram_wr_addr;     // The set written.
+logic [WAY_W-1:0]                          wr_way;              // ARM925T: the way written.
+logic [SET_W-1:0]                          rd_set, rd_set_del, rd_set_del2;   // The set read, in every way.
+logic [FLAT_W-1:0]                         rd_flat_ff, rd_flat_nxt;           // ARM925T: the clean walk's or line operation's line.
+logic [WAY_W-1:0]                          rd_way;                            // ARM925T: its way.
+logic [SET_W-1:0]                          lk_set;              // ARM925T: the lookup's set.
 logic                                      tag_ram_clear;
 logic                                      tag_ram_clean;
 t_state                                    state_ff, state_nxt;
 logic [$clog2(NUMBER_OF_DIRTY_BLOCKS):0]   blk_ctr_ff, blk_ctr_nxt;
 logic [$clog2(CACHE_LINE/4):0]             adr_ctr_ff, adr_ctr_nxt;
-logic                                      cache_tag_dirty, cache_tag_dirty_del;
-logic                                      cache_tag_valid, cache_tag_valid_del;
+logic [WAYS-1:0]                           dirty_s1, dirty_s2, dirty_q;   // ARM925T: per way, aligned with the RAMs' reads.
+logic [WAYS-1:0]                           valid_s1, valid_s2, valid_q;
+logic [WAYS-1:0]                           hit;                 // ARM925T: per way.
+logic [WAY_W-1:0]                          sel, victim;         // ARM925T: the way of interest; the way a fill takes.
+logic [WAYS-1:0][`ZAP_CACHE_TAG_WDT-1:0]   tag_q;               // ARM925T: the tag RAMs' outputs.
+logic [WAYS-1:0][CACHE_LINE*8-1:0]         line_q;              // ARM925T: the data RAMs' outputs.
+logic [`ZAP_CACHE_TAG_WDT-1:0]             walk_tag;            // ARM925T: the walk's or line operation's line.
+logic [CACHE_LINE*8-1:0]                   walk_line;
+logic                                      lru_s1, lru_s2, lru_q; // ARM925T: the set's LRU bit, aligned with the RAMs' reads.
+logic                                      hit_upd_en;          // ARM925T: a hit updates the LRU bit of lk_set.
+logic                                      hit_pend_en, hit_pend_val; // ARM925T: that update, written a cycle later.
+logic [SET_W-1:0]                          hit_pend_set;
 logic                                      cache_clean_done_nxt, cache_clean_done_ff;
 logic                                      line_mode_ff, line_mode_nxt;   // ARM925T
 logic                                      line_hit_ff, line_hit_nxt;     // ARM925T
 logic                                      line_done_ff, line_done_nxt;   // ARM925T
 logic                                      line_clear;                    // ARM925T
 logic                                      pend_en, pend_dirty;           // ARM925T: write-behind
-logic [$clog2(CACHE_SIZE/CACHE_LINE)-1:0]  pend_addr;                     // ARM925T
+logic [SET_W-1:0]                          pend_addr;                     // ARM925T
+logic [WAY_W-1:0]                          pend_way;                      // ARM925T
+logic [FLAT_W-1:0]                         pend_flat;                     // ARM925T: its line
 
 logic                                      unused;
 logic [BLK_CTR_PAD-1:0]                    dummy;
 logic [CACHE_LINE*8-32-1:0]                line_dummy;
 logic                                      cache_unused0;
 logic                                      cache_unused1;
-logic [CACHE_LINE*8-1:0]                   w_dummy;
-logic [`ZAP_CACHE_TAG_WDT-1:0]             w_dummy_1;
+logic [WAYS-1:0][CACHE_LINE*8-1:0]         w_dummy;
+logic [WAYS-1:0][`ZAP_CACHE_TAG_WDT-1:0]   w_dummy_1;
 
-assign cache_unused0 = |{i_address[31: $clog2(CACHE_LINE)+$clog2(CACHE_SIZE/CACHE_LINE)], i_address[$clog2(CACHE_LINE)-1:0]};
-assign cache_unused1 = |{i_address_nxt[31: $clog2(CACHE_LINE)+$clog2(CACHE_SIZE/CACHE_LINE)], i_address_nxt[$clog2(CACHE_LINE)-1:0]};
+initial
+begin
+        assert ( WAYS == 1 || WAYS == 2 ) else
+        $fatal(2, "zap_cache_tag_ram: WAYS must be 1 or 2.");
+end
+
+assign cache_unused0 = |{i_address[31: $clog2(CACHE_LINE)+SET_W], i_address[$clog2(CACHE_LINE)-1:0],
+                         i_lookup_address[$clog2(CACHE_LINE)-1:0]};
+assign cache_unused1 = |{i_address_nxt[31: $clog2(CACHE_LINE)+SET_W], i_address_nxt[$clog2(CACHE_LINE)-1:0]};
 assign        unused = |{dummy, line_dummy, i_wb_dat, cache_unused0, cache_unused1, w_dummy, w_dummy_1};
 
-zap_ram_simple_ben #(.WIDTH(CACHE_LINE*8), .DEPTH(CACHE_SIZE/CACHE_LINE)) u_zap_ram_simple_data_ram (
+// ARM925T: a line of any way as an index into valid and dirty.
+function automatic [FLAT_W-1:0] flat ( input [WAY_W-1:0] w, input [SET_W-1:0] s );
+        return FLAT_W'({w, s});
+endfunction : flat
+
+// ----------------------------------------------------------------------------
+
+// ARM925T: one tag RAM and one data RAM per way, read at the same set.
+for ( genvar w = 0; w < WAYS; w++ )
+begin : g_way
+
+zap_ram_simple_ben #(.WIDTH(CACHE_LINE*8), .DEPTH(LINES)) u_zap_ram_simple_data_ram (
         .i_clk(i_clk),
         .i_clken(!i_hold),
 
-        .i_wr_en(i_cache_line_ben),
+        .i_wr_en(i_cache_line_ben & {CACHE_LINE{wr_way == WAY_W'(w)}}),
         .i_wr_data(i_cache_line),
 
-        .o_rd_data_pre(w_dummy),
-        .o_rd_data(o_cache_line),
+        .o_rd_data_pre(w_dummy[w]),
+        .o_rd_data(line_q[w]),
 
         .i_wr_addr(tag_ram_wr_addr),
-        .i_rd_addr(tag_ram_rd_addr)
+        .i_rd_addr(rd_set)
 );
 
-zap_ram_simple #(.WIDTH(`ZAP_CACHE_TAG_WDT), .DEPTH(CACHE_SIZE/CACHE_LINE)) u_zap_ram_simple_tag (
+zap_ram_simple #(.WIDTH(`ZAP_CACHE_TAG_WDT), .DEPTH(LINES)) u_zap_ram_simple_tag (
         .i_clk(i_clk),
         .i_clken(!i_hold),
 
-        .i_wr_en(tag_ram_wr_en),
+        .i_wr_en(tag_ram_wr_en && wr_way == WAY_W'(w)),
         .i_wr_data(tag_ram_wr_data),
 
-        .o_rd_data_pre(w_dummy_1),
-        .o_rd_data(o_cache_tag),
+        .o_rd_data_pre(w_dummy_1[w]),
+        .o_rd_data(tag_q[w]),
 
         .i_wr_addr(tag_ram_wr_addr),
-        .i_rd_addr(tag_ram_rd_addr)
+        .i_rd_addr(rd_set)
 );
+
+end : g_way
+
+// ----------------------------------------------------------------------------
+
+//
+// ARM925T: the hit and the way of interest for the access at
+// i_lookup_address, whose set the RAMs' outputs hold. The outputs the FSM
+// sees are that way's: on a hit the line it reads or writes, on a miss the
+// line a fill replaces (its tag and dirty bit decide a write-back).
+//
+assign lk_set = i_lookup_address[`ZAP_VA__CACHE_INDEX];
+
+always_comb
+begin
+        for ( int w = 0; w < WAYS; w++ )
+        begin
+                hit[w] = valid_q[w] &&
+                         ( tag_q[w][`ZAP_CACHE_TAG__TAG] == i_lookup_address[`ZAP_VA__CACHE_TAG] );
+        end
+end
+
+if ( WAYS == 1 )
+begin : g_direct
+        assign victim            = 1'd0;
+        assign sel               = 1'd0;
+        assign lru               = '0;
+        assign lru_q             = 1'd0;
+        assign lru_s1            = 1'd0;
+        assign lru_s2            = 1'd0;
+        assign hit_pend_en       = 1'd0;
+        assign hit_pend_val      = 1'd0;
+        assign hit_pend_set      = '0;
+        assign o_cache_tag       = tag_q[0];
+        assign o_cache_line      = line_q[0];
+        assign o_cache_tag_valid = valid_q[0];
+        assign o_cache_tag_dirty = dirty_q[0];
+        assign walk_tag          = tag_q[0];
+        assign walk_line         = line_q[0];
+end
+else
+begin : g_lru
+        //
+        // The LRU bit of a set names the way to fill next: after a hit or a
+        // fill, the other way. The bit is read with the set the RAMs read
+        // and pipelined three deep with the updates in flight forwarded
+        // (as the valid bits are), so that the victim is a register's
+        // worth of logic at the output. Both updates are written a cycle
+        // behind (write-behind, as the tag writes): the hit's through
+        // hit_pend_*, the fill's through pend_*. The hit, the later event,
+        // wins a set.
+        //
+        assign victim            = !valid_q[0] ? 1'd0 : !valid_q[1] ? 1'd1 : lru_q;
+        assign sel               = hit[1] ? 1'd1 : hit[0] ? 1'd0 : victim;
+        assign hit_upd_en        = i_access && o_cache_hit;
+
+        // Explicit 2:1 muxes: a variable part-select of the packed arrays
+        // became a multiply by the tag width in the generated netlist, and
+        // Quartus put it in a DSP block on the hit path.
+        assign o_cache_tag       = sel ? tag_q[1]   : tag_q[0];
+        assign o_cache_line      = sel ? line_q[1]  : line_q[0];
+        assign o_cache_tag_valid = sel ? valid_q[1] : valid_q[0];
+        assign o_cache_tag_dirty = sel ? dirty_q[1] : dirty_q[0];
+        assign walk_tag          = rd_way ? tag_q[1]  : tag_q[0];
+        assign walk_line         = rd_way ? line_q[1] : line_q[0];
+
+        // This cycle's updates, forwarded into the reads in flight.
+        function automatic logic lru_fwd ( input [SET_W-1:0] set, input logic prev );
+                return set == lk_set          && hit_upd_en    ? ~sel    :
+                       set == tag_ram_wr_addr && tag_ram_wr_en ? ~wr_way :
+                       prev;
+        endfunction
+
+        always_ff @ ( posedge i_clk )
+        begin
+                if ( i_reset )
+                begin
+                        hit_pend_en <= 1'd0;
+                end
+                else
+                begin
+                        hit_pend_en <= hit_upd_en && !i_hold;
+                end
+
+                hit_pend_set <= lk_set;
+                hit_pend_val <= ~sel;
+        end
+
+        always_ff @ ( posedge i_clk )
+        begin
+                if ( i_reset || tag_ram_clear )
+                begin
+                        lru <= '0;
+                end
+                else
+                begin
+                        if ( pend_en )
+                        begin
+                                lru [ pend_addr ] <= ~pend_way;
+                        end
+
+                        if ( hit_pend_en )
+                        begin
+                                lru [ hit_pend_set ] <= hit_pend_val;
+                        end
+                end
+        end
+
+        always_ff @ ( posedge i_clk )
+        begin
+                if ( i_reset )
+                begin
+                        lru_q  <= 1'd0;
+                        lru_s2 <= 1'd0;
+                        lru_s1 <= 1'd0;
+                end
+                else if ( !i_hold || tag_ram_clear || line_clear )
+                begin
+                        lru_q  <= lru_fwd ( rd_set_del2, lru_s2 );
+                        lru_s2 <= lru_fwd ( rd_set_del,  lru_s1 );
+                        lru_s1 <= lru_fwd ( rd_set,
+                                            rd_set == hit_pend_set && hit_pend_en ? hit_pend_val :
+                                            rd_set == pend_addr    && pend_en     ? ~pend_way    :
+                                            lru [ rd_set ] );
+                end
+        end
+end
+
+assign o_cache_hit       = |hit;
+assign o_cache_way       = sel;
+assign wr_way            = i_cache_way;
+assign pend_flat         = flat ( pend_way, pend_addr );
 
 // ----------------------------------------------------------------------------
 
@@ -190,8 +392,8 @@ always_ff @ ( posedge i_clk )
 begin
         if ( !i_hold )
         begin
-                tag_ram_rd_addr_del  <= tag_ram_rd_addr;
-                tag_ram_rd_addr_del2 <= tag_ram_rd_addr_del;
+                rd_set_del  <= rd_set;
+                rd_set_del2 <= rd_set_del;
         end
 end
 
@@ -215,6 +417,7 @@ begin
         end
 
         pend_addr  <= tag_ram_wr_addr;
+        pend_way   <= wr_way;
         pend_dirty <= i_cache_tag_dirty;
 end
 
@@ -222,30 +425,33 @@ always_ff @ ( posedge i_clk )
 begin
         if ( i_reset )
         begin
-                o_cache_tag_dirty     <= '0;
-                cache_tag_dirty_del   <= '0;
-                cache_tag_dirty       <= '0;
+                dirty_q               <= '0;
+                dirty_s2              <= '0;
+                dirty_s1              <= '0;
                 dirty                 <= '0;
         end
         else
         begin
                 if ( !i_hold || tag_ram_clean || line_clear )
                 begin
-                        o_cache_tag_dirty  <= tag_ram_rd_addr_del2 == tag_ram_wr_addr && tag_ram_wr_en ? i_cache_tag_dirty : cache_tag_dirty_del;
-                        cache_tag_dirty_del<= tag_ram_rd_addr_del  == tag_ram_wr_addr && tag_ram_wr_en ? i_cache_tag_dirty : cache_tag_dirty;
-                        cache_tag_dirty    <= tag_ram_rd_addr      == tag_ram_wr_addr && tag_ram_wr_en ? i_cache_tag_dirty :
-                                              tag_ram_rd_addr      == pend_addr       && pend_en       ? pend_dirty        :
-                                              dirty [ tag_ram_rd_addr ];
+                        for ( int w = 0; w < WAYS; w++ )
+                        begin
+                                dirty_q[w]  <= rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_way == WAY_W'(w) ? i_cache_tag_dirty : dirty_s2[w];
+                                dirty_s2[w] <= rd_set_del  == tag_ram_wr_addr && tag_ram_wr_en && wr_way == WAY_W'(w) ? i_cache_tag_dirty : dirty_s1[w];
+                                dirty_s1[w] <= rd_set      == tag_ram_wr_addr && tag_ram_wr_en && wr_way   == WAY_W'(w) ? i_cache_tag_dirty :
+                                               rd_set      == pend_addr       && pend_en       && pend_way == WAY_W'(w) ? pend_dirty        :
+                                               dirty [ flat(WAY_W'(w), rd_set) ];
+                        end
                 end
 
                 if ( pend_en )
                 begin
-                        dirty [ pend_addr ] <= pend_dirty;
+                        dirty [ pend_flat ] <= pend_dirty;
                 end
 
                 if ( tag_ram_clean || line_clear )
                 begin
-                        dirty[tag_ram_rd_addr] <= 1'd0;
+                        dirty [ rd_flat_ff ] <= 1'd0;
                 end
         end
 end
@@ -254,26 +460,29 @@ always_ff @ ( posedge i_clk )
 begin
         if ( i_reset )
         begin
-                o_cache_tag_valid   <= '0;
-                cache_tag_valid_del <= '0;
-                cache_tag_valid     <= '0;
+                valid_q             <= '0;
+                valid_s2            <= '0;
+                valid_s1            <= '0;
                 valid               <= '0;
         end
         else
         begin
                 if ( !i_hold || tag_ram_clear || line_clear )
                 begin
-                        o_cache_tag_valid   <= tag_ram_rd_addr_del2 == tag_ram_wr_addr && tag_ram_wr_en ? 1'd1 : cache_tag_valid_del;
-                        cache_tag_valid_del <= tag_ram_rd_addr_del  == tag_ram_wr_addr && tag_ram_wr_en ? 1'd1 : cache_tag_valid;
-                        cache_tag_valid     <= tag_ram_rd_addr      == tag_ram_wr_addr && tag_ram_wr_en ? 1'd1 :
-                                               tag_ram_rd_addr      == pend_addr       && pend_en       ? 1'd1 :
-                                               valid [ tag_ram_rd_addr ];
+                        for ( int w = 0; w < WAYS; w++ )
+                        begin
+                                valid_q[w]  <= rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_way == WAY_W'(w) ? 1'd1 : valid_s2[w];
+                                valid_s2[w] <= rd_set_del  == tag_ram_wr_addr && tag_ram_wr_en && wr_way == WAY_W'(w) ? 1'd1 : valid_s1[w];
+                                valid_s1[w] <= rd_set      == tag_ram_wr_addr && tag_ram_wr_en && wr_way   == WAY_W'(w) ? 1'd1 :
+                                               rd_set      == pend_addr       && pend_en       && pend_way == WAY_W'(w) ? 1'd1 :
+                                               valid [ flat(WAY_W'(w), rd_set) ];
+                        end
                 end
 
                 // ARM925T: the pending write (above) first, then the clears.
                 if ( pend_en )
                 begin
-                        valid [ pend_addr ] <= 1'd1;
+                        valid [ pend_flat ] <= 1'd1;
                 end
 
                 // ARM925T: a disabled cache is cleared in every cycle, held
@@ -287,7 +496,7 @@ begin
                 end
                 else if ( line_clear )
                 begin
-                        valid [ tag_ram_rd_addr ]   <= 1'd0; // ARM925T
+                        valid [ rd_flat_ff ]   <= 1'd0; // ARM925T
                 end
         end
 end
@@ -308,7 +517,7 @@ begin
                 adr_ctr_ff              <= 0;
                 blk_ctr_ff              <= 0;
                 cache_clean_done_ff     <= 0;
-                tag_ram_rd_addr_ff      <= 0;
+                rd_flat_ff              <= 0;
                 line_mode_ff            <= 0;
                 line_hit_ff             <= 0;
                 line_done_ff            <= 0;
@@ -328,7 +537,7 @@ begin
                 adr_ctr_ff              <= adr_ctr_nxt;
                 blk_ctr_ff              <= blk_ctr_nxt;
                 cache_clean_done_ff     <= cache_clean_done_nxt;
-                tag_ram_rd_addr_ff      <= tag_ram_rd_addr_nxt;
+                rd_flat_ff              <= rd_flat_nxt;
                 line_mode_ff            <= line_mode_nxt;
                 line_hit_ff             <= line_hit_nxt;
                 line_done_ff            <= line_done_nxt;
@@ -340,9 +549,13 @@ end
 
 // ----------------------------------------------------------------------------
 
-assign tag_ram_rd_addr = state_ff == IDLE ?
-                         i_address_nxt [`ZAP_VA__CACHE_INDEX] :
-                         tag_ram_rd_addr_ff;
+// The set the RAMs read: the next access in IDLE, else the walk's or line
+// operation's line (ARM925T: and its way, for that line's outputs).
+assign rd_set = state_ff == IDLE ?
+                i_address_nxt [`ZAP_VA__CACHE_INDEX] :
+                rd_flat_ff [SET_W-1:0];
+
+assign rd_way = WAY_W'(rd_flat_ff >> SET_W);
 
 always_comb
 begin:blk1
@@ -364,7 +577,7 @@ begin:blk1
         pa                      = '0;
         dummy                   = '0;
         state_nxt               = state_ff;
-        tag_ram_rd_addr_nxt     = get_tag_ram_rd_addr (blk_ctr_ff, dirty);
+        rd_flat_nxt             = get_tag_ram_rd_addr (blk_ctr_ff, dirty);
         tag_ram_wr_addr         = i_address[`ZAP_VA__CACHE_INDEX];
         tag_ram_wr_en           = 0;
         tag_ram_clear           = 0;
@@ -420,27 +633,39 @@ begin:blk1
                 begin
                         // ARM925T: read the line's tag, data, valid, dirty.
                         tag_ram_wr_en       = 0;
-                        tag_ram_rd_addr_nxt = i_line_addr[`ZAP_VA__CACHE_INDEX];
+                        rd_flat_nxt         = flat ( i_line_way, i_line_addr[`ZAP_VA__CACHE_INDEX] );
                         line_mode_nxt       = 1'd1;
                         state_nxt           = LINE_W0;
                 end
         end
 
         // ARM925T: wait for the pipelined RAMs (as for a clean).
-        LINE_W0: begin tag_ram_rd_addr_nxt = tag_ram_rd_addr_ff; state_nxt = LINE_W1; end
-        LINE_W1: begin tag_ram_rd_addr_nxt = tag_ram_rd_addr_ff; state_nxt = LINE_W2; end
-        LINE_W2: begin tag_ram_rd_addr_nxt = tag_ram_rd_addr_ff; state_nxt = LINE_W3; end
-        LINE_W3: begin tag_ram_rd_addr_nxt = tag_ram_rd_addr_ff; state_nxt = LINE_CHECK; end
+        LINE_W0: begin rd_flat_nxt = rd_flat_ff; state_nxt = LINE_W1; end
+        LINE_W1: begin rd_flat_nxt = rd_flat_ff; state_nxt = LINE_W2; end
+        LINE_W2: begin rd_flat_nxt = rd_flat_ff; state_nxt = LINE_W3; end
+        LINE_W3: begin rd_flat_nxt = rd_flat_ff; state_nxt = LINE_CHECK; end
 
         LINE_CHECK:
         begin
-                tag_ram_rd_addr_nxt = tag_ram_rd_addr_ff;
-                line_hit_nxt        = valid[tag_ram_rd_addr_ff] &&
-                                      ( !i_line_va ||
-                                        o_cache_tag[`ZAP_CACHE_TAG__TAG] == i_line_addr[`ZAP_VA__CACHE_TAG] );
-                adr_ctr_nxt         = 0;
+                // ARM925T: the way: by VA, the one holding the tag; by
+                // index, i_line_way (already in rd_flat_ff).
+                rd_flat_nxt  = rd_flat_ff;
+                line_hit_nxt = 1'd0;
 
-                if ( i_line_op[0] && line_hit_nxt && dirty[tag_ram_rd_addr_ff] )
+                for ( int w = 0; w < WAYS; w++ )
+                begin
+                        if ( valid [ flat(WAY_W'(w), rd_flat_ff[SET_W-1:0]) ] &&
+                             ( i_line_va ? tag_q[w][`ZAP_CACHE_TAG__TAG] == i_line_addr[`ZAP_VA__CACHE_TAG]
+                                         : WAY_W'(w) == rd_way ) )
+                        begin
+                                line_hit_nxt = 1'd1;
+                                rd_flat_nxt  = flat ( WAY_W'(w), rd_flat_ff[SET_W-1:0] );
+                        end
+                end
+
+                adr_ctr_nxt = 0;
+
+                if ( i_line_op[0] && line_hit_nxt && dirty[rd_flat_nxt] )
                 begin
                         // Write the line back (CACHE_CLEAN_WRITE returns to LINE_INV).
                         state_nxt = CACHE_CLEAN_WRITE;
@@ -453,7 +678,7 @@ begin:blk1
 
         LINE_INV:
         begin
-                tag_ram_rd_addr_nxt = tag_ram_rd_addr_ff;
+                rd_flat_nxt         = rd_flat_ff;
                 line_clear          = i_line_op[1] && line_hit_ff;
                 line_mode_nxt       = 1'd0;
                 line_done_nxt       = 1'd1;
@@ -502,7 +727,7 @@ begin:blk1
                 // ARM925T: a single-line write-back keeps reading its line.
                 if ( line_mode_ff )
                 begin
-                        tag_ram_rd_addr_nxt = tag_ram_rd_addr_ff;
+                        rd_flat_nxt = rd_flat_ff;
                 end
 
                 adr_ctr_nxt = adr_ctr_ff + ((i_wb_ack && o_wb_stb_ff) ?
@@ -523,9 +748,9 @@ begin:blk1
                 else
                 begin
                         shamt = {{(ADR_CTR_PAD-5){1'd0}}, adr_ctr_nxt, 5'd0};
-                        {line_dummy, data}  = o_cache_line >> shamt;
+                        {line_dummy, data}  = walk_line >> shamt;
 
-                        pa    = {o_cache_tag[`ZAP_CACHE_TAG__PA],
+                        pa    = {walk_tag[`ZAP_CACHE_TAG__PA],
                                 {$clog2(CACHE_LINE){1'd0}}};
 
                         o_wb_cyc_nxt = 1'd1;
@@ -563,7 +788,7 @@ begin:blk1
                 pa                      = 'x;
                 dummy                   = 'x;
                 state_nxt               = XX;
-                tag_ram_rd_addr_nxt     = 'x;
+                rd_flat_nxt             = 'x;
                 tag_ram_wr_addr         = 'x;
                 tag_ram_wr_en           = 'x;
                 tag_ram_clear           = 'x;
@@ -612,9 +837,10 @@ endfunction : pri_enc
 
 // -----------------------------------------------------------------------------
 
-function automatic [$clog2(CACHE_SIZE/CACHE_LINE)-1:0] get_tag_ram_rd_addr (
+// The first dirty line of a block of 16, over the lines of every way.
+function automatic [FLAT_W-1:0] get_tag_ram_rd_addr (
 input [$clog2(NUMBER_OF_DIRTY_BLOCKS):0]   blk_ctr,
-input [CACHE_SIZE/CACHE_LINE-1:0]          Dirty
+input [LINES_ALL-1:0]                      Dirty
 );
 
         localparam [31:0] W = $clog2(NUMBER_OF_DIRTY_BLOCKS) + 5;
@@ -623,7 +849,7 @@ input [CACHE_SIZE/CACHE_LINE-1:0]          Dirty
         logic [4:0]                                enc;
         logic [W-1:0]                              shamt;
         logic [31:0]                               sum;
-        logic [(CACHE_SIZE/CACHE_LINE) - 16 - 1:0] unused1;
+        logic [LINES_ALL - 16 - 1:0]               unused1;
         logic                                      unused0;
 
         sum                 = 32'd0;
@@ -631,21 +857,21 @@ input [CACHE_SIZE/CACHE_LINE-1:0]          Dirty
         {unused1,dirty_new} = Dirty >> shamt;
         enc                 = pri_enc(dirty_new[15:0]);
         sum[W:0]            = {1'd0, shamt[W-1:0]} + {1'd0, {{(W-5){1'd0}}, enc}};
-        unused0             = |{sum[31:$clog2(CACHE_SIZE/CACHE_LINE)]};
-        get_tag_ram_rd_addr = sum[$clog2(CACHE_SIZE/CACHE_LINE)-1:0];
+        unused0             = |{sum[31:FLAT_W]};
+        get_tag_ram_rd_addr = sum[FLAT_W-1:0];
 
 endfunction : get_tag_ram_rd_addr
 
 // ----------------------------------------------------------------------------
 
 function automatic [4:0] baggage (
-        input [CACHE_SIZE/CACHE_LINE-1:0]               Dirty,
+        input [LINES_ALL-1:0]                           Dirty,
         input [$clog2(NUMBER_OF_DIRTY_BLOCKS):0]        blk_ctr
 );
 
-        logic [CACHE_SIZE/CACHE_LINE-1:0] w_dirty;
+        logic [LINES_ALL-1:0] w_dirty;
         logic [15:0] val;
-        logic [(CACHE_SIZE/CACHE_LINE) - 16 - 1:0] unused1;
+        logic [LINES_ALL - 16 - 1:0] unused1;
 
         w_dirty        = Dirty >> {blk_ctr, 4'd0};
         {unused1, val} = w_dirty;

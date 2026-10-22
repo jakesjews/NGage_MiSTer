@@ -9,7 +9,9 @@
 module tb_cpu #(
 	parameter bit HIVECS      = 1'b0,
 	parameter int ICACHE_SIZE = 16384,
+	parameter int ICACHE_WAYS = 2,
 	parameter int DCACHE_SIZE = 8192,
+	parameter int DCACHE_WAYS = 1,
 	parameter int CACHE_LINE  = 16
 ) (
 	input  logic          clk,
@@ -82,7 +84,9 @@ module tb_cpu #(
 	arm925t #(
 		.HIVECS      (HIVECS),
 		.ICACHE_SIZE (ICACHE_SIZE),
+		.ICACHE_WAYS (ICACHE_WAYS),
 		.DCACHE_SIZE (DCACHE_SIZE),
+		.DCACHE_WAYS (DCACHE_WAYS),
 		.CACHE_LINE  (CACHE_LINE)
 	) dut (
 		.clk       (clk),

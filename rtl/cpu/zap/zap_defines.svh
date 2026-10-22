@@ -110,11 +110,12 @@
 `define ZAP_FPAGE_TLB__CB         3:2
 
 // Cache tag width. Tag consists of the tag and the physical address. valid and dirty are stored as flops.
-`define ZAP_VA__CACHE_INDEX        $clog2(CACHE_LINE)+$clog2(CACHE_SIZE/CACHE_LINE)-1:$clog2(CACHE_LINE)
-`define ZAP_VA__CACHE_TAG          31 : $clog2(CACHE_LINE)+$clog2(CACHE_SIZE/CACHE_LINE)
-`define ZAP_CACHE_TAG__TAG         (31 - $clog2(CACHE_LINE) - $clog2(CACHE_SIZE/CACHE_LINE) + 1) -1   : 0
-`define ZAP_CACHE_TAG__PA          31 - $clog2(CACHE_LINE) + (31 - $clog2(CACHE_LINE) - $clog2(CACHE_SIZE/CACHE_LINE) + 1) : 31 - $clog2(CACHE_LINE) - $clog2(CACHE_SIZE/CACHE_LINE) + 1
-`define ZAP_CACHE_TAG_WDT          31 - $clog2(CACHE_LINE) + (31 - $clog2(CACHE_LINE) - $clog2(CACHE_SIZE/CACHE_LINE) + 1) + 1
+// ARM925T: CACHE_SIZE is the whole cache; the index addresses the lines of one of its WAYS ways.
+`define ZAP_VA__CACHE_INDEX        $clog2(CACHE_LINE)+$clog2(CACHE_SIZE/WAYS/CACHE_LINE)-1:$clog2(CACHE_LINE)
+`define ZAP_VA__CACHE_TAG          31 : $clog2(CACHE_LINE)+$clog2(CACHE_SIZE/WAYS/CACHE_LINE)
+`define ZAP_CACHE_TAG__TAG         (31 - $clog2(CACHE_LINE) - $clog2(CACHE_SIZE/WAYS/CACHE_LINE) + 1) -1   : 0
+`define ZAP_CACHE_TAG__PA          31 - $clog2(CACHE_LINE) + (31 - $clog2(CACHE_LINE) - $clog2(CACHE_SIZE/WAYS/CACHE_LINE) + 1) : 31 - $clog2(CACHE_LINE) - $clog2(CACHE_SIZE/WAYS/CACHE_LINE) + 1
+`define ZAP_CACHE_TAG_WDT          31 - $clog2(CACHE_LINE) + (31 - $clog2(CACHE_LINE) - $clog2(CACHE_SIZE/WAYS/CACHE_LINE) + 1) + 1
 
 // TLB widths.
 `define ZAP_SECTION_TLB_WDT       (32 + (32-$clog2(SECTION_TLB_ENTRIES)-20))
