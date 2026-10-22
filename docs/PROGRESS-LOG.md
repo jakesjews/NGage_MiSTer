@@ -2464,3 +2464,31 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   now the D-cache's RAM forwarding. 14,483 ALMs (direct-mapped: 14,014),
   16,539 registers, 59 M10K, 4 DSP. Before the fixes: -1.167 ns, 14,751
   ALMs, 6 DSP.
+- **Whole-core measurement build** (counters, no trace rings, the 128 KB
+  flash cache, seed 2 with the fitter knobs): 32,538 ALMs (78 %), 40,233
+  registers, 454 M10K (the 128 KB-cache build: 452; the split into two
+  half-depth banks cost almost nothing), 43 DSP. Setup -0.098 ns at the
+  slow 100C corner and -0.166 at slow -40C: the issue stage's stall into
+  the memory source value, the fetch PC into the bus merger (the known
+  CPU family) and one D-cache forwarding path at -0.014; hold +0.246 at
+  the worst corner, the SDRAM output pair not in the top ten this time.
+  Measured with at room temperature as the earlier builds were; a release
+  needs a seed sweep. Kept as build/hardware/NGage-icache2.rbf and
+  deployed as the debug core (_Console/_NGage/_Debug/NGageDbg_20261022.rbf).
+- **On hardware** (tools/boot_profile.py, Alien Front launcher on the
+  formatted save, the two builds back to back at a 2 s period; the
+  10 s-period runs could not place the phase ends, and two 10 s runs of
+  one build had agreed to 0.2 s, so the 2 s runs are the comparison):
+  the 128 KB-cache build's kernel phase runs from 31 to about 95 s after
+  the load, then a lighter tail to 106 s; the two-way build's from 30 to
+  about 90 s, tail to 100 s. **The boot is 6 s shorter, 76 -> 70 s from
+  the first to the last second of bus traffic.** Kernel phase: 11.5 ->
+  12.6 M instructions/s, flash waits 31.0 -> 25.0 % of the clocks, SDRAM
+  waits 12.5 -> 13.4 %, bus beats 205 -> 178 M over the boot (fewer
+  refills), cycles an instruction 9.3 -> 8.4. Taking the waits out, the
+  kernel code still costs about 5.2 clocks an instruction of pure
+  pipeline: the CP15 drains, exception entries, mispredicts and load-use
+  interlocks are now the larger part of the kernel phase, the flash's
+  24-clock line fills the next (a quarter of the clocks), the D-cache's
+  SDRAM misses after that. Profiles under build/hardware/boot/fcache-p2
+  and icache2-p2.
