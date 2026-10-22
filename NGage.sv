@@ -1001,9 +1001,28 @@ reg [31:0] dbg_f0 = 0, dbg_f4 = 0, dbg_f8 = 0;
 // word address; 0 = off), so that the read and what follows it are in the
 // dump: the HLE RTC date register, which the NOS stand-in reads once.
 localparam [31:0] DBG_TRIG_RD = 32'h0C1F0100;
+// ... and after a write to flash CS1 (a program or erase command) once
+// DBG_TRIG_WR_AFTER_S seconds have passed since the CPU started (0 = off):
+// the flash traffic of a boot stuck in the C: mount.
+localparam [7:0] DBG_TRIG_WR_AFTER_S = 8'd40;
+reg  [26:0] dbg_sec_pre = 0;
+reg   [7:0] dbg_sec = 0;
+always @(posedge clk_sys) begin
+	if (cpu_reset) begin
+		dbg_sec_pre <= 0;
+		dbg_sec     <= 0;
+	end else if (dbg_sec_pre == 27'd103_999_999) begin
+		dbg_sec_pre <= 0;
+		if (dbg_sec != 8'hFF) dbg_sec <= dbg_sec + 1'd1;
+	end else begin
+		dbg_sec_pre <= dbg_sec_pre + 1'd1;
+	end
+end
+wire dbg_trig_wr = DBG_TRIG_WR_AFTER_S != 8'd0 && dbg_sec >= DBG_TRIG_WR_AFTER_S &&
+                   cpu_req && wb_ack && wb_we && wb_adr[31:24] == 8'h02;
 reg  [15:0] dbg_trd_q = 0;
 always @(posedge clk_sys) dbg_trd_q <= {dbg_trd_q[14:0],
-	DBG_TRIG_RD != 32'd0 && cpu_req && wb_ack && !wb_we && wb_adr[31:2] == DBG_TRIG_RD[31:2]};
+	(DBG_TRIG_RD != 32'd0 && cpu_req && wb_ack && !wb_we && wb_adr[31:2] == DBG_TRIG_RD[31:2]) || dbg_trig_wr};
 assign dbg_trig = (wb_cyc && wb_stb && wb_we && wb_ack && wb_adr[31:20] == 12'h0C0 &&
                    wb_adr[15:2] == 14'(32'h47F0 >> 2)) || dbg_trd_q[15];
 always @(posedge clk_sys) begin
