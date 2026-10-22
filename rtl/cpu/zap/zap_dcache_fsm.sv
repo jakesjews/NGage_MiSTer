@@ -187,6 +187,27 @@ logic    [3:0]                            ben; // Valid only for writes.
 logic    [CACHE_LINE*8-1:0]               cache_line;
 logic  [`ZAP_CACHE_TAG_WDT-1:0]           cache_tag; // Tag
 logic    [31:0]                           phy_addr;
+
+// ARM925T: a burst's next beat is chosen by the acknowledge between two
+// candidates formed from registers, the current beat's and the next's,
+// instead of being computed after it (timing).
+logic                                     take;
+logic [$clog2(CACHE_LINE/4):0]            adr_ctr_inc;
+logic                                     beat_cur_ok, beat_inc_ok;
+logic [2:0]                               cti_cur, cti_inc;
+logic [31:0]                              wb_adr_cur, wb_adr_inc;       // the write-back's beats
+logic [31:0]                              fetch_adr_cur, fetch_adr_inc; // the fill's beats
+
+assign take          = o_wb_stb_ff && (i_wb_ack | i_wb_err);
+assign adr_ctr_inc   = adr_ctr_ff + {{$clog2(CACHE_LINE/4){1'd0}}, 1'd1};
+assign beat_cur_ok   = {{ADR_PAD{1'd0}}, adr_ctr_ff}  <= ((CACHE_LINE/4) - 1);
+assign beat_inc_ok   = {{ADR_PAD{1'd0}}, adr_ctr_inc} <= ((CACHE_LINE/4) - 1);
+assign cti_cur       = ({{ADR_PAD{1'd0}}, adr_ctr_ff}  != ((CACHE_LINE/4) - 1)) ? CTI_BURST : CTI_EOB;
+assign cti_inc       = ({{ADR_PAD{1'd0}}, adr_ctr_inc} != ((CACHE_LINE/4) - 1)) ? CTI_BURST : CTI_EOB;
+assign wb_adr_cur    = {cache_tag[`ZAP_CACHE_TAG__PA], {$clog2(CACHE_LINE){1'd0}}} + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_ff,  2'd0});
+assign wb_adr_inc    = {cache_tag[`ZAP_CACHE_TAG__PA], {$clog2(CACHE_LINE){1'd0}}} + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_inc, 2'd0});
+assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE){1'd0}}}  + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_ff,  2'd0});
+assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE){1'd0}}}  + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_inc, 2'd0});
 logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] way;       // ARM925T: the line's way
 logic    [63:0]                           reg_idx;
 logic    [63:0]                           lock_nxt, lock_ff;
@@ -745,19 +766,17 @@ begin:next_state_logic
                 end
 
                 // Generate address
-                adr_ctr_nxt = adr_ctr_ff + ((o_wb_stb_ff && (i_wb_ack|i_wb_err)) ? {{($clog2(CACHE_LINE/4) ){1'd0}}, 1'd1} :
-                                                                         {($clog2(CACHE_LINE/4)+1){1'd0}});
+                adr_ctr_nxt = take ? adr_ctr_inc : adr_ctr_ff;
 
-                if ( {{ADR_PAD{1'd0}}, adr_ctr_nxt} <= ((CACHE_LINE/4) - 1) )
+                if ( take ? beat_inc_ok : beat_cur_ok )
                 begin
                         // Sync up with memory. Use PA in cache tag itself.
                         o_wb_cyc_nxt = 1'd1;
                         o_wb_stb_nxt = 1'd1;
                         o_wb_wen_nxt = 1'd1;
-                        o_wb_dat_nxt = clean_single_d (cache_line, adr_ctr_nxt);
-                        o_wb_adr_nxt = {cache_tag[`ZAP_CACHE_TAG__PA], {$clog2(CACHE_LINE){1'd0}}} +
-                                       ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_nxt, 2'd0});
-                       o_wb_cti_nxt =  {{ADR_PAD{1'd0}},adr_ctr_nxt} != ((CACHE_LINE/4) - 1) ? CTI_BURST : CTI_EOB;
+                        o_wb_dat_nxt = take ? clean_single_d(cache_line, adr_ctr_inc) : clean_single_d(cache_line, adr_ctr_ff);
+                        o_wb_adr_nxt = take ? wb_adr_inc : wb_adr_cur;
+                       o_wb_cti_nxt = take ? cti_inc : cti_cur;
                        o_wb_sel_nxt =  4'b1111;
                 end
                 else
@@ -789,8 +808,7 @@ begin:next_state_logic
                 end
 
                 // Generate address
-                adr_ctr_nxt = adr_ctr_ff + ((o_wb_stb_ff && (i_wb_ack|i_wb_err)) ? {{($clog2(CACHE_LINE/4) ){1'd0}}, 1'd1} :
-                                                                         {($clog2(CACHE_LINE/4)+1){1'd0}}) ;
+                adr_ctr_nxt = take ? adr_ctr_inc : adr_ctr_ff;
 
                 // Write to buffer
                 buf_nxt[adr_ctr_ff[$clog2(CACHE_LINE/4)-1:0]] = (i_wb_ack|i_wb_err) ?
@@ -808,13 +826,11 @@ begin:next_state_logic
                         buf_nxt[tmp][31:24] = ben[3] ? din[31:24] : buf_nxt[tmp][31:24];
                 end
 
-                if ( {{ADR_PAD{1'd0}}, adr_ctr_nxt} <= (CACHE_LINE/4) - 1 )
+                if ( take ? beat_inc_ok : beat_cur_ok )
                 begin
 
                         // Fetch line from memory
-                        `zap_wb_prpr_read(
-                                     {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE){1'd0}}} + (adr_ctr_nxt * (32/8)),
-                                     ({{ADR_PAD{1'd0}}, adr_ctr_nxt} != CACHE_LINE/4 - 1) ? CTI_BURST : CTI_EOB);
+                        `zap_wb_prpr_read(take ? fetch_adr_inc : fetch_adr_cur, take ? cti_inc : cti_cur);
                 end
                 else
                 begin:blk12

@@ -183,6 +183,11 @@ logic [SET_W-1:0]                          rd_set, rd_set_del, rd_set_del2;   //
 logic [FLAT_W-1:0]                         rd_flat_ff, rd_flat_nxt;           // ARM925T: the clean walk's or line operation's line.
 logic [WAY_W-1:0]                          rd_way;                            // ARM925T: its way.
 logic [SET_W-1:0]                          lk_set;              // ARM925T: the lookup's set.
+logic                                      take;                // ARM925T: a write-back beat is acknowledged
+logic [$clog2(CACHE_LINE/4):0]             adr_ctr_inc;         // ARM925T: the next beat, from registers
+logic                                      beat_cur_ok, beat_inc_ok;
+logic [2:0]                                cti_cur, cti_inc;
+logic [31:0]                               wb_adr_cur, wb_adr_inc, wb_word_cur, wb_word_inc;
 logic                                      tag_ram_clear;
 logic                                      tag_ram_clean;
 t_state                                    state_ff, state_nxt;
@@ -616,6 +621,19 @@ assign rd_set = state_ff == IDLE ?
 
 assign rd_way = WAY_W'(rd_flat_ff >> SET_W);
 
+// ARM925T: the write-back's next beat is chosen by the acknowledge between
+// the current beat and the next, both formed from registers (timing).
+assign take        = i_wb_ack && o_wb_stb_ff;
+assign adr_ctr_inc = adr_ctr_ff + {{(ZERO_WDT-1){1'd0}}, 1'd1};
+assign beat_cur_ok = {{ADR_CTR_PAD{1'd0}}, adr_ctr_ff}  <= ((CACHE_LINE/4) - 1);
+assign beat_inc_ok = {{ADR_CTR_PAD{1'd0}}, adr_ctr_inc} <= ((CACHE_LINE/4) - 1);
+assign cti_cur     = ({{ADR_CTR_PAD{1'd0}}, adr_ctr_ff}  != (CACHE_LINE/4)-1) ? CTI_BURST : CTI_EOB;
+assign cti_inc     = ({{ADR_CTR_PAD{1'd0}}, adr_ctr_inc} != (CACHE_LINE/4)-1) ? CTI_BURST : CTI_EOB;
+assign wb_adr_cur  = {walk_tag[`ZAP_CACHE_TAG__PA], {$clog2(CACHE_LINE){1'd0}}} + ({{(ADR_CTR_PAD-2){1'd0}}, adr_ctr_ff,  2'd0});
+assign wb_adr_inc  = {walk_tag[`ZAP_CACHE_TAG__PA], {$clog2(CACHE_LINE){1'd0}}} + ({{(ADR_CTR_PAD-2){1'd0}}, adr_ctr_inc, 2'd0});
+assign wb_word_cur = walk_line[32 * adr_ctr_ff[$clog2(CACHE_LINE/4)-1:0]  +: 32];
+assign wb_word_inc = walk_line[32 * adr_ctr_inc[$clog2(CACHE_LINE/4)-1:0] +: 32];
+
 always_comb
 begin:blk1
 
@@ -789,11 +807,9 @@ begin:blk1
                         rd_flat_nxt = rd_flat_ff;
                 end
 
-                adr_ctr_nxt = adr_ctr_ff + ((i_wb_ack && o_wb_stb_ff) ?
-                              {{(ZERO_WDT-1){1'd0}}, 1'd1} :
-                              {ZERO_WDT{1'd0}});
+                adr_ctr_nxt = take ? adr_ctr_inc : adr_ctr_ff;
 
-                if ( {{ADR_CTR_PAD{1'd0}}, adr_ctr_nxt} > ((CACHE_LINE/4) - 1) )
+                if ( !(take ? beat_inc_ok : beat_cur_ok) )
                 begin
                         // Remove dirty marking. BUG FIX.
                         tag_ram_clean = 1;
@@ -806,11 +822,7 @@ begin:blk1
                 end
                 else
                 begin
-                        shamt = {{(ADR_CTR_PAD-5){1'd0}}, adr_ctr_nxt, 5'd0};
-                        {line_dummy, data}  = walk_line >> shamt;
-
-                        pa    = {walk_tag[`ZAP_CACHE_TAG__PA],
-                                {$clog2(CACHE_LINE){1'd0}}};
+                        data  = take ? wb_word_inc : wb_word_cur;
 
                         o_wb_cyc_nxt = 1'd1;
                         o_wb_stb_nxt = 1'd1;
@@ -819,9 +831,8 @@ begin:blk1
                         // Perform a Wishbone write using Physical Address.
                         // Uses WB burst protocol for higher efficency.
                         o_wb_dat_nxt = data;
-                        o_wb_adr_nxt = pa + ({{(ADR_CTR_PAD-2){1'd0}}, adr_ctr_nxt, 2'd0});
-                        o_wb_cti_nxt = ({{ADR_CTR_PAD{1'd0}},adr_ctr_nxt} != (CACHE_LINE/4)-1) ?
-                        CTI_BURST : CTI_EOB;
+                        o_wb_adr_nxt = take ? wb_adr_inc : wb_adr_cur;
+                        o_wb_cti_nxt = take ? cti_inc : cti_cur;
                         o_wb_sel_nxt = 4'b1111;
                 end
         end

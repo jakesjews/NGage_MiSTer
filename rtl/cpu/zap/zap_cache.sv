@@ -376,6 +376,15 @@ begin
         endcase
 end
 
+//
+// ARM925T: the next CYC is any manager's when the bus may change hands
+// (the condition the state machine uses), else the current manager's: the
+// value the mux below would give, since the manager the priority select
+// chooses has CYC whenever any has; one level after the acknowledge
+// instead of through the select (timing).
+//
+assign o_wb_cyc_nxt = ( !o_wb_stb || (o_wb_stb && i_wb_ack) ) ? (|wb_cyc) : (|(state_ff & wb_cyc));
+
 // Combo signals for external MUXing.
 always_comb
 begin
@@ -383,7 +392,6 @@ begin
         SELECT_CCH:
         begin
                 o_wb_stb_nxt = wb_stb[0];
-                o_wb_cyc_nxt = wb_cyc[0];
                 o_wb_adr_nxt = wb_adr[0];
                 o_wb_dat_nxt = wb_dat[0];
                 o_wb_cti_nxt = wb_cti[0];
@@ -393,7 +401,6 @@ begin
         SELECT_TAG:
         begin
                 o_wb_stb_nxt = wb_stb[1];
-                o_wb_cyc_nxt = wb_cyc[1];
                 o_wb_adr_nxt = wb_adr[1];
                 o_wb_dat_nxt = wb_dat[1];
                 o_wb_cti_nxt = wb_cti[1];
@@ -403,7 +410,6 @@ begin
         SELECT_TLB:
         begin
                 o_wb_stb_nxt = wb_stb[2];
-                o_wb_cyc_nxt = wb_cyc[2];
                 o_wb_adr_nxt = wb_adr[2];
                 o_wb_dat_nxt = wb_dat[2];
                 o_wb_cti_nxt = wb_cti[2];
@@ -413,7 +419,6 @@ begin
         default: // Assigning X will cause synthesis to better optimize.
         begin
                 o_wb_stb_nxt = 'x;
-                o_wb_cyc_nxt = 'x;
                 o_wb_adr_nxt = 'x;
                 o_wb_dat_nxt = 'x;
                 o_wb_cti_nxt = 'x;

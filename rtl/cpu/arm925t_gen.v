@@ -2274,6 +2274,26 @@ module zap_cache_fsm (
 	reg [(CACHE_LINE * 8) - 1:0] cache_line;
 	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cache_tag;
 	reg [31:0] phy_addr;
+	wire take;
+	wire [$clog2(CACHE_LINE / 4):0] adr_ctr_inc;
+	wire beat_cur_ok;
+	wire beat_inc_ok;
+	wire [2:0] cti_cur;
+	wire [2:0] cti_inc;
+	wire [31:0] wb_adr_cur;
+	wire [31:0] wb_adr_inc;
+	wire [31:0] fetch_adr_cur;
+	wire [31:0] fetch_adr_inc;
+	assign take = o_wb_stb_ff && (i_wb_ack | i_wb_err);
+	assign adr_ctr_inc = adr_ctr_ff + {{$clog2(CACHE_LINE / 4) {1'd0}}, 1'd1};
+	assign beat_cur_ok = {{ADR_PAD {1'd0}}, adr_ctr_ff} <= ((CACHE_LINE / 4) - 1);
+	assign beat_inc_ok = {{ADR_PAD {1'd0}}, adr_ctr_inc} <= ((CACHE_LINE / 4) - 1);
+	assign cti_cur = ({{ADR_PAD {1'd0}}, adr_ctr_ff} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
+	assign cti_inc = ({{ADR_PAD {1'd0}}, adr_ctr_inc} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
+	assign wb_adr_cur = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_ff, 2'd0};
+	assign wb_adr_inc = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_inc, 2'd0};
+	assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_ff, 2'd0};
+	assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_inc, 2'd0};
 	reg [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] way;
 	wire unused;
 	assign unused = |{rhit, whit, phy_addr[$clog2(CACHE_LINE) - 1:0]};
@@ -2512,14 +2532,14 @@ module zap_cache_fsm (
 			CLEAN_SINGLE: begin
 				o_ack = 1'd1;
 				o_err2 = (i_rd || i_wr ? 1'd1 : 1'd0);
-				adr_ctr_nxt = adr_ctr_ff + (o_wb_stb_ff && (i_wb_ack | i_wb_err) ? {{$clog2(CACHE_LINE / 4) {1'd0}}, 1'd1} : {$clog2(CACHE_LINE / 4) + 1 {1'd0}});
-				if ({{ADR_PAD {1'd0}}, adr_ctr_nxt} <= ((CACHE_LINE / 4) - 1)) begin
+				adr_ctr_nxt = (take ? adr_ctr_inc : adr_ctr_ff);
+				if ((take ? beat_inc_ok : beat_cur_ok)) begin
 					o_wb_cyc_nxt = 1'd1;
 					o_wb_stb_nxt = 1'd1;
 					o_wb_wen_nxt = 1'd1;
-					o_wb_dat_nxt = clean_single_d(cache_line, adr_ctr_nxt);
-					o_wb_adr_nxt = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_nxt, 2'd0};
-					o_wb_cti_nxt = ({{ADR_PAD {1'd0}}, adr_ctr_nxt} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
+					o_wb_dat_nxt = (take ? clean_single_d(cache_line, adr_ctr_inc) : clean_single_d(cache_line, adr_ctr_ff));
+					o_wb_adr_nxt = (take ? wb_adr_inc : wb_adr_cur);
+					o_wb_cti_nxt = (take ? cti_inc : cti_cur);
 					o_wb_sel_nxt = 4'b1111;
 				end
 				else begin
@@ -2540,7 +2560,7 @@ module zap_cache_fsm (
 			FETCH_SINGLE: begin
 				o_ack = 1'd1;
 				o_err2 = (i_rd || i_wr ? 1'd1 : 1'd0);
-				adr_ctr_nxt = adr_ctr_ff + (o_wb_stb_ff && (i_wb_ack | i_wb_err) ? {{$clog2(CACHE_LINE / 4) {1'd0}}, 1'd1} : {$clog2(CACHE_LINE / 4) + 1 {1'd0}});
+				adr_ctr_nxt = (take ? adr_ctr_inc : adr_ctr_ff);
 				buf_nxt[adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0]] = (i_wb_ack | i_wb_err ? i_wb_dat : buf_ff[adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0]]);
 				if (wr) begin
 					tmp = address[$clog2(CACHE_LINE / 4) + 1:2];
@@ -2549,13 +2569,13 @@ module zap_cache_fsm (
 					buf_nxt[tmp][23:16] = (ben[2] ? din[23:16] : buf_nxt[tmp][23:16]);
 					buf_nxt[tmp][31:24] = (ben[3] ? din[31:24] : buf_nxt[tmp][31:24]);
 				end
-				if ({{ADR_PAD {1'd0}}, adr_ctr_nxt} <= ((CACHE_LINE / 4) - 1)) begin
+				if ((take ? beat_inc_ok : beat_cur_ok)) begin
 					o_wb_cyc_nxt = 1'd1;
 					o_wb_stb_nxt = 1'd1;
 					o_wb_wen_nxt = 1'd0;
 					o_wb_sel_nxt = 4'b1111;
-					o_wb_adr_nxt = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE) {1'd0}}} + (adr_ctr_nxt * 4);
-					o_wb_cti_nxt = ({{ADR_PAD {1'd0}}, adr_ctr_nxt} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
+					o_wb_adr_nxt = (take ? fetch_adr_inc : fetch_adr_cur);
+					o_wb_cti_nxt = (take ? cti_inc : cti_cur);
 					o_wb_dat_nxt = 0;
 				end
 				else begin : blk12
@@ -3050,6 +3070,16 @@ module zap_cache_tag_ram (
 	reg [FLAT_W - 1:0] rd_flat_nxt;
 	wire [WAY_W - 1:0] rd_way;
 	wire [SET_W - 1:0] lk_set;
+	wire take;
+	wire [$clog2(CACHE_LINE / 4):0] adr_ctr_inc;
+	wire beat_cur_ok;
+	wire beat_inc_ok;
+	wire [2:0] cti_cur;
+	wire [2:0] cti_inc;
+	wire [31:0] wb_adr_cur;
+	wire [31:0] wb_adr_inc;
+	wire [31:0] wb_word_cur;
+	wire [31:0] wb_word_inc;
 	reg tag_ram_clear;
 	reg tag_ram_clean;
 	reg [12:0] state_ff;
@@ -3377,6 +3407,16 @@ module zap_cache_tag_ram (
 		sv2v_cast_4BDF2 = inp;
 	endfunction
 	assign rd_way = sv2v_cast_4BDF2(rd_flat_ff >> SET_W);
+	assign take = i_wb_ack && o_wb_stb_ff;
+	assign adr_ctr_inc = adr_ctr_ff + {{ZERO_WDT - 1 {1'd0}}, 1'd1};
+	assign beat_cur_ok = {{ADR_CTR_PAD {1'd0}}, adr_ctr_ff} <= ((CACHE_LINE / 4) - 1);
+	assign beat_inc_ok = {{ADR_CTR_PAD {1'd0}}, adr_ctr_inc} <= ((CACHE_LINE / 4) - 1);
+	assign cti_cur = ({{ADR_CTR_PAD {1'd0}}, adr_ctr_ff} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
+	assign cti_inc = ({{ADR_CTR_PAD {1'd0}}, adr_ctr_inc} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
+	assign wb_adr_cur = {walk_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_CTR_PAD - 2 {1'd0}}, adr_ctr_ff, 2'd0};
+	assign wb_adr_inc = {walk_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_CTR_PAD - 2 {1'd0}}, adr_ctr_inc, 2'd0};
+	assign wb_word_cur = walk_line[32 * adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0]+:32];
+	assign wb_word_inc = walk_line[32 * adr_ctr_inc[$clog2(CACHE_LINE / 4) - 1:0]+:32];
 	function automatic [4:0] pri_enc;
 		input [15:0] in;
 		casez (in)
@@ -3553,8 +3593,8 @@ module zap_cache_tag_ram (
 			13'b0000000100000: begin
 				if (line_mode_ff)
 					rd_flat_nxt = rd_flat_ff;
-				adr_ctr_nxt = adr_ctr_ff + (i_wb_ack && o_wb_stb_ff ? {{ZERO_WDT - 1 {1'd0}}, 1'd1} : {ZERO_WDT {1'd0}});
-				if ({{ADR_CTR_PAD {1'd0}}, adr_ctr_nxt} > ((CACHE_LINE / 4) - 1)) begin
+				adr_ctr_nxt = (take ? adr_ctr_inc : adr_ctr_ff);
+				if (!(take ? beat_inc_ok : beat_cur_ok)) begin
 					tag_ram_clean = 1;
 					o_wb_cyc_nxt = 0;
 					o_wb_stb_nxt = 0;
@@ -3566,15 +3606,13 @@ module zap_cache_tag_ram (
 					state_nxt = (line_mode_ff ? 13'b1000000000000 : 13'b0000000000010);
 				end
 				else begin
-					shamt = {{ADR_CTR_PAD - 5 {1'd0}}, adr_ctr_nxt, 5'd0};
-					{line_dummy, data} = walk_line >> shamt;
-					pa = {walk_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}};
+					data = (take ? wb_word_inc : wb_word_cur);
 					o_wb_cyc_nxt = 1'd1;
 					o_wb_stb_nxt = 1'd1;
 					o_wb_wen_nxt = 1'd1;
 					o_wb_dat_nxt = data;
-					o_wb_adr_nxt = pa + {{ADR_CTR_PAD - 2 {1'd0}}, adr_ctr_nxt, 2'd0};
-					o_wb_cti_nxt = ({{ADR_CTR_PAD {1'd0}}, adr_ctr_nxt} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
+					o_wb_adr_nxt = (take ? wb_adr_inc : wb_adr_cur);
+					o_wb_cti_nxt = (take ? cti_inc : cti_cur);
 					o_wb_sel_nxt = 4'b1111;
 				end
 			end
@@ -3702,7 +3740,7 @@ module zap_cache (
 	output reg o_wb_stb;
 	output reg o_wb_stb_nxt;
 	output reg o_wb_cyc;
-	output reg o_wb_cyc_nxt;
+	output wire o_wb_cyc_nxt;
 	output reg o_wb_wen;
 	output reg o_wb_wen_nxt;
 	output reg [3:0] o_wb_sel;
@@ -4242,13 +4280,13 @@ module zap_cache (
 			default: {wb_err, wb_ack} = {6 {1'bx}};
 		endcase
 	end
+	assign o_wb_cyc_nxt = (!o_wb_stb || (o_wb_stb && i_wb_ack) ? |wb_cyc : |(state_ff & wb_cyc));
 	always @(*) begin
 		if (_sv2v_0)
 			;
 		case (state_nxt)
 			SELECT_CCH: begin
 				o_wb_stb_nxt = wb_stb[0];
-				o_wb_cyc_nxt = wb_cyc[0];
 				o_wb_adr_nxt = wb_adr[0];
 				o_wb_dat_nxt = wb_dat[0];
 				o_wb_cti_nxt = wb_cti[0];
@@ -4257,7 +4295,6 @@ module zap_cache (
 			end
 			SELECT_TAG: begin
 				o_wb_stb_nxt = wb_stb[1];
-				o_wb_cyc_nxt = wb_cyc[1];
 				o_wb_adr_nxt = wb_adr[1];
 				o_wb_dat_nxt = wb_dat[1];
 				o_wb_cti_nxt = wb_cti[1];
@@ -4266,7 +4303,6 @@ module zap_cache (
 			end
 			SELECT_TLB: begin
 				o_wb_stb_nxt = wb_stb[2];
-				o_wb_cyc_nxt = wb_cyc[2];
 				o_wb_adr_nxt = wb_adr[2];
 				o_wb_dat_nxt = wb_dat[2];
 				o_wb_cti_nxt = wb_cti[2];
@@ -4275,7 +4311,6 @@ module zap_cache (
 			end
 			default: begin
 				o_wb_stb_nxt = 1'sbx;
-				o_wb_cyc_nxt = 1'sbx;
 				o_wb_adr_nxt = 1'sbx;
 				o_wb_dat_nxt = 1'sbx;
 				o_wb_cti_nxt = 1'sbx;
@@ -7600,6 +7635,26 @@ module zap_dcache_fsm (
 	reg [(CACHE_LINE * 8) - 1:0] cache_line;
 	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cache_tag;
 	reg [31:0] phy_addr;
+	wire take;
+	wire [$clog2(CACHE_LINE / 4):0] adr_ctr_inc;
+	wire beat_cur_ok;
+	wire beat_inc_ok;
+	wire [2:0] cti_cur;
+	wire [2:0] cti_inc;
+	wire [31:0] wb_adr_cur;
+	wire [31:0] wb_adr_inc;
+	wire [31:0] fetch_adr_cur;
+	wire [31:0] fetch_adr_inc;
+	assign take = o_wb_stb_ff && (i_wb_ack | i_wb_err);
+	assign adr_ctr_inc = adr_ctr_ff + {{$clog2(CACHE_LINE / 4) {1'd0}}, 1'd1};
+	assign beat_cur_ok = {{ADR_PAD {1'd0}}, adr_ctr_ff} <= ((CACHE_LINE / 4) - 1);
+	assign beat_inc_ok = {{ADR_PAD {1'd0}}, adr_ctr_inc} <= ((CACHE_LINE / 4) - 1);
+	assign cti_cur = ({{ADR_PAD {1'd0}}, adr_ctr_ff} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
+	assign cti_inc = ({{ADR_PAD {1'd0}}, adr_ctr_inc} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
+	assign wb_adr_cur = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_ff, 2'd0};
+	assign wb_adr_inc = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_inc, 2'd0};
+	assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_ff, 2'd0};
+	assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_inc, 2'd0};
 	reg [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] way;
 	reg [63:0] reg_idx;
 	reg [63:0] lock_nxt;
@@ -7975,14 +8030,14 @@ module zap_dcache_fsm (
 					o_ack = 1'd1;
 					o_err2 = (i_rd || i_wr ? 1'd1 : 1'd0);
 				end
-				adr_ctr_nxt = adr_ctr_ff + (o_wb_stb_ff && (i_wb_ack | i_wb_err) ? {{$clog2(CACHE_LINE / 4) {1'd0}}, 1'd1} : {$clog2(CACHE_LINE / 4) + 1 {1'd0}});
-				if ({{ADR_PAD {1'd0}}, adr_ctr_nxt} <= ((CACHE_LINE / 4) - 1)) begin
+				adr_ctr_nxt = (take ? adr_ctr_inc : adr_ctr_ff);
+				if ((take ? beat_inc_ok : beat_cur_ok)) begin
 					o_wb_cyc_nxt = 1'd1;
 					o_wb_stb_nxt = 1'd1;
 					o_wb_wen_nxt = 1'd1;
-					o_wb_dat_nxt = clean_single_d(cache_line, adr_ctr_nxt);
-					o_wb_adr_nxt = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_nxt, 2'd0};
-					o_wb_cti_nxt = ({{ADR_PAD {1'd0}}, adr_ctr_nxt} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
+					o_wb_dat_nxt = (take ? clean_single_d(cache_line, adr_ctr_inc) : clean_single_d(cache_line, adr_ctr_ff));
+					o_wb_adr_nxt = (take ? wb_adr_inc : wb_adr_cur);
+					o_wb_cti_nxt = (take ? cti_inc : cti_cur);
 					o_wb_sel_nxt = 4'b1111;
 				end
 				else begin
@@ -8009,7 +8064,7 @@ module zap_dcache_fsm (
 					o_ack = 1'd1;
 					o_err2 = (i_rd || i_wr ? 1'd1 : 1'd0);
 				end
-				adr_ctr_nxt = adr_ctr_ff + (o_wb_stb_ff && (i_wb_ack | i_wb_err) ? {{$clog2(CACHE_LINE / 4) {1'd0}}, 1'd1} : {$clog2(CACHE_LINE / 4) + 1 {1'd0}});
+				adr_ctr_nxt = (take ? adr_ctr_inc : adr_ctr_ff);
 				buf_nxt[adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0]] = (i_wb_ack | i_wb_err ? i_wb_dat : buf_ff[adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0]]);
 				if (wr) begin
 					tmp = address[$clog2(CACHE_LINE / 4) + 1:2];
@@ -8018,13 +8073,13 @@ module zap_dcache_fsm (
 					buf_nxt[tmp][23:16] = (ben[2] ? din[23:16] : buf_nxt[tmp][23:16]);
 					buf_nxt[tmp][31:24] = (ben[3] ? din[31:24] : buf_nxt[tmp][31:24]);
 				end
-				if ({{ADR_PAD {1'd0}}, adr_ctr_nxt} <= ((CACHE_LINE / 4) - 1)) begin
+				if ((take ? beat_inc_ok : beat_cur_ok)) begin
 					o_wb_cyc_nxt = 1'd1;
 					o_wb_stb_nxt = 1'd1;
 					o_wb_wen_nxt = 1'd0;
 					o_wb_sel_nxt = 4'b1111;
-					o_wb_adr_nxt = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE) {1'd0}}} + (adr_ctr_nxt * 4);
-					o_wb_cti_nxt = ({{ADR_PAD {1'd0}}, adr_ctr_nxt} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
+					o_wb_adr_nxt = (take ? fetch_adr_inc : fetch_adr_cur);
+					o_wb_cti_nxt = (take ? cti_inc : cti_cur);
 					o_wb_dat_nxt = 0;
 				end
 				else begin : blk12
@@ -8278,7 +8333,7 @@ module zap_dcache (
 	output reg o_wb_stb;
 	output reg o_wb_stb_nxt;
 	output reg o_wb_cyc;
-	output reg o_wb_cyc_nxt;
+	output wire o_wb_cyc_nxt;
 	output reg o_wb_wen;
 	output reg o_wb_wen_nxt;
 	output reg [3:0] o_wb_sel;
@@ -8834,13 +8889,13 @@ module zap_dcache (
 			default: {wb_err, wb_ack} = {6 {1'bx}};
 		endcase
 	end
+	assign o_wb_cyc_nxt = (!o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err)) ? |wb_cyc : |(state_ff & wb_cyc));
 	always @(*) begin
 		if (_sv2v_0)
 			;
 		case (state_nxt)
 			SELECT_CCH: begin
 				o_wb_stb_nxt = wb_stb[0];
-				o_wb_cyc_nxt = wb_cyc[0];
 				o_wb_adr_nxt = wb_adr[0];
 				o_wb_dat_nxt = wb_dat[0];
 				o_wb_cti_nxt = wb_cti[0];
@@ -8849,7 +8904,6 @@ module zap_dcache (
 			end
 			SELECT_TAG: begin
 				o_wb_stb_nxt = wb_stb[1];
-				o_wb_cyc_nxt = wb_cyc[1];
 				o_wb_adr_nxt = wb_adr[1];
 				o_wb_dat_nxt = wb_dat[1];
 				o_wb_cti_nxt = wb_cti[1];
@@ -8858,7 +8912,6 @@ module zap_dcache (
 			end
 			SELECT_TLB: begin
 				o_wb_stb_nxt = wb_stb[2];
-				o_wb_cyc_nxt = wb_cyc[2];
 				o_wb_adr_nxt = wb_adr[2];
 				o_wb_dat_nxt = wb_dat[2];
 				o_wb_cti_nxt = wb_cti[2];
@@ -8867,7 +8920,6 @@ module zap_dcache (
 			end
 			default: begin
 				o_wb_stb_nxt = 1'sbx;
-				o_wb_cyc_nxt = 1'sbx;
 				o_wb_adr_nxt = 1'sbx;
 				o_wb_dat_nxt = 1'sbx;
 				o_wb_cti_nxt = 1'sbx;
@@ -20512,34 +20564,71 @@ module zap_wb_merger (
 	assign o_d_wb_err = (state_ff == 1'd1) & i_wb_err;
 	generate
 		if (!ONLY_CORE) begin : l_genblk1
+			reg c_cyc;
+			reg c_stb;
+			reg c_wen;
+			reg d_cyc;
+			reg d_stb;
+			reg d_wen;
+			reg [3:0] c_sel;
+			reg [3:0] d_sel;
+			reg [31:0] c_dat;
+			reg [31:0] c_adr;
+			reg [31:0] d_dat;
+			reg [31:0] d_adr;
+			reg [2:0] c_cti;
+			reg [2:0] d_cti;
 			always @(posedge i_clk)
 				if (i_reset) begin
-					o_wb_cyc <= 0;
-					o_wb_stb <= 0;
-					o_wb_wen <= 0;
-					o_wb_sel <= 0;
-					o_wb_dat <= 0;
-					o_wb_adr <= 0;
-					o_wb_cti <= CTI_EOB;
-				end
-				else if (state_nxt == 1'd0) begin
-					o_wb_cyc <= i_c_wb_cyc;
-					o_wb_stb <= i_c_wb_stb;
-					o_wb_wen <= i_c_wb_wen;
-					o_wb_sel <= i_c_wb_sel;
-					o_wb_dat <= i_c_wb_dat;
-					o_wb_adr <= i_c_wb_adr;
-					o_wb_cti <= i_c_wb_cti;
+					{c_cyc, c_stb, c_wen} <= 1'sb0;
+					{d_cyc, d_stb, d_wen} <= 1'sb0;
+					c_sel <= 1'sb0;
+					d_sel <= 1'sb0;
+					c_dat <= 1'sb0;
+					d_dat <= 1'sb0;
+					c_adr <= 1'sb0;
+					d_adr <= 1'sb0;
+					c_cti <= CTI_EOB;
+					d_cti <= CTI_EOB;
 				end
 				else begin
-					o_wb_cyc <= i_d_wb_cyc;
-					o_wb_stb <= i_d_wb_stb;
-					o_wb_wen <= i_d_wb_wen;
-					o_wb_sel <= i_d_wb_sel;
-					o_wb_dat <= i_d_wb_dat;
-					o_wb_adr <= i_d_wb_adr;
-					o_wb_cti <= i_d_wb_cti;
+					c_cyc <= i_c_wb_cyc;
+					c_stb <= i_c_wb_stb;
+					c_wen <= i_c_wb_wen;
+					c_sel <= i_c_wb_sel;
+					c_dat <= i_c_wb_dat;
+					c_adr <= i_c_wb_adr;
+					c_cti <= i_c_wb_cti;
+					d_cyc <= i_d_wb_cyc;
+					d_stb <= i_d_wb_stb;
+					d_wen <= i_d_wb_wen;
+					d_sel <= i_d_wb_sel;
+					d_dat <= i_d_wb_dat;
+					d_adr <= i_d_wb_adr;
+					d_cti <= i_d_wb_cti;
 				end
+			always @(*) begin
+				if (_sv2v_0)
+					;
+				if (state_ff == 1'd0) begin
+					o_wb_cyc = c_cyc;
+					o_wb_stb = c_stb;
+					o_wb_wen = c_wen;
+					o_wb_sel = c_sel;
+					o_wb_dat = c_dat;
+					o_wb_adr = c_adr;
+					o_wb_cti = c_cti;
+				end
+				else begin
+					o_wb_cyc = d_cyc;
+					o_wb_stb = d_stb;
+					o_wb_wen = d_wen;
+					o_wb_sel = d_sel;
+					o_wb_dat = d_dat;
+					o_wb_adr = d_adr;
+					o_wb_cti = d_cti;
+				end
+			end
 		end
 		else begin : l_genblk2
 			always @(*) begin
