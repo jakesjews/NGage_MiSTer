@@ -88,6 +88,7 @@ input   logic                           i_cache_tag_valid,
 // ARM925T: the tag RAM's hit and way of interest for i_address; the way a
 // tag or line write goes to (the lookup's way, kept across a fill).
 input   logic                           i_cache_hit,
+input   logic                           i_cache_hit_dirty,   // the hit way's dirty bit
 input   logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] i_cache_way,
 output  logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] o_cache_way,
 
@@ -301,7 +302,7 @@ begin
                 reg_idx         <= i_reg_idx;
                 ldfmt           <= i_ldfmt;
                 wt_hit          <= i_wr && i_wt && i_cacheable && i_cache_hit;
-                wt_dirty        <= i_cache_tag_dirty;
+                wt_dirty        <= i_cache_hit_dirty;
         end
 end
 
@@ -542,9 +543,11 @@ begin:next_state_logic
                         end
                         else if ( i_cacheable )
                         begin
-                                case ({i_cache_hit,i_cache_tag_valid})
+                                // ARM925T: the valid bit is the victim's: a
+                                // hit is a hit whatever it says.
+                                casez ({i_cache_hit,i_cache_tag_valid})
 
-                                2'b11: // Cache Hit
+                                2'b1?: // Cache Hit
                                 begin
                                         if ( i_rd ) // Read request.
                                         begin

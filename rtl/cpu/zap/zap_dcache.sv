@@ -138,7 +138,7 @@ logic [CACHE_LINE-1:0]           cf_cache_line_ben;
 logic                            cf_cache_tag_wr_en;
 logic [`ZAP_CACHE_TAG_WDT-1:0]   tr_cache_tag, cf_cache_tag;
 logic                            tr_cache_tag_valid;
-logic                            tr_cache_hit;                  // ARM925T
+logic                            tr_cache_hit, tr_cache_hit_dirty; // ARM925T
 logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] tr_cache_way, cf_cache_way; // ARM925T
 logic                            tr_cache_tag_dirty, cf_cache_tag_dirty;
 logic                            cf_cache_clean_req, cf_cache_inv_req;
@@ -191,6 +191,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_cache_tag            (tr_cache_tag),
         .i_cache_tag_valid      (tr_cache_tag_valid),
         .i_cache_hit            (tr_cache_hit),
+        .i_cache_hit_dirty      (tr_cache_hit_dirty),
         .i_cache_way            (tr_cache_way),
         .o_cache_way            (cf_cache_way),
         .o_cache_tag            (cf_cache_tag),
@@ -249,6 +250,7 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .i_lookup_address       (i_address),            // ARM925T
         .i_access               (i_rd || i_wr),
         .o_cache_hit            (tr_cache_hit),
+        .o_cache_hit_dirty      (tr_cache_hit_dirty),
         .o_cache_way            (tr_cache_way),
         .i_cache_way            (cf_cache_way),
         .i_hold                 (hold || i_stall),

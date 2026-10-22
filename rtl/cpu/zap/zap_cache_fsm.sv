@@ -381,9 +381,11 @@ begin:blk1
                         end
                         else if ( i_cacheable )
                         begin
-                                case ({i_cache_hit,i_cache_tag_valid})
+                                // ARM925T: the valid bit is the victim's: a
+                                // hit is a hit whatever it says.
+                                casez ({i_cache_hit,i_cache_tag_valid})
 
-                                2'b11: // Cache Hit
+                                2'b1?: // Cache Hit
                                 begin
                                         if ( i_rd ) // Read request.
                                         begin

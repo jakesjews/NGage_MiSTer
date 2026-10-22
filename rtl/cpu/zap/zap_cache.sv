@@ -214,6 +214,9 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .i_lookup_address       (i_address),            // ARM925T
         .i_access               (i_rd || i_wr),
         .o_cache_hit            (tr_cache_hit),
+        /* verilator lint_off PINCONNECTEMPTY */
+        .o_cache_hit_dirty      (),                     // never dirty
+        /* verilator lint_on PINCONNECTEMPTY */
         .o_cache_way            (tr_cache_way),
         .i_cache_way            (cf_cache_way),
         .i_hold                 (hold || i_stall),

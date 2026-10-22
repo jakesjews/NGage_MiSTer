@@ -28,9 +28,12 @@
 // i_address_nxt. The hit (o_cache_hit) and the way of interest
 // (o_cache_way: the way holding i_lookup_address, else the way a fill
 // would take: an invalid way, else the least recently used) are found
-// here, and o_cache_tag, o_cache_line, o_cache_tag_valid and
-// o_cache_tag_dirty are that way's, so the cache FSM sees a single line
-// as before. A write goes to i_cache_way, which the FSM returns from
+// here. o_cache_line is the way of interest's (the data of a hit, the
+// victim's line for a write-back); o_cache_tag, o_cache_tag_valid and
+// o_cache_tag_dirty are the victim's, chosen from registers alone, so the
+// FSM's miss decision does not wait for the compares (a hit is a hit
+// whatever they say); o_cache_hit_dirty is the hit way's dirty bit. A
+// write goes to i_cache_way, which the FSM returns from
 // o_cache_way (buffered across a fill). One LRU bit per set, the TI925T's
 // fixed LRU (TI SPRU671), updated on hits and fills; it is read with the
 // set, pipelined and forwarded like the valid bits, so that the way of
@@ -75,6 +78,7 @@ output  logic                             o_cache_tag_dirty,
 input   logic    [31:0]                   i_lookup_address,
 input   logic                             i_access,
 output  logic                             o_cache_hit,
+output  logic                             o_cache_hit_dirty,
 output  logic    [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] o_cache_way,
 input   logic    [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] i_cache_way,
 
@@ -290,6 +294,7 @@ begin : g_direct
         assign o_cache_line      = line_q[0];
         assign o_cache_tag_valid = valid_q[0];
         assign o_cache_tag_dirty = dirty_q[0];
+        assign o_cache_hit_dirty = dirty_q[0];
         assign walk_tag          = tag_q[0];
         assign walk_line         = line_q[0];
 end
@@ -311,11 +316,14 @@ begin : g_lru
 
         // Explicit 2:1 muxes: a variable part-select of the packed arrays
         // became a multiply by the tag width in the generated netlist, and
-        // Quartus put it in a DSP block on the hit path.
-        assign o_cache_tag       = sel ? tag_q[1]   : tag_q[0];
-        assign o_cache_line      = sel ? line_q[1]  : line_q[0];
-        assign o_cache_tag_valid = sel ? valid_q[1] : valid_q[0];
-        assign o_cache_tag_dirty = sel ? dirty_q[1] : dirty_q[0];
+        // Quartus put it in a DSP block on the hit path. The tag, valid
+        // and dirty bits are the victim's (registers only); the line is
+        // the way of interest's, after the compares.
+        assign o_cache_tag       = victim ? tag_q[1]   : tag_q[0];
+        assign o_cache_line      = sel    ? line_q[1]  : line_q[0];
+        assign o_cache_tag_valid = victim ? valid_q[1] : valid_q[0];
+        assign o_cache_tag_dirty = victim ? dirty_q[1] : dirty_q[0];
+        assign o_cache_hit_dirty = hit[1] ? dirty_q[1] : dirty_q[0];
         assign walk_tag          = rd_way ? tag_q[1]  : tag_q[0];
         assign walk_line         = rd_way ? line_q[1] : line_q[0];
 
