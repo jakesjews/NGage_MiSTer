@@ -2639,3 +2639,13 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   kernel phase 30-86 s at 13.1 M instructions/s, flash waits 24.8 %,
   SDRAM 12.6 %, the boot's bus traffic 30-96 s, the idle screen after:
   the same as the measurement build (build/hardware/boot/seed8-p2).
+- Round 3, the trimmed tree f48999c (seeds 13-15 on the server, 12 on the
+  Mac): 13 ?, 14 -0.137/-0.326, 15 -0.277/-0.093, 12 (Mac) -0.108;
+  hold +0.08 or better everywhere. The store-write family is gone from
+  the top of every report; what is left is the inherent two-way data
+  path (the D-cache's tag RAM through the line mux into the memory
+  stage, the I-cache's into the fetch stage, -0.05 to -0.14), the issue
+  stall, the D-FSM's state into predecode and the merger. Still seed
+  luck, now within 0.1-0.3 ns. The user asked for the sweep to restart
+  once video_freak (aspect ratio, crop, scale; its own session) is in,
+  so no further seeds of this tree.
