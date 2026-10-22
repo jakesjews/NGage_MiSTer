@@ -1931,3 +1931,16 @@ found, and what comes next. Research material lives in `research/`
   then check it still mounts. The images already corrupted
   (`cs1-save-after3.bin`, `cs1-fresh-after2.bin`) stay as test cases for
   the C: mount hang, which the CS1-write trace build is to show.
+- **The "stall" is a slow C: recovery, not a hang.** Left alone, the boot
+  with the inconsistent save came up after several minutes: the kernel
+  text grew from the Bluetooth lines to the full start-up (NOS traffic,
+  3.8 KB), the CS1-write trace showed the flash driver issuing command
+  sequences in bursts a second or more apart (medint.pdd, interrupts off,
+  AA/55/A0 and erases), and the screen then showed the screensaver's
+  black frame with its band. LFFS recovers the mixed-up log by rewriting
+  and erasing, and a sector erase takes the chip's 0.7 s here (the model's
+  takes 20 ms, which is why it boots the same image in seconds). So no
+  RTL divergence; the ordered write-back keeps such images from arising,
+  and a phone would recover a power-loss image the same slow way.
+- The screensaver does start on hardware, after a longer idle than the
+  model's 40 s (seen after minutes); fine.
