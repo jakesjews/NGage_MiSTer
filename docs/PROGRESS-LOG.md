@@ -2528,3 +2528,23 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   set it uses, 0xE0, is one nothing else in the test touches: the
   checkpoints' signature pointer lives in set 0, which is why the first
   draft of the test, on set 0, could not have tracked the LRU.
+- Suites: 177 runs on the sources and 177 on the netlist (the new test's
+  three), 49 matching QEMU. CPU-only Quartus trials at 104 MHz: seed 1
+  +0.041 ns at slow 100C and -0.082 at slow -40C, the worst paths way
+  1's tag RAM through the compare; seed 2 of the same netlist +0.598 and
+  +0.776, so the near miss was placement (the I-cache-only trial, seed
+  1, had +0.479). 15,756 ALMs, 17,972 registers, 76 M10K (the D-cache's
+  split into two banks of 256 lines costs 17 M10K: a byte lane of 256 x
+  8 fills a quarter of a block), 4 DSP.
+- One structural trim on top: the FSM's miss decision read the way of
+  interest's valid and dirty bits, selected by the hit, with the tag
+  compares in front of it; the victim is known from the valid bits and
+  the LRU bit alone, so the tag, valid and dirty outputs are now the
+  victim's (registers and one mux), the line stays the way of
+  interest's, the hit way's dirty bit goes out on its own for the
+  write-through hit, and both FSMs treat a hit as a hit whatever the
+  valid bit says. Same cycles on every test, suites and QEMU as above.
+  Its trial at seed 1: **+0.362 ns** at slow 100C, +0.444 at slow -40C
+  (the same seed had +0.041 and -0.082 before the trim), the worst path
+  now the D-cache's tag RAM forwarding into its FSM state; 15,608 ALMs,
+  17,696 registers.
