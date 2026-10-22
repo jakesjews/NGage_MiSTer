@@ -2622,6 +2622,9 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   two-way D-cache, +0.362/+0.444 after the victim select), the worst
   path now the load data itself, the tag RAM through the line mux into
   the memory stage; 15,389 ALMs, 17,539 registers, 76 M10K.
+  The firmware boot bench on it: register, CBUS and all 76,975 device
+  accesses agree with the model, logs and the instruction count
+  (661,484,885 in 2.7 G cycles) identical to the untrimmed runs.
 - Round 2 (seeds 7-10 on the server, from the overlay-fix tree 5ee8e16,
   before the D-cache trims; 11 on the Mac the same): 7 -0.289/-0.402, **8
   +0.047/+0.131, hold +0.142 and +0.246 at the slow corners, +0.106 and
@@ -2650,3 +2653,40 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   luck, now within 0.1-0.3 ns. The user asked for the sweep to restart
   once video_freak (aspect ratio, crop, scale; its own session) is in,
   so no further seeds of this tree.
+
+### 2026-10-22: the framework's video options (video_freak)
+- `sys/video_freak` sits between the mixer's DE and the framework's
+  `VGA_DE` and drives `VIDEO_ARX`/`VIDEO_ARY`, as the NES and SNES cores
+  wire it (NGage.sv, the end of the video section). The OSD gains
+  "Vertical Crop" (status 9: Disabled, 180p(6x)), "Crop Offset" (13:10,
+  0..10 and -12..-2 lines, the encoding every core uses) and "Scale"
+  (15:14: Normal, V-Integer, Narrower HV-Integer, Wider HV-Integer);
+  "Aspect ratio" stays at 122:121 and now hands video_freak the panel's
+  own size, 176:208 upright and 208:176 turned (the scaler saw 11:13
+  before, the same ratio). The crop cuts the upright 208 lines to 180,
+  the 6x integer fit of 1080p (1056x1080 at the original ratio); it is
+  offered only at 1920x1080 with the scandoubler off and the picture
+  upright (turned, 176 lines are 6x already), greyed out otherwise through
+  `status_menumask` bit 0, as the NES's 216p(5x) is. The offset moves the
+  180-line window by that many lines from the centre (14 cut at each
+  end); the offset labels are the lines they give (the NES and SNES
+  labels say 8,10,12 for 6,8,10).
+- The top bench runs the real video_freak (and sys/math's multiplier and
+  divider) and checks it: the aspect pair 176/208 and 208/176 turned,
+  [ARC2] as 2:0, V-Integer at 1080p as 880x1040 (bit 12 set), the crop
+  as 176x180 frames carrying picture lines 14-193 and 24-203 with offset
+  +10, the cropped ratio 2288:2340 (176*208 : 208*180 normalised), and a
+  whole 208x176 frame turned with the crop set. `make lint` (the status
+  waiver now spares bits 16-120) and the video bench pass.
+- Quartus (seed 2, the committed qsf, the overlay's register stage in):
+  33,359 ALMs (80 %), 42,095 registers, 3,429,401 bits, 471 M10K, 43
+  DSP (seed 8's debug build: 33,037 ALMs, 41,534 registers); setup
+  -0.469 ns at slow 100C, -0.600 at slow -40C, hold +0.232/+0.116,
+  the fast corners +0.13/+0.10: the I-cache's valid bits into the
+  writeback PC and the D-cache's tag RAM into the memory stage, the
+  seed-luck family of sweep 3, nothing of video_freak in the 30 worst
+  paths (its multiplier and divider are serial; the framework's own
+  sys_udiv is the second hold path, +0.245). The bitstream is the debug
+  core on the MiSTer, `_Console/_NGage/_Debug/NGageDbg_20261022.rbf`
+  (md5 6071748f; the seed-8 one it replaced is kept at
+  `/media/fat/NGageDbg_20261022.rbf.before-video_freak.bak`).
