@@ -2216,3 +2216,29 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   capture is a brief hit on flash waits, not a steady slowdown; the flash
   wait row will show it. The injection path does not touch the core's
   memory.
+- **First boot profile on hardware** (counters build NGageDbg, Alien Front
+  launcher, captures every 2.5 s; times from the load on the MiSTer's
+  clock, the CPU starts about 20 s later once the images are in):
+  * 35-58 s: 10 M instructions/s, 10 cycles an instruction, 45-50 % of
+    the clocks waiting on the bus (SDRAM 21 %, flash 25 %), 5 M bus beats/s:
+    one beat per two instructions, the uncached bootstrap.
+  * 60-108 s: 21.1 M instructions/s, 4.9 cycles an instruction, no bus
+    traffic to speak of (65 K beats/s): a compute loop of 48 s with the
+    pipeline stalling on its own. What it is, the trace will say.
+  * 110-203 s: 8 M instructions/s, 12.5 cycles an instruction, 55 % of the
+    clocks waiting (SDRAM 23 %, flash 32 %), 6 M beats/s: one beat per
+    1.4 instructions for 93 s, with the kernel supposedly running cached.
+  * 206 s on (the Time dialog): 11.56 M instructions/s, 9.0 cycles each,
+    zero bus beats, idle 0 %: the idle thread spins instead of sleeping
+    (WFI returns at once, or the firmware's idle does not use it), so the
+    idle row cannot be trusted and this signature is "idle".
+  * About 2 G instructions to the dialog, which matches the model's
+    sub-30-second boot at 62.5 MIPS: the firmware does the same work, the
+    core does it at 8-21 M instructions/s. Against the phone's 20-30 s
+    boot the core is 6-8x slower, far beyond the assessment's estimate.
+  Zaparoo is out of the measurement path: tools/mister_input.py (a uinput
+  keyboard on the board, Main's own screenshot through its command pipe,
+  native 176x208, a quarter second) replaces it; tools/boot_profile.py
+  records a boot's counters, tools/jev_profile.py prints a run's timeline.
+  Next: a trace build with time triggers (55 s and 130 s after the CPU
+  start) to see the code of the compute phase and the memory-bound phase.
