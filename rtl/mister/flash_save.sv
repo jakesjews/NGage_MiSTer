@@ -15,11 +15,19 @@
 //   * ddram_flash pulses mark for each CS1 word it writes; the block's bit in
 //     a 16K-bit block RAM is set.
 //   * Write-back starts QUIET_CLKS after the last change, MAX_CLKS after the
-//     first unsaved one at the latest, or at once on save_now. It scans the
-//     bitmap and for each dirty block reads it from DDR3 (ddram_flash's block
-//     read: the bit is cleared in the clock the read is issued, so a write
-//     after that marks it again and it goes out again) and sends it with
-//     sd_wr. A pass that finds nothing, with no change during it, ends.
+//     first unsaved one at the latest, or at once on save_now. Blocks go
+//     out in the order they were first dirtied (a queue of block numbers,
+//     8192 deep; marks of the block just queued are not queued again), each
+//     read from DDR3 (ddram_flash's block read: the bit is cleared in the
+//     clock the read is issued, so a write after that marks it again and
+//     it goes out again) and sent with sd_wr; a block whose bit is clear
+//     by the time its turn comes is skipped. So a core reload or power
+//     loss in the middle of a write-back leaves the file with a prefix of
+//     the firmware's writes, the state a power loss leaves the phone's
+//     flash in, which the log-structured C: recovers from; blocks out of
+//     order left it with a mix of old and new blocks, and the C: mount
+//     hung. Should the queue fill, the bitmap is swept instead once it is
+//     empty: a pass that finds nothing, with no change during it, ends.
 //   * The state survives a core reset (reset is the power-on reset); an ioctl
 //     load of CS1 detaches the file (nothing more is written to it until the
 //     next mount).
@@ -81,7 +89,7 @@ module flash_save #(
 	localparam logic [3:0] S_INIT = 4'd0, S_OFF = 4'd1, S_SWEEP = 4'd2, S_LREQ = 4'd3,
 	                       S_LXFER = 4'd4, S_LCOPY = 4'd5, S_IDLE = 4'd6, S_SCAN = 4'd7,
 	                       S_CHECK = 4'd8, S_RD = 4'd9, S_RDATA = 4'd10, S_WREQ = 4'd11,
-	                       S_WXFER = 4'd12;
+	                       S_WXFER = 4'd12, S_QPOP1 = 4'd13, S_QPOP2 = 4'd14, S_QNEXT = 4'd15;
 
 	// power-up values as the reset's, so nothing moves before the first reset
 	logic [3:0]  st = S_INIT;
@@ -92,6 +100,23 @@ module flash_save #(
 	logic [13:0] blk;                  // the block being written back
 	logic [QW-1:0] quiet;
 	logic [MW-1:0] age;
+
+	// ------------------------------------------------------------------
+	// The queue of dirty blocks, in the order they were first marked
+	// ------------------------------------------------------------------
+	logic [12:0] q_wp = '0, q_rp = '0;
+	logic        q_ovf = 1'b0;         // a mark found it full: sweep the bitmap too
+	logic        last_v = 1'b0;        // last_blk was the last block queued
+	logic [13:0] last_blk;
+	logic [13:0] q_head;
+	logic        qmode = 1'b0;         // this pass takes blocks from the queue
+	wire         q_full  = (q_wp + 13'd1) == q_rp;
+	wire         q_empty = q_wp == q_rp;
+	wire         q_push  = mark && !(last_v && last_blk == mark_blk) && !q_full;
+
+	sdp_ram #(.AW(13), .DW(14)) queue (
+		.clk(clk), .we(q_push), .waddr(q_wp), .wdata(mark_blk), .raddr(q_rp), .rdata(q_head)
+	);
 
 	// ------------------------------------------------------------------
 	// The dirty bitmap: one bit a block. Writes: a mark (1), the clear in the
@@ -183,11 +208,21 @@ module flash_save #(
 			pending <= 1'b1;
 			during  <= 1'b1;
 			quiet   <= '0;
+			if (q_push) begin
+				q_wp     <= q_wp + 13'd1;
+				last_v   <= 1'b1;
+				last_blk <= mark_blk;
+			end else if (!(last_v && last_blk == mark_blk)) begin
+				q_ovf <= 1'b1;
+			end
 		end else begin
 			if (quiet != QW'(QUIET_CLKS)) quiet <= quiet + 1'd1;
 		end
 		if (pending && age != MW'(MAX_CLKS)) age <= age + 1'd1;
-		if (bk_taken) bk_req <= 1'b0;
+		if (bk_taken) begin
+			bk_req <= 1'b0;
+			last_v <= 1'b0;             // a later mark of this block must queue again
+		end
 		if (ld_we && !ld_busy) ld_we <= 1'b0;
 		if (detach) attached <= 1'b0;
 
@@ -251,22 +286,55 @@ module flash_save #(
 
 			S_IDLE: begin
 				if (go) begin
-					ptr    <= 14'd0;
-					during <= 1'b0;
-					st     <= S_SCAN;
+					if (!q_empty) begin
+						qmode <= 1'b1;
+						st    <= S_QPOP1;
+					end else begin
+						qmode  <= 1'b0;
+						ptr    <= 14'd0;
+						during <= 1'b0;
+						st     <= S_SCAN;
+					end
 				end else if (force_q && saving_on && !pending) begin
 					force_q <= 1'b0;
 					saved   <= 1'b1;
 				end
 			end
 
-			// the bitmap, a bit every two clocks
+			// the queue: its head lands two clocks after q_rp moves
+			S_QPOP1: st <= S_QPOP2;
+			S_QPOP2: begin
+				ptr  <= q_head;
+				q_rp <= q_rp + 13'd1;
+				st   <= S_SCAN;
+			end
+			S_QNEXT: begin
+				if (!q_empty) begin
+					st <= S_QPOP1;
+				end else if (q_ovf) begin
+					q_ovf  <= 1'b0;
+					qmode  <= 1'b0;
+					ptr    <= 14'd0;
+					during <= 1'b0;
+					st     <= S_SCAN;
+				end else begin
+					pending <= 1'b0;
+					if (force_q) saved <= 1'b1;
+					force_q <= 1'b0;
+					st      <= S_IDLE;
+				end
+			end
+
+			// the bitmap, a bit every two clocks (ptr: the queue's block, or
+			// the sweep position)
 			S_SCAN: st <= S_CHECK;
 			S_CHECK: begin
 				if (bm_q) begin
 					blk    <= ptr;
 					bk_req <= 1'b1;
 					st     <= S_RD;
+				end else if (qmode) begin
+					st <= S_QNEXT;
 				end else if (&ptr) begin
 					if (during) begin
 						ptr    <= 14'd0;
@@ -304,7 +372,9 @@ module flash_save #(
 				end
 			end
 			S_WXFER: if (!sd_ack) begin
-				if (&blk) begin
+				if (qmode) begin
+					st <= S_QNEXT;
+				end else if (&blk) begin
 					ptr <= 14'h3FFF;        // the pass ends at the next check
 					st  <= S_CHECK;
 				end else begin
@@ -323,6 +393,11 @@ module flash_save #(
 			bk_req  <= 1'b0;
 			pending <= 1'b0;
 			force_q <= 1'b0;
+			q_wp    <= '0;
+			q_rp    <= '0;
+			q_ovf   <= 1'b0;
+			last_v  <= 1'b0;
+			qmode   <= 1'b0;
 			if (img_size == 64'd8388608) begin
 				ro       <= img_readonly;
 				attached <= 1'b1;
@@ -356,6 +431,11 @@ module flash_save #(
 			age      <= '0;
 			sd_lba   <= 32'd0;
 			sd_blk_cnt <= 6'd0;
+			q_wp     <= '0;
+			q_rp     <= '0;
+			q_ovf    <= 1'b0;
+			last_v   <= 1'b0;
+			qmode    <= 1'b0;
 		end
 	end
 
