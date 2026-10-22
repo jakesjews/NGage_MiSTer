@@ -1961,3 +1961,12 @@ found, and what comes next. Research material lives in `research/`
   Next: a release build with `DBG_TRACE` off (timing-clean, no trace
   rings), the Time dialog at every start (the stand-in's RTC status), and
   more games from the collection.
+- ALSA left out of the build from now on (`NGage.qsf`:
+  `MISTER_DISABLE_ALSA=1`, as the Cray core does). The framework's ALSA
+  path mixes the Linux side's audio into the output through a DDR3 read
+  channel, a sample FIFO and an SPI slave; the core never uses it (its
+  sound drives AUDIO_L/R and reaches HDMI, analog and S/PDIF without it),
+  so only Linux-side sounds (Zaparoo's feedback) go quiet while the core
+  runs. It frees a little logic and block RAM; it does not touch the
+  paths that miss timing (SDRAM data-out registers, the CPU). The release
+  seeds already building keep ALSA; every build after them drops it.
