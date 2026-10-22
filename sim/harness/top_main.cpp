@@ -328,6 +328,13 @@ int main(int argc, char **argv) {
 	}
 	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
 
+	// MiSTer's clock, as hps_io sends it when the core starts (the CPU start
+	// waits for it, up to 3 s): 2004-06-01 12:00:00 in BCD
+	R.emu__DOT__hps_io__DOT__sim_rtc[0] = 0x01120000u;   // day 1, 12:00:00
+	R.emu__DOT__hps_io__DOT__sim_rtc[1] = 0x00000406u;   // year 04, month 06
+	b.ticks(4);
+	R.emu__DOT__hps_io__DOT__sim_rtc[2] = 1;             // bit 64: the time is sent
+
 	// flash images through ioctl into DDR3
 	auto download = [&](int index, const std::vector<uint8_t> &data) {
 		R.emu__DOT__hps_io__DOT__sim_index = index;
