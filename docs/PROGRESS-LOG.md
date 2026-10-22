@@ -2771,3 +2771,26 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   (ALM packing LOW, placement effort) before any RTL on family 3.
   LogicLock is probably not in the Lite edition. Order taken: family 1
   both parts, a CPU trial; family 2; family 3 only if it still tops.
+- **Family 1 done** (eafc1a1): the tag RAM selects each way's word by
+  the address bits (registers) and the hit chooses only between the two
+  words (o_cache_words, o_cache_word_sel = the hit on way 1); the line
+  output is the victim's for a write-back, register-selected. The D-FSM
+  formats each way's word (ld_transform, the live i_ldfmt) in parallel
+  with the compares and the uncached data from its register, so o_dat is
+  the finished register value and the memory stage registers it as it is
+  (zap_memory_main LOAD_FORMATTED, through zap_core from zap_top's
+  ONLY_CORE; the transform stays for a core without the cache). The
+  I-FSM takes the hit way's word the same way. The late select passes one
+  32-bit mux instead of a 128-bit line mux, a 4:1 word mux and the
+  transform, and `sel` loses its 131 loads. Cycle-exact: 177 runs on the
+  sources and the netlist, 49 matching QEMU, every count unchanged.
+- **Family 2 done** (2559a99): the merger registers both caches' NXT
+  signals and chooses the side after the registers by its registered
+  state (the same values as before, one mux later; 74 flops); the
+  wrappers' next CYC is any manager's when the bus may change hands, else
+  the current manager's (exact: the chosen manager has CYC whenever any
+  has); the fill and write-back bursts of both FSMs and the tag RAM's
+  clean walk present the current beat or the next, both from registers
+  (address, CTI, write-back word), chosen by the acknowledge, instead of
+  a counter increment and an address add after it. Cycle-exact the same
+  way. The TLB walker was left alone (its addresses are concatenations).
