@@ -418,16 +418,31 @@ assign next_pc = w_dabt ? vector_base + 16 :
                  w_load && m_dst == PHY_PC ? m_read_data :
                  w_redirect ? w_target : pc + (cpsr[5] ? 2 : 4);
 
-// Address launch, RAM pipeline and final request are distinct phases. The
-// retained tag/valid/dirty/data RAMs take three enabled edges, not two.
-assign o_instr_wb_adr_nxt = fcse(pc);
-assign o_instr_wb_adr_check = fcse(pc);
-assign o_instr_wb_adr = fcse(pc);
-assign o_instr_wb_stb = state == FETCH;
+// Independent, epoch-cancelled fetch continues while the backend is busy.
+logic f_valid, f_abort, f_ready, f_redirect;
+logic [31:0] f_pc, f_instruction, f_address_nxt, f_address_check, f_address;
+assign f_ready = state == F1;
+assign f_redirect = state == WRITEBACK && w_last &&
+    (w_redirect || (w_load && m_dst == PHY_PC) || w_dabt || w_pabt ||
+     w_irq || w_fiq || w_swi || w_und || kind_e == K_CP || kind_e == K_MSR);
+arm9_fetch #(.RESET_VECTOR(RESET_VECTOR)) u_fetch (
+    .i_clk(i_clk), .i_reset(i_reset), .i_redirect(f_redirect),
+    .i_target(cpsr_next[5] ? (next_pc & 32'hfffffffe) : (next_pc & 32'hfffffffc)),
+    .i_thumb(cpsr_next[5]), .i_data(i_instr_wb_dat), .i_ack(i_instr_wb_ack),
+    .i_error(i_instr_wb_err), .i_retry(i_icache_err2),
+    .i_fill_pending(i_icache_fill_pending), .i_fill_done(i_icache_fill_done),
+    .i_fill_fault(i_icache_fill_fault), .o_address_nxt(f_address_nxt),
+    .o_address_check(f_address_check), .o_address(f_address),
+    .o_request(o_instr_wb_stb), .o_stall(o_code_stall),
+    .o_valid(f_valid), .o_pc(f_pc), .o_instruction(f_instruction),
+    .o_abort(f_abort), .i_ready(f_ready)
+);
+assign o_instr_wb_adr_nxt = fcse(f_address_nxt);
+assign o_instr_wb_adr_check = fcse(f_address_check);
+assign o_instr_wb_adr = fcse(f_address);
 assign o_instr_wb_cyc = o_instr_wb_stb;
 assign o_instr_wb_we = 0;
 assign o_instr_wb_sel = 4'hf;
-assign o_code_stall = 0;
 assign o_data_wb_adr_nxt = fcse({m_address[31:2],2'b00});
 assign o_data_wb_adr_check = fcse({m_address[31:2],2'b00});
 assign o_data_wb_adr = fcse({m_address[31:2],2'b00});
@@ -471,19 +486,10 @@ always_ff @(posedge i_clk) begin
         immediate_e <= 0; immediate_carry_e <= 0; branch_offset_e <= 0;
         dst_e <= PHY_RAZ_REGISTER; base_e <= PHY_RAZ_REGISTER; psr_mask_e <= 0;
     end else case (state)
-        F1: state <= F2;
-        F2: state <= F3;
-        F3: state <= FETCH;
-        FETCH: if (i_instr_wb_ack || i_instr_wb_err) begin
-            if (i_icache_err2) state <= F1;
-            else begin
-                raw_ins <= cpsr[5] && pc[1] ? {16'd0,i_instr_wb_dat[31:16]} : i_instr_wb_dat;
-                fetch_abort <= i_instr_wb_err;
-                state <= i_icache_fill_pending ? FETCH_TAIL : DECODE;
-            end
-        end
-        FETCH_TAIL: if (i_icache_fill_done) begin
-            fetch_abort <= fetch_abort || i_icache_fill_fault;
+        F1: if (f_valid) begin
+            pc <= f_pc;
+            raw_ins <= f_instruction;
+            fetch_abort <= f_abort;
             state <= DECODE;
         end
         DECODE: begin
@@ -720,7 +726,6 @@ always_ff @(posedge i_clk) begin
             if (!w_last && !w_dabt) state <= DECODE;
             else begin
                 sequence_active <= 0;
-                pc <= cpsr_next[5] ? (next_pc & 32'hfffffffe) : (next_pc & 32'hfffffffc);
                 state <= F1;
             end
         end

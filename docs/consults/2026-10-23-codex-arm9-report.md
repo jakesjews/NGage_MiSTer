@@ -275,3 +275,24 @@ Final cleanup: the timing script's containers used `--rm`; no session-owned
 simulation, server or Quartus container remains running. The existing shared
 Quartus image and other engineers' jobs were left alone. Both committed
 implementations remain selectable; production defaults to ZAP.
+
+## Session 3, first checkpoint: independent fetch
+
+The new `arm9_fetch` overlaps three cache lookup edges and queues eight
+instructions while the backend executes. Every queued entry carries a PC,
+epoch, abort and provisional-fill bit. Redirects invalidate the queue;
+untagged outstanding requests drain before restarting. Replays retain older
+queued instructions and restart the failed lookup. Provisional words wait for
+fill completion and acquire any late fault, including while the queue is full.
+A redirect advances invalid lookup metadata on every edge the RAM advances;
+freezing only metadata was caught by `cache` and fixed before this checkpoint.
+The backend remains serial in this checkpoint. Full session results follow
+in the final session-3 update; the session-2 report is archived alongside it.
+
+Checkpoint verification: ARM9 focused 27/27, full 201/201, both QEMU diffs
+53/53. ZAP full 201/201, QEMU 53/53, top-level lint and generation check pass.
+Instruction counts match the baseline. ARM9 cycles at 0:0 / 0:3 / 2:9:
+`cache` 2553475/2613823/2803925 -> 1915119/1980823/2218872;
+`ctrand1` 202854/231634/309047 -> 148278/182333/246899;
+`crand1` 203684/234675/318037 -> 147137/182521/252138.
+See `arm9/session3-baseline.json` and `arm9/session3-fetch.json`.

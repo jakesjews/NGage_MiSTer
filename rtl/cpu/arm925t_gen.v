@@ -1200,14 +1200,47 @@ module arm9_core (
 	assign updated_base = (sequence_active ? sequence_base : (ins[23] ? value_e[0+:32] + {25'd0, transfer_count_d, 2'b00} : value_e[0+:32] - {25'd0, transfer_count_d, 2'b00}));
 	assign effective_address = (kind_e == 4'd6 ? (sequence_active ? sequence_address : (ins[23] ? value_e[0+:32] + (ins[24] ? 4 : 0) : updated_base + (ins[24] ? 0 : 4))) : (kind_e == 4'd12 ? value_e[0+:32] : (ins[24] ? ex_result : value_e[0+:32])));
 	assign next_pc = (w_dabt ? vector_base + 16 : (w_fiq ? vector_base + 28 : (w_irq ? vector_base + 24 : (w_pabt ? vector_base + 12 : (w_swi ? vector_base + 8 : (w_und ? vector_base + 4 : (w_load && (m_dst == PHY_PC) ? m_read_data : (w_redirect ? w_target : pc + (cpsr[5] ? 2 : 4)))))))));
-	assign o_instr_wb_adr_nxt = fcse(pc);
-	assign o_instr_wb_adr_check = fcse(pc);
-	assign o_instr_wb_adr = fcse(pc);
-	assign o_instr_wb_stb = state == 5'd3;
+	wire f_valid;
+	wire f_abort;
+	wire f_ready;
+	wire f_redirect;
+	wire [31:0] f_pc;
+	wire [31:0] f_instruction;
+	wire [31:0] f_address_nxt;
+	wire [31:0] f_address_check;
+	wire [31:0] f_address;
+	assign f_ready = state == 5'd0;
+	assign f_redirect = ((state == 5'd14) && w_last) && (((((((((w_redirect || (w_load && (m_dst == PHY_PC))) || w_dabt) || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und) || (kind_e == 4'd7)) || (kind_e == 4'd2));
+	arm9_fetch #(.RESET_VECTOR(RESET_VECTOR)) u_fetch(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_redirect(f_redirect),
+		.i_target((cpsr_next[5] ? next_pc & 32'hfffffffe : next_pc & 32'hfffffffc)),
+		.i_thumb(cpsr_next[5]),
+		.i_data(i_instr_wb_dat),
+		.i_ack(i_instr_wb_ack),
+		.i_error(i_instr_wb_err),
+		.i_retry(i_icache_err2),
+		.i_fill_pending(i_icache_fill_pending),
+		.i_fill_done(i_icache_fill_done),
+		.i_fill_fault(i_icache_fill_fault),
+		.o_address_nxt(f_address_nxt),
+		.o_address_check(f_address_check),
+		.o_address(f_address),
+		.o_request(o_instr_wb_stb),
+		.o_stall(o_code_stall),
+		.o_valid(f_valid),
+		.o_pc(f_pc),
+		.o_instruction(f_instruction),
+		.o_abort(f_abort),
+		.i_ready(f_ready)
+	);
+	assign o_instr_wb_adr_nxt = fcse(f_address_nxt);
+	assign o_instr_wb_adr_check = fcse(f_address_check);
+	assign o_instr_wb_adr = fcse(f_address);
 	assign o_instr_wb_cyc = o_instr_wb_stb;
 	assign o_instr_wb_we = 0;
 	assign o_instr_wb_sel = 4'hf;
-	assign o_code_stall = 0;
 	assign o_data_wb_adr_nxt = fcse({m_address[31:2], 2'b00});
 	assign o_data_wb_adr_check = fcse({m_address[31:2], 2'b00});
 	assign o_data_wb_adr = fcse({m_address[31:2], 2'b00});
@@ -1284,22 +1317,11 @@ module arm9_core (
 		end
 		else
 			case (state)
-				5'd0: state <= 5'd1;
-				5'd1: state <= 5'd2;
-				5'd2: state <= 5'd3;
-				5'd3:
-					if (i_instr_wb_ack || i_instr_wb_err) begin
-						if (i_icache_err2)
-							state <= 5'd0;
-						else begin
-							raw_ins <= (cpsr[5] && pc[1] ? {16'd0, i_instr_wb_dat[31:16]} : i_instr_wb_dat);
-							fetch_abort <= i_instr_wb_err;
-							state <= (i_icache_fill_pending ? 5'd4 : 5'd5);
-						end
-					end
-				5'd4:
-					if (i_icache_fill_done) begin
-						fetch_abort <= fetch_abort || i_icache_fill_fault;
+				5'd0:
+					if (f_valid) begin
+						pc <= f_pc;
+						raw_ins <= f_instruction;
+						fetch_abort <= f_abort;
 						state <= 5'd5;
 					end
 				5'd5: begin
@@ -1568,7 +1590,6 @@ module arm9_core (
 						state <= 5'd5;
 					else begin
 						sequence_active <= 0;
-						pc <= (cpsr_next[5] ? next_pc & 32'hfffffffe : next_pc & 32'hfffffffc);
 						state <= 5'd0;
 					end
 				default: state <= 5'd0;
@@ -1857,6 +1878,159 @@ module arm9_execute (
 	assign o_branch_target = i_pc8 + i_branch_offset;
 	assign o_store_data = operand[96+:32];
 	initial _sv2v_0 = 0;
+endmodule
+module arm9_fetch (
+	i_clk,
+	i_reset,
+	i_redirect,
+	i_target,
+	i_thumb,
+	i_data,
+	i_ack,
+	i_error,
+	i_retry,
+	i_fill_pending,
+	i_fill_done,
+	i_fill_fault,
+	o_address_nxt,
+	o_address_check,
+	o_address,
+	o_request,
+	o_stall,
+	o_valid,
+	o_pc,
+	o_instruction,
+	o_abort,
+	i_ready
+);
+	parameter [31:0] RESET_VECTOR = 0;
+	input wire i_clk;
+	input wire i_reset;
+	input wire i_redirect;
+	input wire [31:0] i_target;
+	input wire i_thumb;
+	input wire [31:0] i_data;
+	input wire i_ack;
+	input wire i_error;
+	input wire i_retry;
+	input wire i_fill_pending;
+	input wire i_fill_done;
+	input wire i_fill_fault;
+	output wire [31:0] o_address_nxt;
+	output wire [31:0] o_address_check;
+	output wire [31:0] o_address;
+	output wire o_request;
+	output wire o_stall;
+	output wire o_valid;
+	output wire [31:0] o_pc;
+	output wire [31:0] o_instruction;
+	output wire o_abort;
+	input wire i_ready;
+	reg [35:0] f1;
+	reg [35:0] f2;
+	reg [35:0] f3;
+	reg [67:0] queue [0:7];
+	reg [2:0] head;
+	reg [2:0] tail;
+	reg [3:0] count;
+	reg [31:0] launch_pc;
+	reg [31:0] target;
+	reg launch_thumb;
+	reg target_thumb;
+	reg killed;
+	reg [1:0] epoch;
+	wire push;
+	wire pop;
+	wire retry;
+	assign o_address_nxt = launch_pc;
+	assign o_address_check = f2[31-:32];
+	assign o_address = f3[31-:32];
+	assign o_request = f3[35];
+	assign o_stall = ((count == 8) && !killed) || (f3[35] && !i_ack);
+	assign retry = (((f3[35] && i_ack) && i_retry) && !killed) && !i_redirect;
+	assign push = (((((f3[35] && i_ack) && !i_retry) && !o_stall) && !killed) && !i_redirect) && (f3[34-:2] == epoch);
+	assign o_valid = (((count != 0) && !queue[head][64]) && (queue[head][67-:2] == epoch)) && !i_redirect;
+	assign o_pc = queue[head][63-:32];
+	assign o_instruction = queue[head][31-:32];
+	assign o_abort = queue[head][65];
+	assign pop = o_valid && i_ready;
+	always @(posedge i_clk)
+		if (i_reset) begin
+			f1 <= 1'sb0;
+			f2 <= 1'sb0;
+			f3 <= 1'sb0;
+			launch_pc <= RESET_VECTOR;
+			launch_thumb <= 0;
+			target <= RESET_VECTOR;
+			target_thumb <= 0;
+			killed <= 0;
+			epoch <= 0;
+			head <= 0;
+			tail <= 0;
+			count <= 0;
+			begin : sv2v_autoblock_1
+				reg signed [31:0] n;
+				for (n = 0; n < 8; n = n + 1)
+					queue[n] <= 1'sb0;
+			end
+		end
+		else begin
+			if (i_fill_done) begin : sv2v_autoblock_2
+				reg signed [31:0] n;
+				for (n = 0; n < 8; n = n + 1)
+					if (queue[n][64]) begin
+						queue[n][64] <= 0;
+						queue[n][65] <= queue[n][65] || i_fill_fault;
+					end
+			end
+			if (push) begin
+				queue[tail][67-:2] <= f3[34-:2];
+				queue[tail][63-:32] <= f3[31-:32];
+				queue[tail][31-:32] <= (f3[32] && f3[1] ? {16'd0, i_data[31:16]} : i_data);
+				queue[tail][65] <= i_error || (i_fill_pending && i_fill_fault);
+				queue[tail][64] <= i_fill_pending && !i_fill_done;
+				tail <= tail + 1'b1;
+			end
+			if (pop)
+				head <= head + 1'b1;
+			case ({push, pop})
+				2'b10: count <= count + 1'b1;
+				2'b01: count <= count - 1'b1;
+				default:
+					;
+			endcase
+			if (((i_redirect || retry) || killed) && !o_stall) begin
+				f1 <= {1'b0, epoch, launch_thumb, launch_pc};
+				f2 <= {1'b0, f1[34-:2], f1[32], f1[31-:32]};
+				f3 <= {1'b0, f2[34-:2], f2[32], f2[31-:32]};
+				launch_pc <= (i_redirect ? i_target : (retry ? f3[31-:32] : target));
+				launch_thumb <= (i_redirect ? i_thumb : (retry ? f3[32] : target_thumb));
+			end
+			if (i_redirect) begin
+				epoch <= epoch + 1'b1;
+				head <= 0;
+				tail <= 0;
+				count <= 0;
+				killed <= o_stall;
+				target <= i_target;
+				target_thumb <= i_thumb;
+			end
+			else if (retry) begin
+				killed <= o_stall;
+				target <= f3[31-:32];
+				target_thumb <= f3[32];
+			end
+			else if (!o_stall) begin
+				if (killed)
+					killed <= 0;
+				else begin
+					f1 <= {1'b1, epoch, launch_thumb, launch_pc};
+					f2 <= f1;
+					f3 <= f2;
+					launch_pc <= launch_pc + (launch_thumb ? 32'd2 : 32'd4);
+				end
+			end
+		end
 endmodule
 module arm9_forward (
 	i_value,
