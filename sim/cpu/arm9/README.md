@@ -34,3 +34,19 @@ with `SEED=2 TRIAL=arm9_execute ./sim/cpu/quartus/run.sh`. This is not integrate
 CPU timing closure. `TRIAL=arm9_decode_shift` keeps the rejected D-shift
 alternative available for investigation, including E forwarding for unshifted
 Rm. See the report for every corner and the rejected forwarding experiments.
+
+## Integrated retirement-cycle regression
+
+`make -C sim/cpu CORE=ARM9 T=arm9_cycles run` runs the real cached CPU at
+all three normal latencies. Only 0:0 checks exact cycles; both cores and all
+latencies require every window to execute five times. The last two invocations
+are measured after three warmups. `@@ bench: --arm9-cycles` enables the monitor.
+The read-only table in `arm9_cycles.S` contains a two-word magic/version,
+record count, then `{begin PC, end PC, expected clocks, name pointer, visits}`.
+It uses actual retirement edges, with one marker clock included in the delta.
+
+The expectations deliberately document the current implementation. Most
+non-DP rows still expose serial drains and do not meet the target ARM9 model.
+See `docs/ARM9.md` for the measured/target distinction and coverage limits.
+Only this newly added test needs assembly and a new QEMU reference; do not
+regenerate the existing suite to run it.

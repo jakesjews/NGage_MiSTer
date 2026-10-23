@@ -1,10 +1,11 @@
 # ARM9 integer pipeline replacement
 
-Status: session-2 functional bring-up, 2026-10-23 deliverable (work started 2026-10-22).
-ZAP remains the production CPU. ARM9 is now selectable and executes the CPU
-tests through the retained memory system. Its current controller serializes
-instructions; the overlapping pipeline and target timings below remain the
-intended design. Neither a firmware boot nor ARM9-class throughput is claimed.
+Status: session-3 partial overlap, 2026-10-23 deliverable (work started 2026-10-22).
+ZAP remains the production CPU. ARM9 now overlaps fetch, queue/decode, execute,
+and independent M/W result records for ordinary DP and B/BL. Loads/stores,
+block transfers, multiply, PSR operations and exceptions still drain and use
+the blocking controller. This does **not** meet the overall ARM9 cycle model
+or the performance acceptance gate. See the measured session-3 model below.
 Starting revision: `75cce2e`, branch `codex/arm9`.
 
 ## Contract and sources
@@ -136,7 +137,7 @@ still consume the TRM's extra cycle in the future controller even though the
 leaf can calculate them in E. A separate registered shift-preparation sequence
 was considered but is not implemented or measured as a CPU cycle model.
 
-## Cycle model (specification, not yet CPU measurements)
+## Target cycle model (acceptance specification)
 
 Counts are steady-state issue cost with hot memories, no external wait, no
 exceptions and a filled pipe. Interlocks are additional bubbles attributed to
@@ -384,3 +385,103 @@ block-transfer address arithmetic to `m_address[22]` (11.650 ns data delay).
 Capture sequencer count/control at D before optimizing that address path; do
 not treat the execute leaf's earlier +0.018 ns as an integrated timing result.
 Details, path reports and the exact input hashes are in the continuation report.
+
+
+## Session-3 implementation and measured cycle model
+
+D is the held fetch-queue head; its decoded operands/control are captured in E.
+`fast_m` and `fast_w` are independent, valid-tagged result records containing
+PC+8/+4, flags, condition result, destination and value. Ordinary non-PC DP,
+including executed and skipped register shifts, and B/BL use this path.
+They can occupy D/E/M/W simultaneously. The unchanged execute leaf receives
+registered M then W producers in youngest-first order; D also bypasses these
+producers across the register-file write edge. Immediate/PC operands are
+constructed after the D bypass. PC destinations and banked-state operations
+remain serialized, so no physical-PC or SPSR producer can masquerade as an
+ordinary register. Flags select the latest M, then W, then committed CPSR.
+An immediate rotation of zero preserves that latest carry. Register shifts
+hold E one additional clock only if the condition passes with those flags.
+
+A slow instruction enters only after M/W drain. No younger operation issues
+while its data access, sequencer, multiply, CP15 or exception is outstanding.
+That is the current interlock: it is functionally conservative and substantially
+more expensive than the target producer scoreboard. Loads still have separate
+base/data destinations and preserve the original completion-capture monitor.
+No forwarding from an unready load is claimed. The stage registers and early
+branch redirects are real; full memory-stage overlap remains unfinished.
+
+The fetch unit pipelines three RAM edges with matching PC/Thumb/epoch records,
+then queues eight entries. Each entry waits for any provisional fill to finish.
+Late faults update held entries even when the queue is full. A taken B/BL in E
+invalidates the younger queue immediately. A serialized W redirect (PC writes,
+exceptions, CP15 or MSR) uses the same mechanism. An untagged outstanding cache
+response drains under a killed epoch before the target restarts; retries keep
+older queued instructions and restart the unanswered lookup. Invalid metadata
+must advance whenever cache RAMs advance, including on the redirect edge.
+`cache` caught a same-tag/different-set mislabel before this rule was fixed.
+
+The previous Thumb-decode-to-block-address path is cut at D: register-list
+count, current transfer register/list and an eight-bit signed start offset
+are captured with the instruction. E computes the block start with one 32-bit
+addition, not `base +/- count*4` followed by another 32-bit +/-4. The final base
+is computed separately. There is no added stage and no execute-leaf change.
+
+### Reproducible retirement windows
+
+`sim/cpu/tests/arm9_cycles.S` includes 69 named windows. Its embedded table
+contains begin/end PCs, exact expected elapsed clocks, name and invocation
+count. `--arm9-cycles` in the real CPU bench measures retirement-edge differences;
+it neither substitutes retirement nor uses intrusive timer loads. The first
+three invocations warm instruction/data/vector paths; the final two must both
+match at **CORE=ARM9, latency 0:0**. Every core/latency must visit every window
+five times. The ARM9 timing checks are intentionally not applied to ZAP.
+
+These are exact regression counts for the **current partial implementation**,
+not relabelled TRM promises. `session3-cycle-windows.json` lists every window.
+A window begins with one marker NOP and ends at the retirement of another.
+For ordinary sequences the elapsed delta is the enclosed instruction cost
+plus one marker clock. Complex operations additionally expose pipeline drain
+and restart; the table below leaves those costs visible. In the exception
+rows the end marker is the handler's first instruction, so the measurement
+also includes the vector's `LDR PC` trampoline.
+
+| Window / enclosed operations | Expected delta at 0:0 | Interpretation / remaining deviation |
+| --- | ---: | --- |
+| Eight independent DP | 9 | 1 per instruction, target met |
+| Four dependent DP / four flag-dependent DP | 5 / 5 | M/W data and newest-flag bypass, target met |
+| One register shift / skipped register shift | 3 / 2 | 2 / 1 instruction clocks, target met |
+| DP to PC / register-shift DP to PC | 11 / 12 | serialized PC writes; target 3+f / 4+f not met |
+| LDR then independent ALU / dependent ALU | 13 / 13 | all successors wait; target throughput/interlock not met |
+| LDR then dependent base / store | 20 / 20 | two serialized memory operations |
+| LDR then Rs / shifted Rm | 14 / 13 | Rs adds one shift clock; no early load bypass |
+| Byte, halfword, signed byte/halfword, unaligned LDR + ALU | 13 each | retained cache formats value; same blocking wait |
+| LDR PC | 17 | serialized load, writeback redirect and refill |
+| STR / one-register LDM / one-register STM | 12 each | blocking memory transaction |
+| Three-register LDM / STM | 28 each | eight exposed clocks per extra transfer |
+| Three-register LDM including PC | 33 | blocking transfers plus redirect |
+| SWP / SWPB + ALU | 17 / 18 | read/write phases serialized |
+| B / BL | 7 / 7 | six instruction clocks including native fetch refill; target native five not met |
+| BX | 11 | state-changing PC path remains serialized |
+| MRS / flag-only MSR / control MSR | 7 / 11 / 11 | PSR operations still drain; flag-only target not met |
+| MCR / MRC / MRC + consumer / MRC PC | 18 / 16 / 17 / 16 | conservative CP15 drain/refetch, not TRM b+1 |
+| SWI / UND / unsupported CDP/LDC/STC | 24 each | exception plus actual vector trampoline to handler |
+| MUL/MLA, m=1..4 | 9/10/11/12 | 2+m arithmetic schedule plus six exposed drain/marker clocks |
+| All four long multiply forms, m=1..4 | 10/11/12/13 | 3+m schedule plus six exposed drain/marker clocks |
+| LDR, 1/2/3 independent NOPs, ALU consumer | 14/15/16 | no hidden load-latency overlap yet |
+
+The unaligned-load timing case uses the same byte pattern in two adjacent
+words so it agrees with the patched QEMU's unaligned-read convention; existing
+`align`/load tests still check the port's rotation behavior. The shared MRC-PC
+window starts with NZCV already equal to the CPU ID's top nibble: ZAP does not
+update those flags, while ARM9 does. The initial changing-flags experiment
+agreed with QEMU on ARM9 and exposed that pre-existing ZAP omission. Fixing ZAP
+is outside this worktree task; the committed shared case times the instruction
+without pretending to cover that flag transition. No comparison was disabled.
+
+The windows cover every Table 7-2 instruction row, representative n=1/3 block
+sizes and all positive m=1..4 multiplier lengths. They do not exhaust every
+register alias, negative early-termination boundary, dependency distance or
+Thumb timing permutation. Architectural ARM/Thumb, fault, IRQ and FIQ coverage
+continues to come from the full shared suite; IRQ/abort timing is not assigned
+a fictitious TRM table value here. Firmware boot and hardware speed remain
+external milestones.

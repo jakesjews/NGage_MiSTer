@@ -882,9 +882,28 @@ module arm9_core (
 	reg [31:0] pc;
 	wire [31:0] pc8;
 	reg [31:0] raw_ins;
-	wire [31:0] ins;
+	reg [31:0] ins;
 	wire [31:0] cpsr;
 	wire [31:0] cpsr_next;
+	wire [31:0] d_pc;
+	wire [31:0] d_pc8;
+	wire [31:0] d_raw;
+	wire [31:0] d_ins;
+	reg [23:0] tag_e;
+	reg [3:0] used_e;
+	wire fast_d;
+	reg fast_e;
+	wire issue;
+	wire execute_fast;
+	wire early_redirect;
+	wire [31:0] execute_flags;
+	reg [103:0] fast_m;
+	reg [103:0] fast_w;
+	wire [95:0] forward_value;
+	wire [17:0] forward_tag;
+	wire [2:0] forward_valid;
+	wire [127:0] forwarded_read;
+	wire [3:0] unused_read_wait;
 	wire [34:0] translated;
 	wire thumb_und;
 	wire thumb_align;
@@ -950,6 +969,10 @@ module arm9_core (
 	reg [15:0] list_d;
 	reg [3:0] transfer_reg_d;
 	reg [4:0] transfer_count_d;
+	reg [4:0] transfer_count_e;
+	reg [7:0] block_delta_e;
+	reg [3:0] transfer_reg_e;
+	reg [15:0] list_e;
 	reg sequence_active;
 	reg [31:0] sequence_address;
 	reg [31:0] sequence_base;
@@ -971,15 +994,20 @@ module arm9_core (
 	wire [31:0] updated_base;
 	wire [31:0] next_pc;
 	wire [31:0] vector_base;
-	wire load_capture = (((state == 5'd12) || (state == 5'd13)) && m_load) && i_dc_reg_idx[m_dst];
-	wire [63:0] load_commit = ((((state == 5'd14) && w_valid) && w_load) && (((kind_e == 4'd5) || (kind_e == 4'd6)) || (kind_e == 4'd12)) ? 64'd1 << m_dst : 64'd0);
-	wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, translated[33:32], load_capture, load_commit};
+	wire load_capture = (((state == 5'd8) || (state == 5'd9)) && m_load) && i_dc_reg_idx[m_dst];
+	wire [63:0] load_commit = ((((state == 5'd10) && w_valid) && w_load) && (((kind_e == 4'd5) || (kind_e == 4'd6)) || (kind_e == 4'd12)) ? 64'd1 << m_dst : 64'd0);
+	wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, translated[33:32], load_capture, load_commit, unused_read_wait};
 	assign cpsr = o_dbg_wb_cpsr;
 	assign pc8 = pc + (cpsr[5] ? 32'd4 : 32'd8);
 	assign vector_base = (hivecs ? 32'hffff0000 : 32'd0);
-	assign ins = translated[31:0];
+	assign d_ins = translated[31:0];
+	wire [31:0] f_pc;
+	assign d_pc = (sequence_active ? pc : f_pc);
+	assign d_pc8 = d_pc + (cpsr[5] ? 32'd4 : 32'd8);
+	wire [31:0] f_instruction;
+	assign d_raw = (sequence_active ? raw_ins : f_instruction);
 	zap_mode16_decoder #(.V4T(1'b1)) u_thumb(
-		.i_instruction(raw_ins),
+		.i_instruction(d_raw),
 		.i_instruction_valid(1'b1),
 		.i_offset(11'd0),
 		.i_prev_prefix(1'b0),
@@ -1038,39 +1066,39 @@ module arm9_core (
 		if (_sv2v_0)
 			;
 		kind_d = 4'd8;
-		if (ins[27:24] == 4'hf)
+		if (d_ins[27:24] == 4'hf)
 			kind_d = 4'd9;
-		else if (ins[27:25] == 3'b101)
+		else if (d_ins[27:25] == 3'b101)
 			kind_d = 4'd3;
-		else if (ins[27:25] == 3'b100)
+		else if (d_ins[27:25] == 3'b100)
 			kind_d = 4'd6;
-		else if ((ins[27:26] == 2'b01) && !(ins[25] && ins[4]))
+		else if ((d_ins[27:26] == 2'b01) && !(d_ins[25] && d_ins[4]))
 			kind_d = 4'd5;
-		else if ((ins & 32'h0fc000f0) == 32'h00000090)
+		else if ((d_ins & 32'h0fc000f0) == 32'h00000090)
 			kind_d = 4'd13;
-		else if ((ins & 32'h0f8000f0) == 32'h00800090)
+		else if ((d_ins & 32'h0f8000f0) == 32'h00800090)
 			kind_d = 4'd14;
-		else if ((ins & 32'h0fb00ff0) == 32'h01000090)
+		else if ((d_ins & 32'h0fb00ff0) == 32'h01000090)
 			kind_d = 4'd12;
-		else if ((ins & 32'h0ffffff0) == 32'h012fff10)
+		else if ((d_ins & 32'h0ffffff0) == 32'h012fff10)
 			kind_d = 4'd4;
-		else if ((ins & 32'h0fbf0fff) == 32'h010f0000)
+		else if ((d_ins & 32'h0fbf0fff) == 32'h010f0000)
 			kind_d = 4'd1;
-		else if (((ins & 32'h0fb0fff0) == 32'h0120f000) || ((ins & 32'h0fb0f000) == 32'h0320f000))
+		else if (((d_ins & 32'h0fb0fff0) == 32'h0120f000) || ((d_ins & 32'h0fb0f000) == 32'h0320f000))
 			kind_d = 4'd2;
-		else if (((ins[27:24] == 4'he) && ins[4]) && (ins[11:8] == 4'hf))
+		else if (((d_ins[27:24] == 4'he) && d_ins[4]) && (d_ins[11:8] == 4'hf))
 			kind_d = (cpsr[4:0] == USR ? 4'd8 : 4'd7);
-		else if ((((ins[27:25] == 0) && ins[7]) && ins[4]) && (ins[6:5] != 0))
+		else if ((((d_ins[27:25] == 0) && d_ins[7]) && d_ins[4]) && (d_ins[6:5] != 0))
 			kind_d = 4'd5;
-		else if (((ins[27:26] == 0) && !((ins[7] && ins[4]) && !ins[25])) && !(!ins[20] && (ins[24:23] == 2'b10)))
+		else if (((d_ins[27:26] == 0) && !((d_ins[7] && d_ins[4]) && !d_ins[25])) && !(!d_ins[20] && (d_ins[24:23] == 2'b10)))
 			kind_d = 4'd0;
-		if (cpsr[5] && (raw_ins[15:11] == 5'b11110))
+		if (cpsr[5] && (d_raw[15:11] == 5'b11110))
 			kind_d = 4'd10;
-		if (cpsr[5] && (raw_ins[15:11] == 5'b11111))
+		if (cpsr[5] && (d_raw[15:11] == 5'b11111))
 			kind_d = 4'd11;
-		if ((((!cpsr[5] && (ins[31:28] == 4'hf)) || ((((kind_d == 4'd5) && (ins[27:26] == 0)) && !ins[20]) && ins[6])) || (cpsr[5] && (raw_ins[15:11] == 5'b11101))) || thumb_und)
+		if ((((!cpsr[5] && (d_ins[31:28] == 4'hf)) || ((((kind_d == 4'd5) && (d_ins[27:26] == 0)) && !d_ins[20]) && d_ins[6])) || (cpsr[5] && (d_raw[15:11] == 5'b11101))) || thumb_und)
 			kind_d = 4'd8;
-		list_d = (sequence_active ? remaining : ins[15:0]);
+		list_d = (sequence_active ? remaining : d_ins[15:0]);
 		if ((kind_d == 4'd6) && (list_d == 0))
 			kind_d = 4'd8;
 		transfer_reg_d = 0;
@@ -1081,70 +1109,70 @@ module arm9_core (
 				begin
 					if (list_d[n])
 						transfer_reg_d = sv2v_cast_4_signed(n);
-					transfer_count_d = transfer_count_d + {4'd0, ins[n]};
+					transfer_count_d = transfer_count_d + {4'd0, d_ins[n]};
 				end
 		end
-		read_tag[0+:6] = translate({1'b0, ins[19:16]}, cpsr[4:0]);
-		read_tag[6+:6] = translate({1'b0, ins[3:0]}, cpsr[4:0]);
+		read_tag[0+:6] = translate({1'b0, d_ins[19:16]}, cpsr[4:0]);
+		read_tag[6+:6] = translate({1'b0, d_ins[3:0]}, cpsr[4:0]);
 		read_tag[12+:6] = translate(ARCH_CURR_SPSR, cpsr[4:0]);
-		read_tag[18+:6] = translate({1'b0, ins[15:12]}, cpsr[4:0]);
-		if (((kind_d == 4'd0) && ins[20]) && (ins[15:12] == 15))
+		read_tag[18+:6] = translate({1'b0, d_ins[15:12]}, cpsr[4:0]);
+		if (((kind_d == 4'd0) && d_ins[20]) && (d_ins[15:12] == 15))
 			read_tag[18+:6] = translate(ARCH_CURR_SPSR, cpsr[4:0]);
 		if (kind_d == 4'd6)
-			read_tag[18+:6] = translate({1'b0, transfer_reg_d}, (ins[22] && !(ins[20] && ins[15]) ? USR : cpsr[4:0]));
-		shift_register_d = ((kind_d == 4'd0) && !ins[25]) && ins[4];
+			read_tag[18+:6] = translate({1'b0, transfer_reg_d}, (d_ins[22] && !(d_ins[20] && d_ins[15]) ? USR : cpsr[4:0]));
+		shift_register_d = ((kind_d == 4'd0) && !d_ins[25]) && d_ins[4];
 		if ((kind_d == 4'd13) || (kind_d == 4'd14))
-			read_tag[12+:6] = translate({1'b0, ins[11:8]}, cpsr[4:0]);
+			read_tag[12+:6] = translate({1'b0, d_ins[11:8]}, cpsr[4:0]);
 		if (shift_register_d)
-			read_tag[12+:6] = translate({1'b0, ins[11:8]}, cpsr[4:0]);
+			read_tag[12+:6] = translate({1'b0, d_ins[11:8]}, cpsr[4:0]);
 		if (kind_d == 4'd11)
 			read_tag[6+:6] = translate(5'd14, cpsr[4:0]);
 	end
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		op_d = ins[24:21];
-		shift_type_d = ins[6:5];
-		shift_amount_d = ins[11:7];
-		value_d = read_value;
+		op_d = d_ins[24:21];
+		shift_type_d = d_ins[6:5];
+		shift_amount_d = d_ins[11:7];
+		value_d = forwarded_read;
 		begin : sv2v_autoblock_2
 			reg signed [31:0] n;
 			for (n = 0; n < 4; n = n + 1)
 				begin
 					if (read_tag[n * 6+:6] == PHY_PC)
-						value_d[n * 32+:32] = pc8;
+						value_d[n * 32+:32] = d_pc8;
 					if (read_tag[n * 6+:6] == PHY_CPSR)
 						value_d[n * 32+:32] = cpsr;
 				end
 		end
 		if (shift_register_d) begin
 			if (read_tag[0+:6] == PHY_PC)
-				value_d[0+:32] = pc8 + 4;
+				value_d[0+:32] = d_pc8 + 4;
 			if (read_tag[6+:6] == PHY_PC)
-				value_d[32+:32] = pc8 + 4;
+				value_d[32+:32] = d_pc8 + 4;
 		end
 		if (thumb_align && (read_tag[0+:6] == PHY_PC))
 			value_d[1-:2] = 0;
-		immediate_d = ins[25] && ((kind_d == 4'd0) || (kind_d == 4'd2));
+		immediate_d = d_ins[25] && ((kind_d == 4'd0) || (kind_d == 4'd2));
 		immediate_carry_d = cpsr[29];
 		if (immediate_d) begin
-			value_d[32+:32] = rotate_right({24'd0, ins[7:0]}, {ins[11:8], 1'b0});
-			if (ins[11:8] != 0)
+			value_d[32+:32] = rotate_right({24'd0, d_ins[7:0]}, {d_ins[11:8], 1'b0});
+			if (d_ins[11:8] != 0)
 				immediate_carry_d = value_d[63];
 		end
 		if (kind_d == 4'd5) begin
-			op_d = (ins[23] ? ADD : SUB);
-			if (ins[27:26] == 2'b01) begin
-				immediate_d = !ins[25];
-				if (!ins[25])
-					value_d[32+:32] = {20'd0, ins[11:0]};
+			op_d = (d_ins[23] ? ADD : SUB);
+			if (d_ins[27:26] == 2'b01) begin
+				immediate_d = !d_ins[25];
+				if (!d_ins[25])
+					value_d[32+:32] = {20'd0, d_ins[11:0]};
 			end
 			else begin
-				immediate_d = ins[22];
+				immediate_d = d_ins[22];
 				shift_type_d = 0;
 				shift_amount_d = 0;
-				if (ins[22])
-					value_d[32+:32] = {24'd0, ins[11:8], ins[3:0]};
+				if (d_ins[22])
+					value_d[32+:32] = {24'd0, d_ins[11:8], d_ins[3:0]};
 			end
 		end
 		if (kind_d == 4'd4) begin
@@ -1153,38 +1181,32 @@ module arm9_core (
 			shift_amount_d = 0;
 			immediate_d = 0;
 		end
-		branch_offset_d = (translated[34] ? {{7 {ins[23]}}, ins[23:0], 1'b0} : {{6 {ins[23]}}, ins[23:0], 2'b00});
-		psr_mask_d = {{8 {ins[19]}}, {8 {ins[18]}}, {8 {ins[17]}}, {8 {ins[16]}}} & 32'hf00000ff;
-		if (!ins[22]) begin
+		branch_offset_d = (translated[34] ? {{7 {d_ins[23]}}, d_ins[23:0], 1'b0} : {{6 {d_ins[23]}}, d_ins[23:0], 2'b00});
+		psr_mask_d = {{8 {d_ins[19]}}, {8 {d_ins[18]}}, {8 {d_ins[17]}}, {8 {d_ins[16]}}} & 32'hf00000ff;
+		if (!d_ins[22]) begin
 			psr_mask_d[5] = 0;
 			if (cpsr[4:0] == USR)
 				psr_mask_d[27:0] = 0;
 		end
 	end
-	localparam [23:0] sv2v_uu_u_execute_ext_i_tag_0 = 1'sb0;
-	localparam [3:0] sv2v_uu_u_execute_ext_i_used_0 = 1'sb0;
-	localparam [95:0] sv2v_uu_u_execute_ext_i_write_value_0 = 1'sb0;
-	localparam [17:0] sv2v_uu_u_execute_ext_i_write_tag_0 = 1'sb0;
-	localparam [2:0] sv2v_uu_u_execute_ext_i_write_valid_0 = 1'sb0;
-	localparam [2:0] sv2v_uu_u_execute_ext_i_write_ready_0 = 1'sb0;
 	arm9_execute u_execute(
-		.i_valid(state == 5'd7),
+		.i_valid((state == 5'd3) || (state == 5'd2)),
 		.i_condition(((((kind_e == 4'd10) || (kind_e == 4'd11)) || ((kind_e == 4'd8) && cpsr[5])) || (!cpsr[5] && (ins[31:28] == 4'hf)) ? 4'he : ins[31:28])),
 		.i_op(op_e),
 		.i_set_flags((kind_e == 4'd0) && ins[20]),
-		.i_flags(flags_e[31:28]),
+		.i_flags(execute_flags[31:28]),
 		.i_value(value_e),
-		.i_tag(sv2v_uu_u_execute_ext_i_tag_0),
-		.i_used(sv2v_uu_u_execute_ext_i_used_0),
-		.i_write_value(sv2v_uu_u_execute_ext_i_write_value_0),
-		.i_write_tag(sv2v_uu_u_execute_ext_i_write_tag_0),
-		.i_write_valid(sv2v_uu_u_execute_ext_i_write_valid_0),
-		.i_write_ready(sv2v_uu_u_execute_ext_i_write_ready_0),
+		.i_tag(tag_e),
+		.i_used(used_e),
+		.i_write_value(forward_value),
+		.i_write_tag(forward_tag),
+		.i_write_valid(forward_valid),
+		.i_write_ready(3'b111),
 		.i_shift_type(shift_type_e),
 		.i_shift_amount(shift_amount_e),
 		.i_shift_register(shift_register_e),
 		.i_immediate(immediate_e),
-		.i_shift_carry(immediate_carry_e),
+		.i_shift_carry((ins[11:8] == 0 ? execute_flags[29] : immediate_carry_e)),
 		.i_pc8(pc8),
 		.i_branch_offset(branch_offset_e),
 		.o_result(ex_result),
@@ -1197,25 +1219,59 @@ module arm9_core (
 		.o_write_result(ex_write),
 		.o_write_flags(ex_write_flags)
 	);
-	assign updated_base = (sequence_active ? sequence_base : (ins[23] ? value_e[0+:32] + {25'd0, transfer_count_d, 2'b00} : value_e[0+:32] - {25'd0, transfer_count_d, 2'b00}));
-	assign effective_address = (kind_e == 4'd6 ? (sequence_active ? sequence_address : (ins[23] ? value_e[0+:32] + (ins[24] ? 4 : 0) : updated_base + (ins[24] ? 0 : 4))) : (kind_e == 4'd12 ? value_e[0+:32] : (ins[24] ? ex_result : value_e[0+:32])));
-	assign next_pc = (w_dabt ? vector_base + 16 : (w_fiq ? vector_base + 28 : (w_irq ? vector_base + 24 : (w_pabt ? vector_base + 12 : (w_swi ? vector_base + 8 : (w_und ? vector_base + 4 : (w_load && (m_dst == PHY_PC) ? m_read_data : (w_redirect ? w_target : pc + (cpsr[5] ? 2 : 4)))))))));
-	wire f_valid;
+	assign forward_value = {32'd0, fast_w[95-:32], fast_m[95-:32]};
+	assign forward_tag = {6'd0, fast_w[101-:6], fast_m[101-:6]};
+	assign forward_valid = {1'b0, (fast_w[103] && fast_w[102]) && (fast_w[101-:6] != PHY_RAZ_REGISTER), (fast_m[103] && fast_m[102]) && (fast_m[101-:6] != PHY_RAZ_REGISTER)};
+	arm9_forward u_decode_forward(
+		.i_value(read_value),
+		.i_tag(read_tag),
+		.i_used(4'b1111),
+		.i_write_value(forward_value),
+		.i_write_tag(forward_tag),
+		.i_write_valid(forward_valid),
+		.i_write_ready(3'b111),
+		.o_value(forwarded_read),
+		.o_wait(unused_read_wait)
+	);
+	assign execute_flags = (fast_e ? (fast_m[103] ? fast_m[63-:32] : (fast_w[103] ? fast_w[63-:32] : cpsr)) : flags_e);
+	assign fast_d = ((kind_d == 4'd0) && (d_ins[15:12] != 15)) || (kind_d == 4'd3);
+	wire shift_hold = ((state == 5'd3) && shift_register_e) && ex_pass;
+	assign execute_fast = (((state == 5'd3) || (state == 5'd2)) && fast_e) && !shift_hold;
+	assign early_redirect = (execute_fast && (kind_e == 4'd3)) && ex_pass;
 	wire f_abort;
-	wire f_ready;
 	wire f_redirect;
-	wire [31:0] f_pc;
-	wire [31:0] f_instruction;
+	wire f_valid;
+	assign issue = (((f_valid && !sequence_active) && !f_redirect) && ((state == 5'd0) || execute_fast)) && ((((fast_d && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6])) || (((state == 5'd0) && !fast_m[103]) && !fast_w[103]));
+	always @(posedge i_clk)
+		if (i_reset) begin
+			fast_m <= 1'sb0;
+			fast_w <= 1'sb0;
+		end
+		else begin
+			fast_w <= fast_m;
+			fast_m[103] <= execute_fast;
+			if (execute_fast) begin
+				fast_m[102] <= ex_pass;
+				fast_m[31-:32] <= pc8;
+				fast_m[63-:32] <= (kind_e == 4'd0 ? {ex_flags, execute_flags[27:0]} : execute_flags);
+				fast_m[101-:6] <= (kind_e == 4'd3 ? (ins[24] ? translate(5'd14, cpsr[4:0]) : PHY_RAZ_REGISTER) : (ex_write ? dst_e : PHY_RAZ_REGISTER));
+				fast_m[95-:32] <= (kind_e == 4'd3 ? pc + 4 : ex_result);
+			end
+		end
+	assign updated_base = (sequence_active ? sequence_base : (ins[23] ? value_e[0+:32] + {25'd0, transfer_count_e, 2'b00} : value_e[0+:32] - {25'd0, transfer_count_e, 2'b00}));
+	assign effective_address = (kind_e == 4'd6 ? (sequence_active ? sequence_address : value_e[0+:32] + {{24 {block_delta_e[7]}}, block_delta_e}) : (kind_e == 4'd12 ? value_e[0+:32] : (ins[24] ? ex_result : value_e[0+:32])));
+	assign next_pc = (w_dabt ? vector_base + 16 : (w_fiq ? vector_base + 28 : (w_irq ? vector_base + 24 : (w_pabt ? vector_base + 12 : (w_swi ? vector_base + 8 : (w_und ? vector_base + 4 : (w_load && (m_dst == PHY_PC) ? m_read_data : (w_redirect ? w_target : pc + (cpsr[5] ? 2 : 4)))))))));
+	wire f_ready;
 	wire [31:0] f_address_nxt;
 	wire [31:0] f_address_check;
 	wire [31:0] f_address;
-	assign f_ready = state == 5'd0;
-	assign f_redirect = ((state == 5'd14) && w_last) && (((((((((w_redirect || (w_load && (m_dst == PHY_PC))) || w_dabt) || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und) || (kind_e == 4'd7)) || (kind_e == 4'd2));
+	assign f_ready = issue;
+	assign f_redirect = early_redirect || (((state == 5'd10) && w_last) && (((((((((w_redirect || (w_load && (m_dst == PHY_PC))) || w_dabt) || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und) || (kind_e == 4'd7)) || (kind_e == 4'd2)));
 	arm9_fetch #(.RESET_VECTOR(RESET_VECTOR)) u_fetch(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
 		.i_redirect(f_redirect),
-		.i_target((cpsr_next[5] ? next_pc & 32'hfffffffe : next_pc & 32'hfffffffc)),
+		.i_target((early_redirect ? ex_branch : (cpsr_next[5] ? next_pc & 32'hfffffffe : next_pc & 32'hfffffffc))),
 		.i_thumb(cpsr_next[5]),
 		.i_data(i_instr_wb_dat),
 		.i_ack(i_instr_wb_ack),
@@ -1244,9 +1300,9 @@ module arm9_core (
 	assign o_data_wb_adr_nxt = fcse({m_address[31:2], 2'b00});
 	assign o_data_wb_adr_check = fcse({m_address[31:2], 2'b00});
 	assign o_data_wb_adr = fcse({m_address[31:2], 2'b00});
-	assign o_data_wb_we_check = (state == 5'd10) && !m_load;
-	assign o_data_wb_re_check = (state == 5'd10) && m_load;
-	assign o_data_wb_stb = state == 5'd11;
+	assign o_data_wb_we_check = (state == 5'd6) && !m_load;
+	assign o_data_wb_re_check = (state == 5'd6) && m_load;
+	assign o_data_wb_stb = state == 5'd7;
 	assign o_data_wb_cyc = o_data_wb_stb;
 	assign o_data_wb_we = !m_load;
 	assign o_data_wb_sel = m_sel;
@@ -1264,6 +1320,10 @@ module arm9_core (
 			state <= 5'd0;
 			pc <= RESET_VECTOR;
 			raw_ins <= 0;
+			ins <= 0;
+			tag_e <= 1'sb0;
+			used_e <= 0;
+			fast_e <= 0;
 			fetch_abort <= 0;
 			irq_pending <= 0;
 			fiq_pending <= 0;
@@ -1301,6 +1361,10 @@ module arm9_core (
 			m_align <= 0;
 			m_user <= 0;
 			swap_store <= 0;
+			block_delta_e <= 0;
+			transfer_count_e <= 0;
+			transfer_reg_e <= 0;
+			list_e <= 0;
 			kind_e <= 4'd8;
 			op_e <= 0;
 			value_e <= 1'sb0;
@@ -1315,252 +1379,231 @@ module arm9_core (
 			base_e <= PHY_RAZ_REGISTER;
 			psr_mask_e <= 0;
 		end
-		else
+		else begin
 			case (state)
-				5'd0:
-					if (f_valid) begin
-						pc <= f_pc;
-						raw_ins <= f_instruction;
-						fetch_abort <= f_abort;
-						state <= 5'd5;
-					end
-				5'd5: begin
-					kind_e <= kind_d;
-					value_e <= value_d;
-					op_e <= op_d;
-					shift_type_e <= shift_type_d;
-					shift_amount_e <= shift_amount_d;
-					shift_register_e <= shift_register_d;
-					immediate_e <= immediate_d;
-					immediate_carry_e <= immediate_carry_d;
-					branch_offset_e <= branch_offset_d;
-					psr_mask_e <= psr_mask_d;
-					flags_e <= cpsr;
-					dst_e <= (kind_d == 4'd0 ? translate({1'b0, ins[15:12]}, cpsr[4:0]) : read_tag[18+:6]);
-					base_e <= read_tag[0+:6];
-					fiq_pending <= (!sequence_active && i_fiq) && !cpsr[6];
-					irq_pending <= (!sequence_active && i_irq) && !cpsr[7];
-					state <= (shift_register_d && is_cc_satisfied(ins[31:28], cpsr[31:28]) ? 5'd6 : 5'd7);
-				end
-				5'd6: state <= 5'd7;
-				5'd7: begin
-					state <= 5'd14;
-					w_valid <= ex_pass;
-					w_cfail <= !ex_pass;
-					w_last <= 1;
-					swap_store <= 0;
-					w_load <= 0;
-					w_redirect <= 0;
-					w_dabt <= 0;
-					w_pabt <= 0;
-					w_irq <= 0;
-					w_fiq <= 0;
-					w_swi <= 0;
-					w_und <= 0;
-					w_dst <= PHY_RAZ_REGISTER;
-					w_value <= pc + 4;
-					w_flags <= flags_e;
-					if ((fiq_pending || irq_pending) || fetch_abort) begin
-						w_fiq <= fiq_pending;
-						w_irq <= !fiq_pending && irq_pending;
-						w_pabt <= (!fiq_pending && !irq_pending) && fetch_abort;
-						w_valid <= 0;
-						w_cfail <= 0;
-					end
-					else if (ex_pass)
-						case (kind_e)
-							4'd0: begin
-								if (ex_write) begin
-									w_dst <= dst_e;
-									w_value <= ex_result;
-									if (dst_e == PHY_PC) begin
-										w_redirect <= 1;
-										w_target <= ex_result;
-									end
-								end
-								if (ex_write_flags)
-									w_flags[31:28] <= ex_flags;
-								if (((dst_e == PHY_PC) && ins[20]) && ex_write)
-									w_flags <= value_e[96+:32] & 32'hf00000ff;
-							end
-							4'd1: begin
-								w_dst <= dst_e;
-								w_value <= (ins[22] ? value_e[64+:32] : flags_e);
-							end
-							4'd2:
-								if ((ins[22] && (cpsr[4:0] != USR)) && (cpsr[4:0] != SYS)) begin
-									w_dst <= translate(ARCH_CURR_SPSR, cpsr[4:0]);
-									w_value <= (value_e[64+:32] & ~psr_mask_e) | (value_e[32+:32] & psr_mask_e);
-								end
-								else if (!ins[22])
-									w_flags <= (flags_e & ~psr_mask_e) | (value_e[32+:32] & psr_mask_e);
-							4'd3: begin
-								w_redirect <= 1;
-								w_target <= ex_branch;
-								if (ins[24]) begin
-									w_dst <= translate(5'd14, cpsr[4:0]);
-									w_value <= pc + 4;
-								end
-							end
-							4'd4: begin
-								w_redirect <= 1;
-								w_target <= ex_result;
-								w_flags[5] <= ex_result[0];
-							end
-							4'd10: begin
-								w_dst <= translate(5'd14, cpsr[4:0]);
-								w_value <= pc8 + {{9 {raw_ins[10]}}, raw_ins[10:0], 12'd0};
-							end
-							4'd11: begin
-								w_dst <= translate(5'd14, cpsr[4:0]);
-								w_value <= (pc + 2) | 1;
-								w_redirect <= 1;
-								w_target <= value_e[32+:32] + {20'd0, raw_ins[10:0], 1'b0};
-							end
-							4'd5, 4'd6, 4'd12: begin
-								state <= 5'd8;
-								m_address <= effective_address;
-								m_dst <= dst_e;
-								m_load <= (kind_e == 4'd12) || ins[20];
-								w_load <= (kind_e == 4'd12) || ins[20];
-								m_user <= ((kind_e == 4'd5) && !ins[24]) && ins[21];
-								m_align <= align_en && |effective_address[1:0];
-								m_format <= {effective_address[1:0], 4'b0000};
-								m_sel <= 4'hf;
-								m_write_data <= ex_store;
-								if (kind_e == 4'd12) begin
-									m_write_data <= value_e[32+:32];
-									if (ins[22]) begin
-										m_sel <= 4'b0001 << effective_address[1:0];
-										m_write_data <= {4 {value_e[39-:8]}};
-										m_format[2] <= 1;
-										m_align <= 0;
-									end
-								end
-								else if (kind_e == 4'd5) begin
-									if (ins[21] || !ins[24]) begin
-										w_dst <= base_e;
+				5'd3, 5'd2:
+					if (shift_hold)
+						state <= 5'd2;
+					else if (fast_e)
+						state <= 5'd0;
+					else begin
+						state <= 5'd10;
+						w_valid <= ex_pass;
+						w_cfail <= !ex_pass;
+						w_last <= 1;
+						swap_store <= 0;
+						w_load <= 0;
+						w_redirect <= 0;
+						w_dabt <= 0;
+						w_pabt <= 0;
+						w_irq <= 0;
+						w_fiq <= 0;
+						w_swi <= 0;
+						w_und <= 0;
+						w_dst <= PHY_RAZ_REGISTER;
+						w_value <= pc + 4;
+						w_flags <= flags_e;
+						if ((fiq_pending || irq_pending) || fetch_abort) begin
+							w_fiq <= fiq_pending;
+							w_irq <= !fiq_pending && irq_pending;
+							w_pabt <= (!fiq_pending && !irq_pending) && fetch_abort;
+							w_valid <= 0;
+							w_cfail <= 0;
+						end
+						else if (ex_pass)
+							case (kind_e)
+								4'd0: begin
+									if (ex_write) begin
+										w_dst <= dst_e;
 										w_value <= ex_result;
-									end
-									if ((ins[27:26] == 2'b01) && ins[22]) begin
-										m_sel <= 4'b0001 << effective_address[1:0];
-										m_write_data <= {4 {ex_store[7:0]}};
-										m_format[2] <= 1;
-										m_align <= 0;
-									end
-									else if (ins[27:26] == 0)
-										case (ins[6:5])
-											2'b01: begin
-												m_sel <= (effective_address[1] ? 4'b1100 : 4'b0011);
-												m_write_data <= {2 {ex_store[15:0]}};
-												m_format[0] <= 1;
-												m_align <= align_en && effective_address[0];
-											end
-											2'b10: begin
-												m_sel <= 4'b0001 << effective_address[1:0];
-												m_format[3] <= 1;
-												m_align <= 0;
-											end
-											2'b11: begin
-												m_sel <= (effective_address[1] ? 4'b1100 : 4'b0011);
-												m_format[1] <= 1;
-												m_align <= align_en && effective_address[0];
-											end
-											default:
-												;
-										endcase
-								end
-								else begin
-									m_format[5:4] <= 0;
-									remaining <= list_d & ~(16'd1 << transfer_reg_d);
-									sequence_active <= 1;
-									sequence_address <= effective_address + 4;
-									sequence_base <= updated_base;
-									if (!sequence_active)
-										sequence_original <= value_e[0+:32];
-									w_last <= (list_d & (list_d - 1)) == 0;
-									if ((list_d & (list_d - 1)) == 0) begin
-										if (ins[21] && !(ins[20] && ins[{1'b0, ins[19:16]}])) begin
-											w_dst <= base_e;
-											w_value <= updated_base;
+										if (dst_e == PHY_PC) begin
+											w_redirect <= 1;
+											w_target <= ex_result;
 										end
-										if ((ins[20] && ins[15]) && ins[22])
-											w_flags <= value_e[64+:32];
+									end
+									if (ex_write_flags)
+										w_flags[31:28] <= ex_flags;
+									if (((dst_e == PHY_PC) && ins[20]) && ex_write)
+										w_flags <= value_e[96+:32] & 32'hf00000ff;
+								end
+								4'd1: begin
+									w_dst <= dst_e;
+									w_value <= (ins[22] ? value_e[64+:32] : flags_e);
+								end
+								4'd2:
+									if ((ins[22] && (cpsr[4:0] != USR)) && (cpsr[4:0] != SYS)) begin
+										w_dst <= translate(ARCH_CURR_SPSR, cpsr[4:0]);
+										w_value <= (value_e[64+:32] & ~psr_mask_e) | (value_e[32+:32] & psr_mask_e);
+									end
+									else if (!ins[22])
+										w_flags <= (flags_e & ~psr_mask_e) | (value_e[32+:32] & psr_mask_e);
+								4'd3: begin
+									w_redirect <= 1;
+									w_target <= ex_branch;
+									if (ins[24]) begin
+										w_dst <= translate(5'd14, cpsr[4:0]);
+										w_value <= pc + 4;
 									end
 								end
-							end
-							4'd13, 4'd14: begin
-								multiply_product <= $signed({((kind_e == 4'd14) && ins[22]) && value_e[63], value_e[32+:32]}) * $signed({((kind_e == 4'd14) && ins[22]) && value_e[95], value_e[64+:32]});
-								multiply_accumulator <= (!ins[21] ? 64'd0 : {(kind_e == 4'd14 ? value_e[0+:32] : 32'd0), value_e[96+:32]});
-								multiply_delay <= multiply_iterations(value_e[95-:24], (kind_e == 4'd13) || ins[22]) - (kind_e == 4'd13 ? 3'd1 : 3'd0);
-								state <= 5'd17;
-							end
-							4'd7: begin
-								w_valid <= 0;
-								state <= 5'd15;
-							end
-							4'd9: begin
-								w_valid <= 0;
-								w_swi <= 1;
-							end
-							default: begin
-								w_valid <= 0;
-								w_und <= 1;
-							end
-						endcase
-				end
-				5'd8: state <= 5'd9;
-				5'd9: state <= 5'd10;
-				5'd10: state <= 5'd11;
-				5'd11:
+								4'd4: begin
+									w_redirect <= 1;
+									w_target <= ex_result;
+									w_flags[5] <= ex_result[0];
+								end
+								4'd10: begin
+									w_dst <= translate(5'd14, cpsr[4:0]);
+									w_value <= pc8 + {{9 {raw_ins[10]}}, raw_ins[10:0], 12'd0};
+								end
+								4'd11: begin
+									w_dst <= translate(5'd14, cpsr[4:0]);
+									w_value <= (pc + 2) | 1;
+									w_redirect <= 1;
+									w_target <= value_e[32+:32] + {20'd0, raw_ins[10:0], 1'b0};
+								end
+								4'd5, 4'd6, 4'd12: begin
+									state <= 5'd4;
+									m_address <= effective_address;
+									m_dst <= dst_e;
+									m_load <= (kind_e == 4'd12) || ins[20];
+									w_load <= (kind_e == 4'd12) || ins[20];
+									m_user <= ((kind_e == 4'd5) && !ins[24]) && ins[21];
+									m_align <= align_en && |effective_address[1:0];
+									m_format <= {effective_address[1:0], 4'b0000};
+									m_sel <= 4'hf;
+									m_write_data <= ex_store;
+									if (kind_e == 4'd12) begin
+										m_write_data <= value_e[32+:32];
+										if (ins[22]) begin
+											m_sel <= 4'b0001 << effective_address[1:0];
+											m_write_data <= {4 {value_e[39-:8]}};
+											m_format[2] <= 1;
+											m_align <= 0;
+										end
+									end
+									else if (kind_e == 4'd5) begin
+										if (ins[21] || !ins[24]) begin
+											w_dst <= base_e;
+											w_value <= ex_result;
+										end
+										if ((ins[27:26] == 2'b01) && ins[22]) begin
+											m_sel <= 4'b0001 << effective_address[1:0];
+											m_write_data <= {4 {ex_store[7:0]}};
+											m_format[2] <= 1;
+											m_align <= 0;
+										end
+										else if (ins[27:26] == 0)
+											case (ins[6:5])
+												2'b01: begin
+													m_sel <= (effective_address[1] ? 4'b1100 : 4'b0011);
+													m_write_data <= {2 {ex_store[15:0]}};
+													m_format[0] <= 1;
+													m_align <= align_en && effective_address[0];
+												end
+												2'b10: begin
+													m_sel <= 4'b0001 << effective_address[1:0];
+													m_format[3] <= 1;
+													m_align <= 0;
+												end
+												2'b11: begin
+													m_sel <= (effective_address[1] ? 4'b1100 : 4'b0011);
+													m_format[1] <= 1;
+													m_align <= align_en && effective_address[0];
+												end
+												default:
+													;
+											endcase
+									end
+									else begin
+										m_format[5:4] <= 0;
+										remaining <= list_e & ~(16'd1 << transfer_reg_e);
+										sequence_active <= 1;
+										sequence_address <= effective_address + 4;
+										sequence_base <= updated_base;
+										if (!sequence_active)
+											sequence_original <= value_e[0+:32];
+										w_last <= (list_e & (list_e - 1)) == 0;
+										if ((list_e & (list_e - 1)) == 0) begin
+											if (ins[21] && !(ins[20] && ins[{1'b0, ins[19:16]}])) begin
+												w_dst <= base_e;
+												w_value <= updated_base;
+											end
+											if ((ins[20] && ins[15]) && ins[22])
+												w_flags <= value_e[64+:32];
+										end
+									end
+								end
+								4'd13, 4'd14: begin
+									multiply_product <= $signed({((kind_e == 4'd14) && ins[22]) && value_e[63], value_e[32+:32]}) * $signed({((kind_e == 4'd14) && ins[22]) && value_e[95], value_e[64+:32]});
+									multiply_accumulator <= (!ins[21] ? 64'd0 : {(kind_e == 4'd14 ? value_e[0+:32] : 32'd0), value_e[96+:32]});
+									multiply_delay <= multiply_iterations(value_e[95-:24], (kind_e == 4'd13) || ins[22]) - (kind_e == 4'd13 ? 3'd1 : 3'd0);
+									state <= 5'd13;
+								end
+								4'd7: begin
+									w_valid <= 0;
+									state <= 5'd11;
+								end
+								4'd9: begin
+									w_valid <= 0;
+									w_swi <= 1;
+								end
+								default: begin
+									w_valid <= 0;
+									w_und <= 1;
+								end
+							endcase
+					end
+				5'd4: state <= 5'd5;
+				5'd5: state <= 5'd6;
+				5'd6: state <= 5'd7;
+				5'd7:
 					if (i_data_wb_ack || i_data_wb_err) begin
 						if (i_dcache_err2)
-							state <= 5'd8;
+							state <= 5'd4;
 						else if (i_data_wb_err) begin
 							w_valid <= 0;
 							w_dabt <= 1;
 							w_last <= 1;
-							state <= ((kind_e == 4'd6) && ins[21] ? 5'd16 : 5'd14);
+							state <= ((kind_e == 4'd6) && ins[21] ? 5'd12 : 5'd10);
 						end
 						else begin
 							if (m_load)
 								m_read_data <= i_data_wb_dat;
-							state <= 5'd12;
+							state <= 5'd8;
 						end
 					end
-				5'd12:
+				5'd8:
 					if (m_load && i_dc_reg_idx[m_dst]) begin
 						m_read_data <= i_dc_reg_dat;
-						state <= (kind_e == 4'd12 ? 5'd8 : 5'd14);
+						state <= (kind_e == 4'd12 ? 5'd4 : 5'd10);
 						if (kind_e == 4'd12) begin
 							m_load <= 0;
 							swap_store <= 1;
 						end
 					end
 					else if (m_load && i_dc_lock[m_dst])
-						state <= 5'd13;
+						state <= 5'd9;
 					else if ((kind_e == 4'd12) && !swap_store) begin
 						m_load <= 0;
 						swap_store <= 1;
-						state <= 5'd8;
+						state <= 5'd4;
 					end
 					else
-						state <= 5'd14;
-				5'd13:
+						state <= 5'd10;
+				5'd9:
 					if (i_dc_reg_idx[m_dst]) begin
 						m_read_data <= i_dc_reg_dat;
-						state <= (kind_e == 4'd12 ? 5'd8 : 5'd14);
+						state <= (kind_e == 4'd12 ? 5'd4 : 5'd10);
 						if (kind_e == 4'd12) begin
 							m_load <= 0;
 							swap_store <= 1;
 						end
 					end
-				5'd16: state <= 5'd14;
-				5'd17: begin
+				5'd12: state <= 5'd10;
+				5'd13: begin
 					multiply_result <= multiply_product + multiply_accumulator;
-					state <= 5'd18;
+					state <= 5'd14;
 				end
-				5'd18:
+				5'd14:
 					if (multiply_delay != 0)
 						multiply_delay <= multiply_delay - 1'b1;
 					else begin
@@ -1575,37 +1618,69 @@ module arm9_core (
 							w_flags[31] <= (kind_e == 4'd14 ? multiply_result[63] : multiply_result[31]);
 							w_flags[30] <= (kind_e == 4'd14 ? multiply_result == 0 : multiply_result[31:0] == 0);
 						end
-						state <= 5'd14;
+						state <= 5'd10;
 					end
-				5'd15: begin
+				5'd11: begin
 					if (copro_reg_en && (copro_reg_wr_index == PHY_PC))
 						w_flags[31:28] <= copro_reg_wr_data[31:28];
 					if (copro_done) begin
 						w_valid <= 1;
-						state <= 5'd14;
+						state <= 5'd10;
 					end
 				end
-				5'd14:
+				5'd10:
 					if (!w_last && !w_dabt)
-						state <= 5'd5;
+						state <= 5'd1;
 					else begin
 						sequence_active <= 0;
 						state <= 5'd0;
 					end
 				default: state <= 5'd0;
 			endcase
-	assign o_dbg_wb_valid = ((state == 5'd14) && w_valid) || (state == 5'd16);
-	assign o_dbg_wb_dvalid = (state == 5'd14) && w_cfail;
-	assign o_dbg_wb_uop_last = (state != 5'd16) && w_last;
-	assign o_dbg_wb_dabt = {1'b0, (state == 5'd14) && w_dabt};
-	assign o_dbg_wb_pabt = (state == 5'd14) && w_pabt;
-	assign o_dbg_wb_irq = (state == 5'd14) && w_irq;
-	assign o_dbg_wb_fiq = (state == 5'd14) && w_fiq;
-	assign o_dbg_wb_swi = (state == 5'd14) && w_swi;
-	assign o_dbg_wb_und = (state == 5'd14) && w_und;
-	assign o_dbg_wb_pc = pc8;
+			if (issue || (state == 5'd1)) begin
+				if (issue) begin
+					pc <= f_pc;
+					raw_ins <= f_instruction;
+					ins <= d_ins;
+					fetch_abort <= f_abort;
+				end
+				fast_e <= (((issue && fast_d) && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6]);
+				tag_e <= read_tag;
+				used_e <= {1'b0, shift_register_d, !immediate_d, ((kind_d == 4'd0) && (op_d != MOV)) && (op_d != MVN)};
+				block_delta_e <= (d_ins[23] ? (d_ins[24] ? 8'd4 : 8'd0) : (d_ins[24] ? 8'd0 : 8'd4) - {1'b0, transfer_count_d, 2'b00});
+				transfer_count_e <= transfer_count_d;
+				transfer_reg_e <= transfer_reg_d;
+				list_e <= list_d;
+				kind_e <= kind_d;
+				value_e <= value_d;
+				op_e <= op_d;
+				shift_type_e <= shift_type_d;
+				shift_amount_e <= shift_amount_d;
+				shift_register_e <= shift_register_d;
+				immediate_e <= immediate_d;
+				immediate_carry_e <= immediate_carry_d;
+				branch_offset_e <= branch_offset_d;
+				psr_mask_e <= psr_mask_d;
+				flags_e <= cpsr;
+				dst_e <= (kind_d == 4'd0 ? translate({1'b0, d_ins[15:12]}, cpsr[4:0]) : read_tag[18+:6]);
+				base_e <= read_tag[0+:6];
+				fiq_pending <= (!sequence_active && i_fiq) && !cpsr[6];
+				irq_pending <= (!sequence_active && i_irq) && !cpsr[7];
+				state <= 5'd3;
+			end
+		end
+	assign o_dbg_wb_valid = ((fast_w[103] && fast_w[102]) || ((state == 5'd10) && w_valid)) || (state == 5'd12);
+	assign o_dbg_wb_dvalid = (fast_w[103] && !fast_w[102]) || ((state == 5'd10) && w_cfail);
+	assign o_dbg_wb_uop_last = fast_w[103] || ((state != 5'd12) && w_last);
+	assign o_dbg_wb_dabt = {1'b0, (state == 5'd10) && w_dabt};
+	assign o_dbg_wb_pabt = (state == 5'd10) && w_pabt;
+	assign o_dbg_wb_irq = (state == 5'd10) && w_irq;
+	assign o_dbg_wb_fiq = (state == 5'd10) && w_fiq;
+	assign o_dbg_wb_swi = (state == 5'd10) && w_swi;
+	assign o_dbg_wb_und = (state == 5'd10) && w_und;
+	assign o_dbg_wb_pc = (fast_w[103] ? fast_w[31-:32] : pc8);
 	assign o_dbg_wb_cpsr_nxt = cpsr_next;
-	assign o_dbg_stall = {(state == 5'd14) && (((((w_dabt || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und), (state == 5'd14) && w_redirect, (state == 5'd15) || sequence_active, ((state == 5'd6) || (state == 5'd17)) || (state == 5'd18), 1'b0, state <= 5'd4, state == 5'd3, (state == 5'd11) || (state == 5'd13)};
+	assign o_dbg_stall = {(state == 5'd10) && (((((w_dabt || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und), early_redirect || ((state == 5'd10) && w_redirect), (state == 5'd11) || sequence_active, (shift_hold || (state == 5'd13)) || (state == 5'd14), (f_valid && !issue) && ((state == 5'd0) || execute_fast), !f_valid, o_code_stall, (state == 5'd7) || (state == 5'd9)};
 	localparam [511:0] sv2v_uu_u_zap_writeback_ext_i_decompile_0 = 1'sb0;
 	zap_writeback #(
 		.BP_ENTRIES(32),
@@ -1639,10 +1714,10 @@ module arm9_core (
 		.i_rd_index_1(read_tag[6+:6]),
 		.i_rd_index_2(read_tag[12+:6]),
 		.i_rd_index_3(read_tag[18+:6]),
-		.i_mem_load_ff(w_load && (state != 5'd16)),
-		.i_wr_index((state == 5'd16 ? base_e : w_dst)),
-		.i_wr_data((state == 5'd16 ? sequence_original : w_value)),
-		.i_flags((state == 5'd16 ? cpsr : w_flags)),
+		.i_mem_load_ff((!fast_w[103] && w_load) && (state != 5'd12)),
+		.i_wr_index((fast_w[103] ? fast_w[101-:6] : (state == 5'd12 ? base_e : w_dst))),
+		.i_wr_data((fast_w[103] ? fast_w[95-:32] : (state == 5'd12 ? sequence_original : w_value))),
+		.i_flags((fast_w[103] ? fast_w[63-:32] : (state == 5'd12 ? cpsr : w_flags))),
 		.i_wr_index_1(m_dst),
 		.i_wr_data_1(m_read_data),
 		.i_wr_index_2(40'd0),
@@ -1654,7 +1729,7 @@ module arm9_core (
 		.i_data_abt(o_dbg_wb_dabt),
 		.i_swi(o_dbg_wb_swi),
 		.i_und(o_dbg_wb_und),
-		.i_pc_plus_8_buf_ff(pc8),
+		.i_pc_plus_8_buf_ff(o_dbg_wb_pc),
 		.i_copro_reg_en(copro_reg_en),
 		.i_copro_reg_wr_index(copro_reg_wr_index),
 		.i_copro_reg_rd_index(copro_reg_rd_index),
@@ -1696,7 +1771,7 @@ module arm9_core (
 		.i_clk(i_clk),
 		.i_reset(i_reset),
 		.i_cp_word(ins),
-		.i_cp_dav(state == 5'd15),
+		.i_cp_dav(state == 5'd11),
 		.o_cp_done(copro_done),
 		.i_cpsr(cpsr),
 		.o_reg_en(copro_reg_en),

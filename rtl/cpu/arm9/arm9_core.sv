@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // ARM9 bring-up controller. Interface derived from ZAP by Revanth Kamaraj.
-// See docs/ARM9.md for the conservative, non-overlapped bring-up schedule.
+// See docs/ARM9.md for overlap, forwarding and serialized-operation boundaries.
 module arm9_core #(
 
         // For CP15 purposes.
@@ -199,11 +199,11 @@ output  logic [7:0]                      o_dbg_stall
 `include "zap_defines.svh"
 `include "zap_functions.svh"
 
-// This first integration deliberately admits one architectural instruction at
-// a time. Stage registers are real, but overlap/forwarding is a subsequent gate.
-// No younger memory side effect can escape an older exception in this version.
+// D is the fetch queue head; E owns the decoded operands and control. Ordinary
+// DP and branches pass through independent M/W records. Complex instructions
+// drain those records and keep the original precise, blocking memory sequence.
 typedef enum logic [4:0] {
-    F1, F2, F3, FETCH, FETCH_TAIL, DECODE, SHIFT_WAIT, EXECUTE,
+    IDLE, DECODE, SHIFT_WAIT, EXECUTE,
     M1, M2, M3, MEMORY, LOAD_CLASSIFY, LOAD_WAIT, WRITEBACK, COPRO, RESTORE_BASE, MUL_ADD, MUL_WAIT
 } state_t;
 typedef enum logic [3:0] {
@@ -213,6 +213,22 @@ typedef enum logic [3:0] {
 state_t state;
 kind_t kind_d, kind_e;
 logic [31:0] pc, pc8, raw_ins, ins, cpsr, cpsr_next;
+logic [31:0] d_pc, d_pc8, d_raw, d_ins;
+logic [3:0][5:0] tag_e;
+logic [3:0] used_e;
+logic fast_d, fast_e, issue, execute_fast, early_redirect;
+logic [31:0] execute_flags;
+typedef struct packed {
+    logic present, pass;
+    logic [5:0] dst;
+    logic [31:0] value, flags, pc8;
+} result_t;
+result_t fast_m, fast_w;
+logic [2:0][31:0] forward_value;
+logic [2:0][5:0] forward_tag;
+logic [2:0] forward_valid;
+logic [3:0][31:0] forwarded_read;
+logic [3:0] unused_read_wait;
 logic [34:0] translated;
 logic thumb_und, thumb_align;
 logic fetch_abort, irq_pending, fiq_pending;
@@ -240,7 +256,10 @@ logic w_valid, w_cfail, w_load, w_redirect, w_last;
 logic w_dabt, w_pabt, w_irq, w_fiq, w_swi, w_und;
 logic [15:0] remaining, list_d;
 logic [3:0] transfer_reg_d;
-logic [4:0] transfer_count_d;
+logic [4:0] transfer_count_d, transfer_count_e;
+logic [7:0] block_delta_e;
+logic [3:0] transfer_reg_e;
+logic [15:0] list_e;
 logic sequence_active;
 logic [31:0] sequence_address, sequence_base, sequence_original;
 logic [63:0] multiply_product, multiply_accumulator, multiply_result;
@@ -259,15 +278,18 @@ logic [31:0] vector_base;
                           (kind_e == K_MEM || kind_e == K_BLOCK || kind_e == K_SWP) ?
                           (64'd1 << m_dst) : 64'd0;
 
-wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, translated[33:32], load_capture, load_commit};
+wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, translated[33:32], load_capture, load_commit, unused_read_wait};
 assign cpsr = o_dbg_wb_cpsr;
 assign pc8 = pc + (cpsr[5] ? 32'd4 : 32'd8);
 assign vector_base = hivecs ? 32'hffff0000 : 32'd0;
-assign ins = translated[31:0];
+assign d_ins = translated[31:0];
+assign d_pc = sequence_active ? pc : f_pc;
+assign d_pc8 = d_pc + (cpsr[5] ? 32'd4 : 32'd8);
+assign d_raw = sequence_active ? raw_ins : f_instruction;
 // BL halves are decoded below from the original Thumb encoding; do not fold
 // them together. Each half remains an interruptible architectural instruction.
 zap_mode16_decoder #(.V4T(1'b1)) u_thumb (
-    .i_instruction(raw_ins), .i_instruction_valid(1'b1), .i_offset(11'd0),
+    .i_instruction(d_raw), .i_instruction_valid(1'b1), .i_offset(11'd0),
     .i_prev_prefix(1'b0), .i_irq(1'b0), .i_fiq(1'b0), .i_cpsr_ff_t(cpsr[5]),
     .o_instruction(translated), .o_instruction_valid(), .o_und(thumb_und),
     .o_force32_align(thumb_align), .o_irq(), .o_fiq()
@@ -288,32 +310,32 @@ endfunction
 
 always_comb begin
     kind_d = K_UND;
-    if (ins[27:24] == 4'hf) kind_d = K_SWI;
-    else if (ins[27:25] == 3'b101) kind_d = K_BRANCH;
-    else if (ins[27:25] == 3'b100) kind_d = K_BLOCK;
-    else if (ins[27:26] == 2'b01 && !(ins[25] && ins[4])) kind_d = K_MEM;
-    else if ((ins & 32'h0fc000f0) == 32'h00000090) kind_d = K_MUL;
-    else if ((ins & 32'h0f8000f0) == 32'h00800090) kind_d = K_MULL;
-    else if ((ins & 32'h0fb00ff0) == 32'h01000090) kind_d = K_SWP;
-    else if ((ins & 32'h0ffffff0) == 32'h012fff10) kind_d = K_BX;
-    else if ((ins & 32'h0fbf0fff) == 32'h010f0000) kind_d = K_MRS;
-    else if ((ins & 32'h0fb0fff0) == 32'h0120f000 ||
-             (ins & 32'h0fb0f000) == 32'h0320f000) kind_d = K_MSR;
-    else if (ins[27:24] == 4'he && ins[4] && ins[11:8] == 4'hf)
+    if (d_ins[27:24] == 4'hf) kind_d = K_SWI;
+    else if (d_ins[27:25] == 3'b101) kind_d = K_BRANCH;
+    else if (d_ins[27:25] == 3'b100) kind_d = K_BLOCK;
+    else if (d_ins[27:26] == 2'b01 && !(d_ins[25] && d_ins[4])) kind_d = K_MEM;
+    else if ((d_ins & 32'h0fc000f0) == 32'h00000090) kind_d = K_MUL;
+    else if ((d_ins & 32'h0f8000f0) == 32'h00800090) kind_d = K_MULL;
+    else if ((d_ins & 32'h0fb00ff0) == 32'h01000090) kind_d = K_SWP;
+    else if ((d_ins & 32'h0ffffff0) == 32'h012fff10) kind_d = K_BX;
+    else if ((d_ins & 32'h0fbf0fff) == 32'h010f0000) kind_d = K_MRS;
+    else if ((d_ins & 32'h0fb0fff0) == 32'h0120f000 ||
+             (d_ins & 32'h0fb0f000) == 32'h0320f000) kind_d = K_MSR;
+    else if (d_ins[27:24] == 4'he && d_ins[4] && d_ins[11:8] == 4'hf)
         kind_d = cpsr[4:0] == USR ? K_UND : K_CP;
-    else if (ins[27:25] == 0 && ins[7] && ins[4] && ins[6:5] != 0)
+    else if (d_ins[27:25] == 0 && d_ins[7] && d_ins[4] && d_ins[6:5] != 0)
         kind_d = K_MEM;
-    else if (ins[27:26] == 0 && !(ins[7] && ins[4] && !ins[25]) &&
-             !(!ins[20] && ins[24:23] == 2'b10)) kind_d = K_DP;
-    if (cpsr[5] && raw_ins[15:11] == 5'b11110) kind_d = K_BL_PREFIX;
-    if (cpsr[5] && raw_ins[15:11] == 5'b11111) kind_d = K_BL_SUFFIX;
+    else if (d_ins[27:26] == 0 && !(d_ins[7] && d_ins[4] && !d_ins[25]) &&
+             !(!d_ins[20] && d_ins[24:23] == 2'b10)) kind_d = K_DP;
+    if (cpsr[5] && d_raw[15:11] == 5'b11110) kind_d = K_BL_PREFIX;
+    if (cpsr[5] && d_raw[15:11] == 5'b11111) kind_d = K_BL_SUFFIX;
     // ARMv4T treats condition NV and ARMv5 doubleword transfers as undefined.
-    if ((!cpsr[5] && ins[31:28] == 4'hf) ||
-        (kind_d == K_MEM && ins[27:26] == 0 && !ins[20] && ins[6]) ||
-        (cpsr[5] && raw_ins[15:11] == 5'b11101) || thumb_und)
+    if ((!cpsr[5] && d_ins[31:28] == 4'hf) ||
+        (kind_d == K_MEM && d_ins[27:26] == 0 && !d_ins[20] && d_ins[6]) ||
+        (cpsr[5] && d_raw[15:11] == 5'b11101) || thumb_und)
         kind_d = K_UND;
 
-    list_d = sequence_active ? remaining : ins[15:0];
+    list_d = sequence_active ? remaining : d_ins[15:0];
     // Empty register lists are deliberately undefined until their ARM9
     // writeback semantics have directed coverage.
     if (kind_d == K_BLOCK && list_d == 0) kind_d = K_UND;
@@ -321,55 +343,55 @@ always_comb begin
     transfer_count_d = 0;
     for (int n=15; n>=0; n--) begin
         if (list_d[n]) transfer_reg_d = 4'(n);
-        transfer_count_d = transfer_count_d + {4'd0, ins[n]};
+        transfer_count_d = transfer_count_d + {4'd0, d_ins[n]};
     end
-    read_tag[0] = translate({1'b0, ins[19:16]}, cpsr[4:0]);
-    read_tag[1] = translate({1'b0, ins[3:0]}, cpsr[4:0]);
+    read_tag[0] = translate({1'b0, d_ins[19:16]}, cpsr[4:0]);
+    read_tag[1] = translate({1'b0, d_ins[3:0]}, cpsr[4:0]);
     read_tag[2] = translate(ARCH_CURR_SPSR, cpsr[4:0]);
-    read_tag[3] = translate({1'b0, ins[15:12]}, cpsr[4:0]);
+    read_tag[3] = translate({1'b0, d_ins[15:12]}, cpsr[4:0]);
     // A flag-restoring PC write needs SPSR in addition to Rn/Rm/Rs. The
     // fourth port is otherwise unused by data processing, even with Rs.
-    if (kind_d == K_DP && ins[20] && ins[15:12] == 15)
+    if (kind_d == K_DP && d_ins[20] && d_ins[15:12] == 15)
         read_tag[3] = translate(ARCH_CURR_SPSR, cpsr[4:0]);
     if (kind_d == K_BLOCK)
         read_tag[3] = translate({1'b0, transfer_reg_d},
-            ins[22] && !(ins[20] && ins[15]) ? USR : cpsr[4:0]);
-    shift_register_d = kind_d == K_DP && !ins[25] && ins[4];
-    if (kind_d == K_MUL || kind_d == K_MULL) read_tag[2] = translate({1'b0,ins[11:8]}, cpsr[4:0]);
-    if (shift_register_d) read_tag[2] = translate({1'b0,ins[11:8]}, cpsr[4:0]);
+            d_ins[22] && !(d_ins[20] && d_ins[15]) ? USR : cpsr[4:0]);
+    shift_register_d = kind_d == K_DP && !d_ins[25] && d_ins[4];
+    if (kind_d == K_MUL || kind_d == K_MULL) read_tag[2] = translate({1'b0,d_ins[11:8]}, cpsr[4:0]);
+    if (shift_register_d) read_tag[2] = translate({1'b0,d_ins[11:8]}, cpsr[4:0]);
     if (kind_d == K_BL_SUFFIX) read_tag[1] = translate(5'd14, cpsr[4:0]);
 end
 
 always_comb begin
-    op_d = ins[24:21];
-    shift_type_d = ins[6:5];
-    shift_amount_d = ins[11:7];
-    value_d = read_value;
+    op_d = d_ins[24:21];
+    shift_type_d = d_ins[6:5];
+    shift_amount_d = d_ins[11:7];
+    value_d = forwarded_read;
     for (int n=0; n<4; n++) begin
-        if (read_tag[n] == PHY_PC) value_d[n] = pc8;
+        if (read_tag[n] == PHY_PC) value_d[n] = d_pc8;
         if (read_tag[n] == PHY_CPSR) value_d[n] = cpsr;
     end
     if (shift_register_d) begin
-        if (read_tag[0] == PHY_PC) value_d[0] = pc8 + 4;
-        if (read_tag[1] == PHY_PC) value_d[1] = pc8 + 4;
+        if (read_tag[0] == PHY_PC) value_d[0] = d_pc8 + 4;
+        if (read_tag[1] == PHY_PC) value_d[1] = d_pc8 + 4;
     end
     if (thumb_align && read_tag[0] == PHY_PC) value_d[0][1:0] = 0;
-    immediate_d = ins[25] && (kind_d == K_DP || kind_d == K_MSR);
+    immediate_d = d_ins[25] && (kind_d == K_DP || kind_d == K_MSR);
     immediate_carry_d = cpsr[29];
     if (immediate_d) begin
-        value_d[1] = rotate_right({24'd0,ins[7:0]}, {ins[11:8],1'b0});
-        if (ins[11:8] != 0) immediate_carry_d = value_d[1][31];
+        value_d[1] = rotate_right({24'd0,d_ins[7:0]}, {d_ins[11:8],1'b0});
+        if (d_ins[11:8] != 0) immediate_carry_d = value_d[1][31];
     end
     if (kind_d == K_MEM) begin
-        op_d = ins[23] ? ADD : SUB;
-        if (ins[27:26] == 2'b01) begin
-            immediate_d = !ins[25];
-            if (!ins[25]) value_d[1] = {20'd0,ins[11:0]};
+        op_d = d_ins[23] ? ADD : SUB;
+        if (d_ins[27:26] == 2'b01) begin
+            immediate_d = !d_ins[25];
+            if (!d_ins[25]) value_d[1] = {20'd0,d_ins[11:0]};
         end else begin
-            immediate_d = ins[22];
+            immediate_d = d_ins[22];
             shift_type_d = 0;
             shift_amount_d = 0;
-            if (ins[22]) value_d[1] = {24'd0,ins[11:8],ins[3:0]};
+            if (d_ins[22]) value_d[1] = {24'd0,d_ins[11:8],d_ins[3:0]};
         end
     end
     if (kind_d == K_BX) begin
@@ -378,36 +400,79 @@ always_comb begin
         shift_amount_d = 0;
         immediate_d = 0;
     end
-    branch_offset_d = translated[34] ? {{7{ins[23]}},ins[23:0],1'b0} :
-                                                     {{6{ins[23]}},ins[23:0],2'b0};
-    psr_mask_d = {{8{ins[19]}},{8{ins[18]}},{8{ins[17]}},{8{ins[16]}}} & 32'hf00000ff;
-    if (!ins[22]) begin
+    branch_offset_d = translated[34] ? {{7{d_ins[23]}},d_ins[23:0],1'b0} :
+                                                     {{6{d_ins[23]}},d_ins[23:0],2'b0};
+    psr_mask_d = {{8{d_ins[19]}},{8{d_ins[18]}},{8{d_ins[17]}},{8{d_ins[16]}}} & 32'hf00000ff;
+    if (!d_ins[22]) begin
         psr_mask_d[5] = 0; // ARMv4 MSR never changes instruction state.
         if (cpsr[4:0] == USR) psr_mask_d[27:0] = 0;
     end
 end
 
 arm9_execute u_execute (
-    .i_valid(state == EXECUTE),
+    .i_valid(state == EXECUTE || state == SHIFT_WAIT),
     .i_condition((kind_e == K_BL_PREFIX || kind_e == K_BL_SUFFIX || (kind_e == K_UND && cpsr[5]) || (!cpsr[5] && ins[31:28] == 4'hf)) ? 4'he : ins[31:28]),
-    .i_op(op_e), .i_set_flags(kind_e == K_DP && ins[20]), .i_flags(flags_e[31:28]),
-    .i_value(value_e), .i_tag('0), .i_used('0), .i_write_value('0),
-    .i_write_tag('0), .i_write_valid('0), .i_write_ready('0),
+    .i_op(op_e), .i_set_flags(kind_e == K_DP && ins[20]), .i_flags(execute_flags[31:28]),
+    .i_value(value_e), .i_tag(tag_e), .i_used(used_e), .i_write_value(forward_value),
+    .i_write_tag(forward_tag), .i_write_valid(forward_valid), .i_write_ready(3'b111),
     .i_shift_type(shift_type_e), .i_shift_amount(shift_amount_e),
     .i_shift_register(shift_register_e), .i_immediate(immediate_e),
-    .i_shift_carry(immediate_carry_e), .i_pc8(pc8), .i_branch_offset(branch_offset_e),
+    .i_shift_carry(ins[11:8] == 0 ? execute_flags[29] : immediate_carry_e), .i_pc8(pc8), .i_branch_offset(branch_offset_e),
     .o_result(ex_result), .o_store_data(ex_store), .o_branch_target(ex_branch),
     .o_flags(ex_flags), .o_condition_pass(ex_pass), .o_wait(),
     .o_execute(), .o_write_result(ex_write), .o_write_flags(ex_write_flags)
 );
 
+// The youngest registered result wins, including flags. W-to-D bypass is
+// required because the RF writes at the same edge D captures its operands.
+assign forward_value = {32'd0,fast_w.value,fast_m.value};
+assign forward_tag = {6'd0,fast_w.dst,fast_m.dst};
+assign forward_valid = {1'b0,
+    fast_w.present && fast_w.pass && fast_w.dst != PHY_RAZ_REGISTER,
+    fast_m.present && fast_m.pass && fast_m.dst != PHY_RAZ_REGISTER};
+arm9_forward u_decode_forward (
+    .i_value(read_value), .i_tag(read_tag), .i_used(4'b1111),
+    .i_write_value(forward_value), .i_write_tag(forward_tag),
+    .i_write_valid(forward_valid), .i_write_ready(3'b111),
+    .o_value(forwarded_read), .o_wait(unused_read_wait)
+);
+assign execute_flags = fast_e ? (fast_m.present ? fast_m.flags :
+                                fast_w.present ? fast_w.flags : cpsr) : flags_e;
+assign fast_d = (kind_d == K_DP && d_ins[15:12] != 15) || kind_d == K_BRANCH;
+// Register-controlled shifts occupy E for one additional cycle, but only
+// when their condition passes using the newest flags (not D's stale CPSR).
+wire shift_hold = state == EXECUTE && shift_register_e && ex_pass;
+assign execute_fast = (state == EXECUTE || state == SHIFT_WAIT) && fast_e && !shift_hold;
+assign early_redirect = execute_fast && kind_e == K_BRANCH && ex_pass;
+assign issue = f_valid && !sequence_active && !f_redirect &&
+    (state == IDLE || execute_fast) &&
+    ((fast_d && !f_abort && !(i_irq && !cpsr[7]) && !(i_fiq && !cpsr[6])) ||
+     (state == IDLE && !fast_m.present && !fast_w.present));
+always_ff @(posedge i_clk) begin
+    if (i_reset) begin
+        fast_m <= '0;
+        fast_w <= '0;
+    end else begin
+        fast_w <= fast_m;
+        fast_m.present <= execute_fast;
+        if (execute_fast) begin
+            fast_m.pass <= ex_pass;
+            fast_m.pc8 <= pc8;
+            fast_m.flags <= kind_e == K_DP ? {ex_flags,execute_flags[27:0]} : execute_flags;
+            fast_m.dst <= kind_e == K_BRANCH ?
+                (ins[24] ? translate(5'd14,cpsr[4:0]) : PHY_RAZ_REGISTER) :
+                ex_write ? dst_e : PHY_RAZ_REGISTER;
+            fast_m.value <= kind_e == K_BRANCH ? pc + 4 : ex_result;
+        end
+    end
+end
+
 assign updated_base = sequence_active ? sequence_base :
-    (ins[23] ? value_e[0] + {25'd0,transfer_count_d,2'b0} :
-               value_e[0] - {25'd0,transfer_count_d,2'b0});
+    (ins[23] ? value_e[0] + {25'd0,transfer_count_e,2'b0} :
+               value_e[0] - {25'd0,transfer_count_e,2'b0});
 assign effective_address = kind_e == K_BLOCK ?
     (sequence_active ? sequence_address :
-     (ins[23] ? value_e[0] + (ins[24] ? 4 : 0) :
-                updated_base + (ins[24] ? 0 : 4))) :
+     value_e[0] + {{24{block_delta_e[7]}},block_delta_e}) :
     (kind_e == K_SWP ? value_e[0] : (ins[24] ? ex_result : value_e[0]));
 assign next_pc = w_dabt ? vector_base + 16 :
                  w_fiq ? vector_base + 28 :
@@ -421,13 +486,13 @@ assign next_pc = w_dabt ? vector_base + 16 :
 // Independent, epoch-cancelled fetch continues while the backend is busy.
 logic f_valid, f_abort, f_ready, f_redirect;
 logic [31:0] f_pc, f_instruction, f_address_nxt, f_address_check, f_address;
-assign f_ready = state == F1;
-assign f_redirect = state == WRITEBACK && w_last &&
+assign f_ready = issue;
+assign f_redirect = early_redirect || (state == WRITEBACK && w_last &&
     (w_redirect || (w_load && m_dst == PHY_PC) || w_dabt || w_pabt ||
-     w_irq || w_fiq || w_swi || w_und || kind_e == K_CP || kind_e == K_MSR);
+     w_irq || w_fiq || w_swi || w_und || kind_e == K_CP || kind_e == K_MSR));
 arm9_fetch #(.RESET_VECTOR(RESET_VECTOR)) u_fetch (
     .i_clk(i_clk), .i_reset(i_reset), .i_redirect(f_redirect),
-    .i_target(cpsr_next[5] ? (next_pc & 32'hfffffffe) : (next_pc & 32'hfffffffc)),
+    .i_target(early_redirect ? ex_branch : cpsr_next[5] ? (next_pc & 32'hfffffffe) : (next_pc & 32'hfffffffc)),
     .i_thumb(cpsr_next[5]), .i_data(i_instr_wb_dat), .i_ack(i_instr_wb_ack),
     .i_error(i_instr_wb_err), .i_retry(i_icache_err2),
     .i_fill_pending(i_icache_fill_pending), .i_fill_done(i_icache_fill_done),
@@ -464,9 +529,9 @@ assign o_dc_reg_idx_bin = m_dst;
 
 always_ff @(posedge i_clk) begin
     if (i_reset) begin
-        state <= F1;
+        state <= IDLE;
         pc <= RESET_VECTOR;
-        raw_ins <= 0;
+        raw_ins <= 0; ins <= 0; tag_e <= '0; used_e <= 0; fast_e <= 0;
         fetch_abort <= 0;
         irq_pending <= 0;
         fiq_pending <= 0;
@@ -481,37 +546,16 @@ always_ff @(posedge i_clk) begin
         m_address <= 0; m_write_data <= 0; m_read_data <= 0; m_sel <= 0;
         m_format <= 0; m_dst <= PHY_RAZ_REGISTER;
         m_load <= 0; m_align <= 0; m_user <= 0; swap_store <= 0;
+        block_delta_e <= 0; transfer_count_e <= 0; transfer_reg_e <= 0; list_e <= 0;
         kind_e <= K_UND; op_e <= 0; value_e <= '0; flags_e <= CPSR_INIT;
         shift_type_e <= 0; shift_amount_e <= 0; shift_register_e <= 0;
         immediate_e <= 0; immediate_carry_e <= 0; branch_offset_e <= 0;
         dst_e <= PHY_RAZ_REGISTER; base_e <= PHY_RAZ_REGISTER; psr_mask_e <= 0;
-    end else case (state)
-        F1: if (f_valid) begin
-            pc <= f_pc;
-            raw_ins <= f_instruction;
-            fetch_abort <= f_abort;
-            state <= DECODE;
-        end
-        DECODE: begin
-            kind_e <= kind_d;
-            value_e <= value_d;
-            op_e <= op_d;
-            shift_type_e <= shift_type_d;
-            shift_amount_e <= shift_amount_d;
-            shift_register_e <= shift_register_d;
-            immediate_e <= immediate_d;
-            immediate_carry_e <= immediate_carry_d;
-            branch_offset_e <= branch_offset_d;
-            psr_mask_e <= psr_mask_d;
-            flags_e <= cpsr;
-            dst_e <= kind_d == K_DP ? translate({1'b0,ins[15:12]},cpsr[4:0]) : read_tag[3];
-            base_e <= read_tag[0];
-            fiq_pending <= !sequence_active && i_fiq && !cpsr[6];
-            irq_pending <= !sequence_active && i_irq && !cpsr[7];
-            state <= shift_register_d && is_cc_satisfied(ins[31:28],cpsr[31:28]) ? SHIFT_WAIT : EXECUTE;
-        end
-        SHIFT_WAIT: state <= EXECUTE;
-        EXECUTE: begin
+    end else begin
+      case (state)
+        EXECUTE, SHIFT_WAIT: if (shift_hold) state <= SHIFT_WAIT;
+        else if (fast_e) state <= IDLE;
+        else begin
             state <= WRITEBACK;
             w_valid <= ex_pass;
             w_cfail <= !ex_pass;
@@ -631,13 +675,13 @@ always_ff @(posedge i_clk) begin
                         // ARM LDM uses aligned words, without the single-load
                         // rotation. The original low bits still reach FAR/A.
                         m_format[5:4] <= 0;
-                        remaining <= list_d & ~(16'd1 << transfer_reg_d);
+                        remaining <= list_e & ~(16'd1 << transfer_reg_e);
                         sequence_active <= 1;
                         sequence_address <= effective_address + 4;
                         sequence_base <= updated_base;
                         if (!sequence_active) sequence_original <= value_e[0];
-                        w_last <= (list_d & (list_d - 1)) == 0;
-                        if ((list_d & (list_d - 1)) == 0) begin
+                        w_last <= (list_e & (list_e - 1)) == 0;
+                        if ((list_e & (list_e - 1)) == 0) begin
                             if (ins[21] && !(ins[20] && ins[{1'b0,ins[19:16]}])) begin
                                 w_dst <= base_e; w_value <= updated_base;
                             end
@@ -726,27 +770,65 @@ always_ff @(posedge i_clk) begin
             if (!w_last && !w_dabt) state <= DECODE;
             else begin
                 sequence_active <= 0;
-                state <= F1;
+                state <= IDLE;
             end
         end
-        default: state <= F1;
-    endcase
+        default: state <= IDLE;
+      endcase
+        if (issue || state == DECODE) begin
+            if (issue) begin
+                pc <= f_pc;
+                raw_ins <= f_instruction;
+                ins <= d_ins;
+                fetch_abort <= f_abort;
+            end
+            fast_e <= issue && fast_d && !f_abort &&
+                      !(i_irq && !cpsr[7]) && !(i_fiq && !cpsr[6]);
+            tag_e <= read_tag;
+            // Only the overlapped DP uses late operands; complex operations
+            // enter after drain and capture all four RF values in D.
+            used_e <= {1'b0,shift_register_d,!immediate_d,
+                       kind_d == K_DP && op_d != MOV && op_d != MVN};
+            block_delta_e <= d_ins[23] ? (d_ins[24] ? 8'd4 : 8'd0) :
+                (d_ins[24] ? 8'd0 : 8'd4) - {1'b0,transfer_count_d,2'b0};
+            transfer_count_e <= transfer_count_d;
+            transfer_reg_e <= transfer_reg_d;
+            list_e <= list_d;
+            kind_e <= kind_d;
+            value_e <= value_d;
+            op_e <= op_d;
+            shift_type_e <= shift_type_d;
+            shift_amount_e <= shift_amount_d;
+            shift_register_e <= shift_register_d;
+            immediate_e <= immediate_d;
+            immediate_carry_e <= immediate_carry_d;
+            branch_offset_e <= branch_offset_d;
+            psr_mask_e <= psr_mask_d;
+            flags_e <= cpsr;
+            dst_e <= kind_d == K_DP ? translate({1'b0,d_ins[15:12]},cpsr[4:0]) : read_tag[3];
+            base_e <= read_tag[0];
+            fiq_pending <= !sequence_active && i_fiq && !cpsr[6];
+            irq_pending <= !sequence_active && i_irq && !cpsr[7];
+            state <= EXECUTE;
+        end
+    end
 end
 
-assign o_dbg_wb_valid = (state == WRITEBACK && w_valid) || state == RESTORE_BASE;
-assign o_dbg_wb_dvalid = state == WRITEBACK && w_cfail;
-assign o_dbg_wb_uop_last = state != RESTORE_BASE && w_last;
+assign o_dbg_wb_valid = (fast_w.present && fast_w.pass) || (state == WRITEBACK && w_valid) || state == RESTORE_BASE;
+assign o_dbg_wb_dvalid = (fast_w.present && !fast_w.pass) || (state == WRITEBACK && w_cfail);
+assign o_dbg_wb_uop_last = fast_w.present || (state != RESTORE_BASE && w_last);
 assign o_dbg_wb_dabt = {1'b0,state == WRITEBACK && w_dabt};
 assign o_dbg_wb_pabt = state == WRITEBACK && w_pabt;
 assign o_dbg_wb_irq = state == WRITEBACK && w_irq;
 assign o_dbg_wb_fiq = state == WRITEBACK && w_fiq;
 assign o_dbg_wb_swi = state == WRITEBACK && w_swi;
 assign o_dbg_wb_und = state == WRITEBACK && w_und;
-assign o_dbg_wb_pc = pc8;
+assign o_dbg_wb_pc = fast_w.present ? fast_w.pc8 : pc8;
 assign o_dbg_wb_cpsr_nxt = cpsr_next;
 assign o_dbg_stall = {state == WRITEBACK && (w_dabt || w_pabt || w_irq || w_fiq || w_swi || w_und),
-    state == WRITEBACK && w_redirect, state == COPRO || sequence_active,
-    state == SHIFT_WAIT || state == MUL_ADD || state == MUL_WAIT, 1'b0, state <= FETCH_TAIL, state == FETCH,
+    early_redirect || (state == WRITEBACK && w_redirect), state == COPRO || sequence_active,
+    shift_hold || state == MUL_ADD || state == MUL_WAIT,
+    f_valid && !issue && (state == IDLE || execute_fast), !f_valid, o_code_stall,
     state == MEMORY || state == LOAD_WAIT};
 
 // Retain ZAP's proven banked state and exception entry logic. Its old fetch
@@ -763,14 +845,14 @@ zap_writeback #(.BP_ENTRIES(32), .PHY_REGS(40), .FLAG_WDT(32),
     .i_alu_pc_ff(32'd0), .i_taken(2'd0),
     .i_rd_index_0(read_tag[0]), .i_rd_index_1(read_tag[1]),
     .i_rd_index_2(read_tag[2]), .i_rd_index_3(read_tag[3]),
-    .i_mem_load_ff(w_load && state != RESTORE_BASE),
-    .i_wr_index(state == RESTORE_BASE ? base_e : w_dst),
-    .i_wr_data(state == RESTORE_BASE ? sequence_original : w_value),
-    .i_flags(state == RESTORE_BASE ? cpsr : w_flags), .i_wr_index_1(m_dst), .i_wr_data_1(m_read_data),
+    .i_mem_load_ff(!fast_w.present && w_load && state != RESTORE_BASE),
+    .i_wr_index(fast_w.present ? fast_w.dst : state == RESTORE_BASE ? base_e : w_dst),
+    .i_wr_data(fast_w.present ? fast_w.value : state == RESTORE_BASE ? sequence_original : w_value),
+    .i_flags(fast_w.present ? fast_w.flags : state == RESTORE_BASE ? cpsr : w_flags), .i_wr_index_1(m_dst), .i_wr_data_1(m_read_data),
     .i_wr_index_2(40'd0), .i_wr_data_2(32'd0), .i_mode16(cpsr[5]),
     .i_irq(o_dbg_wb_irq), .i_fiq(o_dbg_wb_fiq), .i_instr_abt(o_dbg_wb_pabt),
     .i_data_abt(o_dbg_wb_dabt), .i_swi(o_dbg_wb_swi), .i_und(o_dbg_wb_und),
-    .i_pc_plus_8_buf_ff(pc8), .i_copro_reg_en(copro_reg_en),
+    .i_pc_plus_8_buf_ff(o_dbg_wb_pc), .i_copro_reg_en(copro_reg_en),
     .i_copro_reg_wr_index(copro_reg_wr_index),
     .i_copro_reg_rd_index(copro_reg_rd_index), .i_copro_reg_wr_data(copro_reg_wr_data),
     .o_copro_reg_rd_data_ff(copro_reg_rd_data),

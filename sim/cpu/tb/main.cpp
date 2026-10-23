@@ -152,7 +152,7 @@ int main(int argc, char **argv) {
 	uint64_t max_cycles = 50000000;
 	uint64_t progress = 0;
 	uint64_t trace_after = 0, trace_count = 0;
-	bool dcdbg = false, pddbg = false;
+	bool dcdbg = false, pddbg = false, arm9_cycles = false;
 	bool quiet = false;
 	bool halt_given = false;
 	std::string machine;
@@ -194,6 +194,7 @@ int main(int argc, char **argv) {
 		else if (a == "--trace-after") trace_after = strtoull(next(), nullptr, 0);
 		else if (a == "--trace-count") trace_count = strtoull(next(), nullptr, 0);
 		else if (a == "--dcdbg") dcdbg = true;
+        else if (a == "--arm9-cycles") arm9_cycles = true;
 		else if (a == "--pddbg") pddbg = true;
 		else if (a == "--watch") watch.push_back((uint32_t)strtoul(next(), nullptr, 0));
 		else if (a == "--dump") {
@@ -227,6 +228,41 @@ int main(int argc, char **argv) {
 	} else if (loads.empty()) { fprintf(stderr, "no --bin given\n"); return 2; }
 	for (auto &l : loads)
 		if (!load_file(l.first, l.second.c_str())) return 2;
+
+    // Explicit retirement windows embedded in arm9_cycles.S. No MMIO timer
+    // accesses perturb the measured instruction sequence. Check hot invocations
+    // at 0:0 only; all other core/latency combinations still check coverage.
+    struct CycleWindow {
+        uint32_t begin, end, expected, visits;
+        std::string name;
+        uint64_t start = 0;
+        uint32_t seen = 0;
+        bool active = false;
+    };
+    std::vector<CycleWindow> windows;
+    if (arm9_cycles) {
+        for (uint32_t a = 0; a + 12 < RAM_SIZE; a += 4) {
+            if (rd32(a) != 0x59433941 || rd32(a + 4) != 0x31574f44) continue;
+            const uint32_t count = rd32(a + 8);
+            if (!count || count > 256 || a + 12 + count * 20 >= RAM_SIZE) {
+                fprintf(stderr, "invalid ARM9 cycle table\n"); return 2;
+            }
+            for (uint32_t n = 0; n < count; ++n) {
+                const uint32_t r = a + 12 + n * 20, name = rd32(r + 12);
+                if (name >= RAM_SIZE || !memchr(&ram[name], 0, RAM_SIZE - name)) {
+                    fprintf(stderr, "invalid cycle window name\n"); return 2;
+                }
+                if (!rd32(r + 8) || rd32(r + 16) < 3 ||
+                    rd32(r) >= RAM_SIZE || rd32(r + 4) >= RAM_SIZE) {
+                    fprintf(stderr, "invalid cycle window record\n"); return 2;
+                }
+                windows.push_back({rd32(r), rd32(r + 4), rd32(r + 8), rd32(r + 16),
+                                   reinterpret_cast<const char *>(&ram[name])});
+            }
+            break;
+        }
+        if (windows.empty()) { fprintf(stderr, "ARM9 cycle table missing\n"); return 2; }
+    }
 
 	FILE *trace = nullptr;
 	if (trace_path && !(trace = fopen(trace_path, "w"))) { fprintf(stderr, "cannot write %s\n", trace_path); return 2; }
@@ -318,6 +354,28 @@ int main(int argc, char **argv) {
 		else if (t->p_swi) ev = 'S';
 		else if (t->p_und) ev = 'U';
 		else if ((t->p_valid || t->p_cfail) && t->p_last) ev = 'R';
+
+        if (ev) {
+            for (auto &w : windows) {
+                if (pc == w.begin && ev == 'R') {
+                    if (w.active) error("cycle window %s re-entered", w.name.c_str());
+                    w.start = cycle;
+                    w.active = true;
+                }
+                if (pc == w.end && ev == 'R' && w.active) {
+                    w.active = false;
+                    ++w.seen;
+                    if (w.seen + 2 > w.visits && lat_min == 0 && lat_max == 0 && t->p_blocking_load) {
+                        const uint64_t elapsed = cycle - w.start;
+                        printf("ARM9 cycles %s: %" PRIu64 " expected %u\n",
+                               w.name.c_str(), elapsed, w.expected);
+                        if (elapsed != w.expected)
+                            error("cycle window %s: %" PRIu64 " != %u",
+                                  w.name.c_str(), elapsed, w.expected);
+                    }
+                }
+            }
+        }
 
 		// bus: protocol checks and the responder
 		bool req = t->bus_req;
@@ -535,6 +593,11 @@ int main(int argc, char **argv) {
 		fclose(f);
 	}
 
+    for (const auto &w : windows) {
+        if (w.active || w.seen != w.visits)
+            error("cycle window %s: %u visits expected %u, active=%d",
+                  w.name.c_str(), w.seen, w.visits, int(w.active));
+    }
 	uint32_t result = rd32(sig_base);
 	if (sig_path) {
 		FILE *f = fopen(sig_path, "wb");
@@ -548,13 +611,13 @@ int main(int argc, char **argv) {
 
 	int rc;
 	if (ng) {
-		if (errors) printf("BENCH ERROR (%d bus protocol errors)\n", errors);
+		if (errors) printf("BENCH ERROR (%d errors)\n", errors);
 		else if (halted) printf("HALT at 0x%08x, cycle %" PRIu64 ", %" PRIu64 " instructions\n", halt, cycle, retired);
 		else printf("END after %" PRIu64 " cycles, %" PRIu64 " instructions, last pc 0x%08x\n", cycle, retired, last_pc);
 		rc = errors ? 3 : 0;
 		delete ng;
 	} else if (errors) {
-		printf("BENCH ERROR (%d bus protocol errors)\n", errors);
+		printf("BENCH ERROR (%d errors)\n", errors);
 		rc = 3;
 	} else if (stop) {
 		printf("STOP code %d at cycle %" PRIu64 "\n", exit_code, cycle);
