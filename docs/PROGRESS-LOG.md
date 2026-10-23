@@ -3922,3 +3922,9 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   with a lucky seed is about -0.5 before round 5's fixes. The rbf
   (build/hardware/NGage-ndm-s9.rbf) is the main-slot candidate. Seed 11
   running.
+- Seed 10 of the main core on c8f18ef (the Mac): -1.115 ns; the Thumb
+  decoder into decode (-1.12, two paths), the D-TLB walker into decode
+  (-0.96), issue's load pending into the shifter (-0.87). Four seeds of
+  this tree: -0.680, -0.920, -0.550, -1.115; the Thumb decoder's cone is
+  in the top of nearly every seed. The sweep stops at seed 11: the
+  final tree after round 5 gets its own.
