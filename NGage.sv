@@ -1163,7 +1163,7 @@ wire [15:0] dbg_rgb   = dbg_bit ? 16'hFFFF : 16'h0000;
 wire        dbg_on = 1'b0, dbg_pcrow_q = 1'b0, dbg_strow_q = 1'b0, dbg_wrow_q = 1'b0;
 wire [15:0] dbg_rgb = 16'h0000;
 assign dbg_trig = 1'b0;
-wire unused_dbg = &{1'b0, cpu_dbg_pc, cpu_dbg_stall, cpu_dbg_dcache, cpu_dbg_wfi, dbg_src0[22], dbg_en0_irq,
+wire unused_dbg = &{1'b0, cpu_dbg_pc, cpu_dbg_stall, cpu_dbg_dcache, cpu_dbg_wfi, dbg_src0, dbg_en0_irq,
                     dbg_en0_fiq, tr_trig_pc, tr_dumps, tr_triggers, tr_dumping, kt_count, kt_dropped,
                     lcd_pix_ev, status[8]};
 `endif
