@@ -3118,3 +3118,13 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   661,484,885 before the fixes, so the firmware's boot runs 37 % more
   instructions in the same time (the BTB forgetting its entries hurt the
   kernel too). The bench on the whole merged tree is queued next.
+- **Codex's timing fix** (codex/timing 2571ece: the BTB's lookup and
+  decision from registers, the late load pickup resolved only from the
+  registered memory-stage value): both path families gone from the worst
+  ten over four CPU-only fits; the CPU alone at -0.117 ns (slow 100C) /
+  -0.067 (slow -40C), the remaining paths in the cache/merger and the
+  issue control; 198 runs pass, 52 QEMU agree. Cost: a predicted taken
+  branch loses two fetch slots instead of one, an exposed late pickup one
+  more cycle; cache 760,787 -> 793,607 cycles (+4.3 %), ctrand1 +6.5 %,
+  the GBA loops +0.3 %. Merged into master for the build (b11) that
+  decides between the slack and the cycles on the board.
