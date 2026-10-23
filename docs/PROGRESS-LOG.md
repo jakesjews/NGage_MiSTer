@@ -3527,3 +3527,28 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   conflicted): 45 runs, 52 QEMU, lint; cycles ctrand1 72,244 (73,043
   before the two merges, -1.1 %), crand1 73,091, dhold_rtl 271,537,
   cache 789,366. Built as b17 on the server (seed 1).
+- **b16 built** (the server, seed 1; prefetch + first boot, 16 KB):
+  **-1.678 ns** at slow 100C (b15 -0.578), hold +0.248, 36,252 ALMs
+  (+850), 472 M10K. One new family is 16 of the worst 18 paths, -1.68 to
+  -1.48: zap_cache_fsm's registered `address` -> pf_va_nxt (the prefetch's
+  start condition in FILL_COMPLETE: next_va_line = address + 1 compared
+  with the live fetch address, the 1 KB-end test, the buffer's VA/PA
+  compares) -> the FSM's output muxes -> zap_cache's state_nxt -> the
+  merger's registered o_wb_adr. The adder and the live compares sit in
+  the next-state cone the bus address takes. Antigravity (Opus) is on
+  it in its own worktree (agy/pf-timing: the next line and the 1 KB flag
+  registered when `address` loads, the sequential compare a stage ahead
+  on i_address_check or the decision a clock after FILL_COMPLETE, proved
+  by a whole-core build). The **32 KB variant** (b16-32k, the Mac, the
+  NGAGE_ICACHE_32K macro): -1.695 ns, **38,311 ALMs (91 %)**, 490 M10K:
+  the valid and LRU arrays and their muxes cost about 2,000 ALMs, as
+  its report warned; the same family on top. Both rbfs kept
+  (build/hardware/NGage-b16.rbf, -b16-32k.rbf); b16 is on the debug
+  slot for the first-boot trial and the three-game replay.
+  A trap found on the way: build.sh's remote flow aborted on the timing
+  script's exit 3 before copying the rbf and the reports back, so a
+  negative-slack build left the previous rbf in output_files/ (the b16
+  replay was nearly run on a stale file; b15's deployed rbf was checked
+  against the server's and is right). Fixed: the report step's exit code
+  is kept, the copy-back always runs, the local flow writes the report
+  before exiting on a timing miss.
