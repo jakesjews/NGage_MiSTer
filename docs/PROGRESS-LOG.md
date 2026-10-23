@@ -3178,3 +3178,17 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   25.4-27.5 M/s, CPI 3.8-4.1, 8-12 frames/s: two to three percent under
   the critical-word-first build, far less than the suite's 4-6 %, so the
   timing round stays in.
+- ARM9 session 5 (78c9aeb, 51a60de, 8e83709, 56cb701, 60ec849; 26
+  minutes): scalar and block memory accesses stream one a clock with
+  ordered retirement and precise aborts, SWP and the critical-word
+  continuation improved; 219 runs, 59 QEMU, 76 timing windows. At 0:0:
+  cache 994,118 (ZAP 760,787), ctrand1 97,715 (ZAP 72,594), crand1 98,994
+  (73,608); ahead of ZAP only on the GBA loops and align. The measured
+  costs: load-use 3 clocks (the cache's three read edges: the RAM
+  module's st1/st2/st3 forwarding pipeline), B/BL 6 (no predictor, the
+  three-edge fetch), nine fixed clocks per LDM/STM, multiplies as a
+  barrier. The integrated trial -3.970 ns, 16,353 ALMs. So with the
+  caches as they are the ARM9 core is a nine-stage pipe without ZAP's
+  predictor and late pickup; the project now hinges on a two-edge cache
+  hit path (the RAM read and the compare, no forwarding stages) and a
+  BTB in its fetch, which is the next session's brief.
