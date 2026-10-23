@@ -29,32 +29,41 @@
 // (timing); everything reaches the pins a clock later, and the capture
 // clock (CAP) counts that clock too.
 //
-// Policy: closed page. Each access opens its row with ACTIVE, reads or
-// writes, and closes it with PRECHARGE; there is no bank interleaving. The
-// mode register sets burst length 8 (sequential) for reads and single-
-// location writes. A line read is one READ: the chip's burst wraps inside
-// the 8-halfword block, so the word asked for comes first. A word read is
-// the same READ cut short by the PRECHARGE after two halfwords. Writes issue
-// one WRITE a halfword with its DQM (two for a word, eight for a line).
+// Policy: open page, one row per bank. A hit issues READ/WRITE immediately;
+// a closed bank needs ACTIVE and tRCD; a conflict precharges only that bank,
+// waits tRP and the previous ACTIVE's tRC, then opens the new row. Per-bank
+// saturating ages enforce tRAS even across multiple accesses. The mapping
+// is unchanged: 1 KB rows, bank bits at byte address 24:23. No reordering or
+// overlapping accesses. All four rows close for each refresh.
 //
-// Schedule at the defaults (clocks after the ACTIVE edge; tRCD, tRP 20 ns,
-// tRAS 45 ns, tRC, tRFC 70 ns, tWR 15 ns: the slowest of the modules' data
-// sheets, rounded up at 104 MHz to 3, 3, 5, 8, 8 and 2 clocks):
-//   word read:   READ 3, PRECHARGE 5, word at the port 8, next ACTIVE 9
-//   line read:   READ 3, PRECHARGE 11, words at 8, 10, 12, 14, next ACTIVE 15
-//   word write:  WRITE 3-4, PRECHARGE 6, next ACTIVE 9
-//   line write:  WRITE 3-10, PRECHARGE 12, next ACTIVE 15
-// (as the schedule sets them; each command reaches the pins a clock later,
-// through the output stage). The request is taken at the ACTIVE edge, so a
-// read's first word reaches rvalid 8 clocks (77 ns) after the request is
-// taken.
+// Mode: burst length 8 (sequential) for reads, single-location writes. A
+// line read wraps inside the 8-halfword block, requested word first. Word
+// reads issue BURST TERMINATE two clocks after READ, leaving two halfwords
+// with the same capture schedule. Writes issue one WRITE per halfword with
+// its DQM (two for a word, eight for a line). Reads finish after capture;
+// writes finish tWR after the last WRITE. This leaves the shared data bus
+// free for either direction, with DQM low before any read data arrives.
 //
-// Refresh: one AUTO REFRESH every REFRESH_CLKS (780 at 104 MHz, 7.5 us),
-// issued between accesses; an access never waits more than tRFC (8 clocks)
-// for it, and it never waits more than the longest access (15 clocks), so
-// refreshes are at most 795 clocks (7.64 us) apart, inside tREFI (8192 rows
-// in 64 ms = 7.81 us). Power-up: POWERUP_US of NOPs, PRECHARGE ALL,
-// INIT_REFRESHES refreshes, the mode register; ready rises after tMRD.
+// Schedule at the defaults (tRCD, tRP 20 ns, tRAS 45 ns, tRC, tRFC 70 ns,
+// tWR 15 ns, rounded up at 104 MHz to 3, 3, 5, 8, 8 and 2 clocks):
+//                    column command     words at port     next request
+//   word read hit:    READ 0, STOP 2      5                 6
+//   line read hit:    READ 0              5, 7, 9, 11      12
+//   word write hit:   WRITE 0-1                            3
+//   line write hit:   WRITE 0-7                            9
+// A closed bank adds ACTIVE at 0 and 3 clocks to these numbers; a conflict
+// adds PRECHARGE at 0, ACTIVE at 3 and 6 clocks (plus any outstanding tRAS
+// or tRC wait). Commands reach the pins one clock after the listed edge,
+// through the unchanged output stage. Capture includes that extra clock.
+//
+// Refresh: after REFRESH_CLKS (755 by default), block new requests, finish
+// the current access and tRAS, PRECHARGE ALL, wait tRP, AUTO REFRESH, wait
+// tRFC. The timer resets on AUTO REFRESH. Its interval reserves the worst
+// access (conservatively 23 clocks), close wait (8), due-flag latency (2),
+// tRFC (8) and REFRESH_SLACK (16): even that bound is 788 clocks (7.58 us)
+// between refreshes, below tREFI (8192 rows in 64 ms = 7.81 us). Normally
+// closing and refreshing takes 3 + 8 = 11 clocks. Power-up: POWERUP_US of
+// NOPs, PRECHARGE ALL, INIT_REFRESHES refreshes, mode register, then tMRD.
 //
 // Port (one clock domain with the requester):
 //   A request is taken at an edge where req is high and busy is low; addr,
@@ -138,25 +147,26 @@ module sdram #(
 	// first halfword captured (+ 1: the output stage before the I/O registers)
 	localparam int CAP = RCD + CAS_LATENCY + CAPTURE_CLKS + 1;
 
-	// read of n halfwords: PRECHARGE after the last one leaves the chip (a
-	// PRECHARGE CL-1 clocks before the edge of the last wanted halfword cuts
-	// the burst there), and the next ACTIVE after tRP, tRC and the capture
-	localparam int PRE_RW = imax(RAS, RCD + 2);
-	localparam int PRE_RL = imax(RAS, RCD + 8);
-	localparam int END_RW = imax(imax(RC, PRE_RW + RP), CAP + 2);
-	localparam int END_RL = imax(imax(RC, PRE_RL + RP), CAP + 8);
-	// write of n halfwords: PRECHARGE tWR after the last
-	localparam int PRE_WW = imax(RAS, RCD + 1 + WR);
-	localparam int PRE_WL = imax(RAS, RCD + 7 + WR);
-	localparam int END_WW = imax(RC, PRE_WW + RP);
-	localparam int END_WL = imax(RC, PRE_WL + RP);
-	localparam int LONGEST = imax(imax(END_RW, END_RL), imax(END_WW, END_WL));
+	// Keep the capture schedule relative to a real or virtual ACTIVE. A
+	// row hit starts at RCD and issues its column command on acceptance.
+	// Reads finish after capture; writes keep DQ free for WR clocks after
+	// the last halfword (also covers write-to-read and DQM recovery).
+	localparam int END_RW = CAP + 2;
+	localparam int END_RL = CAP + 8;
+	localparam int END_WW = RCD + 1 + WR;
+	localparam int END_WL = RCD + 7 + WR;
+	localparam int AGE_MAX = imax(RAS, RC);
+	localparam int AW = $clog2(AGE_MAX + 1);
+	// Conservative bounds even for an access accepted just after ACTIVE:
+	// finish tRAS, PRECHARGE, then respect both tRP and the previous tRC.
+	localparam int LONGEST = imax(RAS + RP, RC) + imax(imax(END_RW, END_RL), imax(END_WW, END_WL));
+	localparam int REF_CLOSE = RAS + RP;
 
 	localparam int REFI_CLKS     = T_REFI_NS * 1000 / T_PS;
-	localparam int REFRESH_CLKS  = REFI_CLKS - LONGEST - RFC - REFRESH_SLACK;
+	localparam int REFRESH_CLKS  = REFI_CLKS - LONGEST - REF_CLOSE - RFC - REFRESH_SLACK - 2;
 	localparam int POWERUP_CLKS  = POWERUP_US * (CLK_HZ / 1_000_000);
 
-	localparam int TW = $clog2(LONGEST + 2);
+	localparam int TW = $clog2(imax(LONGEST, RFC) + 2);
 
 	// Mode register: single-location writes (A9), CAS latency, sequential,
 	// burst length 8
@@ -170,6 +180,7 @@ module sdram #(
 	localparam logic [2:0] CMD_PRECHARGE = 3'b010;
 	localparam logic [2:0] CMD_REFRESH   = 3'b001;
 	localparam logic [2:0] CMD_MODE      = 3'b000;
+	localparam logic [2:0] CMD_STOP      = 3'b110;
 
 	// ------------------------------------------------------------------
 	// State
@@ -186,10 +197,19 @@ module sdram #(
 	logic [15:0]    icnt = '0;
 	logic [3:0]     irefs = '0;
 
-	// the access in progress: t counts the edges since its ACTIVE (the
-	// value in a cycle is the edge being prepared)
-	logic           active = 1'b0;
-	logic           op_ref;               // a refresh, not an access
+	// t is the edge being prepared, relative to ACTIVE in ACCESS, or to
+	// PRECHARGE / REFRESH in the wait states. No request reordering.
+	typedef enum logic [2:0] { IDLE, PRE_WAIT, ACT_WAIT, ACCESS,
+	                           REF_PRE, REF_RP, REF_WAIT } state_t;
+	state_t         state = IDLE;
+	logic [3:0]     row_open = '0;
+	logic [12:0]    row_addr [4];
+	logic [AW-1:0]  row_age [4];  // saturating age of each bank's last ACTIVE
+	logic [3:0]     pre_ok;
+	for (genvar b = 0; b < 4; b = b + 1) begin : bank_timing
+		assign pre_ok[b] = !row_open[b] || row_age[b] >= AW'(RAS);
+	end
+	logic [12:0]    op_row;
 	logic           op_we, op_line;
 	logic [TW-1:0]  t;
 	logic [TW-1:0]  t_end;
@@ -204,7 +224,8 @@ module sdram #(
 	logic           ref_due = 1'b0;
 	logic           ready_q = 1'b0;
 
-	wire idle = !active || t == t_end;
+	wire idle = state == IDLE || (state == ACCESS && t == t_end) ||
+	            (state == REF_WAIT && t == TW'(RFC));
 
 	// the output stage (see Clocking): the schedule sets these, the I/O
 	// registers take them a clock later
@@ -234,13 +255,25 @@ module sdram #(
 
 	// read capture: halfword k at edge CAP + k; word j complete at CAP + 2j + 1
 	wire [TW:0] tcap = {1'b0, t} - TW'(CAP);
-	wire        cap_word = active && !op_ref && !op_we && t >= TW'(CAP + 1) && tcap[0] &&
+	wire        cap_word = state == ACCESS && !op_we && t >= TW'(CAP + 1) && tcap[0] &&
 	                       tcap < (op_line ? (TW + 1)'(8) : (TW + 1)'(2));
 
 	assign rdata = {dq_q, dq_hold};
 
 	// the halfword address of an access: column 8:0, row 21:9, bank 23:22
 	wire [23:0] h = {addr, 1'b0};
+	wire take = ready_q && idle && !ref_due && req;
+	wire hit = row_open[h[23:22]] && row_addr[h[23:22]] == h[21:9];
+	wire hit_start = take && hit;
+	wire [8:0] req_col = we && line ? {h[8:3], 3'b000} : h[8:0];
+	wire [127:0] req_wsh = line ? wdata : {96'd0, wdata[32 * addr[3:2] +: 32]};
+	wire [15:0] req_mask = line ? ~wbe : {12'hFFF, ~wbe[4 * addr[3:2] +: 4]};
+	wire read_now = (hit_start && !we) || (state == ACCESS && !idle && !op_we && t == TW'(RCD));
+	wire write_now = (hit_start && we) || (state == ACCESS && !idle && op_we &&
+	                  t >= TW'(RCD) && t < TW'(RCD) + (op_line ? TW'(8) : TW'(2)));
+	wire [8:0] col_now = hit_start ? req_col : op_col;
+	wire [127:0] wsh_now = hit_start ? req_wsh : wsh;
+	wire [15:0] mask_now = hit_start ? req_mask : wmask;
 
 	always_ff @(posedge clk) begin
 		// the DQ input registers take the pins every clock
@@ -256,6 +289,9 @@ module sdram #(
 		p_dqmh  <= 1'b0;
 		p_dq_o  <= wsh[15:0];
 		p_dq_oe <= 16'h0000;
+		for (int b = 0; b < 4; b = b + 1) begin
+			if (row_age[b] < AW'(AGE_MAX)) row_age[b] <= row_age[b] + 1'b1;
+		end
 
 		rvalid_q <= 1'b0;
 		if (cap_word) begin
@@ -319,67 +355,131 @@ module sdram #(
 		end
 
 		// ---- the access in progress ----
-		if (active && !idle) begin
-			t <= t + 1'd1;
-			if (!op_ref) begin
-				if (!op_we && t == TW'(RCD)) begin
-					{p_ras_n, p_cas_n, p_we_n} <= CMD_READ;
-					p_a[8:0] <= op_col;
-				end
-				if (op_we && t >= TW'(RCD) && t < TW'(RCD) + (op_line ? TW'(8) : TW'(2))) begin
-					{p_ras_n, p_cas_n, p_we_n} <= CMD_WRITE;
-					p_a     <= {wmask[1], wmask[0], 2'b00, op_col};
-					p_dqml  <= wmask[0];
-					p_dqmh  <= wmask[1];
-					p_dq_oe <= 16'hFFFF;
-					wsh         <= {16'h0000, wsh[127:16]};
-					wmask       <= {2'b11, wmask[15:2]};
-					op_col      <= {op_col[8:3], op_col[2:0] + 3'd1};
-				end
-				if (t == (op_we ? (op_line ? TW'(PRE_WL) : TW'(PRE_WW))
-				                : (op_line ? TW'(PRE_RL) : TW'(PRE_RW)))) begin
+		if (ready_q && !idle) begin
+			case (state)
+				PRE_WAIT: if (pre_ok[op_ba]) begin
 					{p_ras_n, p_cas_n, p_we_n} <= CMD_PRECHARGE;
+					row_open[op_ba] <= 1'b0;
+					state <= ACT_WAIT;
+					t <= TW'(1);
 				end
-			end
+				ACT_WAIT: begin
+					if (t < TW'(RP)) t <= t + 1'b1;
+					if (t >= TW'(RP) && row_age[op_ba] >= AW'(RC)) begin
+						{p_ras_n, p_cas_n, p_we_n} <= CMD_ACTIVE;
+						p_a <= op_row;
+						row_addr[op_ba] <= op_row;
+						row_open[op_ba] <= 1'b1;
+						row_age[op_ba] <= AW'(1);
+						state <= ACCESS;
+						t <= TW'(1);
+					end
+				end
+				ACCESS: begin
+					t <= t + 1'b1;
+					// BURST TERMINATE has the same CL delay as READ. Issued
+					// two clocks after READ, it leaves exactly two halfwords
+					// on DQ, without closing the row or changing DQM.
+					if (!op_we && !op_line && t == TW'(RCD + 2))
+						{p_ras_n, p_cas_n, p_we_n} <= CMD_STOP;
+				end
+				REF_PRE: if (&pre_ok) begin
+					{p_ras_n, p_cas_n, p_we_n} <= CMD_PRECHARGE;
+					p_a[10] <= 1'b1;
+					row_open <= '0;
+					state <= REF_RP;
+					t <= TW'(1);
+				end
+				REF_RP: begin
+					t <= t + 1'b1;
+					if (t == TW'(RP)) begin
+						{p_ras_n, p_cas_n, p_we_n} <= CMD_REFRESH;
+						state <= REF_WAIT;
+						t <= TW'(1);
+						ref_due <= 1'b0;
+						rcnt <= '0;
+					end
+				end
+				REF_WAIT: t <= t + 1'b1;
+				default: ;
+			endcase
 		end else if (ready_q) begin
-			active <= 1'b0;
+			state <= IDLE;
 			if (ref_due) begin
-				// AUTO REFRESH (every bank is closed between accesses)
-				{p_ras_n, p_cas_n, p_we_n} <= CMD_REFRESH;
-				active  <= 1'b1;
-				op_ref  <= 1'b1;
-				t       <= TW'(1);
-				t_end   <= TW'(RFC);
-				ref_due <= 1'b0;
-				rcnt    <= '0;
+				// Stop accepting accesses until all banks are precharged,
+				// tRP has elapsed, and AUTO REFRESH has completed its tRFC.
+				state <= REF_PRE;
+				if (&pre_ok) begin
+					{p_ras_n, p_cas_n, p_we_n} <= CMD_PRECHARGE;
+					p_a[10] <= 1'b1;
+					row_open <= '0;
+					state <= REF_RP;
+					t <= TW'(1);
+				end
 			end else if (req) begin
-				{p_ras_n, p_cas_n, p_we_n} <= CMD_ACTIVE;
-				p_a  <= h[21:9];
-				p_ba <= h[23:22];
+				p_ba     <= h[23:22];
 				op_ba    <= h[23:22];
-				active   <= 1'b1;
-				op_ref   <= 1'b0;
+				op_row   <= h[21:9];
 				op_we    <= we;
 				op_line  <= line;
-				t        <= TW'(1);
 				t_end    <= we ? (line ? TW'(END_WL) : TW'(END_WW)) : (line ? TW'(END_RL) : TW'(END_RW));
 				word     <= addr[3:2];
-				if (we) begin
-					// writes go from the start of the block (line) or the word
-					op_col <= line ? {h[8:3], 3'b000} : {h[8:1], 1'b0};
-					wsh    <= line ? wdata : {96'd0, wdata[32 * addr[3:2] +: 32]};
-					wmask  <= line ? ~wbe : {12'hFFF, ~wbe[4 * addr[3:2] +: 4]};
+				op_col   <= req_col;
+				wsh      <= req_wsh;
+				wmask    <= req_mask;
+				if (hit) begin
+					state <= ACCESS;
+					t <= TW'(RCD + 1);
+				end else if (row_open[h[23:22]]) begin
+					state <= PRE_WAIT;
+					if (pre_ok[h[23:22]]) begin
+						{p_ras_n, p_cas_n, p_we_n} <= CMD_PRECHARGE;
+						row_open[h[23:22]] <= 1'b0;
+						state <= ACT_WAIT;
+						t <= TW'(1);
+					end
 				end else begin
-					op_col <= h[8:0];
+					state <= ACT_WAIT;
+					t <= TW'(RP); // already closed: no new tRP to wait
+					if (row_age[h[23:22]] >= AW'(RC)) begin
+						{p_ras_n, p_cas_n, p_we_n} <= CMD_ACTIVE;
+						p_a <= h[21:9];
+						row_addr[h[23:22]] <= h[21:9];
+						row_open[h[23:22]] <= 1'b1;
+						row_age[h[23:22]] <= AW'(1);
+						state <= ACCESS;
+						t <= TW'(1);
+					end
 				end
 			end
+		end
+
+		// A hit uses the request directly for its first column command;
+		// later beats and misses use the latched operands. These muxes end
+		// at p_*, preserving the logic-free I/O register stage.
+		if (read_now) begin
+			{p_ras_n, p_cas_n, p_we_n} <= CMD_READ;
+			p_a[8:0] <= col_now;
+		end
+		if (write_now) begin
+			{p_ras_n, p_cas_n, p_we_n} <= CMD_WRITE;
+			p_a <= {mask_now[1], mask_now[0], 2'b00, col_now};
+			p_dqml <= mask_now[0];
+			p_dqmh <= mask_now[1];
+			p_dq_o <= wsh_now[15:0];
+			p_dq_oe <= 16'hFFFF;
+			wsh <= {16'h0000, wsh_now[127:16]};
+			wmask <= {2'b11, mask_now[15:2]};
+			op_col <= {col_now[8:3], col_now[2:0] + 3'd1};
 		end
 
 		if (init) begin
 			istate  <= I_WAIT;
 			icnt    <= '0;
 			ready_q <= 1'b0;
-			active  <= 1'b0;
+			state   <= IDLE;
+			row_open <= '0;
+			for (int b = 0; b < 4; b = b + 1) row_age[b] <= AW'(AGE_MAX);
 			ref_due <= 1'b0;
 		end
 	end

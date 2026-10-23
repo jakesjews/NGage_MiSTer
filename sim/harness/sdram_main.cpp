@@ -1,6 +1,7 @@
 // Bench for rtl/mem/sdram.sv against the SDRAM chip model (sdram_model.h).
 //
-//   Vsdram [--seed N] [--cycles N] [--expect-fail]
+//   Vsdram [--seed N] [--cycles N] [--expect-fail] [--ras-ns N] [--rc-ns N]
+// --ras-ns / --rc-ns match RTL timing overrides for long-timing stress runs.
 //
 //  * the power-up sequence, and every command afterwards, meet the chip's
 //    timing (tRCD, tRP, tRAS, tRC, tRRD, tRFC, tWR, tMRD), the refresh
@@ -24,6 +25,49 @@
 
 namespace {
 
+// Negative controls for the model itself. Each sequence violates one rule
+// only, so a passing controller cannot hide a missing timing check.
+void model_guards() {
+	for (int test = 0; test < 7; test++) {
+		SdramTiming timing;
+		timing.powerup = 0;
+		timing.init_refreshes = 1;
+		if (test == 0) timing.ras = 100;
+		if (test == 4) timing.refi = 200000;
+		if (test == 5) timing.rc = 120;
+		SdramChip chip(1, timing);
+		chip.quiet = true;
+		auto command = [&](uint64_t edge, int cmd, int addr = 0) {
+			SdramPins p;
+			p.cs_n = false; p.ras_n = cmd & 4; p.cas_n = cmd & 2; p.we_n = cmd & 1;
+			p.a = addr; p.dq_oe = cmd == 4;
+			chip.edge(edge, p);
+		};
+		command(0, 2, 1024);
+		command(3, 1);
+		command(11, 0, 0x223);
+		CHECK_EQ(chip.errors, 0, "model guard setup");
+		switch (test) {
+		case 0: // tRAS still dates from ACTIVE after repeated column accesses
+			command(13, 3); command(16, 5); command(22, 5); command(23, 2); break;
+		case 1: // refresh must not silently close an open bank
+			command(13, 3); command(22, 1); break;
+		case 2: // PRECHARGE ALL to refresh needs tRP even if already closed
+			command(13, 2, 1024); command(15, 1); break;
+		case 3: // include the first runtime refresh deadline
+			command(817, 7); break;
+		case 4: // keep the original ACTIVE age until the row really closes
+			command(13, 3); command(10414, 7); break;
+		case 5: // tRP alone does not satisfy tRC
+			command(13, 3); command(18, 2); command(21, 3); break;
+		case 6: // recovery after the last of several writes
+			command(13, 3); command(16, 4); command(17, 4); command(18, 2); break;
+		}
+		CHECK_EQ(chip.errors, 1, "model rejected exactly the injected violation");
+	}
+	printf("model guards: tRAS min/max, tRC, tWR, open-bank refresh, tRP and first refresh deadline checked\n");
+}
+
 struct Pending {
 	uint32_t block;      // byte address of the 16-byte block
 	int      word;       // next word expected
@@ -32,6 +76,23 @@ struct Pending {
 	uint64_t taken;
 	bool     first;
 	bool     line;
+	uint64_t returned = 0;
+};
+
+// Shadow mappings see exactly the same accepted traffic and refreshes.
+// They estimate locality only, without claiming a change in execution time.
+struct Mapping {
+	int shift;
+	int rows[4] = {-1, -1, -1, -1};
+	uint64_t hits = 0, total = 0;
+	void access(uint32_t a) {
+		int bank = (a >> shift) & 3;
+		int row = int(((a >> (shift + 2)) << (shift - 10)) | ((a >> 10) & ((1u << (shift - 10)) - 1)));
+		hits += rows[bank] == row;
+		total++;
+		rows[bank] = row;
+	}
+	void refresh() { for (auto &r : rows) r = -1; }
 };
 
 struct Bench {
@@ -44,6 +105,10 @@ struct Bench {
 	uint64_t words_checked = 0, taken[4] = {0, 0, 0, 0};
 	uint64_t lat_word_min = ~0ull, lat_word_max = 0, lat_line_min = ~0ull, lat_line_max = 0, lat_line_last_max = 0;
 	uint64_t ready_at = 0;
+	uint64_t last_first = 0, last_word = 0, last_taken = 0;
+	uint64_t row_hits = 0, row_closed = 0, row_misses = 0;
+	uint64_t pre_all_at = 0, refresh_at = 0;
+	Mapping maps[3] = {{23}, {10}, {12}};
 
 	// the request presented to the controller
 	bool     have = false;
@@ -52,7 +117,7 @@ struct Bench {
 	uint8_t  r_data[16];
 	uint16_t r_be = 0;
 
-	Bench(uint32_t seed) : chip(seed * 7 + 1), rng(seed), ref(32u << 20) {
+	Bench(uint32_t seed, SdramTiming timing) : chip(seed * 7 + 1, timing), rng(seed), ref(32u << 20) {
 		// the chip's power-up contents are random; the reference follows them
 		for (uint32_t h = 0; h < (16u << 20); h++) {
 			uint16_t v = chip.lin(h);
@@ -92,17 +157,29 @@ struct Bench {
 		SdramPins p;
 		pins(p);
 		chip.edge(cyc, p);
+		int cmd = p.ras_n << 2 | p.cas_n << 1 | p.we_n;
+		if (!p.cs_n && cmd == 2 && (p.a & 1024)) pre_all_at = cyc;
+		if (!p.cs_n && cmd == 1) {
+			refresh_at = cyc;
+			for (auto &m : maps) m.refresh();
+		}
 		t->clk = 0;
 		t->eval();
 	}
 	void ticks(uint64_t n) { while (n--) tick(); }
 
 	void accepted() {
+		last_taken = cyc;
+		int row = chip.open_row((r_addr >> 23) & 3);
+		if (row < 0) row_closed++;
+		else if (row == int((r_addr >> 10) & 8191)) row_hits++;
+		else row_misses++;
+		for (auto &m : maps) m.access(r_addr);
 		taken[(r_we ? 2 : 0) + (r_line ? 1 : 0)]++;
 		uint32_t block = r_addr & ~15u;
 		if (r_we) {
 			for (int i = 0; i < 16; i++)
-				if (r_be >> i & 1) ref[block + i] = r_data[i];
+				if ((r_line || i / 4 == int((r_addr >> 2) & 3)) && (r_be >> i & 1)) ref[block + i] = r_data[i];
 		} else {
 			Pending q;
 			q.block = block;
@@ -129,13 +206,17 @@ struct Bench {
 				q.line ? "line" : "word", t->rdata, want, (unsigned long long)cyc);
 		words_checked++;
 		uint64_t lat = cyc - q.taken;
+		if (!q.first) CHECK_EQ(cyc - q.returned, 2, "line words two clocks apart");
+		q.returned = cyc;
 		if (q.first) {
+			last_first = lat;
 			if (q.line) { lat_line_min = std::min(lat_line_min, lat); lat_line_max = std::max(lat_line_max, lat); }
 			else { lat_word_min = std::min(lat_word_min, lat); lat_word_max = std::max(lat_word_max, lat); }
 			q.first = false;
 		}
 		q.word = (q.word + 1) & 3;
 		if (--q.left == 0) {
+			last_word = lat;
 			if (q.line) lat_line_last_max = std::max(lat_line_last_max, lat);
 			rd.pop_front();
 		}
@@ -176,6 +257,110 @@ struct Bench {
 			present(true, true, a, be, d);
 		}
 	}
+
+	// Finish on the cycle before the next possible acceptance, so repeated
+	// calls exercise the minimum turnaround with no artificial idle cycles.
+	uint64_t transfer(bool we, bool line, uint32_t addr, uint16_t be = 0xFFFF) {
+		while (t->busy) tick();
+		uint8_t data[16];
+		for (int i = 0; i < 16; i++) data[i] = uint8_t(addr + i * 37 + cyc);
+		present(we, line, addr, be, data);
+		tick();
+		while (t->busy) tick();
+		CHECK(rd.empty(), "transfer completed with a read outstanding");
+		return cyc + 1 - last_taken;
+	}
+
+	void fresh_refresh() {
+		while (t->busy) tick();
+		auto before = chip.refreshes;
+		while (chip.refreshes == before) tick();
+		while (t->busy) tick();
+	}
+
+	void timing_cases(bool exact) {
+		for (int op = 0; op < 4; op++) {
+			fresh_refresh();
+			for (int kind = 0; kind < 3; kind++) {
+				auto a = chip.activates, p = chip.precharges, stop = chip.stops;
+				auto clocks = transfer(op & 2, op & 1, kind == 2 ? 0x400 : 0);
+				printf("timing %s %s %s: first %llu last %llu next %llu ACTIVE %llu PRE %llu\n",
+					op & 1 ? "line" : "word", op & 2 ? "write" : "read",
+					kind == 0 ? "closed" : kind == 1 ? "hit" : "miss",
+					(unsigned long long)(op & 2 ? 0 : last_first), (unsigned long long)(op & 2 ? 0 : last_word),
+					(unsigned long long)clocks, (unsigned long long)(chip.activates - a), (unsigned long long)(chip.precharges - p));
+				CHECK_EQ(chip.activates - a, kind == 1 ? 0 : 1, "ACTIVE only on closed/missing row");
+				CHECK_EQ(chip.precharges - p, kind == 2 ? 1 : 0, "PRECHARGE only on row conflict");
+				CHECK_EQ(chip.stops - stop, op == 0 ? 1 : 0, "BURST TERMINATE only for word reads");
+				if (exact) {
+					int setup = kind == 0 ? 3 : kind == 1 ? 0 : 6;
+					CHECK_EQ(clocks, setup + ((op & 2) ? 3 : 6) + ((op & 1) ? 6 : 0), "access clocks");
+					if (!(op & 2)) {
+						CHECK_EQ(last_first, setup + 5, "first word clocks");
+						CHECK_EQ(last_word, setup + 5 + ((op & 1) ? 6 : 0), "last word clocks");
+					}
+				}
+			}
+		}
+	}
+
+	void directed(bool exact) {
+		timing_cases(exact);
+		fresh_refresh();
+		auto acts = chip.activates;
+		for (int bank = 0; bank < 4; bank++) transfer(false, true, uint32_t(bank) << 23);
+		CHECK_EQ(chip.activates - acts, 4, "four banks opened independently");
+		acts = chip.activates;
+		for (int bank = 3; bank >= 0; bank--) transfer(false, true, (uint32_t(bank) << 23) | 0x3FC);
+		CHECK_EQ(chip.activates, acts, "bank switching preserves all four rows");
+		for (int bank = 0; bank < 4; bank++) CHECK(chip.open_row(bank) == 0, "bank %d lost its row", bank);
+		fresh_refresh();
+		for (int bank = 0; bank < 4; bank++) CHECK(chip.open_row(bank) == -1, "refresh left bank %d open", bank);
+		CHECK_EQ(refresh_at - pre_all_at, 3, "PRECHARGE ALL to REFRESH");
+		CHECK_EQ(cyc + 2 - refresh_at, 8, "REFRESH to next command");
+		printf("timing refresh: PRECHARGE ALL to REFRESH %llu, to next request %llu clocks\n",
+			(unsigned long long)(refresh_at - pre_all_at), (unsigned long long)(cyc + 2 - pre_all_at));
+
+		// All read/write and word/line transitions, on a hit, across banks,
+		// and on a conflict. Partial/zero enables include bytes outside the
+		// requested word: those must never be written by a word access.
+		for (int prev = 0; prev < 4; prev++) for (int next = 0; next < 4; next++) {
+			fresh_refresh();
+			for (uint32_t dest : {0u, 0x800000u, 0x400u}) {
+				transfer(false, true, dest);
+				transfer(prev & 2, prev & 1, 0, 0xA55A);
+				transfer(next & 2, next & 1, dest, 0);
+				transfer(false, true, 0);
+				transfer(false, true, dest);
+			}
+		}
+		for (uint32_t a : {0u, 0x3F0u, 0x7FFFF0u, 0x800000u, 0xFFFFF0u, 0x1000000u, 0x1FFFFF0u}) {
+			for (int word = 0; word < 4; word++) {
+				transfer(true, true, a + 4 * word, 0x5AA5);
+				transfer(false, true, a + 4 * word);
+				for (int mask = 0; mask < 16; mask++) {
+					transfer(true, false, a + 4 * word, uint16_t(mask * 0x1111));
+					transfer(false, true, a + 4 * word);
+				}
+			}
+		}
+
+		// Cover every phase of the refresh timer, including a request on
+		// the cycle the due flag is raised, and long conflict accesses.
+		for (int offset = 0; offset < 800; offset++) {
+			fresh_refresh();
+			ticks(offset);
+			transfer(true, false, 0);
+			transfer(offset & 1, true, 0x400);
+			transfer(!(offset & 1), true, 0x400, 0xAA55);
+		}
+		// Sustained locality still has to yield to refresh.
+		auto hot_hits = row_hits;
+		for (int i = 0; i < 1024; i++) transfer(i & 1, true, uint32_t(i * 16) & 1023);
+		printf("sustained line traffic in one row: %llu/1024 hits (%.2f%%)\n",
+			(unsigned long long)(row_hits - hot_hits), 100.0 * (row_hits - hot_hits) / 1024);
+		printf("directed: transitions, masks, wrap/bank boundaries, 800 refresh phases and sustained hits passed\n");
+	}
 };
 
 }  // namespace
@@ -185,13 +370,18 @@ int main(int argc, char **argv) {
 	uint32_t seed = 1;
 	uint64_t cycles = 400000;
 	bool expect_fail = false;
+	bool exact = true;
+	SdramTiming timing;
 	for (int i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "--seed") && i + 1 < argc) seed = (uint32_t)strtoul(argv[++i], nullptr, 0);
 		else if (!strcmp(argv[i], "--cycles") && i + 1 < argc) cycles = strtoull(argv[++i], nullptr, 0);
 		else if (!strcmp(argv[i], "--expect-fail")) expect_fail = true;
+		else if (!strcmp(argv[i], "--ras-ns") && i + 1 < argc) { timing.ras = atof(argv[++i]); exact = false; }
+		else if (!strcmp(argv[i], "--rc-ns") && i + 1 < argc) { timing.rc = atof(argv[++i]); exact = false; }
 	}
-	Bench b(seed);
+	Bench b(seed, timing);
 	if (expect_fail) b.chip.quiet = true;
+	else model_guards();
 
 	// power-up
 	b.ticks(4);
@@ -212,6 +402,9 @@ int main(int argc, char **argv) {
 	CHECK(b.have, "a request was taken while busy");
 	while (b.have) b.tick();
 	b.ticks(40);
+	if (!expect_fail) b.directed(exact);
+	b.row_hits = b.row_closed = b.row_misses = 0;
+	for (auto &m : b.maps) m.hits = m.total = 0;
 
 	// random traffic: bursts back to back, gaps, and long idle stretches
 	uint64_t end = b.cyc + cycles;
@@ -236,6 +429,11 @@ int main(int argc, char **argv) {
 		(unsigned long long)b.taken[2], (unsigned long long)b.taken[3], (unsigned long long)b.words_checked);
 	printf("refreshes %llu, longest gap %.0f ns (tREFI %.1f ns)\n", (unsigned long long)b.chip.refreshes,
 		b.chip.max_refresh_gap, b.chip.tm.refi);
+	printf("random traffic rows: %llu hits, %llu closed, %llu conflicts (%.2f%% hits)\n",
+		(unsigned long long)b.row_hits, (unsigned long long)b.row_closed, (unsigned long long)b.row_misses,
+		100.0 * b.row_hits / (b.row_hits + b.row_closed + b.row_misses));
+	for (auto &m : b.maps) printf("shadow mapping bank bits %d:%d: %.2f%% hits (%llu/%llu)\n", m.shift + 1, m.shift,
+		100.0 * m.hits / m.total, (unsigned long long)m.hits, (unsigned long long)m.total);
 	printf("latency from the request taken to rvalid: word %llu-%llu, line first word %llu-%llu, last word up to %llu clocks\n",
 		(unsigned long long)b.lat_word_min, (unsigned long long)b.lat_word_max, (unsigned long long)b.lat_line_min,
 		(unsigned long long)b.lat_line_max, (unsigned long long)b.lat_line_last_max);
