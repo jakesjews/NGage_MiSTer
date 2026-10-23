@@ -7256,6 +7256,8 @@ module zap_dcache_fsm (
 	i_busy,
 	o_hold,
 	o_idle,
+	o_relookup,
+	o_fill_busy,
 	o_wb_cyc_ff,
 	o_wb_cyc_nxt,
 	o_wb_stb_ff,
@@ -7339,6 +7341,8 @@ module zap_dcache_fsm (
 	input wire i_busy;
 	output reg o_hold;
 	output reg o_idle;
+	output wire [2:0] o_relookup;
+	output wire o_fill_busy;
 	output reg o_wb_cyc_ff;
 	output reg o_wb_cyc_nxt;
 	output reg o_wb_stb_ff;
@@ -7788,13 +7792,16 @@ module zap_dcache_fsm (
 	localparam [3:0] LINEOP = 4'd8;
 	localparam [3:0] UNC_DONE = 4'd9;
 	localparam [3:0] UNLOCK_WR = 4'd10;
-	localparam [31:0] NUMBER_OF_STATES = 32'd11;
+	localparam [3:0] RELOOKUP0 = 4'd11;
+	localparam [3:0] RELOOKUP1 = 4'd12;
+	localparam [3:0] RELOOKUP2 = 4'd13;
+	localparam [31:0] NUMBER_OF_STATES = 32'd14;
 	localparam [31:0] ADR_PAD = (32'd32 - $clog2(CACHE_LINE / 4)) - 32'd1;
 	localparam [31:0] ADR_PAD_MINUS_2 = ADR_PAD - 32'd2;
 	localparam [31:0] LINE_PAD = (CACHE_LINE * 32'd8) - 32'd32;
 	wire cache_dirty;
-	reg [10:0] state_ff;
-	reg [10:0] state_nxt;
+	reg [13:0] state_ff;
+	reg [13:0] state_nxt;
 	reg [31:0] buf_ff [(CACHE_LINE / 4) - 1:0];
 	reg [31:0] buf_nxt [(CACHE_LINE / 4) - 1:0];
 	reg cache_clean_req_nxt;
@@ -7805,8 +7812,6 @@ module zap_dcache_fsm (
 	reg line_req_ff;
 	reg [$clog2(CACHE_LINE / 4):0] adr_ctr_ff;
 	reg [$clog2(CACHE_LINE / 4):0] adr_ctr_nxt;
-	reg rhit;
-	reg whit;
 	reg [31:0] address;
 	reg wr;
 	reg [31:0] din;
@@ -7958,6 +7963,8 @@ module zap_dcache_fsm (
 		for (i = 0; i < (CACHE_LINE / 4); i = i + 1)
 			buf_ff[i] <= buf_nxt[i];
 	end
+	assign o_relookup = {state_ff[RELOOKUP2], state_ff[RELOOKUP1], state_ff[RELOOKUP0]};
+	assign o_fill_busy = (((state_ff[CLEAN_SINGLE] || state_ff[FETCH_SINGLE]) || state_ff[UNLOCK_REG]) || state_ff[UNLOCK_WR]) || |o_relookup;
 	always @(posedge i_clk) o_idle <= state_nxt[IDLE];
 	function automatic [CACHE_LINE - 1:0] ben_comp;
 		input [$clog2(CACHE_LINE) - 3:0] shift;
@@ -8021,8 +8028,6 @@ module zap_dcache_fsm (
 			for (i = 0; i < (CACHE_LINE / 4); i = i + 1)
 				buf_nxt[i] = buf_ff[i];
 		end
-		rhit = 1'd0;
-		whit = 1'd0;
 		if (state_ff[UNC_DONE])
 			o_dat = ld_transform(unc_dat_ff, ldfmt);
 		else
@@ -8103,14 +8108,10 @@ module zap_dcache_fsm (
 						end
 						casez ({i_cache_hit, i_cache_tag_valid})
 							2'b1z:
-								if (i_rd) begin
-									rhit = 1'd1;
+								if (i_rd)
 									o_ack = 1'd1;
-								end
-								else if (i_wr) begin
+								else if (i_wr)
 									o_ack = 1'd1;
-									whit = 1'd1;
-								end
 							2'b01: begin
 								o_ack = 1'd1;
 								if (i_rd)
@@ -8203,12 +8204,6 @@ module zap_dcache_fsm (
 				o_wb_cti_nxt = CTI_EOB;
 			end
 			state_ff[CLEAN_SINGLE]: begin
-				rhit = 1'd0;
-				whit = 1'd0;
-				if (!rhit && !whit) begin
-					o_ack = 1'd1;
-					o_err2 = (i_rd || i_wr ? 1'd1 : 1'd0);
-				end
 				adr_ctr_nxt = (take ? adr_ctr_inc : adr_ctr_ff);
 				if ((take ? beat_inc_ok : beat_cur_ok)) begin
 					o_wb_cyc_nxt = 1'd1;
@@ -8237,12 +8232,6 @@ module zap_dcache_fsm (
 				end
 			end
 			state_ff[FETCH_SINGLE]: begin
-				rhit = 1'd0;
-				whit = 1'd0;
-				if (!rhit && !whit) begin
-					o_ack = 1'd1;
-					o_err2 = (i_rd || i_wr ? 1'd1 : 1'd0);
-				end
 				adr_ctr_nxt = (take ? adr_ctr_inc : adr_ctr_ff);
 				buf_nxt[adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0]] = (i_wb_ack | i_wb_err ? i_wb_dat : buf_ff[adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0]]);
 				if (wr) begin
@@ -8285,16 +8274,9 @@ module zap_dcache_fsm (
 				end
 			end
 			state_ff[UNLOCK_REG]: begin
-				rhit = 1'd0;
-				whit = 1'd0;
-				if (!rhit && !whit) begin
-					o_ack = 1'd1;
-					o_err2 = (i_rd || i_wr ? 1'd1 : 1'd0);
-				end
 				if (!wr)
 					;
 				else begin
-					o_ack = 1'd1;
 					o_cache_line = {CACHE_LINE / 4 {din}};
 					o_cache_line_ben = ben_comp(address[$clog2(CACHE_LINE) - 1:2], ben);
 					o_cache_tag_wr_en = 1'd1;
@@ -8305,15 +8287,27 @@ module zap_dcache_fsm (
 				end
 				state_nxt[UNLOCK_REG] = 1'd0;
 				state_nxt[UNLOCK_WR] = !wr;
-				state_nxt[IDLE] = wr;
+				state_nxt[RELOOKUP0] = wr && (i_rd || i_wr);
+				state_nxt[IDLE] = wr && !(i_rd || i_wr);
 			end
 			state_ff[UNLOCK_WR]: begin
-				o_ack = 1'd1;
-				o_err2 = (i_rd || i_wr ? 1'd1 : 1'd0);
 				o_reg_dat = reg_dat_ff;
 				o_reg_idx = reg_idx;
 				lock_nxt = lock_nxt & ~reg_idx;
 				state_nxt[UNLOCK_WR] = 1'd0;
+				state_nxt[RELOOKUP0] = i_rd || i_wr;
+				state_nxt[IDLE] = !(i_rd || i_wr);
+			end
+			state_ff[RELOOKUP0]: begin
+				state_nxt[RELOOKUP0] = 1'd0;
+				state_nxt[RELOOKUP1] = 1'd1;
+			end
+			state_ff[RELOOKUP1]: begin
+				state_nxt[RELOOKUP1] = 1'd0;
+				state_nxt[RELOOKUP2] = 1'd1;
+			end
+			state_ff[RELOOKUP2]: begin
+				state_nxt[RELOOKUP2] = 1'd0;
 				state_nxt[IDLE] = 1'd1;
 			end
 			state_ff[INVALIDATE]: begin
@@ -8381,8 +8375,6 @@ module zap_dcache_fsm (
 				o_err2 = 1'sbx;
 				o_address = 1'sbx;
 				o_cache_way = 1'sbx;
-				rhit = 1'sbx;
-				whit = 1'sbx;
 				begin : sv2v_autoblock_4
 					reg signed [31:0] i;
 					for (i = 0; i < (CACHE_LINE / 4); i = i + 1)
@@ -8842,6 +8834,33 @@ module zap_dcache (
 	wire [31:0] cache_address;
 	wire hold;
 	wire idle;
+	wire [2:0] relookup;
+	wire fill_busy;
+	localparam integer SET_W = $clog2((CACHE_SIZE / WAYS) / CACHE_LINE);
+	localparam integer LINE_W = $clog2(CACHE_LINE);
+	reg [SET_W - 1:0] lookup_s0;
+	reg [SET_W - 1:0] lookup_s1;
+	reg [31:0] lookup_address;
+	always @(posedge i_clk)
+		if (i_reset) begin
+			lookup_s0 <= 1'sb0;
+			lookup_s1 <= 1'sb0;
+		end
+		else if (!i_stall && !((i_rd || i_wr) && !o_ack)) begin
+			lookup_s0 <= i_address_nxt[LINE_W+:SET_W];
+			lookup_s1 <= lookup_s0;
+		end
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		lookup_address = i_address_nxt;
+		if (relookup[0])
+			lookup_address[LINE_W+:SET_W] = i_address[LINE_W+:SET_W];
+		else if (relookup[1])
+			lookup_address[LINE_W+:SET_W] = lookup_s1;
+		else if (relookup[2])
+			lookup_address[LINE_W+:SET_W] = lookup_s0;
+	end
 	reg [2:0] wb_err;
 	wire unused;
 	assign wb_cti[2] = CTI_EOB;
@@ -8863,6 +8882,8 @@ module zap_dcache (
 		.i_va(i_va),
 		.i_ldfmt(i_ldfmt),
 		.o_idle(idle),
+		.o_relookup(relookup),
+		.o_fill_busy(fill_busy),
 		.i_ben(i_ben),
 		.o_dat(o_dat),
 		.o_ack(o_ack),
@@ -8937,10 +8958,10 @@ module zap_dcache (
 	) u_zap_cache_tag_ram(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
-		.i_address_nxt(i_address_nxt),
+		.i_address_nxt(lookup_address),
 		.i_address(cache_address),
 		.i_lookup_address(i_address),
-		.i_access(i_rd || i_wr),
+		.i_access((i_rd || i_wr) && idle),
 		.i_idle(idle),
 		.o_cache_hit(tr_cache_hit),
 		.o_cache_hit_dirty(tr_cache_hit_dirty),
@@ -9000,7 +9021,7 @@ module zap_dcache (
 		.i_idle(idle),
 		.i_wr_check(i_wr_check),
 		.i_rd_check(i_rd_check),
-		.i_hold(hold || i_stall),
+		.i_hold((hold || i_stall) || (fill_busy && (i_rd || i_wr))),
 		.i_cpsr(i_cpsr),
 		.i_sr(i_sr),
 		.i_dac_reg(i_dac_reg),
