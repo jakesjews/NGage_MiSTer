@@ -6,9 +6,17 @@
   (all 76,975 device accesses) pass. The remaining worst path: the MMU
   enable into the merger's data capture. Report
   docs/consults/2026-10-23-codex-timing3-report.md. Merged into master
-  with the flash fetch (191cab1); building (b14, the server). The last
-  0.46 ns are a later round; the Codex thread now goes to the pipeline
-  stalls.
+  with the flash fetch (191cab1) and built (b14, the server, seed 1):
+  **-1.398 ns**, hold +0.246, with the previous families gone and two
+  others at the top that no earlier build showed: the predecode's
+  instruction register into the decode stage's shift fields
+  (o_shift_is_lsl0_ff, o_shift_length_ff, -1.4 to -1.3) and the memory
+  stage's load destination index into the writeback's pc_del3 pipeline
+  (-1.31, seven of the ten). So the tree has a floor of families near
+  -1 ns that surface with the placement; timing round 4 takes them
+  after the pipeline-stall work (which changes those stages), from this
+  build's report (session scratch, b14-timing/). The Codex thread is on
+  the stalls; b14 is the measurement build for the board.
 # N-Gage QD MiSTer core: progress log
 
 Newest entries at the bottom. Each entry says what was done, what was
