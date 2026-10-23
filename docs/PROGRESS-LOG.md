@@ -3101,3 +3101,14 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   behind it 54 %, the FIFO empty 16-23 %), which is the ARM9 project's
   case. This is the tree to carry forward; the Codex timing run is to
   bring its 3.5 ns miss back to the old few tenths before any sweep.
+- **ARM9 project, session 2** (codex/arm9: ff544e5, 43ecfc7, bf91bad): a
+  selectable ARM9 core (CORE = "ARM9" in arm925t.sv; the bring-up
+  controller, retirement probes for the bench, the whole instruction set
+  through the existing caches, MMU and CP15, blocking load retirement)
+  that passes the whole suite (201 runs) and all 53 QEMU comparisons,
+  with ZAP still the default and passing. Not yet pipelined: it
+  serializes instructions and is slower than ZAP; the integrated fit
+  fails at -2.704 ns with the path and a proposed fix in the report.
+  Session 3 started: the overlap, the cycle model's counts
+  (arm9_cycles.S), the timing fix with the CPU-only trial, and the cycle
+  comparison against ZAP.
