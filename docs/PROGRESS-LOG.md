@@ -3633,3 +3633,36 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   M instructions/s: b12 25-28, b13 (flash fetch) 27.5-29.4, b15
   (stalls) 27.7-29.9, b16 (prefetch) 28.0-29.7, b16-32k 28.3-30.1,
   b17 (hit-under-miss) 28.9-30.9.
+- **b18** (the server, seed 1; hit-under-miss, prefetch off, the first
+  first-boot change): **-0.934 ns** at slow 100C, hold +0.204, 35,347 ALMs
+  (84 %), 470 M10K (hit-under-miss alone measured -0.858 on its base: the
+  same family, placement noise). With the prefetch off the suite's
+  counts are exactly hit-under-miss's own (cache 789,362, ctrand1
+  72,413, crand1 72,922, dhold_rtl 273,742): the prefetch logic is
+  cycle-identical when off, as its report said. The CPU bench had pinned
+  the prefetch on itself (tb_cpu.sv's own parameter), so the earlier
+  merged-tree runs had tested the on configuration; the bench now
+  follows the core's default, the on configuration is run with
+  VEXTRA=-GICACHE_PREFETCH=1. In play b18 is b17 (the prefetch measured
+  nothing), so it was not replayed.
+- **The first-boot hang fixed** (Codex, codex/firstboot e87bf91, merged
+  3e2630f): the rule is one busy status read per fast operation, then
+  array data; no time window (a window could expire before the driver
+  polls and bring the hang back). Codex read both copies of medint.pdd's
+  Samsung-command routines: the erase start loops until busy and tests
+  DQ3 from the same sample; the completion loop reads twice (FFFF means
+  done, else DQ7 suspended, DQ5 failed); the program routines poll from
+  a timer FIQ, compare DQ7 against the expected byte and test DQ5 on a
+  mismatch, so the busy sample has DQ7 inverted, DQ5 = 0, DQ3 = 1 for an
+  erase, DQ6 (and DQ2 for the sector) advancing on each fast status
+  read. The chip model holds the operation busy until that read (blank
+  erases still write nothing; programs hold the acknowledge until the
+  memory write lands); QEMU overlays one busy halfword per bank (a
+  32-bit read consumes it and returns array data for the next halfword,
+  as two accesses to the x16 chip would). The model's first boot now
+  reaches the Time dialog at 35 s and the Date dialog at 41 s of guest
+  time, the same as the timed model (whose erases are 20 ms, so the
+  model never showed the slowness); a boot on the saved C: goes to the
+  idle screen at 19 s. Chip bench cases for the loops added. Built as
+  b19 (the server) for the board's first-boot trial from the pristine
+  CS1 and a second boot on the saved trial image.
