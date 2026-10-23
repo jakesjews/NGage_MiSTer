@@ -3976,3 +3976,8 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   (-0.69, -0.67, -0.56), the family round 4's arbiter rewrite targets.
   Seed 18's rbf (build/hardware/NGage-ndm-s18.rbf) is the main-slot
   candidate, 0.12 ns better than the seed 9 on it.
+- **Seed 18 on the main slot** (-0.431 ns, build/hardware/NGage-ndm-
+  s18.rbf): smoke-tested on the debug slot like seed 9 (the idle screen
+  with the clock and the date, the menu, Sonic's intro, Neo Green Hill
+  in play; captures in build/hardware/game/smoke-ndm-s18/), then copied
+  over `_Console/_NGage/NGage_20261023.rbf`; b22 back on the debug slot.
