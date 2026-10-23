@@ -4117,3 +4117,25 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   Its fit alone: -0.574 / -0.856 / -0.895 ns at seeds 2-4, about 1,090
   ALMs. D1 through W are not implemented. Session 2 started: the front
   end's paths first, then the decode pair.
+- **b24 on the board: the in-core loader works end to end.** Launched
+  from an MGL with the Phoenix files themselves (F1 RH2946.0C1, F2
+  RH2946.0S5), a fresh copy of releases/ngage-c-drive.bin on S1 and the
+  card on S0: C: formatted at 44-84 s, the Time dialog at 96 s, the
+  first-time setup after the Date dialog (108-113 s), C: written back
+  (852 KB at 121 s), the idle screen at 170 s
+  (build/hardware/boot/phoenix-b24-rerun/); a second boot on that C:
+  went to the idle screen without a format. One of two identical first
+  boots failed: running at 106 s (the Date dialog's Enter), then Main
+  refused screenshots for 14 s (it does so only while loading a core or
+  files: the time the 18 MB MCU file takes), and from 120 s the CPU was
+  held in reset for good (overlay: cpu_reset=1, pc=0, the interrupt
+  enables cleared, the save still present, the LCD on the test pattern):
+  a Phoenix file sent again, which by design starts a fresh pair and
+  waits for the second file. What sent it is unknown (no core reload or
+  Main restart in dmesg, no OSD use, only Enter taps). The loader's
+  Codex thread is adding a loader status word to the debug overlay,
+  making an identical re-send verify instead of refill (so the pair
+  survives it), and reading Main's source for a path that re-sends an F
+  option's file. The debug launchers on the MiSTer are now the Phoenix
+  form (tools: scratch gen-dbg-launchers.sh); the main slot still runs
+  seed 18, the pre-loader core.
