@@ -18,7 +18,7 @@ VFLAGS := --cc --exe --build -j 4 -O3 --x-assign unique --x-initial unique \
           -CFLAGS "-O2 -std=c++17 -I$(ROOT)/sim/harness"
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
-BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash trace upp intc timers haudio periph save top
+BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash trace upp intc timers haudio periph save phoenix top
 
 .PHONY: test $(BENCHES) coreboot clean
 
@@ -201,13 +201,14 @@ TOP_RTL := $(ROOT)/sim/stubs/hps_io.sv $(ROOT)/sim/stubs/pll.sv $(ROOT)/sim/stub
            $(shell sed -n 's/^set_global_assignment -name \(SYSTEM\)*VERILOG_FILE //p' $(ROOT)/files.qip | sed 's|^|$(ROOT)/|') \
 
 $(BUILD)/top/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/top_main.cpp $(ROOT)/sim/harness/common.h \
-                   $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h
+                   $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h $(ROOT)/sim/harness/phoenix_stream.h \
+                   $(ROOT)/rtl/mister/phoenix_patch.hex $(ROOT)/rtl/mister/phoenix_patch.vh
 	mkdir -p $(BUILD)/top && cd $(ROOT) && $(VERILATOR) $(VFLAGS) --timescale 1ns/1ps --pins-inout-enables \
 		-GSELFTEST_SDRAM_WORDS_LOG2=12 -GSELFTEST_ONCHIP_WORDS_LOG2=12 -GSELFTEST_FLASH_WORDS_LOG2=10 \
 		--top-module emu --Mdir $(BUILD)/top -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
 		$(TOP_RTL) $(ROOT)/sim/harness/top_main.cpp
 top: $(BUILD)/top/Vemu | $(OUT)
-	$< $(RUNFLAGS) --out $(OUT)
+	cd $(ROOT) && $< $(RUNFLAGS) --out $(OUT)
 
 # The firmware on the whole core (sim/harness/coreboot_main.cpp): not in
 # `make test`, it needs the flash images (tools/mkimage.py; firmware, never
@@ -220,14 +221,15 @@ CORE_ARGS    ?= --cycles 1000000000
 CORE_OUT     ?= $(BUILD)/coreboot/out
 CORE_THREADS ?= 1
 $(BUILD)/coreboot/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/coreboot_main.cpp $(ROOT)/sim/harness/coreboot.vlt \
-                        $(ROOT)/sim/harness/common.h $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h
+                        $(ROOT)/sim/harness/common.h $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h \
+                        $(ROOT)/rtl/mister/phoenix_patch.hex $(ROOT)/rtl/mister/phoenix_patch.vh
 	mkdir -p $(BUILD)/coreboot && cd $(ROOT) && $(VERILATOR) $(VFLAGS) --timescale 1ns/1ps --pins-inout-enables \
 		$(if $(filter-out 1,$(CORE_THREADS)),--threads $(CORE_THREADS)) \
 		--top-module emu --Mdir $(BUILD)/coreboot -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
 		$(ROOT)/sim/harness/coreboot.vlt $(TOP_RTL) $(ROOT)/sim/harness/coreboot_main.cpp
 coreboot: $(BUILD)/coreboot/Vemu
 	mkdir -p $(CORE_OUT)
-	$< $(RUNFLAGS) --cs0 $(CORE_CS0) --cs1 $(CORE_CS1) $(if $(CORE_MMC),--mmc $(CORE_MMC)) --out $(CORE_OUT) $(CORE_ARGS)
+	cd $(ROOT) && $< $(RUNFLAGS) --cs0 $(CORE_CS0) --cs1 $(CORE_CS1) $(if $(CORE_MMC),--mmc $(CORE_MMC)) --out $(CORE_OUT) $(CORE_ARGS)
 
 
 # Phoenix parser/patch engine. Real firmware stays outside git.

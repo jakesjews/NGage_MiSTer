@@ -110,6 +110,10 @@ int main(int argc, char **argv) {
 		  b.download(1,phoenix::mcu()); b.download(2,phoenix::language()); CHECK(b.t.ready,"retry after damage"); }
 		{ Bench b; auto v=phoenix::stream(); phoenix::record(v,0x14,0x02400000,{0}); b.download(1,v);
 		  CHECK(b.t.errors && b.notes[1]==1,"C: record rejected"); CHECK_EQ(b.cs1[0x400000],0x69,"C: guard"); }
+		{ Bench b; auto v=phoenix::stream(); size_t h=v.size(); phoenix::record(v,0x14,0x100,{1,2}); v[h+9]^=1;
+		  b.download(1,v); CHECK(b.t.errors==1 && b.notes[1]==1,"bad header checksum counted"); }
+		{ Bench b; auto v=phoenix::stream(); phoenix::record(v,0x21,0x200,{1,2},true);
+		  b.download(2,v); CHECK(b.t.errors==1 && b.notes[1]==1,"bad 21 data checksum counted"); }
 		{ Bench b; auto v=phoenix::mcu(); v.resize(v.size()-3); b.download(1,v); CHECK(b.notes[1]==1,"truncated data rejected"); }
 		{ Bench b; auto v=phoenix::stream(); v[8]=99; b.download(1,v); CHECK(b.notes[1]==1,"truncated token count rejected"); }
 	}

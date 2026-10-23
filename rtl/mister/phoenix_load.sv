@@ -36,7 +36,7 @@ module phoenix_load #(
 	output logic [1:0] note = 0, // 1 damaged, 2 unknown version, 3 loaded
 	output logic [15:0] errors = 0
 );
-	`include "phoenix_patch.vh"
+	`include "rtl/mister/phoenix_patch.vh"
 	localparam int PW = $clog2(PATCH_BYTES);
 	logic [7:0] patch_rom [0:PATCH_BYTES-1];
 	initial $readmemh(PATCH_FILE, patch_rom);
