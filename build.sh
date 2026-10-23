@@ -29,7 +29,10 @@ if [[ "$where" == remote ]]; then
             2>&1 | tee build/quartus-map.log
     else
         ssh "$host" "$docker_run /opt/intelFPGA_lite/quartus/bin/quartus_sh --flow compile $proj" 2>&1 | tee build/quartus-compile.log
-        ssh "$host" "$docker_run /opt/intelFPGA_lite/quartus/bin/quartus_sta -t tools/report_timing.tcl" 2>&1 | tee build/timing-report.log
+        # The report script exits 3 while any slack is negative: keep going so
+        # the rbf and the reports still come back, then exit with its code.
+        sta_rc=0
+        ssh "$host" "$docker_run /opt/intelFPGA_lite/quartus/bin/quartus_sta -t tools/report_timing.tcl" 2>&1 | tee build/timing-report.log || sta_rc=$?
         mkdir -p output_files
         rsync -a "$host:$dir/output_files/$proj.rbf" output_files/
         rsync -a "$host:$dir/output_files/$proj.fit.summary" "$host:$dir/output_files/$proj.sta.summary" output_files/ 2>/dev/null || true
@@ -39,6 +42,7 @@ if [[ "$where" == remote ]]; then
             exit 2
         fi
         test -s output_files/$proj.rbf
+        exit $sta_rc
     fi
 else
     cx_bin=${CROSSOVER_BIN:-/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin}
@@ -49,10 +53,12 @@ else
         run_q quartus_map.exe --read_settings_files=on --write_settings_files=off $proj -c $proj 2>&1 | tee build/quartus-map.log
     else
         run_q quartus_sh.exe --flow compile $proj 2>&1 | tee build/quartus-compile.log
+        sta_rc=0
+        run_q quartus_sta.exe -t tools/report_timing.tcl 2>&1 | tee build/timing-report.log || sta_rc=$?
         if rg -q 'Timing requirements not met' build/quartus-compile.log; then
             print -u2 'Quartus produced output, but timing requirements were not met.'
             exit 2
         fi
-        run_q quartus_sta.exe -t tools/report_timing.tcl 2>&1 | tee build/timing-report.log
+        exit $sta_rc
     fi
 fi
