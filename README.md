@@ -9,37 +9,66 @@ is not emulated; the phone comes up as an offline handset with no SIM.
 
 - A MiSTer with the SDRAM module (32 MB or larger).
 - Your own RH-29 (N-Gage QD) firmware, software version 4.60: the Phoenix
-  flash files `RH2946.0C1` and `RH2946.0S5`.
-- Game-card dumps: an [Aaru](https://www.aaru.app/) dump of a card, or the
-  card's root folder.
-- On your computer: Python 3, and for game folders
-  [unar](https://theunarchiver.com/command-line) and
-  [mtools](https://www.gnu.org/software/mtools/).
+  files `RH2946.0C1` (MCU) and `RH2946.0S5` (language pack).
+- A game-card image (`.mmc`) to play games. The phone can boot without one.
 
 ## Setup
 
-1. Build the flash images from the firmware:
-   `tools/mkimage.py phoenix RH2946.0C1 RH2946.0S5 -o out` writes `cs0.bin`
-   (16 MB) and `cs1.bin` (8 MB).
-2. Build a card image per game: `tools/mkcard.py aaru DUMP.aaruf -o game`
-   for a dump, or `tools/mkcard.py folder GAMEDIR -o game` for a folder;
-   each gives `game.mmc`.
-3. Copy the newest `NGage_YYYYMMDD.rbf` from [releases/](releases/) to
-   `/media/fat/_Console/` on the MiSTer (or a folder of its own such as
-   `_Console/_NGage/`, which the menu shows as "NGage") and the images to
-   `/media/fat/games/NGage/` ([MiSTer file
-   transfer](https://mister-devel.github.io/MkDocs_MiSTer/)).
-4. Start the core. In the OSD: **Load flash CS0** → `cs0.bin`, **Mount
-   flash CS1 (save)** → a copy of `cs1.bin` (the core writes your saves
-   into it), **Mount MMC card** → `game.mmc`.
-5. The first start formats the phone's C: drive: "Booting the phone" shows,
-   the Nokia logo stays for about a minute and a half, then the phone asks
-   for the time and date (OK = Enter). Later starts go straight to the
-   idle screen.
-6. Menu key (F5), then down to the card's game, OK.
+No firmware conversion or Python installation is needed. The core reads the
+Phoenix files and applies its NOS stand-in and boot patches itself.
 
-An `.mgl` launcher can do step 4: file indexes 1 (CS0), 2 (CS1 as a plain
-load) or mount slot 1 (CS1 save) and slot 0 (card).
+1. Copy a build containing the Phoenix loader to `/media/fat/_Console/`
+   (for example `NGage_YYYYMMDD.rbf`).
+2. In `/media/fat/games/NGage/`, put these three files:
+
+   | File on MiSTer | Contents |
+   |---|---|
+   | `boot1.rom` | Your `RH2946.0C1`, renamed |
+   | `boot2.rom` | Your `RH2946.0S5`, renamed |
+   | `boot1.vhd` | A copy of [ngage-c-drive.bin](releases/ngage-c-drive.bin), renamed |
+
+   The `.vhd` is a raw 4 MB C: save, with no VHD container header. Keep this
+   copy between boots: it holds phone settings and game saves. Copy the blank
+   file only when creating a new profile.
+3. Start the core. MiSTer loads both ROMs and mounts the save automatically.
+   The core reports **Firmware 4.60 loaded**, then **Booting the phone**.
+   A fresh C: is formatted on its first boot; accept the Time and Date dialogs
+   with Enter. The activity dot shows recent CPU bus traffic.
+4. Pick your card with **Mount MMC card** in the OSD. To mount one by default,
+   copy its image as `boot0.vhd` in the same games folder.
+5. Press Menu (F5), select the card's game, then OK (Enter).
+
+For manual loading, choose **Load firmware (RH2946.0C1)**, **Load language
+pack (RH2946.0S5)** and **Mount C: save**. They can be selected in any order;
+loading firmware preserves C:, and mounting a save preserves firmware.
+Reselecting either file of a completed firmware pair starts a new pair, so
+select both again. After a damaged-file message, also reload both files.
+
+An [MGL launcher](https://mister-devel.github.io/MkDocs_MiSTer/advanced/mgl/)
+can select files explicitly. With these files in `games/NGage/`, for example:
+
+```xml
+<mistergamedescription>
+    <rbf>_Console/NGage</rbf>
+    <file delay="1" type="f" index="1" path="RH2946.0C1"/>
+    <file delay="1" type="f" index="2" path="RH2946.0S5"/>
+    <file delay="1" type="s" index="1" path="my-c-drive.bin"/>
+    <file delay="1" type="s" index="0" path="sonicn.mmc"/>
+</mistergamedescription>
+```
+
+F1/F2 now mean Phoenix MCU/language, S1 is C: and S0 is the card. Update old
+flat-image launchers: development **Load flash CS0 image** is F3 and **Load
+flash CS1 image** is F4. The flat route needs both complete chips; S1 now
+loads only C:. A plain F4 load supplies volatile C: and detaches its save;
+mount S1 afterwards to persist it. Phoenix can also use C: supplied by F4;
+load F4 before the Phoenix pair so the pair supplies the firmware half.
+
+The PC tools remain available for development: `tools/mkimage.py phoenix
+RH2946.0C1 RH2946.0S5 -o out` produces flat `cs0.bin`/`cs1.bin`; `flat` mode
+accepts flat dumps. To prepare cards from an Aaru dump or a game folder,
+use `tools/mkcard.py` (Python 3; folder mode also needs mtools, and archives
+need unar). Its output `.mmc` includes the card metadata used by the core.
 
 ## Controls
 
@@ -57,12 +86,12 @@ load) or mount slot 1 (CS1 save) and slot 0 (card).
 
 ## Good to know
 
-- **Mount `cs1.bin` as a save (not as a plain load) if you want settings
-  and game saves to persist**; a plain load of CS1 is lost at the next
-  start. The save file must be exactly 8 MB.
+- **Keep C: mounted to persist settings and game saves.** New save files
+  are exactly 4 MB (4,194,304 bytes). Existing 8 MB CS1 saves also work:
+  only their upper 4 MB is loaded or written; the lower half is ignored.
 - Saves go out to the file a few seconds after the phone writes them;
   **Save C: now** in the OSD writes them at once.
-- One `cs1.bin` copy per profile: the phone's C: drive lives inside it.
+- Keep one C: save copy per profile.
 - The firmware is Spanish (movistar) in this version; the game cards do
   not care.
 - **Activity dot**: *Boot only* (default, until the first firmware LCD frame), *Always*, or *Off*; green shows recent CPU bus activity.
@@ -74,12 +103,17 @@ load) or mount slot 1 (CS1 save) and slot 0 (card).
 
 ## Status
 
-Verified on a MiSTer with the release build in [releases/](releases/):
+The existing flat-image path was verified on a MiSTer with the release
+build in [releases/](releases/):
 boot to the idle screen, the first-start format of C:, saves written back
 to the mounted image, Sonic N from its card (menu entry, title screen,
 demo) and its keys (5 skips the intro, the rocker moves through the
 character select), and the game's sound reaches the audio output (checked
 by measurement, not yet by ear).
+
+The direct Phoenix path passes simulation and reproduces the reference flash
+images byte for byte. Its FPGA build and board validation are pending; see
+the [implementation report](docs/consults/2026-10-23-codex-phoenix-report.md).
 
 ## Troubleshooting
 
@@ -89,12 +123,18 @@ by measurement, not yet by ear).
   minutes recovering the phone's file system (its sector erases take the
   chip's 0.7 s each); it does come up. The activity dot in the corner
   shows the phone is busy.
-- "CS1 save file must be 8 MB": the mounted file is a different size.
+- **Firmware file damaged**: a checksum, record, or file-length check failed.
+  Reload both original Phoenix files.
+- **Firmware not recognised: needs RH-29 4.60**: the firmware integrity-table
+  signatures do not match the supported release; the core leaves it unpatched
+  and holds the phone in reset. Use the MCU and language pack named above.
+- **C: save file must be 4 or 8 MB**: use the supplied blank file or an existing
+  save of exactly that size.
 - The phone asks for the time at every start: the firmware does that in
   this environment (the model too); OK accepts the clock it shows, or
   enter the real one.
-- Nothing on screen at all: the core needs both flash images before the
-  CPU starts; check that CS0 loaded.
+- The phone does not start: both Phoenix files and a C: save must finish
+  loading. Check the OSD messages and the three automatic-load filenames.
 
 ## More
 
