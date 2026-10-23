@@ -54,8 +54,12 @@
 // Ports, both req/ack: a request is held, unchanged, until the cycle in which
 // ack is high, which completes it; read data comes with that ack. The next
 // request may follow in the next cycle, so a responder must not take req as
-// a new request in the cycle in which it acks. bus_* is the ASIC side (one
+// request is held until the cycle in which it acks. bus_* is the ASIC side (one
 // request at a time); mem_* goes to the array (word address within the chip).
+// When the chip is idle in read-array mode (bus_array high), a 16-byte line
+// read (bus_lreq / bus_laddr) goes straight to the array's line port
+// (mem_lreq / mem_laddr) and returns two 64-bit beats on bus_lrvalid /
+// bus_lrbeat / bus_lrdata.
 // rst_n is the RP# pin: it stops any operation (a sector being erased is left
 // part-erased) and returns to reading the array.
 //
@@ -95,6 +99,13 @@ module nor_flash #(
 	input  logic [15:0]   bus_wdata,
 	output logic [15:0]   bus_rdata,
 	output logic          bus_ack,
+	output logic          bus_array,
+	input  logic          bus_lreq,
+	input  logic [AW-1:2] bus_laddr,
+	output logic          bus_ltaken,
+	output logic          bus_lrvalid,
+	output logic          bus_lrbeat,
+	output logic [63:0]   bus_lrdata,
 
 	output logic          mem_req,
 	output logic          mem_we,
@@ -102,6 +113,12 @@ module nor_flash #(
 	output logic [15:0]   mem_wdata,
 	input  logic [15:0]   mem_rdata,
 	input  logic          mem_ack,
+	output logic          mem_lreq,
+	output logic [AW-1:2] mem_laddr,
+	input  logic          mem_ltaken,
+	input  logic          mem_lrvalid,
+	input  logic          mem_lrbeat,
+	input  logic [63:0]   mem_lrdata,
 
 	// an embedded operation is running (RY/BY# inverted)
 	output logic          busy
@@ -314,10 +331,27 @@ module nor_flash #(
 	logic              b_wait;
 	logic [AW-1:0]     b_addr;
 
+	// a wide line read in flight on the array's line port
+	logic [1:0]        l_pend = 2'd0;
+	logic              l_stale = 1'b0;
+	wire               l_active = l_pend != 2'd0;
+
 	wire alive = ~reset & rst_n;
+	wire array_idle = alive && mode == M_READ && cseq == C_IDLE &&
+	                  p_state == P_IDLE && e_state == E_IDLE &&
+	                  !b_wait && !m_active && !l_active;
+
+	assign bus_array   = array_idle;
+	assign mem_lreq    = bus_lreq && (array_idle || (!alive && !m_active && !l_active));
+	assign mem_laddr   = bus_laddr;
+	assign bus_ltaken  = mem_lreq && mem_ltaken;
+	assign bus_lrvalid = l_active && mem_lrvalid;
+	assign bus_lrbeat  = mem_lrbeat;
+	assign bus_lrdata  = (!alive || l_stale) ? 64'hFFFF_FFFF_FFFF_FFFF : mem_lrdata;
+
 	// a bus write is waiting (when decided it may restart or end the erase
 	// window, so the window's timer holds meanwhile)
-	wire bus_wr_now = alive & bus_req & ~bus_ack & ~b_wait & bus_we;
+	wire bus_wr_now = alive & bus_req & ~bus_ack & ~b_wait & ~bus_lreq & ~l_active & bus_we;
 
 	// ------------------------------------------------------------------
 	// Decisions on the current bus request
@@ -329,7 +363,7 @@ module nor_flash #(
 	// sector decode and the status, command and autoselect logic stay off the
 	// path from the bus (it was the core's worst path with the CPU in). The
 	// request is held unchanged until its ack, so the registers still match.
-	wire                  rq_pend = bus_req && !bus_ack && !b_wait;
+	wire                  rq_pend = bus_req && !bus_ack && !b_wait && !bus_lreq && !l_active;
 	wire                  rq_fast = alive && !bus_we && mode == M_READ && p_state == P_IDLE && e_state == E_IDLE;
 	logic                 d_v = 1'b0;         // rq_pend's second clock: decide it
 	logic                 d_we, d_sel, d_lock;
@@ -638,6 +672,15 @@ module nor_flash #(
 			end
 		end
 
+		// ---- the line read port ----
+		if (bus_ltaken) begin
+			l_pend  <= 2'd2;
+			l_stale <= !alive;
+		end else if (mem_lrvalid && l_active) begin
+			l_pend <= l_pend - 2'd1;
+			if (l_pend == 2'd1) l_stale <= 1'b0;
+		end
+
 		// ---- reset: stop everything; a memory access in flight finishes ----
 		if (!alive) begin
 			mode     <= M_READ;
@@ -652,11 +695,14 @@ module nor_flash #(
 			lock_set_q <= 1'b0;
 			b_wait   <= 1'b0;
 			if (m_active && !mem_ack) m_stale <= 1'b1;
+			if (l_active && !(mem_lrvalid && l_pend == 2'd1)) l_stale <= 1'b1;
 		end
 		if (reset) begin
 			m_active <= 1'b0;
 			mem_req  <= 1'b0;
 			m_stale  <= 1'b0;
+			l_pend   <= 2'd0;
+			l_stale  <= 1'b0;
 			bus_ack  <= 1'b0;
 		end
 	end

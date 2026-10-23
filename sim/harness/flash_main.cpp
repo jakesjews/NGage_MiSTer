@@ -55,7 +55,8 @@ struct Bench {
 	Bench(int aw_, uint32_t seed) : rng(seed), aw(aw_), words(1u << aw_), mem(words) {
 		for (uint32_t i = 0; i < words; i++) mem[i] = pattern(i);
 		t->clk = 0; t->reset = 1; t->rst_n = 1; t->bus_req = 0; t->bus_we = 0; t->bus_addr = 0;
-		t->bus_wdata = 0; t->mem_rdata = 0; t->mem_ack = 0;
+		t->bus_wdata = 0; t->bus_lreq = 0; t->bus_laddr = 0;
+		t->mem_rdata = 0; t->mem_ack = 0; t->mem_ltaken = 0; t->mem_lrvalid = 0; t->mem_lrbeat = 0; t->mem_lrdata = 0;
 		t->eval();
 		for (int i = 0; i < 4; i++) tick();
 		t->reset = 0;
@@ -416,6 +417,52 @@ void test_lock(Bench &b) {
 	CHECK_EQ(lock_status(b, other), 0, "lock after RP#");
 }
 
+void test_line_port(Bench &b) {
+	// Idle in read-array mode: bus_array is high and a line read passes through
+	CHECK_EQ(b.t->bus_array, 1, "bus_array high when idle in read-array mode");
+	uint32_t laddr = 0x1234u;
+	b.t->bus_lreq = 1;
+	b.t->bus_laddr = laddr;
+	b.t->eval();
+	CHECK_EQ(b.t->mem_lreq, 1, "mem_lreq high when bus_lreq asserted in read-array mode");
+	CHECK_EQ(b.t->mem_laddr, laddr, "mem_laddr matches bus_laddr");
+	b.t->mem_ltaken = 1;
+	b.tick();
+	b.t->bus_lreq = 0;
+	b.t->mem_ltaken = 0;
+	b.t->eval();
+	CHECK_EQ(b.t->bus_array, 0, "bus_array low while line read beats are pending");
+
+	// Beat 0 and beat 1 return from memory
+	for (int beat = 0; beat < 2; beat++) {
+		uint64_t want = 0xCAFEBABE00000000ull | ((uint64_t)beat << 32) | (laddr + beat);
+		b.t->mem_lrvalid = 1;
+		b.t->mem_lrbeat = beat;
+		b.t->mem_lrdata = want;
+		b.t->eval();
+		CHECK_EQ(b.t->bus_lrvalid, 1, "bus_lrvalid high on line beat");
+		CHECK_EQ(b.t->bus_lrbeat, beat, "bus_lrbeat matches mem_lrbeat");
+		CHECK_EQ(b.t->bus_lrdata, want, "bus_lrdata matches mem_lrdata");
+		b.tick();
+	}
+	b.t->mem_lrvalid = 0;
+	b.t->eval();
+	CHECK_EQ(b.t->bus_lrvalid, 0, "bus_lrvalid low after 2 beats");
+	CHECK_EQ(b.t->bus_array, 1, "bus_array high again after line read completes");
+
+	// Non-read-array states must deassert bus_array and block mem_lreq
+	b.wr(0x555, 0xAA);
+	CHECK_EQ(b.t->bus_array, 0, "bus_array low mid-unlock (C_U1)");
+	b.wr(0x2AA, 0x55);
+	b.wr(0x555, 0x90);
+	CHECK_EQ(b.t->bus_array, 0, "bus_array low in autoselect mode");
+	b.t->bus_lreq = 1; b.t->eval();
+	CHECK_EQ(b.t->mem_lreq, 0, "mem_lreq blocked in autoselect mode");
+	b.t->bus_lreq = 0;
+	b.wr(0x0, 0xF0);
+	CHECK_EQ(b.t->bus_array, 1, "bus_array high after F0 reset");
+}
+
 void test_chip_erase(Bench &b) {
 	// a locked parameter sector survives the chip erase
 	int locked = sectors(b.aw) - 1;
@@ -454,6 +501,7 @@ int main(int argc, char **argv) {
 	test_rp(b);
 	test_lock(b);
 	test_reads(b);
+	test_line_port(b);
 	test_chip_erase(b);
 	printf("%d-word chip, %llu clocks\n", 1 << aw, (unsigned long long)b.clocks);
 	char name[32];

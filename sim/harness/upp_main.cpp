@@ -72,6 +72,7 @@ struct Bench {
 	// the master
 	bool  raw = false;            // reads not checked; the data is kept in last_rdat
 	uint32_t last_rdat = 0;
+	std::vector<uint32_t> raw_beats;
 	std::string lat_prefix;
 	bool  busy = false;
 	Txn   cur;
@@ -238,6 +239,7 @@ struct Bench {
 			apply_write(b.adr, b.sel, b.dat);
 		} else if (raw) {
 			last_rdat = rdat;
+			raw_beats.push_back(rdat);
 		} else {
 			uint32_t mask;
 			uint32_t want = expect(b.adr, b.sel, mask);
@@ -256,6 +258,7 @@ struct Bench {
 		cur = x;
 		bi = 0;
 		busy = true;
+		if (raw) raw_beats.clear();
 		start = beat_seen = cyc;
 		uint64_t limit = cyc + 20000;
 		while (busy && cyc < limit) tick();
@@ -380,6 +383,288 @@ void flash_commands(Bench &b) {
 	printf("flash erase: %d status polls, %llu clocks so far\n", polls, (unsigned long long)b.cyc);
 }
 
+// Directed checks for the wide flash line-read path and its fallback to the
+// halfword engine:
+//  * read-array line bursts (linear and wrap-4 from all 4 critical-word
+//    offsets, cold miss and warm hit, CS0/CS1 and their address mirrors)
+//    checked word-for-word against the halfword path;
+//  * line bursts while a chip is in autoselect, CFI, program-busy status,
+//    read-while-write in another bank, and erase-busy/erase-suspend status;
+//  * bursts that cross a chip window boundary (CS1 -> CS2/CS3 empty window in
+//    both read-array and status modes, and CS0 -> CS1).
+void flash_line_bursts(Bench &b) {
+	auto settle_idle = [&]() { for (int i = 0; i < 40; i++) b.tick(); };
+	auto w16_at = [&](uint32_t base, uint32_t word, uint16_t v) {
+		b.run(b.single(true, base + 2 * word, (word & 1) ? 0xC : 0x3, (uint32_t)v * 0x10001u, "flash cmd"));
+	};
+	auto r16_at = [&](uint32_t base, uint32_t word) -> uint16_t {
+		b.raw = true;
+		b.run(b.single(false, base + 2 * word, (word & 1) ? 0xC : 0x3, 0, "flash halfword read"));
+		b.raw = false;
+		return (uint16_t)(b.last_rdat >> ((word & 1) * 16));
+	};
+	// Read a 32-bit word via two halfword accesses on the halfword path (S_FLASH)
+	auto r32_halfpath = [&](uint32_t byte_addr) -> uint32_t {
+		uint32_t w = byte_addr & ~3u;
+		b.raw = true;
+		b.run(b.single(false, w, 0x3, 0, "halfpath lo"));
+		uint32_t lo = b.last_rdat & 0xFFFFu;
+		b.run(b.single(false, w, 0xC, 0, "halfpath hi"));
+		uint32_t hi = (b.last_rdat >> 16) & 0xFFFFu;
+		b.raw = false;
+		return lo | (hi << 16);
+	};
+	auto unlock_at = [&](uint32_t base) { w16_at(base, 0x555, 0xAA); w16_at(base, 0x2AA, 0x55); };
+
+	// 1. Measure quiet-bus clocks per 4-beat line in read-array mode (cold miss,
+	//    second half of 32B cache line, warm hit linear, warm hit wrap-4 for
+	//    offsets +0/+4/+8/+12) and compare every word against the halfword path.
+	uint32_t bases[] = {
+		0x00020000u, // CS0 canonical
+		0x01020000u, // CS0 +16 MB mirror
+		0x02010000u, // CS1 canonical
+		0x02810000u, // CS1 +8 MB mirror
+		0x03810000u  // CS1 +24 MB mirror
+	};
+	uint64_t cold_line_clks = 0, sibling_line_clks = 0, warm_line_clks = 0;
+	uint64_t wrap_warm_clks[4] = {0, 0, 0, 0};
+	uint64_t halfpath_line_clks = 0;
+
+	for (size_t bi = 0; bi < sizeof(bases) / sizeof(bases[0]); bi++) {
+		uint32_t base = bases[bi] + (uint32_t)(bi * 0x100u);
+		// Evict the direct-mapped 128 KB cache line by reading the same index at +4 MB
+		b.raw = true;
+		b.run(b.single(false, base ^ 0x00400000u, 0x3, 0, "evict cache line"));
+		b.raw = false;
+		// Cold 16-byte line fill (misses 32-byte M10K cache line)
+		settle_idle();
+		Txn t_cold = b.burst(false, base, 4, 0, "flash cold line burst");
+		b.raw = true;
+		uint64_t c0 = b.cyc;
+		b.run(t_cold);
+		uint64_t dt_cold = b.cyc - c0;
+		std::vector<uint32_t> got_cold = b.raw_beats;
+		b.raw = false;
+		if (bi == 0) cold_line_clks = dt_cold;
+
+		// Next 16-byte line in the same 32-byte M10K cache line (already filled)
+		settle_idle();
+		Txn t_sib = b.burst(false, base + 0x10, 4, 0, "flash sibling line burst");
+		b.raw = true;
+		c0 = b.cyc;
+		b.run(t_sib);
+		uint64_t dt_sib = b.cyc - c0;
+		std::vector<uint32_t> got_sib = b.raw_beats;
+		b.raw = false;
+		if (bi == 0) sibling_line_clks = dt_sib;
+
+		// Warm 16-byte line fill (linear)
+		settle_idle();
+		b.raw = true;
+		c0 = b.cyc;
+		b.run(t_cold);
+		uint64_t dt_warm = b.cyc - c0;
+		std::vector<uint32_t> got_warm = b.raw_beats;
+		b.raw = false;
+		if (bi == 0) warm_line_clks = dt_warm;
+
+		// Check all words against the halfword path
+		settle_idle();
+		c0 = b.cyc;
+		for (int w = 0; w < 4; w++) {
+			uint32_t want = r32_halfpath(base + 4 * w);
+			CHECK_EQ(got_cold[w], want, "cold line burst vs halfword path");
+			CHECK_EQ(got_warm[w], want, "warm line burst vs halfword path");
+		}
+		if (bi == 0) halfpath_line_clks = b.cyc - c0;
+		for (int w = 0; w < 4; w++) {
+			uint32_t want = r32_halfpath(base + 0x10 + 4 * w);
+			CHECK_EQ(got_sib[w], want, "sibling line burst vs halfword path");
+		}
+
+		// Wrap-4 bursts starting at each critical-word offset (+0, +4, +8, +12),
+		// both on a cold line and a warm line
+		for (int off = 0; off < 4; off++) {
+			uint32_t line_addr = base + 0x40 + 0x20 * off;
+			uint32_t start_addr = line_addr + 4 * off;
+			Txn t_wrap = b.burst(false, start_addr, 4, 1, "flash wrap-4 burst");
+
+			// Evict cache line so the first wrap-4 burst is a cold DDR3 miss
+			b.raw = true;
+			b.run(b.single(false, line_addr ^ 0x00400000u, 0x3, 0, "evict wrap-4 cache line"));
+			b.raw = false;
+
+			// Cold wrap-4
+			settle_idle();
+			b.raw = true;
+			b.run(t_wrap);
+			std::vector<uint32_t> got_wcold = b.raw_beats;
+			b.raw = false;
+
+			// Warm wrap-4
+			settle_idle();
+			b.raw = true;
+			c0 = b.cyc;
+			b.run(t_wrap);
+			uint64_t dt_wwarm = b.cyc - c0;
+			std::vector<uint32_t> got_wwarm = b.raw_beats;
+			b.raw = false;
+			if (bi == 0) wrap_warm_clks[off] = dt_wwarm;
+
+			for (int i = 0; i < 4; i++) {
+				uint32_t widx = (off + i) & 3;
+				uint32_t want = r32_halfpath(line_addr + 4 * widx);
+				CHECK_EQ(got_wcold[i], want, "cold wrap-4 burst vs halfword path");
+				CHECK_EQ(got_wwarm[i], want, "warm wrap-4 burst vs halfword path");
+			}
+		}
+	}
+
+	// 2. Line bursts in non-read-array modes (must take the halfword path):
+	// 2a. Autoselect mode on CS0 and CS1 (linear and wrap-4)
+	for (int cs = 0; cs < 2; cs++) {
+		uint32_t base = cs ? 0x02000000u : 0x00000000u;
+		uint16_t dev_id = cs ? 0x22FAu : 0x22F8u;
+		unlock_at(base); w16_at(base, 0x555, 0x90);
+		b.raw = true;
+		b.run(b.burst(false, base, 4, 0, "autoselect linear burst"));
+		std::vector<uint32_t> auto_lin = b.raw_beats;
+		b.run(b.burst(false, base + 4, 4, 1, "autoselect wrap-4 burst"));
+		std::vector<uint32_t> auto_wrap = b.raw_beats;
+		b.raw = false;
+		CHECK_EQ(auto_lin[0], 0x000000ECu | ((uint32_t)dev_id << 16), "autoselect burst word 0 (mfg + dev)");
+		CHECK_EQ(auto_lin[1], 0x00000000u, "autoselect burst word 1 (lock=0)");
+		CHECK_EQ(auto_wrap[0], auto_lin[1], "autoselect wrap-4 beat 0 (+4)");
+		CHECK_EQ(auto_wrap[3], auto_lin[0], "autoselect wrap-4 beat 3 (+0)");
+		w16_at(base, 0, 0xF0);
+		// Immediately after F0 returns to read-array mode, a wrap-4 burst must read array data
+		b.raw = true;
+		b.run(b.burst(false, base + 8, 4, 1, "array wrap-4 after F0"));
+		std::vector<uint32_t> after_f0 = b.raw_beats;
+		b.raw = false;
+		for (int i = 0; i < 4; i++) {
+			uint32_t widx = (2 + i) & 3;
+			CHECK_EQ(after_f0[i], r32_halfpath(base + 4 * widx), "array wrap-4 after F0 vs halfword path");
+		}
+	}
+
+	// 2b. CFI mode on CS0
+	w16_at(0, 0x55, 0x98);
+	b.raw = true;
+	b.run(b.burst(false, 2 * 0x10, 4, 0, "CFI linear burst"));
+	std::vector<uint32_t> cfi_beats = b.raw_beats;
+	b.raw = false;
+	CHECK_EQ(cfi_beats[0], 0x00520051u, "CFI burst 'Q','R'");
+	CHECK_EQ(cfi_beats[1], 0x00020059u, "CFI burst 'Y',0x02");
+	w16_at(0, 0, 0xF0);
+
+	// 2c. Program status mode (busy bank) and read-while-write (other bank)
+	uint32_t pa = 0x7FF120; // top parameter sector in bank 15
+	uint16_t old_w = b.flash_half(0, pa), new_w = (uint16_t)(old_w & 0x3CC3u);
+	// Warm the line in cache before programming
+	b.run(b.burst(false, 2 * (pa & ~7u), 4, 0, "warm line before program"));
+	unlock_at(0); w16_at(0, 0x555, 0xA0); w16_at(0, pa, new_w);
+	// Immediately do a 4-beat burst in the busy bank: must use S_FLASH status reads
+	b.raw = true;
+	b.run(b.burst(false, 2 * (pa & ~7u), 4, 1, "program status burst"));
+	std::vector<uint32_t> pstat = b.raw_beats;
+	b.raw = false;
+	for (int i = 0; i < 4; i++) {
+		uint16_t lo = (uint16_t)pstat[i], hi = (uint16_t)(pstat[i] >> 16);
+		// In program status, DQ6 (bit 6) toggles on every halfword read
+		CHECK_EQ((lo ^ hi) & 0x0040u, 0x0040u, "program status burst DQ6 toggles between halves");
+		if (i > 0) {
+			uint16_t prev_hi = (uint16_t)(pstat[i - 1] >> 16);
+			CHECK_EQ((prev_hi ^ lo) & 0x0040u, 0x0040u, "program status burst DQ6 toggles between beats");
+		}
+	}
+	while (((r16_at(0, pa) ^ new_w) & 0x80) != 0) {}
+	// Verify coherent line burst after program against halfword path
+	b.raw = true;
+	b.run(b.burst(false, 2 * (pa & ~7u) + 4, 4, 1, "wrap-4 burst after program"));
+	std::vector<uint32_t> post_prog = b.raw_beats;
+	b.raw = false;
+	for (int i = 0; i < 4; i++) {
+		uint32_t widx = (1 + i) & 3;
+		CHECK_EQ(post_prog[i], r32_halfpath(2 * (pa & ~7u) + 4 * widx), "coherent wrap-4 after program");
+	}
+
+	// 2d. Erase status burst and erase-suspend burst
+	unlock_at(0); w16_at(0, 0x555, 0x80); unlock_at(0); w16_at(0, 0x7FF000, 0x30);
+	b.raw = true;
+	b.run(b.burst(false, 2 * 0x7FF008, 4, 1, "erase status wrap-4 burst"));
+	std::vector<uint32_t> estat = b.raw_beats;
+	b.raw = false;
+	for (int i = 0; i < 4; i++) {
+		uint16_t lo = (uint16_t)estat[i], hi = (uint16_t)(estat[i] >> 16);
+		CHECK_EQ((lo ^ hi) & 0x0044u, 0x0044u, "erase status burst DQ6 and DQ2 toggle between halves");
+	}
+	// Suspend erase (B0): selected sector reads status (DQ7=1, DQ6 steady, DQ2 toggles),
+	// other sectors read the array via the halfword path
+	w16_at(0, 0x7FF000, 0xB0);
+	b.raw = true;
+	b.run(b.burst(false, 2 * 0x7FF000, 4, 0, "erase-suspend status burst"));
+	std::vector<uint32_t> sstat = b.raw_beats;
+	b.run(b.burst(false, 0x00001000, 4, 1, "erase-suspend other-bank array burst"));
+	std::vector<uint32_t> sarray = b.raw_beats;
+	b.raw = false;
+	for (int i = 0; i < 4; i++) {
+		uint16_t lo = (uint16_t)sstat[i], hi = (uint16_t)(sstat[i] >> 16);
+		CHECK_EQ(lo & 0x0080u, 0x0080u, "erase-suspend DQ7=1");
+		CHECK_EQ((lo ^ hi) & 0x0044u, 0x0004u, "erase-suspend DQ6 steady, DQ2 toggles");
+		CHECK_EQ(sarray[i], r32_halfpath(0x00001000 + 4 * i), "erase-suspend array burst vs halfword path");
+	}
+	// Resume erase (30) and wait for completion
+	w16_at(0, 0x7FF000, 0x30);
+	while (r16_at(0, 0x7FF000) != 0xFFFF) {}
+
+	// 3. Bursts crossing chip window boundaries:
+	// 3a. CS1 -> CS2/CS3 (0x03FFFFF8, 0x03FFFFFC, 0x04000000, 0x04000004) in read-array mode
+	b.raw = true;
+	b.run(b.burst(false, 0x03FFFFF8u, 4, 0, "CS1 to CS2/CS3 crossing burst (read-array)"));
+	std::vector<uint32_t> cross_arr = b.raw_beats;
+	b.raw = false;
+	CHECK_EQ(cross_arr[0], r32_halfpath(0x03FFFFF8u), "CS1->CS2 crossing beat 0 (CS1)");
+	CHECK_EQ(cross_arr[1], r32_halfpath(0x03FFFFFCu), "CS1->CS2 crossing beat 1 (CS1)");
+	CHECK_EQ(cross_arr[2], 0x00000000u, "CS1->CS2 crossing beat 2 (CS2 empty)");
+	CHECK_EQ(cross_arr[3], 0x00000000u, "CS1->CS2 crossing beat 3 (CS2 empty)");
+
+	// 3b. CS1 -> CS2/CS3 crossing burst while CS1 is in autoselect mode (halfword path)
+	unlock_at(0x02000000u); w16_at(0x02000000u, 0x555, 0x90);
+	b.raw = true;
+	b.run(b.burst(false, 0x03FFFFF8u, 4, 0, "CS1 to CS2/CS3 crossing burst (autoselect)"));
+	std::vector<uint32_t> cross_auto = b.raw_beats;
+	b.raw = false;
+	uint32_t want_auto_f8 = (uint32_t)r16_at(0x02000000u, 0x3FFFFCu) | ((uint32_t)r16_at(0x02000000u, 0x3FFFFDu) << 16);
+	uint32_t want_auto_fc = (uint32_t)r16_at(0x02000000u, 0x3FFFFEu) | ((uint32_t)r16_at(0x02000000u, 0x3FFFFFu) << 16);
+	CHECK_EQ(cross_auto[0], want_auto_f8, "CS1->CS2 autoselect crossing beat 0");
+	CHECK_EQ(cross_auto[1], want_auto_fc, "CS1->CS2 autoselect crossing beat 1");
+	CHECK_EQ(cross_auto[2], 0x00000000u, "CS1->CS2 autoselect crossing beat 2 (CS2 empty)");
+	CHECK_EQ(cross_auto[3], 0x00000000u, "CS1->CS2 autoselect crossing beat 3 (CS2 empty)");
+	w16_at(0x02000000u, 0, 0xF0);
+
+	// 3c. CS0 -> CS1 (0x01FFFFF8, 0x01FFFFFC, 0x02000000, 0x02000004) in read-array mode
+	b.raw = true;
+	b.run(b.burst(false, 0x01FFFFF8u, 4, 0, "CS0 to CS1 crossing burst"));
+	std::vector<uint32_t> cross_cs01 = b.raw_beats;
+	b.raw = false;
+	CHECK_EQ(cross_cs01[0], r32_halfpath(0x01FFFFF8u), "CS0->CS1 crossing beat 0 (CS0)");
+	CHECK_EQ(cross_cs01[1], r32_halfpath(0x01FFFFFCu), "CS0->CS1 crossing beat 1 (CS0)");
+	CHECK_EQ(cross_cs01[2], r32_halfpath(0x02000000u), "CS0->CS1 crossing beat 2 (CS1)");
+	CHECK_EQ(cross_cs01[3], r32_halfpath(0x02000004u), "CS0->CS1 crossing beat 3 (CS1)");
+
+	printf("flash 16B line clocks (quiet): cold miss %llu, sibling hit %llu, warm hit %llu "
+		"(wrap-4 warm +0/+4/+8/+12: %llu/%llu/%llu/%llu), 8x halfword path %llu\n",
+		(unsigned long long)cold_line_clks, (unsigned long long)sibling_line_clks,
+		(unsigned long long)warm_line_clks,
+		(unsigned long long)wrap_warm_clks[0], (unsigned long long)wrap_warm_clks[1],
+		(unsigned long long)wrap_warm_clks[2], (unsigned long long)wrap_warm_clks[3],
+		(unsigned long long)halfpath_line_clks);
+	CHECK(warm_line_clks <= 12 && sibling_line_clks <= 12, "warm flash line fill exceeded 12 clocks");
+	for (int off = 0; off < 4; off++)
+		CHECK(wrap_warm_clks[off] <= 12, "warm wrap-4 flash line fill exceeded 12 clocks");
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -426,6 +711,7 @@ int main(int argc, char **argv) {
 	for (int i = 0; i < txns && sim::failures() < 20; i++) b.random_txn();
 
 	flash_commands(b);
+	flash_line_bursts(b);
 	for (int i = 0; i < 2000 && sim::failures() < 20; i++) b.random_txn();
 
 	for (int i = 0; i < 100; i++) b.tick();
