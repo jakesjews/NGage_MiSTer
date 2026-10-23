@@ -103,7 +103,9 @@ localparam CONF_STR = {
 	"O[15:14],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
 	"O[6],Memory test,Off,On;",
+`ifndef NGAGE_NO_DEBUG
 	"O[8],Debug overlay,Off,On;",
+`endif
 	"-;",
 	"T[7],Save C: now;",
 	"T[0],Reset;",
@@ -1004,9 +1006,13 @@ always @(posedge clk_sys) begin
 end
 wire [15:0] test_rgb = (test_errors != 16'd0)  ? 16'hF81F :
                        test_any_pass           ? 16'h07E0 : 16'hFFE0;
-// the debug overlay (OSD "Debug overlay"): the CPU's PC, status bits and
+// a completed CPU bus beat: the activity dot (below) and the counters
+wire        dbg_bus_beat  = wb_cyc && wb_stb && (wb_ack || wb_err);
+// The debug overlay (OSD "Debug overlay"): the CPU's PC, status bits and
 // 32-bit words as white pixels; tools/mister_dbg.py has the row layout and
-// decodes a screenshot
+// decodes a screenshot. NGAGE_NO_DEBUG (NGage.qsf) leaves the overlay, its
+// per-second counters and the trace triggers out: the main core.
+`ifndef NGAGE_NO_DEBUG
 reg  [31:0] dbg_pc_q = 0;
 reg         dbg_bus_q = 0;
 reg   [7:0] dbg_bits_q = 0;
@@ -1057,7 +1063,6 @@ wire        dbg_tick = dbg_sec_pre == 27'd103_999_999;   // the second's last cl
 
 // per-second counters for the overlay (rtl/mister/dbg_counters.sv)
 wire        dbg_bus_pend  = wb_cyc && wb_stb && !wb_ack && !wb_err;
-wire        dbg_bus_beat  = wb_cyc && wb_stb && (wb_ack || wb_err);
 wire        dbg_bus_sdram = wb_adr[27:25] == 3'b101;      // 0x0A000000 window
 wire        dbg_bus_flash = wb_adr[27:26] == 2'b00;       // CS0-CS3
 // the events, one 32-bit count each: LCD frames and pixels, instructions
@@ -1154,6 +1159,14 @@ wire        dbg_bit   = dbg_pcrow_q ? dbg_pc_q[5'd31 - dbg_col_q] :
                         dbg_strow_q ? dbg_bits_q[3'd7 - 3'(dbg_col_q)] :
                                       dbg_word_q[5'd31 - dbg_col_q];
 wire [15:0] dbg_rgb   = dbg_bit ? 16'hFFFF : 16'h0000;
+`else
+wire        dbg_on = 1'b0, dbg_pcrow_q = 1'b0, dbg_strow_q = 1'b0, dbg_wrow_q = 1'b0;
+wire [15:0] dbg_rgb = 16'h0000;
+assign dbg_trig = 1'b0;
+wire unused_dbg = &{1'b0, cpu_dbg_pc, cpu_dbg_stall, cpu_dbg_dcache, cpu_dbg_wfi, dbg_src0[22], dbg_en0_irq,
+                    dbg_en0_fiq, tr_trig_pc, tr_dumps, tr_triggers, tr_dumping, kt_count, kt_dropped,
+                    lcd_pix_ev, status[8]};
+`endif
 // A six-pixel activity square outside the fixed debug rows (x 16..47).
 // At 104 MHz, keep each completed CPU bus beat visible for 1/8 second.
 reg [23:0] activity_left /* verilator public_flat_rd */ = 0;
