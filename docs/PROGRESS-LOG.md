@@ -3201,3 +3201,5 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   continuity) with the rest: the 4-clock branch, the BTB in the ARM9
   fetch, the block and multiply costs, the cycle gate against ZAP, then
   the trial.
+- The full CPU suite on master (the ZAP tree with the first timing round,
+  a801120's tree): 198 runs pass, 52 QEMU comparisons agree (the Mac).
