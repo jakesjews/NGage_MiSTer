@@ -252,7 +252,7 @@ int main(int argc, char **argv) {
 	bool stop = false;
 	int exit_code = -1;
 	uint64_t cycle = 0, retired = 0, replays = 0;
-	uint64_t stall_clocks[6] = {}, alu_flushes = 0;
+	uint64_t stall_clocks[6] = {}, alu_flushes = 0, uops = 0;
 	std::string console;
 
 	auto mmio_read = [&](uint32_t off) -> uint32_t {
@@ -308,6 +308,7 @@ int main(int argc, char **argv) {
 		for (int b = 0; b < 6; b++) stall_clocks[b] += (t->p_stall >> b) & 1;
 		// A held redirect is counted on its accepting edge, not every held clock.
 		alu_flushes += (t->p_stall & 0x41) == 0x40;
+		uops += t->p_valid || t->p_cfail;
 		uint32_t cpsr_before = t->p_cpsr;
 		bool thumb = (cpsr_before >> 5) & 1;
 		uint32_t pc = t->p_pc8 - (thumb ? 4 : 8);
@@ -544,6 +545,7 @@ int main(int argc, char **argv) {
 		printf("TIMEOUT after %" PRIu64 " cycles, last retired pc 0x%08x\n", cycle, last_pc);
 		rc = 1;
 	} else if (result == 1) {
+		printf("Uops: %" PRIu64 "\n", uops);
 		printf("Pipeline: data=%" PRIu64 " code=%" PRIu64 " fifo_empty=%" PRIu64
 		       " issue=%" PRIu64 " shifter=%" PRIu64 " decode=%" PRIu64
 		       " alu_flushes=%" PRIu64 "\n", stall_clocks[0], stall_clocks[1],

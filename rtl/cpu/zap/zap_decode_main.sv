@@ -86,7 +86,7 @@ module zap_decode_main #(
         input   logic    [CPSR_MODE:0]            i_cpsr_ff_mode, // Mode.
 
         // Instruction input.
-        input     logic  [35:0]                  i_instruction,
+        input     logic  [39:0]                  i_instruction,
         input     logic                          i_instruction_valid,
 
         // ------------------------
@@ -236,7 +236,10 @@ assign       o_fiq_nxt = i_fiq && !o_abt_nxt;
 // architectural register numbers.
 //
 assign       o_destination_index_nxt = // Always a register so no need for IMMED_EN.
-        translate ( destination_index_nxt, i_cpsr_ff_mode );
+        // ARM925T: bit 39 marks a final LDM/STM beat whose normal address
+        // result also updates the architectural base (bits 38:35).
+        translate ( i_instruction[39] ? {1'b0, i_instruction[38:35]} :
+                    destination_index_nxt, i_cpsr_ff_mode );
 
 assign       o_alu_source_nxt =
         (alu_source_nxt[32] == IMMED_EN ) ? // Constant...?
@@ -400,7 +403,7 @@ u_zap_decode (
         .i_irq(i_irq),
         .i_fiq(i_fiq),
         .i_abt(i_abt),
-        .i_instruction(i_instruction[35:0]),
+        .i_instruction({i_instruction[35] && !i_instruction[39], i_instruction[34:0]}),
         .i_instruction_valid(i_instruction_valid),
         .i_v5_und(i_v5_und),
         .o_condition_code(o_condition_code_nxt),
@@ -430,7 +433,7 @@ u_zap_decode (
 
 
 zap_decompile u_zap_decompile (
-        .i_instruction  (i_instruction[35:0]),
+        .i_instruction  ({i_instruction[35] && !i_instruction[39], i_instruction[34:0]}),
         .i_dav          (i_instruction_valid),
         .o_decompile    (decompile_tmp)
 );

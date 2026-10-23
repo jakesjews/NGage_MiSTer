@@ -931,7 +931,35 @@ begin:next_state_logic_and_output_logic
                                 o_align = 1;
                         end
 
-                        if ( reglist_ff == 0 )
+                        // ARM925T: finish on the last memory beat when no
+                        // restore is needed. For incrementing writeback the
+                        // last LDR/STR already computes the final base: give
+                        // that result the architectural destination. Its
+                        // writeback is suppressed by the same beat's abort.
+                        // Keep base-in-list loads and decrementing writeback
+                        // on the original sequence (different final value).
+                        if (reglist_ff != 0 && reglist_nxt == 0 &&
+                            (!writeback || (up && !(load && i_instruction[base]) && base != ARCH_PC)))
+                        begin
+                                if (writeback)
+                                        o_instruction[39:35] = {1'b1, base};
+                                if (i_instruction[15] && load)
+                                begin
+                                        state_nxt = WRITE_PC;
+                                        o_stall_from_decode = 1'b1;
+                                end
+                                else if (base_in_list)
+                                begin
+                                        state_nxt = BASE_LOAD;
+                                        o_stall_from_decode = 1'b1;
+                                end
+                                else
+                                begin
+                                        state_nxt = IDLE;
+                                        o_stall_from_decode = 1'b0;
+                                end
+                        end
+                        else if ( reglist_ff == 0 )
                         begin
                                 if ( i_instruction[{2'd0, ARCH_PC}] && load )
                                 begin

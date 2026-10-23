@@ -151,7 +151,33 @@ These proxy totals do not establish a reduction from the games' 3.7 CPI.
 | gba_thumb/0-3 | 35 -> 35 | 5552 -> 5552 |
 | gba_thumb/2-9 | 35 -> 35 | 9869 -> 9869 |
 
+## Item 3a: finish LDM/STM at its last useful beat
+
+No-writeback transfers skip the trailing empty uop. Incrementing transfers
+with writeback direct the last memory uop's address result to the original
+architectural base, using internal instruction metadata decoded before
+physical register translation. Data accesses and register order remain
+unchanged. The existing writeback exception priority suppresses that base
+write if the last beat aborts; earlier faults flush it before retirement.
+PC loads still finish with WRITE_PC, and deferred base loads with BASE_LOAD.
+Empty lists, decrementing writeback, PC bases and writeback loads whose base
+is in the list retain their original sequence. This achieves n+1 useful
+uops for the supported ordinary cases; it is not a claim for every LDM/STM.
+
+`ldmfold.S` tests two-register final-beat load/store aborts, one-register
+first-and-final-beat aborts, and failed conditions. It passes at all three
+latencies and matches a newly generated QEMU reference. The complete suite
+passes **204 runs and 54 QEMU comparisons**; lint and gen check pass.
+
+| Test | 0:0 item 2 -> item 3a | 0:3 item 2 -> item 3a | 2:9 item 2 -> item 3a |
+| --- | ---: | ---: | ---: |
+| cache | 789485 -> 789435 | 917469 -> 917317 | 1251216 -> 1251118 |
+| ctrand1 | 73176 -> 73105 | 102998 -> 102913 | 179704 -> 179659 |
+| crand1 | 74163 -> 73977 | 105697 -> 105416 | 188060 -> 187935 |
+| gba_arm | 8312 -> 8314 | 10934 -> 10937 | 17761 -> 17761 |
+| gba_thumb | 4928 -> 4933 | 6529 -> 6522 | 10877 -> 10882 |
+| ldm | 4236 -> 4203 | 5707 -> 5658 | 9574 -> 9577 |
+
 ## Remaining work
 
-The whole-core item-2 fit is running on Ubuntu. Items 2b–4, final timing
-and exact stopping point remain to be recorded.
+Whole-core timing and the remaining candidates are in progress.

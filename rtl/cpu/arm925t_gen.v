@@ -5424,7 +5424,7 @@ module zap_core (
 		.i_pc_plus_8_ff(predecode_pc_plus_8),
 		.i_pc_ff(predecode_pc),
 		.i_cpsr_ff_mode(alu_flags_ff[ZAP_CPSR_MODE:0]),
-		.i_instruction(predecode_inst[35:0]),
+		.i_instruction(predecode_inst),
 		.i_instruction_valid(predecode_val),
 		.i_taken(predecode_taken),
 		.i_ppc_ff(predecode_ppc_ff),
@@ -10062,7 +10062,7 @@ module zap_decode_main (
 	input wire [31:0] i_pc_ff;
 	input wire [31:0] i_pc_plus_8_ff;
 	input wire [CPSR_MODE:0] i_cpsr_ff_mode;
-	input wire [35:0] i_instruction;
+	input wire [39:0] i_instruction;
 	input wire i_instruction_valid;
 	output reg [31:0] o_ppc_ff;
 	output reg [3:0] o_condition_code_ff;
@@ -10545,7 +10545,7 @@ module zap_decode_main (
 	assign o_abt_nxt = i_abt && i_instruction_valid;
 	assign o_irq_nxt = (!i_fiq && i_irq) && !o_abt_nxt;
 	assign o_fiq_nxt = i_fiq && !o_abt_nxt;
-	assign o_destination_index_nxt = translate(destination_index_nxt, i_cpsr_ff_mode);
+	assign o_destination_index_nxt = translate((i_instruction[39] ? {1'b0, i_instruction[38:35]} : destination_index_nxt), i_cpsr_ff_mode);
 	assign o_alu_source_nxt = (alu_source_nxt[32] == IMMED_EN ? alu_source_nxt : {27'd0, translate(alu_source_nxt[4:0], i_cpsr_ff_mode)});
 	assign o_shift_source_nxt = (shift_source_nxt[32] == IMMED_EN ? shift_source_nxt : {27'd0, translate(shift_source_nxt[4:0], i_cpsr_ff_mode)});
 	assign o_shift_length_nxt = (shift_length_nxt[32] == IMMED_EN ? shift_length_nxt : {27'd0, translate(shift_length_nxt[4:0], i_cpsr_ff_mode)});
@@ -10661,7 +10661,7 @@ module zap_decode_main (
 		.i_irq(i_irq),
 		.i_fiq(i_fiq),
 		.i_abt(i_abt),
-		.i_instruction(i_instruction[35:0]),
+		.i_instruction({i_instruction[35] && !i_instruction[39], i_instruction[34:0]}),
 		.i_instruction_valid(i_instruction_valid),
 		.i_v5_und(i_v5_und),
 		.o_condition_code(o_condition_code_nxt),
@@ -10685,7 +10685,7 @@ module zap_decode_main (
 		.o_switch(o_switch_nxt)
 	);
 	zap_decompile u_zap_decompile(
-		.i_instruction(i_instruction[35:0]),
+		.i_instruction({i_instruction[35] && !i_instruction[39], i_instruction[34:0]}),
 		.i_dav(i_instruction_valid),
 		.o_decompile(decompile_tmp)
 	);
@@ -15762,7 +15762,7 @@ module zap_predecode_uop_sequencer (
 			default: pri_enc = 4'h0;
 		endcase
 	endfunction
-	always @(s_bit or cc or i_l4_enable or base or cc or base_in_list or load or i_instruction[{2'd0, ARCH_PC}] or reglist_ff or o_instruction[27:26] or reglist_ff or reglist_ff or i_instruction[31:0] or load or base_in_list or base or load or s_bit or load or s_bit or store or oc_offset or base or base or cc or base or cc or up or writeback or up or reglist_ff or reglist_ff or i_instruction[15:12] or cc or i_instruction[3:0] or i_instruction[19:16] or i_instruction[22] or cc or i_instruction_valid or i_instruction or i_instruction_valid or i_instruction or i_instruction[2:0] or blp_mag[3:0] or blp_neg or i_fiq or i_irq or i_instruction_valid or i_instruction or state_ff or i_fiq or i_irq or i_instruction[20] or i_instruction[15:12] or i_instruction[4] or i_instruction[25] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction[31:28] or i_instruction[31:28] or i_cpsr_t or i_instruction_valid or i_instruction[24] or i_instruction[27:25] or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[20] or i_instruction[22:21] or i_instruction[27:23] or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[7:4] or i_instruction[27:23] or i_instruction[19:16] or i_instruction[22] or cc or i_fiq or i_irq or i_instruction_valid or i_instruction[31:0] or i_fiq or i_irq or reglist or oc_offset or base or cc or base or cc or up or i_instruction_valid or id or i_fiq or i_irq or i_cpsr_t or i_instruction[31:28] or i_instruction_valid or i_instruction[27:4] or i_fiq or i_irq or i_cpsr_t or i_instruction_valid or i_instruction[31:25] or i_fiq or i_irq or i_instruction[19:12] or i_instruction[6:5] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[3:0] or i_instruction[11:8] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[22] or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[12] or i_instruction[6:5] or i_instruction[6:5] or i_instruction[20] or i_instruction[27:25] or i_fiq or i_irq or i_instruction or cc or cp15_done or i_cp_stall or cp15_done or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction[10:3] or t_bl_alone or i_fiq or i_irq or blp_mag[10:4] or blp_neg or t_bl_prefix or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:28] or i_cpsr_t or state_ff or state_ff or state_ff or state_ff or i_instruction[6:5] or i_instruction[15:12] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[15:12] or i_instruction[31:28] or i_instruction[6:5] or i_instruction[19:16] or o_instruction[11:0] or i_instruction[22] or i_instruction[21] or i_instruction[19:16] or i_instruction[24:23] or i_instruction[15:12] or i_instruction[31:28] or i_instruction or i_cpsr_t or const_nxt[31:24] or const_nxt[23:16] or const_nxt[15:8] or const_nxt[7:0] or i_instruction[24] or i_instruction[23:0] or i_instruction[23] or cc or state_ff or reglist_ff or i_instruction_valid or i_instruction or state_ff or const_ff or _sv2v_0) begin : next_state_logic_and_output_logic
+	always @(s_bit or cc or i_l4_enable or base or cc or base_in_list or load or i_instruction[{2'd0, ARCH_PC}] or reglist_ff or base_in_list or load or i_instruction[15] or base or writeback or base or base or i_instruction or load or up or writeback or reglist_nxt or reglist_ff or o_instruction[27:26] or reglist_ff or reglist_ff or i_instruction[31:0] or load or base_in_list or base or load or s_bit or load or s_bit or store or oc_offset or base or base or cc or base or cc or up or writeback or up or reglist_ff or reglist_ff or i_instruction[15:12] or cc or i_instruction[3:0] or i_instruction[19:16] or i_instruction[22] or cc or i_instruction_valid or i_instruction or i_instruction_valid or i_instruction or i_instruction[2:0] or blp_mag[3:0] or blp_neg or i_fiq or i_irq or i_instruction_valid or i_instruction or state_ff or i_fiq or i_irq or i_instruction[20] or i_instruction[15:12] or i_instruction[4] or i_instruction[25] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction[31:28] or i_instruction[31:28] or i_cpsr_t or i_instruction_valid or i_instruction[24] or i_instruction[27:25] or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[20] or i_instruction[22:21] or i_instruction[27:23] or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[7:4] or i_instruction[27:23] or i_instruction[19:16] or i_instruction[22] or cc or i_fiq or i_irq or i_instruction_valid or i_instruction[31:0] or i_fiq or i_irq or reglist or oc_offset or base or cc or base or cc or up or i_instruction_valid or id or i_fiq or i_irq or i_cpsr_t or i_instruction[31:28] or i_instruction_valid or i_instruction[27:4] or i_fiq or i_irq or i_cpsr_t or i_instruction_valid or i_instruction[31:25] or i_fiq or i_irq or i_instruction[19:12] or i_instruction[6:5] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[3:0] or i_instruction[11:8] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[22] or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[12] or i_instruction[6:5] or i_instruction[6:5] or i_instruction[20] or i_instruction[27:25] or i_fiq or i_irq or i_instruction or cc or cp15_done or i_cp_stall or cp15_done or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction[10:3] or t_bl_alone or i_fiq or i_irq or blp_mag[10:4] or blp_neg or t_bl_prefix or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:28] or i_cpsr_t or state_ff or state_ff or state_ff or state_ff or i_instruction[6:5] or i_instruction[15:12] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[15:12] or i_instruction[31:28] or i_instruction[6:5] or i_instruction[19:16] or o_instruction[11:0] or i_instruction[22] or i_instruction[21] or i_instruction[19:16] or i_instruction[24:23] or i_instruction[15:12] or i_instruction[31:28] or i_instruction or i_cpsr_t or const_nxt[31:24] or const_nxt[23:16] or const_nxt[15:8] or const_nxt[7:0] or i_instruction[24] or i_instruction[23:0] or i_instruction[23] or cc or state_ff or reglist_ff or i_instruction_valid or i_instruction or state_ff or const_ff or _sv2v_0) begin : next_state_logic_and_output_logic
 		if (_sv2v_0)
 			;
 		const_nxt = const_ff;
@@ -16119,7 +16119,23 @@ module zap_predecode_uop_sequencer (
 				o_instruction_valid = 1'd1;
 				if (o_instruction[27:26] == 2'b01)
 					o_align = 1;
-				if (reglist_ff == 0) begin
+				if (((reglist_ff != 0) && (reglist_nxt == 0)) && (!writeback || ((up && !(load && i_instruction[base])) && (base != ARCH_PC)))) begin
+					if (writeback)
+						o_instruction[39:35] = {1'b1, base};
+					if (i_instruction[15] && load) begin
+						state_nxt = 26'd4;
+						o_stall_from_decode = 1'b1;
+					end
+					else if (base_in_list) begin
+						state_nxt = 26'd33554432;
+						o_stall_from_decode = 1'b1;
+					end
+					else begin
+						state_nxt = 26'd1;
+						o_stall_from_decode = 1'b0;
+					end
+				end
+				else if (reglist_ff == 0) begin
 					if (i_instruction[{2'd0, ARCH_PC}] && load) begin
 						o_stall_from_decode = 1'd1;
 						state_nxt = 26'd4;

@@ -933,7 +933,7 @@ u_zap_decode_main (
 
         .i_cpsr_ff_mode                 (alu_flags_ff[ZAP_CPSR_MODE:0]),
 
-        .i_instruction                  (predecode_inst[35:0]),
+        .i_instruction                  (predecode_inst),
         .i_instruction_valid            (predecode_val),
         .i_taken                        (predecode_taken),
         .i_ppc_ff                       (predecode_ppc_ff),
