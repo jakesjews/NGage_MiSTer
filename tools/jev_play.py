@@ -148,6 +148,19 @@ LAUNCHERS = {"NGage": "/media/fat/_Console/_NGage", "NGageDbg": "/media/fat/_Con
              "NGageTrc": "/media/fat/_Console/_NGage/_Debug"}
 
 
+def overlay_cfg(on):
+    """The debug overlay from the core's first picture: Main reads the core's
+    status bits from /media/fat/config/NGage.CFG (16 bytes) at the core load,
+    and "Debug overlay" is status[8]. With the file in place no OSD key
+    sequence has to run while the launcher's file loads restart the core
+    (one such run landed on Rotate). off removes the file, so a person's own
+    runs start with the defaults again."""
+    if on:
+        ssh("printf '\\000\\001\\000\\000\\000\\000\\000\\000\\000\\000\\000\\000\\000\\000\\000\\000' > /media/fat/config/NGage.CFG; sync")
+    else:
+        ssh("rm -f /media/fat/config/NGage.CFG; sync")
+
+
 def load_launcher(game, core="NGage"):
     folder = LAUNCHERS.get(core, "/media/fat/_Console/_NGage/_Debug")
     out = ssh(f"date +%s.%N; echo 'load_core {folder}/{core}-{game}.mgl' > /dev/MiSTer_cmd")

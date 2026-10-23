@@ -4,10 +4,10 @@
 
     tools/boot_profile.py LAUNCHER [--seconds 230] [--period 2] [--out DIR] [--keys t=KEY,...]
 
-Loads /media/fat/_Console/LAUNCHER.mgl, switches the debug overlay on
-through the OSD as soon as the core shows a picture (and again whenever the
-captures stop decoding: the launcher's file loads restart the core), and
-captures the panel every --period seconds for --seconds, through
+Loads /media/fat/_Console/LAUNCHER.mgl with the debug overlay on from the
+core's first picture (the core's config file, jev_play.overlay_cfg; removed
+at the end), switches it on through the OSD if the captures ever stop
+decoding, and captures the panel every --period seconds for --seconds, through
 tools/mister_input.py on the board (Main's own screenshot; no Zaparoo, no
 model deciding anything). Every capture is decoded with tools/mister_dbg.py
 and the counters go to DIR/profile.csv (seconds since the load on the
@@ -21,7 +21,7 @@ import argparse, csv, re, sys, time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from jev_play import Board, decode_overlay, load_launcher  # noqa: E402
+from jev_play import Board, decode_overlay, load_launcher, overlay_cfg  # noqa: E402
 
 PAT = re.compile(r"(\d+) frames, (\d+) px, ([\d.]+) M instr, idle ([\d.]+)%, bus wait sdram ([\d.]+)% flash ([\d.]+)% other ([\d.]+)%, (\d+) beats")
 CLK = 104_000_000
@@ -50,6 +50,7 @@ def main():
     keys = sorted((float(t), k) for t, k in (x.split("=") for x in a.keys.split(",") if x))
     board = Board()
     core, game = a.launcher.split("-", 1)
+    overlay_cfg(True)
     t0 = load_launcher(game, core)
     print(f"loaded {a.launcher} at MiSTer time {t0:.1f}", flush=True)
     w = csv.writer(open(out / "profile.csv", "w", newline=""))
@@ -92,6 +93,7 @@ def main():
         if t >= a.seconds:
             break
     board.close()
+    overlay_cfg(False)
     print("profile in", out / "profile.csv")
 
 

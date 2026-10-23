@@ -2845,3 +2845,49 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   setup +0.078 ns at the worst corner, hold +0.223, 33,750 ALMs; kept as
   build/hardware/sweep5/NGage-s10-3a.rbf. A little more margin than seed
   8, from the latest tree.
+- Seeds 11-13 of the 3a tree on the server all miss: -0.422, -0.019 and
+  -0.214 ns at slow 100C (-0.232, -0.197, -0.168 at slow -40C), hold
+  positive. Still seed luck; seeds 8 (376950d) and 10 (27a4152) stay the
+  clean candidates.
+- The boot bench on the tree with families 1 and 2 (before 2b's revert):
+  2.7 G cycles, 661,484,885 instructions, the register log and the bus log
+  identical to the previous tree's.
+
+### 2026-10-22: game speed on the hardware
+
+- Measured in play with the overlay's per-second counters on seed 10 of the
+  3a tree (`build/hardware/sweep5/NGage-s10-3a.rbf`, deployed as
+  `_Debug/NGageDbg_20261022.rbf`), the keys scripted through
+  `tools/game_keys.py` (tools/mister_input.py on the board, no model
+  choosing anything); captures in `build/hardware/game/sonicn/` and
+  `build/hardware/game/asphalt/`:
+  - Sonic N, Neo Green Hill, running right and jumping (p0-p9): 7-12
+    frames/s (whole 176x208 frames), 19.3-20.8 M instructions/s, CPI
+    5.0-5.4, bus waits SDRAM 22-25 %, flash 8-9 %, idle 0 %, 5.0-5.4 M bus
+    beats/s. The model: 30 frames/s (2 ticks). The Eggman cut-scene 8-10
+    frames/s, the title 4-6.
+  - Asphalt Urban GT, Cop Chase in Chernobyl, accelerating and steering
+    (r0-r9): 10-12 frames/s, 21.0-21.3 M instructions/s, CPI 4.9, SDRAM
+    22.4 %, flash 6.5 %, idle 0 %, 5.7 M beats/s. The model: 20.5 frames/s
+    (3 ticks). The title 10 frames/s, the race select 18.
+  - So the core plays Sonic at a third and Asphalt at a half of the rates
+    the model (not CPU-bound; the phone's tick rates) shows, and both are
+    CPU-bound throughout: never in wait-for-interrupt, 20-21 M
+    instructions/s. The bus waits are about 30 % of the clocks; the
+    pipeline itself takes about 3.5 clocks per instruction for the rest.
+    The kernel phase of the boot is 13 M instructions/s at CPI 8, so the
+    games get about 1.6x the boot's rate, not the 3-4x a real ARM9's CPI
+    would give.
+- The overlay is switched on through the core's config file now:
+  `/media/fat/config/NGage.CFG`, 16 bytes with status bit 8 set, which
+  Main reads at the core load (`jev_play.overlay_cfg`; the tools remove it
+  at the end). The OSD key sequence during the launcher's file loads was
+  not safe: in one run the core restarted for a file load in the middle of
+  it, the enter landed on Rotate, and every capture came out sideways
+  (208x176), undecodable (`build/hardware/boot/sweep5-s10-p2`, the seed 10
+  profile that failed). `tools/boot_profile.py` keeps the key sequence
+  only as the fallback when captures stop decoding.
+- Next: a build with the CPU's stall taps on the overlay (a91da1d: the data
+  and code bus waits, the fetch FIFO empty, the issue, shifter and decode
+  stalls, the ALU's and the writeback's flushes, the uops retired) to see
+  where the five clocks per instruction go in play.
