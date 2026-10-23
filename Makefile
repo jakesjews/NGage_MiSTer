@@ -2,17 +2,17 @@ VERILATOR ?= verilator
 
 # Modules linted as tops of their own, so that a block is checked with its
 # default parameters even where the shell ties ports off.
-LINT_TOPS := emu lcd_panel video_out keypad_matrix nor_flash mmc_card ngage_input ddram_loader lcd_testgen dbg_trace dbg_sti dbg_counters \
+LINT_TOPS := emu lcd_panel video_out keypad_matrix nor_flash mmc_card ngage_input ddram_loader phoenix_load lcd_testgen dbg_trace dbg_sti dbg_counters \
              sdram ddram_flash upp_bus ngage_mem wb_selftest flash_save rtc_wall \
              upp_periph upp_intc upp_timers upp_dma upp_mmc upp_lcdif upp_uif upp_cbus upp_haudio wb_arb2
 
-.PHONY: help lint lint-prepare test clean cpu-gen cpu-gen-check standin standin-check image-check
+.PHONY: help lint lint-prepare test clean cpu-gen cpu-gen-check standin standin-check image-check patchrom patchrom-check
 
 help:
 	@echo "make lint   Lint the RTL with Verilator (-Wall)"
 	@echo "make test   Build and run every Verilator bench in sim/ (one at a time)"
 	@echo "make -C sim <bench>   One bench: lcd video keypad flash mmc sdram sdram-faults ddrflash upp"
-	@echo "                      intc timers haudio periph save top"
+	@echo "                      intc timers haudio periph save phoenix phoenix-real top"
 	@echo "make clean  Remove sim/build"
 	@echo "make cpu-gen        Regenerate rtl/cpu/arm925t_gen.v (tools/gen_cpu.sh, needs sv2v)"
 	@echo "make cpu-gen-check  Check that rtl/cpu/arm925t_gen.v matches its sources"
@@ -74,3 +74,10 @@ CS0 ?= research/firmware/images/nor/rh29-4.60-cs0-model.bin
 CS1 ?= research/firmware/images/nor/rh29-4.60-cs1.bin
 image-check:
 	tools/patchcheck.sh $(CS0) $(CS1)
+
+# Only project-owned NOS code and fixed integrity-table digests enter this ROM.
+patchrom:
+	python3 -I tools/gen_patchrom.py
+
+patchrom-check:
+	python3 -I tools/gen_patchrom.py --check

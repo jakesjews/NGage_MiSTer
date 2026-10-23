@@ -97,7 +97,7 @@ module save_tb #(
 		.dma_ack(), .dma_err(), .dma_dat_o(),
 		.p_sel(), .p_we(), .p_addr(), .p_wdata(), .p_be(), .p_rdata(32'd0), .p_wait(1'b0),
 		.flash_busy(), .unmapped(),
-		.ld_we(ld_we), .ld_addr(ld_addr), .ld_din(ld_din), .ld_be(ld_be), .ld_busy(ld_busy),
+		.ld_rd(1'b0), .ld_valid(), .ld_data(), .ld_we(ld_we), .ld_addr(ld_addr), .ld_din(ld_din), .ld_be(ld_be), .ld_busy(ld_busy),
 		.save_mark(mark), .save_mark_blk(mark_blk), .save_rd(bk_req), .save_blk(bk_blk),
 		.save_taken(bk_taken), .save_valid(bk_valid), .save_data(bk_data),
 		.ddram_busy(ddram_busy), .ddram_burstcnt(ddram_burstcnt), .ddram_addr(ddram_addr), .ddram_dout(ddram_dout),

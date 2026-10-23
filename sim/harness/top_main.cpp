@@ -29,6 +29,8 @@
 #include "common.h"
 #include "ddram_model.h"
 #include "sdram_model.h"
+#include "phoenix_stream.h"
+#include <fstream>
 
 #include <cstring>
 #include <utility>
@@ -115,6 +117,33 @@ struct Bench {
 
 	// slot 1, served when slot 0 is quiet: reads of blk_cnt + 1 blocks; a
 	// write request is only counted (nothing should ask for one here)
+	void download(int index, const std::vector<uint8_t> &data) {
+		auto &h = *r;
+		h.emu__DOT__hps_io__DOT__sim_index = index;
+		h.emu__DOT__hps_io__DOT__sim_download = 1;
+		ticks(5);
+		auto wait = [&]() {
+			uint64_t end = clocks + 10000000;
+			while (h.emu__DOT__hps_io__DOT__sim_wait && clocks < end) tick();
+			CHECK(clocks < end, "download backpressure timeout");
+		};
+		for (size_t a = 0; a < data.size(); a += 2) {
+			wait();
+			h.emu__DOT__hps_io__DOT__sim_addr = (uint32_t)a;
+			h.emu__DOT__hps_io__DOT__sim_dout = data[a] | ((a + 1 < data.size() ? data[a + 1] : 0x7A) << 8);
+			h.emu__DOT__hps_io__DOT__sim_wr = 1;
+			tick(); h.emu__DOT__hps_io__DOT__sim_wr = 0;
+			ticks(rng.range(1, 6));
+		}
+		wait(); ticks(5);
+		h.emu__DOT__hps_io__DOT__sim_download = 0;
+		ticks(5);
+		uint64_t end = clocks + 1000000;
+		while (h.emu__DOT__ph_busy && clocks < end) tick();
+		CHECK(clocks < end, "Phoenix patch/verify timeout");
+		ticks(20);
+	}
+
 	void s1_step() {
 		auto &h = *r;
 		if (h.emu__DOT__hps_io__DOT__sim_sd_wr1) s1_writes++;
@@ -277,11 +306,86 @@ int compare(const sim::Image &got, uint32_t st, int rot, const char *what, bool 
 
 }  // namespace
 
+// Exercise the actual ioctl -> shared DDR port -> version read -> patch path.
+// Separate shell instance leaves the existing video/CPU regression independent.
+static void test_phoenix() {
+	Bench b;
+	auto &r = *b.r;
+	b.ticks(30000);
+	r.emu__DOT__hps_io__DOT__sim_rtc[0] = 0x01120000;
+	r.emu__DOT__hps_io__DOT__sim_rtc[1] = 0x00000406;
+	r.emu__DOT__hps_io__DOT__sim_rtc[2] = 1;
+	b.ticks(20);
+	static const uint32_t prog[] = {0xE3A0040A,0xE59F1010,0xE5801000,0xE5902000,
+	                                0xE2822001,0xE5802004,0xEAFFFFFE,0x12345678};
+	phoenix::Bytes code(sizeof prog); memcpy(code.data(), prog, sizeof prog);
+	auto mcu = phoenix::mcu(); phoenix::record(mcu, 0x14, 0, code);
+	b.download(1, mcu);
+	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "MCU alone cannot boot");
+	CHECK_EQ(b.ddr[0x85], 255, "Phoenix FF gap");
+	CHECK_EQ(b.ddr[0xFFFFFF], 255, "CS0 fill reaches last byte");
+	CHECK_EQ(b.ddr[0x13FFFFF], 255, "CS1 firmware fill reaches last byte");
+	CHECK_EQ(b.ddr[0x1400000], 0x5A, "Phoenix fill stops before C:");
+	CHECK_EQ(b.ddr[0x80], 1, "21 record data");
+	CHECK_EQ(b.ddr[0x1000003], 0x11, "14 CS1 record data");
+	b.download(2, phoenix::language());
+	CHECK(r.emu__DOT__ph_ready && r.emu__DOT__cpu_reset, "both files still need C:");
+	CHECK_EQ(b.ddr[0xF00001], 6, "language mapped");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 10), 1, "4.60 OSD message");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 9), 0, "valid checksums");
+	std::ifstream hex("rtl/mister/phoenix_patch.hex");
+	phoenix::Bytes patch; unsigned x;
+	while (hex >> std::hex >> x) patch.push_back(x);
+	CHECK(!patch.empty(), "patch fixture read");
+	for (size_t p = 0; p < patch.size() && patch[p] != 255;) {
+		unsigned chip = patch[p++], off = 0, n = 0;
+		for (int i = 0; i < 3; i++) off = (off << 8) | patch[p++];
+		for (int i = 0; i < 4; i++) n = (n << 8) | patch[p++];
+		CHECK(!memcmp(b.ddr + chip * 0x1000000 + off, patch.data() + p, n), "full patch payload in DDR3"); p += n;
+	}
+	// Framework order: both ROMs, then boot1.vhd. Only C: is loaded.
+	b.img1.assign(4u << 20, 255);
+	r.emu__DOT__hps_io__DOT__sim_size = b.img1.size();
+	r.emu__DOT__hps_io__DOT__sim_readonly = 0;
+	r.emu__DOT__hps_io__DOT__sim_mounted = 2;
+	b.ticks(100);
+	CHECK(r.emu__DOT__cpu_reset && r.emu__DOT__fs_loading, "CPU held through C: load");
+	uint64_t end = b.clocks + 20000000;
+	while (r.emu__DOT__fs_loading && b.clocks < end) b.tick();
+	CHECK(b.clocks < end, "4 MB mount finished");
+	CHECK_EQ(b.s1_reads, 1024, "4 MB save reads");
+	CHECK(!memcmp(b.ddr + 0x1400000, b.img1.data(), b.img1.size()), "C: image loaded");
+	CHECK_EQ(b.ddr[0x1000003], 0x11, "save preserved Phoenix firmware");
+	CHECK(r.emu__DOT__c_blank, "blank C: enables first-boot fast format");
+	b.ticks(10000);
+	CHECK(!r.emu__DOT__cpu_reset && b.cpu_writes.size() == 2, "CPU starts only after patch and save");
+
+	// Manual order: the save stays mounted while language arrives before MCU.
+	b.download(2, phoenix::language());
+	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "new pair invalidates old firmware");
+	b.download(1, mcu);
+	b.ticks(10000);
+	CHECK(r.emu__DOT__ph_ready && !r.emu__DOT__cpu_reset, "reverse order with save already mounted");
+	CHECK(!memcmp(b.ddr + 0x1400000, b.img1.data(), b.img1.size()), "firmware reload preserved C:");
+
+	b.download(1, phoenix::mcu(false)); b.download(2, phoenix::language());
+	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "unknown version holds CPU");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 11), 1, "unknown version OSD message");
+	CHECK_EQ(b.ddr[0x9E4D4], 255, "unknown version unpatched");
+	b.download(1, phoenix::mcu(true, true));
+	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "bad checksum holds CPU");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 9), 1, "damaged file OSD message");
+	CHECK(!b.ddr_stray && !b.dm.protocol_errors, "Phoenix shared DDR protocol");
+	CHECK_EQ(b.s1_writes, 0, "firmware loads did not dirty C: save");
+	printf("Phoenix shell: all record types, fill, patches, version/damage rejection, both orders and C: isolation (%llu clocks)\n", (unsigned long long)b.clocks);
+}
+
 int main(int argc, char **argv) {
 	Verilated::commandArgs(argc, argv);
 	std::string out = "sim/build/out";
 	for (int i = 1; i < argc; i++)
 		if (!strcmp(argv[i], "--out") && i + 1 < argc) out = argv[++i];
+	test_phoenix();
 	Bench b;
 	auto &R = *b.r;
 
@@ -382,25 +486,8 @@ int main(int argc, char **argv) {
 	b.ticks(4);
 	R.emu__DOT__hps_io__DOT__sim_rtc[2] = 1;             // bit 64: the time is sent
 
-	// flash images through ioctl into DDR3
-	auto download = [&](int index, const std::vector<uint8_t> &data) {
-		R.emu__DOT__hps_io__DOT__sim_index = index;
-		R.emu__DOT__hps_io__DOT__sim_download = 1;
-		b.ticks(5);
-		for (size_t a = 0; a < data.size(); a += 2) {
-			while (R.emu__DOT__hps_io__DOT__sim_wait) b.tick();
-			R.emu__DOT__hps_io__DOT__sim_addr = (uint32_t)a;
-			R.emu__DOT__hps_io__DOT__sim_dout = (uint16_t)(data[a] | data[a + 1] << 8);
-			R.emu__DOT__hps_io__DOT__sim_wr = 1;
-			b.tick();
-			R.emu__DOT__hps_io__DOT__sim_wr = 0;
-			b.ticks(b.rng.range(1, 6));
-		}
-		while (R.emu__DOT__hps_io__DOT__sim_wait) b.tick();
-		b.ticks(5);
-		R.emu__DOT__hps_io__DOT__sim_download = 0;
-		b.ticks(5);
-	};
+	// Development flat images retain their own indexes.
+	auto download = [&](int index, const std::vector<uint8_t> &data) { b.download(index, data); };
 	std::vector<uint8_t> cs0(65536), cs1(32768);
 	for (size_t i = 0; i < cs0.size(); i++) cs0[i] = (uint8_t)(i * 13 + (i >> 8));
 	for (size_t i = 0; i < cs1.size(); i++) cs1[i] = (uint8_t)(i * 7 ^ 0xA5);
@@ -411,11 +498,11 @@ int main(int argc, char **argv) {
 	                                0xE2822001, 0xE5802004, 0xEAFFFFFE, 0x12345678};
 	memcpy(cs0.data(), prog, sizeof prog);
 	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset with no flash image");
-	download(1, cs0);
+	download(3, cs0);
 	b.ticks(1000);
 	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset with only CS0 loaded");
 	CHECK(b.cpu_writes.empty(), "CPU writes before CS1 is loaded");
-	download(2, cs1);
+	download(4, cs1);
 	CHECK(memcmp(&b.ddr[0], cs0.data(), cs0.size()) == 0, "CS0 image in DDR3 at 0x31000000");
 	CHECK(memcmp(&b.ddr[0x01000000], cs1.data(), cs1.size()) == 0, "CS1 image in DDR3 at 0x32000000");
 	CHECK_EQ(b.ddr[cs0.size()], 0x5A, "byte after the CS0 image");
@@ -476,8 +563,9 @@ int main(int argc, char **argv) {
 		while (R.emu__DOT__fs_loading && b.clocks < t1 + 30000000) b.tick();
 		CHECK(!R.emu__DOT__fs_loading, "the CS1 save loaded");
 		printf("CS1 save: loaded in %llu clocks, %llu requests\n", (unsigned long long)(b.clocks - t1), (unsigned long long)b.s1_reads);
-		CHECK_EQ(b.s1_reads, 2048, "4 KB requests for 8 MB");
-		CHECK(memcmp(&b.ddr[0x01000000], b.img1.data(), b.img1.size()) == 0, "CS1 save image in DDR3 at 0x32000000");
+		CHECK_EQ(b.s1_reads, 1024, "4 KB requests for upper 4 MB of legacy save");
+		CHECK(memcmp(&b.ddr[0x01400000], b.img1.data() + (4u << 20), 4u << 20) == 0, "C: save image in DDR3 at 0x32400000");
+		CHECK(memcmp(&b.ddr[0x01000000], cs1.data(), cs1.size()) == 0, "save did not overwrite CS1 firmware");
 		b.ticks(20);
 		CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 3), 1, "OSD message 3 (CS1 mounted)");
 		CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "boot message after save loading");
@@ -538,7 +626,7 @@ int main(int argc, char **argv) {
 	};
 	memcpy(cs0.data(), lcd_prog, sizeof lcd_prog);
 	b.infos.clear();
-	download(1, cs0);
+	download(3, cs0);
 	b.ticks(20000);
 	CHECK(R.emu__DOT__boot_done, "firmware RAMWR ends Boot only");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "LCD program boot-start message");
@@ -592,7 +680,7 @@ int main(int argc, char **argv) {
 	// No CPU implementation changes are involved.
 	static const uint32_t sleep_prog[] = {0xE3A00A01, 0xEE010F10, 0xEAFFFFFE};
 	memcpy(cs0.data(), sleep_prog, sizeof sleep_prog);
-	download(1, cs0);
+	download(3, cs0);
 	b.ticks(20000);
 	uint32_t left = R.emu__DOT__activity_left;
 	CHECK(left > 0 && left < 13000000, "activity countdown in cached loop");

@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// The CS1 flash image as a save file: an 8 MB image mounted on an hps_io
-// block slot (WIDE = 1, 512-byte blocks) is copied into DDR3 at CS1's place
-// (0x32000000, where ddram_flash serves the chip from), and every 512-byte
+// The C: drive as a save file: a 4 MB file mounted on an hps_io block
+// slot (WIDE = 1, 512-byte blocks) is copied into DDR3 at CS1 + 0x400000
+// (0x32400000). An 8 MB legacy image uses only its upper half; its firmware
+// half is never loaded or written. Every changed 512-byte
 // block the firmware changes there (programs and erases of the C: drive, CS1
 // 0x400000-0x7FFFFF) is written back to the file. So phone settings and game
 // saves survive a power cycle.
 //
-//   * Mount (img_mounted with an 8 MB image): the dirty bitmap is cleared, the
+//   * Mount (img_mounted with a 4 MB or 8 MB image): the dirty bitmap is cleared, the
 //     image is read in 4 KB requests (sd_blk_cnt 7) into a buffer and copied
 //     into DDR3 through ngage_mem's loader port; loading is high meanwhile
 //     (hold the core in reset). Another size unmounts (note 2); a read-only
@@ -79,7 +80,7 @@ module flash_save #(
 	output logic        unsaved,
 	output logic        present,       // an image is mounted and in DDR3
 	output logic        active,
-	output logic [1:0]  note = 2'd0,   // pulse: 1 mounted, 2 not 8 MB, 3 read-only
+	output logic [1:0]  note = 2'd0,   // pulse: 1 mounted, 2 wrong size, 3 read-only
 	output logic        saved = 1'b0   // pulse: a write-back asked for with save_now is done
 );
 
@@ -94,6 +95,8 @@ module flash_save #(
 	// power-up values as the reset's, so nothing moves before the first reset
 	logic [3:0]  st = S_INIT;
 	logic        ro = 1'b0, attached = 1'b0, pending = 1'b0, during = 1'b0, forced = 1'b0, force_q = 1'b0;
+	logic full_image = 1'b1;          // legacy 8 MB file: C: starts at LBA 8192
+	wire c_mark = mark && mark_blk[13]; // never persist firmware-half writes
 	logic [13:0] ptr;                  // bitmap sweep / scan position, load block
 	logic [8:0]  beat;                 // copy beat in the 4 KB buffer
 	logic [1:0]  cph;                  // copy phase
@@ -112,7 +115,7 @@ module flash_save #(
 	logic        qmode = 1'b0;         // this pass takes blocks from the queue
 	wire         q_full  = (q_wp + 13'd1) == q_rp;
 	wire         q_empty = q_wp == q_rp;
-	wire         q_push  = mark && !(last_v && last_blk == mark_blk) && !q_full;
+	wire         q_push  = c_mark && !(last_v && last_blk == mark_blk) && !q_full;
 
 	sdp_ram #(.AW(13), .DW(14)) queue (
 		.clk(clk), .we(q_push), .waddr(q_wp), .wdata(mark_blk), .raddr(q_rp), .rdata(q_head)
@@ -129,7 +132,7 @@ module flash_save #(
 		bm_we = 1'b0;
 		bm_wa = ptr;
 		bm_wd = 1'b0;
-		if (mark) begin
+		if (c_mark) begin
 			bm_we = 1'b1;
 			bm_wa = mark_blk;
 			bm_wd = 1'b1;
@@ -203,7 +206,7 @@ module flash_save #(
 		forced <= save_now;
 
 		// changes
-		if (mark) begin
+		if (c_mark) begin
 			if (!pending) age <= '0;
 			pending <= 1'b1;
 			during  <= 1'b1;
@@ -235,7 +238,7 @@ module flash_save #(
 			S_SWEEP: begin
 				ptr <= ptr + 14'd1;
 				if (&ptr) begin
-					ptr <= 14'd0;           // the first block of the load
+					ptr <= 14'h2000;        // first C: block in the chip
 					st  <= S_LREQ;
 				end
 			end
@@ -243,7 +246,7 @@ module flash_save #(
 			// the image, 4 KB at a time
 			S_LREQ: begin
 				sd_rd      <= 1'b1;
-				sd_lba     <= {18'd0, ptr};
+				sd_lba     <= full_image ? {18'd0, ptr} : {19'd0, ptr[12:0]};
 				sd_blk_cnt <= 6'd7;
 				if (sd_ack) begin
 					sd_rd <= 1'b0;
@@ -364,7 +367,7 @@ module flash_save #(
 			end
 			S_WREQ: begin
 				sd_wr      <= 1'b1;
-				sd_lba     <= {18'd0, blk};
+				sd_lba     <= full_image ? {18'd0, blk} : {19'd0, blk[12:0]};
 				sd_blk_cnt <= 6'd0;
 				if (sd_ack) begin
 					sd_wr <= 1'b0;
@@ -386,7 +389,7 @@ module flash_save #(
 			default: ;
 		endcase
 
-		// a mount: an 8 MB image is loaded, anything else unmounts
+		// a mount: load C: from a 4 MB file or the upper half of an 8 MB file
 		if (img_mounted) begin
 			sd_rd   <= 1'b0;
 			sd_wr   <= 1'b0;
@@ -398,7 +401,8 @@ module flash_save #(
 			q_ovf   <= 1'b0;
 			last_v  <= 1'b0;
 			qmode   <= 1'b0;
-			if (img_size == 64'd8388608) begin
+			if (img_size == 64'd4194304 || img_size == 64'd8388608) begin
+				full_image <= img_size == 64'd8388608;
 				ro       <= img_readonly;
 				attached <= 1'b1;
 				loading  <= 1'b1;
@@ -415,6 +419,7 @@ module flash_save #(
 
 		if (reset) begin
 			st       <= S_INIT;
+			full_image <= 1'b1;
 			ptr      <= 14'd0;
 			ro       <= 1'b0;
 			attached <= 1'b0;

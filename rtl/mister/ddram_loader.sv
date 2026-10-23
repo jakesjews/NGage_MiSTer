@@ -4,7 +4,7 @@
 // DDR3 through the framework's DDRAM port, where the flash models' memory
 // ports will read them.
 //
-// ioctl_index 1 is the CS0 image (16 MB), 2 the CS1 image (8 MB). They go to
+// Development ioctl_index 3 is CS0 (16 MB), 4 is CS1 (8 MB). They go to
 // ARM addresses 0x31000000 and 0x32000000, in the 0x30000000 block that
 // MiSTer cores use and Linux does not (research/hps-hybrid/MISTER-DDR3-MAP.md);
 // the SDRAM image the guest will use sits below at 0x30000000. Bytes past a
@@ -39,8 +39,8 @@ module ddram_loader #(
 	output logic  [1:0] loaded
 );
 
-	wire is_cs0 = ioctl_index[5:0] == 6'd1;
-	wire is_cs1 = ioctl_index[5:0] == 6'd2;
+	wire is_cs0 = ioctl_index[5:0] == 6'd3;
+	wire is_cs1 = ioctl_index[5:0] == 6'd4;
 	wire in_range = (is_cs0 && {5'd0, ioctl_addr} < CS0_BYTES) || (is_cs1 && {5'd0, ioctl_addr} < CS1_BYTES);
 
 	logic dl_q;

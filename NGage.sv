@@ -90,10 +90,12 @@ reg         crop_ok;
 localparam CONF_STR = {
 	"NGage;;",
 	"-;",
-	"F1,BIN,Load flash CS0 (16 MB);",
-	"F2,BIN,Load flash CS1 (8 MB);",
-	"S1,BIN,Mount flash CS1 (save);",
-	"S0,IMGBIN,Mount MMC card;",
+	"F1,0C1ROM,Load firmware (RH2946.0C1);",
+	"F2,0S5ROM,Load language pack (RH2946.0S5);",
+	"F3,BIN,Load flash CS0 image;",
+	"F4,BIN,Load flash CS1 image;",
+	"S1,BINVHD,Mount C: save;",
+	"S0,MMCIMGBINVHD,Mount MMC card;",
 	"-;",
 	"O[2:1],Rotate,Off,Clockwise,Anticlockwise;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
@@ -113,7 +115,7 @@ localparam CONF_STR = {
 	"O[17:16],Activity dot,Boot only,Always,Off;",
 	"J,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power;",
 	"jn,A,B,X,L,R,Start,Select;",
-	"I,Memory test passed,Memory test FAILED,CS1 mounted: C: saves to it,CS1 save file must be 8 MB,CS1 read-only: no C: saves,C: saved,Booting the phone - about a minute...,Phone kernel is up;",
+	"I,Memory test passed,Memory test FAILED,C: save mounted,C: save file must be 4 or 8 MB,C: read-only: no saves,C: saved,Booting the phone - about a minute...,Phone kernel is up,Firmware file damaged,Firmware 4.60 loaded,Firmware not recognised: needs RH-29 4.60;",
 	"V,v",`BUILD_DATE
 };
 
@@ -230,7 +232,7 @@ wire  [5:0] rtc_sec, rtc_min;
 wire  [4:0] rtc_hour;
 wire  [7:0] rtc_days;
 wire [31:0] rtc_date;
-wire        c_blank;         // from ddram_flash: CS1's C: area is erased
+wire        c_blank /* verilator public_flat_rd */;         // from ddram_flash: CS1's C: area is erased
 
 rtc_wall rtc_wall
 (
@@ -253,6 +255,7 @@ wire sys_reset = por[1];
 // the board: also held while a flash image loads or a CS1 save image is
 // copied in, and for a moment when the memory test is switched on or off
 wire fs_loading;
+wire ph_busy /* verilator public_flat_rd */;
 wire test_on /* verilator public_flat_rd */ = status[6];
 reg  test_on_q = 1'b0;
 reg  [3:0] test_sw = 4'd0;
@@ -260,36 +263,60 @@ always @(posedge clk_sys) begin
 	test_on_q <= test_on;
 	test_sw   <= (test_on != test_on_q) ? 4'hF : {test_sw[2:0], 1'b0};
 end
-wire reset = sys_reset | status[0] | buttons[1] | ioctl_download | fs_loading | test_sw[3];
+wire reset = sys_reset | status[0] | buttons[1] | ioctl_download | fs_loading | ph_busy | test_sw[3];
 // the Wishbone port's master select, from a local register (hps_io's status
 // bit is far away); it changes in the first clock of the reset pulse
 wire test_sel = test_on_q;
 
 ///////////////////////   MEMORY   ///////////////////////////////
 
-// the loader port into DDR3 (ddram_flash in ngage_mem), shared by the ioctl
-// loader, flash_save and the debug rings; it changes hands between commands
-wire        ld_busy, ld_we, dl_we, fs_we, tr_we, kt_we;
-wire  [1:0] dl_loaded;                 // CS0 / CS1 loaded through ioctl
-wire  [7:0] ld_be, dl_be, fs_be, tr_be, kt_be;
-wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr, kt_addr;
-wire [63:0] ld_din, dl_din, fs_din, tr_din, kt_din;
-reg   [1:0] ld_own = 2'd0;             // 0: loader, 1: flash_save, 2: debug trace, 3: kernel text
-localparam DBG_TRACE = 0;              // the debug trace and the kernel-text ring (off for a release build)
+// DDR3 loader clients retain ownership until their command is accepted.
+// Phoenix also reads the version signature; it is the only loader reader.
+wire        ld_busy, ld_we, ld_rd, ld_valid, dl_we, fs_we, tr_we, kt_we, ph_we, ph_rd;
+wire  [1:0] dl_loaded;                 // development flat CS0 / CS1 images
+wire  [7:0] ld_be, dl_be, fs_be, tr_be, kt_be, ph_be;
+wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr, kt_addr, ph_addr;
+wire [63:0] ld_din, dl_din, fs_din, tr_din, kt_din, ph_din, ld_data;
+wire        dl_wait, ph_wait;
+wire        ph_ready /* verilator public_flat_rd */;
+wire  [1:0] ph_note;
+reg   [2:0] ld_own = 3'd0;             // flat, save, trace, kernel text, Phoenix
+localparam DBG_TRACE = 0;              // debug rings off for a release build
 
-wire ld_own_we = (ld_own == 2'd1) ? fs_we : (ld_own == 2'd2) ? tr_we : (ld_own == 2'd3) ? kt_we : dl_we;
+wire ld_own_cmd = ld_we || ld_rd;
 always @(posedge clk_sys) begin
-	if (!ld_own_we) begin
-		if (dl_we)      ld_own <= 2'd0;
-		else if (fs_we) ld_own <= 2'd1;
-		else if (tr_we) ld_own <= 2'd2;
-		else if (kt_we) ld_own <= 2'd3;
+	if (!ld_own_cmd) begin
+		if (ph_we || ph_rd) ld_own <= 3'd4;
+		else if (dl_we)     ld_own <= 3'd0;
+		else if (fs_we)     ld_own <= 3'd1;
+		else if (tr_we)     ld_own <= 3'd2;
+		else if (kt_we)     ld_own <= 3'd3;
 	end
 end
-assign ld_we   = (ld_own == 2'd1) ? fs_we   : (ld_own == 2'd2) ? tr_we   : (ld_own == 2'd3) ? kt_we   : dl_we;
-assign ld_addr = (ld_own == 2'd1) ? fs_addr : (ld_own == 2'd2) ? tr_addr : (ld_own == 2'd3) ? kt_addr : dl_addr;
-assign ld_din  = (ld_own == 2'd1) ? fs_din  : (ld_own == 2'd2) ? tr_din  : (ld_own == 2'd3) ? kt_din  : dl_din;
-assign ld_be   = (ld_own == 2'd1) ? fs_be   : (ld_own == 2'd2) ? tr_be   : (ld_own == 2'd3) ? kt_be   : dl_be;
+assign ld_we   = (ld_own == 3'd4) ? ph_we   : (ld_own == 3'd1) ? fs_we   : (ld_own == 3'd2) ? tr_we   : (ld_own == 3'd3) ? kt_we   : dl_we;
+assign ld_rd   = ld_own == 3'd4 && ph_rd;
+assign ld_addr = (ld_own == 3'd4) ? ph_addr : (ld_own == 3'd1) ? fs_addr : (ld_own == 3'd2) ? tr_addr : (ld_own == 3'd3) ? kt_addr : dl_addr;
+assign ld_din  = (ld_own == 3'd4) ? ph_din  : (ld_own == 3'd1) ? fs_din  : (ld_own == 3'd2) ? tr_din  : (ld_own == 3'd3) ? kt_din  : dl_din;
+assign ld_be   = (ld_own == 3'd4) ? ph_be   : (ld_own == 3'd1) ? fs_be   : (ld_own == 3'd2) ? tr_be   : (ld_own == 3'd3) ? kt_be   : dl_be;
+assign ioctl_wait = dl_wait || ph_wait;
+
+phoenix_load phoenix_load (
+	.clk(clk_sys), .reset(sys_reset),
+	.ioctl_download(ioctl_download), .ioctl_index(ioctl_index[5:0]),
+	.ioctl_wr(ioctl_wr), .ioctl_dout(ioctl_dout), .ioctl_wait(ph_wait),
+	.ld_we(ph_we), .ld_rd(ph_rd), .ld_addr(ph_addr), .ld_din(ph_din), .ld_be(ph_be),
+	.ld_busy(ld_busy || ld_own != 3'd4), .ld_valid(ld_valid), .ld_data(ld_data),
+	.ready(ph_ready), .busy(ph_busy), .note(ph_note), .errors()
+);
+
+// A flat CS1 download can supply C: without a save mount. Flat CS0 selects
+// the development route, which requires both flat chips (S1 loads only C:).
+reg use_phoenix = 1'b1;
+always @(posedge clk_sys) begin
+	if (ioctl_download && (ioctl_index[5:0] == 6'd1 || ioctl_index[5:0] == 6'd2)) use_phoenix <= 1'b1;
+	if (ioctl_download && ioctl_index[5:0] == 6'd3) use_phoenix <= 1'b0;
+	if (sys_reset) use_phoenix <= 1'b1;
+end
 
 ddram_loader ddram_loader
 (
@@ -300,8 +327,8 @@ ddram_loader ddram_loader
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
-	.ioctl_wait(ioctl_wait),
-	.ddram_busy(ld_busy || ld_own != 2'd0),
+	.ioctl_wait(dl_wait),
+	.ddram_busy(ld_busy || ld_own != 3'd0),
 	.ddram_burstcnt(),           // single writes
 	.ddram_addr(dl_addr),
 	.ddram_din(dl_din),
@@ -379,6 +406,7 @@ ngage_mem ngage_mem
 	.flash_busy(),
 	.unmapped(),
 
+	.ld_rd(ld_rd), .ld_valid(ld_valid), .ld_data(ld_data),
 	.ld_we(ld_we),
 	.ld_addr(ld_addr),
 	.ld_din(ld_din),
@@ -427,8 +455,8 @@ endgenerate
 
 ///////////////////////   CS1 SAVE   ///////////////////////////
 
-// the CS1 image on SD slot 1 is copied into DDR3 and the blocks the firmware
-// changes (the C: drive) go back to the file: rtl/mister/flash_save.sv
+// SD slot 1 loads only C: at CS1 + 4 MB; changed C: blocks go back to
+// the file. Legacy 8 MB saves use only their upper half.
 wire        save_mark, save_rd, save_taken, save_valid;
 wire [13:0] save_mark_blk, save_blk;
 wire [63:0] save_data;
@@ -437,7 +465,7 @@ wire        fs_present;                // the save file is mounted and in DDR3
 wire  [1:0] fs_note;
 reg   [1:0] dl_cs1 = 2'b00;            // an ioctl load of CS1 starts: the file is detached
 
-always @(posedge clk_sys) dl_cs1 <= {dl_cs1[0], ioctl_download && ioctl_index[5:0] == 6'd2};
+always @(posedge clk_sys) dl_cs1 <= {dl_cs1[0], ioctl_download && ioctl_index[5:0] == 6'd4};
 
 flash_save flash_save
 (
@@ -459,7 +487,7 @@ flash_save flash_save
 	.ld_addr(fs_addr),
 	.ld_din(fs_din),
 	.ld_be(fs_be),
-	.ld_busy(ld_busy || ld_own != 2'd1),
+	.ld_busy(ld_busy || ld_own != 3'd1),
 	.mark(save_mark),
 	.mark_blk(save_mark_blk),
 	.bk_req(save_rd),
@@ -587,7 +615,7 @@ dbg_sti dbg_sti
 	.ld_addr(kt_addr),
 	.ld_din(kt_din),
 	.ld_be(kt_be),
-	.ld_busy(ld_busy || ld_own != 2'd3),
+	.ld_busy(ld_busy || ld_own != 3'd3),
 	.count(kt_count),
 	.dropped(kt_dropped)
 );
@@ -604,12 +632,13 @@ end endgenerate
 ///////////////////////   CPU   ////////////////////////////////
 
 // Out of reset once the board is, the memory test is off and both flash
-// images are in (CS1 loaded, or mounted as the save file). The start also
+// images are in (verified/patched Phoenix pair and C:, or both flat chips).
+// The start also
 // waits for MiSTer's clock, up to RTC_WAIT_CLKS: Main sends it once, after
 // the launcher's files, and the stand-in reads the HLE date once at its entry
 // (docs/PROGRESS-LOG.md, 2026-10-21 evening).
 localparam int RTC_WAIT_CLKS = 312_000_000;
-wire        images_in = dl_loaded[0] & (dl_loaded[1] | fs_present);
+wire        images_in = use_phoenix ? (ph_ready && (fs_present || dl_loaded[1])) : (&dl_loaded);
 reg  [28:0] rtc_timer = 0;
 reg         rtc_wait = 1'b1;
 always @(posedge clk_sys) begin
@@ -729,7 +758,7 @@ dbg_trace dbg_trace
 	.ld_addr(tr_addr),
 	.ld_din(tr_din),
 	.ld_be(tr_be),
-	.ld_busy(ld_busy || ld_own != 2'd2),
+	.ld_busy(ld_busy || ld_own != 3'd2),
 	.dumps(tr_dumps),
 	.triggers(tr_triggers),
 	.dumping(tr_dumping),
@@ -812,20 +841,21 @@ end
 reg  [15:0] test_reported = 0;
 reg         test_first = 1;
 wire        test_note = test_pass_done && (test_first || test_errors != test_reported);
-wire  [7:0] info_events = {boot_up, boot_start, fs_saved,
+wire [10:0] info_events = {ph_note == 2'd2, ph_note == 2'd3, ph_note == 2'd1, boot_up, boot_start, fs_saved,
                           fs_note == 2'd3, fs_note == 2'd2, fs_note == 2'd1,
                           test_note && test_errors != 16'd0, test_note && test_errors == 16'd0};
-reg   [7:0] info_pending = 0;
+reg  [10:0] info_pending = 0;
 reg   [7:0] info_q = 0;
 reg         info_req_q = 0;
-reg   [7:0] info_next, info_mask;
+reg   [7:0] info_next;
+reg  [10:0] info_mask;
 always @* begin
 	info_next = 0;
 	info_mask = 0;
-	for (int i = 7; i >= 0; i--) begin
+	for (int i = 10; i >= 0; i--) begin
 		if (info_pending[i]) begin
 			info_next = 8'(i + 1);
-			info_mask = 8'(1 << i);
+			info_mask = 11'(1 << i);
 		end
 	end
 end

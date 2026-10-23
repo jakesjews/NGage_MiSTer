@@ -2,12 +2,12 @@
 // ddram_flash's marks and block reads; sim/harness/save_tb.sv): a scripted
 // CPU drives the AMD command set on CS1 through the bus, with the DDRAM port
 // model behind the flash arrays and a model of hps_io's SD slot holding the
-// 8 MB save file.
+// 4 MB C: file or legacy 8 MB save file.
 //
 //   Vsave_tb [--seed N]
 //
-//  * a mount of a file that is not 8 MB is refused (note 2) and loads nothing;
-//  * mounting the 8 MB file copies it into DDR3 at 0x32000000 in 4 KB
+//  * a mount of a file that is not 4 or 8 MB is refused (note 2) and loads nothing;
+//  * mounting either file copies only C: into DDR3 at 0x32400000 in 4 KB
 //    requests while the memory system is held, byte for byte, and the CPU
 //    reads it through the flash;
 //  * nothing is written back while nothing changes;
@@ -219,9 +219,10 @@ struct Bench {
 	// the file equals the chip
 	int file_mismatches() {
 		int bad = 0;
-		for (uint32_t i = 0; i < CS1_BYTES; i++)
-			if (hps.img[i] != ddr.byte(CS1_DDR + i) && bad++ < 3)
-				sim::fail("file byte 0x%06x is %02x, the chip has %02x", i, hps.img[i], ddr.byte(CS1_DDR + i));
+		uint32_t base = hps.img.size() == CS1_BYTES ? 0x400000 : 0;
+		for (uint32_t i = base; i < hps.img.size(); i++)
+			if (hps.img[i] != ddr.byte(CS1_DDR + 0x400000 + i - base) && bad++ < 3)
+				sim::fail("file byte 0x%06x is %02x, the chip has %02x", i, hps.img[i], ddr.byte(CS1_DDR + 0x400000 + i - base));
 		return bad;
 	}
 	// until nothing is left to save and no transfer is on
@@ -262,17 +263,19 @@ int main(int argc, char **argv) {
 	Bench b(seed);
 
 	// a file that is not 8 MB is refused
-	printf("mount of a 4 MB file\n");
-	std::vector<uint8_t> small(4u << 20, 0);
+	printf("mount of an invalid 2 MB file\n");
+	std::vector<uint8_t> small(2u << 20, 0);
 	b.mount(&small, small.size(), false);
 	b.run(5000);
-	CHECK_EQ(b.notes[2], 1, "note 2: the save file must be 8 MB");
+	CHECK_EQ(b.notes[2], 1, "note 2: the save file must be 4 or 8 MB");
 	CHECK(!b.t->loading && !b.t->saving_on, "not mounted");
 	CHECK_EQ(b.hps.reads, 0, "nothing read");
 
 	// mount: the file into DDR3, the memory system held meanwhile
 	printf("mount of the 8 MB file\n");
 	std::vector<uint8_t> img = pattern(seed * 7 + 1);
+	std::vector<uint8_t> firmware(4u << 20);
+	for (uint32_t i=0;i<firmware.size();i++) firmware[i]=b.ddr.byte(CS1_DDR+i);
 	uint64_t t0 = b.cyc;
 	b.mount(&img, CS1_BYTES, false);
 	CHECK(b.t->loading, "loading after the mount");
@@ -280,17 +283,18 @@ int main(int argc, char **argv) {
 	while (b.t->loading && b.cyc < t0 + 60000000) b.tick();
 	CHECK(!b.t->loading, "the load finished");
 	printf("  loaded in %llu clocks, %llu requests\n", (unsigned long long)(b.cyc - t0), (unsigned long long)b.hps.reads);
-	CHECK_EQ(b.hps.reads, 2048, "4 KB requests");
+	CHECK_EQ(b.hps.reads, 1024, "4 KB requests");
 	for (int n : b.hps.read_sizes) if (n != 8) { sim::fail("a load request of %d blocks", n); break; }
 	int bad = 0;
-	for (uint32_t i = 0; i < CS1_BYTES; i++)
+	for (uint32_t i = 0x400000; i < CS1_BYTES; i++)
 		if (b.ddr.byte(CS1_DDR + i) != img[i] && bad++ < 3) sim::fail("DDR3 byte 0x%06x is %02x, want %02x", i, b.ddr.byte(CS1_DDR + i), img[i]);
 	CHECK_EQ(bad, 0, "loaded bytes wrong");
 	for (int i = 0; i < 64; i++) {
-		uint32_t w = b.rng.u32() & 0x3FFFFF;
+		uint32_t w = 0x200000 | (b.rng.u32() & 0x1FFFFF);
 		CHECK_EQ(b.r16(w), img[2 * w] | img[2 * w + 1] << 8, "CS1 word through the bus");
 	}
 	CHECK(b.t->saving_on, "saving on");
+	for (uint32_t i=0;i<firmware.size();i++) CHECK_EQ(b.ddr.byte(CS1_DDR+i),firmware[i],"legacy save must not overwrite firmware");
 
 	// nothing changed: nothing is written back
 	printf("idle\n");
@@ -397,12 +401,31 @@ int main(int argc, char **argv) {
 	b.mount(&img2, CS1_BYTES, true);
 	CHECK_EQ(b.notes[3], 1, "note 3: read-only");
 	while (b.t->loading && b.cyc < b.last_mark + 60000000) b.tick();
-	CHECK_EQ(b.hps.reads, 2048, "the read-only image loads");
-	CHECK_EQ(b.ddr.byte(CS1_DDR + 0x123456), img2[0x123456], "the read-only image is in DDR3");
+	CHECK_EQ(b.hps.reads, 1024, "the read-only image loads");
+	CHECK_EQ(b.ddr.byte(CS1_DDR + 0x523456), img2[0x523456], "the read-only image is in DDR3");
 	b.program(0x3D0000, 0x0003);
 	b.t->save_now = 1; b.run(10); b.t->save_now = 0;
 	b.run(2 * MAXC);
 	CHECK_EQ(b.hps.written.size(), 0, "no write-back from a read-only mount");
+
+	// C:-only file: LBA zero maps to chip offset 0x400000. Firmware writes
+	// must never enter the dirty queue, for either save-file layout.
+	printf("4 MB C: file and firmware isolation\n");
+	std::vector<uint8_t> cdrive(4u << 20, 0xFF);
+	b.hps.reads = 0; b.hps.written.clear();
+	b.mount(&cdrive, cdrive.size(), false);
+	uint64_t load_end = b.cyc + 30000000;
+	while (b.t->loading && b.cyc < load_end) b.tick();
+	CHECK(!b.t->loading, "4 MB C: load finished");
+	CHECK_EQ(b.hps.reads, 1024, "4 MB read requests");
+	CHECK_EQ(b.file_mismatches(), 0, "4 MB mapping");
+	b.program(0x200000, 0x1234); b.program(0x3FFFFF, 0x5678);
+	b.program(0x1000, 0); // firmware half: no save mark may reach the file
+	b.settle(4000000);
+	check_written(b, {0, 8191}, "4 MB first/last block offsets");
+	CHECK_EQ(b.file_mismatches(), 0, "4 MB saved C:");
+	for (uint32_t i=0;i<firmware.size();i++)
+		if (i < 0x2000 || i >= 0x2002) CHECK_EQ(b.ddr.byte(CS1_DDR+i),firmware[i],"firmware preserved across mounts");
 
 	CHECK_EQ(b.chip.errors, 0, "SDRAM chip model errors");
 	CHECK_EQ(b.ddr.protocol_errors, 0, "DDRAM port protocol errors");

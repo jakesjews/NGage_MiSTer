@@ -117,7 +117,7 @@ module periph_tb #(
 		.dma_sel(dma_sel), .dma_ack(dma_ack), .dma_err(dma_err), .dma_dat_o(dma_dat_r),
 		.p_sel(p_sel), .p_we(p_we), .p_addr(p_addr), .p_wdata(p_wdata), .p_be(p_be), .p_rdata(p_rdata), .p_wait(p_wait),
 		.flash_busy(), .unmapped(),
-		.ld_we(1'b0), .ld_addr(29'd0), .ld_din(64'd0), .ld_be(8'd0), .ld_busy(),
+		.ld_rd(1'b0), .ld_valid(), .ld_data(), .ld_we(1'b0), .ld_addr(29'd0), .ld_din(64'd0), .ld_be(8'd0), .ld_busy(),
 		.save_mark(), .save_mark_blk(), .save_rd(1'b0), .save_blk(14'd0), .save_taken(), .save_valid(), .save_data(),
 		.ddram_busy(ddram_busy), .ddram_burstcnt(ddram_burstcnt), .ddram_addr(ddram_addr), .ddram_dout(ddram_dout),
 		.ddram_dout_ready(ddram_dout_ready), .ddram_rd(ddram_rd), .ddram_din(ddram_din), .ddram_be(ddram_be),
