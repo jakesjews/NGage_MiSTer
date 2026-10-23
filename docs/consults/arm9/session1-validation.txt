@@ -1,0 +1,18 @@
+Starting revision: 75cce2e (ZAP active throughout this session)
+Baseline focused: RTL (gen): 27 passed, 0 failed
+Baseline full: RTL (gen): 198 passed, 0 failed
+Baseline QEMU: RTL vs QEMU: 52 agree, 0 differ
+After focused: RTL (gen): 27 passed, 0 failed
+After focused QEMU: RTL vs QEMU: 52 agree, 0 differ
+After full: RTL (gen): 198 passed, 0 failed
+After full QEMU: RTL vs QEMU: 52 agree, 0 differ
+
+ARM9 execute PRE_SHIFTED=0: 145568 checks passed
+ARM9 execute PRE_SHIFTED=1: 145568 checks passed
+ARM9 execute PRE_SHIFTED=0: 145568 checks passed
+ARM9 execute PRE_SHIFTED=1: 145568 checks passed
+
+rtl/cpu/arm925t_gen.v is current
+make lint: exit 0; all existing top-level lint targets passed
+All 27 focused runs: cycle counts AND instruction counts identical to baseline.
+No existing binaries rebuilt; no QEMU runs; no firmware boot; no hardware run.

@@ -62,9 +62,13 @@ MODEL     := $(MODEL_DIR)/Vtb_cpu
 
 ASFLAGS := -mcpu=arm9tdmi -mfloat-abi=soft -I $(HERE)/tests
 
-.PHONY: all bins model run qemu diff remote boot boot-prep boot-model clean
+.PHONY: all bins model run qemu diff remote boot boot-prep boot-model clean arm9-execute
 .SECONDARY:
 all: bins remote qemu diff
+
+# Standalone new-pipeline datapath checks; no ARM test rebuild or QEMU.
+arm9-execute:
+	$(HERE)/arm9/run.sh
 
 # ---------------------------------------------------------------- tests
 bins: $(foreach t,$(T),$(TB)/$(t).bin $(TB)/$(t).lst)
@@ -117,10 +121,11 @@ $(TB)/%.lst: $(TB)/%.elf
 VFLAGS := --cc --exe --build -j $(JOBS) -O3 --x-assign unique --x-initial unique \
           -Wno-fatal -Wno-lint -Wno-style -Wno-MULTIDRIVEN -Wno-ASSIGNIN \
           --top-module tb_cpu -CFLAGS "-O2 -std=c++17" $(VEXTRA)
+ARM9_SV := $(wildcard $(ROOT)/rtl/cpu/arm9/*.sv)
 ZAP_SV  := $(wildcard $(ROOT)/rtl/cpu/zap/*.sv)
 ifeq ($(RTL),sv)
-RTL_SRC := +incdir+$(ROOT)/rtl/cpu/zap $(ROOT)/rtl/cpu/arm925t.sv $(ZAP_SV)
-RTL_DEP := $(ROOT)/rtl/cpu/arm925t.sv $(ZAP_SV) $(wildcard $(ROOT)/rtl/cpu/zap/*.svh)
+RTL_SRC := +incdir+$(ROOT)/rtl/cpu/zap $(ROOT)/rtl/cpu/arm925t.sv $(ARM9_SV) $(ZAP_SV)
+RTL_DEP := $(ROOT)/rtl/cpu/arm925t.sv $(ARM9_SV) $(ZAP_SV) $(wildcard $(ROOT)/rtl/cpu/zap/*.svh)
 else
 RTL_SRC := $(ROOT)/rtl/cpu/arm925t_gen.v
 RTL_DEP := $(RTL_SRC)
