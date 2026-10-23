@@ -4,14 +4,17 @@ Baseline `1e9fe26`, branch `codex/timing2`: round 3 plus the flash line-wide fet
 The task targets pipeline CPI; no firmware boot, hardware deployment, `sys/`
 change or ARM9 change is included. Hardware game rates are motivation, not
 measurements made by this task. Test binaries and existing QEMU references
-are reused. The new `loadpipe` binary alone was assembled and run on QEMU.
+are reused. Only the four new tests (`loadpipe`, `ldmfold`, `blslot` and
+`bresolve`) were assembled and run on QEMU.
 
 ## Measurement
 
 The nine quick tests passed before editing. Simulation-only probes sample
 all six overlapping stall levels before each rising edge, matching the board
-bit mapping. ALU flushes count accepted redirect edges (`clear_from_alu &&
-!data_stall`), not clocks during which a redirect is held. The existing PASS
+bit mapping. Flushes count accepted redirect edges, not clocks during which
+a redirect is held. The final bench separates raw ALU redirects from the
+new shifter redirects; their sum is the original accepted-clear counter.
+The existing PASS
 cycle/instruction line and architectural trace format remain unchanged.
 
 `loadpipe.S` runs six operand classes, gaps of zero through four NOPs, and
@@ -204,6 +207,63 @@ binary and reference pass all latencies and QEMU. Full verification is
 | gba_arm | 8314 -> 8302 | 10937 -> 10938 | 17761 -> 17761 |
 | gba_thumb | 4933 -> 4929 | 6522 -> 6522 | 10882 -> 10882 |
 
-## Remaining work
+## Item 2b: resolve safe direct branches in the shifter
 
-Final whole-core timing and remaining candidate disposition are pending.
+The decode target sideband also marks ordinary PC-relative branches,
+including normalized Thumb branches. The shifter evaluates the condition
+from registered ALU flags only when its immediately older instruction
+cannot update flags (ordinary S-bit writes and FMOV/MSR are excluded).
+Otherwise the branch uses the original ALU resolution. The target and
+redirect are registered at the shifter output. Correct predictions keep
+flowing; only wrong direction/target predictions redirect early.
+
+An older ALU redirect wins over the shifter redirect. Writeback exceptions
+retain their existing priority. The early branch still executes and retires
+normally, including an ARM BL's link write, but suppresses its second ALU
+redirect/training event. BTB feedback uses the matching branch PC and
+prediction state. A simultaneous older confirmation is omitted when the
+single feedback port trains the early misprediction. Data holds preserve
+the decision, and reset/flush/bubble handling clears its valid bit.
+Instruction-side exceptions disable early resolution. No live cache data,
+new issue operand-mux input, or operand clock-enable change is involved.
+
+`bresolve.S` covers flag writers at distances one through three,
+alternating branch directions, MSR flag changes, and conditional BL.
+An enabled bench assertion checks each accepted early redirect against
+actual ALU execution one stage later, including not-taken fallthrough.
+The suite now enables Verilator assertions by default. All **210 runs and
+56 QEMU comparisons** pass, as do lint and the generated-netlist check.
+
+| Test | 0:0 item 3b -> 2b | 0:3 item 3b -> 2b | 2:9 item 3b -> 2b |
+| --- | ---: | ---: | ---: |
+| cache | 789419 -> 789368 | 917315 -> 917253 | 1251118 -> 1251084 |
+| ctrand1 | 73097 -> 73043 | 102911 -> 102937 | 179659 -> 179631 |
+| crand1 | 73969 -> 73935 | 105414 -> 105359 | 187935 -> 187907 |
+| gba_arm | 8302 -> 8183 | 10938 -> 10785 | 17761 -> 17742 |
+| gba_thumb | 4929 -> 4917 | 6522 -> 6509 | 10882 -> 10831 |
+
+The small ctrand1 regression at 0:3 is retained alongside the gains at
+the other latencies and in both GBA tests. Earlier redirects change bus
+arbitration/cache-fill overlap; savings need not equal the redirect count.
+
+## Whole-core timing acceptance
+
+The starting merged tree has a fresh full-core seed-2 fit in server build
+`dev/mister/NGage_MiSTer-b14`: **-1.398 ns at slow 100C**, not the older
+round-3 figure. Its 151 tracked HDL/configuration/constraint/data inputs
+were compared with `1e9fe26`; the only difference was Quartus's cosmetic
+LAST_QUARTUS_VERSION stamp. The generated CPU SHA-256 is
+`2f3f2e6a97bd58f9c12d797e2a86a9988ba7a64bfbf58736df4517961fe4f666`.
+The allowed 0.3 ns regression therefore sets a **-1.698 ns** floor.
+The baseline's worst path is predecode `o_instruction_ff[15]` to decode
+`o_shift_is_lsl0_ff` (10.289 ns data delay). It uses 35018 ALMs and
+43361 registers. Baseline reports and source comparison are archived in
+`build/zapstalls/baseline-fit/`.
+
+The intermediate BTB-only full-core build (`f84cda5`) measured
+**-0.924 ns at slow 100C**, with 35260 ALMs and 43792 registers.
+Its worst path is the memory bus `ack_q` into the Wishbone merger's
+registered data. This is evidence for that intermediate candidate only;
+the complete candidate's full-core fit is running in the requested
+`dev/mister/NGage_MiSTer-s1` directory. Intermediate reports are archived
+in `build/zapstalls/item2/`.

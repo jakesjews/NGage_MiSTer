@@ -65,7 +65,7 @@ module zap_issue_main
         input logic  [31:0]                      i_pc_ff,
         input logic                              i_switch_ff,
         input logic    [1:0]                     i_taken_ff,
-        input logic [32:0] i_link_branch_ff,
+        input logic [33:0] i_link_branch_ff,
         input logic    [31:0]                    i_ppc_ff,
         input logic      [64*8-1:0]              i_decompile,
         input logic      [3:0]                   i_condition_code_ff,
@@ -265,7 +265,7 @@ module zap_issue_main
         output  logic     [64*8-1:0]              o_decompile,
         output logic [31:0]                       o_pc_ff,
         output logic   [1:0]                      o_taken_ff,
-        (* dont_retime *) output logic [32:0] o_link_branch_ff,
+        (* dont_retime *) output logic [33:0] o_link_branch_ff,
         output logic [31:0]                       o_ppc_ff,
         output logic                              o_force32align_ff,
         output logic                              o_und_ff
@@ -308,8 +308,8 @@ logic [5:0]                 skid_dest_idx;
 (* dont_retime *) logic skid_lsl0_ff;
 logic [2:0] skid_late_immediate_ff;
 logic skid_late_store_ff;
-logic [32:0] skid_link_branch;
-wire [32:0] selected_link_branch = stall_late_ff ? skid_link_branch : i_link_branch_ff;
+logic [33:0] skid_link_branch;
+wire [33:0] selected_link_branch = stall_late_ff ? skid_link_branch : i_link_branch_ff;
 
 // ARM925T: read the lock bitmap for both possible instruction slots before
 // selecting the slot. Selecting the index first puts the high-fanout skid
@@ -413,7 +413,7 @@ begin
                 o_pc_ff                           <= 'x;
                 o_decompile                       <= 'x;
                 o_ppc_ff                          <= 'x;
-                o_link_branch_ff <= 33'b0;
+                o_link_branch_ff <= 34'b0;
         end
         else if ( clear )
         begin
@@ -451,7 +451,7 @@ begin
                 o_pc_ff                           <= 'x;
                 o_decompile                       <= 'x;
                 o_ppc_ff                          <= 'x;
-                o_link_branch_ff <= 33'b0;
+                o_link_branch_ff <= 34'b0;
         end
         else if ( ~stall )
         begin
@@ -484,7 +484,7 @@ begin
                 o_und_ff                          <= skid_und_ff;
                 o_taken_ff                        <= skid_taken_ff;
                 o_ppc_ff                          <= skid_ppc_ff;
-                o_link_branch_ff <= {selected_link_branch[32] && !lock, selected_link_branch[31:0]};
+                o_link_branch_ff <= {selected_link_branch[33:32] & {2{!lock}}, selected_link_branch[31:0]};
                 o_pc_ff                           <= skid_pc_ff;
                 o_decompile                       <= skid_decompile;
                 o_uop_last                        <= skid_uop_last;

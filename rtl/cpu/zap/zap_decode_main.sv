@@ -94,7 +94,7 @@ module zap_decode_main #(
         // ------------------------
 
         // Predicted program counter.
-        (* dont_retime *) output logic [32:0] o_link_branch_ff,
+        (* dont_retime *) output logic [33:0] o_link_branch_ff,
         output  logic   [31:0]                    o_ppc_ff,
 
         // This signal is used to check the validity of a pipeline stage.
@@ -309,7 +309,7 @@ begin
                 o_force32align_ff                       <= 'x;
                 o_decompile                             <= 'x;
                 o_ppc_ff                                <= 'x;
-                o_link_branch_ff <= 33'b0;
+                o_link_branch_ff <= 34'b0;
                 o_irq_ff                                <= 0;
                 o_fiq_ff                                <= 0;
                 o_swi_ff                                <= 0;
@@ -352,7 +352,7 @@ begin
                 o_force32align_ff                       <= 'x;
                 o_decompile                             <= 'x;
                 o_ppc_ff                                <= 'x;
-                o_link_branch_ff <= 33'b0;
+                o_link_branch_ff <= 34'b0;
 
         end
         // If no stall, only then update...
@@ -394,8 +394,13 @@ begin
                 o_force32align_ff                       <= i_force32align;
                 o_taken_ff                              <= i_taken;
                 o_ppc_ff                                <= i_ppc_ff;
-                o_link_branch_ff <= {arm_bl && i_instruction_valid && !i_v5_und,
-                        i_pc_plus_8_ff + {{6{i_instruction[23]}}, i_instruction[23:0], 2'b0}};
+                o_link_branch_ff <= {
+                        i_instruction_valid && !i_v5_und && !i_instruction[39] &&
+                        i_instruction[27:25] == 3'b101 && i_instruction[31:28] != NV,
+                        arm_bl && i_instruction_valid && !i_v5_und,
+                        i_pc_plus_8_ff + (i_instruction[34] ?
+                                {{7{i_instruction[23]}}, i_instruction[23:0], 1'b0} :
+                                {{6{i_instruction[23]}}, i_instruction[23:0], 2'b0})};
                 o_decompile                             <= decompile_tmp;
                 o_uop_last                              <= i_uop_last;
         end

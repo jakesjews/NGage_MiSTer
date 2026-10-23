@@ -98,7 +98,8 @@ module zap_alu_main #(
         input logic   [1:0]                      i_taken_ff,
 
         // Predicted PC from BTB.
-        input logic [32:0] i_link_branch_ff,
+        input logic [33:0] i_link_branch_ff,
+        input logic i_early_redirect_ff,
         input logic   [31:0]                     i_ppc_ff,
 
         // Instruction address.
@@ -1185,6 +1186,12 @@ begin: flags_bp_feedback
             o_destination_index_nxt  = i_destination_index_ff;
 
         end : nbranch_block
+        // ARM925T: shifter already redirected and trained this branch.
+        // Keep its result/link retirement, but do not flush/train it twice.
+        if (i_early_redirect_ff) begin
+                w_clear_from_alu = CONTINUE;
+                w_confirm_from_alu = 1'b0;
+        end
 end
 
 // ----------------------------------------------------------------------------

@@ -228,6 +228,7 @@ module zap_alu_main (
 	i_switch_ff,
 	i_taken_ff,
 	i_link_branch_ff,
+	i_early_redirect_ff,
 	i_ppc_ff,
 	i_pc_ff,
 	i_nozero_ff,
@@ -320,7 +321,8 @@ module zap_alu_main (
 	input wire [31:0] i_cpsr_nxt;
 	input wire i_switch_ff;
 	input wire [1:0] i_taken_ff;
-	input wire [32:0] i_link_branch_ff;
+	input wire [33:0] i_link_branch_ff;
+	input wire i_early_redirect_ff;
 	input wire [31:0] i_ppc_ff;
 	input wire [31:0] i_pc_ff;
 	input wire i_nozero_ff;
@@ -1351,6 +1353,10 @@ module zap_alu_main (
 			w_clear_from_alu = 2'd0;
 			w_confirm_from_alu = 1'd0;
 			o_destination_index_nxt = i_destination_index_ff;
+		end
+		if (i_early_redirect_ff) begin
+			w_clear_from_alu = 2'd0;
+			w_confirm_from_alu = 1'b0;
 		end
 	end
 	initial _sv2v_0 = 0;
@@ -4917,6 +4923,14 @@ module zap_core (
 	wire align_en;
 	wire stall_from_decode;
 	wire clear_from_alu;
+	wire alu_redirect;
+	wire shifter_redirect;
+	wire [31:0] alu_redirect_pc;
+	wire [31:0] shifter_redirect_pc;
+	wire use_shifter_redirect = shifter_redirect && !alu_redirect;
+	assign clear_from_alu = alu_redirect || shifter_redirect;
+	wire [31:0] pc_from_alu;
+	assign pc_from_alu = (use_shifter_redirect ? shifter_redirect_pc : alu_redirect_pc);
 	wire stall_from_issue;
 	wire clear_from_writeback;
 	wire data_stall;
@@ -4972,9 +4986,9 @@ module zap_core (
 	wire [32:0] decode_shift_source_ff;
 	wire [2:0] decode_shift_operation_ff;
 	wire [32:0] decode_shift_length_ff;
-	wire [32:0] decode_link_branch;
-	wire [32:0] issue_link_branch;
-	wire [32:0] shifter_link_branch;
+	wire [33:0] decode_link_branch;
+	wire [33:0] issue_link_branch;
+	wire [33:0] shifter_link_branch;
 	wire decode_shift_is_lsl0_ff;
 	wire decode_flag_update_ff;
 	wire [5:0] decode_mem_srcdest_index_ff;
@@ -5105,7 +5119,6 @@ module zap_core (
 	wire alu_dav_ff;
 	wire alu_dav_nxt;
 	wire [31:0] alu_pc_plus_8_ff;
-	wire [31:0] pc_from_alu;
 	wire [5:0] alu_destination_index_ff;
 	wire [31:0] alu_flags_ff;
 	wire [5:0] alu_mem_srcdest_index_ff;
@@ -5603,6 +5616,10 @@ module zap_core (
 		.SHIFT_OPS(SHIFT_OPS)
 	) u_zap_shifter_main(
 		.i_link_branch_ff(issue_link_branch),
+		.i_flags_ff(alu_flags_ff[31:28]),
+		.i_thumb_ff(alu_flags_ff[T]),
+		.o_early_redirect_ff(shifter_redirect),
+		.o_early_target_ff(shifter_redirect_pc),
 		.o_link_branch_ff(shifter_link_branch),
 		.i_load_pending_ff(issue_load_pending_ff),
 		.i_shift_length_index_ff(issue_shift_length_index_ff),
@@ -5703,6 +5720,7 @@ module zap_core (
 		.V4T(V4T)
 	) u_zap_alu_main(
 		.i_link_branch_ff(shifter_link_branch),
+		.i_early_redirect_ff(shifter_redirect),
 		.i_load_pending_ff(shifter_load_pending_ff),
 		.i_load_index_ff(shifter_load_index_ff),
 		.i_memory_load_valid(memory_load_valid),
@@ -5755,9 +5773,9 @@ module zap_core (
 		.o_force32align_ff(alu_force32align_ff),
 		.o_uop_last(alu_uop_last),
 		.o_alu_result_nxt(alu_alu_result_nxt),
-		.o_pc_from_alu(pc_from_alu),
+		.o_pc_from_alu(alu_redirect_pc),
 		.o_flags_nxt(alu_cpsr_nxt),
-		.o_clear_from_alu(clear_from_alu),
+		.o_clear_from_alu(alu_redirect),
 		.o_confirm_from_alu(confirm_from_alu),
 		.o_decompile(alu_decompile),
 		.o_decompile_valid(alu_decompile_valid),
@@ -6052,9 +6070,9 @@ module zap_core (
 		.o_decompile(rb_decompile),
 		.i_clear_btb(predecode_clear_btb),
 		.i_cpu_pid(o_pid[6:0]),
-		.i_confirm_from_alu(confirm_from_alu),
-		.i_alu_pc_ff((alu_flags_ff[T] ? alu_pc_plus_8_ff - 32'd4 : alu_pc_plus_8_ff - 32'd8)),
-		.i_taken(alu_taken_ff),
+		.i_confirm_from_alu(confirm_from_alu && !use_shifter_redirect),
+		.i_alu_pc_ff((use_shifter_redirect ? shifter_pc_ff : (alu_flags_ff[T] ? alu_pc_plus_8_ff - 32'd4 : alu_pc_plus_8_ff - 32'd8))),
+		.i_taken((use_shifter_redirect ? shifter_taken_ff : alu_taken_ff)),
 		.o_shelve(shelve),
 		.i_clk(i_clk),
 		.i_reset(reset),
@@ -10076,7 +10094,7 @@ module zap_decode_main (
 	input wire [CPSR_MODE:0] i_cpsr_ff_mode;
 	input wire [39:0] i_instruction;
 	input wire i_instruction_valid;
-	(* dont_retime *) output reg [32:0] o_link_branch_ff;
+	(* dont_retime *) output reg [33:0] o_link_branch_ff;
 	output reg [31:0] o_ppc_ff;
 	output reg [3:0] o_condition_code_ff;
 	output reg [$clog2(PHY_REGS) - 1:0] o_destination_index_ff;
@@ -10592,7 +10610,7 @@ module zap_decode_main (
 			o_force32align_ff <= 1'sbx;
 			o_decompile <= 1'sbx;
 			o_ppc_ff <= 1'sbx;
-			o_link_branch_ff <= 33'b000000000000000000000000000000000;
+			o_link_branch_ff <= 34'b0000000000000000000000000000000000;
 			o_irq_ff <= 0;
 			o_fiq_ff <= 0;
 			o_swi_ff <= 0;
@@ -10634,7 +10652,7 @@ module zap_decode_main (
 			o_force32align_ff <= 1'sbx;
 			o_decompile <= 1'sbx;
 			o_ppc_ff <= 1'sbx;
-			o_link_branch_ff <= 33'b000000000000000000000000000000000;
+			o_link_branch_ff <= 34'b0000000000000000000000000000000000;
 		end
 		else if ((!i_data_stall && !i_stall_from_issue) && !i_stall_from_shifter) begin
 			o_irq_ff <= o_irq_nxt;
@@ -10666,7 +10684,7 @@ module zap_decode_main (
 			o_force32align_ff <= i_force32align;
 			o_taken_ff <= i_taken;
 			o_ppc_ff <= i_ppc_ff;
-			o_link_branch_ff <= {(arm_bl && i_instruction_valid) && !i_v5_und, i_pc_plus_8_ff + {{6 {i_instruction[23]}}, i_instruction[23:0], 2'b00}};
+			o_link_branch_ff <= {(((i_instruction_valid && !i_v5_und) && !i_instruction[39]) && (i_instruction[27:25] == 3'b101)) && (i_instruction[31:28] != NV), (arm_bl && i_instruction_valid) && !i_v5_und, i_pc_plus_8_ff + (i_instruction[34] ? {{7 {i_instruction[23]}}, i_instruction[23:0], 1'b0} : {{6 {i_instruction[23]}}, i_instruction[23:0], 2'b00})};
 			o_decompile <= decompile_tmp;
 			o_uop_last <= i_uop_last;
 		end
@@ -11550,7 +11568,7 @@ module zap_issue_main (
 	input wire [31:0] i_pc_ff;
 	input wire i_switch_ff;
 	input wire [1:0] i_taken_ff;
-	input wire [32:0] i_link_branch_ff;
+	input wire [33:0] i_link_branch_ff;
 	input wire [31:0] i_ppc_ff;
 	input wire [511:0] i_decompile;
 	input wire [3:0] i_condition_code_ff;
@@ -11654,7 +11672,7 @@ module zap_issue_main (
 	output reg [511:0] o_decompile;
 	output reg [31:0] o_pc_ff;
 	output reg [1:0] o_taken_ff;
-	(* dont_retime *) output reg [32:0] o_link_branch_ff;
+	(* dont_retime *) output reg [33:0] o_link_branch_ff;
 	output reg [31:0] o_ppc_ff;
 	output reg o_force32align_ff;
 	output reg o_und_ff;
@@ -11950,8 +11968,8 @@ module zap_issue_main (
 	(* dont_retime *) reg skid_lsl0_ff;
 	reg [2:0] skid_late_immediate_ff;
 	reg skid_late_store_ff;
-	reg [32:0] skid_link_branch;
-	wire [32:0] selected_link_branch = (stall_late_ff ? skid_link_branch : i_link_branch_ff);
+	reg [33:0] skid_link_branch;
+	wire [33:0] selected_link_branch = (stall_late_ff ? skid_link_branch : i_link_branch_ff);
 	(* keep *) wire [4:0] live_locked;
 	(* keep *) wire [4:0] skid_locked;
 	wire [4:0] slot_locked = (stall_late_ff ? skid_locked : live_locked);
@@ -12027,7 +12045,7 @@ module zap_issue_main (
 			o_pc_ff <= 1'sbx;
 			o_decompile <= 1'sbx;
 			o_ppc_ff <= 1'sbx;
-			o_link_branch_ff <= 33'b000000000000000000000000000000000;
+			o_link_branch_ff <= 34'b0000000000000000000000000000000000;
 		end
 		else if (clear) begin
 			o_load_pending_ff <= 0;
@@ -12063,7 +12081,7 @@ module zap_issue_main (
 			o_pc_ff <= 1'sbx;
 			o_decompile <= 1'sbx;
 			o_ppc_ff <= 1'sbx;
-			o_link_branch_ff <= 33'b000000000000000000000000000000000;
+			o_link_branch_ff <= 34'b0000000000000000000000000000000000;
 		end
 		else if (~stall) begin
 			o_load_pending_ff <= (lock || (skid_condition_code_ff == NV) ? 4'b0000 : late_pending);
@@ -12095,7 +12113,7 @@ module zap_issue_main (
 			o_und_ff <= skid_und_ff;
 			o_taken_ff <= skid_taken_ff;
 			o_ppc_ff <= skid_ppc_ff;
-			o_link_branch_ff <= {selected_link_branch[32] && !lock, selected_link_branch[31:0]};
+			o_link_branch_ff <= {selected_link_branch[33:32] & {2 {!lock}}, selected_link_branch[31:0]};
 			o_pc_ff <= skid_pc_ff;
 			o_decompile <= skid_decompile;
 			o_uop_last <= skid_uop_last;
@@ -16453,6 +16471,10 @@ module zap_shifter_main (
 	o_pc_ff,
 	i_taken_ff,
 	o_taken_ff,
+	i_flags_ff,
+	i_thumb_ff,
+	o_early_redirect_ff,
+	o_early_target_ff,
 	i_link_branch_ff,
 	i_ppc_ff,
 	o_link_branch_ff,
@@ -16551,9 +16573,13 @@ module zap_shifter_main (
 	output reg [31:0] o_pc_ff;
 	input wire [1:0] i_taken_ff;
 	output reg [1:0] o_taken_ff;
-	input wire [32:0] i_link_branch_ff;
+	input wire [3:0] i_flags_ff;
+	input wire i_thumb_ff;
+	(* dont_retime *) output reg o_early_redirect_ff;
+	(* dont_retime *) output reg [31:0] o_early_target_ff;
+	input wire [33:0] i_link_branch_ff;
 	input wire [31:0] i_ppc_ff;
-	(* dont_retime *) output reg [32:0] o_link_branch_ff;
+	(* dont_retime *) output reg [33:0] o_link_branch_ff;
 	output reg [31:0] o_ppc_ff;
 	input wire i_clear_from_writeback;
 	input wire i_data_stall;
@@ -16906,6 +16932,155 @@ module zap_shifter_main (
 	localparam [31:0] ZAP_DP_RD_EXTEND = 32'd33;
 	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
 	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
+	function automatic [31:0] be_32;
+		input [31:0] dat;
+		input [3:0] sel;
+		case (sel)
+			4'b1000: be_32 = {24'd0, dat[31:24]};
+			4'b0100: be_32 = {16'd0, dat[23:16], 8'd0};
+			4'b0010: be_32 = {8'd0, dat[15:8], 16'd0};
+			4'b0001: be_32 = {dat[7:0], 24'd0};
+			4'b1100: be_32 = {16'd0, dat[31:16]};
+			4'b0011: be_32 = {dat[15:0], 16'd0};
+			default: be_32 = dat;
+		endcase
+	endfunction
+	function automatic [3:0] be_sel_32;
+		input [3:0] sel;
+		case (sel)
+			4'b0001: be_sel_32 = 4'b1000;
+			4'b0010: be_sel_32 = 4'b0100;
+			4'b0100: be_sel_32 = 4'b0010;
+			4'b1000: be_sel_32 = 4'b0001;
+			4'b0011: be_sel_32 = 4'b1100;
+			4'b1100: be_sel_32 = 4'b0011;
+			4'b1111: be_sel_32 = sel;
+			default: be_sel_32 = {4 {1'bx}};
+		endcase
+	endfunction
+	function automatic is_cc_satisfied;
+		input [3:0] cc;
+		input [3:0] fl;
+		reg ok;
+		reg n;
+		reg z;
+		reg c;
+		reg v;
+		begin
+			{n, z, c, v} = fl;
+			case (cc)
+				EQ: ok = z;
+				NE: ok = !z;
+				CS: ok = c;
+				CC: ok = !c;
+				MI: ok = n;
+				PL: ok = !n;
+				VS: ok = v;
+				VC: ok = !v;
+				HI: ok = c && !z;
+				LS: ok = !c || z;
+				GE: ok = n == v;
+				LT: ok = n != v;
+				GT: ok = (n == v) && !z;
+				LE: ok = (n != v) || z;
+				AL: ok = 1'd1;
+				NV: ok = 1'd0;
+				default: ok = 1'sbx;
+			endcase
+			is_cc_satisfied = ok;
+		end
+	endfunction
+	function automatic [5:0] translate;
+		input [4:0] index;
+		input [4:0] cpu_mode;
+		begin
+			case (index)
+				0: translate = PHY_USR_R0;
+				1: translate = PHY_USR_R1;
+				2: translate = PHY_USR_R2;
+				3: translate = PHY_USR_R3;
+				4: translate = PHY_USR_R4;
+				5: translate = PHY_USR_R5;
+				6: translate = PHY_USR_R6;
+				7: translate = PHY_USR_R7;
+				8: translate = PHY_USR_R8;
+				9: translate = PHY_USR_R9;
+				10: translate = PHY_USR_R10;
+				11: translate = PHY_USR_R11;
+				12: translate = PHY_USR_R12;
+				13: translate = PHY_USR_R13;
+				14: translate = PHY_USR_R14;
+				15: translate = PHY_PC;
+				RAZ_REGISTER: translate = PHY_RAZ_REGISTER;
+				ARCH_CPSR: translate = PHY_CPSR;
+				ARCH_CURR_SPSR: translate = PHY_CPSR;
+				ARCH_USR2_R8: translate = PHY_USR_R8;
+				ARCH_USR2_R9: translate = PHY_USR_R9;
+				ARCH_USR2_R10: translate = PHY_USR_R10;
+				ARCH_USR2_R11: translate = PHY_USR_R11;
+				ARCH_USR2_R12: translate = PHY_USR_R12;
+				ARCH_USR2_R13: translate = PHY_USR_R13;
+				ARCH_USR2_R14: translate = PHY_USR_R14;
+				ARCH_DUMMY_REG0: translate = PHY_DUMMY_REG0;
+				ARCH_DUMMY_REG1: translate = PHY_DUMMY_REG1;
+				default: translate = {1'd0, index};
+			endcase
+			case (cpu_mode)
+				FIQ:
+					case (index)
+						8: translate = PHY_FIQ_R8;
+						9: translate = PHY_FIQ_R9;
+						10: translate = PHY_FIQ_R10;
+						11: translate = PHY_FIQ_R11;
+						12: translate = PHY_FIQ_R12;
+						13: translate = PHY_FIQ_R13;
+						14: translate = PHY_FIQ_R14;
+						ARCH_CURR_SPSR: translate = PHY_FIQ_SPSR;
+						default:
+							;
+					endcase
+				IRQ:
+					case (index)
+						13: translate = PHY_IRQ_R13;
+						14: translate = PHY_IRQ_R14;
+						ARCH_CURR_SPSR: translate = PHY_IRQ_SPSR;
+						default:
+							;
+					endcase
+				ABT:
+					case (index)
+						13: translate = PHY_ABT_R13;
+						14: translate = PHY_ABT_R14;
+						ARCH_CURR_SPSR: translate = PHY_ABT_SPSR;
+						default:
+							;
+					endcase
+				UND:
+					case (index)
+						13: translate = PHY_UND_R13;
+						14: translate = PHY_UND_R14;
+						ARCH_CURR_SPSR: translate = PHY_UND_SPSR;
+						default:
+							;
+					endcase
+				SVC:
+					case (index)
+						13: translate = PHY_SVC_R13;
+						14: translate = PHY_SVC_R14;
+						ARCH_CURR_SPSR: translate = PHY_SVC_SPSR;
+						default:
+							;
+					endcase
+				USR:
+					;
+				SYS:
+					;
+				default: translate = 1'sbx;
+			endcase
+			if (|{cpu_mode == USR, cpu_mode == SYS, cpu_mode == FIQ, cpu_mode == IRQ, cpu_mode == SVC, cpu_mode == UND, cpu_mode == ABT})
+				;
+		end
+	endfunction
 	wire nozero_nxt;
 	wire [31:0] shout;
 	wire shcarry;
@@ -16918,6 +17093,10 @@ module zap_shifter_main (
 	wire mult_sat_nxt;
 	wire [31:0] mult_out;
 	wire shifter_enabled;
+	wire early_condition = is_cc_satisfied(i_condition_code_ff, i_flags_ff);
+	wire early_flags_ready = (o_condition_code_ff == NV) || (!o_flag_update_ff && (o_alu_operation_ff != FMOV));
+	wire early_wrong = (early_condition ? !i_taken_ff[1] || (i_ppc_ff != i_link_branch_ff[31:0]) : i_taken_ff[1]);
+	wire early_branch = (((i_link_branch_ff[33] && early_flags_ready) && early_wrong) && !((((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_und_ff)) && !o_stall_from_shifter;
 	wire multiply_busy;
 	wire late_wait;
 	wire is_multiply;
@@ -17016,7 +17195,8 @@ module zap_shifter_main (
 			o_switch_ff <= 1'sbx;
 			o_force32align_ff <= 1'sbx;
 			o_taken_ff <= 1'sbx;
-			o_link_branch_ff <= 33'b000000000000000000000000000000000;
+			o_link_branch_ff <= 34'b0000000000000000000000000000000000;
+			o_early_redirect_ff <= 1'b0;
 			o_ppc_ff <= 1'sbx;
 			o_pc_ff <= 1'sbx;
 			o_nozero_ff <= 1'sbx;
@@ -17051,7 +17231,8 @@ module zap_shifter_main (
 			o_switch_ff <= 1'sbx;
 			o_force32align_ff <= 1'sbx;
 			o_taken_ff <= 1'sbx;
-			o_link_branch_ff <= 33'b000000000000000000000000000000000;
+			o_link_branch_ff <= 34'b0000000000000000000000000000000000;
+			o_early_redirect_ff <= 1'b0;
 			o_ppc_ff <= 1'sbx;
 			o_pc_ff <= 1'sbx;
 			o_nozero_ff <= 1'sbx;
@@ -17094,7 +17275,9 @@ module zap_shifter_main (
 			o_force32align_ff <= i_force32align_ff;
 			o_taken_ff <= i_taken_ff;
 			o_ppc_ff <= i_ppc_ff;
-			o_link_branch_ff <= {i_link_branch_ff[32] && !o_stall_from_shifter, i_link_branch_ff[31:0]};
+			o_early_redirect_ff <= early_branch;
+			o_early_target_ff <= (early_condition ? i_link_branch_ff[31:0] : i_pc_ff + (i_thumb_ff ? 32'd2 : 32'd4));
+			o_link_branch_ff <= {i_link_branch_ff[33:32] & {2 {!o_stall_from_shifter}}, i_link_branch_ff[31:0]};
 			o_pc_ff <= i_pc_ff;
 			o_nozero_ff <= nozero_nxt;
 			o_decompile <= i_decompile;

@@ -252,7 +252,7 @@ int main(int argc, char **argv) {
 	bool stop = false;
 	int exit_code = -1;
 	uint64_t cycle = 0, retired = 0, replays = 0;
-	uint64_t stall_clocks[6] = {}, alu_flushes = 0, uops = 0;
+	uint64_t stall_clocks[6] = {}, alu_flushes = 0, early_flushes = 0, uops = 0;
 	std::string console;
 
 	auto mmio_read = [&](uint32_t off) -> uint32_t {
@@ -307,7 +307,8 @@ int main(int argc, char **argv) {
 		// ---- before the rising edge: sample what commits at this edge ----
 		for (int b = 0; b < 6; b++) stall_clocks[b] += (t->p_stall >> b) & 1;
 		// A held redirect is counted on its accepting edge, not every held clock.
-		alu_flushes += (t->p_stall & 0x41) == 0x40;
+		alu_flushes += (t->p_alu_flags & 0x30) == 0x20;
+		early_flushes += (t->p_stall & 0x41) == 0x40 && !(t->p_alu_flags & 0x20);
 		uops += t->p_valid || t->p_cfail;
 		uint32_t cpsr_before = t->p_cpsr;
 		bool thumb = (cpsr_before >> 5) & 1;
@@ -548,8 +549,8 @@ int main(int argc, char **argv) {
 		printf("Uops: %" PRIu64 "\n", uops);
 		printf("Pipeline: data=%" PRIu64 " code=%" PRIu64 " fifo_empty=%" PRIu64
 		       " issue=%" PRIu64 " shifter=%" PRIu64 " decode=%" PRIu64
-		       " alu_flushes=%" PRIu64 "\n", stall_clocks[0], stall_clocks[1],
-		       stall_clocks[2], stall_clocks[3], stall_clocks[4], stall_clocks[5], alu_flushes);
+		       " alu_flushes=%" PRIu64 " early_flushes=%" PRIu64 "\n", stall_clocks[0], stall_clocks[1],
+		       stall_clocks[2], stall_clocks[3], stall_clocks[4], stall_clocks[5], alu_flushes, early_flushes);
 		printf("Replays: %" PRIu64 "\n", replays);
 		printf("Background writes: %" PRIu64 ", during fill: %" PRIu64 "\n", dc_writes, dc_early_writes);
 		printf("PASS (%" PRIu64 " cycles, %" PRIu64 " instructions)\n", cycle, retired);

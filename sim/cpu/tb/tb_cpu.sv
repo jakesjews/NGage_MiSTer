@@ -154,6 +154,31 @@ module tb_cpu #(
 	`define SH dut.u_zap.u_zap_core.u_zap_shifter_main
 	assign p_sh_dbg    = {8'(`SH.i_alu_source_ff), 8'(`SH.o_destination_index_ff), 7'd0, `SH.i_alu_dav_nxt,
 	                      `SH.rn};
+	// Check the early decision against execution one stage later. This catches
+	// stale flags/target or metadata misalignment across a hold/redirect.
+	// Disable only when measuring an archived core without the early interface.
+`ifndef ZAP_LEGACY_CORE
+	begin : g_early_branch_check
+		wire [31:0] actual_target = `AL.i_link_branch_ff[32] ?
+			`AL.i_link_branch_ff[31:0] : `AL.quick_sum;
+		always @(posedge clk) begin
+			if (!reset && `SH.o_early_redirect_ff && !`AL.i_data_stall &&
+			    !`AL.o_clear_from_alu && !`AL.i_clear_from_writeback &&
+			    !`AL.sleep_ff && !`AL.i_data_mem_fault) begin
+				if (`AL.o_dav_nxt) begin
+					assert (`SH.o_early_target_ff == actual_target)
+						else $fatal(1, "Early branch target differs from ALU execution");
+					assert (!`AL.i_taken_ff[1] || `AL.i_ppc_ff != actual_target)
+						else $fatal(1, "Early redirect on a correctly predicted branch");
+				end else begin
+					assert (`AL.i_taken_ff[1] && `SH.o_early_target_ff ==
+					        `AL.i_pc_ff + (`AL.flags_ff[5] ? 32'd2 : 32'd4))
+						else $fatal(1, "Early branch used stale condition flags");
+				end
+			end
+		end
+	end
+`endif
 	`undef SH
 	`undef PD
 	`undef AL
