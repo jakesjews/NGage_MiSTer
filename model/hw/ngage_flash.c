@@ -2,7 +2,7 @@
  * Samsung K8S2815ETA / K8S6415ETA style NOR flash with the AMD command set,
  * as fitted to the N-Gage QD. Array reads go straight to host memory
  * (ROM device in "romd" mode); writes are decoded as commands. Programs
- * complete at once, so data polling sees the final data.
+ * complete at once, apart from the first-format handshake described below.
  *
  * Sector erase is timed, with erase suspend/resume, because medint.pdd (the
  * C: drive driver) depends on it: after 0x30 it polls the sector until
@@ -17,9 +17,13 @@
  * erase start and end goes to the QEMU log with the guest time.
  *
  * First format: while CS1's upper 4 MB is still erased, sector erases in
- * C: complete immediately (there is nothing to erase). The first program
- * of non-FF C: data ends this shortcut until a new image is loaded; erases
- * never re-arm it. Programs already complete synchronously in this model.
+ * C: skip the array write and timer. Erase and program still expose one busy
+ * status read in their bank, then array data: medint.pdd must observe DQ7=0
+ * and DQ3=1 before it checks erase completion. This read-driven handshake
+ * cannot expire before the first poll. The first program of non-FF C: data
+ * ends eligibility for this shortcut until a new image is loaded; its own
+ * busy read is retained. Erases never re-arm it. Outside this shortcut,
+ * programs retain this model's existing synchronous completion.
  *
  * Sector map: 64 KB sectors with the top 64 KB in eight 8 KB sectors (top
  * boot), from medint.pdd's sector-size rule at 0x5037FC28 (8 KB at and above
@@ -56,6 +60,7 @@
 
 enum { ST_READ, ST_UNLOCK1, ST_UNLOCK2, ST_CMD80, ST_CMD80_U1, ST_CMD80_U2,
        ST_PROGRAM, ST_AUTOSELECT, ST_CFI };
+enum { FAST_NONE, FAST_ERASE, FAST_PROGRAM };
 
 struct NGageFlash {
     MemoryRegion mr;
@@ -70,9 +75,13 @@ struct NGageFlash {
     bool dirty;
     bool c_blank;       /* sticky until a new CS1 image is loaded */
     Notifier exit_notifier;
-    /* Sector erase in progress: 0 none, 1 erasing, 2 suspended. */
+    /* Busy overlay: 0 none, 1 active (erase or fast program), 2 suspended erase. */
     int busy;
     uint32_t busy_off, busy_len;
+    uint32_t busy_map_off;
+    int fast;
+    uint16_t fast_data;
+    bool fast_toggle;
     int64_t busy_left;              /* ns of erase left when suspended */
     uint16_t toggle;
     QEMUTimer *timer;
@@ -151,6 +160,27 @@ static void erase_done(void *opaque)
     }
 }
 
+/* Match nor_flash's sixteen banks and one busy read, with no elapsed time
+ * requirement. A program's array write has already landed before this starts.
+ * Keep this toggle phase separate so the existing timed path is unchanged. */
+static void fast_start(NGageFlash *f, int kind, uint32_t off, uint16_t data)
+{
+    uint32_t bank_len = f->size / 16;
+
+    f->fast = kind;
+    f->fast_data = data;
+    f->busy = 1;
+    f->busy_map_off = off & ~(bank_len - 1);
+    memory_region_set_size(&f->busy_mr, bank_len);
+    memory_region_add_subregion_overlap(f->sysmem, f->base + f->busy_map_off,
+                                       &f->busy_mr, 1);
+    if (ngage_log_time) {
+        qemu_log("%11.6f %s: fast %s at %08x pc=%08x\n", ngage_guest_seconds(),
+                 memory_region_name(&f->mr), kind == FAST_ERASE ? "erase" : "program",
+                 off, ngage_guest_pc());
+    }
+}
+
 static void erase_start(NGageFlash *f, uint32_t off)
 {
     if (f->busy || off >= f->size) {
@@ -161,9 +191,11 @@ static void erase_start(NGageFlash *f, uint32_t off)
     f->busy_len = sector_len(f, off);
     f->busy_off = off & ~(f->busy_len - 1);
     if (f->c_blank && f->busy_off >= f->size / 2) {
-        return;            /* known erased C: sector: no busy overlay/timer */
+        fast_start(f, FAST_ERASE, off, 0xFFFF);
+        return;
     }
     f->busy = 1;
+    f->busy_map_off = f->busy_off;
     memory_region_set_size(&f->busy_mr, f->busy_len);
     memory_region_add_subregion_overlap(f->sysmem, f->base + f->busy_off, &f->busy_mr, 1);
     timer_mod(f->timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + ERASE_NS);
@@ -199,6 +231,29 @@ static uint64_t busy_read(void *opaque, hwaddr addr, unsigned size)
     NGageFlash *f = opaque;
     uint64_t v;
 
+    if (f->fast) {
+        uint32_t off = f->busy_map_off + addr;
+        bool selected = off >= f->busy_off && off < f->busy_off + f->busy_len;
+
+        v = f->fast_toggle ? 0x40 : 0;
+        if (f->fast == FAST_ERASE) {
+            v |= 0x08 | (selected ? (f->fast_toggle ? 0x04 : 0) : 0x04);
+        } else {
+            v |= (~f->fast_data & 0x80) | 0x04;
+        }
+        f->fast_toggle = !f->fast_toggle;
+        f->fast = FAST_NONE;
+        f->busy = 0;
+        memory_region_del_subregion(f->sysmem, &f->busy_mr);
+        /* The physical chip is x16: a word load is two reads, so only its
+         * first halfword is busy. Byte polls use the addressed byte lane. */
+        if (size == 4) {
+            v |= (uint64_t)lduw_le_p(f->data + off + 2) << 16;
+        } else if (size == 1 && (off & 1)) {
+            v >>= 8;
+        }
+        return v;
+    }
     f->toggle ^= 0x44;      /* DQ6 and DQ2 */
     if (f->busy == 1) {
         v = 0x0008 | f->toggle;
@@ -215,7 +270,7 @@ static void busy_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
 {
     NGageFlash *f = opaque;
 
-    flash_write(f, f->busy_off + addr, val, size);
+    flash_write(f, f->busy_map_off + addr, val, size);
 }
 
 static const MemoryRegionOps busy_ops = {
@@ -232,7 +287,11 @@ static void flash_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
     uint32_t w = (addr >> 1) & 0x7FF;
     uint16_t d = val;
 
+    if (f->fast) {
+        return;           /* no suspend/resume or new command before the poll */
+    }
     if (f->state == ST_PROGRAM) {
+        bool fast = f->c_blank && addr >= f->size / 2;
         /* Programming can only clear bits. */
         uint8_t *p = f->data + addr;
         for (unsigned i = 0; i < size && addr + i < f->size; i++) {
@@ -244,6 +303,9 @@ static void flash_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
         memory_region_flush_rom_device(&f->mr, addr, size);
         f->dirty = true;
         f->state = ST_READ;
+        if (fast) {
+            fast_start(f, FAST_PROGRAM, addr, d);
+        }
         return;
     }
     if (f->state == ST_READ && erase_suspend_resume(f, d & 0xFF)) {
