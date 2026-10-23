@@ -2836,3 +2836,8 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   without video_freak, remains the other clean one. Its margin is as thin
   as that one's; the 3a tree and the packing experiment, queued, may
   give a candidate with more. 6 (Mac, the merger variant) -0.170.
+- Sweep 5's seed 8 on the MiSTer (the debug core, the 2 s boot profile):
+  kernel phase 34-86 s at 12.8 M instructions/s, flash waits 25.4 %, the
+  boot's bus traffic 34-98 s, the idle screen after: the same core as
+  the two-way measurement build, with the video options in
+  (build/hardware/boot/sweep5-s8-p2).
