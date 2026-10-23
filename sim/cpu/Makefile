@@ -114,7 +114,7 @@ $(TB)/%.lst: $(TB)/%.elf
 	$(CROSS)objdump -d $< > $@
 
 # ---------------------------------------------------------------- model
-VFLAGS := --cc --exe --build -j $(JOBS) -O3 --x-assign unique --x-initial unique \
+VFLAGS := --cc --exe --build --assert -j $(JOBS) -O3 --x-assign unique --x-initial unique \
           -Wno-fatal -Wno-lint -Wno-style -Wno-MULTIDRIVEN -Wno-ASSIGNIN \
           --top-module tb_cpu -CFLAGS "-O2 -std=c++17" $(VEXTRA)
 ZAP_SV  := $(wildcard $(ROOT)/rtl/cpu/zap/*.sv)

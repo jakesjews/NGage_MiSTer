@@ -51,7 +51,13 @@ module zap_shifter_main
         output logic   [1:0]                       o_taken_ff,
 
         // Predicted PC
+        input logic [3:0] i_flags_ff,
+        input logic i_thumb_ff,
+        (* dont_retime *) output logic o_early_redirect_ff,
+        (* dont_retime *) output logic [31:0] o_early_target_ff,
+        input logic [33:0] i_link_branch_ff,
         input logic     [31:0]                     i_ppc_ff,
+        (* dont_retime *) output logic [33:0] o_link_branch_ff,
         output logic    [31:0]                     o_ppc_ff,
 
         // Stall and clear. Hi to low priority.
@@ -190,6 +196,7 @@ module zap_shifter_main
 
 `include "zap_defines.svh"
 `include "zap_localparams.svh"
+`include "zap_functions.svh"
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -203,6 +210,18 @@ logic shift_sat_nxt;
 logic mult_sat_nxt;
 logic [31:0] mult_out;
 logic shifter_enabled;
+// ARM925T: resolve only direct branches with an already stable flags
+// register. A flag writer immediately ahead falls back to normal ALU
+// resolution. The branch itself still executes/retires in order in ALU.
+wire early_condition = is_cc_satisfied(i_condition_code_ff, i_flags_ff);
+wire early_flags_ready = o_condition_code_ff == NV ||
+        (!o_flag_update_ff && o_alu_operation_ff != FMOV);
+wire early_wrong = early_condition ?
+        (!i_taken_ff[1] || i_ppc_ff != i_link_branch_ff[31:0]) : i_taken_ff[1];
+wire early_branch = i_link_branch_ff[33] && early_flags_ready && early_wrong &&
+        !(i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_und_ff) &&
+        !o_stall_from_shifter;
+
 logic multiply_busy, late_wait, is_multiply;
 assign is_multiply = i_alu_operation_ff == {1'd0, UMLALL} ||
              i_alu_operation_ff == {1'd0, UMLALH} ||
@@ -337,6 +356,8 @@ begin
                 o_switch_ff                       <= 'x; //
                 o_force32align_ff                 <= 'x; //
                 o_taken_ff                        <= 'x; //
+                o_link_branch_ff <= 34'b0;
+                o_early_redirect_ff <= 1'b0;
                 o_ppc_ff                          <= 'x; //
                 o_pc_ff                           <= 'x; //
                 o_nozero_ff                       <= 'x; //
@@ -373,6 +394,8 @@ begin
                 o_switch_ff                       <= 'x; //
                 o_force32align_ff                 <= 'x; //
                 o_taken_ff                        <= 'x; //
+                o_link_branch_ff <= 34'b0;
+                o_early_redirect_ff <= 1'b0;
                 o_ppc_ff                          <= 'x; //
                 o_pc_ff                           <= 'x; //
                 o_nozero_ff                       <= 'x; //
@@ -450,6 +473,10 @@ begin
            o_force32align_ff                 <= i_force32align_ff;
            o_taken_ff                        <= i_taken_ff;
            o_ppc_ff                          <= i_ppc_ff;
+           o_early_redirect_ff <= early_branch;
+           o_early_target_ff <= early_condition ? i_link_branch_ff[31:0] :
+                   i_pc_ff + (i_thumb_ff ? 32'd2 : 32'd4);
+           o_link_branch_ff <= {i_link_branch_ff[33:32] & {2{!o_stall_from_shifter}}, i_link_branch_ff[31:0]};
            o_pc_ff                           <= i_pc_ff;
            o_nozero_ff                       <= nozero_nxt;
 

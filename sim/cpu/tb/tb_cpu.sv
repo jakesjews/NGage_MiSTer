@@ -46,6 +46,7 @@ module tb_cpu #(
 	output logic [31:0]   p_cpsr,
 	output logic [1279:0] p_regs,      // 40 physical registers, 32 bits each
 	output logic [63:0]   p_lock,      // registers waiting for a background load
+	output logic [7:0]    p_stall,     // same overlapping level counters as hardware
 	// data side, for the bus log: request to the D-cache, its virtual
 	// address, alignment fault
 	output logic          p_dreq,
@@ -84,7 +85,9 @@ module tb_cpu #(
 	output logic [3:0]    p_uop_flags,
 	output logic [31:0]   p_alu_res,
 	output logic [7:0]    p_alu_dst,
-	output logic [63:0]   p_sh_dbg
+	output logic [63:0]   p_sh_dbg,
+	// Multiply occupancy and the selected younger instruction (bench only).
+	output logic [3:0]    p_mult_state
 );
 
 	arm925t #(
@@ -125,6 +128,7 @@ module tb_cpu #(
 	assign p_cpsr  = dut.u_zap.u_zap_core.u_zap_writeback.cpsr_ff;
 	assign p_regs  = dut.u_zap.u_zap_core.u_zap_writeback.u_zap_register_file.mem;
 	assign p_lock  = dut.u_zap.dc_lock;
+	assign p_stall = dut.u_zap.u_zap_core.o_dbg_stall;
 	assign p_dreq  = dut.u_zap.cpu_dc_stb;
 	assign p_dva   = dut.u_zap.cpu_daddr_va;
 	assign p_dalign = dut.u_zap.cpu_align_fault;
@@ -152,6 +156,34 @@ module tb_cpu #(
 	`define SH dut.u_zap.u_zap_core.u_zap_shifter_main
 	assign p_sh_dbg    = {8'(`SH.i_alu_source_ff), 8'(`SH.o_destination_index_ff), 7'd0, `SH.i_alu_dav_nxt,
 	                      `SH.rn};
+	assign p_mult_state = {`SH.i_clear_from_writeback || (`SH.i_clear_from_alu && !`SH.i_data_stall),
+	                      dut.u_zap.u_zap_core.u_zap_issue_main.skid_condition_code_ff != 4'd15,
+	                      `SH.i_data_stall || `SH.i_stall_from_alu, `SH.multiply_busy};
+	// Check the early decision against execution one stage later. This catches
+	// stale flags/target or metadata misalignment across a hold/redirect.
+	// Disable only when measuring an archived core without the early interface.
+`ifndef ZAP_LEGACY_CORE
+	begin : g_early_branch_check
+		wire [31:0] actual_target = `AL.i_link_branch_ff[32] ?
+			`AL.i_link_branch_ff[31:0] : `AL.quick_sum;
+		always @(posedge clk) begin
+			if (!reset && `SH.o_early_redirect_ff && !`AL.i_data_stall &&
+			    !`AL.o_clear_from_alu && !`AL.i_clear_from_writeback &&
+			    !`AL.sleep_ff && !`AL.i_data_mem_fault) begin
+				if (`AL.o_dav_nxt) begin
+					assert (`SH.o_early_target_ff == actual_target)
+						else $fatal(1, "Early branch target differs from ALU execution");
+					assert (!`AL.i_taken_ff[1] || `AL.i_ppc_ff != actual_target)
+						else $fatal(1, "Early redirect on a correctly predicted branch");
+				end else begin
+					assert (`AL.i_taken_ff[1] && `SH.o_early_target_ff ==
+					        `AL.i_pc_ff + (`AL.flags_ff[5] ? 32'd2 : 32'd4))
+						else $fatal(1, "Early branch used stale condition flags");
+				end
+			end
+		end
+	end
+`endif
 	`undef SH
 	`undef PD
 	`undef AL

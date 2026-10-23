@@ -98,6 +98,8 @@ module zap_alu_main #(
         input logic   [1:0]                      i_taken_ff,
 
         // Predicted PC from BTB.
+        input logic [33:0] i_link_branch_ff,
+        input logic i_early_redirect_ff,
         input logic   [31:0]                     i_ppc_ff,
 
         // Instruction address.
@@ -706,7 +708,7 @@ begin
                 o_clear_from_alu                <= |w_clear_from_alu;
                 r_clear_from_alu                <=  w_clear_from_alu;
 
-                w_pc_from_alu_btarget           <= tmp_sum;
+                w_pc_from_alu_btarget           <= i_link_branch_ff[32] ? i_link_branch_ff[31:0] : tmp_sum;
                 w_pc_from_alu_resync            <= i_pc_ff + (flags_ff[T] ? 32'd2 : 32'd4);
 
                 o_confirm_from_alu              <= w_confirm_from_alu;
@@ -1072,7 +1074,7 @@ begin
         end
 end
 
-assign branch_instruction = i_destination_index_ff == {2'd0, ARCH_PC} &&
+assign branch_instruction = (i_link_branch_ff[32] || i_destination_index_ff == {2'd0, ARCH_PC}) &&
                            (i_condition_code_ff != NV);
 
 always_comb
@@ -1109,7 +1111,7 @@ begin: flags_bp_feedback
         else if ( branch_instruction )
         begin: branch_block
 
-                o_destination_index_nxt = PHY_RAZ_REGISTER;
+                o_destination_index_nxt = i_link_branch_ff[32] ? i_destination_index_ff : PHY_RAZ_REGISTER;
 
                 if ( i_flag_update_ff && o_dav_nxt )
                 // PC update with S bit. Context restore.
@@ -1151,6 +1153,7 @@ begin: flags_bp_feedback
                         else if
                         (
                                 // Check branch target address.
+                                i_link_branch_ff[32] ? (i_ppc_ff == i_link_branch_ff[31:0]) :
                                 opcode == {2'd0, ADD} ? (i_ppc_ff == quick_sum):
                                 opcode == {2'd0, MOV} ? (i_ppc_ff == rm) : 1'd0
                         )
@@ -1183,6 +1186,12 @@ begin: flags_bp_feedback
             o_destination_index_nxt  = i_destination_index_ff;
 
         end : nbranch_block
+        // ARM925T: shifter already redirected and trained this branch.
+        // Keep its result/link retirement, but do not flush/train it twice.
+        if (i_early_redirect_ff) begin
+                w_clear_from_alu = CONTINUE;
+                w_confirm_from_alu = 1'b0;
+        end
 end
 
 // ----------------------------------------------------------------------------

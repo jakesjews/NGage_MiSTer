@@ -86,7 +86,7 @@ module zap_decode_main #(
         input   logic    [CPSR_MODE:0]            i_cpsr_ff_mode, // Mode.
 
         // Instruction input.
-        input     logic  [35:0]                  i_instruction,
+        input     logic  [39:0]                  i_instruction,
         input     logic                          i_instruction_valid,
 
         // ------------------------
@@ -94,6 +94,7 @@ module zap_decode_main #(
         // ------------------------
 
         // Predicted program counter.
+        (* dont_retime *) output logic [33:0] o_link_branch_ff,
         output  logic   [31:0]                    o_ppc_ff,
 
         // This signal is used to check the validity of a pipeline stage.
@@ -221,6 +222,12 @@ logic [$clog2(ARCH_REGS)-1:0]    mem_srcdest_index_nxt;
 
 // ----------------------------------------------------------------------------
 
+// ARM925T: BL's normal ALU operation is SUB LR, PC, #4. The branch
+// target is prepared independently at decode, never in operand forwarding.
+wire arm_bl = !i_instruction[39] && i_instruction[38];
+wire [35:0] decode_word = arm_bl ? {4'b0, i_instruction[31:28], 28'h24fe004} :
+        {i_instruction[35] && !i_instruction[39], i_instruction[34:0]};
+
 // Abort
 assign       o_abt_nxt = i_abt && i_instruction_valid;
 
@@ -236,7 +243,10 @@ assign       o_fiq_nxt = i_fiq && !o_abt_nxt;
 // architectural register numbers.
 //
 assign       o_destination_index_nxt = // Always a register so no need for IMMED_EN.
-        translate ( destination_index_nxt, i_cpsr_ff_mode );
+        // ARM925T: bit 39 marks a final LDM/STM beat whose normal address
+        // result also updates the architectural base (bits 38:35).
+        translate ( i_instruction[39] ? {1'b0, i_instruction[38:35]} :
+                    destination_index_nxt, i_cpsr_ff_mode );
 
 assign       o_alu_source_nxt =
         (alu_source_nxt[32] == IMMED_EN ) ? // Constant...?
@@ -299,6 +309,7 @@ begin
                 o_force32align_ff                       <= 'x;
                 o_decompile                             <= 'x;
                 o_ppc_ff                                <= 'x;
+                o_link_branch_ff <= 34'b0;
                 o_irq_ff                                <= 0;
                 o_fiq_ff                                <= 0;
                 o_swi_ff                                <= 0;
@@ -341,6 +352,7 @@ begin
                 o_force32align_ff                       <= 'x;
                 o_decompile                             <= 'x;
                 o_ppc_ff                                <= 'x;
+                o_link_branch_ff <= 34'b0;
 
         end
         // If no stall, only then update...
@@ -382,6 +394,13 @@ begin
                 o_force32align_ff                       <= i_force32align;
                 o_taken_ff                              <= i_taken;
                 o_ppc_ff                                <= i_ppc_ff;
+                o_link_branch_ff <= {
+                        i_instruction_valid && !i_v5_und && !i_instruction[39] &&
+                        i_instruction[27:25] == 3'b101 && i_instruction[31:28] != NV,
+                        arm_bl && i_instruction_valid && !i_v5_und,
+                        i_pc_plus_8_ff + (i_instruction[34] ?
+                                {{7{i_instruction[23]}}, i_instruction[23:0], 1'b0} :
+                                {{6{i_instruction[23]}}, i_instruction[23:0], 2'b0})};
                 o_decompile                             <= decompile_tmp;
                 o_uop_last                              <= i_uop_last;
         end
@@ -400,7 +419,7 @@ u_zap_decode (
         .i_irq(i_irq),
         .i_fiq(i_fiq),
         .i_abt(i_abt),
-        .i_instruction(i_instruction[35:0]),
+        .i_instruction(decode_word),
         .i_instruction_valid(i_instruction_valid),
         .i_v5_und(i_v5_und),
         .o_condition_code(o_condition_code_nxt),
@@ -430,7 +449,7 @@ u_zap_decode (
 
 
 zap_decompile u_zap_decompile (
-        .i_instruction  (i_instruction[35:0]),
+        .i_instruction  (decode_word),
         .i_dav          (i_instruction_valid),
         .o_decompile    (decompile_tmp)
 );

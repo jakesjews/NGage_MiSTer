@@ -176,6 +176,9 @@ logic [32:0]                      pc_del3_ff, pc_del3_nxt;
 // ARM925T: clear/recovery qualifies one valid bit, not the 32-bit payload.
 (* dont_retime *) logic pred_valid_ff;
 logic pred_valid_nxt;
+(* dont_retime *) logic pred_del2_valid_ff;
+logic pred_del2_valid_nxt;
+(* dont_retime *) logic [31:0] pred_del2_target_ff;
 (* dont_retime *) logic [31:0] pred_target_ff;
 logic [1:0]                       btb_taken, taken_del3_ff;
 
@@ -290,6 +293,7 @@ begin: pc_control_tree
         pc_del2_nxt   = pc_del2_ff;
         pc_del3_nxt   = pc_del3_ff;
         pred_valid_nxt = 1'b0;
+        pred_del2_valid_nxt = 1'b0;
 
         if (|recovery_select) begin
                 if (i_code_stall) begin
@@ -316,19 +320,21 @@ begin: pc_control_tree
                         pc_del2_nxt = {1'b0, pc_del_ff[31:0]};
                         pc_del3_nxt = {1'b0, pc_del2_ff[31:0]};
                         shelve_nxt = 1'b0;
-                end else if (clear_from_btb && pc_del2_ff[32] && !i_clear_btb) begin
-                        // The decision belongs to pc_del2. Preserve the
-                        // branch and discard only its two younger slots.
+                end else if (clear_from_btb && pc_del_ff[32] && !i_clear_btb) begin
+                        // ARM925T: the RAM read belongs to pc_del. Preserve
+                        // it and the older slot; discard just pc_ff.
                         pc_nxt = {1'b1, map_pc(pc_from_btb)};
                         pc_del_nxt  = {1'b0, pc_ff[31:0]};
-                        pc_del2_nxt = {1'b0, pc_del_ff[31:0]};
+                        pc_del2_nxt = pc_del_ff;
                         pc_del3_nxt = pc_del2_ff;
-                        pred_valid_nxt = 1'b1;
+                        pred_del2_valid_nxt = 1'b1;
+                        pred_valid_nxt = pred_del2_valid_ff;
                 end else begin
                         pc_nxt = {pc_ff[32], map_pc(pc_ff[31:0] + (i_mode16 ? 32'd2 : 32'd4))};
                         pc_del_nxt = pc_ff;
                         pc_del2_nxt = pc_del_ff;
                         pc_del3_nxt = pc_del2_ff;
+                        pred_valid_nxt = pred_del2_valid_ff;
                 end
         end
 end: pc_control_tree
@@ -505,6 +511,7 @@ begin
                 pc_del2_ff                 <= 33'd0;
                 pc_del3_ff                 <= 33'd0;
                 pred_valid_ff             <= 1'b0;
+                pred_del2_valid_ff          <= 1'b0;
                 taken_del3_ff              <= SNT;
 
                 // CPSR reset logic.
@@ -523,7 +530,9 @@ begin
                 if ( !i_code_stall )
                 begin
                         pred_valid_ff <= pred_valid_nxt;
-                        pred_target_ff <= pc_from_btb;
+                        pred_target_ff <= pred_del2_target_ff;
+                        pred_del2_target_ff <= pc_from_btb;
+                        pred_del2_valid_ff <= pred_del2_valid_nxt;
                         taken_del3_ff <= btb_taken;
                 end
 
@@ -548,7 +557,7 @@ zap_btb #(.BP_ENTRIES(BP_ENTRIES)) u_zap_btb (
         .i_fb_branch_dest_address(i_pc_from_alu),
         .i_fb_current_branch_state(i_taken),
         // ARM925T: both lookup stages start at registers. The RAM reads
-        // pc_ff; the next cycle compares its tag against pc_del_ff.
+        // pc_ff; its registered result redirects at pc_del_ff.
         .i_rd_addr(pc_ff[31:0]),
         .i_rd_addr_del(pc_del_ff[31:0]),
         .o_clear_from_btb(clear_from_btb),

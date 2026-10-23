@@ -247,6 +247,11 @@ logic                            align_en;    // ARM925T: control bit A.
 // Clear and stall signals.
 logic                            stall_from_decode;
 logic                            clear_from_alu;
+logic alu_redirect, shifter_redirect;
+logic [31:0] alu_redirect_pc, shifter_redirect_pc;
+wire use_shifter_redirect = shifter_redirect && !alu_redirect;
+assign clear_from_alu = alu_redirect || shifter_redirect;
+assign pc_from_alu = use_shifter_redirect ? shifter_redirect_pc : alu_redirect_pc;
 logic                            stall_from_issue;
 logic                            clear_from_writeback;
 logic                            data_stall;
@@ -310,6 +315,7 @@ logic [$clog2(ALU_OPS)-1:0]      decode_alu_operation_ff;
 logic [32:0]                     decode_shift_source_ff;
 logic [$clog2(SHIFT_OPS)-1:0]    decode_shift_operation_ff;
 logic [32:0]                     decode_shift_length_ff;
+logic [33:0] decode_link_branch, issue_link_branch, shifter_link_branch;
 logic                            decode_shift_is_lsl0_ff;
 logic                            decode_flag_update_ff;
 logic [$clog2(PHY_REGS)-1:0]     decode_mem_srcdest_index_ff;
@@ -933,10 +939,11 @@ u_zap_decode_main (
 
         .i_cpsr_ff_mode                 (alu_flags_ff[ZAP_CPSR_MODE:0]),
 
-        .i_instruction                  (predecode_inst[35:0]),
+        .i_instruction                  (predecode_inst),
         .i_instruction_valid            (predecode_val),
         .i_taken                        (predecode_taken),
         .i_ppc_ff                       (predecode_ppc_ff),
+        .o_link_branch_ff               (decode_link_branch),
         .i_force32align                 (predecode_force32),
 
         // Output.
@@ -982,6 +989,8 @@ zap_issue_main #(
 )
 u_zap_issue_main
 (
+        .i_link_branch_ff(decode_link_branch),
+        .o_link_branch_ff(issue_link_branch),
         .i_uop_last(decode_uop_last),
         .o_uop_last(issue_uop_last),
 
@@ -1135,6 +1144,12 @@ zap_shifter_main #(
 )
 u_zap_shifter_main
 (
+        .i_link_branch_ff(issue_link_branch),
+        .i_flags_ff(alu_flags_ff[31:28]),
+        .i_thumb_ff(alu_flags_ff[T]),
+        .o_early_redirect_ff(shifter_redirect),
+        .o_early_target_ff(shifter_redirect_pc),
+        .o_link_branch_ff(shifter_link_branch),
         .i_load_pending_ff              (issue_load_pending_ff),
         .i_shift_length_index_ff        (issue_shift_length_index_ff),
         .i_shift_source_pending_ff      (issue_shift_source_pending_ff),
@@ -1265,6 +1280,8 @@ zap_alu_main #(
 )
 u_zap_alu_main
 (
+        .i_link_branch_ff(shifter_link_branch),
+        .i_early_redirect_ff(shifter_redirect),
          .i_load_pending_ff              (shifter_load_pending_ff),
          .i_load_index_ff                (shifter_load_index_ff),
          .i_memory_load_valid            (memory_load_valid),
@@ -1318,9 +1335,9 @@ u_zap_alu_main
          .o_force32align_ff                (alu_force32align_ff),
          .o_uop_last                       (alu_uop_last),
          .o_alu_result_nxt                 (alu_alu_result_nxt),
-         .o_pc_from_alu                    (pc_from_alu),
+         .o_pc_from_alu                    (alu_redirect_pc),
          .o_flags_nxt                      (alu_cpsr_nxt),
-         .o_clear_from_alu                 (clear_from_alu),
+         .o_clear_from_alu                 (alu_redirect),
          .o_confirm_from_alu               (confirm_from_alu),
          .o_decompile                      (alu_decompile),
          .o_decompile_valid                (alu_decompile_valid),
@@ -1675,9 +1692,10 @@ u_zap_writeback
 
         .i_cpu_pid              (o_pid[6:0]),
 
-        .i_confirm_from_alu     (confirm_from_alu),
-        .i_alu_pc_ff            (alu_flags_ff[T] ? alu_pc_plus_8_ff - 32'd4 : alu_pc_plus_8_ff - 32'd8),
-        .i_taken                (alu_taken_ff),
+        .i_confirm_from_alu     (confirm_from_alu && !use_shifter_redirect),
+        .i_alu_pc_ff            (use_shifter_redirect ? shifter_pc_ff :
+                                (alu_flags_ff[T] ? alu_pc_plus_8_ff - 32'd4 : alu_pc_plus_8_ff - 32'd8)),
+        .i_taken                (use_shifter_redirect ? shifter_taken_ff : alu_taken_ff),
 
         .o_shelve               (shelve),
 
