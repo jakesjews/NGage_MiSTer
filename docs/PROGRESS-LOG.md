@@ -2818,3 +2818,10 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   reset, clear and update, so the indices no longer come through the
   skid mux that the original stall register drives with hundreds of
   loads. Cycle-identical by construction.
+- The reverted tree's CPU trial at seed 1: +0.214 ns at slow 100C, +0.279
+  at slow -40C, the worst path the acknowledge into the merger's
+  registered data through the wrapper and the FSM (the path 2b had
+  shortened in the trial); the trial and the whole core disagree on
+  the merger, so the whole-core seeds decide. Queued behind seeds 11-13
+  (the 3a tree): the same tree with ALM_REGISTER_PACKING_EFFORT LOW
+  (Codex's cheapest experiment), seeds 14-16.
