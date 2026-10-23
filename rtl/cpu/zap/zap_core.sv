@@ -413,9 +413,29 @@ logic [1:0] shifter_load_pending_ff, alu_late_ready;
 logic [11:0] shifter_load_index_ff;
 logic [63:0] alu_late_value;
 logic memory_load_valid;
-// A miss is acknowledged before data exists. Never forward that response.
-assign memory_load_valid = memory_dav_ff && memory_mem_load_ff &&
-                           !i_dc_lock[memory_mem_srcdest_index_ff];
+// ARM925T: take a coherent snapshot of the registered memory result and
+// its lock status. A miss sets the lock on the same edge that memory accepts
+// the early acknowledge, so sampling the lock with the *input* to memory
+// would accept invalid data. Sample the memory outputs and lock together.
+// Keep this boundary through physical synthesis: the late ALU bypass must
+// never start at the cache RAM or its acknowledge/state logic.
+(* dont_retime *) logic late_memory_dav_ff, late_memory_load_ff, late_memory_lock_ff;
+(* dont_retime *) logic [5:0] late_memory_index_ff;
+(* dont_retime *) logic [31:0] late_memory_value_ff;
+assign memory_load_valid = late_memory_dav_ff && late_memory_load_ff &&
+                           !late_memory_lock_ff;
+always_ff @(posedge i_clk) begin
+        if (reset || clear_from_writeback) begin
+                late_memory_dav_ff <= 1'b0;
+        end else begin
+                // Completion pulses must survive a global data stall.
+                late_memory_dav_ff <= memory_dav_ff;
+        end
+        late_memory_load_ff <= memory_mem_load_ff;
+        late_memory_lock_ff <= i_dc_lock[memory_mem_srcdest_index_ff];
+        late_memory_index_ff <= memory_mem_srcdest_index_ff;
+        late_memory_value_ff <= memory_mem_rd_data;
+end
 logic [1:0]                      shifter_taken_ff;
 logic [31:0]                     shifter_ppc_ff;
 logic                            shifter_uop_last;
@@ -1117,8 +1137,8 @@ u_zap_shifter_main
         .i_load_pending_ff              (issue_load_pending_ff),
         .i_shift_length_index_ff        (issue_shift_length_index_ff),
         .i_memory_load_valid            (memory_load_valid),
-        .i_memory_load_index            (memory_mem_srcdest_index_ff),
-        .i_memory_load_value            (memory_mem_rd_data),
+        .i_memory_load_index            (late_memory_index_ff),
+        .i_memory_load_value            (late_memory_value_ff),
         .i_dc_reg_idx                   (i_dc_reg_idx),
         .i_dc_reg_dat                   (i_dc_reg_dat),
         .i_stall_from_alu               (stall_from_alu),
@@ -1246,8 +1266,8 @@ u_zap_alu_main
          .i_load_pending_ff              (shifter_load_pending_ff),
          .i_load_index_ff                (shifter_load_index_ff),
          .i_memory_load_valid            (memory_load_valid),
-         .i_memory_load_index            (memory_mem_srcdest_index_ff),
-         .i_memory_load_value            (memory_mem_rd_data),
+         .i_memory_load_index            (late_memory_index_ff),
+         .i_memory_load_value            (late_memory_value_ff),
          .i_dc_reg_idx                   (i_dc_reg_idx),
          .i_dc_reg_dat                   (i_dc_reg_dat),
          .o_stall_from_alu               (stall_from_alu),

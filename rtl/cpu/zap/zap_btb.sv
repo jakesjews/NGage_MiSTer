@@ -73,7 +73,7 @@ module zap_btb #(
         // Live read path.
         /////////////////////////
 
-        // ARM925T: the PC being formed and its registered value. The RAM
+        // ARM925T: the registered PC and its one-cycle delayed value. The RAM
         // read takes one clock; the tag check/decision takes another.
         input t_address     i_rd_addr,
         input t_address     i_rd_addr_del,
