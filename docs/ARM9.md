@@ -372,3 +372,15 @@ implementation is a correctness baseline, not the proposed high-throughput
 pipeline. The next architectural change must introduce independent stage-valid
 records, fetch invalidation and a producer scoreboard without losing this test
 coverage. No extra read-latency improvement is claimed from the cache adapter.
+
+### Session-2 integrated timing gate
+
+The serialized ARM9 core, with the real caches/MMU/CP15 and registered bus
+harness, was fitted at 104 MHz, seed 2. It **fails setup**: -2.678 ns at Slow
+100C and -2.704 ns at Slow -40C; minimum hold +0.108 ns. Area is 15,011 ALMs,
+15,223 registers, 69 RAM blocks and 3 DSP blocks. The worst path is from a
+retimed Thumb instruction bit through the unregistered register-list count and
+block-transfer address arithmetic to `m_address[22]` (11.650 ns data delay).
+Capture sequencer count/control at D before optimizing that address path; do
+not treat the execute leaf's earlier +0.018 ns as an integrated timing result.
+Details, path reports and the exact input hashes are in the continuation report.

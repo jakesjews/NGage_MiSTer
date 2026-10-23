@@ -17,7 +17,7 @@ report, execute timing experiments and evidence are preserved in
 [arm9/session1-report.md](arm9/session1-report.md).
 
 The first checkpoint is commit `ff544e5`: selectable bring-up, ARM DP/branch/
-transfers, reused exception state and initial tests. The second checkpoint adds
+transfers, reused exception state and initial tests. Commit `43ecfc7` adds
 multiply, the completion/retirement monitor, LDM corner cases, strict undefined
 decode and `arm9_state.S`. This work stays on `codex/arm9`; no push, branch switch,
 `sys/` edit, firmware boot or hardware measurement was performed.
@@ -189,9 +189,46 @@ with real retire-window measurements rather than hiding the fetch overhead.
 
 ## Timing, risks and next session
 
-Integrated CPU-only Quartus trial: pending below. No firmware boot, full-system
-fit or physical result is claimed. The execute leaf's original +0.018 ns result
-remains only a feasibility measurement, not permission to lengthen its paths.
+The integrated CPU-only Quartus trial completed but **fails 104 MHz timing**.
+Quartus 17.0.2, Cyclone V 5CSEBA6U23I7, seed 2, period 9.615 ns, using the same
+trial constraints/retiming options as session 1. Its generated input matches the
+committed `arm925t_gen.v` byte for byte. Build success is not timing closure.
+
+| Corner | Setup slack ns | Hold slack ns |
+| --- | ---: | ---: |
+| Slow 1100mV 100C | -2.678 | +0.311 |
+| Slow 1100mV -40C | -2.704 | +0.240 |
+| Fast 1100mV 100C | +2.459 | +0.168 |
+| Fast 1100mV -40C | +3.684 | +0.108 |
+
+Area: **15,011 ALMs**, 15,223 registers, 305,568 memory bits, 69 RAM blocks and
+3 DSP blocks. These are whole CPU/cache/trial-harness totals, not incremental
+area over ZAP. No integrated ZAP area comparison was made in this session.
+Minimum hold slack is +0.108 ns. Worst setup has 11.650 ns data delay and five
+reported logic levels, from retimed
+`u_thumb|o_instruction[9]~124_OTERM3589DUPLICATE` to
+`m_address[22]_OTERM589`. The path contains multiple add/carry chains.
+
+This exposes an integration issue outside the unchanged execute leaf: the
+register-list count (`transfer_count_d`) still feeds the block-transfer base/
+start-address arithmetic without D capture. The next timing change should
+capture that count and sequencer controls at D, and precompute registered
+transfer addresses where appropriate. Do not add an execute-to-memory stage or
+lengthen the already marginal shift/ALU path. Retimed node names are fitter
+artifacts; other paths may become critical after this one is fixed.
+
+Reproduce with:
+
+```
+SEED=2 TRIAL=arm9_core BUILD_DIR=dev/mister/ngage-codex-arm9-session2-core-s2 sim/cpu/quartus/run.sh
+```
+
+Evidence: `arm9/session2-core-seed2/` contains fit/STA summaries, all corner path
+summaries, both slow-corner detailed paths and input SHA-256 values. Full inputs
+and logs remain in `sim/cpu/build/quartus-arm9-core-2-104/` and the isolated server
+directory. No firmware boot, full-system fit or physical result is claimed.
+The execute leaf's original +0.018 ns result remains only a feasibility
+measurement, not permission to lengthen its paths.
 
 Functional risks still open: empty register lists are currently undefined;
 unpredictable encodings/operand combinations outside the suite are not exhaustively
@@ -207,7 +244,8 @@ serial controller avoids these races but does not test their future resolution.
 Native three-edge memories still exceed the intended cache-latency allowance;
 there is no demonstrated two-edge implementation or honest early-launch scheme.
 
-Continue here:
+Continue here (stopped after passing architectural bring-up and this failed
+integrated timing trial):
 
 1. Preserve this architectural baseline and the selectable ZAP path. Start with
    independently held F/D/E/M/W records and a fetch queue with epoch cancellation.
@@ -231,3 +269,9 @@ Continue here:
 
 No push was made. Only task-related CPU, bench, timing-script and documentation
 files changed; the retained cache internals and `sys/` were untouched.
+
+
+Final cleanup: the timing script's containers used `--rm`; no session-owned
+simulation, server or Quartus container remains running. The existing shared
+Quartus image and other engineers' jobs were left alone. Both committed
+implementations remain selectable; production defaults to ZAP.

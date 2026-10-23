@@ -39,3 +39,16 @@ ARM9 execute PRE_SHIFTED=0: 145568 checks passed
 ARM9 execute PRE_SHIFTED=1: 145568 checks passed
 ARM9 execute PRE_SHIFTED=0: 145568 checks passed
 ARM9 execute PRE_SHIFTED=1: 145568 checks passed
+
+Final static checks:
+make lint: pass (warnings fatal, repository exclusions)
+make cpu-gen-check: pass
+ARM9 source -Wall lint: pass (legacy ZAP files waived; no ARM9 warnings)
+ShellCheck: pass (SC2029 excluded for intentional remote command expansion)
+
+Integrated ARM9 Quartus seed 2, 104 MHz:
+Compilation successful; timing FAILED.
+Setup slow 100C / slow -40C: -2.678 / -2.704 ns
+Minimum hold: +0.108 ns
+ALMs / registers / RAM blocks / DSP blocks: 15011 / 15223 / 69 / 3
+Fitted generated input byte-identical to committed netlist.
