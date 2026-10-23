@@ -3220,3 +3220,10 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   1,222,550), ctrand1 69,278 (72,594), crand1 70,348 (73,608); 234 runs,
   63 QEMU, 85 windows, the predictor on and off. The integrated fits of
   both cores are running (the slack and area gate).
+- The MiSTer tidied (the user: one main core, a second only for a
+  concurrent stream): `_Console/_NGage/NGage_20261023.rbf` is the latest
+  ZAP tree (b11, the first timing round) with its 17 launchers, and
+  `_Debug/NGageDbg_20261023.rbf` the same build as the measurement
+  stream with its 14 launchers; the trace build and its launchers are
+  gone (rebuilt when needed). New builds replace these, never
+  accumulate.
