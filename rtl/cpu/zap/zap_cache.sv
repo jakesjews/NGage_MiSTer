@@ -221,7 +221,12 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .i_reset                (i_reset),
         .i_address_nxt          (i_address_nxt),
         .i_address              (cache_address),
-        .i_lookup_address       (i_address),            // ARM925T
+        .i_lookup_address       (i_address),
+        .i_lookup_check_address (32'b0),
+        .i_lookup_stall         (1'b0),
+        /* verilator lint_off PINCONNECTEMPTY */
+        .o_cache_hit_early      (),
+        /* verilator lint_on PINCONNECTEMPTY */            // ARM925T
         .i_access               (i_rd || i_wr),
         .i_idle                 (idle),
         .o_cache_hit            (tr_cache_hit),
@@ -307,7 +312,8 @@ u_zap_tlb (
         .o_far          (tlb_far),
         .o_fault        (tlb_fault),
         /* verilator lint_off PINCONNECTEMPTY */
-        .o_wt           (),             // ARM925T: D-side only
+        .o_wt           (),
+        .o_hit_ok       (),             // ARM925T: D-side only
         /* verilator lint_on PINCONNECTEMPTY */
         .o_cacheable    (tlb_cacheable),
         .o_busy         (tlb_busy),

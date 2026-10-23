@@ -46,6 +46,9 @@ input   logic                      i_reset,
 
 // From/to processor
 input   logic    [31:0]            i_address,
+input   logic    [31:0]            i_address_check, // ARM925T: next pipeline access.
+input   logic                      i_cache_hit_early, // ARM925T: registered tag compare for HUM.
+input   logic                      i_hit_ok, // ARM925T: registered TLB hit eligibility.
 input   logic                      i_rd,
 input   logic                      i_wr,
 input   logic    [31:0]            i_din,
@@ -121,8 +124,9 @@ output  logic                      o_hold,
 
 // Cache state
 (* dont_retime *) output logic      o_idle,
+(* dont_retime *) output logic      o_live_lookup, // ARM925T: IDLE or background hit-way selection.
 // ARM925T: rebuild the three in-flight cache lookups after holding a fill.
-output  logic [2:0]                o_relookup,
+(* dont_retime *) output logic [2:0] o_relookup,
 (* dont_retime *) output logic      o_fill_busy,
 
 // Bus access ports, both NXT and FF.
@@ -156,7 +160,7 @@ localparam [2:0] CLEAN_SINGLE         = 3'd3; // Ultimately cleans up cache line
 localparam [2:0] FETCH_SINGLE         = 3'd4; // Ultimately validates cache line. Parent state
 localparam [2:0] INVALIDATE           = 3'd5; // Cache invalidate parent state
 localparam [2:0] CLEAN                = 3'd6; // Cache clean parent state
-localparam [2:0] UNLOCK_REG           = 3'd7; // Unlock register
+localparam [2:0] UNLOCK_REG           = 3'd7; // ARM925T: install the buffered line/tag.
 localparam [3:0] LINEOP               = 4'd8; // ARM925T: single-line operation
 localparam [3:0] UNC_DONE             = 4'd9; // ARM925T: uncacheable access completes
 localparam [3:0] UNLOCK_WR            = 4'd10; // ARM925T: load fill completion
@@ -227,6 +231,7 @@ assign o_wb_bte_nxt = (state_ff[FETCH_SINGLE] && CACHE_LINE == 16) ? 2'b01 : 2'b
 logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] way;       // ARM925T: the line's way
 logic    [63:0]                           reg_idx;
 logic    [63:0]                           lock_nxt, lock_ff;
+logic                                     victim_valid;
 logic                                     wt_hit, wt_dirty; // ARM925T: write-through store.
 logic    [5:0]                            ldfmt;            // ARM925T: format of a background load.
 logic    [31:0]                           unc_dat_ff;       // ARM925T: registered bus response
@@ -306,10 +311,6 @@ begin
         begin
                 cache_line      <= i_cache_line;
         end
-        else if ( state_nxt[UNLOCK_REG] )
-        begin
-                cache_line      <= o_cache_line;
-        end
 end
 
 //
@@ -354,6 +355,7 @@ begin
         if ( state_ff [IDLE] )
         begin
                 cache_tag       <= i_cache_tag;
+                victim_valid    <= i_cache_tag_valid;
                 phy_addr        <= i_phy_addr;
                 way             <= i_cache_way;
                 reg_idx         <= i_reg_idx;
@@ -426,8 +428,83 @@ for (genvar k = 0; k < CACHE_LINE/4; k++) begin : g_buffer_word
         end
 end
 
-// ARM925T: registered-state controls, outside the hit/acknowledge path.
-assign o_relookup = {state_ff[RELOOKUP2], state_ff[RELOOKUP1], state_ff[RELOOKUP0]};
+// ARM925T: allow unrelated hits while the single background transaction
+// runs. The initiating access has already passed alignment/MMU checks.
+// Cacheable burst ERR retains the existing no-late-abort contract above;
+// fault-capable uncached/WT accesses and TLB walks never use these slots.
+// Register the line exclusions one stage before the access; freeze
+// them with the CPU. On the miss-accept edge use the live victim/context.
+localparam integer LINE_W = $clog2(CACHE_LINE);
+localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
+logic line_safe_ff, line_safe_nxt;
+logic lookup_ready_ff, lookup_ready_nxt;
+logic [2:0] repair_ff, repair_nxt;
+(* dont_retime *) logic hum_slot_ff;
+logic cpu_wait, hum_ack, idle_ack, hum_slot_nxt;
+assign cpu_wait = (i_rd || i_wr) && !o_ack;
+
+always_comb begin
+        line_safe_nxt = line_safe_ff;
+        if (!cpu_wait) begin
+                if (o_idle)
+                        line_safe_nxt =
+                            i_address_check[31:LINE_W] != i_address[31:LINE_W] &&
+                            (!i_cache_tag_valid ||
+                             i_address_check[31:LINE_W] !=
+                             {i_cache_tag[`ZAP_CACHE_TAG__TAG], i_address[LINE_W +: SET_W]});
+                else
+                        line_safe_nxt =
+                            i_address_check[31:LINE_W] != address[31:LINE_W] &&
+                            (!victim_valid ||
+                             i_address_check[31:LINE_W] !=
+                             {cache_tag[`ZAP_CACHE_TAG__TAG], address[LINE_W +: SET_W]});
+        end
+
+        // Cache RAMs keep running so the fill can write. After a CPU hold,
+        // reload the held access followed by its two younger set indices.
+        // The original end-of-fill restore takes priority over this repair.
+        repair_nxt = {repair_ff[1:0], 1'b0};
+        lookup_ready_nxt = lookup_ready_ff;
+        if (!o_fill_busy || state_ff[RELOOKUP2]) begin
+                repair_nxt = 3'b0;
+                lookup_ready_nxt = 1'b1;
+        end else if (state_ff[RELOOKUP0] || state_ff[RELOOKUP1]) begin
+                repair_nxt = 3'b0;
+                lookup_ready_nxt = 1'b0;
+        end else if (repair_ff[2])
+                lookup_ready_nxt = 1'b1;
+        else if (lookup_ready_ff && cpu_wait) begin
+                lookup_ready_nxt = 1'b0;
+                repair_nxt = 3'b001;
+        end
+end
+
+always_ff @(posedge i_clk)
+        if (i_reset) begin
+                line_safe_ff <= 1'b0;
+                lookup_ready_ff <= 1'b1;
+                repair_ff <= 3'b0;
+                hum_slot_ff <= 1'b0;
+                o_live_lookup <= 1'b1;
+                o_relookup <= 3'b0;
+        end else begin
+                line_safe_ff <= line_safe_nxt;
+                lookup_ready_ff <= lookup_ready_nxt;
+                repair_ff <= repair_nxt;
+                hum_slot_ff <= hum_slot_nxt;
+                o_live_lookup <= state_nxt[IDLE] || hum_slot_nxt;
+                o_relookup <= (state_nxt[RELOOKUP0] || state_nxt[RELOOKUP1] || state_nxt[RELOOKUP2]) ?
+                    {state_nxt[RELOOKUP2], state_nxt[RELOOKUP1], state_nxt[RELOOKUP0]} : repair_nxt;
+        end
+
+assign hum_slot_nxt = (state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE] ||
+                       state_nxt[UNLOCK_WR]) && lookup_ready_nxt && line_safe_nxt;
+// ARM925T: ACK combines registered predicates, independently of the bus
+// FSM's priority decode. In particular the live tag compare cannot feed
+// the high-fanout CPU stall through background-hit qualification.
+assign hum_ack = hum_slot_ff && i_hit_ok && i_cache_en &&
+                 !i_align_fault && i_cache_hit_early;
+assign o_ack = idle_ack || hum_ack;
 always_ff @(posedge i_clk)
         if (i_reset) o_fill_busy <= 1'b0;
         else o_fill_busy <= state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE] ||
@@ -438,44 +515,39 @@ always_ff @(posedge i_clk)
 // enables need fault/acknowledge qualification; forwarding data registers
 // may sample an unused payload when their corresponding valid bit is zero.
 // In IDLE the RAM selects the hit way; background writes use the saved way.
-logic live_write, fill_write, clean_write, saved_write;
+logic live_write, fill_write, saved_write;
 logic [CACHE_LINE*8-1:0] fill_line;
-assign live_write = o_idle && i_wr && !i_align_fault && !i_fault &&
-                    !i_busy && i_cache_en && i_cacheable && !i_wt;
-assign fill_write = state_ff[FETCH_SINGLE] && !(take ? beat_inc_ok : beat_cur_ok);
-assign clean_write = state_ff[CLEAN_SINGLE] && !(take ? beat_inc_ok : beat_cur_ok);
-assign saved_write = (state_ff[UNC_DONE] && !unc_err_ff && wt_hit) ||
-                     (state_ff[UNLOCK_REG] && wr);
-assign o_cache_tag_wr_en = live_write || fill_write || clean_write || saved_write;
+assign live_write = i_wr && !i_align_fault && i_cache_en &&
+                    ((o_idle && !i_fault && !i_busy && i_cacheable && !i_wt) ||
+                     (hum_slot_ff && i_hit_ok && i_cache_hit_early));
+// ARM925T: one registered state owns the full-line write. The last bus
+// beat is already in buf_ff; no bus response arbitrates with a live hit.
+// The victim remains inaccessible from miss acceptance until this write,
+// so cleaning it need not perform an intermediate dirty-bit RAM write.
+assign fill_write = state_ff[UNLOCK_REG];
+assign saved_write = state_ff[UNC_DONE] && !unc_err_ff && wt_hit;
+assign o_cache_tag_wr_en = live_write || fill_write || saved_write;
 assign o_cache_tag_dirty = live_write || (fill_write && wr) ||
-                          (state_ff[UNLOCK_REG] && wr) ||
-                          (state_ff[UNC_DONE] && !unc_err_ff && wt_hit && wt_dirty);
-assign o_address = o_idle ? i_address : address;
+                          (saved_write && wt_dirty);
+assign o_address = o_live_lookup ? i_address : address;
 assign o_cache_way = way;
-assign o_cache_tag[`ZAP_CACHE_TAG__TAG] = o_idle ? i_address[`ZAP_VA__CACHE_TAG] :
-        state_ff[CLEAN_SINGLE] ? cache_tag[`ZAP_CACHE_TAG__TAG] : address[`ZAP_VA__CACHE_TAG];
-assign o_cache_tag[`ZAP_CACHE_TAG__PA] = o_idle ? i_phy_addr[31:$clog2(CACHE_LINE)] :
-        state_ff[CLEAN_SINGLE] ? cache_tag[`ZAP_CACHE_TAG__PA] : phy_addr[31:$clog2(CACHE_LINE)];
+assign o_cache_tag[`ZAP_CACHE_TAG__TAG] = o_live_lookup ? i_address[`ZAP_VA__CACHE_TAG] :
+        address[`ZAP_VA__CACHE_TAG];
+assign o_cache_tag[`ZAP_CACHE_TAG__PA] = o_live_lookup ? i_phy_addr[31:$clog2(CACHE_LINE)] :
+        phy_addr[31:$clog2(CACHE_LINE)];
 for (genvar k = 0; k < CACHE_LINE/4; k++) begin : g_fill_line
-        // ARM925T: an enabled fill write is the last acknowledged beat.
-        // Present its payload without routing ACK through the data mux;
-        // ACK still qualifies the write enable. Other words are buffered.
-        for (genvar b = 0; b < 4; b++) begin : g_byte
-                assign fill_line[k*32+b*8 +: 8] =
-                        (wr && address[$clog2(CACHE_LINE)-1:2] == k && ben[b]) ? din[b*8 +: 8] :
-                        (fetch_word_cur == k) ? i_wb_dat[b*8 +: 8] : buf_ff[k][b*8 +: 8];
-        end
+        assign fill_line[k*32 +: 32] = buf_ff[k];
 end
-assign o_cache_line = o_idle ? {(CACHE_LINE/4){i_din}} :
-        state_ff[FETCH_SINGLE] ? fill_line : {(CACHE_LINE/4){din}};
+assign o_cache_line = o_live_lookup ? {(CACHE_LINE/4){i_din}} :
+        state_ff[UNLOCK_REG] ? fill_line : {(CACHE_LINE/4){din}};
 assign o_cache_line_ben =
         (ben_comp(i_address[$clog2(CACHE_LINE)-1:2], i_ben) & {CACHE_LINE{live_write}}) |
         (ben_comp(address[$clog2(CACHE_LINE)-1:2], ben) & {CACHE_LINE{saved_write}}) |
         {CACHE_LINE{fill_write}};
 
 `ifndef SYNTHESIS
-// The final-beat payload optimization relies on this reachable-state
-// invariant; FETCH exits on the edge that advances beyond the last beat.
+// FETCH exits on the edge that advances beyond the last beat; its
+// complete registered buffer is installed in UNLOCK_REG.
 always_ff @(posedge i_clk)
         if (!i_reset && state_ff[FETCH_SINGLE])
                 assert (beat_cur_ok) else $fatal(2, "Fill counter outside line");
@@ -534,7 +606,7 @@ begin:next_state_logic
         o_cache_inv_done        = 0;
         o_cache_clean_done      = 0;
         o_hold                  = 1'd0;
-        o_ack                   = 0;
+        idle_ack                = 1'b0;
         o_err                   = 0;
         o_err2                  = 0;
 
@@ -580,7 +652,7 @@ begin:next_state_logic
                         // that the requests from CP15 are not in the path
                         // from o_ack to the pipeline stall (timing).
                         //
-                        o_ack = 1'd1;
+                        idle_ack = 1'd1;
 
                         if ( i_cache_inv )
                         begin
@@ -603,7 +675,7 @@ begin:next_state_logic
                         // ARM925T: alignment fault, highest priority: FSR
                         // status 0b0001 (no domain), FAR = the address.
                         o_err = 1'd1;
-                        o_ack = 1'd1;
+                        idle_ack = 1'd1;
                         o_fsr = 8'b0000_0001;
                         o_far = i_va;
                 end
@@ -611,7 +683,7 @@ begin:next_state_logic
                 begin
                         // MMU access fault.
                         o_err = 1'd1;
-                        o_ack = 1'd1;
+                        idle_ack = 1'd1;
                         o_fsr = i_fsr;
                         o_far = i_far;
                 end
@@ -619,7 +691,7 @@ begin:next_state_logic
                 begin
                         // Wait it out - this is what err2 is for.
                         o_err2 = 1'd1;
-                        o_ack  = 1'd1;
+                        idle_ack  = 1'd1;
                 end
                 else if ( i_rd || i_wr )
                 begin
@@ -630,7 +702,7 @@ begin:next_state_logic
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[UNCACHEABLE] = 1'd1;
 
-                                o_ack           = 1'd0; // Wait...
+                                idle_ack           = 1'd0; // Wait...
                                 // ARM925T: the translated address (the VA with
                                 // the MMU off); upstream put the VA on the bus
                                 // whenever the D-cache was off, MMU on or not.
@@ -661,7 +733,7 @@ begin:next_state_logic
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
 
-                                o_ack           = 1'd0; // Wait...
+                                idle_ack           = 1'd0; // Wait...
                                 o_hold          = 1'd1;
                         end
                         else if ( i_cacheable )
@@ -683,18 +755,18 @@ begin:next_state_logic
                                 begin
                                         if ( i_rd ) // Read request.
                                         begin
-                                                o_ack   = 1'd1;
+                                                idle_ack   = 1'd1;
                                         end
                                         else if ( i_wr ) // Write request (the write itself is above)
                                         begin
-                                                o_ack        = 1'd1;
+                                                idle_ack        = 1'd1;
                                         end
                                 end
 
                                 2'b01: // Unrelated tag, possibly dirty.
                                 begin
                                         // Acknowledge current entry. Lock the register.
-                                        o_ack               = 1'd1;
+                                        idle_ack               = 1'd1;
 
                                         // Lock register on load. ARM925T: upstream also
                                         // raised o_err2 if that register was locked, but
@@ -729,7 +801,7 @@ begin:next_state_logic
                                 default: // Need to generate a new tag.
                                 begin
                                                 // CPU should wait.
-                                                o_ack  = 1'd1;
+                                                idle_ack  = 1'd1;
 
                                                 // Set up counter
                                                 adr_ctr_nxt = 0;
@@ -751,7 +823,7 @@ begin:next_state_logic
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
 
-                                o_ack           = 1'd0; // Wait...
+                                idle_ack           = 1'd0; // Wait...
                                 o_hold          = 1'd1;
                         end
                 end
@@ -759,7 +831,7 @@ begin:next_state_logic
 
         state_ff[UNCACHEABLE_PREPARE]:
         begin
-                o_ack           = 1'd0;
+                idle_ack           = 1'd0;
                 o_hold          = 1'd1;
 
                 state_nxt[UNCACHEABLE_PREPARE] = 1'd0;
@@ -782,7 +854,7 @@ begin:next_state_logic
 
         state_ff[UNCACHEABLE]: // Uncacheable reads and writes definitely go through this.
         begin
-                o_ack  = 1'd0;
+                idle_ack  = 1'd0;
                 o_hold = 1'd1;
 
                 if ( i_wb_ack | i_wb_err )
@@ -797,7 +869,7 @@ begin:next_state_logic
 
         state_ff[UNC_DONE]: // ARM925T: the uncacheable access completes.
         begin
-                o_ack           = 1'd1;
+                idle_ack           = 1'd1;
                 o_hold          = 1'd0;
 
                 state_nxt[UNC_DONE] = 1'd0;
@@ -822,8 +894,6 @@ begin:next_state_logic
 
         state_ff[CLEAN_SINGLE]: // Clean single cache line
         begin
-                // ARM925T: no acknowledge while the background fill owns
-                // the cache. data_stall keeps the next access in memory.
 
                 // Generate address
                 adr_ctr_nxt = take ? adr_ctr_inc : adr_ctr_ff;
@@ -847,15 +917,13 @@ begin:next_state_logic
                         state_nxt[CLEAN_SINGLE] = 1'd0;
                         state_nxt[FETCH_SINGLE] = 1'd1;
 
-                        // clean_write above removes the victim tag's dirty bit.
+                        // The inaccessible victim is replaced at UNLOCK_REG.
 
                 end
         end
 
         state_ff[FETCH_SINGLE]: // Fetch a single cache line
         begin
-                // ARM925T: no acknowledge while the background fill owns
-                // the cache. data_stall keeps the next access in memory.
 
                 // Generate address
                 adr_ctr_nxt = take ? adr_ctr_inc : adr_ctr_ff;
@@ -872,9 +940,7 @@ begin:next_state_logic
                 end
                 else
                 begin:blk12
-                        // fill_write above commits buf_nxt including this
-                        // last beat; a store allocation installs a dirty tag.
-                        // Move to idle state
+                        // Register the final beat before the exclusive RAM write.
                         kill_bus_payload();
 
                         state_nxt[FETCH_SINGLE] = 1'd0;
@@ -882,14 +948,12 @@ begin:next_state_logic
                 end
         end
 
-        state_ff[UNLOCK_REG]: // Load data into the register if required.
+        state_ff[UNLOCK_REG]: // ARM925T: exclusive cache RAM installation slot.
         begin
-                // ARM925T: no acknowledge while the background fill owns
-                // the cache. data_stall keeps the next access in memory.
 
                 // ARM925T: loads were written after the critical beat.
-                // saved_write above repeats the original store's byte write;
-                // the younger held access must not be acknowledged here.
+                // Install the assembled line and its tag. Younger accesses
+                // wait for this exclusive write slot.
 
                 // Back to IDLE (ARM925T: through UNLOCK_WR for a load)
                 state_nxt[UNLOCK_REG] = 1'd0;
@@ -901,14 +965,16 @@ begin:next_state_logic
         state_ff[UNLOCK_WR]: // ARM925T: finish the load fill, without a second write.
         begin
                 state_nxt[UNLOCK_WR] = 1'd0;
-                state_nxt[RELOOKUP0] = i_rd || i_wr;
-                state_nxt[IDLE]      = !(i_rd || i_wr);
+                // A completed hit advanced the CPU: its lookups stay aligned.
+                // Start restoration only for an access actually held here.
+                state_nxt[RELOOKUP0] = (i_rd || i_wr) && !o_ack;
+                state_nxt[IDLE]      = !(i_rd || i_wr) || o_ack;
         end
 
         // ARM925T: the RAM reads run during fills, even when the CPU is
         // stalled. Restore the held access and the two younger lookups in
-        // order (zap_dcache), after all fill/store writes. Keep o_idle low:
-        // only IDLE may use hit-way store selection or acknowledge a hit.
+        // order (zap_dcache), after all fill/store writes. Keep the live
+        // hit-way selection and acknowledgements disabled through this restore.
         state_ff[RELOOKUP0]:
         begin
                 state_nxt[RELOOKUP0] = 1'd0;
@@ -996,7 +1062,7 @@ begin:next_state_logic
                 o_cache_inv_done        = 'x;
                 o_cache_clean_done      = 'x;
                 o_hold                  = 'x;
-                o_ack                   = 'x;
+                idle_ack                   = 'x;
                 o_err                   = 'x;
                 o_err2                  = 'x;
         end

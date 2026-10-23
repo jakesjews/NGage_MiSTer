@@ -85,6 +85,9 @@ output  logic                             o_cache_tag_dirty,
 // a write (i_cache_tag_wr_en, i_cache_line_ben at i_address) goes to.
 //
 input   logic    [31:0]                   i_lookup_address,
+input logic [31:0] i_lookup_check_address, // ARM925T: D-side next access.
+input logic i_lookup_stall, // Select held current access during lookup repair.
+(* dont_retime *) output logic o_cache_hit_early,
 input   logic                             i_access,
 input   logic                             i_idle,
 output  logic                             o_cache_hit,
@@ -305,6 +308,27 @@ begin
                          ( tag_q[w][`ZAP_CACHE_TAG__TAG] == i_lookup_address[`ZAP_VA__CACHE_TAG] );
         end
 end
+
+// ARM925T: compare one stage early for the background-hit ACK. The
+// second-stage tag includes RAM forwarding through the preceding edge;
+// metadata's write-behind update needs its matching pending-valid bypass.
+// A current hit write cannot change tag identity. A current fill write
+// changes only the reserved victim/filling lines, which the D-cache FSM
+// excludes from HUM. Maintenance never enables a HUM slot.
+// Compare both candidate addresses before the one-bit stall selection.
+logic [WAYS-1:0] hit_check, hit_held;
+for (genvar w = 0; w < WAYS; w++) begin : g_hit_early
+        wire pre_valid = valid_s2[w] ||
+                         (rd_set_del2 == pend_addr && pend_en && pend_sel[w]);
+        assign hit_check[w] = pre_valid &&
+            w_dummy_1[w][`ZAP_CACHE_TAG__TAG] == i_lookup_check_address[`ZAP_VA__CACHE_TAG];
+        assign hit_held[w] = pre_valid &&
+            w_dummy_1[w][`ZAP_CACHE_TAG__TAG] == i_lookup_address[`ZAP_VA__CACHE_TAG];
+end
+always_ff @(posedge i_clk)
+        if (i_reset) o_cache_hit_early <= 1'b0;
+        else if (!i_hold)
+                o_cache_hit_early <= i_lookup_stall ? (|hit_held) : (|hit_check);
 
 if ( WAYS == 1 )
 begin : g_direct

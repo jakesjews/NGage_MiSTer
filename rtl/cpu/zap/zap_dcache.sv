@@ -133,7 +133,7 @@ logic [31:0]                     tlb_far;
 logic                            tlb_fault;
 logic                            tlb_cacheable;
 logic                            tlb_wt;        // ARM925T
-logic                            tlb_busy;
+logic                            tlb_busy, tlb_hit_ok;
 logic [CACHE_LINE*8-1:0]         tr_cache_line;
 logic [WAYS-1:0][31:0]           tr_cache_words;   // ARM925T
 logic                            tr_cache_word_sel; // ARM925T
@@ -142,6 +142,7 @@ logic [CACHE_LINE-1:0]           cf_cache_line_ben;
 logic                            cf_cache_tag_wr_en;
 logic [`ZAP_CACHE_TAG_WDT-1:0]   tr_cache_tag, cf_cache_tag;
 logic                            tr_cache_tag_valid;
+logic                            tr_cache_hit_early;
 logic                            tr_cache_hit, tr_cache_hit_dirty; // ARM925T
 logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] tr_cache_way, cf_cache_way; // ARM925T
 logic                            tr_cache_tag_dirty, cf_cache_tag_dirty;
@@ -152,7 +153,7 @@ logic [2:0]                      wb_ack;
 logic [2:0]                      state_ff, state_nxt;
 logic [31:0]                     cache_address;
 logic                            hold;
-logic                            idle;
+logic                            idle, live_lookup;
 logic [2:0]                      relookup;
 logic                            fill_busy;
 localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
@@ -177,8 +178,8 @@ begin
         end
 end
 
-// Reload the held lookup, then the two younger ones. At the next IDLE
-// cycle all three RAM stages again align with the CPU. The mux is before
+// Reload the held lookup, then the two younger ones. At the end of the
+// sequence all three RAM stages again align with the CPU. The mux is before
 // the RAM's first register; the shared tag RAM's hit path is untouched.
 always_comb
 begin
@@ -202,6 +203,9 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address              (i_address),
+        .i_address_check        (i_address_check),
+        .i_hit_ok               (tlb_hit_ok),
+        .i_cache_hit_early      (tr_cache_hit_early),
         .i_rd                   (i_rd),
         .i_wr                   (i_wr),
         .i_din                  (i_dat),
@@ -209,6 +213,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_va                   (i_va),
         .i_ldfmt                (i_ldfmt),
         .o_idle                 (idle),
+        .o_live_lookup          (live_lookup),
         .o_relookup             (relookup),
         .o_fill_busy            (fill_busy),
         .i_ben                  (i_ben),
@@ -290,10 +295,13 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .i_reset                (i_reset),
         .i_address_nxt          (lookup_address),
         .i_address              (cache_address),
-        .i_lookup_address       (i_address),            // ARM925T
+        .i_lookup_address       (i_address),
+        .i_lookup_check_address (i_address_check),
+        .i_lookup_stall         ((i_rd || i_wr) && !o_ack),
+        .o_cache_hit_early      (tr_cache_hit_early),            // ARM925T
         // Held/stale lookups must not update replacement state.
-        .i_access               ((i_rd || i_wr) && idle),
-        .i_idle                 (idle),
+        .i_access               ((i_rd || i_wr) && (idle || (live_lookup && o_ack))),
+        .i_idle                 (live_lookup),
         .o_cache_hit            (tr_cache_hit),
         .o_cache_hit_dirty      (tr_cache_hit_dirty),
         .o_cache_way            (tr_cache_way),
@@ -361,7 +369,7 @@ u_zap_tlb (
         .i_rd_check     (i_rd_check),
         // Preserve all TLB reads and the permission-check result while
         // the CPU waits for a fill. Cache RAMs must still accept writes.
-        .i_hold         (hold || i_stall || (fill_busy && (i_rd || i_wr))),
+        .i_hold         (hold || i_stall || (fill_busy && (i_rd || i_wr) && !o_ack)),
         .i_cpsr         (i_cpsr),
         .i_sr           (i_sr),
         .i_dac_reg      (i_dac_reg),
@@ -375,6 +383,7 @@ u_zap_tlb (
         .o_cacheable    (tlb_cacheable),
         .o_wt           (tlb_wt),
         .o_busy         (tlb_busy),
+        .o_hit_ok       (tlb_hit_ok),
         .o_wb_stb_nxt   (wb_stb[2]),
         .o_wb_cyc_nxt   (wb_cyc[2]),
         .o_wb_adr_nxt   (wb_adr[2]),
