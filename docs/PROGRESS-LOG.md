@@ -2998,3 +2998,18 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   - All four merged into master (c68af0c), the netlist regenerated;
     lint clean. The smoke test of the merged tree and its build next;
     the full suite and the boot bench once the games are at speed.
+  - The merged tree on the suite: every existing run passes, QEMU agrees
+    on all 49 and on the 3 new references (Codex's tests built here:
+    dhold_rtl, loaduse, loaduse_irq, btb_early, 12 runs pass); cycles
+    before all of today's changes -> after the merge: cache 903,967 ->
+    789,484 (-12.7 %, CPI 3.08 -> 2.69), ctrand1 89,133 -> 72,756
+    (-18.4 %, CPI 5.52 -> 4.50), crand1 -18.3 %, dcache_rtl -18.3 %,
+    mmu_page -17.6 %; the GBA loops unchanged. Building (b8).
+- **The forwarding build (95cd2fe's tree: the BTB fix plus the memory
+  stage's load forwarded, -0.406 ns) in play**
+  (`build/hardware/game/{sonicn,asphalt}-fwd/`): Asphalt's race **14
+  frames/s** (was 10-11), 23.3-23.6 M instructions/s, CPI 4.4, issue
+  stall 37.5 % (was 41 % on the predictor-fix build), replays 670-680
+  K/s; Sonic 9-12 frames/s, 22-23.3 M/s, CPI 4.5-4.7, issue 33 %.
+  The first frame-rate step: Asphalt from six ticks a frame to about
+  four and a half.
