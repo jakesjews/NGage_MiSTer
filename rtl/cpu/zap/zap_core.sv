@@ -310,6 +310,7 @@ logic [$clog2(ALU_OPS)-1:0]      decode_alu_operation_ff;
 logic [32:0]                     decode_shift_source_ff;
 logic [$clog2(SHIFT_OPS)-1:0]    decode_shift_operation_ff;
 logic [32:0]                     decode_shift_length_ff;
+logic                            decode_shift_is_lsl0_ff;
 logic                            decode_flag_update_ff;
 logic [$clog2(PHY_REGS)-1:0]     decode_mem_srcdest_index_ff;
 logic                            decode_mem_load_ff;
@@ -407,32 +408,29 @@ logic                            shifter_und_ff;
 logic                            stall_from_shifter;
 logic                            stall_from_alu;
 logic [3:0] issue_load_pending_ff, shifter_late_ready;
+logic issue_shift_source_pending_ff;
 logic [5:0] issue_shift_length_index_ff;
 logic [127:0] shifter_late_value;
 logic [1:0] shifter_load_pending_ff, alu_late_ready;
 logic [11:0] shifter_load_index_ff;
 logic [63:0] alu_late_value;
-logic memory_load_valid;
+(* dont_retime *) logic memory_load_valid;
 // ARM925T: take a coherent snapshot of the registered memory result and
 // its lock status. A miss sets the lock on the same edge that memory accepts
 // the early acknowledge, so sampling the lock with the *input* to memory
 // would accept invalid data. Sample the memory outputs and lock together.
 // Keep this boundary through physical synthesis: the late ALU bypass must
 // never start at the cache RAM or its acknowledge/state logic.
-(* dont_retime *) logic late_memory_dav_ff, late_memory_load_ff, late_memory_lock_ff;
 (* dont_retime *) logic [5:0] late_memory_index_ff;
 (* dont_retime *) logic [31:0] late_memory_value_ff;
-assign memory_load_valid = late_memory_dav_ff && late_memory_load_ff &&
-                           !late_memory_lock_ff;
 always_ff @(posedge i_clk) begin
         if (reset || clear_from_writeback) begin
-                late_memory_dav_ff <= 1'b0;
+                memory_load_valid <= 1'b0;
         end else begin
                 // Completion pulses must survive a global data stall.
-                late_memory_dav_ff <= memory_dav_ff;
+                memory_load_valid <= memory_dav_ff && memory_mem_load_ff &&
+                                     !i_dc_lock[memory_mem_srcdest_index_ff];
         end
-        late_memory_load_ff <= memory_mem_load_ff;
-        late_memory_lock_ff <= i_dc_lock[memory_mem_srcdest_index_ff];
         late_memory_index_ff <= memory_mem_srcdest_index_ff;
         late_memory_value_ff <= memory_mem_rd_data;
 end
@@ -949,6 +947,7 @@ u_zap_decode_main (
         .o_shift_source_ff              (decode_shift_source_ff),
         .o_shift_operation_ff           (decode_shift_operation_ff),
         .o_shift_length_ff              (decode_shift_length_ff),
+        .o_shift_is_lsl0_ff             (decode_shift_is_lsl0_ff),
         .o_flag_update_ff               (decode_flag_update_ff),
         .o_mem_srcdest_index_ff         (decode_mem_srcdest_index_ff),
         .o_mem_load_ff                  (decode_mem_load_ff),
@@ -1016,6 +1015,7 @@ u_zap_issue_main
         .i_shift_source_ff              (decode_shift_source_ff),
         .i_shift_operation_ff           (decode_shift_operation_ff),
         .i_shift_length_ff              (decode_shift_length_ff),
+        .i_shift_is_lsl0_ff             (decode_shift_is_lsl0_ff),
         .i_flag_update_ff               (decode_flag_update_ff),
         .i_mem_srcdest_index_ff         (decode_mem_srcdest_index_ff),
         .i_mem_load_ff                  (decode_mem_load_ff),
@@ -1119,6 +1119,7 @@ u_zap_issue_main
         .o_pc_plus_8_ff                 (issue_pc_plus_8_ff),
         .o_load_pending_ff              (issue_load_pending_ff),
         .o_shift_length_index_ff        (issue_shift_length_index_ff),
+        .o_shift_source_pending_ff      (issue_shift_source_pending_ff),
         .i_late_ready                   (shifter_late_ready),
         .i_late_value                   (shifter_late_value),
         .o_shifter_disable_ff           (issue_shifter_disable_ff)
@@ -1136,6 +1137,7 @@ u_zap_shifter_main
 (
         .i_load_pending_ff              (issue_load_pending_ff),
         .i_shift_length_index_ff        (issue_shift_length_index_ff),
+        .i_shift_source_pending_ff      (issue_shift_source_pending_ff),
         .i_memory_load_valid            (memory_load_valid),
         .i_memory_load_index            (late_memory_index_ff),
         .i_memory_load_value            (late_memory_value_ff),

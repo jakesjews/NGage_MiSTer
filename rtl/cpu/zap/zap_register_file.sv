@@ -31,8 +31,8 @@ module zap_register_file
         input logic              i_wen,
 
         // Write address. Note that _c does not need write enable.
-        input logic  [5:0]       i_wr_addr_a,   // Binary address.
-        input logic  [5:0]       i_wr_addr_b,   // Binary address.
+        input logic  [39:0]      i_wr_addr_a,   // ARM925T: decoded before write selection.
+        input logic  [39:0]      i_wr_addr_b,   // ARM925T: one-hot, like the background port.
         input logic  [39:0]      i_wr_addr_c,   // 1-Hot address.
 
         // Write data.
@@ -64,23 +64,13 @@ begin
         end
         else
         begin
-                // Standard 2-port write.
-                if ( i_wen )
-                begin
-                        mem [ i_wr_addr_a ] <= i_wr_data_a;
-                        mem [ i_wr_addr_b ] <= i_wr_data_b;
-                end
-
-                // Background load.
-                if ( |i_wr_addr_c )
-                begin
-                        for(int i=0;i<40;i++)
-                        begin
-                                if(i_wr_addr_c[i])
-                                begin
-                                        mem [i] <= i_wr_data_c;
-                                end
-                        end
+                // ARM925T: per-register enables avoid decoding a muxed
+                // binary address. Preserve B over A, and background over
+                // both, including writes to the dummy/RAZ storage entries.
+                for (int r = 0; r < 40; r++) begin
+                        if (i_wen && i_wr_addr_a[r]) mem[r] <= i_wr_data_a;
+                        if (i_wen && i_wr_addr_b[r]) mem[r] <= i_wr_data_b;
+                        if (i_wr_addr_c[r]) mem[r] <= i_wr_data_c;
                 end
         end
 end
