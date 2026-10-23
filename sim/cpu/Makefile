@@ -30,6 +30,8 @@ ROOT      := $(abspath ../..)
 HERE      := $(ROOT)/sim/cpu
 BUILD     := $(HERE)/build
 RTL       ?= gen
+CORE      ?= ZAP
+RESULTS   ?= $(BUILD)/$(if $(filter ZAP,$(CORE)),rtl,rtl-$(CORE))
 VERILATOR ?= verilator
 CROSS     ?= arm-none-eabi-
 QEMU      ?= qemu-system-arm
@@ -57,7 +59,7 @@ ALL_TESTS := $(sort $(basename $(notdir $(filter-out %/crt0.S,$(wildcard $(HERE)
              $(RAND_TESTS) $(GBA_TESTS)
 T         ?= $(ALL_TESTS)
 TB        := $(BUILD)/tests
-MODEL_DIR := $(BUILD)/obj-$(RTL)
+MODEL_DIR := $(BUILD)/obj-$(RTL)$(if $(filter ZAP,$(CORE)),,-$(CORE))
 MODEL     := $(MODEL_DIR)/Vtb_cpu
 
 ASFLAGS := -mcpu=arm9tdmi -mfloat-abi=soft -I $(HERE)/tests
@@ -120,7 +122,7 @@ $(TB)/%.lst: $(TB)/%.elf
 # ---------------------------------------------------------------- model
 VFLAGS := --cc --exe --build -j $(JOBS) -O3 --x-assign unique --x-initial unique \
           -Wno-fatal -Wno-lint -Wno-style -Wno-MULTIDRIVEN -Wno-ASSIGNIN \
-          --top-module tb_cpu -CFLAGS "-O2 -std=c++17" $(VEXTRA)
+          --top-module tb_cpu -GCORE=\"$(CORE)\" -CFLAGS "-O2 -std=c++17" $(VEXTRA)
 ARM9_SV := $(wildcard $(ROOT)/rtl/cpu/arm9/*.sv)
 ZAP_SV  := $(wildcard $(ROOT)/rtl/cpu/zap/*.sv)
 ifeq ($(RTL),sv)
@@ -143,7 +145,7 @@ $(MODEL): $(RTL_DEP) $(HERE)/tb/tb_cpu.sv $(HERE)/tb/main.cpp $(HERE)/tb/ngage.h
 tag = $(shell sed -n 's/^@@ $(2): *//p' $(HERE)/tests/$(1).S)
 
 run: $(MODEL)
-	@mkdir -p $(BUILD)/rtl
+	@mkdir -p $(RESULTS)
 	@pass=0; fail=0; failed=""; \
 	for t in $(T); do \
 		bin=$(TB)/$$t.bin; \
@@ -152,8 +154,8 @@ run: $(MODEL)
 		extra=$$(sed -n 's/^@@ bench: *//p' $$src); \
 		first=1; \
 		for lat in $(LATS); do \
-			if [ $$first = 1 ]; then keep="--sig $(BUILD)/rtl/$$t.sig --trace $(BUILD)/rtl/$$t.trace"; else keep=""; fi; \
-			log=$(BUILD)/rtl/$$t.$${lat/:/-}.log; \
+			if [ $$first = 1 ]; then keep="--sig $(RESULTS)/$$t.sig --trace $(RESULTS)/$$t.trace"; else keep=""; fi; \
+			log=$(RESULTS)/$$t.$${lat/:/-}.log; \
 			if $(MODEL) --bin $$bin --lat $$lat --quiet $$keep $$extra > $$log 2>&1; then \
 				pass=$$((pass+1)); \
 			else \
@@ -186,10 +188,10 @@ diff:
 	for t in $(T); do \
 		[ -f $(BUILD)/qemu/$$t.sig ] || continue; \
 		r=0; \
-		$(PY) $(HERE)/tools/cmp_sig.py --name $$t $(BUILD)/rtl/$$t.sig $(BUILD)/qemu/$$t.sig || r=1; \
+		$(PY) $(HERE)/tools/cmp_sig.py --name $$t $(RESULTS)/$$t.sig $(BUILD)/qemu/$$t.sig || r=1; \
 		if [ -f $(BUILD)/qemu/$$t.qlog ]; then \
 			$(PY) $(HERE)/tools/cmp_trace.py --name $$t --bin $(TB)/$$t.bin \
-				$(BUILD)/rtl/$$t.trace $(BUILD)/qemu/$$t.qlog || r=1; \
+				$(RESULTS)/$$t.trace $(BUILD)/qemu/$$t.qlog || r=1; \
 		fi; \
 		if [ $$r = 0 ]; then ok=$$((ok+1)); else bad=$$((bad+1)); badl="$$badl $$t"; fi; \
 	done; \

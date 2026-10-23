@@ -1,0 +1,98 @@
+{
+  "alu.0-0": {
+    "cycles": 5736,
+    "instructions": 380
+  },
+  "alu.0-3": {
+    "cycles": 6579,
+    "instructions": 380
+  },
+  "alu.2-9": {
+    "cycles": 8915,
+    "instructions": 380
+  },
+  "align.0-0": {
+    "cycles": 8846,
+    "instructions": 549
+  },
+  "align.0-3": {
+    "cycles": 10170,
+    "instructions": 549
+  },
+  "align.2-9": {
+    "cycles": 13816,
+    "instructions": 549
+  },
+  "modes.0-0": {
+    "cycles": 5200,
+    "instructions": 341
+  },
+  "modes.0-3": {
+    "cycles": 5955,
+    "instructions": 341
+  },
+  "modes.2-9": {
+    "cycles": 8089,
+    "instructions": 341
+  },
+  "exc.0-0": {
+    "cycles": 8404,
+    "instructions": 498
+  },
+  "exc.0-3": {
+    "cycles": 9682,
+    "instructions": 498
+  },
+  "exc.2-9": {
+    "cycles": 13178,
+    "instructions": 498
+  },
+  "shift.0-0": {
+    "cycles": 4447,
+    "instructions": 329
+  },
+  "shift.0-3": {
+    "cycles": 5091,
+    "instructions": 329
+  },
+  "shift.2-9": {
+    "cycles": 6911,
+    "instructions": 329
+  },
+  "cp15.0-0": {
+    "cycles": 5530,
+    "instructions": 311
+  },
+  "cp15.0-3": {
+    "cycles": 6279,
+    "instructions": 311
+  },
+  "cp15.2-9": {
+    "cycles": 8385,
+    "instructions": 311
+  },
+  "fiq_movs.0-0": {
+    "cycles": 29568,
+    "instructions": 3157
+  },
+  "fiq_movs.0-3": {
+    "cycles": 30991,
+    "instructions": 3157
+  },
+  "fiq_movs.2-9": {
+    "cycles": 34899,
+    "instructions": 3157
+  },
+  "fiq_perm.0-0": {
+    "cycles": 225635,
+    "instructions": 16541
+  },
+  "fiq_perm.0-3": {
+    "cycles": 260365,
+    "instructions": 16514
+  },
+  "fiq_perm.2-9": {
+    "cycles": 351927,
+    "instructions": 16463
+  }
+}

@@ -51,6 +51,7 @@ module arm925t (
 	dbg_d_wdata,
 	dbg_d_rdata
 );
+	parameter CORE = "ZAP";
 	parameter [0:0] HIVECS = 1'b0;
 	parameter signed [31:0] ICACHE_SIZE = 16384;
 	parameter signed [31:0] ICACHE_WAYS = 2;
@@ -97,6 +98,7 @@ module arm925t (
 	wire wb_stb;
 	wire [2:0] wb_cti;
 	zap_top #(
+		.CORE(CORE),
 		.V4T(1'b1),
 		.TI925T(1'b1),
 		.CP15_ID(32'h54029252),
@@ -202,6 +204,1693 @@ module zap_ram_simple_ben (
 			);
 		end
 	endgenerate
+endmodule
+module arm9_alu (
+	i_a,
+	i_b,
+	i_op,
+	i_flags,
+	i_shift_carry,
+	o_result,
+	o_flags
+);
+	reg _sv2v_0;
+	input wire [31:0] i_a;
+	input wire [31:0] i_b;
+	input wire [3:0] i_op;
+	input wire [3:0] i_flags;
+	input wire i_shift_carry;
+	output reg [31:0] o_result;
+	output reg [3:0] o_flags;
+	wire inv_a;
+	wire inv_b;
+	wire cin;
+	reg arithmetic;
+	wire [31:0] a;
+	wire [31:0] b;
+	wire [32:0] sum;
+	wire unused = &{1'b0, i_flags[3:2]};
+	assign inv_a = (i_op == 4'h3) || (i_op == 4'h7);
+	assign inv_b = ((i_op == 4'h2) || (i_op == 4'h6)) || (i_op == 4'ha);
+	assign cin = (((i_op == 4'h5) || (i_op == 4'h6)) || (i_op == 4'h7) ? i_flags[1] : inv_a || inv_b);
+	assign a = i_a ^ {32 {inv_a}};
+	assign b = i_b ^ {32 {inv_b}};
+	assign sum = ({1'b0, a} + {1'b0, b}) + {32'd0, cin};
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		arithmetic = 1'b0;
+		case (i_op)
+			4'h0, 4'h8: o_result = i_a & i_b;
+			4'h1, 4'h9: o_result = i_a ^ i_b;
+			4'hc: o_result = i_a | i_b;
+			4'hd: o_result = i_b;
+			4'he: o_result = i_a & ~i_b;
+			4'hf: o_result = ~i_b;
+			default: begin
+				o_result = sum[31:0];
+				arithmetic = 1'b1;
+			end
+		endcase
+		o_flags = {o_result[31], o_result == 0, i_shift_carry, i_flags[0]};
+		if (arithmetic) begin
+			o_flags[3:2] = {sum[31], sum[31:0] == 0};
+			o_flags[1] = sum[32];
+			o_flags[0] = (a[31] == b[31]) && (a[31] != sum[31]);
+		end
+	end
+	initial _sv2v_0 = 0;
+endmodule
+module arm9_core (
+	o_trace,
+	o_trace_valid,
+	o_trace_uop_last,
+	i_clk,
+	i_reset,
+	o_data_wb_we,
+	o_data_wb_cyc,
+	o_data_wb_stb,
+	o_data_wb_adr,
+	i_data_wb_ack,
+	i_data_wb_err,
+	i_data_wb_dat,
+	o_data_wb_dat,
+	o_data_wb_sel,
+	o_data_wb_adr_nxt,
+	o_data_wb_adr_check,
+	o_data_wb_we_check,
+	o_data_wb_re_check,
+	o_mem_translate,
+	o_data_wb_align_fault,
+	o_data_wb_va,
+	o_data_wb_ldfmt,
+	o_dcache_line_req,
+	o_dcache_line_op,
+	o_dcache_line_va,
+	o_dcache_line_addr,
+	o_dcache_line_way,
+	i_dcache_line_done,
+	i_fiq,
+	i_irq,
+	o_instr_wb_adr,
+	o_instr_wb_cyc,
+	o_instr_wb_stb,
+	o_instr_wb_we,
+	i_instr_wb_dat,
+	i_instr_wb_ack,
+	i_instr_wb_err,
+	o_instr_wb_sel,
+	o_instr_wb_adr_nxt,
+	o_instr_wb_adr_check,
+	o_cpsr,
+	o_mem_cpsr,
+	o_code_stall,
+	i_fsr,
+	i_far,
+	o_dac,
+	o_baddr,
+	o_mmu_en,
+	o_sr,
+	o_pid,
+	o_dcache_inv,
+	o_icache_inv,
+	o_dcache_clean,
+	o_icache_clean,
+	o_dtlb_inv,
+	o_itlb_inv,
+	o_dcache_en,
+	o_icache_en,
+	i_dcache_inv_done,
+	i_icache_inv_done,
+	i_dcache_clean_done,
+	i_icache_clean_done,
+	i_icache_err2,
+	i_icache_fill_pending,
+	i_icache_fill_done,
+	i_icache_fill_fault,
+	i_dcache_err2,
+	i_dc_reg_idx,
+	i_dc_reg_dat,
+	i_dc_lock,
+	o_dc_reg_idx,
+	o_dc_reg_idx_bin,
+	o_dbg_wb_valid,
+	o_dbg_wfi,
+	o_dbg_wb_dvalid,
+	o_dbg_wb_uop_last,
+	o_dbg_wb_dabt,
+	o_dbg_wb_pabt,
+	o_dbg_wb_und,
+	o_dbg_wb_swi,
+	o_dbg_wb_irq,
+	o_dbg_wb_fiq,
+	o_dbg_wb_pc,
+	o_dbg_wb_cpsr,
+	o_dbg_wb_cpsr_nxt,
+	o_dbg_stall
+);
+	reg _sv2v_0;
+	parameter [0:0] CP15_L4_DEFAULT = 0;
+	parameter [31:0] DATA_CACHE_SIZE = 1024;
+	parameter [31:0] CODE_CACHE_SIZE = 1024;
+	parameter [31:0] DATA_CACHE_LINE = 64;
+	parameter [31:0] DATA_CACHE_WAYS = 1;
+	parameter [0:0] LOAD_FORMATTED = 1'd0;
+	parameter [31:0] CODE_CACHE_LINE = 64;
+	parameter [31:0] RESET_VECTOR = 32'd0;
+	parameter [31:0] CPSR_INIT = 32'h000000d3;
+	parameter [0:0] BE_32_ENABLE = 1'd0;
+	parameter [31:0] BP_ENTRIES = 32'd1024;
+	parameter [31:0] FIFO_DEPTH = 32'd4;
+	parameter [31:0] RAS_DEPTH = 32'd4;
+	parameter [31:0] CPSR_MODE = 32'd4;
+	parameter [0:0] V4T = 1'd0;
+	parameter [0:0] TI925T = 1'd0;
+	parameter [31:0] CP15_ID = 32'h0005aaa0;
+	parameter [31:0] CP15_CTYPE = 32'd0;
+	parameter [0:0] HIVECS = 1'd0;
+	output wire [1023:0] o_trace;
+	output wire o_trace_valid;
+	output wire o_trace_uop_last;
+	input wire i_clk;
+	input wire i_reset;
+	output wire o_data_wb_we;
+	output wire o_data_wb_cyc;
+	output wire o_data_wb_stb;
+	output wire [31:0] o_data_wb_adr;
+	input wire i_data_wb_ack;
+	input wire i_data_wb_err;
+	input wire [31:0] i_data_wb_dat;
+	output wire [31:0] o_data_wb_dat;
+	output wire [3:0] o_data_wb_sel;
+	output wire [31:0] o_data_wb_adr_nxt;
+	output wire [31:0] o_data_wb_adr_check;
+	output wire o_data_wb_we_check;
+	output wire o_data_wb_re_check;
+	output wire o_mem_translate;
+	output wire o_data_wb_align_fault;
+	output wire [31:0] o_data_wb_va;
+	output wire [5:0] o_data_wb_ldfmt;
+	output wire o_dcache_line_req;
+	output wire [1:0] o_dcache_line_op;
+	output wire o_dcache_line_va;
+	output wire [31:0] o_dcache_line_addr;
+	output wire o_dcache_line_way;
+	input wire i_dcache_line_done;
+	input wire i_fiq;
+	input wire i_irq;
+	output wire [31:0] o_instr_wb_adr;
+	output wire o_instr_wb_cyc;
+	output wire o_instr_wb_stb;
+	output wire o_instr_wb_we;
+	input wire [31:0] i_instr_wb_dat;
+	input wire i_instr_wb_ack;
+	input wire i_instr_wb_err;
+	output wire [3:0] o_instr_wb_sel;
+	output wire [31:0] o_instr_wb_adr_nxt;
+	output wire [31:0] o_instr_wb_adr_check;
+	output wire [CPSR_MODE:0] o_cpsr;
+	output wire [CPSR_MODE:0] o_mem_cpsr;
+	output wire o_code_stall;
+	input wire [31:0] i_fsr;
+	input wire [31:0] i_far;
+	output wire [31:0] o_dac;
+	output wire [31:0] o_baddr;
+	output wire o_mmu_en;
+	output wire [1:0] o_sr;
+	output wire [7:0] o_pid;
+	output wire o_dcache_inv;
+	output wire o_icache_inv;
+	output wire o_dcache_clean;
+	output wire o_icache_clean;
+	output wire o_dtlb_inv;
+	output wire o_itlb_inv;
+	output wire o_dcache_en;
+	output wire o_icache_en;
+	input wire i_dcache_inv_done;
+	input wire i_icache_inv_done;
+	input wire i_dcache_clean_done;
+	input wire i_icache_clean_done;
+	input wire i_icache_err2;
+	input wire i_icache_fill_pending;
+	input wire i_icache_fill_done;
+	input wire i_icache_fill_fault;
+	input wire i_dcache_err2;
+	input wire [63:0] i_dc_reg_idx;
+	input wire [31:0] i_dc_reg_dat;
+	input wire [63:0] i_dc_lock;
+	output wire [63:0] o_dc_reg_idx;
+	output wire [5:0] o_dc_reg_idx_bin;
+	output wire o_dbg_wb_valid;
+	output wire o_dbg_wfi;
+	output wire o_dbg_wb_dvalid;
+	output wire o_dbg_wb_uop_last;
+	output wire [1:0] o_dbg_wb_dabt;
+	output wire o_dbg_wb_pabt;
+	output wire o_dbg_wb_und;
+	output wire o_dbg_wb_swi;
+	output wire o_dbg_wb_irq;
+	output wire o_dbg_wb_fiq;
+	output wire [31:0] o_dbg_wb_pc;
+	output wire [31:0] o_dbg_wb_cpsr;
+	output wire [31:0] o_dbg_wb_cpsr_nxt;
+	output wire [7:0] o_dbg_stall;
+	localparam [1:0] SECTION_ID = 2'b10;
+	localparam [1:0] PAGE_ID = 2'b01;
+	localparam [1:0] FINE_ID = 2'b11;
+	localparam [1:0] SPAGE_ID = 2'b10;
+	localparam [1:0] LPAGE_ID = 2'b01;
+	localparam [1:0] FPAGE_ID = 2'b11;
+	localparam [3:0] APSR_NA_NA = 4'b0000;
+	localparam [3:0] APSR_RO_RO = 4'b0001;
+	localparam [3:0] APSR_RO_NA = 4'b0010;
+	localparam [3:0] APSR_RW_NA = 4'b01zz;
+	localparam [3:0] APSR_RW_RO = 4'b10zz;
+	localparam [3:0] APSR_RW_RW = 4'b11zz;
+	localparam [1:0] DAC_MANAGER = 2'b11;
+	localparam [1:0] DAC_CLIENT = 2'b01;
+	localparam [3:0] FSR_SECTION_DOMAIN_FAULT = 4'b1001;
+	localparam [3:0] FSR_SECTION_TRANSLATION_FAULT = 4'b0101;
+	localparam [3:0] FSR_SECTION_PERMISSION_FAULT = 4'b1101;
+	localparam [3:0] FSR_L1_EXTERNAL_ABORT = 4'b1100;
+	localparam [3:0] FSR_PAGE_TRANSLATION_FAULT = 4'b0111;
+	localparam [3:0] FSR_PAGE_DOMAIN_FAULT = 4'b1011;
+	localparam [3:0] FSR_PAGE_PERMISSION_FAULT = 4'b1111;
+	localparam [3:0] FSR_L2_EXTERNAL_ABORT = 4'b1110;
+	parameter [3:0] TERMINAL_EXCEPTION = 4'b0010;
+	localparam [3:0] AND = 4'd0;
+	localparam [3:0] EOR = 4'd1;
+	localparam [3:0] SUB = 4'd2;
+	localparam [3:0] RSB = 4'd3;
+	localparam [3:0] ADD = 4'd4;
+	localparam [3:0] ADC = 4'd5;
+	localparam [3:0] SBC = 4'd6;
+	localparam [3:0] RSC = 4'd7;
+	localparam [3:0] TST = 4'd8;
+	localparam [3:0] TEQ = 4'd9;
+	localparam [3:0] CMP = 4'd10;
+	localparam [3:0] CMN = 4'd11;
+	localparam [3:0] ORR = 4'd12;
+	localparam [3:0] MOV = 4'd13;
+	localparam [3:0] BIC = 4'd14;
+	localparam [3:0] MVN = 4'd15;
+	localparam [4:0] MUL = 5'd16;
+	localparam [4:0] MLA = 5'd17;
+	localparam [4:0] FMOV = 5'd18;
+	localparam [4:0] MMOV = 5'd19;
+	localparam [4:0] UMLALL = 5'd20;
+	localparam [4:0] UMLALH = 5'd21;
+	localparam [4:0] SMLALL = 5'd22;
+	localparam [4:0] SMLALH = 5'd23;
+	localparam [4:0] CLZ = 5'd24;
+	localparam [4:0] OP_QADD = 5'd25;
+	localparam [4:0] OP_QSUB = 5'd26;
+	localparam [4:0] OP_QDADD = 5'd27;
+	localparam [4:0] OP_QDSUB = 5'd28;
+	localparam [5:0] SMULW0 = 6'd30;
+	localparam [5:0] SMULW1 = 6'd32;
+	localparam [5:0] SMUL00 = 6'd34;
+	localparam [5:0] SMUL01 = 6'd36;
+	localparam [5:0] SMUL10 = 6'd38;
+	localparam [5:0] SMUL11 = 6'd40;
+	localparam [5:0] SMLA00 = 6'd42;
+	localparam [5:0] SMLA01 = 6'd44;
+	localparam [5:0] SMLA10 = 6'd46;
+	localparam [5:0] SMLA11 = 6'd48;
+	localparam [5:0] SMLAW0 = 6'd50;
+	localparam [5:0] SMLAW1 = 6'd52;
+	localparam [5:0] SMLAL00L = 6'd54;
+	localparam [5:0] SMLAL00H = 6'd55;
+	localparam [5:0] SMLAL01L = 6'd56;
+	localparam [5:0] SMLAL01H = 6'd57;
+	localparam [5:0] SMLAL10L = 6'd58;
+	localparam [5:0] SMLAL10H = 6'd59;
+	localparam [5:0] SMLAL11L = 6'd60;
+	localparam [5:0] SMLAL11H = 6'd61;
+	localparam [5:0] FADD = 6'd62;
+	localparam [5:0] OP_SMULW0 = 6'd30;
+	localparam [5:0] OP_SMULW1 = 6'd32;
+	localparam [5:0] OP_SMUL00 = 6'd34;
+	localparam [5:0] OP_SMUL01 = 6'd36;
+	localparam [5:0] OP_SMUL10 = 6'd38;
+	localparam [5:0] OP_SMUL11 = 6'd40;
+	localparam [5:0] OP_SMLA00 = 6'd42;
+	localparam [5:0] OP_SMLA01 = 6'd44;
+	localparam [5:0] OP_SMLA10 = 6'd46;
+	localparam [5:0] OP_SMLA11 = 6'd48;
+	localparam [5:0] OP_SMLAW0 = 6'd50;
+	localparam [5:0] OP_SMLAW1 = 6'd52;
+	localparam [5:0] OP_SMLAL00L = 6'd54;
+	localparam [5:0] OP_SMLAL00H = 6'd55;
+	localparam [5:0] OP_SMLAL01L = 6'd56;
+	localparam [5:0] OP_SMLAL01H = 6'd57;
+	localparam [5:0] OP_SMLAL10L = 6'd58;
+	localparam [5:0] OP_SMLAL10H = 6'd59;
+	localparam [5:0] OP_SMLAL11L = 6'd60;
+	localparam [5:0] OP_SMLAL11H = 6'd61;
+	localparam [5:0] SAT_MOV = 6'd49;
+	localparam [3:0] EQ = 4'h0;
+	localparam [3:0] NE = 4'h1;
+	localparam [3:0] CS = 4'h2;
+	localparam [3:0] CC = 4'h3;
+	localparam [3:0] MI = 4'h4;
+	localparam [3:0] PL = 4'h5;
+	localparam [3:0] VS = 4'h6;
+	localparam [3:0] VC = 4'h7;
+	localparam [3:0] HI = 4'h8;
+	localparam [3:0] LS = 4'h9;
+	localparam [3:0] GE = 4'ha;
+	localparam [3:0] LT = 4'hb;
+	localparam [3:0] GT = 4'hc;
+	localparam [3:0] LE = 4'hd;
+	localparam [3:0] AL = 4'he;
+	localparam [3:0] NV = 4'hf;
+	localparam [31:0] N = 32'd31;
+	localparam [31:0] Z = 32'd30;
+	localparam [31:0] C = 32'd29;
+	localparam [31:0] V = 32'd28;
+	localparam [31:0] Q = 32'd27;
+	localparam [31:0] I = 32'd7;
+	localparam [31:0] F = 32'd6;
+	localparam [31:0] T = 32'd5;
+	localparam [31:0] ZAP_CPSR_MODE = 32'd4;
+	localparam [0:0] INDEX_EN = 1'd0;
+	localparam [0:0] IMMED_EN = 1'd1;
+	localparam [4:0] FIQ = 5'b10001;
+	localparam [4:0] IRQ = 5'b10010;
+	localparam [4:0] ABT = 5'b10111;
+	localparam [4:0] SVC = 5'b10011;
+	localparam [4:0] USR = 5'b10000;
+	localparam [4:0] SYS = 5'b11111;
+	localparam [4:0] UND = 5'b11011;
+	localparam [31:0] SMLAxy = 32'bzzzz00010000zzzzzzzzzzzz1zz0zzzz;
+	localparam [31:0] SMLAWy = 32'bzzzz00010010zzzzzzzzzzzz1z00zzzz;
+	localparam [31:0] SMLALxy = 32'bzzzz00010100zzzzzzzzzzzz1zz0zzzz;
+	localparam [31:0] SMULWy = 32'bzzzz00010010zzzz0000zzzz1z10zzzz;
+	localparam [31:0] SMULxy = 32'bzzzz00010110zzzz0000zzzz1zz0zzzz;
+	localparam [31:0] CLZ_INSTRUCTION = 32'bzzzz000101101111zzzz11110001zzzz;
+	localparam [31:0] QADD = 32'bzzzz00010000zzzzzzzz00000101zzzz;
+	localparam [31:0] QSUB = 32'bzzzz00010010zzzzzzzz00000101zzzz;
+	localparam [31:0] QDADD = 32'bzzzz00010100zzzzzzzz00000101zzzz;
+	localparam [31:0] QDSUB = 32'bzzzz00010110zzzzzzzz00000101zzzz;
+	localparam [31:0] PLD = 32'b111101z1z101zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] DATA_PROCESSING_IMMEDIATE = 32'bzzzz001zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzz0zz1zzzz;
+	localparam [31:0] DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzzzzz0zzzz;
+	localparam [31:0] BRANCH_INSTRUCTION = 32'bzzzz101zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] MRS = 32'bzzzz00010z001111zzzzzzzzzzzzzzzz;
+	localparam [31:0] MSR_IMMEDIATE = 32'bzzzz00110z10zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] MSR = 32'bzzzz00010z10zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] LS_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz011zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] LS_IMMEDIATE = 32'bzzzz010zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BX_INST = 32'bzzzz000100101111111111110001zzzz;
+	localparam [31:0] MULT_INST = 32'bzzzz000000zzzzzzzzzzzzzz1001zzzz;
+	localparam [31:0] LMULT_INST = 32'bzzzz00001zzzzzzzzzzzzzzz1001zzzz;
+	localparam [31:0] HALFWORD_LS = 32'bzzzz000zzzzzzzzzzzzzzzzz1zz1zzzz;
+	localparam [31:0] SOFTWARE_INTERRUPT = 32'bzzzz1111zzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] SWAP = 32'bzzzz00010z00zzzzzzzz00001001zzzz;
+	localparam [31:0] MCR = 32'bzzzz1110zzz0zzzzzzzz1111zzz1zzzz;
+	localparam [31:0] MCR2 = 32'b11111110zzz0zzzzzzzzzzzzzzz1zzzz;
+	localparam [31:0] MRC = 32'bzzzz1110zzz1zzzzzzzz1111zzz1zzzz;
+	localparam [31:0] MRC2 = 32'b11111110zzz1zzzzzzzzzzzzzzz1zzzz;
+	localparam [31:0] LDC = 32'bzzzz110zzzz1zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] STC = 32'bzzzz110zzzz0zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] LDC2 = 32'b1111110zzzz1zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] STC2 = 32'b1111110zzzz0zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] CDP = 32'bzzzz1110zzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BLX1 = 32'b1111101zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BLX2 = 32'bzzzz000100101111111111110011zzzz;
+	localparam [31:0] BKPT = 32'b111000010010zzzzzzzzzzzz0111zzzz;
+	localparam [15:0] T_BRANCH_COND = 16'b1101zzzzzzzzzzzz;
+	localparam [15:0] T_BRANCH_NOCOND = 16'b11100zzzzzzzzzzz;
+	localparam [15:0] T_BL = 16'b1111zzzzzzzzzzzz;
+	localparam [15:0] T_BLX1 = 16'b11101zzzzzzzzzzz;
+	localparam [15:0] T_BLX2 = 16'b010001111zzzz000;
+	localparam [15:0] T_BX = 16'b010001110zzzz000;
+	localparam [15:0] T_SWI = 16'b11011111zzzzzzzz;
+	localparam [15:0] T_SHIFT = 16'b000zzzzzzzzzzzzz;
+	localparam [15:0] T_ADD_SUB_LO = 16'b00011zzzzzzzzzzz;
+	localparam [15:0] T_MCAS_IMM = 16'b001zzzzzzzzzzzzz;
+	localparam [15:0] T_ALU_LO = 16'b010000zzzzzzzzzz;
+	localparam [15:0] T_ALU_HI = 16'b010001zzzzzzzzzz;
+	localparam [15:0] T_GET_ADDR = 16'b1010zzzzzzzzzzzz;
+	localparam [15:0] T_MOD_SP = 16'b10110000zzzzzzzz;
+	localparam [15:0] T_PC_REL_LOAD = 16'b01001zzzzzzzzzzz;
+	localparam [15:0] T_LDR_STR_5BIT_OFF = 16'b011zzzzzzzzzzzzz;
+	localparam [15:0] T_LDRH_STRH_5BIT_OFF = 16'b1000zzzzzzzzzzzz;
+	localparam [15:0] T_LDRH_STRH_REG = 16'b0101zzzzzzzzzzzz;
+	localparam [15:0] T_SP_REL_LDR_STR = 16'b1001zzzzzzzzzzzz;
+	localparam [15:0] T_LDMIA_STMIA = 16'b1100zzzzzzzzzzzz;
+	localparam [15:0] T_POP_PUSH = 16'b1011z10zzzzzzzzz;
+	localparam [15:0] T_BKPT = 16'b10111110zzzzzzzz;
+	localparam [31:0] TOTAL_ARCH_REGS = 28;
+	localparam [3:0] ARCH_SP = 13;
+	localparam [3:0] ARCH_LR = 14;
+	localparam [3:0] ARCH_PC = 15;
+	localparam [4:0] RAZ_REGISTER = 16;
+	localparam [4:0] ARCH_USR2_R8 = 18;
+	localparam [4:0] ARCH_USR2_R9 = 19;
+	localparam [4:0] ARCH_USR2_R10 = 20;
+	localparam [4:0] ARCH_USR2_R11 = 21;
+	localparam [4:0] ARCH_USR2_R12 = 22;
+	localparam [4:0] ARCH_USR2_R13 = 23;
+	localparam [4:0] ARCH_USR2_R14 = 24;
+	localparam [4:0] ARCH_DUMMY_REG0 = 25;
+	localparam [4:0] ARCH_DUMMY_REG1 = 26;
+	localparam [4:0] ARCH_CPSR = 17;
+	localparam [4:0] ARCH_CURR_SPSR = 27;
+	localparam [31:0] TOTAL_PHY_REGS = 40;
+	localparam [5:0] PHY_PC = 15;
+	localparam [5:0] PHY_RAZ_REGISTER = 16;
+	localparam [5:0] PHY_CPSR = 17;
+	localparam [5:0] PHY_USR_R0 = 0;
+	localparam [5:0] PHY_USR_R1 = 1;
+	localparam [5:0] PHY_USR_R2 = 2;
+	localparam [5:0] PHY_USR_R3 = 3;
+	localparam [5:0] PHY_USR_R4 = 4;
+	localparam [5:0] PHY_USR_R5 = 5;
+	localparam [5:0] PHY_USR_R6 = 6;
+	localparam [5:0] PHY_USR_R7 = 7;
+	localparam [5:0] PHY_USR_R8 = 8;
+	localparam [5:0] PHY_USR_R9 = 9;
+	localparam [5:0] PHY_USR_R10 = 10;
+	localparam [5:0] PHY_USR_R11 = 11;
+	localparam [5:0] PHY_USR_R12 = 12;
+	localparam [5:0] PHY_USR_R13 = 13;
+	localparam [5:0] PHY_USR_R14 = 14;
+	localparam [5:0] PHY_FIQ_R8 = 18;
+	localparam [5:0] PHY_FIQ_R9 = 19;
+	localparam [5:0] PHY_FIQ_R10 = 20;
+	localparam [5:0] PHY_FIQ_R11 = 21;
+	localparam [5:0] PHY_FIQ_R12 = 22;
+	localparam [5:0] PHY_FIQ_R13 = 23;
+	localparam [5:0] PHY_FIQ_R14 = 24;
+	localparam [5:0] PHY_IRQ_R13 = 25;
+	localparam [5:0] PHY_IRQ_R14 = 26;
+	localparam [5:0] PHY_SVC_R13 = 27;
+	localparam [5:0] PHY_SVC_R14 = 28;
+	localparam [5:0] PHY_UND_R13 = 29;
+	localparam [5:0] PHY_UND_R14 = 30;
+	localparam [5:0] PHY_ABT_R13 = 31;
+	localparam [5:0] PHY_ABT_R14 = 32;
+	localparam [5:0] PHY_DUMMY_REG0 = 33;
+	localparam [5:0] PHY_DUMMY_REG1 = 34;
+	localparam [5:0] PHY_FIQ_SPSR = 35;
+	localparam [5:0] PHY_IRQ_SPSR = 36;
+	localparam [5:0] PHY_SVC_SPSR = 37;
+	localparam [5:0] PHY_UND_SPSR = 38;
+	localparam [5:0] PHY_ABT_SPSR = 39;
+	localparam [1:0] LSL = 0;
+	localparam [1:0] LSR = 1;
+	localparam [1:0] ASR = 2;
+	localparam [1:0] ROR = 3;
+	localparam [2:0] RRC = 4;
+	localparam [2:0] RORI = 5;
+	localparam [2:0] ROR_1 = 6;
+	localparam [2:0] LSL_SAT = 7;
+	localparam [2:0] CTI_BURST = 3'b010;
+	localparam [2:0] CTI_EOB = 3'b111;
+	localparam [31:0] RST_VECTOR = 32'h00000000;
+	localparam [31:0] UND_VECTOR = 32'h00000004;
+	localparam [31:0] SWI_VECTOR = 32'h00000008;
+	localparam [31:0] PABT_VECTOR = 32'h0000000c;
+	localparam [31:0] DABT_VECTOR = 32'h00000010;
+	localparam [31:0] IRQ_VECTOR = 32'h00000018;
+	localparam [31:0] FIQ_VECTOR = 32'h0000001c;
+	localparam [1:0] SNT = 2'b00;
+	localparam [1:0] WNT = 2'b01;
+	localparam [1:0] WT = 2'b10;
+	localparam [1:0] ST = 2'b11;
+	localparam [31:0] ZAP_SRCDEST_EXTEND = 32'd32;
+	localparam [31:0] ZAP_DP_RB_EXTEND = 32'd32;
+	localparam [31:0] ZAP_BASE_EXTEND = 32'd33;
+	localparam [31:0] ZAP_DP_RD_EXTEND = 32'd33;
+	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
+	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
+	function automatic [31:0] be_32;
+		input [31:0] dat;
+		input [3:0] sel;
+		case (sel)
+			4'b1000: be_32 = {24'd0, dat[31:24]};
+			4'b0100: be_32 = {16'd0, dat[23:16], 8'd0};
+			4'b0010: be_32 = {8'd0, dat[15:8], 16'd0};
+			4'b0001: be_32 = {dat[7:0], 24'd0};
+			4'b1100: be_32 = {16'd0, dat[31:16]};
+			4'b0011: be_32 = {dat[15:0], 16'd0};
+			default: be_32 = dat;
+		endcase
+	endfunction
+	function automatic [3:0] be_sel_32;
+		input [3:0] sel;
+		case (sel)
+			4'b0001: be_sel_32 = 4'b1000;
+			4'b0010: be_sel_32 = 4'b0100;
+			4'b0100: be_sel_32 = 4'b0010;
+			4'b1000: be_sel_32 = 4'b0001;
+			4'b0011: be_sel_32 = 4'b1100;
+			4'b1100: be_sel_32 = 4'b0011;
+			4'b1111: be_sel_32 = sel;
+			default: be_sel_32 = {4 {1'bx}};
+		endcase
+	endfunction
+	function automatic is_cc_satisfied;
+		input [3:0] cc;
+		input [3:0] fl;
+		reg ok;
+		reg n;
+		reg z;
+		reg c;
+		reg v;
+		begin
+			{n, z, c, v} = fl;
+			case (cc)
+				EQ: ok = z;
+				NE: ok = !z;
+				CS: ok = c;
+				CC: ok = !c;
+				MI: ok = n;
+				PL: ok = !n;
+				VS: ok = v;
+				VC: ok = !v;
+				HI: ok = c && !z;
+				LS: ok = !c || z;
+				GE: ok = n == v;
+				LT: ok = n != v;
+				GT: ok = (n == v) && !z;
+				LE: ok = (n != v) || z;
+				AL: ok = 1'd1;
+				NV: ok = 1'd0;
+				default: ok = 1'sbx;
+			endcase
+			is_cc_satisfied = ok;
+		end
+	endfunction
+	function automatic [5:0] translate;
+		input [4:0] index;
+		input [4:0] cpu_mode;
+		begin
+			case (index)
+				0: translate = PHY_USR_R0;
+				1: translate = PHY_USR_R1;
+				2: translate = PHY_USR_R2;
+				3: translate = PHY_USR_R3;
+				4: translate = PHY_USR_R4;
+				5: translate = PHY_USR_R5;
+				6: translate = PHY_USR_R6;
+				7: translate = PHY_USR_R7;
+				8: translate = PHY_USR_R8;
+				9: translate = PHY_USR_R9;
+				10: translate = PHY_USR_R10;
+				11: translate = PHY_USR_R11;
+				12: translate = PHY_USR_R12;
+				13: translate = PHY_USR_R13;
+				14: translate = PHY_USR_R14;
+				15: translate = PHY_PC;
+				RAZ_REGISTER: translate = PHY_RAZ_REGISTER;
+				ARCH_CPSR: translate = PHY_CPSR;
+				ARCH_CURR_SPSR: translate = PHY_CPSR;
+				ARCH_USR2_R8: translate = PHY_USR_R8;
+				ARCH_USR2_R9: translate = PHY_USR_R9;
+				ARCH_USR2_R10: translate = PHY_USR_R10;
+				ARCH_USR2_R11: translate = PHY_USR_R11;
+				ARCH_USR2_R12: translate = PHY_USR_R12;
+				ARCH_USR2_R13: translate = PHY_USR_R13;
+				ARCH_USR2_R14: translate = PHY_USR_R14;
+				ARCH_DUMMY_REG0: translate = PHY_DUMMY_REG0;
+				ARCH_DUMMY_REG1: translate = PHY_DUMMY_REG1;
+				default: translate = {1'd0, index};
+			endcase
+			case (cpu_mode)
+				FIQ:
+					case (index)
+						8: translate = PHY_FIQ_R8;
+						9: translate = PHY_FIQ_R9;
+						10: translate = PHY_FIQ_R10;
+						11: translate = PHY_FIQ_R11;
+						12: translate = PHY_FIQ_R12;
+						13: translate = PHY_FIQ_R13;
+						14: translate = PHY_FIQ_R14;
+						ARCH_CURR_SPSR: translate = PHY_FIQ_SPSR;
+						default:
+							;
+					endcase
+				IRQ:
+					case (index)
+						13: translate = PHY_IRQ_R13;
+						14: translate = PHY_IRQ_R14;
+						ARCH_CURR_SPSR: translate = PHY_IRQ_SPSR;
+						default:
+							;
+					endcase
+				ABT:
+					case (index)
+						13: translate = PHY_ABT_R13;
+						14: translate = PHY_ABT_R14;
+						ARCH_CURR_SPSR: translate = PHY_ABT_SPSR;
+						default:
+							;
+					endcase
+				UND:
+					case (index)
+						13: translate = PHY_UND_R13;
+						14: translate = PHY_UND_R14;
+						ARCH_CURR_SPSR: translate = PHY_UND_SPSR;
+						default:
+							;
+					endcase
+				SVC:
+					case (index)
+						13: translate = PHY_SVC_R13;
+						14: translate = PHY_SVC_R14;
+						ARCH_CURR_SPSR: translate = PHY_SVC_SPSR;
+						default:
+							;
+					endcase
+				USR:
+					;
+				SYS:
+					;
+				default: translate = 1'sbx;
+			endcase
+			if (|{cpu_mode == USR, cpu_mode == SYS, cpu_mode == FIQ, cpu_mode == IRQ, cpu_mode == SVC, cpu_mode == UND, cpu_mode == ABT})
+				;
+		end
+	endfunction
+	reg [4:0] state;
+	reg [3:0] kind_d;
+	reg [3:0] kind_e;
+	reg [31:0] pc;
+	wire [31:0] pc8;
+	reg [31:0] raw_ins;
+	wire [31:0] ins;
+	wire [31:0] cpsr;
+	wire [31:0] cpsr_next;
+	wire [34:0] translated;
+	wire thumb_und;
+	wire thumb_align;
+	reg fetch_abort;
+	reg irq_pending;
+	reg fiq_pending;
+	reg [23:0] read_tag;
+	wire [127:0] read_value;
+	reg [127:0] value_d;
+	reg [127:0] value_e;
+	reg [3:0] op_d;
+	reg [3:0] op_e;
+	reg [1:0] shift_type_d;
+	reg [1:0] shift_type_e;
+	reg [4:0] shift_amount_d;
+	reg [4:0] shift_amount_e;
+	reg shift_register_d;
+	reg shift_register_e;
+	reg immediate_d;
+	reg immediate_e;
+	reg immediate_carry_d;
+	reg immediate_carry_e;
+	wire [31:0] ex_result;
+	wire [31:0] ex_store;
+	wire [31:0] ex_branch;
+	wire [3:0] ex_flags;
+	wire ex_pass;
+	wire ex_write;
+	wire ex_write_flags;
+	reg [31:0] flags_e;
+	reg [31:0] branch_offset_d;
+	reg [31:0] branch_offset_e;
+	reg [5:0] dst_e;
+	reg [5:0] base_e;
+	reg [31:0] psr_mask_d;
+	reg [31:0] psr_mask_e;
+	reg [31:0] m_address;
+	reg [31:0] m_write_data;
+	reg [31:0] m_read_data;
+	reg [3:0] m_sel;
+	reg [5:0] m_format;
+	reg [5:0] m_dst;
+	reg m_load;
+	reg m_align;
+	reg m_user;
+	reg swap_store;
+	reg [31:0] w_value;
+	reg [31:0] w_flags;
+	reg [31:0] w_target;
+	reg [5:0] w_dst;
+	reg w_valid;
+	reg w_cfail;
+	reg w_load;
+	reg w_redirect;
+	reg w_last;
+	reg w_dabt;
+	reg w_pabt;
+	reg w_irq;
+	reg w_fiq;
+	reg w_swi;
+	reg w_und;
+	reg [15:0] remaining;
+	reg [15:0] list_d;
+	reg [3:0] transfer_reg_d;
+	reg [4:0] transfer_count_d;
+	reg sequence_active;
+	reg [31:0] sequence_address;
+	reg [31:0] sequence_base;
+	wire [31:0] copro_reg_wr_data;
+	wire [31:0] copro_reg_rd_data;
+	wire [5:0] copro_reg_wr_index;
+	wire [5:0] copro_reg_rd_index;
+	wire copro_done;
+	wire copro_reg_en;
+	wire align_en;
+	wire hivecs;
+	wire l4_enable;
+	wire [31:0] effective_address;
+	wire [31:0] updated_base;
+	wire [31:0] next_pc;
+	wire [31:0] vector_base;
+	wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, translated[33:32]};
+	assign cpsr = o_dbg_wb_cpsr;
+	assign pc8 = pc + (cpsr[5] ? 32'd4 : 32'd8);
+	assign vector_base = (hivecs ? 32'hffff0000 : 32'd0);
+	assign ins = translated[31:0];
+	zap_mode16_decoder #(.V4T(1'b1)) u_thumb(
+		.i_instruction(raw_ins),
+		.i_instruction_valid(1'b1),
+		.i_offset(11'd0),
+		.i_prev_prefix(1'b0),
+		.i_irq(1'b0),
+		.i_fiq(1'b0),
+		.i_cpsr_ff_t(cpsr[5]),
+		.o_instruction(translated),
+		.o_instruction_valid(),
+		.o_und(thumb_und),
+		.o_force32_align(thumb_align),
+		.o_irq(),
+		.o_fiq()
+	);
+	function automatic [31:0] fcse;
+		input [31:0] address;
+		fcse = (address[31:25] == 0 ? {o_pid[6:0], address[24:0]} : address);
+	endfunction
+	function automatic [31:0] rotate_right;
+		input [31:0] v;
+		input [4:0] n;
+		rotate_right = (v >> n) | (v << ((32 - {1'b0, n}) & 63));
+	endfunction
+	function automatic signed [3:0] sv2v_cast_4_signed;
+		input reg signed [3:0] inp;
+		sv2v_cast_4_signed = inp;
+	endfunction
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		kind_d = 4'd8;
+		if (ins[27:24] == 4'hf)
+			kind_d = 4'd9;
+		else if (ins[27:25] == 3'b101)
+			kind_d = 4'd3;
+		else if (ins[27:25] == 3'b100)
+			kind_d = 4'd6;
+		else if ((ins[27:26] == 2'b01) && !(ins[25] && ins[4]))
+			kind_d = 4'd5;
+		else if ((ins & 32'h0fb00ff0) == 32'h01000090)
+			kind_d = 4'd12;
+		else if ((ins & 32'h0ffffff0) == 32'h012fff10)
+			kind_d = 4'd4;
+		else if ((ins & 32'h0fbf0fff) == 32'h010f0000)
+			kind_d = 4'd1;
+		else if ((ins & 32'h0db0f000) == 32'h0120f000)
+			kind_d = 4'd2;
+		else if (((ins[27:24] == 4'he) && ins[4]) && (ins[11:8] == 4'hf))
+			kind_d = (cpsr[4:0] == USR ? 4'd8 : 4'd7);
+		else if ((((ins[27:25] == 0) && ins[7]) && ins[4]) && (ins[6:5] != 0))
+			kind_d = 4'd5;
+		else if (((ins[27:26] == 0) && !((ins[7] && ins[4]) && !ins[25])) && !(!ins[20] && (ins[24:23] == 2'b10)))
+			kind_d = 4'd0;
+		if (cpsr[5] && (raw_ins[15:11] == 5'b11110))
+			kind_d = 4'd10;
+		if (cpsr[5] && (raw_ins[15:11] == 5'b11111))
+			kind_d = 4'd11;
+		if (thumb_und)
+			kind_d = 4'd8;
+		list_d = (sequence_active ? remaining : ins[15:0]);
+		if ((kind_d == 4'd6) && (list_d == 0))
+			kind_d = 4'd8;
+		transfer_reg_d = 0;
+		transfer_count_d = 0;
+		begin : sv2v_autoblock_1
+			reg signed [31:0] n;
+			for (n = 15; n >= 0; n = n - 1)
+				begin
+					if (list_d[n])
+						transfer_reg_d = sv2v_cast_4_signed(n);
+					transfer_count_d = transfer_count_d + {4'd0, ins[n]};
+				end
+		end
+		read_tag[0+:6] = translate({1'b0, ins[19:16]}, cpsr[4:0]);
+		read_tag[6+:6] = translate({1'b0, ins[3:0]}, cpsr[4:0]);
+		read_tag[12+:6] = translate(ARCH_CURR_SPSR, cpsr[4:0]);
+		read_tag[18+:6] = translate({1'b0, ins[15:12]}, cpsr[4:0]);
+		if (kind_d == 4'd6)
+			read_tag[18+:6] = translate({1'b0, transfer_reg_d}, (ins[22] && !(ins[20] && ins[15]) ? USR : cpsr[4:0]));
+		shift_register_d = ((kind_d == 4'd0) && !ins[25]) && ins[4];
+		if (shift_register_d)
+			read_tag[12+:6] = translate({1'b0, ins[11:8]}, cpsr[4:0]);
+		if (kind_d == 4'd11)
+			read_tag[6+:6] = translate(5'd14, cpsr[4:0]);
+	end
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		op_d = ins[24:21];
+		shift_type_d = ins[6:5];
+		shift_amount_d = ins[11:7];
+		value_d = read_value;
+		begin : sv2v_autoblock_2
+			reg signed [31:0] n;
+			for (n = 0; n < 4; n = n + 1)
+				begin
+					if (read_tag[n * 6+:6] == PHY_PC)
+						value_d[n * 32+:32] = pc8;
+					if (read_tag[n * 6+:6] == PHY_CPSR)
+						value_d[n * 32+:32] = cpsr;
+				end
+		end
+		if (shift_register_d) begin
+			if (read_tag[0+:6] == PHY_PC)
+				value_d[0+:32] = pc8 + 4;
+			if (read_tag[6+:6] == PHY_PC)
+				value_d[32+:32] = pc8 + 4;
+		end
+		if (thumb_align && (read_tag[0+:6] == PHY_PC))
+			value_d[1-:2] = 0;
+		immediate_d = ins[25] && ((kind_d == 4'd0) || (kind_d == 4'd2));
+		immediate_carry_d = cpsr[29];
+		if (immediate_d) begin
+			value_d[32+:32] = rotate_right({24'd0, ins[7:0]}, {ins[11:8], 1'b0});
+			if (ins[11:8] != 0)
+				immediate_carry_d = value_d[63];
+		end
+		if (kind_d == 4'd5) begin
+			op_d = (ins[23] ? ADD : SUB);
+			if (ins[27:26] == 2'b01) begin
+				immediate_d = !ins[25];
+				if (!ins[25])
+					value_d[32+:32] = {20'd0, ins[11:0]};
+			end
+			else begin
+				immediate_d = ins[22];
+				shift_type_d = 0;
+				shift_amount_d = 0;
+				if (ins[22])
+					value_d[32+:32] = {24'd0, ins[11:8], ins[3:0]};
+			end
+		end
+		if (kind_d == 4'd4) begin
+			op_d = MOV;
+			shift_type_d = 0;
+			shift_amount_d = 0;
+			immediate_d = 0;
+		end
+		branch_offset_d = (translated[34] ? {{7 {ins[23]}}, ins[23:0], 1'b0} : {{6 {ins[23]}}, ins[23:0], 2'b00});
+		psr_mask_d = {{8 {ins[19]}}, {8 {ins[18]}}, {8 {ins[17]}}, {8 {ins[16]}}} & 32'hf00000ff;
+		if (!ins[22]) begin
+			psr_mask_d[5] = 0;
+			if (cpsr[4:0] == USR)
+				psr_mask_d[27:0] = 0;
+		end
+	end
+	localparam [23:0] sv2v_uu_u_execute_ext_i_tag_0 = 1'sb0;
+	localparam [3:0] sv2v_uu_u_execute_ext_i_used_0 = 1'sb0;
+	localparam [95:0] sv2v_uu_u_execute_ext_i_write_value_0 = 1'sb0;
+	localparam [17:0] sv2v_uu_u_execute_ext_i_write_tag_0 = 1'sb0;
+	localparam [2:0] sv2v_uu_u_execute_ext_i_write_valid_0 = 1'sb0;
+	localparam [2:0] sv2v_uu_u_execute_ext_i_write_ready_0 = 1'sb0;
+	arm9_execute u_execute(
+		.i_valid(state == 5'd7),
+		.i_condition(((kind_e == 4'd10) || (kind_e == 4'd11) ? 4'he : ins[31:28])),
+		.i_op(op_e),
+		.i_set_flags((kind_e == 4'd0) && ins[20]),
+		.i_flags(flags_e[31:28]),
+		.i_value(value_e),
+		.i_tag(sv2v_uu_u_execute_ext_i_tag_0),
+		.i_used(sv2v_uu_u_execute_ext_i_used_0),
+		.i_write_value(sv2v_uu_u_execute_ext_i_write_value_0),
+		.i_write_tag(sv2v_uu_u_execute_ext_i_write_tag_0),
+		.i_write_valid(sv2v_uu_u_execute_ext_i_write_valid_0),
+		.i_write_ready(sv2v_uu_u_execute_ext_i_write_ready_0),
+		.i_shift_type(shift_type_e),
+		.i_shift_amount(shift_amount_e),
+		.i_shift_register(shift_register_e),
+		.i_immediate(immediate_e),
+		.i_shift_carry(immediate_carry_e),
+		.i_pc8(pc8),
+		.i_branch_offset(branch_offset_e),
+		.o_result(ex_result),
+		.o_store_data(ex_store),
+		.o_branch_target(ex_branch),
+		.o_flags(ex_flags),
+		.o_condition_pass(ex_pass),
+		.o_wait(),
+		.o_execute(),
+		.o_write_result(ex_write),
+		.o_write_flags(ex_write_flags)
+	);
+	assign updated_base = (sequence_active ? sequence_base : (ins[23] ? value_e[0+:32] + {25'd0, transfer_count_d, 2'b00} : value_e[0+:32] - {25'd0, transfer_count_d, 2'b00}));
+	assign effective_address = (kind_e == 4'd6 ? (sequence_active ? sequence_address : (ins[23] ? value_e[0+:32] + (ins[24] ? 4 : 0) : updated_base + (ins[24] ? 0 : 4))) : (kind_e == 4'd12 ? value_e[0+:32] : (ins[24] ? ex_result : value_e[0+:32])));
+	assign next_pc = (w_dabt ? vector_base + 16 : (w_fiq ? vector_base + 28 : (w_irq ? vector_base + 24 : (w_pabt ? vector_base + 12 : (w_swi ? vector_base + 8 : (w_und ? vector_base + 4 : (w_load && (m_dst == PHY_PC) ? m_read_data : (w_redirect ? w_target : pc + (cpsr[5] ? 2 : 4)))))))));
+	assign o_instr_wb_adr_nxt = fcse(pc);
+	assign o_instr_wb_adr_check = fcse(pc);
+	assign o_instr_wb_adr = fcse(pc);
+	assign o_instr_wb_stb = state == 5'd3;
+	assign o_instr_wb_cyc = o_instr_wb_stb;
+	assign o_instr_wb_we = 0;
+	assign o_instr_wb_sel = 4'hf;
+	assign o_code_stall = 0;
+	assign o_data_wb_adr_nxt = fcse({m_address[31:2], 2'b00});
+	assign o_data_wb_adr_check = fcse({m_address[31:2], 2'b00});
+	assign o_data_wb_adr = fcse({m_address[31:2], 2'b00});
+	assign o_data_wb_we_check = (state == 5'd10) && !m_load;
+	assign o_data_wb_re_check = (state == 5'd10) && m_load;
+	assign o_data_wb_stb = state == 5'd11;
+	assign o_data_wb_cyc = o_data_wb_stb;
+	assign o_data_wb_we = !m_load;
+	assign o_data_wb_sel = m_sel;
+	assign o_data_wb_dat = m_write_data;
+	assign o_data_wb_align_fault = m_align;
+	assign o_data_wb_va = m_address;
+	assign o_data_wb_ldfmt = m_format;
+	assign o_mem_translate = m_user;
+	assign o_mem_cpsr = flags_e[CPSR_MODE:0];
+	assign o_cpsr = cpsr[CPSR_MODE:0];
+	assign o_dc_reg_idx = 64'd1 << m_dst;
+	assign o_dc_reg_idx_bin = m_dst;
+	always @(posedge i_clk)
+		if (i_reset) begin
+			state <= 5'd0;
+			pc <= RESET_VECTOR;
+			raw_ins <= 0;
+			fetch_abort <= 0;
+			irq_pending <= 0;
+			fiq_pending <= 0;
+			sequence_active <= 0;
+			remaining <= 0;
+			sequence_address <= 0;
+			sequence_base <= 0;
+			w_valid <= 0;
+			w_cfail <= 0;
+			w_last <= 1;
+			w_load <= 0;
+			w_redirect <= 0;
+			w_dabt <= 0;
+			w_pabt <= 0;
+			w_irq <= 0;
+			w_fiq <= 0;
+			w_swi <= 0;
+			w_und <= 0;
+			w_value <= 0;
+			w_flags <= CPSR_INIT;
+			w_target <= 0;
+			w_dst <= PHY_RAZ_REGISTER;
+			m_address <= 0;
+			m_write_data <= 0;
+			m_read_data <= 0;
+			m_sel <= 0;
+			m_format <= 0;
+			m_dst <= PHY_RAZ_REGISTER;
+			m_load <= 0;
+			m_align <= 0;
+			m_user <= 0;
+			swap_store <= 0;
+			kind_e <= 4'd8;
+			op_e <= 0;
+			value_e <= 1'sb0;
+			flags_e <= CPSR_INIT;
+			shift_type_e <= 0;
+			shift_amount_e <= 0;
+			shift_register_e <= 0;
+			immediate_e <= 0;
+			immediate_carry_e <= 0;
+			branch_offset_e <= 0;
+			dst_e <= PHY_RAZ_REGISTER;
+			base_e <= PHY_RAZ_REGISTER;
+			psr_mask_e <= 0;
+		end
+		else
+			case (state)
+				5'd0: state <= 5'd1;
+				5'd1: state <= 5'd2;
+				5'd2: state <= 5'd3;
+				5'd3:
+					if (i_instr_wb_ack || i_instr_wb_err) begin
+						if (i_icache_err2)
+							state <= 5'd0;
+						else begin
+							raw_ins <= (cpsr[5] && pc[1] ? {16'd0, i_instr_wb_dat[31:16]} : i_instr_wb_dat);
+							fetch_abort <= i_instr_wb_err;
+							state <= (i_icache_fill_pending ? 5'd4 : 5'd5);
+						end
+					end
+				5'd4:
+					if (i_icache_fill_done) begin
+						fetch_abort <= fetch_abort || i_icache_fill_fault;
+						state <= 5'd5;
+					end
+				5'd5: begin
+					kind_e <= kind_d;
+					value_e <= value_d;
+					op_e <= op_d;
+					shift_type_e <= shift_type_d;
+					shift_amount_e <= shift_amount_d;
+					shift_register_e <= shift_register_d;
+					immediate_e <= immediate_d;
+					immediate_carry_e <= immediate_carry_d;
+					branch_offset_e <= branch_offset_d;
+					psr_mask_e <= psr_mask_d;
+					flags_e <= cpsr;
+					dst_e <= read_tag[18+:6];
+					base_e <= read_tag[0+:6];
+					fiq_pending <= (!sequence_active && i_fiq) && !cpsr[6];
+					irq_pending <= (!sequence_active && i_irq) && !cpsr[7];
+					state <= (shift_register_d && is_cc_satisfied(ins[31:28], cpsr[31:28]) ? 5'd6 : 5'd7);
+				end
+				5'd6: state <= 5'd7;
+				5'd7: begin
+					state <= 5'd14;
+					w_valid <= ex_pass;
+					w_cfail <= !ex_pass;
+					w_last <= 1;
+					swap_store <= 0;
+					w_load <= 0;
+					w_redirect <= 0;
+					w_dabt <= 0;
+					w_pabt <= 0;
+					w_irq <= 0;
+					w_fiq <= 0;
+					w_swi <= 0;
+					w_und <= 0;
+					w_dst <= PHY_RAZ_REGISTER;
+					w_value <= pc + 4;
+					w_flags <= flags_e;
+					if ((fiq_pending || irq_pending) || fetch_abort) begin
+						w_fiq <= fiq_pending;
+						w_irq <= !fiq_pending && irq_pending;
+						w_pabt <= (!fiq_pending && !irq_pending) && fetch_abort;
+						w_valid <= 0;
+						w_cfail <= 0;
+					end
+					else if (ex_pass)
+						case (kind_e)
+							4'd0: begin
+								if (ex_write) begin
+									w_dst <= dst_e;
+									w_value <= ex_result;
+									if (dst_e == PHY_PC) begin
+										w_redirect <= 1;
+										w_target <= ex_result;
+									end
+								end
+								if (ex_write_flags)
+									w_flags[31:28] <= ex_flags;
+								if (((dst_e == PHY_PC) && ins[20]) && ex_write)
+									w_flags <= value_e[64+:32] & 32'hf00000ff;
+							end
+							4'd1: begin
+								w_dst <= dst_e;
+								w_value <= (ins[22] ? value_e[64+:32] : flags_e);
+							end
+							4'd2:
+								if ((ins[22] && (cpsr[4:0] != USR)) && (cpsr[4:0] != SYS)) begin
+									w_dst <= translate(ARCH_CURR_SPSR, cpsr[4:0]);
+									w_value <= (value_e[64+:32] & ~psr_mask_e) | (value_e[32+:32] & psr_mask_e);
+								end
+								else if (!ins[22])
+									w_flags <= (flags_e & ~psr_mask_e) | (value_e[32+:32] & psr_mask_e);
+							4'd3: begin
+								w_redirect <= 1;
+								w_target <= ex_branch;
+								if (ins[24]) begin
+									w_dst <= translate(5'd14, cpsr[4:0]);
+									w_value <= pc + 4;
+								end
+							end
+							4'd4: begin
+								w_redirect <= 1;
+								w_target <= ex_result;
+								w_flags[5] <= ex_result[0];
+							end
+							4'd10: begin
+								w_dst <= translate(5'd14, cpsr[4:0]);
+								w_value <= pc8 + {{9 {raw_ins[10]}}, raw_ins[10:0], 12'd0};
+							end
+							4'd11: begin
+								w_dst <= translate(5'd14, cpsr[4:0]);
+								w_value <= (pc + 2) | 1;
+								w_redirect <= 1;
+								w_target <= value_e[32+:32] + {20'd0, raw_ins[10:0], 1'b0};
+							end
+							4'd5, 4'd6, 4'd12: begin
+								state <= 5'd8;
+								m_address <= effective_address;
+								m_dst <= dst_e;
+								m_load <= (kind_e == 4'd12) || ins[20];
+								w_load <= (kind_e == 4'd12) || ins[20];
+								m_user <= ((kind_e == 4'd5) && !ins[24]) && ins[21];
+								m_align <= align_en && |effective_address[1:0];
+								m_format <= {effective_address[1:0], 4'b0000};
+								m_sel <= 4'hf;
+								m_write_data <= ex_store;
+								if (kind_e == 4'd12) begin
+									m_write_data <= value_e[32+:32];
+									if (ins[22]) begin
+										m_sel <= 4'b0001 << effective_address[1:0];
+										m_write_data <= {4 {value_e[39-:8]}};
+										m_format[2] <= 1;
+										m_align <= 0;
+									end
+								end
+								else if (kind_e == 4'd5) begin
+									if (ins[21] || !ins[24]) begin
+										w_dst <= base_e;
+										w_value <= ex_result;
+									end
+									if ((ins[27:26] == 2'b01) && ins[22]) begin
+										m_sel <= 4'b0001 << effective_address[1:0];
+										m_write_data <= {4 {ex_store[7:0]}};
+										m_format[2] <= 1;
+										m_align <= 0;
+									end
+									else if (ins[27:26] == 0)
+										case (ins[6:5])
+											2'b01: begin
+												m_sel <= (effective_address[1] ? 4'b1100 : 4'b0011);
+												m_write_data <= {2 {ex_store[15:0]}};
+												m_format[0] <= 1;
+												m_align <= align_en && effective_address[0];
+											end
+											2'b10: begin
+												m_sel <= 4'b0001 << effective_address[1:0];
+												m_format[3] <= 1;
+												m_align <= 0;
+											end
+											2'b11: begin
+												m_sel <= (effective_address[1] ? 4'b1100 : 4'b0011);
+												m_format[1] <= 1;
+												m_align <= align_en && effective_address[0];
+											end
+											default:
+												;
+										endcase
+								end
+								else begin
+									remaining <= list_d & ~(16'd1 << transfer_reg_d);
+									sequence_active <= 1;
+									sequence_address <= effective_address + 4;
+									sequence_base <= updated_base;
+									w_last <= (list_d & (list_d - 1)) == 0;
+									if ((list_d & (list_d - 1)) == 0) begin
+										if (ins[21]) begin
+											w_dst <= base_e;
+											w_value <= updated_base;
+										end
+										if ((ins[20] && ins[15]) && ins[22])
+											w_flags <= value_e[64+:32];
+									end
+								end
+							end
+							4'd7: begin
+								w_valid <= 0;
+								state <= 5'd15;
+							end
+							4'd9: begin
+								w_valid <= 0;
+								w_swi <= 1;
+							end
+							default: begin
+								w_valid <= 0;
+								w_und <= 1;
+							end
+						endcase
+				end
+				5'd8: state <= 5'd9;
+				5'd9: state <= 5'd10;
+				5'd10: state <= 5'd11;
+				5'd11:
+					if (i_data_wb_ack || i_data_wb_err) begin
+						if (i_dcache_err2)
+							state <= 5'd8;
+						else if (i_data_wb_err) begin
+							w_valid <= 0;
+							w_dabt <= 1;
+							w_last <= 1;
+							state <= 5'd14;
+						end
+						else begin
+							if (m_load)
+								m_read_data <= i_data_wb_dat;
+							state <= 5'd12;
+						end
+					end
+				5'd12:
+					if (m_load && i_dc_reg_idx[m_dst]) begin
+						m_read_data <= i_dc_reg_dat;
+						state <= (kind_e == 4'd12 ? 5'd8 : 5'd14);
+						if (kind_e == 4'd12) begin
+							m_load <= 0;
+							swap_store <= 1;
+						end
+					end
+					else if (m_load && i_dc_lock[m_dst])
+						state <= 5'd13;
+					else if ((kind_e == 4'd12) && !swap_store) begin
+						m_load <= 0;
+						swap_store <= 1;
+						state <= 5'd8;
+					end
+					else
+						state <= 5'd14;
+				5'd13:
+					if (i_dc_reg_idx[m_dst]) begin
+						m_read_data <= i_dc_reg_dat;
+						state <= (kind_e == 4'd12 ? 5'd8 : 5'd14);
+						if (kind_e == 4'd12) begin
+							m_load <= 0;
+							swap_store <= 1;
+						end
+					end
+				5'd15:
+					if (copro_done) begin
+						w_valid <= 1;
+						state <= 5'd14;
+					end
+				5'd14:
+					if (!w_last && !w_dabt)
+						state <= 5'd5;
+					else begin
+						sequence_active <= 0;
+						pc <= (cpsr_next[5] ? next_pc & 32'hfffffffe : next_pc & 32'hfffffffc);
+						state <= 5'd0;
+					end
+				default: state <= 5'd0;
+			endcase
+	assign o_dbg_wb_valid = (state == 5'd14) && w_valid;
+	assign o_dbg_wb_dvalid = (state == 5'd14) && w_cfail;
+	assign o_dbg_wb_uop_last = w_last;
+	assign o_dbg_wb_dabt = {1'b0, (state == 5'd14) && w_dabt};
+	assign o_dbg_wb_pabt = (state == 5'd14) && w_pabt;
+	assign o_dbg_wb_irq = (state == 5'd14) && w_irq;
+	assign o_dbg_wb_fiq = (state == 5'd14) && w_fiq;
+	assign o_dbg_wb_swi = (state == 5'd14) && w_swi;
+	assign o_dbg_wb_und = (state == 5'd14) && w_und;
+	assign o_dbg_wb_pc = pc8;
+	assign o_dbg_wb_cpsr_nxt = cpsr_next;
+	assign o_dbg_stall = {(state == 5'd14) && (((((w_dabt || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und), (state == 5'd14) && w_redirect, (state == 5'd15) || sequence_active, state == 5'd6, 1'b0, state <= 5'd4, state == 5'd3, (state == 5'd11) || (state == 5'd13)};
+	localparam [511:0] sv2v_uu_u_zap_writeback_ext_i_decompile_0 = 1'sb0;
+	zap_writeback #(
+		.BP_ENTRIES(32),
+		.PHY_REGS(40),
+		.FLAG_WDT(32),
+		.RESET_VECTOR(RESET_VECTOR),
+		.CPSR_INIT(CPSR_INIT)
+	) u_zap_writeback(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_valid(o_dbg_wb_valid),
+		.i_decompile(sv2v_uu_u_zap_writeback_ext_i_decompile_0),
+		.i_decompile_valid(o_dbg_wb_dvalid),
+		.i_uop_last(w_last),
+		.o_decompile(),
+		.o_shelve(),
+		.i_cpu_pid(o_pid[6:0]),
+		.i_l4_enable(l4_enable),
+		.i_hivecs(hivecs),
+		.i_clear_btb(1'b0),
+		.i_code_stall(1'b1),
+		.i_clear_from_alu(1'b0),
+		.i_pc_from_alu(32'd0),
+		.i_clear_from_decode(1'b0),
+		.i_pc_from_decode(32'd0),
+		.i_clear_from_icache(1'b0),
+		.i_confirm_from_alu(1'b0),
+		.i_alu_pc_ff(32'd0),
+		.i_taken(2'd0),
+		.i_rd_index_0(read_tag[0+:6]),
+		.i_rd_index_1(read_tag[6+:6]),
+		.i_rd_index_2(read_tag[12+:6]),
+		.i_rd_index_3(read_tag[18+:6]),
+		.i_mem_load_ff(w_load),
+		.i_wr_index(w_dst),
+		.i_wr_data(w_value),
+		.i_flags(w_flags),
+		.i_wr_index_1(m_dst),
+		.i_wr_data_1(m_read_data),
+		.i_wr_index_2(40'd0),
+		.i_wr_data_2(32'd0),
+		.i_mode16(cpsr[5]),
+		.i_irq(o_dbg_wb_irq),
+		.i_fiq(o_dbg_wb_fiq),
+		.i_instr_abt(o_dbg_wb_pabt),
+		.i_data_abt(o_dbg_wb_dabt),
+		.i_swi(o_dbg_wb_swi),
+		.i_und(o_dbg_wb_und),
+		.i_pc_plus_8_buf_ff(pc8),
+		.i_copro_reg_en(copro_reg_en),
+		.i_copro_reg_wr_index(copro_reg_wr_index),
+		.i_copro_reg_rd_index(copro_reg_rd_index),
+		.i_copro_reg_wr_data(copro_reg_wr_data),
+		.o_copro_reg_rd_data_ff(copro_reg_rd_data),
+		.o_rd_data_0(read_value[0+:32]),
+		.o_rd_data_1(read_value[32+:32]),
+		.o_rd_data_2(read_value[64+:32]),
+		.o_rd_data_3(read_value[96+:32]),
+		.o_pc(),
+		.o_pc_check(),
+		.o_pc_nxt(),
+		.o_taken(),
+		.o_pred(),
+		.o_cpsr_nxt(cpsr_next),
+		.o_dbg_cpsr_ff(o_dbg_wb_cpsr),
+		.o_clear_from_writeback(),
+		.o_wb_stb(),
+		.o_wb_cyc(),
+		.o_trace(o_trace),
+		.o_trace_valid(o_trace_valid),
+		.o_trace_uop_last(o_trace_uop_last)
+	);
+	zap_cp15_cb #(
+		.BE_32_ENABLE(BE_32_ENABLE),
+		.PHY_REGS(40),
+		.CP15_L4_DEFAULT(CP15_L4_DEFAULT),
+		.V4T(V4T),
+		.TI925T(TI925T),
+		.CP15_ID(CP15_ID),
+		.CP15_CTYPE(CP15_CTYPE),
+		.HIVECS(HIVECS),
+		.DATA_CACHE_SIZE(DATA_CACHE_SIZE),
+		.CODE_CACHE_SIZE(CODE_CACHE_SIZE),
+		.DATA_CACHE_LINE(DATA_CACHE_LINE),
+		.DATA_CACHE_WAYS(DATA_CACHE_WAYS),
+		.CODE_CACHE_LINE(CODE_CACHE_LINE)
+	) u_zap_cp15_cb(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_cp_word(ins),
+		.i_cp_dav(state == 5'd15),
+		.o_cp_done(copro_done),
+		.i_cpsr(cpsr),
+		.o_reg_en(copro_reg_en),
+		.o_reg_wr_data(copro_reg_wr_data),
+		.i_reg_rd_data(copro_reg_rd_data),
+		.o_reg_wr_index(copro_reg_wr_index),
+		.o_reg_rd_index(copro_reg_rd_index),
+		.i_fsr(i_fsr),
+		.i_far(i_far),
+		.o_dac(o_dac),
+		.o_baddr(o_baddr),
+		.o_mmu_en(o_mmu_en),
+		.o_wfi(o_dbg_wfi),
+		.o_sr(o_sr),
+		.o_pid(o_pid),
+		.o_l4_enable(l4_enable),
+		.o_dcache_inv(o_dcache_inv),
+		.o_icache_inv(o_icache_inv),
+		.o_dcache_clean(o_dcache_clean),
+		.o_icache_clean(o_icache_clean),
+		.o_dtlb_inv(o_dtlb_inv),
+		.o_itlb_inv(o_itlb_inv),
+		.o_dcache_en(o_dcache_en),
+		.o_icache_en(o_icache_en),
+		.i_dcache_inv_done(i_dcache_inv_done),
+		.i_icache_inv_done(i_icache_inv_done),
+		.i_dcache_clean_done(i_dcache_clean_done),
+		.i_icache_clean_done(i_icache_clean_done),
+		.i_irq(i_irq),
+		.i_fiq(i_fiq),
+		.o_hivecs(hivecs),
+		.o_align_en(align_en),
+		.o_dcache_line_req(o_dcache_line_req),
+		.o_dcache_line_op(o_dcache_line_op),
+		.o_dcache_line_va(o_dcache_line_va),
+		.o_dcache_line_addr(o_dcache_line_addr),
+		.o_dcache_line_way(o_dcache_line_way),
+		.i_dcache_line_done(i_dcache_line_done)
+	);
+	initial _sv2v_0 = 0;
+endmodule
+module arm9_execute (
+	i_valid,
+	i_condition,
+	i_op,
+	i_set_flags,
+	i_flags,
+	i_value,
+	i_tag,
+	i_used,
+	i_write_value,
+	i_write_tag,
+	i_write_valid,
+	i_write_ready,
+	i_shift_type,
+	i_shift_amount,
+	i_shift_register,
+	i_immediate,
+	i_shift_carry,
+	i_pc8,
+	i_branch_offset,
+	o_result,
+	o_store_data,
+	o_branch_target,
+	o_flags,
+	o_condition_pass,
+	o_wait,
+	o_execute,
+	o_write_result,
+	o_write_flags
+);
+	reg _sv2v_0;
+	parameter [0:0] PRE_SHIFTED = 1'b0;
+	input wire i_valid;
+	input wire [3:0] i_condition;
+	input wire [3:0] i_op;
+	input wire i_set_flags;
+	input wire [3:0] i_flags;
+	input wire [127:0] i_value;
+	input wire [23:0] i_tag;
+	input wire [3:0] i_used;
+	input wire [95:0] i_write_value;
+	input wire [17:0] i_write_tag;
+	input wire [2:0] i_write_valid;
+	input wire [2:0] i_write_ready;
+	input wire [1:0] i_shift_type;
+	input wire [4:0] i_shift_amount;
+	input wire i_shift_register;
+	input wire i_immediate;
+	input wire i_shift_carry;
+	input wire [31:0] i_pc8;
+	input wire [31:0] i_branch_offset;
+	output wire [31:0] o_result;
+	output wire [31:0] o_store_data;
+	output wire [31:0] o_branch_target;
+	output wire [3:0] o_flags;
+	output reg o_condition_pass;
+	output wire o_wait;
+	output wire o_execute;
+	output wire o_write_result;
+	output wire o_write_flags;
+	wire [127:0] operand;
+	wire [3:0] operand_wait;
+	wire [3:0] flags;
+	wire [31:0] shifted;
+	wire shift_carry;
+	wire test_op;
+	arm9_forward u_forward(
+		.i_value(i_value),
+		.i_tag(i_tag),
+		.i_used(i_used),
+		.i_write_value(i_write_value),
+		.i_write_tag(i_write_tag),
+		.i_write_valid(i_write_valid),
+		.i_write_ready(i_write_ready),
+		.o_value(operand),
+		.o_wait(operand_wait)
+	);
+	generate
+		if (!PRE_SHIFTED) begin : g_shift
+			wire [31:0] value;
+			wire carry;
+			wire unused = &{1'b0, operand[95-:24]};
+			arm9_shift u_shift(
+				.i_value(operand[32+:32]),
+				.i_amount((i_shift_register ? operand[71-:8] : {3'd0, i_shift_amount})),
+				.i_type(i_shift_type),
+				.i_register(i_shift_register),
+				.i_carry(i_flags[1]),
+				.o_value(value),
+				.o_carry(carry)
+			);
+			assign shifted = (i_immediate ? operand[32+:32] : value);
+			assign shift_carry = (i_immediate ? i_shift_carry : carry);
+		end
+		else begin : g_pre_shifted
+			assign shifted = operand[32+:32];
+			assign shift_carry = i_shift_carry;
+			wire unused = &{1'b0, i_shift_type, i_shift_amount, i_shift_register, i_immediate, operand[64+:32]};
+		end
+	endgenerate
+	arm9_alu u_alu(
+		.i_a(operand[0+:32]),
+		.i_b(shifted),
+		.i_op(i_op),
+		.i_flags(i_flags),
+		.i_shift_carry(shift_carry),
+		.o_result(o_result),
+		.o_flags(flags)
+	);
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		case (i_condition)
+			4'h0: o_condition_pass = i_flags[2];
+			4'h1: o_condition_pass = !i_flags[2];
+			4'h2: o_condition_pass = i_flags[1];
+			4'h3: o_condition_pass = !i_flags[1];
+			4'h4: o_condition_pass = i_flags[3];
+			4'h5: o_condition_pass = !i_flags[3];
+			4'h6: o_condition_pass = i_flags[0];
+			4'h7: o_condition_pass = !i_flags[0];
+			4'h8: o_condition_pass = i_flags[1] && !i_flags[2];
+			4'h9: o_condition_pass = !i_flags[1] || i_flags[2];
+			4'ha: o_condition_pass = i_flags[3] == i_flags[0];
+			4'hb: o_condition_pass = i_flags[3] != i_flags[0];
+			4'hc: o_condition_pass = !i_flags[2] && (i_flags[3] == i_flags[0]);
+			4'hd: o_condition_pass = i_flags[2] || (i_flags[3] != i_flags[0]);
+			4'he: o_condition_pass = 1'b1;
+			default: o_condition_pass = 1'b0;
+		endcase
+	end
+	assign test_op = i_op[3:2] == 2'b10;
+	assign o_wait = (i_valid && o_condition_pass) && |operand_wait;
+	assign o_execute = (i_valid && o_condition_pass) && !o_wait;
+	assign o_write_result = o_execute && !test_op;
+	assign o_write_flags = o_execute && (i_set_flags || test_op);
+	assign o_flags = (o_write_flags ? flags : i_flags);
+	assign o_branch_target = i_pc8 + i_branch_offset;
+	assign o_store_data = operand[96+:32];
+	initial _sv2v_0 = 0;
+endmodule
+module arm9_forward (
+	i_value,
+	i_tag,
+	i_used,
+	i_write_value,
+	i_write_tag,
+	i_write_valid,
+	i_write_ready,
+	o_value,
+	o_wait
+);
+	reg _sv2v_0;
+	parameter integer SOURCES = 4;
+	parameter integer PRODUCERS = 3;
+	input wire [(SOURCES * 32) - 1:0] i_value;
+	input wire [(SOURCES * 6) - 1:0] i_tag;
+	input wire [SOURCES - 1:0] i_used;
+	input wire [(PRODUCERS * 32) - 1:0] i_write_value;
+	input wire [(PRODUCERS * 6) - 1:0] i_write_tag;
+	input wire [PRODUCERS - 1:0] i_write_valid;
+	input wire [PRODUCERS - 1:0] i_write_ready;
+	output reg [(SOURCES * 32) - 1:0] o_value;
+	output reg [SOURCES - 1:0] o_wait;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		o_value = i_value;
+		o_wait = {SOURCES {1'b0}};
+		begin : sv2v_autoblock_1
+			integer s;
+			for (s = 0; s < SOURCES; s = s + 1)
+				begin : sv2v_autoblock_2
+					integer p;
+					for (p = PRODUCERS - 1; p >= 0; p = p - 1)
+						if ((i_used[s] && i_write_valid[p]) && (i_tag[s * 6+:6] == i_write_tag[p * 6+:6])) begin
+							o_value[s * 32+:32] = i_write_value[p * 32+:32];
+							o_wait[s] = !i_write_ready[p];
+						end
+				end
+		end
+	end
+	initial _sv2v_0 = 0;
+endmodule
+module arm9_shift (
+	i_value,
+	i_amount,
+	i_type,
+	i_register,
+	i_carry,
+	o_value,
+	o_carry
+);
+	reg _sv2v_0;
+	input wire [31:0] i_value;
+	input wire [7:0] i_amount;
+	input wire [1:0] i_type;
+	input wire i_register;
+	input wire i_carry;
+	output reg [31:0] o_value;
+	output reg o_carry;
+	wire [32:0] left_result;
+	wire signed [33:0] right_input;
+	wire signed [33:0] right_result;
+	wire [63:0] rotate_result;
+	wire left;
+	wire arithmetic;
+	wire rotate;
+	wire unused = &{1'b0, right_result[33], rotate_result[63:32]};
+	assign left = i_type == 2'b00;
+	assign arithmetic = i_type == 2'b10;
+	assign rotate = i_type == 2'b11;
+	assign left_result = {i_carry, i_value} << i_amount[4:0];
+	assign right_input = {arithmetic && i_value[31], i_value, i_carry};
+	assign right_result = right_input >>> i_amount[4:0];
+	assign rotate_result = {i_value, i_value} >> i_amount[4:0];
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		case (i_type)
+			2'b00: {o_carry, o_value} = left_result;
+			2'b01, 2'b10: {o_value, o_carry} = right_result[32:0];
+			default: begin
+				o_value = rotate_result[31:0];
+				o_carry = rotate_result[31];
+			end
+		endcase
+		if (i_amount == 0) begin
+			o_value = i_value;
+			o_carry = i_carry;
+			if (!i_register)
+				case (i_type)
+					2'b01: begin
+						o_value = 0;
+						o_carry = i_value[31];
+					end
+					2'b10: begin
+						o_value = {32 {i_value[31]}};
+						o_carry = i_value[31];
+					end
+					2'b11: begin
+						o_value = {i_carry, i_value[31:1]};
+						o_carry = i_value[0];
+					end
+					default:
+						;
+				endcase
+		end
+		else if (rotate)
+			o_carry = rotate_result[31];
+		else if (|i_amount[7:5]) begin
+			o_value = (arithmetic ? {32 {i_value[31]}} : 32'd0);
+			o_carry = (arithmetic ? i_value[31] : (i_amount == 8'd32 ? (left ? i_value[0] : i_value[31]) : 1'b0));
+		end
+	end
+	initial _sv2v_0 = 0;
 endmodule
 module zap_alu_main (
 	i_decompile,
@@ -19634,6 +21323,7 @@ module zap_top (
 	i_wb_dat,
 	i_wb_err
 );
+	parameter CORE = "ZAP";
 	parameter [0:0] CP15_L4_DEFAULT = 1'd0;
 	parameter [0:0] ONLY_CORE = 1'd0;
 	parameter [31:0] RESET_VECTOR = 32'd0;
@@ -20230,126 +21920,255 @@ module zap_top (
 	wire [1023:0] o_trace;
 	wire o_trace_valid;
 	wire o_trace_uop_last;
-	localparam [31:0] sv2v_uu_u_zap_core_ext_i_fsr_0 = 1'sb0;
-	localparam [31:0] sv2v_uu_u_zap_core_ext_i_far_0 = 1'sb0;
-	localparam [63:0] sv2v_uu_u_zap_core_ext_i_dc_reg_idx_0 = 1'sb0;
-	localparam [63:0] sv2v_uu_u_zap_core_ext_i_dc_lock_0 = 1'sb0;
-	localparam [31:0] sv2v_uu_u_zap_core_ext_i_dc_reg_dat_0 = 1'sb0;
-	localparam [0:0] sv2v_uu_u_zap_core_ext_i_dcache_inv_done_0 = 1'sb0;
-	localparam [0:0] sv2v_uu_u_zap_core_ext_i_icache_inv_done_0 = 1'sb0;
-	localparam [0:0] sv2v_uu_u_zap_core_ext_i_dcache_clean_done_0 = 1'sb0;
-	localparam [0:0] sv2v_uu_u_zap_core_ext_i_icache_clean_done_0 = 1'sb0;
-	localparam [0:0] sv2v_uu_u_zap_core_ext_i_icache_err2_0 = 1'sb0;
-	localparam [0:0] sv2v_uu_u_zap_core_ext_i_dcache_err2_0 = 1'sb0;
-	zap_core #(
-		.CP15_L4_DEFAULT(CP15_L4_DEFAULT),
-		.BP_ENTRIES(BP_ENTRIES),
-		.FIFO_DEPTH(FIFO_DEPTH),
-		.RAS_DEPTH(RAS_DEPTH),
-		.BE_32_ENABLE(BE_32_ENABLE),
-		.RESET_VECTOR(RESET_VECTOR),
-		.CPSR_INIT(CPSR_INIT),
-		.DATA_CACHE_SIZE(DATA_CACHE_SIZE),
-		.DATA_CACHE_LINE(DATA_CACHE_LINE),
-		.DATA_CACHE_WAYS(DATA_CACHE_WAYS),
-		.LOAD_FORMATTED(!ONLY_CORE),
-		.CODE_CACHE_SIZE(CODE_CACHE_SIZE),
-		.CODE_CACHE_LINE(CODE_CACHE_LINE),
-		.CPSR_MODE(ZAP_CPSR_MODE),
-		.V4T(V4T),
-		.TI925T(TI925T),
-		.CP15_ID(CP15_ID),
-		.CP15_CTYPE(CP15_CTYPE),
-		.HIVECS(HIVECS)
-	) u_zap_core(
-		.o_trace(o_trace),
-		.o_trace_valid(o_trace_valid),
-		.o_trace_uop_last(o_trace_uop_last),
-		.o_dbg_wb_valid(o_dbg_wb_valid),
-		.o_dbg_wfi(o_dbg_wfi),
-		.o_dbg_wb_dvalid(o_dbg_wb_dvalid),
-		.o_dbg_wb_uop_last(o_dbg_wb_uop_last),
-		.o_dbg_wb_dabt(o_dbg_wb_dabt),
-		.o_dbg_wb_pabt(o_dbg_wb_pabt),
-		.o_dbg_wb_und(o_dbg_wb_und),
-		.o_dbg_wb_swi(o_dbg_wb_swi),
-		.o_dbg_wb_irq(o_dbg_wb_irq),
-		.o_dbg_wb_fiq(o_dbg_wb_fiq),
-		.o_dbg_wb_pc(o_dbg_wb_pc),
-		.o_dbg_wb_cpsr(o_dbg_wb_cpsr),
-		.o_dbg_wb_cpsr_nxt(o_dbg_wb_cpsr_nxt),
-		.o_dbg_stall(o_dbg_stall),
-		.i_clk(i_clk),
-		.i_reset(s_reset),
-		.o_instr_wb_adr(cpu_iaddr),
-		.o_instr_wb_stb(cpu_instr_stb),
-		.o_instr_wb_cyc(),
-		.o_instr_wb_we(),
-		.o_instr_wb_sel(),
-		.o_code_stall(code_stall),
-		.i_instr_wb_dat((!ONLY_CORE ? ic_data : i_wb_dat)),
-		.i_instr_wb_ack(instr_ack),
-		.i_instr_wb_err(instr_err),
-		.o_data_wb_we(cpu_dc_we),
-		.o_data_wb_adr(cpu_daddr),
-		.o_data_wb_sel(cpu_dc_sel),
-		.o_data_wb_dat(cpu_dc_dat),
-		.o_data_wb_cyc(),
-		.o_pid(),
-		.o_data_wb_stb(cpu_dc_stb),
-		.i_data_wb_dat((!ONLY_CORE ? dc_data : (BE_32_ENABLE ? be_32(i_wb_dat, o_wb_sel) : i_wb_dat))),
-		.i_data_wb_ack(data_ack),
-		.i_data_wb_err(data_err),
-		.i_fiq(s_fiq),
-		.i_irq(s_irq),
-		.i_fsr((!ONLY_CORE ? {24'd0, dc_fsr} : sv2v_uu_u_zap_core_ext_i_fsr_0)),
-		.i_far((!ONLY_CORE ? dc_far : sv2v_uu_u_zap_core_ext_i_far_0)),
-		.o_mem_translate(cpu_mem_translate),
-		.o_mem_cpsr(cpu_mem_cpsr),
-		.o_data_wb_align_fault(cpu_align_fault),
-		.o_data_wb_va(cpu_daddr_va),
-		.o_data_wb_ldfmt(cpu_dldfmt),
-		.o_dcache_line_req(cpu_dline_req),
-		.o_dcache_line_op(cpu_dline_op),
-		.o_dcache_line_va(cpu_dline_va),
-		.o_dcache_line_addr(cpu_dline_addr),
-		.o_dcache_line_way(cpu_dline_way),
-		.i_dcache_line_done((!ONLY_CORE ? dc_line_done : 1'd1)),
-		.o_dac(cpu_dac_reg),
-		.o_baddr(cpu_baddr),
-		.o_mmu_en(cpu_mmu_en),
-		.o_sr(cpu_sr),
-		.o_dcache_inv(cpu_dc_inv),
-		.o_icache_inv(cpu_ic_inv),
-		.o_dcache_clean(cpu_dc_clean),
-		.o_icache_clean(cpu_ic_clean),
-		.o_dtlb_inv(cpu_dtlb_inv),
-		.o_itlb_inv(cpu_itlb_inv),
-		.o_dcache_en(cpu_dc_en),
-		.o_icache_en(cpu_ic_en),
-		.o_data_wb_adr_nxt(cpu_daddr_nxt),
-		.o_data_wb_adr_check(cpu_daddr_check),
-		.o_data_wb_we_check(cpu_dwe_check),
-		.o_data_wb_re_check(cpu_dre_check),
-		.o_instr_wb_adr_nxt(cpu_iaddr_nxt),
-		.o_instr_wb_adr_check(cpu_iaddr_check),
-		.o_cpsr(cpu_cpsr[ZAP_CPSR_MODE:0]),
-		.o_dc_reg_idx(dc_rreg_idx),
-		.o_dc_reg_idx_bin(dc_rreg_idx_bin),
-		.i_dc_reg_idx((!ONLY_CORE ? dc_wreg_idx : sv2v_uu_u_zap_core_ext_i_dc_reg_idx_0)),
-		.i_dc_lock((!ONLY_CORE ? dc_lock : sv2v_uu_u_zap_core_ext_i_dc_lock_0)),
-		.i_dc_reg_dat((!ONLY_CORE ? dc_reg_data : sv2v_uu_u_zap_core_ext_i_dc_reg_dat_0)),
-		.i_dcache_inv_done((!ONLY_CORE ? dc_inv_done : sv2v_uu_u_zap_core_ext_i_dcache_inv_done_0)),
-		.i_icache_inv_done((!ONLY_CORE ? ic_inv_done : sv2v_uu_u_zap_core_ext_i_icache_inv_done_0)),
-		.i_dcache_clean_done((!ONLY_CORE ? dc_clean_done : sv2v_uu_u_zap_core_ext_i_dcache_clean_done_0)),
-		.i_icache_clean_done((!ONLY_CORE ? ic_clean_done : sv2v_uu_u_zap_core_ext_i_icache_clean_done_0)),
-		.i_icache_err2((!ONLY_CORE ? icache_err2 : sv2v_uu_u_zap_core_ext_i_icache_err2_0)),
-		.i_icache_fill_pending(!ONLY_CORE && icache_fill_pending),
-		.i_icache_fill_done(!ONLY_CORE && icache_fill_done),
-		.i_icache_fill_fault(!ONLY_CORE && icache_fill_fault),
-		.i_dcache_err2((!ONLY_CORE ? dcache_err2 : sv2v_uu_u_zap_core_ext_i_dcache_err2_0))
-	);
 	generate
+		if (CORE == "ZAP") begin : g_zap
+			localparam [31:0] sv2v_uu_u_zap_core_ext_i_fsr_0 = 1'sb0;
+			localparam [31:0] sv2v_uu_u_zap_core_ext_i_far_0 = 1'sb0;
+			localparam [63:0] sv2v_uu_u_zap_core_ext_i_dc_reg_idx_0 = 1'sb0;
+			localparam [63:0] sv2v_uu_u_zap_core_ext_i_dc_lock_0 = 1'sb0;
+			localparam [31:0] sv2v_uu_u_zap_core_ext_i_dc_reg_dat_0 = 1'sb0;
+			localparam [0:0] sv2v_uu_u_zap_core_ext_i_dcache_inv_done_0 = 1'sb0;
+			localparam [0:0] sv2v_uu_u_zap_core_ext_i_icache_inv_done_0 = 1'sb0;
+			localparam [0:0] sv2v_uu_u_zap_core_ext_i_dcache_clean_done_0 = 1'sb0;
+			localparam [0:0] sv2v_uu_u_zap_core_ext_i_icache_clean_done_0 = 1'sb0;
+			localparam [0:0] sv2v_uu_u_zap_core_ext_i_icache_err2_0 = 1'sb0;
+			localparam [0:0] sv2v_uu_u_zap_core_ext_i_dcache_err2_0 = 1'sb0;
+			zap_core #(
+				.CP15_L4_DEFAULT(CP15_L4_DEFAULT),
+				.BP_ENTRIES(BP_ENTRIES),
+				.FIFO_DEPTH(FIFO_DEPTH),
+				.RAS_DEPTH(RAS_DEPTH),
+				.BE_32_ENABLE(BE_32_ENABLE),
+				.RESET_VECTOR(RESET_VECTOR),
+				.CPSR_INIT(CPSR_INIT),
+				.DATA_CACHE_SIZE(DATA_CACHE_SIZE),
+				.DATA_CACHE_LINE(DATA_CACHE_LINE),
+				.DATA_CACHE_WAYS(DATA_CACHE_WAYS),
+				.LOAD_FORMATTED(!ONLY_CORE),
+				.CODE_CACHE_SIZE(CODE_CACHE_SIZE),
+				.CODE_CACHE_LINE(CODE_CACHE_LINE),
+				.CPSR_MODE(ZAP_CPSR_MODE),
+				.V4T(V4T),
+				.TI925T(TI925T),
+				.CP15_ID(CP15_ID),
+				.CP15_CTYPE(CP15_CTYPE),
+				.HIVECS(HIVECS)
+			) u_zap_core(
+				.o_trace(o_trace),
+				.o_trace_valid(o_trace_valid),
+				.o_trace_uop_last(o_trace_uop_last),
+				.o_dbg_wb_valid(o_dbg_wb_valid),
+				.o_dbg_wfi(o_dbg_wfi),
+				.o_dbg_wb_dvalid(o_dbg_wb_dvalid),
+				.o_dbg_wb_uop_last(o_dbg_wb_uop_last),
+				.o_dbg_wb_dabt(o_dbg_wb_dabt),
+				.o_dbg_wb_pabt(o_dbg_wb_pabt),
+				.o_dbg_wb_und(o_dbg_wb_und),
+				.o_dbg_wb_swi(o_dbg_wb_swi),
+				.o_dbg_wb_irq(o_dbg_wb_irq),
+				.o_dbg_wb_fiq(o_dbg_wb_fiq),
+				.o_dbg_wb_pc(o_dbg_wb_pc),
+				.o_dbg_wb_cpsr(o_dbg_wb_cpsr),
+				.o_dbg_wb_cpsr_nxt(o_dbg_wb_cpsr_nxt),
+				.o_dbg_stall(o_dbg_stall),
+				.i_clk(i_clk),
+				.i_reset(s_reset),
+				.o_instr_wb_adr(cpu_iaddr),
+				.o_instr_wb_stb(cpu_instr_stb),
+				.o_instr_wb_cyc(),
+				.o_instr_wb_we(),
+				.o_instr_wb_sel(),
+				.o_code_stall(code_stall),
+				.i_instr_wb_dat((!ONLY_CORE ? ic_data : i_wb_dat)),
+				.i_instr_wb_ack(instr_ack),
+				.i_instr_wb_err(instr_err),
+				.o_data_wb_we(cpu_dc_we),
+				.o_data_wb_adr(cpu_daddr),
+				.o_data_wb_sel(cpu_dc_sel),
+				.o_data_wb_dat(cpu_dc_dat),
+				.o_data_wb_cyc(),
+				.o_pid(),
+				.o_data_wb_stb(cpu_dc_stb),
+				.i_data_wb_dat((!ONLY_CORE ? dc_data : (BE_32_ENABLE ? be_32(i_wb_dat, o_wb_sel) : i_wb_dat))),
+				.i_data_wb_ack(data_ack),
+				.i_data_wb_err(data_err),
+				.i_fiq(s_fiq),
+				.i_irq(s_irq),
+				.i_fsr((!ONLY_CORE ? {24'd0, dc_fsr} : sv2v_uu_u_zap_core_ext_i_fsr_0)),
+				.i_far((!ONLY_CORE ? dc_far : sv2v_uu_u_zap_core_ext_i_far_0)),
+				.o_mem_translate(cpu_mem_translate),
+				.o_mem_cpsr(cpu_mem_cpsr),
+				.o_data_wb_align_fault(cpu_align_fault),
+				.o_data_wb_va(cpu_daddr_va),
+				.o_data_wb_ldfmt(cpu_dldfmt),
+				.o_dcache_line_req(cpu_dline_req),
+				.o_dcache_line_op(cpu_dline_op),
+				.o_dcache_line_va(cpu_dline_va),
+				.o_dcache_line_addr(cpu_dline_addr),
+				.o_dcache_line_way(cpu_dline_way),
+				.i_dcache_line_done((!ONLY_CORE ? dc_line_done : 1'd1)),
+				.o_dac(cpu_dac_reg),
+				.o_baddr(cpu_baddr),
+				.o_mmu_en(cpu_mmu_en),
+				.o_sr(cpu_sr),
+				.o_dcache_inv(cpu_dc_inv),
+				.o_icache_inv(cpu_ic_inv),
+				.o_dcache_clean(cpu_dc_clean),
+				.o_icache_clean(cpu_ic_clean),
+				.o_dtlb_inv(cpu_dtlb_inv),
+				.o_itlb_inv(cpu_itlb_inv),
+				.o_dcache_en(cpu_dc_en),
+				.o_icache_en(cpu_ic_en),
+				.o_data_wb_adr_nxt(cpu_daddr_nxt),
+				.o_data_wb_adr_check(cpu_daddr_check),
+				.o_data_wb_we_check(cpu_dwe_check),
+				.o_data_wb_re_check(cpu_dre_check),
+				.o_instr_wb_adr_nxt(cpu_iaddr_nxt),
+				.o_instr_wb_adr_check(cpu_iaddr_check),
+				.o_cpsr(cpu_cpsr[ZAP_CPSR_MODE:0]),
+				.o_dc_reg_idx(dc_rreg_idx),
+				.o_dc_reg_idx_bin(dc_rreg_idx_bin),
+				.i_dc_reg_idx((!ONLY_CORE ? dc_wreg_idx : sv2v_uu_u_zap_core_ext_i_dc_reg_idx_0)),
+				.i_dc_lock((!ONLY_CORE ? dc_lock : sv2v_uu_u_zap_core_ext_i_dc_lock_0)),
+				.i_dc_reg_dat((!ONLY_CORE ? dc_reg_data : sv2v_uu_u_zap_core_ext_i_dc_reg_dat_0)),
+				.i_dcache_inv_done((!ONLY_CORE ? dc_inv_done : sv2v_uu_u_zap_core_ext_i_dcache_inv_done_0)),
+				.i_icache_inv_done((!ONLY_CORE ? ic_inv_done : sv2v_uu_u_zap_core_ext_i_icache_inv_done_0)),
+				.i_dcache_clean_done((!ONLY_CORE ? dc_clean_done : sv2v_uu_u_zap_core_ext_i_dcache_clean_done_0)),
+				.i_icache_clean_done((!ONLY_CORE ? ic_clean_done : sv2v_uu_u_zap_core_ext_i_icache_clean_done_0)),
+				.i_icache_err2((!ONLY_CORE ? icache_err2 : sv2v_uu_u_zap_core_ext_i_icache_err2_0)),
+				.i_icache_fill_pending(!ONLY_CORE && icache_fill_pending),
+				.i_icache_fill_done(!ONLY_CORE && icache_fill_done),
+				.i_icache_fill_fault(!ONLY_CORE && icache_fill_fault),
+				.i_dcache_err2((!ONLY_CORE ? dcache_err2 : sv2v_uu_u_zap_core_ext_i_dcache_err2_0))
+			);
+		end
+		else if (CORE == "ARM9") begin : g_arm9
+			localparam [31:0] sv2v_uu_u_arm9_core_ext_i_fsr_0 = 1'sb0;
+			localparam [31:0] sv2v_uu_u_arm9_core_ext_i_far_0 = 1'sb0;
+			localparam [63:0] sv2v_uu_u_arm9_core_ext_i_dc_reg_idx_0 = 1'sb0;
+			localparam [63:0] sv2v_uu_u_arm9_core_ext_i_dc_lock_0 = 1'sb0;
+			localparam [31:0] sv2v_uu_u_arm9_core_ext_i_dc_reg_dat_0 = 1'sb0;
+			localparam [0:0] sv2v_uu_u_arm9_core_ext_i_dcache_inv_done_0 = 1'sb0;
+			localparam [0:0] sv2v_uu_u_arm9_core_ext_i_icache_inv_done_0 = 1'sb0;
+			localparam [0:0] sv2v_uu_u_arm9_core_ext_i_dcache_clean_done_0 = 1'sb0;
+			localparam [0:0] sv2v_uu_u_arm9_core_ext_i_icache_clean_done_0 = 1'sb0;
+			localparam [0:0] sv2v_uu_u_arm9_core_ext_i_icache_err2_0 = 1'sb0;
+			localparam [0:0] sv2v_uu_u_arm9_core_ext_i_dcache_err2_0 = 1'sb0;
+			arm9_core #(
+				.CP15_L4_DEFAULT(CP15_L4_DEFAULT),
+				.BP_ENTRIES(BP_ENTRIES),
+				.FIFO_DEPTH(FIFO_DEPTH),
+				.RAS_DEPTH(RAS_DEPTH),
+				.BE_32_ENABLE(BE_32_ENABLE),
+				.RESET_VECTOR(RESET_VECTOR),
+				.CPSR_INIT(CPSR_INIT),
+				.DATA_CACHE_SIZE(DATA_CACHE_SIZE),
+				.DATA_CACHE_LINE(DATA_CACHE_LINE),
+				.DATA_CACHE_WAYS(DATA_CACHE_WAYS),
+				.LOAD_FORMATTED(!ONLY_CORE),
+				.CODE_CACHE_SIZE(CODE_CACHE_SIZE),
+				.CODE_CACHE_LINE(CODE_CACHE_LINE),
+				.CPSR_MODE(ZAP_CPSR_MODE),
+				.V4T(V4T),
+				.TI925T(TI925T),
+				.CP15_ID(CP15_ID),
+				.CP15_CTYPE(CP15_CTYPE),
+				.HIVECS(HIVECS)
+			) u_arm9_core(
+				.o_trace(o_trace),
+				.o_trace_valid(o_trace_valid),
+				.o_trace_uop_last(o_trace_uop_last),
+				.o_dbg_wb_valid(o_dbg_wb_valid),
+				.o_dbg_wfi(o_dbg_wfi),
+				.o_dbg_wb_dvalid(o_dbg_wb_dvalid),
+				.o_dbg_wb_uop_last(o_dbg_wb_uop_last),
+				.o_dbg_wb_dabt(o_dbg_wb_dabt),
+				.o_dbg_wb_pabt(o_dbg_wb_pabt),
+				.o_dbg_wb_und(o_dbg_wb_und),
+				.o_dbg_wb_swi(o_dbg_wb_swi),
+				.o_dbg_wb_irq(o_dbg_wb_irq),
+				.o_dbg_wb_fiq(o_dbg_wb_fiq),
+				.o_dbg_wb_pc(o_dbg_wb_pc),
+				.o_dbg_wb_cpsr(o_dbg_wb_cpsr),
+				.o_dbg_wb_cpsr_nxt(o_dbg_wb_cpsr_nxt),
+				.o_dbg_stall(o_dbg_stall),
+				.i_clk(i_clk),
+				.i_reset(s_reset),
+				.o_instr_wb_adr(cpu_iaddr),
+				.o_instr_wb_stb(cpu_instr_stb),
+				.o_instr_wb_cyc(),
+				.o_instr_wb_we(),
+				.o_instr_wb_sel(),
+				.o_code_stall(code_stall),
+				.i_instr_wb_dat((!ONLY_CORE ? ic_data : i_wb_dat)),
+				.i_instr_wb_ack(instr_ack),
+				.i_instr_wb_err(instr_err),
+				.o_data_wb_we(cpu_dc_we),
+				.o_data_wb_adr(cpu_daddr),
+				.o_data_wb_sel(cpu_dc_sel),
+				.o_data_wb_dat(cpu_dc_dat),
+				.o_data_wb_cyc(),
+				.o_pid(),
+				.o_data_wb_stb(cpu_dc_stb),
+				.i_data_wb_dat((!ONLY_CORE ? dc_data : (BE_32_ENABLE ? be_32(i_wb_dat, o_wb_sel) : i_wb_dat))),
+				.i_data_wb_ack(data_ack),
+				.i_data_wb_err(data_err),
+				.i_fiq(s_fiq),
+				.i_irq(s_irq),
+				.i_fsr((!ONLY_CORE ? {24'd0, dc_fsr} : sv2v_uu_u_arm9_core_ext_i_fsr_0)),
+				.i_far((!ONLY_CORE ? dc_far : sv2v_uu_u_arm9_core_ext_i_far_0)),
+				.o_mem_translate(cpu_mem_translate),
+				.o_mem_cpsr(cpu_mem_cpsr),
+				.o_data_wb_align_fault(cpu_align_fault),
+				.o_data_wb_va(cpu_daddr_va),
+				.o_data_wb_ldfmt(cpu_dldfmt),
+				.o_dcache_line_req(cpu_dline_req),
+				.o_dcache_line_op(cpu_dline_op),
+				.o_dcache_line_va(cpu_dline_va),
+				.o_dcache_line_addr(cpu_dline_addr),
+				.o_dcache_line_way(cpu_dline_way),
+				.i_dcache_line_done((!ONLY_CORE ? dc_line_done : 1'd1)),
+				.o_dac(cpu_dac_reg),
+				.o_baddr(cpu_baddr),
+				.o_mmu_en(cpu_mmu_en),
+				.o_sr(cpu_sr),
+				.o_dcache_inv(cpu_dc_inv),
+				.o_icache_inv(cpu_ic_inv),
+				.o_dcache_clean(cpu_dc_clean),
+				.o_icache_clean(cpu_ic_clean),
+				.o_dtlb_inv(cpu_dtlb_inv),
+				.o_itlb_inv(cpu_itlb_inv),
+				.o_dcache_en(cpu_dc_en),
+				.o_icache_en(cpu_ic_en),
+				.o_data_wb_adr_nxt(cpu_daddr_nxt),
+				.o_data_wb_adr_check(cpu_daddr_check),
+				.o_data_wb_we_check(cpu_dwe_check),
+				.o_data_wb_re_check(cpu_dre_check),
+				.o_instr_wb_adr_nxt(cpu_iaddr_nxt),
+				.o_instr_wb_adr_check(cpu_iaddr_check),
+				.o_cpsr(cpu_cpsr[ZAP_CPSR_MODE:0]),
+				.o_dc_reg_idx(dc_rreg_idx),
+				.o_dc_reg_idx_bin(dc_rreg_idx_bin),
+				.i_dc_reg_idx((!ONLY_CORE ? dc_wreg_idx : sv2v_uu_u_arm9_core_ext_i_dc_reg_idx_0)),
+				.i_dc_lock((!ONLY_CORE ? dc_lock : sv2v_uu_u_arm9_core_ext_i_dc_lock_0)),
+				.i_dc_reg_dat((!ONLY_CORE ? dc_reg_data : sv2v_uu_u_arm9_core_ext_i_dc_reg_dat_0)),
+				.i_dcache_inv_done((!ONLY_CORE ? dc_inv_done : sv2v_uu_u_arm9_core_ext_i_dcache_inv_done_0)),
+				.i_icache_inv_done((!ONLY_CORE ? ic_inv_done : sv2v_uu_u_arm9_core_ext_i_icache_inv_done_0)),
+				.i_dcache_clean_done((!ONLY_CORE ? dc_clean_done : sv2v_uu_u_arm9_core_ext_i_dcache_clean_done_0)),
+				.i_icache_clean_done((!ONLY_CORE ? ic_clean_done : sv2v_uu_u_arm9_core_ext_i_icache_clean_done_0)),
+				.i_icache_err2((!ONLY_CORE ? icache_err2 : sv2v_uu_u_arm9_core_ext_i_icache_err2_0)),
+				.i_icache_fill_pending(!ONLY_CORE && icache_fill_pending),
+				.i_icache_fill_done(!ONLY_CORE && icache_fill_done),
+				.i_icache_fill_fault(!ONLY_CORE && icache_fill_fault),
+				.i_dcache_err2((!ONLY_CORE ? dcache_err2 : sv2v_uu_u_arm9_core_ext_i_dcache_err2_0))
+			);
+		end
+		else begin : g_invalid_core
+			initial begin
+				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:560:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
+				$finish(1);
+			end
+		end
 		if (!ONLY_CORE) begin
 		end
 		else begin : l_tieoffs_only_core

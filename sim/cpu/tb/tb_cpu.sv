@@ -7,6 +7,7 @@
 // are; main.cpp turns them into a retirement trace. They work on both the
 // generated netlist (rtl/cpu/arm925t_gen.v) and the SystemVerilog sources.
 module tb_cpu #(
+	parameter CORE = "ZAP",
 	parameter bit HIVECS      = 1'b0,
 	parameter int ICACHE_SIZE = 16384,
 	parameter int ICACHE_WAYS = 2,
@@ -88,6 +89,7 @@ module tb_cpu #(
 );
 
 	arm925t #(
+		.CORE        (CORE),
 		.HIVECS      (HIVECS),
 		.ICACHE_SIZE (ICACHE_SIZE),
 		.ICACHE_WAYS (ICACHE_WAYS),
@@ -111,30 +113,31 @@ module tb_cpu #(
 		.bus_err   (bus_err)
 	);
 
-	assign p_valid = dut.u_zap.u_zap_core.u_zap_writeback.i_valid;
-	assign p_cfail = dut.u_zap.u_zap_core.u_zap_writeback.i_decompile_valid;
-	assign p_last  = dut.u_zap.u_zap_core.u_zap_writeback.i_uop_last;
-	assign p_dabt  = dut.u_zap.u_zap_core.u_zap_writeback.i_data_abt;
-	assign p_fiq   = dut.u_zap.u_zap_core.u_zap_writeback.i_fiq;
-	assign p_irq   = dut.u_zap.u_zap_core.u_zap_writeback.i_irq;
-	assign p_iabt  = dut.u_zap.u_zap_core.u_zap_writeback.i_instr_abt;
-	assign p_swi   = dut.u_zap.u_zap_core.u_zap_writeback.i_swi;
-	assign p_und   = dut.u_zap.u_zap_core.u_zap_writeback.i_und;
-	assign p_copro = dut.u_zap.u_zap_core.u_zap_writeback.i_copro_reg_en;
-	assign p_pc8   = dut.u_zap.u_zap_core.u_zap_writeback.i_pc_plus_8_buf_ff;
-	assign p_cpsr  = dut.u_zap.u_zap_core.u_zap_writeback.cpsr_ff;
-	assign p_regs  = dut.u_zap.u_zap_core.u_zap_writeback.u_zap_register_file.mem;
 	assign p_lock  = dut.u_zap.dc_lock;
 	assign p_dreq  = dut.u_zap.cpu_dc_stb;
 	assign p_dva   = dut.u_zap.cpu_daddr_va;
 	assign p_dalign = dut.u_zap.cpu_align_fault;
-	assign p_dpc8  = dut.u_zap.u_zap_core.postalu_pc_plus_8_ff;
 	assign p_ttb   = dut.u_zap.cpu_baddr;
 	assign p_dacr  = dut.u_zap.cpu_dac_reg;
 	assign p_mmu   = dut.u_zap.cpu_mmu_en;
-	assign p_wfi   = dut.u_zap.u_zap_core.u_zap_cp15_cb.state == 4'd12;
-	`define PD dut.u_zap.u_zap_core.u_zap_predecode
-	`define AL dut.u_zap.u_zap_core.u_zap_alu_main
+	if (CORE == "ZAP") begin : g_zap_probes
+	assign p_valid = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_valid;
+	assign p_cfail = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_decompile_valid;
+	assign p_last  = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_uop_last;
+	assign p_dabt  = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_data_abt;
+	assign p_fiq   = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_fiq;
+	assign p_irq   = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_irq;
+	assign p_iabt  = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_instr_abt;
+	assign p_swi   = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_swi;
+	assign p_und   = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_und;
+	assign p_copro = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_copro_reg_en;
+	assign p_pc8   = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_pc_plus_8_buf_ff;
+	assign p_cpsr  = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.cpsr_ff;
+	assign p_regs  = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.u_zap_register_file.mem;
+	assign p_dpc8  = dut.u_zap.g_zap.u_zap_core.postalu_pc_plus_8_ff;
+	assign p_wfi   = dut.u_zap.g_zap.u_zap_core.u_zap_cp15_cb.state == 4'd12;
+	`define PD dut.u_zap.g_zap.u_zap_core.u_zap_predecode
+	`define AL dut.u_zap.g_zap.u_zap_core.u_zap_alu_main
 	assign p_pd_pc    = `PD.skid_pc_ff;
 	assign p_pd_ins   = `PD.mode32_instruction[31:0];
 	assign p_pd_ppc   = `PD.o_ppc_ff;
@@ -149,12 +152,44 @@ module tb_cpu #(
 	assign p_uop_flags = {`PD.o_instruction_valid_ff, `PD.o_uop_last, `PD.o_irq_ff, `PD.o_stall_from_decode};
 	assign p_alu_res   = `AL.o_alu_result_ff;
 	assign p_alu_dst   = {`AL.o_dav_ff, 7'(`AL.o_destination_index_ff)};
-	`define SH dut.u_zap.u_zap_core.u_zap_shifter_main
+	`define SH dut.u_zap.g_zap.u_zap_core.u_zap_shifter_main
 	assign p_sh_dbg    = {8'(`SH.i_alu_source_ff), 8'(`SH.o_destination_index_ff), 7'd0, `SH.i_alu_dav_nxt,
 	                      `SH.rn};
 	`undef SH
 	`undef PD
 	`undef AL
+	end else begin : g_arm9_probes
+	`define A9 dut.u_zap.g_arm9.u_arm9_core
+	assign p_valid = `A9.o_dbg_wb_valid;
+	assign p_cfail = `A9.o_dbg_wb_dvalid;
+	assign p_last = `A9.o_dbg_wb_uop_last;
+	assign p_dabt = `A9.o_dbg_wb_dabt;
+	assign p_fiq = `A9.o_dbg_wb_fiq;
+	assign p_irq = `A9.o_dbg_wb_irq;
+	assign p_iabt = `A9.o_dbg_wb_pabt;
+	assign p_swi = `A9.o_dbg_wb_swi;
+	assign p_und = `A9.o_dbg_wb_und;
+	assign p_copro = `A9.copro_reg_en;
+	assign p_pc8 = `A9.o_dbg_wb_pc;
+	assign p_cpsr = `A9.o_dbg_wb_cpsr;
+	assign p_regs = `A9.u_zap_writeback.u_zap_register_file.mem;
+	assign p_dpc8 = `A9.pc8;
+	assign p_wfi = `A9.o_dbg_wfi;
+	assign p_pd_pc = `A9.pc;
+	assign p_pd_ins = `A9.ins;
+	assign p_pd_ppc = 0;
+	assign p_pd_wpc = 0;
+	assign p_pd_pred = 0;
+	assign p_pd_flags = 0;
+	assign p_alu_ppc = 0;
+	assign p_alu_flags = 0;
+	assign p_uop_ins = {8'd0, `A9.ins};
+	assign p_uop_flags = 0;
+	assign p_alu_res = `A9.ex_result;
+	assign p_alu_dst = 0;
+	assign p_sh_dbg = 0;
+	`undef A9
+	end
 	assign p_dc_state = 16'(dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.state_ff);
 	assign p_dc_addr  = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_address;
 	assign p_dc_din   = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_din;

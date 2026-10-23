@@ -24,6 +24,7 @@
 //
 
 module zap_top #(
+        parameter CORE = "ZAP",
 
 // -----------------------------------
 // CP15 L4 bit default.
@@ -285,6 +286,7 @@ logic                o_trace_uop_last;
 
 `endif
 
+if (CORE == "ZAP") begin : g_zap
 zap_core #(
         .CP15_L4_DEFAULT(CP15_L4_DEFAULT),
         .BP_ENTRIES(BP_ENTRIES),
@@ -419,6 +421,144 @@ zap_core #(
 .i_icache_fill_fault    (!ONLY_CORE && icache_fill_fault),
 .i_dcache_err2          (!ONLY_CORE ? dcache_err2 : '0)
 );
+end else if (CORE == "ARM9") begin : g_arm9
+arm9_core #(
+        .CP15_L4_DEFAULT(CP15_L4_DEFAULT),
+        .BP_ENTRIES(BP_ENTRIES),
+        .FIFO_DEPTH(FIFO_DEPTH),
+        .RAS_DEPTH(RAS_DEPTH),
+        .BE_32_ENABLE(BE_32_ENABLE),
+        .RESET_VECTOR(RESET_VECTOR),
+        .CPSR_INIT(CPSR_INIT),
+        .DATA_CACHE_SIZE(DATA_CACHE_SIZE),
+        .DATA_CACHE_LINE(DATA_CACHE_LINE),
+        .DATA_CACHE_WAYS(DATA_CACHE_WAYS),
+        .LOAD_FORMATTED(!ONLY_CORE),     // ARM925T
+        .CODE_CACHE_SIZE(CODE_CACHE_SIZE),
+        .CODE_CACHE_LINE(CODE_CACHE_LINE),
+        .CPSR_MODE(ZAP_CPSR_MODE),
+        .V4T(V4T),
+        .TI925T(TI925T),
+        .CP15_ID(CP15_ID),
+        .CP15_CTYPE(CP15_CTYPE),
+        .HIVECS(HIVECS)
+) u_arm9_core
+(
+// Trace
+.o_trace                (o_trace),
+.o_trace_valid          (o_trace_valid),
+.o_trace_uop_last       (o_trace_uop_last),
+
+// ARM925T: debug trace taps.
+.o_dbg_wb_valid         (o_dbg_wb_valid),
+.o_dbg_wfi              (o_dbg_wfi),
+.o_dbg_wb_dvalid        (o_dbg_wb_dvalid),
+.o_dbg_wb_uop_last      (o_dbg_wb_uop_last),
+.o_dbg_wb_dabt          (o_dbg_wb_dabt),
+.o_dbg_wb_pabt          (o_dbg_wb_pabt),
+.o_dbg_wb_und           (o_dbg_wb_und),
+.o_dbg_wb_swi           (o_dbg_wb_swi),
+.o_dbg_wb_irq           (o_dbg_wb_irq),
+.o_dbg_wb_fiq           (o_dbg_wb_fiq),
+.o_dbg_wb_pc            (o_dbg_wb_pc),
+.o_dbg_wb_cpsr          (o_dbg_wb_cpsr),
+.o_dbg_wb_cpsr_nxt      (o_dbg_wb_cpsr_nxt),
+.o_dbg_stall            (o_dbg_stall),
+
+// Clock and reset.
+.i_clk                  (i_clk),
+.i_reset                (s_reset),
+
+// Code related.
+.o_instr_wb_adr         (cpu_iaddr),
+.o_instr_wb_stb         (cpu_instr_stb),
+/* verilator lint_off PINCONNECTEMPTY */
+.o_instr_wb_cyc         (),
+.o_instr_wb_we          (),
+.o_instr_wb_sel         (),
+/* verilator lint_on PINCONNECTEMPTY */
+.o_code_stall           (code_stall),
+
+.i_instr_wb_dat         (!ONLY_CORE ? ic_data   : i_wb_dat),
+.i_instr_wb_ack         (instr_ack),
+.i_instr_wb_err         (instr_err),
+
+// Data related.
+.o_data_wb_we           (cpu_dc_we),
+.o_data_wb_adr          (cpu_daddr),
+.o_data_wb_sel          (cpu_dc_sel),
+.o_data_wb_dat          (cpu_dc_dat),
+/* verilator lint_off PINCONNECTEMPTY */
+.o_data_wb_cyc          (),
+.o_pid                  (),
+/* verilator lint_on PINCONNECTEMPTY */
+.o_data_wb_stb          (cpu_dc_stb),
+.i_data_wb_dat          (!ONLY_CORE ? dc_data :
+                         BE_32_ENABLE ? be_32(i_wb_dat, o_wb_sel) : i_wb_dat),
+                        // Swap data into CPU based on current o_wb_sel.
+
+.i_data_wb_ack          (data_ack),
+.i_data_wb_err          (data_err),
+
+// Interrupts.
+.i_fiq                  (s_fiq),
+.i_irq                  (s_irq),
+
+// MMU/cache is present.
+.i_fsr                  (!ONLY_CORE ? {24'd0,dc_fsr} : '0),
+.i_far                  (!ONLY_CORE ? dc_far : '0),
+
+.o_mem_translate        (cpu_mem_translate),
+.o_mem_cpsr             (cpu_mem_cpsr),
+.o_data_wb_align_fault  (cpu_align_fault),
+.o_data_wb_va           (cpu_daddr_va),
+.o_data_wb_ldfmt        (cpu_dldfmt),
+.o_dcache_line_req      (cpu_dline_req),
+.o_dcache_line_op       (cpu_dline_op),
+.o_dcache_line_va       (cpu_dline_va),
+.o_dcache_line_addr     (cpu_dline_addr),
+.o_dcache_line_way      (cpu_dline_way),
+.i_dcache_line_done     (!ONLY_CORE ? dc_line_done : 1'd1),
+.o_dac                  (cpu_dac_reg),
+.o_baddr                (cpu_baddr),
+.o_mmu_en               (cpu_mmu_en),
+.o_sr                   (cpu_sr),
+.o_dcache_inv           (cpu_dc_inv),
+.o_icache_inv           (cpu_ic_inv),
+.o_dcache_clean         (cpu_dc_clean),
+.o_icache_clean         (cpu_ic_clean),
+.o_dtlb_inv             (cpu_dtlb_inv),
+.o_itlb_inv             (cpu_itlb_inv),
+.o_dcache_en            (cpu_dc_en),
+.o_icache_en            (cpu_ic_en),
+.o_data_wb_adr_nxt      (cpu_daddr_nxt),
+// Data addr nxt. Used to drive address of data tag RAM.
+.o_data_wb_adr_check    (cpu_daddr_check),
+.o_data_wb_we_check     (cpu_dwe_check),
+.o_data_wb_re_check     (cpu_dre_check),
+.o_instr_wb_adr_nxt     (cpu_iaddr_nxt),
+// PC addr nxt. Drives read address of code tag RAM.
+.o_instr_wb_adr_check   (cpu_iaddr_check),
+.o_cpsr                 (cpu_cpsr[ZAP_CPSR_MODE:0]),
+.o_dc_reg_idx           (dc_rreg_idx),
+.o_dc_reg_idx_bin       (dc_rreg_idx_bin),
+
+.i_dc_reg_idx           (!ONLY_CORE ? dc_wreg_idx : '0),
+.i_dc_lock              (!ONLY_CORE ? dc_lock : '0),
+.i_dc_reg_dat           (!ONLY_CORE ? dc_reg_data : '0),
+.i_dcache_inv_done      (!ONLY_CORE ? dc_inv_done : '0),
+.i_icache_inv_done      (!ONLY_CORE ? ic_inv_done : '0),
+.i_dcache_clean_done    (!ONLY_CORE ? dc_clean_done : '0),
+.i_icache_clean_done    (!ONLY_CORE ? ic_clean_done : '0),
+.i_icache_err2          (!ONLY_CORE ? icache_err2 : '0),
+.i_icache_fill_pending  (!ONLY_CORE && icache_fill_pending),
+.i_icache_fill_done     (!ONLY_CORE && icache_fill_done),
+.i_icache_fill_fault    (!ONLY_CORE && icache_fill_fault),
+.i_dcache_err2          (!ONLY_CORE ? dcache_err2 : '0)
+);
+end else begin : g_invalid_core
+    initial $fatal(1, "CORE must be ZAP or ARM9");
+end
 
 if ( !ONLY_CORE )
 begin : l_tieoffs_full

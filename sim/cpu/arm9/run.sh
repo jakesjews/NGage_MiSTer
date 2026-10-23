@@ -5,9 +5,9 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../../.." && pwd)
 build=$root/sim/cpu/build/arm9-execute
 mkdir -p "$build"
-sv2v -DSYNTHESIS --top=arm9_execute "$root"/rtl/cpu/arm9/*.sv > "$build/execute_gen.v"
+sv2v -DSYNTHESIS --top=arm9_execute "$root"/rtl/cpu/arm9/arm9_{execute,forward,shift,alu}.sv > "$build/execute_gen.v"
 for rtl in sv gen; do
-    sources=("$root"/rtl/cpu/arm9/*.sv)
+    sources=("$root"/rtl/cpu/arm9/arm9_{execute,forward,shift,alu}.sv)
     [[ $rtl == sv ]] || sources=("$build/execute_gen.v")
     for split in 0 1; do
         dir=$build/$rtl-$split

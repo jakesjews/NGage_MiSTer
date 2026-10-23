@@ -38,7 +38,7 @@ ssh "$host" "mkdir -p \$HOME/$dir"
 if [[ $trial != cpu ]]; then
     defines=(-DSYNTHESIS)
     [[ $trial != arm9_decode_shift ]] || defines+=(-DARM9_TRIAL_SPLIT)
-    sv2v "${defines[@]}" --top=cpu_trial "$root"/rtl/cpu/arm9/*.sv \
+    sv2v "${defines[@]}" --top=cpu_trial "$root"/rtl/cpu/arm9/arm9_{execute,forward,shift,alu}.sv \
         "$root/rtl/cpu/zap/zap_register_file.sv" "$here/arm9_execute_trial.sv" > "$out/arm925t_gen.v"
     # The generated trial contains its own cpu_trial top.
     printf '// Top included in arm925t_gen.v\n' > "$out/cpu_trial.v"

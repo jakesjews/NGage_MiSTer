@@ -1,6 +1,6 @@
 # ARM9 integer pipeline replacement
 
-Status: first-session design, 2026-10-23 deliverable (work started 2026-10-22).
+Status: session-2 functional bring-up, 2026-10-23 deliverable (work started 2026-10-22).
 ZAP remains the production CPU. This document distinguishes intended timing
 from implemented and measured timing; it is not a claim that ARM9 boots yet.
 Starting revision: `75cce2e`, branch `codex/arm9`.
@@ -317,3 +317,27 @@ Milestone status and exact results are in
 `docs/consults/2026-10-23-codex-arm9-report.md`; machine-readable baseline in
 `docs/consults/arm9/session1-baseline.json`. No ARM9 speedup is claimed until an
 ARM9 architectural run exists.
+
+## Session 2: implemented bring-up schedule
+
+`arm925t.CORE` selects `ZAP` (default) or `ARM9` at the integer-core instance
+inside `zap_top`. Cache, MMU and merger wiring is shared. Use `make -C sim/cpu
+CORE=ARM9 run T="alu align modes exc"` and the corresponding `CORE=ARM9 diff`;
+the Makefile isolates ARM9 models and results from ZAP's reference results.
+
+The first controller is deliberately non-overlapped: F1/F2/F3/F, D, E, M1/M2/M3/M,
+ack classification/background wait as necessary, W. Non-memory instructions
+skip M. Register-controlled shifts insert their preparation clock. This is an
+architectural bring-up scaffold and does **not** satisfy the target cycle table
+above. The fitted execute leaf remains unchanged; producer inputs are inactive
+while only one architectural instruction is admitted. No speedup is claimed.
+
+`zap_writeback` supplies the unchanged register file, CPSR and exception state
+updates. Its old fetch/prediction outputs are disconnected. The new controller
+owns the PC and gates the retirement/debug events. CP15 is serialized. The
+cache miss lock is sampled after the ack edge; completion data is captured
+before retirement rather than written asynchronously into architectural state.
+The I-cache's provisional words wait for whole-fill fault resolution.
+
+The continuation report records coverage, incomplete cases, exact counts and
+where to replace conservative sequencing with an overlapping pipeline.
