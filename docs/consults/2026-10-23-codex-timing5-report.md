@@ -470,6 +470,34 @@ modes and generated checks pass again after integration. Candidate pairs
 already prepared against `35aa83e` retain that baseline; the next combined
 three-seed trial will include the card fix.
 
+**Combined decoder follow-up (`decodeboth`):** the standalone early-zero
+trial's seed-2 worst path moves to BL-rewrite control through normal shift
+length decode. A prepared combined trial therefore selects the BL fields
+after decode and computes the LSL-zero summary before bank translation.
+The acceptance family still includes every predecode-to-decode output,
+not just the summary. All 2,061 actual-module equivalence points prove for
+the configured decoder. The full suite and QEMU diff retain every count,
+with both lint modes and generated checks passing. This is a new candidate;
+it does not reinstate either dropped trial without a paired fit.
+
+**Fault-code bits (`tlbbits`):** every nonzero FSR emitted by this checker
+is odd or has bit 3 set: section/page translation, domain and permission
+faults are odd; L1/L2 external aborts are 12/14. Reduce bits 3 and 0 for the
+registered fault summary and the registered hit-permission qualification.
+The full architectural FSR is unchanged. All 157 actual-module equivalence
+points prove with MMU-off cacheability both zero and one; all 225 counts
+and 57 QEMU comparisons agree, with both lint modes and generated checks
+passing. The input/output TLB family remains the same acceptance group.
+This simpler candidate is prepared but not fitted.
+
+The broader `tlbsummary` trial's first seed changes its input/output family
+from +0.511 to −0.219 ns (whole core −1.634 ns); its second seed is running.
+The local pending-select trial is also running. Further unstarted pairs are
+held while the next three-seed measurement assesses the current retained
+CPU changes together with the card owner's fix. Those active pairs keep
+their original combined1 baseline. No unmeasured candidate is applied to
+the main branch for this next combined build.
+
 ## Scope and risks
 
 No firmware boot bench, `sys/` change, ARM9 change, card-model edit, hardware
