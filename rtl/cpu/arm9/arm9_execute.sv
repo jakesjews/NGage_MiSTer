@@ -2,7 +2,9 @@
 // Execute datapath for the new ARM9 pipeline, independent of the controller.
 // D supplies registered operands/control; producers are registered M/W values.
 // PRE_SHIFTED moves the barrel into D: i_value[1] and i_shift_carry then carry
-// its captured output, and i_used[1:2] must be zero (already resolved in D).
+// its captured output. i_used[2] must be zero (Rs was consumed in D).
+// i_used[1] is zero for shifted operands, but can enable late E forwarding
+// for an unshifted Rm. This preserves the ordinary load-use interlock.
 // Do not connect a combinational o_result back to this module's forwarding.
 module arm9_execute #(
     parameter bit PRE_SHIFTED = 1'b0

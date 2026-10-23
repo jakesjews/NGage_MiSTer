@@ -68,6 +68,71 @@ Register-controlled shifts already have a TRM extra cycle; use that cycle to
 capture the shifted operand, never to conceal an extra stage on all instructions.
 Do not add stages between issue and memory just to pass timing.
 
+## Execute milestone: measured trials
+
+The implemented leaves are `arm9_forward`, `arm9_shift`, `arm9_alu` and
+`arm9_execute`. The execute leaf is combinational between D capture and the
+registered M result. It has three ordered producer slots for the intended
+M1/M2/W path; a native three-cycle-cache integration must extend the producer
+coverage (including separate base/load writers), not silently omit a stage.
+`PRE_SHIFTED=1` accepts the D barrel result and its carry; raw Rn/store operands
+still use E forwarding. The test harness also instantiates the existing
+four-read/three-write register file and a real E-to-D result/flags path when
+shifting in D. There is no controller or selected ARM9 core yet.
+
+Quartus 17.0.2, 5CSEBA6U23I7, seed 1, 104 MHz (9.615 ns), same CPU-trial
+optimization/retiming settings, all four operating corners:
+
+| Initial implementation | Worst setup | Minimum hold | ALMs | Registers |
+| --- | ---: | ---: | ---: | ---: |
+| Shared barrel, shift in E | -1.838 ns | 0.142 ns | 2427 | 2061 |
+| Shared barrel, shift in D with E-to-D bypass | -0.535 ns | 0.158 ns | 2443 | 2199 |
+
+Both fail the timing gate. The single-stage worst path is a retimed execute
+node (`u_execute|comb~0_OTERM263`) through the barrel, arithmetic, result mux
+and zero-flag reduction to `status_out[6]~reg0`: ten logic levels and 11.157 ns
+data delay at Slow 1100mV 100C. The D-shift trial's worst path is `control[6]`
+(the Rm physical-register tag) through register selection/forwarding and the
+barrel to `decoded_shift[16]~30_OTERM554`: nine levels, 9.834 ns data delay at
+the same corner. Retimed node names are fitter artifacts, not extra CPU cycles.
+
+**Selected implementation: one execute stage.** Keep parallel left/right/rotate
+networks in `arm9_shift`, compute arithmetic N/Z directly from the adder sum in
+`arm9_alu`, and keep the original simple priority forwarding mux. Both changes
+are combinational; no pipeline stage was added. The explicit one-hot forwarding
+experiment increased area and did not improve the worst-corner result, so it
+was discarded.
+
+| Final single-E trial | Slow 100C setup | Slow -40C setup | Minimum hold | ALMs | Registers |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Parallel barrel/direct NZ, seed 1 | -0.045 ns | +0.130 ns | +0.118 ns | 2549 | 2190 |
+| Same datapath, final harness, seed 2 | +0.113 ns | +0.018 ns | +0.159 ns | 2556 | 2185 |
+
+The final source regenerates **byte-for-byte** to the seed-2 fitted trial input.
+Its worst path is the retimed execute node
+`u_execute|comb~12_OTERM717DUPLICATE` to `status_out[6]~reg0` (Z flag), seven
+logic levels and 9.316 ns data delay at Slow 1100mV -40C. All four setup/hold
+corners pass. This is feasibility evidence, **not robust timing margin**: only
+18 ps remains at the worst corner, and seed 1 missed. Integrated control,
+fanout and placement can lose that margin. Repeat timing after every substantial
+integration step, and require the integrated CPU-only trial at milestone 5.
+
+Reproduce the accepted trial with:
+
+```
+SEED=2 TRIAL=arm9_execute BUILD_DIR=dev/mister/ngage-codex-arm9-execute-parallel-s2 sim/cpu/quartus/run.sh
+```
+
+Full corner summaries, rejected alternatives and path evidence are in the
+continuation report. Area includes register-file and stimulus/observation
+logic; it is not additional ALMs over ZAP or a whole-core fit. The D-shift
+alternative remains selectable for experiments via `PRE_SHIFTED`; its caller
+can enable E forwarding for unshifted Rm while shifted Rm/Rs are consumed in D.
+The retained design uses the single-stage E path. Register-specified shifts must
+still consume the TRM's extra cycle in the future controller even though the
+leaf can calculate them in E. A separate registered shift-preparation sequence
+was considered but is not implemented or measured as a CPU cycle model.
+
 ## Cycle model (specification, not yet CPU measurements)
 
 Counts are steady-state issue cost with hot memories, no external wait, no

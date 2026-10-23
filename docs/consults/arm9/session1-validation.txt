@@ -16,3 +16,24 @@ rtl/cpu/arm925t_gen.v is current
 make lint: exit 0; all existing top-level lint targets passed
 All 27 focused runs: cycle counts AND instruction counts identical to baseline.
 No existing binaries rebuilt; no QEMU runs; no firmware boot; no hardware run.
+
+After parallel-barrel / direct-NZ change:
+focused: RTL (gen): 27 passed, 0 failed
+focused-diff: RTL vs QEMU: 52 agree, 0 differ
+full: RTL (gen): 198 passed, 0 failed
+full-diff: RTL vs QEMU: 52 agree, 0 differ
+ARM9 execute PRE_SHIFTED=0: 145568 checks passed
+ARM9 execute PRE_SHIFTED=1: 145568 checks passed
+ARM9 execute PRE_SHIFTED=0: 145568 checks passed
+ARM9 execute PRE_SHIFTED=1: 145568 checks passed
+All 27 focused cycle/instruction pairs remain identical.
+
+Final retained source:
+ARM9 execute PRE_SHIFTED=0: 145568 checks passed
+ARM9 execute PRE_SHIFTED=1: 145568 checks passed
+ARM9 execute PRE_SHIFTED=0: 145568 checks passed
+ARM9 execute PRE_SHIFTED=1: 145568 checks passed
+rtl/cpu/arm925t_gen.v is current
+make lint: exit 0; both trial configurations lint with warnings fatal.
+Final trial regenerated independently and byte-compared with seed-2 fitted input.
+All 27 current generated-CPU cycle/instruction pairs match baseline.

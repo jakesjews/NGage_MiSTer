@@ -26,3 +26,11 @@ server. It does not start a whole-core build or firmware boot bench.
 
 The complete integration design and outstanding latency gates are in
 `docs/ARM9.md`; continuation status is in the dated arm9 report.
+
+The retained implementation uses a single E stage with parallel barrel networks
+and direct arithmetic NZ. Its seed-2 trial passes 104 MHz with only +0.018 ns
+worst-corner setup margin; seed 1 missed by 0.045 ns. Run the accepted experiment
+with `SEED=2 TRIAL=arm9_execute ./sim/cpu/quartus/run.sh`. This is not integrated
+CPU timing closure. `TRIAL=arm9_decode_shift` keeps the rejected D-shift
+alternative available for investigation, including E forwarding for unshifted
+Rm. See the report for every corner and the rejected forwarding experiments.

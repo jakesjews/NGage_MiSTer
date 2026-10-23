@@ -35,6 +35,8 @@ module arm9_alu (
         endcase
         o_flags = {o_result[31], o_result == 0, i_shift_carry, i_flags[0]};
         if (arithmetic) begin
+            // Arithmetic NZ does not need to wait for the logical/result mux.
+            o_flags[3:2] = {sum[31], sum[31:0] == 0};
             o_flags[1] = sum[32];
             o_flags[0] = (a[31] == b[31]) && (a[31] != sum[31]);
         end

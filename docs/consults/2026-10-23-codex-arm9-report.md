@@ -1,7 +1,8 @@
 # ARM9 replacement: session 1 continuation report
 
-The ARM9 CPU is **not integrated or selected**. ZAP remains active and passes the
-existing suite. This is a multi-session implementation, starting at `75cce2e`
+The ARM9 CPU is **not integrated or selected**. Milestone 1 (design) and
+milestone 2 (tested execute datapath and a passing 104 MHz trial) are complete.
+ZAP remains active and passes the existing suite. This is a multi-session implementation, starting at `75cce2e`
 on `codex/arm9`. No branch changes, pushes, `sys/` edits, existing test-binary
 rebuilds, QEMU reruns or firmware boots were performed.
 
@@ -55,40 +56,80 @@ The future `arm9_cycles.S` is not added: no new core can execute it yet. Existin
 assembly tests cannot exercise unconnected leaves, so the new behavior is tested
 at the leaf boundary instead. Add timed architectural sequences at integration.
 
-## Timing experiment (in progress at this checkpoint)
+## Implemented design and timing decision
 
-`TRIAL=arm9_execute sim/cpu/quartus/run.sh` uses the existing CPU trial QSF/SDC,
-Cyclone V 5CSEBA6U23I7, Quartus Lite 17.0.2, seed 1, 9.615 ns. It generates an
-isolated `arm925t_gen.v` containing the trial and real leaves; it does not replace
-the production netlist. The trial contains the unchanged 40-register file with
-four reads/three writes, D capture, registered E-result forwarding, flags feedback,
-branch target, output registers and stage enables. Total area includes that
-register file and stimulus/observation registers; it is not incremental CPU area.
+Use **one execute stage**, with registered D operands and registered M/W
+forwarding sources. The retained shifter uses parallel direction networks;
+left shifts no longer pass through input/output bit-reversal muxes. Arithmetic
+N/Z comes directly from the adder sum, bypassing the logical-result mux. Keep
+the simpler original priority forwarding mux. All changes preserve the leaf
+truth table and add no pipeline stage. ARM9's register-shift extra cycle belongs
+to the future controller; it has not been implemented by pretending the leaf is
+an instruction-executing CPU.
 
-First single-stage result, server `dev/mister/ngage-codex-arm9-execute-s1`:
+The Quartus harness includes the unchanged 40-register file with four reads and
+three writes, D capture, three registered result producers, flags feedback,
+branch target, output registers and stage enables. It is a datapath feasibility
+trial, not a core. `TRIAL=arm9_decode_shift` also exercises D shifting with a
+real E-to-D result/flag path and all older writer ages. The final harness has
+an unshifted-Rm E bypass; the rejected early D fits predate that addition.
+
+All fits use Quartus Lite 17.0.2, Cyclone V 5CSEBA6U23I7, 9.615 ns, the existing
+CPU trial QSF/SDC and optimization/retiming settings. All are CPU-only trials.
+
+| Trial | Seed | Worst setup ns | Minimum hold ns | ALMs | Registers |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Original shared barrel in E | 1 | -1.838 | 0.142 | 2427 | 2061 |
+| Shared barrel in D, E-to-D bypass | 1 | -0.535 | 0.158 | 2443 | 2199 |
+| Parallel barrel/direct NZ, shift in D | 1 | -0.826 | 0.162 | 2529 | 2185 |
+| Shared barrel in D, one-hot forwarding | 1 | -1.352 | 0.107 | 2513 | 2223 |
+| Parallel barrel/direct NZ in E | 1 | -0.045 | 0.118 | 2549 | 2190 |
+| Parallel barrel/direct NZ in E, one-hot forwarding | 1 | -0.134 | 0.110 | 2579 | 2192 |
+| **Retained single E, simple priority mux, final harness** | **2** | **+0.018** | **+0.159** | **2556** | **2185** |
+
+All have zero RAM and DSP blocks. Area includes the register file and trial
+stimulus/observation registers; these are not incremental ALMs over ZAP. The
+one-hot candidate resolved age into one-hot grants and OR-selected data; it
+passed the same reference tests but did not improve the overall fit. It was
+reverted. Do not infer that an RTL mux-depth reduction guarantees a faster fit.
+
+Accepted seed-2 corners:
 
 | Corner | Setup slack ns | Hold slack ns |
 | --- | ---: | ---: |
-| Slow 1100mV 100C | -1.838 | 0.364 |
-| Slow 1100mV -40C | -1.678 | 0.306 |
-| Fast 1100mV 100C | 3.102 | 0.183 |
-| Fast 1100mV -40C | 4.159 | 0.142 |
+| Slow 1100mV 100C | +0.113 | +0.362 |
+| Slow 1100mV -40C | +0.018 | +0.304 |
+| Fast 1100mV 100C | +4.309 | +0.180 |
+| Fast 1100mV -40C | +5.168 | +0.159 |
 
-Area: 2,427 ALMs, 2,061 registers, no RAM or DSP blocks. This fails 104 MHz.
-The hot corner is **100C**, correcting the earlier progress message's 85C.
-Summary files and input SHA-256 are in `arm9/single-stage/`. Detailed path
-extraction is pending at this checkpoint: the compile completed but the local
-launcher was edited while waiting and encountered a shell parsing error before
-STA reporting. Re-run reporting on the existing successful fit, not synthesis.
+Worst path: `u_execute|comb~12_OTERM717DUPLICATE` to
+`status_out[6]~reg0` (Z flag), seven logic levels, 9.316 ns data delay at
+Slow 1100mV -40C. The original E path ran through shift, arithmetic, result
+selection and zero detection (11.157 ns, ten levels at Slow 100C). Original
+D shifting was limited by register tag selection/forwarding plus the barrel.
+Node names include Quartus retiming artifacts. Retiming adds no CPU cycles.
 
-The decode-stage alternative is being fitted in
-`dev/mister/ngage-codex-arm9-decode-shift-s2`. It includes E-to-D forwarding,
-all three older registered writers and RF-to-D shift, so it cannot hide a
-shifted-operand dependency behind an unmodeled interlock. An earlier s1 trial
-was canceled after finding a missing W-to-D bypass in the harness; ignore it.
-At most four Quartus containers, counting the other engineers, were allowed.
-No timing split is accepted yet. Do not proceed with a whole-core implementation
-on the assumption that either option closes at 104 MHz.
+**The 18 ps margin is tiny.** Seed 1 missed, so this establishes feasibility
+only, not a robust 104 MHz integrated CPU. Control, additional forwarding ages,
+reset/enable fanout and placement can invalidate it. Do not advertise full-core
+timing closure. Repeat the trial during integration and require milestone 5's
+integrated CPU-only trial before changing the default implementation.
+
+Reproduce the accepted fit from the worktree root:
+
+```
+SEED=2 TRIAL=arm9_execute BUILD_DIR=dev/mister/ngage-codex-arm9-execute-parallel-s2 sim/cpu/quartus/run.sh
+```
+
+Current SystemVerilog was regenerated separately with sv2v and compared
+byte-for-byte with `sim/cpu/build/quartus-arm9-execute-2-104/arm925t_gen.v`, the
+accepted trial input. Evidence directories beside this report under `arm9/`:
+`single-stage`, `decode-shift-shared`, `decode-shift-parallel`,
+`decode-shift-onehot`, `execute-parallel`, `execute-combined`, and
+`execute-retained-seed2`. Each retains fit/STA summaries, the worst-corner full
+path and an input SHA-256. Full generated inputs and logs remain in the ignored
+`sim/cpu/build/quartus-*` directories and isolated server build directories.
+The earlier incomplete D trial missing W bypass was canceled, not counted.
 
 ## Functional cases and remaining risks
 
@@ -115,25 +156,40 @@ needs a separately demonstrated solution. No cache internals were changed.
 
 ## Next session / exact stopping point
 
-At this checkpoint, milestone 1 is committed and the execute portion of
-milestone 2 is implemented/verified; timing experiments are unfinished.
-Milestones 3–5 have not started. There is no `CORE` selector and no fake ARM9
-fallback. Do not change the default until ARM9 itself passes all comparisons.
+**Stopped after milestone 2.** The execute leaf is tested and has a passing
+seed-2 104 MHz fit. The design choice is single E with parallel shifter and
+direct arithmetic N/Z, simple priority forwarding. Milestones 3–5 have not
+started: no fetch/decode/controller, no `CORE` parameter, no ARM9 probe adapter,
+no architectural ARM9 run, no ARM9 cycle test. There is no fake ARM9 fallback.
+Keep ZAP the default until ARM9 itself passes every comparison.
 
-1. Finish both timing reports, identify the worst path, optimize or choose the
-   split based on measured slack. Preserve full input hashes and summary/path
-   evidence; rerun leaf checks after RTL changes.
-2. Resolve the cache-latency discrepancy before fixing a final cycle model.
-   Measure request/ack edge alignment; do not remove RAM hazard-forwarding
-   registers or change tag hit logic casually.
-3. Add a selectable integer core at `zap_top`'s core instance, propagating
-   `arm925t.CORE`, with ZAP default. Reuse the cache/MMU/bus wiring. Implement
-   fetch epoch invalidation, retirement/debug adapter, ARM DP/branch/single
-   transfers and precise exception state. Start with `alu`, `align`, `modes`,
-   `exc`, then add Thumb, sequences, multiply and CP15.
-4. Preserve blocking load completion even though the retained D-cache can ack
-   early: consume its critical-word register-completion event before retiring;
-   distinguish err2/retry from faults, and carry the access's mode and VA.
-5. Continue the complete regression sequence and add `arm9_cycles.S` only with
-   actual cycle-window assertions. Firmware boot/hardware remain someone else's
-   milestone checks.
+Continue in this order:
+
+1. Resolve the cache phase contract before fixing final pipeline control. The
+   retained RAM path is three edges, not two. Initially preserve native phases;
+   measure exact request/ack timing and investigate honest early address launch
+   if needed. Do not remove RAM hazard-forwarding registers or change tag hit
+   logic casually. The requested TRM+1 ceiling is not yet achieved.
+2. Add a selectable integer core at `zap_top`'s core instance, propagating
+   `arm925t.CORE`, with ZAP default. Reuse cache/MMU/bus wiring. Implement fetch
+   epoch invalidation, a retirement/debug adapter, ARM DP/branch/single transfers
+   and precise exceptions. Start with `alu`, `align`, `modes`, `exc`, then add
+   Thumb, sequences, multiply and CP15. The existing core paths are still intact.
+3. Extend producer coverage for the actual pipeline: the leaf's three slots
+   match M1/M2/W; native M1/M2/M3/W and simultaneous load/base writers need more
+   coverage or explicit interlocks. Do not leave an older writer unaccounted for.
+   Flags are selected externally; preserve age and rollback on an older fault.
+4. Make load retirement blocking while keeping D-cache critical-word-first:
+   consume `o_reg_idx/o_reg_dat` before retiring an early-ack miss; distinguish
+   err2/retry from faults and carry the access's own mode, original VA and format.
+5. Add `arm9_cycles.S` and actual retire-window assertions when the core runs.
+   Check each TRM row, source-role dependency and cache wait separately. Existing
+   test binaries and QEMU references remain usable; only new tests need new ones.
+6. Continue the required focused/full/QEMU sequence, lint, generation checks and
+   repeated CPU-only fits. Full CPU 104 MHz timing, ordered firmware boot and
+   physical game measurements remain unverified; the latter two are assigned
+   to the other engineer, not this session.
+
+No build or simulation from this session is left running. Quartus containers
+used `--rm`; the pre-existing shared image and other engineers' jobs were left
+alone. No push was made.

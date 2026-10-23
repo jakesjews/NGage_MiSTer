@@ -37,6 +37,8 @@ module cpu_trial (
     logic [39:0] background_write;
     logic [31:0] decoded_shift;
     logic decoded_carry, decoded_wait;
+    logic unshifted;
+    assign unshifted = !d_immediate && !d_shift_reg && d_shift_type == 0 && d_amount == 0;
     wire unused = &{1'b0, control[191:185], control[175:166], control[159:153]};
 
     assign background_write = control[184] ? (40'b1 << control[183:178]) : 40'b0;
@@ -84,7 +86,9 @@ module cpu_trial (
     arm9_execute #(.PRE_SHIFTED(SPLIT_SHIFT)) u_execute (
         .i_valid(d_valid), .i_condition(d_condition), .i_op(d_op),
         .i_set_flags(d_s), .i_flags(flags_q), .i_value(d_value),
-        .i_tag(d_tag), .i_used(d_used & (SPLIT_SHIFT ? 4'b1001 : 4'b1111)), .i_write_value(write_value),
+        .i_tag(d_tag),
+        .i_used(d_used & (SPLIT_SHIFT ? {2'b10, unshifted, 1'b1} : 4'b1111)),
+        .i_write_value(write_value),
         .i_write_tag(write_tag), .i_write_valid(write_valid),
         .i_write_ready({control[177:176], 1'b1}),
         .i_shift_type(d_shift_type), .i_shift_amount(d_amount),
