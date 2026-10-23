@@ -386,7 +386,7 @@ combined seeds; the acceptance minimum includes shifter output and issue
 pending capture, including the new copy's D path. Induction on the actual issue module proves both copies equal their
 original pending bits after reset, for arbitrary inputs, clears and holds.
 The full suite and QEMU diff retain all counts; both lint modes and generated
-checks pass. Timing fits have not run yet.
+checks pass. Paired timing results are recorded below.
 
 **Direct TLB permission summary (`tlbsummary`):** compute each domain's
 one-bit permission outcome before the domain selection, then register the
@@ -398,7 +398,7 @@ unchanged. HUM's registered permission uses the same new summary. All 149
 actual-module equivalence points prove in both MMU-off cacheability configurations, and all 225 counts / 57 QEMU
 comparisons remain identical. Its pre-fit acceptance family includes both
 all D-TLB fault/permission-register inputs and the outgoing fault summary;
-I-TLB inputs and outputs are companion queries. Fits are pending.
+I-TLB inputs and outputs are companion queries. Paired results are recorded below.
 
 **LSL-zero summary before translation (`lslzero`):** compare the decoder's
 raw shift length with immediate zero before register-bank translation.
@@ -529,6 +529,23 @@ modes, generation and generated-file checks pass. The pre-fit acceptance
 query includes every registered merger input, including owner, control,
 address and speculative data captures. It is prepared, not retained or
 fitted; the current combined build takes priority.
+
+**Prediction-payload enables (`preenable`):** the first `combined2` seed's
+worst path is registered D-cache early hit through global stall/clear into
+predecode's predicted PC, at −0.812 ns. Extract the predicted PC, redirect PC
+and RAS pointer into a separate sequential block with their direct enable.
+An update already requires no stall, so the ALU and decode clear predicates
+need no additional stall qualification. These payloads retain their exact
+hold-on-clear behavior; valid/control outputs retain their original clears.
+There is no new register, mux source, prediction, pipeline edge or cycle.
+
+Actual-module equivalence proves all 1,252 points for the configured
+predecode; all 225 counts and 57 QEMU comparisons agree, with both lint
+modes and generated checks passing. The acceptance family includes all
+inputs to the three changed payload registers. The candidate is based on
+`combined2` and is prepared only. The older bus-comparison candidate is
+also rebased onto `combined2` as `buscompare3`; its UPP module bytes exactly
+match the previously proved candidate, and its CPU counts remain unchanged.
 
 ## Scope and risks
 
