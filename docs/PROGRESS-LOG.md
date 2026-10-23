@@ -3203,3 +3203,20 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the trial.
 - The full CPU suite on master (the ZAP tree with the first timing round,
   a801120's tree): 198 runs pass, 52 QEMU comparisons agree (the Mac).
+- **Codex's timing round 2** (codex/timing2 4931516: the shifter's stall
+  fan-out shortened without adding cycles): all 27 baseline runs keep
+  identical cycle and instruction counts, 198 runs pass, 52 QEMU agree;
+  the CPU alone -0.398 -> +0.196 ns at slow 100C, the targeted families
+  out of the worst ten. Merged into master; the whole core builds on the
+  Mac (b12), the server's lanes being the ARM9 fits.
+- **ARM9 session 7** (the resumed thread; 9fef0be, 3355340, f238f14,
+  0e4601f): the two-edge cache hits launched with the TLB and branches
+  refilled in four clocks; the BTB reused from zap_btb with registered
+  launch addresses and decisions, validated in E, the ARM9_PREDICTOR
+  option on by default; block transfers streamed from E and multiplies in
+  their slot (2+m, long 3+m); registered ARM fetch responses bypassed to
+  D. **ARM9 beats ZAP on all seven workloads at all three latencies**:
+  cache 639,745 / 764,132 / 1,097,644 (ZAP 760,787 / 888,787 /
+  1,222,550), ctrand1 69,278 (72,594), crand1 70,348 (73,608); 234 runs,
+  63 QEMU, 85 windows, the predictor on and off. The integrated fits of
+  both cores are running (the slack and area gate).
