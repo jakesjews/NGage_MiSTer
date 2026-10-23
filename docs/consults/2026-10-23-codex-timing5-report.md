@@ -431,6 +431,35 @@ checks pass. The acceptance family includes all paths into FIFO flags and
 read/write pointers, so shortening flags at a pointer's expense cannot hide
 in the comparison. Supplemental baseline queries precede the paired trial.
 
+**Shared barrel (`sharedshift`):** a separate candidate from the dropped
+rotate-only rewrite uses one five-level right barrel for LSL, LSR, ASR and
+ROR. Bit reversal handles LSL; zero, sign or repeated-source fill supplies
+the upper word. The original results/carry for zero, exactly 32, larger
+amounts and rotate multiples of 32 are preserved. RRX and saturating shift
+remain unchanged. Actual-module equivalence proves all 35 comparison points
+for every operation, source, carry and 8-bit amount. The full suite, 57 QEMU
+comparisons, both lint modes and generated checks pass with all counts
+unchanged. Its target remains the complete shifter-output family; no fit or
+retention is claimed yet.
+
+**Saved special-register picks (`staticpick`):** capture nine classification
+bits with the existing issue skid indices: PC, zero and CPSR for each of
+ALU source, shift source and shift length. The late slot selector chooses
+these classifications instead of placing a selected-index equality compare
+before forwarding priority. Live operands are classified before selection;
+store forwarding retains its existing per-slot combinational classification.
+Immediate priority, dynamic producer matching, youngest-writer priority,
+PC alignment, register-file capture and all operand clock enables are
+unchanged. No pipeline edge is added.
+
+Induction on the actual issue module proves the saved/selected classification
+identity after reset, including holds and clears. Under that separately
+proved identity, all 4,045 actual-module equivalence points prove. All 225
+counts and 57 QEMU comparisons agree; main/debug lint and generated checks
+pass. The pre-fit acceptance minimum includes normal operand captures,
+inputs to the new saved classification registers, and issue interlock
+feedback. Paired fits are pending.
+
 The card owner's merged change is integrated unchanged in `e0c34d0`.
 The CPU suite, all cycle/instruction counts, 57 QEMU comparisons, both lint
 modes and generated checks pass again after integration. Candidate pairs
