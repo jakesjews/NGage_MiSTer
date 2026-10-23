@@ -3439,3 +3439,61 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   buffer 72, the on-chip RAM 64. A 32 KB I-cache costs about 20 more, a
   32 KB D-cache about 36: both fit by count (526), with the placement the
   unknown.
+- **b15 in play** (the debug slot; the three-game replay, ten shots
+  each): Sonic 13-18 frames/s at 27.7-29.3 M instructions/s, CPI
+  3.5-3.8; Asphalt 12-13 at 29.1-29.8, CPI 3.5-3.6; Tony Hawk 9-14 at
+  27.5-29.9, CPI 3.5-3.8; SDRAM wait 20-24 %, flash 1.3-2.3 %. The same
+  as the flash-fetch build within 1 %: the stall session's 5.5 % on
+  compiled code does not show in play, so the games' remaining clocks
+  are not in the interlocks and flushes it cut; the memory side is where
+  they are. (The replay's filter lost the stall rows again; the next
+  runs keep them.)
+- **Antigravity's I-cache prefetch merged** (agy/iprefetch 5e50f59,
+  merged ede13fe, on Claude Opus 5.5 after the Gemini filter cut its
+  first run): a one-line buffer filled with the next line, within the
+  same 1 KB (no new translation), when a fill completes and the bus is
+  free; a demand miss on that line adopts the burst, a miss elsewhere
+  waits for it; dropped by the I-cache invalidates and cleans, cache
+  off, TLB invalidates, the D-side cache operations and any change of
+  the MMU controls; a one-cycle tag copy per way (+2 M10K) keeps it from
+  fetching lines already cached; the demand tag RAM and its compare are
+  untouched. ICACHE_PREFETCH=0 is cycle-identical to before on all 198
+  runs (the accuracy build); ICACHE_SIZE=32768 works (1,024 sets,
+  VA[13:4]; +16 M10K) through the NGAGE_ICACHE_32K macro in NGage.qsf,
+  NGAGE_ICACHE_NO_PREFETCH beside it. A bug found on the way: a fill
+  started in the cycle after FILL_COMPLETE inherited the previous line's
+  valid mask (fill_valid cleared only on IDLE -> IDLE); now cleared on
+  every entry to IDLE. The gain in simulation is small (the suite
+  -0.14 %, crand1 -0.4 %, ctrand1 -0.2 %): sequential misses were
+  already back to back through the FIFO; the prefetch's case is the
+  FIFO-full, issue-stalled time the board shows half of the time, so
+  the board decides. Report docs/consults/2026-10-23-agy-iprefetch-
+  report.md. Verified here on its base and on the merged tree (36 runs,
+  52 QEMU, lint). Then Quartus refused the netlist: input ports with
+  default values (`input logic x = 1'd0`) come out of sv2v as `input
+  reg`, which Quartus 17 rejects; the six ports lost their defaults and
+  the D-cache's tag RAM and the restart bench connect them (8883ce2).
+  Merged-tree cycles: cache 789,360, ctrand1 72,874 (73,043 before),
+  iprefetch_rtl 73,031.
+- **Codex's first-boot work merged** (codex/firstboot a3f053e, c43dd67;
+  merged 51fa235): while CS1's C: area is blank, its sector erases
+  complete at once and its word programs have no emulated delay; the
+  first non-FF write there ends the fast window and the timed behaviour
+  returns. Blankness is now a scan of the loaded C: image for any non-FF
+  word (ddram_flash), latched off on the first non-FF chip write, never
+  re-armed by erases or reset, re-armed by loading an image; the model
+  mirrors it. Boot indicators: info message 7 "Booting the phone - about
+  a minute..." at the CPU's reset release and 8 "Phone kernel is up" at
+  the first LCD frame with the panel on (info events queued so none is
+  lost), and an activity dot (a 6x6 green square at panel x 164-169,
+  y 4-9, lit for 125 ms after any CPU bus beat) with the new option
+  "Activity dot: Boot only / Always / Off" (O[17:16], default Boot
+  only; every earlier option keeps its bits). Benches: flash, ddrflash
+  (new blank-window cases), top (159 M clocks), lint. Report
+  docs/consults/2026-10-23-codex-firstboot-report.md. Board trial of a
+  first boot from the blank CS1 image still to do (expected: the Time
+  and Date dialogs near the warm boot's 60-75 s instead of minutes).
+- Builds from this tree (master 8883ce2): b16 on the server (seed 1,
+  16 KB I-cache with the prefetch, plus the first-boot change) and
+  b16-32k on the Mac (the 32 KB I-cache), both to be measured in play
+  against b15.
