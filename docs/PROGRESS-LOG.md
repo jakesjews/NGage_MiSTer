@@ -3876,3 +3876,8 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   Seed 4 on the Mac still building. Seed 3's rbf
   (build/hardware/NGage-nd-s3.rbf) is the main-slot candidate once it
   has had a boot and a game on the board.
+- Seed 4 of the main core (the Mac): -1.074 ns, 35,513 ALMs; its
+  families the issue stage's skid and late stall (-1.07, -0.95), the
+  D-cache state into the merger's address (-0.99), the ALU's flags and
+  the issue stage's destination index into predecode (-0.99, -0.91).
+  Four seeds: -1.152, -1.285, -0.861, -1.074. Seeds 5 and 6 running.
