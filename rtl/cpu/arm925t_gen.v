@@ -1000,27 +1000,12 @@ module arm9_core (
 	assign cpsr = o_dbg_wb_cpsr;
 	assign pc8 = pc + (cpsr[5] ? 32'd4 : 32'd8);
 	assign vector_base = (hivecs ? 32'hffff0000 : 32'd0);
-	assign d_ins = translated[31:0];
+	assign d_ins = (sequence_active ? ins : translated[31:0]);
 	wire [31:0] f_pc;
 	assign d_pc = (sequence_active ? pc : f_pc);
 	assign d_pc8 = d_pc + (cpsr[5] ? 32'd4 : 32'd8);
 	wire [31:0] f_instruction;
 	assign d_raw = (sequence_active ? raw_ins : f_instruction);
-	zap_mode16_decoder #(.V4T(1'b1)) u_thumb(
-		.i_instruction(d_raw),
-		.i_instruction_valid(1'b1),
-		.i_offset(11'd0),
-		.i_prev_prefix(1'b0),
-		.i_irq(1'b0),
-		.i_fiq(1'b0),
-		.i_cpsr_ff_t(cpsr[5]),
-		.o_instruction(translated),
-		.o_instruction_valid(),
-		.o_und(thumb_und),
-		.o_force32_align(thumb_align),
-		.o_irq(),
-		.o_fiq()
-	);
 	function automatic [31:0] fcse;
 		input [31:0] address;
 		fcse = (address[31:25] == 0 ? {o_pid[6:0], address[24:0]} : address);
@@ -1096,7 +1081,7 @@ module arm9_core (
 			kind_d = 4'd10;
 		if (cpsr[5] && (d_raw[15:11] == 5'b11111))
 			kind_d = 4'd11;
-		if ((((!cpsr[5] && (d_ins[31:28] == 4'hf)) || ((((kind_d == 4'd5) && (d_ins[27:26] == 0)) && !d_ins[20]) && d_ins[6])) || (cpsr[5] && (d_raw[15:11] == 5'b11101))) || thumb_und)
+		if ((((!cpsr[5] && (d_ins[31:28] == 4'hf)) || ((((kind_d == 4'd5) && (d_ins[27:26] == 0)) && !d_ins[20]) && d_ins[6])) || (cpsr[5] && (d_raw[15:11] == 5'b11101))) || (!sequence_active && thumb_und))
 			kind_d = 4'd8;
 		list_d = (sequence_active ? remaining : d_ins[15:0]);
 		if ((kind_d == 4'd6) && (list_d == 0))
@@ -1151,7 +1136,7 @@ module arm9_core (
 			if (read_tag[6+:6] == PHY_PC)
 				value_d[32+:32] = d_pc8 + 4;
 		end
-		if (thumb_align && (read_tag[0+:6] == PHY_PC))
+		if ((!sequence_active && thumb_align) && (read_tag[0+:6] == PHY_PC))
 			value_d[1-:2] = 0;
 		immediate_d = d_ins[25] && ((kind_d == 4'd0) || (kind_d == 4'd2));
 		immediate_carry_d = cpsr[29];
@@ -1289,7 +1274,10 @@ module arm9_core (
 		.o_pc(f_pc),
 		.o_instruction(f_instruction),
 		.o_abort(f_abort),
-		.i_ready(f_ready)
+		.i_ready(f_ready),
+		.o_decoded(translated),
+		.o_thumb_und(thumb_und),
+		.o_thumb_align(thumb_align)
 	);
 	assign o_instr_wb_adr_nxt = fcse(f_address_nxt);
 	assign o_instr_wb_adr_check = fcse(f_address_check);
@@ -1976,6 +1964,9 @@ module arm9_fetch (
 	o_pc,
 	o_instruction,
 	o_abort,
+	o_decoded,
+	o_thumb_und,
+	o_thumb_align,
 	i_ready
 );
 	parameter [31:0] RESET_VECTOR = 0;
@@ -2000,11 +1991,14 @@ module arm9_fetch (
 	output wire [31:0] o_pc;
 	output wire [31:0] o_instruction;
 	output wire o_abort;
+	output wire [34:0] o_decoded;
+	output wire o_thumb_und;
+	output wire o_thumb_align;
 	input wire i_ready;
 	reg [35:0] f1;
 	reg [35:0] f2;
 	reg [35:0] f3;
-	reg [67:0] queue [0:7];
+	reg [104:0] queue [0:7];
 	reg [2:0] head;
 	reg [2:0] tail;
 	reg [3:0] count;
@@ -2017,6 +2011,26 @@ module arm9_fetch (
 	wire push;
 	wire pop;
 	wire retry;
+	wire [31:0] incoming;
+	wire [34:0] decoded;
+	wire thumb_und;
+	wire thumb_align;
+	assign incoming = (f3[32] && f3[1] ? {16'd0, i_data[31:16]} : i_data);
+	zap_mode16_decoder #(.V4T(1'b1)) u_thumb(
+		.i_instruction(incoming),
+		.i_instruction_valid(1'b1),
+		.i_offset(11'd0),
+		.i_prev_prefix(1'b0),
+		.i_irq(1'b0),
+		.i_fiq(1'b0),
+		.i_cpsr_ff_t(f3[32]),
+		.o_instruction(decoded),
+		.o_instruction_valid(),
+		.o_und(thumb_und),
+		.o_force32_align(thumb_align),
+		.o_irq(),
+		.o_fiq()
+	);
 	assign o_address_nxt = launch_pc;
 	assign o_address_check = f2[31-:32];
 	assign o_address = f3[31-:32];
@@ -2024,10 +2038,13 @@ module arm9_fetch (
 	assign o_stall = ((count == 8) && !killed) || (f3[35] && !i_ack);
 	assign retry = (((f3[35] && i_ack) && i_retry) && !killed) && !i_redirect;
 	assign push = (((((f3[35] && i_ack) && !i_retry) && !o_stall) && !killed) && !i_redirect) && (f3[34-:2] == epoch);
-	assign o_valid = (((count != 0) && !queue[head][64]) && (queue[head][67-:2] == epoch)) && !i_redirect;
+	assign o_valid = (((count != 0) && !queue[head][101]) && (queue[head][104-:2] == epoch)) && !i_redirect;
 	assign o_pc = queue[head][63-:32];
 	assign o_instruction = queue[head][31-:32];
-	assign o_abort = queue[head][65];
+	assign o_abort = queue[head][102];
+	assign o_decoded = queue[head][100-:35];
+	assign o_thumb_und = queue[head][65];
+	assign o_thumb_align = queue[head][64];
 	assign pop = o_valid && i_ready;
 	always @(posedge i_clk)
 		if (i_reset) begin
@@ -2053,17 +2070,20 @@ module arm9_fetch (
 			if (i_fill_done) begin : sv2v_autoblock_2
 				reg signed [31:0] n;
 				for (n = 0; n < 8; n = n + 1)
-					if (queue[n][64]) begin
-						queue[n][64] <= 0;
-						queue[n][65] <= queue[n][65] || i_fill_fault;
+					if (queue[n][101]) begin
+						queue[n][101] <= 0;
+						queue[n][102] <= queue[n][102] || i_fill_fault;
 					end
 			end
 			if (push) begin
-				queue[tail][67-:2] <= f3[34-:2];
+				queue[tail][104-:2] <= f3[34-:2];
 				queue[tail][63-:32] <= f3[31-:32];
-				queue[tail][31-:32] <= (f3[32] && f3[1] ? {16'd0, i_data[31:16]} : i_data);
-				queue[tail][65] <= i_error || (i_fill_pending && i_fill_fault);
-				queue[tail][64] <= i_fill_pending && !i_fill_done;
+				queue[tail][31-:32] <= incoming;
+				queue[tail][100-:35] <= decoded;
+				queue[tail][65] <= thumb_und;
+				queue[tail][64] <= thumb_align;
+				queue[tail][102] <= i_error || (i_fill_pending && i_fill_fault);
+				queue[tail][101] <= i_fill_pending && !i_fill_done;
 				tail <= tail + 1'b1;
 			end
 			if (pop)

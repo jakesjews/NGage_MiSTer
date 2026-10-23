@@ -322,7 +322,10 @@ Milestone status and exact results are in
 `docs/consults/arm9/session1-baseline.json`. No ARM9 speedup is claimed until an
 ARM9 architectural run exists.
 
-## Session 2: implemented bring-up schedule
+## Session 2: historical bring-up schedule
+
+This section describes the prior checkpoint. The session-3 section below
+supersedes its serial fetch/DP schedule.
 
 `arm925t.CORE` selects `ZAP` (default) or `ARM9` at the integer-core instance
 inside `zap_top`. Cache, MMU and merger wiring is shared. Use `make -C sim/cpu
@@ -409,6 +412,16 @@ more expensive than the target producer scoreboard. Loads still have separate
 base/data destinations and preserve the original completion-capture monitor.
 No forwarding from an unready load is claimed. The stage registers and early
 branch redirects are real; full memory-stage overlap remains unfinished.
+
+The first integrated fit after overlap exposed a -3.753 ns path through live
+Thumb translation and D operand selection. Thumb translation, its undefined
+flag and PC-alignment hint are now captured in the existing fetch queue, before
+D reads operands. This adds no stage and leaves every measured cycle unchanged.
+The queue also retains the raw encoding for the independent Thumb BL halves.
+A continued LDM decodes its held instruction and ignores the younger queue
+head's undefined/alignment bits. `arm9_queue.S` tests this exact boundary;
+removing that gate in a scratch netlist fails the test at all three latencies.
+
 
 The fetch unit pipelines three RAM edges with matching PC/Thumb/epoch records,
 then queues eight entries. Each entry waits for any provisional fill to finish.

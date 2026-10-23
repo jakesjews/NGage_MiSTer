@@ -1,0 +1,58 @@
+Session 3 verification at e47c566 (generated netlist SHA-256 35d347672305a56d62cab8bd7d9c1b25e0491721b6ac090fb17f2311b5491b47).
+
+ARM9 focused, diff, full, diff:
+RTL (gen): 30 passed, 0 failed
+RTL vs QEMU: 54 agree, 0 differ
+RTL (gen): 204 passed, 0 failed
+RTL vs QEMU: 54 agree, 0 differ
+
+ZAP focused including new test:
+RTL (gen): 30 passed, 0 failed
+
+ZAP final new-test reference check:
+RTL (gen): 3 passed, 0 failed
+RTL vs QEMU: 1 agree, 0 differ
+
+ZAP final diff, full, diff, lint, generation:
+RTL vs QEMU: 54 agree, 0 differ
+RTL (gen): 204 passed, 0 failed
+RTL vs QEMU: 54 agree, 0 differ
+rtl/cpu/arm925t_gen.v is current
+
+ARM9 source smoke and reference comparisons:
+RTL (sv): 27 passed, 0 failed
+RTL vs QEMU: 9 agree, 0 differ
+
+Execute reference checks:
+ARM9 execute PRE_SHIFTED=0: 145568 checks passed
+ARM9 execute PRE_SHIFTED=1: 145568 checks passed
+ARM9 execute PRE_SHIFTED=0: 145568 checks passed
+ARM9 execute PRE_SHIFTED=1: 145568 checks passed
+
+Bad expected-cycle negative test:
+ERROR: cycle window dp: 9 != 10
+ERROR: cycle window dp: 9 != 10
+BENCH ERROR (2 errors)
+
+Top-level lint: pass, all configured module tops (-Wall, warnings are errors).
+Source ARM9 lint: pass with legacy ZAP warnings, old wrapper trace ports, and the queue abort field C++-name style warning waived.
+Both final generated suites: 204 runs; 54 QEMU signature/trace comparisons.
+New test only: arm9_cycles binary/reference assembled and generated. Existing binaries/references reused.
+No firmware boot, sys/ changes, push, branch switch or full-system fit.
+
+Thumb translation queue refinement (a324e98c0239281a3b6c1f0069897908bb34cc1add08ec6237c9af36542b0ea6):
+ARM9 source final:
+RTL (sv): 30 passed, 0 failed
+RTL vs QEMU: 10 agree, 0 differ
+ARM9 queued undefined test:
+RTL (gen): 3 passed, 0 failed
+RTL vs QEMU: 1 agree, 0 differ
+ZAP queued undefined test:
+RTL (gen): 3 passed, 0 failed
+RTL vs QEMU: 1 agree, 0 differ
+Queued metadata negative test:
+arm9_queue (lat 0:0): FAIL result 0xbad00007 (check 7) at cycle 791
+arm9_queue (lat 0:3): FAIL result 0xbad00007 (check 7) at cycle 966
+arm9_queue (lat 2:9): FAIL result 0xbad00007 (check 7) at cycle 1507
+RTL (gen): 0 passed, 3 failed: arm9_queue@0:0 arm9_queue@0:3 arm9_queue@2:9
+All nine focused cycle/instruction records are byte-for-byte equal to session3-overlap.json after the translation move.

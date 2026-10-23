@@ -17,6 +17,8 @@ module arm9_fetch #(
     output logic o_valid,
     output logic [31:0] o_pc, o_instruction,
     output logic o_abort,
+    output logic [34:0] o_decoded,
+    output logic o_thumb_und, o_thumb_align,
     input logic i_ready
 );
     typedef struct packed {
@@ -27,8 +29,10 @@ module arm9_fetch #(
     } lookup_t;
     typedef struct packed {
         logic [1:0] epoch;
-        logic abort;
+        logic fault;
         logic pending;
+        logic [34:0] decoded;
+        logic thumb_und, thumb_align;
         logic [31:0] pc, instruction;
     } entry_t;
     lookup_t f1, f2, f3;
@@ -39,6 +43,18 @@ module arm9_fetch #(
     logic launch_thumb, target_thumb, killed;
     logic [1:0] epoch;
     logic push, pop, retry;
+    logic [31:0] incoming;
+    logic [34:0] decoded;
+    logic thumb_und, thumb_align;
+    assign incoming = f3.thumb && f3.pc[1] ? {16'd0,i_data[31:16]} : i_data;
+    // Translate before the existing FIFO register. This moves the Thumb
+    // decode off the D register-read/forwarding cone without adding a stage.
+    zap_mode16_decoder #(.V4T(1'b1)) u_thumb (
+        .i_instruction(incoming), .i_instruction_valid(1'b1), .i_offset(11'd0),
+        .i_prev_prefix(1'b0), .i_irq(1'b0), .i_fiq(1'b0), .i_cpsr_ff_t(f3.thumb),
+        .o_instruction(decoded), .o_instruction_valid(), .o_und(thumb_und),
+        .o_force32_align(thumb_align), .o_irq(), .o_fiq()
+    );
 
     assign o_address_nxt = launch_pc;
     assign o_address_check = f2.pc;
@@ -54,7 +70,10 @@ module arm9_fetch #(
                      queue[head].epoch == epoch && !i_redirect;
     assign o_pc = queue[head].pc;
     assign o_instruction = queue[head].instruction;
-    assign o_abort = queue[head].abort;
+    assign o_abort = queue[head].fault;
+    assign o_decoded = queue[head].decoded;
+    assign o_thumb_und = queue[head].thumb_und;
+    assign o_thumb_align = queue[head].thumb_align;
     assign pop = o_valid && i_ready;
 
     always_ff @(posedge i_clk) begin
@@ -71,16 +90,18 @@ module arm9_fetch #(
                 for (int n=0; n<8; n++) begin
                     if (queue[n].pending) begin
                         queue[n].pending <= 0;
-                        queue[n].abort <= queue[n].abort || i_fill_fault;
+                        queue[n].fault <= queue[n].fault || i_fill_fault;
                     end
                 end
             end
             if (push) begin
                 queue[tail].epoch <= f3.epoch;
                 queue[tail].pc <= f3.pc;
-                queue[tail].instruction <= f3.thumb && f3.pc[1] ?
-                                          {16'd0,i_data[31:16]} : i_data;
-                queue[tail].abort <= i_error || (i_fill_pending && i_fill_fault);
+                queue[tail].instruction <= incoming;
+                queue[tail].decoded <= decoded;
+                queue[tail].thumb_und <= thumb_und;
+                queue[tail].thumb_align <= thumb_align;
+                queue[tail].fault <= i_error || (i_fill_pending && i_fill_fault);
                 queue[tail].pending <= i_fill_pending && !i_fill_done;
                 tail <= tail + 1'b1;
             end

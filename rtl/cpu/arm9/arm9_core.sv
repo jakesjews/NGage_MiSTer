@@ -282,18 +282,12 @@ wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, transla
 assign cpsr = o_dbg_wb_cpsr;
 assign pc8 = pc + (cpsr[5] ? 32'd4 : 32'd8);
 assign vector_base = hivecs ? 32'hffff0000 : 32'd0;
-assign d_ins = translated[31:0];
+assign d_ins = sequence_active ? ins : translated[31:0];
 assign d_pc = sequence_active ? pc : f_pc;
 assign d_pc8 = d_pc + (cpsr[5] ? 32'd4 : 32'd8);
 assign d_raw = sequence_active ? raw_ins : f_instruction;
-// BL halves are decoded below from the original Thumb encoding; do not fold
-// them together. Each half remains an interruptible architectural instruction.
-zap_mode16_decoder #(.V4T(1'b1)) u_thumb (
-    .i_instruction(d_raw), .i_instruction_valid(1'b1), .i_offset(11'd0),
-    .i_prev_prefix(1'b0), .i_irq(1'b0), .i_fiq(1'b0), .i_cpsr_ff_t(cpsr[5]),
-    .o_instruction(translated), .o_instruction_valid(), .o_und(thumb_und),
-    .o_force32_align(thumb_align), .o_irq(), .o_fiq()
-);
+// Thumb translation is registered in the fetch queue. BL halves still use
+// the original encoding and remain separate, interruptible instructions.
 
 function automatic [31:0] fcse(input [31:0] address);
     return address[31:25] == 0 ? {o_pid[6:0], address[24:0]} : address;
@@ -332,7 +326,7 @@ always_comb begin
     // ARMv4T treats condition NV and ARMv5 doubleword transfers as undefined.
     if ((!cpsr[5] && d_ins[31:28] == 4'hf) ||
         (kind_d == K_MEM && d_ins[27:26] == 0 && !d_ins[20] && d_ins[6]) ||
-        (cpsr[5] && d_raw[15:11] == 5'b11101) || thumb_und)
+        (cpsr[5] && d_raw[15:11] == 5'b11101) || (!sequence_active && thumb_und))
         kind_d = K_UND;
 
     list_d = sequence_active ? remaining : d_ins[15:0];
@@ -375,7 +369,7 @@ always_comb begin
         if (read_tag[0] == PHY_PC) value_d[0] = d_pc8 + 4;
         if (read_tag[1] == PHY_PC) value_d[1] = d_pc8 + 4;
     end
-    if (thumb_align && read_tag[0] == PHY_PC) value_d[0][1:0] = 0;
+    if (!sequence_active && thumb_align && read_tag[0] == PHY_PC) value_d[0][1:0] = 0;
     immediate_d = d_ins[25] && (kind_d == K_DP || kind_d == K_MSR);
     immediate_carry_d = cpsr[29];
     if (immediate_d) begin
@@ -500,7 +494,8 @@ arm9_fetch #(.RESET_VECTOR(RESET_VECTOR)) u_fetch (
     .o_address_check(f_address_check), .o_address(f_address),
     .o_request(o_instr_wb_stb), .o_stall(o_code_stall),
     .o_valid(f_valid), .o_pc(f_pc), .o_instruction(f_instruction),
-    .o_abort(f_abort), .i_ready(f_ready)
+    .o_abort(f_abort), .i_ready(f_ready), .o_decoded(translated),
+    .o_thumb_und(thumb_und), .o_thumb_align(thumb_align)
 );
 assign o_instr_wb_adr_nxt = fcse(f_address_nxt);
 assign o_instr_wb_adr_check = fcse(f_address_check);
