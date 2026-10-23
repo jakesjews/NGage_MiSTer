@@ -4139,3 +4139,13 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   option's file. The debug launchers on the MiSTer are now the Phoenix
   form (tools: scratch gen-dbg-launchers.sh); the main slot still runs
   seed 18, the pre-loader core.
+- Main-core builds of the loader tree (8194b05, NGAGE_NO_DEBUG): seed
+  18 -1.260 ns (the D-cache tag RAM family on top), seed 9 -0.671 (the
+  MMU enable into the merger, the late memory index into the fetch
+  FIFO); 35.5-35.6 K ALMs. The loader moved the placement (seed 18 was
+  -0.43 on the tree before it); timing is paused. Seed 9's rbf
+  (build/hardware/NGage-ndp-s9.rbf) is the main-slot candidate once the
+  re-send hardening is in, with the user's launchers rewritten to the
+  Phoenix form (F1 RH2946.0C1, F2 RH2946.0S5, S1 the save: the 8 MB
+  rh29-460-cs1-save.bin is accepted, its C: half kept) and the boot-file
+  names added; until then the main slot keeps seed 18.
