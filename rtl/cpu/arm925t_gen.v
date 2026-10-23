@@ -9161,7 +9161,7 @@ module zap_dcache_fsm (
 	(* dont_retime *) reg hum_slot_ff;
 	wire cpu_wait;
 	wire hum_ack;
-	reg idle_ack;
+	wire idle_ack;
 	wire hum_slot_nxt;
 	assign cpu_wait = (i_rd || i_wr) && !o_ack;
 	always @(*) begin
@@ -9210,6 +9210,7 @@ module zap_dcache_fsm (
 		end
 	assign hum_slot_nxt = (((state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE]) || state_nxt[UNLOCK_WR]) && lookup_ready_nxt) && line_safe_nxt;
 	assign hum_ack = (((hum_slot_ff && i_hit_ok) && i_cache_en) && !i_align_fault) && i_cache_hit_early;
+	assign idle_ack = state_ff[UNC_DONE] || (state_ff[IDLE] && ((((!(i_rd || i_wr) || i_align_fault) || i_fault) || i_busy) || ((i_cache_en && i_cacheable) && !(i_wr && i_wt))));
 	assign o_ack = idle_ack || hum_ack;
 	always @(posedge i_clk)
 		if (i_reset)
@@ -9290,7 +9291,6 @@ module zap_dcache_fsm (
 		o_cache_inv_done = 0;
 		o_cache_clean_done = 0;
 		o_hold = 1'd0;
-		idle_ack = 1'b0;
 		o_err = 0;
 		o_err2 = 0;
 		if (state_ff[UNC_DONE])
@@ -9301,7 +9301,6 @@ module zap_dcache_fsm (
 			state_ff[IDLE]: begin
 				kill_bus_payload;
 				if (!i_rd && !i_wr) begin
-					idle_ack = 1'd1;
 					if (i_cache_inv) begin
 						state_nxt[IDLE] = 1'd0;
 						state_nxt[INVALIDATE] = 1'd1;
@@ -9317,26 +9316,21 @@ module zap_dcache_fsm (
 				end
 				else if (i_align_fault) begin
 					o_err = 1'd1;
-					idle_ack = 1'd1;
 					o_fsr = 8'b00000001;
 					o_far = i_va;
 				end
 				else if (i_fault) begin
 					o_err = 1'd1;
-					idle_ack = 1'd1;
 					o_fsr = i_fsr;
 					o_far = i_far;
 				end
-				else if (i_busy) begin
+				else if (i_busy)
 					o_err2 = 1'd1;
-					idle_ack = 1'd1;
-				end
 				else if (i_rd || i_wr) begin
 					if (!i_cache_en) begin
 						o_hold = 1'd1;
 						state_nxt[IDLE] = 1'd0;
 						state_nxt[UNCACHEABLE] = 1'd1;
-						idle_ack = 1'd0;
 						o_wb_adr_nxt = i_phy_addr;
 						o_wb_wen_nxt = i_wr;
 						o_wb_cti_nxt = CTI_EOB;
@@ -9349,18 +9343,16 @@ module zap_dcache_fsm (
 					else if ((i_cacheable && i_wr) && i_wt) begin
 						state_nxt[IDLE] = 1'd0;
 						state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
-						idle_ack = 1'd0;
 						o_hold = 1'd1;
 					end
 					else if (i_cacheable)
 						casez ({i_cache_hit, i_cache_tag_valid})
 							2'b1z:
 								if (i_rd)
-									idle_ack = 1'd1;
+									;
 								else if (i_wr)
-									idle_ack = 1'd1;
+									;
 							2'b01: begin
-								idle_ack = 1'd1;
 								if (i_rd)
 									lock_nxt[i_reg_idx_bin] = 1'd1;
 								if (cache_dirty) begin
@@ -9375,7 +9367,6 @@ module zap_dcache_fsm (
 								end
 							end
 							default: begin
-								idle_ack = 1'd1;
 								adr_ctr_nxt = 0;
 								state_nxt[IDLE] = 1'd0;
 								state_nxt[FETCH_SINGLE] = 1'd1;
@@ -9386,13 +9377,11 @@ module zap_dcache_fsm (
 					else begin
 						state_nxt[IDLE] = 1'd0;
 						state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
-						idle_ack = 1'd0;
 						o_hold = 1'd1;
 					end
 				end
 			end
 			state_ff[UNCACHEABLE_PREPARE]: begin
-				idle_ack = 1'd0;
 				o_hold = 1'd1;
 				state_nxt[UNCACHEABLE_PREPARE] = 1'd0;
 				state_nxt[UNCACHEABLE] = 1'd1;
@@ -9406,7 +9395,6 @@ module zap_dcache_fsm (
 					o_wb_sel_nxt = i_ben;
 			end
 			state_ff[UNCACHEABLE]: begin
-				idle_ack = 1'd0;
 				o_hold = 1'd1;
 				if (i_wb_ack | i_wb_err) begin
 					state_nxt[UNCACHEABLE] = 1'd0;
@@ -9415,7 +9403,6 @@ module zap_dcache_fsm (
 				end
 			end
 			state_ff[UNC_DONE]: begin
-				idle_ack = 1'd1;
 				o_hold = 1'd0;
 				state_nxt[UNC_DONE] = 1'd0;
 				state_nxt[IDLE] = 1'd1;
@@ -9528,7 +9515,6 @@ module zap_dcache_fsm (
 				o_cache_inv_done = 1'sbx;
 				o_cache_clean_done = 1'sbx;
 				o_hold = 1'sbx;
-				idle_ack = 1'sbx;
 				o_err = 1'sbx;
 				o_err2 = 1'sbx;
 			end

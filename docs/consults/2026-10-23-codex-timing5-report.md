@@ -5,7 +5,8 @@ criterion is the median of three whole-core slow-100C setup slacks at
 104 MHz, at least −0.300 ns. No CPU-only timing result is used for acceptance.
 
 Retained so far: the registered TLB fault summary, per-slot issue decisions,
-local barrel pending selects, and combined BL/LSL-zero decode. Every retained
+local barrel pending selects, combined BL/LSL-zero decode, and direct cache
+acknowledgement. Every retained
 combination passes the complete CPU suite with identical cycles/instructions.
 The latest completed three-seed snapshot is `combined2`, at −0.812 ns median;
 it includes the owner-supplied card fix and the first two CPU changes, but
@@ -722,7 +723,20 @@ invariant. The current-baseline rebase passes 225 exact counts, 57 QEMU
 comparisons, both lint modes and generated checks. Its pre-fit acceptance
 family is deliberately broad: every path from the D-cache or CP15 MMU-enable
 register into the core, so predecode/fetch consumers of the late stall cannot
-escape the check. Its paired fit is running; it remains outside the branch.
+escape the check.
+
+Retain `dcack3`: the cache-to-core minimum improves from −0.812 to
+−0.346 ns at seed 1 and from −0.639 to −0.092 ns at seed 2, a
+0.466 ns worst-of-pair gain. Whole-core slacks are −0.505/−0.444 ns;
+the remaining worst paths start in arbitration/self-test address control
+and end in the UPP bus. Four-corner minimum hold slacks are +0.108/+0.114 ns.
+Fits use 35,735/35,738 ALMs and 479 M10Ks. The two extra M10Ks in the
+seed-1 packing are an inferred post-ALU `o_flags_ff` shift-register group;
+I-cache and D-cache physical RAM counts are unchanged (26/43, including
+their TLBs). Logical RAM-table entries share physical blocks, so their
+individual block counts must not be summed. Both source manifests match.
+The integrated retained tree also passes all 225 exact counts, 57 QEMU
+comparisons, both lint modes and generated checks.
 
 **Background completion tags only (`bgindex3`):** rebase the earlier
 background-only candidate onto `combined2`. It changes the registered

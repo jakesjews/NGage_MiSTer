@@ -527,6 +527,13 @@ assign hum_slot_nxt = (state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE] ||
 // the high-fanout CPU stall through background-hit qualification.
 assign hum_ack = hum_slot_ff && i_hit_ok && i_cache_en &&
                  !i_align_fault && i_cache_hit_early;
+// ARM925T: all cacheable write-back accesses acknowledge in IDLE,
+// including misses (the destination lock carries a missed load). Express
+// those equal outcomes directly, outside the hit/victim/FSM priority mux.
+// Alignment/MMU/walk outcomes and UNC_DONE keep their original ACK edge.
+assign idle_ack = state_ff[UNC_DONE] ||
+        (state_ff[IDLE] && (!(i_rd || i_wr) || i_align_fault || i_fault ||
+         i_busy || (i_cache_en && i_cacheable && !(i_wr && i_wt))));
 assign o_ack = idle_ack || hum_ack;
 always_ff @(posedge i_clk)
         if (i_reset) o_fill_busy <= 1'b0;
@@ -629,7 +636,7 @@ begin:next_state_logic
         o_cache_inv_done        = 0;
         o_cache_clean_done      = 0;
         o_hold                  = 1'd0;
-        idle_ack                = 1'b0;
+
         o_err                   = 0;
         o_err2                  = 0;
 
@@ -675,7 +682,7 @@ begin:next_state_logic
                         // that the requests from CP15 are not in the path
                         // from o_ack to the pipeline stall (timing).
                         //
-                        idle_ack = 1'd1;
+
 
                         if ( i_cache_inv )
                         begin
@@ -698,7 +705,7 @@ begin:next_state_logic
                         // ARM925T: alignment fault, highest priority: FSR
                         // status 0b0001 (no domain), FAR = the address.
                         o_err = 1'd1;
-                        idle_ack = 1'd1;
+
                         o_fsr = 8'b0000_0001;
                         o_far = i_va;
                 end
@@ -706,7 +713,7 @@ begin:next_state_logic
                 begin
                         // MMU access fault.
                         o_err = 1'd1;
-                        idle_ack = 1'd1;
+
                         o_fsr = i_fsr;
                         o_far = i_far;
                 end
@@ -714,7 +721,7 @@ begin:next_state_logic
                 begin
                         // Wait it out - this is what err2 is for.
                         o_err2 = 1'd1;
-                        idle_ack  = 1'd1;
+
                 end
                 else if ( i_rd || i_wr )
                 begin
@@ -725,7 +732,6 @@ begin:next_state_logic
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[UNCACHEABLE] = 1'd1;
 
-                                idle_ack           = 1'd0; // Wait...
                                 // ARM925T: the translated address (the VA with
                                 // the MMU off); upstream put the VA on the bus
                                 // whenever the D-cache was off, MMU on or not.
@@ -756,7 +762,6 @@ begin:next_state_logic
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
 
-                                idle_ack           = 1'd0; // Wait...
                                 o_hold          = 1'd1;
                         end
                         else if ( i_cacheable )
@@ -778,18 +783,18 @@ begin:next_state_logic
                                 begin
                                         if ( i_rd ) // Read request.
                                         begin
-                                                idle_ack   = 1'd1;
+
                                         end
                                         else if ( i_wr ) // Write request (the write itself is above)
                                         begin
-                                                idle_ack        = 1'd1;
+
                                         end
                                 end
 
                                 2'b01: // Unrelated tag, possibly dirty.
                                 begin
                                         // Acknowledge current entry. Lock the register.
-                                        idle_ack               = 1'd1;
+
 
                                         // Lock register on load. ARM925T: upstream also
                                         // raised o_err2 if that register was locked, but
@@ -824,7 +829,7 @@ begin:next_state_logic
                                 default: // Need to generate a new tag.
                                 begin
                                                 // CPU should wait.
-                                                idle_ack  = 1'd1;
+
 
                                                 // Set up counter
                                                 adr_ctr_nxt = 0;
@@ -846,7 +851,6 @@ begin:next_state_logic
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
 
-                                idle_ack           = 1'd0; // Wait...
                                 o_hold          = 1'd1;
                         end
                 end
@@ -854,7 +858,7 @@ begin:next_state_logic
 
         state_ff[UNCACHEABLE_PREPARE]:
         begin
-                idle_ack           = 1'd0;
+
                 o_hold          = 1'd1;
 
                 state_nxt[UNCACHEABLE_PREPARE] = 1'd0;
@@ -877,7 +881,7 @@ begin:next_state_logic
 
         state_ff[UNCACHEABLE]: // Uncacheable reads and writes definitely go through this.
         begin
-                idle_ack  = 1'd0;
+
                 o_hold = 1'd1;
 
                 if ( i_wb_ack | i_wb_err )
@@ -892,7 +896,7 @@ begin:next_state_logic
 
         state_ff[UNC_DONE]: // ARM925T: the uncacheable access completes.
         begin
-                idle_ack           = 1'd1;
+
                 o_hold          = 1'd0;
 
                 state_nxt[UNC_DONE] = 1'd0;
@@ -1085,7 +1089,7 @@ begin:next_state_logic
                 o_cache_inv_done        = 'x;
                 o_cache_clean_done      = 'x;
                 o_hold                  = 'x;
-                idle_ack                   = 'x;
+
                 o_err                   = 'x;
                 o_err2                  = 'x;
         end
