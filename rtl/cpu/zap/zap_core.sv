@@ -402,6 +402,17 @@ logic                            shifter_switch_ff;
 logic                            shifter_force32_ff;
 logic                            shifter_und_ff;
 logic                            stall_from_shifter;
+logic                            stall_from_alu;
+logic [3:0] issue_load_pending_ff, shifter_late_ready;
+logic [5:0] issue_shift_length_index_ff;
+logic [127:0] shifter_late_value;
+logic [1:0] shifter_load_pending_ff, alu_late_ready;
+logic [11:0] shifter_load_index_ff;
+logic [63:0] alu_late_value;
+logic memory_load_valid;
+// A miss is acknowledged before data exists. Never forward that response.
+assign memory_load_valid = memory_dav_ff && memory_mem_load_ff &&
+                           !i_dc_lock[memory_mem_srcdest_index_ff];
 logic [1:0]                      shifter_taken_ff;
 logic [31:0]                     shifter_ppc_ff;
 logic                            shifter_uop_last;
@@ -1072,6 +1083,10 @@ u_zap_issue_main
         .o_shift_source_ff              (issue_shift_source_ff),
         .o_stall_from_issue             (stall_from_issue),
         .o_pc_plus_8_ff                 (issue_pc_plus_8_ff),
+        .o_load_pending_ff              (issue_load_pending_ff),
+        .o_shift_length_index_ff        (issue_shift_length_index_ff),
+        .i_late_ready                   (shifter_late_ready),
+        .i_late_value                   (shifter_late_value),
         .o_shifter_disable_ff           (issue_shifter_disable_ff)
 );
 
@@ -1085,6 +1100,20 @@ zap_shifter_main #(
 )
 u_zap_shifter_main
 (
+        .i_load_pending_ff              (issue_load_pending_ff),
+        .i_shift_length_index_ff        (issue_shift_length_index_ff),
+        .i_memory_load_valid            (memory_load_valid),
+        .i_memory_load_index            (memory_mem_srcdest_index_ff),
+        .i_memory_load_value            (memory_mem_rd_data),
+        .i_dc_reg_idx                   (i_dc_reg_idx),
+        .i_dc_reg_dat                   (i_dc_reg_dat),
+        .i_stall_from_alu               (stall_from_alu),
+        .i_alu_late_ready               (alu_late_ready),
+        .i_alu_late_value               (alu_late_value),
+        .o_late_ready                   (shifter_late_ready),
+        .o_late_value                   (shifter_late_value),
+        .o_load_pending_ff              (shifter_load_pending_ff),
+        .o_load_index_ff                (shifter_load_index_ff),
         .i_uop_last(issue_uop_last),
         .o_uop_last(shifter_uop_last),
 
@@ -1200,6 +1229,16 @@ zap_alu_main #(
 )
 u_zap_alu_main
 (
+         .i_load_pending_ff              (shifter_load_pending_ff),
+         .i_load_index_ff                (shifter_load_index_ff),
+         .i_memory_load_valid            (memory_load_valid),
+         .i_memory_load_index            (memory_mem_srcdest_index_ff),
+         .i_memory_load_value            (memory_mem_rd_data),
+         .i_dc_reg_idx                   (i_dc_reg_idx),
+         .i_dc_reg_dat                   (i_dc_reg_dat),
+         .o_stall_from_alu               (stall_from_alu),
+         .o_late_ready                   (alu_late_ready),
+         .o_late_value                   (alu_late_value),
          .i_uop_last                     (shifter_uop_last),
          .i_clk                          (i_clk),
          .i_reset                        (reset),

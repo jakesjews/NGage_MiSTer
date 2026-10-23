@@ -189,6 +189,12 @@ module zap_issue_main
         output logic      [$clog2(PHY_REGS )-1:0] o_rd_index_2,
         output logic      [$clog2(PHY_REGS )-1:0] o_rd_index_3,
 
+        // ARM925T: late load operands: rn, rm, shift amount, store data.
+        output logic [3:0]                        o_load_pending_ff,
+        output logic [5:0]                        o_shift_length_index_ff,
+        input logic [3:0]                         i_late_ready,
+        input logic [127:0]                       i_late_value,
+
         // Outputs to shifter stage.
         output logic       [3:0]                   o_condition_code_ff,
         output logic       [$clog2(PHY_REGS )-1:0] o_destination_index_ff,
@@ -274,6 +280,8 @@ logic [32+32+1+2+64*8+1+4+$clog2(PHY_REGS)+33+$clog2(ALU_OPS)+33+$clog2(SHIFT_OP
 // Individual lock signals. These are ORed to get the final lock.
 logic shift_lock;
 logic load_lock;
+logic [3:0] operand_load_lock, late_pending;
+logic destination_load_lock;
 logic lock;
 
 //
@@ -336,6 +344,7 @@ always_ff @ ( posedge i_clk )
 begin
         if ( i_reset )
         begin
+                o_load_pending_ff                 <= 0;
                 o_condition_code_ff               <= NV;
                 o_irq_ff                          <= 0;
                 o_fiq_ff                          <= 0;
@@ -375,6 +384,7 @@ begin
         end
         else if ( clear )
         begin
+                o_load_pending_ff    <= 0;
                 o_condition_code_ff  <= NV;
                 o_irq_ff             <= 0;
                 o_fiq_ff             <= 0;
@@ -414,6 +424,8 @@ begin
         end
         else if ( ~stall )
         begin
+                o_load_pending_ff                 <= (lock || skid_condition_code_ff == NV) ? 4'b0 : late_pending;
+                o_shift_length_index_ff           <= skid_shift_length_ff[5:0];
                 o_condition_code_ff               <= lock ? NV : skid_condition_code_ff;
                 o_destination_index_ff            <= skid_destination_index_ff;
                 o_alu_operation_ff                <= skid_alu_operation_ff;
@@ -450,6 +462,16 @@ begin
                 o_uop_last                        <= skid_uop_last;
                 o_stall_from_issue                <= lock;
                 stall_idx_ff                      <= lock;
+        end
+        else
+        begin
+                // Keep transient forwarding results when the late interlock
+                // holds this slot. Completion may arrive during a bus stall.
+                o_load_pending_ff     <= o_load_pending_ff & ~i_late_ready;
+                o_alu_source_value_ff <= i_late_value[0 +: 32];
+                o_shift_source_value_ff <= i_late_value[32 +: 32];
+                o_shift_length_value_ff <= i_late_value[64 +: 32];
+                o_mem_srcdest_value_ff <= i_late_value[96 +: 32];
         end
 end
 
@@ -806,7 +828,7 @@ assign skid_is_mult = skid_alu_operation_ff == {1'd0, UMLALL}     ||
 // Look for reads from registers to be loaded from memory. Four
 // register sources may cause a load lock.
 //
-assign  load_lock =     determine_load_lock
+assign operand_load_lock[0] = determine_load_lock
                         ( skid_alu_source_ff  ,
                         o_mem_srcdest_index_ff,
                         o_condition_code_ff,
@@ -831,9 +853,8 @@ assign  load_lock =     determine_load_lock
                         i_memory_dav_ff,
                         i_dc_lock,
                         i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_abt_ff
-                        )
-                        ||
-                        determine_load_lock
+                        );
+assign operand_load_lock[1] = determine_load_lock
                         (
                         skid_shift_source_ff,
                         o_mem_srcdest_index_ff,
@@ -859,9 +880,8 @@ assign  load_lock =     determine_load_lock
                         i_memory_dav_ff,
                         i_dc_lock,
                         i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_abt_ff
-                        )
-                        ||
-                        determine_load_lock
+                        );
+assign operand_load_lock[2] = determine_load_lock
                         ( skid_shift_length_ff,
                         o_mem_srcdest_index_ff,
                         o_condition_code_ff,
@@ -886,9 +906,8 @@ assign  load_lock =     determine_load_lock
                         i_memory_dav_ff,
                         i_dc_lock,
                         i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_abt_ff
-                        )
-                        ||
-                        determine_load_lock
+                        );
+assign operand_load_lock[3] = determine_load_lock
                         ( {27'd0, skid_mem_srcdest_index_ff},
                         o_mem_srcdest_index_ff,
                         o_condition_code_ff,
@@ -913,16 +932,15 @@ assign  load_lock =     determine_load_lock
                         i_memory_dav_ff,
                         i_dc_lock,
                         i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_abt_ff
-                        )
-                        ||
-                        //
-                        // ARM925T: nor an instruction that writes a register that an
-                        // older load still in the pipeline will write. The load may
-                        // miss the D-cache, which then writes the register in the
-                        // background after this instruction (upstream only checked
-                        // the lock, which is set once the load has reached the cache).
-                        //
-                        determine_load_lock
+                        );
+//
+// ARM925T: nor an instruction that writes a register that an
+// older load still in the pipeline will write. The load may
+// miss the D-cache, which then writes the register in the
+// background after this instruction (upstream only checked
+// the lock, which is set once the load has reached the cache).
+//
+assign destination_load_lock = determine_load_lock
                         ( {27'd0, skid_destination_index_ff},
                         o_mem_srcdest_index_ff,
                         o_condition_code_ff,
@@ -959,6 +977,45 @@ assign  load_lock =     determine_load_lock
                           &&
                           i_dc_lock[skid_destination_index_ff]
                         );
+
+// ARM925T: only condition-resolved loads near memory can be deferred.
+// Early users need the value in shifter; plain rn/rm need it in ALU.
+// Keep all earlier-load, WAW, special-register and multiply interlocks.
+assign late_pending[0] = late_load(skid_alu_source_ff, 1'b0);
+assign late_pending[1] = late_load(skid_shift_source_ff, !skid_is_lsl_0);
+assign late_pending[2] = late_load(skid_shift_length_ff, 1'b1);
+assign late_pending[3] = skid_mem_store_ff &&
+                        late_load({27'd0, skid_mem_srcdest_index_ff}, 1'b1);
+assign load_lock = |(operand_load_lock & ~late_pending) || destination_load_lock;
+
+function automatic late_load(input [32:0] index, input early);
+        logic [5:0] r;
+        logic candidate, conflict;
+        r = index[5:0];
+        candidate = (i_postalu_dav_ff && i_postalu_mem_load_ff &&
+                     i_postalu_mem_srcdest_index_ff == r) ||
+                    (!early && i_postalu1_dav_ff && i_postalu1_mem_load_ff &&
+                     i_postalu1_mem_srcdest_index_ff == r);
+        // Conservatively reject any ALU writer, including base writeback.
+        // The existing load WAW lock prevents a younger load/ALU writer
+        // passing the deferred producer; do not change that ordering rule.
+        conflict = (o_condition_code_ff != NV && o_destination_index_ff == r) ||
+                   (i_shifter_dav_ff && i_shifter_destination_index_ff == r) ||
+                   (i_alu_dav_ff && i_alu_destination_index_ff == r) ||
+                   (i_postalu0_dav_ff && i_postalu0_destination_index_ff == r) ||
+                   (i_postalu1_dav_ff && i_postalu1_destination_index_ff == r) ||
+                   (i_postalu_dav_ff && i_postalu_destination_index_ff == r) ||
+                   (o_condition_code_ff != NV && o_mem_load_ff && o_mem_srcdest_index_ff == r) ||
+                   (i_shifter_dav_ff && i_shifter_mem_load_ff && i_shifter_mem_srcdest_index_ff == r) ||
+                   (i_alu_dav_ff && i_alu_mem_load_ff && i_alu_mem_srcdest_index_ff == r) ||
+                   (i_postalu0_dav_ff && i_postalu0_mem_load_ff && i_postalu0_mem_srcdest_index_ff == r) ||
+                   (early && i_postalu1_dav_ff && i_postalu1_mem_load_ff && i_postalu1_mem_srcdest_index_ff == r);
+        late_load = candidate && !conflict && !index[32] &&
+                    r != PHY_PC && r != PHY_RAZ_REGISTER && r != PHY_CPSR &&
+                    r < PHY_DUMMY_REG0 && !i_dc_lock[r] &&
+                    !skid_is_mult && !skid_force32align_ff &&
+                    !(skid_irq_ff || skid_fiq_ff || skid_abt_ff || skid_swi_ff || skid_und_ff);
+endfunction
 
 //
 // A shift lock occurs if the current instruction requires a shift
