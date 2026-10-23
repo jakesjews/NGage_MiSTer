@@ -23,8 +23,13 @@ TimeQuest queries report each target family at slow 100C even after it leaves
 the worst-30 list. Query definitions and individual paths are archived in
 `build/timing5/` and each build copy's `build/timing5-families/`. The family
 boundaries include replacement registers, so disappearance of an old register
-name alone does not count as an improvement. Both seeds must improve the
-family being changed; unrelated placement changes are reported separately.
+name alone does not count as an improvement. Compare the worse family
+slack across seeds 1/2 before and after; keep both individual results visible.
+This is a necessary family gate, with unrelated placement and area effects
+reported separately. The initial trials used a stricter requirement that
+each individual seed improve; the conservative decisions resulting from
+that interpretation are identified below. New trials use the worst-of-pair
+criterion, matching the requested measurement across two seeds.
 At most two task-owned Quartus containers and four Quartus containers in
 total may run. Every build has a separate local and remote directory.
 
@@ -96,6 +101,35 @@ multiply, arbiter and BL ports are dropped after their paired fits.
    decoder; the proof harness renames the normal decoder instance to avoid
    matching unlike internal decode inputs.
 
+## Two-seed aggregation and the conservative parked results
+
+The initial per-seed filter was stricter than comparing the worse result
+of each two-seed pair. The latter is used for continuing trials, before
+`preenable`'s results are available. No path-family boundary or seed is
+changed. The original individual numbers and historical dispositions remain
+visible; a better worst-of-pair result is not described as a failure merely
+because the other seed moves backwards.
+
+- Tag-read split: pair worst −0.165 → −0.068 ns. Parked conservatively:
+  the 0.097 ns gain is in a family with little negative slack, at a measured
+  cost of 783–889 ALMs; it does not address the present worst families.
+- Multiply classification: +0.611 → +1.047 ns. Parked because this measured
+  output family already has positive margin. If revisited, also query the
+  new classification register's inputs before retention.
+- BL rewrite: −0.880 → −0.679 ns. This qualifies by the pair worst; the
+  current decoder family is being retested with the complementary LSL-zero
+  change as `decodeboth3`, instead of claiming the original pair failed.
+- Direct TLB permission summary: −0.653 → −0.425 ns. Parked despite this
+  qualifying family gain: whole-core slack worsens from −0.680/−0.732 to
+  −1.634/−1.384 ns, and seed 1's targeted family regresses by 0.730 ns.
+  The smaller fault-code-bit candidate remains available.
+
+TLB fault, per-slot issue and pending-select qualify under either reading.
+The three-input arbiter, rotate-only barrel and standalone LSL-zero trial
+regress the pair worst and remain dropped. This clarification changes no
+already-fitted RTL or reports and does not itself add a parked change to
+the branch.
+
 ## CPU cycle evidence
 
 Existing binaries and QEMU references are reused. The baseline and each of
@@ -141,7 +175,8 @@ into ALU flags; seed three is Thumb instruction-valid into `o_v5_und_ff`.
 | three-input arbiter | −0.562 → −0.334 | −0.382 → −0.982 | −0.924 / −1.468 | Drop |
 | BL rewrite after decode | −0.880 → −0.679 | −0.553 → −0.602 | −1.075 / −0.986 | Drop |
 
-The tag-read split is dropped because its targeted stage-one family regresses
+Under the initial per-seed filter, the tag-read split was dropped because
+its targeted stage-one family regresses
 by 0.054 ns at seed 1, despite improving by 0.293 ns at seed 2. The new worst
 stage-one paths start at writeback PC bit 18 (seed 1) and the I-TLB state
 (seed 2). The following stage stays positive (+1.965 / +3.231 ns). Its
@@ -185,7 +220,8 @@ is −0.334 / −0.668 ns. Its passing CPU, system-bench and equivalence results
 do not compensate for the timing regression. No arbiter, NGage or harness
 changes from this trial are applied to the branch.
 
-The BL rewrite is dropped: its predecode-to-decode family improves by
+Under the initial per-seed filter, the BL rewrite was dropped: its
+predecode-to-decode family improves by
 0.201 ns at seed 1 but regresses by 0.049 ns at seed 2. All six isolated
 ports now have completed paired fits. Source manifests for both seeds of
 every port match their remote build inputs (149 files, with only Quartus
@@ -530,7 +566,7 @@ and 57 QEMU comparisons agree, with both lint modes and generated checks
 passing. The input/output TLB family remains the same acceptance group.
 This simpler candidate is prepared but not fitted.
 
-The broader `tlbsummary` trial is not retained under the per-seed rule:
+The broader `tlbsummary` trial remains parked (see the aggregation note):
 its D-TLB input/output family changes from +0.511 to −0.219 ns at seed 1,
 and from −0.653 to −0.425 ns at seed 2. Whole-core slacks are −1.634 and
 −1.384 ns. Both source manifests match, and all 225 cycle/instruction
