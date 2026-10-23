@@ -3620,3 +3620,16 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the hit path's timing: Codex's ZAP thread takes it (16 KB two-way
   with the alias analysis against EKA1's memory model, or 16 KB
   four-way with 4 KB per way and no aliases).
+- **Hit-under-miss in play: +3 %.** b17 (prefetch on + hit-under-miss)
+  on the debug slot: Sonic 29.0-30.4 M instructions/s (b16: 28.1-29.5),
+  Asphalt 30.0-30.4 (29.1-29.7), Tony Hawk 28.9-30.9 (28.0-29.6), CPI
+  3.4-3.6; the data-stall share fell a quarter (Sonic 13-15 % from
+  15-18, Asphalt 11 from 14.6, Tony Hawk 9-10 from 12-14); the SDRAM
+  wait itself is unchanged (21-25 %), as expected: the hits behind a
+  miss are served, the misses still cost their fills. Frames on the
+  same ticks (Sonic 14-19). So the tree stands at 29-31 M instructions/s
+  in play, from 20 at the start of the speed work and 26-28 at the
+  flash fetch. The three-game replay's numbers so far, play rows,
+  M instructions/s: b12 25-28, b13 (flash fetch) 27.5-29.4, b15
+  (stalls) 27.7-29.9, b16 (prefetch) 28.0-29.7, b16-32k 28.3-30.1,
+  b17 (hit-under-miss) 28.9-30.9.
