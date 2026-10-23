@@ -873,8 +873,12 @@ unfitted and unretained.
 live/saved classification split onto `combined3`, whose predecode undefined
 flag path is −0.473 / −0.486 ns. Both changed modules are byte-identical to
 the proven `classify3` versions. All 225 counts, 57 QEMU comparisons, both
-lint modes and generated checks pass. Seed 1 is fitting; seed 2 waits for
-that task lane. No classification change is yet applied to the main branch.
+lint modes and generated checks pass. Seed 1 completes with target −0.556 ns versus −0.473 ns before, whole
+core −0.643 ns, 35,467 ALMs and 479 M10Ks; minimum four-corner hold is
++0.078 ns and all input hashes match. Its −0.556 ns target is already worse
+than the baseline pair minimum of −0.486 ns, so this trial cannot pass the
+paired gate. Seed 2 continues to complete the measurement. No classification
+change is applied to the main branch.
 
 **Issue forwarding validity (`forwarddav`):** seed 1's new worst path runs
 from registered memory-load validity through the ALU late-load hold and its
@@ -928,6 +932,33 @@ All 225 counts, 57 QEMU comparisons, both lint modes and generated checks
 pass. There is no new register, RAM or pipeline edge. The pre-fit group
 covers all issue-stall and pending-register inputs. This is a prepared
 fallback on `combined3`, not fitted or retained.
+
+**Classification before each micro-op case (`classifycase`):** the failed
+first classification seed still runs from Thumb instruction-valid into
+`o_v5_und_ff`. Splitting IDLE's live/saved classification was insufficient:
+the non-IDLE fallback still decoded the fully rewritten micro-op word.
+This separate trial computes the classification inside each of the
+sequencer's 25 case branches, where constant opcode fields can simplify
+before state selection. ARMv4T IDLE retains the proven early input
+classification; other configurations and micro-op cases classify the exact
+word constructed by that branch. The registered predecode output keeps its
+original reset, clear, hold and capture edge.
+
+The encoding definition lives in one new `zap_predecode_classify.svh`,
+included within both modules. Extracting it leaves the generated Verilog
+byte-identical; no port has a default value. Actual predecode induction
+proves equality with classification of the original rewritten word on every
+advancing edge, including invalid slots, in both V4T=1 and V4T=0 with the
+configured four-entry RAS. The proof also establishes saved-classification
+and skid-selection alignment, under arbitrary mode changes, holds and clears.
+
+All 225 counts, 57 QEMU comparisons, both lint modes, generated checks and
+the ten-occurrence check pass after the shared include is installed. Its
+manifests include the new header at both seeds. The acceptance family covers
+original undefined-output capture and the saved-classification inputs. The
+paired fits are queued after the forwarding trial in one task lane, while
+the other lane completes `classify4` and then `factoredlock`. Neither new
+trial is retained on functional results alone.
 
 ## Scope and risks
 
