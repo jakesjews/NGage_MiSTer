@@ -253,6 +253,7 @@ logic [5:0]      dc_rreg_idx_bin;
 logic [63:0]     dc_lock;
 logic [31:0]     dc_reg_data;
 logic            icache_err2, dcache_err2;
+logic arm9_data_stall, data_fill_busy;
 logic            icache_fill_pending, icache_fill_done, icache_fill_fault;
 logic            cpu_dwe_check, cpu_dre_check;
 logic            s_reset, s_fiq, s_irq;
@@ -287,6 +288,7 @@ logic                o_trace_uop_last;
 `endif
 
 if (CORE == "ZAP") begin : g_zap
+assign arm9_data_stall = 1'b0;
 zap_core #(
         .CP15_L4_DEFAULT(CP15_L4_DEFAULT),
         .BP_ENTRIES(BP_ENTRIES),
@@ -466,6 +468,8 @@ arm9_core #(
 .o_dbg_stall            (o_dbg_stall),
 
 // Clock and reset.
+.o_data_stall           (arm9_data_stall),
+.i_data_fill_busy       (data_fill_busy),
 .i_clk                  (i_clk),
 .i_reset                (s_reset),
 
@@ -576,6 +580,7 @@ begin : l_tieoffs_only_core
         assign icache_err2     = '0;
         assign {icache_fill_pending, icache_fill_done, icache_fill_fault} = '0;
         assign dcache_err2     = '0;
+        assign data_fill_busy = 1'b0;
         assign dc_fsr          = '0;
         assign dc_far          = '0;
         assign dc_data         = '0;
@@ -789,7 +794,8 @@ zap_dcache #(
 )
 u_data_cache (
 .i_clk                  (i_clk),
-.i_stall                (1'd0), // For timing.
+.i_stall                (arm9_data_stall),
+.o_fill_busy            (data_fill_busy),
 .i_reset                (s_reset),
 .i_address              (cpu_daddr      ),
 .i_address_nxt          (cpu_daddr_nxt  ),

@@ -588,3 +588,18 @@ six clocks apart, and each extra LDM/STM register still costs seven clocks.
 Immediate load consumers have a successor-admission bubble plus three E wait
 clocks with the native RAM, not the target one/two-clock interlock. See the
 session-4 report's clock schedule and complete measured comparison.
+
+## Session 5: ordered scalar requests
+
+Scalar memory and arithmetic now share three native RAM-edge records and W.
+E launches the address, the second record provides the MMU check, and the third
+issues the cache access. Every stage retains its own metadata and advances with
+the RAM. Registered W load data forwards into E; a miss lock blocks provisional
+data. Each stage exposes separate physical load/base producers. Faulting W
+suppresses younger requests before clearing their records.
+
+The cache exports its existing fill-state indication. During fills the core
+holds metadata but leaves RAM writes enabled; after fills/TLB retries it reloads
+the three saved lookup addresses before issuing. ZAP retains its constant-zero
+external RAM stall and unchanged cache behavior. See the session-5 report for
+verified checkpoints and exact remaining interlock/drain costs.

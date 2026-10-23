@@ -1,0 +1,258 @@
+{
+  "zap": {
+    "cache": {
+      "0-0": {
+        "cycles": 760787,
+        "instructions": 293427
+      },
+      "0-3": {
+        "cycles": 888787,
+        "instructions": 293427
+      },
+      "2-9": {
+        "cycles": 1222550,
+        "instructions": 293427
+      }
+    },
+    "dcache_rtl": {
+      "0-0": {
+        "cycles": 58301,
+        "instructions": 12771
+      },
+      "0-3": {
+        "cycles": 85328,
+        "instructions": 12771
+      },
+      "2-9": {
+        "cycles": 154143,
+        "instructions": 12771
+      }
+    },
+    "icache_rtl": {
+      "0-0": {
+        "cycles": 58201,
+        "instructions": 12771
+      },
+      "0-3": {
+        "cycles": 85393,
+        "instructions": 12771
+      },
+      "2-9": {
+        "cycles": 154521,
+        "instructions": 12771
+      }
+    },
+    "ctrand1": {
+      "0-0": {
+        "cycles": 72594,
+        "instructions": 16159
+      },
+      "0-3": {
+        "cycles": 102419,
+        "instructions": 16159
+      },
+      "2-9": {
+        "cycles": 179154,
+        "instructions": 16159
+      }
+    },
+    "crand1": {
+      "0-0": {
+        "cycles": 73608,
+        "instructions": 15982
+      },
+      "0-3": {
+        "cycles": 105167,
+        "instructions": 15982
+      },
+      "2-9": {
+        "cycles": 187620,
+        "instructions": 15982
+      }
+    },
+    "gba_arm": {
+      "0-0": {
+        "cycles": 8291,
+        "instructions": 1192
+      },
+      "0-3": {
+        "cycles": 10887,
+        "instructions": 1192
+      },
+      "2-9": {
+        "cycles": 17749,
+        "instructions": 1192
+      }
+    },
+    "gba_thumb": {
+      "0-0": {
+        "cycles": 4913,
+        "instructions": 774
+      },
+      "0-3": {
+        "cycles": 6523,
+        "instructions": 774
+      },
+      "2-9": {
+        "cycles": 10877,
+        "instructions": 774
+      }
+    },
+    "mmu_page": {
+      "0-0": {
+        "cycles": 77102,
+        "instructions": 16887
+      },
+      "0-3": {
+        "cycles": 112796,
+        "instructions": 16887
+      },
+      "2-9": {
+        "cycles": 203209,
+        "instructions": 16887
+      }
+    },
+    "align": {
+      "0-0": {
+        "cycles": 5427,
+        "instructions": 549
+      },
+      "0-3": {
+        "cycles": 7001,
+        "instructions": 549
+      },
+      "2-9": {
+        "cycles": 11223,
+        "instructions": 549
+      }
+    }
+  },
+  "arm9": {
+    "cache": {
+      "0-0": {
+        "cycles": 1060777,
+        "instructions": 293427
+      },
+      "0-3": {
+        "cycles": 1192606,
+        "instructions": 293427
+      },
+      "2-9": {
+        "cycles": 1541528,
+        "instructions": 293427
+      }
+    },
+    "dcache_rtl": {
+      "0-0": {
+        "cycles": 82855,
+        "instructions": 12771
+      },
+      "0-3": {
+        "cycles": 116040,
+        "instructions": 12771
+      },
+      "2-9": {
+        "cycles": 200731,
+        "instructions": 12771
+      }
+    },
+    "icache_rtl": {
+      "0-0": {
+        "cycles": 82983,
+        "instructions": 12771
+      },
+      "0-3": {
+        "cycles": 116321,
+        "instructions": 12771
+      },
+      "2-9": {
+        "cycles": 201702,
+        "instructions": 12771
+      }
+    },
+    "ctrand1": {
+      "0-0": {
+        "cycles": 103927,
+        "instructions": 16159
+      },
+      "0-3": {
+        "cycles": 139934,
+        "instructions": 16159
+      },
+      "2-9": {
+        "cycles": 232421,
+        "instructions": 16159
+      }
+    },
+    "crand1": {
+      "0-0": {
+        "cycles": 104937,
+        "instructions": 15982
+      },
+      "0-3": {
+        "cycles": 142321,
+        "instructions": 15982
+      },
+      "2-9": {
+        "cycles": 240329,
+        "instructions": 15982
+      }
+    },
+    "gba_arm": {
+      "0-0": {
+        "cycles": 7350,
+        "instructions": 1192
+      },
+      "0-3": {
+        "cycles": 9415,
+        "instructions": 1192
+      },
+      "2-9": {
+        "cycles": 15509,
+        "instructions": 1192
+      }
+    },
+    "gba_thumb": {
+      "0-0": {
+        "cycles": 4432,
+        "instructions": 774
+      },
+      "0-3": {
+        "cycles": 5756,
+        "instructions": 774
+      },
+      "2-9": {
+        "cycles": 9647,
+        "instructions": 774
+      }
+    },
+    "mmu_page": {
+      "0-0": {
+        "cycles": 109959,
+        "instructions": 16887
+      },
+      "0-3": {
+        "cycles": 153474,
+        "instructions": 16887
+      },
+      "2-9": {
+        "cycles": 264652,
+        "instructions": 16887
+      }
+    },
+    "align": {
+      "0-0": {
+        "cycles": 5943,
+        "instructions": 549
+      },
+      "0-3": {
+        "cycles": 6965,
+        "instructions": 549
+      },
+      "2-9": {
+        "cycles": 10602,
+        "instructions": 549
+      }
+    }
+  }
+}

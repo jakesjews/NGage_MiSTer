@@ -1,0 +1,9 @@
+Generated SHA-256: 1fa788a09fd1afcfa5093984872e1a1871e58ce7f5f03a80b9ba1addd36dd890
+scalar-full: RTL (gen): 213 passed, 0 failed
+scalar-diff: RTL vs QEMU: 57 agree, 0 differ
+scalar-zap-full: RTL (gen): 213 passed, 0 failed
+scalar-zap-diff: RTL vs QEMU: 57 agree, 0 differ
+scalar-gencheck: rtl/cpu/arm925t_gen.v is current
+make lint: passed
+69 TRM windows: both hot 0:0 visits pass; all five visits at all three latencies.
+All nine instruction counts match baseline. All ZAP cycle counts are unchanged.

@@ -171,7 +171,7 @@ module tb_cpu #(
 	`define A9 dut.u_zap.g_arm9.u_arm9_core
     assign p_load_capture = `A9.load_capture;
     assign p_load_commit = `A9.load_commit;
-    assign p_load_value = `A9.m_read_data;
+    assign p_load_value = `A9.load_value;
 	assign p_valid = `A9.o_dbg_wb_valid;
 	assign p_cfail = `A9.o_dbg_wb_dvalid;
 	assign p_last = `A9.o_dbg_wb_uop_last;

@@ -43,6 +43,7 @@ input   logic            i_reset,
 
 // RAM stall.
 input   logic            i_stall,
+output  logic            o_fill_busy,
 
 // Signals to check (Provide 1 cycle before TLB+cache access).
 input   logic   [31:0]   i_address_check,
@@ -155,6 +156,7 @@ logic                            hold;
 logic                            idle;
 logic [2:0]                      relookup;
 logic                            fill_busy;
+assign o_fill_busy = fill_busy;
 localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
 localparam integer LINE_W = $clog2(CACHE_LINE);
 logic [SET_W-1:0]                lookup_s0, lookup_s1;
