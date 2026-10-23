@@ -203,12 +203,16 @@ module sdram #(
 	                           REF_PRE, REF_RP, REF_WAIT } state_t;
 	state_t         state = IDLE;
 	logic [3:0]     row_open = '0;
-	logic [12:0]    row_addr [4];
-	logic [AW-1:0]  row_age [4];  // saturating age of each bank's last ACTIVE
+	logic [12:0]    row_addr [0:3];
+	logic [AW-1:0]  row_age [0:3];  // saturating age of each bank's last ACTIVE
 	logic [3:0]     pre_ok;
-	for (genvar b = 0; b < 4; b = b + 1) begin : bank_timing
-		assign pre_ok[b] = !row_open[b] || row_age[b] >= AW'(RAS);
-	end
+	// (Quartus 17 wants the genvar declared and an explicit generate block)
+	genvar b;
+	generate
+		for (b = 0; b < 4; b = b + 1) begin : bank_timing
+			assign pre_ok[b] = !row_open[b] || row_age[b] >= AW'(RAS);
+		end
+	endgenerate
 	logic [12:0]    op_row;
 	logic           op_we, op_line;
 	logic [TW-1:0]  t;
