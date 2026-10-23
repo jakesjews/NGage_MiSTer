@@ -49,8 +49,8 @@ No original generated netlist was reused: each port regenerated its own from
 the current SystemVerilog. All pass 225 CPU runs, 57 QEMU comparisons,
 normal and `NGAGE_NO_DEBUG` lint, `make cpu-gen-check`, and the required raw
 `input reg` count of 10. Every CPU cycle and instruction count equals the
-baseline. The fault-summary and issue ports are retained; the tag-read and multiply
-ports are dropped. The other fits remain pending.
+baseline. The fault-summary and issue ports are retained; the tag-read,
+multiply, arbiter and BL ports are dropped after their paired fits.
 
 1. **262d07a: split stage-one valid/LRU reads.** Register the results of
    small low-index muxes and the high index at the same edge, then select
@@ -138,6 +138,8 @@ into ALU flags; seed three is Thumb instruction-valid into `o_v5_und_ff`.
 | multiply classification | +1.182 → +1.070 | +0.611 → +1.047 | −0.722 / −0.668 | Drop |
 | TLB fault summary | −0.249 → +0.636 | −0.342 → +0.116 | −1.055 / −1.148 | Keep |
 | per-slot issue decisions | −0.744 → −0.167 | −0.787 → −0.377 | −0.454 / −0.820 | Keep |
+| three-input arbiter | −0.562 → −0.334 | −0.382 → −0.982 | −0.924 / −1.468 | Drop |
+| BL rewrite after decode | −0.880 → −0.679 | −0.553 → −0.602 | −1.075 / −0.986 | Drop |
 
 The tag-read split is dropped because its targeted stage-one family regresses
 by 0.054 ns at seed 1, despite improving by 0.293 ns at seed 2. The new worst
@@ -176,8 +178,22 @@ capture (seed 1) and self-test selection into UPP bus decode (seed 2).
 The TLB+issue combination passes all 225 unchanged counts, 57 comparisons,
 both lint modes and generated checks. Its combined timing is still pending.
 
-Other candidate whole-core fits are pending. No candidate is retained on
-simulation results alone.
+The three-input arbiter is dropped: the worst over arbiter control and
+merger address improves by 0.228 ns at seed 1 but regresses by 0.600 ns at
+seed 2. Separately, arbiter control is −0.154 / −0.982 ns and merger address
+is −0.334 / −0.668 ns. Its passing CPU, system-bench and equivalence results
+do not compensate for the timing regression. No arbiter, NGage or harness
+changes from this trial are applied to the branch.
+
+The BL rewrite is dropped: its predecode-to-decode family improves by
+0.201 ns at seed 1 but regresses by 0.049 ns at seed 2. All six isolated
+ports now have completed paired fits. Source manifests for both seeds of
+every port match their remote build inputs (149 files, with only Quartus
+version metadata differing in the QSF). Baseline timing constraints and
+project/QIP files also match at all three seeds.
+
+The retained TLB+issue tree is now submitted for the three-seed combined
+measurement. No candidate is retained on simulation results alone.
 
 ## Further candidates prepared from the main-core baseline
 
@@ -238,9 +254,20 @@ a background miss; write-through and uncached requests still wait, and the
 alignment/MMU/walk outcomes retain their existing acknowledge edge. HUM is
 unchanged. All 225 counts and 57 QEMU comparisons agree, both lint modes and
 generation checks pass. Actual-module equivalence proves 1,763 comparison
-points under the FSM's existing one-hot-state invariant. The acceptance
+points under the FSM's one-hot-state invariant; a separate induction check
+on the actual changed FSM proves that invariant after reset. The acceptance
 family is cache/MMU control into ALU/shifter registers. The candidate is
 prepared; no fit is counted yet.
+
+**CP15 command payload:** the issue-only fit exposes pipeline-empty control
+into predecode's command banks. A prepared candidate presents the instruction
+in coprocessor IDLE and the saved command in BUSY; DAV alone qualifies the
+payload. Launch, completion, stalls, interrupts and clears keep their
+original logic. Full-suite counts and 57 QEMU comparisons agree, with lint
+and generation checks passing. A two-valued protocol miter proves matching
+valid command data and controls by induction; it includes state, valid and
+valid saved-word observers to preserve the induction relationship. Inactive
+command words may differ. This candidate has not been fitted or retained.
 
 The issue-stage equivalence check proves all 2,135 comparison points after
 supplying the saved-slot mirror invariants. Separate two-valued induction
