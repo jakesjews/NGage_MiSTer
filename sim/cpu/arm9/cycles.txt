@@ -25,8 +25,8 @@ stm1 11
 ldm3 13
 stm3 13
 ldm_pc 18
-swp 16
-swpb 17
+swp 13
+swpb 14
 b 7
 bl 7
 bx 11

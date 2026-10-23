@@ -1,0 +1,15 @@
+Generated SHA-256: 9b9f181759baa9df796decbc74b23dcddd25b53f279161c5c4c4879d806d859d
+final-focus-pass: RTL (gen): 36 passed, 0 failed
+final-focus-diff: RTL vs QEMU: 59 agree, 0 differ
+final-full: RTL (gen): 219 passed, 0 failed
+final-diff: RTL vs QEMU: 59 agree, 0 differ
+final-zap-full: RTL (gen): 219 passed, 0 failed
+final-zap-diff: RTL vs QEMU: 59 agree, 0 differ
+final-source: RTL (sv): 24 passed, 0 failed
+final-source-diff: RTL vs QEMU: 7 agree, 0 differ
+final-gencheck: rtl/cpu/arm925t_gen.v is current
+make lint and explicit CORE=ARM9 generated -Wall lint: passed.
+69 existing + 7 new timing windows: five visits each, two exact hot checks.
+All nine instruction counts and all ZAP cycle counts unchanged from baseline.
+Only arm9_stream, arm9_stream_timing and arm9_swp_perm binaries/QEMU references built.
+Integrated trial in progress in dev/mister/ngage-arm9-session5-final (seed 2, 104 MHz).

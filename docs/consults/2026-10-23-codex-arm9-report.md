@@ -1,113 +1,226 @@
 # ARM9 replacement: session 5 continuation report
 
-Work in progress on `codex/arm9`. ZAP remains the default. The unchanged
-[session-4 report](arm9/session4-report.md) records the starting point.
+## Status and exact stopping point
 
-## First checkpoint: ordered scalar request pipeline
+**Partial. Scalar requests and block transfers now stream at one hit access per
+clock. ZAP remains the default: the required performance and timing gates have
+not been met.** Three native cache read edges plus registered W still give a
+three-clock immediate load-use interlock, one more than the requested FPGA
+allowance. Block transfers have fixed setup/drain overhead; SWP remains an
+ordered, drained pair. The integrated ARM9 Quartus trial is running; its result
+will be appended before the session ends.
 
-Replaced the single scalar memory slot and two younger arithmetic slots with
-four ordered records: three records tracking the native cache read edges, and
-W. Both arithmetic and scalar memory use these records. E starts the first RAM
-read on its handoff edge. Each record retains its own address, store data,
-format, byte enables, physical load/base tags, flags, PC and condition result.
-No cache RAM, tag comparison, bus protocol or execute arithmetic was changed.
+Checkpoints: `78c9aeb` adds ordered scalar requests, `51a60de` admits ready slow
+operands before the last older retirement, and `8e83709` streams blocks and PC
+loads. The final refinement lets independent arithmetic proceed after a miss's
+critical word and removes three lookup clocks from a non-missing SWP write half.
+The unchanged [session-4 report](arm9/session4-report.md) records the starting point.
 
-The first two records advance through the same enabled edges as the cache;
-the third supplies the request and receives ack/error. The preceding record
-supplies the MMU check's address and access mode. An uncached access holds the
-pipeline until its registered response. A fill freezes it using the cache's
-existing registered fill-state indication, exported through the wrapper.
-After a fill or a TLB retry, three reload clocks reconstruct the held request
-and its two younger lookups, including the MMU check. Fill writes run during
-this hold; the core must not disable their RAM clock. `i_stall` is wired for
-core-owned holds, while the cache still owns uncached/fill holds.
+No push, branch switch, `sys/` edit or firmware boot was performed. Build-server
+jobs use the task-specific `dev/mister/ngage-arm9-session5-final` directory and
+the supplied script's four-container limit.
 
-W captures formatted hit data. A newly asserted miss lock prevents retirement;
-the critical-word pulse replaces provisional data in W before its next possible
-retirement. Registered W data is the only load bypass into E. Each of four
-records supplies a load tag and a base/ALU tag, youngest first. Load wins a
-same-instruction base alias; a younger ready writer shadows an unready load.
-Base arithmetic can forward speculatively, but only ordered W changes the RF.
-Held E operands continue capturing disappearing bypasses.
+## Final design
 
-A memory error becomes a fault in W. On that cycle younger data requests are
-suppressed and E/all younger records are discarded. No store passes an older
-fault. Conditions suppress both requests and register writes. Separate check
-and access modes preserve user-translated accesses. PC loads/PC-relative memory,
-block transfers, SWP, state changes and multiply initially retain the drained
-slow controller. Its data-PC tap and the new pipeline tap are selected separately.
+Arithmetic, branches and scalar memory share four ordered records: three
+records tracking the **existing** cache RAM read edges, followed by W. E launches
+the first RAM read on its handoff edge. Each record retains valid/condition,
+PC, result flags, load/base physical destinations, address, store data, format,
+byte enables and access mode. The second record supplies the MMU check and its
+own mode; the third supplies the cache request. W alone changes architectural
+state. The shared cache RAM/tag hit path, bus merger, register file and execute
+arithmetic are unchanged. No new RAM or extra execute stage was introduced.
 
-`arm9_stream.S` adds adjacent stores/loads on one word and different sets,
-read-after-write byte/halfword collisions, post-index base chains, gaps, and
-aborts immediately followed by younger stores. It runs uncached, cached and
-warm-cached, with full signatures/traces against QEMU. Only this new test's
-binary/reference was built; existing binaries and QEMU references are unchanged.
+Every stage exposes separate load and base/ALU producers, youngest first. A
+load wins its own base alias, while a younger writer shadows an older unready
+load. Base values can forward immediately but retire only after the access
+succeeds. Load data forwards only from registered W, never directly from the
+cache into E. Held E operands capture bypasses before producers disappear.
+Failed conditions neither access memory nor wait on unused load dependencies.
 
-The first implementation exposes one scalar request per clock on hits, but
-**does not meet the requested load-use timing**: E launch, three native RAM
-edges and registered W bypass produce three dependent E wait clocks. The
-independent LDR/ALU retirement window is 3 clocks, dependent is 6, and STR is 2
-(including the marker). The pipeline also initially adds two drain clocks to
-slow operations, regressing the multiply-heavy cache test despite improving
-scalar memory throughput. These costs are explicit follow-up work.
+The cache's existing registered fill-state indication is exported through the
+wrapper. An uncached request holds the pipeline until its response. An early
+load-miss acknowledgement enters W with provisional data, but the newly
+registered lock prevents retirement. The critical-word pulse replaces the
+provisional value before W may retire. Independent arithmetic can then advance
+while the rest of the fill completes; another memory record at the request
+stage stops it. No new data request issues while the cache owns a fill.
 
-Baseline measurements: [session5-baseline.json](arm9/session5-baseline.json).
-First scalar measurements: [session5-scalar.json](arm9/session5-scalar.json).
+After a fill or TLB retry, three reload clocks reconstruct the held request
+and its two younger lookup records, including gaps. Fill writes retain their
+RAM clocks; core-owned holds alone drive the new external stall connection.
+ZAP still drives that stall to zero and retains its previous cache behavior.
+The three reload clocks remain an optimization opportunity, especially when
+there is no useful pending memory lookup.
 
-First checkpoint verification: both cores pass 213/213 runs and 57/57 QEMU
-signature/trace comparisons. All 69 timing windows pass; top-level `make lint`
-and `make cpu-gen-check` pass. All nine baseline instruction counts match,
-and every ZAP cycle count is unchanged. See the
-[verification ledger](arm9/session5-scalar-verification.txt).
+Slow operations can read ready operands before the pipeline finishes draining.
+They wait in E until all older records have retired (the last W may retire on
+the handoff edge), and until fill/reload activity is done. They use the newest
+flags, including MRS/MSR. Ready-at-admission is necessary because multiply, SWP
+and block setup use captured D values. An older fault or loaded-PC redirect
+cancels this handoff.
 
-## Slow-instruction admission refinement
+LDM/STM capture the instruction, original physical base, final base, original
+mode and SPSR once. A register-list selector, one RF read and an address counter
+then feed one transfer per enabled clock into the same pipeline. Only the last
+packet writes back the base or restores flags. Access mode is separate from
+result flags: an exception-return load must check permissions in its original
+mode, not the mode it will return to.
 
-Slow instructions may now enter E while older records drain, provided every
-D operand is ready. They execute only when the last older W can retire on the
-same edge and the cache is not held. An older fault suppresses this handoff.
-The ready-at-admission rule is required because multiply, SWP and block setup
-use captured D operands rather than the execute leaf's bypassed result. Flags
-come from the newest older record or committed CPSR, including MRS/MSR.
+Ordinary PC-relative memory and loads to PC use the scalar pipeline. A loaded-PC
+W redirect suppresses younger requests and clears their records before they
+can write. Unpredictable memory forms with base writeback to PC retain the old
+slow path. SWP retains its source data across an ordered read/write pair. On a
+non-missing read, the classification edge also checks **write** permission, then
+the write uses the unchanged lookup directly. A read miss keeps the conservative
+reload path. The read result commits only after the write succeeds.
 
-This removes two retirement-window clocks around most slow operations without
-changing execute length. It does not materially improve the cache workload:
-its loop's taken branch already hides this admission opportunity. The measured
-numbers are in [session5-admission.json](arm9/session5-admission.json).
+## Cases and coverage
 
-Admission refinement verification: both cores pass 213/213 runs, 57/57 QEMU
-comparisons, all 69 windows, `make lint` and `make cpu-gen-check`. The
-[ledger](arm9/session5-admission-verification.txt) identifies the checked netlist.
+- **Order and faults:** a memory error is retained in W. Its retirement edge
+  suppresses younger requests and discards younger E/results. Thus a younger
+  store cannot escape an older fault, even when adjacent. Speculative register,
+  base and flag results never enter the RF after that fault.
+- **Block aborts:** earlier completed transfers survive. For a writeback-enabled
+  block, an internal non-final micro-op restores the original physical base
+  before abort entry, even if an earlier LDM transfer loaded that base. This
+  ordering also preserves exception-link priority if the base is the abort
+  bank's LR. LDM with the base in its list suppresses successful final writeback.
+- **Formats and modes:** byte, halfword, signed and unaligned scalar loads retain
+  the cache formatter; LDM reads aligned words. Alignment/FAR inputs retain the
+  raw address. FCSE, user-translated accesses, banked/user registers, loaded PC,
+  exception return and condition failures retain their existing behavior.
+- **Misses and retries:** both hits and early-ack misses are tested at all three
+  bus latencies. W lock classification and critical-word capture remain checked
+  by the bench. Native cache collision forwarding handles adjacent stores/loads;
+  saved address records handle different sets and invalid gaps.
+- **Interrupts and state:** IRQ/FIQ admission waits for an architectural boundary;
+  blocks remain one interruptible instruction. CP15, PSR changes and other slow
+  operations drain older work. Already fetched younger instructions are canceled
+  on faults/redirects using the existing fetch epochs. Debug retirement/data-PC
+  taps and stall bits include the new pipeline paths.
+- **SWP permissions:** the write half performs a fresh permission check. A write
+  abort commits neither its held read result nor the store. The new directed
+  test checks this with uncached and warm cached read-only user mappings.
 
-## Streaming blocks and PC loads
+Three new shared tests were added. `arm9_stream` covers adjacent same-word and
+different-set accesses, byte-lane collisions, post-index chains, gaps and aborts
+with younger stores. `arm9_stream_timing` checks seven eight-access windows.
+`arm9_swp_perm` checks read-permitted/write-forbidden SWP and SWPB. Only these new
+tests' binaries and QEMU references were built; existing binaries/references
+were not rebuilt. The 69 original timing windows still use versioned exact
+expectations, with no tolerances or disabled comparisons.
 
-LDM/STM capture their immutable instruction/base/mode/SPSR context once in E.
-A register-list selector, one RF read and an address counter then feed the
-ordered pipeline one register per enabled clock. The final packet performs
-base writeback (suppressed for LDM with its base in the list) and, for an
-exception return, restores SPSR. Memory permission checks carry a separate
-access mode: the final return's new mode must not authorize its own access.
+A new unaligned SWPB permission-fault experiment exposed an existing issue in
+**both** cores: FAR was 0x00400000 rather than QEMU's 0x00400001. Both cores align
+the address sent to the TLB check. This session did not change that shared MMU
+behavior; the committed SWPB permission test uses an aligned byte address and
+still verifies write permission, destination suppression and store suppression.
+Low FAR bits on byte permission faults need a separate fix and test.
 
-An error cancels every younger transfer. Earlier completed transfers remain.
-When W was requested, the fault path restores the original physical base in
-an internal non-final micro-op before entering the abort, even if an earlier
-LDM transfer loaded that base. Restoration precedes exception entry so an
-alias with the abort bank's LR still gives the exception link priority.
+## Cycle comparison
 
-Ordinary PC-relative memory and loads to PC now use the scalar pipeline.
-A loaded-PC W redirect suppresses younger memory requests and clears their
-records. A slow instruction waiting in E cannot execute on that redirect edge.
-Unpredictable memory forms that write back to PC retain the slow path.
+Both cores passed all 27 pre-edit runs. All nine tests retain their own baseline
+instruction counts, and every ZAP cycle count is unchanged. Values in each cell
+are **0:0 / 0:3 / 2:9**. These are complete-test measurements, including setup.
 
-The one-register LDM/STM window is 11 clocks; three registers take 13. Thus each
-extra register costs one clock, versus seven in session 4. Fixed setup/drain
-cost remains ten marker-inclusive clocks around the stream. The loaded-PC
-window is 11 clocks. Seven new `arm9_stream_timing.S` windows each execute eight
-adjacent memory instructions: same word, different sets, post-indexed bases,
-and mixed loads/stores. All seven take exactly 9 hot clocks including the end
-marker. They use the existing independent retirement-window checker and are
-also compared with QEMU; no production timing tolerance was added.
+| Test | ZAP | ARM9 session 4 | ARM9 session 5 |
+| --- | --- | --- | --- |
+| cache | 760787 / 888787 / 1222550 | 1028308 / 1131577 / 1480523 | 994118 / 1117965 / 1463092 |
+| dcache_rtl | 58301 / 85328 / 154143 | 99158 / 118893 / 201381 | 82060 / 115410 / 200299 |
+| icache_rtl | 58201 / 85393 / 154521 | 99293 / 119107 / 202090 | 82314 / 115760 / 201212 |
+| ctrand1 | 72594 / 102419 / 179154 | 121214 / 143720 / 234066 | 97715 / 133902 / 226865 |
+| crand1 | 73608 / 105167 / 187620 | 121181 / 145424 / 241635 | 98994 / 137221 / 236697 |
+| gba_arm | 8291 / 10887 / 17749 | 7205 / 9389 / 15517 | 6874 / 9175 / 15435 |
+| gba_thumb | 4913 / 6523 / 10877 | 4376 / 5751 / 9651 | 4197 / 5624 / 9568 |
+| mmu_page | 77102 / 112796 / 203209 | 131532 / 157140 / 265373 | 108082 / 152125 / 263633 |
+| align | 5427 / 7001 / 11223 | 5869 / 7049 / 10589 | 4419 / 5917 / 9949 |
 
-Block checkpoint verification: both cores pass 216/216 runs and 58/58 QEMU
-comparisons. The 69 existing and seven new timing windows pass, as do `make
-lint` and `make cpu-gen-check`. The [ledger](arm9/session5-block-verification.txt)
-identifies the checked netlist.
+ARM9 wins both GBA tests at every latency, but **does not beat ZAP** on cache,
+dcache_rtl, ctrand1, crand1 or mmu_page. The required all-workload gate fails.
+The remaining measured deficits against ZAP are:
+
+| Test | Extra ARM9 clocks, 0:0 / 0:3 / 2:9 |
+| --- | --- |
+| cache | 233331 / 229178 / 240542 |
+| dcache_rtl | 23759 / 30082 / 46156 |
+| ctrand1 | 25121 / 31483 / 47711 |
+| crand1 | 25386 / 32054 / 49077 |
+| mmu_page | 30980 / 39329 / 60424 |
+
+The complete machine-readable checkpoints are [baseline](arm9/session5-baseline.json),
+[scalar](arm9/session5-scalar.json), [admission](arm9/session5-admission.json),
+[block](arm9/session5-block.json), and [final](arm9/session5-final.json). The first
+scalar version regressed cache by imposing whole-fill stalls and deeper drains.
+Critical-word continuation removes 65,570 / 73,838 / 77,880 clocks from the block
+checkpoint's cache run. This is a measured revision delta, not additive stall
+attribution. The final cache is faster than session 4 at all three latencies.
+
+## Remaining mechanisms and measured costs
+
+| Hot retirement window | Session 4 | Final | Interpretation |
+| --- | ---: | ---: | --- |
+| Eight DP | 9 | 9 | One clock per instruction plus marker |
+| LDR + independent ALU | 6 | 3 | One-clock hit throughput |
+| LDR + immediate ALU/base/store consumer | 7 / 11 / 11 | 6 / 6 / 6 | Three dependent E wait clocks |
+| LDR + register shift-count consumer | 8 | 7 | Three wait clocks plus the register-shift cycle |
+| LDR + 1 / 2 / 3 independent DP + consumer | 7 / 8 / 9 | 6 / 6 / 6 | Those instructions hide the dependent wait |
+| STR | 5 | 2 | One clock plus marker |
+| LDM1 / STM1 | 11 | 11 | Fixed setup/drain still present |
+| LDM3 / STM3 | 25 | 13 | One clock per additional register |
+| LDM including PC | 30 | 18 | Streaming plus redirect/refill |
+| LDR PC | 13 | 11 | W redirect and native fetch refill |
+| SWP / SWPB | 16 / 17 | 13 / 14 | Ordered pair; three lookup clocks removed |
+| B / BL | 7 | 7 | Six instruction clocks including native refill |
+| MUL m=1..4 | 9..12 | 9..12 | Arithmetic plus exposed drain/restart |
+| Long multiply m=1..4 | 10..13 | 10..13 | Still a slow-operation barrier |
+
+All counts include the end marker. The seven new stream windows are each 9
+clocks for eight memory instructions. All 76 windows execute five times per
+configuration and check both hot ARM9 0:0 visits exactly.
+
+Relative to load E at clock 0, RAM records occupy clocks 1, 2 and 3; W's registered
+load bypass is available at clock 4. A dependent successor in E waits at clocks
+1, 2 and 3. This **three-clock** wait is not relabeled a one/two-clock interlock.
+Meeting two clocks needs a verified earlier address/data availability boundary;
+direct cache-to-E forwarding would extend an already failing timing path.
+
+The block formula is n+10 marker-inclusive clocks in the measured windows,
+versus n+1 for an ideal n-cycle block plus marker: nine fixed excess clocks,
+with no excess per additional register. Branches cost three more clocks than
+the TRM's three-cycle branch plus marker. Slow multiply/state barriers and
+unpredicted branches in uncached page-table initialization remain substantial.
+These measured local costs are not a decomposition of the complete-test deficits:
+fetch, bus waits, fills and pipeline drains overlap.
+
+## Verification and integrated timing
+
+Both cores pass **219/219 runs** and **59/59 QEMU signature/trace comparisons**.
+ARM9 source RTL additionally passes 24/24 runs and seven comparisons. All 76
+windows pass their two hot checks; `make lint`, explicit generated `CORE=ARM9`
+`-Wall` lint and `make cpu-gen-check` pass. The [final ledger](arm9/session5-final-verification.txt)
+and [window results](arm9/session5-cycle-windows.json) record this checkpoint.
+The integrated trial uses the exact same generated SHA-256.
+
+The integrated timing trial is still running. Prior verified milestones have dedicated [scalar](arm9/session5-scalar-verification.txt),
+[admission](arm9/session5-admission-verification.txt) and
+[block](arm9/session5-block-verification.txt) ledgers.
+
+## Next session
+
+1. Start from this branch and the final ledger/hash. Preserve the now-tested
+   one-access-per-clock stream and precise abort rules while shortening load
+   availability; do not add a cache-data-to-execute combinational chain blindly.
+2. Remove fixed block/SWP setup and unnecessary post-fill reload clocks. Address
+   the native fetch/refill and slow multiply/state barriers identified above;
+   memory streaming alone has not met the required ZAP comparison.
+3. Use the integrated timing results below to prioritize cache/Thumb translation
+   and execute-to-flags paths. Keep ZAP default until both performance and timing
+   gates pass. Re-run both full suites, QEMU comparisons and exact timing windows
+   after each change.
+
+Not covered: firmware boot, full-system fitting, hardware games, exhaustive
+unpredictable/empty register-list behavior, every negative multiplier boundary,
+or all Thumb timing permutations. No firmware or hardware result is inferred
+from this CPU bench. No execute-stage timing closure is claimed from an old
+standalone datapath fit.

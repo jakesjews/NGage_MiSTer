@@ -1280,7 +1280,7 @@ module arm9_core (
 	assign pipe_pc_redirect = (((retire_fast && fast_w[226]) && !fast_w[119]) && fast_w[122]) && (fast_w[116-:6] == PHY_PC);
 	assign block_issue = (((sequence_active && (remaining != 0)) && (state == 4'd0)) && !pipe_hold) && !pipe_fault;
 	wire pipe_request = (((((((state == 4'd0) && fast_m[227]) && fast_m[226]) && fast_m[123]) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_fault) && !pipe_pc_redirect;
-	assign pipe_hold = ((i_data_fill_busy || (data_reload != 0)) || (fast_w[227] && !fast_load_ready)) || (pipe_request && (!i_data_wb_ack || i_dcache_err2));
+	assign pipe_hold = (((((i_data_fill_busy && fast_m[227]) && fast_m[123]) && fast_m[226]) || (!i_data_fill_busy && (data_reload != 0))) || (fast_w[227] && !fast_load_ready)) || (pipe_request && (!i_data_wb_ack || i_dcache_err2));
 	assign o_data_stall = ((((state == 4'd0) && pipe_hold) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_request;
 	assign execute_fast = (((((e_valid && fast_e) && !shift_hold) && !execute_wait) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect;
 	assign early_redirect = (execute_fast && (kind_e == 4'd3)) && ex_pass;
@@ -1430,7 +1430,7 @@ module arm9_core (
 	assign o_data_wb_adr_nxt = fcse({(state == 4'd0 ? pipe_nxt_address[31:2] : m_address[31:2]), 2'b00});
 	assign o_data_wb_adr_check = fcse({(state == 4'd0 ? (reload_check ? fast_m[95:66] : fast_2[95:66]) : m_address[31:2]), 2'b00});
 	assign o_data_wb_adr = fcse({(state == 4'd0 ? fast_m[95:66] : m_address[31:2]), 2'b00});
-	assign o_data_wb_we_check = (state == 4'd0 ? (reload_check ? ((fast_m[227] && fast_m[226]) && fast_m[123]) && !fast_m[122] : ((fast_2[227] && fast_2[226]) && fast_2[123]) && !fast_2[122]) : (state == 4'd3) && !m_load);
+	assign o_data_wb_we_check = (state == 4'd0 ? (reload_check ? ((fast_m[227] && fast_m[226]) && fast_m[123]) && !fast_m[122] : ((fast_2[227] && fast_2[226]) && fast_2[123]) && !fast_2[122]) : ((state == 4'd3) && !m_load) || (((state == 4'd5) && (slow[3-:4] == 4'd12)) && !i_dc_lock[m_dst]));
 	assign o_data_wb_re_check = (state == 4'd0 ? (reload_check ? ((fast_m[227] && fast_m[226]) && fast_m[123]) && fast_m[122] : ((fast_2[227] && fast_2[226]) && fast_2[123]) && fast_2[122]) : (state == 4'd3) && m_load);
 	assign o_data_wb_stb = (state == 4'd0 ? pipe_request : state == 4'd4);
 	assign o_data_wb_cyc = o_data_wb_stb;
@@ -1518,7 +1518,7 @@ module arm9_core (
 				if (execute_fast)
 					e_valid <= 0;
 			end
-			if ((((((((((e_valid && !fast_e) && !shift_hold) && !execute_wait) && !fast_1[227]) && !fast_2[227]) && !fast_m[227]) && (!fast_w[227] || retire_fast)) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) begin
+			if ((((((((((((e_valid && !fast_e) && !shift_hold) && !execute_wait) && !fast_1[227]) && !fast_2[227]) && !fast_m[227]) && (!fast_w[227] || retire_fast)) && !pipe_hold) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_fault) && !pipe_pc_redirect) begin
 				e_valid <= 0;
 				slow[175-:32] <= pc;
 				slow[143-:32] <= pc8;
@@ -1719,7 +1719,7 @@ module arm9_core (
 					else if ((slow[3-:4] == 4'd12) && !swap_store) begin
 						m_load <= 0;
 						swap_store <= 1;
-						state <= 4'd1;
+						state <= 4'd4;
 					end
 					else
 						state <= 4'd7;

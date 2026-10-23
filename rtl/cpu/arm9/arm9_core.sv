@@ -498,7 +498,11 @@ assign block_issue = sequence_active && remaining != 0 && state == IDLE &&
                      !pipe_hold && !pipe_fault;
 wire pipe_request = state == IDLE && fast_m.present && fast_m.pass && fast_m.memory &&
                     !i_data_fill_busy && data_reload == 0 && !pipe_fault && !pipe_pc_redirect;
-assign pipe_hold = i_data_fill_busy || data_reload != 0 ||
+// After the critical word is captured, independent arithmetic may drain
+// during the rest of a fill. No cache request escapes until the held lookup
+// records are reloaded; encountering another memory record stops the pipe.
+assign pipe_hold = (i_data_fill_busy && fast_m.present && fast_m.memory && fast_m.pass) ||
+    (!i_data_fill_busy && data_reload != 0) ||
     (fast_w.present && !fast_load_ready) ||
     (pipe_request && (!i_data_wb_ack || i_dcache_err2));
 // The cache owns RAM clocks while servicing a miss/uncached request. During
@@ -659,7 +663,9 @@ assign o_data_wb_adr_check = fcse({(state == IDLE ?
 assign o_data_wb_adr = fcse({(state == IDLE ? fast_m.address[31:2] : m_address[31:2]),2'b00});
 assign o_data_wb_we_check = state == IDLE ? (reload_check ?
     fast_m.present && fast_m.pass && fast_m.memory && !fast_m.load :
-    fast_2.present && fast_2.pass && fast_2.memory && !fast_2.load) : state == M3 && !m_load;
+    fast_2.present && fast_2.pass && fast_2.memory && !fast_2.load) :
+    (state == M3 && !m_load) ||
+    (state == LOAD_CLASSIFY && slow.kind == K_SWP && !i_dc_lock[m_dst]);
 assign o_data_wb_re_check = state == IDLE ? (reload_check ?
     fast_m.present && fast_m.pass && fast_m.memory && fast_m.load :
     fast_2.present && fast_2.pass && fast_2.memory && fast_2.load) : state == M3 && m_load;
@@ -710,7 +716,8 @@ always_ff @(posedge i_clk) begin
       end
       if (e_valid && !fast_e && !shift_hold && !execute_wait &&
           !fast_1.present && !fast_2.present && !fast_m.present &&
-          (!fast_w.present || retire_fast) && !pipe_hold && !pipe_fault && !pipe_pc_redirect) begin
+          (!fast_w.present || retire_fast) && !pipe_hold && !i_data_fill_busy &&
+          data_reload == 0 && !pipe_fault && !pipe_pc_redirect) begin
             e_valid <= 0;
             slow.pc <= pc;
             slow.pc8 <= pc8;
@@ -891,9 +898,11 @@ always_ff @(posedge i_clk) begin
                 if (slow.kind == K_SWP) begin m_load <= 0; swap_store <= 1; end
             end else if (m_load && i_dc_lock[m_dst]) state <= LOAD_WAIT;
             else if (slow.kind == K_SWP && !swap_store) begin
+                // The address/RAM lookup is unchanged. The classification
+                // edge also checks write permission before the write half.
                 m_load <= 0;
                 swap_store <= 1;
-                state <= M1;
+                state <= MEMORY;
             end else state <= WRITEBACK;
         end
         LOAD_WAIT: if (i_dc_reg_idx[m_dst]) begin

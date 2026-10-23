@@ -1,13 +1,12 @@
 # ARM9 integer pipeline replacement
 
-Status: session-4 scalar-memory overlap checkpoint, 2026-10-23 deliverable.
-ZAP remains the production CPU. ARM9 now retains a separate slow-operation
-context and can execute younger non-PC DP behind a scalar load/store. The two
-fast result records form an ordered retirement queue; load/base producers are
-unready until memory retirement, and a fault discards younger results. Memory
-requests, block transfers, multiply and state operations still serialize. This
-is not the requested streaming memory pipeline or the performance acceptance
-gate. See the session-4 continuation report for current measurements.
+Status: session-5 streaming-memory checkpoint, 2026-10-23 deliverable.
+ZAP remains the production default. Scalar hits and block transfers now stream
+one access per clock through the native cache read records and ordered W.
+Critical-word continuation, separate load/base producers, precise aborts and
+loaded-PC redirects are implemented. The immediate load-use interlock is still
+three clocks, fixed block/SWP overhead remains, and performance/timing gates
+are not met. See the session-5 continuation report and verification ledgers.
 Starting revision: `75cce2e`, branch `codex/arm9`.
 
 ## Contract and sources
