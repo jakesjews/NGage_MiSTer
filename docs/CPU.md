@@ -308,8 +308,14 @@ Functional:
 - Turning a cache off invalidates it (ZAP clears the valid bits while the
   cache is disabled). Dirty D-cache lines are lost if the D-cache is turned
   off without cleaning it first; the ARM925T keeps them.
-- No write buffer: stores complete in order on the bus, and drain is a
-  no-op. Software cannot tell, apart from timing.
+- Write-back store misses allocate in ZAP. The TI925T is read-allocate:
+  store misses bypass the cache even in copy-back mode (TI SPRU671,
+  Table 1). Write-through store misses already bypass allocation here.
+- No posted write buffer: uncached and write-through stores wait for the
+  bus response, and the CP15 drain operation is a no-op. The phone enables
+  its 17-word buffer with CP15 W. A faithful posted path also needs drain,
+  memory ordering and fault handling, not just a store-miss bypass; see
+  [the write-allocation analysis](consults/2026-10-23-codex-walloc-report.md).
 - TLBs are direct-mapped per page size instead of the ARM925T's
   associative TLBs, and TLB lockdown has no effect.
 - An external abort on a cacheable line fill or write-back is ignored (the
