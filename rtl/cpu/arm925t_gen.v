@@ -18264,11 +18264,13 @@ module zap_tlb_check (
 	i_fptlb_rdav,
 	o_walk,
 	o_fsr,
+	o_fsr_nz,
 	o_far,
 	o_cacheable,
 	o_wt,
 	o_phy_addr
 );
+	reg _sv2v_0;
 	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] SECTION_TLB_ENTRIES = 32'd8;
@@ -18294,6 +18296,7 @@ module zap_tlb_check (
 	input wire i_fptlb_rdav;
 	output reg o_walk;
 	output reg [7:0] o_fsr;
+	output reg o_fsr_nz;
 	output reg [31:0] o_far;
 	output reg o_cacheable;
 	output reg o_wt;
@@ -18580,6 +18583,7 @@ module zap_tlb_check (
 	assign match[1] = (i_lptlb_rdata[(48 - $clog2(LPAGE_TLB_ENTRIES)) - 1:32] == i_va[31:16 + $clog2(LPAGE_TLB_ENTRIES)]) && i_lptlb_rdav;
 	assign match[2] = (i_setlb_rdata[(44 - $clog2(SECTION_TLB_ENTRIES)) - 1:32] == i_va[31:20 + $clog2(SECTION_TLB_ENTRIES)]) && i_setlb_rdav;
 	assign match[3] = (i_fptlb_rdata[(54 - $clog2(FPAGE_TLB_ENTRIES)) - 1:32] == i_va[31:10 + $clog2(FPAGE_TLB_ENTRIES)]) && i_fptlb_rdav;
+	reg [7:0] fsr_nxt;
 	function automatic is_apsr_ok;
 		input user;
 		input rd;
@@ -18712,10 +18716,25 @@ module zap_tlb_check (
 				endcase
 		end
 	endfunction
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		fsr_nxt = 8'd0;
+		if (i_mmu_en && (i_rd || i_wr))
+			case (match[3:0])
+				4'b0001: fsr_nxt = get_fsr_spage(i_va[11:10], i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_sptlb_rdata[15:0]);
+				4'b0010: fsr_nxt = get_fsr_lpage(i_va[15:14], i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_lptlb_rdata[15:0]);
+				4'b0100: fsr_nxt = get_fsr_section(i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_setlb_rdata[19:0]);
+				4'b1000: fsr_nxt = get_fsr_fpage(i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_fptlb_rdata[9:0]);
+				4'b0000: fsr_nxt = 8'd0;
+				default: fsr_nxt = 1'sbx;
+			endcase
+	end
 	always @(posedge i_clk)
 		if (i_clkena) begin : tlb_match_logic
 			dummy <= 1'd0;
-			o_fsr <= 0;
+			o_fsr <= fsr_nxt;
+			o_fsr_nz <= |fsr_nxt[3:0];
 			o_far <= i_va;
 			o_phy_addr <= i_va;
 			o_walk <= 0;
@@ -18724,32 +18743,27 @@ module zap_tlb_check (
 			if (i_mmu_en && (i_rd || i_wr))
 				case (match[3:0])
 					4'b0001: begin
-						o_fsr <= get_fsr_spage(i_va[11:10], i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_sptlb_rdata[15:0]);
 						o_phy_addr <= {i_sptlb_rdata[35:16], i_va[11:0]};
 						{dummy, o_cacheable} <= i_sptlb_rdata[3:2] >> 1;
 						o_wt <= i_sptlb_rdata[3:2] == 2'b10;
 					end
 					4'b0010: begin
-						o_fsr <= get_fsr_lpage(i_va[15:14], i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_lptlb_rdata[15:0]);
 						o_phy_addr <= {i_lptlb_rdata[31:16], i_va[15:0]};
 						{dummy, o_cacheable} <= i_lptlb_rdata[3:2] >> 1;
 						o_wt <= i_lptlb_rdata[3:2] == 2'b10;
 					end
 					4'b0100: begin
-						o_fsr <= get_fsr_section(i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_setlb_rdata[19:0]);
 						o_phy_addr <= {i_setlb_rdata[31:20], i_va[19:0]};
 						{dummy, o_cacheable} <= i_setlb_rdata[3:2] >> 1;
 						o_wt <= i_setlb_rdata[3:2] == 2'b10;
 					end
 					4'b1000: begin
-						o_fsr <= get_fsr_fpage(i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_fptlb_rdata[9:0]);
 						o_phy_addr <= {i_fptlb_rdata[31:10], i_va[9:0]};
 						{dummy, o_cacheable} <= i_fptlb_rdata[3:2] >> 1;
 						o_wt <= i_fptlb_rdata[3:2] == 2'b10;
 					end
 					4'b0000: o_walk <= 1'd1;
 					default: begin
-						o_fsr <= 1'sbx;
 						o_phy_addr <= 1'sbx;
 						o_walk <= 1'sbx;
 						o_far <= 1'sbx;
@@ -18758,6 +18772,7 @@ module zap_tlb_check (
 					end
 				endcase
 		end
+	initial _sv2v_0 = 0;
 endmodule
 module zap_tlb_fsm (
 	i_clk,
@@ -18768,6 +18783,7 @@ module zap_tlb_fsm (
 	i_idle,
 	i_walk,
 	i_fsr,
+	i_fsr_nz,
 	i_far,
 	i_cacheable,
 	i_phy_addr,
@@ -18812,6 +18828,7 @@ module zap_tlb_fsm (
 	input wire i_idle;
 	input wire i_walk;
 	input wire [7:0] i_fsr;
+	input wire i_fsr_nz;
 	input wire [31:0] i_far;
 	input wire i_cacheable;
 	input wire [31:0] i_phy_addr;
@@ -19168,7 +19185,7 @@ module zap_tlb_fsm (
 	assign walk = ((state_ff[IDLE] & i_mmu_en) & i_idle) & i_walk;
 	assign examine_fsr = ((state_ff[IDLE] & i_mmu_en) & i_idle) & ~i_walk;
 	assign o_busy = walk | ~state_ff[IDLE];
-	assign o_fault = examine_fsr & |i_fsr[3:0];
+	assign o_fault = examine_fsr & i_fsr_nz;
 	assign o_fsr = (o_fault ? i_fsr : 'd0);
 	assign o_far = (o_fault ? i_far : 'd0);
 	assign dac_nxt = (state_ff[FETCH_L1_DESC] ? (dff[1:0] == PAGE_ID ? dff[8:5] : (dff[1:0] == FINE_ID ? dff[8:5] : dac_ff)) : dac_ff);
@@ -19662,6 +19679,7 @@ module zap_tlb (
 	wire fptlb_wen;
 	wire walk;
 	wire [7:0] fsr;
+	wire fsr_nz;
 	wire [31:0] far;
 	wire cacheable;
 	wire wt;
@@ -19847,6 +19865,7 @@ module zap_tlb (
 		.i_fptlb_rdav(fptlb_ren_pre),
 		.o_walk(walk),
 		.o_fsr(fsr),
+		.o_fsr_nz(fsr_nz),
 		.o_far(far),
 		.o_cacheable(cacheable),
 		.o_wt(wt),
@@ -19865,6 +19884,7 @@ module zap_tlb (
 		.i_address(i_address),
 		.i_walk(walk),
 		.i_fsr(fsr),
+		.i_fsr_nz(fsr_nz),
 		.i_far(far),
 		.i_cacheable(cacheable),
 		.i_phy_addr(phy_addr),

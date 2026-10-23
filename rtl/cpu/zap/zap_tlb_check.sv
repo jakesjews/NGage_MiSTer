@@ -62,6 +62,7 @@ input logic                              i_fptlb_rdav,   // Fine page TLB valid.
 
 output logic                            o_walk,         // Signal page walk.
 output logic [7:0]                      o_fsr,          // FSR. 0 means all OK.
+output logic                            o_fsr_nz,       // ARM925T: |o_fsr[3:0], registered with it.
 output logic [31:0]                     o_far,          // Fault Address Register.
 output logic                            o_cacheable,    // Cacheble stats of the PTE.
 output logic                            o_wt,           // ARM925T: C=1 B=0, write-through.
@@ -91,6 +92,61 @@ assign  match[2] = (i_setlb_rdata[`ZAP_SECTION_TLB__TAG] == i_va[`ZAP_VA__SECTIO
 // 3: Fine Page
 assign  match[3] = (i_fptlb_rdata[`ZAP_FPAGE_TLB__TAG] == i_va[`ZAP_VA__FPAGE_TAG]) && i_fptlb_rdav;
 
+// ARM925T: the next FSR, so that its fault summary (any status bit set)
+// can be registered with it: the TLB FSM's fault then starts at a flop
+// instead of an OR of four flops on the data-stall path (timing).
+logic [7:0] fsr_nxt;
+
+always_comb
+begin
+        fsr_nxt = 8'd0;
+        if ( i_mmu_en && (i_rd || i_wr) )
+        begin
+                case ( match[3:0] )
+                4'b0001: fsr_nxt = get_fsr_spage
+                                (
+                                        i_va[`ZAP_VA__SPAGE_AP_SEL],
+                                        i_cpsr[ZAP_CPSR_MODE:0] == USR,
+                                        i_rd,
+                                        i_wr,
+                                        i_sr,
+                                        i_dac_reg,
+                                        i_sptlb_rdata[15:0]
+                                );
+                4'b0010: fsr_nxt = get_fsr_lpage
+                                (
+                                        i_va[`ZAP_VA__LPAGE_AP_SEL],
+                                        i_cpsr[ZAP_CPSR_MODE:0] == USR,
+                                        i_rd,
+                                        i_wr,
+                                        i_sr,
+                                        i_dac_reg,
+                                        i_lptlb_rdata[15:0]
+                                );
+                4'b0100: fsr_nxt = get_fsr_section
+                                (
+                                        i_cpsr[ZAP_CPSR_MODE:0] == USR,
+                                        i_rd,
+                                        i_wr,
+                                        i_sr,
+                                        i_dac_reg,
+                                        i_setlb_rdata[19:0]
+                                );
+                4'b1000: fsr_nxt = get_fsr_fpage
+                                (
+                                        i_cpsr[ZAP_CPSR_MODE:0] == USR,
+                                        i_rd,
+                                        i_wr,
+                                        i_sr,
+                                        i_dac_reg,
+                                        i_fptlb_rdata[9:0]
+                                );
+                4'b0000: fsr_nxt = 8'd0;
+                default: fsr_nxt = 'X;
+                endcase
+        end
+end
+
 always @ ( posedge i_clk )
 begin
         if ( i_clkena )
@@ -103,7 +159,8 @@ begin
                 dummy  <= 1'd0;
 
                 // Default values. Taken for MMU disabled esp.
-                o_fsr       <= 0;        // No fault.
+                o_fsr       <= fsr_nxt;  // No fault (0) unless found below.
+                o_fsr_nz    <= |fsr_nxt[3:0];
                 o_far       <= i_va;     // Fault address.
                 o_phy_addr  <= i_va;     // VA = PA
                 o_walk      <= 0;        // Walk disabled.
@@ -122,16 +179,6 @@ begin
                         4'b0001:
                         begin
                                 // Entry found in small page TLB.
-                                o_fsr <= get_fsr_spage
-                                (
-                                        i_va[`ZAP_VA__SPAGE_AP_SEL],
-                                        i_cpsr[ZAP_CPSR_MODE:0] == USR,
-                                        i_rd,
-                                        i_wr,
-                                        i_sr,
-                                        i_dac_reg,
-                                        i_sptlb_rdata[15:0]
-                                ) ;
 
                                 o_phy_addr <= {i_sptlb_rdata[`ZAP_SPAGE_TLB__BASE], i_va[11:0]};
                                 {dummy, o_cacheable} <= i_sptlb_rdata[`ZAP_SECTION_TLB__CB] >> 1;
@@ -142,16 +189,6 @@ begin
                         4'b0010:
                         begin
                                 // Entry found in large page TLB.
-                                o_fsr <= get_fsr_lpage
-                                (
-                                        i_va[`ZAP_VA__LPAGE_AP_SEL],
-                                        i_cpsr[ZAP_CPSR_MODE:0] == USR,
-                                        i_rd,
-                                        i_wr,
-                                        i_sr,
-                                        i_dac_reg,
-                                        i_lptlb_rdata[15:0]
-                                ) ;
 
                                 o_phy_addr <= {i_lptlb_rdata[`ZAP_LPAGE_TLB__BASE], i_va[15:0]};
                                 {dummy, o_cacheable} <= i_lptlb_rdata[`ZAP_LPAGE_TLB__CB] >> 1;
@@ -161,15 +198,6 @@ begin
                         4'b0100:
                         begin
                                 // Entry found in section TLB.
-                                o_fsr <= get_fsr_section
-                                (
-                                        i_cpsr[ZAP_CPSR_MODE:0] == USR,
-                                        i_rd,
-                                        i_wr,
-                                        i_sr,
-                                        i_dac_reg,
-                                        i_setlb_rdata[19:0]
-                                ) ;
 
                                 o_phy_addr <= {i_setlb_rdata[`ZAP_SECTION_TLB__BASE], i_va[19:0]};
                                 {dummy, o_cacheable} <= i_setlb_rdata[`ZAP_SECTION_TLB__CB] >> 1;
@@ -179,15 +207,6 @@ begin
                         4'b1000:
                         begin
                                 // Entry found in fine page TLB.
-                                o_fsr <= get_fsr_fpage
-                                (
-                                        i_cpsr[ZAP_CPSR_MODE:0] == USR,
-                                        i_rd,
-                                        i_wr,
-                                        i_sr,
-                                        i_dac_reg,
-                                        i_fptlb_rdata[9:0]
-                                );
 
                                 o_phy_addr <= {i_fptlb_rdata[`ZAP_FPAGE_TLB__BASE], i_va[9:0]};
                                 {dummy, o_cacheable} <= i_fptlb_rdata[`ZAP_FPAGE_TLB__CB] >> 1;
@@ -210,7 +229,6 @@ begin
                                 // OK to assign X. Never happens. Synthsis wil
                                 // OPTIMIZE. OK to do for FPGA synthesis.
                                 //
-                                o_fsr       <= 'X;
                                 o_phy_addr  <= 'X;
                                 o_walk      <= 'X;
                                 o_far       <= 'X;

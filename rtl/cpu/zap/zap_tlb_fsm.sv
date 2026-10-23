@@ -57,6 +57,7 @@ input   logic                    i_idle,
 
 input   logic                    i_walk,
 input   logic    [7:0]           i_fsr,
+input   logic                    i_fsr_nz,       // ARM925T: |i_fsr[3:0], registered in zap_tlb_check.
 input   logic    [31:0]          i_far,
 input   logic                    i_cacheable,
 input   logic    [31:0]          i_phy_addr,
@@ -184,7 +185,7 @@ assign examine_fsr = state_ff[IDLE] & i_mmu_en & i_idle & ~i_walk;
 assign o_busy  = walk | (~state_ff[IDLE]);
 
 // Access violation detection condition.
-assign o_fault = examine_fsr & |i_fsr[3:0];
+assign o_fault = examine_fsr & i_fsr_nz; // ARM925T: |i_fsr[3:0] from its flop
 
 // Generate FSR and FAR on fault - else drive 0.
 assign o_fsr   = o_fault ? i_fsr : 'd0;
