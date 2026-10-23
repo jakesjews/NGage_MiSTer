@@ -72,7 +72,8 @@ module zap_alu_main #(
         input logic i_memory_load_valid,
         input logic [5:0] i_memory_load_index,
         input logic [31:0] i_memory_load_value,
-        input logic [63:0] i_dc_reg_idx,
+        input logic [5:0] i_dc_reg_idx_bin,
+        input logic i_dc_reg_valid,
         input logic [31:0] i_dc_reg_dat,
         output logic o_stall_from_alu,
         output logic [1:0] o_late_ready,
@@ -424,7 +425,7 @@ for (genvar k = 0; k < 2; k = k + 1) begin : g_load_pickup
         assign memory_match[k] = i_load_pending_ff[k] && i_memory_load_valid &&
                                  i_load_index_ff[k*6 +: 6] == i_memory_load_index;
         assign background_match[k] = i_load_pending_ff[k] &&
-                                     i_dc_reg_idx[i_load_index_ff[k*6 +: 6]];
+                                     i_dc_reg_valid && i_load_index_ff[k*6 +: 6] == i_dc_reg_idx_bin;
         assign o_late_ready[k] = memory_match[k] || background_match[k];
         assign o_late_value[k*32 +: 32] = background_match[k] ?
                                          i_dc_reg_dat : i_memory_load_value;

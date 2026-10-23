@@ -75,6 +75,8 @@ input   logic [5:0]      i_reg_idx_bin,
 output  logic [63:0]     o_lock,
 output  logic [31:0]     o_reg_dat,
 output  logic [63:0]     o_reg_idx,
+output  logic [5:0]      o_reg_idx_bin,
+output  logic            o_reg_valid,
 
 // MMU controls from/to processor.
 input   logic            i_mmu_en,
@@ -270,6 +272,8 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .o_lock                 (o_lock),
         .o_reg_dat              (o_reg_dat),
         .o_reg_idx              (o_reg_idx),
+        .o_reg_idx_bin          (o_reg_idx_bin),
+        .o_reg_valid            (o_reg_valid),
 
         /* verilator lint_off PINCONNECTEMPTY */
         .o_wb_cyc_ff            (),

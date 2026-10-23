@@ -223,7 +223,8 @@ module zap_alu_main (
 	i_memory_load_valid,
 	i_memory_load_index,
 	i_memory_load_value,
-	i_dc_reg_idx,
+	i_dc_reg_idx_bin,
+	i_dc_reg_valid,
 	i_dc_reg_dat,
 	o_stall_from_alu,
 	o_late_ready,
@@ -317,7 +318,8 @@ module zap_alu_main (
 	input wire i_memory_load_valid;
 	input wire [5:0] i_memory_load_index;
 	input wire [31:0] i_memory_load_value;
-	input wire [63:0] i_dc_reg_idx;
+	input wire [5:0] i_dc_reg_idx_bin;
+	input wire i_dc_reg_valid;
 	input wire [31:0] i_dc_reg_dat;
 	output wire o_stall_from_alu;
 	output wire [1:0] o_late_ready;
@@ -861,7 +863,7 @@ module zap_alu_main (
 		for (_gv_k_1 = 0; _gv_k_1 < 2; _gv_k_1 = _gv_k_1 + 1) begin : g_load_pickup
 			localparam k = _gv_k_1;
 			assign memory_match[k] = (i_load_pending_ff[k] && i_memory_load_valid) && (i_load_index_ff[k * 6+:6] == i_memory_load_index);
-			assign background_match[k] = i_load_pending_ff[k] && i_dc_reg_idx[i_load_index_ff[k * 6+:6]];
+			assign background_match[k] = (i_load_pending_ff[k] && i_dc_reg_valid) && (i_load_index_ff[k * 6+:6] == i_dc_reg_idx_bin);
 			assign o_late_ready[k] = memory_match[k] || background_match[k];
 			assign o_late_value[k * 32+:32] = (background_match[k] ? i_dc_reg_dat : i_memory_load_value);
 		end
@@ -4841,6 +4843,8 @@ module zap_core (
 	i_icache_fill_fault,
 	i_dcache_err2,
 	i_dc_reg_idx,
+	i_dc_reg_idx_bin,
+	i_dc_reg_valid,
 	i_dc_reg_dat,
 	i_dc_lock,
 	o_dc_reg_idx,
@@ -4948,6 +4952,8 @@ module zap_core (
 	input wire i_icache_fill_fault;
 	input wire i_dcache_err2;
 	input wire [63:0] i_dc_reg_idx;
+	input wire [5:0] i_dc_reg_idx_bin;
+	input wire i_dc_reg_valid;
 	input wire [31:0] i_dc_reg_dat;
 	input wire [63:0] i_dc_lock;
 	output reg [63:0] o_dc_reg_idx;
@@ -5972,7 +5978,8 @@ module zap_core (
 		.i_memory_load_valid(memory_load_valid),
 		.i_memory_load_index(late_memory_index_ff),
 		.i_memory_load_value(late_memory_value_ff),
-		.i_dc_reg_idx(i_dc_reg_idx),
+		.i_dc_reg_idx_bin(i_dc_reg_idx_bin),
+		.i_dc_reg_valid(i_dc_reg_valid),
 		.i_dc_reg_dat(i_dc_reg_dat),
 		.i_stall_from_alu(stall_from_alu),
 		.i_alu_late_ready(alu_late_ready),
@@ -6071,7 +6078,8 @@ module zap_core (
 		.i_memory_load_valid(memory_load_valid),
 		.i_memory_load_index(late_memory_index_ff),
 		.i_memory_load_value(late_memory_value_ff),
-		.i_dc_reg_idx(i_dc_reg_idx),
+		.i_dc_reg_idx_bin(i_dc_reg_idx_bin),
+		.i_dc_reg_valid(i_dc_reg_valid),
 		.i_dc_reg_dat(i_dc_reg_dat),
 		.o_stall_from_alu(stall_from_alu),
 		.o_late_ready(alu_late_ready),
@@ -7596,6 +7604,8 @@ module zap_dcache (
 	o_lock,
 	o_reg_dat,
 	o_reg_idx,
+	o_reg_idx_bin,
+	o_reg_valid,
 	i_mmu_en,
 	i_cache_en,
 	i_cache_inv_req,
@@ -7671,6 +7681,8 @@ module zap_dcache (
 	output wire [63:0] o_lock;
 	output wire [31:0] o_reg_dat;
 	output wire [63:0] o_reg_idx;
+	output wire [5:0] o_reg_idx_bin;
+	output wire o_reg_valid;
 	input wire i_mmu_en;
 	input wire i_cache_en;
 	input wire i_cache_inv_req;
@@ -8134,6 +8146,8 @@ module zap_dcache (
 		.o_lock(o_lock),
 		.o_reg_dat(o_reg_dat),
 		.o_reg_idx(o_reg_idx),
+		.o_reg_idx_bin(o_reg_idx_bin),
+		.o_reg_valid(o_reg_valid),
 		.o_wb_cyc_ff(),
 		.o_wb_stb_ff(),
 		.o_wb_adr_ff(),
@@ -8366,6 +8380,8 @@ module zap_dcache_fsm (
 	o_lock,
 	o_reg_dat,
 	o_reg_idx,
+	o_reg_idx_bin,
+	o_reg_valid,
 	o_dat,
 	o_ack,
 	o_err,
@@ -8457,6 +8473,8 @@ module zap_dcache_fsm (
 	output reg [63:0] o_lock;
 	output wire [31:0] o_reg_dat;
 	(* dont_retime *) output reg [63:0] o_reg_idx;
+	(* dont_retime *) output reg [5:0] o_reg_idx_bin;
+	(* dont_retime *) output reg o_reg_valid;
 	output reg [31:0] o_dat;
 	output wire o_ack;
 	output reg o_err;
@@ -9008,6 +9026,8 @@ module zap_dcache_fsm (
 	assign o_wb_bte_nxt = (state_ff[FETCH_SINGLE] && (CACHE_LINE == 16) ? 2'b01 : 2'b00);
 	reg [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] way;
 	reg [63:0] reg_idx;
+	reg [5:0] reg_idx_bin;
+	reg reg_valid;
 	reg [63:0] lock_nxt;
 	reg [63:0] lock_ff;
 	reg victim_valid;
@@ -9069,10 +9089,16 @@ module zap_dcache_fsm (
 			cache_line <= i_cache_line;
 	assign critical_take = ((state_ff[FETCH_SINGLE] && !wr) && take) && (fetch_word_cur == address[$clog2(CACHE_LINE) - 1:2]);
 	always @(posedge i_clk) begin
-		if (i_reset)
+		if (i_reset) begin
 			o_reg_idx <= 64'b0000000000000000000000000000000000000000000000000000000000000000;
-		else
+			o_reg_valid <= 1'b0;
+		end
+		else begin
 			o_reg_idx <= (critical_take ? reg_idx : 64'b0000000000000000000000000000000000000000000000000000000000000000);
+			o_reg_valid <= critical_take && reg_valid;
+		end
+		if (critical_take)
+			o_reg_idx_bin <= reg_idx_bin;
 		if (critical_take)
 			reg_dat_ff <= ld_transform(i_wb_dat, ldfmt);
 	end
@@ -9088,6 +9114,8 @@ module zap_dcache_fsm (
 			phy_addr <= i_phy_addr;
 			way <= i_cache_way;
 			reg_idx <= i_reg_idx;
+			reg_idx_bin <= i_reg_idx_bin;
+			reg_valid <= |i_reg_idx;
 			ldfmt <= i_ldfmt;
 			wt_hit <= ((i_wr && i_wt) && i_cacheable) && i_cache_hit;
 			wt_dirty <= i_cache_hit_dirty;
@@ -17139,7 +17167,8 @@ module zap_shifter_main (
 	i_memory_load_value,
 	i_shift_source_pending_ff,
 	i_shift_length_pending_ff,
-	i_dc_reg_idx,
+	i_dc_reg_idx_bin,
+	i_dc_reg_valid,
 	i_dc_reg_dat,
 	i_stall_from_alu,
 	i_alu_late_ready,
@@ -17242,7 +17271,8 @@ module zap_shifter_main (
 	input wire [31:0] i_memory_load_value;
 	input wire i_shift_source_pending_ff;
 	input wire i_shift_length_pending_ff;
-	input wire [63:0] i_dc_reg_idx;
+	input wire [5:0] i_dc_reg_idx_bin;
+	input wire i_dc_reg_valid;
 	input wire [31:0] i_dc_reg_dat;
 	input wire i_stall_from_alu;
 	input wire [1:0] i_alu_late_ready;
@@ -17766,7 +17796,7 @@ module zap_shifter_main (
 		for (_gv_k_4 = 0; _gv_k_4 < 4; _gv_k_4 = _gv_k_4 + 1) begin : g_load_pickup
 			localparam k = _gv_k_4;
 			assign memory_match[k] = (i_load_pending_ff[k] && i_memory_load_valid) && (load_index[k * 6+:6] == i_memory_load_index);
-			assign background_match[k] = i_load_pending_ff[k] && i_dc_reg_idx[load_index[k * 6+:6]];
+			assign background_match[k] = (i_load_pending_ff[k] && i_dc_reg_valid) && (load_index[k * 6+:6] == i_dc_reg_idx_bin);
 			assign o_late_ready[k] = memory_match[k] || background_match[k];
 			assign pickup_value[k * 32+:32] = (background_match[k] ? i_dc_reg_dat : (memory_match[k] ? i_memory_load_value : original_value[k * 32+:32]));
 		end
@@ -21143,6 +21173,8 @@ module zap_top (
 	wire [63:0] dc_rreg_idx;
 	wire [63:0] dc_wreg_idx;
 	wire [5:0] dc_rreg_idx_bin;
+	wire [5:0] dc_wreg_idx_bin;
+	wire dc_wreg_valid;
 	wire [63:0] dc_lock;
 	wire [31:0] dc_reg_data;
 	wire icache_err2;
@@ -21281,6 +21313,8 @@ module zap_top (
 		.o_dc_reg_idx(dc_rreg_idx),
 		.o_dc_reg_idx_bin(dc_rreg_idx_bin),
 		.i_dc_reg_idx((!ONLY_CORE ? dc_wreg_idx : sv2v_uu_u_zap_core_ext_i_dc_reg_idx_0)),
+		.i_dc_reg_idx_bin((!ONLY_CORE ? dc_wreg_idx_bin : 6'd0)),
+		.i_dc_reg_valid(!ONLY_CORE && dc_wreg_valid),
 		.i_dc_lock((!ONLY_CORE ? dc_lock : sv2v_uu_u_zap_core_ext_i_dc_lock_0)),
 		.i_dc_reg_dat((!ONLY_CORE ? dc_reg_data : sv2v_uu_u_zap_core_ext_i_dc_reg_dat_0)),
 		.i_dcache_inv_done((!ONLY_CORE ? dc_inv_done : sv2v_uu_u_zap_core_ext_i_dcache_inv_done_0)),
@@ -21456,6 +21490,8 @@ module zap_top (
 				.o_lock(dc_lock),
 				.o_reg_dat(dc_reg_data),
 				.o_reg_idx(dc_wreg_idx),
+				.o_reg_idx_bin(dc_wreg_idx_bin),
+				.o_reg_valid(dc_wreg_valid),
 				.o_fsr(dc_fsr),
 				.o_far(dc_far),
 				.o_cache_inv_done(dc_inv_done),

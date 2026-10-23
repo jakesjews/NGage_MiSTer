@@ -183,6 +183,8 @@ input   logic                            i_dcache_err2,
 // -----------------------------------------------------
 
 input   logic [63:0]                     i_dc_reg_idx, // Register to load to.
+input   logic [5:0]                      i_dc_reg_idx_bin,
+input   logic                            i_dc_reg_valid,
 input   logic [31:0]                     i_dc_reg_dat, // Register data.
 input   logic [63:0]                     i_dc_lock,    // Register that is locked.
 output  logic [63:0]                     o_dc_reg_idx, // Register index.
@@ -1158,7 +1160,8 @@ u_zap_shifter_main
         .i_memory_load_valid            (memory_load_valid),
         .i_memory_load_index            (late_memory_index_ff),
         .i_memory_load_value            (late_memory_value_ff),
-        .i_dc_reg_idx                   (i_dc_reg_idx),
+        .i_dc_reg_idx_bin               (i_dc_reg_idx_bin),
+        .i_dc_reg_valid                 (i_dc_reg_valid),
         .i_dc_reg_dat                   (i_dc_reg_dat),
         .i_stall_from_alu               (stall_from_alu),
         .i_alu_late_ready               (alu_late_ready),
@@ -1289,7 +1292,8 @@ u_zap_alu_main
          .i_memory_load_valid            (memory_load_valid),
          .i_memory_load_index            (late_memory_index_ff),
          .i_memory_load_value            (late_memory_value_ff),
-         .i_dc_reg_idx                   (i_dc_reg_idx),
+         .i_dc_reg_idx_bin               (i_dc_reg_idx_bin),
+        .i_dc_reg_valid                 (i_dc_reg_valid),
          .i_dc_reg_dat                   (i_dc_reg_dat),
          .o_stall_from_alu               (stall_from_alu),
          .o_late_ready                   (alu_late_ready),

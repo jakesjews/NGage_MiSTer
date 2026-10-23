@@ -61,6 +61,10 @@ input   logic    [5:0]             i_reg_idx_bin,
 output  logic     [63:0]           o_lock,
 output  logic [31:0]               o_reg_dat,
 (* dont_retime *) output logic [63:0] o_reg_idx,
+// ARM925T: the same completion in binary form for late operand matching.
+// The one-hot mask remains the register-file write and lock-clear interface.
+(* dont_retime *) output logic [5:0] o_reg_idx_bin,
+(* dont_retime *) output logic o_reg_valid,
 output  logic     [31:0]           o_dat,
 output  logic                      o_ack,
 output  logic                      o_err,
@@ -233,6 +237,8 @@ assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_inc, 2'b00};
 assign o_wb_bte_nxt = (state_ff[FETCH_SINGLE] && CACHE_LINE == 16) ? 2'b01 : 2'b00;
 logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] way;       // ARM925T: the line's way
 logic    [63:0]                           reg_idx;
+logic    [5:0]                            reg_idx_bin;
+logic                                     reg_valid;
 logic    [63:0]                           lock_nxt, lock_ff;
 logic                                     victim_valid;
 logic                                     wt_hit, wt_dirty; // ARM925T: write-through store.
@@ -334,10 +340,15 @@ assign critical_take = state_ff[FETCH_SINGLE] && !wr && take &&
 
 always_ff @ ( posedge i_clk )
 begin
-        if ( i_reset )
+        if ( i_reset ) begin
                 o_reg_idx <= 64'b0;
-        else
+                o_reg_valid <= 1'b0;
+        end else begin
                 o_reg_idx <= critical_take ? reg_idx : 64'b0;
+                o_reg_valid <= critical_take && reg_valid;
+        end
+        if (critical_take)
+                o_reg_idx_bin <= reg_idx_bin;
 
         if ( critical_take )
         begin
@@ -363,6 +374,8 @@ begin
                 phy_addr        <= i_phy_addr;
                 way             <= i_cache_way;
                 reg_idx         <= i_reg_idx;
+                reg_idx_bin     <= i_reg_idx_bin;
+                reg_valid       <= |i_reg_idx;
                 ldfmt           <= i_ldfmt;
                 wt_hit          <= i_wr && i_wt && i_cacheable && i_cache_hit;
                 wt_dirty        <= i_cache_hit_dirty;

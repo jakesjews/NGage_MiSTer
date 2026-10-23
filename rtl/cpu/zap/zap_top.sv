@@ -250,7 +250,8 @@ logic [1:0]      d_wb_bte;
 logic            d_wb_ack;
 logic            d_wb_err;
 logic [63:0]     dc_rreg_idx, dc_wreg_idx;
-logic [5:0]      dc_rreg_idx_bin;
+logic [5:0]      dc_rreg_idx_bin, dc_wreg_idx_bin;
+logic            dc_wreg_valid;
 logic [63:0]     dc_lock;
 logic [31:0]     dc_reg_data;
 logic            icache_err2, dcache_err2;
@@ -409,6 +410,8 @@ zap_core #(
 .o_dc_reg_idx_bin       (dc_rreg_idx_bin),
 
 .i_dc_reg_idx           (!ONLY_CORE ? dc_wreg_idx : '0),
+.i_dc_reg_idx_bin       (!ONLY_CORE ? dc_wreg_idx_bin : 6'd0),
+.i_dc_reg_valid         (!ONLY_CORE && dc_wreg_valid),
 .i_dc_lock              (!ONLY_CORE ? dc_lock : '0),
 .i_dc_reg_dat           (!ONLY_CORE ? dc_reg_data : '0),
 .i_dcache_inv_done      (!ONLY_CORE ? dc_inv_done : '0),
@@ -682,6 +685,8 @@ u_data_cache (
 .o_lock                 (dc_lock),
 .o_reg_dat              (dc_reg_data),
 .o_reg_idx              (dc_wreg_idx),
+.o_reg_idx_bin          (dc_wreg_idx_bin),
+.o_reg_valid            (dc_wreg_valid),
 .o_fsr                  (dc_fsr),
 .o_far                  (dc_far),
 .o_cache_inv_done       (dc_inv_done),

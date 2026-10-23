@@ -5,12 +5,13 @@ criterion is the median of three whole-core slow-100C setup slacks at
 104 MHz, at least −0.300 ns. No CPU-only timing result is used for acceptance.
 
 Retained so far: the registered TLB fault summary, per-slot issue decisions,
-local barrel pending selects, combined BL/LSL-zero decode, and direct cache
-acknowledgement. Every retained
+local barrel pending selects, combined BL/LSL-zero decode, direct cache
+acknowledgement, and binary background-completion tags. Every retained
 combination passes the complete CPU suite with identical cycles/instructions.
 The latest completed three-seed snapshot is `combined2`, at −0.812 ns median;
 it includes the owner-supplied card fix and the first two CPU changes, but
-predates the pending-select, decoder and acknowledgement changes. The final combined timing requirement is not yet met.
+predates the pending-select, decoder, acknowledgement and completion-tag
+changes. The final combined timing requirement is not yet met.
 
 ## Measurement method
 
@@ -156,11 +157,16 @@ pair worst from −0.342 to −0.384 ns, a 0.042 ns regression. This is recorded
 as an additional finding, not silently folded into the earlier outgoing-only
 acceptance claim. The original outgoing gain remains +0.458 ns.
 
-A separate FSR/new-summary capture query is queued to distinguish the
-changed register boundary from the neighboring hit-permission register.
-The original TLB change remains in the current tree while that audit and
-the final combined three-seed measurement are pending; no closure claim is
-made from the outgoing-only result.
+The separate FSR/new-summary capture query completes with +0.515/+0.508 ns
+before and +0.046/−0.110 ns after. Including those captures and all outgoing
+FSR/summary paths improves the D-TLB minimum from −0.249/−0.342 to
++0.046/−0.110 ns: both seeds improve, and the pair worst improves by 0.232 ns.
+The I-TLB capture figures are +0.361/+1.044 before and +0.920/+0.094 after;
+its capture/output pair worst also improves, from −0.218 to +0.094 ns.
+Thus the changed register boundary passes the supplementary check and the
+TLB port remains retained. The broader neighboring `o_hit_ok` regression
+above is preserved as a separate finding and is included in the final
+whole-core assessment, not hidden by the narrower capture result.
 
 ## CPU cycle evidence
 
@@ -769,8 +775,17 @@ smaller implementation than the dropped `dctags` trial, requiring its own
 paired measurement. The pre-fit minimum includes background pickup and all
 old/new cache destination-register inputs. It reuses the unchanged actual-FSM
 completion identity and arbitrary-operand match proof. All 225 counts,
-57 QEMU comparisons, both lint modes and generated checks pass. Its fits are
-queued after `dcack3`; no subset of the failed combined trial is applied.
+57 QEMU comparisons, both lint modes and generated checks pass. Retain the separately measured `bgindex3`: the minimum over background
+pickup and tag capture improves from +0.061 to +0.321 ns at seed 1 and
+from −0.639 to +0.567 ns at seed 2 (worst-of-pair gain 0.960 ns).
+Background pickup alone is +0.769/+0.567 ns; tag inputs are +0.321/+0.958 ns.
+Whole-core slacks are −0.509/−0.593 ns at 35,213/35,216 ALMs and 477 M10Ks.
+Four-corner minimum hold slacks are +0.070/+0.080 ns. Both source manifests
+match. The seed-1 worst path is flash pending control into DDRAM ownership
+address; seed 2's is shift-length data into the barrel shifter. The wider
+lock-index changes remain dropped. The integrated retained tree, including
+direct acknowledgement, also passes all 225 exact counts, 57 QEMU comparisons,
+both lint modes and generated checks.
 
 **Registered post-ALU load-valid (`loadvalid`):** capture `DAV && mem_load`
 in one added bit at each existing post-ALU edge. Reset and writeback clear

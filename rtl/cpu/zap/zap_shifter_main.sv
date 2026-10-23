@@ -73,7 +73,8 @@ module zap_shifter_main
         input logic [31:0] i_memory_load_value,
         input logic i_shift_source_pending_ff,
         input logic i_shift_length_pending_ff,
-        input logic [63:0] i_dc_reg_idx,
+        input logic [5:0] i_dc_reg_idx_bin,
+        input logic i_dc_reg_valid,
         input logic [31:0] i_dc_reg_dat,
         input logic i_stall_from_alu,
         input logic [1:0] i_alu_late_ready,
@@ -260,7 +261,7 @@ for (genvar k = 0; k < 4; k = k + 1) begin : g_load_pickup
         assign memory_match[k] = i_load_pending_ff[k] && i_memory_load_valid &&
                                  load_index[k*6 +: 6] == i_memory_load_index;
         assign background_match[k] = i_load_pending_ff[k] &&
-                                     i_dc_reg_idx[load_index[k*6 +: 6]];
+                                     i_dc_reg_valid && load_index[k*6 +: 6] == i_dc_reg_idx_bin;
         assign o_late_ready[k] = memory_match[k] || background_match[k];
         assign pickup_value[k*32 +: 32] = background_match[k] ? i_dc_reg_dat :
                                          memory_match[k] ? i_memory_load_value :
