@@ -231,13 +231,15 @@ logic slow_start, block_start, block_pending;
 logic multiply_start, pipe_multiply, multiply_add;
 wire multiply_kind = kind_e == K_MUL || kind_e == K_MULL;
 wire multiply_ready = pipe_multiply && !multiply_add && multiply_delay == 0;
-wire [31:0] resolved_next = kind_e == K_BRANCH && ex_pass ? ex_branch :
+wire branch_kind = kind_e == K_BRANCH || kind_e == K_BL_SUFFIX;
+wire [31:0] branch_target = kind_e == K_BL_SUFFIX ? {ex_result[31:1],1'b0} : ex_branch;
+wire [31:0] resolved_next = branch_kind && ex_pass ? branch_target :
                              pc + (execute_flags[5] ? 32'd2 : 32'd4);
 wire prediction_wrong = e_predicted ? e_pred_target != resolved_next :
-                                      kind_e == K_BRANCH && ex_pass;
+                                      branch_kind && ex_pass;
 wire predictor_feedback = (execute_fast || slow_start || block_start) &&
-                          (kind_e == K_BRANCH || e_predicted);
-wire predictor_direction_wrong = e_predicted != (kind_e == K_BRANCH && ex_pass);
+                          (branch_kind || e_predicted);
+wire predictor_direction_wrong = e_predicted != (branch_kind && ex_pass);
 logic e_valid, e_shifted, execute_wait;
 logic wb_cycle;
 logic retire_fast, pipe_hold, pipe_fault;
@@ -404,7 +406,7 @@ always_comb begin
     shift_register_d = kind_d == K_DP && !d_ins[25] && d_ins[4];
     if (kind_d == K_MUL || kind_d == K_MULL) read_tag[2] = translate({1'b0,d_ins[11:8]}, cpsr[4:0]);
     if (shift_register_d) read_tag[2] = translate({1'b0,d_ins[11:8]}, cpsr[4:0]);
-    if (kind_d == K_BL_SUFFIX) read_tag[1] = translate(5'd14, cpsr[4:0]);
+    if (kind_d == K_BL_SUFFIX) read_tag[0] = translate(5'd14, cpsr[4:0]);
 end
 
 always_comb begin
@@ -445,8 +447,15 @@ always_comb begin
         shift_amount_d = 0;
         immediate_d = 0;
     end
+    if (kind_d == K_BL_SUFFIX) begin
+        op_d = ADD;
+        immediate_d = 1;
+        value_d[1] = {20'd0,d_raw[10:0],1'b0};
+    end
     branch_offset_d = translated[34] ? {{7{d_ins[23]}},d_ins[23:0],1'b0} :
                                                      {{6{d_ins[23]}},d_ins[23:0],2'b0};
+    if (kind_d == K_BL_PREFIX)
+        branch_offset_d = {{9{d_raw[10]}},d_raw[10:0],12'd0};
     psr_mask_d = {{8{d_ins[19]}},{8{d_ins[18]}},{8{d_ins[17]}},{8{d_ins[16]}}} & 32'hf00000ff;
     if (!d_ins[22]) begin
         psr_mask_d[5] = 0; // ARMv4 MSR never changes instruction state.
@@ -506,7 +515,7 @@ assign execute_flags = fast_1.present ? fast_1.flags :
     fast_w.present ? fast_w.flags : cpsr;
 assign fast_d = (kind_d == K_DP && d_ins[15:12] != 15) || kind_d == K_BRANCH ||
                (kind_d == K_MEM && !(d_ins[19:16] == 15 && (d_ins[21] || !d_ins[24]))) ||
-               kind_d == K_BLOCK ||
+               kind_d == K_BLOCK || kind_d == K_BL_PREFIX || kind_d == K_BL_SUFFIX ||
                ((kind_d == K_MUL || kind_d == K_MULL) && d_ins[19:16] != 15 &&
                 (kind_d == K_MUL || d_ins[15:12] != 15));
 wire shift_hold = e_valid && !e_shifted && shift_register_e && ex_pass && !execute_wait;
@@ -568,6 +577,12 @@ always_comb begin
         kind_e == K_MEM ? ((ins[21] || !ins[24]) ? base_e : PHY_RAZ_REGISTER) :
         ex_write ? dst_e : PHY_RAZ_REGISTER;
     fast_input.value = kind_e == K_BRANCH ? pc + 4 : ex_result;
+    // Thumb BL halves remain separate architectural instructions. The prefix
+    // writes the PC-relative base; the suffix forwards it through the E adder.
+    if (kind_e == K_BL_PREFIX || kind_e == K_BL_SUFFIX) begin
+        fast_input.dst = translate(5'd14,cpsr[4:0]);
+        fast_input.value = kind_e == K_BL_PREFIX ? ex_branch : (pc + 2) | 1;
+    end
     fast_input.memory = kind_e == K_MEM;
     fast_input.load = kind_e == K_MEM && ins[20];
     fast_input.load_dst = dst_e;
@@ -859,16 +874,6 @@ always_ff @(posedge i_clk) begin
                     w_target <= ex_result;
                     w_flags[5] <= ex_result[0];
                 end
-                K_BL_PREFIX: begin
-                    w_dst <= translate(5'd14,cpsr[4:0]);
-                    w_value <= pc8 + {{9{raw_ins[10]}},raw_ins[10:0],12'd0};
-                end
-                K_BL_SUFFIX: begin
-                    w_dst <= translate(5'd14,cpsr[4:0]);
-                    w_value <= (pc + 2) | 1;
-                    w_redirect <= 1;
-                    w_target <= value_e[1] + {20'd0,raw_ins[10:0],1'b0};
-                end
                 K_MEM, K_SWP: begin
                     state <= M1;
                     m_address <= effective_address;
@@ -1049,7 +1054,9 @@ always_ff @(posedge i_clk) begin
             tag_e <= read_tag;
             // Normal operations use E forwarding. Serialized operations capture
             // ready D operands, then wait in E for ordered retirement.
-            used_e <= kind_d == K_BLOCK ?
+            // B/BL consume flags and the PC-relative offset, no register operands.
+            used_e <= (kind_d == K_BRANCH || kind_d == K_BL_PREFIX) ? 4'b0000 :
+                kind_d == K_BL_SUFFIX ? 4'b0001 : kind_d == K_BLOCK ?
                 {!d_ins[20],d_ins[20] && d_ins[22] && d_ins[15],1'b0,1'b1} :
                 (kind_d == K_MUL || kind_d == K_MULL) ?
                 {d_ins[21],2'b11,kind_d == K_MULL && d_ins[21]} : kind_d == K_MEM ?

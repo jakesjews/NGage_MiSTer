@@ -7,7 +7,9 @@ The next edge captures tag/way/word selection and load formatting alongside
 the unchanged registered permission check. Fetch hits enter D from a registered
 F2 packet, taking four clocks for an unpredicted branch; load-use remains two.
 Prediction is optional and defaults on for ARM9. Block and multiply drains are
-removed for normal encodings; performance/timing/area gates remain open. The session-6 sections supersede the historical native schedule.
+removed for normal encodings. The seven-workload cycle gate passes at all three
+bus latencies; integrated timing and area are the remaining gates. The session-6
+sections supersede the historical native schedule.
 Starting revision: `75cce2e`, branch `codex/arm9`.
 
 ## Contract and sources
@@ -801,3 +803,28 @@ younger multiply or block store by an older abort. There are now 82 timing
 windows. Timing risks are E's first block-address forwarding and the multiplier
 input mux; no pipeline stage was added, and the existing multiplier cone is
 shared with the serialized fallback.
+
+## Session 6: fetch and branch completion
+
+An empty fetch queue can also bypass an uncached ARM response into D: the
+cache FSM has already registered that word. Thumb miss responses retain the
+translation/capture edge, keeping that decoder off the D operand-read path.
+Queued instructions keep priority, and provisional fill data still waits for
+completion before issue.
+
+B/BL register-use masks are empty: their encoded offsets are not Rn/Rm/Rd
+operands. Thumb BL halves remain separate architectural instructions but now
+run through E and the normal ordered result records. The prefix writes its
+PC-relative base into LR; the suffix forwards LR through the existing E adder,
+writes the return address and validates/trains the BTB. Both halfword
+alignments have directed windows, and a standalone suffix with an aligned LR
+has a QEMU-compared semantic check. Target alignment preserves the old path. No new adder or pipeline stage is needed.
+The new load-then-branch window catches false register dependencies in the
+immediate offset. These additions bring coverage to 85 timing windows.
+
+Fetch suppresses its core-facing read on an E/W redirect or while draining a
+killed lookup. This prevents a still-idle cache from starting a wrong-path bus
+transaction on the redirect edge. An already active transaction remains owned
+by the cache FSM and drains normally before lookup reuse. The eight-entry
+queue remains: a four-entry experiment disturbed timing windows and regressed
+the high-latency ARM random workload.

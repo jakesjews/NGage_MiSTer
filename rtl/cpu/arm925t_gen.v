@@ -926,13 +926,16 @@ module arm9_core (
 	wire multiply_kind = (kind_e == 4'd13) || (kind_e == 4'd14);
 	reg [2:0] multiply_delay;
 	wire multiply_ready = (pipe_multiply && !multiply_add) && (multiply_delay == 0);
+	wire branch_kind = (kind_e == 4'd3) || (kind_e == 4'd11);
 	wire [31:0] ex_branch;
+	wire [31:0] ex_result;
+	wire [31:0] branch_target = (kind_e == 4'd11 ? {ex_result[31:1], 1'b0} : ex_branch);
 	wire ex_pass;
 	wire [31:0] execute_flags;
-	wire [31:0] resolved_next = ((kind_e == 4'd3) && ex_pass ? ex_branch : pc + (execute_flags[5] ? 32'd2 : 32'd4));
-	wire prediction_wrong = (e_predicted ? e_pred_target != resolved_next : (kind_e == 4'd3) && ex_pass);
-	wire predictor_feedback = ((execute_fast || slow_start) || block_start) && ((kind_e == 4'd3) || e_predicted);
-	wire predictor_direction_wrong = e_predicted != ((kind_e == 4'd3) && ex_pass);
+	wire [31:0] resolved_next = (branch_kind && ex_pass ? branch_target : pc + (execute_flags[5] ? 32'd2 : 32'd4));
+	wire prediction_wrong = (e_predicted ? e_pred_target != resolved_next : branch_kind && ex_pass);
+	wire predictor_feedback = ((execute_fast || slow_start) || block_start) && (branch_kind || e_predicted);
+	wire predictor_direction_wrong = e_predicted != (branch_kind && ex_pass);
 	reg e_valid;
 	reg e_shifted;
 	wire execute_wait;
@@ -983,7 +986,6 @@ module arm9_core (
 	reg immediate_e;
 	reg immediate_carry_d;
 	reg immediate_carry_e;
-	wire [31:0] ex_result;
 	wire [31:0] ex_store;
 	wire [3:0] ex_flags;
 	wire ex_write;
@@ -1164,7 +1166,7 @@ module arm9_core (
 		if (shift_register_d)
 			read_tag[12+:6] = translate({1'b0, d_ins[11:8]}, cpsr[4:0]);
 		if (kind_d == 4'd11)
-			read_tag[6+:6] = translate(5'd14, cpsr[4:0]);
+			read_tag[0+:6] = translate(5'd14, cpsr[4:0]);
 	end
 	always @(*) begin
 		if (_sv2v_0)
@@ -1219,7 +1221,14 @@ module arm9_core (
 			shift_amount_d = 0;
 			immediate_d = 0;
 		end
+		if (kind_d == 4'd11) begin
+			op_d = ADD;
+			immediate_d = 1;
+			value_d[32+:32] = {20'd0, d_raw[10:0], 1'b0};
+		end
 		branch_offset_d = (translated[34] ? {{7 {d_ins[23]}}, d_ins[23:0], 1'b0} : {{6 {d_ins[23]}}, d_ins[23:0], 2'b00});
+		if (kind_d == 4'd10)
+			branch_offset_d = {{9 {d_raw[10]}}, d_raw[10:0], 12'd0};
 		psr_mask_d = {{8 {d_ins[19]}}, {8 {d_ins[18]}}, {8 {d_ins[17]}}, {8 {d_ins[16]}}} & 32'hf00000ff;
 		if (!d_ins[22]) begin
 			psr_mask_d[5] = 0;
@@ -1299,7 +1308,7 @@ module arm9_core (
 		.o_wait(held_wait)
 	);
 	assign execute_flags = (fast_1[228] ? fast_1[188-:32] : (fast_m[228] ? fast_m[188-:32] : (fast_w[228] ? fast_w[188-:32] : cpsr)));
-	assign fast_d = (((((kind_d == 4'd0) && (d_ins[15:12] != 15)) || (kind_d == 4'd3)) || ((kind_d == 4'd5) && !((d_ins[19:16] == 15) && (d_ins[21] || !d_ins[24])))) || (kind_d == 4'd6)) || ((((kind_d == 4'd13) || (kind_d == 4'd14)) && (d_ins[19:16] != 15)) && ((kind_d == 4'd13) || (d_ins[15:12] != 15)));
+	assign fast_d = (((((((kind_d == 4'd0) && (d_ins[15:12] != 15)) || (kind_d == 4'd3)) || ((kind_d == 4'd5) && !((d_ins[19:16] == 15) && (d_ins[21] || !d_ins[24])))) || (kind_d == 4'd6)) || (kind_d == 4'd10)) || (kind_d == 4'd11)) || ((((kind_d == 4'd13) || (kind_d == 4'd14)) && (d_ins[19:16] != 15)) && ((kind_d == 4'd13) || (d_ins[15:12] != 15)));
 	wire shift_hold = (((e_valid && !e_shifted) && shift_register_e) && ex_pass) && !execute_wait;
 	assign fast_load_ready = !fast_w[123] || !i_dc_lock[fast_w[116-:6]];
 	assign retire_fast = fast_w[228] && fast_load_ready;
@@ -1331,6 +1340,10 @@ module arm9_core (
 		fast_input[188-:32] = (kind_e == 4'd0 ? {ex_flags, execute_flags[27:0]} : execute_flags);
 		fast_input[226-:6] = (kind_e == 4'd3 ? (ins[24] ? translate(5'd14, cpsr[4:0]) : PHY_RAZ_REGISTER) : (kind_e == 4'd5 ? (ins[21] || !ins[24] ? base_e : PHY_RAZ_REGISTER) : (ex_write ? dst_e : PHY_RAZ_REGISTER)));
 		fast_input[220-:32] = (kind_e == 4'd3 ? pc + 4 : ex_result);
+		if ((kind_e == 4'd10) || (kind_e == 4'd11)) begin
+			fast_input[226-:6] = translate(5'd14, cpsr[4:0]);
+			fast_input[220-:32] = (kind_e == 4'd10 ? ex_branch : (pc + 2) | 1);
+		end
 		fast_input[124] = kind_e == 4'd5;
 		fast_input[123] = (kind_e == 4'd5) && ins[20];
 		fast_input[116-:6] = dst_e;
@@ -1678,16 +1691,6 @@ module arm9_core (
 							w_target <= ex_result;
 							w_flags[5] <= ex_result[0];
 						end
-						4'd10: begin
-							w_dst <= translate(5'd14, cpsr[4:0]);
-							w_value <= pc8 + {{9 {raw_ins[10]}}, raw_ins[10:0], 12'd0};
-						end
-						4'd11: begin
-							w_dst <= translate(5'd14, cpsr[4:0]);
-							w_value <= (pc + 2) | 1;
-							w_redirect <= 1;
-							w_target <= value_e[32+:32] + {20'd0, raw_ins[10:0], 1'b0};
-						end
 						4'd5, 4'd12: begin
 							state <= 4'd1;
 							m_address <= effective_address;
@@ -1894,7 +1897,7 @@ module arm9_core (
 				end
 				fast_e <= (((issue && fast_d) && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6]);
 				tag_e <= read_tag;
-				used_e <= (kind_d == 4'd6 ? {!d_ins[20], (d_ins[20] && d_ins[22]) && d_ins[15], 2'b01} : ((kind_d == 4'd13) || (kind_d == 4'd14) ? {d_ins[21], 2'b11, (kind_d == 4'd14) && d_ins[21]} : (kind_d == 4'd5 ? {!d_ins[20], 1'b0, !immediate_d, 1'b1} : (kind_d == 4'd0 ? {1'b0, shift_register_d, !immediate_d, (op_d != MOV) && (op_d != MVN)} : {2'b11, !immediate_d, 1'b1}))));
+				used_e <= ((kind_d == 4'd3) || (kind_d == 4'd10) ? 4'b0000 : (kind_d == 4'd11 ? 4'b0001 : (kind_d == 4'd6 ? {!d_ins[20], (d_ins[20] && d_ins[22]) && d_ins[15], 2'b01} : ((kind_d == 4'd13) || (kind_d == 4'd14) ? {d_ins[21], 2'b11, (kind_d == 4'd14) && d_ins[21]} : (kind_d == 4'd5 ? {!d_ins[20], 1'b0, !immediate_d, 1'b1} : (kind_d == 4'd0 ? {1'b0, shift_register_d, !immediate_d, (op_d != MOV) && (op_d != MVN)} : {2'b11, !immediate_d, 1'b1}))))));
 				block_delta_e <= (d_ins[23] ? (d_ins[24] ? 8'd4 : 8'd0) : (d_ins[24] ? 8'd0 : 8'd4) - {1'b0, transfer_count_d, 2'b00});
 				transfer_count_e <= transfer_count_d;
 				list_e <= list_d;
@@ -2388,7 +2391,7 @@ module arm9_fetch (
 			selected_packet[63-:32] = f2[31-:32];
 			selected_packet[139-:2] = f2[34-:2];
 			selected_packet[31-:32] = incoming;
-			selected_packet[100-:35] = decoded;
+			selected_packet[100-:35] = (f2[32] ? decoded : {3'd0, incoming});
 			selected_packet[65] = thumb_und;
 			selected_packet[64] = thumb_align;
 		end
@@ -2401,19 +2404,19 @@ module arm9_fetch (
 	assign o_address_nxt = (prediction ? btb_target : launch_pc);
 	assign o_address_check = f1[31-:32];
 	assign o_address = f2[31-:32];
-	assign o_request = f2[35];
+	assign o_request = (f2[35] && !i_redirect) && !killed;
 	assign o_stall = ((count == 8) && !killed) || (f2[35] && !i_ack);
 	assign retry = (((f2[35] && i_ack) && i_retry) && !killed) && !i_redirect;
 	assign response = (((((f2[35] && i_ack) && !i_retry) && !o_stall) && !killed) && !i_redirect) && (f2[34-:2] == epoch);
-	assign bypass = (((count == 0) && response) && i_hit) && !selected_packet[101];
+	assign bypass = (((count == 0) && response) && (i_hit || !f2[32])) && !selected_packet[101];
 	assign push = response && !(bypass && i_ready);
 	assign o_valid = bypass || ((((count != 0) && !queue[head][101]) && (queue[head][139-:2] == epoch)) && !i_redirect);
 	assign o_pc = (bypass ? selected_packet[63-:32] : queue[head][63-:32]);
 	assign o_instruction = (bypass ? selected_packet[31-:32] : queue[head][31-:32]);
 	assign o_abort = (bypass ? selected_packet[102] : queue[head][102]);
-	assign o_decoded = (bypass ? selected_packet[100-:35] : queue[head][100-:35]);
-	assign o_thumb_und = (bypass ? selected_packet[65] : queue[head][65]);
-	assign o_thumb_align = (bypass ? selected_packet[64] : queue[head][64]);
+	assign o_decoded = (bypass ? (i_hit ? early_packet[100-:35] : {3'd0, incoming}) : queue[head][100-:35]);
+	assign o_thumb_und = (bypass ? i_hit && early_packet[65] : queue[head][65]);
+	assign o_thumb_align = (bypass ? i_hit && early_packet[64] : queue[head][64]);
 	assign o_predicted = (bypass ? selected_packet[137] : queue[head][137]);
 	assign o_pred_target = (bypass ? selected_packet[136-:32] : queue[head][136-:32]);
 	assign o_pred_state = (bypass ? selected_packet[104-:2] : queue[head][104-:2]);

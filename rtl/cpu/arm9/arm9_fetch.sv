@@ -109,7 +109,7 @@ module arm9_fetch #(
             selected_packet.pc = f2.pc;
             selected_packet.epoch = f2.epoch;
             selected_packet.instruction = incoming;
-            selected_packet.decoded = decoded;
+            selected_packet.decoded = f2.thumb ? decoded : {3'd0,incoming};
             selected_packet.thumb_und = thumb_und;
             selected_packet.thumb_align = thumb_align;
         end
@@ -124,23 +124,28 @@ module arm9_fetch #(
     assign o_address_nxt = prediction ? btb_target : launch_pc;
     assign o_address_check = f1.pc;
     assign o_address = f2.pc;
-    assign o_request = f2.valid;
+    // Cancel an unstarted wrong-path request on the redirect edge. An
+    // existing cache transaction drains through its own FSM even with rd low.
+    assign o_request = f2.valid && !i_redirect && !killed;
     // Like the retained cache's original caller, hold RAMs and all lookup
     // metadata together. Pending queue entries resolve even while held.
     assign o_stall = (count == 8 && !killed) || (f2.valid && !i_ack);
     assign retry = f2.valid && i_ack && i_retry && !killed && !i_redirect;
     assign response = f2.valid && i_ack && !i_retry && !o_stall &&
                   !killed && !i_redirect && f2.epoch == epoch;
-    assign bypass = count == 0 && response && i_hit && !selected_packet.pending;
+    // Uncached ARM words also arrive from the FSM's response register. They
+    // can enter D directly without another enqueue edge. Thumb miss responses
+    // still register translation before the operand-read path.
+    assign bypass = count == 0 && response && (i_hit || !f2.thumb) && !selected_packet.pending;
     assign push = response && !(bypass && i_ready);
     assign o_valid = bypass || (count != 0 && !queue[head].pending &&
                      queue[head].epoch == epoch && !i_redirect);
     assign o_pc = bypass ? selected_packet.pc : queue[head].pc;
     assign o_instruction = bypass ? selected_packet.instruction : queue[head].instruction;
     assign o_abort = bypass ? selected_packet.fault : queue[head].fault;
-    assign o_decoded = bypass ? selected_packet.decoded : queue[head].decoded;
-    assign o_thumb_und = bypass ? selected_packet.thumb_und : queue[head].thumb_und;
-    assign o_thumb_align = bypass ? selected_packet.thumb_align : queue[head].thumb_align;
+    assign o_decoded = bypass ? (i_hit ? early_packet.decoded : {3'd0,incoming}) : queue[head].decoded;
+    assign o_thumb_und = bypass ? (i_hit && early_packet.thumb_und) : queue[head].thumb_und;
+    assign o_thumb_align = bypass ? (i_hit && early_packet.thumb_align) : queue[head].thumb_align;
     assign o_predicted = bypass ? selected_packet.predicted : queue[head].predicted;
     assign o_pred_target = bypass ? selected_packet.pred_target : queue[head].pred_target;
     assign o_pred_state = bypass ? selected_packet.pred_state : queue[head].pred_state;

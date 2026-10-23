@@ -1,0 +1,14 @@
+Session 6 completed schedule, BTB, block/multiply and fetch performance gate
+ARM9 predictor on/off and ZAP: 234/234 runs each; 63/63 QEMU comparisons each.
+85 timing windows: all visits at every latency; exact hot ARM9 on/off checks.
+ARM9 beats ZAP on all 21 requested workload/latency comparisons.
+All selected workload instruction counts match the baseline; every prior
+ZAP cycle/instruction count is unchanged.
+New arm9_branch_slots checks register-independent branch offsets, both Thumb
+BL halfword alignments and a standalone suffix with aligned LR. Its final
+binary/reference was rebuilt and compared before all three full suites.
+An exploratory odd-LR standalone suffix did not agree with QEMU's state switch;
+that uncovered corner is documented, not included in the final QEMU test.
+Existing test binaries/references were reused. No firmware boot run.
+Top-level lint, ARM9 on/off -Wall lint and cpu-gen-check pass.
+Generated SHA256: 10cbe17df7f741bfd30f7fa447f3c940a6f434ffaf10ca730becd7e0cd5e7ad9
