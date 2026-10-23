@@ -253,6 +253,7 @@ logic [5:0]      dc_rreg_idx_bin;
 logic [63:0]     dc_lock;
 logic [31:0]     dc_reg_data;
 logic            icache_err2, dcache_err2;
+logic            icache_fill_pending, icache_fill_done, icache_fill_fault;
 logic            cpu_dwe_check, cpu_dre_check;
 logic            s_reset, s_fiq, s_irq;
 logic            cpu_align_fault;   // ARM925T
@@ -414,6 +415,9 @@ zap_core #(
 .i_dcache_clean_done    (!ONLY_CORE ? dc_clean_done : '0),
 .i_icache_clean_done    (!ONLY_CORE ? ic_clean_done : '0),
 .i_icache_err2          (!ONLY_CORE ? icache_err2 : '0),
+.i_icache_fill_pending  (!ONLY_CORE && icache_fill_pending),
+.i_icache_fill_done     (!ONLY_CORE && icache_fill_done),
+.i_icache_fill_fault    (!ONLY_CORE && icache_fill_fault),
 .i_dcache_err2          (!ONLY_CORE ? dcache_err2 : '0)
 );
 
@@ -431,6 +435,7 @@ begin : l_tieoffs_only_core
         assign dc_clean_done   = '0;
         assign ic_clean_done   = '0;
         assign icache_err2     = '0;
+        assign {icache_fill_pending, icache_fill_done, icache_fill_fault} = '0;
         assign dcache_err2     = '0;
         assign dc_fsr          = '0;
         assign dc_far          = '0;
@@ -758,6 +763,9 @@ u_code_cache (
 .i_dac_reg         (cpu_dac_reg),
 .i_tlb_inv         (cpu_itlb_inv),
 .o_err2            (icache_err2),
+.o_fill_pending    (icache_fill_pending),
+.o_fill_done       (icache_fill_done),
+.o_fill_fault      (icache_fill_fault),
 
 /* verilator lint_off PINCONNECTEMPTY */
 .o_wb_stb       (),

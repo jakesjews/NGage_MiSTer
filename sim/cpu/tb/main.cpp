@@ -17,6 +17,7 @@
 //     --pddbg           also trace the branch prediction every cycle
 //     --buslog FILE     write one line per bus access
 //     --lat MIN:MAX     bus latency, cycles from request to ack (default 0:3)
+//     --read-error ADDR  inject a bus error on reads of ADDR (repeatable)
 //     --seed N          RNG seed for the latency (default 1)
 //     --max-cycles N    give up after N cycles (default 50,000,000)
 //     --quiet           no console echo
@@ -58,6 +59,7 @@
 #include "ngage.h"
 #include "verilated.h"
 
+#include <algorithm>
 #include <cinttypes>
 #include <cstdarg>
 #include <cstdint>
@@ -155,7 +157,7 @@ int main(int argc, char **argv) {
 	bool halt_given = false;
 	std::string machine;
 	NGage::Options nopt;
-	std::vector<uint32_t> watch;
+	std::vector<uint32_t> watch, read_errors;
 	struct Dump { uint32_t addr, len; std::string path; };
 	std::vector<Dump> dumps;
 
@@ -177,6 +179,7 @@ int main(int argc, char **argv) {
 		else if (a == "--sig-base") sig_base = (uint32_t)strtoul(next(), nullptr, 0);
 		else if (a == "--sig-size") sig_size = (uint32_t)strtoul(next(), nullptr, 0);
 		else if (a == "--trace") trace_path = next();
+		else if (a == "--read-error") read_errors.push_back((uint32_t)strtoul(next(), nullptr, 0));
 		else if (a == "--buslog") buslog_path = next();
 		else if (a == "--lat") {
 			if (sscanf(next(), "%d:%d", &lat_min, &lat_max) != 2 || lat_min < 0 || lat_max < lat_min) {
@@ -435,6 +438,8 @@ int main(int argc, char **argv) {
 			} else {
 				err_out = true;
 			}
+			if (!req_we && std::find(read_errors.begin(), read_errors.end(), a) != read_errors.end())
+				err_out = true;
 			ack_out = true;
 			if (buslog && retired >= trace_after)
 				fprintf(buslog, "%" PRIu64 " %c %08x be=%x %08x%s%s\n", cycle, req_we ? 'W' : 'R', a, req_be,
