@@ -34,6 +34,19 @@
   interlocks are not where the remaining issue stalls are: the next
   cycle lever is the memory side (hit-under-miss in the D-cache,
   Antigravity's I-prefetch, the flash fetch already in).
+  Built as b15 (the server, seed 1): **-0.578 ns**, hold +0.174, the
+  same figure Codex measured; `build/hardware/NGage-b15.rbf`, the next
+  measurement build for the board after the flash-fetch replay.
+- Two more coworkers at once (the user: "Use codex and antigravity as
+  you see fit. I have expensive plans on each"): a second Codex thread on
+  the fast first-boot format and the boot indicators (codex/firstboot),
+  and a read-only Antigravity analysis of the game-load path (the MMC
+  controller, the card model, the framework's block fetch) for the slow
+  loads the user saw in Shadowkey. Antigravity's I-prefetch run was cut
+  off by a Gemini content filter misfiring on a trace dump, mid-fix
+  (fill_valid_ff cleared only on IDLE -> IDLE); its conversation was
+  resumed on Claude Opus 5.5 in the same worktree with the six failing
+  runs named.
 # N-Gage QD MiSTer core: progress log
 
 Newest entries at the bottom. Each entry says what was done, what was
