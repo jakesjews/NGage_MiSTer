@@ -4,8 +4,9 @@
 # in the Docker image on the build server.
 #   sim/cpu/quartus/run.sh            full compile, summary and worst paths
 #   SEED=3 MHZ=96 sim/cpu/quartus/run.sh   another fitter seed / clock
-# Results land in sim/cpu/build/quartus[-SEED-MHZ]/. At most two Quartus
-# builds may run on the server at a time: this checks docker ps first.
+# Results land in sim/cpu/build/quartus[-SEED-MHZ]/. At most four Quartus
+# builds may run on the server at a time (the user's limit): this checks
+# docker ps first.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../../.." && pwd)
@@ -20,8 +21,8 @@ out=$root/sim/cpu/build/quartus$sfx
 mkdir -p "$out"
 
 running=$(ssh "$host" "docker ps --format '{{.Image}}' | grep -c quartus || true")
-if (( running >= 2 )); then
-	echo "two Quartus builds are already running on $host; try later" >&2
+if (( running >= 4 )); then
+	echo "four Quartus builds are already running on $host; try later" >&2
 	exit 1
 fi
 ssh "$host" "mkdir -p \$HOME/$dir"
