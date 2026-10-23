@@ -2924,3 +2924,33 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
     data cache fills; `dabt[1]`, no architectural effect), which the bench
     excludes; fixed with the same build, and replays are counted on their
     own.
+- **The stall breakdown in play** (the counters build, a91da1d's tree, the
+  old predictor; `build/hardware/game/{sonicn,asphalt}-stalls/`; the
+  counters are clocks the signal was high, overlapping, so they do not
+  add up; the flush counts are events a second):
+  - Asphalt's race, steady: issue stall 36.5 %, fetch FIFO empty 32 %,
+    code stall 20 % (the fetch waiting or the FIFO full behind the issue
+    stall), decode 7 %, shifter 2.8 %, data stall 1.6 %; flushes from the
+    ALU 310 K/s, from the writeback 650 K/s; 24.3 M uops for 21.1 M
+    instructions (1.15 uops an instruction).
+  - Sonic in Neo Green Hill: issue 31-32 %, FIFO empty 41-45 %, code
+    15-18 %, decode 6 %, data 1 %; ALU flushes 280-370 K/s, writeback
+    500-570 K/s; 22-23 M uops for 19-20 M instructions.
+  - So: the uncached LCD stores are not the problem (data stall 1-2 %; no
+    write buffer needed). The pipeline's clocks go to the issue stage's
+    interlocks (a third), to the front end having nothing to decode (a
+    third: after every flush and every taken branch's redirect, and the
+    instruction misses), and the flushes themselves: 650 K writeback
+    flushes a second in user code can only be the data cache's replays
+    (an access arriving during a line fill is acknowledged with err2 and
+    the writeback sends it round the pipeline again), about 9 % of the
+    clocks at 14 each; the ALU's 310 K/s (mispredicts, 12 each) about
+    3.5 %, to be cut by the BTB fix.
+  - Changes in flight, one build each: the BTB fix (a8ca165), the memory
+    stage's load forwarded instead of locked (95cd2fe), and the data
+    cache holding an access that arrives during a fill instead of
+    replaying it (CLEAN_SINGLE, FETCH_SINGLE, UNLOCK_REG, UNLOCK_WR: no
+    acknowledge, served from IDLE after).
+- Seed 18 of the 3a tree on the Mac: -0.330. The Mac stays out of the
+  sweep while the speed work runs (the user: small misses do not matter
+  until the games are quick).
