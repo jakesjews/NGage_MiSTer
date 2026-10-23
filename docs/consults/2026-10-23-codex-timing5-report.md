@@ -234,8 +234,19 @@ isolated results as a guarantee for the combination. The next TLB trial
 measures both incoming and outgoing paths.
 
 The equivalent rotate-barrel candidate, rebased onto this combination as
-`rotate2`, is now in its paired trial. It passes the full suite, QEMU diff,
-both lint modes and generated checks again, with every count unchanged.
+`rotate2`, is **dropped**. The shifter-output family is −0.680 → −0.572 ns
+at seed 1 but −0.535 → −0.864 ns at seed 2. Whole-core results are
+−0.806 / −0.864 ns. Both source manifests match the remote builds. Its
+full suite, 57 QEMU comparisons, both lint modes and generated checks pass,
+with all 225 cycle/instruction pairs unchanged; that is insufficient to
+retain a timing regression. The first fit attributes about 155 ALMs to the
+barrel versus 213 in the combined baseline, but total utilization rises
+from 34,872 to 35,885 because physical optimization and packing differ.
+No rotate RTL is applied to the branch.
+
+The decoder LSL-zero trial's first seed improves its target family from
+−0.348 to −0.262 ns, with whole-core slack −0.879 ns. Its second seed is
+running; no acceptance decision is made from that first result.
 
 ## Further candidates prepared from the main-core baseline
 
