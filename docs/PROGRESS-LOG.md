@@ -3881,3 +3881,15 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   D-cache state into the merger's address (-0.99), the ALU's flags and
   the issue stage's destination index into predecode (-0.99, -0.91).
   Four seeds: -1.152, -1.285, -0.861, -1.074. Seeds 5 and 6 running.
+- **The card model's timing family fixed** (Antigravity on Gemini, its
+  card-path conversation resumed; agy/mmc 8329efe, merged): the slot
+  indices, the tag compares and the hps_io request parameters are
+  computed a clock ahead into registers (the modulo-3 quarter, the
+  metadata-slot matches, the chunk's clamped count; the transfer's
+  slot address from a concatenation instead of an add), the wire's
+  data path untouched. Benches cycle-identical (the warm 4 KB burst
+  132,528 clocks at DIV 4; mmc, periph, upp, top, lint). Its whole-core
+  build (the debug core): -1.295 ns with no mmc_card path in the worst
+  30 (the family was -1.37 in b22); the worst is now wb_arb2's grant
+  into upp_bus's fe_next (-1.30), the bus-decode family round 4's
+  arbiter rewrite targets. 36,429 ALMs, 477 M10K.
