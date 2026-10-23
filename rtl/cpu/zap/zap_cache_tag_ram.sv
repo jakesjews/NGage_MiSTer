@@ -674,7 +674,7 @@ begin:blk1
         o_wb_sel_nxt            = o_wb_sel_ff;
         o_wb_wen_nxt            = o_wb_wen_ff;
         o_wb_cti_nxt            = o_wb_cti_ff;
-        tag_ram_wr_data         = 0;
+        tag_ram_wr_data         = i_cache_tag; // ARM925T: enable qualifies the payload.
         o_cache_clean_done      = cache_clean_done_ff;
         o_line_done             = line_done_ff;
 

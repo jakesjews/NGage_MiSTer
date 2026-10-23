@@ -65,6 +65,7 @@ module zap_shifter_main
         input logic i_memory_load_valid,
         input logic [5:0] i_memory_load_index,
         input logic [31:0] i_memory_load_value,
+        input logic i_shift_source_pending_ff,
         input logic [63:0] i_dc_reg_idx,
         input logic [31:0] i_dc_reg_dat,
         input logic i_stall_from_alu,
@@ -253,7 +254,7 @@ assign late_wait = (i_load_pending_ff[2] && !memory_match[2]) ||
                    (i_load_pending_ff[1] && shifter_enabled && !memory_match[1]);
 assign o_stall_from_shifter = multiply_busy || late_wait || i_stall_from_alu;
 assign shift_source = shifter_enabled ?
-        (i_load_pending_ff[1] ? i_memory_load_value : i_shift_source_value_ff) :
+        (i_shift_source_pending_ff ? i_memory_load_value : i_shift_source_value_ff) :
         resolve_conflict(i_shift_source_ff, i_shift_source_value_ff,
                          o_destination_index_ff, i_alu_value_nxt, i_alu_dav_nxt, 1'b0);
 // Multiply's two uops use raw accumulator operands throughout its FSM.

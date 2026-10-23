@@ -124,29 +124,41 @@ logic [3:0]                          dac_ff, dac_nxt;
 logic [NUMBER_OF_STATES-1:0]         state_ff, state_nxt;
 logic                                wb_stb_nxt, wb_stb_ff;
 logic                                wb_cyc_nxt, wb_cyc_ff;
-logic [31:0]                         wb_adr_nxt, wb_adr_ff;
+logic [31:0] wb_adr_ff;
+(* dont_retime *) logic [31:0] request_address_ff;
 logic [31:0]                         address;
 logic [3:0]                          wb_sel_nxt, wb_sel_ff;
 logic [31:0]                         dff, dnxt;
 logic                                unused;
-logic [31:0]                         addr0, addr1, addr2;
 logic                                walk, examine_fsr;
 
 // ----------------------------------------------------------------------------
 
-assign addr0 = {i_baddr[`ZAP_VA__TRANSLATION_BASE],address[`ZAP_VA__TABLE_INDEX], 2'd0};
-assign addr1 = {dff[`ZAP_L1_PAGE__PTBR],address[`ZAP_VA__L2_TABLE_INDEX], 2'd0};
-// ARM925T: a fine table (1024 entries) is at descriptor bits 31:12 and
-// indexed by VA bits 19:10; upstream used the coarse layout (31:10, 19:12),
-// so every fine-table walk read the wrong entry.
-assign addr2 = {dff[31:12], address[19:10], 2'd0};
+// ARM925T: register the L2 address at the L1 response edge, before the
+// descriptor-decode/request cycle. Keep L1's live TTBR sampling on its
+// original PRE_FETCH cycle, and use the existing bus register while waiting.
+// Only registered selects reach the address mux; inactive addresses need
+// not be zero. Neither request launch nor acknowledge timing changes.
+(* preserve, dont_retime *) logic launch_l1_ff;
+always_ff @(posedge i_clk) begin
+        if (i_reset) launch_l1_ff <= 1'b0;
+        else launch_l1_ff <= state_nxt[PRE_FETCH_L1_DESC_0];
+        if (state_ff[FETCH_L1_DESC_0] && (i_wb_ack || i_wb_err))
+                // Fine tables use descriptor 31:12 and VA 19:10; coarse
+                // tables use descriptor 31:10 and VA 19:12 (ARM925T).
+                request_address_ff <= i_wb_dat[`ZAP_DESC_ID] == FINE_ID ?
+                        {i_wb_dat[31:12], address[19:10], 2'b00} :
+                        {i_wb_dat[`ZAP_L1_PAGE__PTBR], address[`ZAP_VA__L2_TABLE_INDEX], 2'b00};
+end
 
 assign o_wb_cyc         = wb_cyc_ff;
 assign o_wb_stb         = wb_stb_ff;
 assign o_wb_adr         = wb_adr_ff;
 assign o_wb_cyc_nxt     = wb_cyc_nxt;
 assign o_wb_stb_nxt     = wb_stb_nxt;
-assign o_wb_adr_nxt     = wb_adr_nxt;
+assign o_wb_adr_nxt     = launch_l1_ff ?
+        {i_baddr[`ZAP_VA__TRANSLATION_BASE], address[`ZAP_VA__TABLE_INDEX], 2'b00} :
+        wb_stb_ff ? wb_adr_ff : request_address_ff;
 assign o_wb_wen         = 1'd0;
 assign o_wb_sel         = wb_sel_ff;
 assign o_wb_sel_nxt     = wb_sel_nxt;
@@ -258,7 +270,6 @@ begin
         begin
                 wb_stb_nxt      = 0;
                 wb_cyc_nxt      = 0;
-                wb_adr_nxt      = 0;
                 wb_sel_nxt      = 0;
 
                 state_nxt =
@@ -275,7 +286,6 @@ begin
                 //
                 wb_stb_nxt      = 1'd1;
                 wb_cyc_nxt      = 1'd1;
-                wb_adr_nxt      = addr0;
                 wb_sel_nxt[3:0] = 4'b1111;
                 state_nxt       = 'd1 << FETCH_L1_DESC_0;
         end
@@ -284,7 +294,6 @@ begin
         begin
                 wb_stb_nxt = (i_wb_ack|i_wb_err) ? 'd0 : wb_stb_ff;
                 wb_cyc_nxt = (i_wb_ack|i_wb_err) ? 'd0 : wb_cyc_ff;
-                wb_adr_nxt = (i_wb_ack|i_wb_err) ? 'd0 : wb_adr_ff;
                 wb_sel_nxt = (i_wb_ack|i_wb_err) ? 'd0 : wb_sel_ff;
                 state_nxt  = (i_wb_ack|i_wb_err) ? 'd1 << FETCH_L1_DESC : state_ff;
         end
@@ -311,7 +320,6 @@ begin
                         // No need to fetch.
                         wb_stb_nxt      = 'd0;
                         wb_cyc_nxt      = 'd0;
-                        wb_adr_nxt      = 'd0;
                         wb_sel_nxt      = 'd0;
                         state_nxt       = 'd1 << IDLE;
                 end
@@ -328,7 +336,6 @@ begin
                         state_nxt       = 'd1 << FETCH_L2_DESC_0;
                         wb_stb_nxt      = 1'd1;
                         wb_cyc_nxt      = 1'd1;
-                        wb_adr_nxt      = addr1;
                         wb_sel_nxt[3:0] = 4'b1111;
                 end
 
@@ -337,7 +344,6 @@ begin
                         state_nxt       = 'd1 << FETCH_L2_DESC_0;
                         wb_stb_nxt      = 1'd1;
                         wb_cyc_nxt      = 1'd1;
-                        wb_adr_nxt      = addr2;
                         wb_sel_nxt[3:0] = 4'b1111;
                 end
 
@@ -348,7 +354,6 @@ begin
         begin
                 wb_stb_nxt = (i_wb_ack|i_wb_err) ? 'd0 : wb_stb_ff;
                 wb_cyc_nxt = (i_wb_ack|i_wb_err) ? 'd0 : wb_cyc_ff;
-                wb_adr_nxt = (i_wb_ack|i_wb_err) ? 'd0 : wb_adr_ff;
                 wb_sel_nxt = (i_wb_ack|i_wb_err) ? 'd0 : wb_sel_ff;
                 state_nxt  = (i_wb_ack|i_wb_err) ? 'd1 << FETCH_L2_DESC : state_ff;
         end
@@ -357,7 +362,6 @@ begin
         begin
                 wb_stb_nxt = 0;
                 wb_cyc_nxt = 0;
-                wb_adr_nxt = 0;
                 wb_sel_nxt = 0;
                 state_nxt = 'd1 << IDLE;
 
@@ -373,7 +377,6 @@ begin
         begin
                 wb_stb_nxt      = 'x;
                 wb_cyc_nxt      = 'x;
-                wb_adr_nxt      = 'x;
                 wb_sel_nxt      = 'x;
                 state_nxt       = 'x;
         end
@@ -399,7 +402,7 @@ begin
                 state_ff        <=      state_nxt;
                 wb_stb_ff       <=      wb_stb_nxt;
                 wb_cyc_ff       <=      wb_cyc_nxt;
-                wb_adr_ff       <=      wb_adr_nxt;
+                wb_adr_ff       <=      o_wb_adr_nxt;
                 dac_ff          <=      dac_nxt;
                 wb_sel_ff       <=      wb_sel_nxt;
                 dff             <=      dnxt;

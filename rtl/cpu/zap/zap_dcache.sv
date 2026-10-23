@@ -454,13 +454,21 @@ end
 //
 assign o_wb_cyc_nxt = ( !o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err)) ) ? (|wb_cyc) : (|(state_ff & wb_cyc));
 
+// ARM925T: compute the selected strobe directly, alongside arbitration.
+// The hold case still uses the current owner; a new request retains the
+// TLB > tag > cache priority even if a manager's CYC and STB differ.
+assign o_wb_stb_nxt = ((!o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err))) && (|wb_cyc)) ?
+        ((wb_cyc[2] && wb_stb[2]) ||
+         (!wb_cyc[2] && wb_cyc[1] && wb_stb[1]) ||
+         (!wb_cyc[2] && !wb_cyc[1] && wb_cyc[0] && wb_stb[0])) :
+        (|(state_ff & wb_stb));
+
 // Combo signals for external MUXing.
 always_comb
 begin
         case(state_nxt)
         SELECT_CCH:
         begin
-                o_wb_stb_nxt = wb_stb[0];
                 o_wb_adr_nxt = wb_adr[0];
                 o_wb_dat_nxt = wb_dat[0];
                 o_wb_cti_nxt = wb_cti[0];
@@ -470,7 +478,6 @@ begin
         end
         SELECT_TAG:
         begin
-                o_wb_stb_nxt = wb_stb[1];
                 o_wb_adr_nxt = wb_adr[1];
                 o_wb_dat_nxt = wb_dat[1];
                 o_wb_cti_nxt = wb_cti[1];
@@ -480,7 +487,6 @@ begin
         end
         SELECT_TLB:
         begin
-                o_wb_stb_nxt = wb_stb[2];
                 o_wb_adr_nxt = wb_adr[2];
                 o_wb_dat_nxt = wb_dat[2];
                 o_wb_cti_nxt = wb_cti[2];
@@ -490,7 +496,6 @@ begin
         end
         default:
         begin
-                o_wb_stb_nxt = 'x;
                 o_wb_adr_nxt = 'x;
                 o_wb_dat_nxt = 'x;
                 o_wb_cti_nxt = 'x;

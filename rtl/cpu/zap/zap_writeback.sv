@@ -155,6 +155,12 @@ module zap_writeback #(
 
 logic     [31:0]                  cpsr_ff, cpsr_nxt;
 logic [$clog2(PHY_REGS)-1:0]      wa1, wa2;
+logic [39:0] write_sel1, write_sel2;
+// ARM925T: decode each normal write address before the control priority
+// mux. CP15/exception selection must not precede the register-file decoder.
+(* keep *) wire [39:0] write_alu = 40'b1 << i_wr_index;
+(* keep *) wire [39:0] write_load = 40'b1 << i_wr_index_1;
+(* keep *) wire [39:0] write_copro = 40'b1 << i_copro_reg_wr_index;
 logic [31:0]                      wdata1, wdata2;
 logic                             wen;
 
@@ -167,7 +173,10 @@ logic [32:0]                      pc_del3_ff, pc_del3_nxt;
 
 // ARM925T: read from pc_ff, then register the decision at pc_del2.
 // Carry the accepted prediction with the branch into the final fetch slot.
-logic [32:0]                      pred_del3_ff, pred_del3_nxt;
+// ARM925T: clear/recovery qualifies one valid bit, not the 32-bit payload.
+(* dont_retime *) logic pred_valid_ff;
+logic pred_valid_nxt;
+(* dont_retime *) logic [31:0] pred_target_ff;
 logic [1:0]                       btb_taken, taken_del3_ff;
 
 logic                             mode32;
@@ -186,7 +195,7 @@ assign  o_cpsr_nxt   = cpsr_nxt;
 assign  o_dbg_cpsr_ff = cpsr_ff;    // ARM925T: debug trace
 assign  o_wb_stb     = pc_del3_ff[32];
 assign  o_wb_cyc     = pc_del3_ff[32];
-assign  o_pred       = pred_del3_ff;
+assign  o_pred       = {pred_valid_ff, pred_target_ff & {32{pred_valid_ff}}};
 assign  o_taken      = taken_del3_ff;
 
 // ----------------------------------------------------------------------------
@@ -198,8 +207,8 @@ zap_register_file u_zap_register_file
 .i_clk(i_clk),
  .i_reset        (       i_reset         ),
 
- .i_wr_addr_a    (       wa1             ),
- .i_wr_addr_b    (       wa2             ),
+ .i_wr_addr_a    (       write_sel1      ),
+ .i_wr_addr_b    (       write_sel2      ),
  .i_wr_addr_c    (     i_wr_index_2      ),
 
  .i_wr_data_a    (       wdata1          ),
@@ -280,7 +289,7 @@ begin: pc_control_tree
         pc_del_nxt    = pc_del_ff;
         pc_del2_nxt   = pc_del2_ff;
         pc_del3_nxt   = pc_del3_ff;
-        pred_del3_nxt = 0;
+        pred_valid_nxt = 1'b0;
 
         if (|recovery_select) begin
                 if (i_code_stall) begin
@@ -314,7 +323,7 @@ begin: pc_control_tree
                         pc_del_nxt  = {1'b0, pc_ff[31:0]};
                         pc_del2_nxt = {1'b0, pc_del_ff[31:0]};
                         pc_del3_nxt = pc_del2_ff;
-                        pred_del3_nxt = {1'b1, pc_from_btb};
+                        pred_valid_nxt = 1'b1;
                 end else begin
                         pc_nxt = {pc_ff[32], map_pc(pc_ff[31:0] + (i_mode16 ? 32'd2 : 32'd4))};
                         pc_del_nxt = pc_ff;
@@ -334,7 +343,9 @@ begin: register_file_write
 
         wen                      = 1'd0;
         wa1                      = PHY_RAZ_REGISTER;
+        write_sel1 = 40'b1 << PHY_RAZ_REGISTER;
         wa2                      = PHY_RAZ_REGISTER;
+        write_sel2 = 40'b1 << PHY_RAZ_REGISTER;
         wdata1                   = 32'd0;
         wdata2                   = 32'd0;
         o_clear_from_writeback   = 0;
@@ -355,7 +366,9 @@ begin: register_file_write
                                               i_pc_plus_8_buf_ff :
                                               i_pc_plus_8_buf_ff + 4;
                 wa1                         = PHY_ABT_R14;
+                write_sel1 = 40'b1 << PHY_ABT_R14;
                 wa2                         = PHY_ABT_SPSR;
+                write_sel2 = 40'b1 << PHY_ABT_SPSR;
                 wdata2                      = cpsr_ff;
                 cpsr_nxt[ZAP_CPSR_MODE:0]   = ABT;
 
@@ -370,7 +383,9 @@ begin: register_file_write
                 wen                     = 1;
                 wdata1                  = mode32 ? i_wr_data : i_pc_plus_8_buf_ff ;
                 wa1                     = PHY_FIQ_R14;
+                write_sel1 = 40'b1 << PHY_FIQ_R14;
                 wa2                     = PHY_FIQ_SPSR;
+                write_sel2 = 40'b1 << PHY_FIQ_SPSR;
                 wdata2                  = cpsr_ff;
                 cpsr_nxt[ZAP_CPSR_MODE:0] = FIQ;
                 cpsr_nxt[F]             = 1'd1; // Mask FIQ interrupts.
@@ -382,7 +397,9 @@ begin: register_file_write
                 wen                     = 1;
                 wdata1                  = mode32 ? i_wr_data : i_pc_plus_8_buf_ff ;
                 wa1                     = PHY_IRQ_R14;
+                write_sel1 = 40'b1 << PHY_IRQ_R14;
                 wa2                     = PHY_IRQ_SPSR;
+                write_sel2 = 40'b1 << PHY_IRQ_SPSR;
                 wdata2                  = cpsr_ff;
                 cpsr_nxt[ZAP_CPSR_MODE:0] = IRQ;
 
@@ -393,7 +410,9 @@ begin: register_file_write
                 wen                        = 1;
                 wdata1                     = mode32 ? i_wr_data : i_pc_plus_8_buf_ff ;
                 wa1                        = PHY_ABT_R14;
+                write_sel1 = 40'b1 << PHY_ABT_R14;
                 wa2                        = PHY_ABT_SPSR;
+                write_sel2 = 40'b1 << PHY_ABT_SPSR;
                 wdata2                     = cpsr_ff;
                 cpsr_nxt[ZAP_CPSR_MODE:0]  = ABT;
 
@@ -406,7 +425,9 @@ begin: register_file_write
                 // PC + 2 (PC + 4 - 2); upstream gave the SWI's own address.
                 wdata1                    = mode32 ? i_wr_data : i_pc_plus_8_buf_ff - 32'd2;
                 wa1                       = PHY_SVC_R14;
+                write_sel1 = 40'b1 << PHY_SVC_R14;
                 wa2                       = PHY_SVC_SPSR;
+                write_sel2 = 40'b1 << PHY_SVC_SPSR;
                 wdata2                    = cpsr_ff;
                 cpsr_nxt[ZAP_CPSR_MODE:0] = SVC;
 
@@ -418,7 +439,9 @@ begin: register_file_write
                 // ARM925T: as for SWI, PC + 2 from Thumb state.
                 wdata1                    = mode32 ? i_wr_data : i_pc_plus_8_buf_ff - 32'd2;
                 wa1                       = PHY_UND_R14;
+                write_sel1 = 40'b1 << PHY_UND_R14;
                 wa2                       = PHY_UND_SPSR;
+                write_sel2 = 40'b1 << PHY_UND_SPSR;
                 wdata2                    = cpsr_ff;
                 cpsr_nxt[ZAP_CPSR_MODE:0] = UND;
 
@@ -429,6 +452,7 @@ begin: register_file_write
                // Write to register (Coprocessor command).
                wen      = 1;
                wa1      = i_copro_reg_wr_index;
+               write_sel1 = write_copro;
                wdata1   = i_copro_reg_wr_data;
         end
         else if ( i_valid ) // If valid,
@@ -441,10 +465,12 @@ begin: register_file_write
 
                 // Port from arithmetic side
                 wa1    = i_wr_index;
+                write_sel1 = write_alu;
                 wdata1 = i_wr_data;
 
                 // Port from memory side.
                 wa2    = i_mem_load_ff ? i_wr_index_1 : PHY_RAZ_REGISTER;
+                write_sel2 = i_mem_load_ff ? write_load : (40'b1 << PHY_RAZ_REGISTER);
                 wdata2 = i_wr_data_1;
 
                 // Load to PC will trigger from writeback.
@@ -478,7 +504,7 @@ begin
                 pc_del_ff                  <= 33'd0;
                 pc_del2_ff                 <= 33'd0;
                 pc_del3_ff                 <= 33'd0;
-                pred_del3_ff               <= 33'd0;
+                pred_valid_ff             <= 1'b0;
                 taken_del3_ff              <= SNT;
 
                 // CPSR reset logic.
@@ -496,7 +522,8 @@ begin
 
                 if ( !i_code_stall )
                 begin
-                        pred_del3_ff  <= pred_del3_nxt;
+                        pred_valid_ff <= pred_valid_nxt;
+                        pred_target_ff <= pc_from_btb;
                         taken_del3_ff <= btb_taken;
                 end
 

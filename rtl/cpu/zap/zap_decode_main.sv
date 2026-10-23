@@ -122,6 +122,7 @@ module zap_decode_main #(
         output   logic    [32:0]                  o_shift_source_ff,
         output   logic    [$clog2(SHIFT_OPS)-1:0] o_shift_operation_ff,
         output   logic    [32:0]                  o_shift_length_ff,
+        (* dont_retime *) output logic           o_shift_is_lsl0_ff,
 
         //
         // Update the flags. Note that writing to CPSR will cause a flag-update (if
@@ -281,6 +282,7 @@ begin
                 o_shift_source_ff                       <= 'x;
                 o_shift_operation_ff                    <= 'x;
                 o_shift_length_ff                       <= 'x;
+                o_shift_is_lsl0_ff                       <= 1'b0;
                 o_flag_update_ff                        <= 'x;
                 o_mem_srcdest_index_ff                  <= 'x;
                 o_mem_load_ff                           <= 'x;
@@ -322,6 +324,7 @@ begin
                 o_shift_source_ff                       <= 'x;
                 o_shift_operation_ff                    <= 'x;
                 o_shift_length_ff                       <= 'x;
+                o_shift_is_lsl0_ff                       <= 1'b0;
                 o_flag_update_ff                        <= 'x;
                 o_mem_srcdest_index_ff                  <= 'x;
                 o_mem_load_ff                           <= 'x;
@@ -359,6 +362,10 @@ begin
                 o_shift_source_ff                       <= o_shift_source_nxt;
                 o_shift_operation_ff                    <= o_shift_operation_nxt;
                 o_shift_length_ff                       <= o_shift_length_nxt;
+                // ARM925T: classify with the operand, before the issue skid
+                // mux. The interlock needs only this bit, not a wide compare.
+                o_shift_is_lsl0_ff <= o_shift_operation_nxt == {1'b0, LSL} &&
+                        o_shift_length_nxt == {IMMED_EN, 32'b0};
                 o_flag_update_ff                        <= o_flag_update_nxt;
                 o_mem_srcdest_index_ff                  <= o_mem_srcdest_index_nxt;
                 o_mem_load_ff                           <= o_mem_load_nxt;
