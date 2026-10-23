@@ -147,3 +147,48 @@ The benchmark runs four consecutive 4 KB (`8`-sector) `CMD18 ... CMD12` bursts (
 - **What Is Not Covered:**
   - Whole-core Quartus compilation and on-board measurement of *The Elder Scrolls Travels: Shadowkey* and *Tony Hawk's Pro Skater* against `b15` (to be run separately).
   - CPU/flash XIP stall improvements (covered in separate worktrees) and the optional internal `upp_mmc` -> `upp_dma` FIFO read bypass (`512` single-byte Wishbone arbitrations per block, ~3%–19% of bus cycles during a block).
+
+---
+
+## 7. Follow-Up: Pipelining Slot Arithmetic & Whole-Core Timing Closure
+
+### Problem Observed in Whole-Core Builds `b21` and `b22`
+
+In whole-core Quartus builds `b21` (`-1.212 ns` at Slow 1100mV 100C) and `b22` (`-1.370 ns` at Slow 1100mV 100C), the `mmc_card` slot-lookup and HPS request arithmetic became the worst critical-path family:
+- **`b22` (`-1.370 ns`, Paths #1, #4, #5, #11):** `emu|mmc_card|tag[13][18]` -> `m_ok~34` -> `m_ok~39` -> `has_sec~28` -> `has_sec~56` -> `want[2]~0` -> `want~16` -> `Add114~22_OTERM14147` (`-1.370 ns`, `-1.353 ns`, `-1.348 ns`, `-1.277 ns`; 8 logic levels, `10.212 ns` data delay).
+- **`b21` (`-1.192 ns`, Path #2):** `emu|mmc_card|a_srlo[3]` -> `Mux23~3` -> `Mux23~4` -> `s_ok~25` -> `want[2]~0` -> `want~14` -> `Add75~21_OTERM2947` (`-1.192 ns`; 7 logic levels, `10.394 ns` data delay).
+
+**Root cause:** In the initial 2-stage bookkeeping block:
+1. Stage A computed `w_rhi = sec_of(d_addr + bl - 1)` and `w_pchunk = {w_rlo[22:3] + 1, 3'b000}` and fed both adders directly into `s_slot()` (`mod3()` 4-level adder tree) in the same clock.
+2. Stage B indexed `tag[0..15]` via `a_srlo`/`a_srhi`/`a_spchunk` (a 23-bit 16:1 mux `Mux23`), compared against `a_rlo`/`a_rhi`/`a_pchunk` (`s_ok`, `m_ok`), and selected `want` via priority muxes.
+3. Downstream of `want`, the HPS request launch combinationally computed `rem_blks = nblk - {9'd0, want_base}` (32-bit subtractor `Add114`/`Add75`), `want_cnt = (rem_blks >= 8) ? 7 : (rem_blks - 1)`, `want_q0 = mod3(want_base[22:2])`, `want_q1 = mod3(want_base[22:2] + 1)`, and `s_slot(want)`. With `PHYSICAL_SYNTHESIS_REGISTER_RETIMING ON`, Quartus retimed `want` forward into the middle of `Add114`/`Add75`, merging the tag mux, 23-bit equality compare, priority mux, and subtractor carry chain into a single 8-level path.
+
+### Pipeline Restructuring in [`rtl/board/mmc_card.sv`](file:///Users/jacob/dev/fpga/mister/NGage_MiSTer-agy-mmc/rtl/board/mmc_card.sv#L344-L483)
+
+Because `if (bk_chg) settle <= 2'd3` already waits 4 clock edges before asserting `bk_ok`, the bookkeeping and HPS request computation was split into **four lightweight register stages** (`Stage 0` -> `Stage 1` -> `Stage 2` -> `Stage 3`) that fit inside the exact same 4-clock `settle` window:
+
+1. **Stage 0 (`s0_*`, adders only):** Registers the candidate sector addresses `s0_rlo <= sec_of(d_addr)`, `s0_rhi <= sec_of(d_addr + {23'd0, bl} - 33'd1)`, and `s0_pchunk <= {w_rlo[22:3] + 20'd1, 3'b000}` with no `mod3` or comparisons in series.
+2. **Stage 1 (`s1_*`, parallel `mod3` and per-slot tag compares):** From the registered `s0_*` sectors, computes `s1_srlo <= s_slot(s0_rlo)`, `s1_srhi <= s_slot(s0_rhi)`, and `s1_spchunk <= s_slot(s0_pchunk)` in parallel with per-slot 23-bit equality compares `s1_eq_lo[0..15]`, `s1_eq_hi[0..15]`, `s1_eq_pc[0..11]`, and the prefetch window flags `s1_pc_win` / `s1_pc_in` (`2–3` LUT levels per register).
+3. **Stage 2 (`have_lo`, `have_hi`, `slot_lo`, `slot_hi`, `s2_want*`):** Replaces the 23-bit 16:1 tag mux + 23-bit comparator with a **1-bit** mux (`s1_eq_lo[s1_srlo]`) and 4-bit OR (`|s1_eq_lo[15:12]`), registering `have_lo`, `have_hi`, `slot_lo`, `slot_hi`, `s2_want`, and `s2_want_slot` (`2–3` LUT levels).
+4. **Stage 3 (`want`, `want_slot`, `want_v`, `want_spec`, `want_oor`, `want_q0`, `want_q1`, `want_cnt`):**
+   - Derives the two streaming quarters `want_q0` and `want_q1` directly from `s2_want_slot[3:2]` (`mod3(s2_want[22:2])`) and `s2_want[2]` via a 2-bit modulo-3 wrap (`s2_q_next`, `s2_q_prev`), eliminating both extra `mod3()` trees and the 21-bit incrementer (`want_base[22:2] + 21'd1`).
+   - Replaces the 32-bit subtractor `rem_blks = nblk - {9'd0, want_base}` (`Add114`/`Add75`) with the exact chunk-equality check `({9'd0, s2_want[22:3]} == nblk[31:3]) ? {3'd0, nblk[2:0] - 3'd1} : 6'd7`, and registers `want_cnt`, `want_oor`, `want_q0`, and `want_q1` one clock before `H_REQ` launches.
+5. **Additional single-cycle path cleanups:**
+   - Registered read byte-fetch offsets (`f_one`, `f_next`, `f_more`, `d_last`) so `c_addr` in `D_WAIT`/`D_DATA` is a 1-LUT-level 2:1 mux between `slot_lo` and `slot_hi`.
+   - Registered write-slot lookups (`w_q`, `w_in_file`, `w_m_hit[3:0]`) ahead of `W_START`/`W_PROG`.
+   - Replaced the 23-bit adder `h_lba[22:0] + {20'd0, sd_buff_addr[10:8]}` in `H_XFER` with `{h_lba[22:3], sd_buff_addr[10:8]}` (since `h_lba` is 8-sector aligned when `!h_meta`) and registered `h_m_match[3:0]`.
+
+### Verification & Whole-Core Timing Results
+
+- **Simulation & 4 KB burst clocks:** Because all 4 stages settle within `settle <= 2'd3`, the `make -C sim mmc` 4 KB burst clocks are **cycle-for-cycle identical** to the merged figures (`132,528` clocks warm / `143,504`–`185,104` clocks cold at `DIV = 4`; `397,584` clocks warm at `DIV = 12`; `13,907,842` total clocks in `sim mmc`, `3,643,060` in `sim periph`, `521,092`/`379,022` in `sim upp`, `159,279,244` in `sim top`, `0` lint warnings).
+- **Whole-core Quartus compile (`BUILD_DIR=dev/mister/NGage_MiSTer-mmct ./build.sh remote compile`):**
+
+| Corner | Setup Worst Slack | Hold Worst Slack | Recovery | Removal |
+|---|---:|---:|---:|---:|
+| **Slow 1100mV 100C** | **`-1.295 ns`** (was `-1.370 ns` in `b22`) | `0.206 ns` | `3.073 ns` | `1.039 ns` |
+| **Slow 1100mV -40C** | **`-1.194 ns`** | `0.091 ns` | `3.274 ns` | `0.971 ns` |
+| **Fast 1100mV 100C** | **`2.940 ns`** | `0.130 ns` | `4.522 ns` | `0.504 ns` |
+| **Fast 1100mV -40C** | **`3.518 ns`** | `0.091 ns` | `4.904 ns` | `0.425 ns` |
+
+- **Top 30 critical paths (`build/critical-paths.rpt`):** **`0` paths in `mmc_card`** appear anywhere in the worst 30 setup paths (Path #1 is `ngage_mem|wb_arb2:arb|gnt_ad -> upp_bus:bus|fe_next[22]` at `-1.295 ns`, and Path #30 is `gnt_ad -> fe_next[3]` at `-0.962 ns`, confirming all `mmc_card` paths now have slack better than `-0.962 ns`, improving `mmc_card` by `> +0.41 ns`).
+- **Fitter utilization (`output_files/NGage.fit.summary`):** `36,429 / 41,910` ALMs (`87%`), `44,611` registers, `477 / 553` M10K blocks (`86%`).
