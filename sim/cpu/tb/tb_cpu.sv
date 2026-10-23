@@ -189,6 +189,48 @@ module tb_cpu #(
 	`undef SH
 	`undef PD
 	`undef AL
+	// These assertions also run against the baseline netlist: they observe
+	// acknowledged accesses and the real RAM address/permission pipeline.
+	`define DC dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm
+	`define DT dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_tag_ram
+	`define TC dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_tlb.u_zap_tlb_check
+	localparam int DLINE_W = $clog2(CACHE_LINE);
+	localparam int DSET_W = $clog2(DCACHE_SIZE / DCACHE_WAYS / CACHE_LINE);
+	logic [DSET_W-1:0] dc_read_set;
+	logic dc_victim_valid;
+	logic [31:DLINE_W] dc_victim_line;
+	always_ff @(posedge clk) begin
+		if (!`DT.i_hold) dc_read_set <= `DT.rd_set_del2;
+		if (`DC.o_idle) begin
+			dc_victim_valid <= `DC.i_cache_tag_valid;
+			dc_victim_line <= {`DC.i_cache_tag[31-DLINE_W-DSET_W:0],
+			                   `DC.i_address[DLINE_W +: DSET_W]};
+		end
+		if (!reset && `DC.hum_slot_ff)
+			assert (`DC.i_cache_hit_early == `DC.i_cache_hit)
+				else $fatal(1, "Registered HUM tag match differs from live lookup");
+		if (!reset && `DC.state_ff[7])
+			assert (!`DC.o_ack) else $fatal(1, "Hit collided with fill installation");
+		if (!reset && (`DC.state_ff[3] || `DC.state_ff[4] || `DC.state_ff[10]) &&
+		    (`DC.i_rd || `DC.i_wr) && `DC.o_ack) begin
+			assert (dc_read_set == `DC.i_address[DLINE_W +: DSET_W])
+				else $fatal(1, "Hit under miss used an unaligned cache lookup");
+			assert (`DC.i_address[31:DLINE_W] != `DC.address[31:DLINE_W])
+				else $fatal(1, "Hit under miss accessed the filling line");
+			assert (!dc_victim_valid || `DC.i_address[31:DLINE_W] != dc_victim_line)
+				else $fatal(1, "Hit under miss accessed the reserved victim");
+			assert (`DC.i_cache_hit && !`TC.o_walk && !`TC.o_fsr[3:0] &&
+			        `TC.o_cacheable && !`DC.i_align_fault && !`DC.o_err && !`DC.o_err2 &&
+			        !(`DC.i_wr && `TC.o_wt))
+				else $fatal(1, "Hit under miss bypassed translation or a fault");
+			assert (`DC.o_address == `DC.i_address)
+				else $fatal(1, "Hit under miss wrote the background address");
+		end
+	end
+	`undef DC
+	`undef DT
+	`undef TC
+
 	assign p_dc_state = 16'(dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.state_ff);
 	assign p_dc_addr  = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_address;
 	assign p_dc_din   = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_din;

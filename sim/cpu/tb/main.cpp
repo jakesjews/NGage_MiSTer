@@ -52,6 +52,9 @@
 //      +18 R  retired instruction counter
 //      +1C RW scratch word
 //      +20 RW fixed bus latency when nonzero (overrides --lat), for tests
+//      +24 R  watched-line loads completed during a D-cache fill
+//      +28 R  watched-line stores completed during a D-cache fill
+//      +2C W  select watched VA line and reset the two counters
 //   anything else          bus error (external abort)
 // Bus protocol checks: a request must stay unchanged until acked, and a
 // burst beat must be followed by the next word of the same line.
@@ -248,6 +251,8 @@ int main(int argc, char **argv) {
 	uint64_t expected_dc_write = 0, dc_writes = 0, dc_early_writes = 0;
 	// bench registers
 	uint32_t irq_lines = 0, scratch = 0, fixed_lat = 0;
+	uint32_t hum_watch = 0, hum_loads = 0, hum_stores = 0;
+	uint64_t hum_total_loads = 0, hum_total_stores = 0;
 	int64_t irq_timer = -1, fiq_timer = -1;
 	bool stop = false;
 	int exit_code = -1;
@@ -264,6 +269,8 @@ int main(int argc, char **argv) {
 		case 0x18: return (uint32_t)retired;
 		case 0x1C: return scratch;
 		case 0x20: return fixed_lat;
+		case 0x24: return hum_loads;
+		case 0x28: return hum_stores;
 		default: return 0;
 		}
 	};
@@ -282,6 +289,7 @@ int main(int argc, char **argv) {
 		case 0x10: fiq_timer = v; break;
 		case 0x1C: scratch = v; break;
 		case 0x20: fixed_lat = v; break;
+		case 0x2C: hum_watch = v & ~15u; hum_loads = hum_stores = 0; break;
 		default: break;
 		}
 	};
@@ -307,6 +315,18 @@ int main(int argc, char **argv) {
 	char last_ev = 0;
 	while (!stop && cycle < max_cycles) {
 		// ---- before the rising edge: sample what commits at this edge ----
+		// Observe the external request/acknowledge, not the implementation's
+		// eligibility bit. Negative tests can prove an access was withheld.
+		if ((t->p_dc_state & ((1u << 3) | (1u << 4) | (1u << 10))) &&
+		    (t->p_dc_flags & 4) && (t->p_dc_flags & 3)) {
+			bool store = t->p_dc_flags & 2;
+			hum_total_loads += !store;
+			hum_total_stores += store;
+			if ((t->p_dc_addr & ~15u) == hum_watch) {
+				hum_loads += !store;
+				hum_stores += store;
+			}
+		}
 		for (int b = 0; b < 6; b++) stall_clocks[b] += (t->p_stall >> b) & 1;
 		// A held redirect is counted on its accepting edge, not every held clock.
 		alu_flushes += (t->p_alu_flags & 0x30) == 0x20;
@@ -566,6 +586,7 @@ int main(int argc, char **argv) {
 		       " alu_flushes=%" PRIu64 " early_flushes=%" PRIu64 "\n", stall_clocks[0], stall_clocks[1],
 		       stall_clocks[2], stall_clocks[3], stall_clocks[4], stall_clocks[5], alu_flushes, early_flushes);
 		printf("Replays: %" PRIu64 "\n", replays);
+		printf("Hit under miss: loads=%" PRIu64 " stores=%" PRIu64 "\n", hum_total_loads, hum_total_stores);
 		printf("Background writes: %" PRIu64 ", during fill: %" PRIu64 "\n", dc_writes, dc_early_writes);
 		printf("PASS (%" PRIu64 " cycles, %" PRIu64 " instructions)\n", cycle, retired);
 		rc = 0;
