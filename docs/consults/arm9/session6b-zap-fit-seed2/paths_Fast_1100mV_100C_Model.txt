@@ -1,0 +1,18 @@
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+; Report Timing                                                                                                                                                                                   ;
++-------+-----------+-------------------------------------------------------------------------------------------------------+--------------+-------------+--------------+------------+------------+
+; Slack ; From Node ; To Node                                                                                               ; Launch Clock ; Latch Clock ; Relationship ; Clock Skew ; Data Delay ;
++-------+-----------+-------------------------------------------------------------------------------------------------------+--------------+-------------+--------------+------------+------------+
+; 2.885 ; err       ; arm925t:cpu|zap_top:u_zap|zap_wb_merger:l_merger_for_core_with_cache_mmu.u_zap_wb_merger|o_wb_dat[18] ; clk          ; clk         ; 9.615        ; -0.042     ; 6.518      ;
+; 2.888 ; err       ; arm925t:cpu|zap_top:u_zap|zap_wb_merger:l_merger_for_core_with_cache_mmu.u_zap_wb_merger|o_wb_dat[11] ; clk          ; clk         ; 9.615        ; -0.042     ; 6.515      ;
+; 2.891 ; err       ; arm925t:cpu|zap_top:u_zap|zap_wb_merger:l_merger_for_core_with_cache_mmu.u_zap_wb_merger|o_wb_dat[13] ; clk          ; clk         ; 9.615        ; -0.043     ; 6.511      ;
+; 2.897 ; err       ; arm925t:cpu|zap_top:u_zap|zap_wb_merger:l_merger_for_core_with_cache_mmu.u_zap_wb_merger|o_wb_dat[23] ; clk          ; clk         ; 9.615        ; -0.042     ; 6.506      ;
+; 2.900 ; err       ; arm925t:cpu|zap_top:u_zap|zap_wb_merger:l_merger_for_core_with_cache_mmu.u_zap_wb_merger|o_wb_dat[26] ; clk          ; clk         ; 9.615        ; -0.042     ; 6.503      ;
+; 2.902 ; err       ; arm925t:cpu|zap_top:u_zap|zap_wb_merger:l_merger_for_core_with_cache_mmu.u_zap_wb_merger|o_wb_dat[5]  ; clk          ; clk         ; 9.615        ; -0.042     ; 6.501      ;
+; 2.904 ; err       ; arm925t:cpu|zap_top:u_zap|zap_wb_merger:l_merger_for_core_with_cache_mmu.u_zap_wb_merger|o_wb_dat[16] ; clk          ; clk         ; 9.615        ; -0.043     ; 6.498      ;
+; 2.916 ; err       ; arm925t:cpu|zap_top:u_zap|zap_wb_merger:l_merger_for_core_with_cache_mmu.u_zap_wb_merger|o_wb_dat[12] ; clk          ; clk         ; 9.615        ; -0.043     ; 6.486      ;
+; 2.924 ; err       ; arm925t:cpu|zap_top:u_zap|zap_wb_merger:l_merger_for_core_with_cache_mmu.u_zap_wb_merger|o_wb_dat[19] ; clk          ; clk         ; 9.615        ; -0.044     ; 6.477      ;
+; 2.928 ; err       ; arm925t:cpu|zap_top:u_zap|zap_wb_merger:l_merger_for_core_with_cache_mmu.u_zap_wb_merger|o_wb_dat[3]  ; clk          ; clk         ; 9.615        ; -0.045     ; 6.472      ;
+; 2.928 ; err       ; arm925t:cpu|zap_top:u_zap|zap_wb_merger:l_merger_for_core_with_cache_mmu.u_zap_wb_merger|o_wb_dat[7]  ; clk          ; clk         ; 9.615        ; -0.044     ; 6.473      ;
+; 2.928 ; err       ; arm925t:cpu|zap_top:u_zap|zap_wb_merger:l_merger_for_core_with_cache_mmu.u_zap_wb_merger|o_wb_dat[17] ; clk          ; clk         ; 9.615        ; -0.043     ; 6.474      ;
++-------+-----------+-------------------------------------------------------------------------------------------------------+--------------+-------------+--------------+------------+------------+

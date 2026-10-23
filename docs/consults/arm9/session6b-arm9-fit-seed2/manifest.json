@@ -1,0 +1,11 @@
+{
+  "revision": "2647f622302a8862421475bea47848633569736a",
+  "core": "ARM9",
+  "ARM9_PREDICTOR": 1,
+  "seed": 2,
+  "mhz": 104,
+  "server": "ubuntu",
+  "remote_directory": "dev/mister/ngage-codex-arm9-s6b-arm9-datamux-s2",
+  "netlist_sha256": "da63d8ea9f9422c81935fe3caa681ae6c6dd7930de955a93dac356cb0dded4ad",
+  "command": "SEED=2 TRIAL=arm9_core BUILD_DIR=dev/mister/ngage-codex-arm9-s6b-arm9-datamux-s2 sim/cpu/quartus/run.sh"
+}

@@ -1,0 +1,4 @@
+da63d8ea9f9422c81935fe3caa681ae6c6dd7930de955a93dac356cb0dded4ad  /home/jacob/dev/mister/ngage-codex-arm9-s6b-arm9-datamux-s2/arm925t_gen.v
+10cbe17df7f741bfd30f7fa447f3c940a6f434ffaf10ca730becd7e0cd5e7ad9  /home/jacob/dev/mister/ngage-codex-arm9-s6b-zap-s2/arm925t_gen.v
+/home/jacob/dev/mister/ngage-codex-arm9-s6b-arm9-datamux-s2/cpu_trial.qsf:set_global_assignment -name SEED 2
+/home/jacob/dev/mister/ngage-codex-arm9-s6b-arm9-datamux-s2/cpu_trial.sdc:create_clock -name clk -period 9.615 [get_ports clk]

@@ -1,0 +1,2 @@
+Compared generated modules against 0e4601f: only arm9_core and arm9_fetch differ.
+All wrapper, ZAP, cache, MMU and other module bodies are byte-identical.

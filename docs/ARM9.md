@@ -8,7 +8,8 @@ the unchanged registered permission check. Fetch hits enter D from a registered
 F2 packet, taking four clocks for an unpredicted branch; load-use remains two.
 Prediction is optional and defaults on for ARM9. Block and multiply drains are
 removed for normal encodings. The seven-workload cycle gate passes at all three
-bus latencies; integrated timing and area are the remaining gates. The session-6
+bus latencies. The final integrated seed-2 fit is -8.332 ns and 16,755 ALMs
+against ZAP's 15,917; timing and area remain open. The session-6
 sections supersede the historical native schedule.
 Starting revision: `75cce2e`, branch `codex/arm9`.
 
@@ -843,3 +844,11 @@ invalid data never issues. Thumb BL uses the existing branch adder with its
 forwarded LR as base, avoiding the unrelated general shifter/ALU path in branch
 validation. The changes preserve all cycle-window expectations. The final
 integrated result and resource comparison are in the session report.
+
+The corrected integrated fit at `2647f62` reaches -8.332 ns setup, with
+16,755 ALMs versus the same-constraint ZAP baseline's 15,917. The remaining
+worst families are held operand/branch validation into backend clearing, and
+I-TLB fault/hit qualification into fetch data selection and D operand controls.
+All 702 runs remain cycle-identical after the correction. ZAP remains default;
+the [session report](consults/2026-10-23-codex-arm9-report.md) records the four
+corners, full paths, area gap and exact next work.
