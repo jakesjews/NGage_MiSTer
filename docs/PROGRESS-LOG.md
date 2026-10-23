@@ -3898,3 +3898,9 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   state into CP15 (-1.03), the Thumb decoder into predecode (-0.95).
   Five seeds of c03088f: -1.152, -1.285, -0.861, -1.074, -1.146. Seed 7
   of the tree with the card model's fix (c8f18ef) running.
+- Seed 6 of the main core (the Mac): -0.973 ns; the Thumb decoder into
+  predecode (-0.97), predecode's instruction register into decode
+  (-0.74), then a drop to -0.63. Six seeds of c03088f: -1.152, -1.285,
+  -0.861, -1.074, -1.146, -0.973: the predecode cone is in the top of
+  five of them, the family to clear first; without it this seed would
+  be near -0.63. Seed 8 of c8f18ef on the Mac.
