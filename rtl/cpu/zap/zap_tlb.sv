@@ -98,6 +98,7 @@ logic                            sptlb_ren_pre, lptlb_ren_pre, setlb_ren_pre;
 logic                            fptlb_ren, fptlb_ren_pre, fptlb_wen;
 logic                            walk;
 logic [7:0]                      fsr;
+logic                            fsr_nz; // ARM925T: registered with fsr.
 logic [31:0]                     far;
 logic                            cacheable;
 logic                            wt;           // ARM925T
@@ -354,6 +355,7 @@ u_zap_tlb_check (
 .o_walk         (walk),
 .o_hit_ok       (o_hit_ok),
 .o_fsr          (fsr),
+.o_fsr_nz       (fsr_nz),
 .o_far          (far),
 .o_cacheable    (cacheable),
 .o_wt           (wt),
@@ -376,6 +378,7 @@ zap_tlb_fsm #(
 .i_address      (i_address),
 .i_walk         (walk),
 .i_fsr          (fsr),
+.i_fsr_nz       (fsr_nz),
 .i_far          (far),
 .i_cacheable    (cacheable),
 .i_phy_addr     (phy_addr),
