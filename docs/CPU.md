@@ -36,7 +36,13 @@ Parameters:
   puts the vectors and the reset address at 0xFFFF0000. The N-Gage boots
   from CS0 at 0, so the core uses 0.
 - `ICACHE_SIZE` (16384), `DCACHE_SIZE` (8192), `CACHE_LINE` (16): cache
-  geometry in bytes.
+  geometry in bytes. `ICACHE_SIZE` 32768 is a 1,024-set I-cache (16 M10K
+  more); the cache type register still reports 16 KB.
+- `ICACHE_PREFETCH` (1): a one-line sequential I-cache prefetch. After a
+  line fill, the next line (within the same 1 KB) is read into a line buffer
+  while the bus is free; a later miss on that line is answered from it and
+  installs it. 0 is the ARM925T, which has none (the accuracy build).
+  docs/consults/2026-10-23-agy-iprefetch-report.md.
 
 Ports:
 
@@ -398,6 +404,13 @@ checkpoints (all registers and the CPSR) in the signature.
   ways and the LRU choice, and the D-side's index operations act on the
   named way. Both fail on a direct-mapped build (`VEXTRA=-GICACHE_WAYS=1`,
   `-GDCACHE_WAYS=1`).
+- `iprefetch_rtl`: the I-cache prefetch: sequential code over 32 lines
+  (cold, warm, backward; an execution-bound variant), a branch away from a
+  prefetched line, the I-cache invalidates (all and by MVA) with code
+  rewritten behind the buffer, and sequential code across a 4 KB page end
+  into a page mapped elsewhere (poison at the contiguous address) and up to
+  an unmapped page. Exact results, loose cycle shape; passes with and
+  without `-GICACHE_PREFETCH=0`.
 - `cache`, `cache_rtl`: 64 KB through the 8 KB D-cache (evictions and
   write-backs), bytes and halfwords in cached lines, loads of every size
   and unaligned loads that miss, LDM/STM across lines,

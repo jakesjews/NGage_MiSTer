@@ -29,7 +29,8 @@ parameter [31:0] SECTION_TLB_ENTRIES    = 32'd8,
 parameter [31:0] FPAGE_TLB_ENTRIES      = 32'd8,
 parameter [31:0] CACHE_LINE             = 32'd8,
 parameter [31:0] WAYS                   = 32'd1, // ARM925T: 1 or 2 (zap_cache_tag_ram).
-parameter [31:0] CPSR_MODE              = 32'd4
+parameter [31:0] CPSR_MODE              = 32'd4,
+parameter [0:0]  PREFETCH               = 1'd0   // ARM925T: sequential next-line prefetch.
 
 )
 (
@@ -77,7 +78,9 @@ input   logic [CPSR_MODE:0]    i_cpsr,
 input   logic [1:0]            i_sr,
 input   logic [31:0]           i_baddr,
 input   logic [31:0]           i_dac_reg,
-input  logic                   i_tlb_inv,
+input   logic                  i_tlb_inv,
+input   logic                  i_wb_busy = 1'd0,
+input   logic                  i_pf_inv  = 1'd0,
 
 // Wishbone. Signals from all 4 modules are ORed.
 output logic              o_wb_stb, o_wb_stb_nxt,
@@ -132,7 +135,43 @@ logic [31:0]                     cache_address;
 logic                            hold;
 logic                            idle;
 logic [2:0]                      wb_err;
+logic [31:0]                     pf_addr;
+logic                            tr_pf_hit;
+logic                            mmu_en_q;
+logic [1:0]                      sr_q;
+logic [31:0]                     baddr_q, dac_reg_q;
+logic                            pf_inv;
 logic                            unused;
+
+//
+// ARM925T: the prefetch buffer is dropped on a TLB invalidate, a D-side
+// clean/invalidate or line operation (code may have been written), and on
+// any change of the MMU enable, S/R, translation base or domain access.
+// Registered (a cycle late) to keep the 32-bit compares off the fetch
+// acknowledge; harmless, since a buffer hit is still checked against the
+// live translation (fault, cacheable, physical address) like a cache hit,
+// and the cache itself (virtually tagged) is not dropped on these at all.
+//
+always_ff @ ( posedge i_clk )
+begin
+        if ( i_reset )
+        begin
+                mmu_en_q  <= 1'd0;
+                sr_q      <= 2'd0;
+                baddr_q   <= 32'd0;
+                dac_reg_q <= 32'd0;
+                pf_inv    <= 1'd1;
+        end
+        else
+        begin
+                mmu_en_q  <= i_mmu_en;
+                sr_q      <= i_sr;
+                baddr_q   <= i_baddr;
+                dac_reg_q <= i_dac_reg;
+                pf_inv    <= i_tlb_inv || i_pf_inv || (i_mmu_en != mmu_en_q) || (i_sr != sr_q) ||
+                             (i_baddr != baddr_q) || (i_dac_reg != dac_reg_q);
+        end
+end
 
 // Selection 2 of Wishbone CTI[2x3] is always on all CPU supported modes.
 assign wb_cti[2] = CTI_EOB;
@@ -141,7 +180,7 @@ assign wb_cti[2] = CTI_EOB;
 assign unused = |{wb_err[1]};
 
 // Basic cache FSM - serves as manager 0.
-zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u_zap_cache_fsm (
+zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .PREFETCH(PREFETCH)) u_zap_cache_fsm (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address              (i_address),
@@ -151,6 +190,11 @@ zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u
         .i_wr                   (i_wr),
         .i_din                  (i_dat),
         .o_idle                 (idle),
+        .i_pf_hit               (tr_pf_hit),
+        .i_pf_inv               (pf_inv),
+        .i_wb_busy              (i_wb_busy || tlb_busy ||
+                                 (state_ff != SELECT_CCH && o_wb_stb)),
+        .o_pf_addr              (pf_addr),
         .i_ben                  (i_ben),
         .o_dat                  (o_dat),
         .o_ack                  (o_ack),
@@ -216,7 +260,7 @@ zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u
 );
 
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
-zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u_zap_cache_tag_ram     (
+zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .PREFETCH(PREFETCH)) u_zap_cache_tag_ram (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address_nxt          (i_address_nxt),
@@ -255,6 +299,8 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         /* verilator lint_off PINCONNECTEMPTY */
         .o_line_done            (),
         /* verilator lint_on PINCONNECTEMPTY */
+        .i_pf_addr              (pf_addr),
+        .o_pf_hit               (tr_pf_hit),
 
         /* verilator lint_off PINCONNECTEMPTY */
         .o_wb_cyc_ff            (),
@@ -356,7 +402,7 @@ begin
         // Change state only if strobe is inactive or strobe has just completed.
         // ERR follows ACK. There's an assertion to check that.
         //
-        if ( !o_wb_stb || (o_wb_stb && i_wb_ack) )
+        if ( !o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err) && (o_wb_cti == CTI_EOB)) )
         begin
                 casez({wb_cyc[2],wb_cyc[1],wb_cyc[0]})
                 3'b1?? : state_nxt = SELECT_TLB; // TLB.
@@ -389,7 +435,7 @@ end
 // chooses has CYC whenever any has; one level after the acknowledge
 // instead of through the select (timing).
 //
-assign o_wb_cyc_nxt = ( !o_wb_stb || (o_wb_stb && i_wb_ack) ) ? (|wb_cyc) : (|(state_ff & wb_cyc));
+assign o_wb_cyc_nxt = ( !o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err) && (o_wb_cti == CTI_EOB)) ) ? (|wb_cyc) : (|(state_ff & wb_cyc));
 
 // ARM925T: compute the selected strobe directly, alongside arbitration.
 // The hold case still uses the current owner; a new request retains the

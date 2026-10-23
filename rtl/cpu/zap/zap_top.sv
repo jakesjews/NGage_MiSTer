@@ -92,6 +92,7 @@ parameter logic [31:0] CODE_FPAGE_TLB_ENTRIES   =  32'd64,   // Fine page TLB en
 parameter logic [31:0] CODE_CACHE_SIZE          =  32'd8192, // Cache size in bytes.
 parameter logic [31:0] CODE_CACHE_LINE          =  32'd64,   // Ccahe line size in bytes.
 parameter logic [31:0] CODE_CACHE_WAYS          =  32'd1,    // ARM925T: 1 or 2.
+parameter logic        CODE_CACHE_PREFETCH      =  1'd0,     // ARM925T: sequential next-line prefetch.
 
 // ----------------------------------
 // ARM925T options. The defaults give upstream ZAP; rtl/cpu/arm925t.sv
@@ -727,7 +728,8 @@ zap_cache #(
 .SECTION_TLB_ENTRIES(CODE_SECTION_TLB_ENTRIES),
 .FPAGE_TLB_ENTRIES(CODE_FPAGE_TLB_ENTRIES),
 .CACHE_LINE(CODE_CACHE_LINE), // ARM925T: upstream passed DATA_CACHE_LINE.
-.WAYS(CODE_CACHE_WAYS)
+.WAYS(CODE_CACHE_WAYS),
+.PREFETCH(CODE_CACHE_PREFETCH)
 )
 u_code_cache (
 .i_clk              (i_clk),
@@ -769,6 +771,8 @@ u_code_cache (
 .i_baddr           (cpu_baddr),
 .i_dac_reg         (cpu_dac_reg),
 .i_tlb_inv         (cpu_itlb_inv),
+.i_wb_busy         (d_wb_cyc || d_wb_ack || (|dc_lock) || cpu_dc_clean || cpu_dc_inv || cpu_dline_req),
+.i_pf_inv          (cpu_dc_clean || cpu_dc_inv || cpu_dline_req),
 .o_err2            (icache_err2),
 .o_fill_pending    (icache_fill_pending),
 .o_fill_done       (icache_fill_done),

@@ -76,6 +76,12 @@ set_global_assignment -name SEED 2
 # Disable ALSA audio output to save some resources
 set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
 
+# CPU I-cache (NGage.sv): the 32 KB variant (1,024 sets, +16 M10K), and the
+# sequential next-line prefetch taken out (the accuracy build: the phone's
+# ARM925T has none)
+#set_global_assignment -name VERILOG_MACRO "NGAGE_ICACHE_32K=1"
+#set_global_assignment -name VERILOG_MACRO "NGAGE_ICACHE_NO_PREFETCH=1"
+
 source sys/sys.tcl
 source sys/sys_analog.tcl
 source files.qip

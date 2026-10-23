@@ -31,7 +31,20 @@ module emu #(
 	// the self-test's coverage (the simulation tests a part)
 	parameter int SELFTEST_SDRAM_WORDS_LOG2  = 22,
 	parameter int SELFTEST_ONCHIP_WORDS_LOG2 = 14,
-	parameter int SELFTEST_FLASH_WORDS_LOG2  = 12
+	parameter int SELFTEST_FLASH_WORDS_LOG2  = 12,
+	// the CPU's I-cache: 16 KB (the phone's) or 32 KB with NGAGE_ICACHE_32K,
+	// and the sequential next-line prefetch, taken out by
+	// NGAGE_ICACHE_NO_PREFETCH (the accuracy build); macros in NGage.qsf
+`ifdef NGAGE_ICACHE_32K
+	parameter int ICACHE_SIZE                = 32768,
+`else
+	parameter int ICACHE_SIZE                = 16384,
+`endif
+`ifdef NGAGE_ICACHE_NO_PREFETCH
+	parameter bit ICACHE_PREFETCH            = 1'b0
+`else
+	parameter bit ICACHE_PREFETCH            = 1'b1
+`endif
 ) (
 	`include "sys/emu_ports.vh"
 );
@@ -615,7 +628,10 @@ wire  [7:0] cpu_dbg_stall;
 wire [31:0] tr_d_va, tr_d_wdata, tr_d_rdata;
 wire  [3:0] tr_d_sel;
 
-arm925t arm925t
+arm925t #(
+	.ICACHE_SIZE(ICACHE_SIZE),
+	.ICACHE_PREFETCH(ICACHE_PREFETCH)
+) arm925t
 (
 	.clk(clk_sys),
 	.reset(cpu_reset),
