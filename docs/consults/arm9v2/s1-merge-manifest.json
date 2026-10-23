@@ -1,0 +1,12 @@
+{
+  "paused_parent": "49ed32284207e19a4c7d5c7eb6e215fb72f57c9e",
+  "master_merged": "447c21106bd69aa6b43996e3f333ca398660d9b7",
+  "netlist_sha256": "a8488b268f789bd5d2cf9e97d586768ea1829077eb705f65bc8be05df57e3a9f",
+  "runs": {
+    "ZAP": 261,
+    "ARM9-paused": 258,
+    "ARM9-paused-off": 258
+  },
+  "qemu_comparisons_each": 68,
+  "paused_exclusion": "dhum_rtl requires non-blocking load overlap, unavailable in paused ARM9; first overlap CHECK fails. Required for ARM9V2 final acceptance."
+}

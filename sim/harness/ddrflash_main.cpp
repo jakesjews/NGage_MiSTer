@@ -66,7 +66,9 @@ struct Bench {
 		ddr.prof.gap_pct = 10;
 		ddr.prof.stall_pct_x1000 = 500;
 		t->clk = 0; t->reset = 1;
-		t->cs0_req = 0; t->cs1_req = 0; t->ld_we = 0; t->bk_req = 0; t->bk_blk = 0;
+		t->cs0_req = 0; t->cs0_lreq = 0; t->cs0_laddr = 0;
+		t->cs1_req = 0; t->cs1_lreq = 0; t->cs1_laddr = 0;
+		t->ld_we = 0; t->bk_req = 0; t->bk_blk = 0;
 		t->ddram_busy = 0; t->ddram_dout = 0; t->ddram_dout_ready = 0;
 		t->eval();
 	}
@@ -202,7 +204,89 @@ struct Bench {
 		for (int i = 0; i < 10; i++) tick();
 		reset = false;
 	}
+
+	// test a 16-byte line read (two 64-bit beats) on CS0 or CS1
+	void line_read(int n, uint32_t beat_addr, bool expect_hit_order) {
+		if (n == 0) { t->cs0_lreq = 1; t->cs0_laddr = beat_addr; }
+		else        { t->cs1_lreq = 1; t->cs1_laddr = beat_addr; }
+		int got = 0;
+		int first_beat = -1;
+		uint64_t beats[2] = {0, 0};
+		for (int guard = 0; guard < 1000 && got < 2; guard++) {
+			drive();
+			t->eval();
+			bool ltaken  = n ? t->cs1_ltaken  : t->cs0_ltaken;
+			bool lrvalid = n ? t->cs1_lrvalid : t->cs0_lrvalid;
+			int  lrbeat  = n ? t->cs1_lrbeat  : t->cs0_lrbeat;
+			uint64_t lrdata = n ? t->cs1_lrdata : t->cs0_lrdata;
+			ddr.step(t->ddram_rd, t->ddram_we, t->ddram_addr, t->ddram_burstcnt, t->ddram_din, t->ddram_be);
+			t->clk = 1;
+			t->eval();
+			cyc++;
+			if (ltaken) {
+				if (n == 0) t->cs0_lreq = 0;
+				else        t->cs1_lreq = 0;
+			}
+			if (lrvalid) {
+				if (got == 0) first_beat = lrbeat;
+				beats[lrbeat] = lrdata;
+				got++;
+			}
+			t->clk = 0;
+			t->eval();
+		}
+		CHECK_EQ(got, 2, "line read returned 2 beats");
+		if (expect_hit_order)
+			CHECK_EQ(first_beat, (int)(beat_addr & 1), "cache-hit line read returns critical 8-byte beat first");
+		uint32_t base_word = (beat_addr & ~1u) * 4;
+		for (int b = 0; b < 2; b++) {
+			uint64_t want = (uint64_t)shadow[n][base_word + 4 * b + 0]
+			              | ((uint64_t)shadow[n][base_word + 4 * b + 1] << 16)
+			              | ((uint64_t)shadow[n][base_word + 4 * b + 2] << 32)
+			              | ((uint64_t)shadow[n][base_word + 4 * b + 3] << 48);
+			CHECK_EQ(beats[b], want, "line read 64-bit beat matches shadow");
+		}
+	}
 };
+
+void test_blank(uint32_t seed) {
+	Bench b(seed);
+	for (int i = 0; i < 4; i++) b.tick();
+	b.reset = false;
+	auto load = [&](uint32_t byte, uint16_t data) {
+		b.ld = true; b.ld_addr = CS_BASE[1] + byte; b.ld_data = data;
+		while (b.ld) b.tick();
+	};
+	auto write = [&](int chip, uint32_t byte, uint16_t data) {
+		auto &p = b.p[chip];
+		p.req = true; p.we = true; p.addr = byte / 2; p.wdata = data; p.since = b.cyc;
+		b.settle();
+	};
+	load(0, 0x1234); // a new image re-arms the scan
+	load(0x400000, 0xFFFF);
+	load(0x7FFFFE, 0xFFFF);
+	CHECK(b.t->c_blank, "erased loaded C: is blank");
+	write(0, 0x400100, 0); write(1, 0x3FFFFE, 0);
+	CHECK(b.t->c_blank, "CS0/lower CS1 writes leave C: blank");
+	write(1, 0x7FFFFE, 0xFFFF);
+	CHECK(b.t->c_blank, "C: erase leaves blank set");
+	write(1, 0x7FFFFE, 0x1234);
+	CHECK(!b.t->c_blank, "C: data away from first word clears blank");
+	write(1, 0x7FFFFE, 0xFFFF);
+	write(1, 0x400000, 0xFFFF);
+	b.reset = true; b.tick(); b.reset = false; b.tick();
+	CHECK(!b.t->c_blank, "erase/reset cannot re-arm blank");
+	load(0, 0xFFFF);
+	CHECK(b.t->c_blank, "new image re-arms blank");
+	load(0x7FFFFE, 0xFFFE); // last enabled byte lanes, first word still FF
+	CHECK(!b.t->c_blank, "loaded data anywhere in C: clears blank");
+	load(0x7FFFFE, 0xFFFF);
+	CHECK(!b.t->c_blank, "loader FF cannot re-arm blank mid-image");
+	load(0, 0xFFFF); load(0x400000, 0xFFFF);
+	CHECK(b.t->c_blank, "fresh blank image after formatted save");
+	// Leave no write request flags for the read tests that follow.
+	b.p[0].we = b.p[1].we = false;
+}
 
 }  // namespace
 
@@ -214,6 +298,7 @@ int main(int argc, char **argv) {
 		if (!strcmp(argv[i], "--seed") && i + 1 < argc) seed = (uint32_t)strtoul(argv[++i], nullptr, 0);
 		else if (!strcmp(argv[i], "--rounds") && i + 1 < argc) rounds = atoi(argv[++i]);
 	}
+	test_blank(seed);
 	Bench b(seed);
 	for (int i = 0; i < 4; i++) b.tick();
 	b.reset = false;
@@ -258,6 +343,13 @@ int main(int argc, char **argv) {
 		}
 	}
 	b.settle();
+	// line reads on CS0 and CS1: cold miss, then warm hit starting on both beat 0 and beat 1
+	for (int n = 0; n < 2; n++) {
+		b.line_read(n, 0x200, false);
+		b.line_read(n, 0x200, true);
+		b.line_read(n, 0x201, true);
+		b.line_read(n, 0x203, true);
+	}
 	for (int i = 0; i < 200; i++) b.tick();
 	CHECK(b.ddr.idle(), "DDR3 reads still in flight at the end");
 	// nothing else in DDR3 changed

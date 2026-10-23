@@ -94,6 +94,7 @@ parameter logic [31:0] CODE_FPAGE_TLB_ENTRIES   =  32'd64,   // Fine page TLB en
 parameter logic [31:0] CODE_CACHE_SIZE          =  32'd8192, // Cache size in bytes.
 parameter logic [31:0] CODE_CACHE_LINE          =  32'd64,   // Ccahe line size in bytes.
 parameter logic [31:0] CODE_CACHE_WAYS          =  32'd1,    // ARM925T: 1 or 2.
+parameter logic        CODE_CACHE_PREFETCH      =  1'd0,     // ARM925T: sequential next-line prefetch.
 
 // ----------------------------------
 // ARM925T options. The defaults give upstream ZAP; rtl/cpu/arm925t.sv
@@ -143,6 +144,7 @@ parameter logic        HIVECS       = 1'd0           // Reset value of control b
         output  logic  [31:0]    o_dbg_wb_cpsr,
         output  logic  [31:0]    o_dbg_wb_cpsr_nxt,
         output  logic  [7:0]     o_dbg_stall,
+        output  logic  [3:0]     o_dbg_dcache,
         output  logic            o_dbg_d_done,
         output  logic            o_dbg_d_we,
         output  logic  [31:0]    o_dbg_d_va,
@@ -579,6 +581,7 @@ begin : l_tieoffs_full
 end : l_tieoffs_full
 else
 begin : l_tieoffs_only_core
+        assign o_dbg_dcache    = '0;
         assign dc_wreg_idx     = '0;
         assign dc_lock         = '0;
         assign dc_reg_data     = '0;
@@ -803,6 +806,7 @@ zap_dcache #(
         .EXT_ABORT_FS(TI925T ? 4'b1000 : 4'b0010)
 )
 u_data_cache (
+.o_dbg_dcache           (o_dbg_dcache),
 .i_clk                  (i_clk),
 .i_stall                (arm9_data_stall),
 .o_fill_busy            (data_fill_busy),
@@ -885,7 +889,8 @@ zap_cache #(
 .FPAGE_TLB_ENTRIES(CODE_FPAGE_TLB_ENTRIES),
 .CACHE_LINE(CODE_CACHE_LINE), // ARM925T: upstream passed DATA_CACHE_LINE.
 .WAYS(CODE_CACHE_WAYS),
-.SHORT_READ(CORE == "ARM9")
+.SHORT_READ(CORE == "ARM9"),
+.PREFETCH(CODE_CACHE_PREFETCH)
 )
 u_code_cache (
 .i_clk              (i_clk),
@@ -929,6 +934,8 @@ u_code_cache (
 .i_baddr           (cpu_baddr),
 .i_dac_reg         (cpu_dac_reg),
 .i_tlb_inv         (cpu_itlb_inv),
+.i_wb_busy         (d_wb_cyc || d_wb_ack || (|dc_lock) || cpu_dc_clean || cpu_dc_inv || cpu_dline_req),
+.i_pf_inv          (cpu_dc_clean || cpu_dc_inv || cpu_dline_req),
 .o_err2            (icache_err2),
 .o_fill_pending    (icache_fill_pending),
 .o_fill_done       (icache_fill_done),

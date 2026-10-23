@@ -65,7 +65,7 @@ output logic            o_wb_stb,
 output logic            o_wb_wen,
 output logic [3:0]      o_wb_sel,
 output logic [31:0]     o_wb_dat,
-output logic [31:0]     o_wb_adr,
+(* dont_retime *) output logic [31:0] o_wb_adr,
 output logic [2:0]      o_wb_cti,
 output logic [1:0]      o_wb_bte,
 input logic             i_wb_ack,
@@ -89,7 +89,9 @@ input logic             i_wb_err
 //
 
 // State variable.
-enum logic {CODE = 1'd0, DATA = 1'd1, DEFAULT_XX = 'x} state_ff, state_nxt;
+typedef enum logic {CODE = 1'd0, DATA = 1'd1, DEFAULT_XX = 'x} owner_t;
+(* preserve, dont_retime *) owner_t state_ff;
+owner_t state_nxt;
 
 // Alias
 logic switch;
@@ -175,6 +177,23 @@ assign o_d_wb_err = (state_ff == DATA) & i_wb_err;
 
 if ( !ONLY_CORE )
 begin: l_genblk1
+        // ARM925T: only write data uses speculative banks. Keep the bus
+        // address registered after arbitration: a post-register address
+        // mux lengthens the whole-core bus decode and SDRAM address paths.
+        (* dont_retime *) logic [31:0] code_data_ff, data_data_ff;
+        (* preserve, dont_retime *) owner_t data_owner_ff;
+        always_ff @(posedge i_clk) begin
+                if (i_reset) begin
+                        code_data_ff <= 32'b0;
+                        data_data_ff <= 32'b0;
+                        data_owner_ff <= CODE;
+                end else begin
+                        code_data_ff <= i_c_wb_dat;
+                        data_data_ff <= i_d_wb_dat;
+                        data_owner_ff <= state_nxt;
+                end
+        end
+        assign o_wb_dat = data_owner_ff == CODE ? code_data_ff : data_data_ff;
 
         //
         // We can flop these, because we're using NXT ports.
@@ -188,7 +207,6 @@ begin: l_genblk1
                         o_wb_stb <= 0;
                         o_wb_wen <= 0;
                         o_wb_sel <= 0;
-                        o_wb_dat <= 0;
                         o_wb_adr <= 0;
                         o_wb_cti <= CTI_EOB;
                         o_wb_bte <= 2'b00;
@@ -199,7 +217,6 @@ begin: l_genblk1
                         o_wb_stb <= i_c_wb_stb;
                         o_wb_wen <= i_c_wb_wen;
                         o_wb_sel <= i_c_wb_sel;
-                        o_wb_dat <= i_c_wb_dat;
                         o_wb_adr <= i_c_wb_adr;
                         o_wb_cti <= i_c_wb_cti;
                         o_wb_bte <= 2'b00;
@@ -210,7 +227,6 @@ begin: l_genblk1
                         o_wb_stb <= i_d_wb_stb;
                         o_wb_wen <= i_d_wb_wen;
                         o_wb_sel <= i_d_wb_sel;
-                        o_wb_dat <= i_d_wb_dat;
                         o_wb_adr <= i_d_wb_adr;
                         o_wb_cti <= i_d_wb_cti;
                         o_wb_bte <= i_d_wb_bte;

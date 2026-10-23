@@ -31,11 +31,13 @@
 //   * SDRAM write: posted. A classic write is answered as soon as the
 //     request register is free; a burst's beats are gathered (a beat every
 //     2 clocks) into one line write with byte enables;
-//   * flash: 16-bit chips, so a beat is one or two halfword accesses of the
-//     chip's bus port (only the halfwords SEL asks for; a burst beat both);
-//     during a burst the next beat is read while the current one waits, but
-//     never past the burst's end (a status read changes the chip's toggle
-//     bits);
+//   * flash: in read-array mode (fl*_array), a read burst is one 16-byte line
+//     read (two 8-byte beats from the chip's wide port, the asked 8-byte beat
+//     first on a cache hit), answered as the words arrive (a cached line in 8
+//     clocks, the first beat in 4); every other access uses the 16-bit bus
+//     port (one or two halfword accesses per beat, only the halfwords SEL
+//     asks for; during a status/query burst the next beat is read while the
+//     current one waits, never past the burst's end or the chip's window);
 //   * peripherals: one access a beat; flash writes, EMIF and on-chip RAM
 //     writes: answered the clock after.
 //
@@ -91,6 +93,13 @@ module upp_bus #(
 	output logic [15:0]       fl0_wdata,
 	input  logic [15:0]       fl0_rdata,
 	input  logic              fl0_ack,
+	input  logic              fl0_array,
+	output logic              fl0_lreq,
+	output logic [CS0_AW-1:2] fl0_laddr,
+	input  logic              fl0_ltaken,
+	input  logic              fl0_lrvalid,
+	input  logic              fl0_lrbeat,
+	input  logic [63:0]       fl0_lrdata,
 
 	output logic              fl1_req,
 	output logic              fl1_we,
@@ -98,6 +107,13 @@ module upp_bus #(
 	output logic [15:0]       fl1_wdata,
 	input  logic [15:0]       fl1_rdata,
 	input  logic              fl1_ack,
+	input  logic              fl1_array,
+	output logic              fl1_lreq,
+	output logic [CS1_AW-1:2] fl1_laddr,
+	input  logic              fl1_ltaken,
+	input  logic              fl1_lrvalid,
+	input  logic              fl1_lrbeat,
+	input  logic [63:0]       fl1_lrdata,
 
 	output logic              sdr_req,
 	output logic              sdr_we,
@@ -200,6 +216,7 @@ module upp_bus #(
 		S_SDR_RD,
 		S_SDR_WR,    // gathering a write burst
 		S_FLASH,
+		S_FLASH_LINE,
 		S_PERIPH
 	} state_t;
 
@@ -316,8 +333,36 @@ module upp_bus #(
 	// (fe_next is nxt(fe_adr) with the burst's BTE, and nxt is one-to-one, so
 	// "fe_next is the beat after the bus's" is fe_adr == wb_adr: no adder on
 	// this path)
-	wire fe_allowed = wb_cyc && (fe_next == wb_adr || (fe_adr == wb_adr && burst));
+	wire fe_allowed = wb_cyc && (fe_next == wb_adr || (fe_adr == wb_adr && burst)) &&
+	                  fe_next[31:27] == 5'd0 && fe_next[26:25] == {1'b0, fl_chip};
 	wire fe_ahead   = state == S_FLASH && !fe_we_op && fe_allowed && (!fl_req || fe_last) && !fq_next;
+
+	// Flash wide line read (16-byte line = two 64-bit beats in read-array mode)
+	logic              fl_lreq = 1'b0;
+	logic              fl_lchip;
+	logic [FL_AW-1:2]  fl_laddr;
+	logic [31:0]       fl_lb [4];
+	logic [3:0]        fl_lb_v;
+	logic [1:0]        fl_lpend = 2'd0;
+	logic [1:0]        fl_widx;
+	logic              fl_in_blk;
+	logic              fl_wrap4;
+
+	wire               fl_lfree   = !fl_lreq && fl_lpend == 2'd0;
+	wire               fl_ltaken  = fl_lreq && (fl_lchip ? fl1_ltaken  : fl0_ltaken);
+	wire               fl_lrvalid = fl_lchip ? fl1_lrvalid : fl0_lrvalid;
+	wire               fl_lrbeat  = fl_lchip ? fl1_lrbeat  : fl0_lrbeat;
+	wire [63:0]        fl_lrdata  = fl_lchip ? fl1_lrdata  : fl0_lrdata;
+
+	assign fl0_lreq  = fl_lreq && !fl_lchip;
+	assign fl1_lreq  = fl_lreq &&  fl_lchip;
+	assign fl0_laddr = fl_laddr[CS0_AW-1:2];
+	assign fl1_laddr = fl_laddr[CS1_AW-1:2];
+
+	wire        fl_hit_live = fl_lrvalid && fl_lrbeat == fl_widx[1];
+	wire        fl_have     = fl_lb_v[fl_widx] || fl_hit_live;
+	wire [31:0] fl_word     = fl_hit_live ? (fl_widx[0] ? fl_lrdata[63:32] : fl_lrdata[31:0])
+	                                      : fl_lb[fl_widx];
 
 	// the halfwords a beat needs
 	function automatic logic [1:0] halves(input logic [3:0] sel, input logic b);
@@ -336,7 +381,9 @@ module upp_bus #(
 	// ------------------------------------------------------------------
 	// a beat for the engine: the first of a transaction (from S_IDLE) or the
 	// next of a burst
-	wire        fs_go  = (state == S_IDLE && wb_cyc && wb_stb && (tgt == T_CS0 || tgt == T_CS1)) || fe_ahead;
+	wire        fl_line_ok = burst && !wb_we && ((tgt == T_CS0) ? fl0_array : fl1_array);
+	wire        fs_go      = (state == S_IDLE && wb_cyc && wb_stb && (tgt == T_CS0 || tgt == T_CS1) &&
+	                          fl_lfree && !fl_line_ok) || fe_ahead;
 	wire [31:0] fs_adr = (state == S_IDLE) ? wb_adr : fe_next;
 	wire [1:0]  fs_h   = (state == S_IDLE) ? halves(wb_sel, burst && !wb_we) : 2'b11;
 	wire        fs_we  = (state == S_IDLE) && wb_we;
@@ -352,6 +399,19 @@ module upp_bus #(
 		if (sdr_rvalid) begin
 			lb[sdr_rword]   <= sdr_rdata;
 			lb_v[sdr_rword] <= 1'b1;
+		end
+
+		// flash: wide line read in read-array mode
+		if (fl_ltaken) fl_lreq <= 1'b0;
+		if (!fl_lreq)  fl_laddr <= wb_adr[FL_AW:3];
+		fl_lpend <= fl_lpend + ((state == S_IDLE && wb_cyc && wb_stb &&
+		                         (tgt == T_CS0 || tgt == T_CS1) && fl_lfree && fl_line_ok) ? 2'd2 : 2'd0)
+		                     - ((fl_lrvalid && fl_lpend != 2'd0) ? 2'd1 : 2'd0);
+		if (fl_lrvalid) begin
+			fl_lb[{fl_lrbeat, 1'b0}]   <= fl_lrdata[31:0];
+			fl_lb[{fl_lrbeat, 1'b1}]   <= fl_lrdata[63:32];
+			fl_lb_v[{fl_lrbeat, 1'b0}] <= 1'b1;
+			fl_lb_v[{fl_lrbeat, 1'b1}] <= 1'b1;
 		end
 
 		// flash: the halfword engine. The halfword address is loaded with the
@@ -424,11 +484,23 @@ module upp_bus #(
 							state    <= S_ACK;
 						end
 						T_CS0, T_CS1: begin
-							fl_chip  <= tgt == T_CS1;
-							fe_we_op <= wb_we;
-							fw_v     <= 1'b0;
-							fq_v     <= 1'b0;
-							state    <= S_FLASH;
+							if (fl_lfree) begin
+								fl_chip  <= tgt == T_CS1;
+								fl_lchip <= tgt == T_CS1;
+								if (fl_line_ok) begin
+									fl_lreq   <= 1'b1;
+									fl_lb_v   <= 4'b0000;
+									fl_widx   <= wb_adr[3:2];
+									fl_in_blk <= 1'b1;
+									fl_wrap4  <= wb_bte == 2'b01;
+									state     <= S_FLASH_LINE;
+								end else begin
+									fe_we_op <= wb_we;
+									fw_v     <= 1'b0;
+									fq_v     <= 1'b0;
+									state    <= S_FLASH;
+								end
+							end
 						end
 						T_PERIPH: begin
 							p_sel_q <= 1'b1;
@@ -555,13 +627,25 @@ module upp_bus #(
 					end
 				end else begin
 					ack_q <= 1'b0;
-					if (!tb_ok) begin
-						// the burst is over; let a halfword access in flight finish
+					if (!tb_ok || (!fl_req && !fw_v)) begin
+						// the burst is over (or left this chip); let a halfword access in flight finish
 						if (!fl_req || fl_ack) state <= S_IDLE;
 					end else if (fl_pop) begin
 						dat_q <= fw_dat;
 						ack_q <= 1'b1;
 					end
+				end
+			end
+
+			S_FLASH_LINE: begin
+				ack_q <= 1'b0;
+				if (!tb_ok || !fl_in_blk) begin
+					state <= S_IDLE;
+				end else if (fl_have) begin
+					dat_q   <= fl_word;
+					ack_q   <= 1'b1;
+					fl_widx <= fl_widx + 2'd1;
+					if (fl_widx == 2'd3 && !fl_wrap4) fl_in_blk <= 1'b0;
 				end
 			end
 
@@ -578,14 +662,16 @@ module upp_bus #(
 		endcase
 
 		if (reset) begin
-			state   <= S_IDLE;
-			ack_q   <= 1'b0;
-			err_q   <= 1'b0;
-			sdr_req <= 1'b0;
-			fl_req  <= 1'b0;
-			fw_v    <= 1'b0;
-			fq_v    <= 1'b0;
-			p_sel_q <= 1'b0;
+			state    <= S_IDLE;
+			ack_q    <= 1'b0;
+			err_q    <= 1'b0;
+			sdr_req  <= 1'b0;
+			fl_req   <= 1'b0;
+			fl_lreq  <= 1'b0;
+			fl_lpend <= 2'd0;
+			fw_v     <= 1'b0;
+			fq_v     <= 1'b0;
+			p_sel_q  <= 1'b0;
 		end
 	end
 

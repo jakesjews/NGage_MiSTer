@@ -3013,3 +3013,1058 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   K/s; Sonic 9-12 frames/s, 22-23.3 M/s, CPI 4.5-4.7, issue 33 %.
   The first frame-rate step: Asphalt from six ticks a frame to about
   four and a half.
+- Codex's SDRAM open-page policy (9d36431, merged 864e71a): one row open
+  per bank, precharge only on a conflict or before a refresh; a row-hit
+  first word 8 -> 5 clocks, a line 15 -> 12; the SDRAM, fault-injection,
+  UPP and top benches pass. Quartus 17 rejected its inline genvar loop
+  (fixed, 9bb4942). Codex's critical-word-first (3d440a4, merged 75cce2e):
+  the burst starts at the requested word with wrapped order carried end
+  to end, the loaded register written one edge after its beat; cache
+  789,484 -> 760,787 cycles. Both merged on master; building (b9, b10).
+- **The merged tree misses timing by 3 ns** (b8: -3.014 ns at slow 100C,
+  -3.047 at slow -40C; the tree before the four changes missed by
+  0.15-0.4). Two families, from the full-path report
+  (session scratch, b8-timing/critical-paths.rpt): the BTB's registered
+  decision now computed from pc_nxt, through the decode stage's stall and
+  clear_btb (11.8 ns: f83073f did what its brief said not to), and the late
+  operand pickup resolving the pending operand from the D-cache's live read
+  data and the FSM's state into the ALU's operand mux (-3.0 to -2.7, many
+  paths). Handed to Codex as a timing task (codex/timing worktree): resolve
+  only from registered values, the BTB's read from a register, verified
+  with the CPU-only Quartus trial. The merged build is on the board to see
+  whether it runs at all at that miss.
+- **The ARM9 pipeline project started** (the user: "kick off codex on the
+  larger arm work now"; "the first game people will probably fire up will
+  be sonic"): Codex on codex/arm9 with the brief in the session's scratch
+  area (codex-impl-arm9.md): an ARM9TDMI-style five-stage core under
+  rtl/cpu/arm9/ selected by a CORE parameter in arm925t.sv, ZAP's CP15,
+  MMU, caches, bus, debug taps and verification kept, the TRM's chapter 7
+  cycle counts as the specification, a timing trial of the execute stage
+  before the core; milestones: the design document, the execute datapath's
+  trial, the skeleton, the full set, the netlist and trial. Robert Peip's
+  DS source turned out to be public (TinyRetroWarehouse/DSFPGA, GPLv3) but
+  its ARM9 is his multi-cycle ARM7 design; MiSTfits-devel/Nitro_DarkSide
+  (2026) the same lineage; both and his GBA ARM7TDMI are references for
+  semantics and cycle counts, the TRM for the pipeline. The repository
+  goes public and GPL code may be mixed in (the user).
+- **The merged build in play** (b8, the four Codex changes plus the
+  forwarding and the predictor fix, -3.0 ns; it runs: the user notes the
+  Jaguar core works at -10 ns; `build/hardware/game/{sonicn,asphalt}-merged/`):
+  - Sonic in Neo Green Hill: 26-27.8 M instructions/s (was 22-23.3 on the
+    forwarding build, 19.3-20.8 at the start), CPI 3.7-4.1, **12-16
+    frames/s** (was 9-12, 7-12). Replays 80-110 K/s (were 500-570 K), data
+    stall 14-17 % (the held accesses now wait there instead of replaying),
+    code stall 54-57 % (the FIFO full behind the issue stage), FIFO empty
+    18-24 %, issue 36-41 %, shifter 5 % (the late pickup's holds count
+    there), decode 8-10 %.
+  - Asphalt: 27.8-28.4 M/s (was 23.5, 21.1), CPI 3.7 (was 4.4, 4.9),
+    replays 130-146 K/s (were 670 K), shifter 15 %; 10-11 frames/s, which
+    is not comparable: Instant Play picks a random race, and this run got
+    the night-time Cop Chase in the city (as the first runs did) while the
+    forwarding build's run got a coastal time attack with another car, so
+    its 14 frames/s was a cheaper scene. The idle screen 39.9 M/s at CPI
+    2.6. Instruction rate and CPI are the measures across builds; Sonic's
+    frame rate is comparable (same level, same keys); Asphalt's needs a
+    fixed race (the script will pick Cop Chase explicitly).
+  - Against the start of the day: Sonic +35 % instructions/s, Asphalt
+    +33 %; CPI 4.9 -> 3.7. Asphalt's 21 frames/s needs about 2.9, Sonic's
+    32 about 1.5.
+- **The SDRAM open-page build in play** (b9, -3.578 ns;
+  `build/hardware/game/{sonicn,asphalt}-sdram/`): no measurable change.
+  Sonic 25.4-27.5 M instructions/s, CPI 3.8-4.1, 13-15 frames/s; Asphalt's
+  Cop Chase (chosen explicitly now) 27.9-28.1 M/s, CPI 3.7, 11-13
+  frames/s; the SDRAM wait 19-23 % as before. The cache-line traffic
+  evidently hits few open rows, or the saved clocks hide behind the
+  pipeline's own waits. Kept (verified on the benches, no cost), but it
+  is not a lever.
+- **ARM9 project, session 1** (codex/arm9: 4c9fbfb, 39af807, 73e516b):
+  docs/ARM9.md (the pipeline and timing decision, the cycle model as the
+  specification, the cache's read path being three edges rather than two
+  and what that does to the TRM counts, forwarding and interlocks, memory
+  and CP15 integration, the multi-transfer and precise-exception plan, the
+  verification plan and gates); the execute datapath under rtl/cpu/arm9/
+  (arm9_shift, arm9_alu, arm9_forward, arm9_execute: a single execute
+  stage with the shifter in parallel and direct N/Z from the arithmetic,
+  582,272 checks) fitted at 104 MHz with +0.018 ns at seed 2, so the
+  ARM9's one-stage execute does close here, barely; ZAP untouched (198
+  runs, 52 QEMU). The report
+  (docs/consults/2026-10-23-codex-arm9-report.md) ends at milestone 2 with
+  the next steps: settle the cache's three-edge contract, then the
+  selectable core (CORE in arm925t.sv), fetch through writeback with the
+  bench's taps, the simplest tests first. Session 2 started from it.
+- **The critical-word-first build in play** (b10, master with everything,
+  -3.568 ns; `build/hardware/game/{sonicn,asphalt}-cwf/`): Sonic 26-27.8 M
+  instructions/s, CPI 3.7-4.0, 13-17 frames/s; Asphalt's Cop Chase
+  28.2-28.6 M/s, CPI 3.6-3.7, 12 frames/s. One to two percent over the
+  SDRAM build: the memory-side changes together are nearly neutral in
+  play; the clocks are in the pipeline (issue 33-41 %, the FIFO full
+  behind it 54 %, the FIFO empty 16-23 %), which is the ARM9 project's
+  case. This is the tree to carry forward; the Codex timing run is to
+  bring its 3.5 ns miss back to the old few tenths before any sweep.
+- **ARM9 project, session 2** (codex/arm9: ff544e5, 43ecfc7, bf91bad): a
+  selectable ARM9 core (CORE = "ARM9" in arm925t.sv; the bring-up
+  controller, retirement probes for the bench, the whole instruction set
+  through the existing caches, MMU and CP15, blocking load retirement)
+  that passes the whole suite (201 runs) and all 53 QEMU comparisons,
+  with ZAP still the default and passing. Not yet pipelined: it
+  serializes instructions and is slower than ZAP; the integrated fit
+  fails at -2.704 ns with the path and a proposed fix in the report.
+  Session 3 started: the overlap, the cycle model's counts
+  (arm9_cycles.S), the timing fix with the CPU-only trial, and the cycle
+  comparison against ZAP.
+- **The boot bench with the predictor fixes** (a8ca165's tree): all
+  76,975 device accesses agree with the model in order, the register and
+  CBUS logs agree; 906,070,899 instructions in the 2.7 G cycles against
+  661,484,885 before the fixes, so the firmware's boot runs 37 % more
+  instructions in the same time (the BTB forgetting its entries hurt the
+  kernel too). The bench on the whole merged tree is queued next.
+- **Codex's timing fix** (codex/timing 2571ece: the BTB's lookup and
+  decision from registers, the late load pickup resolved only from the
+  registered memory-stage value): both path families gone from the worst
+  ten over four CPU-only fits; the CPU alone at -0.117 ns (slow 100C) /
+  -0.067 (slow -40C), the remaining paths in the cache/merger and the
+  issue control; 198 runs pass, 52 QEMU agree. Cost: a predicted taken
+  branch loses two fetch slots instead of one, an exposed late pickup one
+  more cycle; cache 760,787 -> 793,607 cycles (+4.3 %), ctrand1 +6.5 %,
+  the GBA loops +0.3 %. Merged into master for the build (b11) that
+  decides between the slack and the cycles on the board.
+- **Tony Hawk's Pro Skater on the current build** (b10;
+  `build/hardware/game/thps-cwf/`): the model's key sequence works on
+  the board (five 5s through the menus, the Warehouse, the tape
+  challenges), and the Warehouse skates at 9-12 frames/s (whole frames)
+  at 26-29 M instructions/s, CPI 3.6-4.0, SDRAM wait 20-22 %, flash
+  9-12 %; the model's rate is 27.8. The tape-challenge load runs 22 M/s
+  at CPI 4.7 with the flash at 17.5 %. Same shape as Sonic: about a
+  two-fold gap to the phone, the ARM9 core's job.
+- Real frame rates of the phone (web, 2026-10-23; no measurements exist):
+  GameSpot's SonicN review, "quite a bit of chop, especially in areas
+  where the speed of the game really picks up"; a 2021 retro review on
+  hardware, "compared to the smooth GBA version, the low frame-rate is
+  immediately striking"; Asphalt on hardware "absolutely rock-solid",
+  Tony Hawk's "very smooth". So the phone did not reach Sonic's 32 (its
+  2-tick cap) either: Sonic's target is the phone's own uneven rate, in
+  the teens or low twenties; Asphalt's 21 and Tony Hawk's rate are the
+  caps the phone met.
+- **ARM9 project, session 3** (codex/arm9: 78c0cd2, e47c566, 06ed82f,
+  0fbfc67): the fetch overlapped (an instruction queue fed by the cache,
+  cancelled by epoch on branches and exceptions), the arithmetic
+  overlapped with forwarding from M and W, the Thumb translation
+  registered in the queue, and sim/cpu/tests/arm9_cycles.S with 69 timed
+  windows, one per TRM table row, all at their expected counts; both
+  cores pass 207 runs and 55 QEMU comparisons. The cache test 2,553,475
+  -> 1,237,634 cycles at 0:0 (ZAP: 760,787), ARM9 ahead of ZAP on the
+  GBA loops, behind on cache, dcache_rtl, ctrand1 and crand1 because the
+  memory operations still serialize; the integrated fit -2.623 ns with
+  the cache/Thumb-translation and execute-to-flags paths left. Session
+  4 started: the memory overlap, beating ZAP at every latency, the
+  remaining paths.
+- ARM9 session 4 (f49d81c, 8c97686; six minutes): the held memory context
+  with ordered retirement of the overlapped arithmetic, the scalar memory
+  admission and completion bubbles removed; 210 runs, 56 QEMU, the 69
+  windows; cache 1,237,634 -> 1,028,308 at 0:0. Memory requests still
+  serialize, the streaming transfers and the load-use interlocks are
+  unfinished, no trial ran. Session 5 started on the same list.
+- **The timing-fix build** (b11, master with 2571ece): -1.151 ns at slow
+  100C (from -3.0), hold +0.246. The worst ten are one family: the
+  multiplier's FSM state (the shifter's stall) -> the predecode's uop
+  sequencer -> o_stall_from_decode -> a predecode register, 9.9 ns with
+  6 ns of interconnect; the eleventh o_stall_from_issue -> stall_idx_ff.
+  Handed to Codex as timing round 2 (codex/timing2: the shifter's stall
+  to reach predecode and decode from a register, cycle-identical if
+  possible). The build is on the board for the three games.
+  In play (`build/hardware/game/{sonicn,asphalt,thps}-timing/`): Sonic
+  25-27 M instructions/s, CPI 3.8-4.2, 12-16 frames/s; Asphalt's Cop
+  Chase 27.5-28.1 M/s, CPI 3.7-3.8, 11-12 frames/s; Tony Hawk's Warehouse
+  25.4-27.5 M/s, CPI 3.8-4.1, 8-12 frames/s: two to three percent under
+  the critical-word-first build, far less than the suite's 4-6 %, so the
+  timing round stays in.
+- ARM9 session 5 (78c9aeb, 51a60de, 8e83709, 56cb701, 60ec849; 26
+  minutes): scalar and block memory accesses stream one a clock with
+  ordered retirement and precise aborts, SWP and the critical-word
+  continuation improved; 219 runs, 59 QEMU, 76 timing windows. At 0:0:
+  cache 994,118 (ZAP 760,787), ctrand1 97,715 (ZAP 72,594), crand1 98,994
+  (73,608); ahead of ZAP only on the GBA loops and align. The measured
+  costs: load-use 3 clocks (the cache's three read edges: the RAM
+  module's st1/st2/st3 forwarding pipeline), B/BL 6 (no predictor, the
+  three-edge fetch), nine fixed clocks per LDM/STM, multiplies as a
+  barrier. The integrated trial -3.970 ns, 16,353 ALMs. So with the
+  caches as they are the ARM9 core is a nine-stage pipe without ZAP's
+  predictor and late pickup; the project now hinges on a two-edge cache
+  hit path (the RAM read and the compare, no forwarding stages) and a
+  BTB in its fetch, which is the next session's brief.
+- ARM9 session 6 (d765618, 8acb1f1; six minutes): an ARM9-only one-edge
+  cache RAM with registered collision forwarding (ZAP's three-edge module
+  untouched), the TLB lookup shortened, one ordered pipeline record
+  removed: load-use 3 -> 2 clocks, an unpredicted branch 6 -> 5; both
+  cores 225 runs, 60 QEMU, the 76 windows. Session 7 resumes the same
+  Codex thread (`codex exec resume <id>`, the user's request for
+  continuity) with the rest: the 4-clock branch, the BTB in the ARM9
+  fetch, the block and multiply costs, the cycle gate against ZAP, then
+  the trial.
+- The full CPU suite on master (the ZAP tree with the first timing round,
+  a801120's tree): 198 runs pass, 52 QEMU comparisons agree (the Mac).
+- **Codex's timing round 2** (codex/timing2 4931516: the shifter's stall
+  fan-out shortened without adding cycles): all 27 baseline runs keep
+  identical cycle and instruction counts, 198 runs pass, 52 QEMU agree;
+  the CPU alone -0.398 -> +0.196 ns at slow 100C, the targeted families
+  out of the worst ten. Merged into master; the whole core builds on the
+  Mac (b12), the server's lanes being the ARM9 fits.
+- **ARM9 session 7** (the resumed thread; 9fef0be, 3355340, f238f14,
+  0e4601f): the two-edge cache hits launched with the TLB and branches
+  refilled in four clocks; the BTB reused from zap_btb with registered
+  launch addresses and decisions, validated in E, the ARM9_PREDICTOR
+  option on by default; block transfers streamed from E and multiplies in
+  their slot (2+m, long 3+m); registered ARM fetch responses bypassed to
+  D. **ARM9 beats ZAP on all seven workloads at all three latencies**:
+  cache 639,745 / 764,132 / 1,097,644 (ZAP 760,787 / 888,787 /
+  1,222,550), ctrand1 69,278 (72,594), crand1 70,348 (73,608); 234 runs,
+  63 QEMU, 85 windows, the predictor on and off. The integrated fits of
+  both cores are running (the slack and area gate).
+- The MiSTer tidied (the user: one main core, a second only for a
+  concurrent stream): `_Console/_NGage/NGage_20261023.rbf` is the latest
+  ZAP tree (b11, the first timing round) with its 17 launchers, and
+  `_Debug/NGageDbg_20261023.rbf` the same build as the measurement
+  stream with its 14 launchers; the trace build and its launchers are
+  gone (rebuilt when needed). New builds replace these, never
+  accumulate.
+- ARM9 session 7's end (2647f62, d9c773d): the cycle gate met on all 21
+  comparisons, but the integrated CPU-only trial (seed 2) is **-8.332 ns**
+  at slow 100C (a first fit at -23 ns had a control-to-data selection
+  through the shifter and ALU, corrected to select the instruction data
+  from a registered queue count), 16,755 ALMs against ZAP's 15,917 in the
+  same harness (ZAP's own baseline there -2.65 ns: that worktree
+  predates the timing rounds). Two families: the E branch decision in the
+  backend clear network (held forwarding -> branch adder -> target
+  equality -> early_redirect -> a clear with fanout 807, 17.3 ns) and the
+  I-TLB fault / cache hit qualifying the fetch data into the operand
+  muxes (17.2 ns). Session 8 (the same thread): timing first, each change
+  with its own trial: a registered late-event clear, a registered F2
+  boundary with the fault as a kill a clock later, then the next family,
+  until the CPU alone is within 0.5 ns; the cycle gate re-measured after
+  each.
+- **The second timing round's whole-core build** (b12, the Mac, seed 1,
+  master 6bf21b7): -1.088 ns at slow 100C, hold +0.243: no better than
+  b11 although the CPU alone went to +0.196, so the remaining paths are
+  outside the CPU-only trial's reach. Its report (regenerated by hand:
+  build.sh skips the report when timing fails on the Mac): the D-cache
+  FSM's state into the tag RAM's forwarding stage and the data RAM's
+  write control (the hold's lookup restore and critical-word-first; four
+  of the worst ten, -1.09 to -0.83), the shift-length operand's
+  forwarding in issue (-0.94, -0.91), the FSM state into the issue
+  stage's store-data operand through the late pickup (-0.91), the TLB
+  walker's state into the merger's address (-0.86), the decode stall into
+  the BTB's metadata pipeline (-0.81), o_stall_from_issue -> stall_idx_ff
+  (-0.79). Timing round 3 (the same Codex thread, resumed): these
+  families, proved by whole-core builds on the server, goal within 0.3
+  ns with the counts unchanged. b12 is on the MiSTer in both slots
+  (cycle-identical to b11).
+- ARM9 session 8 so far: the registered backend clear (3aadad1) took the
+  integrated fit from -8.33 to -7.53 ns at 17,078 ALMs; the registered
+  fetch boundary costs a clock on mispredicts and PC writes and loses
+  five comparison rows. Two notes were queued into the running thread
+  (`codex queue --thread <id>`): stop fixing one path family at a time
+  and make one structural pass registering every control signal at the
+  stage boundaries, one trial for the pass; and the overall goal (the
+  phone's frame rates on the board at 104 MHz with timing met; the
+  cycle rows are a proxy; a cycle on a rare event is a fair price, on
+  the common case not).
+- **Antigravity consulted** (the user: "see if antigravity has any ideas
+  too with argon 4 on high thinking"; `agy --print ... --model
+  gemini-4-argon-high --effort high --mode plan`, read-only, with both
+  path reports): `docs/consults/2026-10-23-antigravity-timing.md`. For
+  ZAP, five families with zero-cycle fixes and lines: o_cache_tag's
+  default-zero gating by the FSM state (assign it unconditionally),
+  zap_ram_simple's sel_st1 compare split from the write enable, the
+  dead forwarding branches of the shift-length operand (shifter_lock
+  already stalls those cases) and `(* keep *)` on the read indices,
+  data_stall as the operand registers' clock enable with the late
+  completion held across the stall and a 6-bit background-load index
+  instead of the 64:1 mux, the i_busy gating off o_wb_adr_nxt,
+  o_clear_btb registered. For the ARM9 core, five structural rules (one
+  forwarding network with three registered producers; branch targets and
+  the predicted-target comparisons computed in D and the redirect
+  registered at E/M1; fetch validity only in the queue push; one Thumb
+  decoder at the queue-to-D boundary; the LDM scan precomputed; no
+  combinational store-to-load merge in M1; the load-use hazard stalled in
+  D) with the lines that break them, costing a clock only on mispredicts
+  and cold refills. Its bet: close ZAP first (shallow artifacts, 1-2
+  rounds), and decide on the ARM9 from the stall split: our counters put
+  about 1.1 of the 2.7 excess clocks an instruction on the memory side
+  and 1.6 in the pipeline, which by its rule says the ARM9 is worth its
+  2-3 sessions, with the memory side still to be worked either way. Both
+  sets of fixes were queued into the running Codex threads.
+- Codex's service tier changed from ultrafast to fast (the user: the
+  $500 plan); the change caught the ARM9 session mid-trial (its edits
+  on disk, resumed as session 9 with the structural-pass instructions)
+  and the timing round 3 before it started (resumed).
+- **ARM9 session 9** (ae3b838, 49ed322): the fetch-to-D handoff
+  registered (-6.513 ns, 17,248 ALMs), then the combined control-boundary
+  pass (every control signal crossing a stage boundary from a register):
+  **-6.958 ns**, 15,891 ALMs (26 below ZAP's), 234 runs and 63 QEMU on all
+  three configurations, five comparison rows lost to ZAP, some rare-path
+  costs above the allowance; stopped under the -2 ns rule. The remaining
+  worst path: E's forwarding -> the shifter -> the ALU's address -> the
+  D-TLB's request validity, 14 levels, 15.9 ns: the data access is
+  launched from the ALU's combinational address to keep the load-use at
+  two clocks. Registering that address costs the third load-use clock,
+  which is where ZAP's late pickup already is; the ARM9's remaining
+  advantage would be its shorter front end (a 5-clock flush against
+  ZAP's 12, fewer uops), about 15 % on the cache test and 5 % on
+  compiled code by the suite. The memory pipeline's depth is set by the
+  RAM-based caches at 104 MHz, not by the core. Decision put to the
+  user: pause the ARM9 (keep the branch) and spend the budget on ZAP's
+  closure and its measured stalls, or continue the ARM9 under
+  Antigravity's rules for two or three more sessions.
+  **Decided: the ARM9 core is paused** (the user), its branch codex/arm9
+  (49ed322) and reports kept; the Codex budget goes to ZAP: the timing
+  closure (round 3 running), then the measured pipeline stalls, then the
+  memory-side levers, each measured in play.
+- **Antigravity as a coworker** (the user: "use codex and antigravity as
+  coworkers too"): its first implementation, in its own worktree with
+  `agy --mode auto` on Gemini 4 Argon, the **flash line-wide fetch**
+  (agy/flashfetch 7192bed, merged): a read-array burst of a 16-byte line
+  is served from ddram_flash's cache or beat buffer as two 8-byte beats
+  through a new wide port on nor_flash, into a registered line buffer in
+  upp_bus, with wrap-four order and the CS2/CS3 window kept; everything
+  else keeps the halfword path. Its benches (extended with the new
+  cases): a cached line fill 35-39 -> 8 clocks, a DDR3 miss 56 -> 23-24,
+  random bursts 56-58 -> 25-27 (so the flash's cost was worse than the
+  24 clocks assumed). flash, ddrflash, upp and top benches pass, lint
+  clean; report docs/consults/2026-10-23-agy-flashfetch-report.md.
+  Built on the Mac (b13, seed 1): -0.773 ns at slow 100C, hold +0.243
+  (the previous tree's seed-1 build was -1.088; same families, a
+  different placement); `build/hardware/NGage-flashfetch.rbf`, to go on
+  the board's debug slot when it is free (the flash wait share in play,
+  7-12 %, is the measure).
+- **Codex's timing round 3** (codex/timing2 39ad27a, six hours, with
+  Antigravity's fixes as its checklist, each change proved by a
+  whole-core build on the server): the whole core **-1.088 -> -0.460 ns**
+  at slow 100C, reproduced independently; cycle and instruction counts
+  unchanged; 198 runs, 52 QEMU comparisons and the firmware boot bench
+  (all 76,975 device accesses) pass. The remaining worst path: the MMU
+  enable into the merger's data capture. Report
+  docs/consults/2026-10-23-codex-timing3-report.md. Merged into master
+  with the flash fetch (191cab1) and built (b14, the server, seed 1):
+  **-1.398 ns**, hold +0.246, with the previous families gone and two
+  others at the top that no earlier build showed: the predecode's
+  instruction register into the decode stage's shift fields
+  (o_shift_is_lsl0_ff, o_shift_length_ff, -1.4 to -1.3) and the memory
+  stage's load destination index into the writeback's pc_del3 pipeline
+  (-1.31, seven of the ten). So the tree has a floor of families near
+  -1 ns that surface with the placement; timing round 4 takes them
+  after the pipeline-stall work (which changes those stages), from this
+  build's report (session scratch, b14-timing/). The Codex thread is on
+  the stalls; b14 is the measurement build for the board.
+- **Codex's pipeline-stall session** (codex/timing2 b966f86..53d4301,
+  merged b862b4b): the earlier load admission (the pickup extended to
+  loads in postalu0 and the ALU) tested and discarded, no gain measured;
+  retained: BTB predictions accepted from the registered RAM one fetch
+  slot earlier, direct-branch mispredictions resolved from registered
+  shifter-stage decisions (the ALU flushes 61 -> 14 on cache, 124 -> 88
+  on ctrand1, 89 -> 29 on gba_arm, the rest now cheaper early flushes),
+  ARM BL in one slot, the incrementing LDM/STM base update folded into
+  the last uop; the multiplier measured, no change retained. Cycles:
+  ctrand1 77,298 -> 73,043 (-5.5 %), crand1 -5.6 %, cache -0.5 %, gba_arm
+  -1.6 %, gba_thumb -0.2 %; uops down about 0.7 %; FIFO-empty clocks
+  -8-9 %. Whole core (seed 2): **-1.398 -> -0.578 ns** (the earlier BTB
+  acceptance helped timing too). 213 runs, 57 QEMU. Report
+  docs/consults/2026-10-23-codex-zapstalls-report.md. So the hit-path
+  interlocks are not where the remaining issue stalls are: the next
+  cycle lever is the memory side (hit-under-miss in the D-cache,
+  Antigravity's I-prefetch, the flash fetch already in).
+  Built as b15 (the server, seed 1): **-0.578 ns**, hold +0.174, the
+  same figure Codex measured; `build/hardware/NGage-b15.rbf`, the next
+  measurement build for the board after the flash-fetch replay.
+- Two more coworkers at once (the user: "Use codex and antigravity as
+  you see fit. I have expensive plans on each"): a second Codex thread on
+  the fast first-boot format and the boot indicators (codex/firstboot),
+  and a read-only Antigravity analysis of the game-load path (the MMC
+  controller, the card model, the framework's block fetch) for the slow
+  loads the user saw in Shadowkey. Antigravity's I-prefetch run was cut
+  off by a Gemini content filter misfiring on a trace dump, mid-fix
+  (fill_valid_ff cleared only on IDLE -> IDLE); its conversation was
+  resumed on Claude Opus 5.5 in the same worktree with the six failing
+  runs named.
+- **The flash-fetch build in play** (b13 on the debug slot, the b12 tree
+  plus the line-wide fetch; the three-game replay, ten shots each in
+  play): the flash wait share fell from 7-12 % of clocks to **1.3-2.5 %**
+  (Sonic 1.8-2.5, Asphalt 1.3-1.4, Tony Hawk 1.6-2.0; 3.5 % in the two
+  shots at the Warehouse's start), and the instruction rate rose 5-10 %:
+  Sonic 27.5-29.2 M/s at CPI 3.6-3.8 (b12: 25-27), Asphalt 29.0-29.4 at
+  3.5-3.6 (27.5-28.1), Tony Hawk 27.5-31.5 at 3.3-3.8 (25.4-27.5). The
+  frames stay on the same ticks (Sonic 13-18, Asphalt 12-13, Tony Hawk
+  9-12): the gain is under a tick. The SDRAM wait is unchanged at 20-24
+  %, so the bus side's remaining cost is the SDRAM line fills and the
+  misses behind them: hit-under-miss in the D-cache (Codex, running),
+  the I-cache prefetch (Antigravity, running), then the cache sizes.
+  (The replay's filter cut the overlay rows after the beat count, so this
+  run has no stall shares; the next runs keep the whole line.)
+  Four entries since timing round 3 had been added above the file's
+  header by mistake; moved to the end, in order.
+- **Antigravity's game-load analysis** (read-only, Gemini 4 Argon;
+  docs/consults/2026-10-23-antigravity-loadtimes.md): the card model
+  clocks every bit of the 1-bit wire at 8.67 MHz (MMC_DIV = 12 in
+  upp_periph.sv, the service manual's 8.66 MHz; a figure says 13, the
+  card's CSD allows 20), so a 512-byte block costs 49,368 clocks (475 us)
+  and the wire tops out at 1.05 MB/s; the card model fetches one sector
+  per hps_io round trip into a two-sector buffer, so every CMD17 (FAT and
+  directory reads), every non-contiguous CMD18 start and every seek after
+  a CMD12 (the controller holds CMD12 until the last block's end bit, so
+  the card still speculates the next sector and the seek waits for that
+  fetch too) pays a Linux round trip of 100-1,000 us; and the firmware's
+  driver moves files in 4 KB CMD18 bursts of eight 512-byte DMA phases
+  with 2-3 interrupts each plus EFile's cross-process copy, which is why
+  the CPU showed busy (not idle) through Tony Hawk's load. Its estimate:
+  the phone loads at 500-900 KB/s end to end, the core at 180-350. Its
+  ranking: (1) MMC_DIV 12 -> 4 (26 MHz, 3x the wire, the timeout
+  counters widened to keep the hardware timeout at about 320 ms; the card
+  model needs DIV >= 4), (2) 4 KB hps_io fetches (sd_blk_cnt 7, as
+  flash_save already does) into an 8 KB buffer with sector slots kept
+  for FAT metadata and no speculation on CMD12 (+7 M10K), (3) a DDR3
+  copy of the card: not worth it (Linux's page cache already holds the
+  file; the 4 KB buffer hides the SPI transfer), (4) the CPU side (in
+  flight) and, optionally, a DMA read bypass so the 512 byte-wide
+  Wishbone reads per block stop contending with the CPU. The settling
+  measurement needs no new wiring: B_DATA_BUSY and B_CMD_BUSY are
+  dbg_src0[22:23] and card_dat_oe is at the top level, giving blocks/s,
+  data-phase clocks and the clocks the wire waits for Linux.
+  **Decided (the user's speed-over-accuracy rule):** one change with the
+  three counters, MMC_DIV 4 as the default (12 stays the accuracy value,
+  a parameter) and the 4 KB fetch, implemented by Antigravity in its own
+  worktree (agy/mmc), then one build and the Shadowkey and Tony Hawk
+  loads measured on the board against b15.
+  The M10K budget for the cache levers, from b15's fitter report: 470 of
+  553 blocks used; the D-cache is 43 (two 16-block data ways, tags, LRU),
+  the I-cache 26, the flash's 128 KB line cache 133, the LCD's frame
+  buffer 72, the on-chip RAM 64. A 32 KB I-cache costs about 20 more, a
+  32 KB D-cache about 36: both fit by count (526), with the placement the
+  unknown.
+- **b15 in play** (the debug slot; the three-game replay, ten shots
+  each): Sonic 13-18 frames/s at 27.7-29.3 M instructions/s, CPI
+  3.5-3.8; Asphalt 12-13 at 29.1-29.8, CPI 3.5-3.6; Tony Hawk 9-14 at
+  27.5-29.9, CPI 3.5-3.8; SDRAM wait 20-24 %, flash 1.3-2.3 %. The same
+  as the flash-fetch build within 1 %: the stall session's 5.5 % on
+  compiled code does not show in play, so the games' remaining clocks
+  are not in the interlocks and flushes it cut; the memory side is where
+  they are. (The replay's filter lost the stall rows again; the next
+  runs keep them.)
+- **Antigravity's I-cache prefetch merged** (agy/iprefetch 5e50f59,
+  merged ede13fe, on Claude Opus 5.5 after the Gemini filter cut its
+  first run): a one-line buffer filled with the next line, within the
+  same 1 KB (no new translation), when a fill completes and the bus is
+  free; a demand miss on that line adopts the burst, a miss elsewhere
+  waits for it; dropped by the I-cache invalidates and cleans, cache
+  off, TLB invalidates, the D-side cache operations and any change of
+  the MMU controls; a one-cycle tag copy per way (+2 M10K) keeps it from
+  fetching lines already cached; the demand tag RAM and its compare are
+  untouched. ICACHE_PREFETCH=0 is cycle-identical to before on all 198
+  runs (the accuracy build); ICACHE_SIZE=32768 works (1,024 sets,
+  VA[13:4]; +16 M10K) through the NGAGE_ICACHE_32K macro in NGage.qsf,
+  NGAGE_ICACHE_NO_PREFETCH beside it. A bug found on the way: a fill
+  started in the cycle after FILL_COMPLETE inherited the previous line's
+  valid mask (fill_valid cleared only on IDLE -> IDLE); now cleared on
+  every entry to IDLE. The gain in simulation is small (the suite
+  -0.14 %, crand1 -0.4 %, ctrand1 -0.2 %): sequential misses were
+  already back to back through the FIFO; the prefetch's case is the
+  FIFO-full, issue-stalled time the board shows half of the time, so
+  the board decides. Report docs/consults/2026-10-23-agy-iprefetch-
+  report.md. Verified here on its base and on the merged tree (36 runs,
+  52 QEMU, lint). Then Quartus refused the netlist: input ports with
+  default values (`input logic x = 1'd0`) come out of sv2v as `input
+  reg`, which Quartus 17 rejects; the six ports lost their defaults and
+  the D-cache's tag RAM and the restart bench connect them (8883ce2).
+  Merged-tree cycles: cache 789,360, ctrand1 72,874 (73,043 before),
+  iprefetch_rtl 73,031.
+- **Codex's first-boot work merged** (codex/firstboot a3f053e, c43dd67;
+  merged 51fa235): while CS1's C: area is blank, its sector erases
+  complete at once and its word programs have no emulated delay; the
+  first non-FF write there ends the fast window and the timed behaviour
+  returns. Blankness is now a scan of the loaded C: image for any non-FF
+  word (ddram_flash), latched off on the first non-FF chip write, never
+  re-armed by erases or reset, re-armed by loading an image; the model
+  mirrors it. Boot indicators: info message 7 "Booting the phone - about
+  a minute..." at the CPU's reset release and 8 "Phone kernel is up" at
+  the first LCD frame with the panel on (info events queued so none is
+  lost), and an activity dot (a 6x6 green square at panel x 164-169,
+  y 4-9, lit for 125 ms after any CPU bus beat) with the new option
+  "Activity dot: Boot only / Always / Off" (O[17:16], default Boot
+  only; every earlier option keeps its bits). Benches: flash, ddrflash
+  (new blank-window cases), top (159 M clocks), lint. Report
+  docs/consults/2026-10-23-codex-firstboot-report.md. Board trial of a
+  first boot from the blank CS1 image still to do (expected: the Time
+  and Date dialogs near the warm boot's 60-75 s instead of minutes).
+- Builds from this tree (master 8883ce2): b16 on the server (seed 1,
+  16 KB I-cache with the prefetch, plus the first-boot change) and
+  b16-32k on the Mac (the 32 KB I-cache), both to be measured in play
+  against b15.
+- **Codex's D-cache hit-under-miss merged** (codex/timing2 9d215f8): while
+  the one outstanding miss fills (CLEAN_SINGLE, FETCH_SINGLE, UNLOCK_WR),
+  loads and write-back stores that hit any line other than the filling
+  line and its victim (the other way of the same set included) are
+  acknowledged from the normal registered lookup; the filling and victim
+  lines, a second miss, uncached and write-through accesses, TLB misses
+  and faults wait as before. The eligibility is a registered predicate
+  one stage ahead on i_address_check; the background tag match is
+  registered beside the RAM's third stage (the live compare stays off
+  the stall path); the TLB check exports a registered o_hit_ok (no
+  translation or permission fault, cacheable, not write-through) that
+  does not depend on the walker's IDLE qualification, so a cached tag
+  cannot hide a permission fault; after a CPU hold a three-step lookup
+  repair reloads the RAMs' pipeline; the fill's line and tag are
+  installed in UNLOCK_REG from the registered fill buffer, which owns
+  the RAM write port (two bus-qualified intermediate writes removed).
+  Cycles on its base: ctrand1 -0.9 %, crand1 -1.4 %, dhold_rtl -0.5 to
+  -1.6 %, cache unchanged (its accesses are to the filling line); a
+  directed test dhum_rtl (each distance 1-6, loads and stores, to the
+  other way, another set, the filling line and the victim: the allowed
+  ones answered in 0 wait clocks, the excluded ones held 70-207) and
+  bench assertions (lookup alignment, exclusion, permission, fill-write
+  exclusivity); 216 runs, 57 QEMU, 40 extra bus-delay seeds. Whole core
+  on its base: -0.578 -> **-0.858 ns** (worst: CP15 o_mmu_en -> the
+  FSM's o_live_lookup), 35,056 ALMs, 470 M10K; within the 0.3 ns budget
+  it was given, with 0.02 to spare. Report docs/consults/2026-10-23-
+  codex-dhum-report.md. Merged on the prefetch tree (only the netlist
+  conflicted): 45 runs, 52 QEMU, lint; cycles ctrand1 72,244 (73,043
+  before the two merges, -1.1 %), crand1 73,091, dhold_rtl 271,537,
+  cache 789,366. Built as b17 on the server (seed 1).
+- **b16 built** (the server, seed 1; prefetch + first boot, 16 KB):
+  **-1.678 ns** at slow 100C (b15 -0.578), hold +0.248, 36,252 ALMs
+  (+850), 472 M10K. One new family is 16 of the worst 18 paths, -1.68 to
+  -1.48: zap_cache_fsm's registered `address` -> pf_va_nxt (the prefetch's
+  start condition in FILL_COMPLETE: next_va_line = address + 1 compared
+  with the live fetch address, the 1 KB-end test, the buffer's VA/PA
+  compares) -> the FSM's output muxes -> zap_cache's state_nxt -> the
+  merger's registered o_wb_adr. The adder and the live compares sit in
+  the next-state cone the bus address takes. Antigravity (Opus) is on
+  it in its own worktree (agy/pf-timing: the next line and the 1 KB flag
+  registered when `address` loads, the sequential compare a stage ahead
+  on i_address_check or the decision a clock after FILL_COMPLETE, proved
+  by a whole-core build). The **32 KB variant** (b16-32k, the Mac, the
+  NGAGE_ICACHE_32K macro): -1.695 ns, **38,311 ALMs (91 %)**, 490 M10K:
+  the valid and LRU arrays and their muxes cost about 2,000 ALMs, as
+  its report warned; the same family on top. Both rbfs kept
+  (build/hardware/NGage-b16.rbf, -b16-32k.rbf); b16 is on the debug
+  slot for the first-boot trial and the three-game replay.
+  A trap found on the way: build.sh's remote flow aborted on the timing
+  script's exit 3 before copying the rbf and the reports back, so a
+  negative-slack build left the previous rbf in output_files/ (the b16
+  replay was nearly run on a stale file; b15's deployed rbf was checked
+  against the server's and is right). Fixed: the report step's exit code
+  is kept, the copy-back always runs, the local flow writes the report
+  before exiting on a timing miss.
+- **b16 in play: the prefetch earns nothing.** The three-game replay on
+  the debug slot (this time with the stall rows kept): Sonic 13-18
+  frames/s at 28.1-29.5 M instructions/s, Asphalt 12-13 at 29.1-29.7,
+  Tony Hawk 9-12 at 28.0-29.6, CPI 3.5-3.7, SDRAM wait 20-24 %, flash
+  1.4-2.3 %: b15 within 1 % on every row, as its simulation (-0.14 %)
+  said. The stall shares in play: issue 35-43 % (Sonic 43, Asphalt 35,
+  Tony Hawk 36), code stall 47-55 %, fetch FIFO empty 12-16 %, data
+  stall 13-18 %, shifter 7-16 % (Asphalt 16), decode 7 %, ALU flushes
+  380-520 K/s, 32 M uops/s, replays 125-185 K/s. **Decided: the prefetch
+  is off by default** (ICACHE_PREFETCH 0 in arm925t.sv, the bench's
+  default with it; NGAGE_ICACHE_PREFETCH in NGage.qsf turns it on): no
+  gain, about 1 ns of slack and 850 ALMs. The Codex task to fix its
+  timing family was stopped minutes in; the Antigravity one had died on
+  the account's quota first. b17 (the server: prefetch on + hit-under-
+  miss) built meanwhile at -1.429 ns, 36,148 ALMs, 472 M10K; its rbf is
+  kept for a replay that measures hit-under-miss in play. The 32 KB
+  variant (b16-32k, prefetch on) is on the debug slot for its replay.
+- **The fast first-boot format hangs the firmware.** On b16 a first boot
+  from the pristine CS1 (C: erased; `rh29-460-cs1.bin` on the MiSTer is
+  that image, `-blank.bin` is not blank any more, see the launcher
+  `_Debug/NGageDbg-blank.mgl` and the disposable `-trial.bin` copy)
+  reaches 28 s and then spins for the whole 240 s capture: 20.00 M
+  instructions/s at CPI 5.2, flash wait 23.1 %, 3,999,316 beats/s, the
+  sampled PC 0x5037feb8/0x5037fec0 every time. That is medint.pdd's
+  erase routine (research/firmware/analysis/medint.pdd.arm.txt lines
+  212-230): after the unlock write, the sector-erase command (0x30) and a
+  call, it polls the status halfword in a loop that spins WHILE DQ7 reads
+  1, i.e. until it has seen the chip busy, and only then tests DQ3 and
+  goes on to the completion wait. The fast path answers the erased data
+  (DQ7 = 1) from the first read, so the driver never sees busy. The
+  model (rebuilt with the mirrored rule) hangs the same way: its kernel
+  log stops at 4.35 s of guest time. The Codex first-boot thread is
+  resumed with the diagnosis: the fast path must present busy (DQ7
+  inverted, DQ6 toggling, DQ3 set) for the status reads the driver makes
+  before done, in the chip model and in QEMU alike, proved by the chip
+  bench replaying medint's loops and by the model's first boot.
+- **Timing round 4 (Antigravity, Opus) died on the account's quota**
+  with six commits on agy/timing4 and no report, its whole-core builds
+  still running: the I-cache tag RAM's stage-1 valid/LRU read split at
+  the next fetch address (family 1), the multiply classification
+  registered with the ALU operation (6), the D-TLB fault summary
+  registered with the FSR (5), the issue interlock and store-data
+  forwarding resolved per slot (2), the self-test master as a third
+  arbiter input in one AND-OR (3 and 7), the BL rewrite decoded at the
+  decoder's outputs (8); all cycle-identical on 213 runs. The server's
+  builds of its steps: f1 -0.753, s5 -1.224, s6 -0.782, p4 -0.847
+  against the b15 baseline -0.578 (re-measured by it as -0.578): none
+  better, within the placement noise of this tree's families. Kept on
+  the branch, not merged; to be resumed when the memory-side levers have
+  settled the tree, with seeds, not single builds, as the measure.
+- **The 32 KB I-cache in play** (b16-32k on the debug slot, prefetch on):
+  Sonic 28.3-29.7 M instructions/s (b16: 28.1-29.5), Asphalt 29.7-30.1
+  (29.1-29.7), Tony Hawk 28.6-29.9 (28.0-29.6): about +1 %. The bus
+  beats fell 5-8 % (Sonic 5.3-5.8 M/s from 5.8-6.3, Asphalt 5.9 from
+  6.4) and the flash wait with them (Sonic 1.4-1.7 % from 2.0-2.2,
+  Asphalt 0.9-1.1 from 1.3-1.5): the instruction misses it removed were
+  real but cheap. The SDRAM wait did not move (20-23 %), so the SDRAM
+  wait is the data side's: the D-cache misses are the memory-side cost
+  that is left. Not worth 2,000 ALMs and 18 M10K; the 16 KB I-cache
+  stays. The next lever is the data cache's size: 8 KB two-way today
+  (the ARM925T's), its data RAMs 16 byte-lane M10Ks per way at 256 x 8
+  bits each (a fifth of a block), so 16 or 32 KB cost no data-RAM
+  blocks, only the tag RAM and the valid/LRU arrays; the design
+  question is the synonyms (a virtually indexed and tagged write-back
+  cache with more than 4 KB per way indexes above the page offset) and
+  the hit path's timing: Codex's ZAP thread takes it (16 KB two-way
+  with the alias analysis against EKA1's memory model, or 16 KB
+  four-way with 4 KB per way and no aliases).
+- **Hit-under-miss in play: +3 %.** b17 (prefetch on + hit-under-miss)
+  on the debug slot: Sonic 29.0-30.4 M instructions/s (b16: 28.1-29.5),
+  Asphalt 30.0-30.4 (29.1-29.7), Tony Hawk 28.9-30.9 (28.0-29.6), CPI
+  3.4-3.6; the data-stall share fell a quarter (Sonic 13-15 % from
+  15-18, Asphalt 11 from 14.6, Tony Hawk 9-10 from 12-14); the SDRAM
+  wait itself is unchanged (21-25 %), as expected: the hits behind a
+  miss are served, the misses still cost their fills. Frames on the
+  same ticks (Sonic 14-19). So the tree stands at 29-31 M instructions/s
+  in play, from 20 at the start of the speed work and 26-28 at the
+  flash fetch. The three-game replay's numbers so far, play rows,
+  M instructions/s: b12 25-28, b13 (flash fetch) 27.5-29.4, b15
+  (stalls) 27.7-29.9, b16 (prefetch) 28.0-29.7, b16-32k 28.3-30.1,
+  b17 (hit-under-miss) 28.9-30.9.
+- **b18** (the server, seed 1; hit-under-miss, prefetch off, the first
+  first-boot change): **-0.934 ns** at slow 100C, hold +0.204, 35,347 ALMs
+  (84 %), 470 M10K (hit-under-miss alone measured -0.858 on its base: the
+  same family, placement noise). With the prefetch off the suite's
+  counts are exactly hit-under-miss's own (cache 789,362, ctrand1
+  72,413, crand1 72,922, dhold_rtl 273,742): the prefetch logic is
+  cycle-identical when off, as its report said. The CPU bench had pinned
+  the prefetch on itself (tb_cpu.sv's own parameter), so the earlier
+  merged-tree runs had tested the on configuration; the bench now
+  follows the core's default, the on configuration is run with
+  VEXTRA=-GICACHE_PREFETCH=1. In play b18 is b17 (the prefetch measured
+  nothing), so it was not replayed.
+- **The first-boot hang fixed** (Codex, codex/firstboot e87bf91, merged
+  3e2630f): the rule is one busy status read per fast operation, then
+  array data; no time window (a window could expire before the driver
+  polls and bring the hang back). Codex read both copies of medint.pdd's
+  Samsung-command routines: the erase start loops until busy and tests
+  DQ3 from the same sample; the completion loop reads twice (FFFF means
+  done, else DQ7 suspended, DQ5 failed); the program routines poll from
+  a timer FIQ, compare DQ7 against the expected byte and test DQ5 on a
+  mismatch, so the busy sample has DQ7 inverted, DQ5 = 0, DQ3 = 1 for an
+  erase, DQ6 (and DQ2 for the sector) advancing on each fast status
+  read. The chip model holds the operation busy until that read (blank
+  erases still write nothing; programs hold the acknowledge until the
+  memory write lands); QEMU overlays one busy halfword per bank (a
+  32-bit read consumes it and returns array data for the next halfword,
+  as two accesses to the x16 chip would). The model's first boot now
+  reaches the Time dialog at 35 s and the Date dialog at 41 s of guest
+  time, the same as the timed model (whose erases are 20 ms, so the
+  model never showed the slowness); a boot on the saved C: goes to the
+  idle screen at 19 s. Chip bench cases for the loops added. Built as
+  b19 (the server) for the board's first-boot trial from the pristine
+  CS1 and a second boot on the saved trial image.
+- **The 16 KB data cache, as an experiment** (Codex, codex/timing2
+  b3b5a75 and b8a270b; docs/consults/2026-10-23-codex-dcache-report.md):
+  recommended 16 KB two-way over four ways or 32 KB: it adds a set bit
+  and larger valid/dirty/LRU arrays without widening the live two-way
+  compare and select; four ways would add two live compares, a wider
+  select, pseudo-LRU and 32 data M10Ks, and would not remove synonyms
+  anyway, because ZAP's cache is virtually tagged (two VAs of one PA can
+  sit in two ways of one set even at 8 KB: a software discipline the
+  phone already needs). The synonym evidence: ekern's descriptor moves
+  (0x50324158-0x503242d8) remove the old mapping and the change flags
+  call the D-cache clean/invalidate loop; home/run moves are megabyte
+  aligned, so VA[12] is preserved; DMA buffers are cleaned by ownership
+  protocol. The one real hole: the firmware's index sweeps derive 256
+  sets from the CP15 cache type (0x05109149, kept), so a plain
+  DCACHE_SIZE=16384 would leave the sets with VA[12] = 1 out of every
+  clean/invalidate-by-index loop (a new test, dcsize_rtl, fails check 3
+  on that RTL); the tag RAM's maintenance FSM now expands each by-index
+  operation to both set colours (INDEX_SIZE 8192 against the physical
+  capacity) before acknowledging, by-VA operations stay targeted. Cost:
+  +2 M10K (the byte-lane data RAMs do not grow: 16 M10K a way at 256 x 8
+  or 512 x 8 alike), 1,200-2,000 ALMs estimated. Cycles: the 8 KB default
+  identical on all 219 runs; the variant +0.39 % over the suite (the
+  index sweeps visit two sets and the whole-cache walker scans twice the
+  dirty bits, which the tests do often; dhold_rtl +4.5 %): no simulated
+  win, the games decide. 222 runs and 57 QEMU at both geometries, lint,
+  netlist current. Merged; built as b20-d16 (the server, the
+  NGAGE_DCACHE_16K macro) for the board.
+- **b19 on the board: the first boot is fast.** b19 (the server, seed 1;
+  hit-under-miss, prefetch off, the first-boot fix): **-1.675 ns** at
+  slow 100C, 35,842 ALMs, 470 M10K; the worst paths are this tree's
+  known families at a worse placement (issue stall_late_ff ->
+  stall_idx_ff / o_stall_from_issue -1.68/-1.64, the D-cache o_reg_idx
+  -> the shifter -1.18, the merger's o_wb_adr -> upp_bus's fe_* -1.06;
+  b18 of the same tree less the fix was -0.934), not the flash change.
+  The first boot from the pristine CS1 (`rh29-460-cs1.bin` copied to the
+  trial image, `_Debug/NGageDbg-blank.mgl`): the format runs 24-84 s
+  after the load with the usual boot's bus waits, and the Time dialog
+  is on the screen by 82 s (b16: the loop forever; the old timed path:
+  minutes). A second boot on the saved trial image shows the operator
+  splash at 54 s and the Time dialog at 74 s (the time was never
+  accepted, so the firmware asks again: known), so the format did not
+  repeat. README's first-start lines updated. Then the dialogs accepted
+  with the profiler's keys and a boot on the saved image, to confirm
+  the idle screen comes up without them (running).
+- **b20-d16 built** (the server, seed 1; the 16 KB two-way D-cache on the
+  prefetch-off, hit-under-miss tree): **-1.622 ns**, **39,034 ALMs (93 %)**,
+  472 M10K. The cache cost 3,700 ALMs over b18, twice Codex's estimate;
+  the worst paths are inside the D-cache tag RAM's maintenance FSM
+  (state_ff -> the tag RAM, -1.62: the index-sweep expansion and the
+  doubled valid/dirty/LRU arrays) and CP15's line address into it. To
+  be replayed on the debug slot after the first-boot acceptance boots;
+  at 93 % of the device it has to earn a lot.
+- **The card path merged** (agy/mmc 1175aef..a1790d4, merged 3699387;
+  docs/consults/2026-10-23-agy-mmc-report.md): MMC_DIV 12 -> 4 (26 MHz,
+  the timeouts widened to about 320 ms), 4 KB hps_io chunk fetches
+  (sd_blk_cnt 7, clamped at the image's end and the sidecar) into an
+  8 KB true-dual-port buffer organised as twelve 512-byte slots for the
+  streaming chunks (three 2 KB quarters addressed by the half-chunk
+  number modulo 3, so the next chunk's prefetch never overwrites the
+  half being shifted out) plus four reserved slots for CMD17 metadata
+  (FAT and directory sectors stay cached across the streaming), the
+  next chunk prefetched once the current one is in its second half, no
+  speculation on a chunk's last sector or once the controller has queued
+  CMD12 (a new stop_queued input from upp_mmc's status), buffer hits
+  served at once from the second port while a fetch is in flight, writes
+  single-sector through a metadata slot with the streaming quarter
+  invalidated. Bench (sim mmc, both DIV 12 and 4, hps_io latency
+  100-500 us): a warm 4 KB CMD18 burst 408-473 K clocks -> 132.5 K
+  (3.07 MiB/s), a repeated CMD17 FAT read 70-104 K -> 16.9 K with no
+  round trip; mmc, periph, upp, top benches and lint pass. Three
+  overlay counters: 512-byte blocks completed, clocks in a data phase,
+  clocks the wire waits for Linux (words 30-32; DBG_CNT 21). Built as
+  b21 (the server) for the load measurement (Shadowkey and Tony Hawk's
+  launch, scratch run-loads.sh) against b19.
+- **Write-allocate and the D-cache's event counters** (Codex,
+  codex/timing2 b275664, ed23a58, merged d0e7078;
+  docs/consults/2026-10-23-codex-walloc-report.md): the phone's cache
+  is read-allocate with a 17-word write buffer (SPRU671 and the kernel's
+  own use of the drain operation); ZAP allocates on store misses, so a
+  cold streaming store of 64 lines costs 64 fills and 64 write-backs,
+  512 bus beats for 256 beats of data. A no-write-allocate policy worth
+  having is a posted write buffer: CP15 W and a real drain handshake,
+  ordering against later loads and the hit-under-miss, precise faults
+  before the enqueue, the bufferable page attribute; it reaches
+  zap_cp15_cb, zap_core and zap_top, so it was analysed, not shipped
+  (a blocking bypass through the uncached path would be a misleading
+  substitute). Shipped instead: arm925t's dbg_dcache[3:0], one-clock
+  pulses for load-miss fills, store-miss fills, line write-backs
+  (evictions and explicit cleans) and uncached completions, a directed
+  test walloc_rtl, cycle-identical on all 222 runs at 8 and 16 KB.
+  Wired into the overlay as counters 21-24 (DBG_CNT 25, the rows end at
+  155 of 208) and decoded by mister_dbg.py; built as b22 (the server)
+  so the next replay splits the SDRAM wait into loads, stores and
+  write-backs.
+- **First-boot acceptance on b19**: the third boot of the trial image
+  with the profiler pressing Enter on the Time and Date dialogs (92 s,
+  102 s) ran the firmware's first-time setup after them (bus activity
+  116-150 s, the operator splash at 150 s); the fourth boot came up the
+  same way as the second (the dialog at 80 s, which the firmware asks at
+  every start here), and the trial image's C: area holds 2.2 MB of
+  non-FF data where the pristine image had none: the format persisted
+  through the save write-back. The first-boot flow works end to end
+  with the fast path.
+- **b21 built** (the server, seed 1; the card path on b19's tree):
+  -1.212 ns, 36,520 ALMs (87 %), 477 M10K. One new family: mmc_card's
+  a_srlo -> an adder (-1.19: the slot arithmetic of the 4 KB buffer,
+  the modulo-3 quarter), to be registered later; the rest this tree's
+  known ones. On the debug slot for the load measurement.
+- **The 16 KB D-cache in play** (b20-d16 on the debug slot): Sonic
+  29.1-30.9 M instructions/s (b17, the same tree at 8 KB: 29.0-30.4),
+  Asphalt 30.7-31.4 (30.0-30.4), Tony Hawk 29.5-31.8 (28.9-30.9): +1 to
+  +3 %; the bus beats -7 % (Asphalt 6.1-6.3 M/s from 6.6-6.7), the
+  SDRAM wait down two points (Asphalt 22.0-22.7 % from 24.2-24.6), the
+  data stall a point lower. So the data cache's capacity misses are a
+  small part of the SDRAM wait too; with the bus at about 6 M beats/s
+  and 20-23 % of clocks waiting, the wait is latency per fill (about 4
+  clocks a beat), not bandwidth. **8 KB stays the default**; at 3,700
+  ALMs (93 % of the device) and -1.6 ns the option is not worth +2 %
+  as built (the valid/dirty/LRU arrays in flip-flops are the cost; a
+  RAM-based version could be cheap if it is ever wanted). The next
+  split, by b22's counters: fills for loads against fills for stores
+  and write-backs, which decides whether a write buffer (no-write-
+  allocate) is the lever.
+- **b21's loads on the board** (the card path; scratch run-loads.sh:
+  boot, menu, launch the game, capture every second for two minutes;
+  Tony Hawk and Shadowkey): the loads are CPU-bound, not card-bound.
+  Tony Hawk's launch to its intro: about 7 s, the card at 70-420
+  blocks/s with the wire in a data phase 1.5-7 % of the time and the
+  wait for Linux 0-0.3 %; the CPU at 19-28 M instructions/s, CPI 4-5.
+  Shadowkey's launch to its first frames: about 32 s (117.7 to 149.8 s
+  after the load): a burst at 980-1,190 blocks/s (data phase 17-21 %,
+  Linux wait 0.5-1 %) for two seconds, then a 16-second plateau at
+  about 420 blocks/s (210 KB/s) with the data phase 12.8 % and the
+  Linux wait 5.9 % (so nearly half of the card's active time in that
+  phase still waits for a round trip: its access pattern is not the
+  sequential 4 KB streaming the prefetch hides), the CPU at 18.6 M
+  instructions/s, CPI 5.6, SDRAM wait 15 %, flash 7.2 %, idle 0: the
+  firmware's per-block driver work and the game's unpacking set the
+  pace, with the card idle 87 % of the time. The same loads on b19 (no
+  card change) running for the end-to-end comparison.
+- **b22 built** (the server, seed 1; the full tree: hit-under-miss, the
+  first-boot fix, the card path, the D-cache event counters): -1.370 ns,
+  37,077 ALMs (88 %), 477 M10K. The worst family is now the card
+  model's slot tags into an adder (mmc_card tag[13] -> Add114, -1.37,
+  the 8 KB buffer's slot arithmetic), then the decode stage's shift
+  length into the issue stage's load pending (-1.37) and the issue
+  stall_late_ff family (-1.30). The card model's arithmetic wants
+  registering (a small task for its author when the quota returns).
+- **The card path's effect on the loads** (the same run-loads.sh on b19,
+  the tree without it): launch to the first full-rate frames, Tony Hawk
+  8.0 -> 8.1 s (the card was idle 93-98 % of its launch), Shadowkey
+  37.0 -> 33.2 s (-10 %; during it 22.3 -> 20.2 M instructions/s at
+  CPI 4.7 -> 5.2: the same work with less time spent waiting on the
+  card). So the wire at 26 MHz and the 4 KB fetches are worth a tenth of
+  the long loads, and the rest is the CPU: the file server's and the
+  driver's per-block work from flash (CPI 5-6 with the flash at 6-7 %)
+  and the game's unpacking. The load-time lever from here is the same
+  as the play-speed lever.
+- **The SDRAM wait split** (b22's replay with the D-cache counters, per
+  second in play): Sonic 324-368 K load-miss fills, 220-311 K store-miss
+  fills, 245-330 K line write-backs, 266-356 K uncached data accesses;
+  Tony Hawk 385-460 K, 96-281 K, 155-322 K, 196-317 K; 29-31 M
+  instructions/s, SDRAM wait 20-25 %, 6.0-6.9 M beats/s. The fills and
+  write-backs explain about 4 M of the 6 M beats; the rest are the
+  instruction cache's fills (about 500 K lines/s) and the LCD's DMA.
+  Weighted by their latencies (a fill 12-15 clocks, a write-back about
+  10, an uncached access 6-8), the SDRAM wait is roughly: instruction
+  fills a third, load fills a fifth, store fills a sixth, write-backs a
+  seventh, uncached writes a tenth. A write buffer in the phone's sense
+  (store misses to the bus without a fill, bufferable uncached writes
+  posted) would take 25-30 % off it, about 5-8 % more instructions a
+  second: a real lever, a project of its own (Codex's scope in the
+  walloc report), parked behind timing closure. b22 is on the main slot
+  (+15 % over b12, the fast first boot, the card path).
+- **Timing closure is the goal now** (the user: "let's try to hit timing
+  or get really close and I'll see if anyone on Discord has a real N-Gage
+  to test against"). The debug logic measured from b22's fit: the 25
+  counters 523 ALMs, the overlay and its words about 400, the self-test
+  master 261; a build switch NGAGE_NO_DEBUG (NGage.qsf) now leaves the
+  overlay, the counters and the trace triggers out of the main core
+  (the OSD option goes with them; the activity dot stays; both
+  configurations lint clean). Three streams: a seed sweep of the main
+  core (seeds 1-3 on the server, 4 on the Mac) for the placement noise
+  (seed-1 builds of this tree spread -0.93 to -1.68); Codex's round 5
+  (port round 4's six parked fixes one at a time, keep each only if its
+  family improves across two seeds, then the current report's families:
+  decode shift_length -> issue load_pending -1.37, issue stall_late_ff
+  -1.30, the merger's address into upp_bus -1.0, the D-cache state into
+  the merger); Antigravity (Gemini, its card-path conversation resumed)
+  registering the card model's slot arithmetic (-1.37, the worst
+  family in b22).
+- **The main core without the debug logic, seeds 1-3** (NGAGE_NO_DEBUG,
+  c03088f, the server): seed 1 **-1.152 ns** (b22 with the debug logic,
+  seed 1: -1.370), seed 2 -1.285, seed 3 **-0.861**; 35,361-35,591 ALMs
+  (84-85 %; the switch dropped 1,707 registers, the counters' and the
+  overlay's, 1,700 ALMs over b22, twice the estimate), 477 M10K. So the
+  placement noise is ±0.2 around a floor near -0.9 for this tree, and
+  without the overlay the families differ by seed and none dominates:
+  the MMU enable's fanout (cp15 o_mmu_en into the ALU's flags -1.29, the
+  shifter -0.96, the merger's address -0.85: in two of three seeds; it
+  changes only on CP15 writes, so registered copies per consumer are
+  free), the predecode's skid and instruction register into decode
+  (-1.15, -1.04, -0.88), the hit-under-miss slot into the ALU's flags
+  (-0.78), the issue stage's skid into itself (-1.00, -0.74), the Thumb
+  decoder into predecode and the writeback (-0.86, -0.73), postalu2 into
+  the shifter (-0.75). Reports in the session scratch (nd-s1..3-timing)
+  and in Codex's worktree, queued into its round 5 with that ranking.
+  Seed 4 on the Mac still building. Seed 3's rbf
+  (build/hardware/NGage-nd-s3.rbf) is the main-slot candidate once it
+  has had a boot and a game on the board.
+- Seed 4 of the main core (the Mac): -1.074 ns, 35,513 ALMs; its
+  families the issue stage's skid and late stall (-1.07, -0.95), the
+  D-cache state into the merger's address (-0.99), the ALU's flags and
+  the issue stage's destination index into predecode (-0.99, -0.91).
+  Four seeds: -1.152, -1.285, -0.861, -1.074. Seeds 5 and 6 running.
+- **The card model's timing family fixed** (Antigravity on Gemini, its
+  card-path conversation resumed; agy/mmc 8329efe, merged): the slot
+  indices, the tag compares and the hps_io request parameters are
+  computed a clock ahead into registers (the modulo-3 quarter, the
+  metadata-slot matches, the chunk's clamped count; the transfer's
+  slot address from a concatenation instead of an add), the wire's
+  data path untouched. Benches cycle-identical (the warm 4 KB burst
+  132,528 clocks at DIV 4; mmc, periph, upp, top, lint). Its whole-core
+  build (the debug core): -1.295 ns with no mmc_card path in the worst
+  30 (the family was -1.37 in b22); the worst is now wb_arb2's grant
+  into upp_bus's fe_next (-1.30), the bus-decode family round 4's
+  arbiter rewrite targets. 36,429 ALMs, 477 M10K.
+- Seed 5 of the main core (the server): -1.146 ns; the I-cache tag RAM
+  into its FSM (-1.15), the D-cache lock into issue (-1.09), the D-cache
+  state into CP15 (-1.03), the Thumb decoder into predecode (-0.95).
+  Five seeds of c03088f: -1.152, -1.285, -0.861, -1.074, -1.146. Seed 7
+  of the tree with the card model's fix (c8f18ef) running.
+- Seed 6 of the main core (the Mac): -0.973 ns; the Thumb decoder into
+  predecode (-0.97), predecode's instruction register into decode
+  (-0.74), then a drop to -0.63. Six seeds of c03088f: -1.152, -1.285,
+  -0.861, -1.074, -1.146, -0.973: the predecode cone is in the top of
+  five of them, the family to clear first; without it this seed would
+  be near -0.63. Seed 8 of c8f18ef on the Mac.
+- **Seed 7 of the main core on c8f18ef** (the card model's fix in; the
+  server): **-0.680 ns**, 35,173 ALMs (84 %), the best build so far;
+  its top the memory stage's postalu2 outputs into the D-cache tag RAM
+  (-0.68, two paths), then the predecode cone (-0.60, -0.57). The rbf
+  (build/hardware/NGage-ndm-s7.rbf) is the main-slot candidate, to be
+  smoke-tested when the board is free. Seed 9 of the same tree running.
+- Seed 8 of the main core on c8f18ef (the Mac): -0.920 ns, 35,070 ALMs;
+  the Thumb decoder into predecode (-0.92), the issue stage's late
+  stall (-0.91), predecode's instruction register into the writeback
+  (-0.79). Seed 10 on the Mac.
+- **Seed 9 of the main core on c8f18ef** (the server): **-0.550 ns**,
+  35,010 ALMs, the best build so far; its top five are one family, the
+  merger's address bit 3 into upp_bus's flash line buffer valid bits
+  (lb_v, the line-wide fetch's beat select, -0.55 to -0.52), the rest
+  below. Three seeds of this tree: -0.680, -0.920, -0.550; so the floor
+  with a lucky seed is about -0.5 before round 5's fixes. The rbf
+  (build/hardware/NGage-ndm-s9.rbf) is the main-slot candidate. Seed 11
+  running.
+- Seed 10 of the main core on c8f18ef (the Mac): -1.115 ns; the Thumb
+  decoder into decode (-1.12, two paths), the D-TLB walker into decode
+  (-0.96), issue's load pending into the shifter (-0.87). Four seeds of
+  this tree: -0.680, -0.920, -0.550, -1.115; the Thumb decoder's cone is
+  in the top of nearly every seed. The sweep stops at seed 11: the
+  final tree after round 5 gets its own.
+- Seed 11 of the main core on c8f18ef (the server): -0.661 ns; the
+  issue stage's skid (-0.66, two paths), the D-TLB walker into the
+  shifter (-0.52), the merger into the flash line buffer (-0.42). **The
+  sweep's tally** (the main core, NGAGE_NO_DEBUG): c03088f seeds 1-6:
+  -1.152, -1.285, -0.861, -1.074, -1.146, -0.973; c8f18ef (the card
+  model's fix) seeds 7-11: -0.680, -0.920, -0.550, -1.115, -0.661: a
+  median of -0.68 and a best of -0.55 (seed 9, the main-slot candidate),
+  so the tree misses the goal of a median within 0.3 ns by about 0.4,
+  which is round 5's job: the Thumb decoder's cone into predecode and
+  decode (in the top of most seeds), the issue stage's skid and late
+  stall, the MMU enable's fanout, the memory stage into the D-cache tag
+  RAM, the merger's address into upp_bus's decode and line buffer, the
+  D-TLB walker into decode and the shifter.
+- Sweep extended to seed 20 (the user: "going up to seed 20 is fine"):
+  seeds 12-19 on the server two at a time (Codex's round 5 holds the
+  other two lanes), seed 20 on the Mac, all of the tree with the card
+  model's fix (815bcbd, RTL c8f18ef), results in build/sweeps/ndm-s<n>/
+  through tools/seed_sweep.sh.
+- **Seed 9 on the main slot.** The no-debug main core (-0.550 ns,
+  build/hardware/NGage-ndm-s9.rbf) smoke-tested on the debug slot: the
+  idle screen with the clock and the date, the phone menu with SonicN,
+  Sonic's intro and Neo Green Hill in play (captures in
+  build/hardware/game/smoke-ndm-s9/; no counters, the overlay is out of
+  this core). Copied over `_Console/_NGage/NGage_20261023.rbf` (the
+  user's slot); b22 (the instrumented build) back on
+  `_Debug/NGageDbg_20261023.rbf` for the measurements. The main slot
+  went from b12 (-1.09 ns, 25-28 M instructions/s in play) to this:
+  -0.55 ns, 29-31 M/s, the fast first boot, the card path.
+- Seeds 12, 13 (the server) and 20 (the Mac) of the main core on the
+  fixed tree: **-0.535** (seed 12, the best so far: 34,988 ALMs),
+  -0.633, -0.643; seed 20's top is decode's destination index into
+  issue (-0.64), then the MMU enable into the fetch FIFO (-0.47) and the
+  Thumb decoder into predecode (-0.45). Eight seeds of this tree:
+  -0.680, -0.920, -0.550, -1.115, -0.661, -0.535, -0.633, -0.643
+  (median -0.64). Seed 9 stays on the main slot (tested; 15 ps apart).
+- **The sweep to seed 20, done.** Seeds 14-19 (the server): -1.055,
+  -0.702, -0.732, -0.681, **-0.431** (seed 18), -0.616. The fourteen
+  seeds of the fixed tree (7-20): -0.680, -0.920, -0.550, -1.115,
+  -0.661, -0.535, -0.633, -1.055, -0.702, -0.732, -0.681, -0.431,
+  -0.616, -0.643: median -0.67, best -0.431. Seed 18's report has one
+  family above -0.35, the Thumb decoder into predecode (-0.43), then
+  the late memory index into the shifter (-0.34) and decode's shift
+  fields into issue (-0.27): with the Thumb decoder's cone cleared,
+  this seed would sit near -0.34. Seeds 16, 17 and 19 show the
+  self-test enable (test_on_q) into upp_bus's decode and the merger
+  (-0.69, -0.67, -0.56), the family round 4's arbiter rewrite targets.
+  Seed 18's rbf (build/hardware/NGage-ndm-s18.rbf) is the main-slot
+  candidate, 0.12 ns better than the seed 9 on it.
+- **Seed 18 on the main slot** (-0.431 ns, build/hardware/NGage-ndm-
+  s18.rbf): smoke-tested on the debug slot like seed 9 (the idle screen
+  with the clock and the date, the menu, Sonic's intro, Neo Green Hill
+  in play; captures in build/hardware/game/smoke-ndm-s18/), then copied
+  over `_Console/_NGage/NGage_20261023.rbf`; b22 back on the debug slot.
+- **The firmware for a public core** (the user's questions: has the
+  N-Gage firmware been open-sourced, can the Python step go). No: the
+  Symbian^3 generation was opened in 2010 under the EPL, but the N-Gage
+  runs Symbian 6.1 with Series 60 1.2, and Nokia's bootstrap, drivers,
+  Series 60 and the N-Gage applications were never released; the only
+  firmware is Nokia's service package (the Phoenix flash files), which
+  the user brings. The core's repository carries none of it (research/
+  untracked; the only binaries in the tree are our own NOS stand-in).
+  Decisions: (1) tools/mkimage.py now checks its Phoenix inputs by
+  SHA-256 against the RH-29 4.60 files (RH2946.0C1 18,475,371 bytes,
+  sha256 ba5fea85...; RH2946.0S5 1,505,245 bytes, 4d2e36f6...) and
+  stops with a message otherwise (--force goes on); (2) the user wants
+  the conversion in the core "for support sanity": the Codex first-boot
+  thread is building a Phoenix loader in RTL (the record stream parsed
+  as the framework downloads it, CS0 and the CS1 firmware half filled
+  FF first, the record checksums verified; the patches and the two
+  4.60 digests from a generated patch ROM, about 10 KB, applied after
+  the language pack; a version check on the integrity table's own
+  digests with "Firmware 4.60 loaded" / "not recognised" messages; the
+  C: save as a 4 MB file of C: only, a blank one shipped with the core,
+  8 MB files still accepted; the framework's boot1.rom, boot2.rom and
+  boot1.vhd auto-load so that the two Nokia files and the blank C:
+  file in the games folder are the whole setup; a synthetic-stream
+  bench and an end-to-end harness against the Python tool's images);
+  the Python tool stays for development and flat dumps. (3) The 56
+  per-phone bytes at CS0 0x12C-0x163, which the board's image had from
+  a ROM dump and which a core cannot have: the Python tool's default
+  image (FF there; md5 63aa211d06bd8df899e1239988b10316 against the
+  board's 2323d108...; the only difference) booted on b22 to the idle
+  screen and ran Sonic (build/hardware/game/nophone-b22/), so the
+  loader leaves them erased.
+- **The plasticbugs Pocket core read** (the user: "they just came out,
+  any insights?"; docs/consults/2026-10-23-plasticbugs-pocket-core.md):
+  a custom ARMv4T (eight stages, a fetch-cycle BTB, 64 KB caches,
+  80 MHz) with a C kernel replacing EKA1 and the drivers, the firmware's
+  user side only; CPI 1.7 in play, about 47 M instructions/s against
+  our 30. Their estimate of the phone: 45-50 MIPS, which puts our core
+  at 60-65 % of it, as our frame rates say. Usable: a store miss that
+  completes when its fill is launched and the write-back deferred behind
+  the fill (their model -4 to -5 % and our 2-3 %: a D-cache task after
+  round 5), the BTB's remaining slot (0.1 CPI, a timing decision), the
+  retrobios SYM.ROM as a possible third firmware input (to be checked
+  against our ROM-order image), X-Men Legends and Puyo Pop as tests
+  (their kernel sees X-Men Legends II panic below 45 MIPS), and the
+  strategic point that a deeper pipeline at 80-90 MHz beats ZAP at 104,
+  the paused ARM9's road. Their "memory card" is the game image; ours is
+  the same image on a modelled, writable card. Our stand-in already
+  answers the energy-management queries they found games need.
+- **Timing closure paused** (the user: "let's pause timing closure since
+  we're making changes"): the tree is about to change (the D-cache
+  store-miss and write-back changes, the in-core firmware loader), so
+  Codex's round 5 is told to finish its current trial, commit what is
+  proved, write its report and stop; the kept changes stay on its
+  branch for a merge once the tree settles, and the sweep to seed 20
+  (best -0.43, seed 18 on the main slot) stands as the reference for
+  the next closure round. Next in that thread: the two D-cache changes.
+- **The end goal, set by the user: at least 47 M instructions/s in play**,
+  the Pocket core's rate (CPI 1.7 at 80 MHz). At 104 MHz that is CPI
+  2.2; ZAP runs the games at 3.4 (29-31 M/s). Where the 3.4 goes: about
+  0.8 clocks an instruction on the bus (the SDRAM wait 20-25 % of clocks,
+  the flash 2 %) and about 1.6 in the pipeline (the issue stage's
+  interlocks 35-43 % of clocks, the fetch FIFO empty 12-16 %, the ALU's
+  flushes 400-500 K/s at up to 12 clocks, the uop sequencing 7 %). The
+  memory-side levers still open (the store-miss completion and the
+  deferred write-back, a write buffer, the BTB's last slot, the I-cache
+  size) are worth perhaps 15-20 % together: ZAP's ceiling in play is
+  about 36-38 M/s, set by its issue stage (one uop a clock at best, lock
+  interlocks) and its 12-clock front end. The rate the user wants needs
+  the deeper pipeline: the Pocket core's measured structure (eight
+  stages, a 256-entry BTB answering in the fetch cycle, store misses
+  that do not wait, 32-64 KB caches, critical word first) reaches CPI
+  1.7-1.9 in play, and its CPU alone closed 96 MHz on a C8-grade Cyclone
+  V; the DE10-Nano's device is the faster I7 grade, so 104 MHz is a fair
+  target for the same discipline. That is the road of the paused ARM9
+  core (codex/arm9, 15 % fewer cycles than ZAP on the cache test but
+  -7 ns at 104 MHz with a shallow pipeline and a combinational address
+  into the D-TLB): a redesign as an eight-stage machine, not a resume.
+  Sequencing to be decided: the ZAP tree ships to the testers as it is
+  (the loader, the D-cache changes), the new CPU replaces it when it
+  beats ZAP in play on the board.
+- **X-Men Legends on b22** (the Pocket core's authors see X-Men Legends
+  II panic below about 45 MIPS on their kernel): launched from the menu,
+  its intro cinematic runs at 21-22 frames/s (30.3-30.7 M instructions/s,
+  CPI 3.4, SDRAM wait 12-18 %), the first scene in play (Wolverine's
+  dialogue) at 16-18 (31-32 M/s), no panic, no return to the logo over
+  two and a half minutes (build/hardware/game/xmen-b22/). The real
+  kernel's view server is not the race theirs has, at our speed.

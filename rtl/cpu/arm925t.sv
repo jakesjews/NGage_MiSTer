@@ -38,12 +38,18 @@ module arm925t #(
 	// 1 puts the exception vectors, and the reset address, at 0xFFFF0000.
 	parameter bit          HIVECS      = 1'b0,
 	// Cache geometry: the ARM925T's 16 KB I / 8 KB D, 2-way with LRU
-	// replacement, 16-byte lines (docs/CPU.md).
-	parameter int          ICACHE_SIZE = 16384,
-	parameter int          ICACHE_WAYS = 2,
-	parameter int          DCACHE_SIZE = 8192,
-	parameter int          DCACHE_WAYS = 2,
-	parameter int          CACHE_LINE  = 16
+	// replacement, 16-byte lines (docs/CPU.md). ICACHE_SIZE may also be
+	// set to 32768 (32 KB, 1,024 sets); ICACHE_PREFETCH enables the
+	// one-line sequential next-line prefetch (off: the phone has none and
+	// the games measured no gain from it; the logic is cycle-identical off).
+	parameter int          ICACHE_SIZE     = 16384,
+	parameter int          ICACHE_WAYS     = 2,
+	parameter bit          ICACHE_PREFETCH = 1'b0,
+	// A 16 KB two-way experiment retains the 8 KB CP15 identity; its
+	// by-index maintenance visits both physical set colours (docs/CPU.md).
+	parameter int          DCACHE_SIZE     = 8192,
+	parameter int          DCACHE_WAYS     = 2,
+	parameter int          CACHE_LINE      = 16
 ) (
 	input  logic        clk,
 	input  logic        reset,
@@ -80,6 +86,10 @@ module arm925t #(
 	output logic [31:0] dbg_wb_cpsr,     // before the instruction
 	output logic [31:0] dbg_wb_cpsr_nxt, // after it
 	output logic [7:0]  dbg_stall,       // stall and flush taps (dbg_counters)
+	// One-clock events for dbg_counters' per-second accumulation:
+	// [0] load-miss fill, [1] store-miss fill, [2] line write-back
+	// (eviction or maintenance), [3] uncached data access (excludes WT).
+	output logic [3:0]  dbg_dcache,
 	output logic        dbg_d_done,
 	output logic        dbg_d_we,
 	output logic [31:0] dbg_d_va,
@@ -102,12 +112,13 @@ module arm925t #(
 		.CP15_CTYPE      (32'h05109149),
 		.HIVECS          (HIVECS),
 		.RESET_VECTOR    (RESET_VECTOR),
-		.CODE_CACHE_SIZE (32'(ICACHE_SIZE)),
-		.CODE_CACHE_LINE (32'(CACHE_LINE)),
-		.CODE_CACHE_WAYS (32'(ICACHE_WAYS)),
-		.DATA_CACHE_SIZE (32'(DCACHE_SIZE)),
-		.DATA_CACHE_LINE (32'(CACHE_LINE)),
-		.DATA_CACHE_WAYS (32'(DCACHE_WAYS))
+		.CODE_CACHE_SIZE     (32'(ICACHE_SIZE)),
+		.CODE_CACHE_LINE     (32'(CACHE_LINE)),
+		.CODE_CACHE_WAYS     (32'(ICACHE_WAYS)),
+		.CODE_CACHE_PREFETCH (ICACHE_PREFETCH),
+		.DATA_CACHE_SIZE     (32'(DCACHE_SIZE)),
+		.DATA_CACHE_LINE     (32'(CACHE_LINE)),
+		.DATA_CACHE_WAYS     (32'(DCACHE_WAYS))
 	) u_zap (
 		.i_clk    (clk),
 		.i_reset  (reset),
@@ -128,6 +139,7 @@ module arm925t #(
 		.o_dbg_wb_cpsr     (dbg_wb_cpsr),
 		.o_dbg_wb_cpsr_nxt (dbg_wb_cpsr_nxt),
 		.o_dbg_stall       (dbg_stall),
+		.o_dbg_dcache      (dbg_dcache),
 		.o_dbg_d_done      (dbg_d_done),
 		.o_dbg_d_we        (dbg_d_we),
 		.o_dbg_d_va        (dbg_d_va),

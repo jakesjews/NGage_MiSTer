@@ -38,7 +38,13 @@
 // response starts NCR clocks after the command's end bit (NID for CMD1 and
 // CMD2); read data at least NAC clocks after the response, once the blocks
 // are in the buffer (a read waits for the HPS, so the host's read timeout
-// must allow for it: TAAC in the default CSD says 10 ms). After a written
+// must allow for it: TAAC in the default CSD says 10 ms). The 8 KB buffer
+// holds 16 512-byte sector slots: three 2 KB (4-sector) quarters (slots 0..11)
+// for aligned 4 KB (sd_blk_cnt = 7) CMD18 streaming chunks (the next 4 KB
+// chunk prefetched while the second half of the current chunk shifts out,
+// unless stop_queued indicates the host controller has already queued CMD12),
+// and four 512-byte slots (slots 12..15) reserved for CMD17 metadata reads,
+// writes and the mount-time sidecar block. After a written
 // block the CRC status token follows two clocks after the end bit, then
 // DAT0 stays low until the HPS has written the block. The outputs are
 // cmd_o/cmd_oe and dat_o/dat_oe (push-pull while enabled); the lines need
@@ -67,6 +73,7 @@ module mmc_card #(
 	input  logic        dat_i,
 	output logic        dat_o,
 	output logic        dat_oe,
+	input  logic        stop_queued,
 
 	// an image is mounted and its registers are loaded
 	output logic        present,
@@ -222,6 +229,7 @@ module mmc_card #(
 	logic   [2:0] d_state;
 	logic  [32:0] d_addr;        // byte address of the block
 	logic         d_multi;
+	logic         d_first;       // first block of a CMD17/18 transfer
 	logic   [9:0] d_pos;         // byte of the block being sent
 	logic   [2:0] d_bit;
 	logic   [4:0] d_crcn;
@@ -229,7 +237,8 @@ module mmc_card #(
 	logic   [7:0] cur_byte, nxt_byte;
 	logic         nxt_ok;
 	logic         f_go, f_v;     // byte fetch: address out, data back
-	logic         f_slot, f_odd; // where the fetched byte is
+	logic   [3:0] f_slot;        // 512-byte slot (0..15) of the fetched byte
+	logic         f_odd;         // where the fetched byte is
 
 	// write engine
 	localparam logic [3:0] W_OFF   = 4'd0;
@@ -254,9 +263,14 @@ module mmc_card #(
 	logic         w_good;        // the block's CRC and end bit were right
 	logic         w_issued;      // the HPS write of the block has been asked for
 
-	// buffer: two 512-byte slots; sector s lives in slot s[0]
-	logic  [22:0] tag [0:1];
-	logic   [1:0] tvalid, tzero;
+	// buffer: 8 KB (16 x 512-byte sector slots):
+	//   slots  0..11: three 2 KB (4-sector) quarters for aligned 4 KB streaming chunks
+	//   slots 12..15: four 512-byte slots reserved for CMD17 metadata, writes, and sidecar
+	logic  [22:0] tag [0:15];
+	logic  [15:0] tvalid, tzero;
+	logic   [1:0] m_repl;        // round-robin index (0..3) for metadata slots 12..15
+	logic   [1:0] w_m_idx;       // metadata slot (0..3) used by the active write
+	logic         bk_touch;      // pulses when tag/tvalid/tzero is updated
 
 	// HPS transfers
 	localparam logic [1:0] H_IDLE = 2'd0;
@@ -264,20 +278,26 @@ module mmc_card #(
 	localparam logic [1:0] H_XFER = 2'd2;
 	logic   [1:0] h_state;
 	logic         h_wr;
-	logic         h_slot;
+	logic         h_meta;        // 1: single-sector in {2'b11, h_m_idx}; 0: streaming chunk in h_q0/h_q1
+	logic   [1:0] h_m_idx;
+	logic   [1:0] h_q0, h_q1;
 	logic  [31:0] h_lba;
+	logic   [5:0] h_blk_cnt;
 	logic         h_done;        // pulse: the transfer finished
+
+	wire    [3:0] h_cur_slot = h_meta ? {2'b11, h_m_idx} :
+	                           {sd_buff_addr[10] ? h_q1 : h_q0, sd_buff_addr[9:8]};
 
 	// buffer port of the card side
 	logic         c_we;
-	logic   [8:0] c_addr;
+	logic  [11:0] c_addr;
 	logic  [15:0] c_wdata;
 	logic  [15:0] c_q;
 
-	tdp_ram #(.AW(9), .DW(16)) buffer (
+	tdp_ram #(.AW(12), .DW(16)) buffer (
 		.clk    (clk),
-		.we_a   (sd_buff_wr & (h_state != H_IDLE) & ~h_wr),
-		.addr_a ({h_slot, sd_buff_addr[7:0]}),
+		.we_a   (sd_buff_wr & (h_state != H_IDLE) & ~h_wr & (sd_buff_addr[12:11] == 2'b00)),
+		.addr_a ({h_cur_slot, sd_buff_addr[7:0]}),
 		.wdata_a(sd_buff_dout),
 		.q_a    (sd_buff_din),
 		.we_b   (c_we),
@@ -286,7 +306,7 @@ module mmc_card #(
 		.q_b    (c_q)
 	);
 
-	assign sd_blk_cnt = 6'd0;
+	assign sd_blk_cnt = h_blk_cnt;
 	assign sd_lba = h_lba;
 	assign active = h_state != H_IDLE;
 	assign present = l_state == L_READY;
@@ -299,65 +319,162 @@ module mmc_card #(
 		return a[31:9];
 	endfunction
 
-	// The sectors the current block still needs and the next block's, and
-	// whether they are in the buffer, take two register stages (the sums and
-	// comparisons are too long for one clock). The results are used only once
-	// the inputs have stayed the same long enough for both stages to see them.
-	logic [22:0] a_rlo, a_rhi, a_nlo, a_nhi, a_tag0, a_tag1;
-	logic  [1:0] a_tv;
-	logic        a_act, a_multi;
+	// 2 KB (4-sector) half-chunk g = s[22:2] modulo 3, mapping streaming
+	// sectors into quarters 0, 1, 2 (slots 0..11) so any three consecutive
+	// 2 KB half-chunks (6 KB = 12 sectors: the active half-chunk plus the
+	// entire next 4 KB chunk) occupy distinct quarters without collision.
+	function automatic logic [1:0] mod3(input logic [20:0] g);
+		logic [5:0] s0;
+		logic [3:0] s1;
+		logic [2:0] s2;
+		logic [1:0] s3;
+		s0 = {4'd0, g[1:0]}   + {4'd0, g[3:2]}   + {4'd0, g[5:4]}   + {4'd0, g[7:6]} +
+		     {4'd0, g[9:8]}   + {4'd0, g[11:10]} + {4'd0, g[13:12]} + {4'd0, g[15:14]} +
+		     {4'd0, g[17:16]} + {4'd0, g[19:18]} + {5'd0, g[20]};
+		s1 = {2'd0, s0[1:0]} + {2'd0, s0[3:2]} + {2'd0, s0[5:4]};
+		s2 = {1'b0, s1[1:0]} + {1'b0, s1[3:2]};
+		s3 = s2[1:0] + {1'b0, s2[2]};
+		return (s3 == 2'd3) ? 2'd0 : s3;
+	endfunction
+
+	function automatic logic [3:0] s_slot(input logic [22:0] s);
+		return {mod3(s[22:2]), s[1:0]};
+	endfunction
+
+	// The sectors the current block needs and the next 4 KB chunk's, whether
+	// they are in the buffer, and the next HPS request parameters are
+	// pipelined across four lightweight register stages so that no path from a
+	// tag or slot register passes through an adder and a compare in one clock:
+	//   stage 0 (s0_*): candidate sector numbers (adders only)
+	//   stage 1 (s1_*): modulo-3 slot indices and per-slot tag compares in parallel
+	//   stage 2 (s2_*): 1-bit slot-hit muxes and miss priority selection
+	//   stage 3 (want*): HPS request parameters (chunk quarters and block count)
+	// The results are used only once the inputs have stayed the same for all
+	// four stages (settle == 0).
+	logic [22:0] s0_rlo, s0_rhi, s0_pchunk;
+	logic        s0_act, s0_multi;
+
+	logic [22:0] s1_rlo, s1_rhi, s1_pchunk;
+	logic  [3:0] s1_srlo, s1_srhi, s1_spchunk;
+	logic        s1_act, s1_multi, s1_pc_win, s1_pc_in;
+	logic [15:0] s1_eq_lo, s1_eq_hi;
+	logic [11:0] s1_eq_pc;
+
 	logic        have_lo, have_hi;
+	logic  [3:0] slot_lo, slot_hi;
+	logic [22:0] s2_want;
+	logic  [3:0] s2_want_slot;
+	logic        s2_want_v, s2_want_spec;
+
 	logic [22:0] want;
-	logic        want_v;
-	logic [102:0] bk_in, bk_q;
+	logic  [3:0] want_slot;
+	logic        want_v, want_spec, want_oor;
+	logic  [1:0] want_q0, want_q1;
+	logic  [5:0] want_cnt;
+
+	logic [60:0] bk_in, bk_q;
 	logic  [1:0] settle;
-	wire         bk_chg = bk_in != bk_q;
+	wire         bk_chg = (bk_in != bk_q) || bk_touch;
 	wire         bk_ok  = settle == 2'd0 && !bk_chg;
 
-	function automatic logic holds(input logic [22:0] s, input logic [22:0] t0, input logic [22:0] t1,
-			input logic [1:0] v);
-		return s[0] ? (v[1] && t1 == s) : (v[0] && t0 == s);
+	function automatic logic [3:0] pick_slot(
+		input logic         is_multi,
+		input logic   [3:0] sl,
+		input logic         s_ok,
+		input logic [14:12] m_eq
+	);
+		if (is_multi || s_ok) return sl;
+		if (m_eq[12]) return 4'd12;
+		if (m_eq[13]) return 4'd13;
+		if (m_eq[14]) return 4'd14;
+		return 4'd15;
 	endfunction
 
-	// is the slot for a sector of parity p free of the sectors the block still needs?
-	function automatic logic free_for(input logic p, input logic [22:0] t0, input logic [22:0] t1,
-			input logic [1:0] v, input logic [22:0] lo, input logic [22:0] hi);
-		logic [22:0] t;
-		t = p ? t1 : t0;
-		return !(v[p] && t >= lo && t <= hi);
-	endfunction
+	assign bk_in = {d_addr, bl, tvalid, d_state != D_IDLE, d_multi};
 
-	assign bk_in = {d_addr, d_pos, bl, tag[0], tag[1], tvalid, d_state != D_IDLE, d_multi};
+	wire [22:0] w_rlo    = sec_of(d_addr);
+	wire [22:0] w_rhi    = sec_of(d_addr + {23'd0, bl} - 33'd1);
+	wire [22:0] w_pchunk = {w_rlo[22:3] + 20'd1, 3'b000};
+
+	wire        s2_slo_ok = s1_eq_lo[s1_srlo];
+	wire        s2_mlo_ok = |s1_eq_lo[15:12];
+	wire        s2_has_lo = s1_multi ? s2_slo_ok : (s2_slo_ok || s2_mlo_ok);
+
+	wire        s2_shi_ok = s1_eq_hi[s1_srhi];
+	wire        s2_mhi_ok = |s1_eq_hi[15:12];
+	wire        s2_has_hi = s1_multi ? s2_shi_ok : (s2_shi_ok || s2_mhi_ok);
+
+	wire        s2_spc_ok = s1_eq_pc[s1_spchunk];
+
+	// From s2_want_slot[3:2] = mod3(s2_want[22:2]) and s2_want[2], derive the
+	// two quarters of the aligned 4 KB chunk {s2_want[22:3], 3'b000} without
+	// any adder or second mod3 tree.
+	wire  [1:0] s2_q          = s2_want_slot[3:2];
+	wire  [1:0] s2_q_next     = (s2_q == 2'd2) ? 2'd0 : (s2_q + 2'd1);
+	wire  [1:0] s2_q_prev     = (s2_q == 2'd0) ? 2'd2 : (s2_q - 2'd1);
+	wire  [1:0] s2_q0         = s2_want[2] ? s2_q_prev : s2_q;
+	wire  [1:0] s2_q1         = s2_want[2] ? s2_q      : s2_q_next;
+	wire        s2_last_chunk = ({9'd0, s2_want[22:3]} == nblk[31:3]);
 
 	always_ff @(posedge clk) begin
-		// stage A
-		a_rlo   <= sec_of(d_addr + {23'd0, d_pos});
-		a_rhi   <= sec_of(d_addr + {23'd0, bl} - 33'd1);
-		a_nlo   <= sec_of(d_addr + {23'd0, bl});
-		a_nhi   <= sec_of(d_addr + {22'd0, bl, 1'b0} - 33'd1);
-		a_tag0  <= tag[0];
-		a_tag1  <= tag[1];
-		a_tv    <= tvalid;
-		a_act   <= d_state != D_IDLE;
-		a_multi <= d_multi;
-		// stage B
-		have_lo <= holds(a_rlo, a_tag0, a_tag1, a_tv);
-		have_hi <= holds(a_rhi, a_tag0, a_tag1, a_tv);
-		want_v  <= 1'b0;
-		want    <= a_rlo;
-		if (a_act) begin
-			if (!holds(a_rlo, a_tag0, a_tag1, a_tv)) begin
-				want <= a_rlo; want_v <= 1'b1;
-			end else if (!holds(a_rhi, a_tag0, a_tag1, a_tv)) begin
-				want <= a_rhi; want_v <= 1'b1;
-			end else if (a_multi) begin
-				if (!holds(a_nlo, a_tag0, a_tag1, a_tv) && free_for(a_nlo[0], a_tag0, a_tag1, a_tv, a_rlo, a_rhi)) begin
-					want <= a_nlo; want_v <= 1'b1;
-				end else if (!holds(a_nhi, a_tag0, a_tag1, a_tv) && free_for(a_nhi[0], a_tag0, a_tag1, a_tv, a_rlo, a_rhi)) begin
-					want <= a_nhi; want_v <= 1'b1;
-				end
+		// stage 0: sector addresses (adders only)
+		s0_rlo    <= w_rlo;
+		s0_rhi    <= w_rhi;
+		s0_pchunk <= w_pchunk;
+		s0_act    <= d_state != D_IDLE;
+		s0_multi  <= d_multi;
+
+		// stage 1: modulo-3 slot indices and per-slot tag compares in parallel
+		s1_rlo     <= s0_rlo;
+		s1_rhi     <= s0_rhi;
+		s1_pchunk  <= s0_pchunk;
+		s1_srlo    <= s_slot(s0_rlo);
+		s1_srhi    <= s_slot(s0_rhi);
+		s1_spchunk <= s_slot(s0_pchunk);
+		s1_act     <= s0_act;
+		s1_multi   <= s0_multi;
+		s1_pc_win  <= s0_multi && s0_rlo[2] && (s0_rhi[22:2] == s0_rlo[22:2]) && (s0_rlo[2:0] != 3'd7);
+		s1_pc_in   <= ({9'd0, s0_pchunk} < nblk);
+		for (int i = 0; i < 16; i++) begin
+			s1_eq_lo[i] <= tvalid[i] && (tag[i] == s0_rlo);
+			s1_eq_hi[i] <= tvalid[i] && (tag[i] == s0_rhi);
+		end
+		for (int i = 0; i < 12; i++) begin
+			s1_eq_pc[i] <= tvalid[i] && (tag[i] == s0_pchunk);
+		end
+
+		// stage 2: 1-bit slot-hit muxes and miss priority selection
+		have_lo      <= s2_has_lo;
+		have_hi      <= s2_has_hi;
+		slot_lo      <= pick_slot(s1_multi, s1_srlo, s2_slo_ok, s1_eq_lo[14:12]);
+		slot_hi      <= pick_slot(s1_multi, s1_srhi, s2_shi_ok, s1_eq_hi[14:12]);
+		s2_want_v    <= 1'b0;
+		s2_want_spec <= 1'b0;
+		s2_want      <= s1_rlo;
+		s2_want_slot <= s1_srlo;
+		if (s1_act) begin
+			if (!s2_has_lo) begin
+				s2_want <= s1_rlo; s2_want_slot <= s1_srlo;
+				s2_want_v <= 1'b1; s2_want_spec <= 1'b0;
+			end else if (!s2_has_hi) begin
+				s2_want <= s1_rhi; s2_want_slot <= s1_srhi;
+				s2_want_v <= 1'b1; s2_want_spec <= 1'b0;
+			end else if (s1_pc_win && s1_pc_in && !s2_spc_ok) begin
+				s2_want <= s1_pchunk; s2_want_slot <= s1_spchunk;
+				s2_want_v <= 1'b1; s2_want_spec <= 1'b1;
 			end
 		end
+
+		// stage 3: HPS request parameters from s2_want
+		want      <= s2_want;
+		want_slot <= s2_want_slot;
+		want_v    <= s2_want_v;
+		want_spec <= s2_want_spec;
+		want_oor  <= ({9'd0, s2_want} >= nblk);
+		want_q0   <= s2_q0;
+		want_q1   <= s2_q1;
+		want_cnt  <= s2_last_chunk ? {3'd0, nblk[2:0] - 3'd1} : 6'd7;
+
 		// how long since the inputs changed
 		bk_q <= bk_in;
 		if (bk_chg) settle <= 2'd3;
@@ -422,10 +539,36 @@ module mmc_card #(
 	wire        addressed = cmd_arg[31:16] == rca;
 	wire [32:0] arg33 = {1'b0, cmd_arg};
 	wire [33:0] rd_end = {1'b0, arg33} + {24'd0, bl};
-	wire  [9:0] f_one  = d_addr[9:0] + 10'd1;
-	wire  [9:0] f_next = d_addr[9:0] + d_pos + 10'd2;
-	wire        w_in_file = {9'd0, sec_of(w_addr)} < nblk;
 	wire        rd_cross = cmd_arg[31:9] != sec_of(arg33 + {23'd0, bl} - 33'd1);
+	wire        cmd_quiet   = cmd_i && !rx_on && !rx_done && !rx_dec;
+	wire        allow_fetch = (!want_spec || !stop_queued) &&
+	                          (d_first ? (!want_spec || (d_state == D_DATA && cmd_quiet))
+	                                   : (cmd_quiet && (d_state == D_DATA || (d_state == D_WAIT && nac > 8'(NAC)))));
+	wire [22:0] w_sec       = sec_of(w_addr);
+	wire [22:0] h_stream_sec = {h_lba[22:3], sd_buff_addr[10:8]};
+
+	// Precomputed read byte offsets, write slot/quarter indices, and HPS
+	// metadata invalidation matches (all inputs are stable at least several
+	// clk cycles before these registers are read).
+	logic  [9:0] f_one, f_next;
+	logic        f_more, d_last;
+	logic  [1:0] w_q;
+	logic        w_in_file;
+	logic  [3:0] w_m_hit;
+	logic  [3:0] h_m_match;
+
+	always_ff @(posedge clk) begin
+		f_one     <= {1'b0, d_addr[8:0]} + 10'd1;
+		f_next    <= {1'b0, d_addr[8:0]} + d_pos + 10'd2;
+		f_more    <= (d_pos + 10'd2 < bl);
+		d_last    <= (d_pos == bl - 10'd1);
+		w_q       <= mod3(w_sec[22:2]);
+		w_in_file <= ({9'd0, w_sec} < nblk);
+		for (int m = 0; m < 4; m++) begin
+			w_m_hit[m]   <= tvalid[12 + m] && (tag[12 + m] == w_sec);
+			h_m_match[m] <= (tag[12 + m] == h_stream_sec);
+		end
+	end
 
 	task automatic respond(input logic [135:0] bits, input logic [7:0] n, input logic [6:0] dly);
 		t_state <= T_WAIT;
@@ -458,6 +601,7 @@ module mmc_card #(
 		t_state <= T_IDLE;
 		cmd_oe  <= 1'b0;
 		d_state <= D_IDLE;
+		d_first <= 1'b0;
 		dat_oe  <= 1'b0;
 		w_state <= W_OFF;
 		w_issued <= 1'b0;
@@ -476,13 +620,23 @@ module mmc_card #(
 	end
 
 	always_ff @(posedge clk) begin
-		rx_done <= 1'b0;
-		h_done  <= 1'b0;
-		c_we    <= 1'b0;
-		f_v     <= f_go;
-		f_go    <= 1'b0;
+		rx_done  <= 1'b0;
+		h_done   <= 1'b0;
+		c_we     <= 1'b0;
+		f_v      <= f_go;
+		f_go     <= 1'b0;
+		bk_touch <= 1'b0;
 
 		// ---------------- HPS transfers ----------------
+		if (sd_buff_wr && (h_state != H_IDLE) && !h_wr && !h_meta && sd_buff_addr[12:11] == 2'b00 && sd_buff_addr[7:0] == 8'hFF) begin
+			tag[h_cur_slot]    <= h_stream_sec;
+			tvalid[h_cur_slot] <= 1'b1;
+			tzero[h_cur_slot]  <= 1'b0;
+			for (int m = 0; m < 4; m++)
+				if (h_m_match[m])
+					tvalid[12 + m] <= 1'b0;
+			bk_touch <= 1'b1;
+		end
 		case (h_state)
 			H_REQ: if (sd_ack) begin
 				sd_rd   <= 1'b0;
@@ -492,10 +646,11 @@ module mmc_card #(
 			H_XFER: if (!sd_ack) begin
 				h_state <= H_IDLE;
 				h_done  <= 1'b1;
-				if (!h_wr) begin
-					tag[h_slot]    <= h_lba[22:0];
-					tvalid[h_slot] <= 1'b1;
-					tzero[h_slot]  <= 1'b0;
+				if (!h_wr && h_meta) begin
+					tag[{2'b11, h_m_idx}]    <= h_lba[22:0];
+					tvalid[{2'b11, h_m_idx}] <= 1'b1;
+					tzero[{2'b11, h_m_idx}]  <= 1'b0;
+					bk_touch                 <= 1'b1;
 				end
 			end
 			default: ;
@@ -504,22 +659,25 @@ module mmc_card #(
 		// ---------------- loader ----------------
 		case (l_state)
 			L_FETCH: if (h_state == H_IDLE && !h_done) begin
-				h_state  <= H_REQ;
-				h_wr     <= 1'b0;
-				h_slot   <= l_blocks[0] ? 1'b0 : 1'b1;   // block l_blocks-1
-				h_lba    <= l_blocks - 32'd1;
-				sd_rd    <= 1'b1;
-				l_state  <= L_WAITH;
+				h_state   <= H_REQ;
+				h_wr      <= 1'b0;
+				h_meta    <= 1'b1;
+				h_m_idx   <= 2'd0;
+				h_lba     <= l_blocks - 32'd1;
+				h_blk_cnt <= 6'd0;
+				sd_rd     <= 1'b1;
+				l_state   <= L_WAITH;
 			end
 			L_WAITH: if (h_done) begin
-				l_state <= L_PARSE;
-				l_idx   <= 6'd0;
-				l_magic <= 1'b1;
-				tvalid  <= 2'b00;
+				l_state  <= L_PARSE;
+				l_idx    <= 6'd0;
+				l_magic  <= 1'b1;
+				tvalid   <= 16'd0;
+				bk_touch <= 1'b1;
 			end
 			L_PARSE: begin
 				// word l_idx out, its data back two cycles later
-				c_addr <= {h_slot, 2'b00, l_idx};
+				c_addr <= {2'b11, h_m_idx, 2'b00, l_idx};
 				if (l_idx >= 6'd2) begin
 					case (l_idx - 6'd2)
 						6'd0: l_magic <= l_magic & (c_q == MAGIC0);
@@ -630,28 +788,52 @@ module mmc_card #(
 			nxt_byte <= tzero[f_slot] ? 8'd0 : (f_odd ? c_q[15:8] : c_q[7:0]);
 			nxt_ok   <= 1'b1;
 		end
-		// sectors for the read, one at a time
-		if (d_state != D_IDLE && bk_ok && want_v && h_state == H_IDLE && !h_done && l_state == L_READY) begin
-			if ({9'd0, want} >= nblk) begin
-				tag[want[0]]    <= want;
-				tvalid[want[0]] <= 1'b1;
-				tzero[want[0]]  <= 1'b1;
+		// aligned 4 KB chunks for CMD18 (clamped to nblk), single sectors in
+		// reserved metadata slots 12..15 for CMD17
+		if (d_state != D_IDLE && bk_ok && want_v && allow_fetch && h_state == H_IDLE && !h_done && l_state == L_READY) begin
+			bk_touch <= 1'b1;
+			if (want_oor) begin
+				if (d_multi) begin
+					tag[want_slot]    <= want;
+					tvalid[want_slot] <= 1'b1;
+					tzero[want_slot]  <= 1'b1;
+				end else begin
+					tag[{2'b11, m_repl}]    <= want;
+					tvalid[{2'b11, m_repl}] <= 1'b1;
+					tzero[{2'b11, m_repl}]  <= 1'b1;
+					m_repl                  <= m_repl + 2'd1;
+				end
+			end else if (d_multi) begin
+				h_state   <= H_REQ;
+				h_wr      <= 1'b0;
+				h_meta    <= 1'b0;
+				h_q0      <= want_q0;
+				h_q1      <= want_q1;
+				h_lba     <= {9'd0, want[22:3], 3'b000};
+				h_blk_cnt <= want_cnt;
+				sd_rd     <= 1'b1;
+				for (int k = 0; k < 4; k++) tvalid[{want_q0, 2'(k)}] <= 1'b0;
+				if (want_cnt[2])
+					for (int k = 0; k < 4; k++) tvalid[{want_q1, 2'(k)}] <= 1'b0;
 			end else begin
-				h_state  <= H_REQ;
-				h_wr     <= 1'b0;
-				h_slot   <= want[0];
-				h_lba    <= {9'd0, want};
-				sd_rd    <= 1'b1;
-				tvalid[want[0]] <= 1'b0;
+				h_state   <= H_REQ;
+				h_wr      <= 1'b0;
+				h_meta    <= 1'b1;
+				h_m_idx   <= m_repl;
+				h_lba     <= {9'd0, want};
+				h_blk_cnt <= 6'd0;
+				sd_rd     <= 1'b1;
+				tvalid[{2'b11, m_repl}] <= 1'b0;
+				m_repl    <= m_repl + 2'd1;
 			end
 		end
 		case (d_state)
 			D_WAIT: begin
 				if (!nxt_ok && !f_go && !f_v && bk_ok && have_lo && have_hi) begin
 					f_go   <= 1'b1;
-					f_slot <= d_addr[9];
+					f_slot <= slot_lo;
 					f_odd  <= d_addr[0];
-					c_addr <= d_addr[9:1];
+					c_addr <= {slot_lo, d_addr[8:1]};
 				end
 				if (fall && nxt_ok && t_state == T_IDLE && nac >= 8'(NAC)) begin
 					dat_oe   <= 1'b1;
@@ -664,9 +846,9 @@ module mmc_card #(
 					d_state  <= D_DATA;
 					if (bl != 10'd1) begin
 						f_go   <= 1'b1;
-						f_slot <= f_one[9];
+						f_slot <= f_one[9] ? slot_hi : slot_lo;
 						f_odd  <= f_one[0];
-						c_addr <= f_one[9:1];
+						c_addr <= {f_one[9] ? slot_hi : slot_lo, f_one[8:1]};
 					end
 				end
 			end
@@ -675,18 +857,18 @@ module mmc_card #(
 				d_crc <= crc16_bit(d_crc, cur_byte[d_bit]);
 				d_bit <= d_bit - 3'd1;
 				if (d_bit == 3'd0) begin
-					if (d_pos == bl - 10'd1) begin
+					if (d_last) begin
 						d_state <= D_CRC;
 						d_crcn  <= 5'd16;
 					end else begin
 						d_pos    <= d_pos + 10'd1;
 						cur_byte <= nxt_byte;
 						nxt_ok   <= 1'b0;
-						if (d_pos + 10'd2 < bl) begin
+						if (f_more) begin
 							f_go   <= 1'b1;
-							f_slot <= f_next[9];
+							f_slot <= f_next[9] ? slot_hi : slot_lo;
 							f_odd  <= f_next[0];
-							c_addr <= f_next[9:1];
+							c_addr <= {f_next[9] ? slot_hi : slot_lo, f_next[8:1]};
 						end
 					end
 				end
@@ -702,9 +884,10 @@ module mmc_card #(
 				d_state <= D_REL;
 			end
 			D_REL: if (fall) begin
-				dat_oe <= 1'b0;
-				nac    <= 8'd0;
-				nxt_ok <= 1'b0;
+				dat_oe  <= 1'b0;
+				nac     <= 8'd0;
+				nxt_ok  <= 1'b0;
+				d_first <= 1'b0;
 				if (!d_multi) begin
 					d_state <= D_IDLE;
 					if (st == ST_DATA) st <= ST_TRAN;
@@ -729,10 +912,18 @@ module mmc_card #(
 		// ---------------- write engine ----------------
 		case (w_state)
 			W_START: if (rise && !dat_i) begin
+				logic [1:0] wm;
+				wm = m_repl;
+				for (int m = 0; m < 4; m++)
+					if (w_m_hit[m]) wm = 2'(m);
 				w_state <= W_DATA;
 				w_n     <= 13'd0;
 				w_crc   <= 16'd0;
-				tvalid[w_addr[9]] <= 1'b0;
+				w_m_idx <= wm;
+				if (wm == m_repl) m_repl <= m_repl + 2'd1;
+				tvalid[{2'b11, wm}] <= 1'b0;
+				for (int k = 0; k < 4; k++) tvalid[{w_q, 2'(k)}] <= 1'b0;
+				bk_touch <= 1'b1;
 			end
 			W_DATA: if (rise) begin
 				w_byte <= {w_byte[5:0], dat_i};
@@ -743,7 +934,7 @@ module mmc_card #(
 						w_lo <= {w_byte[6:0], dat_i};
 					end else begin
 						c_we    <= 1'b1;
-						c_addr  <= {w_addr[9], w_n[11:4]};
+						c_addr  <= {2'b11, w_m_idx, w_n[11:4]};
 						c_wdata <= {w_byte[6:0], dat_i, w_lo};
 					end
 				end
@@ -787,7 +978,8 @@ module mmc_card #(
 					if (st == ST_RCV && !w_multi) st <= ST_PRG;
 				end else begin
 					dat_oe <= 1'b0;
-					tvalid[w_addr[9]] <= 1'b0;
+					tvalid[{2'b11, w_m_idx}] <= 1'b0;
+					bk_touch <= 1'b1;
 					if (w_multi) begin
 						w_state <= W_STOP;
 					end else begin
@@ -798,20 +990,23 @@ module mmc_card #(
 			end
 			W_PROG: begin
 				if (!w_issued && w_in_file && h_state == H_IDLE && !h_done) begin
-					h_state  <= H_REQ;
-					h_wr     <= 1'b1;
-					h_slot   <= w_addr[9];
-					h_lba    <= {9'd0, sec_of(w_addr)};
-					sd_wr    <= 1'b1;
-					w_issued <= 1'b1;
+					h_state   <= H_REQ;
+					h_wr      <= 1'b1;
+					h_meta    <= 1'b1;
+					h_m_idx   <= w_m_idx;
+					h_lba     <= {9'd0, w_sec};
+					h_blk_cnt <= 6'd0;
+					sd_wr     <= 1'b1;
+					w_issued  <= 1'b1;
 				end
 				// written, or past the end of the file and so nowhere to write
 				if ((w_issued && h_done) || !w_in_file) begin
 					w_issued <= 1'b0;
 					dat_oe   <= 1'b0;
-					tag[w_addr[9]]    <= sec_of(w_addr);
-					tvalid[w_addr[9]] <= w_in_file;
-					tzero[w_addr[9]]  <= 1'b0;
+					tag[{2'b11, w_m_idx}]    <= w_sec;
+					tvalid[{2'b11, w_m_idx}] <= w_in_file;
+					tzero[{2'b11, w_m_idx}]  <= 1'b0;
+					bk_touch                 <= 1'b1;
 					if (!w_multi || w_stop12) begin
 						w_state  <= W_OFF;
 						w_stop12 <= 1'b0;
@@ -957,6 +1152,7 @@ module mmc_card #(
 								d_state <= D_WAIT;
 								d_addr  <= arg33;
 								d_multi <= cmd_idx == 6'd18;
+								d_first <= 1'b1;
 								d_pos   <= 10'd0;
 								nxt_ok  <= 1'b0;
 							end
@@ -991,7 +1187,9 @@ module mmc_card #(
 		if (img_mounted) begin
 			ro       <= img_readonly;
 			l_blocks <= img_size[40:9];
-			tvalid   <= 2'b00;
+			tvalid   <= 16'd0;
+			m_repl   <= 2'd0;
+			bk_touch <= 1'b1;
 			card_reset();
 			if (img_size[40:9] == 32'd0) l_state <= L_OFF;
 			else if (img_size[40:9] == 32'd1) l_state <= L_DEFLT;
@@ -1002,7 +1200,10 @@ module mmc_card #(
 			h_state      <= H_IDLE;
 			sd_rd        <= 1'b0;
 			sd_wr        <= 1'b0;
-			tvalid       <= 2'b00;
+			h_blk_cnt    <= 6'd0;
+			tvalid       <= 16'd0;
+			m_repl       <= 2'd0;
+			bk_touch     <= 1'b1;
 			nac          <= 8'd0;
 			card_reset();
 		end

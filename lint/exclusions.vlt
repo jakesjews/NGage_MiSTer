@@ -8,6 +8,9 @@ lint_off -rule PROCASSINIT
 lint_off -rule VARHIDDEN
 lint_off -rule SIMILARNAME
 
+// arm925t exports the D-cache events for the overlay's next integration.
+// NGage.sv is owned by that parallel change; only this debug output is open.
+
 // lcd_panel: the bottom fixed area of VSCRDEF follows from the other two
 // (TFA + VSA + BFA = 208); it is kept so that the register is complete.
 lint_off -rule UNUSEDSIGNAL -file "rtl/board/lcd_panel.sv" -match "*Signal is not used: 'bfa'*"
@@ -50,7 +53,7 @@ lint_off -rule MULTIDRIVEN -file "rtl/board/tdp_ram.sv"
 // the reset, rotation, scandoubler, video and aspect ratio bits; of the
 // buttons the user button; of a joystick the 17 the J1 line names; of
 // ioctl_index the file number (the upper bits number the extension).
-lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Bits of signal are not used: 'status'[127:123,120:16]*"
+lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Bits of signal are not used: 'status'[127:123,120:18]*"
 lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Bits of signal are not used: 'buttons'[0]*"
 lint_off -rule UNUSEDSIGNAL -file "rtl/mister/ngage_input.sv" -match "*Bits of signal are not used: 'j'[31:17]*"
 lint_off -rule UNUSEDSIGNAL -file "rtl/mister/ddram_loader.sv" -match "*Bits of signal are not used: 'ioctl_index'[15:6]*"

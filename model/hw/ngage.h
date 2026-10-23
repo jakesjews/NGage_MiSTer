@@ -30,6 +30,7 @@ NGageFlash *ngage_flash_create(MemoryRegion *sysmem, const char *name,
                                const char *save_path);
 
 uint8_t *ngage_flash_data(NGageFlash *f, uint32_t *size);
+bool ngage_flash_c_blank(NGageFlash *f);
 void ngage_flash_changed(NGageFlash *f, uint32_t off, uint32_t len);
 
 /* Model shortcuts applied to the flash images at load (ngage_patch.c). */
@@ -95,7 +96,7 @@ void ngage_audio_create(MemoryRegion *sysmem, AudioBackend *be, const char *wav_
 
 /* CBUS master and UEMK model (ngage_cbus.c). */
 void ngage_cbus_create(MemoryRegion *sysmem, const char *regs_path, FILE *log);
-void ngage_cbus_set_cs1_data(const uint8_t *data);
+void ngage_cbus_set_cs1(NGageFlash *flash);
 void ngage_cbus_set_power_key(bool down);
 
 #endif

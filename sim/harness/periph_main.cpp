@@ -92,7 +92,7 @@ struct Hps {
 	enum { IDLE, DELAY, XFER, END } st = IDLE;
 	bool wr = false;
 	uint32_t lba = 0;
-	int delay = 0, word = 0, gap = 0;
+	int delay = 0, word = 0, nwords = 256, gap = 0;
 	uint64_t reads = 0, writes = 0;
 };
 
@@ -144,7 +144,8 @@ struct Bench {
 			if (t->sd_rd || t->sd_wr) {
 				h.wr = t->sd_wr;
 				h.lba = t->sd_lba;
-				if ((uint64_t)(h.lba + 1) * 512 > h.img.size()) sim::fail("HPS asked for block %u past the image", h.lba);
+				h.nwords = ((int)t->sd_blk_cnt + 1) * 256;
+				if ((uint64_t)h.lba * 512 + (uint64_t)h.nwords * 2 > h.img.size()) sim::fail("HPS asked for block %u (cnt %u) past the image", h.lba, (unsigned)t->sd_blk_cnt);
 				h.delay = rng.chance(10) ? rng.range(500, 3000) : rng.range(20, 200);
 				h.st = Hps::DELAY;
 			}
@@ -160,7 +161,7 @@ struct Bench {
 		case Hps::XFER:
 			if (--h.gap > 0) break;
 			h.gap = rng.range(3, 8);
-			if (h.word < 256) {
+			if (h.word < h.nwords) {
 				size_t off = (size_t)h.lba * 512 + h.word * 2;
 				if (!h.wr) {
 					t->sd_buff_addr = h.word;

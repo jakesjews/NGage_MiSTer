@@ -65,13 +65,22 @@ module arm9_fetch #(
     assign prediction = PREDICTOR && btb_taken && f2.valid &&
                         f2.epoch == epoch && !killed;
     if (PREDICTOR) begin : g_predictor
+        logic taken_f1;
+        logic [31:0] target_f1;
+        // Master now exposes the RAM-side decision one clock earlier. The
+        // paused core still consumes F2 metadata; retain that boundary here.
+        always_ff @(posedge i_clk) begin
+            if (i_reset || i_predictor_clear) btb_taken <= 0;
+            else if (!o_stall) btb_taken <= taken_f1;
+            if (!o_stall) btb_target <= target_f1;
+        end
         zap_btb #(.BP_ENTRIES(BP_ENTRIES)) u_btb (
             .i_clk(i_clk), .i_reset(i_reset), .i_stall(o_stall),
             .i_clear(i_predictor_clear), .i_fb_ok(i_fb_valid && !i_fb_wrong),
             .i_fb_nok(i_fb_valid && i_fb_wrong), .i_fb_branch_src_address(i_fb_pc),
             .i_fb_branch_dest_address(i_fb_target), .i_fb_current_branch_state(i_fb_state),
             .i_rd_addr(o_address_nxt), .i_rd_addr_del(f1.pc),
-            .o_clear_from_btb(btb_taken), .o_pc_from_btb(btb_target), .o_branch_state(btb_state)
+            .o_clear_from_btb(taken_f1), .o_pc_from_btb(target_f1), .o_branch_state(btb_state)
         );
     end else begin : g_no_predictor
         assign btb_taken = 0;

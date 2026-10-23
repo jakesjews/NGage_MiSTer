@@ -148,7 +148,10 @@ assign unused = |{pre_index};
 
 ///////////////////////////////////////////////////////////////////////////////
 
-enum logic [25:0] {
+// ARM925T: keep the hold on this side of the state register. Retiming the
+// sequencer through its output decode sends the shifter stall through the
+// uop decode and the predecode skid mux in a single clock.
+typedef enum logic [25:0] {
         IDLE            = 1 << 0 ,
         MEMOP           = 1 << 1 ,
         WRITE_PC        = 1 << 2 ,
@@ -176,7 +179,10 @@ enum logic [25:0] {
         BLS_S3          = 1 << 24 ,
         BASE_LOAD       = 1 << 25 , // ARM925T: LDM base in list, write it last.
         `ZAP_DEFAULT_XX
-} state_ff, state_nxt;
+} t_state;
+
+(* dont_retime *) t_state state_ff;
+t_state state_nxt;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -723,8 +729,16 @@ begin:next_state_logic_and_output_logic
                                 o_instruction = {5'd0, i_instruction};
                                 o_instruction_valid = i_instruction_valid;
                         end
+                        else if (!i_cpsr_t && i_instruction[27:24] == 4'b1011 &&
+                                 i_instruction[31:28] != NV && i_instruction_valid)
+                        begin
+                                // ARM925T: ARM BL writes LR with its branch,
+                                // using a separate registered PC-relative target.
+                                // Bit 38 is internal metadata (bit 39 is clear).
+                                o_instruction[38] = 1'b1;
+                        end
                         else if ( i_instruction[27:25] == 3'b101 &&
-                                  i_instruction[24] && i_instruction_valid ) // BL.
+                                  i_instruction[24] && i_instruction_valid ) // Thumb BL.
                         begin
                                 // Move to new state. In that state, we will
                                 // generate a plain branch.
@@ -925,7 +939,35 @@ begin:next_state_logic_and_output_logic
                                 o_align = 1;
                         end
 
-                        if ( reglist_ff == 0 )
+                        // ARM925T: finish on the last memory beat when no
+                        // restore is needed. For incrementing writeback the
+                        // last LDR/STR already computes the final base: give
+                        // that result the architectural destination. Its
+                        // writeback is suppressed by the same beat's abort.
+                        // Keep base-in-list loads and decrementing writeback
+                        // on the original sequence (different final value).
+                        if (reglist_ff != 0 && reglist_nxt == 0 &&
+                            (!writeback || (up && !(load && i_instruction[base]) && base != ARCH_PC)))
+                        begin
+                                if (writeback)
+                                        o_instruction[39:35] = {1'b1, base};
+                                if (i_instruction[15] && load)
+                                begin
+                                        state_nxt = WRITE_PC;
+                                        o_stall_from_decode = 1'b1;
+                                end
+                                else if (base_in_list)
+                                begin
+                                        state_nxt = BASE_LOAD;
+                                        o_stall_from_decode = 1'b1;
+                                end
+                                else
+                                begin
+                                        state_nxt = IDLE;
+                                        o_stall_from_decode = 1'b0;
+                                end
+                        end
+                        else if ( reglist_ff == 0 )
                         begin
                                 if ( i_instruction[{2'd0, ARCH_PC}] && load )
                                 begin

@@ -73,8 +73,8 @@ module zap_btb #(
         // Live read path.
         /////////////////////////
 
-        // ARM925T: the PC being formed and its registered value. The RAM
-        // read takes one clock; the tag check/decision takes another.
+        // ARM925T: the registered PC and its one-cycle delayed value. The RAM
+        // read takes one clock; writeback accepts its tag check at pc_del.
         input t_address     i_rd_addr,
         input t_address     i_rd_addr_del,
 
@@ -194,46 +194,16 @@ assign mem_rd_taken = (mem_rd_data.state == WT || mem_rd_data.state == ST);
 // Memory read address tag match with tag in memory read data.
 assign mem_rd_tag_match = i_rd_addr_del.tag == mem_rd_data.tag;
 
-//
-// Tag check and clear generation logic. Use RAM data. This is produced
-// 1 cycle after the memory is read.
-//
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_reset )
-        begin
-                o_clear_from_btb <= 1'd0;
-                o_pc_from_btb    <= {32{1'dx}};
-                o_branch_state   <= {2{1'dx}};
-        end
-        else if ( i_clear )
-        begin
-                // ARM925T: invalidate the decision as well as the RAM's
-                // valid bits, even when fetch is stalled during CP15 clear.
-                o_clear_from_btb <= 1'd0;
-                if ( !i_stall )
-                begin
-                        o_branch_state <= mem_rd_data.state;
-                end
-        end
-        else if ( !i_stall )
-        begin
-                o_branch_state <= mem_rd_data.state;
+// ARM925T: redirect from the registered RAM read and registered valid bit.
+// The target has no live feedback input: the RAM collision bypass is also
+// registered. Writeback accepts this decision at pc_del, one slot earlier.
+assign o_clear_from_btb = mem_rd_tag_match && bp_dav && mem_rd_taken;
+assign o_pc_from_btb = mem_rd_data.target;
 
-                //
-                // If the tag matches and prediction is taken, resync
-                // the pipeline to the predicted address.
-                //
-                if ( mem_rd_tag_match & bp_dav & mem_rd_taken )
-                begin
-                        o_clear_from_btb <= 1'd1;
-                        o_pc_from_btb    <= mem_rd_data.target;
-                end
-                else
-                begin
-                        o_clear_from_btb <= 1'd0;
-                end
-        end
+// Predictor state still travels through pc_del2 to the final fetch slot.
+always_ff @(posedge i_clk) begin
+        if (i_reset) o_branch_state <= SNT;
+        else if (!i_stall) o_branch_state <= mem_rd_data.state;
 end
 
 //

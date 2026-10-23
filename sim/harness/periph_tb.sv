@@ -131,6 +131,7 @@ module periph_tb #(
 	logic [7:0] lcd_d_o, panel_d;
 	logic       mmc_cmd_o, mmc_cmd_oe, mmc_dat_o, mmc_dat_oe;
 	logic       card_cmd_o, card_cmd_oe, card_dat_o, card_dat_oe;
+	logic [31:0] dbg_src0;
 	logic [4:0] col_oe, col_out, col_in;
 	logic [5:0] row_oe, row_out, row_in;
 	logic       pwronx;
@@ -156,7 +157,7 @@ module periph_tb #(
 		.p_sel(p_sel), .p_we(p_we), .p_addr(p_addr), .p_wdata(p_wdata), .p_be(p_be), .p_rdata(p_rdata), .p_wait(p_wait),
 		.dma_cyc(dma_cyc), .dma_stb(dma_stb), .dma_we(dma_we), .dma_adr(dma_adr), .dma_dat_o(dma_dat_w),
 		.dma_sel(dma_sel), .dma_ack(dma_ack), .dma_err(dma_err), .dma_dat_i(dma_dat_r),
-		.irq(irq), .fiq(fiq),
+		.irq(irq), .fiq(fiq), .dbg_src0(dbg_src0),
 		.lcd_csx(lcd_csx), .lcd_dcx(lcd_dcx), .lcd_wrx(lcd_wrx), .lcd_rdx(lcd_rdx), .lcd_resx(lcd_resx),
 		.lcd_d_o(lcd_d_o), .lcd_d_oe(lcd_d_oe), .lcd_d_i(panel_d), .lcd_active(),
 		.mmc_clk(mmc_clk), .mmc_cmd_o(mmc_cmd_o), .mmc_cmd_oe(mmc_cmd_oe), .mmc_cmd_i(mmc_cmd),
@@ -185,6 +186,7 @@ module periph_tb #(
 		.mmc_clk(mmc_clk),
 		.cmd_i(mmc_cmd), .cmd_o(card_cmd_o), .cmd_oe(card_cmd_oe),
 		.dat_i(mmc_dat), .dat_o(card_dat_o), .dat_oe(card_dat_oe),
+		.stop_queued(!dbg_src0[23]),
 		.present(card_present), .write_protected(), .active(),
 		.img_mounted(img_mounted), .img_readonly(img_readonly), .img_size(img_size),
 		.sd_lba(sd_lba), .sd_blk_cnt(sd_blk_cnt), .sd_rd(sd_rd), .sd_wr(sd_wr), .sd_ack(sd_ack),

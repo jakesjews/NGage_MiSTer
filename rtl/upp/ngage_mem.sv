@@ -111,10 +111,22 @@ module ngage_mem #(
 	logic [22:0] fl0_addr;
 	logic [21:0] fl1_addr;
 	logic [15:0] fl0_wdata, fl0_rdata, fl1_wdata, fl1_rdata;
+	logic        fl0_array, fl0_lreq, fl0_ltaken, fl0_lrvalid, fl0_lrbeat;
+	logic [22:2] fl0_laddr;
+	logic [63:0] fl0_lrdata;
+	logic        fl1_array, fl1_lreq, fl1_ltaken, fl1_lrvalid, fl1_lrbeat;
+	logic [21:2] fl1_laddr;
+	logic [63:0] fl1_lrdata;
 	logic        m0_req, m0_we, m0_ack, m1_req, m1_we, m1_ack;
 	logic [22:0] m0_addr;
 	logic [21:0] m1_addr;
 	logic [15:0] m0_wdata, m0_rdata, m1_wdata, m1_rdata;
+	logic        m0_lreq, m0_ltaken, m0_lrvalid, m0_lrbeat;
+	logic [22:2] m0_laddr;
+	logic [63:0] m0_lrdata;
+	logic        m1_lreq, m1_ltaken, m1_lrvalid, m1_lrbeat;
+	logic [21:2] m1_laddr;
+	logic [63:0] m1_lrdata;
 
 	// SDRAM controller port
 	logic         sdr_req, sdr_we, sdr_line, sdr_busy, sdr_rvalid;
@@ -151,7 +163,11 @@ module ngage_mem #(
 		.wb_cyc(b_cyc), .wb_stb(b_stb), .wb_we(b_we), .wb_adr(b_adr), .wb_dat_i(b_dat_w),
 		.wb_sel(b_sel), .wb_cti(b_cti), .wb_bte(b_bte), .wb_ack(b_ack), .wb_err(b_err), .wb_dat_o(b_dat_r),
 		.fl0_req(fl0_req), .fl0_we(fl0_we), .fl0_addr(fl0_addr), .fl0_wdata(fl0_wdata), .fl0_rdata(fl0_rdata), .fl0_ack(fl0_ack),
+		.fl0_array(fl0_array), .fl0_lreq(fl0_lreq), .fl0_laddr(fl0_laddr), .fl0_ltaken(fl0_ltaken),
+		.fl0_lrvalid(fl0_lrvalid), .fl0_lrbeat(fl0_lrbeat), .fl0_lrdata(fl0_lrdata),
 		.fl1_req(fl1_req), .fl1_we(fl1_we), .fl1_addr(fl1_addr), .fl1_wdata(fl1_wdata), .fl1_rdata(fl1_rdata), .fl1_ack(fl1_ack),
+		.fl1_array(fl1_array), .fl1_lreq(fl1_lreq), .fl1_laddr(fl1_laddr), .fl1_ltaken(fl1_ltaken),
+		.fl1_lrvalid(fl1_lrvalid), .fl1_lrbeat(fl1_lrbeat), .fl1_lrdata(fl1_lrdata),
 		.sdr_req(sdr_req), .sdr_we(sdr_we), .sdr_line(sdr_line), .sdr_addr(sdr_addr), .sdr_wdata(sdr_wdata),
 		.sdr_wbe(sdr_wbe), .sdr_busy(sdr_busy), .sdr_rvalid(sdr_rvalid), .sdr_rword(sdr_rword), .sdr_rdata(sdr_rdata),
 		.p_sel(p_sel), .p_we(p_we), .p_addr(p_addr), .p_wdata(p_wdata), .p_be(p_be), .p_rdata(p_rdata), .p_wait(p_wait),
@@ -162,6 +178,7 @@ module ngage_mem #(
 	nor_flash #(.AW(23), .DEVICE_ID(16'h22F8), .CLK_HZ(CLK_HZ),
 		.PROGRAM_CLKS(FLASH_PROGRAM_CLKS), .SECTOR_ERASE_CLKS(FLASH_SECTOR_ERASE_CLKS),
 		.ERASE_WINDOW_CLKS(FLASH_ERASE_WINDOW_CLKS)) flash_cs0 (
+		.c_blank(1'b0),
 		.clk(clk),
 		.reset(reset),
 		.rst_n(flash_rst_n),
@@ -171,18 +188,32 @@ module ngage_mem #(
 		.bus_wdata(fl0_wdata),
 		.bus_rdata(fl0_rdata),
 		.bus_ack(fl0_ack),
+		.bus_array(fl0_array),
+		.bus_lreq(fl0_lreq),
+		.bus_laddr(fl0_laddr),
+		.bus_ltaken(fl0_ltaken),
+		.bus_lrvalid(fl0_lrvalid),
+		.bus_lrbeat(fl0_lrbeat),
+		.bus_lrdata(fl0_lrdata),
 		.mem_req(m0_req),
 		.mem_we(m0_we),
 		.mem_addr(m0_addr),
 		.mem_wdata(m0_wdata),
 		.mem_rdata(m0_rdata),
 		.mem_ack(m0_ack),
+		.mem_lreq(m0_lreq),
+		.mem_laddr(m0_laddr),
+		.mem_ltaken(m0_ltaken),
+		.mem_lrvalid(m0_lrvalid),
+		.mem_lrbeat(m0_lrbeat),
+		.mem_lrdata(m0_lrdata),
 		.busy(flash_busy[0])
 	);
 
 	nor_flash #(.AW(22), .DEVICE_ID(16'h22FA), .CLK_HZ(CLK_HZ),
 		.PROGRAM_CLKS(FLASH_PROGRAM_CLKS), .SECTOR_ERASE_CLKS(FLASH_SECTOR_ERASE_CLKS),
 		.ERASE_WINDOW_CLKS(FLASH_ERASE_WINDOW_CLKS)) flash_cs1 (
+		.c_blank(c_blank),
 		.clk(clk),
 		.reset(reset),
 		.rst_n(flash_rst_n),
@@ -192,12 +223,25 @@ module ngage_mem #(
 		.bus_wdata(fl1_wdata),
 		.bus_rdata(fl1_rdata),
 		.bus_ack(fl1_ack),
+		.bus_array(fl1_array),
+		.bus_lreq(fl1_lreq),
+		.bus_laddr(fl1_laddr),
+		.bus_ltaken(fl1_ltaken),
+		.bus_lrvalid(fl1_lrvalid),
+		.bus_lrbeat(fl1_lrbeat),
+		.bus_lrdata(fl1_lrdata),
 		.mem_req(m1_req),
 		.mem_we(m1_we),
 		.mem_addr(m1_addr),
 		.mem_wdata(m1_wdata),
 		.mem_rdata(m1_rdata),
 		.mem_ack(m1_ack),
+		.mem_lreq(m1_lreq),
+		.mem_laddr(m1_laddr),
+		.mem_ltaken(m1_ltaken),
+		.mem_lrvalid(m1_lrvalid),
+		.mem_lrbeat(m1_lrbeat),
+		.mem_lrdata(m1_lrdata),
 		.busy(flash_busy[1])
 	);
 
@@ -205,7 +249,11 @@ module ngage_mem #(
 		.clk(clk),
 		.reset(reset),
 		.cs0_req(m0_req), .cs0_we(m0_we), .cs0_addr(m0_addr), .cs0_wdata(m0_wdata), .cs0_rdata(m0_rdata), .cs0_ack(m0_ack),
+		.cs0_lreq(m0_lreq), .cs0_laddr(m0_laddr), .cs0_ltaken(m0_ltaken),
+		.cs0_lrvalid(m0_lrvalid), .cs0_lrbeat(m0_lrbeat), .cs0_lrdata(m0_lrdata),
 		.cs1_req(m1_req), .cs1_we(m1_we), .cs1_addr(m1_addr), .cs1_wdata(m1_wdata), .cs1_rdata(m1_rdata), .cs1_ack(m1_ack),
+		.cs1_lreq(m1_lreq), .cs1_laddr(m1_laddr), .cs1_ltaken(m1_ltaken),
+		.cs1_lrvalid(m1_lrvalid), .cs1_lrbeat(m1_lrbeat), .cs1_lrdata(m1_lrdata),
 		.ld_we(ld_we), .ld_addr(ld_addr), .ld_din(ld_din), .ld_be(ld_be), .ld_busy(ld_busy),
 		.mark(save_mark), .mark_blk(save_mark_blk), .c_blank(c_blank), .bk_req(save_rd), .bk_blk(save_blk),
 		.bk_taken(save_taken), .bk_valid(save_valid), .bk_data(save_data),

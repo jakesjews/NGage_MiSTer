@@ -43,6 +43,8 @@ options:
   --phone-data DUMP  restore the per-phone bytes from a ROM dump
   --no-patches       write the images unpatched (the table check then reports
                      the digests the firmware carries)
+  --force            go on with Phoenix files that are not the RH-29 4.60 ones
+                     (the inputs are checked by SHA-256; see KNOWN_INPUTS)
 
 Load cs0.bin and cs1.bin with the OSD's "Load flash CS0" and "Load flash CS1".
 Run with python3 -I. The firmware is read as data only; nothing from it is
@@ -79,11 +81,39 @@ def load_fls2bin():
     return mod
 
 
-def from_phoenix(files):
+# The Phoenix flash files the core is built against (RH-29 software 4.60):
+# the SHA-256 of the whole file, and what it is. Anything else fails unless
+# --force: another version's image loads but its integrity table and patch
+# offsets differ, and the phone does not boot.
+KNOWN_INPUTS = {
+    "ba5fea856d378f3e460d9daca11d3f1c254c0141c18c14b6498f348ba56d18f6": "RH2946.0C1 (RH-29 4.60, the MCU file)",
+    "4d2e36f61259b01f564bff89766c9af687f7c8c57248bda47e8776bd3cdc95f5": "RH2946.0S5 (RH-29 4.60, the language pack)",
+}
+
+
+def check_input(path, force):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    digest = h.hexdigest()
+    if digest in KNOWN_INPUTS:
+        print("%s: %s" % (path, KNOWN_INPUTS[digest]))
+        return
+    msg = ("%s is not one of the RH-29 4.60 Phoenix files (RH2946.0C1 and RH2946.0S5; sha256 %s). "
+           "The core is built against 4.60; another version does not boot. --force goes on anyway." % (path, digest))
+    if force:
+        sys.stderr.write("mkimage: warning: %s\n" % msg)
+    else:
+        fail(msg)
+
+
+def from_phoenix(files, force=False):
     fls = load_fls2bin()
     cs0 = bytearray(b"\xFF" * CS0_SIZE)
     cs1 = bytearray(b"\xFF" * CS1_SIZE)
     for path in files:
+        check_input(path, force)
         _, records = fls.load(path)
         placed = 0
         for r in records:
@@ -265,10 +295,11 @@ def main():
     p.add_argument("--model-build", action="store_true")
     p.add_argument("--phone-data")
     p.add_argument("--no-patches", action="store_true")
+    p.add_argument("--force", action="store_true", help="go on with Phoenix files that are not the 4.60 ones")
     a = p.parse_args()
 
     if a.mode == "phoenix":
-        cs0, cs1 = from_phoenix(a.inputs)
+        cs0, cs1 = from_phoenix(a.inputs, a.force)
     else:
         if len(a.inputs) != 2:
             fail("flat takes CS0.bin and CS1.bin")

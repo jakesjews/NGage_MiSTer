@@ -56,7 +56,11 @@ module zap_cache_tag_ram #(
 parameter logic SHORT_READ = 1'b0, // ARM9: RAM edge then caller's compare/capture edge.
 parameter logic [31:0] CACHE_SIZE = 32'd1024, // Bytes, all ways together.
 parameter logic [31:0] CACHE_LINE = 32'd8,
-parameter logic [31:0] WAYS       = 32'd1     // ARM925T: 1 or 2.
+parameter logic [31:0] WAYS       = 32'd1,    // ARM925T: 1 or 2.
+// ARM925T: capacity visible to software's by-index maintenance loops.
+// Larger physical caches visit every set colour for each reported index.
+parameter logic [31:0] INDEX_SIZE = CACHE_SIZE,
+parameter logic        PREFETCH   = 1'd0      // ARM925T: I-cache next-line prefetch check.
 
 )(
 
@@ -86,6 +90,9 @@ output  logic                             o_cache_tag_dirty,
 // a write (i_cache_tag_wr_en, i_cache_line_ben at i_address) goes to.
 //
 input   logic    [31:0]                   i_lookup_address,
+input logic [31:0] i_lookup_check_address, // ARM925T: D-side next access.
+input logic i_lookup_stall, // Select held current access during lookup repair.
+(* dont_retime *) output logic o_cache_hit_early,
 input   logic                             i_access,
 input   logic                             i_idle,
 output  logic                             o_cache_hit,
@@ -119,6 +126,10 @@ input   logic    [31:0]                   i_line_addr,
 input   logic    [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] i_line_way,
 output  logic                             o_line_done,
 
+// ARM925T: 1-cycle VA tag check for I-cache sequential prefetch (PREFETCH = 1).
+input   logic    [31:0]                   i_pf_addr,
+output  logic                             o_pf_hit,
+
 //
 // Cache clean operations occur through these ports.
 // Bus access ports.
@@ -142,9 +153,12 @@ input logic                               i_wb_ack
 // ARM925T: lines of a way (sets), lines of all ways, and their widths.
 localparam [31:0] LINES     = CACHE_SIZE / WAYS / CACHE_LINE;
 localparam [31:0] LINES_ALL = CACHE_SIZE / CACHE_LINE;
+localparam [31:0] INDEX_LINES = INDEX_SIZE / WAYS / CACHE_LINE;
+localparam [31:0] INDEX_MASK = INDEX_LINES - 32'd1;
 localparam [31:0] SET_W     = $clog2(LINES);
 localparam [31:0] WAY_W     = WAYS > 1 ? $clog2(WAYS) : 32'd1;
 localparam [31:0] FLAT_W    = $clog2(LINES_ALL);      // A line of any way: {way, set}.
+localparam [31:0] TAG_W     = 32'd31 - $clog2(CACHE_LINE) - SET_W + 32'd1;
 
 localparam [31:0] NUMBER_OF_DIRTY_BLOCKS = LINES_ALL/16; // Keep cache size > 16 bytes.
 
@@ -311,6 +325,28 @@ begin
         end
 end
 
+// ARM925T: compare one stage early for the background-hit ACK. The
+// second-stage tag includes RAM forwarding through the preceding edge;
+// metadata's write-behind update needs its matching pending-valid bypass.
+// A current hit write cannot change tag identity. A current fill write
+// changes only the reserved victim/filling lines, which the D-cache FSM
+// excludes from HUM. Maintenance never enables a HUM slot.
+// Compare both candidate addresses before the one-bit stall selection.
+logic [WAYS-1:0] hit_check, hit_held;
+for (genvar w = 0; w < WAYS; w++) begin : g_hit_early
+        wire pre_valid = valid_s2[w] ||
+                         (rd_set_del2 == pend_addr && pend_en && pend_sel[w]);
+        assign hit_check[w] = pre_valid &&
+            w_dummy_1[w][`ZAP_CACHE_TAG__TAG] == i_lookup_check_address[`ZAP_VA__CACHE_TAG];
+        assign hit_held[w] = pre_valid &&
+            w_dummy_1[w][`ZAP_CACHE_TAG__TAG] == i_lookup_address[`ZAP_VA__CACHE_TAG];
+end
+always_ff @(posedge i_clk)
+        if (i_reset) o_cache_hit_early <= 1'b0;
+        else if (!i_hold)
+                o_cache_hit_early <= SHORT_READ ? (|hit) :
+                    i_lookup_stall ? (|hit_held) : (|hit_check);
+
 if ( WAYS == 1 )
 begin : g_direct
         assign victim            = 1'd0;
@@ -430,6 +466,66 @@ end
 
 assign o_cache_hit       = |hit;
 assign o_cache_way       = sel;
+
+//
+// ARM925T: 1-cycle VA tag lookup for sequential next-line prefetch (I-cache).
+// Kept in a dedicated 1-cycle synchronous block RAM per way so the 3-stage
+// demand tag RAM (u_zap_ram_simple_tag) and its critical hit compare path
+// are completely untouched.
+//
+if ( PREFETCH )
+begin : g_prefetch
+        logic [WAYS-1:0][TAG_W-1:0] pf_tag_q;
+        logic [SET_W-1:0]           pf_set_q;
+        logic [TAG_W-1:0]           pf_addr_tag_q;
+        logic [TAG_W-1:0]           pend_tag;
+        logic [WAYS-1:0]            pf_way_hit;
+        logic                       unused_pf;
+
+        assign unused_pf = |i_pf_addr[$clog2(CACHE_LINE)-1:0];
+
+        for ( genvar w = 0; w < WAYS; w++ )
+        begin : g_pf_way
+                logic [TAG_W-1:0] pf_tag_mem [LINES-1:0];
+
+                always_ff @ ( posedge i_clk )
+                begin
+                        if ( !i_hold && tag_ram_wr_en && wr_sel[w] )
+                        begin
+                                pf_tag_mem[tag_ram_wr_addr] <= tag_ram_wr_data[`ZAP_CACHE_TAG__TAG];
+                        end
+
+                        pf_tag_q[w] <= pf_tag_mem[i_pf_addr[`ZAP_VA__CACHE_INDEX]];
+                end
+        end : g_pf_way
+
+        always_ff @ ( posedge i_clk )
+        begin
+                pf_set_q      <= i_pf_addr[`ZAP_VA__CACHE_INDEX];
+                pf_addr_tag_q <= i_pf_addr[`ZAP_VA__CACHE_TAG];
+                pend_tag      <= tag_ram_wr_data[`ZAP_CACHE_TAG__TAG];
+        end
+
+        always_comb
+        begin
+                for ( int w = 0; w < WAYS; w++ )
+                begin
+                        pf_way_hit[w] = !tag_ram_clear && i_cache_en && (
+                                ( pend_en && pend_sel[w] && (pend_addr == pf_set_q) ) ?
+                                        ( pend_tag == pf_addr_tag_q ) :
+                                        ( valid[flat(WAY_W'(w), pf_set_q)] && (pf_tag_q[w] == pf_addr_tag_q) )
+                        );
+                end
+        end
+
+        assign o_pf_hit = |pf_way_hit;
+end : g_prefetch
+else
+begin : g_no_prefetch
+        logic unused_pf;
+        assign unused_pf = |i_pf_addr;
+        assign o_pf_hit  = 1'd0;
+end : g_no_prefetch
 
 // The way a write goes to: idle, the way that hits (a store hit); else the
 // way the FSM buffered with the address (a fill, a clean, a write-through).
@@ -688,7 +784,7 @@ begin:blk1
         o_wb_sel_nxt            = o_wb_sel_ff;
         o_wb_wen_nxt            = o_wb_wen_ff;
         o_wb_cti_nxt            = o_wb_cti_ff;
-        tag_ram_wr_data         = 0;
+        tag_ram_wr_data         = i_cache_tag; // ARM925T: enable qualifies the payload.
         o_cache_clean_done      = cache_clean_done_ff;
         o_line_done             = line_done_ff;
 
@@ -725,6 +821,11 @@ begin:blk1
                         // ARM925T: read the line's tag, data, valid, dirty.
                         tag_ram_wr_en       = 0;
                         rd_flat_nxt         = flat ( i_line_way, i_line_addr[`ZAP_VA__CACHE_INDEX] );
+                        // By-VA names an actual line. By-index names a
+                        // reported set: start with its first physical colour.
+                        if (!i_line_va && INDEX_SIZE < CACHE_SIZE)
+                                rd_flat_nxt = flat (i_line_way,
+                                    i_line_addr[`ZAP_VA__CACHE_INDEX] & INDEX_MASK[SET_W-1:0]);
                         line_mode_nxt       = 1'd1;
                         state_nxt           = LINE_W0;
                 end
@@ -774,6 +875,18 @@ begin:blk1
                 line_mode_nxt       = 1'd0;
                 line_done_nxt       = 1'd1;
                 state_nxt           = IDLE;
+                // ARM925T: c0 still reports the phone's 8 KB D-cache.
+                // Its index loop must clean/invalidate added sets too.
+                // Reuse the maintenance read/write pipeline, preserving the
+                // selected way and low set bits. No live hit-path logic.
+                if (!i_line_va && INDEX_SIZE < CACHE_SIZE &&
+                    (rd_flat_ff & FLAT_W'(LINES - INDEX_LINES)) != FLAT_W'(LINES - INDEX_LINES))
+                begin
+                        rd_flat_nxt   = rd_flat_ff + FLAT_W'(INDEX_LINES);
+                        line_mode_nxt = 1'd1;
+                        line_done_nxt = 1'd0;
+                        state_nxt     = LINE_W0;
+                end
         end
 
         CACHE_CLEAN_GET_ADDRESS:

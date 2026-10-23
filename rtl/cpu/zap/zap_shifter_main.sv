@@ -51,7 +51,13 @@ module zap_shifter_main
         output logic   [1:0]                       o_taken_ff,
 
         // Predicted PC
+        input logic [3:0] i_flags_ff,
+        input logic i_thumb_ff,
+        (* dont_retime *) output logic o_early_redirect_ff,
+        (* dont_retime *) output logic [31:0] o_early_target_ff,
+        input logic [33:0] i_link_branch_ff,
         input logic     [31:0]                     i_ppc_ff,
+        (* dont_retime *) output logic [33:0] o_link_branch_ff,
         output logic    [31:0]                     o_ppc_ff,
 
         // Stall and clear. Hi to low priority.
@@ -65,6 +71,7 @@ module zap_shifter_main
         input logic i_memory_load_valid,
         input logic [5:0] i_memory_load_index,
         input logic [31:0] i_memory_load_value,
+        input logic i_shift_source_pending_ff,
         input logic [63:0] i_dc_reg_idx,
         input logic [31:0] i_dc_reg_dat,
         input logic i_stall_from_alu,
@@ -145,8 +152,10 @@ module zap_shifter_main
 
         // Specific to this stage.
         output logic      [31:0]                  o_mem_srcdest_value_ff,
-        output logic      [31:0]                  o_alu_source_value_ff,
-        output logic      [31:0]                  o_shifted_source_value_ff,
+        // ARM925T: retain the operand-capture boundary through synthesis;
+        // late completion must not be retimed into the shifter/ALU cone.
+        (* dont_retime *) output logic [31:0]     o_alu_source_value_ff,
+        (* dont_retime *) output logic [31:0]     o_shifted_source_value_ff,
         output logic                              o_shift_carry_ff,
         output logic                              o_shift_sat_ff,
         output logic                              o_nozero_ff,
@@ -187,6 +196,7 @@ module zap_shifter_main
 
 `include "zap_defines.svh"
 `include "zap_localparams.svh"
+`include "zap_functions.svh"
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -200,6 +210,18 @@ logic shift_sat_nxt;
 logic mult_sat_nxt;
 logic [31:0] mult_out;
 logic shifter_enabled;
+// ARM925T: resolve only direct branches with an already stable flags
+// register. A flag writer immediately ahead falls back to normal ALU
+// resolution. The branch itself still executes/retires in order in ALU.
+wire early_condition = is_cc_satisfied(i_condition_code_ff, i_flags_ff);
+wire early_flags_ready = o_condition_code_ff == NV ||
+        (!o_flag_update_ff && o_alu_operation_ff != FMOV);
+wire early_wrong = early_condition ?
+        (!i_taken_ff[1] || i_ppc_ff != i_link_branch_ff[31:0]) : i_taken_ff[1];
+wire early_branch = i_link_branch_ff[33] && early_flags_ready && early_wrong &&
+        !(i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_und_ff) &&
+        !o_stall_from_shifter;
+
 logic multiply_busy, late_wait, is_multiply;
 assign is_multiply = i_alu_operation_ff == {1'd0, UMLALL} ||
              i_alu_operation_ff == {1'd0, UMLALH} ||
@@ -243,19 +265,24 @@ for (genvar k = 0; k < 4; k = k + 1) begin : g_load_pickup
                                          memory_match[k] ? i_memory_load_value :
                                          original_value[k*32 +: 32];
 end
-// Background completion is captured at the same edge as the register-file
-// write. Early users wait through that edge; rn/plain rm can travel to ALU.
+// ARM925T: execution selects only the registered memory snapshot, using
+// registered pending bits (one mux), never the background/match mux tree.
+// Background results must first be captured in issue's operand registers.
 assign late_wait = (i_load_pending_ff[2] && !memory_match[2]) ||
                    (i_load_pending_ff[3] && !memory_match[3]) ||
                    (i_load_pending_ff[1] && shifter_enabled && !memory_match[1]);
 assign o_stall_from_shifter = multiply_busy || late_wait || i_stall_from_alu;
-assign shift_source = shifter_enabled ? pickup_value[32 +: 32] :
-        resolve_conflict(i_shift_source_ff, pickup_value[32 +: 32],
+assign shift_source = shifter_enabled ?
+        (i_shift_source_pending_ff ? i_memory_load_value : i_shift_source_value_ff) :
+        resolve_conflict(i_shift_source_ff, i_shift_source_value_ff,
                          o_destination_index_ff, i_alu_value_nxt, i_alu_dav_nxt, 1'b0);
 // Multiply's two uops use raw accumulator operands throughout its FSM.
 // They are deliberately excluded from late issue; do not refresh them.
 assign o_late_value = is_multiply ? original_value :
-                      {mem_srcdest_value, pickup_value[64 +: 32], shift_source, rn};
+        {i_load_pending_ff[3] ? pickup_value[96 +: 32] : mem_srcdest_value,
+         pickup_value[64 +: 32],
+         i_load_pending_ff[1] ? pickup_value[32 +: 32] : shift_source,
+         i_load_pending_ff[0] ? pickup_value[0 +: 32] : rn};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -329,6 +356,8 @@ begin
                 o_switch_ff                       <= 'x; //
                 o_force32align_ff                 <= 'x; //
                 o_taken_ff                        <= 'x; //
+                o_link_branch_ff <= 34'b0;
+                o_early_redirect_ff <= 1'b0;
                 o_ppc_ff                          <= 'x; //
                 o_pc_ff                           <= 'x; //
                 o_nozero_ff                       <= 'x; //
@@ -365,6 +394,8 @@ begin
                 o_switch_ff                       <= 'x; //
                 o_force32align_ff                 <= 'x; //
                 o_taken_ff                        <= 'x; //
+                o_link_branch_ff <= 34'b0;
+                o_early_redirect_ff <= 1'b0;
                 o_ppc_ff                          <= 'x; //
                 o_pc_ff                           <= 'x; //
                 o_nozero_ff                       <= 'x; //
@@ -432,8 +463,9 @@ begin
            o_swi_ff                          <= o_stall_from_shifter ? '0 : i_swi_ff;
            o_pc_plus_8_ff                    <= i_pc_plus_8_ff;
            o_mem_srcdest_value_ff            <= mem_srcdest_value;
-           o_alu_source_value_ff             <= rn;
-           o_shifted_source_value_ff         <= rm;
+           o_alu_source_value_ff             <= i_load_pending_ff[0] ? pickup_value[0 +: 32] : rn;
+           o_shifted_source_value_ff         <= (i_load_pending_ff[1] && !shifter_enabled) ?
+                                                pickup_value[32 +: 32] : rm;
            o_shift_carry_ff                  <= shift_carry_nxt;
            o_shift_sat_ff                    <= shift_sat_nxt | mult_sat_nxt;
            o_switch_ff                       <= i_switch_ff;
@@ -441,6 +473,10 @@ begin
            o_force32align_ff                 <= i_force32align_ff;
            o_taken_ff                        <= i_taken_ff;
            o_ppc_ff                          <= i_ppc_ff;
+           o_early_redirect_ff <= early_branch;
+           o_early_target_ff <= early_condition ? i_link_branch_ff[31:0] :
+                   i_pc_ff + (i_thumb_ff ? 32'd2 : 32'd4);
+           o_link_branch_ff <= {i_link_branch_ff[33:32] & {2{!o_stall_from_shifter}}, i_link_branch_ff[31:0]};
            o_pc_ff                           <= i_pc_ff;
            o_nozero_ff                       <= nozero_nxt;
 
@@ -458,8 +494,11 @@ zap_shifter_shift  #(
 )
 U_SHIFT
 (
-        .i_source       ( shift_source ),
-        .i_amount       ( pickup_value[64 +: 8] ),
+        // ARM925T: forwarding is only used by the unshifted bypass. Do not
+        // route it through the barrel shifter as well: that creates an
+        // ALU -> forwarding -> barrel path whose output is never selected.
+        .i_source       ( i_load_pending_ff[1] ? i_memory_load_value : i_shift_source_value_ff ),
+        .i_amount       ( i_load_pending_ff[2] ? i_memory_load_value[7:0] : i_shift_length_value_ff[7:0] ),
         .i_shift_type   ( i_shift_operation_ff ),
         .i_carry        ( i_cpsr_ff_29 ),
         .o_result       ( shout ),
@@ -470,7 +509,7 @@ U_SHIFT
 ///////////////////////////////////////////////////////////////////////////////
 
 // Resolve conflict for ALU source value (rn)
-assign rn = resolve_conflict ( i_alu_source_ff, pickup_value[0 +: 32],
+assign rn = resolve_conflict ( i_alu_source_ff, i_alu_source_value_ff,
                          o_destination_index_ff, i_alu_value_nxt, i_alu_dav_nxt,
                          i_force32align_ff ); // Needed to pass force32align.
 
@@ -507,7 +546,7 @@ assign shift_sat_nxt   = shifter_enabled ? shsat   : 1'd0;
 //
 assign  mem_srcdest_value = resolve_conflict (
                 {27'd0, i_mem_srcdest_index_ff},
-                pickup_value[96 +: 32],
+                i_load_pending_ff[3] ? i_memory_load_value : i_mem_srcdest_value_ff,
                 o_destination_index_ff,
                 i_alu_value_nxt,
                 i_alu_dav_nxt,

@@ -155,21 +155,32 @@ module zap_writeback #(
 
 logic     [31:0]                  cpsr_ff, cpsr_nxt;
 logic [$clog2(PHY_REGS)-1:0]      wa1, wa2;
+logic [39:0] write_sel1, write_sel2;
+// ARM925T: decode each normal write address before the control priority
+// mux. CP15/exception selection must not precede the register-file decoder.
+(* keep *) wire [39:0] write_alu = 40'b1 << i_wr_index;
+(* keep *) wire [39:0] write_load = 40'b1 << i_wr_index_1;
+(* keep *) wire [39:0] write_copro = 40'b1 << i_copro_reg_wr_index;
 logic [31:0]                      wdata1, wdata2;
 logic                             wen;
 
 logic                             shelve_ff, shelve_nxt;
 logic [31:0]                      pc_shelve_ff, pc_shelve_nxt;
-logic [32:0]                      pc_ff, pc_nxt, pc_nxt_tmp;
+logic [32:0]                      pc_ff, pc_nxt;
 logic [32:0]                      pc_del_ff, pc_del_nxt;
 logic [32:0]                      pc_del2_ff, pc_del2_nxt;
 logic [32:0]                      pc_del3_ff, pc_del3_nxt;
 
-// ARM925T: the registered BTB decision belongs to pc_del_ff. Carry the
-// accepted redirect (not just a BTB hit) and state with that instruction
-// through the two remaining fetch-address registers, including stalls.
-logic [32:0]                      pred_del2_ff, pred_del3_ff, pred_del2_nxt;
-logic [1:0]                       btb_taken, taken_del2_ff, taken_del3_ff;
+// ARM925T: read from pc_ff, then register the decision at pc_del2.
+// Carry the accepted prediction with the branch into the final fetch slot.
+// ARM925T: clear/recovery qualifies one valid bit, not the 32-bit payload.
+(* dont_retime *) logic pred_valid_ff;
+logic pred_valid_nxt;
+(* dont_retime *) logic pred_del2_valid_ff;
+logic pred_del2_valid_nxt;
+(* dont_retime *) logic [31:0] pred_del2_target_ff;
+(* dont_retime *) logic [31:0] pred_target_ff;
+logic [1:0]                       btb_taken, taken_del3_ff;
 
 logic                             mode32;
 logic                             clear_from_btb;
@@ -187,7 +198,7 @@ assign  o_cpsr_nxt   = cpsr_nxt;
 assign  o_dbg_cpsr_ff = cpsr_ff;    // ARM925T: debug trace
 assign  o_wb_stb     = pc_del3_ff[32];
 assign  o_wb_cyc     = pc_del3_ff[32];
-assign  o_pred       = pred_del3_ff;
+assign  o_pred       = {pred_valid_ff, pred_target_ff & {32{pred_valid_ff}}};
 assign  o_taken      = taken_del3_ff;
 
 // ----------------------------------------------------------------------------
@@ -199,8 +210,8 @@ zap_register_file u_zap_register_file
 .i_clk(i_clk),
  .i_reset        (       i_reset         ),
 
- .i_wr_addr_a    (       wa1             ),
- .i_wr_addr_b    (       wa2             ),
+ .i_wr_addr_a    (       write_sel1      ),
+ .i_wr_addr_b    (       write_sel2      ),
  .i_wr_addr_c    (     i_wr_index_2      ),
 
  .i_wr_data_a    (       wdata1          ),
@@ -225,137 +236,107 @@ zap_register_file u_zap_register_file
 // Combinational Logic
 // ----------------------------------------------------------------------------
 
-// PC control tree.
+// ARM925T: map each candidate before selecting the next PC. A zero-tag
+// comparison after the wide priority mux put decode/stall control through
+// another compare and mux on its way to pc_ff[31:25].
+function automatic [31:0] map_pc(input [31:0] address);
+        map_pc = {(address[31:25] == 0) ? i_cpu_pid : address[31:25],
+                  address[24:1], 1'b0};
+endfunction
+
 always_comb
 begin: pc_control_tree
+        logic [9:0] recovery_select;
+        logic [9:0][31:0] recovery_pc;
+        logic [31:0] new_pc, mapped_new_pc;
 
-        // ========================================
-        // Local Var Section
-        // ========================================
+        recovery_pc[9] = mode32 ? i_pc_plus_8_buf_ff - 8 : i_pc_plus_8_buf_ff - 4;
+        recovery_pc[8] = vector_base | DABT_VECTOR;
+        recovery_pc[7] = vector_base | FIQ_VECTOR;
+        recovery_pc[6] = vector_base | IRQ_VECTOR;
+        recovery_pc[5] = vector_base | PABT_VECTOR;
+        recovery_pc[4] = vector_base | SWI_VECTOR;
+        recovery_pc[3] = vector_base | UND_VECTOR;
+        recovery_pc[2] = i_wr_data_1;
+        recovery_pc[1] = i_pc_from_alu;
+        recovery_pc[0] = i_pc_from_decode;
 
-        logic [31:0] new_pc;
-
-        // =======================================
-        // Default value section
-        // (Done to avoid combo loops/incomplete assignments)
-        // =======================================
-
-        new_pc                   = 'd0;
-        shelve_nxt               = shelve_ff;
-        pc_shelve_nxt            = pc_shelve_ff;
-        pc_nxt_tmp               = pc_ff;
-        pc_nxt                   = pc_ff;
-        pc_del_nxt               = pc_del_ff;
-        pc_del2_nxt              = pc_del2_ff;
-        pc_del3_nxt              = pc_del3_ff;
-        pred_del2_nxt            = 33'd0;
-
-        // ====================================
-        // Code Section
-        // ====================================
-
-        if ( i_data_abt[1] )
-        begin
-                // Return do the same instruction.
-                `zap_pc_shelve( mode32 ? i_pc_plus_8_buf_ff - 8 : i_pc_plus_8_buf_ff - 4 );
-        end
-        else if ( i_data_abt[0] )
-        begin
-                // Returns do LR - 8 to get back to the same instruction.
-                `zap_pc_shelve( vector_base | DABT_VECTOR );
-        end
-        else if ( i_fiq )
-        begin
-                // Returns do LR - 4 to get back to the same instruction.
-                `zap_pc_shelve ( vector_base | FIQ_VECTOR );
-        end
-        else if ( i_irq  )
-        begin
-                // Returns do LR - 4 to get back to the same instruction.
-                `zap_pc_shelve ( vector_base | IRQ_VECTOR );
-        end
-        else if ( i_instr_abt )
-        begin
-                // Returns do LR - 4 to get back to the same instruction.
-                `zap_pc_shelve ( vector_base | PABT_VECTOR );
-        end
-        else if ( i_swi )
-        begin
-                // Returns to LR to return next instruction.
-                `zap_pc_shelve ( vector_base | SWI_VECTOR );
-        end
-        else if ( i_und )
-        begin
-                // Returns do LR to return to the next instruction.
-                `zap_pc_shelve ( vector_base | UND_VECTOR );
-        end
-        else if ( i_valid && i_mem_load_ff && i_wr_index_1 == {2'd0, ARCH_PC} )
-        begin
-                `zap_pc_shelve(i_wr_data_1);
-        end
-        else if ( i_clear_from_alu )
-        begin
-                `zap_pc_shelve(i_pc_from_alu);
-        end
-        else if ( i_clear_from_decode )
-        begin
-                `zap_pc_shelve(i_pc_from_decode);
-        end
-        else if ( i_code_stall )
-        begin
-                pc_nxt_tmp  = pc_ff;
-                pc_del_nxt  = pc_del_ff;
-                pc_del2_nxt = pc_del2_ff;
-                pc_del3_nxt = pc_del3_ff;
-        end
-        else if ( shelve_ff )
-        begin
-                pc_nxt_tmp  = {1'd1, pc_shelve_ff[31:0]};
-                pc_del_nxt  = 33'd0;
-                pc_del2_nxt = 33'd0;
-                pc_del3_nxt = 33'd0;
-                shelve_nxt  = 1'd0;
-        end
-        else if ( i_clear_from_icache )
-        begin
-                `zap_pc_shelve (pc_del3_ff[31:0]);
-        end
-        else if ( clear_from_btb && pc_del_ff[32] && !i_clear_btb )
-        begin
-                // ARM925T: predict at pc_del, preserving this branch and
-                // everything older. Only pc_ff is on the sequential wrong
-                // path: discard that one slot, then fetch the target.
-                // Recovery redirects above still invalidate all three slots.
-                pc_nxt_tmp    = {1'd1, pc_from_btb};
-                pc_del_nxt    = {1'd0, pc_ff[31:0]};
-                pc_del2_nxt   = pc_del_ff;
-                pc_del3_nxt   = pc_del2_ff;
-                pred_del2_nxt = {1'd1, pc_from_btb};
-        end
-        else
-        begin
-                pc_nxt_tmp[31:0] = pc_ff[31:0] + (i_mode16 ? 32'd2 : 32'd4);
-                pc_del_nxt       = pc_ff;
-                pc_del2_nxt      = pc_del_ff;
-                pc_del3_nxt      = pc_del2_ff;
+        // Preserve the architectural redirect priority. The one-hot select
+        // drives parallel data muxes for raw (shelved) and mapped PCs.
+        casez ({i_data_abt[1], i_data_abt[0], i_fiq, i_irq, i_instr_abt,
+                i_swi, i_und,
+                (i_valid && i_mem_load_ff && i_wr_index_1 == {2'd0, ARCH_PC}),
+                i_clear_from_alu, i_clear_from_decode})
+                10'b1?????????: recovery_select = 10'b1000000000;
+                10'b01????????: recovery_select = 10'b0100000000;
+                10'b001???????: recovery_select = 10'b0010000000;
+                10'b0001??????: recovery_select = 10'b0001000000;
+                10'b00001?????: recovery_select = 10'b0000100000;
+                10'b000001????: recovery_select = 10'b0000010000;
+                10'b0000001???: recovery_select = 10'b0000001000;
+                10'b00000001??: recovery_select = 10'b0000000100;
+                10'b000000001?: recovery_select = 10'b0000000010;
+                10'b0000000001: recovery_select = 10'b0000000001;
+                default:        recovery_select = 10'b0;
+        endcase
+        new_pc = 0;
+        mapped_new_pc = 0;
+        for (int k = 0; k < 10; k++) begin
+                new_pc |= recovery_pc[k] & {32{recovery_select[k]}};
+                mapped_new_pc |= map_pc(recovery_pc[k]) & {32{recovery_select[k]}};
         end
 
-        // Shelve bit.
-        pc_nxt[32] = pc_nxt_tmp[32];
+        shelve_nxt    = shelve_ff;
+        pc_shelve_nxt = pc_shelve_ff;
+        pc_nxt        = {pc_ff[32], map_pc(pc_ff[31:0])};
+        pc_del_nxt    = pc_del_ff;
+        pc_del2_nxt   = pc_del2_ff;
+        pc_del3_nxt   = pc_del3_ff;
+        pred_valid_nxt = 1'b0;
+        pred_del2_valid_nxt = 1'b0;
 
-        // FCSE
-        if ( pc_nxt_tmp[31:25] == 0 )
-        begin
-                pc_nxt[31:25] = i_cpu_pid[6:0];
+        if (|recovery_select) begin
+                if (i_code_stall) begin
+                        // Keep the raw address: PID may change before release.
+                        shelve_nxt = 1'b1;
+                        pc_shelve_nxt = new_pc;
+                end else begin
+                        pc_nxt = {1'b1, mapped_new_pc};
+                        pc_del_nxt  = {1'b0, pc_ff[31:0]};
+                        pc_del2_nxt = {1'b0, pc_del_ff[31:0]};
+                        pc_del3_nxt = {1'b0, pc_del2_ff[31:0]};
+                        shelve_nxt = 1'b0;
+                end
+        end else if (!i_code_stall) begin
+                if (shelve_ff) begin
+                        pc_nxt = {1'b1, map_pc(pc_shelve_ff)};
+                        pc_del_nxt = 0;
+                        pc_del2_nxt = 0;
+                        pc_del3_nxt = 0;
+                        shelve_nxt = 1'b0;
+                end else if (i_clear_from_icache) begin
+                        pc_nxt = {1'b1, map_pc(pc_del3_ff[31:0])};
+                        pc_del_nxt  = {1'b0, pc_ff[31:0]};
+                        pc_del2_nxt = {1'b0, pc_del_ff[31:0]};
+                        pc_del3_nxt = {1'b0, pc_del2_ff[31:0]};
+                        shelve_nxt = 1'b0;
+                end else if (clear_from_btb && pc_del_ff[32] && !i_clear_btb) begin
+                        // ARM925T: the RAM read belongs to pc_del. Preserve
+                        // it and the older slot; discard just pc_ff.
+                        pc_nxt = {1'b1, map_pc(pc_from_btb)};
+                        pc_del_nxt  = {1'b0, pc_ff[31:0]};
+                        pc_del2_nxt = pc_del_ff;
+                        pc_del3_nxt = pc_del2_ff;
+                        pred_del2_valid_nxt = 1'b1;
+                        pred_valid_nxt = pred_del2_valid_ff;
+                end else begin
+                        pc_nxt = {pc_ff[32], map_pc(pc_ff[31:0] + (i_mode16 ? 32'd2 : 32'd4))};
+                        pc_del_nxt = pc_ff;
+                        pc_del2_nxt = pc_del_ff;
+                        pc_del3_nxt = pc_del2_ff;
+                        pred_valid_nxt = pred_del2_valid_ff;
+                end
         end
-        else
-        begin
-                pc_nxt[31:25] = pc_nxt_tmp[31:25];
-        end
-
-        // Lower bit of PC is always zero.
-        pc_nxt[24:0] = {pc_nxt_tmp[24:1], 1'd0};
-
 end: pc_control_tree
 
 // Register file write.
@@ -368,7 +349,9 @@ begin: register_file_write
 
         wen                      = 1'd0;
         wa1                      = PHY_RAZ_REGISTER;
+        write_sel1 = 40'b1 << PHY_RAZ_REGISTER;
         wa2                      = PHY_RAZ_REGISTER;
+        write_sel2 = 40'b1 << PHY_RAZ_REGISTER;
         wdata1                   = 32'd0;
         wdata2                   = 32'd0;
         o_clear_from_writeback   = 0;
@@ -389,7 +372,9 @@ begin: register_file_write
                                               i_pc_plus_8_buf_ff :
                                               i_pc_plus_8_buf_ff + 4;
                 wa1                         = PHY_ABT_R14;
+                write_sel1 = 40'b1 << PHY_ABT_R14;
                 wa2                         = PHY_ABT_SPSR;
+                write_sel2 = 40'b1 << PHY_ABT_SPSR;
                 wdata2                      = cpsr_ff;
                 cpsr_nxt[ZAP_CPSR_MODE:0]   = ABT;
 
@@ -404,7 +389,9 @@ begin: register_file_write
                 wen                     = 1;
                 wdata1                  = mode32 ? i_wr_data : i_pc_plus_8_buf_ff ;
                 wa1                     = PHY_FIQ_R14;
+                write_sel1 = 40'b1 << PHY_FIQ_R14;
                 wa2                     = PHY_FIQ_SPSR;
+                write_sel2 = 40'b1 << PHY_FIQ_SPSR;
                 wdata2                  = cpsr_ff;
                 cpsr_nxt[ZAP_CPSR_MODE:0] = FIQ;
                 cpsr_nxt[F]             = 1'd1; // Mask FIQ interrupts.
@@ -416,7 +403,9 @@ begin: register_file_write
                 wen                     = 1;
                 wdata1                  = mode32 ? i_wr_data : i_pc_plus_8_buf_ff ;
                 wa1                     = PHY_IRQ_R14;
+                write_sel1 = 40'b1 << PHY_IRQ_R14;
                 wa2                     = PHY_IRQ_SPSR;
+                write_sel2 = 40'b1 << PHY_IRQ_SPSR;
                 wdata2                  = cpsr_ff;
                 cpsr_nxt[ZAP_CPSR_MODE:0] = IRQ;
 
@@ -427,7 +416,9 @@ begin: register_file_write
                 wen                        = 1;
                 wdata1                     = mode32 ? i_wr_data : i_pc_plus_8_buf_ff ;
                 wa1                        = PHY_ABT_R14;
+                write_sel1 = 40'b1 << PHY_ABT_R14;
                 wa2                        = PHY_ABT_SPSR;
+                write_sel2 = 40'b1 << PHY_ABT_SPSR;
                 wdata2                     = cpsr_ff;
                 cpsr_nxt[ZAP_CPSR_MODE:0]  = ABT;
 
@@ -440,7 +431,9 @@ begin: register_file_write
                 // PC + 2 (PC + 4 - 2); upstream gave the SWI's own address.
                 wdata1                    = mode32 ? i_wr_data : i_pc_plus_8_buf_ff - 32'd2;
                 wa1                       = PHY_SVC_R14;
+                write_sel1 = 40'b1 << PHY_SVC_R14;
                 wa2                       = PHY_SVC_SPSR;
+                write_sel2 = 40'b1 << PHY_SVC_SPSR;
                 wdata2                    = cpsr_ff;
                 cpsr_nxt[ZAP_CPSR_MODE:0] = SVC;
 
@@ -452,7 +445,9 @@ begin: register_file_write
                 // ARM925T: as for SWI, PC + 2 from Thumb state.
                 wdata1                    = mode32 ? i_wr_data : i_pc_plus_8_buf_ff - 32'd2;
                 wa1                       = PHY_UND_R14;
+                write_sel1 = 40'b1 << PHY_UND_R14;
                 wa2                       = PHY_UND_SPSR;
+                write_sel2 = 40'b1 << PHY_UND_SPSR;
                 wdata2                    = cpsr_ff;
                 cpsr_nxt[ZAP_CPSR_MODE:0] = UND;
 
@@ -463,6 +458,7 @@ begin: register_file_write
                // Write to register (Coprocessor command).
                wen      = 1;
                wa1      = i_copro_reg_wr_index;
+               write_sel1 = write_copro;
                wdata1   = i_copro_reg_wr_data;
         end
         else if ( i_valid ) // If valid,
@@ -475,10 +471,12 @@ begin: register_file_write
 
                 // Port from arithmetic side
                 wa1    = i_wr_index;
+                write_sel1 = write_alu;
                 wdata1 = i_wr_data;
 
                 // Port from memory side.
                 wa2    = i_mem_load_ff ? i_wr_index_1 : PHY_RAZ_REGISTER;
+                write_sel2 = i_mem_load_ff ? write_load : (40'b1 << PHY_RAZ_REGISTER);
                 wdata2 = i_wr_data_1;
 
                 // Load to PC will trigger from writeback.
@@ -512,9 +510,8 @@ begin
                 pc_del_ff                  <= 33'd0;
                 pc_del2_ff                 <= 33'd0;
                 pc_del3_ff                 <= 33'd0;
-                pred_del2_ff               <= 33'd0;
-                pred_del3_ff               <= 33'd0;
-                taken_del2_ff              <= SNT;
+                pred_valid_ff             <= 1'b0;
+                pred_del2_valid_ff          <= 1'b0;
                 taken_del3_ff              <= SNT;
 
                 // CPSR reset logic.
@@ -532,10 +529,11 @@ begin
 
                 if ( !i_code_stall )
                 begin
-                        pred_del2_ff  <= pred_del2_nxt;
-                        pred_del3_ff  <= pred_del2_ff;
-                        taken_del2_ff <= btb_taken;
-                        taken_del3_ff <= taken_del2_ff;
+                        pred_valid_ff <= pred_valid_nxt;
+                        pred_target_ff <= pred_del2_target_ff;
+                        pred_del2_target_ff <= pc_from_btb;
+                        pred_del2_valid_ff <= pred_del2_valid_nxt;
+                        taken_del3_ff <= btb_taken;
                 end
 
                 cpsr_ff                   <= cpsr_nxt;
@@ -558,11 +556,10 @@ zap_btb #(.BP_ENTRIES(BP_ENTRIES)) u_zap_btb (
         .i_fb_branch_src_address(i_alu_pc_ff),
         .i_fb_branch_dest_address(i_pc_from_alu),
         .i_fb_current_branch_state(i_taken),
-        // ARM925T: read the PC being formed, in parallel with registering
-        // it. RAM output is checked against pc_ff, then the registered
-        // decision reaches pc_del. No RAM/tag logic enters the PC mux.
-        .i_rd_addr(pc_nxt[31:0]),
-        .i_rd_addr_del(pc_ff[31:0]),
+        // ARM925T: both lookup stages start at registers. The RAM reads
+        // pc_ff; its registered result redirects at pc_del_ff.
+        .i_rd_addr(pc_ff[31:0]),
+        .i_rd_addr_del(pc_del_ff[31:0]),
         .o_clear_from_btb(clear_from_btb),
         .o_pc_from_btb(pc_from_btb),
         .o_branch_state(btb_taken)
@@ -724,7 +721,7 @@ assign o_trace_valid   = '0;
 assign o_trace_uop_last= '0;
 
 logic unused;
-assign unused = |{i_decompile_valid, i_uop_last, pc_nxt_tmp[0]};
+assign unused = |{i_decompile_valid, i_uop_last};
 
 `endif
 

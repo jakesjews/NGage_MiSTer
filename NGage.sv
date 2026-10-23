@@ -31,7 +31,27 @@ module emu #(
 	// the self-test's coverage (the simulation tests a part)
 	parameter int SELFTEST_SDRAM_WORDS_LOG2  = 22,
 	parameter int SELFTEST_ONCHIP_WORDS_LOG2 = 14,
-	parameter int SELFTEST_FLASH_WORDS_LOG2  = 12
+	parameter int SELFTEST_FLASH_WORDS_LOG2  = 12,
+	// the CPU's I-cache: 16 KB (the phone's) or 32 KB with NGAGE_ICACHE_32K;
+	// the sequential next-line prefetch is off (the phone has none, and it
+	// measured no gain in play) unless NGAGE_ICACHE_PREFETCH; macros in NGage.qsf
+`ifdef NGAGE_ICACHE_32K
+	parameter int ICACHE_SIZE                = 32768,
+`else
+	parameter int ICACHE_SIZE                = 16384,
+`endif
+`ifdef NGAGE_ICACHE_PREFETCH
+	parameter bit ICACHE_PREFETCH            = 1'b1,
+`else
+	parameter bit ICACHE_PREFETCH            = 1'b0,
+`endif
+	// Experimental capacity; c0 still reports the phone's 8 KB D-cache.
+`ifdef NGAGE_DCACHE_16K
+	parameter int DCACHE_SIZE                = 16384,
+`else
+	parameter int DCACHE_SIZE                = 8192,
+`endif
+	parameter int DCACHE_WAYS                = 2
 ) (
 	`include "sys/emu_ports.vh"
 );
@@ -83,14 +103,17 @@ localparam CONF_STR = {
 	"O[15:14],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
 	"O[6],Memory test,Off,On;",
+`ifndef NGAGE_NO_DEBUG
 	"O[8],Debug overlay,Off,On;",
+`endif
 	"-;",
 	"T[7],Save C: now;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
+	"O[17:16],Activity dot,Boot only,Always,Off;",
 	"J,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power;",
 	"jn,A,B,X,L,R,Start,Select;",
-	"I,Memory test passed,Memory test FAILED,CS1 mounted: C: saves to it,CS1 save file must be 8 MB,CS1 read-only: no C: saves,C: saved;",
+	"I,Memory test passed,Memory test FAILED,CS1 mounted: C: saves to it,CS1 save file must be 8 MB,CS1 read-only: no C: saves,C: saved,Booting the phone - about a minute...,Phone kernel is up;",
 	"V,v",`BUILD_DATE
 };
 
@@ -612,10 +635,16 @@ wire [31:0] tr_wb_pc, tr_wb_cpsr, tr_wb_cpsr_nxt;
 wire        tr_d_done, tr_d_we;
 wire        cpu_dbg_wfi;
 wire  [7:0] cpu_dbg_stall;
+wire  [3:0] cpu_dbg_dcache;   // load fills, store fills, write-backs, uncached completions
 wire [31:0] tr_d_va, tr_d_wdata, tr_d_rdata;
 wire  [3:0] tr_d_sel;
 
-arm925t arm925t
+arm925t #(
+	.ICACHE_SIZE(ICACHE_SIZE),
+	.ICACHE_PREFETCH(ICACHE_PREFETCH),
+	.DCACHE_SIZE(DCACHE_SIZE),
+	.DCACHE_WAYS(DCACHE_WAYS)
+) arm925t
 (
 	.clk(clk_sys),
 	.reset(cpu_reset),
@@ -635,6 +664,7 @@ arm925t arm925t
 	.dbg_wb_valid(tr_wb_valid),
 	.dbg_wfi(cpu_dbg_wfi),
 	.dbg_stall(cpu_dbg_stall),
+	.dbg_dcache(cpu_dbg_dcache),
 	.dbg_wb_dvalid(tr_wb_dvalid),
 	.dbg_wb_uop_last(tr_wb_uop_last),
 	.dbg_wb_dabt(tr_wb_dabt),
@@ -765,28 +795,63 @@ wb_selftest #(
 	.pass_done(test_pass_done)
 );
 
-// OSD message after the first pass, and after a pass that found new errors
+// First firmware LCD frame is a cheap boot milestone. lcd_testgen also
+// emits frame events before images load; only the UPP-owned bus counts.
+reg         cpu_reset_q = 1'b1;
+reg         boot_done /* verilator public_flat_rd */ = 1'b0;
+wire        boot_start = cpu_reset_q && !cpu_reset;
+wire        boot_up = !cpu_reset && !boot_done && upp_lcd_on && lcd_frame_ev;
+always @(posedge clk_sys) begin
+	cpu_reset_q <= cpu_reset;
+	if (cpu_reset) boot_done <= 1'b0;
+	else if (boot_up) boot_done <= 1'b1;
+end
+
+// Queue info events, with a low cycle between pulses: a mounted/save/test
+// event must not swallow a boot message (or vice versa) on the same clock.
 reg  [15:0] test_reported = 0;
 reg         test_first = 1;
+wire        test_note = test_pass_done && (test_first || test_errors != test_reported);
+wire  [7:0] info_events = {boot_up, boot_start, fs_saved,
+                          fs_note == 2'd3, fs_note == 2'd2, fs_note == 2'd1,
+                          test_note && test_errors != 16'd0, test_note && test_errors == 16'd0};
+reg   [7:0] info_pending = 0;
 reg   [7:0] info_q = 0;
 reg         info_req_q = 0;
+reg   [7:0] info_next, info_mask;
+always @* begin
+	info_next = 0;
+	info_mask = 0;
+	for (int i = 7; i >= 0; i--) begin
+		if (info_pending[i]) begin
+			info_next = 8'(i + 1);
+			info_mask = 8'(1 << i);
+		end
+	end
+end
 always @(posedge clk_sys) begin
 	info_req_q <= 1'b0;
-	// the CS1 save's messages: 3 mounted, 4 not 8 MB, 5 read-only, 6 saved
-	if (fs_note != 2'd0 || fs_saved) begin
-		info_q     <= fs_saved ? 8'd6 : 8'd2 + {6'd0, fs_note};
+	info_pending <= info_pending | info_events;
+	if (!info_req_q && info_next != 0) begin
+		info_q <= info_next;
 		info_req_q <= 1'b1;
-	end else if (test_pass_done && (test_first || test_errors != test_reported)) begin
-		info_q        <= (test_errors == 16'd0) ? 8'd1 : 8'd2;
-		info_req_q    <= 1'b1;
-		test_first    <= 1'b0;
+		info_pending <= (info_pending & ~info_mask) | info_events;
+	end
+	if (test_note) begin
+		test_first <= 1'b0;
 		test_reported <= test_errors;
 	end
 	if (!test_on) begin
-		test_first    <= 1'b1;
+		test_first <= 1'b1;
 		test_reported <= 16'd0;
 	end
+	if (cpu_reset) info_pending[7:6] <= 2'b00;
+	if (sys_reset) begin
+		info_pending <= 0;
+		info_req_q <= 1'b0;
+	end
 end
+
 assign info_req = info_req_q;
 assign info     = info_q;
 
@@ -811,6 +876,7 @@ mmc_card mmc_card
 	.dat_i(mmc_dat),
 	.dat_o(card_dat_o),
 	.dat_oe(card_dat_oe),
+	.stop_queued(!dbg_src0[23]),
 	.present(),
 	.write_protected(),
 	.active(mmc_active),
@@ -940,9 +1006,13 @@ always @(posedge clk_sys) begin
 end
 wire [15:0] test_rgb = (test_errors != 16'd0)  ? 16'hF81F :
                        test_any_pass           ? 16'h07E0 : 16'hFFE0;
-// the debug overlay (OSD "Debug overlay"): the CPU's PC, status bits and
+// a completed CPU bus beat: the activity dot (below) and the counters
+wire        dbg_bus_beat  = wb_cyc && wb_stb && (wb_ack || wb_err);
+// The debug overlay (OSD "Debug overlay"): the CPU's PC, status bits and
 // 32-bit words as white pixels; tools/mister_dbg.py has the row layout and
-// decodes a screenshot
+// decodes a screenshot. NGAGE_NO_DEBUG (NGage.qsf) leaves the overlay, its
+// per-second counters and the trace triggers out: the main core.
+`ifndef NGAGE_NO_DEBUG
 reg  [31:0] dbg_pc_q = 0;
 reg         dbg_bus_q = 0;
 reg   [7:0] dbg_bits_q = 0;
@@ -993,19 +1063,26 @@ wire        dbg_tick = dbg_sec_pre == 27'd103_999_999;   // the second's last cl
 
 // per-second counters for the overlay (rtl/mister/dbg_counters.sv)
 wire        dbg_bus_pend  = wb_cyc && wb_stb && !wb_ack && !wb_err;
-wire        dbg_bus_beat  = wb_cyc && wb_stb && (wb_ack || wb_err);
 wire        dbg_bus_sdram = wb_adr[27:25] == 3'b101;      // 0x0A000000 window
 wire        dbg_bus_flash = wb_adr[27:26] == 2'b00;       // CS0-CS3
 // the events, one 32-bit count each: LCD frames and pixels, instructions
 // retired, clocks in wait-for-interrupt, bus wait clocks by target, bus
 // beats, the CPU's stall and flush taps (zap_core o_dbg_stall), uops
-// retired, replays. A replay (dbg_wb_dabt[1]: the writeback sends the
+// retired, replays, and the MMC card path (512-byte blocks completed,
+// clocks in a data phase, clocks the wire waits for Linux). A replay
+// (dbg_wb_dabt[1]: the writeback sends the
 // instruction round again because the data cache was busy with a fill) has
 // no architectural effect and is not a retired instruction or uop, as the
 // CPU bench counts them (sim/cpu/tb/main.cpp).
-localparam DBG_CNT = 18;
+localparam DBG_CNT = 25;
+reg         dbg_mmc_busy_q = 0;
+always @(posedge clk_sys) dbg_mmc_busy_q <= dbg_src0[22];
 wire        tr_wb_retire = (tr_wb_valid || tr_wb_dvalid) && !tr_wb_dabt[1];
 wire [DBG_CNT-1:0] dbg_ev = {
+	cpu_dbg_dcache,                                       // 24..21 D-cache: uncached completions, line write-backs, store-miss fills, load-miss fills
+	dbg_src0[22] && dbg_src0[23] && !card_dat_oe,         // 20 mmc wire waits for Linux
+	dbg_src0[22],                                         // 19 mmc clocks in data phase
+	dbg_mmc_busy_q && !dbg_src0[22],                      // 18 mmc 512-byte blocks completed
 	tr_wb_valid && tr_wb_dabt[1],                         // 17 replays
 	tr_wb_retire,                                         // 16 uops retired
 	cpu_dbg_stall,                                        // 15..8 clear_wb, clear_alu, decode, shifter, issue, fifo empty, code, data
@@ -1082,8 +1159,29 @@ wire        dbg_bit   = dbg_pcrow_q ? dbg_pc_q[5'd31 - dbg_col_q] :
                         dbg_strow_q ? dbg_bits_q[3'd7 - 3'(dbg_col_q)] :
                                       dbg_word_q[5'd31 - dbg_col_q];
 wire [15:0] dbg_rgb   = dbg_bit ? 16'hFFFF : 16'h0000;
+`else
+wire        dbg_on = 1'b0, dbg_pcrow_q = 1'b0, dbg_strow_q = 1'b0, dbg_wrow_q = 1'b0;
+wire [15:0] dbg_rgb = 16'h0000;
+assign dbg_trig = 1'b0;
+wire unused_dbg = &{1'b0, cpu_dbg_pc, cpu_dbg_stall, cpu_dbg_dcache, cpu_dbg_wfi, dbg_src0, dbg_en0_irq,
+                    dbg_en0_fiq, tr_trig_pc, tr_dumps, tr_triggers, tr_dumping, kt_count, kt_dropped,
+                    lcd_pix_ev, status[8]};
+`endif
+// A six-pixel activity square outside the fixed debug rows (x 16..47).
+// At 104 MHz, keep each completed CPU bus beat visible for 1/8 second.
+reg [23:0] activity_left /* verilator public_flat_rd */ = 0;
+always @(posedge clk_sys) begin
+	if (cpu_reset) activity_left <= 0;
+	else if (dbg_bus_beat) activity_left <= 24'd13_000_000;
+	else if (activity_left != 0) activity_left <= activity_left - 1'd1;
+end
+wire activity_show = !cpu_reset &&
+                     (status[17:16] == 2'd1 || (status[17:16] == 2'd0 && !boot_done));
+wire activity_dot = activity_show && activity_left != 0 &&
+                    scan_x >= 8'd164 && scan_x < 8'd170 && scan_y >= 8'd4 && scan_y < 8'd10;
 assign scan_rgb = (test_on && scan_x < 8'd12 && scan_y < 8'd12) ? test_rgb :
-                  (dbg_on && (dbg_pcrow_q || dbg_strow_q || dbg_wrow_q)) ? dbg_rgb : panel_rgb;
+                  (dbg_on && (dbg_pcrow_q || dbg_strow_q || dbg_wrow_q)) ? dbg_rgb :
+                  activity_dot ? 16'h07E0 : panel_rgb;
 
 wire       ce_pix;
 wire       hs, vs, hblank, vblank;

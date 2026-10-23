@@ -72,6 +72,7 @@ output  logic            o_err,
 output  logic [7:0]      o_fsr,
 output  logic [31:0]     o_far,
 output  logic            o_err2,
+output  logic [3:0]      o_dbg_dcache, // ARM925T: per-transaction debug events
 input   logic [63:0]     i_reg_idx,
 input   logic [5:0]      i_reg_idx_bin,
 output  logic [63:0]     o_lock,
@@ -136,7 +137,7 @@ logic [31:0]                     tlb_far;
 logic                            tlb_fault;
 logic                            tlb_cacheable;
 logic                            tlb_wt;        // ARM925T
-logic                            tlb_busy;
+logic                            tlb_busy, tlb_hit_ok;
 logic [CACHE_LINE*8-1:0]         tr_cache_line;
 logic [WAYS-1:0][31:0]           tr_cache_words;   // ARM925T
 logic                            tr_cache_word_sel; // ARM925T
@@ -145,6 +146,7 @@ logic [CACHE_LINE-1:0]           cf_cache_line_ben;
 logic                            cf_cache_tag_wr_en;
 logic [`ZAP_CACHE_TAG_WDT-1:0]   tr_cache_tag, cf_cache_tag;
 logic                            tr_cache_tag_valid;
+logic                            tr_cache_hit_early;
 logic                            tr_cache_hit, tr_cache_hit_dirty; // ARM925T
 logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] tr_cache_way, cf_cache_way; // ARM925T
 logic                            tr_cache_tag_dirty, cf_cache_tag_dirty;
@@ -153,6 +155,7 @@ logic [WAYS-1:0][31:0] raw_cache_words, merged_words;
 logic raw_cache_word_sel, raw_cache_tag_valid, raw_cache_hit, raw_cache_tag_dirty, raw_cache_hit_dirty;
 logic [`ZAP_CACHE_TAG_WDT-1:0] raw_cache_tag;
 logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] raw_cache_way;
+logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] cache_write_way;
 logic ram_write, forward_store, forward_victim;
 logic [31:0] compare_address;
 logic                            cf_cache_clean_req, cf_cache_inv_req;
@@ -162,9 +165,11 @@ logic [2:0]                      wb_ack;
 logic [2:0]                      state_ff, state_nxt;
 logic [31:0]                     cache_address;
 logic                            hold;
-logic                            idle;
+logic                            idle, live_lookup;
 logic [2:0]                      relookup;
 logic                            fill_busy;
+logic [3:0]                      cf_dbg_dcache;
+logic                            clean_line_event;
 assign o_fill_busy = fill_busy;
 localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
 localparam integer LINE_W = $clog2(CACHE_LINE);
@@ -188,8 +193,8 @@ begin
         end
 end
 
-// Reload the held lookup, then the two younger ones. At the next IDLE
-// cycle all three RAM stages again align with the CPU. The mux is before
+// Reload the held lookup, then the two younger ones. At the end of the
+// sequence all three RAM stages again align with the CPU. The mux is before
 // the RAM's first register; the shared tag RAM's hit path is untouched.
 // ARM9: restore the held request during the FSM reload; ordinary reads
 // launch from E in parallel with the TLB and capture their compare next.
@@ -216,6 +221,9 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address              (i_address),
+        .i_address_check        (i_address_check),
+        .i_hit_ok               (tlb_hit_ok),
+        .i_cache_hit_early      (tr_cache_hit_early),
         .i_rd                   (i_rd),
         .i_wr                   (i_wr),
         .i_din                  (i_dat),
@@ -223,6 +231,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_va                   (i_va),
         .i_ldfmt                (i_ldfmt),
         .o_idle                 (idle),
+        .o_live_lookup          (live_lookup),
         .o_relookup             (relookup),
         .o_fill_busy            (fill_busy),
         .i_ben                  (i_ben),
@@ -267,6 +276,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_wt                   (tlb_wt),
         .i_busy                 (tlb_busy),
         .o_err2                 (o_err2),
+        .o_dbg_dcache           (cf_dbg_dcache),
         .o_address              (cache_address),
         .o_wb_cyc_nxt           (wb_cyc[0]),
         .o_hold                 (hold),
@@ -299,19 +309,25 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
 );
 
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
-zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .SHORT_READ(SHORT_READ)) u_zap_cache_tag_ram     (
+// ARM925T: enlarged two-way D-caches retain the reported 8 KB geometry
+// for index maintenance. The tag manager visits all physical set colours.
+zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .SHORT_READ(SHORT_READ),
+                   .INDEX_SIZE((WAYS == 2 && CACHE_SIZE > 8192) ? 32'd8192 : CACHE_SIZE)) u_zap_cache_tag_ram (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address_nxt          (lookup_address),
         .i_address              (cache_address),
         .i_lookup_address       (SHORT_READ ? compare_address : i_address),            // ARM925T
+        .i_lookup_check_address (i_address_check),
+        .i_lookup_stall         ((i_rd || i_wr) && !o_ack),
+        .o_cache_hit_early      (tr_cache_hit_early),
         // Held/stale lookups must not update replacement state.
-        .i_access               (SHORT_READ ? (i_rd_check || i_wr_check) && idle : (i_rd || i_wr) && idle),
-        .i_idle                 (SHORT_READ ? 1'b0 : idle),
+        .i_access               (SHORT_READ ? (i_rd_check || i_wr_check) && idle : (i_rd || i_wr) && (idle || (live_lookup && o_ack))),
+        .i_idle                 (SHORT_READ ? 1'b0 : live_lookup),
         .o_cache_hit            (raw_cache_hit),
         .o_cache_hit_dirty      (raw_cache_hit_dirty),
         .o_cache_way            (raw_cache_way),
-        .i_cache_way            (cf_cache_way),
+        .i_cache_way            (cache_write_way),
         .i_hold                 (hold || i_stall),
         .i_cache_en             (i_cache_en),
         .i_cache_line           (cf_cache_line),
@@ -354,7 +370,9 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .o_wb_wen_nxt           (wb_wen[1]),
         .o_wb_cti_nxt           (wb_cti[1]),
         .i_wb_dat               (i_wb_dat),
-        .i_wb_ack               (wb_ack[1])
+        .i_wb_ack               (wb_ack[1]),
+        .i_pf_addr      (32'd0),
+        .o_pf_hit       ()
 );
 
 // ARM9: compare the E-launched RAM result in M1, then capture M2.
@@ -362,8 +380,11 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
 // permission check. A store writes its registered way, never the younger
 // probe's hit way. On a miss no speculative store write reaches the RAM.
 assign compare_address = (|relookup) ? i_address : i_address_check;
-assign ram_write = !SHORT_READ || !idle || tr_cache_hit;
-assign forward_store = idle && cf_cache_tag_wr_en && tr_cache_hit &&
+// The FSM exposes its saved victim way. SHORT_READ stores use the
+// registered live hit way; ZAP selects the live way inside the tag RAM.
+assign cache_write_way = SHORT_READ && live_lookup ? tr_cache_way : cf_cache_way;
+assign ram_write = !SHORT_READ || !live_lookup || tr_cache_hit;
+assign forward_store = live_lookup && cf_cache_tag_wr_en && tr_cache_hit &&
                        compare_address[LINE_W +: SET_W] == cache_address[LINE_W +: SET_W];
 assign forward_victim = forward_store &&
                        raw_cache_tag[`ZAP_CACHE_TAG__TAG] == cf_cache_tag[`ZAP_CACHE_TAG__TAG];
@@ -378,7 +399,7 @@ always_comb begin
     end
     for (int w=0; w<WAYS; w++) begin
         for (int b=0; b<4; b++) begin
-            if (forward_store && cf_cache_way == w &&
+            if (forward_store && cache_write_way == w &&
                 cf_cache_line_ben[4*compare_address[LINE_W-1:2]+b])
                 merged_words[w][8*b +: 8] = cf_cache_line[32*compare_address[LINE_W-1:2]+8*b +: 8];
         end
@@ -399,7 +420,7 @@ generate if (SHORT_READ) begin : g_short_response
             tr_cache_hit <= raw_cache_hit;
             tr_cache_way <= raw_cache_way;
             tr_cache_hit_dirty <= raw_cache_hit_dirty ||
-                (forward_store && raw_cache_hit && raw_cache_way == cf_cache_way);
+                (forward_store && raw_cache_hit && raw_cache_way == cache_write_way);
             tr_cache_word_sel <= 0;
             for (int w=0; w<WAYS; w++) tr_cache_words[w] <= formatted;
         end
@@ -435,7 +456,7 @@ u_zap_tlb (
         .i_rd_check     (i_rd_check),
         // Preserve all TLB reads and the permission-check result while
         // the CPU waits for a fill. Cache RAMs must still accept writes.
-        .i_hold         (hold || i_stall || (fill_busy && (i_rd || i_wr))),
+        .i_hold         (hold || i_stall || (fill_busy && (i_rd || i_wr) && !o_ack)),
         .i_cpsr         (i_cpsr),
         .i_sr           (i_sr),
         .i_dac_reg      (i_dac_reg),
@@ -449,6 +470,7 @@ u_zap_tlb (
         .o_cacheable    (tlb_cacheable),
         .o_wt           (tlb_wt),
         .o_busy         (tlb_busy),
+        .o_hit_ok       (tlb_hit_ok),
         .o_wb_stb_nxt   (wb_stb[2]),
         .o_wb_cyc_nxt   (wb_cyc[2]),
         .o_wb_adr_nxt   (wb_adr[2]),
@@ -461,6 +483,17 @@ u_zap_tlb (
 );
 
 // Sequential Block
+// ARM925T: explicit whole-cache and line cleaning use the tag manager,
+// while evictions use the cache FSM. Count each line at its last beat.
+always_ff @(posedge i_clk)
+        if (i_reset)
+                clean_line_event <= 1'b0;
+        else
+                clean_line_event <= state_ff == SELECT_TAG && o_wb_stb &&
+                    o_wb_wen && o_wb_cti == CTI_EOB && (i_wb_ack || i_wb_err);
+
+assign o_dbg_dcache = cf_dbg_dcache | {1'b0, clean_line_event, 2'b0};
+
 always_ff @ ( posedge i_clk )
 begin
         if ( i_reset )
@@ -528,13 +561,21 @@ end
 //
 assign o_wb_cyc_nxt = ( !o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err)) ) ? (|wb_cyc) : (|(state_ff & wb_cyc));
 
+// ARM925T: compute the selected strobe directly, alongside arbitration.
+// The hold case still uses the current owner; a new request retains the
+// TLB > tag > cache priority even if a manager's CYC and STB differ.
+assign o_wb_stb_nxt = ((!o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err))) && (|wb_cyc)) ?
+        ((wb_cyc[2] && wb_stb[2]) ||
+         (!wb_cyc[2] && wb_cyc[1] && wb_stb[1]) ||
+         (!wb_cyc[2] && !wb_cyc[1] && wb_cyc[0] && wb_stb[0])) :
+        (|(state_ff & wb_stb));
+
 // Combo signals for external MUXing.
 always_comb
 begin
         case(state_nxt)
         SELECT_CCH:
         begin
-                o_wb_stb_nxt = wb_stb[0];
                 o_wb_adr_nxt = wb_adr[0];
                 o_wb_dat_nxt = wb_dat[0];
                 o_wb_cti_nxt = wb_cti[0];
@@ -544,7 +585,6 @@ begin
         end
         SELECT_TAG:
         begin
-                o_wb_stb_nxt = wb_stb[1];
                 o_wb_adr_nxt = wb_adr[1];
                 o_wb_dat_nxt = wb_dat[1];
                 o_wb_cti_nxt = wb_cti[1];
@@ -554,7 +594,6 @@ begin
         end
         SELECT_TLB:
         begin
-                o_wb_stb_nxt = wb_stb[2];
                 o_wb_adr_nxt = wb_adr[2];
                 o_wb_dat_nxt = wb_dat[2];
                 o_wb_cti_nxt = wb_cti[2];
@@ -564,7 +603,6 @@ begin
         end
         default:
         begin
-                o_wb_stb_nxt = 'x;
                 o_wb_adr_nxt = 'x;
                 o_wb_dat_nxt = 'x;
                 o_wb_cti_nxt = 'x;

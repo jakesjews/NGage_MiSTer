@@ -80,7 +80,9 @@ module zap_predecode_main #(
         output logic                              o_instruction_valid_ff,
 
         // Stall of PC and fetch.
-        output  logic                             o_stall_from_decode,
+        // ARM925T: this is the registered skid selector. Retiming it into
+        // the input mux joins the sequencer hold and predecode data paths.
+        (* dont_retime *) output logic             o_stall_from_decode,
 
         // Switch.
         output  logic                             o_switch_ff,
@@ -98,7 +100,7 @@ module zap_predecode_main #(
 
         // ARM925T: the instruction passed on is UNDEFINED although the
         // decoder's patterns would take it (see v5_und_nxt).
-        output  logic                             o_v5_und_ff,
+        (* dont_retime *) output logic             o_v5_und_ff,
 
         // Force 32-bit alignment on memory accesses.
         output logic                              o_force32align_ff,
@@ -225,7 +227,6 @@ begin
                 o_ppc_ff               <= 0;
                 o_clear_from_decode    <= 0;
                 o_pc_from_decode       <= 0;
-                o_copro_word_ff        <= 0;
                 o_copro_dav_ff         <= 0;
                 o_switch_ff            <= 0;
         end
@@ -263,7 +264,6 @@ begin
                 o_instruction_valid_ff <= o_instruction_valid_nxt;
                 o_uop_last             <= o_uop_last_nxt;
                 o_copro_dav_ff         <= copro_dav_nxt;
-                o_copro_word_ff        <= copro_word_nxt;
 
                 if ( mem_fetch_stall == 1'd0 )
                 begin
@@ -274,6 +274,26 @@ begin
                 end
         end
 end
+
+// ARM925T: keep the CP15 payload's exact hold behavior using two banks.
+// Capture into the unselected bank; the late global stall controls only
+// the one-bit selector. CP15 may inspect the held word for many cycles.
+(* dont_retime *) logic [31:0] copro_word0_ff, copro_word1_ff;
+(* preserve, dont_retime *) logic copro_select_ff;
+always_ff @(posedge i_clk) begin
+        if (i_reset) begin
+                copro_word0_ff <= 32'b0;
+                copro_word1_ff <= 32'b0;
+                copro_select_ff <= 1'b0;
+        end else begin
+                if (copro_select_ff) copro_word0_ff <= copro_word_nxt;
+                else copro_word1_ff <= copro_word_nxt;
+                if (!(i_clear_from_writeback || (i_clear_from_alu && !i_data_stall) ||
+                      (o_clear_from_decode && !stall)) && !stall)
+                        copro_select_ff <= !copro_select_ff;
+        end
+end
+assign o_copro_word_ff = copro_select_ff ? copro_word1_ff : copro_word0_ff;
 
 always_ff @ ( posedge i_clk)
 begin
@@ -298,17 +318,6 @@ begin
                         if ( mem_fetch_stall || cp_stall )
                         begin
                                 o_stall_from_decode <= 1'd1;
-                                skid                <= {i_pred,
-                                                        i_taken,
-                                                        i_force32,
-                                                        i_und,
-                                                        i_irq,
-                                                        i_fiq,
-                                                        i_abt,
-                                                        i_pc_ff,
-                                                        i_pc_plus_8_ff,
-                                                        i_instruction,
-                                                        i_instruction_valid};
                         end
                 end
 
@@ -330,6 +339,70 @@ begin
         end
 end
 
+// ARM925T: the instruction decoder gets a local copy of the skid select.
+// It has exactly the public stall register's D, reset and enable; this is
+// fan-out isolation, not a delayed stall or an extra instruction slot.
+(* preserve, dont_retime *) logic instruction_skid_select_ff;
+always_ff @ ( posedge i_clk)
+begin
+        if ( i_reset )
+        begin
+                instruction_skid_select_ff <= 1'd0;
+        end
+        else if ( i_clear_from_writeback )
+        begin
+                instruction_skid_select_ff <= 1'd0;
+        end
+        else if ( i_clear_from_alu && !i_data_stall )
+        begin
+                instruction_skid_select_ff <= 1'd0;
+        end
+        else if ( !stall )
+        begin
+                case(instruction_skid_select_ff)
+
+                1'd0:
+                begin
+                        if ( mem_fetch_stall || cp_stall )
+                        begin
+                                instruction_skid_select_ff <= 1'd1;
+                        end
+                end
+
+                1'd1:
+                begin
+                        if ( !(mem_fetch_stall || cp_stall) )
+                        begin
+                                instruction_skid_select_ff <= 1'd0;
+
+                        end
+                end
+
+                endcase
+
+                if ( o_clear_from_decode )
+                begin
+                        instruction_skid_select_ff <= 1'd0;
+                end
+        end
+end
+
+// ARM925T: capture the unused skid slot speculatively, as issue does.
+// Its contents become visible only when o_stall_from_decode rises, and
+// that edge still captures the same input instruction. While selected,
+// the slot holds. This removes the shifter/issue stall and sequencer
+// decision from the enable of all 140 skid bits without delaying a stall
+// or changing which instruction is consumed on any cycle.
+always_ff @ ( posedge i_clk )
+begin
+        if ( !o_stall_from_decode )
+        begin
+                skid <= {i_pred, i_taken, i_force32, i_und, i_irq, i_fiq,
+                         i_abt, i_pc_ff, i_pc_plus_8_ff,
+                         (i_instruction_valid ? i_instruction : 35'b0), i_instruction_valid};
+        end
+end
+
 always_comb
 begin
         if ( o_stall_from_decode )
@@ -343,8 +416,6 @@ begin
                 skid_abt               = skid[100];
                 skid_pc_ff             = skid[99:68];
                 skid_pc_plus_8_ff      = skid[67:36];
-                skid_instruction       = skid[35:1];
-                skid_instruction_valid = skid[0];
         end
         else
         begin
@@ -357,10 +428,15 @@ begin
                 skid_abt                = i_abt;
                 skid_pc_ff              = i_pc_ff;
                 skid_pc_plus_8_ff       = i_pc_plus_8_ff;
-                skid_instruction        = i_instruction;
-                skid_instruction_valid  = i_instruction_valid;
         end
 end
+
+// ARM925T: the saved payload is already zero when its valid bit is clear.
+// Move that mask to the existing capture edge, so saved valid does not
+// traverse the instruction decode tree before the v5-undefined register.
+assign skid_instruction = instruction_skid_select_ff ? skid[35:1] :
+                          (i_instruction_valid ? i_instruction : 35'b0);
+assign skid_instruction_valid = instruction_skid_select_ff ? skid[0] : i_instruction_valid;
 
 // This unit handles coprocessor stuff.
 zap_predecode_coproc
@@ -374,7 +450,7 @@ u_zap_decode_coproc
         .i_reset(i_reset),
         .i_irq(skid_irq),
         .i_fiq(skid_fiq),
-        .i_instruction(skid_instruction_valid ? skid_instruction : 35'd0),
+        .i_instruction(skid_instruction),
         .i_valid(skid_instruction_valid),
         .i_cpsr_ff_t(i_cpu_mode_t),
         .i_cpsr_ff_mode(i_cpu_mode_mode),

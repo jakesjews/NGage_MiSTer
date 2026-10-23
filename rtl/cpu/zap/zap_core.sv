@@ -247,6 +247,11 @@ logic                            align_en;    // ARM925T: control bit A.
 // Clear and stall signals.
 logic                            stall_from_decode;
 logic                            clear_from_alu;
+logic alu_redirect, shifter_redirect;
+logic [31:0] alu_redirect_pc, shifter_redirect_pc;
+wire use_shifter_redirect = shifter_redirect && !alu_redirect;
+assign clear_from_alu = alu_redirect || shifter_redirect;
+assign pc_from_alu = use_shifter_redirect ? shifter_redirect_pc : alu_redirect_pc;
 logic                            stall_from_issue;
 logic                            clear_from_writeback;
 logic                            data_stall;
@@ -310,6 +315,8 @@ logic [$clog2(ALU_OPS)-1:0]      decode_alu_operation_ff;
 logic [32:0]                     decode_shift_source_ff;
 logic [$clog2(SHIFT_OPS)-1:0]    decode_shift_operation_ff;
 logic [32:0]                     decode_shift_length_ff;
+logic [33:0] decode_link_branch, issue_link_branch, shifter_link_branch;
+logic                            decode_shift_is_lsl0_ff;
 logic                            decode_flag_update_ff;
 logic [$clog2(PHY_REGS)-1:0]     decode_mem_srcdest_index_ff;
 logic                            decode_mem_load_ff;
@@ -407,15 +414,32 @@ logic                            shifter_und_ff;
 logic                            stall_from_shifter;
 logic                            stall_from_alu;
 logic [3:0] issue_load_pending_ff, shifter_late_ready;
+logic issue_shift_source_pending_ff;
 logic [5:0] issue_shift_length_index_ff;
 logic [127:0] shifter_late_value;
 logic [1:0] shifter_load_pending_ff, alu_late_ready;
 logic [11:0] shifter_load_index_ff;
 logic [63:0] alu_late_value;
-logic memory_load_valid;
-// A miss is acknowledged before data exists. Never forward that response.
-assign memory_load_valid = memory_dav_ff && memory_mem_load_ff &&
-                           !i_dc_lock[memory_mem_srcdest_index_ff];
+(* dont_retime *) logic memory_load_valid;
+// ARM925T: take a coherent snapshot of the registered memory result and
+// its lock status. A miss sets the lock on the same edge that memory accepts
+// the early acknowledge, so sampling the lock with the *input* to memory
+// would accept invalid data. Sample the memory outputs and lock together.
+// Keep this boundary through physical synthesis: the late ALU bypass must
+// never start at the cache RAM or its acknowledge/state logic.
+(* dont_retime *) logic [5:0] late_memory_index_ff;
+(* dont_retime *) logic [31:0] late_memory_value_ff;
+always_ff @(posedge i_clk) begin
+        if (reset || clear_from_writeback) begin
+                memory_load_valid <= 1'b0;
+        end else begin
+                // Completion pulses must survive a global data stall.
+                memory_load_valid <= memory_dav_ff && memory_mem_load_ff &&
+                                     !i_dc_lock[memory_mem_srcdest_index_ff];
+        end
+        late_memory_index_ff <= memory_mem_srcdest_index_ff;
+        late_memory_value_ff <= memory_mem_rd_data;
+end
 logic [1:0]                      shifter_taken_ff;
 logic [31:0]                     shifter_ppc_ff;
 logic                            shifter_uop_last;
@@ -915,10 +939,11 @@ u_zap_decode_main (
 
         .i_cpsr_ff_mode                 (alu_flags_ff[ZAP_CPSR_MODE:0]),
 
-        .i_instruction                  (predecode_inst[35:0]),
+        .i_instruction                  (predecode_inst),
         .i_instruction_valid            (predecode_val),
         .i_taken                        (predecode_taken),
         .i_ppc_ff                       (predecode_ppc_ff),
+        .o_link_branch_ff               (decode_link_branch),
         .i_force32align                 (predecode_force32),
 
         // Output.
@@ -929,6 +954,7 @@ u_zap_decode_main (
         .o_shift_source_ff              (decode_shift_source_ff),
         .o_shift_operation_ff           (decode_shift_operation_ff),
         .o_shift_length_ff              (decode_shift_length_ff),
+        .o_shift_is_lsl0_ff             (decode_shift_is_lsl0_ff),
         .o_flag_update_ff               (decode_flag_update_ff),
         .o_mem_srcdest_index_ff         (decode_mem_srcdest_index_ff),
         .o_mem_load_ff                  (decode_mem_load_ff),
@@ -963,6 +989,8 @@ zap_issue_main #(
 )
 u_zap_issue_main
 (
+        .i_link_branch_ff(decode_link_branch),
+        .o_link_branch_ff(issue_link_branch),
         .i_uop_last(decode_uop_last),
         .o_uop_last(issue_uop_last),
 
@@ -996,6 +1024,7 @@ u_zap_issue_main
         .i_shift_source_ff              (decode_shift_source_ff),
         .i_shift_operation_ff           (decode_shift_operation_ff),
         .i_shift_length_ff              (decode_shift_length_ff),
+        .i_shift_is_lsl0_ff             (decode_shift_is_lsl0_ff),
         .i_flag_update_ff               (decode_flag_update_ff),
         .i_mem_srcdest_index_ff         (decode_mem_srcdest_index_ff),
         .i_mem_load_ff                  (decode_mem_load_ff),
@@ -1099,6 +1128,7 @@ u_zap_issue_main
         .o_pc_plus_8_ff                 (issue_pc_plus_8_ff),
         .o_load_pending_ff              (issue_load_pending_ff),
         .o_shift_length_index_ff        (issue_shift_length_index_ff),
+        .o_shift_source_pending_ff      (issue_shift_source_pending_ff),
         .i_late_ready                   (shifter_late_ready),
         .i_late_value                   (shifter_late_value),
         .o_shifter_disable_ff           (issue_shifter_disable_ff)
@@ -1114,11 +1144,18 @@ zap_shifter_main #(
 )
 u_zap_shifter_main
 (
+        .i_link_branch_ff(issue_link_branch),
+        .i_flags_ff(alu_flags_ff[31:28]),
+        .i_thumb_ff(alu_flags_ff[T]),
+        .o_early_redirect_ff(shifter_redirect),
+        .o_early_target_ff(shifter_redirect_pc),
+        .o_link_branch_ff(shifter_link_branch),
         .i_load_pending_ff              (issue_load_pending_ff),
         .i_shift_length_index_ff        (issue_shift_length_index_ff),
+        .i_shift_source_pending_ff      (issue_shift_source_pending_ff),
         .i_memory_load_valid            (memory_load_valid),
-        .i_memory_load_index            (memory_mem_srcdest_index_ff),
-        .i_memory_load_value            (memory_mem_rd_data),
+        .i_memory_load_index            (late_memory_index_ff),
+        .i_memory_load_value            (late_memory_value_ff),
         .i_dc_reg_idx                   (i_dc_reg_idx),
         .i_dc_reg_dat                   (i_dc_reg_dat),
         .i_stall_from_alu               (stall_from_alu),
@@ -1243,11 +1280,13 @@ zap_alu_main #(
 )
 u_zap_alu_main
 (
+        .i_link_branch_ff(shifter_link_branch),
+        .i_early_redirect_ff(shifter_redirect),
          .i_load_pending_ff              (shifter_load_pending_ff),
          .i_load_index_ff                (shifter_load_index_ff),
          .i_memory_load_valid            (memory_load_valid),
-         .i_memory_load_index            (memory_mem_srcdest_index_ff),
-         .i_memory_load_value            (memory_mem_rd_data),
+         .i_memory_load_index            (late_memory_index_ff),
+         .i_memory_load_value            (late_memory_value_ff),
          .i_dc_reg_idx                   (i_dc_reg_idx),
          .i_dc_reg_dat                   (i_dc_reg_dat),
          .o_stall_from_alu               (stall_from_alu),
@@ -1296,9 +1335,9 @@ u_zap_alu_main
          .o_force32align_ff                (alu_force32align_ff),
          .o_uop_last                       (alu_uop_last),
          .o_alu_result_nxt                 (alu_alu_result_nxt),
-         .o_pc_from_alu                    (pc_from_alu),
+         .o_pc_from_alu                    (alu_redirect_pc),
          .o_flags_nxt                      (alu_cpsr_nxt),
-         .o_clear_from_alu                 (clear_from_alu),
+         .o_clear_from_alu                 (alu_redirect),
          .o_confirm_from_alu               (confirm_from_alu),
          .o_decompile                      (alu_decompile),
          .o_decompile_valid                (alu_decompile_valid),
@@ -1653,9 +1692,10 @@ u_zap_writeback
 
         .i_cpu_pid              (o_pid[6:0]),
 
-        .i_confirm_from_alu     (confirm_from_alu),
-        .i_alu_pc_ff            (alu_flags_ff[T] ? alu_pc_plus_8_ff - 32'd4 : alu_pc_plus_8_ff - 32'd8),
-        .i_taken                (alu_taken_ff),
+        .i_confirm_from_alu     (confirm_from_alu && !use_shifter_redirect),
+        .i_alu_pc_ff            (use_shifter_redirect ? shifter_pc_ff :
+                                (alu_flags_ff[T] ? alu_pc_plus_8_ff - 32'd4 : alu_pc_plus_8_ff - 32'd8)),
+        .i_taken                (use_shifter_redirect ? shifter_taken_ff : alu_taken_ff),
 
         .o_shelve               (shelve),
 

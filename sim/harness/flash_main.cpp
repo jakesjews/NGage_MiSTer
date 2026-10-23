@@ -21,6 +21,8 @@
 //    ended by another command; erase suspend with reads and a program, and
 //    resume; chip erase;
 //  * unlock bypass, reset in the middle of a sequence, and RP#;
+//  * blank C: fast erase/program replaying medint.pdd's busy/completion
+//    polls, and restoration of timed operations after the first non-FF write;
 //  * Samsung block lock/unlock (60, 60, 60 at the block with A6 choosing;
 //    the firmware's medint.pdd sequence):
 //    autoselect +02 shows it (main and parameter sectors), programs and
@@ -54,8 +56,10 @@ struct Bench {
 
 	Bench(int aw_, uint32_t seed) : rng(seed), aw(aw_), words(1u << aw_), mem(words) {
 		for (uint32_t i = 0; i < words; i++) mem[i] = pattern(i);
+		t->c_blank = 0;
 		t->clk = 0; t->reset = 1; t->rst_n = 1; t->bus_req = 0; t->bus_we = 0; t->bus_addr = 0;
-		t->bus_wdata = 0; t->mem_rdata = 0; t->mem_ack = 0;
+		t->bus_wdata = 0; t->bus_lreq = 0; t->bus_laddr = 0;
+		t->mem_rdata = 0; t->mem_ack = 0; t->mem_ltaken = 0; t->mem_lrvalid = 0; t->mem_lrbeat = 0; t->mem_lrdata = 0;
 		t->eval();
 		for (int i = 0; i < 4; i++) tick();
 		t->reset = 0;
@@ -77,7 +81,10 @@ struct Bench {
 			if (--wait <= 0) {
 				ack = true;
 				serving = false;
-				if (s_we) { mem[s_addr] = s_data; mem_writes++; }
+				if (s_we) {
+					mem[s_addr] = s_data; mem_writes++;
+					if (s_addr >= words / 2 && s_data != 0xFFFF) t->c_blank = 0;
+				}
 				else rdata = mem[s_addr];
 			}
 		} else if (t->mem_req && !t->reset) {  // before the first clock the outputs are random
@@ -230,6 +237,148 @@ void test_program(Bench &b) {
 
 void erase_cmd(Bench &b, uint32_t sa) {
 	b.unlock(); b.wr(0x555, 0x80); b.unlock(); b.wr(sa, 0x30);
+}
+
+// medint.pdd 5037feac / 50380d50: wait UNTIL busy, then test DQ3 from
+// that SAME sample. Returning FFFF immediately hangs this loop forever.
+uint16_t medint_erase_started(Bench &b, uint32_t a, int &reads) {
+	for (reads = 1; reads <= ERASE_WINDOW_CLKS; reads++) {
+		uint16_t s = b.rd(a);
+		if (s & 0x80) continue;
+		if (s & 0x08) return s;
+	}
+	sim::fail("medint erase never observed DQ7=0 and DQ3=1");
+	return 0;
+}
+
+// 5037ff68 / 50380df8: two reads, either FFFF is complete; otherwise
+// DQ7 means suspended, DQ5 failure (with a final reread), neither means busy.
+bool medint_erase_done(Bench &b, uint32_t a) {
+	uint16_t s1 = b.rd(a), s2 = b.rd(a);
+	if (s1 == 0xFFFF || s2 == 0xFFFF) return true;
+	CHECK(!((s1 | s2) & 0x80), "medint unexpectedly saw erase suspended");
+	if (s1 & 0x20) {
+		CHECK_EQ(b.rd(a), 0xFFFF, "medint erase DQ5 failure reread");
+		return true;
+	}
+	return false;
+}
+
+// FIQ routines 503803f4/50380454 and 50381244/503812a4. The earlier
+// tst #8 reads interrupt status, not flash DQ3. Flash is polled as a signed
+// BYTE, XORed with the expected halfword shifted 24 bits; the sign tests
+// DQ7. On mismatch DQ5=0 retries at the next FIQ; DQ5=1 rereads the byte,
+// then compares a halfword before reporting an error. The source's bit 5
+// is masked out, so it cannot contaminate the DQ5 test.
+bool medint_program_done(Bench &b, uint32_t a, uint16_t data) {
+	auto poll = [&]() {
+		return uint32_t(int32_t(int8_t(b.rd(a)))) ^ (uint32_t(data & ~0x20) << 24);
+	};
+	uint32_t s = poll();
+	if (!(s & 0x80000000)) return true;
+	if (!(s & 0x20)) return false;
+	if (!(poll() & 0x80000000)) return true;
+	CHECK_EQ(b.rd(a), data & ~0x20, "medint program DQ5 failure reread");
+	return true;
+}
+
+void test_blank(Bench &b) {
+	const uint32_t first = b.words / 2, last = b.words - 4096;
+	std::fill(b.mem.begin() + first, b.mem.end(), 0xFFFF);
+	b.t->c_blank = 1;
+	uint64_t writes = b.mem_writes;
+	uint16_t previous = 0;
+	int reads = 0;
+	for (uint32_t a : {first, last}) {
+		erase_cmd(b, a + 77);
+		b.ticks(SECTOR_ERASE_CLKS * 2); // a late first poll must still see busy
+		CHECK(b.t->busy && !b.t->bus_array, "blank erase must retain busy poll");
+		CHECK_EQ(b.rd(0), b.mem[0], "other bank does not consume erase status");
+		b.wr(a, 0xB0); b.wr(a, 0x30); // no suspend/resume dance while blank
+		uint16_t s = medint_erase_started(b, a, reads);
+		CHECK_EQ(reads, 1, "blank erase needs exactly one busy read");
+		CHECK_EQ(s, a == first ? 0x08 : 0x4C, "fast erase status matches model");
+		CHECK_EQ(s & ~0x44, 0x08, "blank erase DQ7=0 DQ3=1 DQ5=0");
+		if (a != first) CHECK((s ^ previous) & 0x40, "fast status DQ6 phase");
+		previous = s;
+		CHECK(medint_erase_done(b, a), "blank erase completion polls");
+		CHECK(!b.t->busy && b.t->bus_array, "blank erase releases status/line gate");
+	}
+	CHECK_EQ(b.mem_writes, writes, "blank erase must not write memory");
+	CHECK(b.t->c_blank, "blank erases must not end fast mode");
+
+	// Lower-half sectors are not certified blank, even during first boot.
+	erase_cmd(b, 0x10000);
+	CHECK(b.t->busy, "non-C erase must remain timed");
+	b.wr(0, 0xF0); // abort in the erase window
+
+	// FFFF leaves blankness set. The ack waits for memory, but even a very
+	// late first poll must still return busy, followed by completion.
+	b.unlock(); b.wr(0x555, 0xA0); b.wr(last, 0xFFFF);
+	b.ticks(PROGRAM_CLKS * 4);
+	CHECK(b.t->busy && b.t->c_blank, "erased program must retain busy poll and blankness");
+	CHECK_EQ(b.rd(0), b.mem[0], "other bank does not consume program status");
+	CHECK(!medint_program_done(b, last, 0xFFFF), "erased program first poll busy");
+	CHECK(medint_program_done(b, last, 0xFFFF), "erased program second poll done");
+	b.unlock(); b.wr(0x555, 0xA0);
+	uint64_t c0 = b.clocks;
+	b.wr(last + 7, 0x1234); // deliberately not C:'s first word
+	CHECK(b.clocks - c0 < PROGRAM_CLKS, "blank program waited for emulated timer");
+	CHECK_EQ(b.mem[last + 7], 0x1234, "fast program landed before ack");
+	CHECK(b.t->busy && !b.t->c_blank, "first data must retain poll after clearing blank");
+	CHECK(!medint_program_done(b, last + 7, 0x1234), "first data program busy poll");
+	CHECK(medint_program_done(b, last + 7, 0x1234), "first data program done poll");
+	CHECK_EQ(b.rd(last + 7), 0x1234, "fast program final data");
+
+	b.unlock(); b.wr(0x555, 0xA0); b.wr(last + 8, 0x5678);
+	CHECK(b.t->busy, "next C: program must be timed");
+	uint16_t p1 = b.rd(last + 8), p2 = b.rd(last + 8);
+	CHECK((p1 ^ p2) & 0x40, "timed program DQ6 after first C: write");
+	for (int i = 0; !medint_program_done(b, last + 8, 0x5678); i++)
+		CHECK(i < PROGRAM_CLKS, "timed medint program did not complete");
+	CHECK_EQ(b.rd(last + 8), 0x5678, "timed C: program result");
+	erase_cmd(b, last);
+	CHECK(b.t->busy, "C: erase after first data must be timed");
+	CHECK_EQ(b.rd(last) & 0x08, 0, "timed erase window after first C: write");
+	medint_erase_started(b, last, reads);
+	CHECK(reads > 1, "timed erase must retain its window after first write");
+	CHECK(!medint_erase_done(b, last), "timed erase must stay busy after start");
+	b.wr(last, 0xB0);
+	CHECK(b.rd(last) & 0x80, "erase suspend restored after first C: write");
+	b.wr(last, 0x30);
+	uint64_t c1 = b.clocks;
+	while (!medint_erase_done(b, last))
+		CHECK(b.clocks - c1 < 200000, "timed medint erase did not complete");
+	CHECK_EQ(b.rd(last + 7), 0xFFFF, "resumed C: erase result");
+	CHECK(!b.t->c_blank, "erase must not re-arm fast mode");
+	for (uint32_t a = first; a < b.words; a++) b.mem[a] = Bench::pattern(a);
+}
+
+void test_blank_program_bits(int aw, uint32_t seed) {
+	// Fresh image per case: cover both data DQ7 polarities and both bit-5
+	// values, plus FFFF (which alone leaves the fast window open).
+	for (uint16_t data : {0x0000, 0x0020, 0x0080, 0x00A0, 0xFFFF}) {
+		Bench b(aw, seed);
+		uint32_t a = b.words / 2 + 19;
+		std::fill(b.mem.begin() + b.words / 2, b.mem.end(), 0xFFFF);
+		b.t->c_blank = 1;
+		b.unlock(); b.wr(0x555, 0xA0); b.wr(a, data);
+		CHECK_EQ(b.t->c_blank, data == 0xFFFF, "first non-FF program clears blank");
+		CHECK(!medint_program_done(b, a, data), "medint first program poll busy");
+		CHECK(medint_program_done(b, a, data), "medint second program poll done");
+		CHECK_EQ(b.rd(a), data, "program result with DQ7/DQ5 data bits");
+		if (data != 0xFFFF) {
+			b.unlock(); b.wr(0x555, 0xA0);
+			uint64_t c0 = b.clocks;
+			b.wr(a + 1, data);
+			CHECK(!medint_program_done(b, a + 1, data), "timed program first poll busy");
+			CHECK(!medint_program_done(b, a + 1, data), "timed program retains second busy poll");
+			for (int i = 0; !medint_program_done(b, a + 1, data); i++)
+				CHECK(i < PROGRAM_CLKS, "timed program with DQ7/DQ5 bits did not finish");
+			CHECK(b.clocks - c0 >= PROGRAM_CLKS, "timed program delay after cutoff");
+			CHECK_EQ(b.rd(a + 1), data, "timed program result with DQ7/DQ5 data bits");
+		}
+	}
 }
 
 void test_erase(Bench &b) {
@@ -416,6 +565,52 @@ void test_lock(Bench &b) {
 	CHECK_EQ(lock_status(b, other), 0, "lock after RP#");
 }
 
+void test_line_port(Bench &b) {
+	// Idle in read-array mode: bus_array is high and a line read passes through
+	CHECK_EQ(b.t->bus_array, 1, "bus_array high when idle in read-array mode");
+	uint32_t laddr = 0x1234u;
+	b.t->bus_lreq = 1;
+	b.t->bus_laddr = laddr;
+	b.t->eval();
+	CHECK_EQ(b.t->mem_lreq, 1, "mem_lreq high when bus_lreq asserted in read-array mode");
+	CHECK_EQ(b.t->mem_laddr, laddr, "mem_laddr matches bus_laddr");
+	b.t->mem_ltaken = 1;
+	b.tick();
+	b.t->bus_lreq = 0;
+	b.t->mem_ltaken = 0;
+	b.t->eval();
+	CHECK_EQ(b.t->bus_array, 0, "bus_array low while line read beats are pending");
+
+	// Beat 0 and beat 1 return from memory
+	for (int beat = 0; beat < 2; beat++) {
+		uint64_t want = 0xCAFEBABE00000000ull | ((uint64_t)beat << 32) | (laddr + beat);
+		b.t->mem_lrvalid = 1;
+		b.t->mem_lrbeat = beat;
+		b.t->mem_lrdata = want;
+		b.t->eval();
+		CHECK_EQ(b.t->bus_lrvalid, 1, "bus_lrvalid high on line beat");
+		CHECK_EQ(b.t->bus_lrbeat, beat, "bus_lrbeat matches mem_lrbeat");
+		CHECK_EQ(b.t->bus_lrdata, want, "bus_lrdata matches mem_lrdata");
+		b.tick();
+	}
+	b.t->mem_lrvalid = 0;
+	b.t->eval();
+	CHECK_EQ(b.t->bus_lrvalid, 0, "bus_lrvalid low after 2 beats");
+	CHECK_EQ(b.t->bus_array, 1, "bus_array high again after line read completes");
+
+	// Non-read-array states must deassert bus_array and block mem_lreq
+	b.wr(0x555, 0xAA);
+	CHECK_EQ(b.t->bus_array, 0, "bus_array low mid-unlock (C_U1)");
+	b.wr(0x2AA, 0x55);
+	b.wr(0x555, 0x90);
+	CHECK_EQ(b.t->bus_array, 0, "bus_array low in autoselect mode");
+	b.t->bus_lreq = 1; b.t->eval();
+	CHECK_EQ(b.t->mem_lreq, 0, "mem_lreq blocked in autoselect mode");
+	b.t->bus_lreq = 0;
+	b.wr(0x0, 0xF0);
+	CHECK_EQ(b.t->bus_array, 1, "bus_array high after F0 reset");
+}
+
 void test_chip_erase(Bench &b) {
 	// a locked parameter sector survives the chip erase
 	int locked = sectors(b.aw) - 1;
@@ -447,6 +642,10 @@ int main(int argc, char **argv) {
 	Bench b(aw, seed);
 	test_reads(b);
 	test_ids(b, id);
+	if (aw == 22) {
+		test_blank(b);
+		test_blank_program_bits(aw, seed);
+	}
 	test_program(b);
 	test_erase(b);
 	test_suspend(b);
@@ -454,6 +653,7 @@ int main(int argc, char **argv) {
 	test_rp(b);
 	test_lock(b);
 	test_reads(b);
+	test_line_port(b);
 	test_chip_erase(b);
 	printf("%d-word chip, %llu clocks\n", 1 << aw, (unsigned long long)b.clocks);
 	char name[32];

@@ -36,7 +36,23 @@ Parameters:
   puts the vectors and the reset address at 0xFFFF0000. The N-Gage boots
   from CS0 at 0, so the core uses 0.
 - `ICACHE_SIZE` (16384), `DCACHE_SIZE` (8192), `CACHE_LINE` (16): cache
-  geometry in bytes.
+  geometry in bytes. `ICACHE_SIZE` 32768 is a 1,024-set I-cache (16 M10K
+  more); the cache type register still reports 16 KB.
+  `NGAGE_DCACHE_16K` in `NGage.qsf` selects an experimental 16 KB two-way
+  D-cache (512 sets, VA[12:4]); the default remains 8 KB. CP15 still
+  reports 8 KB, so a D-cache by-index operation visits both physical set
+  colours for the named architectural set/way. By-VA operations stay
+  targeted. The live two-way compare/select and hit-under-miss protocol
+  are unchanged. This VIVT cache still relies on firmware alias/DMA
+  maintenance; see [the capacity analysis](consults/2026-10-23-codex-dcache-report.md)
+  for the recommendation, projected cost and validation limits.
+- `ICACHE_PREFETCH` (0): a one-line sequential I-cache prefetch. After a
+  line fill, the next line (within the same 1 KB) is read into a line buffer
+  while the bus is free; a later miss on that line is answered from it and
+  installs it. Off by default: the ARM925T has none, the games measured no
+  gain from it on the board (2026-10-23) and it costs about 1 ns of slack;
+  NGAGE_ICACHE_PREFETCH in NGage.qsf turns it on.
+  docs/consults/2026-10-23-agy-iprefetch-report.md.
 
 Ports:
 
@@ -292,8 +308,14 @@ Functional:
 - Turning a cache off invalidates it (ZAP clears the valid bits while the
   cache is disabled). Dirty D-cache lines are lost if the D-cache is turned
   off without cleaning it first; the ARM925T keeps them.
-- No write buffer: stores complete in order on the bus, and drain is a
-  no-op. Software cannot tell, apart from timing.
+- Write-back store misses allocate in ZAP. The TI925T is read-allocate:
+  store misses bypass the cache even in copy-back mode (TI SPRU671,
+  Table 1). Write-through store misses already bypass allocation here.
+- No posted write buffer: uncached and write-through stores wait for the
+  bus response, and the CP15 drain operation is a no-op. The phone enables
+  its 17-word buffer with CP15 W. A faithful posted path also needs drain,
+  memory ordering and fault handling, not just a store-miss bypass; see
+  [the write-allocation analysis](consults/2026-10-23-codex-walloc-report.md).
 - TLBs are direct-mapped per page size instead of the ARM925T's
   associative TLBs, and TLB lockdown has no effect.
 - An external abort on a cacheable line fill or write-back is ignored (the
@@ -398,6 +420,13 @@ checkpoints (all registers and the CPSR) in the signature.
   ways and the LRU choice, and the D-side's index operations act on the
   named way. Both fail on a direct-mapped build (`VEXTRA=-GICACHE_WAYS=1`,
   `-GDCACHE_WAYS=1`).
+- `iprefetch_rtl`: the I-cache prefetch: sequential code over 32 lines
+  (cold, warm, backward; an execution-bound variant), a branch away from a
+  prefetched line, the I-cache invalidates (all and by MVA) with code
+  rewritten behind the buffer, and sequential code across a 4 KB page end
+  into a page mapped elsewhere (poison at the contiguous address) and up to
+  an unmapped page. Exact results, loose cycle shape; passes with and
+  without `-GICACHE_PREFETCH=0`.
 - `cache`, `cache_rtl`: 64 KB through the 8 KB D-cache (evictions and
   write-backs), bytes and halfwords in cached lines, loads of every size
   and unaligned loads that miss, LDM/STM across lines,

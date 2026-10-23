@@ -65,6 +65,7 @@ module zap_issue_main
         input logic  [31:0]                      i_pc_ff,
         input logic                              i_switch_ff,
         input logic    [1:0]                     i_taken_ff,
+        input logic [33:0] i_link_branch_ff,
         input logic    [31:0]                    i_ppc_ff,
         input logic      [64*8-1:0]              i_decompile,
         input logic      [3:0]                   i_condition_code_ff,
@@ -74,6 +75,7 @@ module zap_issue_main
         input logic      [32:0]                  i_shift_source_ff,
         input logic      [$clog2(SHIFT_OPS)-1:0] i_shift_operation_ff,
         input logic      [32:0]                  i_shift_length_ff,
+        input logic                             i_shift_is_lsl0_ff,
         input logic                              i_flag_update_ff,
         input logic    [$clog2(PHY_REGS )-1:0]   i_mem_srcdest_index_ff,
         input logic                              i_mem_load_ff,
@@ -192,6 +194,7 @@ module zap_issue_main
         // ARM925T: late load operands: rn, rm, shift amount, store data.
         output logic [3:0]                        o_load_pending_ff,
         output logic [5:0]                        o_shift_length_index_ff,
+        (* preserve, dont_retime *) output logic  o_shift_source_pending_ff,
         input logic [3:0]                         i_late_ready,
         input logic [127:0]                       i_late_value,
 
@@ -222,16 +225,18 @@ module zap_issue_main
         // Register values are given here.
 
         // ALU source value would be the value of non-shifted operand in mode32.
-        output logic      [31:0]                  o_alu_source_value_ff,
+        // ARM925T: retain the operand-capture boundary through synthesis;
+        // late completion must not be retimed into the shifter/ALU cone.
+        (* dont_retime *) output logic [31:0]     o_alu_source_value_ff,
 
         // Shifter source value would be the value of the operand to be shifted.
-        output logic      [31:0]                  o_shift_source_value_ff,
+        (* dont_retime *) output logic [31:0]     o_shift_source_value_ff,
 
         // Shift length i.e., amount to shift i.e, shamt.
-        output logic      [31:0]                  o_shift_length_value_ff,
+        (* dont_retime *) output logic [31:0]     o_shift_length_value_ff,
 
         // For stores, value to be stored.
-        output logic      [31:0]                  o_mem_srcdest_value_ff,
+        (* dont_retime *) output logic [31:0]     o_mem_srcdest_value_ff,
 
         //
         // Indices/Immeds go here. It might seem odd that we are sending index
@@ -243,7 +248,7 @@ module zap_issue_main
         output logic      [32:0]                  o_shift_source_ff,
 
         // Stall all stages before this if this is 1.
-        output logic                               o_stall_from_issue,
+        (* dont_retime *) output logic              o_stall_from_issue,
 
         // The PC value.
         output logic     [31:0]                   o_pc_plus_8_ff,
@@ -260,6 +265,7 @@ module zap_issue_main
         output  logic     [64*8-1:0]              o_decompile,
         output logic [31:0]                       o_pc_ff,
         output logic   [1:0]                      o_taken_ff,
+        (* dont_retime *) output logic [33:0] o_link_branch_ff,
         output logic [31:0]                       o_ppc_ff,
         output logic                              o_force32align_ff,
         output logic                              o_und_ff
@@ -269,7 +275,7 @@ module zap_issue_main
 `include "zap_localparams.svh"
 
 logic o_shifter_disable_nxt;
-logic [31:0] o_alu_source_value_nxt,
+logic [32:0] o_alu_source_value_nxt,
            o_shift_source_value_nxt,
            o_shift_length_value_nxt,
            o_mem_srcdest_value_nxt;
@@ -292,8 +298,37 @@ logic lock;
 // the same values (same reset, clear and update) with a fan-out of four
 // muxes, and are kept from being merged back (timing).
 //
-(* preserve *) logic        stall_idx_ff;
+(* preserve, dont_retime *) logic stall_idx_ff;
+// ARM925T: late admission compares the same physical tags, but must not
+// start at the heavily loaded control/skid stall mux or load the RF mux.
+(* preserve, dont_retime *) logic stall_late_ff;
+logic [23:0]                late_reg_index;
 logic [23:0]                skid_idx;
+logic [5:0]                 skid_dest_idx;
+(* dont_retime *) logic skid_lsl0_ff;
+logic [2:0] skid_late_immediate_ff;
+logic skid_late_store_ff;
+logic [33:0] skid_link_branch;
+wire [33:0] selected_link_branch = stall_late_ff ? skid_link_branch : i_link_branch_ff;
+
+// ARM925T: read the lock bitmap for both possible instruction slots before
+// selecting the slot. Selecting the index first puts the high-fanout skid
+// selector in front of a 64:1 bitmap mux on the interlock feedback path.
+// Keep the two lookup banks distinct so synthesis cannot factor that mux
+// back across the bitmap reads. The bitmap is still the live cache lock:
+// no lock assertion or completion is delayed by a clock.
+(* keep *) wire [4:0] live_locked, skid_locked;
+wire [4:0] slot_locked = stall_late_ff ? skid_locked : live_locked;
+assign live_locked = {i_dc_lock[i_destination_index_ff],
+                      i_dc_lock[i_mem_srcdest_index_ff],
+                      i_dc_lock[i_shift_length_ff[5:0]],
+                      i_dc_lock[i_shift_source_ff[5:0]],
+                      i_dc_lock[i_alu_source_ff[5:0]]};
+assign skid_locked = {i_dc_lock[skid_dest_idx],
+                      i_dc_lock[skid_idx[5:0]],
+                      i_dc_lock[skid_idx[11:6]],
+                      i_dc_lock[skid_idx[17:12]],
+                      i_dc_lock[skid_idx[23:18]]};
 
 //
 // Asserted when an instruction cannot be issued and leads to all stages
@@ -354,6 +389,7 @@ begin
                 o_flag_update_ff                  <= 0;
                 o_stall_from_issue                <= 0;
                 stall_idx_ff                      <= 0;
+                stall_late_ff <= 0;
 
                 o_destination_index_ff            <= 'x;
                 o_alu_operation_ff                <= 'x;
@@ -371,16 +407,13 @@ begin
                 o_shifter_disable_ff              <= 'x;
                 o_alu_source_ff                   <= 'x;
                 o_shift_source_ff                 <= 'x;
-                o_alu_source_value_ff             <= 'x;
-                o_shift_source_value_ff           <= 'x;
-                o_shift_length_value_ff           <= 'x;
-                o_mem_srcdest_value_ff            <= 'x;
                 o_switch_ff                       <= 'x;
                 o_force32align_ff                 <= 'x;
                 o_taken_ff                        <= 'x;
                 o_pc_ff                           <= 'x;
                 o_decompile                       <= 'x;
                 o_ppc_ff                          <= 'x;
+                o_link_branch_ff <= 34'b0;
         end
         else if ( clear )
         begin
@@ -394,6 +427,7 @@ begin
                 o_flag_update_ff     <= 0;
                 o_stall_from_issue   <= 0;
                 stall_idx_ff         <= 0;
+                stall_late_ff <= 0;
 
                 o_destination_index_ff            <= 'x;
                 o_alu_operation_ff                <= 'x;
@@ -411,16 +445,13 @@ begin
                 o_shifter_disable_ff              <= 'x;
                 o_alu_source_ff                   <= 'x;
                 o_shift_source_ff                 <= 'x;
-                o_alu_source_value_ff             <= 'x;
-                o_shift_source_value_ff           <= 'x;
-                o_shift_length_value_ff           <= 'x;
-                o_mem_srcdest_value_ff            <= 'x;
                 o_switch_ff                       <= 'x;
                 o_force32align_ff                 <= 'x;
                 o_taken_ff                        <= 'x;
                 o_pc_ff                           <= 'x;
                 o_decompile                       <= 'x;
                 o_ppc_ff                          <= 'x;
+                o_link_branch_ff <= 34'b0;
         end
         else if ( ~stall )
         begin
@@ -448,32 +479,89 @@ begin
                 o_shifter_disable_ff              <= o_shifter_disable_nxt;
                 o_alu_source_ff                   <= skid_alu_source_ff;
                 o_shift_source_ff                 <= skid_shift_source_ff;
-                o_alu_source_value_ff             <= o_alu_source_value_nxt;
-                o_shift_source_value_ff           <= o_shift_source_value_nxt;
-                o_shift_length_value_ff           <= o_shift_length_value_nxt;
-                o_mem_srcdest_value_ff            <= o_mem_srcdest_value_nxt;
                 o_switch_ff                       <= skid_switch_ff;
                 o_force32align_ff                 <= skid_force32align_ff;
                 o_und_ff                          <= skid_und_ff;
                 o_taken_ff                        <= skid_taken_ff;
                 o_ppc_ff                          <= skid_ppc_ff;
+                o_link_branch_ff <= {selected_link_branch[33:32] & {2{!lock}}, selected_link_branch[31:0]};
                 o_pc_ff                           <= skid_pc_ff;
                 o_decompile                       <= skid_decompile;
                 o_uop_last                        <= skid_uop_last;
                 o_stall_from_issue                <= lock;
                 stall_idx_ff                      <= lock;
+                stall_late_ff <= lock;
         end
         else
         begin
                 // Keep transient forwarding results when the late interlock
                 // holds this slot. Completion may arrive during a bus stall.
                 o_load_pending_ff     <= o_load_pending_ff & ~i_late_ready;
-                o_alu_source_value_ff <= i_late_value[0 +: 32];
-                o_shift_source_value_ff <= i_late_value[32 +: 32];
-                o_shift_length_value_ff <= i_late_value[64 +: 32];
-                o_mem_srcdest_value_ff <= i_late_value[96 +: 32];
         end
 end
+
+// ARM925T: isolate the pending bit that selects the barrel-shifter input
+// from the late-admission and completion control fanout. Same D and holds
+// as o_load_pending_ff[1], with no extra cycle.
+always_ff @(posedge i_clk) begin
+        if (i_reset || clear) o_shift_source_pending_ff <= 1'b0;
+        else if (!stall)
+                o_shift_source_pending_ff <= !(lock || skid_condition_code_ff == NV) && late_pending[1];
+        else o_shift_source_pending_ff <= o_shift_source_pending_ff && !i_late_ready[1];
+end
+
+// ARM925T: capture register-file, forwarded and held-slot refresh data
+// independently at the existing issue edge. Local registered one-hot
+// selects keep both the RF read and the cache stall out of wide input
+// muxes. Held slots still capture transient completion/ALU forwarding.
+(* dont_retime *) logic [31:0] alu_source_normal_ff, alu_source_rf_ff, alu_source_refresh_ff;
+(* preserve, dont_retime *) logic [2:0] alu_source_select_ff;
+always_ff @(posedge i_clk) begin
+        alu_source_normal_ff <= o_alu_source_value_nxt[31:0];
+        alu_source_rf_ff <= i_rd_data_0 & ((skid_force32align_ff && !skid_mem_load_ff && !skid_mem_store_ff) ? 32'hffff_fffc : 32'hffff_ffff);
+        alu_source_refresh_ff <= i_late_value[0 +: 32];
+        alu_source_select_ff <= (i_reset || clear) ? 3'b000 :
+                {stall, !stall && o_alu_source_value_nxt[32], !stall && !o_alu_source_value_nxt[32]};
+end
+assign o_alu_source_value_ff = (alu_source_normal_ff & {32{alu_source_select_ff[0]}}) |
+        (alu_source_rf_ff & {32{alu_source_select_ff[1]}}) |
+        (alu_source_refresh_ff & {32{alu_source_select_ff[2]}});
+(* dont_retime *) logic [31:0] shift_source_normal_ff, shift_source_rf_ff, shift_source_refresh_ff;
+(* preserve, dont_retime *) logic [2:0] shift_source_select_ff;
+always_ff @(posedge i_clk) begin
+        shift_source_normal_ff <= o_shift_source_value_nxt[31:0];
+        shift_source_rf_ff <= i_rd_data_1;
+        shift_source_refresh_ff <= i_late_value[32 +: 32];
+        shift_source_select_ff <= (i_reset || clear) ? 3'b000 :
+                {stall, !stall && o_shift_source_value_nxt[32], !stall && !o_shift_source_value_nxt[32]};
+end
+assign o_shift_source_value_ff = (shift_source_normal_ff & {32{shift_source_select_ff[0]}}) |
+        (shift_source_rf_ff & {32{shift_source_select_ff[1]}}) |
+        (shift_source_refresh_ff & {32{shift_source_select_ff[2]}});
+(* dont_retime *) logic [31:0] shift_length_normal_ff, shift_length_rf_ff, shift_length_refresh_ff;
+(* preserve, dont_retime *) logic [2:0] shift_length_select_ff;
+always_ff @(posedge i_clk) begin
+        shift_length_normal_ff <= o_shift_length_value_nxt[31:0];
+        shift_length_rf_ff <= i_rd_data_2;
+        shift_length_refresh_ff <= i_late_value[64 +: 32];
+        shift_length_select_ff <= (i_reset || clear) ? 3'b000 :
+                {stall, !stall && o_shift_length_value_nxt[32], !stall && !o_shift_length_value_nxt[32]};
+end
+assign o_shift_length_value_ff = (shift_length_normal_ff & {32{shift_length_select_ff[0]}}) |
+        (shift_length_rf_ff & {32{shift_length_select_ff[1]}}) |
+        (shift_length_refresh_ff & {32{shift_length_select_ff[2]}});
+(* dont_retime *) logic [31:0] mem_srcdest_normal_ff, mem_srcdest_rf_ff, mem_srcdest_refresh_ff;
+(* preserve, dont_retime *) logic [2:0] mem_srcdest_select_ff;
+always_ff @(posedge i_clk) begin
+        mem_srcdest_normal_ff <= o_mem_srcdest_value_nxt[31:0];
+        mem_srcdest_rf_ff <= i_rd_data_3;
+        mem_srcdest_refresh_ff <= i_late_value[96 +: 32];
+        mem_srcdest_select_ff <= (i_reset || clear) ? 3'b000 :
+                {stall, !stall && o_mem_srcdest_value_nxt[32], !stall && !o_mem_srcdest_value_nxt[32]};
+end
+assign o_mem_srcdest_value_ff = (mem_srcdest_normal_ff & {32{mem_srcdest_select_ff[0]}}) |
+        (mem_srcdest_rf_ff & {32{mem_srcdest_select_ff[1]}}) |
+        (mem_srcdest_refresh_ff & {32{mem_srcdest_select_ff[2]}});
 
 // Skid buffer.
 always_ff @ ( posedge i_clk )
@@ -482,6 +570,11 @@ begin
         begin
                 skid_idx <= {i_alu_source_ff[5:0], i_shift_source_ff[5:0],
                              i_shift_length_ff[5:0], i_mem_srcdest_index_ff[5:0]};
+                skid_dest_idx <= i_destination_index_ff;
+                skid_lsl0_ff <= i_shift_is_lsl0_ff;
+                skid_late_immediate_ff <= {i_shift_length_ff[32], i_shift_source_ff[32], i_alu_source_ff[32]};
+                skid_late_store_ff <= i_mem_store_ff;
+                skid_link_branch <= i_link_branch_ff;
                 skid <= {
                         i_pc_plus_8_ff,
                         i_pc_ff,
@@ -519,8 +612,8 @@ end
 
 // Get values from the feedback network.
 assign  o_alu_source_value_nxt  =
-        get_register_value (    skid_alu_source_ff,
-                                2'd0,
+        get_forward_value (    {(stall_late_ff ? skid_late_immediate_ff[0] : i_alu_source_ff[32]),
+                                skid_alu_source_ff[31:6], late_reg_index[23:18]},
                                 i_shifter_destination_index_ff[5:0],
                                 i_alu_dav_nxt,
                                 i_alu_destination_value_nxt,
@@ -546,10 +639,6 @@ assign  o_alu_source_value_nxt  =
                                 i_memory_mem_srcdest_index_ff[5:0],
                                 i_memory_mem_load_ff,
                                 i_memory_mem_rd_data,
-                                i_rd_data_0,
-                                i_rd_data_1,
-                                i_rd_data_2,
-                                i_rd_data_3,
                                 i_cpu_mode,
                                 skid_pc_plus_8_ff,
                                 skid_force32align_ff
@@ -557,8 +646,8 @@ assign  o_alu_source_value_nxt  =
 
 
 assign  o_shift_source_value_nxt=
-        get_register_value (    skid_shift_source_ff,
-                                2'd1,
+        get_forward_value (    {(stall_late_ff ? skid_late_immediate_ff[1] : i_shift_source_ff[32]),
+                                skid_shift_source_ff[31:6], late_reg_index[17:12]},
                                 i_shifter_destination_index_ff[5:0],
                                 i_alu_dav_nxt,
                                 i_alu_destination_value_nxt,
@@ -584,18 +673,14 @@ assign  o_shift_source_value_nxt=
                                 i_memory_mem_srcdest_index_ff[5:0],
                                 i_memory_mem_load_ff,
                                 i_memory_mem_rd_data,
-                                i_rd_data_0,
-                                i_rd_data_1,
-                                i_rd_data_2,
-                                i_rd_data_3,
                                 i_cpu_mode,
                                 skid_pc_plus_8_ff,
                                 1'd0
         );
 
 assign  o_shift_length_value_nxt=
-        get_register_value (    skid_shift_length_ff,
-                                2'd2,
+        get_forward_value (    {(stall_late_ff ? skid_late_immediate_ff[2] : i_shift_length_ff[32]),
+                                skid_shift_length_ff[31:6], late_reg_index[11:6]},
                                 i_shifter_destination_index_ff[5:0],
                                 i_alu_dav_nxt,
                                 i_alu_destination_value_nxt,
@@ -621,10 +706,6 @@ assign  o_shift_length_value_nxt=
                                 i_memory_mem_srcdest_index_ff[5:0],
                                 i_memory_mem_load_ff,
                                 i_memory_mem_rd_data,
-                                i_rd_data_0,
-                                i_rd_data_1,
-                                i_rd_data_2,
-                                i_rd_data_3,
                                 i_cpu_mode,
                                 skid_pc_plus_8_ff,
                                 1'd0
@@ -632,8 +713,8 @@ assign  o_shift_length_value_nxt=
 
 // Value of a register index, never an immediate.
 assign  o_mem_srcdest_value_nxt =
-        get_register_value (    {27'd0, skid_mem_srcdest_index_ff},
-                                2'd3,
+        get_forward_value (    {27'd0, late_reg_index[5:0]},
+
                                 i_shifter_destination_index_ff[5:0],
                                 i_alu_dav_nxt,
                                 i_alu_destination_value_nxt,
@@ -659,10 +740,6 @@ assign  o_mem_srcdest_value_nxt =
                                 i_memory_mem_srcdest_index_ff[5:0],
                                 i_memory_mem_load_ff,
                                 i_memory_mem_rd_data,
-                                i_rd_data_0,
-                                i_rd_data_1,
-                                i_rd_data_2,
-                                i_rd_data_3,
                                 i_cpu_mode,
                                 skid_pc_plus_8_ff,
                                 1'd0
@@ -779,9 +856,7 @@ logic skid_is_rori;
 logic w_shift_lock;
 logic skid_is_mult;
 
-assign skid_is_lsl_0 = skid_shift_operation_ff    == {1'd0, LSL} &&
-                       skid_shift_length_ff[31:0] == 32'd0 &&
-                       skid_shift_length_ff[32]   == IMMED_EN;
+assign skid_is_lsl_0 = stall_late_ff ? skid_lsl0_ff : i_shift_is_lsl0_ff;
 
 assign   skid_is_rori          = skid_shift_operation_ff == RORI;
 
@@ -793,7 +868,7 @@ assign w_shift_lock =
                         o_destination_index_ff, o_condition_code_ff )
 || shifter_lock_check ( skid_shift_length_ff,
                         o_destination_index_ff, o_condition_code_ff )
-|| shifter_lock_check ( skid_alu_source_ff  ,
+|| shifter_lock_check ( {skid_alu_source_ff[32:6], late_reg_index[23:18]},
                         o_destination_index_ff, o_condition_code_ff )
 || shifter_lock_check ( {27'd0, skid_mem_srcdest_index_ff},
                         o_destination_index_ff, o_condition_code_ff );
@@ -829,7 +904,8 @@ assign skid_is_mult = skid_alu_operation_ff == {1'd0, UMLALL}     ||
 // register sources may cause a load lock.
 //
 assign operand_load_lock[0] = determine_load_lock
-                        ( skid_alu_source_ff  ,
+                        ( {skid_alu_source_ff[32:6], late_reg_index[23:18]},
+                        slot_locked[0],
                         o_mem_srcdest_index_ff,
                         o_condition_code_ff,
                         o_mem_load_ff,
@@ -856,7 +932,8 @@ assign operand_load_lock[0] = determine_load_lock
                         );
 assign operand_load_lock[1] = determine_load_lock
                         (
-                        skid_shift_source_ff,
+                        {skid_shift_source_ff[32:6], late_reg_index[17:12]},
+                        slot_locked[1],
                         o_mem_srcdest_index_ff,
                         o_condition_code_ff,
                         o_mem_load_ff,
@@ -882,7 +959,8 @@ assign operand_load_lock[1] = determine_load_lock
                         i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_abt_ff
                         );
 assign operand_load_lock[2] = determine_load_lock
-                        ( skid_shift_length_ff,
+                        ( {skid_shift_length_ff[32:6], late_reg_index[11:6]},
+                        slot_locked[2],
                         o_mem_srcdest_index_ff,
                         o_condition_code_ff,
                         o_mem_load_ff,
@@ -908,7 +986,8 @@ assign operand_load_lock[2] = determine_load_lock
                         i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_abt_ff
                         );
 assign operand_load_lock[3] = determine_load_lock
-                        ( {27'd0, skid_mem_srcdest_index_ff},
+                        ( {27'd0, late_reg_index[5:0]},
+                        slot_locked[3],
                         o_mem_srcdest_index_ff,
                         o_condition_code_ff,
                         o_mem_load_ff,
@@ -942,6 +1021,7 @@ assign operand_load_lock[3] = determine_load_lock
 //
 assign destination_load_lock = determine_load_lock
                         ( {27'd0, skid_destination_index_ff},
+                        slot_locked[4],
                         o_mem_srcdest_index_ff,
                         o_condition_code_ff,
                         o_mem_load_ff,
@@ -975,23 +1055,34 @@ assign destination_load_lock = determine_load_lock
                         (
                           skid_destination_index_ff[5:0] != PHY_RAZ_REGISTER[5:0]
                           &&
-                          i_dc_lock[skid_destination_index_ff]
+                          slot_locked[4]
                         );
 
 // ARM925T: only condition-resolved loads near memory can be deferred.
 // Early users need the value in shifter; plain rn/rm need it in ALU.
 // Keep all earlier-load, WAW, special-register and multiply interlocks.
-assign late_pending[0] = late_load(skid_alu_source_ff, 1'b0);
-assign late_pending[1] = late_load(skid_shift_source_ff, !skid_is_lsl_0);
-assign late_pending[2] = late_load(skid_shift_length_ff, 1'b1);
-assign late_pending[3] = skid_mem_store_ff &&
-                        late_load({27'd0, skid_mem_srcdest_index_ff}, 1'b1);
+assign late_reg_index = stall_late_ff ? skid_idx :
+        {i_alu_source_ff[5:0], i_shift_source_ff[5:0],
+         i_shift_length_ff[5:0], i_mem_srcdest_index_ff[5:0]};
+// ARM925T: compare both live and saved tags before selecting the slot.
+// The stall copy now selects four results instead of preceding all of the
+// stage-tag comparisons in its own feedback/interlock path.
+(* keep *) wire [3:0] late_live, late_saved;
+wire late_instruction_ok = !skid_is_mult && !skid_force32align_ff &&
+        !(skid_irq_ff || skid_fiq_ff || skid_abt_ff || skid_swi_ff || skid_und_ff);
+assign late_live[0] = !i_alu_source_ff[32] && late_load(i_alu_source_ff[5:0], 1'b0, live_locked[0]);
+assign late_live[1] = !i_shift_source_ff[32] && late_load(i_shift_source_ff[5:0], !i_shift_is_lsl0_ff, live_locked[1]);
+assign late_live[2] = !i_shift_length_ff[32] && late_load(i_shift_length_ff[5:0], 1'b1, live_locked[2]);
+assign late_live[3] = i_mem_store_ff && late_load(i_mem_srcdest_index_ff, 1'b1, live_locked[3]);
+assign late_saved[0] = !skid_late_immediate_ff[0] && late_load(skid_idx[23:18], 1'b0, skid_locked[0]);
+assign late_saved[1] = !skid_late_immediate_ff[1] && late_load(skid_idx[17:12], !skid_lsl0_ff, skid_locked[1]);
+assign late_saved[2] = !skid_late_immediate_ff[2] && late_load(skid_idx[11:6], 1'b1, skid_locked[2]);
+assign late_saved[3] = skid_late_store_ff && late_load(skid_idx[5:0], 1'b1, skid_locked[3]);
+assign late_pending = (stall_late_ff ? late_saved : late_live) & {4{late_instruction_ok}};
 assign load_lock = |(operand_load_lock & ~late_pending) || destination_load_lock;
 
-function automatic late_load(input [32:0] index, input early);
-        logic [5:0] r;
+function automatic late_load(input [5:0] r, input early, input reg_locked);
         logic candidate, conflict;
-        r = index[5:0];
         candidate = (i_postalu_dav_ff && i_postalu_mem_load_ff &&
                      i_postalu_mem_srcdest_index_ff == r) ||
                     (!early && i_postalu1_dav_ff && i_postalu1_mem_load_ff &&
@@ -1010,11 +1101,9 @@ function automatic late_load(input [32:0] index, input early);
                    (i_alu_dav_ff && i_alu_mem_load_ff && i_alu_mem_srcdest_index_ff == r) ||
                    (i_postalu0_dav_ff && i_postalu0_mem_load_ff && i_postalu0_mem_srcdest_index_ff == r) ||
                    (early && i_postalu1_dav_ff && i_postalu1_mem_load_ff && i_postalu1_mem_srcdest_index_ff == r);
-        late_load = candidate && !conflict && !index[32] &&
+        late_load = candidate && !conflict &&
                     r != PHY_PC && r != PHY_RAZ_REGISTER && r != PHY_CPSR &&
-                    r < PHY_DUMMY_REG0 && !i_dc_lock[r] &&
-                    !skid_is_mult && !skid_force32align_ff &&
-                    !(skid_irq_ff || skid_fiq_ff || skid_abt_ff || skid_swi_ff || skid_und_ff);
+                    r < PHY_DUMMY_REG0 && !reg_locked;
 endfunction
 
 //
@@ -1075,6 +1164,7 @@ endfunction : shifter_lock_check
 
 function automatic determine_load_lock (
 input [32:0]                    index,
+input                           reg_locked,
 input [$clog2(PHY_REGS)-1:0]    mem_srcdest_index_ff,
 input [3:0]                     condition_code_ff,
 input                           mem_load_ff,
@@ -1112,7 +1202,7 @@ input                           ext_lock
         begin
                 determine_load_lock = 1'd0;
         end
-        else if ( xlock[index[5:0]] || ((|xlock) && ext_lock) )
+        else if ( reg_locked || ((|xlock) && ext_lock) )
         begin
                 determine_load_lock = 1'd1;
         end
@@ -1137,7 +1227,7 @@ input                           ext_lock
                    postalu_dav_ff                             &&
                    postalu_mem_load_ff )                         // Post ALU
                 // ARM925T: no lock on the memory stage's load: its value is
-                // forwarded by get_register_value, and a load that missed has
+                // forwarded by get_forward_value, and a load that missed has
                 // its register locked (xlock) by the time it is there.
         )
         begin
@@ -1155,16 +1245,13 @@ endfunction : determine_load_lock
 // ----------------------------------------------------------------------------
 
 //
-// Straightforward read feedback function. Looks at all stages of the pipeline
-// to extract the latest value of the register.
+// Forwarding result: bit 32 selects the separately captured register-file
+// bank; bits 31:0 contain the newest matching pipeline value or special value.
 //
-function automatic [31:0] get_register_value (
+function automatic [32:0] get_forward_value (
 
-        // The register inex to search for. This might be a constant too.
+        // The register index to search for. This might be a constant too.
         input [32:0]                    index,
-
-        // Register read port activated for this function.
-        input [1:0]                     rd_port,
 
         // Destination on the output of the shifter stage.
         input [$clog2(PHY_REGS)-1:0]    shifter_destination_index_ff,
@@ -1207,12 +1294,6 @@ function automatic [31:0] get_register_value (
         input                           memory_mem_load_ff,
         input [31:0]                    memory_mem_rd_data,
 
-        // Data read from register file.
-        input [31:0]                    rd_data_0,
-        input [31:0]                    rd_data_1,
-        input [31:0]                    rd_data_2,
-        input [31:0]                    rd_data_3,
-
         // CPU mode and PC.
         input [31:0]                    cpu_mode,
         input [31:0]                    pc_plus_8_ff,
@@ -1222,72 +1303,43 @@ function automatic [31:0] get_register_value (
 );
 
         logic [31:0] get;
+        logic [11:0] match;
+        logic [11:0] pick;
+        logic [31:0] value [0:10];
 
-        if   ( index[32] )                 // Catch constant here.
-        begin
-                        get = index[31:0];
+        // ARM925T: encode priority on single-bit selects; the 32-bit data
+        // sees only parallel masks and an OR tree. Match order is unchanged,
+        // including immediates/special registers and the memory load before
+        // that instruction's base writeback.
+        match[0] = index[32];
+        match[1] = index[5:0] == PHY_RAZ_REGISTER[5:0];
+        match[2] = index[5:0] == {2'd0, ARCH_PC[3:0]};
+        match[3] = index[5:0] == PHY_CPSR[5:0];
+        match[4] = index[5:0] == shifter_destination_index_ff && alu_dav_nxt;
+        match[5] = index[5:0] == alu_destination_index_ff && alu_dav_ff;
+        match[6] = index[5:0] == postalu0_destination_index_ff && postalu0_dav_ff;
+        match[7] = index[5:0] == postalu1_destination_index_ff && postalu1_dav_ff;
+        match[8] = index[5:0] == postalu_destination_index_ff && postalu_dav_ff;
+        match[9] = index[5:0] == memory_mem_srcdest_index_ff && memory_dav_ff && memory_mem_load_ff;
+        match[10] = index[5:0] == memory_destination_index_ff && memory_dav_ff;
+        match[11] = 1'b1;
+        value[0] = index[31:0];
+        value[1] = 32'b0;
+        value[2] = pc_plus_8_ff;
+        value[3] = cpu_mode;
+        value[4] = alu_destination_value_nxt;
+        value[5] = alu_destination_value_ff;
+        value[6] = postalu0_destination_value_ff;
+        value[7] = postalu1_destination_value_ff;
+        value[8] = postalu_destination_value_ff;
+        value[9] = memory_mem_rd_data;
+        value[10] = memory_destination_value_ff;
+        get = 32'b0;
+        for (int k = 0; k < 12; k++) begin
+                pick[k] = match[k] && !(|(match & ((12'b1 << k) - 12'b1)));
         end
-        else if ( index[5:0] == PHY_RAZ_REGISTER[5:0] )   // Catch RAZ here.
-        begin
-                        // Return 0.
-                        get = 32'd0;
-        end
-        else if   ( index[5:0] == {2'd0, ARCH_PC[3:0]} )
-        // Catch PC here. ARCH index = PHY index so no problem.
-        begin
-                        get = pc_plus_8_ff;
-        end
-        else if ( index[5:0] == PHY_CPSR[5:0] )   // Catch CPSR here.
-        begin
-                        get = cpu_mode[31:0];
-        end
-        // Match in ALU stage.
-        else if   ( index[5:0] == shifter_destination_index_ff[5:0] && alu_dav_nxt  )
-        begin           // ALU effectively never changes destination so no need to look at _nxt.
-                        get =  alu_destination_value_nxt;
-        end
-        // Match in output of ALU stage.
-        else if   ( index[5:0] == alu_destination_index_ff[5:0] &&   alu_dav_ff       )
-        begin
-                        get =  alu_destination_value_ff;
-        end
-        // Match is output of postALU0 stage.
-        else if   ( index[5:0] == postalu0_destination_index_ff[5:0] && postalu0_dav_ff )
-        begin
-                        get = postalu0_destination_value_ff;
-        end
-        // Match is in output of postALU1 stage.
-        else if ( index[5:0] == postalu1_destination_index_ff[5:0] && postalu1_dav_ff )
-        begin
-                        get = postalu1_destination_value_ff;
-        end
-        // Match in output of postALU stage.
-        else if   ( index[5:0] == postalu_destination_index_ff[5:0] && postalu_dav_ff )
-        begin
-                        get = postalu_destination_value_ff;
-        end
-        // ARM925T: match in the memory stage's loaded register (a load that
-        // missed has its register locked, xlock, so this value is never used
-        // for it; a replay or an abort flushes the instruction that would).
-        else if   ( index[5:0] ==   memory_mem_srcdest_index_ff[5:0] && memory_dav_ff && memory_mem_load_ff )
-        begin
-                        get =    memory_mem_rd_data;
-        end
-        // Match in output of memory stage.
-        else if   ( index[5:0] ==   memory_destination_index_ff[5:0] &&   memory_dav_ff )
-        begin
-                        get =    memory_destination_value_ff;
-        end
-        else    // Index not found in the pipeline, fallback to register access.
-        begin
-                case ( rd_port )
-                        2'd0: get =   rd_data_0;
-                        2'd1: get =   rd_data_1;
-                        2'd2: get =   rd_data_2;
-                        2'd3: get =   rd_data_3; // rd_port == 2'd3
-                     default: get =   'x;
-                endcase
-        end
+        for (int k = 0; k < 11; k++)
+                get |= value[k] & {32{pick[k]}};
 
         // If it's not a store or load, then align this to 4 bytes. Use
         // *skid* versions.
@@ -1296,12 +1348,13 @@ function automatic [31:0] get_register_value (
         // its PC aligned here too, so its address is aligned from the start
         // and the alignment check in zap_core sees no fault.
         //
-        get_register_value = force32_align_ff &&
+        get_forward_value[32] = pick[11]; // Read the separately captured RF bank.
+        get_forward_value[31:0] = force32_align_ff &&
                              ((!skid_mem_load_ff && !skid_mem_store_ff) ||
                               (!index[32] && index[5:0] == {2'd0, ARCH_PC[3:0]})) ?
                              (get & 32'hffff_fffc) : get;
 
-endfunction : get_register_value
+endfunction : get_forward_value
 
 endmodule : zap_issue_main
 

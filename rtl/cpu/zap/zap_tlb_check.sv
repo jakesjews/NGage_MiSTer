@@ -60,6 +60,7 @@ input logic                              i_setlb_rdav,   // Small page TLB valid
 input logic [`ZAP_FPAGE_TLB_WDT-1:0]     i_fptlb_rdata,  // Fine page TLB read data.
 input logic                              i_fptlb_rdav,   // Fine page TLB valid.
 
+output logic                            o_hit_ok,       // ARM925T: translated, permitted cache hit (WB stores only).
 output logic                            o_walk,         // Signal page walk.
 output logic [7:0]                      o_fsr,          // FSR. 0 means all OK.
 output logic [31:0]                     o_far,          // Fault Address Register.
@@ -91,24 +92,41 @@ assign  match[2] = (i_setlb_rdata[`ZAP_SECTION_TLB__TAG] == i_va[`ZAP_VA__SECTIO
 // 3: Fine Page
 assign  match[3] = (i_fptlb_rdata[`ZAP_FPAGE_TLB__TAG] == i_va[`ZAP_VA__FPAGE_TAG]) && i_fptlb_rdav;
 
-always @ ( posedge i_clk )
-begin
-        if ( i_clkena )
-        begin : tlb_match_logic
+logic [7:0] fsr_nxt;
+logic [31:0] far_nxt, phy_addr_nxt;
+logic walk_nxt, cacheable_nxt, wt_nxt, dummy_nxt;
+
+// ARM925T: the background-hit permission is registered with the normal
+// TLB check. It remains meaningful while the walker waits for cache IDLE.
+always_ff @(posedge i_clk)
+        if (i_clkena) begin
+                o_fsr <= fsr_nxt;
+                o_far <= far_nxt;
+                o_phy_addr <= phy_addr_nxt;
+                o_walk <= walk_nxt;
+                o_cacheable <= cacheable_nxt;
+                o_wt <= wt_nxt;
+                dummy <= dummy_nxt;
+                o_hit_ok <= !walk_nxt && !(|fsr_nxt[3:0]) &&
+                            cacheable_nxt && !(i_wr && wt_nxt);
+        end
+
+always_comb
+begin : tlb_match_logic
 
                 // ============================================
                 // Default Values Section
                 // ============================================
 
-                dummy  <= 1'd0;
+                dummy_nxt  = 1'd0;
 
                 // Default values. Taken for MMU disabled esp.
-                o_fsr       <= 0;        // No fault.
-                o_far       <= i_va;     // Fault address.
-                o_phy_addr  <= i_va;     // VA = PA
-                o_walk      <= 0;        // Walk disabled.
-                o_cacheable <= MMU_OFF_CACHEABLE; // ARM925T: was 0 (uncacheable).
-                o_wt        <= 0;
+                fsr_nxt       = 0;        // No fault.
+                far_nxt       = i_va;     // Fault address.
+                phy_addr_nxt  = i_va;     // VA = PA
+                walk_nxt      = 0;        // Walk disabled.
+                cacheable_nxt = MMU_OFF_CACHEABLE; // ARM925T: was 0 (uncacheable).
+                wt_nxt        = 0;
 
 
                 // ==========================================
@@ -122,7 +140,7 @@ begin
                         4'b0001:
                         begin
                                 // Entry found in small page TLB.
-                                o_fsr <= get_fsr_spage
+                                fsr_nxt = get_fsr_spage
                                 (
                                         i_va[`ZAP_VA__SPAGE_AP_SEL],
                                         i_cpsr[ZAP_CPSR_MODE:0] == USR,
@@ -133,16 +151,16 @@ begin
                                         i_sptlb_rdata[15:0]
                                 ) ;
 
-                                o_phy_addr <= {i_sptlb_rdata[`ZAP_SPAGE_TLB__BASE], i_va[11:0]};
-                                {dummy, o_cacheable} <= i_sptlb_rdata[`ZAP_SECTION_TLB__CB] >> 1;
-                                o_wt <= i_sptlb_rdata[3:2] == 2'b10;
+                                phy_addr_nxt = {i_sptlb_rdata[`ZAP_SPAGE_TLB__BASE], i_va[11:0]};
+                                {dummy_nxt, cacheable_nxt} = i_sptlb_rdata[`ZAP_SECTION_TLB__CB] >> 1;
+                                wt_nxt = i_sptlb_rdata[3:2] == 2'b10;
 
                         end
 
                         4'b0010:
                         begin
                                 // Entry found in large page TLB.
-                                o_fsr <= get_fsr_lpage
+                                fsr_nxt = get_fsr_lpage
                                 (
                                         i_va[`ZAP_VA__LPAGE_AP_SEL],
                                         i_cpsr[ZAP_CPSR_MODE:0] == USR,
@@ -153,15 +171,15 @@ begin
                                         i_lptlb_rdata[15:0]
                                 ) ;
 
-                                o_phy_addr <= {i_lptlb_rdata[`ZAP_LPAGE_TLB__BASE], i_va[15:0]};
-                                {dummy, o_cacheable} <= i_lptlb_rdata[`ZAP_LPAGE_TLB__CB] >> 1;
-                                o_wt <= i_lptlb_rdata[3:2] == 2'b10;
+                                phy_addr_nxt = {i_lptlb_rdata[`ZAP_LPAGE_TLB__BASE], i_va[15:0]};
+                                {dummy_nxt, cacheable_nxt} = i_lptlb_rdata[`ZAP_LPAGE_TLB__CB] >> 1;
+                                wt_nxt = i_lptlb_rdata[3:2] == 2'b10;
                         end
 
                         4'b0100:
                         begin
                                 // Entry found in section TLB.
-                                o_fsr <= get_fsr_section
+                                fsr_nxt = get_fsr_section
                                 (
                                         i_cpsr[ZAP_CPSR_MODE:0] == USR,
                                         i_rd,
@@ -171,15 +189,15 @@ begin
                                         i_setlb_rdata[19:0]
                                 ) ;
 
-                                o_phy_addr <= {i_setlb_rdata[`ZAP_SECTION_TLB__BASE], i_va[19:0]};
-                                {dummy, o_cacheable} <= i_setlb_rdata[`ZAP_SECTION_TLB__CB] >> 1;
-                                o_wt <= i_setlb_rdata[3:2] == 2'b10;
+                                phy_addr_nxt = {i_setlb_rdata[`ZAP_SECTION_TLB__BASE], i_va[19:0]};
+                                {dummy_nxt, cacheable_nxt} = i_setlb_rdata[`ZAP_SECTION_TLB__CB] >> 1;
+                                wt_nxt = i_setlb_rdata[3:2] == 2'b10;
                         end
 
                         4'b1000:
                         begin
                                 // Entry found in fine page TLB.
-                                o_fsr <= get_fsr_fpage
+                                fsr_nxt = get_fsr_fpage
                                 (
                                         i_cpsr[ZAP_CPSR_MODE:0] == USR,
                                         i_rd,
@@ -189,15 +207,15 @@ begin
                                         i_fptlb_rdata[9:0]
                                 );
 
-                                o_phy_addr <= {i_fptlb_rdata[`ZAP_FPAGE_TLB__BASE], i_va[9:0]};
-                                {dummy, o_cacheable} <= i_fptlb_rdata[`ZAP_FPAGE_TLB__CB] >> 1;
-                                o_wt <= i_fptlb_rdata[3:2] == 2'b10;
+                                phy_addr_nxt = {i_fptlb_rdata[`ZAP_FPAGE_TLB__BASE], i_va[9:0]};
+                                {dummy_nxt, cacheable_nxt} = i_fptlb_rdata[`ZAP_FPAGE_TLB__CB] >> 1;
+                                wt_nxt = i_fptlb_rdata[3:2] == 2'b10;
                         end
 
                         4'b0000:
                         begin
                                 // No match. Trigger TLB walk.
-                                o_walk <= 1'd1;
+                                walk_nxt = 1'd1;
                         end
 
                         // ================================================
@@ -210,18 +228,17 @@ begin
                                 // OK to assign X. Never happens. Synthsis wil
                                 // OPTIMIZE. OK to do for FPGA synthesis.
                                 //
-                                o_fsr       <= 'X;
-                                o_phy_addr  <= 'X;
-                                o_walk      <= 'X;
-                                o_far       <= 'X;
-                                o_cacheable <= 'X;
-                                o_wt        <= 'X;
+                                fsr_nxt       = 'X;
+                                phy_addr_nxt  = 'X;
+                                walk_nxt      = 'X;
+                                far_nxt       = 'X;
+                                cacheable_nxt = 'X;
+                                wt_nxt        = 'X;
                         end
                         endcase
 
                 end // Else MMU disabled.
-        end : tlb_match_logic
-end
+end : tlb_match_logic
 
 ////////////////
 // Functions

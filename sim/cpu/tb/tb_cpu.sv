@@ -8,13 +8,14 @@
 // generated netlist (rtl/cpu/arm925t_gen.v) and the SystemVerilog sources.
 module tb_cpu #(
 	parameter CORE = "ZAP",
-    parameter bit ARM9_PREDICTOR = 1'b1,
-	parameter bit HIVECS      = 1'b0,
-	parameter int ICACHE_SIZE = 16384,
-	parameter int ICACHE_WAYS = 2,
-	parameter int DCACHE_SIZE = 8192,
-	parameter int DCACHE_WAYS = 2,
-	parameter int CACHE_LINE  = 16
+	parameter bit ARM9_PREDICTOR = 1'b1,
+	parameter bit HIVECS          = 1'b0,
+	parameter int ICACHE_SIZE     = 16384,
+	parameter int ICACHE_WAYS     = 2,
+	parameter bit ICACHE_PREFETCH = 1'b0,
+	parameter int DCACHE_SIZE     = 8192,
+	parameter int DCACHE_WAYS     = 2,
+	parameter int CACHE_LINE      = 16
 ) (
 	input  logic          clk,
 	input  logic          reset,
@@ -48,6 +49,8 @@ module tb_cpu #(
 	output logic [31:0]   p_cpsr,
 	output logic [1279:0] p_regs,      // 40 physical registers, 32 bits each
 	output logic [63:0]   p_lock,      // registers waiting for a background load
+	output logic [7:0]    p_stall,     // same overlapping level counters as hardware
+	output logic [3:0]    p_dcache,    // registered D-cache events exported by arm925t
 	// data side, for the bus log: request to the D-cache, its virtual
 	// address, alignment fault
 	output logic          p_dreq,
@@ -92,18 +95,21 @@ module tb_cpu #(
 	output logic [3:0]    p_uop_flags,
 	output logic [31:0]   p_alu_res,
 	output logic [7:0]    p_alu_dst,
-	output logic [63:0]   p_sh_dbg
+	output logic [63:0]   p_sh_dbg,
+	// Multiply occupancy and the selected younger instruction (bench only).
+	output logic [3:0]    p_mult_state
 );
 
 	arm925t #(
-		.CORE        (CORE),
-        .ARM9_PREDICTOR (ARM9_PREDICTOR),
-		.HIVECS      (HIVECS),
-		.ICACHE_SIZE (ICACHE_SIZE),
-		.ICACHE_WAYS (ICACHE_WAYS),
-		.DCACHE_SIZE (DCACHE_SIZE),
-		.DCACHE_WAYS (DCACHE_WAYS),
-		.CACHE_LINE  (CACHE_LINE)
+		.CORE (CORE),
+		.ARM9_PREDICTOR (ARM9_PREDICTOR),
+		.HIVECS          (HIVECS),
+		.ICACHE_SIZE     (ICACHE_SIZE),
+		.ICACHE_WAYS     (ICACHE_WAYS),
+		.ICACHE_PREFETCH (ICACHE_PREFETCH),
+		.DCACHE_SIZE     (DCACHE_SIZE),
+		.DCACHE_WAYS     (DCACHE_WAYS),
+		.CACHE_LINE      (CACHE_LINE)
 	) dut (
 		.clk       (clk),
 		.reset     (reset),
@@ -118,10 +124,12 @@ module tb_cpu #(
 		.bus_bte   (bus_bte),
 		.bus_rdata (bus_rdata),
 		.bus_ack   (bus_ack),
-		.bus_err   (bus_err)
+		.bus_err   (bus_err),
+		.dbg_dcache (p_dcache)
 	);
 
 	assign p_lock  = dut.u_zap.dc_lock;
+	assign p_stall = dut.u_zap.o_dbg_stall;
 	assign p_dreq  = dut.u_zap.cpu_dc_stb;
 	assign p_dva   = dut.u_zap.cpu_daddr_va;
 	assign p_dalign = dut.u_zap.cpu_align_fault;
@@ -168,6 +176,34 @@ module tb_cpu #(
 	`define SH dut.u_zap.g_zap.u_zap_core.u_zap_shifter_main
 	assign p_sh_dbg    = {8'(`SH.i_alu_source_ff), 8'(`SH.o_destination_index_ff), 7'd0, `SH.i_alu_dav_nxt,
 	                      `SH.rn};
+	assign p_mult_state = {`SH.i_clear_from_writeback || (`SH.i_clear_from_alu && !`SH.i_data_stall),
+	                      dut.u_zap.g_zap.u_zap_core.u_zap_issue_main.skid_condition_code_ff != 4'd15,
+	                      `SH.i_data_stall || `SH.i_stall_from_alu, `SH.multiply_busy};
+	// Check the early decision against execution one stage later. This catches
+	// stale flags/target or metadata misalignment across a hold/redirect.
+	// Disable only when measuring an archived core without the early interface.
+`ifndef ZAP_LEGACY_CORE
+	begin : g_early_branch_check
+		wire [31:0] actual_target = `AL.i_link_branch_ff[32] ?
+			`AL.i_link_branch_ff[31:0] : `AL.quick_sum;
+		always @(posedge clk) begin
+			if (!reset && `SH.o_early_redirect_ff && !`AL.i_data_stall &&
+			    !`AL.o_clear_from_alu && !`AL.i_clear_from_writeback &&
+			    !`AL.sleep_ff && !`AL.i_data_mem_fault) begin
+				if (`AL.o_dav_nxt) begin
+					assert (`SH.o_early_target_ff == actual_target)
+						else $fatal(1, "Early branch target differs from ALU execution");
+					assert (!`AL.i_taken_ff[1] || `AL.i_ppc_ff != actual_target)
+						else $fatal(1, "Early redirect on a correctly predicted branch");
+				end else begin
+					assert (`AL.i_taken_ff[1] && `SH.o_early_target_ff ==
+					        `AL.i_pc_ff + (`AL.flags_ff[5] ? 32'd2 : 32'd4))
+						else $fatal(1, "Early branch used stale condition flags");
+				end
+			end
+		end
+	end
+`endif
 	`undef SH
 	`undef PD
 	`undef AL
@@ -204,8 +240,51 @@ module tb_cpu #(
 	assign p_alu_res = `A9.ex_result;
 	assign p_alu_dst = 0;
 	assign p_sh_dbg = 0;
+	assign p_mult_state = 0;
 	`undef A9
 	end
+	// These assertions also run against the baseline netlist: they observe
+	// acknowledged accesses and the real RAM address/permission pipeline.
+	`define DC dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm
+	`define DT dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_tag_ram
+	`define TC dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_tlb.u_zap_tlb_check
+	localparam int DLINE_W = $clog2(CACHE_LINE);
+	localparam int DSET_W = $clog2(DCACHE_SIZE / DCACHE_WAYS / CACHE_LINE);
+	logic [DSET_W-1:0] dc_read_set;
+	logic dc_victim_valid;
+	logic [31:DLINE_W] dc_victim_line;
+	always_ff @(posedge clk) begin
+		if (!`DT.i_hold) dc_read_set <= CORE == "ARM9" ? `DT.rd_set : `DT.rd_set_del2;
+		if (`DC.o_idle) begin
+			dc_victim_valid <= `DC.i_cache_tag_valid;
+			dc_victim_line <= {`DC.i_cache_tag[31-DLINE_W-DSET_W:0],
+			                   `DC.i_address[DLINE_W +: DSET_W]};
+		end
+		if (!reset && `DC.hum_slot_ff)
+			assert (`DC.i_cache_hit_early == `DC.i_cache_hit)
+				else $fatal(1, "Registered HUM tag match differs from live lookup");
+		if (!reset && `DC.state_ff[7])
+			assert (!`DC.o_ack) else $fatal(1, "Hit collided with fill installation");
+		if (!reset && (`DC.state_ff[3] || `DC.state_ff[4] || `DC.state_ff[10]) &&
+		    (`DC.i_rd || `DC.i_wr) && `DC.o_ack) begin
+			assert (dc_read_set == `DC.i_address[DLINE_W +: DSET_W])
+				else $fatal(1, "Hit under miss used an unaligned cache lookup");
+			assert (`DC.i_address[31:DLINE_W] != `DC.address[31:DLINE_W])
+				else $fatal(1, "Hit under miss accessed the filling line");
+			assert (!dc_victim_valid || `DC.i_address[31:DLINE_W] != dc_victim_line)
+				else $fatal(1, "Hit under miss accessed the reserved victim");
+			assert (`DC.i_cache_hit && !`TC.o_walk && !`TC.o_fsr[3:0] &&
+			        `TC.o_cacheable && !`DC.i_align_fault && !`DC.o_err && !`DC.o_err2 &&
+			        !(`DC.i_wr && `TC.o_wt))
+				else $fatal(1, "Hit under miss bypassed translation or a fault");
+			assert (`DC.o_address == `DC.i_address)
+				else $fatal(1, "Hit under miss wrote the background address");
+		end
+	end
+	`undef DC
+	`undef DT
+	`undef TC
+
 	assign p_dc_state = 16'(dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.state_ff);
 	assign p_dc_addr  = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_address;
 	assign p_dc_din   = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_din;
