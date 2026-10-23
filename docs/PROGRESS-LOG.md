@@ -4012,3 +4012,20 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   board's 2323d108...; the only difference) booted on b22 to the idle
   screen and ran Sonic (build/hardware/game/nophone-b22/), so the
   loader leaves them erased.
+- **The plasticbugs Pocket core read** (the user: "they just came out,
+  any insights?"; docs/consults/2026-10-23-plasticbugs-pocket-core.md):
+  a custom ARMv4T (eight stages, a fetch-cycle BTB, 64 KB caches,
+  80 MHz) with a C kernel replacing EKA1 and the drivers, the firmware's
+  user side only; CPI 1.7 in play, about 47 M instructions/s against
+  our 30. Their estimate of the phone: 45-50 MIPS, which puts our core
+  at 60-65 % of it, as our frame rates say. Usable: a store miss that
+  completes when its fill is launched and the write-back deferred behind
+  the fill (their model -4 to -5 % and our 2-3 %: a D-cache task after
+  round 5), the BTB's remaining slot (0.1 CPI, a timing decision), the
+  retrobios SYM.ROM as a possible third firmware input (to be checked
+  against our ROM-order image), X-Men Legends and Puyo Pop as tests
+  (their kernel sees X-Men Legends II panic below 45 MIPS), and the
+  strategic point that a deeper pipeline at 80-90 MHz beats ZAP at 104,
+  the paused ARM9's road. Their "memory card" is the game image; ours is
+  the same image on a modelled, writable card. Our stand-in already
+  answers the energy-management queries they found games need.
