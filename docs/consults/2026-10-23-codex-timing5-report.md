@@ -614,8 +614,8 @@ need no additional stall qualification. These payloads retain their exact
 hold-on-clear behavior; valid/control outputs retain their original clears.
 There is no new register, mux source, prediction, pipeline edge or cycle.
 
-Actual-module equivalence proves all 1,252 points for the configured
-predecode; all 225 counts and 57 QEMU comparisons agree, with both lint
+Actual-module equivalence proves all 1,121 points with the configured
+four-entry RAS, and all 1,252 with an eight-entry RAS; all 225 counts and 57 QEMU comparisons agree, with both lint
 modes and generated checks passing. The acceptance family includes all
 inputs to the three changed payload registers. The candidate is based on
 `combined2`; its two-seed fit is running. The older bus-comparison candidate is
@@ -626,6 +626,35 @@ clock/result/distribution lines identical to the current combined baseline.
 The combined decoder candidate is rebased as `decodeboth3` onto this same
 baseline; its module bytes match the proved version, and all CPU/lint/generated
 checks pass before its paired fit.
+
+**Binary cache destination tags (`dctags`):** extend the background-index
+candidate to the issue interlock and memory-load-valid check. Save the six-bit
+destination with the existing miss context, and use equality comparisons
+instead of variable selections from a 64-bit mask. The unchanged lock mask
+still supplies active/clear timing and all barriers; the unchanged completion
+mask still writes the register file. Binary completion index/valid are
+registered at exactly that completion edge. No live cache data or additional
+pipeline edge enters operand pickup.
+
+Induction on the actual FSM proves the lock is zero or exactly the bit named
+by the saved context, and proves that completion index/valid encode the
+original completion mask. The only interface assumptions are facts wired
+by `zap_core`/`zap_top`: the request mask decodes its binary index, and read
+and write are mutually exclusive. Supporting beat-counter, state and context
+invariants are proved as assertions, not assumed. Checks pass for 8 KB/two-way/
+16-byte lines, 8 KB/one-way/8-byte lines, 8 KB/two-way/32-byte lines and
+16 KB/two-way/16-byte lines. Under that proved identity, all 4,045 actual
+issue-module equivalence points prove; the mask-select/equality identity
+also proves for every six-bit operand. All 225 counts and 57 signatures
+agree, with both lint modes and generated checks passing.
+
+The acceptance minimum covers issue feedback, pending-bit capture,
+background pickup into ALU/shifter, and all inputs to the saved/emitted cache
+destination tags. A supplementary baseline query includes the original
+one-hot registers too, so moving delay into the new binary captures cannot
+hide. This trial is prepared on `combined2`, not applied or fitted. The
+single-outstanding-miss invariant is essential; a future cache supporting
+multiple outstanding misses would need a matching multi-entry interlock.
 
 ## Scope and risks
 
