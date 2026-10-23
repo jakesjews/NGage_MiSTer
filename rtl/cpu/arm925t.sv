@@ -35,12 +35,15 @@ module arm925t #(
 	// 1 puts the exception vectors, and the reset address, at 0xFFFF0000.
 	parameter bit          HIVECS      = 1'b0,
 	// Cache geometry: the ARM925T's 16 KB I / 8 KB D, 2-way with LRU
-	// replacement, 16-byte lines (docs/CPU.md).
-	parameter int          ICACHE_SIZE = 16384,
-	parameter int          ICACHE_WAYS = 2,
-	parameter int          DCACHE_SIZE = 8192,
-	parameter int          DCACHE_WAYS = 2,
-	parameter int          CACHE_LINE  = 16
+	// replacement, 16-byte lines (docs/CPU.md). ICACHE_SIZE may also be
+	// set to 32768 (32 KB, 1,024 sets); ICACHE_PREFETCH enables the
+	// one-line sequential next-line prefetch (set 0 for strict accuracy).
+	parameter int          ICACHE_SIZE     = 16384,
+	parameter int          ICACHE_WAYS     = 2,
+	parameter bit          ICACHE_PREFETCH = 1'b1,
+	parameter int          DCACHE_SIZE     = 8192,
+	parameter int          DCACHE_WAYS     = 2,
+	parameter int          CACHE_LINE      = 16
 ) (
 	input  logic        clk,
 	input  logic        reset,
@@ -97,12 +100,13 @@ module arm925t #(
 		.CP15_CTYPE      (32'h05109149),
 		.HIVECS          (HIVECS),
 		.RESET_VECTOR    (RESET_VECTOR),
-		.CODE_CACHE_SIZE (32'(ICACHE_SIZE)),
-		.CODE_CACHE_LINE (32'(CACHE_LINE)),
-		.CODE_CACHE_WAYS (32'(ICACHE_WAYS)),
-		.DATA_CACHE_SIZE (32'(DCACHE_SIZE)),
-		.DATA_CACHE_LINE (32'(CACHE_LINE)),
-		.DATA_CACHE_WAYS (32'(DCACHE_WAYS))
+		.CODE_CACHE_SIZE     (32'(ICACHE_SIZE)),
+		.CODE_CACHE_LINE     (32'(CACHE_LINE)),
+		.CODE_CACHE_WAYS     (32'(ICACHE_WAYS)),
+		.CODE_CACHE_PREFETCH (ICACHE_PREFETCH),
+		.DATA_CACHE_SIZE     (32'(DCACHE_SIZE)),
+		.DATA_CACHE_LINE     (32'(CACHE_LINE)),
+		.DATA_CACHE_WAYS     (32'(DCACHE_WAYS))
 	) u_zap (
 		.i_clk    (clk),
 		.i_reset  (reset),

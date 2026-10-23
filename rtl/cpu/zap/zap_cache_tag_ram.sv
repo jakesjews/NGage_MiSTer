@@ -55,7 +55,8 @@ module zap_cache_tag_ram #(
 
 parameter logic [31:0] CACHE_SIZE = 32'd1024, // Bytes, all ways together.
 parameter logic [31:0] CACHE_LINE = 32'd8,
-parameter logic [31:0] WAYS       = 32'd1     // ARM925T: 1 or 2.
+parameter logic [31:0] WAYS       = 32'd1,    // ARM925T: 1 or 2.
+parameter logic        PREFETCH   = 1'd0      // ARM925T: I-cache next-line prefetch check.
 
 )(
 
@@ -118,6 +119,10 @@ input   logic    [31:0]                   i_line_addr,
 input   logic    [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] i_line_way,
 output  logic                             o_line_done,
 
+// ARM925T: 1-cycle VA tag check for I-cache sequential prefetch (PREFETCH = 1).
+input   logic    [31:0]                   i_pf_addr = 32'd0,
+output  logic                             o_pf_hit,
+
 //
 // Cache clean operations occur through these ports.
 // Bus access ports.
@@ -144,6 +149,7 @@ localparam [31:0] LINES_ALL = CACHE_SIZE / CACHE_LINE;
 localparam [31:0] SET_W     = $clog2(LINES);
 localparam [31:0] WAY_W     = WAYS > 1 ? $clog2(WAYS) : 32'd1;
 localparam [31:0] FLAT_W    = $clog2(LINES_ALL);      // A line of any way: {way, set}.
+localparam [31:0] TAG_W     = 32'd31 - $clog2(CACHE_LINE) - SET_W + 32'd1;
 
 localparam [31:0] NUMBER_OF_DIRTY_BLOCKS = LINES_ALL/16; // Keep cache size > 16 bytes.
 
@@ -424,6 +430,66 @@ end
 
 assign o_cache_hit       = |hit;
 assign o_cache_way       = sel;
+
+//
+// ARM925T: 1-cycle VA tag lookup for sequential next-line prefetch (I-cache).
+// Kept in a dedicated 1-cycle synchronous block RAM per way so the 3-stage
+// demand tag RAM (u_zap_ram_simple_tag) and its critical hit compare path
+// are completely untouched.
+//
+if ( PREFETCH )
+begin : g_prefetch
+        logic [WAYS-1:0][TAG_W-1:0] pf_tag_q;
+        logic [SET_W-1:0]           pf_set_q;
+        logic [TAG_W-1:0]           pf_addr_tag_q;
+        logic [TAG_W-1:0]           pend_tag;
+        logic [WAYS-1:0]            pf_way_hit;
+        logic                       unused_pf;
+
+        assign unused_pf = |i_pf_addr[$clog2(CACHE_LINE)-1:0];
+
+        for ( genvar w = 0; w < WAYS; w++ )
+        begin : g_pf_way
+                logic [TAG_W-1:0] pf_tag_mem [LINES-1:0];
+
+                always_ff @ ( posedge i_clk )
+                begin
+                        if ( !i_hold && tag_ram_wr_en && wr_sel[w] )
+                        begin
+                                pf_tag_mem[tag_ram_wr_addr] <= tag_ram_wr_data[`ZAP_CACHE_TAG__TAG];
+                        end
+
+                        pf_tag_q[w] <= pf_tag_mem[i_pf_addr[`ZAP_VA__CACHE_INDEX]];
+                end
+        end : g_pf_way
+
+        always_ff @ ( posedge i_clk )
+        begin
+                pf_set_q      <= i_pf_addr[`ZAP_VA__CACHE_INDEX];
+                pf_addr_tag_q <= i_pf_addr[`ZAP_VA__CACHE_TAG];
+                pend_tag      <= tag_ram_wr_data[`ZAP_CACHE_TAG__TAG];
+        end
+
+        always_comb
+        begin
+                for ( int w = 0; w < WAYS; w++ )
+                begin
+                        pf_way_hit[w] = !tag_ram_clear && i_cache_en && (
+                                ( pend_en && pend_sel[w] && (pend_addr == pf_set_q) ) ?
+                                        ( pend_tag == pf_addr_tag_q ) :
+                                        ( valid[flat(WAY_W'(w), pf_set_q)] && (pf_tag_q[w] == pf_addr_tag_q) )
+                        );
+                end
+        end
+
+        assign o_pf_hit = |pf_way_hit;
+end : g_prefetch
+else
+begin : g_no_prefetch
+        logic unused_pf;
+        assign unused_pf = |i_pf_addr;
+        assign o_pf_hit  = 1'd0;
+end : g_no_prefetch
 
 // The way a write goes to: idle, the way that hits (a store hit); else the
 // way the FSM buffered with the address (a fill, a clean, a write-through).

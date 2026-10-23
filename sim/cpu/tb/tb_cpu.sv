@@ -7,12 +7,13 @@
 // are; main.cpp turns them into a retirement trace. They work on both the
 // generated netlist (rtl/cpu/arm925t_gen.v) and the SystemVerilog sources.
 module tb_cpu #(
-	parameter bit HIVECS      = 1'b0,
-	parameter int ICACHE_SIZE = 16384,
-	parameter int ICACHE_WAYS = 2,
-	parameter int DCACHE_SIZE = 8192,
-	parameter int DCACHE_WAYS = 2,
-	parameter int CACHE_LINE  = 16
+	parameter bit HIVECS          = 1'b0,
+	parameter int ICACHE_SIZE     = 16384,
+	parameter int ICACHE_WAYS     = 2,
+	parameter bit ICACHE_PREFETCH = 1'b1,
+	parameter int DCACHE_SIZE     = 8192,
+	parameter int DCACHE_WAYS     = 2,
+	parameter int CACHE_LINE      = 16
 ) (
 	input  logic          clk,
 	input  logic          reset,
@@ -88,12 +89,13 @@ module tb_cpu #(
 );
 
 	arm925t #(
-		.HIVECS      (HIVECS),
-		.ICACHE_SIZE (ICACHE_SIZE),
-		.ICACHE_WAYS (ICACHE_WAYS),
-		.DCACHE_SIZE (DCACHE_SIZE),
-		.DCACHE_WAYS (DCACHE_WAYS),
-		.CACHE_LINE  (CACHE_LINE)
+		.HIVECS          (HIVECS),
+		.ICACHE_SIZE     (ICACHE_SIZE),
+		.ICACHE_WAYS     (ICACHE_WAYS),
+		.ICACHE_PREFETCH (ICACHE_PREFETCH),
+		.DCACHE_SIZE     (DCACHE_SIZE),
+		.DCACHE_WAYS     (DCACHE_WAYS),
+		.CACHE_LINE      (CACHE_LINE)
 	) dut (
 		.clk       (clk),
 		.reset     (reset),
