@@ -3928,3 +3928,16 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   this tree: -0.680, -0.920, -0.550, -1.115; the Thumb decoder's cone is
   in the top of nearly every seed. The sweep stops at seed 11: the
   final tree after round 5 gets its own.
+- Seed 11 of the main core on c8f18ef (the server): -0.661 ns; the
+  issue stage's skid (-0.66, two paths), the D-TLB walker into the
+  shifter (-0.52), the merger into the flash line buffer (-0.42). **The
+  sweep's tally** (the main core, NGAGE_NO_DEBUG): c03088f seeds 1-6:
+  -1.152, -1.285, -0.861, -1.074, -1.146, -0.973; c8f18ef (the card
+  model's fix) seeds 7-11: -0.680, -0.920, -0.550, -1.115, -0.661: a
+  median of -0.68 and a best of -0.55 (seed 9, the main-slot candidate),
+  so the tree misses the goal of a median within 0.3 ns by about 0.4,
+  which is round 5's job: the Thumb decoder's cone into predecode and
+  decode (in the top of most seeds), the issue stage's skid and late
+  stall, the MMU enable's fanout, the memory stage into the D-cache tag
+  RAM, the merger's address into upp_bus's decode and line buffer, the
+  D-TLB walker into decode and the shifter.
