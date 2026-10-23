@@ -8,7 +8,8 @@
 //   * the refresh interval: every gap between two AUTO REFRESH commands
 //     must be at most tREFI (7.8125 us);
 //   * reads: CAS latency and burst length from the mode register, sequential
-//     wrap, a burst cut by PRECHARGE (x = CL - 1) or another READ, DQM read
+//     wrap, a burst cut by PRECHARGE (x = CL - 1), BURST TERMINATE or
+//     another READ, write-to-read recovery, DQM read
 //     masking two clocks ahead; writes: single-location or burst mode, DQM
 //     masking; DQ contention between the chip and the controller;
 //   * the read capture: the chip clock is the inverted FPGA clock, so the
@@ -63,7 +64,7 @@ public:
 	SdramTiming tm;
 	std::vector<uint16_t> mem;
 	int errors = 0;
-	uint64_t refreshes = 0, reads = 0, writes = 0, activates = 0;
+	uint64_t refreshes = 0, reads = 0, writes = 0, activates = 0, precharges = 0, stops = 0;
 	double max_refresh_gap = 0;
 	bool quiet = false;
 
@@ -75,6 +76,7 @@ public:
 	uint16_t &at(int b, int r, int c) { return mem[((size_t)b * ROWS + r) * COLS + c]; }
 	// the halfword at a linear halfword address: column 8:0, row 21:9, bank 23:22
 	uint16_t &lin(uint32_t h) { return at((h >> 22) & 3, (h >> 9) & 8191, h & 511); }
+	int open_row(int b) const { return bank[b].state == ACT ? bank[b].row : -1; }
 
 	void edge(uint64_t e, const SdramPins &p) {
 		double now = e * tm.tck + tm.tck / 2;
@@ -87,11 +89,14 @@ public:
 			if (bank[b].state == PRE && now + EPS >= bank[b].ready) bank[b].state = IDLE;
 		// active too long
 		for (int b = 0; b < BANKS; b++)
-			if (bank[b].state == ACT && now - bank[b].t_act > tm.ras_max) { err("bank %d open longer than tRAS max", b); bank[b].t_act = now; }
+			if (bank[b].state == ACT && !bank[b].ras_reported && now - bank[b].t_act > tm.ras_max) {
+				err("bank %d open longer than tRAS max", b);
+				bank[b].ras_reported = true;
+			}
 		// refresh interval
-		if (mode_set && refreshes > (uint64_t)tm.init_refreshes && now - last_refresh > tm.refi + EPS) {
+		if (mode_set && !refresh_late && now - last_refresh > tm.refi + EPS) {
 			err("%.0f ns without a refresh", now - last_refresh);
-			last_refresh = now;
+			refresh_late = true;
 		}
 		// contention: the controller drives DQ while a read halfword is on the bus
 		if (p.dq_oe) {
@@ -128,6 +133,7 @@ public:
 			k.state = ACT;
 			k.row = p.a & 8191;
 			k.t_act = now;
+			k.ras_reported = false;
 			k.last_write = -1e18;
 			activates++;
 			break;
@@ -159,6 +165,11 @@ public:
 				k.last_write = now;
 				writes++;
 			} else {
+				// Single-location writes need at least one clock before a
+				// READ, including one to a different bank (shared data bus).
+				for (int o = 0; o < BANKS; o++)
+					if (now - bank[o].last_write + EPS < tm.tck)
+						err("READ less than one clock after WRITE");
 				int base = col & ~(bl - 1);
 				for (int i = 0; i < bl; i++) {
 					int c = base | ((col + i) & (bl - 1));
@@ -169,6 +180,7 @@ public:
 			break;
 		}
 		case 2: {   // PRECHARGE
+			precharges++;
 			bool all = p.a & (1 << 10);
 			for (int o = 0; o < BANKS; o++) {
 				if (!all && o != b) continue;
@@ -177,22 +189,29 @@ public:
 					if (now - q.t_act + EPS < tm.ras) err("PRECHARGE %.1f ns after ACTIVE: tRAS", now - q.t_act);
 					double wr_need = std::max(tm.wr, tm.wr_min_clk * tm.tck);
 					if (now - q.last_write + EPS < wr_need) err("PRECHARGE %.1f ns after a WRITE: tWR", now - q.last_write);
-					q.state = PRE;
-					q.ready = now + tm.rp;
 					// the burst stops after the halfword valid at e + CL - 1
 					for (auto &r : rd)
 						if (!r.dropped && r.bank == o && r.valid_edge > e + (uint64_t)cl - 1) r.dropped = true;
 				}
+				// PRECHARGE ALL also imposes tRP when a bank was idle.
+				q.state = PRE;
+				q.ready = now + tm.rp;
 			}
 			if (all) precharged_all = true;
 			break;
 		}
+		case 6:     // BURST TERMINATE: bank/address ignored, CL-clock delay
+			for (auto &r : rd)
+				if (!r.dropped && r.valid_edge >= e + (uint64_t)cl) r.dropped = true;
+			stops++;
+			break;
 		case 1: {   // AUTO REFRESH
 			for (int o = 0; o < BANKS; o++)
 				if (bank[o].state != IDLE) { err("REFRESH with bank %d %s", o, bank[o].state == ACT ? "open" : "inside tRP"); break; }
 			if (!precharged_all) err("REFRESH before PRECHARGE ALL");
-			if (refreshes > (uint64_t)tm.init_refreshes && mode_set) max_refresh_gap = std::max(max_refresh_gap, now - last_refresh);
+			if (mode_set) max_refresh_gap = std::max(max_refresh_gap, now - last_refresh);
 			last_refresh = now;
+			refresh_late = false;
 			rfc_until = now + tm.rfc;
 			refreshes++;
 			break;
@@ -214,7 +233,7 @@ public:
 			break;
 		}
 		default:
-			err("command %d (burst terminate or reserved) not modelled", cmd);
+			err("command %d not modelled", cmd);
 		}
 	}
 
@@ -253,6 +272,7 @@ private:
 	struct Bank {
 		State  state = IDLE;
 		int    row = 0;
+		bool   ras_reported = false;
 		double t_act = -1e18, ready = 0, last_write = -1e18;
 	};
 	struct Rd {
@@ -269,6 +289,7 @@ private:
 	uint64_t cur_edge = 0, mrd_until = 0;
 	double last_refresh = 0, rfc_until = -1e18;
 	bool started = false, precharged_all = false, mode_set = false, wburst_single = false;
+	bool refresh_late = false;
 	int bl = 1, cl = 2;
 
 	double tac() const { return cl == 3 ? tm.tac_cl3 : tm.tac_cl2; }
