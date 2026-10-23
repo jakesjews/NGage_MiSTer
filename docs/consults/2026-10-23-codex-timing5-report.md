@@ -499,9 +499,16 @@ the two family results improves, the first seed regresses by 0.730 ns;
 that distinction is preserved for review rather than treating the pair as
 an unqualified gain.
 
-The local pending-select trial is still running. Further unstarted pairs
-are held while `combined2` measures the current retained CPU changes
-plus the card owner's fix at seeds 1–3. Its source is `d8b1d1c`, with the
+The `pendingselect` trial is eligible for retention: the minimum over the
+complete shifter-output and issue-pending input families improves from
+−0.680 to −0.258 ns at seed 1 and from −0.535 to −0.501 ns at seed 2.
+The second seed's shifter result is −0.396 ns; the new limiting member
+is a pending-bit input at −0.501 ns. Whole-core slacks are −1.286 and
+−0.899 ns, with 477 RAM blocks in both fits. The 0.034 ns second-seed
+improvement is small; it is not evidence that the whole core closes.
+Both source manifests match and every count is unchanged. No candidate
+RTL is yet applied: `combined2` first measures the current retained CPU
+changes plus the card owner's fix at seeds 1–3. Its source is `d8b1d1c`, with the
 MAIN macro enabled only in its dedicated build copies. The active pairs
 keep their original combined1 baseline. No unmeasured candidate is applied
 to the main branch for this combined build.
