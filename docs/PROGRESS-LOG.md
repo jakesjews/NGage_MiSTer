@@ -3963,3 +3963,16 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   Thumb decoder into predecode (-0.45). Eight seeds of this tree:
   -0.680, -0.920, -0.550, -1.115, -0.661, -0.535, -0.633, -0.643
   (median -0.64). Seed 9 stays on the main slot (tested; 15 ps apart).
+- **The sweep to seed 20, done.** Seeds 14-19 (the server): -1.055,
+  -0.702, -0.732, -0.681, **-0.431** (seed 18), -0.616. The fourteen
+  seeds of the fixed tree (7-20): -0.680, -0.920, -0.550, -1.115,
+  -0.661, -0.535, -0.633, -1.055, -0.702, -0.732, -0.681, -0.431,
+  -0.616, -0.643: median -0.67, best -0.431. Seed 18's report has one
+  family above -0.35, the Thumb decoder into predecode (-0.43), then
+  the late memory index into the shifter (-0.34) and decode's shift
+  fields into issue (-0.27): with the Thumb decoder's cone cleared,
+  this seed would sit near -0.34. Seeds 16, 17 and 19 show the
+  self-test enable (test_on_q) into upp_bus's decode and the merger
+  (-0.69, -0.67, -0.56), the family round 4's arbiter rewrite targets.
+  Seed 18's rbf (build/hardware/NGage-ndm-s18.rbf) is the main-slot
+  candidate, 0.12 ns better than the seed 9 on it.
