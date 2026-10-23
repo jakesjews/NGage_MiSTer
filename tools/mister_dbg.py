@@ -48,7 +48,7 @@ def decode(path):
     bits = [bit(im, scale, 16 + i, 5) for i in range(8)]
     flags = " ".join("%s=%d" % (n, v) for n, v in zip(NAMES, bits))
     words = []
-    for row in range(9, 9 + 4 * 33, 4):     # 12 words, then the 21 counters
+    for row in range(9, 9 + 4 * 37, 4):     # 12 words, then the 25 counters
         w = 0
         for i in range(32):
             w = (w << 1) | bit(im, scale, 16 + i, row)
@@ -60,7 +60,7 @@ def decode(path):
         path, pc, flags, words[0], words[1], words[2], words[3], words[4], words[5], cat,
         words[6], words[7] >> 24, (words[7] >> 16) & 0xFF, words[7] & 0xFFFF, w11 >> 24,
         w8 >> 31, (w8 >> 16) & 0x1F, (w8 >> 8) & 0x3F, w8 & 0x3F, w9 >> 16, (w9 >> 8) & 0xFF, w9 & 0xFF,
-        w10 >> 16, w10 & 0xFFFF) + counters(words[12:33])
+        w10 >> 16, w10 & 0xFFFF) + counters(words[12:37])
 
 
 def counters(w):
@@ -70,16 +70,18 @@ def counters(w):
     # fetch's, no instruction out of the fetch FIFO, the issue, shifter and
     # decode stalls; the ALU's flushes and the writeback's (counts); uops,
     # replays, and the MMC card counters (512-byte blocks completed, data-phase
-    # clocks, wire-wait-for-Linux clocks)
+    # clocks, wire-wait-for-Linux clocks), and the D-cache's events (load-miss
+    # fills, store-miss fills, line write-backs, uncached completions)
     frames, pix, retired, wfi, wsd, wfl, wot, beats = w[:8]
     dstall, cstall, nofifo, s_issue, s_shift, s_dec, clr_alu, clr_wb, uops, replays = w[8:18]
     mmc_blks, mmc_data, mmc_wait = w[18:21]
+    dc_ld, dc_st, dc_wb, dc_unc = w[21:25]   # D-cache: load-miss fills, store-miss fills, write-backs, uncached completions
     clk = 104_000_000
     pct = lambda n: 100.0 * n / clk
-    return " | per s: %d frames, %d px, %.2f M instr, idle %.1f%%, bus wait sdram %.1f%% flash %.1f%% other %.1f%%, %d beats | stalls: data %.1f%% code %.1f%% nofifo %.1f%% issue %.1f%% shifter %.1f%% decode %.1f%%, flush alu %d wb %d, %.2f M uops, %d replays, mmc %d blk/s data %.1f%% wait %.1f%%" % (
+    return " | per s: %d frames, %d px, %.2f M instr, idle %.1f%%, bus wait sdram %.1f%% flash %.1f%% other %.1f%%, %d beats | stalls: data %.1f%% code %.1f%% nofifo %.1f%% issue %.1f%% shifter %.1f%% decode %.1f%%, flush alu %d wb %d, %.2f M uops, %d replays, mmc %d blk/s data %.1f%% wait %.1f%% | dcache %d ld-fill %d st-fill %d wb %d unc" % (
         frames, pix, retired / 1e6, pct(wfi), pct(wsd), pct(wfl), pct(wot), beats,
         pct(dstall), pct(cstall), pct(nofifo), pct(s_issue), pct(s_shift), pct(s_dec), clr_alu, clr_wb, uops / 1e6, replays,
-        mmc_blks, pct(mmc_data), pct(mmc_wait))
+        mmc_blks, pct(mmc_data), pct(mmc_wait), dc_ld, dc_st, dc_wb, dc_unc)
 
 
 if __name__ == "__main__":

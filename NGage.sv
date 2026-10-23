@@ -633,6 +633,7 @@ wire [31:0] tr_wb_pc, tr_wb_cpsr, tr_wb_cpsr_nxt;
 wire        tr_d_done, tr_d_we;
 wire        cpu_dbg_wfi;
 wire  [7:0] cpu_dbg_stall;
+wire  [3:0] cpu_dbg_dcache;   // load fills, store fills, write-backs, uncached completions
 wire [31:0] tr_d_va, tr_d_wdata, tr_d_rdata;
 wire  [3:0] tr_d_sel;
 
@@ -661,6 +662,7 @@ arm925t #(
 	.dbg_wb_valid(tr_wb_valid),
 	.dbg_wfi(cpu_dbg_wfi),
 	.dbg_stall(cpu_dbg_stall),
+	.dbg_dcache(cpu_dbg_dcache),
 	.dbg_wb_dvalid(tr_wb_dvalid),
 	.dbg_wb_uop_last(tr_wb_uop_last),
 	.dbg_wb_dabt(tr_wb_dabt),
@@ -1067,11 +1069,12 @@ wire        dbg_bus_flash = wb_adr[27:26] == 2'b00;       // CS0-CS3
 // instruction round again because the data cache was busy with a fill) has
 // no architectural effect and is not a retired instruction or uop, as the
 // CPU bench counts them (sim/cpu/tb/main.cpp).
-localparam DBG_CNT = 21;
+localparam DBG_CNT = 25;
 reg         dbg_mmc_busy_q = 0;
 always @(posedge clk_sys) dbg_mmc_busy_q <= dbg_src0[22];
 wire        tr_wb_retire = (tr_wb_valid || tr_wb_dvalid) && !tr_wb_dabt[1];
 wire [DBG_CNT-1:0] dbg_ev = {
+	cpu_dbg_dcache,                                       // 24..21 D-cache: uncached completions, line write-backs, store-miss fills, load-miss fills
 	dbg_src0[22] && dbg_src0[23] && !card_dat_oe,         // 20 mmc wire waits for Linux
 	dbg_src0[22],                                         // 19 mmc clocks in data phase
 	dbg_mmc_busy_q && !dbg_src0[22],                      // 18 mmc 512-byte blocks completed
