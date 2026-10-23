@@ -5120,6 +5120,7 @@ module zap_core (
 	wire [3:0] issue_load_pending_ff;
 	wire [3:0] shifter_late_ready;
 	wire issue_shift_source_pending_ff;
+	wire issue_alu_is_mult_ff;
 	wire [5:0] issue_shift_length_index_ff;
 	wire [127:0] shifter_late_value;
 	wire [1:0] shifter_load_pending_ff;
@@ -5637,6 +5638,7 @@ module zap_core (
 		.o_load_pending_ff(issue_load_pending_ff),
 		.o_shift_length_index_ff(issue_shift_length_index_ff),
 		.o_shift_source_pending_ff(issue_shift_source_pending_ff),
+		.o_alu_is_mult_ff(issue_alu_is_mult_ff),
 		.i_late_ready(shifter_late_ready),
 		.i_late_value(shifter_late_value),
 		.o_shifter_disable_ff(issue_shifter_disable_ff)
@@ -5660,6 +5662,7 @@ module zap_core (
 		.i_load_pending_ff(issue_load_pending_ff),
 		.i_shift_length_index_ff(issue_shift_length_index_ff),
 		.i_shift_source_pending_ff(issue_shift_source_pending_ff),
+		.i_alu_is_mult_ff(issue_alu_is_mult_ff),
 		.i_memory_load_valid(memory_load_valid),
 		.i_memory_load_index(late_memory_index_ff),
 		.i_memory_load_value(late_memory_value_ff),
@@ -11550,6 +11553,7 @@ module zap_issue_main (
 	o_load_pending_ff,
 	o_shift_length_index_ff,
 	o_shift_source_pending_ff,
+	o_alu_is_mult_ff,
 	i_late_ready,
 	i_late_value,
 	o_condition_code_ff,
@@ -11676,6 +11680,7 @@ module zap_issue_main (
 	output reg [3:0] o_load_pending_ff;
 	output reg [5:0] o_shift_length_index_ff;
 	(* preserve, dont_retime *) output reg o_shift_source_pending_ff;
+	(* preserve, dont_retime *) output reg o_alu_is_mult_ff;
 	input wire [3:0] i_late_ready;
 	input wire [127:0] i_late_value;
 	output reg [3:0] o_condition_code_ff;
@@ -12166,6 +12171,12 @@ module zap_issue_main (
 			o_shift_source_pending_ff <= !(lock || (skid_condition_code_ff == NV)) && late_pending[1];
 		else
 			o_shift_source_pending_ff <= o_shift_source_pending_ff && !i_late_ready[1];
+	wire skid_is_mult;
+	always @(posedge i_clk)
+		if (i_reset || clear)
+			o_alu_is_mult_ff <= 1'b0;
+		else if (!stall)
+			o_alu_is_mult_ff <= skid_is_mult;
 	(* dont_retime *) reg [31:0] alu_source_normal_ff;
 	(* dont_retime *) reg [31:0] alu_source_rf_ff;
 	(* dont_retime *) reg [31:0] alu_source_refresh_ff;
@@ -12308,7 +12319,6 @@ module zap_issue_main (
 	wire skid_is_lsl_0;
 	wire skid_is_rori;
 	wire w_shift_lock;
-	wire skid_is_mult;
 	assign skid_is_lsl_0 = (stall_late_ff ? skid_lsl0_ff : i_shift_is_lsl0_ff);
 	assign skid_is_rori = skid_shift_operation_ff == RORI;
 	assign o_shifter_disable_nxt = skid_is_lsl_0 | skid_is_mult;
@@ -16524,6 +16534,7 @@ module zap_shifter_main (
 	i_memory_load_index,
 	i_memory_load_value,
 	i_shift_source_pending_ff,
+	i_alu_is_mult_ff,
 	i_dc_reg_idx,
 	i_dc_reg_dat,
 	i_stall_from_alu,
@@ -16626,6 +16637,7 @@ module zap_shifter_main (
 	input wire [5:0] i_memory_load_index;
 	input wire [31:0] i_memory_load_value;
 	input wire i_shift_source_pending_ff;
+	input wire i_alu_is_mult_ff;
 	input wire [63:0] i_dc_reg_idx;
 	input wire [31:0] i_dc_reg_dat;
 	input wire i_stall_from_alu;
@@ -17136,7 +17148,7 @@ module zap_shifter_main (
 	wire multiply_busy;
 	wire late_wait;
 	wire is_multiply;
-	assign is_multiply = (((((((((((((((((((((((i_alu_operation_ff == {1'd0, UMLALL}) || (i_alu_operation_ff == {1'd0, UMLALH})) || (i_alu_operation_ff == {1'd0, SMLALL})) || (i_alu_operation_ff == {1'd0, SMLALH})) || (i_alu_operation_ff == SMULW0)) || (i_alu_operation_ff == SMULW1)) || (i_alu_operation_ff == SMUL00)) || (i_alu_operation_ff == SMUL01)) || (i_alu_operation_ff == SMUL10)) || (i_alu_operation_ff == SMUL11)) || (i_alu_operation_ff == SMLA00)) || (i_alu_operation_ff == SMLA01)) || (i_alu_operation_ff == SMLA10)) || (i_alu_operation_ff == SMLA11)) || (i_alu_operation_ff == SMLAW0)) || (i_alu_operation_ff == SMLAW1)) || (i_alu_operation_ff == SMLAL00L)) || (i_alu_operation_ff == SMLAL01L)) || (i_alu_operation_ff == SMLAL10L)) || (i_alu_operation_ff == SMLAL11L)) || (i_alu_operation_ff == SMLAL00H)) || (i_alu_operation_ff == SMLAL01H)) || (i_alu_operation_ff == SMLAL10H)) || (i_alu_operation_ff == SMLAL11H);
+	assign is_multiply = i_alu_is_mult_ff;
 	wire [3:0] memory_match;
 	wire [3:0] background_match;
 	wire [23:0] load_index;

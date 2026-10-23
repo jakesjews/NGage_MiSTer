@@ -195,6 +195,8 @@ module zap_issue_main
         output logic [3:0]                        o_load_pending_ff,
         output logic [5:0]                        o_shift_length_index_ff,
         (* preserve, dont_retime *) output logic  o_shift_source_pending_ff,
+        // ARM925T: o_alu_operation_ff is a multiply (registered with it).
+        (* preserve, dont_retime *) output logic  o_alu_is_mult_ff,
         input logic [3:0]                         i_late_ready,
         input logic [127:0]                       i_late_value,
 
@@ -508,6 +510,16 @@ always_ff @(posedge i_clk) begin
         else if (!stall)
                 o_shift_source_pending_ff <= !(lock || skid_condition_code_ff == NV) && late_pending[1];
         else o_shift_source_pending_ff <= o_shift_source_pending_ff && !i_late_ready[1];
+end
+
+// ARM925T: the shifter's multiply classification of o_alu_operation_ff,
+// registered with it from the same skid field, so that the shifter's
+// operand and late-value selects start at a flop instead of a 24-way
+// compare (timing). A cleared slot (operation 'x, condition NV) reads as
+// not a multiply; its operand values are never used.
+always_ff @(posedge i_clk) begin
+        if (i_reset || clear) o_alu_is_mult_ff <= 1'b0;
+        else if (!stall)      o_alu_is_mult_ff <= skid_is_mult;
 end
 
 // ARM925T: capture register-file, forwarded and held-slot refresh data

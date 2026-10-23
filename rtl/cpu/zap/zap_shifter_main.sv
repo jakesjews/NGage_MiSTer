@@ -72,6 +72,7 @@ module zap_shifter_main
         input logic [5:0] i_memory_load_index,
         input logic [31:0] i_memory_load_value,
         input logic i_shift_source_pending_ff,
+        input logic i_alu_is_mult_ff,   // ARM925T: i_alu_operation_ff is a multiply (zap_issue_main)
         input logic [63:0] i_dc_reg_idx,
         input logic [31:0] i_dc_reg_dat,
         input logic i_stall_from_alu,
@@ -223,30 +224,8 @@ wire early_branch = i_link_branch_ff[33] && early_flags_ready && early_wrong &&
         !o_stall_from_shifter;
 
 logic multiply_busy, late_wait, is_multiply;
-assign is_multiply = i_alu_operation_ff == {1'd0, UMLALL} ||
-             i_alu_operation_ff == {1'd0, UMLALH} ||
-             i_alu_operation_ff == {1'd0, SMLALL} ||
-             i_alu_operation_ff == {1'd0, SMLALH} ||
-             i_alu_operation_ff == SMULW0         ||
-             i_alu_operation_ff == SMULW1         ||
-             i_alu_operation_ff == SMUL00         ||
-             i_alu_operation_ff == SMUL01         ||
-             i_alu_operation_ff == SMUL10         ||
-             i_alu_operation_ff == SMUL11         ||
-             i_alu_operation_ff == SMLA00         ||
-             i_alu_operation_ff == SMLA01         ||
-             i_alu_operation_ff == SMLA10         ||
-             i_alu_operation_ff == SMLA11         ||
-             i_alu_operation_ff == SMLAW0         ||
-             i_alu_operation_ff == SMLAW1         ||
-             i_alu_operation_ff == SMLAL00L       ||
-             i_alu_operation_ff == SMLAL01L       ||
-             i_alu_operation_ff == SMLAL10L       ||
-             i_alu_operation_ff == SMLAL11L       ||
-             i_alu_operation_ff == SMLAL00H       ||
-             i_alu_operation_ff == SMLAL01H       ||
-             i_alu_operation_ff == SMLAL10H       ||
-             i_alu_operation_ff == SMLAL11H;
+// ARM925T: issue registers the classification with the operation.
+assign is_multiply = i_alu_is_mult_ff;
 logic [3:0] memory_match, background_match;
 logic [23:0] load_index;
 logic [127:0] original_value, pickup_value;
