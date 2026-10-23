@@ -1331,9 +1331,8 @@ module arm9_core (
 	assign slow_start = (((((((((((e_valid && !fast_e) && !shift_hold) && !execute_wait) && !fast_1[228]) && !fast_m[228]) && (!fast_w[228] || retire_fast)) && !pipe_hold) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_fault) && !pipe_pc_redirect) && !clear_e_late;
 	assign early_redirect = (execute_fast && prediction_wrong) || ((slow_start || block_start) && e_predicted);
 	wire f_abort;
-	wire f_redirect;
 	wire f_valid;
-	assign issue = (((((f_valid && !sequence_active) && !f_redirect) && !clear_e_late) && (state == 4'd0)) && (!e_valid || execute_fast)) && ((((fast_d && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6])) || (!e_valid && !(|unused_read_wait)));
+	assign issue = ((((f_valid && !sequence_active) && !clear_e_late) && (state == 4'd0)) && (!e_valid || execute_fast)) && ((((fast_d && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6])) || (!e_valid && !(|unused_read_wait)));
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -1460,6 +1459,7 @@ module arm9_core (
 	assign effective_address = (kind_e == 4'd6 ? held_value[0+:32] + {{24 {block_delta_e[7]}}, block_delta_e} : (kind_e == 4'd12 ? value_e[0+:32] : (ins[24] ? ex_result : held_value[0+:32])));
 	assign next_pc = (w_dabt ? vector_base + 16 : (w_fiq ? vector_base + 28 : (w_irq ? vector_base + 24 : (w_pabt ? vector_base + 12 : (w_swi ? vector_base + 8 : (w_und ? vector_base + 4 : (w_load && (m_dst == PHY_PC) ? m_read_data : (w_redirect ? w_target : slow[175-:32] + (slow[21] ? 2 : 4)))))))));
 	wire f_ready;
+	wire f_redirect;
 	wire [31:0] f_address_nxt;
 	wire [31:0] f_address_check;
 	wire [31:0] f_address;
@@ -2328,7 +2328,6 @@ module arm9_fetch (
 	wire pop;
 	wire retry;
 	wire response;
-	wire bypass;
 	wire btb_taken;
 	wire prediction;
 	wire [31:0] btb_target;
@@ -2426,20 +2425,18 @@ module arm9_fetch (
 	assign o_stall = ((count == 8) && !killed) || (f2[35] && !i_ack);
 	assign retry = (((f2[35] && i_ack) && i_retry) && !killed) && !i_redirect;
 	assign response = (((((f2[35] && i_ack) && !i_retry) && !o_stall) && !killed) && !i_redirect) && (f2[34-:2] == epoch);
-	assign bypass = (((count == 0) && response) && (i_hit || !f2[32])) && !selected_packet[101];
-	assign push = response && !(bypass && i_ready);
-	assign o_valid = bypass || ((((count != 0) && !queue[head][101]) && (queue[head][139-:2] == epoch)) && !i_redirect);
-	wire select_direct = count == 0;
-	assign o_pc = (select_direct ? selected_packet[63-:32] : queue[head][63-:32]);
-	assign o_instruction = (select_direct ? selected_packet[31-:32] : queue[head][31-:32]);
-	assign o_abort = (select_direct ? selected_packet[102] : queue[head][102]);
-	assign o_decoded = (select_direct ? (i_hit ? early_packet[100-:35] : {3'd0, incoming}) : queue[head][100-:35]);
-	assign o_thumb_und = (select_direct ? i_hit && early_packet[65] : queue[head][65]);
-	assign o_thumb_align = (select_direct ? i_hit && early_packet[64] : queue[head][64]);
-	assign o_predicted = (select_direct ? selected_packet[137] : queue[head][137]);
-	assign o_pred_target = (select_direct ? selected_packet[136-:32] : queue[head][136-:32]);
-	assign o_pred_state = (select_direct ? selected_packet[104-:2] : queue[head][104-:2]);
-	assign pop = (o_valid && i_ready) && !bypass;
+	assign push = response;
+	assign o_valid = ((count != 0) && !queue[head][101]) && (queue[head][139-:2] == epoch);
+	assign o_pc = queue[head][63-:32];
+	assign o_instruction = queue[head][31-:32];
+	assign o_abort = queue[head][102];
+	assign o_decoded = queue[head][100-:35];
+	assign o_thumb_und = queue[head][65];
+	assign o_thumb_align = queue[head][64];
+	assign o_predicted = queue[head][137];
+	assign o_pred_target = queue[head][136-:32];
+	assign o_pred_state = queue[head][104-:2];
+	assign pop = o_valid && i_ready;
 	always @(posedge i_clk)
 		if (i_reset) begin
 			f1 <= 1'sb0;

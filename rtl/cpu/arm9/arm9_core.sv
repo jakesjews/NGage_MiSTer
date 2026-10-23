@@ -564,7 +564,9 @@ assign slow_start = e_valid && !fast_e && !shift_hold && !execute_wait &&
           (!fast_w.present || retire_fast) && !pipe_hold && !i_data_fill_busy &&
           data_reload == 0 && !pipe_fault && !pipe_pc_redirect && !clear_e_late;
 assign early_redirect = (execute_fast && prediction_wrong) || ((slow_start || block_start) && e_predicted);
-assign issue = f_valid && !sequence_active && !f_redirect && !clear_e_late && state == IDLE &&
+// D may capture a younger word on the redirect edge. The registered kill
+// prevents it executing, without putting E's target equality in D's enables.
+assign issue = f_valid && !sequence_active && !clear_e_late && state == IDLE &&
     (!e_valid || execute_fast) &&
     ((fast_d && !f_abort && !(i_irq && !cpsr[7]) && !(i_fiq && !cpsr[6])) ||
      (!e_valid && !(|unused_read_wait)));

@@ -1,0 +1,28 @@
+Fast_1100mV_-40C_Model
+  clear: 0 in worst 30
+  fetch validity: 0 in worst 30
+  cache hit: 0 in worst 30
+  admission: 30 paths; slack 2.149..2.199; levels 13..14; data 7.021..7.068 ns
+  redirect: 0 in worst 30
+  other: 0 in worst 30
+Fast_1100mV_100C_Model
+  clear: 0 in worst 30
+  fetch validity: 0 in worst 30
+  cache hit: 0 in worst 30
+  admission: 30 paths; slack 0.853..0.915; levels 13..14; data 8.286..8.367 ns
+  redirect: 0 in worst 30
+  other: 0 in worst 30
+Slow_1100mV_-40C_Model
+  clear: 0 in worst 30
+  fetch validity: 0 in worst 30
+  cache hit: 0 in worst 30
+  admission: 30 paths; slack -6.382..-6.247; levels 13..14; data 15.186..15.314 ns
+  redirect: 0 in worst 30
+  other: 0 in worst 30
+Slow_1100mV_100C_Model
+  clear: 0 in worst 30
+  fetch validity: 0 in worst 30
+  cache hit: 0 in worst 30
+  admission: 30 paths; slack -6.513..-6.399; levels 13..14; data 15.337..15.441 ns
+  redirect: 0 in worst 30
+  other: 0 in worst 30

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Parallel cache/TLB read, then registered compare/Thumb translation.
-// F2 hits may enter D directly; an eight-entry queue decouples backend stalls.
+// F2 responses enter D through a registered eight-entry queue. Hit/permission
+// qualification ends at this boundary rather than entering operand selection.
 // The cache owns an untagged outstanding bus transaction. A redirect kills its
 // epoch immediately, but drains that transaction before reusing the lookup pipe.
 module arm9_fetch #(
@@ -55,7 +56,7 @@ module arm9_fetch #(
     logic [31:0] launch_pc, target;
     logic launch_thumb, target_thumb, killed;
     logic [1:0] epoch;
-    logic push, pop, retry, response, bypass;
+    logic push, pop, retry, response;
     logic btb_taken, prediction;
     logic [31:0] btb_target;
     logic [1:0] btb_state;
@@ -101,8 +102,8 @@ module arm9_fetch #(
         .o_instruction(early_decoded), .o_instruction_valid(), .o_und(early_und),
         .o_force32_align(early_align), .o_irq(), .o_fiq()
     );
-    // F2 is already a data register. Empty-queue hits can enter D directly;
-    // queued entries retain priority and misses use the ordinary capture.
+    // The RAM-side word and the FSM response share a capture boundary. Their
+    // source selection, permission fault and validity never bypass into D.
     always_comb begin
         selected_packet = early_packet;
         if (!i_hit) begin
@@ -133,28 +134,22 @@ module arm9_fetch #(
     assign retry = f2.valid && i_ack && i_retry && !killed && !i_redirect;
     assign response = f2.valid && i_ack && !i_retry && !o_stall &&
                   !killed && !i_redirect && f2.epoch == epoch;
-    // Uncached ARM words also arrive from the FSM's response register. They
-    // can enter D directly without another enqueue edge. Thumb miss responses
-    // still register translation before the operand-read path.
-    assign bypass = count == 0 && response && (i_hit || !f2.thumb) && !selected_packet.pending;
-    assign push = response && !(bypass && i_ready);
-    assign o_valid = bypass || (count != 0 && !queue[head].pending &&
-                     queue[head].epoch == epoch && !i_redirect);
-    // Data selection is independent of response/redirect validity. Folding
-    // bypass into these muxes sends E's ALU/redirect back through D's decoder
-    // and operand read. Invalid direct data is harmless: o_valid still gates
-    // issue, and a Thumb miss is translated into the queue before becoming valid.
-    wire select_direct = count == 0;
-    assign o_pc = select_direct ? selected_packet.pc : queue[head].pc;
-    assign o_instruction = select_direct ? selected_packet.instruction : queue[head].instruction;
-    assign o_abort = select_direct ? selected_packet.fault : queue[head].fault;
-    assign o_decoded = select_direct ? (i_hit ? early_packet.decoded : {3'd0,incoming}) : queue[head].decoded;
-    assign o_thumb_und = select_direct ? (i_hit && early_packet.thumb_und) : queue[head].thumb_und;
-    assign o_thumb_align = select_direct ? (i_hit && early_packet.thumb_align) : queue[head].thumb_align;
-    assign o_predicted = select_direct ? selected_packet.predicted : queue[head].predicted;
-    assign o_pred_target = select_direct ? selected_packet.pred_target : queue[head].pred_target;
-    assign o_pred_state = select_direct ? selected_packet.pred_state : queue[head].pred_state;
-    assign pop = o_valid && i_ready && !bypass;
+    assign push = response;
+    // All D inputs, including validity, depend only on registers. A redirect
+    // may let the old head reach E on this edge; the core's registered late
+    // kill discards it before execution. The BTB still launches at F2, so a
+    // predicted target retains its existing spacing behind the branch.
+    assign o_valid = count != 0 && !queue[head].pending && queue[head].epoch == epoch;
+    assign o_pc = queue[head].pc;
+    assign o_instruction = queue[head].instruction;
+    assign o_abort = queue[head].fault;
+    assign o_decoded = queue[head].decoded;
+    assign o_thumb_und = queue[head].thumb_und;
+    assign o_thumb_align = queue[head].thumb_align;
+    assign o_predicted = queue[head].predicted;
+    assign o_pred_target = queue[head].pred_target;
+    assign o_pred_state = queue[head].pred_state;
+    assign pop = o_valid && i_ready;
 
     always_ff @(posedge i_clk) begin
         if (i_reset) begin

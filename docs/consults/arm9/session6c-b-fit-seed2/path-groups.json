@@ -1,0 +1,8070 @@
+[
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 1,
+    "group": "admission",
+    "slack_ns": 2.149,
+    "data_ns": 7.062,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 2,
+    "group": "admission",
+    "slack_ns": 2.155,
+    "data_ns": 7.068,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[0][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 3,
+    "group": "admission",
+    "slack_ns": 2.157,
+    "data_ns": 7.063,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[1][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 4,
+    "group": "admission",
+    "slack_ns": 2.161,
+    "data_ns": 7.065,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[7][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 5,
+    "group": "admission",
+    "slack_ns": 2.163,
+    "data_ns": 7.049,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[0]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 6,
+    "group": "admission",
+    "slack_ns": 2.166,
+    "data_ns": 7.044,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[0]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[27]~0|combout",
+        "fanout": 1
+      },
+      {
+        "node": "d_ins[27]~2|combout",
+        "fanout": 21
+      },
+      {
+        "node": "kind_d~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 7,
+    "group": "admission",
+    "slack_ns": 2.171,
+    "data_ns": 7.056,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[2][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 8,
+    "group": "admission",
+    "slack_ns": 2.185,
+    "data_ns": 7.026,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 9,
+    "group": "admission",
+    "slack_ns": 2.187,
+    "data_ns": 7.024,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 10,
+    "group": "admission",
+    "slack_ns": 2.189,
+    "data_ns": 7.033,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[5][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 11,
+    "group": "admission",
+    "slack_ns": 2.19,
+    "data_ns": 7.021,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 12,
+    "group": "admission",
+    "slack_ns": 2.191,
+    "data_ns": 7.032,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[0][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 13,
+    "group": "admission",
+    "slack_ns": 2.191,
+    "data_ns": 7.024,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 14,
+    "group": "admission",
+    "slack_ns": 2.191,
+    "data_ns": 7.024,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 15,
+    "group": "admission",
+    "slack_ns": 2.193,
+    "data_ns": 7.03,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[0][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 16,
+    "group": "admission",
+    "slack_ns": 2.193,
+    "data_ns": 7.027,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[1][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 17,
+    "group": "admission",
+    "slack_ns": 2.193,
+    "data_ns": 7.023,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 18,
+    "group": "admission",
+    "slack_ns": 2.193,
+    "data_ns": 7.023,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 19,
+    "group": "admission",
+    "slack_ns": 2.195,
+    "data_ns": 7.025,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[1][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 20,
+    "group": "admission",
+    "slack_ns": 2.195,
+    "data_ns": 7.022,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~5_OTERM22768",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_execute|u_forward|always0~10_RTM011377|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~5|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 21,
+    "group": "admission",
+    "slack_ns": 2.196,
+    "data_ns": 7.027,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[0][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 22,
+    "group": "admission",
+    "slack_ns": 2.197,
+    "data_ns": 7.029,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[7][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 23,
+    "group": "admission",
+    "slack_ns": 2.197,
+    "data_ns": 7.03,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[0][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 24,
+    "group": "admission",
+    "slack_ns": 2.197,
+    "data_ns": 7.03,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[0][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 25,
+    "group": "admission",
+    "slack_ns": 2.198,
+    "data_ns": 7.022,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[1][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 26,
+    "group": "admission",
+    "slack_ns": 2.199,
+    "data_ns": 7.027,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[7][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 27,
+    "group": "admission",
+    "slack_ns": 2.199,
+    "data_ns": 7.029,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[0][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607DUPLICATE",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 28,
+    "group": "admission",
+    "slack_ns": 2.199,
+    "data_ns": 7.029,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[0][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 29,
+    "group": "admission",
+    "slack_ns": 2.199,
+    "data_ns": 7.025,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[1][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_-40C_Model",
+    "path": 30,
+    "group": "admission",
+    "slack_ns": 2.199,
+    "data_ns": 7.025,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[1][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 1,
+    "group": "admission",
+    "slack_ns": 0.853,
+    "data_ns": 8.367,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[2][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 2,
+    "group": "admission",
+    "slack_ns": 0.869,
+    "data_ns": 8.351,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[2][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 3,
+    "group": "admission",
+    "slack_ns": 0.88,
+    "data_ns": 8.321,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[0]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[27]~0|combout",
+        "fanout": 1
+      },
+      {
+        "node": "d_ins[27]~2|combout",
+        "fanout": 21
+      },
+      {
+        "node": "kind_d~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 4,
+    "group": "admission",
+    "slack_ns": 0.884,
+    "data_ns": 8.341,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[2][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 5,
+    "group": "admission",
+    "slack_ns": 0.884,
+    "data_ns": 8.341,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[2][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 6,
+    "group": "admission",
+    "slack_ns": 0.886,
+    "data_ns": 8.34,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[2][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607DUPLICATE",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 7,
+    "group": "admission",
+    "slack_ns": 0.886,
+    "data_ns": 8.34,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[2][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 8,
+    "group": "admission",
+    "slack_ns": 0.886,
+    "data_ns": 8.334,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[2][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 9,
+    "group": "admission",
+    "slack_ns": 0.891,
+    "data_ns": 8.335,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[2][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~5_OTERM22768",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_execute|u_forward|always0~10_RTM011377|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~5|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 10,
+    "group": "admission",
+    "slack_ns": 0.892,
+    "data_ns": 8.324,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[0][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 11,
+    "group": "admission",
+    "slack_ns": 0.892,
+    "data_ns": 8.328,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[2][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 12,
+    "group": "admission",
+    "slack_ns": 0.893,
+    "data_ns": 8.309,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 13,
+    "group": "admission",
+    "slack_ns": 0.894,
+    "data_ns": 8.309,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[0]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 14,
+    "group": "admission",
+    "slack_ns": 0.896,
+    "data_ns": 8.322,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[7][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 15,
+    "group": "admission",
+    "slack_ns": 0.896,
+    "data_ns": 8.305,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[0]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[27]~0|combout",
+        "fanout": 1
+      },
+      {
+        "node": "d_ins[27]~2|combout",
+        "fanout": 21
+      },
+      {
+        "node": "kind_d~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 16,
+    "group": "admission",
+    "slack_ns": 0.899,
+    "data_ns": 8.334,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[2][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_forward:u_held_forward|o_value[23]~7_RTM015617_OTERM22774",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_held_forward|always0~6_RTM011381|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_held_forward|o_value[23]~7_RTM015617|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 17,
+    "group": "admission",
+    "slack_ns": 0.899,
+    "data_ns": 8.302,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[0]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux53~1|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_fetch|Mux53~2|combout",
+        "fanout": 4
+      },
+      {
+        "node": "always0~9|combout",
+        "fanout": 13
+      },
+      {
+        "node": "always0~11|combout",
+        "fanout": 3
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 18,
+    "group": "admission",
+    "slack_ns": 0.901,
+    "data_ns": 8.333,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[2][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_forward:u_held_forward|o_value[23]~7_RTM015617_OTERM22774DUPLICATE",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_held_forward|always0~6_RTM011381|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_held_forward|o_value[23]~7_RTM015617|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 19,
+    "group": "admission",
+    "slack_ns": 0.902,
+    "data_ns": 8.318,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[2][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 20,
+    "group": "admission",
+    "slack_ns": 0.908,
+    "data_ns": 8.308,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[0][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 21,
+    "group": "admission",
+    "slack_ns": 0.908,
+    "data_ns": 8.312,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[2][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 22,
+    "group": "admission",
+    "slack_ns": 0.909,
+    "data_ns": 8.293,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 23,
+    "group": "admission",
+    "slack_ns": 0.91,
+    "data_ns": 8.293,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[0]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 24,
+    "group": "admission",
+    "slack_ns": 0.911,
+    "data_ns": 8.295,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[0]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "d_ins[27]~0|combout",
+        "fanout": 1
+      },
+      {
+        "node": "d_ins[27]~2|combout",
+        "fanout": 21
+      },
+      {
+        "node": "kind_d~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 25,
+    "group": "admission",
+    "slack_ns": 0.911,
+    "data_ns": 8.295,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[0]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607",
+    "cells": [
+      {
+        "node": "d_ins[27]~0|combout",
+        "fanout": 1
+      },
+      {
+        "node": "d_ins[27]~2|combout",
+        "fanout": 21
+      },
+      {
+        "node": "kind_d~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 26,
+    "group": "admission",
+    "slack_ns": 0.912,
+    "data_ns": 8.306,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[7][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 27,
+    "group": "admission",
+    "slack_ns": 0.913,
+    "data_ns": 8.294,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[0]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "d_ins[27]~0|combout",
+        "fanout": 1
+      },
+      {
+        "node": "d_ins[27]~2|combout",
+        "fanout": 21
+      },
+      {
+        "node": "kind_d~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 28,
+    "group": "admission",
+    "slack_ns": 0.913,
+    "data_ns": 8.294,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[0]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607DUPLICATE",
+    "cells": [
+      {
+        "node": "d_ins[27]~0|combout",
+        "fanout": 1
+      },
+      {
+        "node": "d_ins[27]~2|combout",
+        "fanout": 21
+      },
+      {
+        "node": "kind_d~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 29,
+    "group": "admission",
+    "slack_ns": 0.913,
+    "data_ns": 8.288,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[0]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "d_ins[27]~0|combout",
+        "fanout": 1
+      },
+      {
+        "node": "d_ins[27]~2|combout",
+        "fanout": 21
+      },
+      {
+        "node": "kind_d~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Fast_1100mV_100C_Model",
+    "path": 30,
+    "group": "admission",
+    "slack_ns": 0.915,
+    "data_ns": 8.286,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[0]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux53~1|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_fetch|Mux53~2|combout",
+        "fanout": 4
+      },
+      {
+        "node": "always0~9|combout",
+        "fanout": 13
+      },
+      {
+        "node": "always0~11|combout",
+        "fanout": 3
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 1,
+    "group": "admission",
+    "slack_ns": -6.382,
+    "data_ns": 15.314,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 2,
+    "group": "admission",
+    "slack_ns": -6.376,
+    "data_ns": 15.313,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 3,
+    "group": "admission",
+    "slack_ns": -6.369,
+    "data_ns": 15.301,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[17]_NEW6969|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~17_RTM010366|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 4,
+    "group": "admission",
+    "slack_ns": -6.362,
+    "data_ns": 15.299,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[17]_NEW6969|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~17_RTM010366|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 5,
+    "group": "admission",
+    "slack_ns": -6.359,
+    "data_ns": 15.307,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_forward:u_held_forward|o_value[23]~7_RTM015617_OTERM22774",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_held_forward|always0~6_RTM011381|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_held_forward|o_value[23]~7_RTM015617|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 6,
+    "group": "admission",
+    "slack_ns": -6.352,
+    "data_ns": 15.305,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_forward:u_held_forward|o_value[23]~7_RTM015617_OTERM22774DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_held_forward|always0~6_RTM011381|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_held_forward|o_value[23]~7_RTM015617|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 7,
+    "group": "admission",
+    "slack_ns": -6.343,
+    "data_ns": 15.273,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 8,
+    "group": "admission",
+    "slack_ns": -6.32,
+    "data_ns": 15.252,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~23_RESYN32039|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~23|combout",
+        "fanout": 4
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 9,
+    "group": "admission",
+    "slack_ns": -6.314,
+    "data_ns": 15.251,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~23_RESYN32039|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~23|combout",
+        "fanout": 4
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 10,
+    "group": "admission",
+    "slack_ns": -6.302,
+    "data_ns": 15.234,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 11,
+    "group": "admission",
+    "slack_ns": -6.296,
+    "data_ns": 15.233,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 12,
+    "group": "admission",
+    "slack_ns": -6.294,
+    "data_ns": 15.226,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 13,
+    "group": "admission",
+    "slack_ns": -6.289,
+    "data_ns": 15.221,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[17]_NEW6969|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~17_RTM010366|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 14,
+    "group": "admission",
+    "slack_ns": -6.287,
+    "data_ns": 15.224,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 15,
+    "group": "admission",
+    "slack_ns": -6.282,
+    "data_ns": 15.219,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[17]_NEW6969|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~17_RTM010366|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 16,
+    "group": "admission",
+    "slack_ns": -6.281,
+    "data_ns": 15.237,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[5][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 17,
+    "group": "admission",
+    "slack_ns": -6.281,
+    "data_ns": 15.223,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~5_OTERM22768",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_execute|u_forward|always0~10_RTM011377|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~5|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 18,
+    "group": "admission",
+    "slack_ns": -6.279,
+    "data_ns": 15.227,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_forward:u_held_forward|o_value[23]~7_RTM015617_OTERM22774",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_held_forward|always0~6_RTM011381|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_held_forward|o_value[23]~7_RTM015617|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 19,
+    "group": "admission",
+    "slack_ns": -6.275,
+    "data_ns": 15.236,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[5][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 20,
+    "group": "admission",
+    "slack_ns": -6.272,
+    "data_ns": 15.225,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_forward:u_held_forward|o_value[23]~7_RTM015617_OTERM22774DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_held_forward|always0~6_RTM011381|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_held_forward|o_value[23]~7_RTM015617|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 21,
+    "group": "admission",
+    "slack_ns": -6.268,
+    "data_ns": 15.224,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[5][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[17]_NEW6969|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~17_RTM010366|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 22,
+    "group": "admission",
+    "slack_ns": -6.263,
+    "data_ns": 15.193,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 23,
+    "group": "admission",
+    "slack_ns": -6.261,
+    "data_ns": 15.222,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[5][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[17]_NEW6969|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~17_RTM010366|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 24,
+    "group": "admission",
+    "slack_ns": -6.258,
+    "data_ns": 15.23,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[5][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_forward:u_held_forward|o_value[23]~7_RTM015617_OTERM22774",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_held_forward|always0~6_RTM011381|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_held_forward|o_value[23]~7_RTM015617|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 25,
+    "group": "admission",
+    "slack_ns": -6.255,
+    "data_ns": 15.187,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "block_issue|combout",
+        "fanout": 4
+      },
+      {
+        "node": "fast_1~244|combout",
+        "fanout": 3
+      },
+      {
+        "node": "fast_1[228]_NEW7025|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 26,
+    "group": "admission",
+    "slack_ns": -6.253,
+    "data_ns": 15.201,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[1][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 27,
+    "group": "admission",
+    "slack_ns": -6.251,
+    "data_ns": 15.21,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[7][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 28,
+    "group": "admission",
+    "slack_ns": -6.251,
+    "data_ns": 15.228,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[5][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_forward:u_held_forward|o_value[23]~7_RTM015617_OTERM22774DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_held_forward|always0~6_RTM011381|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_held_forward|o_value[23]~7_RTM015617|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 29,
+    "group": "admission",
+    "slack_ns": -6.249,
+    "data_ns": 15.186,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "block_issue|combout",
+        "fanout": 4
+      },
+      {
+        "node": "fast_1~244|combout",
+        "fanout": 3
+      },
+      {
+        "node": "fast_1[228]_NEW7025|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_-40C_Model",
+    "path": 30,
+    "group": "admission",
+    "slack_ns": -6.247,
+    "data_ns": 15.2,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[1][76]",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "d_ins[10]~13|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 1,
+    "group": "admission",
+    "slack_ns": -6.513,
+    "data_ns": 15.441,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 2,
+    "group": "admission",
+    "slack_ns": -6.513,
+    "data_ns": 15.441,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 3,
+    "group": "admission",
+    "slack_ns": -6.488,
+    "data_ns": 15.416,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 4,
+    "group": "admission",
+    "slack_ns": -6.488,
+    "data_ns": 15.416,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 5,
+    "group": "admission",
+    "slack_ns": -6.441,
+    "data_ns": 15.369,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 6,
+    "group": "admission",
+    "slack_ns": -6.44,
+    "data_ns": 15.368,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "always0~21|combout",
+        "fanout": 10
+      },
+      {
+        "node": "read_tag[20]~10|combout",
+        "fanout": 203
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 7,
+    "group": "admission",
+    "slack_ns": -6.438,
+    "data_ns": 15.385,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_forward:u_held_forward|o_value[23]~7_RTM015617_OTERM22774",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_held_forward|always0~6_RTM011381|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_held_forward|o_value[23]~7_RTM015617|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 8,
+    "group": "admission",
+    "slack_ns": -6.438,
+    "data_ns": 15.385,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_forward:u_held_forward|o_value[23]~7_RTM015617_OTERM22774",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_held_forward|always0~6_RTM011381|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_held_forward|o_value[23]~7_RTM015617|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 9,
+    "group": "admission",
+    "slack_ns": -6.433,
+    "data_ns": 15.383,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_forward:u_held_forward|o_value[23]~7_RTM015617_OTERM22774DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_held_forward|always0~6_RTM011381|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_held_forward|o_value[23]~7_RTM015617|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 10,
+    "group": "admission",
+    "slack_ns": -6.433,
+    "data_ns": 15.383,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_forward:u_held_forward|o_value[23]~7_RTM015617_OTERM22774DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "base_e[2]_NEW6823|combout",
+        "fanout": 9
+      },
+      {
+        "node": "u_held_forward|always0~6_RTM011381|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_held_forward|o_value[23]~7_RTM015617|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 11,
+    "group": "admission",
+    "slack_ns": -6.429,
+    "data_ns": 15.357,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "block_issue|combout",
+        "fanout": 4
+      },
+      {
+        "node": "fast_1~244|combout",
+        "fanout": 3
+      },
+      {
+        "node": "fast_1[228]_NEW7025|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 12,
+    "group": "admission",
+    "slack_ns": -6.429,
+    "data_ns": 15.357,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "block_issue|combout",
+        "fanout": 4
+      },
+      {
+        "node": "fast_1~244|combout",
+        "fanout": 3
+      },
+      {
+        "node": "fast_1[228]_NEW7025|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 13,
+    "group": "admission",
+    "slack_ns": -6.416,
+    "data_ns": 15.344,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 14,
+    "group": "admission",
+    "slack_ns": -6.415,
+    "data_ns": 15.353,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 15,
+    "group": "admission",
+    "slack_ns": -6.415,
+    "data_ns": 15.343,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "always0~21|combout",
+        "fanout": 10
+      },
+      {
+        "node": "read_tag[20]~10|combout",
+        "fanout": 203
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[14]_NEW6815|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~13_RTM07801|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 16,
+    "group": "admission",
+    "slack_ns": -6.415,
+    "data_ns": 15.353,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 17,
+    "group": "admission",
+    "slack_ns": -6.414,
+    "data_ns": 15.352,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 18,
+    "group": "admission",
+    "slack_ns": -6.414,
+    "data_ns": 15.352,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 19,
+    "group": "admission",
+    "slack_ns": -6.411,
+    "data_ns": 15.349,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 20,
+    "group": "admission",
+    "slack_ns": -6.411,
+    "data_ns": 15.349,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 21,
+    "group": "admission",
+    "slack_ns": -6.41,
+    "data_ns": 15.351,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 22,
+    "group": "admission",
+    "slack_ns": -6.41,
+    "data_ns": 15.351,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~2_OTERM15607DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~2_RTM015609|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 23,
+    "group": "admission",
+    "slack_ns": -6.409,
+    "data_ns": 15.361,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[5][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 24,
+    "group": "admission",
+    "slack_ns": -6.409,
+    "data_ns": 15.361,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|queue[5][76]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|WideOr0~8_OTERM18886",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|WideOr0~8|combout",
+        "fanout": 1
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 25,
+    "group": "admission",
+    "slack_ns": -6.409,
+    "data_ns": 15.35,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 26,
+    "group": "admission",
+    "slack_ns": -6.409,
+    "data_ns": 15.35,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "used_e[2]_NEW6979|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~15|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~16|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 27,
+    "group": "admission",
+    "slack_ns": -6.406,
+    "data_ns": 15.347,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 28,
+    "group": "admission",
+    "slack_ns": -6.406,
+    "data_ns": 15.347,
+    "levels": 14,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764DUPLICATE",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[12]_NEW6977|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_execute|u_forward|always0~67_RTM07746|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_execute|u_forward|always0~14|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 29,
+    "group": "admission",
+    "slack_ns": -6.399,
+    "data_ns": 15.337,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0110~1|combout",
+        "fanout": 2
+      },
+      {
+        "node": "kind_d.0110~2|combout",
+        "fanout": 29
+      },
+      {
+        "node": "read_tag[18]~18|combout",
+        "fanout": 6
+      },
+      {
+        "node": "u_decode_forward|always0~9|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[17]_NEW6969|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~17_RTM010366|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  },
+  {
+    "corner": "Slow_1100mV_100C_Model",
+    "path": 30,
+    "group": "admission",
+    "slack_ns": -6.399,
+    "data_ns": 15.337,
+    "levels": 13,
+    "from": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_fetch:u_fetch|head[1]~DUPLICATE",
+    "to": "arm925t:cpu|zap_top:u_zap|arm9_core:g_arm9.u_arm9_core|arm9_execute:u_execute|arm9_forward:u_forward|o_value[68]~15_OTERM22764",
+    "cells": [
+      {
+        "node": "u_fetch|Mux92~0|combout",
+        "fanout": 2
+      },
+      {
+        "node": "list_d[10]~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "always0~18|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_e~21|combout",
+        "fanout": 7
+      },
+      {
+        "node": "kind_d.0100~0|combout",
+        "fanout": 27
+      },
+      {
+        "node": "read_tag[19]~19|combout",
+        "fanout": 7
+      },
+      {
+        "node": "u_decode_forward|always0~8|combout",
+        "fanout": 1
+      },
+      {
+        "node": "u_decode_forward|always0~10|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_decode_forward|o_wait[3]~2|combout",
+        "fanout": 3
+      },
+      {
+        "node": "u_fetch|pop~5|combout",
+        "fanout": 139
+      },
+      {
+        "node": "tag_e[17]_NEW6969|combout",
+        "fanout": 5
+      },
+      {
+        "node": "u_execute|u_forward|always0~17_RTM010366|combout",
+        "fanout": 2
+      },
+      {
+        "node": "u_execute|u_forward|o_value[68]~15|combout",
+        "fanout": 2
+      }
+    ]
+  }
+]

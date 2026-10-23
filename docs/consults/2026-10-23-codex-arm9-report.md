@@ -97,10 +97,73 @@ All values are unchanged by (a). Positive saving means ARM9 is faster.
 | mmu_page | 0:3 | 109,212 | 112,796 | 3,584 |
 | mmu_page | 2:9 | 200,922 | 203,209 | 2,287 |
 
+## Milestone (b): registered fetch boundary, retained for the control pass
+
+The completed interrupted trial is -6.513 ns at Slow 100C, -6.382 at Slow
+-40C, +0.853/+2.149 at the fast corners. Hold slack remains positive
+(+0.262/+0.248/+0.138/+0.119). Area is 17,248 ALMs and 16,769 registers;
+RAM/DSP are unchanged. That is 1,331 ALMs (8.36%) above ZAP, still outside
+5%. [Fit and worst 30 paths](arm9/session6c-b-fit-seed2/manifest.json).
+
+The fetch queue now supplies registered instruction, decoded word, fault,
+prediction metadata and validity to D. No cache-hit or permission-qualified
+bypass remains. D may capture a younger word on a redirect edge; the registered
+late kill prevents execution. The predictor lookup/decision position is
+unchanged. This is retained despite the measured cycle cost because it cuts
+a real cross-boundary control/data chain and timing is the project priority.
+
+All three configurations pass 234 runs, 63 QEMU comparisons and 85 windows;
+lint and generation checks pass. Predicted B/BL remains two clocks, immediate
+load-use remains two, and the one-edge RAM is unchanged. Unpredicted B/BL is
+now five clocks. Ordered PC-write windows gain one; MRC and exception/vector
+windows gain two. The external expectation files and ARM9.md are updated.
+[Verification](arm9/session6c-b-verification.txt), [windows](arm9/session6c-b-windows.csv).
+Non-timer instruction counts are identical. The four cycle-timer IRQ/FIQ tests
+change spin-loop counts with interrupt arrival, while passing their checks.
+
+| Test | Latency | After (a) | After (b) | ZAP | Saving after (b) |
+|---|---|---:|---:|---:|---:|
+| cache | 0:0 | 639,745 | 644,977 | 760,787 | +115,810 |
+| cache | 0:3 | 764,132 | 766,283 | 888,787 | +122,504 |
+| cache | 2:9 | 1,097,644 | 1,098,750 | 1,222,550 | +123,800 |
+| dcache_rtl | 0:0 | 56,947 | 61,209 | 58,301 | -2,908 |
+| dcache_rtl | 0:3 | 82,975 | 84,193 | 85,328 | +1,135 |
+| dcache_rtl | 2:9 | 152,747 | 153,136 | 154,143 | +1,007 |
+| ctrand1 | 0:0 | 69,278 | 73,537 | 72,594 | -943 |
+| ctrand1 | 0:3 | 99,236 | 100,374 | 102,419 | +2,045 |
+| ctrand1 | 2:9 | 179,061 | 179,218 | 179,154 | -64 |
+| crand1 | 0:0 | 70,348 | 74,652 | 73,608 | -1,044 |
+| crand1 | 0:3 | 101,657 | 102,973 | 105,167 | +2,194 |
+| crand1 | 2:9 | 186,313 | 186,669 | 187,620 | +951 |
+| gba_arm | 0:0 | 5,973 | 6,494 | 8,291 | +1,797 |
+| gba_arm | 0:3 | 8,074 | 8,803 | 10,887 | +2,084 |
+| gba_arm | 2:9 | 13,794 | 15,170 | 17,749 | +2,579 |
+| gba_thumb | 0:0 | 4,014 | 4,039 | 4,913 | +874 |
+| gba_thumb | 0:3 | 5,418 | 5,444 | 6,523 | +1,079 |
+| gba_thumb | 2:9 | 9,371 | 9,416 | 10,877 | +1,461 |
+| mmu_page | 0:0 | 74,763 | 80,454 | 77,102 | -3,352 |
+| mmu_page | 0:3 | 109,212 | 110,892 | 112,796 | +1,904 |
+| mmu_page | 2:9 | 200,922 | 201,250 | 203,209 | +1,959 |
+
+Five rows lose to ZAP: dcache_rtl 0:0 by 2,908, ctrand1 0:0 by 943 and
+2:9 by 64, crand1 0:0 by 1,044, and mmu_page 0:0 by 3,352 clocks. The
+removed empty-queue bypass adds response-to-D/refill latency. Predicted hot
+branch spacing and load interlock counts did not regress; the table measures
+whole programs including setup and uncached traffic. There is no claim that
+this suite proxy measures game CPI or hardware frame rate.
+
+All 30 worst Slow-100C paths share decode admission: queue word -> kind/read
+register tags -> decode-forward readiness -> issue/pop (28 paths) or block_issue
+(2 paths) -> retimed E/M control -> E forwarding. They are 13–14 logic levels,
+15.337–15.441 ns data delay, -6.399..-6.513 ns slack. Clear, fetch-valid,
+cache-hit and redirect are not independent families in these worst 30; their
+absence here does not prove those domains close. [Grouping](arm9/session6c-b-fit-seed2/path-groups.txt).
+
 ## Exact milestone stopping point
 
-(a) is implemented, verified and fitted. Next is (b), a registered fetch word
-and valid into D, with late kill qualification. The predictor's registered
-lookup and hit spacing must remain unchanged. Then address the next fitted
-family, one trial at a time. No firmware boot, hardware claim, default-core
-switch, push or `sys/` change was made.
+(a) is committed as 3aadad1. (b) is retained, verified and fitted; this commit
+preserves it with its measured cost. The next action follows the lead's revised
+instruction: one structural control-boundary pass, one integrated seed-2 trial,
+then all verification and updated cycle rows. If that pass is still below
+-2 ns, stop and hand off the remaining chains with lengths. ZAP remains default;
+no firmware boot, push, local Quartus or sys/ changes.

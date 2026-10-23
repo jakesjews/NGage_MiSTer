@@ -1,0 +1,19 @@
+Step (b): registered fetch boundary
+Parent: 3aadad1
+b-target-final: RTL (gen): 42 passed, 0 failed
+b-target-diff: RTL vs QEMU: 63 agree, 0 differ
+b-arm9-full: RTL (gen): 234 passed, 0 failed
+b-arm9-diff: RTL vs QEMU: 63 agree, 0 differ
+b-off-full: RTL (gen): 234 passed, 0 failed
+b-off-diff: RTL vs QEMU: 63 agree, 0 differ
+b-zap-full: RTL (gen): 234 passed, 0 failed
+b-zap-diff: RTL vs QEMU: 63 agree, 0 differ
+b-lint: passed (exit 0)
+b-lint-arm9: passed (exit 0)
+b-lint-off: passed (exit 0)
+b-gen-check: passed (exit 0)
+85 windows in each configuration: hot ARM9 on/off exact counts at 0:0; coverage at every latency and on ZAP.
+Non-timer instruction counts unchanged, including all nine comparison tests.
+fiq_movs, fiq_perm, irq, loaduse_irq spin-loop counts vary with cycle-driven interrupt arrival; all architectural checks pass.
+ZAP cycle/instruction counts unchanged.
+No binaries or QEMU references rebuilt; no firmware boot.

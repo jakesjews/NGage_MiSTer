@@ -5,8 +5,8 @@ dp_dependency 5
 dp_flags 5
 dp_regshift 3
 failed_regshift 2
-dp_pc 8
-dp_regshift_pc 8
+dp_pc 9
+dp_regshift_pc 9
 ldr_independent 3
 ldr_alu 5
 ldr_base 5
@@ -18,30 +18,30 @@ ldrh 5
 ldrsb 5
 ldrsh 5
 ldr_unaligned 5
-ldr_pc 8
+ldr_pc 9
 str 2
 ldm1 3
 stm1 3
 ldm3 5
 stm3 5
-ldm_pc 10
+ldm_pc 11
 swp 11
 swpb 12
-b 3 5
-bl 3 5
-bx 8
+b 3 6
+bl 3 6
+bx 9
 mrs 6
-msr_flags 8
-msr_control 8
-mcr 15
-mrc 12
-mrc_use 13
-mrc_pc 12
-swi 15
-undefined 15
-cdp 15
-ldc 15
-stc 15
+msr_flags 9
+msr_control 9
+mcr 16
+mrc 14
+mrc_use 15
+mrc_pc 14
+swi 17
+undefined 17
+cdp 17
+ldc 17
+stc 17
 mul_m1 4
 mul_m2 5
 mul_m3 6

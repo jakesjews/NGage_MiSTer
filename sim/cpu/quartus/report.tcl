@@ -14,7 +14,7 @@ foreach_in_collection op [get_available_operating_conditions] {
 	foreach_in_collection p [get_timing_paths -hold -npaths 1] {
 		puts "HOLD $name hold slack [get_path_info -slack $p]"
 	}
-	report_timing -setup -npaths 12 -detail summary -file "output_files/paths_[string map {" " _} $name].txt"
-	report_timing -setup -npaths 1 -detail full_path -file "output_files/detail_[string map {" " _} $name].txt"
+	report_timing -setup -npaths 30 -detail summary -file "output_files/paths_[string map {" " _} $name].txt"
+	report_timing -setup -npaths 30 -detail full_path -file "output_files/detail_[string map {" " _} $name].txt"
 }
 project_close

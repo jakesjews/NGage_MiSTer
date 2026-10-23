@@ -705,12 +705,12 @@ row). The TRM column uses DDI0180A Table 7-2; `m` and `b` retain its definitions
 The instruction binaries and QEMU references are unchanged; `arm9/cycles.txt`
 retargets all 69 original windows and the seven stream windows stay at 9.
 
-| Window | TRM plus marker / enclosed consumer | Session 6 |
+| Window | TRM plus marker / enclosed consumer | Session 6 timing continuation |
 | --- | --- | ---: |
 | Eight independent DP | 9 | 9 |
 | Four dependent / flag-dependent DP | 5 | 5 |
 | Register shift / skipped register shift | 3 / 2 | 3 / 2 |
-| DP to PC / register-shift DP to PC | 4 / 5 | 8 / 8 |
+| DP to PC / register-shift DP to PC | 4 / 5 | 9 / 9 |
 | LDR + independent ALU | 3 | 3 |
 | Aligned LDR + immediate ALU consumer | 4 | 5 |
 | Immediate aligned load-use interlock (no marker) | 1 | 2 |
@@ -718,16 +718,16 @@ retargets all 69 original windows and the seven stream windows stay at 9.
 | LDR + base / store / shifted-value consumer | dependency-specific | 5 / 5 / 5 |
 | LDR + register shift-count consumer | load dependency plus shift cycle | 6 |
 | LDR + 1 / 2 / 3 independent DP + consumer | 4 / 5 / 6 | 5 / 5 / 6 |
-| LDR PC | 6 | 8 |
+| LDR PC | 6 | 9 |
 | STR | 2 | 2 |
 | LDM1 / STM1 | 3 | 3 / 3 |
 | LDM3 / STM3 | 4 | 5 / 5 |
-| LDM3 including PC | 8 | 10 |
+| LDM3 including PC | 8 | 11 |
 | SWP / SWPB + ALU | 3 / 5 | 11 / 12 |
-| B / BL / BX | 4 | 5 / 5 / 8 |
-| MRS / flags-only MSR / control MSR | 2 / 2 / 4 | 6 / 8 / 8 |
-| MCR / MRC / MRC + consumer / MRC PC | b+2 / b+2 / b+4 / b+4 | 15 / 12 / 13 / 12 |
-| SWI / UND / unsupported CDP/LDC/STC | 3 to vector, plus actual vector trampoline | 15 |
+| B / BL / BX | 4 | 6 / 6 / 9 |
+| MRS / flags-only MSR / control MSR | 2 / 2 / 4 | 6 / 9 / 9 |
+| MCR / MRC / MRC + consumer / MRC PC | b+2 / b+2 / b+4 / b+4 | 16 / 14 / 15 / 14 |
+| SWI / UND / unsupported CDP/LDC/STC | 3 to vector, plus actual vector trampoline | 17 |
 | MUL/MLA, m=1..4 | 4..7 | 4..7 |
 | Long multiply, m=1..4 | 5..8 | 5..8 |
 | Eight hit accesses in each of seven stream windows | 9 | 9 |
@@ -876,3 +876,34 @@ The seed-2 integrated trial after this clear change is -7.532 ns at Slow 100C
 comparison through fetch validity to D operand capture, not the old backend
 payload clear. The fetch boundary is the next structural change. Neither the
 -0.5 ns timing threshold nor the ZAP+5% area gate is met yet.
+
+
+## Session 6 timing continuation: registered fetch boundary
+
+Every F2 response now crosses the existing fetch queue register before D.
+The selected instruction, Thumb translation, permission fault, prediction
+metadata and queue validity are registered together. There is no empty-queue
+bypass into the decoder. The permission-qualified cache hit selects data only
+before that register; it cannot reach the D register tags or operand muxes.
+Pending critical words remain invalid until the complete fill succeeds.
+
+D validity depends only on queue registers. It is not qualified combinationally
+by E's redirect. D may therefore capture an old word on the redirect edge;
+`clear_e_late` prevents that word executing and discards it on the following
+edge. Queue epoch cancellation still removes every other old-path word.
+Older W events retain priority over E and prevent younger memory side effects.
+
+The BTB continues looking up and deciding from registers at its original F2
+position, before the new mandatory capture. Predicted targets retain their
+spacing: hot B/BL is still two clocks (window delta 3), and both Thumb BL
+alignments remain delta 4. Unpredicted B/BL becomes five clocks (delta 6);
+a trained-taken branch that resolves not taken becomes delta 6. Unpredicted
+Thumb BL windows become delta 7. Load-use remains two clocks, and ordinary
+DP, block-transfer, multiply and streaming windows are unchanged.
+
+Ordered PC writes and MSR windows gain one clock. The complete MRC windows
+gain two, MCR gains one, and the exception-through-vector-trampoline windows
+gain two. These are measured sequence totals including the existing CP15
+sequencer/refetch or vector branch; they are not single-cycle cache latencies.
+The table above and the external expectation files describe this schedule;
+instruction binaries and QEMU references remain unchanged.
