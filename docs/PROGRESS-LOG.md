@@ -3128,3 +3128,20 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   more cycle; cache 760,787 -> 793,607 cycles (+4.3 %), ctrand1 +6.5 %,
   the GBA loops +0.3 %. Merged into master for the build (b11) that
   decides between the slack and the cycles on the board.
+- **Tony Hawk's Pro Skater on the current build** (b10;
+  `build/hardware/game/thps-cwf/`): the model's key sequence works on
+  the board (five 5s through the menus, the Warehouse, the tape
+  challenges), and the Warehouse skates at 9-12 frames/s (whole frames)
+  at 26-29 M instructions/s, CPI 3.6-4.0, SDRAM wait 20-22 %, flash
+  9-12 %; the model's rate is 27.8. The tape-challenge load runs 22 M/s
+  at CPI 4.7 with the flash at 17.5 %. Same shape as Sonic: about a
+  two-fold gap to the phone, the ARM9 core's job.
+- Real frame rates of the phone (web, 2026-10-23; no measurements exist):
+  GameSpot's SonicN review, "quite a bit of chop, especially in areas
+  where the speed of the game really picks up"; a 2021 retro review on
+  hardware, "compared to the smooth GBA version, the low frame-rate is
+  immediately striking"; Asphalt on hardware "absolutely rock-solid",
+  Tony Hawk's "very smooth". So the phone did not reach Sonic's 32 (its
+  2-tick cap) either: Sonic's target is the phone's own uneven rate, in
+  the teens or low twenties; Asphalt's 21 and Tony Hawk's rate are the
+  caps the phone met.
