@@ -4029,3 +4029,11 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the paused ARM9's road. Their "memory card" is the game image; ours is
   the same image on a modelled, writable card. Our stand-in already
   answers the energy-management queries they found games need.
+- **Timing closure paused** (the user: "let's pause timing closure since
+  we're making changes"): the tree is about to change (the D-cache
+  store-miss and write-back changes, the in-core firmware loader), so
+  Codex's round 5 is told to finish its current trial, commit what is
+  proved, write its report and stop; the kept changes stay on its
+  branch for a merge once the tree settles, and the sweep to seed 20
+  (best -0.43, seed 18 on the main slot) stands as the reference for
+  the next closure round. Next in that thread: the two D-cache changes.
