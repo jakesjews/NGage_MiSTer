@@ -674,12 +674,21 @@ The acceptance minimum covers issue feedback, pending-bit capture,
 background pickup into ALU/shifter, and all inputs to the saved/emitted cache
 destination tags. A supplementary baseline query includes the original
 one-hot registers too, so moving delay into the new binary captures cannot
-hide. This trial is fitted independently on `combined2`; both seeds are running.
-An integration preview on the current retained tree resolves only the shifter
+hide. Drop this combined trial after its paired fit. The acceptance minimum changes
+from −0.346 to −0.088 ns at seed 1 and from −0.639 to −0.768 ns at seed 2;
+the worse result regresses by 0.129 ns. Background pickup itself improves
+from +0.061/−0.639 to +1.194/+0.965 ns, but seed 2's issue-feedback path
+from post-ALU1 load-valid to `stall_idx_ff` becomes limiting. The previously
+selected family boundary is retained; the background-only result cannot
+justify applying the wider lock-index change. Whole-core slacks are
+−0.651/−0.917 ns, at 34,989/35,085 ALMs and 477 RAM blocks. Both source
+manifests match.
+
+An integration preview on the retained tree resolves only the shifter
 input-list overlap, keeping the pending-select copy and replacing the old
 completion-mask input with the binary interface. That preview also passes
 all 225 exact counts, 57 QEMU comparisons, both lint modes and generated
-checks. It remains outside the branch until the paired fit qualifies. The
+checks. Neither it nor the isolated trial is applied. The
 single-outstanding-miss invariant is essential; a future cache supporting
 multiple outstanding misses would need a matching multi-entry interlock.
 
@@ -713,7 +722,7 @@ invariant. The current-baseline rebase passes 225 exact counts, 57 QEMU
 comparisons, both lint modes and generated checks. Its pre-fit acceptance
 family is deliberately broad: every path from the D-cache or CP15 MMU-enable
 register into the core, so predecode/fetch consumers of the late stall cannot
-escape the check. It remains prepared, not retained or fitted.
+escape the check. Its paired fit is running; it remains outside the branch.
 
 ## Scope and risks
 
