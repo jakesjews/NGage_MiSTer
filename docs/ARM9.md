@@ -852,3 +852,27 @@ I-TLB fault/hit qualification into fetch data selection and D operand controls.
 All 702 runs remain cycle-identical after the correction. ZAP remains default;
 the [session report](consults/2026-10-23-codex-arm9-report.md) records the four
 corners, full paths, area gap and exact next work.
+
+## Session 6 timing continuation: registered late clear
+
+E's redirect no longer participates in a combinational expression that clears
+all M1/M2/W payload bits. Two late-event registers separate the destinations:
+`clear_e_late` discards younger E work on the following edge, while
+`clear_pipe_late` also discards the younger memory/result records after a
+retiring fault, loaded PC, or serialized redirect. An E branch preserves itself
+and every older record. Clearing only `present` leaves invalid payloads inert.
+
+An older W fault or loaded PC inhibits younger execution and data requests on
+the decision edge. During the registered clear, retirement and data requests
+are also inhibited, so a younger record cannot commit before its valid bit is
+cleared. Block-transfer base restoration retains its existing separate state;
+an E correction on a stale predicted block does not cancel that block's
+sequencer. Fetch still redirects on the decision edge. The existing refill
+interval absorbs the late clear: all 702 test-run cycle/instruction counts and
+all 85 timing windows are unchanged in the three configurations.
+
+The seed-2 integrated trial after this clear change is -7.532 ns at Slow 100C
+(17,078 ALMs). The worst remaining path runs from E branch forwarding/target
+comparison through fetch validity to D operand capture, not the old backend
+payload clear. The fetch boundary is the next structural change. Neither the
+-0.5 ns timing threshold nor the ZAP+5% area gate is met yet.

@@ -944,6 +944,9 @@ module arm9_core (
 	wire retire_fast;
 	wire pipe_hold;
 	wire pipe_fault;
+	reg clear_e_late;
+	reg clear_pipe_late;
+	wire retirement_redirect;
 	reg [1:0] data_reload;
 	wire fast_load_ready;
 	wire block_issue;
@@ -1314,23 +1317,23 @@ module arm9_core (
 	assign fast_d = (((((((kind_d == 4'd0) && (d_ins[15:12] != 15)) || (kind_d == 4'd3)) || ((kind_d == 4'd5) && !((d_ins[19:16] == 15) && (d_ins[21] || !d_ins[24])))) || (kind_d == 4'd6)) || (kind_d == 4'd10)) || (kind_d == 4'd11)) || ((((kind_d == 4'd13) || (kind_d == 4'd14)) && (d_ins[19:16] != 15)) && ((kind_d == 4'd13) || (d_ins[15:12] != 15)));
 	wire shift_hold = (((e_valid && !e_shifted) && shift_register_e) && ex_pass) && !execute_wait;
 	assign fast_load_ready = !fast_w[123] || !i_dc_lock[fast_w[116-:6]];
-	assign retire_fast = fast_w[228] && fast_load_ready;
+	assign retire_fast = (fast_w[228] && fast_load_ready) && !clear_pipe_late;
 	assign pipe_fault = retire_fast && fast_w[119];
 	assign block_restore_fault = (pipe_fault && fast_w[118]) && slow[101];
 	assign pipe_pc_redirect = (((retire_fast && fast_w[227]) && !fast_w[119]) && fast_w[123]) && (fast_w[116-:6] == PHY_PC);
-	assign block_issue = (((((sequence_active && (remaining != 0)) && (state == 4'd0)) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) && (slow[100] || !unused_read_wait[3]);
-	wire pipe_request = (((((((state == 4'd0) && fast_m[228]) && fast_m[227]) && fast_m[124]) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_fault) && !pipe_pc_redirect;
+	assign block_issue = ((((((sequence_active && (remaining != 0)) && (state == 4'd0)) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) && !clear_pipe_late) && (slow[100] || !unused_read_wait[3]);
+	wire pipe_request = ((((((((state == 4'd0) && fast_m[228]) && fast_m[227]) && fast_m[124]) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_fault) && !pipe_pc_redirect) && !clear_pipe_late;
 	assign pipe_hold = (((((i_data_fill_busy && fast_m[228]) && fast_m[124]) && fast_m[227]) || (!i_data_fill_busy && (data_reload != 0))) || (fast_w[228] && !fast_load_ready)) || (pipe_request && (!i_data_wb_ack || i_dcache_err2));
 	assign o_data_stall = ((((state == 4'd0) && pipe_hold) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_request;
-	assign execute_fast = (((((((e_valid && fast_e) && !shift_hold) && !execute_wait) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) && ((kind_e != 4'd6) || !ex_pass)) && ((!multiply_kind || !ex_pass) || multiply_ready);
-	assign block_start = (((((((e_valid && fast_e) && (kind_e == 4'd6)) && ex_pass) && !execute_wait) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) && (!block_pending || ((retire_fast && fast_w[118]) && fast_w[117]));
-	assign multiply_start = (((((((e_valid && fast_e) && multiply_kind) && ex_pass) && !pipe_multiply) && !execute_wait) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect;
-	assign slow_start = ((((((((((e_valid && !fast_e) && !shift_hold) && !execute_wait) && !fast_1[228]) && !fast_m[228]) && (!fast_w[228] || retire_fast)) && !pipe_hold) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_fault) && !pipe_pc_redirect;
+	assign execute_fast = ((((((((e_valid && fast_e) && !shift_hold) && !execute_wait) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) && !clear_e_late) && ((kind_e != 4'd6) || !ex_pass)) && ((!multiply_kind || !ex_pass) || multiply_ready);
+	assign block_start = ((((((((e_valid && fast_e) && (kind_e == 4'd6)) && ex_pass) && !execute_wait) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) && !clear_e_late) && (!block_pending || ((retire_fast && fast_w[118]) && fast_w[117]));
+	assign multiply_start = ((((((((e_valid && fast_e) && multiply_kind) && ex_pass) && !pipe_multiply) && !execute_wait) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) && !clear_e_late;
+	assign slow_start = (((((((((((e_valid && !fast_e) && !shift_hold) && !execute_wait) && !fast_1[228]) && !fast_m[228]) && (!fast_w[228] || retire_fast)) && !pipe_hold) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_fault) && !pipe_pc_redirect) && !clear_e_late;
 	assign early_redirect = (execute_fast && prediction_wrong) || ((slow_start || block_start) && e_predicted);
 	wire f_abort;
 	wire f_redirect;
 	wire f_valid;
-	assign issue = ((((f_valid && !sequence_active) && !f_redirect) && (state == 4'd0)) && (!e_valid || execute_fast)) && ((((fast_d && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6])) || (!e_valid && !(|unused_read_wait)));
+	assign issue = (((((f_valid && !sequence_active) && !f_redirect) && !clear_e_late) && (state == 4'd0)) && (!e_valid || execute_fast)) && ((((fast_d && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6])) || (!e_valid && !(|unused_read_wait)));
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -1424,10 +1427,16 @@ module arm9_core (
 		end
 	end
 	always @(posedge i_clk)
-		if ((i_reset || (f_redirect && !early_redirect)) || pipe_fault) begin
+		if (i_reset) begin
 			fast_1 <= 1'sb0;
 			fast_m <= 1'sb0;
 			fast_w <= 1'sb0;
+			data_reload <= 0;
+		end
+		else if (clear_pipe_late) begin
+			fast_1[228] <= 0;
+			fast_m[228] <= 0;
+			fast_w[228] <= 0;
 			data_reload <= 0;
 		end
 		else begin
@@ -1455,7 +1464,12 @@ module arm9_core (
 	wire [31:0] f_address_check;
 	wire [31:0] f_address;
 	assign f_ready = issue;
-	assign f_redirect = (((pipe_fault && !block_restore_fault) || pipe_pc_redirect) || early_redirect) || (wb_cycle && (((((((((w_redirect || (w_load && (m_dst == PHY_PC))) || w_dabt) || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und) || (slow[3-:4] == 4'd7)) || (slow[3-:4] == 4'd2)));
+	assign retirement_redirect = wb_cycle && (((((((((w_redirect || (w_load && (m_dst == PHY_PC))) || w_dabt) || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und) || (slow[3-:4] == 4'd7)) || (slow[3-:4] == 4'd2));
+	assign f_redirect = (((pipe_fault && !block_restore_fault) || pipe_pc_redirect) || early_redirect) || retirement_redirect;
+	always @(posedge i_clk) begin
+		clear_e_late <= !i_reset && (f_redirect || pipe_fault);
+		clear_pipe_late <= !i_reset && ((retirement_redirect || pipe_fault) || pipe_pc_redirect);
+	end
 	arm9_fetch #(
 		.RESET_VECTOR(RESET_VECTOR),
 		.PREDICTOR(ARM9_PREDICTOR),
@@ -1921,8 +1935,9 @@ module arm9_core (
 				e_valid <= 1;
 				e_shifted <= 0;
 			end
-			if (f_redirect && !early_redirect) begin
+			if (clear_e_late)
 				e_valid <= 0;
+			if (clear_pipe_late) begin
 				pipe_multiply <= 0;
 				multiply_add <= 0;
 				sequence_active <= 0;

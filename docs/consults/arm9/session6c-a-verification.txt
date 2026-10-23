@@ -1,0 +1,19 @@
+Step (a): registered late-event clear
+Parent: d9c773d
+Baseline target run: RTL (gen): 27 passed, 0 failed
+a-target: RTL (gen): 42 passed, 0 failed
+a-target-diff: RTL vs QEMU: 63 agree, 0 differ
+a-arm9-full: RTL (gen): 234 passed, 0 failed
+a-arm9-diff: RTL vs QEMU: 63 agree, 0 differ
+a-off-full: RTL (gen): 234 passed, 0 failed
+a-off-diff: RTL vs QEMU: 63 agree, 0 differ
+a-zap-full: RTL (gen): 234 passed, 0 failed
+a-zap-diff: RTL vs QEMU: 63 agree, 0 differ
+a-lint: passed (exit 0)
+a-lint-arm9: passed (exit 0)
+a-lint-off: passed (exit 0)
+a-gen-check: passed (exit 0)
+85 windows in each configuration: hot ARM9 on/off exact counts at 0:0; coverage at every latency and on ZAP.
+All 702 cycle/instruction counts match d9c773d.
+Generated module comparison: only arm9_core differs; ZAP/cache/execute module bodies unchanged.
+No binaries or QEMU references rebuilt; no firmware boot.

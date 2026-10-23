@@ -244,6 +244,8 @@ wire predictor_direction_wrong = e_predicted != (branch_kind && ex_pass);
 logic e_valid, e_shifted, execute_wait;
 logic wb_cycle;
 logic retire_fast, pipe_hold, pipe_fault;
+logic clear_e_late, clear_pipe_late;
+logic retirement_redirect;
 logic [1:0] data_reload;
 logic fast_load_ready, block_issue, block_restore_fault, pipe_pc_redirect;
 logic [31:0] sequence_flags;
@@ -523,7 +525,7 @@ assign fast_d = (kind_d == K_DP && d_ins[15:12] != 15) || kind_d == K_BRANCH ||
                 (kind_d == K_MUL || d_ins[15:12] != 15));
 wire shift_hold = e_valid && !e_shifted && shift_register_e && ex_pass && !execute_wait;
 assign fast_load_ready = !fast_w.load || !i_dc_lock[fast_w.load_dst];
-assign retire_fast = fast_w.present && fast_load_ready;
+assign retire_fast = fast_w.present && fast_load_ready && !clear_pipe_late;
 assign pipe_fault = retire_fast && fast_w.fault;
 assign block_restore_fault = pipe_fault && fast_w.block_transfer && slow.ins[21];
 assign pipe_pc_redirect = retire_fast && fast_w.pass && !fast_w.fault &&
@@ -531,10 +533,10 @@ assign pipe_pc_redirect = retire_fast && fast_w.pass && !fast_w.fault &&
 // Later STM registers are read in D while the first transfer is in flight.
 // A pending producer must shadow older values until its load completes.
 assign block_issue = sequence_active && remaining != 0 && state == IDLE &&
-                     !pipe_hold && !pipe_fault && !pipe_pc_redirect &&
+                     !pipe_hold && !pipe_fault && !pipe_pc_redirect && !clear_pipe_late &&
                      (slow.ins[20] || !unused_read_wait[3]);
 wire pipe_request = state == IDLE && fast_m.present && fast_m.pass && fast_m.memory &&
-                    !i_data_fill_busy && data_reload == 0 && !pipe_fault && !pipe_pc_redirect;
+                    !i_data_fill_busy && data_reload == 0 && !pipe_fault && !pipe_pc_redirect && !clear_pipe_late;
 // After the critical word is captured, independent arithmetic may drain
 // during the rest of a fill. No cache request escapes until the held lookup
 // records are reloaded; encountering another memory record stops the pipe.
@@ -548,21 +550,21 @@ assign pipe_hold = (i_data_fill_busy && fast_m.present && fast_m.memory && fast_
 assign o_data_stall = state == IDLE && pipe_hold && !i_data_fill_busy &&
                       data_reload == 0 && !pipe_request;
 assign execute_fast = e_valid && fast_e && !shift_hold && !execute_wait &&
-                      !pipe_hold && !pipe_fault && !pipe_pc_redirect &&
+                      !pipe_hold && !pipe_fault && !pipe_pc_redirect && !clear_e_late &&
                       (kind_e != K_BLOCK || !ex_pass) &&
                       (!multiply_kind || !ex_pass || multiply_ready);
 assign block_start = e_valid && fast_e && kind_e == K_BLOCK && ex_pass &&
-                     !execute_wait && !pipe_hold && !pipe_fault && !pipe_pc_redirect &&
+                     !execute_wait && !pipe_hold && !pipe_fault && !pipe_pc_redirect && !clear_e_late &&
                      (!block_pending || (retire_fast && fast_w.block_transfer && fast_w.last));
 assign multiply_start = e_valid && fast_e && multiply_kind && ex_pass &&
                         !pipe_multiply && !execute_wait && !pipe_hold &&
-                        !pipe_fault && !pipe_pc_redirect;
+                        !pipe_fault && !pipe_pc_redirect && !clear_e_late;
 assign slow_start = e_valid && !fast_e && !shift_hold && !execute_wait &&
           !fast_1.present && !fast_m.present &&
           (!fast_w.present || retire_fast) && !pipe_hold && !i_data_fill_busy &&
-          data_reload == 0 && !pipe_fault && !pipe_pc_redirect;
+          data_reload == 0 && !pipe_fault && !pipe_pc_redirect && !clear_e_late;
 assign early_redirect = (execute_fast && prediction_wrong) || ((slow_start || block_start) && e_predicted);
-assign issue = f_valid && !sequence_active && !f_redirect && state == IDLE &&
+assign issue = f_valid && !sequence_active && !f_redirect && !clear_e_late && state == IDLE &&
     (!e_valid || execute_fast) &&
     ((fast_d && !f_abort && !(i_irq && !cpsr[7]) && !(i_fiq && !cpsr[6])) ||
      (!e_valid && !(|unused_read_wait)));
@@ -664,8 +666,13 @@ always_comb begin
 
 end
 always_ff @(posedge i_clk) begin
-    if (i_reset || (f_redirect && !early_redirect) || pipe_fault) begin
+    if (i_reset) begin
         fast_1 <= '0; fast_m <= '0; fast_w <= '0;
+        data_reload <= 0;
+    end else if (clear_pipe_late) begin
+        // Invalid payloads need no clear. In particular, E's target compare
+        // must not drive the reset/enable mux of every older result bit.
+        fast_1.present <= 0; fast_m.present <= 0; fast_w.present <= 0;
         data_reload <= 0;
     end else begin
         if (state == IDLE && (i_data_fill_busy ||
@@ -702,9 +709,19 @@ assign next_pc = w_dabt ? vector_base + 16 :
 logic f_valid, f_abort, f_ready, f_redirect;
 logic [31:0] f_pc, f_instruction, f_address_nxt, f_address_check, f_address;
 assign f_ready = issue;
-assign f_redirect = (pipe_fault && !block_restore_fault) || pipe_pc_redirect || early_redirect || (wb_cycle &&
+assign retirement_redirect = wb_cycle &&
     (w_redirect || (w_load && m_dst == PHY_PC) || w_dabt || w_pabt ||
-     w_irq || w_fiq || w_swi || w_und || slow.kind == K_CP || slow.kind == K_MSR));
+     w_irq || w_fiq || w_swi || w_und || slow.kind == K_CP || slow.kind == K_MSR);
+assign f_redirect = (pipe_fault && !block_restore_fault) || pipe_pc_redirect ||
+                    early_redirect || retirement_redirect;
+// ARM9: late events clear younger records on the next edge. E redirects keep
+// the branch and all older M/W records; retirement redirects discard the
+// younger backend as well. W fault/PC-write priority already inhibits E on
+// the decision edge. The registered clear inhibits side effects thereafter.
+always_ff @(posedge i_clk) begin
+    clear_e_late <= !i_reset && (f_redirect || pipe_fault);
+    clear_pipe_late <= !i_reset && (retirement_redirect || pipe_fault || pipe_pc_redirect);
+end
 arm9_fetch #(.RESET_VECTOR(RESET_VECTOR), .PREDICTOR(ARM9_PREDICTOR), .BP_ENTRIES(BP_ENTRIES)) u_fetch (
     .i_clk(i_clk), .i_reset(i_reset), .i_redirect(f_redirect),
     .i_predictor_clear(wb_cycle && (slow.kind == K_CP || slow.kind == K_MSR)),
@@ -1087,8 +1104,9 @@ always_ff @(posedge i_clk) begin
             e_valid <= 1;
             e_shifted <= 0;
         end
-        if (f_redirect && !early_redirect) begin
-            e_valid <= 0; pipe_multiply <= 0; multiply_add <= 0;
+        if (clear_e_late) e_valid <= 0;
+        if (clear_pipe_late) begin
+            pipe_multiply <= 0; multiply_add <= 0;
             sequence_active <= 0; block_pending <= 0;
         end
         if (pipe_fault) begin pipe_multiply <= 0; multiply_add <= 0; end

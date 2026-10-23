@@ -1,0 +1,11 @@
+{
+  "parent_revision": "d9c773df939cb73a7409168e529c6f49ea4da83b",
+  "core": "ARM9",
+  "ARM9_PREDICTOR": 1,
+  "seed": 2,
+  "mhz": 104,
+  "server": "ubuntu",
+  "remote_directory": "dev/mister/ngage-codex-arm9-s6c-lateclear-s2",
+  "netlist_sha256": "fc500e90cd93807cbe394165b4fa44412c900cac6fb6fe623e2d8e80e713ba1b",
+  "command": "SEED=2 TRIAL=arm9_core BUILD_DIR=dev/mister/ngage-codex-arm9-s6c-lateclear-s2 sim/cpu/quartus/run.sh"
+}
