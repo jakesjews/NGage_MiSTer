@@ -249,6 +249,45 @@ struct Bench {
 	}
 };
 
+void test_blank(uint32_t seed) {
+	Bench b(seed);
+	for (int i = 0; i < 4; i++) b.tick();
+	b.reset = false;
+	auto load = [&](uint32_t byte, uint16_t data) {
+		b.ld = true; b.ld_addr = CS_BASE[1] + byte; b.ld_data = data;
+		while (b.ld) b.tick();
+	};
+	auto write = [&](int chip, uint32_t byte, uint16_t data) {
+		auto &p = b.p[chip];
+		p.req = true; p.we = true; p.addr = byte / 2; p.wdata = data; p.since = b.cyc;
+		b.settle();
+	};
+	load(0, 0x1234); // a new image re-arms the scan
+	load(0x400000, 0xFFFF);
+	load(0x7FFFFE, 0xFFFF);
+	CHECK(b.t->c_blank, "erased loaded C: is blank");
+	write(0, 0x400100, 0); write(1, 0x3FFFFE, 0);
+	CHECK(b.t->c_blank, "CS0/lower CS1 writes leave C: blank");
+	write(1, 0x7FFFFE, 0xFFFF);
+	CHECK(b.t->c_blank, "C: erase leaves blank set");
+	write(1, 0x7FFFFE, 0x1234);
+	CHECK(!b.t->c_blank, "C: data away from first word clears blank");
+	write(1, 0x7FFFFE, 0xFFFF);
+	write(1, 0x400000, 0xFFFF);
+	b.reset = true; b.tick(); b.reset = false; b.tick();
+	CHECK(!b.t->c_blank, "erase/reset cannot re-arm blank");
+	load(0, 0xFFFF);
+	CHECK(b.t->c_blank, "new image re-arms blank");
+	load(0x7FFFFE, 0xFFFE); // last enabled byte lanes, first word still FF
+	CHECK(!b.t->c_blank, "loaded data anywhere in C: clears blank");
+	load(0x7FFFFE, 0xFFFF);
+	CHECK(!b.t->c_blank, "loader FF cannot re-arm blank mid-image");
+	load(0, 0xFFFF); load(0x400000, 0xFFFF);
+	CHECK(b.t->c_blank, "fresh blank image after formatted save");
+	// Leave no write request flags for the read tests that follow.
+	b.p[0].we = b.p[1].we = false;
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -259,6 +298,7 @@ int main(int argc, char **argv) {
 		if (!strcmp(argv[i], "--seed") && i + 1 < argc) seed = (uint32_t)strtoul(argv[++i], nullptr, 0);
 		else if (!strcmp(argv[i], "--rounds") && i + 1 < argc) rounds = atoi(argv[++i]);
 	}
+	test_blank(seed);
 	Bench b(seed);
 	for (int i = 0; i < 4; i++) b.tick();
 	b.reset = false;

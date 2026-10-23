@@ -294,10 +294,7 @@ static void ngage_init(MachineState *machine)
                                      NGAGE_FLASH0_SIZE, s->flash0_path, s->flash0_save);
     s->flash[1] = ngage_flash_create(sysmem, "ngage.flash1", NGAGE_FLASH1_BASE,
                                      NGAGE_FLASH1_SIZE, s->flash1_path, s->flash1_save);
-    {
-        uint32_t cs1_size;
-        ngage_cbus_set_cs1_data(ngage_flash_data(s->flash[1], &cs1_size));
-    }
+    ngage_cbus_set_cs1(s->flash[1]);
     if (s->rom_patches) {
         ngage_apply_rom_patches(s->rom_patches, s->flash[0], s->flash[1]);
     }

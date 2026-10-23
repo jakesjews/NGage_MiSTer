@@ -178,6 +178,7 @@ module ngage_mem #(
 	nor_flash #(.AW(23), .DEVICE_ID(16'h22F8), .CLK_HZ(CLK_HZ),
 		.PROGRAM_CLKS(FLASH_PROGRAM_CLKS), .SECTOR_ERASE_CLKS(FLASH_SECTOR_ERASE_CLKS),
 		.ERASE_WINDOW_CLKS(FLASH_ERASE_WINDOW_CLKS)) flash_cs0 (
+		.c_blank(1'b0),
 		.clk(clk),
 		.reset(reset),
 		.rst_n(flash_rst_n),
@@ -212,6 +213,7 @@ module ngage_mem #(
 	nor_flash #(.AW(22), .DEVICE_ID(16'h22FA), .CLK_HZ(CLK_HZ),
 		.PROGRAM_CLKS(FLASH_PROGRAM_CLKS), .SECTOR_ERASE_CLKS(FLASH_SECTOR_ERASE_CLKS),
 		.ERASE_WINDOW_CLKS(FLASH_ERASE_WINDOW_CLKS)) flash_cs1 (
+		.c_blank(c_blank),
 		.clk(clk),
 		.reset(reset),
 		.rst_n(flash_rst_n),
