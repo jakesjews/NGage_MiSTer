@@ -229,3 +229,14 @@ coreboot: $(BUILD)/coreboot/Vemu
 	mkdir -p $(CORE_OUT)
 	$< $(RUNFLAGS) --cs0 $(CORE_CS0) --cs1 $(CORE_CS1) $(if $(CORE_MMC),--mmc $(CORE_MMC)) --out $(CORE_OUT) $(CORE_ARGS)
 
+
+# Phoenix parser/patch engine. Real firmware stays outside git.
+PHOENIX_DIR ?= $(ROOT)/research/firmware/images/rh29-4.60-dp/inner/products/RH-29
+PHOENIX_REF ?= $(ROOT)/build/ref
+$(BUILD)/phoenix/Vphoenix_load: $(ROOT)/rtl/mister/phoenix_load.sv $(ROOT)/rtl/mister/phoenix_patch.hex $(ROOT)/rtl/mister/phoenix_patch.vh $(ROOT)/sim/harness/phoenix_main.cpp $(ROOT)/sim/harness/phoenix_stream.h
+	mkdir -p $(BUILD)/phoenix && cd $(ROOT) && $(VERILATOR) $(VFLAGS) -I$(ROOT)/rtl/mister --top-module phoenix_load --Mdir $(BUILD)/phoenix -o Vphoenix_load $(ROOT)/rtl/mister/phoenix_load.sv $(ROOT)/sim/harness/phoenix_main.cpp
+.PHONY: phoenix phoenix-real
+phoenix: $(BUILD)/phoenix/Vphoenix_load | $(OUT)
+	cd $(ROOT) && $<
+phoenix-real: $(BUILD)/phoenix/Vphoenix_load | $(OUT)
+	cd $(ROOT) && $< $(PHOENIX_DIR)/RH2946.0C1 $(PHOENIX_DIR)/RH2946.0S5 $(PHOENIX_REF)/cs0.bin $(PHOENIX_REF)/cs1.bin
