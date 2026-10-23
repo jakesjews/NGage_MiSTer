@@ -1,0 +1,20 @@
+Fitter Status : Successful - Fri Oct 23 03:00:17 2026
+Quartus Prime Version : 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+Revision Name : cpu_trial
+Top-level Entity Name : cpu_trial
+Family : Cyclone V
+Device : 5CSEBA6U23I7
+Timing Models : Final
+Logic utilization (in ALMs) : 13,996 / 41,910 ( 33 % )
+Total registers : 16049
+Total pins : 109 / 314 ( 35 % )
+Total virtual pins : 0
+Total block memory bits : 305,568 / 5,662,720 ( 5 % )
+Total RAM Blocks : 69 / 553 ( 12 % )
+Total DSP Blocks : 3 / 112 ( 3 % )
+Total HSSI RX PCSs : 0
+Total HSSI PMA RX Deserializers : 0
+Total HSSI TX PCSs : 0
+Total HSSI PMA TX Serializers : 0
+Total PLLs : 0 / 6 ( 0 % )
+Total DLLs : 0 / 4 ( 0 % )

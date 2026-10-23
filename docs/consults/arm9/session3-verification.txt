@@ -1,3 +1,40 @@
+Final session-3 verification at 06ed82f (RTL unchanged by final evidence commit).
+Generated netlist SHA-256: a324e98c0239281a3b6c1f0069897908bb34cc1add08ec6237c9af36542b0ea6
+
+ARM9 generated focused + arm9_cycles + arm9_state: 33 passed, 0 failed.
+ARM9 generated whole suite: 207 passed, 0 failed.
+ARM9 final QEMU signatures/traces: 55 agree, 0 differ.
+ZAP generated whole suite: 207 passed, 0 failed.
+ZAP final QEMU signatures/traces: 55 agree, 0 differ.
+New arm9_queue independently: 3 passed and 1 QEMU comparison, on each core.
+ARM9 source smoke: 30 passed, 0 failed; 10 QEMU comparisons agree.
+Execute leaves: 4 x 145568 = 582272 checks pass (source/generated, both shifts).
+make lint: pass. make cpu-gen-check: current.
+Additional source ARM9 -Wall lint: pass, with legacy ZAP warnings, empty
+integration output pins and unused bits of retained d_raw encoding waived.
+The prior queue abort field has been renamed fault; that waiver is not needed.
+
+All original nine-test cycle and instruction records match session3-overlap.json.
+All original instruction counts match the pre-edit baseline. ZAP cycles unchanged.
+The 69 cycle windows pass two measured visits each at ARM9 latency 0:0;
+all windows are visited five times on both cores at all three latencies.
+Changing the expected DP delta from 9 to 10 fails both measured visits (exit 3).
+Removing the held-LDM/younger-Thumb metadata guard fails arm9_queue check 7 at
+all three latencies. These negative mutations are not committed.
+Only arm9_cycles and arm9_queue binaries/QEMU references were built/refreshed.
+Existing test binaries and QEMU references were reused.
+
+Final integrated CPU-only Quartus trial: seed 2, 104 MHz, CORE=ARM9, 17.0.2.
+Setup ns (slow 100C, slow -40C, fast 100C, fast -40C): -2.581/-2.623/+2.715/+3.805.
+Hold ns: +0.317/+0.307/+0.164/+0.126.
+14503 ALMs, 15828 registers, 305568 memory bits, 69 RAM blocks, 3 DSP blocks.
+Two failing families: cache-select/Thumb translation (-2.623 ns),
+forwarded E shift/ALU/Z capture (-2.551 ns). Timing and memory overlap unfinished.
+No firmware boot, sys/ change, push, branch switch or full-system fit.
+Trial/report containers exited with --rm. Shared images/other jobs untouched.
+
+Historical checkpoints follow (counts below precede the final arm9_queue test):
+
 Session 3 verification at e47c566 (generated netlist SHA-256 35d347672305a56d62cab8bd7d9c1b25e0491721b6ac090fb17f2311b5491b47).
 
 ARM9 focused, diff, full, diff:

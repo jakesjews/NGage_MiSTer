@@ -439,6 +439,37 @@ are captured with the instruction. E computes the block start with one 32-bit
 addition, not `base +/- count*4` followed by another 32-bit +/-4. The final base
 is computed separately. There is no added stage and no execute-leaf change.
 
+### Session-3 integrated timing result
+
+The final `CORE="ARM9"` trial at 104 MHz, seed 2, Quartus 17.0.2 fails setup.
+The generated input matches commit `06ed82f`; this is a CPU-only integrated
+trial on 5CSEBA6U23I7, not the complete MiSTer design.
+
+| Corner | Setup slack ns | Hold slack ns |
+| --- | ---: | ---: |
+| Slow 1100mV 100C | -2.581 | +0.317 |
+| Slow 1100mV -40C | -2.623 | +0.307 |
+| Fast 1100mV 100C | +2.715 | +0.164 |
+| Fast 1100mV -40C | +3.805 | +0.126 |
+
+There are two failing path families. The worst is cache way selection through
+Thumb translation and the queue input mux to a retimed decode capture
+(`list_d[1]`): -2.623 ns, 11.547 ns data delay, ten logic levels. The other is
+the forwarded E operand through the barrel shift, ALU and Z reduction to
+`fast_m[62]`: -2.551 ns, 11.498 ns data delay, nine logic levels. Registering
+the translation before operand read improved the first session-3 fit's
+-3.753 ns result, but did not close either family. The execute leaf's unchanged
+source and earlier standalone +0.018 ns do **not** prove integrated E timing.
+
+Area is 14,503 ALMs, 15,828 registers, 305,568 memory bits, 69 RAM blocks and
+3 DSP blocks for the whole CPU/trial harness. The full-system area constraint
+has not been checked. Detailed paths, exact input hash and reproduction
+command are saved in
+[`consults/arm9/session3-final-fit-seed2/`](consults/arm9/session3-final-fit-seed2/).
+Closure requires shortening the cache-selection/translation boundary and
+the execute producer/capture path without adding instruction cycles. Both
+are open; no single-remaining-family or 104 MHz claim is made.
+
 ### Reproducible retirement windows
 
 `sim/cpu/tests/arm9_cycles.S` includes 69 named windows. Its embedded table

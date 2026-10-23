@@ -1,0 +1,7 @@
+Input commit: 06ed82f65382735eb624c1ea5ff9fa33d62ae6ad
+TRIAL=arm9_core SEED=2 MHZ=104 BUILD_DIR=dev/mister/ngage-codex-arm9-session3-predecode-s2 sim/cpu/quartus/run.sh
+Quartus 17.0.2, Cyclone V 5CSEBA6U23I7, CORE=ARM9.
+Clock period 9.615 ns. CPU-only integrated trial, not the full MiSTer system.
+Additional read-only TimeQuest report: quartus_sta -t report-three.tcl
+Both compile/report containers used --rm; the shared Quartus image was not created by this session.
+Archived text reports have trailing whitespace removed; values are unchanged.

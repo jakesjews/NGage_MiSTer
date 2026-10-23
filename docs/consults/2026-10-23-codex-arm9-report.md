@@ -6,15 +6,16 @@
 finished. ZAP remains the default.** Ordinary non-PC data processing and B/BL
 now overlap D/E/M/W behind an independent streaming fetch queue. Memory,
 LDM/STM, multiply, PSR operations, other PC writes and exceptions still use
-the conservative blocking controller. ARM9 remains slower than ZAP in the
-requested whole-test comparisons. Do not switch the default or claim the
-performance acceptance gate has passed.
+the conservative blocking controller. ARM9 beats ZAP on both GBA tests but
+remains slower on cache, dcache_rtl, ctrand1 and crand1. The final integrated
+trial fails 104 MHz at **-2.623 ns**, with two failing path families. Neither
+the performance nor timing acceptance gate has passed.
 
 This report supersedes session 2, archived as [arm9/session2-report.md](arm9/session2-report.md).
 The first checkpoint, `78c0cd2`, introduced the independent fetch pipeline and
 passed both cores' 201-run/53-reference suites. Commit `e47c566` adds the
 arithmetic overlap, captured transfer controls, and real cycle-window checks
-(204 runs / 54 references). The following timing fix registers Thumb translation
+(204 runs / 54 references). Commit `06ed82f` registers Thumb translation
 in the existing fetch queue and adds `arm9_queue`, taking the suite to 207 runs
 and 55 references. The final timing result is recorded below.
 
@@ -97,8 +98,9 @@ in every cell. Bus-latency columns in each cell are **0:0 / 0:3 / 2:9**.
 | align | 5427 / 7001 / 11223 | 8847 / 10171 / 13817 | 6175 / 7430 / 11117 | 549 |
 
 `arm9/session3-fetch.json` preserves the intermediate fetch-only checkpoint;
-`arm9/session3-overlap.json` preserves the arithmetic checkpoint. ARM9 does
-**not** beat ZAP on any of the required six test families at any latency.
+`arm9/session3-overlap.json` preserves the arithmetic checkpoint. ARM9 beats
+ZAP on `gba_arm` and `gba_thumb` at every latency; it loses on the other four
+required families at every latency. Outside those six, `align` wins only at 2:9.
 The major remaining cost is still serial memory/sequencer admission, with
 extra cost for serialized state operations and native fetch refills.
 
@@ -192,8 +194,46 @@ metadata of the younger queue head. `arm9_queue.S` covers this boundary and
 a branch killing a queued exception. Removing that gate in a scratch netlist
 makes the directed test fail its second-transfer check at all three latencies;
 the correct netlist and QEMU agree. The second trial uses seed 2 and
-`BUILD_DIR=dev/mister/ngage-codex-arm9-session3-predecode-s2`; its final results
-will be recorded below when fitting finishes. No execute-leaf change was made.
+`BUILD_DIR=dev/mister/ngage-codex-arm9-session3-predecode-s2`. It completed with
+these results on the exact `06ed82f` netlist:
+
+| Corner | Setup slack ns | Hold slack ns |
+| --- | ---: | ---: |
+| Slow 1100mV 100C | -2.581 | +0.317 |
+| Slow 1100mV -40C | -2.623 | +0.307 |
+| Fast 1100mV 100C | +2.715 | +0.164 |
+| Fast 1100mV -40C | +3.805 | +0.126 |
+
+Area: **14,503 ALMs, 15,828 registers, 305,568 memory bits, 69 RAM blocks,
+3 DSP blocks**. Compared with the first session-3 fit, worst setup improves
+1.130 ns and area increases 507 ALMs. These figures cover the integrated CPU
+and trial harness; they do not establish fit or timing in the 80%-full system.
+
+There are **two** limiting path families, both visible in the slow-corner
+top-three full-path reports:
+
+1. **I-cache way selection through Thumb translation to fetch/decode capture:**
+   -2.623 ns, 11.547 ns data delay, ten logic levels at Slow -40C. The path
+   starts at the retimed tag comparator `u_zap_cache_tag_ram|Equal1~8_OTERM9297`,
+   crosses `o_cache_word_sel`, `u_fetch|incoming`, the Thumb translator and
+   queue input mux, and ends at retimed `list_d[1]~5_OTERM8109`. Moving translation
+   ahead of the FIFO removes it from D's operand path but leaves too much
+   logic after the I-cache word selection. Quartus retiming means the endpoint
+   name is not a literal source-level FIFO register.
+2. **Forwarded execute operand through shift/ALU to M's Z flag:** -2.551 ns,
+   11.498 ns data delay, nine logic levels at Slow -40C. It starts at
+   `u_execute|u_forward|always0~10_OTERM2770DUPLICATE` and ends at `fast_m[62]`.
+   The detailed path includes the forwarding mux, barrel shift, ALU and Z
+   reduction. No execute-leaf source or E-to-memory stage was changed, but
+   the old standalone **+0.018 ns is not retained in this integrated fit**.
+   Real producer fanout, capture logic and placement must be addressed without
+   increasing the execute cycle count.
+
+Thus neither closure nor the requested fallback of a single remaining path
+family was reached. `arm9/session3-final-fit-seed2/` contains corner summaries,
+top-twelve path lists, top-three detailed paths, invocation and input SHA-256
+`a324e98c0239281a3b6c1f0069897908bb34cc1add08ec6237c9af36542b0ea6`.
+The trial's generated input and the committed generated file match exactly.
 
 ## Remaining work / next session
 
@@ -217,6 +257,14 @@ just metadata on a miss and expect the RAM phase to remain aligned. Younger
 stores must wait for every older fault-capable access. Commit and rerun the
 full dual-core/reference suite after each of these steps.
 
+For timing, first shorten the cache-select-to-translation boundary using an
+earlier existing fetch edge or a narrower predecode representation; do not
+add another refill edge silently. Then isolate the execute producer/capture
+fanout and compare the integrated path with the retained leaf trial. Both
+changes need a fresh integrated fit: moving the first path alone cannot close
+the second, and unchanged leaf RTL alone is not timing evidence. The saved
+top-three reports are the starting point, not a prediction that either fix
+will close.
 
 The three-edge native RAM contract is still unchanged. B/BL refill has one
 additional queue/decode admission edge beyond the native-cache target. A
@@ -232,5 +280,12 @@ with Thumb semantics covered by the shared suite. Integrated timing and area
 must be measured again after memory overlap. Keep ZAP default until the full
 performance and timing gates both pass.
 
+This session stops at a passing partial-overlap checkpoint, after two complete
+integrated timing trials. Full memory overlap, target load-use/block-transfer
+counts, the remaining branch-refill edge and both timing families are still
+open. No further unverified RTL change is left in the worktree.
+
 No push, branch switch, `sys/` edit or firmware boot was performed. Only this
-worktree's task-related CPU, test and documentation files are included.
+worktree's task-related CPU, test and documentation files are included. The
+session's Quartus/report containers exited with `--rm`; other engineers'
+builds and the pre-existing shared Quartus image were left alone.
