@@ -341,35 +341,52 @@ module mmc_card #(
 		return {mod3(s[22:2]), s[1:0]};
 	endfunction
 
-	// The sectors the current block needs and the next 4 KB chunk's, and
-	// whether they are in the buffer, take two register stages (the sums and
-	// comparisons are too long for one clock). The results are used only once
-	// the inputs have stayed the same long enough for both stages to see them.
-	logic [22:0] a_rlo, a_rhi, a_pchunk;
-	logic  [3:0] a_srlo, a_srhi, a_spchunk;
-	logic        a_act, a_multi;
+	// The sectors the current block needs and the next 4 KB chunk's, whether
+	// they are in the buffer, and the next HPS request parameters are
+	// pipelined across four lightweight register stages so that no path from a
+	// tag or slot register passes through an adder and a compare in one clock:
+	//   stage 0 (s0_*): candidate sector numbers (adders only)
+	//   stage 1 (s1_*): modulo-3 slot indices and per-slot tag compares in parallel
+	//   stage 2 (s2_*): 1-bit slot-hit muxes and miss priority selection
+	//   stage 3 (want*): HPS request parameters (chunk quarters and block count)
+	// The results are used only once the inputs have stayed the same for all
+	// four stages (settle == 0).
+	logic [22:0] s0_rlo, s0_rhi, s0_pchunk;
+	logic        s0_act, s0_multi;
+
+	logic [22:0] s1_rlo, s1_rhi, s1_pchunk;
+	logic  [3:0] s1_srlo, s1_srhi, s1_spchunk;
+	logic        s1_act, s1_multi, s1_pc_win, s1_pc_in;
+	logic [15:0] s1_eq_lo, s1_eq_hi;
+	logic [11:0] s1_eq_pc;
+
 	logic        have_lo, have_hi;
 	logic  [3:0] slot_lo, slot_hi;
+	logic [22:0] s2_want;
+	logic  [3:0] s2_want_slot;
+	logic        s2_want_v, s2_want_spec;
+
 	logic [22:0] want;
-	logic        want_v, want_spec;
+	logic  [3:0] want_slot;
+	logic        want_v, want_spec, want_oor;
+	logic  [1:0] want_q0, want_q1;
+	logic  [5:0] want_cnt;
+
 	logic [60:0] bk_in, bk_q;
 	logic  [1:0] settle;
 	wire         bk_chg = (bk_in != bk_q) || bk_touch;
 	wire         bk_ok  = settle == 2'd0 && !bk_chg;
 
-	function automatic logic has_sec(input logic [22:0] s, input logic [3:0] sl, input logic is_multi);
-		logic s_ok, m_ok;
-		s_ok = tvalid[sl] && (tag[sl] == s);
-		m_ok = (tvalid[12] && tag[12] == s) || (tvalid[13] && tag[13] == s) ||
-		       (tvalid[14] && tag[14] == s) || (tvalid[15] && tag[15] == s);
-		return is_multi ? s_ok : (s_ok || m_ok);
-	endfunction
-
-	function automatic logic [3:0] find_slot(input logic [22:0] s, input logic [3:0] sl, input logic is_multi);
-		if (is_multi || (tvalid[sl] && tag[sl] == s)) return sl;
-		if (tvalid[12] && tag[12] == s) return 4'd12;
-		if (tvalid[13] && tag[13] == s) return 4'd13;
-		if (tvalid[14] && tag[14] == s) return 4'd14;
+	function automatic logic [3:0] pick_slot(
+		input logic         is_multi,
+		input logic   [3:0] sl,
+		input logic         s_ok,
+		input logic [14:12] m_eq
+	);
+		if (is_multi || s_ok) return sl;
+		if (m_eq[12]) return 4'd12;
+		if (m_eq[13]) return 4'd13;
+		if (m_eq[14]) return 4'd14;
 		return 4'd15;
 	endfunction
 
@@ -379,35 +396,85 @@ module mmc_card #(
 	wire [22:0] w_rhi    = sec_of(d_addr + {23'd0, bl} - 33'd1);
 	wire [22:0] w_pchunk = {w_rlo[22:3] + 20'd1, 3'b000};
 
+	wire        s2_slo_ok = s1_eq_lo[s1_srlo];
+	wire        s2_mlo_ok = |s1_eq_lo[15:12];
+	wire        s2_has_lo = s1_multi ? s2_slo_ok : (s2_slo_ok || s2_mlo_ok);
+
+	wire        s2_shi_ok = s1_eq_hi[s1_srhi];
+	wire        s2_mhi_ok = |s1_eq_hi[15:12];
+	wire        s2_has_hi = s1_multi ? s2_shi_ok : (s2_shi_ok || s2_mhi_ok);
+
+	wire        s2_spc_ok = s1_eq_pc[s1_spchunk];
+
+	// From s2_want_slot[3:2] = mod3(s2_want[22:2]) and s2_want[2], derive the
+	// two quarters of the aligned 4 KB chunk {s2_want[22:3], 3'b000} without
+	// any adder or second mod3 tree.
+	wire  [1:0] s2_q          = s2_want_slot[3:2];
+	wire  [1:0] s2_q_next     = (s2_q == 2'd2) ? 2'd0 : (s2_q + 2'd1);
+	wire  [1:0] s2_q_prev     = (s2_q == 2'd0) ? 2'd2 : (s2_q - 2'd1);
+	wire  [1:0] s2_q0         = s2_want[2] ? s2_q_prev : s2_q;
+	wire  [1:0] s2_q1         = s2_want[2] ? s2_q      : s2_q_next;
+	wire        s2_last_chunk = ({9'd0, s2_want[22:3]} == nblk[31:3]);
+
 	always_ff @(posedge clk) begin
-		// stage A
-		a_rlo     <= w_rlo;
-		a_rhi     <= w_rhi;
-		a_pchunk  <= w_pchunk;
-		a_srlo    <= s_slot(w_rlo);
-		a_srhi    <= s_slot(w_rhi);
-		a_spchunk <= s_slot(w_pchunk);
-		a_act     <= d_state != D_IDLE;
-		a_multi   <= d_multi;
-		// stage B
-		have_lo   <= has_sec(a_rlo, a_srlo, a_multi);
-		have_hi   <= has_sec(a_rhi, a_srhi, a_multi);
-		slot_lo   <= find_slot(a_rlo, a_srlo, a_multi);
-		slot_hi   <= find_slot(a_rhi, a_srhi, a_multi);
-		want_v    <= 1'b0;
-		want_spec <= 1'b0;
-		want      <= a_rlo;
-		if (a_act) begin
-			if (!has_sec(a_rlo, a_srlo, a_multi)) begin
-				want <= a_rlo; want_v <= 1'b1; want_spec <= 1'b0;
-			end else if (!has_sec(a_rhi, a_srhi, a_multi)) begin
-				want <= a_rhi; want_v <= 1'b1; want_spec <= 1'b0;
-			end else if (a_multi && a_rlo[2] && (a_rhi[22:2] == a_rlo[22:2]) && (a_rlo[2:0] != 3'd7)) begin
-				if ({9'd0, a_pchunk} < nblk && !has_sec(a_pchunk, a_spchunk, 1'b1)) begin
-					want <= a_pchunk; want_v <= 1'b1; want_spec <= 1'b1;
-				end
+		// stage 0: sector addresses (adders only)
+		s0_rlo    <= w_rlo;
+		s0_rhi    <= w_rhi;
+		s0_pchunk <= w_pchunk;
+		s0_act    <= d_state != D_IDLE;
+		s0_multi  <= d_multi;
+
+		// stage 1: modulo-3 slot indices and per-slot tag compares in parallel
+		s1_rlo     <= s0_rlo;
+		s1_rhi     <= s0_rhi;
+		s1_pchunk  <= s0_pchunk;
+		s1_srlo    <= s_slot(s0_rlo);
+		s1_srhi    <= s_slot(s0_rhi);
+		s1_spchunk <= s_slot(s0_pchunk);
+		s1_act     <= s0_act;
+		s1_multi   <= s0_multi;
+		s1_pc_win  <= s0_multi && s0_rlo[2] && (s0_rhi[22:2] == s0_rlo[22:2]) && (s0_rlo[2:0] != 3'd7);
+		s1_pc_in   <= ({9'd0, s0_pchunk} < nblk);
+		for (int i = 0; i < 16; i++) begin
+			s1_eq_lo[i] <= tvalid[i] && (tag[i] == s0_rlo);
+			s1_eq_hi[i] <= tvalid[i] && (tag[i] == s0_rhi);
+		end
+		for (int i = 0; i < 12; i++) begin
+			s1_eq_pc[i] <= tvalid[i] && (tag[i] == s0_pchunk);
+		end
+
+		// stage 2: 1-bit slot-hit muxes and miss priority selection
+		have_lo      <= s2_has_lo;
+		have_hi      <= s2_has_hi;
+		slot_lo      <= pick_slot(s1_multi, s1_srlo, s2_slo_ok, s1_eq_lo[14:12]);
+		slot_hi      <= pick_slot(s1_multi, s1_srhi, s2_shi_ok, s1_eq_hi[14:12]);
+		s2_want_v    <= 1'b0;
+		s2_want_spec <= 1'b0;
+		s2_want      <= s1_rlo;
+		s2_want_slot <= s1_srlo;
+		if (s1_act) begin
+			if (!s2_has_lo) begin
+				s2_want <= s1_rlo; s2_want_slot <= s1_srlo;
+				s2_want_v <= 1'b1; s2_want_spec <= 1'b0;
+			end else if (!s2_has_hi) begin
+				s2_want <= s1_rhi; s2_want_slot <= s1_srhi;
+				s2_want_v <= 1'b1; s2_want_spec <= 1'b0;
+			end else if (s1_pc_win && s1_pc_in && !s2_spc_ok) begin
+				s2_want <= s1_pchunk; s2_want_slot <= s1_spchunk;
+				s2_want_v <= 1'b1; s2_want_spec <= 1'b1;
 			end
 		end
+
+		// stage 3: HPS request parameters from s2_want
+		want      <= s2_want;
+		want_slot <= s2_want_slot;
+		want_v    <= s2_want_v;
+		want_spec <= s2_want_spec;
+		want_oor  <= ({9'd0, s2_want} >= nblk);
+		want_q0   <= s2_q0;
+		want_q1   <= s2_q1;
+		want_cnt  <= s2_last_chunk ? {3'd0, nblk[2:0] - 3'd1} : 6'd7;
+
 		// how long since the inputs changed
 		bk_q <= bk_in;
 		if (bk_chg) settle <= 2'd3;
@@ -472,21 +539,36 @@ module mmc_card #(
 	wire        addressed = cmd_arg[31:16] == rca;
 	wire [32:0] arg33 = {1'b0, cmd_arg};
 	wire [33:0] rd_end = {1'b0, arg33} + {24'd0, bl};
-	wire  [9:0] f_one  = {1'b0, d_addr[8:0]} + 10'd1;
-	wire  [9:0] f_next = {1'b0, d_addr[8:0]} + d_pos + 10'd2;
-	wire        w_in_file = {9'd0, sec_of(w_addr)} < nblk;
 	wire        rd_cross = cmd_arg[31:9] != sec_of(arg33 + {23'd0, bl} - 33'd1);
-	wire [22:0] want_base   = {want[22:3], 3'b000};
-	wire [31:0] rem_blks    = nblk - {9'd0, want_base};
-	wire  [5:0] want_cnt    = (rem_blks >= 32'd8) ? 6'd7 : 6'(rem_blks - 32'd1);
-	wire  [1:0] want_q0     = mod3(want_base[22:2]);
-	wire  [1:0] want_q1     = mod3(want_base[22:2] + 21'd1);
 	wire        cmd_quiet   = cmd_i && !rx_on && !rx_done && !rx_dec;
 	wire        allow_fetch = (!want_spec || !stop_queued) &&
 	                          (d_first ? (!want_spec || (d_state == D_DATA && cmd_quiet))
 	                                   : (cmd_quiet && (d_state == D_DATA || (d_state == D_WAIT && nac > 8'(NAC)))));
 	wire [22:0] w_sec       = sec_of(w_addr);
-	wire  [1:0] w_q         = mod3(w_sec[22:2]);
+	wire [22:0] h_stream_sec = {h_lba[22:3], sd_buff_addr[10:8]};
+
+	// Precomputed read byte offsets, write slot/quarter indices, and HPS
+	// metadata invalidation matches (all inputs are stable at least several
+	// clk cycles before these registers are read).
+	logic  [9:0] f_one, f_next;
+	logic        f_more, d_last;
+	logic  [1:0] w_q;
+	logic        w_in_file;
+	logic  [3:0] w_m_hit;
+	logic  [3:0] h_m_match;
+
+	always_ff @(posedge clk) begin
+		f_one     <= {1'b0, d_addr[8:0]} + 10'd1;
+		f_next    <= {1'b0, d_addr[8:0]} + d_pos + 10'd2;
+		f_more    <= (d_pos + 10'd2 < bl);
+		d_last    <= (d_pos == bl - 10'd1);
+		w_q       <= mod3(w_sec[22:2]);
+		w_in_file <= ({9'd0, w_sec} < nblk);
+		for (int m = 0; m < 4; m++) begin
+			w_m_hit[m]   <= tvalid[12 + m] && (tag[12 + m] == w_sec);
+			h_m_match[m] <= (tag[12 + m] == h_stream_sec);
+		end
+	end
 
 	task automatic respond(input logic [135:0] bits, input logic [7:0] n, input logic [6:0] dly);
 		t_state <= T_WAIT;
@@ -547,11 +629,11 @@ module mmc_card #(
 
 		// ---------------- HPS transfers ----------------
 		if (sd_buff_wr && (h_state != H_IDLE) && !h_wr && !h_meta && sd_buff_addr[12:11] == 2'b00 && sd_buff_addr[7:0] == 8'hFF) begin
-			tag[h_cur_slot]    <= h_lba[22:0] + {20'd0, sd_buff_addr[10:8]};
+			tag[h_cur_slot]    <= h_stream_sec;
 			tvalid[h_cur_slot] <= 1'b1;
 			tzero[h_cur_slot]  <= 1'b0;
 			for (int m = 0; m < 4; m++)
-				if (tag[12 + m] == h_lba[22:0] + {20'd0, sd_buff_addr[10:8]})
+				if (h_m_match[m])
 					tvalid[12 + m] <= 1'b0;
 			bk_touch <= 1'b1;
 		end
@@ -710,11 +792,11 @@ module mmc_card #(
 		// reserved metadata slots 12..15 for CMD17
 		if (d_state != D_IDLE && bk_ok && want_v && allow_fetch && h_state == H_IDLE && !h_done && l_state == L_READY) begin
 			bk_touch <= 1'b1;
-			if ({9'd0, want} >= nblk) begin
+			if (want_oor) begin
 				if (d_multi) begin
-					tag[s_slot(want)]    <= want;
-					tvalid[s_slot(want)] <= 1'b1;
-					tzero[s_slot(want)]  <= 1'b1;
+					tag[want_slot]    <= want;
+					tvalid[want_slot] <= 1'b1;
+					tzero[want_slot]  <= 1'b1;
 				end else begin
 					tag[{2'b11, m_repl}]    <= want;
 					tvalid[{2'b11, m_repl}] <= 1'b1;
@@ -727,11 +809,11 @@ module mmc_card #(
 				h_meta    <= 1'b0;
 				h_q0      <= want_q0;
 				h_q1      <= want_q1;
-				h_lba     <= {9'd0, want_base};
+				h_lba     <= {9'd0, want[22:3], 3'b000};
 				h_blk_cnt <= want_cnt;
 				sd_rd     <= 1'b1;
 				for (int k = 0; k < 4; k++) tvalid[{want_q0, 2'(k)}] <= 1'b0;
-				if (want_cnt >= 6'd4)
+				if (want_cnt[2])
 					for (int k = 0; k < 4; k++) tvalid[{want_q1, 2'(k)}] <= 1'b0;
 			end else begin
 				h_state   <= H_REQ;
@@ -775,14 +857,14 @@ module mmc_card #(
 				d_crc <= crc16_bit(d_crc, cur_byte[d_bit]);
 				d_bit <= d_bit - 3'd1;
 				if (d_bit == 3'd0) begin
-					if (d_pos == bl - 10'd1) begin
+					if (d_last) begin
 						d_state <= D_CRC;
 						d_crcn  <= 5'd16;
 					end else begin
 						d_pos    <= d_pos + 10'd1;
 						cur_byte <= nxt_byte;
 						nxt_ok   <= 1'b0;
-						if (d_pos + 10'd2 < bl) begin
+						if (f_more) begin
 							f_go   <= 1'b1;
 							f_slot <= f_next[9] ? slot_hi : slot_lo;
 							f_odd  <= f_next[0];
@@ -833,7 +915,7 @@ module mmc_card #(
 				logic [1:0] wm;
 				wm = m_repl;
 				for (int m = 0; m < 4; m++)
-					if (tvalid[12 + m] && tag[12 + m] == w_sec) wm = 2'(m);
+					if (w_m_hit[m]) wm = 2'(m);
 				w_state <= W_DATA;
 				w_n     <= 13'd0;
 				w_crc   <= 16'd0;
