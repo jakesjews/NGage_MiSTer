@@ -2,9 +2,13 @@
 
 The core can send its picture to a RetroTINK 4K as direct video: the MiSTer
 puts the core's own timing on HDMI instead of its scaler's, and the RetroTINK
-does the scaling. This page is the recipe for a profile that shows the picture
-the way the N-Gage QD's own screen did. A RetroTINK profile can only be saved
-from the device, so the steps set it up on the RetroTINK and save it there.
+does the scaling. `tools/retrotink4k/NGage.rt4` is a ready profile that shows
+the picture the way the N-Gage QD's own screen did: integer scaling with
+square pixels, gen lock to the core's frame rate, the picture cropped by the
+direct-video metadata. Copy it to the RetroTINK's SD card as
+`profile/DV1/NGage.rt4` and it loads by itself when the core starts (the
+profile has Auto Load DV1 on). The settings below are the same profile set
+by hand, for a RetroTINK that already has a profile of your own to keep.
 
 ## What the RetroTINK receives
 
@@ -35,14 +39,14 @@ its 2025 firmware; if one has moved, the setting is the thing to find.
 
 1. Input: HDMI. The RetroTINK detects the MiSTer direct-video signal as a
    240p source; leave the sync and timing detection on Auto.
-2. Output: 4K (2160p) at 60 Hz, full range RGB. Turn Frame Lock on so the
-   output follows the core's 60.07 Hz instead of resampling it.
-3. Cropping: Auto Crop off. Crop to the picture: 176 pixels wide, 208 lines
-   tall, centred (208 wide, 176 tall with the core's Rotate). The picture
-   sits in the middle of the 413x262 frame, so a centred crop finds it;
-   nudge the horizontal and vertical position until the black border is
-   gone on all four sides and no picture is cut.
-4. Scaling: Integer. Aspect ratio: 1:1 pixel aspect (square pixels). That
+2. HDMI Output: 4K60, RGB Range Full, Sync Lock "Gen" so the output
+   follows the core's 60.07 Hz instead of resampling it.
+3. Cropping: HDMI Receiver Setup, Auto-Crop on. MiSTer direct video carries
+   the picture's position, size and pixel rate in its metadata, so the
+   RetroTINK crops to the 176x208 picture (208x176 with the core's Rotate)
+   and samples it one sample a pixel without trims.
+4. Scaling/Crop Setup: Scaling Mode "Auto Fill Int HV" (integer on both
+   axes), Aspect Correction "1:1 (Sq. Pixel)", Aspect Ratio 1:1. That
    gives 10x: 1760x2080 for the upright picture, a portrait image with
    black at the sides, which is the QD's own shape; or 12x: 2496x2112 for
    the rotated picture.
@@ -50,11 +54,9 @@ its 2025 firmware; if one has moved, the setting is the thing to find.
    10 times their size). Masks: the LCD or dot-grid mask at a low strength,
    around 20 %, for the panel's pixel grid; off for a clean picture.
    Scanlines off.
-6. Save: Profile, Save Profile, into an SVS slot, and name the file on the
-   SD card `S<number>_NGage.rt4` under `/profile/SVS/`. If the MiSTer's
-   RetroTINK profile-switching script is installed, add the core name
-   `NGage` with that number to its core list so the profile loads with the
-   core.
+6. Save: Profiles, Save Profile. For automatic loading put the file at
+   `profile/DV1/NGage.rt4` with Auto Load DV1 on, as the provided file is;
+   for an SVS switch name it `profile/SVS/S<number>_NGage.rt4` instead.
 
 ## Why these numbers
 
@@ -65,3 +67,13 @@ its 2025 firmware; if one has moved, the setting is the thing to find.
   on 35x41 mm.
 - Frame Lock because the core's frame is 60.07 Hz, not 60.00; without it
   a frame is dropped or repeated about every 14 seconds.
+
+## How the file was made
+
+From the "Dead Stock" MiSTer direct-video profile set (TheJesusFish's
+Retrotink-DV1-Profile-Repository, the Atari Lynx profile: no scanlines, no
+mask, Auto-Crop and Auto Load DV1 on), with cajunpanda's `rtink` tool:
+Scaling Mode "Auto Fill Int HV" and Aspect Correction "1:1 (Sq. Pixel)" and
+Aspect Ratio 1:1 for every input mode, Sync Lock Gen, Input Source HDMI;
+nothing else changed. The tool recomputes the profile's checksum. Made on
+the firmware 1.92 settings map; profiles from 1.92 to 1.99 share the layout.
