@@ -3956,3 +3956,10 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   `_Debug/NGageDbg_20261023.rbf` for the measurements. The main slot
   went from b12 (-1.09 ns, 25-28 M instructions/s in play) to this:
   -0.55 ns, 29-31 M/s, the fast first boot, the card path.
+- Seeds 12, 13 (the server) and 20 (the Mac) of the main core on the
+  fixed tree: **-0.535** (seed 12, the best so far: 34,988 ALMs),
+  -0.633, -0.643; seed 20's top is decode's destination index into
+  issue (-0.64), then the MMU enable into the fetch FIFO (-0.47) and the
+  Thumb decoder into predecode (-0.45). Eight seeds of this tree:
+  -0.680, -0.920, -0.550, -1.115, -0.661, -0.535, -0.633, -0.643
+  (median -0.64). Seed 9 stays on the main slot (tested; 15 ps apart).
