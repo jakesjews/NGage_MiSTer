@@ -1,0 +1,9 @@
+Integrated timing correction: data mux independent of validity; dedicated branch adder.
+ARM9 on/off and ZAP: 234/234 runs and 63/63 QEMU comparisons each.
+All 702 run cycle/instruction counts are identical to session6b-performance.json.
+85 windows retain exact hot ARM9 expectations and all required visits.
+Top-level lint, explicit ARM9 on/off -Wall lint and cpu-gen-check pass.
+Only generated arm9_core and arm9_fetch module bodies differ from 0e4601f;
+all wrapper, ZAP, cache, MMU and other module bodies are byte-identical.
+No existing binaries or QEMU references were rebuilt or rerun for this correction.
+Generated SHA256: da63d8ea9f9422c81935fe3caa681ae6c6dd7930de955a93dac356cb0dded4ad

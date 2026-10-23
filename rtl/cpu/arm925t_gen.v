@@ -927,9 +927,10 @@ module arm9_core (
 	reg [2:0] multiply_delay;
 	wire multiply_ready = (pipe_multiply && !multiply_add) && (multiply_delay == 0);
 	wire branch_kind = (kind_e == 4'd3) || (kind_e == 4'd11);
+	wire [127:0] held_value;
+	wire [31:0] branch_base = (kind_e == 4'd11 ? held_value[0+:32] : pc8);
 	wire [31:0] ex_branch;
-	wire [31:0] ex_result;
-	wire [31:0] branch_target = (kind_e == 4'd11 ? {ex_result[31:1], 1'b0} : ex_branch);
+	wire [31:0] branch_target = {ex_branch[31:1], 1'b0};
 	wire ex_pass;
 	wire [31:0] execute_flags;
 	wire [31:0] resolved_next = (branch_kind && ex_pass ? branch_target : pc + (execute_flags[5] ? 32'd2 : 32'd4));
@@ -949,7 +950,6 @@ module arm9_core (
 	wire block_restore_fault;
 	wire pipe_pc_redirect;
 	reg [31:0] sequence_flags;
-	wire [127:0] held_value;
 	wire [3:0] held_wait;
 	reg [175:0] slow;
 	reg [228:0] fast_m;
@@ -986,6 +986,7 @@ module arm9_core (
 	reg immediate_e;
 	reg immediate_carry_d;
 	reg immediate_carry_e;
+	wire [31:0] ex_result;
 	wire [31:0] ex_store;
 	wire [3:0] ex_flags;
 	wire ex_write;
@@ -1227,7 +1228,9 @@ module arm9_core (
 			value_d[32+:32] = {20'd0, d_raw[10:0], 1'b0};
 		end
 		branch_offset_d = (translated[34] ? {{7 {d_ins[23]}}, d_ins[23:0], 1'b0} : {{6 {d_ins[23]}}, d_ins[23:0], 2'b00});
-		if (kind_d == 4'd10)
+		if (kind_d == 4'd11)
+			branch_offset_d = {20'd0, d_raw[10:0], 1'b0};
+		else if (kind_d == 4'd10)
 			branch_offset_d = {{9 {d_raw[10]}}, d_raw[10:0], 12'd0};
 		psr_mask_d = {{8 {d_ins[19]}}, {8 {d_ins[18]}}, {8 {d_ins[17]}}, {8 {d_ins[16]}}} & 32'hf00000ff;
 		if (!d_ins[22]) begin
@@ -1254,7 +1257,7 @@ module arm9_core (
 		.i_shift_register(shift_register_e),
 		.i_immediate(immediate_e),
 		.i_shift_carry((ins[11:8] == 0 ? execute_flags[29] : immediate_carry_e)),
-		.i_pc8(pc8),
+		.i_pc8(branch_base),
 		.i_branch_offset(branch_offset_e),
 		.o_result(ex_result),
 		.o_store_data(ex_store),
@@ -2411,15 +2414,16 @@ module arm9_fetch (
 	assign bypass = (((count == 0) && response) && (i_hit || !f2[32])) && !selected_packet[101];
 	assign push = response && !(bypass && i_ready);
 	assign o_valid = bypass || ((((count != 0) && !queue[head][101]) && (queue[head][139-:2] == epoch)) && !i_redirect);
-	assign o_pc = (bypass ? selected_packet[63-:32] : queue[head][63-:32]);
-	assign o_instruction = (bypass ? selected_packet[31-:32] : queue[head][31-:32]);
-	assign o_abort = (bypass ? selected_packet[102] : queue[head][102]);
-	assign o_decoded = (bypass ? (i_hit ? early_packet[100-:35] : {3'd0, incoming}) : queue[head][100-:35]);
-	assign o_thumb_und = (bypass ? i_hit && early_packet[65] : queue[head][65]);
-	assign o_thumb_align = (bypass ? i_hit && early_packet[64] : queue[head][64]);
-	assign o_predicted = (bypass ? selected_packet[137] : queue[head][137]);
-	assign o_pred_target = (bypass ? selected_packet[136-:32] : queue[head][136-:32]);
-	assign o_pred_state = (bypass ? selected_packet[104-:2] : queue[head][104-:2]);
+	wire select_direct = count == 0;
+	assign o_pc = (select_direct ? selected_packet[63-:32] : queue[head][63-:32]);
+	assign o_instruction = (select_direct ? selected_packet[31-:32] : queue[head][31-:32]);
+	assign o_abort = (select_direct ? selected_packet[102] : queue[head][102]);
+	assign o_decoded = (select_direct ? (i_hit ? early_packet[100-:35] : {3'd0, incoming}) : queue[head][100-:35]);
+	assign o_thumb_und = (select_direct ? i_hit && early_packet[65] : queue[head][65]);
+	assign o_thumb_align = (select_direct ? i_hit && early_packet[64] : queue[head][64]);
+	assign o_predicted = (select_direct ? selected_packet[137] : queue[head][137]);
+	assign o_pred_target = (select_direct ? selected_packet[136-:32] : queue[head][136-:32]);
+	assign o_pred_state = (select_direct ? selected_packet[104-:2] : queue[head][104-:2]);
 	assign pop = (o_valid && i_ready) && !bypass;
 	always @(posedge i_clk)
 		if (i_reset) begin

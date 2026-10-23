@@ -140,15 +140,20 @@ module arm9_fetch #(
     assign push = response && !(bypass && i_ready);
     assign o_valid = bypass || (count != 0 && !queue[head].pending &&
                      queue[head].epoch == epoch && !i_redirect);
-    assign o_pc = bypass ? selected_packet.pc : queue[head].pc;
-    assign o_instruction = bypass ? selected_packet.instruction : queue[head].instruction;
-    assign o_abort = bypass ? selected_packet.fault : queue[head].fault;
-    assign o_decoded = bypass ? (i_hit ? early_packet.decoded : {3'd0,incoming}) : queue[head].decoded;
-    assign o_thumb_und = bypass ? (i_hit && early_packet.thumb_und) : queue[head].thumb_und;
-    assign o_thumb_align = bypass ? (i_hit && early_packet.thumb_align) : queue[head].thumb_align;
-    assign o_predicted = bypass ? selected_packet.predicted : queue[head].predicted;
-    assign o_pred_target = bypass ? selected_packet.pred_target : queue[head].pred_target;
-    assign o_pred_state = bypass ? selected_packet.pred_state : queue[head].pred_state;
+    // Data selection is independent of response/redirect validity. Folding
+    // bypass into these muxes sends E's ALU/redirect back through D's decoder
+    // and operand read. Invalid direct data is harmless: o_valid still gates
+    // issue, and a Thumb miss is translated into the queue before becoming valid.
+    wire select_direct = count == 0;
+    assign o_pc = select_direct ? selected_packet.pc : queue[head].pc;
+    assign o_instruction = select_direct ? selected_packet.instruction : queue[head].instruction;
+    assign o_abort = select_direct ? selected_packet.fault : queue[head].fault;
+    assign o_decoded = select_direct ? (i_hit ? early_packet.decoded : {3'd0,incoming}) : queue[head].decoded;
+    assign o_thumb_und = select_direct ? (i_hit && early_packet.thumb_und) : queue[head].thumb_und;
+    assign o_thumb_align = select_direct ? (i_hit && early_packet.thumb_align) : queue[head].thumb_align;
+    assign o_predicted = select_direct ? selected_packet.predicted : queue[head].predicted;
+    assign o_pred_target = select_direct ? selected_packet.pred_target : queue[head].pred_target;
+    assign o_pred_state = select_direct ? selected_packet.pred_state : queue[head].pred_state;
     assign pop = o_valid && i_ready && !bypass;
 
     always_ff @(posedge i_clk) begin

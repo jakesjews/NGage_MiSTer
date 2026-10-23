@@ -828,3 +828,18 @@ transaction on the redirect edge. An already active transaction remains owned
 by the cache FSM and drains normally before lookup reuse. The eight-entry
 queue remains: a four-entry experiment disturbed timing windows and regressed
 the high-latency ARM random workload.
+
+## Session 6: integrated timing correction
+
+The first integrated fit after the cycle gate exposed a 26-level path from
+`fast_w[228]` through E forwarding, shift/ALU, `early_redirect`, fetch data
+selection, D decode/read forwarding and back to `value_e[71]`: 32.210 ns data
+delay and -23.310 ns slack at Slow 100C. Using response validity to select
+instruction data connected two substantial combinational datapaths.
+
+Fetch now selects direct versus queued data solely from registered queue count.
+Response, redirect, pending-fill and epoch conditions still qualify `o_valid`;
+invalid data never issues. Thumb BL uses the existing branch adder with its
+forwarded LR as base, avoiding the unrelated general shifter/ALU path in branch
+validation. The changes preserve all cycle-window expectations. The final
+integrated result and resource comparison are in the session report.

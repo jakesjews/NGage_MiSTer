@@ -232,7 +232,8 @@ logic multiply_start, pipe_multiply, multiply_add;
 wire multiply_kind = kind_e == K_MUL || kind_e == K_MULL;
 wire multiply_ready = pipe_multiply && !multiply_add && multiply_delay == 0;
 wire branch_kind = kind_e == K_BRANCH || kind_e == K_BL_SUFFIX;
-wire [31:0] branch_target = kind_e == K_BL_SUFFIX ? {ex_result[31:1],1'b0} : ex_branch;
+wire [31:0] branch_base = kind_e == K_BL_SUFFIX ? held_value[0] : pc8;
+wire [31:0] branch_target = {ex_branch[31:1],1'b0};
 wire [31:0] resolved_next = branch_kind && ex_pass ? branch_target :
                              pc + (execute_flags[5] ? 32'd2 : 32'd4);
 wire prediction_wrong = e_predicted ? e_pred_target != resolved_next :
@@ -454,7 +455,9 @@ always_comb begin
     end
     branch_offset_d = translated[34] ? {{7{d_ins[23]}},d_ins[23:0],1'b0} :
                                                      {{6{d_ins[23]}},d_ins[23:0],2'b0};
-    if (kind_d == K_BL_PREFIX)
+    if (kind_d == K_BL_SUFFIX)
+        branch_offset_d = {20'd0,d_raw[10:0],1'b0};
+    else if (kind_d == K_BL_PREFIX)
         branch_offset_d = {{9{d_raw[10]}},d_raw[10:0],12'd0};
     psr_mask_d = {{8{d_ins[19]}},{8{d_ins[18]}},{8{d_ins[17]}},{8{d_ins[16]}}} & 32'hf00000ff;
     if (!d_ins[22]) begin
@@ -471,7 +474,7 @@ arm9_execute #(.PRODUCERS(6)) u_execute (
     .i_write_tag(forward_tag), .i_write_valid(forward_valid), .i_write_ready(forward_ready),
     .i_shift_type(shift_type_e), .i_shift_amount(shift_amount_e),
     .i_shift_register(shift_register_e), .i_immediate(immediate_e),
-    .i_shift_carry(ins[11:8] == 0 ? execute_flags[29] : immediate_carry_e), .i_pc8(pc8), .i_branch_offset(branch_offset_e),
+    .i_shift_carry(ins[11:8] == 0 ? execute_flags[29] : immediate_carry_e), .i_pc8(branch_base), .i_branch_offset(branch_offset_e),
     .o_result(ex_result), .o_store_data(ex_store), .o_branch_target(ex_branch),
     .o_flags(ex_flags), .o_condition_pass(ex_pass), .o_wait(execute_wait),
     .o_execute(), .o_write_result(ex_write), .o_write_flags(ex_write_flags)
