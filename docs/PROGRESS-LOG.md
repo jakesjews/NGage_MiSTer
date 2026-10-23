@@ -3319,3 +3319,17 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   (49ed322) and reports kept; the Codex budget goes to ZAP: the timing
   closure (round 3 running), then the measured pipeline stalls, then the
   memory-side levers, each measured in play.
+- **Antigravity as a coworker** (the user: "use codex and antigravity as
+  coworkers too"): its first implementation, in its own worktree with
+  `agy --mode auto` on Gemini 4 Argon, the **flash line-wide fetch**
+  (agy/flashfetch 7192bed, merged): a read-array burst of a 16-byte line
+  is served from ddram_flash's cache or beat buffer as two 8-byte beats
+  through a new wide port on nor_flash, into a registered line buffer in
+  upp_bus, with wrap-four order and the CS2/CS3 window kept; everything
+  else keeps the halfword path. Its benches (extended with the new
+  cases): a cached line fill 35-39 -> 8 clocks, a DDR3 miss 56 -> 23-24,
+  random bursts 56-58 -> 25-27 (so the flash's cost was worse than the
+  24 clocks assumed). flash, ddrflash, upp and top benches pass, lint
+  clean; report docs/consults/2026-10-23-agy-flashfetch-report.md.
+  Building on the Mac for the board (the flash wait share in play,
+  7-12 %, is the measure).
