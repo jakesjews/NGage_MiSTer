@@ -69,6 +69,7 @@ output  logic            o_err,
 output  logic [7:0]      o_fsr,
 output  logic [31:0]     o_far,
 output  logic            o_err2,
+output  logic [3:0]      o_dbg_dcache, // ARM925T: per-transaction debug events
 input   logic [63:0]     i_reg_idx,
 input   logic [5:0]      i_reg_idx_bin,
 output  logic [63:0]     o_lock,
@@ -156,6 +157,8 @@ logic                            hold;
 logic                            idle, live_lookup;
 logic [2:0]                      relookup;
 logic                            fill_busy;
+logic [3:0]                      cf_dbg_dcache;
+logic                            clean_line_event;
 localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
 localparam integer LINE_W = $clog2(CACHE_LINE);
 logic [SET_W-1:0]                lookup_s0, lookup_s1;
@@ -258,6 +261,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_wt                   (tlb_wt),
         .i_busy                 (tlb_busy),
         .o_err2                 (o_err2),
+        .o_dbg_dcache           (cf_dbg_dcache),
         .o_address              (cache_address),
         .o_wb_cyc_nxt           (wb_cyc[0]),
         .o_hold                 (hold),
@@ -401,6 +405,17 @@ u_zap_tlb (
 );
 
 // Sequential Block
+// ARM925T: explicit whole-cache and line cleaning use the tag manager,
+// while evictions use the cache FSM. Count each line at its last beat.
+always_ff @(posedge i_clk)
+        if (i_reset)
+                clean_line_event <= 1'b0;
+        else
+                clean_line_event <= state_ff == SELECT_TAG && o_wb_stb &&
+                    o_wb_wen && o_wb_cti == CTI_EOB && (i_wb_ack || i_wb_err);
+
+assign o_dbg_dcache = cf_dbg_dcache | {1'b0, clean_line_event, 2'b0};
+
 always_ff @ ( posedge i_clk )
 begin
         if ( i_reset )

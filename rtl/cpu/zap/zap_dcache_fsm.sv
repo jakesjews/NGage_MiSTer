@@ -67,6 +67,9 @@ output  logic                      o_err,
 output  logic     [7:0]            o_fsr,
 output  logic     [31:0]           o_far,
 output  logic                      o_err2,
+// ARM925T: registered event pulses: load fill, store fill, victim
+// write-back, uncached data access. One event per completed transaction.
+output  logic [3:0]                 o_dbg_dcache,
 
 // From/To CP15 unit
 input   logic                      i_cache_en,
@@ -238,6 +241,7 @@ logic    [31:0]                           unc_dat_ff;       // ARM925T: register
 (* dont_retime *) logic [31:0]             reg_dat_ff;       // ARM925T: background load value
 logic                                     critical_take;
 logic                                     unc_err_ff;       // ARM925T
+logic                                     uncached_ff;      // excludes write-through stores
 
 logic                                     unused;
 
@@ -362,6 +366,25 @@ begin
                 ldfmt           <= i_ldfmt;
                 wt_hit          <= i_wr && i_wt && i_cacheable && i_cache_hit;
                 wt_dirty        <= i_cache_hit_dirty;
+                uncached_ff     <= !i_cache_en || !i_cacheable;
+        end
+end
+
+// ARM925T: count the final accepted beat, including the existing ERR-as-
+// completion behavior. Delays, early load unlocks and hits under the fill
+// do not repeat these events. Debug registers never feed pipeline control.
+always_ff @(posedge i_clk)
+begin
+        if (i_reset)
+                o_dbg_dcache <= 4'b0;
+        else begin
+                o_dbg_dcache[0] <= state_ff[FETCH_SINGLE] && take &&
+                                  o_wb_cti_ff == CTI_EOB && !wr;
+                o_dbg_dcache[1] <= state_ff[FETCH_SINGLE] && take &&
+                                  o_wb_cti_ff == CTI_EOB && wr;
+                o_dbg_dcache[2] <= state_ff[CLEAN_SINGLE] && take &&
+                                  o_wb_cti_ff == CTI_EOB;
+                o_dbg_dcache[3] <= state_ff[UNCACHEABLE] && take && uncached_ff;
         end
 end
 

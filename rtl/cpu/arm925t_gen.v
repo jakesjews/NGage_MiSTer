@@ -44,6 +44,7 @@ module arm925t (
 	dbg_wb_cpsr,
 	dbg_wb_cpsr_nxt,
 	dbg_stall,
+	dbg_dcache,
 	dbg_d_done,
 	dbg_d_we,
 	dbg_d_va,
@@ -87,6 +88,7 @@ module arm925t (
 	output wire [31:0] dbg_wb_cpsr;
 	output wire [31:0] dbg_wb_cpsr_nxt;
 	output wire [7:0] dbg_stall;
+	output wire [3:0] dbg_dcache;
 	output wire dbg_d_done;
 	output wire dbg_d_we;
 	output wire [31:0] dbg_d_va;
@@ -131,6 +133,7 @@ module arm925t (
 		.o_dbg_wb_cpsr(dbg_wb_cpsr),
 		.o_dbg_wb_cpsr_nxt(dbg_wb_cpsr_nxt),
 		.o_dbg_stall(dbg_stall),
+		.o_dbg_dcache(dbg_dcache),
 		.o_dbg_d_done(dbg_d_done),
 		.o_dbg_d_we(dbg_d_we),
 		.o_dbg_d_va(dbg_d_va),
@@ -7587,6 +7590,7 @@ module zap_dcache_fsm (
 	o_fsr,
 	o_far,
 	o_err2,
+	o_dbg_dcache,
 	i_cache_en,
 	i_cache_inv,
 	i_cache_clean,
@@ -7677,6 +7681,7 @@ module zap_dcache_fsm (
 	output reg [7:0] o_fsr;
 	output reg [31:0] o_far;
 	output reg o_err2;
+	output reg [3:0] o_dbg_dcache;
 	input wire i_cache_en;
 	input wire i_cache_inv;
 	input wire i_cache_clean;
@@ -8231,6 +8236,7 @@ module zap_dcache_fsm (
 	(* dont_retime *) reg [31:0] reg_dat_ff;
 	wire critical_take;
 	reg unc_err_ff;
+	reg uncached_ff;
 	wire unused;
 	assign unused = |{phy_addr[$clog2(CACHE_LINE) - 1:0]};
 	function automatic [31:0] ld_transform;
@@ -8303,6 +8309,16 @@ module zap_dcache_fsm (
 			ldfmt <= i_ldfmt;
 			wt_hit <= ((i_wr && i_wt) && i_cacheable) && i_cache_hit;
 			wt_dirty <= i_cache_hit_dirty;
+			uncached_ff <= !i_cache_en || !i_cacheable;
+		end
+	always @(posedge i_clk)
+		if (i_reset)
+			o_dbg_dcache <= 4'b0000;
+		else begin
+			o_dbg_dcache[0] <= ((state_ff[FETCH_SINGLE] && take) && (o_wb_cti_ff == CTI_EOB)) && !wr;
+			o_dbg_dcache[1] <= ((state_ff[FETCH_SINGLE] && take) && (o_wb_cti_ff == CTI_EOB)) && wr;
+			o_dbg_dcache[2] <= (state_ff[CLEAN_SINGLE] && take) && (o_wb_cti_ff == CTI_EOB);
+			o_dbg_dcache[3] <= (state_ff[UNCACHEABLE] && take) && uncached_ff;
 		end
 	always @(posedge i_clk)
 		if (i_reset) begin
@@ -8760,6 +8776,7 @@ module zap_dcache (
 	o_fsr,
 	o_far,
 	o_err2,
+	o_dbg_dcache,
 	i_reg_idx,
 	i_reg_idx_bin,
 	o_lock,
@@ -8834,6 +8851,7 @@ module zap_dcache (
 	output wire [7:0] o_fsr;
 	output wire [31:0] o_far;
 	output wire o_err2;
+	output wire [3:0] o_dbg_dcache;
 	input wire [63:0] i_reg_idx;
 	input wire [5:0] i_reg_idx_bin;
 	output wire [63:0] o_lock;
@@ -9197,6 +9215,8 @@ module zap_dcache (
 	wire live_lookup;
 	wire [2:0] relookup;
 	wire fill_busy;
+	wire [3:0] cf_dbg_dcache;
+	reg clean_line_event;
 	localparam integer SET_W = $clog2((CACHE_SIZE / WAYS) / CACHE_LINE);
 	localparam integer LINE_W = $clog2(CACHE_LINE);
 	reg [SET_W - 1:0] lookup_s0;
@@ -9291,6 +9311,7 @@ module zap_dcache (
 		.i_wt(tlb_wt),
 		.i_busy(tlb_busy),
 		.o_err2(o_err2),
+		.o_dbg_dcache(cf_dbg_dcache),
 		.o_address(cache_address),
 		.o_wb_cyc_nxt(wb_cyc[0]),
 		.o_hold(hold),
@@ -9418,6 +9439,12 @@ module zap_dcache (
 		.i_wb_ack(wb_ack[2]),
 		.i_wb_err(wb_err[2])
 	);
+	always @(posedge i_clk)
+		if (i_reset)
+			clean_line_event <= 1'b0;
+		else
+			clean_line_event <= ((((state_ff == SELECT_TAG) && o_wb_stb) && o_wb_wen) && (o_wb_cti == CTI_EOB)) && (i_wb_ack || i_wb_err);
+	assign o_dbg_dcache = cf_dbg_dcache | {1'b0, clean_line_event, 2'b00};
 	always @(posedge i_clk)
 		if (i_reset) begin
 			state_ff <= SELECT_CCH;
@@ -20308,6 +20335,7 @@ module zap_top (
 	o_dbg_wb_cpsr,
 	o_dbg_wb_cpsr_nxt,
 	o_dbg_stall,
+	o_dbg_dcache,
 	o_dbg_d_done,
 	o_dbg_d_we,
 	o_dbg_d_va,
@@ -20373,6 +20401,7 @@ module zap_top (
 	output wire [31:0] o_dbg_wb_cpsr;
 	output wire [31:0] o_dbg_wb_cpsr_nxt;
 	output wire [7:0] o_dbg_stall;
+	output wire [3:0] o_dbg_dcache;
 	output wire o_dbg_d_done;
 	output wire o_dbg_d_we;
 	output wire [31:0] o_dbg_d_va;
@@ -21050,6 +21079,7 @@ module zap_top (
 		if (!ONLY_CORE) begin
 		end
 		else begin : l_tieoffs_only_core
+			assign o_dbg_dcache = 1'sb0;
 			assign dc_wreg_idx = 1'sb0;
 			assign dc_lock = 1'sb0;
 			assign dc_reg_data = 1'sb0;
@@ -21178,6 +21208,7 @@ module zap_top (
 				.BE_32_ENABLE(BE_32_ENABLE),
 				.EXT_ABORT_FS((TI925T ? 4'b1000 : 4'b0010))
 			) u_data_cache(
+				.o_dbg_dcache(o_dbg_dcache),
 				.i_clk(i_clk),
 				.i_stall(1'd0),
 				.i_reset(s_reset),

@@ -142,6 +142,7 @@ parameter logic        HIVECS       = 1'd0           // Reset value of control b
         output  logic  [31:0]    o_dbg_wb_cpsr,
         output  logic  [31:0]    o_dbg_wb_cpsr_nxt,
         output  logic  [7:0]     o_dbg_stall,
+        output  logic  [3:0]     o_dbg_dcache,
         output  logic            o_dbg_d_done,
         output  logic            o_dbg_d_we,
         output  logic  [31:0]    o_dbg_d_va,
@@ -427,6 +428,7 @@ begin : l_tieoffs_full
 end : l_tieoffs_full
 else
 begin : l_tieoffs_only_core
+        assign o_dbg_dcache    = '0;
         assign dc_wreg_idx     = '0;
         assign dc_lock         = '0;
         assign dc_reg_data     = '0;
@@ -649,6 +651,7 @@ zap_dcache #(
         .EXT_ABORT_FS(TI925T ? 4'b1000 : 4'b0010)
 )
 u_data_cache (
+.o_dbg_dcache           (o_dbg_dcache),
 .i_clk                  (i_clk),
 .i_stall                (1'd0), // For timing.
 .i_reset                (s_reset),
