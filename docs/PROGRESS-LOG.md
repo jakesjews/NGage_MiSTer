@@ -3904,3 +3904,9 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   -0.861, -1.074, -1.146, -0.973: the predecode cone is in the top of
   five of them, the family to clear first; without it this seed would
   be near -0.63. Seed 8 of c8f18ef on the Mac.
+- **Seed 7 of the main core on c8f18ef** (the card model's fix in; the
+  server): **-0.680 ns**, 35,173 ALMs (84 %), the best build so far;
+  its top the memory stage's postalu2 outputs into the D-cache tag RAM
+  (-0.68, two paths), then the predecode cone (-0.60, -0.57). The rbf
+  (build/hardware/NGage-ndm-s7.rbf) is the main-slot candidate, to be
+  smoke-tested when the board is free. Seed 9 of the same tree running.
