@@ -20,7 +20,8 @@ is not emulated; the phone comes up as an offline handset with no SIM.
 
 1. Build the flash images from the firmware:
    `tools/mkimage.py phoenix RH2946.0C1 RH2946.0S5 -o out` writes `cs0.bin`
-   (16 MB) and `cs1.bin` (8 MB).
+   (16 MB) and `cs1.bin` (8 MB). The tool checks that the two files are the
+   4.60 ones and stops with a message if not.
 2. Build a card image per game: `tools/mkcard.py aaru DUMP.aaruf -o game`
    for a dump, or `tools/mkcard.py folder GAMEDIR -o game` for a folder;
    each gives `game.mmc`.
