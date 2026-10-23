@@ -214,6 +214,16 @@ module zap_alu_main (
 	i_reset,
 	i_clear_from_writeback,
 	i_data_stall,
+	i_load_pending_ff,
+	i_load_index_ff,
+	i_memory_load_valid,
+	i_memory_load_index,
+	i_memory_load_value,
+	i_dc_reg_idx,
+	i_dc_reg_dat,
+	o_stall_from_alu,
+	o_late_ready,
+	o_late_value,
 	i_cpu_pid,
 	i_cpsr_nxt,
 	i_switch_ff,
@@ -296,6 +306,16 @@ module zap_alu_main (
 	input wire i_reset;
 	input wire i_clear_from_writeback;
 	input wire i_data_stall;
+	input wire [1:0] i_load_pending_ff;
+	input wire [11:0] i_load_index_ff;
+	input wire i_memory_load_valid;
+	input wire [5:0] i_memory_load_index;
+	input wire [31:0] i_memory_load_value;
+	input wire [63:0] i_dc_reg_idx;
+	input wire [31:0] i_dc_reg_dat;
+	output wire o_stall_from_alu;
+	output wire [1:0] o_late_ready;
+	output wire [63:0] o_late_value;
 	input wire [6:0] i_cpu_pid;
 	input wire [31:0] i_cpsr_nxt;
 	input wire i_switch_ff;
@@ -826,11 +846,24 @@ module zap_alu_main (
 	wire load_to_pc;
 	wire branch_instruction;
 	wire [31:0] exp_mask;
+	wire [1:0] memory_match;
+	wire [1:0] background_match;
+	genvar _gv_k_1;
+	generate
+		for (_gv_k_1 = 0; _gv_k_1 < 2; _gv_k_1 = _gv_k_1 + 1) begin : g_load_pickup
+			localparam k = _gv_k_1;
+			assign memory_match[k] = (i_load_pending_ff[k] && i_memory_load_valid) && (i_load_index_ff[k * 6+:6] == i_memory_load_index);
+			assign background_match[k] = i_load_pending_ff[k] && i_dc_reg_idx[i_load_index_ff[k * 6+:6]];
+			assign o_late_ready[k] = memory_match[k] || background_match[k];
+			assign o_late_value[k * 32+:32] = (background_match[k] ? i_dc_reg_dat : i_memory_load_value);
+		end
+	endgenerate
+	assign o_stall_from_alu = |(i_load_pending_ff & ~memory_match);
 	assign opcode = i_alu_operation_ff;
 	assign quick_sum = rn + rm;
 	assign quick_diff = rn - rm;
-	assign rm = i_shifted_source_value_ff;
-	assign rn = i_alu_source_value_ff;
+	assign rm = (i_load_pending_ff[1] ? i_memory_load_value : i_shifted_source_value_ff);
+	assign rn = (i_load_pending_ff[0] ? i_memory_load_value : i_alu_source_value_ff);
 	assign o_flags_ff = flags_ff;
 	assign o_flags_nxt = (o_dav_nxt ? flags_nxt : flags_ff);
 	function automatic [3:0] generate_ben;
@@ -1015,6 +1048,21 @@ module zap_alu_main (
 			sleep_ff <= 0;
 			o_mem_load_ff <= 0;
 			o_force32align_ff <= 0;
+		end
+		else if (o_stall_from_alu && !i_data_stall) begin
+			o_decompile_valid <= 0;
+			o_uop_last <= 0;
+			o_clear_from_alu <= 0;
+			o_dav_ff <= 0;
+			o_alt_dav_ff <= 0;
+			o_abt_ff <= 0;
+			o_irq_ff <= 0;
+			o_fiq_ff <= 0;
+			o_swi_ff <= 0;
+			o_und_ff <= 0;
+			o_mem_load_ff <= 0;
+			o_force32align_ff <= 0;
+			o_confirm_from_alu <= 0;
 		end
 		else if (!i_data_stall) begin
 			o_force32align_ff <= i_force32align_ff;
@@ -1235,7 +1283,7 @@ module zap_alu_main (
 		end
 	end
 	assign load_to_pc = ((i_mem_srcdest_index_ff == {2'd0, ARCH_PC}) && o_dav_nxt) && i_mem_load_ff;
-	assign o_dav_nxt = ((is_cc_satisfied(i_condition_code_ff, flags_ff[31:28]) || i_irq_ff) || i_fiq_ff) || i_abt_ff;
+	assign o_dav_nxt = !o_stall_from_alu && (((is_cc_satisfied(i_condition_code_ff, flags_ff[31:28]) || i_irq_ff) || i_fiq_ff) || i_abt_ff);
 	assign sleep_nxt = ((((i_irq_ff || i_fiq_ff) || i_abt_ff) || (i_und_ff && o_dav_nxt)) || load_to_pc) || (i_swi_ff && o_dav_nxt);
 	always @(*) begin
 		if (_sv2v_0)
@@ -4957,6 +5005,20 @@ module zap_core (
 	wire shifter_force32_ff;
 	wire shifter_und_ff;
 	wire stall_from_shifter;
+	wire stall_from_alu;
+	wire [3:0] issue_load_pending_ff;
+	wire [3:0] shifter_late_ready;
+	wire [5:0] issue_shift_length_index_ff;
+	wire [127:0] shifter_late_value;
+	wire [1:0] shifter_load_pending_ff;
+	wire [1:0] alu_late_ready;
+	wire [11:0] shifter_load_index_ff;
+	wire [63:0] alu_late_value;
+	wire memory_load_valid;
+	wire memory_dav_ff;
+	wire memory_mem_load_ff;
+	wire [5:0] memory_mem_srcdest_index_ff;
+	assign memory_load_valid = (memory_dav_ff && memory_mem_load_ff) && !i_dc_lock[memory_mem_srcdest_index_ff];
 	wire [1:0] shifter_taken_ff;
 	wire [31:0] shifter_ppc_ff;
 	wire shifter_uop_last;
@@ -5066,14 +5128,11 @@ module zap_core (
 	wire postalu_uop_last;
 	wire [31:0] memory_alu_result_ff;
 	wire [5:0] memory_destination_index_ff;
-	wire [5:0] memory_mem_srcdest_index_ff;
-	wire memory_dav_ff;
 	wire [31:0] memory_pc_plus_8_ff;
 	wire memory_irq_ff;
 	wire memory_fiq_ff;
 	wire memory_swi_ff;
 	wire memory_instr_abort_ff;
-	wire memory_mem_load_ff;
 	wire [31:0] memory_flags_ff;
 	wire [31:0] memory_mem_rd_data;
 	wire memory_und_ff;
@@ -5442,6 +5501,10 @@ module zap_core (
 		.o_shift_source_ff(issue_shift_source_ff),
 		.o_stall_from_issue(stall_from_issue),
 		.o_pc_plus_8_ff(issue_pc_plus_8_ff),
+		.o_load_pending_ff(issue_load_pending_ff),
+		.o_shift_length_index_ff(issue_shift_length_index_ff),
+		.i_late_ready(shifter_late_ready),
+		.i_late_value(shifter_late_value),
 		.o_shifter_disable_ff(issue_shifter_disable_ff)
 	);
 	localparam [0:0] sv2v_uu_u_zap_shifter_main_ext_i_mem_translate_ff_0 = 1'sb0;
@@ -5454,6 +5517,20 @@ module zap_core (
 		.ALU_OPS(ALU_OPS),
 		.SHIFT_OPS(SHIFT_OPS)
 	) u_zap_shifter_main(
+		.i_load_pending_ff(issue_load_pending_ff),
+		.i_shift_length_index_ff(issue_shift_length_index_ff),
+		.i_memory_load_valid(memory_load_valid),
+		.i_memory_load_index(memory_mem_srcdest_index_ff),
+		.i_memory_load_value(memory_mem_rd_data),
+		.i_dc_reg_idx(i_dc_reg_idx),
+		.i_dc_reg_dat(i_dc_reg_dat),
+		.i_stall_from_alu(stall_from_alu),
+		.i_alu_late_ready(alu_late_ready),
+		.i_alu_late_value(alu_late_value),
+		.o_late_ready(shifter_late_ready),
+		.o_late_value(shifter_late_value),
+		.o_load_pending_ff(shifter_load_pending_ff),
+		.o_load_index_ff(shifter_load_index_ff),
 		.i_uop_last(issue_uop_last),
 		.o_uop_last(shifter_uop_last),
 		.i_decompile(issue_decompile),
@@ -5537,6 +5614,16 @@ module zap_core (
 		.CPSR_INIT(CPSR_INIT),
 		.V4T(V4T)
 	) u_zap_alu_main(
+		.i_load_pending_ff(shifter_load_pending_ff),
+		.i_load_index_ff(shifter_load_index_ff),
+		.i_memory_load_valid(memory_load_valid),
+		.i_memory_load_index(memory_mem_srcdest_index_ff),
+		.i_memory_load_value(memory_mem_rd_data),
+		.i_dc_reg_idx(i_dc_reg_idx),
+		.i_dc_reg_dat(i_dc_reg_dat),
+		.o_stall_from_alu(stall_from_alu),
+		.o_late_ready(alu_late_ready),
+		.o_late_value(alu_late_value),
 		.i_uop_last(shifter_uop_last),
 		.i_clk(i_clk),
 		.i_reset(reset),
@@ -11286,6 +11373,10 @@ module zap_issue_main (
 	o_rd_index_1,
 	o_rd_index_2,
 	o_rd_index_3,
+	o_load_pending_ff,
+	o_shift_length_index_ff,
+	i_late_ready,
+	i_late_value,
 	o_condition_code_ff,
 	o_destination_index_ff,
 	o_alu_operation_ff,
@@ -11404,6 +11495,10 @@ module zap_issue_main (
 	output wire [$clog2(PHY_REGS) - 1:0] o_rd_index_1;
 	output wire [$clog2(PHY_REGS) - 1:0] o_rd_index_2;
 	output wire [$clog2(PHY_REGS) - 1:0] o_rd_index_3;
+	output reg [3:0] o_load_pending_ff;
+	output reg [5:0] o_shift_length_index_ff;
+	input wire [3:0] i_late_ready;
+	input wire [127:0] i_late_value;
 	output reg [3:0] o_condition_code_ff;
 	output reg [$clog2(PHY_REGS) - 1:0] o_destination_index_ff;
 	output reg [$clog2(ALU_OPS) - 1:0] o_alu_operation_ff;
@@ -11717,6 +11812,9 @@ module zap_issue_main (
 	reg [(((((((584 + $clog2(PHY_REGS)) + 33) + $clog2(ALU_OPS)) + 33) + $clog2(SHIFT_OPS)) + 34) + $clog2(PHY_REGS)) + 45:0] skid;
 	wire shift_lock;
 	wire load_lock;
+	wire [3:0] operand_load_lock;
+	wire [3:0] late_pending;
+	wire destination_load_lock;
 	wire lock;
 	(* preserve *) reg stall_idx_ff;
 	reg [23:0] skid_idx;
@@ -11757,6 +11855,7 @@ module zap_issue_main (
 	assign stall = i_data_stall | i_stall_from_shifter;
 	always @(posedge i_clk)
 		if (i_reset) begin
+			o_load_pending_ff <= 0;
 			o_condition_code_ff <= NV;
 			o_irq_ff <= 0;
 			o_fiq_ff <= 0;
@@ -11794,6 +11893,7 @@ module zap_issue_main (
 			o_ppc_ff <= 1'sbx;
 		end
 		else if (clear) begin
+			o_load_pending_ff <= 0;
 			o_condition_code_ff <= NV;
 			o_irq_ff <= 0;
 			o_fiq_ff <= 0;
@@ -11831,6 +11931,8 @@ module zap_issue_main (
 			o_ppc_ff <= 1'sbx;
 		end
 		else if (~stall) begin
+			o_load_pending_ff <= (lock || (skid_condition_code_ff == NV) ? 4'b0000 : late_pending);
+			o_shift_length_index_ff <= skid_shift_length_ff[5:0];
 			o_condition_code_ff <= (lock ? NV : skid_condition_code_ff);
 			o_destination_index_ff <= skid_destination_index_ff;
 			o_alu_operation_ff <= skid_alu_operation_ff;
@@ -11867,6 +11969,13 @@ module zap_issue_main (
 			o_uop_last <= skid_uop_last;
 			o_stall_from_issue <= lock;
 			stall_idx_ff <= lock;
+		end
+		else begin
+			o_load_pending_ff <= o_load_pending_ff & ~i_late_ready;
+			o_alu_source_value_ff <= i_late_value[0+:32];
+			o_shift_source_value_ff <= i_late_value[32+:32];
+			o_shift_length_value_ff <= i_late_value[64+:32];
+			o_mem_srcdest_value_ff <= i_late_value[96+:32];
 		end
 	always @(posedge i_clk)
 		if (~o_stall_from_issue) begin
@@ -12017,7 +12126,29 @@ module zap_issue_main (
 			unused = |{index[31:6], memory_mem_srcdest_index_ff, memory_mem_load_ff, memory_dav_ff};
 		end
 	endfunction
-	assign load_lock = ((((determine_load_lock(skid_alu_source_ff, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff) || determine_load_lock(skid_shift_source_ff, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff)) || determine_load_lock(skid_shift_length_ff, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff)) || determine_load_lock({27'd0, skid_mem_srcdest_index_ff}, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff)) || determine_load_lock({27'd0, skid_destination_index_ff}, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff)) || ((skid_destination_index_ff[5:0] != PHY_RAZ_REGISTER[5:0]) && i_dc_lock[skid_destination_index_ff]);
+	assign operand_load_lock[0] = determine_load_lock(skid_alu_source_ff, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff);
+	assign operand_load_lock[1] = determine_load_lock(skid_shift_source_ff, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff);
+	assign operand_load_lock[2] = determine_load_lock(skid_shift_length_ff, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff);
+	assign operand_load_lock[3] = determine_load_lock({27'd0, skid_mem_srcdest_index_ff}, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff);
+	assign destination_load_lock = determine_load_lock({27'd0, skid_destination_index_ff}, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff) || ((skid_destination_index_ff[5:0] != PHY_RAZ_REGISTER[5:0]) && i_dc_lock[skid_destination_index_ff]);
+	function automatic late_load;
+		input [32:0] index;
+		input early;
+		reg [5:0] r;
+		reg candidate;
+		reg conflict;
+		begin
+			r = index[5:0];
+			candidate = ((i_postalu_dav_ff && i_postalu_mem_load_ff) && (i_postalu_mem_srcdest_index_ff == r)) || (((!early && i_postalu1_dav_ff) && i_postalu1_mem_load_ff) && (i_postalu1_mem_srcdest_index_ff == r));
+			conflict = (((((((((((o_condition_code_ff != NV) && (o_destination_index_ff == r)) || (i_shifter_dav_ff && (i_shifter_destination_index_ff == r))) || (i_alu_dav_ff && (i_alu_destination_index_ff == r))) || (i_postalu0_dav_ff && (i_postalu0_destination_index_ff == r))) || (i_postalu1_dav_ff && (i_postalu1_destination_index_ff == r))) || (i_postalu_dav_ff && (i_postalu_destination_index_ff == r))) || (((o_condition_code_ff != NV) && o_mem_load_ff) && (o_mem_srcdest_index_ff == r))) || ((i_shifter_dav_ff && i_shifter_mem_load_ff) && (i_shifter_mem_srcdest_index_ff == r))) || ((i_alu_dav_ff && i_alu_mem_load_ff) && (i_alu_mem_srcdest_index_ff == r))) || ((i_postalu0_dav_ff && i_postalu0_mem_load_ff) && (i_postalu0_mem_srcdest_index_ff == r))) || (((early && i_postalu1_dav_ff) && i_postalu1_mem_load_ff) && (i_postalu1_mem_srcdest_index_ff == r));
+			late_load = (((((((((candidate && !conflict) && !index[32]) && (r != PHY_PC)) && (r != PHY_RAZ_REGISTER)) && (r != PHY_CPSR)) && (r < PHY_DUMMY_REG0)) && !i_dc_lock[r]) && !skid_is_mult) && !skid_force32align_ff) && !((((skid_irq_ff || skid_fiq_ff) || skid_abt_ff) || skid_swi_ff) || skid_und_ff);
+		end
+	endfunction
+	assign late_pending[0] = late_load(skid_alu_source_ff, 1'b0);
+	assign late_pending[1] = late_load(skid_shift_source_ff, !skid_is_lsl_0);
+	assign late_pending[2] = late_load(skid_shift_length_ff, 1'b1);
+	assign late_pending[3] = skid_mem_store_ff && late_load({27'd0, skid_mem_srcdest_index_ff}, 1'b1);
+	assign load_lock = |(operand_load_lock & ~late_pending) || destination_load_lock;
 	assign shift_lock = ((skid_is_mult | (~skid_is_lsl_0 & ~skid_is_rori)) & w_shift_lock) | (o_flag_update_ff & (~skid_is_lsl_0 & ~skid_is_rori));
 	initial _sv2v_0 = 0;
 endmodule
@@ -16078,6 +16209,20 @@ module zap_shifter_main (
 	i_clear_from_writeback,
 	i_data_stall,
 	i_clear_from_alu,
+	i_load_pending_ff,
+	i_shift_length_index_ff,
+	i_memory_load_valid,
+	i_memory_load_index,
+	i_memory_load_value,
+	i_dc_reg_idx,
+	i_dc_reg_dat,
+	i_stall_from_alu,
+	i_alu_late_ready,
+	i_alu_late_value,
+	o_late_ready,
+	o_late_value,
+	o_load_pending_ff,
+	o_load_index_ff,
 	i_cpsr_nxt_29,
 	i_cpsr_ff_29,
 	i_condition_code_ff,
@@ -16159,6 +16304,20 @@ module zap_shifter_main (
 	input wire i_clear_from_writeback;
 	input wire i_data_stall;
 	input wire i_clear_from_alu;
+	input wire [3:0] i_load_pending_ff;
+	input wire [5:0] i_shift_length_index_ff;
+	input wire i_memory_load_valid;
+	input wire [5:0] i_memory_load_index;
+	input wire [31:0] i_memory_load_value;
+	input wire [63:0] i_dc_reg_idx;
+	input wire [31:0] i_dc_reg_dat;
+	input wire i_stall_from_alu;
+	input wire [1:0] i_alu_late_ready;
+	input wire [63:0] i_alu_late_value;
+	output wire [3:0] o_late_ready;
+	output wire [127:0] o_late_value;
+	output reg [1:0] o_load_pending_ff;
+	output reg [11:0] o_load_index_ff;
 	input wire i_cpsr_nxt_29;
 	input wire i_cpsr_ff_29;
 	input wire [3:0] i_condition_code_ff;
@@ -16504,6 +16663,52 @@ module zap_shifter_main (
 	wire mult_sat_nxt;
 	wire [31:0] mult_out;
 	wire shifter_enabled;
+	wire multiply_busy;
+	wire late_wait;
+	wire is_multiply;
+	assign is_multiply = (((((((((((((((((((((((i_alu_operation_ff == {1'd0, UMLALL}) || (i_alu_operation_ff == {1'd0, UMLALH})) || (i_alu_operation_ff == {1'd0, SMLALL})) || (i_alu_operation_ff == {1'd0, SMLALH})) || (i_alu_operation_ff == SMULW0)) || (i_alu_operation_ff == SMULW1)) || (i_alu_operation_ff == SMUL00)) || (i_alu_operation_ff == SMUL01)) || (i_alu_operation_ff == SMUL10)) || (i_alu_operation_ff == SMUL11)) || (i_alu_operation_ff == SMLA00)) || (i_alu_operation_ff == SMLA01)) || (i_alu_operation_ff == SMLA10)) || (i_alu_operation_ff == SMLA11)) || (i_alu_operation_ff == SMLAW0)) || (i_alu_operation_ff == SMLAW1)) || (i_alu_operation_ff == SMLAL00L)) || (i_alu_operation_ff == SMLAL01L)) || (i_alu_operation_ff == SMLAL10L)) || (i_alu_operation_ff == SMLAL11L)) || (i_alu_operation_ff == SMLAL00H)) || (i_alu_operation_ff == SMLAL01H)) || (i_alu_operation_ff == SMLAL10H)) || (i_alu_operation_ff == SMLAL11H);
+	wire [3:0] memory_match;
+	wire [3:0] background_match;
+	wire [23:0] load_index;
+	wire [127:0] original_value;
+	wire [127:0] pickup_value;
+	wire [31:0] shift_source;
+	assign load_index = {i_mem_srcdest_index_ff, i_shift_length_index_ff, i_shift_source_ff[5:0], i_alu_source_ff[5:0]};
+	assign original_value = {i_mem_srcdest_value_ff, i_shift_length_value_ff, i_shift_source_value_ff, i_alu_source_value_ff};
+	genvar _gv_k_2;
+	generate
+		for (_gv_k_2 = 0; _gv_k_2 < 4; _gv_k_2 = _gv_k_2 + 1) begin : g_load_pickup
+			localparam k = _gv_k_2;
+			assign memory_match[k] = (i_load_pending_ff[k] && i_memory_load_valid) && (load_index[k * 6+:6] == i_memory_load_index);
+			assign background_match[k] = i_load_pending_ff[k] && i_dc_reg_idx[load_index[k * 6+:6]];
+			assign o_late_ready[k] = memory_match[k] || background_match[k];
+			assign pickup_value[k * 32+:32] = (background_match[k] ? i_dc_reg_dat : (memory_match[k] ? i_memory_load_value : original_value[k * 32+:32]));
+		end
+	endgenerate
+	assign late_wait = ((i_load_pending_ff[2] && !memory_match[2]) || (i_load_pending_ff[3] && !memory_match[3])) || ((i_load_pending_ff[1] && shifter_enabled) && !memory_match[1]);
+	assign o_stall_from_shifter = (multiply_busy || late_wait) || i_stall_from_alu;
+	function automatic [31:0] resolve_conflict;
+		input [32:0] index_from_issue;
+		input [31:0] value_from_issue;
+		input [$clog2(PHY_REGS) - 1:0] index_from_this_stage;
+		input [31:0] result_from_alu;
+		input result_from_alu_valid;
+		input align32;
+		begin
+			if (index_from_issue[32] == IMMED_EN)
+				resolve_conflict = index_from_issue[31:0];
+			else if (index_from_issue[5:0] == PHY_PC)
+				resolve_conflict = i_pc_plus_8_ff;
+			else if ((index_from_this_stage == index_from_issue[$clog2(PHY_REGS) - 1:0]) && result_from_alu_valid)
+				resolve_conflict = result_from_alu;
+			else
+				resolve_conflict = value_from_issue[31:0];
+			if (align32 && ((!i_mem_load_ff && !i_mem_store_ff) || ((index_from_issue[32] != IMMED_EN) && (index_from_issue[5:0] == PHY_PC))))
+				resolve_conflict[1:0] = 2'b00;
+		end
+	endfunction
+	assign shift_source = (shifter_enabled ? pickup_value[32+:32] : resolve_conflict(i_shift_source_ff, pickup_value[32+:32], o_destination_index_ff, i_alu_value_nxt, i_alu_dav_nxt, 1'b0));
+	assign o_late_value = (is_multiply ? original_value : {mem_srcdest_value, pickup_value[64+:32], shift_source, rn});
 	assign shifter_enabled = ~i_disable_shifter_ff;
 	zap_shifter_multiply #(
 		.PHY_REGS(PHY_REGS),
@@ -16511,7 +16716,7 @@ module zap_shifter_main (
 	) u_zap_multiply(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
-		.i_data_stall(i_data_stall),
+		.i_data_stall(i_data_stall || i_stall_from_alu),
 		.i_clear_from_writeback(i_clear_from_writeback),
 		.i_clear_from_alu(i_clear_from_alu),
 		.i_alu_operation_ff(i_alu_operation_ff),
@@ -16521,12 +16726,13 @@ module zap_shifter_main (
 		.i_rs(i_shift_source_value_ff),
 		.i_rh(i_mem_srcdest_value_ff),
 		.o_rd(mult_out),
-		.o_busy(o_stall_from_shifter),
+		.o_busy(multiply_busy),
 		.o_sat(mult_sat_nxt),
 		.o_nozero(nozero_nxt)
 	);
 	always @(posedge i_clk)
 		if (i_reset) begin
+			o_load_pending_ff <= 0;
 			o_condition_code_ff <= NV;
 			o_irq_ff <= 0;
 			o_fiq_ff <= 0;
@@ -16560,6 +16766,7 @@ module zap_shifter_main (
 			o_nozero_ff <= 1'sbx;
 		end
 		else if (i_clear_from_writeback || (i_clear_from_alu && !i_data_stall)) begin
+			o_load_pending_ff <= 0;
 			o_condition_code_ff <= NV;
 			o_irq_ff <= 0;
 			o_fiq_ff <= 0;
@@ -16592,7 +16799,16 @@ module zap_shifter_main (
 			o_pc_ff <= 1'sbx;
 			o_nozero_ff <= 1'sbx;
 		end
-		else if (!i_data_stall) begin
+		else if (i_data_stall || i_stall_from_alu) begin
+			o_load_pending_ff <= o_load_pending_ff & ~i_alu_late_ready;
+			if (i_alu_late_ready[0])
+				o_alu_source_value_ff <= i_alu_late_value[0+:32];
+			if (i_alu_late_ready[1])
+				o_shifted_source_value_ff <= i_alu_late_value[32+:32];
+		end
+		else begin
+			o_load_pending_ff <= (o_stall_from_shifter ? 2'b00 : i_load_pending_ff[1:0] & ~o_late_ready[1:0]);
+			o_load_index_ff <= load_index[11:0];
 			o_condition_code_ff <= (o_stall_from_shifter ? NV : i_condition_code_ff);
 			o_destination_index_ff <= i_destination_index_ff;
 			o_alu_operation_ff <= ((((i_alu_operation_ff == 6'h14) || (i_alu_operation_ff == 6'h15)) || (i_alu_operation_ff == 6'h16)) || (i_alu_operation_ff == 6'h17) ? {2'd0, MOV} : ((((((((((((((((((((i_alu_operation_ff == SMULW0) || (i_alu_operation_ff == SMULW1)) || (i_alu_operation_ff == SMUL00)) || (i_alu_operation_ff == SMUL01)) || (i_alu_operation_ff == SMUL10)) || (i_alu_operation_ff == SMUL11)) || (i_alu_operation_ff == SMLA00)) || (i_alu_operation_ff == SMLA01)) || (i_alu_operation_ff == SMLA10)) || (i_alu_operation_ff == SMLA11)) || (i_alu_operation_ff == SMLAW0)) || (i_alu_operation_ff == SMLAW1)) || (i_alu_operation_ff == SMLAL00L)) || (i_alu_operation_ff == SMLAL01L)) || (i_alu_operation_ff == SMLAL10L)) || (i_alu_operation_ff == SMLAL11L)) || (i_alu_operation_ff == SMLAL00H)) || (i_alu_operation_ff == SMLAL01H)) || (i_alu_operation_ff == SMLAL10H)) || (i_alu_operation_ff == SMLAL11H) ? SAT_MOV : i_alu_operation_ff));
@@ -16627,48 +16843,28 @@ module zap_shifter_main (
 			o_uop_last <= i_uop_last;
 		end
 	zap_shifter_shift #(.SHIFT_OPS(SHIFT_OPS)) U_SHIFT(
-		.i_source(i_shift_source_value_ff),
-		.i_amount(i_shift_length_value_ff[7:0]),
+		.i_source(shift_source),
+		.i_amount(pickup_value[64+:8]),
 		.i_shift_type(i_shift_operation_ff),
 		.i_carry(i_cpsr_ff_29),
 		.o_result(shout),
 		.o_carry(shcarry),
 		.o_sat(shsat)
 	);
-	function automatic [31:0] resolve_conflict;
-		input [32:0] index_from_issue;
-		input [31:0] value_from_issue;
-		input [$clog2(PHY_REGS) - 1:0] index_from_this_stage;
-		input [31:0] result_from_alu;
-		input result_from_alu_valid;
-		input align32;
-		begin
-			if (index_from_issue[32] == IMMED_EN)
-				resolve_conflict = index_from_issue[31:0];
-			else if (index_from_issue[5:0] == PHY_PC)
-				resolve_conflict = i_pc_plus_8_ff;
-			else if ((index_from_this_stage == index_from_issue[$clog2(PHY_REGS) - 1:0]) && result_from_alu_valid)
-				resolve_conflict = result_from_alu;
-			else
-				resolve_conflict = value_from_issue[31:0];
-			if (align32 && ((!i_mem_load_ff && !i_mem_store_ff) || ((index_from_issue[32] != IMMED_EN) && (index_from_issue[5:0] == PHY_PC))))
-				resolve_conflict[1:0] = 2'b00;
-		end
-	endfunction
-	assign rn = resolve_conflict(i_alu_source_ff, i_alu_source_value_ff, o_destination_index_ff, i_alu_value_nxt, i_alu_dav_nxt, i_force32align_ff);
-	always @(i_alu_dav_nxt or i_alu_value_nxt or o_destination_index_ff or i_shift_source_value_ff or i_shift_source_ff or i_mem_store_ff or i_mem_load_ff or i_pc_plus_8_ff or shout or shifter_enabled or mult_out or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or i_alu_operation_ff or _sv2v_0) begin
+	assign rn = resolve_conflict(i_alu_source_ff, pickup_value[0+:32], o_destination_index_ff, i_alu_value_nxt, i_alu_dav_nxt, i_force32align_ff);
+	always @(*) begin
 		if (_sv2v_0)
 			;
-		if ((((((((((((((((((((((((i_alu_operation_ff == {1'd0, UMLALL}) || (i_alu_operation_ff == {1'd0, UMLALH})) || (i_alu_operation_ff == {1'd0, SMLALL})) || (i_alu_operation_ff == {1'd0, SMLALH})) || (i_alu_operation_ff == SMULW0)) || (i_alu_operation_ff == SMULW1)) || (i_alu_operation_ff == SMUL00)) || (i_alu_operation_ff == SMUL01)) || (i_alu_operation_ff == SMUL10)) || (i_alu_operation_ff == SMUL11)) || (i_alu_operation_ff == SMLA00)) || (i_alu_operation_ff == SMLA01)) || (i_alu_operation_ff == SMLA10)) || (i_alu_operation_ff == SMLA11)) || (i_alu_operation_ff == SMLAW0)) || (i_alu_operation_ff == SMLAW1)) || (i_alu_operation_ff == SMLAL00L)) || (i_alu_operation_ff == SMLAL01L)) || (i_alu_operation_ff == SMLAL10L)) || (i_alu_operation_ff == SMLAL11L)) || (i_alu_operation_ff == SMLAL00H)) || (i_alu_operation_ff == SMLAL01H)) || (i_alu_operation_ff == SMLAL10H)) || (i_alu_operation_ff == SMLAL11H))
+		if (is_multiply)
 			rm = mult_out;
 		else if (shifter_enabled)
 			rm = shout;
 		else
-			rm = resolve_conflict(i_shift_source_ff, i_shift_source_value_ff, o_destination_index_ff, i_alu_value_nxt, i_alu_dav_nxt, 1'd0);
+			rm = shift_source;
 	end
 	assign shift_carry_nxt = (shifter_enabled ? shcarry : i_cpsr_nxt_29);
 	assign shift_sat_nxt = (shifter_enabled ? shsat : 1'd0);
-	assign mem_srcdest_value = resolve_conflict({27'd0, i_mem_srcdest_index_ff}, i_mem_srcdest_value_ff, o_destination_index_ff, i_alu_value_nxt, i_alu_dav_nxt, 1'd0);
+	assign mem_srcdest_value = resolve_conflict({27'd0, i_mem_srcdest_index_ff}, pickup_value[96+:32], o_destination_index_ff, i_alu_value_nxt, i_alu_dav_nxt, 1'd0);
 	initial _sv2v_0 = 0;
 endmodule
 module zap_shifter_multiply (

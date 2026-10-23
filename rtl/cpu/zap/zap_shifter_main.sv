@@ -59,6 +59,22 @@ module zap_shifter_main
         input logic                               i_data_stall,           // |
         input logic                               i_clear_from_alu,       // V Low Priority.
 
+        // ARM925T: late load completion and ALU backpressure.
+        input logic [3:0] i_load_pending_ff,
+        input logic [5:0] i_shift_length_index_ff,
+        input logic i_memory_load_valid,
+        input logic [5:0] i_memory_load_index,
+        input logic [31:0] i_memory_load_value,
+        input logic [63:0] i_dc_reg_idx,
+        input logic [31:0] i_dc_reg_dat,
+        input logic i_stall_from_alu,
+        input logic [1:0] i_alu_late_ready,
+        input logic [63:0] i_alu_late_value,
+        output logic [3:0] o_late_ready,
+        output logic [127:0] o_late_value,
+        output logic [1:0] o_load_pending_ff,
+        output logic [11:0] o_load_index_ff,
+
         // Next CPSR and FF CPSR.
         input logic                              i_cpsr_nxt_29,
         input logic                              i_cpsr_ff_29,
@@ -184,6 +200,62 @@ logic shift_sat_nxt;
 logic mult_sat_nxt;
 logic [31:0] mult_out;
 logic shifter_enabled;
+logic multiply_busy, late_wait, is_multiply;
+assign is_multiply = i_alu_operation_ff == {1'd0, UMLALL} ||
+             i_alu_operation_ff == {1'd0, UMLALH} ||
+             i_alu_operation_ff == {1'd0, SMLALL} ||
+             i_alu_operation_ff == {1'd0, SMLALH} ||
+             i_alu_operation_ff == SMULW0         ||
+             i_alu_operation_ff == SMULW1         ||
+             i_alu_operation_ff == SMUL00         ||
+             i_alu_operation_ff == SMUL01         ||
+             i_alu_operation_ff == SMUL10         ||
+             i_alu_operation_ff == SMUL11         ||
+             i_alu_operation_ff == SMLA00         ||
+             i_alu_operation_ff == SMLA01         ||
+             i_alu_operation_ff == SMLA10         ||
+             i_alu_operation_ff == SMLA11         ||
+             i_alu_operation_ff == SMLAW0         ||
+             i_alu_operation_ff == SMLAW1         ||
+             i_alu_operation_ff == SMLAL00L       ||
+             i_alu_operation_ff == SMLAL01L       ||
+             i_alu_operation_ff == SMLAL10L       ||
+             i_alu_operation_ff == SMLAL11L       ||
+             i_alu_operation_ff == SMLAL00H       ||
+             i_alu_operation_ff == SMLAL01H       ||
+             i_alu_operation_ff == SMLAL10H       ||
+             i_alu_operation_ff == SMLAL11H;
+logic [3:0] memory_match, background_match;
+logic [23:0] load_index;
+logic [127:0] original_value, pickup_value;
+logic [31:0] shift_source;
+assign load_index = {i_mem_srcdest_index_ff, i_shift_length_index_ff,
+                     i_shift_source_ff[5:0], i_alu_source_ff[5:0]};
+assign original_value = {i_mem_srcdest_value_ff, i_shift_length_value_ff,
+                         i_shift_source_value_ff, i_alu_source_value_ff};
+for (genvar k = 0; k < 4; k = k + 1) begin : g_load_pickup
+        assign memory_match[k] = i_load_pending_ff[k] && i_memory_load_valid &&
+                                 load_index[k*6 +: 6] == i_memory_load_index;
+        assign background_match[k] = i_load_pending_ff[k] &&
+                                     i_dc_reg_idx[load_index[k*6 +: 6]];
+        assign o_late_ready[k] = memory_match[k] || background_match[k];
+        assign pickup_value[k*32 +: 32] = background_match[k] ? i_dc_reg_dat :
+                                         memory_match[k] ? i_memory_load_value :
+                                         original_value[k*32 +: 32];
+end
+// Background completion is captured at the same edge as the register-file
+// write. Early users wait through that edge; rn/plain rm can travel to ALU.
+assign late_wait = (i_load_pending_ff[2] && !memory_match[2]) ||
+                   (i_load_pending_ff[3] && !memory_match[3]) ||
+                   (i_load_pending_ff[1] && shifter_enabled && !memory_match[1]);
+assign o_stall_from_shifter = multiply_busy || late_wait || i_stall_from_alu;
+assign shift_source = shifter_enabled ? pickup_value[32 +: 32] :
+        resolve_conflict(i_shift_source_ff, pickup_value[32 +: 32],
+                         o_destination_index_ff, i_alu_value_nxt, i_alu_dav_nxt, 1'b0);
+// Multiply's two uops use raw accumulator operands throughout its FSM.
+// They are deliberately excluded from late issue; do not refresh them.
+assign o_late_value = is_multiply ? original_value :
+                      {mem_srcdest_value, pickup_value[64 +: 32], shift_source, rn};
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -202,7 +274,7 @@ u_zap_multiply
         .i_clk(i_clk),
         .i_reset(i_reset),
 
-        .i_data_stall(i_data_stall),
+        .i_data_stall(i_data_stall || i_stall_from_alu),
         .i_clear_from_writeback(i_clear_from_writeback),
         .i_clear_from_alu(i_clear_from_alu),
 
@@ -216,7 +288,7 @@ u_zap_multiply
         .i_rh(i_mem_srcdest_value_ff),
 
         .o_rd(mult_out),
-        .o_busy(o_stall_from_shifter),
+        .o_busy(multiply_busy),
         .o_sat(mult_sat_nxt),
         .o_nozero(nozero_nxt)
 );
@@ -227,6 +299,7 @@ always_ff @ (posedge i_clk)
 begin
         if ( i_reset )
         begin
+                o_load_pending_ff                 <= 0;
                 o_condition_code_ff               <= NV;
                 o_irq_ff                          <= 0;
                 o_fiq_ff                          <= 0;
@@ -262,6 +335,7 @@ begin
         end
         else if ( i_clear_from_writeback || ( i_clear_from_alu && !i_data_stall ) )
         begin
+                o_load_pending_ff                 <= 0;
                 o_condition_code_ff               <= NV;
                 o_irq_ff                          <= 0;
                 o_fiq_ff                          <= 0;
@@ -295,8 +369,20 @@ begin
                 o_pc_ff                           <= 'x; //
                 o_nozero_ff                       <= 'x; //
         end
-        else if ( !i_data_stall )
+        else if ( i_data_stall || i_stall_from_alu )
         begin
+                // A completion is transient even while the pipeline is held.
+                o_load_pending_ff <= o_load_pending_ff & ~i_alu_late_ready;
+                if (i_alu_late_ready[0])
+                        o_alu_source_value_ff <= i_alu_late_value[0 +: 32];
+                if (i_alu_late_ready[1])
+                        o_shifted_source_value_ff <= i_alu_late_value[32 +: 32];
+        end
+        else
+        begin
+           o_load_pending_ff <= o_stall_from_shifter ? 2'b0 :
+                                (i_load_pending_ff[1:0] & ~o_late_ready[1:0]);
+           o_load_index_ff <= load_index[11:0];
            o_condition_code_ff               <= o_stall_from_shifter ? NV : i_condition_code_ff;
            o_destination_index_ff            <= i_destination_index_ff;
            o_alu_operation_ff                <= (
@@ -372,8 +458,8 @@ zap_shifter_shift  #(
 )
 U_SHIFT
 (
-        .i_source       ( i_shift_source_value_ff ),
-        .i_amount       ( i_shift_length_value_ff[7:0] ),
+        .i_source       ( shift_source ),
+        .i_amount       ( pickup_value[64 +: 8] ),
         .i_shift_type   ( i_shift_operation_ff ),
         .i_carry        ( i_cpsr_ff_29 ),
         .o_result       ( shout ),
@@ -384,7 +470,7 @@ U_SHIFT
 ///////////////////////////////////////////////////////////////////////////////
 
 // Resolve conflict for ALU source value (rn)
-assign rn = resolve_conflict ( i_alu_source_ff, i_alu_source_value_ff,
+assign rn = resolve_conflict ( i_alu_source_ff, pickup_value[0 +: 32],
                          o_destination_index_ff, i_alu_value_nxt, i_alu_dav_nxt,
                          i_force32align_ff ); // Needed to pass force32align.
 
@@ -394,31 +480,7 @@ assign rn = resolve_conflict ( i_alu_source_ff, i_alu_source_value_ff,
 always_comb
 begin
         // If we issue a multiply.
-        if ( i_alu_operation_ff == {1'd0, UMLALL} ||
-             i_alu_operation_ff == {1'd0, UMLALH} ||
-             i_alu_operation_ff == {1'd0, SMLALL} ||
-             i_alu_operation_ff == {1'd0, SMLALH} ||
-             i_alu_operation_ff == SMULW0         ||
-             i_alu_operation_ff == SMULW1         ||
-             i_alu_operation_ff == SMUL00         ||
-             i_alu_operation_ff == SMUL01         ||
-             i_alu_operation_ff == SMUL10         ||
-             i_alu_operation_ff == SMUL11         ||
-             i_alu_operation_ff == SMLA00         ||
-             i_alu_operation_ff == SMLA01         ||
-             i_alu_operation_ff == SMLA10         ||
-             i_alu_operation_ff == SMLA11         ||
-             i_alu_operation_ff == SMLAW0         ||
-             i_alu_operation_ff == SMLAW1         ||
-             i_alu_operation_ff == SMLAL00L       ||
-             i_alu_operation_ff == SMLAL01L       ||
-             i_alu_operation_ff == SMLAL10L       ||
-             i_alu_operation_ff == SMLAL11L       ||
-             i_alu_operation_ff == SMLAL00H       ||
-             i_alu_operation_ff == SMLAL01H       ||
-             i_alu_operation_ff == SMLAL10H       ||
-             i_alu_operation_ff == SMLAL11H
-        )
+        if ( is_multiply )
         begin
                 // Get result from multiplier.
                 rm              = mult_out;
@@ -431,14 +493,7 @@ begin
         else
         begin
                 // Resolve conflict.
-                rm = resolve_conflict (
-                  i_shift_source_ff,
-                  i_shift_source_value_ff,
-                  o_destination_index_ff,
-                  i_alu_value_nxt,
-                  i_alu_dav_nxt,
-                  1'd0
-                );
+                rm = shift_source;
         end
 end
 
@@ -452,7 +507,7 @@ assign shift_sat_nxt   = shifter_enabled ? shsat   : 1'd0;
 //
 assign  mem_srcdest_value = resolve_conflict (
                 {27'd0, i_mem_srcdest_index_ff},
-                i_mem_srcdest_value_ff,
+                pickup_value[96 +: 32],
                 o_destination_index_ff,
                 i_alu_value_nxt,
                 i_alu_dav_nxt,

@@ -66,6 +66,17 @@ module zap_alu_main #(
 
         // Stall from data cache.
         input logic                              i_data_stall,
+        // ARM925T: plain operands may await a registered load here.
+        input logic [1:0] i_load_pending_ff,
+        input logic [11:0] i_load_index_ff,
+        input logic i_memory_load_valid,
+        input logic [5:0] i_memory_load_index,
+        input logic [31:0] i_memory_load_value,
+        input logic [63:0] i_dc_reg_idx,
+        input logic [31:0] i_dc_reg_dat,
+        output logic o_stall_from_alu,
+        output logic [1:0] o_late_ready,
+        output logic [63:0] o_late_value,
 
         // -------------------------------------------------------------------
         // Misc. signals
@@ -406,11 +417,23 @@ logic [31:0]                     exp_mask;
 // Aliases
 // ----------------------------------------------------------------------------
 
+logic [1:0] memory_match, background_match;
+for (genvar k = 0; k < 2; k = k + 1) begin : g_load_pickup
+        assign memory_match[k] = i_load_pending_ff[k] && i_memory_load_valid &&
+                                 i_load_index_ff[k*6 +: 6] == i_memory_load_index;
+        assign background_match[k] = i_load_pending_ff[k] &&
+                                     i_dc_reg_idx[i_load_index_ff[k*6 +: 6]];
+        assign o_late_ready[k] = memory_match[k] || background_match[k];
+        assign o_late_value[k*32 +: 32] = background_match[k] ?
+                                         i_dc_reg_dat : i_memory_load_value;
+end
+assign o_stall_from_alu = |(i_load_pending_ff & ~memory_match);
+
 assign opcode       = i_alu_operation_ff;
 assign quick_sum    = rn + rm;
 assign quick_diff   = rn - rm;
-assign  rm          = i_shifted_source_value_ff;
-assign  rn          = i_alu_source_value_ff;
+assign  rm          = i_load_pending_ff[1] ? i_memory_load_value : i_shifted_source_value_ff;
+assign  rn          = i_load_pending_ff[0] ? i_memory_load_value : i_alu_source_value_ff;
 assign  o_flags_ff  = flags_ff;
 assign  o_flags_nxt = o_dav_nxt ? flags_nxt : flags_ff;
 
@@ -622,6 +645,24 @@ begin
                 sleep_ff                         <= 0;
                 o_mem_load_ff                    <= 0;
                 o_force32align_ff                <= 0;
+        end
+        else if ( o_stall_from_alu && !i_data_stall )
+        begin
+                // Hold the input in shifter, drain older instructions with a
+                // bubble, and preserve flags until both operands exist.
+                o_decompile_valid <= 0;
+                o_uop_last <= 0;
+                o_clear_from_alu <= 0;
+                o_dav_ff <= 0;
+                o_alt_dav_ff <= 0;
+                o_abt_ff <= 0;
+                o_irq_ff <= 0;
+                o_fiq_ff <= 0;
+                o_swi_ff <= 0;
+                o_und_ff <= 0;
+                o_mem_load_ff <= 0;
+                o_force32align_ff <= 0;
+                o_confirm_from_alu <= 0;
         end
         else if ( !i_data_stall )
         begin
@@ -971,8 +1012,9 @@ assign load_to_pc = i_mem_srcdest_index_ff == {2'd0, ARCH_PC} &&
 // ARM925T: an undefined instruction executes (takes the exception) only if
 // its condition passes; the decoder supplies AL where it must always be taken.
 //
-assign  o_dav_nxt  = is_cc_satisfied ( i_condition_code_ff, flags_ff[31:28] )
-                     || i_irq_ff || i_fiq_ff || i_abt_ff;
+assign  o_dav_nxt  = !o_stall_from_alu &&
+                    (is_cc_satisfied ( i_condition_code_ff, flags_ff[31:28] )
+                     || i_irq_ff || i_fiq_ff || i_abt_ff);
 
 assign  sleep_nxt  =    i_irq_ff   ||
                         i_fiq_ff   ||
