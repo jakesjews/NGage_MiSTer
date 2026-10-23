@@ -49,7 +49,7 @@ No original generated netlist was reused: each port regenerated its own from
 the current SystemVerilog. All pass 225 CPU runs, 57 QEMU comparisons,
 normal and `NGAGE_NO_DEBUG` lint, `make cpu-gen-check`, and the required raw
 `input reg` count of 10. Every CPU cycle and instruction count equals the
-baseline. The fault-summary port is retained; the tag-read and multiply
+baseline. The fault-summary and issue ports are retained; the tag-read and multiply
 ports are dropped. The other fits remain pending.
 
 1. **262d07a: split stage-one valid/LRU reads.** Register the results of
@@ -137,6 +137,7 @@ into ALU flags; seed three is Thumb instruction-valid into `o_v5_und_ff`.
 | tag-read split | −0.014 → −0.068 | −0.165 → +0.128 | −0.695 / −0.661 | Drop |
 | multiply classification | +1.182 → +1.070 | +0.611 → +1.047 | −0.722 / −0.668 | Drop |
 | TLB fault summary | −0.249 → +0.636 | −0.342 → +0.116 | −1.055 / −1.148 | Keep |
+| per-slot issue decisions | −0.744 → −0.167 | −0.787 → −0.377 | −0.454 / −0.820 | Keep |
 
 The tag-read split is dropped because its targeted stage-one family regresses
 by 0.054 ns at seed 1, despite improving by 0.293 ns at seed 2. The new worst
@@ -162,6 +163,18 @@ After applying the port to this branch, all 225 counts, 57 comparisons,
 both lint configurations and generated-netlist checks pass again. Only the
 three TLB modules change in the generated netlist; sv2v also reorders module
 text, accounting for the large generated diff.
+
+The per-slot issue port is retained: the preselected worst over interlock
+feedback, pending-mask capture and store capture improves by 0.577 / 0.410
+ns at seeds 1 / 2. The feedback endpoints alone improve from −0.744 / −0.787
+to −0.010 / −0.377 ns. Pending capture moves from +0.648 / −0.049 to
+−0.167 / −0.186 ns; store capture moves from −0.113 / −0.036 to
+−0.086 / −0.274 ns. These neighboring regressions are included in the
+family minimum, rather than omitted. The fits use 35,963 / 35,823 ALMs and
+477 RAM blocks. New worst paths are decode condition into predecode CP15
+capture (seed 1) and self-test selection into UPP bus decode (seed 2).
+The TLB+issue combination passes all 225 unchanged counts, 57 comparisons,
+both lint modes and generated checks. Its combined timing is still pending.
 
 Other candidate whole-core fits are pending. No candidate is retained on
 simulation results alone.
@@ -218,10 +231,26 @@ family covers all paths into shifter result/carry/saturation registers,
 including unchanged neighboring stall paths. Its baseline worst paths are
 present in the unfiltered worst-30 reports: −0.583 / −0.961 / −0.749 ns.
 
-The optional issue-stage formal check remains unclosed: the full miter
-reached its time limit and partitioned checks leave interlock/select state
-relationships unresolved. No formal equivalence is claimed for that port;
-its required full-suite, QEMU and cycle checks pass.
+**D-cache acknowledge factoring:** express the existing IDLE and UNC_DONE
+acknowledge cases directly, outside the FSM's hit/victim priority mux. Every
+cacheable write-back request acknowledges in IDLE, whether it hits or starts
+a background miss; write-through and uncached requests still wait, and the
+alignment/MMU/walk outcomes retain their existing acknowledge edge. HUM is
+unchanged. All 225 counts and 57 QEMU comparisons agree, both lint modes and
+generation checks pass. Actual-module equivalence proves 1,763 comparison
+points under the FSM's existing one-hot-state invariant. The acceptance
+family is cache/MMU control into ALU/shifter registers. The candidate is
+prepared; no fit is counted yet.
+
+The issue-stage equivalence check proves all 2,135 comparison points after
+supplying the saved-slot mirror invariants. Separate two-valued induction
+checks on the original and changed modules prove those invariants after
+reset without initializing the hardware state: the stall copies agree and,
+while selected, the index/immediate/store copies match the packed skid slot.
+The proof uses a reset-seen flag only in its harness. Removing duplicate
+alias cut points avoids treating the same stall register as independent
+state. The first monolithic proof timed out; no RTL change was needed to
+close the refined proof. Required suite, QEMU and cycle checks also pass.
 
 ## Scope and risks
 
