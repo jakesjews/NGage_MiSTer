@@ -3331,5 +3331,8 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   random bursts 56-58 -> 25-27 (so the flash's cost was worse than the
   24 clocks assumed). flash, ddrflash, upp and top benches pass, lint
   clean; report docs/consults/2026-10-23-agy-flashfetch-report.md.
-  Building on the Mac for the board (the flash wait share in play,
+  Built on the Mac (b13, seed 1): -0.773 ns at slow 100C, hold +0.243
+  (the previous tree's seed-1 build was -1.088; same families, a
+  different placement); `build/hardware/NGage-flashfetch.rbf`, to go on
+  the board's debug slot when it is free (the flash wait share in play,
   7-12 %, is the measure).
