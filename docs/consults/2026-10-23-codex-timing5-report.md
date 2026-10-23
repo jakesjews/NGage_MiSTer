@@ -13,10 +13,12 @@ it includes the owner-supplied card fix and the first two CPU changes, but
 predates the pending-select, decoder, acknowledgement and completion-tag
 changes. The final combined timing requirement is not yet met.
 
-`combined3` is queued at seeds 1–3 from `11bbda3`, with all six retained
-CPU changes and the unchanged owner-supplied card fix. Each build copy enables
-the MAIN macro, and only two fits may run concurrently. Its median, complete
-worst paths, source manifests and hold margins are still pending.
+`combined3` uses `11bbda3`, with all six retained CPU changes and the
+unchanged owner-supplied card fix. Its first two MAIN seeds are −0.645 /
+−0.486 ns; source manifests match. Seed 3 is running. The median cannot meet
+−0.300 ns with those first two results, so the next isolated trials address
+issue forwarding and predecode classification. The barrel and bus fallbacks
+remain parked because those families are now above −0.100 ns in both seeds.
 
 ## Measurement method
 
@@ -808,6 +810,54 @@ The pre-fit minimum covers issue feedback, pending capture and inputs to
 both original DAV/load registers and the new flag in all three stages.
 This targets the post-ALU1 load-control path exposed by `dctags` seed 2;
 it is prepared on `combined2`, not fitted or retained.
+
+**Fallbacks on the six-change tree:** `sharedshift3` rebases the shared
+barrel onto `combined3`; the changed module is byte-identical to the proven
+version. All 225 counts, 57 QEMU comparisons, both lint modes and generated
+checks pass again. It remains unfitted and unretained pending the combined
+three-seed result.
+
+`buscompare4` similarly rebases the UPP next-line comparison. Before any
+candidate fit, its acceptance group is broadened to include every incoming
+UPP register path, as well as the original arbitration and CPU-address
+queries. This includes self-test addresses and the new saved predecessor's
+capture; a gain cannot be claimed merely by moving the carry chain into that
+register. The supplemental query is installed in all three `combined3`
+baseline copies before their timing reports run. This fallback is also
+unfitted and unretained.
+
+**Current predecode classification (`classify4`):** rebase the prepared
+live/saved classification split onto `combined3`, whose predecode undefined
+flag path is −0.473 / −0.486 ns. Both changed modules are byte-identical to
+the proven `classify3` versions. All 225 counts, 57 QEMU comparisons, both
+lint modes and generated checks pass. Seed 1 is fitting; seed 2 waits for
+that task lane. No classification change is yet applied to the main branch.
+
+**Issue forwarding validity (`forwarddav`):** seed 1's new worst path runs
+from registered memory-load validity through the ALU late-load hold and its
+qualified DAV, then forwarding priority and data selection, into issue's
+normal shift-source bank (−0.645 ns). Issue never selects that normal bank
+while the shifter stalls: it selects the separate refresh bank instead.
+The ALU late hold always propagates into the shifter hold.
+
+Expose the ALU's existing condition/exception predicate as `o_forward_dav`
+and connect it only to issue's `i_alu_forward_dav`. Retain the original
+`o_dav_nxt = o_forward_dav && !o_stall_from_alu` for execution, flags, the
+shifter's refresh and every other consumer. The unused normal forwarding
+capture can now omit the late hold; normal operands at every advancing edge
+remain identical. No pipeline stage, operand selector, clock enable, load
+interlock or cache path changes.
+
+Assertions on the actual configured ALU and shifter establish the two
+interface identities. Under those identities, actual issue equivalence
+proves all 2,806 comparison points, including every output and unchanged
+state boundary. The intentionally unselected normal banks and combinational
+temporaries are excluded from internal equality, rather than assuming that
+they match. All 225 CPU counts and 57 signatures remain exact; both lint
+modes, generation/checks and the ten-occurrence check pass. The pre-fit
+acceptance group includes normal forwarding captures, store captures and
+all four registered operand selectors. Supplemental queries of the existing
+baseline databases precede the paired fit. It is not retained yet.
 
 ## Scope and risks
 
