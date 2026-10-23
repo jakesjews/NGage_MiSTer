@@ -2825,3 +2825,14 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the merger, so the whole-core seeds decide. Queued behind seeds 11-13
   (the 3a tree): the same tree with ALM_REGISTER_PACKING_EFFORT LOW
   (Codex's cheapest experiment), seeds 14-16.
+- **Sweep 5 round 2, the reverted tree (376950d: families 1, 2a, 2c)**: 7
+  -0.331/-0.048 (family 3 on top), **8 +0.043/+0.056, hold +0.153 and
+  +0.249 at the slow corners, +0.134 and +0.091 at the fast: every corner
+  met**, 9 -0.204/-0.333 (the merger's address into upp_bus's acknowledge,
+  the outgoing side again, with the upstream merger); 33,700-33,850 ALMs,
+  471 M10K, 42,057 registers. Seed 8 is the release candidate with
+  video_freak in (md5 4980727e5a773274a807c000c690e3a1), kept as
+  build/hardware/sweep5/NGage-s8.rbf with its reports; sweep 3's seed 8,
+  without video_freak, remains the other clean one. Its margin is as thin
+  as that one's; the 3a tree and the packing experiment, queued, may
+  give a candidate with more. 6 (Mac, the merger variant) -0.170.
