@@ -2841,3 +2841,7 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   boot's bus traffic 34-98 s, the idle screen after: the same core as
   the two-way measurement build, with the video options in
   (build/hardware/boot/sweep5-s8-p2).
+- **Seed 10 of the 3a tree (27a4152) on the Mac meets every corner too**:
+  setup +0.078 ns at the worst corner, hold +0.223, 33,750 ALMs; kept as
+  build/hardware/sweep5/NGage-s10-3a.rbf. A little more margin than seed
+  8, from the latest tree.
