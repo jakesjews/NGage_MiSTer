@@ -56,8 +56,8 @@
 // its way, a CBUS transfer).
 module upp_periph #(
 	parameter int TIMER_DIV          = 3,              // 104 / 3 = 34.67 MHz
-	parameter int MMC_DIV            = 12,             // 104 / 12 = 8.67 MHz
-	parameter int MMC_TIMEOUT_LOG2   = 21,
+	parameter int MMC_DIV            = 4,              // 104 / 4 = 26 MHz (12 is the phone's own rate, the service manual's 8.66 MHz, for an accuracy build)
+	parameter int MMC_TIMEOUT_LOG2   = 23,             // 2^23 / 26 MHz = 322.6 ms (21 at MMC_DIV = 12)
 	parameter int LCD_WR_LOW         = 2,
 	parameter int LCD_WR_HIGH        = 2,
 	parameter int LCD_RD_LOW         = 4,

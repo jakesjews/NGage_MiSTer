@@ -56,13 +56,14 @@
 //
 // Bus: CLK = clk / DIV, low at rest; the host changes CMD/DAT0 as CLK falls
 // and samples them as it rises (as rtl/board/mmc_card.sv expects). [assumed]
-// DIV = 12 (8.67 MHz, the service manual's MMC clock); time-outs: 64 clocks
-// to a response start bit (NCR max), 2^TIMEOUT_LOG2 clocks to a read block's
-// start bit and for busy.
+// DIV = 4 (26 MHz; 12 is the phone's own rate, the service manual's 8.66 MHz,
+// for an accuracy build); time-outs: 64 clocks to a response start bit (NCR
+// max), 2^TIMEOUT_LOG2 clocks (~323 ms at 26 MHz; 21 at DIV = 12) to a read
+// block's start bit and for busy.
 module upp_mmc #(
-	parameter int DIV          = 12,
+	parameter int DIV          = 4,              // 12 (8.66 MHz, the service manual's rate) for an accuracy build
 	parameter int RESP_WAIT    = 64,
-	parameter int TIMEOUT_LOG2 = 21,
+	parameter int TIMEOUT_LOG2 = 23,             // ~323 ms at DIV = 4 (21 at DIV = 12)
 	parameter int FIFO_DEPTH   = 16
 ) (
 	input  logic        clk,

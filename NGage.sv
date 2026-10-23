@@ -872,6 +872,7 @@ mmc_card mmc_card
 	.dat_i(mmc_dat),
 	.dat_o(card_dat_o),
 	.dat_oe(card_dat_oe),
+	.stop_queued(!dbg_src0[23]),
 	.present(),
 	.write_protected(),
 	.active(mmc_active),
@@ -1060,13 +1061,20 @@ wire        dbg_bus_flash = wb_adr[27:26] == 2'b00;       // CS0-CS3
 // the events, one 32-bit count each: LCD frames and pixels, instructions
 // retired, clocks in wait-for-interrupt, bus wait clocks by target, bus
 // beats, the CPU's stall and flush taps (zap_core o_dbg_stall), uops
-// retired, replays. A replay (dbg_wb_dabt[1]: the writeback sends the
+// retired, replays, and the MMC card path (512-byte blocks completed,
+// clocks in a data phase, clocks the wire waits for Linux). A replay
+// (dbg_wb_dabt[1]: the writeback sends the
 // instruction round again because the data cache was busy with a fill) has
 // no architectural effect and is not a retired instruction or uop, as the
 // CPU bench counts them (sim/cpu/tb/main.cpp).
-localparam DBG_CNT = 18;
+localparam DBG_CNT = 21;
+reg         dbg_mmc_busy_q = 0;
+always @(posedge clk_sys) dbg_mmc_busy_q <= dbg_src0[22];
 wire        tr_wb_retire = (tr_wb_valid || tr_wb_dvalid) && !tr_wb_dabt[1];
 wire [DBG_CNT-1:0] dbg_ev = {
+	dbg_src0[22] && dbg_src0[23] && !card_dat_oe,         // 20 mmc wire waits for Linux
+	dbg_src0[22],                                         // 19 mmc clocks in data phase
+	dbg_mmc_busy_q && !dbg_src0[22],                      // 18 mmc 512-byte blocks completed
 	tr_wb_valid && tr_wb_dabt[1],                         // 17 replays
 	tr_wb_retire,                                         // 16 uops retired
 	cpu_dbg_stall,                                        // 15..8 clear_wb, clear_alu, decode, shifter, issue, fifo empty, code, data

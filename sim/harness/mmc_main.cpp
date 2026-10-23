@@ -71,9 +71,10 @@ struct Hps {
 	std::vector<uint8_t> img;
 	enum { IDLE, DELAY, XFER, END } st = IDLE;
 	bool wr = false;
-	uint32_t lba = 0;
-	int delay = 0, word = 0, gap = 0;
-	uint64_t reads = 0, writes = 0;
+	uint32_t lba = 0, last_lba = 0, last_blk_cnt = 0;
+	int delay = 0, word = 0, nwords = 256, gap = 0;
+	int fixed_delay = -1, fixed_gap = -1;
+	uint64_t reads = 0, read_sectors = 0, writes = 0;
 	sim::Rng *rng;
 };
 
@@ -91,7 +92,7 @@ struct Bench {
 
 	Bench(uint32_t seed) : rng(seed) {
 		hps.rng = &rng;
-		t->clk = 0; t->reset = 1; t->mmc_clk = 0; t->cmd_i = 1; t->dat_i = 1;
+		t->clk = 0; t->reset = 1; t->mmc_clk = 0; t->cmd_i = 1; t->dat_i = 1; t->stop_queued = 0;
 		t->img_mounted = 0; t->img_readonly = 0; t->img_size = 0;
 		t->sd_ack = 0; t->sd_buff_addr = 0; t->sd_buff_dout = 0; t->sd_buff_wr = 0;
 		t->eval();
@@ -113,15 +114,19 @@ struct Bench {
 				if (t->sd_rd && t->sd_wr) sim::fail("sd_rd and sd_wr together");
 				h.wr = t->sd_wr;
 				h.lba = t->sd_lba;
-				if ((uint64_t)(h.lba + 1) * 512 > h.img.size()) sim::fail("HPS asked for block %u past the image", h.lba);
-				h.delay = rng.chance(20) ? rng.range(500, 3000) : rng.range(20, 200);
+				h.last_lba = t->sd_lba;
+				h.last_blk_cnt = t->sd_blk_cnt;
+				h.nwords = ((int)t->sd_blk_cnt + 1) * 256;
+				if ((uint64_t)h.lba * 512 + (uint64_t)h.nwords * 2 > h.img.size())
+					sim::fail("HPS asked for block %u (cnt %u) past the image", h.lba, (unsigned)t->sd_blk_cnt);
+				h.delay = (h.fixed_delay >= 0) ? h.fixed_delay : (rng.chance(20) ? rng.range(500, 3000) : rng.range(20, 200));
 				h.st = Hps::DELAY;
 			}
 			break;
 		case Hps::DELAY:
 			if (--h.delay <= 0) {
 				t->sd_ack = 1;
-				h.word = 0; h.gap = 4;
+				h.word = 0; h.gap = (h.fixed_gap >= 0) ? h.fixed_gap : 4;
 				t->sd_buff_addr = 0;
 				h.st = Hps::XFER;
 			}
@@ -129,8 +134,8 @@ struct Bench {
 		case Hps::XFER:
 			if (h.gap == 2 && (t->sd_rd || t->sd_wr)) sim::fail("sd_rd/sd_wr still high during the transfer");
 			if (--h.gap > 0) break;
-			h.gap = rng.range(3, 8);
-			if (h.word < 256) {
+			h.gap = (h.fixed_gap >= 0) ? h.fixed_gap : rng.range(3, 8);
+			if (h.word < h.nwords) {
 				size_t off = (size_t)h.lba * 512 + h.word * 2;
 				if (!h.wr) {
 					t->sd_buff_addr = h.word;
@@ -145,7 +150,7 @@ struct Bench {
 				h.word++;
 			} else {
 				t->sd_ack = 0;
-				if (h.wr) h.writes++; else h.reads++;
+				if (h.wr) h.writes++; else { h.reads++; h.read_sectors += (uint64_t)(h.nwords / 256); }
 				h.st = Hps::END;
 				h.delay = 3;
 			}
@@ -672,6 +677,238 @@ void readonly_card(Bench &b) {
 	if (b.r1(17, 40000 * 512, s)) CHECK(s & OUT_OF_RANGE, "block 40000 is past the capacity");
 }
 
+// 4 KB chunk fetches, 8 KB slot buffer (3 x 2 KB streaming quarters + 4
+// reserved metadata slots), mid-chunk CMD18 starts, CMD12 speculation
+// suppression, clamped end-of-image reads, and 4 KB burst clock counts at
+// DIV = 4 (26 MHz) and DIV = 12 (8.67 MHz)
+void test_streaming_and_slots(Bench &b) {
+	int saved_hi = b.hi, saved_lo = b.lo;
+	// 1021 data blocks (127 * 8 + 5) + 1 sidecar block = 1022 blocks in file;
+	// SONIC_CSD capacity is 32760 blocks, so tail chunk at 1016 clamps
+	// sd_blk_cnt to 4 (blocks 1016..1020) and never crosses sidecar at 1021
+	const uint32_t data_blks = 1021;
+	std::vector<uint8_t> img = pattern_image(data_blks, 42);
+	b.data_bytes = img.size();
+	add_sidecar(img, SONIC_CID, SONIC_CSD, 0x00FF8000);
+
+	for (int div : {12, 4}) {
+		printf("4 KB streaming & slot buffer tests (DIV = %d, %.2f MHz)\n", div, 104.0 / div);
+		b.hi = div / 2;
+		b.lo = div / 2;
+		b.hps.fixed_delay = -1;
+		b.hps.fixed_gap = -1;
+		b.t->stop_queued = 0;
+		b.mount(img, true);
+		uint16_t rca = identify(b, SONIC_CID, 0x00FF8000);
+		select(b, rca);
+
+		uint32_t s = 0;
+		std::vector<uint8_t> got;
+		int nac = -1;
+
+		// 1. CMD18 aligned 4 KB chunk (64..71), then CMD17 metadata reads
+		// between CMD18 chunks, repeated FAT reads hitting slots 12..15, and
+		// next CMD18 chunk (72..79) hitting the prefetched streaming quarters
+		uint64_t r0 = b.hps.reads;
+		if (!b.r1(18, 64 * 512, s)) sim::fail("CMD18 at 64");
+		for (int k = 0; k < 8; k++) {
+			if (!b.read_data(got, 512, &nac)) sim::fail("CMD18 64+%d", k);
+			if (memcmp(got.data(), &b.hps.img[(64 + k) * 512], 512) != 0) sim::fail("CMD18 64+%d data", k);
+			if (k > 0) CHECK_EQ(nac, 2, "NAC = 2 within 4 KB chunk");
+		}
+		if (!b.r1(12, 0, s, -1)) sim::fail("CMD12 after 64..71");
+		CHECK_EQ(b.t->active, 0, "no HPS fetch in flight after 4 KB CMD18 + CMD12");
+		CHECK_EQ(b.hps.reads - r0, 2, "chunk 64..71 fetched + chunk 72..79 prefetched");
+
+		// Four distinct CMD17 FAT/directory metadata reads into slots 12..15
+		const uint32_t fat_blks[4] = {2, 5, 12, 19};
+		uint64_t r_fat0 = b.hps.reads;
+		for (uint32_t fb : fat_blks) {
+			if (!b.r1(17, fb * 512, s)) sim::fail("CMD17 FAT %u", fb);
+			check_block(b, fb * 512, 512, "CMD17 FAT cold");
+			CHECK_EQ(b.hps.last_blk_cnt, 0, "CMD17 fetches single sector");
+		}
+		CHECK_EQ(b.hps.reads - r_fat0, 4, "4 cold CMD17 FAT reads");
+
+		// Repeated FAT reads must hit in slots 12..15 with 0 HPS reads and NAC = 2
+		uint64_t r_fat1 = b.hps.reads;
+		for (int pass = 0; pass < 2; pass++) {
+			for (int i = 0; i < 4; i++) {
+				uint32_t fb = fat_blks[pass ? (3 - i) : i];
+				if (!b.r1(17, fb * 512, s)) sim::fail("CMD17 FAT repeat %u", fb);
+				if (!b.read_data(got, 512, &nac)) sim::fail("CMD17 FAT repeat data %u", fb);
+				CHECK_EQ(nac, 2, "repeated FAT read hits metadata slot (NAC = 2)");
+				if (memcmp(got.data(), &b.hps.img[fb * 512], 512) != 0) sim::fail("CMD17 FAT repeat data mismatch");
+			}
+		}
+		CHECK_EQ(b.hps.reads - r_fat1, 0, "0 HPS reads on repeated FAT reads");
+
+		// Resume CMD18 at chunk 72..79: must still be in streaming slots (not evicted by CMD17!)
+		uint64_t r_c2 = b.hps.reads;
+		if (!b.r1(18, 72 * 512, s)) sim::fail("CMD18 at 72");
+		for (int k = 0; k < 8; k++) {
+			if (!b.read_data(got, 512, &nac)) sim::fail("CMD18 72+%d", k);
+			CHECK_EQ(nac, 2, "prefetched chunk 72..79 preserved across CMD17 metadata reads");
+			if (memcmp(got.data(), &b.hps.img[(72 + k) * 512], 512) != 0) sim::fail("CMD18 72+%d data", k);
+		}
+		if (!b.r1(12, 0, s, -1)) sim::fail("CMD12 after 72..79");
+		CHECK_EQ(b.hps.reads - r_c2, 1, "only next chunk 80..87 prefetched during 72..79");
+
+		// Metadata slots 12..15 are also still intact after streaming prefetch
+		uint64_t r_fat2 = b.hps.reads;
+		for (uint32_t fb : fat_blks) {
+			if (!b.r1(17, fb * 512, s)) sim::fail("CMD17 FAT after CMD18 %u", fb);
+			if (!b.read_data(got, 512, &nac)) sim::fail("CMD17 FAT after CMD18 data %u", fb);
+			CHECK_EQ(nac, 2, "FAT slot preserved across CMD18 streaming");
+		}
+		CHECK_EQ(b.hps.reads - r_fat2, 0, "0 HPS reads for FAT slots after CMD18");
+
+		// 2. CMD18 starting mid-chunk (first half at 160+2 and second half at 200+5)
+		if (!b.r1(18, 162 * 512, s)) sim::fail("CMD18 mid-chunk 162");
+		for (int k = 0; k < 10; k++) {
+			if (!b.read_data(got, 512, &nac)) sim::fail("CMD18 162+%d", k);
+			if (memcmp(got.data(), &b.hps.img[(162 + k) * 512], 512) != 0) sim::fail("CMD18 162+%d data", k);
+			if (k > 0) CHECK_EQ(nac, 2, "mid-chunk 162 crosses into prefetched 168..175 with NAC = 2");
+		}
+		if (!b.r1(12, 0, s, -1)) sim::fail("CMD12 after 162..171");
+
+		if (!b.r1(18, 205 * 512, s)) sim::fail("CMD18 mid-chunk 205");
+		for (int k = 0; k < 8; k++) {
+			if (!b.read_data(got, 512, &nac)) sim::fail("CMD18 205+%d", k);
+			if (memcmp(got.data(), &b.hps.img[(205 + k) * 512], 512) != 0) sim::fail("CMD18 205+%d data", k);
+			if (k > 0) CHECK_EQ(nac, 2, "mid-chunk 205 crosses into prefetched 208..215 with NAC = 2");
+		}
+		if (!b.r1(12, 0, s, -1)) sim::fail("CMD12 after 205..212");
+
+		// 3. Seek right after CMD12:
+		// (a) Controller queues CMD12 (stop_queued = 1) on the 5th block (324, second half start):
+		//     no speculative prefetch is launched, and an immediate seek starts without waiting.
+		b.hps.fixed_delay = 26000;  // 250 us
+		b.hps.fixed_gap = 3;
+		uint64_t r_s0 = b.hps.reads;
+		if (!b.r1(18, 320 * 512, s)) sim::fail("CMD18 at 320");
+		for (int k = 0; k < 4; k++) check_block(b, (320 + k) * 512, 512, "CMD18 320..323");
+		b.t->stop_queued = 1;       // controller queues CMD12 for the last block (324)
+		check_block(b, 324 * 512, 512, "CMD18 324 (last block with CMD12 queued)");
+		if (!b.r1(12, 0, s, -1)) sim::fail("CMD12 after 324");
+		b.t->stop_queued = 0;
+		CHECK_EQ(b.hps.reads - r_s0, 1, "stop_queued suppresses speculative fetch on block 324");
+		CHECK_EQ(b.t->active, 0, "HPS idle immediately after CMD12");
+		// Immediate seek to block 500: sd_rd must assert within a few clocks of CMD17 decoding
+		b.send_cmd(17, 500 * 512);
+		int wait_sd_rd = -1;
+		for (int i = 0; i < 100; i++) {
+			b.tick();
+			if (b.t->sd_rd) { wait_sd_rd = i; break; }
+		}
+		CHECK(wait_sd_rd >= 0 && wait_sd_rd < 20, "seek after CMD12 asserts sd_rd immediately (%d clks)", wait_sd_rd);
+		b.get_resp(48);
+		check_block(b, 500 * 512, 512, "seek to 500");
+
+		// (b) Hit in buffer while an unneeded speculative fetch is still in flight:
+		//     start CMD18 at 400..404 without stop_queued and with a 500 us HPS delay so
+		//     prefetch of 408..415 is still in flight when CMD12 finishes, then read a
+		//     cached FAT block (5, in slot 13) and cached active-quarter block (405, in q1):
+		//     both hit with NAC = 2 without waiting for the in-flight prefetch!
+		b.hps.fixed_delay = 52000;  // 500 us
+		if (!b.r1(18, 400 * 512, s)) sim::fail("CMD18 at 400");
+		for (int k = 0; k < 5; k++) check_block(b, (400 + k) * 512, 512, "CMD18 400..404");
+		if (!b.r1(12, 0, s, -1)) sim::fail("CMD12 after 404");
+		CHECK_EQ(b.t->active, 1, "prefetch of 408..415 still in flight right after short burst");
+		uint64_t r_inf = b.hps.reads;
+		if (!b.r1(17, 5 * 512, s)) sim::fail("CMD17 hit during in-flight fetch");
+		if (!b.read_data(got, 512, &nac)) sim::fail("CMD17 data during in-flight fetch");
+		CHECK_EQ(nac, 2, "CMD17 metadata hit does not wait for in-flight fetch (NAC = 2)");
+		if (!b.r1(17, 405 * 512, s)) sim::fail("CMD17 streaming slot hit during in-flight fetch");
+		if (!b.read_data(got, 512, &nac)) sim::fail("CMD17 streaming data during in-flight fetch");
+		CHECK_EQ(nac, 2, "CMD17 streaming hit does not wait for in-flight fetch (NAC = 2)");
+		while (b.t->active) b.tick();
+		CHECK_EQ(b.hps.reads - r_inf, 1, "only the already-in-flight prefetch completed");
+
+		b.hps.fixed_delay = -1;
+		b.hps.fixed_gap = -1;
+
+		// 4. Reads at the image's end and across the clamp (data_blks = 1021,
+		//    last chunk 1016..1020 has 5 blocks -> sd_blk_cnt = 4; sidecar at 1021)
+		uint64_t r_end0 = b.hps.reads;
+		if (!b.r1(18, 1014 * 512, s)) sim::fail("CMD18 across clamp at 1014");
+		for (int k = 0; k < 10; k++) {
+			check_block(b, (1014 + k) * 512, 512, "CMD18 across end clamp");
+		}
+		if (!b.r1(12, 0, s, -1)) sim::fail("CMD12 after 1014..1023");
+		CHECK_EQ(b.hps.reads - r_end0, 2, "fetched 1008..1015 and clamped 1016..1020; zero-fill past 1020");
+		CHECK_EQ(b.hps.last_lba, 1016, "tail chunk base LBA");
+		CHECK_EQ(b.hps.last_blk_cnt, 4, "tail chunk sd_blk_cnt clamped to 4 (5 blocks: 1016..1020)");
+
+		// Direct read starting inside the clamped tail chunk (1018..1022) and CMD17 at 1020 & 1021
+		if (!b.r1(17, 1021 * 512, s)) sim::fail("CMD17 at sidecar block 1021");
+		uint64_t r_sc = b.hps.reads;
+		check_block(b, 1021 * 512, 512, "CMD17 at 1021 reads zeros, never sidecar");
+		CHECK_EQ(b.hps.reads - r_sc, 0, "no HPS read at/past nblk");
+	}
+
+	// 5. Clocks per 4 KB (8-sector) CMD18 burst at realistic hps_io latencies
+	//    (100 us = 10,400 clks, 250 us = 26,000 clks, 500 us = 52,000 clks;
+	//    SPI word transfer gap = 3 clks/word = 768 clks/sector = 6,144 clks/4KB)
+	printf("4 KB CMD18 burst clocks (104 MHz clk_sys, hps_io gap = 3 clks/word):\n");
+	for (int div : {12, 4}) {
+		b.hi = div / 2;
+		b.lo = div / 2;
+		for (int us : {100, 250, 500}) {
+			b.hps.fixed_delay = -1;
+			b.hps.fixed_gap = -1;
+			b.mount(img, true);
+			uint16_t rca = identify(b, SONIC_CID, 0x00FF8000);
+			select(b, rca);
+			b.hps.fixed_delay = us * 104;
+			b.hps.fixed_gap = 3;
+
+			uint32_t s = 0;
+			std::vector<uint8_t> got;
+			uint64_t burst_clks[4] = {}, fat_clks = 0;
+			uint64_t r0 = b.hps.reads;
+			for (int c = 0; c < 4; c++) {
+				// c=0: cold 4KB; c=1: warm sequential 4KB; c=2: cold FAT CMD17 + warm 4KB; c=3: warm FAT CMD17 + warm 4KB
+				if (c == 2) {
+					b.r1(17, 2 * 512, s);
+					b.read_data(got, 512);
+				} else if (c == 3) {
+					uint64_t r_before = b.hps.reads;
+					uint64_t f0 = b.clocks;
+					int fat_nac = -1;
+					b.r1(17, 2 * 512, s);
+					b.read_data(got, 512, &fat_nac);
+					fat_clks = b.clocks - f0;
+					CHECK_EQ(fat_nac, 2, "interleaved FAT CMD17 hits slot");
+					CHECK_EQ(b.hps.reads - r_before, 0, "interleaved FAT CMD17 0 HPS reads");
+				}
+				uint64_t c0 = b.clocks;
+				if (!b.r1(18, (80 + c * 8) * 512, s)) sim::fail("bench CMD18");
+				for (int k = 0; k < 8; k++) {
+					int nac = -1;
+					if (!b.read_data(got, 512, &nac)) sim::fail("bench CMD18 data");
+					if (c > 0 || k > 0) CHECK_EQ(nac, 2, "warm/in-chunk NAC = 2");
+				}
+				if (!b.r1(12, 0, s, -1)) sim::fail("bench CMD12");
+				burst_clks[c] = b.clocks - c0;
+			}
+			CHECK_EQ(b.hps.reads - r0, 6, "4 chunks + 1 next-chunk prefetch + 1 cold FAT read = 6 HPS reads total");
+			printf("  DIV=%2d (%5.2f MHz) hps_delay=%3d us (%5d clks): cold 4KB = %6llu, warm 4KB = %6llu (%.2f MiB/s), warm FAT CMD17 = %5llu clks, HPS reads = %llu\n",
+				div, 104.0 / div, us, us * 104,
+				(unsigned long long)burst_clks[0],
+				(unsigned long long)burst_clks[3],
+				(4096.0 * 104e6) / ((double)burst_clks[3] * 1048576.0),
+				(unsigned long long)fat_clks,
+				(unsigned long long)(b.hps.reads - r0));
+		}
+	}
+
+	b.hps.fixed_delay = -1;
+	b.hps.fixed_gap = -1;
+	b.hi = saved_hi;
+	b.lo = saved_lo;
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -686,6 +923,7 @@ int main(int argc, char **argv) {
 	retail_card(b);
 	homebrew_card(b);
 	readonly_card(b);
+	test_streaming_and_slots(b);
 	printf("HPS: %llu block reads, %llu block writes; %llu clocks\n",
 		(unsigned long long)b.hps.reads, (unsigned long long)b.hps.writes, (unsigned long long)b.clocks);
 	return sim::finish("mmc_card");
