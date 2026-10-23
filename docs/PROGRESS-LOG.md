@@ -1,52 +1,3 @@
-- **Codex's timing round 3** (codex/timing2 39ad27a, six hours, with
-  Antigravity's fixes as its checklist, each change proved by a
-  whole-core build on the server): the whole core **-1.088 -> -0.460 ns**
-  at slow 100C, reproduced independently; cycle and instruction counts
-  unchanged; 198 runs, 52 QEMU comparisons and the firmware boot bench
-  (all 76,975 device accesses) pass. The remaining worst path: the MMU
-  enable into the merger's data capture. Report
-  docs/consults/2026-10-23-codex-timing3-report.md. Merged into master
-  with the flash fetch (191cab1) and built (b14, the server, seed 1):
-  **-1.398 ns**, hold +0.246, with the previous families gone and two
-  others at the top that no earlier build showed: the predecode's
-  instruction register into the decode stage's shift fields
-  (o_shift_is_lsl0_ff, o_shift_length_ff, -1.4 to -1.3) and the memory
-  stage's load destination index into the writeback's pc_del3 pipeline
-  (-1.31, seven of the ten). So the tree has a floor of families near
-  -1 ns that surface with the placement; timing round 4 takes them
-  after the pipeline-stall work (which changes those stages), from this
-  build's report (session scratch, b14-timing/). The Codex thread is on
-  the stalls; b14 is the measurement build for the board.
-- **Codex's pipeline-stall session** (codex/timing2 b966f86..53d4301,
-  merged b862b4b): the earlier load admission (the pickup extended to
-  loads in postalu0 and the ALU) tested and discarded, no gain measured;
-  retained: BTB predictions accepted from the registered RAM one fetch
-  slot earlier, direct-branch mispredictions resolved from registered
-  shifter-stage decisions (the ALU flushes 61 -> 14 on cache, 124 -> 88
-  on ctrand1, 89 -> 29 on gba_arm, the rest now cheaper early flushes),
-  ARM BL in one slot, the incrementing LDM/STM base update folded into
-  the last uop; the multiplier measured, no change retained. Cycles:
-  ctrand1 77,298 -> 73,043 (-5.5 %), crand1 -5.6 %, cache -0.5 %, gba_arm
-  -1.6 %, gba_thumb -0.2 %; uops down about 0.7 %; FIFO-empty clocks
-  -8-9 %. Whole core (seed 2): **-1.398 -> -0.578 ns** (the earlier BTB
-  acceptance helped timing too). 213 runs, 57 QEMU. Report
-  docs/consults/2026-10-23-codex-zapstalls-report.md. So the hit-path
-  interlocks are not where the remaining issue stalls are: the next
-  cycle lever is the memory side (hit-under-miss in the D-cache,
-  Antigravity's I-prefetch, the flash fetch already in).
-  Built as b15 (the server, seed 1): **-0.578 ns**, hold +0.174, the
-  same figure Codex measured; `build/hardware/NGage-b15.rbf`, the next
-  measurement build for the board after the flash-fetch replay.
-- Two more coworkers at once (the user: "Use codex and antigravity as
-  you see fit. I have expensive plans on each"): a second Codex thread on
-  the fast first-boot format and the boot indicators (codex/firstboot),
-  and a read-only Antigravity analysis of the game-load path (the MMC
-  controller, the card model, the framework's block fetch) for the slow
-  loads the user saw in Shadowkey. Antigravity's I-prefetch run was cut
-  off by a Gemini content filter misfiring on a trace dump, mid-fix
-  (fill_valid_ff cleared only on IDLE -> IDLE); its conversation was
-  resumed on Claude Opus 5.5 in the same worktree with the six failing
-  runs named.
 # N-Gage QD MiSTer core: progress log
 
 Newest entries at the bottom. Each entry says what was done, what was
@@ -3385,3 +3336,68 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   different placement); `build/hardware/NGage-flashfetch.rbf`, to go on
   the board's debug slot when it is free (the flash wait share in play,
   7-12 %, is the measure).
+- **Codex's timing round 3** (codex/timing2 39ad27a, six hours, with
+  Antigravity's fixes as its checklist, each change proved by a
+  whole-core build on the server): the whole core **-1.088 -> -0.460 ns**
+  at slow 100C, reproduced independently; cycle and instruction counts
+  unchanged; 198 runs, 52 QEMU comparisons and the firmware boot bench
+  (all 76,975 device accesses) pass. The remaining worst path: the MMU
+  enable into the merger's data capture. Report
+  docs/consults/2026-10-23-codex-timing3-report.md. Merged into master
+  with the flash fetch (191cab1) and built (b14, the server, seed 1):
+  **-1.398 ns**, hold +0.246, with the previous families gone and two
+  others at the top that no earlier build showed: the predecode's
+  instruction register into the decode stage's shift fields
+  (o_shift_is_lsl0_ff, o_shift_length_ff, -1.4 to -1.3) and the memory
+  stage's load destination index into the writeback's pc_del3 pipeline
+  (-1.31, seven of the ten). So the tree has a floor of families near
+  -1 ns that surface with the placement; timing round 4 takes them
+  after the pipeline-stall work (which changes those stages), from this
+  build's report (session scratch, b14-timing/). The Codex thread is on
+  the stalls; b14 is the measurement build for the board.
+- **Codex's pipeline-stall session** (codex/timing2 b966f86..53d4301,
+  merged b862b4b): the earlier load admission (the pickup extended to
+  loads in postalu0 and the ALU) tested and discarded, no gain measured;
+  retained: BTB predictions accepted from the registered RAM one fetch
+  slot earlier, direct-branch mispredictions resolved from registered
+  shifter-stage decisions (the ALU flushes 61 -> 14 on cache, 124 -> 88
+  on ctrand1, 89 -> 29 on gba_arm, the rest now cheaper early flushes),
+  ARM BL in one slot, the incrementing LDM/STM base update folded into
+  the last uop; the multiplier measured, no change retained. Cycles:
+  ctrand1 77,298 -> 73,043 (-5.5 %), crand1 -5.6 %, cache -0.5 %, gba_arm
+  -1.6 %, gba_thumb -0.2 %; uops down about 0.7 %; FIFO-empty clocks
+  -8-9 %. Whole core (seed 2): **-1.398 -> -0.578 ns** (the earlier BTB
+  acceptance helped timing too). 213 runs, 57 QEMU. Report
+  docs/consults/2026-10-23-codex-zapstalls-report.md. So the hit-path
+  interlocks are not where the remaining issue stalls are: the next
+  cycle lever is the memory side (hit-under-miss in the D-cache,
+  Antigravity's I-prefetch, the flash fetch already in).
+  Built as b15 (the server, seed 1): **-0.578 ns**, hold +0.174, the
+  same figure Codex measured; `build/hardware/NGage-b15.rbf`, the next
+  measurement build for the board after the flash-fetch replay.
+- Two more coworkers at once (the user: "Use codex and antigravity as
+  you see fit. I have expensive plans on each"): a second Codex thread on
+  the fast first-boot format and the boot indicators (codex/firstboot),
+  and a read-only Antigravity analysis of the game-load path (the MMC
+  controller, the card model, the framework's block fetch) for the slow
+  loads the user saw in Shadowkey. Antigravity's I-prefetch run was cut
+  off by a Gemini content filter misfiring on a trace dump, mid-fix
+  (fill_valid_ff cleared only on IDLE -> IDLE); its conversation was
+  resumed on Claude Opus 5.5 in the same worktree with the six failing
+  runs named.
+- **The flash-fetch build in play** (b13 on the debug slot, the b12 tree
+  plus the line-wide fetch; the three-game replay, ten shots each in
+  play): the flash wait share fell from 7-12 % of clocks to **1.3-2.5 %**
+  (Sonic 1.8-2.5, Asphalt 1.3-1.4, Tony Hawk 1.6-2.0; 3.5 % in the two
+  shots at the Warehouse's start), and the instruction rate rose 5-10 %:
+  Sonic 27.5-29.2 M/s at CPI 3.6-3.8 (b12: 25-27), Asphalt 29.0-29.4 at
+  3.5-3.6 (27.5-28.1), Tony Hawk 27.5-31.5 at 3.3-3.8 (25.4-27.5). The
+  frames stay on the same ticks (Sonic 13-18, Asphalt 12-13, Tony Hawk
+  9-12): the gain is under a tick. The SDRAM wait is unchanged at 20-24
+  %, so the bus side's remaining cost is the SDRAM line fills and the
+  misses behind them: hit-under-miss in the D-cache (Codex, running),
+  the I-cache prefetch (Antigravity, running), then the cache sizes.
+  (The replay's filter cut the overlay rows after the beat count, so this
+  run has no stall shares; the next runs keep the whole line.)
+  Four entries since timing round 3 had been added above the file's
+  header by mistake; moved to the end, in order.
