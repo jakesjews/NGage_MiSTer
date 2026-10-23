@@ -3552,3 +3552,53 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   against the server's and is right). Fixed: the report step's exit code
   is kept, the copy-back always runs, the local flow writes the report
   before exiting on a timing miss.
+- **b16 in play: the prefetch earns nothing.** The three-game replay on
+  the debug slot (this time with the stall rows kept): Sonic 13-18
+  frames/s at 28.1-29.5 M instructions/s, Asphalt 12-13 at 29.1-29.7,
+  Tony Hawk 9-12 at 28.0-29.6, CPI 3.5-3.7, SDRAM wait 20-24 %, flash
+  1.4-2.3 %: b15 within 1 % on every row, as its simulation (-0.14 %)
+  said. The stall shares in play: issue 35-43 % (Sonic 43, Asphalt 35,
+  Tony Hawk 36), code stall 47-55 %, fetch FIFO empty 12-16 %, data
+  stall 13-18 %, shifter 7-16 % (Asphalt 16), decode 7 %, ALU flushes
+  380-520 K/s, 32 M uops/s, replays 125-185 K/s. **Decided: the prefetch
+  is off by default** (ICACHE_PREFETCH 0 in arm925t.sv, the bench's
+  default with it; NGAGE_ICACHE_PREFETCH in NGage.qsf turns it on): no
+  gain, about 1 ns of slack and 850 ALMs. The Codex task to fix its
+  timing family was stopped minutes in; the Antigravity one had died on
+  the account's quota first. b17 (the server: prefetch on + hit-under-
+  miss) built meanwhile at -1.429 ns, 36,148 ALMs, 472 M10K; its rbf is
+  kept for a replay that measures hit-under-miss in play. The 32 KB
+  variant (b16-32k, prefetch on) is on the debug slot for its replay.
+- **The fast first-boot format hangs the firmware.** On b16 a first boot
+  from the pristine CS1 (C: erased; `rh29-460-cs1.bin` on the MiSTer is
+  that image, `-blank.bin` is not blank any more, see the launcher
+  `_Debug/NGageDbg-blank.mgl` and the disposable `-trial.bin` copy)
+  reaches 28 s and then spins for the whole 240 s capture: 20.00 M
+  instructions/s at CPI 5.2, flash wait 23.1 %, 3,999,316 beats/s, the
+  sampled PC 0x5037feb8/0x5037fec0 every time. That is medint.pdd's
+  erase routine (research/firmware/analysis/medint.pdd.arm.txt lines
+  212-230): after the unlock write, the sector-erase command (0x30) and a
+  call, it polls the status halfword in a loop that spins WHILE DQ7 reads
+  1, i.e. until it has seen the chip busy, and only then tests DQ3 and
+  goes on to the completion wait. The fast path answers the erased data
+  (DQ7 = 1) from the first read, so the driver never sees busy. The
+  model (rebuilt with the mirrored rule) hangs the same way: its kernel
+  log stops at 4.35 s of guest time. The Codex first-boot thread is
+  resumed with the diagnosis: the fast path must present busy (DQ7
+  inverted, DQ6 toggling, DQ3 set) for the status reads the driver makes
+  before done, in the chip model and in QEMU alike, proved by the chip
+  bench replaying medint's loops and by the model's first boot.
+- **Timing round 4 (Antigravity, Opus) died on the account's quota**
+  with six commits on agy/timing4 and no report, its whole-core builds
+  still running: the I-cache tag RAM's stage-1 valid/LRU read split at
+  the next fetch address (family 1), the multiply classification
+  registered with the ALU operation (6), the D-TLB fault summary
+  registered with the FSR (5), the issue interlock and store-data
+  forwarding resolved per slot (2), the self-test master as a third
+  arbiter input in one AND-OR (3 and 7), the BL rewrite decoded at the
+  decoder's outputs (8); all cycle-identical on 213 runs. The server's
+  builds of its steps: f1 -0.753, s5 -1.224, s6 -0.782, p4 -0.847
+  against the b15 baseline -0.578 (re-measured by it as -0.578): none
+  better, within the placement noise of this tree's families. Kept on
+  the branch, not merged; to be resumed when the memory-side levers have
+  settled the tree, with seeds, not single builds, as the measure.
