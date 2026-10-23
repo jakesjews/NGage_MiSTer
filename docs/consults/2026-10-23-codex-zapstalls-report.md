@@ -4,12 +4,13 @@ Baseline `1e9fe26`, branch `codex/timing2`: round 3 plus the flash line-wide fet
 The task targets pipeline CPI; no firmware boot, hardware deployment, `sys/`
 change or ARM9 change is included. Hardware game rates are motivation, not
 measurements made by this task. Test binaries and existing QEMU references
-are reused. Only the four new tests (`loadpipe`, `ldmfold`, `blslot` and
-`bresolve`) were assembled and run on QEMU.
+are reused. Only the five new tests (`loadpipe`, `ldmfold`, `blslot`,
+`bresolve` and `tcallpipe`) were assembled and run on QEMU.
 
 ## Measurement
 
-The nine quick tests passed before editing. Simulation-only probes sample
+The nine quick tests passed before editing; the original full suite passed
+198 runs and 52 QEMU comparisons. Simulation-only probes sample
 all six overlapping stall levels before each rising edge, matching the board
 bit mapping. Flushes count accepted redirect edges, not clocks during which
 a redirect is held. The final bench separates raw ALU redirects from the
@@ -305,6 +306,44 @@ from ALU to shifter resolution. FIFO-empty clocks fall in all fifteen
 comparisons. Overlapping stall levels must not be summed or interpreted as
 exclusive CPI components. In particular, earlier load admission reduced an
 issue counter without reducing load-use latency.
+
+### Whole-suite cycle comparison and uncached Thumb calls
+
+The original suite plus the first four new tests has 207 faster runs, one
+equal run and two slower runs. The regressions are `tbl_irq` at 0:0
+(111168 -> 115069) and 0:3 (133089 -> 134865); at 2:9 it improves
+206625 -> 205774. This test interrupts Thumb BL pairs across 119 interrupt
+delays. It retains 9742 retired instructions and passes all architectural
+checks. The regressions start with item 2a, whose numbers were
+115197 / 135042 / 205828, and include more FIFO-empty clocks.
+
+To isolate the concern, `tcallpipe.S` repeats twelve Thumb calls 64 times
+without interrupts, first with caches off and then with I-cache enabled.
+Named begin/end retirement PCs delimit the regions, excluding MMU setup.
+It passes at all latencies and matches its new QEMU reference. Counts are
+cycles per 768 calls, including loop control and warmup:
+
+| Region | 0:0 baseline -> final | 0:3 baseline -> final | 2:9 baseline -> final |
+| --- | ---: | ---: | ---: |
+| Uncached Thumb calls | 23887 -> 25370 | 28720 -> 28821 | 43711 -> 42303 |
+| Cached Thumb calls | 14309 -> 14245 | 14341 -> 14272 | 14404 -> 14340 |
+| Complete tcallpipe | 97788 -> 95080 | 128539 -> 124702 | 208737 -> 204675 |
+
+Thus the low-latency uncached-call regression is real, not solely interrupt
+phase. The cached call region improves only about 0.45%; the earlier BTB
+is retained for the required proxies and cached execution, with this
+uncached tradeoff disclosed. Its exact fetch/bus scheduling cause has not
+been isolated. The complete test retires 18921 instructions before/after;
+its total also includes the large shared MMU-setup gain. Region logs are
+in `sim/cpu/build/zapstalls/tcall-regions/` and can be reproduced using
+`Vtb_cpu --watch` on the four `tcall_*_begin/end` ELF symbols.
+
+Eight runs in `fiq_movs`, `fiq_perm`, `irq` and `loaduse_irq` have different
+retired instruction totals because their cycle-scheduled interrupts land
+at different points in polling loops. They are RTL-only tests with explicit
+architectural checks. Every required quick/proxy test and every QEMU-
+compared test retains its instruction count. These interrupt timing
+differences are not included in the proxy cycle tables as equal work.
 
 ## Item 4: multiply barrier measured; no RTL change retained
 
