@@ -3145,3 +3145,16 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   2-tick cap) either: Sonic's target is the phone's own uneven rate, in
   the teens or low twenties; Asphalt's 21 and Tony Hawk's rate are the
   caps the phone met.
+- **ARM9 project, session 3** (codex/arm9: 78c0cd2, e47c566, 06ed82f,
+  0fbfc67): the fetch overlapped (an instruction queue fed by the cache,
+  cancelled by epoch on branches and exceptions), the arithmetic
+  overlapped with forwarding from M and W, the Thumb translation
+  registered in the queue, and sim/cpu/tests/arm9_cycles.S with 69 timed
+  windows, one per TRM table row, all at their expected counts; both
+  cores pass 207 runs and 55 QEMU comparisons. The cache test 2,553,475
+  -> 1,237,634 cycles at 0:0 (ZAP: 760,787), ARM9 ahead of ZAP on the
+  GBA loops, behind on cache, dcache_rtl, ctrand1 and crand1 because the
+  memory operations still serialize; the integrated fit -2.623 ns with
+  the cache/Thumb-translation and execute-to-flags paths left. Session
+  4 started: the memory overlap, beating ZAP at every latency, the
+  remaining paths.
