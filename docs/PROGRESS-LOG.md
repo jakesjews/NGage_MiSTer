@@ -4061,3 +4061,10 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   Sequencing to be decided: the ZAP tree ships to the testers as it is
   (the loader, the D-cache changes), the new CPU replaces it when it
   beats ZAP in play on the board.
+- **X-Men Legends on b22** (the Pocket core's authors see X-Men Legends
+  II panic below about 45 MIPS on their kernel): launched from the menu,
+  its intro cinematic runs at 21-22 frames/s (30.3-30.7 M instructions/s,
+  CPI 3.4, SDRAM wait 12-18 %), the first scene in play (Wolverine's
+  dialogue) at 16-18 (31-32 M/s), no panic, no return to the logo over
+  two and a half minutes (build/hardware/game/xmen-b22/). The real
+  kernel's view server is not the race theirs has, at our speed.
