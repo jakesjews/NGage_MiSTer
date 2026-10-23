@@ -4068,3 +4068,14 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   dialogue) at 16-18 (31-32 M/s), no panic, no return to the logo over
   two and a half minutes (build/hardware/game/xmen-b22/). The real
   kernel's view server is not the race theirs has, at our speed.
+- **The goal, as the user phrased it**: matching the speed of the real
+  phone, with accuracy bent where it buys speed and the firmware cannot
+  tell (cache sizes and ways, a branch predictor, the memory path,
+  non-blocking stores); the 47 M instructions/s yardstick comes from
+  Asphalt's own cap (21 frames of 2.3 M instructions). The testers'
+  release is dropped for now in favour of the speed work. Started in
+  parallel: the eight-stage CPU redesign in the Codex ARM9 thread
+  (docs/ARM9V2.md first, then milestones with the CPU-alone fit at each,
+  the suite's compiled proxies 35 % under ZAP as the acceptance, the
+  shared ZAP caches through the CORE switch), beside the D-cache
+  changes and the loader.
