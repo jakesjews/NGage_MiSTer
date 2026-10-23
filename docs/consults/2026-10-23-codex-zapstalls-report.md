@@ -264,10 +264,42 @@ The baseline's worst path is predecode `o_instruction_ff[15]` to decode
 The intermediate BTB-only full-core build (`f84cda5`) measured
 **-0.924 ns at slow 100C**, with 35260 ALMs and 43792 registers.
 Its worst path is the memory bus `ack_q` into the Wishbone merger's
-registered data. This is evidence for that intermediate candidate only;
-the complete candidate's full-core fit is running in the requested
-`dev/mister/NGage_MiSTer-s1` directory. Intermediate reports are archived
-in `build/zapstalls/item2/`.
+registered data. Intermediate reports are archived in `build/zapstalls/item2/`.
+
+The complete candidate was built with
+`BUILD_DIR=dev/mister/NGage_MiSTer-s1 ./build.sh remote compile` on Ubuntu,
+Quartus Lite 17.0.2, seed 2. The server had no other Quartus container when
+the build started; it remained below the four-container limit. The final
+whole-core result is **-0.578 ns at slow 100C**, an improvement of
+**0.820 ns** over the starting tree and 1.120 ns above the allowed floor.
+This satisfies the task's regression budget; it does **not** close 104 MHz
+setup timing. The wrapper exits 3 because its stricter zero-slack check
+rejects the remaining negative setup slack. Fit and all four corner reports
+completed, and all hold/recovery/removal checks are positive.
+
+| Corner | Baseline setup ns | Final setup ns | Final hold ns |
+| --- | ---: | ---: | ---: |
+| Slow 100C | -1.398 | -0.578 | 0.174 |
+| Slow -40C | -1.387 | -0.525 | 0.060 |
+| Fast 100C | 3.098 | 3.243 | 0.135 |
+| Fast -40C | 3.504 | 3.688 | 0.117 |
+
+The final worst path is writeback `pc_ff[7]~DUPLICATE` to I-cache tag RAM
+`valid_s1[0]`, with 9.461 ns data delay. Next is issue `stall_late_ff` to
+`mem_srcdest_normal_ff[25]` at -0.530 ns. The new early-branch decision and
+BL target paths are not the worst path. Slow-100C setup TNS improves from
+-369.558 to -41.102 ns. Resources are **35400 ALMs** (+382) and **43954
+registers** (+593), with 470 RAM blocks and 43 DSP blocks. No new large RAM
+or pipeline stage was added. Placement changed, so the timing delta is a
+measured result for this exact build, not a promised per-change saving.
+
+Final reports were read from the requested server build directory and
+archived in `build/zapstalls/final/`. The fitted generated CPU SHA-256
+matches the checked-in file:
+`068727a15794a84fa3a5bb09cdfd852e283921e2c36a376917c058ecb2abd3a6`.
+All task-owned Quartus containers exited and were automatically removed.
+The shared pre-existing Quartus image and unrelated server containers were
+left in place. Nothing was compiled with Quartus on the Mac or deployed.
 
 ## Combined cycle and front-end results
 
@@ -412,4 +444,36 @@ the same in-game counters with this candidate, separate actual multiply
 occupancy from late-load holds, and identify exposed load-result latency.
 Earlier admission without earlier data was ineffective. An elastic front
 end or two-uop SWP should follow only with a bounded queue/retirement design
-and dedicated abort, alias, interrupt and hold tests.
+and dedicated abort, alias, interrupt and hold tests. The cached Thumb-call
+region also motivates reducing each BL halfword's uops while preserving
+interrupt entry between them; the uncached-call fetch regression needs its
+own bus-scheduling investigation.
+
+## Final verification and exact stopping point
+
+After the final whole-core fit, the nine quick tests passed **27/27**, then
+the QEMU comparison reported **57 agree, 0 differ**. The complete suite
+passed **213/213**, followed by **57 agree, 0 differ** again. Top-level
+`make lint` and `make cpu-gen-check` both passed. Every RTL revision was
+regenerated with `tools/gen_cpu.sh`; the fitted and checked-in generated
+files match. Final test logs/counts are in `sim/cpu/build/zapstalls/final/`;
+fit reports and check-command logs are in `build/zapstalls/final/`.
+
+Reproduction from the worktree root, using the existing binaries/references:
+
+```sh
+make -C sim/cpu run T="cache dcache_rtl icache_rtl ctrand1 crand1 gba_arm gba_thumb mmu_page align"
+make -C sim/cpu diff
+make -C sim/cpu run
+make -C sim/cpu diff
+make lint
+make cpu-gen-check
+```
+
+Retained RTL stops at the earlier BTB acceptance, safe registered shifter
+redirects, one-uop ARM BL and the supported LDM/STM final-beat folds.
+Earlier load admission was tested and discarded. Two-uop SWP, reduced
+Thumb-BL sequencing, the remaining LDM/STM cases and an elastic multiplier
+front end are **not implemented**. Their limits and the uncached-call
+regression are recorded above. No firmware boot bench, `sys/` edit, ARM9
+edit, branch switch, push or hardware deployment was performed.
