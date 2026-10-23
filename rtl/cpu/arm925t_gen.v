@@ -20564,71 +20564,34 @@ module zap_wb_merger (
 	assign o_d_wb_err = (state_ff == 1'd1) & i_wb_err;
 	generate
 		if (!ONLY_CORE) begin : l_genblk1
-			reg c_cyc;
-			reg c_stb;
-			reg c_wen;
-			reg d_cyc;
-			reg d_stb;
-			reg d_wen;
-			reg [3:0] c_sel;
-			reg [3:0] d_sel;
-			reg [31:0] c_dat;
-			reg [31:0] c_adr;
-			reg [31:0] d_dat;
-			reg [31:0] d_adr;
-			reg [2:0] c_cti;
-			reg [2:0] d_cti;
 			always @(posedge i_clk)
 				if (i_reset) begin
-					{c_cyc, c_stb, c_wen} <= 1'sb0;
-					{d_cyc, d_stb, d_wen} <= 1'sb0;
-					c_sel <= 1'sb0;
-					d_sel <= 1'sb0;
-					c_dat <= 1'sb0;
-					d_dat <= 1'sb0;
-					c_adr <= 1'sb0;
-					d_adr <= 1'sb0;
-					c_cti <= CTI_EOB;
-					d_cti <= CTI_EOB;
+					o_wb_cyc <= 0;
+					o_wb_stb <= 0;
+					o_wb_wen <= 0;
+					o_wb_sel <= 0;
+					o_wb_dat <= 0;
+					o_wb_adr <= 0;
+					o_wb_cti <= CTI_EOB;
+				end
+				else if (state_nxt == 1'd0) begin
+					o_wb_cyc <= i_c_wb_cyc;
+					o_wb_stb <= i_c_wb_stb;
+					o_wb_wen <= i_c_wb_wen;
+					o_wb_sel <= i_c_wb_sel;
+					o_wb_dat <= i_c_wb_dat;
+					o_wb_adr <= i_c_wb_adr;
+					o_wb_cti <= i_c_wb_cti;
 				end
 				else begin
-					c_cyc <= i_c_wb_cyc;
-					c_stb <= i_c_wb_stb;
-					c_wen <= i_c_wb_wen;
-					c_sel <= i_c_wb_sel;
-					c_dat <= i_c_wb_dat;
-					c_adr <= i_c_wb_adr;
-					c_cti <= i_c_wb_cti;
-					d_cyc <= i_d_wb_cyc;
-					d_stb <= i_d_wb_stb;
-					d_wen <= i_d_wb_wen;
-					d_sel <= i_d_wb_sel;
-					d_dat <= i_d_wb_dat;
-					d_adr <= i_d_wb_adr;
-					d_cti <= i_d_wb_cti;
+					o_wb_cyc <= i_d_wb_cyc;
+					o_wb_stb <= i_d_wb_stb;
+					o_wb_wen <= i_d_wb_wen;
+					o_wb_sel <= i_d_wb_sel;
+					o_wb_dat <= i_d_wb_dat;
+					o_wb_adr <= i_d_wb_adr;
+					o_wb_cti <= i_d_wb_cti;
 				end
-			always @(*) begin
-				if (_sv2v_0)
-					;
-				if (state_ff == 1'd0) begin
-					o_wb_cyc = c_cyc;
-					o_wb_stb = c_stb;
-					o_wb_wen = c_wen;
-					o_wb_sel = c_sel;
-					o_wb_dat = c_dat;
-					o_wb_adr = c_adr;
-					o_wb_cti = c_cti;
-				end
-				else begin
-					o_wb_cyc = d_cyc;
-					o_wb_stb = d_stb;
-					o_wb_wen = d_wen;
-					o_wb_sel = d_sel;
-					o_wb_dat = d_dat;
-					o_wb_adr = d_adr;
-					o_wb_cti = d_cti;
-				end
-			end
 		end
 		else begin : l_genblk2
 			always @(*) begin

@@ -175,48 +175,40 @@ if ( !ONLY_CORE )
 begin: l_genblk1
 
         //
-        // The NXT ports are registered here. ARM925T: both sides are
-        // registered and the side is chosen after the registers by
-        // state_ff, the registered state_nxt: the same values as
-        // registering the side state_nxt chooses (upstream), with the
-        // acknowledge-dependent select off the register inputs (timing).
+        // We can flop these, because we're using NXT ports.
+        // Use state_nxt since we are using wishbone NXT ports.
         //
-        logic        c_cyc, c_stb, c_wen, d_cyc, d_stb, d_wen;
-        logic [3:0]  c_sel, d_sel;
-        logic [31:0] c_dat, c_adr, d_dat, d_adr;
-        logic [2:0]  c_cti, d_cti;
-
         always_ff @ (posedge i_clk)
         begin
                 if ( i_reset )
                 begin
-                        {c_cyc, c_stb, c_wen} <= '0;
-                        {d_cyc, d_stb, d_wen} <= '0;
-                        c_sel <= '0; d_sel <= '0;
-                        c_dat <= '0; d_dat <= '0;
-                        c_adr <= '0; d_adr <= '0;
-                        c_cti <= CTI_EOB; d_cti <= CTI_EOB;
+                        o_wb_cyc <= 0;
+                        o_wb_stb <= 0;
+                        o_wb_wen <= 0;
+                        o_wb_sel <= 0;
+                        o_wb_dat <= 0;
+                        o_wb_adr <= 0;
+                        o_wb_cti <= CTI_EOB;
+                end
+                else if ( state_nxt == CODE )
+                begin
+                        o_wb_cyc <= i_c_wb_cyc;
+                        o_wb_stb <= i_c_wb_stb;
+                        o_wb_wen <= i_c_wb_wen;
+                        o_wb_sel <= i_c_wb_sel;
+                        o_wb_dat <= i_c_wb_dat;
+                        o_wb_adr <= i_c_wb_adr;
+                        o_wb_cti <= i_c_wb_cti;
                 end
                 else
                 begin
-                        c_cyc <= i_c_wb_cyc; c_stb <= i_c_wb_stb; c_wen <= i_c_wb_wen;
-                        c_sel <= i_c_wb_sel; c_dat <= i_c_wb_dat; c_adr <= i_c_wb_adr; c_cti <= i_c_wb_cti;
-                        d_cyc <= i_d_wb_cyc; d_stb <= i_d_wb_stb; d_wen <= i_d_wb_wen;
-                        d_sel <= i_d_wb_sel; d_dat <= i_d_wb_dat; d_adr <= i_d_wb_adr; d_cti <= i_d_wb_cti;
-                end
-        end
-
-        always_comb
-        begin
-                if ( state_ff == CODE )
-                begin
-                        o_wb_cyc = c_cyc; o_wb_stb = c_stb; o_wb_wen = c_wen; o_wb_sel = c_sel;
-                        o_wb_dat = c_dat; o_wb_adr = c_adr; o_wb_cti = c_cti;
-                end
-                else
-                begin
-                        o_wb_cyc = d_cyc; o_wb_stb = d_stb; o_wb_wen = d_wen; o_wb_sel = d_sel;
-                        o_wb_dat = d_dat; o_wb_adr = d_adr; o_wb_cti = d_cti;
+                        o_wb_cyc <= i_d_wb_cyc;
+                        o_wb_stb <= i_d_wb_stb;
+                        o_wb_wen <= i_d_wb_wen;
+                        o_wb_sel <= i_d_wb_sel;
+                        o_wb_dat <= i_d_wb_dat;
+                        o_wb_adr <= i_d_wb_adr;
+                        o_wb_cti <= i_d_wb_cti;
                 end
         end
 

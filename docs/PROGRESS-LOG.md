@@ -2800,3 +2800,15 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   -40C; the bus paths are gone from the top, the worst is now the issue
   stage's forwarding (family 3), with that margin. Sweep 5 from this
   tree: seeds 1-4 on the server, 5 on the Mac.
+- **Sweep 5 round 1 was worse**: 1 -0.222/-0.056, 2 -0.793/-0.640, 3
+  -0.884/-0.914, 4 -0.382/-0.348, 5 (Mac) -0.216; 33,400-34,000 ALMs. The
+  new worst paths end in the bus address on its way out: the merger's
+  output mux (now combinational from its registers) into the arbiter's
+  mux and upp_bus, with registers physical synthesis retimed and named
+  after wb_adr, launched from the cache FSMs' and the TLB walker's
+  states. That is the risk Codex named for moving the merger's mux
+  after its registers: the outgoing side gets a level and the fitter
+  spreads it. The merger is reverted to the upstream form (the side
+  chosen by state_nxt into the registers); the wrappers' direct CYC and
+  the acknowledge-chosen burst beats stay. Suites again, a CPU trial,
+  and seeds 7-9 on three lanes beside it.
