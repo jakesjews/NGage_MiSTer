@@ -3153,6 +3153,9 @@ module zap_cache_tag_ram (
 	localparam [31:0] SET_W = $clog2(LINES);
 	localparam [31:0] WAY_W = (WAYS > 1 ? $clog2(WAYS) : 32'd1);
 	localparam [31:0] FLAT_W = $clog2(LINES_ALL);
+	localparam [31:0] LO_W = (SET_W > 32'd4 ? 32'd4 : 32'd1);
+	localparam [31:0] HI_W = SET_W - LO_W;
+	localparam [31:0] PARTS = 32'd1 << HI_W;
 	localparam [31:0] NUMBER_OF_DIRTY_BLOCKS = LINES_ALL / 16;
 	localparam [31:0] BLK_CTR_PAD = (32 - $clog2(NUMBER_OF_DIRTY_BLOCKS)) - 1;
 	localparam [31:0] ADR_CTR_PAD = (32 - $clog2(CACHE_LINE / 4)) - 1;
@@ -3195,6 +3198,10 @@ module zap_cache_tag_ram (
 	reg [WAYS - 1:0] valid_s1;
 	reg [WAYS - 1:0] valid_s2;
 	reg [WAYS - 1:0] valid_q;
+	reg [(WAYS * PARTS) - 1:0] valid_part;
+	reg [PARTS - 1:0] lru_part;
+	reg [HI_W - 1:0] rd_hi_s1;
+	wire s1_en;
 	reg [WAYS - 1:0] hit;
 	wire [WAY_W - 1:0] sel;
 	wire [WAY_W - 1:0] victim;
@@ -3203,7 +3210,7 @@ module zap_cache_tag_ram (
 	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] walk_tag;
 	wire [$clog2(CACHE_LINE) - 3:0] lk_word;
 	wire [(CACHE_LINE * 8) - 1:0] walk_line;
-	reg lru_s1;
+	wire lru_s1;
 	reg lru_s2;
 	reg lru_q;
 	wire hit_upd_en;
@@ -3295,6 +3302,10 @@ module zap_cache_tag_ram (
 				hit[w] = valid_q[w] && (tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)) : (((w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1))) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)-:((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))] == i_lookup_address[31:$clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)]);
 		end
 	end
+	function automatic signed [HI_W - 1:0] sv2v_cast_51823_signed;
+		input reg signed [HI_W - 1:0] inp;
+		sv2v_cast_51823_signed = inp;
+	endfunction
 	generate
 		if (WAYS == 1) begin : g_direct
 			assign victim = 1'd0;
@@ -3305,9 +3316,10 @@ module zap_cache_tag_ram (
 			wire [1:1] sv2v_tmp_D8542;
 			assign sv2v_tmp_D8542 = 1'd0;
 			always @(*) lru_q = sv2v_tmp_D8542;
-			wire [1:1] sv2v_tmp_FF38F;
-			assign sv2v_tmp_FF38F = 1'd0;
-			always @(*) lru_s1 = sv2v_tmp_FF38F;
+			assign lru_s1 = 1'd0;
+			wire [PARTS:1] sv2v_tmp_DD8FB;
+			assign sv2v_tmp_DD8FB = 1'sb0;
+			always @(*) lru_part = sv2v_tmp_DD8FB;
 			wire [1:1] sv2v_tmp_29135;
 			assign sv2v_tmp_29135 = 1'd0;
 			always @(*) lru_s2 = sv2v_tmp_29135;
@@ -3372,13 +3384,18 @@ module zap_cache_tag_ram (
 				if (i_reset) begin
 					lru_q <= 1'd0;
 					lru_s2 <= 1'd0;
-					lru_s1 <= 1'd0;
+					lru_part <= 1'sb0;
 				end
-				else if ((!i_hold || tag_ram_clear) || line_clear) begin
+				else if (s1_en) begin
 					lru_q <= lru_fwd_now(rd_set_del2, lru_s2);
 					lru_s2 <= lru_fwd(rd_set_del, lru_s1);
-					lru_s1 <= lru_fwd(rd_set, lru[rd_set]);
+					begin : sv2v_autoblock_3
+						reg signed [31:0] p;
+						for (p = 0; p < PARTS; p = p + 1)
+							lru_part[p] <= lru_fwd({sv2v_cast_51823_signed(p), rd_set[LO_W - 1:0]}, lru[{sv2v_cast_51823_signed(p), rd_set[LO_W - 1:0]}]);
+					end
 				end
+			assign lru_s1 = lru_part[rd_hi_s1];
 		end
 	endgenerate
 	assign o_cache_hit = |hit;
@@ -3390,7 +3407,7 @@ module zap_cache_tag_ram (
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		begin : sv2v_autoblock_3
+		begin : sv2v_autoblock_4
 			reg signed [31:0] w;
 			for (w = 0; w < WAYS; w = w + 1)
 				begin
@@ -3404,6 +3421,21 @@ module zap_cache_tag_ram (
 			rd_set_del <= rd_set;
 			rd_set_del2 <= rd_set_del;
 		end
+	assign s1_en = (!i_hold || tag_ram_clear) || line_clear;
+	always @(posedge i_clk)
+		if (i_reset)
+			rd_hi_s1 <= 1'sb0;
+		else if (s1_en)
+			rd_hi_s1 <= rd_set[SET_W - 1:LO_W];
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		begin : sv2v_autoblock_5
+			reg signed [31:0] w;
+			for (w = 0; w < WAYS; w = w + 1)
+				valid_s1[w] = valid_part[(w * PARTS) + rd_hi_s1];
+		end
+	end
 	always @(posedge i_clk) begin
 		if (i_reset)
 			pend_en <= 1'd0;
@@ -3421,7 +3453,7 @@ module zap_cache_tag_ram (
 			dirty <= 1'sb0;
 		end
 		else begin
-			if ((!i_hold || tag_ram_clean) || line_clear) begin : sv2v_autoblock_4
+			if ((!i_hold || tag_ram_clean) || line_clear) begin : sv2v_autoblock_6
 				reg signed [31:0] w;
 				for (w = 0; w < WAYS; w = w + 1)
 					begin
@@ -3430,7 +3462,7 @@ module zap_cache_tag_ram (
 						dirty_s1[w] <= (((rd_set == pend_addr) && pend_en) && pend_sel[w] ? pend_dirty : dirty[flat(sv2v_cast_4BDF2_signed(w), rd_set)]);
 					end
 			end
-			begin : sv2v_autoblock_5
+			begin : sv2v_autoblock_7
 				reg signed [31:0] w;
 				for (w = 0; w < WAYS; w = w + 1)
 					if (pend_en && pend_sel[w])
@@ -3443,20 +3475,24 @@ module zap_cache_tag_ram (
 		if (i_reset) begin
 			valid_q <= 1'sb0;
 			valid_s2 <= 1'sb0;
-			valid_s1 <= 1'sb0;
+			valid_part <= 1'sb0;
 			valid <= 1'sb0;
 		end
 		else begin
-			if ((!i_hold || tag_ram_clear) || line_clear) begin : sv2v_autoblock_6
+			if (s1_en) begin : sv2v_autoblock_8
 				reg signed [31:0] w;
 				for (w = 0; w < WAYS; w = w + 1)
 					begin
 						valid_q[w] <= (((rd_set_del2 == tag_ram_wr_addr) && tag_ram_wr_en) && wr_sel[w] ? 1'd1 : (((rd_set_del2 == pend_addr) && pend_en) && pend_sel[w] ? 1'd1 : valid_s2[w]));
 						valid_s2[w] <= (((rd_set_del == pend_addr) && pend_en) && pend_sel[w] ? 1'd1 : valid_s1[w]);
-						valid_s1[w] <= (((rd_set == pend_addr) && pend_en) && pend_sel[w] ? 1'd1 : valid[flat(sv2v_cast_4BDF2_signed(w), rd_set)]);
+						begin : sv2v_autoblock_9
+							reg signed [31:0] p;
+							for (p = 0; p < PARTS; p = p + 1)
+								valid_part[(w * PARTS) + p] <= ((({sv2v_cast_51823_signed(p), rd_set[LO_W - 1:0]} == pend_addr) && pend_en) && pend_sel[w] ? 1'd1 : valid[flat(sv2v_cast_4BDF2_signed(w), {sv2v_cast_51823_signed(p), rd_set[LO_W - 1:0]})]);
+						end
 					end
 			end
-			begin : sv2v_autoblock_7
+			begin : sv2v_autoblock_10
 				reg signed [31:0] w;
 				for (w = 0; w < WAYS; w = w + 1)
 					if (pend_en && pend_sel[w])
@@ -3655,7 +3691,7 @@ module zap_cache_tag_ram (
 			13'b0100000000000: begin
 				rd_flat_nxt = rd_flat_ff;
 				line_hit_nxt = 1'd0;
-				begin : sv2v_autoblock_8
+				begin : sv2v_autoblock_11
 					reg signed [31:0] w;
 					for (w = 0; w < WAYS; w = w + 1)
 						if (valid[flat(sv2v_cast_4BDF2_signed(w), rd_flat_ff[SET_W - 1:0])] && (i_line_va ? tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)) : (((w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1))) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)-:((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))] == i_line_addr[31:$clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)] : sv2v_cast_4BDF2_signed(w) == rd_way)) begin

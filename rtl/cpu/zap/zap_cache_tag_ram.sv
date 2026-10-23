@@ -145,6 +145,20 @@ localparam [31:0] SET_W     = $clog2(LINES);
 localparam [31:0] WAY_W     = WAYS > 1 ? $clog2(WAYS) : 32'd1;
 localparam [31:0] FLAT_W    = $clog2(LINES_ALL);      // A line of any way: {way, set}.
 
+//
+// ARM925T: the first read stage of the valid and LRU bits is split in two.
+// At the read edge, each part register takes the bit of the set whose low
+// LO_W index bits are the set read's and whose high bits are the part's
+// number, with the same pending-write forwarding as before; rd_hi_s1 takes
+// the set's high bits under the same enable. The stage-1 bit is the part
+// rd_hi_s1 names: the same value the single register had, but the index
+// path from the next fetch address now passes a 2^LO_W:1 mux instead of a
+// LINES:1 mux before its register (timing). Same cycles.
+//
+localparam [31:0] LO_W      = SET_W > 32'd4 ? 32'd4 : 32'd1;
+localparam [31:0] HI_W      = SET_W - LO_W;
+localparam [31:0] PARTS     = 32'd1 << HI_W;
+
 localparam [31:0] NUMBER_OF_DIRTY_BLOCKS = LINES_ALL/16; // Keep cache size > 16 bytes.
 
 // States.
@@ -195,6 +209,10 @@ logic [$clog2(NUMBER_OF_DIRTY_BLOCKS):0]   blk_ctr_ff, blk_ctr_nxt;
 logic [$clog2(CACHE_LINE/4):0]             adr_ctr_ff, adr_ctr_nxt;
 logic [WAYS-1:0]                           dirty_s1, dirty_s2, dirty_q;   // ARM925T: per way, aligned with the RAMs' reads.
 logic [WAYS-1:0]                           valid_s1, valid_s2, valid_q;
+logic [WAYS-1:0][PARTS-1:0]                valid_part;          // ARM925T: stage 1, split (above).
+logic [PARTS-1:0]                          lru_part;            // ARM925T: likewise.
+logic [HI_W-1:0]                           rd_hi_s1;            // ARM925T: the stage-1 set's high bits.
+logic                                      s1_en;               // ARM925T: the stage-1 enable.
 logic [WAYS-1:0]                           hit;                 // ARM925T: per way.
 logic [WAY_W-1:0]                          sel, victim;         // ARM925T: the way of interest; the way a fill takes.
 logic [WAYS-1:0][`ZAP_CACHE_TAG_WDT-1:0]   tag_q;               // ARM925T: the tag RAMs' outputs.
@@ -313,6 +331,7 @@ begin : g_direct
         assign lru               = '0;
         assign lru_q             = 1'd0;
         assign lru_s1            = 1'd0;
+        assign lru_part          = '0;
         assign lru_s2            = 1'd0;
         assign hit_pend_en       = 1'd0;
         assign hit_pend_val      = 1'd0;
@@ -409,17 +428,23 @@ begin : g_lru
         begin
                 if ( i_reset )
                 begin
-                        lru_q  <= 1'd0;
-                        lru_s2 <= 1'd0;
-                        lru_s1 <= 1'd0;
+                        lru_q    <= 1'd0;
+                        lru_s2   <= 1'd0;
+                        lru_part <= '0;
                 end
-                else if ( !i_hold || tag_ram_clear || line_clear )
+                else if ( s1_en )
                 begin
                         lru_q  <= lru_fwd_now ( rd_set_del2, lru_s2 );
                         lru_s2 <= lru_fwd ( rd_set_del,  lru_s1 );
-                        lru_s1 <= lru_fwd ( rd_set,      lru [ rd_set ] );
+                        for ( int p = 0; p < PARTS; p++ )
+                        begin
+                                lru_part[p] <= lru_fwd ( {HI_W'(p), rd_set[LO_W-1:0]},
+                                                         lru [ {HI_W'(p), rd_set[LO_W-1:0]} ] );
+                        end
                 end
         end
+
+        assign lru_s1 = lru_part [ rd_hi_s1 ];
 end
 
 assign o_cache_hit       = |hit;
@@ -446,6 +471,30 @@ begin
         begin
                 rd_set_del  <= rd_set;
                 rd_set_del2 <= rd_set_del;
+        end
+end
+
+// ARM925T: the stage-1 valid and LRU registers' enable, and the high set
+// bits that pick the stage-1 bit from the parts (see LO_W).
+assign s1_en = !i_hold || tag_ram_clear || line_clear;
+
+always_ff @ ( posedge i_clk )
+begin
+        if ( i_reset )
+        begin
+                rd_hi_s1 <= '0;
+        end
+        else if ( s1_en )
+        begin
+                rd_hi_s1 <= rd_set[SET_W-1:LO_W];
+        end
+end
+
+always_comb
+begin
+        for ( int w = 0; w < WAYS; w++ )
+        begin
+                valid_s1[w] = valid_part[w][rd_hi_s1];
         end
 end
 
@@ -522,12 +571,12 @@ begin
         begin
                 valid_q             <= '0;
                 valid_s2            <= '0;
-                valid_s1            <= '0;
+                valid_part          <= '0;
                 valid               <= '0;
         end
         else
         begin
-                if ( !i_hold || tag_ram_clear || line_clear )
+                if ( s1_en )
                 begin
                         for ( int w = 0; w < WAYS; w++ )
                         begin
@@ -535,8 +584,11 @@ begin
                                                rd_set_del2 == pend_addr       && pend_en       && pend_sel[w] ? 1'd1 :
                                                valid_s2[w];
                                 valid_s2[w] <= rd_set_del  == pend_addr && pend_en && pend_sel[w] ? 1'd1 : valid_s1[w];
-                                valid_s1[w] <= rd_set      == pend_addr && pend_en && pend_sel[w] ? 1'd1 :
-                                               valid [ flat(WAY_W'(w), rd_set) ];
+                                for ( int p = 0; p < PARTS; p++ )
+                                begin
+                                        valid_part[w][p] <= {HI_W'(p), rd_set[LO_W-1:0]} == pend_addr && pend_en && pend_sel[w] ? 1'd1 :
+                                                            valid [ flat(WAY_W'(w), {HI_W'(p), rd_set[LO_W-1:0]}) ];
+                                end
                         end
                 end
 
