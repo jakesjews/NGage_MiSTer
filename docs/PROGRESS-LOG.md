@@ -3857,3 +3857,22 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the merger); Antigravity (Gemini, its card-path conversation resumed)
   registering the card model's slot arithmetic (-1.37, the worst
   family in b22).
+- **The main core without the debug logic, seeds 1-3** (NGAGE_NO_DEBUG,
+  c03088f, the server): seed 1 **-1.152 ns** (b22 with the debug logic,
+  seed 1: -1.370), seed 2 -1.285, seed 3 **-0.861**; 35,361-35,591 ALMs
+  (84-85 %; the switch dropped 1,707 registers, the counters' and the
+  overlay's, 1,700 ALMs over b22, twice the estimate), 477 M10K. So the
+  placement noise is ±0.2 around a floor near -0.9 for this tree, and
+  without the overlay the families differ by seed and none dominates:
+  the MMU enable's fanout (cp15 o_mmu_en into the ALU's flags -1.29, the
+  shifter -0.96, the merger's address -0.85: in two of three seeds; it
+  changes only on CP15 writes, so registered copies per consumer are
+  free), the predecode's skid and instruction register into decode
+  (-1.15, -1.04, -0.88), the hit-under-miss slot into the ALU's flags
+  (-0.78), the issue stage's skid into itself (-1.00, -0.74), the Thumb
+  decoder into predecode and the writeback (-0.86, -0.73), postalu2 into
+  the shifter (-0.75). Reports in the session scratch (nd-s1..3-timing)
+  and in Codex's worktree, queued into its round 5 with that ranking.
+  Seed 4 on the Mac still building. Seed 3's rbf
+  (build/hardware/NGage-nd-s3.rbf) is the main-slot candidate once it
+  has had a boot and a game on the board.
