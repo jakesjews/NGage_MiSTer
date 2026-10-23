@@ -65,8 +65,8 @@ its 2025 firmware; if one has moved, the setting is the thing to find.
   what the QD's panel showed.
 - 1:1 pixel aspect because the panel's pixels were square: 176x208 pixels
   on 35x41 mm.
-- Frame Lock because the core's frame is 60.07 Hz, not 60.00; without it
-  a frame is dropped or repeated about every 14 seconds.
+- Sync Lock Gen because the core's frame is 60.07 Hz, not 60.00; with a
+  buffered output a frame is dropped or repeated about every 14 seconds.
 
 ## How the file was made
 
