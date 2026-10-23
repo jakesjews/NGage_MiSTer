@@ -286,6 +286,7 @@ module arm9_core (
 	o_data_wb_align_fault,
 	o_data_wb_va,
 	o_data_wb_ldfmt,
+	o_data_wb_ldfmt_check,
 	o_dcache_line_req,
 	o_dcache_line_op,
 	o_dcache_line_va,
@@ -299,6 +300,8 @@ module arm9_core (
 	o_instr_wb_stb,
 	o_instr_wb_we,
 	i_instr_wb_dat,
+	i_instr_data_early,
+	i_instr_hit,
 	i_instr_wb_ack,
 	i_instr_wb_err,
 	o_instr_wb_sel,
@@ -395,6 +398,7 @@ module arm9_core (
 	output wire o_data_wb_align_fault;
 	output wire [31:0] o_data_wb_va;
 	output wire [5:0] o_data_wb_ldfmt;
+	output wire [5:0] o_data_wb_ldfmt_check;
 	output wire o_dcache_line_req;
 	output wire [1:0] o_dcache_line_op;
 	output wire o_dcache_line_va;
@@ -408,6 +412,8 @@ module arm9_core (
 	output wire o_instr_wb_stb;
 	output wire o_instr_wb_we;
 	input wire [31:0] i_instr_wb_dat;
+	input wire [31:0] i_instr_data_early;
+	input wire i_instr_hit;
 	input wire i_instr_wb_ack;
 	input wire i_instr_wb_err;
 	output wire [3:0] o_instr_wb_sel;
@@ -1399,6 +1405,8 @@ module arm9_core (
 		.i_thumb(cpsr_next[5]),
 		.i_data(i_instr_wb_dat),
 		.i_ack(i_instr_wb_ack),
+		.i_data_early(i_instr_data_early),
+		.i_hit(i_instr_hit),
 		.i_error(i_instr_wb_err),
 		.i_retry(i_icache_err2),
 		.i_fill_pending(i_icache_fill_pending),
@@ -1439,6 +1447,7 @@ module arm9_core (
 	assign o_data_wb_dat = (state == 4'd0 ? fast_m[63-:32] : m_write_data);
 	assign o_data_wb_align_fault = (state == 4'd0 ? fast_m[121] : m_align);
 	assign o_data_wb_va = (state == 4'd0 ? fast_m[95-:32] : m_address);
+	assign o_data_wb_ldfmt_check = (state == 4'd0 ? (reload_check ? fast_m[110-:6] : fast_1[110-:6]) : m_format);
 	assign o_data_wb_ldfmt = (state == 4'd0 ? fast_m[110-:6] : m_format);
 	assign o_mem_translate = (state == 4'd0 ? (reload_check ? fast_m[120] : fast_1[120]) : m_user);
 	assign o_mem_cpsr = (state == 4'd0 ? (reload_check ? fast_m[100 + CPSR_MODE:100] : fast_1[100 + CPSR_MODE:100]) : slow[16 + CPSR_MODE:16]);
@@ -2110,6 +2119,8 @@ module arm9_fetch (
 	i_target,
 	i_thumb,
 	i_data,
+	i_data_early,
+	i_hit,
 	i_ack,
 	i_error,
 	i_retry,
@@ -2130,6 +2141,7 @@ module arm9_fetch (
 	o_thumb_align,
 	i_ready
 );
+	reg _sv2v_0;
 	parameter [31:0] RESET_VECTOR = 0;
 	input wire i_clk;
 	input wire i_reset;
@@ -2137,6 +2149,8 @@ module arm9_fetch (
 	input wire [31:0] i_target;
 	input wire i_thumb;
 	input wire [31:0] i_data;
+	input wire [31:0] i_data_early;
+	input wire i_hit;
 	input wire i_ack;
 	input wire i_error;
 	input wire i_retry;
@@ -2171,6 +2185,14 @@ module arm9_fetch (
 	wire push;
 	wire pop;
 	wire retry;
+	wire response;
+	wire bypass;
+	reg [104:0] early_packet;
+	reg [104:0] selected_packet;
+	wire [31:0] early_incoming;
+	wire [34:0] early_decoded;
+	wire early_und;
+	wire early_align;
 	wire [31:0] incoming;
 	wire [34:0] decoded;
 	wire thumb_und;
@@ -2191,25 +2213,59 @@ module arm9_fetch (
 		.o_irq(),
 		.o_fiq()
 	);
+	assign early_incoming = (f1[32] && f1[1] ? {16'd0, i_data_early[31:16]} : i_data_early);
+	zap_mode16_decoder #(.V4T(1'b1)) u_thumb_early(
+		.i_instruction(early_incoming),
+		.i_instruction_valid(1'b1),
+		.i_offset(11'd0),
+		.i_prev_prefix(1'b0),
+		.i_irq(1'b0),
+		.i_fiq(1'b0),
+		.i_cpsr_ff_t(f1[32]),
+		.o_instruction(early_decoded),
+		.o_instruction_valid(),
+		.o_und(early_und),
+		.o_force32_align(early_align),
+		.o_irq(),
+		.o_fiq()
+	);
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		selected_packet = early_packet;
+		if (!i_hit) begin
+			selected_packet[63-:32] = f2[31-:32];
+			selected_packet[104-:2] = f2[34-:2];
+			selected_packet[31-:32] = incoming;
+			selected_packet[100-:35] = decoded;
+			selected_packet[65] = thumb_und;
+			selected_packet[64] = thumb_align;
+		end
+		selected_packet[102] = i_error || (i_fill_pending && i_fill_fault);
+		selected_packet[101] = i_fill_pending && !i_fill_done;
+	end
 	assign o_address_nxt = launch_pc;
 	assign o_address_check = f1[31-:32];
 	assign o_address = f2[31-:32];
 	assign o_request = f2[35];
 	assign o_stall = ((count == 8) && !killed) || (f2[35] && !i_ack);
 	assign retry = (((f2[35] && i_ack) && i_retry) && !killed) && !i_redirect;
-	assign push = (((((f2[35] && i_ack) && !i_retry) && !o_stall) && !killed) && !i_redirect) && (f2[34-:2] == epoch);
-	assign o_valid = (((count != 0) && !queue[head][101]) && (queue[head][104-:2] == epoch)) && !i_redirect;
-	assign o_pc = queue[head][63-:32];
-	assign o_instruction = queue[head][31-:32];
-	assign o_abort = queue[head][102];
-	assign o_decoded = queue[head][100-:35];
-	assign o_thumb_und = queue[head][65];
-	assign o_thumb_align = queue[head][64];
-	assign pop = o_valid && i_ready;
+	assign response = (((((f2[35] && i_ack) && !i_retry) && !o_stall) && !killed) && !i_redirect) && (f2[34-:2] == epoch);
+	assign bypass = (((count == 0) && response) && i_hit) && !selected_packet[101];
+	assign push = response && !(bypass && i_ready);
+	assign o_valid = bypass || ((((count != 0) && !queue[head][101]) && (queue[head][104-:2] == epoch)) && !i_redirect);
+	assign o_pc = (bypass ? selected_packet[63-:32] : queue[head][63-:32]);
+	assign o_instruction = (bypass ? selected_packet[31-:32] : queue[head][31-:32]);
+	assign o_abort = (bypass ? selected_packet[102] : queue[head][102]);
+	assign o_decoded = (bypass ? selected_packet[100-:35] : queue[head][100-:35]);
+	assign o_thumb_und = (bypass ? selected_packet[65] : queue[head][65]);
+	assign o_thumb_align = (bypass ? selected_packet[64] : queue[head][64]);
+	assign pop = (o_valid && i_ready) && !bypass;
 	always @(posedge i_clk)
 		if (i_reset) begin
 			f1 <= 1'sb0;
 			f2 <= 1'sb0;
+			early_packet <= 1'sb0;
 			launch_pc <= RESET_VECTOR;
 			launch_thumb <= 0;
 			target <= RESET_VECTOR;
@@ -2226,6 +2282,14 @@ module arm9_fetch (
 			end
 		end
 		else begin
+			if (!o_stall) begin
+				early_packet[104-:2] <= f1[34-:2];
+				early_packet[63-:32] <= f1[31-:32];
+				early_packet[31-:32] <= early_incoming;
+				early_packet[100-:35] <= early_decoded;
+				early_packet[65] <= early_und;
+				early_packet[64] <= early_align;
+			end
 			if (i_fill_done) begin : sv2v_autoblock_2
 				reg signed [31:0] n;
 				for (n = 0; n < 8; n = n + 1)
@@ -2235,14 +2299,7 @@ module arm9_fetch (
 					end
 			end
 			if (push) begin
-				queue[tail][104-:2] <= f2[34-:2];
-				queue[tail][63-:32] <= f2[31-:32];
-				queue[tail][31-:32] <= incoming;
-				queue[tail][100-:35] <= decoded;
-				queue[tail][65] <= thumb_und;
-				queue[tail][64] <= thumb_align;
-				queue[tail][102] <= i_error || (i_fill_pending && i_fill_fault);
-				queue[tail][101] <= i_fill_pending && !i_fill_done;
+				queue[tail] <= selected_packet;
 				tail <= tail + 1'b1;
 			end
 			if (pop)
@@ -2283,6 +2340,7 @@ module arm9_fetch (
 				end
 			end
 		end
+	initial _sv2v_0 = 0;
 endmodule
 module arm9_forward (
 	i_value,
@@ -4106,6 +4164,8 @@ module zap_cache (
 	i_ben,
 	i_dat,
 	o_dat,
+	o_data_early,
+	o_hit,
 	o_ack,
 	o_err,
 	o_fsr,
@@ -4166,6 +4226,8 @@ module zap_cache (
 	input wire [3:0] i_ben;
 	input wire [31:0] i_dat;
 	output wire [31:0] o_dat;
+	output wire [31:0] o_data_early;
+	output wire o_hit;
 	output wire o_ack;
 	output wire o_err;
 	output wire [7:0] o_fsr;
@@ -4490,20 +4552,28 @@ module zap_cache (
 	wire tlb_fault;
 	wire tlb_cacheable;
 	wire tlb_busy;
-	wire [(CACHE_LINE * 8) - 1:0] tr_cache_line;
-	wire [(WAYS * 32) - 1:0] tr_cache_words;
-	wire tr_cache_word_sel;
+	reg [(CACHE_LINE * 8) - 1:0] tr_cache_line;
+	reg [(WAYS * 32) - 1:0] tr_cache_words;
+	reg tr_cache_word_sel;
 	wire [(CACHE_LINE * 8) - 1:0] cf_cache_line;
 	wire [CACHE_LINE - 1:0] cf_cache_line_ben;
 	wire cf_cache_tag_wr_en;
-	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tr_cache_tag;
+	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tr_cache_tag;
 	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cf_cache_tag;
-	wire tr_cache_tag_valid;
-	wire tr_cache_hit;
-	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] tr_cache_way;
+	reg tr_cache_tag_valid;
+	reg tr_cache_hit;
+	reg [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] tr_cache_way;
 	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] cf_cache_way;
-	wire tr_cache_tag_dirty;
+	reg tr_cache_tag_dirty;
 	wire cf_cache_tag_dirty;
+	wire [(CACHE_LINE * 8) - 1:0] raw_cache_line;
+	wire [(WAYS * 32) - 1:0] raw_cache_words;
+	wire raw_cache_word_sel;
+	wire raw_cache_tag_valid;
+	wire raw_cache_hit;
+	wire raw_cache_tag_dirty;
+	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] raw_cache_tag;
+	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] raw_cache_way;
 	wire cf_cache_clean_req;
 	wire cf_cache_inv_req;
 	wire tr_cache_inv_done;
@@ -4601,28 +4671,28 @@ module zap_cache (
 	) u_zap_cache_tag_ram(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
-		.i_address_nxt((SHORT_READ ? i_address_check : i_address_nxt)),
+		.i_address_nxt(i_address_nxt),
 		.i_address(cache_address),
-		.i_lookup_address(i_address),
-		.i_access(i_rd || i_wr),
+		.i_lookup_address((SHORT_READ ? i_address_check : i_address)),
+		.i_access((SHORT_READ ? i_rd_check && idle : i_rd || i_wr)),
 		.i_idle(idle),
-		.o_cache_hit(tr_cache_hit),
+		.o_cache_hit(raw_cache_hit),
 		.o_cache_hit_dirty(),
-		.o_cache_way(tr_cache_way),
+		.o_cache_way(raw_cache_way),
 		.i_cache_way(cf_cache_way),
 		.i_hold(hold || i_stall),
 		.i_cache_en(i_cache_en),
 		.i_cache_line(cf_cache_line),
-		.o_cache_line(tr_cache_line),
-		.o_cache_words(tr_cache_words),
-		.o_cache_word_sel(tr_cache_word_sel),
+		.o_cache_line(raw_cache_line),
+		.o_cache_words(raw_cache_words),
+		.o_cache_word_sel(raw_cache_word_sel),
 		.i_cache_line_ben(cf_cache_line_ben),
 		.i_cache_tag_wr_en(cf_cache_tag_wr_en),
 		.i_cache_tag(cf_cache_tag),
 		.i_cache_tag_dirty(cf_cache_tag_dirty),
-		.o_cache_tag(tr_cache_tag),
-		.o_cache_tag_valid(tr_cache_tag_valid),
-		.o_cache_tag_dirty(tr_cache_tag_dirty),
+		.o_cache_tag(raw_cache_tag),
+		.o_cache_tag_valid(raw_cache_tag_valid),
+		.o_cache_tag_dirty(raw_cache_tag_dirty),
 		.i_cache_inv_req(cf_cache_inv_req),
 		.o_cache_inv_done(tr_cache_inv_done),
 		.i_cache_clean_req(cf_cache_clean_req),
@@ -4650,6 +4720,49 @@ module zap_cache (
 		.i_wb_dat(i_wb_dat),
 		.i_wb_ack(wb_ack[1])
 	);
+	assign o_data_early = (raw_cache_word_sel ? raw_cache_words[(WAYS > 1 ? 1 : 0) * 32+:32] : raw_cache_words[0+:32]);
+	assign o_hit = (((((SHORT_READ && idle) && i_cache_en) && tlb_cacheable) && tr_cache_hit) && !tlb_busy) && !tlb_fault;
+	generate
+		if (SHORT_READ) begin : g_short_response
+			always @(posedge i_clk)
+				if (!hold && !i_stall) begin
+					tr_cache_line <= raw_cache_line;
+					tr_cache_words <= raw_cache_words;
+					tr_cache_word_sel <= raw_cache_word_sel;
+					tr_cache_tag <= raw_cache_tag;
+					tr_cache_tag_valid <= raw_cache_tag_valid;
+					tr_cache_hit <= raw_cache_hit;
+					tr_cache_way <= raw_cache_way;
+					tr_cache_tag_dirty <= raw_cache_tag_dirty;
+				end
+		end
+		else begin : g_original_response
+			wire [CACHE_LINE * 8:1] sv2v_tmp_7BD8A;
+			assign sv2v_tmp_7BD8A = raw_cache_line;
+			always @(*) tr_cache_line = sv2v_tmp_7BD8A;
+			wire [WAYS * 32:1] sv2v_tmp_B42F9;
+			assign sv2v_tmp_B42F9 = raw_cache_words;
+			always @(*) tr_cache_words = sv2v_tmp_B42F9;
+			wire [1:1] sv2v_tmp_16B84;
+			assign sv2v_tmp_16B84 = raw_cache_word_sel;
+			always @(*) tr_cache_word_sel = sv2v_tmp_16B84;
+			wire [((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)):1] sv2v_tmp_B2AE3;
+			assign sv2v_tmp_B2AE3 = raw_cache_tag;
+			always @(*) tr_cache_tag = sv2v_tmp_B2AE3;
+			wire [1:1] sv2v_tmp_A3B05;
+			assign sv2v_tmp_A3B05 = raw_cache_tag_valid;
+			always @(*) tr_cache_tag_valid = sv2v_tmp_A3B05;
+			wire [1:1] sv2v_tmp_CADA3;
+			assign sv2v_tmp_CADA3 = raw_cache_hit;
+			always @(*) tr_cache_hit = sv2v_tmp_CADA3;
+			wire [(WAYS > 1 ? $clog2(WAYS) : 1):1] sv2v_tmp_D53DC;
+			assign sv2v_tmp_D53DC = raw_cache_way;
+			always @(*) tr_cache_way = sv2v_tmp_D53DC;
+			wire [1:1] sv2v_tmp_A5BBC;
+			assign sv2v_tmp_A5BBC = raw_cache_tag_dirty;
+			always @(*) tr_cache_tag_dirty = sv2v_tmp_A5BBC;
+		end
+	endgenerate
 	zap_tlb #(
 		.SHORT_READ(SHORT_READ),
 		.LPAGE_TLB_ENTRIES(LPAGE_TLB_ENTRIES),
@@ -9415,6 +9528,7 @@ module zap_dcache (
 	i_align_fault,
 	i_va,
 	i_ldfmt,
+	i_ldfmt_check,
 	o_dat,
 	o_ack,
 	o_err,
@@ -9491,6 +9605,7 @@ module zap_dcache (
 	input wire i_align_fault;
 	input wire [31:0] i_va;
 	input wire [5:0] i_ldfmt;
+	input wire [5:0] i_ldfmt_check;
 	output wire [31:0] o_dat;
 	output wire o_ack;
 	output wire o_err;
@@ -9828,21 +9943,36 @@ module zap_dcache (
 	wire tlb_cacheable;
 	wire tlb_wt;
 	wire tlb_busy;
-	wire [(CACHE_LINE * 8) - 1:0] tr_cache_line;
-	wire [(WAYS * 32) - 1:0] tr_cache_words;
-	wire tr_cache_word_sel;
+	reg [(CACHE_LINE * 8) - 1:0] tr_cache_line;
+	reg [(WAYS * 32) - 1:0] tr_cache_words;
+	reg tr_cache_word_sel;
 	wire [(CACHE_LINE * 8) - 1:0] cf_cache_line;
 	wire [CACHE_LINE - 1:0] cf_cache_line_ben;
 	wire cf_cache_tag_wr_en;
-	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tr_cache_tag;
+	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tr_cache_tag;
 	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cf_cache_tag;
-	wire tr_cache_tag_valid;
-	wire tr_cache_hit;
-	wire tr_cache_hit_dirty;
-	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] tr_cache_way;
+	reg tr_cache_tag_valid;
+	reg tr_cache_hit;
+	reg tr_cache_hit_dirty;
+	reg [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] tr_cache_way;
 	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] cf_cache_way;
-	wire tr_cache_tag_dirty;
+	reg tr_cache_tag_dirty;
 	wire cf_cache_tag_dirty;
+	wire [(CACHE_LINE * 8) - 1:0] raw_cache_line;
+	reg [(CACHE_LINE * 8) - 1:0] merged_line;
+	wire [(WAYS * 32) - 1:0] raw_cache_words;
+	reg [(WAYS * 32) - 1:0] merged_words;
+	wire raw_cache_word_sel;
+	wire raw_cache_tag_valid;
+	wire raw_cache_hit;
+	wire raw_cache_tag_dirty;
+	wire raw_cache_hit_dirty;
+	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] raw_cache_tag;
+	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] raw_cache_way;
+	wire ram_write;
+	wire forward_store;
+	wire forward_victim;
+	wire [31:0] compare_address;
 	wire cf_cache_clean_req;
 	wire cf_cache_inv_req;
 	wire cf_line_req;
@@ -9875,7 +10005,7 @@ module zap_dcache (
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		lookup_address = (SHORT_READ ? i_address_check : i_address_nxt);
+		lookup_address = i_address_nxt;
 		if (SHORT_READ && |relookup)
 			lookup_address = i_address;
 		else if (relookup[0])
@@ -9894,7 +10024,8 @@ module zap_dcache (
 		.CACHE_LINE(CACHE_LINE),
 		.BE_32_ENABLE(BE_32_ENABLE),
 		.EXT_ABORT_FS(EXT_ABORT_FS),
-		.WAYS(WAYS)
+		.WAYS(WAYS),
+		.HIT_FORMATTED(SHORT_READ)
 	) u_zap_cache_fsm(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -9986,26 +10117,26 @@ module zap_dcache (
 		.i_reset(i_reset),
 		.i_address_nxt(lookup_address),
 		.i_address(cache_address),
-		.i_lookup_address(i_address),
-		.i_access((i_rd || i_wr) && idle),
-		.i_idle(idle),
-		.o_cache_hit(tr_cache_hit),
-		.o_cache_hit_dirty(tr_cache_hit_dirty),
-		.o_cache_way(tr_cache_way),
+		.i_lookup_address((SHORT_READ ? compare_address : i_address)),
+		.i_access((SHORT_READ ? (i_rd_check || i_wr_check) && idle : (i_rd || i_wr) && idle)),
+		.i_idle((SHORT_READ ? 1'b0 : idle)),
+		.o_cache_hit(raw_cache_hit),
+		.o_cache_hit_dirty(raw_cache_hit_dirty),
+		.o_cache_way(raw_cache_way),
 		.i_cache_way(cf_cache_way),
 		.i_hold(hold || i_stall),
 		.i_cache_en(i_cache_en),
 		.i_cache_line(cf_cache_line),
-		.o_cache_line(tr_cache_line),
-		.o_cache_words(tr_cache_words),
-		.o_cache_word_sel(tr_cache_word_sel),
-		.i_cache_line_ben(cf_cache_line_ben),
-		.i_cache_tag_wr_en(cf_cache_tag_wr_en),
+		.o_cache_line(raw_cache_line),
+		.o_cache_words(raw_cache_words),
+		.o_cache_word_sel(raw_cache_word_sel),
+		.i_cache_line_ben(cf_cache_line_ben & {CACHE_LINE {ram_write}}),
+		.i_cache_tag_wr_en(cf_cache_tag_wr_en && ram_write),
 		.i_cache_tag(cf_cache_tag),
 		.i_cache_tag_dirty(cf_cache_tag_dirty),
-		.o_cache_tag(tr_cache_tag),
-		.o_cache_tag_valid(tr_cache_tag_valid),
-		.o_cache_tag_dirty(tr_cache_tag_dirty),
+		.o_cache_tag(raw_cache_tag),
+		.o_cache_tag_valid(raw_cache_tag_valid),
+		.o_cache_tag_dirty(raw_cache_tag_dirty),
 		.i_cache_inv_req(cf_cache_inv_req),
 		.o_cache_inv_done(tr_cache_inv_done),
 		.i_cache_clean_req(cf_cache_clean_req),
@@ -10033,6 +10164,113 @@ module zap_dcache (
 		.i_wb_dat(i_wb_dat),
 		.i_wb_ack(wb_ack[1])
 	);
+	assign compare_address = (|relookup ? i_address : i_address_check);
+	assign ram_write = (!SHORT_READ || !idle) || tr_cache_hit;
+	assign forward_store = ((idle && cf_cache_tag_wr_en) && tr_cache_hit) && (compare_address[LINE_W+:SET_W] == cache_address[LINE_W+:SET_W]);
+	assign forward_victim = forward_store && (raw_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0] == cf_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0]);
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		merged_words = raw_cache_words;
+		merged_line = raw_cache_line;
+		begin : sv2v_autoblock_1
+			reg signed [31:0] b;
+			for (b = 0; b < CACHE_LINE; b = b + 1)
+				if (forward_victim && cf_cache_line_ben[b])
+					merged_line[8 * b+:8] = cf_cache_line[8 * b+:8];
+		end
+		begin : sv2v_autoblock_2
+			reg signed [31:0] w;
+			for (w = 0; w < WAYS; w = w + 1)
+				begin : sv2v_autoblock_3
+					reg signed [31:0] b;
+					for (b = 0; b < 4; b = b + 1)
+						if ((forward_store && (cf_cache_way == w)) && cf_cache_line_ben[(4 * compare_address[LINE_W - 1:2]) + b])
+							merged_words[(w * 32) + (8 * b)+:8] = cf_cache_line[(32 * compare_address[LINE_W - 1:2]) + (8 * b)+:8];
+				end
+		end
+	end
+	function automatic [31:0] ld_transform;
+		input [31:0] d;
+		input [5:0] f;
+		reg [7:0] b;
+		reg [15:0] h;
+		begin
+			case (f[5:4])
+				2'd0: b = d[7:0];
+				2'd1: b = d[15:8];
+				2'd2: b = d[23:16];
+				default: b = d[31:24];
+			endcase
+			h = (f[5] ? d[31:16] : d[15:0]);
+			if (f[2])
+				ld_transform = {24'd0, b};
+			else if (f[3])
+				ld_transform = {{24 {b[7]}}, b};
+			else if (f[1])
+				ld_transform = {{16 {h[15]}}, h};
+			else if (f[0])
+				ld_transform = {16'd0, h};
+			else
+				case (f[5:4])
+					2'd0: ld_transform = d;
+					2'd1: ld_transform = {d[7:0], d[31:8]};
+					2'd2: ld_transform = {d[15:0], d[31:16]};
+					default: ld_transform = {d[23:0], d[31:24]};
+				endcase
+		end
+	endfunction
+	generate
+		if (SHORT_READ) begin : g_short_response
+			wire [31:0] formatted;
+			assign formatted = (raw_cache_word_sel ? ld_transform(merged_words[(WAYS > 1 ? 1 : 0) * 32+:32], i_ldfmt_check) : ld_transform(merged_words[0+:32], i_ldfmt_check));
+			always @(posedge i_clk)
+				if (!hold && !i_stall) begin
+					tr_cache_line <= merged_line;
+					tr_cache_tag <= raw_cache_tag;
+					tr_cache_tag_valid <= raw_cache_tag_valid;
+					tr_cache_tag_dirty <= raw_cache_tag_dirty || forward_victim;
+					tr_cache_hit <= raw_cache_hit;
+					tr_cache_way <= raw_cache_way;
+					tr_cache_hit_dirty <= raw_cache_hit_dirty || ((forward_store && raw_cache_hit) && (raw_cache_way == cf_cache_way));
+					tr_cache_word_sel <= 0;
+					begin : sv2v_autoblock_4
+						reg signed [31:0] w;
+						for (w = 0; w < WAYS; w = w + 1)
+							tr_cache_words[w * 32+:32] <= formatted;
+					end
+				end
+		end
+		else begin : g_original_response
+			wire [CACHE_LINE * 8:1] sv2v_tmp_7BD8A;
+			assign sv2v_tmp_7BD8A = raw_cache_line;
+			always @(*) tr_cache_line = sv2v_tmp_7BD8A;
+			wire [WAYS * 32:1] sv2v_tmp_B42F9;
+			assign sv2v_tmp_B42F9 = raw_cache_words;
+			always @(*) tr_cache_words = sv2v_tmp_B42F9;
+			wire [1:1] sv2v_tmp_16B84;
+			assign sv2v_tmp_16B84 = raw_cache_word_sel;
+			always @(*) tr_cache_word_sel = sv2v_tmp_16B84;
+			wire [((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)):1] sv2v_tmp_B2AE3;
+			assign sv2v_tmp_B2AE3 = raw_cache_tag;
+			always @(*) tr_cache_tag = sv2v_tmp_B2AE3;
+			wire [1:1] sv2v_tmp_A3B05;
+			assign sv2v_tmp_A3B05 = raw_cache_tag_valid;
+			always @(*) tr_cache_tag_valid = sv2v_tmp_A3B05;
+			wire [1:1] sv2v_tmp_CADA3;
+			assign sv2v_tmp_CADA3 = raw_cache_hit;
+			always @(*) tr_cache_hit = sv2v_tmp_CADA3;
+			wire [1:1] sv2v_tmp_4FEB8;
+			assign sv2v_tmp_4FEB8 = raw_cache_hit_dirty;
+			always @(*) tr_cache_hit_dirty = sv2v_tmp_4FEB8;
+			wire [(WAYS > 1 ? $clog2(WAYS) : 1):1] sv2v_tmp_D53DC;
+			assign sv2v_tmp_D53DC = raw_cache_way;
+			always @(*) tr_cache_way = sv2v_tmp_D53DC;
+			wire [1:1] sv2v_tmp_A5BBC;
+			assign sv2v_tmp_A5BBC = raw_cache_tag_dirty;
+			always @(*) tr_cache_tag_dirty = sv2v_tmp_A5BBC;
+		end
+	endgenerate
 	zap_tlb #(
 		.SHORT_READ(SHORT_READ),
 		.LPAGE_TLB_ENTRIES(LPAGE_TLB_ENTRIES),
@@ -10245,6 +10483,7 @@ module zap_dcache_fsm (
 	i_wb_err
 );
 	reg _sv2v_0;
+	parameter [0:0] HIT_FORMATTED = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] CACHE_LINE = 32'd8;
 	parameter [0:0] BE_32_ENABLE = 1'd0;
@@ -11006,6 +11245,8 @@ module zap_dcache_fsm (
 		end
 		if (state_ff[UNC_DONE])
 			o_dat = ld_transform(unc_dat_ff, ldfmt);
+		else if (HIT_FORMATTED)
+			o_dat = i_cache_words[0+:32];
 		else
 			o_dat = (i_cache_word_sel ? ld_transform(i_cache_words[(WAYS > 1 ? 1 : 0) * 32+:32], i_ldfmt) : ld_transform(i_cache_words[0+:32], i_ldfmt));
 		case (1'd1)
@@ -22484,6 +22725,8 @@ module zap_top (
 	wire icache_err2;
 	wire arm9_data_stall;
 	wire data_fill_busy;
+	wire [31:0] ic_data_early;
+	wire ic_hit;
 	wire icache_fill_pending;
 	wire icache_fill_done;
 	wire icache_fill_fault;
@@ -22500,6 +22743,7 @@ module zap_top (
 	wire [31:0] cpu_dline_addr;
 	wire cpu_dline_way;
 	wire [31:0] cpu_daddr_va;
+	wire [5:0] cpu_dldfmt_check;
 	wire [5:0] cpu_dldfmt;
 	wire code_stall;
 	assign s_reset = i_reset;
@@ -22515,6 +22759,7 @@ module zap_top (
 	generate
 		if (CORE == "ZAP") begin : g_zap
 			assign arm9_data_stall = 1'b0;
+			assign cpu_dldfmt_check = 6'd0;
 			localparam [31:0] sv2v_uu_u_zap_core_ext_i_fsr_0 = 1'sb0;
 			localparam [31:0] sv2v_uu_u_zap_core_ext_i_far_0 = 1'sb0;
 			localparam [63:0] sv2v_uu_u_zap_core_ext_i_dc_reg_idx_0 = 1'sb0;
@@ -22696,6 +22941,8 @@ module zap_top (
 				.o_instr_wb_sel(),
 				.o_code_stall(code_stall),
 				.i_instr_wb_dat((!ONLY_CORE ? ic_data : i_wb_dat)),
+				.i_instr_data_early(ic_data_early),
+				.i_instr_hit(!ONLY_CORE && ic_hit),
 				.i_instr_wb_ack(instr_ack),
 				.i_instr_wb_err(instr_err),
 				.o_data_wb_we(cpu_dc_we),
@@ -22717,6 +22964,7 @@ module zap_top (
 				.o_data_wb_align_fault(cpu_align_fault),
 				.o_data_wb_va(cpu_daddr_va),
 				.o_data_wb_ldfmt(cpu_dldfmt),
+				.o_data_wb_ldfmt_check(cpu_dldfmt_check),
 				.o_dcache_line_req(cpu_dline_req),
 				.o_dcache_line_op(cpu_dline_op),
 				.o_dcache_line_va(cpu_dline_va),
@@ -22760,7 +23008,7 @@ module zap_top (
 		end
 		else begin : g_invalid_core
 			initial begin
-				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:564:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
+				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:571:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
 				$finish(1);
 			end
 		end
@@ -22913,6 +23161,7 @@ module zap_top (
 				.i_align_fault(cpu_align_fault),
 				.i_va(cpu_daddr_va),
 				.i_ldfmt(cpu_dldfmt),
+				.i_ldfmt_check(cpu_dldfmt_check),
 				.i_line_req(cpu_dline_req),
 				.i_line_op(cpu_dline_op),
 				.i_line_va(cpu_dline_va),
@@ -22984,6 +23233,8 @@ module zap_top (
 				.i_ben(4'b1111),
 				.i_dat(32'd0),
 				.o_dat(ic_data),
+				.o_data_early(ic_data_early),
+				.o_hit(ic_hit),
 				.o_ack(instr_ack),
 				.o_err(instr_err),
 				.o_fsr(),

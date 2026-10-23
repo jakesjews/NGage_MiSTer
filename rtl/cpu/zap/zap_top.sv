@@ -254,6 +254,8 @@ logic [63:0]     dc_lock;
 logic [31:0]     dc_reg_data;
 logic            icache_err2, dcache_err2;
 logic arm9_data_stall, data_fill_busy;
+logic [31:0] ic_data_early;
+logic ic_hit;
 logic            icache_fill_pending, icache_fill_done, icache_fill_fault;
 logic            cpu_dwe_check, cpu_dre_check;
 logic            s_reset, s_fiq, s_irq;
@@ -263,6 +265,7 @@ logic [1:0]      cpu_dline_op;                                // ARM925T
 logic [31:0]     cpu_dline_addr;                              // ARM925T
 logic            cpu_dline_way;                               // ARM925T
 logic [31:0]     cpu_daddr_va;      // ARM925T
+logic [5:0] cpu_dldfmt_check;
 logic [5:0]      cpu_dldfmt;        // ARM925T
 logic            code_stall;
 
@@ -289,6 +292,7 @@ logic                o_trace_uop_last;
 
 if (CORE == "ZAP") begin : g_zap
 assign arm9_data_stall = 1'b0;
+assign cpu_dldfmt_check = 6'd0;
 zap_core #(
         .CP15_L4_DEFAULT(CP15_L4_DEFAULT),
         .BP_ENTRIES(BP_ENTRIES),
@@ -484,6 +488,8 @@ arm9_core #(
 .o_code_stall           (code_stall),
 
 .i_instr_wb_dat         (!ONLY_CORE ? ic_data   : i_wb_dat),
+.i_instr_data_early     (ic_data_early),
+.i_instr_hit            (!ONLY_CORE && ic_hit),
 .i_instr_wb_ack         (instr_ack),
 .i_instr_wb_err         (instr_err),
 
@@ -517,6 +523,7 @@ arm9_core #(
 .o_data_wb_align_fault  (cpu_align_fault),
 .o_data_wb_va           (cpu_daddr_va),
 .o_data_wb_ldfmt        (cpu_dldfmt),
+.o_data_wb_ldfmt_check  (cpu_dldfmt_check),
 .o_dcache_line_req      (cpu_dline_req),
 .o_dcache_line_op       (cpu_dline_op),
 .o_dcache_line_va       (cpu_dline_va),
@@ -810,6 +817,7 @@ u_data_cache (
 .i_align_fault          (cpu_align_fault),
 .i_va                   (cpu_daddr_va),
 .i_ldfmt                (cpu_dldfmt),
+.i_ldfmt_check          (cpu_dldfmt_check),
 .i_line_req             (cpu_dline_req),
 .i_line_op              (cpu_dline_op),
 .i_line_va              (cpu_dline_va),
@@ -894,6 +902,8 @@ u_code_cache (
 .i_ben             (4'b1111),
 .i_dat             (32'd0),
 .o_dat             (ic_data),
+.o_data_early      (ic_data_early),
+.o_hit             (ic_hit),
 .o_ack             (instr_ack),
 .o_err             (instr_err),
 

@@ -1,14 +1,13 @@
 # ARM9 integer pipeline replacement
 
-Status: partial session-6 cache/schedule checkpoint, 2026-10-23 deliverable.
-ZAP remains the production default. ARM9 selects a one-edge cache RAM with
-registered write-collision forwarding and a one-edge TLB read followed by the
-unchanged registered permission check. Scalar hits and blocks still stream one
-access per clock; the immediate load-use interlock is now two clocks. Fetch
-still takes three edges through response/Thumb capture, so an unpredicted taken
-branch costs five clocks, one above the requested four. Fixed block/multiply
-barriers, the predictor, and the performance/timing/area gates remain open.
-The session-6 sections below supersede the historical native-latency sections.
+Status: session-6 two-edge cache schedule, 2026-10-23 deliverable.
+ZAP remains the production default. ARM9 launches its one-edge cache RAM and
+TLB together from registered next-PC (fetch) or E's effective address (data).
+The next edge captures tag/way/word selection and load formatting alongside
+the unchanged registered permission check. Fetch hits enter D from a registered
+F2 packet, taking four clocks for an unpredicted branch; load-use remains two.
+Fixed block/multiply barriers, prediction and performance/timing/area gates
+remain open. The session-6 sections supersede the historical native schedule.
 Starting revision: `75cce2e`, branch `codex/arm9`.
 
 ## Contract and sources
@@ -659,40 +658,43 @@ word offsets, two ways, fill/refetch, and dirty eviction against QEMU.
 adjacent hit/fill LRU and dirty updates; QEMU has no cache model for that test.
 
 
-## Session 6: shorter TLB and CPU schedule (partial step 2)
+## Session 6: two-edge cache schedule
 
 The TLB's `zap_mem_inv_block.SHORT_READ` presents its first-edge read at
 `o_rdata_pre`; `zap_tlb_check` still registers the original permission and
-translation equations on the next edge. This is selected only for ARM9.
-The one-entry write bypass covers a simultaneous TLB fill/read, and invalidate
-clears both array valid bits and the output valid even while held. There are no
-changes to page walks, CP15 semantics, access modes or fault priorities.
-
-One result record and one fetch lookup record are removed. Data ordering is:
+translation equations on the next edge. Page walks, CP15 semantics, own-mode
+checks and fault priorities are unchanged. The first reload edge has no aligned
+check packet, so its read/write-check enables remain zero.
 
 | Edge relative to E handoff | Record / operation |
 | --- | --- |
-| 1 | `fast_1`: TLB read from E's address; retain complete access metadata |
-| 2 | `fast_m`: registered TLB permission result and cache RAM read from `fast_1` |
-| 3 | `fast_w`: capture existing cache compare/select/format result |
-| 4 | Retire W; its registered load value was available to E during clock 3 |
+| 1 | `fast_1` / M1: parallel cache and TLB RAM reads from E; retain access metadata |
+| 2 | `fast_m` / M2: register permissions and cache hit, way, word and formatted value |
+| 3 | `fast_w` / W: capture the ordered response or miss lock; forward the registered load |
+| 4 | Retire W |
 
-Thus a following E consumer waits two clocks. There is no cache-data-to-E
-combinational path. Six load/base producer slots replace eight; youngest writer
-priority and W's miss lock are unchanged. Fills and TLB retries reconstruct the
-two held address records. The first reload edge has no aligned check packet:
-its read/write-check enables must be zero. Otherwise stale TLB data paired with
-the younger address can start a phantom page walk indefinitely. The new LRU
-test exposed exactly this at latency 0:0; the permission-check gate fixes it.
+An immediate consumer still waits two clocks. There is no combinational
+cache-data-to-E path. The M2 response stays with the registered TLB permission
+result; the existing FSM handles misses, uncached requests and faults before
+W may retire. Six load/base producer slots preserve youngest-writer priority.
+Fills and retries reconstruct both held lookup records.
 
-Fetch uses two lookup records, then captures response/Thumb translation in the
-queue on the third edge. The address still comes from the registered next PC.
-This is **not yet F1/F2**: five-clock unpredicted B/BL remains. The cache itself
-has one RAM edge plus compare/capture, but is launched one edge after the TLB.
-Starting the cache from E/next-PC and retaining its early result alongside the
-permission result, without lengthening compare/Thumb/decode, is the next design
-boundary. Removing the permission register or bypassing the queue was not
-accepted as an unmeasured timing change.
+The D-cache store uses the registered hit way, qualified by the registered hit,
+so a younger probe cannot select its destination and a miss cannot write RAM.
+The RAM collision register covers the E lookup sampled on the write edge.
+A byte-enable merge also forwards that store into the older M1 lookup already
+outside RAM. It updates the victim line and dirty state as well as the formatted
+load, preserving a following dirty eviction. LRU follows the early probe and
+its existing current/pending forwarding. The shared compare equations are
+unchanged; the merge adds a timing risk before the M2 data register.
+
+Fetch launches from registered next-PC. F1 reads cache and TLB in parallel;
+F2 captures the word, Thumb translation and permission result. An empty queue
+can present this **registered** hit packet directly to D. Queued instructions
+retain priority, and misses/uncached responses use ordinary response capture.
+No raw cache output bypasses the F2 instruction register. Redirects still kill
+epochs, and fill-pending instructions cannot issue. This removes the redundant
+hit enqueue edge: unpredicted B/BL costs four clocks including the branch.
 
 ### Exact hot windows against the TRM
 
@@ -706,7 +708,7 @@ retargets all 69 original windows and the seven stream windows stay at 9.
 | Eight independent DP | 9 | 9 |
 | Four dependent / flag-dependent DP | 5 | 5 |
 | Register shift / skipped register shift | 3 / 2 | 3 / 2 |
-| DP to PC / register-shift DP to PC | 4 / 5 | 9 / 9 |
+| DP to PC / register-shift DP to PC | 4 / 5 | 8 / 8 |
 | LDR + independent ALU | 3 | 3 |
 | Aligned LDR + immediate ALU consumer | 4 | 5 |
 | Immediate aligned load-use interlock (no marker) | 1 | 2 |
@@ -714,16 +716,16 @@ retargets all 69 original windows and the seven stream windows stay at 9.
 | LDR + base / store / shifted-value consumer | dependency-specific | 5 / 5 / 5 |
 | LDR + register shift-count consumer | load dependency plus shift cycle | 6 |
 | LDR + 1 / 2 / 3 independent DP + consumer | 4 / 5 / 6 | 5 / 5 / 6 |
-| LDR PC | 6 | 9 |
+| LDR PC | 6 | 8 |
 | STR | 2 | 2 |
 | LDM1 / STM1 | 3 | 9 / 9 |
 | LDM3 / STM3 | 4 | 11 / 11 |
-| LDM3 including PC | 8 | 15 |
+| LDM3 including PC | 8 | 14 |
 | SWP / SWPB + ALU | 3 / 5 | 11 / 12 |
-| B / BL / BX | 4 | 6 / 6 / 9 |
-| MRS / flags-only MSR / control MSR | 2 / 2 / 4 | 6 / 9 / 9 |
-| MCR / MRC / MRC + consumer / MRC PC | b+2 / b+2 / b+4 / b+4 | 16 / 14 / 15 / 14 |
-| SWI / UND / unsupported CDP/LDC/STC | 3 to vector, plus actual vector trampoline | 18 |
+| B / BL / BX | 4 | 5 / 5 / 8 |
+| MRS / flags-only MSR / control MSR | 2 / 2 / 4 | 6 / 8 / 8 |
+| MCR / MRC / MRC + consumer / MRC PC | b+2 / b+2 / b+4 / b+4 | 15 / 12 / 13 / 12 |
+| SWI / UND / unsupported CDP/LDC/STC | 3 to vector, plus actual vector trampoline | 16 |
 | MUL/MLA, m=1..4 | 4..7 | 8..11 |
 | Long multiply, m=1..4 | 5..8 | 9..12 |
 | Eight hit accesses in each of seven stream windows | 9 | 9 |

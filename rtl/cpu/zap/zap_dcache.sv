@@ -65,6 +65,7 @@ input   logic [31:0]     i_dat,
 input   logic            i_align_fault,  // ARM925T: alignment fault (see zap_core).
 input   logic [31:0]     i_va,           // ARM925T: full address, for the FAR.
 input   logic [5:0]      i_ldfmt,        // ARM925T: load format (see zap_core).
+input logic [5:0] i_ldfmt_check,
 output logic  [31:0]     o_dat,
 output  logic            o_ack,
 output  logic            o_err,
@@ -147,6 +148,13 @@ logic                            tr_cache_tag_valid;
 logic                            tr_cache_hit, tr_cache_hit_dirty; // ARM925T
 logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] tr_cache_way, cf_cache_way; // ARM925T
 logic                            tr_cache_tag_dirty, cf_cache_tag_dirty;
+logic [CACHE_LINE*8-1:0] raw_cache_line, merged_line;
+logic [WAYS-1:0][31:0] raw_cache_words, merged_words;
+logic raw_cache_word_sel, raw_cache_tag_valid, raw_cache_hit, raw_cache_tag_dirty, raw_cache_hit_dirty;
+logic [`ZAP_CACHE_TAG_WDT-1:0] raw_cache_tag;
+logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] raw_cache_way;
+logic ram_write, forward_store, forward_victim;
+logic [31:0] compare_address;
 logic                            cf_cache_clean_req, cf_cache_inv_req;
 logic                            cf_line_req, tr_line_done;   // ARM925T
 logic                            tr_cache_inv_done, tr_cache_clean_done;
@@ -183,11 +191,11 @@ end
 // Reload the held lookup, then the two younger ones. At the next IDLE
 // cycle all three RAM stages again align with the CPU. The mux is before
 // the RAM's first register; the shared tag RAM's hit path is untouched.
-// ARM9: only the held request needs restoring in the one-edge cache. Its
-// normal launch is i_address_check; i_address_nxt still feeds the TLB.
+// ARM9: restore the held request during the FSM reload; ordinary reads
+// launch from E in parallel with the TLB and capture their compare next.
 always_comb
 begin
-        lookup_address = SHORT_READ ? i_address_check : i_address_nxt;
+        lookup_address = i_address_nxt;
         if      ( SHORT_READ && (|relookup) ) lookup_address = i_address;
         else if ( relookup[0] ) lookup_address[LINE_W +: SET_W] = i_address[LINE_W +: SET_W];
         else if ( relookup[1] ) lookup_address[LINE_W +: SET_W] = lookup_s1;
@@ -204,7 +212,7 @@ assign unused = |{wb_err[1]};
 
 // Basic cache FSM - serves as manager 0.
 zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE(BE_32_ENABLE),
-                 .EXT_ABORT_FS(EXT_ABORT_FS), .WAYS(WAYS)) u_zap_cache_fsm (
+                 .EXT_ABORT_FS(EXT_ABORT_FS), .WAYS(WAYS), .HIT_FORMATTED(SHORT_READ)) u_zap_cache_fsm (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address              (i_address),
@@ -296,27 +304,27 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .i_reset                (i_reset),
         .i_address_nxt          (lookup_address),
         .i_address              (cache_address),
-        .i_lookup_address       (i_address),            // ARM925T
+        .i_lookup_address       (SHORT_READ ? compare_address : i_address),            // ARM925T
         // Held/stale lookups must not update replacement state.
-        .i_access               ((i_rd || i_wr) && idle),
-        .i_idle                 (idle),
-        .o_cache_hit            (tr_cache_hit),
-        .o_cache_hit_dirty      (tr_cache_hit_dirty),
-        .o_cache_way            (tr_cache_way),
+        .i_access               (SHORT_READ ? (i_rd_check || i_wr_check) && idle : (i_rd || i_wr) && idle),
+        .i_idle                 (SHORT_READ ? 1'b0 : idle),
+        .o_cache_hit            (raw_cache_hit),
+        .o_cache_hit_dirty      (raw_cache_hit_dirty),
+        .o_cache_way            (raw_cache_way),
         .i_cache_way            (cf_cache_way),
         .i_hold                 (hold || i_stall),
         .i_cache_en             (i_cache_en),
         .i_cache_line           (cf_cache_line),
-        .o_cache_line           (tr_cache_line),
-        .o_cache_words          (tr_cache_words),
-        .o_cache_word_sel       (tr_cache_word_sel),
-        .i_cache_line_ben       (cf_cache_line_ben),
-        .i_cache_tag_wr_en      (cf_cache_tag_wr_en),
+        .o_cache_line           (raw_cache_line),
+        .o_cache_words          (raw_cache_words),
+        .o_cache_word_sel       (raw_cache_word_sel),
+        .i_cache_line_ben       (cf_cache_line_ben & {CACHE_LINE{ram_write}}),
+        .i_cache_tag_wr_en      (cf_cache_tag_wr_en && ram_write),
         .i_cache_tag            (cf_cache_tag),
         .i_cache_tag_dirty      (cf_cache_tag_dirty),
-        .o_cache_tag            (tr_cache_tag),
-        .o_cache_tag_valid      (tr_cache_tag_valid),
-        .o_cache_tag_dirty      (tr_cache_tag_dirty),
+        .o_cache_tag            (raw_cache_tag),
+        .o_cache_tag_valid      (raw_cache_tag_valid),
+        .o_cache_tag_dirty      (raw_cache_tag_dirty),
         .i_cache_inv_req        (cf_cache_inv_req),
         .o_cache_inv_done       (tr_cache_inv_done),
         .i_cache_clean_req      (cf_cache_clean_req),
@@ -348,6 +356,65 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .i_wb_dat               (i_wb_dat),
         .i_wb_ack               (wb_ack[1])
 );
+
+// ARM9: compare the E-launched RAM result in M1, then capture M2.
+// The FSM still classifies the ordered request after the registered TLB
+// permission check. A store writes its registered way, never the younger
+// probe's hit way. On a miss no speculative store write reaches the RAM.
+assign compare_address = (|relookup) ? i_address : i_address_check;
+assign ram_write = !SHORT_READ || !idle || tr_cache_hit;
+assign forward_store = idle && cf_cache_tag_wr_en && tr_cache_hit &&
+                       compare_address[LINE_W +: SET_W] == cache_address[LINE_W +: SET_W];
+assign forward_victim = forward_store &&
+                       raw_cache_tag[`ZAP_CACHE_TAG__TAG] == cf_cache_tag[`ZAP_CACHE_TAG__TAG];
+// The RAM's collision register covers the E lookup sampled on this write
+// edge. This merge covers the older M1 lookup already outside the RAM.
+always_comb begin
+    merged_words = raw_cache_words;
+    merged_line = raw_cache_line;
+    for (int b=0; b<CACHE_LINE; b++) begin
+        if (forward_victim && cf_cache_line_ben[b])
+            merged_line[8*b +: 8] = cf_cache_line[8*b +: 8];
+    end
+    for (int w=0; w<WAYS; w++) begin
+        for (int b=0; b<4; b++) begin
+            if (forward_store && cf_cache_way == w &&
+                cf_cache_line_ben[4*compare_address[LINE_W-1:2]+b])
+                merged_words[w][8*b +: 8] = cf_cache_line[32*compare_address[LINE_W-1:2]+8*b +: 8];
+        end
+    end
+end
+`include "zap_load_format.svh"
+generate if (SHORT_READ) begin : g_short_response
+    logic [31:0] formatted;
+    assign formatted = raw_cache_word_sel ?
+        ld_transform(merged_words[(WAYS > 1) ? 1 : 0], i_ldfmt_check) :
+        ld_transform(merged_words[0], i_ldfmt_check);
+    always_ff @(posedge i_clk) begin
+        if (!hold && !i_stall) begin
+            tr_cache_line <= merged_line;
+            tr_cache_tag <= raw_cache_tag;
+            tr_cache_tag_valid <= raw_cache_tag_valid;
+            tr_cache_tag_dirty <= raw_cache_tag_dirty || forward_victim;
+            tr_cache_hit <= raw_cache_hit;
+            tr_cache_way <= raw_cache_way;
+            tr_cache_hit_dirty <= raw_cache_hit_dirty ||
+                (forward_store && raw_cache_hit && raw_cache_way == cf_cache_way);
+            tr_cache_word_sel <= 0;
+            for (int w=0; w<WAYS; w++) tr_cache_words[w] <= formatted;
+        end
+    end
+end else begin : g_original_response
+    assign tr_cache_line = raw_cache_line;
+    assign tr_cache_words = raw_cache_words;
+    assign tr_cache_word_sel = raw_cache_word_sel;
+    assign tr_cache_tag = raw_cache_tag;
+    assign tr_cache_tag_valid = raw_cache_tag_valid;
+    assign tr_cache_hit = raw_cache_hit;
+    assign tr_cache_hit_dirty = raw_cache_hit_dirty;
+    assign tr_cache_way = raw_cache_way;
+    assign tr_cache_tag_dirty = raw_cache_tag_dirty;
+end endgenerate
 
 // ZAP TLB control module. Includes TLB RAM inside - Manager 2.
 zap_tlb #(

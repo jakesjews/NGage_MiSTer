@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Two TLB read/check edges, then response/Thumb capture into an eight-entry
-// instruction queue. The cache RAM reads on the second TLB edge.
+// Parallel cache/TLB read, then registered compare/Thumb translation.
+// F2 hits may enter D directly; an eight-entry queue decouples backend stalls.
 // The cache owns an untagged outstanding bus transaction. A redirect kills its
 // epoch immediately, but drains that transaction before reusing the lookup pipe.
 module arm9_fetch #(
@@ -10,7 +10,8 @@ module arm9_fetch #(
     input logic i_redirect,
     input logic [31:0] i_target,
     input logic i_thumb,
-    input logic [31:0] i_data,
+    input logic [31:0] i_data, i_data_early,
+    input logic i_hit,
     input logic i_ack, i_error, i_retry,
     input logic i_fill_pending, i_fill_done, i_fill_fault,
     output logic [31:0] o_address_nxt, o_address_check, o_address,
@@ -43,7 +44,11 @@ module arm9_fetch #(
     logic [31:0] launch_pc, target;
     logic launch_thumb, target_thumb, killed;
     logic [1:0] epoch;
-    logic push, pop, retry;
+    logic push, pop, retry, response, bypass;
+    entry_t early_packet, selected_packet;
+    logic [31:0] early_incoming;
+    logic [34:0] early_decoded;
+    logic early_und, early_align;
     logic [31:0] incoming;
     logic [34:0] decoded;
     logic thumb_und, thumb_align;
@@ -57,6 +62,28 @@ module arm9_fetch #(
         .o_force32_align(thumb_align), .o_irq(), .o_fiq()
     );
 
+    assign early_incoming = f1.thumb && f1.pc[1] ? {16'd0,i_data_early[31:16]} : i_data_early;
+    zap_mode16_decoder #(.V4T(1'b1)) u_thumb_early (
+        .i_instruction(early_incoming), .i_instruction_valid(1'b1), .i_offset(11'd0),
+        .i_prev_prefix(1'b0), .i_irq(1'b0), .i_fiq(1'b0), .i_cpsr_ff_t(f1.thumb),
+        .o_instruction(early_decoded), .o_instruction_valid(), .o_und(early_und),
+        .o_force32_align(early_align), .o_irq(), .o_fiq()
+    );
+    // F2 is already a data register. Empty-queue hits can enter D directly;
+    // queued entries retain priority and misses use the ordinary capture.
+    always_comb begin
+        selected_packet = early_packet;
+        if (!i_hit) begin
+            selected_packet.pc = f2.pc;
+            selected_packet.epoch = f2.epoch;
+            selected_packet.instruction = incoming;
+            selected_packet.decoded = decoded;
+            selected_packet.thumb_und = thumb_und;
+            selected_packet.thumb_align = thumb_align;
+        end
+        selected_packet.fault = i_error || (i_fill_pending && i_fill_fault);
+        selected_packet.pending = i_fill_pending && !i_fill_done;
+    end
     assign o_address_nxt = launch_pc;
     assign o_address_check = f1.pc;
     assign o_address = f2.pc;
@@ -65,21 +92,23 @@ module arm9_fetch #(
     // metadata together. Pending queue entries resolve even while held.
     assign o_stall = (count == 8 && !killed) || (f2.valid && !i_ack);
     assign retry = f2.valid && i_ack && i_retry && !killed && !i_redirect;
-    assign push = f2.valid && i_ack && !i_retry && !o_stall &&
+    assign response = f2.valid && i_ack && !i_retry && !o_stall &&
                   !killed && !i_redirect && f2.epoch == epoch;
-    assign o_valid = count != 0 && !queue[head].pending &&
-                     queue[head].epoch == epoch && !i_redirect;
-    assign o_pc = queue[head].pc;
-    assign o_instruction = queue[head].instruction;
-    assign o_abort = queue[head].fault;
-    assign o_decoded = queue[head].decoded;
-    assign o_thumb_und = queue[head].thumb_und;
-    assign o_thumb_align = queue[head].thumb_align;
-    assign pop = o_valid && i_ready;
+    assign bypass = count == 0 && response && i_hit && !selected_packet.pending;
+    assign push = response && !(bypass && i_ready);
+    assign o_valid = bypass || (count != 0 && !queue[head].pending &&
+                     queue[head].epoch == epoch && !i_redirect);
+    assign o_pc = bypass ? selected_packet.pc : queue[head].pc;
+    assign o_instruction = bypass ? selected_packet.instruction : queue[head].instruction;
+    assign o_abort = bypass ? selected_packet.fault : queue[head].fault;
+    assign o_decoded = bypass ? selected_packet.decoded : queue[head].decoded;
+    assign o_thumb_und = bypass ? selected_packet.thumb_und : queue[head].thumb_und;
+    assign o_thumb_align = bypass ? selected_packet.thumb_align : queue[head].thumb_align;
+    assign pop = o_valid && i_ready && !bypass;
 
     always_ff @(posedge i_clk) begin
         if (i_reset) begin
-            f1 <= '0; f2 <= '0;
+            f1 <= '0; f2 <= '0; early_packet <= '0;
             launch_pc <= RESET_VECTOR;
             launch_thumb <= 0;
             target <= RESET_VECTOR; target_thumb <= 0;
@@ -87,6 +116,14 @@ module arm9_fetch #(
             head <= 0; tail <= 0; count <= 0;
             for (int n=0; n<8; n++) queue[n] <= '0;
         end else begin
+            if (!o_stall) begin
+                early_packet.epoch <= f1.epoch;
+                early_packet.pc <= f1.pc;
+                early_packet.instruction <= early_incoming;
+                early_packet.decoded <= early_decoded;
+                early_packet.thumb_und <= early_und;
+                early_packet.thumb_align <= early_align;
+            end
             if (i_fill_done) begin
                 for (int n=0; n<8; n++) begin
                     if (queue[n].pending) begin
@@ -96,14 +133,7 @@ module arm9_fetch #(
                 end
             end
             if (push) begin
-                queue[tail].epoch <= f2.epoch;
-                queue[tail].pc <= f2.pc;
-                queue[tail].instruction <= incoming;
-                queue[tail].decoded <= decoded;
-                queue[tail].thumb_und <= thumb_und;
-                queue[tail].thumb_align <= thumb_align;
-                queue[tail].fault <= i_error || (i_fill_pending && i_fill_fault);
-                queue[tail].pending <= i_fill_pending && !i_fill_done;
+                queue[tail] <= selected_packet;
                 tail <= tail + 1'b1;
             end
             if (pop) head <= head + 1'b1;

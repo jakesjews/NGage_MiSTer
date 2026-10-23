@@ -59,6 +59,9 @@ input   logic            i_wr,
 input   logic [3:0]      i_ben,
 input   logic [31:0]     i_dat,
 output logic  [31:0]     o_dat,
+// ARM9: raw F1 word, captured/translated in F2; o_hit qualifies that packet.
+output logic [31:0] o_data_early,
+output logic o_hit,
 output  logic            o_ack,
 output  logic            o_err,
 output  logic [7:0]      o_fsr,
@@ -125,6 +128,12 @@ logic                            tr_cache_tag_valid;
 logic                            tr_cache_hit;                  // ARM925T
 logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] tr_cache_way, cf_cache_way; // ARM925T
 logic                            tr_cache_tag_dirty, cf_cache_tag_dirty;
+
+logic [CACHE_LINE*8-1:0] raw_cache_line;
+logic [WAYS-1:0][31:0] raw_cache_words;
+logic raw_cache_word_sel, raw_cache_tag_valid, raw_cache_hit, raw_cache_tag_dirty;
+logic [`ZAP_CACHE_TAG_WDT-1:0] raw_cache_tag;
+logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] raw_cache_way;
 logic                            cf_cache_clean_req, cf_cache_inv_req;
 logic                            tr_cache_inv_done, tr_cache_clean_done;
 logic [2:0]                      wb_ack;
@@ -217,35 +226,34 @@ zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u
 );
 
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
-// ARM9: the single-edge cache reads one clock before the request. The TLB
-// still needs i_address_nxt one edge earlier for its registered check.
+// ARM9 reads cache and TLB together, then registers compare/selection.
 zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .SHORT_READ(SHORT_READ)) u_zap_cache_tag_ram     (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
-        .i_address_nxt          (SHORT_READ ? i_address_check : i_address_nxt),
+        .i_address_nxt          (i_address_nxt),
         .i_address              (cache_address),
-        .i_lookup_address       (i_address),            // ARM925T
-        .i_access               (i_rd || i_wr),
+        .i_lookup_address       (SHORT_READ ? i_address_check : i_address),            // ARM925T
+        .i_access               (SHORT_READ ? i_rd_check && idle : i_rd || i_wr),
         .i_idle                 (idle),
-        .o_cache_hit            (tr_cache_hit),
+        .o_cache_hit            (raw_cache_hit),
         /* verilator lint_off PINCONNECTEMPTY */
         .o_cache_hit_dirty      (),                     // never dirty
         /* verilator lint_on PINCONNECTEMPTY */
-        .o_cache_way            (tr_cache_way),
+        .o_cache_way            (raw_cache_way),
         .i_cache_way            (cf_cache_way),
         .i_hold                 (hold || i_stall),
         .i_cache_en             (i_cache_en),
         .i_cache_line           (cf_cache_line),
-        .o_cache_line           (tr_cache_line),
-        .o_cache_words          (tr_cache_words),
-        .o_cache_word_sel       (tr_cache_word_sel),
+        .o_cache_line           (raw_cache_line),
+        .o_cache_words          (raw_cache_words),
+        .o_cache_word_sel       (raw_cache_word_sel),
         .i_cache_line_ben       (cf_cache_line_ben),
         .i_cache_tag_wr_en      (cf_cache_tag_wr_en),
         .i_cache_tag            (cf_cache_tag),
         .i_cache_tag_dirty      (cf_cache_tag_dirty),
-        .o_cache_tag            (tr_cache_tag),
-        .o_cache_tag_valid      (tr_cache_tag_valid),
-        .o_cache_tag_dirty      (tr_cache_tag_dirty),
+        .o_cache_tag            (raw_cache_tag),
+        .o_cache_tag_valid      (raw_cache_tag_valid),
+        .o_cache_tag_dirty      (raw_cache_tag_dirty),
         .i_cache_inv_req        (cf_cache_inv_req),
         .o_cache_inv_done       (tr_cache_inv_done),
         .i_cache_clean_req      (cf_cache_clean_req),
@@ -279,6 +287,36 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .i_wb_dat               (i_wb_dat),
         .i_wb_ack               (wb_ack[1])
 );
+
+// ARM9 reads in parallel with the TLB. Tag/way/word selection is captured
+// on the permission-check edge, without changing the shared compare logic.
+// Misses and uncached responses continue through the FSM's normal response.
+assign o_data_early = raw_cache_word_sel ? raw_cache_words[(WAYS > 1) ? 1 : 0] : raw_cache_words[0];
+assign o_hit = SHORT_READ && idle && i_cache_en && tlb_cacheable &&
+               tr_cache_hit && !tlb_busy && !tlb_fault;
+generate if (SHORT_READ) begin : g_short_response
+    always_ff @(posedge i_clk) begin
+        if (!hold && !i_stall) begin
+            tr_cache_line <= raw_cache_line;
+            tr_cache_words <= raw_cache_words;
+            tr_cache_word_sel <= raw_cache_word_sel;
+            tr_cache_tag <= raw_cache_tag;
+            tr_cache_tag_valid <= raw_cache_tag_valid;
+            tr_cache_hit <= raw_cache_hit;
+            tr_cache_way <= raw_cache_way;
+            tr_cache_tag_dirty <= raw_cache_tag_dirty;
+        end
+    end
+end else begin : g_original_response
+    assign tr_cache_line = raw_cache_line;
+    assign tr_cache_words = raw_cache_words;
+    assign tr_cache_word_sel = raw_cache_word_sel;
+    assign tr_cache_tag = raw_cache_tag;
+    assign tr_cache_tag_valid = raw_cache_tag_valid;
+    assign tr_cache_hit = raw_cache_hit;
+    assign tr_cache_way = raw_cache_way;
+    assign tr_cache_tag_dirty = raw_cache_tag_dirty;
+end endgenerate
 
 // ZAP TLB control module. Includes TLB RAM inside - manager 2.
 zap_tlb #(

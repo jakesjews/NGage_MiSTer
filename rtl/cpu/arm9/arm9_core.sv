@@ -90,6 +90,7 @@ output logic [31:0]                      o_data_wb_va,
 // value (address bits 1:0, signed byte, unsigned byte, signed halfword,
 // unsigned halfword), for loads the D-cache completes in the background.
 output logic [5:0]                       o_data_wb_ldfmt,
+output logic [5:0]                       o_data_wb_ldfmt_check,
 
 // ARM925T: single-line D-cache operation (zap_cp15_cb).
 output logic                             o_dcache_line_req,
@@ -115,6 +116,8 @@ output logic                             o_instr_wb_cyc, // Qualified fetch requ
 output logic                             o_instr_wb_stb, // Qualified fetch request.
 output logic                             o_instr_wb_we,  // Always 0.
 input logic [31:0]                       i_instr_wb_dat, // A 32-bit ZAP instruction.
+input logic [31:0]                       i_instr_data_early,
+input logic                              i_instr_hit,
 input logic                              i_instr_wb_ack, // Instruction available.
 input logic                              i_instr_wb_err, // Instruction abort fault.
 output logic [3:0]                       o_instr_wb_sel, // wishbone byte select.
@@ -639,6 +642,7 @@ arm9_fetch #(.RESET_VECTOR(RESET_VECTOR)) u_fetch (
     .i_target(pipe_fault ? vector_base + 16 : pipe_pc_redirect ?
         (cpsr_next[5] ? (fast_w.load_data & 32'hfffffffe) : (fast_w.load_data & 32'hfffffffc)) : early_redirect ? ex_branch : cpsr_next[5] ? (next_pc & 32'hfffffffe) : (next_pc & 32'hfffffffc)),
     .i_thumb(cpsr_next[5]), .i_data(i_instr_wb_dat), .i_ack(i_instr_wb_ack),
+    .i_data_early(i_instr_data_early), .i_hit(i_instr_hit),
     .i_error(i_instr_wb_err), .i_retry(i_icache_err2),
     .i_fill_pending(i_icache_fill_pending), .i_fill_done(i_icache_fill_done),
     .i_fill_fault(i_icache_fill_fault), .o_address_nxt(f_address_nxt),
@@ -681,6 +685,7 @@ assign o_data_wb_sel = state == IDLE ? fast_m.sel : m_sel;
 assign o_data_wb_dat = state == IDLE ? fast_m.store_data : m_write_data;
 assign o_data_wb_align_fault = state == IDLE ? fast_m.align_fault : m_align;
 assign o_data_wb_va = state == IDLE ? fast_m.address : m_address;
+assign o_data_wb_ldfmt_check = state == IDLE ? (reload_check ? fast_m.format : fast_1.format) : m_format;
 assign o_data_wb_ldfmt = state == IDLE ? fast_m.format : m_format;
 assign o_mem_translate = state == IDLE ? (reload_check ? fast_m.user_access : fast_1.user_access) : m_user;
 assign o_mem_cpsr = state == IDLE ? (reload_check ? fast_m.access_mode[CPSR_MODE:0] : fast_1.access_mode[CPSR_MODE:0]) : slow.flags[CPSR_MODE:0];

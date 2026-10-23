@@ -24,7 +24,8 @@
 `include "zap_defines.svh"
 
 module zap_dcache_fsm   #(
-        parameter logic [31:0] CACHE_SIZE    = 32'd1024,  // Bytes.
+        parameter logic HIT_FORMATTED = 1'b0,
+parameter logic [31:0] CACHE_SIZE    = 32'd1024,  // Bytes.
         parameter logic [31:0] CACHE_LINE    = 32'd8,
         parameter logic        BE_32_ENABLE  = 1'd0,
         // ARM925T: FSR status for an external abort on an uncached access:
@@ -248,31 +249,7 @@ assign      unused = |{phy_addr[$clog2(CACHE_LINE)-1:0]};
 // {address[1:0], signed byte, unsigned byte, signed halfword, unsigned
 // halfword}; a word is rotated by the address (ARMv4 unaligned LDR).
 //
-function automatic [31:0] ld_transform ( input [31:0] d, input [5:0] f );
-        logic [7:0]  b;
-        logic [15:0] h;
-
-        case ( f[5:4] )
-        2'd0:    b = d[7:0];
-        2'd1:    b = d[15:8];
-        2'd2:    b = d[23:16];
-        default: b = d[31:24];
-        endcase
-
-        h = f[5] ? d[31:16] : d[15:0];
-
-        if      ( f[2] ) ld_transform = {24'd0, b};
-        else if ( f[3] ) ld_transform = {{24{b[7]}}, b};
-        else if ( f[1] ) ld_transform = {{16{h[15]}}, h};
-        else if ( f[0] ) ld_transform = {16'd0, h};
-        else
-        case ( f[5:4] )
-        2'd0:    ld_transform = d;
-        2'd1:    ld_transform = {d[7:0],  d[31:8]};
-        2'd2:    ld_transform = {d[15:0], d[31:16]};
-        default: ld_transform = {d[23:0], d[31:24]};
-        endcase
-endfunction
+`include "zap_load_format.svh"
 
 // Tie flops to the output
 assign o_cache_clean_req = cache_clean_req_ff; // Tie req flop to output.
@@ -502,6 +479,10 @@ begin:next_state_logic
         if(state_ff[UNC_DONE])
         begin
             o_dat = ld_transform(unc_dat_ff, ldfmt);
+        end
+        else if (HIT_FORMATTED)
+        begin
+            o_dat = i_cache_words[0];
         end
         else
         begin

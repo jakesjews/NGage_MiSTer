@@ -1,0 +1,8 @@
+Session 6 continuation from 8acb1f1, schedule milestone
+Generated netlist SHA256: b956cab6410bf6e12cf1545b642aa10b762ac8bd1f693eac031558cd8af811fa
+ARM9: targeted cache checks 27/27; required targets plus windows 33/33.
+ARM9 and ZAP: full suite 225/225 each; 60/60 QEMU comparisons each.
+76 timing windows: all visits on both cores at every latency; exact hot ARM9 0:0 checks.
+make lint; explicit ARM9 -Wall lint; make cpu-gen-check: pass.
+Existing binaries and QEMU references reused. No firmware boot or Quartus run.
+Counts in session6b-schedule.json; all nine comparison instruction counts and every ZAP cycle count unchanged.
