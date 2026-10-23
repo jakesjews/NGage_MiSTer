@@ -3013,3 +3013,37 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   K/s; Sonic 9-12 frames/s, 22-23.3 M/s, CPI 4.5-4.7, issue 33 %.
   The first frame-rate step: Asphalt from six ticks a frame to about
   four and a half.
+- Codex's SDRAM open-page policy (9d36431, merged 864e71a): one row open
+  per bank, precharge only on a conflict or before a refresh; a row-hit
+  first word 8 -> 5 clocks, a line 15 -> 12; the SDRAM, fault-injection,
+  UPP and top benches pass. Quartus 17 rejected its inline genvar loop
+  (fixed, 9bb4942). Codex's critical-word-first (3d440a4, merged 75cce2e):
+  the burst starts at the requested word with wrapped order carried end
+  to end, the loaded register written one edge after its beat; cache
+  789,484 -> 760,787 cycles. Both merged on master; building (b9, b10).
+- **The merged tree misses timing by 3 ns** (b8: -3.014 ns at slow 100C,
+  -3.047 at slow -40C; the tree before the four changes missed by
+  0.15-0.4). Two families, from the full-path report
+  (session scratch, b8-timing/critical-paths.rpt): the BTB's registered
+  decision now computed from pc_nxt, through the decode stage's stall and
+  clear_btb (11.8 ns: f83073f did what its brief said not to), and the late
+  operand pickup resolving the pending operand from the D-cache's live read
+  data and the FSM's state into the ALU's operand mux (-3.0 to -2.7, many
+  paths). Handed to Codex as a timing task (codex/timing worktree): resolve
+  only from registered values, the BTB's read from a register, verified
+  with the CPU-only Quartus trial. The merged build is on the board to see
+  whether it runs at all at that miss.
+- **The ARM9 pipeline project started** (the user: "kick off codex on the
+  larger arm work now"; "the first game people will probably fire up will
+  be sonic"): Codex on codex/arm9 with the brief in the session's scratch
+  area (codex-impl-arm9.md): an ARM9TDMI-style five-stage core under
+  rtl/cpu/arm9/ selected by a CORE parameter in arm925t.sv, ZAP's CP15,
+  MMU, caches, bus, debug taps and verification kept, the TRM's chapter 7
+  cycle counts as the specification, a timing trial of the execute stage
+  before the core; milestones: the design document, the execute datapath's
+  trial, the skeleton, the full set, the netlist and trial. Robert Peip's
+  DS source turned out to be public (TinyRetroWarehouse/DSFPGA, GPLv3) but
+  its ARM9 is his multi-cycle ARM7 design; MiSTfits-devel/Nitro_DarkSide
+  (2026) the same lineage; both and his GBA ARM7TDMI are references for
+  semantics and cycle counts, the TRM for the pipeline. The repository
+  goes public and GPL code may be mixed in (the user).
