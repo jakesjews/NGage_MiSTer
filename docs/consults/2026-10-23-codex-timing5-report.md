@@ -195,25 +195,58 @@ project/QIP files also match at all three seeds.
 The retained TLB+issue tree is now submitted for the three-seed combined
 measurement. No candidate is retained on simulation results alone.
 
+## First combined tree
+
+The first retained combination is `35aa83e` (TLB summary + per-slot issue,
+plus the six-port disposition report). Seeds 1 / 2 are **−0.680 / −0.732 ns**,
+using **34,872 / 35,032 ALMs**, with 477 RAM blocks. Both source manifests
+match the remote builds. Seed 3 is still running; these first two results
+already imply a median below the −0.300 ns goal.
+
+Seed 1's worst path is issue `o_load_pending_ff[1]` through the barrel shifter
+into `o_shifted_source_value_ff[16]` (−0.680 ns); the next paths are saved
+operand index into normal ALU-source capture (−0.650 ns) and the externally
+owned card model (−0.600 ns). Seed 2's worst path is predecode instruction
+bit 4 into decode's LSL-zero summary (−0.732 ns). The TLB RAM into the new
+fault-summary register is next at −0.653 ns. The shifter-output family is
+−0.535 ns in seed 2.
+
+The combined issue acceptance family is −0.195 / −0.372 ns, still better
+than both original seeds. The D-TLB summary's outgoing family is +0.705 /
+−0.360 ns: seed 2 is 0.018 ns worse than the original baseline despite the
+isolated port's paired improvement. The new incoming summary path also
+needs attention. These interactions are reported rather than treating the
+isolated results as a guarantee for the combination. The next TLB trial
+measures both incoming and outgoing paths.
+
+The equivalent rotate-barrel candidate, rebased onto this combination as
+`rotate2`, is now in its paired trial. It passes the full suite, QEMU diff,
+both lint modes and generated checks again, with every count unchanged.
+
 ## Further candidates prepared from the main-core baseline
 
-**Predecode classification:** classify the zero-masked live instruction for
-both ARM and Thumb before selecting the skid slot. Save both bits with the
-skid payload under its existing enable. Current mode selects the appropriate
-bit, preserving behavior even across a held slot. In ARMv4T IDLE, the uop
-sequencer selects this early result, masking the Thumb BL markers and its
-NV link micro-op. Other sequencer states and non-V4T configurations retain
-classification of the generated micro-op. No instruction-valid, stall or
-clear edge changes. This builds on the parallel-classification experiment
-recorded in timing3 trial 16, but additionally moves classification before
-the skid mux and saves its result with the held instruction.
+**Predecode classification:** classify the live instruction for both ARM
+and Thumb before selecting the skid slot. Classifying zero is false in both
+modes, so instruction-valid qualifies the final two classification bits
+instead of all 35 instruction bits. Save those bits and a Thumb-BL marker
+with the skid payload under its existing enable. Current mode selects the
+appropriate result, preserving behavior across a held slot. In ARMv4T IDLE,
+the sequencer selects this early result and masks the Thumb BL markers and
+NV link micro-op using the preclassified marker. Other sequencer states and
+non-V4T configurations retain classification of the generated micro-op. No
+instruction-valid, stall or clear edge changes. This extends the earlier
+parallel-classification experiment in timing3 trial 16 by moving the logic
+before the skid mux and saving its result with the held instruction.
 
-The full 225-run suite and 57 QEMU comparisons pass with identical counts.
-A SAT check using the actual current uop sequencer proves the classification
-identity for arbitrary defined inputs and state wherever the early result
-is selected; later states use the identical original classifier. This is
-not a full-core formal proof. Main/debug lint and generated-netlist checks
-pass. The timing acceptance family is all paths into `o_v5_und_ff`.
+The initial candidate and its refined `classify2` port onto the retained
+TLB+issue tree pass all 225 unchanged counts and 57 QEMU comparisons. A SAT
+check of the actual sequencer proves the rewrite classification identity
+for arbitrary defined inputs and state wherever the early result is
+selected. A separate induction check of the actual predecode and its child
+modules proves the saved classification/marker relationships and equivalence
+to the original classifier on every valid emitted instruction after reset.
+Main/debug lint and generated checks pass. The target family is all paths
+into `o_v5_und_ff`; paired fits are still pending.
 
 **ALU flag enable:** extract the flags register from the broad pipeline
 output priority block. Its dedicated enable includes the original data
@@ -268,6 +301,86 @@ and generation checks passing. A two-valued protocol miter proves matching
 valid command data and controls by induction; it includes state, valid and
 valid saved-word observers to preserve the induction relationship. Inactive
 command words may differ. This candidate has not been fitted or retained.
+
+**UPP next-line comparison (`buscompare`):** capture the predecessor of
+the SDRAM line beside `blk`, then compare the unincremented live bus address
+with the current or predecessor line. Wrap-four keeps the line; wrap-eight
+and wrap-sixteen use their small wrapped low-bit comparisons. This removes
+the live wide increment from the line-boundary control decision. All request,
+acknowledge, data and address-register edges remain unchanged. The saved
+predecessor is updated on every existing `blk` write, including read-line
+continuations. The proof covers arbitrary addresses and all four BTE modes,
+not an assumption that the master always addresses the current line.
+
+Actual-module induction proves the saved-predecessor invariant and both
+old/new line comparisons whenever the SDRAM states use them. The CPU suite
+and QEMU comparisons are unchanged. UPP, peripheral, save and synthetic top
+benches pass with the same 26 clock/result lines as the baseline (including
+159,279,244 clocks for the synthetic top bench). Main/debug lint and generated
+checks pass. Paired whole-core fits against the combined tree are pending;
+acceptance covers arbiter control and merger addresses into all UPP registers,
+including the new predecessor register.
+
+**Background-load index (`bgindex`):** capture a six-bit index and nonzero-mask
+valid bit with the miss context, then emit them at the same critical-beat edge
+as the existing registered write mask and data. The shifter and ALU compare
+this binary index for late pickup, replacing six 64:1 mask selections. The
+one-hot mask continues to write the register file and clear locks. Stores,
+uncached accesses, critical-word-first, hit-under-miss and error completion
+keep their existing state transitions. Reset clears both completion-valid
+representations; an inactive binary payload is not observed.
+
+The core already produces a one-hot mask from the same binary index. Under
+that interface relationship (also allowing an empty mask), induction on the
+actual FSM proves the saved and emitted representations agree. A separate
+SAT check proves the old mask-select and new compare for every operand index.
+All 225 counts and 57 QEMU comparisons agree; both lint configurations and
+generated checks pass. Before any paired results, the target is fixed as
+completion mask/index/valid into ALU and shifter registers; the broader
+cache/MMU stall query remains a companion check. The reporter-only query
+is added to the in-flight combined baseline without changing any synthesis
+inputs. This candidate is prepared on the TLB+issue tree but not yet fitted.
+
+**Local barrel pending selects (`pendingselect`):** the existing preserved
+source-pending register was used by the forwarding bypass but the barrel
+instance still used the general pending vector. Quartus reports this copy as
+protected: the attribute survived synthesis. Its documented
+[`preserve` attribute](https://resources.altera.com/quartushelp/17.0/hdl/vlog/vlog_file_dir.htm)
+prevents synthesis removal of the register; the missed barrel connection is
+the issue here. Route the barrel's source
+mux from that existing copy, and add the corresponding amount-pending copy
+at the same issue edge. Both have the original pending bits' reset, clear,
+load and held-completion behavior. No new mux, operand source or pipeline
+edge is introduced. This targets the actual pending-bit paths seen in both
+combined seeds; the acceptance minimum includes shifter output and issue
+pending capture, including the new copy's D path. Induction on the actual issue module proves both copies equal their
+original pending bits after reset, for arbitrary inputs, clears and holds.
+The full suite and QEMU diff retain all counts; both lint modes and generated
+checks pass. Timing fits have not run yet.
+
+**Direct TLB permission summary (`tlbsummary`):** compute each domain's
+one-bit permission outcome before the domain selection, then register the
+selected outcome directly instead of reducing the encoded FSR after its
+mux. Small-page and section invalid-descriptor/external-abort cases still
+force a fault; large/fine pages keep their original rules. The encoded FSR,
+FAR, translations, cache attributes, walk behavior and checker enable stay
+unchanged. HUM's registered permission uses the same new summary. All 149
+actual-module equivalence points prove in both MMU-off cacheability configurations, and all 225 counts / 57 QEMU
+comparisons remain identical. Its pre-fit acceptance family includes both
+all D-TLB fault/permission-register inputs and the outgoing fault summary;
+I-TLB inputs and outputs are companion queries. Fits are pending.
+
+**LSL-zero summary before translation (`lslzero`):** compare the decoder's
+raw shift length with immediate zero before register-bank translation.
+Immediate operands pass translation unchanged; index operands have their
+immediate bit clear on both sides and cannot match. The instruction decoder,
+translated operand and every register edge are unchanged. This removes the
+bank-translation mux from the summary path identified as seed 2's worst.
+Actual-module equivalence proves all 2,345 points for the configured decoder.
+All 225 cycle/instruction counts and 57 QEMU comparisons agree; both lint
+modes and generated checks pass. Its two-seed trial is queued after the
+supplemental baseline timing queries, with the entire predecode-to-decode
+output family as the acceptance criterion.
 
 The issue-stage equivalence check proves all 2,135 comparison points after
 supplying the saved-slot mirror invariants. Separate two-valued induction
