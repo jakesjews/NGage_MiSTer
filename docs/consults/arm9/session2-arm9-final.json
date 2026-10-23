@@ -1,0 +1,110 @@
+{
+  "cache.0-0": {
+    "cycles": 2553475,
+    "instructions": 293427
+  },
+  "cache.0-3": {
+    "cycles": 2613823,
+    "instructions": 293427
+  },
+  "cache.2-9": {
+    "cycles": 2803925,
+    "instructions": 293427
+  },
+  "dcache_rtl.0-0": {
+    "cycles": 163476,
+    "instructions": 12771
+  },
+  "dcache_rtl.0-3": {
+    "cycles": 189557,
+    "instructions": 12771
+  },
+  "dcache_rtl.2-9": {
+    "cycles": 259170,
+    "instructions": 12771
+  },
+  "icache_rtl.0-0": {
+    "cycles": 163204,
+    "instructions": 12771
+  },
+  "icache_rtl.0-3": {
+    "cycles": 189350,
+    "instructions": 12771
+  },
+  "icache_rtl.2-9": {
+    "cycles": 259203,
+    "instructions": 12771
+  },
+  "ctrand1.0-0": {
+    "cycles": 202854,
+    "instructions": 16159
+  },
+  "ctrand1.0-3": {
+    "cycles": 231634,
+    "instructions": 16159
+  },
+  "ctrand1.2-9": {
+    "cycles": 309047,
+    "instructions": 16159
+  },
+  "crand1.0-0": {
+    "cycles": 203684,
+    "instructions": 15982
+  },
+  "crand1.0-3": {
+    "cycles": 234675,
+    "instructions": 15982
+  },
+  "crand1.2-9": {
+    "cycles": 318037,
+    "instructions": 15982
+  },
+  "gba_arm.0-0": {
+    "cycles": 13315,
+    "instructions": 1192
+  },
+  "gba_arm.0-3": {
+    "cycles": 15305,
+    "instructions": 1192
+  },
+  "gba_arm.2-9": {
+    "cycles": 20663,
+    "instructions": 1192
+  },
+  "gba_thumb.0-0": {
+    "cycles": 8538,
+    "instructions": 774
+  },
+  "gba_thumb.0-3": {
+    "cycles": 9804,
+    "instructions": 774
+  },
+  "gba_thumb.2-9": {
+    "cycles": 13270,
+    "instructions": 774
+  },
+  "mmu_page.0-0": {
+    "cycles": 216632,
+    "instructions": 16887
+  },
+  "mmu_page.0-3": {
+    "cycles": 250908,
+    "instructions": 16887
+  },
+  "mmu_page.2-9": {
+    "cycles": 341968,
+    "instructions": 16887
+  },
+  "align.0-0": {
+    "cycles": 8847,
+    "instructions": 549
+  },
+  "align.0-3": {
+    "cycles": 10171,
+    "instructions": 549
+  },
+  "align.2-9": {
+    "cycles": 13817,
+    "instructions": 549
+  }
+}

@@ -301,6 +301,8 @@ int main(int argc, char **argv) {
 
 	bool halted = false;
 	uint32_t last_pc = 0, last_r_pc = 0;
+    uint64_t pending_blocking_load = 0;
+    uint32_t pending_blocking_data = 0;
 	char last_ev = 0;
 	while (!stop && cycle < max_cycles) {
 		// ---- before the rising edge: sample what commits at this edge ----
@@ -370,7 +372,8 @@ int main(int argc, char **argv) {
 
 		// ---- rising edge ----
 		// A background write must follow the requested beat by exactly one
-		// edge, and the destination stays locked until that write reaches RF.
+		// edge, and the destination stays locked through the completion edge.
+		// ZAP writes RF there; ARM9 captures it and commits at a later W edge.
 		uint64_t dc_write = t->p_dc_reg_wr;
 		uint32_t dc_data = t->p_dc_reg_data;
 		uint64_t lock_before = t->p_lock;
@@ -385,14 +388,34 @@ int main(int argc, char **argv) {
 			dc_writes++;
 			if (t->p_dc_state & (1u << 4)) dc_early_writes++;
 		}
+        const uint64_t load_commit = t->p_load_commit;
+        const uint32_t load_value = t->p_load_value;
+        if (t->p_blocking_load && dc_write) {
+            if (!t->p_load_capture || pending_blocking_load)
+                error("cycle %" PRIu64 ": blocking core did not accept its cache completion", cycle);
+            pending_blocking_load = dc_write;
+            pending_blocking_data = dc_data;
+        }
+        if (load_commit && pending_blocking_load) {
+            if (load_commit != pending_blocking_load || load_value != pending_blocking_data)
+                error("cycle %" PRIu64 ": blocking load retired the wrong cache value", cycle);
+            pending_blocking_load = 0;
+        }
+        if (t->p_blocking_load && ev && ev != 'R') pending_blocking_load = 0;
 		t->clk = 1;
 		t->eval();
 		cycle++;
+        if (t->p_blocking_load && dc_write && t->p_load_value != dc_data)
+            error("cycle %" PRIu64 ": blocking load capture lost its cache value", cycle);
+        for (int r = 0; load_commit && r < 40; r++)
+            if ((load_commit >> r) & 1)
+                if (reg_word(t, r) != load_value)
+                    error("cycle %" PRIu64 ": blocking load did not commit r%d", cycle, r);
 		if ((lock_before & ~uint64_t(t->p_lock)) != dc_write)
 			error("cycle %" PRIu64 ": load lock cleared without its register write", cycle);
 		for (int r = 0; dc_write && r < 40; r++)
 			if ((dc_write >> r) & 1)
-				if ((t->p_lock & dc_write) || reg_word(t, r) != dc_data)
+				if ((t->p_lock & dc_write) || (!t->p_blocking_load && reg_word(t, r) != dc_data))
 					error("cycle %" PRIu64 ": early load write did not reach unlocked r%d", cycle, r);
 
 		// ---- after the edge: state after the committed instruction ----

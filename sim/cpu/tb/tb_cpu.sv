@@ -71,7 +71,12 @@ module tb_cpu #(
 	output logic [31:0]   p_dc_reg_data,
 	output logic [31:0]   p_dc_fill_addr,
 	output logic         p_dc_fill_take,
-	// pre-decoder's prediction and the ALU's check, for main.cpp --pddbg
+	// Blocking ARM9 loads capture cache completion before architectural W.
+    output logic         p_blocking_load,
+    output logic         p_load_capture,
+    output logic [63:0]  p_load_commit,
+    output logic [31:0]  p_load_value,
+    // pre-decoder's prediction and the ALU's check, for main.cpp --pddbg
 	output logic [31:0]   p_pd_pc,
 	output logic [31:0]   p_pd_ins,
 	output logic [31:0]   p_pd_ppc,
@@ -120,7 +125,11 @@ module tb_cpu #(
 	assign p_ttb   = dut.u_zap.cpu_baddr;
 	assign p_dacr  = dut.u_zap.cpu_dac_reg;
 	assign p_mmu   = dut.u_zap.cpu_mmu_en;
+    assign p_blocking_load = CORE == "ARM9";
 	if (CORE == "ZAP") begin : g_zap_probes
+    assign p_load_capture = 0;
+    assign p_load_commit = 0;
+    assign p_load_value = 0;
 	assign p_valid = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_valid;
 	assign p_cfail = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_decompile_valid;
 	assign p_last  = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_uop_last;
@@ -160,6 +169,9 @@ module tb_cpu #(
 	`undef AL
 	end else begin : g_arm9_probes
 	`define A9 dut.u_zap.g_arm9.u_arm9_core
+    assign p_load_capture = `A9.load_capture;
+    assign p_load_commit = `A9.load_commit;
+    assign p_load_value = `A9.m_read_data;
 	assign p_valid = `A9.o_dbg_wb_valid;
 	assign p_cfail = `A9.o_dbg_wb_dvalid;
 	assign p_last = `A9.o_dbg_wb_uop_last;

@@ -111,8 +111,8 @@ input logic                              i_irq,                  // IRQ signal.
 // ---------------------------------------------------
 
 output logic     [31:0]                  o_instr_wb_adr, // Code address.
-output logic                             o_instr_wb_cyc, // Always 1.
-output logic                             o_instr_wb_stb, // Always 1.
+output logic                             o_instr_wb_cyc, // Qualified fetch request.
+output logic                             o_instr_wb_stb, // Qualified fetch request.
 output logic                             o_instr_wb_we,  // Always 0.
 input logic [31:0]                       i_instr_wb_dat, // A 32-bit ZAP instruction.
 input logic                              i_instr_wb_ack, // Instruction available.
@@ -204,11 +204,11 @@ output  logic [7:0]                      o_dbg_stall
 // No younger memory side effect can escape an older exception in this version.
 typedef enum logic [4:0] {
     F1, F2, F3, FETCH, FETCH_TAIL, DECODE, SHIFT_WAIT, EXECUTE,
-    M1, M2, M3, MEMORY, LOAD_CLASSIFY, LOAD_WAIT, WRITEBACK, COPRO
+    M1, M2, M3, MEMORY, LOAD_CLASSIFY, LOAD_WAIT, WRITEBACK, COPRO, RESTORE_BASE, MUL_ADD, MUL_WAIT
 } state_t;
 typedef enum logic [3:0] {
     K_DP, K_MRS, K_MSR, K_BRANCH, K_BX, K_MEM, K_BLOCK, K_CP,
-    K_UND, K_SWI, K_BL_PREFIX, K_BL_SUFFIX, K_SWP
+    K_UND, K_SWI, K_BL_PREFIX, K_BL_SUFFIX, K_SWP, K_MUL, K_MULL
 } kind_t;
 state_t state;
 kind_t kind_d, kind_e;
@@ -242,7 +242,9 @@ logic [15:0] remaining, list_d;
 logic [3:0] transfer_reg_d;
 logic [4:0] transfer_count_d;
 logic sequence_active;
-logic [31:0] sequence_address, sequence_base;
+logic [31:0] sequence_address, sequence_base, sequence_original;
+logic [63:0] multiply_product, multiply_accumulator, multiply_result;
+logic [2:0] multiply_delay;
 logic [31:0] copro_reg_wr_data, copro_reg_rd_data;
 logic [5:0] copro_reg_wr_index, copro_reg_rd_index;
 logic copro_done, copro_reg_en, align_en, hivecs, l4_enable;
@@ -251,7 +253,13 @@ logic [31:0] vector_base;
 
 // The common top supplies already formatted D-cache data. Parameters retained
 // for the drop-in core interface that do not apply to this controller.
-wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, translated[33:32]};
+    wire load_capture = (state == LOAD_CLASSIFY || state == LOAD_WAIT) &&
+                           m_load && i_dc_reg_idx[m_dst];
+    wire [63:0] load_commit = state == WRITEBACK && w_valid && w_load &&
+                          (kind_e == K_MEM || kind_e == K_BLOCK || kind_e == K_SWP) ?
+                          (64'd1 << m_dst) : 64'd0;
+
+wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, translated[33:32], load_capture, load_commit};
 assign cpsr = o_dbg_wb_cpsr;
 assign pc8 = pc + (cpsr[5] ? 32'd4 : 32'd8);
 assign vector_base = hivecs ? 32'hffff0000 : 32'd0;
@@ -268,6 +276,12 @@ zap_mode16_decoder #(.V4T(1'b1)) u_thumb (
 function automatic [31:0] fcse(input [31:0] address);
     return address[31:25] == 0 ? {o_pid[6:0], address[24:0]} : address;
 endfunction
+function automatic [2:0] multiply_iterations(input [31:8] rs, input signed_end);
+    if (rs[31:8] == 0 || (signed_end && (&rs[31:8]))) return 1;
+    if (rs[31:16] == 0 || (signed_end && (&rs[31:16]))) return 2;
+    if (rs[31:24] == 0 || (signed_end && (&rs[31:24]))) return 3;
+    return 4;
+endfunction
 function automatic [31:0] rotate_right(input [31:0] v, input [4:0] n);
     return (v >> n) | (v << ((32 - {1'b0,n}) & 63));
 endfunction
@@ -278,10 +292,13 @@ always_comb begin
     else if (ins[27:25] == 3'b101) kind_d = K_BRANCH;
     else if (ins[27:25] == 3'b100) kind_d = K_BLOCK;
     else if (ins[27:26] == 2'b01 && !(ins[25] && ins[4])) kind_d = K_MEM;
+    else if ((ins & 32'h0fc000f0) == 32'h00000090) kind_d = K_MUL;
+    else if ((ins & 32'h0f8000f0) == 32'h00800090) kind_d = K_MULL;
     else if ((ins & 32'h0fb00ff0) == 32'h01000090) kind_d = K_SWP;
     else if ((ins & 32'h0ffffff0) == 32'h012fff10) kind_d = K_BX;
     else if ((ins & 32'h0fbf0fff) == 32'h010f0000) kind_d = K_MRS;
-    else if ((ins & 32'h0db0f000) == 32'h0120f000) kind_d = K_MSR;
+    else if ((ins & 32'h0fb0fff0) == 32'h0120f000 ||
+             (ins & 32'h0fb0f000) == 32'h0320f000) kind_d = K_MSR;
     else if (ins[27:24] == 4'he && ins[4] && ins[11:8] == 4'hf)
         kind_d = cpsr[4:0] == USR ? K_UND : K_CP;
     else if (ins[27:25] == 0 && ins[7] && ins[4] && ins[6:5] != 0)
@@ -290,7 +307,11 @@ always_comb begin
              !(!ins[20] && ins[24:23] == 2'b10)) kind_d = K_DP;
     if (cpsr[5] && raw_ins[15:11] == 5'b11110) kind_d = K_BL_PREFIX;
     if (cpsr[5] && raw_ins[15:11] == 5'b11111) kind_d = K_BL_SUFFIX;
-    if (thumb_und) kind_d = K_UND;
+    // ARMv4T treats condition NV and ARMv5 doubleword transfers as undefined.
+    if ((!cpsr[5] && ins[31:28] == 4'hf) ||
+        (kind_d == K_MEM && ins[27:26] == 0 && !ins[20] && ins[6]) ||
+        (cpsr[5] && raw_ins[15:11] == 5'b11101) || thumb_und)
+        kind_d = K_UND;
 
     list_d = sequence_active ? remaining : ins[15:0];
     // Empty register lists are deliberately undefined until their ARM9
@@ -306,10 +327,15 @@ always_comb begin
     read_tag[1] = translate({1'b0, ins[3:0]}, cpsr[4:0]);
     read_tag[2] = translate(ARCH_CURR_SPSR, cpsr[4:0]);
     read_tag[3] = translate({1'b0, ins[15:12]}, cpsr[4:0]);
+    // A flag-restoring PC write needs SPSR in addition to Rn/Rm/Rs. The
+    // fourth port is otherwise unused by data processing, even with Rs.
+    if (kind_d == K_DP && ins[20] && ins[15:12] == 15)
+        read_tag[3] = translate(ARCH_CURR_SPSR, cpsr[4:0]);
     if (kind_d == K_BLOCK)
         read_tag[3] = translate({1'b0, transfer_reg_d},
             ins[22] && !(ins[20] && ins[15]) ? USR : cpsr[4:0]);
     shift_register_d = kind_d == K_DP && !ins[25] && ins[4];
+    if (kind_d == K_MUL || kind_d == K_MULL) read_tag[2] = translate({1'b0,ins[11:8]}, cpsr[4:0]);
     if (shift_register_d) read_tag[2] = translate({1'b0,ins[11:8]}, cpsr[4:0]);
     if (kind_d == K_BL_SUFFIX) read_tag[1] = translate(5'd14, cpsr[4:0]);
 end
@@ -363,7 +389,7 @@ end
 
 arm9_execute u_execute (
     .i_valid(state == EXECUTE),
-    .i_condition((kind_e == K_BL_PREFIX || kind_e == K_BL_SUFFIX) ? 4'he : ins[31:28]),
+    .i_condition((kind_e == K_BL_PREFIX || kind_e == K_BL_SUFFIX || (kind_e == K_UND && cpsr[5]) || (!cpsr[5] && ins[31:28] == 4'hf)) ? 4'he : ins[31:28]),
     .i_op(op_e), .i_set_flags(kind_e == K_DP && ins[20]), .i_flags(flags_e[31:28]),
     .i_value(value_e), .i_tag('0), .i_used('0), .i_write_value('0),
     .i_write_tag('0), .i_write_valid('0), .i_write_ready('0),
@@ -432,7 +458,8 @@ always_ff @(posedge i_clk) begin
         sequence_active <= 0;
         remaining <= 0;
         sequence_address <= 0;
-        sequence_base <= 0;
+        sequence_base <= 0; sequence_original <= 0;
+        multiply_product <= 0; multiply_accumulator <= 0; multiply_result <= 0; multiply_delay <= 0;
         w_valid <= 0; w_cfail <= 0; w_last <= 1; w_load <= 0; w_redirect <= 0;
         w_dabt <= 0; w_pabt <= 0; w_irq <= 0; w_fiq <= 0; w_swi <= 0; w_und <= 0;
         w_value <= 0; w_flags <= CPSR_INIT; w_target <= 0; w_dst <= PHY_RAZ_REGISTER;
@@ -471,7 +498,7 @@ always_ff @(posedge i_clk) begin
             branch_offset_e <= branch_offset_d;
             psr_mask_e <= psr_mask_d;
             flags_e <= cpsr;
-            dst_e <= read_tag[3];
+            dst_e <= kind_d == K_DP ? translate({1'b0,ins[15:12]},cpsr[4:0]) : read_tag[3];
             base_e <= read_tag[0];
             fiq_pending <= !sequence_active && i_fiq && !cpsr[6];
             irq_pending <= !sequence_active && i_irq && !cpsr[7];
@@ -508,7 +535,7 @@ always_ff @(posedge i_clk) begin
                     end
                     if (ex_write_flags) w_flags[31:28] <= ex_flags;
                     if (dst_e == PHY_PC && ins[20] && ex_write)
-                        w_flags <= value_e[2] & 32'hf00000ff;
+                        w_flags <= value_e[3] & 32'hf00000ff;
                 end
                 K_MRS: begin
                     w_dst <= dst_e;
@@ -595,16 +622,33 @@ always_ff @(posedge i_clk) begin
                             endcase
                         end
                     end else begin
+                        // ARM LDM uses aligned words, without the single-load
+                        // rotation. The original low bits still reach FAR/A.
+                        m_format[5:4] <= 0;
                         remaining <= list_d & ~(16'd1 << transfer_reg_d);
                         sequence_active <= 1;
                         sequence_address <= effective_address + 4;
                         sequence_base <= updated_base;
+                        if (!sequence_active) sequence_original <= value_e[0];
                         w_last <= (list_d & (list_d - 1)) == 0;
                         if ((list_d & (list_d - 1)) == 0) begin
-                            if (ins[21]) begin w_dst <= base_e; w_value <= updated_base; end
+                            if (ins[21] && !(ins[20] && ins[{1'b0,ins[19:16]}])) begin
+                                w_dst <= base_e; w_value <= updated_base;
+                            end
                             if (ins[20] && ins[15] && ins[22]) w_flags <= value_e[2];
                         end
                     end
+                end
+                K_MUL, K_MULL: begin
+                    // Dedicated registered multiplier, outside the fitted E ALU
+                    // cone. Truncation gives the correct modulo-2^64 product.
+                    multiply_product <= $signed({kind_e == K_MULL && ins[22] && value_e[1][31], value_e[1]}) *
+                                        $signed({kind_e == K_MULL && ins[22] && value_e[2][31], value_e[2]});
+                    multiply_accumulator <= !ins[21] ? 64'd0 :
+                        {kind_e == K_MULL ? value_e[0] : 32'd0, value_e[3]};
+                    multiply_delay <= multiply_iterations(value_e[2][31:8],kind_e == K_MUL || ins[22]) -
+                                      (kind_e == K_MUL ? 3'd1 : 3'd0);
+                    state <= MUL_ADD;
                 end
                 K_CP: begin w_valid <= 0; state <= COPRO; end
                 K_SWI: begin w_valid <= 0; w_swi <= 1; end
@@ -620,7 +664,7 @@ always_ff @(posedge i_clk) begin
                 w_valid <= 0;
                 w_dabt <= 1;
                 w_last <= 1;
-                state <= WRITEBACK;
+                state <= kind_e == K_BLOCK && ins[21] ? RESTORE_BASE : WRITEBACK;
             end else begin
                 if (m_load) m_read_data <= i_data_wb_dat;
                 // A miss sets lock_ff at this edge; inspecting the old lock
@@ -645,11 +689,32 @@ always_ff @(posedge i_clk) begin
             state <= kind_e == K_SWP ? M1 : WRITEBACK;
             if (kind_e == K_SWP) begin m_load <= 0; swap_store <= 1; end
         end
-        COPRO: if (copro_done) begin
-            w_valid <= 1;
-            // MRC r15 changes flags, never PC. The CP block presents its
-            // value while reg_en is asserted earlier; handled separately below.
-            state <= WRITEBACK;
+        RESTORE_BASE: state <= WRITEBACK;
+        MUL_ADD: begin
+            multiply_result <= multiply_product + multiply_accumulator;
+            state <= MUL_WAIT;
+        end
+        MUL_WAIT: begin
+            if (multiply_delay != 0) multiply_delay <= multiply_delay - 1'b1;
+            else begin
+                w_dst <= kind_e == K_MULL ? dst_e : base_e;
+                w_value <= multiply_result[31:0];
+                if (kind_e == K_MULL) begin
+                    m_dst <= base_e;
+                    m_read_data <= multiply_result[63:32];
+                    w_load <= 1;
+                end
+                if (ins[20]) begin
+                    w_flags[31] <= kind_e == K_MULL ? multiply_result[63] : multiply_result[31];
+                    w_flags[30] <= kind_e == K_MULL ? multiply_result == 0 : multiply_result[31:0] == 0;
+                end
+                state <= WRITEBACK;
+            end
+        end
+        COPRO: begin
+            if (copro_reg_en && copro_reg_wr_index == PHY_PC)
+                w_flags[31:28] <= copro_reg_wr_data[31:28];
+            if (copro_done) begin w_valid <= 1; state <= WRITEBACK; end
         end
         WRITEBACK: begin
             if (!w_last && !w_dabt) state <= DECODE;
@@ -663,9 +728,9 @@ always_ff @(posedge i_clk) begin
     endcase
 end
 
-assign o_dbg_wb_valid = state == WRITEBACK && w_valid;
+assign o_dbg_wb_valid = (state == WRITEBACK && w_valid) || state == RESTORE_BASE;
 assign o_dbg_wb_dvalid = state == WRITEBACK && w_cfail;
-assign o_dbg_wb_uop_last = w_last;
+assign o_dbg_wb_uop_last = state != RESTORE_BASE && w_last;
 assign o_dbg_wb_dabt = {1'b0,state == WRITEBACK && w_dabt};
 assign o_dbg_wb_pabt = state == WRITEBACK && w_pabt;
 assign o_dbg_wb_irq = state == WRITEBACK && w_irq;
@@ -676,7 +741,7 @@ assign o_dbg_wb_pc = pc8;
 assign o_dbg_wb_cpsr_nxt = cpsr_next;
 assign o_dbg_stall = {state == WRITEBACK && (w_dabt || w_pabt || w_irq || w_fiq || w_swi || w_und),
     state == WRITEBACK && w_redirect, state == COPRO || sequence_active,
-    state == SHIFT_WAIT, 1'b0, state <= FETCH_TAIL, state == FETCH,
+    state == SHIFT_WAIT || state == MUL_ADD || state == MUL_WAIT, 1'b0, state <= FETCH_TAIL, state == FETCH,
     state == MEMORY || state == LOAD_WAIT};
 
 // Retain ZAP's proven banked state and exception entry logic. Its old fetch
@@ -684,7 +749,7 @@ assign o_dbg_stall = {state == WRITEBACK && (w_dabt || w_pabt || w_irq || w_fiq 
 zap_writeback #(.BP_ENTRIES(32), .PHY_REGS(40), .FLAG_WDT(32),
     .RESET_VECTOR(RESET_VECTOR), .CPSR_INIT(CPSR_INIT)) u_zap_writeback (
     .i_clk(i_clk), .i_reset(i_reset), .i_valid(o_dbg_wb_valid),
-    .i_decompile('0), .i_decompile_valid(o_dbg_wb_dvalid), .i_uop_last(w_last),
+    .i_decompile('0), .i_decompile_valid(o_dbg_wb_dvalid), .i_uop_last(o_dbg_wb_uop_last),
     .o_decompile(), .o_shelve(), .i_cpu_pid(o_pid[6:0]),
     .i_l4_enable(l4_enable), .i_hivecs(hivecs), .i_clear_btb(1'b0),
     .i_code_stall(1'b1), .i_clear_from_alu(1'b0), .i_pc_from_alu(32'd0),
@@ -693,8 +758,10 @@ zap_writeback #(.BP_ENTRIES(32), .PHY_REGS(40), .FLAG_WDT(32),
     .i_alu_pc_ff(32'd0), .i_taken(2'd0),
     .i_rd_index_0(read_tag[0]), .i_rd_index_1(read_tag[1]),
     .i_rd_index_2(read_tag[2]), .i_rd_index_3(read_tag[3]),
-    .i_mem_load_ff(w_load), .i_wr_index(w_dst), .i_wr_data(w_value),
-    .i_flags(w_flags), .i_wr_index_1(m_dst), .i_wr_data_1(m_read_data),
+    .i_mem_load_ff(w_load && state != RESTORE_BASE),
+    .i_wr_index(state == RESTORE_BASE ? base_e : w_dst),
+    .i_wr_data(state == RESTORE_BASE ? sequence_original : w_value),
+    .i_flags(state == RESTORE_BASE ? cpsr : w_flags), .i_wr_index_1(m_dst), .i_wr_data_1(m_read_data),
     .i_wr_index_2(40'd0), .i_wr_data_2(32'd0), .i_mode16(cpsr[5]),
     .i_irq(o_dbg_wb_irq), .i_fiq(o_dbg_wb_fiq), .i_instr_abt(o_dbg_wb_pabt),
     .i_data_abt(o_dbg_wb_dabt), .i_swi(o_dbg_wb_swi), .i_und(o_dbg_wb_und),

@@ -953,6 +953,11 @@ module arm9_core (
 	reg sequence_active;
 	reg [31:0] sequence_address;
 	reg [31:0] sequence_base;
+	reg [31:0] sequence_original;
+	reg [63:0] multiply_product;
+	reg [63:0] multiply_accumulator;
+	reg [63:0] multiply_result;
+	reg [2:0] multiply_delay;
 	wire [31:0] copro_reg_wr_data;
 	wire [31:0] copro_reg_rd_data;
 	wire [5:0] copro_reg_wr_index;
@@ -966,7 +971,9 @@ module arm9_core (
 	wire [31:0] updated_base;
 	wire [31:0] next_pc;
 	wire [31:0] vector_base;
-	wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, translated[33:32]};
+	wire load_capture = (((state == 5'd12) || (state == 5'd13)) && m_load) && i_dc_reg_idx[m_dst];
+	wire [63:0] load_commit = ((((state == 5'd14) && w_valid) && w_load) && (((kind_e == 4'd5) || (kind_e == 4'd6)) || (kind_e == 4'd12)) ? 64'd1 << m_dst : 64'd0);
+	wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, translated[33:32], load_capture, load_commit};
 	assign cpsr = o_dbg_wb_cpsr;
 	assign pc8 = pc + (cpsr[5] ? 32'd4 : 32'd8);
 	assign vector_base = (hivecs ? 32'hffff0000 : 32'd0);
@@ -990,6 +997,34 @@ module arm9_core (
 		input [31:0] address;
 		fcse = (address[31:25] == 0 ? {o_pid[6:0], address[24:0]} : address);
 	endfunction
+	function automatic [2:0] multiply_iterations;
+		input [31:8] rs;
+		input signed_end;
+		reg [0:1] _sv2v_jump;
+		begin
+			_sv2v_jump = 2'b00;
+			if ((rs[31:8] == 0) || (signed_end && &rs[31:8])) begin
+				multiply_iterations = 1;
+				_sv2v_jump = 2'b11;
+			end
+			if (_sv2v_jump == 2'b00) begin
+				if ((rs[31:16] == 0) || (signed_end && &rs[31:16])) begin
+					multiply_iterations = 2;
+					_sv2v_jump = 2'b11;
+				end
+				if (_sv2v_jump == 2'b00) begin
+					if ((rs[31:24] == 0) || (signed_end && &rs[31:24])) begin
+						multiply_iterations = 3;
+						_sv2v_jump = 2'b11;
+					end
+					if (_sv2v_jump == 2'b00) begin
+						multiply_iterations = 4;
+						_sv2v_jump = 2'b11;
+					end
+				end
+			end
+		end
+	endfunction
 	function automatic [31:0] rotate_right;
 		input [31:0] v;
 		input [4:0] n;
@@ -1011,13 +1046,17 @@ module arm9_core (
 			kind_d = 4'd6;
 		else if ((ins[27:26] == 2'b01) && !(ins[25] && ins[4]))
 			kind_d = 4'd5;
+		else if ((ins & 32'h0fc000f0) == 32'h00000090)
+			kind_d = 4'd13;
+		else if ((ins & 32'h0f8000f0) == 32'h00800090)
+			kind_d = 4'd14;
 		else if ((ins & 32'h0fb00ff0) == 32'h01000090)
 			kind_d = 4'd12;
 		else if ((ins & 32'h0ffffff0) == 32'h012fff10)
 			kind_d = 4'd4;
 		else if ((ins & 32'h0fbf0fff) == 32'h010f0000)
 			kind_d = 4'd1;
-		else if ((ins & 32'h0db0f000) == 32'h0120f000)
+		else if (((ins & 32'h0fb0fff0) == 32'h0120f000) || ((ins & 32'h0fb0f000) == 32'h0320f000))
 			kind_d = 4'd2;
 		else if (((ins[27:24] == 4'he) && ins[4]) && (ins[11:8] == 4'hf))
 			kind_d = (cpsr[4:0] == USR ? 4'd8 : 4'd7);
@@ -1029,7 +1068,7 @@ module arm9_core (
 			kind_d = 4'd10;
 		if (cpsr[5] && (raw_ins[15:11] == 5'b11111))
 			kind_d = 4'd11;
-		if (thumb_und)
+		if ((((!cpsr[5] && (ins[31:28] == 4'hf)) || ((((kind_d == 4'd5) && (ins[27:26] == 0)) && !ins[20]) && ins[6])) || (cpsr[5] && (raw_ins[15:11] == 5'b11101))) || thumb_und)
 			kind_d = 4'd8;
 		list_d = (sequence_active ? remaining : ins[15:0]);
 		if ((kind_d == 4'd6) && (list_d == 0))
@@ -1049,9 +1088,13 @@ module arm9_core (
 		read_tag[6+:6] = translate({1'b0, ins[3:0]}, cpsr[4:0]);
 		read_tag[12+:6] = translate(ARCH_CURR_SPSR, cpsr[4:0]);
 		read_tag[18+:6] = translate({1'b0, ins[15:12]}, cpsr[4:0]);
+		if (((kind_d == 4'd0) && ins[20]) && (ins[15:12] == 15))
+			read_tag[18+:6] = translate(ARCH_CURR_SPSR, cpsr[4:0]);
 		if (kind_d == 4'd6)
 			read_tag[18+:6] = translate({1'b0, transfer_reg_d}, (ins[22] && !(ins[20] && ins[15]) ? USR : cpsr[4:0]));
 		shift_register_d = ((kind_d == 4'd0) && !ins[25]) && ins[4];
+		if ((kind_d == 4'd13) || (kind_d == 4'd14))
+			read_tag[12+:6] = translate({1'b0, ins[11:8]}, cpsr[4:0]);
 		if (shift_register_d)
 			read_tag[12+:6] = translate({1'b0, ins[11:8]}, cpsr[4:0]);
 		if (kind_d == 4'd11)
@@ -1126,7 +1169,7 @@ module arm9_core (
 	localparam [2:0] sv2v_uu_u_execute_ext_i_write_ready_0 = 1'sb0;
 	arm9_execute u_execute(
 		.i_valid(state == 5'd7),
-		.i_condition(((kind_e == 4'd10) || (kind_e == 4'd11) ? 4'he : ins[31:28])),
+		.i_condition(((((kind_e == 4'd10) || (kind_e == 4'd11)) || ((kind_e == 4'd8) && cpsr[5])) || (!cpsr[5] && (ins[31:28] == 4'hf)) ? 4'he : ins[31:28])),
 		.i_op(op_e),
 		.i_set_flags((kind_e == 4'd0) && ins[20]),
 		.i_flags(flags_e[31:28]),
@@ -1195,6 +1238,11 @@ module arm9_core (
 			remaining <= 0;
 			sequence_address <= 0;
 			sequence_base <= 0;
+			sequence_original <= 0;
+			multiply_product <= 0;
+			multiply_accumulator <= 0;
+			multiply_result <= 0;
+			multiply_delay <= 0;
 			w_valid <= 0;
 			w_cfail <= 0;
 			w_last <= 1;
@@ -1266,7 +1314,7 @@ module arm9_core (
 					branch_offset_e <= branch_offset_d;
 					psr_mask_e <= psr_mask_d;
 					flags_e <= cpsr;
-					dst_e <= read_tag[18+:6];
+					dst_e <= (kind_d == 4'd0 ? translate({1'b0, ins[15:12]}, cpsr[4:0]) : read_tag[18+:6]);
 					base_e <= read_tag[0+:6];
 					fiq_pending <= (!sequence_active && i_fiq) && !cpsr[6];
 					irq_pending <= (!sequence_active && i_irq) && !cpsr[7];
@@ -1311,7 +1359,7 @@ module arm9_core (
 								if (ex_write_flags)
 									w_flags[31:28] <= ex_flags;
 								if (((dst_e == PHY_PC) && ins[20]) && ex_write)
-									w_flags <= value_e[64+:32] & 32'hf00000ff;
+									w_flags <= value_e[96+:32] & 32'hf00000ff;
 							end
 							4'd1: begin
 								w_dst <= dst_e;
@@ -1401,13 +1449,16 @@ module arm9_core (
 										endcase
 								end
 								else begin
+									m_format[5:4] <= 0;
 									remaining <= list_d & ~(16'd1 << transfer_reg_d);
 									sequence_active <= 1;
 									sequence_address <= effective_address + 4;
 									sequence_base <= updated_base;
+									if (!sequence_active)
+										sequence_original <= value_e[0+:32];
 									w_last <= (list_d & (list_d - 1)) == 0;
 									if ((list_d & (list_d - 1)) == 0) begin
-										if (ins[21]) begin
+										if (ins[21] && !(ins[20] && ins[{1'b0, ins[19:16]}])) begin
 											w_dst <= base_e;
 											w_value <= updated_base;
 										end
@@ -1415,6 +1466,12 @@ module arm9_core (
 											w_flags <= value_e[64+:32];
 									end
 								end
+							end
+							4'd13, 4'd14: begin
+								multiply_product <= $signed({((kind_e == 4'd14) && ins[22]) && value_e[63], value_e[32+:32]}) * $signed({((kind_e == 4'd14) && ins[22]) && value_e[95], value_e[64+:32]});
+								multiply_accumulator <= (!ins[21] ? 64'd0 : {(kind_e == 4'd14 ? value_e[0+:32] : 32'd0), value_e[96+:32]});
+								multiply_delay <= multiply_iterations(value_e[95-:24], (kind_e == 4'd13) || ins[22]) - (kind_e == 4'd13 ? 3'd1 : 3'd0);
+								state <= 5'd17;
 							end
 							4'd7: begin
 								w_valid <= 0;
@@ -1441,7 +1498,7 @@ module arm9_core (
 							w_valid <= 0;
 							w_dabt <= 1;
 							w_last <= 1;
-							state <= 5'd14;
+							state <= ((kind_e == 4'd6) && ins[21] ? 5'd16 : 5'd14);
 						end
 						else begin
 							if (m_load)
@@ -1476,11 +1533,36 @@ module arm9_core (
 							swap_store <= 1;
 						end
 					end
-				5'd15:
+				5'd16: state <= 5'd14;
+				5'd17: begin
+					multiply_result <= multiply_product + multiply_accumulator;
+					state <= 5'd18;
+				end
+				5'd18:
+					if (multiply_delay != 0)
+						multiply_delay <= multiply_delay - 1'b1;
+					else begin
+						w_dst <= (kind_e == 4'd14 ? dst_e : base_e);
+						w_value <= multiply_result[31:0];
+						if (kind_e == 4'd14) begin
+							m_dst <= base_e;
+							m_read_data <= multiply_result[63:32];
+							w_load <= 1;
+						end
+						if (ins[20]) begin
+							w_flags[31] <= (kind_e == 4'd14 ? multiply_result[63] : multiply_result[31]);
+							w_flags[30] <= (kind_e == 4'd14 ? multiply_result == 0 : multiply_result[31:0] == 0);
+						end
+						state <= 5'd14;
+					end
+				5'd15: begin
+					if (copro_reg_en && (copro_reg_wr_index == PHY_PC))
+						w_flags[31:28] <= copro_reg_wr_data[31:28];
 					if (copro_done) begin
 						w_valid <= 1;
 						state <= 5'd14;
 					end
+				end
 				5'd14:
 					if (!w_last && !w_dabt)
 						state <= 5'd5;
@@ -1491,9 +1573,9 @@ module arm9_core (
 					end
 				default: state <= 5'd0;
 			endcase
-	assign o_dbg_wb_valid = (state == 5'd14) && w_valid;
+	assign o_dbg_wb_valid = ((state == 5'd14) && w_valid) || (state == 5'd16);
 	assign o_dbg_wb_dvalid = (state == 5'd14) && w_cfail;
-	assign o_dbg_wb_uop_last = w_last;
+	assign o_dbg_wb_uop_last = (state != 5'd16) && w_last;
 	assign o_dbg_wb_dabt = {1'b0, (state == 5'd14) && w_dabt};
 	assign o_dbg_wb_pabt = (state == 5'd14) && w_pabt;
 	assign o_dbg_wb_irq = (state == 5'd14) && w_irq;
@@ -1502,7 +1584,7 @@ module arm9_core (
 	assign o_dbg_wb_und = (state == 5'd14) && w_und;
 	assign o_dbg_wb_pc = pc8;
 	assign o_dbg_wb_cpsr_nxt = cpsr_next;
-	assign o_dbg_stall = {(state == 5'd14) && (((((w_dabt || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und), (state == 5'd14) && w_redirect, (state == 5'd15) || sequence_active, state == 5'd6, 1'b0, state <= 5'd4, state == 5'd3, (state == 5'd11) || (state == 5'd13)};
+	assign o_dbg_stall = {(state == 5'd14) && (((((w_dabt || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und), (state == 5'd14) && w_redirect, (state == 5'd15) || sequence_active, ((state == 5'd6) || (state == 5'd17)) || (state == 5'd18), 1'b0, state <= 5'd4, state == 5'd3, (state == 5'd11) || (state == 5'd13)};
 	localparam [511:0] sv2v_uu_u_zap_writeback_ext_i_decompile_0 = 1'sb0;
 	zap_writeback #(
 		.BP_ENTRIES(32),
@@ -1516,7 +1598,7 @@ module arm9_core (
 		.i_valid(o_dbg_wb_valid),
 		.i_decompile(sv2v_uu_u_zap_writeback_ext_i_decompile_0),
 		.i_decompile_valid(o_dbg_wb_dvalid),
-		.i_uop_last(w_last),
+		.i_uop_last(o_dbg_wb_uop_last),
 		.o_decompile(),
 		.o_shelve(),
 		.i_cpu_pid(o_pid[6:0]),
@@ -1536,10 +1618,10 @@ module arm9_core (
 		.i_rd_index_1(read_tag[6+:6]),
 		.i_rd_index_2(read_tag[12+:6]),
 		.i_rd_index_3(read_tag[18+:6]),
-		.i_mem_load_ff(w_load),
-		.i_wr_index(w_dst),
-		.i_wr_data(w_value),
-		.i_flags(w_flags),
+		.i_mem_load_ff(w_load && (state != 5'd16)),
+		.i_wr_index((state == 5'd16 ? base_e : w_dst)),
+		.i_wr_data((state == 5'd16 ? sequence_original : w_value)),
+		.i_flags((state == 5'd16 ? cpsr : w_flags)),
 		.i_wr_index_1(m_dst),
 		.i_wr_data_1(m_read_data),
 		.i_wr_index_2(40'd0),

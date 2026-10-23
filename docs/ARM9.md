@@ -1,8 +1,10 @@
 # ARM9 integer pipeline replacement
 
 Status: session-2 functional bring-up, 2026-10-23 deliverable (work started 2026-10-22).
-ZAP remains the production CPU. This document distinguishes intended timing
-from implemented and measured timing; it is not a claim that ARM9 boots yet.
+ZAP remains the production CPU. ARM9 is now selectable and executes the CPU
+tests through the retained memory system. Its current controller serializes
+instructions; the overlapping pipeline and target timings below remain the
+intended design. Neither a firmware boot nor ARM9-class throughput is claimed.
 Starting revision: `75cce2e`, branch `codex/arm9`.
 
 ## Contract and sources
@@ -78,7 +80,8 @@ coverage (including separate base/load writers), not silently omit a stage.
 `PRE_SHIFTED=1` accepts the D barrel result and its carry; raw Rn/store operands
 still use E forwarding. The test harness also instantiates the existing
 four-read/three-write register file and a real E-to-D result/flags path when
-shifting in D. There is no controller or selected ARM9 core yet.
+shifting in D. That trial had no controller. The session-2 bring-up controller now instantiates
+the same execute leaf, as described below.
 
 Quartus 17.0.2, 5CSEBA6U23I7, seed 1, 104 MHz (9.615 ns), same CPU-trial
 optimization/retiming settings, all four operating corners:
@@ -341,3 +344,31 @@ The I-cache's provisional words wait for whole-fill fault resolution.
 
 The continuation report records coverage, incomplete cases, exact counts and
 where to replace conservative sequencing with an overlapping pipeline.
+
+The session-2 controller also implements registered multiply/accumulate (all
+ARMv4 short/long forms), using a product register followed by an accumulator
+register outside the execute leaf. It counts multiplier-dependent termination
+cycles from Rs, while the instruction admission remains serialized. LDM reads
+aligned words without LDR's rotation, suppresses final base writeback when an
+LDM loads its base, and restores the original base before entering a data abort.
+This restoration is an internal non-final micro-op and preserves the old CPSR,
+including when an LDM exception return faults on its PC transfer.
+
+Four register-file reads are retained: a flag-restoring DP write to PC uses the
+otherwise-unused fourth port for SPSR, so a register-specified shift can still
+read Rs. `arm9_state.S` verifies this case and the aborted LDM exception return
+against both cores and QEMU. Multiply, undefined ARMv5/NV encodings, SWP and the
+Thumb instruction formats are exercised by the existing suite. Empty register
+lists and unpredictable operand combinations outside the suite are not claimed.
+
+The bench keeps the cache's original beat-to-completion and lock-edge assertions.
+For ARM9 it additionally verifies completion capture, preservation until W and
+the actual register-file write at W. ZAP retains its same-edge write assertion.
+A cache completion is never substituted for architectural retirement in a trace.
+
+See the continuation report for measured whole-test costs. An independent DP
+instruction still requires the entire fetch/decode/execute/retire loop; this
+implementation is a correctness baseline, not the proposed high-throughput
+pipeline. The next architectural change must introduce independent stage-valid
+records, fetch invalidation and a producer scoreboard without losing this test
+coverage. No extra read-latency improvement is claimed from the cache adapter.

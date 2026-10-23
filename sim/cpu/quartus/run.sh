@@ -3,6 +3,7 @@
 # Quartus 17.0.2 trial of the CPU alone (cpu_trial.v around arm925t_gen.v),
 # in the Docker image on the build server.
 #   sim/cpu/quartus/run.sh            full compile, summary and worst paths
+#   TRIAL=arm9_core sim/cpu/quartus/run.sh   experimental integrated ARM9
 #   TRIAL=arm9_execute sim/cpu/quartus/run.sh   execute datapath only
 #   TRIAL=arm9_decode_shift sim/cpu/quartus/run.sh   shift in D, including E-to-D bypass
 #   SEED=3 MHZ=96 sim/cpu/quartus/run.sh   another fitter seed / clock
@@ -18,6 +19,7 @@ mhz=${MHZ:-104}
 trial=${TRIAL:-cpu}
 case "$trial" in
     cpu) trial_suffix="" ;;
+    arm9_core) trial_suffix="-arm9-core" ;;
     arm9_execute) trial_suffix="-arm9-execute" ;;
     arm9_decode_shift) trial_suffix="-arm9-decode-shift" ;;
     *) echo "unknown TRIAL: $trial" >&2; exit 2 ;;
@@ -35,7 +37,11 @@ if (( running >= 4 )); then
 	exit 1
 fi
 ssh "$host" "mkdir -p \$HOME/$dir"
-if [[ $trial != cpu ]]; then
+if [[ $trial == arm9_core ]]; then
+    sed 's/arm925t cpu (/arm925t #(.CORE("ARM9")) cpu (/' "$here/cpu_trial.v" > "$out/cpu_trial.v"
+    cp "$root/rtl/cpu/arm925t_gen.v" "$out/arm925t_gen.v"
+    rsync -a "$out/cpu_trial.v" "$out/arm925t_gen.v" "$host:$dir/"
+elif [[ $trial != cpu ]]; then
     defines=(-DSYNTHESIS)
     [[ $trial != arm9_decode_shift ]] || defines+=(-DARM9_TRIAL_SPLIT)
     sv2v "${defines[@]}" --top=cpu_trial "$root"/rtl/cpu/arm9/arm9_{execute,forward,shift,alu}.sv \

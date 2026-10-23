@@ -1,0 +1,41 @@
+baseline:
+RTL (gen): 27 passed, 0 failed
+
+zap-final-focus:
+RTL (gen): 27 passed, 0 failed
+
+zap-final-diff1:
+RTL vs QEMU: 53 agree, 0 differ
+
+zap-final-full:
+RTL (gen): 201 passed, 0 failed
+
+zap-final-diff2:
+RTL vs QEMU: 53 agree, 0 differ
+
+arm9-final-focus:
+RTL (gen): 30 passed, 0 failed
+
+arm9-final-diff1:
+RTL vs QEMU: 53 agree, 0 differ
+
+arm9-final-full:
+RTL (gen): 201 passed, 0 failed
+
+arm9-final-diff2:
+RTL vs QEMU: 53 agree, 0 differ
+
+source-smoke:
+RTL (sv): 24 passed, 0 failed
+
+source-diff:
+RTL vs QEMU: 8 agree, 0 differ
+
+new-qemu:
+QEMU: 1 run, 0 skipped (qemu: no), 0 failed to run
+
+execute:
+ARM9 execute PRE_SHIFTED=0: 145568 checks passed
+ARM9 execute PRE_SHIFTED=1: 145568 checks passed
+ARM9 execute PRE_SHIFTED=0: 145568 checks passed
+ARM9 execute PRE_SHIFTED=1: 145568 checks passed
