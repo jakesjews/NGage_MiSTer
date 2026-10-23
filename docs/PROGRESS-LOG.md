@@ -2893,7 +2893,34 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   (208x176), undecodable (`build/hardware/boot/sweep5-s10-p2`, the seed 10
   profile that failed). `tools/boot_profile.py` keeps the key sequence
   only as the fallback when captures stop decoding.
-- Next: a build with the CPU's stall taps on the overlay (a91da1d: the data
+- A build with the CPU's stall taps on the overlay (a91da1d: the data
   and code bus waits, the fetch FIFO empty, the issue, shifter and decode
-  stalls, the ALU's and the writeback's flushes, the uops retired) to see
-  where the five clocks per instruction go in play.
+  stalls, the ALU's and the writeback's flushes, the uops retired) is
+  queued to see where the five clocks per instruction go in play.
+- My own reading before the Codex consult:
+  `docs/consults/2026-10-22-game-cpi-mine.md` (the load-use interlock
+  first, the uncached LCD stores second, mispredicts third); Codex's,
+  from the measurements and the RTL alone:
+  `docs/consults/2026-10-22-codex-game-cpi.md`. Codex's two cheap finds
+  held up on inspection:
+  - **The BTB forgot its entries.** `zap_btb.sv` wrote the valid bit from
+    `mem_wr_en` (= a branch's feedback) at the ALU stage's PC every clock,
+    so every non-branch instruction cleared the entry at its own index:
+    a branch more than the table's span (512 entries, 1 KB) away lost
+    its entry within a few hundred instructions, and outside tight loops
+    the BTB predicted nothing; every taken branch then paid the 12-clock
+    flush from the ALU. Upstream ZAP's code (fc7bd75). Fixed: only the
+    feedback writes the bit (a8ca165).
+  - `MOV PC, LR` was never recognized as a return (the pattern ended in
+    `4'd15`, MOV PC, PC), so those returns never used the return-address
+    stack. Fixed (`4'd14`).
+  - CPU suite with both: 177 runs pass, 49 QEMU comparisons agree, 4.3 %
+    fewer cycles over the suite, 17-18 % on the cache test (CPI 3.88 ->
+    3.18 at zero latency), 31 % on the compiled random tests; the GBA
+    loops unchanged (inside the span). Whole-core build queued; the boot
+    bench on the fixed tree to follow the running one.
+  - Codex also pointed out that the overlay's retired count included
+    replays (the writeback sending an instruction round again while the
+    data cache fills; `dabt[1]`, no architectural effect), which the bench
+    excludes; fixed with the same build, and replays are counted on their
+    own.
