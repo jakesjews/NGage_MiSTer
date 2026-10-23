@@ -17,6 +17,23 @@
   after the pipeline-stall work (which changes those stages), from this
   build's report (session scratch, b14-timing/). The Codex thread is on
   the stalls; b14 is the measurement build for the board.
+- **Codex's pipeline-stall session** (codex/timing2 b966f86..53d4301,
+  merged b862b4b): the earlier load admission (the pickup extended to
+  loads in postalu0 and the ALU) tested and discarded, no gain measured;
+  retained: BTB predictions accepted from the registered RAM one fetch
+  slot earlier, direct-branch mispredictions resolved from registered
+  shifter-stage decisions (the ALU flushes 61 -> 14 on cache, 124 -> 88
+  on ctrand1, 89 -> 29 on gba_arm, the rest now cheaper early flushes),
+  ARM BL in one slot, the incrementing LDM/STM base update folded into
+  the last uop; the multiplier measured, no change retained. Cycles:
+  ctrand1 77,298 -> 73,043 (-5.5 %), crand1 -5.6 %, cache -0.5 %, gba_arm
+  -1.6 %, gba_thumb -0.2 %; uops down about 0.7 %; FIFO-empty clocks
+  -8-9 %. Whole core (seed 2): **-1.398 -> -0.578 ns** (the earlier BTB
+  acceptance helped timing too). 213 runs, 57 QEMU. Report
+  docs/consults/2026-10-23-codex-zapstalls-report.md. So the hit-path
+  interlocks are not where the remaining issue stalls are: the next
+  cycle lever is the memory side (hit-under-miss in the D-cache,
+  Antigravity's I-prefetch, the flash fetch already in).
 # N-Gage QD MiSTer core: progress log
 
 Newest entries at the bottom. Each entry says what was done, what was
