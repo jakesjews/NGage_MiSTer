@@ -3297,3 +3297,21 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   $500 plan); the change caught the ARM9 session mid-trial (its edits
   on disk, resumed as session 9 with the structural-pass instructions)
   and the timing round 3 before it started (resumed).
+- **ARM9 session 9** (ae3b838, 49ed322): the fetch-to-D handoff
+  registered (-6.513 ns, 17,248 ALMs), then the combined control-boundary
+  pass (every control signal crossing a stage boundary from a register):
+  **-6.958 ns**, 15,891 ALMs (26 below ZAP's), 234 runs and 63 QEMU on all
+  three configurations, five comparison rows lost to ZAP, some rare-path
+  costs above the allowance; stopped under the -2 ns rule. The remaining
+  worst path: E's forwarding -> the shifter -> the ALU's address -> the
+  D-TLB's request validity, 14 levels, 15.9 ns: the data access is
+  launched from the ALU's combinational address to keep the load-use at
+  two clocks. Registering that address costs the third load-use clock,
+  which is where ZAP's late pickup already is; the ARM9's remaining
+  advantage would be its shorter front end (a 5-clock flush against
+  ZAP's 12, fewer uops), about 15 % on the cache test and 5 % on
+  compiled code by the suite. The memory pipeline's depth is set by the
+  RAM-based caches at 104 MHz, not by the core. Decision put to the
+  user: pause the ARM9 (keep the branch) and spend the budget on ZAP's
+  closure and its measured stalls, or continue the ARM9 under
+  Antigravity's rules for two or three more sessions.
