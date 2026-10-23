@@ -32,9 +32,10 @@ is not emulated; the phone comes up as an offline handset with no SIM.
 4. Start the core. In the OSD: **Load flash CS0** → `cs0.bin`, **Mount
    flash CS1 (save)** → a copy of `cs1.bin` (the core writes your saves
    into it), **Mount MMC card** → `game.mmc`.
-5. The first start formats the phone's C: drive: the Nokia logo stays for
-   two to three minutes, then the phone asks for the time and date
-   (OK = Enter). Later starts go straight to the idle screen.
+5. The first start formats the phone's C: drive: "Booting the phone" shows,
+   the Nokia logo stays for about a minute and a half, then the phone asks
+   for the time and date (OK = Enter). Later starts go straight to the
+   idle screen.
 6. Menu key (F5), then down to the card's game, OK.
 
 An `.mgl` launcher can do step 4: file indexes 1 (CS0), 2 (CS1 as a plain
@@ -82,11 +83,12 @@ by measurement, not yet by ear).
 
 ## Troubleshooting
 
-- Nokia logo and nothing else for minutes: the first start is formatting
-  C:; a second start with a plain-loaded CS1 formats it again. After the
+- Nokia logo and nothing else for minutes: a start with a plain-loaded
+  CS1 formats C: again each time (mount it as the save instead). After the
   core was stopped in the middle of writing saves, the next start spends
   minutes recovering the phone's file system (its sector erases take the
-  chip's 0.7 s each); it does come up.
+  chip's 0.7 s each); it does come up. The activity dot in the corner
+  shows the phone is busy.
 - "CS1 save file must be 8 MB": the mounted file is a different size.
 - The phone asks for the time at every start: the firmware does that in
   this environment (the model too); OK accepts the clock it shows, or

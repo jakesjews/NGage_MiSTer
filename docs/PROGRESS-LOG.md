@@ -3693,3 +3693,20 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   win, the games decide. 222 runs and 57 QEMU at both geometries, lint,
   netlist current. Merged; built as b20-d16 (the server, the
   NGAGE_DCACHE_16K macro) for the board.
+- **b19 on the board: the first boot is fast.** b19 (the server, seed 1;
+  hit-under-miss, prefetch off, the first-boot fix): **-1.675 ns** at
+  slow 100C, 35,842 ALMs, 470 M10K; the worst paths are this tree's
+  known families at a worse placement (issue stall_late_ff ->
+  stall_idx_ff / o_stall_from_issue -1.68/-1.64, the D-cache o_reg_idx
+  -> the shifter -1.18, the merger's o_wb_adr -> upp_bus's fe_* -1.06;
+  b18 of the same tree less the fix was -0.934), not the flash change.
+  The first boot from the pristine CS1 (`rh29-460-cs1.bin` copied to the
+  trial image, `_Debug/NGageDbg-blank.mgl`): the format runs 24-84 s
+  after the load with the usual boot's bus waits, and the Time dialog
+  is on the screen by 82 s (b16: the loop forever; the old timed path:
+  minutes). A second boot on the saved trial image shows the operator
+  splash at 54 s and the Time dialog at 74 s (the time was never
+  accepted, so the firmware asks again: known), so the format did not
+  repeat. README's first-start lines updated. Then the dialogs accepted
+  with the profiler's keys and a boot on the saved image, to confirm
+  the idle screen comes up without them (running).
