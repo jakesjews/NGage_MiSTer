@@ -10,7 +10,7 @@ acknowledgement. Every retained
 combination passes the complete CPU suite with identical cycles/instructions.
 The latest completed three-seed snapshot is `combined2`, at −0.812 ns median;
 it includes the owner-supplied card fix and the first two CPU changes, but
-predates the last two. The final combined timing requirement is not yet met.
+predates the pending-select, decoder and acknowledgement changes. The final combined timing requirement is not yet met.
 
 ## Measurement method
 
@@ -138,6 +138,29 @@ The three-input arbiter, rotate-only barrel and standalone LSL-zero trial
 regress the pair worst and remain dropped. This clarification changes no
 already-fitted RTL or reports and does not itself add a parked change to
 the branch.
+
+## Supplementary TLB input-path audit
+
+The original TLB port's selected family measured outgoing FSR/summary paths.
+A later audit adds input-side queries to copies of the original routed
+baseline and candidate databases, without refitting or changing constraints.
+All 150 baseline source inputs and the original corner reports match; only
+the reporting hook is added to task-owned copies, leaving the owner's sweep
+untouched.
+
+The broad D-TLB checker-input query (FSR, new summary and existing `o_hit_ok`)
+changes from +0.515/+0.303 to +0.046/−0.384 ns at seeds 1/2. Its seed-2
+limit ends at the pre-existing `o_hit_ok`, from post-ALU1 address bit 30.
+Combining this broad query with the original outgoing family changes the
+pair worst from −0.342 to −0.384 ns, a 0.042 ns regression. This is recorded
+as an additional finding, not silently folded into the earlier outgoing-only
+acceptance claim. The original outgoing gain remains +0.458 ns.
+
+A separate FSR/new-summary capture query is queued to distinguish the
+changed register boundary from the neighboring hit-permission register.
+The original TLB change remains in the current tree while that audit and
+the final combined three-seed measurement are pending; no closure claim is
+made from the outgoing-only result.
 
 ## CPU cycle evidence
 
