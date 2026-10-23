@@ -1,0 +1,17 @@
+Pre-existing byte-permission FAR discrepancy, observed on both cores.
+
+Reproducer: in sim/cpu/tests/arm9_swp_perm.S, change the second
+    mov r4,r9
+(before SWPB) to
+    add r4,r9,#1
+and rebuild only that new test / its QEMU reference.
+
+The byte read is permitted, the write is forbidden by a user read-only section.
+QEMU passes with FAR = 0x00400001.
+Both ARM9 and ZAP fail check 8 at all three standard latency settings:
+    actual r7/FAR = 0x00400000
+    expected r4  = 0x00400001
+The original ARM9 failure was at cycle 79885 (0:0); ZAP at 55705.
+Both cores send an aligned address to the TLB check. The committed test keeps
+an aligned byte address to isolate SWP's write-permission/commit behavior.
+No comparison was disabled and no shared MMU behavior was changed here.

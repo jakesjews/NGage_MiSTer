@@ -1,0 +1,13 @@
+{
+  "commit": "56cb701a5c76f2692e23f2d0da3ae0913f2c23a3",
+  "core": "ARM9",
+  "device": "5CSEBA6U23I7",
+  "quartus": "17.0.2 Lite",
+  "MHz": 104,
+  "seed": 2,
+  "generated_sha256": "9b9f181759baa9df796decbc74b23dcddd25b53f279161c5c4c4879d806d859d",
+  "command": "TRIAL=arm9_core SEED=2 BUILD_DIR=dev/mister/ngage-arm9-session5-final sim/cpu/quartus/run.sh",
+  "report_note": "After project copy and before STA, remote report.tcl was replaced by the included report.tcl, adding targeted endpoint reports without modifying compile inputs. After the main trial, flags.tcl ran a separate read-only quartus_sta query against this same fit; it waited for fewer than four Quartus containers before starting. The saved flags.log includes its slot wait and successful completion.",
+  "generated_source": "rtl/cpu/arm925t_gen.v at the recorded commit (not duplicated here)",
+  "text_normalization": "Trailing whitespace and blank lines at EOF removed from saved .log/.txt files; report content unchanged."
+}

@@ -12,4 +12,13 @@ make lint and explicit CORE=ARM9 generated -Wall lint: passed.
 69 existing + 7 new timing windows: five visits each, two exact hot checks.
 All nine instruction counts and all ZAP cycle counts unchanged from baseline.
 Only arm9_stream, arm9_stream_timing and arm9_swp_perm binaries/QEMU references built.
-Integrated trial in progress in dev/mister/ngage-arm9-session5-final (seed 2, 104 MHz).
+Integrated CORE=ARM9 trial completed in dev/mister/ngage-arm9-session5-final (seed 2, 104 MHz).
+Quartus 17.0.2, 5CSEBA6U23I7: compile succeeded; setup FAILED, worst -3.970 ns.
+Setup slow 100C/-40C: -3.970/-3.899 ns. Minimum hold across four corners: +0.122 ns.
+Area: 16,353 ALMs, 18,528 registers, 305,568 memory bits, 69 RAM blocks, 3 DSPs.
+Exact generated SHA-256 matches the simulation/lint checkpoint above.
+Current trial artifacts: session5-final-fit-seed2/ (not the older detail3 reports).
+
+Explicit NZCV endpoint STA: successful, 0 errors/warnings; all slow-corner flags fail setup.
+Worst flag (Z): -2.185 ns at Slow -40C; -2.136 ns at Slow 100C.
+Own Quartus containers have exited; no firmware boot, full-system fit or hardware run.

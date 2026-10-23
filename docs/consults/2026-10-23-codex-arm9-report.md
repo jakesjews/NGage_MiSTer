@@ -7,12 +7,12 @@ clock. ZAP remains the default: the required performance and timing gates have
 not been met.** Three native cache read edges plus registered W still give a
 three-clock immediate load-use interlock, one more than the requested FPGA
 allowance. Block transfers have fixed setup/drain overhead; SWP remains an
-ordered, drained pair. The integrated ARM9 Quartus trial is running; its result
-will be appended before the session ends.
+ordered, drained pair. The integrated ARM9 Quartus trial **fails setup: -3.970 ns at 104 MHz**.
+Hold passes. The measured core uses 16,353 ALMs; it is not ready to replace ZAP.
 
 Checkpoints: `78c9aeb` adds ordered scalar requests, `51a60de` admits ready slow
 operands before the last older retirement, and `8e83709` streams blocks and PC
-loads. The final refinement lets independent arithmetic proceed after a miss's
+loads. The final refinement, `56cb701`, lets independent arithmetic proceed after a miss's
 critical word and removes three lookup clocks from a non-missing SWP write half.
 The unchanged [session-4 report](arm9/session4-report.md) records the starting point.
 
@@ -116,7 +116,8 @@ A new unaligned SWPB permission-fault experiment exposed an existing issue in
 the address sent to the TLB check. This session did not change that shared MMU
 behavior; the committed SWPB permission test uses an aligned byte address and
 still verifies write permission, destination suppression and store suppression.
-Low FAR bits on byte permission faults need a separate fix and test.
+Low FAR bits on byte permission faults need a separate fix and test; the
+[reproducer](arm9/session5-far-followup.txt) records the observed failure.
 
 ## Cycle comparison
 
@@ -202,9 +203,33 @@ windows pass their two hot checks; `make lint`, explicit generated `CORE=ARM9`
 and [window results](arm9/session5-cycle-windows.json) record this checkpoint.
 The integrated trial uses the exact same generated SHA-256.
 
-The integrated timing trial is still running. Prior verified milestones have dedicated [scalar](arm9/session5-scalar-verification.txt),
+Prior verified milestones have dedicated [scalar](arm9/session5-scalar-verification.txt),
 [admission](arm9/session5-admission-verification.txt) and
 [block](arm9/session5-block-verification.txt) ledgers.
+
+To repeat the final generated-core checks without rebuilding test binaries or
+QEMU references:
+
+```sh
+make -C sim/cpu run CORE=ARM9
+make -C sim/cpu diff CORE=ARM9
+make -C sim/cpu run CORE=ZAP
+make -C sim/cpu diff CORE=ZAP
+make lint
+verilator --lint-only -Wall --top-module arm925t -GCORE='"ARM9"' -f lint/rtl.f
+make cpu-gen-check
+```
+
+The timing windows run as part of the suite. Source-RTL smoke results used a
+separate results directory to preserve the complete generated-core results.
+
+Functional risk remains concentrated at hold/reload transitions, simultaneous
+retirement and redirect, and banked-base restoration on block abort. The suite
+exercises these cases but is not exhaustive or a formal proof. New MMU behavior
+was deliberately left out, including the shared low-FAR-bit issue above. The
+wider producer search and shared hold/admission control are also timing and
+area risks; the integrated fit measures their combined cost, not an isolated
+cost per mechanism.
 
 ## Next session
 
@@ -224,3 +249,88 @@ unpredictable/empty register-list behavior, every negative multiplier boundary,
 or all Thumb timing permutations. No firmware or hardware result is inferred
 from this CPU bench. No execute-stage timing closure is claimed from an old
 standalone datapath fit.
+
+## Integrated ARM9 timing and area
+
+The CPU-only build completed successfully in Quartus Prime Lite 17.0.2 on
+5CSEBA6U23I7, seed 2, period 9.615 ns (104 MHz). Both slow corners fail setup;
+all four reported corners pass hold. These are post-fit results for commit
+`56cb701`, generated SHA-256
+`9b9f181759baa9df796decbc74b23dcddd25b53f279161c5c4c4879d806d859d`.
+They are not a full-system fit or a hardware measurement.
+
+| Corner | Setup slack ns | Hold slack ns |
+| --- | ---: | ---: |
+| Slow 1100mV 100C | -3.970 | +0.312 |
+| Slow 1100mV -40C | -3.899 | +0.278 |
+| Fast 1100mV 100C | +2.157 | +0.148 |
+| Fast 1100mV -40C | +3.361 | +0.122 |
+
+Area is **16,353 ALMs, 18,528 registers, 305,568 memory bits, 69 RAM blocks and
+3 DSP blocks**. Relative to session 3's integrated fit, that is +1,850 ALMs
+and +2,700 registers with unchanged RAM/DSP counts. There is no session-4 fit
+isolating its share of that increase. This is material area growth on the
+already crowded device, not a proven acceptable full-system cost. Area and
+timing optimization remain necessary before integration.
+
+The worst path at 100C is from the I-cache tag RAM's `fwd_data_st3[8]`, through
+hit detection, fetch retry/push and queue control, into retimed decode control
+`always0~13_OTERM17205DUPLICATE`: **-3.970 ns**, 12.836 ns data delay, ten logic
+levels. The corresponding -40C path is -3.899 ns and 12.757 ns. The saved detailed
+path shows that the cache response/queue-control boundary is now worse than
+session 3's -2.623 ns cache/Thumb/decode family.
+
+Targeted reports additionally show:
+
+- Cache/queue to the decoded register list: -3.457 ns at 100C and -3.432 ns
+  at -40C (`list_d[6]`).
+- Execute forwarding, barrel shift and ALU to `fast_1[210]` (result bit 22):
+  -2.411 ns at 100C and -2.333 ns at -40C. The execute stage was not lengthened;
+  its existing combinational path still does not close.
+- Operand capture: -3.114 ns at 100C and -2.733 ns at -40C. The 100C path
+  includes register-list selection, physical-tag/RF selection and admission
+  control into `value_e[79]`.
+- Fetch-state capture also fails: the 100C path includes D-cache response /
+  pipeline hold into redirect and launch-PC control (-2.342 ns). At -40C the
+  targeted fetch result is the cache word-select / Thumb path (-2.273 ns).
+
+A separate endpoint query of this same fitted netlist measures all NZCV
+registers explicitly. `result_t.flags` occupies bits 187:156; N/Z/C/V are
+187/186/185/184. Quartus resolves the Z collection to seven retimed registers,
+including the worst endpoint `fast_1~189_OTERM13379`.
+
+| Flag endpoint | Slow 100C slack ns | Slow -40C slack ns |
+| --- | ---: | ---: |
+| N | -0.849 | -0.721 |
+| Z | -2.136 | -2.185 |
+| C | -1.257 | -1.082 |
+| V | -0.885 | -0.727 |
+
+The Z path is still the worst flag family: shifter control through barrel shift,
+ALU and result/flag capture, 11.528 ns data delay at -40C. Session 3's
+execute-to-Z result was -2.551 ns; this fit is better on that family but still
+fails, and its cache/control family is worse. The global execute-capture
+-2.411 ns number above ends at a result bit, not a flag. No execute pipeline
+stage was added. The flags-only STA run waited for a free server slot and
+finished with zero errors/warnings; its container has exited.
+
+The [saved trial](arm9/session5-final-fit-seed2/) contains input configuration,
+source commit/hash, reproduction command, fit/STA summaries, full logs and
+detailed global/targeted paths. The supplied run script was used with a task-specific build directory;
+the extended report script only added endpoint reports after compilation.
+No other engineer's job was stopped or changed.
+
+## Exact handoff
+
+The code and tests stop at a verified streaming-memory implementation, **not**
+a finished ARM9 replacement. The immediate load-use target, fixed block/SWP
+costs, all-workload ZAP cycle gate, 104 MHz setup gate and full-system area gate
+remain open. The most immediate timing work is the cache-response/queue-control
+boundary, followed by register-read/admission and execute capture. Preserve
+single-cycle execute and the verified request/abort ordering. Consider late
+store-data forwarding separately from address readiness; currently a load used
+only as store data still incurs the full three-clock dependency wait.
+
+No firmware boot, full MiSTer build or hardware test was run. ZAP remains the
+default. Local tests have exited and Quartus containers are removed on exit;
+only report artifacts and the task's build directory are retained.

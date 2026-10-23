@@ -613,3 +613,16 @@ original permissions. Loads to PC redirect at W and suppress younger requests.
 The seven new stream timing windows verify eight adjacent hit requests in nine
 marker-inclusive clocks. The existing LDM1/LDM3 windows verify one extra clock
 per additional register, with fixed block setup/drain overhead still exposed.
+
+
+### Session-5 integrated timing gate
+
+The final streaming-memory core (`56cb701`) fails 104 MHz setup in the CPU-only
+seed-2 Quartus 17.0.2 trial: -3.970 ns at Slow 100C and -3.899 ns at Slow -40C.
+Minimum hold is +0.122 ns. Area is 16,353 ALMs, 18,528 registers, 69 RAM blocks
+and 3 DSPs; the increase from session 3 is 1,850 ALMs and 2,700 registers.
+The worst family is I-cache tag response through fetch queue/control into
+retimed decode. Execute and operand capture also fail; the explicit NZCV
+query puts Z worst at -2.185 ns. The session-5 report
+links the detailed paths and records the remaining cycle and area gates.
+ZAP remains the default; no full-system or hardware result is implied.
