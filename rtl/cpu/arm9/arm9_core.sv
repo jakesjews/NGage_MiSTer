@@ -227,12 +227,15 @@ logic fast_d, fast_e, issue, execute_fast, early_redirect;
 logic e_predicted, f_predicted;
 logic [31:0] e_pred_target, f_pred_target;
 logic [1:0] e_pred_state, f_pred_state;
-logic slow_start;
+logic slow_start, block_start, block_pending;
+logic multiply_start, pipe_multiply, multiply_add;
+wire multiply_kind = kind_e == K_MUL || kind_e == K_MULL;
+wire multiply_ready = pipe_multiply && !multiply_add && multiply_delay == 0;
 wire [31:0] resolved_next = kind_e == K_BRANCH && ex_pass ? ex_branch :
                              pc + (execute_flags[5] ? 32'd2 : 32'd4);
 wire prediction_wrong = e_predicted ? e_pred_target != resolved_next :
                                       kind_e == K_BRANCH && ex_pass;
-wire predictor_feedback = (execute_fast || slow_start) &&
+wire predictor_feedback = (execute_fast || slow_start || block_start) &&
                           (kind_e == K_BRANCH || e_predicted);
 wire predictor_direction_wrong = e_predicted != (kind_e == K_BRANCH && ex_pass);
 logic e_valid, e_shifted, execute_wait;
@@ -257,7 +260,7 @@ typedef struct packed {
     logic present, pass;
     logic [5:0] dst;
     logic [31:0] value, flags, pc8;
-    logic memory, load, align_fault, user_access, fault, block_transfer, last;
+    logic memory, load, pair, align_fault, user_access, fault, block_transfer, last;
     logic [5:0] load_dst, format;
     logic [4:0] access_mode;
     logic [3:0] sel;
@@ -475,8 +478,8 @@ always_comb begin
         forward_value[2*n] = producers[n].load_data;
         forward_tag[2*n] = producers[n].load_dst;
         forward_valid[2*n] = producers[n].present && producers[n].pass &&
-                            producers[n].load && !producers[n].fault;
-        forward_ready[2*n] = n == 2 && fast_load_ready;
+                            (producers[n].load || producers[n].pair) && !producers[n].fault;
+        forward_ready[2*n] = producers[n].pair || (n == 2 && fast_load_ready);
         forward_value[2*n+1] = producers[n].value;
         forward_tag[2*n+1] = producers[n].dst;
         forward_valid[2*n+1] = producers[n].present && producers[n].pass &&
@@ -502,7 +505,10 @@ assign execute_flags = fast_1.present ? fast_1.flags :
     fast_m.present ? fast_m.flags :
     fast_w.present ? fast_w.flags : cpsr;
 assign fast_d = (kind_d == K_DP && d_ins[15:12] != 15) || kind_d == K_BRANCH ||
-               (kind_d == K_MEM && !(d_ins[19:16] == 15 && (d_ins[21] || !d_ins[24])));
+               (kind_d == K_MEM && !(d_ins[19:16] == 15 && (d_ins[21] || !d_ins[24]))) ||
+               kind_d == K_BLOCK ||
+               ((kind_d == K_MUL || kind_d == K_MULL) && d_ins[19:16] != 15 &&
+                (kind_d == K_MUL || d_ins[15:12] != 15));
 wire shift_hold = e_valid && !e_shifted && shift_register_e && ex_pass && !execute_wait;
 assign fast_load_ready = !fast_w.load || !i_dc_lock[fast_w.load_dst];
 assign retire_fast = fast_w.present && fast_load_ready;
@@ -510,8 +516,11 @@ assign pipe_fault = retire_fast && fast_w.fault;
 assign block_restore_fault = pipe_fault && fast_w.block_transfer && slow.ins[21];
 assign pipe_pc_redirect = retire_fast && fast_w.pass && !fast_w.fault &&
                           fast_w.load && fast_w.load_dst == PHY_PC;
+// Later STM registers are read in D while the first transfer is in flight.
+// A pending producer must shadow older values until its load completes.
 assign block_issue = sequence_active && remaining != 0 && state == IDLE &&
-                     !pipe_hold && !pipe_fault;
+                     !pipe_hold && !pipe_fault && !pipe_pc_redirect &&
+                     (slow.ins[20] || !unused_read_wait[3]);
 wire pipe_request = state == IDLE && fast_m.present && fast_m.pass && fast_m.memory &&
                     !i_data_fill_busy && data_reload == 0 && !pipe_fault && !pipe_pc_redirect;
 // After the critical word is captured, independent arithmetic may drain
@@ -527,12 +536,20 @@ assign pipe_hold = (i_data_fill_busy && fast_m.present && fast_m.memory && fast_
 assign o_data_stall = state == IDLE && pipe_hold && !i_data_fill_busy &&
                       data_reload == 0 && !pipe_request;
 assign execute_fast = e_valid && fast_e && !shift_hold && !execute_wait &&
-                      !pipe_hold && !pipe_fault && !pipe_pc_redirect;
+                      !pipe_hold && !pipe_fault && !pipe_pc_redirect &&
+                      (kind_e != K_BLOCK || !ex_pass) &&
+                      (!multiply_kind || !ex_pass || multiply_ready);
+assign block_start = e_valid && fast_e && kind_e == K_BLOCK && ex_pass &&
+                     !execute_wait && !pipe_hold && !pipe_fault && !pipe_pc_redirect &&
+                     (!block_pending || (retire_fast && fast_w.block_transfer && fast_w.last));
+assign multiply_start = e_valid && fast_e && multiply_kind && ex_pass &&
+                        !pipe_multiply && !execute_wait && !pipe_hold &&
+                        !pipe_fault && !pipe_pc_redirect;
 assign slow_start = e_valid && !fast_e && !shift_hold && !execute_wait &&
           !fast_1.present && !fast_m.present &&
           (!fast_w.present || retire_fast) && !pipe_hold && !i_data_fill_busy &&
           data_reload == 0 && !pipe_fault && !pipe_pc_redirect;
-assign early_redirect = (execute_fast && prediction_wrong) || (slow_start && e_predicted);
+assign early_redirect = (execute_fast && prediction_wrong) || ((slow_start || block_start) && e_predicted);
 assign issue = f_valid && !sequence_active && !f_redirect && state == IDLE &&
     (!e_valid || execute_fast) &&
     ((fast_d && !f_abort && !(i_irq && !cpsr[7]) && !(i_fiq && !cpsr[6])) ||
@@ -586,27 +603,44 @@ always_comb begin
             default: ;
         endcase
     end
-    if (sequence_active) begin
+    if (multiply_kind) begin
+        fast_input.dst = kind_e == K_MUL ? base_e : dst_e;
+        fast_input.value = multiply_result[31:0];
+        fast_input.pair = kind_e == K_MULL;
+        fast_input.load_dst = base_e;
+        fast_input.load_data = multiply_result[63:32];
+        if (ins[20] && ex_pass) begin
+            fast_input.flags[31] = kind_e == K_MULL ? multiply_result[63] : multiply_result[31];
+            fast_input.flags[30] = kind_e == K_MULL ? multiply_result == 0 : multiply_result[31:0] == 0;
+        end
+    end
+    if (kind_e == K_BLOCK) fast_input.dst = PHY_RAZ_REGISTER;
+    if (sequence_active || block_start) begin : make_block_packet
+        logic [31:0] block_ins, block_flags;
+        logic [15:0] block_list;
+        block_ins = block_start ? ins : slow.ins;
+        block_flags = block_start ? execute_flags : slow.flags;
+        block_list = block_start ? list_e : remaining;
         fast_input = '0;
-        fast_input.present = block_issue;
+        fast_input.present = block_start || block_issue;
         fast_input.pass = 1;
         fast_input.memory = 1;
         fast_input.block_transfer = 1;
-        fast_input.last = (remaining & (remaining - 16'd1)) == 0;
-        fast_input.pc8 = slow.pc8;
-        fast_input.flags = fast_input.last && slow.ins[20] && slow.ins[15] && slow.ins[22] ?
-                           sequence_flags : slow.flags;
-        fast_input.access_mode = slow.flags[4:0];
-        fast_input.load = slow.ins[20];
-        fast_input.load_dst = read_tag[3];
-        fast_input.dst = fast_input.last && slow.ins[21] &&
-                        !(slow.ins[20] && slow.ins[{1'b0,slow.ins[19:16]}]) ? slow.base : PHY_RAZ_REGISTER;
-        fast_input.value = sequence_base;
-        fast_input.address = sequence_address;
-        fast_input.store_data = value_d[3];
+        fast_input.last = (block_list & (block_list - 16'd1)) == 0;
+        fast_input.pc8 = block_start ? pc8 : slow.pc8;
+        fast_input.flags = fast_input.last && block_ins[20] && block_ins[15] && block_ins[22] ?
+                           (block_start ? held_value[2] : sequence_flags) : block_flags;
+        fast_input.access_mode = block_flags[4:0];
+        fast_input.load = block_ins[20];
+        fast_input.load_dst = block_start ? tag_e[3] : read_tag[3];
+        fast_input.dst = fast_input.last && block_ins[21] &&
+                        !(block_ins[20] && block_ins[{1'b0,block_ins[19:16]}]) ?
+                        (block_start ? base_e : slow.base) : PHY_RAZ_REGISTER;
+        fast_input.value = block_start ? updated_base : sequence_base;
+        fast_input.address = block_start ? effective_address : sequence_address;
+        fast_input.store_data = block_start ? ex_store : value_d[3];
         fast_input.sel = 4'hf;
-        fast_input.align_fault = align_en && |sequence_address[1:0];
-        // LDM reads aligned words; low address bits remain available to FAR.
+        fast_input.align_fault = align_en && |fast_input.address[1:0];
         fast_input.format = 0;
     end
 
@@ -625,17 +659,17 @@ always_ff @(posedge i_clk) begin
         if (!pipe_hold) begin
             fast_w <= fast_m;
             fast_w.fault <= pipe_request && i_data_wb_err;
-            fast_w.load_data <= i_data_wb_dat;
+            fast_w.load_data <= fast_m.load ? i_data_wb_dat : fast_m.load_data;
             fast_m <= fast_1;
             fast_1 <= fast_input;
         end
     end
 end
 
-assign updated_base = (ins[23] ? value_e[0] + {25'd0,transfer_count_e,2'b0} :
-               value_e[0] - {25'd0,transfer_count_e,2'b0});
+assign updated_base = (ins[23] ? held_value[0] + {25'd0,transfer_count_e,2'b0} :
+               held_value[0] - {25'd0,transfer_count_e,2'b0});
 assign effective_address = kind_e == K_BLOCK ?
-    value_e[0] + {{24{block_delta_e[7]}},block_delta_e} :
+    held_value[0] + {{24{block_delta_e[7]}},block_delta_e} :
     (kind_e == K_SWP ? value_e[0] : (ins[24] ? ex_result : held_value[0]));
 assign next_pc = w_dabt ? vector_base + 16 :
                  w_fiq ? vector_base + 28 :
@@ -722,7 +756,8 @@ always_ff @(posedge i_clk) begin
         fetch_abort <= 0; e_predicted <= 0; e_pred_target <= 0; e_pred_state <= 0;
         irq_pending <= 0;
         fiq_pending <= 0;
-        sequence_active <= 0;
+        sequence_active <= 0; block_pending <= 0;
+        pipe_multiply <= 0; multiply_add <= 0;
         remaining <= 0;
         sequence_address <= 0;
         sequence_base <= 0; sequence_original <= 0; sequence_flags <= 0;
@@ -742,7 +777,23 @@ always_ff @(posedge i_clk) begin
       if (e_valid) begin
         value_e <= held_value;
         if (shift_hold) e_shifted <= 1;
-        if (execute_fast) e_valid <= 0;
+        if (execute_fast || block_start) e_valid <= 0;
+      end
+      if (multiply_start) begin
+          multiply_product <= $signed({kind_e == K_MULL && ins[22] && held_value[1][31], held_value[1]}) *
+                              $signed({kind_e == K_MULL && ins[22] && held_value[2][31], held_value[2]});
+          multiply_accumulator <= !ins[21] ? 64'd0 :
+              {kind_e == K_MULL ? held_value[0] : 32'd0, held_value[3]};
+          multiply_delay <= multiply_iterations(held_value[2][31:8],kind_e == K_MUL || ins[22]) -
+                            (kind_e == K_MUL ? 3'd1 : 3'd0);
+          pipe_multiply <= 1;
+          multiply_add <= 1;
+      end else if (pipe_multiply) begin
+          if (multiply_add) begin
+              multiply_result <= multiply_product + multiply_accumulator;
+              multiply_add <= 0;
+          end else if (multiply_delay != 0) multiply_delay <= multiply_delay - 1'b1;
+          if (execute_fast) pipe_multiply <= 0;
       end
       if (slow_start) begin
             e_valid <= 0;
@@ -870,27 +921,14 @@ always_ff @(posedge i_clk) begin
                         end
                     end
                 end
-                K_BLOCK: begin
-                    // E captures the immutable block context once. The D read
-                    // port and address counter then launch one register per
-                    // enabled clock into the same ordered memory pipeline.
-                    state <= IDLE;
-                    w_valid <= 0;
-                    sequence_active <= 1;
-                    remaining <= list_e;
-                    sequence_address <= effective_address;
-                    sequence_base <= updated_base;
-                    sequence_original <= value_e[0];
-                    sequence_flags <= value_e[2];
-                end
                 K_MUL, K_MULL: begin
                     // Dedicated registered multiplier, outside the fitted E ALU
                     // cone. Truncation gives the correct modulo-2^64 product.
-                    multiply_product <= $signed({kind_e == K_MULL && ins[22] && value_e[1][31], value_e[1]}) *
-                                        $signed({kind_e == K_MULL && ins[22] && value_e[2][31], value_e[2]});
+                    multiply_product <= $signed({kind_e == K_MULL && ins[22] && held_value[1][31], held_value[1]}) *
+                                        $signed({kind_e == K_MULL && ins[22] && held_value[2][31], held_value[2]});
                     multiply_accumulator <= !ins[21] ? 64'd0 :
-                        {kind_e == K_MULL ? value_e[0] : 32'd0, value_e[3]};
-                    multiply_delay <= multiply_iterations(value_e[2][31:8],kind_e == K_MUL || ins[22]) -
+                        {kind_e == K_MULL ? held_value[0] : 32'd0, held_value[3]};
+                    multiply_delay <= multiply_iterations(held_value[2][31:8],kind_e == K_MUL || ins[22]) -
                                       (kind_e == K_MUL ? 3'd1 : 3'd0);
                     state <= MUL_ADD;
                 end
@@ -969,13 +1007,24 @@ always_ff @(posedge i_clk) begin
         default: ;
       endcase
         if (block_issue) begin
-            remaining <= remaining & ~(16'd1 << transfer_reg_d);
+            remaining <= remaining & (remaining - 16'd1);
             sequence_address <= sequence_address + 4;
+            if ((remaining & (remaining - 16'd1)) == 0) sequence_active <= 0;
         end
-        if (retire_fast && fast_w.block_transfer && fast_w.last)
-            sequence_active <= 0;
+        if (retire_fast && fast_w.block_transfer && fast_w.last) block_pending <= 0;
+        if (block_start) begin
+            slow.pc <= pc; slow.pc8 <= pc8; slow.ins <= ins; slow.raw <= raw_ins;
+            slow.dst <= dst_e; slow.flags <= execute_flags; slow.base <= base_e; slow.kind <= kind_e;
+            block_pending <= 1;
+            remaining <= list_e & (list_e - 16'd1);
+            sequence_active <= (list_e & (list_e - 16'd1)) != 0;
+            sequence_address <= effective_address + 4;
+            sequence_base <= updated_base;
+            sequence_original <= held_value[0];
+            sequence_flags <= held_value[2];
+        end
         if (pipe_fault) begin
-            sequence_active <= 0;
+            sequence_active <= 0; block_pending <= 0;
             remaining <= 0;
             if (block_restore_fault) begin
                 // A completed earlier LDM transfer may have overwritten Rn.
@@ -998,9 +1047,12 @@ always_ff @(posedge i_clk) begin
             fast_e <= issue && fast_d && !f_abort &&
                       !(i_irq && !cpsr[7]) && !(i_fiq && !cpsr[6]);
             tag_e <= read_tag;
-            // DP/scalar memory use E forwarding. Slow operations capture
+            // Normal operations use E forwarding. Serialized operations capture
             // ready D operands, then wait in E for ordered retirement.
-            used_e <= kind_d == K_MEM ?
+            used_e <= kind_d == K_BLOCK ?
+                {!d_ins[20],d_ins[20] && d_ins[22] && d_ins[15],1'b0,1'b1} :
+                (kind_d == K_MUL || kind_d == K_MULL) ?
+                {d_ins[21],2'b11,kind_d == K_MULL && d_ins[21]} : kind_d == K_MEM ?
                 {!d_ins[20],1'b0,!immediate_d,1'b1} :
                 kind_d == K_DP ? {1'b0,shift_register_d,!immediate_d,
                  op_d != MOV && op_d != MVN} : {2'b11,!immediate_d,1'b1};
@@ -1025,7 +1077,11 @@ always_ff @(posedge i_clk) begin
             e_valid <= 1;
             e_shifted <= 0;
         end
-        if (f_redirect && !early_redirect) e_valid <= 0;
+        if (f_redirect && !early_redirect) begin
+            e_valid <= 0; pipe_multiply <= 0; multiply_add <= 0;
+            sequence_active <= 0; block_pending <= 0;
+        end
+        if (pipe_fault) begin pipe_multiply <= 0; multiply_add <= 0; end
     end
 end
 
@@ -1042,7 +1098,7 @@ assign o_dbg_wb_pc = retire_fast ? fast_w.pc8 : slow.pc8;
 assign o_dbg_wb_cpsr_nxt = cpsr_next;
 assign o_dbg_stall = {pipe_fault || (wb_cycle && (w_dabt || w_pabt || w_irq || w_fiq || w_swi || w_und)),
     early_redirect || pipe_pc_redirect || (wb_cycle && w_redirect), state == COPRO || sequence_active,
-    shift_hold || state == MUL_ADD || state == MUL_WAIT,
+    shift_hold || pipe_multiply || state == MUL_ADD || state == MUL_WAIT,
     execute_wait || (f_valid && !issue && (!e_valid || execute_fast)), !f_valid, o_code_stall,
     pipe_hold || state == MEMORY || state == LOAD_WAIT};
 
@@ -1060,7 +1116,7 @@ zap_writeback #(.BP_ENTRIES(32), .PHY_REGS(40), .FLAG_WDT(32),
     .i_alu_pc_ff(32'd0), .i_taken(2'd0),
     .i_rd_index_0(read_tag[0]), .i_rd_index_1(read_tag[1]),
     .i_rd_index_2(read_tag[2]), .i_rd_index_3(read_tag[3]),
-    .i_mem_load_ff(retire_fast ? fast_w.load : w_load && state != RESTORE_BASE),
+    .i_mem_load_ff(retire_fast ? (fast_w.load || fast_w.pair) : w_load && state != RESTORE_BASE),
     .i_wr_index(retire_fast ? fast_w.dst : state == RESTORE_BASE ? slow.base : w_dst),
     .i_wr_data(retire_fast ? fast_w.value : state == RESTORE_BASE ? sequence_original : w_value),
     .i_flags(retire_fast ? (fast_w.fault && fast_w.block_transfer ? slow.flags : fast_w.flags) : state == RESTORE_BASE ? cpsr : w_flags), .i_wr_index_1(retire_fast ? fast_w.load_dst : m_dst), .i_wr_data_1(retire_fast ? fast_w.load_data : m_read_data),

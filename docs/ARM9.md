@@ -6,8 +6,8 @@ TLB together from registered next-PC (fetch) or E's effective address (data).
 The next edge captures tag/way/word selection and load formatting alongside
 the unchanged registered permission check. Fetch hits enter D from a registered
 F2 packet, taking four clocks for an unpredicted branch; load-use remains two.
-Prediction is optional and defaults on for ARM9. Fixed block/multiply
-barriers and performance/timing/area gates remain open. The session-6 sections supersede the historical native schedule.
+Prediction is optional and defaults on for ARM9. Block and multiply drains are
+removed for normal encodings; performance/timing/area gates remain open. The session-6 sections supersede the historical native schedule.
 Starting revision: `75cce2e`, branch `codex/arm9`.
 
 ## Contract and sources
@@ -717,23 +717,20 @@ retargets all 69 original windows and the seven stream windows stay at 9.
 | LDR + 1 / 2 / 3 independent DP + consumer | 4 / 5 / 6 | 5 / 5 / 6 |
 | LDR PC | 6 | 8 |
 | STR | 2 | 2 |
-| LDM1 / STM1 | 3 | 9 / 9 |
-| LDM3 / STM3 | 4 | 11 / 11 |
-| LDM3 including PC | 8 | 14 |
+| LDM1 / STM1 | 3 | 3 / 3 |
+| LDM3 / STM3 | 4 | 5 / 5 |
+| LDM3 including PC | 8 | 10 |
 | SWP / SWPB + ALU | 3 / 5 | 11 / 12 |
 | B / BL / BX | 4 | 5 / 5 / 8 |
 | MRS / flags-only MSR / control MSR | 2 / 2 / 4 | 6 / 8 / 8 |
 | MCR / MRC / MRC + consumer / MRC PC | b+2 / b+2 / b+4 / b+4 | 15 / 12 / 13 / 12 |
-| SWI / UND / unsupported CDP/LDC/STC | 3 to vector, plus actual vector trampoline | 16 |
-| MUL/MLA, m=1..4 | 4..7 | 8..11 |
-| Long multiply, m=1..4 | 5..8 | 9..12 |
+| SWI / UND / unsupported CDP/LDC/STC | 3 to vector, plus actual vector trampoline | 15 |
+| MUL/MLA, m=1..4 | 4..7 | 4..7 |
+| Long multiply, m=1..4 | 5..8 | 5..8 |
 | Eight hit accesses in each of seven stream windows | 9 | 9 |
 
-The block formula is still `n+8` including the marker; seven fixed clocks beyond
-an ideal n-cycle transfer remain for n>1. The multiply barrier remains, with
-four extra exposed clocks in these windows. No predicted-branch window exists
-yet because the predictor is not implemented. Complete measurements and the
-stopping point are in the session-6 continuation report.
+Normal blocks and multiplies now use the execution-slot schedule below. The
+predictor and four new block/multiply windows are described in the next sections.
 
 ## Session 6: optional registered BTB
 
@@ -768,3 +765,39 @@ expectation; the bench selects it from the actual elaborated core parameter.
 The other existing expectations are unchanged; there are 78 windows including
 the two new predictor cases. The new test also replaces a trained uncached
 branch with ADD without any CP15/BTB clear, exercising stale-entry repair in E.
+
+## Session 6: blocks and multiplies in their execution slots
+
+A normal block transfer starts its first request directly from E. Its immutable
+base, original base, mode, register list and restoration flags are captured once;
+subsequent requests use the same ordered memory records as scalar accesses.
+Every STM register read waits for its youngest producer, including a load
+feeding a nonfirst transfer; the first transfer uses the ordinary E interlock.
+The sequencer releases D after launching the last register. A separate pending
+bit retains abort-restoration context until that register retires. A following
+block may reuse the context on the same edge the preceding block retires; an
+ordinary following instruction need not wait. Base-in-list, user-bank transfer,
+PC-load and base-restored abort behavior keep their existing rules.
+
+Hot blocks take `n+1` clocks in isolation; a dependent following block can take
+`n+2` while waiting for the preceding restoration context. The new 8-register
+windows measure 9 clocks plus the marker. Adjacent dependent 4-register LDM/STM
+measure 11 clocks plus the marker. LDM including PC still waits for ordered W
+and refills fetch: the three-register window is 10, including its marker.
+
+MUL/MLA and long multiplies occupy E for their iteration-dependent time while
+older records continue toward W. The product and accumulator are registered,
+then added; the existing iteration count determines when the complete result
+enters the ordinary result pipeline. Following instructions can then use the
+normal forwarding paths. Long multiply marks a second register result as a
+`pair`, independently of a memory load or cache lock. Both values forward and
+retire together. Failed conditions take no multiply wait. The legacy serialized
+path remains for PC-destination encodings; their existing tested semantics are
+preserved rather than broadening this optimization to unpredictable cases.
+
+MUL/MLA now take `2+m` clocks; long multiplies take `3+m`, matching Table 7-2.
+The new test also checks long-result forwarding into MLA and cancellation of a
+younger multiply or block store by an older abort. There are now 82 timing
+windows. Timing risks are E's first block-address forwarding and the multiplier
+input mux; no pipeline stage was added, and the existing multiplier cone is
+shared with the serialized fallback.

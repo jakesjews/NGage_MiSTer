@@ -1,0 +1,16 @@
+Session 6 block-transfer and multiply execution slots
+ARM9 predictor on/off and ZAP: 231/231 runs each; 62/62 QEMU comparisons each.
+82 timing windows: all visits at every latency; exact hot ARM9 on/off checks.
+New arm9_slots: eight-register LDM/STM, dependent adjacent blocks, paired
+multiply forwarding, later STM source load-use and older-abort cancellation.
+Only this new test binary/reference was built/run under QEMU.
+The first full trace comparison found a missing interlock for later STM
+registers: ctrand2 first diverged at instruction 14975, PC 0xb32, after the
+push at 0xb2e used a pending LDRSB result. ctrand3, trand5, ctrand5 and ctrand6
+also exposed it. The sequencer now waits for the youngest producer at every
+STM source. The directed test and all three complete configurations were
+rerun after that fix.
+Top-level lint, ARM9 -Wall lint and cpu-gen-check pass.
+ZAP counts unchanged from session-start baseline. Selected workload
+instruction counts unchanged. No firmware boot or Quartus run.
+Generated SHA256: 4cabe1d8638eb4ff6b39b6657a72086932c316e84e1960f6ef05483a56142122
