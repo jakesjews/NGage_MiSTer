@@ -677,6 +677,21 @@ payload/RAS inputs, replacement bank/selector inputs, and paths from the
 old payload or replacement banks into all consumers. It is prepared on
 `combined2`, not retained or fitted.
 
+**Direct cache acknowledgement (`dcack3`):** rebase the already-proved
+acknowledge candidate onto `combined2`. Cacheable write-back hits and misses
+all acknowledge in IDLE; express their shared result directly alongside
+UNC_DONE, outside the FSM's hit/victim priority mux. Preserve alignment,
+translation and walk outcomes, uncacheable/write-through holds, CP15 handling,
+and the separate hit-under-miss acknowledgement. No cache data path changes.
+
+The actual module is byte-identical to the earlier proved candidate: all
+1,763 equivalence points pass under an independently proved one-hot state
+invariant. The current-baseline rebase passes 225 exact counts, 57 QEMU
+comparisons, both lint modes and generated checks. Its pre-fit acceptance
+family is deliberately broad: every path from the D-cache or CP15 MMU-enable
+register into the core, so predecode/fetch consumers of the late stall cannot
+escape the check. It remains prepared, not retained or fitted.
+
 ## Scope and risks
 
 No firmware boot bench, `sys/` change, ARM9 change, card-model edit, hardware
