@@ -88,9 +88,10 @@ localparam CONF_STR = {
 	"T[7],Save C: now;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
+	"O[17:16],Activity dot,Boot only,Always,Off;",
 	"J,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power;",
 	"jn,A,B,X,L,R,Start,Select;",
-	"I,Memory test passed,Memory test FAILED,CS1 mounted: C: saves to it,CS1 save file must be 8 MB,CS1 read-only: no C: saves,C: saved;",
+	"I,Memory test passed,Memory test FAILED,CS1 mounted: C: saves to it,CS1 save file must be 8 MB,CS1 read-only: no C: saves,C: saved,Booting the phone - about a minute...,Phone kernel is up;",
 	"V,v",`BUILD_DATE
 };
 
@@ -765,28 +766,63 @@ wb_selftest #(
 	.pass_done(test_pass_done)
 );
 
-// OSD message after the first pass, and after a pass that found new errors
+// First firmware LCD frame is a cheap boot milestone. lcd_testgen also
+// emits frame events before images load; only the UPP-owned bus counts.
+reg         cpu_reset_q = 1'b1;
+reg         boot_done /* verilator public_flat_rd */ = 1'b0;
+wire        boot_start = cpu_reset_q && !cpu_reset;
+wire        boot_up = !cpu_reset && !boot_done && upp_lcd_on && lcd_frame_ev;
+always @(posedge clk_sys) begin
+	cpu_reset_q <= cpu_reset;
+	if (cpu_reset) boot_done <= 1'b0;
+	else if (boot_up) boot_done <= 1'b1;
+end
+
+// Queue info events, with a low cycle between pulses: a mounted/save/test
+// event must not swallow a boot message (or vice versa) on the same clock.
 reg  [15:0] test_reported = 0;
 reg         test_first = 1;
+wire        test_note = test_pass_done && (test_first || test_errors != test_reported);
+wire  [7:0] info_events = {boot_up, boot_start, fs_saved,
+                          fs_note == 2'd3, fs_note == 2'd2, fs_note == 2'd1,
+                          test_note && test_errors != 16'd0, test_note && test_errors == 16'd0};
+reg   [7:0] info_pending = 0;
 reg   [7:0] info_q = 0;
 reg         info_req_q = 0;
+reg   [7:0] info_next, info_mask;
+always @* begin
+	info_next = 0;
+	info_mask = 0;
+	for (int i = 7; i >= 0; i--) begin
+		if (info_pending[i]) begin
+			info_next = 8'(i + 1);
+			info_mask = 8'(1 << i);
+		end
+	end
+end
 always @(posedge clk_sys) begin
 	info_req_q <= 1'b0;
-	// the CS1 save's messages: 3 mounted, 4 not 8 MB, 5 read-only, 6 saved
-	if (fs_note != 2'd0 || fs_saved) begin
-		info_q     <= fs_saved ? 8'd6 : 8'd2 + {6'd0, fs_note};
+	info_pending <= info_pending | info_events;
+	if (!info_req_q && info_next != 0) begin
+		info_q <= info_next;
 		info_req_q <= 1'b1;
-	end else if (test_pass_done && (test_first || test_errors != test_reported)) begin
-		info_q        <= (test_errors == 16'd0) ? 8'd1 : 8'd2;
-		info_req_q    <= 1'b1;
-		test_first    <= 1'b0;
+		info_pending <= (info_pending & ~info_mask) | info_events;
+	end
+	if (test_note) begin
+		test_first <= 1'b0;
 		test_reported <= test_errors;
 	end
 	if (!test_on) begin
-		test_first    <= 1'b1;
+		test_first <= 1'b1;
 		test_reported <= 16'd0;
 	end
+	if (cpu_reset) info_pending[7:6] <= 2'b00;
+	if (sys_reset) begin
+		info_pending <= 0;
+		info_req_q <= 1'b0;
+	end
 end
+
 assign info_req = info_req_q;
 assign info     = info_q;
 
@@ -1082,8 +1118,21 @@ wire        dbg_bit   = dbg_pcrow_q ? dbg_pc_q[5'd31 - dbg_col_q] :
                         dbg_strow_q ? dbg_bits_q[3'd7 - 3'(dbg_col_q)] :
                                       dbg_word_q[5'd31 - dbg_col_q];
 wire [15:0] dbg_rgb   = dbg_bit ? 16'hFFFF : 16'h0000;
+// A six-pixel activity square outside the fixed debug rows (x 16..47).
+// At 104 MHz, keep each completed CPU bus beat visible for 1/8 second.
+reg [23:0] activity_left /* verilator public_flat_rd */ = 0;
+always @(posedge clk_sys) begin
+	if (cpu_reset) activity_left <= 0;
+	else if (dbg_bus_beat) activity_left <= 24'd13_000_000;
+	else if (activity_left != 0) activity_left <= activity_left - 1'd1;
+end
+wire activity_show = !cpu_reset &&
+                     (status[17:16] == 2'd1 || (status[17:16] == 2'd0 && !boot_done));
+wire activity_dot = activity_show && activity_left != 0 &&
+                    scan_x >= 8'd164 && scan_x < 8'd170 && scan_y >= 8'd4 && scan_y < 8'd10;
 assign scan_rgb = (test_on && scan_x < 8'd12 && scan_y < 8'd12) ? test_rgb :
-                  (dbg_on && (dbg_pcrow_q || dbg_strow_q || dbg_wrow_q)) ? dbg_rgb : panel_rgb;
+                  (dbg_on && (dbg_pcrow_q || dbg_strow_q || dbg_wrow_q)) ? dbg_rgb :
+                  activity_dot ? 16'h07E0 : panel_rgb;
 
 wire       ce_pix;
 wire       hs, vs, hblank, vblank;

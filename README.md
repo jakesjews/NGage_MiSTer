@@ -64,6 +64,7 @@ load) or mount slot 1 (CS1 save) and slot 0 (card).
 - One `cs1.bin` copy per profile: the phone's C: drive lives inside it.
 - The firmware is Spanish (movistar) in this version; the game cards do
   not care.
+- **Activity dot**: *Boot only* (default, until the first firmware LCD frame), *Always*, or *Off*; green shows recent CPU bus activity.
 - **Aspect ratio** in the OSD: *Original* is the panel's own shape (176:208,
   turned with Rotate); `[ARC1]` and `[ARC2]` are your own ratios from
   `custom_aspect_ratio_1` and `custom_aspect_ratio_2` in `MiSTer.ini`, for

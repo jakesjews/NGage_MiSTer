@@ -255,7 +255,7 @@ struct Bench {
 int square565 = -1;
 
 // compare a captured frame with the pattern for key state st, turned by rot
-int compare(const sim::Image &got, uint32_t st, int rot, const char *what) {
+int compare(const sim::Image &got, uint32_t st, int rot, const char *what, bool activity = false) {
 	bool turned = rot == 1 || rot == 2;
 	int w = turned ? H : W, h = turned ? W : H;
 	if (got.w != w || got.h != h) { sim::fail("%s: frame is %dx%d, want %dx%d", what, got.w, got.h, w, h); return -1; }
@@ -265,8 +265,9 @@ int compare(const sim::Image &got, uint32_t st, int rot, const char *what) {
 			int sx = x, sy = y;
 			if (rot == 1) { sx = y; sy = H - 1 - x; }
 			if (rot == 2) { sx = W - 1 - y; sy = x; }
-			uint32_t want = sim::rgb565_to_888((square565 >= 0 && sx < 12 && sy < 12) ? (uint16_t)square565
-			                                                                           : to565(pattern(sx, sy, st)));
+			bool dot = activity && sx >= 164 && sx < 170 && sy >= 4 && sy < 10;
+			uint32_t want = sim::rgb565_to_888(dot ? 0x07E0 :
+				(square565 >= 0 && sx < 12 && sy < 12) ? (uint16_t)square565 : to565(pattern(sx, sy, st)));
 			if (got.get(x, y) != want && bad++ < 4)
 				sim::fail("%s: pixel (%d,%d) = %06x, want %06x", what, x, y, got.get(x, y), want);
 		}
@@ -437,7 +438,16 @@ int main(int argc, char **argv) {
 	// the board restarts after a download and draws again; the CPU does not
 	// touch the display, so the test picture stays
 	b.frame();
-	compare(b.frame(), 0, 0, "picture after loading flash");
+	compare(b.frame(), 0, 0, "picture after loading flash", true);
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "one boot-start message");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 8), 0, "testgen is not a firmware frame");
+	CHECK(!R.emu__DOT__boot_done, "testgen must not end Boot only");
+	CHECK(R.emu__DOT__activity_left > 0, "CPU bus beats stretch activity");
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 2u << 16;
+	compare(b.frame(), 0, 0, "activity Off");
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 16;
+	compare(b.frame(), 0, 0, "activity Always during boot", true);
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
 
 	// an MMC image: the card reads its sidecar block
 	b.img.assign(4096 * 512 + 512, 0x11);
@@ -468,17 +478,19 @@ int main(int argc, char **argv) {
 		printf("CS1 save: loaded in %llu clocks, %llu requests\n", (unsigned long long)(b.clocks - t1), (unsigned long long)b.s1_reads);
 		CHECK_EQ(b.s1_reads, 2048, "4 KB requests for 8 MB");
 		CHECK(memcmp(&b.ddr[0x01000000], b.img1.data(), b.img1.size()) == 0, "CS1 save image in DDR3 at 0x32000000");
-		CHECK(b.infos.size() == 1 && b.infos[0] == 3, "OSD message 3 (CS1 mounted)");
+		b.ticks(20);
+		CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 3), 1, "OSD message 3 (CS1 mounted)");
+		CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "boot message after save loading");
 		CHECK(b.disk_led, "LED_DISK while the save loads");
 		// Save C: now with nothing changed: "C: saved" at once, nothing written
 		R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 7;
 		b.ticks(200);
 		R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
 		b.ticks(200);
-		CHECK(b.infos.size() == 2 && b.infos[1] == 6, "OSD message 6 (C: saved)");
+		CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 6), 1, "OSD message 6 (C: saved)");
 		CHECK_EQ(b.s1_writes, 0, "no write-back with nothing changed");
 		b.frame();
-		compare(b.frame(), 0, 0, "picture after the CS1 save loaded");
+		compare(b.frame(), 0, 0, "picture after the CS1 save loaded", true);
 	}
 
 	// the memory system under the self-test, with the CPU held in reset
@@ -517,6 +529,79 @@ int main(int argc, char **argv) {
 	while (b.cpu_writes.size() < 2 && b.clocks < t0 + 200000) b.tick();
 	CHECK(b.cpu_writes.size() == 2 && b.cpu_writes[1] == std::make_pair(0x0A000004u, 0x12345679u),
 	      "the CPU's program after the memory test");
+	// A synthetic ARM program drives the real LCD interface: RAMWR begins
+	// a frame. Repeated commands must produce only one boot-up notification.
+	// This is a peripheral smoke test, not the firmware boot bench.
+	static const uint32_t lcd_prog[] = {
+		0xE59F0010, 0xE59F1010, 0xE5801000, 0xE3A0102C,
+		0xE5801008, 0xEAFFFFFC, 0x0C121200, 0x09280000
+	};
+	memcpy(cs0.data(), lcd_prog, sizeof lcd_prog);
+	b.infos.clear();
+	download(1, cs0);
+	b.ticks(20000);
+	CHECK(R.emu__DOT__boot_done, "firmware RAMWR ends Boot only");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "LCD program boot-start message");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 8), 1, "first firmware LCD frame message");
+	// Taking over the LCD before testgen finishes can leave a blank/partial
+	// picture. Compare the actual panel image across modes, not testgen.
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 2u << 16;
+	sim::Image panel = b.frame();
+	auto check_activity_frame = [&](bool dot, const char *what) {
+		sim::Image got = b.frame();
+		CHECK(got.w == panel.w && got.h == panel.h, "activity changes frame size");
+		int bad = 0;
+		for (int y = 0; y < panel.h; y++)
+			for (int x = 0; x < panel.w; x++) {
+				uint32_t want = dot && x >= 164 && x < 170 && y >= 4 && y < 10 ?
+					sim::rgb565_to_888(0x07E0) : panel.get(x, y);
+				if (got.get(x, y) != want) bad++;
+			}
+		CHECK_EQ(bad, 0, what);
+	};
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
+	check_activity_frame(false, "Boot only hidden after firmware frame");
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 16;
+	check_activity_frame(true, "Always after firmware frame");
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 2u << 16;
+	check_activity_frame(false, "Off after firmware frame");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 8), 1, "no repeat frame notification");
+
+	// Overlay data rows keep their black/white encoding, while the dot
+	// itself remains outside their x coordinates.
+	R.emu__DOT__hps_io__DOT__sim_status[0] = (1u << 8) | (1u << 16);
+	f = b.frame();
+	CHECK_EQ(f.get(164, 4), sim::rgb565_to_888(0x07E0), "activity with debug overlay");
+	for (int y = 0; y < 127; y++)
+		for (int x = 16; x < 48; x++) {
+			// Existing rows render only black/white; the green dot cannot intrude.
+			if ((y < 3) || (y >= 8 && y % 4 != 3))
+				CHECK(f.get(x, y) == 0 || f.get(x, y) == 0xFFFFFF, "dot overlaps debug row");
+		}
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 1; // reset rearms messages and clears activity
+	b.ticks(20);
+	CHECK(!R.emu__DOT__boot_done && R.emu__DOT__activity_left == 0, "reset clears boot/activity");
+	b.infos.clear();
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
+	b.ticks(20000);
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "boot message rearmed on reset");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 8), 1, "frame message rearmed on reset");
+
+	// A loop in I-cache stops bus traffic so the real 13,000,000-clock
+	// hold time expires: mov r0,#0x1000; mcr p15,0,r0,c1,c0,0; b .
+	// No CPU implementation changes are involved.
+	static const uint32_t sleep_prog[] = {0xE3A00A01, 0xEE010F10, 0xEAFFFFFE};
+	memcpy(cs0.data(), sleep_prog, sizeof sleep_prog);
+	download(1, cs0);
+	b.ticks(20000);
+	uint32_t left = R.emu__DOT__activity_left;
+	CHECK(left > 0 && left < 13000000, "activity countdown in cached loop");
+	b.ticks(100);
+	CHECK_EQ(R.emu__DOT__activity_left, left - 100, "activity decrements without beats");
+	b.ticks(left);
+	CHECK_EQ(R.emu__DOT__activity_left, 0, "activity expires after 1/8 second");
+	compare(b.frame(), 0, 0, "quiet boot has no activity dot");
+	printf("boot messages and activity modes: checked through CPU/LCD and video outputs\n");
 	if (b.chip.errors) sim::fail("the SDRAM chip model reported %d error(s)", b.chip.errors);
 	if (b.dm.protocol_errors) sim::fail("%d DDRAM port protocol error(s)", b.dm.protocol_errors);
 	CHECK(!b.dm.bad_access, "DDR3 access outside the model");

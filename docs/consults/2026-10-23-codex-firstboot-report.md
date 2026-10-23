@@ -1,7 +1,9 @@
 # First-boot format and boot indicators — 2026-10-23
 
 Worktree: `NGage_MiSTer-cx-firstboot`, branch `codex/firstboot`, starting at
-`8f267c241b22d82cad363fe6d32c69fbe97a0d3f`. Local commits only; no push.
+`8f267c241b22d82cad363fe6d32c69fbe97a0d3f`. Change 1 commit: `a3f053e`.
+Change 2 is the subsequent boot-indicator commit.
+Local commits only; no push.
 Neither `sys/` nor `rtl/cpu/` is modified. No firmware boot bench is run.
 
 ## Change 1: blank C: fast path
@@ -28,6 +30,30 @@ Neither `sys/` nor `rtl/cpu/` is modified. No firmware boot bench is run.
   use after blankness clears. This change does not make their pre-existing
   timing models cycle-identical.
 
+## Change 2: boot messages and activity dot
+
+- Info IDs 1–6 are unchanged. ID 7 is `Booting the phone - about a minute...`
+  (a comma separates entries in `I,`, so the sentence uses a hyphen). ID 8
+  is `Phone kernel is up`. Start is CPU reset release after images/RTC are
+  ready; the second message is the first `lcd_frame_ev` while `upp_lcd_on`.
+  The fallback test generator cannot trip it. Reset re-arms both messages.
+- Pending event bits serialize the existing test/save notifications and
+  the new boot notifications, with a low cycle between `info_req` pulses.
+- The new option is appended after the existing menu controls:
+  `O[17:16],Activity dot,Boot only,Always,Off`. Zero is Boot only; value 1
+  is Always, values 2/3 are Off. All earlier strings and bit positions,
+  including aspect ratio at 122:121, are unchanged. The lint unused-bit
+  waiver is narrowed to match the two newly consumed bits.
+- A 6×6 green square at panel x=164–169, y=4–9 shows a CPU bus beat in the
+  last 13,000,000 clocks (125 ms at 104 MHz). Boot only hides it on the
+  first firmware frame; Always retains it after that. CPU reset clears
+  the timer and suppresses the dot during memory self-test. Quiet traffic
+  lets the underlying picture show through. The debug rows, mux and event
+  counters are unchanged; the square never overlaps x=16–47, y=0–126.
+- README adds one line documenting the option. The first-boot duration in
+  its setup instructions remains the previous measured figure until a
+  physical boot validates the new estimate.
+
 ## Verification
 
 Run locally with Homebrew Verilator 5.052, one simulation at a time:
@@ -38,11 +64,15 @@ Run locally with Homebrew Verilator 5.052, one simulation at a time:
 | `make -C sim ddrflash` | PASS; added isolated checks for image load, lower-CS1/CS0 exclusion, non-first-word writes, sticky clearing across erase/reset, and reloading a blank image |
 | `make -C sim top` after change 1 | PASS, 119,463,677 clocks; video/rotation/crop, image loading, CPU smoke program, save mounting, memory-test messages, DDR3 and SDRAM protocol checks |
 | `make lint` after change 1 | PASS, all configured module tops |
+| `make -C sim top` after change 2 | PASS, 159,279,244 clocks; existing integration checks plus real LCD-interface start, one-shot/re-armed messages, fallback-frame exclusion, Boot only/Always/Off pixels, debug-row isolation, and the full 13,000,000-clock activity decay in a cached CPU loop |
+| `make lint` after change 2 | PASS, all configured module tops |
+| Configuration/debug compatibility | PASS; all pre-existing OSD option strings and info IDs preserved; counter and row-rendering source byte-for-byte unchanged |
 | Changed QEMU C sources | PASS, `-fsyntax-only` against the existing QEMU build headers, using this worktree's header in a temporary include directory; no other worktree modified |
 
 The fresh worktree lacked ignored `build_id.v`; copied the generated
 `lint/gen/build_id.v` there before running `top`. No servers or containers
-were started. QEMU firmware execution, access-for-access boot comparison,
+were started. Logs are retained locally in `sim/build/firstboot-validation/`.
+QEMU firmware execution, access-for-access boot comparison,
 Quartus fitting/timing, and physical hardware validation are not performed.
 
 ## Board procedure and expected timing
@@ -61,14 +91,22 @@ Quartus fitting/timing, and physical hardware validation are not performed.
    from selecting the launcher. The blank erase phase should take seconds
    rather than adding roughly 50 seconds (71 sectors × 0.7 seconds).
    The intended Time/Date arrival is near the same build's warm-boot time,
-   roughly a minute on the current cache builds, rather than minutes at the
-   Nokia logo. This is an expectation, not a measured result. The older
+   roughly 60–75 seconds of CPU boot on the current cache builds, rather
+   than minutes at the Nokia logo. This is an expectation, not a measured result. The older
    recorded build was about 170 seconds blank versus 105 seconds saved;
-   compare against a warm boot of this exact RBF, not a different CPU build.
+   the two-way-cache measurement was 66 seconds of bus activity / about 96
+   seconds after launcher load. Compare against a warm boot of this exact
+   RBF, not a different CPU build.
 4. Accept Time and Date with Enter, wait for save writeback (or use **Save
    C: now**), then relaunch the same mounted file. Confirm user data survives
    and the second boot does not format C:. Restore a fresh disposable copy
    before repeating the first-boot timing trial.
+5. Check the boot-start message after image loading, and one kernel-up
+   message on the first firmware LCD frame. In **Boot only**, the dot must
+   stop being overlaid then; in **Always**, it must follow later bus traffic;
+   in **Off**, it must never alter pixels. Enable Debug overlay and confirm
+   its rows remain readable by `tools/mister_dbg.py`. Reset and repeat to
+   verify the two messages re-arm.
 
 ## Risks and limits
 
@@ -83,3 +121,8 @@ Quartus fitting/timing, and physical hardware validation are not performed.
   blankness: use the full 8 MB image. Resetting an interrupted format keeps
   the conservative nonblank state; retry with a fresh image when needed.
 - No timing-closure or board-speed claim is made from these simulations.
+- The first firmware LCD frame is only a boot milestone, not proof that
+  Symbian reached its idle screen or that user applications are ready.
+  Boot only can disappear earlier than idle, as requested.
+- The dot is in panel coordinates, so it rotates with the picture and
+  vertical crop can hide this corner. No debug row is moved to make room.
