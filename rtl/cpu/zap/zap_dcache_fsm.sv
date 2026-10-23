@@ -121,6 +121,9 @@ output  logic                      o_hold,
 
 // Cache state
 output  logic                      o_idle,
+// ARM925T: rebuild the three in-flight cache lookups after holding a fill.
+output  logic [2:0]                o_relookup,
+output  logic                      o_fill_busy,
 
 // Bus access ports, both NXT and FF.
 output  logic             o_wb_cyc_ff, o_wb_cyc_nxt,
@@ -156,7 +159,10 @@ localparam [2:0] UNLOCK_REG           = 3'd7; // Unlock register
 localparam [3:0] LINEOP               = 4'd8; // ARM925T: single-line operation
 localparam [3:0] UNC_DONE             = 4'd9; // ARM925T: uncacheable access completes
 localparam [3:0] UNLOCK_WR            = 4'd10; // ARM925T: background load written
-localparam [31:0] NUMBER_OF_STATES    = 32'd11;
+localparam [3:0] RELOOKUP0            = 4'd11;
+localparam [3:0] RELOOKUP1            = 4'd12;
+localparam [3:0] RELOOKUP2            = 4'd13;
+localparam [31:0] NUMBER_OF_STATES    = 32'd14;
 
 localparam [31:0] ADR_PAD              =  32'd32 - $clog2(CACHE_LINE/4) - 32'd1;
 localparam [31:0] ADR_PAD_MINUS_2      =  ADR_PAD - 32'd2;
@@ -177,7 +183,6 @@ logic                                     cache_inv_req_nxt,
                                           cache_inv_req_ff;
 logic                                     line_req_nxt, line_req_ff; // ARM925T
 logic [$clog2(CACHE_LINE/4):0]            adr_ctr_ff, adr_ctr_nxt; // Needs to take on 0,1,2,3, ... CACHE_LINE/4
-logic                                     rhit, whit;
 
 // From/to processor
 logic    [31:0]                           address;
@@ -382,6 +387,11 @@ begin
         end
 end
 
+// ARM925T: registered-state controls, outside the hit/acknowledge path.
+assign o_relookup = {state_ff[RELOOKUP2], state_ff[RELOOKUP1], state_ff[RELOOKUP0]};
+assign o_fill_busy = state_ff[CLEAN_SINGLE] || state_ff[FETCH_SINGLE] ||
+                     state_ff[UNLOCK_REG] || state_ff[UNLOCK_WR] || (|o_relookup);
+
 // Idle indication
 always_ff @ ( posedge i_clk )
 begin
@@ -442,8 +452,6 @@ begin:next_state_logic
                 buf_nxt[i] = buf_ff[i];
         end
 
-        rhit = 1'd0;
-        whit = 1'd0;
 
         // ======================================================
         // Generate output data.
@@ -604,13 +612,11 @@ begin:next_state_logic
                                 begin
                                         if ( i_rd ) // Read request.
                                         begin
-                                                rhit    = 1'd1;
                                                 o_ack   = 1'd1;
                                         end
                                         else if ( i_wr ) // Write request (the write itself is above)
                                         begin
                                                 o_ack        = 1'd1;
-                                                whit         = 1'd1;
                                         end
                                 end
 
@@ -757,13 +763,8 @@ begin:next_state_logic
 
         state_ff[CLEAN_SINGLE]: // Clean single cache line
         begin
-                `zap_hit_under_miss;
-
-                if(!rhit && !whit)
-                begin
-                        o_ack  = 1'd1;
-                        o_err2 = i_rd || i_wr ? 1'd1 : 1'd0;
-                end
+                // ARM925T: no acknowledge while the background fill owns
+                // the cache. data_stall keeps the next access in memory.
 
                 // Generate address
                 adr_ctr_nxt = take ? adr_ctr_inc : adr_ctr_ff;
@@ -799,13 +800,8 @@ begin:next_state_logic
 
         state_ff[FETCH_SINGLE]: // Fetch a single cache line
         begin
-                `zap_hit_under_miss;
-
-                if(!rhit && !whit)
-                begin
-                        o_ack  = 1'd1;
-                        o_err2 = i_rd || i_wr ? 1'd1 : 1'd0;
-                end
+                // ARM925T: no acknowledge while the background fill owns
+                // the cache. data_stall keeps the next access in memory.
 
                 // Generate address
                 adr_ctr_nxt = take ? adr_ctr_inc : adr_ctr_ff;
@@ -861,13 +857,8 @@ begin:next_state_logic
 
         state_ff[UNLOCK_REG]: // Load data into the register if required.
         begin
-                `zap_hit_under_miss;
-
-                if(!rhit && !whit)
-                begin
-                        o_ack  = 1'd1;
-                        o_err2 = i_rd || i_wr ? 1'd1 : 1'd0;
-                end
+                // ARM925T: no acknowledge while the background fill owns
+                // the cache. data_stall keeps the next access in memory.
 
                 if ( !wr )
                 begin
@@ -878,8 +869,8 @@ begin:next_state_logic
                 end
                 else // Update cache line.
                 begin
-                        o_ack        = 1'd1;
-
+                        // The original store was acknowledged in IDLE.
+                        // Do not acknowledge the younger, held access here.
                         o_cache_line =
                         {(CACHE_LINE/4){din}};
 
@@ -898,14 +889,12 @@ begin:next_state_logic
                 // Back to IDLE (ARM925T: through UNLOCK_WR for a load)
                 state_nxt[UNLOCK_REG] = 1'd0;
                 state_nxt[UNLOCK_WR]  = !wr;
-                state_nxt[IDLE]       = wr;
+                state_nxt[RELOOKUP0]  = wr && (i_rd || i_wr);
+                state_nxt[IDLE]       = wr && !(i_rd || i_wr);
         end
 
         state_ff[UNLOCK_WR]: // ARM925T: write the loaded register, unlock it.
         begin
-                o_ack  = 1'd1;
-                o_err2 = i_rd || i_wr ? 1'd1 : 1'd0;
-
                 o_reg_dat = reg_dat_ff;
                 o_reg_idx = reg_idx;
 
@@ -916,6 +905,29 @@ begin:next_state_logic
                 lock_nxt &= ~(reg_idx);
 
                 state_nxt[UNLOCK_WR] = 1'd0;
+                state_nxt[RELOOKUP0] = i_rd || i_wr;
+                state_nxt[IDLE]      = !(i_rd || i_wr);
+        end
+
+        // ARM925T: the RAM reads run during fills, even when the CPU is
+        // stalled. Restore the held access and the two younger lookups in
+        // order (zap_dcache), after all fill/store writes. Keep o_idle low:
+        // only IDLE may use hit-way store selection or acknowledge a hit.
+        state_ff[RELOOKUP0]:
+        begin
+                state_nxt[RELOOKUP0] = 1'd0;
+                state_nxt[RELOOKUP1] = 1'd1;
+        end
+
+        state_ff[RELOOKUP1]:
+        begin
+                state_nxt[RELOOKUP1] = 1'd0;
+                state_nxt[RELOOKUP2] = 1'd1;
+        end
+
+        state_ff[RELOOKUP2]:
+        begin
+                state_nxt[RELOOKUP2] = 1'd0;
                 state_nxt[IDLE]      = 1'd1;
         end
 
@@ -1005,8 +1017,6 @@ begin:next_state_logic
                 o_err2                  = 'x;
                 o_address               = 'x;
                 o_cache_way             = 'x;
-                rhit                    = 'x;
-                whit                    = 'x;
 
                 for(int i=0;i<CACHE_LINE/4;i++)
                 begin

@@ -247,7 +247,7 @@ int main(int argc, char **argv) {
 	int64_t irq_timer = -1, fiq_timer = -1;
 	bool stop = false;
 	int exit_code = -1;
-	uint64_t cycle = 0, retired = 0;
+	uint64_t cycle = 0, retired = 0, replays = 0;
 	std::string console;
 
 	auto mmio_read = [&](uint32_t off) -> uint32_t {
@@ -304,7 +304,7 @@ int main(int argc, char **argv) {
 		bool thumb = (cpsr_before >> 5) & 1;
 		uint32_t pc = t->p_pc8 - (thumb ? 4 : 8);
 		char ev = 0;
-		if (t->p_dabt & 2) ev = 0;               // replay: no architectural effect
+		if (t->p_dabt & 2) { replays++; ev = 0; } // replay: no architectural effect
 		else if (t->p_dabt & 1) ev = 'D';
 		else if (t->p_fiq) ev = 'F';
 		else if (t->p_irq) ev = 'I';
@@ -507,6 +507,7 @@ int main(int argc, char **argv) {
 		printf("TIMEOUT after %" PRIu64 " cycles, last retired pc 0x%08x\n", cycle, last_pc);
 		rc = 1;
 	} else if (result == 1) {
+		printf("Replays: %" PRIu64 "\n", replays);
 		printf("PASS (%" PRIu64 " cycles, %" PRIu64 " instructions)\n", cycle, retired);
 		rc = 0;
 	} else {

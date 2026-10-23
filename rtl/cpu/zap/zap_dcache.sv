@@ -151,6 +151,40 @@ logic [2:0]                      state_ff, state_nxt;
 logic [31:0]                     cache_address;
 logic                            hold;
 logic                            idle;
+logic [2:0]                      relookup;
+logic                            fill_busy;
+localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
+localparam integer LINE_W = $clog2(CACHE_LINE);
+logic [SET_W-1:0]                lookup_s0, lookup_s1;
+logic [31:0]                     lookup_address;
+
+// ARM925T: track the two younger cache set indices with the CPU's
+// post-ALU stages. A fill stall must not overwrite them with the ALU's
+// stationary address. Only these indices, not cache data, need saving.
+always_ff @ (posedge i_clk)
+begin
+        if ( i_reset )
+        begin
+                lookup_s0 <= '0;
+                lookup_s1 <= '0;
+        end
+        else if ( !i_stall && !((i_rd || i_wr) && !o_ack) )
+        begin
+                lookup_s0 <= i_address_nxt[LINE_W +: SET_W];
+                lookup_s1 <= lookup_s0;
+        end
+end
+
+// Reload the held lookup, then the two younger ones. At the next IDLE
+// cycle all three RAM stages again align with the CPU. The mux is before
+// the RAM's first register; the shared tag RAM's hit path is untouched.
+always_comb
+begin
+        lookup_address = i_address_nxt;
+        if      ( relookup[0] ) lookup_address[LINE_W +: SET_W] = i_address[LINE_W +: SET_W];
+        else if ( relookup[1] ) lookup_address[LINE_W +: SET_W] = lookup_s1;
+        else if ( relookup[2] ) lookup_address[LINE_W +: SET_W] = lookup_s0;
+end
 logic  [2:0]                     wb_err;
 logic                            unused;
 
@@ -173,6 +207,8 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_va                   (i_va),
         .i_ldfmt                (i_ldfmt),
         .o_idle                 (idle),
+        .o_relookup             (relookup),
+        .o_fill_busy            (fill_busy),
         .i_ben                  (i_ben),
         .o_dat                  (o_dat),
         .o_ack                  (o_ack),
@@ -249,10 +285,11 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
 zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u_zap_cache_tag_ram     (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
-        .i_address_nxt          (i_address_nxt),
+        .i_address_nxt          (lookup_address),
         .i_address              (cache_address),
         .i_lookup_address       (i_address),            // ARM925T
-        .i_access               (i_rd || i_wr),
+        // Held/stale lookups must not update replacement state.
+        .i_access               ((i_rd || i_wr) && idle),
         .i_idle                 (idle),
         .o_cache_hit            (tr_cache_hit),
         .o_cache_hit_dirty      (tr_cache_hit_dirty),
@@ -319,7 +356,9 @@ u_zap_tlb (
         .i_idle         (idle),
         .i_wr_check     (i_wr_check),
         .i_rd_check     (i_rd_check),
-        .i_hold         (hold || i_stall),
+        // Preserve all TLB reads and the permission-check result while
+        // the CPU waits for a fill. Cache RAMs must still accept writes.
+        .i_hold         (hold || i_stall || (fill_busy && (i_rd || i_wr))),
         .i_cpsr         (i_cpsr),
         .i_sr           (i_sr),
         .i_dac_reg      (i_dac_reg),
