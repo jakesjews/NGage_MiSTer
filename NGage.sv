@@ -279,7 +279,9 @@ wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr, kt_addr, ph_addr;
 wire [63:0] ld_din, dl_din, fs_din, tr_din, kt_din, ph_din, ld_data;
 wire        dl_wait, ph_wait;
 wire        ph_ready /* verilator public_flat_rd */;
-wire  [1:0] ph_note;
+wire  [1:0] ph_note, ph_have;
+wire  [4:0] ph_state;
+wire [15:0] ph_errors;
 reg   [2:0] ld_own = 3'd0;             // flat, save, trace, kernel text, Phoenix
 localparam DBG_TRACE = 0;              // debug rings off for a release build
 
@@ -306,7 +308,7 @@ phoenix_load phoenix_load (
 	.ioctl_wr(ioctl_wr), .ioctl_dout(ioctl_dout), .ioctl_wait(ph_wait),
 	.ld_we(ph_we), .ld_rd(ph_rd), .ld_addr(ph_addr), .ld_din(ph_din), .ld_be(ph_be),
 	.ld_busy(ld_busy || ld_own != 3'd4), .ld_valid(ld_valid), .ld_data(ld_data),
-	.ready(ph_ready), .busy(ph_busy), .note(ph_note), .errors()
+	.ready(ph_ready), .busy(ph_busy), .note(ph_note), .errors(ph_errors), .debug_have(ph_have), .debug_state(ph_state)
 );
 
 // A flat CS1 download can supply C: without a save mount. Flat CS0 selects
@@ -1043,6 +1045,37 @@ wire        dbg_bus_beat  = wb_cyc && wb_stb && (wb_ack || wb_err);
 // decodes a screenshot. NGAGE_NO_DEBUG (NGage.qsf) leaves the overlay, its
 // per-second counters and the trace triggers out: the main core.
 `ifndef NGAGE_NO_DEBUG
+// Appended words 37/38 (rows 156-158 and 160-162): loader state and history.
+// Count actual ioctl_download rising edges, including raw F3/F4. These survive
+// CPU/OSD resets; only the FPGA power-on reset clears the diagnostic history.
+reg         dbg_download_q = 0;
+reg   [5:0] dbg_download_index = 0;
+reg  [15:0] dbg_download_counts = 0; // F1/F2/F3/F4, four saturating nibbles
+reg   [2:0] dbg_ph_note = 0;
+reg  [31:0] dbg_loader_q = 0, dbg_load_counts_q = 0;
+always @(posedge clk_sys) begin
+	dbg_download_q <= ioctl_download;
+	if (ioctl_download && !dbg_download_q) begin
+		dbg_download_index <= ioctl_index[5:0];
+		case (ioctl_index[5:0])
+			6'd1: if (dbg_download_counts[15:12] != 4'hF) dbg_download_counts[15:12] <= dbg_download_counts[15:12] + 4'd1;
+			6'd2: if (dbg_download_counts[11:8] != 4'hF) dbg_download_counts[11:8] <= dbg_download_counts[11:8] + 4'd1;
+			6'd3: if (dbg_download_counts[7:4] != 4'hF) dbg_download_counts[7:4] <= dbg_download_counts[7:4] + 4'd1;
+			6'd4: if (dbg_download_counts[3:0] != 4'hF) dbg_download_counts[3:0] <= dbg_download_counts[3:0] + 4'd1;
+			default: ;
+		endcase
+	end
+	if (ph_note != 0) dbg_ph_note <= {1'b0, ph_note};
+	// Snapshot both words on the same frame boundary, even while CPU reset.
+	if (scan_en && scan_x == 8'd0 && scan_y == 8'd0) begin
+		dbg_loader_q <= {ph_ready, ph_busy, ph_have, dbg_download_index, dbg_ph_note, ph_state, 14'd0};
+		dbg_load_counts_q <= {dbg_download_counts, ph_errors};
+	end
+	if (sys_reset) begin
+		dbg_download_q <= 0; dbg_download_index <= 0; dbg_download_counts <= 0;
+		dbg_ph_note <= 0; dbg_loader_q <= 0; dbg_load_counts_q <= 0;
+	end
+end
 reg  [31:0] dbg_pc_q = 0;
 reg         dbg_bus_q = 0;
 reg   [7:0] dbg_bits_q = 0;
@@ -1157,7 +1190,7 @@ wire        dbg_pcrow = scan_y < 8'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire        dbg_strow = scan_y >= 8'd4 && scan_y < 8'd7 && scan_x >= 8'd16 && scan_x < 8'd24;
 // the 32-bit rows at y = 8, 12, ... (3 lines each; 12 words, then the
 // counters): tools/mister_dbg.py
-localparam [7:0] DBG_WEND = 8'd8 + 8'd4 * 8'(12 + DBG_CNT) - 8'd1;
+localparam [7:0] DBG_WEND = 8'd8 + 8'd4 * 8'(12 + DBG_CNT + 2) - 8'd1;
 wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < DBG_WEND && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd3) ? dbg_en0_irq :
@@ -1171,6 +1204,8 @@ wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd11) ? rtc_date :
                         (scan_y[7:2] == 6'd12) ? {dbg_aud_l, dbg_aud_r} :
                         (scan_y[7:2] == 6'd13) ? {kt_dropped, 7'd0, tr_dumping, 16'd0} :
+                        (scan_y[7:2] == 6'd14 + 6'(DBG_CNT)) ? dbg_loader_q :
+                        (scan_y[7:2] == 6'd15 + 6'(DBG_CNT)) ? dbg_load_counts_q :
                         (scan_y[7:2] >= 6'd14 && scan_y[7:2] < 6'd14 + 6'(DBG_CNT)) ? dbg_cnt[5'(scan_y[7:2] - 6'd14)] :
                                                  32'd0;
 // the row select and the word are registered once (scan_x/y hold for the 16
@@ -1195,7 +1230,7 @@ wire [15:0] dbg_rgb = 16'h0000;
 assign dbg_trig = 1'b0;
 wire unused_dbg = &{1'b0, cpu_dbg_pc, cpu_dbg_stall, cpu_dbg_dcache, cpu_dbg_wfi, dbg_src0, dbg_en0_irq,
                     dbg_en0_fiq, tr_trig_pc, tr_dumps, tr_triggers, tr_dumping, kt_count, kt_dropped,
-                    lcd_pix_ev, status[8]};
+                    lcd_pix_ev, status[8], ph_have, ph_state, ph_errors};
 `endif
 // A six-pixel activity square outside the fixed debug rows (x 16..47).
 // At 104 MHz, keep each completed CPU bus beat visible for 1/8 second.

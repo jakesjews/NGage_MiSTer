@@ -34,7 +34,9 @@ module phoenix_load #(
 	output logic ready = 0,
 	output logic busy,
 	output logic [1:0] note = 0, // 1 damaged, 2 unknown version, 3 loaded
-	output logic [15:0] errors = 0
+	output logic [15:0] errors = 0,
+	output wire [1:0] debug_have,
+	output wire [4:0] debug_state
 );
 	`include "rtl/mister/phoenix_patch.vh"
 	localparam int PW = $clog2(PATCH_BYTES);
@@ -52,6 +54,8 @@ module phoenix_load #(
 	logic active_q = 0, start_pending = 0, next_lang = 0, lang = 0;
 	logic eof = 0, session_live = 0, seen_record = 0;
 	logic [1:0] have = 0;
+	assign debug_have = have;
+	assign debug_state = 5'(st);
 	logic [31:0] fifo;
 	logic [2:0] count = 0;
 	wire [7:0] byte_in = fifo[7:0];

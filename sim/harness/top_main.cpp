@@ -308,7 +308,7 @@ int compare(const sim::Image &got, uint32_t st, int rot, const char *what, bool 
 
 // Exercise the actual ioctl -> shared DDR port -> version read -> patch path.
 // Separate shell instance leaves the existing video/CPU regression independent.
-static void test_phoenix() {
+static void test_phoenix(const std::string &out) {
 	Bench b;
 	auto &r = *b.r;
 	b.ticks(30000);
@@ -377,6 +377,20 @@ static void test_phoenix() {
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 9), 1, "damaged file OSD message");
 	CHECK(!b.ddr_stray && !b.dm.protocol_errors, "Phoenix shared DDR protocol");
 	CHECK_EQ(b.s1_writes, 0, "firmware loads did not dirty C: save");
+	// Read the appended words through the actual video pixels, including while
+	// CPU reset. No original word or counter moved. F4 counts saturate at 15.
+	r.emu__DOT__hps_io__DOT__sim_status[0] = (1u << 8) | 1u;
+	b.download(3, {}); b.download(3, {});
+	for (int i = 0; i < 20; i++) b.download(4, {});
+	b.frame(); auto diag = b.frame();
+	diag.write_ppm(out + "/top_phoenix_loader.ppm");
+	auto word = [&](int row) {
+		uint32_t value = 0;
+		for (int x = 16; x < 48; x++) value = (value << 1) | (diag.get(x, row) == 0xFFFFFF);
+		return value;
+	};
+	CHECK_EQ(word(157), (4u << 22) | (1u << 19), "loader status while CPU reset");
+	CHECK_EQ(word(161), 0x432F0001u, "loader starts saturate; full error count visible");
 	printf("Phoenix shell: all record types, fill, patches, version/damage rejection, both orders and C: isolation (%llu clocks)\n", (unsigned long long)b.clocks);
 }
 
@@ -385,7 +399,7 @@ int main(int argc, char **argv) {
 	std::string out = "sim/build/out";
 	for (int i = 1; i < argc; i++)
 		if (!strcmp(argv[i], "--out") && i + 1 < argc) out = argv[++i];
-	test_phoenix();
+	test_phoenix(out);
 	Bench b;
 	auto &R = *b.r;
 
