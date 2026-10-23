@@ -104,7 +104,54 @@ Existing `loaduse`/`loaduse_irq`, abort, cache and random tests cover cold
 misses, multiple pending loads, formats, false conditions, WAW conflicts,
 base writeback, load-to-PC and interrupt/abort cancellation.
 
+## Item 2a: one younger slot discarded on a BTB hit
+
+The BTB lookup still starts at registered `pc_ff`. Its synchronous RAM
+result, registered collision bypass and registered valid bit feed the tag
+comparison for `pc_del_ff`. Writeback accepts that result one clock earlier
+than before; only `pc_ff` is invalidated. The older `pc_del2` slot and the
+branch itself continue. Accepted prediction valid/target travel through
+new `pred_del2` registers to the original final fetch slot; the bimodal
+state retains its existing alignment. Recovery, shelved redirects, I-cache
+restart, CP15 clear, false BTB hit and code-stall priorities remain.
+RAM output/collision register boundaries are protected from retiming.
+There is no cache data path into the pipeline or change to operand capture.
+
+The changed PC decision now includes the RAM tag comparison, so whole-core
+timing is a required acceptance check, not implied by passing simulation.
+All 201 runs, 53 QEMU comparisons, lint and generated-netlist check passed.
+
+| Test | 0:0 before -> after | 0:3 before -> after | 2:9 before -> after |
+| --- | ---: | ---: | ---: |
+| cache | 793607 -> 789485 | 921249 -> 917469 | 1253790 -> 1251216 |
+| ctrand1 | 77298 -> 73176 | 106778 -> 102998 | 182278 -> 179704 |
+| crand1 | 78285 -> 74163 | 109477 -> 105697 | 190634 -> 188060 |
+| gba_arm | 8313 -> 8312 | 10935 -> 10934 | 17761 -> 17761 |
+| gba_thumb | 4928 -> 4928 | 6529 -> 6529 | 10877 -> 10877 |
+
+The equal 4122-cycle zero-latency savings on cache and both compiled tests
+mainly reflect their shared MMU setup loop. GBA changes are negligible.
+These proxy totals do not establish a reduction from the games' 3.7 CPI.
+
+| Test/latency | ALU flushes before -> after | FIFO-empty clocks before -> after |
+| --- | ---: | ---: |
+| cache/0-0 | 61 -> 61 | 51897 -> 47293 |
+| cache/0-3 | 61 -> 61 | 78250 -> 73927 |
+| cache/2-9 | 61 -> 61 | 121795 -> 115154 |
+| ctrand1/0-0 | 124 -> 124 | 47811 -> 43715 |
+| ctrand1/0-3 | 124 -> 124 | 74254 -> 70439 |
+| ctrand1/2-9 | 124 -> 124 | 118316 -> 112183 |
+| crand1/0-0 | 28 -> 28 | 47151 -> 43055 |
+| crand1/0-3 | 28 -> 28 | 73876 -> 70061 |
+| crand1/2-9 | 28 -> 28 | 122293 -> 116160 |
+| gba_arm/0-0 | 89 -> 89 | 6756 -> 6755 |
+| gba_arm/0-3 | 89 -> 89 | 9362 -> 9361 |
+| gba_arm/2-9 | 89 -> 89 | 16087 -> 16087 |
+| gba_thumb/0-0 | 35 -> 35 | 3963 -> 3963 |
+| gba_thumb/0-3 | 35 -> 35 | 5552 -> 5552 |
+| gba_thumb/2-9 | 35 -> 35 | 9869 -> 9869 |
+
 ## Remaining work
 
-Item 2 is in progress. Final retained changes, full-core timing, aggregate
-cycle/counter tables and exact stopping point will be recorded here.
+The whole-core item-2 fit is running on Ubuntu. Items 2b–4, final timing
+and exact stopping point remain to be recorded.

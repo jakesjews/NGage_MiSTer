@@ -50,7 +50,7 @@ module zap_ram_simple_nopipe #(
 
 // Memory array.
 logic [WIDTH-1:0] mem [DEPTH-1:0];
-logic [WIDTH-1:0] mem_rd_data;
+(* dont_retime *) logic [WIDTH-1:0] mem_rd_data;
 
 always_ff @ (posedge i_clk) if ( i_rd_en ) mem_rd_data <= mem [ i_rd_addr ];
 always_ff @ (posedge i_clk) if ( i_wr_en ) mem [ i_wr_addr ] <= i_wr_data;
@@ -59,8 +59,10 @@ always_ff @ (posedge i_clk) if ( i_wr_en ) mem [ i_wr_addr ] <= i_wr_data;
 // Steering logic.
 /////////////////////////////////
 
-logic [WIDTH-1:0] buffer_ff, buffer_nxt;
-logic             hazard_ff, hazard_nxt;
+(* dont_retime *) logic [WIDTH-1:0] buffer_ff;
+logic [WIDTH-1:0] buffer_nxt;
+(* dont_retime *) logic hazard_ff;
+logic hazard_nxt;
 logic             addr_conflict;
 logic             concurrent_access;
 
