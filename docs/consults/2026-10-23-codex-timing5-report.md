@@ -244,9 +244,13 @@ barrel versus 213 in the combined baseline, but total utilization rises
 from 34,872 to 35,885 because physical optimization and packing differ.
 No rotate RTL is applied to the branch.
 
-The decoder LSL-zero trial's first seed improves its target family from
-−0.348 to −0.262 ns, with whole-core slack −0.879 ns. Its second seed is
-running; no acceptance decision is made from that first result.
+The decoder LSL-zero trial is **dropped**. Its complete predecode-to-decode
+family is −0.348 → −0.262 ns at seed 1 but −0.732 → −0.991 ns at seed 2;
+whole-core slack is −0.879 / −1.128 ns. Both input manifests match. All
+225 cycle/instruction pairs and 57 QEMU comparisons agree, and lint and
+generated checks pass. Removing the translation mux from one summary does
+not produce a consistent routed gain across this family. No decoder RTL
+from this trial is applied to the branch.
 
 ## Further candidates prepared from the main-core baseline
 
