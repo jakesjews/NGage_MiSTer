@@ -56,6 +56,9 @@ module zap_cache_tag_ram #(
 parameter logic [31:0] CACHE_SIZE = 32'd1024, // Bytes, all ways together.
 parameter logic [31:0] CACHE_LINE = 32'd8,
 parameter logic [31:0] WAYS       = 32'd1,    // ARM925T: 1 or 2.
+// ARM925T: capacity visible to software's by-index maintenance loops.
+// Larger physical caches visit every set colour for each reported index.
+parameter logic [31:0] INDEX_SIZE = CACHE_SIZE,
 parameter logic        PREFETCH   = 1'd0      // ARM925T: I-cache next-line prefetch check.
 
 )(
@@ -149,6 +152,8 @@ input logic                               i_wb_ack
 // ARM925T: lines of a way (sets), lines of all ways, and their widths.
 localparam [31:0] LINES     = CACHE_SIZE / WAYS / CACHE_LINE;
 localparam [31:0] LINES_ALL = CACHE_SIZE / CACHE_LINE;
+localparam [31:0] INDEX_LINES = INDEX_SIZE / WAYS / CACHE_LINE;
+localparam [31:0] INDEX_MASK = INDEX_LINES - 32'd1;
 localparam [31:0] SET_W     = $clog2(LINES);
 localparam [31:0] WAY_W     = WAYS > 1 ? $clog2(WAYS) : 32'd1;
 localparam [31:0] FLAT_W    = $clog2(LINES_ALL);      // A line of any way: {way, set}.
@@ -801,6 +806,11 @@ begin:blk1
                         // ARM925T: read the line's tag, data, valid, dirty.
                         tag_ram_wr_en       = 0;
                         rd_flat_nxt         = flat ( i_line_way, i_line_addr[`ZAP_VA__CACHE_INDEX] );
+                        // By-VA names an actual line. By-index names a
+                        // reported set: start with its first physical colour.
+                        if (!i_line_va && INDEX_SIZE < CACHE_SIZE)
+                                rd_flat_nxt = flat (i_line_way,
+                                    i_line_addr[`ZAP_VA__CACHE_INDEX] & INDEX_MASK[SET_W-1:0]);
                         line_mode_nxt       = 1'd1;
                         state_nxt           = LINE_W0;
                 end
@@ -850,6 +860,18 @@ begin:blk1
                 line_mode_nxt       = 1'd0;
                 line_done_nxt       = 1'd1;
                 state_nxt           = IDLE;
+                // ARM925T: c0 still reports the phone's 8 KB D-cache.
+                // Its index loop must clean/invalidate added sets too.
+                // Reuse the maintenance read/write pipeline, preserving the
+                // selected way and low set bits. No live hit-path logic.
+                if (!i_line_va && INDEX_SIZE < CACHE_SIZE &&
+                    (rd_flat_ff & FLAT_W'(LINES - INDEX_LINES)) != FLAT_W'(LINES - INDEX_LINES))
+                begin
+                        rd_flat_nxt   = rd_flat_ff + FLAT_W'(INDEX_LINES);
+                        line_mode_nxt = 1'd1;
+                        line_done_nxt = 1'd0;
+                        state_nxt     = LINE_W0;
+                end
         end
 
         CACHE_CLEAN_GET_ADDRESS:

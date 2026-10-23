@@ -3666,3 +3666,30 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   idle screen at 19 s. Chip bench cases for the loops added. Built as
   b19 (the server) for the board's first-boot trial from the pristine
   CS1 and a second boot on the saved trial image.
+- **The 16 KB data cache, as an experiment** (Codex, codex/timing2
+  b3b5a75 and b8a270b; docs/consults/2026-10-23-codex-dcache-report.md):
+  recommended 16 KB two-way over four ways or 32 KB: it adds a set bit
+  and larger valid/dirty/LRU arrays without widening the live two-way
+  compare and select; four ways would add two live compares, a wider
+  select, pseudo-LRU and 32 data M10Ks, and would not remove synonyms
+  anyway, because ZAP's cache is virtually tagged (two VAs of one PA can
+  sit in two ways of one set even at 8 KB: a software discipline the
+  phone already needs). The synonym evidence: ekern's descriptor moves
+  (0x50324158-0x503242d8) remove the old mapping and the change flags
+  call the D-cache clean/invalidate loop; home/run moves are megabyte
+  aligned, so VA[12] is preserved; DMA buffers are cleaned by ownership
+  protocol. The one real hole: the firmware's index sweeps derive 256
+  sets from the CP15 cache type (0x05109149, kept), so a plain
+  DCACHE_SIZE=16384 would leave the sets with VA[12] = 1 out of every
+  clean/invalidate-by-index loop (a new test, dcsize_rtl, fails check 3
+  on that RTL); the tag RAM's maintenance FSM now expands each by-index
+  operation to both set colours (INDEX_SIZE 8192 against the physical
+  capacity) before acknowledging, by-VA operations stay targeted. Cost:
+  +2 M10K (the byte-lane data RAMs do not grow: 16 M10K a way at 256 x 8
+  or 512 x 8 alike), 1,200-2,000 ALMs estimated. Cycles: the 8 KB default
+  identical on all 219 runs; the variant +0.39 % over the suite (the
+  index sweeps visit two sets and the whole-cache walker scans twice the
+  dirty bits, which the tests do often; dhold_rtl +4.5 %): no simulated
+  win, the games decide. 222 runs and 57 QEMU at both geometries, lint,
+  netlist current. Merged; built as b20-d16 (the server, the
+  NGAGE_DCACHE_16K macro) for the board.

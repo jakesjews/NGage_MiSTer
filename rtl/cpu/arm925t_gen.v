@@ -3051,6 +3051,7 @@ module zap_cache_tag_ram (
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] CACHE_LINE = 32'd8;
 	parameter [31:0] WAYS = 32'd1;
+	parameter [31:0] INDEX_SIZE = CACHE_SIZE;
 	parameter [0:0] PREFETCH = 1'd0;
 	input wire i_clk;
 	input wire i_reset;
@@ -3381,6 +3382,8 @@ module zap_cache_tag_ram (
 	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
 	localparam [31:0] LINES = (CACHE_SIZE / WAYS) / CACHE_LINE;
 	localparam [31:0] LINES_ALL = CACHE_SIZE / CACHE_LINE;
+	localparam [31:0] INDEX_LINES = (INDEX_SIZE / WAYS) / CACHE_LINE;
+	localparam [31:0] INDEX_MASK = INDEX_LINES - 32'd1;
 	localparam [31:0] SET_W = $clog2(LINES);
 	localparam [31:0] WAY_W = (WAYS > 1 ? $clog2(WAYS) : 32'd1);
 	localparam [31:0] FLAT_W = $clog2(LINES_ALL);
@@ -3921,6 +3924,8 @@ module zap_cache_tag_ram (
 				else if (i_line_req && !line_done_ff) begin
 					tag_ram_wr_en = 0;
 					rd_flat_nxt = flat(i_line_way, i_line_addr[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)]);
+					if (!i_line_va && (INDEX_SIZE < CACHE_SIZE))
+						rd_flat_nxt = flat(i_line_way, i_line_addr[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)] & INDEX_MASK[SET_W - 1:0]);
 					line_mode_nxt = 1'd1;
 					state_nxt = 13'b0000010000000;
 				end
@@ -3964,6 +3969,12 @@ module zap_cache_tag_ram (
 				line_mode_nxt = 1'd0;
 				line_done_nxt = 1'd1;
 				state_nxt = 13'b0000000000001;
+				if ((!i_line_va && (INDEX_SIZE < CACHE_SIZE)) && ((rd_flat_ff & sv2v_cast_50C4F(LINES - INDEX_LINES)) != sv2v_cast_50C4F(LINES - INDEX_LINES))) begin
+					rd_flat_nxt = rd_flat_ff + sv2v_cast_50C4F(INDEX_LINES);
+					line_mode_nxt = 1'd1;
+					line_done_nxt = 1'd0;
+					state_nxt = 13'b0000010000000;
+				end
 			end
 			13'b0000000000010: begin
 				if (&baggage(dirty, blk_ctr_ff)) begin
@@ -9309,7 +9320,8 @@ module zap_dcache (
 	zap_cache_tag_ram #(
 		.CACHE_SIZE(CACHE_SIZE),
 		.CACHE_LINE(CACHE_LINE),
-		.WAYS(WAYS)
+		.WAYS(WAYS),
+		.INDEX_SIZE(((WAYS == 2) && (CACHE_SIZE > 8192) ? 32'd8192 : CACHE_SIZE))
 	) u_zap_cache_tag_ram(
 		.i_clk(i_clk),
 		.i_reset(i_reset),

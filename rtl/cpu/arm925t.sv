@@ -42,6 +42,8 @@ module arm925t #(
 	parameter int          ICACHE_SIZE     = 16384,
 	parameter int          ICACHE_WAYS     = 2,
 	parameter bit          ICACHE_PREFETCH = 1'b0,
+	// A 16 KB two-way experiment retains the 8 KB CP15 identity; its
+	// by-index maintenance visits both physical set colours (docs/CPU.md).
 	parameter int          DCACHE_SIZE     = 8192,
 	parameter int          DCACHE_WAYS     = 2,
 	parameter int          CACHE_LINE      = 16
