@@ -173,6 +173,8 @@ module zap_issue_main
         input logic                              i_postalu1_mem_load_ff,
         input logic                              i_postalu_mem_load_ff,
         input logic                              i_memory_mem_load_ff,
+        // ARM925T: the memory stage's loaded value (zap_memory_main o_mem_rd_data), forwarded
+        input logic  [31:0]                      i_memory_mem_rd_data,
 
         // -----------------------------------
         // END OF FEEDBACK NETWORK
@@ -519,6 +521,9 @@ assign  o_alu_source_value_nxt  =
                                 i_memory_destination_index_ff[5:0],
                                 i_memory_destination_value_ff,
                                 i_memory_dav_ff,
+                                i_memory_mem_srcdest_index_ff[5:0],
+                                i_memory_mem_load_ff,
+                                i_memory_mem_rd_data,
                                 i_rd_data_0,
                                 i_rd_data_1,
                                 i_rd_data_2,
@@ -554,6 +559,9 @@ assign  o_shift_source_value_nxt=
                                 i_memory_destination_index_ff[5:0],
                                 i_memory_destination_value_ff,
                                 i_memory_dav_ff,
+                                i_memory_mem_srcdest_index_ff[5:0],
+                                i_memory_mem_load_ff,
+                                i_memory_mem_rd_data,
                                 i_rd_data_0,
                                 i_rd_data_1,
                                 i_rd_data_2,
@@ -588,6 +596,9 @@ assign  o_shift_length_value_nxt=
                                 i_memory_destination_index_ff[5:0],
                                 i_memory_destination_value_ff,
                                 i_memory_dav_ff,
+                                i_memory_mem_srcdest_index_ff[5:0],
+                                i_memory_mem_load_ff,
+                                i_memory_mem_rd_data,
                                 i_rd_data_0,
                                 i_rd_data_1,
                                 i_rd_data_2,
@@ -623,6 +634,9 @@ assign  o_mem_srcdest_value_nxt =
                                 i_memory_destination_index_ff[5:0],
                                 i_memory_destination_value_ff,
                                 i_memory_dav_ff,
+                                i_memory_mem_srcdest_index_ff[5:0],
+                                i_memory_mem_load_ff,
+                                i_memory_mem_rd_data,
                                 i_rd_data_0,
                                 i_rd_data_1,
                                 i_rd_data_2,
@@ -1064,10 +1078,10 @@ input                           ext_lock
                    postalu1_mem_load_ff )                     || // Post ALU1
                 (  index[5:0] == postalu_mem_srcdest_index_ff &&
                    postalu_dav_ff                             &&
-                   postalu_mem_load_ff )                      || // Post ALU
-                (  index[5:0] == memory_mem_srcdest_index_ff  &&
-                   memory_mem_load_ff                         &&
-                   memory_dav_ff   )                             // Memory
+                   postalu_mem_load_ff )                         // Post ALU
+                // ARM925T: no lock on the memory stage's load: its value is
+                // forwarded by get_register_value, and a load that missed has
+                // its register locked (xlock) by the time it is there.
         )
         begin
                 determine_load_lock = 1'd1;
@@ -1077,7 +1091,7 @@ input                           ext_lock
                 determine_load_lock = 1'd0;
         end
 
-        unused = |{index[31:6]};
+        unused = |{index[31:6], memory_mem_srcdest_index_ff, memory_mem_load_ff, memory_dav_ff};
 
 endfunction : determine_load_lock
 
@@ -1129,6 +1143,12 @@ function automatic [31:0] get_register_value (
         input [$clog2(PHY_REGS)-1:0]    memory_destination_index_ff,
         input [31:0]                    memory_destination_value_ff,
         input                           memory_dav_ff,
+
+        // ARM925T: the memory stage's loaded register and value (upstream
+        // held the dependent instruction in issue for this clock instead)
+        input [$clog2(PHY_REGS)-1:0]    memory_mem_srcdest_index_ff,
+        input                           memory_mem_load_ff,
+        input [31:0]                    memory_mem_rd_data,
 
         // Data read from register file.
         input [31:0]                    rd_data_0,
@@ -1188,6 +1208,13 @@ function automatic [31:0] get_register_value (
         else if   ( index[5:0] == postalu_destination_index_ff[5:0] && postalu_dav_ff )
         begin
                         get = postalu_destination_value_ff;
+        end
+        // ARM925T: match in the memory stage's loaded register (a load that
+        // missed has its register locked, xlock, so this value is never used
+        // for it; a replay or an abort flushes the instruction that would).
+        else if   ( index[5:0] ==   memory_mem_srcdest_index_ff[5:0] && memory_dav_ff && memory_mem_load_ff )
+        begin
+                        get =    memory_mem_rd_data;
         end
         // Match in output of memory stage.
         else if   ( index[5:0] ==   memory_destination_index_ff[5:0] &&   memory_dav_ff )
