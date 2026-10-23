@@ -490,13 +490,21 @@ and 57 QEMU comparisons agree, with both lint modes and generated checks
 passing. The input/output TLB family remains the same acceptance group.
 This simpler candidate is prepared but not fitted.
 
-The broader `tlbsummary` trial's first seed changes its input/output family
-from +0.511 to −0.219 ns (whole core −1.634 ns); its second seed is running.
-The local pending-select trial is also running. Further unstarted pairs are
-held while the next three-seed measurement assesses the current retained
-CPU changes together with the card owner's fix. Those active pairs keep
-their original combined1 baseline. No unmeasured candidate is applied to
-the main branch for this next combined build.
+The broader `tlbsummary` trial is not retained under the per-seed rule:
+its D-TLB input/output family changes from +0.511 to −0.219 ns at seed 1,
+and from −0.653 to −0.425 ns at seed 2. Whole-core slacks are −1.634 and
+−1.384 ns. Both source manifests match, and all 225 cycle/instruction
+counts remain unchanged with 57 QEMU agreements. Although the worse of
+the two family results improves, the first seed regresses by 0.730 ns;
+that distinction is preserved for review rather than treating the pair as
+an unqualified gain.
+
+The local pending-select trial is still running. Further unstarted pairs
+are held while `combined2` measures the current retained CPU changes
+plus the card owner's fix at seeds 1–3. Its source is `d8b1d1c`, with the
+MAIN macro enabled only in its dedicated build copies. The active pairs
+keep their original combined1 baseline. No unmeasured candidate is applied
+to the main branch for this combined build.
 
 ## Scope and risks
 
