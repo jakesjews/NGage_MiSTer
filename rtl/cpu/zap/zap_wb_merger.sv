@@ -55,6 +55,7 @@ input logic [3:0]       i_d_wb_sel,
 input logic [31:0]      i_d_wb_dat,
 input logic [31:0]      i_d_wb_adr,
 input logic [2:0]       i_d_wb_cti,
+input logic [1:0]       i_d_wb_bte, // ARM925T: critical-word-first fill
 output logic            o_d_wb_ack,
 output logic            o_d_wb_err,
 
@@ -66,6 +67,7 @@ output logic [3:0]      o_wb_sel,
 output logic [31:0]     o_wb_dat,
 output logic [31:0]     o_wb_adr,
 output logic [2:0]      o_wb_cti,
+output logic [1:0]      o_wb_bte,
 input logic             i_wb_ack,
 input logic             i_wb_err
 
@@ -189,6 +191,7 @@ begin: l_genblk1
                         o_wb_dat <= 0;
                         o_wb_adr <= 0;
                         o_wb_cti <= CTI_EOB;
+                        o_wb_bte <= 2'b00;
                 end
                 else if ( state_nxt == CODE )
                 begin
@@ -199,6 +202,7 @@ begin: l_genblk1
                         o_wb_dat <= i_c_wb_dat;
                         o_wb_adr <= i_c_wb_adr;
                         o_wb_cti <= i_c_wb_cti;
+                        o_wb_bte <= 2'b00;
                 end
                 else
                 begin
@@ -209,6 +213,7 @@ begin: l_genblk1
                         o_wb_dat <= i_d_wb_dat;
                         o_wb_adr <= i_d_wb_adr;
                         o_wb_cti <= i_d_wb_cti;
+                        o_wb_bte <= i_d_wb_bte;
                 end
         end
 
@@ -232,6 +237,7 @@ begin: l_genblk2
                         o_wb_dat = i_c_wb_dat;
                         o_wb_adr = i_c_wb_adr;
                         o_wb_cti = i_c_wb_cti;
+                        o_wb_bte = 2'b00;
                 end
                 else
                 begin
@@ -242,6 +248,7 @@ begin: l_genblk2
                         o_wb_dat = i_d_wb_dat;
                         o_wb_adr = i_d_wb_adr;
                         o_wb_cti = i_d_wb_cti;
+                        o_wb_bte = i_d_wb_bte;
                 end
         end
 

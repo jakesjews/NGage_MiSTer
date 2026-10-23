@@ -25,6 +25,7 @@ module tb_cpu #(
 	output logic [3:0]    bus_be,
 	output logic [31:0]   bus_wdata,
 	output logic          bus_burst,
+	output logic [1:0]    bus_bte,
 	input  logic [31:0]   bus_rdata,
 	input  logic          bus_ack,
 	input  logic          bus_err,
@@ -64,6 +65,11 @@ module tb_cpu #(
 	output logic [31:0]   p_dc_din,
 	output logic [31:0]   p_dc_dat,
 	output logic [15:0]   p_dc_flags,
+	// Critical-word-first interface checks (no synthesized hardware).
+	output logic [63:0]   p_dc_reg_wr,
+	output logic [31:0]   p_dc_reg_data,
+	output logic [31:0]   p_dc_fill_addr,
+	output logic         p_dc_fill_take,
 	// pre-decoder's prediction and the ALU's check, for main.cpp --pddbg
 	output logic [31:0]   p_pd_pc,
 	output logic [31:0]   p_pd_ins,
@@ -99,6 +105,7 @@ module tb_cpu #(
 		.bus_be    (bus_be),
 		.bus_wdata (bus_wdata),
 		.bus_burst (bus_burst),
+		.bus_bte   (bus_bte),
 		.bus_rdata (bus_rdata),
 		.bus_ack   (bus_ack),
 		.bus_err   (bus_err)
@@ -152,6 +159,11 @@ module tb_cpu #(
 	assign p_dc_addr  = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_address;
 	assign p_dc_din   = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_din;
 	assign p_dc_dat   = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_dat;
+	assign p_dc_reg_wr = dut.u_zap.dc_wreg_idx;
+	assign p_dc_reg_data = dut.u_zap.dc_reg_data;
+	assign p_dc_fill_addr = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.phy_addr;
+	assign p_dc_fill_take = p_dc_state[4] &&
+		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.take;
 	assign p_dc_flags = {
 		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_ben,         // 15:12
 		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_cache_tag_wr_en, // 11

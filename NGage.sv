@@ -599,6 +599,7 @@ reg         cpu_reset /* verilator public_flat_rd */ = 1'b1;
 always @(posedge clk_sys) cpu_reset <= mem_reset | test_on | ~images_in | rtc_wait;
 
 wire        cpu_req, cpu_we, cpu_burst;
+wire  [1:0] cpu_bte;
 wire [31:0] cpu_addr, cpu_wdata;
 wire  [3:0] cpu_be;
 
@@ -626,6 +627,7 @@ arm925t arm925t
 	.bus_be(cpu_be),
 	.bus_wdata(cpu_wdata),
 	.bus_burst(cpu_burst),
+	.bus_bte(cpu_bte),
 	.bus_rdata(wb_dat_r),
 	.bus_ack(wb_ack & ~test_sel),
 	.bus_err(wb_err & ~test_sel),
@@ -731,7 +733,7 @@ assign wb_adr   = test_sel ? st_adr : cpu_addr;
 assign wb_dat_w = test_sel ? st_dat : cpu_wdata;
 assign wb_sel   = test_sel ? st_sel : cpu_be;
 assign wb_cti   = test_sel ? st_cti : (cpu_burst ? 3'b010 : 3'b111);
-assign wb_bte   = test_sel ? st_bte : 2'b00;
+assign wb_bte   = test_sel ? st_bte : cpu_bte;
 
 wire [15:0] test_errors;
 wire        test_pass_done;

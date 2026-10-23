@@ -241,10 +241,11 @@ int main(int argc, char **argv) {
 	bool busy = false, ack_out = false, err_out = false;
 	int wait = 0;
 	uint32_t req_addr = 0, req_wdata = 0, req_pc = 0;
-	uint8_t req_be = 0;
+	uint8_t req_be = 0, req_bte = 0, prev_bte = 0;
 	bool req_we = false, req_burst = false;
 	bool prev_burst_beat = false;
 	uint32_t prev_burst_addr = 0;
+	uint64_t expected_dc_write = 0, dc_writes = 0, dc_early_writes = 0;
 	// bench registers
 	uint32_t irq_lines = 0, scratch = 0, fixed_lat = 0;
 	int64_t irq_timer = -1, fiq_timer = -1;
@@ -321,7 +322,7 @@ int main(int argc, char **argv) {
 		if (busy && !ack_out) {
 			if (!req) error("cycle %" PRIu64 ": request at 0x%08x withdrawn before ack", cycle, req_addr);
 			else if (t->bus_addr != req_addr || t->bus_we != req_we || t->bus_be != req_be ||
-				 (req_we && t->bus_wdata != req_wdata) || t->bus_burst != req_burst)
+				 (req_we && t->bus_wdata != req_wdata) || t->bus_burst != req_burst || t->bus_bte != req_bte)
 				error("cycle %" PRIu64 ": request at 0x%08x changed before ack (now 0x%08x)", cycle, req_addr,
 				      (uint32_t)t->bus_addr);
 		}
@@ -335,8 +336,12 @@ int main(int argc, char **argv) {
 			req_be = t->bus_be;
 			req_wdata = t->bus_wdata;
 			req_burst = t->bus_burst;
+			req_bte = t->bus_bte;
 			req_pc = t->p_dpc8 - (((t->p_cpsr >> 5) & 1) ? 4 : 8);
-			if (prev_burst_beat && req_addr != prev_burst_addr + 4)
+			// BTE wraps only the word index; CTI still counts the four beats.
+			uint32_t mask = prev_bte ? ((1u << (prev_bte + 3)) - 1) : 0xFFFFFFFFu;
+			uint32_t next_addr = (prev_burst_addr & ~mask) | ((prev_burst_addr + 4) & mask);
+			if (prev_burst_beat && (req_addr != next_addr || req_bte != prev_bte))
 				error("cycle %" PRIu64 ": burst continued at 0x%08x after 0x%08x", cycle, req_addr, prev_burst_addr);
 			if ((req_addr & 3) != 0) error("cycle %" PRIu64 ": unaligned bus address 0x%08x", cycle, req_addr);
 			wait = fixed_lat ? (int)fixed_lat - 1 : lat_min + (int)(rng() % (uint32_t)(lat_max - lat_min + 1));
@@ -364,9 +369,31 @@ int main(int argc, char **argv) {
 				(unsigned)t->p_dc_flags, (uint32_t)t->p_dc_addr, (uint32_t)t->p_dc_din, (uint32_t)t->p_dc_dat);
 
 		// ---- rising edge ----
+		// A background write must follow the requested beat by exactly one
+		// edge, and the destination stays locked until that write reaches RF.
+		uint64_t dc_write = t->p_dc_reg_wr;
+		uint32_t dc_data = t->p_dc_reg_data;
+		uint64_t lock_before = t->p_lock;
+		if (dc_write != expected_dc_write)
+			error("cycle %" PRIu64 ": background write %016" PRIx64 " expected %016" PRIx64,
+			      cycle, dc_write, expected_dc_write);
+		if ((dc_write & lock_before) != dc_write)
+			error("cycle %" PRIu64 ": background write destination was not locked", cycle);
+		expected_dc_write = t->p_dc_fill_take &&
+			((t->bus_addr & ~3u) == (t->p_dc_fill_addr & ~3u)) ? lock_before : 0;
+		if (dc_write) {
+			dc_writes++;
+			if (t->p_dc_state & (1u << 4)) dc_early_writes++;
+		}
 		t->clk = 1;
 		t->eval();
 		cycle++;
+		if ((lock_before & ~uint64_t(t->p_lock)) != dc_write)
+			error("cycle %" PRIu64 ": load lock cleared without its register write", cycle);
+		for (int r = 0; dc_write && r < 40; r++)
+			if ((dc_write >> r) & 1)
+				if ((t->p_lock & dc_write) || reg_word(t, r) != dc_data)
+					error("cycle %" PRIu64 ": early load write did not reach unlocked r%d", cycle, r);
 
 		// ---- after the edge: state after the committed instruction ----
 		if (ev) {
@@ -418,6 +445,7 @@ int main(int argc, char **argv) {
 			err_out = false;
 			prev_burst_beat = req_burst;
 			prev_burst_addr = req_addr;
+			prev_bte = req_bte;
 		} else if (respond) {
 			uint32_t a = req_addr & ~3u;
 			uint8_t *p = ng ? nullptr : mem_ptr(a);
@@ -513,6 +541,7 @@ int main(int argc, char **argv) {
 		rc = 1;
 	} else if (result == 1) {
 		printf("Replays: %" PRIu64 "\n", replays);
+		printf("Background writes: %" PRIu64 ", during fill: %" PRIu64 "\n", dc_writes, dc_early_writes);
 		printf("PASS (%" PRIu64 " cycles, %" PRIu64 " instructions)\n", cycle, retired);
 		rc = 0;
 	} else {
