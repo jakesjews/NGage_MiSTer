@@ -873,12 +873,12 @@ unfitted and unretained.
 live/saved classification split onto `combined3`, whose predecode undefined
 flag path is −0.473 / −0.486 ns. Both changed modules are byte-identical to
 the proven `classify3` versions. All 225 counts, 57 QEMU comparisons, both
-lint modes and generated checks pass. Seed 1 completes with target −0.556 ns versus −0.473 ns before, whole
-core −0.643 ns, 35,467 ALMs and 479 M10Ks; minimum four-corner hold is
-+0.078 ns and all input hashes match. Its −0.556 ns target is already worse
-than the baseline pair minimum of −0.486 ns, so this trial cannot pass the
-paired gate. Seed 2 continues to complete the measurement. No classification
-change is applied to the main branch.
+lint modes and generated checks pass. Drop `classify4`: the target changes from −0.473/−0.486 to
+−0.556/−0.228 ns, a 0.070 ns regression in the worse result. Whole-core
+slacks are −0.643/−0.450 ns. Both seeds use 35,467 ALMs and 479 M10Ks;
+minimum four-corner holds are +0.078/+0.103 ns. All source manifests match.
+The source of both target limits is Thumb instruction-valid, so the late
+fallback classifier remains a real path. No RTL from this trial is applied.
 
 **Issue forwarding validity (`forwarddav`):** seed 1's new worst path runs
 from registered memory-load validity through the ALU late-load hold and its
@@ -904,7 +904,14 @@ they match. All 225 CPU counts and 57 signatures remain exact; both lint
 modes, generation/checks and the ten-occurrence check pass. The pre-fit
 acceptance group includes normal forwarding captures, store captures and
 all four registered operand selectors. Supplemental queries of the existing
-baseline databases precede the paired fit. It is not retained yet.
+baseline databases precede the paired fit. Its first seed is −0.798 ns whole-core, with target −0.715 ns versus
+−0.645 ns before. The target now starts at decode's shift-source index and
+ends in the normal shift-source bank. Store and selection-register inputs
+are +0.346/+0.649 ns. This is already worse than the baseline pair minimum,
+so the standalone trial cannot qualify; seed 2 continues. The fit uses
+35,553 ALMs and 479 M10Ks, minimum hold +0.096 ns, and matching source
+inputs. Its global limit is D-TLB fault-summary control into a retimed
+sequencer control register. No RTL is applied.
 
 **Direct effective load interlock (`factoredlock`):** the remaining seed-1
 issue-feedback path is decode's shift-length index through `late_live`,
@@ -959,6 +966,33 @@ original undefined-output capture and the saved-classification inputs. The
 paired fits are queued after the forwarding trial in one task lane, while
 the other lane completes `classify4` and then `factoredlock`. Neither new
 trial is retained on functional results alone.
+
+**Per-slot forwarding plus unqualified issue capture (`forwardslots`):**
+the first `forwarddav` seed removes the original late-hold-qualified
+critical path but exposes decode's selected operand index through forwarding
+priority (−0.715 ns). This new combined trial retains the raw forwarding
+predicate and computes each of the three other operands' complete priority
+vectors separately for live and saved slots, before selecting the finished
+vector. It extends the retained store-data technique. Preserved intermediate
+wires prevent synthesis from simply moving that slot choice back before
+the comparisons. The wide data OR tree, immediate values and PC value keep
+their existing inputs. PC alignment reuses the priority vector's PC bit;
+it no longer repeats a comparison of the selected index.
+
+Actual issue equivalence proves all 2,806 state/output comparison points
+under the separately proved forwarding-validity contract. All 225 counts,
+57 QEMU comparisons, normal lint and generation/checks pass; the raw
+`input reg` count remains ten. There is no new pipeline edge or register.
+The target is the same broad forwarding/store/operand-selection capture
+group, measured against `combined3`; the failed standalone result is not
+used as an easier baseline. It is not retained yet.
+
+A separate `nextjoin` preview combining `forwarddav`, `factoredlock` and
+`classifycase` also passes 225 exact counts, 57 comparisons, both lint modes
+and generated checks. Its joined issue proof passes 2,806 points, and its
+predecode modules/header match the separately proved source byte-for-byte.
+That preview is unfitted and unretained; standalone `forwarddav` has failed
+its gate, so this preview must not be applied as a bundle.
 
 ## Scope and risks
 
