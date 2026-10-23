@@ -506,6 +506,23 @@ MAIN macro enabled only in its dedicated build copies. The active pairs
 keep their original combined1 baseline. No unmeasured candidate is applied
 to the main branch for this combined build.
 
+**Shared D-cache bus request (`dcstrobe`):** all three internal managers
+(cache FSM, tag maintenance FSM and TLB walker) assert CYC and STB together.
+Reuse the wrapper's existing parallel CYC result for STB, removing its
+separate priority selection. Arbitration priority, error completion, burst
+boundaries, payload and acknowledgement routing are unchanged. This candidate
+is based on `combined2`, including the card fix.
+
+Actual-module induction proves both registered and next CYC/STB equality
+for each manager after reset. The tag proof treats RAM outputs as arbitrary;
+it does not depend on particular memory contents. Under those separately
+proved invariants, all 1,249 wrapper equivalence points prove. All 225
+cycle/instruction counts agree, 57 QEMU signatures agree, and both lint
+modes, generation and generated-file checks pass. The pre-fit acceptance
+query includes every registered merger input, including owner, control,
+address and speculative data captures. It is prepared, not retained or
+fitted; the current combined build takes priority.
+
 ## Scope and risks
 
 No firmware boot bench, `sys/` change, ARM9 change, card-model edit, hardware
