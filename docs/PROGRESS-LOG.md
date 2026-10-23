@@ -3069,3 +3069,11 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   - Against the start of the day: Sonic +35 % instructions/s, Asphalt
     +33 %; CPI 4.9 -> 3.7. Asphalt's 21 frames/s needs about 2.9, Sonic's
     32 about 1.5.
+- **The SDRAM open-page build in play** (b9, -3.578 ns;
+  `build/hardware/game/{sonicn,asphalt}-sdram/`): no measurable change.
+  Sonic 25.4-27.5 M instructions/s, CPI 3.8-4.1, 13-15 frames/s; Asphalt's
+  Cop Chase (chosen explicitly now) 27.9-28.1 M/s, CPI 3.7, 11-13
+  frames/s; the SDRAM wait 19-23 % as before. The cache-line traffic
+  evidently hits few open rows, or the saved clocks hide behind the
+  pipeline's own waits. Kept (verified on the benches, no cost), but it
+  is not a lever.
