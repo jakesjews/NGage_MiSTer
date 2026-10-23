@@ -24,7 +24,7 @@ Appended word 37 (rows 156-158) holds loader ready[31], busy[30], have[29:28]
 (bit 0 MCU, bit 1 language), last ioctl index[27:22], last note[21:19], parser
 state[18:14]. Word 38 (rows 160-162) holds F1..F4 start counts[31:16] as four
 saturating 4-bit counters and the full current-file error count[15:0]. These
-words keep updating during CPU reset; only core reconfiguration clears history.
+words keep updating during CPU reset; sys_reset (RESET/PLL unlock) clears history.
 
 usage: tools/mister_dbg.py SHOT.png [SHOT.png ...]
 The screenshot must be the whole 176x208 picture at an integer scale

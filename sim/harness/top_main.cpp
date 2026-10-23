@@ -359,10 +359,30 @@ static void test_phoenix(const std::string &out) {
 	CHECK(r.emu__DOT__c_blank, "blank C: enables first-boot fast format");
 	b.ticks(10000);
 	CHECK(!r.emu__DOT__cpu_reset && b.cpu_writes.size() == 2, "CPU starts only after patch and save");
+	// Reproduce the board's suspected single MCU resend during a running phone.
+	// The warning must arrive after transfer and the diagnostics remain readable
+	// with the CPU held in reset. Sending its companion restores the pair.
+	b.download(1, mcu);
+	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "single MCU resend waits for companion");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 12), 1, "reload both OSD message");
+	r.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 8;
+	b.frame(); auto reload = b.frame();
+	reload.write_ppm(out + "/top_phoenix_reload.ppm");
+	auto word = [](const auto &frame, int row) {
+		uint32_t value = 0;
+		for (int x = 16; x < 48; x++) value = (value << 1) | (frame.get(x, row) == 0xFFFFFF);
+		return value;
+	};
+	CHECK_EQ(word(reload, 157), (1u << 28) | (1u << 22) | (4u << 19), "MCU-only pair and retained reload note");
+	CHECK_EQ(word(reload, 161), 0x21000000u, "two MCU starts, one language start, no errors");
+	b.download(2, phoenix::language()); b.ticks(10000);
+	CHECK(r.emu__DOT__ph_ready && !r.emu__DOT__cpu_reset, "companion reload releases reset");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 12), 1, "companion needs no reload warning");
 
 	// Manual order: the save stays mounted while language arrives before MCU.
 	b.download(2, phoenix::language());
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "new pair invalidates old firmware");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 12), 2, "language resend also requests both files");
 	b.download(1, mcu);
 	b.ticks(10000);
 	CHECK(r.emu__DOT__ph_ready && !r.emu__DOT__cpu_reset, "reverse order with save already mounted");
@@ -384,14 +404,9 @@ static void test_phoenix(const std::string &out) {
 	for (int i = 0; i < 20; i++) b.download(4, {});
 	b.frame(); auto diag = b.frame();
 	diag.write_ppm(out + "/top_phoenix_loader.ppm");
-	auto word = [&](int row) {
-		uint32_t value = 0;
-		for (int x = 16; x < 48; x++) value = (value << 1) | (diag.get(x, row) == 0xFFFFFF);
-		return value;
-	};
-	CHECK_EQ(word(157), (4u << 22) | (1u << 19), "loader status while CPU reset");
-	CHECK_EQ(word(161), 0x432F0001u, "loader starts saturate; full error count visible");
-	printf("Phoenix shell: all record types, fill, patches, version/damage rejection, both orders and C: isolation (%llu clocks)\n", (unsigned long long)b.clocks);
+	CHECK_EQ(word(diag, 157), (4u << 22) | (1u << 19), "loader status while CPU reset");
+	CHECK_EQ(word(diag, 161), 0x542F0001u, "loader starts saturate; full error count visible");
+	printf("Phoenix shell: records, patches, version/damage rejection, resend recovery, overlay history and C: isolation (%llu clocks)\n", (unsigned long long)b.clocks);
 }
 
 int main(int argc, char **argv) {

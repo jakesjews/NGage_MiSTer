@@ -115,7 +115,7 @@ localparam CONF_STR = {
 	"O[17:16],Activity dot,Boot only,Always,Off;",
 	"J,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power;",
 	"jn,A,B,X,L,R,Start,Select;",
-	"I,Memory test passed,Memory test FAILED,C: save mounted,C: save file must be 4 or 8 MB,C: read-only: no saves,C: saved,Booting the phone - about a minute...,Phone kernel is up,Firmware file damaged,Firmware 4.60 loaded,Firmware not recognised: needs RH-29 4.60;",
+	"I,Memory test passed,Memory test FAILED,C: save mounted,C: save file must be 4 or 8 MB,C: read-only: no saves,C: saved,Booting the phone - about a minute...,Phone kernel is up,Firmware file damaged,Firmware 4.60 loaded,Firmware not recognised: needs RH-29 4.60,Firmware reloaded: load both files;",
 	"V,v",`BUILD_DATE
 };
 
@@ -279,7 +279,8 @@ wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr, kt_addr, ph_addr;
 wire [63:0] ld_din, dl_din, fs_din, tr_din, kt_din, ph_din, ld_data;
 wire        dl_wait, ph_wait;
 wire        ph_ready /* verilator public_flat_rd */;
-wire  [1:0] ph_note, ph_have;
+wire  [2:0] ph_note;
+wire  [1:0] ph_have;
 wire  [4:0] ph_state;
 wire [15:0] ph_errors;
 reg   [2:0] ld_own = 3'd0;             // flat, save, trace, kernel text, Phoenix
@@ -843,21 +844,21 @@ end
 reg  [15:0] test_reported = 0;
 reg         test_first = 1;
 wire        test_note = test_pass_done && (test_first || test_errors != test_reported);
-wire [10:0] info_events = {ph_note == 2'd2, ph_note == 2'd3, ph_note == 2'd1, boot_up, boot_start, fs_saved,
+wire [11:0] info_events = {ph_note == 3'd4, ph_note == 3'd2, ph_note == 3'd3, ph_note == 3'd1, boot_up, boot_start, fs_saved,
                           fs_note == 2'd3, fs_note == 2'd2, fs_note == 2'd1,
                           test_note && test_errors != 16'd0, test_note && test_errors == 16'd0};
-reg  [10:0] info_pending = 0;
+reg  [11:0] info_pending = 0;
 reg   [7:0] info_q = 0;
 reg         info_req_q = 0;
 reg   [7:0] info_next;
-reg  [10:0] info_mask;
+reg  [11:0] info_mask;
 always @* begin
 	info_next = 0;
 	info_mask = 0;
-	for (int i = 10; i >= 0; i--) begin
+	for (int i = 11; i >= 0; i--) begin
 		if (info_pending[i]) begin
 			info_next = 8'(i + 1);
-			info_mask = 11'(1 << i);
+			info_mask = 12'(1 << i);
 		end
 	end
 end
@@ -1047,7 +1048,7 @@ wire        dbg_bus_beat  = wb_cyc && wb_stb && (wb_ack || wb_err);
 `ifndef NGAGE_NO_DEBUG
 // Appended words 37/38 (rows 156-158 and 160-162): loader state and history.
 // Count actual ioctl_download rising edges, including raw F3/F4. These survive
-// CPU/OSD resets; only the FPGA power-on reset clears the diagnostic history.
+// CPU/OSD resets; sys_reset (RESET input/PLL unlock) clears the history.
 reg         dbg_download_q = 0;
 reg   [5:0] dbg_download_index = 0;
 reg  [15:0] dbg_download_counts = 0; // F1/F2/F3/F4, four saturating nibbles
@@ -1065,7 +1066,7 @@ always @(posedge clk_sys) begin
 			default: ;
 		endcase
 	end
-	if (ph_note != 0) dbg_ph_note <= {1'b0, ph_note};
+	if (ph_note != 0) dbg_ph_note <= ph_note;
 	// Snapshot both words on the same frame boundary, even while CPU reset.
 	if (scan_en && scan_x == 8'd0 && scan_y == 8'd0) begin
 		dbg_loader_q <= {ph_ready, ph_busy, ph_have, dbg_download_index, dbg_ph_note, ph_state, 14'd0};

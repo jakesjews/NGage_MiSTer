@@ -17,7 +17,7 @@ struct Bench {
 	Bytes cs0 = Bytes(16u << 20, 0x5A), cs1 = Bytes(8u << 20, 0x69);
 	sim::Rng rng{7};
 	uint64_t cycles = 0, writes = 0;
-	int notes[4] = {}, read_delay = 0;
+	int notes[5] = {}, read_delay = 0;
 	uint64_t read_data = 0;
 	bool held = false;
 	uint32_t held_addr = 0;
@@ -53,7 +53,11 @@ struct Bench {
 			}
 		}
 		t.clk = 1; t.eval();
-		if (t.note) notes[t.note]++;
+		if (t.note) {
+			CHECK(t.note < 5, "unknown loader note");
+			if (t.note < 5) notes[t.note]++;
+			if (t.note == 4) CHECK(!t.ioctl_download && !t.busy, "reload notice only after download finishes");
+		}
 		t.clk = 0; t.ld_busy = rng.chance(30); t.ld_valid = 0;
 		if (read_delay && --read_delay == 0) { t.ld_valid = 1; t.ld_data = read_data; }
 		t.eval(); cycles++;
@@ -93,6 +97,12 @@ int main(int argc, char **argv) {
 		std::ofstream("sim/build/out/phoenix-cs0.bin",std::ios::binary).write((char*)b.cs0.data(),b.cs0.size());
 		std::ofstream("sim/build/out/phoenix-cs1.bin",std::ios::binary).write((char*)b.cs1.data(),b.cs1.size());
 		printf("real Phoenix: %llu clocks, %llu DDR writes\n",(unsigned long long)b.cycles,(unsigned long long)b.writes);
+		b.download(1,read_file(argv[1]));
+		CHECK(!b.t.ready && b.t.debug_have==1 && b.notes[4]==1 && !b.t.errors,"real MCU resend explains incomplete pair");
+		b.download(2,read_file(argv[2]));
+		CHECK(b.t.ready && b.notes[3]==2 && b.notes[4]==1,"real language reload completes pair");
+		CHECK(b.cs0==read_file(argv[3]) && b.cs1==read_file(argv[4]),"reloaded pair byte-identical to both references");
+		printf("real Phoenix including resend/recovery: %llu clocks, %llu DDR writes\n",(unsigned long long)b.cycles,(unsigned long long)b.writes);
 	} else {
 		for(bool reverse:{false,true}) {
 			Bench b;
@@ -102,6 +112,15 @@ int main(int argc, char **argv) {
 			CHECK_EQ(b.cs0[0],255,"skipped records do not map to NOR"); CHECK_EQ(b.cs0[0x85],255,"FF gap");
 			CHECK_EQ(b.cs0[0x80],1,"21 data"); CHECK_EQ(b.cs1[3],0x11,"CS1 firmware data");
 			CHECK_EQ(b.cs0[0xf00001],6,"language data"); b.check_patches();
+			CHECK_EQ(b.notes[4],0,"initial pair has no reload warning");
+			b.download(reverse?2:1,reverse?phoenix::language():phoenix::mcu());
+			CHECK(!b.t.ready && b.t.debug_have==(reverse?2:1) && b.notes[4]==1,"either repeated file requests companion");
+			CHECK_EQ(b.cs0[0x9e4d4],255,"new pair does not retain old patch bytes");
+			b.download(reverse?1:2,reverse?phoenix::mcu():phoenix::language());
+			CHECK(b.t.ready && b.notes[3]==2 && b.notes[4]==1,"companion repairs pair without spurious warning");
+			b.check_patches();
+			b.download(1,phoenix::mcu(true,true));
+			CHECK(!b.t.ready && b.notes[1]==1 && b.notes[4]==1,"damaged resend reports damage instead of reload");
 			CHECK(std::all_of(b.cs1.begin()+(4u<<20),b.cs1.end(),[](uint8_t x){return x==0x69;}),"C: preserved");
 		}
 		{ Bench b; b.download(1,phoenix::mcu(false)); b.download(2,phoenix::language());
