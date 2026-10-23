@@ -8,6 +8,10 @@ lint_off -rule PROCASSINIT
 lint_off -rule VARHIDDEN
 lint_off -rule SIMILARNAME
 
+// arm925t exports the D-cache events for the overlay's next integration.
+// NGage.sv is owned by that parallel change; only this debug output is open.
+lint_off -rule PINMISSING -file "NGage.sv" -match "*Instance has missing pin: 'dbg_dcache'"
+
 // lcd_panel: the bottom fixed area of VSCRDEF follows from the other two
 // (TFA + VSA + BFA = 208); it is kept so that the register is complete.
 lint_off -rule UNUSEDSIGNAL -file "rtl/board/lcd_panel.sv" -match "*Signal is not used: 'bfa'*"

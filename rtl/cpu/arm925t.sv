@@ -83,6 +83,10 @@ module arm925t #(
 	output logic [31:0] dbg_wb_cpsr,     // before the instruction
 	output logic [31:0] dbg_wb_cpsr_nxt, // after it
 	output logic [7:0]  dbg_stall,       // stall and flush taps (dbg_counters)
+	// One-clock events for dbg_counters' per-second accumulation:
+	// [0] load-miss fill, [1] store-miss fill, [2] line write-back
+	// (eviction or maintenance), [3] uncached data access (excludes WT).
+	output logic [3:0]  dbg_dcache,
 	output logic        dbg_d_done,
 	output logic        dbg_d_we,
 	output logic [31:0] dbg_d_va,
@@ -130,6 +134,7 @@ module arm925t #(
 		.o_dbg_wb_cpsr     (dbg_wb_cpsr),
 		.o_dbg_wb_cpsr_nxt (dbg_wb_cpsr_nxt),
 		.o_dbg_stall       (dbg_stall),
+		.o_dbg_dcache      (dbg_dcache),
 		.o_dbg_d_done      (dbg_d_done),
 		.o_dbg_d_we        (dbg_d_we),
 		.o_dbg_d_va        (dbg_d_va),

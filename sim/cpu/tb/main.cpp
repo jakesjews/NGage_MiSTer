@@ -55,6 +55,8 @@
 //      +24 R  watched-line loads completed during a D-cache fill
 //      +28 R  watched-line stores completed during a D-cache fill
 //      +2C W  select watched VA line and reset the two counters
+//      +30..+3C R D-cache load fills, store fills, line write-backs,
+//                uncached accesses (monotonic event counters)
 //   anything else          bus error (external abort)
 // Bus protocol checks: a request must stay unchanged until acked, and a
 // burst beat must be followed by the next word of the same line.
@@ -253,6 +255,7 @@ int main(int argc, char **argv) {
 	uint32_t irq_lines = 0, scratch = 0, fixed_lat = 0;
 	uint32_t hum_watch = 0, hum_loads = 0, hum_stores = 0;
 	uint64_t hum_total_loads = 0, hum_total_stores = 0;
+	uint64_t dcache_events[4] = {};
 	int64_t irq_timer = -1, fiq_timer = -1;
 	bool stop = false;
 	int exit_code = -1;
@@ -271,6 +274,10 @@ int main(int argc, char **argv) {
 		case 0x20: return fixed_lat;
 		case 0x24: return hum_loads;
 		case 0x28: return hum_stores;
+		case 0x30: return (uint32_t)dcache_events[0];
+		case 0x34: return (uint32_t)dcache_events[1];
+		case 0x38: return (uint32_t)dcache_events[2];
+		case 0x3C: return (uint32_t)dcache_events[3];
 		default: return 0;
 		}
 	};
@@ -328,6 +335,7 @@ int main(int argc, char **argv) {
 			}
 		}
 		for (int b = 0; b < 6; b++) stall_clocks[b] += (t->p_stall >> b) & 1;
+		for (int b = 0; b < 4; b++) dcache_events[b] += (t->p_dcache >> b) & 1;
 		// A held redirect is counted on its accepting edge, not every held clock.
 		alu_flushes += (t->p_alu_flags & 0x30) == 0x20;
 		early_flushes += (t->p_stall & 0x41) == 0x40 && !(t->p_alu_flags & 0x20);
@@ -587,6 +595,9 @@ int main(int argc, char **argv) {
 		       stall_clocks[2], stall_clocks[3], stall_clocks[4], stall_clocks[5], alu_flushes, early_flushes);
 		printf("Replays: %" PRIu64 "\n", replays);
 		printf("Hit under miss: loads=%" PRIu64 " stores=%" PRIu64 "\n", hum_total_loads, hum_total_stores);
+		printf("D-cache events: load_fills=%" PRIu64 " store_fills=%" PRIu64
+		       " writebacks=%" PRIu64 " uncached=%" PRIu64 "\n",
+		       dcache_events[0], dcache_events[1], dcache_events[2], dcache_events[3]);
 		printf("Background writes: %" PRIu64 ", during fill: %" PRIu64 "\n", dc_writes, dc_early_writes);
 		printf("PASS (%" PRIu64 " cycles, %" PRIu64 " instructions)\n", cycle, retired);
 		rc = 0;

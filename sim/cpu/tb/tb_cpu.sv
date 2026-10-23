@@ -48,6 +48,7 @@ module tb_cpu #(
 	output logic [1279:0] p_regs,      // 40 physical registers, 32 bits each
 	output logic [63:0]   p_lock,      // registers waiting for a background load
 	output logic [7:0]    p_stall,     // same overlapping level counters as hardware
+	output logic [3:0]    p_dcache,    // registered D-cache events exported by arm925t
 	// data side, for the bus log: request to the D-cache, its virtual
 	// address, alignment fault
 	output logic          p_dreq,
@@ -113,7 +114,8 @@ module tb_cpu #(
 		.bus_bte   (bus_bte),
 		.bus_rdata (bus_rdata),
 		.bus_ack   (bus_ack),
-		.bus_err   (bus_err)
+		.bus_err   (bus_err),
+		.dbg_dcache (p_dcache)
 	);
 
 	assign p_valid = dut.u_zap.u_zap_core.u_zap_writeback.i_valid;
