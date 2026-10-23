@@ -3981,3 +3981,34 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   with the clock and the date, the menu, Sonic's intro, Neo Green Hill
   in play; captures in build/hardware/game/smoke-ndm-s18/), then copied
   over `_Console/_NGage/NGage_20261023.rbf`; b22 back on the debug slot.
+- **The firmware for a public core** (the user's questions: has the
+  N-Gage firmware been open-sourced, can the Python step go). No: the
+  Symbian^3 generation was opened in 2010 under the EPL, but the N-Gage
+  runs Symbian 6.1 with Series 60 1.2, and Nokia's bootstrap, drivers,
+  Series 60 and the N-Gage applications were never released; the only
+  firmware is Nokia's service package (the Phoenix flash files), which
+  the user brings. The core's repository carries none of it (research/
+  untracked; the only binaries in the tree are our own NOS stand-in).
+  Decisions: (1) tools/mkimage.py now checks its Phoenix inputs by
+  SHA-256 against the RH-29 4.60 files (RH2946.0C1 18,475,371 bytes,
+  sha256 ba5fea85...; RH2946.0S5 1,505,245 bytes, 4d2e36f6...) and
+  stops with a message otherwise (--force goes on); (2) the user wants
+  the conversion in the core "for support sanity": the Codex first-boot
+  thread is building a Phoenix loader in RTL (the record stream parsed
+  as the framework downloads it, CS0 and the CS1 firmware half filled
+  FF first, the record checksums verified; the patches and the two
+  4.60 digests from a generated patch ROM, about 10 KB, applied after
+  the language pack; a version check on the integrity table's own
+  digests with "Firmware 4.60 loaded" / "not recognised" messages; the
+  C: save as a 4 MB file of C: only, a blank one shipped with the core,
+  8 MB files still accepted; the framework's boot1.rom, boot2.rom and
+  boot1.vhd auto-load so that the two Nokia files and the blank C:
+  file in the games folder are the whole setup; a synthetic-stream
+  bench and an end-to-end harness against the Python tool's images);
+  the Python tool stays for development and flat dumps. (3) The 56
+  per-phone bytes at CS0 0x12C-0x163, which the board's image had from
+  a ROM dump and which a core cannot have: the Python tool's default
+  image (FF there; md5 63aa211d06bd8df899e1239988b10316 against the
+  board's 2323d108...; the only difference) booted on b22 to the idle
+  screen and ran Sonic (build/hardware/game/nophone-b22/), so the
+  loader leaves them erased.
