@@ -3893,3 +3893,8 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   30 (the family was -1.37 in b22); the worst is now wb_arb2's grant
   into upp_bus's fe_next (-1.30), the bus-decode family round 4's
   arbiter rewrite targets. 36,429 ALMs, 477 M10K.
+- Seed 5 of the main core (the server): -1.146 ns; the I-cache tag RAM
+  into its FSM (-1.15), the D-cache lock into issue (-1.09), the D-cache
+  state into CP15 (-1.03), the Thumb decoder into predecode (-0.95).
+  Five seeds of c03088f: -1.152, -1.285, -0.861, -1.074, -1.146. Seed 7
+  of the tree with the card model's fix (c8f18ef) running.
