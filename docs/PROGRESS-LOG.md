@@ -3158,3 +3158,9 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the cache/Thumb-translation and execute-to-flags paths left. Session
   4 started: the memory overlap, beating ZAP at every latency, the
   remaining paths.
+- ARM9 session 4 (f49d81c, 8c97686; six minutes): the held memory context
+  with ordered retirement of the overlapped arithmetic, the scalar memory
+  admission and completion bubbles removed; 210 runs, 56 QEMU, the 69
+  windows; cache 1,237,634 -> 1,028,308 at 0:0. Memory requests still
+  serialize, the streaming transfers and the load-use interlocks are
+  unfinished, no trial ran. Session 5 started on the same list.
