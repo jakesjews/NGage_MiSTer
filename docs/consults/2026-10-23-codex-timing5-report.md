@@ -13,6 +13,11 @@ it includes the owner-supplied card fix and the first two CPU changes, but
 predates the pending-select, decoder, acknowledgement and completion-tag
 changes. The final combined timing requirement is not yet met.
 
+`combined3` is queued at seeds 1–3 from `11bbda3`, with all six retained
+CPU changes and the unchanged owner-supplied card fix. Each build copy enables
+the MAIN macro, and only two fits may run concurrently. Its median, complete
+worst paths, source manifests and hold margins are still pending.
+
 ## Measurement method
 
 Every fit uses the main core (`NGAGE_NO_DEBUG=1`), default 16 KB I-cache and
