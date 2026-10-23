@@ -3192,3 +3192,12 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   predictor and late pickup; the project now hinges on a two-edge cache
   hit path (the RAM read and the compare, no forwarding stages) and a
   BTB in its fetch, which is the next session's brief.
+- ARM9 session 6 (d765618, 8acb1f1; six minutes): an ARM9-only one-edge
+  cache RAM with registered collision forwarding (ZAP's three-edge module
+  untouched), the TLB lookup shortened, one ordered pipeline record
+  removed: load-use 3 -> 2 clocks, an unpredicted branch 6 -> 5; both
+  cores 225 runs, 60 QEMU, the 76 windows. Session 7 resumes the same
+  Codex thread (`codex exec resume <id>`, the user's request for
+  continuity) with the rest: the 4-clock branch, the BTB in the ARM9
+  fetch, the block and multiply costs, the cycle gate against ZAP, then
+  the trial.
