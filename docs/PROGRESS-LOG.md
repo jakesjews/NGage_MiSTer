@@ -4037,3 +4037,27 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   branch for a merge once the tree settles, and the sweep to seed 20
   (best -0.43, seed 18 on the main slot) stands as the reference for
   the next closure round. Next in that thread: the two D-cache changes.
+- **The end goal, set by the user: at least 47 M instructions/s in play**,
+  the Pocket core's rate (CPI 1.7 at 80 MHz). At 104 MHz that is CPI
+  2.2; ZAP runs the games at 3.4 (29-31 M/s). Where the 3.4 goes: about
+  0.8 clocks an instruction on the bus (the SDRAM wait 20-25 % of clocks,
+  the flash 2 %) and about 1.6 in the pipeline (the issue stage's
+  interlocks 35-43 % of clocks, the fetch FIFO empty 12-16 %, the ALU's
+  flushes 400-500 K/s at up to 12 clocks, the uop sequencing 7 %). The
+  memory-side levers still open (the store-miss completion and the
+  deferred write-back, a write buffer, the BTB's last slot, the I-cache
+  size) are worth perhaps 15-20 % together: ZAP's ceiling in play is
+  about 36-38 M/s, set by its issue stage (one uop a clock at best, lock
+  interlocks) and its 12-clock front end. The rate the user wants needs
+  the deeper pipeline: the Pocket core's measured structure (eight
+  stages, a 256-entry BTB answering in the fetch cycle, store misses
+  that do not wait, 32-64 KB caches, critical word first) reaches CPI
+  1.7-1.9 in play, and its CPU alone closed 96 MHz on a C8-grade Cyclone
+  V; the DE10-Nano's device is the faster I7 grade, so 104 MHz is a fair
+  target for the same discipline. That is the road of the paused ARM9
+  core (codex/arm9, 15 % fewer cycles than ZAP on the cache test but
+  -7 ns at 104 MHz with a shallow pipeline and a combinational address
+  into the D-TLB): a redesign as an eight-stage machine, not a resume.
+  Sequencing to be decided: the ZAP tree ships to the testers as it is
+  (the loader, the D-cache changes), the new CPU replaces it when it
+  beats ZAP in play on the board.
