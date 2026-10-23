@@ -3824,3 +3824,36 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   driver's per-block work from flash (CPI 5-6 with the flash at 6-7 %)
   and the game's unpacking. The load-time lever from here is the same
   as the play-speed lever.
+- **The SDRAM wait split** (b22's replay with the D-cache counters, per
+  second in play): Sonic 324-368 K load-miss fills, 220-311 K store-miss
+  fills, 245-330 K line write-backs, 266-356 K uncached data accesses;
+  Tony Hawk 385-460 K, 96-281 K, 155-322 K, 196-317 K; 29-31 M
+  instructions/s, SDRAM wait 20-25 %, 6.0-6.9 M beats/s. The fills and
+  write-backs explain about 4 M of the 6 M beats; the rest are the
+  instruction cache's fills (about 500 K lines/s) and the LCD's DMA.
+  Weighted by their latencies (a fill 12-15 clocks, a write-back about
+  10, an uncached access 6-8), the SDRAM wait is roughly: instruction
+  fills a third, load fills a fifth, store fills a sixth, write-backs a
+  seventh, uncached writes a tenth. A write buffer in the phone's sense
+  (store misses to the bus without a fill, bufferable uncached writes
+  posted) would take 25-30 % off it, about 5-8 % more instructions a
+  second: a real lever, a project of its own (Codex's scope in the
+  walloc report), parked behind timing closure. b22 is on the main slot
+  (+15 % over b12, the fast first boot, the card path).
+- **Timing closure is the goal now** (the user: "let's try to hit timing
+  or get really close and I'll see if anyone on Discord has a real N-Gage
+  to test against"). The debug logic measured from b22's fit: the 25
+  counters 523 ALMs, the overlay and its words about 400, the self-test
+  master 261; a build switch NGAGE_NO_DEBUG (NGage.qsf) now leaves the
+  overlay, the counters and the trace triggers out of the main core
+  (the OSD option goes with them; the activity dot stays; both
+  configurations lint clean). Three streams: a seed sweep of the main
+  core (seeds 1-3 on the server, 4 on the Mac) for the placement noise
+  (seed-1 builds of this tree spread -0.93 to -1.68); Codex's round 5
+  (port round 4's six parked fixes one at a time, keep each only if its
+  family improves across two seeds, then the current report's families:
+  decode shift_length -> issue load_pending -1.37, issue stall_late_ff
+  -1.30, the merger's address into upp_bus -1.0, the D-cache state into
+  the merger); Antigravity (Gemini, its card-path conversation resumed)
+  registering the card model's slot arithmetic (-1.37, the worst
+  family in b22).
