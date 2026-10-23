@@ -3077,3 +3077,18 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   evidently hits few open rows, or the saved clocks hide behind the
   pipeline's own waits. Kept (verified on the benches, no cost), but it
   is not a lever.
+- **ARM9 project, session 1** (codex/arm9: 4c9fbfb, 39af807, 73e516b):
+  docs/ARM9.md (the pipeline and timing decision, the cycle model as the
+  specification, the cache's read path being three edges rather than two
+  and what that does to the TRM counts, forwarding and interlocks, memory
+  and CP15 integration, the multi-transfer and precise-exception plan, the
+  verification plan and gates); the execute datapath under rtl/cpu/arm9/
+  (arm9_shift, arm9_alu, arm9_forward, arm9_execute: a single execute
+  stage with the shifter in parallel and direct N/Z from the arithmetic,
+  582,272 checks) fitted at 104 MHz with +0.018 ns at seed 2, so the
+  ARM9's one-stage execute does close here, barely; ZAP untouched (198
+  runs, 52 QEMU). The report
+  (docs/consults/2026-10-23-codex-arm9-report.md) ends at milestone 2 with
+  the next steps: settle the cache's three-edge contract, then the
+  selectable core (CORE in arm925t.sv), fetch through writeback with the
+  bench's taps, the simplest tests first. Session 2 started from it.
