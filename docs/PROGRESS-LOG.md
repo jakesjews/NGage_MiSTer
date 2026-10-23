@@ -3172,3 +3172,9 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   Handed to Codex as timing round 2 (codex/timing2: the shifter's stall
   to reach predecode and decode from a register, cycle-identical if
   possible). The build is on the board for the three games.
+  In play (`build/hardware/game/{sonicn,asphalt,thps}-timing/`): Sonic
+  25-27 M instructions/s, CPI 3.8-4.2, 12-16 frames/s; Asphalt's Cop
+  Chase 27.5-28.1 M/s, CPI 3.7-3.8, 11-12 frames/s; Tony Hawk's Warehouse
+  25.4-27.5 M/s, CPI 3.8-4.1, 8-12 frames/s: two to three percent under
+  the critical-word-first build, far less than the suite's 4-6 %, so the
+  timing round stays in.
