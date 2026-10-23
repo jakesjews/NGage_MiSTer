@@ -201,9 +201,10 @@ output  logic [7:0]                      o_dbg_stall
 
 // D is the fetch queue head; E owns the decoded operands and control. Ordinary
 // DP and branches pass through independent M/W records. Complex instructions
-// drain those records and keep the original precise, blocking memory sequence.
-typedef enum logic [4:0] {
-    IDLE, DECODE, SHIFT_WAIT, EXECUTE,
+// drain those records before entering a held slow-operation context. Scalar
+// memory can overlap younger DP, whose retirement waits for that context.
+typedef enum logic [3:0] {
+    IDLE, DECODE,
     M1, M2, M3, MEMORY, LOAD_CLASSIFY, LOAD_WAIT, WRITEBACK, COPRO, RESTORE_BASE, MUL_ADD, MUL_WAIT
 } state_t;
 typedef enum logic [3:0] {
@@ -217,6 +218,19 @@ logic [31:0] d_pc, d_pc8, d_raw, d_ins;
 logic [3:0][5:0] tag_e;
 logic [3:0] used_e;
 logic fast_d, fast_e, issue, execute_fast, early_redirect;
+logic e_valid, e_shifted, execute_wait;
+logic fast_w_ready, fast_m_ready, retire_fast, memory_overlap;
+logic [3:0][31:0] held_value;
+logic [3:0] held_wait;
+// No state after E may read a younger instruction's live E metadata.
+// The data request, its fault and its retirement all belong to this record.
+typedef struct packed {
+    logic [31:0] pc, pc8, ins, raw, flags;
+    logic [5:0] base, dst;
+    kind_t kind;
+} slow_t;
+slow_t slow;
+wire [31:0] data_pc8 = slow.pc8;
 logic [31:0] execute_flags;
 typedef struct packed {
     logic present, pass;
@@ -224,9 +238,9 @@ typedef struct packed {
     logic [31:0] value, flags, pc8;
 } result_t;
 result_t fast_m, fast_w;
-logic [2:0][31:0] forward_value;
-logic [2:0][5:0] forward_tag;
-logic [2:0] forward_valid;
+logic [3:0][31:0] forward_value;
+logic [3:0][5:0] forward_tag;
+logic [3:0] forward_valid, forward_ready;
 logic [3:0][31:0] forwarded_read;
 logic [3:0] unused_read_wait;
 logic [34:0] translated;
@@ -275,17 +289,17 @@ logic [31:0] vector_base;
     wire load_capture = (state == LOAD_CLASSIFY || state == LOAD_WAIT) &&
                            m_load && i_dc_reg_idx[m_dst];
     wire [63:0] load_commit = state == WRITEBACK && w_valid && w_load &&
-                          (kind_e == K_MEM || kind_e == K_BLOCK || kind_e == K_SWP) ?
+                          (slow.kind == K_MEM || slow.kind == K_BLOCK || slow.kind == K_SWP) ?
                           (64'd1 << m_dst) : 64'd0;
 
-wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, translated[33:32], load_capture, load_commit, unused_read_wait};
+wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, translated[33:32], load_capture, load_commit, unused_read_wait, held_wait, data_pc8};
 assign cpsr = o_dbg_wb_cpsr;
 assign pc8 = pc + (cpsr[5] ? 32'd4 : 32'd8);
 assign vector_base = hivecs ? 32'hffff0000 : 32'd0;
-assign d_ins = sequence_active ? ins : translated[31:0];
-assign d_pc = sequence_active ? pc : f_pc;
+assign d_ins = sequence_active ? slow.ins : translated[31:0];
+assign d_pc = sequence_active ? slow.pc : f_pc;
 assign d_pc8 = d_pc + (cpsr[5] ? 32'd4 : 32'd8);
-assign d_raw = sequence_active ? raw_ins : f_instruction;
+assign d_raw = sequence_active ? slow.raw : f_instruction;
 // Thumb translation is registered in the fetch queue. BL halves still use
 // the original encoding and remain separate, interruptible instructions.
 
@@ -403,60 +417,87 @@ always_comb begin
     end
 end
 
-arm9_execute u_execute (
-    .i_valid(state == EXECUTE || state == SHIFT_WAIT),
+arm9_execute #(.PRODUCERS(4)) u_execute (
+    .i_valid(e_valid),
     .i_condition((kind_e == K_BL_PREFIX || kind_e == K_BL_SUFFIX || (kind_e == K_UND && cpsr[5]) || (!cpsr[5] && ins[31:28] == 4'hf)) ? 4'he : ins[31:28]),
     .i_op(op_e), .i_set_flags(kind_e == K_DP && ins[20]), .i_flags(execute_flags[31:28]),
     .i_value(value_e), .i_tag(tag_e), .i_used(used_e), .i_write_value(forward_value),
-    .i_write_tag(forward_tag), .i_write_valid(forward_valid), .i_write_ready(3'b111),
+    .i_write_tag(forward_tag), .i_write_valid(forward_valid), .i_write_ready(forward_ready),
     .i_shift_type(shift_type_e), .i_shift_amount(shift_amount_e),
     .i_shift_register(shift_register_e), .i_immediate(immediate_e),
     .i_shift_carry(ins[11:8] == 0 ? execute_flags[29] : immediate_carry_e), .i_pc8(pc8), .i_branch_offset(branch_offset_e),
     .o_result(ex_result), .o_store_data(ex_store), .o_branch_target(ex_branch),
-    .o_flags(ex_flags), .o_condition_pass(ex_pass), .o_wait(),
+    .o_flags(ex_flags), .o_condition_pass(ex_pass), .o_wait(execute_wait),
     .o_execute(), .o_write_result(ex_write), .o_write_flags(ex_write_flags)
 );
 
 // The youngest registered result wins, including flags. W-to-D bypass is
 // required because the RF writes at the same edge D captures its operands.
-assign forward_value = {32'd0,fast_w.value,fast_m.value};
-assign forward_tag = {6'd0,fast_w.dst,fast_m.dst};
-assign forward_valid = {1'b0,
+// The two fast entries are younger than the outstanding scalar memory op.
+// A loaded destination wins over the same instruction's base writeback, as
+// in the reused writeback block. Both are unready until precise retirement.
+wire memory_producer = state != IDLE && slow.kind == K_MEM && w_valid;
+assign forward_value = {w_value,m_read_data,fast_w.value,fast_m.value};
+assign forward_tag = {w_dst,m_dst,fast_w.dst,fast_m.dst};
+assign forward_valid = {
+    memory_producer && w_dst != PHY_RAZ_REGISTER,
+    memory_producer && w_load && m_dst != PHY_PC,
     fast_w.present && fast_w.pass && fast_w.dst != PHY_RAZ_REGISTER,
     fast_m.present && fast_m.pass && fast_m.dst != PHY_RAZ_REGISTER};
-arm9_forward u_decode_forward (
+assign forward_ready = {{2{state == WRITEBACK}},2'b11};
+arm9_forward #(.PRODUCERS(4)) u_decode_forward (
     .i_value(read_value), .i_tag(read_tag), .i_used(4'b1111),
     .i_write_value(forward_value), .i_write_tag(forward_tag),
-    .i_write_valid(forward_valid), .i_write_ready(3'b111),
+    .i_write_valid(forward_valid), .i_write_ready(forward_ready),
     .o_value(forwarded_read), .o_wait(unused_read_wait)
+);
+// An E consumer may outlive a producer while waiting for a different source
+// or a full result queue. Retain every bypass before that producer disappears.
+arm9_forward #(.PRODUCERS(4)) u_held_forward (
+    .i_value(value_e), .i_tag(tag_e), .i_used(used_e),
+    .i_write_value(forward_value), .i_write_tag(forward_tag),
+    .i_write_valid(forward_valid), .i_write_ready(forward_ready),
+    .o_value(held_value), .o_wait(held_wait)
 );
 assign execute_flags = fast_e ? (fast_m.present ? fast_m.flags :
                                 fast_w.present ? fast_w.flags : cpsr) : flags_e;
 assign fast_d = (kind_d == K_DP && d_ins[15:12] != 15) || kind_d == K_BRANCH;
 // Register-controlled shifts occupy E for one additional cycle, but only
-// when their condition passes using the newest flags (not D's stale CPSR).
-wire shift_hold = state == EXECUTE && shift_register_e && ex_pass;
-assign execute_fast = (state == EXECUTE || state == SHIFT_WAIT) && fast_e && !shift_hold;
+// after their sources are ready and their condition passes.
+wire shift_hold = e_valid && !e_shifted && shift_register_e && ex_pass && !execute_wait;
+assign retire_fast = fast_w.present && state == IDLE;
+assign fast_w_ready = !fast_w.present || retire_fast;
+assign fast_m_ready = !fast_m.present || fast_w_ready;
+assign execute_fast = e_valid && fast_e && !shift_hold && !execute_wait && fast_m_ready;
 assign early_redirect = execute_fast && kind_e == K_BRANCH && ex_pass;
+assign memory_overlap = state != IDLE && slow.kind == K_MEM &&
+    !w_redirect && !(w_load && m_dst == PHY_PC) &&
+    !w_dabt && !w_pabt && !w_irq && !w_fiq && !w_swi && !w_und;
 assign issue = f_valid && !sequence_active && !f_redirect &&
-    (state == IDLE || execute_fast) &&
-    ((fast_d && !f_abort && !(i_irq && !cpsr[7]) && !(i_fiq && !cpsr[6])) ||
-     (state == IDLE && !fast_m.present && !fast_w.present));
+    (!e_valid || execute_fast) &&
+    ((fast_d && !f_abort && !(i_irq && !cpsr[7]) && !(i_fiq && !cpsr[6]) &&
+      (state == IDLE || (memory_overlap && kind_d == K_DP))) ||
+     (state == IDLE && !e_valid && !fast_m.present && !fast_w.present));
 always_ff @(posedge i_clk) begin
-    if (i_reset) begin
+    if (i_reset || (f_redirect && !early_redirect)) begin
         fast_m <= '0;
         fast_w <= '0;
     end else begin
-        fast_w <= fast_m;
-        fast_m.present <= execute_fast;
-        if (execute_fast) begin
-            fast_m.pass <= ex_pass;
-            fast_m.pc8 <= pc8;
-            fast_m.flags <= kind_e == K_DP ? {ex_flags,execute_flags[27:0]} : execute_flags;
-            fast_m.dst <= kind_e == K_BRANCH ?
-                (ins[24] ? translate(5'd14,cpsr[4:0]) : PHY_RAZ_REGISTER) :
-                ex_write ? dst_e : PHY_RAZ_REGISTER;
-            fast_m.value <= kind_e == K_BRANCH ? pc + 4 : ex_result;
+        if (fast_w_ready) begin
+            fast_w <= fast_m;
+            fast_m.present <= 0;
+        end
+        if (fast_m_ready) begin
+            fast_m.present <= execute_fast;
+            if (execute_fast) begin
+                fast_m.pass <= ex_pass;
+                fast_m.pc8 <= pc8;
+                fast_m.flags <= kind_e == K_DP ? {ex_flags,execute_flags[27:0]} : execute_flags;
+                fast_m.dst <= kind_e == K_BRANCH ?
+                    (ins[24] ? translate(5'd14,cpsr[4:0]) : PHY_RAZ_REGISTER) :
+                    ex_write ? dst_e : PHY_RAZ_REGISTER;
+                fast_m.value <= kind_e == K_BRANCH ? pc + 4 : ex_result;
+            end
         end
     end
 end
@@ -475,7 +516,7 @@ assign next_pc = w_dabt ? vector_base + 16 :
                  w_swi ? vector_base + 8 :
                  w_und ? vector_base + 4 :
                  w_load && m_dst == PHY_PC ? m_read_data :
-                 w_redirect ? w_target : pc + (cpsr[5] ? 2 : 4);
+                 w_redirect ? w_target : slow.pc + (slow.flags[5] ? 2 : 4);
 
 // Independent, epoch-cancelled fetch continues while the backend is busy.
 logic f_valid, f_abort, f_ready, f_redirect;
@@ -483,7 +524,7 @@ logic [31:0] f_pc, f_instruction, f_address_nxt, f_address_check, f_address;
 assign f_ready = issue;
 assign f_redirect = early_redirect || (state == WRITEBACK && w_last &&
     (w_redirect || (w_load && m_dst == PHY_PC) || w_dabt || w_pabt ||
-     w_irq || w_fiq || w_swi || w_und || kind_e == K_CP || kind_e == K_MSR));
+     w_irq || w_fiq || w_swi || w_und || slow.kind == K_CP || slow.kind == K_MSR));
 arm9_fetch #(.RESET_VECTOR(RESET_VECTOR)) u_fetch (
     .i_clk(i_clk), .i_reset(i_reset), .i_redirect(f_redirect),
     .i_target(early_redirect ? ex_branch : cpsr_next[5] ? (next_pc & 32'hfffffffe) : (next_pc & 32'hfffffffc)),
@@ -517,7 +558,7 @@ assign o_data_wb_align_fault = m_align;
 assign o_data_wb_va = m_address;
 assign o_data_wb_ldfmt = m_format;
 assign o_mem_translate = m_user;
-assign o_mem_cpsr = flags_e[CPSR_MODE:0];
+assign o_mem_cpsr = slow.flags[CPSR_MODE:0];
 assign o_cpsr = cpsr[CPSR_MODE:0];
 assign o_dc_reg_idx = 64'd1 << m_dst;
 assign o_dc_reg_idx_bin = m_dst;
@@ -525,6 +566,7 @@ assign o_dc_reg_idx_bin = m_dst;
 always_ff @(posedge i_clk) begin
     if (i_reset) begin
         state <= IDLE;
+        e_valid <= 0; e_shifted <= 0; slow <= '0;
         pc <= RESET_VECTOR;
         raw_ins <= 0; ins <= 0; tag_e <= '0; used_e <= 0; fast_e <= 0;
         fetch_abort <= 0;
@@ -547,10 +589,21 @@ always_ff @(posedge i_clk) begin
         immediate_e <= 0; immediate_carry_e <= 0; branch_offset_e <= 0;
         dst_e <= PHY_RAZ_REGISTER; base_e <= PHY_RAZ_REGISTER; psr_mask_e <= 0;
     end else begin
-      case (state)
-        EXECUTE, SHIFT_WAIT: if (shift_hold) state <= SHIFT_WAIT;
-        else if (fast_e) state <= IDLE;
-        else begin
+      if (e_valid) begin
+        value_e <= held_value;
+        if (shift_hold) e_shifted <= 1;
+        if (execute_fast) e_valid <= 0;
+      end
+      if (e_valid && !fast_e && !shift_hold && !execute_wait) begin
+            e_valid <= 0;
+            slow.pc <= pc;
+            slow.pc8 <= pc8;
+            slow.ins <= ins;
+            slow.raw <= raw_ins;
+            slow.dst <= dst_e;
+            slow.flags <= flags_e;
+            slow.base <= base_e;
+            slow.kind <= kind_e;
             state <= WRITEBACK;
             w_valid <= ex_pass;
             w_cfail <= !ex_pass;
@@ -700,6 +753,7 @@ always_ff @(posedge i_clk) begin
                 default: begin w_valid <= 0; w_und <= 1; end
             endcase
         end
+      case (state)
         M1: state <= M2;
         M2: state <= M3;
         M3: state <= MEMORY;
@@ -709,7 +763,7 @@ always_ff @(posedge i_clk) begin
                 w_valid <= 0;
                 w_dabt <= 1;
                 w_last <= 1;
-                state <= kind_e == K_BLOCK && ins[21] ? RESTORE_BASE : WRITEBACK;
+                state <= slow.kind == K_BLOCK && slow.ins[21] ? RESTORE_BASE : WRITEBACK;
             end else begin
                 if (m_load) m_read_data <= i_data_wb_dat;
                 // A miss sets lock_ff at this edge; inspecting the old lock
@@ -720,10 +774,10 @@ always_ff @(posedge i_clk) begin
         LOAD_CLASSIFY: begin
             if (m_load && i_dc_reg_idx[m_dst]) begin
                 m_read_data <= i_dc_reg_dat;
-                state <= kind_e == K_SWP ? M1 : WRITEBACK;
-                if (kind_e == K_SWP) begin m_load <= 0; swap_store <= 1; end
+                state <= slow.kind == K_SWP ? M1 : WRITEBACK;
+                if (slow.kind == K_SWP) begin m_load <= 0; swap_store <= 1; end
             end else if (m_load && i_dc_lock[m_dst]) state <= LOAD_WAIT;
-            else if (kind_e == K_SWP && !swap_store) begin
+            else if (slow.kind == K_SWP && !swap_store) begin
                 m_load <= 0;
                 swap_store <= 1;
                 state <= M1;
@@ -731,8 +785,8 @@ always_ff @(posedge i_clk) begin
         end
         LOAD_WAIT: if (i_dc_reg_idx[m_dst]) begin
             m_read_data <= i_dc_reg_dat;
-            state <= kind_e == K_SWP ? M1 : WRITEBACK;
-            if (kind_e == K_SWP) begin m_load <= 0; swap_store <= 1; end
+            state <= slow.kind == K_SWP ? M1 : WRITEBACK;
+            if (slow.kind == K_SWP) begin m_load <= 0; swap_store <= 1; end
         end
         RESTORE_BASE: state <= WRITEBACK;
         MUL_ADD: begin
@@ -742,16 +796,16 @@ always_ff @(posedge i_clk) begin
         MUL_WAIT: begin
             if (multiply_delay != 0) multiply_delay <= multiply_delay - 1'b1;
             else begin
-                w_dst <= kind_e == K_MULL ? dst_e : base_e;
+                w_dst <= slow.kind == K_MULL ? slow.dst : slow.base;
                 w_value <= multiply_result[31:0];
-                if (kind_e == K_MULL) begin
-                    m_dst <= base_e;
+                if (slow.kind == K_MULL) begin
+                    m_dst <= slow.base;
                     m_read_data <= multiply_result[63:32];
                     w_load <= 1;
                 end
-                if (ins[20]) begin
-                    w_flags[31] <= kind_e == K_MULL ? multiply_result[63] : multiply_result[31];
-                    w_flags[30] <= kind_e == K_MULL ? multiply_result == 0 : multiply_result[31:0] == 0;
+                if (slow.ins[20]) begin
+                    w_flags[31] <= slow.kind == K_MULL ? multiply_result[63] : multiply_result[31];
+                    w_flags[30] <= slow.kind == K_MULL ? multiply_result == 0 : multiply_result[31:0] == 0;
                 end
                 state <= WRITEBACK;
             end
@@ -768,7 +822,7 @@ always_ff @(posedge i_clk) begin
                 state <= IDLE;
             end
         end
-        default: state <= IDLE;
+        default: ;
       endcase
         if (issue || state == DECODE) begin
             if (issue) begin
@@ -804,26 +858,29 @@ always_ff @(posedge i_clk) begin
             base_e <= read_tag[0];
             fiq_pending <= !sequence_active && i_fiq && !cpsr[6];
             irq_pending <= !sequence_active && i_irq && !cpsr[7];
-            state <= EXECUTE;
+            e_valid <= 1;
+            e_shifted <= 0;
+            if (state == DECODE) state <= IDLE;
         end
+        if (f_redirect && !early_redirect) e_valid <= 0;
     end
 end
 
-assign o_dbg_wb_valid = (fast_w.present && fast_w.pass) || (state == WRITEBACK && w_valid) || state == RESTORE_BASE;
-assign o_dbg_wb_dvalid = (fast_w.present && !fast_w.pass) || (state == WRITEBACK && w_cfail);
-assign o_dbg_wb_uop_last = fast_w.present || (state != RESTORE_BASE && w_last);
+assign o_dbg_wb_valid = (retire_fast && fast_w.pass) || (state == WRITEBACK && w_valid) || state == RESTORE_BASE;
+assign o_dbg_wb_dvalid = (retire_fast && !fast_w.pass) || (state == WRITEBACK && w_cfail);
+assign o_dbg_wb_uop_last = retire_fast || (state != RESTORE_BASE && w_last);
 assign o_dbg_wb_dabt = {1'b0,state == WRITEBACK && w_dabt};
 assign o_dbg_wb_pabt = state == WRITEBACK && w_pabt;
 assign o_dbg_wb_irq = state == WRITEBACK && w_irq;
 assign o_dbg_wb_fiq = state == WRITEBACK && w_fiq;
 assign o_dbg_wb_swi = state == WRITEBACK && w_swi;
 assign o_dbg_wb_und = state == WRITEBACK && w_und;
-assign o_dbg_wb_pc = fast_w.present ? fast_w.pc8 : pc8;
+assign o_dbg_wb_pc = retire_fast ? fast_w.pc8 : slow.pc8;
 assign o_dbg_wb_cpsr_nxt = cpsr_next;
 assign o_dbg_stall = {state == WRITEBACK && (w_dabt || w_pabt || w_irq || w_fiq || w_swi || w_und),
     early_redirect || (state == WRITEBACK && w_redirect), state == COPRO || sequence_active,
     shift_hold || state == MUL_ADD || state == MUL_WAIT,
-    f_valid && !issue && (state == IDLE || execute_fast), !f_valid, o_code_stall,
+    f_valid && !issue && (!e_valid || execute_fast), !f_valid, o_code_stall,
     state == MEMORY || state == LOAD_WAIT};
 
 // Retain ZAP's proven banked state and exception entry logic. Its old fetch
@@ -840,10 +897,10 @@ zap_writeback #(.BP_ENTRIES(32), .PHY_REGS(40), .FLAG_WDT(32),
     .i_alu_pc_ff(32'd0), .i_taken(2'd0),
     .i_rd_index_0(read_tag[0]), .i_rd_index_1(read_tag[1]),
     .i_rd_index_2(read_tag[2]), .i_rd_index_3(read_tag[3]),
-    .i_mem_load_ff(!fast_w.present && w_load && state != RESTORE_BASE),
-    .i_wr_index(fast_w.present ? fast_w.dst : state == RESTORE_BASE ? base_e : w_dst),
-    .i_wr_data(fast_w.present ? fast_w.value : state == RESTORE_BASE ? sequence_original : w_value),
-    .i_flags(fast_w.present ? fast_w.flags : state == RESTORE_BASE ? cpsr : w_flags), .i_wr_index_1(m_dst), .i_wr_data_1(m_read_data),
+    .i_mem_load_ff(!retire_fast && w_load && state != RESTORE_BASE),
+    .i_wr_index(retire_fast ? fast_w.dst : state == RESTORE_BASE ? slow.base : w_dst),
+    .i_wr_data(retire_fast ? fast_w.value : state == RESTORE_BASE ? sequence_original : w_value),
+    .i_flags(retire_fast ? fast_w.flags : state == RESTORE_BASE ? cpsr : w_flags), .i_wr_index_1(m_dst), .i_wr_data_1(m_read_data),
     .i_wr_index_2(40'd0), .i_wr_data_2(32'd0), .i_mode16(cpsr[5]),
     .i_irq(o_dbg_wb_irq), .i_fiq(o_dbg_wb_fiq), .i_instr_abt(o_dbg_wb_pabt),
     .i_data_abt(o_dbg_wb_dabt), .i_swi(o_dbg_wb_swi), .i_und(o_dbg_wb_und),
@@ -876,7 +933,7 @@ zap_cp15_cb #(
 ) u_zap_cp15_cb (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
-        .i_cp_word              (ins),
+        .i_cp_word              (slow.ins),
         .i_cp_dav               (state == COPRO),
         .o_cp_done              (copro_done),
         .i_cpsr                 (cpsr),

@@ -1,291 +1,121 @@
-# ARM9 replacement: session 3 continuation report
+# ARM9 replacement: session 4 continuation report
 
-## Status and exact stopping point
+## Status
 
-**Partial overlap is implemented; the requested full ARM9 pipeline is not
-finished. ZAP remains the default.** Ordinary non-PC data processing and B/BL
-now overlap D/E/M/W behind an independent streaming fetch queue. Memory,
-LDM/STM, multiply, PSR operations, other PC writes and exceptions still use
-the conservative blocking controller. ARM9 beats ZAP on both GBA tests but
-remains slower on cache, dcache_rtl, ctrand1 and crand1. The final integrated
-trial fails 104 MHz at **-2.623 ns**, with two failing path families. Neither
-the performance nor timing acceptance gate has passed.
+**Partial: scalar memory now overlaps younger arithmetic with ordered retirement.
+The streaming memory pipeline is not implemented, and ZAP remains the default.**
+This report supersedes [session 3](arm9/session3-report.md); its measurements and
+integrated timing evidence remain archived there. No firmware boot, push,
+branch switch or `sys/` edit is part of this work.
 
-This report supersedes session 2, archived as [arm9/session2-report.md](arm9/session2-report.md).
-The first checkpoint, `78c0cd2`, introduced the independent fetch pipeline and
-passed both cores' 201-run/53-reference suites. Commit `e47c566` adds the
-arithmetic overlap, captured transfer controls, and real cycle-window checks
-(204 runs / 54 references). Commit `06ed82f` registers Thumb translation
-in the existing fetch queue and adds `arm9_queue`, taking the suite to 207 runs
-and 55 references. The final timing result is recorded below.
+## First checkpoint: independent memory context
 
-## Design implemented
+The E valid bit and register-shift wait bit no longer share the slow controller's
+state. A slow E handoff captures PC, PC+8/+4, raw/decoded instruction, flags,
+kind and base/destination physical tags. Post-E memory, abort, CP15, block
+continuation and retirement read that context. Request address, store data,
+format, load destination and W controls retain their existing held registers.
+The bench data-PC tap reads the held memory PC; E can now name another instruction.
 
-`arm9_fetch.sv` owns launch PC, three cache-latency records and an eight-entry
-queue. Each record carries its PC, instruction state and two-bit epoch. Queue
-entries add raw and translated instruction, Thumb undefined/alignment metadata,
-precise prefetch-abort state and the provisional fill bit. It can fetch each clock on hits, independently of the backend.
-`arm9_core.sv` decodes the queue head, captures instruction/PC/physical operand
-tags in E and produces independent `fast_m` and `fast_w` result records for
-non-PC DP and B/BL. Those records carry validity, condition result, value,
-destination, flags and PC+8/+4. The reused writeback block commits W once.
-The unchanged execute leaf receives real registered producer inputs now.
+Non-PC DP can execute behind a scalar load/store. Two elastic result records
+hold its results and a third instruction can wait in E. Only the older memory
+operation can retire while it is outstanding. A memory fault discards E and both
+younger result records before exception entry; no younger store or branch is
+admitted. This preserves precise flags as well as register state. Interrupts,
+fetch faults, other PC writes and state operations still wait for the older work.
 
-Specific overlap cases:
+Forwarding has four ordered physical-tag slots: fast M, fast W, pending load,
+pending base. Load and base are unready until memory retirement. Load has priority
+over an aliased base write, matching the reused register file's two write ports.
+A younger ready writer shadows an older unready writer. Held E operands capture
+bypasses each edge so values survive producer retirement while another source or
+queue space stalls E. Only used operands interlock; false conditions skip operand
+and shift waits. E takes current flags from younger M/W or committed CPSR.
 
-- **Register dependencies:** youngest M before W; D bypasses both as well so
-  a same-edge RF write cannot leave a stale captured operand. Only used E
-  operands participate. Immediate and PC values are constructed after the
-  D bypass. Slow instructions drain both producers before capture, covering
-  their additional operands, banked SPSRs, separate base/load destinations
-  and direct multiplier inputs without pretending they have a load bypass.
-- **Flags and conditions:** E selects M, W, then committed CPSR. RRX,
-  ADC/SBC/RSC, preserved V and zero-rotation carry see the newest flags.
-  Failed instructions still retire exactly once with no register or flag
-  changes. A register-controlled shift holds E one extra clock only when
-  its condition passes; the decision uses E's forwarded flags.
-- **Branches:** B/BL redirect from E without prediction and kill the younger
-  queue. BL preserves flags and writes its return address through M/W.
-  No older fault-capable instruction can coexist with that branch: memory
-  and state operations are still barriers. DP-to-PC, BX, loaded PC, exception
-  returns and Thumb BL halves retain the previous precise serialized path.
-- **Fetch cancellation:** redirect invalidates the queue immediately, but
-  an outstanding untagged cache response drains before the new target uses
-  the lookup pipe. Each RAM-advancing edge advances matching metadata, even
-  when it is invalid. An early implementation froze metadata on one clear
-  edge; `cache` caught a wrong-set instruction and this was fixed before
-  checkpoint 1. Epoch wrap cannot resurrect a queue entry because every
-  redirect clears occupancy and outstanding work drains before reuse.
-- **Fetch faults and retry:** provisional entries cannot decode until the
-  fill finishes. Completion/fault updates reach even a full, held queue.
-  Retry preserves older queued instructions and restarts the failed lookup
-  plus younger addresses. A killed result never inserts into the queue.
-- **Stores, load misses, aborts and interrupts:** the previous blocking
-  completion/lock protocol remains. No younger store or CP15 action can
-  precede an older fault. IRQ/FIQ admission and state-changing instructions
-  drain older result records. LDM base restoration, partial transfers,
-  user-bank permissions and completion-to-W assertions remain intact.
-- **Block address timing:** D captures count, register/list and a signed
-  eight-bit start offset. E adds that offset to the base once; final base
-  arithmetic is separate. This removes the previous unregistered Thumb
-  decode/popcount and chained adders from the address endpoint. No execute
-  leaf or cache RAM/tag/bus logic was changed and no E-to-memory stage added.
-- **Debug/trace:** W supplies its own PC and flags. Data-access taps retain
-  the blocking operation's PC. Cache completion remains distinct from
-  architectural retirement. Stall bits now describe fetch occupancy,
-  drains, shift/multiply busy and early versus retirement redirects.
+The memory cache protocol is unchanged: three native RAM read edges, registered
+acknowledge data, a classification edge to observe the newly set miss lock,
+critical-word completion capture before architectural W, and held/replayed access
+rules. SWP, LDM/STM, base-restored block aborts, CP15 and multiply retain their
+serialized paths. This checkpoint does not claim the TRM load-use delay or
+one-store-per-cycle throughput.
 
-Architectural cases not changed by overlap (multiply forms, SWP capture,
-alignment, CP15, modes and banked state) are detailed in the session-2 report.
+`arm9_memory.S` exercises both uncached and cached operation, including warmed
+repetition. Cases: unready load shadowed by a younger write, both load and
+post-indexed base consumers, a loaded shift count, queue backpressure and held
+operands, failed memory/consumer conditions, and an abort with speculative
+register/flag results plus a younger store. Its handler verifies original state,
+SPSR, fault PC and restored base. Full instruction traces and signatures compare
+with QEMU; only this new binary/reference was built.
 
-## Cycle measurements and regressions
+The old `arm9_cycles` binary/reference are unchanged. Its source's bench tag now
+selects `sim/cpu/arm9/cycles.txt`, a versioned expectation file. The bench requires
+every embedded window exactly once, rejects zero/unknown/duplicate/missing rows,
+and retains the original five visits and two exact hot 0:0 checks. The 69 TRM
+windows are not removed or relaxed. External expectations let cycle behaviour
+change without rebuilding existing instruction streams or QEMU references.
 
-Before RTL edits, both selected cores passed the 27 requested focused runs;
-`arm9/session3-baseline.json` records their cycles and instruction counts.
-The nine tests' instruction counts remain identical. ZAP cycles are unchanged
-in every cell. Bus-latency columns in each cell are **0:0 / 0:3 / 2:9**.
+## Cycle evidence
 
-| Test | ZAP before and after | ARM9 session-2 baseline | ARM9 partial overlap | Instructions |
-| --- | --- | --- | --- | ---: |
-| cache | 760787 / 888787 / 1222550 | 2553475 / 2613823 / 2803925 | 1237634 / 1317526 / 1652590 | 293427 |
-| dcache_rtl | 58301 / 85328 / 154143 | 163476 / 189557 / 259170 | 99427 / 124688 / 201580 | 12771 |
-| icache_rtl | 58201 / 85393 / 154521 | 163204 / 189350 / 259203 | 99490 / 124951 / 202315 | 12771 |
-| ctrand1 | 72594 / 102419 / 179154 | 202854 / 231634 / 309047 | 125032 / 152984 / 237636 | 16159 |
-| crand1 | 73608 / 105167 / 187620 | 203684 / 234675 / 318037 | 124960 / 154055 / 243949 | 15982 |
-| gba_arm | 8291 / 10887 / 17749 | 13315 / 15305 / 20663 | 7439 / 9468 / 15551 | 1192 |
-| gba_thumb | 4913 / 6523 / 10877 | 8538 / 9804 / 13270 | 4515 / 5780 / 9696 | 774 |
-| mmu_page | 77102 / 112796 / 203209 | 216632 / 250908 / 341968 | 132146 / 165272 / 266134 | 16887 |
-| align | 5427 / 7001 / 11223 | 8847 / 10171 / 13817 | 6175 / 7430 / 11117 | 549 |
+Both cores passed the requested pre-edit 27 runs; see
+[baseline](arm9/session4-baseline.json). The first overlap checkpoint is recorded
+in [context counts](arm9/session4-context.json). All nine tests retain exactly
+their baseline instruction counts; ZAP cycle counts are unchanged. Each cell is
+**0:0 / 0:3 / 2:9**.
 
-`arm9/session3-fetch.json` preserves the intermediate fetch-only checkpoint;
-`arm9/session3-overlap.json` preserves the arithmetic checkpoint. ARM9 beats
-ZAP on `gba_arm` and `gba_thumb` at every latency; it loses on the other four
-required families at every latency. Outside those six, `align` wins only at 2:9.
-The major remaining cost is still serial memory/sequencer admission, with
-extra cost for serialized state operations and native fetch refills.
+| Test | ZAP | Session 3 ARM9 | Context overlap ARM9 |
+| --- | --- | --- | --- |
+| cache | 760787 / 888787 / 1222550 | 1237634 / 1317526 / 1652590 | 1122872 / 1214017 / 1558622 |
+| dcache_rtl | 58301 / 85328 / 154143 | 99427 / 124688 / 201580 | 99352 / 121636 / 201507 |
+| ctrand1 | 72594 / 102419 / 179154 | 125032 / 152984 / 237636 | 123979 / 148978 / 236545 |
+| crand1 | 73608 / 105167 / 187620 | 124960 / 154055 / 243949 | 123933 / 150284 / 243069 |
+| gba_arm | 8291 / 10887 / 17749 | 7439 / 9468 / 15551 | 7315 / 9466 / 15552 |
+| gba_thumb | 4913 / 6523 / 10877 | 4515 / 5780 / 9696 | 4451 / 5781 / 9697 |
 
-`arm9_cycles.S` adds 69 named retirement windows spanning every TRM Table 7-2
-instruction row, representative LDM/STM lengths, load operand roles and
-positive multiplier values for each m=1..4. Three calls warm each path; the
-last two are exact checks at ARM9 0:0. All core/latency combinations check
-that every window was reached five times. Timers are not read inside the
-measured sequence. Unknown/zero expectations are rejected. No architectural
-trace comparison is disabled.
+ARM9 still loses the four memory-heavy families at every latency. It wins both
+GBA tests at every latency. The mechanism is still the single memory engine and
+its admission/completion bubbles, not data-bus bandwidth. Scalar load-independent
+window falls 13 to 10, immediate ALU consumer 13 to 11, loaded base/store consumer
+20 to 17, loaded shift count 14 to 12, store window 12 to 9. These include the end
+marker and entry/drain effects; they are not standalone instruction cycle costs.
+DP chains, branches, SWP and block windows retain their session-3 expectations.
+Some GBA high-latency runs vary by one cycle as the changed request phase changes
+the deterministic bus-latency sequence.
 
-The DP, dependency and flags chains demonstrate one clock per instruction;
-executed register shifts demonstrate two and skipped shifts one. Every other
-measured value, and its deviation from the target, is in the new measured-model
-section of `docs/ARM9.md` and `arm9/session3-cycle-windows.json`. Those values
-are regression expectations for this partial implementation, **not a claim
-that slow operations meet the TRM**. B/BL cost six clocks including refill
-(the native-cache target was five), before the end-marker clock. Loads still
-block independent and dependent successors alike. Exception windows include
-the vector's actual LDR-PC trampoline and must not be compared directly with
-the TRM's core-entry count.
+## Risks, coverage and remaining work
 
-Two test-design findings matter for continuation:
+The most important functional risk is confusing a cache completion with retirement
+or losing an E operand when a producer disappears. The held context, ordered
+result queue, completion-to-W bench checks and directed fault case address these.
+There is still only one outstanding memory instruction, so ordered multiple
+memory records, younger held requests across fills and streamed block transfers
+are not covered by this implementation.
 
-1. The patched QEMU and existing RTL differ on the selected unaligned word
-   pattern; this timing-only case uses equal bytes in adjacent words so both
-   conventions produce the same value. Existing alignment/rotation tests
-   remain unchanged. This is not a proposed change to load semantics.
-2. An initial MRC-PC case changed flags to the CPU ID's top nibble: ARM9
-   matched QEMU, while ZAP left flags unchanged. The shared timing case now
-   starts with those same flags, so it remains usable by both selections.
-   The existing ZAP omission was not fixed in this ARM9 worktree. The committed
-   case does not test an MRC-PC flag transition; preserve that distinction.
+The four-source bypass and elastic queue add control/fanout to an already tight
+execute boundary. No E stage has been added. Timing has not yet been rerun at this
+checkpoint. Session 3's integrated -2.623 ns is historical, not a measurement of
+this netlist; its cache/Thumb-translation and execute-to-flags families remain
+unresolved. ZAP must remain default until all cycle and timing gates pass.
 
-## Verification
+Next, reduce scalar admission/completion bubbles, then replace the single memory
+engine with independently valid request records whose advances match the cache
+RAM edges. Keep base and load producers separate and preserve precise abort
+ordering. Only then stream block transfers and preserve the original base until
+all transfers can no longer abort. Do not freeze only the CPU metadata during a
+fill: the cache's relookup sequence owns the RAM phases. SWP must remain an ordered
+read/write pair. The original request's timing work follows memory implementation.
 
-The two new binaries and QEMU references (`arm9_cycles`, `arm9_queue`) were
-built locally using installed ARM binutils and patched `qemu-system-arm`.
-No existing test binary or QEMU result was rebuilt. Only new-test references
-were regenerated while their sources were being completed. The original
-suite was 201 runs / 53 references; the final total is 207 / 55.
+No full-system fit, firmware boot or hardware game measurement has been performed.
+Empty block lists/unpredictable aliases and negative multiplier termination
+boundaries retain the session-3 coverage limits.
 
-Final generated-netlist results after the queue translation change: ARM9
-**207/207 runs, 55 QEMU comparisons agree, 0 differ**; ZAP **207/207,
-55 agree, 0 differ**. The nine focused tests plus `arm9_cycles` and
-`arm9_state` pass 33/33 on ARM9; `arm9_queue` independently passes all three
-latencies on both selections. The full suites include all of them. Every
-original cycle/instruction record is unchanged by the timing-only refinement.
+## First-checkpoint verification
 
-The execute-leaf reference tests pass 582,272 checks across source, generated
-and both shift configurations. Source ARM9 smoke passes 30 runs and ten
-QEMU comparisons, including both new tests. Source ARM9 `-Wall` lint passes
-with legacy ZAP warnings, empty integration output pins and unused bits of
-the retained full-width `d_raw` encoding waived; no datapath warning is waived.
-Required top-level `make lint` and `make cpu-gen-check` also pass.
-
-A scratch cycle-test binary with DP expectation changed from 9 to 10 fails
-with two cycle errors and exit 3, proving both measured invocations are
-checked. A scratch netlist without the LDM/younger-Thumb metadata gate fails
-`arm9_queue` at all three bus latencies. Neither mutation is in the repository.
-`arm9/session3-verification.txt` preserves the concise verification ledger.
-
-## Timing
-
-The first integrated seed-2 trial of `e47c566` completed at 104 MHz and
-**failed setup**. The D-captured block offset/count fix removed the old
-Thumb-to-`m_address` endpoint from the worst paths, but the newly active
-fetch/decode-to-operand path became limiting.
-
-| Corner | Setup slack ns | Hold slack ns |
-| --- | ---: | ---: |
-| Slow 1100mV 100C | -3.753 | +0.306 |
-| Slow 1100mV -40C | -3.750 | +0.283 |
-| Fast 1100mV 100C | +2.188 | +0.155 |
-| Fast 1100mV -40C | +3.361 | +0.140 |
-
-Area: 13,996 ALMs, 16,049 registers, 305,568 memory bits, 69 RAM blocks,
-3 DSP blocks. This is the whole CPU/trial harness, not incremental core area.
-Worst path: retimed `u_thumb|WideNor14~0_OTERM7927DUPLICATE` to
-`value_e[34]~_Duplicate_1`, 13.009 ns data delay, eleven logic levels. It passes
-through Thumb decode, `kind_d`, `read_tag`, D forwarding and operand capture.
-Other reported paths include redirect/fetch control into retimed Thumb logic.
-It is not the fitted shift/ALU leaf. Detailed evidence and the exact generated
-input hash are in `arm9/session3-first-fit-seed2/`.
-
-A second trial moves Thumb translation and its undefined/alignment metadata
-before the existing fetch FIFO register. D reads the registered translation;
-no instruction stage or clock is added. The raw word is retained for Thumb BL
-halves. LDM continuation explicitly uses its held instruction and ignores
-metadata of the younger queue head. `arm9_queue.S` covers this boundary and
-a branch killing a queued exception. Removing that gate in a scratch netlist
-makes the directed test fail its second-transfer check at all three latencies;
-the correct netlist and QEMU agree. The second trial uses seed 2 and
-`BUILD_DIR=dev/mister/ngage-codex-arm9-session3-predecode-s2`. It completed with
-these results on the exact `06ed82f` netlist:
-
-| Corner | Setup slack ns | Hold slack ns |
-| --- | ---: | ---: |
-| Slow 1100mV 100C | -2.581 | +0.317 |
-| Slow 1100mV -40C | -2.623 | +0.307 |
-| Fast 1100mV 100C | +2.715 | +0.164 |
-| Fast 1100mV -40C | +3.805 | +0.126 |
-
-Area: **14,503 ALMs, 15,828 registers, 305,568 memory bits, 69 RAM blocks,
-3 DSP blocks**. Compared with the first session-3 fit, worst setup improves
-1.130 ns and area increases 507 ALMs. These figures cover the integrated CPU
-and trial harness; they do not establish fit or timing in the 80%-full system.
-
-There are **two** limiting path families, both visible in the slow-corner
-top-three full-path reports:
-
-1. **I-cache way selection through Thumb translation to fetch/decode capture:**
-   -2.623 ns, 11.547 ns data delay, ten logic levels at Slow -40C. The path
-   starts at the retimed tag comparator `u_zap_cache_tag_ram|Equal1~8_OTERM9297`,
-   crosses `o_cache_word_sel`, `u_fetch|incoming`, the Thumb translator and
-   queue input mux, and ends at retimed `list_d[1]~5_OTERM8109`. Moving translation
-   ahead of the FIFO removes it from D's operand path but leaves too much
-   logic after the I-cache word selection. Quartus retiming means the endpoint
-   name is not a literal source-level FIFO register.
-2. **Forwarded execute operand through shift/ALU to M's Z flag:** -2.551 ns,
-   11.498 ns data delay, nine logic levels at Slow -40C. It starts at
-   `u_execute|u_forward|always0~10_OTERM2770DUPLICATE` and ends at `fast_m[62]`.
-   The detailed path includes the forwarding mux, barrel shift, ALU and Z
-   reduction. No execute-leaf source or E-to-memory stage was changed, but
-   the old standalone **+0.018 ns is not retained in this integrated fit**.
-   Real producer fanout, capture logic and placement must be addressed without
-   increasing the execute cycle count.
-
-Thus neither closure nor the requested fallback of a single remaining path
-family was reached. `arm9/session3-final-fit-seed2/` contains corner summaries,
-top-twelve path lists, top-three detailed paths, invocation and input SHA-256
-`a324e98c0239281a3b6c1f0069897908bb34cc1add08ec6237c9af36542b0ea6`.
-The trial's generated input and the committed generated file match exactly.
-
-## Remaining work / next session
-
-Continue with the current separate fetch/E/result records; do not reintroduce
-shared decode/execute instruction state. The largest missing piece is an
-in-order memory pipeline with held metadata and separate unready base/load
-producer tags. Replace the all-or-nothing slow-operation drain only after
-precise abort, older-store ordering and completion capture are preserved.
-Then pipeline LDM/STM transfers, reduce PSR/CP15/multiply drain overhead, and
-move remaining redirects earlier without lengthening the execute cone.
-
-Concretely, the next edit must extract a held slow-operation context at the
-E-to-M1 handoff: `pc`, `ins`, `kind_e`, `flags_e`, base/destination tags and
-sequence state are still live inputs to M/W today. Overwriting them with a
-younger E instruction is unsafe. Add ordered retirement and unready producer
-entries for both load and base writes, then permit independent younger DP
-results to wait behind that entry. A fault must discard those younger results.
-Only after that works should M1/M2/M3 become independently valid memory
-records. The D-cache currently advances RAMs with `i_stall=0`; do not freeze
-just metadata on a miss and expect the RAM phase to remain aligned. Younger
-stores must wait for every older fault-capable access. Commit and rerun the
-full dual-core/reference suite after each of these steps.
-
-For timing, first shorten the cache-select-to-translation boundary using an
-earlier existing fetch edge or a narrower predecode representation; do not
-add another refill edge silently. Then isolate the execute producer/capture
-fanout and compare the integrated path with the retained leaf trial. Both
-changes need a fresh integrated fit: moving the first path alone cannot close
-the second, and unchanged leaf RTL alone is not timing evidence. The saved
-top-three reports are the starting point, not a prediction that either fix
-will close.
-
-The three-edge native RAM contract is still unchanged. B/BL refill has one
-additional queue/decode admission edge beyond the native-cache target. A
-proven early launch or carefully timed queue-to-D handoff is required; simply
-relabelling a stage does not remove that edge. Load-use target timing cannot
-be established until the blocking memory controller is replaced.
-
-Risk and coverage boundaries: no firmware boot, full-system timing, real game
-or physical-hardware measurement was performed. Empty register lists remain
-undefined; unpredictable aliases and every negative multiplier termination
-boundary are not exhaustively tested; all new cycle windows are ARM state,
-with Thumb semantics covered by the shared suite. Integrated timing and area
-must be measured again after memory overlap. Keep ZAP default until the full
-performance and timing gates both pass.
-
-This session stops at a passing partial-overlap checkpoint, after two complete
-integrated timing trials. Full memory overlap, target load-use/block-transfer
-counts, the remaining branch-refill edge and both timing families are still
-open. No further unverified RTL change is left in the worktree.
-
-No push, branch switch, `sys/` edit or firmware boot was performed. Only this
-worktree's task-related CPU, test and documentation files are included. The
-session's Quartus/report containers exited with `--rm`; other engineers'
-builds and the pre-existing shared Quartus image were left alone.
+ARM9 and ZAP each pass **210/210** generated-netlist runs and **56/56** QEMU
+signature/trace comparisons (0 differ). The new test contributes three runs and
+one comparison. ARM9 source smoke passes 18/18 runs and six comparisons.
+All 69 cycle windows pass their two exact hot checks; changing the DP expectation
+from 9 to 10 fails both checks. Execute leaves pass 582,272 reference checks.
+`make lint` passes and `make cpu-gen-check` reports the netlist current. Extra
+source lint finds only the inherited D-cache FSM index-width warnings after
+waiving legacy unused/interface warnings; no new ARM9 warning is reported.
+The checkpoint evidence is [recorded here](arm9/session4-context-verification.txt).

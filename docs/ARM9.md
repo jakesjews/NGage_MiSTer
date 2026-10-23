@@ -1,11 +1,13 @@
 # ARM9 integer pipeline replacement
 
-Status: session-3 partial overlap, 2026-10-23 deliverable (work started 2026-10-22).
-ZAP remains the production CPU. ARM9 now overlaps fetch, queue/decode, execute,
-and independent M/W result records for ordinary DP and B/BL. Loads/stores,
-block transfers, multiply, PSR operations and exceptions still drain and use
-the blocking controller. This does **not** meet the overall ARM9 cycle model
-or the performance acceptance gate. See the measured session-3 model below.
+Status: session-4 scalar-memory overlap checkpoint, 2026-10-23 deliverable.
+ZAP remains the production CPU. ARM9 now retains a separate slow-operation
+context and can execute younger non-PC DP behind a scalar load/store. The two
+fast result records form an ordered retirement queue; load/base producers are
+unready until memory retirement, and a fault discards younger results. Memory
+requests, block transfers, multiply and state operations still serialize. This
+is not the requested streaming memory pipeline or the performance acceptance
+gate. See the session-4 continuation report for current measurements.
 Starting revision: `75cce2e`, branch `codex/arm9`.
 
 ## Contract and sources
@@ -529,3 +531,41 @@ Thumb timing permutation. Architectural ARM/Thumb, fault, IRQ and FIQ coverage
 continues to come from the full shared suite; IRQ/abort timing is not assigned
 a fictitious TRM table value here. Firmware boot and hardware speed remain
 external milestones.
+
+## Session 4: held memory context and ordered younger arithmetic
+
+E validity and its register-shift cycle are independent of the slow controller.
+At a slow E handoff, `slow` captures PC, PC+8/+4, raw/decoded instruction, CPSR,
+kind and physical base/destination tags. Request mode, fault PC, CP15 word,
+block continuation and W use that context. Access data/format and W controls
+already had their own registers. The bench's data-PC tap now reads held memory
+PC, independently of the younger E PC.
+
+Only non-PC DP may enter behind a scalar memory operation. Two result entries
+hold younger work; they cannot retire until the slow operation retires. A third
+instruction may wait in E. No younger memory transaction, branch, exception or
+state operation is admitted. A slow redirect clears E and both younger result
+entries. The retained memory engine preserves cache replay/hold, the critical
+word completion capture, SWP and the base-restored block-abort implementation.
+
+Four physical producer slots are ordered M, W, memory-load, memory-base. The
+last two are unready until precise memory retirement; load wins a same-register
+base alias. A younger ready result shadows an older unready load. Held E operands
+capture bypasses every clock so a producer cannot disappear while E waits on a
+different source or queue space. Only architecturally used sources can interlock;
+failed conditions skip both dependency and register-shift delays. Forwarded
+flags follow younger M/W, then committed CPSR.
+
+The existing `arm9_cycles` instruction binary and reference stay unchanged.
+`sim/cpu/arm9/cycles.txt` supplies versioned timing expectations; the bench rejects
+missing, duplicate, unknown or zero entries. All 69 windows still execute five
+times and check both hot 0:0 visits. The original embedded values document the
+session-3 machine; the external model documents this checkpoint. The new
+`arm9_memory` test covers uncached and cached execution, load/base dependencies,
+WAW shadowing, queue backpressure, failed conditions, and abort cancellation of
+younger flags/register/store work. It compares both signature and full trace.
+
+The remaining gap is material: hit memory instructions still wait to enter the
+single memory engine, and a load consumer waits for its native RAM lookup and
+classification. Do not describe the new younger arithmetic execution as a
+one/two-cycle load-use interlock or one-store-per-cycle throughput.

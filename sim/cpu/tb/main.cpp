@@ -153,6 +153,7 @@ int main(int argc, char **argv) {
 	uint64_t progress = 0;
 	uint64_t trace_after = 0, trace_count = 0;
 	bool dcdbg = false, pddbg = false, arm9_cycles = false;
+    const char *arm9_cycle_model = nullptr;
 	bool quiet = false;
 	bool halt_given = false;
 	std::string machine;
@@ -195,6 +196,7 @@ int main(int argc, char **argv) {
 		else if (a == "--trace-count") trace_count = strtoull(next(), nullptr, 0);
 		else if (a == "--dcdbg") dcdbg = true;
         else if (a == "--arm9-cycles") arm9_cycles = true;
+        else if (a == "--arm9-cycle-model") arm9_cycle_model = next();
 		else if (a == "--pddbg") pddbg = true;
 		else if (a == "--watch") watch.push_back((uint32_t)strtoul(next(), nullptr, 0));
 		else if (a == "--dump") {
@@ -262,6 +264,33 @@ int main(int argc, char **argv) {
             break;
         }
         if (windows.empty()) { fprintf(stderr, "ARM9 cycle table missing\n"); return 2; }
+        // Keep the assembled instruction streams and their QEMU references
+        // immutable when a pipeline change improves timing. A model must name
+        // every embedded window exactly once; missing/extra entries are errors.
+        if (arm9_cycle_model) {
+            FILE *model = fopen(arm9_cycle_model, "r");
+            if (!model) { perror(arm9_cycle_model); return 2; }
+            std::vector<bool> named(windows.size(), false);
+            char line[256], name[128], extra;
+            unsigned expected;
+            while (fgets(line, sizeof(line), model)) {
+                if (line[0] == '#' || line[0] == '\n') continue;
+                if (sscanf(line, "%127s %u %c", name, &expected, &extra) != 2 || !expected) {
+                    fprintf(stderr, "invalid cycle model row: %s", line); fclose(model); return 2;
+                }
+                size_t n = 0;
+                for (; n < windows.size() && windows[n].name != name; ++n) {}
+                if (n == windows.size() || named[n]) {
+                    fprintf(stderr, "unknown/duplicate cycle window: %s\n", name); fclose(model); return 2;
+                }
+                named[n] = true;
+                windows[n].expected = expected;
+            }
+            fclose(model);
+            for (size_t n = 0; n < windows.size(); ++n) if (!named[n]) {
+                fprintf(stderr, "cycle model missing %s\n", windows[n].name.c_str()); return 2;
+            }
+        }
     }
 
 	FILE *trace = nullptr;

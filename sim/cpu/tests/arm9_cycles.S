@@ -2,7 +2,7 @@
 @ ARM9 retirement windows. Three invocations warm caches, next two are checked.
 @ Table expected counts describe this implementation; docs/ARM9.md separates
 @ completed TRM rows from explicit, still-unresolved serial-memory deviations.
-@@ bench: --arm9-cycles
+@@ bench: --arm9-cycles --arm9-cycle-model arm9/cycles.txt
 	.include "test.inc"
 	.include "mmu.inc"
 	.text

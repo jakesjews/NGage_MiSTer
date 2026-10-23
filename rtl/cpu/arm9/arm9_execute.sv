@@ -7,7 +7,8 @@
 // for an unshifted Rm. This preserves the ordinary load-use interlock.
 // Do not connect a combinational o_result back to this module's forwarding.
 module arm9_execute #(
-    parameter bit PRE_SHIFTED = 1'b0
+    parameter bit PRE_SHIFTED = 1'b0,
+    parameter integer PRODUCERS = 3
 ) (
     input  logic        i_valid,
     input  logic [3:0]  i_condition,
@@ -18,10 +19,10 @@ module arm9_execute #(
     input  logic [3:0][31:0] i_value,
     input  logic [3:0][5:0]  i_tag,
     input  logic [3:0]       i_used,
-    input  logic [2:0][31:0] i_write_value,
-    input  logic [2:0][5:0]  i_write_tag,
-    input  logic [2:0]       i_write_valid,
-    input  logic [2:0]       i_write_ready,
+    input  logic [PRODUCERS-1:0][31:0] i_write_value,
+    input  logic [PRODUCERS-1:0][5:0]  i_write_tag,
+    input  logic [PRODUCERS-1:0]       i_write_valid,
+    input  logic [PRODUCERS-1:0]       i_write_ready,
     input  logic [1:0]  i_shift_type,
     input  logic [4:0]  i_shift_amount,
     input  logic        i_shift_register,
@@ -44,7 +45,7 @@ module arm9_execute #(
     logic [3:0] operand_wait, flags;
     logic [31:0] shifted;
     logic shift_carry, test_op;
-    arm9_forward u_forward (
+    arm9_forward #(.PRODUCERS(PRODUCERS)) u_forward (
         .i_value(i_value), .i_tag(i_tag), .i_used(i_used),
         .i_write_value(i_write_value), .i_write_tag(i_write_tag),
         .i_write_valid(i_write_valid), .i_write_ready(i_write_ready),

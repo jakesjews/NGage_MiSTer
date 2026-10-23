@@ -185,7 +185,7 @@ module tb_cpu #(
 	assign p_pc8 = `A9.o_dbg_wb_pc;
 	assign p_cpsr = `A9.o_dbg_wb_cpsr;
 	assign p_regs = `A9.u_zap_writeback.u_zap_register_file.mem;
-	assign p_dpc8 = `A9.pc8;
+	assign p_dpc8 = `A9.data_pc8;
 	assign p_wfi = `A9.o_dbg_wfi;
 	assign p_pd_pc = `A9.pc;
 	assign p_pd_ins = `A9.ins;

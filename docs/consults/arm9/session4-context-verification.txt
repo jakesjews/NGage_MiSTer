@@ -1,0 +1,14 @@
+Generated netlist SHA-256: 5e8b16b0c67d09086b414bcad4567ea23fb5e8084efec691985e310f696ebba0
+ARM9 and ZAP: pre-edit focused 27/27 runs each.
+ARM9: post-edit focused 27/27; signatures and traces 56 agree, 0 differ.
+ARM9 and ZAP: full generated suites 210/210 runs each.
+ZAP: full signatures and traces 56 agree, 0 differ.
+ARM9 source: 18/18 runs, 6 signatures/traces agree, 0 differ.
+Execute leaf: 582272 reference checks pass across source/generated and both shifts.
+make lint: passes. make cpu-gen-check: current.
+All 69 windows visited five times; two hot 0:0 comparisons each pass.
+Bad dp expectation 10 instead of 9 produces two errors, as expected.
+Only arm9_memory binary and QEMU reference built; existing binaries/references reused.
+Nine focused instruction counts identical to baseline; all ZAP cycles identical.
+Integrated timing not run at this checkpoint.
+ARM9 final full-suite signatures and traces: 56 agree, 0 differ.
