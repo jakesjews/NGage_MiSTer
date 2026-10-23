@@ -3227,3 +3227,18 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   stream with its 14 launchers; the trace build and its launchers are
   gone (rebuilt when needed). New builds replace these, never
   accumulate.
+- ARM9 session 7's end (2647f62, d9c773d): the cycle gate met on all 21
+  comparisons, but the integrated CPU-only trial (seed 2) is **-8.332 ns**
+  at slow 100C (a first fit at -23 ns had a control-to-data selection
+  through the shifter and ALU, corrected to select the instruction data
+  from a registered queue count), 16,755 ALMs against ZAP's 15,917 in the
+  same harness (ZAP's own baseline there -2.65 ns: that worktree
+  predates the timing rounds). Two families: the E branch decision in the
+  backend clear network (held forwarding -> branch adder -> target
+  equality -> early_redirect -> a clear with fanout 807, 17.3 ns) and the
+  I-TLB fault / cache hit qualifying the fetch data into the operand
+  muxes (17.2 ns). Session 8 (the same thread): timing first, each change
+  with its own trial: a registered late-event clear, a registered F2
+  boundary with the fault as a kill a clock later, then the next family,
+  until the CPU alone is within 0.5 ns; the cycle gate re-measured after
+  each.
