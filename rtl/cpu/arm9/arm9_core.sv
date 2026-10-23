@@ -222,7 +222,7 @@ logic [3:0] used_e;
 logic fast_d, fast_e, issue, execute_fast, early_redirect;
 logic e_valid, e_shifted, execute_wait;
 logic wb_cycle;
-logic retire_fast, pipe_hold, pipe_empty, pipe_fault;
+logic retire_fast, pipe_hold, pipe_fault;
 logic [1:0] data_reload;
 logic fast_load_ready;
 logic [3:0][31:0] held_value;
@@ -266,7 +266,7 @@ logic immediate_carry_d, immediate_carry_e;
 logic [31:0] ex_result, ex_store, ex_branch;
 logic [3:0] ex_flags;
 logic ex_pass, ex_write, ex_write_flags;
-logic [31:0] flags_e, branch_offset_d, branch_offset_e;
+logic [31:0] branch_offset_d, branch_offset_e;
 logic [5:0] dst_e, base_e;
 logic [31:0] psr_mask_d, psr_mask_e;
 logic [31:0] m_address, m_write_data, m_read_data;
@@ -481,13 +481,12 @@ arm9_forward #(.PRODUCERS(8)) u_held_forward (
     .i_write_valid(forward_valid), .i_write_ready(forward_ready),
     .o_value(held_value), .o_wait(held_wait)
 );
-assign execute_flags = fast_e ? (fast_1.present ? fast_1.flags :
+assign execute_flags = fast_1.present ? fast_1.flags :
     fast_2.present ? fast_2.flags : fast_m.present ? fast_m.flags :
-    fast_w.present ? fast_w.flags : cpsr) : flags_e;
+    fast_w.present ? fast_w.flags : cpsr;
 assign fast_d = (kind_d == K_DP && d_ins[15:12] != 15) || kind_d == K_BRANCH ||
                (kind_d == K_MEM && d_ins[15:12] != 15 && d_ins[19:16] != 15);
 wire shift_hold = e_valid && !e_shifted && shift_register_e && ex_pass && !execute_wait;
-assign pipe_empty = !fast_1.present && !fast_2.present && !fast_m.present && !fast_w.present;
 assign fast_load_ready = !fast_w.load || !i_dc_lock[fast_w.load_dst];
 assign retire_fast = fast_w.present && fast_load_ready;
 assign pipe_fault = retire_fast && fast_w.fault;
@@ -507,7 +506,7 @@ assign early_redirect = execute_fast && kind_e == K_BRANCH && ex_pass;
 assign issue = f_valid && !sequence_active && !f_redirect && state == IDLE &&
     (!e_valid || execute_fast) &&
     ((fast_d && !f_abort && !(i_irq && !cpsr[7]) && !(i_fiq && !cpsr[6])) ||
-     (!e_valid && pipe_empty));
+     (!e_valid && !(|unused_read_wait)));
 
 always_comb begin
     fast_input = '0;
@@ -668,7 +667,7 @@ always_ff @(posedge i_clk) begin
         m_format <= 0; m_dst <= PHY_RAZ_REGISTER;
         m_load <= 0; m_align <= 0; m_user <= 0; swap_store <= 0;
         block_delta_e <= 0; transfer_count_e <= 0; transfer_reg_e <= 0; list_e <= 0;
-        kind_e <= K_UND; op_e <= 0; value_e <= '0; flags_e <= CPSR_INIT;
+        kind_e <= K_UND; op_e <= 0; value_e <= '0;
         shift_type_e <= 0; shift_amount_e <= 0; shift_register_e <= 0;
         immediate_e <= 0; immediate_carry_e <= 0; branch_offset_e <= 0;
         dst_e <= PHY_RAZ_REGISTER; base_e <= PHY_RAZ_REGISTER; psr_mask_e <= 0;
@@ -678,7 +677,9 @@ always_ff @(posedge i_clk) begin
         if (shift_hold) e_shifted <= 1;
         if (execute_fast) e_valid <= 0;
       end
-      if (e_valid && !fast_e && !shift_hold && !execute_wait) begin
+      if (e_valid && !fast_e && !shift_hold && !execute_wait &&
+          !fast_1.present && !fast_2.present && !fast_m.present &&
+          (!fast_w.present || retire_fast) && !pipe_hold && !pipe_fault) begin
             e_valid <= 0;
             slow.pc <= pc;
             slow.pc8 <= pc8;
@@ -721,14 +722,14 @@ always_ff @(posedge i_clk) begin
                 end
                 K_MRS: begin
                     w_dst <= dst_e;
-                    w_value <= ins[22] ? value_e[2] : flags_e;
+                    w_value <= ins[22] ? value_e[2] : execute_flags;
                 end
                 K_MSR: begin
                     if (ins[22] && cpsr[4:0] != USR && cpsr[4:0] != SYS) begin
                         w_dst <= translate(ARCH_CURR_SPSR,cpsr[4:0]);
                         w_value <= (value_e[2] & ~psr_mask_e) | (value_e[1] & psr_mask_e);
                     end else if (!ins[22])
-                        w_flags <= (flags_e & ~psr_mask_e) | (value_e[1] & psr_mask_e);
+                        w_flags <= (execute_flags & ~psr_mask_e) | (value_e[1] & psr_mask_e);
                 end
                 K_BRANCH: begin
                     w_redirect <= 1;
@@ -928,8 +929,8 @@ always_ff @(posedge i_clk) begin
             // operations still enter after drain with all four D values.
             used_e <= kind_d == K_MEM ?
                 {!d_ins[20],1'b0,!immediate_d,1'b1} :
-                {1'b0,shift_register_d,!immediate_d,
-                 kind_d == K_DP && op_d != MOV && op_d != MVN};
+                kind_d == K_DP ? {1'b0,shift_register_d,!immediate_d,
+                 op_d != MOV && op_d != MVN} : {2'b11,!immediate_d,1'b1};
             block_delta_e <= d_ins[23] ? (d_ins[24] ? 8'd4 : 8'd0) :
                 (d_ins[24] ? 8'd0 : 8'd4) - {1'b0,transfer_count_d,2'b0};
             transfer_count_e <= transfer_count_d;
@@ -945,7 +946,6 @@ always_ff @(posedge i_clk) begin
             immediate_carry_e <= immediate_carry_d;
             branch_offset_e <= branch_offset_d;
             psr_mask_e <= psr_mask_d;
-            flags_e <= cpsr;
             dst_e <= kind_d == K_DP ? translate({1'b0,d_ins[15:12]},cpsr[4:0]) : read_tag[3];
             base_e <= read_tag[0];
             fiq_pending <= !sequence_active && i_fiq && !cpsr[6];

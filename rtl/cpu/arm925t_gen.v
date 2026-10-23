@@ -906,7 +906,6 @@ module arm9_core (
 	wire wb_cycle;
 	wire retire_fast;
 	wire pipe_hold;
-	wire pipe_empty;
 	wire pipe_fault;
 	reg [1:0] data_reload;
 	wire fast_load_ready;
@@ -956,7 +955,6 @@ module arm9_core (
 	wire ex_pass;
 	wire ex_write;
 	wire ex_write_flags;
-	reg [31:0] flags_e;
 	reg [31:0] branch_offset_d;
 	reg [31:0] branch_offset_e;
 	reg [5:0] dst_e;
@@ -1270,10 +1268,9 @@ module arm9_core (
 		.o_value(held_value),
 		.o_wait(held_wait)
 	);
-	assign execute_flags = (fast_e ? (fast_1[220] ? fast_1[180-:32] : (fast_2[220] ? fast_2[180-:32] : (fast_m[220] ? fast_m[180-:32] : (fast_w[220] ? fast_w[180-:32] : cpsr)))) : flags_e);
+	assign execute_flags = (fast_1[220] ? fast_1[180-:32] : (fast_2[220] ? fast_2[180-:32] : (fast_m[220] ? fast_m[180-:32] : (fast_w[220] ? fast_w[180-:32] : cpsr))));
 	assign fast_d = (((kind_d == 4'd0) && (d_ins[15:12] != 15)) || (kind_d == 4'd3)) || (((kind_d == 4'd5) && (d_ins[15:12] != 15)) && (d_ins[19:16] != 15));
 	wire shift_hold = (((e_valid && !e_shifted) && shift_register_e) && ex_pass) && !execute_wait;
-	assign pipe_empty = ((!fast_1[220] && !fast_2[220]) && !fast_m[220]) && !fast_w[220];
 	assign fast_load_ready = !fast_w[115] || !i_dc_lock[fast_w[111-:6]];
 	assign retire_fast = fast_w[220] && fast_load_ready;
 	assign pipe_fault = retire_fast && fast_w[112];
@@ -1285,7 +1282,7 @@ module arm9_core (
 	wire f_abort;
 	wire f_redirect;
 	wire f_valid;
-	assign issue = ((((f_valid && !sequence_active) && !f_redirect) && (state == 4'd0)) && (!e_valid || execute_fast)) && ((((fast_d && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6])) || (!e_valid && pipe_empty));
+	assign issue = ((((f_valid && !sequence_active) && !f_redirect) && (state == 4'd0)) && (!e_valid || execute_fast)) && ((((fast_d && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6])) || (!e_valid && !(|unused_read_wait)));
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -1477,7 +1474,6 @@ module arm9_core (
 			kind_e <= 4'd8;
 			op_e <= 0;
 			value_e <= 1'sb0;
-			flags_e <= CPSR_INIT;
 			shift_type_e <= 0;
 			shift_amount_e <= 0;
 			shift_register_e <= 0;
@@ -1496,7 +1492,7 @@ module arm9_core (
 				if (execute_fast)
 					e_valid <= 0;
 			end
-			if (((e_valid && !fast_e) && !shift_hold) && !execute_wait) begin
+			if (((((((((e_valid && !fast_e) && !shift_hold) && !execute_wait) && !fast_1[220]) && !fast_2[220]) && !fast_m[220]) && (!fast_w[220] || retire_fast)) && !pipe_hold) && !pipe_fault) begin
 				e_valid <= 0;
 				slow[175-:32] <= pc;
 				slow[143-:32] <= pc8;
@@ -1547,7 +1543,7 @@ module arm9_core (
 						end
 						4'd1: begin
 							w_dst <= dst_e;
-							w_value <= (ins[22] ? value_e[64+:32] : flags_e);
+							w_value <= (ins[22] ? value_e[64+:32] : execute_flags);
 						end
 						4'd2:
 							if ((ins[22] && (cpsr[4:0] != USR)) && (cpsr[4:0] != SYS)) begin
@@ -1555,7 +1551,7 @@ module arm9_core (
 								w_value <= (value_e[64+:32] & ~psr_mask_e) | (value_e[32+:32] & psr_mask_e);
 							end
 							else if (!ins[22])
-								w_flags <= (flags_e & ~psr_mask_e) | (value_e[32+:32] & psr_mask_e);
+								w_flags <= (execute_flags & ~psr_mask_e) | (value_e[32+:32] & psr_mask_e);
 						4'd3: begin
 							w_redirect <= 1;
 							w_target <= ex_branch;
@@ -1775,7 +1771,7 @@ module arm9_core (
 				end
 				fast_e <= (((issue && fast_d) && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6]);
 				tag_e <= read_tag;
-				used_e <= (kind_d == 4'd5 ? {!d_ins[20], 1'b0, !immediate_d, 1'b1} : {1'b0, shift_register_d, !immediate_d, ((kind_d == 4'd0) && (op_d != MOV)) && (op_d != MVN)});
+				used_e <= (kind_d == 4'd5 ? {!d_ins[20], 1'b0, !immediate_d, 1'b1} : (kind_d == 4'd0 ? {1'b0, shift_register_d, !immediate_d, (op_d != MOV) && (op_d != MVN)} : {2'b11, !immediate_d, 1'b1}));
 				block_delta_e <= (d_ins[23] ? (d_ins[24] ? 8'd4 : 8'd0) : (d_ins[24] ? 8'd0 : 8'd4) - {1'b0, transfer_count_d, 2'b00});
 				transfer_count_e <= transfer_count_d;
 				transfer_reg_e <= transfer_reg_d;
@@ -1790,7 +1786,6 @@ module arm9_core (
 				immediate_carry_e <= immediate_carry_d;
 				branch_offset_e <= branch_offset_d;
 				psr_mask_e <= psr_mask_d;
-				flags_e <= cpsr;
 				dst_e <= (kind_d == 4'd0 ? translate({1'b0, d_ins[15:12]}, cpsr[4:0]) : read_tag[18+:6]);
 				base_e <= read_tag[0+:6];
 				fiq_pending <= (!sequence_active && i_fiq) && !cpsr[6];

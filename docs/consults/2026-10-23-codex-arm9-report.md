@@ -59,3 +59,21 @@ signature/trace comparisons. All 69 timing windows pass; top-level `make lint`
 and `make cpu-gen-check` pass. All nine baseline instruction counts match,
 and every ZAP cycle count is unchanged. See the
 [verification ledger](arm9/session5-scalar-verification.txt).
+
+## Slow-instruction admission refinement
+
+Slow instructions may now enter E while older records drain, provided every
+D operand is ready. They execute only when the last older W can retire on the
+same edge and the cache is not held. An older fault suppresses this handoff.
+The ready-at-admission rule is required because multiply, SWP and block setup
+use captured D operands rather than the execute leaf's bypassed result. Flags
+come from the newest older record or committed CPSR, including MRS/MSR.
+
+This removes two retirement-window clocks around most slow operations without
+changing execute length. It does not materially improve the cache workload:
+its loop's taken branch already hides this admission opportunity. The measured
+numbers are in [session5-admission.json](arm9/session5-admission.json).
+
+Admission refinement verification: both cores pass 213/213 runs, 57/57 QEMU
+comparisons, all 69 windows, `make lint` and `make cpu-gen-check`. The
+[ledger](arm9/session5-admission-verification.txt) identifies the checked netlist.

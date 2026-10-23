@@ -1,0 +1,10 @@
+Generated SHA-256: 7e8d586bf9d065e0d6b0f2489b1cc803bdf553c007875eba99b934d670aec273
+admit-focus-final: RTL (gen): 30 passed, 0 failed
+admit-focus-diff: RTL vs QEMU: 57 agree, 0 differ
+admit-full: RTL (gen): 213 passed, 0 failed
+admit-diff: RTL vs QEMU: 57 agree, 0 differ
+admit-zap-full: RTL (gen): 213 passed, 0 failed
+admit-zap-diff: RTL vs QEMU: 57 agree, 0 differ
+admit-gencheck: rtl/cpu/arm925t_gen.v is current
+make lint: passed. All 69 timing windows pass. Nine instruction counts unchanged.
+ZAP cycles unchanged. Only new arm9_stream binary/reference built.
