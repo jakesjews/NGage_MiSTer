@@ -41,6 +41,8 @@ input   logic                      i_reset,
 
 // From/to processor
 input   logic    [31:0]            i_address,
+input   logic    [31:0]            i_address_check, // ARM925T: next lookup
+input   logic                      i_stall,
 input   logic                      i_rd,
 input   logic                      i_wr,
 input   logic    [31:0]            i_din,
@@ -52,6 +54,10 @@ output  logic                       o_err,
 output  logic     [7:0]             o_fsr,
 output  logic     [31:0]            o_far,
 output  logic                       o_err2,
+// ARM925T: speculative fetch words must not leave the FIFO until done.
+output  logic                       o_fill_pending,
+output  logic                       o_fill_done,
+output  logic                       o_fill_fault,
 
 // From/To CP15 unit
 input   logic                      i_cache_en,
@@ -124,16 +130,18 @@ input   logic                   i_wb_err
 `include "zap_defines.svh"
 
 // States
-localparam [2:0] IDLE                 = 3'd0; // Resting state.
-localparam [2:0] UNCACHEABLE          = 3'd1; // Uncacheable access.
-localparam [2:0] UNCACHEABLE_PREPARE  = 3'd2; // Prepare uncacheable access.
-localparam [2:0] CLEAN_SINGLE         = 3'd3; // Ultimately cleans up cache line. Parent state
-localparam [2:0] FETCH_SINGLE         = 3'd4; // Ultimately validates cache line. Parent state
-localparam [2:0] INVALIDATE           = 3'd5; // Cache invalidate parent state
-localparam [2:0] CLEAN                = 3'd6; // Cache clean parent state
-localparam [2:0] UNC_DONE             = 3'd7; // ARM925T: uncacheable access completes
+localparam [3:0] IDLE                 = 4'd0; // Resting state.
+localparam [3:0] UNCACHEABLE          = 4'd1; // Uncacheable access.
+localparam [3:0] UNCACHEABLE_PREPARE  = 4'd2; // Prepare uncacheable access.
+localparam [3:0] CLEAN_SINGLE         = 4'd3; // Ultimately cleans up cache line. Parent state
+localparam [3:0] FETCH_SINGLE         = 4'd4; // Ultimately validates cache line. Parent state
+localparam [3:0] INVALIDATE           = 4'd5; // Cache invalidate parent state
+localparam [3:0] CLEAN                = 4'd6; // Cache clean parent state
+localparam [3:0] UNC_DONE             = 4'd7; // ARM925T: uncacheable access completes
 
-localparam [31:0] NUMBER_OF_STATES    = 32'd8;
+localparam [3:0] FILL_COMPLETE        = 4'd8; // Commit or abort the buffered fetches.
+
+localparam [31:0] NUMBER_OF_STATES    = 32'd9;
 
 localparam [31:0] ADR_PAD              =  32'd32 - $clog2(CACHE_LINE/4) - 32'd1;
 localparam [31:0] ADR_PAD_MINUS_2      =  ADR_PAD - 32'd2;
@@ -185,6 +193,40 @@ assign wb_adr_inc    = {cache_tag[`ZAP_CACHE_TAG__PA], {$clog2(CACHE_LINE){1'd0}
 assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE){1'd0}}}  + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_ff,  2'd0});
 assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE){1'd0}}}  + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_inc, 2'd0});
 logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] way;       // ARM925T: the line's way
+
+// ARM925T: one registered word bypasses the tag/data lookup during a
+// linear fill. Select the next lookup when the PC pipeline advances, or
+// refresh the held lookup when it stalls (including a just-arrived beat).
+// The valid mask belongs to this fill only; never use a previous line's data.
+logic [CACHE_LINE/4-1:0] fill_valid_ff, fill_valid_nxt;
+logic fill_fault_ff, fill_fault_nxt;
+logic [31:0] fill_lookup, response_dat_ff;
+logic fill_ready_ff;
+assign fill_lookup = i_stall ? i_address : i_address_check;
+assign o_fill_pending = state_ff == FETCH_SINGLE;
+assign o_fill_done = state_ff == FILL_COMPLETE;
+assign o_fill_fault = o_fill_done && fill_fault_ff;
+
+always_ff @(posedge i_clk)
+begin
+        if (i_reset || state_ff == IDLE)
+        begin
+                fill_valid_ff <= '0;
+                fill_fault_ff <= 1'd0;
+                fill_ready_ff <= 1'd0;
+        end
+        else
+        begin
+                fill_valid_ff <= fill_valid_nxt;
+                fill_fault_ff <= fill_fault_nxt;
+                fill_ready_ff <= fill_valid_nxt[fill_lookup[$clog2(CACHE_LINE)-1:2]] &&
+                                 fill_lookup[31:$clog2(CACHE_LINE)] == address[31:$clog2(CACHE_LINE)];
+        end
+        if (state_ff == UNCACHEABLE && (i_wb_ack || i_wb_err))
+                response_dat_ff <= i_wb_dat;
+        else if (state_ff != UNC_DONE)
+                response_dat_ff <= buf_nxt[fill_lookup[$clog2(CACHE_LINE)-1:2]];
+end
 
 logic                                     unused;
 
@@ -272,14 +314,12 @@ end
 // passed on in UNC_DONE, a cycle later, so that the bus acknowledge is not
 // in the same cycle as the pipeline's stall (timing).
 //
-logic [31:0] unc_dat_ff;
 logic        unc_err_ff;
 
 always_ff @ ( posedge i_clk )
 begin
         if ( state_ff == UNCACHEABLE && (i_wb_ack || i_wb_err) )
         begin
-                unc_dat_ff <= i_wb_dat;
                 unc_err_ff <= i_wb_err;
         end
 end
@@ -292,8 +332,8 @@ end
 
 // Output data port (ARM925T: the word of the way that hits, selected in
 // the tag RAM by the address before the hit; only the hit chooses here).
-assign o_dat = state_ff == UNC_DONE ?
-               unc_dat_ff :
+assign o_dat = (state_ff == UNC_DONE || state_ff == FETCH_SINGLE || state_ff == FILL_COMPLETE) ?
+               response_dat_ff :
                i_cache_word_sel ? i_cache_words[(WAYS > 1) ? 1 : 0] : i_cache_words[0];
 
 // ==========================================================
@@ -316,6 +356,8 @@ begin:blk1
 
         tmp                     = {($clog2(CACHE_LINE/4)){1'd0}};
         state_nxt               = state_ff;
+        fill_valid_nxt          = fill_valid_ff;
+        fill_fault_nxt          = fill_fault_ff;
         adr_ctr_nxt             = adr_ctr_ff;
         o_wb_cyc_nxt            = o_wb_cyc_ff;
         o_wb_stb_nxt            = o_wb_stb_ff;
@@ -443,9 +485,9 @@ begin:blk1
 
                                 2'b01: // Unrelated tag, possibly dirty.
                                 begin
-                                        // CPU should retry
-                                        o_ack  = 1'd1;
-                                        o_err2 = 1'd1;
+                                        // ARM925T: hold the lookup; the fill buffer
+                                        // will answer it without a PC replay.
+                                        o_ack  = 1'd0;
 
                                         if ( cache_dirty )
                                         begin
@@ -467,9 +509,8 @@ begin:blk1
 
                                 default: // Need to generate a new tag.
                                 begin
-                                                // CPU should wait.
-                                                o_ack  = 1'd1;
-                                                o_err2 = 1'd1;
+                                                // ARM925T: hold until its beat arrives.
+                                                o_ack  = 1'd0;
 
                                                 // Set up counter
                                                 adr_ctr_nxt = 0;
@@ -559,58 +600,86 @@ begin:blk1
                 end
         end
 
-        FETCH_SINGLE: // Fetch a single cache line
+        FETCH_SINGLE: // ARM925T: fill in the background, restart into the FIFO.
         begin
-                o_ack  = 1'd1;
-                o_err2 = i_rd || i_wr ? 1'd1 : 1'd0;
+                // Every early word is provisional. The FIFO's per-entry bit
+                // prevents execution until FILL_COMPLETE resolves this fill.
+                // Check live MMU permissions too: a redirect or mode change
+                // must not inherit the original lookup's authorization.
+                o_ack = i_rd && !i_wr && !wr && fill_ready_ff && !fill_fault_ff &&
+                        !i_busy && !i_fault && i_cache_en && i_cacheable &&
+                        !i_cache_inv && !i_cache_clean;
 
-                // Generate address
                 adr_ctr_nxt = take ? adr_ctr_inc : adr_ctr_ff;
-
-                // Write to buffer
-                buf_nxt[adr_ctr_ff[$clog2(CACHE_LINE/4)-1:0]] = (i_wb_ack|i_wb_err) ?
-                                                                i_wb_dat :
-                                                                buf_ff[adr_ctr_ff[$clog2(CACHE_LINE/4)-1:0]];
-
-                // Manipulate buffer as needed
-                if ( wr )
+                if (take)
                 begin
-                        tmp = address[$clog2(CACHE_LINE/4)+1:2]; // Use value of X/4.
+                        buf_nxt[adr_ctr_ff[$clog2(CACHE_LINE/4)-1:0]] = i_wb_dat;
+                        fill_valid_nxt[adr_ctr_ff[$clog2(CACHE_LINE/4)-1:0]] = 1'd1;
+                        fill_fault_nxt = fill_fault_ff | i_wb_err;
+                end
 
+                if (wr)
+                begin
+                        tmp = address[$clog2(CACHE_LINE/4)+1:2];
                         buf_nxt[tmp][7:0]   = ben[0] ? din[7:0]   : buf_nxt[tmp][7:0];
                         buf_nxt[tmp][15:8]  = ben[1] ? din[15:8]  : buf_nxt[tmp][15:8];
                         buf_nxt[tmp][23:16] = ben[2] ? din[23:16] : buf_nxt[tmp][23:16];
                         buf_nxt[tmp][31:24] = ben[3] ? din[31:24] : buf_nxt[tmp][31:24];
                 end
 
-                if ( take ? beat_inc_ok : beat_cur_ok )
+                if (take ? beat_inc_ok : beat_cur_ok)
                 begin
-
-                        // Fetch line from memory
                         `zap_wb_prpr_read(take ? fetch_adr_inc : fetch_adr_cur, take ? cti_inc : cti_cur);
                 end
                 else
-                begin:blk12
-                        // Update cache with previous buffers. Here _nxt refers to _ff except for the last one.
-
-                        o_cache_line = 0;
-
-                        for(int i=0;i<CACHE_LINE/4;i++)
-                        begin
-                                o_cache_line = o_cache_line |
-                                               ({{LINE_PAD{1'd0}},buf_nxt[i][31:0]} << (32 * i));
-                        end
-
-                        o_cache_line_ben  = {CACHE_LINE{1'd1}};
-
-                        // Update tag. Remove dirty and set valid
-                        o_cache_tag_wr_en                       = 1'd1; // Implicitly sets valid.
-                        o_cache_tag[`ZAP_CACHE_TAG__TAG]        = address[`ZAP_VA__CACHE_TAG];
-                        o_cache_tag[`ZAP_CACHE_TAG__PA]         = phy_addr[31:$clog2(CACHE_LINE)];
-                        o_cache_tag_dirty                       = !wr ? 1'd0 : 1'd1; // BUG FIX.
-
-                        // Move to idle state
+                begin
                         `zap_kill_access;
+                        state_nxt = FILL_COMPLETE;
+                end
+        end
+
+        FILL_COMPLETE:
+        begin
+                // The error is sticky across ALL beats. Provisional FIFO
+                // entries become precise prefetch aborts, including when the
+                // fetch PC has moved beyond this line. Redirects discard them
+                // using the normal pipeline clear priority.
+                // No provisional word available: abort the held lookup here.
+                o_ack = 1'd1;
+                o_err = fill_fault_ff && (i_rd || i_wr) &&
+                        i_address[31:$clog2(CACHE_LINE)] == address[31:$clog2(CACHE_LINE)];
+                o_err2 = !o_err && (i_rd || i_wr) &&
+                         !(fill_ready_ff && !fill_fault_ff && i_rd && !i_wr && !wr &&
+                           !i_busy && !i_fault && i_cache_en && i_cacheable &&
+                           !i_cache_inv && !i_cache_clean);
+                o_fsr[3:0] = TERMINAL_EXCEPTION;
+                o_far = address;
+
+                // RAM writes require !i_stall. A full FIFO may defer the
+                // installation, but done releases its provisional head so
+                // it can drain. Answer a ready word directly, otherwise replay
+                // only the unanswered current lookup. The RAM collision bypass
+                // forwards this write to the already-pipelined lookups.
+                if (i_cache_inv || i_cache_clean)
+                begin
+                        // A CP15 fence can hold decode with the FIFO full.
+                        // Do not wait for that FIFO to drain before servicing
+                        // the fence. This clean I-side line may be discarded;
+                        // an invalidate would discard it immediately anyway.
+                        state_nxt = IDLE;
+                end
+                else if (!i_stall)
+                begin
+                        if (!fill_fault_ff)
+                        begin
+                                for (int i=0; i<CACHE_LINE/4; i++)
+                                        o_cache_line[32*i +: 32] = buf_ff[i];
+                                o_cache_line_ben = {CACHE_LINE{1'd1}};
+                                o_cache_tag_wr_en = 1'd1;
+                                o_cache_tag[`ZAP_CACHE_TAG__TAG] = address[`ZAP_VA__CACHE_TAG];
+                                o_cache_tag[`ZAP_CACHE_TAG__PA] = phy_addr[31:$clog2(CACHE_LINE)];
+                                o_cache_tag_dirty = wr;
+                        end
                         state_nxt = IDLE;
                 end
         end

@@ -39,6 +39,9 @@ input logic             i_clear_from_decode,
 // Payload and valid. o_full blocks writes.
 input logic [WDT-1:0]   i_instr,
 input logic             i_valid,
+// ARM925T: provisional words may queue but never execute before resolution.
+input logic             i_fill_pending, i_fill_done, i_fill_fault,
+output logic            o_fill_fault,
 output logic            o_full,
 
 // Payload out.
@@ -48,7 +51,41 @@ output logic            o_valid
 );
 
 logic           clear;
-logic           rd_en;
+logic           rd_en, read_allowed;
+logic [$clog2(DEPTH)-1:0] fill_rptr, fill_wptr;
+logic [DEPTH-1:0] fill_pending, fill_fault;
+logic pending_head;
+assign pending_head = fill_pending[fill_rptr] && !i_fill_done;
+assign rd_en = read_allowed && !pending_head;
+
+// These small sidecar arrays follow the sync FIFO's accepted reads/writes.
+// Clearing pending bits on completion, rather than using a transaction ID,
+// also handles a second fill while words of a successful first fill remain.
+always_ff @(posedge i_clk)
+begin
+        if (i_reset || clear)
+        begin
+                fill_rptr <= '0;
+                fill_wptr <= '0;
+                fill_pending <= '0;
+                fill_fault <= '0;
+        end
+        else
+        begin
+                if (i_fill_done)
+                begin
+                        fill_pending <= '0;
+                        if (i_fill_fault) fill_fault <= fill_fault | fill_pending;
+                end
+                if (i_valid && !i_write_inhibit && !o_full)
+                begin
+                        fill_wptr <= fill_wptr + 1'd1;
+                        fill_pending[fill_wptr] <= i_fill_pending && !i_fill_done;
+                        fill_fault[fill_wptr] <= i_fill_pending && i_fill_fault;
+                end
+                if (rd_en && valid) fill_rptr <= fill_rptr + 1'd1;
+        end
+end
 logic [WDT-1:0] instr;
 logic           valid;
 
@@ -68,14 +105,14 @@ end
 // Priority encoder to determine if to read out the FIFO.
 always_comb
 begin
-        if      ( i_clear_from_writeback)  rd_en = 1'd0;
-        else if ( i_data_stall )           rd_en = 1'd0;
-        else if ( i_clear_from_alu )       rd_en = 1'd0;
-        else if ( i_stall_from_shifter )   rd_en = 1'd0;
-        else if ( i_stall_from_issue )     rd_en = 1'd0;
-        else if ( i_stall_from_decode )    rd_en = 1'd0;
-        else if ( i_clear_from_decode )    rd_en = 1'd0;
-        else                               rd_en = 1'd1;
+        if      ( i_clear_from_writeback)  read_allowed = 1'd0;
+        else if ( i_data_stall )           read_allowed = 1'd0;
+        else if ( i_clear_from_alu )       read_allowed = 1'd0;
+        else if ( i_stall_from_shifter )   read_allowed = 1'd0;
+        else if ( i_stall_from_issue )     read_allowed = 1'd0;
+        else if ( i_stall_from_decode )    read_allowed = 1'd0;
+        else if ( i_clear_from_decode )    read_allowed = 1'd0;
+        else                               read_allowed = 1'd1;
 end
 
 // The core queue of the pipeline stage.
@@ -109,9 +146,11 @@ begin
         begin
                 o_valid <= 1'd0;
         end
-        else if ( rd_en )
+        else if ( read_allowed )
         begin
-                o_valid <= valid;
+                o_valid <= valid && !pending_head;
+                o_fill_fault <= fill_fault[fill_rptr] |
+                                (fill_pending[fill_rptr] && i_fill_fault);
                 o_instr <= instr;
         end
 end

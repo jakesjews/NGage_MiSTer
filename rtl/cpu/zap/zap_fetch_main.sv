@@ -51,6 +51,8 @@ input logic          i_cpsr_ff_t,     // CPSR T bit.
 input logic [31:0] i_instruction,     // A 32-bit ZAP instruction.
 
 input logic          i_valid,         // Instruction valid indicator.
+input logic          i_fill_pending, i_fill_done, i_fill_fault,
+output logic         o_fill_pending,
 input logic          i_instr_abort,   // Instruction abort fault.
 
 // To decode.
@@ -75,6 +77,32 @@ output logic [32:0]  o_pred
 `include "zap_functions.svh"
 
 logic sleep_ff;
+logic fill_abort_ff;
+
+// ARM925T: keep the provisional bit alongside the held fetch register.
+// Completion can arrive while code_stall holds that register. A failed
+// fill is remembered until its word is queued or a redirect discards it.
+always_ff @(posedge i_clk)
+begin
+        if (i_reset || i_clear_from_writeback || i_clear_from_alu || i_clear_from_decode)
+        begin
+                o_fill_pending <= 1'd0;
+                fill_abort_ff <= 1'd0;
+        end
+        else if (!i_code_stall)
+        begin
+                o_fill_pending <= i_valid && !sleep_ff && i_fill_pending && !i_fill_done;
+                fill_abort_ff <= 1'd0;
+        end
+        else if (i_fill_done)
+        begin
+                o_fill_pending <= 1'd0;
+                fill_abort_ff <= fill_abort_ff | (o_fill_pending && i_fill_fault);
+        end
+end
+
+logic instr_abort_ff;
+assign o_instr_abort = instr_abort_ff | fill_abort_ff | (o_fill_pending && i_fill_fault);
 
 //
 // NOTE: If an instruction is invalid, only then can it be tagged with any
@@ -95,7 +123,7 @@ begin
                 o_pc_ff         <= 'x;
                 o_instruction   <= 'x;
                 o_valid         <= 1'd0;
-                o_instr_abort   <= 1'd0;
+                instr_abort_ff  <= 1'd0;
                 sleep_ff        <= 1'd0;
                 o_pred          <= 'x; // No need to reset this - hence X.
         end
@@ -104,7 +132,7 @@ begin
         ||      ( i_clear_from_decode ))
         begin
                 o_valid         <= 1'd0;
-                o_instr_abort   <= 1'd0;
+                instr_abort_ff  <= 1'd0;
                 sleep_ff        <= 1'd0;
         end
         // If unit is sleeping.
@@ -114,7 +142,7 @@ begin
                 o_valid         <= 1'd0;
 
                 // No aborts.
-                o_instr_abort   <= 1'd0;
+                instr_abort_ff  <= 1'd0;
 
                 // Keep sleeping.
                 sleep_ff        <= 1'd1;
@@ -125,7 +153,7 @@ begin
         begin
                 // Instruction aborts occur with i_valid as 1. See NOTE.
                 o_valid         <= 1'd1;
-                o_instr_abort   <= i_instr_abort;
+                instr_abort_ff  <= i_instr_abort;
 
                 // Taken
                 o_taken         <= i_taken;
@@ -135,17 +163,17 @@ begin
                 // which makes it UNDEFINED.
                 if ( !V4T && (~i_cpsr_ff_t) & (i_instruction ==? BKPT) )
                 begin
-                        o_instr_abort <= 1'd1;
+                        instr_abort_ff <= 1'd1;
                 end
                 else if ( !V4T && i_cpsr_ff_t )
                 begin
                         if ( i_pc_ff[1] && i_instruction[31:16] ==? T_BKPT )
                         begin
-                                o_instr_abort <= 1'd1;
+                                instr_abort_ff <= 1'd1;
                         end
                         else if ( !i_pc_ff[1] && i_instruction[15:0] ==? T_BKPT )
                         begin
-                                o_instr_abort <= 1'd1;
+                                instr_abort_ff <= 1'd1;
                         end
                 end
 

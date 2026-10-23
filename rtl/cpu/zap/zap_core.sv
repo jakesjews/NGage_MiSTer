@@ -175,6 +175,7 @@ input   logic                            i_icache_inv_done,
 input   logic                            i_dcache_clean_done,
 input   logic                            i_icache_clean_done,
 input   logic                            i_icache_err2,
+input logic i_icache_fill_pending, i_icache_fill_done, i_icache_fill_fault,
 input   logic                            i_dcache_err2,
 
 // -----------------------------------------------------
@@ -252,6 +253,8 @@ logic                            data_stall;
 logic                            fifo_full;
 logic                            code_stall;
 logic                            instr_valid;
+logic                            fetch_fill_pending, fifo_fill_fault, fifo_instr_abort_raw;
+assign fifo_instr_abort = fifo_instr_abort_raw | fifo_fill_fault;
 logic                            pipeline_is_not_empty;
 
 // Fetch
@@ -685,6 +688,10 @@ zap_fetch_main #(.V4T(V4T)) u_zap_fetch_main (
         .i_pc_ff                        (o_instr_wb_adr),
         .i_instruction                  (i_instr_wb_dat),
         .i_valid                        (i_icache_err2  ? 1'd0  : instr_valid),
+        .i_fill_pending                 (i_icache_fill_pending),
+        .i_fill_done                    (i_icache_fill_done),
+        .i_fill_fault                   (i_icache_fill_fault),
+        .o_fill_pending                 (fetch_fill_pending),
         .i_instr_abort                  (i_icache_err2  ? 1'd0  : i_instr_wb_err),
         .i_cpsr_ff_t                    (alu_flags_ff[T]),
 
@@ -717,9 +724,13 @@ zap_fifo #( .WDT(67 + 33), .DEPTH(FIFO_DEPTH) ) U_ZAP_FIFO (
         .i_clear_from_decode            (clear_from_decode),
         .i_instr                        ({fetch_pc_plus_8_ff, fetch_instr_abort, fetch_instruction, fetch_bp_state, fetch_pred}),
         .i_valid                        (fetch_valid),
+        .i_fill_pending                 (fetch_fill_pending),
+        .i_fill_done                    (i_icache_fill_done),
+        .i_fill_fault                   (i_icache_fill_fault),
+        .o_fill_fault                   (fifo_fill_fault),
 
         // Outputs
-        .o_instr                        ({fifo_pc_plus_8, fifo_instr_abort, fifo_instruction, fifo_bp_state, fifo_pred}),
+        .o_instr                        ({fifo_pc_plus_8, fifo_instr_abort_raw, fifo_instruction, fifo_bp_state, fifo_pred}),
         .o_valid                        (fifo_valid),
         .o_full                         (fifo_full)
 );
@@ -741,7 +752,10 @@ zap_mode16_decoder_main #(.V4T(V4T)) u_zap_mode16_decoder (
 .i_clear_from_decode                    (clear_from_decode),
 
 .i_taken                                (fifo_bp_state),
-.i_instruction                          (fifo_instruction),
+// ARM925T: an aborted fill has no instruction bits. A harmless encoding
+// keeps arbitrary bus data (or a formerly valid word poisoned by a late
+// error) from raising UNDEFINED/SWI or starting a CP15 operation instead.
+.i_instruction                          (fifo_instr_abort ? (alu_flags_ff[T] ? 32'h000046c0 : 32'he1a00000) : fifo_instruction),
 .i_instruction_valid                    (fifo_valid),
 
 .i_irq                                  (fifo_valid ? irq && !alu_flags_ff[I] : 1'd0),
