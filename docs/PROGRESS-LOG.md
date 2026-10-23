@@ -3164,3 +3164,11 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   windows; cache 1,237,634 -> 1,028,308 at 0:0. Memory requests still
   serialize, the streaming transfers and the load-use interlocks are
   unfinished, no trial ran. Session 5 started on the same list.
+- **The timing-fix build** (b11, master with 2571ece): -1.151 ns at slow
+  100C (from -3.0), hold +0.246. The worst ten are one family: the
+  multiplier's FSM state (the shifter's stall) -> the predecode's uop
+  sequencer -> o_stall_from_decode -> a predecode register, 9.9 ns with
+  6 ns of interconnect; the eleventh o_stall_from_issue -> stall_idx_ff.
+  Handed to Codex as timing round 2 (codex/timing2: the shifter's stall
+  to reach predecode and decode from a register, cycle-identical if
+  possible). The build is on the board for the three games.
