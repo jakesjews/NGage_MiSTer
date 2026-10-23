@@ -504,8 +504,11 @@ begin:bprblk1
                   // As is MOV PC, LR
                   (
                     (
+                        // ARM925T: Rm is LR (upstream matched 4'd15, MOV PC, PC,
+                        // which no code has, so MOV PC, LR returns never used
+                        // the return-address stack)
                         mode32_instruction[34:0] ==?  { 3'd0, 4'b????, 2'b00, 1'd0, MOV, 1'd0,
-                                                     4'd0, ARCH_PC, 8'd0, 4'd15 }
+                                                     4'd0, ARCH_PC, 8'd0, 4'd14 }
                     )
                     &&
                     mode32_instruction_valid

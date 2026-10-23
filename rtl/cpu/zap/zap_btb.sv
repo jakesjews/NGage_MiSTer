@@ -156,9 +156,14 @@ begin
         begin
                 dav    <= '0;
         end
-        else
+        // ARM925T: only a branch's feedback writes its entry (upstream wrote
+        // mem_wr_en every clock, so every non-branch instruction passing
+        // the ALU cleared the entry at its own index, and any branch more
+        // than the table's span away lost its entry within a few hundred
+        // instructions; in game code the BTB predicted almost nothing)
+        else if ( mem_wr_en )
         begin
-                dav[i_fb_branch_src_address.index] <= mem_wr_en;
+                dav[i_fb_branch_src_address.index] <= 1'd1;
         end
 end
 

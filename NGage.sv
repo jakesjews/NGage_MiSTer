@@ -996,17 +996,23 @@ wire        dbg_bus_sdram = wb_adr[27:25] == 3'b101;      // 0x0A000000 window
 wire        dbg_bus_flash = wb_adr[27:26] == 2'b00;       // CS0-CS3
 // the events, one 32-bit count each: LCD frames and pixels, instructions
 // retired, clocks in wait-for-interrupt, bus wait clocks by target, bus
-// beats, the CPU's stall and flush taps (zap_core o_dbg_stall), uops retired
-localparam DBG_CNT = 17;
+// beats, the CPU's stall and flush taps (zap_core o_dbg_stall), uops
+// retired, replays. A replay (dbg_wb_dabt[1]: the writeback sends the
+// instruction round again because the data cache was busy with a fill) has
+// no architectural effect and is not a retired instruction or uop, as the
+// CPU bench counts them (sim/cpu/tb/main.cpp).
+localparam DBG_CNT = 18;
+wire        tr_wb_retire = (tr_wb_valid || tr_wb_dvalid) && !tr_wb_dabt[1];
 wire [DBG_CNT-1:0] dbg_ev = {
-	tr_wb_valid || tr_wb_dvalid,                          // 16 uops retired
+	tr_wb_valid && tr_wb_dabt[1],                         // 17 replays
+	tr_wb_retire,                                         // 16 uops retired
 	cpu_dbg_stall,                                        // 15..8 clear_wb, clear_alu, decode, shifter, issue, fifo empty, code, data
 	dbg_bus_beat,                                         // 7
 	dbg_bus_pend && !dbg_bus_sdram && !dbg_bus_flash,     // 6
 	dbg_bus_pend && dbg_bus_flash,                        // 5
 	dbg_bus_pend && dbg_bus_sdram,                        // 4
 	cpu_dbg_wfi,                                          // 3
-	(tr_wb_valid || tr_wb_dvalid) && tr_wb_uop_last,      // 2
+	tr_wb_retire && tr_wb_uop_last,                       // 2 instructions retired
 	lcd_pix_ev,                                           // 1
 	lcd_frame_ev};                                        // 0
 wire [DBG_CNT-1:0][31:0] dbg_cnt;

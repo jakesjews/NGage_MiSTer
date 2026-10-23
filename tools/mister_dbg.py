@@ -18,8 +18,8 @@ bytes[15:0]} (rtl/mister/dbg_sti.sv), then the wall clock {valid, 10'b0,
 hour[4:0], 2'b0, min[5:0], 2'b0, sec[5:0]} (rows 40-42), its date
 year << 16 | month << 8 | day (rows 44-46), the audio peaks of the last
 frame {left[15:0], right[15:0]} (rows 48-50), {kernel-text writes
-dropped[7:0], 7'b0, dumping, 16'b0} (rows 52-54), then the 17 per-second
-counters of rtl/mister/dbg_counters.sv (rows 56-122; NGage.sv names them).
+dropped[7:0], 7'b0, dumping, 16'b0} (rows 52-54), then the 18 per-second
+counters of rtl/mister/dbg_counters.sv (rows 56-126; NGage.sv names them).
 
 usage: tools/mister_dbg.py SHOT.png [SHOT.png ...]
 The screenshot must be the whole 176x208 picture at an integer scale
@@ -48,7 +48,7 @@ def decode(path):
     bits = [bit(im, scale, 16 + i, 5) for i in range(8)]
     flags = " ".join("%s=%d" % (n, v) for n, v in zip(NAMES, bits))
     words = []
-    for row in range(9, 9 + 4 * 29, 4):     # 12 words, then the 17 counters
+    for row in range(9, 9 + 4 * 30, 4):     # 12 words, then the 18 counters
         w = 0
         for i in range(32):
             w = (w << 1) | bit(im, scale, 16 + i, row)
@@ -60,7 +60,7 @@ def decode(path):
         path, pc, flags, words[0], words[1], words[2], words[3], words[4], words[5], cat,
         words[6], words[7] >> 24, (words[7] >> 16) & 0xFF, words[7] & 0xFFFF, w11 >> 24,
         w8 >> 31, (w8 >> 16) & 0x1F, (w8 >> 8) & 0x3F, w8 & 0x3F, w9 >> 16, (w9 >> 8) & 0xFF, w9 & 0xFF,
-        w10 >> 16, w10 & 0xFFFF) + counters(words[12:29])
+        w10 >> 16, w10 & 0xFFFF) + counters(words[12:30])
 
 
 def counters(w):
@@ -70,12 +70,12 @@ def counters(w):
     # fetch's, no instruction out of the fetch FIFO, the issue, shifter and
     # decode stalls; the ALU's flushes and the writeback's (counts); uops
     frames, pix, retired, wfi, wsd, wfl, wot, beats = w[:8]
-    dstall, cstall, nofifo, s_issue, s_shift, s_dec, clr_alu, clr_wb, uops = w[8:17]
+    dstall, cstall, nofifo, s_issue, s_shift, s_dec, clr_alu, clr_wb, uops, replays = w[8:18]
     clk = 104_000_000
     pct = lambda n: 100.0 * n / clk
-    return " | per s: %d frames, %d px, %.2f M instr, idle %.1f%%, bus wait sdram %.1f%% flash %.1f%% other %.1f%%, %d beats | stalls: data %.1f%% code %.1f%% nofifo %.1f%% issue %.1f%% shifter %.1f%% decode %.1f%%, flush alu %d wb %d, %.2f M uops" % (
+    return " | per s: %d frames, %d px, %.2f M instr, idle %.1f%%, bus wait sdram %.1f%% flash %.1f%% other %.1f%%, %d beats | stalls: data %.1f%% code %.1f%% nofifo %.1f%% issue %.1f%% shifter %.1f%% decode %.1f%%, flush alu %d wb %d, %.2f M uops, %d replays" % (
         frames, pix, retired / 1e6, pct(wfi), pct(wsd), pct(wfl), pct(wot), beats,
-        pct(dstall), pct(cstall), pct(nofifo), pct(s_issue), pct(s_shift), pct(s_dec), clr_alu, clr_wb, uops / 1e6)
+        pct(dstall), pct(cstall), pct(nofifo), pct(s_issue), pct(s_shift), pct(s_dec), clr_alu, clr_wb, uops / 1e6, replays)
 
 
 if __name__ == "__main__":

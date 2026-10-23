@@ -1814,8 +1814,8 @@ module zap_btb (
 			dav <= 1'sb0;
 		else if (i_clear)
 			dav <= 1'sb0;
-		else
-			dav[i_fb_branch_src_address[$clog2(BP_ENTRIES) + 0-:(($clog2(BP_ENTRIES) + 0) >= 1 ? $clog2(BP_ENTRIES) + 0 : 2 - ($clog2(BP_ENTRIES) + 0))]] <= mem_wr_en;
+		else if (mem_wr_en)
+			dav[i_fb_branch_src_address[$clog2(BP_ENTRIES) + 0-:(($clog2(BP_ENTRIES) + 0) >= 1 ? $clog2(BP_ENTRIES) + 0 : 2 - ($clog2(BP_ENTRIES) + 0))]] <= 1'd1;
 	always @(posedge i_clk)
 		if (i_reset)
 			bp_dav <= 1'd0;
@@ -14910,7 +14910,7 @@ module zap_predecode_main (
 				ppc_nxt = skid_pc_ff + (i_cpu_mode_t ? 32'd2 : 32'd4);
 			end
 		end
-		else if (((((((mode32_instruction[31:0] | 32'b11110000000000000000000000001111) == 32'b11110001001011111111111100011111) && (mode32_instruction[3:0] == 4'd14)) && mode32_instruction_valid) || (((({10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00f} ^ (mode32_instruction[34:0] ^ mode32_instruction[34:0])) === (mode32_instruction[34:0] ^ ({10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00f} ^ {10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00f}))) & ((((mode32_instruction[34:0] ^ mode32_instruction[34:0]) ^ ({10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00f} ^ {10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00f})) === ({10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00f} ^ {10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00f})) | 1'bx)) && mode32_instruction_valid)) || ((((mode32_instruction[27:25] == 3'b100) && mode32_instruction[20]) && mode32_instruction_valid) && mode32_instruction[15])) || (((((((mode32_instruction[31:0] | 32'b11110001111111111111111111111111) == 32'b11110111111111111111111111111111) || ((mode32_instruction[31:0] | 32'b11110001111111111111111111111111) == 32'b11110101111111111111111111111111)) && (mode32_instruction[15:12] == ARCH_PC)) && mode32_instruction[20]) && mode32_instruction_valid) && (mode32_instruction[19:16] == ARCH_SP))) begin
+		else if (((((((mode32_instruction[31:0] | 32'b11110000000000000000000000001111) == 32'b11110001001011111111111100011111) && (mode32_instruction[3:0] == 4'd14)) && mode32_instruction_valid) || (((({10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00e} ^ (mode32_instruction[34:0] ^ mode32_instruction[34:0])) === (mode32_instruction[34:0] ^ ({10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00e} ^ {10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00e}))) & ((((mode32_instruction[34:0] ^ mode32_instruction[34:0]) ^ ({10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00e} ^ {10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00e})) === ({10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00e} ^ {10'b000zzzz000, MOV, 5'h00, ARCH_PC, 12'h00e})) | 1'bx)) && mode32_instruction_valid)) || ((((mode32_instruction[27:25] == 3'b100) && mode32_instruction[20]) && mode32_instruction_valid) && mode32_instruction[15])) || (((((((mode32_instruction[31:0] | 32'b11110001111111111111111111111111) == 32'b11110111111111111111111111111111) || ((mode32_instruction[31:0] | 32'b11110001111111111111111111111111) == 32'b11110101111111111111111111111111)) && (mode32_instruction[15:12] == ARCH_PC)) && mode32_instruction[20]) && mode32_instruction_valid) && (mode32_instruction[19:16] == ARCH_SP))) begin
 			if (((skid_taken == WT) || (skid_taken == ST)) || (mode32_instruction[31:28] == AL)) begin
 				ras_ptr_nxt = ras_ptr_nxt - 1;
 				w_pc_from_decode = (ras_we_ff && (ras_widx_ff == ras_ptr_nxt) ? ras_wdata_ff : ras_ff[ras_ptr_nxt * 32+:32]);
