@@ -3602,3 +3602,21 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   better, within the placement noise of this tree's families. Kept on
   the branch, not merged; to be resumed when the memory-side levers have
   settled the tree, with seeds, not single builds, as the measure.
+- **The 32 KB I-cache in play** (b16-32k on the debug slot, prefetch on):
+  Sonic 28.3-29.7 M instructions/s (b16: 28.1-29.5), Asphalt 29.7-30.1
+  (29.1-29.7), Tony Hawk 28.6-29.9 (28.0-29.6): about +1 %. The bus
+  beats fell 5-8 % (Sonic 5.3-5.8 M/s from 5.8-6.3, Asphalt 5.9 from
+  6.4) and the flash wait with them (Sonic 1.4-1.7 % from 2.0-2.2,
+  Asphalt 0.9-1.1 from 1.3-1.5): the instruction misses it removed were
+  real but cheap. The SDRAM wait did not move (20-23 %), so the SDRAM
+  wait is the data side's: the D-cache misses are the memory-side cost
+  that is left. Not worth 2,000 ALMs and 18 M10K; the 16 KB I-cache
+  stays. The next lever is the data cache's size: 8 KB two-way today
+  (the ARM925T's), its data RAMs 16 byte-lane M10Ks per way at 256 x 8
+  bits each (a fifth of a block), so 16 or 32 KB cost no data-RAM
+  blocks, only the tag RAM and the valid/LRU arrays; the design
+  question is the synonyms (a virtually indexed and tagged write-back
+  cache with more than 4 KB per way indexes above the page offset) and
+  the hit path's timing: Codex's ZAP thread takes it (16 KB two-way
+  with the alias analysis against EKA1's memory model, or 16 KB
+  four-way with 4 KB per way and no aliases).
