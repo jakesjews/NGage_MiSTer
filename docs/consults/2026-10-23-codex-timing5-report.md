@@ -724,6 +724,34 @@ family is deliberately broad: every path from the D-cache or CP15 MMU-enable
 register into the core, so predecode/fetch consumers of the late stall cannot
 escape the check. Its paired fit is running; it remains outside the branch.
 
+**Background completion tags only (`bgindex3`):** rebase the earlier
+background-only candidate onto `combined2`. It changes the registered
+completion index/valid and the ALU/shifter match; it leaves the issue lock
+bitmap, issue interlocks and memory-load-valid check untouched. This is a
+smaller implementation than the dropped `dctags` trial, requiring its own
+paired measurement. The pre-fit minimum includes background pickup and all
+old/new cache destination-register inputs. It reuses the unchanged actual-FSM
+completion identity and arbitrary-operand match proof. All 225 counts,
+57 QEMU comparisons, both lint modes and generated checks pass. Its fits are
+queued after `dcack3`; no subset of the failed combined trial is applied.
+
+**Registered post-ALU load-valid (`loadvalid`):** capture `DAV && mem_load`
+in one added bit at each existing post-ALU edge. Reset and writeback clear
+zero it; data stalls hold it; fault/sleep states zero it with DAV. Issue uses
+these bits for late-load candidacy, conflicts and load interlocks. Ordinary
+forwarding still uses the original DAV; memory requests and all operand
+register enables remain unchanged. There is no extra pipeline edge.
+
+Induction on the actual post-ALU module proves the new flag equals the old
+pair after reset, for arbitrary stalls, clears, faults and payloads. Under
+that separately proved interface identity, all 4,045 actual issue-module
+comparison points prove. All 225 counts remain exact, 57 signatures agree,
+and both lint modes, generation/checks and the ten-occurrence check pass.
+The pre-fit minimum covers issue feedback, pending capture and inputs to
+both original DAV/load registers and the new flag in all three stages.
+This targets the post-ALU1 load-control path exposed by `dctags` seed 2;
+it is prepared on `combined2`, not fitted or retained.
+
 ## Scope and risks
 
 No firmware boot bench, `sys/` change, ARM9 change, card-model edit, hardware
