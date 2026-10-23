@@ -3315,3 +3315,7 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   user: pause the ARM9 (keep the branch) and spend the budget on ZAP's
   closure and its measured stalls, or continue the ARM9 under
   Antigravity's rules for two or three more sessions.
+  **Decided: the ARM9 core is paused** (the user), its branch codex/arm9
+  (49ed322) and reports kept; the Codex budget goes to ZAP: the timing
+  closure (round 3 running), then the measured pipeline stalls, then the
+  memory-side levers, each measured in play.
