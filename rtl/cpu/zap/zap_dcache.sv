@@ -105,6 +105,7 @@ output logic  [3:0]       o_wb_sel, o_wb_sel_nxt,
 output logic  [31:0]      o_wb_dat, o_wb_dat_nxt,
 output logic  [31:0]      o_wb_adr, o_wb_adr_nxt,
 output logic  [2:0]       o_wb_cti, o_wb_cti_nxt,
+output logic  [1:0]       o_wb_bte, o_wb_bte_nxt, // ARM925T: fill burst order
 input  logic [31:0]       i_wb_dat,
 input  logic              i_wb_ack,
 input  logic              i_wb_err
@@ -125,6 +126,7 @@ logic [3:0]                      wb_sel [2:0];
 logic [31:0]                     wb_dat [2:0];
 logic [31:0]                     wb_adr [2:0];
 logic [2:0]                      wb_cti [2:0];
+logic [1:0]                      fill_bte;
 logic [31:0]                     tlb_phy_addr;
 logic [7:0]                      tlb_fsr;
 logic [31:0]                     tlb_far;
@@ -276,6 +278,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .o_wb_sel_nxt           (wb_sel[0]),
         .o_wb_wen_nxt           (wb_wen[0]),
         .o_wb_cti_nxt           (wb_cti[0]),
+        .o_wb_bte_nxt           (fill_bte),
         .i_wb_dat               (i_wb_dat),
         .i_wb_ack               (wb_ack[0]),
         .i_wb_err               (wb_err[0])
@@ -393,6 +396,7 @@ begin
                 o_wb_cyc <= 1'd0;
                 o_wb_adr <= 'x;
                 o_wb_cti <= CTI_EOB;
+                o_wb_bte <= 2'b00;
                 o_wb_sel <= 'x;
                 o_wb_dat <= 'x;
                 o_wb_wen <= 'x;
@@ -404,6 +408,7 @@ begin
                 o_wb_cyc <= o_wb_cyc_nxt;
                 o_wb_adr <= o_wb_adr_nxt;
                 o_wb_cti <= o_wb_cti_nxt;
+                o_wb_bte <= o_wb_bte_nxt;
                 o_wb_sel <= o_wb_sel_nxt;
                 o_wb_dat <= o_wb_dat_nxt;
                 o_wb_wen <= o_wb_wen_nxt;
@@ -459,6 +464,7 @@ begin
                 o_wb_adr_nxt = wb_adr[0];
                 o_wb_dat_nxt = wb_dat[0];
                 o_wb_cti_nxt = wb_cti[0];
+                o_wb_bte_nxt = fill_bte;
                 o_wb_sel_nxt = wb_sel[0];
                 o_wb_wen_nxt = wb_wen[0];
         end
@@ -468,6 +474,7 @@ begin
                 o_wb_adr_nxt = wb_adr[1];
                 o_wb_dat_nxt = wb_dat[1];
                 o_wb_cti_nxt = wb_cti[1];
+                o_wb_bte_nxt = 2'b00;
                 o_wb_sel_nxt = wb_sel[1];
                 o_wb_wen_nxt = wb_wen[1];
         end
@@ -477,6 +484,7 @@ begin
                 o_wb_adr_nxt = wb_adr[2];
                 o_wb_dat_nxt = wb_dat[2];
                 o_wb_cti_nxt = wb_cti[2];
+                o_wb_bte_nxt = 2'b00;
                 o_wb_sel_nxt = wb_sel[2];
                 o_wb_wen_nxt = wb_wen[2];
         end
@@ -486,6 +494,7 @@ begin
                 o_wb_adr_nxt = 'x;
                 o_wb_dat_nxt = 'x;
                 o_wb_cti_nxt = 'x;
+                o_wb_bte_nxt = 'x;
                 o_wb_sel_nxt = 'x;
                 o_wb_wen_nxt = 'x;
         end

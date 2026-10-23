@@ -177,8 +177,6 @@ parameter logic        HIVECS       = 1'd0           // Reset value of control b
         input   logic            i_wb_err
 );
 
-assign o_wb_bte = 2'b00; // Linear Burst.
-
 `include "zap_defines.svh"
 `include "zap_localparams.svh"
 `include "zap_functions.svh"
@@ -246,6 +244,7 @@ logic [3:0]      d_wb_sel;
 logic [31:0]     d_wb_dat;
 logic [31:0]     d_wb_adr;
 logic [2:0]      d_wb_cti;
+logic [1:0]      d_wb_bte;
 logic            d_wb_ack;
 logic            d_wb_err;
 logic [63:0]     dc_rreg_idx, dc_wreg_idx;
@@ -468,6 +467,7 @@ begin : l_tieoffs_only_core
         assign d_wb_dat        = '0;
         assign d_wb_adr        = '0;
         assign d_wb_cti        = CTI_EOB;
+        assign d_wb_bte        = 2'b00;
         assign wb_dat          = '0;
 
         logic unused;
@@ -513,6 +513,7 @@ begin : l_tieoffs_only_core
          | (    |d_wb_dat          )
          | (    |d_wb_adr          )
          | (    |d_wb_cti          )
+         | (    |d_wb_bte          )
          | (    |wb_dat            )
          | (    |cpu_mmu_en        )
          | (    |cpu_cpsr          )
@@ -565,6 +566,7 @@ begin : l_merger_for_core_with_cache_mmu
         .i_d_wb_dat(d_wb_dat ),
         .i_d_wb_adr(d_wb_adr ),
         .i_d_wb_cti(d_wb_cti ),
+        .i_d_wb_bte(d_wb_bte ),
         .o_d_wb_ack(d_wb_ack ),
         .o_d_wb_err(d_wb_err ),
 
@@ -575,6 +577,7 @@ begin : l_merger_for_core_with_cache_mmu
         .o_wb_dat  (wb_idat  ),
         .o_wb_adr  (wb_adr   ),
         .o_wb_cti  (wb_cti   ),
+        .o_wb_bte  (o_wb_bte ),
         .i_wb_ack  (wb_ack   ),
         .i_wb_err  (wb_err   )
 
@@ -607,6 +610,7 @@ begin : l_merger_for_core_without_cache_mmu
         .i_d_wb_dat(cpu_dc_dat),
         .i_d_wb_adr(cpu_daddr),
         .i_d_wb_cti(3'b111),
+        .i_d_wb_bte(2'b00),
         .o_d_wb_ack(data_ack),
         .o_d_wb_err(data_err),
 
@@ -617,6 +621,7 @@ begin : l_merger_for_core_without_cache_mmu
         .o_wb_dat  (o_wb_dat ),
         .o_wb_adr  (o_wb_adr ),
         .o_wb_cti  (o_wb_cti ),
+        .o_wb_bte  (o_wb_bte ),
         .i_wb_ack  (i_wb_ack ),
         .i_wb_err  (i_wb_err )
 
@@ -698,6 +703,7 @@ u_data_cache (
 .o_wb_dat               (),
 .o_wb_adr               (),
 .o_wb_cti               (),
+.o_wb_bte               (),
 /* verilator lint_on PINCONNECTEMPTY */
 
 .i_wb_dat               (wb_dat),
@@ -710,6 +716,7 @@ u_data_cache (
 .o_wb_sel_nxt           (d_wb_sel),
 .o_wb_dat_nxt           (d_wb_dat),
 .o_wb_adr_nxt           (d_wb_adr),
+.o_wb_bte_nxt           (d_wb_bte),
 .o_wb_cti_nxt           (d_wb_cti)
 );
 

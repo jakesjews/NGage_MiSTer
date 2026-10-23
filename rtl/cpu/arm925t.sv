@@ -18,12 +18,14 @@
 //   * bus_addr is a byte address with bits 1:0 zero; bus_be selects the bytes
 //     (bus_be[0] = bits 7:0). Reads always return the whole word.
 //   * bus_burst = 1: this beat is part of a cache-line burst and another beat
-//     follows at bus_addr + 4. Line fills and write-backs are CACHE_LINE / 4
-//     beats from the line's first word, with bus_burst high on all but the
-//     last. Everything else (uncached data, MMU table walks, cache-off
-//     fetches) is a single beat with bus_burst = 0.
-//   * bus_err ends the request with an external abort: a data abort for a
-//     data access or table walk, a prefetch abort for a fetch.
+//     follows in bus_bte order (00: linear, 01: wrap four words). D-cache
+//     16-byte fills start at the requested word; other fills and write-backs
+//     start at word zero. bus_burst is high on all but the last beat.
+//     Everything else (uncached data, MMU table walks, cache-off fetches)
+//     is a single beat with bus_burst = 0.
+//   * bus_err completes the beat. Uncached data/table walks can data-abort
+//     and fetches can prefetch-abort. Cacheable D-cache fills retain ZAP's
+//     existing behavior: consume the returned data without a data abort.
 //   * The bus outputs come straight from flip-flops in ZAP's bus merger.
 // Interrupts are level-sensitive and active high (the inverse of the
 // ARM925T's nIRQ/nFIQ); they pass a two-flop synchroniser inside ZAP.
@@ -52,6 +54,7 @@ module arm925t #(
 	output logic [3:0]  bus_be,
 	output logic [31:0] bus_wdata,
 	output logic        bus_burst,
+	output logic [1:0]  bus_bte,
 	input  logic [31:0] bus_rdata,
 	input  logic        bus_ack,
 	input  logic        bus_err,
@@ -86,7 +89,6 @@ module arm925t #(
 
 	logic       wb_cyc, wb_stb;
 	logic [2:0] wb_cti;
-	logic [1:0] wb_bte;
 
 	zap_top #(
 		.V4T             (1'b1),
@@ -134,7 +136,7 @@ module arm925t #(
 		.o_wb_dat (bus_wdata),
 		.o_wb_sel (bus_be),
 		.o_wb_cti (wb_cti),
-		.o_wb_bte (wb_bte),
+		.o_wb_bte (bus_bte),
 		.i_wb_ack (bus_ack),
 		.i_wb_dat (bus_rdata),
 		.i_wb_err (bus_err)
@@ -142,8 +144,5 @@ module arm925t #(
 
 	assign bus_req   = wb_cyc & wb_stb;
 	assign bus_burst = wb_cti == 3'b010;
-
-	logic unused;
-	assign unused = |wb_bte;
 
 endmodule

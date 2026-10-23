@@ -133,6 +133,7 @@ output  logic     [31:0]  o_wb_dat_ff, o_wb_dat_nxt,
 output  logic     [3:0]   o_wb_sel_ff, o_wb_sel_nxt,
 output  logic             o_wb_wen_ff, o_wb_wen_nxt,
 output  logic     [2:0]   o_wb_cti_ff, o_wb_cti_nxt,
+output  logic     [1:0]   o_wb_bte_nxt, // ARM925T: wrap-four line fills
 input   logic             i_wb_ack,
 input   logic    [31:0]   i_wb_dat,
 input   logic             i_wb_err
@@ -158,7 +159,7 @@ localparam [2:0] CLEAN                = 3'd6; // Cache clean parent state
 localparam [2:0] UNLOCK_REG           = 3'd7; // Unlock register
 localparam [3:0] LINEOP               = 4'd8; // ARM925T: single-line operation
 localparam [3:0] UNC_DONE             = 4'd9; // ARM925T: uncacheable access completes
-localparam [3:0] UNLOCK_WR            = 4'd10; // ARM925T: background load written
+localparam [3:0] UNLOCK_WR            = 4'd10; // ARM925T: load fill completion
 localparam [3:0] RELOOKUP0            = 4'd11;
 localparam [3:0] RELOOKUP1            = 4'd12;
 localparam [3:0] RELOOKUP2            = 4'd13;
@@ -202,6 +203,9 @@ logic                                     beat_cur_ok, beat_inc_ok;
 logic [2:0]                               cti_cur, cti_inc;
 logic [31:0]                              wb_adr_cur, wb_adr_inc;       // the write-back's beats
 logic [31:0]                              fetch_adr_cur, fetch_adr_inc; // the fill's beats
+// ARM925T: count beats independently of their word positions. Only the
+// 16-byte ARM925T line uses wrap-four; other geometries retain linear fills.
+logic [$clog2(CACHE_LINE/4)-1:0]           fetch_word_cur, fetch_word_inc;
 
 assign take          = o_wb_stb_ff && (i_wb_ack | i_wb_err);
 assign adr_ctr_inc   = adr_ctr_ff + {{$clog2(CACHE_LINE/4){1'd0}}, 1'd1};
@@ -211,8 +215,13 @@ assign cti_cur       = ({{ADR_PAD{1'd0}}, adr_ctr_ff}  != ((CACHE_LINE/4) - 1)) 
 assign cti_inc       = ({{ADR_PAD{1'd0}}, adr_ctr_inc} != ((CACHE_LINE/4) - 1)) ? CTI_BURST : CTI_EOB;
 assign wb_adr_cur    = {cache_tag[`ZAP_CACHE_TAG__PA], {$clog2(CACHE_LINE){1'd0}}} + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_ff,  2'd0});
 assign wb_adr_inc    = {cache_tag[`ZAP_CACHE_TAG__PA], {$clog2(CACHE_LINE){1'd0}}} + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_inc, 2'd0});
-assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE){1'd0}}}  + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_ff,  2'd0});
-assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE){1'd0}}}  + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_inc, 2'd0});
+assign fetch_word_cur = adr_ctr_ff[$clog2(CACHE_LINE/4)-1:0] +
+                        ((CACHE_LINE == 16) ? address[$clog2(CACHE_LINE)-1:2] : '0);
+assign fetch_word_inc = adr_ctr_inc[$clog2(CACHE_LINE/4)-1:0] +
+                        ((CACHE_LINE == 16) ? address[$clog2(CACHE_LINE)-1:2] : '0);
+assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_cur, 2'b00};
+assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_inc, 2'b00};
+assign o_wb_bte_nxt = (state_ff[FETCH_SINGLE] && CACHE_LINE == 16) ? 2'b01 : 2'b00;
 logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] way;       // ARM925T: the line's way
 logic    [63:0]                           reg_idx;
 logic    [63:0]                           lock_nxt, lock_ff;
@@ -220,6 +229,8 @@ logic                                     wt_hit, wt_dirty; // ARM925T: write-th
 logic    [5:0]                            ldfmt;            // ARM925T: format of a background load.
 logic    [31:0]                           unc_dat_ff;       // ARM925T: registered bus response
 logic    [31:0]                           reg_dat_ff;       // ARM925T: background load value
+logic                                     reg_wr_ff;        // ARM925T: one-cycle background write
+logic                                     critical_take;
 logic                                     unc_err_ff;       // ARM925T
 
 logic                                     unused;
@@ -300,14 +311,26 @@ end
 // passed on in UNC_DONE, a cycle later, so that the bus acknowledge and
 // error are not in the same cycle as the pipeline's stall (timing).
 //
-// ARM925T: the value of a background load, written to its register in
-// UNLOCK_WR, a cycle after the line arrives (timing).
+// ARM925T: select the requested beat before registering the load transform.
+// The beat already is the word that adapt_cache_data selected from the
+// assembled line. No cache-line mux or live bus path reaches the register file.
+// Preserve the existing cacheable-error contract: ERR completes a beat and
+// its returned data is consumed, without a data abort. In particular, a later
+// ERR neither retracts nor repeats an early write. Uncached errors still use
+// UNC_DONE. Precise cacheable aborts require a separate architectural change.
+assign critical_take = state_ff[FETCH_SINGLE] && !wr && take &&
+                       fetch_word_cur == address[$clog2(CACHE_LINE)-1:2];
+
 always_ff @ ( posedge i_clk )
 begin
-        if ( state_ff[UNLOCK_REG] )
+        if ( i_reset )
+                reg_wr_ff <= 1'b0;
+        else
+                reg_wr_ff <= critical_take;
+
+        if ( critical_take )
         begin
-                reg_dat_ff <= ld_transform(adapt_cache_data(address[$clog2(CACHE_LINE)-1:2],
-                                                            cache_line), ldfmt);
+                reg_dat_ff <= ld_transform(i_wb_dat, ldfmt);
         end
 end
 
@@ -446,6 +469,16 @@ begin:next_state_logic
         o_err2                  = 0;
         o_address               = address;
         o_cache_way             = way;
+
+        // ARM925T: write once, on the edge after the requested beat arrived,
+        // while the rest of the fill continues. Keep o_lock asserted through
+        // this edge: late operand pickup may use the register only afterwards.
+        if ( reg_wr_ff )
+        begin
+                o_reg_dat = reg_dat_ff;
+                o_reg_idx = reg_idx;
+                lock_nxt &= ~reg_idx;
+        end
 
         for(int i=0;i<CACHE_LINE/4;i++)
         begin
@@ -628,7 +661,7 @@ begin:next_state_logic
                                         // Lock register on load. ARM925T: upstream also
                                         // raised o_err2 if that register was locked, but
                                         // no register is locked in IDLE (a lock lasts
-                                        // until UNLOCK_REG), and the term was in the
+                                        // until its background write), and the term was in the
                                         // critical tag-compare to pipeline-stall path.
                                         if ( i_rd )
                                         begin
@@ -807,9 +840,9 @@ begin:next_state_logic
                 adr_ctr_nxt = take ? adr_ctr_inc : adr_ctr_ff;
 
                 // Write to buffer
-                buf_nxt[adr_ctr_ff[$clog2(CACHE_LINE/4)-1:0]] = (i_wb_ack|i_wb_err) ?
+                buf_nxt[fetch_word_cur] = take ?
                                                                 i_wb_dat :
-                                                                buf_ff[adr_ctr_ff[$clog2(CACHE_LINE/4)-1:0]];
+                                                                buf_ff[fetch_word_cur];
 
                 // Manipulate buffer as needed
                 if ( wr )
@@ -862,10 +895,8 @@ begin:next_state_logic
 
                 if ( !wr )
                 begin
-                        // ARM925T: the register is written in UNLOCK_WR, from
-                        // reg_dat_ff (the load's byte/halfword selection, sign
-                        // extension or rotation; upstream wrote the whole word
-                        // for every load, here, in the same cycle).
+                        // ARM925T: the register was written after its beat
+                        // arrived (or is being written now for the last beat).
                 end
                 else // Update cache line.
                 begin
@@ -893,17 +924,8 @@ begin:next_state_logic
                 state_nxt[IDLE]       = wr && !(i_rd || i_wr);
         end
 
-        state_ff[UNLOCK_WR]: // ARM925T: write the loaded register, unlock it.
+        state_ff[UNLOCK_WR]: // ARM925T: finish the load fill, without a second write.
         begin
-                o_reg_dat = reg_dat_ff;
-                o_reg_idx = reg_idx;
-
-                //
-                // Unlock the register on load. Clear the bit. Invert reg
-                // idx and AND. Removes bits that were marked as 1 in reg_idx.
-                //
-                lock_nxt &= ~(reg_idx);
-
                 state_nxt[UNLOCK_WR] = 1'd0;
                 state_nxt[RELOOKUP0] = i_rd || i_wr;
                 state_nxt[IDLE]      = !(i_rd || i_wr);
@@ -1029,22 +1051,6 @@ end : next_state_logic
 // ----------------------------------------------------------------------------
 // Tasks and functions.
 // ----------------------------------------------------------------------------
-
-function automatic [31:0] adapt_cache_data (
-        input [$clog2(CACHE_LINE) - 3:0] shift,
-        input [CACHE_LINE*8-1:0]         data
-);
-        localparam [31:0] W = $clog2(CACHE_LINE) + 3;
-
-        /* verilator lint_off UNUSEDSIGNAL */
-        logic [LINE_PAD-1:0] dummy;
-        /* verilator lint_on UNUSEDSIGNAL */
-
-        logic [W-1:0] shamt;
-        shamt                     = {shift, 5'd0};
-        {dummy, adapt_cache_data} =  data >> shamt;
-
-endfunction : adapt_cache_data
 
 function automatic [CACHE_LINE-1:0] ben_comp (
         input [$clog2(CACHE_LINE) - 3:0] shift,
