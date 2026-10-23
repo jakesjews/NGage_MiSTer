@@ -113,6 +113,8 @@ module periph_tb #(
 		.flash_rst_n(1'b1),
 		.wb_cyc(wb_cyc), .wb_stb(wb_stb), .wb_we(wb_we), .wb_adr(wb_adr), .wb_dat_i(wb_dat_i),
 		.wb_sel(wb_sel), .wb_cti(wb_cti), .wb_bte(wb_bte), .wb_ack(wb_ack), .wb_err(wb_err), .wb_dat_o(wb_dat_o),
+		.st_on(1'b0), .st_on_nxt(1'b0), .st_cyc(1'b0), .st_stb(1'b0), .st_we(1'b0), .st_adr(32'd0),
+		.st_dat_i(32'd0), .st_sel(4'd0), .st_cti(3'd0), .st_bte(2'd0),
 		.dma_cyc(dma_cyc), .dma_stb(dma_stb), .dma_we(dma_we), .dma_adr(dma_adr), .dma_dat_i(dma_dat_w),
 		.dma_sel(dma_sel), .dma_ack(dma_ack), .dma_err(dma_err), .dma_dat_o(dma_dat_r),
 		.p_sel(p_sel), .p_we(p_we), .p_addr(p_addr), .p_wdata(p_wdata), .p_be(p_be), .p_rdata(p_rdata), .p_wait(p_wait),

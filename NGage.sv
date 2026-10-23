@@ -298,7 +298,17 @@ wire [31:0] wb_adr /* verilator public_flat_rd */, wb_dat_w /* verilator public_
 wire [31:0] wb_dat_r /* verilator public_flat_rd */;
 wire  [3:0] wb_sel /* verilator public_flat_rd */;
 wire  [2:0] wb_cti;
-wire  [1:0] wb_bte;
+// the CPU's master (arm925t below)
+wire        cpu_req, cpu_we, cpu_burst;
+wire  [1:0] cpu_bte;
+wire [31:0] cpu_addr, cpu_wdata;
+wire  [3:0] cpu_be;
+// the self-test's master (wb_selftest below)
+wire        st_cyc, st_stb, st_we;
+wire [31:0] st_adr, st_dat;
+wire  [3:0] st_sel;
+wire  [2:0] st_cti;
+wire  [1:0] st_bte;
 
 // the peripheral register bus
 wire        p_sel, p_we, p_wait;
@@ -323,17 +333,30 @@ ngage_mem ngage_mem
 	.sdram_ready(sdram_ready),
 	.flash_rst_n(1'b1),
 
-	.wb_cyc(wb_cyc),
-	.wb_stb(wb_stb),
-	.wb_we(wb_we),
-	.wb_adr(wb_adr),
-	.wb_dat_i(wb_dat_w),
-	.wb_sel(wb_sel),
-	.wb_cti(wb_cti),
-	.wb_bte(wb_bte),
+	// the CPU's master and the self-test's, kept apart up to wb_arb2's
+	// one-level select (the wb_* port above is that select, for watchers)
+	.wb_cyc(cpu_req),
+	.wb_stb(cpu_req),
+	.wb_we(cpu_we),
+	.wb_adr(cpu_addr),
+	.wb_dat_i(cpu_wdata),
+	.wb_sel(cpu_be),
+	.wb_cti(cpu_burst ? 3'b010 : 3'b111),
+	.wb_bte(cpu_bte),
 	.wb_ack(wb_ack),
 	.wb_err(wb_err),
 	.wb_dat_o(wb_dat_r),
+
+	.st_on(test_sel),
+	.st_on_nxt(test_on),         // test_on_q's D input
+	.st_cyc(st_cyc),
+	.st_stb(st_stb),
+	.st_we(st_we),
+	.st_adr(st_adr),
+	.st_dat_i(st_dat),
+	.st_sel(st_sel),
+	.st_cti(st_cti),
+	.st_bte(st_bte),
 
 	.dma_cyc(dma_cyc),
 	.dma_stb(dma_stb),
@@ -598,10 +621,6 @@ end
 reg         cpu_reset /* verilator public_flat_rd */ = 1'b1;
 always @(posedge clk_sys) cpu_reset <= mem_reset | test_on | ~images_in | rtc_wait;
 
-wire        cpu_req, cpu_we, cpu_burst;
-wire  [1:0] cpu_bte;
-wire [31:0] cpu_addr, cpu_wdata;
-wire  [3:0] cpu_be;
 
 wire [31:0] cpu_dbg_pc;
 
@@ -716,16 +735,11 @@ assign tr_dumping = 1'b0;
 assign tr_trig_pc = 32'd0;
 wire unused_trace = &{1'b0, tr_wb_valid, tr_wb_dvalid, tr_wb_uop_last, tr_wb_dabt, tr_wb_pabt, tr_wb_und,
                       tr_wb_swi, tr_wb_irq, tr_wb_fiq, tr_wb_pc, tr_wb_cpsr, tr_wb_cpsr_nxt, tr_d_done, tr_d_we,
-                      tr_d_va, tr_d_sel, tr_d_wdata, tr_d_rdata, dbg_trig};
+                      tr_d_va, tr_d_sel, tr_d_wdata, tr_d_rdata, dbg_trig, wb_cti};
 end endgenerate
 
-// the Wishbone port: the CPU, or the self-test while it runs (test_sel)
-wire        st_cyc, st_stb, st_we;
-wire [31:0] st_adr, st_dat;
-wire  [3:0] st_sel;
-wire  [2:0] st_cti;
-wire  [1:0] st_bte;
-
+// the Wishbone port: the CPU, or the self-test while it runs (test_sel), as
+// ngage_mem's arbiter selects them (for the debug taps and the benches)
 assign wb_cyc   = test_sel ? st_cyc : cpu_req;
 assign wb_stb   = test_sel ? st_stb : cpu_req;
 assign wb_we    = test_sel ? st_we  : cpu_we;
@@ -733,7 +747,6 @@ assign wb_adr   = test_sel ? st_adr : cpu_addr;
 assign wb_dat_w = test_sel ? st_dat : cpu_wdata;
 assign wb_sel   = test_sel ? st_sel : cpu_be;
 assign wb_cti   = test_sel ? st_cti : (cpu_burst ? 3'b010 : 3'b111);
-assign wb_bte   = test_sel ? st_bte : cpu_bte;
 
 wire [15:0] test_errors;
 wire        test_pass_done;

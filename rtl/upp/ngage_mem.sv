@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
 // The N-Gage QD's memory system behind the CPU's Wishbone master and the DMA
-// controller's (rtl/upp/upp_dma.sv), which wb_arb2 takes in turns:
+// controller's (rtl/upp/upp_dma.sv), which wb_arb2 takes in turns (the
+// memory self-test's master stands in for the CPU's while it runs):
 //   upp_bus      the UPP_WD2 map (flash, EMIF registers, SDRAM, on-chip RAM,
 //                the peripheral register bus)
 //   nor_flash    CS0 (16 MB, K8S2815ETA) and CS1 (8 MB, K8S6415ETA)
@@ -41,6 +42,20 @@ module ngage_mem #(
 	output logic         wb_ack,
 	output logic         wb_err,
 	output logic [31:0]  wb_dat_o,
+
+	// the memory self-test (rtl/upp/wb_selftest.sv): on the CPU's port, in
+	// its place, while st_on (a register outside) is high; st_on_nxt is
+	// st_on's D input (wb_arb2). wb_ack, wb_err and wb_dat_o answer it then.
+	input  logic         st_on,
+	input  logic         st_on_nxt,
+	input  logic         st_cyc,
+	input  logic         st_stb,
+	input  logic         st_we,
+	input  logic [31:0]  st_adr,
+	input  logic [31:0]  st_dat_i,
+	input  logic [3:0]   st_sel,
+	input  logic [2:0]   st_cti,
+	input  logic [1:0]   st_bte,
 
 	// the DMA controller: Wishbone B3 classic single beats
 	input  logic         dma_cyc,
@@ -150,6 +165,8 @@ module ngage_mem #(
 		.m0_sel(wb_sel), .m0_cti(wb_cti), .m0_bte(wb_bte), .m0_ack(wb_ack), .m0_err(wb_err),
 		.m1_cyc(dma_cyc), .m1_stb(dma_stb), .m1_we(dma_we), .m1_adr(dma_adr), .m1_dat(dma_dat_i),
 		.m1_sel(dma_sel), .m1_ack(dma_ack), .m1_err(dma_err),
+		.m2_on(st_on), .m2_on_nxt(st_on_nxt), .m2_cyc(st_cyc), .m2_stb(st_stb), .m2_we(st_we),
+		.m2_adr(st_adr), .m2_dat(st_dat_i), .m2_sel(st_sel), .m2_cti(st_cti), .m2_bte(st_bte),
 		.s_cyc(b_cyc), .s_stb(b_stb), .s_we(b_we), .s_adr(b_adr), .s_dat(b_dat_w), .s_sel(b_sel),
 		.s_cti(b_cti), .s_bte(b_bte), .s_ack(b_ack), .s_err(b_err), .s_idle(b_idle)
 	);

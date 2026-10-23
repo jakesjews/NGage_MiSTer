@@ -102,6 +102,9 @@ struct Bench {
 		t->wb_cyc = 0; t->wb_stb = 0; t->wb_we = 0; t->wb_adr = 0; t->wb_dat_i = 0; t->wb_sel = 0; t->wb_cti = 0; t->wb_bte = 0;
 		t->p_rdata = 0; t->p_wait = 0;
 		t->dma_cyc = 0; t->dma_stb = 0; t->dma_we = 0; t->dma_adr = 0; t->dma_dat_i = 0; t->dma_sel = 0;
+		// the memory self-test port (NGage.sv drives it): off
+		t->st_on = 0; t->st_on_nxt = 0; t->st_cyc = 0; t->st_stb = 0; t->st_we = 0; t->st_adr = 0;
+		t->st_dat_i = 0; t->st_sel = 0; t->st_cti = 0; t->st_bte = 0;
 		t->save_rd = 0; t->save_blk = 0;
 		t->ld_we = 0; t->ld_addr = 0; t->ld_din = 0; t->ld_be = 0;
 		t->ddram_busy = 0; t->ddram_dout = 0; t->ddram_dout_ready = 0; t->sdram_dq_i = 0;
