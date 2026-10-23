@@ -97,6 +97,7 @@ by measurement, not yet by ear).
 
 [docs/UPP_WD2.md](docs/UPP_WD2.md) describes the hardware as reconstructed,
 [docs/CPU.md](docs/CPU.md) the processor, [docs/NOS_STANDIN.md](docs/NOS_STANDIN.md)
+- [RetroTINK 4K direct video](docs/RETROTINK4K.md): a profile recipe that shows the picture the way the QD's screen did.
 the stand-in for the phone's cellular firmware, and
 [docs/PROGRESS-LOG.md](docs/PROGRESS-LOG.md) the development record.
 This project's own files are GPL-2.0-or-later ([LICENSE](LICENSE)); the
