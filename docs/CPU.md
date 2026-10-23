@@ -38,6 +38,14 @@ Parameters:
 - `ICACHE_SIZE` (16384), `DCACHE_SIZE` (8192), `CACHE_LINE` (16): cache
   geometry in bytes. `ICACHE_SIZE` 32768 is a 1,024-set I-cache (16 M10K
   more); the cache type register still reports 16 KB.
+  `NGAGE_DCACHE_16K` in `NGage.qsf` selects an experimental 16 KB two-way
+  D-cache (512 sets, VA[12:4]); the default remains 8 KB. CP15 still
+  reports 8 KB, so a D-cache by-index operation visits both physical set
+  colours for the named architectural set/way. By-VA operations stay
+  targeted. The live two-way compare/select and hit-under-miss protocol
+  are unchanged. This VIVT cache still relies on firmware alias/DMA
+  maintenance; see [the capacity analysis](consults/2026-10-23-codex-dcache-report.md)
+  for the recommendation, projected cost and validation limits.
 - `ICACHE_PREFETCH` (0): a one-line sequential I-cache prefetch. After a
   line fill, the next line (within the same 1 KB) is read into a line buffer
   while the bus is free; a later miss on that line is answered from it and

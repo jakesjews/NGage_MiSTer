@@ -290,7 +290,10 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
 );
 
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
-zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u_zap_cache_tag_ram     (
+// ARM925T: enlarged two-way D-caches retain the reported 8 KB geometry
+// for index maintenance. The tag manager visits all physical set colours.
+zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS),
+                   .INDEX_SIZE((WAYS == 2 && CACHE_SIZE > 8192) ? 32'd8192 : CACHE_SIZE)) u_zap_cache_tag_ram (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address_nxt          (lookup_address),
