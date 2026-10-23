@@ -3268,3 +3268,32 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   phone's frame rates on the board at 104 MHz with timing met; the
   cycle rows are a proxy; a cycle on a rare event is a fair price, on
   the common case not).
+- **Antigravity consulted** (the user: "see if antigravity has any ideas
+  too with argon 4 on high thinking"; `agy --print ... --model
+  gemini-4-argon-high --effort high --mode plan`, read-only, with both
+  path reports): `docs/consults/2026-10-23-antigravity-timing.md`. For
+  ZAP, five families with zero-cycle fixes and lines: o_cache_tag's
+  default-zero gating by the FSM state (assign it unconditionally),
+  zap_ram_simple's sel_st1 compare split from the write enable, the
+  dead forwarding branches of the shift-length operand (shifter_lock
+  already stalls those cases) and `(* keep *)` on the read indices,
+  data_stall as the operand registers' clock enable with the late
+  completion held across the stall and a 6-bit background-load index
+  instead of the 64:1 mux, the i_busy gating off o_wb_adr_nxt,
+  o_clear_btb registered. For the ARM9 core, five structural rules (one
+  forwarding network with three registered producers; branch targets and
+  the predicted-target comparisons computed in D and the redirect
+  registered at E/M1; fetch validity only in the queue push; one Thumb
+  decoder at the queue-to-D boundary; the LDM scan precomputed; no
+  combinational store-to-load merge in M1; the load-use hazard stalled in
+  D) with the lines that break them, costing a clock only on mispredicts
+  and cold refills. Its bet: close ZAP first (shallow artifacts, 1-2
+  rounds), and decide on the ARM9 from the stall split: our counters put
+  about 1.1 of the 2.7 excess clocks an instruction on the memory side
+  and 1.6 in the pipeline, which by its rule says the ARM9 is worth its
+  2-3 sessions, with the memory side still to be worked either way. Both
+  sets of fixes were queued into the running Codex threads.
+- Codex's service tier changed from ultrafast to fast (the user: the
+  $500 plan); the change caught the ARM9 session mid-trial (its edits
+  on disk, resumed as session 9 with the structural-pass instructions)
+  and the timing round 3 before it started (resumed).
