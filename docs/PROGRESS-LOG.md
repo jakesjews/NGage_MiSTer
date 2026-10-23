@@ -3789,3 +3789,28 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   split, by b22's counters: fills for loads against fills for stores
   and write-backs, which decides whether a write buffer (no-write-
   allocate) is the lever.
+- **b21's loads on the board** (the card path; scratch run-loads.sh:
+  boot, menu, launch the game, capture every second for two minutes;
+  Tony Hawk and Shadowkey): the loads are CPU-bound, not card-bound.
+  Tony Hawk's launch to its intro: about 7 s, the card at 70-420
+  blocks/s with the wire in a data phase 1.5-7 % of the time and the
+  wait for Linux 0-0.3 %; the CPU at 19-28 M instructions/s, CPI 4-5.
+  Shadowkey's launch to its first frames: about 32 s (117.7 to 149.8 s
+  after the load): a burst at 980-1,190 blocks/s (data phase 17-21 %,
+  Linux wait 0.5-1 %) for two seconds, then a 16-second plateau at
+  about 420 blocks/s (210 KB/s) with the data phase 12.8 % and the
+  Linux wait 5.9 % (so nearly half of the card's active time in that
+  phase still waits for a round trip: its access pattern is not the
+  sequential 4 KB streaming the prefetch hides), the CPU at 18.6 M
+  instructions/s, CPI 5.6, SDRAM wait 15 %, flash 7.2 %, idle 0: the
+  firmware's per-block driver work and the game's unpacking set the
+  pace, with the card idle 87 % of the time. The same loads on b19 (no
+  card change) running for the end-to-end comparison.
+- **b22 built** (the server, seed 1; the full tree: hit-under-miss, the
+  first-boot fix, the card path, the D-cache event counters): -1.370 ns,
+  37,077 ALMs (88 %), 477 M10K. The worst family is now the card
+  model's slot tags into an adder (mmc_card tag[13] -> Add114, -1.37,
+  the 8 KB buffer's slot arithmetic), then the decode stage's shift
+  length into the issue stage's load pending (-1.37) and the issue
+  stall_late_ff family (-1.30). The card model's arithmetic wants
+  registering (a small task for its author when the quota returns).
