@@ -4,10 +4,18 @@
 // The cache owns an untagged outstanding bus transaction. A redirect kills its
 // epoch immediately, but drains that transaction before reusing the lookup pipe.
 module arm9_fetch #(
-    parameter logic [31:0] RESET_VECTOR = 0
+    parameter logic [31:0] RESET_VECTOR = 0,
+    parameter logic PREDICTOR = 1'b1,
+    parameter logic [31:0] BP_ENTRIES = 512
 ) (
     input logic i_clk, i_reset,
     input logic i_redirect,
+    input logic i_predictor_clear, i_fb_valid, i_fb_wrong,
+    input logic [31:0] i_fb_pc, i_fb_target,
+    input logic [1:0] i_fb_state,
+    output logic o_predicted,
+    output logic [31:0] o_pred_target,
+    output logic [1:0] o_pred_state,
     input logic [31:0] i_target,
     input logic i_thumb,
     input logic [31:0] i_data, i_data_early,
@@ -31,6 +39,9 @@ module arm9_fetch #(
     } lookup_t;
     typedef struct packed {
         logic [1:0] epoch;
+        logic predicted;
+        logic [31:0] pred_target;
+        logic [1:0] pred_state;
         logic fault;
         logic pending;
         logic [34:0] decoded;
@@ -45,6 +56,27 @@ module arm9_fetch #(
     logic launch_thumb, target_thumb, killed;
     logic [1:0] epoch;
     logic push, pop, retry, response, bypass;
+    logic btb_taken, prediction;
+    logic [31:0] btb_target;
+    logic [1:0] btb_state;
+    // Both alternatives and the BTB decision are registers. Neither the
+    // RAM address nor the BTB lookup depends on the next-PC incrementer.
+    assign prediction = PREDICTOR && btb_taken && f2.valid &&
+                        f2.epoch == epoch && !killed;
+    if (PREDICTOR) begin : g_predictor
+        zap_btb #(.BP_ENTRIES(BP_ENTRIES)) u_btb (
+            .i_clk(i_clk), .i_reset(i_reset), .i_stall(o_stall),
+            .i_clear(i_predictor_clear), .i_fb_ok(i_fb_valid && !i_fb_wrong),
+            .i_fb_nok(i_fb_valid && i_fb_wrong), .i_fb_branch_src_address(i_fb_pc),
+            .i_fb_branch_dest_address(i_fb_target), .i_fb_current_branch_state(i_fb_state),
+            .i_rd_addr(o_address_nxt), .i_rd_addr_del(f1.pc),
+            .o_clear_from_btb(btb_taken), .o_pc_from_btb(btb_target), .o_branch_state(btb_state)
+        );
+    end else begin : g_no_predictor
+        assign btb_taken = 0;
+        assign btb_target = 0;
+        assign btb_state = 0;
+    end
     entry_t early_packet, selected_packet;
     logic [31:0] early_incoming;
     logic [34:0] early_decoded;
@@ -81,10 +113,15 @@ module arm9_fetch #(
             selected_packet.thumb_und = thumb_und;
             selected_packet.thumb_align = thumb_align;
         end
+        selected_packet.predicted = prediction;
+        selected_packet.pred_target = btb_target;
+        // An absent/non-taken entry starts weakly not-taken; the BTB has no
+        // tag-valid output for its raw state. A taken entry has a valid state.
+        selected_packet.pred_state = prediction ? btb_state : 2'b01;
         selected_packet.fault = i_error || (i_fill_pending && i_fill_fault);
         selected_packet.pending = i_fill_pending && !i_fill_done;
     end
-    assign o_address_nxt = launch_pc;
+    assign o_address_nxt = prediction ? btb_target : launch_pc;
     assign o_address_check = f1.pc;
     assign o_address = f2.pc;
     assign o_request = f2.valid;
@@ -104,6 +141,9 @@ module arm9_fetch #(
     assign o_decoded = bypass ? selected_packet.decoded : queue[head].decoded;
     assign o_thumb_und = bypass ? selected_packet.thumb_und : queue[head].thumb_und;
     assign o_thumb_align = bypass ? selected_packet.thumb_align : queue[head].thumb_align;
+    assign o_predicted = bypass ? selected_packet.predicted : queue[head].predicted;
+    assign o_pred_target = bypass ? selected_packet.pred_target : queue[head].pred_target;
+    assign o_pred_state = bypass ? selected_packet.pred_state : queue[head].pred_state;
     assign pop = o_valid && i_ready && !bypass;
 
     always_ff @(posedge i_clk) begin
@@ -146,7 +186,7 @@ module arm9_fetch #(
             // Freezing just these registers for the clear edge mislabels a
             // later same-tag/different-set hit.
             if ((i_redirect || retry || killed) && !o_stall) begin
-                f1 <= {1'b0,epoch,launch_thumb,launch_pc};
+                f1 <= {1'b0,epoch,launch_thumb,o_address_nxt};
                 f2 <= {1'b0,f1.epoch,f1.thumb,f1.pc};
                 launch_pc <= i_redirect ? i_target : retry ? f2.pc : target;
                 launch_thumb <= i_redirect ? i_thumb : retry ? f2.thumb : target_thumb;
@@ -167,9 +207,10 @@ module arm9_fetch #(
                 if (killed) begin
                     killed <= 0;
                 end else begin
-                    f1 <= {1'b1,epoch,launch_thumb,launch_pc};
+                    f1 <= {1'b1,epoch,launch_thumb,o_address_nxt};
                     f2 <= f1;
-                    launch_pc <= launch_pc + (launch_thumb ? 32'd2 : 32'd4);
+                    if (prediction) f2.valid <= 0;
+                    launch_pc <= o_address_nxt + (launch_thumb ? 32'd2 : 32'd4);
                 end
             end
         end

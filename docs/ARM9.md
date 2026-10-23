@@ -6,8 +6,8 @@ TLB together from registered next-PC (fetch) or E's effective address (data).
 The next edge captures tag/way/word selection and load formatting alongside
 the unchanged registered permission check. Fetch hits enter D from a registered
 F2 packet, taking four clocks for an unpredicted branch; load-use remains two.
-Fixed block/multiply barriers, prediction and performance/timing/area gates
-remain open. The session-6 sections supersede the historical native schedule.
+Prediction is optional and defaults on for ARM9. Fixed block/multiply
+barriers and performance/timing/area gates remain open. The session-6 sections supersede the historical native schedule.
 Starting revision: `75cce2e`, branch `codex/arm9`.
 
 ## Contract and sources
@@ -33,8 +33,7 @@ Do not infer current cache latency from that prose.
 Logical stages are F, D, E, M, W, single issue, in-order retirement. D resolves
 banked register indices and decodes ARM or a Thumb translation into the same
 control record. E evaluates the condition, shift, ALU, flags, branch target and
-effective address. W is the sole architectural retirement point. Branches have
-no predictor or RAS. A successful E redirect kills younger fetch/decode records;
+effective address. W is the sole architectural retirement point. ARM9 has the optional registered BTB described below; no RAS is implemented. A successful E redirect kills younger fetch/decode records;
 an older W exception wins over it. Stores cannot escape ahead of an older fault.
 
 Each record carries valid, instruction PC, instruction width/T state, pre-state
@@ -696,7 +695,7 @@ No raw cache output bypasses the F2 instruction register. Redirects still kill
 epochs, and fill-pending instructions cannot issue. This removes the redundant
 hit enqueue edge: unpredicted B/BL costs four clocks including the branch.
 
-### Exact hot windows against the TRM
+### Exact hot windows against the TRM (prediction off)
 
 All numbers below include the end marker (except the explicitly named interlock
 row). The TRM column uses DDI0180A Table 7-2; `m` and `b` retain its definitions.
@@ -735,3 +734,37 @@ an ideal n-cycle transfer remain for n>1. The multiply barrier remains, with
 four extra exposed clocks in these windows. No predicted-branch window exists
 yet because the predictor is not implemented. Complete measurements and the
 stopping point are in the session-6 continuation report.
+
+## Session 6: optional registered BTB
+
+`arm925t.ARM9_PREDICTOR` defaults to 1 and applies only when `CORE="ARM9"`.
+The accuracy configuration can set it to 0 without changing instruction
+semantics. ZAP remains the default core and keeps its existing predictor.
+
+ARM9 fetch instantiates the unchanged `zap_btb`. Its RAM reads the registered
+launch PC (or the BTB's registered target); its second edge registers the tag
+match, direction decision and target. No lookup address comes from the
+next-PC incrementer. When F2 predicts taken, that registered target launches
+immediately, the sequential F1 packet is killed, and older queued instructions
+remain ordered. Prediction metadata travels with the instruction into E.
+
+E compares the predicted target with the resolved next PC, including a failed
+condition's sequential PC. Correct predictions do not flush. Wrong direction,
+wrong target and stale predictions on ordinary instructions redirect to the
+resolved address. A stale prediction on a serialized operation is corrected
+when E accepts it; any architectural PC write or exception still takes its
+normal later redirect. Only actual branches or stale predicted entries train
+the table. A non-taken/absent entry starts from weakly not-taken because the
+shared BTB does not export tag-valid for its raw state; a taken entry retains
+its valid two-bit state. CP15 and MSR completions clear prediction state across
+translation/context changes. No return-address stack is added in this step.
+
+Hot B/BL now take two clocks (window delta 3), versus four with prediction off
+(delta 5). The new `arm9_predict` windows measure both a correctly predicted
+taken branch and a trained-taken conditional branch that falls through. The
+latter takes four clocks with prediction, one without (deltas 5 and 2).
+`cycles.txt` and `predict-cycles.txt` allow a third column for the prediction-off
+expectation; the bench selects it from the actual elaborated core parameter.
+The other existing expectations are unchanged; there are 78 windows including
+the two new predictor cases. The new test also replaces a trained uncached
+branch with ADD without any CP15/BTB clear, exercising stale-entry repair in E.

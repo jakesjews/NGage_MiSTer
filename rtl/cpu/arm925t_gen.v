@@ -52,6 +52,7 @@ module arm925t (
 	dbg_d_rdata
 );
 	parameter CORE = "ZAP";
+	parameter [0:0] ARM9_PREDICTOR = 1'b1;
 	parameter [0:0] HIVECS = 1'b0;
 	parameter signed [31:0] ICACHE_SIZE = 16384;
 	parameter signed [31:0] ICACHE_WAYS = 2;
@@ -98,6 +99,7 @@ module arm925t (
 	wire wb_stb;
 	wire [2:0] wb_cti;
 	zap_top #(
+		.ARM9_PREDICTOR(ARM9_PREDICTOR),
 		.CORE(CORE),
 		.V4T(1'b1),
 		.TI925T(1'b1),
@@ -357,6 +359,7 @@ module arm9_core (
 	o_dbg_stall
 );
 	reg _sv2v_0;
+	parameter [0:0] ARM9_PREDICTOR = 1'b1;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
 	parameter [31:0] DATA_CACHE_SIZE = 1024;
 	parameter [31:0] CODE_CACHE_SIZE = 1024;
@@ -908,6 +911,20 @@ module arm9_core (
 	wire issue;
 	wire execute_fast;
 	wire early_redirect;
+	reg e_predicted;
+	wire f_predicted;
+	reg [31:0] e_pred_target;
+	wire [31:0] f_pred_target;
+	reg [1:0] e_pred_state;
+	wire [1:0] f_pred_state;
+	wire slow_start;
+	wire [31:0] ex_branch;
+	wire ex_pass;
+	wire [31:0] execute_flags;
+	wire [31:0] resolved_next = ((kind_e == 4'd3) && ex_pass ? ex_branch : pc + (execute_flags[5] ? 32'd2 : 32'd4));
+	wire prediction_wrong = (e_predicted ? e_pred_target != resolved_next : (kind_e == 4'd3) && ex_pass);
+	wire predictor_feedback = (execute_fast || slow_start) && ((kind_e == 4'd3) || e_predicted);
+	wire predictor_direction_wrong = e_predicted != ((kind_e == 4'd3) && ex_pass);
 	reg e_valid;
 	reg e_shifted;
 	wire execute_wait;
@@ -926,7 +943,6 @@ module arm9_core (
 	reg [175:0] slow;
 	reg [227:0] fast_m;
 	wire [31:0] data_pc8 = (state == 4'd0 ? fast_m[155-:32] : slow[143-:32]);
-	wire [31:0] execute_flags;
 	reg [227:0] fast_1;
 	reg [227:0] fast_w;
 	reg [227:0] fast_input;
@@ -961,9 +977,7 @@ module arm9_core (
 	reg immediate_carry_e;
 	wire [31:0] ex_result;
 	wire [31:0] ex_store;
-	wire [31:0] ex_branch;
 	wire [3:0] ex_flags;
-	wire ex_pass;
 	wire ex_write;
 	wire ex_write_flags;
 	reg [31:0] branch_offset_d;
@@ -1290,7 +1304,8 @@ module arm9_core (
 	assign pipe_hold = (((((i_data_fill_busy && fast_m[227]) && fast_m[123]) && fast_m[226]) || (!i_data_fill_busy && (data_reload != 0))) || (fast_w[227] && !fast_load_ready)) || (pipe_request && (!i_data_wb_ack || i_dcache_err2));
 	assign o_data_stall = ((((state == 4'd0) && pipe_hold) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_request;
 	assign execute_fast = (((((e_valid && fast_e) && !shift_hold) && !execute_wait) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect;
-	assign early_redirect = (execute_fast && (kind_e == 4'd3)) && ex_pass;
+	assign slow_start = ((((((((((e_valid && !fast_e) && !shift_hold) && !execute_wait) && !fast_1[227]) && !fast_m[227]) && (!fast_w[227] || retire_fast)) && !pipe_hold) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_fault) && !pipe_pc_redirect;
+	assign early_redirect = (execute_fast && prediction_wrong) || (slow_start && e_predicted);
 	wire f_abort;
 	wire f_redirect;
 	wire f_valid;
@@ -1397,11 +1412,24 @@ module arm9_core (
 	wire [31:0] f_address;
 	assign f_ready = issue;
 	assign f_redirect = (((pipe_fault && !block_restore_fault) || pipe_pc_redirect) || early_redirect) || (wb_cycle && (((((((((w_redirect || (w_load && (m_dst == PHY_PC))) || w_dabt) || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und) || (slow[3-:4] == 4'd7)) || (slow[3-:4] == 4'd2)));
-	arm9_fetch #(.RESET_VECTOR(RESET_VECTOR)) u_fetch(
+	arm9_fetch #(
+		.RESET_VECTOR(RESET_VECTOR),
+		.PREDICTOR(ARM9_PREDICTOR),
+		.BP_ENTRIES(BP_ENTRIES)
+	) u_fetch(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
 		.i_redirect(f_redirect),
-		.i_target((pipe_fault ? vector_base + 16 : (pipe_pc_redirect ? (cpsr_next[5] ? fast_w[31-:32] & 32'hfffffffe : fast_w[31-:32] & 32'hfffffffc) : (early_redirect ? ex_branch : (cpsr_next[5] ? next_pc & 32'hfffffffe : next_pc & 32'hfffffffc))))),
+		.i_predictor_clear(wb_cycle && ((slow[3-:4] == 4'd7) || (slow[3-:4] == 4'd2))),
+		.i_fb_valid(predictor_feedback),
+		.i_fb_wrong(predictor_direction_wrong),
+		.i_fb_pc(pc),
+		.i_fb_target(resolved_next),
+		.i_fb_state(e_pred_state),
+		.o_predicted(f_predicted),
+		.o_pred_target(f_pred_target),
+		.o_pred_state(f_pred_state),
+		.i_target((pipe_fault ? vector_base + 16 : (pipe_pc_redirect ? (cpsr_next[5] ? fast_w[31-:32] & 32'hfffffffe : fast_w[31-:32] & 32'hfffffffc) : (early_redirect ? resolved_next : (cpsr_next[5] ? next_pc & 32'hfffffffe : next_pc & 32'hfffffffc))))),
 		.i_thumb(cpsr_next[5]),
 		.i_data(i_instr_wb_dat),
 		.i_ack(i_instr_wb_ack),
@@ -1467,6 +1495,9 @@ module arm9_core (
 			used_e <= 0;
 			fast_e <= 0;
 			fetch_abort <= 0;
+			e_predicted <= 0;
+			e_pred_target <= 0;
+			e_pred_state <= 0;
 			irq_pending <= 0;
 			fiq_pending <= 0;
 			sequence_active <= 0;
@@ -1527,7 +1558,7 @@ module arm9_core (
 				if (execute_fast)
 					e_valid <= 0;
 			end
-			if (((((((((((e_valid && !fast_e) && !shift_hold) && !execute_wait) && !fast_1[227]) && !fast_m[227]) && (!fast_w[227] || retire_fast)) && !pipe_hold) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_fault) && !pipe_pc_redirect) begin
+			if (slow_start) begin
 				e_valid <= 0;
 				slow[175-:32] <= pc;
 				slow[143-:32] <= pc8;
@@ -1799,6 +1830,9 @@ module arm9_core (
 					raw_ins <= f_instruction;
 					ins <= d_ins;
 					fetch_abort <= f_abort;
+					e_predicted <= f_predicted;
+					e_pred_target <= f_pred_target;
+					e_pred_state <= f_pred_state;
 				end
 				fast_e <= (((issue && fast_d) && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6]);
 				tag_e <= read_tag;
@@ -2116,6 +2150,15 @@ module arm9_fetch (
 	i_clk,
 	i_reset,
 	i_redirect,
+	i_predictor_clear,
+	i_fb_valid,
+	i_fb_wrong,
+	i_fb_pc,
+	i_fb_target,
+	i_fb_state,
+	o_predicted,
+	o_pred_target,
+	o_pred_state,
 	i_target,
 	i_thumb,
 	i_data,
@@ -2143,9 +2186,20 @@ module arm9_fetch (
 );
 	reg _sv2v_0;
 	parameter [31:0] RESET_VECTOR = 0;
+	parameter [0:0] PREDICTOR = 1'b1;
+	parameter [31:0] BP_ENTRIES = 512;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_redirect;
+	input wire i_predictor_clear;
+	input wire i_fb_valid;
+	input wire i_fb_wrong;
+	input wire [31:0] i_fb_pc;
+	input wire [31:0] i_fb_target;
+	input wire [1:0] i_fb_state;
+	output wire o_predicted;
+	output wire [31:0] o_pred_target;
+	output wire [1:0] o_pred_state;
 	input wire [31:0] i_target;
 	input wire i_thumb;
 	input wire [31:0] i_data;
@@ -2172,7 +2226,7 @@ module arm9_fetch (
 	input wire i_ready;
 	reg [35:0] f1;
 	reg [35:0] f2;
-	reg [104:0] queue [0:7];
+	reg [139:0] queue [0:7];
 	reg [2:0] head;
 	reg [2:0] tail;
 	reg [3:0] count;
@@ -2187,8 +2241,38 @@ module arm9_fetch (
 	wire retry;
 	wire response;
 	wire bypass;
-	reg [104:0] early_packet;
-	reg [104:0] selected_packet;
+	wire btb_taken;
+	wire prediction;
+	wire [31:0] btb_target;
+	wire [1:0] btb_state;
+	assign prediction = (((PREDICTOR && btb_taken) && f2[35]) && (f2[34-:2] == epoch)) && !killed;
+	generate
+		if (PREDICTOR) begin : g_predictor
+			zap_btb #(.BP_ENTRIES(BP_ENTRIES)) u_btb(
+				.i_clk(i_clk),
+				.i_reset(i_reset),
+				.i_stall(o_stall),
+				.i_clear(i_predictor_clear),
+				.i_fb_ok(i_fb_valid && !i_fb_wrong),
+				.i_fb_nok(i_fb_valid && i_fb_wrong),
+				.i_fb_branch_src_address(i_fb_pc),
+				.i_fb_branch_dest_address(i_fb_target),
+				.i_fb_current_branch_state(i_fb_state),
+				.i_rd_addr(o_address_nxt),
+				.i_rd_addr_del(f1[31-:32]),
+				.o_clear_from_btb(btb_taken),
+				.o_pc_from_btb(btb_target),
+				.o_branch_state(btb_state)
+			);
+		end
+		else begin : g_no_predictor
+			assign btb_taken = 0;
+			assign btb_target = 0;
+			assign btb_state = 0;
+		end
+	endgenerate
+	reg [139:0] early_packet;
+	reg [139:0] selected_packet;
 	wire [31:0] early_incoming;
 	wire [34:0] early_decoded;
 	wire early_und;
@@ -2235,16 +2319,19 @@ module arm9_fetch (
 		selected_packet = early_packet;
 		if (!i_hit) begin
 			selected_packet[63-:32] = f2[31-:32];
-			selected_packet[104-:2] = f2[34-:2];
+			selected_packet[139-:2] = f2[34-:2];
 			selected_packet[31-:32] = incoming;
 			selected_packet[100-:35] = decoded;
 			selected_packet[65] = thumb_und;
 			selected_packet[64] = thumb_align;
 		end
+		selected_packet[137] = prediction;
+		selected_packet[136-:32] = btb_target;
+		selected_packet[104-:2] = (prediction ? btb_state : 2'b01);
 		selected_packet[102] = i_error || (i_fill_pending && i_fill_fault);
 		selected_packet[101] = i_fill_pending && !i_fill_done;
 	end
-	assign o_address_nxt = launch_pc;
+	assign o_address_nxt = (prediction ? btb_target : launch_pc);
 	assign o_address_check = f1[31-:32];
 	assign o_address = f2[31-:32];
 	assign o_request = f2[35];
@@ -2253,13 +2340,16 @@ module arm9_fetch (
 	assign response = (((((f2[35] && i_ack) && !i_retry) && !o_stall) && !killed) && !i_redirect) && (f2[34-:2] == epoch);
 	assign bypass = (((count == 0) && response) && i_hit) && !selected_packet[101];
 	assign push = response && !(bypass && i_ready);
-	assign o_valid = bypass || ((((count != 0) && !queue[head][101]) && (queue[head][104-:2] == epoch)) && !i_redirect);
+	assign o_valid = bypass || ((((count != 0) && !queue[head][101]) && (queue[head][139-:2] == epoch)) && !i_redirect);
 	assign o_pc = (bypass ? selected_packet[63-:32] : queue[head][63-:32]);
 	assign o_instruction = (bypass ? selected_packet[31-:32] : queue[head][31-:32]);
 	assign o_abort = (bypass ? selected_packet[102] : queue[head][102]);
 	assign o_decoded = (bypass ? selected_packet[100-:35] : queue[head][100-:35]);
 	assign o_thumb_und = (bypass ? selected_packet[65] : queue[head][65]);
 	assign o_thumb_align = (bypass ? selected_packet[64] : queue[head][64]);
+	assign o_predicted = (bypass ? selected_packet[137] : queue[head][137]);
+	assign o_pred_target = (bypass ? selected_packet[136-:32] : queue[head][136-:32]);
+	assign o_pred_state = (bypass ? selected_packet[104-:2] : queue[head][104-:2]);
 	assign pop = (o_valid && i_ready) && !bypass;
 	always @(posedge i_clk)
 		if (i_reset) begin
@@ -2283,7 +2373,7 @@ module arm9_fetch (
 		end
 		else begin
 			if (!o_stall) begin
-				early_packet[104-:2] <= f1[34-:2];
+				early_packet[139-:2] <= f1[34-:2];
 				early_packet[63-:32] <= f1[31-:32];
 				early_packet[31-:32] <= early_incoming;
 				early_packet[100-:35] <= early_decoded;
@@ -2311,7 +2401,7 @@ module arm9_fetch (
 					;
 			endcase
 			if (((i_redirect || retry) || killed) && !o_stall) begin
-				f1 <= {1'b0, epoch, launch_thumb, launch_pc};
+				f1 <= {1'b0, epoch, launch_thumb, o_address_nxt};
 				f2 <= {1'b0, f1[34-:2], f1[32], f1[31-:32]};
 				launch_pc <= (i_redirect ? i_target : (retry ? f2[31-:32] : target));
 				launch_thumb <= (i_redirect ? i_thumb : (retry ? f2[32] : target_thumb));
@@ -2334,9 +2424,11 @@ module arm9_fetch (
 				if (killed)
 					killed <= 0;
 				else begin
-					f1 <= {1'b1, epoch, launch_thumb, launch_pc};
+					f1 <= {1'b1, epoch, launch_thumb, o_address_nxt};
 					f2 <= f1;
-					launch_pc <= launch_pc + (launch_thumb ? 32'd2 : 32'd4);
+					if (prediction)
+						f2[35] <= 0;
+					launch_pc <= o_address_nxt + (launch_thumb ? 32'd2 : 32'd4);
 				end
 			end
 		end
@@ -22155,6 +22247,7 @@ module zap_top (
 	i_wb_err
 );
 	parameter CORE = "ZAP";
+	parameter [0:0] ARM9_PREDICTOR = 1'b1;
 	parameter [0:0] CP15_L4_DEFAULT = 1'd0;
 	parameter [0:0] ONLY_CORE = 1'd0;
 	parameter [31:0] RESET_VECTOR = 32'd0;
@@ -22893,6 +22986,7 @@ module zap_top (
 			localparam [0:0] sv2v_uu_u_arm9_core_ext_i_icache_err2_0 = 1'sb0;
 			localparam [0:0] sv2v_uu_u_arm9_core_ext_i_dcache_err2_0 = 1'sb0;
 			arm9_core #(
+				.ARM9_PREDICTOR(ARM9_PREDICTOR),
 				.CP15_L4_DEFAULT(CP15_L4_DEFAULT),
 				.BP_ENTRIES(BP_ENTRIES),
 				.FIFO_DEPTH(FIFO_DEPTH),
@@ -23008,7 +23102,7 @@ module zap_top (
 		end
 		else begin : g_invalid_core
 			initial begin
-				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:571:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
+				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:573:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
 				$finish(1);
 			end
 		end

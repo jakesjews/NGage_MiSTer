@@ -25,6 +25,7 @@
 
 module zap_top #(
         parameter CORE = "ZAP",
+        parameter logic ARM9_PREDICTOR = 1'b1,
 
 // -----------------------------------
 // CP15 L4 bit default.
@@ -429,6 +430,7 @@ zap_core #(
 );
 end else if (CORE == "ARM9") begin : g_arm9
 arm9_core #(
+.ARM9_PREDICTOR        (ARM9_PREDICTOR),
         .CP15_L4_DEFAULT(CP15_L4_DEFAULT),
         .BP_ENTRIES(BP_ENTRIES),
         .FIFO_DEPTH(FIFO_DEPTH),

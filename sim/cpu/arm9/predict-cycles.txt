@@ -1,0 +1,3 @@
+# name, predictor on, predictor off; both include the end marker.
+predicted_taken 3 5
+mispredicted_not_taken 5 2

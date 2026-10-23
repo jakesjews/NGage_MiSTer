@@ -242,6 +242,7 @@ int main(int argc, char **argv) {
         uint64_t start = 0;
         uint32_t seen = 0;
         bool active = false;
+        uint32_t without_predictor = 0;
     };
     std::vector<CycleWindow> windows;
     if (arm9_cycles) {
@@ -274,10 +275,11 @@ int main(int argc, char **argv) {
             if (!model) { perror(arm9_cycle_model); return 2; }
             std::vector<bool> named(windows.size(), false);
             char line[256], name[128], extra;
-            unsigned expected;
+            unsigned expected, without_predictor;
             while (fgets(line, sizeof(line), model)) {
                 if (line[0] == '#' || line[0] == '\n') continue;
-                if (sscanf(line, "%127s %u %c", name, &expected, &extra) != 2 || !expected) {
+                const int fields = sscanf(line, "%127s %u %u %c", name, &expected, &without_predictor, &extra);
+                if ((fields != 2 && fields != 3) || !expected || (fields == 3 && !without_predictor)) {
                     fprintf(stderr, "invalid cycle model row: %s", line); fclose(model); return 2;
                 }
                 size_t n = 0;
@@ -287,6 +289,7 @@ int main(int argc, char **argv) {
                 }
                 named[n] = true;
                 windows[n].expected = expected;
+                windows[n].without_predictor = fields == 3 ? without_predictor : expected;
             }
             fclose(model);
             for (size_t n = 0; n < windows.size(); ++n) if (!named[n]) {
@@ -398,11 +401,13 @@ int main(int argc, char **argv) {
                     ++w.seen;
                     if (w.seen + 2 > w.visits && lat_min == 0 && lat_max == 0 && t->p_blocking_load) {
                         const uint64_t elapsed = cycle - w.start;
+                        const uint32_t expected = !t->p_arm9_predictor && w.without_predictor ?
+                            w.without_predictor : w.expected;
                         printf("ARM9 cycles %s: %" PRIu64 " expected %u\n",
-                               w.name.c_str(), elapsed, w.expected);
-                        if (elapsed != w.expected)
+                               w.name.c_str(), elapsed, expected);
+                        if (elapsed != expected)
                             error("cycle window %s: %" PRIu64 " != %u",
-                                  w.name.c_str(), elapsed, w.expected);
+                                  w.name.c_str(), elapsed, expected);
                     }
                 }
             }

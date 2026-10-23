@@ -2,6 +2,7 @@
 // ARM9 bring-up controller. Interface derived from ZAP by Revanth Kamaraj.
 // See docs/ARM9.md for overlap, forwarding and serialized-operation boundaries.
 module arm9_core #(
+        parameter logic ARM9_PREDICTOR = 1'b1,
 
         // For CP15 purposes.
         parameter logic [0:0]  CP15_L4_DEFAULT = 0,
@@ -223,6 +224,17 @@ logic [31:0] d_pc, d_pc8, d_raw, d_ins;
 logic [3:0][5:0] tag_e;
 logic [3:0] used_e;
 logic fast_d, fast_e, issue, execute_fast, early_redirect;
+logic e_predicted, f_predicted;
+logic [31:0] e_pred_target, f_pred_target;
+logic [1:0] e_pred_state, f_pred_state;
+logic slow_start;
+wire [31:0] resolved_next = kind_e == K_BRANCH && ex_pass ? ex_branch :
+                             pc + (execute_flags[5] ? 32'd2 : 32'd4);
+wire prediction_wrong = e_predicted ? e_pred_target != resolved_next :
+                                      kind_e == K_BRANCH && ex_pass;
+wire predictor_feedback = (execute_fast || slow_start) &&
+                          (kind_e == K_BRANCH || e_predicted);
+wire predictor_direction_wrong = e_predicted != (kind_e == K_BRANCH && ex_pass);
 logic e_valid, e_shifted, execute_wait;
 logic wb_cycle;
 logic retire_fast, pipe_hold, pipe_fault;
@@ -516,7 +528,11 @@ assign o_data_stall = state == IDLE && pipe_hold && !i_data_fill_busy &&
                       data_reload == 0 && !pipe_request;
 assign execute_fast = e_valid && fast_e && !shift_hold && !execute_wait &&
                       !pipe_hold && !pipe_fault && !pipe_pc_redirect;
-assign early_redirect = execute_fast && kind_e == K_BRANCH && ex_pass;
+assign slow_start = e_valid && !fast_e && !shift_hold && !execute_wait &&
+          !fast_1.present && !fast_m.present &&
+          (!fast_w.present || retire_fast) && !pipe_hold && !i_data_fill_busy &&
+          data_reload == 0 && !pipe_fault && !pipe_pc_redirect;
+assign early_redirect = (execute_fast && prediction_wrong) || (slow_start && e_predicted);
 assign issue = f_valid && !sequence_active && !f_redirect && state == IDLE &&
     (!e_valid || execute_fast) &&
     ((fast_d && !f_abort && !(i_irq && !cpsr[7]) && !(i_fiq && !cpsr[6])) ||
@@ -637,10 +653,14 @@ assign f_ready = issue;
 assign f_redirect = (pipe_fault && !block_restore_fault) || pipe_pc_redirect || early_redirect || (wb_cycle &&
     (w_redirect || (w_load && m_dst == PHY_PC) || w_dabt || w_pabt ||
      w_irq || w_fiq || w_swi || w_und || slow.kind == K_CP || slow.kind == K_MSR));
-arm9_fetch #(.RESET_VECTOR(RESET_VECTOR)) u_fetch (
+arm9_fetch #(.RESET_VECTOR(RESET_VECTOR), .PREDICTOR(ARM9_PREDICTOR), .BP_ENTRIES(BP_ENTRIES)) u_fetch (
     .i_clk(i_clk), .i_reset(i_reset), .i_redirect(f_redirect),
+    .i_predictor_clear(wb_cycle && (slow.kind == K_CP || slow.kind == K_MSR)),
+    .i_fb_valid(predictor_feedback), .i_fb_wrong(predictor_direction_wrong),
+    .i_fb_pc(pc), .i_fb_target(resolved_next), .i_fb_state(e_pred_state),
+    .o_predicted(f_predicted), .o_pred_target(f_pred_target), .o_pred_state(f_pred_state),
     .i_target(pipe_fault ? vector_base + 16 : pipe_pc_redirect ?
-        (cpsr_next[5] ? (fast_w.load_data & 32'hfffffffe) : (fast_w.load_data & 32'hfffffffc)) : early_redirect ? ex_branch : cpsr_next[5] ? (next_pc & 32'hfffffffe) : (next_pc & 32'hfffffffc)),
+        (cpsr_next[5] ? (fast_w.load_data & 32'hfffffffe) : (fast_w.load_data & 32'hfffffffc)) : early_redirect ? resolved_next : cpsr_next[5] ? (next_pc & 32'hfffffffe) : (next_pc & 32'hfffffffc)),
     .i_thumb(cpsr_next[5]), .i_data(i_instr_wb_dat), .i_ack(i_instr_wb_ack),
     .i_data_early(i_instr_data_early), .i_hit(i_instr_hit),
     .i_error(i_instr_wb_err), .i_retry(i_icache_err2),
@@ -699,7 +719,7 @@ always_ff @(posedge i_clk) begin
         e_valid <= 0; e_shifted <= 0; slow <= '0;
         pc <= RESET_VECTOR;
         raw_ins <= 0; ins <= 0; tag_e <= '0; used_e <= 0; fast_e <= 0;
-        fetch_abort <= 0;
+        fetch_abort <= 0; e_predicted <= 0; e_pred_target <= 0; e_pred_state <= 0;
         irq_pending <= 0;
         fiq_pending <= 0;
         sequence_active <= 0;
@@ -724,10 +744,7 @@ always_ff @(posedge i_clk) begin
         if (shift_hold) e_shifted <= 1;
         if (execute_fast) e_valid <= 0;
       end
-      if (e_valid && !fast_e && !shift_hold && !execute_wait &&
-          !fast_1.present && !fast_m.present &&
-          (!fast_w.present || retire_fast) && !pipe_hold && !i_data_fill_busy &&
-          data_reload == 0 && !pipe_fault && !pipe_pc_redirect) begin
+      if (slow_start) begin
             e_valid <= 0;
             slow.pc <= pc;
             slow.pc8 <= pc8;
@@ -976,6 +993,7 @@ always_ff @(posedge i_clk) begin
                 raw_ins <= f_instruction;
                 ins <= d_ins;
                 fetch_abort <= f_abort;
+                e_predicted <= f_predicted; e_pred_target <= f_pred_target; e_pred_state <= f_pred_state;
             end
             fast_e <= issue && fast_d && !f_abort &&
                       !(i_irq && !cpsr[7]) && !(i_fiq && !cpsr[6]);
@@ -1029,7 +1047,7 @@ assign o_dbg_stall = {pipe_fault || (wb_cycle && (w_dabt || w_pabt || w_irq || w
     pipe_hold || state == MEMORY || state == LOAD_WAIT};
 
 // Retain ZAP's proven banked state and exception entry logic. Its old fetch
-// PC/BTB is disconnected; the new controller owns fetch and has no predictor.
+// PC/BTB is disconnected; ARM9 fetch owns its optional predictor.
 zap_writeback #(.BP_ENTRIES(32), .PHY_REGS(40), .FLAG_WDT(32),
     .RESET_VECTOR(RESET_VECTOR), .CPSR_INIT(CPSR_INIT)) u_zap_writeback (
     .i_clk(i_clk), .i_reset(i_reset), .i_valid(o_dbg_wb_valid),

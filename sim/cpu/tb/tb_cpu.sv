@@ -8,6 +8,7 @@
 // generated netlist (rtl/cpu/arm925t_gen.v) and the SystemVerilog sources.
 module tb_cpu #(
 	parameter CORE = "ZAP",
+    parameter bit ARM9_PREDICTOR = 1'b1,
 	parameter bit HIVECS      = 1'b0,
 	parameter int ICACHE_SIZE = 16384,
 	parameter int ICACHE_WAYS = 2,
@@ -73,6 +74,7 @@ module tb_cpu #(
 	output logic         p_dc_fill_take,
 	// Blocking ARM9 loads capture cache completion before architectural W.
     output logic         p_blocking_load,
+    output logic         p_arm9_predictor,
     output logic         p_load_capture,
     output logic [63:0]  p_load_commit,
     output logic [31:0]  p_load_value,
@@ -95,6 +97,7 @@ module tb_cpu #(
 
 	arm925t #(
 		.CORE        (CORE),
+        .ARM9_PREDICTOR (ARM9_PREDICTOR),
 		.HIVECS      (HIVECS),
 		.ICACHE_SIZE (ICACHE_SIZE),
 		.ICACHE_WAYS (ICACHE_WAYS),
@@ -126,6 +129,7 @@ module tb_cpu #(
 	assign p_dacr  = dut.u_zap.cpu_dac_reg;
 	assign p_mmu   = dut.u_zap.cpu_mmu_en;
     assign p_blocking_load = CORE == "ARM9";
+    assign p_arm9_predictor = CORE == "ARM9" && ARM9_PREDICTOR;
 	if (CORE == "ZAP") begin : g_zap_probes
     assign p_load_capture = 0;
     assign p_load_commit = 0;

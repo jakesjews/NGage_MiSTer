@@ -1,0 +1,13 @@
+Session 6 registered-BTB milestone
+ARM9 on, ARM9 off, ZAP: 228/228 runs each; 61/61 QEMU comparisons each.
+78 timing windows: all visits at every latency; exact hot ARM9 on/off checks.
+After the clear-address alignment fix, ARM9 on repeated all 228 and all 61 comparisons.
+The new arm9_predict test was then strengthened with uncached self-modifying code;
+its final binary/reference passed 3/3 and signature/trace comparisons on all three builds.
+The test orders its code write with readback and an untrained dependent redirect;
+the first version allowed prefetch ahead of the store and failed ZAP at 0:0.
+No ZAP RTL change was needed.
+Top-level lint, ARM9 on/off -Wall lint and cpu-gen-check pass.
+Only the new test binary/reference was built/run under QEMU.
+No firmware boot or Quartus run. ZAP remains default.
+Generated SHA256: 7c38cdb96ed78e3d5beefb7dbb2b62c6834b553ae80a8fd4e827fac120eab041
