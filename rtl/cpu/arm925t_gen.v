@@ -1895,6 +1895,687 @@ module zap_btb (
 				o_clear_from_btb <= 1'd0;
 		end
 endmodule
+module zap_cache (
+	i_clk,
+	i_reset,
+	i_stall,
+	i_address_check,
+	i_wr_check,
+	i_rd_check,
+	i_address,
+	i_address_nxt,
+	i_rd,
+	i_wr,
+	i_ben,
+	i_dat,
+	o_dat,
+	o_ack,
+	o_err,
+	o_fsr,
+	o_far,
+	o_err2,
+	o_fill_pending,
+	o_fill_done,
+	o_fill_fault,
+	i_mmu_en,
+	i_cache_en,
+	i_cache_inv_req,
+	i_cache_clean_req,
+	o_cache_inv_done,
+	o_cache_clean_done,
+	i_cpsr,
+	i_sr,
+	i_baddr,
+	i_dac_reg,
+	i_tlb_inv,
+	o_wb_stb,
+	o_wb_stb_nxt,
+	o_wb_cyc,
+	o_wb_cyc_nxt,
+	o_wb_wen,
+	o_wb_wen_nxt,
+	o_wb_sel,
+	o_wb_sel_nxt,
+	o_wb_dat,
+	o_wb_dat_nxt,
+	o_wb_adr,
+	o_wb_adr_nxt,
+	o_wb_cti,
+	o_wb_cti_nxt,
+	i_wb_dat,
+	i_wb_ack,
+	i_wb_err
+);
+	reg _sv2v_0;
+	parameter [31:0] CACHE_SIZE = 32'd1024;
+	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
+	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
+	parameter [31:0] SECTION_TLB_ENTRIES = 32'd8;
+	parameter [31:0] FPAGE_TLB_ENTRIES = 32'd8;
+	parameter [31:0] CACHE_LINE = 32'd8;
+	parameter [31:0] WAYS = 32'd1;
+	parameter [31:0] CPSR_MODE = 32'd4;
+	input wire i_clk;
+	input wire i_reset;
+	input wire i_stall;
+	input wire [31:0] i_address_check;
+	input wire i_wr_check;
+	input wire i_rd_check;
+	input wire [31:0] i_address;
+	input wire [31:0] i_address_nxt;
+	input wire i_rd;
+	input wire i_wr;
+	input wire [3:0] i_ben;
+	input wire [31:0] i_dat;
+	output wire [31:0] o_dat;
+	output wire o_ack;
+	output wire o_err;
+	output wire [7:0] o_fsr;
+	output wire [31:0] o_far;
+	output wire o_err2;
+	output wire o_fill_pending;
+	output wire o_fill_done;
+	output wire o_fill_fault;
+	input wire i_mmu_en;
+	input wire i_cache_en;
+	input wire i_cache_inv_req;
+	input wire i_cache_clean_req;
+	output wire o_cache_inv_done;
+	output wire o_cache_clean_done;
+	input wire [CPSR_MODE:0] i_cpsr;
+	input wire [1:0] i_sr;
+	input wire [31:0] i_baddr;
+	input wire [31:0] i_dac_reg;
+	input wire i_tlb_inv;
+	output reg o_wb_stb;
+	output reg o_wb_stb_nxt;
+	output reg o_wb_cyc;
+	output wire o_wb_cyc_nxt;
+	output reg o_wb_wen;
+	output reg o_wb_wen_nxt;
+	output reg [3:0] o_wb_sel;
+	output reg [3:0] o_wb_sel_nxt;
+	output reg [31:0] o_wb_dat;
+	output reg [31:0] o_wb_dat_nxt;
+	output reg [31:0] o_wb_adr;
+	output reg [31:0] o_wb_adr_nxt;
+	output reg [2:0] o_wb_cti;
+	output reg [2:0] o_wb_cti_nxt;
+	input wire [31:0] i_wb_dat;
+	input wire i_wb_ack;
+	input wire i_wb_err;
+	localparam [1:0] SECTION_ID = 2'b10;
+	localparam [1:0] PAGE_ID = 2'b01;
+	localparam [1:0] FINE_ID = 2'b11;
+	localparam [1:0] SPAGE_ID = 2'b10;
+	localparam [1:0] LPAGE_ID = 2'b01;
+	localparam [1:0] FPAGE_ID = 2'b11;
+	localparam [3:0] APSR_NA_NA = 4'b0000;
+	localparam [3:0] APSR_RO_RO = 4'b0001;
+	localparam [3:0] APSR_RO_NA = 4'b0010;
+	localparam [3:0] APSR_RW_NA = 4'b01zz;
+	localparam [3:0] APSR_RW_RO = 4'b10zz;
+	localparam [3:0] APSR_RW_RW = 4'b11zz;
+	localparam [1:0] DAC_MANAGER = 2'b11;
+	localparam [1:0] DAC_CLIENT = 2'b01;
+	localparam [3:0] FSR_SECTION_DOMAIN_FAULT = 4'b1001;
+	localparam [3:0] FSR_SECTION_TRANSLATION_FAULT = 4'b0101;
+	localparam [3:0] FSR_SECTION_PERMISSION_FAULT = 4'b1101;
+	localparam [3:0] FSR_L1_EXTERNAL_ABORT = 4'b1100;
+	localparam [3:0] FSR_PAGE_TRANSLATION_FAULT = 4'b0111;
+	localparam [3:0] FSR_PAGE_DOMAIN_FAULT = 4'b1011;
+	localparam [3:0] FSR_PAGE_PERMISSION_FAULT = 4'b1111;
+	localparam [3:0] FSR_L2_EXTERNAL_ABORT = 4'b1110;
+	parameter [3:0] TERMINAL_EXCEPTION = 4'b0010;
+	localparam [3:0] AND = 4'd0;
+	localparam [3:0] EOR = 4'd1;
+	localparam [3:0] SUB = 4'd2;
+	localparam [3:0] RSB = 4'd3;
+	localparam [3:0] ADD = 4'd4;
+	localparam [3:0] ADC = 4'd5;
+	localparam [3:0] SBC = 4'd6;
+	localparam [3:0] RSC = 4'd7;
+	localparam [3:0] TST = 4'd8;
+	localparam [3:0] TEQ = 4'd9;
+	localparam [3:0] CMP = 4'd10;
+	localparam [3:0] CMN = 4'd11;
+	localparam [3:0] ORR = 4'd12;
+	localparam [3:0] MOV = 4'd13;
+	localparam [3:0] BIC = 4'd14;
+	localparam [3:0] MVN = 4'd15;
+	localparam [4:0] MUL = 5'd16;
+	localparam [4:0] MLA = 5'd17;
+	localparam [4:0] FMOV = 5'd18;
+	localparam [4:0] MMOV = 5'd19;
+	localparam [4:0] UMLALL = 5'd20;
+	localparam [4:0] UMLALH = 5'd21;
+	localparam [4:0] SMLALL = 5'd22;
+	localparam [4:0] SMLALH = 5'd23;
+	localparam [4:0] CLZ = 5'd24;
+	localparam [4:0] OP_QADD = 5'd25;
+	localparam [4:0] OP_QSUB = 5'd26;
+	localparam [4:0] OP_QDADD = 5'd27;
+	localparam [4:0] OP_QDSUB = 5'd28;
+	localparam [5:0] SMULW0 = 6'd30;
+	localparam [5:0] SMULW1 = 6'd32;
+	localparam [5:0] SMUL00 = 6'd34;
+	localparam [5:0] SMUL01 = 6'd36;
+	localparam [5:0] SMUL10 = 6'd38;
+	localparam [5:0] SMUL11 = 6'd40;
+	localparam [5:0] SMLA00 = 6'd42;
+	localparam [5:0] SMLA01 = 6'd44;
+	localparam [5:0] SMLA10 = 6'd46;
+	localparam [5:0] SMLA11 = 6'd48;
+	localparam [5:0] SMLAW0 = 6'd50;
+	localparam [5:0] SMLAW1 = 6'd52;
+	localparam [5:0] SMLAL00L = 6'd54;
+	localparam [5:0] SMLAL00H = 6'd55;
+	localparam [5:0] SMLAL01L = 6'd56;
+	localparam [5:0] SMLAL01H = 6'd57;
+	localparam [5:0] SMLAL10L = 6'd58;
+	localparam [5:0] SMLAL10H = 6'd59;
+	localparam [5:0] SMLAL11L = 6'd60;
+	localparam [5:0] SMLAL11H = 6'd61;
+	localparam [5:0] FADD = 6'd62;
+	localparam [5:0] OP_SMULW0 = 6'd30;
+	localparam [5:0] OP_SMULW1 = 6'd32;
+	localparam [5:0] OP_SMUL00 = 6'd34;
+	localparam [5:0] OP_SMUL01 = 6'd36;
+	localparam [5:0] OP_SMUL10 = 6'd38;
+	localparam [5:0] OP_SMUL11 = 6'd40;
+	localparam [5:0] OP_SMLA00 = 6'd42;
+	localparam [5:0] OP_SMLA01 = 6'd44;
+	localparam [5:0] OP_SMLA10 = 6'd46;
+	localparam [5:0] OP_SMLA11 = 6'd48;
+	localparam [5:0] OP_SMLAW0 = 6'd50;
+	localparam [5:0] OP_SMLAW1 = 6'd52;
+	localparam [5:0] OP_SMLAL00L = 6'd54;
+	localparam [5:0] OP_SMLAL00H = 6'd55;
+	localparam [5:0] OP_SMLAL01L = 6'd56;
+	localparam [5:0] OP_SMLAL01H = 6'd57;
+	localparam [5:0] OP_SMLAL10L = 6'd58;
+	localparam [5:0] OP_SMLAL10H = 6'd59;
+	localparam [5:0] OP_SMLAL11L = 6'd60;
+	localparam [5:0] OP_SMLAL11H = 6'd61;
+	localparam [5:0] SAT_MOV = 6'd49;
+	localparam [3:0] EQ = 4'h0;
+	localparam [3:0] NE = 4'h1;
+	localparam [3:0] CS = 4'h2;
+	localparam [3:0] CC = 4'h3;
+	localparam [3:0] MI = 4'h4;
+	localparam [3:0] PL = 4'h5;
+	localparam [3:0] VS = 4'h6;
+	localparam [3:0] VC = 4'h7;
+	localparam [3:0] HI = 4'h8;
+	localparam [3:0] LS = 4'h9;
+	localparam [3:0] GE = 4'ha;
+	localparam [3:0] LT = 4'hb;
+	localparam [3:0] GT = 4'hc;
+	localparam [3:0] LE = 4'hd;
+	localparam [3:0] AL = 4'he;
+	localparam [3:0] NV = 4'hf;
+	localparam [31:0] N = 32'd31;
+	localparam [31:0] Z = 32'd30;
+	localparam [31:0] C = 32'd29;
+	localparam [31:0] V = 32'd28;
+	localparam [31:0] Q = 32'd27;
+	localparam [31:0] I = 32'd7;
+	localparam [31:0] F = 32'd6;
+	localparam [31:0] T = 32'd5;
+	localparam [31:0] ZAP_CPSR_MODE = 32'd4;
+	localparam [0:0] INDEX_EN = 1'd0;
+	localparam [0:0] IMMED_EN = 1'd1;
+	localparam [4:0] FIQ = 5'b10001;
+	localparam [4:0] IRQ = 5'b10010;
+	localparam [4:0] ABT = 5'b10111;
+	localparam [4:0] SVC = 5'b10011;
+	localparam [4:0] USR = 5'b10000;
+	localparam [4:0] SYS = 5'b11111;
+	localparam [4:0] UND = 5'b11011;
+	localparam [31:0] SMLAxy = 32'bzzzz00010000zzzzzzzzzzzz1zz0zzzz;
+	localparam [31:0] SMLAWy = 32'bzzzz00010010zzzzzzzzzzzz1z00zzzz;
+	localparam [31:0] SMLALxy = 32'bzzzz00010100zzzzzzzzzzzz1zz0zzzz;
+	localparam [31:0] SMULWy = 32'bzzzz00010010zzzz0000zzzz1z10zzzz;
+	localparam [31:0] SMULxy = 32'bzzzz00010110zzzz0000zzzz1zz0zzzz;
+	localparam [31:0] CLZ_INSTRUCTION = 32'bzzzz000101101111zzzz11110001zzzz;
+	localparam [31:0] QADD = 32'bzzzz00010000zzzzzzzz00000101zzzz;
+	localparam [31:0] QSUB = 32'bzzzz00010010zzzzzzzz00000101zzzz;
+	localparam [31:0] QDADD = 32'bzzzz00010100zzzzzzzz00000101zzzz;
+	localparam [31:0] QDSUB = 32'bzzzz00010110zzzzzzzz00000101zzzz;
+	localparam [31:0] PLD = 32'b111101z1z101zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] DATA_PROCESSING_IMMEDIATE = 32'bzzzz001zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzz0zz1zzzz;
+	localparam [31:0] DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzzzzz0zzzz;
+	localparam [31:0] BRANCH_INSTRUCTION = 32'bzzzz101zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] MRS = 32'bzzzz00010z001111zzzzzzzzzzzzzzzz;
+	localparam [31:0] MSR_IMMEDIATE = 32'bzzzz00110z10zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] MSR = 32'bzzzz00010z10zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] LS_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz011zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] LS_IMMEDIATE = 32'bzzzz010zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BX_INST = 32'bzzzz000100101111111111110001zzzz;
+	localparam [31:0] MULT_INST = 32'bzzzz000000zzzzzzzzzzzzzz1001zzzz;
+	localparam [31:0] LMULT_INST = 32'bzzzz00001zzzzzzzzzzzzzzz1001zzzz;
+	localparam [31:0] HALFWORD_LS = 32'bzzzz000zzzzzzzzzzzzzzzzz1zz1zzzz;
+	localparam [31:0] SOFTWARE_INTERRUPT = 32'bzzzz1111zzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] SWAP = 32'bzzzz00010z00zzzzzzzz00001001zzzz;
+	localparam [31:0] MCR = 32'bzzzz1110zzz0zzzzzzzz1111zzz1zzzz;
+	localparam [31:0] MCR2 = 32'b11111110zzz0zzzzzzzzzzzzzzz1zzzz;
+	localparam [31:0] MRC = 32'bzzzz1110zzz1zzzzzzzz1111zzz1zzzz;
+	localparam [31:0] MRC2 = 32'b11111110zzz1zzzzzzzzzzzzzzz1zzzz;
+	localparam [31:0] LDC = 32'bzzzz110zzzz1zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] STC = 32'bzzzz110zzzz0zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] LDC2 = 32'b1111110zzzz1zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] STC2 = 32'b1111110zzzz0zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] CDP = 32'bzzzz1110zzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BLX1 = 32'b1111101zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BLX2 = 32'bzzzz000100101111111111110011zzzz;
+	localparam [31:0] BKPT = 32'b111000010010zzzzzzzzzzzz0111zzzz;
+	localparam [15:0] T_BRANCH_COND = 16'b1101zzzzzzzzzzzz;
+	localparam [15:0] T_BRANCH_NOCOND = 16'b11100zzzzzzzzzzz;
+	localparam [15:0] T_BL = 16'b1111zzzzzzzzzzzz;
+	localparam [15:0] T_BLX1 = 16'b11101zzzzzzzzzzz;
+	localparam [15:0] T_BLX2 = 16'b010001111zzzz000;
+	localparam [15:0] T_BX = 16'b010001110zzzz000;
+	localparam [15:0] T_SWI = 16'b11011111zzzzzzzz;
+	localparam [15:0] T_SHIFT = 16'b000zzzzzzzzzzzzz;
+	localparam [15:0] T_ADD_SUB_LO = 16'b00011zzzzzzzzzzz;
+	localparam [15:0] T_MCAS_IMM = 16'b001zzzzzzzzzzzzz;
+	localparam [15:0] T_ALU_LO = 16'b010000zzzzzzzzzz;
+	localparam [15:0] T_ALU_HI = 16'b010001zzzzzzzzzz;
+	localparam [15:0] T_GET_ADDR = 16'b1010zzzzzzzzzzzz;
+	localparam [15:0] T_MOD_SP = 16'b10110000zzzzzzzz;
+	localparam [15:0] T_PC_REL_LOAD = 16'b01001zzzzzzzzzzz;
+	localparam [15:0] T_LDR_STR_5BIT_OFF = 16'b011zzzzzzzzzzzzz;
+	localparam [15:0] T_LDRH_STRH_5BIT_OFF = 16'b1000zzzzzzzzzzzz;
+	localparam [15:0] T_LDRH_STRH_REG = 16'b0101zzzzzzzzzzzz;
+	localparam [15:0] T_SP_REL_LDR_STR = 16'b1001zzzzzzzzzzzz;
+	localparam [15:0] T_LDMIA_STMIA = 16'b1100zzzzzzzzzzzz;
+	localparam [15:0] T_POP_PUSH = 16'b1011z10zzzzzzzzz;
+	localparam [15:0] T_BKPT = 16'b10111110zzzzzzzz;
+	localparam [31:0] TOTAL_ARCH_REGS = 28;
+	localparam [3:0] ARCH_SP = 13;
+	localparam [3:0] ARCH_LR = 14;
+	localparam [3:0] ARCH_PC = 15;
+	localparam [4:0] RAZ_REGISTER = 16;
+	localparam [4:0] ARCH_USR2_R8 = 18;
+	localparam [4:0] ARCH_USR2_R9 = 19;
+	localparam [4:0] ARCH_USR2_R10 = 20;
+	localparam [4:0] ARCH_USR2_R11 = 21;
+	localparam [4:0] ARCH_USR2_R12 = 22;
+	localparam [4:0] ARCH_USR2_R13 = 23;
+	localparam [4:0] ARCH_USR2_R14 = 24;
+	localparam [4:0] ARCH_DUMMY_REG0 = 25;
+	localparam [4:0] ARCH_DUMMY_REG1 = 26;
+	localparam [4:0] ARCH_CPSR = 17;
+	localparam [4:0] ARCH_CURR_SPSR = 27;
+	localparam [31:0] TOTAL_PHY_REGS = 40;
+	localparam [5:0] PHY_PC = 15;
+	localparam [5:0] PHY_RAZ_REGISTER = 16;
+	localparam [5:0] PHY_CPSR = 17;
+	localparam [5:0] PHY_USR_R0 = 0;
+	localparam [5:0] PHY_USR_R1 = 1;
+	localparam [5:0] PHY_USR_R2 = 2;
+	localparam [5:0] PHY_USR_R3 = 3;
+	localparam [5:0] PHY_USR_R4 = 4;
+	localparam [5:0] PHY_USR_R5 = 5;
+	localparam [5:0] PHY_USR_R6 = 6;
+	localparam [5:0] PHY_USR_R7 = 7;
+	localparam [5:0] PHY_USR_R8 = 8;
+	localparam [5:0] PHY_USR_R9 = 9;
+	localparam [5:0] PHY_USR_R10 = 10;
+	localparam [5:0] PHY_USR_R11 = 11;
+	localparam [5:0] PHY_USR_R12 = 12;
+	localparam [5:0] PHY_USR_R13 = 13;
+	localparam [5:0] PHY_USR_R14 = 14;
+	localparam [5:0] PHY_FIQ_R8 = 18;
+	localparam [5:0] PHY_FIQ_R9 = 19;
+	localparam [5:0] PHY_FIQ_R10 = 20;
+	localparam [5:0] PHY_FIQ_R11 = 21;
+	localparam [5:0] PHY_FIQ_R12 = 22;
+	localparam [5:0] PHY_FIQ_R13 = 23;
+	localparam [5:0] PHY_FIQ_R14 = 24;
+	localparam [5:0] PHY_IRQ_R13 = 25;
+	localparam [5:0] PHY_IRQ_R14 = 26;
+	localparam [5:0] PHY_SVC_R13 = 27;
+	localparam [5:0] PHY_SVC_R14 = 28;
+	localparam [5:0] PHY_UND_R13 = 29;
+	localparam [5:0] PHY_UND_R14 = 30;
+	localparam [5:0] PHY_ABT_R13 = 31;
+	localparam [5:0] PHY_ABT_R14 = 32;
+	localparam [5:0] PHY_DUMMY_REG0 = 33;
+	localparam [5:0] PHY_DUMMY_REG1 = 34;
+	localparam [5:0] PHY_FIQ_SPSR = 35;
+	localparam [5:0] PHY_IRQ_SPSR = 36;
+	localparam [5:0] PHY_SVC_SPSR = 37;
+	localparam [5:0] PHY_UND_SPSR = 38;
+	localparam [5:0] PHY_ABT_SPSR = 39;
+	localparam [1:0] LSL = 0;
+	localparam [1:0] LSR = 1;
+	localparam [1:0] ASR = 2;
+	localparam [1:0] ROR = 3;
+	localparam [2:0] RRC = 4;
+	localparam [2:0] RORI = 5;
+	localparam [2:0] ROR_1 = 6;
+	localparam [2:0] LSL_SAT = 7;
+	localparam [2:0] CTI_BURST = 3'b010;
+	localparam [2:0] CTI_EOB = 3'b111;
+	localparam [31:0] RST_VECTOR = 32'h00000000;
+	localparam [31:0] UND_VECTOR = 32'h00000004;
+	localparam [31:0] SWI_VECTOR = 32'h00000008;
+	localparam [31:0] PABT_VECTOR = 32'h0000000c;
+	localparam [31:0] DABT_VECTOR = 32'h00000010;
+	localparam [31:0] IRQ_VECTOR = 32'h00000018;
+	localparam [31:0] FIQ_VECTOR = 32'h0000001c;
+	localparam [1:0] SNT = 2'b00;
+	localparam [1:0] WNT = 2'b01;
+	localparam [1:0] WT = 2'b10;
+	localparam [1:0] ST = 2'b11;
+	localparam [31:0] ZAP_SRCDEST_EXTEND = 32'd32;
+	localparam [31:0] ZAP_DP_RB_EXTEND = 32'd32;
+	localparam [31:0] ZAP_BASE_EXTEND = 32'd33;
+	localparam [31:0] ZAP_DP_RD_EXTEND = 32'd33;
+	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
+	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
+	localparam [2:0] SELECT_CCH = 3'b001;
+	localparam [2:0] SELECT_TAG = 3'b010;
+	localparam [2:0] SELECT_TLB = 3'b100;
+	wire [2:0] wb_stb;
+	wire [2:0] wb_cyc;
+	wire [2:0] wb_wen;
+	wire [3:0] wb_sel [2:0];
+	wire [31:0] wb_dat [2:0];
+	wire [31:0] wb_adr [2:0];
+	wire [2:0] wb_cti [2:0];
+	wire [31:0] tlb_phy_addr;
+	wire [7:0] tlb_fsr;
+	wire [31:0] tlb_far;
+	wire tlb_fault;
+	wire tlb_cacheable;
+	wire tlb_busy;
+	wire [(CACHE_LINE * 8) - 1:0] tr_cache_line;
+	wire [(WAYS * 32) - 1:0] tr_cache_words;
+	wire tr_cache_word_sel;
+	wire [(CACHE_LINE * 8) - 1:0] cf_cache_line;
+	wire [CACHE_LINE - 1:0] cf_cache_line_ben;
+	wire cf_cache_tag_wr_en;
+	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tr_cache_tag;
+	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cf_cache_tag;
+	wire tr_cache_tag_valid;
+	wire tr_cache_hit;
+	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] tr_cache_way;
+	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] cf_cache_way;
+	wire tr_cache_tag_dirty;
+	wire cf_cache_tag_dirty;
+	wire cf_cache_clean_req;
+	wire cf_cache_inv_req;
+	wire tr_cache_inv_done;
+	wire tr_cache_clean_done;
+	reg [2:0] wb_ack;
+	reg [2:0] state_ff;
+	reg [2:0] state_nxt;
+	wire [31:0] cache_address;
+	wire hold;
+	wire idle;
+	reg [2:0] wb_err;
+	wire unused;
+	assign wb_cti[2] = CTI_EOB;
+	assign unused = |{wb_err[1]};
+	zap_cache_fsm #(
+		.CACHE_SIZE(CACHE_SIZE),
+		.CACHE_LINE(CACHE_LINE),
+		.WAYS(WAYS)
+	) u_zap_cache_fsm(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_address(i_address),
+		.i_address_check(i_address_check),
+		.i_stall(i_stall),
+		.i_rd(i_rd),
+		.i_wr(i_wr),
+		.i_din(i_dat),
+		.o_idle(idle),
+		.i_ben(i_ben),
+		.o_dat(o_dat),
+		.o_ack(o_ack),
+		.o_err(o_err),
+		.o_fsr(o_fsr),
+		.o_far(o_far),
+		.i_cache_en(i_cache_en),
+		.i_cache_inv(i_cache_inv_req),
+		.i_cache_clean(i_cache_clean_req),
+		.o_cache_inv_done(o_cache_inv_done),
+		.o_cache_clean_done(o_cache_clean_done),
+		.i_cache_line(tr_cache_line),
+		.i_cache_words(tr_cache_words),
+		.i_cache_word_sel(tr_cache_word_sel),
+		.i_cache_tag_dirty(tr_cache_tag_dirty),
+		.i_cache_tag(tr_cache_tag),
+		.i_cache_tag_valid(tr_cache_tag_valid),
+		.i_cache_hit(tr_cache_hit),
+		.i_cache_way(tr_cache_way),
+		.o_cache_way(cf_cache_way),
+		.o_cache_tag(cf_cache_tag),
+		.o_cache_tag_dirty(cf_cache_tag_dirty),
+		.o_cache_tag_wr_en(cf_cache_tag_wr_en),
+		.o_cache_line(cf_cache_line),
+		.o_cache_line_ben(cf_cache_line_ben),
+		.o_cache_clean_req(cf_cache_clean_req),
+		.i_cache_clean_done(tr_cache_clean_done),
+		.o_cache_inv_req(cf_cache_inv_req),
+		.i_cache_inv_done(tr_cache_inv_done),
+		.i_phy_addr(tlb_phy_addr),
+		.i_fsr(tlb_fsr),
+		.i_far(tlb_far),
+		.i_fault(tlb_fault),
+		.i_cacheable(tlb_cacheable),
+		.i_busy(tlb_busy),
+		.o_err2(o_err2),
+		.o_fill_pending(o_fill_pending),
+		.o_fill_done(o_fill_done),
+		.o_fill_fault(o_fill_fault),
+		.o_address(cache_address),
+		.o_wb_cyc_nxt(wb_cyc[0]),
+		.o_hold(hold),
+		.o_wb_cyc_ff(),
+		.o_wb_stb_ff(),
+		.o_wb_adr_ff(),
+		.o_wb_dat_ff(),
+		.o_wb_sel_ff(),
+		.o_wb_wen_ff(),
+		.o_wb_cti_ff(),
+		.o_wb_stb_nxt(wb_stb[0]),
+		.o_wb_adr_nxt(wb_adr[0]),
+		.o_wb_dat_nxt(wb_dat[0]),
+		.o_wb_sel_nxt(wb_sel[0]),
+		.o_wb_wen_nxt(wb_wen[0]),
+		.o_wb_cti_nxt(wb_cti[0]),
+		.i_wb_dat(i_wb_dat),
+		.i_wb_ack(wb_ack[0]),
+		.i_wb_err(wb_err[0])
+	);
+	localparam [31:0] sv2v_uu_u_zap_cache_tag_ram_WAYS = WAYS;
+	localparam [(sv2v_uu_u_zap_cache_tag_ram_WAYS > 1 ? $clog2(sv2v_uu_u_zap_cache_tag_ram_WAYS) : 1) - 1:0] sv2v_uu_u_zap_cache_tag_ram_ext_i_line_way_0 = 1'sb0;
+	zap_cache_tag_ram #(
+		.CACHE_SIZE(CACHE_SIZE),
+		.CACHE_LINE(CACHE_LINE),
+		.WAYS(WAYS)
+	) u_zap_cache_tag_ram(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_address_nxt(i_address_nxt),
+		.i_address(cache_address),
+		.i_lookup_address(i_address),
+		.i_access(i_rd || i_wr),
+		.i_idle(idle),
+		.o_cache_hit(tr_cache_hit),
+		.o_cache_hit_dirty(),
+		.o_cache_way(tr_cache_way),
+		.i_cache_way(cf_cache_way),
+		.i_hold(hold || i_stall),
+		.i_cache_en(i_cache_en),
+		.i_cache_line(cf_cache_line),
+		.o_cache_line(tr_cache_line),
+		.o_cache_words(tr_cache_words),
+		.o_cache_word_sel(tr_cache_word_sel),
+		.i_cache_line_ben(cf_cache_line_ben),
+		.i_cache_tag_wr_en(cf_cache_tag_wr_en),
+		.i_cache_tag(cf_cache_tag),
+		.i_cache_tag_dirty(cf_cache_tag_dirty),
+		.o_cache_tag(tr_cache_tag),
+		.o_cache_tag_valid(tr_cache_tag_valid),
+		.o_cache_tag_dirty(tr_cache_tag_dirty),
+		.i_cache_inv_req(cf_cache_inv_req),
+		.o_cache_inv_done(tr_cache_inv_done),
+		.i_cache_clean_req(cf_cache_clean_req),
+		.o_cache_clean_done(tr_cache_clean_done),
+		.i_line_req(1'd0),
+		.i_line_op(2'd0),
+		.i_line_va(1'd0),
+		.i_line_addr(32'd0),
+		.i_line_way(sv2v_uu_u_zap_cache_tag_ram_ext_i_line_way_0),
+		.o_line_done(),
+		.o_wb_cyc_ff(),
+		.o_wb_stb_ff(),
+		.o_wb_adr_ff(),
+		.o_wb_dat_ff(),
+		.o_wb_sel_ff(),
+		.o_wb_wen_ff(),
+		.o_wb_cti_ff(),
+		.o_wb_cyc_nxt(wb_cyc[1]),
+		.o_wb_stb_nxt(wb_stb[1]),
+		.o_wb_adr_nxt(wb_adr[1]),
+		.o_wb_dat_nxt(wb_dat[1]),
+		.o_wb_sel_nxt(wb_sel[1]),
+		.o_wb_wen_nxt(wb_wen[1]),
+		.o_wb_cti_nxt(wb_cti[1]),
+		.i_wb_dat(i_wb_dat),
+		.i_wb_ack(wb_ack[1])
+	);
+	zap_tlb #(
+		.LPAGE_TLB_ENTRIES(LPAGE_TLB_ENTRIES),
+		.SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
+		.SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
+		.FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES),
+		.CPSR_MODE(ZAP_CPSR_MODE),
+		.MMU_OFF_CACHEABLE(1'd1)
+	) u_zap_tlb(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_address(i_address),
+		.i_address_nxt(i_address_nxt),
+		.i_address_check(i_address_check),
+		.i_idle(idle),
+		.i_wr_check(i_wr_check),
+		.i_rd_check(i_rd_check),
+		.i_hold(hold || i_stall),
+		.i_cpsr(i_cpsr),
+		.i_sr(i_sr),
+		.i_dac_reg(i_dac_reg),
+		.i_baddr(i_baddr),
+		.i_mmu_en(i_mmu_en),
+		.i_inv(i_tlb_inv),
+		.o_phy_addr(tlb_phy_addr),
+		.o_fsr(tlb_fsr),
+		.o_far(tlb_far),
+		.o_fault(tlb_fault),
+		.o_wt(),
+		.o_cacheable(tlb_cacheable),
+		.o_busy(tlb_busy),
+		.o_wb_stb_nxt(wb_stb[2]),
+		.o_wb_cyc_nxt(wb_cyc[2]),
+		.o_wb_adr_nxt(wb_adr[2]),
+		.o_wb_wen_nxt(wb_wen[2]),
+		.o_wb_sel_nxt(wb_sel[2]),
+		.o_wb_dat_nxt(wb_dat[2]),
+		.i_wb_dat(i_wb_dat),
+		.i_wb_ack(wb_ack[2]),
+		.i_wb_err(wb_err[2])
+	);
+	always @(posedge i_clk)
+		if (i_reset) begin
+			state_ff <= SELECT_CCH;
+			o_wb_stb <= 1'd0;
+			o_wb_cyc <= 1'd0;
+			o_wb_adr <= 1'sbx;
+			o_wb_cti <= CTI_EOB;
+			o_wb_sel <= 1'sbx;
+			o_wb_dat <= 1'sbx;
+			o_wb_wen <= 1'sbx;
+		end
+		else begin
+			state_ff <= state_nxt;
+			o_wb_stb <= o_wb_stb_nxt;
+			o_wb_cyc <= o_wb_cyc_nxt;
+			o_wb_adr <= o_wb_adr_nxt;
+			o_wb_cti <= o_wb_cti_nxt;
+			o_wb_sel <= o_wb_sel_nxt;
+			o_wb_dat <= o_wb_dat_nxt;
+			o_wb_wen <= o_wb_wen_nxt;
+		end
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		if (!o_wb_stb || (o_wb_stb && i_wb_ack))
+			casez ({wb_cyc[2], wb_cyc[1], wb_cyc[0]})
+				3'b1zz: state_nxt = SELECT_TLB;
+				3'b01z: state_nxt = SELECT_TAG;
+				3'b001: state_nxt = SELECT_CCH;
+				default: state_nxt = state_ff;
+			endcase
+		else
+			state_nxt = state_ff;
+	end
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		case (state_ff)
+			SELECT_CCH: {wb_err, wb_ack} = {2'd0, i_wb_err, 2'd0, i_wb_ack};
+			SELECT_TAG: {wb_err, wb_ack} = {1'd0, i_wb_err, 2'd0, i_wb_ack, 1'd0};
+			SELECT_TLB: {wb_err, wb_ack} = {i_wb_err, 2'd0, i_wb_ack, 2'd0};
+			default: {wb_err, wb_ack} = {6 {1'bx}};
+		endcase
+	end
+	assign o_wb_cyc_nxt = (!o_wb_stb || (o_wb_stb && i_wb_ack) ? |wb_cyc : |(state_ff & wb_cyc));
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		case (state_nxt)
+			SELECT_CCH: begin
+				o_wb_stb_nxt = wb_stb[0];
+				o_wb_adr_nxt = wb_adr[0];
+				o_wb_dat_nxt = wb_dat[0];
+				o_wb_cti_nxt = wb_cti[0];
+				o_wb_sel_nxt = wb_sel[0];
+				o_wb_wen_nxt = wb_wen[0];
+			end
+			SELECT_TAG: begin
+				o_wb_stb_nxt = wb_stb[1];
+				o_wb_adr_nxt = wb_adr[1];
+				o_wb_dat_nxt = wb_dat[1];
+				o_wb_cti_nxt = wb_cti[1];
+				o_wb_sel_nxt = wb_sel[1];
+				o_wb_wen_nxt = wb_wen[1];
+			end
+			SELECT_TLB: begin
+				o_wb_stb_nxt = wb_stb[2];
+				o_wb_adr_nxt = wb_adr[2];
+				o_wb_dat_nxt = wb_dat[2];
+				o_wb_cti_nxt = wb_cti[2];
+				o_wb_sel_nxt = wb_sel[2];
+				o_wb_wen_nxt = wb_wen[2];
+			end
+			default: begin
+				o_wb_stb_nxt = 1'sbx;
+				o_wb_adr_nxt = 1'sbx;
+				o_wb_dat_nxt = 1'sbx;
+				o_wb_cti_nxt = 1'sbx;
+				o_wb_sel_nxt = 1'sbx;
+				o_wb_wen_nxt = 1'sbx;
+			end
+		endcase
+	end
+	initial _sv2v_0 = 0;
+endmodule
 module zap_cache_fsm (
 	i_clk,
 	i_reset,
@@ -3752,687 +4433,6 @@ module zap_cache_tag_ram (
 				o_wb_cti_nxt = 1'sbx;
 				tag_ram_wr_data = 1'sbx;
 				o_cache_clean_done = 1'sbx;
-			end
-		endcase
-	end
-	initial _sv2v_0 = 0;
-endmodule
-module zap_cache (
-	i_clk,
-	i_reset,
-	i_stall,
-	i_address_check,
-	i_wr_check,
-	i_rd_check,
-	i_address,
-	i_address_nxt,
-	i_rd,
-	i_wr,
-	i_ben,
-	i_dat,
-	o_dat,
-	o_ack,
-	o_err,
-	o_fsr,
-	o_far,
-	o_err2,
-	o_fill_pending,
-	o_fill_done,
-	o_fill_fault,
-	i_mmu_en,
-	i_cache_en,
-	i_cache_inv_req,
-	i_cache_clean_req,
-	o_cache_inv_done,
-	o_cache_clean_done,
-	i_cpsr,
-	i_sr,
-	i_baddr,
-	i_dac_reg,
-	i_tlb_inv,
-	o_wb_stb,
-	o_wb_stb_nxt,
-	o_wb_cyc,
-	o_wb_cyc_nxt,
-	o_wb_wen,
-	o_wb_wen_nxt,
-	o_wb_sel,
-	o_wb_sel_nxt,
-	o_wb_dat,
-	o_wb_dat_nxt,
-	o_wb_adr,
-	o_wb_adr_nxt,
-	o_wb_cti,
-	o_wb_cti_nxt,
-	i_wb_dat,
-	i_wb_ack,
-	i_wb_err
-);
-	reg _sv2v_0;
-	parameter [31:0] CACHE_SIZE = 32'd1024;
-	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
-	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
-	parameter [31:0] SECTION_TLB_ENTRIES = 32'd8;
-	parameter [31:0] FPAGE_TLB_ENTRIES = 32'd8;
-	parameter [31:0] CACHE_LINE = 32'd8;
-	parameter [31:0] WAYS = 32'd1;
-	parameter [31:0] CPSR_MODE = 32'd4;
-	input wire i_clk;
-	input wire i_reset;
-	input wire i_stall;
-	input wire [31:0] i_address_check;
-	input wire i_wr_check;
-	input wire i_rd_check;
-	input wire [31:0] i_address;
-	input wire [31:0] i_address_nxt;
-	input wire i_rd;
-	input wire i_wr;
-	input wire [3:0] i_ben;
-	input wire [31:0] i_dat;
-	output wire [31:0] o_dat;
-	output wire o_ack;
-	output wire o_err;
-	output wire [7:0] o_fsr;
-	output wire [31:0] o_far;
-	output wire o_err2;
-	output wire o_fill_pending;
-	output wire o_fill_done;
-	output wire o_fill_fault;
-	input wire i_mmu_en;
-	input wire i_cache_en;
-	input wire i_cache_inv_req;
-	input wire i_cache_clean_req;
-	output wire o_cache_inv_done;
-	output wire o_cache_clean_done;
-	input wire [CPSR_MODE:0] i_cpsr;
-	input wire [1:0] i_sr;
-	input wire [31:0] i_baddr;
-	input wire [31:0] i_dac_reg;
-	input wire i_tlb_inv;
-	output reg o_wb_stb;
-	output reg o_wb_stb_nxt;
-	output reg o_wb_cyc;
-	output wire o_wb_cyc_nxt;
-	output reg o_wb_wen;
-	output reg o_wb_wen_nxt;
-	output reg [3:0] o_wb_sel;
-	output reg [3:0] o_wb_sel_nxt;
-	output reg [31:0] o_wb_dat;
-	output reg [31:0] o_wb_dat_nxt;
-	output reg [31:0] o_wb_adr;
-	output reg [31:0] o_wb_adr_nxt;
-	output reg [2:0] o_wb_cti;
-	output reg [2:0] o_wb_cti_nxt;
-	input wire [31:0] i_wb_dat;
-	input wire i_wb_ack;
-	input wire i_wb_err;
-	localparam [1:0] SECTION_ID = 2'b10;
-	localparam [1:0] PAGE_ID = 2'b01;
-	localparam [1:0] FINE_ID = 2'b11;
-	localparam [1:0] SPAGE_ID = 2'b10;
-	localparam [1:0] LPAGE_ID = 2'b01;
-	localparam [1:0] FPAGE_ID = 2'b11;
-	localparam [3:0] APSR_NA_NA = 4'b0000;
-	localparam [3:0] APSR_RO_RO = 4'b0001;
-	localparam [3:0] APSR_RO_NA = 4'b0010;
-	localparam [3:0] APSR_RW_NA = 4'b01zz;
-	localparam [3:0] APSR_RW_RO = 4'b10zz;
-	localparam [3:0] APSR_RW_RW = 4'b11zz;
-	localparam [1:0] DAC_MANAGER = 2'b11;
-	localparam [1:0] DAC_CLIENT = 2'b01;
-	localparam [3:0] FSR_SECTION_DOMAIN_FAULT = 4'b1001;
-	localparam [3:0] FSR_SECTION_TRANSLATION_FAULT = 4'b0101;
-	localparam [3:0] FSR_SECTION_PERMISSION_FAULT = 4'b1101;
-	localparam [3:0] FSR_L1_EXTERNAL_ABORT = 4'b1100;
-	localparam [3:0] FSR_PAGE_TRANSLATION_FAULT = 4'b0111;
-	localparam [3:0] FSR_PAGE_DOMAIN_FAULT = 4'b1011;
-	localparam [3:0] FSR_PAGE_PERMISSION_FAULT = 4'b1111;
-	localparam [3:0] FSR_L2_EXTERNAL_ABORT = 4'b1110;
-	parameter [3:0] TERMINAL_EXCEPTION = 4'b0010;
-	localparam [3:0] AND = 4'd0;
-	localparam [3:0] EOR = 4'd1;
-	localparam [3:0] SUB = 4'd2;
-	localparam [3:0] RSB = 4'd3;
-	localparam [3:0] ADD = 4'd4;
-	localparam [3:0] ADC = 4'd5;
-	localparam [3:0] SBC = 4'd6;
-	localparam [3:0] RSC = 4'd7;
-	localparam [3:0] TST = 4'd8;
-	localparam [3:0] TEQ = 4'd9;
-	localparam [3:0] CMP = 4'd10;
-	localparam [3:0] CMN = 4'd11;
-	localparam [3:0] ORR = 4'd12;
-	localparam [3:0] MOV = 4'd13;
-	localparam [3:0] BIC = 4'd14;
-	localparam [3:0] MVN = 4'd15;
-	localparam [4:0] MUL = 5'd16;
-	localparam [4:0] MLA = 5'd17;
-	localparam [4:0] FMOV = 5'd18;
-	localparam [4:0] MMOV = 5'd19;
-	localparam [4:0] UMLALL = 5'd20;
-	localparam [4:0] UMLALH = 5'd21;
-	localparam [4:0] SMLALL = 5'd22;
-	localparam [4:0] SMLALH = 5'd23;
-	localparam [4:0] CLZ = 5'd24;
-	localparam [4:0] OP_QADD = 5'd25;
-	localparam [4:0] OP_QSUB = 5'd26;
-	localparam [4:0] OP_QDADD = 5'd27;
-	localparam [4:0] OP_QDSUB = 5'd28;
-	localparam [5:0] SMULW0 = 6'd30;
-	localparam [5:0] SMULW1 = 6'd32;
-	localparam [5:0] SMUL00 = 6'd34;
-	localparam [5:0] SMUL01 = 6'd36;
-	localparam [5:0] SMUL10 = 6'd38;
-	localparam [5:0] SMUL11 = 6'd40;
-	localparam [5:0] SMLA00 = 6'd42;
-	localparam [5:0] SMLA01 = 6'd44;
-	localparam [5:0] SMLA10 = 6'd46;
-	localparam [5:0] SMLA11 = 6'd48;
-	localparam [5:0] SMLAW0 = 6'd50;
-	localparam [5:0] SMLAW1 = 6'd52;
-	localparam [5:0] SMLAL00L = 6'd54;
-	localparam [5:0] SMLAL00H = 6'd55;
-	localparam [5:0] SMLAL01L = 6'd56;
-	localparam [5:0] SMLAL01H = 6'd57;
-	localparam [5:0] SMLAL10L = 6'd58;
-	localparam [5:0] SMLAL10H = 6'd59;
-	localparam [5:0] SMLAL11L = 6'd60;
-	localparam [5:0] SMLAL11H = 6'd61;
-	localparam [5:0] FADD = 6'd62;
-	localparam [5:0] OP_SMULW0 = 6'd30;
-	localparam [5:0] OP_SMULW1 = 6'd32;
-	localparam [5:0] OP_SMUL00 = 6'd34;
-	localparam [5:0] OP_SMUL01 = 6'd36;
-	localparam [5:0] OP_SMUL10 = 6'd38;
-	localparam [5:0] OP_SMUL11 = 6'd40;
-	localparam [5:0] OP_SMLA00 = 6'd42;
-	localparam [5:0] OP_SMLA01 = 6'd44;
-	localparam [5:0] OP_SMLA10 = 6'd46;
-	localparam [5:0] OP_SMLA11 = 6'd48;
-	localparam [5:0] OP_SMLAW0 = 6'd50;
-	localparam [5:0] OP_SMLAW1 = 6'd52;
-	localparam [5:0] OP_SMLAL00L = 6'd54;
-	localparam [5:0] OP_SMLAL00H = 6'd55;
-	localparam [5:0] OP_SMLAL01L = 6'd56;
-	localparam [5:0] OP_SMLAL01H = 6'd57;
-	localparam [5:0] OP_SMLAL10L = 6'd58;
-	localparam [5:0] OP_SMLAL10H = 6'd59;
-	localparam [5:0] OP_SMLAL11L = 6'd60;
-	localparam [5:0] OP_SMLAL11H = 6'd61;
-	localparam [5:0] SAT_MOV = 6'd49;
-	localparam [3:0] EQ = 4'h0;
-	localparam [3:0] NE = 4'h1;
-	localparam [3:0] CS = 4'h2;
-	localparam [3:0] CC = 4'h3;
-	localparam [3:0] MI = 4'h4;
-	localparam [3:0] PL = 4'h5;
-	localparam [3:0] VS = 4'h6;
-	localparam [3:0] VC = 4'h7;
-	localparam [3:0] HI = 4'h8;
-	localparam [3:0] LS = 4'h9;
-	localparam [3:0] GE = 4'ha;
-	localparam [3:0] LT = 4'hb;
-	localparam [3:0] GT = 4'hc;
-	localparam [3:0] LE = 4'hd;
-	localparam [3:0] AL = 4'he;
-	localparam [3:0] NV = 4'hf;
-	localparam [31:0] N = 32'd31;
-	localparam [31:0] Z = 32'd30;
-	localparam [31:0] C = 32'd29;
-	localparam [31:0] V = 32'd28;
-	localparam [31:0] Q = 32'd27;
-	localparam [31:0] I = 32'd7;
-	localparam [31:0] F = 32'd6;
-	localparam [31:0] T = 32'd5;
-	localparam [31:0] ZAP_CPSR_MODE = 32'd4;
-	localparam [0:0] INDEX_EN = 1'd0;
-	localparam [0:0] IMMED_EN = 1'd1;
-	localparam [4:0] FIQ = 5'b10001;
-	localparam [4:0] IRQ = 5'b10010;
-	localparam [4:0] ABT = 5'b10111;
-	localparam [4:0] SVC = 5'b10011;
-	localparam [4:0] USR = 5'b10000;
-	localparam [4:0] SYS = 5'b11111;
-	localparam [4:0] UND = 5'b11011;
-	localparam [31:0] SMLAxy = 32'bzzzz00010000zzzzzzzzzzzz1zz0zzzz;
-	localparam [31:0] SMLAWy = 32'bzzzz00010010zzzzzzzzzzzz1z00zzzz;
-	localparam [31:0] SMLALxy = 32'bzzzz00010100zzzzzzzzzzzz1zz0zzzz;
-	localparam [31:0] SMULWy = 32'bzzzz00010010zzzz0000zzzz1z10zzzz;
-	localparam [31:0] SMULxy = 32'bzzzz00010110zzzz0000zzzz1zz0zzzz;
-	localparam [31:0] CLZ_INSTRUCTION = 32'bzzzz000101101111zzzz11110001zzzz;
-	localparam [31:0] QADD = 32'bzzzz00010000zzzzzzzz00000101zzzz;
-	localparam [31:0] QSUB = 32'bzzzz00010010zzzzzzzz00000101zzzz;
-	localparam [31:0] QDADD = 32'bzzzz00010100zzzzzzzz00000101zzzz;
-	localparam [31:0] QDSUB = 32'bzzzz00010110zzzzzzzz00000101zzzz;
-	localparam [31:0] PLD = 32'b111101z1z101zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] DATA_PROCESSING_IMMEDIATE = 32'bzzzz001zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzz0zz1zzzz;
-	localparam [31:0] DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzzzzz0zzzz;
-	localparam [31:0] BRANCH_INSTRUCTION = 32'bzzzz101zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] MRS = 32'bzzzz00010z001111zzzzzzzzzzzzzzzz;
-	localparam [31:0] MSR_IMMEDIATE = 32'bzzzz00110z10zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] MSR = 32'bzzzz00010z10zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] LS_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz011zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] LS_IMMEDIATE = 32'bzzzz010zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BX_INST = 32'bzzzz000100101111111111110001zzzz;
-	localparam [31:0] MULT_INST = 32'bzzzz000000zzzzzzzzzzzzzz1001zzzz;
-	localparam [31:0] LMULT_INST = 32'bzzzz00001zzzzzzzzzzzzzzz1001zzzz;
-	localparam [31:0] HALFWORD_LS = 32'bzzzz000zzzzzzzzzzzzzzzzz1zz1zzzz;
-	localparam [31:0] SOFTWARE_INTERRUPT = 32'bzzzz1111zzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] SWAP = 32'bzzzz00010z00zzzzzzzz00001001zzzz;
-	localparam [31:0] MCR = 32'bzzzz1110zzz0zzzzzzzz1111zzz1zzzz;
-	localparam [31:0] MCR2 = 32'b11111110zzz0zzzzzzzzzzzzzzz1zzzz;
-	localparam [31:0] MRC = 32'bzzzz1110zzz1zzzzzzzz1111zzz1zzzz;
-	localparam [31:0] MRC2 = 32'b11111110zzz1zzzzzzzzzzzzzzz1zzzz;
-	localparam [31:0] LDC = 32'bzzzz110zzzz1zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] STC = 32'bzzzz110zzzz0zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] LDC2 = 32'b1111110zzzz1zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] STC2 = 32'b1111110zzzz0zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] CDP = 32'bzzzz1110zzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BLX1 = 32'b1111101zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BLX2 = 32'bzzzz000100101111111111110011zzzz;
-	localparam [31:0] BKPT = 32'b111000010010zzzzzzzzzzzz0111zzzz;
-	localparam [15:0] T_BRANCH_COND = 16'b1101zzzzzzzzzzzz;
-	localparam [15:0] T_BRANCH_NOCOND = 16'b11100zzzzzzzzzzz;
-	localparam [15:0] T_BL = 16'b1111zzzzzzzzzzzz;
-	localparam [15:0] T_BLX1 = 16'b11101zzzzzzzzzzz;
-	localparam [15:0] T_BLX2 = 16'b010001111zzzz000;
-	localparam [15:0] T_BX = 16'b010001110zzzz000;
-	localparam [15:0] T_SWI = 16'b11011111zzzzzzzz;
-	localparam [15:0] T_SHIFT = 16'b000zzzzzzzzzzzzz;
-	localparam [15:0] T_ADD_SUB_LO = 16'b00011zzzzzzzzzzz;
-	localparam [15:0] T_MCAS_IMM = 16'b001zzzzzzzzzzzzz;
-	localparam [15:0] T_ALU_LO = 16'b010000zzzzzzzzzz;
-	localparam [15:0] T_ALU_HI = 16'b010001zzzzzzzzzz;
-	localparam [15:0] T_GET_ADDR = 16'b1010zzzzzzzzzzzz;
-	localparam [15:0] T_MOD_SP = 16'b10110000zzzzzzzz;
-	localparam [15:0] T_PC_REL_LOAD = 16'b01001zzzzzzzzzzz;
-	localparam [15:0] T_LDR_STR_5BIT_OFF = 16'b011zzzzzzzzzzzzz;
-	localparam [15:0] T_LDRH_STRH_5BIT_OFF = 16'b1000zzzzzzzzzzzz;
-	localparam [15:0] T_LDRH_STRH_REG = 16'b0101zzzzzzzzzzzz;
-	localparam [15:0] T_SP_REL_LDR_STR = 16'b1001zzzzzzzzzzzz;
-	localparam [15:0] T_LDMIA_STMIA = 16'b1100zzzzzzzzzzzz;
-	localparam [15:0] T_POP_PUSH = 16'b1011z10zzzzzzzzz;
-	localparam [15:0] T_BKPT = 16'b10111110zzzzzzzz;
-	localparam [31:0] TOTAL_ARCH_REGS = 28;
-	localparam [3:0] ARCH_SP = 13;
-	localparam [3:0] ARCH_LR = 14;
-	localparam [3:0] ARCH_PC = 15;
-	localparam [4:0] RAZ_REGISTER = 16;
-	localparam [4:0] ARCH_USR2_R8 = 18;
-	localparam [4:0] ARCH_USR2_R9 = 19;
-	localparam [4:0] ARCH_USR2_R10 = 20;
-	localparam [4:0] ARCH_USR2_R11 = 21;
-	localparam [4:0] ARCH_USR2_R12 = 22;
-	localparam [4:0] ARCH_USR2_R13 = 23;
-	localparam [4:0] ARCH_USR2_R14 = 24;
-	localparam [4:0] ARCH_DUMMY_REG0 = 25;
-	localparam [4:0] ARCH_DUMMY_REG1 = 26;
-	localparam [4:0] ARCH_CPSR = 17;
-	localparam [4:0] ARCH_CURR_SPSR = 27;
-	localparam [31:0] TOTAL_PHY_REGS = 40;
-	localparam [5:0] PHY_PC = 15;
-	localparam [5:0] PHY_RAZ_REGISTER = 16;
-	localparam [5:0] PHY_CPSR = 17;
-	localparam [5:0] PHY_USR_R0 = 0;
-	localparam [5:0] PHY_USR_R1 = 1;
-	localparam [5:0] PHY_USR_R2 = 2;
-	localparam [5:0] PHY_USR_R3 = 3;
-	localparam [5:0] PHY_USR_R4 = 4;
-	localparam [5:0] PHY_USR_R5 = 5;
-	localparam [5:0] PHY_USR_R6 = 6;
-	localparam [5:0] PHY_USR_R7 = 7;
-	localparam [5:0] PHY_USR_R8 = 8;
-	localparam [5:0] PHY_USR_R9 = 9;
-	localparam [5:0] PHY_USR_R10 = 10;
-	localparam [5:0] PHY_USR_R11 = 11;
-	localparam [5:0] PHY_USR_R12 = 12;
-	localparam [5:0] PHY_USR_R13 = 13;
-	localparam [5:0] PHY_USR_R14 = 14;
-	localparam [5:0] PHY_FIQ_R8 = 18;
-	localparam [5:0] PHY_FIQ_R9 = 19;
-	localparam [5:0] PHY_FIQ_R10 = 20;
-	localparam [5:0] PHY_FIQ_R11 = 21;
-	localparam [5:0] PHY_FIQ_R12 = 22;
-	localparam [5:0] PHY_FIQ_R13 = 23;
-	localparam [5:0] PHY_FIQ_R14 = 24;
-	localparam [5:0] PHY_IRQ_R13 = 25;
-	localparam [5:0] PHY_IRQ_R14 = 26;
-	localparam [5:0] PHY_SVC_R13 = 27;
-	localparam [5:0] PHY_SVC_R14 = 28;
-	localparam [5:0] PHY_UND_R13 = 29;
-	localparam [5:0] PHY_UND_R14 = 30;
-	localparam [5:0] PHY_ABT_R13 = 31;
-	localparam [5:0] PHY_ABT_R14 = 32;
-	localparam [5:0] PHY_DUMMY_REG0 = 33;
-	localparam [5:0] PHY_DUMMY_REG1 = 34;
-	localparam [5:0] PHY_FIQ_SPSR = 35;
-	localparam [5:0] PHY_IRQ_SPSR = 36;
-	localparam [5:0] PHY_SVC_SPSR = 37;
-	localparam [5:0] PHY_UND_SPSR = 38;
-	localparam [5:0] PHY_ABT_SPSR = 39;
-	localparam [1:0] LSL = 0;
-	localparam [1:0] LSR = 1;
-	localparam [1:0] ASR = 2;
-	localparam [1:0] ROR = 3;
-	localparam [2:0] RRC = 4;
-	localparam [2:0] RORI = 5;
-	localparam [2:0] ROR_1 = 6;
-	localparam [2:0] LSL_SAT = 7;
-	localparam [2:0] CTI_BURST = 3'b010;
-	localparam [2:0] CTI_EOB = 3'b111;
-	localparam [31:0] RST_VECTOR = 32'h00000000;
-	localparam [31:0] UND_VECTOR = 32'h00000004;
-	localparam [31:0] SWI_VECTOR = 32'h00000008;
-	localparam [31:0] PABT_VECTOR = 32'h0000000c;
-	localparam [31:0] DABT_VECTOR = 32'h00000010;
-	localparam [31:0] IRQ_VECTOR = 32'h00000018;
-	localparam [31:0] FIQ_VECTOR = 32'h0000001c;
-	localparam [1:0] SNT = 2'b00;
-	localparam [1:0] WNT = 2'b01;
-	localparam [1:0] WT = 2'b10;
-	localparam [1:0] ST = 2'b11;
-	localparam [31:0] ZAP_SRCDEST_EXTEND = 32'd32;
-	localparam [31:0] ZAP_DP_RB_EXTEND = 32'd32;
-	localparam [31:0] ZAP_BASE_EXTEND = 32'd33;
-	localparam [31:0] ZAP_DP_RD_EXTEND = 32'd33;
-	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
-	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
-	localparam [2:0] SELECT_CCH = 3'b001;
-	localparam [2:0] SELECT_TAG = 3'b010;
-	localparam [2:0] SELECT_TLB = 3'b100;
-	wire [2:0] wb_stb;
-	wire [2:0] wb_cyc;
-	wire [2:0] wb_wen;
-	wire [3:0] wb_sel [2:0];
-	wire [31:0] wb_dat [2:0];
-	wire [31:0] wb_adr [2:0];
-	wire [2:0] wb_cti [2:0];
-	wire [31:0] tlb_phy_addr;
-	wire [7:0] tlb_fsr;
-	wire [31:0] tlb_far;
-	wire tlb_fault;
-	wire tlb_cacheable;
-	wire tlb_busy;
-	wire [(CACHE_LINE * 8) - 1:0] tr_cache_line;
-	wire [(WAYS * 32) - 1:0] tr_cache_words;
-	wire tr_cache_word_sel;
-	wire [(CACHE_LINE * 8) - 1:0] cf_cache_line;
-	wire [CACHE_LINE - 1:0] cf_cache_line_ben;
-	wire cf_cache_tag_wr_en;
-	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tr_cache_tag;
-	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cf_cache_tag;
-	wire tr_cache_tag_valid;
-	wire tr_cache_hit;
-	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] tr_cache_way;
-	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] cf_cache_way;
-	wire tr_cache_tag_dirty;
-	wire cf_cache_tag_dirty;
-	wire cf_cache_clean_req;
-	wire cf_cache_inv_req;
-	wire tr_cache_inv_done;
-	wire tr_cache_clean_done;
-	reg [2:0] wb_ack;
-	reg [2:0] state_ff;
-	reg [2:0] state_nxt;
-	wire [31:0] cache_address;
-	wire hold;
-	wire idle;
-	reg [2:0] wb_err;
-	wire unused;
-	assign wb_cti[2] = CTI_EOB;
-	assign unused = |{wb_err[1]};
-	zap_cache_fsm #(
-		.CACHE_SIZE(CACHE_SIZE),
-		.CACHE_LINE(CACHE_LINE),
-		.WAYS(WAYS)
-	) u_zap_cache_fsm(
-		.i_clk(i_clk),
-		.i_reset(i_reset),
-		.i_address(i_address),
-		.i_address_check(i_address_check),
-		.i_stall(i_stall),
-		.i_rd(i_rd),
-		.i_wr(i_wr),
-		.i_din(i_dat),
-		.o_idle(idle),
-		.i_ben(i_ben),
-		.o_dat(o_dat),
-		.o_ack(o_ack),
-		.o_err(o_err),
-		.o_fsr(o_fsr),
-		.o_far(o_far),
-		.i_cache_en(i_cache_en),
-		.i_cache_inv(i_cache_inv_req),
-		.i_cache_clean(i_cache_clean_req),
-		.o_cache_inv_done(o_cache_inv_done),
-		.o_cache_clean_done(o_cache_clean_done),
-		.i_cache_line(tr_cache_line),
-		.i_cache_words(tr_cache_words),
-		.i_cache_word_sel(tr_cache_word_sel),
-		.i_cache_tag_dirty(tr_cache_tag_dirty),
-		.i_cache_tag(tr_cache_tag),
-		.i_cache_tag_valid(tr_cache_tag_valid),
-		.i_cache_hit(tr_cache_hit),
-		.i_cache_way(tr_cache_way),
-		.o_cache_way(cf_cache_way),
-		.o_cache_tag(cf_cache_tag),
-		.o_cache_tag_dirty(cf_cache_tag_dirty),
-		.o_cache_tag_wr_en(cf_cache_tag_wr_en),
-		.o_cache_line(cf_cache_line),
-		.o_cache_line_ben(cf_cache_line_ben),
-		.o_cache_clean_req(cf_cache_clean_req),
-		.i_cache_clean_done(tr_cache_clean_done),
-		.o_cache_inv_req(cf_cache_inv_req),
-		.i_cache_inv_done(tr_cache_inv_done),
-		.i_phy_addr(tlb_phy_addr),
-		.i_fsr(tlb_fsr),
-		.i_far(tlb_far),
-		.i_fault(tlb_fault),
-		.i_cacheable(tlb_cacheable),
-		.i_busy(tlb_busy),
-		.o_err2(o_err2),
-		.o_fill_pending(o_fill_pending),
-		.o_fill_done(o_fill_done),
-		.o_fill_fault(o_fill_fault),
-		.o_address(cache_address),
-		.o_wb_cyc_nxt(wb_cyc[0]),
-		.o_hold(hold),
-		.o_wb_cyc_ff(),
-		.o_wb_stb_ff(),
-		.o_wb_adr_ff(),
-		.o_wb_dat_ff(),
-		.o_wb_sel_ff(),
-		.o_wb_wen_ff(),
-		.o_wb_cti_ff(),
-		.o_wb_stb_nxt(wb_stb[0]),
-		.o_wb_adr_nxt(wb_adr[0]),
-		.o_wb_dat_nxt(wb_dat[0]),
-		.o_wb_sel_nxt(wb_sel[0]),
-		.o_wb_wen_nxt(wb_wen[0]),
-		.o_wb_cti_nxt(wb_cti[0]),
-		.i_wb_dat(i_wb_dat),
-		.i_wb_ack(wb_ack[0]),
-		.i_wb_err(wb_err[0])
-	);
-	localparam [31:0] sv2v_uu_u_zap_cache_tag_ram_WAYS = WAYS;
-	localparam [(sv2v_uu_u_zap_cache_tag_ram_WAYS > 1 ? $clog2(sv2v_uu_u_zap_cache_tag_ram_WAYS) : 1) - 1:0] sv2v_uu_u_zap_cache_tag_ram_ext_i_line_way_0 = 1'sb0;
-	zap_cache_tag_ram #(
-		.CACHE_SIZE(CACHE_SIZE),
-		.CACHE_LINE(CACHE_LINE),
-		.WAYS(WAYS)
-	) u_zap_cache_tag_ram(
-		.i_clk(i_clk),
-		.i_reset(i_reset),
-		.i_address_nxt(i_address_nxt),
-		.i_address(cache_address),
-		.i_lookup_address(i_address),
-		.i_access(i_rd || i_wr),
-		.i_idle(idle),
-		.o_cache_hit(tr_cache_hit),
-		.o_cache_hit_dirty(),
-		.o_cache_way(tr_cache_way),
-		.i_cache_way(cf_cache_way),
-		.i_hold(hold || i_stall),
-		.i_cache_en(i_cache_en),
-		.i_cache_line(cf_cache_line),
-		.o_cache_line(tr_cache_line),
-		.o_cache_words(tr_cache_words),
-		.o_cache_word_sel(tr_cache_word_sel),
-		.i_cache_line_ben(cf_cache_line_ben),
-		.i_cache_tag_wr_en(cf_cache_tag_wr_en),
-		.i_cache_tag(cf_cache_tag),
-		.i_cache_tag_dirty(cf_cache_tag_dirty),
-		.o_cache_tag(tr_cache_tag),
-		.o_cache_tag_valid(tr_cache_tag_valid),
-		.o_cache_tag_dirty(tr_cache_tag_dirty),
-		.i_cache_inv_req(cf_cache_inv_req),
-		.o_cache_inv_done(tr_cache_inv_done),
-		.i_cache_clean_req(cf_cache_clean_req),
-		.o_cache_clean_done(tr_cache_clean_done),
-		.i_line_req(1'd0),
-		.i_line_op(2'd0),
-		.i_line_va(1'd0),
-		.i_line_addr(32'd0),
-		.i_line_way(sv2v_uu_u_zap_cache_tag_ram_ext_i_line_way_0),
-		.o_line_done(),
-		.o_wb_cyc_ff(),
-		.o_wb_stb_ff(),
-		.o_wb_adr_ff(),
-		.o_wb_dat_ff(),
-		.o_wb_sel_ff(),
-		.o_wb_wen_ff(),
-		.o_wb_cti_ff(),
-		.o_wb_cyc_nxt(wb_cyc[1]),
-		.o_wb_stb_nxt(wb_stb[1]),
-		.o_wb_adr_nxt(wb_adr[1]),
-		.o_wb_dat_nxt(wb_dat[1]),
-		.o_wb_sel_nxt(wb_sel[1]),
-		.o_wb_wen_nxt(wb_wen[1]),
-		.o_wb_cti_nxt(wb_cti[1]),
-		.i_wb_dat(i_wb_dat),
-		.i_wb_ack(wb_ack[1])
-	);
-	zap_tlb #(
-		.LPAGE_TLB_ENTRIES(LPAGE_TLB_ENTRIES),
-		.SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
-		.SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
-		.FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES),
-		.CPSR_MODE(ZAP_CPSR_MODE),
-		.MMU_OFF_CACHEABLE(1'd1)
-	) u_zap_tlb(
-		.i_clk(i_clk),
-		.i_reset(i_reset),
-		.i_address(i_address),
-		.i_address_nxt(i_address_nxt),
-		.i_address_check(i_address_check),
-		.i_idle(idle),
-		.i_wr_check(i_wr_check),
-		.i_rd_check(i_rd_check),
-		.i_hold(hold || i_stall),
-		.i_cpsr(i_cpsr),
-		.i_sr(i_sr),
-		.i_dac_reg(i_dac_reg),
-		.i_baddr(i_baddr),
-		.i_mmu_en(i_mmu_en),
-		.i_inv(i_tlb_inv),
-		.o_phy_addr(tlb_phy_addr),
-		.o_fsr(tlb_fsr),
-		.o_far(tlb_far),
-		.o_fault(tlb_fault),
-		.o_wt(),
-		.o_cacheable(tlb_cacheable),
-		.o_busy(tlb_busy),
-		.o_wb_stb_nxt(wb_stb[2]),
-		.o_wb_cyc_nxt(wb_cyc[2]),
-		.o_wb_adr_nxt(wb_adr[2]),
-		.o_wb_wen_nxt(wb_wen[2]),
-		.o_wb_sel_nxt(wb_sel[2]),
-		.o_wb_dat_nxt(wb_dat[2]),
-		.i_wb_dat(i_wb_dat),
-		.i_wb_ack(wb_ack[2]),
-		.i_wb_err(wb_err[2])
-	);
-	always @(posedge i_clk)
-		if (i_reset) begin
-			state_ff <= SELECT_CCH;
-			o_wb_stb <= 1'd0;
-			o_wb_cyc <= 1'd0;
-			o_wb_adr <= 1'sbx;
-			o_wb_cti <= CTI_EOB;
-			o_wb_sel <= 1'sbx;
-			o_wb_dat <= 1'sbx;
-			o_wb_wen <= 1'sbx;
-		end
-		else begin
-			state_ff <= state_nxt;
-			o_wb_stb <= o_wb_stb_nxt;
-			o_wb_cyc <= o_wb_cyc_nxt;
-			o_wb_adr <= o_wb_adr_nxt;
-			o_wb_cti <= o_wb_cti_nxt;
-			o_wb_sel <= o_wb_sel_nxt;
-			o_wb_dat <= o_wb_dat_nxt;
-			o_wb_wen <= o_wb_wen_nxt;
-		end
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		if (!o_wb_stb || (o_wb_stb && i_wb_ack))
-			casez ({wb_cyc[2], wb_cyc[1], wb_cyc[0]})
-				3'b1zz: state_nxt = SELECT_TLB;
-				3'b01z: state_nxt = SELECT_TAG;
-				3'b001: state_nxt = SELECT_CCH;
-				default: state_nxt = state_ff;
-			endcase
-		else
-			state_nxt = state_ff;
-	end
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		case (state_ff)
-			SELECT_CCH: {wb_err, wb_ack} = {2'd0, i_wb_err, 2'd0, i_wb_ack};
-			SELECT_TAG: {wb_err, wb_ack} = {1'd0, i_wb_err, 2'd0, i_wb_ack, 1'd0};
-			SELECT_TLB: {wb_err, wb_ack} = {i_wb_err, 2'd0, i_wb_ack, 2'd0};
-			default: {wb_err, wb_ack} = {6 {1'bx}};
-		endcase
-	end
-	assign o_wb_cyc_nxt = (!o_wb_stb || (o_wb_stb && i_wb_ack) ? |wb_cyc : |(state_ff & wb_cyc));
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		case (state_nxt)
-			SELECT_CCH: begin
-				o_wb_stb_nxt = wb_stb[0];
-				o_wb_adr_nxt = wb_adr[0];
-				o_wb_dat_nxt = wb_dat[0];
-				o_wb_cti_nxt = wb_cti[0];
-				o_wb_sel_nxt = wb_sel[0];
-				o_wb_wen_nxt = wb_wen[0];
-			end
-			SELECT_TAG: begin
-				o_wb_stb_nxt = wb_stb[1];
-				o_wb_adr_nxt = wb_adr[1];
-				o_wb_dat_nxt = wb_dat[1];
-				o_wb_cti_nxt = wb_cti[1];
-				o_wb_sel_nxt = wb_sel[1];
-				o_wb_wen_nxt = wb_wen[1];
-			end
-			SELECT_TLB: begin
-				o_wb_stb_nxt = wb_stb[2];
-				o_wb_adr_nxt = wb_adr[2];
-				o_wb_dat_nxt = wb_dat[2];
-				o_wb_cti_nxt = wb_cti[2];
-				o_wb_sel_nxt = wb_sel[2];
-				o_wb_wen_nxt = wb_wen[2];
-			end
-			default: begin
-				o_wb_stb_nxt = 1'sbx;
-				o_wb_adr_nxt = 1'sbx;
-				o_wb_dat_nxt = 1'sbx;
-				o_wb_cti_nxt = 1'sbx;
-				o_wb_sel_nxt = 1'sbx;
-				o_wb_wen_nxt = 1'sbx;
 			end
 		endcase
 	end
@@ -7210,6 +7210,763 @@ module zap_cp15_cb (
 	assign o_wfi = state == WFI;
 	initial _sv2v_0 = 0;
 endmodule
+module zap_dcache (
+	i_clk,
+	i_reset,
+	i_stall,
+	i_address_check,
+	i_wr_check,
+	i_rd_check,
+	i_address,
+	i_address_nxt,
+	i_rd,
+	i_wr,
+	i_ben,
+	i_dat,
+	i_align_fault,
+	i_va,
+	i_ldfmt,
+	o_dat,
+	o_ack,
+	o_err,
+	o_fsr,
+	o_far,
+	o_err2,
+	i_reg_idx,
+	i_reg_idx_bin,
+	o_lock,
+	o_reg_dat,
+	o_reg_idx,
+	i_mmu_en,
+	i_cache_en,
+	i_cache_inv_req,
+	i_cache_clean_req,
+	o_cache_inv_done,
+	o_cache_clean_done,
+	i_line_req,
+	i_line_op,
+	i_line_va,
+	i_line_addr,
+	i_line_way,
+	o_line_done,
+	i_cpsr,
+	i_sr,
+	i_baddr,
+	i_dac_reg,
+	i_tlb_inv,
+	o_wb_stb,
+	o_wb_stb_nxt,
+	o_wb_cyc,
+	o_wb_cyc_nxt,
+	o_wb_wen,
+	o_wb_wen_nxt,
+	o_wb_sel,
+	o_wb_sel_nxt,
+	o_wb_dat,
+	o_wb_dat_nxt,
+	o_wb_adr,
+	o_wb_adr_nxt,
+	o_wb_cti,
+	o_wb_cti_nxt,
+	o_wb_bte,
+	o_wb_bte_nxt,
+	i_wb_dat,
+	i_wb_ack,
+	i_wb_err
+);
+	reg _sv2v_0;
+	parameter [31:0] CACHE_SIZE = 32'd1024;
+	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
+	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
+	parameter [31:0] SECTION_TLB_ENTRIES = 32'd8;
+	parameter [31:0] FPAGE_TLB_ENTRIES = 32'd8;
+	parameter [31:0] CACHE_LINE = 32'd8;
+	parameter [0:0] BE_32_ENABLE = 1'd0;
+	parameter [3:0] EXT_ABORT_FS = 4'b0010;
+	parameter [31:0] WAYS = 32'd1;
+	parameter [31:0] CPSR_MODE = 32'd4;
+	input wire i_clk;
+	input wire i_reset;
+	input wire i_stall;
+	input wire [31:0] i_address_check;
+	input wire i_wr_check;
+	input wire i_rd_check;
+	input wire [31:0] i_address;
+	input wire [31:0] i_address_nxt;
+	input wire i_rd;
+	input wire i_wr;
+	input wire [3:0] i_ben;
+	input wire [31:0] i_dat;
+	input wire i_align_fault;
+	input wire [31:0] i_va;
+	input wire [5:0] i_ldfmt;
+	output wire [31:0] o_dat;
+	output wire o_ack;
+	output wire o_err;
+	output wire [7:0] o_fsr;
+	output wire [31:0] o_far;
+	output wire o_err2;
+	input wire [63:0] i_reg_idx;
+	input wire [5:0] i_reg_idx_bin;
+	output wire [63:0] o_lock;
+	output wire [31:0] o_reg_dat;
+	output wire [63:0] o_reg_idx;
+	input wire i_mmu_en;
+	input wire i_cache_en;
+	input wire i_cache_inv_req;
+	input wire i_cache_clean_req;
+	output wire o_cache_inv_done;
+	output wire o_cache_clean_done;
+	input wire i_line_req;
+	input wire [1:0] i_line_op;
+	input wire i_line_va;
+	input wire [31:0] i_line_addr;
+	input wire i_line_way;
+	output wire o_line_done;
+	input wire [CPSR_MODE:0] i_cpsr;
+	input wire [1:0] i_sr;
+	input wire [31:0] i_baddr;
+	input wire [31:0] i_dac_reg;
+	input wire i_tlb_inv;
+	output reg o_wb_stb;
+	output reg o_wb_stb_nxt;
+	output reg o_wb_cyc;
+	output wire o_wb_cyc_nxt;
+	output reg o_wb_wen;
+	output reg o_wb_wen_nxt;
+	output reg [3:0] o_wb_sel;
+	output reg [3:0] o_wb_sel_nxt;
+	output reg [31:0] o_wb_dat;
+	output reg [31:0] o_wb_dat_nxt;
+	output reg [31:0] o_wb_adr;
+	output reg [31:0] o_wb_adr_nxt;
+	output reg [2:0] o_wb_cti;
+	output reg [2:0] o_wb_cti_nxt;
+	output reg [1:0] o_wb_bte;
+	output reg [1:0] o_wb_bte_nxt;
+	input wire [31:0] i_wb_dat;
+	input wire i_wb_ack;
+	input wire i_wb_err;
+	localparam [1:0] SECTION_ID = 2'b10;
+	localparam [1:0] PAGE_ID = 2'b01;
+	localparam [1:0] FINE_ID = 2'b11;
+	localparam [1:0] SPAGE_ID = 2'b10;
+	localparam [1:0] LPAGE_ID = 2'b01;
+	localparam [1:0] FPAGE_ID = 2'b11;
+	localparam [3:0] APSR_NA_NA = 4'b0000;
+	localparam [3:0] APSR_RO_RO = 4'b0001;
+	localparam [3:0] APSR_RO_NA = 4'b0010;
+	localparam [3:0] APSR_RW_NA = 4'b01zz;
+	localparam [3:0] APSR_RW_RO = 4'b10zz;
+	localparam [3:0] APSR_RW_RW = 4'b11zz;
+	localparam [1:0] DAC_MANAGER = 2'b11;
+	localparam [1:0] DAC_CLIENT = 2'b01;
+	localparam [3:0] FSR_SECTION_DOMAIN_FAULT = 4'b1001;
+	localparam [3:0] FSR_SECTION_TRANSLATION_FAULT = 4'b0101;
+	localparam [3:0] FSR_SECTION_PERMISSION_FAULT = 4'b1101;
+	localparam [3:0] FSR_L1_EXTERNAL_ABORT = 4'b1100;
+	localparam [3:0] FSR_PAGE_TRANSLATION_FAULT = 4'b0111;
+	localparam [3:0] FSR_PAGE_DOMAIN_FAULT = 4'b1011;
+	localparam [3:0] FSR_PAGE_PERMISSION_FAULT = 4'b1111;
+	localparam [3:0] FSR_L2_EXTERNAL_ABORT = 4'b1110;
+	parameter [3:0] TERMINAL_EXCEPTION = 4'b0010;
+	localparam [3:0] AND = 4'd0;
+	localparam [3:0] EOR = 4'd1;
+	localparam [3:0] SUB = 4'd2;
+	localparam [3:0] RSB = 4'd3;
+	localparam [3:0] ADD = 4'd4;
+	localparam [3:0] ADC = 4'd5;
+	localparam [3:0] SBC = 4'd6;
+	localparam [3:0] RSC = 4'd7;
+	localparam [3:0] TST = 4'd8;
+	localparam [3:0] TEQ = 4'd9;
+	localparam [3:0] CMP = 4'd10;
+	localparam [3:0] CMN = 4'd11;
+	localparam [3:0] ORR = 4'd12;
+	localparam [3:0] MOV = 4'd13;
+	localparam [3:0] BIC = 4'd14;
+	localparam [3:0] MVN = 4'd15;
+	localparam [4:0] MUL = 5'd16;
+	localparam [4:0] MLA = 5'd17;
+	localparam [4:0] FMOV = 5'd18;
+	localparam [4:0] MMOV = 5'd19;
+	localparam [4:0] UMLALL = 5'd20;
+	localparam [4:0] UMLALH = 5'd21;
+	localparam [4:0] SMLALL = 5'd22;
+	localparam [4:0] SMLALH = 5'd23;
+	localparam [4:0] CLZ = 5'd24;
+	localparam [4:0] OP_QADD = 5'd25;
+	localparam [4:0] OP_QSUB = 5'd26;
+	localparam [4:0] OP_QDADD = 5'd27;
+	localparam [4:0] OP_QDSUB = 5'd28;
+	localparam [5:0] SMULW0 = 6'd30;
+	localparam [5:0] SMULW1 = 6'd32;
+	localparam [5:0] SMUL00 = 6'd34;
+	localparam [5:0] SMUL01 = 6'd36;
+	localparam [5:0] SMUL10 = 6'd38;
+	localparam [5:0] SMUL11 = 6'd40;
+	localparam [5:0] SMLA00 = 6'd42;
+	localparam [5:0] SMLA01 = 6'd44;
+	localparam [5:0] SMLA10 = 6'd46;
+	localparam [5:0] SMLA11 = 6'd48;
+	localparam [5:0] SMLAW0 = 6'd50;
+	localparam [5:0] SMLAW1 = 6'd52;
+	localparam [5:0] SMLAL00L = 6'd54;
+	localparam [5:0] SMLAL00H = 6'd55;
+	localparam [5:0] SMLAL01L = 6'd56;
+	localparam [5:0] SMLAL01H = 6'd57;
+	localparam [5:0] SMLAL10L = 6'd58;
+	localparam [5:0] SMLAL10H = 6'd59;
+	localparam [5:0] SMLAL11L = 6'd60;
+	localparam [5:0] SMLAL11H = 6'd61;
+	localparam [5:0] FADD = 6'd62;
+	localparam [5:0] OP_SMULW0 = 6'd30;
+	localparam [5:0] OP_SMULW1 = 6'd32;
+	localparam [5:0] OP_SMUL00 = 6'd34;
+	localparam [5:0] OP_SMUL01 = 6'd36;
+	localparam [5:0] OP_SMUL10 = 6'd38;
+	localparam [5:0] OP_SMUL11 = 6'd40;
+	localparam [5:0] OP_SMLA00 = 6'd42;
+	localparam [5:0] OP_SMLA01 = 6'd44;
+	localparam [5:0] OP_SMLA10 = 6'd46;
+	localparam [5:0] OP_SMLA11 = 6'd48;
+	localparam [5:0] OP_SMLAW0 = 6'd50;
+	localparam [5:0] OP_SMLAW1 = 6'd52;
+	localparam [5:0] OP_SMLAL00L = 6'd54;
+	localparam [5:0] OP_SMLAL00H = 6'd55;
+	localparam [5:0] OP_SMLAL01L = 6'd56;
+	localparam [5:0] OP_SMLAL01H = 6'd57;
+	localparam [5:0] OP_SMLAL10L = 6'd58;
+	localparam [5:0] OP_SMLAL10H = 6'd59;
+	localparam [5:0] OP_SMLAL11L = 6'd60;
+	localparam [5:0] OP_SMLAL11H = 6'd61;
+	localparam [5:0] SAT_MOV = 6'd49;
+	localparam [3:0] EQ = 4'h0;
+	localparam [3:0] NE = 4'h1;
+	localparam [3:0] CS = 4'h2;
+	localparam [3:0] CC = 4'h3;
+	localparam [3:0] MI = 4'h4;
+	localparam [3:0] PL = 4'h5;
+	localparam [3:0] VS = 4'h6;
+	localparam [3:0] VC = 4'h7;
+	localparam [3:0] HI = 4'h8;
+	localparam [3:0] LS = 4'h9;
+	localparam [3:0] GE = 4'ha;
+	localparam [3:0] LT = 4'hb;
+	localparam [3:0] GT = 4'hc;
+	localparam [3:0] LE = 4'hd;
+	localparam [3:0] AL = 4'he;
+	localparam [3:0] NV = 4'hf;
+	localparam [31:0] N = 32'd31;
+	localparam [31:0] Z = 32'd30;
+	localparam [31:0] C = 32'd29;
+	localparam [31:0] V = 32'd28;
+	localparam [31:0] Q = 32'd27;
+	localparam [31:0] I = 32'd7;
+	localparam [31:0] F = 32'd6;
+	localparam [31:0] T = 32'd5;
+	localparam [31:0] ZAP_CPSR_MODE = 32'd4;
+	localparam [0:0] INDEX_EN = 1'd0;
+	localparam [0:0] IMMED_EN = 1'd1;
+	localparam [4:0] FIQ = 5'b10001;
+	localparam [4:0] IRQ = 5'b10010;
+	localparam [4:0] ABT = 5'b10111;
+	localparam [4:0] SVC = 5'b10011;
+	localparam [4:0] USR = 5'b10000;
+	localparam [4:0] SYS = 5'b11111;
+	localparam [4:0] UND = 5'b11011;
+	localparam [31:0] SMLAxy = 32'bzzzz00010000zzzzzzzzzzzz1zz0zzzz;
+	localparam [31:0] SMLAWy = 32'bzzzz00010010zzzzzzzzzzzz1z00zzzz;
+	localparam [31:0] SMLALxy = 32'bzzzz00010100zzzzzzzzzzzz1zz0zzzz;
+	localparam [31:0] SMULWy = 32'bzzzz00010010zzzz0000zzzz1z10zzzz;
+	localparam [31:0] SMULxy = 32'bzzzz00010110zzzz0000zzzz1zz0zzzz;
+	localparam [31:0] CLZ_INSTRUCTION = 32'bzzzz000101101111zzzz11110001zzzz;
+	localparam [31:0] QADD = 32'bzzzz00010000zzzzzzzz00000101zzzz;
+	localparam [31:0] QSUB = 32'bzzzz00010010zzzzzzzz00000101zzzz;
+	localparam [31:0] QDADD = 32'bzzzz00010100zzzzzzzz00000101zzzz;
+	localparam [31:0] QDSUB = 32'bzzzz00010110zzzzzzzz00000101zzzz;
+	localparam [31:0] PLD = 32'b111101z1z101zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] DATA_PROCESSING_IMMEDIATE = 32'bzzzz001zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzz0zz1zzzz;
+	localparam [31:0] DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzzzzz0zzzz;
+	localparam [31:0] BRANCH_INSTRUCTION = 32'bzzzz101zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] MRS = 32'bzzzz00010z001111zzzzzzzzzzzzzzzz;
+	localparam [31:0] MSR_IMMEDIATE = 32'bzzzz00110z10zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] MSR = 32'bzzzz00010z10zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] LS_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz011zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] LS_IMMEDIATE = 32'bzzzz010zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BX_INST = 32'bzzzz000100101111111111110001zzzz;
+	localparam [31:0] MULT_INST = 32'bzzzz000000zzzzzzzzzzzzzz1001zzzz;
+	localparam [31:0] LMULT_INST = 32'bzzzz00001zzzzzzzzzzzzzzz1001zzzz;
+	localparam [31:0] HALFWORD_LS = 32'bzzzz000zzzzzzzzzzzzzzzzz1zz1zzzz;
+	localparam [31:0] SOFTWARE_INTERRUPT = 32'bzzzz1111zzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] SWAP = 32'bzzzz00010z00zzzzzzzz00001001zzzz;
+	localparam [31:0] MCR = 32'bzzzz1110zzz0zzzzzzzz1111zzz1zzzz;
+	localparam [31:0] MCR2 = 32'b11111110zzz0zzzzzzzzzzzzzzz1zzzz;
+	localparam [31:0] MRC = 32'bzzzz1110zzz1zzzzzzzz1111zzz1zzzz;
+	localparam [31:0] MRC2 = 32'b11111110zzz1zzzzzzzzzzzzzzz1zzzz;
+	localparam [31:0] LDC = 32'bzzzz110zzzz1zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] STC = 32'bzzzz110zzzz0zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] LDC2 = 32'b1111110zzzz1zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] STC2 = 32'b1111110zzzz0zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] CDP = 32'bzzzz1110zzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BLX1 = 32'b1111101zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BLX2 = 32'bzzzz000100101111111111110011zzzz;
+	localparam [31:0] BKPT = 32'b111000010010zzzzzzzzzzzz0111zzzz;
+	localparam [15:0] T_BRANCH_COND = 16'b1101zzzzzzzzzzzz;
+	localparam [15:0] T_BRANCH_NOCOND = 16'b11100zzzzzzzzzzz;
+	localparam [15:0] T_BL = 16'b1111zzzzzzzzzzzz;
+	localparam [15:0] T_BLX1 = 16'b11101zzzzzzzzzzz;
+	localparam [15:0] T_BLX2 = 16'b010001111zzzz000;
+	localparam [15:0] T_BX = 16'b010001110zzzz000;
+	localparam [15:0] T_SWI = 16'b11011111zzzzzzzz;
+	localparam [15:0] T_SHIFT = 16'b000zzzzzzzzzzzzz;
+	localparam [15:0] T_ADD_SUB_LO = 16'b00011zzzzzzzzzzz;
+	localparam [15:0] T_MCAS_IMM = 16'b001zzzzzzzzzzzzz;
+	localparam [15:0] T_ALU_LO = 16'b010000zzzzzzzzzz;
+	localparam [15:0] T_ALU_HI = 16'b010001zzzzzzzzzz;
+	localparam [15:0] T_GET_ADDR = 16'b1010zzzzzzzzzzzz;
+	localparam [15:0] T_MOD_SP = 16'b10110000zzzzzzzz;
+	localparam [15:0] T_PC_REL_LOAD = 16'b01001zzzzzzzzzzz;
+	localparam [15:0] T_LDR_STR_5BIT_OFF = 16'b011zzzzzzzzzzzzz;
+	localparam [15:0] T_LDRH_STRH_5BIT_OFF = 16'b1000zzzzzzzzzzzz;
+	localparam [15:0] T_LDRH_STRH_REG = 16'b0101zzzzzzzzzzzz;
+	localparam [15:0] T_SP_REL_LDR_STR = 16'b1001zzzzzzzzzzzz;
+	localparam [15:0] T_LDMIA_STMIA = 16'b1100zzzzzzzzzzzz;
+	localparam [15:0] T_POP_PUSH = 16'b1011z10zzzzzzzzz;
+	localparam [15:0] T_BKPT = 16'b10111110zzzzzzzz;
+	localparam [31:0] TOTAL_ARCH_REGS = 28;
+	localparam [3:0] ARCH_SP = 13;
+	localparam [3:0] ARCH_LR = 14;
+	localparam [3:0] ARCH_PC = 15;
+	localparam [4:0] RAZ_REGISTER = 16;
+	localparam [4:0] ARCH_USR2_R8 = 18;
+	localparam [4:0] ARCH_USR2_R9 = 19;
+	localparam [4:0] ARCH_USR2_R10 = 20;
+	localparam [4:0] ARCH_USR2_R11 = 21;
+	localparam [4:0] ARCH_USR2_R12 = 22;
+	localparam [4:0] ARCH_USR2_R13 = 23;
+	localparam [4:0] ARCH_USR2_R14 = 24;
+	localparam [4:0] ARCH_DUMMY_REG0 = 25;
+	localparam [4:0] ARCH_DUMMY_REG1 = 26;
+	localparam [4:0] ARCH_CPSR = 17;
+	localparam [4:0] ARCH_CURR_SPSR = 27;
+	localparam [31:0] TOTAL_PHY_REGS = 40;
+	localparam [5:0] PHY_PC = 15;
+	localparam [5:0] PHY_RAZ_REGISTER = 16;
+	localparam [5:0] PHY_CPSR = 17;
+	localparam [5:0] PHY_USR_R0 = 0;
+	localparam [5:0] PHY_USR_R1 = 1;
+	localparam [5:0] PHY_USR_R2 = 2;
+	localparam [5:0] PHY_USR_R3 = 3;
+	localparam [5:0] PHY_USR_R4 = 4;
+	localparam [5:0] PHY_USR_R5 = 5;
+	localparam [5:0] PHY_USR_R6 = 6;
+	localparam [5:0] PHY_USR_R7 = 7;
+	localparam [5:0] PHY_USR_R8 = 8;
+	localparam [5:0] PHY_USR_R9 = 9;
+	localparam [5:0] PHY_USR_R10 = 10;
+	localparam [5:0] PHY_USR_R11 = 11;
+	localparam [5:0] PHY_USR_R12 = 12;
+	localparam [5:0] PHY_USR_R13 = 13;
+	localparam [5:0] PHY_USR_R14 = 14;
+	localparam [5:0] PHY_FIQ_R8 = 18;
+	localparam [5:0] PHY_FIQ_R9 = 19;
+	localparam [5:0] PHY_FIQ_R10 = 20;
+	localparam [5:0] PHY_FIQ_R11 = 21;
+	localparam [5:0] PHY_FIQ_R12 = 22;
+	localparam [5:0] PHY_FIQ_R13 = 23;
+	localparam [5:0] PHY_FIQ_R14 = 24;
+	localparam [5:0] PHY_IRQ_R13 = 25;
+	localparam [5:0] PHY_IRQ_R14 = 26;
+	localparam [5:0] PHY_SVC_R13 = 27;
+	localparam [5:0] PHY_SVC_R14 = 28;
+	localparam [5:0] PHY_UND_R13 = 29;
+	localparam [5:0] PHY_UND_R14 = 30;
+	localparam [5:0] PHY_ABT_R13 = 31;
+	localparam [5:0] PHY_ABT_R14 = 32;
+	localparam [5:0] PHY_DUMMY_REG0 = 33;
+	localparam [5:0] PHY_DUMMY_REG1 = 34;
+	localparam [5:0] PHY_FIQ_SPSR = 35;
+	localparam [5:0] PHY_IRQ_SPSR = 36;
+	localparam [5:0] PHY_SVC_SPSR = 37;
+	localparam [5:0] PHY_UND_SPSR = 38;
+	localparam [5:0] PHY_ABT_SPSR = 39;
+	localparam [1:0] LSL = 0;
+	localparam [1:0] LSR = 1;
+	localparam [1:0] ASR = 2;
+	localparam [1:0] ROR = 3;
+	localparam [2:0] RRC = 4;
+	localparam [2:0] RORI = 5;
+	localparam [2:0] ROR_1 = 6;
+	localparam [2:0] LSL_SAT = 7;
+	localparam [2:0] CTI_BURST = 3'b010;
+	localparam [2:0] CTI_EOB = 3'b111;
+	localparam [31:0] RST_VECTOR = 32'h00000000;
+	localparam [31:0] UND_VECTOR = 32'h00000004;
+	localparam [31:0] SWI_VECTOR = 32'h00000008;
+	localparam [31:0] PABT_VECTOR = 32'h0000000c;
+	localparam [31:0] DABT_VECTOR = 32'h00000010;
+	localparam [31:0] IRQ_VECTOR = 32'h00000018;
+	localparam [31:0] FIQ_VECTOR = 32'h0000001c;
+	localparam [1:0] SNT = 2'b00;
+	localparam [1:0] WNT = 2'b01;
+	localparam [1:0] WT = 2'b10;
+	localparam [1:0] ST = 2'b11;
+	localparam [31:0] ZAP_SRCDEST_EXTEND = 32'd32;
+	localparam [31:0] ZAP_DP_RB_EXTEND = 32'd32;
+	localparam [31:0] ZAP_BASE_EXTEND = 32'd33;
+	localparam [31:0] ZAP_DP_RD_EXTEND = 32'd33;
+	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
+	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
+	localparam [2:0] SELECT_CCH = 3'b001;
+	localparam [2:0] SELECT_TAG = 3'b010;
+	localparam [2:0] SELECT_TLB = 3'b100;
+	wire [2:0] wb_stb;
+	wire [2:0] wb_cyc;
+	wire [2:0] wb_wen;
+	wire [3:0] wb_sel [2:0];
+	wire [31:0] wb_dat [2:0];
+	wire [31:0] wb_adr [2:0];
+	wire [2:0] wb_cti [2:0];
+	wire [1:0] fill_bte;
+	wire [31:0] tlb_phy_addr;
+	wire [7:0] tlb_fsr;
+	wire [31:0] tlb_far;
+	wire tlb_fault;
+	wire tlb_cacheable;
+	wire tlb_wt;
+	wire tlb_busy;
+	wire [(CACHE_LINE * 8) - 1:0] tr_cache_line;
+	wire [(WAYS * 32) - 1:0] tr_cache_words;
+	wire tr_cache_word_sel;
+	wire [(CACHE_LINE * 8) - 1:0] cf_cache_line;
+	wire [CACHE_LINE - 1:0] cf_cache_line_ben;
+	wire cf_cache_tag_wr_en;
+	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tr_cache_tag;
+	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cf_cache_tag;
+	wire tr_cache_tag_valid;
+	wire tr_cache_hit;
+	wire tr_cache_hit_dirty;
+	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] tr_cache_way;
+	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] cf_cache_way;
+	wire tr_cache_tag_dirty;
+	wire cf_cache_tag_dirty;
+	wire cf_cache_clean_req;
+	wire cf_cache_inv_req;
+	wire cf_line_req;
+	wire tr_line_done;
+	wire tr_cache_inv_done;
+	wire tr_cache_clean_done;
+	reg [2:0] wb_ack;
+	reg [2:0] state_ff;
+	reg [2:0] state_nxt;
+	wire [31:0] cache_address;
+	wire hold;
+	wire idle;
+	wire [2:0] relookup;
+	wire fill_busy;
+	localparam integer SET_W = $clog2((CACHE_SIZE / WAYS) / CACHE_LINE);
+	localparam integer LINE_W = $clog2(CACHE_LINE);
+	reg [SET_W - 1:0] lookup_s0;
+	reg [SET_W - 1:0] lookup_s1;
+	reg [31:0] lookup_address;
+	always @(posedge i_clk)
+		if (i_reset) begin
+			lookup_s0 <= 1'sb0;
+			lookup_s1 <= 1'sb0;
+		end
+		else if (!i_stall && !((i_rd || i_wr) && !o_ack)) begin
+			lookup_s0 <= i_address_nxt[LINE_W+:SET_W];
+			lookup_s1 <= lookup_s0;
+		end
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		lookup_address = i_address_nxt;
+		if (relookup[0])
+			lookup_address[LINE_W+:SET_W] = i_address[LINE_W+:SET_W];
+		else if (relookup[1])
+			lookup_address[LINE_W+:SET_W] = lookup_s1;
+		else if (relookup[2])
+			lookup_address[LINE_W+:SET_W] = lookup_s0;
+	end
+	reg [2:0] wb_err;
+	wire unused;
+	assign wb_cti[2] = CTI_EOB;
+	assign unused = |{wb_err[1]};
+	zap_dcache_fsm #(
+		.CACHE_SIZE(CACHE_SIZE),
+		.CACHE_LINE(CACHE_LINE),
+		.BE_32_ENABLE(BE_32_ENABLE),
+		.EXT_ABORT_FS(EXT_ABORT_FS),
+		.WAYS(WAYS)
+	) u_zap_cache_fsm(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_address(i_address),
+		.i_rd(i_rd),
+		.i_wr(i_wr),
+		.i_din(i_dat),
+		.i_align_fault(i_align_fault),
+		.i_va(i_va),
+		.i_ldfmt(i_ldfmt),
+		.o_idle(idle),
+		.o_relookup(relookup),
+		.o_fill_busy(fill_busy),
+		.i_ben(i_ben),
+		.o_dat(o_dat),
+		.o_ack(o_ack),
+		.o_err(o_err),
+		.o_fsr(o_fsr),
+		.o_far(o_far),
+		.i_cache_en(i_cache_en),
+		.i_cache_inv(i_cache_inv_req),
+		.i_cache_clean(i_cache_clean_req),
+		.o_cache_inv_done(o_cache_inv_done),
+		.o_cache_clean_done(o_cache_clean_done),
+		.i_line_req(i_line_req),
+		.o_line_done(o_line_done),
+		.o_line_req(cf_line_req),
+		.i_line_done_tr(tr_line_done),
+		.i_cache_line(tr_cache_line),
+		.i_cache_words(tr_cache_words),
+		.i_cache_word_sel(tr_cache_word_sel),
+		.i_cache_tag_dirty(tr_cache_tag_dirty),
+		.i_cache_tag(tr_cache_tag),
+		.i_cache_tag_valid(tr_cache_tag_valid),
+		.i_cache_hit(tr_cache_hit),
+		.i_cache_hit_dirty(tr_cache_hit_dirty),
+		.i_cache_way(tr_cache_way),
+		.o_cache_way(cf_cache_way),
+		.o_cache_tag(cf_cache_tag),
+		.o_cache_tag_dirty(cf_cache_tag_dirty),
+		.o_cache_tag_wr_en(cf_cache_tag_wr_en),
+		.o_cache_line(cf_cache_line),
+		.o_cache_line_ben(cf_cache_line_ben),
+		.o_cache_clean_req(cf_cache_clean_req),
+		.i_cache_clean_done(tr_cache_clean_done),
+		.o_cache_inv_req(cf_cache_inv_req),
+		.i_cache_inv_done(tr_cache_inv_done),
+		.i_phy_addr(tlb_phy_addr),
+		.i_fsr(tlb_fsr),
+		.i_far(tlb_far),
+		.i_fault(tlb_fault),
+		.i_cacheable(tlb_cacheable),
+		.i_wt(tlb_wt),
+		.i_busy(tlb_busy),
+		.o_err2(o_err2),
+		.o_address(cache_address),
+		.o_wb_cyc_nxt(wb_cyc[0]),
+		.o_hold(hold),
+		.i_reg_idx(i_reg_idx),
+		.i_reg_idx_bin(i_reg_idx_bin),
+		.o_lock(o_lock),
+		.o_reg_dat(o_reg_dat),
+		.o_reg_idx(o_reg_idx),
+		.o_wb_cyc_ff(),
+		.o_wb_stb_ff(),
+		.o_wb_adr_ff(),
+		.o_wb_dat_ff(),
+		.o_wb_sel_ff(),
+		.o_wb_wen_ff(),
+		.o_wb_cti_ff(),
+		.o_wb_stb_nxt(wb_stb[0]),
+		.o_wb_adr_nxt(wb_adr[0]),
+		.o_wb_dat_nxt(wb_dat[0]),
+		.o_wb_sel_nxt(wb_sel[0]),
+		.o_wb_wen_nxt(wb_wen[0]),
+		.o_wb_cti_nxt(wb_cti[0]),
+		.o_wb_bte_nxt(fill_bte),
+		.i_wb_dat(i_wb_dat),
+		.i_wb_ack(wb_ack[0]),
+		.i_wb_err(wb_err[0])
+	);
+	zap_cache_tag_ram #(
+		.CACHE_SIZE(CACHE_SIZE),
+		.CACHE_LINE(CACHE_LINE),
+		.WAYS(WAYS)
+	) u_zap_cache_tag_ram(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_address_nxt(lookup_address),
+		.i_address(cache_address),
+		.i_lookup_address(i_address),
+		.i_access((i_rd || i_wr) && idle),
+		.i_idle(idle),
+		.o_cache_hit(tr_cache_hit),
+		.o_cache_hit_dirty(tr_cache_hit_dirty),
+		.o_cache_way(tr_cache_way),
+		.i_cache_way(cf_cache_way),
+		.i_hold(hold || i_stall),
+		.i_cache_en(i_cache_en),
+		.i_cache_line(cf_cache_line),
+		.o_cache_line(tr_cache_line),
+		.o_cache_words(tr_cache_words),
+		.o_cache_word_sel(tr_cache_word_sel),
+		.i_cache_line_ben(cf_cache_line_ben),
+		.i_cache_tag_wr_en(cf_cache_tag_wr_en),
+		.i_cache_tag(cf_cache_tag),
+		.i_cache_tag_dirty(cf_cache_tag_dirty),
+		.o_cache_tag(tr_cache_tag),
+		.o_cache_tag_valid(tr_cache_tag_valid),
+		.o_cache_tag_dirty(tr_cache_tag_dirty),
+		.i_cache_inv_req(cf_cache_inv_req),
+		.o_cache_inv_done(tr_cache_inv_done),
+		.i_cache_clean_req(cf_cache_clean_req),
+		.o_cache_clean_done(tr_cache_clean_done),
+		.i_line_req(cf_line_req),
+		.i_line_op(i_line_op),
+		.i_line_va(i_line_va),
+		.i_line_addr(i_line_addr),
+		.i_line_way(i_line_way),
+		.o_line_done(tr_line_done),
+		.o_wb_cyc_ff(),
+		.o_wb_stb_ff(),
+		.o_wb_adr_ff(),
+		.o_wb_dat_ff(),
+		.o_wb_sel_ff(),
+		.o_wb_wen_ff(),
+		.o_wb_cti_ff(),
+		.o_wb_cyc_nxt(wb_cyc[1]),
+		.o_wb_stb_nxt(wb_stb[1]),
+		.o_wb_adr_nxt(wb_adr[1]),
+		.o_wb_dat_nxt(wb_dat[1]),
+		.o_wb_sel_nxt(wb_sel[1]),
+		.o_wb_wen_nxt(wb_wen[1]),
+		.o_wb_cti_nxt(wb_cti[1]),
+		.i_wb_dat(i_wb_dat),
+		.i_wb_ack(wb_ack[1])
+	);
+	zap_tlb #(
+		.LPAGE_TLB_ENTRIES(LPAGE_TLB_ENTRIES),
+		.SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
+		.SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
+		.FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES)
+	) u_zap_tlb(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_address(i_address),
+		.i_address_nxt(i_address_nxt),
+		.i_address_check(i_address_check),
+		.i_idle(idle),
+		.i_wr_check(i_wr_check),
+		.i_rd_check(i_rd_check),
+		.i_hold((hold || i_stall) || (fill_busy && (i_rd || i_wr))),
+		.i_cpsr(i_cpsr),
+		.i_sr(i_sr),
+		.i_dac_reg(i_dac_reg),
+		.i_baddr(i_baddr),
+		.i_mmu_en(i_mmu_en),
+		.i_inv(i_tlb_inv),
+		.o_phy_addr(tlb_phy_addr),
+		.o_fsr(tlb_fsr),
+		.o_far(tlb_far),
+		.o_fault(tlb_fault),
+		.o_cacheable(tlb_cacheable),
+		.o_wt(tlb_wt),
+		.o_busy(tlb_busy),
+		.o_wb_stb_nxt(wb_stb[2]),
+		.o_wb_cyc_nxt(wb_cyc[2]),
+		.o_wb_adr_nxt(wb_adr[2]),
+		.o_wb_wen_nxt(wb_wen[2]),
+		.o_wb_sel_nxt(wb_sel[2]),
+		.o_wb_dat_nxt(wb_dat[2]),
+		.i_wb_dat(i_wb_dat),
+		.i_wb_ack(wb_ack[2]),
+		.i_wb_err(wb_err[2])
+	);
+	always @(posedge i_clk)
+		if (i_reset) begin
+			state_ff <= SELECT_CCH;
+			o_wb_stb <= 1'd0;
+			o_wb_cyc <= 1'd0;
+			o_wb_adr <= 1'sbx;
+			o_wb_cti <= CTI_EOB;
+			o_wb_bte <= 2'b00;
+			o_wb_sel <= 1'sbx;
+			o_wb_dat <= 1'sbx;
+			o_wb_wen <= 1'sbx;
+		end
+		else begin
+			state_ff <= state_nxt;
+			o_wb_stb <= o_wb_stb_nxt;
+			o_wb_cyc <= o_wb_cyc_nxt;
+			o_wb_adr <= o_wb_adr_nxt;
+			o_wb_cti <= o_wb_cti_nxt;
+			o_wb_bte <= o_wb_bte_nxt;
+			o_wb_sel <= o_wb_sel_nxt;
+			o_wb_dat <= o_wb_dat_nxt;
+			o_wb_wen <= o_wb_wen_nxt;
+		end
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		if (!o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err)))
+			casez ({wb_cyc[2], wb_cyc[1], wb_cyc[0]})
+				3'b1zz: state_nxt = SELECT_TLB;
+				3'b01z: state_nxt = SELECT_TAG;
+				3'b001: state_nxt = SELECT_CCH;
+				default: state_nxt = state_ff;
+			endcase
+		else
+			state_nxt = state_ff;
+	end
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		case (state_ff)
+			SELECT_CCH: {wb_err, wb_ack} = {2'd0, i_wb_err, 2'd0, i_wb_ack};
+			SELECT_TAG: {wb_err, wb_ack} = {1'd0, i_wb_err, 2'd0, i_wb_ack, 1'd0};
+			SELECT_TLB: {wb_err, wb_ack} = {i_wb_err, 2'd0, i_wb_ack, 2'd0};
+			default: {wb_err, wb_ack} = {6 {1'bx}};
+		endcase
+	end
+	assign o_wb_cyc_nxt = (!o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err)) ? |wb_cyc : |(state_ff & wb_cyc));
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		case (state_nxt)
+			SELECT_CCH: begin
+				o_wb_stb_nxt = wb_stb[0];
+				o_wb_adr_nxt = wb_adr[0];
+				o_wb_dat_nxt = wb_dat[0];
+				o_wb_cti_nxt = wb_cti[0];
+				o_wb_bte_nxt = fill_bte;
+				o_wb_sel_nxt = wb_sel[0];
+				o_wb_wen_nxt = wb_wen[0];
+			end
+			SELECT_TAG: begin
+				o_wb_stb_nxt = wb_stb[1];
+				o_wb_adr_nxt = wb_adr[1];
+				o_wb_dat_nxt = wb_dat[1];
+				o_wb_cti_nxt = wb_cti[1];
+				o_wb_bte_nxt = 2'b00;
+				o_wb_sel_nxt = wb_sel[1];
+				o_wb_wen_nxt = wb_wen[1];
+			end
+			SELECT_TLB: begin
+				o_wb_stb_nxt = wb_stb[2];
+				o_wb_adr_nxt = wb_adr[2];
+				o_wb_dat_nxt = wb_dat[2];
+				o_wb_cti_nxt = wb_cti[2];
+				o_wb_bte_nxt = 2'b00;
+				o_wb_sel_nxt = wb_sel[2];
+				o_wb_wen_nxt = wb_wen[2];
+			end
+			default: begin
+				o_wb_stb_nxt = 1'sbx;
+				o_wb_adr_nxt = 1'sbx;
+				o_wb_dat_nxt = 1'sbx;
+				o_wb_cti_nxt = 1'sbx;
+				o_wb_bte_nxt = 1'sbx;
+				o_wb_sel_nxt = 1'sbx;
+				o_wb_wen_nxt = 1'sbx;
+			end
+		endcase
+	end
+	initial _sv2v_0 = 0;
+endmodule
 module zap_dcache_fsm (
 	i_clk,
 	i_reset,
@@ -8405,1469 +9162,6 @@ module zap_dcache_fsm (
 	end
 	initial _sv2v_0 = 0;
 endmodule
-module zap_dcache (
-	i_clk,
-	i_reset,
-	i_stall,
-	i_address_check,
-	i_wr_check,
-	i_rd_check,
-	i_address,
-	i_address_nxt,
-	i_rd,
-	i_wr,
-	i_ben,
-	i_dat,
-	i_align_fault,
-	i_va,
-	i_ldfmt,
-	o_dat,
-	o_ack,
-	o_err,
-	o_fsr,
-	o_far,
-	o_err2,
-	i_reg_idx,
-	i_reg_idx_bin,
-	o_lock,
-	o_reg_dat,
-	o_reg_idx,
-	i_mmu_en,
-	i_cache_en,
-	i_cache_inv_req,
-	i_cache_clean_req,
-	o_cache_inv_done,
-	o_cache_clean_done,
-	i_line_req,
-	i_line_op,
-	i_line_va,
-	i_line_addr,
-	i_line_way,
-	o_line_done,
-	i_cpsr,
-	i_sr,
-	i_baddr,
-	i_dac_reg,
-	i_tlb_inv,
-	o_wb_stb,
-	o_wb_stb_nxt,
-	o_wb_cyc,
-	o_wb_cyc_nxt,
-	o_wb_wen,
-	o_wb_wen_nxt,
-	o_wb_sel,
-	o_wb_sel_nxt,
-	o_wb_dat,
-	o_wb_dat_nxt,
-	o_wb_adr,
-	o_wb_adr_nxt,
-	o_wb_cti,
-	o_wb_cti_nxt,
-	o_wb_bte,
-	o_wb_bte_nxt,
-	i_wb_dat,
-	i_wb_ack,
-	i_wb_err
-);
-	reg _sv2v_0;
-	parameter [31:0] CACHE_SIZE = 32'd1024;
-	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
-	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
-	parameter [31:0] SECTION_TLB_ENTRIES = 32'd8;
-	parameter [31:0] FPAGE_TLB_ENTRIES = 32'd8;
-	parameter [31:0] CACHE_LINE = 32'd8;
-	parameter [0:0] BE_32_ENABLE = 1'd0;
-	parameter [3:0] EXT_ABORT_FS = 4'b0010;
-	parameter [31:0] WAYS = 32'd1;
-	parameter [31:0] CPSR_MODE = 32'd4;
-	input wire i_clk;
-	input wire i_reset;
-	input wire i_stall;
-	input wire [31:0] i_address_check;
-	input wire i_wr_check;
-	input wire i_rd_check;
-	input wire [31:0] i_address;
-	input wire [31:0] i_address_nxt;
-	input wire i_rd;
-	input wire i_wr;
-	input wire [3:0] i_ben;
-	input wire [31:0] i_dat;
-	input wire i_align_fault;
-	input wire [31:0] i_va;
-	input wire [5:0] i_ldfmt;
-	output wire [31:0] o_dat;
-	output wire o_ack;
-	output wire o_err;
-	output wire [7:0] o_fsr;
-	output wire [31:0] o_far;
-	output wire o_err2;
-	input wire [63:0] i_reg_idx;
-	input wire [5:0] i_reg_idx_bin;
-	output wire [63:0] o_lock;
-	output wire [31:0] o_reg_dat;
-	output wire [63:0] o_reg_idx;
-	input wire i_mmu_en;
-	input wire i_cache_en;
-	input wire i_cache_inv_req;
-	input wire i_cache_clean_req;
-	output wire o_cache_inv_done;
-	output wire o_cache_clean_done;
-	input wire i_line_req;
-	input wire [1:0] i_line_op;
-	input wire i_line_va;
-	input wire [31:0] i_line_addr;
-	input wire i_line_way;
-	output wire o_line_done;
-	input wire [CPSR_MODE:0] i_cpsr;
-	input wire [1:0] i_sr;
-	input wire [31:0] i_baddr;
-	input wire [31:0] i_dac_reg;
-	input wire i_tlb_inv;
-	output reg o_wb_stb;
-	output reg o_wb_stb_nxt;
-	output reg o_wb_cyc;
-	output wire o_wb_cyc_nxt;
-	output reg o_wb_wen;
-	output reg o_wb_wen_nxt;
-	output reg [3:0] o_wb_sel;
-	output reg [3:0] o_wb_sel_nxt;
-	output reg [31:0] o_wb_dat;
-	output reg [31:0] o_wb_dat_nxt;
-	output reg [31:0] o_wb_adr;
-	output reg [31:0] o_wb_adr_nxt;
-	output reg [2:0] o_wb_cti;
-	output reg [2:0] o_wb_cti_nxt;
-	output reg [1:0] o_wb_bte;
-	output reg [1:0] o_wb_bte_nxt;
-	input wire [31:0] i_wb_dat;
-	input wire i_wb_ack;
-	input wire i_wb_err;
-	localparam [1:0] SECTION_ID = 2'b10;
-	localparam [1:0] PAGE_ID = 2'b01;
-	localparam [1:0] FINE_ID = 2'b11;
-	localparam [1:0] SPAGE_ID = 2'b10;
-	localparam [1:0] LPAGE_ID = 2'b01;
-	localparam [1:0] FPAGE_ID = 2'b11;
-	localparam [3:0] APSR_NA_NA = 4'b0000;
-	localparam [3:0] APSR_RO_RO = 4'b0001;
-	localparam [3:0] APSR_RO_NA = 4'b0010;
-	localparam [3:0] APSR_RW_NA = 4'b01zz;
-	localparam [3:0] APSR_RW_RO = 4'b10zz;
-	localparam [3:0] APSR_RW_RW = 4'b11zz;
-	localparam [1:0] DAC_MANAGER = 2'b11;
-	localparam [1:0] DAC_CLIENT = 2'b01;
-	localparam [3:0] FSR_SECTION_DOMAIN_FAULT = 4'b1001;
-	localparam [3:0] FSR_SECTION_TRANSLATION_FAULT = 4'b0101;
-	localparam [3:0] FSR_SECTION_PERMISSION_FAULT = 4'b1101;
-	localparam [3:0] FSR_L1_EXTERNAL_ABORT = 4'b1100;
-	localparam [3:0] FSR_PAGE_TRANSLATION_FAULT = 4'b0111;
-	localparam [3:0] FSR_PAGE_DOMAIN_FAULT = 4'b1011;
-	localparam [3:0] FSR_PAGE_PERMISSION_FAULT = 4'b1111;
-	localparam [3:0] FSR_L2_EXTERNAL_ABORT = 4'b1110;
-	parameter [3:0] TERMINAL_EXCEPTION = 4'b0010;
-	localparam [3:0] AND = 4'd0;
-	localparam [3:0] EOR = 4'd1;
-	localparam [3:0] SUB = 4'd2;
-	localparam [3:0] RSB = 4'd3;
-	localparam [3:0] ADD = 4'd4;
-	localparam [3:0] ADC = 4'd5;
-	localparam [3:0] SBC = 4'd6;
-	localparam [3:0] RSC = 4'd7;
-	localparam [3:0] TST = 4'd8;
-	localparam [3:0] TEQ = 4'd9;
-	localparam [3:0] CMP = 4'd10;
-	localparam [3:0] CMN = 4'd11;
-	localparam [3:0] ORR = 4'd12;
-	localparam [3:0] MOV = 4'd13;
-	localparam [3:0] BIC = 4'd14;
-	localparam [3:0] MVN = 4'd15;
-	localparam [4:0] MUL = 5'd16;
-	localparam [4:0] MLA = 5'd17;
-	localparam [4:0] FMOV = 5'd18;
-	localparam [4:0] MMOV = 5'd19;
-	localparam [4:0] UMLALL = 5'd20;
-	localparam [4:0] UMLALH = 5'd21;
-	localparam [4:0] SMLALL = 5'd22;
-	localparam [4:0] SMLALH = 5'd23;
-	localparam [4:0] CLZ = 5'd24;
-	localparam [4:0] OP_QADD = 5'd25;
-	localparam [4:0] OP_QSUB = 5'd26;
-	localparam [4:0] OP_QDADD = 5'd27;
-	localparam [4:0] OP_QDSUB = 5'd28;
-	localparam [5:0] SMULW0 = 6'd30;
-	localparam [5:0] SMULW1 = 6'd32;
-	localparam [5:0] SMUL00 = 6'd34;
-	localparam [5:0] SMUL01 = 6'd36;
-	localparam [5:0] SMUL10 = 6'd38;
-	localparam [5:0] SMUL11 = 6'd40;
-	localparam [5:0] SMLA00 = 6'd42;
-	localparam [5:0] SMLA01 = 6'd44;
-	localparam [5:0] SMLA10 = 6'd46;
-	localparam [5:0] SMLA11 = 6'd48;
-	localparam [5:0] SMLAW0 = 6'd50;
-	localparam [5:0] SMLAW1 = 6'd52;
-	localparam [5:0] SMLAL00L = 6'd54;
-	localparam [5:0] SMLAL00H = 6'd55;
-	localparam [5:0] SMLAL01L = 6'd56;
-	localparam [5:0] SMLAL01H = 6'd57;
-	localparam [5:0] SMLAL10L = 6'd58;
-	localparam [5:0] SMLAL10H = 6'd59;
-	localparam [5:0] SMLAL11L = 6'd60;
-	localparam [5:0] SMLAL11H = 6'd61;
-	localparam [5:0] FADD = 6'd62;
-	localparam [5:0] OP_SMULW0 = 6'd30;
-	localparam [5:0] OP_SMULW1 = 6'd32;
-	localparam [5:0] OP_SMUL00 = 6'd34;
-	localparam [5:0] OP_SMUL01 = 6'd36;
-	localparam [5:0] OP_SMUL10 = 6'd38;
-	localparam [5:0] OP_SMUL11 = 6'd40;
-	localparam [5:0] OP_SMLA00 = 6'd42;
-	localparam [5:0] OP_SMLA01 = 6'd44;
-	localparam [5:0] OP_SMLA10 = 6'd46;
-	localparam [5:0] OP_SMLA11 = 6'd48;
-	localparam [5:0] OP_SMLAW0 = 6'd50;
-	localparam [5:0] OP_SMLAW1 = 6'd52;
-	localparam [5:0] OP_SMLAL00L = 6'd54;
-	localparam [5:0] OP_SMLAL00H = 6'd55;
-	localparam [5:0] OP_SMLAL01L = 6'd56;
-	localparam [5:0] OP_SMLAL01H = 6'd57;
-	localparam [5:0] OP_SMLAL10L = 6'd58;
-	localparam [5:0] OP_SMLAL10H = 6'd59;
-	localparam [5:0] OP_SMLAL11L = 6'd60;
-	localparam [5:0] OP_SMLAL11H = 6'd61;
-	localparam [5:0] SAT_MOV = 6'd49;
-	localparam [3:0] EQ = 4'h0;
-	localparam [3:0] NE = 4'h1;
-	localparam [3:0] CS = 4'h2;
-	localparam [3:0] CC = 4'h3;
-	localparam [3:0] MI = 4'h4;
-	localparam [3:0] PL = 4'h5;
-	localparam [3:0] VS = 4'h6;
-	localparam [3:0] VC = 4'h7;
-	localparam [3:0] HI = 4'h8;
-	localparam [3:0] LS = 4'h9;
-	localparam [3:0] GE = 4'ha;
-	localparam [3:0] LT = 4'hb;
-	localparam [3:0] GT = 4'hc;
-	localparam [3:0] LE = 4'hd;
-	localparam [3:0] AL = 4'he;
-	localparam [3:0] NV = 4'hf;
-	localparam [31:0] N = 32'd31;
-	localparam [31:0] Z = 32'd30;
-	localparam [31:0] C = 32'd29;
-	localparam [31:0] V = 32'd28;
-	localparam [31:0] Q = 32'd27;
-	localparam [31:0] I = 32'd7;
-	localparam [31:0] F = 32'd6;
-	localparam [31:0] T = 32'd5;
-	localparam [31:0] ZAP_CPSR_MODE = 32'd4;
-	localparam [0:0] INDEX_EN = 1'd0;
-	localparam [0:0] IMMED_EN = 1'd1;
-	localparam [4:0] FIQ = 5'b10001;
-	localparam [4:0] IRQ = 5'b10010;
-	localparam [4:0] ABT = 5'b10111;
-	localparam [4:0] SVC = 5'b10011;
-	localparam [4:0] USR = 5'b10000;
-	localparam [4:0] SYS = 5'b11111;
-	localparam [4:0] UND = 5'b11011;
-	localparam [31:0] SMLAxy = 32'bzzzz00010000zzzzzzzzzzzz1zz0zzzz;
-	localparam [31:0] SMLAWy = 32'bzzzz00010010zzzzzzzzzzzz1z00zzzz;
-	localparam [31:0] SMLALxy = 32'bzzzz00010100zzzzzzzzzzzz1zz0zzzz;
-	localparam [31:0] SMULWy = 32'bzzzz00010010zzzz0000zzzz1z10zzzz;
-	localparam [31:0] SMULxy = 32'bzzzz00010110zzzz0000zzzz1zz0zzzz;
-	localparam [31:0] CLZ_INSTRUCTION = 32'bzzzz000101101111zzzz11110001zzzz;
-	localparam [31:0] QADD = 32'bzzzz00010000zzzzzzzz00000101zzzz;
-	localparam [31:0] QSUB = 32'bzzzz00010010zzzzzzzz00000101zzzz;
-	localparam [31:0] QDADD = 32'bzzzz00010100zzzzzzzz00000101zzzz;
-	localparam [31:0] QDSUB = 32'bzzzz00010110zzzzzzzz00000101zzzz;
-	localparam [31:0] PLD = 32'b111101z1z101zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] DATA_PROCESSING_IMMEDIATE = 32'bzzzz001zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzz0zz1zzzz;
-	localparam [31:0] DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzzzzz0zzzz;
-	localparam [31:0] BRANCH_INSTRUCTION = 32'bzzzz101zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] MRS = 32'bzzzz00010z001111zzzzzzzzzzzzzzzz;
-	localparam [31:0] MSR_IMMEDIATE = 32'bzzzz00110z10zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] MSR = 32'bzzzz00010z10zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] LS_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz011zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] LS_IMMEDIATE = 32'bzzzz010zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BX_INST = 32'bzzzz000100101111111111110001zzzz;
-	localparam [31:0] MULT_INST = 32'bzzzz000000zzzzzzzzzzzzzz1001zzzz;
-	localparam [31:0] LMULT_INST = 32'bzzzz00001zzzzzzzzzzzzzzz1001zzzz;
-	localparam [31:0] HALFWORD_LS = 32'bzzzz000zzzzzzzzzzzzzzzzz1zz1zzzz;
-	localparam [31:0] SOFTWARE_INTERRUPT = 32'bzzzz1111zzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] SWAP = 32'bzzzz00010z00zzzzzzzz00001001zzzz;
-	localparam [31:0] MCR = 32'bzzzz1110zzz0zzzzzzzz1111zzz1zzzz;
-	localparam [31:0] MCR2 = 32'b11111110zzz0zzzzzzzzzzzzzzz1zzzz;
-	localparam [31:0] MRC = 32'bzzzz1110zzz1zzzzzzzz1111zzz1zzzz;
-	localparam [31:0] MRC2 = 32'b11111110zzz1zzzzzzzzzzzzzzz1zzzz;
-	localparam [31:0] LDC = 32'bzzzz110zzzz1zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] STC = 32'bzzzz110zzzz0zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] LDC2 = 32'b1111110zzzz1zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] STC2 = 32'b1111110zzzz0zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] CDP = 32'bzzzz1110zzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BLX1 = 32'b1111101zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BLX2 = 32'bzzzz000100101111111111110011zzzz;
-	localparam [31:0] BKPT = 32'b111000010010zzzzzzzzzzzz0111zzzz;
-	localparam [15:0] T_BRANCH_COND = 16'b1101zzzzzzzzzzzz;
-	localparam [15:0] T_BRANCH_NOCOND = 16'b11100zzzzzzzzzzz;
-	localparam [15:0] T_BL = 16'b1111zzzzzzzzzzzz;
-	localparam [15:0] T_BLX1 = 16'b11101zzzzzzzzzzz;
-	localparam [15:0] T_BLX2 = 16'b010001111zzzz000;
-	localparam [15:0] T_BX = 16'b010001110zzzz000;
-	localparam [15:0] T_SWI = 16'b11011111zzzzzzzz;
-	localparam [15:0] T_SHIFT = 16'b000zzzzzzzzzzzzz;
-	localparam [15:0] T_ADD_SUB_LO = 16'b00011zzzzzzzzzzz;
-	localparam [15:0] T_MCAS_IMM = 16'b001zzzzzzzzzzzzz;
-	localparam [15:0] T_ALU_LO = 16'b010000zzzzzzzzzz;
-	localparam [15:0] T_ALU_HI = 16'b010001zzzzzzzzzz;
-	localparam [15:0] T_GET_ADDR = 16'b1010zzzzzzzzzzzz;
-	localparam [15:0] T_MOD_SP = 16'b10110000zzzzzzzz;
-	localparam [15:0] T_PC_REL_LOAD = 16'b01001zzzzzzzzzzz;
-	localparam [15:0] T_LDR_STR_5BIT_OFF = 16'b011zzzzzzzzzzzzz;
-	localparam [15:0] T_LDRH_STRH_5BIT_OFF = 16'b1000zzzzzzzzzzzz;
-	localparam [15:0] T_LDRH_STRH_REG = 16'b0101zzzzzzzzzzzz;
-	localparam [15:0] T_SP_REL_LDR_STR = 16'b1001zzzzzzzzzzzz;
-	localparam [15:0] T_LDMIA_STMIA = 16'b1100zzzzzzzzzzzz;
-	localparam [15:0] T_POP_PUSH = 16'b1011z10zzzzzzzzz;
-	localparam [15:0] T_BKPT = 16'b10111110zzzzzzzz;
-	localparam [31:0] TOTAL_ARCH_REGS = 28;
-	localparam [3:0] ARCH_SP = 13;
-	localparam [3:0] ARCH_LR = 14;
-	localparam [3:0] ARCH_PC = 15;
-	localparam [4:0] RAZ_REGISTER = 16;
-	localparam [4:0] ARCH_USR2_R8 = 18;
-	localparam [4:0] ARCH_USR2_R9 = 19;
-	localparam [4:0] ARCH_USR2_R10 = 20;
-	localparam [4:0] ARCH_USR2_R11 = 21;
-	localparam [4:0] ARCH_USR2_R12 = 22;
-	localparam [4:0] ARCH_USR2_R13 = 23;
-	localparam [4:0] ARCH_USR2_R14 = 24;
-	localparam [4:0] ARCH_DUMMY_REG0 = 25;
-	localparam [4:0] ARCH_DUMMY_REG1 = 26;
-	localparam [4:0] ARCH_CPSR = 17;
-	localparam [4:0] ARCH_CURR_SPSR = 27;
-	localparam [31:0] TOTAL_PHY_REGS = 40;
-	localparam [5:0] PHY_PC = 15;
-	localparam [5:0] PHY_RAZ_REGISTER = 16;
-	localparam [5:0] PHY_CPSR = 17;
-	localparam [5:0] PHY_USR_R0 = 0;
-	localparam [5:0] PHY_USR_R1 = 1;
-	localparam [5:0] PHY_USR_R2 = 2;
-	localparam [5:0] PHY_USR_R3 = 3;
-	localparam [5:0] PHY_USR_R4 = 4;
-	localparam [5:0] PHY_USR_R5 = 5;
-	localparam [5:0] PHY_USR_R6 = 6;
-	localparam [5:0] PHY_USR_R7 = 7;
-	localparam [5:0] PHY_USR_R8 = 8;
-	localparam [5:0] PHY_USR_R9 = 9;
-	localparam [5:0] PHY_USR_R10 = 10;
-	localparam [5:0] PHY_USR_R11 = 11;
-	localparam [5:0] PHY_USR_R12 = 12;
-	localparam [5:0] PHY_USR_R13 = 13;
-	localparam [5:0] PHY_USR_R14 = 14;
-	localparam [5:0] PHY_FIQ_R8 = 18;
-	localparam [5:0] PHY_FIQ_R9 = 19;
-	localparam [5:0] PHY_FIQ_R10 = 20;
-	localparam [5:0] PHY_FIQ_R11 = 21;
-	localparam [5:0] PHY_FIQ_R12 = 22;
-	localparam [5:0] PHY_FIQ_R13 = 23;
-	localparam [5:0] PHY_FIQ_R14 = 24;
-	localparam [5:0] PHY_IRQ_R13 = 25;
-	localparam [5:0] PHY_IRQ_R14 = 26;
-	localparam [5:0] PHY_SVC_R13 = 27;
-	localparam [5:0] PHY_SVC_R14 = 28;
-	localparam [5:0] PHY_UND_R13 = 29;
-	localparam [5:0] PHY_UND_R14 = 30;
-	localparam [5:0] PHY_ABT_R13 = 31;
-	localparam [5:0] PHY_ABT_R14 = 32;
-	localparam [5:0] PHY_DUMMY_REG0 = 33;
-	localparam [5:0] PHY_DUMMY_REG1 = 34;
-	localparam [5:0] PHY_FIQ_SPSR = 35;
-	localparam [5:0] PHY_IRQ_SPSR = 36;
-	localparam [5:0] PHY_SVC_SPSR = 37;
-	localparam [5:0] PHY_UND_SPSR = 38;
-	localparam [5:0] PHY_ABT_SPSR = 39;
-	localparam [1:0] LSL = 0;
-	localparam [1:0] LSR = 1;
-	localparam [1:0] ASR = 2;
-	localparam [1:0] ROR = 3;
-	localparam [2:0] RRC = 4;
-	localparam [2:0] RORI = 5;
-	localparam [2:0] ROR_1 = 6;
-	localparam [2:0] LSL_SAT = 7;
-	localparam [2:0] CTI_BURST = 3'b010;
-	localparam [2:0] CTI_EOB = 3'b111;
-	localparam [31:0] RST_VECTOR = 32'h00000000;
-	localparam [31:0] UND_VECTOR = 32'h00000004;
-	localparam [31:0] SWI_VECTOR = 32'h00000008;
-	localparam [31:0] PABT_VECTOR = 32'h0000000c;
-	localparam [31:0] DABT_VECTOR = 32'h00000010;
-	localparam [31:0] IRQ_VECTOR = 32'h00000018;
-	localparam [31:0] FIQ_VECTOR = 32'h0000001c;
-	localparam [1:0] SNT = 2'b00;
-	localparam [1:0] WNT = 2'b01;
-	localparam [1:0] WT = 2'b10;
-	localparam [1:0] ST = 2'b11;
-	localparam [31:0] ZAP_SRCDEST_EXTEND = 32'd32;
-	localparam [31:0] ZAP_DP_RB_EXTEND = 32'd32;
-	localparam [31:0] ZAP_BASE_EXTEND = 32'd33;
-	localparam [31:0] ZAP_DP_RD_EXTEND = 32'd33;
-	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
-	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
-	localparam [2:0] SELECT_CCH = 3'b001;
-	localparam [2:0] SELECT_TAG = 3'b010;
-	localparam [2:0] SELECT_TLB = 3'b100;
-	wire [2:0] wb_stb;
-	wire [2:0] wb_cyc;
-	wire [2:0] wb_wen;
-	wire [3:0] wb_sel [2:0];
-	wire [31:0] wb_dat [2:0];
-	wire [31:0] wb_adr [2:0];
-	wire [2:0] wb_cti [2:0];
-	wire [1:0] fill_bte;
-	wire [31:0] tlb_phy_addr;
-	wire [7:0] tlb_fsr;
-	wire [31:0] tlb_far;
-	wire tlb_fault;
-	wire tlb_cacheable;
-	wire tlb_wt;
-	wire tlb_busy;
-	wire [(CACHE_LINE * 8) - 1:0] tr_cache_line;
-	wire [(WAYS * 32) - 1:0] tr_cache_words;
-	wire tr_cache_word_sel;
-	wire [(CACHE_LINE * 8) - 1:0] cf_cache_line;
-	wire [CACHE_LINE - 1:0] cf_cache_line_ben;
-	wire cf_cache_tag_wr_en;
-	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tr_cache_tag;
-	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cf_cache_tag;
-	wire tr_cache_tag_valid;
-	wire tr_cache_hit;
-	wire tr_cache_hit_dirty;
-	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] tr_cache_way;
-	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] cf_cache_way;
-	wire tr_cache_tag_dirty;
-	wire cf_cache_tag_dirty;
-	wire cf_cache_clean_req;
-	wire cf_cache_inv_req;
-	wire cf_line_req;
-	wire tr_line_done;
-	wire tr_cache_inv_done;
-	wire tr_cache_clean_done;
-	reg [2:0] wb_ack;
-	reg [2:0] state_ff;
-	reg [2:0] state_nxt;
-	wire [31:0] cache_address;
-	wire hold;
-	wire idle;
-	wire [2:0] relookup;
-	wire fill_busy;
-	localparam integer SET_W = $clog2((CACHE_SIZE / WAYS) / CACHE_LINE);
-	localparam integer LINE_W = $clog2(CACHE_LINE);
-	reg [SET_W - 1:0] lookup_s0;
-	reg [SET_W - 1:0] lookup_s1;
-	reg [31:0] lookup_address;
-	always @(posedge i_clk)
-		if (i_reset) begin
-			lookup_s0 <= 1'sb0;
-			lookup_s1 <= 1'sb0;
-		end
-		else if (!i_stall && !((i_rd || i_wr) && !o_ack)) begin
-			lookup_s0 <= i_address_nxt[LINE_W+:SET_W];
-			lookup_s1 <= lookup_s0;
-		end
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		lookup_address = i_address_nxt;
-		if (relookup[0])
-			lookup_address[LINE_W+:SET_W] = i_address[LINE_W+:SET_W];
-		else if (relookup[1])
-			lookup_address[LINE_W+:SET_W] = lookup_s1;
-		else if (relookup[2])
-			lookup_address[LINE_W+:SET_W] = lookup_s0;
-	end
-	reg [2:0] wb_err;
-	wire unused;
-	assign wb_cti[2] = CTI_EOB;
-	assign unused = |{wb_err[1]};
-	zap_dcache_fsm #(
-		.CACHE_SIZE(CACHE_SIZE),
-		.CACHE_LINE(CACHE_LINE),
-		.BE_32_ENABLE(BE_32_ENABLE),
-		.EXT_ABORT_FS(EXT_ABORT_FS),
-		.WAYS(WAYS)
-	) u_zap_cache_fsm(
-		.i_clk(i_clk),
-		.i_reset(i_reset),
-		.i_address(i_address),
-		.i_rd(i_rd),
-		.i_wr(i_wr),
-		.i_din(i_dat),
-		.i_align_fault(i_align_fault),
-		.i_va(i_va),
-		.i_ldfmt(i_ldfmt),
-		.o_idle(idle),
-		.o_relookup(relookup),
-		.o_fill_busy(fill_busy),
-		.i_ben(i_ben),
-		.o_dat(o_dat),
-		.o_ack(o_ack),
-		.o_err(o_err),
-		.o_fsr(o_fsr),
-		.o_far(o_far),
-		.i_cache_en(i_cache_en),
-		.i_cache_inv(i_cache_inv_req),
-		.i_cache_clean(i_cache_clean_req),
-		.o_cache_inv_done(o_cache_inv_done),
-		.o_cache_clean_done(o_cache_clean_done),
-		.i_line_req(i_line_req),
-		.o_line_done(o_line_done),
-		.o_line_req(cf_line_req),
-		.i_line_done_tr(tr_line_done),
-		.i_cache_line(tr_cache_line),
-		.i_cache_words(tr_cache_words),
-		.i_cache_word_sel(tr_cache_word_sel),
-		.i_cache_tag_dirty(tr_cache_tag_dirty),
-		.i_cache_tag(tr_cache_tag),
-		.i_cache_tag_valid(tr_cache_tag_valid),
-		.i_cache_hit(tr_cache_hit),
-		.i_cache_hit_dirty(tr_cache_hit_dirty),
-		.i_cache_way(tr_cache_way),
-		.o_cache_way(cf_cache_way),
-		.o_cache_tag(cf_cache_tag),
-		.o_cache_tag_dirty(cf_cache_tag_dirty),
-		.o_cache_tag_wr_en(cf_cache_tag_wr_en),
-		.o_cache_line(cf_cache_line),
-		.o_cache_line_ben(cf_cache_line_ben),
-		.o_cache_clean_req(cf_cache_clean_req),
-		.i_cache_clean_done(tr_cache_clean_done),
-		.o_cache_inv_req(cf_cache_inv_req),
-		.i_cache_inv_done(tr_cache_inv_done),
-		.i_phy_addr(tlb_phy_addr),
-		.i_fsr(tlb_fsr),
-		.i_far(tlb_far),
-		.i_fault(tlb_fault),
-		.i_cacheable(tlb_cacheable),
-		.i_wt(tlb_wt),
-		.i_busy(tlb_busy),
-		.o_err2(o_err2),
-		.o_address(cache_address),
-		.o_wb_cyc_nxt(wb_cyc[0]),
-		.o_hold(hold),
-		.i_reg_idx(i_reg_idx),
-		.i_reg_idx_bin(i_reg_idx_bin),
-		.o_lock(o_lock),
-		.o_reg_dat(o_reg_dat),
-		.o_reg_idx(o_reg_idx),
-		.o_wb_cyc_ff(),
-		.o_wb_stb_ff(),
-		.o_wb_adr_ff(),
-		.o_wb_dat_ff(),
-		.o_wb_sel_ff(),
-		.o_wb_wen_ff(),
-		.o_wb_cti_ff(),
-		.o_wb_stb_nxt(wb_stb[0]),
-		.o_wb_adr_nxt(wb_adr[0]),
-		.o_wb_dat_nxt(wb_dat[0]),
-		.o_wb_sel_nxt(wb_sel[0]),
-		.o_wb_wen_nxt(wb_wen[0]),
-		.o_wb_cti_nxt(wb_cti[0]),
-		.o_wb_bte_nxt(fill_bte),
-		.i_wb_dat(i_wb_dat),
-		.i_wb_ack(wb_ack[0]),
-		.i_wb_err(wb_err[0])
-	);
-	zap_cache_tag_ram #(
-		.CACHE_SIZE(CACHE_SIZE),
-		.CACHE_LINE(CACHE_LINE),
-		.WAYS(WAYS)
-	) u_zap_cache_tag_ram(
-		.i_clk(i_clk),
-		.i_reset(i_reset),
-		.i_address_nxt(lookup_address),
-		.i_address(cache_address),
-		.i_lookup_address(i_address),
-		.i_access((i_rd || i_wr) && idle),
-		.i_idle(idle),
-		.o_cache_hit(tr_cache_hit),
-		.o_cache_hit_dirty(tr_cache_hit_dirty),
-		.o_cache_way(tr_cache_way),
-		.i_cache_way(cf_cache_way),
-		.i_hold(hold || i_stall),
-		.i_cache_en(i_cache_en),
-		.i_cache_line(cf_cache_line),
-		.o_cache_line(tr_cache_line),
-		.o_cache_words(tr_cache_words),
-		.o_cache_word_sel(tr_cache_word_sel),
-		.i_cache_line_ben(cf_cache_line_ben),
-		.i_cache_tag_wr_en(cf_cache_tag_wr_en),
-		.i_cache_tag(cf_cache_tag),
-		.i_cache_tag_dirty(cf_cache_tag_dirty),
-		.o_cache_tag(tr_cache_tag),
-		.o_cache_tag_valid(tr_cache_tag_valid),
-		.o_cache_tag_dirty(tr_cache_tag_dirty),
-		.i_cache_inv_req(cf_cache_inv_req),
-		.o_cache_inv_done(tr_cache_inv_done),
-		.i_cache_clean_req(cf_cache_clean_req),
-		.o_cache_clean_done(tr_cache_clean_done),
-		.i_line_req(cf_line_req),
-		.i_line_op(i_line_op),
-		.i_line_va(i_line_va),
-		.i_line_addr(i_line_addr),
-		.i_line_way(i_line_way),
-		.o_line_done(tr_line_done),
-		.o_wb_cyc_ff(),
-		.o_wb_stb_ff(),
-		.o_wb_adr_ff(),
-		.o_wb_dat_ff(),
-		.o_wb_sel_ff(),
-		.o_wb_wen_ff(),
-		.o_wb_cti_ff(),
-		.o_wb_cyc_nxt(wb_cyc[1]),
-		.o_wb_stb_nxt(wb_stb[1]),
-		.o_wb_adr_nxt(wb_adr[1]),
-		.o_wb_dat_nxt(wb_dat[1]),
-		.o_wb_sel_nxt(wb_sel[1]),
-		.o_wb_wen_nxt(wb_wen[1]),
-		.o_wb_cti_nxt(wb_cti[1]),
-		.i_wb_dat(i_wb_dat),
-		.i_wb_ack(wb_ack[1])
-	);
-	zap_tlb #(
-		.LPAGE_TLB_ENTRIES(LPAGE_TLB_ENTRIES),
-		.SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
-		.SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
-		.FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES)
-	) u_zap_tlb(
-		.i_clk(i_clk),
-		.i_reset(i_reset),
-		.i_address(i_address),
-		.i_address_nxt(i_address_nxt),
-		.i_address_check(i_address_check),
-		.i_idle(idle),
-		.i_wr_check(i_wr_check),
-		.i_rd_check(i_rd_check),
-		.i_hold((hold || i_stall) || (fill_busy && (i_rd || i_wr))),
-		.i_cpsr(i_cpsr),
-		.i_sr(i_sr),
-		.i_dac_reg(i_dac_reg),
-		.i_baddr(i_baddr),
-		.i_mmu_en(i_mmu_en),
-		.i_inv(i_tlb_inv),
-		.o_phy_addr(tlb_phy_addr),
-		.o_fsr(tlb_fsr),
-		.o_far(tlb_far),
-		.o_fault(tlb_fault),
-		.o_cacheable(tlb_cacheable),
-		.o_wt(tlb_wt),
-		.o_busy(tlb_busy),
-		.o_wb_stb_nxt(wb_stb[2]),
-		.o_wb_cyc_nxt(wb_cyc[2]),
-		.o_wb_adr_nxt(wb_adr[2]),
-		.o_wb_wen_nxt(wb_wen[2]),
-		.o_wb_sel_nxt(wb_sel[2]),
-		.o_wb_dat_nxt(wb_dat[2]),
-		.i_wb_dat(i_wb_dat),
-		.i_wb_ack(wb_ack[2]),
-		.i_wb_err(wb_err[2])
-	);
-	always @(posedge i_clk)
-		if (i_reset) begin
-			state_ff <= SELECT_CCH;
-			o_wb_stb <= 1'd0;
-			o_wb_cyc <= 1'd0;
-			o_wb_adr <= 1'sbx;
-			o_wb_cti <= CTI_EOB;
-			o_wb_bte <= 2'b00;
-			o_wb_sel <= 1'sbx;
-			o_wb_dat <= 1'sbx;
-			o_wb_wen <= 1'sbx;
-		end
-		else begin
-			state_ff <= state_nxt;
-			o_wb_stb <= o_wb_stb_nxt;
-			o_wb_cyc <= o_wb_cyc_nxt;
-			o_wb_adr <= o_wb_adr_nxt;
-			o_wb_cti <= o_wb_cti_nxt;
-			o_wb_bte <= o_wb_bte_nxt;
-			o_wb_sel <= o_wb_sel_nxt;
-			o_wb_dat <= o_wb_dat_nxt;
-			o_wb_wen <= o_wb_wen_nxt;
-		end
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		if (!o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err)))
-			casez ({wb_cyc[2], wb_cyc[1], wb_cyc[0]})
-				3'b1zz: state_nxt = SELECT_TLB;
-				3'b01z: state_nxt = SELECT_TAG;
-				3'b001: state_nxt = SELECT_CCH;
-				default: state_nxt = state_ff;
-			endcase
-		else
-			state_nxt = state_ff;
-	end
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		case (state_ff)
-			SELECT_CCH: {wb_err, wb_ack} = {2'd0, i_wb_err, 2'd0, i_wb_ack};
-			SELECT_TAG: {wb_err, wb_ack} = {1'd0, i_wb_err, 2'd0, i_wb_ack, 1'd0};
-			SELECT_TLB: {wb_err, wb_ack} = {i_wb_err, 2'd0, i_wb_ack, 2'd0};
-			default: {wb_err, wb_ack} = {6 {1'bx}};
-		endcase
-	end
-	assign o_wb_cyc_nxt = (!o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err)) ? |wb_cyc : |(state_ff & wb_cyc));
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		case (state_nxt)
-			SELECT_CCH: begin
-				o_wb_stb_nxt = wb_stb[0];
-				o_wb_adr_nxt = wb_adr[0];
-				o_wb_dat_nxt = wb_dat[0];
-				o_wb_cti_nxt = wb_cti[0];
-				o_wb_bte_nxt = fill_bte;
-				o_wb_sel_nxt = wb_sel[0];
-				o_wb_wen_nxt = wb_wen[0];
-			end
-			SELECT_TAG: begin
-				o_wb_stb_nxt = wb_stb[1];
-				o_wb_adr_nxt = wb_adr[1];
-				o_wb_dat_nxt = wb_dat[1];
-				o_wb_cti_nxt = wb_cti[1];
-				o_wb_bte_nxt = 2'b00;
-				o_wb_sel_nxt = wb_sel[1];
-				o_wb_wen_nxt = wb_wen[1];
-			end
-			SELECT_TLB: begin
-				o_wb_stb_nxt = wb_stb[2];
-				o_wb_adr_nxt = wb_adr[2];
-				o_wb_dat_nxt = wb_dat[2];
-				o_wb_cti_nxt = wb_cti[2];
-				o_wb_bte_nxt = 2'b00;
-				o_wb_sel_nxt = wb_sel[2];
-				o_wb_wen_nxt = wb_wen[2];
-			end
-			default: begin
-				o_wb_stb_nxt = 1'sbx;
-				o_wb_adr_nxt = 1'sbx;
-				o_wb_dat_nxt = 1'sbx;
-				o_wb_cti_nxt = 1'sbx;
-				o_wb_bte_nxt = 1'sbx;
-				o_wb_sel_nxt = 1'sbx;
-				o_wb_wen_nxt = 1'sbx;
-			end
-		endcase
-	end
-	initial _sv2v_0 = 0;
-endmodule
-module zap_decode_main (
-	o_decompile,
-	i_uop_last,
-	o_uop_last,
-	i_clk,
-	i_reset,
-	i_taken,
-	i_ppc_ff,
-	i_switch,
-	i_mode16_und,
-	i_v5_und,
-	i_force32align,
-	i_clear_from_writeback,
-	i_data_stall,
-	i_clear_from_alu,
-	i_stall_from_shifter,
-	i_stall_from_issue,
-	i_irq,
-	i_fiq,
-	i_abt,
-	i_pc_ff,
-	i_pc_plus_8_ff,
-	i_cpsr_ff_mode,
-	i_instruction,
-	i_instruction_valid,
-	o_ppc_ff,
-	o_condition_code_ff,
-	o_destination_index_ff,
-	o_alu_source_ff,
-	o_alu_operation_ff,
-	o_shift_source_ff,
-	o_shift_operation_ff,
-	o_shift_length_ff,
-	o_flag_update_ff,
-	o_mem_srcdest_index_ff,
-	o_mem_load_ff,
-	o_mem_store_ff,
-	o_mem_pre_index_ff,
-	o_mem_unsigned_byte_enable_ff,
-	o_mem_signed_byte_enable_ff,
-	o_mem_signed_halfword_enable_ff,
-	o_mem_unsigned_halfword_enable_ff,
-	o_mem_translate_ff,
-	o_pc_plus_8_ff,
-	o_pc_ff,
-	o_switch_ff,
-	o_irq_ff,
-	o_fiq_ff,
-	o_abt_ff,
-	o_und_ff,
-	o_swi_ff,
-	o_force32align_ff,
-	o_taken_ff
-);
-	parameter [31:0] ARCH_REGS = 32'd32;
-	parameter [31:0] ALU_OPS = 32'd32;
-	parameter [31:0] SHIFT_OPS = 32'd6;
-	parameter [31:0] PHY_REGS = 32'd46;
-	parameter [0:0] V4T = 1'd0;
-	parameter [31:0] CPSR_MODE = 32'd4;
-	output reg [511:0] o_decompile;
-	input wire i_uop_last;
-	output reg o_uop_last;
-	input wire i_clk;
-	input wire i_reset;
-	input wire [1:0] i_taken;
-	input wire [31:0] i_ppc_ff;
-	input wire i_switch;
-	input wire i_mode16_und;
-	input wire i_v5_und;
-	input wire i_force32align;
-	input wire i_clear_from_writeback;
-	input wire i_data_stall;
-	input wire i_clear_from_alu;
-	input wire i_stall_from_shifter;
-	input wire i_stall_from_issue;
-	input wire i_irq;
-	input wire i_fiq;
-	input wire i_abt;
-	input wire [31:0] i_pc_ff;
-	input wire [31:0] i_pc_plus_8_ff;
-	input wire [CPSR_MODE:0] i_cpsr_ff_mode;
-	input wire [35:0] i_instruction;
-	input wire i_instruction_valid;
-	output reg [31:0] o_ppc_ff;
-	output reg [3:0] o_condition_code_ff;
-	output reg [$clog2(PHY_REGS) - 1:0] o_destination_index_ff;
-	output reg [32:0] o_alu_source_ff;
-	output reg [$clog2(ALU_OPS) - 1:0] o_alu_operation_ff;
-	output reg [32:0] o_shift_source_ff;
-	output reg [$clog2(SHIFT_OPS) - 1:0] o_shift_operation_ff;
-	output reg [32:0] o_shift_length_ff;
-	output reg o_flag_update_ff;
-	output reg [$clog2(PHY_REGS) - 1:0] o_mem_srcdest_index_ff;
-	output reg o_mem_load_ff;
-	output reg o_mem_store_ff;
-	output reg o_mem_pre_index_ff;
-	output reg o_mem_unsigned_byte_enable_ff;
-	output reg o_mem_signed_byte_enable_ff;
-	output reg o_mem_signed_halfword_enable_ff;
-	output reg o_mem_unsigned_halfword_enable_ff;
-	output reg o_mem_translate_ff;
-	output reg [31:0] o_pc_plus_8_ff;
-	output reg [31:0] o_pc_ff;
-	output reg o_switch_ff;
-	output reg o_irq_ff;
-	output reg o_fiq_ff;
-	output reg o_abt_ff;
-	output reg o_und_ff;
-	output reg o_swi_ff;
-	output reg o_force32align_ff;
-	output reg [1:0] o_taken_ff;
-	localparam [1:0] SECTION_ID = 2'b10;
-	localparam [1:0] PAGE_ID = 2'b01;
-	localparam [1:0] FINE_ID = 2'b11;
-	localparam [1:0] SPAGE_ID = 2'b10;
-	localparam [1:0] LPAGE_ID = 2'b01;
-	localparam [1:0] FPAGE_ID = 2'b11;
-	localparam [3:0] APSR_NA_NA = 4'b0000;
-	localparam [3:0] APSR_RO_RO = 4'b0001;
-	localparam [3:0] APSR_RO_NA = 4'b0010;
-	localparam [3:0] APSR_RW_NA = 4'b01zz;
-	localparam [3:0] APSR_RW_RO = 4'b10zz;
-	localparam [3:0] APSR_RW_RW = 4'b11zz;
-	localparam [1:0] DAC_MANAGER = 2'b11;
-	localparam [1:0] DAC_CLIENT = 2'b01;
-	localparam [3:0] FSR_SECTION_DOMAIN_FAULT = 4'b1001;
-	localparam [3:0] FSR_SECTION_TRANSLATION_FAULT = 4'b0101;
-	localparam [3:0] FSR_SECTION_PERMISSION_FAULT = 4'b1101;
-	localparam [3:0] FSR_L1_EXTERNAL_ABORT = 4'b1100;
-	localparam [3:0] FSR_PAGE_TRANSLATION_FAULT = 4'b0111;
-	localparam [3:0] FSR_PAGE_DOMAIN_FAULT = 4'b1011;
-	localparam [3:0] FSR_PAGE_PERMISSION_FAULT = 4'b1111;
-	localparam [3:0] FSR_L2_EXTERNAL_ABORT = 4'b1110;
-	parameter [3:0] TERMINAL_EXCEPTION = 4'b0010;
-	localparam [3:0] AND = 4'd0;
-	localparam [3:0] EOR = 4'd1;
-	localparam [3:0] SUB = 4'd2;
-	localparam [3:0] RSB = 4'd3;
-	localparam [3:0] ADD = 4'd4;
-	localparam [3:0] ADC = 4'd5;
-	localparam [3:0] SBC = 4'd6;
-	localparam [3:0] RSC = 4'd7;
-	localparam [3:0] TST = 4'd8;
-	localparam [3:0] TEQ = 4'd9;
-	localparam [3:0] CMP = 4'd10;
-	localparam [3:0] CMN = 4'd11;
-	localparam [3:0] ORR = 4'd12;
-	localparam [3:0] MOV = 4'd13;
-	localparam [3:0] BIC = 4'd14;
-	localparam [3:0] MVN = 4'd15;
-	localparam [4:0] MUL = 5'd16;
-	localparam [4:0] MLA = 5'd17;
-	localparam [4:0] FMOV = 5'd18;
-	localparam [4:0] MMOV = 5'd19;
-	localparam [4:0] UMLALL = 5'd20;
-	localparam [4:0] UMLALH = 5'd21;
-	localparam [4:0] SMLALL = 5'd22;
-	localparam [4:0] SMLALH = 5'd23;
-	localparam [4:0] CLZ = 5'd24;
-	localparam [4:0] OP_QADD = 5'd25;
-	localparam [4:0] OP_QSUB = 5'd26;
-	localparam [4:0] OP_QDADD = 5'd27;
-	localparam [4:0] OP_QDSUB = 5'd28;
-	localparam [5:0] SMULW0 = 6'd30;
-	localparam [5:0] SMULW1 = 6'd32;
-	localparam [5:0] SMUL00 = 6'd34;
-	localparam [5:0] SMUL01 = 6'd36;
-	localparam [5:0] SMUL10 = 6'd38;
-	localparam [5:0] SMUL11 = 6'd40;
-	localparam [5:0] SMLA00 = 6'd42;
-	localparam [5:0] SMLA01 = 6'd44;
-	localparam [5:0] SMLA10 = 6'd46;
-	localparam [5:0] SMLA11 = 6'd48;
-	localparam [5:0] SMLAW0 = 6'd50;
-	localparam [5:0] SMLAW1 = 6'd52;
-	localparam [5:0] SMLAL00L = 6'd54;
-	localparam [5:0] SMLAL00H = 6'd55;
-	localparam [5:0] SMLAL01L = 6'd56;
-	localparam [5:0] SMLAL01H = 6'd57;
-	localparam [5:0] SMLAL10L = 6'd58;
-	localparam [5:0] SMLAL10H = 6'd59;
-	localparam [5:0] SMLAL11L = 6'd60;
-	localparam [5:0] SMLAL11H = 6'd61;
-	localparam [5:0] FADD = 6'd62;
-	localparam [5:0] OP_SMULW0 = 6'd30;
-	localparam [5:0] OP_SMULW1 = 6'd32;
-	localparam [5:0] OP_SMUL00 = 6'd34;
-	localparam [5:0] OP_SMUL01 = 6'd36;
-	localparam [5:0] OP_SMUL10 = 6'd38;
-	localparam [5:0] OP_SMUL11 = 6'd40;
-	localparam [5:0] OP_SMLA00 = 6'd42;
-	localparam [5:0] OP_SMLA01 = 6'd44;
-	localparam [5:0] OP_SMLA10 = 6'd46;
-	localparam [5:0] OP_SMLA11 = 6'd48;
-	localparam [5:0] OP_SMLAW0 = 6'd50;
-	localparam [5:0] OP_SMLAW1 = 6'd52;
-	localparam [5:0] OP_SMLAL00L = 6'd54;
-	localparam [5:0] OP_SMLAL00H = 6'd55;
-	localparam [5:0] OP_SMLAL01L = 6'd56;
-	localparam [5:0] OP_SMLAL01H = 6'd57;
-	localparam [5:0] OP_SMLAL10L = 6'd58;
-	localparam [5:0] OP_SMLAL10H = 6'd59;
-	localparam [5:0] OP_SMLAL11L = 6'd60;
-	localparam [5:0] OP_SMLAL11H = 6'd61;
-	localparam [5:0] SAT_MOV = 6'd49;
-	localparam [3:0] EQ = 4'h0;
-	localparam [3:0] NE = 4'h1;
-	localparam [3:0] CS = 4'h2;
-	localparam [3:0] CC = 4'h3;
-	localparam [3:0] MI = 4'h4;
-	localparam [3:0] PL = 4'h5;
-	localparam [3:0] VS = 4'h6;
-	localparam [3:0] VC = 4'h7;
-	localparam [3:0] HI = 4'h8;
-	localparam [3:0] LS = 4'h9;
-	localparam [3:0] GE = 4'ha;
-	localparam [3:0] LT = 4'hb;
-	localparam [3:0] GT = 4'hc;
-	localparam [3:0] LE = 4'hd;
-	localparam [3:0] AL = 4'he;
-	localparam [3:0] NV = 4'hf;
-	localparam [31:0] N = 32'd31;
-	localparam [31:0] Z = 32'd30;
-	localparam [31:0] C = 32'd29;
-	localparam [31:0] V = 32'd28;
-	localparam [31:0] Q = 32'd27;
-	localparam [31:0] I = 32'd7;
-	localparam [31:0] F = 32'd6;
-	localparam [31:0] T = 32'd5;
-	localparam [31:0] ZAP_CPSR_MODE = 32'd4;
-	localparam [0:0] INDEX_EN = 1'd0;
-	localparam [0:0] IMMED_EN = 1'd1;
-	localparam [4:0] FIQ = 5'b10001;
-	localparam [4:0] IRQ = 5'b10010;
-	localparam [4:0] ABT = 5'b10111;
-	localparam [4:0] SVC = 5'b10011;
-	localparam [4:0] USR = 5'b10000;
-	localparam [4:0] SYS = 5'b11111;
-	localparam [4:0] UND = 5'b11011;
-	localparam [31:0] SMLAxy = 32'bzzzz00010000zzzzzzzzzzzz1zz0zzzz;
-	localparam [31:0] SMLAWy = 32'bzzzz00010010zzzzzzzzzzzz1z00zzzz;
-	localparam [31:0] SMLALxy = 32'bzzzz00010100zzzzzzzzzzzz1zz0zzzz;
-	localparam [31:0] SMULWy = 32'bzzzz00010010zzzz0000zzzz1z10zzzz;
-	localparam [31:0] SMULxy = 32'bzzzz00010110zzzz0000zzzz1zz0zzzz;
-	localparam [31:0] CLZ_INSTRUCTION = 32'bzzzz000101101111zzzz11110001zzzz;
-	localparam [31:0] QADD = 32'bzzzz00010000zzzzzzzz00000101zzzz;
-	localparam [31:0] QSUB = 32'bzzzz00010010zzzzzzzz00000101zzzz;
-	localparam [31:0] QDADD = 32'bzzzz00010100zzzzzzzz00000101zzzz;
-	localparam [31:0] QDSUB = 32'bzzzz00010110zzzzzzzz00000101zzzz;
-	localparam [31:0] PLD = 32'b111101z1z101zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] DATA_PROCESSING_IMMEDIATE = 32'bzzzz001zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzz0zz1zzzz;
-	localparam [31:0] DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzzzzz0zzzz;
-	localparam [31:0] BRANCH_INSTRUCTION = 32'bzzzz101zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] MRS = 32'bzzzz00010z001111zzzzzzzzzzzzzzzz;
-	localparam [31:0] MSR_IMMEDIATE = 32'bzzzz00110z10zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] MSR = 32'bzzzz00010z10zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] LS_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz011zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] LS_IMMEDIATE = 32'bzzzz010zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BX_INST = 32'bzzzz000100101111111111110001zzzz;
-	localparam [31:0] MULT_INST = 32'bzzzz000000zzzzzzzzzzzzzz1001zzzz;
-	localparam [31:0] LMULT_INST = 32'bzzzz00001zzzzzzzzzzzzzzz1001zzzz;
-	localparam [31:0] HALFWORD_LS = 32'bzzzz000zzzzzzzzzzzzzzzzz1zz1zzzz;
-	localparam [31:0] SOFTWARE_INTERRUPT = 32'bzzzz1111zzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] SWAP = 32'bzzzz00010z00zzzzzzzz00001001zzzz;
-	localparam [31:0] MCR = 32'bzzzz1110zzz0zzzzzzzz1111zzz1zzzz;
-	localparam [31:0] MCR2 = 32'b11111110zzz0zzzzzzzzzzzzzzz1zzzz;
-	localparam [31:0] MRC = 32'bzzzz1110zzz1zzzzzzzz1111zzz1zzzz;
-	localparam [31:0] MRC2 = 32'b11111110zzz1zzzzzzzzzzzzzzz1zzzz;
-	localparam [31:0] LDC = 32'bzzzz110zzzz1zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] STC = 32'bzzzz110zzzz0zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] LDC2 = 32'b1111110zzzz1zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] STC2 = 32'b1111110zzzz0zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] CDP = 32'bzzzz1110zzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BLX1 = 32'b1111101zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BLX2 = 32'bzzzz000100101111111111110011zzzz;
-	localparam [31:0] BKPT = 32'b111000010010zzzzzzzzzzzz0111zzzz;
-	localparam [15:0] T_BRANCH_COND = 16'b1101zzzzzzzzzzzz;
-	localparam [15:0] T_BRANCH_NOCOND = 16'b11100zzzzzzzzzzz;
-	localparam [15:0] T_BL = 16'b1111zzzzzzzzzzzz;
-	localparam [15:0] T_BLX1 = 16'b11101zzzzzzzzzzz;
-	localparam [15:0] T_BLX2 = 16'b010001111zzzz000;
-	localparam [15:0] T_BX = 16'b010001110zzzz000;
-	localparam [15:0] T_SWI = 16'b11011111zzzzzzzz;
-	localparam [15:0] T_SHIFT = 16'b000zzzzzzzzzzzzz;
-	localparam [15:0] T_ADD_SUB_LO = 16'b00011zzzzzzzzzzz;
-	localparam [15:0] T_MCAS_IMM = 16'b001zzzzzzzzzzzzz;
-	localparam [15:0] T_ALU_LO = 16'b010000zzzzzzzzzz;
-	localparam [15:0] T_ALU_HI = 16'b010001zzzzzzzzzz;
-	localparam [15:0] T_GET_ADDR = 16'b1010zzzzzzzzzzzz;
-	localparam [15:0] T_MOD_SP = 16'b10110000zzzzzzzz;
-	localparam [15:0] T_PC_REL_LOAD = 16'b01001zzzzzzzzzzz;
-	localparam [15:0] T_LDR_STR_5BIT_OFF = 16'b011zzzzzzzzzzzzz;
-	localparam [15:0] T_LDRH_STRH_5BIT_OFF = 16'b1000zzzzzzzzzzzz;
-	localparam [15:0] T_LDRH_STRH_REG = 16'b0101zzzzzzzzzzzz;
-	localparam [15:0] T_SP_REL_LDR_STR = 16'b1001zzzzzzzzzzzz;
-	localparam [15:0] T_LDMIA_STMIA = 16'b1100zzzzzzzzzzzz;
-	localparam [15:0] T_POP_PUSH = 16'b1011z10zzzzzzzzz;
-	localparam [15:0] T_BKPT = 16'b10111110zzzzzzzz;
-	localparam [31:0] TOTAL_ARCH_REGS = 28;
-	localparam [3:0] ARCH_SP = 13;
-	localparam [3:0] ARCH_LR = 14;
-	localparam [3:0] ARCH_PC = 15;
-	localparam [4:0] RAZ_REGISTER = 16;
-	localparam [4:0] ARCH_USR2_R8 = 18;
-	localparam [4:0] ARCH_USR2_R9 = 19;
-	localparam [4:0] ARCH_USR2_R10 = 20;
-	localparam [4:0] ARCH_USR2_R11 = 21;
-	localparam [4:0] ARCH_USR2_R12 = 22;
-	localparam [4:0] ARCH_USR2_R13 = 23;
-	localparam [4:0] ARCH_USR2_R14 = 24;
-	localparam [4:0] ARCH_DUMMY_REG0 = 25;
-	localparam [4:0] ARCH_DUMMY_REG1 = 26;
-	localparam [4:0] ARCH_CPSR = 17;
-	localparam [4:0] ARCH_CURR_SPSR = 27;
-	localparam [31:0] TOTAL_PHY_REGS = 40;
-	localparam [5:0] PHY_PC = 15;
-	localparam [5:0] PHY_RAZ_REGISTER = 16;
-	localparam [5:0] PHY_CPSR = 17;
-	localparam [5:0] PHY_USR_R0 = 0;
-	localparam [5:0] PHY_USR_R1 = 1;
-	localparam [5:0] PHY_USR_R2 = 2;
-	localparam [5:0] PHY_USR_R3 = 3;
-	localparam [5:0] PHY_USR_R4 = 4;
-	localparam [5:0] PHY_USR_R5 = 5;
-	localparam [5:0] PHY_USR_R6 = 6;
-	localparam [5:0] PHY_USR_R7 = 7;
-	localparam [5:0] PHY_USR_R8 = 8;
-	localparam [5:0] PHY_USR_R9 = 9;
-	localparam [5:0] PHY_USR_R10 = 10;
-	localparam [5:0] PHY_USR_R11 = 11;
-	localparam [5:0] PHY_USR_R12 = 12;
-	localparam [5:0] PHY_USR_R13 = 13;
-	localparam [5:0] PHY_USR_R14 = 14;
-	localparam [5:0] PHY_FIQ_R8 = 18;
-	localparam [5:0] PHY_FIQ_R9 = 19;
-	localparam [5:0] PHY_FIQ_R10 = 20;
-	localparam [5:0] PHY_FIQ_R11 = 21;
-	localparam [5:0] PHY_FIQ_R12 = 22;
-	localparam [5:0] PHY_FIQ_R13 = 23;
-	localparam [5:0] PHY_FIQ_R14 = 24;
-	localparam [5:0] PHY_IRQ_R13 = 25;
-	localparam [5:0] PHY_IRQ_R14 = 26;
-	localparam [5:0] PHY_SVC_R13 = 27;
-	localparam [5:0] PHY_SVC_R14 = 28;
-	localparam [5:0] PHY_UND_R13 = 29;
-	localparam [5:0] PHY_UND_R14 = 30;
-	localparam [5:0] PHY_ABT_R13 = 31;
-	localparam [5:0] PHY_ABT_R14 = 32;
-	localparam [5:0] PHY_DUMMY_REG0 = 33;
-	localparam [5:0] PHY_DUMMY_REG1 = 34;
-	localparam [5:0] PHY_FIQ_SPSR = 35;
-	localparam [5:0] PHY_IRQ_SPSR = 36;
-	localparam [5:0] PHY_SVC_SPSR = 37;
-	localparam [5:0] PHY_UND_SPSR = 38;
-	localparam [5:0] PHY_ABT_SPSR = 39;
-	localparam [1:0] LSL = 0;
-	localparam [1:0] LSR = 1;
-	localparam [1:0] ASR = 2;
-	localparam [1:0] ROR = 3;
-	localparam [2:0] RRC = 4;
-	localparam [2:0] RORI = 5;
-	localparam [2:0] ROR_1 = 6;
-	localparam [2:0] LSL_SAT = 7;
-	localparam [2:0] CTI_BURST = 3'b010;
-	localparam [2:0] CTI_EOB = 3'b111;
-	localparam [31:0] RST_VECTOR = 32'h00000000;
-	localparam [31:0] UND_VECTOR = 32'h00000004;
-	localparam [31:0] SWI_VECTOR = 32'h00000008;
-	localparam [31:0] PABT_VECTOR = 32'h0000000c;
-	localparam [31:0] DABT_VECTOR = 32'h00000010;
-	localparam [31:0] IRQ_VECTOR = 32'h00000018;
-	localparam [31:0] FIQ_VECTOR = 32'h0000001c;
-	localparam [1:0] SNT = 2'b00;
-	localparam [1:0] WNT = 2'b01;
-	localparam [1:0] WT = 2'b10;
-	localparam [1:0] ST = 2'b11;
-	localparam [31:0] ZAP_SRCDEST_EXTEND = 32'd32;
-	localparam [31:0] ZAP_DP_RB_EXTEND = 32'd32;
-	localparam [31:0] ZAP_BASE_EXTEND = 32'd33;
-	localparam [31:0] ZAP_DP_RD_EXTEND = 32'd33;
-	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
-	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
-	function automatic [31:0] be_32;
-		input [31:0] dat;
-		input [3:0] sel;
-		case (sel)
-			4'b1000: be_32 = {24'd0, dat[31:24]};
-			4'b0100: be_32 = {16'd0, dat[23:16], 8'd0};
-			4'b0010: be_32 = {8'd0, dat[15:8], 16'd0};
-			4'b0001: be_32 = {dat[7:0], 24'd0};
-			4'b1100: be_32 = {16'd0, dat[31:16]};
-			4'b0011: be_32 = {dat[15:0], 16'd0};
-			default: be_32 = dat;
-		endcase
-	endfunction
-	function automatic [3:0] be_sel_32;
-		input [3:0] sel;
-		case (sel)
-			4'b0001: be_sel_32 = 4'b1000;
-			4'b0010: be_sel_32 = 4'b0100;
-			4'b0100: be_sel_32 = 4'b0010;
-			4'b1000: be_sel_32 = 4'b0001;
-			4'b0011: be_sel_32 = 4'b1100;
-			4'b1100: be_sel_32 = 4'b0011;
-			4'b1111: be_sel_32 = sel;
-			default: be_sel_32 = {4 {1'bx}};
-		endcase
-	endfunction
-	function automatic is_cc_satisfied;
-		input [3:0] cc;
-		input [3:0] fl;
-		reg ok;
-		reg n;
-		reg z;
-		reg c;
-		reg v;
-		begin
-			{n, z, c, v} = fl;
-			case (cc)
-				EQ: ok = z;
-				NE: ok = !z;
-				CS: ok = c;
-				CC: ok = !c;
-				MI: ok = n;
-				PL: ok = !n;
-				VS: ok = v;
-				VC: ok = !v;
-				HI: ok = c && !z;
-				LS: ok = !c || z;
-				GE: ok = n == v;
-				LT: ok = n != v;
-				GT: ok = (n == v) && !z;
-				LE: ok = (n != v) || z;
-				AL: ok = 1'd1;
-				NV: ok = 1'd0;
-				default: ok = 1'sbx;
-			endcase
-			is_cc_satisfied = ok;
-		end
-	endfunction
-	function automatic [5:0] translate;
-		input [4:0] index;
-		input [4:0] cpu_mode;
-		begin
-			case (index)
-				0: translate = PHY_USR_R0;
-				1: translate = PHY_USR_R1;
-				2: translate = PHY_USR_R2;
-				3: translate = PHY_USR_R3;
-				4: translate = PHY_USR_R4;
-				5: translate = PHY_USR_R5;
-				6: translate = PHY_USR_R6;
-				7: translate = PHY_USR_R7;
-				8: translate = PHY_USR_R8;
-				9: translate = PHY_USR_R9;
-				10: translate = PHY_USR_R10;
-				11: translate = PHY_USR_R11;
-				12: translate = PHY_USR_R12;
-				13: translate = PHY_USR_R13;
-				14: translate = PHY_USR_R14;
-				15: translate = PHY_PC;
-				RAZ_REGISTER: translate = PHY_RAZ_REGISTER;
-				ARCH_CPSR: translate = PHY_CPSR;
-				ARCH_CURR_SPSR: translate = PHY_CPSR;
-				ARCH_USR2_R8: translate = PHY_USR_R8;
-				ARCH_USR2_R9: translate = PHY_USR_R9;
-				ARCH_USR2_R10: translate = PHY_USR_R10;
-				ARCH_USR2_R11: translate = PHY_USR_R11;
-				ARCH_USR2_R12: translate = PHY_USR_R12;
-				ARCH_USR2_R13: translate = PHY_USR_R13;
-				ARCH_USR2_R14: translate = PHY_USR_R14;
-				ARCH_DUMMY_REG0: translate = PHY_DUMMY_REG0;
-				ARCH_DUMMY_REG1: translate = PHY_DUMMY_REG1;
-				default: translate = {1'd0, index};
-			endcase
-			case (cpu_mode)
-				FIQ:
-					case (index)
-						8: translate = PHY_FIQ_R8;
-						9: translate = PHY_FIQ_R9;
-						10: translate = PHY_FIQ_R10;
-						11: translate = PHY_FIQ_R11;
-						12: translate = PHY_FIQ_R12;
-						13: translate = PHY_FIQ_R13;
-						14: translate = PHY_FIQ_R14;
-						ARCH_CURR_SPSR: translate = PHY_FIQ_SPSR;
-						default:
-							;
-					endcase
-				IRQ:
-					case (index)
-						13: translate = PHY_IRQ_R13;
-						14: translate = PHY_IRQ_R14;
-						ARCH_CURR_SPSR: translate = PHY_IRQ_SPSR;
-						default:
-							;
-					endcase
-				ABT:
-					case (index)
-						13: translate = PHY_ABT_R13;
-						14: translate = PHY_ABT_R14;
-						ARCH_CURR_SPSR: translate = PHY_ABT_SPSR;
-						default:
-							;
-					endcase
-				UND:
-					case (index)
-						13: translate = PHY_UND_R13;
-						14: translate = PHY_UND_R14;
-						ARCH_CURR_SPSR: translate = PHY_UND_SPSR;
-						default:
-							;
-					endcase
-				SVC:
-					case (index)
-						13: translate = PHY_SVC_R13;
-						14: translate = PHY_SVC_R14;
-						ARCH_CURR_SPSR: translate = PHY_SVC_SPSR;
-						default:
-							;
-					endcase
-				USR:
-					;
-				SYS:
-					;
-				default: translate = 1'sbx;
-			endcase
-			if (|{cpu_mode == USR, cpu_mode == SYS, cpu_mode == FIQ, cpu_mode == IRQ, cpu_mode == SVC, cpu_mode == UND, cpu_mode == ABT})
-				;
-		end
-	endfunction
-	wire [3:0] o_condition_code_nxt;
-	wire [$clog2(PHY_REGS) - 1:0] o_destination_index_nxt;
-	wire [32:0] o_alu_source_nxt;
-	wire [$clog2(ALU_OPS) - 1:0] o_alu_operation_nxt;
-	wire [32:0] o_shift_source_nxt;
-	wire [$clog2(SHIFT_OPS) - 1:0] o_shift_operation_nxt;
-	wire [32:0] o_shift_length_nxt;
-	wire o_flag_update_nxt;
-	wire [$clog2(PHY_REGS) - 1:0] o_mem_srcdest_index_nxt;
-	wire o_mem_load_nxt;
-	wire o_mem_store_nxt;
-	wire o_mem_pre_index_nxt;
-	wire o_mem_unsigned_byte_enable_nxt;
-	wire o_mem_signed_byte_enable_nxt;
-	wire o_mem_signed_halfword_enable_nxt;
-	wire o_mem_unsigned_halfword_enable_nxt;
-	wire o_mem_translate_nxt;
-	wire o_irq_nxt;
-	wire o_fiq_nxt;
-	wire o_abt_nxt;
-	wire o_swi_nxt;
-	wire o_und_nxt;
-	wire o_switch_nxt;
-	wire [$clog2(ARCH_REGS) - 1:0] destination_index_nxt;
-	wire [32:0] alu_source_nxt;
-	wire [32:0] shift_source_nxt;
-	wire [32:0] shift_length_nxt;
-	wire [$clog2(ARCH_REGS) - 1:0] mem_srcdest_index_nxt;
-	assign o_abt_nxt = i_abt && i_instruction_valid;
-	assign o_irq_nxt = (!i_fiq && i_irq) && !o_abt_nxt;
-	assign o_fiq_nxt = i_fiq && !o_abt_nxt;
-	assign o_destination_index_nxt = translate(destination_index_nxt, i_cpsr_ff_mode);
-	assign o_alu_source_nxt = (alu_source_nxt[32] == IMMED_EN ? alu_source_nxt : {27'd0, translate(alu_source_nxt[4:0], i_cpsr_ff_mode)});
-	assign o_shift_source_nxt = (shift_source_nxt[32] == IMMED_EN ? shift_source_nxt : {27'd0, translate(shift_source_nxt[4:0], i_cpsr_ff_mode)});
-	assign o_shift_length_nxt = (shift_length_nxt[32] == IMMED_EN ? shift_length_nxt : {27'd0, translate(shift_length_nxt[4:0], i_cpsr_ff_mode)});
-	assign o_mem_srcdest_index_nxt = translate(mem_srcdest_index_nxt, i_cpsr_ff_mode);
-	assign o_swi_nxt = &i_instruction[27:24] && !((i_irq || i_fiq) || i_abt);
-	wire [511:0] decompile_tmp;
-	always @(posedge i_clk)
-		if (i_reset) begin
-			o_destination_index_ff <= 1'sbx;
-			o_alu_source_ff <= 1'sbx;
-			o_alu_operation_ff <= 1'sbx;
-			o_shift_source_ff <= 1'sbx;
-			o_shift_operation_ff <= 1'sbx;
-			o_shift_length_ff <= 1'sbx;
-			o_flag_update_ff <= 1'sbx;
-			o_mem_srcdest_index_ff <= 1'sbx;
-			o_mem_load_ff <= 1'sbx;
-			o_mem_store_ff <= 1'sbx;
-			o_mem_pre_index_ff <= 1'sbx;
-			o_mem_unsigned_byte_enable_ff <= 1'sbx;
-			o_mem_signed_byte_enable_ff <= 1'sbx;
-			o_mem_signed_halfword_enable_ff <= 1'sbx;
-			o_mem_unsigned_halfword_enable_ff <= 1'sbx;
-			o_mem_translate_ff <= 1'sbx;
-			o_pc_plus_8_ff <= 1'sbx;
-			o_pc_ff <= 1'sbx;
-			o_switch_ff <= 1'sbx;
-			o_force32align_ff <= 1'sbx;
-			o_decompile <= 1'sbx;
-			o_ppc_ff <= 1'sbx;
-			o_irq_ff <= 0;
-			o_fiq_ff <= 0;
-			o_swi_ff <= 0;
-			o_abt_ff <= 0;
-			o_condition_code_ff <= NV;
-			o_und_ff <= 0;
-			o_taken_ff <= 0;
-			o_uop_last <= 0;
-		end
-		else if (i_clear_from_writeback || (i_clear_from_alu && !i_data_stall)) begin
-			o_irq_ff <= 0;
-			o_fiq_ff <= 0;
-			o_swi_ff <= 0;
-			o_abt_ff <= 0;
-			o_condition_code_ff <= NV;
-			o_und_ff <= 0;
-			o_taken_ff <= 0;
-			o_uop_last <= 0;
-			o_destination_index_ff <= 1'sbx;
-			o_alu_source_ff <= 1'sbx;
-			o_alu_operation_ff <= 1'sbx;
-			o_shift_source_ff <= 1'sbx;
-			o_shift_operation_ff <= 1'sbx;
-			o_shift_length_ff <= 1'sbx;
-			o_flag_update_ff <= 1'sbx;
-			o_mem_srcdest_index_ff <= 1'sbx;
-			o_mem_load_ff <= 1'sbx;
-			o_mem_store_ff <= 1'sbx;
-			o_mem_pre_index_ff <= 1'sbx;
-			o_mem_unsigned_byte_enable_ff <= 1'sbx;
-			o_mem_signed_byte_enable_ff <= 1'sbx;
-			o_mem_signed_halfword_enable_ff <= 1'sbx;
-			o_mem_unsigned_halfword_enable_ff <= 1'sbx;
-			o_mem_translate_ff <= 1'sbx;
-			o_pc_plus_8_ff <= 1'sbx;
-			o_pc_ff <= 1'sbx;
-			o_switch_ff <= 1'sbx;
-			o_force32align_ff <= 1'sbx;
-			o_decompile <= 1'sbx;
-			o_ppc_ff <= 1'sbx;
-		end
-		else if ((!i_data_stall && !i_stall_from_issue) && !i_stall_from_shifter) begin
-			o_irq_ff <= o_irq_nxt;
-			o_fiq_ff <= o_fiq_nxt;
-			o_swi_ff <= o_swi_nxt;
-			o_abt_ff <= o_abt_nxt;
-			o_und_ff <= o_und_nxt | i_mode16_und;
-			o_condition_code_ff <= (i_mode16_und ? AL : o_condition_code_nxt);
-			o_destination_index_ff <= o_destination_index_nxt;
-			o_alu_source_ff <= o_alu_source_nxt;
-			o_alu_operation_ff <= o_alu_operation_nxt;
-			o_shift_source_ff <= o_shift_source_nxt;
-			o_shift_operation_ff <= o_shift_operation_nxt;
-			o_shift_length_ff <= o_shift_length_nxt;
-			o_flag_update_ff <= o_flag_update_nxt;
-			o_mem_srcdest_index_ff <= o_mem_srcdest_index_nxt;
-			o_mem_load_ff <= o_mem_load_nxt;
-			o_mem_store_ff <= o_mem_store_nxt;
-			o_mem_pre_index_ff <= o_mem_pre_index_nxt;
-			o_mem_unsigned_byte_enable_ff <= o_mem_unsigned_byte_enable_nxt;
-			o_mem_signed_byte_enable_ff <= o_mem_signed_byte_enable_nxt;
-			o_mem_signed_halfword_enable_ff <= o_mem_signed_halfword_enable_nxt;
-			o_mem_unsigned_halfword_enable_ff <= o_mem_unsigned_halfword_enable_nxt;
-			o_mem_translate_ff <= o_mem_translate_nxt;
-			o_pc_plus_8_ff <= i_pc_plus_8_ff;
-			o_pc_ff <= i_pc_ff;
-			o_switch_ff <= o_switch_nxt | i_switch;
-			o_force32align_ff <= i_force32align;
-			o_taken_ff <= i_taken;
-			o_ppc_ff <= i_ppc_ff;
-			o_decompile <= decompile_tmp;
-			o_uop_last <= i_uop_last;
-		end
-	zap_decode #(
-		.ARCH_REGS(ARCH_REGS),
-		.ALU_OPS(ALU_OPS),
-		.SHIFT_OPS(SHIFT_OPS),
-		.V4T(V4T)
-	) u_zap_decode(
-		.i_irq(i_irq),
-		.i_fiq(i_fiq),
-		.i_abt(i_abt),
-		.i_instruction(i_instruction[35:0]),
-		.i_instruction_valid(i_instruction_valid),
-		.i_v5_und(i_v5_und),
-		.o_condition_code(o_condition_code_nxt),
-		.o_destination_index(destination_index_nxt),
-		.o_alu_source(alu_source_nxt),
-		.o_alu_operation(o_alu_operation_nxt),
-		.o_shift_source(shift_source_nxt),
-		.o_shift_operation(o_shift_operation_nxt),
-		.o_shift_length(shift_length_nxt),
-		.o_flag_update(o_flag_update_nxt),
-		.o_mem_srcdest_index(mem_srcdest_index_nxt),
-		.o_mem_load(o_mem_load_nxt),
-		.o_mem_store(o_mem_store_nxt),
-		.o_mem_pre_index(o_mem_pre_index_nxt),
-		.o_mem_unsigned_byte_enable(o_mem_unsigned_byte_enable_nxt),
-		.o_mem_signed_byte_enable(o_mem_signed_byte_enable_nxt),
-		.o_mem_signed_halfword_enable(o_mem_signed_halfword_enable_nxt),
-		.o_mem_unsigned_halfword_enable(o_mem_unsigned_halfword_enable_nxt),
-		.o_mem_translate(o_mem_translate_nxt),
-		.o_und(o_und_nxt),
-		.o_switch(o_switch_nxt)
-	);
-	zap_decompile u_zap_decompile(
-		.i_instruction(i_instruction[35:0]),
-		.i_dav(i_instruction_valid),
-		.o_decompile(decompile_tmp)
-	);
-endmodule
 module zap_decode (
 	i_irq,
 	i_fiq,
@@ -10784,6 +10078,712 @@ module zap_decode (
 			endcase
 	end
 	initial _sv2v_0 = 0;
+endmodule
+module zap_decode_main (
+	o_decompile,
+	i_uop_last,
+	o_uop_last,
+	i_clk,
+	i_reset,
+	i_taken,
+	i_ppc_ff,
+	i_switch,
+	i_mode16_und,
+	i_v5_und,
+	i_force32align,
+	i_clear_from_writeback,
+	i_data_stall,
+	i_clear_from_alu,
+	i_stall_from_shifter,
+	i_stall_from_issue,
+	i_irq,
+	i_fiq,
+	i_abt,
+	i_pc_ff,
+	i_pc_plus_8_ff,
+	i_cpsr_ff_mode,
+	i_instruction,
+	i_instruction_valid,
+	o_ppc_ff,
+	o_condition_code_ff,
+	o_destination_index_ff,
+	o_alu_source_ff,
+	o_alu_operation_ff,
+	o_shift_source_ff,
+	o_shift_operation_ff,
+	o_shift_length_ff,
+	o_flag_update_ff,
+	o_mem_srcdest_index_ff,
+	o_mem_load_ff,
+	o_mem_store_ff,
+	o_mem_pre_index_ff,
+	o_mem_unsigned_byte_enable_ff,
+	o_mem_signed_byte_enable_ff,
+	o_mem_signed_halfword_enable_ff,
+	o_mem_unsigned_halfword_enable_ff,
+	o_mem_translate_ff,
+	o_pc_plus_8_ff,
+	o_pc_ff,
+	o_switch_ff,
+	o_irq_ff,
+	o_fiq_ff,
+	o_abt_ff,
+	o_und_ff,
+	o_swi_ff,
+	o_force32align_ff,
+	o_taken_ff
+);
+	parameter [31:0] ARCH_REGS = 32'd32;
+	parameter [31:0] ALU_OPS = 32'd32;
+	parameter [31:0] SHIFT_OPS = 32'd6;
+	parameter [31:0] PHY_REGS = 32'd46;
+	parameter [0:0] V4T = 1'd0;
+	parameter [31:0] CPSR_MODE = 32'd4;
+	output reg [511:0] o_decompile;
+	input wire i_uop_last;
+	output reg o_uop_last;
+	input wire i_clk;
+	input wire i_reset;
+	input wire [1:0] i_taken;
+	input wire [31:0] i_ppc_ff;
+	input wire i_switch;
+	input wire i_mode16_und;
+	input wire i_v5_und;
+	input wire i_force32align;
+	input wire i_clear_from_writeback;
+	input wire i_data_stall;
+	input wire i_clear_from_alu;
+	input wire i_stall_from_shifter;
+	input wire i_stall_from_issue;
+	input wire i_irq;
+	input wire i_fiq;
+	input wire i_abt;
+	input wire [31:0] i_pc_ff;
+	input wire [31:0] i_pc_plus_8_ff;
+	input wire [CPSR_MODE:0] i_cpsr_ff_mode;
+	input wire [35:0] i_instruction;
+	input wire i_instruction_valid;
+	output reg [31:0] o_ppc_ff;
+	output reg [3:0] o_condition_code_ff;
+	output reg [$clog2(PHY_REGS) - 1:0] o_destination_index_ff;
+	output reg [32:0] o_alu_source_ff;
+	output reg [$clog2(ALU_OPS) - 1:0] o_alu_operation_ff;
+	output reg [32:0] o_shift_source_ff;
+	output reg [$clog2(SHIFT_OPS) - 1:0] o_shift_operation_ff;
+	output reg [32:0] o_shift_length_ff;
+	output reg o_flag_update_ff;
+	output reg [$clog2(PHY_REGS) - 1:0] o_mem_srcdest_index_ff;
+	output reg o_mem_load_ff;
+	output reg o_mem_store_ff;
+	output reg o_mem_pre_index_ff;
+	output reg o_mem_unsigned_byte_enable_ff;
+	output reg o_mem_signed_byte_enable_ff;
+	output reg o_mem_signed_halfword_enable_ff;
+	output reg o_mem_unsigned_halfword_enable_ff;
+	output reg o_mem_translate_ff;
+	output reg [31:0] o_pc_plus_8_ff;
+	output reg [31:0] o_pc_ff;
+	output reg o_switch_ff;
+	output reg o_irq_ff;
+	output reg o_fiq_ff;
+	output reg o_abt_ff;
+	output reg o_und_ff;
+	output reg o_swi_ff;
+	output reg o_force32align_ff;
+	output reg [1:0] o_taken_ff;
+	localparam [1:0] SECTION_ID = 2'b10;
+	localparam [1:0] PAGE_ID = 2'b01;
+	localparam [1:0] FINE_ID = 2'b11;
+	localparam [1:0] SPAGE_ID = 2'b10;
+	localparam [1:0] LPAGE_ID = 2'b01;
+	localparam [1:0] FPAGE_ID = 2'b11;
+	localparam [3:0] APSR_NA_NA = 4'b0000;
+	localparam [3:0] APSR_RO_RO = 4'b0001;
+	localparam [3:0] APSR_RO_NA = 4'b0010;
+	localparam [3:0] APSR_RW_NA = 4'b01zz;
+	localparam [3:0] APSR_RW_RO = 4'b10zz;
+	localparam [3:0] APSR_RW_RW = 4'b11zz;
+	localparam [1:0] DAC_MANAGER = 2'b11;
+	localparam [1:0] DAC_CLIENT = 2'b01;
+	localparam [3:0] FSR_SECTION_DOMAIN_FAULT = 4'b1001;
+	localparam [3:0] FSR_SECTION_TRANSLATION_FAULT = 4'b0101;
+	localparam [3:0] FSR_SECTION_PERMISSION_FAULT = 4'b1101;
+	localparam [3:0] FSR_L1_EXTERNAL_ABORT = 4'b1100;
+	localparam [3:0] FSR_PAGE_TRANSLATION_FAULT = 4'b0111;
+	localparam [3:0] FSR_PAGE_DOMAIN_FAULT = 4'b1011;
+	localparam [3:0] FSR_PAGE_PERMISSION_FAULT = 4'b1111;
+	localparam [3:0] FSR_L2_EXTERNAL_ABORT = 4'b1110;
+	parameter [3:0] TERMINAL_EXCEPTION = 4'b0010;
+	localparam [3:0] AND = 4'd0;
+	localparam [3:0] EOR = 4'd1;
+	localparam [3:0] SUB = 4'd2;
+	localparam [3:0] RSB = 4'd3;
+	localparam [3:0] ADD = 4'd4;
+	localparam [3:0] ADC = 4'd5;
+	localparam [3:0] SBC = 4'd6;
+	localparam [3:0] RSC = 4'd7;
+	localparam [3:0] TST = 4'd8;
+	localparam [3:0] TEQ = 4'd9;
+	localparam [3:0] CMP = 4'd10;
+	localparam [3:0] CMN = 4'd11;
+	localparam [3:0] ORR = 4'd12;
+	localparam [3:0] MOV = 4'd13;
+	localparam [3:0] BIC = 4'd14;
+	localparam [3:0] MVN = 4'd15;
+	localparam [4:0] MUL = 5'd16;
+	localparam [4:0] MLA = 5'd17;
+	localparam [4:0] FMOV = 5'd18;
+	localparam [4:0] MMOV = 5'd19;
+	localparam [4:0] UMLALL = 5'd20;
+	localparam [4:0] UMLALH = 5'd21;
+	localparam [4:0] SMLALL = 5'd22;
+	localparam [4:0] SMLALH = 5'd23;
+	localparam [4:0] CLZ = 5'd24;
+	localparam [4:0] OP_QADD = 5'd25;
+	localparam [4:0] OP_QSUB = 5'd26;
+	localparam [4:0] OP_QDADD = 5'd27;
+	localparam [4:0] OP_QDSUB = 5'd28;
+	localparam [5:0] SMULW0 = 6'd30;
+	localparam [5:0] SMULW1 = 6'd32;
+	localparam [5:0] SMUL00 = 6'd34;
+	localparam [5:0] SMUL01 = 6'd36;
+	localparam [5:0] SMUL10 = 6'd38;
+	localparam [5:0] SMUL11 = 6'd40;
+	localparam [5:0] SMLA00 = 6'd42;
+	localparam [5:0] SMLA01 = 6'd44;
+	localparam [5:0] SMLA10 = 6'd46;
+	localparam [5:0] SMLA11 = 6'd48;
+	localparam [5:0] SMLAW0 = 6'd50;
+	localparam [5:0] SMLAW1 = 6'd52;
+	localparam [5:0] SMLAL00L = 6'd54;
+	localparam [5:0] SMLAL00H = 6'd55;
+	localparam [5:0] SMLAL01L = 6'd56;
+	localparam [5:0] SMLAL01H = 6'd57;
+	localparam [5:0] SMLAL10L = 6'd58;
+	localparam [5:0] SMLAL10H = 6'd59;
+	localparam [5:0] SMLAL11L = 6'd60;
+	localparam [5:0] SMLAL11H = 6'd61;
+	localparam [5:0] FADD = 6'd62;
+	localparam [5:0] OP_SMULW0 = 6'd30;
+	localparam [5:0] OP_SMULW1 = 6'd32;
+	localparam [5:0] OP_SMUL00 = 6'd34;
+	localparam [5:0] OP_SMUL01 = 6'd36;
+	localparam [5:0] OP_SMUL10 = 6'd38;
+	localparam [5:0] OP_SMUL11 = 6'd40;
+	localparam [5:0] OP_SMLA00 = 6'd42;
+	localparam [5:0] OP_SMLA01 = 6'd44;
+	localparam [5:0] OP_SMLA10 = 6'd46;
+	localparam [5:0] OP_SMLA11 = 6'd48;
+	localparam [5:0] OP_SMLAW0 = 6'd50;
+	localparam [5:0] OP_SMLAW1 = 6'd52;
+	localparam [5:0] OP_SMLAL00L = 6'd54;
+	localparam [5:0] OP_SMLAL00H = 6'd55;
+	localparam [5:0] OP_SMLAL01L = 6'd56;
+	localparam [5:0] OP_SMLAL01H = 6'd57;
+	localparam [5:0] OP_SMLAL10L = 6'd58;
+	localparam [5:0] OP_SMLAL10H = 6'd59;
+	localparam [5:0] OP_SMLAL11L = 6'd60;
+	localparam [5:0] OP_SMLAL11H = 6'd61;
+	localparam [5:0] SAT_MOV = 6'd49;
+	localparam [3:0] EQ = 4'h0;
+	localparam [3:0] NE = 4'h1;
+	localparam [3:0] CS = 4'h2;
+	localparam [3:0] CC = 4'h3;
+	localparam [3:0] MI = 4'h4;
+	localparam [3:0] PL = 4'h5;
+	localparam [3:0] VS = 4'h6;
+	localparam [3:0] VC = 4'h7;
+	localparam [3:0] HI = 4'h8;
+	localparam [3:0] LS = 4'h9;
+	localparam [3:0] GE = 4'ha;
+	localparam [3:0] LT = 4'hb;
+	localparam [3:0] GT = 4'hc;
+	localparam [3:0] LE = 4'hd;
+	localparam [3:0] AL = 4'he;
+	localparam [3:0] NV = 4'hf;
+	localparam [31:0] N = 32'd31;
+	localparam [31:0] Z = 32'd30;
+	localparam [31:0] C = 32'd29;
+	localparam [31:0] V = 32'd28;
+	localparam [31:0] Q = 32'd27;
+	localparam [31:0] I = 32'd7;
+	localparam [31:0] F = 32'd6;
+	localparam [31:0] T = 32'd5;
+	localparam [31:0] ZAP_CPSR_MODE = 32'd4;
+	localparam [0:0] INDEX_EN = 1'd0;
+	localparam [0:0] IMMED_EN = 1'd1;
+	localparam [4:0] FIQ = 5'b10001;
+	localparam [4:0] IRQ = 5'b10010;
+	localparam [4:0] ABT = 5'b10111;
+	localparam [4:0] SVC = 5'b10011;
+	localparam [4:0] USR = 5'b10000;
+	localparam [4:0] SYS = 5'b11111;
+	localparam [4:0] UND = 5'b11011;
+	localparam [31:0] SMLAxy = 32'bzzzz00010000zzzzzzzzzzzz1zz0zzzz;
+	localparam [31:0] SMLAWy = 32'bzzzz00010010zzzzzzzzzzzz1z00zzzz;
+	localparam [31:0] SMLALxy = 32'bzzzz00010100zzzzzzzzzzzz1zz0zzzz;
+	localparam [31:0] SMULWy = 32'bzzzz00010010zzzz0000zzzz1z10zzzz;
+	localparam [31:0] SMULxy = 32'bzzzz00010110zzzz0000zzzz1zz0zzzz;
+	localparam [31:0] CLZ_INSTRUCTION = 32'bzzzz000101101111zzzz11110001zzzz;
+	localparam [31:0] QADD = 32'bzzzz00010000zzzzzzzz00000101zzzz;
+	localparam [31:0] QSUB = 32'bzzzz00010010zzzzzzzz00000101zzzz;
+	localparam [31:0] QDADD = 32'bzzzz00010100zzzzzzzz00000101zzzz;
+	localparam [31:0] QDSUB = 32'bzzzz00010110zzzzzzzz00000101zzzz;
+	localparam [31:0] PLD = 32'b111101z1z101zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] DATA_PROCESSING_IMMEDIATE = 32'bzzzz001zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzz0zz1zzzz;
+	localparam [31:0] DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzzzzz0zzzz;
+	localparam [31:0] BRANCH_INSTRUCTION = 32'bzzzz101zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] MRS = 32'bzzzz00010z001111zzzzzzzzzzzzzzzz;
+	localparam [31:0] MSR_IMMEDIATE = 32'bzzzz00110z10zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] MSR = 32'bzzzz00010z10zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] LS_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz011zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] LS_IMMEDIATE = 32'bzzzz010zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BX_INST = 32'bzzzz000100101111111111110001zzzz;
+	localparam [31:0] MULT_INST = 32'bzzzz000000zzzzzzzzzzzzzz1001zzzz;
+	localparam [31:0] LMULT_INST = 32'bzzzz00001zzzzzzzzzzzzzzz1001zzzz;
+	localparam [31:0] HALFWORD_LS = 32'bzzzz000zzzzzzzzzzzzzzzzz1zz1zzzz;
+	localparam [31:0] SOFTWARE_INTERRUPT = 32'bzzzz1111zzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] SWAP = 32'bzzzz00010z00zzzzzzzz00001001zzzz;
+	localparam [31:0] MCR = 32'bzzzz1110zzz0zzzzzzzz1111zzz1zzzz;
+	localparam [31:0] MCR2 = 32'b11111110zzz0zzzzzzzzzzzzzzz1zzzz;
+	localparam [31:0] MRC = 32'bzzzz1110zzz1zzzzzzzz1111zzz1zzzz;
+	localparam [31:0] MRC2 = 32'b11111110zzz1zzzzzzzzzzzzzzz1zzzz;
+	localparam [31:0] LDC = 32'bzzzz110zzzz1zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] STC = 32'bzzzz110zzzz0zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] LDC2 = 32'b1111110zzzz1zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] STC2 = 32'b1111110zzzz0zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] CDP = 32'bzzzz1110zzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BLX1 = 32'b1111101zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BLX2 = 32'bzzzz000100101111111111110011zzzz;
+	localparam [31:0] BKPT = 32'b111000010010zzzzzzzzzzzz0111zzzz;
+	localparam [15:0] T_BRANCH_COND = 16'b1101zzzzzzzzzzzz;
+	localparam [15:0] T_BRANCH_NOCOND = 16'b11100zzzzzzzzzzz;
+	localparam [15:0] T_BL = 16'b1111zzzzzzzzzzzz;
+	localparam [15:0] T_BLX1 = 16'b11101zzzzzzzzzzz;
+	localparam [15:0] T_BLX2 = 16'b010001111zzzz000;
+	localparam [15:0] T_BX = 16'b010001110zzzz000;
+	localparam [15:0] T_SWI = 16'b11011111zzzzzzzz;
+	localparam [15:0] T_SHIFT = 16'b000zzzzzzzzzzzzz;
+	localparam [15:0] T_ADD_SUB_LO = 16'b00011zzzzzzzzzzz;
+	localparam [15:0] T_MCAS_IMM = 16'b001zzzzzzzzzzzzz;
+	localparam [15:0] T_ALU_LO = 16'b010000zzzzzzzzzz;
+	localparam [15:0] T_ALU_HI = 16'b010001zzzzzzzzzz;
+	localparam [15:0] T_GET_ADDR = 16'b1010zzzzzzzzzzzz;
+	localparam [15:0] T_MOD_SP = 16'b10110000zzzzzzzz;
+	localparam [15:0] T_PC_REL_LOAD = 16'b01001zzzzzzzzzzz;
+	localparam [15:0] T_LDR_STR_5BIT_OFF = 16'b011zzzzzzzzzzzzz;
+	localparam [15:0] T_LDRH_STRH_5BIT_OFF = 16'b1000zzzzzzzzzzzz;
+	localparam [15:0] T_LDRH_STRH_REG = 16'b0101zzzzzzzzzzzz;
+	localparam [15:0] T_SP_REL_LDR_STR = 16'b1001zzzzzzzzzzzz;
+	localparam [15:0] T_LDMIA_STMIA = 16'b1100zzzzzzzzzzzz;
+	localparam [15:0] T_POP_PUSH = 16'b1011z10zzzzzzzzz;
+	localparam [15:0] T_BKPT = 16'b10111110zzzzzzzz;
+	localparam [31:0] TOTAL_ARCH_REGS = 28;
+	localparam [3:0] ARCH_SP = 13;
+	localparam [3:0] ARCH_LR = 14;
+	localparam [3:0] ARCH_PC = 15;
+	localparam [4:0] RAZ_REGISTER = 16;
+	localparam [4:0] ARCH_USR2_R8 = 18;
+	localparam [4:0] ARCH_USR2_R9 = 19;
+	localparam [4:0] ARCH_USR2_R10 = 20;
+	localparam [4:0] ARCH_USR2_R11 = 21;
+	localparam [4:0] ARCH_USR2_R12 = 22;
+	localparam [4:0] ARCH_USR2_R13 = 23;
+	localparam [4:0] ARCH_USR2_R14 = 24;
+	localparam [4:0] ARCH_DUMMY_REG0 = 25;
+	localparam [4:0] ARCH_DUMMY_REG1 = 26;
+	localparam [4:0] ARCH_CPSR = 17;
+	localparam [4:0] ARCH_CURR_SPSR = 27;
+	localparam [31:0] TOTAL_PHY_REGS = 40;
+	localparam [5:0] PHY_PC = 15;
+	localparam [5:0] PHY_RAZ_REGISTER = 16;
+	localparam [5:0] PHY_CPSR = 17;
+	localparam [5:0] PHY_USR_R0 = 0;
+	localparam [5:0] PHY_USR_R1 = 1;
+	localparam [5:0] PHY_USR_R2 = 2;
+	localparam [5:0] PHY_USR_R3 = 3;
+	localparam [5:0] PHY_USR_R4 = 4;
+	localparam [5:0] PHY_USR_R5 = 5;
+	localparam [5:0] PHY_USR_R6 = 6;
+	localparam [5:0] PHY_USR_R7 = 7;
+	localparam [5:0] PHY_USR_R8 = 8;
+	localparam [5:0] PHY_USR_R9 = 9;
+	localparam [5:0] PHY_USR_R10 = 10;
+	localparam [5:0] PHY_USR_R11 = 11;
+	localparam [5:0] PHY_USR_R12 = 12;
+	localparam [5:0] PHY_USR_R13 = 13;
+	localparam [5:0] PHY_USR_R14 = 14;
+	localparam [5:0] PHY_FIQ_R8 = 18;
+	localparam [5:0] PHY_FIQ_R9 = 19;
+	localparam [5:0] PHY_FIQ_R10 = 20;
+	localparam [5:0] PHY_FIQ_R11 = 21;
+	localparam [5:0] PHY_FIQ_R12 = 22;
+	localparam [5:0] PHY_FIQ_R13 = 23;
+	localparam [5:0] PHY_FIQ_R14 = 24;
+	localparam [5:0] PHY_IRQ_R13 = 25;
+	localparam [5:0] PHY_IRQ_R14 = 26;
+	localparam [5:0] PHY_SVC_R13 = 27;
+	localparam [5:0] PHY_SVC_R14 = 28;
+	localparam [5:0] PHY_UND_R13 = 29;
+	localparam [5:0] PHY_UND_R14 = 30;
+	localparam [5:0] PHY_ABT_R13 = 31;
+	localparam [5:0] PHY_ABT_R14 = 32;
+	localparam [5:0] PHY_DUMMY_REG0 = 33;
+	localparam [5:0] PHY_DUMMY_REG1 = 34;
+	localparam [5:0] PHY_FIQ_SPSR = 35;
+	localparam [5:0] PHY_IRQ_SPSR = 36;
+	localparam [5:0] PHY_SVC_SPSR = 37;
+	localparam [5:0] PHY_UND_SPSR = 38;
+	localparam [5:0] PHY_ABT_SPSR = 39;
+	localparam [1:0] LSL = 0;
+	localparam [1:0] LSR = 1;
+	localparam [1:0] ASR = 2;
+	localparam [1:0] ROR = 3;
+	localparam [2:0] RRC = 4;
+	localparam [2:0] RORI = 5;
+	localparam [2:0] ROR_1 = 6;
+	localparam [2:0] LSL_SAT = 7;
+	localparam [2:0] CTI_BURST = 3'b010;
+	localparam [2:0] CTI_EOB = 3'b111;
+	localparam [31:0] RST_VECTOR = 32'h00000000;
+	localparam [31:0] UND_VECTOR = 32'h00000004;
+	localparam [31:0] SWI_VECTOR = 32'h00000008;
+	localparam [31:0] PABT_VECTOR = 32'h0000000c;
+	localparam [31:0] DABT_VECTOR = 32'h00000010;
+	localparam [31:0] IRQ_VECTOR = 32'h00000018;
+	localparam [31:0] FIQ_VECTOR = 32'h0000001c;
+	localparam [1:0] SNT = 2'b00;
+	localparam [1:0] WNT = 2'b01;
+	localparam [1:0] WT = 2'b10;
+	localparam [1:0] ST = 2'b11;
+	localparam [31:0] ZAP_SRCDEST_EXTEND = 32'd32;
+	localparam [31:0] ZAP_DP_RB_EXTEND = 32'd32;
+	localparam [31:0] ZAP_BASE_EXTEND = 32'd33;
+	localparam [31:0] ZAP_DP_RD_EXTEND = 32'd33;
+	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
+	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
+	function automatic [31:0] be_32;
+		input [31:0] dat;
+		input [3:0] sel;
+		case (sel)
+			4'b1000: be_32 = {24'd0, dat[31:24]};
+			4'b0100: be_32 = {16'd0, dat[23:16], 8'd0};
+			4'b0010: be_32 = {8'd0, dat[15:8], 16'd0};
+			4'b0001: be_32 = {dat[7:0], 24'd0};
+			4'b1100: be_32 = {16'd0, dat[31:16]};
+			4'b0011: be_32 = {dat[15:0], 16'd0};
+			default: be_32 = dat;
+		endcase
+	endfunction
+	function automatic [3:0] be_sel_32;
+		input [3:0] sel;
+		case (sel)
+			4'b0001: be_sel_32 = 4'b1000;
+			4'b0010: be_sel_32 = 4'b0100;
+			4'b0100: be_sel_32 = 4'b0010;
+			4'b1000: be_sel_32 = 4'b0001;
+			4'b0011: be_sel_32 = 4'b1100;
+			4'b1100: be_sel_32 = 4'b0011;
+			4'b1111: be_sel_32 = sel;
+			default: be_sel_32 = {4 {1'bx}};
+		endcase
+	endfunction
+	function automatic is_cc_satisfied;
+		input [3:0] cc;
+		input [3:0] fl;
+		reg ok;
+		reg n;
+		reg z;
+		reg c;
+		reg v;
+		begin
+			{n, z, c, v} = fl;
+			case (cc)
+				EQ: ok = z;
+				NE: ok = !z;
+				CS: ok = c;
+				CC: ok = !c;
+				MI: ok = n;
+				PL: ok = !n;
+				VS: ok = v;
+				VC: ok = !v;
+				HI: ok = c && !z;
+				LS: ok = !c || z;
+				GE: ok = n == v;
+				LT: ok = n != v;
+				GT: ok = (n == v) && !z;
+				LE: ok = (n != v) || z;
+				AL: ok = 1'd1;
+				NV: ok = 1'd0;
+				default: ok = 1'sbx;
+			endcase
+			is_cc_satisfied = ok;
+		end
+	endfunction
+	function automatic [5:0] translate;
+		input [4:0] index;
+		input [4:0] cpu_mode;
+		begin
+			case (index)
+				0: translate = PHY_USR_R0;
+				1: translate = PHY_USR_R1;
+				2: translate = PHY_USR_R2;
+				3: translate = PHY_USR_R3;
+				4: translate = PHY_USR_R4;
+				5: translate = PHY_USR_R5;
+				6: translate = PHY_USR_R6;
+				7: translate = PHY_USR_R7;
+				8: translate = PHY_USR_R8;
+				9: translate = PHY_USR_R9;
+				10: translate = PHY_USR_R10;
+				11: translate = PHY_USR_R11;
+				12: translate = PHY_USR_R12;
+				13: translate = PHY_USR_R13;
+				14: translate = PHY_USR_R14;
+				15: translate = PHY_PC;
+				RAZ_REGISTER: translate = PHY_RAZ_REGISTER;
+				ARCH_CPSR: translate = PHY_CPSR;
+				ARCH_CURR_SPSR: translate = PHY_CPSR;
+				ARCH_USR2_R8: translate = PHY_USR_R8;
+				ARCH_USR2_R9: translate = PHY_USR_R9;
+				ARCH_USR2_R10: translate = PHY_USR_R10;
+				ARCH_USR2_R11: translate = PHY_USR_R11;
+				ARCH_USR2_R12: translate = PHY_USR_R12;
+				ARCH_USR2_R13: translate = PHY_USR_R13;
+				ARCH_USR2_R14: translate = PHY_USR_R14;
+				ARCH_DUMMY_REG0: translate = PHY_DUMMY_REG0;
+				ARCH_DUMMY_REG1: translate = PHY_DUMMY_REG1;
+				default: translate = {1'd0, index};
+			endcase
+			case (cpu_mode)
+				FIQ:
+					case (index)
+						8: translate = PHY_FIQ_R8;
+						9: translate = PHY_FIQ_R9;
+						10: translate = PHY_FIQ_R10;
+						11: translate = PHY_FIQ_R11;
+						12: translate = PHY_FIQ_R12;
+						13: translate = PHY_FIQ_R13;
+						14: translate = PHY_FIQ_R14;
+						ARCH_CURR_SPSR: translate = PHY_FIQ_SPSR;
+						default:
+							;
+					endcase
+				IRQ:
+					case (index)
+						13: translate = PHY_IRQ_R13;
+						14: translate = PHY_IRQ_R14;
+						ARCH_CURR_SPSR: translate = PHY_IRQ_SPSR;
+						default:
+							;
+					endcase
+				ABT:
+					case (index)
+						13: translate = PHY_ABT_R13;
+						14: translate = PHY_ABT_R14;
+						ARCH_CURR_SPSR: translate = PHY_ABT_SPSR;
+						default:
+							;
+					endcase
+				UND:
+					case (index)
+						13: translate = PHY_UND_R13;
+						14: translate = PHY_UND_R14;
+						ARCH_CURR_SPSR: translate = PHY_UND_SPSR;
+						default:
+							;
+					endcase
+				SVC:
+					case (index)
+						13: translate = PHY_SVC_R13;
+						14: translate = PHY_SVC_R14;
+						ARCH_CURR_SPSR: translate = PHY_SVC_SPSR;
+						default:
+							;
+					endcase
+				USR:
+					;
+				SYS:
+					;
+				default: translate = 1'sbx;
+			endcase
+			if (|{cpu_mode == USR, cpu_mode == SYS, cpu_mode == FIQ, cpu_mode == IRQ, cpu_mode == SVC, cpu_mode == UND, cpu_mode == ABT})
+				;
+		end
+	endfunction
+	wire [3:0] o_condition_code_nxt;
+	wire [$clog2(PHY_REGS) - 1:0] o_destination_index_nxt;
+	wire [32:0] o_alu_source_nxt;
+	wire [$clog2(ALU_OPS) - 1:0] o_alu_operation_nxt;
+	wire [32:0] o_shift_source_nxt;
+	wire [$clog2(SHIFT_OPS) - 1:0] o_shift_operation_nxt;
+	wire [32:0] o_shift_length_nxt;
+	wire o_flag_update_nxt;
+	wire [$clog2(PHY_REGS) - 1:0] o_mem_srcdest_index_nxt;
+	wire o_mem_load_nxt;
+	wire o_mem_store_nxt;
+	wire o_mem_pre_index_nxt;
+	wire o_mem_unsigned_byte_enable_nxt;
+	wire o_mem_signed_byte_enable_nxt;
+	wire o_mem_signed_halfword_enable_nxt;
+	wire o_mem_unsigned_halfword_enable_nxt;
+	wire o_mem_translate_nxt;
+	wire o_irq_nxt;
+	wire o_fiq_nxt;
+	wire o_abt_nxt;
+	wire o_swi_nxt;
+	wire o_und_nxt;
+	wire o_switch_nxt;
+	wire [$clog2(ARCH_REGS) - 1:0] destination_index_nxt;
+	wire [32:0] alu_source_nxt;
+	wire [32:0] shift_source_nxt;
+	wire [32:0] shift_length_nxt;
+	wire [$clog2(ARCH_REGS) - 1:0] mem_srcdest_index_nxt;
+	assign o_abt_nxt = i_abt && i_instruction_valid;
+	assign o_irq_nxt = (!i_fiq && i_irq) && !o_abt_nxt;
+	assign o_fiq_nxt = i_fiq && !o_abt_nxt;
+	assign o_destination_index_nxt = translate(destination_index_nxt, i_cpsr_ff_mode);
+	assign o_alu_source_nxt = (alu_source_nxt[32] == IMMED_EN ? alu_source_nxt : {27'd0, translate(alu_source_nxt[4:0], i_cpsr_ff_mode)});
+	assign o_shift_source_nxt = (shift_source_nxt[32] == IMMED_EN ? shift_source_nxt : {27'd0, translate(shift_source_nxt[4:0], i_cpsr_ff_mode)});
+	assign o_shift_length_nxt = (shift_length_nxt[32] == IMMED_EN ? shift_length_nxt : {27'd0, translate(shift_length_nxt[4:0], i_cpsr_ff_mode)});
+	assign o_mem_srcdest_index_nxt = translate(mem_srcdest_index_nxt, i_cpsr_ff_mode);
+	assign o_swi_nxt = &i_instruction[27:24] && !((i_irq || i_fiq) || i_abt);
+	wire [511:0] decompile_tmp;
+	always @(posedge i_clk)
+		if (i_reset) begin
+			o_destination_index_ff <= 1'sbx;
+			o_alu_source_ff <= 1'sbx;
+			o_alu_operation_ff <= 1'sbx;
+			o_shift_source_ff <= 1'sbx;
+			o_shift_operation_ff <= 1'sbx;
+			o_shift_length_ff <= 1'sbx;
+			o_flag_update_ff <= 1'sbx;
+			o_mem_srcdest_index_ff <= 1'sbx;
+			o_mem_load_ff <= 1'sbx;
+			o_mem_store_ff <= 1'sbx;
+			o_mem_pre_index_ff <= 1'sbx;
+			o_mem_unsigned_byte_enable_ff <= 1'sbx;
+			o_mem_signed_byte_enable_ff <= 1'sbx;
+			o_mem_signed_halfword_enable_ff <= 1'sbx;
+			o_mem_unsigned_halfword_enable_ff <= 1'sbx;
+			o_mem_translate_ff <= 1'sbx;
+			o_pc_plus_8_ff <= 1'sbx;
+			o_pc_ff <= 1'sbx;
+			o_switch_ff <= 1'sbx;
+			o_force32align_ff <= 1'sbx;
+			o_decompile <= 1'sbx;
+			o_ppc_ff <= 1'sbx;
+			o_irq_ff <= 0;
+			o_fiq_ff <= 0;
+			o_swi_ff <= 0;
+			o_abt_ff <= 0;
+			o_condition_code_ff <= NV;
+			o_und_ff <= 0;
+			o_taken_ff <= 0;
+			o_uop_last <= 0;
+		end
+		else if (i_clear_from_writeback || (i_clear_from_alu && !i_data_stall)) begin
+			o_irq_ff <= 0;
+			o_fiq_ff <= 0;
+			o_swi_ff <= 0;
+			o_abt_ff <= 0;
+			o_condition_code_ff <= NV;
+			o_und_ff <= 0;
+			o_taken_ff <= 0;
+			o_uop_last <= 0;
+			o_destination_index_ff <= 1'sbx;
+			o_alu_source_ff <= 1'sbx;
+			o_alu_operation_ff <= 1'sbx;
+			o_shift_source_ff <= 1'sbx;
+			o_shift_operation_ff <= 1'sbx;
+			o_shift_length_ff <= 1'sbx;
+			o_flag_update_ff <= 1'sbx;
+			o_mem_srcdest_index_ff <= 1'sbx;
+			o_mem_load_ff <= 1'sbx;
+			o_mem_store_ff <= 1'sbx;
+			o_mem_pre_index_ff <= 1'sbx;
+			o_mem_unsigned_byte_enable_ff <= 1'sbx;
+			o_mem_signed_byte_enable_ff <= 1'sbx;
+			o_mem_signed_halfword_enable_ff <= 1'sbx;
+			o_mem_unsigned_halfword_enable_ff <= 1'sbx;
+			o_mem_translate_ff <= 1'sbx;
+			o_pc_plus_8_ff <= 1'sbx;
+			o_pc_ff <= 1'sbx;
+			o_switch_ff <= 1'sbx;
+			o_force32align_ff <= 1'sbx;
+			o_decompile <= 1'sbx;
+			o_ppc_ff <= 1'sbx;
+		end
+		else if ((!i_data_stall && !i_stall_from_issue) && !i_stall_from_shifter) begin
+			o_irq_ff <= o_irq_nxt;
+			o_fiq_ff <= o_fiq_nxt;
+			o_swi_ff <= o_swi_nxt;
+			o_abt_ff <= o_abt_nxt;
+			o_und_ff <= o_und_nxt | i_mode16_und;
+			o_condition_code_ff <= (i_mode16_und ? AL : o_condition_code_nxt);
+			o_destination_index_ff <= o_destination_index_nxt;
+			o_alu_source_ff <= o_alu_source_nxt;
+			o_alu_operation_ff <= o_alu_operation_nxt;
+			o_shift_source_ff <= o_shift_source_nxt;
+			o_shift_operation_ff <= o_shift_operation_nxt;
+			o_shift_length_ff <= o_shift_length_nxt;
+			o_flag_update_ff <= o_flag_update_nxt;
+			o_mem_srcdest_index_ff <= o_mem_srcdest_index_nxt;
+			o_mem_load_ff <= o_mem_load_nxt;
+			o_mem_store_ff <= o_mem_store_nxt;
+			o_mem_pre_index_ff <= o_mem_pre_index_nxt;
+			o_mem_unsigned_byte_enable_ff <= o_mem_unsigned_byte_enable_nxt;
+			o_mem_signed_byte_enable_ff <= o_mem_signed_byte_enable_nxt;
+			o_mem_signed_halfword_enable_ff <= o_mem_signed_halfword_enable_nxt;
+			o_mem_unsigned_halfword_enable_ff <= o_mem_unsigned_halfword_enable_nxt;
+			o_mem_translate_ff <= o_mem_translate_nxt;
+			o_pc_plus_8_ff <= i_pc_plus_8_ff;
+			o_pc_ff <= i_pc_ff;
+			o_switch_ff <= o_switch_nxt | i_switch;
+			o_force32align_ff <= i_force32align;
+			o_taken_ff <= i_taken;
+			o_ppc_ff <= i_ppc_ff;
+			o_decompile <= decompile_tmp;
+			o_uop_last <= i_uop_last;
+		end
+	zap_decode #(
+		.ARCH_REGS(ARCH_REGS),
+		.ALU_OPS(ALU_OPS),
+		.SHIFT_OPS(SHIFT_OPS),
+		.V4T(V4T)
+	) u_zap_decode(
+		.i_irq(i_irq),
+		.i_fiq(i_fiq),
+		.i_abt(i_abt),
+		.i_instruction(i_instruction[35:0]),
+		.i_instruction_valid(i_instruction_valid),
+		.i_v5_und(i_v5_und),
+		.o_condition_code(o_condition_code_nxt),
+		.o_destination_index(destination_index_nxt),
+		.o_alu_source(alu_source_nxt),
+		.o_alu_operation(o_alu_operation_nxt),
+		.o_shift_source(shift_source_nxt),
+		.o_shift_operation(o_shift_operation_nxt),
+		.o_shift_length(shift_length_nxt),
+		.o_flag_update(o_flag_update_nxt),
+		.o_mem_srcdest_index(mem_srcdest_index_nxt),
+		.o_mem_load(o_mem_load_nxt),
+		.o_mem_store(o_mem_store_nxt),
+		.o_mem_pre_index(o_mem_pre_index_nxt),
+		.o_mem_unsigned_byte_enable(o_mem_unsigned_byte_enable_nxt),
+		.o_mem_signed_byte_enable(o_mem_signed_byte_enable_nxt),
+		.o_mem_signed_halfword_enable(o_mem_signed_halfword_enable_nxt),
+		.o_mem_unsigned_halfword_enable(o_mem_unsigned_halfword_enable_nxt),
+		.o_mem_translate(o_mem_translate_nxt),
+		.o_und(o_und_nxt),
+		.o_switch(o_switch_nxt)
+	);
+	zap_decompile u_zap_decompile(
+		.i_instruction(i_instruction[35:0]),
+		.i_dav(i_instruction_valid),
+		.o_decompile(decompile_tmp)
+	);
 endmodule
 module zap_dual_rank_synchronizer (
 	i_clk,
@@ -11718,7 +11718,7 @@ module zap_issue_main (
 	(* dont_retime *) output reg [31:0] o_mem_srcdest_value_ff;
 	output reg [32:0] o_alu_source_ff;
 	output reg [32:0] o_shift_source_ff;
-	output reg o_stall_from_issue;
+	(* dont_retime *) output reg o_stall_from_issue;
 	output reg [31:0] o_pc_plus_8_ff;
 	output reg o_shifter_disable_ff;
 	output reg [511:0] o_decompile;
@@ -12011,10 +12011,16 @@ module zap_issue_main (
 	wire [3:0] late_pending;
 	wire destination_load_lock;
 	wire lock;
-	(* preserve *) reg stall_idx_ff;
-	(* preserve *) reg stall_late_ff;
+	(* preserve, dont_retime *) reg stall_idx_ff;
+	(* preserve, dont_retime *) reg stall_late_ff;
 	wire [23:0] late_reg_index;
 	reg [23:0] skid_idx;
+	reg [5:0] skid_dest_idx;
+	(* keep *) wire [4:0] live_locked;
+	(* keep *) wire [4:0] skid_locked;
+	wire [4:0] slot_locked = (stall_late_ff ? skid_locked : live_locked);
+	assign live_locked = {i_dc_lock[i_destination_index_ff], i_dc_lock[i_mem_srcdest_index_ff], i_dc_lock[i_shift_length_ff[5:0]], i_dc_lock[i_shift_source_ff[5:0]], i_dc_lock[i_alu_source_ff[5:0]]};
+	assign skid_locked = {i_dc_lock[skid_dest_idx], i_dc_lock[skid_idx[5:0]], i_dc_lock[skid_idx[11:6]], i_dc_lock[skid_idx[17:12]], i_dc_lock[skid_idx[23:18]]};
 	reg [31:0] skid_pc_plus_8_ff;
 	reg [31:0] skid_pc_ff;
 	reg skid_switch_ff;
@@ -12180,6 +12186,7 @@ module zap_issue_main (
 	always @(posedge i_clk)
 		if (~o_stall_from_issue) begin
 			skid_idx <= {i_alu_source_ff[5:0], i_shift_source_ff[5:0], i_shift_length_ff[5:0], i_mem_srcdest_index_ff[5:0]};
+			skid_dest_idx <= i_destination_index_ff;
 			skid <= {i_pc_plus_8_ff, i_pc_ff, i_switch_ff, i_taken_ff, i_decompile, i_uop_last, i_condition_code_ff, i_destination_index_ff, i_alu_source_ff, i_alu_operation_ff, i_shift_source_ff, i_shift_operation_ff, i_shift_length_ff, i_flag_update_ff, i_mem_srcdest_index_ff, i_mem_load_ff, i_mem_store_ff, i_mem_pre_index_ff, i_mem_unsigned_byte_enable_ff, i_mem_signed_byte_enable_ff, i_mem_signed_halfword_enable_ff, i_mem_unsigned_halfword_enable_ff, i_mem_translate_ff, i_irq_ff, i_fiq_ff, i_abt_ff, i_swi_ff, i_force32align_ff, i_und_ff, i_ppc_ff};
 		end
 	function automatic [31:0] get_register_value;
@@ -12290,6 +12297,7 @@ module zap_issue_main (
 	assign skid_is_mult = (((((((((((((((((((((((skid_alu_operation_ff == {1'd0, UMLALL}) || (skid_alu_operation_ff == {1'd0, UMLALH})) || (skid_alu_operation_ff == {1'd0, SMLALL})) || (skid_alu_operation_ff == {1'd0, SMLALH})) || (skid_alu_operation_ff == SMULW0)) || (skid_alu_operation_ff == SMULW1)) || (skid_alu_operation_ff == SMUL00)) || (skid_alu_operation_ff == SMUL01)) || (skid_alu_operation_ff == SMUL10)) || (skid_alu_operation_ff == SMUL11)) || (skid_alu_operation_ff == SMLA00)) || (skid_alu_operation_ff == SMLA01)) || (skid_alu_operation_ff == SMLA10)) || (skid_alu_operation_ff == SMLA11)) || (skid_alu_operation_ff == SMLAW0)) || (skid_alu_operation_ff == SMLAW1)) || (skid_alu_operation_ff == SMLAL00L)) || (skid_alu_operation_ff == SMLAL01L)) || (skid_alu_operation_ff == SMLAL10L)) || (skid_alu_operation_ff == SMLAL11L)) || (skid_alu_operation_ff == SMLAL00H)) || (skid_alu_operation_ff == SMLAL01H)) || (skid_alu_operation_ff == SMLAL10H)) || (skid_alu_operation_ff == SMLAL11H);
 	function automatic determine_load_lock;
 		input [32:0] index;
+		input reg_locked;
 		input [$clog2(PHY_REGS) - 1:0] mem_srcdest_index_ff;
 		input [3:0] condition_code_ff;
 		input mem_load_ff;
@@ -12317,7 +12325,7 @@ module zap_issue_main (
 		begin
 			if ((index[32] == IMMED_EN) || (index[5:0] == PHY_RAZ_REGISTER[5:0]))
 				determine_load_lock = 1'd0;
-			else if (xlock[index[5:0]] || (|xlock && ext_lock))
+			else if (reg_locked || (|xlock && ext_lock))
 				determine_load_lock = 1'd1;
 			else if ((((((((index[5:0] == mem_srcdest_index_ff) && (condition_code_ff != NV)) && mem_load_ff) || (((index[5:0] == shifter_mem_srcdest_index_ff) && alu_dav_nxt) && shifter_mem_load_ff)) || (((index[5:0] == alu_mem_srcdest_index_ff) && alu_dav_ff) && alu_mem_load_ff)) || (((index[5:0] == postalu0_mem_srcdest_index_ff) && postalu0_dav_ff) && postalu0_mem_load_ff)) || (((index[5:0] == postalu1_mem_srcdest_index_ff) && postalu1_dav_ff) && postalu1_mem_load_ff)) || (((index[5:0] == postalu_mem_srcdest_index_ff) && postalu_dav_ff) && postalu_mem_load_ff))
 				determine_load_lock = 1'd1;
@@ -12326,28 +12334,29 @@ module zap_issue_main (
 			unused = |{index[31:6], memory_mem_srcdest_index_ff, memory_mem_load_ff, memory_dav_ff};
 		end
 	endfunction
-	assign operand_load_lock[0] = determine_load_lock(skid_alu_source_ff, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff);
-	assign operand_load_lock[1] = determine_load_lock(skid_shift_source_ff, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff);
-	assign operand_load_lock[2] = determine_load_lock(skid_shift_length_ff, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff);
-	assign operand_load_lock[3] = determine_load_lock({27'd0, skid_mem_srcdest_index_ff}, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff);
-	assign destination_load_lock = determine_load_lock({27'd0, skid_destination_index_ff}, o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff) || ((skid_destination_index_ff[5:0] != PHY_RAZ_REGISTER[5:0]) && i_dc_lock[skid_destination_index_ff]);
+	assign operand_load_lock[0] = determine_load_lock(skid_alu_source_ff, slot_locked[0], o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff);
+	assign operand_load_lock[1] = determine_load_lock(skid_shift_source_ff, slot_locked[1], o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff);
+	assign operand_load_lock[2] = determine_load_lock(skid_shift_length_ff, slot_locked[2], o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff);
+	assign operand_load_lock[3] = determine_load_lock({27'd0, skid_mem_srcdest_index_ff}, slot_locked[3], o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff);
+	assign destination_load_lock = determine_load_lock({27'd0, skid_destination_index_ff}, slot_locked[4], o_mem_srcdest_index_ff, o_condition_code_ff, o_mem_load_ff, i_shifter_mem_srcdest_index_ff, i_shifter_dav_ff, i_shifter_mem_load_ff, i_alu_mem_srcdest_index_ff, i_alu_dav_ff, i_alu_mem_load_ff, i_postalu0_mem_srcdest_index_ff, i_postalu0_mem_load_ff, i_postalu0_dav_ff, i_postalu1_mem_srcdest_index_ff, i_postalu1_mem_load_ff, i_postalu1_dav_ff, i_postalu_mem_srcdest_index_ff, i_postalu_mem_load_ff, i_postalu_dav_ff, i_memory_mem_srcdest_index_ff, i_memory_mem_load_ff, i_memory_dav_ff, i_dc_lock, (((i_irq_ff || i_fiq_ff) || i_abt_ff) || i_swi_ff) || i_abt_ff) || ((skid_destination_index_ff[5:0] != PHY_RAZ_REGISTER[5:0]) && slot_locked[4]);
 	assign late_reg_index = (stall_late_ff ? skid_idx : {i_alu_source_ff[5:0], i_shift_source_ff[5:0], i_shift_length_ff[5:0], i_mem_srcdest_index_ff[5:0]});
 	function automatic late_load;
 		input [32:0] index;
 		input [5:0] r;
 		input early;
+		input reg_locked;
 		reg candidate;
 		reg conflict;
 		begin
 			candidate = ((i_postalu_dav_ff && i_postalu_mem_load_ff) && (i_postalu_mem_srcdest_index_ff == r)) || (((!early && i_postalu1_dav_ff) && i_postalu1_mem_load_ff) && (i_postalu1_mem_srcdest_index_ff == r));
 			conflict = (((((((((((o_condition_code_ff != NV) && (o_destination_index_ff == r)) || (i_shifter_dav_ff && (i_shifter_destination_index_ff == r))) || (i_alu_dav_ff && (i_alu_destination_index_ff == r))) || (i_postalu0_dav_ff && (i_postalu0_destination_index_ff == r))) || (i_postalu1_dav_ff && (i_postalu1_destination_index_ff == r))) || (i_postalu_dav_ff && (i_postalu_destination_index_ff == r))) || (((o_condition_code_ff != NV) && o_mem_load_ff) && (o_mem_srcdest_index_ff == r))) || ((i_shifter_dav_ff && i_shifter_mem_load_ff) && (i_shifter_mem_srcdest_index_ff == r))) || ((i_alu_dav_ff && i_alu_mem_load_ff) && (i_alu_mem_srcdest_index_ff == r))) || ((i_postalu0_dav_ff && i_postalu0_mem_load_ff) && (i_postalu0_mem_srcdest_index_ff == r))) || (((early && i_postalu1_dav_ff) && i_postalu1_mem_load_ff) && (i_postalu1_mem_srcdest_index_ff == r));
-			late_load = (((((((((candidate && !conflict) && !index[32]) && (r != PHY_PC)) && (r != PHY_RAZ_REGISTER)) && (r != PHY_CPSR)) && (r < PHY_DUMMY_REG0)) && !i_dc_lock[r]) && !skid_is_mult) && !skid_force32align_ff) && !((((skid_irq_ff || skid_fiq_ff) || skid_abt_ff) || skid_swi_ff) || skid_und_ff);
+			late_load = (((((((((candidate && !conflict) && !index[32]) && (r != PHY_PC)) && (r != PHY_RAZ_REGISTER)) && (r != PHY_CPSR)) && (r < PHY_DUMMY_REG0)) && !reg_locked) && !skid_is_mult) && !skid_force32align_ff) && !((((skid_irq_ff || skid_fiq_ff) || skid_abt_ff) || skid_swi_ff) || skid_und_ff);
 		end
 	endfunction
-	assign late_pending[0] = late_load(skid_alu_source_ff, late_reg_index[23:18], 1'b0);
-	assign late_pending[1] = late_load(skid_shift_source_ff, late_reg_index[17:12], !skid_is_lsl_0);
-	assign late_pending[2] = late_load(skid_shift_length_ff, late_reg_index[11:6], 1'b1);
-	assign late_pending[3] = skid_mem_store_ff && late_load({27'd0, skid_mem_srcdest_index_ff}, late_reg_index[5:0], 1'b1);
+	assign late_pending[0] = late_load(skid_alu_source_ff, late_reg_index[23:18], 1'b0, slot_locked[0]);
+	assign late_pending[1] = late_load(skid_shift_source_ff, late_reg_index[17:12], !skid_is_lsl_0, slot_locked[1]);
+	assign late_pending[2] = late_load(skid_shift_length_ff, late_reg_index[11:6], 1'b1, slot_locked[2]);
+	assign late_pending[3] = skid_mem_store_ff && late_load({27'd0, skid_mem_srcdest_index_ff}, late_reg_index[5:0], 1'b1, slot_locked[3]);
 	assign load_lock = |(operand_load_lock & ~late_pending) || destination_load_lock;
 	assign shift_lock = ((skid_is_mult | (~skid_is_lsl_0 & ~skid_is_rori)) & w_shift_lock) | (o_flag_update_ff & (~skid_is_lsl_0 & ~skid_is_rori));
 	initial _sv2v_0 = 0;
@@ -12949,414 +12958,6 @@ module zap_memory_main (
 	assign o_mem_rd_data = mem_rd_data_t;
 	initial _sv2v_0 = 0;
 endmodule
-module zap_mode16_decoder_main (
-	i_clk,
-	i_reset,
-	i_clear_from_writeback,
-	i_data_stall,
-	i_clear_from_alu,
-	i_stall_from_shifter,
-	i_stall_from_issue,
-	i_stall_from_decode,
-	i_clear_from_decode,
-	i_taken,
-	i_pred,
-	o_pred,
-	i_instruction,
-	i_instruction_valid,
-	i_irq,
-	i_fiq,
-	i_iabort,
-	o_iabort,
-	i_cpsr_ff_t,
-	i_pc_ff,
-	i_pc_plus_8_ff,
-	o_instruction,
-	o_instruction_valid,
-	o_und,
-	o_force32_align,
-	o_pc_ff,
-	o_pc_plus_8_ff,
-	o_irq,
-	o_fiq,
-	o_taken_ff
-);
-	parameter [0:0] V4T = 1'd0;
-	input wire i_clk;
-	input wire i_reset;
-	input wire i_clear_from_writeback;
-	input wire i_data_stall;
-	input wire i_clear_from_alu;
-	input wire i_stall_from_shifter;
-	input wire i_stall_from_issue;
-	input wire i_stall_from_decode;
-	input wire i_clear_from_decode;
-	input wire [1:0] i_taken;
-	input wire [32:0] i_pred;
-	output reg [32:0] o_pred;
-	input wire [31:0] i_instruction;
-	input wire i_instruction_valid;
-	input wire i_irq;
-	input wire i_fiq;
-	input wire i_iabort;
-	output reg o_iabort;
-	input wire i_cpsr_ff_t;
-	input wire [31:0] i_pc_ff;
-	input wire [31:0] i_pc_plus_8_ff;
-	output reg [34:0] o_instruction;
-	output reg o_instruction_valid;
-	output reg o_und;
-	output reg o_force32_align;
-	output reg [31:0] o_pc_ff;
-	output reg [31:0] o_pc_plus_8_ff;
-	output reg o_irq;
-	output reg o_fiq;
-	output reg [1:0] o_taken_ff;
-	localparam [1:0] SECTION_ID = 2'b10;
-	localparam [1:0] PAGE_ID = 2'b01;
-	localparam [1:0] FINE_ID = 2'b11;
-	localparam [1:0] SPAGE_ID = 2'b10;
-	localparam [1:0] LPAGE_ID = 2'b01;
-	localparam [1:0] FPAGE_ID = 2'b11;
-	localparam [3:0] APSR_NA_NA = 4'b0000;
-	localparam [3:0] APSR_RO_RO = 4'b0001;
-	localparam [3:0] APSR_RO_NA = 4'b0010;
-	localparam [3:0] APSR_RW_NA = 4'b01zz;
-	localparam [3:0] APSR_RW_RO = 4'b10zz;
-	localparam [3:0] APSR_RW_RW = 4'b11zz;
-	localparam [1:0] DAC_MANAGER = 2'b11;
-	localparam [1:0] DAC_CLIENT = 2'b01;
-	localparam [3:0] FSR_SECTION_DOMAIN_FAULT = 4'b1001;
-	localparam [3:0] FSR_SECTION_TRANSLATION_FAULT = 4'b0101;
-	localparam [3:0] FSR_SECTION_PERMISSION_FAULT = 4'b1101;
-	localparam [3:0] FSR_L1_EXTERNAL_ABORT = 4'b1100;
-	localparam [3:0] FSR_PAGE_TRANSLATION_FAULT = 4'b0111;
-	localparam [3:0] FSR_PAGE_DOMAIN_FAULT = 4'b1011;
-	localparam [3:0] FSR_PAGE_PERMISSION_FAULT = 4'b1111;
-	localparam [3:0] FSR_L2_EXTERNAL_ABORT = 4'b1110;
-	parameter [3:0] TERMINAL_EXCEPTION = 4'b0010;
-	localparam [3:0] AND = 4'd0;
-	localparam [3:0] EOR = 4'd1;
-	localparam [3:0] SUB = 4'd2;
-	localparam [3:0] RSB = 4'd3;
-	localparam [3:0] ADD = 4'd4;
-	localparam [3:0] ADC = 4'd5;
-	localparam [3:0] SBC = 4'd6;
-	localparam [3:0] RSC = 4'd7;
-	localparam [3:0] TST = 4'd8;
-	localparam [3:0] TEQ = 4'd9;
-	localparam [3:0] CMP = 4'd10;
-	localparam [3:0] CMN = 4'd11;
-	localparam [3:0] ORR = 4'd12;
-	localparam [3:0] MOV = 4'd13;
-	localparam [3:0] BIC = 4'd14;
-	localparam [3:0] MVN = 4'd15;
-	localparam [4:0] MUL = 5'd16;
-	localparam [4:0] MLA = 5'd17;
-	localparam [4:0] FMOV = 5'd18;
-	localparam [4:0] MMOV = 5'd19;
-	localparam [4:0] UMLALL = 5'd20;
-	localparam [4:0] UMLALH = 5'd21;
-	localparam [4:0] SMLALL = 5'd22;
-	localparam [4:0] SMLALH = 5'd23;
-	localparam [4:0] CLZ = 5'd24;
-	localparam [4:0] OP_QADD = 5'd25;
-	localparam [4:0] OP_QSUB = 5'd26;
-	localparam [4:0] OP_QDADD = 5'd27;
-	localparam [4:0] OP_QDSUB = 5'd28;
-	localparam [5:0] SMULW0 = 6'd30;
-	localparam [5:0] SMULW1 = 6'd32;
-	localparam [5:0] SMUL00 = 6'd34;
-	localparam [5:0] SMUL01 = 6'd36;
-	localparam [5:0] SMUL10 = 6'd38;
-	localparam [5:0] SMUL11 = 6'd40;
-	localparam [5:0] SMLA00 = 6'd42;
-	localparam [5:0] SMLA01 = 6'd44;
-	localparam [5:0] SMLA10 = 6'd46;
-	localparam [5:0] SMLA11 = 6'd48;
-	localparam [5:0] SMLAW0 = 6'd50;
-	localparam [5:0] SMLAW1 = 6'd52;
-	localparam [5:0] SMLAL00L = 6'd54;
-	localparam [5:0] SMLAL00H = 6'd55;
-	localparam [5:0] SMLAL01L = 6'd56;
-	localparam [5:0] SMLAL01H = 6'd57;
-	localparam [5:0] SMLAL10L = 6'd58;
-	localparam [5:0] SMLAL10H = 6'd59;
-	localparam [5:0] SMLAL11L = 6'd60;
-	localparam [5:0] SMLAL11H = 6'd61;
-	localparam [5:0] FADD = 6'd62;
-	localparam [5:0] OP_SMULW0 = 6'd30;
-	localparam [5:0] OP_SMULW1 = 6'd32;
-	localparam [5:0] OP_SMUL00 = 6'd34;
-	localparam [5:0] OP_SMUL01 = 6'd36;
-	localparam [5:0] OP_SMUL10 = 6'd38;
-	localparam [5:0] OP_SMUL11 = 6'd40;
-	localparam [5:0] OP_SMLA00 = 6'd42;
-	localparam [5:0] OP_SMLA01 = 6'd44;
-	localparam [5:0] OP_SMLA10 = 6'd46;
-	localparam [5:0] OP_SMLA11 = 6'd48;
-	localparam [5:0] OP_SMLAW0 = 6'd50;
-	localparam [5:0] OP_SMLAW1 = 6'd52;
-	localparam [5:0] OP_SMLAL00L = 6'd54;
-	localparam [5:0] OP_SMLAL00H = 6'd55;
-	localparam [5:0] OP_SMLAL01L = 6'd56;
-	localparam [5:0] OP_SMLAL01H = 6'd57;
-	localparam [5:0] OP_SMLAL10L = 6'd58;
-	localparam [5:0] OP_SMLAL10H = 6'd59;
-	localparam [5:0] OP_SMLAL11L = 6'd60;
-	localparam [5:0] OP_SMLAL11H = 6'd61;
-	localparam [5:0] SAT_MOV = 6'd49;
-	localparam [3:0] EQ = 4'h0;
-	localparam [3:0] NE = 4'h1;
-	localparam [3:0] CS = 4'h2;
-	localparam [3:0] CC = 4'h3;
-	localparam [3:0] MI = 4'h4;
-	localparam [3:0] PL = 4'h5;
-	localparam [3:0] VS = 4'h6;
-	localparam [3:0] VC = 4'h7;
-	localparam [3:0] HI = 4'h8;
-	localparam [3:0] LS = 4'h9;
-	localparam [3:0] GE = 4'ha;
-	localparam [3:0] LT = 4'hb;
-	localparam [3:0] GT = 4'hc;
-	localparam [3:0] LE = 4'hd;
-	localparam [3:0] AL = 4'he;
-	localparam [3:0] NV = 4'hf;
-	localparam [31:0] N = 32'd31;
-	localparam [31:0] Z = 32'd30;
-	localparam [31:0] C = 32'd29;
-	localparam [31:0] V = 32'd28;
-	localparam [31:0] Q = 32'd27;
-	localparam [31:0] I = 32'd7;
-	localparam [31:0] F = 32'd6;
-	localparam [31:0] T = 32'd5;
-	localparam [31:0] ZAP_CPSR_MODE = 32'd4;
-	localparam [0:0] INDEX_EN = 1'd0;
-	localparam [0:0] IMMED_EN = 1'd1;
-	localparam [4:0] FIQ = 5'b10001;
-	localparam [4:0] IRQ = 5'b10010;
-	localparam [4:0] ABT = 5'b10111;
-	localparam [4:0] SVC = 5'b10011;
-	localparam [4:0] USR = 5'b10000;
-	localparam [4:0] SYS = 5'b11111;
-	localparam [4:0] UND = 5'b11011;
-	localparam [31:0] SMLAxy = 32'bzzzz00010000zzzzzzzzzzzz1zz0zzzz;
-	localparam [31:0] SMLAWy = 32'bzzzz00010010zzzzzzzzzzzz1z00zzzz;
-	localparam [31:0] SMLALxy = 32'bzzzz00010100zzzzzzzzzzzz1zz0zzzz;
-	localparam [31:0] SMULWy = 32'bzzzz00010010zzzz0000zzzz1z10zzzz;
-	localparam [31:0] SMULxy = 32'bzzzz00010110zzzz0000zzzz1zz0zzzz;
-	localparam [31:0] CLZ_INSTRUCTION = 32'bzzzz000101101111zzzz11110001zzzz;
-	localparam [31:0] QADD = 32'bzzzz00010000zzzzzzzz00000101zzzz;
-	localparam [31:0] QSUB = 32'bzzzz00010010zzzzzzzz00000101zzzz;
-	localparam [31:0] QDADD = 32'bzzzz00010100zzzzzzzz00000101zzzz;
-	localparam [31:0] QDSUB = 32'bzzzz00010110zzzzzzzz00000101zzzz;
-	localparam [31:0] PLD = 32'b111101z1z101zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] DATA_PROCESSING_IMMEDIATE = 32'bzzzz001zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzz0zz1zzzz;
-	localparam [31:0] DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzzzzz0zzzz;
-	localparam [31:0] BRANCH_INSTRUCTION = 32'bzzzz101zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] MRS = 32'bzzzz00010z001111zzzzzzzzzzzzzzzz;
-	localparam [31:0] MSR_IMMEDIATE = 32'bzzzz00110z10zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] MSR = 32'bzzzz00010z10zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] LS_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz011zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] LS_IMMEDIATE = 32'bzzzz010zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BX_INST = 32'bzzzz000100101111111111110001zzzz;
-	localparam [31:0] MULT_INST = 32'bzzzz000000zzzzzzzzzzzzzz1001zzzz;
-	localparam [31:0] LMULT_INST = 32'bzzzz00001zzzzzzzzzzzzzzz1001zzzz;
-	localparam [31:0] HALFWORD_LS = 32'bzzzz000zzzzzzzzzzzzzzzzz1zz1zzzz;
-	localparam [31:0] SOFTWARE_INTERRUPT = 32'bzzzz1111zzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] SWAP = 32'bzzzz00010z00zzzzzzzz00001001zzzz;
-	localparam [31:0] MCR = 32'bzzzz1110zzz0zzzzzzzz1111zzz1zzzz;
-	localparam [31:0] MCR2 = 32'b11111110zzz0zzzzzzzzzzzzzzz1zzzz;
-	localparam [31:0] MRC = 32'bzzzz1110zzz1zzzzzzzz1111zzz1zzzz;
-	localparam [31:0] MRC2 = 32'b11111110zzz1zzzzzzzzzzzzzzz1zzzz;
-	localparam [31:0] LDC = 32'bzzzz110zzzz1zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] STC = 32'bzzzz110zzzz0zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] LDC2 = 32'b1111110zzzz1zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] STC2 = 32'b1111110zzzz0zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] CDP = 32'bzzzz1110zzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BLX1 = 32'b1111101zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BLX2 = 32'bzzzz000100101111111111110011zzzz;
-	localparam [31:0] BKPT = 32'b111000010010zzzzzzzzzzzz0111zzzz;
-	localparam [15:0] T_BRANCH_COND = 16'b1101zzzzzzzzzzzz;
-	localparam [15:0] T_BRANCH_NOCOND = 16'b11100zzzzzzzzzzz;
-	localparam [15:0] T_BL = 16'b1111zzzzzzzzzzzz;
-	localparam [15:0] T_BLX1 = 16'b11101zzzzzzzzzzz;
-	localparam [15:0] T_BLX2 = 16'b010001111zzzz000;
-	localparam [15:0] T_BX = 16'b010001110zzzz000;
-	localparam [15:0] T_SWI = 16'b11011111zzzzzzzz;
-	localparam [15:0] T_SHIFT = 16'b000zzzzzzzzzzzzz;
-	localparam [15:0] T_ADD_SUB_LO = 16'b00011zzzzzzzzzzz;
-	localparam [15:0] T_MCAS_IMM = 16'b001zzzzzzzzzzzzz;
-	localparam [15:0] T_ALU_LO = 16'b010000zzzzzzzzzz;
-	localparam [15:0] T_ALU_HI = 16'b010001zzzzzzzzzz;
-	localparam [15:0] T_GET_ADDR = 16'b1010zzzzzzzzzzzz;
-	localparam [15:0] T_MOD_SP = 16'b10110000zzzzzzzz;
-	localparam [15:0] T_PC_REL_LOAD = 16'b01001zzzzzzzzzzz;
-	localparam [15:0] T_LDR_STR_5BIT_OFF = 16'b011zzzzzzzzzzzzz;
-	localparam [15:0] T_LDRH_STRH_5BIT_OFF = 16'b1000zzzzzzzzzzzz;
-	localparam [15:0] T_LDRH_STRH_REG = 16'b0101zzzzzzzzzzzz;
-	localparam [15:0] T_SP_REL_LDR_STR = 16'b1001zzzzzzzzzzzz;
-	localparam [15:0] T_LDMIA_STMIA = 16'b1100zzzzzzzzzzzz;
-	localparam [15:0] T_POP_PUSH = 16'b1011z10zzzzzzzzz;
-	localparam [15:0] T_BKPT = 16'b10111110zzzzzzzz;
-	localparam [31:0] TOTAL_ARCH_REGS = 28;
-	localparam [3:0] ARCH_SP = 13;
-	localparam [3:0] ARCH_LR = 14;
-	localparam [3:0] ARCH_PC = 15;
-	localparam [4:0] RAZ_REGISTER = 16;
-	localparam [4:0] ARCH_USR2_R8 = 18;
-	localparam [4:0] ARCH_USR2_R9 = 19;
-	localparam [4:0] ARCH_USR2_R10 = 20;
-	localparam [4:0] ARCH_USR2_R11 = 21;
-	localparam [4:0] ARCH_USR2_R12 = 22;
-	localparam [4:0] ARCH_USR2_R13 = 23;
-	localparam [4:0] ARCH_USR2_R14 = 24;
-	localparam [4:0] ARCH_DUMMY_REG0 = 25;
-	localparam [4:0] ARCH_DUMMY_REG1 = 26;
-	localparam [4:0] ARCH_CPSR = 17;
-	localparam [4:0] ARCH_CURR_SPSR = 27;
-	localparam [31:0] TOTAL_PHY_REGS = 40;
-	localparam [5:0] PHY_PC = 15;
-	localparam [5:0] PHY_RAZ_REGISTER = 16;
-	localparam [5:0] PHY_CPSR = 17;
-	localparam [5:0] PHY_USR_R0 = 0;
-	localparam [5:0] PHY_USR_R1 = 1;
-	localparam [5:0] PHY_USR_R2 = 2;
-	localparam [5:0] PHY_USR_R3 = 3;
-	localparam [5:0] PHY_USR_R4 = 4;
-	localparam [5:0] PHY_USR_R5 = 5;
-	localparam [5:0] PHY_USR_R6 = 6;
-	localparam [5:0] PHY_USR_R7 = 7;
-	localparam [5:0] PHY_USR_R8 = 8;
-	localparam [5:0] PHY_USR_R9 = 9;
-	localparam [5:0] PHY_USR_R10 = 10;
-	localparam [5:0] PHY_USR_R11 = 11;
-	localparam [5:0] PHY_USR_R12 = 12;
-	localparam [5:0] PHY_USR_R13 = 13;
-	localparam [5:0] PHY_USR_R14 = 14;
-	localparam [5:0] PHY_FIQ_R8 = 18;
-	localparam [5:0] PHY_FIQ_R9 = 19;
-	localparam [5:0] PHY_FIQ_R10 = 20;
-	localparam [5:0] PHY_FIQ_R11 = 21;
-	localparam [5:0] PHY_FIQ_R12 = 22;
-	localparam [5:0] PHY_FIQ_R13 = 23;
-	localparam [5:0] PHY_FIQ_R14 = 24;
-	localparam [5:0] PHY_IRQ_R13 = 25;
-	localparam [5:0] PHY_IRQ_R14 = 26;
-	localparam [5:0] PHY_SVC_R13 = 27;
-	localparam [5:0] PHY_SVC_R14 = 28;
-	localparam [5:0] PHY_UND_R13 = 29;
-	localparam [5:0] PHY_UND_R14 = 30;
-	localparam [5:0] PHY_ABT_R13 = 31;
-	localparam [5:0] PHY_ABT_R14 = 32;
-	localparam [5:0] PHY_DUMMY_REG0 = 33;
-	localparam [5:0] PHY_DUMMY_REG1 = 34;
-	localparam [5:0] PHY_FIQ_SPSR = 35;
-	localparam [5:0] PHY_IRQ_SPSR = 36;
-	localparam [5:0] PHY_SVC_SPSR = 37;
-	localparam [5:0] PHY_UND_SPSR = 38;
-	localparam [5:0] PHY_ABT_SPSR = 39;
-	localparam [1:0] LSL = 0;
-	localparam [1:0] LSR = 1;
-	localparam [1:0] ASR = 2;
-	localparam [1:0] ROR = 3;
-	localparam [2:0] RRC = 4;
-	localparam [2:0] RORI = 5;
-	localparam [2:0] ROR_1 = 6;
-	localparam [2:0] LSL_SAT = 7;
-	localparam [2:0] CTI_BURST = 3'b010;
-	localparam [2:0] CTI_EOB = 3'b111;
-	localparam [31:0] RST_VECTOR = 32'h00000000;
-	localparam [31:0] UND_VECTOR = 32'h00000004;
-	localparam [31:0] SWI_VECTOR = 32'h00000008;
-	localparam [31:0] PABT_VECTOR = 32'h0000000c;
-	localparam [31:0] DABT_VECTOR = 32'h00000010;
-	localparam [31:0] IRQ_VECTOR = 32'h00000018;
-	localparam [31:0] FIQ_VECTOR = 32'h0000001c;
-	localparam [1:0] SNT = 2'b00;
-	localparam [1:0] WNT = 2'b01;
-	localparam [1:0] WT = 2'b10;
-	localparam [1:0] ST = 2'b11;
-	localparam [31:0] ZAP_SRCDEST_EXTEND = 32'd32;
-	localparam [31:0] ZAP_DP_RB_EXTEND = 32'd32;
-	localparam [31:0] ZAP_BASE_EXTEND = 32'd33;
-	localparam [31:0] ZAP_DP_RD_EXTEND = 32'd33;
-	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
-	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
-	wire [34:0] instruction_nxt;
-	wire instruction_valid_nxt;
-	wire und_nxt;
-	wire force32_nxt;
-	wire irq_nxt;
-	wire fiq_nxt;
-	wire stall;
-	reg prev_prefix;
-	zap_mode16_decoder #(.V4T(V4T)) u_zap_mode16_decoder(
-		.i_instruction(i_instruction),
-		.i_instruction_valid(i_instruction_valid),
-		.i_irq(i_irq),
-		.i_fiq(i_fiq),
-		.i_offset(o_instruction[10:0]),
-		.i_prev_prefix(prev_prefix),
-		.i_cpsr_ff_t(i_cpsr_ff_t),
-		.o_instruction(instruction_nxt),
-		.o_instruction_valid(instruction_valid_nxt),
-		.o_und(und_nxt),
-		.o_force32_align(force32_nxt),
-		.o_irq(irq_nxt),
-		.o_fiq(fiq_nxt)
-	);
-	assign stall = ((i_stall_from_shifter || i_stall_from_issue) || i_stall_from_decode) || i_data_stall;
-	always @(posedge i_clk)
-		if (i_reset) begin
-			o_instruction <= 0;
-			o_force32_align <= 0;
-			o_pc_ff <= 0;
-			o_taken_ff <= 0;
-			o_pred <= 33'd0;
-			o_instruction_valid <= 1'd0;
-			o_irq <= 0;
-			o_fiq <= 0;
-			o_und <= 0;
-			o_iabort <= 0;
-		end
-		else if ((i_clear_from_writeback || (i_clear_from_alu && !i_data_stall)) || (i_clear_from_decode && !stall)) begin
-			o_instruction_valid <= 1'd0;
-			o_irq <= 0;
-			o_fiq <= 0;
-			o_und <= 0;
-			o_iabort <= 0;
-			o_force32_align <= 1'sbx;
-			o_pred <= 1'sbx;
-			o_pc_ff <= 1'sbx;
-			o_instruction <= 1'sbx;
-			o_taken_ff <= 1'sbx;
-		end
-		else if (!stall) begin
-			o_iabort <= i_iabort;
-			o_instruction_valid <= instruction_valid_nxt;
-			o_instruction <= (instruction_valid_nxt ? instruction_nxt : o_instruction);
-			o_und <= und_nxt;
-			o_force32_align <= force32_nxt;
-			o_pc_ff <= i_pc_ff;
-			o_pc_plus_8_ff <= i_pc_plus_8_ff;
-			o_irq <= irq_nxt;
-			o_fiq <= fiq_nxt;
-			o_taken_ff <= i_taken;
-			o_pred <= i_pred;
-		end
-	always @(posedge i_clk)
-		if (((i_reset || i_clear_from_writeback) || (i_clear_from_alu && !i_data_stall)) || (i_clear_from_decode && !stall))
-			prev_prefix <= 1'd0;
-		else if (!stall && instruction_valid_nxt)
-			prev_prefix <= ((i_cpsr_ff_t && (instruction_nxt[31:28] == 4'b1111)) && (instruction_nxt[27:12] == 16'd0)) && (instruction_nxt[34:32] == 3'd0);
-	zap_decompile u_zap_decompile(
-		.i_instruction({1'd0, o_instruction}),
-		.i_dav(o_instruction_valid),
-		.o_decompile()
-	);
-endmodule
 module zap_mode16_decoder (
 	i_instruction,
 	i_instruction_valid,
@@ -13950,6 +13551,414 @@ module zap_mode16_decoder (
 		end
 	end
 	initial _sv2v_0 = 0;
+endmodule
+module zap_mode16_decoder_main (
+	i_clk,
+	i_reset,
+	i_clear_from_writeback,
+	i_data_stall,
+	i_clear_from_alu,
+	i_stall_from_shifter,
+	i_stall_from_issue,
+	i_stall_from_decode,
+	i_clear_from_decode,
+	i_taken,
+	i_pred,
+	o_pred,
+	i_instruction,
+	i_instruction_valid,
+	i_irq,
+	i_fiq,
+	i_iabort,
+	o_iabort,
+	i_cpsr_ff_t,
+	i_pc_ff,
+	i_pc_plus_8_ff,
+	o_instruction,
+	o_instruction_valid,
+	o_und,
+	o_force32_align,
+	o_pc_ff,
+	o_pc_plus_8_ff,
+	o_irq,
+	o_fiq,
+	o_taken_ff
+);
+	parameter [0:0] V4T = 1'd0;
+	input wire i_clk;
+	input wire i_reset;
+	input wire i_clear_from_writeback;
+	input wire i_data_stall;
+	input wire i_clear_from_alu;
+	input wire i_stall_from_shifter;
+	input wire i_stall_from_issue;
+	input wire i_stall_from_decode;
+	input wire i_clear_from_decode;
+	input wire [1:0] i_taken;
+	input wire [32:0] i_pred;
+	output reg [32:0] o_pred;
+	input wire [31:0] i_instruction;
+	input wire i_instruction_valid;
+	input wire i_irq;
+	input wire i_fiq;
+	input wire i_iabort;
+	output reg o_iabort;
+	input wire i_cpsr_ff_t;
+	input wire [31:0] i_pc_ff;
+	input wire [31:0] i_pc_plus_8_ff;
+	output reg [34:0] o_instruction;
+	output reg o_instruction_valid;
+	output reg o_und;
+	output reg o_force32_align;
+	output reg [31:0] o_pc_ff;
+	output reg [31:0] o_pc_plus_8_ff;
+	output reg o_irq;
+	output reg o_fiq;
+	output reg [1:0] o_taken_ff;
+	localparam [1:0] SECTION_ID = 2'b10;
+	localparam [1:0] PAGE_ID = 2'b01;
+	localparam [1:0] FINE_ID = 2'b11;
+	localparam [1:0] SPAGE_ID = 2'b10;
+	localparam [1:0] LPAGE_ID = 2'b01;
+	localparam [1:0] FPAGE_ID = 2'b11;
+	localparam [3:0] APSR_NA_NA = 4'b0000;
+	localparam [3:0] APSR_RO_RO = 4'b0001;
+	localparam [3:0] APSR_RO_NA = 4'b0010;
+	localparam [3:0] APSR_RW_NA = 4'b01zz;
+	localparam [3:0] APSR_RW_RO = 4'b10zz;
+	localparam [3:0] APSR_RW_RW = 4'b11zz;
+	localparam [1:0] DAC_MANAGER = 2'b11;
+	localparam [1:0] DAC_CLIENT = 2'b01;
+	localparam [3:0] FSR_SECTION_DOMAIN_FAULT = 4'b1001;
+	localparam [3:0] FSR_SECTION_TRANSLATION_FAULT = 4'b0101;
+	localparam [3:0] FSR_SECTION_PERMISSION_FAULT = 4'b1101;
+	localparam [3:0] FSR_L1_EXTERNAL_ABORT = 4'b1100;
+	localparam [3:0] FSR_PAGE_TRANSLATION_FAULT = 4'b0111;
+	localparam [3:0] FSR_PAGE_DOMAIN_FAULT = 4'b1011;
+	localparam [3:0] FSR_PAGE_PERMISSION_FAULT = 4'b1111;
+	localparam [3:0] FSR_L2_EXTERNAL_ABORT = 4'b1110;
+	parameter [3:0] TERMINAL_EXCEPTION = 4'b0010;
+	localparam [3:0] AND = 4'd0;
+	localparam [3:0] EOR = 4'd1;
+	localparam [3:0] SUB = 4'd2;
+	localparam [3:0] RSB = 4'd3;
+	localparam [3:0] ADD = 4'd4;
+	localparam [3:0] ADC = 4'd5;
+	localparam [3:0] SBC = 4'd6;
+	localparam [3:0] RSC = 4'd7;
+	localparam [3:0] TST = 4'd8;
+	localparam [3:0] TEQ = 4'd9;
+	localparam [3:0] CMP = 4'd10;
+	localparam [3:0] CMN = 4'd11;
+	localparam [3:0] ORR = 4'd12;
+	localparam [3:0] MOV = 4'd13;
+	localparam [3:0] BIC = 4'd14;
+	localparam [3:0] MVN = 4'd15;
+	localparam [4:0] MUL = 5'd16;
+	localparam [4:0] MLA = 5'd17;
+	localparam [4:0] FMOV = 5'd18;
+	localparam [4:0] MMOV = 5'd19;
+	localparam [4:0] UMLALL = 5'd20;
+	localparam [4:0] UMLALH = 5'd21;
+	localparam [4:0] SMLALL = 5'd22;
+	localparam [4:0] SMLALH = 5'd23;
+	localparam [4:0] CLZ = 5'd24;
+	localparam [4:0] OP_QADD = 5'd25;
+	localparam [4:0] OP_QSUB = 5'd26;
+	localparam [4:0] OP_QDADD = 5'd27;
+	localparam [4:0] OP_QDSUB = 5'd28;
+	localparam [5:0] SMULW0 = 6'd30;
+	localparam [5:0] SMULW1 = 6'd32;
+	localparam [5:0] SMUL00 = 6'd34;
+	localparam [5:0] SMUL01 = 6'd36;
+	localparam [5:0] SMUL10 = 6'd38;
+	localparam [5:0] SMUL11 = 6'd40;
+	localparam [5:0] SMLA00 = 6'd42;
+	localparam [5:0] SMLA01 = 6'd44;
+	localparam [5:0] SMLA10 = 6'd46;
+	localparam [5:0] SMLA11 = 6'd48;
+	localparam [5:0] SMLAW0 = 6'd50;
+	localparam [5:0] SMLAW1 = 6'd52;
+	localparam [5:0] SMLAL00L = 6'd54;
+	localparam [5:0] SMLAL00H = 6'd55;
+	localparam [5:0] SMLAL01L = 6'd56;
+	localparam [5:0] SMLAL01H = 6'd57;
+	localparam [5:0] SMLAL10L = 6'd58;
+	localparam [5:0] SMLAL10H = 6'd59;
+	localparam [5:0] SMLAL11L = 6'd60;
+	localparam [5:0] SMLAL11H = 6'd61;
+	localparam [5:0] FADD = 6'd62;
+	localparam [5:0] OP_SMULW0 = 6'd30;
+	localparam [5:0] OP_SMULW1 = 6'd32;
+	localparam [5:0] OP_SMUL00 = 6'd34;
+	localparam [5:0] OP_SMUL01 = 6'd36;
+	localparam [5:0] OP_SMUL10 = 6'd38;
+	localparam [5:0] OP_SMUL11 = 6'd40;
+	localparam [5:0] OP_SMLA00 = 6'd42;
+	localparam [5:0] OP_SMLA01 = 6'd44;
+	localparam [5:0] OP_SMLA10 = 6'd46;
+	localparam [5:0] OP_SMLA11 = 6'd48;
+	localparam [5:0] OP_SMLAW0 = 6'd50;
+	localparam [5:0] OP_SMLAW1 = 6'd52;
+	localparam [5:0] OP_SMLAL00L = 6'd54;
+	localparam [5:0] OP_SMLAL00H = 6'd55;
+	localparam [5:0] OP_SMLAL01L = 6'd56;
+	localparam [5:0] OP_SMLAL01H = 6'd57;
+	localparam [5:0] OP_SMLAL10L = 6'd58;
+	localparam [5:0] OP_SMLAL10H = 6'd59;
+	localparam [5:0] OP_SMLAL11L = 6'd60;
+	localparam [5:0] OP_SMLAL11H = 6'd61;
+	localparam [5:0] SAT_MOV = 6'd49;
+	localparam [3:0] EQ = 4'h0;
+	localparam [3:0] NE = 4'h1;
+	localparam [3:0] CS = 4'h2;
+	localparam [3:0] CC = 4'h3;
+	localparam [3:0] MI = 4'h4;
+	localparam [3:0] PL = 4'h5;
+	localparam [3:0] VS = 4'h6;
+	localparam [3:0] VC = 4'h7;
+	localparam [3:0] HI = 4'h8;
+	localparam [3:0] LS = 4'h9;
+	localparam [3:0] GE = 4'ha;
+	localparam [3:0] LT = 4'hb;
+	localparam [3:0] GT = 4'hc;
+	localparam [3:0] LE = 4'hd;
+	localparam [3:0] AL = 4'he;
+	localparam [3:0] NV = 4'hf;
+	localparam [31:0] N = 32'd31;
+	localparam [31:0] Z = 32'd30;
+	localparam [31:0] C = 32'd29;
+	localparam [31:0] V = 32'd28;
+	localparam [31:0] Q = 32'd27;
+	localparam [31:0] I = 32'd7;
+	localparam [31:0] F = 32'd6;
+	localparam [31:0] T = 32'd5;
+	localparam [31:0] ZAP_CPSR_MODE = 32'd4;
+	localparam [0:0] INDEX_EN = 1'd0;
+	localparam [0:0] IMMED_EN = 1'd1;
+	localparam [4:0] FIQ = 5'b10001;
+	localparam [4:0] IRQ = 5'b10010;
+	localparam [4:0] ABT = 5'b10111;
+	localparam [4:0] SVC = 5'b10011;
+	localparam [4:0] USR = 5'b10000;
+	localparam [4:0] SYS = 5'b11111;
+	localparam [4:0] UND = 5'b11011;
+	localparam [31:0] SMLAxy = 32'bzzzz00010000zzzzzzzzzzzz1zz0zzzz;
+	localparam [31:0] SMLAWy = 32'bzzzz00010010zzzzzzzzzzzz1z00zzzz;
+	localparam [31:0] SMLALxy = 32'bzzzz00010100zzzzzzzzzzzz1zz0zzzz;
+	localparam [31:0] SMULWy = 32'bzzzz00010010zzzz0000zzzz1z10zzzz;
+	localparam [31:0] SMULxy = 32'bzzzz00010110zzzz0000zzzz1zz0zzzz;
+	localparam [31:0] CLZ_INSTRUCTION = 32'bzzzz000101101111zzzz11110001zzzz;
+	localparam [31:0] QADD = 32'bzzzz00010000zzzzzzzz00000101zzzz;
+	localparam [31:0] QSUB = 32'bzzzz00010010zzzzzzzz00000101zzzz;
+	localparam [31:0] QDADD = 32'bzzzz00010100zzzzzzzz00000101zzzz;
+	localparam [31:0] QDSUB = 32'bzzzz00010110zzzzzzzz00000101zzzz;
+	localparam [31:0] PLD = 32'b111101z1z101zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] DATA_PROCESSING_IMMEDIATE = 32'bzzzz001zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzz0zz1zzzz;
+	localparam [31:0] DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzzzzz0zzzz;
+	localparam [31:0] BRANCH_INSTRUCTION = 32'bzzzz101zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] MRS = 32'bzzzz00010z001111zzzzzzzzzzzzzzzz;
+	localparam [31:0] MSR_IMMEDIATE = 32'bzzzz00110z10zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] MSR = 32'bzzzz00010z10zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] LS_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz011zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] LS_IMMEDIATE = 32'bzzzz010zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BX_INST = 32'bzzzz000100101111111111110001zzzz;
+	localparam [31:0] MULT_INST = 32'bzzzz000000zzzzzzzzzzzzzz1001zzzz;
+	localparam [31:0] LMULT_INST = 32'bzzzz00001zzzzzzzzzzzzzzz1001zzzz;
+	localparam [31:0] HALFWORD_LS = 32'bzzzz000zzzzzzzzzzzzzzzzz1zz1zzzz;
+	localparam [31:0] SOFTWARE_INTERRUPT = 32'bzzzz1111zzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] SWAP = 32'bzzzz00010z00zzzzzzzz00001001zzzz;
+	localparam [31:0] MCR = 32'bzzzz1110zzz0zzzzzzzz1111zzz1zzzz;
+	localparam [31:0] MCR2 = 32'b11111110zzz0zzzzzzzzzzzzzzz1zzzz;
+	localparam [31:0] MRC = 32'bzzzz1110zzz1zzzzzzzz1111zzz1zzzz;
+	localparam [31:0] MRC2 = 32'b11111110zzz1zzzzzzzzzzzzzzz1zzzz;
+	localparam [31:0] LDC = 32'bzzzz110zzzz1zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] STC = 32'bzzzz110zzzz0zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] LDC2 = 32'b1111110zzzz1zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] STC2 = 32'b1111110zzzz0zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] CDP = 32'bzzzz1110zzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BLX1 = 32'b1111101zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BLX2 = 32'bzzzz000100101111111111110011zzzz;
+	localparam [31:0] BKPT = 32'b111000010010zzzzzzzzzzzz0111zzzz;
+	localparam [15:0] T_BRANCH_COND = 16'b1101zzzzzzzzzzzz;
+	localparam [15:0] T_BRANCH_NOCOND = 16'b11100zzzzzzzzzzz;
+	localparam [15:0] T_BL = 16'b1111zzzzzzzzzzzz;
+	localparam [15:0] T_BLX1 = 16'b11101zzzzzzzzzzz;
+	localparam [15:0] T_BLX2 = 16'b010001111zzzz000;
+	localparam [15:0] T_BX = 16'b010001110zzzz000;
+	localparam [15:0] T_SWI = 16'b11011111zzzzzzzz;
+	localparam [15:0] T_SHIFT = 16'b000zzzzzzzzzzzzz;
+	localparam [15:0] T_ADD_SUB_LO = 16'b00011zzzzzzzzzzz;
+	localparam [15:0] T_MCAS_IMM = 16'b001zzzzzzzzzzzzz;
+	localparam [15:0] T_ALU_LO = 16'b010000zzzzzzzzzz;
+	localparam [15:0] T_ALU_HI = 16'b010001zzzzzzzzzz;
+	localparam [15:0] T_GET_ADDR = 16'b1010zzzzzzzzzzzz;
+	localparam [15:0] T_MOD_SP = 16'b10110000zzzzzzzz;
+	localparam [15:0] T_PC_REL_LOAD = 16'b01001zzzzzzzzzzz;
+	localparam [15:0] T_LDR_STR_5BIT_OFF = 16'b011zzzzzzzzzzzzz;
+	localparam [15:0] T_LDRH_STRH_5BIT_OFF = 16'b1000zzzzzzzzzzzz;
+	localparam [15:0] T_LDRH_STRH_REG = 16'b0101zzzzzzzzzzzz;
+	localparam [15:0] T_SP_REL_LDR_STR = 16'b1001zzzzzzzzzzzz;
+	localparam [15:0] T_LDMIA_STMIA = 16'b1100zzzzzzzzzzzz;
+	localparam [15:0] T_POP_PUSH = 16'b1011z10zzzzzzzzz;
+	localparam [15:0] T_BKPT = 16'b10111110zzzzzzzz;
+	localparam [31:0] TOTAL_ARCH_REGS = 28;
+	localparam [3:0] ARCH_SP = 13;
+	localparam [3:0] ARCH_LR = 14;
+	localparam [3:0] ARCH_PC = 15;
+	localparam [4:0] RAZ_REGISTER = 16;
+	localparam [4:0] ARCH_USR2_R8 = 18;
+	localparam [4:0] ARCH_USR2_R9 = 19;
+	localparam [4:0] ARCH_USR2_R10 = 20;
+	localparam [4:0] ARCH_USR2_R11 = 21;
+	localparam [4:0] ARCH_USR2_R12 = 22;
+	localparam [4:0] ARCH_USR2_R13 = 23;
+	localparam [4:0] ARCH_USR2_R14 = 24;
+	localparam [4:0] ARCH_DUMMY_REG0 = 25;
+	localparam [4:0] ARCH_DUMMY_REG1 = 26;
+	localparam [4:0] ARCH_CPSR = 17;
+	localparam [4:0] ARCH_CURR_SPSR = 27;
+	localparam [31:0] TOTAL_PHY_REGS = 40;
+	localparam [5:0] PHY_PC = 15;
+	localparam [5:0] PHY_RAZ_REGISTER = 16;
+	localparam [5:0] PHY_CPSR = 17;
+	localparam [5:0] PHY_USR_R0 = 0;
+	localparam [5:0] PHY_USR_R1 = 1;
+	localparam [5:0] PHY_USR_R2 = 2;
+	localparam [5:0] PHY_USR_R3 = 3;
+	localparam [5:0] PHY_USR_R4 = 4;
+	localparam [5:0] PHY_USR_R5 = 5;
+	localparam [5:0] PHY_USR_R6 = 6;
+	localparam [5:0] PHY_USR_R7 = 7;
+	localparam [5:0] PHY_USR_R8 = 8;
+	localparam [5:0] PHY_USR_R9 = 9;
+	localparam [5:0] PHY_USR_R10 = 10;
+	localparam [5:0] PHY_USR_R11 = 11;
+	localparam [5:0] PHY_USR_R12 = 12;
+	localparam [5:0] PHY_USR_R13 = 13;
+	localparam [5:0] PHY_USR_R14 = 14;
+	localparam [5:0] PHY_FIQ_R8 = 18;
+	localparam [5:0] PHY_FIQ_R9 = 19;
+	localparam [5:0] PHY_FIQ_R10 = 20;
+	localparam [5:0] PHY_FIQ_R11 = 21;
+	localparam [5:0] PHY_FIQ_R12 = 22;
+	localparam [5:0] PHY_FIQ_R13 = 23;
+	localparam [5:0] PHY_FIQ_R14 = 24;
+	localparam [5:0] PHY_IRQ_R13 = 25;
+	localparam [5:0] PHY_IRQ_R14 = 26;
+	localparam [5:0] PHY_SVC_R13 = 27;
+	localparam [5:0] PHY_SVC_R14 = 28;
+	localparam [5:0] PHY_UND_R13 = 29;
+	localparam [5:0] PHY_UND_R14 = 30;
+	localparam [5:0] PHY_ABT_R13 = 31;
+	localparam [5:0] PHY_ABT_R14 = 32;
+	localparam [5:0] PHY_DUMMY_REG0 = 33;
+	localparam [5:0] PHY_DUMMY_REG1 = 34;
+	localparam [5:0] PHY_FIQ_SPSR = 35;
+	localparam [5:0] PHY_IRQ_SPSR = 36;
+	localparam [5:0] PHY_SVC_SPSR = 37;
+	localparam [5:0] PHY_UND_SPSR = 38;
+	localparam [5:0] PHY_ABT_SPSR = 39;
+	localparam [1:0] LSL = 0;
+	localparam [1:0] LSR = 1;
+	localparam [1:0] ASR = 2;
+	localparam [1:0] ROR = 3;
+	localparam [2:0] RRC = 4;
+	localparam [2:0] RORI = 5;
+	localparam [2:0] ROR_1 = 6;
+	localparam [2:0] LSL_SAT = 7;
+	localparam [2:0] CTI_BURST = 3'b010;
+	localparam [2:0] CTI_EOB = 3'b111;
+	localparam [31:0] RST_VECTOR = 32'h00000000;
+	localparam [31:0] UND_VECTOR = 32'h00000004;
+	localparam [31:0] SWI_VECTOR = 32'h00000008;
+	localparam [31:0] PABT_VECTOR = 32'h0000000c;
+	localparam [31:0] DABT_VECTOR = 32'h00000010;
+	localparam [31:0] IRQ_VECTOR = 32'h00000018;
+	localparam [31:0] FIQ_VECTOR = 32'h0000001c;
+	localparam [1:0] SNT = 2'b00;
+	localparam [1:0] WNT = 2'b01;
+	localparam [1:0] WT = 2'b10;
+	localparam [1:0] ST = 2'b11;
+	localparam [31:0] ZAP_SRCDEST_EXTEND = 32'd32;
+	localparam [31:0] ZAP_DP_RB_EXTEND = 32'd32;
+	localparam [31:0] ZAP_BASE_EXTEND = 32'd33;
+	localparam [31:0] ZAP_DP_RD_EXTEND = 32'd33;
+	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
+	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
+	wire [34:0] instruction_nxt;
+	wire instruction_valid_nxt;
+	wire und_nxt;
+	wire force32_nxt;
+	wire irq_nxt;
+	wire fiq_nxt;
+	wire stall;
+	reg prev_prefix;
+	zap_mode16_decoder #(.V4T(V4T)) u_zap_mode16_decoder(
+		.i_instruction(i_instruction),
+		.i_instruction_valid(i_instruction_valid),
+		.i_irq(i_irq),
+		.i_fiq(i_fiq),
+		.i_offset(o_instruction[10:0]),
+		.i_prev_prefix(prev_prefix),
+		.i_cpsr_ff_t(i_cpsr_ff_t),
+		.o_instruction(instruction_nxt),
+		.o_instruction_valid(instruction_valid_nxt),
+		.o_und(und_nxt),
+		.o_force32_align(force32_nxt),
+		.o_irq(irq_nxt),
+		.o_fiq(fiq_nxt)
+	);
+	assign stall = ((i_stall_from_shifter || i_stall_from_issue) || i_stall_from_decode) || i_data_stall;
+	always @(posedge i_clk)
+		if (i_reset) begin
+			o_instruction <= 0;
+			o_force32_align <= 0;
+			o_pc_ff <= 0;
+			o_taken_ff <= 0;
+			o_pred <= 33'd0;
+			o_instruction_valid <= 1'd0;
+			o_irq <= 0;
+			o_fiq <= 0;
+			o_und <= 0;
+			o_iabort <= 0;
+		end
+		else if ((i_clear_from_writeback || (i_clear_from_alu && !i_data_stall)) || (i_clear_from_decode && !stall)) begin
+			o_instruction_valid <= 1'd0;
+			o_irq <= 0;
+			o_fiq <= 0;
+			o_und <= 0;
+			o_iabort <= 0;
+			o_force32_align <= 1'sbx;
+			o_pred <= 1'sbx;
+			o_pc_ff <= 1'sbx;
+			o_instruction <= 1'sbx;
+			o_taken_ff <= 1'sbx;
+		end
+		else if (!stall) begin
+			o_iabort <= i_iabort;
+			o_instruction_valid <= instruction_valid_nxt;
+			o_instruction <= (instruction_valid_nxt ? instruction_nxt : o_instruction);
+			o_und <= und_nxt;
+			o_force32_align <= force32_nxt;
+			o_pc_ff <= i_pc_ff;
+			o_pc_plus_8_ff <= i_pc_plus_8_ff;
+			o_irq <= irq_nxt;
+			o_fiq <= fiq_nxt;
+			o_taken_ff <= i_taken;
+			o_pred <= i_pred;
+		end
+	always @(posedge i_clk)
+		if (((i_reset || i_clear_from_writeback) || (i_clear_from_alu && !i_data_stall)) || (i_clear_from_decode && !stall))
+			prev_prefix <= 1'd0;
+		else if (!stall && instruction_valid_nxt)
+			prev_prefix <= ((i_cpsr_ff_t && (instruction_nxt[31:28] == 4'b1111)) && (instruction_nxt[27:12] == 16'd0)) && (instruction_nxt[34:32] == 3'd0);
+	zap_decompile u_zap_decompile(
+		.i_instruction({1'd0, o_instruction}),
+		.i_dav(o_instruction_valid),
+		.o_decompile()
+	);
 endmodule
 module zap_ones_counter (
 	o_ones_counter,
@@ -14723,7 +14732,7 @@ module zap_predecode_main (
 	input wire i_instruction_valid;
 	output reg [39:0] o_instruction_ff;
 	output reg o_instruction_valid_ff;
-	output reg o_stall_from_decode;
+	(* dont_retime *) output reg o_stall_from_decode;
 	output reg o_switch_ff;
 	output reg [31:0] o_pc_plus_8_ff;
 	output reg [31:0] o_pc_ff;
@@ -15141,10 +15150,8 @@ module zap_predecode_main (
 		else if (!stall) begin
 			case (o_stall_from_decode)
 				1'd0:
-					if (mem_fetch_stall || cp_stall) begin
+					if (mem_fetch_stall || cp_stall)
 						o_stall_from_decode <= 1'd1;
-						skid <= {i_pred, i_taken, i_force32, i_und, i_irq, i_fiq, i_abt, i_pc_ff, i_pc_plus_8_ff, i_instruction, i_instruction_valid};
-					end
 				1'd1:
 					if (!(mem_fetch_stall || cp_stall))
 						o_stall_from_decode <= 1'd0;
@@ -15152,6 +15159,9 @@ module zap_predecode_main (
 			if (o_clear_from_decode)
 				o_stall_from_decode <= 1'd0;
 		end
+	always @(posedge i_clk)
+		if (!o_stall_from_decode)
+			skid <= {i_pred, i_taken, i_force32, i_und, i_irq, i_fiq, i_abt, i_pc_ff, i_pc_plus_8_ff, i_instruction, i_instruction_valid};
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -15686,11 +15696,11 @@ module zap_predecode_uop_sequencer (
 	assign t_bl_prefix = ((((V4T && i_cpsr_t) && i_instruction_valid) && (i_instruction[34:32] == 3'd0)) && (i_instruction[31:28] == NV)) && (i_instruction[27:12] == 16'd0);
 	assign t_bl_alone = ((((V4T && i_cpsr_t) && i_instruction_valid) && (i_instruction[34:32] == 3'd0)) && (i_instruction[31:28] == NV)) && (i_instruction[27:12] == 16'd1);
 	assign cp15_done = ((((!i_cpsr_t && (i_instruction[34:32] == 3'd0)) && (((i_instruction[31:0] | 32'b11110000111011111111000011101111) == 32'b11111110111111111111111111111111) || ((i_instruction[31:0] | 32'b11110000111011111111000011101111) == 32'b11111110111011111111111111111111))) && (i_instruction[31:28] != NV)) && (i_instruction[11:8] == 4'b1111)) && (i_cpsr_mode != USR);
-	reg [25:0] state_ff;
 	assign o_cp15_release = ((cp15_done && !i_cp_stall) && i_instruction_valid) && (state_ff == 26'd1);
 	assign {cc, id, pre_index, up, s_bit, writeback, load, base, reglist} = i_instruction[31:0];
 	assign store = ~load;
 	assign unused = |{pre_index};
+	(* dont_retime *) reg [25:0] state_ff;
 	reg [25:0] state_nxt;
 	function automatic [33:0] map;
 		input [31:0] instr;
@@ -16205,46 +16215,6 @@ module zap_predecode_uop_sequencer (
 	end
 	initial _sv2v_0 = 0;
 endmodule
-module zap_ram_simple_nopipe (
-	i_clk,
-	i_wr_en,
-	i_rd_en,
-	i_wr_data,
-	i_wr_addr,
-	i_rd_addr,
-	o_rd_data
-);
-	parameter [31:0] WIDTH = 32'd32;
-	parameter [31:0] DEPTH = 32'd32;
-	input wire i_clk;
-	input wire i_wr_en;
-	input wire i_rd_en;
-	input wire [WIDTH - 1:0] i_wr_data;
-	input wire [$clog2(DEPTH) - 1:0] i_wr_addr;
-	input wire [$clog2(DEPTH) - 1:0] i_rd_addr;
-	output wire [WIDTH - 1:0] o_rd_data;
-	reg [WIDTH - 1:0] mem [DEPTH - 1:0];
-	reg [WIDTH - 1:0] mem_rd_data;
-	always @(posedge i_clk)
-		if (i_rd_en)
-			mem_rd_data <= mem[i_rd_addr];
-	always @(posedge i_clk)
-		if (i_wr_en)
-			mem[i_wr_addr] <= i_wr_data;
-	reg [WIDTH - 1:0] buffer_ff;
-	wire [WIDTH - 1:0] buffer_nxt;
-	reg hazard_ff;
-	wire hazard_nxt;
-	wire addr_conflict;
-	wire concurrent_access;
-	assign addr_conflict = (i_wr_addr == i_rd_addr ? 1'd1 : 1'd0);
-	assign concurrent_access = i_wr_en & i_rd_en;
-	assign hazard_nxt = addr_conflict & concurrent_access;
-	always @(posedge i_clk) hazard_ff <= hazard_nxt;
-	assign buffer_nxt = (hazard_nxt ? i_wr_data : {WIDTH {1'bx}});
-	always @(posedge i_clk) buffer_ff <= buffer_nxt;
-	assign o_rd_data = (hazard_ff ? buffer_ff : mem_rd_data);
-endmodule
 module zap_ram_simple (
 	i_clk,
 	i_clken,
@@ -16335,6 +16305,46 @@ module zap_ram_simple (
 		end
 	assign o_rd_data = (fwd_st3 ? fwd_data_st3 : rd_data_st3);
 	initial _sv2v_0 = 0;
+endmodule
+module zap_ram_simple_nopipe (
+	i_clk,
+	i_wr_en,
+	i_rd_en,
+	i_wr_data,
+	i_wr_addr,
+	i_rd_addr,
+	o_rd_data
+);
+	parameter [31:0] WIDTH = 32'd32;
+	parameter [31:0] DEPTH = 32'd32;
+	input wire i_clk;
+	input wire i_wr_en;
+	input wire i_rd_en;
+	input wire [WIDTH - 1:0] i_wr_data;
+	input wire [$clog2(DEPTH) - 1:0] i_wr_addr;
+	input wire [$clog2(DEPTH) - 1:0] i_rd_addr;
+	output wire [WIDTH - 1:0] o_rd_data;
+	reg [WIDTH - 1:0] mem [DEPTH - 1:0];
+	reg [WIDTH - 1:0] mem_rd_data;
+	always @(posedge i_clk)
+		if (i_rd_en)
+			mem_rd_data <= mem[i_rd_addr];
+	always @(posedge i_clk)
+		if (i_wr_en)
+			mem[i_wr_addr] <= i_wr_data;
+	reg [WIDTH - 1:0] buffer_ff;
+	wire [WIDTH - 1:0] buffer_nxt;
+	reg hazard_ff;
+	wire hazard_nxt;
+	wire addr_conflict;
+	wire concurrent_access;
+	assign addr_conflict = (i_wr_addr == i_rd_addr ? 1'd1 : 1'd0);
+	assign concurrent_access = i_wr_en & i_rd_en;
+	assign hazard_nxt = addr_conflict & concurrent_access;
+	always @(posedge i_clk) hazard_ff <= hazard_nxt;
+	assign buffer_nxt = (hazard_nxt ? i_wr_data : {WIDTH {1'bx}});
+	always @(posedge i_clk) buffer_ff <= buffer_nxt;
+	assign o_rd_data = (hazard_ff ? buffer_ff : mem_rd_data);
 endmodule
 module zap_register_file (
 	i_clk,
@@ -17955,6 +17965,612 @@ module zap_sync_fifo (
 			wptr_ff <= wptr_nxt;
 		end
 endmodule
+module zap_tlb (
+	i_clk,
+	i_reset,
+	i_address,
+	i_address_check,
+	i_wr_check,
+	i_rd_check,
+	i_address_nxt,
+	i_hold,
+	i_cpsr,
+	i_sr,
+	i_dac_reg,
+	i_baddr,
+	i_mmu_en,
+	i_inv,
+	o_phy_addr,
+	o_fsr,
+	o_far,
+	o_fault,
+	o_cacheable,
+	o_wt,
+	o_busy,
+	i_idle,
+	o_wb_stb_nxt,
+	o_wb_cyc_nxt,
+	o_wb_adr_nxt,
+	o_wb_wen_nxt,
+	o_wb_sel_nxt,
+	i_wb_dat,
+	o_wb_dat_nxt,
+	i_wb_ack,
+	i_wb_err
+);
+	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
+	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
+	parameter [31:0] SECTION_TLB_ENTRIES = 32'd8;
+	parameter [31:0] FPAGE_TLB_ENTRIES = 32'd8;
+	parameter [31:0] CPSR_MODE = 32'd4;
+	parameter [0:0] MMU_OFF_CACHEABLE = 1'd0;
+	input wire i_clk;
+	input wire i_reset;
+	input wire [31:0] i_address;
+	input wire [31:0] i_address_check;
+	input wire i_wr_check;
+	input wire i_rd_check;
+	input wire [31:0] i_address_nxt;
+	input wire i_hold;
+	input wire [CPSR_MODE:0] i_cpsr;
+	input wire [1:0] i_sr;
+	input wire [31:0] i_dac_reg;
+	input wire [31:0] i_baddr;
+	input wire i_mmu_en;
+	input wire i_inv;
+	output wire [31:0] o_phy_addr;
+	output wire [7:0] o_fsr;
+	output wire [31:0] o_far;
+	output wire o_fault;
+	output wire o_cacheable;
+	output wire o_wt;
+	output wire o_busy;
+	input wire i_idle;
+	output wire o_wb_stb_nxt;
+	output wire o_wb_cyc_nxt;
+	output wire [31:0] o_wb_adr_nxt;
+	output wire o_wb_wen_nxt;
+	output wire [3:0] o_wb_sel_nxt;
+	input wire [31:0] i_wb_dat;
+	output wire [31:0] o_wb_dat_nxt;
+	input wire i_wb_ack;
+	input wire i_wb_err;
+	assign o_wb_dat_nxt = 32'd0;
+	localparam [1:0] SECTION_ID = 2'b10;
+	localparam [1:0] PAGE_ID = 2'b01;
+	localparam [1:0] FINE_ID = 2'b11;
+	localparam [1:0] SPAGE_ID = 2'b10;
+	localparam [1:0] LPAGE_ID = 2'b01;
+	localparam [1:0] FPAGE_ID = 2'b11;
+	localparam [3:0] APSR_NA_NA = 4'b0000;
+	localparam [3:0] APSR_RO_RO = 4'b0001;
+	localparam [3:0] APSR_RO_NA = 4'b0010;
+	localparam [3:0] APSR_RW_NA = 4'b01zz;
+	localparam [3:0] APSR_RW_RO = 4'b10zz;
+	localparam [3:0] APSR_RW_RW = 4'b11zz;
+	localparam [1:0] DAC_MANAGER = 2'b11;
+	localparam [1:0] DAC_CLIENT = 2'b01;
+	localparam [3:0] FSR_SECTION_DOMAIN_FAULT = 4'b1001;
+	localparam [3:0] FSR_SECTION_TRANSLATION_FAULT = 4'b0101;
+	localparam [3:0] FSR_SECTION_PERMISSION_FAULT = 4'b1101;
+	localparam [3:0] FSR_L1_EXTERNAL_ABORT = 4'b1100;
+	localparam [3:0] FSR_PAGE_TRANSLATION_FAULT = 4'b0111;
+	localparam [3:0] FSR_PAGE_DOMAIN_FAULT = 4'b1011;
+	localparam [3:0] FSR_PAGE_PERMISSION_FAULT = 4'b1111;
+	localparam [3:0] FSR_L2_EXTERNAL_ABORT = 4'b1110;
+	parameter [3:0] TERMINAL_EXCEPTION = 4'b0010;
+	localparam [3:0] AND = 4'd0;
+	localparam [3:0] EOR = 4'd1;
+	localparam [3:0] SUB = 4'd2;
+	localparam [3:0] RSB = 4'd3;
+	localparam [3:0] ADD = 4'd4;
+	localparam [3:0] ADC = 4'd5;
+	localparam [3:0] SBC = 4'd6;
+	localparam [3:0] RSC = 4'd7;
+	localparam [3:0] TST = 4'd8;
+	localparam [3:0] TEQ = 4'd9;
+	localparam [3:0] CMP = 4'd10;
+	localparam [3:0] CMN = 4'd11;
+	localparam [3:0] ORR = 4'd12;
+	localparam [3:0] MOV = 4'd13;
+	localparam [3:0] BIC = 4'd14;
+	localparam [3:0] MVN = 4'd15;
+	localparam [4:0] MUL = 5'd16;
+	localparam [4:0] MLA = 5'd17;
+	localparam [4:0] FMOV = 5'd18;
+	localparam [4:0] MMOV = 5'd19;
+	localparam [4:0] UMLALL = 5'd20;
+	localparam [4:0] UMLALH = 5'd21;
+	localparam [4:0] SMLALL = 5'd22;
+	localparam [4:0] SMLALH = 5'd23;
+	localparam [4:0] CLZ = 5'd24;
+	localparam [4:0] OP_QADD = 5'd25;
+	localparam [4:0] OP_QSUB = 5'd26;
+	localparam [4:0] OP_QDADD = 5'd27;
+	localparam [4:0] OP_QDSUB = 5'd28;
+	localparam [5:0] SMULW0 = 6'd30;
+	localparam [5:0] SMULW1 = 6'd32;
+	localparam [5:0] SMUL00 = 6'd34;
+	localparam [5:0] SMUL01 = 6'd36;
+	localparam [5:0] SMUL10 = 6'd38;
+	localparam [5:0] SMUL11 = 6'd40;
+	localparam [5:0] SMLA00 = 6'd42;
+	localparam [5:0] SMLA01 = 6'd44;
+	localparam [5:0] SMLA10 = 6'd46;
+	localparam [5:0] SMLA11 = 6'd48;
+	localparam [5:0] SMLAW0 = 6'd50;
+	localparam [5:0] SMLAW1 = 6'd52;
+	localparam [5:0] SMLAL00L = 6'd54;
+	localparam [5:0] SMLAL00H = 6'd55;
+	localparam [5:0] SMLAL01L = 6'd56;
+	localparam [5:0] SMLAL01H = 6'd57;
+	localparam [5:0] SMLAL10L = 6'd58;
+	localparam [5:0] SMLAL10H = 6'd59;
+	localparam [5:0] SMLAL11L = 6'd60;
+	localparam [5:0] SMLAL11H = 6'd61;
+	localparam [5:0] FADD = 6'd62;
+	localparam [5:0] OP_SMULW0 = 6'd30;
+	localparam [5:0] OP_SMULW1 = 6'd32;
+	localparam [5:0] OP_SMUL00 = 6'd34;
+	localparam [5:0] OP_SMUL01 = 6'd36;
+	localparam [5:0] OP_SMUL10 = 6'd38;
+	localparam [5:0] OP_SMUL11 = 6'd40;
+	localparam [5:0] OP_SMLA00 = 6'd42;
+	localparam [5:0] OP_SMLA01 = 6'd44;
+	localparam [5:0] OP_SMLA10 = 6'd46;
+	localparam [5:0] OP_SMLA11 = 6'd48;
+	localparam [5:0] OP_SMLAW0 = 6'd50;
+	localparam [5:0] OP_SMLAW1 = 6'd52;
+	localparam [5:0] OP_SMLAL00L = 6'd54;
+	localparam [5:0] OP_SMLAL00H = 6'd55;
+	localparam [5:0] OP_SMLAL01L = 6'd56;
+	localparam [5:0] OP_SMLAL01H = 6'd57;
+	localparam [5:0] OP_SMLAL10L = 6'd58;
+	localparam [5:0] OP_SMLAL10H = 6'd59;
+	localparam [5:0] OP_SMLAL11L = 6'd60;
+	localparam [5:0] OP_SMLAL11H = 6'd61;
+	localparam [5:0] SAT_MOV = 6'd49;
+	localparam [3:0] EQ = 4'h0;
+	localparam [3:0] NE = 4'h1;
+	localparam [3:0] CS = 4'h2;
+	localparam [3:0] CC = 4'h3;
+	localparam [3:0] MI = 4'h4;
+	localparam [3:0] PL = 4'h5;
+	localparam [3:0] VS = 4'h6;
+	localparam [3:0] VC = 4'h7;
+	localparam [3:0] HI = 4'h8;
+	localparam [3:0] LS = 4'h9;
+	localparam [3:0] GE = 4'ha;
+	localparam [3:0] LT = 4'hb;
+	localparam [3:0] GT = 4'hc;
+	localparam [3:0] LE = 4'hd;
+	localparam [3:0] AL = 4'he;
+	localparam [3:0] NV = 4'hf;
+	localparam [31:0] N = 32'd31;
+	localparam [31:0] Z = 32'd30;
+	localparam [31:0] C = 32'd29;
+	localparam [31:0] V = 32'd28;
+	localparam [31:0] Q = 32'd27;
+	localparam [31:0] I = 32'd7;
+	localparam [31:0] F = 32'd6;
+	localparam [31:0] T = 32'd5;
+	localparam [31:0] ZAP_CPSR_MODE = 32'd4;
+	localparam [0:0] INDEX_EN = 1'd0;
+	localparam [0:0] IMMED_EN = 1'd1;
+	localparam [4:0] FIQ = 5'b10001;
+	localparam [4:0] IRQ = 5'b10010;
+	localparam [4:0] ABT = 5'b10111;
+	localparam [4:0] SVC = 5'b10011;
+	localparam [4:0] USR = 5'b10000;
+	localparam [4:0] SYS = 5'b11111;
+	localparam [4:0] UND = 5'b11011;
+	localparam [31:0] SMLAxy = 32'bzzzz00010000zzzzzzzzzzzz1zz0zzzz;
+	localparam [31:0] SMLAWy = 32'bzzzz00010010zzzzzzzzzzzz1z00zzzz;
+	localparam [31:0] SMLALxy = 32'bzzzz00010100zzzzzzzzzzzz1zz0zzzz;
+	localparam [31:0] SMULWy = 32'bzzzz00010010zzzz0000zzzz1z10zzzz;
+	localparam [31:0] SMULxy = 32'bzzzz00010110zzzz0000zzzz1zz0zzzz;
+	localparam [31:0] CLZ_INSTRUCTION = 32'bzzzz000101101111zzzz11110001zzzz;
+	localparam [31:0] QADD = 32'bzzzz00010000zzzzzzzz00000101zzzz;
+	localparam [31:0] QSUB = 32'bzzzz00010010zzzzzzzz00000101zzzz;
+	localparam [31:0] QDADD = 32'bzzzz00010100zzzzzzzz00000101zzzz;
+	localparam [31:0] QDSUB = 32'bzzzz00010110zzzzzzzz00000101zzzz;
+	localparam [31:0] PLD = 32'b111101z1z101zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] DATA_PROCESSING_IMMEDIATE = 32'bzzzz001zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzz0zz1zzzz;
+	localparam [31:0] DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzzzzz0zzzz;
+	localparam [31:0] BRANCH_INSTRUCTION = 32'bzzzz101zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] MRS = 32'bzzzz00010z001111zzzzzzzzzzzzzzzz;
+	localparam [31:0] MSR_IMMEDIATE = 32'bzzzz00110z10zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] MSR = 32'bzzzz00010z10zzzz1111zzzzzzzzzzzz;
+	localparam [31:0] LS_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz011zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] LS_IMMEDIATE = 32'bzzzz010zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BX_INST = 32'bzzzz000100101111111111110001zzzz;
+	localparam [31:0] MULT_INST = 32'bzzzz000000zzzzzzzzzzzzzz1001zzzz;
+	localparam [31:0] LMULT_INST = 32'bzzzz00001zzzzzzzzzzzzzzz1001zzzz;
+	localparam [31:0] HALFWORD_LS = 32'bzzzz000zzzzzzzzzzzzzzzzz1zz1zzzz;
+	localparam [31:0] SOFTWARE_INTERRUPT = 32'bzzzz1111zzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] SWAP = 32'bzzzz00010z00zzzzzzzz00001001zzzz;
+	localparam [31:0] MCR = 32'bzzzz1110zzz0zzzzzzzz1111zzz1zzzz;
+	localparam [31:0] MCR2 = 32'b11111110zzz0zzzzzzzzzzzzzzz1zzzz;
+	localparam [31:0] MRC = 32'bzzzz1110zzz1zzzzzzzz1111zzz1zzzz;
+	localparam [31:0] MRC2 = 32'b11111110zzz1zzzzzzzzzzzzzzz1zzzz;
+	localparam [31:0] LDC = 32'bzzzz110zzzz1zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] STC = 32'bzzzz110zzzz0zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] LDC2 = 32'b1111110zzzz1zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] STC2 = 32'b1111110zzzz0zzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] CDP = 32'bzzzz1110zzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BLX1 = 32'b1111101zzzzzzzzzzzzzzzzzzzzzzzzz;
+	localparam [31:0] BLX2 = 32'bzzzz000100101111111111110011zzzz;
+	localparam [31:0] BKPT = 32'b111000010010zzzzzzzzzzzz0111zzzz;
+	localparam [15:0] T_BRANCH_COND = 16'b1101zzzzzzzzzzzz;
+	localparam [15:0] T_BRANCH_NOCOND = 16'b11100zzzzzzzzzzz;
+	localparam [15:0] T_BL = 16'b1111zzzzzzzzzzzz;
+	localparam [15:0] T_BLX1 = 16'b11101zzzzzzzzzzz;
+	localparam [15:0] T_BLX2 = 16'b010001111zzzz000;
+	localparam [15:0] T_BX = 16'b010001110zzzz000;
+	localparam [15:0] T_SWI = 16'b11011111zzzzzzzz;
+	localparam [15:0] T_SHIFT = 16'b000zzzzzzzzzzzzz;
+	localparam [15:0] T_ADD_SUB_LO = 16'b00011zzzzzzzzzzz;
+	localparam [15:0] T_MCAS_IMM = 16'b001zzzzzzzzzzzzz;
+	localparam [15:0] T_ALU_LO = 16'b010000zzzzzzzzzz;
+	localparam [15:0] T_ALU_HI = 16'b010001zzzzzzzzzz;
+	localparam [15:0] T_GET_ADDR = 16'b1010zzzzzzzzzzzz;
+	localparam [15:0] T_MOD_SP = 16'b10110000zzzzzzzz;
+	localparam [15:0] T_PC_REL_LOAD = 16'b01001zzzzzzzzzzz;
+	localparam [15:0] T_LDR_STR_5BIT_OFF = 16'b011zzzzzzzzzzzzz;
+	localparam [15:0] T_LDRH_STRH_5BIT_OFF = 16'b1000zzzzzzzzzzzz;
+	localparam [15:0] T_LDRH_STRH_REG = 16'b0101zzzzzzzzzzzz;
+	localparam [15:0] T_SP_REL_LDR_STR = 16'b1001zzzzzzzzzzzz;
+	localparam [15:0] T_LDMIA_STMIA = 16'b1100zzzzzzzzzzzz;
+	localparam [15:0] T_POP_PUSH = 16'b1011z10zzzzzzzzz;
+	localparam [15:0] T_BKPT = 16'b10111110zzzzzzzz;
+	localparam [31:0] TOTAL_ARCH_REGS = 28;
+	localparam [3:0] ARCH_SP = 13;
+	localparam [3:0] ARCH_LR = 14;
+	localparam [3:0] ARCH_PC = 15;
+	localparam [4:0] RAZ_REGISTER = 16;
+	localparam [4:0] ARCH_USR2_R8 = 18;
+	localparam [4:0] ARCH_USR2_R9 = 19;
+	localparam [4:0] ARCH_USR2_R10 = 20;
+	localparam [4:0] ARCH_USR2_R11 = 21;
+	localparam [4:0] ARCH_USR2_R12 = 22;
+	localparam [4:0] ARCH_USR2_R13 = 23;
+	localparam [4:0] ARCH_USR2_R14 = 24;
+	localparam [4:0] ARCH_DUMMY_REG0 = 25;
+	localparam [4:0] ARCH_DUMMY_REG1 = 26;
+	localparam [4:0] ARCH_CPSR = 17;
+	localparam [4:0] ARCH_CURR_SPSR = 27;
+	localparam [31:0] TOTAL_PHY_REGS = 40;
+	localparam [5:0] PHY_PC = 15;
+	localparam [5:0] PHY_RAZ_REGISTER = 16;
+	localparam [5:0] PHY_CPSR = 17;
+	localparam [5:0] PHY_USR_R0 = 0;
+	localparam [5:0] PHY_USR_R1 = 1;
+	localparam [5:0] PHY_USR_R2 = 2;
+	localparam [5:0] PHY_USR_R3 = 3;
+	localparam [5:0] PHY_USR_R4 = 4;
+	localparam [5:0] PHY_USR_R5 = 5;
+	localparam [5:0] PHY_USR_R6 = 6;
+	localparam [5:0] PHY_USR_R7 = 7;
+	localparam [5:0] PHY_USR_R8 = 8;
+	localparam [5:0] PHY_USR_R9 = 9;
+	localparam [5:0] PHY_USR_R10 = 10;
+	localparam [5:0] PHY_USR_R11 = 11;
+	localparam [5:0] PHY_USR_R12 = 12;
+	localparam [5:0] PHY_USR_R13 = 13;
+	localparam [5:0] PHY_USR_R14 = 14;
+	localparam [5:0] PHY_FIQ_R8 = 18;
+	localparam [5:0] PHY_FIQ_R9 = 19;
+	localparam [5:0] PHY_FIQ_R10 = 20;
+	localparam [5:0] PHY_FIQ_R11 = 21;
+	localparam [5:0] PHY_FIQ_R12 = 22;
+	localparam [5:0] PHY_FIQ_R13 = 23;
+	localparam [5:0] PHY_FIQ_R14 = 24;
+	localparam [5:0] PHY_IRQ_R13 = 25;
+	localparam [5:0] PHY_IRQ_R14 = 26;
+	localparam [5:0] PHY_SVC_R13 = 27;
+	localparam [5:0] PHY_SVC_R14 = 28;
+	localparam [5:0] PHY_UND_R13 = 29;
+	localparam [5:0] PHY_UND_R14 = 30;
+	localparam [5:0] PHY_ABT_R13 = 31;
+	localparam [5:0] PHY_ABT_R14 = 32;
+	localparam [5:0] PHY_DUMMY_REG0 = 33;
+	localparam [5:0] PHY_DUMMY_REG1 = 34;
+	localparam [5:0] PHY_FIQ_SPSR = 35;
+	localparam [5:0] PHY_IRQ_SPSR = 36;
+	localparam [5:0] PHY_SVC_SPSR = 37;
+	localparam [5:0] PHY_UND_SPSR = 38;
+	localparam [5:0] PHY_ABT_SPSR = 39;
+	localparam [1:0] LSL = 0;
+	localparam [1:0] LSR = 1;
+	localparam [1:0] ASR = 2;
+	localparam [1:0] ROR = 3;
+	localparam [2:0] RRC = 4;
+	localparam [2:0] RORI = 5;
+	localparam [2:0] ROR_1 = 6;
+	localparam [2:0] LSL_SAT = 7;
+	localparam [2:0] CTI_BURST = 3'b010;
+	localparam [2:0] CTI_EOB = 3'b111;
+	localparam [31:0] RST_VECTOR = 32'h00000000;
+	localparam [31:0] UND_VECTOR = 32'h00000004;
+	localparam [31:0] SWI_VECTOR = 32'h00000008;
+	localparam [31:0] PABT_VECTOR = 32'h0000000c;
+	localparam [31:0] DABT_VECTOR = 32'h00000010;
+	localparam [31:0] IRQ_VECTOR = 32'h00000018;
+	localparam [31:0] FIQ_VECTOR = 32'h0000001c;
+	localparam [1:0] SNT = 2'b00;
+	localparam [1:0] WNT = 2'b01;
+	localparam [1:0] WT = 2'b10;
+	localparam [1:0] ST = 2'b11;
+	localparam [31:0] ZAP_SRCDEST_EXTEND = 32'd32;
+	localparam [31:0] ZAP_DP_RB_EXTEND = 32'd32;
+	localparam [31:0] ZAP_BASE_EXTEND = 32'd33;
+	localparam [31:0] ZAP_DP_RD_EXTEND = 32'd33;
+	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
+	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
+	wire [(44 - $clog2(SECTION_TLB_ENTRIES)) - 1:0] setlb_wdata;
+	wire [(44 - $clog2(SECTION_TLB_ENTRIES)) - 1:0] setlb_rdata;
+	wire [(44 - $clog2(SECTION_TLB_ENTRIES)) - 1:0] setlb_rdata_pre;
+	wire [(48 - $clog2(LPAGE_TLB_ENTRIES)) - 1:0] lptlb_wdata;
+	wire [(48 - $clog2(LPAGE_TLB_ENTRIES)) - 1:0] lptlb_rdata;
+	wire [(48 - $clog2(LPAGE_TLB_ENTRIES)) - 1:0] lptlb_rdata_pre;
+	wire [(56 - $clog2(SPAGE_TLB_ENTRIES)) - 1:0] sptlb_wdata;
+	wire [(56 - $clog2(SPAGE_TLB_ENTRIES)) - 1:0] sptlb_rdata;
+	wire [(56 - $clog2(SPAGE_TLB_ENTRIES)) - 1:0] sptlb_rdata_pre;
+	wire [(54 - $clog2(FPAGE_TLB_ENTRIES)) - 1:0] fptlb_wdata;
+	wire [(54 - $clog2(FPAGE_TLB_ENTRIES)) - 1:0] fptlb_rdata;
+	wire [(54 - $clog2(FPAGE_TLB_ENTRIES)) - 1:0] fptlb_rdata_pre;
+	wire sptlb_wen;
+	wire lptlb_wen;
+	wire setlb_wen;
+	wire sptlb_ren;
+	wire lptlb_ren;
+	wire setlb_ren;
+	wire sptlb_ren_pre;
+	wire lptlb_ren_pre;
+	wire setlb_ren_pre;
+	wire fptlb_ren;
+	wire fptlb_ren_pre;
+	wire fptlb_wen;
+	wire walk;
+	wire [7:0] fsr;
+	wire [31:0] far;
+	wire cacheable;
+	wire wt;
+	wire [31:0] phy_addr;
+	wire [31:0] tlb_address;
+	wire u0;
+	wire u1;
+	wire u2;
+	wire u3;
+	wire u4;
+	wire u5;
+	wire unused;
+	function automatic [31:0] max;
+		input [31:0] a;
+		input [31:0] b;
+		input [31:0] c;
+		input [31:0] d;
+		if (((a >= b) && (a >= c)) && (a >= d))
+			max = a;
+		else if (((b >= a) && (b >= c)) && (b >= d))
+			max = b;
+		else if (((c >= a) && (c >= b)) && (c >= d))
+			max = c;
+		else
+			max = d;
+	endfunction
+	generate
+		if ((10 + $clog2(FPAGE_TLB_ENTRIES)) == 11) begin : l_two_fp
+			assign u0 = i_address_nxt[11];
+		end
+		else begin : l_more_than_two_fp
+			assign u0 = 1'd0;
+		end
+		if ((12 + $clog2(SPAGE_TLB_ENTRIES)) == 13) begin : l_two_sp
+			assign u1 = |i_address_nxt[15:13];
+		end
+		else if ((12 + $clog2(SPAGE_TLB_ENTRIES)) == 14) begin : l_four_sp
+			assign u1 = |i_address_nxt[15:14];
+		end
+		else if ((12 + $clog2(SPAGE_TLB_ENTRIES)) == 15) begin : l_eight_sp
+			assign u1 = i_address_nxt[15];
+		end
+		else begin : l_more_than_eight_sp
+			assign u1 = 1'd0;
+		end
+		if ((16 + $clog2(LPAGE_TLB_ENTRIES)) == 17) begin : l_two_lp
+			assign u2 = |i_address_nxt[19:17];
+		end
+		else if ((16 + $clog2(LPAGE_TLB_ENTRIES)) == 18) begin : l_four_lp
+			assign u2 = |i_address_nxt[19:18];
+		end
+		else if ((16 + $clog2(LPAGE_TLB_ENTRIES)) == 19) begin : l_eight_lp
+			assign u2 = i_address_nxt[19];
+		end
+		else begin : l_more_than_eight_lp
+			assign u2 = 1'd0;
+		end
+		if ((10 + $clog2(FPAGE_TLB_ENTRIES)) == 11) begin : l_two_fp_tlb
+			assign u3 = tlb_address[11];
+		end
+		else begin : l_more_than_two_fp_tlb
+			assign u3 = 1'd0;
+		end
+		if ((12 + $clog2(SPAGE_TLB_ENTRIES)) == 13) begin : l_two_sp_tlb
+			assign u4 = |tlb_address[15:13];
+		end
+		else if ((12 + $clog2(SPAGE_TLB_ENTRIES)) == 14) begin : l_four_sp_tlb
+			assign u4 = |tlb_address[15:14];
+		end
+		else if ((12 + $clog2(SPAGE_TLB_ENTRIES)) == 15) begin : l_eight_sp_tlb
+			assign u4 = tlb_address[15];
+		end
+		else begin : l_more_than_eight_sp_tlb
+			assign u4 = 1'd0;
+		end
+		if ((16 + $clog2(LPAGE_TLB_ENTRIES)) == 17) begin : l_two_lp_tlb
+			assign u5 = |tlb_address[19:17];
+		end
+		else if ((16 + $clog2(LPAGE_TLB_ENTRIES)) == 18) begin : l_four_lp_tlb
+			assign u5 = |tlb_address[19:18];
+		end
+		else if ((16 + $clog2(LPAGE_TLB_ENTRIES)) == 19) begin : l_eight_lp_tlb
+			assign u5 = tlb_address[19];
+		end
+		else begin : l_more_than_eight_lp_tlb
+			assign u5 = 1'd0;
+		end
+	endgenerate
+	localparam [31:0] W = max(20 + $clog2(SECTION_TLB_ENTRIES), 16 + $clog2(LPAGE_TLB_ENTRIES), 12 + $clog2(SPAGE_TLB_ENTRIES), 10 + $clog2(FPAGE_TLB_ENTRIES));
+	assign unused = |{i_address_nxt[9:0], tlb_address[9:0], i_address_nxt[31:W], tlb_address[31:W], u0, u1, u2, u3, u4, u5, setlb_rdata, sptlb_rdata, lptlb_rdata, fptlb_rdata, setlb_ren, sptlb_ren, lptlb_ren, fptlb_ren};
+	zap_mem_inv_block #(
+		.WIDTH(44 - $clog2(SECTION_TLB_ENTRIES)),
+		.DEPTH(SECTION_TLB_ENTRIES)
+	) u_section_tlb(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_clken(!i_hold),
+		.i_wdata(setlb_wdata),
+		.i_wen(setlb_wen),
+		.i_inv(i_inv | !i_mmu_en),
+		.i_raddr(i_address_nxt[(20 + $clog2(SECTION_TLB_ENTRIES)) - 1:20]),
+		.i_waddr(tlb_address[(20 + $clog2(SECTION_TLB_ENTRIES)) - 1:20]),
+		.o_rdata(setlb_rdata),
+		.o_rdav(setlb_ren),
+		.o_rdata_pre(setlb_rdata_pre),
+		.o_rdav_pre(setlb_ren_pre)
+	);
+	zap_mem_inv_block #(
+		.WIDTH(48 - $clog2(LPAGE_TLB_ENTRIES)),
+		.DEPTH(LPAGE_TLB_ENTRIES)
+	) u_lpage_tlb(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_clken(!i_hold),
+		.i_wdata(lptlb_wdata),
+		.i_wen(lptlb_wen),
+		.i_inv(i_inv | !i_mmu_en),
+		.i_raddr(i_address_nxt[(16 + $clog2(LPAGE_TLB_ENTRIES)) - 1:16]),
+		.i_waddr(tlb_address[(16 + $clog2(LPAGE_TLB_ENTRIES)) - 1:16]),
+		.o_rdata(lptlb_rdata),
+		.o_rdav(lptlb_ren),
+		.o_rdata_pre(lptlb_rdata_pre),
+		.o_rdav_pre(lptlb_ren_pre)
+	);
+	zap_mem_inv_block #(
+		.WIDTH(56 - $clog2(SPAGE_TLB_ENTRIES)),
+		.DEPTH(SPAGE_TLB_ENTRIES)
+	) u_spage_tlb(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_clken(!i_hold),
+		.i_wdata(sptlb_wdata),
+		.i_wen(sptlb_wen),
+		.i_inv(i_inv | !i_mmu_en),
+		.i_raddr(i_address_nxt[(12 + $clog2(SPAGE_TLB_ENTRIES)) - 1:12]),
+		.i_waddr(tlb_address[(12 + $clog2(SPAGE_TLB_ENTRIES)) - 1:12]),
+		.o_rdata(sptlb_rdata),
+		.o_rdav(sptlb_ren),
+		.o_rdata_pre(sptlb_rdata_pre),
+		.o_rdav_pre(sptlb_ren_pre)
+	);
+	zap_mem_inv_block #(
+		.WIDTH(54 - $clog2(FPAGE_TLB_ENTRIES)),
+		.DEPTH(FPAGE_TLB_ENTRIES)
+	) u_fpage_tlb(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_clken(!i_hold),
+		.i_wdata(fptlb_wdata),
+		.i_wen(fptlb_wen),
+		.i_inv(i_inv | !i_mmu_en),
+		.i_raddr(i_address_nxt[(10 + $clog2(FPAGE_TLB_ENTRIES)) - 1:10]),
+		.i_waddr(tlb_address[(10 + $clog2(FPAGE_TLB_ENTRIES)) - 1:10]),
+		.o_rdata(fptlb_rdata),
+		.o_rdav(fptlb_ren),
+		.o_rdata_pre(fptlb_rdata_pre),
+		.o_rdav_pre(fptlb_ren_pre)
+	);
+	zap_tlb_check #(
+		.LPAGE_TLB_ENTRIES(LPAGE_TLB_ENTRIES),
+		.SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
+		.SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
+		.FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES),
+		.CPSR_MODE(ZAP_CPSR_MODE),
+		.MMU_OFF_CACHEABLE(MMU_OFF_CACHEABLE)
+	) u_zap_tlb_check(
+		.i_clk(i_clk),
+		.i_clkena(!i_hold),
+		.i_mmu_en(i_mmu_en),
+		.i_va(i_address_check),
+		.i_rd(i_rd_check),
+		.i_wr(i_wr_check),
+		.i_cpsr(i_cpsr),
+		.i_sr(i_sr),
+		.i_dac_reg(i_dac_reg),
+		.i_sptlb_rdata(sptlb_rdata_pre),
+		.i_sptlb_rdav(sptlb_ren_pre),
+		.i_lptlb_rdata(lptlb_rdata_pre),
+		.i_lptlb_rdav(lptlb_ren_pre),
+		.i_setlb_rdata(setlb_rdata_pre),
+		.i_setlb_rdav(setlb_ren_pre),
+		.i_fptlb_rdata(fptlb_rdata_pre),
+		.i_fptlb_rdav(fptlb_ren_pre),
+		.o_walk(walk),
+		.o_fsr(fsr),
+		.o_far(far),
+		.o_cacheable(cacheable),
+		.o_wt(wt),
+		.o_phy_addr(phy_addr)
+	);
+	zap_tlb_fsm #(
+		.LPAGE_TLB_ENTRIES(LPAGE_TLB_ENTRIES),
+		.SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
+		.SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
+		.FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES)
+	) u_zap_tlb_fsm(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_mmu_en(i_mmu_en),
+		.i_baddr(i_baddr),
+		.i_address(i_address),
+		.i_walk(walk),
+		.i_fsr(fsr),
+		.i_far(far),
+		.i_cacheable(cacheable),
+		.i_phy_addr(phy_addr),
+		.i_idle(i_idle),
+		.o_fsr(o_fsr),
+		.o_far(o_far),
+		.o_fault(o_fault),
+		.o_phy_addr(o_phy_addr),
+		.o_cacheable(o_cacheable),
+		.o_busy(o_busy),
+		.o_setlb_wdata(setlb_wdata),
+		.o_setlb_wen(setlb_wen),
+		.o_sptlb_wdata(sptlb_wdata),
+		.o_sptlb_wen(sptlb_wen),
+		.o_lptlb_wdata(lptlb_wdata),
+		.o_lptlb_wen(lptlb_wen),
+		.o_fptlb_wdata(fptlb_wdata),
+		.o_fptlb_wen(fptlb_wen),
+		.o_address(tlb_address),
+		.o_wb_wen(o_wb_wen_nxt),
+		.o_wb_cyc(),
+		.o_wb_stb(),
+		.o_wb_sel(),
+		.o_wb_adr(),
+		.i_wb_dat(i_wb_dat),
+		.i_wb_ack(i_wb_ack),
+		.i_wb_err(i_wb_err),
+		.o_wb_sel_nxt(o_wb_sel_nxt),
+		.o_wb_cyc_nxt(o_wb_cyc_nxt),
+		.o_wb_stb_nxt(o_wb_stb_nxt),
+		.o_wb_adr_nxt(o_wb_adr_nxt)
+	);
+	assign o_wt = wt;
+endmodule
 module zap_tlb_check (
 	i_clk,
 	i_clkena,
@@ -19009,612 +19625,6 @@ module zap_tlb_fsm (
 			;
 	end
 	initial _sv2v_0 = 0;
-endmodule
-module zap_tlb (
-	i_clk,
-	i_reset,
-	i_address,
-	i_address_check,
-	i_wr_check,
-	i_rd_check,
-	i_address_nxt,
-	i_hold,
-	i_cpsr,
-	i_sr,
-	i_dac_reg,
-	i_baddr,
-	i_mmu_en,
-	i_inv,
-	o_phy_addr,
-	o_fsr,
-	o_far,
-	o_fault,
-	o_cacheable,
-	o_wt,
-	o_busy,
-	i_idle,
-	o_wb_stb_nxt,
-	o_wb_cyc_nxt,
-	o_wb_adr_nxt,
-	o_wb_wen_nxt,
-	o_wb_sel_nxt,
-	i_wb_dat,
-	o_wb_dat_nxt,
-	i_wb_ack,
-	i_wb_err
-);
-	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
-	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
-	parameter [31:0] SECTION_TLB_ENTRIES = 32'd8;
-	parameter [31:0] FPAGE_TLB_ENTRIES = 32'd8;
-	parameter [31:0] CPSR_MODE = 32'd4;
-	parameter [0:0] MMU_OFF_CACHEABLE = 1'd0;
-	input wire i_clk;
-	input wire i_reset;
-	input wire [31:0] i_address;
-	input wire [31:0] i_address_check;
-	input wire i_wr_check;
-	input wire i_rd_check;
-	input wire [31:0] i_address_nxt;
-	input wire i_hold;
-	input wire [CPSR_MODE:0] i_cpsr;
-	input wire [1:0] i_sr;
-	input wire [31:0] i_dac_reg;
-	input wire [31:0] i_baddr;
-	input wire i_mmu_en;
-	input wire i_inv;
-	output wire [31:0] o_phy_addr;
-	output wire [7:0] o_fsr;
-	output wire [31:0] o_far;
-	output wire o_fault;
-	output wire o_cacheable;
-	output wire o_wt;
-	output wire o_busy;
-	input wire i_idle;
-	output wire o_wb_stb_nxt;
-	output wire o_wb_cyc_nxt;
-	output wire [31:0] o_wb_adr_nxt;
-	output wire o_wb_wen_nxt;
-	output wire [3:0] o_wb_sel_nxt;
-	input wire [31:0] i_wb_dat;
-	output wire [31:0] o_wb_dat_nxt;
-	input wire i_wb_ack;
-	input wire i_wb_err;
-	assign o_wb_dat_nxt = 32'd0;
-	localparam [1:0] SECTION_ID = 2'b10;
-	localparam [1:0] PAGE_ID = 2'b01;
-	localparam [1:0] FINE_ID = 2'b11;
-	localparam [1:0] SPAGE_ID = 2'b10;
-	localparam [1:0] LPAGE_ID = 2'b01;
-	localparam [1:0] FPAGE_ID = 2'b11;
-	localparam [3:0] APSR_NA_NA = 4'b0000;
-	localparam [3:0] APSR_RO_RO = 4'b0001;
-	localparam [3:0] APSR_RO_NA = 4'b0010;
-	localparam [3:0] APSR_RW_NA = 4'b01zz;
-	localparam [3:0] APSR_RW_RO = 4'b10zz;
-	localparam [3:0] APSR_RW_RW = 4'b11zz;
-	localparam [1:0] DAC_MANAGER = 2'b11;
-	localparam [1:0] DAC_CLIENT = 2'b01;
-	localparam [3:0] FSR_SECTION_DOMAIN_FAULT = 4'b1001;
-	localparam [3:0] FSR_SECTION_TRANSLATION_FAULT = 4'b0101;
-	localparam [3:0] FSR_SECTION_PERMISSION_FAULT = 4'b1101;
-	localparam [3:0] FSR_L1_EXTERNAL_ABORT = 4'b1100;
-	localparam [3:0] FSR_PAGE_TRANSLATION_FAULT = 4'b0111;
-	localparam [3:0] FSR_PAGE_DOMAIN_FAULT = 4'b1011;
-	localparam [3:0] FSR_PAGE_PERMISSION_FAULT = 4'b1111;
-	localparam [3:0] FSR_L2_EXTERNAL_ABORT = 4'b1110;
-	parameter [3:0] TERMINAL_EXCEPTION = 4'b0010;
-	localparam [3:0] AND = 4'd0;
-	localparam [3:0] EOR = 4'd1;
-	localparam [3:0] SUB = 4'd2;
-	localparam [3:0] RSB = 4'd3;
-	localparam [3:0] ADD = 4'd4;
-	localparam [3:0] ADC = 4'd5;
-	localparam [3:0] SBC = 4'd6;
-	localparam [3:0] RSC = 4'd7;
-	localparam [3:0] TST = 4'd8;
-	localparam [3:0] TEQ = 4'd9;
-	localparam [3:0] CMP = 4'd10;
-	localparam [3:0] CMN = 4'd11;
-	localparam [3:0] ORR = 4'd12;
-	localparam [3:0] MOV = 4'd13;
-	localparam [3:0] BIC = 4'd14;
-	localparam [3:0] MVN = 4'd15;
-	localparam [4:0] MUL = 5'd16;
-	localparam [4:0] MLA = 5'd17;
-	localparam [4:0] FMOV = 5'd18;
-	localparam [4:0] MMOV = 5'd19;
-	localparam [4:0] UMLALL = 5'd20;
-	localparam [4:0] UMLALH = 5'd21;
-	localparam [4:0] SMLALL = 5'd22;
-	localparam [4:0] SMLALH = 5'd23;
-	localparam [4:0] CLZ = 5'd24;
-	localparam [4:0] OP_QADD = 5'd25;
-	localparam [4:0] OP_QSUB = 5'd26;
-	localparam [4:0] OP_QDADD = 5'd27;
-	localparam [4:0] OP_QDSUB = 5'd28;
-	localparam [5:0] SMULW0 = 6'd30;
-	localparam [5:0] SMULW1 = 6'd32;
-	localparam [5:0] SMUL00 = 6'd34;
-	localparam [5:0] SMUL01 = 6'd36;
-	localparam [5:0] SMUL10 = 6'd38;
-	localparam [5:0] SMUL11 = 6'd40;
-	localparam [5:0] SMLA00 = 6'd42;
-	localparam [5:0] SMLA01 = 6'd44;
-	localparam [5:0] SMLA10 = 6'd46;
-	localparam [5:0] SMLA11 = 6'd48;
-	localparam [5:0] SMLAW0 = 6'd50;
-	localparam [5:0] SMLAW1 = 6'd52;
-	localparam [5:0] SMLAL00L = 6'd54;
-	localparam [5:0] SMLAL00H = 6'd55;
-	localparam [5:0] SMLAL01L = 6'd56;
-	localparam [5:0] SMLAL01H = 6'd57;
-	localparam [5:0] SMLAL10L = 6'd58;
-	localparam [5:0] SMLAL10H = 6'd59;
-	localparam [5:0] SMLAL11L = 6'd60;
-	localparam [5:0] SMLAL11H = 6'd61;
-	localparam [5:0] FADD = 6'd62;
-	localparam [5:0] OP_SMULW0 = 6'd30;
-	localparam [5:0] OP_SMULW1 = 6'd32;
-	localparam [5:0] OP_SMUL00 = 6'd34;
-	localparam [5:0] OP_SMUL01 = 6'd36;
-	localparam [5:0] OP_SMUL10 = 6'd38;
-	localparam [5:0] OP_SMUL11 = 6'd40;
-	localparam [5:0] OP_SMLA00 = 6'd42;
-	localparam [5:0] OP_SMLA01 = 6'd44;
-	localparam [5:0] OP_SMLA10 = 6'd46;
-	localparam [5:0] OP_SMLA11 = 6'd48;
-	localparam [5:0] OP_SMLAW0 = 6'd50;
-	localparam [5:0] OP_SMLAW1 = 6'd52;
-	localparam [5:0] OP_SMLAL00L = 6'd54;
-	localparam [5:0] OP_SMLAL00H = 6'd55;
-	localparam [5:0] OP_SMLAL01L = 6'd56;
-	localparam [5:0] OP_SMLAL01H = 6'd57;
-	localparam [5:0] OP_SMLAL10L = 6'd58;
-	localparam [5:0] OP_SMLAL10H = 6'd59;
-	localparam [5:0] OP_SMLAL11L = 6'd60;
-	localparam [5:0] OP_SMLAL11H = 6'd61;
-	localparam [5:0] SAT_MOV = 6'd49;
-	localparam [3:0] EQ = 4'h0;
-	localparam [3:0] NE = 4'h1;
-	localparam [3:0] CS = 4'h2;
-	localparam [3:0] CC = 4'h3;
-	localparam [3:0] MI = 4'h4;
-	localparam [3:0] PL = 4'h5;
-	localparam [3:0] VS = 4'h6;
-	localparam [3:0] VC = 4'h7;
-	localparam [3:0] HI = 4'h8;
-	localparam [3:0] LS = 4'h9;
-	localparam [3:0] GE = 4'ha;
-	localparam [3:0] LT = 4'hb;
-	localparam [3:0] GT = 4'hc;
-	localparam [3:0] LE = 4'hd;
-	localparam [3:0] AL = 4'he;
-	localparam [3:0] NV = 4'hf;
-	localparam [31:0] N = 32'd31;
-	localparam [31:0] Z = 32'd30;
-	localparam [31:0] C = 32'd29;
-	localparam [31:0] V = 32'd28;
-	localparam [31:0] Q = 32'd27;
-	localparam [31:0] I = 32'd7;
-	localparam [31:0] F = 32'd6;
-	localparam [31:0] T = 32'd5;
-	localparam [31:0] ZAP_CPSR_MODE = 32'd4;
-	localparam [0:0] INDEX_EN = 1'd0;
-	localparam [0:0] IMMED_EN = 1'd1;
-	localparam [4:0] FIQ = 5'b10001;
-	localparam [4:0] IRQ = 5'b10010;
-	localparam [4:0] ABT = 5'b10111;
-	localparam [4:0] SVC = 5'b10011;
-	localparam [4:0] USR = 5'b10000;
-	localparam [4:0] SYS = 5'b11111;
-	localparam [4:0] UND = 5'b11011;
-	localparam [31:0] SMLAxy = 32'bzzzz00010000zzzzzzzzzzzz1zz0zzzz;
-	localparam [31:0] SMLAWy = 32'bzzzz00010010zzzzzzzzzzzz1z00zzzz;
-	localparam [31:0] SMLALxy = 32'bzzzz00010100zzzzzzzzzzzz1zz0zzzz;
-	localparam [31:0] SMULWy = 32'bzzzz00010010zzzz0000zzzz1z10zzzz;
-	localparam [31:0] SMULxy = 32'bzzzz00010110zzzz0000zzzz1zz0zzzz;
-	localparam [31:0] CLZ_INSTRUCTION = 32'bzzzz000101101111zzzz11110001zzzz;
-	localparam [31:0] QADD = 32'bzzzz00010000zzzzzzzz00000101zzzz;
-	localparam [31:0] QSUB = 32'bzzzz00010010zzzzzzzz00000101zzzz;
-	localparam [31:0] QDADD = 32'bzzzz00010100zzzzzzzz00000101zzzz;
-	localparam [31:0] QDSUB = 32'bzzzz00010110zzzzzzzz00000101zzzz;
-	localparam [31:0] PLD = 32'b111101z1z101zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] DATA_PROCESSING_IMMEDIATE = 32'bzzzz001zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzz0zz1zzzz;
-	localparam [31:0] DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzzzzz0zzzz;
-	localparam [31:0] BRANCH_INSTRUCTION = 32'bzzzz101zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] MRS = 32'bzzzz00010z001111zzzzzzzzzzzzzzzz;
-	localparam [31:0] MSR_IMMEDIATE = 32'bzzzz00110z10zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] MSR = 32'bzzzz00010z10zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] LS_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz011zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] LS_IMMEDIATE = 32'bzzzz010zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BX_INST = 32'bzzzz000100101111111111110001zzzz;
-	localparam [31:0] MULT_INST = 32'bzzzz000000zzzzzzzzzzzzzz1001zzzz;
-	localparam [31:0] LMULT_INST = 32'bzzzz00001zzzzzzzzzzzzzzz1001zzzz;
-	localparam [31:0] HALFWORD_LS = 32'bzzzz000zzzzzzzzzzzzzzzzz1zz1zzzz;
-	localparam [31:0] SOFTWARE_INTERRUPT = 32'bzzzz1111zzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] SWAP = 32'bzzzz00010z00zzzzzzzz00001001zzzz;
-	localparam [31:0] MCR = 32'bzzzz1110zzz0zzzzzzzz1111zzz1zzzz;
-	localparam [31:0] MCR2 = 32'b11111110zzz0zzzzzzzzzzzzzzz1zzzz;
-	localparam [31:0] MRC = 32'bzzzz1110zzz1zzzzzzzz1111zzz1zzzz;
-	localparam [31:0] MRC2 = 32'b11111110zzz1zzzzzzzzzzzzzzz1zzzz;
-	localparam [31:0] LDC = 32'bzzzz110zzzz1zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] STC = 32'bzzzz110zzzz0zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] LDC2 = 32'b1111110zzzz1zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] STC2 = 32'b1111110zzzz0zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] CDP = 32'bzzzz1110zzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BLX1 = 32'b1111101zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BLX2 = 32'bzzzz000100101111111111110011zzzz;
-	localparam [31:0] BKPT = 32'b111000010010zzzzzzzzzzzz0111zzzz;
-	localparam [15:0] T_BRANCH_COND = 16'b1101zzzzzzzzzzzz;
-	localparam [15:0] T_BRANCH_NOCOND = 16'b11100zzzzzzzzzzz;
-	localparam [15:0] T_BL = 16'b1111zzzzzzzzzzzz;
-	localparam [15:0] T_BLX1 = 16'b11101zzzzzzzzzzz;
-	localparam [15:0] T_BLX2 = 16'b010001111zzzz000;
-	localparam [15:0] T_BX = 16'b010001110zzzz000;
-	localparam [15:0] T_SWI = 16'b11011111zzzzzzzz;
-	localparam [15:0] T_SHIFT = 16'b000zzzzzzzzzzzzz;
-	localparam [15:0] T_ADD_SUB_LO = 16'b00011zzzzzzzzzzz;
-	localparam [15:0] T_MCAS_IMM = 16'b001zzzzzzzzzzzzz;
-	localparam [15:0] T_ALU_LO = 16'b010000zzzzzzzzzz;
-	localparam [15:0] T_ALU_HI = 16'b010001zzzzzzzzzz;
-	localparam [15:0] T_GET_ADDR = 16'b1010zzzzzzzzzzzz;
-	localparam [15:0] T_MOD_SP = 16'b10110000zzzzzzzz;
-	localparam [15:0] T_PC_REL_LOAD = 16'b01001zzzzzzzzzzz;
-	localparam [15:0] T_LDR_STR_5BIT_OFF = 16'b011zzzzzzzzzzzzz;
-	localparam [15:0] T_LDRH_STRH_5BIT_OFF = 16'b1000zzzzzzzzzzzz;
-	localparam [15:0] T_LDRH_STRH_REG = 16'b0101zzzzzzzzzzzz;
-	localparam [15:0] T_SP_REL_LDR_STR = 16'b1001zzzzzzzzzzzz;
-	localparam [15:0] T_LDMIA_STMIA = 16'b1100zzzzzzzzzzzz;
-	localparam [15:0] T_POP_PUSH = 16'b1011z10zzzzzzzzz;
-	localparam [15:0] T_BKPT = 16'b10111110zzzzzzzz;
-	localparam [31:0] TOTAL_ARCH_REGS = 28;
-	localparam [3:0] ARCH_SP = 13;
-	localparam [3:0] ARCH_LR = 14;
-	localparam [3:0] ARCH_PC = 15;
-	localparam [4:0] RAZ_REGISTER = 16;
-	localparam [4:0] ARCH_USR2_R8 = 18;
-	localparam [4:0] ARCH_USR2_R9 = 19;
-	localparam [4:0] ARCH_USR2_R10 = 20;
-	localparam [4:0] ARCH_USR2_R11 = 21;
-	localparam [4:0] ARCH_USR2_R12 = 22;
-	localparam [4:0] ARCH_USR2_R13 = 23;
-	localparam [4:0] ARCH_USR2_R14 = 24;
-	localparam [4:0] ARCH_DUMMY_REG0 = 25;
-	localparam [4:0] ARCH_DUMMY_REG1 = 26;
-	localparam [4:0] ARCH_CPSR = 17;
-	localparam [4:0] ARCH_CURR_SPSR = 27;
-	localparam [31:0] TOTAL_PHY_REGS = 40;
-	localparam [5:0] PHY_PC = 15;
-	localparam [5:0] PHY_RAZ_REGISTER = 16;
-	localparam [5:0] PHY_CPSR = 17;
-	localparam [5:0] PHY_USR_R0 = 0;
-	localparam [5:0] PHY_USR_R1 = 1;
-	localparam [5:0] PHY_USR_R2 = 2;
-	localparam [5:0] PHY_USR_R3 = 3;
-	localparam [5:0] PHY_USR_R4 = 4;
-	localparam [5:0] PHY_USR_R5 = 5;
-	localparam [5:0] PHY_USR_R6 = 6;
-	localparam [5:0] PHY_USR_R7 = 7;
-	localparam [5:0] PHY_USR_R8 = 8;
-	localparam [5:0] PHY_USR_R9 = 9;
-	localparam [5:0] PHY_USR_R10 = 10;
-	localparam [5:0] PHY_USR_R11 = 11;
-	localparam [5:0] PHY_USR_R12 = 12;
-	localparam [5:0] PHY_USR_R13 = 13;
-	localparam [5:0] PHY_USR_R14 = 14;
-	localparam [5:0] PHY_FIQ_R8 = 18;
-	localparam [5:0] PHY_FIQ_R9 = 19;
-	localparam [5:0] PHY_FIQ_R10 = 20;
-	localparam [5:0] PHY_FIQ_R11 = 21;
-	localparam [5:0] PHY_FIQ_R12 = 22;
-	localparam [5:0] PHY_FIQ_R13 = 23;
-	localparam [5:0] PHY_FIQ_R14 = 24;
-	localparam [5:0] PHY_IRQ_R13 = 25;
-	localparam [5:0] PHY_IRQ_R14 = 26;
-	localparam [5:0] PHY_SVC_R13 = 27;
-	localparam [5:0] PHY_SVC_R14 = 28;
-	localparam [5:0] PHY_UND_R13 = 29;
-	localparam [5:0] PHY_UND_R14 = 30;
-	localparam [5:0] PHY_ABT_R13 = 31;
-	localparam [5:0] PHY_ABT_R14 = 32;
-	localparam [5:0] PHY_DUMMY_REG0 = 33;
-	localparam [5:0] PHY_DUMMY_REG1 = 34;
-	localparam [5:0] PHY_FIQ_SPSR = 35;
-	localparam [5:0] PHY_IRQ_SPSR = 36;
-	localparam [5:0] PHY_SVC_SPSR = 37;
-	localparam [5:0] PHY_UND_SPSR = 38;
-	localparam [5:0] PHY_ABT_SPSR = 39;
-	localparam [1:0] LSL = 0;
-	localparam [1:0] LSR = 1;
-	localparam [1:0] ASR = 2;
-	localparam [1:0] ROR = 3;
-	localparam [2:0] RRC = 4;
-	localparam [2:0] RORI = 5;
-	localparam [2:0] ROR_1 = 6;
-	localparam [2:0] LSL_SAT = 7;
-	localparam [2:0] CTI_BURST = 3'b010;
-	localparam [2:0] CTI_EOB = 3'b111;
-	localparam [31:0] RST_VECTOR = 32'h00000000;
-	localparam [31:0] UND_VECTOR = 32'h00000004;
-	localparam [31:0] SWI_VECTOR = 32'h00000008;
-	localparam [31:0] PABT_VECTOR = 32'h0000000c;
-	localparam [31:0] DABT_VECTOR = 32'h00000010;
-	localparam [31:0] IRQ_VECTOR = 32'h00000018;
-	localparam [31:0] FIQ_VECTOR = 32'h0000001c;
-	localparam [1:0] SNT = 2'b00;
-	localparam [1:0] WNT = 2'b01;
-	localparam [1:0] WT = 2'b10;
-	localparam [1:0] ST = 2'b11;
-	localparam [31:0] ZAP_SRCDEST_EXTEND = 32'd32;
-	localparam [31:0] ZAP_DP_RB_EXTEND = 32'd32;
-	localparam [31:0] ZAP_BASE_EXTEND = 32'd33;
-	localparam [31:0] ZAP_DP_RD_EXTEND = 32'd33;
-	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
-	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
-	wire [(44 - $clog2(SECTION_TLB_ENTRIES)) - 1:0] setlb_wdata;
-	wire [(44 - $clog2(SECTION_TLB_ENTRIES)) - 1:0] setlb_rdata;
-	wire [(44 - $clog2(SECTION_TLB_ENTRIES)) - 1:0] setlb_rdata_pre;
-	wire [(48 - $clog2(LPAGE_TLB_ENTRIES)) - 1:0] lptlb_wdata;
-	wire [(48 - $clog2(LPAGE_TLB_ENTRIES)) - 1:0] lptlb_rdata;
-	wire [(48 - $clog2(LPAGE_TLB_ENTRIES)) - 1:0] lptlb_rdata_pre;
-	wire [(56 - $clog2(SPAGE_TLB_ENTRIES)) - 1:0] sptlb_wdata;
-	wire [(56 - $clog2(SPAGE_TLB_ENTRIES)) - 1:0] sptlb_rdata;
-	wire [(56 - $clog2(SPAGE_TLB_ENTRIES)) - 1:0] sptlb_rdata_pre;
-	wire [(54 - $clog2(FPAGE_TLB_ENTRIES)) - 1:0] fptlb_wdata;
-	wire [(54 - $clog2(FPAGE_TLB_ENTRIES)) - 1:0] fptlb_rdata;
-	wire [(54 - $clog2(FPAGE_TLB_ENTRIES)) - 1:0] fptlb_rdata_pre;
-	wire sptlb_wen;
-	wire lptlb_wen;
-	wire setlb_wen;
-	wire sptlb_ren;
-	wire lptlb_ren;
-	wire setlb_ren;
-	wire sptlb_ren_pre;
-	wire lptlb_ren_pre;
-	wire setlb_ren_pre;
-	wire fptlb_ren;
-	wire fptlb_ren_pre;
-	wire fptlb_wen;
-	wire walk;
-	wire [7:0] fsr;
-	wire [31:0] far;
-	wire cacheable;
-	wire wt;
-	wire [31:0] phy_addr;
-	wire [31:0] tlb_address;
-	wire u0;
-	wire u1;
-	wire u2;
-	wire u3;
-	wire u4;
-	wire u5;
-	wire unused;
-	function automatic [31:0] max;
-		input [31:0] a;
-		input [31:0] b;
-		input [31:0] c;
-		input [31:0] d;
-		if (((a >= b) && (a >= c)) && (a >= d))
-			max = a;
-		else if (((b >= a) && (b >= c)) && (b >= d))
-			max = b;
-		else if (((c >= a) && (c >= b)) && (c >= d))
-			max = c;
-		else
-			max = d;
-	endfunction
-	generate
-		if ((10 + $clog2(FPAGE_TLB_ENTRIES)) == 11) begin : l_two_fp
-			assign u0 = i_address_nxt[11];
-		end
-		else begin : l_more_than_two_fp
-			assign u0 = 1'd0;
-		end
-		if ((12 + $clog2(SPAGE_TLB_ENTRIES)) == 13) begin : l_two_sp
-			assign u1 = |i_address_nxt[15:13];
-		end
-		else if ((12 + $clog2(SPAGE_TLB_ENTRIES)) == 14) begin : l_four_sp
-			assign u1 = |i_address_nxt[15:14];
-		end
-		else if ((12 + $clog2(SPAGE_TLB_ENTRIES)) == 15) begin : l_eight_sp
-			assign u1 = i_address_nxt[15];
-		end
-		else begin : l_more_than_eight_sp
-			assign u1 = 1'd0;
-		end
-		if ((16 + $clog2(LPAGE_TLB_ENTRIES)) == 17) begin : l_two_lp
-			assign u2 = |i_address_nxt[19:17];
-		end
-		else if ((16 + $clog2(LPAGE_TLB_ENTRIES)) == 18) begin : l_four_lp
-			assign u2 = |i_address_nxt[19:18];
-		end
-		else if ((16 + $clog2(LPAGE_TLB_ENTRIES)) == 19) begin : l_eight_lp
-			assign u2 = i_address_nxt[19];
-		end
-		else begin : l_more_than_eight_lp
-			assign u2 = 1'd0;
-		end
-		if ((10 + $clog2(FPAGE_TLB_ENTRIES)) == 11) begin : l_two_fp_tlb
-			assign u3 = tlb_address[11];
-		end
-		else begin : l_more_than_two_fp_tlb
-			assign u3 = 1'd0;
-		end
-		if ((12 + $clog2(SPAGE_TLB_ENTRIES)) == 13) begin : l_two_sp_tlb
-			assign u4 = |tlb_address[15:13];
-		end
-		else if ((12 + $clog2(SPAGE_TLB_ENTRIES)) == 14) begin : l_four_sp_tlb
-			assign u4 = |tlb_address[15:14];
-		end
-		else if ((12 + $clog2(SPAGE_TLB_ENTRIES)) == 15) begin : l_eight_sp_tlb
-			assign u4 = tlb_address[15];
-		end
-		else begin : l_more_than_eight_sp_tlb
-			assign u4 = 1'd0;
-		end
-		if ((16 + $clog2(LPAGE_TLB_ENTRIES)) == 17) begin : l_two_lp_tlb
-			assign u5 = |tlb_address[19:17];
-		end
-		else if ((16 + $clog2(LPAGE_TLB_ENTRIES)) == 18) begin : l_four_lp_tlb
-			assign u5 = |tlb_address[19:18];
-		end
-		else if ((16 + $clog2(LPAGE_TLB_ENTRIES)) == 19) begin : l_eight_lp_tlb
-			assign u5 = tlb_address[19];
-		end
-		else begin : l_more_than_eight_lp_tlb
-			assign u5 = 1'd0;
-		end
-	endgenerate
-	localparam [31:0] W = max(20 + $clog2(SECTION_TLB_ENTRIES), 16 + $clog2(LPAGE_TLB_ENTRIES), 12 + $clog2(SPAGE_TLB_ENTRIES), 10 + $clog2(FPAGE_TLB_ENTRIES));
-	assign unused = |{i_address_nxt[9:0], tlb_address[9:0], i_address_nxt[31:W], tlb_address[31:W], u0, u1, u2, u3, u4, u5, setlb_rdata, sptlb_rdata, lptlb_rdata, fptlb_rdata, setlb_ren, sptlb_ren, lptlb_ren, fptlb_ren};
-	zap_mem_inv_block #(
-		.WIDTH(44 - $clog2(SECTION_TLB_ENTRIES)),
-		.DEPTH(SECTION_TLB_ENTRIES)
-	) u_section_tlb(
-		.i_clk(i_clk),
-		.i_reset(i_reset),
-		.i_clken(!i_hold),
-		.i_wdata(setlb_wdata),
-		.i_wen(setlb_wen),
-		.i_inv(i_inv | !i_mmu_en),
-		.i_raddr(i_address_nxt[(20 + $clog2(SECTION_TLB_ENTRIES)) - 1:20]),
-		.i_waddr(tlb_address[(20 + $clog2(SECTION_TLB_ENTRIES)) - 1:20]),
-		.o_rdata(setlb_rdata),
-		.o_rdav(setlb_ren),
-		.o_rdata_pre(setlb_rdata_pre),
-		.o_rdav_pre(setlb_ren_pre)
-	);
-	zap_mem_inv_block #(
-		.WIDTH(48 - $clog2(LPAGE_TLB_ENTRIES)),
-		.DEPTH(LPAGE_TLB_ENTRIES)
-	) u_lpage_tlb(
-		.i_clk(i_clk),
-		.i_reset(i_reset),
-		.i_clken(!i_hold),
-		.i_wdata(lptlb_wdata),
-		.i_wen(lptlb_wen),
-		.i_inv(i_inv | !i_mmu_en),
-		.i_raddr(i_address_nxt[(16 + $clog2(LPAGE_TLB_ENTRIES)) - 1:16]),
-		.i_waddr(tlb_address[(16 + $clog2(LPAGE_TLB_ENTRIES)) - 1:16]),
-		.o_rdata(lptlb_rdata),
-		.o_rdav(lptlb_ren),
-		.o_rdata_pre(lptlb_rdata_pre),
-		.o_rdav_pre(lptlb_ren_pre)
-	);
-	zap_mem_inv_block #(
-		.WIDTH(56 - $clog2(SPAGE_TLB_ENTRIES)),
-		.DEPTH(SPAGE_TLB_ENTRIES)
-	) u_spage_tlb(
-		.i_clk(i_clk),
-		.i_reset(i_reset),
-		.i_clken(!i_hold),
-		.i_wdata(sptlb_wdata),
-		.i_wen(sptlb_wen),
-		.i_inv(i_inv | !i_mmu_en),
-		.i_raddr(i_address_nxt[(12 + $clog2(SPAGE_TLB_ENTRIES)) - 1:12]),
-		.i_waddr(tlb_address[(12 + $clog2(SPAGE_TLB_ENTRIES)) - 1:12]),
-		.o_rdata(sptlb_rdata),
-		.o_rdav(sptlb_ren),
-		.o_rdata_pre(sptlb_rdata_pre),
-		.o_rdav_pre(sptlb_ren_pre)
-	);
-	zap_mem_inv_block #(
-		.WIDTH(54 - $clog2(FPAGE_TLB_ENTRIES)),
-		.DEPTH(FPAGE_TLB_ENTRIES)
-	) u_fpage_tlb(
-		.i_clk(i_clk),
-		.i_reset(i_reset),
-		.i_clken(!i_hold),
-		.i_wdata(fptlb_wdata),
-		.i_wen(fptlb_wen),
-		.i_inv(i_inv | !i_mmu_en),
-		.i_raddr(i_address_nxt[(10 + $clog2(FPAGE_TLB_ENTRIES)) - 1:10]),
-		.i_waddr(tlb_address[(10 + $clog2(FPAGE_TLB_ENTRIES)) - 1:10]),
-		.o_rdata(fptlb_rdata),
-		.o_rdav(fptlb_ren),
-		.o_rdata_pre(fptlb_rdata_pre),
-		.o_rdav_pre(fptlb_ren_pre)
-	);
-	zap_tlb_check #(
-		.LPAGE_TLB_ENTRIES(LPAGE_TLB_ENTRIES),
-		.SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
-		.SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
-		.FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES),
-		.CPSR_MODE(ZAP_CPSR_MODE),
-		.MMU_OFF_CACHEABLE(MMU_OFF_CACHEABLE)
-	) u_zap_tlb_check(
-		.i_clk(i_clk),
-		.i_clkena(!i_hold),
-		.i_mmu_en(i_mmu_en),
-		.i_va(i_address_check),
-		.i_rd(i_rd_check),
-		.i_wr(i_wr_check),
-		.i_cpsr(i_cpsr),
-		.i_sr(i_sr),
-		.i_dac_reg(i_dac_reg),
-		.i_sptlb_rdata(sptlb_rdata_pre),
-		.i_sptlb_rdav(sptlb_ren_pre),
-		.i_lptlb_rdata(lptlb_rdata_pre),
-		.i_lptlb_rdav(lptlb_ren_pre),
-		.i_setlb_rdata(setlb_rdata_pre),
-		.i_setlb_rdav(setlb_ren_pre),
-		.i_fptlb_rdata(fptlb_rdata_pre),
-		.i_fptlb_rdav(fptlb_ren_pre),
-		.o_walk(walk),
-		.o_fsr(fsr),
-		.o_far(far),
-		.o_cacheable(cacheable),
-		.o_wt(wt),
-		.o_phy_addr(phy_addr)
-	);
-	zap_tlb_fsm #(
-		.LPAGE_TLB_ENTRIES(LPAGE_TLB_ENTRIES),
-		.SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
-		.SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
-		.FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES)
-	) u_zap_tlb_fsm(
-		.i_clk(i_clk),
-		.i_reset(i_reset),
-		.i_mmu_en(i_mmu_en),
-		.i_baddr(i_baddr),
-		.i_address(i_address),
-		.i_walk(walk),
-		.i_fsr(fsr),
-		.i_far(far),
-		.i_cacheable(cacheable),
-		.i_phy_addr(phy_addr),
-		.i_idle(i_idle),
-		.o_fsr(o_fsr),
-		.o_far(o_far),
-		.o_fault(o_fault),
-		.o_phy_addr(o_phy_addr),
-		.o_cacheable(o_cacheable),
-		.o_busy(o_busy),
-		.o_setlb_wdata(setlb_wdata),
-		.o_setlb_wen(setlb_wen),
-		.o_sptlb_wdata(sptlb_wdata),
-		.o_sptlb_wen(sptlb_wen),
-		.o_lptlb_wdata(lptlb_wdata),
-		.o_lptlb_wen(lptlb_wen),
-		.o_fptlb_wdata(fptlb_wdata),
-		.o_fptlb_wen(fptlb_wen),
-		.o_address(tlb_address),
-		.o_wb_wen(o_wb_wen_nxt),
-		.o_wb_cyc(),
-		.o_wb_stb(),
-		.o_wb_sel(),
-		.o_wb_adr(),
-		.i_wb_dat(i_wb_dat),
-		.i_wb_ack(i_wb_ack),
-		.i_wb_err(i_wb_err),
-		.o_wb_sel_nxt(o_wb_sel_nxt),
-		.o_wb_cyc_nxt(o_wb_cyc_nxt),
-		.o_wb_stb_nxt(o_wb_stb_nxt),
-		.o_wb_adr_nxt(o_wb_adr_nxt)
-	);
-	assign o_wt = wt;
 endmodule
 module zap_top (
 	o_dbg_pc,

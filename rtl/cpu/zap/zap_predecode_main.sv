@@ -80,7 +80,9 @@ module zap_predecode_main #(
         output logic                              o_instruction_valid_ff,
 
         // Stall of PC and fetch.
-        output  logic                             o_stall_from_decode,
+        // ARM925T: this is the registered skid selector. Retiming it into
+        // the input mux joins the sequencer hold and predecode data paths.
+        (* dont_retime *) output logic             o_stall_from_decode,
 
         // Switch.
         output  logic                             o_switch_ff,
@@ -298,17 +300,6 @@ begin
                         if ( mem_fetch_stall || cp_stall )
                         begin
                                 o_stall_from_decode <= 1'd1;
-                                skid                <= {i_pred,
-                                                        i_taken,
-                                                        i_force32,
-                                                        i_und,
-                                                        i_irq,
-                                                        i_fiq,
-                                                        i_abt,
-                                                        i_pc_ff,
-                                                        i_pc_plus_8_ff,
-                                                        i_instruction,
-                                                        i_instruction_valid};
                         end
                 end
 
@@ -327,6 +318,22 @@ begin
                 begin
                         o_stall_from_decode <= 1'd0;
                 end
+        end
+end
+
+// ARM925T: capture the unused skid slot speculatively, as issue does.
+// Its contents become visible only when o_stall_from_decode rises, and
+// that edge still captures the same input instruction. While selected,
+// the slot holds. This removes the shifter/issue stall and sequencer
+// decision from the enable of all 140 skid bits without delaying a stall
+// or changing which instruction is consumed on any cycle.
+always_ff @ ( posedge i_clk )
+begin
+        if ( !o_stall_from_decode )
+        begin
+                skid <= {i_pred, i_taken, i_force32, i_und, i_irq, i_fiq,
+                         i_abt, i_pc_ff, i_pc_plus_8_ff,
+                         i_instruction, i_instruction_valid};
         end
 end
 
