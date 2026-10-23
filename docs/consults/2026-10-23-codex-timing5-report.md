@@ -176,7 +176,7 @@ family minimum, rather than omitted. The fits use 35,963 / 35,823 ALMs and
 477 RAM blocks. New worst paths are decode condition into predecode CP15
 capture (seed 1) and self-test selection into UPP bus decode (seed 2).
 The TLB+issue combination passes all 225 unchanged counts, 57 comparisons,
-both lint modes and generated checks. Its combined timing is still pending.
+both lint modes and generated checks. Its combined timing is reported below.
 
 The three-input arbiter is dropped: the worst over arbiter control and
 merger address improves by 0.228 ns at seed 1 but regresses by 0.600 ns at
@@ -192,16 +192,17 @@ every port match their remote build inputs (149 files, with only Quartus
 version metadata differing in the QSF). Baseline timing constraints and
 project/QIP files also match at all three seeds.
 
-The retained TLB+issue tree is now submitted for the three-seed combined
+The retained TLB+issue tree has completed its first three-seed combined
 measurement. No candidate is retained on simulation results alone.
 
 ## First combined tree
 
 The first retained combination is `35aa83e` (TLB summary + per-slot issue,
-plus the six-port disposition report). Seeds 1 / 2 are **−0.680 / −0.732 ns**,
-using **34,872 / 35,032 ALMs**, with 477 RAM blocks. Both source manifests
-match the remote builds. Seed 3 is still running; these first two results
-already imply a median below the −0.300 ns goal.
+plus the six-port disposition report). Seeds 1 / 2 / 3 are **−0.680 / −0.732 / −1.350 ns**,
+using **34,872 / 35,032 / 34,960 ALMs**, with 477 RAM blocks. All three
+source manifests match the remote builds. The median is **−0.732 ns**, a
+0.420 ns improvement over the original median, but below the −0.300 ns
+goal. No timing closure is claimed.
 
 Seed 1's worst path is issue `o_load_pending_ff[1]` through the barrel shifter
 into `o_shifted_source_value_ff[16]` (−0.680 ns); the next paths are saved
@@ -210,6 +211,19 @@ owned card model (−0.600 ns). Seed 2's worst path is predecode instruction
 bit 4 into decode's LSL-zero summary (−0.732 ns). The TLB RAM into the new
 fault-summary register is next at −0.653 ns. The shifter-output family is
 −0.535 ns in seed 2.
+
+Seed 3 is led by I-cache tag forwarding into the fetch FIFO empty flag
+(−1.350 ns), followed by the D-cache lock into CP15 command capture
+(−1.304 ns), UPP acknowledge into merger address (−1.187 ns), and the
+barrel shifter (−1.038 ns). Its card model is −0.602 ns, close to seeds
+1 / 2 at −0.600 / −0.584 ns. The card owner's fix has since merged into
+master; it will be integrated for the next combined tree, without changing
+the baseline of the currently running paired CPU comparisons.
+
+Supplementary queries include both sides of the new TLB summary. The
+checker-input family is +0.511 / −0.653 / −0.644 ns; the normal issue
+forwarding captures are −0.650 / −0.565 / −0.865 ns. These remain separate
+from the issue interlock family improved by the retained port.
 
 The combined issue acceptance family is −0.195 / −0.372 ns, still better
 than both original seeds. The D-TLB summary's outgoing family is +0.705 /
@@ -245,8 +259,9 @@ for arbitrary defined inputs and state wherever the early result is
 selected. A separate induction check of the actual predecode and its child
 modules proves the saved classification/marker relationships and equivalence
 to the original classifier on every valid emitted instruction after reset.
-Main/debug lint and generated checks pass. The target family is all paths
-into `o_v5_und_ff`; paired fits are still pending.
+Main/debug lint and generated checks pass. The target family includes all paths
+into `o_v5_und_ff` and the new saved classification/marker registers; paired
+fits are still pending.
 
 **ALU flag enable:** extract the flags register from the broad pipeline
 output priority block. Its dedicated enable includes the original data
