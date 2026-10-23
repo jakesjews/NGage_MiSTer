@@ -4079,3 +4079,41 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the suite's compiled proxies 35 % under ZAP as the acceptance, the
   shared ZAP caches through the CORE switch), beside the D-cache
   changes and the loader.
+- **The in-core firmware loader merged** (Codex, codex/firstboot
+  431e21e..08ceb7e, merged a83342a; docs/consults/2026-10-23-codex-
+  phoenix-report.md): rtl/mister/phoenix_load.sv parses the Phoenix
+  files as the framework streams them (the A2 header's token section,
+  records 14, 21, 20, 25, 26, 2E with their checksums), fills CS0 and
+  the CS1 firmware half with FF first, writes the records to DDR3
+  through ddram_flash's loader port with ioctl_wait as the back
+  pressure, verifies the 4.60 signatures, and applies the patches from
+  a generated ROM (tools/gen_patchrom.py -> rtl/mister/phoenix_patch.hex,
+  10 M10K) with the two digests; "Firmware 4.60 loaded" / "Firmware not
+  recognised: needs RH-29 4.60" / "Firmware file damaged" through the
+  info list; F1 = RH2946.0C1, F2 = RH2946.0S5, the flat images moved to
+  F3/F4 for development; C: is a 4 MB save (releases/ngage-c-drive.bin
+  blank, 8 MB saves still accepted with their lower half ignored); the
+  CPU waits for both files and the save. Verified: the real files
+  reconstruct both images byte for byte through the loader harness
+  (make -C sim phoenix-real; 62 M clocks, 30 % random DDR back
+  pressure), the synthetic bench (both file orders, damage, the version
+  check, C: isolation), the save and ddrflash benches, the top bench,
+  both lints. README rewritten for the no-PC setup (boot1.rom,
+  boot2.rom, boot1.vhd). Built as b24 (the debug core): -0.958 ns,
+  37,789 ALMs (90 %), 487 M10K; the loader costs about 700 ALMs and
+  the patch ROM's 10 M10K. On the debug slot for the board test (the
+  Phoenix files and a blank C: under launcher names; the boot names
+  wait until the main slot runs a loader core too).
+- **ARM9 v2, session 1** (Codex, codex/arm9v2; docs/ARM9V2.md,
+  docs/consults/2026-10-23-codex-arm9v2-s1.md): master merged into the
+  paused branch (the short-read cache adapted to hit-under-miss, the
+  BTB's earlier decision realigned; CORE=ZAP's cycles unchanged), the
+  eight-stage design specified with the 47 M/s acceptance gates, and
+  the front end built and tested standalone against the real I-cache:
+  F1/F2, a 256-entry predictor (60-bit entries in two M10Ks, same-edge
+  coherent, deciding in F1's own cycle so a trained loop loses no slot),
+  an eight-entry return stack with checkpoint and repair, an
+  eight-entry raw queue; a HOLD_READ option added to zap_ram_simple_nopipe.
+  Its fit alone: -0.574 / -0.856 / -0.895 ns at seeds 2-4, about 1,090
+  ALMs. D1 through W are not implemented. Session 2 started: the front
+  end's paths first, then the decode pair.
