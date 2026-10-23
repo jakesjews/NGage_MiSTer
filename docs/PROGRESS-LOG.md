@@ -3814,3 +3814,13 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   length into the issue stage's load pending (-1.37) and the issue
   stall_late_ff family (-1.30). The card model's arithmetic wants
   registering (a small task for its author when the quota returns).
+- **The card path's effect on the loads** (the same run-loads.sh on b19,
+  the tree without it): launch to the first full-rate frames, Tony Hawk
+  8.0 -> 8.1 s (the card was idle 93-98 % of its launch), Shadowkey
+  37.0 -> 33.2 s (-10 %; during it 22.3 -> 20.2 M instructions/s at
+  CPI 4.7 -> 5.2: the same work with less time spent waiting on the
+  card). So the wire at 26 MHz and the 4 KB fetches are worth a tenth of
+  the long loads, and the rest is the CPU: the file server's and the
+  driver's per-block work from flash (CPI 5-6 with the flash at 6-7 %)
+  and the game's unpacking. The load-time lever from here is the same
+  as the play-speed lever.
