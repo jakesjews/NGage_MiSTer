@@ -729,8 +729,16 @@ begin:next_state_logic_and_output_logic
                                 o_instruction = {5'd0, i_instruction};
                                 o_instruction_valid = i_instruction_valid;
                         end
+                        else if (!i_cpsr_t && i_instruction[27:24] == 4'b1011 &&
+                                 i_instruction[31:28] != NV && i_instruction_valid)
+                        begin
+                                // ARM925T: ARM BL writes LR with its branch,
+                                // using a separate registered PC-relative target.
+                                // Bit 38 is internal metadata (bit 39 is clear).
+                                o_instruction[38] = 1'b1;
+                        end
                         else if ( i_instruction[27:25] == 3'b101 &&
-                                  i_instruction[24] && i_instruction_valid ) // BL.
+                                  i_instruction[24] && i_instruction_valid ) // Thumb BL.
                         begin
                                 // Move to new state. In that state, we will
                                 // generate a plain branch.

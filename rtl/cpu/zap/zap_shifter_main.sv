@@ -51,7 +51,9 @@ module zap_shifter_main
         output logic   [1:0]                       o_taken_ff,
 
         // Predicted PC
+        input logic [32:0] i_link_branch_ff,
         input logic     [31:0]                     i_ppc_ff,
+        (* dont_retime *) output logic [32:0] o_link_branch_ff,
         output logic    [31:0]                     o_ppc_ff,
 
         // Stall and clear. Hi to low priority.
@@ -337,6 +339,7 @@ begin
                 o_switch_ff                       <= 'x; //
                 o_force32align_ff                 <= 'x; //
                 o_taken_ff                        <= 'x; //
+                o_link_branch_ff <= 33'b0;
                 o_ppc_ff                          <= 'x; //
                 o_pc_ff                           <= 'x; //
                 o_nozero_ff                       <= 'x; //
@@ -373,6 +376,7 @@ begin
                 o_switch_ff                       <= 'x; //
                 o_force32align_ff                 <= 'x; //
                 o_taken_ff                        <= 'x; //
+                o_link_branch_ff <= 33'b0;
                 o_ppc_ff                          <= 'x; //
                 o_pc_ff                           <= 'x; //
                 o_nozero_ff                       <= 'x; //
@@ -450,6 +454,7 @@ begin
            o_force32align_ff                 <= i_force32align_ff;
            o_taken_ff                        <= i_taken_ff;
            o_ppc_ff                          <= i_ppc_ff;
+           o_link_branch_ff <= {i_link_branch_ff[32] && !o_stall_from_shifter, i_link_branch_ff[31:0]};
            o_pc_ff                           <= i_pc_ff;
            o_nozero_ff                       <= nozero_nxt;
 

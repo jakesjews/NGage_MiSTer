@@ -178,6 +178,32 @@ passes **204 runs and 54 QEMU comparisons**; lint and gen check pass.
 | gba_thumb | 4928 -> 4933 | 6529 -> 6522 | 10877 -> 10882 |
 | ldm | 4236 -> 4203 | 5707 -> 5658 | 9574 -> 9577 |
 
+## Item 3b: ARM BL in one slot
+
+ARM BL becomes SUB LR, PC, #4 for the ordinary ALU/writeback path, with a
+separate target prepared from registered PC/instruction at decode and carried
+through issue (including its skid) and shifter. ALU branch resolution uses
+that target; its ordinary result and physical destination remain the link
+write. This adds no term to issue's operand-forwarding function. Conditional
+failure suppresses the link write as usual. Bank translation selects the
+current mode's LR. Misprediction flushes younger instructions while the
+branch's own link write drains normally. Holds/flushes keep the sideband
+aligned with its instruction. Thumb BL/prefix/suffix and their interrupt
+semantics retain the original sequencer.
+
+`blslot.S` checks adjacent-target BL, failed conditions, the callee's first
+instruction reading LR, both operands reading LR, and banked LR. The new
+binary and reference pass all latencies and QEMU. Full verification is
+**207 runs, 55 QEMU agreements**, lint and generated-netlist check passing.
+
+| Test | 0:0 item 3a -> 3b | 0:3 item 3a -> 3b | 2:9 item 3a -> 3b |
+| --- | ---: | ---: | ---: |
+| cache | 789435 -> 789419 | 917317 -> 917315 | 1251118 -> 1251118 |
+| ctrand1 | 73105 -> 73097 | 102913 -> 102911 | 179659 -> 179659 |
+| crand1 | 73977 -> 73969 | 105416 -> 105414 | 187935 -> 187935 |
+| gba_arm | 8314 -> 8302 | 10937 -> 10938 | 17761 -> 17761 |
+| gba_thumb | 4933 -> 4929 | 6522 -> 6522 | 10882 -> 10882 |
+
 ## Remaining work
 
-Whole-core timing and the remaining candidates are in progress.
+Final whole-core timing and remaining candidate disposition are pending.

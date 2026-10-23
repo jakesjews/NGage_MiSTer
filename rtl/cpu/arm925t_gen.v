@@ -227,6 +227,7 @@ module zap_alu_main (
 	i_cpsr_nxt,
 	i_switch_ff,
 	i_taken_ff,
+	i_link_branch_ff,
 	i_ppc_ff,
 	i_pc_ff,
 	i_nozero_ff,
@@ -319,6 +320,7 @@ module zap_alu_main (
 	input wire [31:0] i_cpsr_nxt;
 	input wire i_switch_ff;
 	input wire [1:0] i_taken_ff;
+	input wire [32:0] i_link_branch_ff;
 	input wire [31:0] i_ppc_ff;
 	input wire [31:0] i_pc_ff;
 	input wire i_nozero_ff;
@@ -1089,7 +1091,7 @@ module zap_alu_main (
 			o_und_ff <= i_und_ff && o_dav_nxt;
 			o_clear_from_alu <= |w_clear_from_alu;
 			r_clear_from_alu <= w_clear_from_alu;
-			w_pc_from_alu_btarget <= tmp_sum;
+			w_pc_from_alu_btarget <= (i_link_branch_ff[32] ? i_link_branch_ff[31:0] : tmp_sum);
 			w_pc_from_alu_resync <= i_pc_ff + (flags_ff[T] ? 32'd2 : 32'd4);
 			o_confirm_from_alu <= w_confirm_from_alu;
 			o_decompile <= i_decompile;
@@ -1306,7 +1308,7 @@ module zap_alu_main (
 		else if ((((i_destination_index_ff == {2'd0, ARCH_PC}) && (i_condition_code_ff != NV)) && !i_reset) && i_flag_update_ff)
 			;
 	end
-	assign branch_instruction = (i_destination_index_ff == {2'd0, ARCH_PC}) && (i_condition_code_ff != NV);
+	assign branch_instruction = (i_link_branch_ff[32] || (i_destination_index_ff == {2'd0, ARCH_PC})) && (i_condition_code_ff != NV);
 	always @(*) begin : flags_bp_feedback
 		if (_sv2v_0)
 			;
@@ -1321,7 +1323,7 @@ module zap_alu_main (
 			flags_nxt[7:0] = (flags_ff[ZAP_CPSR_MODE:0] == USR ? flags_ff[7:0] : flags_nxt[7:0]);
 		end
 		else if (branch_instruction) begin : branch_block
-			o_destination_index_nxt = PHY_RAZ_REGISTER;
+			o_destination_index_nxt = (i_link_branch_ff[32] ? i_destination_index_ff : PHY_RAZ_REGISTER);
 			if (i_flag_update_ff && o_dav_nxt) begin
 				w_clear_from_alu = 2'd1;
 				if ((flags_ff[ZAP_CPSR_MODE:0] == USR) || (flags_ff[ZAP_CPSR_MODE:0] == SYS))
@@ -1336,7 +1338,7 @@ module zap_alu_main (
 				end
 				else if ((i_taken_ff == SNT) || (i_taken_ff == WNT))
 					w_clear_from_alu = 2'd1;
-				else if ((opcode == 6'h04 ? i_ppc_ff == quick_sum : (opcode == 6'h0d ? i_ppc_ff == rm : 1'd0)))
+				else if ((i_link_branch_ff[32] ? i_ppc_ff == i_link_branch_ff[31:0] : (opcode == 6'h04 ? i_ppc_ff == quick_sum : (opcode == 6'h0d ? i_ppc_ff == rm : 1'd0))))
 					w_clear_from_alu = 2'd0;
 				else
 					w_clear_from_alu = 2'd1;
@@ -4970,6 +4972,9 @@ module zap_core (
 	wire [32:0] decode_shift_source_ff;
 	wire [2:0] decode_shift_operation_ff;
 	wire [32:0] decode_shift_length_ff;
+	wire [32:0] decode_link_branch;
+	wire [32:0] issue_link_branch;
+	wire [32:0] shifter_link_branch;
 	wire decode_shift_is_lsl0_ff;
 	wire decode_flag_update_ff;
 	wire [5:0] decode_mem_srcdest_index_ff;
@@ -5428,6 +5433,7 @@ module zap_core (
 		.i_instruction_valid(predecode_val),
 		.i_taken(predecode_taken),
 		.i_ppc_ff(predecode_ppc_ff),
+		.o_link_branch_ff(decode_link_branch),
 		.i_force32align(predecode_force32),
 		.o_condition_code_ff(decode_condition_code),
 		.o_destination_index_ff(decode_destination_index),
@@ -5464,6 +5470,8 @@ module zap_core (
 		.SHIFT_OPS(SHIFT_OPS),
 		.ALU_OPS(ALU_OPS)
 	) u_zap_issue_main(
+		.i_link_branch_ff(decode_link_branch),
+		.o_link_branch_ff(issue_link_branch),
 		.i_uop_last(decode_uop_last),
 		.o_uop_last(issue_uop_last),
 		.i_decompile(decode_decompile),
@@ -5594,6 +5602,8 @@ module zap_core (
 		.ALU_OPS(ALU_OPS),
 		.SHIFT_OPS(SHIFT_OPS)
 	) u_zap_shifter_main(
+		.i_link_branch_ff(issue_link_branch),
+		.o_link_branch_ff(shifter_link_branch),
 		.i_load_pending_ff(issue_load_pending_ff),
 		.i_shift_length_index_ff(issue_shift_length_index_ff),
 		.i_shift_source_pending_ff(issue_shift_source_pending_ff),
@@ -5692,6 +5702,7 @@ module zap_core (
 		.CPSR_INIT(CPSR_INIT),
 		.V4T(V4T)
 	) u_zap_alu_main(
+		.i_link_branch_ff(shifter_link_branch),
 		.i_load_pending_ff(shifter_load_pending_ff),
 		.i_load_index_ff(shifter_load_index_ff),
 		.i_memory_load_valid(memory_load_valid),
@@ -10004,6 +10015,7 @@ module zap_decode_main (
 	i_cpsr_ff_mode,
 	i_instruction,
 	i_instruction_valid,
+	o_link_branch_ff,
 	o_ppc_ff,
 	o_condition_code_ff,
 	o_destination_index_ff,
@@ -10064,6 +10076,7 @@ module zap_decode_main (
 	input wire [CPSR_MODE:0] i_cpsr_ff_mode;
 	input wire [39:0] i_instruction;
 	input wire i_instruction_valid;
+	(* dont_retime *) output reg [32:0] o_link_branch_ff;
 	output reg [31:0] o_ppc_ff;
 	output reg [3:0] o_condition_code_ff;
 	output reg [$clog2(PHY_REGS) - 1:0] o_destination_index_ff;
@@ -10542,6 +10555,8 @@ module zap_decode_main (
 	wire [32:0] shift_source_nxt;
 	wire [32:0] shift_length_nxt;
 	wire [$clog2(ARCH_REGS) - 1:0] mem_srcdest_index_nxt;
+	wire arm_bl = !i_instruction[39] && i_instruction[38];
+	wire [35:0] decode_word = (arm_bl ? {4'b0000, i_instruction[31:28], 28'h24fe004} : {i_instruction[35] && !i_instruction[39], i_instruction[34:0]});
 	assign o_abt_nxt = i_abt && i_instruction_valid;
 	assign o_irq_nxt = (!i_fiq && i_irq) && !o_abt_nxt;
 	assign o_fiq_nxt = i_fiq && !o_abt_nxt;
@@ -10577,6 +10592,7 @@ module zap_decode_main (
 			o_force32align_ff <= 1'sbx;
 			o_decompile <= 1'sbx;
 			o_ppc_ff <= 1'sbx;
+			o_link_branch_ff <= 33'b000000000000000000000000000000000;
 			o_irq_ff <= 0;
 			o_fiq_ff <= 0;
 			o_swi_ff <= 0;
@@ -10618,6 +10634,7 @@ module zap_decode_main (
 			o_force32align_ff <= 1'sbx;
 			o_decompile <= 1'sbx;
 			o_ppc_ff <= 1'sbx;
+			o_link_branch_ff <= 33'b000000000000000000000000000000000;
 		end
 		else if ((!i_data_stall && !i_stall_from_issue) && !i_stall_from_shifter) begin
 			o_irq_ff <= o_irq_nxt;
@@ -10649,6 +10666,7 @@ module zap_decode_main (
 			o_force32align_ff <= i_force32align;
 			o_taken_ff <= i_taken;
 			o_ppc_ff <= i_ppc_ff;
+			o_link_branch_ff <= {(arm_bl && i_instruction_valid) && !i_v5_und, i_pc_plus_8_ff + {{6 {i_instruction[23]}}, i_instruction[23:0], 2'b00}};
 			o_decompile <= decompile_tmp;
 			o_uop_last <= i_uop_last;
 		end
@@ -10661,7 +10679,7 @@ module zap_decode_main (
 		.i_irq(i_irq),
 		.i_fiq(i_fiq),
 		.i_abt(i_abt),
-		.i_instruction({i_instruction[35] && !i_instruction[39], i_instruction[34:0]}),
+		.i_instruction(decode_word),
 		.i_instruction_valid(i_instruction_valid),
 		.i_v5_und(i_v5_und),
 		.o_condition_code(o_condition_code_nxt),
@@ -10685,7 +10703,7 @@ module zap_decode_main (
 		.o_switch(o_switch_nxt)
 	);
 	zap_decompile u_zap_decompile(
-		.i_instruction({i_instruction[35] && !i_instruction[39], i_instruction[34:0]}),
+		.i_instruction(decode_word),
 		.i_dav(i_instruction_valid),
 		.o_decompile(decompile_tmp)
 	);
@@ -11406,6 +11424,7 @@ module zap_issue_main (
 	i_pc_ff,
 	i_switch_ff,
 	i_taken_ff,
+	i_link_branch_ff,
 	i_ppc_ff,
 	i_decompile,
 	i_condition_code_ff,
@@ -11509,6 +11528,7 @@ module zap_issue_main (
 	o_decompile,
 	o_pc_ff,
 	o_taken_ff,
+	o_link_branch_ff,
 	o_ppc_ff,
 	o_force32align_ff,
 	o_und_ff
@@ -11530,6 +11550,7 @@ module zap_issue_main (
 	input wire [31:0] i_pc_ff;
 	input wire i_switch_ff;
 	input wire [1:0] i_taken_ff;
+	input wire [32:0] i_link_branch_ff;
 	input wire [31:0] i_ppc_ff;
 	input wire [511:0] i_decompile;
 	input wire [3:0] i_condition_code_ff;
@@ -11633,6 +11654,7 @@ module zap_issue_main (
 	output reg [511:0] o_decompile;
 	output reg [31:0] o_pc_ff;
 	output reg [1:0] o_taken_ff;
+	(* dont_retime *) output reg [32:0] o_link_branch_ff;
 	output reg [31:0] o_ppc_ff;
 	output reg o_force32align_ff;
 	output reg o_und_ff;
@@ -11928,6 +11950,8 @@ module zap_issue_main (
 	(* dont_retime *) reg skid_lsl0_ff;
 	reg [2:0] skid_late_immediate_ff;
 	reg skid_late_store_ff;
+	reg [32:0] skid_link_branch;
+	wire [32:0] selected_link_branch = (stall_late_ff ? skid_link_branch : i_link_branch_ff);
 	(* keep *) wire [4:0] live_locked;
 	(* keep *) wire [4:0] skid_locked;
 	wire [4:0] slot_locked = (stall_late_ff ? skid_locked : live_locked);
@@ -12003,6 +12027,7 @@ module zap_issue_main (
 			o_pc_ff <= 1'sbx;
 			o_decompile <= 1'sbx;
 			o_ppc_ff <= 1'sbx;
+			o_link_branch_ff <= 33'b000000000000000000000000000000000;
 		end
 		else if (clear) begin
 			o_load_pending_ff <= 0;
@@ -12038,6 +12063,7 @@ module zap_issue_main (
 			o_pc_ff <= 1'sbx;
 			o_decompile <= 1'sbx;
 			o_ppc_ff <= 1'sbx;
+			o_link_branch_ff <= 33'b000000000000000000000000000000000;
 		end
 		else if (~stall) begin
 			o_load_pending_ff <= (lock || (skid_condition_code_ff == NV) ? 4'b0000 : late_pending);
@@ -12069,6 +12095,7 @@ module zap_issue_main (
 			o_und_ff <= skid_und_ff;
 			o_taken_ff <= skid_taken_ff;
 			o_ppc_ff <= skid_ppc_ff;
+			o_link_branch_ff <= {selected_link_branch[32] && !lock, selected_link_branch[31:0]};
 			o_pc_ff <= skid_pc_ff;
 			o_decompile <= skid_decompile;
 			o_uop_last <= skid_uop_last;
@@ -12136,6 +12163,7 @@ module zap_issue_main (
 			skid_lsl0_ff <= i_shift_is_lsl0_ff;
 			skid_late_immediate_ff <= {i_shift_length_ff[32], i_shift_source_ff[32], i_alu_source_ff[32]};
 			skid_late_store_ff <= i_mem_store_ff;
+			skid_link_branch <= i_link_branch_ff;
 			skid <= {i_pc_plus_8_ff, i_pc_ff, i_switch_ff, i_taken_ff, i_decompile, i_uop_last, i_condition_code_ff, i_destination_index_ff, i_alu_source_ff, i_alu_operation_ff, i_shift_source_ff, i_shift_operation_ff, i_shift_length_ff, i_flag_update_ff, i_mem_srcdest_index_ff, i_mem_load_ff, i_mem_store_ff, i_mem_pre_index_ff, i_mem_unsigned_byte_enable_ff, i_mem_signed_byte_enable_ff, i_mem_signed_halfword_enable_ff, i_mem_unsigned_halfword_enable_ff, i_mem_translate_ff, i_irq_ff, i_fiq_ff, i_abt_ff, i_swi_ff, i_force32align_ff, i_und_ff, i_ppc_ff};
 		end
 	function automatic [32:0] get_forward_value;
@@ -15762,7 +15790,7 @@ module zap_predecode_uop_sequencer (
 			default: pri_enc = 4'h0;
 		endcase
 	endfunction
-	always @(s_bit or cc or i_l4_enable or base or cc or base_in_list or load or i_instruction[{2'd0, ARCH_PC}] or reglist_ff or base_in_list or load or i_instruction[15] or base or writeback or base or base or i_instruction or load or up or writeback or reglist_nxt or reglist_ff or o_instruction[27:26] or reglist_ff or reglist_ff or i_instruction[31:0] or load or base_in_list or base or load or s_bit or load or s_bit or store or oc_offset or base or base or cc or base or cc or up or writeback or up or reglist_ff or reglist_ff or i_instruction[15:12] or cc or i_instruction[3:0] or i_instruction[19:16] or i_instruction[22] or cc or i_instruction_valid or i_instruction or i_instruction_valid or i_instruction or i_instruction[2:0] or blp_mag[3:0] or blp_neg or i_fiq or i_irq or i_instruction_valid or i_instruction or state_ff or i_fiq or i_irq or i_instruction[20] or i_instruction[15:12] or i_instruction[4] or i_instruction[25] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction[31:28] or i_instruction[31:28] or i_cpsr_t or i_instruction_valid or i_instruction[24] or i_instruction[27:25] or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[20] or i_instruction[22:21] or i_instruction[27:23] or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[7:4] or i_instruction[27:23] or i_instruction[19:16] or i_instruction[22] or cc or i_fiq or i_irq or i_instruction_valid or i_instruction[31:0] or i_fiq or i_irq or reglist or oc_offset or base or cc or base or cc or up or i_instruction_valid or id or i_fiq or i_irq or i_cpsr_t or i_instruction[31:28] or i_instruction_valid or i_instruction[27:4] or i_fiq or i_irq or i_cpsr_t or i_instruction_valid or i_instruction[31:25] or i_fiq or i_irq or i_instruction[19:12] or i_instruction[6:5] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[3:0] or i_instruction[11:8] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[22] or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[12] or i_instruction[6:5] or i_instruction[6:5] or i_instruction[20] or i_instruction[27:25] or i_fiq or i_irq or i_instruction or cc or cp15_done or i_cp_stall or cp15_done or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction[10:3] or t_bl_alone or i_fiq or i_irq or blp_mag[10:4] or blp_neg or t_bl_prefix or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:28] or i_cpsr_t or state_ff or state_ff or state_ff or state_ff or i_instruction[6:5] or i_instruction[15:12] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[15:12] or i_instruction[31:28] or i_instruction[6:5] or i_instruction[19:16] or o_instruction[11:0] or i_instruction[22] or i_instruction[21] or i_instruction[19:16] or i_instruction[24:23] or i_instruction[15:12] or i_instruction[31:28] or i_instruction or i_cpsr_t or const_nxt[31:24] or const_nxt[23:16] or const_nxt[15:8] or const_nxt[7:0] or i_instruction[24] or i_instruction[23:0] or i_instruction[23] or cc or state_ff or reglist_ff or i_instruction_valid or i_instruction or state_ff or const_ff or _sv2v_0) begin : next_state_logic_and_output_logic
+	always @(s_bit or cc or i_l4_enable or base or cc or base_in_list or load or i_instruction[{2'd0, ARCH_PC}] or reglist_ff or base_in_list or load or i_instruction[15] or base or writeback or base or base or i_instruction or load or up or writeback or reglist_nxt or reglist_ff or o_instruction[27:26] or reglist_ff or reglist_ff or i_instruction[31:0] or load or base_in_list or base or load or s_bit or load or s_bit or store or oc_offset or base or base or cc or base or cc or up or writeback or up or reglist_ff or reglist_ff or i_instruction[15:12] or cc or i_instruction[3:0] or i_instruction[19:16] or i_instruction[22] or cc or i_instruction_valid or i_instruction or i_instruction_valid or i_instruction or i_instruction[2:0] or blp_mag[3:0] or blp_neg or i_fiq or i_irq or i_instruction_valid or i_instruction or state_ff or i_fiq or i_irq or i_instruction[20] or i_instruction[15:12] or i_instruction[4] or i_instruction[25] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction[31:28] or i_instruction[31:28] or i_cpsr_t or i_instruction_valid or i_instruction[24] or i_instruction[27:25] or i_instruction_valid or i_instruction[31:28] or i_instruction[27:24] or i_cpsr_t or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[20] or i_instruction[22:21] or i_instruction[27:23] or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[7:4] or i_instruction[27:23] or i_instruction[19:16] or i_instruction[22] or cc or i_fiq or i_irq or i_instruction_valid or i_instruction[31:0] or i_fiq or i_irq or reglist or oc_offset or base or cc or base or cc or up or i_instruction_valid or id or i_fiq or i_irq or i_cpsr_t or i_instruction[31:28] or i_instruction_valid or i_instruction[27:4] or i_fiq or i_irq or i_cpsr_t or i_instruction_valid or i_instruction[31:25] or i_fiq or i_irq or i_instruction[19:12] or i_instruction[6:5] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[3:0] or i_instruction[11:8] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[22] or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[12] or i_instruction[6:5] or i_instruction[6:5] or i_instruction[20] or i_instruction[27:25] or i_fiq or i_irq or i_instruction or cc or cp15_done or i_cp_stall or cp15_done or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction[10:3] or t_bl_alone or i_fiq or i_irq or blp_mag[10:4] or blp_neg or t_bl_prefix or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:28] or i_cpsr_t or state_ff or state_ff or state_ff or state_ff or i_instruction[6:5] or i_instruction[15:12] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[15:12] or i_instruction[31:28] or i_instruction[6:5] or i_instruction[19:16] or o_instruction[11:0] or i_instruction[22] or i_instruction[21] or i_instruction[19:16] or i_instruction[24:23] or i_instruction[15:12] or i_instruction[31:28] or i_instruction or i_cpsr_t or const_nxt[31:24] or const_nxt[23:16] or const_nxt[15:8] or const_nxt[7:0] or i_instruction[24] or i_instruction[23:0] or i_instruction[23] or cc or state_ff or reglist_ff or i_instruction_valid or i_instruction or state_ff or const_ff or _sv2v_0) begin : next_state_logic_and_output_logic
 		if (_sv2v_0)
 			;
 		const_nxt = const_ff;
@@ -16018,6 +16046,8 @@ module zap_predecode_uop_sequencer (
 					o_instruction = {5'd0, i_instruction};
 					o_instruction_valid = i_instruction_valid;
 				end
+				else if (((!i_cpsr_t && (i_instruction[27:24] == 4'b1011)) && (i_instruction[31:28] != NV)) && i_instruction_valid)
+					o_instruction[38] = 1'b1;
 				else if (((i_instruction[27:25] == 3'b101) && i_instruction[24]) && i_instruction_valid) begin
 					state_nxt = 26'd64;
 					o_stall_from_decode = 1'd1;
@@ -16423,7 +16453,9 @@ module zap_shifter_main (
 	o_pc_ff,
 	i_taken_ff,
 	o_taken_ff,
+	i_link_branch_ff,
 	i_ppc_ff,
+	o_link_branch_ff,
 	o_ppc_ff,
 	i_clear_from_writeback,
 	i_data_stall,
@@ -16519,7 +16551,9 @@ module zap_shifter_main (
 	output reg [31:0] o_pc_ff;
 	input wire [1:0] i_taken_ff;
 	output reg [1:0] o_taken_ff;
+	input wire [32:0] i_link_branch_ff;
 	input wire [31:0] i_ppc_ff;
+	(* dont_retime *) output reg [32:0] o_link_branch_ff;
 	output reg [31:0] o_ppc_ff;
 	input wire i_clear_from_writeback;
 	input wire i_data_stall;
@@ -16982,6 +17016,7 @@ module zap_shifter_main (
 			o_switch_ff <= 1'sbx;
 			o_force32align_ff <= 1'sbx;
 			o_taken_ff <= 1'sbx;
+			o_link_branch_ff <= 33'b000000000000000000000000000000000;
 			o_ppc_ff <= 1'sbx;
 			o_pc_ff <= 1'sbx;
 			o_nozero_ff <= 1'sbx;
@@ -17016,6 +17051,7 @@ module zap_shifter_main (
 			o_switch_ff <= 1'sbx;
 			o_force32align_ff <= 1'sbx;
 			o_taken_ff <= 1'sbx;
+			o_link_branch_ff <= 33'b000000000000000000000000000000000;
 			o_ppc_ff <= 1'sbx;
 			o_pc_ff <= 1'sbx;
 			o_nozero_ff <= 1'sbx;
@@ -17058,6 +17094,7 @@ module zap_shifter_main (
 			o_force32align_ff <= i_force32align_ff;
 			o_taken_ff <= i_taken_ff;
 			o_ppc_ff <= i_ppc_ff;
+			o_link_branch_ff <= {i_link_branch_ff[32] && !o_stall_from_shifter, i_link_branch_ff[31:0]};
 			o_pc_ff <= i_pc_ff;
 			o_nozero_ff <= nozero_nxt;
 			o_decompile <= i_decompile;

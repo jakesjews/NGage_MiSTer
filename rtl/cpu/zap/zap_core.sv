@@ -310,6 +310,7 @@ logic [$clog2(ALU_OPS)-1:0]      decode_alu_operation_ff;
 logic [32:0]                     decode_shift_source_ff;
 logic [$clog2(SHIFT_OPS)-1:0]    decode_shift_operation_ff;
 logic [32:0]                     decode_shift_length_ff;
+logic [32:0] decode_link_branch, issue_link_branch, shifter_link_branch;
 logic                            decode_shift_is_lsl0_ff;
 logic                            decode_flag_update_ff;
 logic [$clog2(PHY_REGS)-1:0]     decode_mem_srcdest_index_ff;
@@ -937,6 +938,7 @@ u_zap_decode_main (
         .i_instruction_valid            (predecode_val),
         .i_taken                        (predecode_taken),
         .i_ppc_ff                       (predecode_ppc_ff),
+        .o_link_branch_ff               (decode_link_branch),
         .i_force32align                 (predecode_force32),
 
         // Output.
@@ -982,6 +984,8 @@ zap_issue_main #(
 )
 u_zap_issue_main
 (
+        .i_link_branch_ff(decode_link_branch),
+        .o_link_branch_ff(issue_link_branch),
         .i_uop_last(decode_uop_last),
         .o_uop_last(issue_uop_last),
 
@@ -1135,6 +1139,8 @@ zap_shifter_main #(
 )
 u_zap_shifter_main
 (
+        .i_link_branch_ff(issue_link_branch),
+        .o_link_branch_ff(shifter_link_branch),
         .i_load_pending_ff              (issue_load_pending_ff),
         .i_shift_length_index_ff        (issue_shift_length_index_ff),
         .i_shift_source_pending_ff      (issue_shift_source_pending_ff),
@@ -1265,6 +1271,7 @@ zap_alu_main #(
 )
 u_zap_alu_main
 (
+        .i_link_branch_ff(shifter_link_branch),
          .i_load_pending_ff              (shifter_load_pending_ff),
          .i_load_index_ff                (shifter_load_index_ff),
          .i_memory_load_valid            (memory_load_valid),
