@@ -225,8 +225,16 @@ logic [$clog2(ARCH_REGS)-1:0]    mem_srcdest_index_nxt;
 // ARM925T: BL's normal ALU operation is SUB LR, PC, #4. The branch
 // target is prepared independently at decode, never in operand forwarding.
 wire arm_bl = !i_instruction[39] && i_instruction[38];
-wire [35:0] decode_word = arm_bl ? {4'b0, i_instruction[31:28], 28'h24fe004} :
-        {i_instruction[35] && !i_instruction[39], i_instruction[34:0]};
+//
+// ARM925T: the word is decoded both as it is and as the BL's SUB (a
+// constant but for the condition), and arm_bl chooses between the two
+// finished decodes: the same outputs as decoding the selected word, but
+// arm_bl no longer widens the first level of every decode path (timing).
+// decode_word (the selected word) remains for the decompiler.
+//
+wire [35:0] normal_word = {i_instruction[35] && !i_instruction[39], i_instruction[34:0]};
+wire [35:0] bl_word     = {4'b0, i_instruction[31:28], 28'h24fe004};
+wire [35:0] decode_word = arm_bl ? bl_word : normal_word;
 
 // Abort
 assign       o_abt_nxt = i_abt && i_instruction_valid;
@@ -408,6 +416,27 @@ end
 
 // ----------------------------------------------------------------------------
 
+// ARM925T: the two decodes (see decode_word).
+logic [3:0]                        o_condition_code_nxt_n, o_condition_code_nxt_b;
+logic [$clog2(ARCH_REGS)-1:0]      destination_index_nxt_n, destination_index_nxt_b;
+logic [32:0]                       alu_source_nxt_n, alu_source_nxt_b;
+logic [$clog2(ALU_OPS)-1:0]        o_alu_operation_nxt_n, o_alu_operation_nxt_b;
+logic [32:0]                       shift_source_nxt_n, shift_source_nxt_b;
+logic [$clog2(SHIFT_OPS)-1:0]      o_shift_operation_nxt_n, o_shift_operation_nxt_b;
+logic [32:0]                       shift_length_nxt_n, shift_length_nxt_b;
+logic                              o_flag_update_nxt_n, o_flag_update_nxt_b;
+logic [$clog2(ARCH_REGS)-1:0]      mem_srcdest_index_nxt_n, mem_srcdest_index_nxt_b;
+logic                              o_mem_load_nxt_n, o_mem_load_nxt_b;
+logic                              o_mem_store_nxt_n, o_mem_store_nxt_b;
+logic                              o_mem_pre_index_nxt_n, o_mem_pre_index_nxt_b;
+logic                              o_mem_unsigned_byte_enable_nxt_n, o_mem_unsigned_byte_enable_nxt_b;
+logic                              o_mem_signed_byte_enable_nxt_n, o_mem_signed_byte_enable_nxt_b;
+logic                              o_mem_signed_halfword_enable_nxt_n, o_mem_signed_halfword_enable_nxt_b;
+logic                              o_mem_unsigned_halfword_enable_nxt_n, o_mem_unsigned_halfword_enable_nxt_b;
+logic                              o_mem_translate_nxt_n, o_mem_translate_nxt_b;
+logic                              o_und_nxt_n, o_und_nxt_b;
+logic                              o_switch_nxt_n, o_switch_nxt_b;
+
 // Bulk of the decode logic is here.
 zap_decode #(
         .ARCH_REGS      (ARCH_REGS),
@@ -419,29 +448,86 @@ u_zap_decode (
         .i_irq(i_irq),
         .i_fiq(i_fiq),
         .i_abt(i_abt),
-        .i_instruction(decode_word),
+        .i_instruction(normal_word),
         .i_instruction_valid(i_instruction_valid),
         .i_v5_und(i_v5_und),
-        .o_condition_code(o_condition_code_nxt),
-        .o_destination_index(destination_index_nxt),
-        .o_alu_source(alu_source_nxt),
-        .o_alu_operation(o_alu_operation_nxt),
-        .o_shift_source(shift_source_nxt),
-        .o_shift_operation(o_shift_operation_nxt),
-        .o_shift_length(shift_length_nxt),
-        .o_flag_update(o_flag_update_nxt),
-        .o_mem_srcdest_index(mem_srcdest_index_nxt),
-        .o_mem_load(o_mem_load_nxt),
-        .o_mem_store(o_mem_store_nxt),
-        .o_mem_pre_index(o_mem_pre_index_nxt),
-        .o_mem_unsigned_byte_enable(o_mem_unsigned_byte_enable_nxt),
-        .o_mem_signed_byte_enable(o_mem_signed_byte_enable_nxt),
-        .o_mem_signed_halfword_enable(o_mem_signed_halfword_enable_nxt),
-        .o_mem_unsigned_halfword_enable(o_mem_unsigned_halfword_enable_nxt),
-        .o_mem_translate(o_mem_translate_nxt),
-        .o_und(o_und_nxt),
-        .o_switch(o_switch_nxt)
+        .o_condition_code(o_condition_code_nxt_n),
+        .o_destination_index(destination_index_nxt_n),
+        .o_alu_source(alu_source_nxt_n),
+        .o_alu_operation(o_alu_operation_nxt_n),
+        .o_shift_source(shift_source_nxt_n),
+        .o_shift_operation(o_shift_operation_nxt_n),
+        .o_shift_length(shift_length_nxt_n),
+        .o_flag_update(o_flag_update_nxt_n),
+        .o_mem_srcdest_index(mem_srcdest_index_nxt_n),
+        .o_mem_load(o_mem_load_nxt_n),
+        .o_mem_store(o_mem_store_nxt_n),
+        .o_mem_pre_index(o_mem_pre_index_nxt_n),
+        .o_mem_unsigned_byte_enable(o_mem_unsigned_byte_enable_nxt_n),
+        .o_mem_signed_byte_enable(o_mem_signed_byte_enable_nxt_n),
+        .o_mem_signed_halfword_enable(o_mem_signed_halfword_enable_nxt_n),
+        .o_mem_unsigned_halfword_enable(o_mem_unsigned_halfword_enable_nxt_n),
+        .o_mem_translate(o_mem_translate_nxt_n),
+        .o_und(o_und_nxt_n),
+        .o_switch(o_switch_nxt_n)
 );
+
+// ARM925T: the BL's SUB LR, PC, #4 (constant but for the condition).
+zap_decode #(
+        .ARCH_REGS      (ARCH_REGS),
+        .ALU_OPS        (ALU_OPS),
+        .SHIFT_OPS      (SHIFT_OPS),
+        .V4T            (V4T)
+)
+u_zap_decode_bl (
+        .i_irq(i_irq),
+        .i_fiq(i_fiq),
+        .i_abt(i_abt),
+        .i_instruction(bl_word),
+        .i_instruction_valid(i_instruction_valid),
+        .i_v5_und(i_v5_und),
+        .o_condition_code(o_condition_code_nxt_b),
+        .o_destination_index(destination_index_nxt_b),
+        .o_alu_source(alu_source_nxt_b),
+        .o_alu_operation(o_alu_operation_nxt_b),
+        .o_shift_source(shift_source_nxt_b),
+        .o_shift_operation(o_shift_operation_nxt_b),
+        .o_shift_length(shift_length_nxt_b),
+        .o_flag_update(o_flag_update_nxt_b),
+        .o_mem_srcdest_index(mem_srcdest_index_nxt_b),
+        .o_mem_load(o_mem_load_nxt_b),
+        .o_mem_store(o_mem_store_nxt_b),
+        .o_mem_pre_index(o_mem_pre_index_nxt_b),
+        .o_mem_unsigned_byte_enable(o_mem_unsigned_byte_enable_nxt_b),
+        .o_mem_signed_byte_enable(o_mem_signed_byte_enable_nxt_b),
+        .o_mem_signed_halfword_enable(o_mem_signed_halfword_enable_nxt_b),
+        .o_mem_unsigned_halfword_enable(o_mem_unsigned_halfword_enable_nxt_b),
+        .o_mem_translate(o_mem_translate_nxt_b),
+        .o_und(o_und_nxt_b),
+        .o_switch(o_switch_nxt_b)
+);
+
+// ARM925T: the BL's decode or the word's.
+assign o_condition_code_nxt = arm_bl ? o_condition_code_nxt_b : o_condition_code_nxt_n;
+assign destination_index_nxt = arm_bl ? destination_index_nxt_b : destination_index_nxt_n;
+assign alu_source_nxt = arm_bl ? alu_source_nxt_b : alu_source_nxt_n;
+assign o_alu_operation_nxt = arm_bl ? o_alu_operation_nxt_b : o_alu_operation_nxt_n;
+assign shift_source_nxt = arm_bl ? shift_source_nxt_b : shift_source_nxt_n;
+assign o_shift_operation_nxt = arm_bl ? o_shift_operation_nxt_b : o_shift_operation_nxt_n;
+assign shift_length_nxt = arm_bl ? shift_length_nxt_b : shift_length_nxt_n;
+assign o_flag_update_nxt = arm_bl ? o_flag_update_nxt_b : o_flag_update_nxt_n;
+assign mem_srcdest_index_nxt = arm_bl ? mem_srcdest_index_nxt_b : mem_srcdest_index_nxt_n;
+assign o_mem_load_nxt = arm_bl ? o_mem_load_nxt_b : o_mem_load_nxt_n;
+assign o_mem_store_nxt = arm_bl ? o_mem_store_nxt_b : o_mem_store_nxt_n;
+assign o_mem_pre_index_nxt = arm_bl ? o_mem_pre_index_nxt_b : o_mem_pre_index_nxt_n;
+assign o_mem_unsigned_byte_enable_nxt = arm_bl ? o_mem_unsigned_byte_enable_nxt_b : o_mem_unsigned_byte_enable_nxt_n;
+assign o_mem_signed_byte_enable_nxt = arm_bl ? o_mem_signed_byte_enable_nxt_b : o_mem_signed_byte_enable_nxt_n;
+assign o_mem_signed_halfword_enable_nxt = arm_bl ? o_mem_signed_halfword_enable_nxt_b : o_mem_signed_halfword_enable_nxt_n;
+assign o_mem_unsigned_halfword_enable_nxt = arm_bl ? o_mem_unsigned_halfword_enable_nxt_b : o_mem_unsigned_halfword_enable_nxt_n;
+assign o_mem_translate_nxt = arm_bl ? o_mem_translate_nxt_b : o_mem_translate_nxt_n;
+assign o_und_nxt = arm_bl ? o_und_nxt_b : o_und_nxt_n;
+assign o_switch_nxt = arm_bl ? o_switch_nxt_b : o_switch_nxt_n;
+
 
 // ----------------------------------------------------------------------------
 
