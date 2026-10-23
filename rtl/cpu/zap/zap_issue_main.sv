@@ -245,7 +245,7 @@ module zap_issue_main
         output logic      [32:0]                  o_shift_source_ff,
 
         // Stall all stages before this if this is 1.
-        output logic                               o_stall_from_issue,
+        (* dont_retime *) output logic              o_stall_from_issue,
 
         // The PC value.
         output logic     [31:0]                   o_pc_plus_8_ff,
@@ -294,12 +294,32 @@ logic lock;
 // the same values (same reset, clear and update) with a fan-out of four
 // muxes, and are kept from being merged back (timing).
 //
-(* preserve *) logic        stall_idx_ff;
+(* preserve, dont_retime *) logic stall_idx_ff;
 // ARM925T: late admission compares the same physical tags, but must not
 // start at the heavily loaded control/skid stall mux or load the RF mux.
-(* preserve *) logic        stall_late_ff;
+(* preserve, dont_retime *) logic stall_late_ff;
 logic [23:0]                late_reg_index;
 logic [23:0]                skid_idx;
+logic [5:0]                 skid_dest_idx;
+
+// ARM925T: read the lock bitmap for both possible instruction slots before
+// selecting the slot. Selecting the index first puts the high-fanout skid
+// selector in front of a 64:1 bitmap mux on the interlock feedback path.
+// Keep the two lookup banks distinct so synthesis cannot factor that mux
+// back across the bitmap reads. The bitmap is still the live cache lock:
+// no lock assertion or completion is delayed by a clock.
+(* keep *) wire [4:0] live_locked, skid_locked;
+wire [4:0] slot_locked = stall_late_ff ? skid_locked : live_locked;
+assign live_locked = {i_dc_lock[i_destination_index_ff],
+                      i_dc_lock[i_mem_srcdest_index_ff],
+                      i_dc_lock[i_shift_length_ff[5:0]],
+                      i_dc_lock[i_shift_source_ff[5:0]],
+                      i_dc_lock[i_alu_source_ff[5:0]]};
+assign skid_locked = {i_dc_lock[skid_dest_idx],
+                      i_dc_lock[skid_idx[5:0]],
+                      i_dc_lock[skid_idx[11:6]],
+                      i_dc_lock[skid_idx[17:12]],
+                      i_dc_lock[skid_idx[23:18]]};
 
 //
 // Asserted when an instruction cannot be issued and leads to all stages
@@ -491,6 +511,7 @@ begin
         begin
                 skid_idx <= {i_alu_source_ff[5:0], i_shift_source_ff[5:0],
                              i_shift_length_ff[5:0], i_mem_srcdest_index_ff[5:0]};
+                skid_dest_idx <= i_destination_index_ff;
                 skid <= {
                         i_pc_plus_8_ff,
                         i_pc_ff,
@@ -839,6 +860,7 @@ assign skid_is_mult = skid_alu_operation_ff == {1'd0, UMLALL}     ||
 //
 assign operand_load_lock[0] = determine_load_lock
                         ( skid_alu_source_ff  ,
+                        slot_locked[0],
                         o_mem_srcdest_index_ff,
                         o_condition_code_ff,
                         o_mem_load_ff,
@@ -866,6 +888,7 @@ assign operand_load_lock[0] = determine_load_lock
 assign operand_load_lock[1] = determine_load_lock
                         (
                         skid_shift_source_ff,
+                        slot_locked[1],
                         o_mem_srcdest_index_ff,
                         o_condition_code_ff,
                         o_mem_load_ff,
@@ -892,6 +915,7 @@ assign operand_load_lock[1] = determine_load_lock
                         );
 assign operand_load_lock[2] = determine_load_lock
                         ( skid_shift_length_ff,
+                        slot_locked[2],
                         o_mem_srcdest_index_ff,
                         o_condition_code_ff,
                         o_mem_load_ff,
@@ -918,6 +942,7 @@ assign operand_load_lock[2] = determine_load_lock
                         );
 assign operand_load_lock[3] = determine_load_lock
                         ( {27'd0, skid_mem_srcdest_index_ff},
+                        slot_locked[3],
                         o_mem_srcdest_index_ff,
                         o_condition_code_ff,
                         o_mem_load_ff,
@@ -951,6 +976,7 @@ assign operand_load_lock[3] = determine_load_lock
 //
 assign destination_load_lock = determine_load_lock
                         ( {27'd0, skid_destination_index_ff},
+                        slot_locked[4],
                         o_mem_srcdest_index_ff,
                         o_condition_code_ff,
                         o_mem_load_ff,
@@ -984,7 +1010,7 @@ assign destination_load_lock = determine_load_lock
                         (
                           skid_destination_index_ff[5:0] != PHY_RAZ_REGISTER[5:0]
                           &&
-                          i_dc_lock[skid_destination_index_ff]
+                          slot_locked[4]
                         );
 
 // ARM925T: only condition-resolved loads near memory can be deferred.
@@ -993,14 +1019,14 @@ assign destination_load_lock = determine_load_lock
 assign late_reg_index = stall_late_ff ? skid_idx :
         {i_alu_source_ff[5:0], i_shift_source_ff[5:0],
          i_shift_length_ff[5:0], i_mem_srcdest_index_ff[5:0]};
-assign late_pending[0] = late_load(skid_alu_source_ff, late_reg_index[23:18], 1'b0);
-assign late_pending[1] = late_load(skid_shift_source_ff, late_reg_index[17:12], !skid_is_lsl_0);
-assign late_pending[2] = late_load(skid_shift_length_ff, late_reg_index[11:6], 1'b1);
+assign late_pending[0] = late_load(skid_alu_source_ff, late_reg_index[23:18], 1'b0, slot_locked[0]);
+assign late_pending[1] = late_load(skid_shift_source_ff, late_reg_index[17:12], !skid_is_lsl_0, slot_locked[1]);
+assign late_pending[2] = late_load(skid_shift_length_ff, late_reg_index[11:6], 1'b1, slot_locked[2]);
 assign late_pending[3] = skid_mem_store_ff &&
-                        late_load({27'd0, skid_mem_srcdest_index_ff}, late_reg_index[5:0], 1'b1);
+                        late_load({27'd0, skid_mem_srcdest_index_ff}, late_reg_index[5:0], 1'b1, slot_locked[3]);
 assign load_lock = |(operand_load_lock & ~late_pending) || destination_load_lock;
 
-function automatic late_load(input [32:0] index, input [5:0] r, input early);
+function automatic late_load(input [32:0] index, input [5:0] r, input early, input reg_locked);
         logic candidate, conflict;
         candidate = (i_postalu_dav_ff && i_postalu_mem_load_ff &&
                      i_postalu_mem_srcdest_index_ff == r) ||
@@ -1022,7 +1048,7 @@ function automatic late_load(input [32:0] index, input [5:0] r, input early);
                    (early && i_postalu1_dav_ff && i_postalu1_mem_load_ff && i_postalu1_mem_srcdest_index_ff == r);
         late_load = candidate && !conflict && !index[32] &&
                     r != PHY_PC && r != PHY_RAZ_REGISTER && r != PHY_CPSR &&
-                    r < PHY_DUMMY_REG0 && !i_dc_lock[r] &&
+                    r < PHY_DUMMY_REG0 && !reg_locked &&
                     !skid_is_mult && !skid_force32align_ff &&
                     !(skid_irq_ff || skid_fiq_ff || skid_abt_ff || skid_swi_ff || skid_und_ff);
 endfunction
@@ -1085,6 +1111,7 @@ endfunction : shifter_lock_check
 
 function automatic determine_load_lock (
 input [32:0]                    index,
+input                           reg_locked,
 input [$clog2(PHY_REGS)-1:0]    mem_srcdest_index_ff,
 input [3:0]                     condition_code_ff,
 input                           mem_load_ff,
@@ -1122,7 +1149,7 @@ input                           ext_lock
         begin
                 determine_load_lock = 1'd0;
         end
-        else if ( xlock[index[5:0]] || ((|xlock) && ext_lock) )
+        else if ( reg_locked || ((|xlock) && ext_lock) )
         begin
                 determine_load_lock = 1'd1;
         end

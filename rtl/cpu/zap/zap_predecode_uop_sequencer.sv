@@ -148,7 +148,10 @@ assign unused = |{pre_index};
 
 ///////////////////////////////////////////////////////////////////////////////
 
-enum logic [25:0] {
+// ARM925T: keep the hold on this side of the state register. Retiming the
+// sequencer through its output decode sends the shifter stall through the
+// uop decode and the predecode skid mux in a single clock.
+typedef enum logic [25:0] {
         IDLE            = 1 << 0 ,
         MEMOP           = 1 << 1 ,
         WRITE_PC        = 1 << 2 ,
@@ -176,7 +179,10 @@ enum logic [25:0] {
         BLS_S3          = 1 << 24 ,
         BASE_LOAD       = 1 << 25 , // ARM925T: LDM base in list, write it last.
         `ZAP_DEFAULT_XX
-} state_ff, state_nxt;
+} t_state;
+
+(* dont_retime *) t_state state_ff;
+t_state state_nxt;
 
 ///////////////////////////////////////////////////////////////////////////////
 
