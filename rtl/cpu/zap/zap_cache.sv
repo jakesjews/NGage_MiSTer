@@ -218,7 +218,7 @@ zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u
 
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
 // ARM9: the single-edge cache reads one clock before the request. The TLB
-// still needs i_address_nxt for its independent, longer lookup pipeline.
+// still needs i_address_nxt one edge earlier for its registered check.
 zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .SHORT_READ(SHORT_READ)) u_zap_cache_tag_ram     (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
@@ -282,6 +282,7 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
 
 // ZAP TLB control module. Includes TLB RAM inside - manager 2.
 zap_tlb #(
+        .SHORT_READ            (SHORT_READ),
         .LPAGE_TLB_ENTRIES      (LPAGE_TLB_ENTRIES),
         .SPAGE_TLB_ENTRIES      (SPAGE_TLB_ENTRIES),
         .SECTION_TLB_ENTRIES    (SECTION_TLB_ENTRIES),

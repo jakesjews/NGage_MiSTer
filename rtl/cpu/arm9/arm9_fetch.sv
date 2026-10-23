@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Three-edge cache lookup, followed by an eight-entry instruction queue.
+// Two TLB read/check edges, then response/Thumb capture into an eight-entry
+// instruction queue. The cache RAM reads on the second TLB edge.
 // The cache owns an untagged outstanding bus transaction. A redirect kills its
 // epoch immediately, but drains that transaction before reusing the lookup pipe.
 module arm9_fetch #(
@@ -35,7 +36,7 @@ module arm9_fetch #(
         logic thumb_und, thumb_align;
         logic [31:0] pc, instruction;
     } entry_t;
-    lookup_t f1, f2, f3;
+    lookup_t f1, f2;
     entry_t queue [0:7];
     logic [2:0] head, tail;
     logic [3:0] count;
@@ -46,26 +47,26 @@ module arm9_fetch #(
     logic [31:0] incoming;
     logic [34:0] decoded;
     logic thumb_und, thumb_align;
-    assign incoming = f3.thumb && f3.pc[1] ? {16'd0,i_data[31:16]} : i_data;
+    assign incoming = f2.thumb && f2.pc[1] ? {16'd0,i_data[31:16]} : i_data;
     // Translate before the existing FIFO register. This moves the Thumb
     // decode off the D register-read/forwarding cone without adding a stage.
     zap_mode16_decoder #(.V4T(1'b1)) u_thumb (
         .i_instruction(incoming), .i_instruction_valid(1'b1), .i_offset(11'd0),
-        .i_prev_prefix(1'b0), .i_irq(1'b0), .i_fiq(1'b0), .i_cpsr_ff_t(f3.thumb),
+        .i_prev_prefix(1'b0), .i_irq(1'b0), .i_fiq(1'b0), .i_cpsr_ff_t(f2.thumb),
         .o_instruction(decoded), .o_instruction_valid(), .o_und(thumb_und),
         .o_force32_align(thumb_align), .o_irq(), .o_fiq()
     );
 
     assign o_address_nxt = launch_pc;
-    assign o_address_check = f2.pc;
-    assign o_address = f3.pc;
-    assign o_request = f3.valid;
+    assign o_address_check = f1.pc;
+    assign o_address = f2.pc;
+    assign o_request = f2.valid;
     // Like the retained cache's original caller, hold RAMs and all lookup
     // metadata together. Pending queue entries resolve even while held.
-    assign o_stall = (count == 8 && !killed) || (f3.valid && !i_ack);
-    assign retry = f3.valid && i_ack && i_retry && !killed && !i_redirect;
-    assign push = f3.valid && i_ack && !i_retry && !o_stall &&
-                  !killed && !i_redirect && f3.epoch == epoch;
+    assign o_stall = (count == 8 && !killed) || (f2.valid && !i_ack);
+    assign retry = f2.valid && i_ack && i_retry && !killed && !i_redirect;
+    assign push = f2.valid && i_ack && !i_retry && !o_stall &&
+                  !killed && !i_redirect && f2.epoch == epoch;
     assign o_valid = count != 0 && !queue[head].pending &&
                      queue[head].epoch == epoch && !i_redirect;
     assign o_pc = queue[head].pc;
@@ -78,7 +79,7 @@ module arm9_fetch #(
 
     always_ff @(posedge i_clk) begin
         if (i_reset) begin
-            f1 <= '0; f2 <= '0; f3 <= '0;
+            f1 <= '0; f2 <= '0;
             launch_pc <= RESET_VECTOR;
             launch_thumb <= 0;
             target <= RESET_VECTOR; target_thumb <= 0;
@@ -95,8 +96,8 @@ module arm9_fetch #(
                 end
             end
             if (push) begin
-                queue[tail].epoch <= f3.epoch;
-                queue[tail].pc <= f3.pc;
+                queue[tail].epoch <= f2.epoch;
+                queue[tail].pc <= f2.pc;
                 queue[tail].instruction <= incoming;
                 queue[tail].decoded <= decoded;
                 queue[tail].thumb_und <= thumb_und;
@@ -117,9 +118,8 @@ module arm9_fetch #(
             if ((i_redirect || retry || killed) && !o_stall) begin
                 f1 <= {1'b0,epoch,launch_thumb,launch_pc};
                 f2 <= {1'b0,f1.epoch,f1.thumb,f1.pc};
-                f3 <= {1'b0,f2.epoch,f2.thumb,f2.pc};
-                launch_pc <= i_redirect ? i_target : retry ? f3.pc : target;
-                launch_thumb <= i_redirect ? i_thumb : retry ? f3.thumb : target_thumb;
+                launch_pc <= i_redirect ? i_target : retry ? f2.pc : target;
+                launch_thumb <= i_redirect ? i_thumb : retry ? f2.thumb : target_thumb;
             end
             if (i_redirect) begin
                 epoch <= epoch + 1'b1;
@@ -131,14 +131,14 @@ module arm9_fetch #(
                 // Retain older queue entries; only this lookup and younger
                 // addresses need replay after a TLB walk or fill installation.
                 killed <= o_stall;
-                target <= f3.pc;
-                target_thumb <= f3.thumb;
+                target <= f2.pc;
+                target_thumb <= f2.thumb;
             end else if (!o_stall) begin
                 if (killed) begin
                     killed <= 0;
                 end else begin
                     f1 <= {1'b1,epoch,launch_thumb,launch_pc};
-                    f2 <= f1; f3 <= f2;
+                    f2 <= f1;
                     launch_pc <= launch_pc + (launch_thumb ? 32'd2 : 32'd4);
                 end
             end

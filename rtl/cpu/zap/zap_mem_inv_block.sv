@@ -24,7 +24,8 @@
 
 module zap_mem_inv_block #(
         parameter [31:0] DEPTH = 32,
-        parameter [31:0] WIDTH = 32   // Not including valid bit.
+        parameter [31:0] WIDTH = 32,  // Not including valid bit.
+        parameter logic SHORT_READ = 1'b0
 )(
 
 
@@ -56,6 +57,32 @@ module zap_mem_inv_block #(
         output logic                          o_rdav
 );
 
+// ARM9: the pre output is the synchronous RAM read, including a same-edge
+// collision bypass. The caller still registers the translation/permission
+// check. Invalidation clears the valid array and its read even while held.
+if (SHORT_READ) begin : g_short
+    logic [DEPTH-1:0] valid;
+    logic read_valid;
+    zap_ram_simple #(.WIDTH(WIDTH), .DEPTH(DEPTH), .SHORT_READ(1'b1)) u_ram (
+        .i_clk(i_clk), .i_clken(i_clken), .i_wr_en(i_wen),
+        .i_wr_data(i_wdata), .i_wr_addr(i_waddr), .i_rd_addr(i_raddr),
+        .o_rd_data_pre(), .o_rd_data(o_rdata_pre)
+    );
+    always_ff @(posedge i_clk) begin
+        if (i_reset || i_inv) begin
+            valid <= '0;
+            read_valid <= 0;
+        end else if (i_clken) begin
+            if (i_wen) valid[i_waddr] <= 1;
+            read_valid <= (i_wen && i_raddr == i_waddr) || valid[i_raddr];
+        end
+    end
+    assign o_rdav_pre = read_valid;
+    // The TLB consumes only the pre outputs. Keep the unused full outputs
+    // defined as the same read instead of retaining dead pipeline registers.
+    assign o_rdata = o_rdata_pre;
+    assign o_rdav = o_rdav_pre;
+end else begin : g_three_edge
 // These are valid bits corresponding to each memory location.
 logic [DEPTH-1:0]         dav_ff;
 
@@ -210,6 +237,8 @@ begin
         begin
                 o_rdav <= conflict_st3 ? 1'd1 : o_rdav_pre;
         end
+end
+
 end
 
 endmodule

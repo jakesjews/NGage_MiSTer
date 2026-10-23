@@ -202,12 +202,12 @@ output  logic [7:0]                      o_dbg_stall
 `include "zap_functions.svh"
 
 // D is the fetch queue head; E owns decoded operands and control. Arithmetic,
-// branches and memory share ordered records across the three native cache RAM
+// branches and memory share ordered records across the TLB read/check
 // edges and W. Block transfers feed one register per enabled edge into the same
 // pipeline. State operations and SWP drain it before using the slow context.
 typedef enum logic [3:0] {
     IDLE,
-    M1, M2, M3, MEMORY, LOAD_CLASSIFY, LOAD_WAIT, WRITEBACK, COPRO, RESTORE_BASE, MUL_ADD, MUL_WAIT
+    M1, M2, MEMORY, LOAD_CLASSIFY, LOAD_WAIT, WRITEBACK, COPRO, RESTORE_BASE, MUL_ADD, MUL_WAIT
 } state_t;
 typedef enum logic [3:0] {
     K_DP, K_MRS, K_MSR, K_BRANCH, K_BX, K_MEM, K_BLOCK, K_CP,
@@ -248,11 +248,11 @@ typedef struct packed {
     logic [3:0] sel;
     logic [31:0] address, store_data, load_data;
 } result_t;
-result_t fast_1, fast_2, fast_m, fast_w, fast_input;
-result_t [3:0] producers;
-logic [7:0][31:0] forward_value;
-logic [7:0][5:0] forward_tag;
-logic [7:0] forward_valid, forward_ready;
+result_t fast_1, fast_m, fast_w, fast_input;
+result_t [2:0] producers;
+logic [5:0][31:0] forward_value;
+logic [5:0][5:0] forward_tag;
+logic [5:0] forward_valid, forward_ready;
 logic [3:0][31:0] forwarded_read;
 logic [3:0] unused_read_wait;
 logic [34:0] translated;
@@ -436,7 +436,7 @@ always_comb begin
     end
 end
 
-arm9_execute #(.PRODUCERS(8)) u_execute (
+arm9_execute #(.PRODUCERS(6)) u_execute (
     .i_valid(e_valid),
     .i_condition((kind_e == K_BL_PREFIX || kind_e == K_BL_SUFFIX || (kind_e == K_UND && cpsr[5]) || (!cpsr[5] && ins[31:28] == 4'hf)) ? 4'he : ins[31:28]),
     .i_op(op_e), .i_set_flags(kind_e == K_DP && ins[20]), .i_flags(execute_flags[31:28]),
@@ -450,17 +450,18 @@ arm9_execute #(.PRODUCERS(8)) u_execute (
     .o_execute(), .o_write_result(ex_write), .o_write_flags(ex_write_flags)
 );
 
-// All in-flight instructions retain program order through the native RAM
-// edges. Each record has two producers: load destination first, then base/ALU.
+// All in-flight instructions retain program order through the TLB read
+// and registered permission-check edges. Each record has two producers:
+// load destination first, then base/ALU.
 // Cache data is registered in W; it never feeds the execute mux directly.
-assign producers = {fast_w,fast_m,fast_2,fast_1};
+assign producers = {fast_w,fast_m,fast_1};
 always_comb begin
-    for (int n=0; n<4; n++) begin
+    for (int n=0; n<3; n++) begin
         forward_value[2*n] = producers[n].load_data;
         forward_tag[2*n] = producers[n].load_dst;
         forward_valid[2*n] = producers[n].present && producers[n].pass &&
                             producers[n].load && !producers[n].fault;
-        forward_ready[2*n] = n == 3 && fast_load_ready;
+        forward_ready[2*n] = n == 2 && fast_load_ready;
         forward_value[2*n+1] = producers[n].value;
         forward_tag[2*n+1] = producers[n].dst;
         forward_valid[2*n+1] = producers[n].present && producers[n].pass &&
@@ -468,7 +469,7 @@ always_comb begin
         forward_ready[2*n+1] = 1;
     end
 end
-arm9_forward #(.PRODUCERS(8)) u_decode_forward (
+arm9_forward #(.PRODUCERS(6)) u_decode_forward (
     .i_value(read_value), .i_tag(read_tag), .i_used(4'b1111),
     .i_write_value(forward_value), .i_write_tag(forward_tag),
     .i_write_valid(forward_valid), .i_write_ready(forward_ready),
@@ -476,14 +477,14 @@ arm9_forward #(.PRODUCERS(8)) u_decode_forward (
 );
 // An E consumer may outlive a producer while waiting for a different source
 // or a full result queue. Retain every bypass before that producer disappears.
-arm9_forward #(.PRODUCERS(8)) u_held_forward (
+arm9_forward #(.PRODUCERS(6)) u_held_forward (
     .i_value(value_e), .i_tag(tag_e), .i_used(used_e),
     .i_write_value(forward_value), .i_write_tag(forward_tag),
     .i_write_valid(forward_valid), .i_write_ready(forward_ready),
     .o_value(held_value), .o_wait(held_wait)
 );
 assign execute_flags = fast_1.present ? fast_1.flags :
-    fast_2.present ? fast_2.flags : fast_m.present ? fast_m.flags :
+    fast_m.present ? fast_m.flags :
     fast_w.present ? fast_w.flags : cpsr;
 assign fast_d = (kind_d == K_DP && d_ins[15:12] != 15) || kind_d == K_BRANCH ||
                (kind_d == K_MEM && !(d_ins[19:16] == 15 && (d_ins[21] || !d_ins[24])));
@@ -593,11 +594,11 @@ always_comb begin
 end
 always_ff @(posedge i_clk) begin
     if (i_reset || (f_redirect && !early_redirect) || pipe_fault) begin
-        fast_1 <= '0; fast_2 <= '0; fast_m <= '0; fast_w <= '0;
+        fast_1 <= '0; fast_m <= '0; fast_w <= '0;
         data_reload <= 0;
     end else begin
         if (state == IDLE && (i_data_fill_busy ||
-            (pipe_request && i_data_wb_ack && i_dcache_err2))) data_reload <= 3;
+            (pipe_request && i_data_wb_ack && i_dcache_err2))) data_reload <= 2;
         else if (data_reload != 0) data_reload <= data_reload - 1'b1;
         if (retire_fast) fast_w.present <= 0;
         if (fast_w.present && fast_w.load && i_dc_reg_idx[fast_w.load_dst])
@@ -606,8 +607,7 @@ always_ff @(posedge i_clk) begin
             fast_w <= fast_m;
             fast_w.fault <= pipe_request && i_data_wb_err;
             fast_w.load_data <= i_data_wb_dat;
-            fast_m <= fast_2;
-            fast_2 <= fast_1;
+            fast_m <= fast_1;
             fast_1 <= fast_input;
         end
     end
@@ -654,21 +654,26 @@ assign o_instr_wb_adr = fcse(f_address);
 assign o_instr_wb_cyc = o_instr_wb_stb;
 assign o_instr_wb_we = 0;
 assign o_instr_wb_sel = 4'hf;
-wire [31:0] pipe_nxt_address = data_reload == 3 ? fast_m.address :
-    data_reload == 2 ? fast_2.address : data_reload == 1 ? fast_1.address : sequence_active ? sequence_address : effective_address;
+wire [31:0] pipe_nxt_address = data_reload == 2 ? fast_m.address :
+    data_reload == 1 ? fast_1.address : sequence_active ? sequence_address : effective_address;
 wire reload_check = data_reload == 1;
+// A reload's first RAM edge has no matching permission-check packet yet.
+// Feeding the held younger address against that stale read can request a
+// phantom TLB walk, even with the cache request suppressed. Only check the
+// rebuilt packet, or an ordinary aligned packet outside refill/reload.
+wire pipe_check = !i_data_fill_busy && (data_reload == 0 || reload_check);
 assign o_data_wb_adr_nxt = fcse({(state == IDLE ? pipe_nxt_address[31:2] : m_address[31:2]),2'b00});
 assign o_data_wb_adr_check = fcse({(state == IDLE ?
-    (reload_check ? fast_m.address[31:2] : fast_2.address[31:2]) : m_address[31:2]),2'b00});
+    (reload_check ? fast_m.address[31:2] : fast_1.address[31:2]) : m_address[31:2]),2'b00});
 assign o_data_wb_adr = fcse({(state == IDLE ? fast_m.address[31:2] : m_address[31:2]),2'b00});
-assign o_data_wb_we_check = state == IDLE ? (reload_check ?
+assign o_data_wb_we_check = state == IDLE ? (pipe_check && (reload_check ?
     fast_m.present && fast_m.pass && fast_m.memory && !fast_m.load :
-    fast_2.present && fast_2.pass && fast_2.memory && !fast_2.load) :
-    (state == M3 && !m_load) ||
+    fast_1.present && fast_1.pass && fast_1.memory && !fast_1.load)) :
+    (state == M2 && !m_load) ||
     (state == LOAD_CLASSIFY && slow.kind == K_SWP && !i_dc_lock[m_dst]);
-assign o_data_wb_re_check = state == IDLE ? (reload_check ?
+assign o_data_wb_re_check = state == IDLE ? (pipe_check && (reload_check ?
     fast_m.present && fast_m.pass && fast_m.memory && fast_m.load :
-    fast_2.present && fast_2.pass && fast_2.memory && fast_2.load) : state == M3 && m_load;
+    fast_1.present && fast_1.pass && fast_1.memory && fast_1.load)) : state == M2 && m_load;
 assign o_data_wb_stb = state == IDLE ? pipe_request : state == MEMORY;
 assign o_data_wb_cyc = o_data_wb_stb;
 assign o_data_wb_we = state == IDLE ? !fast_m.load : !m_load;
@@ -677,8 +682,8 @@ assign o_data_wb_dat = state == IDLE ? fast_m.store_data : m_write_data;
 assign o_data_wb_align_fault = state == IDLE ? fast_m.align_fault : m_align;
 assign o_data_wb_va = state == IDLE ? fast_m.address : m_address;
 assign o_data_wb_ldfmt = state == IDLE ? fast_m.format : m_format;
-assign o_mem_translate = state == IDLE ? (reload_check ? fast_m.user_access : fast_2.user_access) : m_user;
-assign o_mem_cpsr = state == IDLE ? (reload_check ? fast_m.access_mode[CPSR_MODE:0] : fast_2.access_mode[CPSR_MODE:0]) : slow.flags[CPSR_MODE:0];
+assign o_mem_translate = state == IDLE ? (reload_check ? fast_m.user_access : fast_1.user_access) : m_user;
+assign o_mem_cpsr = state == IDLE ? (reload_check ? fast_m.access_mode[CPSR_MODE:0] : fast_1.access_mode[CPSR_MODE:0]) : slow.flags[CPSR_MODE:0];
 assign o_cpsr = cpsr[CPSR_MODE:0];
 assign o_dc_reg_idx = 64'd1 << o_dc_reg_idx_bin;
 assign o_dc_reg_idx_bin = state == IDLE ? fast_m.load_dst : m_dst;
@@ -715,7 +720,7 @@ always_ff @(posedge i_clk) begin
         if (execute_fast) e_valid <= 0;
       end
       if (e_valid && !fast_e && !shift_hold && !execute_wait &&
-          !fast_1.present && !fast_2.present && !fast_m.present &&
+          !fast_1.present && !fast_m.present &&
           (!fast_w.present || retire_fast) && !pipe_hold && !i_data_fill_busy &&
           data_reload == 0 && !pipe_fault && !pipe_pc_redirect) begin
             e_valid <= 0;
@@ -874,8 +879,7 @@ always_ff @(posedge i_clk) begin
         end
       case (state)
         M1: state <= M2;
-        M2: state <= M3;
-        M3: state <= MEMORY;
+        M2: state <= MEMORY;
         MEMORY: if (i_data_wb_ack || i_data_wb_err) begin
             if (i_dcache_err2) state <= M1;
             else if (i_data_wb_err) begin

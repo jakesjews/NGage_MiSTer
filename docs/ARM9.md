@@ -1,12 +1,14 @@
 # ARM9 integer pipeline replacement
 
-Status: session-5 streaming-memory checkpoint, 2026-10-23 deliverable.
-ZAP remains the production default. Scalar hits and block transfers now stream
-one access per clock through the native cache read records and ordered W.
-Critical-word continuation, separate load/base producers, precise aborts and
-loaded-PC redirects are implemented. The immediate load-use interlock is still
-three clocks, fixed block/SWP overhead remains, and performance/timing gates
-are not met. See the session-5 continuation report and verification ledgers.
+Status: partial session-6 cache/schedule checkpoint, 2026-10-23 deliverable.
+ZAP remains the production default. ARM9 selects a one-edge cache RAM with
+registered write-collision forwarding and a one-edge TLB read followed by the
+unchanged registered permission check. Scalar hits and blocks still stream one
+access per clock; the immediate load-use interlock is now two clocks. Fetch
+still takes three edges through response/Thumb capture, so an unpredicted taken
+branch costs five clocks, one above the requested four. Fixed block/multiply
+barriers, the predictor, and the performance/timing/area gates remain open.
+The session-6 sections below supersede the historical native-latency sections.
 Starting revision: `75cce2e`, branch `codex/arm9`.
 
 ## Contract and sources
@@ -655,3 +657,79 @@ two-clock load interlock or four-clock branch.
 word offsets, two ways, fill/refetch, and dirty eviction against QEMU.
 `arm9_cache_lru_rtl.S` checks backing memory through uncached aliases after
 adjacent hit/fill LRU and dirty updates; QEMU has no cache model for that test.
+
+
+## Session 6: shorter TLB and CPU schedule (partial step 2)
+
+The TLB's `zap_mem_inv_block.SHORT_READ` presents its first-edge read at
+`o_rdata_pre`; `zap_tlb_check` still registers the original permission and
+translation equations on the next edge. This is selected only for ARM9.
+The one-entry write bypass covers a simultaneous TLB fill/read, and invalidate
+clears both array valid bits and the output valid even while held. There are no
+changes to page walks, CP15 semantics, access modes or fault priorities.
+
+One result record and one fetch lookup record are removed. Data ordering is:
+
+| Edge relative to E handoff | Record / operation |
+| --- | --- |
+| 1 | `fast_1`: TLB read from E's address; retain complete access metadata |
+| 2 | `fast_m`: registered TLB permission result and cache RAM read from `fast_1` |
+| 3 | `fast_w`: capture existing cache compare/select/format result |
+| 4 | Retire W; its registered load value was available to E during clock 3 |
+
+Thus a following E consumer waits two clocks. There is no cache-data-to-E
+combinational path. Six load/base producer slots replace eight; youngest writer
+priority and W's miss lock are unchanged. Fills and TLB retries reconstruct the
+two held address records. The first reload edge has no aligned check packet:
+its read/write-check enables must be zero. Otherwise stale TLB data paired with
+the younger address can start a phantom page walk indefinitely. The new LRU
+test exposed exactly this at latency 0:0; the permission-check gate fixes it.
+
+Fetch uses two lookup records, then captures response/Thumb translation in the
+queue on the third edge. The address still comes from the registered next PC.
+This is **not yet F1/F2**: five-clock unpredicted B/BL remains. The cache itself
+has one RAM edge plus compare/capture, but is launched one edge after the TLB.
+Starting the cache from E/next-PC and retaining its early result alongside the
+permission result, without lengthening compare/Thumb/decode, is the next design
+boundary. Removing the permission register or bypassing the queue was not
+accepted as an unmeasured timing change.
+
+### Exact hot windows against the TRM
+
+All numbers below include the end marker (except the explicitly named interlock
+row). The TRM column uses DDI0180A Table 7-2; `m` and `b` retain its definitions.
+The instruction binaries and QEMU references are unchanged; `arm9/cycles.txt`
+retargets all 69 original windows and the seven stream windows stay at 9.
+
+| Window | TRM plus marker / enclosed consumer | Session 6 |
+| --- | --- | ---: |
+| Eight independent DP | 9 | 9 |
+| Four dependent / flag-dependent DP | 5 | 5 |
+| Register shift / skipped register shift | 3 / 2 | 3 / 2 |
+| DP to PC / register-shift DP to PC | 4 / 5 | 9 / 9 |
+| LDR + independent ALU | 3 | 3 |
+| Aligned LDR + immediate ALU consumer | 4 | 5 |
+| Immediate aligned load-use interlock (no marker) | 1 | 2 |
+| Byte/halfword/signed/unaligned LDR + ALU | 5 | 5 |
+| LDR + base / store / shifted-value consumer | dependency-specific | 5 / 5 / 5 |
+| LDR + register shift-count consumer | load dependency plus shift cycle | 6 |
+| LDR + 1 / 2 / 3 independent DP + consumer | 4 / 5 / 6 | 5 / 5 / 6 |
+| LDR PC | 6 | 9 |
+| STR | 2 | 2 |
+| LDM1 / STM1 | 3 | 9 / 9 |
+| LDM3 / STM3 | 4 | 11 / 11 |
+| LDM3 including PC | 8 | 15 |
+| SWP / SWPB + ALU | 3 / 5 | 11 / 12 |
+| B / BL / BX | 4 | 6 / 6 / 9 |
+| MRS / flags-only MSR / control MSR | 2 / 2 / 4 | 6 / 9 / 9 |
+| MCR / MRC / MRC + consumer / MRC PC | b+2 / b+2 / b+4 / b+4 | 16 / 14 / 15 / 14 |
+| SWI / UND / unsupported CDP/LDC/STC | 3 to vector, plus actual vector trampoline | 18 |
+| MUL/MLA, m=1..4 | 4..7 | 8..11 |
+| Long multiply, m=1..4 | 5..8 | 9..12 |
+| Eight hit accesses in each of seven stream windows | 9 | 9 |
+
+The block formula is still `n+8` including the marker; seven fixed clocks beyond
+an ideal n-cycle transfer remain for n>1. The multiply barrier remains, with
+four extra exposed clocks in these windows. No predicted-branch window exists
+yet because the predictor is not implemented. Complete measurements and the
+stopping point are in the session-6 continuation report.

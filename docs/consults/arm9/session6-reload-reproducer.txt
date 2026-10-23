@@ -1,0 +1,28 @@
+Rejected shorter-schedule experiment, before the pipe_check fix.
+Test: arm9_cache_lru_rtl, CORE=ARM9, latency 0:0.
+Last retired PC 0x37c; full run timed out at 50000000 cycles.
+A stale first-reload RAM read paired with younger VA 0x00431e00 produces a phantom walk.
+The final implementation disables the check when data_reload==2 or a fill is busy.
+Final test passes in 80227 cycles.
+
+DBG 79488 reload=0 en=1 next=00421e00 check=20021e00 req=20021e00 st=000001 walk=0 wr=0 wa=20021e00 rd=0800400c12 valid=1 outphy=20021e00
+DBG 79489 reload=0 en=1 next=00431e00 check=00421e00 req=20021e00 st=000001 walk=0 wr=0 wa=20021e00 rd=0000000000 valid=0 outphy=20021e00
+DBG 79490 reload=0 en=1 next=00000080 check=00431e00 req=00421e00 st=000001 walk=1 wr=0 wa=20021e00 rd=0000000000 valid=0 outphy=00421e00
+DBG 79491 reload=2 en=1 next=00421e00 check=00431e00 req=00421e00 st=000010 walk=1 wr=0 wa=00421e00 rd=0800400c12 valid=1 outphy=00431e00
+DBG 79492 reload=1 en=1 next=00431e00 check=00421e00 req=00421e00 st=010000 walk=1 wr=0 wa=00421e00 rd=0000000000 valid=0 outphy=00431e00
+DBG 79493 reload=0 en=1 next=00000080 check=00431e00 req=00421e00 st=010000 walk=1 wr=0 wa=00421e00 rd=0000000000 valid=0 outphy=00421e00
+DBG 79494 reload=2 en=1 next=00421e00 check=00431e00 req=00421e00 st=000100 walk=1 wr=1 wa=00421e00 rd=0800400c12 valid=1 outphy=00431e00
+DBG 79495 reload=1 en=1 next=00431e00 check=00421e00 req=00421e00 st=000001 walk=1 wr=0 wa=00421e00 rd=0000400c1e valid=1 outphy=00431e00
+DBG 79496 reload=0 en=1 next=00000080 check=00431e00 req=00421e00 st=000010 walk=0 wr=0 wa=00421e00 rd=0000400c1e valid=1 outphy=00421e00
+DBG 79497 reload=2 en=1 next=00421e00 check=00431e00 req=00421e00 st=010000 walk=0 wr=0 wa=00421e00 rd=0800400c12 valid=1 outphy=00431e00
+DBG 79498 reload=1 en=1 next=00431e00 check=00421e00 req=00421e00 st=010000 walk=1 wr=0 wa=00421e00 rd=0000400c1e valid=1 outphy=00431e00
+DBG 79499 reload=0 en=1 next=00000080 check=00431e00 req=00421e00 st=000100 walk=0 wr=1 wa=00421e00 rd=0000400c1e valid=1 outphy=00421e00
+DBG 79500 reload=2 en=1 next=00421e00 check=00431e00 req=00421e00 st=000001 walk=0 wr=0 wa=00421e00 rd=0800400c12 valid=1 outphy=00431e00
+DBG 79501 reload=1 en=1 next=00431e00 check=00421e00 req=00421e00 st=000001 walk=1 wr=0 wa=00421e00 rd=0000400c1e valid=1 outphy=00431e00
+DBG 79502 reload=0 en=1 next=00000080 check=00431e00 req=00421e00 st=000010 walk=0 wr=0 wa=00421e00 rd=0000400c1e valid=1 outphy=00421e00
+DBG 79503 reload=2 en=1 next=00421e00 check=00431e00 req=00421e00 st=010000 walk=0 wr=0 wa=00421e00 rd=0800400c12 valid=1 outphy=00431e00
+DBG 79504 reload=1 en=1 next=00431e00 check=00421e00 req=00421e00 st=010000 walk=1 wr=0 wa=00421e00 rd=0000400c1e valid=1 outphy=00431e00
+DBG 79505 reload=0 en=1 next=00000080 check=00431e00 req=00421e00 st=000100 walk=0 wr=1 wa=00421e00 rd=0000400c1e valid=1 outphy=00421e00
+DBG 79506 reload=2 en=1 next=00421e00 check=00431e00 req=00421e00 st=000001 walk=0 wr=0 wa=00421e00 rd=0800400c12 valid=1 outphy=00431e00
+DBG 79507 reload=1 en=1 next=00431e00 check=00421e00 req=00421e00 st=000001 walk=1 wr=0 wa=00421e00 rd=0000400c1e valid=1 outphy=00431e00
+DBG 79508 reload=0 en=1 next=00000080 check=00431e00 req=00421e00 st=000010 walk=0 wr=0 wa=00421e00 rd=0000400c1e valid=1 outphy=00421e00

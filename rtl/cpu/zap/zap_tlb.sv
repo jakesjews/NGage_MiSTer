@@ -28,6 +28,7 @@ parameter logic [31:0] SPAGE_TLB_ENTRIES   = 32'd8,
 parameter logic [31:0] SECTION_TLB_ENTRIES = 32'd8,
 parameter logic [31:0] FPAGE_TLB_ENTRIES   = 32'd8,
 parameter logic [31:0] CPSR_MODE           = 32'd4,
+parameter logic SHORT_READ = 1'b0,
 parameter logic        MMU_OFF_CACHEABLE   = 1'd0     // ARM925T: see zap_tlb_check
 
 ) (
@@ -225,7 +226,7 @@ assign unused = |{i_address_nxt[9:0], tlb_address[9:0], i_address_nxt[31:W],
 
 // ----------------------------------------------------------------------------
 
-zap_mem_inv_block #(.WIDTH(`ZAP_SECTION_TLB_WDT), .DEPTH(SECTION_TLB_ENTRIES))
+zap_mem_inv_block #(.WIDTH(`ZAP_SECTION_TLB_WDT), .DEPTH(SECTION_TLB_ENTRIES), .SHORT_READ(SHORT_READ))
 u_section_tlb (
 .i_clk          (i_clk),
 .i_reset        (i_reset),
@@ -248,7 +249,7 @@ u_section_tlb (
 
 // ----------------------------------------------------------------------------
 
-zap_mem_inv_block #(.WIDTH(`ZAP_LPAGE_TLB_WDT), .DEPTH(LPAGE_TLB_ENTRIES))
+zap_mem_inv_block #(.WIDTH(`ZAP_LPAGE_TLB_WDT), .DEPTH(LPAGE_TLB_ENTRIES), .SHORT_READ(SHORT_READ))
 u_lpage_tlb   (
 .i_clk          (i_clk),
 .i_reset        (i_reset),
@@ -271,7 +272,7 @@ u_lpage_tlb   (
 
 // ----------------------------------------------------------------------------
 
-zap_mem_inv_block #(.WIDTH(`ZAP_SPAGE_TLB_WDT), .DEPTH(SPAGE_TLB_ENTRIES))
+zap_mem_inv_block #(.WIDTH(`ZAP_SPAGE_TLB_WDT), .DEPTH(SPAGE_TLB_ENTRIES), .SHORT_READ(SHORT_READ))
 u_spage_tlb   (
 .i_clk          (i_clk),
 .i_reset        (i_reset),
@@ -294,7 +295,7 @@ u_spage_tlb   (
 
 // ----------------------------------------------------------------------------
 
-zap_mem_inv_block #(.WIDTH(`ZAP_FPAGE_TLB_WDT), .DEPTH(FPAGE_TLB_ENTRIES))
+zap_mem_inv_block #(.WIDTH(`ZAP_FPAGE_TLB_WDT), .DEPTH(FPAGE_TLB_ENTRIES), .SHORT_READ(SHORT_READ))
 u_fpage_tlb (
 .i_clk          (i_clk),
 .i_reset        (i_reset),

@@ -1,0 +1,23 @@
+Session 6 final schedule checkpoint; parent d765618
+Generated SHA-256: bc3279422be429719b7ce296ddaa8f753b95a7ba8cdefc8aa33f43dcd1e1998b
+No existing test binaries or QEMU references rebuilt. New tests: arm9_cache_edge and arm9_cache_lru_rtl.
+QEMU ran only for arm9_cache_edge; the RTL-only test uses uncached aliases.
+
+final-baseline-arm9: RTL (gen): 27 passed, 0 failed
+final-baseline-zap: RTL (gen): 27 passed, 0 failed
+final-first-diff-arm9: RTL vs QEMU: 60 agree, 0 differ
+final-first-diff-zap: RTL vs QEMU: 60 agree, 0 differ
+final-all-arm9: RTL (gen): 225 passed, 0 failed
+final-all-zap: RTL (gen): 225 passed, 0 failed
+final-diff-arm9: RTL vs QEMU: 60 agree, 0 differ
+final-diff-zap: RTL vs QEMU: 60 agree, 0 differ
+final-source-arm9: RTL (sv): 18 passed, 0 failed
+final-gen-check: rtl/cpu/arm925t_gen.v is current
+make lint: exit 0
+verilator --lint-only -Wall --top-module arm925t -GCORE='"ARM9"' -f lint/rtl.f: exit 0
+76 exact timing windows, five visits each at every latency/core; two hot ARM9 0:0 checks each.
+Six source/generated signatures match: cache arm9_cache_edge arm9_cache_lru_rtl dcwf_rtl arm9_cycles arm9_stream_timing.
+All nine baseline instruction counts match; all ZAP baseline cycle counts match.
+Source smoke: make -C sim/cpu run RTL=sv CORE=ARM9 T="cache arm9_cache_edge arm9_cache_lru_rtl dcwf_rtl arm9_cycles arm9_stream_timing" RESULTS=build/session6/source-final
+Full verification for each CORE=ARM9 and CORE=ZAP: nine-test run, diff, full run, diff.
+No firmware boot, Quartus trial, server or Docker job. Required cycle gate remains unmet.
