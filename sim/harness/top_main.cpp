@@ -476,8 +476,9 @@ int main(int argc, char **argv) {
 		while (R.emu__DOT__fs_loading && b.clocks < t1 + 30000000) b.tick();
 		CHECK(!R.emu__DOT__fs_loading, "the CS1 save loaded");
 		printf("CS1 save: loaded in %llu clocks, %llu requests\n", (unsigned long long)(b.clocks - t1), (unsigned long long)b.s1_reads);
-		CHECK_EQ(b.s1_reads, 2048, "4 KB requests for 8 MB");
-		CHECK(memcmp(&b.ddr[0x01000000], b.img1.data(), b.img1.size()) == 0, "CS1 save image in DDR3 at 0x32000000");
+		CHECK_EQ(b.s1_reads, 1024, "4 KB requests for upper 4 MB of legacy save");
+		CHECK(memcmp(&b.ddr[0x01400000], b.img1.data() + (4u << 20), 4u << 20) == 0, "C: save image in DDR3 at 0x32400000");
+		CHECK(memcmp(&b.ddr[0x01000000], cs1.data(), cs1.size()) == 0, "save did not overwrite CS1 firmware");
 		b.ticks(20);
 		CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 3), 1, "OSD message 3 (CS1 mounted)");
 		CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "boot message after save loading");

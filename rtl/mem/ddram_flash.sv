@@ -3,7 +3,7 @@
 // The arrays of the two NOR flash chips, served from DDR3 through the
 // framework's DDRAM port: the memory ports of nor_flash CS0 (16 MB image at
 // 0x31000000) and CS1 (8 MB at 0x32000000), and the image loader
-// (ddram_loader, writes only) on the same port.
+// (flat/Phoenix writes and single-beat version-check reads) on the same port.
 //
 // Reads go through a direct-mapped read cache in block RAM (LINES of
 // 8 << LINE_LOG2 bytes, 4096 x 32 bytes = 128 KB by default, in M10K) and a one-beat
@@ -84,10 +84,13 @@ module ddram_flash #(
 	output logic [63:0]       cs1_lrdata,
 
 	input  logic              ld_we,
+	input  logic              ld_rd,       // single-beat loader read (version check)
 	input  logic [28:0]       ld_addr,
 	input  logic [63:0]       ld_din,
 	input  logic [7:0]        ld_be,
 	output logic              ld_busy,
+	output logic              ld_valid,
+	output logic [63:0]       ld_data,
 
 	output logic              mark,
 	output logic [CS1_AW-9:0] mark_blk,
@@ -193,7 +196,7 @@ module ddram_flash #(
 	wire  pick  = (req0 && req1) ? ~last_port : req1;   // 1: CS1
 	wire [GW-1:0] pick_g = pick ? g1 : g0;
 	wire  take  = pick ? want1 : want0;
-	wire  take_go = state == S_IDLE && !sweep_req && !reset && take && !(bk_req && bk_turn);
+	wire  take_go = state == S_IDLE && !sweep_req && !reset && take && !(bk_req && bk_turn) && !ld_pending && !ld_rd;
 
 	assign cs0_ltaken = take_go && !pick && cs0_lreq;
 	assign cs1_ltaken = take_go &&  pick && cs1_lreq;
@@ -235,36 +238,44 @@ module ddram_flash #(
 	logic [63:0] own_din;
 	logic [7:0]  own_be;
 	logic        hold_q = 1'b0, hold_ld = 1'b0;
+	logic        ld_pending = 1'b0;
 
 	// C: is blank until any non-FFFF data is loaded/programmed in CS1's
 	// upper half. Erases and core resets must not re-enable the fast format.
-	// Both full-image loaders start at CS1_BASE, byte lane 0; re-arm there
-	// and scan enabled byte lanes as the image arrives while the CPU is held.
+	// Both C:-only and full-image loads cross C_FIRST_BEAT, byte lane 0;
+	// re-arm there. Firmware-half loads must never re-arm a mounted C: save.
 	localparam logic [28:0] C_FIRST_BEAT = CS1_BASE + (29'd1 << (CS1_AW - 3));
 	localparam logic [28:0] CS1_END_BEAT = CS1_BASE + (29'd1 << (CS1_AW - 2));
 	logic c_blank_q = 1'b1;
 	assign c_blank = c_blank_q;
 
 	wire own_cmd = own_rd | own_we;
-	wire sel_ld  = hold_q ? hold_ld : (ld_we && !own_cmd);
-	wire own_taken = !sel_ld && own_cmd && !ddram_busy;
-	wire ld_taken  = sel_ld && ld_we && !ddram_busy;
+	// Reads wait until earlier DDR bursts are drained. Their one response
+	// belongs to the loader even while the board is held in reset.
+	wire ld_read_ok = state == S_IDLE || state == S_SWEEP;
+	wire sel_ld  = hold_q ? hold_ld : ((ld_we || (ld_rd && ld_read_ok)) && !own_cmd && !ld_pending);
+	wire own_taken = !sel_ld && own_cmd && !ddram_busy && !ld_pending;
+	wire ld_taken  = sel_ld && (ld_we || ld_rd) && !ddram_busy;
 	// Only a write into the flash images themselves empties the cache: the
 	// debug trace and the kernel-text ring share the loader port and write
 	// elsewhere in DDR3 (NGage.sv), and must not.
-	wire ld_flash  = ld_taken && (ld_addr[28:21] == CS0_BASE[28:21] || ld_addr[28:20] == CS1_BASE[28:20]);
+	wire ld_flash  = ld_taken && ld_we && (ld_addr[28:21] == CS0_BASE[28:21] || ld_addr[28:20] == CS1_BASE[28:20]);
 
-	assign ddram_rd       = !sel_ld && own_rd;
-	assign ddram_we       = sel_ld ? ld_we : own_we;
+	assign ddram_rd       = sel_ld ? ld_rd : (own_rd && !ld_pending);
+	assign ddram_we       = sel_ld ? ld_we : (own_we && !ld_pending);
 	assign ddram_addr     = sel_ld ? ld_addr : own_addr;
 	assign ddram_din      = sel_ld ? ld_din : own_din;
 	assign ddram_be       = sel_ld ? ld_be : own_be;
 	assign ddram_burstcnt = (!sel_ld && own_rd) ? (own_bulk ? 8'(BK_BEATS) : 8'(BEATS)) : 8'd1;
 	assign ld_busy        = !(sel_ld && !ddram_busy);
+	assign ld_valid       = ld_pending && ddram_dout_ready;
+	assign ld_data        = ddram_dout;
 
 	always_ff @(posedge clk) begin
-		if (ld_taken && ld_addr == CS1_BASE && ld_be[0]) c_blank_q <= 1'b1;
-		if (ld_taken && ld_addr >= C_FIRST_BEAT && ld_addr < CS1_END_BEAT)
+		if (ld_taken && ld_rd) ld_pending <= 1'b1;
+		if (ld_valid) ld_pending <= 1'b0;
+		if (ld_taken && ld_we && ld_addr == C_FIRST_BEAT && ld_be[0]) c_blank_q <= 1'b1;
+		if (ld_taken && ld_we && ld_addr >= C_FIRST_BEAT && ld_addr < CS1_END_BEAT)
 			for (int i = 0; i < 8; i++)
 				if (ld_be[i] && ld_din[8 * i +: 8] != 8'hFF) c_blank_q <= 1'b0;
 		if (state == S_LOOK && !abandon && cur_we && cur_g[GW-1] &&
@@ -287,7 +298,7 @@ module ddram_flash #(
 	logic                  bk_turn = 1'b0;   // a block read goes first when both wait
 
 	// a block read now, rather than a flash request
-	wire bk_go = state == S_IDLE && !sweep_req && !reset && bk_req && (bk_turn || !take);
+	wire bk_go = state == S_IDLE && !sweep_req && !reset && bk_req && (bk_turn || !take) && !ld_pending && !ld_rd;
 
 	assign bk_taken = bk_go;
 	assign bk_valid = state == S_BULK && ddram_dout_ready;
@@ -373,7 +384,7 @@ module ddram_flash #(
 					bk_cnt   <= 6'd0;
 					bk_turn  <= 1'b0;
 					state    <= S_BULK;
-				end else if (take) begin
+				end else if (take && !ld_pending && !ld_rd) begin
 					bk_turn   <= 1'b1;
 					// the tag and the beat are read at this edge
 					cur_port  <= pick;

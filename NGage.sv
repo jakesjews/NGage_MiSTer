@@ -379,6 +379,7 @@ ngage_mem ngage_mem
 	.flash_busy(),
 	.unmapped(),
 
+	.ld_rd(1'b0), .ld_valid(), .ld_data(),
 	.ld_we(ld_we),
 	.ld_addr(ld_addr),
 	.ld_din(ld_din),

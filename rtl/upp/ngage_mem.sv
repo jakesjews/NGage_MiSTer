@@ -66,10 +66,13 @@ module ngage_mem #(
 
 	// the image loader's DDRAM side
 	input  logic         ld_we,
+	input  logic         ld_rd,
 	input  logic [28:0]  ld_addr,
 	input  logic [63:0]  ld_din,
 	input  logic [7:0]   ld_be,
 	output logic         ld_busy,
+	output logic         ld_valid,
+	output logic [63:0]  ld_data,
 
 	// saving CS1 (rtl/mister/flash_save.sv): the 512-byte blocks CS1 writes
 	// change, and block reads of CS1 (ddram_flash)
@@ -254,7 +257,7 @@ module ngage_mem #(
 		.cs1_req(m1_req), .cs1_we(m1_we), .cs1_addr(m1_addr), .cs1_wdata(m1_wdata), .cs1_rdata(m1_rdata), .cs1_ack(m1_ack),
 		.cs1_lreq(m1_lreq), .cs1_laddr(m1_laddr), .cs1_ltaken(m1_ltaken),
 		.cs1_lrvalid(m1_lrvalid), .cs1_lrbeat(m1_lrbeat), .cs1_lrdata(m1_lrdata),
-		.ld_we(ld_we), .ld_addr(ld_addr), .ld_din(ld_din), .ld_be(ld_be), .ld_busy(ld_busy),
+		.ld_we(ld_we), .ld_rd(ld_rd), .ld_valid(ld_valid), .ld_data(ld_data), .ld_addr(ld_addr), .ld_din(ld_din), .ld_be(ld_be), .ld_busy(ld_busy),
 		.mark(save_mark), .mark_blk(save_mark_blk), .c_blank(c_blank), .bk_req(save_rd), .bk_blk(save_blk),
 		.bk_taken(save_taken), .bk_valid(save_valid), .bk_data(save_data),
 		.ddram_busy(ddram_busy), .ddram_burstcnt(ddram_burstcnt), .ddram_addr(ddram_addr), .ddram_dout(ddram_dout),
