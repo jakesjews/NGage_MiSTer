@@ -88,7 +88,7 @@ typedef struct NGageCbus {
     uint32_t rtc_tod0;          /* seconds since midnight at start-up */
     int32_t rtc_day_off;        /* day counter = rtc_day_off + days since start-up midnight */
     uint32_t rtc_date;          /* HLE RTC date register */
-    const uint8_t *cs1_data;    /* CS1's array, for the C:-blank register at +4 */
+    NGageFlash *cs1;           /* sticky C:-blank state, shared with the chip */
     MemoryRegion rtc_mr;
 } NGageCbus;
 
@@ -238,8 +238,7 @@ static uint64_t hle_rtc_read(void *opaque, hwaddr off, unsigned size)
     NGageCbus *s = opaque;
 
     if (off == 4) {             /* bit 0: the C: area (CS1 + 0x400000) starts erased */
-        const uint8_t *p = s->cs1_data ? s->cs1_data + 0x400000 : NULL;
-        return p && p[0] == 0xFF && p[1] == 0xFF && p[2] == 0xFF && p[3] == 0xFF;
+        return ngage_flash_c_blank(s->cs1);
     }
     return off == 0 ? s->rtc_date : 0;
 }
@@ -290,10 +289,10 @@ static void cbus_load(NGageCbus *s, const char *path)
     fclose(fp);
 }
 
-void ngage_cbus_set_cs1_data(const uint8_t *data)
+void ngage_cbus_set_cs1(NGageFlash *flash)
 {
     if (the_cbus) {
-        the_cbus->cs1_data = data;
+        the_cbus->cs1 = flash;
     }
 }
 

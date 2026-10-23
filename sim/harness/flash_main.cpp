@@ -54,6 +54,7 @@ struct Bench {
 
 	Bench(int aw_, uint32_t seed) : rng(seed), aw(aw_), words(1u << aw_), mem(words) {
 		for (uint32_t i = 0; i < words; i++) mem[i] = pattern(i);
+		t->c_blank = 0;
 		t->clk = 0; t->reset = 1; t->rst_n = 1; t->bus_req = 0; t->bus_we = 0; t->bus_addr = 0;
 		t->bus_wdata = 0; t->bus_lreq = 0; t->bus_laddr = 0;
 		t->mem_rdata = 0; t->mem_ack = 0; t->mem_ltaken = 0; t->mem_lrvalid = 0; t->mem_lrbeat = 0; t->mem_lrdata = 0;
@@ -78,7 +79,10 @@ struct Bench {
 			if (--wait <= 0) {
 				ack = true;
 				serving = false;
-				if (s_we) { mem[s_addr] = s_data; mem_writes++; }
+				if (s_we) {
+					mem[s_addr] = s_data; mem_writes++;
+					if (s_addr >= words / 2 && s_data != 0xFFFF) t->c_blank = 0;
+				}
 				else rdata = mem[s_addr];
 			}
 		} else if (t->mem_req && !t->reset) {  // before the first clock the outputs are random
@@ -231,6 +235,58 @@ void test_program(Bench &b) {
 
 void erase_cmd(Bench &b, uint32_t sa) {
 	b.unlock(); b.wr(0x555, 0x80); b.unlock(); b.wr(sa, 0x30);
+}
+
+void test_blank(Bench &b) {
+	const uint32_t first = b.words / 2, last = b.words - 4096;
+	std::fill(b.mem.begin() + first, b.mem.end(), 0xFFFF);
+	b.t->c_blank = 1;
+	uint64_t writes = b.mem_writes;
+	for (uint32_t a : {first, last}) {
+		erase_cmd(b, a + 77);
+		CHECK(!b.t->busy, "blank erase entered busy state");
+		CHECK_EQ(b.rd(a), 0xFFFF, "blank erase first poll is done");
+		b.wr(a, 0xB0); b.wr(a, 0x30); // no suspend/resume state to enter
+		CHECK_EQ(b.rd(a), 0xFFFF, "blank erase after suspend/resume commands");
+	}
+	CHECK_EQ(b.mem_writes, writes, "blank erase must not write memory");
+	CHECK(b.t->c_blank, "blank erases must not end fast mode");
+
+	// Lower-half sectors are not certified blank, even during first boot.
+	erase_cmd(b, 0x10000);
+	CHECK(b.t->busy, "non-C erase must remain timed");
+	b.wr(0, 0xF0); // abort in the erase window
+
+	// A program of FFFF does not consume blankness; the bus ack waits for
+	// memory and the very first read returns array data, without toggling.
+	b.unlock(); b.wr(0x555, 0xA0); b.wr(last, 0xFFFF);
+	CHECK(!b.t->busy && b.t->c_blank, "erased program left busy or ended fast mode");
+	CHECK_EQ(b.rd(last), 0xFFFF, "erased program first poll");
+	b.unlock(); b.wr(0x555, 0xA0);
+	uint64_t c0 = b.clocks;
+	b.wr(last + 7, 0x1234); // deliberately not C:'s first word
+	CHECK(b.clocks - c0 < PROGRAM_CLKS, "blank program waited for emulated timer");
+	CHECK_EQ(b.mem[last + 7], 0x1234, "fast program landed before ack");
+	CHECK(!b.t->busy && !b.t->c_blank, "first data must finish fast and clear blank");
+	CHECK_EQ(b.rd(last + 7), 0x1234, "fast program first poll is final data");
+
+	b.unlock(); b.wr(0x555, 0xA0); b.wr(last + 8, 0x5678);
+	CHECK(b.t->busy, "next C: program must be timed");
+	uint16_t p1 = b.rd(last + 8), p2 = b.rd(last + 8);
+	CHECK((p1 ^ p2) & 0x40, "timed program DQ6 after first C: write");
+	b.wait_done(last + 8);
+	CHECK_EQ(b.rd(last + 8), 0x5678, "timed C: program result");
+	erase_cmd(b, last);
+	CHECK(b.t->busy, "C: erase after first data must be timed");
+	CHECK_EQ(b.rd(last) & 0x08, 0, "timed erase window after first C: write");
+	b.ticks(ERASE_WINDOW_CLKS + 20);
+	b.wr(last, 0xB0);
+	CHECK(b.rd(last) & 0x80, "erase suspend restored after first C: write");
+	b.wr(last, 0x30);
+	b.wait_done(last);
+	CHECK_EQ(b.rd(last + 7), 0xFFFF, "resumed C: erase result");
+	CHECK(!b.t->c_blank, "erase must not re-arm fast mode");
+	for (uint32_t a = first; a < b.words; a++) b.mem[a] = Bench::pattern(a);
 }
 
 void test_erase(Bench &b) {
@@ -494,6 +550,7 @@ int main(int argc, char **argv) {
 	Bench b(aw, seed);
 	test_reads(b);
 	test_ids(b, id);
+	if (aw == 22) test_blank(b);
 	test_program(b);
 	test_erase(b);
 	test_suspend(b);

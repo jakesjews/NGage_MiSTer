@@ -223,9 +223,9 @@ sectors every time: 50 s of idle on the core (the chip's 0.7 s an erase,
 20 ms in the model, which is why the model never showed it), and the Time
 and Date dialogs at every start, the format having removed the first-boot
 marker. So the stand-in answers 105 only while C: is blank, which it reads
-from the HLE register `0x0C1F0104` (bit 0: the C: area's first word is
-erased; the core keeps it as the loader and the chip write that word, the
-model reads its flash array; `docs/UPP_WD2.md`), and 0 otherwise. What NOS
+from the HLE register `0x0C1F0104` (bit 0: no non-erased C: data has been
+loaded or programmed since the current CS1 image began loading; both the
+core and model keep this sticky until another image load; `docs/UPP_WD2.md`), and 0 otherwise. What NOS
 answers on a phone is unknown; a phone's C: is formatted at the factory.
 
 ## Not answered yet

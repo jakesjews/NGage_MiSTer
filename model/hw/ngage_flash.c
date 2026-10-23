@@ -16,6 +16,11 @@
  * toggle, DQ3 = 1; suspended DQ7 = 1, DQ2 toggles. With log-time=on each
  * erase start and end goes to the QEMU log with the guest time.
  *
+ * First format: while CS1's upper 4 MB is still erased, sector erases in
+ * C: complete immediately (there is nothing to erase). The first program
+ * of non-FF C: data ends this shortcut until a new image is loaded; erases
+ * never re-arm it. Programs already complete synchronously in this model.
+ *
  * Sector map: 64 KB sectors with the top 64 KB in eight 8 KB sectors (top
  * boot), from medint.pdd's sector-size rule at 0x5037FC28 (8 KB at and above
  * region size - 64 KB, with its 4 MB region ending at the top of CS1).
@@ -63,6 +68,7 @@ struct NGageFlash {
     char *path;
     char *save_path;
     bool dirty;
+    bool c_blank;       /* sticky until a new CS1 image is loaded */
     Notifier exit_notifier;
     /* Sector erase in progress: 0 none, 1 erasing, 2 suspended. */
     int busy;
@@ -154,6 +160,9 @@ static void erase_start(NGageFlash *f, uint32_t off)
     }
     f->busy_len = sector_len(f, off);
     f->busy_off = off & ~(f->busy_len - 1);
+    if (f->c_blank && f->busy_off >= f->size / 2) {
+        return;            /* known erased C: sector: no busy overlay/timer */
+    }
     f->busy = 1;
     memory_region_set_size(&f->busy_mr, f->busy_len);
     memory_region_add_subregion_overlap(f->sysmem, f->base + f->busy_off, &f->busy_mr, 1);
@@ -228,6 +237,9 @@ static void flash_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
         uint8_t *p = f->data + addr;
         for (unsigned i = 0; i < size && addr + i < f->size; i++) {
             p[i] &= val >> (8 * i);
+            if (addr + i >= f->size / 2 && p[i] != 0xFF) {
+                f->c_blank = false;
+            }
         }
         memory_region_flush_rom_device(&f->mr, addr, size);
         f->dirty = true;
@@ -353,6 +365,8 @@ NGageFlash *ngage_flash_create(MemoryRegion *sysmem, const char *name,
         g_free(buf);
         f->path = g_strdup(path);
     }
+    f->c_blank = f->device_id == FLASH_DEVICE_CS1;
+    ngage_flash_changed(f, 0, size);
     memory_region_add_subregion(sysmem, base, &f->mr);
     f->mode = ST_READ;
     f->sysmem = sysmem;
@@ -370,4 +384,18 @@ uint8_t *ngage_flash_data(NGageFlash *f, uint32_t *size)
 void ngage_flash_changed(NGageFlash *f, uint32_t off, uint32_t len)
 {
     memory_region_flush_rom_device(&f->mr, off, len);
+    if (f->c_blank && off < f->size) {
+        uint32_t end = off + MIN(len, f->size - off);
+        for (uint32_t i = MAX(off, f->size / 2); i < end; i++) {
+            if (f->data[i] != 0xFF) {
+                f->c_blank = false;
+                break;
+            }
+        }
+    }
+}
+
+bool ngage_flash_c_blank(NGageFlash *f)
+{
+    return f && f->c_blank;
 }

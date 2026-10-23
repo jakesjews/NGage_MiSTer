@@ -48,6 +48,10 @@
 // Timing: an operation lasts at least its busy time and at least as long as
 // its memory accesses take: PROGRAM_CLKS a word, SECTOR_ERASE_CLKS a sector
 // (chip erase = every sector in turn), ERASE_WINDOW_CLKS for more sectors.
+// c_blank certifies that CS1's upper half (C:) is still erased: sector
+// erases there are no-ops, and programs wait only for memory, holding the
+// bus write until it lands so the very next read sees the final data.
+// Tie c_blank low on CS0. The array owner clears it on the first C: data.
 // On the bus, a read of the array with nothing running goes to the memory
 // port in its first clock; any other request is answered a clock later.
 //
@@ -92,6 +96,7 @@ module nor_flash #(
 	input  logic          clk,
 	input  logic          reset,
 	input  logic          rst_n,
+	input  logic          c_blank,
 
 	input  logic          bus_req,
 	input  logic          bus_we,
@@ -303,6 +308,7 @@ module nor_flash #(
 	logic [15:0]       p_data, p_old;
 	logic [1:0]        p_step;                // 0 read, 1 write, 2 memory done
 	logic [31:0]       p_timer;
+	logic              p_fast;                // the bus write waits for memory
 
 	// erase engine
 	logic [1:0]        e_state;
@@ -363,7 +369,7 @@ module nor_flash #(
 	// sector decode and the status, command and autoselect logic stay off the
 	// path from the bus (it was the core's worst path with the CPU in). The
 	// request is held unchanged until its ack, so the registers still match.
-	wire                  rq_pend = bus_req && !bus_ack && !b_wait && !bus_lreq && !l_active;
+	wire                  rq_pend = bus_req && !bus_ack && !b_wait && !bus_lreq && !l_active && !p_fast;
 	wire                  rq_fast = alive && !bus_we && mode == M_READ && p_state == P_IDLE && e_state == E_IDLE;
 	logic                 d_v = 1'b0;         // rq_pend's second clock: decide it
 	logic                 d_we, d_sel, d_lock;
@@ -375,6 +381,7 @@ module nor_flash #(
 	wire [SW-1:0]         rq_sec  = d_sec;
 	wire                  rq_sel  = d_sel;
 	wire                  rq_lock = d_lock;
+	wire                  rq_blank = c_blank && d_addr[AW-1];
 	wire                  rq_ul1  = d_addr[10:0] == 11'h555;
 	wire                  rq_ul2  = d_addr[10:0] == 11'h2AA;
 	wire [7:0]            rq_cmd  = d_wdata[7:0];
@@ -397,7 +404,9 @@ module nor_flash #(
 		p_addr  <= d_addr;
 		p_data  <= d_wdata;
 		p_step  <= 2'd0;
-		p_timer <= 32'(PROGRAM_CLKS);
+		p_timer <= rq_blank ? 32'd0 : 32'(PROGRAM_CLKS);
+		p_fast  <= rq_blank;
+		bus_ack <= !rq_blank;
 		mode    <= M_READ;
 	endtask
 
@@ -411,14 +420,19 @@ module nor_flash #(
 	endtask
 
 	task automatic start_sector_erase();
-		sec_set_q         <= 1'b1;        // sel[rq_sec], unless locked, next clock
-		sec_q             <= rq_sec;
-		bank_sel[rq_bank] <= 1'b1;
-		e_state           <= E_WINDOW;
-		e_timer           <= 32'(ERASE_WINDOW_CLKS);
-		e_sector          <= '0;
-		e_step            <= S_FIND;
-		mode              <= M_READ;
+		// No array writes, status phase or suspend/resume for known blank C:.
+		if (rq_blank) begin
+			mode <= M_READ;
+		end else begin
+			sec_set_q         <= 1'b1;        // sel[rq_sec], unless locked, next clock
+			sec_q             <= rq_sec;
+			bank_sel[rq_bank] <= 1'b1;
+			e_state           <= E_WINDOW;
+			e_timer           <= 32'(ERASE_WINDOW_CLKS);
+			e_sector          <= '0;
+			e_step            <= S_FIND;
+			mode              <= M_READ;
+		end
 	endtask
 
 	task automatic sector_bits();
@@ -552,8 +566,8 @@ module nor_flash #(
 				bus_rdata <= 16'hFFFF;
 				bus_ack   <= 1'b1;
 			end else if (d_we) begin
-				bus_write();
 				bus_ack <= 1'b1;
+				bus_write();
 			end else if (prog_status) begin
 				bus_rdata <= status(~p_data[7], tog6, p_state == P_FAIL, 1'b0, 1'b1);
 				tog6      <= ~tog6;
@@ -582,8 +596,11 @@ module nor_flash #(
 		// ---- the program engine's busy time ----
 		if (p_state == P_RUN) begin
 			if (p_timer != 32'd0) p_timer <= p_timer - 32'd1;
-			if (p_step == 2'd2 && p_timer == 32'd0)
+			if (p_step == 2'd2 && p_timer == 32'd0) begin
 				p_state <= (PROGRAM_FAIL_DQ5 && (p_old & p_data) != p_data) ? P_FAIL : P_IDLE;
+				if (p_fast) bus_ack <= 1'b1;
+				p_fast <= 1'b0;
+			end
 		end
 
 		// ---- the erase engine ----
@@ -687,6 +704,7 @@ module nor_flash #(
 			cseq     <= C_IDLE;
 			bypass   <= 1'b0;
 			p_state  <= P_IDLE;
+			p_fast   <= 1'b0;
 			e_state  <= E_IDLE;
 			sel      <= '0;
 			bank_sel <= '0;
