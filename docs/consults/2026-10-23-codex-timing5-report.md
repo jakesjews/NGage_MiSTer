@@ -618,7 +618,11 @@ Actual-module equivalence proves all 1,121 points with the configured
 four-entry RAS, and all 1,252 with an eight-entry RAS; all 225 counts and 57 QEMU comparisons agree, with both lint
 modes and generated checks passing. The acceptance family includes all
 inputs to the three changed payload registers. The candidate is based on
-`combined2`; its two-seed fit is running. The older bus-comparison candidate is
+`combined2`. Drop it after the paired fit: the payload family changes
+from −0.812 to −0.942 ns at seed 1 and from −0.301 to −0.243 ns at
+seed 2, a 0.130 ns regression in the worse result. Whole-core slacks are
+−1.173/−1.058 ns. Both source manifests match; every count is unchanged.
+The older bus-comparison candidate is
 also rebased onto `combined2` as `buscompare3`; its UPP module bytes exactly
 match the previously proved candidate, and its CPU counts remain unchanged.
 Its paired UPP/peripheral/save/synthetic-top benches also pass, with all 109
