@@ -4,6 +4,13 @@ Work in progress. Baseline `c03088f`, branch `codex/timing2`. The acceptance
 criterion is the median of three whole-core slow-100C setup slacks at
 104 MHz, at least −0.300 ns. No CPU-only timing result is used for acceptance.
 
+Retained so far: the registered TLB fault summary, per-slot issue decisions,
+local barrel pending selects, and combined BL/LSL-zero decode. Every retained
+combination passes the complete CPU suite with identical cycles/instructions.
+The latest completed three-seed snapshot is `combined2`, at −0.812 ns median;
+it includes the owner-supplied card fix and the first two CPU changes, but
+predates the last two. The final combined timing requirement is not yet met.
+
 ## Measurement method
 
 Every fit uses the main core (`NGAGE_NO_DEBUG=1`), default 16 KB I-cache and
@@ -667,7 +674,12 @@ The acceptance minimum covers issue feedback, pending-bit capture,
 background pickup into ALU/shifter, and all inputs to the saved/emitted cache
 destination tags. A supplementary baseline query includes the original
 one-hot registers too, so moving delay into the new binary captures cannot
-hide. This trial is prepared on `combined2`, not applied or fitted. The
+hide. This trial is fitted independently on `combined2`; both seeds are running.
+An integration preview on the current retained tree resolves only the shifter
+input-list overlap, keeping the pending-select copy and replacing the old
+completion-mask input with the binary interface. That preview also passes
+all 225 exact counts, 57 QEMU comparisons, both lint modes and generated
+checks. It remains outside the branch until the paired fit qualifies. The
 single-outstanding-miss invariant is essential; a future cache supporting
 multiple outstanding misses would need a matching multi-entry interlock.
 
