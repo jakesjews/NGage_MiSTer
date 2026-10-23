@@ -77,3 +77,37 @@ numbers are in [session5-admission.json](arm9/session5-admission.json).
 Admission refinement verification: both cores pass 213/213 runs, 57/57 QEMU
 comparisons, all 69 windows, `make lint` and `make cpu-gen-check`. The
 [ledger](arm9/session5-admission-verification.txt) identifies the checked netlist.
+
+## Streaming blocks and PC loads
+
+LDM/STM capture their immutable instruction/base/mode/SPSR context once in E.
+A register-list selector, one RF read and an address counter then feed the
+ordered pipeline one register per enabled clock. The final packet performs
+base writeback (suppressed for LDM with its base in the list) and, for an
+exception return, restores SPSR. Memory permission checks carry a separate
+access mode: the final return's new mode must not authorize its own access.
+
+An error cancels every younger transfer. Earlier completed transfers remain.
+When W was requested, the fault path restores the original physical base in
+an internal non-final micro-op before entering the abort, even if an earlier
+LDM transfer loaded that base. Restoration precedes exception entry so an
+alias with the abort bank's LR still gives the exception link priority.
+
+Ordinary PC-relative memory and loads to PC now use the scalar pipeline.
+A loaded-PC W redirect suppresses younger memory requests and clears their
+records. A slow instruction waiting in E cannot execute on that redirect edge.
+Unpredictable memory forms that write back to PC retain the slow path.
+
+The one-register LDM/STM window is 11 clocks; three registers take 13. Thus each
+extra register costs one clock, versus seven in session 4. Fixed setup/drain
+cost remains ten marker-inclusive clocks around the stream. The loaded-PC
+window is 11 clocks. Seven new `arm9_stream_timing.S` windows each execute eight
+adjacent memory instructions: same word, different sets, post-indexed bases,
+and mixed loads/stores. All seven take exactly 9 hot clocks including the end
+marker. They use the existing independent retirement-window checker and are
+also compared with QEMU; no production timing tolerance was added.
+
+Block checkpoint verification: both cores pass 216/216 runs and 58/58 QEMU
+comparisons. The 69 existing and seven new timing windows pass, as do `make
+lint` and `make cpu-gen-check`. The [ledger](arm9/session5-block-verification.txt)
+identifies the checked netlist.

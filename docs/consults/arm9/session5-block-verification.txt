@@ -1,0 +1,10 @@
+Generated SHA-256: 691b1aa8d7c8dc717ff75aeba850cb9513e21f78bc264e491b7422ee9cf70466
+block-focus-final: RTL (gen): 33 passed, 0 failed
+block-focus-diff: RTL vs QEMU: 58 agree, 0 differ
+block-full: RTL (gen): 216 passed, 0 failed
+block-diff: RTL vs QEMU: 58 agree, 0 differ
+block-zap-full: RTL (gen): 216 passed, 0 failed
+block-zap-diff: RTL vs QEMU: 58 agree, 0 differ
+block-gencheck: rtl/cpu/arm925t_gen.v is current
+make lint: passed. 69 existing + 7 new timing windows pass, two hot checks each.
+Nine instruction counts and all ZAP cycles unchanged.

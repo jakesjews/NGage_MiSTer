@@ -603,3 +603,14 @@ holds metadata but leaves RAM writes enabled; after fills/TLB retries it reloads
 the three saved lookup addresses before issuing. ZAP retains its constant-zero
 external RAM stall and unchanged cache behavior. See the session-5 report for
 verified checkpoints and exact remaining interlock/drain costs.
+
+Block transfers now retain one immutable base/mode/SPSR context while a list
+selector and address counter feed one register per enabled clock into the
+ordered pipeline. Only the final packet writes back the base/restores flags.
+Earlier completed transfers survive an abort; a writeback-enabled aborted block
+restores its original physical base before exception entry. Access mode is
+separate from result flags so a final exception-return transfer uses its own
+original permissions. Loads to PC redirect at W and suppress younger requests.
+The seven new stream timing windows verify eight adjacent hit requests in nine
+marker-inclusive clocks. The existing LDM1/LDM3 windows verify one extra clock
+per additional register, with fixed block setup/drain overhead still exposed.
