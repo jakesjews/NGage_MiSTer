@@ -3112,3 +3112,9 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   Session 3 started: the overlap, the cycle model's counts
   (arm9_cycles.S), the timing fix with the CPU-only trial, and the cycle
   comparison against ZAP.
+- **The boot bench with the predictor fixes** (a8ca165's tree): all
+  76,975 device accesses agree with the model in order, the register and
+  CBUS logs agree; 906,070,899 instructions in the 2.7 G cycles against
+  661,484,885 before the fixes, so the firmware's boot runs 37 % more
+  instructions in the same time (the BTB forgetting its entries hurt the
+  kernel too). The bench on the whole merged tree is queued next.
