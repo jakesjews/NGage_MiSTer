@@ -195,6 +195,7 @@ module zap_issue_main
         output logic [3:0]                        o_load_pending_ff,
         output logic [5:0]                        o_shift_length_index_ff,
         (* preserve, dont_retime *) output logic  o_shift_source_pending_ff,
+        (* preserve, dont_retime *) output logic  o_shift_length_pending_ff,
         input logic [3:0]                         i_late_ready,
         input logic [127:0]                       i_late_value,
 
@@ -551,6 +552,15 @@ always_ff @(posedge i_clk) begin
         else if (!stall)
                 o_shift_source_pending_ff <= issue_pending[1];
         else o_shift_source_pending_ff <= o_shift_source_pending_ff && !i_late_ready[1];
+end
+
+// ARM925T: the barrel amount mux gets the same local pending-bit boundary.
+// Keep both mux selects independent of the completion/interlock fanout.
+always_ff @(posedge i_clk) begin
+        if (i_reset || clear) o_shift_length_pending_ff <= 1'b0;
+        else if (!stall)
+                o_shift_length_pending_ff <= issue_pending[2];
+        else o_shift_length_pending_ff <= o_shift_length_pending_ff && !i_late_ready[2];
 end
 
 // ARM925T: capture register-file, forwarded and held-slot refresh data

@@ -5426,6 +5426,7 @@ module zap_core (
 	wire [3:0] issue_load_pending_ff;
 	wire [3:0] shifter_late_ready;
 	wire issue_shift_source_pending_ff;
+	wire issue_shift_length_pending_ff;
 	wire [5:0] issue_shift_length_index_ff;
 	wire [127:0] shifter_late_value;
 	wire [1:0] shifter_load_pending_ff;
@@ -5943,6 +5944,7 @@ module zap_core (
 		.o_load_pending_ff(issue_load_pending_ff),
 		.o_shift_length_index_ff(issue_shift_length_index_ff),
 		.o_shift_source_pending_ff(issue_shift_source_pending_ff),
+		.o_shift_length_pending_ff(issue_shift_length_pending_ff),
 		.i_late_ready(shifter_late_ready),
 		.i_late_value(shifter_late_value),
 		.o_shifter_disable_ff(issue_shifter_disable_ff)
@@ -5966,6 +5968,7 @@ module zap_core (
 		.i_load_pending_ff(issue_load_pending_ff),
 		.i_shift_length_index_ff(issue_shift_length_index_ff),
 		.i_shift_source_pending_ff(issue_shift_source_pending_ff),
+		.i_shift_length_pending_ff(issue_shift_length_pending_ff),
 		.i_memory_load_valid(memory_load_valid),
 		.i_memory_load_index(late_memory_index_ff),
 		.i_memory_load_value(late_memory_value_ff),
@@ -11956,6 +11959,7 @@ module zap_issue_main (
 	o_load_pending_ff,
 	o_shift_length_index_ff,
 	o_shift_source_pending_ff,
+	o_shift_length_pending_ff,
 	i_late_ready,
 	i_late_value,
 	o_condition_code_ff,
@@ -12082,6 +12086,7 @@ module zap_issue_main (
 	output reg [3:0] o_load_pending_ff;
 	output reg [5:0] o_shift_length_index_ff;
 	(* preserve, dont_retime *) output reg o_shift_source_pending_ff;
+	(* preserve, dont_retime *) output reg o_shift_length_pending_ff;
 	input wire [3:0] i_late_ready;
 	input wire [127:0] i_late_value;
 	output reg [3:0] o_condition_code_ff;
@@ -12604,6 +12609,13 @@ module zap_issue_main (
 			o_shift_source_pending_ff <= issue_pending[1];
 		else
 			o_shift_source_pending_ff <= o_shift_source_pending_ff && !i_late_ready[1];
+	always @(posedge i_clk)
+		if (i_reset || clear)
+			o_shift_length_pending_ff <= 1'b0;
+		else if (!stall)
+			o_shift_length_pending_ff <= issue_pending[2];
+		else
+			o_shift_length_pending_ff <= o_shift_length_pending_ff && !i_late_ready[2];
 	(* dont_retime *) reg [31:0] alu_source_normal_ff;
 	(* dont_retime *) reg [31:0] alu_source_rf_ff;
 	(* dont_retime *) reg [31:0] alu_source_refresh_ff;
@@ -17049,6 +17061,7 @@ module zap_shifter_main (
 	i_memory_load_index,
 	i_memory_load_value,
 	i_shift_source_pending_ff,
+	i_shift_length_pending_ff,
 	i_dc_reg_idx,
 	i_dc_reg_dat,
 	i_stall_from_alu,
@@ -17151,6 +17164,7 @@ module zap_shifter_main (
 	input wire [5:0] i_memory_load_index;
 	input wire [31:0] i_memory_load_value;
 	input wire i_shift_source_pending_ff;
+	input wire i_shift_length_pending_ff;
 	input wire [63:0] i_dc_reg_idx;
 	input wire [31:0] i_dc_reg_dat;
 	input wire i_stall_from_alu;
@@ -17845,8 +17859,8 @@ module zap_shifter_main (
 			o_uop_last <= i_uop_last;
 		end
 	zap_shifter_shift #(.SHIFT_OPS(SHIFT_OPS)) U_SHIFT(
-		.i_source((i_load_pending_ff[1] ? i_memory_load_value : i_shift_source_value_ff)),
-		.i_amount((i_load_pending_ff[2] ? i_memory_load_value[7:0] : i_shift_length_value_ff[7:0])),
+		.i_source((i_shift_source_pending_ff ? i_memory_load_value : i_shift_source_value_ff)),
+		.i_amount((i_shift_length_pending_ff ? i_memory_load_value[7:0] : i_shift_length_value_ff[7:0])),
 		.i_shift_type(i_shift_operation_ff),
 		.i_carry(i_cpsr_ff_29),
 		.o_result(shout),

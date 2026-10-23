@@ -72,6 +72,7 @@ module zap_shifter_main
         input logic [5:0] i_memory_load_index,
         input logic [31:0] i_memory_load_value,
         input logic i_shift_source_pending_ff,
+        input logic i_shift_length_pending_ff,
         input logic [63:0] i_dc_reg_idx,
         input logic [31:0] i_dc_reg_dat,
         input logic i_stall_from_alu,
@@ -497,8 +498,9 @@ U_SHIFT
         // ARM925T: forwarding is only used by the unshifted bypass. Do not
         // route it through the barrel shifter as well: that creates an
         // ALU -> forwarding -> barrel path whose output is never selected.
-        .i_source       ( i_load_pending_ff[1] ? i_memory_load_value : i_shift_source_value_ff ),
-        .i_amount       ( i_load_pending_ff[2] ? i_memory_load_value[7:0] : i_shift_length_value_ff[7:0] ),
+        // Local issue-register copies select the registered memory snapshot.
+        .i_source       ( i_shift_source_pending_ff ? i_memory_load_value : i_shift_source_value_ff ),
+        .i_amount       ( i_shift_length_pending_ff ? i_memory_load_value[7:0] : i_shift_length_value_ff[7:0] ),
         .i_shift_type   ( i_shift_operation_ff ),
         .i_carry        ( i_cpsr_ff_29 ),
         .o_result       ( shout ),

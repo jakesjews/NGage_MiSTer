@@ -217,8 +217,8 @@ Seed 3 is led by I-cache tag forwarding into the fetch FIFO empty flag
 (−1.304 ns), UPP acknowledge into merger address (−1.187 ns), and the
 barrel shifter (−1.038 ns). Its card model is −0.602 ns, close to seeds
 1 / 2 at −0.600 / −0.584 ns. The card owner's fix has since merged into
-master; it will be integrated for the next combined tree, without changing
-the baseline of the currently running paired CPU comparisons.
+master; it is integrated unchanged in the second combined tree below.
+The independent paired comparisons retain their original baseline.
 
 Supplementary queries include both sides of the new TLB summary. The
 checker-input family is +0.511 / −0.653 / −0.644 ns; the normal issue
@@ -251,6 +251,46 @@ whole-core slack is −0.879 / −1.128 ns. Both input manifests match. All
 generated checks pass. Removing the translation mux from one summary does
 not produce a consistent routed gain across this family. No decoder RTL
 from this trial is applied to the branch.
+
+## Second combined tree, with the card fix
+
+`combined2` fits source `d8b1d1c`: the retained TLB and issue ports, plus
+the card owner's change merged unchanged through `e0c34d0`. MAIN seed
+1 / 2 / 3 setup slack is **−0.812 / −0.854 / −0.703 ns**: **median −0.812 ns**.
+The goal remains unmet. The 0.340 ns improvement over the original median
+includes the external card fix and placement effects; it is not attributed
+entirely to the CPU edits. All three input manifests match. Fits use
+35,666 / 35,552 / 35,571 ALMs and 477 RAM blocks. Minimum hold slack across
+the four reported corners is +0.026 / +0.077 / +0.078 ns.
+
+| Family | Seed 1 | Seed 2 | Seed 3 |
+| --- | ---: | ---: | ---: |
+| card model | +0.159 | +0.363 | +0.461 |
+| predecode prediction payload | −0.812 | −0.301 | +0.236 |
+| shifter output | −0.561 | −0.854 | −0.450 |
+| predecode to decode | −0.437 | −0.821 | −0.348 |
+| issue interlock feedback | −0.346 | −0.334 | −0.703 |
+| issue forwarding captures | −0.526 | −0.559 | −0.314 |
+| D-TLB outgoing fault | −0.289 | +0.410 | +0.225 |
+| D-TLB checker inputs | −0.373 | +0.118 | +0.079 |
+| merger address to UPP | −0.673 | −0.149 | −0.525 |
+| arbitration control to UPP | −0.683 | −0.329 | −0.151 |
+| all merger register inputs | −0.400 | −0.451 | +0.219 |
+
+Seed 1 is led by D-cache early hit through stall/clear into predicted-PC
+capture. Seed 2 is led by issue shift-source into the barrel result, followed
+by predecode instruction bit 17 into the LSL-zero summary. Seed 3 is led by
+decode shift-source into issue's stall-index register. The card family is
+positive throughout. The input and output sides of the TLB change and the
+remaining issue feedback are kept visible; isolated gains still do not
+predict every combined seed.
+
+The predecode payload query was added before seeds 2/3's timing analysis;
+a report-only rerun on seed 1's existing routed database supplies the same
+query there. No fit, source, clock constraint or seed changed. The pending
+select change is retained after this measurement, with the full suite and
+57 QEMU comparisons repeated on the integrated branch and every count
+unchanged. Its combined three-seed timing is still to be measured.
 
 ## Further candidates prepared from the main-core baseline
 
@@ -499,19 +539,18 @@ the two family results improves, the first seed regresses by 0.730 ns;
 that distinction is preserved for review rather than treating the pair as
 an unqualified gain.
 
-The `pendingselect` trial is eligible for retention: the minimum over the
+The `pendingselect` trial is retained after its paired result: the minimum over the
 complete shifter-output and issue-pending input families improves from
 −0.680 to −0.258 ns at seed 1 and from −0.535 to −0.501 ns at seed 2.
 The second seed's shifter result is −0.396 ns; the new limiting member
 is a pending-bit input at −0.501 ns. Whole-core slacks are −1.286 and
 −0.899 ns, with 477 RAM blocks in both fits. The 0.034 ns second-seed
 improvement is small; it is not evidence that the whole core closes.
-Both source manifests match and every count is unchanged. No candidate
-RTL is yet applied: `combined2` first measures the current retained CPU
-changes plus the card owner's fix at seeds 1–3. Its source is `d8b1d1c`, with the
-MAIN macro enabled only in its dedicated build copies. The active pairs
-keep their original combined1 baseline. No unmeasured candidate is applied
-to the main branch for this combined build.
+Both source manifests match and every count is unchanged. Its paired fits
+use the original combined1 baseline. It is applied only after `combined2`
+completes, so the −0.812 ns median above does not include this change. The
+integrated branch also passes all 225 identical counts, 57 QEMU comparisons,
+both lint modes and generated checks.
 
 **Shared D-cache bus request (`dcstrobe`):** all three internal managers
 (cache FSM, tag maintenance FSM and TLB walker) assert CYC and STB together.
@@ -543,9 +582,14 @@ Actual-module equivalence proves all 1,252 points for the configured
 predecode; all 225 counts and 57 QEMU comparisons agree, with both lint
 modes and generated checks passing. The acceptance family includes all
 inputs to the three changed payload registers. The candidate is based on
-`combined2` and is prepared only. The older bus-comparison candidate is
+`combined2`; its two-seed fit is running. The older bus-comparison candidate is
 also rebased onto `combined2` as `buscompare3`; its UPP module bytes exactly
 match the previously proved candidate, and its CPU counts remain unchanged.
+Its paired UPP/peripheral/save/synthetic-top benches also pass, with all 109
+clock/result/distribution lines identical to the current combined baseline.
+The combined decoder candidate is rebased as `decodeboth3` onto this same
+baseline; its module bytes match the proved version, and all CPU/lint/generated
+checks pass before its paired fit.
 
 ## Scope and risks
 

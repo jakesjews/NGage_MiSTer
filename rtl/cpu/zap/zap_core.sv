@@ -414,7 +414,7 @@ logic                            shifter_und_ff;
 logic                            stall_from_shifter;
 logic                            stall_from_alu;
 logic [3:0] issue_load_pending_ff, shifter_late_ready;
-logic issue_shift_source_pending_ff;
+logic issue_shift_source_pending_ff, issue_shift_length_pending_ff;
 logic [5:0] issue_shift_length_index_ff;
 logic [127:0] shifter_late_value;
 logic [1:0] shifter_load_pending_ff, alu_late_ready;
@@ -1129,6 +1129,7 @@ u_zap_issue_main
         .o_load_pending_ff              (issue_load_pending_ff),
         .o_shift_length_index_ff        (issue_shift_length_index_ff),
         .o_shift_source_pending_ff      (issue_shift_source_pending_ff),
+        .o_shift_length_pending_ff      (issue_shift_length_pending_ff),
         .i_late_ready                   (shifter_late_ready),
         .i_late_value                   (shifter_late_value),
         .o_shifter_disable_ff           (issue_shifter_disable_ff)
@@ -1153,6 +1154,7 @@ u_zap_shifter_main
         .i_load_pending_ff              (issue_load_pending_ff),
         .i_shift_length_index_ff        (issue_shift_length_index_ff),
         .i_shift_source_pending_ff      (issue_shift_source_pending_ff),
+        .i_shift_length_pending_ff      (issue_shift_length_pending_ff),
         .i_memory_load_valid            (memory_load_valid),
         .i_memory_load_index            (late_memory_index_ff),
         .i_memory_load_value            (late_memory_value_ff),
