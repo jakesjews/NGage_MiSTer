@@ -660,6 +660,23 @@ hide. This trial is prepared on `combined2`, not applied or fitted. The
 single-outstanding-miss invariant is essential; a future cache supporting
 multiple outstanding misses would need a matching multi-entry interlock.
 
+**Prediction-payload banks (`prebank`):** a separate replacement for the
+failed direct-enable trial stores predicted PC and redirect PC in two banks.
+The inactive bank captures their next values; the exact original acceptance
+condition toggles a one-bit selector. Reset zeroes both banks, and stalls or
+flushes retain the selected payload exactly. The RAS pointer and all valid,
+clear and exception registers retain their original implementation. This
+adds 65 flip-flops and a two-input output mux, without a pipeline edge.
+
+All 1,121 actual configured predecode comparison points prove, including
+induction for the 64 changed payload bits with the sequencer and coprocessor
+modules flattened. All 225 CPU counts remain exact, 57 QEMU comparisons
+agree, both lint modes pass, and generation/checks retain ten textual
+`input reg` occurrences. The paired acceptance group covers all original
+payload/RAS inputs, replacement bank/selector inputs, and paths from the
+old payload or replacement banks into all consumers. It is prepared on
+`combined2`, not retained or fitted.
+
 ## Scope and risks
 
 No firmware boot bench, `sys/` change, ARM9 change, card-model edit, hardware
