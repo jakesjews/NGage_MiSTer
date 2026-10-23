@@ -811,6 +811,7 @@ mmc_card mmc_card
 	.dat_i(mmc_dat),
 	.dat_o(card_dat_o),
 	.dat_oe(card_dat_oe),
+	.stop_queued(!dbg_src0[23]),
 	.present(),
 	.write_protected(),
 	.active(mmc_active),
