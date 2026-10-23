@@ -3910,3 +3910,7 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   (-0.68, two paths), then the predecode cone (-0.60, -0.57). The rbf
   (build/hardware/NGage-ndm-s7.rbf) is the main-slot candidate, to be
   smoke-tested when the board is free. Seed 9 of the same tree running.
+- Seed 8 of the main core on c8f18ef (the Mac): -0.920 ns, 35,070 ALMs;
+  the Thumb decoder into predecode (-0.92), the issue stage's late
+  stall (-0.91), predecode's instruction register into the writeback
+  (-0.79). Seed 10 on the Mac.
