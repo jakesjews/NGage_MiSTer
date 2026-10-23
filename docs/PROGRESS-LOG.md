@@ -1,3 +1,14 @@
+- **Codex's timing round 3** (codex/timing2 39ad27a, six hours, with
+  Antigravity's fixes as its checklist, each change proved by a
+  whole-core build on the server): the whole core **-1.088 -> -0.460 ns**
+  at slow 100C, reproduced independently; cycle and instruction counts
+  unchanged; 198 runs, 52 QEMU comparisons and the firmware boot bench
+  (all 76,975 device accesses) pass. The remaining worst path: the MMU
+  enable into the merger's data capture. Report
+  docs/consults/2026-10-23-codex-timing3-report.md. Merged into master
+  with the flash fetch (191cab1); building (b14, the server). The last
+  0.46 ns are a later round; the Codex thread now goes to the pipeline
+  stalls.
 # N-Gage QD MiSTer core: progress log
 
 Newest entries at the bottom. Each entry says what was done, what was
