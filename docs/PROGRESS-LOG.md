@@ -3941,3 +3941,8 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   stall, the MMU enable's fanout, the memory stage into the D-cache tag
   RAM, the merger's address into upp_bus's decode and line buffer, the
   D-TLB walker into decode and the shifter.
+- Sweep extended to seed 20 (the user: "going up to seed 20 is fine"):
+  seeds 12-19 on the server two at a time (Codex's round 5 holds the
+  other two lanes), seed 20 on the Mac, all of the tree with the card
+  model's fix (815bcbd, RTL c8f18ef), results in build/sweeps/ndm-s<n>/
+  through tools/seed_sweep.sh.
