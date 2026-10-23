@@ -11019,7 +11019,9 @@ module zap_decode_main (
 	wire [32:0] shift_length_nxt;
 	wire [$clog2(ARCH_REGS) - 1:0] mem_srcdest_index_nxt;
 	wire arm_bl = !i_instruction[39] && i_instruction[38];
-	wire [35:0] decode_word = (arm_bl ? {4'b0000, i_instruction[31:28], 28'h24fe004} : {i_instruction[35] && !i_instruction[39], i_instruction[34:0]});
+	wire [35:0] normal_word = {i_instruction[35] && !i_instruction[39], i_instruction[34:0]};
+	wire [35:0] bl_word = {4'b0000, i_instruction[31:28], 28'h24fe004};
+	wire [35:0] decode_word = (arm_bl ? bl_word : normal_word);
 	assign o_abt_nxt = i_abt && i_instruction_valid;
 	assign o_irq_nxt = (!i_fiq && i_irq) && !o_abt_nxt;
 	assign o_fiq_nxt = i_fiq && !o_abt_nxt;
@@ -11112,7 +11114,7 @@ module zap_decode_main (
 			o_shift_source_ff <= o_shift_source_nxt;
 			o_shift_operation_ff <= o_shift_operation_nxt;
 			o_shift_length_ff <= o_shift_length_nxt;
-			o_shift_is_lsl0_ff <= (o_shift_operation_nxt == {1'b0, LSL}) && (o_shift_length_nxt == {IMMED_EN, 32'b00000000000000000000000000000000});
+			o_shift_is_lsl0_ff <= (o_shift_operation_nxt == {1'b0, LSL}) && (shift_length_nxt == {IMMED_EN, 32'b00000000000000000000000000000000});
 			o_flag_update_ff <= o_flag_update_nxt;
 			o_mem_srcdest_index_ff <= o_mem_srcdest_index_nxt;
 			o_mem_load_ff <= o_mem_load_nxt;
@@ -11133,6 +11135,44 @@ module zap_decode_main (
 			o_decompile <= decompile_tmp;
 			o_uop_last <= i_uop_last;
 		end
+	wire [3:0] o_condition_code_nxt_n;
+	wire [3:0] o_condition_code_nxt_b;
+	wire [$clog2(ARCH_REGS) - 1:0] destination_index_nxt_n;
+	wire [$clog2(ARCH_REGS) - 1:0] destination_index_nxt_b;
+	wire [32:0] alu_source_nxt_n;
+	wire [32:0] alu_source_nxt_b;
+	wire [$clog2(ALU_OPS) - 1:0] o_alu_operation_nxt_n;
+	wire [$clog2(ALU_OPS) - 1:0] o_alu_operation_nxt_b;
+	wire [32:0] shift_source_nxt_n;
+	wire [32:0] shift_source_nxt_b;
+	wire [$clog2(SHIFT_OPS) - 1:0] o_shift_operation_nxt_n;
+	wire [$clog2(SHIFT_OPS) - 1:0] o_shift_operation_nxt_b;
+	wire [32:0] shift_length_nxt_n;
+	wire [32:0] shift_length_nxt_b;
+	wire o_flag_update_nxt_n;
+	wire o_flag_update_nxt_b;
+	wire [$clog2(ARCH_REGS) - 1:0] mem_srcdest_index_nxt_n;
+	wire [$clog2(ARCH_REGS) - 1:0] mem_srcdest_index_nxt_b;
+	wire o_mem_load_nxt_n;
+	wire o_mem_load_nxt_b;
+	wire o_mem_store_nxt_n;
+	wire o_mem_store_nxt_b;
+	wire o_mem_pre_index_nxt_n;
+	wire o_mem_pre_index_nxt_b;
+	wire o_mem_unsigned_byte_enable_nxt_n;
+	wire o_mem_unsigned_byte_enable_nxt_b;
+	wire o_mem_signed_byte_enable_nxt_n;
+	wire o_mem_signed_byte_enable_nxt_b;
+	wire o_mem_signed_halfword_enable_nxt_n;
+	wire o_mem_signed_halfword_enable_nxt_b;
+	wire o_mem_unsigned_halfword_enable_nxt_n;
+	wire o_mem_unsigned_halfword_enable_nxt_b;
+	wire o_mem_translate_nxt_n;
+	wire o_mem_translate_nxt_b;
+	wire o_und_nxt_n;
+	wire o_und_nxt_b;
+	wire o_switch_nxt_n;
+	wire o_switch_nxt_b;
 	zap_decode #(
 		.ARCH_REGS(ARCH_REGS),
 		.ALU_OPS(ALU_OPS),
@@ -11142,29 +11182,80 @@ module zap_decode_main (
 		.i_irq(i_irq),
 		.i_fiq(i_fiq),
 		.i_abt(i_abt),
-		.i_instruction(decode_word),
+		.i_instruction(normal_word),
 		.i_instruction_valid(i_instruction_valid),
 		.i_v5_und(i_v5_und),
-		.o_condition_code(o_condition_code_nxt),
-		.o_destination_index(destination_index_nxt),
-		.o_alu_source(alu_source_nxt),
-		.o_alu_operation(o_alu_operation_nxt),
-		.o_shift_source(shift_source_nxt),
-		.o_shift_operation(o_shift_operation_nxt),
-		.o_shift_length(shift_length_nxt),
-		.o_flag_update(o_flag_update_nxt),
-		.o_mem_srcdest_index(mem_srcdest_index_nxt),
-		.o_mem_load(o_mem_load_nxt),
-		.o_mem_store(o_mem_store_nxt),
-		.o_mem_pre_index(o_mem_pre_index_nxt),
-		.o_mem_unsigned_byte_enable(o_mem_unsigned_byte_enable_nxt),
-		.o_mem_signed_byte_enable(o_mem_signed_byte_enable_nxt),
-		.o_mem_signed_halfword_enable(o_mem_signed_halfword_enable_nxt),
-		.o_mem_unsigned_halfword_enable(o_mem_unsigned_halfword_enable_nxt),
-		.o_mem_translate(o_mem_translate_nxt),
-		.o_und(o_und_nxt),
-		.o_switch(o_switch_nxt)
+		.o_condition_code(o_condition_code_nxt_n),
+		.o_destination_index(destination_index_nxt_n),
+		.o_alu_source(alu_source_nxt_n),
+		.o_alu_operation(o_alu_operation_nxt_n),
+		.o_shift_source(shift_source_nxt_n),
+		.o_shift_operation(o_shift_operation_nxt_n),
+		.o_shift_length(shift_length_nxt_n),
+		.o_flag_update(o_flag_update_nxt_n),
+		.o_mem_srcdest_index(mem_srcdest_index_nxt_n),
+		.o_mem_load(o_mem_load_nxt_n),
+		.o_mem_store(o_mem_store_nxt_n),
+		.o_mem_pre_index(o_mem_pre_index_nxt_n),
+		.o_mem_unsigned_byte_enable(o_mem_unsigned_byte_enable_nxt_n),
+		.o_mem_signed_byte_enable(o_mem_signed_byte_enable_nxt_n),
+		.o_mem_signed_halfword_enable(o_mem_signed_halfword_enable_nxt_n),
+		.o_mem_unsigned_halfword_enable(o_mem_unsigned_halfword_enable_nxt_n),
+		.o_mem_translate(o_mem_translate_nxt_n),
+		.o_und(o_und_nxt_n),
+		.o_switch(o_switch_nxt_n)
 	);
+	zap_decode #(
+		.ARCH_REGS(ARCH_REGS),
+		.ALU_OPS(ALU_OPS),
+		.SHIFT_OPS(SHIFT_OPS),
+		.V4T(V4T)
+	) u_zap_decode_bl(
+		.i_irq(i_irq),
+		.i_fiq(i_fiq),
+		.i_abt(i_abt),
+		.i_instruction(bl_word),
+		.i_instruction_valid(i_instruction_valid),
+		.i_v5_und(i_v5_und),
+		.o_condition_code(o_condition_code_nxt_b),
+		.o_destination_index(destination_index_nxt_b),
+		.o_alu_source(alu_source_nxt_b),
+		.o_alu_operation(o_alu_operation_nxt_b),
+		.o_shift_source(shift_source_nxt_b),
+		.o_shift_operation(o_shift_operation_nxt_b),
+		.o_shift_length(shift_length_nxt_b),
+		.o_flag_update(o_flag_update_nxt_b),
+		.o_mem_srcdest_index(mem_srcdest_index_nxt_b),
+		.o_mem_load(o_mem_load_nxt_b),
+		.o_mem_store(o_mem_store_nxt_b),
+		.o_mem_pre_index(o_mem_pre_index_nxt_b),
+		.o_mem_unsigned_byte_enable(o_mem_unsigned_byte_enable_nxt_b),
+		.o_mem_signed_byte_enable(o_mem_signed_byte_enable_nxt_b),
+		.o_mem_signed_halfword_enable(o_mem_signed_halfword_enable_nxt_b),
+		.o_mem_unsigned_halfword_enable(o_mem_unsigned_halfword_enable_nxt_b),
+		.o_mem_translate(o_mem_translate_nxt_b),
+		.o_und(o_und_nxt_b),
+		.o_switch(o_switch_nxt_b)
+	);
+	assign o_condition_code_nxt = (arm_bl ? o_condition_code_nxt_b : o_condition_code_nxt_n);
+	assign destination_index_nxt = (arm_bl ? destination_index_nxt_b : destination_index_nxt_n);
+	assign alu_source_nxt = (arm_bl ? alu_source_nxt_b : alu_source_nxt_n);
+	assign o_alu_operation_nxt = (arm_bl ? o_alu_operation_nxt_b : o_alu_operation_nxt_n);
+	assign shift_source_nxt = (arm_bl ? shift_source_nxt_b : shift_source_nxt_n);
+	assign o_shift_operation_nxt = (arm_bl ? o_shift_operation_nxt_b : o_shift_operation_nxt_n);
+	assign shift_length_nxt = (arm_bl ? shift_length_nxt_b : shift_length_nxt_n);
+	assign o_flag_update_nxt = (arm_bl ? o_flag_update_nxt_b : o_flag_update_nxt_n);
+	assign mem_srcdest_index_nxt = (arm_bl ? mem_srcdest_index_nxt_b : mem_srcdest_index_nxt_n);
+	assign o_mem_load_nxt = (arm_bl ? o_mem_load_nxt_b : o_mem_load_nxt_n);
+	assign o_mem_store_nxt = (arm_bl ? o_mem_store_nxt_b : o_mem_store_nxt_n);
+	assign o_mem_pre_index_nxt = (arm_bl ? o_mem_pre_index_nxt_b : o_mem_pre_index_nxt_n);
+	assign o_mem_unsigned_byte_enable_nxt = (arm_bl ? o_mem_unsigned_byte_enable_nxt_b : o_mem_unsigned_byte_enable_nxt_n);
+	assign o_mem_signed_byte_enable_nxt = (arm_bl ? o_mem_signed_byte_enable_nxt_b : o_mem_signed_byte_enable_nxt_n);
+	assign o_mem_signed_halfword_enable_nxt = (arm_bl ? o_mem_signed_halfword_enable_nxt_b : o_mem_signed_halfword_enable_nxt_n);
+	assign o_mem_unsigned_halfword_enable_nxt = (arm_bl ? o_mem_unsigned_halfword_enable_nxt_b : o_mem_unsigned_halfword_enable_nxt_n);
+	assign o_mem_translate_nxt = (arm_bl ? o_mem_translate_nxt_b : o_mem_translate_nxt_n);
+	assign o_und_nxt = (arm_bl ? o_und_nxt_b : o_und_nxt_n);
+	assign o_switch_nxt = (arm_bl ? o_switch_nxt_b : o_switch_nxt_n);
 	zap_decompile u_zap_decompile(
 		.i_instruction(decode_word),
 		.i_dav(i_instruction_valid),

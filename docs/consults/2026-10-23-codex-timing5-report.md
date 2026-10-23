@@ -54,8 +54,9 @@ No original generated netlist was reused: each port regenerated its own from
 the current SystemVerilog. All pass 225 CPU runs, 57 QEMU comparisons,
 normal and `NGAGE_NO_DEBUG` lint, `make cpu-gen-check`, and the required raw
 `input reg` count of 10. Every CPU cycle and instruction count equals the
-baseline. The fault-summary and issue ports are retained; the tag-read,
-multiply, arbiter and BL ports are dropped after their paired fits.
+baseline. The fault-summary and issue ports are retained. The original tag-read,
+multiply, arbiter and standalone BL trials are not applied; a combined
+BL/LSL-zero decoder trial is retained later, as described below.
 
 1. **262d07a: split stage-one valid/LRU reads.** Register the results of
    small low-index muxes and the high index at the same edge, then select
@@ -630,6 +631,16 @@ clock/result/distribution lines identical to the current combined baseline.
 The combined decoder candidate is rebased as `decodeboth3` onto this same
 baseline; its module bytes match the proved version, and all CPU/lint/generated
 checks pass before its paired fit.
+
+Retain `decodeboth3` after the paired fit: the decoder family improves from
+−0.437 to +0.082 ns at seed 1 and from −0.821 to −0.572 ns at seed 2
+(worst-of-pair gain 0.249 ns). Whole-core slacks remain −0.811/−1.024 ns;
+the worst paths move to issue lock selection and late-memory pickup into
+the shifter. The fits use 35,100/35,058 ALMs and 477 RAM blocks, versus
+35,666/35,552 ALMs for their matching baseline seeds. Both source manifests
+match. The integrated branch, including the retained pending-select copies,
+also passes all 225 identical counts, 57 QEMU comparisons, both lint modes
+and generated checks. A fresh combined three-seed fit remains required.
 
 **Binary cache destination tags (`dctags`):** extend the background-index
 candidate to the issue interlock and memory-load-valid check. Save the six-bit
