@@ -79,8 +79,8 @@ input   logic [1:0]            i_sr,
 input   logic [31:0]           i_baddr,
 input   logic [31:0]           i_dac_reg,
 input   logic                  i_tlb_inv,
-input   logic                  i_wb_busy = 1'd0,
-input   logic                  i_pf_inv  = 1'd0,
+input   logic                  i_wb_busy,
+input   logic                  i_pf_inv,
 
 // Wishbone. Signals from all 4 modules are ORed.
 output logic              o_wb_stb, o_wb_stb_nxt,

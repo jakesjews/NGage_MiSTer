@@ -120,7 +120,7 @@ input   logic    [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] i_line_way,
 output  logic                             o_line_done,
 
 // ARM925T: 1-cycle VA tag check for I-cache sequential prefetch (PREFETCH = 1).
-input   logic    [31:0]                   i_pf_addr = 32'd0,
+input   logic    [31:0]                   i_pf_addr,
 output  logic                             o_pf_hit,
 
 //

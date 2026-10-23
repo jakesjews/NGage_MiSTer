@@ -340,7 +340,9 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .o_wb_wen_nxt           (wb_wen[1]),
         .o_wb_cti_nxt           (wb_cti[1]),
         .i_wb_dat               (i_wb_dat),
-        .i_wb_ack               (wb_ack[1])
+        .i_wb_ack               (wb_ack[1]),
+        .i_pf_addr      (32'd0),
+        .o_pf_hit       ()
 );
 
 // ZAP TLB control module. Includes TLB RAM inside - Manager 2.

@@ -110,9 +110,9 @@ output  logic                      o_hold,
 output  logic                      o_idle,
 
 // ARM925T: sequential next-line prefetch interface.
-input   logic                      i_pf_hit  = 1'd0,
-input   logic                      i_pf_inv  = 1'd0,
-input   logic                      i_wb_busy = 1'd0,
+input   logic                      i_pf_hit,
+input   logic                      i_pf_inv,
+input   logic                      i_wb_busy,
 output  logic    [31:0]            o_pf_addr,
 
 // Bus access ports.

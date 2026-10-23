@@ -22,7 +22,8 @@ module tb_icache_restart;
         .o_cache_line(line_data), .i_cache_clean_done(1'b0), .i_cache_inv_done(1'b0),
         .i_phy_addr(addr), .i_fsr(8'd0), .i_far(32'd0), .i_fault(1'b0),
         .i_cacheable(1'b1), .i_busy(1'b0), .o_wb_stb_ff(bus_stb),
-        .o_wb_adr_ff(bus_addr), .i_wb_ack(bus_ack), .i_wb_err(bus_err), .i_wb_dat(bus_data)
+        .o_wb_adr_ff(bus_addr), .i_wb_ack(bus_ack), .i_wb_err(bus_err), .i_wb_dat(bus_data),
+        .i_pf_hit(1'b0), .i_pf_inv(1'b0), .i_wb_busy(1'b0), .o_pf_addr()
     );
 
     logic q_write = 0, q_stall = 1, q_clear = 0, q_pending = 0;

@@ -2020,9 +2020,9 @@ module zap_cache_fsm (
 	input wire i_busy;
 	output reg o_hold;
 	output reg o_idle;
-	input reg i_pf_hit;
-	input reg i_pf_inv;
-	input reg i_wb_busy;
+	input wire i_pf_hit;
+	input wire i_pf_inv;
+	input wire i_wb_busy;
 	output wire [31:0] o_pf_addr;
 	output reg o_wb_cyc_ff;
 	output reg o_wb_cyc_nxt;
@@ -3083,7 +3083,7 @@ module zap_cache_tag_ram (
 	input wire [31:0] i_line_addr;
 	input wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] i_line_way;
 	output reg o_line_done;
-	input reg [31:0] i_pf_addr;
+	input wire [31:0] i_pf_addr;
 	output wire o_pf_hit;
 	output reg o_wb_cyc_ff;
 	output reg o_wb_cyc_nxt;
@@ -4114,8 +4114,8 @@ module zap_cache (
 	input wire [31:0] i_baddr;
 	input wire [31:0] i_dac_reg;
 	input wire i_tlb_inv;
-	input reg i_wb_busy;
-	input reg i_pf_inv;
+	input wire i_wb_busy;
+	input wire i_pf_inv;
 	output reg o_wb_stb;
 	output wire o_wb_stb_nxt;
 	output reg o_wb_cyc;
@@ -9211,13 +9211,11 @@ module zap_dcache (
 		.i_wb_ack(wb_ack[0]),
 		.i_wb_err(wb_err[0])
 	);
-	localparam reg [31:0] sv2v_pd_u_zap_cache_tag_ram_i_pf_addr = 32'd0;
 	zap_cache_tag_ram #(
 		.CACHE_SIZE(CACHE_SIZE),
 		.CACHE_LINE(CACHE_LINE),
 		.WAYS(WAYS)
 	) u_zap_cache_tag_ram(
-		.i_pf_addr(sv2v_pd_u_zap_cache_tag_ram_i_pf_addr),
 		.i_clk(i_clk),
 		.i_reset(i_reset),
 		.i_address_nxt(lookup_address),
@@ -9267,7 +9265,9 @@ module zap_dcache (
 		.o_wb_wen_nxt(wb_wen[1]),
 		.o_wb_cti_nxt(wb_cti[1]),
 		.i_wb_dat(i_wb_dat),
-		.i_wb_ack(wb_ack[1])
+		.i_wb_ack(wb_ack[1]),
+		.i_pf_addr(32'd0),
+		.o_pf_hit()
 	);
 	zap_tlb #(
 		.LPAGE_TLB_ENTRIES(LPAGE_TLB_ENTRIES),
