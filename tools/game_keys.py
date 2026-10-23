@@ -43,7 +43,9 @@ def fmt(t, text):
     mi = float(mi)
     busy = CLK * (1 - float(idle) / 100)
     cpi = busy / (mi * 1e6) if mi > 0 else 0
-    return f"{t:7.1f}s  {int(fr):3d} fps  {int(px):7d} px  {mi:6.2f} Minstr/s  CPI {cpi:5.1f}  idle {float(idle):5.1f}%  wait sdram {float(sd):5.1f}% flash {float(fl):5.1f}% other {float(ot):4.1f}%  {int(beats):8d} beats"
+    stalls = text.split(" | stalls: ", 1)[1] if " | stalls: " in text else ""
+    return (f"{t:7.1f}s  {int(fr):3d} fps  {int(px):7d} px  {mi:6.2f} Minstr/s  CPI {cpi:5.1f}  idle {float(idle):5.1f}%  wait sdram {float(sd):5.1f}% flash {float(fl):5.1f}% other {float(ot):4.1f}%  {int(beats):8d} beats"
+            + (f"\n           stalls: {stalls}" if stalls else ""))
 
 
 def main():
