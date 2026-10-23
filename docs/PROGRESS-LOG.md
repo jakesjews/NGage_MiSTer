@@ -3497,3 +3497,33 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   16 KB I-cache with the prefetch, plus the first-boot change) and
   b16-32k on the Mac (the 32 KB I-cache), both to be measured in play
   against b15.
+- **Codex's D-cache hit-under-miss merged** (codex/timing2 9d215f8): while
+  the one outstanding miss fills (CLEAN_SINGLE, FETCH_SINGLE, UNLOCK_WR),
+  loads and write-back stores that hit any line other than the filling
+  line and its victim (the other way of the same set included) are
+  acknowledged from the normal registered lookup; the filling and victim
+  lines, a second miss, uncached and write-through accesses, TLB misses
+  and faults wait as before. The eligibility is a registered predicate
+  one stage ahead on i_address_check; the background tag match is
+  registered beside the RAM's third stage (the live compare stays off
+  the stall path); the TLB check exports a registered o_hit_ok (no
+  translation or permission fault, cacheable, not write-through) that
+  does not depend on the walker's IDLE qualification, so a cached tag
+  cannot hide a permission fault; after a CPU hold a three-step lookup
+  repair reloads the RAMs' pipeline; the fill's line and tag are
+  installed in UNLOCK_REG from the registered fill buffer, which owns
+  the RAM write port (two bus-qualified intermediate writes removed).
+  Cycles on its base: ctrand1 -0.9 %, crand1 -1.4 %, dhold_rtl -0.5 to
+  -1.6 %, cache unchanged (its accesses are to the filling line); a
+  directed test dhum_rtl (each distance 1-6, loads and stores, to the
+  other way, another set, the filling line and the victim: the allowed
+  ones answered in 0 wait clocks, the excluded ones held 70-207) and
+  bench assertions (lookup alignment, exclusion, permission, fill-write
+  exclusivity); 216 runs, 57 QEMU, 40 extra bus-delay seeds. Whole core
+  on its base: -0.578 -> **-0.858 ns** (worst: CP15 o_mmu_en -> the
+  FSM's o_live_lookup), 35,056 ALMs, 470 M10K; within the 0.3 ns budget
+  it was given, with 0.02 to spare. Report docs/consults/2026-10-23-
+  codex-dhum-report.md. Merged on the prefetch tree (only the netlist
+  conflicted): 45 runs, 52 QEMU, lint; cycles ctrand1 72,244 (73,043
+  before the two merges, -1.1 %), crand1 73,091, dhold_rtl 271,537,
+  cache 789,366. Built as b17 on the server (seed 1).
