@@ -610,6 +610,7 @@ wire  [1:0] tr_wb_dabt;
 wire [31:0] tr_wb_pc, tr_wb_cpsr, tr_wb_cpsr_nxt;
 wire        tr_d_done, tr_d_we;
 wire        cpu_dbg_wfi;
+wire  [7:0] cpu_dbg_stall;
 wire [31:0] tr_d_va, tr_d_wdata, tr_d_rdata;
 wire  [3:0] tr_d_sel;
 
@@ -631,6 +632,7 @@ arm925t arm925t
 	.dbg_pc(cpu_dbg_pc),
 	.dbg_wb_valid(tr_wb_valid),
 	.dbg_wfi(cpu_dbg_wfi),
+	.dbg_stall(cpu_dbg_stall),
 	.dbg_wb_dvalid(tr_wb_dvalid),
 	.dbg_wb_uop_last(tr_wb_uop_last),
 	.dbg_wb_dabt(tr_wb_dabt),
@@ -992,29 +994,30 @@ wire        dbg_bus_pend  = wb_cyc && wb_stb && !wb_ack && !wb_err;
 wire        dbg_bus_beat  = wb_cyc && wb_stb && (wb_ack || wb_err);
 wire        dbg_bus_sdram = wb_adr[27:25] == 3'b101;      // 0x0A000000 window
 wire        dbg_bus_flash = wb_adr[27:26] == 2'b00;       // CS0-CS3
-wire [31:0] cnt_frames, cnt_pix, cnt_retired, cnt_wfi, cnt_wsdram, cnt_wflash, cnt_wother, cnt_beats;
+// the events, one 32-bit count each: LCD frames and pixels, instructions
+// retired, clocks in wait-for-interrupt, bus wait clocks by target, bus
+// beats, the CPU's stall and flush taps (zap_core o_dbg_stall), uops retired
+localparam DBG_CNT = 17;
+wire [DBG_CNT-1:0] dbg_ev = {
+	tr_wb_valid || tr_wb_dvalid,                          // 16 uops retired
+	cpu_dbg_stall,                                        // 15..8 clear_wb, clear_alu, decode, shifter, issue, fifo empty, code, data
+	dbg_bus_beat,                                         // 7
+	dbg_bus_pend && !dbg_bus_sdram && !dbg_bus_flash,     // 6
+	dbg_bus_pend && dbg_bus_flash,                        // 5
+	dbg_bus_pend && dbg_bus_sdram,                        // 4
+	cpu_dbg_wfi,                                          // 3
+	(tr_wb_valid || tr_wb_dvalid) && tr_wb_uop_last,      // 2
+	lcd_pix_ev,                                           // 1
+	lcd_frame_ev};                                        // 0
+wire [DBG_CNT-1:0][31:0] dbg_cnt;
 
-dbg_counters dbg_counters
+dbg_counters #(.N(DBG_CNT)) dbg_counters
 (
 	.clk(clk_sys),
 	.reset(sys_reset),
 	.tick(dbg_tick),
-	.frame(lcd_frame_ev),
-	.pix(lcd_pix_ev),
-	.retired((tr_wb_valid || tr_wb_dvalid) && tr_wb_uop_last),
-	.wfi(cpu_dbg_wfi),
-	.wait_sdram(dbg_bus_pend && dbg_bus_sdram),
-	.wait_flash(dbg_bus_pend && dbg_bus_flash),
-	.wait_other(dbg_bus_pend && !dbg_bus_sdram && !dbg_bus_flash),
-	.beat(dbg_bus_beat),
-	.frames_s(cnt_frames),
-	.pix_s(cnt_pix),
-	.retired_s(cnt_retired),
-	.wfi_s(cnt_wfi),
-	.wait_sdram_s(cnt_wsdram),
-	.wait_flash_s(cnt_wflash),
-	.wait_other_s(cnt_wother),
-	.beats_s(cnt_beats)
+	.ev(dbg_ev),
+	.cnt(dbg_cnt)
 );
 
 wire dbg_trig_wr = DBG_TRIG_WR_AFTER_S != 8'd0 && dbg_sec >= DBG_TRIG_WR_AFTER_S &&
@@ -1037,8 +1040,10 @@ end
 wire        dbg_on    = status[8];
 wire        dbg_pcrow = scan_y < 8'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire        dbg_strow = scan_y >= 8'd4 && scan_y < 8'd7 && scan_x >= 8'd16 && scan_x < 8'd24;
-// the 32-bit rows at y = 8, 12, ..., 84 (3 lines each): tools/mister_dbg.py
-wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < 8'd87 && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
+// the 32-bit rows at y = 8, 12, ... (3 lines each; 12 words, then the
+// counters): tools/mister_dbg.py
+localparam [7:0] DBG_WEND = 8'd8 + 8'd4 * 8'(12 + DBG_CNT) - 8'd1;
+wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < DBG_WEND && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd3) ? dbg_en0_irq :
                         (scan_y[7:2] == 6'd4) ? dbg_en0_fiq :
@@ -1051,14 +1056,8 @@ wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd11) ? rtc_date :
                         (scan_y[7:2] == 6'd12) ? {dbg_aud_l, dbg_aud_r} :
                         (scan_y[7:2] == 6'd13) ? {kt_dropped, 7'd0, tr_dumping, 16'd0} :
-                        (scan_y[7:2] == 6'd14) ? cnt_frames :
-                        (scan_y[7:2] == 6'd15) ? cnt_pix :
-                        (scan_y[7:2] == 6'd16) ? cnt_retired :
-                        (scan_y[7:2] == 6'd17) ? cnt_wfi :
-                        (scan_y[7:2] == 6'd18) ? cnt_wsdram :
-                        (scan_y[7:2] == 6'd19) ? cnt_wflash :
-                        (scan_y[7:2] == 6'd20) ? cnt_wother :
-                                                 cnt_beats;
+                        (scan_y[7:2] >= 6'd14 && scan_y[7:2] < 6'd14 + 6'(DBG_CNT)) ? dbg_cnt[5'(scan_y[7:2] - 6'd14)] :
+                                                 32'd0;
 // the row select and the word are registered once (scan_x/y hold for the 16
 // clocks of a pixel); the row mux into the bit select was the worst setup path
 logic        dbg_pcrow_q, dbg_strow_q, dbg_wrow_q;

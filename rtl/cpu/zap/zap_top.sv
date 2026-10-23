@@ -140,6 +140,7 @@ parameter logic        HIVECS       = 1'd0           // Reset value of control b
         output  logic  [31:0]    o_dbg_wb_pc,
         output  logic  [31:0]    o_dbg_wb_cpsr,
         output  logic  [31:0]    o_dbg_wb_cpsr_nxt,
+        output  logic  [7:0]     o_dbg_stall,
         output  logic            o_dbg_d_done,
         output  logic            o_dbg_d_we,
         output  logic  [31:0]    o_dbg_d_va,
@@ -325,6 +326,7 @@ zap_core #(
 .o_dbg_wb_pc            (o_dbg_wb_pc),
 .o_dbg_wb_cpsr          (o_dbg_wb_cpsr),
 .o_dbg_wb_cpsr_nxt      (o_dbg_wb_cpsr_nxt),
+.o_dbg_stall            (o_dbg_stall),
 
 // Clock and reset.
 .i_clk                  (i_clk),

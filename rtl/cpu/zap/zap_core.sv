@@ -204,7 +204,12 @@ output  logic                            o_dbg_wb_irq,
 output  logic                            o_dbg_wb_fiq,
 output  logic [31:0]                     o_dbg_wb_pc,
 output  logic [31:0]                     o_dbg_wb_cpsr,
-output  logic [31:0]                     o_dbg_wb_cpsr_nxt
+output  logic [31:0]                     o_dbg_wb_cpsr_nxt,
+// ARM925T: where the clocks go (rtl/mister/dbg_counters.sv): the data
+// side's bus wait, the fetch's, no instruction out of the fetch FIFO, the
+// issue, shifter and decode stalls, the ALU's flush (a branch the predictor
+// got wrong) and the writeback's (an exception, a CP15 fence).
+output  logic [7:0]                      o_dbg_stall
 
 );
 
@@ -1672,6 +1677,8 @@ u_zap_writeback
 
 // ARM925T: debug trace taps.
 assign o_dbg_wb_valid    = memory_dav_ff;
+assign o_dbg_stall       = {clear_from_writeback, clear_from_alu, stall_from_decode, stall_from_shifter,
+                            stall_from_issue, ~fifo_valid, code_stall, data_stall};
 assign o_dbg_wb_dvalid   = memory_decompile_valid;
 assign o_dbg_wb_uop_last = memory_uop_last;
 assign o_dbg_wb_dabt     = memory_data_abt_ff[1:0];

@@ -42,6 +42,7 @@ module arm925t (
 	dbg_wb_pc,
 	dbg_wb_cpsr,
 	dbg_wb_cpsr_nxt,
+	dbg_stall,
 	dbg_d_done,
 	dbg_d_we,
 	dbg_d_va,
@@ -82,6 +83,7 @@ module arm925t (
 	output wire [31:0] dbg_wb_pc;
 	output wire [31:0] dbg_wb_cpsr;
 	output wire [31:0] dbg_wb_cpsr_nxt;
+	output wire [7:0] dbg_stall;
 	output wire dbg_d_done;
 	output wire dbg_d_we;
 	output wire [31:0] dbg_d_va;
@@ -125,6 +127,7 @@ module arm925t (
 		.o_dbg_wb_pc(dbg_wb_pc),
 		.o_dbg_wb_cpsr(dbg_wb_cpsr),
 		.o_dbg_wb_cpsr_nxt(dbg_wb_cpsr_nxt),
+		.o_dbg_stall(dbg_stall),
 		.o_dbg_d_done(dbg_d_done),
 		.o_dbg_d_we(dbg_d_we),
 		.o_dbg_d_va(dbg_d_va),
@@ -4403,7 +4406,8 @@ module zap_core (
 	o_dbg_wb_fiq,
 	o_dbg_wb_pc,
 	o_dbg_wb_cpsr,
-	o_dbg_wb_cpsr_nxt
+	o_dbg_wb_cpsr_nxt,
+	o_dbg_stall
 );
 	reg _sv2v_0;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
@@ -4507,6 +4511,7 @@ module zap_core (
 	output wire [31:0] o_dbg_wb_pc;
 	output wire [31:0] o_dbg_wb_cpsr;
 	output wire [31:0] o_dbg_wb_cpsr_nxt;
+	output wire [7:0] o_dbg_stall;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
 	localparam [1:0] FINE_ID = 2'b11;
@@ -5921,6 +5926,7 @@ module zap_core (
 		.o_wb_cyc(o_instr_wb_cyc)
 	);
 	assign o_dbg_wb_valid = memory_dav_ff;
+	assign o_dbg_stall = {clear_from_writeback, clear_from_alu, stall_from_decode, stall_from_shifter, stall_from_issue, ~fifo_valid, code_stall, data_stall};
 	assign o_dbg_wb_dvalid = memory_decompile_valid;
 	assign o_dbg_wb_uop_last = memory_uop_last;
 	assign o_dbg_wb_dabt = memory_data_abt_ff[1:0];
@@ -19216,6 +19222,7 @@ module zap_top (
 	o_dbg_wb_pc,
 	o_dbg_wb_cpsr,
 	o_dbg_wb_cpsr_nxt,
+	o_dbg_stall,
 	o_dbg_d_done,
 	o_dbg_d_we,
 	o_dbg_d_va,
@@ -19279,6 +19286,7 @@ module zap_top (
 	output wire [31:0] o_dbg_wb_pc;
 	output wire [31:0] o_dbg_wb_cpsr;
 	output wire [31:0] o_dbg_wb_cpsr_nxt;
+	output wire [7:0] o_dbg_stall;
 	output wire o_dbg_d_done;
 	output wire o_dbg_d_we;
 	output wire [31:0] o_dbg_d_va;
@@ -19878,6 +19886,7 @@ module zap_top (
 		.o_dbg_wb_pc(o_dbg_wb_pc),
 		.o_dbg_wb_cpsr(o_dbg_wb_cpsr),
 		.o_dbg_wb_cpsr_nxt(o_dbg_wb_cpsr_nxt),
+		.o_dbg_stall(o_dbg_stall),
 		.i_clk(i_clk),
 		.i_reset(s_reset),
 		.o_instr_wb_adr(cpu_iaddr),

@@ -73,6 +73,7 @@ module arm925t #(
 	output logic [31:0] dbg_wb_pc,       // the stage's PC: address + 8 (+ 4 in Thumb)
 	output logic [31:0] dbg_wb_cpsr,     // before the instruction
 	output logic [31:0] dbg_wb_cpsr_nxt, // after it
+	output logic [7:0]  dbg_stall,       // stall and flush taps (dbg_counters)
 	output logic        dbg_d_done,
 	output logic        dbg_d_we,
 	output logic [31:0] dbg_d_va,
@@ -119,6 +120,7 @@ module arm925t #(
 		.o_dbg_wb_pc       (dbg_wb_pc),
 		.o_dbg_wb_cpsr     (dbg_wb_cpsr),
 		.o_dbg_wb_cpsr_nxt (dbg_wb_cpsr_nxt),
+		.o_dbg_stall       (dbg_stall),
 		.o_dbg_d_done      (dbg_d_done),
 		.o_dbg_d_we        (dbg_d_we),
 		.o_dbg_d_va        (dbg_d_va),
