@@ -3710,3 +3710,53 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   repeat. README's first-start lines updated. Then the dialogs accepted
   with the profiler's keys and a boot on the saved image, to confirm
   the idle screen comes up without them (running).
+- **b20-d16 built** (the server, seed 1; the 16 KB two-way D-cache on the
+  prefetch-off, hit-under-miss tree): **-1.622 ns**, **39,034 ALMs (93 %)**,
+  472 M10K. The cache cost 3,700 ALMs over b18, twice Codex's estimate;
+  the worst paths are inside the D-cache tag RAM's maintenance FSM
+  (state_ff -> the tag RAM, -1.62: the index-sweep expansion and the
+  doubled valid/dirty/LRU arrays) and CP15's line address into it. To
+  be replayed on the debug slot after the first-boot acceptance boots;
+  at 93 % of the device it has to earn a lot.
+- **The card path merged** (agy/mmc 1175aef..a1790d4, merged 3699387;
+  docs/consults/2026-10-23-agy-mmc-report.md): MMC_DIV 12 -> 4 (26 MHz,
+  the timeouts widened to about 320 ms), 4 KB hps_io chunk fetches
+  (sd_blk_cnt 7, clamped at the image's end and the sidecar) into an
+  8 KB true-dual-port buffer organised as twelve 512-byte slots for the
+  streaming chunks (three 2 KB quarters addressed by the half-chunk
+  number modulo 3, so the next chunk's prefetch never overwrites the
+  half being shifted out) plus four reserved slots for CMD17 metadata
+  (FAT and directory sectors stay cached across the streaming), the
+  next chunk prefetched once the current one is in its second half, no
+  speculation on a chunk's last sector or once the controller has queued
+  CMD12 (a new stop_queued input from upp_mmc's status), buffer hits
+  served at once from the second port while a fetch is in flight, writes
+  single-sector through a metadata slot with the streaming quarter
+  invalidated. Bench (sim mmc, both DIV 12 and 4, hps_io latency
+  100-500 us): a warm 4 KB CMD18 burst 408-473 K clocks -> 132.5 K
+  (3.07 MiB/s), a repeated CMD17 FAT read 70-104 K -> 16.9 K with no
+  round trip; mmc, periph, upp, top benches and lint pass. Three
+  overlay counters: 512-byte blocks completed, clocks in a data phase,
+  clocks the wire waits for Linux (words 30-32; DBG_CNT 21). Built as
+  b21 (the server) for the load measurement (Shadowkey and Tony Hawk's
+  launch, scratch run-loads.sh) against b19.
+- **Write-allocate and the D-cache's event counters** (Codex,
+  codex/timing2 b275664, ed23a58, merged d0e7078;
+  docs/consults/2026-10-23-codex-walloc-report.md): the phone's cache
+  is read-allocate with a 17-word write buffer (SPRU671 and the kernel's
+  own use of the drain operation); ZAP allocates on store misses, so a
+  cold streaming store of 64 lines costs 64 fills and 64 write-backs,
+  512 bus beats for 256 beats of data. A no-write-allocate policy worth
+  having is a posted write buffer: CP15 W and a real drain handshake,
+  ordering against later loads and the hit-under-miss, precise faults
+  before the enqueue, the bufferable page attribute; it reaches
+  zap_cp15_cb, zap_core and zap_top, so it was analysed, not shipped
+  (a blocking bypass through the uncached path would be a misleading
+  substitute). Shipped instead: arm925t's dbg_dcache[3:0], one-clock
+  pulses for load-miss fills, store-miss fills, line write-backs
+  (evictions and explicit cleans) and uncached completions, a directed
+  test walloc_rtl, cycle-identical on all 222 runs at 8 and 16 KB.
+  Wired into the overlay as counters 21-24 (DBG_CNT 25, the rows end at
+  155 of 208) and decoded by mister_dbg.py; built as b22 (the server)
+  so the next replay splits the SDRAM wait into loads, stores and
+  write-backs.
