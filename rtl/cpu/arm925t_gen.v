@@ -899,6 +899,8 @@ module arm9_core (
 	reg e_valid;
 	reg e_shifted;
 	wire execute_wait;
+	reg older_pending;
+	wire wb_cycle;
 	wire fast_w_ready;
 	wire fast_m_ready;
 	wire retire_fast;
@@ -1006,8 +1008,9 @@ module arm9_core (
 	wire [31:0] updated_base;
 	wire [31:0] next_pc;
 	wire [31:0] vector_base;
+	assign wb_cycle = ((state == 4'd8) && !older_pending) || (((state == 4'd6) && !i_dc_lock[m_dst]) && (slow[3-:4] != 4'd12));
 	wire load_capture = (((state == 4'd6) || (state == 4'd7)) && m_load) && i_dc_reg_idx[m_dst];
-	wire [63:0] load_commit = ((((state == 4'd8) && w_valid) && w_load) && (((slow[3-:4] == 4'd5) || (slow[3-:4] == 4'd6)) || (slow[3-:4] == 4'd12)) ? 64'd1 << m_dst : 64'd0);
+	wire [63:0] load_commit = (((wb_cycle && w_valid) && w_load) && (((slow[3-:4] == 4'd5) || (slow[3-:4] == 4'd6)) || (slow[3-:4] == 4'd12)) ? 64'd1 << m_dst : 64'd0);
 	wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, translated[33:32], load_capture, load_commit, unused_read_wait, held_wait, data_pc8};
 	assign cpsr = o_dbg_wb_cpsr;
 	assign pc8 = pc + (cpsr[5] ? 32'd4 : 32'd8);
@@ -1220,7 +1223,7 @@ module arm9_core (
 	assign forward_value = {w_value, m_read_data, fast_w[95-:32], fast_m[95-:32]};
 	assign forward_tag = {w_dst, m_dst, fast_w[101-:6], fast_m[101-:6]};
 	assign forward_valid = {memory_producer && (w_dst != PHY_RAZ_REGISTER), (memory_producer && w_load) && (m_dst != PHY_PC), (fast_w[103] && fast_w[102]) && (fast_w[101-:6] != PHY_RAZ_REGISTER), (fast_m[103] && fast_m[102]) && (fast_m[101-:6] != PHY_RAZ_REGISTER)};
-	assign forward_ready = {{2 {state == 4'd8}}, 2'b11};
+	assign forward_ready = {{2 {wb_cycle}}, 2'b11};
 	arm9_forward #(.PRODUCERS(4)) u_decode_forward(
 		.i_value(read_value),
 		.i_tag(read_tag),
@@ -1243,10 +1246,10 @@ module arm9_core (
 		.o_value(held_value),
 		.o_wait(held_wait)
 	);
-	assign execute_flags = (fast_e ? (fast_m[103] ? fast_m[63-:32] : (fast_w[103] ? fast_w[63-:32] : cpsr)) : flags_e);
+	assign execute_flags = (fast_e || (kind_e == 4'd5) ? (fast_m[103] ? fast_m[63-:32] : (fast_w[103] ? fast_w[63-:32] : cpsr)) : flags_e);
 	assign fast_d = ((kind_d == 4'd0) && (d_ins[15:12] != 15)) || (kind_d == 4'd3);
 	wire shift_hold = (((e_valid && !e_shifted) && shift_register_e) && ex_pass) && !execute_wait;
-	assign retire_fast = fast_w[103] && (state == 4'd0);
+	assign retire_fast = fast_w[103] && ((state == 4'd0) || older_pending);
 	assign fast_w_ready = !fast_w[103] || retire_fast;
 	assign fast_m_ready = !fast_m[103] || fast_w_ready;
 	assign execute_fast = (((e_valid && fast_e) && !shift_hold) && !execute_wait) && fast_m_ready;
@@ -1255,7 +1258,7 @@ module arm9_core (
 	wire f_abort;
 	wire f_redirect;
 	wire f_valid;
-	assign issue = (((f_valid && !sequence_active) && !f_redirect) && (!e_valid || execute_fast)) && (((((fast_d && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6])) && ((state == 4'd0) || (memory_overlap && (kind_d == 4'd0)))) || ((((state == 4'd0) && !e_valid) && !fast_m[103]) && !fast_w[103]));
+	assign issue = (((f_valid && !sequence_active) && !f_redirect) && (!e_valid || execute_fast)) && ((((((fast_d || (kind_d == 4'd5)) && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6])) && (((state == 4'd0) || (memory_overlap && (kind_d == 4'd0))) || (((((wb_cycle && memory_overlap) && (kind_d == 4'd5)) && !e_valid) && !fast_m[103]) && !fast_w[103]))) || ((((state == 4'd0) && !e_valid) && !fast_m[103]) && !fast_w[103]));
 	always @(posedge i_clk)
 		if (i_reset || (f_redirect && !early_redirect)) begin
 			fast_m <= 1'sb0;
@@ -1278,14 +1281,14 @@ module arm9_core (
 			end
 		end
 	assign updated_base = (sequence_active ? sequence_base : (ins[23] ? value_e[0+:32] + {25'd0, transfer_count_e, 2'b00} : value_e[0+:32] - {25'd0, transfer_count_e, 2'b00}));
-	assign effective_address = (kind_e == 4'd6 ? (sequence_active ? sequence_address : value_e[0+:32] + {{24 {block_delta_e[7]}}, block_delta_e}) : (kind_e == 4'd12 ? value_e[0+:32] : (ins[24] ? ex_result : value_e[0+:32])));
+	assign effective_address = (kind_e == 4'd6 ? (sequence_active ? sequence_address : value_e[0+:32] + {{24 {block_delta_e[7]}}, block_delta_e}) : (kind_e == 4'd12 ? value_e[0+:32] : (ins[24] ? ex_result : held_value[0+:32])));
 	assign next_pc = (w_dabt ? vector_base + 16 : (w_fiq ? vector_base + 28 : (w_irq ? vector_base + 24 : (w_pabt ? vector_base + 12 : (w_swi ? vector_base + 8 : (w_und ? vector_base + 4 : (w_load && (m_dst == PHY_PC) ? m_read_data : (w_redirect ? w_target : slow[175-:32] + (slow[21] ? 2 : 4)))))))));
 	wire f_ready;
 	wire [31:0] f_address_nxt;
 	wire [31:0] f_address_check;
 	wire [31:0] f_address;
 	assign f_ready = issue;
-	assign f_redirect = early_redirect || (((state == 4'd8) && w_last) && (((((((((w_redirect || (w_load && (m_dst == PHY_PC))) || w_dabt) || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und) || (slow[3-:4] == 4'd7)) || (slow[3-:4] == 4'd2)));
+	assign f_redirect = early_redirect || ((wb_cycle && w_last) && (((((((((w_redirect || (w_load && (m_dst == PHY_PC))) || w_dabt) || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und) || (slow[3-:4] == 4'd7)) || (slow[3-:4] == 4'd2)));
 	arm9_fetch #(.RESET_VECTOR(RESET_VECTOR)) u_fetch(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -1342,6 +1345,7 @@ module arm9_core (
 			state <= 4'd0;
 			e_valid <= 0;
 			e_shifted <= 0;
+			older_pending <= 0;
 			slow <= 1'sb0;
 			pc <= RESET_VECTOR;
 			raw_ins <= 0;
@@ -1405,6 +1409,8 @@ module arm9_core (
 			psr_mask_e <= 0;
 		end
 		else begin
+			if (retire_fast)
+				older_pending <= 0;
 			if (e_valid) begin
 				value_e <= held_value;
 				if (shift_hold)
@@ -1419,7 +1425,8 @@ module arm9_core (
 				slow[111-:32] <= ins;
 				slow[79-:32] <= raw_ins;
 				slow[9-:6] <= dst_e;
-				slow[47-:32] <= flags_e;
+				slow[47-:32] <= execute_flags;
+				older_pending <= fast_m[103];
 				slow[15-:6] <= base_e;
 				slow[3-:4] <= kind_e;
 				state <= 4'd8;
@@ -1437,7 +1444,7 @@ module arm9_core (
 				w_und <= 0;
 				w_dst <= PHY_RAZ_REGISTER;
 				w_value <= pc + 4;
-				w_flags <= flags_e;
+				w_flags <= execute_flags;
 				if ((fiq_pending || irq_pending) || fetch_abort) begin
 					w_fiq <= fiq_pending;
 					w_irq <= !fiq_pending && irq_pending;
@@ -1604,11 +1611,19 @@ module arm9_core (
 						else begin
 							if (m_load)
 								m_read_data <= i_data_wb_dat;
-							state <= 4'd6;
+							state <= (m_load ? 4'd6 : 4'd8);
 						end
 					end
 				4'd6:
-					if (m_load && i_dc_reg_idx[m_dst]) begin
+					if (wb_cycle) begin
+						if (!w_last)
+							state <= 4'd1;
+						else begin
+							sequence_active <= 0;
+							state <= 4'd0;
+						end
+					end
+					else if (m_load && i_dc_reg_idx[m_dst]) begin
 						m_read_data <= i_dc_reg_dat;
 						state <= (slow[3-:4] == 4'd12 ? 4'd2 : 4'd8);
 						if (slow[3-:4] == 4'd12) begin
@@ -1665,11 +1680,13 @@ module arm9_core (
 					end
 				end
 				4'd8:
-					if (!w_last && !w_dabt)
-						state <= 4'd1;
-					else begin
-						sequence_active <= 0;
-						state <= 4'd0;
+					if (!older_pending) begin
+						if (!w_last && !w_dabt)
+							state <= 4'd1;
+						else begin
+							sequence_active <= 0;
+							state <= 4'd0;
+						end
 					end
 				default:
 					;
@@ -1683,7 +1700,7 @@ module arm9_core (
 				end
 				fast_e <= (((issue && fast_d) && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6]);
 				tag_e <= read_tag;
-				used_e <= {1'b0, shift_register_d, !immediate_d, ((kind_d == 4'd0) && (op_d != MOV)) && (op_d != MVN)};
+				used_e <= (kind_d == 4'd5 ? {!d_ins[20], 1'b0, !immediate_d, 1'b1} : {1'b0, shift_register_d, !immediate_d, ((kind_d == 4'd0) && (op_d != MOV)) && (op_d != MVN)});
 				block_delta_e <= (d_ins[23] ? (d_ins[24] ? 8'd4 : 8'd0) : (d_ins[24] ? 8'd0 : 8'd4) - {1'b0, transfer_count_d, 2'b00});
 				transfer_count_e <= transfer_count_d;
 				transfer_reg_e <= transfer_reg_d;
@@ -1711,18 +1728,18 @@ module arm9_core (
 			if (f_redirect && !early_redirect)
 				e_valid <= 0;
 		end
-	assign o_dbg_wb_valid = ((retire_fast && fast_w[102]) || ((state == 4'd8) && w_valid)) || (state == 4'd10);
-	assign o_dbg_wb_dvalid = (retire_fast && !fast_w[102]) || ((state == 4'd8) && w_cfail);
+	assign o_dbg_wb_valid = ((retire_fast && fast_w[102]) || (wb_cycle && w_valid)) || (state == 4'd10);
+	assign o_dbg_wb_dvalid = (retire_fast && !fast_w[102]) || (wb_cycle && w_cfail);
 	assign o_dbg_wb_uop_last = retire_fast || ((state != 4'd10) && w_last);
-	assign o_dbg_wb_dabt = {1'b0, (state == 4'd8) && w_dabt};
-	assign o_dbg_wb_pabt = (state == 4'd8) && w_pabt;
-	assign o_dbg_wb_irq = (state == 4'd8) && w_irq;
-	assign o_dbg_wb_fiq = (state == 4'd8) && w_fiq;
-	assign o_dbg_wb_swi = (state == 4'd8) && w_swi;
-	assign o_dbg_wb_und = (state == 4'd8) && w_und;
+	assign o_dbg_wb_dabt = {1'b0, wb_cycle && w_dabt};
+	assign o_dbg_wb_pabt = wb_cycle && w_pabt;
+	assign o_dbg_wb_irq = wb_cycle && w_irq;
+	assign o_dbg_wb_fiq = wb_cycle && w_fiq;
+	assign o_dbg_wb_swi = wb_cycle && w_swi;
+	assign o_dbg_wb_und = wb_cycle && w_und;
 	assign o_dbg_wb_pc = (retire_fast ? fast_w[31-:32] : slow[143-:32]);
 	assign o_dbg_wb_cpsr_nxt = cpsr_next;
-	assign o_dbg_stall = {(state == 4'd8) && (((((w_dabt || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und), early_redirect || ((state == 4'd8) && w_redirect), (state == 4'd9) || sequence_active, (shift_hold || (state == 4'd11)) || (state == 4'd12), (f_valid && !issue) && (!e_valid || execute_fast), !f_valid, o_code_stall, (state == 4'd5) || (state == 4'd7)};
+	assign o_dbg_stall = {wb_cycle && (((((w_dabt || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und), early_redirect || (wb_cycle && w_redirect), (state == 4'd9) || sequence_active, (shift_hold || (state == 4'd11)) || (state == 4'd12), (f_valid && !issue) && (!e_valid || execute_fast), !f_valid, o_code_stall, (state == 4'd5) || (state == 4'd7)};
 	localparam [511:0] sv2v_uu_u_zap_writeback_ext_i_decompile_0 = 1'sb0;
 	zap_writeback #(
 		.BP_ENTRIES(32),

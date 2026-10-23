@@ -1,0 +1,24 @@
+Generated netlist SHA-256: 61279be7cb0c371376b735483509ab84e0aa5b2469c4f425d6d676952ccd1c34
+
+arm9-s4-final-focus.log: RTL (gen): 33 passed, 0 failed
+arm9-s4-final-focus-diff.log: RTL vs QEMU: 56 agree, 0 differ
+arm9-s4-final-full.log: RTL (gen): 210 passed, 0 failed
+arm9-s4-final-diff.log: RTL vs QEMU: 56 agree, 0 differ
+arm9-s4-admit-zap-full.log: RTL (gen): 210 passed, 0 failed
+arm9-s4-final-zap-diff.log: RTL vs QEMU: 56 agree, 0 differ
+arm9-s4-final-source.log: RTL (sv): 18 passed, 0 failed
+arm9-s4-final-source-diff.log: RTL vs QEMU: 6 agree, 0 differ
+arm9-s4-final-gencheck.log: rtl/cpu/arm925t_gen.v is current
+
+All 69 TRM windows pass twice at hot ARM9 0:0, with five visits per configuration.
+Nine final cycle/instruction records exactly match session4-admission.json;
+all instruction counts match the session baseline, and all ZAP counts are unchanged.
+Required top-level make lint: passes, no warnings/errors.
+Additional source ARM9 -Wall lint: passes with inherited interface/style/unused
+waivers and the 54 WIDTHEXPAND diagnostics waived only in zap_dcache_fsm.sv.
+No width warning is waived in ARM9 code.
+The execute datapath is unchanged from the first checkpoint's 582272 checks.
+Only arm9_memory binary/reference was built. Existing instruction streams and
+QEMU references were not rebuilt; arm9_cycles uses the versioned expectation file.
+No Quartus/server/container, firmware boot, sys/ edit, push or branch switch.
+Streaming memory and current integrated timing remain unimplemented/unmeasured.

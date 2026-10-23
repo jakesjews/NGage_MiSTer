@@ -569,3 +569,22 @@ The remaining gap is material: hit memory instructions still wait to enter the
 single memory engine, and a load consumer waits for its native RAM lookup and
 classification. Do not describe the new younger arithmetic execution as a
 one/two-cycle load-use interlock or one-store-per-cycle throughput.
+
+### Session 4 scalar admission/completion refinement
+
+Scalar memory now follows a fast E instruction without draining M/W. At that
+handoff only one older M result can remain; `older_pending` permits that W to
+retire during the lookup, then prevents younger W from passing the memory op.
+A skipped memory op waits for the older W rather than sharing its retirement
+edge. Scalar base/offset/store sources and conditions use current forwarding.
+D may admit the next scalar memory op on the previous retirement edge if no
+younger result is queued.
+
+A captured hit retires on the no-lock classification edge. A miss still captures
+its critical word before a subsequent W. A store skips load classification.
+This shortens scalar windows and saves one clock per block transfer or SWP write
+half, but the request engine still serializes. Consecutive hit requests remain
+six clocks apart, and each extra LDM/STM register still costs seven clocks.
+Immediate load consumers have a successor-admission bubble plus three E wait
+clocks with the native RAM, not the target one/two-clock interlock. See the
+session-4 report's clock schedule and complete measured comparison.

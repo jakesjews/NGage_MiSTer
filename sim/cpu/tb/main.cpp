@@ -14,6 +14,8 @@
 //                       instructions
 //     --trace-count N   end the run N instructions after that
 //     --dcdbg           also trace the D-cache state machine every cycle
+//     --arm9-cycles    check the embedded retirement windows
+//     --arm9-cycle-model FILE  use a complete versioned expectation table
 //     --pddbg           also trace the branch prediction every cycle
 //     --buslog FILE     write one line per bus access
 //     --lat MIN:MAX     bus latency, cycles from request to ack (default 0:3)
