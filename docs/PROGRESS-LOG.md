@@ -3914,3 +3914,11 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the Thumb decoder into predecode (-0.92), the issue stage's late
   stall (-0.91), predecode's instruction register into the writeback
   (-0.79). Seed 10 on the Mac.
+- **Seed 9 of the main core on c8f18ef** (the server): **-0.550 ns**,
+  35,010 ALMs, the best build so far; its top five are one family, the
+  merger's address bit 3 into upp_bus's flash line buffer valid bits
+  (lb_v, the line-wide fetch's beat select, -0.55 to -0.52), the rest
+  below. Three seeds of this tree: -0.680, -0.920, -0.550; so the floor
+  with a lucky seed is about -0.5 before round 5's fixes. The rbf
+  (build/hardware/NGage-ndm-s9.rbf) is the main-slot candidate. Seed 11
+  running.
