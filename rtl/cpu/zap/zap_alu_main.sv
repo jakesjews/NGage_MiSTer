@@ -427,6 +427,10 @@ for (genvar k = 0; k < 2; k = k + 1) begin : g_load_pickup
         assign o_late_value[k*32 +: 32] = background_match[k] ?
                                          i_dc_reg_dat : i_memory_load_value;
 end
+// ARM925T: the late result and all its qualification are a registered
+// snapshot in core. A pending input selects that operand register through
+// one 2:1 mux. On a hold, shifter retains each resolved operand locally.
+// Background completion is captured locally before executing.
 assign o_stall_from_alu = |(i_load_pending_ff & ~memory_match);
 
 assign opcode       = i_alu_operation_ff;

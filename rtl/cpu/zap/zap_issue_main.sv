@@ -222,16 +222,18 @@ module zap_issue_main
         // Register values are given here.
 
         // ALU source value would be the value of non-shifted operand in mode32.
-        output logic      [31:0]                  o_alu_source_value_ff,
+        // ARM925T: retain the operand-capture boundary through synthesis;
+        // late completion must not be retimed into the shifter/ALU cone.
+        (* dont_retime *) output logic [31:0]     o_alu_source_value_ff,
 
         // Shifter source value would be the value of the operand to be shifted.
-        output logic      [31:0]                  o_shift_source_value_ff,
+        (* dont_retime *) output logic [31:0]     o_shift_source_value_ff,
 
         // Shift length i.e., amount to shift i.e, shamt.
-        output logic      [31:0]                  o_shift_length_value_ff,
+        (* dont_retime *) output logic [31:0]     o_shift_length_value_ff,
 
         // For stores, value to be stored.
-        output logic      [31:0]                  o_mem_srcdest_value_ff,
+        (* dont_retime *) output logic [31:0]     o_mem_srcdest_value_ff,
 
         //
         // Indices/Immeds go here. It might seem odd that we are sending index
@@ -293,6 +295,10 @@ logic lock;
 // muxes, and are kept from being merged back (timing).
 //
 (* preserve *) logic        stall_idx_ff;
+// ARM925T: late admission compares the same physical tags, but must not
+// start at the heavily loaded control/skid stall mux or load the RF mux.
+(* preserve *) logic        stall_late_ff;
+logic [23:0]                late_reg_index;
 logic [23:0]                skid_idx;
 
 //
@@ -354,6 +360,7 @@ begin
                 o_flag_update_ff                  <= 0;
                 o_stall_from_issue                <= 0;
                 stall_idx_ff                      <= 0;
+                stall_late_ff <= 0;
 
                 o_destination_index_ff            <= 'x;
                 o_alu_operation_ff                <= 'x;
@@ -394,6 +401,7 @@ begin
                 o_flag_update_ff     <= 0;
                 o_stall_from_issue   <= 0;
                 stall_idx_ff         <= 0;
+                stall_late_ff <= 0;
 
                 o_destination_index_ff            <= 'x;
                 o_alu_operation_ff                <= 'x;
@@ -462,6 +470,7 @@ begin
                 o_uop_last                        <= skid_uop_last;
                 o_stall_from_issue                <= lock;
                 stall_idx_ff                      <= lock;
+                stall_late_ff <= lock;
         end
         else
         begin
@@ -981,17 +990,18 @@ assign destination_load_lock = determine_load_lock
 // ARM925T: only condition-resolved loads near memory can be deferred.
 // Early users need the value in shifter; plain rn/rm need it in ALU.
 // Keep all earlier-load, WAW, special-register and multiply interlocks.
-assign late_pending[0] = late_load(skid_alu_source_ff, 1'b0);
-assign late_pending[1] = late_load(skid_shift_source_ff, !skid_is_lsl_0);
-assign late_pending[2] = late_load(skid_shift_length_ff, 1'b1);
+assign late_reg_index = stall_late_ff ? skid_idx :
+        {i_alu_source_ff[5:0], i_shift_source_ff[5:0],
+         i_shift_length_ff[5:0], i_mem_srcdest_index_ff[5:0]};
+assign late_pending[0] = late_load(skid_alu_source_ff, late_reg_index[23:18], 1'b0);
+assign late_pending[1] = late_load(skid_shift_source_ff, late_reg_index[17:12], !skid_is_lsl_0);
+assign late_pending[2] = late_load(skid_shift_length_ff, late_reg_index[11:6], 1'b1);
 assign late_pending[3] = skid_mem_store_ff &&
-                        late_load({27'd0, skid_mem_srcdest_index_ff}, 1'b1);
+                        late_load({27'd0, skid_mem_srcdest_index_ff}, late_reg_index[5:0], 1'b1);
 assign load_lock = |(operand_load_lock & ~late_pending) || destination_load_lock;
 
-function automatic late_load(input [32:0] index, input early);
-        logic [5:0] r;
+function automatic late_load(input [32:0] index, input [5:0] r, input early);
         logic candidate, conflict;
-        r = index[5:0];
         candidate = (i_postalu_dav_ff && i_postalu_mem_load_ff &&
                      i_postalu_mem_srcdest_index_ff == r) ||
                     (!early && i_postalu1_dav_ff && i_postalu1_mem_load_ff &&
