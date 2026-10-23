@@ -1,0 +1,60 @@
+{
+  "phase": "frontend",
+  "scope": "frontend component, not integrated CPU",
+  "parent_revision": "ff86582bed7bc93ee560ab1bc9bdccf9a77f8591",
+  "seed": 4,
+  "mhz": 104,
+  "source_sha256": {
+    "rtl/cpu/arm9v2/arm9v2_predict.sv": "79f1a835b440ab878a59ae5a057486aa5a2c37d9ffc14f65b0b5bf0c3bd8460c",
+    "rtl/cpu/arm9v2/arm9v2_fetch.sv": "2181140b2f6b1518cce218b323371f4832868a8fb02604c72dc11e1ea7c54c6a",
+    "rtl/cpu/zap/zap_ram_simple_nopipe.sv": "15d2387f6025beb33a83fe2c097ac22697055ee515a29fc23a773651df4b4bfc",
+    "sim/cpu/quartus/arm9v2_frontend_trial.sv": "9ffc88ae0589987824cb366b0be2db9aebf67476d612d6d0e6e1257eba8a06ac"
+  },
+  "netlist_sha256": "e0fcd7e95d689bf58943752865c7e5244d83260919597d82be9320eea64b69b8",
+  "cpu_netlist_sha256": "2bd6b94c0a231069c5de0ce2dc3c45494b15592be46d86e7048257ced7fefd33",
+  "remote_directory": "dev/mister/ngage-arm9v2-s2-frontend-r2-s4",
+  "command": "TRIAL=arm9v2_frontend SEED=4 BUILD_DIR=dev/mister/ngage-arm9v2-s2-frontend-r2-s4 sim/cpu/quartus/run.sh",
+  "setup_ns": {
+    "Slow 1100mV 100C Model": 0.851,
+    "Slow 1100mV -40C Model": 0.775,
+    "Fast 1100mV 100C Model": 4.906,
+    "Fast 1100mV -40C Model": 5.564
+  },
+  "hold_ns": {
+    "Slow 1100mV 100C Model": 0.345,
+    "Slow 1100mV -40C Model": 0.33,
+    "Fast 1100mV 100C Model": 0.14,
+    "Fast 1100mV -40C Model": 0.121
+  },
+  "alms": 1149,
+  "worst_paths": {
+    "Fast_1100mV_100C_Model": {
+      "from": "arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[1]",
+      "to": "arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|stack~191_OTERM769",
+      "levels": 7,
+      "data_delay_ns": 4.494,
+      "clock_skew_ns": -0.045
+    },
+    "Fast_1100mV_-40C_Model": {
+      "from": "arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[3]",
+      "to": "arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|stack~191_OTERM769",
+      "levels": 7,
+      "data_delay_ns": 3.845,
+      "clock_skew_ns": -0.036
+    },
+    "Slow_1100mV_-40C_Model": {
+      "from": "arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[3]",
+      "to": "arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|stack~191_OTERM769",
+      "levels": 7,
+      "data_delay_ns": 8.554,
+      "clock_skew_ns": -0.116
+    },
+    "Slow_1100mV_100C_Model": {
+      "from": "arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[3]",
+      "to": "arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|stack~191_OTERM769",
+      "levels": 7,
+      "data_delay_ns": 8.477,
+      "clock_skew_ns": -0.117
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "cpu_netlist_sha256": "2bd6b94c0a231069c5de0ce2dc3c45494b15592be46d86e7048257ced7fefd33",
+  "scope": "Existing ZAP and paused ARM9 regression; V2 front end component only",
+  "regression": {
+    "ZAP": {
+      "passes": 261,
+      "failures": 0,
+      "qemu_agree": 68,
+      "qemu_differ": 0,
+      "windows_each_latency": 0,
+      "excluded_tests": []
+    },
+    "ARM9-paused": {
+      "passes": 258,
+      "failures": 0,
+      "qemu_agree": 68,
+      "qemu_differ": 0,
+      "windows_each_latency": 85,
+      "excluded_tests": [
+        "dhum_rtl"
+      ]
+    },
+    "ARM9-paused-off": {
+      "passes": 258,
+      "failures": 0,
+      "qemu_agree": 68,
+      "qemu_differ": 0,
+      "windows_each_latency": 85,
+      "excluded_tests": [
+        "dhum_rtl"
+      ]
+    }
+  },
+  "cycles_identical_to": "s1-merged-cycles.json"
+}

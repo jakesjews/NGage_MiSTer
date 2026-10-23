@@ -1,0 +1,60 @@
+{
+  "phase": "frontend-r1",
+  "scope": "frontend component, not integrated CPU",
+  "parent_revision": "ff86582bed7bc93ee560ab1bc9bdccf9a77f8591",
+  "seed": 2,
+  "mhz": 104,
+  "source_sha256": {
+    "rtl/cpu/arm9v2/arm9v2_predict.sv": "79f1a835b440ab878a59ae5a057486aa5a2c37d9ffc14f65b0b5bf0c3bd8460c",
+    "rtl/cpu/arm9v2/arm9v2_fetch.sv": "5b6f22c5cf8c9e2021ec2091591b998bb45b0d80803659dfcff12e958163989a",
+    "rtl/cpu/zap/zap_ram_simple_nopipe.sv": "15d2387f6025beb33a83fe2c097ac22697055ee515a29fc23a773651df4b4bfc",
+    "sim/cpu/quartus/arm9v2_frontend_trial.sv": "9ffc88ae0589987824cb366b0be2db9aebf67476d612d6d0e6e1257eba8a06ac"
+  },
+  "netlist_sha256": "90946bfffa8366e70cc7ba6cd5e4a49d0de89d69c73b21f12f31a890cdbb57c7",
+  "cpu_netlist_sha256": "2bd6b94c0a231069c5de0ce2dc3c45494b15592be46d86e7048257ced7fefd33",
+  "remote_directory": "dev/mister/ngage-arm9v2-s2-frontend-s2",
+  "command": "TRIAL=arm9v2_frontend SEED=2 BUILD_DIR=dev/mister/ngage-arm9v2-s2-frontend-s2 sim/cpu/quartus/run.sh",
+  "setup_ns": {
+    "Slow 1100mV 100C Model": 0.04,
+    "Slow 1100mV -40C Model": -0.381,
+    "Fast 1100mV 100C Model": 4.561,
+    "Fast 1100mV -40C Model": 5.123
+  },
+  "hold_ns": {
+    "Slow 1100mV 100C Model": 0.331,
+    "Slow 1100mV -40C Model": 0.275,
+    "Fast 1100mV 100C Model": 0.158,
+    "Fast 1100mV -40C Model": 0.114
+  },
+  "alms": 1106,
+  "worst_paths": {
+    "Fast_1100mV_100C_Model": {
+      "from": "arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|zap_ram_simple_nopipe:u_entries|altsyncram:mem_rtl_0|altsyncram_i3q1:auto_generated|ram_block1a0~PORT_B_WRITE_ENABLE_REG",
+      "to": "arm9v2_fetch:u_frontend|f1[2]",
+      "levels": 3,
+      "data_delay_ns": 3.634,
+      "clock_skew_ns": -1.25
+    },
+    "Fast_1100mV_-40C_Model": {
+      "from": "arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|zap_ram_simple_nopipe:u_entries|altsyncram:mem_rtl_0|altsyncram_i3q1:auto_generated|ram_block1a0~PORT_B_WRITE_ENABLE_REG",
+      "to": "arm9v2_fetch:u_frontend|f1[2]",
+      "levels": 3,
+      "data_delay_ns": 3.086,
+      "clock_skew_ns": -1.236
+    },
+    "Slow_1100mV_-40C_Model": {
+      "from": "arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|zap_ram_simple_nopipe:u_entries|altsyncram:mem_rtl_0|altsyncram_i3q1:auto_generated|ram_block1a0~PORT_B_WRITE_ENABLE_REG",
+      "to": "arm9v2_fetch:u_frontend|sequential_pc[14]",
+      "levels": 5,
+      "data_delay_ns": 7.269,
+      "clock_skew_ns": -2.557
+    },
+    "Slow_1100mV_100C_Model": {
+      "from": "arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|zap_ram_simple_nopipe:u_entries|altsyncram:mem_rtl_0|altsyncram_i3q1:auto_generated|ram_block1a0~PORT_B_WRITE_ENABLE_REG",
+      "to": "arm9v2_fetch:u_frontend|sequential_pc[29]",
+      "levels": 5,
+      "data_delay_ns": 6.982,
+      "clock_skew_ns": -2.423
+    }
+  }
+}

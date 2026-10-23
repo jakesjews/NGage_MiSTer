@@ -312,3 +312,35 @@ The [session report](consults/2026-10-23-codex-arm9v2-s1.md) records unchanged
 ZAP/paused-ARM9 cycles, full regression results, retained fit reports, limitations
 and the next milestone: D1/D2. No V2 CPU throughput or whole-device result exists
 at this stopping point.
+
+## Session 2: front-end timing rounds
+
+The session-1 same-cycle predictor remains. Its critical loop was not simply
+RAM -> tag -> launch: it also selected the next lookup's valid bit or compared
+its write-collision addresses, and then incremented the selected launch PC.
+Those operations have been separated without delaying the prediction:
+
+- Capture the entire 256-bit valid bitmap with a lookup, including same-edge
+  feedback. Select its bit from registered `read_pc` beside the RAM tag check.
+  A later feedback write cannot change the validity of a held lookup.
+- `REGISTER_COLLISION=1` in the shared synchronous RAM captures read/write
+  addresses and write data; compare on the response side. Combined with
+  `HOLD_READ=1`, write-first behavior remains coherent through held clocks.
+  Both options default off for existing ZAP/paused-ARM9 callers.
+- Compute sequential and predicted continuations in parallel. The late
+  prediction decision selects a finished sum instead of preceding an adder.
+
+| Front-end round | Seed 2 worst slow ns | Seed 3 | Seed 4 | Median | Median ALMs |
+|---|---:|---:|---:|---:|---:|
+| Session 1 | -0.574 | -0.856 | -0.895 | -0.856 | 1,085 |
+| Registered validity/collision metadata | -0.381 | -0.393 | -0.526 | -0.393 | 1,106 |
+| Parallel PC continuations | +0.712 | +0.673 | +0.775 | **+0.712** | 1,156 |
+
+All three final fits have positive hold slack and still use two M10Ks. The
+directed trained loop remains one queued word per clock. No extra predictor
+cycle or reset/clear sweep was introduced. A one-cycle-late variant was not
+built: the cited ~0.1 CPI penalty is a useful external estimate, not a V2
+measurement, and these cuts recovered timing without spending that throughput.
+These remain component-only fits; cache and backend integration can change them.
+Full paths and the consultation checklist are in the
+[session-2 report](consults/2026-10-23-codex-arm9v2-s2.md).

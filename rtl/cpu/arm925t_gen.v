@@ -19550,6 +19550,7 @@ module zap_ram_simple_nopipe (
 	parameter [31:0] WIDTH = 32'd32;
 	parameter [31:0] DEPTH = 32'd32;
 	parameter [0:0] HOLD_READ = 1'b0;
+	parameter [0:0] REGISTER_COLLISION = 1'b0;
 	input wire i_clk;
 	input wire i_wr_en;
 	input wire i_rd_en;
@@ -19566,21 +19567,35 @@ module zap_ram_simple_nopipe (
 		if (i_wr_en)
 			mem[i_wr_addr] <= i_wr_data;
 	(* dont_retime *) reg [WIDTH - 1:0] buffer_ff;
-	wire [WIDTH - 1:0] buffer_nxt;
 	(* dont_retime *) reg hazard_ff;
-	wire hazard_nxt;
-	wire addr_conflict;
 	wire concurrent_access;
-	assign addr_conflict = (i_wr_addr == i_rd_addr ? 1'd1 : 1'd0);
 	assign concurrent_access = i_wr_en & i_rd_en;
-	assign hazard_nxt = addr_conflict & concurrent_access;
-	always @(posedge i_clk)
-		if (!HOLD_READ || i_rd_en)
-			hazard_ff <= hazard_nxt;
-	assign buffer_nxt = (hazard_nxt ? i_wr_data : {WIDTH {1'bx}});
-	always @(posedge i_clk)
-		if (!HOLD_READ || i_rd_en)
-			buffer_ff <= buffer_nxt;
+	generate
+		if (REGISTER_COLLISION) begin : g_registered_collision
+			(* dont_retime *) reg [$clog2(DEPTH) - 1:0] rd_addr_ff;
+			(* dont_retime *) reg [$clog2(DEPTH) - 1:0] wr_addr_ff;
+			(* dont_retime *) reg concurrent_ff;
+			always @(posedge i_clk)
+				if (!HOLD_READ || i_rd_en) begin
+					rd_addr_ff <= i_rd_addr;
+					wr_addr_ff <= i_wr_addr;
+					concurrent_ff <= concurrent_access;
+					buffer_ff <= i_wr_data;
+				end
+			wire [1:1] sv2v_tmp_2E4ED;
+			assign sv2v_tmp_2E4ED = concurrent_ff && (rd_addr_ff == wr_addr_ff);
+			always @(*) hazard_ff = sv2v_tmp_2E4ED;
+		end
+		else begin : g_original_collision
+			wire hazard_nxt = (i_wr_addr == i_rd_addr) && concurrent_access;
+			wire [WIDTH - 1:0] buffer_nxt = (hazard_nxt ? i_wr_data : {WIDTH {1'bx}});
+			always @(posedge i_clk)
+				if (!HOLD_READ || i_rd_en) begin
+					hazard_ff <= hazard_nxt;
+					buffer_ff <= buffer_nxt;
+				end
+		end
+	endgenerate
 	assign o_rd_data = (hazard_ff ? buffer_ff : mem_rd_data);
 endmodule
 module zap_register_file (

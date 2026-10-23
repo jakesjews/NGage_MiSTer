@@ -1,0 +1,116 @@
+lint emu
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 8.632 MB in 10 C++ files needing 0.000 MB
+- Verilator: Walltime 1.360 s (elab=0.216, cvt=0.911, bld=0.000); cpu 1.342 s on 1 threads; allocated 244.969 MB
+lint lcd_panel
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.152 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.236 s (elab=0.070, cvt=0.014, bld=0.000); cpu 0.231 s on 1 threads; allocated 85.562 MB
+lint video_out
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.035 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.231 s (elab=0.079, cvt=0.003, bld=0.000); cpu 0.223 s on 1 threads; allocated 82.359 MB
+lint keypad_matrix
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.106 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.212 s (elab=0.054, cvt=0.008, bld=0.000); cpu 0.212 s on 1 threads; allocated 84.984 MB
+lint nor_flash
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.103 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.214 s (elab=0.054, cvt=0.009, bld=0.000); cpu 0.213 s on 1 threads; allocated 85.656 MB
+lint mmc_card
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 1.662 MB in 4 C++ files needing 0.000 MB
+- Verilator: Walltime 0.300 s (elab=0.051, cvt=0.086, bld=0.000); cpu 0.299 s on 1 threads; allocated 110.188 MB
+lint ngage_input
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.045 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.193 s (elab=0.044, cvt=0.004, bld=0.000); cpu 0.193 s on 1 threads; allocated 82.016 MB
+lint ddram_loader
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.027 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.194 s (elab=0.046, cvt=0.002, bld=0.000); cpu 0.194 s on 1 threads; allocated 82.141 MB
+lint lcd_testgen
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.128 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.201 s (elab=0.046, cvt=0.011, bld=0.000); cpu 0.201 s on 1 threads; allocated 83.078 MB
+lint dbg_trace
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.063 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.208 s (elab=0.053, cvt=0.006, bld=0.000); cpu 0.207 s on 1 threads; allocated 81.203 MB
+lint dbg_sti
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.027 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.204 s (elab=0.050, cvt=0.003, bld=0.000); cpu 0.203 s on 1 threads; allocated 81.203 MB
+lint dbg_counters
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.025 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.203 s (elab=0.051, cvt=0.002, bld=0.000); cpu 0.203 s on 1 threads; allocated 81.734 MB
+lint sdram
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.065 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.210 s (elab=0.052, cvt=0.007, bld=0.000); cpu 0.209 s on 1 threads; allocated 82.500 MB
+lint ddram_flash
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.122 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.213 s (elab=0.052, cvt=0.011, bld=0.000); cpu 0.212 s on 1 threads; allocated 82.500 MB
+lint upp_bus
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.150 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.217 s (elab=0.052, cvt=0.013, bld=0.000); cpu 0.217 s on 1 threads; allocated 81.969 MB
+lint ngage_mem
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.478 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.255 s (elab=0.060, cvt=0.041, bld=0.000); cpu 0.255 s on 1 threads; allocated 87.375 MB
+lint wb_selftest
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.094 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.209 s (elab=0.051, cvt=0.007, bld=0.000); cpu 0.209 s on 1 threads; allocated 81.141 MB
+lint flash_save
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.068 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.199 s (elab=0.046, cvt=0.008, bld=0.000); cpu 0.199 s on 1 threads; allocated 82.328 MB
+lint rtc_wall
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.028 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.195 s (elab=0.047, cvt=0.003, bld=0.000); cpu 0.195 s on 1 threads; allocated 80.406 MB
+lint upp_periph
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.612 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.252 s (elab=0.051, cvt=0.049, bld=0.000); cpu 0.252 s on 1 threads; allocated 87.719 MB
+lint upp_intc
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.079 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.202 s (elab=0.050, cvt=0.006, bld=0.000); cpu 0.202 s on 1 threads; allocated 82.125 MB
+lint upp_timers
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.080 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.211 s (elab=0.054, cvt=0.007, bld=0.000); cpu 0.211 s on 1 threads; allocated 81.328 MB
+lint upp_dma
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.101 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.210 s (elab=0.051, cvt=0.009, bld=0.000); cpu 0.210 s on 1 threads; allocated 82.359 MB
+lint upp_mmc
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.158 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.217 s (elab=0.053, cvt=0.013, bld=0.000); cpu 0.217 s on 1 threads; allocated 82.844 MB
+lint upp_lcdif
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.047 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.206 s (elab=0.052, cvt=0.005, bld=0.000); cpu 0.206 s on 1 threads; allocated 82.297 MB
+lint upp_uif
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.055 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.206 s (elab=0.052, cvt=0.004, bld=0.000); cpu 0.206 s on 1 threads; allocated 81.953 MB
+lint upp_cbus
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.054 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.208 s (elab=0.052, cvt=0.004, bld=0.000); cpu 0.208 s on 1 threads; allocated 82.516 MB
+lint upp_haudio
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.100 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.208 s (elab=0.051, cvt=0.007, bld=0.000); cpu 0.208 s on 1 threads; allocated 81.641 MB
+lint wb_arb2
+- V e r i l a t i o n   R e p o r t: Verilator 5.052 2026-09-05 rev vUNKNOWN-built20260905
+- Verilator: Built from 8.173 MB sources in 103 modules, into 0.040 MB in 3 C++ files needing 0.000 MB
+- Verilator: Walltime 0.197 s (elab=0.047, cvt=0.003, bld=0.000); cpu 0.197 s on 1 threads; allocated 82.297 MB

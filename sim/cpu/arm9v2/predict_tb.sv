@@ -63,6 +63,11 @@ module predict_tb;
         end
         i_clear=1; tick(); i_clear=0;
         check(!o_hit && o_count==0,"clear invalidates held entry and RAS");
+        lookup(32'hfe000000);
+        train(32'hfe000000,32'h9000);
+        check(!o_hit,"held miss cannot become valid on later feedback");
+        lookup(32'hfe000000);
+        check(o_hit && o_target==32'h9000,"fresh lookup sees feedback after held miss");
         train(32'h400,32'h888,0,2);
         lookup(32'h400); check(o_taken && o_kind==2 && o_target==32'h888,"empty RAS uses checked BTB fallback");
         for(int n=0;n<10;n++) begin

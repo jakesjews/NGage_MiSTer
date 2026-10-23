@@ -1,0 +1,36 @@
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+; Report Timing                                                                                                                                                                                      ;
++--------+-------------------------------------------------------------------------+-------------------------------------------+--------------+-------------+--------------+------------+------------+
+; Slack  ; From Node                                                               ; To Node                                   ; Launch Clock ; Latch Clock ; Relationship ; Clock Skew ; Data Delay ;
++--------+-------------------------------------------------------------------------+-------------------------------------------+--------------+-------------+--------------+------------+------------+
+; -0.112 ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[29] ; clk          ; clk         ; 9.615        ; -0.125     ; 9.432      ;
+; -0.112 ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[29] ; clk          ; clk         ; 9.615        ; -0.125     ; 9.432      ;
+; -0.078 ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[29] ; clk          ; clk         ; 9.615        ; -0.125     ; 9.398      ;
+; -0.041 ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[25] ; clk          ; clk         ; 9.615        ; -0.195     ; 9.291      ;
+; -0.041 ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[6] ; arm9v2_fetch:u_frontend|sequential_pc[29] ; clk          ; clk         ; 9.615        ; -0.125     ; 9.361      ;
+; -0.041 ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[6] ; arm9v2_fetch:u_frontend|sequential_pc[29] ; clk          ; clk         ; 9.615        ; -0.125     ; 9.361      ;
+; -0.041 ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[25] ; clk          ; clk         ; 9.615        ; -0.195     ; 9.291      ;
+; -0.037 ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[27] ; clk          ; clk         ; 9.615        ; -0.120     ; 9.362      ;
+; -0.037 ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[27] ; clk          ; clk         ; 9.615        ; -0.120     ; 9.362      ;
+; -0.009 ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[29] ; clk          ; clk         ; 9.615        ; -0.125     ; 9.329      ;
+; -0.009 ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[29] ; clk          ; clk         ; 9.615        ; -0.125     ; 9.329      ;
+; -0.007 ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[6] ; arm9v2_fetch:u_frontend|sequential_pc[29] ; clk          ; clk         ; 9.615        ; -0.125     ; 9.327      ;
+; -0.007 ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[25] ; clk          ; clk         ; 9.615        ; -0.195     ; 9.257      ;
+; -0.003 ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[27] ; clk          ; clk         ; 9.615        ; -0.120     ; 9.328      ;
+; 0.018  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[29] ; clk          ; clk         ; 9.615        ; -0.125     ; 9.302      ;
+; 0.030  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[6] ; arm9v2_fetch:u_frontend|sequential_pc[25] ; clk          ; clk         ; 9.615        ; -0.195     ; 9.220      ;
+; 0.030  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[6] ; arm9v2_fetch:u_frontend|sequential_pc[25] ; clk          ; clk         ; 9.615        ; -0.195     ; 9.220      ;
+; 0.034  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[6] ; arm9v2_fetch:u_frontend|sequential_pc[27] ; clk          ; clk         ; 9.615        ; -0.120     ; 9.291      ;
+; 0.034  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[6] ; arm9v2_fetch:u_frontend|sequential_pc[27] ; clk          ; clk         ; 9.615        ; -0.120     ; 9.291      ;
+; 0.036  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[29] ; clk          ; clk         ; 9.615        ; -0.125     ; 9.284      ;
+; 0.036  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[29] ; clk          ; clk         ; 9.615        ; -0.125     ; 9.284      ;
+; 0.037  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[30] ; clk          ; clk         ; 9.615        ; -0.120     ; 9.288      ;
+; 0.037  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[30] ; clk          ; clk         ; 9.615        ; -0.120     ; 9.288      ;
+; 0.050  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[29] ; clk          ; clk         ; 9.615        ; -0.125     ; 9.270      ;
+; 0.062  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[25] ; clk          ; clk         ; 9.615        ; -0.195     ; 9.188      ;
+; 0.062  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[25] ; clk          ; clk         ; 9.615        ; -0.195     ; 9.188      ;
+; 0.062  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[6] ; arm9v2_fetch:u_frontend|sequential_pc[29] ; clk          ; clk         ; 9.615        ; -0.125     ; 9.258      ;
+; 0.062  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[6] ; arm9v2_fetch:u_frontend|sequential_pc[29] ; clk          ; clk         ; 9.615        ; -0.125     ; 9.258      ;
+; 0.064  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[6] ; arm9v2_fetch:u_frontend|sequential_pc[25] ; clk          ; clk         ; 9.615        ; -0.195     ; 9.186      ;
+; 0.066  ; arm9v2_fetch:u_frontend|arm9v2_predict:g_predictor.u_predict|read_pc[5] ; arm9v2_fetch:u_frontend|sequential_pc[27] ; clk          ; clk         ; 9.615        ; -0.120     ; 9.259      ;
++--------+-------------------------------------------------------------------------+-------------------------------------------+--------------+-------------+--------------+------------+------------+

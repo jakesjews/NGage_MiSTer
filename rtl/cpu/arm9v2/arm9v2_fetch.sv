@@ -61,6 +61,12 @@ module arm9v2_fetch #(
     prediction_t prediction;
     logic predicted, advance, push, pop, retry, launch_thumb;
     logic [31:0] launch_pc;
+    // Both continuations are independent of the hit decision. Keep the
+    // increment off the RAM -> tag -> launch-select path into sequential_pc.
+    (* keep *) wire [31:0] predicted_next = {prediction.target[31:1],1'b0} +
+                                              (prediction.target[0] ? 32'd2 : 32'd4);
+    (* keep *) wire [31:0] sequential_next = sequential_pc +
+                                              (sequential_thumb ? 32'd2 : 32'd4);
     logic unused;
     assign unused = &{1'b0, i_redirect_target[0], i_redirect_pointer, i_redirect_count,
         i_redirect_action, i_redirect_link, i_predictor_clear, i_update, i_update_pc,
@@ -154,7 +160,7 @@ module arm9v2_fetch #(
                 f2 <= f1;
                 f2_prediction <= prediction;
                 f2_prediction.predicted <= predicted;
-                sequential_pc <= launch_pc + (launch_thumb ? 32'd2 : 32'd4);
+                sequential_pc <= predicted ? predicted_next : sequential_next;
                 sequential_thumb <= launch_thumb;
                 if (i_redirect || retry || killed) begin
                     f1.valid <= 0;

@@ -36,7 +36,11 @@ module arm9v2_predict #(
     } entry_t;
     entry_t write_entry, read_entry;
     logic [ENTRIES-1:0] valid;
-    (* dont_retime *) logic read_valid, read_thumb;
+    // Snapshot the bitmap, not valid[late_next_pc]. Selection from read_pc
+    // runs beside the RAM tag check, never after the predicted launch mux.
+    (* dont_retime *) logic [ENTRIES-1:0] read_valid;
+    logic [ENTRIES-1:0] valid_next;
+    (* dont_retime *) logic read_thumb;
     (* dont_retime *) logic [31:0] read_pc;
     (* dont_retime *) logic [2:0] pointer;
     (* dont_retime *) logic [3:0] count;
@@ -55,26 +59,30 @@ module arm9v2_predict #(
         write_entry = {i_update_pc[31:INDEX_W+1], i_update_thumb,
                        i_update_target, update_state, i_update_kind};
     end
-    zap_ram_simple_nopipe #(.WIDTH($bits(entry_t)), .DEPTH(ENTRIES), .HOLD_READ(1'b1)) u_entries (
+    zap_ram_simple_nopipe #(.WIDTH($bits(entry_t)), .DEPTH(ENTRIES),
+        .HOLD_READ(1'b1), .REGISTER_COLLISION(1'b1)) u_entries (
         .i_clk(i_clk), .i_wr_en(write_enable), .i_rd_en(i_lookup),
         .i_wr_data(write_entry), .i_wr_addr(wr_index), .i_rd_addr(rd_index),
         .o_rd_data(read_entry)
     );
+    always_comb begin
+        valid_next = valid;
+        if (write_enable) valid_next[wr_index] = 1'b1;
+    end
     always_ff @(posedge i_clk) begin
         if (i_reset || i_clear) begin
             valid <= {ENTRIES{1'b0}};
-            read_valid <= 0;
+            read_valid <= {ENTRIES{1'b0}};
         end else begin
-            if (write_enable) valid[wr_index] <= 1;
-            if (i_lookup) read_valid <= valid[rd_index] ||
-                                       (write_enable && rd_index == wr_index);
+            valid <= valid_next;
+            if (i_lookup) read_valid <= valid_next;
         end
         if (i_lookup) begin
             read_pc <= i_pc;
             read_thumb <= i_thumb;
         end
     end
-    assign o_hit = read_valid && read_entry.tag == read_pc[31:INDEX_W+1] &&
+    assign o_hit = read_valid[read_pc[INDEX_W:1]] && read_entry.tag == read_pc[31:INDEX_W+1] &&
                    read_entry.thumb == read_thumb;
     assign o_taken = o_hit && read_entry.state[1];
     assign o_target = read_entry.kind == RETURN && count != 0 ?
