@@ -165,6 +165,12 @@ logic [32:0]                      pc_del_ff, pc_del_nxt;
 logic [32:0]                      pc_del2_ff, pc_del2_nxt;
 logic [32:0]                      pc_del3_ff, pc_del3_nxt;
 
+// ARM925T: the registered BTB decision belongs to pc_del_ff. Carry the
+// accepted redirect (not just a BTB hit) and state with that instruction
+// through the two remaining fetch-address registers, including stalls.
+logic [32:0]                      pred_del2_ff, pred_del3_ff, pred_del2_nxt;
+logic [1:0]                       btb_taken, taken_del2_ff, taken_del3_ff;
+
 logic                             mode32;
 logic                             clear_from_btb;
 logic [31:0]                      vector_base;  // ARM925T: 0 or 0xFFFF0000.
@@ -181,6 +187,8 @@ assign  o_cpsr_nxt   = cpsr_nxt;
 assign  o_dbg_cpsr_ff = cpsr_ff;    // ARM925T: debug trace
 assign  o_wb_stb     = pc_del3_ff[32];
 assign  o_wb_cyc     = pc_del3_ff[32];
+assign  o_pred       = pred_del3_ff;
+assign  o_taken      = taken_del3_ff;
 
 // ----------------------------------------------------------------------------
 // Register file
@@ -240,7 +248,7 @@ begin: pc_control_tree
         pc_del_nxt               = pc_del_ff;
         pc_del2_nxt              = pc_del2_ff;
         pc_del3_nxt              = pc_del3_ff;
-        o_pred                   = 33'd0;
+        pred_del2_nxt            = 33'd0;
 
         // ====================================
         // Code Section
@@ -312,10 +320,17 @@ begin: pc_control_tree
         begin
                 `zap_pc_shelve (pc_del3_ff[31:0]);
         end
-        else if ( clear_from_btb && pc_del3_ff[32] )
+        else if ( clear_from_btb && pc_del_ff[32] && !i_clear_btb )
         begin
-                `zap_pc_shelve (pc_from_btb);
-                o_pred = {1'd1, pc_from_btb};
+                // ARM925T: predict at pc_del, preserving this branch and
+                // everything older. Only pc_ff is on the sequential wrong
+                // path: discard that one slot, then fetch the target.
+                // Recovery redirects above still invalidate all three slots.
+                pc_nxt_tmp    = {1'd1, pc_from_btb};
+                pc_del_nxt    = {1'd0, pc_ff[31:0]};
+                pc_del2_nxt   = pc_del_ff;
+                pc_del3_nxt   = pc_del2_ff;
+                pred_del2_nxt = {1'd1, pc_from_btb};
         end
         else
         begin
@@ -497,6 +512,10 @@ begin
                 pc_del_ff                  <= 33'd0;
                 pc_del2_ff                 <= 33'd0;
                 pc_del3_ff                 <= 33'd0;
+                pred_del2_ff               <= 33'd0;
+                pred_del3_ff               <= 33'd0;
+                taken_del2_ff              <= SNT;
+                taken_del3_ff              <= SNT;
 
                 // CPSR reset logic.
                 cpsr_ff                    <= CPSR_INIT;
@@ -510,6 +529,14 @@ begin
                 pc_del_ff                 <= pc_del_nxt;
                 pc_del2_ff                <= pc_del2_nxt;
                 pc_del3_ff                <= pc_del3_nxt;
+
+                if ( !i_code_stall )
+                begin
+                        pred_del2_ff  <= pred_del2_nxt;
+                        pred_del3_ff  <= pred_del2_ff;
+                        taken_del2_ff <= btb_taken;
+                        taken_del3_ff <= taken_del2_ff;
+                end
 
                 cpsr_ff                   <= cpsr_nxt;
                 o_decompile               <= i_decompile;
@@ -531,11 +558,14 @@ zap_btb #(.BP_ENTRIES(BP_ENTRIES)) u_zap_btb (
         .i_fb_branch_src_address(i_alu_pc_ff),
         .i_fb_branch_dest_address(i_pc_from_alu),
         .i_fb_current_branch_state(i_taken),
-        .i_rd_addr(pc_del_ff[31:0]),
-        .i_rd_addr_del(pc_del2_ff[31:0]),
+        // ARM925T: read the PC being formed, in parallel with registering
+        // it. RAM output is checked against pc_ff, then the registered
+        // decision reaches pc_del. No RAM/tag logic enters the PC mux.
+        .i_rd_addr(pc_nxt[31:0]),
+        .i_rd_addr_del(pc_ff[31:0]),
         .o_clear_from_btb(clear_from_btb),
         .o_pc_from_btb(pc_from_btb),
-        .o_branch_state(o_taken)
+        .o_branch_state(btb_taken)
 );
 
 `ifndef SYNTHESIS

@@ -73,7 +73,8 @@ module zap_btb #(
         // Live read path.
         /////////////////////////
 
-        // Read addresses from SRAM.
+        // ARM925T: the PC being formed and its registered value. The RAM
+        // read takes one clock; the tag check/decision takes another.
         input t_address     i_rd_addr,
         input t_address     i_rd_addr_del,
 
@@ -204,6 +205,16 @@ begin
                 o_clear_from_btb <= 1'd0;
                 o_pc_from_btb    <= {32{1'dx}};
                 o_branch_state   <= {2{1'dx}};
+        end
+        else if ( i_clear )
+        begin
+                // ARM925T: invalidate the decision as well as the RAM's
+                // valid bits, even when fetch is stalled during CP15 clear.
+                o_clear_from_btb <= 1'd0;
+                if ( !i_stall )
+                begin
+                        o_branch_state <= mem_rd_data.state;
+                end
         end
         else if ( !i_stall )
         begin
