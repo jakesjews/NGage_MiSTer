@@ -3760,3 +3760,32 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   155 of 208) and decoded by mister_dbg.py; built as b22 (the server)
   so the next replay splits the SDRAM wait into loads, stores and
   write-backs.
+- **First-boot acceptance on b19**: the third boot of the trial image
+  with the profiler pressing Enter on the Time and Date dialogs (92 s,
+  102 s) ran the firmware's first-time setup after them (bus activity
+  116-150 s, the operator splash at 150 s); the fourth boot came up the
+  same way as the second (the dialog at 80 s, which the firmware asks at
+  every start here), and the trial image's C: area holds 2.2 MB of
+  non-FF data where the pristine image had none: the format persisted
+  through the save write-back. The first-boot flow works end to end
+  with the fast path.
+- **b21 built** (the server, seed 1; the card path on b19's tree):
+  -1.212 ns, 36,520 ALMs (87 %), 477 M10K. One new family: mmc_card's
+  a_srlo -> an adder (-1.19: the slot arithmetic of the 4 KB buffer,
+  the modulo-3 quarter), to be registered later; the rest this tree's
+  known ones. On the debug slot for the load measurement.
+- **The 16 KB D-cache in play** (b20-d16 on the debug slot): Sonic
+  29.1-30.9 M instructions/s (b17, the same tree at 8 KB: 29.0-30.4),
+  Asphalt 30.7-31.4 (30.0-30.4), Tony Hawk 29.5-31.8 (28.9-30.9): +1 to
+  +3 %; the bus beats -7 % (Asphalt 6.1-6.3 M/s from 6.6-6.7), the
+  SDRAM wait down two points (Asphalt 22.0-22.7 % from 24.2-24.6), the
+  data stall a point lower. So the data cache's capacity misses are a
+  small part of the SDRAM wait too; with the bus at about 6 M beats/s
+  and 20-23 % of clocks waiting, the wait is latency per fill (about 4
+  clocks a beat), not bandwidth. **8 KB stays the default**; at 3,700
+  ALMs (93 % of the device) and -1.6 ns the option is not worth +2 %
+  as built (the valid/dirty/LRU arrays in flip-flops are the cost; a
+  RAM-based version could be cheap if it is ever wanted). The next
+  split, by b22's counters: fills for loads against fills for stores
+  and write-backs, which decides whether a write buffer (no-write-
+  allocate) is the lever.
