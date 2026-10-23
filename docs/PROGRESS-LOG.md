@@ -3047,3 +3047,25 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   (2026) the same lineage; both and his GBA ARM7TDMI are references for
   semantics and cycle counts, the TRM for the pipeline. The repository
   goes public and GPL code may be mixed in (the user).
+- **The merged build in play** (b8, the four Codex changes plus the
+  forwarding and the predictor fix, -3.0 ns; it runs: the user notes the
+  Jaguar core works at -10 ns; `build/hardware/game/{sonicn,asphalt}-merged/`):
+  - Sonic in Neo Green Hill: 26-27.8 M instructions/s (was 22-23.3 on the
+    forwarding build, 19.3-20.8 at the start), CPI 3.7-4.1, **12-16
+    frames/s** (was 9-12, 7-12). Replays 80-110 K/s (were 500-570 K), data
+    stall 14-17 % (the held accesses now wait there instead of replaying),
+    code stall 54-57 % (the FIFO full behind the issue stage), FIFO empty
+    18-24 %, issue 36-41 %, shifter 5 % (the late pickup's holds count
+    there), decode 8-10 %.
+  - Asphalt: 27.8-28.4 M/s (was 23.5, 21.1), CPI 3.7 (was 4.4, 4.9),
+    replays 130-146 K/s (were 670 K), shifter 15 %; 10-11 frames/s, which
+    is not comparable: Instant Play picks a random race, and this run got
+    the night-time Cop Chase in the city (as the first runs did) while the
+    forwarding build's run got a coastal time attack with another car, so
+    its 14 frames/s was a cheaper scene. The idle screen 39.9 M/s at CPI
+    2.6. Instruction rate and CPI are the measures across builds; Sonic's
+    frame rate is comparable (same level, same keys); Asphalt's needs a
+    fixed race (the script will pick Cop Chase explicitly).
+  - Against the start of the day: Sonic +35 % instructions/s, Asphalt
+    +33 %; CPI 4.9 -> 3.7. Asphalt's 21 frames/s needs about 2.9, Sonic's
+    32 about 1.5.
