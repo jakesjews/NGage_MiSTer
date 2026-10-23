@@ -8,17 +8,13 @@ Retained so far: the registered TLB fault summary, per-slot issue decisions,
 local barrel pending selects, combined BL/LSL-zero decode, direct cache
 acknowledgement, and binary background-completion tags. Every retained
 combination passes the complete CPU suite with identical cycles/instructions.
-The latest completed three-seed snapshot is `combined2`, at −0.812 ns median;
-it includes the owner-supplied card fix and the first two CPU changes, but
-predates the pending-select, decoder, acknowledgement and completion-tag
-changes. The final combined timing requirement is not yet met.
-
-`combined3` uses `11bbda3`, with all six retained CPU changes and the
-unchanged owner-supplied card fix. Its first two MAIN seeds are −0.645 /
-−0.486 ns; source manifests match. Seed 3 is running. The median cannot meet
-−0.300 ns with those first two results, so the next isolated trials address
-issue forwarding and predecode classification. The barrel and bus fallbacks
-remain parked because those families are now above −0.100 ns in both seeds.
+The latest completed three-seed snapshot is `combined3` (`11bbda3`),
+including all six CPU changes and the unchanged owner-supplied card fix:
+**−0.645 / −0.486 / −0.880 ns, median −0.645 ns**. The final timing
+requirement is not met. Source manifests match for all three seeds. The next
+isolated trials target issue forwarding and predecode classification; the
+barrel and bus fallbacks remain parked while the leading CPU families are
+addressed.
 
 ## Measurement method
 
@@ -177,8 +173,7 @@ whole-core assessment, not hidden by the narrower capture result.
 
 ## CPU cycle evidence
 
-Existing binaries and QEMU references are reused. The baseline and each of
-six isolated ports pass **225/225 runs**, **57 agree / 0 differ**. Across the
+Existing binaries and QEMU references are reused. The baseline, all fitted trials and retained combinations pass **225/225 runs**, **57 agree / 0 differ**. Across the
 225 runs, the baseline totals **20,630,566 cycles**; every candidate has the
 same total and every individual cycle/instruction pair agrees. There are no
 moved tests. Full per-run JSON tables and logs are in `build/timing5/` and
@@ -372,6 +367,54 @@ query there. No fit, source, clock constraint or seed changed. The pending
 select change is retained after this measurement, with the full suite and
 57 QEMU comparisons repeated on the integrated branch and every count
 unchanged. Its combined three-seed timing is still to be measured.
+
+## Third combined tree, all six retained CPU changes
+
+`combined3` fits source `11bbda3` at the same three fixed MAIN seeds.
+Slow-100C setup slack is **−0.645 / −0.486 / −0.880 ns**, with **median
+−0.645 ns**. This improves the original median by 0.507 ns and the previous
+retained combination by 0.167 ns, but still misses −0.300 ns. The original
+comparison includes the external card fix, so it is not attributed solely
+to the CPU changes. All 149 source/configuration manifest entries match at
+every seed, apart from Quartus version metadata in the QSF.
+
+Fits use 34,859 / 34,872 / 34,779 ALMs and 479 M10Ks. Minimum hold slack over
+all four corners is +0.016 / +0.068 / +0.108 ns. The source combination passes
+all 225 exact cycle/instruction counts, 57 QEMU comparisons, both lint modes,
+generation/checks and the ten-occurrence check.
+
+| Family | Seed 1 | Seed 2 | Seed 3 |
+| --- | ---: | ---: | ---: |
+| issue forwarding capture | −0.645 | −0.273 | −0.400 |
+| issue interlock feedback | −0.634 | −0.155 | −0.391 |
+| issue pending inputs | +0.050 | +0.382 | −0.296 |
+| predecode undefined classification | −0.473 | −0.486 | −0.373 |
+| predecode to decode | +0.014 | −0.101 | +0.035 |
+| shifter output | +0.032 | +0.184 | −0.226 |
+| D-cache FSM state to merger address | +0.168 | +0.686 | +0.242 |
+| all merger register inputs | −0.340 | +0.317 | −0.202 |
+| cache/CP15 control to core | −0.345 | −0.023 | −0.296 |
+| background completion pickup | +1.023 | +0.898 | +1.184 |
+| D-TLB outgoing fault | +0.405 | +1.167 | +0.549 |
+| D-TLB checker inputs | +0.485 | −0.072 | +0.034 |
+| I-cache valid/LRU capture | −0.260 | +0.041 | −0.599 |
+| all UPP register inputs | −0.100 | −0.056 | −0.527 |
+| owner-supplied card model | +0.180 | +0.618 | +0.583 |
+
+Seed 1 is led by memory-load validity through ALU late-hold qualification
+and forwarding into issue's normal shift-source bank, followed by decode's
+shift-length index through late admission into the issue stall. Seed 2 is
+led by Thumb instruction-valid through predecode classification into
+`o_v5_und_ff`. These motivate the next isolated trials below.
+
+Seed 3 is led by UPP `fl_chip` through flash-save control into the bitmap
+RAM's write-enable register (−0.880 ns), followed by writeback PC into I-cache
+LRU/valid capture (−0.599/−0.561 ns). Its bus-address-to-UPP family reaches
+−0.527 ns. These remain reported even though they do not set this tree's
+median. The seed-2 compiler emitted a loader shutdown assertion after
+completion; its separate corner/family analysis completed, its bitstream
+exists, and its fitted source manifest matches. No refit or seed replacement
+was used.
 
 ## Further candidates prepared from the main-core baseline
 
@@ -858,6 +901,33 @@ modes, generation/checks and the ten-occurrence check pass. The pre-fit
 acceptance group includes normal forwarding captures, store captures and
 all four registered operand selectors. Supplemental queries of the existing
 baseline databases precede the paired fit. It is not retained yet.
+
+**Direct effective load interlock (`factoredlock`):** the remaining seed-1
+issue-feedback path is decode's shift-length index through `late_live`,
+`slot_lock`, and the registered issue stall, at −0.634 ns. Compute each
+operand's final blocking condition directly instead of forming a full load
+lock and cancelling it through the late-admission tree. With `E` = earlier
+loads, `P` = eligible late-stage loads, `W` = conflicting writers, `A` =
+late admission allowed, `K` = the register lock, and `X` = the original
+live exception lock, the expression is:
+
+```text
+K || E || (P && (W || !A)) || (X && (!P || W || !A))
+```
+
+The original immediate/RAZ guard remains outside it. Locked registers and
+earlier loads always block. Special registers, multiply, force-alignment
+and exception slots cannot defer. Shift and store operands keep their
+existing early/late eligibility. The separate destination/WAW lock and
+pending-bit calculation are unchanged. The final exception term preserves
+the original live-input exception behavior even when selecting the saved
+slot; it does not silently change that ordering rule.
+
+All 4,038 actual issue-module comparison points prove without assumptions.
+All 225 counts, 57 QEMU comparisons, both lint modes and generated checks
+pass. There is no new register, RAM or pipeline edge. The pre-fit group
+covers all issue-stall and pending-register inputs. This is a prepared
+fallback on `combined3`, not fitted or retained.
 
 ## Scope and risks
 
