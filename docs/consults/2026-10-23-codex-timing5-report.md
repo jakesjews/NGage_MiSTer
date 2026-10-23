@@ -44,6 +44,10 @@ that interpretation are identified below. New trials use the worst-of-pair
 criterion, matching the requested measurement across two seeds.
 At most two task-owned Quartus containers and four Quartus containers in
 total may run. Every build has a separate local and remote directory.
+The pending build copies set container `TZ=America/Detroit` when UTC
+midnight approaches, keeping the framework-generated `BUILD_DATE` at
+`261023`, identical to the baseline. This is a build-copy environment
+setting; no framework file or timing constraint is changed.
 
 The paired acceptance families are selected before the candidate fits:
 
@@ -904,14 +908,19 @@ they match. All 225 CPU counts and 57 signatures remain exact; both lint
 modes, generation/checks and the ten-occurrence check pass. The pre-fit
 acceptance group includes normal forwarding captures, store captures and
 all four registered operand selectors. Supplemental queries of the existing
-baseline databases precede the paired fit. Its first seed is −0.798 ns whole-core, with target −0.715 ns versus
-−0.645 ns before. The target now starts at decode's shift-source index and
-ends in the normal shift-source bank. Store and selection-register inputs
-are +0.346/+0.649 ns. This is already worse than the baseline pair minimum,
-so the standalone trial cannot qualify; seed 2 continues. The fit uses
-35,553 ALMs and 479 M10Ks, minimum hold +0.096 ns, and matching source
-inputs. Its global limit is D-TLB fault-summary control into a retimed
-sequencer control register. No RTL is applied.
+baseline databases precede the paired fit. Drop the standalone trial:
+its family changes from −0.645/−0.273 to −0.715/−0.354 ns, regressing
+both seeds and the pair minimum by 0.070 ns. Whole-core slacks are
+−0.798/−0.543 ns. Store inputs are +0.346/+0.154 ns, and operand-selector
+inputs +0.649/+0.906 ns. The seed-1 forwarding limit moves to decode's
+shift-source index into the normal shift-source bank; the original late-hold
+path disappears, but the broader target does not improve.
+
+The fits use 35,553/35,561 ALMs and 479 M10Ks, with minimum four-corner
+holds +0.096/+0.097 ns. All 149 source/project inputs and the generated
+build-date string match. The global limits are D-TLB fault-summary control
+into retimed sequencer control (seed 1) and post-ALU2 validity into issue's
+stall register (seed 2). No RTL from this standalone trial is applied.
 
 **Direct effective load interlock (`factoredlock`):** the remaining seed-1
 issue-feedback path is decode's shift-length index through `late_live`,
@@ -937,8 +946,7 @@ slot; it does not silently change that ordering rule.
 All 4,038 actual issue-module comparison points prove without assumptions.
 All 225 counts, 57 QEMU comparisons, both lint modes and generated checks
 pass. There is no new register, RAM or pipeline edge. The pre-fit group
-covers all issue-stall and pending-register inputs. This is a prepared
-fallback on `combined3`, not fitted or retained.
+covers all issue-stall and pending-register inputs. Its seed-1 fit is running against `combined3`; it is not retained.
 
 **Classification before each micro-op case (`classifycase`):** the failed
 first classification seed still runs from Thumb instruction-valid into
@@ -964,7 +972,7 @@ the ten-occurrence check pass after the shared include is installed. Its
 manifests include the new header at both seeds. The acceptance family covers
 original undefined-output capture and the saved-classification inputs. The
 paired fits are queued after the forwarding trial in one task lane, while
-the other lane completes `classify4` and then `factoredlock`. Neither new
+the other lane runs `factoredlock`. Neither new
 trial is retained on functional results alone.
 
 **Per-slot forwarding plus unqualified issue capture (`forwardslots`):**
@@ -981,7 +989,7 @@ it no longer repeats a comparison of the selected index.
 
 Actual issue equivalence proves all 2,806 state/output comparison points
 under the separately proved forwarding-validity contract. All 225 counts,
-57 QEMU comparisons, normal lint and generation/checks pass; the raw
+57 QEMU comparisons, both lint modes and generation/checks pass; the raw
 `input reg` count remains ten. There is no new pipeline edge or register.
 The target is the same broad forwarding/store/operand-selection capture
 group, measured against `combined3`; the failed standalone result is not
@@ -993,6 +1001,29 @@ and generated checks. Its joined issue proof passes 2,806 points, and its
 predecode modules/header match the separately proved source byte-for-byte.
 That preview is unfitted and unretained; standalone `forwarddav` has failed
 its gate, so this preview must not be applied as a bundle.
+
+**Registered flash-save bitmap write (`bitmapwrite`):** `combined3` seed 3
+exposes a separate −0.880 ns path from UPP's registered flash-chip select,
+through DDR request arbitration, to the dirty-bitmap RAM write enable.
+This fallback queues the bitmap's write enable/address/data in 16 preserved
+registers. The RAM physically writes one clock later, while two registered
+forwarding bits supply the same read value at the original edge. A read
+forwards the previous clock's queued write, never the current write, retaining
+`sdp_ram`'s old-data collision behavior. Mark/clear priority, dirty-block queue,
+read request, save ordering, reset/sweep and all controller edges remain
+unchanged. No processor or DDR request acquires a cycle.
+
+An induction proof extracts the changed RTL block and tracks an arbitrary
+14-bit RAM address. It proves the memory-refinement invariant and every read
+of that address, universally covering all 16,384 locations with no reduced
+geometry and arbitrary consecutive writes/collisions. The sole initial-memory
+assumption is equality of the compared original memories; the pending-write
+enable starts clear. All 225 CPU counts, 57 QEMU comparisons, both lint modes,
+generated checks and the ten-occurrence check pass. Paired save benches each
+take 31,071,940 clocks with 4,119 marks. The complete shell benches also match all 12 result lines, including
+159,279,244 clocks and every reported memory transaction count. Pre-fit acceptance covers both sides of the original RAM and all
+new pending-write/read-forward registers. This is an unfitted fallback; the
+baseline supplementary queries must run before any candidate fit.
 
 ## Scope and risks
 
