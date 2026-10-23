@@ -275,6 +275,17 @@ logic load_lock;
 logic lock;
 
 //
+// ARM925T: the register file's read indices take their own copy of the
+// stall register and of the skid's four index fields. The stall register
+// selects the whole skid mux (hundreds of loads), and through it the
+// indices reached the register file's read mux late; the copies carry
+// the same values (same reset, clear and update) with a fan-out of four
+// muxes, and are kept from being merged back (timing).
+//
+(* preserve *) logic        stall_idx_ff;
+logic [23:0]                skid_idx;
+
+//
 // Asserted when an instruction cannot be issued and leads to all stages
 // before it stalling.
 //
@@ -331,6 +342,7 @@ begin
                 o_und_ff                          <= 0;
                 o_flag_update_ff                  <= 0;
                 o_stall_from_issue                <= 0;
+                stall_idx_ff                      <= 0;
 
                 o_destination_index_ff            <= 'x;
                 o_alu_operation_ff                <= 'x;
@@ -369,6 +381,7 @@ begin
                 o_und_ff             <= 0;
                 o_flag_update_ff     <= 0;
                 o_stall_from_issue   <= 0;
+                stall_idx_ff         <= 0;
 
                 o_destination_index_ff            <= 'x;
                 o_alu_operation_ff                <= 'x;
@@ -434,6 +447,7 @@ begin
                 o_decompile                       <= skid_decompile;
                 o_uop_last                        <= skid_uop_last;
                 o_stall_from_issue                <= lock;
+                stall_idx_ff                      <= lock;
         end
 end
 
@@ -442,6 +456,8 @@ always_ff @ ( posedge i_clk )
 begin
         if ( ~o_stall_from_issue )
         begin
+                skid_idx <= {i_alu_source_ff[5:0], i_shift_source_ff[5:0],
+                             i_shift_length_ff[5:0], i_mem_srcdest_index_ff[5:0]};
                 skid <= {
                         i_pc_plus_8_ff,
                         i_pc_ff,
@@ -617,10 +633,10 @@ assign  o_mem_srcdest_value_nxt =
         );
 
 // Apply index to register file.
-assign o_rd_index_0 = skid_alu_source_ff[5:0];
-assign o_rd_index_1 = skid_shift_source_ff[5:0];
-assign o_rd_index_2 = skid_shift_length_ff[5:0];
-assign o_rd_index_3 = skid_mem_srcdest_index_ff[5:0];
+assign o_rd_index_0 = stall_idx_ff ? skid_idx[23:18] : i_alu_source_ff[5:0];
+assign o_rd_index_1 = stall_idx_ff ? skid_idx[17:12] : i_shift_source_ff[5:0];
+assign o_rd_index_2 = stall_idx_ff ? skid_idx[11:6]  : i_shift_length_ff[5:0];
+assign o_rd_index_3 = stall_idx_ff ? skid_idx[5:0]   : i_mem_srcdest_index_ff[5:0];
 
 always_comb
 begin

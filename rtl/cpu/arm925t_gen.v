@@ -11704,6 +11704,8 @@ module zap_issue_main (
 	wire shift_lock;
 	wire load_lock;
 	wire lock;
+	(* preserve *) reg stall_idx_ff;
+	reg [23:0] skid_idx;
 	reg [31:0] skid_pc_plus_8_ff;
 	reg [31:0] skid_pc_ff;
 	reg skid_switch_ff;
@@ -11749,6 +11751,7 @@ module zap_issue_main (
 			o_und_ff <= 0;
 			o_flag_update_ff <= 0;
 			o_stall_from_issue <= 0;
+			stall_idx_ff <= 0;
 			o_destination_index_ff <= 1'sbx;
 			o_alu_operation_ff <= 1'sbx;
 			o_shift_operation_ff <= 1'sbx;
@@ -11785,6 +11788,7 @@ module zap_issue_main (
 			o_und_ff <= 0;
 			o_flag_update_ff <= 0;
 			o_stall_from_issue <= 0;
+			stall_idx_ff <= 0;
 			o_destination_index_ff <= 1'sbx;
 			o_alu_operation_ff <= 1'sbx;
 			o_shift_operation_ff <= 1'sbx;
@@ -11848,10 +11852,13 @@ module zap_issue_main (
 			o_decompile <= skid_decompile;
 			o_uop_last <= skid_uop_last;
 			o_stall_from_issue <= lock;
+			stall_idx_ff <= lock;
 		end
 	always @(posedge i_clk)
-		if (~o_stall_from_issue)
+		if (~o_stall_from_issue) begin
+			skid_idx <= {i_alu_source_ff[5:0], i_shift_source_ff[5:0], i_shift_length_ff[5:0], i_mem_srcdest_index_ff[5:0]};
 			skid <= {i_pc_plus_8_ff, i_pc_ff, i_switch_ff, i_taken_ff, i_decompile, i_uop_last, i_condition_code_ff, i_destination_index_ff, i_alu_source_ff, i_alu_operation_ff, i_shift_source_ff, i_shift_operation_ff, i_shift_length_ff, i_flag_update_ff, i_mem_srcdest_index_ff, i_mem_load_ff, i_mem_store_ff, i_mem_pre_index_ff, i_mem_unsigned_byte_enable_ff, i_mem_signed_byte_enable_ff, i_mem_signed_halfword_enable_ff, i_mem_unsigned_halfword_enable_ff, i_mem_translate_ff, i_irq_ff, i_fiq_ff, i_abt_ff, i_swi_ff, i_force32align_ff, i_und_ff, i_ppc_ff};
+		end
 	function automatic [31:0] get_register_value;
 		input [32:0] index;
 		input [1:0] rd_port;
@@ -11917,10 +11924,10 @@ module zap_issue_main (
 	assign o_shift_source_value_nxt = get_register_value(skid_shift_source_ff, 2'd1, i_shifter_destination_index_ff[5:0], i_alu_dav_nxt, i_alu_destination_value_nxt, i_alu_destination_value_ff, i_alu_destination_index_ff[5:0], i_alu_dav_ff, i_postalu0_destination_index_ff[5:0], i_postalu0_destination_value_ff, i_postalu0_dav_ff, i_postalu1_destination_index_ff[5:0], i_postalu1_destination_value_ff, i_postalu1_dav_ff, i_postalu_destination_index_ff[5:0], i_postalu_destination_value_ff, i_postalu_dav_ff, i_memory_destination_index_ff[5:0], i_memory_destination_value_ff, i_memory_dav_ff, i_rd_data_0, i_rd_data_1, i_rd_data_2, i_rd_data_3, i_cpu_mode, skid_pc_plus_8_ff, 1'd0);
 	assign o_shift_length_value_nxt = get_register_value(skid_shift_length_ff, 2'd2, i_shifter_destination_index_ff[5:0], i_alu_dav_nxt, i_alu_destination_value_nxt, i_alu_destination_value_ff, i_alu_destination_index_ff[5:0], i_alu_dav_ff, i_postalu0_destination_index_ff[5:0], i_postalu0_destination_value_ff, i_postalu0_dav_ff, i_postalu1_destination_index_ff[5:0], i_postalu1_destination_value_ff, i_postalu1_dav_ff, i_postalu_destination_index_ff[5:0], i_postalu_destination_value_ff, i_postalu_dav_ff, i_memory_destination_index_ff[5:0], i_memory_destination_value_ff, i_memory_dav_ff, i_rd_data_0, i_rd_data_1, i_rd_data_2, i_rd_data_3, i_cpu_mode, skid_pc_plus_8_ff, 1'd0);
 	assign o_mem_srcdest_value_nxt = get_register_value({27'd0, skid_mem_srcdest_index_ff}, 2'd3, i_shifter_destination_index_ff[5:0], i_alu_dav_nxt, i_alu_destination_value_nxt, i_alu_destination_value_ff, i_alu_destination_index_ff[5:0], i_alu_dav_ff, i_postalu0_destination_index_ff[5:0], i_postalu0_destination_value_ff, i_postalu0_dav_ff, i_postalu1_destination_index_ff[5:0], i_postalu1_destination_value_ff, i_postalu1_dav_ff, i_postalu_destination_index_ff[5:0], i_postalu_destination_value_ff, i_postalu_dav_ff, i_memory_destination_index_ff[5:0], i_memory_destination_value_ff, i_memory_dav_ff, i_rd_data_0, i_rd_data_1, i_rd_data_2, i_rd_data_3, i_cpu_mode, skid_pc_plus_8_ff, 1'd0);
-	assign o_rd_index_0 = skid_alu_source_ff[5:0];
-	assign o_rd_index_1 = skid_shift_source_ff[5:0];
-	assign o_rd_index_2 = skid_shift_length_ff[5:0];
-	assign o_rd_index_3 = skid_mem_srcdest_index_ff[5:0];
+	assign o_rd_index_0 = (stall_idx_ff ? skid_idx[23:18] : i_alu_source_ff[5:0]);
+	assign o_rd_index_1 = (stall_idx_ff ? skid_idx[17:12] : i_shift_source_ff[5:0]);
+	assign o_rd_index_2 = (stall_idx_ff ? skid_idx[11:6] : i_shift_length_ff[5:0]);
+	assign o_rd_index_3 = (stall_idx_ff ? skid_idx[5:0] : i_mem_srcdest_index_ff[5:0]);
 	always @(*) begin
 		if (_sv2v_0)
 			;

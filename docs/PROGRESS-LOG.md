@@ -2812,3 +2812,9 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   chosen by state_nxt into the registers); the wrappers' direct CYC and
   the acknowledge-chosen burst beats stay. Suites again, a CPU trial,
   and seeds 7-9 on three lanes beside it.
+- **Family 3, first step** (Codex's 3a): the register file's read indices
+  take their own copy of the issue stall register (`stall_idx_ff`,
+  preserved) and of the skid's four index fields (`skid_idx`), same
+  reset, clear and update, so the indices no longer come through the
+  skid mux that the original stall register drives with hundreds of
+  loads. Cycle-identical by construction.
