@@ -3092,3 +3092,12 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the next steps: settle the cache's three-edge contract, then the
   selectable core (CORE in arm925t.sv), fetch through writeback with the
   bench's taps, the simplest tests first. Session 2 started from it.
+- **The critical-word-first build in play** (b10, master with everything,
+  -3.568 ns; `build/hardware/game/{sonicn,asphalt}-cwf/`): Sonic 26-27.8 M
+  instructions/s, CPI 3.7-4.0, 13-17 frames/s; Asphalt's Cop Chase
+  28.2-28.6 M/s, CPI 3.6-3.7, 12 frames/s. One to two percent over the
+  SDRAM build: the memory-side changes together are nearly neutral in
+  play; the clocks are in the pipeline (issue 33-41 %, the FIFO full
+  behind it 54 %, the FIFO empty 16-23 %), which is the ARM9 project's
+  case. This is the tree to carry forward; the Codex timing run is to
+  bring its 3.5 ns miss back to the old few tenths before any sweep.
