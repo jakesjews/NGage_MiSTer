@@ -1,0 +1,47 @@
+{
+  "component_only": true,
+  "generated_cpu_sha256": "43e57185fc5c2b98728960559b8b54a5ec0fa9e38204a5a9eceb13a66c0cd82b",
+  "all_existing_cycle_and_instruction_counts_unchanged": true,
+  "counts_source": "s1-merged-cycles.json",
+  "paused_exclusion": "dhum_rtl: blocking-load core cannot satisfy required overlap counters",
+  "regression": {
+    "ZAP": {
+      "runs_passed": 261,
+      "runs_failed": 0,
+      "qemu_agree": 68,
+      "qemu_differ": 0,
+      "arm9_windows_each_latency": null
+    },
+    "ARM9-paused": {
+      "runs_passed": 258,
+      "runs_failed": 0,
+      "qemu_agree": 68,
+      "qemu_differ": 0,
+      "arm9_windows_each_latency": 85
+    },
+    "ARM9-paused-off": {
+      "runs_passed": 258,
+      "runs_failed": 0,
+      "qemu_agree": 68,
+      "qemu_differ": 0,
+      "arm9_windows_each_latency": 85
+    }
+  },
+  "component": {
+    "frontend-tests.log": [
+      "PASS predictor: 310 checks",
+      "PASS predictor: 310 checks",
+      "PASS fetch predictor=0: 903 checks",
+      "PASS fetch predictor=1: 1082 checks",
+      "PASS fetch predictor=0: 903 checks",
+      "PASS fetch predictor=1: 1082 checks"
+    ],
+    "frontend-cache-tests.log": [
+      "PASS real I-cache frontend latency=0: 1318 checks, 517 cycles, 154 beats",
+      "PASS real I-cache frontend latency=3: 2218 checks, 961 cycles, 152 beats",
+      "PASS real I-cache frontend latency=9: 4018 checks, 1849 cycles, 152 beats"
+    ]
+  },
+  "component_test_command": "make -C sim/cpu arm9v2-frontend",
+  "combined_component_target_passed": true
+}

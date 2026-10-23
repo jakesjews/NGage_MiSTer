@@ -64,13 +64,17 @@ MODEL     := $(MODEL_DIR)/Vtb_cpu
 
 ASFLAGS := -mcpu=arm9tdmi -mfloat-abi=soft -I $(HERE)/tests
 
-.PHONY: all bins model run qemu diff remote boot boot-prep boot-model clean arm9-execute
+.PHONY: all bins model run qemu diff remote boot boot-prep boot-model clean arm9-execute arm9v2-frontend
 .SECONDARY:
 all: bins remote qemu diff
 
 # Standalone new-pipeline datapath checks; no ARM test rebuild or QEMU.
 arm9-execute:
 	$(HERE)/arm9/run.sh
+
+arm9v2-frontend:
+	$(HERE)/arm9v2/run.sh
+	$(HERE)/arm9v2/cache.sh
 
 # ---------------------------------------------------------------- tests
 bins: $(foreach t,$(T),$(TB)/$(t).bin $(TB)/$(t).lst)

@@ -4,6 +4,7 @@
 # in the Docker image on the build server.
 #   sim/cpu/quartus/run.sh            full compile, summary and worst paths
 #   TRIAL=arm9_core sim/cpu/quartus/run.sh   experimental integrated ARM9
+#   TRIAL=arm9v2_frontend sim/cpu/quartus/run.sh   F1/F2 component only
 #   TRIAL=arm9_execute sim/cpu/quartus/run.sh   execute datapath only
 #   TRIAL=arm9_decode_shift sim/cpu/quartus/run.sh   shift in D, including E-to-D bypass
 #   SEED=3 MHZ=96 sim/cpu/quartus/run.sh   another fitter seed / clock
@@ -20,6 +21,7 @@ trial=${TRIAL:-cpu}
 case "$trial" in
     cpu) trial_suffix="" ;;
     arm9_core) trial_suffix="-arm9-core" ;;
+    arm9v2_frontend) trial_suffix="-arm9v2-frontend" ;;
     arm9_execute) trial_suffix="-arm9-execute" ;;
     arm9_decode_shift) trial_suffix="-arm9-decode-shift" ;;
     *) echo "unknown TRIAL: $trial" >&2; exit 2 ;;
@@ -36,11 +38,23 @@ if (( running >= 4 )); then
 	echo "four Quartus builds are already running on $host; try later" >&2
 	exit 1
 fi
+if [[ $trial == arm9v2_* || $dir == *arm9v2* ]]; then
+    ours=$(ssh "$host" "docker ps -q --filter ancestor=$image | xargs -r docker inspect --format '{{range .Mounts}}{{.Source}} {{end}}' | grep -ic arm9v2 || true")
+    if (( ours >= 2 )); then
+        echo "two ARM9V2 Quartus containers already run on $host; try later" >&2
+        exit 1
+    fi
+fi
 ssh "$host" "mkdir -p \$HOME/$dir"
 if [[ $trial == arm9_core ]]; then
     sed 's/arm925t cpu (/arm925t #(.CORE("ARM9")) cpu (/' "$here/cpu_trial.v" > "$out/cpu_trial.v"
     cp "$root/rtl/cpu/arm925t_gen.v" "$out/arm925t_gen.v"
     rsync -a "$out/cpu_trial.v" "$out/arm925t_gen.v" "$host:$dir/"
+elif [[ $trial == arm9v2_frontend ]]; then
+    sv2v -DSYNTHESIS --top=cpu_trial "$root"/rtl/cpu/arm9v2/*.sv \
+        "$root/rtl/cpu/zap/zap_ram_simple_nopipe.sv" "$here/arm9v2_frontend_trial.sv" > "$out/arm925t_gen.v"
+    printf '// Component top included in arm925t_gen.v\n' > "$out/cpu_trial.v"
+    rsync -a "$out/arm925t_gen.v" "$out/cpu_trial.v" "$host:$dir/"
 elif [[ $trial != cpu ]]; then
     defines=(-DSYNTHESIS)
     [[ $trial != arm9_decode_shift ]] || defines+=(-DARM9_TRIAL_SPLIT)

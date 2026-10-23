@@ -1,0 +1,12 @@
+ZAP
+RTL (gen): 261 passed, 0 failed
+RTL vs QEMU: 68 agree, 0 differ
+ARM9-paused
+RTL (gen): 258 passed, 0 failed
+RTL vs QEMU: 68 agree, 0 differ
+ARM9-paused-off
+RTL (gen): 258 passed, 0 failed
+RTL vs QEMU: 68 agree, 0 differ
+All 777 existing run cycle and instruction counts match s1-merged-cycles.json.
+Both paused ARM9 variants retain all 85 windows at each latency.
+ZAP does not enable the ARM9-specific window assertions.

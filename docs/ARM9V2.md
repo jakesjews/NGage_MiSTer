@@ -1,6 +1,8 @@
 # ARM9V2: eight-stage redesign for 47 M instructions/s
 
-Status: design contract, before V2 instruction execution is implemented.
+Status: F1/F2, predictor, return stack and raw instruction queue implemented and
+tested as a component. D1 through W and V2 instruction execution are not yet
+implemented. `CORE="ARM9"` still selects the paused core; ZAP remains default.
 The paused implementation and its measured limitations remain in [ARM9.md](ARM9.md)
 and the [last report](consults/2026-10-23-codex-arm9-report.md). This is a new
 pipeline, not another timing patch to its six-producer execute/address chain.
@@ -257,3 +259,56 @@ Each session ends at a clean commit with
 fit corners/seed/area, functional and timing risks, missing coverage, and the
 next concrete boundary. An incomplete component has no whole-workload CPI
 claim. This document is updated with measured values as milestones land.
+
+## Session 1 measured front end
+
+`arm9v2_fetch` holds F1/F2 metadata with the short-read I-cache and enqueues raw
+words in eight register entries. Cache ACK/error/retry affect queue insertion
+and status; they do not select the queue's instruction data or decode controls.
+The queue has no empty bypass. Redirects kill queued epochs and drain an older
+untagged cache transaction before reusing its request slot. Early-return words
+remain pending until the fill's final fault status arrives.
+
+`arm9v2_predict` reads a 256 x 60-bit full-tag/state/target/counter/kind record
+using the existing synchronous RAM primitive. F1's source PC and RAM read land
+on the same edge. Its decision chooses the following lookup without discarding
+F2. The eight-entry RAS supplies a return target, carries pre-action pointer and
+depth in each packet, and repairs them from a registered backend event. Return
+opcode classification and architectural prediction validation await D/A/M/W.
+
+The RAM's new `HOLD_READ=1` option retains its collision bypass during a disabled
+read: otherwise a write-first entry disappears on the next held clock. Existing
+callers retain the default behavior. Source and generated component tests cover
+the collision, later writes to the same index, all 256 indices, Thumb source
+state, saturation, clear, RAS wrap/underflow and repair. Fetch checks cover
+queue backpressure, retry, held-miss redirects, epoch wrap and late fill faults.
+A real 16 KB two-way short-read I-cache/TLB bench verifies raw word/PC alignment,
+translated faults, uncached fetch and a hot three-target BTB loop at one word
+per clock with bus waits of 0, 3 and 9 clocks. Run all with
+`make -C sim/cpu arm9v2-frontend`.
+
+The following are **component fits**, excluding both caches and D1 through W.
+They use Quartus 17.0.2, 5CSEBA6U23I7 and the normal 9.615 ns trial constraint.
+The wrapper registers stimulus and outputs; the ten-word declared stimulus
+shift chain is trimmed to its used bits. No multicycle exceptions were added.
+
+| Seed | Slow 100C ns | Slow -40C ns | Minimum hold ns | ALMs | M10Ks |
+|---|---:|---:|---:|---:|---:|
+| 2 | -0.203 | -0.574 | +0.127 | 1,090 | 2 |
+| 3 | -0.459 | -0.856 | +0.127 | 1,084 | 2 |
+| 4 | -0.611 | -0.895 | +0.117 | 1,085 | 2 |
+
+Median worst slow-corner slack is **-0.856 ns**. This meets the numerical range
+for this component, **not the CPU integration gate**. Seed 2's worst path is
+BTB RAM output -> full-tag match -> predicted/sequential launch select -> next
+lookup's 256-entry valid selection -> `read_valid`, seven logic levels and
+7.909 ns data delay with -2.110 ns clock skew. Adding a decode admission or
+cache-hit qualifier to that loop would spend an already small timing margin.
+Seed 2's hierarchical area estimate assigns 526.3 ALMs to predictor/RAS/RAM
+collision logic, 484.0 to the rest of fetch/queue and 79.7 to the trial wrapper;
+rounding and cross-entity packing apply.
+
+The [session report](consults/2026-10-23-codex-arm9v2-s1.md) records unchanged
+ZAP/paused-ARM9 cycles, full regression results, retained fit reports, limitations
+and the next milestone: D1/D2. No V2 CPU throughput or whole-device result exists
+at this stopping point.

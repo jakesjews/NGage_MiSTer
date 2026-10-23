@@ -25,7 +25,10 @@
 
 module zap_ram_simple_nopipe #(
         parameter logic [31:0] WIDTH = 32'd32,
-        parameter logic [31:0] DEPTH = 32'd32
+        parameter logic [31:0] DEPTH = 32'd32,
+        // ARM9V2 keeps a predictor entry stable across a held fetch, including
+        // a write-first collision. Default preserves existing callers.
+        parameter logic HOLD_READ = 1'b0
 )
 (
         // Clock
@@ -75,7 +78,7 @@ assign hazard_nxt = addr_conflict & concurrent_access;
 
 always_ff @ ( posedge i_clk)
 begin
-        hazard_ff <= hazard_nxt;
+        if (!HOLD_READ || i_rd_en) hazard_ff <= hazard_nxt;
 end
 
 // Buffer the write data in case of hazard.
@@ -83,7 +86,7 @@ assign buffer_nxt = hazard_nxt ? i_wr_data : {WIDTH{1'dx}};
 
 always_ff @ ( posedge i_clk )
 begin
-        buffer_ff <= buffer_nxt;
+        if (!HOLD_READ || i_rd_en) buffer_ff <= buffer_nxt;
 end
 
 // And forward it to the output in case of hazard.
