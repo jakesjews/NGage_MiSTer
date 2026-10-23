@@ -1,0 +1,11 @@
+{
+  "parent_revision": "ae3b8388b5a5b16adc826feda572e9501ab01f16",
+  "core": "ARM9",
+  "ARM9_PREDICTOR": 1,
+  "seed": 2,
+  "mhz": 104,
+  "server": "ubuntu",
+  "remote_directory": "dev/mister/ngage-codex-arm9-s6c-control-pass-s2",
+  "netlist_sha256": "661e3117a82181f412f0c8fe73156c8eb0af01d1adefc8449179831d01a83ffb",
+  "command": "SEED=2 TRIAL=arm9_core BUILD_DIR=dev/mister/ngage-codex-arm9-s6c-control-pass-s2 sim/cpu/quartus/run.sh"
+}

@@ -1,0 +1,22 @@
+Step (c): combined registered control-boundary pass
+Parent: ae3b838
+c-target-final: RTL (gen): 42 passed, 0 failed
+c-target-diff: RTL vs QEMU: 63 agree, 0 differ
+c-arm9-full: RTL (gen): 234 passed, 0 failed
+c-arm9-diff: RTL vs QEMU: 63 agree, 0 differ
+c-off-full: RTL (gen): 234 passed, 0 failed
+c-off-diff: RTL vs QEMU: 63 agree, 0 differ
+c-zap-full: RTL (gen): 234 passed, 0 failed
+c-zap-diff: RTL vs QEMU: 63 agree, 0 differ
+c-lint: passed (exit 0)
+c-lint-arm9: passed (exit 0)
+c-lint-off: passed (exit 0)
+c-final-gen-check: passed (exit 0)
+85 windows per configuration: exact hot ARM9 on/off counts at 0:0; all expected visits checked at every latency and on ZAP.
+Updated expectations expose extra rare-path clocks; passing them does not imply the original cost restriction was met.
+All non-timer instruction counts unchanged across 702 runs, including every comparison test.
+fiq_movs, fiq_perm, irq, loaduse_irq spin-loop counts vary with cycle-driven interrupt arrival; architectural checks pass.
+All ZAP cycle and instruction counts unchanged.
+No binaries or QEMU references rebuilt; no firmware boot.
+Final generated netlist SHA256 equals fitted netlist: 661e3117a82181f412f0c8fe73156c8eb0af01d1adefc8449179831d01a83ffb
+Generated modules changed from ae3b838: arm9_core, arm9_fetch. Shared cache, execute and ZAP module bodies are identical.

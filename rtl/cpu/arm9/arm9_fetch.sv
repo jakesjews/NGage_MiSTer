@@ -49,10 +49,10 @@ module arm9_fetch #(
         logic thumb_und, thumb_align;
         logic [31:0] pc, instruction;
     } entry_t;
-    lookup_t f1, f2;
-    entry_t queue [0:7];
-    logic [2:0] head, tail;
-    logic [3:0] count;
+    (* dont_retime *) lookup_t f1, f2;
+    (* dont_retime *) entry_t queue [0:7];
+    (* dont_retime *) logic [2:0] head, tail;
+    (* dont_retime *) logic [3:0] count;
     logic [31:0] launch_pc, target;
     logic launch_thumb, target_thumb, killed;
     logic [1:0] epoch;

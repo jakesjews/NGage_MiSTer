@@ -891,38 +891,38 @@ module arm9_core (
 				;
 		end
 	endfunction
-	reg [3:0] state;
+	(* dont_retime *) reg [3:0] state;
 	reg [3:0] kind_d;
-	reg [3:0] kind_e;
-	reg [31:0] pc;
+	(* dont_retime *) reg [3:0] kind_e;
+	(* dont_retime *) reg [31:0] pc;
+	(* dont_retime *) reg [31:0] raw_ins;
+	(* dont_retime *) reg [31:0] ins;
 	wire [31:0] pc8;
-	reg [31:0] raw_ins;
-	reg [31:0] ins;
 	wire [31:0] cpsr;
 	wire [31:0] cpsr_next;
 	wire [31:0] d_pc;
 	wire [31:0] d_pc8;
 	wire [31:0] d_raw;
 	wire [31:0] d_ins;
-	reg [23:0] tag_e;
-	reg [3:0] used_e;
+	(* dont_retime *) reg [23:0] tag_e;
+	(* dont_retime *) reg [3:0] used_e;
 	wire fast_d;
-	reg fast_e;
 	wire issue;
 	wire execute_fast;
 	wire early_redirect;
-	reg e_predicted;
+	(* dont_retime *) reg fast_e;
+	(* dont_retime *) reg e_predicted;
 	wire f_predicted;
-	reg [31:0] e_pred_target;
+	(* dont_retime *) reg [31:0] e_pred_target;
 	wire [31:0] f_pred_target;
-	reg [1:0] e_pred_state;
+	(* dont_retime *) reg [1:0] e_pred_state;
 	wire [1:0] f_pred_state;
 	wire slow_start;
 	wire block_start;
-	reg block_pending;
 	wire multiply_start;
-	reg pipe_multiply;
-	reg multiply_add;
+	(* dont_retime *) reg block_pending;
+	(* dont_retime *) reg pipe_multiply;
+	(* dont_retime *) reg multiply_add;
 	wire multiply_kind = (kind_e == 4'd13) || (kind_e == 4'd14);
 	reg [2:0] multiply_delay;
 	wire multiply_ready = (pipe_multiply && !multiply_add) && (multiply_delay == 0);
@@ -937,29 +937,30 @@ module arm9_core (
 	wire prediction_wrong = (e_predicted ? e_pred_target != resolved_next : branch_kind && ex_pass);
 	wire predictor_feedback = ((execute_fast || slow_start) || block_start) && (branch_kind || e_predicted);
 	wire predictor_direction_wrong = e_predicted != (branch_kind && ex_pass);
-	reg e_valid;
-	reg e_shifted;
+	(* dont_retime *) reg e_valid;
+	(* dont_retime *) reg e_shifted;
+	(* dont_retime *) reg serial_ready_e;
 	wire execute_wait;
 	wire wb_cycle;
 	wire retire_fast;
 	wire pipe_hold;
 	wire pipe_fault;
-	reg clear_e_late;
-	reg clear_pipe_late;
+	(* dont_retime *) reg clear_e_late;
+	(* dont_retime *) reg clear_pipe_late;
 	wire retirement_redirect;
-	reg [1:0] data_reload;
+	(* dont_retime *) reg [1:0] data_reload;
 	wire fast_load_ready;
 	wire block_issue;
 	wire block_restore_fault;
 	wire pipe_pc_redirect;
 	reg [31:0] sequence_flags;
 	wire [3:0] held_wait;
-	reg [175:0] slow;
-	reg [228:0] fast_m;
-	wire [31:0] data_pc8 = (state == 4'd0 ? fast_m[156-:32] : slow[143-:32]);
-	reg [228:0] fast_1;
-	reg [228:0] fast_w;
+	(* dont_retime *) reg [175:0] slow;
+	(* dont_retime *) reg [228:0] fast_1;
+	(* dont_retime *) reg [228:0] fast_m;
+	(* dont_retime *) reg [228:0] fast_w;
 	reg [228:0] fast_input;
+	wire [31:0] data_pc8 = (state == 4'd0 ? fast_m[156-:32] : slow[143-:32]);
 	wire [686:0] producers;
 	reg [191:0] forward_value;
 	reg [35:0] forward_tag;
@@ -970,25 +971,25 @@ module arm9_core (
 	wire [34:0] translated;
 	wire thumb_und;
 	wire thumb_align;
-	reg fetch_abort;
-	reg irq_pending;
-	reg fiq_pending;
+	(* dont_retime *) reg fetch_abort;
+	(* dont_retime *) reg irq_pending;
+	(* dont_retime *) reg fiq_pending;
 	reg [23:0] read_tag;
 	wire [127:0] read_value;
 	reg [127:0] value_d;
 	reg [127:0] value_e;
 	reg [3:0] op_d;
-	reg [3:0] op_e;
+	(* dont_retime *) reg [3:0] op_e;
 	reg [1:0] shift_type_d;
-	reg [1:0] shift_type_e;
+	(* dont_retime *) reg [1:0] shift_type_e;
 	reg [4:0] shift_amount_d;
-	reg [4:0] shift_amount_e;
+	(* dont_retime *) reg [4:0] shift_amount_e;
 	reg shift_register_d;
-	reg shift_register_e;
 	reg immediate_d;
-	reg immediate_e;
 	reg immediate_carry_d;
-	reg immediate_carry_e;
+	(* dont_retime *) reg shift_register_e;
+	(* dont_retime *) reg immediate_e;
+	(* dont_retime *) reg immediate_carry_e;
 	wire [31:0] ex_result;
 	wire [31:0] ex_store;
 	wire [3:0] ex_flags;
@@ -996,42 +997,42 @@ module arm9_core (
 	wire ex_write_flags;
 	reg [31:0] branch_offset_d;
 	reg [31:0] branch_offset_e;
-	reg [5:0] dst_e;
-	reg [5:0] base_e;
+	(* dont_retime *) reg [5:0] dst_e;
+	(* dont_retime *) reg [5:0] base_e;
 	reg [31:0] psr_mask_d;
 	reg [31:0] psr_mask_e;
 	reg [31:0] m_address;
 	reg [31:0] m_write_data;
 	reg [31:0] m_read_data;
-	reg [3:0] m_sel;
-	reg [5:0] m_format;
-	reg [5:0] m_dst;
-	reg m_load;
-	reg m_align;
-	reg m_user;
-	reg swap_store;
+	(* dont_retime *) reg [3:0] m_sel;
+	(* dont_retime *) reg [5:0] m_format;
+	(* dont_retime *) reg [5:0] m_dst;
+	(* dont_retime *) reg m_load;
+	(* dont_retime *) reg m_align;
+	(* dont_retime *) reg m_user;
+	(* dont_retime *) reg swap_store;
 	reg [31:0] w_value;
 	reg [31:0] w_flags;
 	reg [31:0] w_target;
-	reg [5:0] w_dst;
-	reg w_valid;
-	reg w_cfail;
-	reg w_load;
-	reg w_redirect;
-	reg w_dabt;
-	reg w_pabt;
-	reg w_irq;
-	reg w_fiq;
-	reg w_swi;
-	reg w_und;
-	reg [15:0] remaining;
+	(* dont_retime *) reg [5:0] w_dst;
+	(* dont_retime *) reg w_valid;
+	(* dont_retime *) reg w_cfail;
+	(* dont_retime *) reg w_load;
+	(* dont_retime *) reg w_redirect;
+	(* dont_retime *) reg w_dabt;
+	(* dont_retime *) reg w_pabt;
+	(* dont_retime *) reg w_irq;
+	(* dont_retime *) reg w_fiq;
+	(* dont_retime *) reg w_swi;
+	(* dont_retime *) reg w_und;
+	(* dont_retime *) reg [15:0] remaining;
 	reg [15:0] list_d;
 	reg [3:0] transfer_reg_d;
 	reg [4:0] transfer_count_d;
 	reg [4:0] transfer_count_e;
 	reg [7:0] block_delta_e;
 	reg [15:0] list_e;
-	reg sequence_active;
+	(* dont_retime *) reg sequence_active;
 	reg [31:0] sequence_address;
 	reg [31:0] sequence_base;
 	reg [31:0] sequence_original;
@@ -1145,6 +1146,8 @@ module arm9_core (
 		list_d = (sequence_active ? remaining : d_ins[15:0]);
 		if ((kind_d == 4'd6) && (list_d == 0))
 			kind_d = 4'd8;
+		if (sequence_active)
+			kind_d = 4'd6;
 		transfer_reg_d = 0;
 		transfer_count_d = 0;
 		begin : sv2v_autoblock_1
@@ -1328,11 +1331,10 @@ module arm9_core (
 	assign execute_fast = ((((((((e_valid && fast_e) && !shift_hold) && !execute_wait) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) && !clear_e_late) && ((kind_e != 4'd6) || !ex_pass)) && ((!multiply_kind || !ex_pass) || multiply_ready);
 	assign block_start = ((((((((e_valid && fast_e) && (kind_e == 4'd6)) && ex_pass) && !execute_wait) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) && !clear_e_late) && (!block_pending || ((retire_fast && fast_w[118]) && fast_w[117]));
 	assign multiply_start = ((((((((e_valid && fast_e) && multiply_kind) && ex_pass) && !pipe_multiply) && !execute_wait) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) && !clear_e_late;
-	assign slow_start = (((((((((((e_valid && !fast_e) && !shift_hold) && !execute_wait) && !fast_1[228]) && !fast_m[228]) && (!fast_w[228] || retire_fast)) && !pipe_hold) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_fault) && !pipe_pc_redirect) && !clear_e_late;
+	assign slow_start = ((((((((((((e_valid && !fast_e) && !shift_hold) && !execute_wait) && (serial_ready_e || !ex_pass)) && !fast_1[228]) && !fast_m[228]) && (!fast_w[228] || retire_fast)) && !pipe_hold) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_fault) && !pipe_pc_redirect) && !clear_e_late;
 	assign early_redirect = (execute_fast && prediction_wrong) || ((slow_start || block_start) && e_predicted);
-	wire f_abort;
 	wire f_valid;
-	assign issue = ((((f_valid && !sequence_active) && !clear_e_late) && (state == 4'd0)) && (!e_valid || execute_fast)) && ((((fast_d && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6])) || (!e_valid && !(|unused_read_wait)));
+	assign issue = (((f_valid && !sequence_active) && !clear_e_late) && (state == 4'd0)) && (!e_valid || execute_fast);
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -1458,17 +1460,36 @@ module arm9_core (
 	assign updated_base = (ins[23] ? held_value[0+:32] + {25'd0, transfer_count_e, 2'b00} : held_value[0+:32] - {25'd0, transfer_count_e, 2'b00});
 	assign effective_address = (kind_e == 4'd6 ? held_value[0+:32] + {{24 {block_delta_e[7]}}, block_delta_e} : (kind_e == 4'd12 ? value_e[0+:32] : (ins[24] ? ex_result : held_value[0+:32])));
 	assign next_pc = (w_dabt ? vector_base + 16 : (w_fiq ? vector_base + 28 : (w_irq ? vector_base + 24 : (w_pabt ? vector_base + 12 : (w_swi ? vector_base + 8 : (w_und ? vector_base + 4 : (w_load && (m_dst == PHY_PC) ? m_read_data : (w_redirect ? w_target : slow[175-:32] + (slow[21] ? 2 : 4)))))))));
+	wire f_abort;
 	wire f_ready;
-	wire f_redirect;
+	wire redirect_event;
+	(* dont_retime *) reg f_redirect;
+	(* dont_retime *) reg predictor_clear_q;
+	(* dont_retime *) reg feedback_valid_q;
+	(* dont_retime *) reg feedback_wrong_q;
+	(* dont_retime *) reg [31:0] redirect_target_q;
+	(* dont_retime *) reg [31:0] feedback_pc_q;
+	(* dont_retime *) reg [31:0] feedback_target_q;
+	(* dont_retime *) reg redirect_thumb_q;
+	(* dont_retime *) reg [1:0] feedback_state_q;
 	wire [31:0] f_address_nxt;
 	wire [31:0] f_address_check;
 	wire [31:0] f_address;
 	assign f_ready = issue;
 	assign retirement_redirect = wb_cycle && (((((((((w_redirect || (w_load && (m_dst == PHY_PC))) || w_dabt) || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und) || (slow[3-:4] == 4'd7)) || (slow[3-:4] == 4'd2));
-	assign f_redirect = (((pipe_fault && !block_restore_fault) || pipe_pc_redirect) || early_redirect) || retirement_redirect;
+	assign redirect_event = (((pipe_fault && !block_restore_fault) || pipe_pc_redirect) || early_redirect) || retirement_redirect;
 	always @(posedge i_clk) begin
-		clear_e_late <= !i_reset && (f_redirect || pipe_fault);
+		clear_e_late <= !i_reset && (redirect_event || pipe_fault);
 		clear_pipe_late <= !i_reset && ((retirement_redirect || pipe_fault) || pipe_pc_redirect);
+		f_redirect <= !i_reset && redirect_event;
+		predictor_clear_q <= (!i_reset && wb_cycle) && ((slow[3-:4] == 4'd7) || (slow[3-:4] == 4'd2));
+		feedback_valid_q <= !i_reset && predictor_feedback;
+		feedback_wrong_q <= predictor_direction_wrong;
+		feedback_pc_q <= pc;
+		feedback_target_q <= resolved_next;
+		feedback_state_q <= e_pred_state;
+		redirect_target_q <= (pipe_fault ? vector_base + 16 : (pipe_pc_redirect ? (cpsr_next[5] ? fast_w[31-:32] & 32'hfffffffe : fast_w[31-:32] & 32'hfffffffc) : (early_redirect ? resolved_next : (cpsr_next[5] ? next_pc & 32'hfffffffe : next_pc & 32'hfffffffc))));
+		redirect_thumb_q <= cpsr_next[5];
 	end
 	arm9_fetch #(
 		.RESET_VECTOR(RESET_VECTOR),
@@ -1478,17 +1499,17 @@ module arm9_core (
 		.i_clk(i_clk),
 		.i_reset(i_reset),
 		.i_redirect(f_redirect),
-		.i_predictor_clear(wb_cycle && ((slow[3-:4] == 4'd7) || (slow[3-:4] == 4'd2))),
-		.i_fb_valid(predictor_feedback),
-		.i_fb_wrong(predictor_direction_wrong),
-		.i_fb_pc(pc),
-		.i_fb_target(resolved_next),
-		.i_fb_state(e_pred_state),
+		.i_predictor_clear(predictor_clear_q),
+		.i_fb_valid(feedback_valid_q),
+		.i_fb_wrong(feedback_wrong_q),
+		.i_fb_pc(feedback_pc_q),
+		.i_fb_target(feedback_target_q),
+		.i_fb_state(feedback_state_q),
 		.o_predicted(f_predicted),
 		.o_pred_target(f_pred_target),
 		.o_pred_state(f_pred_state),
-		.i_target((pipe_fault ? vector_base + 16 : (pipe_pc_redirect ? (cpsr_next[5] ? fast_w[31-:32] & 32'hfffffffe : fast_w[31-:32] & 32'hfffffffc) : (early_redirect ? resolved_next : (cpsr_next[5] ? next_pc & 32'hfffffffe : next_pc & 32'hfffffffc))))),
-		.i_thumb(cpsr_next[5]),
+		.i_target(redirect_target_q),
+		.i_thumb(redirect_thumb_q),
 		.i_data(i_instr_wb_dat),
 		.i_ack(i_instr_wb_ack),
 		.i_data_early(i_instr_data_early),
@@ -1545,6 +1566,7 @@ module arm9_core (
 			state <= 4'd0;
 			e_valid <= 0;
 			e_shifted <= 0;
+			serial_ready_e <= 0;
 			slow <= 1'sb0;
 			pc <= RESET_VECTOR;
 			raw_ins <= 0;
@@ -1614,6 +1636,7 @@ module arm9_core (
 		else begin
 			if (e_valid) begin
 				value_e <= held_value;
+				serial_ready_e <= !(|held_wait);
 				if (shift_hold)
 					e_shifted <= 1;
 				if (execute_fast || block_start)
@@ -1913,6 +1936,7 @@ module arm9_core (
 					e_pred_state <= f_pred_state;
 				end
 				fast_e <= (((issue && fast_d) && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6]);
+				serial_ready_e <= !(|unused_read_wait);
 				tag_e <= read_tag;
 				used_e <= ((kind_d == 4'd3) || (kind_d == 4'd10) ? 4'b0000 : (kind_d == 4'd11 ? 4'b0001 : (kind_d == 4'd6 ? {!d_ins[20], (d_ins[20] && d_ins[22]) && d_ins[15], 2'b01} : ((kind_d == 4'd13) || (kind_d == 4'd14) ? {d_ins[21], 2'b11, (kind_d == 4'd14) && d_ins[21]} : (kind_d == 4'd5 ? {!d_ins[20], 1'b0, !immediate_d, 1'b1} : (kind_d == 4'd0 ? {1'b0, shift_register_d, !immediate_d, (op_d != MOV) && (op_d != MVN)} : {2'b11, !immediate_d, 1'b1}))))));
 				block_delta_e <= (d_ins[23] ? (d_ins[24] ? 8'd4 : 8'd0) : (d_ins[24] ? 8'd0 : 8'd4) - {1'b0, transfer_count_d, 2'b00});
@@ -2312,12 +2336,12 @@ module arm9_fetch (
 	output wire o_thumb_und;
 	output wire o_thumb_align;
 	input wire i_ready;
-	reg [35:0] f1;
-	reg [35:0] f2;
-	reg [139:0] queue [0:7];
-	reg [2:0] head;
-	reg [2:0] tail;
-	reg [3:0] count;
+	(* dont_retime *) reg [35:0] f1;
+	(* dont_retime *) reg [35:0] f2;
+	(* dont_retime *) reg [139:0] queue [0:7];
+	(* dont_retime *) reg [2:0] head;
+	(* dont_retime *) reg [2:0] tail;
+	(* dont_retime *) reg [3:0] count;
 	reg [31:0] launch_pc;
 	reg [31:0] target;
 	reg launch_thumb;

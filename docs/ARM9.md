@@ -705,12 +705,12 @@ row). The TRM column uses DDI0180A Table 7-2; `m` and `b` retain its definitions
 The instruction binaries and QEMU references are unchanged; `arm9/cycles.txt`
 retargets all 69 original windows and the seven stream windows stay at 9.
 
-| Window | TRM plus marker / enclosed consumer | Session 6 timing continuation |
+| Window | TRM plus marker / enclosed consumer | After control pass (measured) |
 | --- | --- | ---: |
 | Eight independent DP | 9 | 9 |
 | Four dependent / flag-dependent DP | 5 | 5 |
 | Register shift / skipped register shift | 3 / 2 | 3 / 2 |
-| DP to PC / register-shift DP to PC | 4 / 5 | 9 / 9 |
+| DP to PC / register-shift DP to PC | 4 / 5 | 10 / 10 |
 | LDR + independent ALU | 3 | 3 |
 | Aligned LDR + immediate ALU consumer | 4 | 5 |
 | Immediate aligned load-use interlock (no marker) | 1 | 2 |
@@ -718,16 +718,16 @@ retargets all 69 original windows and the seven stream windows stay at 9.
 | LDR + base / store / shifted-value consumer | dependency-specific | 5 / 5 / 5 |
 | LDR + register shift-count consumer | load dependency plus shift cycle | 6 |
 | LDR + 1 / 2 / 3 independent DP + consumer | 4 / 5 / 6 | 5 / 5 / 6 |
-| LDR PC | 6 | 9 |
+| LDR PC | 6 | 10 |
 | STR | 2 | 2 |
 | LDM1 / STM1 | 3 | 3 / 3 |
 | LDM3 / STM3 | 4 | 5 / 5 |
-| LDM3 including PC | 8 | 11 |
+| LDM3 including PC | 8 | 13 |
 | SWP / SWPB + ALU | 3 / 5 | 11 / 12 |
-| B / BL / BX | 4 | 6 / 6 / 9 |
-| MRS / flags-only MSR / control MSR | 2 / 2 / 4 | 6 / 9 / 9 |
-| MCR / MRC / MRC + consumer / MRC PC | b+2 / b+2 / b+4 / b+4 | 16 / 14 / 15 / 14 |
-| SWI / UND / unsupported CDP/LDC/STC | 3 to vector, plus actual vector trampoline | 17 |
+| B / BL / BX | 4 | 7 / 7 / 10 |
+| MRS / flags-only MSR / control MSR | 2 / 2 / 4 | 6 / 10 / 10 |
+| MCR / MRC / MRC + consumer / MRC PC | b+2 / b+2 / b+4 / b+4 | 17 / 15 / 16 / 15 |
+| SWI / UND / unsupported CDP/LDC/STC | 3 to vector, plus actual vector trampoline | 20 |
 | MUL/MLA, m=1..4 | 4..7 | 4..7 |
 | Long multiply, m=1..4 | 5..8 | 5..8 |
 | Eight hit accesses in each of seven stream windows | 9 | 9 |
@@ -907,3 +907,48 @@ gain two. These are measured sequence totals including the existing CP15
 sequencer/refetch or vector branch; they are not single-cycle cache latencies.
 The table above and the external expectation files describe this schedule;
 instruction binaries and QEMU references remain unchanged.
+
+
+## Session 6: combined control-boundary pass and stopping point
+
+The lead replaced path-by-path iteration with one control pass and a -2 ns
+stop threshold. The registered fetch boundary is retained. D admission no
+longer depends on D operand readiness: the E record captures `serial_ready_e`,
+retains forwarding while held, and qualifies the captured value before a slow
+operation consumes it. Fast consumers keep the existing E interlock. The
+block sequencer uses its registered block classification directly.
+
+Redirect event, target and Thumb state now cross into fetch through registers,
+as do predictor feedback and predictor clear. The existing late kills suppress
+wrong-path E work and younger retirement/accesses while fetch applies that
+registered event. Older W fault/PC-write priority and block base restoration
+are retained. The queue, E instruction controls, memory/result records and
+serialized controls use `dont_retime` so physical synthesis cannot move their
+control boundaries into forwarding logic. Packed records keep data with their
+control at the existing edges; no arithmetic, cache RAM or execute module was
+changed. Local ready/acknowledge/hold decisions remain combinational within
+those boundaries; this pass does not replace them with speculative stores or
+a delayed cache acknowledgement.
+
+Predicted B/BL remains two clocks, load-use two, and the cache RAM one edge.
+Normal DP, streaming loads/stores, block and multiply windows remain unchanged.
+Unpredicted B/BL becomes six clocks (window delta 7), trained-taken/not-taken
+is delta 7, and unpredicted Thumb BL is delta 8. The broader rare-path cost
+restriction was not fully met: CP15/MSR fence windows gain one clock, LDM-PC
+gains two, and exception-through-vector windows gain three relative to the
+registered-fetch milestone. These measured totals are exposed in the table
+and expectation files, not treated as fulfillment of the requested cost limit.
+
+The single combined seed-2 integrated trial is **-6.958 ns Slow 100C**, with
+**15,891 ALMs**, 26 below the ZAP reference. The previous admission chain no
+longer occupies the worst 30 paths. All 30 Slow-100C paths now run from E
+operand/producer controls through six-producer forwarding, the barrel shifter,
+the ALU and effective-address selection into the D-TLB section valid-bit read
+and collision bypass: 13–14 logic levels, 15.702–15.906 ns. The standalone
+execute trial's +0.018 ns used the module's three-producer default and did not
+include this integrated address/TLB tail; it is not an integrated timing claim.
+
+The lead's stop rule applies. No further timing iteration is made. The report
+contains all corners, path groups, verification and the before/after cycle rows.
+ZAP remains default; there is no whole-core fit, firmware boot or hardware CPI
+measurement in this continuation.

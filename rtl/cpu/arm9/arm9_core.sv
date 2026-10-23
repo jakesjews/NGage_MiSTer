@@ -217,18 +217,25 @@ typedef enum logic [3:0] {
     K_DP, K_MRS, K_MSR, K_BRANCH, K_BX, K_MEM, K_BLOCK, K_CP,
     K_UND, K_SWI, K_BL_PREFIX, K_BL_SUFFIX, K_SWP, K_MUL, K_MULL
 } kind_t;
-state_t state;
-kind_t kind_d, kind_e;
-logic [31:0] pc, pc8, raw_ins, ins, cpsr, cpsr_next;
+(* dont_retime *) state_t state;
+kind_t kind_d;
+(* dont_retime *) kind_t kind_e;
+(* dont_retime *) logic [31:0] pc, raw_ins, ins;
+logic [31:0] pc8, cpsr, cpsr_next;
 logic [31:0] d_pc, d_pc8, d_raw, d_ins;
-logic [3:0][5:0] tag_e;
-logic [3:0] used_e;
-logic fast_d, fast_e, issue, execute_fast, early_redirect;
-logic e_predicted, f_predicted;
-logic [31:0] e_pred_target, f_pred_target;
-logic [1:0] e_pred_state, f_pred_state;
-logic slow_start, block_start, block_pending;
-logic multiply_start, pipe_multiply, multiply_add;
+// These are the D/E control boundary, not retiming resources for E's
+// forwarding mux. Admission is independent of D operand readiness below.
+(* dont_retime *) logic [3:0][5:0] tag_e;
+(* dont_retime *) logic [3:0] used_e;
+logic fast_d, issue, execute_fast, early_redirect;
+(* dont_retime *) logic fast_e, e_predicted;
+logic f_predicted;
+(* dont_retime *) logic [31:0] e_pred_target;
+logic [31:0] f_pred_target;
+(* dont_retime *) logic [1:0] e_pred_state;
+logic [1:0] f_pred_state;
+logic slow_start, block_start, multiply_start;
+(* dont_retime *) logic block_pending, pipe_multiply, multiply_add;
 wire multiply_kind = kind_e == K_MUL || kind_e == K_MULL;
 wire multiply_ready = pipe_multiply && !multiply_add && multiply_delay == 0;
 wire branch_kind = kind_e == K_BRANCH || kind_e == K_BL_SUFFIX;
@@ -241,12 +248,13 @@ wire prediction_wrong = e_predicted ? e_pred_target != resolved_next :
 wire predictor_feedback = (execute_fast || slow_start || block_start) &&
                           (branch_kind || e_predicted);
 wire predictor_direction_wrong = e_predicted != (branch_kind && ex_pass);
-logic e_valid, e_shifted, execute_wait;
+(* dont_retime *) logic e_valid, e_shifted, serial_ready_e;
+logic execute_wait;
 logic wb_cycle;
 logic retire_fast, pipe_hold, pipe_fault;
-logic clear_e_late, clear_pipe_late;
+(* dont_retime *) logic clear_e_late, clear_pipe_late;
 logic retirement_redirect;
-logic [1:0] data_reload;
+(* dont_retime *) logic [1:0] data_reload;
 logic fast_load_ready, block_issue, block_restore_fault, pipe_pc_redirect;
 logic [31:0] sequence_flags;
 logic [3:0][31:0] held_value;
@@ -258,8 +266,7 @@ typedef struct packed {
     logic [5:0] base, dst;
     kind_t kind;
 } slow_t;
-slow_t slow;
-wire [31:0] data_pc8 = state == IDLE ? fast_m.pc8 : slow.pc8;
+(* dont_retime *) slow_t slow;
 logic [31:0] execute_flags;
 typedef struct packed {
     logic present, pass;
@@ -271,7 +278,12 @@ typedef struct packed {
     logic [3:0] sel;
     logic [31:0] address, store_data, load_data;
 } result_t;
-result_t fast_1, fast_m, fast_w, fast_input;
+// Keep each control/data record at its architectural edge. Moving a valid,
+// destination or fault bit through forwarding recreates an admission-to-E
+// combinational path even though the RTL has an explicit register here.
+(* dont_retime *) result_t fast_1, fast_m, fast_w;
+result_t fast_input;
+wire [31:0] data_pc8 = state == IDLE ? fast_m.pc8 : slow.pc8;
 result_t [2:0] producers;
 logic [5:0][31:0] forward_value;
 logic [5:0][5:0] forward_tag;
@@ -280,35 +292,38 @@ logic [3:0][31:0] forwarded_read;
 logic [3:0] unused_read_wait;
 logic [34:0] translated;
 logic thumb_und, thumb_align;
-logic fetch_abort, irq_pending, fiq_pending;
+(* dont_retime *) logic fetch_abort, irq_pending, fiq_pending;
 logic [3:0][5:0] read_tag;
 logic [3:0][31:0] read_value, value_d, value_e;
-logic [3:0] op_d, op_e;
-logic [1:0] shift_type_d, shift_type_e;
-logic [4:0] shift_amount_d, shift_amount_e;
-logic shift_register_d, shift_register_e, immediate_d, immediate_e;
-logic immediate_carry_d, immediate_carry_e;
+logic [3:0] op_d;
+(* dont_retime *) logic [3:0] op_e;
+logic [1:0] shift_type_d;
+(* dont_retime *) logic [1:0] shift_type_e;
+logic [4:0] shift_amount_d;
+(* dont_retime *) logic [4:0] shift_amount_e;
+logic shift_register_d, immediate_d, immediate_carry_d;
+(* dont_retime *) logic shift_register_e, immediate_e, immediate_carry_e;
 logic [31:0] ex_result, ex_store, ex_branch;
 logic [3:0] ex_flags;
 logic ex_pass, ex_write, ex_write_flags;
 logic [31:0] branch_offset_d, branch_offset_e;
-logic [5:0] dst_e, base_e;
+(* dont_retime *) logic [5:0] dst_e, base_e;
 logic [31:0] psr_mask_d, psr_mask_e;
 logic [31:0] m_address, m_write_data, m_read_data;
-logic [3:0] m_sel;
-logic [5:0] m_format, m_dst;
-logic m_load, m_align, m_user;
-logic swap_store;
+(* dont_retime *) logic [3:0] m_sel;
+(* dont_retime *) logic [5:0] m_format, m_dst;
+(* dont_retime *) logic m_load, m_align, m_user, swap_store;
 logic [31:0] w_value, w_flags, w_target;
-logic [5:0] w_dst;
-logic w_valid, w_cfail, w_load, w_redirect;
-logic w_dabt, w_pabt, w_irq, w_fiq, w_swi, w_und;
-logic [15:0] remaining, list_d;
+(* dont_retime *) logic [5:0] w_dst;
+(* dont_retime *) logic w_valid, w_cfail, w_load, w_redirect;
+(* dont_retime *) logic w_dabt, w_pabt, w_irq, w_fiq, w_swi, w_und;
+(* dont_retime *) logic [15:0] remaining;
+logic [15:0] list_d;
 logic [3:0] transfer_reg_d;
 logic [4:0] transfer_count_d, transfer_count_e;
 logic [7:0] block_delta_e;
 logic [15:0] list_e;
-logic sequence_active;
+(* dont_retime *) logic sequence_active;
 logic [31:0] sequence_address, sequence_base, sequence_original;
 logic [63:0] multiply_product, multiply_accumulator, multiply_result;
 logic [2:0] multiply_delay;
@@ -389,6 +404,9 @@ always_comb begin
     // Empty register lists are deliberately undefined until their ARM9
     // writeback semantics have directed coverage.
     if (kind_d == K_BLOCK && list_d == 0) kind_d = K_UND;
+    // The sequencer already owns a decoded, registered block instruction.
+    // Do not route its source readiness back through the general decoder.
+    if (sequence_active) kind_d = K_BLOCK;
     transfer_reg_d = 0;
     transfer_count_d = 0;
     for (int n=15; n>=0; n--) begin
@@ -560,6 +578,7 @@ assign multiply_start = e_valid && fast_e && multiply_kind && ex_pass &&
                         !pipe_multiply && !execute_wait && !pipe_hold &&
                         !pipe_fault && !pipe_pc_redirect && !clear_e_late;
 assign slow_start = e_valid && !fast_e && !shift_hold && !execute_wait &&
+          (serial_ready_e || !ex_pass) &&
           !fast_1.present && !fast_m.present &&
           (!fast_w.present || retire_fast) && !pipe_hold && !i_data_fill_busy &&
           data_reload == 0 && !pipe_fault && !pipe_pc_redirect && !clear_e_late;
@@ -567,9 +586,7 @@ assign early_redirect = (execute_fast && prediction_wrong) || ((slow_start || bl
 // D may capture a younger word on the redirect edge. The registered kill
 // prevents it executing, without putting E's target equality in D's enables.
 assign issue = f_valid && !sequence_active && !clear_e_late && state == IDLE &&
-    (!e_valid || execute_fast) &&
-    ((fast_d && !f_abort && !(i_irq && !cpsr[7]) && !(i_fiq && !cpsr[6])) ||
-     (!e_valid && !(|unused_read_wait)));
+    (!e_valid || execute_fast);
 
 always_comb begin
     fast_input = '0;
@@ -708,31 +725,46 @@ assign next_pc = w_dabt ? vector_base + 16 :
                  w_redirect ? w_target : slow.pc + (slow.flags[5] ? 2 : 4);
 
 // Independent, epoch-cancelled fetch continues while the backend is busy.
-logic f_valid, f_abort, f_ready, f_redirect;
+logic f_valid, f_abort, f_ready, redirect_event;
+(* dont_retime *) logic f_redirect, predictor_clear_q, feedback_valid_q, feedback_wrong_q;
+(* dont_retime *) logic [31:0] redirect_target_q, feedback_pc_q, feedback_target_q;
+(* dont_retime *) logic redirect_thumb_q;
+(* dont_retime *) logic [1:0] feedback_state_q;
 logic [31:0] f_pc, f_instruction, f_address_nxt, f_address_check, f_address;
 assign f_ready = issue;
 assign retirement_redirect = wb_cycle &&
     (w_redirect || (w_load && m_dst == PHY_PC) || w_dabt || w_pabt ||
      w_irq || w_fiq || w_swi || w_und || slow.kind == K_CP || slow.kind == K_MSR);
-assign f_redirect = (pipe_fault && !block_restore_fault) || pipe_pc_redirect ||
+assign redirect_event = (pipe_fault && !block_restore_fault) || pipe_pc_redirect ||
                     early_redirect || retirement_redirect;
 // ARM9: late events clear younger records on the next edge. E redirects keep
 // the branch and all older M/W records; retirement redirects discard the
 // younger backend as well. W fault/PC-write priority already inhibits E on
 // the decision edge. The registered clear inhibits side effects thereafter.
 always_ff @(posedge i_clk) begin
-    clear_e_late <= !i_reset && (f_redirect || pipe_fault);
+    clear_e_late <= !i_reset && (redirect_event || pipe_fault);
     clear_pipe_late <= !i_reset && (retirement_redirect || pipe_fault || pipe_pc_redirect);
+    f_redirect <= !i_reset && redirect_event;
+    predictor_clear_q <= !i_reset && wb_cycle && (slow.kind == K_CP || slow.kind == K_MSR);
+    feedback_valid_q <= !i_reset && predictor_feedback;
+    feedback_wrong_q <= predictor_direction_wrong;
+    feedback_pc_q <= pc;
+    feedback_target_q <= resolved_next;
+    feedback_state_q <= e_pred_state;
+    redirect_target_q <= pipe_fault ? vector_base + 16 : pipe_pc_redirect ?
+        (cpsr_next[5] ? (fast_w.load_data & 32'hfffffffe) : (fast_w.load_data & 32'hfffffffc)) :
+        early_redirect ? resolved_next :
+        cpsr_next[5] ? (next_pc & 32'hfffffffe) : (next_pc & 32'hfffffffc);
+    redirect_thumb_q <= cpsr_next[5];
 end
 arm9_fetch #(.RESET_VECTOR(RESET_VECTOR), .PREDICTOR(ARM9_PREDICTOR), .BP_ENTRIES(BP_ENTRIES)) u_fetch (
     .i_clk(i_clk), .i_reset(i_reset), .i_redirect(f_redirect),
-    .i_predictor_clear(wb_cycle && (slow.kind == K_CP || slow.kind == K_MSR)),
-    .i_fb_valid(predictor_feedback), .i_fb_wrong(predictor_direction_wrong),
-    .i_fb_pc(pc), .i_fb_target(resolved_next), .i_fb_state(e_pred_state),
+    .i_predictor_clear(predictor_clear_q),
+    .i_fb_valid(feedback_valid_q), .i_fb_wrong(feedback_wrong_q),
+    .i_fb_pc(feedback_pc_q), .i_fb_target(feedback_target_q), .i_fb_state(feedback_state_q),
     .o_predicted(f_predicted), .o_pred_target(f_pred_target), .o_pred_state(f_pred_state),
-    .i_target(pipe_fault ? vector_base + 16 : pipe_pc_redirect ?
-        (cpsr_next[5] ? (fast_w.load_data & 32'hfffffffe) : (fast_w.load_data & 32'hfffffffc)) : early_redirect ? resolved_next : cpsr_next[5] ? (next_pc & 32'hfffffffe) : (next_pc & 32'hfffffffc)),
-    .i_thumb(cpsr_next[5]), .i_data(i_instr_wb_dat), .i_ack(i_instr_wb_ack),
+    .i_target(redirect_target_q),
+    .i_thumb(redirect_thumb_q), .i_data(i_instr_wb_dat), .i_ack(i_instr_wb_ack),
     .i_data_early(i_instr_data_early), .i_hit(i_instr_hit),
     .i_error(i_instr_wb_err), .i_retry(i_icache_err2),
     .i_fill_pending(i_icache_fill_pending), .i_fill_done(i_icache_fill_done),
@@ -787,7 +819,7 @@ assign o_dc_reg_idx_bin = state == IDLE ? fast_m.load_dst : m_dst;
 always_ff @(posedge i_clk) begin
     if (i_reset) begin
         state <= IDLE;
-        e_valid <= 0; e_shifted <= 0; slow <= '0;
+        e_valid <= 0; e_shifted <= 0; serial_ready_e <= 0; slow <= '0;
         pc <= RESET_VECTOR;
         raw_ins <= 0; ins <= 0; tag_e <= '0; used_e <= 0; fast_e <= 0;
         fetch_abort <= 0; e_predicted <= 0; e_pred_target <= 0; e_pred_state <= 0;
@@ -813,6 +845,7 @@ always_ff @(posedge i_clk) begin
     end else begin
       if (e_valid) begin
         value_e <= held_value;
+        serial_ready_e <= !(|held_wait);
         if (shift_hold) e_shifted <= 1;
         if (execute_fast || block_start) e_valid <= 0;
       end
@@ -1073,9 +1106,14 @@ always_ff @(posedge i_clk) begin
             end
             fast_e <= issue && fast_d && !f_abort &&
                       !(i_irq && !cpsr[7]) && !(i_fiq && !cpsr[6]);
+            // Serialized operations use the already-captured value_e. If D
+            // saw a pending producer, E retains its bypass for a full edge
+            // before that slow context consumes it. Fast operations continue
+            // using the existing local E interlock and forwarding schedule.
+            serial_ready_e <= !(|unused_read_wait);
             tag_e <= read_tag;
-            // Normal operations use E forwarding. Serialized operations capture
-            // ready D operands, then wait in E for ordered retirement.
+            // Normal operations use E forwarding. Serialized operations qualify
+            // the captured operands with serial_ready_e before ordered retirement.
             // B/BL consume flags and the PC-relative offset, no register operands.
             used_e <= (kind_d == K_BRANCH || kind_d == K_BL_PREFIX) ? 4'b0000 :
                 kind_d == K_BL_SUFFIX ? 4'b0001 : kind_d == K_BLOCK ?

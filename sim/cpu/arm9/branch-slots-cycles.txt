@@ -1,4 +1,4 @@
 # Window deltas: predictor on / off, including end marker.
-branch_no_registers 4 7
-thumb_bl_cross_word 4 7
-thumb_bl_same_word 4 7
+branch_no_registers 4 8
+thumb_bl_cross_word 4 8
+thumb_bl_same_word 4 8

@@ -1,0 +1,36 @@
+Fast_1100mV_-40C_Model
+  clear: 0 in worst 30
+  fetch validity: 0 in worst 30
+  cache hit: 0 in worst 30
+  admission: 0 in worst 30
+  redirect: 0 in worst 30
+  E address to TLB validity: 30 paths; slack 1.960..2.059; levels 12..14; data 7.172..7.279 ns
+  E address to cache RAM: 0 in worst 30
+  other: 0 in worst 30
+Fast_1100mV_100C_Model
+  clear: 0 in worst 30
+  fetch validity: 0 in worst 30
+  cache hit: 0 in worst 30
+  admission: 0 in worst 30
+  redirect: 0 in worst 30
+  E address to TLB validity: 26 paths; slack 0.659..0.796; levels 12..14; data 8.429..8.576 ns
+  E address to cache RAM: 4 paths; slack 0.735..0.788; levels 12..12; data 8.593..8.649 ns
+  other: 0 in worst 30
+Slow_1100mV_-40C_Model
+  clear: 0 in worst 30
+  fetch validity: 0 in worst 30
+  cache hit: 0 in worst 30
+  admission: 0 in worst 30
+  redirect: 0 in worst 30
+  E address to TLB validity: 30 paths; slack -6.865..-6.636; levels 13..14; data 15.605..15.821 ns
+  E address to cache RAM: 0 in worst 30
+  other: 0 in worst 30
+Slow_1100mV_100C_Model
+  clear: 0 in worst 30
+  fetch validity: 0 in worst 30
+  cache hit: 0 in worst 30
+  admission: 0 in worst 30
+  redirect: 0 in worst 30
+  E address to TLB validity: 30 paths; slack -6.958..-6.746; levels 13..14; data 15.702..15.906 ns
+  E address to cache RAM: 0 in worst 30
+  other: 0 in worst 30
