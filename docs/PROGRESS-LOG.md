@@ -3824,3 +3824,142 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   driver's per-block work from flash (CPI 5-6 with the flash at 6-7 %)
   and the game's unpacking. The load-time lever from here is the same
   as the play-speed lever.
+- **The SDRAM wait split** (b22's replay with the D-cache counters, per
+  second in play): Sonic 324-368 K load-miss fills, 220-311 K store-miss
+  fills, 245-330 K line write-backs, 266-356 K uncached data accesses;
+  Tony Hawk 385-460 K, 96-281 K, 155-322 K, 196-317 K; 29-31 M
+  instructions/s, SDRAM wait 20-25 %, 6.0-6.9 M beats/s. The fills and
+  write-backs explain about 4 M of the 6 M beats; the rest are the
+  instruction cache's fills (about 500 K lines/s) and the LCD's DMA.
+  Weighted by their latencies (a fill 12-15 clocks, a write-back about
+  10, an uncached access 6-8), the SDRAM wait is roughly: instruction
+  fills a third, load fills a fifth, store fills a sixth, write-backs a
+  seventh, uncached writes a tenth. A write buffer in the phone's sense
+  (store misses to the bus without a fill, bufferable uncached writes
+  posted) would take 25-30 % off it, about 5-8 % more instructions a
+  second: a real lever, a project of its own (Codex's scope in the
+  walloc report), parked behind timing closure. b22 is on the main slot
+  (+15 % over b12, the fast first boot, the card path).
+- **Timing closure is the goal now** (the user: "let's try to hit timing
+  or get really close and I'll see if anyone on Discord has a real N-Gage
+  to test against"). The debug logic measured from b22's fit: the 25
+  counters 523 ALMs, the overlay and its words about 400, the self-test
+  master 261; a build switch NGAGE_NO_DEBUG (NGage.qsf) now leaves the
+  overlay, the counters and the trace triggers out of the main core
+  (the OSD option goes with them; the activity dot stays; both
+  configurations lint clean). Three streams: a seed sweep of the main
+  core (seeds 1-3 on the server, 4 on the Mac) for the placement noise
+  (seed-1 builds of this tree spread -0.93 to -1.68); Codex's round 5
+  (port round 4's six parked fixes one at a time, keep each only if its
+  family improves across two seeds, then the current report's families:
+  decode shift_length -> issue load_pending -1.37, issue stall_late_ff
+  -1.30, the merger's address into upp_bus -1.0, the D-cache state into
+  the merger); Antigravity (Gemini, its card-path conversation resumed)
+  registering the card model's slot arithmetic (-1.37, the worst
+  family in b22).
+- **The main core without the debug logic, seeds 1-3** (NGAGE_NO_DEBUG,
+  c03088f, the server): seed 1 **-1.152 ns** (b22 with the debug logic,
+  seed 1: -1.370), seed 2 -1.285, seed 3 **-0.861**; 35,361-35,591 ALMs
+  (84-85 %; the switch dropped 1,707 registers, the counters' and the
+  overlay's, 1,700 ALMs over b22, twice the estimate), 477 M10K. So the
+  placement noise is ±0.2 around a floor near -0.9 for this tree, and
+  without the overlay the families differ by seed and none dominates:
+  the MMU enable's fanout (cp15 o_mmu_en into the ALU's flags -1.29, the
+  shifter -0.96, the merger's address -0.85: in two of three seeds; it
+  changes only on CP15 writes, so registered copies per consumer are
+  free), the predecode's skid and instruction register into decode
+  (-1.15, -1.04, -0.88), the hit-under-miss slot into the ALU's flags
+  (-0.78), the issue stage's skid into itself (-1.00, -0.74), the Thumb
+  decoder into predecode and the writeback (-0.86, -0.73), postalu2 into
+  the shifter (-0.75). Reports in the session scratch (nd-s1..3-timing)
+  and in Codex's worktree, queued into its round 5 with that ranking.
+  Seed 4 on the Mac still building. Seed 3's rbf
+  (build/hardware/NGage-nd-s3.rbf) is the main-slot candidate once it
+  has had a boot and a game on the board.
+- Seed 4 of the main core (the Mac): -1.074 ns, 35,513 ALMs; its
+  families the issue stage's skid and late stall (-1.07, -0.95), the
+  D-cache state into the merger's address (-0.99), the ALU's flags and
+  the issue stage's destination index into predecode (-0.99, -0.91).
+  Four seeds: -1.152, -1.285, -0.861, -1.074. Seeds 5 and 6 running.
+- **The card model's timing family fixed** (Antigravity on Gemini, its
+  card-path conversation resumed; agy/mmc 8329efe, merged): the slot
+  indices, the tag compares and the hps_io request parameters are
+  computed a clock ahead into registers (the modulo-3 quarter, the
+  metadata-slot matches, the chunk's clamped count; the transfer's
+  slot address from a concatenation instead of an add), the wire's
+  data path untouched. Benches cycle-identical (the warm 4 KB burst
+  132,528 clocks at DIV 4; mmc, periph, upp, top, lint). Its whole-core
+  build (the debug core): -1.295 ns with no mmc_card path in the worst
+  30 (the family was -1.37 in b22); the worst is now wb_arb2's grant
+  into upp_bus's fe_next (-1.30), the bus-decode family round 4's
+  arbiter rewrite targets. 36,429 ALMs, 477 M10K.
+- Seed 5 of the main core (the server): -1.146 ns; the I-cache tag RAM
+  into its FSM (-1.15), the D-cache lock into issue (-1.09), the D-cache
+  state into CP15 (-1.03), the Thumb decoder into predecode (-0.95).
+  Five seeds of c03088f: -1.152, -1.285, -0.861, -1.074, -1.146. Seed 7
+  of the tree with the card model's fix (c8f18ef) running.
+- Seed 6 of the main core (the Mac): -0.973 ns; the Thumb decoder into
+  predecode (-0.97), predecode's instruction register into decode
+  (-0.74), then a drop to -0.63. Six seeds of c03088f: -1.152, -1.285,
+  -0.861, -1.074, -1.146, -0.973: the predecode cone is in the top of
+  five of them, the family to clear first; without it this seed would
+  be near -0.63. Seed 8 of c8f18ef on the Mac.
+- **Seed 7 of the main core on c8f18ef** (the card model's fix in; the
+  server): **-0.680 ns**, 35,173 ALMs (84 %), the best build so far;
+  its top the memory stage's postalu2 outputs into the D-cache tag RAM
+  (-0.68, two paths), then the predecode cone (-0.60, -0.57). The rbf
+  (build/hardware/NGage-ndm-s7.rbf) is the main-slot candidate, to be
+  smoke-tested when the board is free. Seed 9 of the same tree running.
+- Seed 8 of the main core on c8f18ef (the Mac): -0.920 ns, 35,070 ALMs;
+  the Thumb decoder into predecode (-0.92), the issue stage's late
+  stall (-0.91), predecode's instruction register into the writeback
+  (-0.79). Seed 10 on the Mac.
+- **Seed 9 of the main core on c8f18ef** (the server): **-0.550 ns**,
+  35,010 ALMs, the best build so far; its top five are one family, the
+  merger's address bit 3 into upp_bus's flash line buffer valid bits
+  (lb_v, the line-wide fetch's beat select, -0.55 to -0.52), the rest
+  below. Three seeds of this tree: -0.680, -0.920, -0.550; so the floor
+  with a lucky seed is about -0.5 before round 5's fixes. The rbf
+  (build/hardware/NGage-ndm-s9.rbf) is the main-slot candidate. Seed 11
+  running.
+- Seed 10 of the main core on c8f18ef (the Mac): -1.115 ns; the Thumb
+  decoder into decode (-1.12, two paths), the D-TLB walker into decode
+  (-0.96), issue's load pending into the shifter (-0.87). Four seeds of
+  this tree: -0.680, -0.920, -0.550, -1.115; the Thumb decoder's cone is
+  in the top of nearly every seed. The sweep stops at seed 11: the
+  final tree after round 5 gets its own.
+- Seed 11 of the main core on c8f18ef (the server): -0.661 ns; the
+  issue stage's skid (-0.66, two paths), the D-TLB walker into the
+  shifter (-0.52), the merger into the flash line buffer (-0.42). **The
+  sweep's tally** (the main core, NGAGE_NO_DEBUG): c03088f seeds 1-6:
+  -1.152, -1.285, -0.861, -1.074, -1.146, -0.973; c8f18ef (the card
+  model's fix) seeds 7-11: -0.680, -0.920, -0.550, -1.115, -0.661: a
+  median of -0.68 and a best of -0.55 (seed 9, the main-slot candidate),
+  so the tree misses the goal of a median within 0.3 ns by about 0.4,
+  which is round 5's job: the Thumb decoder's cone into predecode and
+  decode (in the top of most seeds), the issue stage's skid and late
+  stall, the MMU enable's fanout, the memory stage into the D-cache tag
+  RAM, the merger's address into upp_bus's decode and line buffer, the
+  D-TLB walker into decode and the shifter.
+- Sweep extended to seed 20 (the user: "going up to seed 20 is fine"):
+  seeds 12-19 on the server two at a time (Codex's round 5 holds the
+  other two lanes), seed 20 on the Mac, all of the tree with the card
+  model's fix (815bcbd, RTL c8f18ef), results in build/sweeps/ndm-s<n>/
+  through tools/seed_sweep.sh.
+- **Seed 9 on the main slot.** The no-debug main core (-0.550 ns,
+  build/hardware/NGage-ndm-s9.rbf) smoke-tested on the debug slot: the
+  idle screen with the clock and the date, the phone menu with SonicN,
+  Sonic's intro and Neo Green Hill in play (captures in
+  build/hardware/game/smoke-ndm-s9/; no counters, the overlay is out of
+  this core). Copied over `_Console/_NGage/NGage_20261023.rbf` (the
+  user's slot); b22 (the instrumented build) back on
+  `_Debug/NGageDbg_20261023.rbf` for the measurements. The main slot
+  went from b12 (-1.09 ns, 25-28 M instructions/s in play) to this:
+  -0.55 ns, 29-31 M/s, the fast first boot, the card path.
+- Seeds 12, 13 (the server) and 20 (the Mac) of the main core on the
+  fixed tree: **-0.535** (seed 12, the best so far: 34,988 ALMs),
+  -0.633, -0.643; seed 20's top is decode's destination index into
+  issue (-0.64), then the MMU enable into the fetch FIFO (-0.47) and the
+  Thumb decoder into predecode (-0.45). Eight seeds of this tree:
+  -0.680, -0.920, -0.550, -1.115, -0.661, -0.535, -0.633, -0.643
+  (median -0.64). Seed 9 stays on the main slot (tested; 15 ps apart).
