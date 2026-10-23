@@ -216,3 +216,190 @@ in this board pass.
   Full CS0/CS1 images are the intended input; F4 is allowed to replace the
   whole CS1 chip, so use it before Phoenix when combining the two routes.
 - No edits to `sys/`, `rtl/cpu/`, or `rtl/board/mmc_card.sv`. No push.
+
+## Board validation and unexpected single-file reload — follow-up
+
+The user reported that the default Python image, including FF at the 56
+per-phone bytes at CS0 `0x12C–0x163`, booted to the idle screen and ran Sonic.
+This resolves the earlier board-validation assumption above. The in-core
+version check still uses the loaded integrity-table signatures, independently
+of the PC tool's newer SHA-256 input checks.
+
+The merged Phoenix loader (`a83342a`), built as debug core b24, also worked on
+the board from an MGL with F1 MCU, F2 language, S1 a fresh blank C: copy and
+S0 the card. Reported timings from CPU start: format 44–84 s, Time dialog
+96 s, setup after Date 108–113 s, 852 KB C: write-back at 121 s, idle screen
+by 170 s. A second boot using that save reached idle without formatting.
+These are supplied board observations, not measurements from this follow-up.
+
+An earlier otherwise identical run failed once after the second Enter at
+106.3 s. Screenshots were unavailable until 120 s; afterwards the overlay
+showed CPU reset, PC zero, no interrupt enables, save present and colour
+bars. A lone MCU transfer is consistent with both the approximately 14 s
+gap and the existing fresh-pair rule, but the transfer index and its trigger
+were not captured. The rerun did not reproduce it. This change makes that
+specific hypothesis observable; it does not claim to have found Main's
+runtime trigger.
+
+### Loader diagnostics
+
+Commit `087088d` appends **word 37 at rows 156–158** and **word 38 at rows
+160–162**, at x 16–47. The original 12 words and 25 counters retain every
+position. Both new words are snapshotted together at the frame boundary,
+including while the CPU is reset. The registers and drawing are inside
+`ifndef NGAGE_NO_DEBUG`; a release build omits them.
+
+| Word | Bits | Meaning |
+|---|---|---|
+| 37 | 31 / 30 | `ph_ready` / `ph_busy` |
+| 37 | 29:28 | Pair `have`: bit 0 MCU, bit 1 language |
+| 37 | 27:22 | Most recent download-start ioctl index (low six bits) |
+| 37 | 21:19 | Last nonzero loader note |
+| 37 | 18:14 | Parser state (0 idle, 1 fill, 15/16 version read, 17/18 patch) |
+| 37 | 13:0 | Reserved, zero |
+| 38 | 31:28 / 27:24 / 23:20 / 19:16 | F1 / F2 / F3 / F4 download-start counts |
+| 38 | 15:0 | Full current-file error count |
+
+Starts count rising edges of `ioctl_download`, not records or retries at the
+DDR port. Each count saturates at 15 (printed `15+`); index and counts cover
+the flat development downloads too. History survives CPU/OSD resets and
+clears on `sys_reset` (the external RESET input or PLL unlock, including
+initialisation after FPGA reconfiguration). The error count saturates at
+65535 and clears at the next Phoenix file start, as before. The last note
+persists: 0 none, 1 damaged, 2 unrecognised, 3 loaded, 4 reload-both.
+`tools/mister_dbg.py` now prints these fields after the existing counters.
+Old screenshots have no valid loader words; use a build containing this
+change when interpreting them.
+
+### Conservative handling of a resend
+
+Commit `ba21a59` implements the requested fallback: after a successfully received file
+that restarted the pair, info entry **12** says **Firmware reloaded: load
+both files**. The event is emitted after EOF and DDR writes drain, when Main
+has finished sending the file; the debug overlay retains note 4 afterwards.
+A damaged resend instead reports the existing damage message. First loads
+and the complementary file do not produce a reload warning. Existing info
+IDs and OSD status bits are unchanged.
+
+An exact raw-payload comparison against current DDR is not a sound MCU
+identity test: the incoming original includes bytes that the NOS stand-in
+and integrity digest patches have replaced. Ignoring those locations would
+fail to check the whole payload. Further, on a late mismatch, filling the
+image and continuing would lose the already-consumed prefix; the stream
+cannot rewind. Retaining the old prefix can also retain records/gaps from
+the other file or a previous image. A transparent solution needs additional
+original-data storage or a complete identity scheme plus a transactional
+reload/replay design, rather than a late switch to the existing fill state.
+No such broader storage/protocol change is made here.
+
+Consequently an identical single resend **still holds the CPU in reset**
+until its companion is received. It now explains the wait. Selecting both
+original files again is always the documented recovery; if the new overlay
+identifies the one already received, sending just its missing companion
+also completes the pair. Firmware fills still leave C: intact, its mount
+stays present, and no firmware write dirties the C: save. This does not
+promise preservation of guest state or any unsaved changes across a CPU
+reset.
+
+### Main source audit
+
+Read the official `MiSTer-devel/Main_MiSTer` source pinned at
+`065d0d2d3232ba7b81ff0257b5f5b19ad952e8f7` (master at inspection), including
+`user_io.cpp`, `menu.cpp`, MGL parsing, recent files and input handling.
+Snapshots are ignored local research artifacts under
+`build/main-phoenix-audit/`; no Main or framework code was changed. The
+board's exact Main binary/revision was not supplied, so this is a source
+inspection, not a reproduction on that binary.
+
+- Startup ROM loading and remembered `FC`/`FSC` filenames run during core
+  initialisation. Remembering requires the `C` modifier; NGage uses plain
+  `F1`/`F2`. `Selected_F` remembers the browser selection and recent-file
+  history, but does not periodically resend it.
+  [Startup/parse_config](https://github.com/MiSTer-devel/Main_MiSTer/blob/065d0d2d3232ba7b81ff0257b5f5b19ad952e8f7/user_io.cpp#L981),
+  [boot ROMs](https://github.com/MiSTer-devel/Main_MiSTer/blob/065d0d2d3232ba7b81ff0257b5f5b19ad952e8f7/user_io.cpp#L1694).
+- A normal F-option selection or recent-file selection reaches
+  `MENU_GENERIC_FILE_SELECTED` and `user_io_file_tx`. MGL uses the same
+  route with an explicit path. An unfinished/delayed MGL item can therefore
+  load a file with the core already running. The sequencer increments
+  `current`, marks `done` at the end, and has no completed-list replay path.
+  [MGL sequencer](https://github.com/MiSTer-devel/Main_MiSTer/blob/065d0d2d3232ba7b81ff0257b5f5b19ad952e8f7/menu.cpp#L1214),
+  [F selection](https://github.com/MiSTer-devel/Main_MiSTer/blob/065d0d2d3232ba7b81ff0257b5f5b19ad952e8f7/menu.cpp#L2443),
+  [transfer](https://github.com/MiSTer-devel/Main_MiSTer/blob/065d0d2d3232ba7b81ff0257b5f5b19ad952e8f7/menu.cpp#L2685).
+- Enter, Space and keypad Enter set the menu's `select` event. The closed
+  menu/info states do not use `select` to reopen an F entry. An incomplete
+  MGL can open/select an entry without showing the OSD, but that requires
+  `!done`; no Enter-only restart of a completed MGL was found.
+  [Key events](https://github.com/MiSTer-devel/Main_MiSTer/blob/065d0d2d3232ba7b81ff0257b5f5b19ad952e8f7/menu.cpp#L1445),
+  [closed menu](https://github.com/MiSTer-devel/Main_MiSTer/blob/065d0d2d3232ba7b81ff0257b5f5b19ad952e8f7/menu.cpp#L1632).
+- Generic reset options pulse status bits; reset buttons send `UIO_BUT_SW`.
+  Neither resends NGage F1. Special keyboard/core reload paths reconfigure
+  an RBF; they are not a lone-file resend on plain Enter. A core info event
+  rereads the configuration string to find `I`; it does not invoke
+  `parse_config` or its remembered-file loader. The generic file-transfer
+  loop sends one open file to EOF, without an automatic whole-file retry.
+  [OSD reset](https://github.com/MiSTer-devel/Main_MiSTer/blob/065d0d2d3232ba7b81ff0257b5f5b19ad952e8f7/menu.cpp#L2607),
+  [buttons](https://github.com/MiSTer-devel/Main_MiSTer/blob/065d0d2d3232ba7b81ff0257b5f5b19ad952e8f7/user_io.cpp#L3196),
+  [info handling](https://github.com/MiSTer-devel/Main_MiSTer/blob/065d0d2d3232ba7b81ff0257b5f5b19ad952e8f7/user_io.cpp#L2761),
+  [transfer loop](https://github.com/MiSTer-devel/Main_MiSTer/blob/065d0d2d3232ba7b81ff0257b5f5b19ad952e8f7/user_io.cpp#L3027).
+
+No matching normal path explains the supplied completed-launcher,
+Enter-only observation. On recurrence, retain screenshots before/after,
+the exact MGL and Main revision, and Main's stdout: `user_io_file_tx` prints
+the selected filename, byte count and index. With `log_file_entry` enabled,
+Main also records selection paths under `/tmp`, including the MGL route
+in the audited revision. Those logs distinguish an actual F1 repeat from
+an F3/F4 transfer, core reload or unrelated reset. Do not infer the sender
+solely from how long screenshots are unavailable.
+
+For the next debug-board pass, capture a baseline after the MGL completes
+and keep the overlay enabled through the Time/Date inputs. Compare start
+counts against that baseline rather than assuming no automatic ROMs were
+also loaded. A deliberate F1 reselect after saving C: should produce the
+new message, `ready=0 busy=0 have=01 last=F1 note=4`, and one additional F1
+start while `save=1` remains set. Selecting F2 should then produce the
+loaded message and restart the phone with the same C:. This deliberate
+sequence is covered locally; it has not yet been exercised on the board.
+
+### Follow-up verification
+
+All requested checks passed locally with Verilator 5.052, running one
+simulation at a time:
+
+| Check | Result |
+|---|---|
+| `make -C sim phoenix` | Pass; existing parser cases plus either-file resend, warning only after EOF, companion recovery, damage-message priority and C: preservation |
+| `make -C sim phoenix-real PHOENIX_DIR=/Users/jacob/dev/fpga/mister/NGage_MiSTer/research/firmware/images/rh29-4.60-dp/inner/products/RH-29` | Pass; initial pair and MCU-resend/language-recovery pair both match both reference images byte for byte |
+| `make -C sim top` | Pass; Phoenix cases 38,088,524 clocks, existing shell regression 150,622,764 clocks |
+| `make -C sim save` | Pass; 24,124,618 clocks, both save sizes, firmware isolation and write-back checks |
+| `make -C sim ddrflash` | Pass; 393,030 clocks, existing loader/readback/cache/blank-scan checks |
+| `make lint` | Pass; includes `verilator --lint-only -Wall --top-module emu -f lint/rtl.f` and all listed module tops |
+| `verilator --lint-only -Wall -DNGAGE_NO_DEBUG=1 --top-module emu -f lint/rtl.f` | Pass |
+
+The real test takes 61,978,674 clocks / 22,394,085 DDR writes for the initial
+pair, and 123,958,365 clocks / 44,788,170 writes including the resend and
+recovery. Output MD5s remain CS0 `63aa211d06bd8df899e1239988b10316` and CS1
+`db6a465764970f08d5ed7a16aa3ec500`. No firmware inputs or reference images
+were modified or committed.
+
+The top test reads the appended words from actual rendered pixels. Running
+`uv run tools/mister_dbg.py sim/build/out/top_phoenix_reload.ppm
+sim/build/out/top_phoenix_loader.ppm` also confirmed the decoder output:
+
+```text
+cpu_reset=1 ... save=1 ... loader: ready=0 busy=0 have=01 last=F1 starts[F1/F2/F3/F4]=2/1/0/0 note=4(reload-both) errors=0 state=0
+cpu_reset=1 ... loader: ready=0 busy=0 have=00 last=F4 starts[F1/F2/F3/F4]=5/4/2/15+ note=1(damaged) errors=1 state=0
+```
+
+The first frame reproduces the suspected lone-MCU state; the second checks
+all four counters, saturation, error visibility and retention through a
+CPU/OSD reset. The top test then verifies companion loading releases reset,
+and that firmware loads preserve C: and cause no save-file writes. Original
+overlay rows/counters and every OSD option bit retain their positions.
+
+No Quartus build, fit/resource claim, board deployment or full firmware CPU
+boot bench was performed in this follow-up. The new notification and overlay
+still need physical-board validation; b24's supplied successful boot timings
+do not validate these later changes. Main's intermittent trigger remains
+unreproduced. No edits to `sys/`, `rtl/cpu/`, or `rtl/board/mmc_card.sv`, and
+no push. The audit and this report are committed separately from the two
+implementation changes.
