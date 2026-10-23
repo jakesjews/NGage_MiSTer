@@ -3946,3 +3946,13 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   other two lanes), seed 20 on the Mac, all of the tree with the card
   model's fix (815bcbd, RTL c8f18ef), results in build/sweeps/ndm-s<n>/
   through tools/seed_sweep.sh.
+- **Seed 9 on the main slot.** The no-debug main core (-0.550 ns,
+  build/hardware/NGage-ndm-s9.rbf) smoke-tested on the debug slot: the
+  idle screen with the clock and the date, the phone menu with SonicN,
+  Sonic's intro and Neo Green Hill in play (captures in
+  build/hardware/game/smoke-ndm-s9/; no counters, the overlay is out of
+  this core). Copied over `_Console/_NGage/NGage_20261023.rbf` (the
+  user's slot); b22 (the instrumented build) back on
+  `_Debug/NGageDbg_20261023.rbf` for the measurements. The main slot
+  went from b12 (-1.09 ns, 25-28 M instructions/s in play) to this:
+  -0.55 ns, 29-31 M/s, the fast first boot, the card path.
