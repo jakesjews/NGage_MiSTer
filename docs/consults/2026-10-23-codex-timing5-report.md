@@ -407,6 +407,25 @@ alias cut points avoids treating the same stall register as independent
 state. The first monolithic proof timed out; no RTL change was needed to
 close the refined proof. Required suite, QEMU and cycle checks also pass.
 
+**Fetch FIFO flags (`fifoflags`):** compute incremented pointer values and
+empty/full comparisons from the registered pointers before the late cache
+acknowledge. The read/write enables select the finished comparisons;
+advancing both pointers preserves their modular separation, including the
+wrap bit. Pointer registers use the same precomputed increments. Reset,
+clear, simultaneous read/write, empty/full guards and memory writes retain
+their original edges. Actual-module equivalence proves all 1,730 points for
+the configured 100-bit, 16-entry FIFO without reachable-state assumptions.
+All 225 counts and 57 QEMU comparisons agree; both lint modes and generated
+checks pass. The acceptance family includes all paths into FIFO flags and
+read/write pointers, so shortening flags at a pointer's expense cannot hide
+in the comparison. Supplemental baseline queries precede the paired trial.
+
+The card owner's merged change is integrated unchanged in `e0c34d0`.
+The CPU suite, all cycle/instruction counts, 57 QEMU comparisons, both lint
+modes and generated checks pass again after integration. Candidate pairs
+already prepared against `35aa83e` retain that baseline; the next combined
+three-seed trial will include the card fix.
+
 ## Scope and risks
 
 No firmware boot bench, `sys/` change, ARM9 change, card-model edit, hardware
