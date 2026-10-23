@@ -2849,6 +2849,12 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   -0.214 ns at slow 100C (-0.232, -0.197, -0.168 at slow -40C), hold
   positive. Still seed luck; seeds 8 (376950d) and 10 (27a4152) stay the
   clean candidates.
+- Seed 17 of the 3a tree on the Mac: -0.133 setup, +0.239 hold. Seed 18
+  queued.
+- The register-packing experiment (ALM_REGISTER_PACKING_EFFORT LOW, seeds
+  14-16 of the 3a tree): -0.430, -0.401, -0.085 at slow 100C (-0.393,
+  -0.595, -0.186 at slow -40C), 33,222-33,284 ALMs. No better than the
+  default; dropped.
 - The boot bench on the tree with families 1 and 2 (before 2b's revert):
   2.7 G cycles, 661,484,885 instructions, the register log and the bus log
   identical to the previous tree's.
