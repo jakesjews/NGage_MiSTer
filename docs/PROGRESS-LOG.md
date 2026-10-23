@@ -2954,3 +2954,47 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
 - Seed 18 of the 3a tree on the Mac: -0.330. The Mac stays out of the
   sweep while the speed work runs (the user: small misses do not matter
   until the games are quick).
+- The hold change as I first wrote it (the four err2 acknowledgements
+  simply removed) failed the smoke test (dcache_rtl, icache_rtl, ctrand1,
+  crand1 wrong at every latency): the tag RAM's registered lookup of the
+  held address is stale after the fill's tag write. Reverted; handed to
+  Codex with the failure.
+- **The predictor-fix build (a8ca165's tree, -0.153 ns) in play**
+  (`build/hardware/game/{sonicn,asphalt}-btb/`): Asphalt's race 23.3-23.7
+  M instructions/s (was 21.1), CPI 4.4-4.5 (was 4.9), 10-11 frames/s (was
+  11-12); Sonic 21-22.4 M/s (was 19.3-20.8), CPI 4.6-5.0, 8-11 frames/s.
+  The retired count now excludes replays, which are counted: 590-610 K/s
+  in Asphalt, 500-520 K/s in Sonic, i.e. the writeback flushes were the
+  replays, as read. The ALU flushes did not change (300-310 K/s, 1.3 % of
+  instructions: the mispredict rate was already low in play; the BTB
+  fix's gain here is the front end's bubbles, FIFO empty 32 -> 24.5 %).
+  The issue stall is 41 % now that the front end feeds it more.
+  **The frame rate is a staircase**: the games step by whole kernel
+  ticks (1/64 s); Asphalt at 10.7 frames/s is 6 ticks a frame against the
+  model's 3, Sonic 6-8 against 2, so a 10 % faster CPU shows no frame
+  until a frame's work crosses the next tick boundary. The instruction
+  rate is the measure to watch between steps.
+- **Codex as the implementer** (the user's call; four `codex exec -s
+  workspace-write` runs in their own worktrees, briefs in the session's
+  scratch area, reports under docs/consults/2026-10-23-codex-*-report.md;
+  the sandbox could not write the worktrees' git metadata, so the commits
+  were made by hand from the prepared messages):
+  - BTB looked up from the next PC: a predicted taken branch loses one
+    fetch slot instead of three (f83073f). ctrand1 89,133 -> 76,785
+    cycles at 0:0, crand1 -13.6 %, cache -1.8 %.
+  - Late operand pickup (ab01d67): a plain ALU operand may leave issue
+    with its load in postalu1/2 and pick the value up at the ALU, a
+    shifted or store-data operand one stage earlier; 24 metadata bits,
+    one 2:1 mux at each ALU input. cache 903,967 -> 838,321 (-7.3 %),
+    the compiled tests -1 %.
+  - I-cache early restart (aa35a4e): registered early responses into the
+    FIFO while the line fills, with provisional FIFO entries held until
+    every beat succeeds and precise late aborts; linear bursts kept.
+    ctrand1 -3 % at 2:9, cache unchanged.
+  - The hold (95fc919): no acknowledgement through the fill and unlock
+    states, the held and the two younger set lookups restored before
+    IDLE, stale LRU hit updates suppressed, a new dhold_rtl test and
+    replay counts in the bench. cache -4 %, ctrand1 -2.9 %, crand1 -3.3 %.
+  - All four merged into master (c68af0c), the netlist regenerated;
+    lint clean. The smoke test of the merged tree and its build next;
+    the full suite and the boot bench once the games are at speed.
