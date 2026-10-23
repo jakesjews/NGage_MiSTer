@@ -54,7 +54,7 @@ module arm925t (
 	parameter [0:0] HIVECS = 1'b0;
 	parameter signed [31:0] ICACHE_SIZE = 16384;
 	parameter signed [31:0] ICACHE_WAYS = 2;
-	parameter [0:0] ICACHE_PREFETCH = 1'b1;
+	parameter [0:0] ICACHE_PREFETCH = 1'b0;
 	parameter signed [31:0] DCACHE_SIZE = 8192;
 	parameter signed [31:0] DCACHE_WAYS = 2;
 	parameter signed [31:0] CACHE_LINE = 16;

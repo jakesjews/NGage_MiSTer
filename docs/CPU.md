@@ -38,10 +38,12 @@ Parameters:
 - `ICACHE_SIZE` (16384), `DCACHE_SIZE` (8192), `CACHE_LINE` (16): cache
   geometry in bytes. `ICACHE_SIZE` 32768 is a 1,024-set I-cache (16 M10K
   more); the cache type register still reports 16 KB.
-- `ICACHE_PREFETCH` (1): a one-line sequential I-cache prefetch. After a
+- `ICACHE_PREFETCH` (0): a one-line sequential I-cache prefetch. After a
   line fill, the next line (within the same 1 KB) is read into a line buffer
   while the bus is free; a later miss on that line is answered from it and
-  installs it. 0 is the ARM925T, which has none (the accuracy build).
+  installs it. Off by default: the ARM925T has none, the games measured no
+  gain from it on the board (2026-10-23) and it costs about 1 ns of slack;
+  NGAGE_ICACHE_PREFETCH in NGage.qsf turns it on.
   docs/consults/2026-10-23-agy-iprefetch-report.md.
 
 Ports:

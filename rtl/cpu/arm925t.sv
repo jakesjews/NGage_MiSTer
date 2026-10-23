@@ -37,10 +37,11 @@ module arm925t #(
 	// Cache geometry: the ARM925T's 16 KB I / 8 KB D, 2-way with LRU
 	// replacement, 16-byte lines (docs/CPU.md). ICACHE_SIZE may also be
 	// set to 32768 (32 KB, 1,024 sets); ICACHE_PREFETCH enables the
-	// one-line sequential next-line prefetch (set 0 for strict accuracy).
+	// one-line sequential next-line prefetch (off: the phone has none and
+	// the games measured no gain from it; the logic is cycle-identical off).
 	parameter int          ICACHE_SIZE     = 16384,
 	parameter int          ICACHE_WAYS     = 2,
-	parameter bit          ICACHE_PREFETCH = 1'b1,
+	parameter bit          ICACHE_PREFETCH = 1'b0,
 	parameter int          DCACHE_SIZE     = 8192,
 	parameter int          DCACHE_WAYS     = 2,
 	parameter int          CACHE_LINE      = 16
