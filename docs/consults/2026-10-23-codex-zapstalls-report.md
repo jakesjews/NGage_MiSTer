@@ -267,3 +267,110 @@ registered data. This is evidence for that intermediate candidate only;
 the complete candidate's full-core fit is running in the requested
 `dev/mister/NGage_MiSTer-s1` directory. Intermediate reports are archived
 in `build/zapstalls/item2/`.
+
+## Combined cycle and front-end results
+
+Latencies are `0:0`, `0:3`, `2:9`; all instruction counts below are
+identical before and after. Uop counts include condition-failed uops and
+are identical across the three latency settings.
+
+| Test | 0:0 baseline -> final | 0:3 baseline -> final | 2:9 baseline -> final | Instructions | Uops before -> after |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| cache | 793607 -> 789368 | 921249 -> 917253 | 1253790 -> 1251084 | 293427 | 293648 -> 293629 |
+| ctrand1 | 77298 -> 73043 | 106778 -> 102937 | 182278 -> 179631 | 16159 | 17287 -> 17174 |
+| crand1 | 78285 -> 73935 | 109477 -> 105359 | 190634 -> 187907 | 15982 | 16861 -> 16796 |
+| gba_arm | 8313 -> 8183 | 10935 -> 10785 | 17761 -> 17742 | 1192 | 1318 -> 1298 |
+| gba_thumb | 4928 -> 4917 | 6529 -> 6509 | 10877 -> 10831 | 774 | 828 -> 817 |
+
+| Test/latency | ALU flushes before -> after | New early flushes | FIFO-empty clocks before -> after |
+| --- | ---: | ---: | ---: |
+| cache/0-0 | 61 -> 14 | 47 | 51897 -> 47247 |
+| cache/0-3 | 61 -> 14 | 47 | 78250 -> 73972 |
+| cache/2-9 | 61 -> 14 | 47 | 121795 -> 115106 |
+| ctrand1/0-0 | 124 -> 88 | 36 | 47811 -> 43716 |
+| ctrand1/0-3 | 124 -> 88 | 36 | 74254 -> 70528 |
+| ctrand1/2-9 | 124 -> 88 | 36 | 118316 -> 112245 |
+| crand1/0-0 | 28 -> 10 | 18 | 47151 -> 42988 |
+| crand1/0-3 | 28 -> 10 | 18 | 73876 -> 70239 |
+| crand1/2-9 | 28 -> 10 | 18 | 122293 -> 116280 |
+| gba_arm/0-0 | 89 -> 29 | 60 | 6756 -> 6623 |
+| gba_arm/0-3 | 89 -> 29 | 60 | 9362 -> 9257 |
+| gba_arm/2-9 | 89 -> 29 | 60 | 16087 -> 16056 |
+| gba_thumb/0-0 | 35 -> 21 | 14 | 3963 -> 3947 |
+| gba_thumb/0-3 | 35 -> 21 | 14 | 5552 -> 5527 |
+| gba_thumb/2-9 | 35 -> 21 | 14 | 9869 -> 9730 |
+
+The total accepted misprediction count is unchanged: eligible events moved
+from ALU to shifter resolution. FIFO-empty clocks fall in all fifteen
+comparisons. Overlapping stall levels must not be summed or interpreted as
+exclusive CPI components. In particular, earlier load admission reduced an
+issue counter without reducing load-use latency.
+
+## Item 4: multiply barrier measured; no RTL change retained
+
+The multiply FSM operates on the instruction held at issue's output. Its
+busy signal also holds the selected younger instruction and the predecode
+output. Removing only the sequencer hold would advance its state without
+consuming its output, losing or repeating memory/long-multiply uops.
+Decoupling it needs explicit queued-output acceptance across these stages;
+the existing skid holds the input instruction, not an arbitrary queue of
+generated uops. The long-multiply second uop is already generated in
+LMULT_BUSY before the first reaches the multiplier.
+
+Bench-only occupancy probes count busy clocks, non-cancelled multiply
+releases, and releases with a valid younger instruction selected at issue.
+They change no cycles or instruction counts. The full 210-run suite and
+56 QEMU comparisons pass with these probes.
+
+| Test | Busy clocks 0:0 / 0:3 / 2:9 | Releases at each latency | Younger waiting 0:0 / 0:3 / 2:9 |
+| --- | ---: | ---: | ---: |
+| cache | 65537 / 65537 / 65537 | 16384 | 16384 / 16384 / 16384 |
+| ctrand1 | 44 / 44 / 44 | 11 | 11 / 11 / 10 |
+| crand1 | 434 / 447 / 476 | 130 | 130 / 128 / 110 |
+| gba_arm | 112 / 112 / 112 | 35 | 14 / 14 / 14 |
+| gba_thumb | 4 / 4 / 4 | 1 | 0 / 0 / 0 |
+
+Every cache-test multiply already has its successor queued at release;
+advancing predecode alone does not remove its four busy clocks. The GBA
+cases leave room for a more elastic front end, but this measurement does
+not prove that their missing successors could have been fetched in time.
+No cycle-saving implementation of that queue protocol was completed in
+this task. This is an explicit stopping point, not a claim that decoupling
+can never help the games.
+
+## Remaining uop cases and risks
+
+SWP remains three uops: load DUMMY0, store Rm, move DUMMY0 to Rd. Loading
+directly into Rd would change the stored value for Rd=Rm, can change the
+address for Rd=Rn, and would expose Rd's new value before a store abort.
+Two-uop SWP needs a separate loaded-result payload and destination carried
+with the store until successful retirement. That data path and its
+forwarding/abort proof were not implemented. The proxy traces contain zero
+SWP encodings in cache/ctrand1/gba_thumb, 17 in crand1, and four in gba_arm
+(including condition-failed instructions). These counts do not measure
+SWP frequency in the games.
+
+The remaining LDM/STM cases are decrementing writeback, base-in-load-list
+with writeback, PC bases, empty lists and the existing deferred PC/base
+finishing uops. Thumb BL retains split-prefix/suffix behavior, including
+interrupt entry between halfwords. None is claimed to reach the reduced
+uop count. The new LDM folding tests exercise first/final-beat aborts but
+do not constitute an exhaustive proof for every banking/abort combination.
+
+Functional risk is concentrated in branch metadata alignment during holds,
+redirect/exception priority, and folded base/link writes. Directed tests,
+the full random/ARM/Thumb/exception/cache suite, QEMU traces and the
+early-decision assertion cover these cases dynamically; no formal proof
+was run. Timing risk is in the earlier BTB tag comparison, decode target
+adder, shifter condition check and redirect/feedback mux. All branch
+payloads cross registers; issue's operand forwarding and completion
+capture paths are unchanged. The complete whole-core fit, rather than a
+CPU-only estimate, decides timing acceptance.
+
+The larger game goal remains open: no game was run on hardware in this
+task, and these proxy gains do not demonstrate CPI 2.9 or 2.5. Next, measure
+the same in-game counters with this candidate, separate actual multiply
+occupancy from late-load holds, and identify exposed load-result latency.
+Earlier admission without earlier data was ineffective. An elastic front
+end or two-uop SWP should follow only with a bounded queue/retirement design
+and dedicated abort, alias, interrupt and hold tests.

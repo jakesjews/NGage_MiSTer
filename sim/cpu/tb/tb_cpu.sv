@@ -85,7 +85,9 @@ module tb_cpu #(
 	output logic [3:0]    p_uop_flags,
 	output logic [31:0]   p_alu_res,
 	output logic [7:0]    p_alu_dst,
-	output logic [63:0]   p_sh_dbg
+	output logic [63:0]   p_sh_dbg,
+	// Multiply occupancy and the selected younger instruction (bench only).
+	output logic [3:0]    p_mult_state
 );
 
 	arm925t #(
@@ -154,6 +156,9 @@ module tb_cpu #(
 	`define SH dut.u_zap.u_zap_core.u_zap_shifter_main
 	assign p_sh_dbg    = {8'(`SH.i_alu_source_ff), 8'(`SH.o_destination_index_ff), 7'd0, `SH.i_alu_dav_nxt,
 	                      `SH.rn};
+	assign p_mult_state = {`SH.i_clear_from_writeback || (`SH.i_clear_from_alu && !`SH.i_data_stall),
+	                      dut.u_zap.u_zap_core.u_zap_issue_main.skid_condition_code_ff != 4'd15,
+	                      `SH.i_data_stall || `SH.i_stall_from_alu, `SH.multiply_busy};
 	// Check the early decision against execution one stage later. This catches
 	// stale flags/target or metadata misalignment across a hold/redirect.
 	// Disable only when measuring an archived core without the early interface.
