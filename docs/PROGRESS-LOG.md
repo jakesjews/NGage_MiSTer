@@ -3401,3 +3401,41 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   run has no stall shares; the next runs keep the whole line.)
   Four entries since timing round 3 had been added above the file's
   header by mistake; moved to the end, in order.
+- **Antigravity's game-load analysis** (read-only, Gemini 4 Argon;
+  docs/consults/2026-10-23-antigravity-loadtimes.md): the card model
+  clocks every bit of the 1-bit wire at 8.67 MHz (MMC_DIV = 12 in
+  upp_periph.sv, the service manual's 8.66 MHz; a figure says 13, the
+  card's CSD allows 20), so a 512-byte block costs 49,368 clocks (475 us)
+  and the wire tops out at 1.05 MB/s; the card model fetches one sector
+  per hps_io round trip into a two-sector buffer, so every CMD17 (FAT and
+  directory reads), every non-contiguous CMD18 start and every seek after
+  a CMD12 (the controller holds CMD12 until the last block's end bit, so
+  the card still speculates the next sector and the seek waits for that
+  fetch too) pays a Linux round trip of 100-1,000 us; and the firmware's
+  driver moves files in 4 KB CMD18 bursts of eight 512-byte DMA phases
+  with 2-3 interrupts each plus EFile's cross-process copy, which is why
+  the CPU showed busy (not idle) through Tony Hawk's load. Its estimate:
+  the phone loads at 500-900 KB/s end to end, the core at 180-350. Its
+  ranking: (1) MMC_DIV 12 -> 4 (26 MHz, 3x the wire, the timeout
+  counters widened to keep the hardware timeout at about 320 ms; the card
+  model needs DIV >= 4), (2) 4 KB hps_io fetches (sd_blk_cnt 7, as
+  flash_save already does) into an 8 KB buffer with sector slots kept
+  for FAT metadata and no speculation on CMD12 (+7 M10K), (3) a DDR3
+  copy of the card: not worth it (Linux's page cache already holds the
+  file; the 4 KB buffer hides the SPI transfer), (4) the CPU side (in
+  flight) and, optionally, a DMA read bypass so the 512 byte-wide
+  Wishbone reads per block stop contending with the CPU. The settling
+  measurement needs no new wiring: B_DATA_BUSY and B_CMD_BUSY are
+  dbg_src0[22:23] and card_dat_oe is at the top level, giving blocks/s,
+  data-phase clocks and the clocks the wire waits for Linux.
+  **Decided (the user's speed-over-accuracy rule):** one change with the
+  three counters, MMC_DIV 4 as the default (12 stays the accuracy value,
+  a parameter) and the 4 KB fetch, implemented by Antigravity in its own
+  worktree (agy/mmc), then one build and the Shadowkey and Tony Hawk
+  loads measured on the board against b15.
+  The M10K budget for the cache levers, from b15's fitter report: 470 of
+  553 blocks used; the D-cache is 43 (two 16-block data ways, tags, LRU),
+  the I-cache 26, the flash's 128 KB line cache 133, the LCD's frame
+  buffer 72, the on-chip RAM 64. A 32 KB I-cache costs about 20 more, a
+  32 KB D-cache about 36: both fit by count (526), with the placement the
+  unknown.
