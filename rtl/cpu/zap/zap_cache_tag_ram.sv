@@ -53,6 +53,7 @@
 
 module zap_cache_tag_ram #(
 
+parameter logic SHORT_READ = 1'b0, // ARM9: RAM edge then caller's compare/capture edge.
 parameter logic [31:0] CACHE_SIZE = 32'd1024, // Bytes, all ways together.
 parameter logic [31:0] CACHE_LINE = 32'd8,
 parameter logic [31:0] WAYS       = 32'd1     // ARM925T: 1 or 2.
@@ -243,10 +244,14 @@ endfunction : flat
 // ----------------------------------------------------------------------------
 
 // ARM925T: one tag RAM and one data RAM per way, read at the same set.
+// ARM9 SHORT_READ retains only the RAM edge and its registered write bypass.
+// The valid/dirty/LRU output below uses that same set and edge, forwarding
+// both the current write and the pending write-behind update. The compare,
+// victim selection and per-way word mux below are shared without changes.
 for ( genvar w = 0; w < WAYS; w++ )
 begin : g_way
 
-zap_ram_simple_ben #(.WIDTH(CACHE_LINE*8), .DEPTH(LINES)) u_zap_ram_simple_data_ram (
+zap_ram_simple_ben #(.WIDTH(CACHE_LINE*8), .DEPTH(LINES), .SHORT_READ(SHORT_READ)) u_zap_ram_simple_data_ram (
         .i_clk(i_clk),
         .i_clken(!i_hold),
 
@@ -260,7 +265,7 @@ zap_ram_simple_ben #(.WIDTH(CACHE_LINE*8), .DEPTH(LINES)) u_zap_ram_simple_data_
         .i_rd_addr(rd_set)
 );
 
-zap_ram_simple #(.WIDTH(`ZAP_CACHE_TAG_WDT), .DEPTH(LINES)) u_zap_ram_simple_tag (
+zap_ram_simple #(.WIDTH(`ZAP_CACHE_TAG_WDT), .DEPTH(LINES), .SHORT_READ(SHORT_READ)) u_zap_ram_simple_tag (
         .i_clk(i_clk),
         .i_clken(!i_hold),
 
@@ -415,7 +420,8 @@ begin : g_lru
                 end
                 else if ( !i_hold || tag_ram_clear || line_clear )
                 begin
-                        lru_q  <= lru_fwd_now ( rd_set_del2, lru_s2 );
+                        lru_q  <= SHORT_READ ? lru_fwd_now(rd_set, lru[rd_set]) :
+                                  lru_fwd_now ( rd_set_del2, lru_s2 );
                         lru_s2 <= lru_fwd ( rd_set_del,  lru_s1 );
                         lru_s1 <= lru_fwd ( rd_set,      lru [ rd_set ] );
                 end
@@ -492,7 +498,11 @@ begin
                 begin
                         for ( int w = 0; w < WAYS; w++ )
                         begin
-                                dirty_q[w]  <= rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w]   ? i_cache_tag_dirty :
+                                dirty_q[w]  <= SHORT_READ ?
+                                              (rd_set == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w] ? i_cache_tag_dirty :
+                                               rd_set == pend_addr && pend_en && pend_sel[w] ? pend_dirty :
+                                               dirty[flat(WAY_W'(w), rd_set)]) :
+                                               rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w]   ? i_cache_tag_dirty :
                                                rd_set_del2 == pend_addr       && pend_en       && pend_sel[w] ? pend_dirty        :
                                                dirty_s2[w];
                                 dirty_s2[w] <= rd_set_del  == pend_addr && pend_en && pend_sel[w] ? pend_dirty : dirty_s1[w];
@@ -531,7 +541,11 @@ begin
                 begin
                         for ( int w = 0; w < WAYS; w++ )
                         begin
-                                valid_q[w]  <= rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w]   ? 1'd1 :
+                                valid_q[w]  <= SHORT_READ ?
+                                              (rd_set == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w] ? 1'd1 :
+                                               rd_set == pend_addr && pend_en && pend_sel[w] ? 1'd1 :
+                                               valid[flat(WAY_W'(w), rd_set)]) :
+                                               rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w]   ? 1'd1 :
                                                rd_set_del2 == pend_addr       && pend_en       && pend_sel[w] ? 1'd1 :
                                                valid_s2[w];
                                 valid_s2[w] <= rd_set_del  == pend_addr && pend_en && pend_sel[w] ? 1'd1 : valid_s1[w];

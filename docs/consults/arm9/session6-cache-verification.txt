@@ -1,0 +1,18 @@
+Session 6 cache checkpoint (parent 60ec849)
+Generated SHA-256: bc7031565c6732695f4ec70c463bdf6f263278cb39f779db7486bcbb325490e2
+short-baseline-arm9: RTL (gen): 27 passed, 0 failed
+short-baseline-zap: RTL (gen): 30 passed, 0 failed
+short-cache2: RTL (gen): 21 passed, 0 failed
+short-lru-arm9: RTL (gen): 3 passed, 0 failed
+short-lru-zap: RTL (gen): 3 passed, 0 failed
+short-all-arm9: RTL (gen): 225 passed, 0 failed
+short-all-zap: RTL (gen): 225 passed, 0 failed
+short-diff-arm9: RTL vs QEMU: 60 agree, 0 differ
+short-diff-zap: RTL vs QEMU: 60 agree, 0 differ
+short-source-arm9: RTL (sv): 12 passed, 0 failed
+gen-check: rtl/cpu/arm925t_gen.v is current
+make lint: exit 0
+Explicit generated CORE=ARM9 -Wall lint: exit 0
+New arm9_cache_edge binary and QEMU reference only; no existing binaries/references rebuilt.
+76 timing windows retain the session-5 exact expected values.
+Both source and generated RAM forms checked. No firmware boot or Quartus run.

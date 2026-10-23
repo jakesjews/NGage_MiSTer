@@ -23,6 +23,7 @@
 
 module zap_dcache #(
 
+parameter logic SHORT_READ = 1'b0, // ARM9: RAM edge then caller's compare/capture edge.
 parameter logic [31:0] CACHE_SIZE             = 32'd1024,
 parameter logic [31:0] SPAGE_TLB_ENTRIES      = 32'd8,
 parameter logic [31:0] LPAGE_TLB_ENTRIES      = 32'd8,
@@ -182,10 +183,13 @@ end
 // Reload the held lookup, then the two younger ones. At the next IDLE
 // cycle all three RAM stages again align with the CPU. The mux is before
 // the RAM's first register; the shared tag RAM's hit path is untouched.
+// ARM9: only the held request needs restoring in the one-edge cache. Its
+// normal launch is i_address_check; i_address_nxt still feeds the TLB.
 always_comb
 begin
-        lookup_address = i_address_nxt;
-        if      ( relookup[0] ) lookup_address[LINE_W +: SET_W] = i_address[LINE_W +: SET_W];
+        lookup_address = SHORT_READ ? i_address_check : i_address_nxt;
+        if      ( SHORT_READ && (|relookup) ) lookup_address = i_address;
+        else if ( relookup[0] ) lookup_address[LINE_W +: SET_W] = i_address[LINE_W +: SET_W];
         else if ( relookup[1] ) lookup_address[LINE_W +: SET_W] = lookup_s1;
         else if ( relookup[2] ) lookup_address[LINE_W +: SET_W] = lookup_s0;
 end
@@ -287,7 +291,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
 );
 
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
-zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u_zap_cache_tag_ram     (
+zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .SHORT_READ(SHORT_READ)) u_zap_cache_tag_ram     (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address_nxt          (lookup_address),

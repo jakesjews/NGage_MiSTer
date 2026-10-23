@@ -626,3 +626,32 @@ retimed decode. Execute and operand capture also fail; the explicit NZCV
 query puts Z worst at -2.185 ns. The session-5 report
 links the detailed paths and records the remaining cycle and area gates.
 ZAP remains the default; no full-system or hardware result is implied.
+
+## Session 6: one-edge cache RAM checkpoint
+
+`SHORT_READ`, selected only by `CORE="ARM9"`, removes the two collision-delay
+edges from the tag and data RAMs. The remaining synchronous read captures a
+same-edge write and its address match; each byte lane selects that registered
+write or the read-first RAM output. The next edge captures the existing tag
+compare, way/word select and load formatting at the caller. This retains one
+read per clock, including adjacent stores with different byte enables.
+
+Valid, dirty and LRU outputs use the same read set/edge. Current writes have
+priority over write-behind state; the hit LRU update has priority over a fill
+update. The compare/select equations are unchanged. The shared three-edge
+RAM implementation, including the Quartus per-byte RAM wrapper, remains the
+ZAP default. Clean/invalidate walks retain their conservative waits.
+
+This checkpoint deliberately launches the cache at `i_address_check`, one
+clock before the request, while preserving the original early address for the
+TLB. The TLB independently uses the same three-edge RAM primitive: its two-edge
+`o_rdata_pre` feeds a registered permission check. Moving its address without
+retiming that chain breaks translation. The cache can now complete in two
+edges, but the CPU still retains its prior schedule pending the TLB/schedule
+change. This distinction matters: the RAM change alone does not establish a
+two-clock load interlock or four-clock branch.
+
+`arm9_cache_edge.S` checks adjacent word/byte/halfword stores and loads, all
+word offsets, two ways, fill/refetch, and dirty eviction against QEMU.
+`arm9_cache_lru_rtl.S` checks backing memory through uncached aliases after
+adjacent hit/fill LRU and dirty updates; QEMU has no cache model for that test.

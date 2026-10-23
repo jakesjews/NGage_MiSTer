@@ -177,6 +177,7 @@ module zap_ram_simple_ben (
 );
 	parameter [31:0] WIDTH = 32'd32;
 	parameter [31:0] DEPTH = 32'd32;
+	parameter [0:0] SHORT_READ = 1'b0;
 	input wire i_clk;
 	input wire i_clken;
 	input wire [(WIDTH / 8) - 1:0] i_wr_en;
@@ -191,7 +192,8 @@ module zap_ram_simple_ben (
 			localparam i = _gv_i_1;
 			zap_ram_simple #(
 				.WIDTH(32'd8),
-				.DEPTH(DEPTH)
+				.DEPTH(DEPTH),
+				.SHORT_READ(SHORT_READ)
 			) u_lane(
 				.i_clk(i_clk),
 				.i_clken(i_clken),
@@ -4149,6 +4151,7 @@ module zap_cache (
 	i_wb_err
 );
 	reg _sv2v_0;
+	parameter [0:0] SHORT_READ = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
@@ -4600,11 +4603,12 @@ module zap_cache (
 	zap_cache_tag_ram #(
 		.CACHE_SIZE(CACHE_SIZE),
 		.CACHE_LINE(CACHE_LINE),
-		.WAYS(WAYS)
+		.WAYS(WAYS),
+		.SHORT_READ(SHORT_READ)
 	) u_zap_cache_tag_ram(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
-		.i_address_nxt(i_address_nxt),
+		.i_address_nxt((SHORT_READ ? i_address_check : i_address_nxt)),
 		.i_address(cache_address),
 		.i_lookup_address(i_address),
 		.i_access(i_rd || i_wr),
@@ -5711,6 +5715,7 @@ module zap_cache_tag_ram (
 	i_wb_ack
 );
 	reg _sv2v_0;
+	parameter [0:0] SHORT_READ = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] CACHE_LINE = 32'd8;
 	parameter [31:0] WAYS = 32'd1;
@@ -6137,7 +6142,8 @@ module zap_cache_tag_ram (
 			localparam w = _gv_w_1;
 			zap_ram_simple_ben #(
 				.WIDTH(CACHE_LINE * 8),
-				.DEPTH(LINES)
+				.DEPTH(LINES),
+				.SHORT_READ(SHORT_READ)
 			) u_zap_ram_simple_data_ram(
 				.i_clk(i_clk),
 				.i_clken(!i_hold),
@@ -6150,7 +6156,8 @@ module zap_cache_tag_ram (
 			);
 			zap_ram_simple #(
 				.WIDTH(((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1),
-				.DEPTH(LINES)
+				.DEPTH(LINES),
+				.SHORT_READ(SHORT_READ)
 			) u_zap_ram_simple_tag(
 				.i_clk(i_clk),
 				.i_clken(!i_hold),
@@ -6263,7 +6270,7 @@ module zap_cache_tag_ram (
 					lru_s1 <= 1'd0;
 				end
 				else if ((!i_hold || tag_ram_clear) || line_clear) begin
-					lru_q <= lru_fwd_now(rd_set_del2, lru_s2);
+					lru_q <= (SHORT_READ ? lru_fwd_now(rd_set, lru[rd_set]) : lru_fwd_now(rd_set_del2, lru_s2));
 					lru_s2 <= lru_fwd(rd_set_del, lru_s1);
 					lru_s1 <= lru_fwd(rd_set, lru[rd_set]);
 				end
@@ -6313,7 +6320,7 @@ module zap_cache_tag_ram (
 				reg signed [31:0] w;
 				for (w = 0; w < WAYS; w = w + 1)
 					begin
-						dirty_q[w] <= (((rd_set_del2 == tag_ram_wr_addr) && tag_ram_wr_en) && wr_sel[w] ? i_cache_tag_dirty : (((rd_set_del2 == pend_addr) && pend_en) && pend_sel[w] ? pend_dirty : dirty_s2[w]));
+						dirty_q[w] <= (SHORT_READ ? (((rd_set == tag_ram_wr_addr) && tag_ram_wr_en) && wr_sel[w] ? i_cache_tag_dirty : (((rd_set == pend_addr) && pend_en) && pend_sel[w] ? pend_dirty : dirty[flat(sv2v_cast_4BDF2_signed(w), rd_set)])) : (((rd_set_del2 == tag_ram_wr_addr) && tag_ram_wr_en) && wr_sel[w] ? i_cache_tag_dirty : (((rd_set_del2 == pend_addr) && pend_en) && pend_sel[w] ? pend_dirty : dirty_s2[w])));
 						dirty_s2[w] <= (((rd_set_del == pend_addr) && pend_en) && pend_sel[w] ? pend_dirty : dirty_s1[w]);
 						dirty_s1[w] <= (((rd_set == pend_addr) && pend_en) && pend_sel[w] ? pend_dirty : dirty[flat(sv2v_cast_4BDF2_signed(w), rd_set)]);
 					end
@@ -6339,7 +6346,7 @@ module zap_cache_tag_ram (
 				reg signed [31:0] w;
 				for (w = 0; w < WAYS; w = w + 1)
 					begin
-						valid_q[w] <= (((rd_set_del2 == tag_ram_wr_addr) && tag_ram_wr_en) && wr_sel[w] ? 1'd1 : (((rd_set_del2 == pend_addr) && pend_en) && pend_sel[w] ? 1'd1 : valid_s2[w]));
+						valid_q[w] <= (SHORT_READ ? (((rd_set == tag_ram_wr_addr) && tag_ram_wr_en) && wr_sel[w] ? 1'd1 : (((rd_set == pend_addr) && pend_en) && pend_sel[w] ? 1'd1 : valid[flat(sv2v_cast_4BDF2_signed(w), rd_set)])) : (((rd_set_del2 == tag_ram_wr_addr) && tag_ram_wr_en) && wr_sel[w] ? 1'd1 : (((rd_set_del2 == pend_addr) && pend_en) && pend_sel[w] ? 1'd1 : valid_s2[w])));
 						valid_s2[w] <= (((rd_set_del == pend_addr) && pend_en) && pend_sel[w] ? 1'd1 : valid_s1[w]);
 						valid_s1[w] <= (((rd_set == pend_addr) && pend_en) && pend_sel[w] ? 1'd1 : valid[flat(sv2v_cast_4BDF2_signed(w), rd_set)]);
 					end
@@ -9463,6 +9470,7 @@ module zap_dcache (
 	i_wb_err
 );
 	reg _sv2v_0;
+	parameter [0:0] SHORT_READ = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
@@ -9873,8 +9881,10 @@ module zap_dcache (
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		lookup_address = i_address_nxt;
-		if (relookup[0])
+		lookup_address = (SHORT_READ ? i_address_check : i_address_nxt);
+		if (SHORT_READ && |relookup)
+			lookup_address = i_address;
+		else if (relookup[0])
 			lookup_address[LINE_W+:SET_W] = i_address[LINE_W+:SET_W];
 		else if (relookup[1])
 			lookup_address[LINE_W+:SET_W] = lookup_s1;
@@ -9975,7 +9985,8 @@ module zap_dcache (
 	zap_cache_tag_ram #(
 		.CACHE_SIZE(CACHE_SIZE),
 		.CACHE_LINE(CACHE_LINE),
-		.WAYS(WAYS)
+		.WAYS(WAYS),
+		.SHORT_READ(SHORT_READ)
 	) u_zap_cache_tag_ram(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -18403,6 +18414,7 @@ module zap_ram_simple (
 	reg _sv2v_0;
 	parameter [31:0] WIDTH = 32'd32;
 	parameter [31:0] DEPTH = 32'd32;
+	parameter [0:0] SHORT_READ = 1'b0;
 	input wire i_clk;
 	input wire i_clken;
 	input wire i_wr_en;
@@ -18411,74 +18423,96 @@ module zap_ram_simple (
 	input wire [$clog2(DEPTH) - 1:0] i_rd_addr;
 	output reg [WIDTH - 1:0] o_rd_data_pre;
 	output wire [WIDTH - 1:0] o_rd_data;
-	reg [WIDTH - 1:0] mem [DEPTH - 1:0];
-	reg [WIDTH - 1:0] mem_data_st1;
-	reg [WIDTH - 1:0] mem_data_st2;
-	reg [WIDTH - 1:0] buffer_st1;
-	reg [WIDTH - 1:0] buffer_st2;
-	reg [WIDTH - 1:0] buffer_st2_x;
-	reg [1:0] sel_st1;
-	reg [2:0] sel_st2;
-	reg [$clog2(DEPTH) - 1:0] rd_addr_st1;
-	reg [$clog2(DEPTH) - 1:0] rd_addr_st2;
-	always @(posedge i_clk)
-		if (i_clken) begin
-			if (i_wr_en)
-				mem[i_wr_addr] <= i_wr_data;
+	generate
+		if (SHORT_READ) begin : g_short
+			reg [WIDTH - 1:0] mem [DEPTH - 1:0];
+			reg [WIDTH - 1:0] read_data;
+			reg [WIDTH - 1:0] write_data;
+			reg forward_write;
+			always @(posedge i_clk)
+				if (i_clken) begin
+					if (i_wr_en)
+						mem[i_wr_addr] <= i_wr_data;
+					read_data <= mem[i_rd_addr];
+					write_data <= i_wr_data;
+					forward_write <= i_wr_en && (i_wr_addr == i_rd_addr);
+				end
+			assign o_rd_data = (forward_write ? write_data : read_data);
+			wire [WIDTH:1] sv2v_tmp_42B7C;
+			assign sv2v_tmp_42B7C = o_rd_data;
+			always @(*) o_rd_data_pre = sv2v_tmp_42B7C;
 		end
-	always @(posedge i_clk)
-		if (i_clken)
-			mem_data_st1 <= mem[i_rd_addr];
-	always @(posedge i_clk)
-		if (i_clken) begin
-			if ((i_wr_addr == i_rd_addr) && i_wr_en)
-				sel_st1 <= 2'b10;
-			else
-				sel_st1 <= 2'b01;
+		else begin : g_three_edge
+			reg [WIDTH - 1:0] mem [DEPTH - 1:0];
+			reg [WIDTH - 1:0] mem_data_st1;
+			reg [WIDTH - 1:0] mem_data_st2;
+			reg [WIDTH - 1:0] buffer_st1;
+			reg [WIDTH - 1:0] buffer_st2;
+			reg [WIDTH - 1:0] buffer_st2_x;
+			reg [1:0] sel_st1;
+			reg [2:0] sel_st2;
+			reg [$clog2(DEPTH) - 1:0] rd_addr_st1;
+			reg [$clog2(DEPTH) - 1:0] rd_addr_st2;
+			always @(posedge i_clk)
+				if (i_clken) begin
+					if (i_wr_en)
+						mem[i_wr_addr] <= i_wr_data;
+				end
+			always @(posedge i_clk)
+				if (i_clken)
+					mem_data_st1 <= mem[i_rd_addr];
+			always @(posedge i_clk)
+				if (i_clken) begin
+					if ((i_wr_addr == i_rd_addr) && i_wr_en)
+						sel_st1 <= 2'b10;
+					else
+						sel_st1 <= 2'b01;
+				end
+			always @(posedge i_clk)
+				if (i_clken) begin
+					buffer_st1 <= i_wr_data;
+					rd_addr_st1 <= i_rd_addr;
+				end
+			always @(posedge i_clk)
+				if (i_clken)
+					mem_data_st2 <= mem_data_st1;
+			always @(posedge i_clk)
+				if (i_clken) begin
+					if ((i_wr_addr == rd_addr_st1) && i_wr_en)
+						sel_st2 <= 3'b100;
+					else
+						sel_st2 <= {1'd0, sel_st1};
+				end
+			always @(posedge i_clk)
+				if (i_clken)
+					rd_addr_st2 <= rd_addr_st1;
+			always @(posedge i_clk)
+				if (i_clken) begin
+					buffer_st2 <= i_wr_data;
+					buffer_st2_x <= buffer_st1;
+				end
+			always @(*) begin
+				if (_sv2v_0)
+					;
+				case (sel_st2)
+					3'b100: o_rd_data_pre = buffer_st2;
+					3'b010: o_rd_data_pre = buffer_st2_x;
+					3'b001: o_rd_data_pre = mem_data_st2;
+					default: o_rd_data_pre = {WIDTH {1'bx}};
+				endcase
+			end
+			reg fwd_st3;
+			reg [WIDTH - 1:0] fwd_data_st3;
+			reg [WIDTH - 1:0] rd_data_st3;
+			always @(posedge i_clk)
+				if (i_clken) begin
+					fwd_st3 <= (i_wr_addr == rd_addr_st2) && i_wr_en;
+					fwd_data_st3 <= i_wr_data;
+					rd_data_st3 <= o_rd_data_pre;
+				end
+			assign o_rd_data = (fwd_st3 ? fwd_data_st3 : rd_data_st3);
 		end
-	always @(posedge i_clk)
-		if (i_clken) begin
-			buffer_st1 <= i_wr_data;
-			rd_addr_st1 <= i_rd_addr;
-		end
-	always @(posedge i_clk)
-		if (i_clken)
-			mem_data_st2 <= mem_data_st1;
-	always @(posedge i_clk)
-		if (i_clken) begin
-			if ((i_wr_addr == rd_addr_st1) && i_wr_en)
-				sel_st2 <= 3'b100;
-			else
-				sel_st2 <= {1'd0, sel_st1};
-		end
-	always @(posedge i_clk)
-		if (i_clken)
-			rd_addr_st2 <= rd_addr_st1;
-	always @(posedge i_clk)
-		if (i_clken) begin
-			buffer_st2 <= i_wr_data;
-			buffer_st2_x <= buffer_st1;
-		end
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		case (sel_st2)
-			3'b100: o_rd_data_pre = buffer_st2;
-			3'b010: o_rd_data_pre = buffer_st2_x;
-			3'b001: o_rd_data_pre = mem_data_st2;
-			default: o_rd_data_pre = {WIDTH {1'bx}};
-		endcase
-	end
-	reg fwd_st3;
-	reg [WIDTH - 1:0] fwd_data_st3;
-	reg [WIDTH - 1:0] rd_data_st3;
-	always @(posedge i_clk)
-		if (i_clken) begin
-			fwd_st3 <= (i_wr_addr == rd_addr_st2) && i_wr_en;
-			fwd_data_st3 <= i_wr_data;
-			rd_data_st3 <= o_rd_data_pre;
-		end
-	assign o_rd_data = (fwd_st3 ? fwd_data_st3 : rd_data_st3);
+	endgenerate
 	initial _sv2v_0 = 0;
 endmodule
 module zap_ram_simple_nopipe (
@@ -22819,6 +22853,7 @@ module zap_top (
 				.FPAGE_TLB_ENTRIES(DATA_FPAGE_TLB_ENTRIES),
 				.CACHE_LINE(DATA_CACHE_LINE),
 				.WAYS(DATA_CACHE_WAYS),
+				.SHORT_READ(CORE == "ARM9"),
 				.BE_32_ENABLE(BE_32_ENABLE),
 				.EXT_ABORT_FS((TI925T ? 4'b1000 : 4'b0010))
 			) u_data_cache(
@@ -22893,7 +22928,8 @@ module zap_top (
 				.SECTION_TLB_ENTRIES(CODE_SECTION_TLB_ENTRIES),
 				.FPAGE_TLB_ENTRIES(CODE_FPAGE_TLB_ENTRIES),
 				.CACHE_LINE(CODE_CACHE_LINE),
-				.WAYS(CODE_CACHE_WAYS)
+				.WAYS(CODE_CACHE_WAYS),
+				.SHORT_READ(CORE == "ARM9")
 			) u_code_cache(
 				.i_clk(i_clk),
 				.i_stall(code_stall),

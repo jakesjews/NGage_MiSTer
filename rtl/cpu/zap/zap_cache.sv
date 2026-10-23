@@ -22,6 +22,7 @@
 
 module zap_cache #( // INSTRUCTION CACHE
 
+parameter logic SHORT_READ = 1'b0, // ARM9: RAM edge then caller's compare/capture edge.
 parameter [31:0] CACHE_SIZE             = 32'd1024,
 parameter [31:0] SPAGE_TLB_ENTRIES      = 32'd8,
 parameter [31:0] LPAGE_TLB_ENTRIES      = 32'd8,
@@ -216,10 +217,12 @@ zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u
 );
 
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
-zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u_zap_cache_tag_ram     (
+// ARM9: the single-edge cache reads one clock before the request. The TLB
+// still needs i_address_nxt for its independent, longer lookup pipeline.
+zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .SHORT_READ(SHORT_READ)) u_zap_cache_tag_ram     (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
-        .i_address_nxt          (i_address_nxt),
+        .i_address_nxt          (SHORT_READ ? i_address_check : i_address_nxt),
         .i_address              (cache_address),
         .i_lookup_address       (i_address),            // ARM925T
         .i_access               (i_rd || i_wr),

@@ -34,7 +34,8 @@
 
 module zap_ram_simple_ben #(
         parameter logic [31:0] WIDTH = 32'd32,
-        parameter logic [31:0] DEPTH = 32'd32
+        parameter logic [31:0] DEPTH = 32'd32,
+        parameter logic SHORT_READ = 1'b0
 )
 (
         // Clock and reset.
@@ -59,6 +60,28 @@ module zap_ram_simple_ben #(
         // 3 cycle delayed read data.
         output logic [WIDTH-1:0]             o_rd_data
 );
+// ARM9: one enabled RAM edge. Capture the colliding write on that edge;
+// the next edge belongs to the caller's compare/select/format register.
+// Data and enables hold together, including across cache/core stalls.
+if (SHORT_READ) begin : g_short
+    logic [WIDTH-1:0] mem [DEPTH-1:0];
+    logic [WIDTH-1:0] read_data, write_data;
+    logic [WIDTH/8-1:0] forward_write;
+    always_ff @(posedge i_clk) if (i_clken) begin
+        read_data <= mem[i_rd_addr];
+        write_data <= i_wr_data;
+        for (int n=0; n<WIDTH/8; n++) begin
+            if (i_wr_en[n]) mem[i_wr_addr][8*n +: 8] <= i_wr_data[8*n +: 8];
+            forward_write[n] <= i_wr_en[n] && i_wr_addr == i_rd_addr;
+        end
+    end
+    always_comb begin
+        for (int n=0; n<WIDTH/8; n++)
+            o_rd_data[8*n +: 8] = forward_write[n] ? write_data[8*n +: 8] : read_data[8*n +: 8];
+    end
+    assign o_rd_data_pre = o_rd_data;
+end else begin : g_three_edge
+
 
 initial
 begin
@@ -219,6 +242,8 @@ begin
         begin
                 o_rd_data[i*8 +: 8] = fwd_st3[i] ? fwd_data_st3[i*8 +: 8] : rd_data_st3[i*8 +: 8];
         end
+end
+
 end
 
 endmodule
