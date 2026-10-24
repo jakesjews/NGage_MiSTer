@@ -1,24 +1,34 @@
 # timing5: main-core timing closure
 
-Work in progress. Baseline `c03088f`, branch `codex/timing2`. The acceptance
-criterion is the median of three whole-core slow-100C setup slacks at
-104 MHz, at least −0.300 ns. No CPU-only timing result is used for acceptance.
+**Requested margin achieved:** fixed seeds 1/2/3 give **−0.211 / −0.221 /
+−0.318 ns** at slow 100C, **median −0.221 ns**, against the −0.300 ns target.
+The original main-core median was −1.152 ns: a **0.931 ns whole-tree gain**.
+This is close to 104 MHz, not positive static timing closure. The comparison
+includes the unchanged owner-supplied card fix and placement effects, as well
+as the CPU changes; isolated family measurements are listed below.
 
-Retained so far: the registered TLB fault summary, per-slot issue decisions,
-local barrel pending selects, combined BL/LSL-zero decode, direct cache
-acknowledgement, binary background-completion tags, direct effective
-load interlocks, classification before each micro-op case, and per-slot
-forwarding with unqualified issue capture. Every retained
-combination passes the complete CPU suite with identical cycles/instructions.
-The latest completed three-seed snapshot is `combined3` (`11bbda3`),
-including all six CPU changes and the unchanged owner-supplied card fix:
-**−0.645 / −0.486 / −0.880 ns, median −0.645 ns**. The final timing
-requirement is not met. The branch now also retains the paired-qualified
-interlock factoring, micro-op classification and per-slot forwarding; that
-nine-change combination is in its fixed three-seed sweep (`combined4`).
-Source manifests match for all three completed `combined3` seeds and between
-the retained source and the running `combined4` copies. The barrel and bus
-fallbacks remain parked pending the combined result.
+Final RTL source is `7d1218c`, on `codex/timing2`. All 225 CPU runs retain
+identical cycle and instruction counts; all 57 QEMU comparisons agree.
+Normal and MAIN lint, regeneration/current-netlist checks and the ten
+`input reg` occurrence check pass. All three whole-core fits have verified
+source/project manifests and complete four-corner reports. No CPU-only
+result substitutes for a whole-core fit.
+
+Nine CPU changes are retained. These are their isolated family measurements
+in ns on the baselines named in the detailed sections; the gains are not
+additive. The TLB input/capture audit is reported separately below.
+
+| Retained change | Family before, seeds 1/2 | Family after, seeds 1/2 |
+| --- | ---: | ---: |
+| Registered TLB fault summary | -0.249 / -0.342 | +0.636 / +0.116 |
+| Per-slot interlocks/store forwarding | -0.744 / -0.787 | -0.167 / -0.377 |
+| Local barrel pending selects | -0.680 / -0.535 | -0.258 / -0.501 |
+| BL and LSL-zero decode | -0.437 / -0.821 | +0.082 / -0.572 |
+| Direct cache acknowledgement | -0.812 / -0.639 | -0.346 / -0.092 |
+| Binary background-completion tags | +0.061 / -0.639 | +0.321 / +0.567 |
+| Effective load-lock factoring | -0.634 / -0.155 | -0.592 / -0.073 |
+| Case-local undefined classification | -0.473 / -0.486 | +1.358 / +1.260 |
+| Per-slot operand forwarding | -0.645 / -0.273 | -0.095 / -0.302 |
 
 ## Measurement method
 
@@ -28,7 +38,7 @@ worktree's macro remains commented while the dedicated build copies enable
 it. Seeds 1 and 2 measure each isolated candidate against the same baseline;
 a combined retained tree must subsequently be measured at seeds 1–3.
 
-The concurrently running `NGage_MiSTer-nd-s1`, `-s2`, and `-s3` sweep is this
+The initially concurrent `NGage_MiSTer-nd-s1`, `-s2`, and `-s3` sweep is this
 exact baseline. Local and remote hashes agree for all 150 selected RTL,
 framework, lint and project input files. The QSFs agree except for Quartus's
 rewrite of `LAST_QUARTUS_VERSION` from Standard to Lite; their seeds and
@@ -1073,8 +1083,9 @@ enable starts clear. All 225 CPU counts, 57 QEMU comparisons, both lint modes,
 generated checks and the ten-occurrence check pass. Paired save benches each
 take 31,071,940 clocks with 4,119 marks. The complete shell benches also match all 12 result lines, including
 159,279,244 clocks and every reported memory transaction count. Pre-fit acceptance covers both sides of the original RAM and all
-new pending-write/read-forward registers. This is an unfitted fallback; the
-baseline supplementary queries must run before any candidate fit.
+new pending-write/read-forward registers. This remains an unfitted fallback.
+The final combined baseline includes its input/output queries; a future trial
+would first rebase it onto that source and repeat validation.
 
 **Raw metadata banks with shared forwarding (`icread4`):** a new version
 of the parked valid/LRU split targets `combined3` seed 3's PC-to-LRU path
@@ -1095,58 +1106,110 @@ resets, clears and update collisions; the array-write and control producers
 are unchanged. All 225 CPU counts, 57 comparisons, both lint modes and
 generation/checks pass, with ten `input reg` occurrences. The prospective
 family includes both incoming and outgoing stage-one paths on both caches,
-including the new forwarding registers. Its fit and baseline supplementary
-queries are not queued; area savings remain unmeasured.
+including the new forwarding registers. It remains unfitted, so area savings
+are unmeasured. The final combined baseline includes the I- and D-cache input
+and output queries needed for a future rebased trial.
 
 The newer `nextjoin2` preview combines the complete per-slot forwarding
 trial with factoring and case-local classification. It passes all 225 exact
 counts, 57 comparisons, both lint modes and generated checks. Its joined
 issue proof passes all 2,806 points under the independently proved ALU/shifter
-contract, and its predecode sources match the classifier proof. This preview
-is also unfitted and unretained; only individually qualifying changes may
-advance to the retained combination.
+contract, and its predecode sources match the classifier proof. It remained
+unretained until the independent family gates passed; that exact source was
+then retained and measured as `combined4`.
 
-The next fixed-seed whole-core sweep (`combined4`) starts from that tested
-preview while forwarding seed 2 is still running, using the otherwise free
+The fixed-seed whole-core sweep (`combined4`) started from that tested
+preview while forwarding seed 2 was still running, using the otherwise free
 task lane. Every one of its 150 source/project inputs matches the validated
 preview, apart from the intentional MAIN macro and seed. This was speculative
 build scheduling, not early retention. Forwarding has now passed its independent
 pair gate, and the retained branch matches every non-QSF input byte-for-byte
 in all three build copies. Its base commit, exact patch and hashes remain
-archived separately from the eventual retained commit. Each fixed seed's
+archived separately from the retained commit. Each fixed seed's
 status is recorded below. None replaces a completed seed or changes its value.
 
-## Fourth combined sweep
+## Fourth combined sweep: final result
 
 Source `7d1218c`: all nine retained CPU changes plus the unchanged owner card
-fix. The previously speculative preview is now verified against that commit
-for every compiled RTL/project input; the original base/patch record is kept.
-The retained source passes 225 exact cycle/instruction counts, 57 QEMU
-agreements, normal and MAIN lint, regeneration/check and ten `input reg`
-occurrences. The fixed seeds are 1/2/3.
+fix. The previously speculative preview matches that commit for every
+compiled RTL/project input; its original base/patch record is preserved.
+All 150 inputs at each seed match, including the header, generated netlist,
+constraints, MAIN macro, fixed seed and build date. Quartus's QSF version
+metadata rewrite is the sole excluded metadata difference.
 
-| Seed | Slow 100C setup | ALMs | M10Ks | Status |
-| --- | ---: | ---: | ---: | --- |
-| 1 | −0.211 ns | 35,845 | 479 | Complete; all 150 inputs verified |
-| 2 | Pending | — | — | Running |
-| 3 | Pending | — | — | Running |
+| Seed | Slow 100C setup | ALMs | M10Ks | Minimum hold, four corners |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | -0.211 ns | 35,845 | 479 | +0.104 ns |
+| 2 | -0.221 ns | 35,913 | 479 | +0.082 ns |
+| 3 | -0.318 ns | 35,969 | 479 | +0.075 ns |
 
-Seed 1 is within the requested −0.300 ns margin, but is not a median or
-positive timing closure. Its limit is `upp_periph.own_au` into SDRAM
-write-data capture (`sdr_wdata[82]`), −0.211 ns. Next is D-cache valid into
-the pipeline-not-empty/hold logic at −0.169 ns. Issue forwarding is
-+0.217 ns, issue feedback −0.130 ns, pending capture 0.000 ns, and undefined
-classification +1.337 ns. The I-cache metadata input is +0.277 ns and the
-flash-bitmap input +0.278 ns. Minimum hold across all four corners is
-+0.104 ns. Final retention does not yet establish the
-requested whole-core median; seeds 2 and 3 remain outstanding.
+**Median −0.221 ns: the requested margin is met.** Seed 3 is 0.018 ns below
+the individual −0.300 ns line; it is retained in the fixed three-seed result.
+The median improves by 0.931 ns over the original −1.152 ns baseline, and by
+0.424 ns over `combined3`'s −0.645 ns. Median area is 35,913 ALMs, 419 above
+the original baseline median of 35,494; RAM usage is 479 versus 477 blocks.
+No further seed was selected to improve these figures.
+
+The worst paths are:
+
+- Seed 1: `upp_periph.own_au` into UPP SDRAM write-data capture
+  (`sdr_wdata[82]`), −0.211 ns. Next is D-cache valid through pipeline hold
+  into the pipeline-not-empty logic at −0.169 ns.
+- Seed 2: D-cache `state_ff[0]` into the merger's `o_wb_adr[30]`, −0.221 ns.
+  Peripheral ownership into `fe_next[30]` follows at −0.156 ns.
+- Seed 3: post-ALU1 destination index into issue `stall_idx_ff`, −0.318 ns.
+  The arbiter's audio grant into `fe_next[20]` follows at −0.211 ns.
+
+| Final family | Seed 1 | Seed 2 | Seed 3 |
+| --- | ---: | ---: | ---: |
+| Issue interlock feedback | -0.130 | -0.060 | -0.318 |
+| Issue pending capture | +0.000 | +0.508 | -0.194 |
+| Issue forwarding capture | +0.217 | -0.084 | +0.134 |
+| Undefined classification | +1.337 | +1.875 | +1.419 |
+| Predecode to decode | +0.298 | +0.101 | +0.001 |
+| Shifter output | -0.095 | -0.065 | -0.195 |
+| D-cache control into pipeline | -0.169 | -0.060 | -0.119 |
+| D-cache into merger | -0.136 | -0.221 | -0.132 |
+| All UPP bus register inputs | -0.211 | -0.156 | -0.211 |
+| I-cache stage-one metadata input | +0.277 | +0.678 | +0.442 |
+| Flash-bitmap input | +0.278 | +0.410 | +0.539 |
+| Background-completion pickup | +0.128 | +0.522 | +0.667 |
+| Owner card model | +0.292 | +0.750 | +0.491 |
+
+The retained combination passes all 225 exact cycle/instruction pairs,
+57 QEMU agreements, both lint modes, generation/current-netlist checks and
+ten `input reg` occurrences. Existing test binaries were not rebuilt, and
+QEMU references were reused without reexecuting QEMU. Full reports and input
+receipts are in `build/timing5/combined4/`;
+the source-matched MAIN build copies and their RBFs are
+`../NGage_MiSTer-t5-combined4-s1`, `-s2` and `-s3`. Remote directories have
+the same suffix under `dev/mister/`. All task-owned Quartus jobs have finished.
+
+## Exact stopping point and next work
+
+Stopped at the nine retained CPU changes in `7d1218c` because the requested
+whole-core median criterion is met. No common-path cycle or pipeline stage
+was added. The first three combined snapshots failed the goal; the fourth
+passes using the fixed seeds. Rejected and parked trials above remain outside
+the retained RTL. In particular, the bitmap-write and metadata-bank fallbacks
+were validated but not fitted or applied; their final-tree families are now
+positive in all three seeds.
+
+Positive static timing closure remains future work. The next useful targets
+are post-ALU destination/index control into the issue interlocks, peripheral
+ownership/grant into UPP address/data capture, and the D-cache state into the
+merger address. Rebase any prepared experiment onto this final source,
+repeat functional checks, predefine both sides of any new register boundary,
+and require its two-seed family improvement before another fixed three-seed
+combined sweep. These timing results apply to MAIN with I16KB/D8KB two-way;
+other cache sizes and the debug core need their own fits.
 
 ## Scope and risks
 
-No firmware boot bench, `sys/` change, ARM9 change, card-model edit, hardware
-upload or board measurement is included. The card-model timing family is
-owned by another engineer. Timing figures from the supplied debug-core
-reports motivate the investigation but are not the main-core baseline.
+No firmware boot bench, `sys/` change, ARM9 change, hardware upload or board
+measurement is included. The card owner's fix was integrated unchanged; its
+implementation was not edited in this task. Timing figures from the supplied
+debug-core reports motivate the investigation but are not the main-core baseline.
 
 The principal risks are physical retiming or merging undoing a source-level
 split, register replication increasing routing pressure, and a local gain
