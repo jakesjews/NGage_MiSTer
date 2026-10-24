@@ -370,8 +370,11 @@ output  logic [7:0]                      o_dbg_stall
     assign mw_tag={w.dest,m.dest};
     assign mw_value[0]=m.result;
     assign mw_value[1]={w.result[1],w.memory&&!w.store?load_data:w.result[0]};
-    assign mw_write[0]=m.writes&{2{m.valid&&m.pass&&!m.fault}};
-    assign mw_write[1]=w.writes&{2{w.valid&&w.pass&&!w.fault}};
+    // Ready producer masks travel with the registered records. An empty,
+    // killed or condition-failed record has no writers; S never qualifies
+    // the mask through the record's live valid/pass/fault cone.
+    assign mw_write[0]=m.writes;
+    assign mw_write[1]=w.writes;
     assign wa=wb_valid&&wb_tag0!=16?40'd1<<wb_tag0:40'd0;
     assign wb=wb_valid&&wb_pair&&wb_tag1!=16?40'd1<<wb_tag1:40'd0;
     assign wc=i_dc_reg_idx[39:0];
@@ -392,7 +395,8 @@ output  logic [7:0]                      o_dbg_stall
         input_record.pass=a_condition_pass;input_record.thumb=a_thumb;input_record.fault=a_fault;
         input_record.first=a_first;input_record.last=a_last;input_record.pc_write=a_pc_write;
         input_record.flags=a_cpsr;input_record.next_flags=a_cpsr_next;
-        input_record.dest=a_dest;input_record.result=a_result;input_record.writes=a_write;
+        input_record.dest=a_dest;input_record.result=a_result;
+        input_record.writes=a_write&{2{input_record.valid}};
         input_record.memory=a_memory;input_record.store=a_store&&a_kind!=SWP;
         input_record.address=a_data_address;input_record.store_data=a_store_data;
         input_record.original_base=a_original_base;input_record.psr_source=a_psr_source;
@@ -538,19 +542,19 @@ output  logic [7:0]                      o_dbg_stall
             case(memory_state)
                 RUN:if(done)begin m<=input_record;w<=m;end
                     else begin skid<=input_record;memory_state<=HOLD;end
-                HOLD:if(done)begin w.valid<=0;memory_state<=RELOAD0;end
+                HOLD:if(done)begin w.valid<=0;w.writes<=0;memory_state<=RELOAD0;end
                 RELOAD0:memory_state<=RELOAD1;
-                RELOAD1:begin w<=m;m<=skid;skid.valid<=0;memory_state<=RUN;end
+                RELOAD1:begin w<=m;m<=skid;skid.valid<=0;skid.writes<=0;memory_state<=RUN;end
                 RETRY0:memory_state<=RETRY1;
                 RETRY1:memory_state<=HOLD;
                 LOAD_RETURN:if(!i_dc_lock[w.dest[0]])begin
                     if(w.kind==SWP)begin w.store<=1;swap_write<=1;memory_state<=SWAP0;end
-                    else if(done)begin w.valid<=0;memory_state<=RELOAD0;end
+                    else if(done)begin w.valid<=0;w.writes<=0;memory_state<=RELOAD0;end
                 end
                 SWAP0:memory_state<=SWAP1;
                 SWAP1:memory_state<=HOLD;
                 RESTORE:memory_state<=ABORT;
-                ABORT:if(done)begin w.valid<=0;memory_state<=RELOAD0;end
+                ABORT:if(done)begin w.valid<=0;w.writes<=0;memory_state<=RELOAD0;end
                 default:memory_state<=RUN;
             endcase
             // A request arriving immediately after installation has a response
@@ -562,7 +566,8 @@ output  logic [7:0]                      o_dbg_stall
             if(defer_load)begin saved_load<=i_data_wb_dat;memory_state<=LOAD_RETURN;end
             if(request_done&&i_data_wb_err&&w.kind==BLOCK&&w.ins[21])memory_state<=RESTORE;
             if(wb_flush)begin
-                m.valid<=0;w.valid<=0;skid.valid<=0;memory_state<=RUN;
+                m.valid<=0;w.valid<=0;skid.valid<=0;
+                m.writes<=0;w.writes<=0;skid.writes<=0;memory_state<=RUN;
                 swap_write<=0;cp_seen<=0;cp_finished<=0;
             end
         end

@@ -695,8 +695,8 @@ module arm9v2_core (
 	assign mw_tag = {w[101-:12], m[101-:12]};
 	assign mw_value[0+:64] = m[89-:64];
 	assign mw_value[64+:64] = {w[58+:32], (w[500] && !w[499] ? load_data : w[26+:32])};
-	assign mw_write[0+:2] = m[25-:2] & {2 {(m[506] && m[505]) && !m[503]}};
-	assign mw_write[2+:2] = w[25-:2] & {2 {(w[506] && w[505]) && !w[503]}};
+	assign mw_write[0+:2] = m[25-:2];
+	assign mw_write[2+:2] = w[25-:2];
 	assign wa = (wb_valid && (wb_tag0 != 16) ? 40'd1 << wb_tag0 : 40'd0);
 	assign wb = ((wb_valid && wb_pair) && (wb_tag1 != 16) ? 40'd1 << wb_tag1 : 40'd0);
 	assign wc = i_dc_reg_idx[39:0];
@@ -726,7 +726,7 @@ module arm9v2_core (
 		input_record[396-:32] = a_cpsr_next;
 		input_record[101-:12] = a_dest;
 		input_record[89-:64] = a_result;
-		input_record[25-:2] = a_write;
+		input_record[25-:2] = a_write & {2 {input_record[506]}};
 		input_record[500] = a_memory;
 		input_record[499] = a_store && (a_kind != SWP);
 		input_record[364-:32] = a_data_address;
@@ -965,6 +965,7 @@ module arm9v2_core (
 				4'd1:
 					if (done) begin
 						w[506] <= 0;
+						w[25-:2] <= 0;
 						memory_state <= 4'd2;
 					end
 				4'd2: memory_state <= 4'd3;
@@ -972,6 +973,7 @@ module arm9v2_core (
 					w <= m;
 					m <= skid;
 					skid[506] <= 0;
+					skid[25-:2] <= 0;
 					memory_state <= 4'd0;
 				end
 				4'd4: memory_state <= 4'd5;
@@ -985,6 +987,7 @@ module arm9v2_core (
 						end
 						else if (done) begin
 							w[506] <= 0;
+							w[25-:2] <= 0;
 							memory_state <= 4'd2;
 						end
 					end
@@ -994,6 +997,7 @@ module arm9v2_core (
 				4'd10:
 					if (done) begin
 						w[506] <= 0;
+						w[25-:2] <= 0;
 						memory_state <= 4'd2;
 					end
 				default: memory_state <= 4'd0;
@@ -1010,6 +1014,9 @@ module arm9v2_core (
 				m[506] <= 0;
 				w[506] <= 0;
 				skid[506] <= 0;
+				m[25-:2] <= 0;
+				w[25-:2] <= 0;
+				skid[25-:2] <= 0;
 				memory_state <= 4'd0;
 				swap_write <= 0;
 				cp_seen <= 0;
@@ -2367,7 +2374,7 @@ module arm9v2_execute (
 	output reg o_condition_pass;
 	output reg [11:0] o_dest;
 	output reg [63:0] o_result;
-	output reg [1:0] o_write;
+	(* dont_retime *) output reg [1:0] o_write;
 	output reg o_write_flags;
 	output reg o_pc_write;
 	output reg o_memory;
@@ -2470,7 +2477,7 @@ module arm9v2_execute (
 	wire unused = &{1'b0, i_cpsr[27:0], CP, UND, SWI, actual_target[0], lh[33:32], hl[33:32], hh[33:32]};
 	assign producer_value = {i_mw_value, o_result};
 	assign producer_tag = {i_mw_tag, o_dest};
-	assign producer_valid = {i_mw_valid, o_write & {2 {o_valid}}};
+	assign producer_valid = {i_mw_valid, o_write};
 	arm9v2_forward u_forward(
 		.i_value((holding ? held : i_value)),
 		.i_tag(i_tag),

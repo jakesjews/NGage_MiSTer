@@ -32,7 +32,7 @@ module arm9v2_execute (
     output logic o_thumb,o_fault,o_first,o_last,o_condition_pass,
     output logic [1:0][5:0] o_dest,
     output logic [1:0][31:0] o_result,
-    output logic [1:0] o_write,
+    (* dont_retime *) output logic [1:0] o_write,
     output logic o_write_flags,o_pc_write,o_memory,o_store,
     output logic [31:0] o_address,o_store_data,
     output logic [3:0] o_flags,
@@ -100,7 +100,10 @@ module arm9v2_execute (
     wire unused=&{1'b0,i_cpsr[27:0],CP,UND,SWI,actual_target[0],lh[33:32],hl[33:32],hh[33:32]};
     assign producer_value={i_mw_value,o_result};
     assign producer_tag={i_mw_tag,o_dest};
-    assign producer_valid={i_mw_valid,o_write&{2{o_valid}}};
+    // o_write is already registered with condition/fault/PC qualification,
+    // and is cleared whenever o_valid is cleared. Keep this bounded mask
+    // at the producer boundary rather than rebuilding validity inside S.
+    assign producer_valid={i_mw_valid,o_write};
     arm9v2_forward u_forward(.i_value(holding?held:i_value),.i_tag(i_tag),.i_used(i_used),
         .i_producer_value(producer_value),.i_producer_tag(producer_tag),
         .i_producer_valid(producer_valid),.o_value(forwarded));
