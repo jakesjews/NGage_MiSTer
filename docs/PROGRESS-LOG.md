@@ -5032,3 +5032,33 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   and the PC returns, and a second outstanding miss if the backend
   still waits on the D-cache. The Sonic runs continue for the in-play
   number.
+- **ARM9 v2, session 12: the cycle items are small; the kernel gain
+  stays at 13.8 %** (Codex, codex/arm9v2 68f7276..590dd57; docs/consults/
+  2026-10-25-codex-arm9v2-s12.md). Master merged (the metadata in RAM,
+  the early-execution gate, the 16 KB default; the tag RAM conflicts
+  resolved keeping both), re-baselined. The early words: V2's fetch
+  already consumed them through its queue handshake, so the proof
+  found 0.001 % on the boot; the serial fences (ordinary PSR writes
+  and CP15 reads kept in the pipeline): -0.35 % of the boot's clocks
+  to EFile, -0.69 % to EStart, the MSR/MRC windows much shorter; the
+  final LDM word on the scalar late pickup and registered PC hits
+  retired directly: -0.11 %; the second miss engine not built (the
+  measured opportunity under 0.4 %). Six configurations 282/282, 71
+  QEMU, 89 windows, 3/4/5 kept; the firmware to EFile at 3.614 guest
+  seconds and EStart at 4.128, **13.8 % and 13.3 % fewer clocks than
+  ZAP** on the merged tree, no faults. The cached random tests' bodies
+  after setup: V2/ZAP 0.85-0.92 at 0:0, 0.97 at 2:9. The fit, one
+  seed, no cuts: -2.951 ns, **13,262 ALMs** (the metadata RAM; 3,300
+  under ZAP's). The thread's own conclusion, and mine: the expensive
+  windows this session shortened are not frequent enough in the boot
+  to produce the intended 35-50 %, and nothing measured so far
+  explains where that gain was supposed to come from; the next
+  decision needs the Sonic runs (at 33 guest seconds, the kernel's
+  idle loop, after 3.5 hours) and an instruction-class and recovery
+  profile of busy gameplay. Session 13 launched for exactly that: the
+  profile instrumentation in the whole-core bench (per-clock
+  attribution of V2's stalls: fetch starved, D-cache wait, dependency
+  hold, branch recovery, serial fence, replay, and ZAP's taps beside
+  them), the boot's breakdown now, and a second pair of Sonic runs on
+  the session-12 source with the profile, started today so the
+  gameplay breakdown follows the plain number by a day.
