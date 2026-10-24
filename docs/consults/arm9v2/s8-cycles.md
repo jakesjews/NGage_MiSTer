@@ -2,7 +2,7 @@
 
 Latencies in every cell: **0:0 / 0:3 / 2:9**. Ratios below 1 favor V2.
 ZAP is the merged master reference, verified unchanged. S7 is the scalar-replay source before this session.
-Original-test counts are in [the validation manifest](s8-final-validation.json); the new loadchain test and final 267/69 outcome are in [the release manifest](s8-release-validation.json).
+Original-test counts are in [the validation manifest](s8-final-validation.json); the new loadchain test and final 267/69 outcome are in [the final manifest](s8-checked-validation.json).
 
 | Test | ZAP | S7 V2 on | S8 V2 on | S8 on / ZAP | S8 V2 off | S8 off / ZAP |
 |---|---|---|---|---|---|---|
@@ -65,7 +65,7 @@ Original-test counts are in [the validation manifest](s8-final-validation.json);
 | ldmfold | 2347 / 3109 / 5189 | 2974 / 3711 / 5813 | 2378 / 2864 / 4671 | 1.0132 / 0.9212 / 0.9002 | 2378 / 2864 / 4671 | 1.0132 / 0.9212 / 0.9002 |
 | ldst | 3667 / 4931 / 8311 | 5239 / 6542 / 10385 | 3768 / 4435 / 7412 | 1.0275 / 0.8994 / 0.8918 | 3768 / 4435 / 7412 | 1.0275 / 0.8994 / 0.8918 |
 | loadpipe | 82484 / 109276 / 177612 | 67131 / 94196 / 163192 | 67025 / 94046 / 163027 | 0.8126 / 0.8606 / 0.9179 | 120946 / 142239 / 222393 | 1.4663 / 1.3016 / 1.2521 |
-| loadchain | 56352 / 82601 / 149157 | new test | 51645 / 78002 / 145321 | 0.9165 / 0.9443 / 0.9743 | 92803 / 113443 / 191985 | 1.6468 / 1.3734 / 1.2871 |
+| loadchain | 56661 / 82856 / 149430 | new test | 51789 / 78127 / 145433 | 0.9140 / 0.9429 / 0.9733 | 92947 / 113545 / 192094 | 1.6404 / 1.3704 / 1.2855 |
 | loaduse | 60626 / 88009 / 158149 | 55626 / 83252 / 154156 | 55430 / 83029 / 153983 | 0.9143 / 0.9434 / 0.9737 | 96490 / 118506 / 200409 | 1.5916 / 1.3465 / 1.2672 |
 | loaduse_irq | 119676 / 149477 / 225624 | 105623 / 138263 / 219583 | 103385 / 135790 / 216881 | 0.8639 / 0.9084 / 0.9612 | 143958 / 170750 / 263016 | 1.2029 / 1.1423 / 1.1657 |
 | mmu_page | 77070 / 112738 / 203065 | 73164 / 109311 / 201089 | 70981 / 106325 / 196950 | 0.9210 / 0.9431 / 0.9699 | 124941 / 152814 / 258283 | 1.6211 / 1.3555 / 1.2719 |

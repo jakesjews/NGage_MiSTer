@@ -79,5 +79,35 @@
       "check": 4,
       "cycle": 144260
     }
-  }
+  },
+  "windows": {
+    "count": 85,
+    "predictor_modes": [
+      "on",
+      "off"
+    ],
+    "latencies": [
+      "0:0",
+      "0:3",
+      "2:9"
+    ],
+    "equal_s8_windows_artifact": true,
+    "hit_independent_late_early_raw": [
+      3,
+      4,
+      5
+    ]
+  },
+  "whole_shell": {
+    "result": "all checks passed",
+    "clocks": 150622764,
+    "log_sha256": "6675ec2bf3ced7df4b7ff6d2a5e0b94fd9ee55f2770bb4c927e345ee2eaa02c6"
+  },
+  "lint": [
+    "make lint",
+    "verilator --lint-only -Wall --top-module emu -DNGAGE_DEBUG=1 -f lint/rtl.f",
+    "verilator --lint-only -Wall --top-module emu -DNGAGE_CORE_ARM9=1 -f lint/rtl.f",
+    "verilator --lint-only -Wall --top-module emu -DNGAGE_CORE_ARM9=1 -DNGAGE_DEBUG=1 -f lint/rtl.f"
+  ],
+  "cpu_gen_check": "current"
 }

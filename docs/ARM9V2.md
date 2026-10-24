@@ -1,15 +1,19 @@
 # ARM9V2: eight-stage redesign for real-phone game speed
 
-Status after session 7: `CORE="ARM9"` selects the integrated V2 pipeline,
-including shared caches/MMU/CP15 and precise retirement. ZAP remains the
-default. Both V2 predictor modes and ZAP pass 264 runs and all 68 QEMU
-references. The early/late operand split achieves one/two/three-clock
-independent/late/early hit-load spacing. Whole-test high-latency random
-ratios remain about 0.99, so the session's cycle gate fails and work stops
-before a new integrated fit. The last accepted **older source** fit was
-−1.237 ns at seed 2; it is not a measurement of the current source.
-See the [session-7 report](consults/2026-10-24-codex-arm9v2-s7.md) for
-measurements, risks and stopping point. Later sections labeled by session
+Status after session 8's firmware milestone: `CORE="ARM9"` selects integrated V2;
+the commented `NGAGE_CORE_ARM9=1` macro selects it in the MiSTer shell.
+ZAP remains default. Both V2 modes and ZAP pass 267 runs and 69 QEMU
+references, with extra comparisons at both higher bus latencies. Scalar
+loads retain consumers on registered operand locks instead of flushing
+younger independent work. Raw independent/late/early hit windows stay 3/4/5.
+The post-setup random-test gate now passes, with small high-latency margins;
+the cache test is faster than ZAP at every latency. The V2 whole-shell bench
+passes. The paired real-firmware run on ubuntu reaches EFile user threads
+and EStart without a logged synchronous fault through 4.5 guest seconds.
+An integrated seed-2 fit is running; the historical −1.237 ns is not a
+measurement of this source.
+See the [session-8 report](consults/2026-10-24-codex-arm9v2-s8.md) for the
+final firmware outcome and stopping point. Session-labeled sections below
 retain the historical implementation and measurement record.
 
 ## Goal and gates
@@ -37,7 +41,8 @@ The suite and standalone fit are intermediate gates:
 | Compiled throughput | At 0:0, ctrand1 <47,000 clocks and crand1 <47,500, with >=35% reduction against the same-revision ZAP. With the merged ZAP reference 72,636, the 35% gate tightens crand1 to <=47,213. |
 | Cache workload | cache <520,000 at 0:0; compare all three latencies against ZAP. |
 | Breadth | Report cache, dcache_rtl, ctrand1, crand1, all random seeds, gba_arm, gba_thumb and mmu_page at 0:0 / 0:3 / 2:9, with instruction counts. |
-| Session-7 speed decision | crand/ctrand/mmu_page V2/ZAP at 0:3 and 2:9 must be clearly below 0.9; otherwise stop before timing work. This gate failed. |
+| Historical session-7 speed decision | crand/ctrand/mmu_page V2/ZAP at 0:3 and 2:9 must be clearly below 0.9; otherwise stop before timing work. This gate failed. |
+| Session-8 speed decision | Post-setup crand1/ctrand1/mmu_page at 0:3 and 2:9 no slower than ZAP; cache no slower at 2:9; hold/improve 0:0 whole ratios and hit windows. Passed; board gameplay remains the judge. |
 | CPU timing | 104 MHz, seed 2/3/4, same RTL and constraints: median worst slow-corner setup slack >=−1 ns, positive hold slack. Record every seed, area, RAM, DSP and worst 30 paths. This permits integration; it is not timing closure. |
 | Structural stop | If a completed structural pass is still below −2 ns, stop that shape and describe the remaining chains. Do not search seeds to conceal the failure. |
 | Area | Compare against same-cache ZAP; retain the previous <=5% ALM allowance unless the lead changes it. Whole-device fit is authoritative. |
@@ -262,11 +267,13 @@ existing undefined policy unless a separate architectural change is requested.
    QEMU diff, directed window checks, cycle table and CPU-alone fit. Do not
    retarget a failed model silently; record the architectural cost decision.
 5. At a complete structural-pass fit below −2 ns, stop and report. Once within
-   range, measure the same revision at seeds 2/3/4. At most two Quartus containers globally for this session; inspect Docker
-   before launching.
+   range, measure the same revision at seeds 2/3/4. At most two of our Quartus containers and four globally; inspect Docker
+   on ubuntu before launching. Never run Quartus on the Mac.
 6. Only after the median CPU gate, perform the specified whole-core build.
-   Board validation follows a timing-clean bitstream. No firmware boot bench
-   is part of this task. Do not modify `sys/` or push branches.
+   Board validation follows a timing-clean bitstream. Session 8 explicitly adds
+   paired whole-core firmware boots on ubuntu before the next CPU trial;
+   board gameplay is measured separately by the user. Do not modify `sys/`
+   or push branches.
 
 Each session ends at a clean commit with
 `docs/consults/2026-10-2N-codex-arm9v2-sN.md`: implemented scope, exact counts,
@@ -732,3 +739,35 @@ not improve the existing return windows. At 2:9, V2/ZAP is 0.988 for crand1,
 No new Quartus or whole-device trial is run; no timing or area improvement
 is claimed. See the [session-7 report](consults/2026-10-24-codex-arm9v2-s7.md)
 for the complete cycle table and exact stopping point.
+
+## Session 8: retain scalar consumers and select the complete core
+
+S/A carries unresolved scalar source ownership across W's miss-lock edge.
+The normal completion is registered and filtered against that installed
+lock; background port C is already registered. These returns repair held
+operand registers. A first qualified short hit keeps the established
+schedule; misses, retries and late hits no longer discard independent
+work. WAW protection permits a known hit or a writer already held by its
+true source dependency. Partial LDM, SWP and PC loads stay conservative.
+
+The backend skips its two lookup-reload clocks only when neither reserved
+younger record is a memory operation. Capacity remains registered. Repair
+wins same-edge BX/SWP/block raw-operand captures. Exceptions retain priority.
+The default shared ZAP/cache FSM is unchanged. All 264 ZAP pairs match;
+V2's cycle-timed interrupt-loop counts may change, with all other instruction
+counts unchanged. See the session report for exact before/after tables.
+
+NGAGE_CORE_ARM9 and NGAGE_DEBUG are independent QSF options. The hardware
+counter/debug packet layout is unchanged; tools/mister_dbg.py describes V2
+stall meanings. The whole-core firmware harness uses common retirement
+taps and records executive calls/user entries for the first paired boot.
+No phone-speed or timing-closure claim follows from synthetic test gains.
+
+Successive loads to one destination require age-correct readiness as well
+as age-correct data. S/A resolves the registered W/M matches in youngest
+writer order. A younger ready ALU writer clears an older pending-load bit;
+a younger unresolved load shadows older hits and returns. Scalar Rd == Rn
+load/writeback aliases expose only the winning loaded destination to M/W
+forwarding. The `loadchain` regression covers this complete-cache path;
+the session report records the original firmware failure and first-fix
+deadlock rather than treating CPU-suite agreement as firmware proof.

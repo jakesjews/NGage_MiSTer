@@ -1,0 +1,201 @@
+{
+  "ZAP": {
+    "server_path": "/home/jacob/dev/mister/coreboot/arm9v2-s8-zap/run",
+    "progress": [
+      "clock 390000000 (3.750 s) retired 271594295 pc 503a1ca4 dev 37667 pictures 5 | wall 1559 s, 253 k clocks/s",
+      "picture 6 at 3.812 s (lcd-00003812.png)",
+      "clock 416000000 (4.000 s) retired 286938290 pc 503453b4 dev 74749 pictures 6 | wall 1663 s, 249 k clocks/s",
+      "clock 442000000 (4.250 s) retired 301282709 pc 5033fc48 dev 74870 pictures 6 | wall 1769 s, 246 k clocks/s"
+    ],
+    "kernel_text": "TRtcQueue::Add: 2TRtcQueue::Add: 3TRtcQueue::Add: 5",
+    "exec_event_counts": {
+      "S": 23116,
+      "T": 22060,
+      "I": 7
+    },
+    "first_user_entries": [
+      "T 435990412 300217678 pc=503247bc cpsr=00000010 r0=503c8ca5 r1=00000000 r2=00000000 r3=00000000 r12=00000000 sp=80602000 lr=00000000",
+      "T 435991952 300217729 pc=503214c8 cpsr=00000010 r0=80000000 r1=ffff8001 r2=80404660 r3=8000039c r12=5032158c sp=80601bd4 lr=503a7d40",
+      "T 435994041 300217894 pc=50321620 cpsr=00000010 r0=00000000 r1=00000000 r2=80000354 r3=80601bdc r12=80005e6c sp=80601bd4 lr=503a7d64",
+      "T 436003714 300219121 pc=50321620 cpsr=40000010 r0=ffffffff r1=00000000 r2=80000354 r3=00000000 r12=80005e6c sp=80601bb0 lr=503d07b1",
+      "T 436006690 300219408 pc=50321620 cpsr=60000010 r0=00000000 r1=00000000 r2=80000354 r3=80407610 r12=00000000 sp=80601fd4 lr=503d07eb"
+    ],
+    "faults": [],
+    "device_records": 74930,
+    "first_exec_calls": [
+      "S 386300345 270625878 pc=503a7844 cpsr=6000001b r0=000000a4 r1=00000000 r2=00000000 r3=50345a3c r12=503c73dc sp=80403c40 lr=503ad884",
+      "S 386301393 270625916 pc=503a78d0 cpsr=2000001b r0=80404020 r1=000000a4 r2=00000000 r3=50345a3c r12=50321654 sp=80403c2c lr=503ae2b4",
+      "S 386302239 270625988 pc=503a78cc cpsr=6000001b r0=80404020 r1=8040402c r2=0001ff84 r3=00000000 r12=0001fedc sp=80403c2c lr=503ae2e8"
+    ],
+    "thread_starts": [
+      "T 435990412 300217678 pc=503247bc cpsr=00000010 r0=503c8ca5 r1=00000000 r2=00000000 r3=00000000 r12=00000000 sp=80602000 lr=00000000",
+      "T 436265367 300252397 pc=503247bc cpsr=00000010 r0=503ce4d5 r1=00000000 r2=00000000 r3=00000000 r12=00000000 sp=80804000 lr=00000000",
+      "T 436531657 300289848 pc=503247bc cpsr=00000010 r0=503d0231 r1=00000000 r2=00000000 r3=00000000 r12=00000000 sp=80d02000 lr=00000000"
+    ],
+    "user_entry_stack_regions_64k": {
+      "0x80600000": 2291,
+      "0x80800000": 19717,
+      "0x80d00000": 52
+    },
+    "log_sha256": {
+      "run.log": "42cbc20149b92d91feee1a239b62cd39ac5f0d2b45c7de5563bae952577734d6",
+      "kern.log": "1cfde0e7dda871288c060e163082025e9b559aa342a6cea2bd15fd0bb1c9893a",
+      "exec.log": "7a84af202cc8936c087a0755a412d5bb7c5b046986a201c323ac26e466c1e015",
+      "dev.log": "2628123a352302871459a2988f5caf4c0bbc93958f324e71070d450bd75b406a"
+    }
+  },
+  "V2_initial": {
+    "server_path": "/home/jacob/dev/mister/coreboot/arm9v2-s8-arm9/run",
+    "progress": [
+      "clock 312000000 (3.000 s) retired 249193171 pc 50004054 dev 36980 pictures 4 | wall 1038 s, 299 k clocks/s",
+      "clock 338000000 (3.250 s) retired 270065142 pc 50003d0c dev 36980 pictures 4 | wall 1125 s, 300 k clocks/s",
+      "clock 364000000 (3.500 s) retired 294967500 pc 5031e394 dev 37549 pictures 4 | wall 1209 s, 312 k clocks/s",
+      "clock 390000000 (3.750 s) retired 320967500 pc 5031e394 dev 37549 pictures 4 | wall 1292 s, 313 k clocks/s"
+    ],
+    "kernel_text": "",
+    "exec_event_counts": {
+      "S": 254
+    },
+    "first_user_entries": [],
+    "faults": [],
+    "device_records": 37549,
+    "first_exec_calls": [
+      "S 338796031 270625878 pc=503a7844 cpsr=6000001b r0=000000a4 r1=00000000 r2=00000000 r3=50345a3c r12=503c73dc sp=80403c40 lr=503ad884",
+      "S 338797070 270625916 pc=503a78d0 cpsr=2000001b r0=80404020 r1=000000a4 r2=00000000 r3=50345a3c r12=50321654 sp=80403c2c lr=503ae2b4",
+      "S 338797930 270625988 pc=503a78cc cpsr=6000001b r0=80404020 r1=8040402c r2=0001ff84 r3=00000000 r12=0001fedc sp=80403c2c lr=503ae2e8"
+    ],
+    "thread_starts": [],
+    "user_entry_stack_regions_64k": {},
+    "log_sha256": {
+      "run.log": "6c11607795df96be5aa30af26433eefc707dec16b5edea8276709d1acb06a765",
+      "kern.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "exec.log": "d327047199a5ea4db1396b4154b7732570b6e8c0108d544371ca59c2a09f7ac3",
+      "dev.log": "7f7557c2636581351209b0f65c4c8f8e176527cf3fde3814e04649a35c7d5dbe"
+    },
+    "device_common_prefix_with_ZAP": 37547,
+    "device_first_difference": [
+      "M 271566632 R 4 0c120114 00000001 5031c884",
+      "M 272176177 W 4 0c120004 00000200 5031e6c0"
+    ],
+    "exec_args_common_prefix_with_ZAP": 168,
+    "exec_first_argument_difference": [
+      "S 386722300 270747770 pc=503a7844 cpsr=2000001b r0=00000078 r1=00000002 r2=80404cb0 r3=7fc00000 r12=503c5c64 sp=804034ac lr=503ad8a0",
+      "S 339306287 270747770 pc=503a7844 cpsr=2000001b r0=00000078 r1=00000002 r2=80404cb0 r3=ffc06680 r12=503c5c64 sp=804034ac lr=503ad8a0"
+    ]
+  },
+  "V2_age_fix": {
+    "server_path": "/home/jacob/dev/mister/coreboot/arm9v2-s8-fixed/run",
+    "progress": [
+      "clock 338000000 (3.250 s) retired 270065142 pc 50003d0c dev 36980 pictures 4 | wall 1152 s, 274 k clocks/s",
+      "clock 364000000 (3.500 s) retired 270749939 pc 50329e4c dev 36984 pictures 4 | wall 1234 s, 317 k clocks/s",
+      "clock 390000000 (3.750 s) retired 270749939 pc 50329e4c dev 36984 pictures 4 | wall 1313 s, 329 k clocks/s",
+      "clock 416000000 (4.000 s) retired 270749939 pc 50329e4c dev 36984 pictures 4 | wall 1393 s, 325 k clocks/s"
+    ],
+    "kernel_text": "",
+    "exec_event_counts": {
+      "S": 185
+    },
+    "first_user_entries": [],
+    "faults": [],
+    "device_records": 36984,
+    "first_exec_calls": [
+      "S 338796031 270625878 pc=503a7844 cpsr=6000001b r0=000000a4 r1=00000000 r2=00000000 r3=50345a3c r12=503c73dc sp=80403c40 lr=503ad884",
+      "S 338797070 270625916 pc=503a78d0 cpsr=2000001b r0=80404020 r1=000000a4 r2=00000000 r3=50345a3c r12=50321654 sp=80403c2c lr=503ae2b4",
+      "S 338797930 270625988 pc=503a78cc cpsr=6000001b r0=80404020 r1=8040402c r2=0001ff84 r3=00000000 r12=0001fedc sp=80403c2c lr=503ae2e8"
+    ],
+    "thread_starts": [],
+    "user_entry_stack_regions_64k": {},
+    "log_sha256": {
+      "run.log": "7a4d032199f6afdef59cc44a355d0bb7ffdd678e7904e919b077954ad78e9bc9",
+      "kern.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "exec.log": "6bb0245583a8e41c06f513c8b81545d510d00a9b659201a8a282ed7050eac82d",
+      "dev.log": "9d9289602257f95746008d66c6afffe0afb02a20b1a4eda198bcb8f1e218656d"
+    },
+    "device_common_prefix_with_ZAP": 36984,
+    "device_first_difference": [
+      "M 270770004 W 4 0c120004 00000200 5031e6c0",
+      null
+    ],
+    "exec_args_common_prefix_with_ZAP": 185,
+    "exec_first_argument_difference": [
+      "S 386738833 270750575 pc=503a7844 cpsr=6000001b r0=0000016c r1=00000000 r2=ffffffff r3=ffffffff r12=503c5c64 sp=804034c8 lr=503ad8a0",
+      null
+    ]
+  },
+  "V2_final": {
+    "server_path": "/home/jacob/dev/mister/coreboot/arm9v2-s8-checked/run",
+    "progress": [
+      "clock 442000000 (4.250 s) retired 336520328 pc 5149e618 dev 75273 pictures 5 | wall 1537 s, 304 k clocks/s",
+      "clock 468000000 (4.500 s) retired 353386829 pc 5032bb58 dev 75369 pictures 5 | wall 1623 s, 301 k clocks/s",
+      "END after 468000000 clocks (4.500 s simulated), 353386829 instructions, 75369 device accesses, 5 pictures, 0 audio frames, 1623 s wall clock",
+      "User execution: 2555640 instructions, 25393 entries, 28004 exec calls"
+    ],
+    "kernel_text": "TRtcQueue::Add: 2TRtcQueue::Add: 3TRtcQueue::Add: 5",
+    "exec_event_counts": {
+      "S": 28004,
+      "T": 25385,
+      "I": 7
+    },
+    "first_user_entries": [
+      "T 377643613 301156307 pc=503247bc cpsr=00000010 r0=503c8ca5 r1=00000000 r2=00000000 r3=00000000 r12=00000000 sp=80602000 lr=00000000",
+      "T 377645137 301156358 pc=503214c8 cpsr=00000010 r0=80000000 r1=ffff8001 r2=80404660 r3=8000039c r12=5032158c sp=80601bd4 lr=503a7d40",
+      "T 377647057 301156523 pc=50321620 cpsr=00000010 r0=00000000 r1=00000000 r2=80000354 r3=80601bdc r12=80005e6c sp=80601bd4 lr=503a7d64",
+      "T 377655781 301157750 pc=50321620 cpsr=40000010 r0=ffffffff r1=00000000 r2=80000354 r3=00000000 r12=80005e6c sp=80601bb0 lr=503d07b1",
+      "T 377658552 301158037 pc=50321620 cpsr=60000010 r0=00000000 r1=00000000 r2=80000354 r3=80407610 r12=00000000 sp=80601fd4 lr=503d07eb"
+    ],
+    "faults": [],
+    "device_records": 75369,
+    "first_exec_calls": [
+      "S 338796031 270625878 pc=503a7844 cpsr=6000001b r0=000000a4 r1=00000000 r2=00000000 r3=50345a3c r12=503c73dc sp=80403c40 lr=503ad884",
+      "S 338797070 270625916 pc=503a78d0 cpsr=2000001b r0=80404020 r1=000000a4 r2=00000000 r3=50345a3c r12=50321654 sp=80403c2c lr=503ae2b4",
+      "S 338797930 270625988 pc=503a78cc cpsr=6000001b r0=80404020 r1=8040402c r2=0001ff84 r3=00000000 r12=0001fedc sp=80403c2c lr=503ae2e8"
+    ],
+    "thread_starts": [
+      "T 377643613 301156307 pc=503247bc cpsr=00000010 r0=503c8ca5 r1=00000000 r2=00000000 r3=00000000 r12=00000000 sp=80602000 lr=00000000",
+      "T 377878514 301191026 pc=503247bc cpsr=00000010 r0=503ce4d5 r1=00000000 r2=00000000 r3=00000000 r12=00000000 sp=80804000 lr=00000000",
+      "T 378100117 301228477 pc=503247bc cpsr=00000010 r0=503d0231 r1=00000000 r2=00000000 r3=00000000 r12=00000000 sp=80d02000 lr=00000000",
+      "T 434096391 331619560 pc=503247bc cpsr=00000010 r0=503e9965 r1=00000000 r2=00000000 r3=00000000 r12=00000000 sp=00502000 lr=00000000"
+    ],
+    "user_entry_stack_regions_64k": {
+      "0x80600000": 4765,
+      "0x80800000": 20488,
+      "0x80d00000": 101,
+      "0x500000": 31
+    },
+    "log_sha256": {
+      "run.log": "7b115f11b7a56d24640c7c9e2a6d06a56567d9c394507a29061ba8f3e15b18ff",
+      "kern.log": "1cfde0e7dda871288c060e163082025e9b559aa342a6cea2bd15fd0bb1c9893a",
+      "exec.log": "ccef505d5823deeea51395ae53f94256ca92cc4bbfcca0ce040cdbb449042830",
+      "dev.log": "23a75cb57386aa305f820dd5ea8995c13b33ba6ef6803fb81fd230eaec716a5d"
+    },
+    "device_common_prefix_with_ZAP": 37552,
+    "device_first_difference": [
+      "M 271566754 R 4 0c120a10 0008416a 5031e6b4",
+      "M 272176194 R 4 0c120a10 000841c4 5031e6b4"
+    ],
+    "exec_args_common_prefix_with_ZAP": 434,
+    "exec_first_argument_difference": [
+      "S 435991161 300217690 pc=503a776c cpsr=00000010 r0=cccccccc r1=00000000 r2=00000000 r3=00000000 r12=503c6d9c sp=80601bd4 lr=503a7d40",
+      "S 377644344 301156319 pc=503a776c cpsr=00000010 r0=ffff8001 r1=00000000 r2=00000000 r3=00000000 r12=503c6d9c sp=80601bd4 lr=503a7d40"
+    ]
+  },
+  "images": {
+    "cs0.bin": "1f9367f6b052a85d0963fa9217794d0ea73f0a827e41893aa4d38ab618409541",
+    "cs1.bin": "3381c311e13e95e00e51b48f82ca1354fa10d4d874d2e18ec30a584d010e92c0"
+  },
+  "method": {
+    "clock_hz": 104000000,
+    "seed": 1,
+    "rand_reset": 2,
+    "verilator": "5.032",
+    "rtc": "2004-06-01 default",
+    "mmc": false,
+    "predictor": "on",
+    "final_netlist_sha256": "8b97867f01618e98315243d3fabc99b752aafe700e21277447d13ddec60b0547",
+    "ZAP_termination": "Manually stopped after user-thread scheduling; logs end after the 4.25 s progress point. No END summary.",
+    "V2_initial_termination": "Stopped at persistent kernel halt before user mode.",
+    "V2_age_fix_termination": "Stopped at persistent retirement deadlock before user mode.",
+    "V2_final_termination": "Bounded 468000000 clocks (4.5 guest seconds).",
+    "argument_snapshot_limit": "Pre-retirement RF values can precede an outstanding background load return. Raw exec register snapshots are diagnostics, not architectural trace equivalence."
+  }
+}

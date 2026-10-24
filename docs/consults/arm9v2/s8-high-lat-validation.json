@@ -1,0 +1,26 @@
+{
+  "ARM9@0:3": {
+    "runs": 68,
+    "qemu_agree": 68,
+    "qemu_differ": 0,
+    "pairs_equal_full_suite": true
+  },
+  "ARM9@2:9": {
+    "runs": 68,
+    "qemu_agree": 68,
+    "qemu_differ": 0,
+    "pairs_equal_full_suite": true
+  },
+  "ARM9-off@0:3": {
+    "runs": 68,
+    "qemu_agree": 68,
+    "qemu_differ": 0,
+    "pairs_equal_full_suite": true
+  },
+  "ARM9-off@2:9": {
+    "runs": 68,
+    "qemu_agree": 68,
+    "qemu_differ": 0,
+    "pairs_equal_full_suite": true
+  }
+}
