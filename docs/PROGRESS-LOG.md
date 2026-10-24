@@ -4990,3 +4990,25 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   seconds the runs are at the kernel boot (V2 654 M instructions
   retired against ZAP's 465 M, polling loops included); about six
   wall minutes per guest second, a day to the play captures.
+- **The 16 KB D-cache tree on the main slot** (my call, under the
+  user's "pick what seems right": merged as 6abcccd, the 16 KB
+  D-cache the default build since f37e549, three lint configurations
+  clean). The Mac's seed-9 build of the merged tree: -1.215 ns, 33,507
+  ALMs (80 %), the worst path in the D-cache tag RAM's address counter
+  (the metadata family); the server's build of the identical RTL at
+  the same seed, from the memory thread's report (dev/mister/
+  NGage_MiSTer-tag-d16-s9, fetched as build/hardware/NGage-tag-d16-
+  s9.rbf): **-0.833 ns**; two Quartus installations, one netlist, 0.4
+  ns apart at one seed. The server's smoke-tested on the debug slot
+  (the idle screen with the clock and the date, the menu, Sonic's
+  title, Neo Green Hill: the timer 0:13.20 to 0:20.33 across 7.2 s;
+  captures in build/hardware/game/smoke-tag-d16-s9/) and copied over
+  `_Console/_NGage/NGage_20261023.rbf` (md5 2a28ac5f...; it replaces
+  ms-s9 at -0.734, for the measured +2 to +2.6 % in play); the
+  measurement core of the same tree (tagd16d-s2, -1.330 ns, md5
+  db4ad67a...) on the debug slot. The main slot's own boot with the
+  user's save: build/hardware/game/smoke-tag-d16-s9-main/. Also tried:
+  Verilator with four threads for the Sonic simulations is slower
+  than one thread on this design (no progress line in five minutes
+  where one thread takes three), so the runs stay single-threaded
+  (13 guest seconds after 90 minutes).
