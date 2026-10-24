@@ -4774,3 +4774,23 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   return data, the D1 classifier path, the RF duplication), while a
   measurement core of V2 as it stands goes to the board for the first
   in-play number, timing risk and all.
+- **V2's first bitstream on the board: hangs in the kernel boot.** The
+  measurement core of 22a4261 (NGAGE_CORE_ARM9 + NGAGE_DEBUG, seed 2:
+  **-3.787 ns**, 38,674 ALMs, 92 %; the stripped whole core at seed 9
+  on the Mac: -3.688 ns, 38,059 ALMs, 91 %, the worst path from the
+  D-cache FSM's state; against the ZAP tree's -0.734 and 35,839) on
+  the debug slot with the Sonic launcher: the NOKIA splash and nothing
+  after it; the overlay (decoded with the branch's tools, the old
+  layout) shows PC 5031e394 unchanged from 30 s to 116 s, IRQ pending
+  and never taken, no bus beats, the instruction tap counting every
+  clock (a one-instruction loop, or the tap). Captures in
+  build/hardware/game/smoke-v2d-s2/. At -3.8 ns nothing can be
+  concluded about the design from this: the slow-corner model says
+  the worst path needs 13.4 ns of a 9.6 ns period and the board is at
+  room temperature, not the model's corner, so a failure of that size
+  is expected, and a logic or integration difference between the
+  Verilator boot (which runs the same netlist to EStart) and the
+  board would hide behind it. The board judges V2 only once session
+  9's cuts bring the whole core near the -1 ns where every ZAP core
+  has run reliably. The hang's PC goes to the thread with the next
+  brief.
