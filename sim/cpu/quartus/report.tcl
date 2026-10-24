@@ -24,6 +24,8 @@ foreach_in_collection op [get_available_operating_conditions] {
         decode_payload {*u_decode|d2*}
         decode_issue {*u_decode|issued*}
         dtlb {*u_data_cache|*u_zap_tlb_check|*}
+        dtlb_hit {*u_data_cache|*u_zap_tlb_check|o_hit_ok*}
+        dtlb_fault {*u_data_cache|*u_zap_tlb_check|o_fsr*}
         metadata {*u_data_cache|*u_zap_cache_tag_ram|*valid_q*}
         short_collision {*u_data_cache|*g_short.forward_write*}
         short_response {*u_data_cache|tr_cache_words*}
@@ -36,6 +38,18 @@ foreach_in_collection op [get_available_operating_conditions] {
         if {[get_collection_size $endpoints] > 0} {
             report_timing -setup -to $endpoints -npaths 1 -detail full_path -file "output_files/detail_family_${family}_[string map {" " _} $name].txt"
         }
+    }
+    # A's packed late-match field is [55:40]. Probe it separately from
+    # operand capture so a removed completion cone cannot hide behind S/A.
+    set late_endpoints [get_registers -nowarn {*__no_late_endpoint__*}]
+    foreach_in_collection reg [get_registers -nowarn {*u_execute|a*}] {
+        if {[regexp {\|a\[(4[0-9]|5[0-5])\]} [get_object_info -name $reg]]} {
+            set late_endpoints [add_to_collection $late_endpoints [get_registers [get_object_info -name $reg]]]
+        }
+    }
+    puts "LATE_MATCH_ENDPOINTS [get_collection_size $late_endpoints]"
+    if {[get_collection_size $late_endpoints] > 0} {
+        report_timing -setup -to $late_endpoints -npaths 1 -detail full_path -file "output_files/detail_family_execute_late_[string map {" " _} $name].txt"
     }
 }
 project_close

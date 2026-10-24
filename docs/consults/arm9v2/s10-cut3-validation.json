@@ -1,0 +1,47 @@
+{
+  "ZAP": {
+    "runs": 267,
+    "qemu_agree": 69,
+    "qemu_differ": 0,
+    "all_cycle_instruction_pairs_equal_s8": true
+  },
+  "ARM9": {
+    "runs": 267,
+    "qemu_agree": 69,
+    "qemu_differ": 0,
+    "all_cycle_instruction_pairs_equal_s8": true
+  },
+  "ARM9-off": {
+    "runs": 267,
+    "qemu_agree": 69,
+    "qemu_differ": 0,
+    "all_cycle_instruction_pairs_equal_s8": true
+  },
+  "windows": {
+    "count": 85,
+    "modes": [
+      "on",
+      "off"
+    ],
+    "latencies": [
+      "0:0",
+      "0:3",
+      "2:9"
+    ],
+    "all_raw_intervals_equal_s8": true
+  },
+  "netlist_sha256": "14ea2e1373d223a057ce178a986caded40396aa648fc22d5dbc8134eb704c594",
+  "source_assertions": {
+    "runs": 267,
+    "all_cycle_instruction_pairs_equal_s9": true,
+    "translation_owner_and_request_schedule": "PASS on every edge; full tuple on active checks",
+    "producer_candidate_age_and_lock_checks": "PASS"
+  },
+  "lints": [
+    "ZAP",
+    "ZAP+debug",
+    "ARM9",
+    "ARM9+debug"
+  ],
+  "cpu_gen_check": "PASS"
+}

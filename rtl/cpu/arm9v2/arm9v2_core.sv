@@ -308,7 +308,7 @@ output  logic [7:0]                      o_dbg_stall
     typedef struct packed {
         logic valid,pass,thumb,fault,first,last,memory,store,pc_write,predicted;
         logic irq,fiq,align_fault,user_access,load_writer;
-        logic [31:0] pc,ins,flags,next_flags,address,store_data,original_base;
+        logic [31:0] pc,ins,flags,next_flags,address,fcse_address,store_data,original_base;
         logic [31:0] psr_source,saved_psr,next_pc,pred_target,resolved_target;
         logic resolved_thumb;
         logic [5:0] spsr_tag;
@@ -326,7 +326,23 @@ output  logic [7:0]                      o_dbg_stall
     typedef enum logic [3:0] {RUN,HOLD,RELOAD0,RELOAD1,RETRY0,RETRY1,
         LOAD_RETURN,SWAP0,SWAP1,RESTORE,ABORT} memory_state_t;
     (* dont_retime *) record_t m,w,skid;
-    record_t input_record,check_record;
+    record_t input_record;
+    /* verilator lint_off UNUSEDSIGNAL */
+    record_t check_record;
+    /* verilator lint_on UNUSEDSIGNAL */
+    record_t m_next,w_next,skid_next,next_check_record;
+    memory_state_t memory_state_next;
+    typedef struct packed {
+        logic [31:0] address;
+        logic [4:0] mode;
+        logic user_access;
+        logic [5:0] format;
+        logic rd,wr;
+    } check_t;
+    (* dont_retime *) check_t check_ff;
+    (* dont_retime, maxfan = 32 *) logic request_ff;
+    logic next_check_enable;
+
     (* dont_retime *) memory_state_t memory_state;
     (* dont_retime *) logic [31:0] saved_load;
     (* dont_retime *) logic [63:0] w_load_select;
@@ -380,7 +396,10 @@ output  logic [7:0]                      o_dbg_stall
     logic [5:0] wb_tag0,wb_tag1;
     logic wb_valid,wb_cfail,wb_pair,wb_last,wb_complete,wb_redirect;
     logic wb_dabt,wb_pabt,wb_irq,wb_fiq,wb_swi,wb_und,wb_exception;
-    logic w_exception,w_serial,request,request_done,retry,defer_load,done,check_enable;
+    logic w_exception,w_serial,request,request_done,retry,defer_load,done;
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic check_enable;
+    /* verilator lint_on UNUSEDSIGNAL */
     logic backend_ready,wb_restore,return_event,return_thumb,return_kind;
     logic fill_was_busy;
     wire fill_ended=fill_was_busy&&!i_data_fill_busy;
@@ -523,7 +542,7 @@ output  logic [7:0]                      o_dbg_stall
         // M/W forwarding, including a permission-qualified short hit.
         if(a_kind==MEM&&input_record.load_writer&&a_dest[0]==a_dest[1])input_record.writes[1]=0;
         input_record.memory=a_memory;input_record.store=a_store&&a_kind!=SWP;
-        input_record.address=a_data_address;input_record.store_data=a_store_data;
+        input_record.address=a_data_address;input_record.fcse_address=fcse(a_data_address);input_record.store_data=a_store_data;
         input_record.original_base=a_original_base;input_record.psr_source=a_psr_source;
         input_record.saved_psr=a_saved_psr;input_record.spsr_tag=a_spsr_tag;
         input_record.next_pc=a_next_pc;input_record.predicted=a_predicted;
@@ -553,19 +572,92 @@ output  logic [7:0]                      o_dbg_stall
         endcase
         if(a_kind==BLOCK)input_record.format=0;
     end
+    always_comb begin
+        m_next=m;w_next=w;skid_next=skid;memory_state_next=memory_state;
+            case(memory_state)
+                RUN:if(done)begin m_next=input_record;w_next=m;end
+                    else begin skid_next=input_record;memory_state_next=HOLD;end
+                HOLD:if(done)begin
+                    if(quick_reload)begin w_next=m;m_next=skid;skid_next.valid=0;skid_next.writes=0;skid_next.load_writer=0;memory_state_next=RUN;end
+                    else begin w_next.valid=0;w_next.writes=0;w_next.load_writer=0;memory_state_next=RELOAD0;end
+                end
+                RELOAD0:memory_state_next=RELOAD1;
+                RELOAD1:begin w_next=m;m_next=skid;skid_next.valid=0;skid_next.writes=0;memory_state_next=RUN;end
+                RETRY0:memory_state_next=RETRY1;
+                RETRY1:memory_state_next=HOLD;
+                LOAD_RETURN:if(!w_locked)begin
+                    if(w.kind==SWP)begin w_next.store=1;memory_state_next=SWAP0;end
+                    else if(done)begin w_next.valid=0;w_next.writes=0;w_next.load_writer=0;memory_state_next=RELOAD0;end
+                end
+                SWAP0:memory_state_next=SWAP1;
+                SWAP1:memory_state_next=HOLD;
+                RESTORE:memory_state_next=ABORT;
+                ABORT:if(done)begin w_next.valid=0;w_next.writes=0;w_next.load_writer=0;memory_state_next=RELOAD0;end
+                default:memory_state_next=RUN;
+            endcase
+            // A request arriving immediately after installation has a response
+            // captured before the new tag/data existed. Re-read that owner
+            // before exposing it to IDLE; otherwise a false miss can evict
+            // the freshly installed dirty store line.
+            if(retry||(fill_ended&&w.valid&&w.memory&&
+                (memory_state==RUN||memory_state==HOLD)))memory_state_next=RETRY0;
+            if(defer_load)begin memory_state_next=LOAD_RETURN;end
+            if(request_done&&i_data_wb_err&&w.kind==BLOCK&&w.ins[21])memory_state_next=RESTORE;
+            if(wb_flush)begin
+                m_next.valid=0;w_next.valid=0;skid_next.valid=0;
+                m_next.writes=0;w_next.writes=0;skid_next.writes=0;
+                m_next.load_writer=0;w_next.load_writer=0;skid_next.load_writer=0;memory_state_next=RUN;
+
+            end
+    end
+    // Capture the complete translation owner beside the existing cache
+    // lookup ownership transitions. FCSE was applied when A entered M.
+    always_comb begin
+        next_check_record=(memory_state_next==HOLD||memory_state_next==RETRY1||memory_state_next==SWAP1)?w_next:m_next;
+        next_check_enable=memory_state_next==RUN||memory_state_next==HOLD||memory_state_next==RELOAD1||memory_state_next==RETRY1||memory_state_next==SWAP1;
+    end
+    always_ff @(posedge i_clk) begin
+        if(i_reset)begin check_ff<='0;request_ff<=0;end
+        else begin
+            check_ff.address<={next_check_record.fcse_address[31:2],2'b0};
+            check_ff.mode<=next_check_record.flags[CPSR_MODE:0];
+            check_ff.user_access<=next_check_record.user_access;
+            check_ff.format<=next_check_record.format;
+            check_ff.rd<=next_check_enable&&next_check_record.valid&&next_check_record.memory&&!next_check_record.store;
+            check_ff.wr<=next_check_enable&&next_check_record.valid&&next_check_record.memory&&next_check_record.store;
+            request_ff<=w_next.valid&&w_next.memory&&
+                !(w_next.fault||w_next.irq||w_next.fiq||(w_next.pass&&(w_next.kind==SWI||w_next.kind==UND)))&&
+                (memory_state_next==RUN||memory_state_next==HOLD);
+        end
+    end
+`ifndef SYNTHESIS
+    // Compare with the original schedule at every edge, including holds,
+    // relookup, SWP, abort restoration, flush, and fill installation.
+    always_ff @(posedge i_clk) if(!i_reset)begin
+        assert(o_data_wb_re_check==(check_enable&&check_record.valid&&check_record.memory&&!check_record.store&&!wb_flush));
+        assert(o_data_wb_we_check==(check_enable&&check_record.valid&&check_record.memory&&check_record.store&&!wb_flush));
+        if(o_data_wb_re_check||o_data_wb_we_check)begin
+            assert({o_data_wb_adr_check,o_mem_cpsr,o_mem_translate,o_data_wb_ldfmt_check}==
+                {fcse({check_record.address[31:2],2'b0}),check_record.flags[CPSR_MODE:0],check_record.user_access,check_record.format});
+        end
+        assert(request==(w.valid&&w.memory&&!w_exception&&!wb_flush&&!fill_ended&&
+            (memory_state==RUN||memory_state==HOLD)));
+        if(request)assert(o_data_wb_adr==fcse({w.address[31:2],2'b0}));
+    end
+`endif
     assign check_record=(memory_state==HOLD||memory_state==RETRY1||memory_state==SWAP1)?w:m;
     assign check_enable=memory_state==RUN||memory_state==HOLD||memory_state==RELOAD1||memory_state==RETRY1||memory_state==SWAP1;
     wire [31:0] lookup_address=memory_state==RELOAD0?m.address:
         memory_state==RELOAD1?skid.address:
         (memory_state==HOLD||memory_state==RETRY0||memory_state==RETRY1||memory_state==SWAP0||memory_state==SWAP1)?w.address:a_data_address;
-    assign o_data_wb_adr_nxt=fcse({lookup_address[31:2],2'b0});
-    assign o_data_wb_adr_check=fcse({check_record.address[31:2],2'b0});
-    assign o_data_wb_adr=fcse({w.address[31:2],2'b0});
-    assign o_data_wb_re_check=check_enable&&check_record.valid&&check_record.memory&&!check_record.store&&!wb_flush;
-    assign o_data_wb_we_check=check_enable&&check_record.valid&&check_record.memory&&check_record.store&&!wb_flush;
-    assign o_data_wb_ldfmt_check=check_record.format;
-    assign o_mem_cpsr=check_record.flags[CPSR_MODE:0];
-    assign o_mem_translate=check_record.user_access;
+    assign o_data_wb_adr_nxt={lookup_address[31:25]==0?o_pid[6:0]:lookup_address[31:25],lookup_address[24:2],2'b0};
+    assign o_data_wb_adr_check=check_ff.address;
+    assign o_data_wb_adr={w.fcse_address[31:2],2'b0};
+    assign o_data_wb_re_check=check_ff.rd&&!wb_flush;
+    assign o_data_wb_we_check=check_ff.wr&&!wb_flush;
+    assign o_data_wb_ldfmt_check=check_ff.format;
+    assign o_mem_cpsr=check_ff.mode;
+    assign o_mem_translate=check_ff.user_access;
     assign o_data_wb_cyc=request;assign o_data_wb_stb=request;assign o_data_wb_we=w.store;
     assign o_data_wb_dat=w.store_data;assign o_data_wb_sel=w.sel;
     assign o_data_wb_va=w.address;assign o_data_wb_ldfmt=w.format;
@@ -582,8 +674,7 @@ output  logic [7:0]                      o_dbg_stall
         (w.kind==BLOCK&&w.ins[22]&&w.ins[20]&&w.ins[15]&&w.last);
     assign w_exception=w.fault||w.irq||w.fiq||(w.pass&&(w.kind==SWI||w.kind==UND));
     assign cp_request=w.valid&&w.pass&&w.kind==CP&&!w_exception&&!i_dc_lock_any&&!i_data_fill_busy&&!wb_flush;
-    assign request=w.valid&&w.memory&&!w_exception&&!wb_flush&&!fill_ended&&
-        (memory_state==RUN||memory_state==HOLD);
+    assign request=request_ff&&!wb_flush&&!fill_ended;
     assign request_done=request&&(i_data_wb_ack||i_data_wb_err);
     assign retry=request_done&&i_dcache_err2;
     assign defer_load=request_done&&!retry&&!i_data_wb_err&&!w.store&&(w.dest[0]==15||w.kind==SWP);
@@ -668,41 +759,11 @@ output  logic [7:0]                      o_dbg_stall
             if((memory_state==RUN&&done)||memory_state==RELOAD1||quick_reload)begin
                 w_load_select<=64'd1<<m.dest[0];w_waited<=0;
             end
-            case(memory_state)
-                RUN:if(done)begin m<=input_record;w<=m;end
-                    else begin skid<=input_record;memory_state<=HOLD;end
-                HOLD:if(done)begin
-                    if(quick_reload)begin w<=m;m<=skid;skid.valid<=0;skid.writes<=0;skid.load_writer<=0;memory_state<=RUN;end
-                    else begin w.valid<=0;w.writes<=0;w.load_writer<=0;memory_state<=RELOAD0;end
-                end
-                RELOAD0:memory_state<=RELOAD1;
-                RELOAD1:begin w<=m;m<=skid;skid.valid<=0;skid.writes<=0;memory_state<=RUN;end
-                RETRY0:memory_state<=RETRY1;
-                RETRY1:memory_state<=HOLD;
-                LOAD_RETURN:if(!w_locked)begin
-                    if(w.kind==SWP)begin w.store<=1;swap_write<=1;memory_state<=SWAP0;end
-                    else if(done)begin w.valid<=0;w.writes<=0;w.load_writer<=0;memory_state<=RELOAD0;end
-                end
-                SWAP0:memory_state<=SWAP1;
-                SWAP1:memory_state<=HOLD;
-                RESTORE:memory_state<=ABORT;
-                ABORT:if(done)begin w.valid<=0;w.writes<=0;w.load_writer<=0;memory_state<=RELOAD0;end
-                default:memory_state<=RUN;
-            endcase
-            // A request arriving immediately after installation has a response
-            // captured before the new tag/data existed. Re-read that owner
-            // before exposing it to IDLE; otherwise a false miss can evict
-            // the freshly installed dirty store line.
-            if(retry||(fill_ended&&w.valid&&w.memory&&
-                (memory_state==RUN||memory_state==HOLD)))memory_state<=RETRY0;
-            if(defer_load)begin saved_load<=i_data_wb_dat;memory_state<=LOAD_RETURN;end
-            if(request_done&&i_data_wb_err&&w.kind==BLOCK&&w.ins[21])memory_state<=RESTORE;
-            if(wb_flush)begin
-                m.valid<=0;w.valid<=0;skid.valid<=0;
-                m.writes<=0;w.writes<=0;skid.writes<=0;
-                m.load_writer<=0;w.load_writer<=0;skid.load_writer<=0;w_waited<=0;memory_state<=RUN;
-                swap_write<=0;cp_seen<=0;cp_finished<=0;
-            end
+            m<=m_next;w<=w_next;skid<=skid_next;memory_state<=memory_state_next;
+            if(memory_state==LOAD_RETURN&&!w_locked&&w.kind==SWP)swap_write<=1;
+            if(defer_load)saved_load<=i_data_wb_dat;
+            if(wb_flush)begin w_waited<=0;swap_write<=0;cp_seen<=0;cp_finished<=0;end
+
         end
     end
     assign o_dbg_wb_valid=wb_valid;assign o_dbg_wb_dvalid=wb_cfail;
