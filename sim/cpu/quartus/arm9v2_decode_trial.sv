@@ -8,7 +8,9 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
     logic o_ready;
     logic [4:0] i_mode;
     logic i_wen;
-    logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked, i_early_locked;
+    logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked;
+    logic [3:0][5:0] i_early_tag;
+    logic [3:0] i_early_valid;
     logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c;
     logic i_ready;
     logic o_valid;
@@ -51,7 +53,8 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
     logic i_ack, i_error, i_retry, i_fill_pending, i_fill_done, i_fill_fault;
     logic [31:0] o_address_nxt, o_address_check, o_address;
     logic o_request, o_stall;
-    assign i_early_locked=0;
+    assign i_early_tag=0;
+    assign i_early_valid=0;
     assign i_clk=clk;
     assign i_reset=stimulus[0:0];
     assign i_flush=stimulus[1:1];

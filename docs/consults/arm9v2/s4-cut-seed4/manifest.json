@@ -1,0 +1,69 @@
+{
+  "phase": "cut",
+  "scope": "execute component, not integrated CPU",
+  "parent_revision": "74d046a035df7132fb55da66291c32d380a9560f",
+  "seed": 4,
+  "mhz": 104,
+  "source_sha256": {
+    "rtl/cpu/arm9v2/arm9v2_forward.sv": "b68e83d169939a32193b63afe3ca89782077a68ec3932ac8807b25dff6c4fa22",
+    "rtl/cpu/arm9v2/arm9v2_predict.sv": "79f1a835b440ab878a59ae5a057486aa5a2c37d9ffc14f65b0b5bf0c3bd8460c",
+    "rtl/cpu/arm9v2/arm9v2_rotate.sv": "7e7e130285295c23f9ca88539a7c1bb7dc179e59f2ce45c25434f83783669727",
+    "rtl/cpu/arm9v2/arm9v2_decode.sv": "f1b13dfd0dd313ba1a89718fc03748dfe5b7856899fefd07190e8d5143499c7e",
+    "rtl/cpu/arm9v2/arm9v2_execute.sv": "a889df38a12da733852e840c796523f9c1ebebc0d256bbec3da200ecab441359",
+    "rtl/cpu/arm9v2/arm9v2_fetch.sv": "70b767e9a12c79a0dd0900161c802d990046ed761781dabc6bd5bdb5532289fd",
+    "rtl/cpu/zap/zap_ram_simple_nopipe.sv": "15d2387f6025beb33a83fe2c097ac22697055ee515a29fc23a773651df4b4bfc",
+    "sim/cpu/quartus/arm9v2_execute_trial.sv": "fd9cee30b5af9abadec369fffc075b3e4f53164051deaa4cdb746c160b29afc5",
+    "sim/cpu/arm9v2/front_decode.sv": "33d50c01c27054f8e3ca6e0a21cc7ab8a3e1e4637095b037f322a72bc5b2eea4",
+    "rtl/cpu/zap/zap_mode16_decoder.sv": "a5c7987f8176ce93a706568abe2e1e3521813cccfb4c657ca1b10a40b83de7f3",
+    "rtl/cpu/zap/zap_register_file.sv": "b21d924a08a67210795b5aa60d31ec722b4f7c70a97800efd2ec8c1c6d28e3ff",
+    "sim/cpu/arm9v2/front_execute.sv": "104dba9c4b3be946aac31fccf6e640dd678941f1183155fe6dadcc78e52a0ad6",
+    "rtl/cpu/arm9/arm9_alu.sv": "4b1f069668a15e5b9a8259206182c6d66d819bb2332ba3688c3d80e00417a56c"
+  },
+  "netlist_sha256": "e0b62242355ade3c807a4ef14e43aed401faad375e23bb4f751032d9e2af6279",
+  "cpu_netlist_sha256": "2bd6b94c0a231069c5de0ce2dc3c45494b15592be46d86e7048257ced7fefd33",
+  "remote_directory": "dev/mister/ngage-cx-arm9v2-s4-cut-seed4",
+  "command": "TRIAL=arm9v2_execute SEED=4 BUILD_DIR=dev/mister/ngage-cx-arm9v2-s4-cut-seed4 sim/cpu/quartus/run.sh",
+  "setup_ns": {
+    "Slow 1100mV 100C Model": -0.721,
+    "Slow 1100mV -40C Model": -0.58,
+    "Fast 1100mV 100C Model": 4.086,
+    "Fast 1100mV -40C Model": 4.917
+  },
+  "hold_ns": {
+    "Slow 1100mV 100C Model": 0.36,
+    "Slow 1100mV -40C Model": 0.317,
+    "Fast 1100mV 100C Model": 0.179,
+    "Fast 1100mV -40C Model": 0.139
+  },
+  "alms": 6129,
+  "worst_paths": {
+    "Fast_1100mV_100C_Model": {
+      "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|out_valid",
+      "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1[0][108]",
+      "levels": 5,
+      "data_delay_ns": 5.139,
+      "clock_skew_ns": -0.22
+    },
+    "Fast_1100mV_-40C_Model": {
+      "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|head_select[6]",
+      "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1[1][187]",
+      "levels": 8,
+      "data_delay_ns": 4.304,
+      "clock_skew_ns": -0.224
+    },
+    "Slow_1100mV_-40C_Model": {
+      "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|head_select[4]",
+      "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1[1][187]",
+      "levels": 8,
+      "data_delay_ns": 9.477,
+      "clock_skew_ns": -0.548
+    },
+    "Slow_1100mV_100C_Model": {
+      "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|head_select[6]",
+      "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1[1][187]",
+      "levels": 8,
+      "data_delay_ns": 9.642,
+      "clock_skew_ns": -0.524
+    }
+  }
+}

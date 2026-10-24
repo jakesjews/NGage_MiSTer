@@ -257,8 +257,8 @@ existing undefined policy unless a separate architectural change is requested.
    QEMU diff, directed window checks, cycle table and CPU-alone fit. Do not
    retarget a failed model silently; record the architectural cost decision.
 5. At a complete structural-pass fit below −2 ns, stop and report. Once within
-   range, measure the same revision at seeds 2/3/4. At most two of this task's
-   Quartus containers, four globally; inspect Docker before launching.
+   range, measure the same revision at seeds 2/3/4. At most two Quartus containers globally for this session; inspect Docker
+   before launching.
 6. Only after the median CPU gate, perform the specified whole-core build.
    Board validation follows a timing-clean bitstream. No firmware boot bench
    is part of this task. Do not modify `sys/` or push branches.
@@ -474,7 +474,7 @@ A held S record updates its operand snapshot through this same selector;
 a retiring producer cannot disappear while the instruction waits.
 
 D2 distinguishes ordinary pending loads (`i_locked`, all used sources) from
-pending ALU/multiply sources needed in S (`i_early_locked`). Shifted Rm, Rs,
+pending ALU/multiply sources needed in S (`i_early_tag` / `i_early_valid`). Shifted Rm, Rs,
 all multiply inputs, block base and SPSR reads must be available before S.
 Plain ALU Rn/Rm, store data and BX/SWP Rm can carry precomputed two-lane
 match tokens into A and select the immediately preceding registered result.
@@ -532,3 +532,28 @@ The next timing work is D2 hazard/admission and D1 classification before M/W
 adds more load; the execute datapath must not absorb those control chains.
 The [session-3 report](consults/2026-10-23-codex-arm9v2-s3.md) retains all seeds,
 cycle costs, exact artifacts and the stopping point. ZAP remains default.
+
+
+## Session 4: bounded admission and local D1 classification
+
+The D2 early-source hazard now compares four registered physical source tags
+against four pending S/A destination lanes directly. The 40-bit decode/index
+round trip is gone. Hazard resolution controls validity and the D2 owner;
+the wide S payload captures on capacity alone and holds while a valid S slot
+is blocked. D1 uses a registered one-hot head and selects between two local
+finished classifications. No clock was added, and multiplier inputs retain
+their S/A registers.
+
+Seeds 2/3/4 measure -1.406 / -0.748 / -0.721 ns worst slow, median **-0.748 ns**,
+with 6,094 / 6,092 / 6,129 ALMs (median **6,094**). This improves median slack
+0.981 ns and removes 293 ALMs relative to session 3. Holds are positive;
+four DSPs and two M10Ks are unchanged. The first session-4 component gate is
+met. These are F1-through-A component figures, excluding caches and M/W.
+
+All 777 existing CPU runs, 68 QEMU comparisons per configuration and the
+85-window coverage pass unchanged. Source/generated decode and S/A tests
+pass, including new four-lane hazard and held-payload checks. The joined
+S/A/cache bench stays 270 / 401 / 677 clocks. Hot untrained/predicted direct
+branches stay four/one clocks apart. The report retains the full before/after
+[trend and remaining paths](consults/2026-10-23-codex-arm9v2-s4.md).
+M/W completion and architectural retirement remain the next milestone.

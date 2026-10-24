@@ -12,7 +12,9 @@ module decode_tb;
     logic [2:0] i_ras_pointer;
     logic [3:0] i_ras_count;
     logic i_wen;
-    logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked, i_early_locked;
+    logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked;
+    logic [3:0][5:0] i_early_tag;
+    logic [3:0] i_early_valid;
     logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c;
     logic i_ready;
     logic o_valid;
@@ -118,7 +120,7 @@ module decode_tb;
         check(last_cycle==accepted+n+1,"block has no fixed setup or drain between transfers");
     endtask
     initial begin
-        i_clk=0;i_reset=0;i_flush=0;i_valid=0;i_pc=0;i_word=0;i_thumb=0;i_fault=0;i_mode=0;i_predicted=0;i_pred_hit=0;i_pred_target=0;i_pred_state=0;i_pred_kind=0;i_ras_pointer=0;i_ras_count=0;i_wen=0;i_wr_addr_a=0;i_wr_addr_b=0;i_wr_addr_c=0;i_locked=0;i_early_locked=0;i_wr_data_a=0;i_wr_data_b=0;i_wr_data_c=0;i_ready=0;
+        i_clk=0;i_reset=0;i_flush=0;i_valid=0;i_pc=0;i_word=0;i_thumb=0;i_fault=0;i_mode=0;i_predicted=0;i_pred_hit=0;i_pred_target=0;i_pred_state=0;i_pred_kind=0;i_ras_pointer=0;i_ras_count=0;i_wen=0;i_wr_addr_a=0;i_wr_addr_b=0;i_wr_addr_c=0;i_locked=0;i_early_valid=0;i_early_tag=0;i_wr_data_a=0;i_wr_data_b=0;i_wr_data_c=0;i_ready=0;
         i_reset=1;i_ready=1;i_mode=5'h13;tick();i_reset=0;seed_rf();
         single(32'he0812003,0);check(o_used==3&&o_tag[0]==1&&o_tag[1]==3&&o_dest[0]==2,"ADD indices");
         check(o_value[0]==rf(1)&&o_value[1]==rf(3),"raw operands at S boundary");tick();
@@ -147,13 +149,13 @@ module decode_tb;
         i_locked=1;single(32'he1a02003,0);check(!o_hazard,"unused Rn does not stall MOV");i_locked=0;tick();
         // S-only locks hold shifted operands in D2, while plain ALU inputs
         // may enter S and carry a late token into A.
-        i_early_locked=2;single(32'he1a02001,0);check(!o_hazard,"unshifted Rm permits late A pickup");tick();
+        i_early_valid=1;i_early_tag[0]=1;single(32'he1a02001,0);check(!o_hazard,"unshifted Rm permits late A pickup");tick();
         send(32'he1a02081);repeat(4)tick();
         check(o_hazard&&!o_valid,"shifted Rm waits in D2 for registered producer");
-        i_early_locked=0;tick();check(o_valid,"early source unlock admits S");tick();
-        i_early_locked=16;send(32'he1a02413);repeat(4)tick();
+        i_early_valid=0;i_early_tag=0;tick();check(o_valid,"early source unlock admits S");tick();
+        i_early_valid=1;i_early_tag[0]=4;send(32'he1a02413);repeat(4)tick();
         check(o_hazard&&!o_valid,"register shift amount waits in D2");
-        i_early_locked=0;tick();check(o_valid&&o_reg_shift,"register shift unlock");tick();
+        i_early_valid=0;i_early_tag=0;tick();check(o_valid&&o_reg_shift,"register shift unlock");tick();
         // Direct targets and both equality results are registered with S data.
         single(32'hea000002,3);check(o_direct&&last_target==32'h1010,"unpredicted direct branch");
         check(last_action==0&&!o_match_taken,"B repairs without RAS push");tick();
@@ -259,11 +261,35 @@ module decode_tb;
         end
         // Every nonempty mask: count/first/next scan; rotate IA/IB/DA/DB.
         for(int mask=1;mask<65536;mask++)block_test(16'(mask),1'(mask&1),1'((mask>>1)&1),1'((mask>>2)&1),0,19);
+        // Every pending lane can block a shifted source. An invalid or
+        // different destination must not block it; a held S payload must
+        // remain intact while the pending hazard changes behind it.
+        for(int lane=0;lane<4;lane++)begin
+            i_early_tag=0;i_early_tag[lane]=3;i_early_valid=0;
+            single(32'he1a02083,0);check(!o_hazard,"invalid pending lane permits shifted Rm");tick();
+            i_early_valid=4'(1<<lane);i_early_tag[lane]=4;
+            single(32'he1a02083,0);check(!o_hazard,"different pending tag permits shifted Rm");tick();
+            i_early_tag[lane]=3;send(32'he1a02083);tick();
+            repeat(3)begin tick();check(o_hazard&&!o_valid,"each pending lane holds shifted Rm");end
+            i_early_valid=0;tick();check(o_valid&&o_instruction==32'he1a02083,"pending lane release admits once");tick();
+        end
+        i_early_tag=0;
         // Registered output and two D1 slots absorb a downstream hold.
         i_mode=5'h13;i_ready=0;
         for(int n=0;n<4;n++)send(32'he1a00000,32'h8000+32'(n*4));
         repeat(4)tick();check(!o_ready&&o_valid&&o_pc==32'h8000,"bounded decode capacity");
-        repeat(5)begin tick();check(o_valid&&o_pc==32'h8000,"S entry stable during hold");end
+        begin
+            logic [31:0] ins;
+            logic [3:0][31:0] values;
+            logic [3:0][5:0] tags;
+            ins=o_instruction;values=o_value;tags=o_tag;
+            repeat(5)begin
+                i_early_valid=4'b1111;i_early_tag={6'd3,6'd2,6'd1,6'd0};
+                tick();check(o_valid&&o_pc==32'h8000&&o_instruction==ins&&o_value==values&&o_tag==tags,
+                             "S payload stable while held and pending tags change");
+            end
+            i_early_valid=0;i_early_tag=0;
+        end
         i_ready=1;
         for(int n=0;n<4;n++)begin receive();check(o_pc==32'h8000+32'(n*4),"decode hold preserves order");tick();end
         i_ready=0;send(32'hea000000,32'h9000);repeat(2)tick();i_flush=1;tick();i_flush=0;#1;

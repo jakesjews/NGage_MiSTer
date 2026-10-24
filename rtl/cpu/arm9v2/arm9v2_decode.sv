@@ -17,7 +17,10 @@ module arm9v2_decode (
     // These are registered W/scoreboard producers, not live cache responses.
     input logic i_wen,
     input logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked,
-    input logic [39:0] i_early_locked, // unavailable to S rotator/multiplier, but may be picked up in A
+    // At most four pending destination lanes (S and A). Compare directly;
+    // do not decode a destination mask and index it back by each source.
+    input logic [3:0][5:0] i_early_tag,
+    input logic [3:0] i_early_valid,
     input logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c,
     input logic i_ready,
     output logic o_valid,
@@ -86,7 +89,8 @@ module arm9v2_decode (
     (* dont_retime *) redirect_t redirect_ff;
     (* dont_retime *) logic redirect_in_d2;
     (* dont_retime, ramstyle = "logic" *) packet_t d1[0:1];
-    (* dont_retime *) logic head, tail;
+    (* dont_retime *) logic tail;
+    (* dont_retime *) logic [1:0] head_select;
     (* dont_retime *) logic [1:0] count;
     (* dont_retime *) logic d2_valid, out_valid;
     (* dont_retime *) decoded_t d2, issued;
@@ -105,7 +109,7 @@ module arm9v2_decode (
     logic [4:0] transfer_mode;
     logic [3:0][31:0] raw_values, read_values;
     logic push, pop, accept, shortcut, fast_select, new_d2, late_redirect, step, kill_younger, taken_match, fallthrough_match;
-    logic [3:0] early_used;
+    logic [3:0] early_used, early_hazard;
     logic unused;
     assign unused = &{1'b0, expanded[33:32], issued.left, issued.remaining, issued.redirected, fast_arm_twos[31], fast_thumb_twos[31]};
 
@@ -273,7 +277,12 @@ module arm9v2_decode (
         incoming.pred_state=i_pred_state;incoming.pred_kind=i_pred_kind;
         incoming.ras_pointer=i_ras_pointer;incoming.ras_count=i_ras_count;
     end
-    assign front=d1[head];
+    // Select finished local classifications, not the input of a deep shared
+    // classifier. Each queue slot is already a registered instruction.
+    (* keep *) wire [3:0] kind0=classify(d1[0].ins,d1[0].raw[15:11],d1[0].thumb,d1[0].und,d1[0].mode==5'h10,d1[0].nregs==0);
+    (* keep *) wire [3:0] kind1=classify(d1[1].ins,d1[1].raw[15:11],d1[1].thumb,d1[1].und,d1[1].mode==5'h10,d1[1].nregs==0);
+    assign front=(d1[0]&{$bits(packet_t){head_select[0]}})|
+                 (d1[1]&{$bits(packet_t){head_select[1]}});
     // Complete sums in parallel; instruction classification only selects a
     // finished target and never selects the operands of its carry chain.
     (* keep *) wire [31:0] arm_target=front.pc_base+{{6{front.ins[23]}},front.ins[23:0],2'b0};
@@ -305,7 +314,7 @@ module arm9v2_decode (
     end
     always_comb begin
         decoded=decoded_t'(0);decoded.p=front;
-        decoded.kind=classify(front.ins,front.raw[15:11],front.thumb,front.und,front.mode==5'h10,front.nregs==0);
+        decoded.kind=(kind0&{4{head_select[0]}})|(kind1&{4{head_select[1]}});
         decoded.condition=front.ins[31:28];
         if (decoded.kind==K_BL_PREFIX || decoded.kind==K_BL_SUFFIX ||
             (front.thumb&&decoded.kind==K_UND) || (!front.thumb&&front.ins[31:28]==4'hf)) decoded.condition=4'he;
@@ -394,12 +403,14 @@ module arm9v2_decode (
             default:;
         endcase
     end
+    always_comb begin
+        early_hazard=0;
+        for(int src=0;src<4;src++)for(int pending=0;pending<4;pending++)
+            early_hazard[src]|=early_used[src]&&i_early_valid[pending]&&d2.tag[src]==i_early_tag[pending];
+    end
     assign o_hazard=d2_valid&&((d2.used[0]&&i_locked[d2.tag[0]]) ||
         (d2.used[1]&&i_locked[d2.tag[1]]) || (d2.used[2]&&i_locked[d2.tag[2]]) || (d2.used[3]&&i_locked[d2.tag[3]]) ||
-        (early_used[0]&&i_early_locked[d2.tag[0]]) ||
-        (early_used[1]&&i_early_locked[d2.tag[1]]) ||
-        (early_used[2]&&i_early_locked[d2.tag[2]]) ||
-        (early_used[3]&&i_early_locked[d2.tag[3]]));
+        (|early_hazard));
     assign step=d2_valid&&(!out_valid||i_ready)&&!o_hazard&&!i_flush&&(!redirect_ff.valid||redirect_in_d2);
     assign pop=count!=0&&(!d2_valid||(step&&d2.last))&&!kill_younger;
     zap_register_file u_registers (
@@ -421,7 +432,7 @@ module arm9v2_decode (
     end
     always_ff @(posedge i_clk) begin
         if(i_reset) begin
-            count<=0;head<=0;tail<=0;d2_valid<=0;out_valid<=0;redirect_ff.valid<=0;redirect_in_d2<=0;
+            count<=0;head_select<=2'b01;tail<=0;d2_valid<=0;out_valid<=0;redirect_ff.valid<=0;redirect_in_d2<=0;
             previous_prefix<=0;prefix_valid<=0;previous_next_pc<=0;prefix_target<=0;
             d2<=decoded_t'(0);issued<=decoded_t'(0);values<=0;matches_taken<=0;matches_fallthrough<=0;
             redirect_ff.target<=0;redirect_ff.thumb<=0;redirect_ff.link<=0;
@@ -436,11 +447,16 @@ module arm9v2_decode (
                 previous_prefix<=i_thumb&&!i_fault&&raw_word[15:11]==5'b11110;
                 previous_next_pc<=incoming.next_pc;
             end
-            if(pop)head<=!head;
+            if(pop)head_select<={head_select[0],head_select[1]};
             case({push,pop})2'b10:count<=count+1'b1;2'b01:count<=count-1'b1;default:;endcase
-            if(step)begin
-                issued<=d2;values<=read_values;out_valid<=1;
+            // Capacity alone clocks the payload. A source hazard changes
+            // only validity and the owner; it never drives this wide enable.
+            if(!out_valid||i_ready)begin
+                issued<=d2;values<=read_values;
                 matches_taken<=taken_match;matches_fallthrough<=fallthrough_match;
+            end
+            if(step)begin
+                out_valid<=1;
                 if(d2.kind==K_BL_PREFIX)begin prefix_target<=d2.target;prefix_valid<=!d2.p.fault;end
                 else prefix_valid<=0;
                 if(d2.last)d2_valid<=0;
@@ -469,7 +485,7 @@ module arm9v2_decode (
                 end
             end
             if(kill_younger)begin
-                count<=0;head<=0;tail<=0;previous_prefix<=0;prefix_valid<=0;
+                count<=0;head_select<=2'b01;tail<=0;previous_prefix<=0;prefix_valid<=0;
                 if(i_flush||!redirect_in_d2)d2_valid<=0;
             end
             if(i_flush)begin out_valid<=0;redirect_ff.valid<=0;end

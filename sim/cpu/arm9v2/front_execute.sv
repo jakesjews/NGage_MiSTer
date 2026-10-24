@@ -112,18 +112,15 @@ module arm9v2_front_execute #(
     (* dont_retime *) logic [1:0][1:0] mw_write;
     (* dont_retime *) logic [1:0] mw_valid,mw_flags;
     (* dont_retime *) logic [1:0][31:0] mw_pc,mw_ins,mw_cpsr;
-    logic [39:0] early_locked,wa,wb,wc;
+    logic [39:0] wa,wb,wc;
+    logic [3:0][5:0] early_tag;
+    logic [3:0] early_valid;
     assign wa=(mw_write[1][0]&&mw_valid[1]) ? 40'd1<<mw_tag[1][0] : 40'd0;
     assign wb=(mw_write[1][1]&&mw_valid[1]) ? 40'd1<<mw_tag[1][1] : 40'd0;
     assign wc=(mw_flags[1]&&mw_valid[1]) ? 40'd1<<17 : 40'd0;
-    always_comb begin
-        early_locked=0;
-        for(int lane=0;lane<2;lane++)begin
-            if(o_s_write[lane]&&d_dest[lane]!=15)early_locked[d_dest[lane]]=1;
-            if(o_a_valid&&!o_a_can_finish&&o_a_write[lane]&&o_a_dest[lane]!=15)
-                early_locked[o_a_dest[lane]]=1;
-        end
-    end
+    assign early_tag={o_a_dest,d_dest};
+    assign early_valid={o_a_write&{2{o_a_valid&&!o_a_can_finish}},o_s_write}&
+        {early_tag[3]!=15,early_tag[2]!=15,early_tag[1]!=15,early_tag[0]!=15};
     always_ff @(posedge i_clk)begin
         if(i_reset||i_flush)begin
             mw_valid<=0;mw_write<=0;mw_flags<=0;mw_value<=0;mw_tag<=0;mw_pc<=0;mw_ins<=0;mw_cpsr<=0;
@@ -146,7 +143,8 @@ module arm9v2_front_execute #(
         .i_wr_addr_b(wb),
         .i_wr_addr_c(wc),
         .i_locked(i_locked),
-        .i_early_locked(early_locked),
+        .i_early_tag(early_tag),
+        .i_early_valid(early_valid),
         .i_wr_data_a(mw_value[1][0]),
         .i_wr_data_b(mw_value[1][1]),
         .i_wr_data_c(mw_cpsr[1]),

@@ -5,7 +5,9 @@ module decode_cache_tb;
     logic o_ready;
     logic [4:0] i_mode;
     logic i_wen;
-    logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked, i_early_locked;
+    logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked;
+    logic [3:0][5:0] i_early_tag;
+    logic [3:0] i_early_valid;
     logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c;
     logic i_ready;
     logic o_valid;
@@ -121,7 +123,7 @@ module decode_cache_tb;
     initial begin
         int last_cycle,unpredicted_spacing,limit;
         logic [31:0] want;
-        i_clk=0;i_reset=0;i_flush=0;i_mode=0;i_wen=0;i_wr_addr_a=0;i_wr_addr_b=0;i_wr_addr_c=0;i_locked=0;i_early_locked=0;i_wr_data_a=0;i_wr_data_b=0;i_wr_data_c=0;i_ready=0;i_backend_target=0;i_backend_link=0;i_backend_thumb=0;i_backend_pointer=0;i_backend_count=0;i_backend_action=0;i_predictor_clear=0;i_update=0;i_update_pc=0;i_update_target=0;i_update_thumb=0;i_update_taken=0;i_update_hit=0;i_update_state=0;i_update_kind=0;
+        i_clk=0;i_reset=0;i_flush=0;i_mode=0;i_wen=0;i_wr_addr_a=0;i_wr_addr_b=0;i_wr_addr_c=0;i_locked=0;i_early_valid=0;i_early_tag=0;i_wr_data_a=0;i_wr_data_b=0;i_wr_data_c=0;i_ready=0;i_backend_target=0;i_backend_link=0;i_backend_thumb=0;i_backend_pointer=0;i_backend_count=0;i_backend_action=0;i_predictor_clear=0;i_update=0;i_update_pc=0;i_update_target=0;i_update_thumb=0;i_update_taken=0;i_update_hit=0;i_update_state=0;i_update_kind=0;
         i_reset=1;i_mode=5'h13;i_ready=1;i_update_taken=1;i_update_state=1;i_backend_action=3;
         tick();i_reset=0;want=32'h1000;last_cycle=0;unpredicted_spacing=0;
         for(int n=0;n<15;n++)begin

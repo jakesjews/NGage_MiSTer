@@ -10,7 +10,7 @@
 #   TRIAL=arm9_execute sim/cpu/quartus/run.sh   execute datapath only
 #   TRIAL=arm9_decode_shift sim/cpu/quartus/run.sh   shift in D, including E-to-D bypass
 #   SEED=3 MHZ=96 sim/cpu/quartus/run.sh   another fitter seed / clock
-# Results land in sim/cpu/build/quartus[-SEED-MHZ]/. At most four Quartus
+# Results land in sim/cpu/build/quartus[-SEED-MHZ]/. At most two Quartus
 # builds may run on the server at a time (the user's limit): this checks
 # docker ps first.
 set -euo pipefail
@@ -38,8 +38,8 @@ out=$root/sim/cpu/build/quartus$sfx
 mkdir -p "$out"
 
 running=$(ssh "$host" "docker ps --format '{{.Image}}' | grep -c quartus || true")
-if (( running >= 4 )); then
-	echo "four Quartus builds are already running on $host; try later" >&2
+if (( running >= 2 )); then
+	echo "two Quartus builds are already running on $host; try later" >&2
 	exit 1
 fi
 if [[ $trial == arm9v2_* || $dir == *arm9v2* ]]; then

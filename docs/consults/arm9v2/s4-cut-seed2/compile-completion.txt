@@ -1,0 +1,35 @@
+Info (332140): No Removal paths to report
+Info (332146): Worst-case minimum pulse width slack is 3.610
+    Info (332119):     Slack       End Point TNS Clock
+    Info (332119): ========= =================== =====================
+    Info (332119):     3.610               0.000 clk
+Info: Analyzing Fast 1100mV -40C Model
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in TimeQuest to see clock uncertainties.
+Info (332146): Worst-case setup slack is 4.499
+    Info (332119):     Slack       End Point TNS Clock
+    Info (332119): ========= =================== =====================
+    Info (332119):     4.499               0.000 clk
+Info (332146): Worst-case hold slack is 0.154
+    Info (332119):     Slack       End Point TNS Clock
+    Info (332119): ========= =================== =====================
+    Info (332119):     0.154               0.000 clk
+Info (332140): No Recovery paths to report
+Info (332140): No Removal paths to report
+Info (332146): Worst-case minimum pulse width slack is 3.594
+    Info (332119):     Slack       End Point TNS Clock
+    Info (332119): ========= =================== =====================
+    Info (332119):     3.594               0.000 clk
+Info (332101): Design is fully constrained for setup requirements
+Info (332101): Design is fully constrained for hold requirements
+Info: Quartus Prime TimeQuest Timing Analyzer was successful. 0 errors, 2 warnings
+    Info: Peak virtual memory: 1697 megabytes
+    Info: Processing ended: Sat Oct 24 01:40:43 2026
+    Info: Elapsed time: 00:00:11
+    Info: Total CPU time (on all processors): 00:00:43
+Info (293000): Quartus Prime Full Compilation was successful. 0 errors, 14 warnings
+Info (23030): Evaluation of Tcl script /opt/intelFPGA_lite/quartus/common/tcl/internal/qsh_flow.tcl was successful
+Info: Quartus Prime Shell was successful. 0 errors, 14 warnings
+    Info: Peak virtual memory: 822 megabytes
+    Info: Processing ended: Sat Oct 24 01:40:43 2026
+    Info: Elapsed time: 00:03:12
+    Info: Total CPU time (on all processors): 00:14:48
