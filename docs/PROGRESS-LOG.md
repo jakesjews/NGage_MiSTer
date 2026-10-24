@@ -4486,3 +4486,27 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   +4-6 % on ZAP, the FSM still holds in CLEAN_SINGLE about ten
   clocks after the install), then the 16 KB D-cache once V2 has
   ALMs to spare. Launched: the memory thread's task on codex/memside.
+- **ARM9 v2, session 6** (Codex, codex/arm9v2 7b96cc8, 51a0123,
+  9220667; docs/consults/2026-10-24-codex-arm9v2-s6.md in the worktree).
+  Master merged with the deferred write-back, both cache changes kept;
+  the new reference: 264/264 in ZAP and both V2 modes, 68 QEMU, the
+  merged integrated fit at seed 2 -1.651 ns, 15,881 ALMs. Cut 1, the
+  producer eligibility registered with the A/M/W payloads: **-1.237 ns**
+  at seed 2, 16,417 ALMs, every count unchanged; within the ~1 ns of
+  ZAP's same-wrapper -0.584 that the brief asked for. Cut 2, the
+  selected memory check registered before the D-TLB: -1.385, 0.148
+  worse at the one seed, so the thread stopped under the no-pay rule
+  (the candidate is on the branch tip, to be reverted). The leaders
+  now: the fetch queue's head select through the Thumb selection into
+  D1 (fanout 151, -1.38) and, before cut 2, still M into S's
+  forwarding and rotator into A. The cycle model is untouched (the
+  dependent LDR window 8 clocks; crand/ctrand about 1 % under ZAP at
+  2:9). Session 7 launched with the consults' structural decision:
+  true writer masks, operands classified early (shifted, multiplied)
+  or late (Rn, unshifted Rm, store data) in D2, the forwarding match
+  bits precomputed at the D2/S boundary, S selecting only from the
+  registered M/W producers, a late bypass at A's input, the load
+  schedule that follows (a late consumer of a hit load one hold, an
+  early one two), the replay contract, the RAS checkpoint; the judge
+  is crand/ctrand/mmu_page at 0:3 and 2:9 clearly under ZAP, then the
+  integrated seed-2 fit at or better than -1.237.
