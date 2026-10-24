@@ -54,6 +54,7 @@
 module zap_cache_tag_ram #(
 
 parameter logic SHORT_READ = 1'b0, // ARM9: RAM edge then caller's compare/capture edge.
+parameter logic ACCEPTED_HIT_UPDATE = 1'b0, // Short D-port: replacement updates from accepted responses.
 parameter logic [31:0] CACHE_SIZE = 32'd1024, // Bytes, all ways together.
 parameter logic [31:0] CACHE_LINE = 32'd8,
 parameter logic [31:0] WAYS       = 32'd1,    // ARM925T: 1 or 2.
@@ -94,6 +95,9 @@ input logic [31:0] i_lookup_check_address, // ARM925T: D-side next access.
 input logic i_lookup_stall, // Select held current access during lookup repair.
 (* dont_retime *) output logic o_cache_hit_early,
 input   logic                             i_access,
+input   logic                             i_accepted_hit,
+input   logic [31:0]                      i_accepted_address,
+input   logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] i_accepted_way,
 input   logic                             i_idle,
 output  logic                             o_cache_hit,
 output  logic                             o_cache_hit_dirty,
@@ -219,6 +223,8 @@ logic [$clog2(CACHE_LINE)-3:0]             lk_word;             // ARM925T: the 
 logic [CACHE_LINE*8-1:0]                   walk_line;
 logic                                      lru_s1, lru_s2, lru_q; // ARM925T: the set's LRU bit, aligned with the RAMs' reads.
 logic                                      hit_upd_en;          // ARM925T: a hit updates the LRU bit of lk_set.
+logic [SET_W-1:0]                          hit_upd_set;
+logic [WAY_W-1:0]                          hit_upd_way;
 logic                                      hit_pend_en, hit_pend_val; // ARM925T: that update, written a cycle later.
 logic [SET_W-1:0]                          hit_pend_set;
 logic                                      cache_clean_done_nxt, cache_clean_done_ff;
@@ -378,9 +384,16 @@ begin : g_lru
         // (write-behind, as the tag writes): the hit's through hit_pend_*,
         // the fill's through pend_*. The hit, the later event, wins a set.
         //
-        assign victim            = !valid_q[0] ? 1'd0 : !valid_q[1] ? 1'd1 : lru_q;
+        // Short D-port acceptance is one edge after the tag compare. Forward
+        // that older hit into the younger lookup's replacement choice, just
+        // as hit_pend forwards into RAM reads. The hit compares/data select
+        // are unchanged; this bypass affects only the victim metadata.
+        assign victim            = !valid_q[0] ? 1'd0 : !valid_q[1] ? 1'd1 :
+            (ACCEPTED_HIT_UPDATE && i_accepted_hit && hit_upd_set == lk_set) ? ~i_accepted_way : lru_q;
         assign sel               = hit[1] ? 1'd1 : hit[0] ? 1'd0 : victim;
-        assign hit_upd_en        = i_access && o_cache_hit;
+        assign hit_upd_en        = ACCEPTED_HIT_UPDATE ? i_accepted_hit : i_access && o_cache_hit;
+        assign hit_upd_set       = ACCEPTED_HIT_UPDATE ? i_accepted_address[$clog2(CACHE_LINE) +: SET_W] : lk_set;
+        assign hit_upd_way       = ACCEPTED_HIT_UPDATE ? i_accepted_way : sel;
 
         // Explicit 2:1 muxes: a variable part-select of the packed arrays
         // became a multiply by the tag width in the generated netlist, and
@@ -406,7 +419,7 @@ begin : g_lru
                        prev;
         endfunction
         function automatic logic lru_fwd_now ( input [SET_W-1:0] set, input logic prev );
-                return set == lk_set          && hit_upd_en                 ? ~sel      :
+                return set == hit_upd_set     && hit_upd_en                 ? ~hit_upd_way :
                        set == tag_ram_wr_addr && tag_ram_wr_en && (|wr_sel) ? wr_sel[0] :
                        lru_fwd ( set, prev );
         endfunction
@@ -419,11 +432,11 @@ begin : g_lru
                 end
                 else
                 begin
-                        hit_pend_en <= hit_upd_en && !i_hold;
+                        hit_pend_en <= hit_upd_en && (!i_hold || (ACCEPTED_HIT_UPDATE && i_accepted_hit));
                 end
 
-                hit_pend_set <= lk_set;
-                hit_pend_val <= ~sel;
+                hit_pend_set <= hit_upd_set;
+                hit_pend_val <= ~hit_upd_way;
         end
 
         always_ff @ ( posedge i_clk )

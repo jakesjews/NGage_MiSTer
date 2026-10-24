@@ -36,7 +36,7 @@ The suite and standalone fit are intermediate gates:
 | CPU timing | 104 MHz, seed 2/3/4, same RTL and constraints: median worst slow-corner setup slack >=−1 ns, positive hold slack. Record every seed, area, RAM, DSP and worst 30 paths. This permits integration; it is not timing closure. |
 | Structural stop | If a completed structural pass is still below −2 ns, stop that shape and describe the remaining chains. Do not search seeds to conceal the failure. |
 | Area | Compare against same-cache ZAP; retain the previous <=5% ALM allowance unless the lead changes it. Whole-device fit is authoritative. |
-| Whole device | Only after the CPU timing gate: build ARM9V2 on the server, `BUILD_DIR=dev/mister/NGage_MiSTer-arm9v2 ./build.sh remote compile`, with `NGAGE_NO_DEBUG` uncommented in the build tree. Whole-core 104 MHz must actually close before board performance is accepted. |
+| Whole device | Only after the CPU timing gate: build ARM9V2 on the server, `BUILD_DIR=dev/mister/NGage_MiSTer-arm9v2 ./build.sh remote compile`. The merged master is stripped by default; measurement builds opt in with `NGAGE_DEBUG=1`. Whole-core 104 MHz must actually close before board performance is accepted. |
 
 Rare redirects may cost clocks to preserve timing. A systematic common-case
 bubble is measured explicitly. The prior two-clock load-use restriction is

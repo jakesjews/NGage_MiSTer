@@ -6049,6 +6049,7 @@ module zap_cache (
 		.i_wb_err(wb_err[0])
 	);
 	localparam [31:0] sv2v_uu_u_zap_cache_tag_ram_WAYS = WAYS;
+	localparam [(sv2v_uu_u_zap_cache_tag_ram_WAYS > 1 ? $clog2(sv2v_uu_u_zap_cache_tag_ram_WAYS) : 1) - 1:0] sv2v_uu_u_zap_cache_tag_ram_ext_i_accepted_way_0 = 1'sb0;
 	localparam [(sv2v_uu_u_zap_cache_tag_ram_WAYS > 1 ? $clog2(sv2v_uu_u_zap_cache_tag_ram_WAYS) : 1) - 1:0] sv2v_uu_u_zap_cache_tag_ram_ext_i_line_way_0 = 1'sb0;
 	zap_cache_tag_ram #(
 		.CACHE_SIZE(CACHE_SIZE),
@@ -6064,6 +6065,9 @@ module zap_cache (
 		.i_lookup_address((SHORT_READ ? i_address_check : i_address)),
 		.i_lookup_check_address(32'b00000000000000000000000000000000),
 		.i_lookup_stall(1'b0),
+		.i_accepted_hit(1'b0),
+		.i_accepted_address(32'd0),
+		.i_accepted_way(sv2v_uu_u_zap_cache_tag_ram_ext_i_accepted_way_0),
 		.o_cache_hit_early(),
 		.i_access((SHORT_READ ? i_rd_check && idle : i_rd || i_wr)),
 		.i_idle(idle),
@@ -7401,6 +7405,9 @@ module zap_cache_tag_ram (
 	i_lookup_stall,
 	o_cache_hit_early,
 	i_access,
+	i_accepted_hit,
+	i_accepted_address,
+	i_accepted_way,
 	i_idle,
 	o_cache_hit,
 	o_cache_hit_dirty,
@@ -7437,6 +7444,7 @@ module zap_cache_tag_ram (
 );
 	reg _sv2v_0;
 	parameter [0:0] SHORT_READ = 1'b0;
+	parameter [0:0] ACCEPTED_HIT_UPDATE = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] CACHE_LINE = 32'd8;
 	parameter [31:0] WAYS = 32'd1;
@@ -7464,6 +7472,9 @@ module zap_cache_tag_ram (
 	input wire i_lookup_stall;
 	(* dont_retime *) output reg o_cache_hit_early;
 	input wire i_access;
+	input wire i_accepted_hit;
+	input wire [31:0] i_accepted_address;
+	input wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] i_accepted_way;
 	input wire i_idle;
 	output wire o_cache_hit;
 	output wire o_cache_hit_dirty;
@@ -7831,6 +7842,8 @@ module zap_cache_tag_ram (
 	reg lru_s2;
 	reg lru_q;
 	wire hit_upd_en;
+	wire [SET_W - 1:0] hit_upd_set;
+	wire [WAY_W - 1:0] hit_upd_way;
 	reg hit_pend_en;
 	reg hit_pend_val;
 	reg [SET_W - 1:0] hit_pend_set;
@@ -7972,9 +7985,11 @@ module zap_cache_tag_ram (
 			assign walk_line = line_q[0+:CACHE_LINE * 8];
 		end
 		else begin : g_lru
-			assign victim = (!valid_q[0] ? 1'd0 : (!valid_q[1] ? 1'd1 : lru_q));
+			assign victim = (!valid_q[0] ? 1'd0 : (!valid_q[1] ? 1'd1 : ((ACCEPTED_HIT_UPDATE && i_accepted_hit) && (hit_upd_set == lk_set) ? ~i_accepted_way : lru_q)));
 			assign sel = (hit[1] ? 1'd1 : (hit[0] ? 1'd0 : victim));
-			assign hit_upd_en = i_access && o_cache_hit;
+			assign hit_upd_en = (ACCEPTED_HIT_UPDATE ? i_accepted_hit : i_access && o_cache_hit);
+			assign hit_upd_set = (ACCEPTED_HIT_UPDATE ? i_accepted_address[$clog2(CACHE_LINE)+:SET_W] : lk_set);
+			assign hit_upd_way = (ACCEPTED_HIT_UPDATE ? i_accepted_way : sel);
 			assign o_cache_tag = (victim ? tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))] : tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + 0+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))]);
 			assign o_cache_line = (victim ? line_q[CACHE_LINE * 8+:CACHE_LINE * 8] : line_q[0+:CACHE_LINE * 8]);
 			assign o_cache_word_sel = hit[1];
@@ -7991,15 +8006,15 @@ module zap_cache_tag_ram (
 			function automatic lru_fwd_now;
 				input [SET_W - 1:0] set;
 				input reg prev;
-				lru_fwd_now = ((set == lk_set) && hit_upd_en ? ~sel : (((set == tag_ram_wr_addr) && tag_ram_wr_en) && |wr_sel ? wr_sel[0] : lru_fwd(set, prev)));
+				lru_fwd_now = ((set == hit_upd_set) && hit_upd_en ? ~hit_upd_way : (((set == tag_ram_wr_addr) && tag_ram_wr_en) && |wr_sel ? wr_sel[0] : lru_fwd(set, prev)));
 			endfunction
 			always @(posedge i_clk) begin
 				if (i_reset)
 					hit_pend_en <= 1'd0;
 				else
-					hit_pend_en <= hit_upd_en && !i_hold;
-				hit_pend_set <= lk_set;
-				hit_pend_val <= ~sel;
+					hit_pend_en <= hit_upd_en && (!i_hold || (ACCEPTED_HIT_UPDATE && i_accepted_hit));
+				hit_pend_set <= hit_upd_set;
+				hit_pend_val <= ~hit_upd_way;
 			end
 			always @(posedge i_clk)
 				if (i_reset || tag_ram_clear)
@@ -11850,6 +11865,7 @@ module zap_dcache (
 		.CACHE_LINE(CACHE_LINE),
 		.WAYS(WAYS),
 		.SHORT_READ(SHORT_READ),
+		.ACCEPTED_HIT_UPDATE(SHORT_READ),
 		.INDEX_SIZE(((WAYS == 2) && (CACHE_SIZE > 8192) ? 32'd8192 : CACHE_SIZE))
 	) u_zap_cache_tag_ram(
 		.i_clk(i_clk),
@@ -11861,6 +11877,9 @@ module zap_dcache (
 		.i_lookup_stall((i_rd || i_wr) && !o_ack),
 		.o_cache_hit_early(tr_cache_hit_early),
 		.i_access((SHORT_READ ? (i_rd_check || i_wr_check) && idle : (i_rd || i_wr) && (idle || (live_lookup && o_ack)))),
+		.i_accepted_hit((((((i_rd || i_wr) && o_ack) && !o_err) && !o_err2) && live_lookup) && tr_cache_hit),
+		.i_accepted_address(i_address),
+		.i_accepted_way(tr_cache_way),
 		.i_idle((SHORT_READ ? 1'b0 : live_lookup)),
 		.o_cache_hit(raw_cache_hit),
 		.o_cache_hit_dirty(raw_cache_hit_dirty),

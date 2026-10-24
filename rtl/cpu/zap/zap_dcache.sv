@@ -312,6 +312,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
 // ARM925T: enlarged two-way D-caches retain the reported 8 KB geometry
 // for index maintenance. The tag manager visits all physical set colours.
 zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .SHORT_READ(SHORT_READ),
+                   .ACCEPTED_HIT_UPDATE(SHORT_READ),
                    .INDEX_SIZE((WAYS == 2 && CACHE_SIZE > 8192) ? 32'd8192 : CACHE_SIZE)) u_zap_cache_tag_ram (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
@@ -323,6 +324,11 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .o_cache_hit_early      (tr_cache_hit_early),
         // Held/stale lookups must not update replacement state.
         .i_access               (SHORT_READ ? (i_rd_check || i_wr_check) && idle : (i_rd || i_wr) && (idle || (live_lookup && o_ack))),
+        // ARM9: only the accepted response updates LRU, including HUM. Its
+        // way is registered; a younger check probe may be held or replayed.
+        .i_accepted_hit         ((i_rd || i_wr) && o_ack && !o_err && !o_err2 && live_lookup && tr_cache_hit),
+        .i_accepted_address     (i_address),
+        .i_accepted_way         (tr_cache_way),
         .i_idle                 (SHORT_READ ? 1'b0 : live_lookup),
         .o_cache_hit            (raw_cache_hit),
         .o_cache_hit_dirty      (raw_cache_hit_dirty),

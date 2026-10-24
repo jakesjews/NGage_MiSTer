@@ -279,6 +279,9 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .i_lookup_address       (SHORT_READ ? i_address_check : i_address),
         .i_lookup_check_address (32'b0),
         .i_lookup_stall         (1'b0),
+        .i_accepted_hit         (1'b0),
+        .i_accepted_address     (32'd0),
+        .i_accepted_way         ('0),
         /* verilator lint_off PINCONNECTEMPTY */
         .o_cache_hit_early      (),
         /* verilator lint_on PINCONNECTEMPTY */            // ARM925T
