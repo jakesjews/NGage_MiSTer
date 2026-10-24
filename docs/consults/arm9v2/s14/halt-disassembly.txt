@@ -1,0 +1,35 @@
+
+sim/cpu/build/arm9v2-s14/cs0.bin:     file format binary
+
+
+Disassembly of section .data:
+
+5031e340 <.data+0x31e340>:
+5031e340:	e59f4050 	ldr	r4, [pc, #80]	@ 0x5031e398
+5031e344:	e2845018 	add	r5, r4, #24
+5031e348:	e5940018 	ldr	r0, [r4, #24]
+5031e34c:	e59f1048 	ldr	r1, [pc, #72]	@ 0x5031e39c
+5031e350:	eb0000d9 	bl	0x5031e6bc
+5031e354:	e5950004 	ldr	r0, [r5, #4]
+5031e358:	e59f1040 	ldr	r1, [pc, #64]	@ 0x5031e3a0
+5031e35c:	eb0000d6 	bl	0x5031e6bc
+5031e360:	e5940010 	ldr	r0, [r4, #16]
+5031e364:	e59f1038 	ldr	r1, [pc, #56]	@ 0x5031e3a4
+5031e368:	eb0000d3 	bl	0x5031e6bc
+5031e36c:	e3a0001a 	mov	r0, #26
+5031e370:	e59f1030 	ldr	r1, [pc, #48]	@ 0x5031e3a8
+5031e374:	eb0000e3 	bl	0x5031e708
+5031e378:	e3a00c02 	mov	r0, #512	@ 0x200
+5031e37c:	e59f1028 	ldr	r1, [pc, #40]	@ 0x5031e3ac
+5031e380:	eb0000cd 	bl	0x5031e6bc
+5031e384:	e3a00004 	mov	r0, #4
+5031e388:	e3a01815 	mov	r1, #1376256	@ 0x150000
+5031e38c:	eb0000dd 	bl	0x5031e708
+5031e390:	ebfff7d2 	bl	0x5031c2e0
+5031e394:	eafffffe 	b	0x5031e394
+5031e398:	40000400 	andmi	r0, r0, r0, lsl #8
+5031e39c:	000047f0 	strdeq	r4, [r0], -r0
+5031e3a0:	000047f4 	strdeq	r4, [r0], -r4	@ <UNPREDICTABLE>
+5031e3a4:	000047f8 	strdeq	r4, [r0], -r8
+5031e3a8:	0000428e 	andeq	r4, r0, lr, lsl #5
+5031e3ac:	00120004 	andseq	r0, r2, r4

@@ -1,0 +1,23 @@
+{
+  "ARM9": {
+    "passed": 285,
+    "previous_unchanged": 282,
+    "qemu_agree": 72,
+    "qemu_differ": 0,
+    "windows_identical": true
+  },
+  "ARM9-off": {
+    "passed": 285,
+    "previous_unchanged": 282,
+    "qemu_agree": 72,
+    "qemu_differ": 0,
+    "windows_identical": true
+  },
+  "ZAP": {
+    "passed": 285,
+    "previous_unchanged": 282,
+    "qemu_agree": 72,
+    "qemu_differ": 0,
+    "windows_identical": true
+  }
+}

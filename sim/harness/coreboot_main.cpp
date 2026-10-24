@@ -24,6 +24,10 @@
 //   --trace FILE --trace-after N --trace-count M
 //                      an instruction window (sim/cpu/boot/cmp_window.py)
 //   --progress N       a line every N clocks (with wall-clock time)
+//   --fault-history N  retain N retirements in memory; dump on D/P/U and
+//                      this ROM's Kern::Fault entry (0x5031e340), plus raw
+//                      SDRAM and the generated RTL state (including caches).
+//                      Observer only; the RTL state requires this build's header.
 // Always written: DIR/kern.log (the kernel's debug text through the STI
 // window), DIR/lcd-<ms>.png each time the picture at the video outputs
 // changes (and lcd-last.png), DIR/audio.wav (AUDIO_L/R at 48 kHz, once the
@@ -216,6 +220,50 @@ struct Bench {
     }
 	uint64_t trace_after = 0, trace_count = 0;
 	bool trace_done = false;
+    struct History {
+        uint64_t clock, retired;
+        uint32_t pc, cpsr, regs[15];
+        char event;
+    };
+    std::vector<History> history;
+    size_t history_pos = 0, history_used = 0;
+    unsigned history_dumps = 0;
+    void record_history(char event, uint32_t pc, uint32_t cpsr) {
+        if (history.empty()) return;
+        auto &entry = history[history_pos];
+        entry.clock = clocks; entry.retired = retired;
+        entry.pc = pc; entry.cpsr = cpsr; entry.event = event;
+        for (int i = 0; i < 15; ++i) entry.regs[i] = reg(phys_index(i, cpsr));
+        history_pos = (history_pos + 1) % history.size();
+        history_used = std::min(history_used + 1, history.size());
+        if (history_dumps >= 8 || !(event == 'D' || event == 'P' || event == 'U' ||
+                                   (event == 'R' && pc == 0x5031e340))) return;
+        char name[64];
+        snprintf(name, sizeof name, "/fault-%u.log", ++history_dumps);
+        FILE *f = fopen((out + name).c_str(), "w");
+        if (!f) { perror("fault history"); exit(2); }
+        for (size_t i = 0; i < history_used; ++i) {
+            const auto &e = history[(history_pos + history.size() - history_used + i) % history.size()];
+            fprintf(f, "%c %08x", e.event, e.pc);
+            for (auto value : e.regs) fprintf(f, " %08x", value);
+            fprintf(f, " %08x clock=%" PRIu64 " retired=%" PRIu64 "\n", e.cpsr, e.clock, e.retired);
+        }
+        fclose(f);
+        snprintf(name, sizeof name, "/fault-%u.sdram.bin", history_dumps);
+        f = fopen((out + name).c_str(), "wb");
+        if (!f) { perror("fault SDRAM"); exit(2); }
+        if (fwrite(chip.mem.data(), sizeof(uint16_t), chip.mem.size(), f) != chip.mem.size()) {
+            perror("write fault SDRAM"); exit(2);
+        }
+        fclose(f);
+        snprintf(name, sizeof name, "/fault-%u.rtl.bin", history_dumps);
+        f = fopen((out + name).c_str(), "wb");
+        if (!f) { perror("fault RTL state"); exit(2); }
+        if (fwrite(r, sizeof(*r), 1, f) != 1) { perror("write fault RTL state"); exit(2); }
+        fclose(f);
+        printf("FAULT history %s clock=%" PRIu64 " pc=%08x event=%c\n", name + 1, clocks, pc, event);
+        fflush(stdout);
+    }
 	uint64_t dev_accesses = 0;
 	// STI debug text
 	FILE *kern = nullptr;
@@ -374,6 +422,7 @@ struct Bench {
 			bl_second = reg(phys_index(14, cpsr)) == ((pc + 2) | 1);
 		bool counted=(ev == 'R' && !bl_second) || ev == 'S' || ev == 'U';
         if(counted) retired++;
+        record_history(ev, pc, cpsr);
         accounting.observe(accounting_sample,counted,bl_second,ev,pc);
 		if (devlog && ev != 'R') {
 			// interrupts and exceptions as the plugin records them: "X n exc
@@ -540,6 +589,7 @@ int main(int argc, char **argv) {
 	std::string cs0p, cs1p, mmcp, out = ".", keysp, tracep, rtc = "2004-06-01 12:00:00";
 	uint64_t max_cycles = 1000000000ull, progress = 50000000ull, trace_after = 0, trace_count = 0;
 	bool devlog = false, profile_enabled = true;
+    size_t fault_history = 0;
     std::vector<uint64_t> profile_marks;size_t profile_mark_index=0;
 	for (int i = 1; i < argc; i++) {
 		std::string a = argv[i];
@@ -561,6 +611,7 @@ int main(int argc, char **argv) {
 		else if (a == "--trace-after") trace_after = strtoull(next(), nullptr, 0);
 		else if (a == "--trace-count") trace_count = strtoull(next(), nullptr, 0);
 		else if (a == "--progress") progress = strtoull(next(), nullptr, 0);
+        else if (a == "--fault-history") fault_history = strtoull(next(), nullptr, 0);
 		else if (a[0] == '+') continue;
 		else { fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
 	}
@@ -570,6 +621,7 @@ int main(int argc, char **argv) {
 	Bench b;
 	auto &R = *b.r;
 	b.out = out;
+    b.history.resize(fault_history);
 #ifdef CPU_PROFILE
     if(profile_enabled){b.accounting.open(out+"/profile.csv");b.accounting.total.clocks=b.clocks;b.accounting.total.why[cpu_profile::Reset]=b.clocks;}
 #else

@@ -24,6 +24,7 @@
 # Test tags (lines in the .S file):
 #   @@ qemu: no        the test needs the bench (bench registers, interrupts,
 #                      high RAM) or relies on ARM925T behaviour QEMU lacks
+#   @@ qemu: irq       WFI test's BENCH IRQ protocol via qemu/irq.py (ARM926)
 #   @@ trace: no       compare only the signature with QEMU, not the trace
 #   @@ bench: ARGS     extra arguments for the bench (Vtb_cpu)
 ROOT      := $(abspath ../..)
@@ -191,6 +192,10 @@ qemu: bins
 	for t in $(T); do \
 		src=$(HERE)/tests/$$t.S; [ -f $$src ] || src=$(TB)/$$t.S; \
 		if grep -q '^@@ qemu: *no' $$src; then skip=$$((skip+1)); continue; fi; \
+		if grep -q '^@@ qemu: *irq' $$src; then \
+			if QEMU=$(QEMU) $(PY) $(HERE)/qemu/irq.py $(TB)/$$t.bin $(BUILD)/qemu/$$t; then n=$$((n+1)); \
+			else bad=$$((bad+1)); fi; continue; \
+		fi; \
 		tr=1; grep -q '^@@ trace: *no' $$src && tr=0; \
 		if QEMU=$(QEMU) GDB=$(GDB) $(HERE)/qemu/run.sh $(TB)/$$t.bin $(BUILD)/qemu/$$t $$tr; then n=$$((n+1)); \
 		else bad=$$((bad+1)); fi; \
