@@ -51,6 +51,13 @@ The pending build copies set container `TZ=America/Detroit` when UTC
 midnight approaches, keeping the framework-generated `BUILD_DATE` at
 `261023`, identical to the baseline. This is a build-copy environment
 setting; no framework file or timing constraint is changed.
+A simultaneous launch by two independent task drivers briefly raised the
+server total to five containers. The task's classification seed-2 mapping
+was stopped, its partial build artifacts removed, and the same fixed seed
+restarted when a lane opened. No completed fit was discarded. Subsequent
+launchers share PID reservations and a launch lock across the rsync and
+compile-to-STA gaps; the separate STA launch also checks capacity. Other
+engineers' containers were not stopped.
 
 The paired acceptance families are selected before the candidate fits:
 
@@ -986,10 +993,13 @@ and skid-selection alignment, under arbitrary mode changes, holds and clears.
 All 225 counts, 57 QEMU comparisons, both lint modes, generated checks and
 the ten-occurrence check pass after the shared include is installed. Its
 manifests include the new header at both seeds. The acceptance family covers
-original undefined-output capture and the saved-classification inputs. The
-paired fits are queued after the forwarding trial in one task lane, while
-the other lane runs `factoredlock`. Neither new
-trial is retained on functional results alone.
+original undefined-output capture and the saved-classification inputs. The first seed improves the family from −0.473 to +1.358 ns; its limiting
+path is now the registered skid selector into `o_v5_und_ff`. Whole-core
+slack is −0.457 ns, limited by D-cache FSM state into post-ALU2 address
+capture. The fit uses 35,330 ALMs and 479 M10Ks, minimum four-corner hold
++0.098 ns; all 150 inputs, including the shared header, and the build date
+match. Fixed seed 2 is running after the capacity-related mapping restart
+described above. The classifier is not retained until that paired result.
 
 **Per-slot forwarding plus unqualified issue capture (`forwardslots`):**
 the first `forwarddav` seed removes the original late-hold-qualified
