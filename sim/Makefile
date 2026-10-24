@@ -16,6 +16,10 @@ SEED      ?= 1
 VFLAGS := --cc --exe --build -j 4 -O3 --x-assign unique --x-initial unique \
           -Wno-fatal -Wno-lint -Wno-style -Wno-MULTIDRIVEN \
           -CFLAGS "-O2 -std=c++17 -I$(ROOT)/sim/harness"
+# Whole-core compile options, e.g. VEXTRA=-DNGAGE_CORE_ARM9=1. The CPU
+# selection also chooses the firmware bench's register-file hierarchy.
+VEXTRA ?=
+CORE_CFLAGS = $(filter -DNGAGE_CORE_ARM9%,$(VEXTRA))
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
 BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash trace upp intc timers haudio periph save phoenix top
@@ -203,7 +207,7 @@ TOP_RTL := $(ROOT)/sim/stubs/hps_io.sv $(ROOT)/sim/stubs/pll.sv $(ROOT)/sim/stub
 $(BUILD)/top/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/top_main.cpp $(ROOT)/sim/harness/common.h \
                    $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h $(ROOT)/sim/harness/phoenix_stream.h \
                    $(ROOT)/rtl/mister/phoenix_patch.hex $(ROOT)/rtl/mister/phoenix_patch.vh
-	mkdir -p $(BUILD)/top && cd $(ROOT) && $(VERILATOR) $(VFLAGS) --timescale 1ns/1ps --pins-inout-enables \
+	mkdir -p $(BUILD)/top && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) $(if $(CORE_CFLAGS),-CFLAGS "$(CORE_CFLAGS)") --timescale 1ns/1ps --pins-inout-enables \
 		-GSELFTEST_SDRAM_WORDS_LOG2=12 -GSELFTEST_ONCHIP_WORDS_LOG2=12 -GSELFTEST_FLASH_WORDS_LOG2=10 \
 		--top-module emu -DNGAGE_DEBUG=1 --Mdir $(BUILD)/top -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
 		$(TOP_RTL) $(ROOT)/sim/harness/top_main.cpp
@@ -223,7 +227,7 @@ CORE_THREADS ?= 1
 $(BUILD)/coreboot/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/coreboot_main.cpp $(ROOT)/sim/harness/coreboot.vlt \
                         $(ROOT)/sim/harness/common.h $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h \
                         $(ROOT)/rtl/mister/phoenix_patch.hex $(ROOT)/rtl/mister/phoenix_patch.vh
-	mkdir -p $(BUILD)/coreboot && cd $(ROOT) && $(VERILATOR) $(VFLAGS) --timescale 1ns/1ps --pins-inout-enables \
+	mkdir -p $(BUILD)/coreboot && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) $(if $(CORE_CFLAGS),-CFLAGS "$(CORE_CFLAGS)") --timescale 1ns/1ps --pins-inout-enables \
 		$(if $(filter-out 1,$(CORE_THREADS)),--threads $(CORE_THREADS)) \
 		--top-module emu -DNGAGE_DEBUG=1 --Mdir $(BUILD)/coreboot -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
 		$(ROOT)/sim/harness/coreboot.vlt $(TOP_RTL) $(ROOT)/sim/harness/coreboot_main.cpp

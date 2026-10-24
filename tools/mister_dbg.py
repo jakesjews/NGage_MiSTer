@@ -85,8 +85,15 @@ def counters(w):
     # clocks, bus wait clocks on the SDRAM / the flash / elsewhere, bus beats;
     # then the CPU's stall taps (clocks): the data side's bus wait, the
     # fetch's, no instruction out of the fetch FIFO, the issue, shifter and
-    # decode stalls; the ALU's flushes and the writeback's (counts); uops,
-    # replays, and the MMC card counters (512-byte blocks completed, data-phase
+    # decode stalls; the ALU's and writeback's flush counts; uops and replays.
+    # NGAGE_CORE_ARM9 keeps this wire format. Its nearest equivalents are:
+    # data = backend HOLD/reload/retry/return, code = fetch wait/full,
+    # nofifo = no S-entry instruction, issue = D2 hazard or S/A unavailable,
+    # shifter = register-shift/multiply wait, decode = W CP15 occupancy,
+    # alu flush = registered A redirect, wb flush = W exception/serial/PC
+    # recovery. Scalar misses retain operands and do not count as replays.
+    # uops/instructions count W retirement; D-cache events are shared with ZAP.
+    # Next are the MMC card counters (512-byte blocks completed, data-phase
     # clocks, wire-wait-for-Linux clocks), and the D-cache's events (load-miss
     # fills, store-miss fills, line write-backs, uncached completions)
     frames, pix, retired, wfi, wsd, wfl, wot, beats = w[:8]

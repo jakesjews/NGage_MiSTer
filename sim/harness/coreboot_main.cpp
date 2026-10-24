@@ -150,6 +150,15 @@ bool device(uint32_t a) {
 	       !(a >= 0x0C000000u && a < 0x0C040000u);
 }
 
+// Only these two diagnostics need an implementation-specific hierarchy.
+#ifdef NGAGE_CORE_ARM9
+#define CORE_REGS emu__DOT__arm925t__DOT__u_zap__DOT__g_arm9__DOT__u_arm9_core__DOT__u_zap_writeback__DOT__u_zap_register_file__DOT__mem
+#define CORE_DATA_PC emu__DOT__arm925t__DOT__u_zap__DOT__g_arm9__DOT__u_arm9_core__DOT__data_pc8
+#else
+#define CORE_REGS emu__DOT__arm925t__DOT__u_zap__DOT__g_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__u_zap_register_file__DOT__mem
+#define CORE_DATA_PC emu__DOT__arm925t__DOT__u_zap__DOT__g_zap__DOT__u_zap_core__DOT__postalu_pc_plus_8_ff
+#endif
+
 // keys of the key script: a joystick bit (ngage_input.sv) or a PS/2 code
 struct KeyName { const char *name; int joy; int ps2; };
 const KeyName key_names[] = {
@@ -180,7 +189,9 @@ struct Bench {
 	uint64_t retired = 0;
 	uint32_t last_r_pc = 0;
 	char last_ev = 0;
-	FILE *devlog = nullptr, *trace = nullptr;
+	FILE *devlog = nullptr, *trace = nullptr, *exec_log = nullptr;
+    bool was_user = false;
+    uint64_t user_retired = 0, user_entries = 0, exec_calls = 0;
 	uint64_t trace_after = 0, trace_count = 0;
 	bool trace_done = false;
 	uint64_t dev_accesses = 0;
@@ -258,25 +269,39 @@ struct Bench {
 	// what commits at the coming edge (the CPU's writeback stage)
 	void cpu_before_edge() {
 		auto &h = *r;
-		uint32_t cpsr = h.emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__cpsr_ff;
+		uint32_t cpsr = h.emu__DOT__tr_wb_cpsr;
 		bool thumb = cpsr >> 5 & 1;
-		uint32_t pc = h.emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__i_pc_plus_8_buf_ff -
+		uint32_t pc = h.emu__DOT__tr_wb_pc -
 		              (thumb ? 4 : 8);
 		char ev = 0;
-		auto dabt = h.emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__i_data_abt;
+		auto dabt = h.emu__DOT__tr_wb_dabt;
 		if (dabt & 2) ev = 0;
 		else if (dabt & 1) ev = 'D';
-		else if (h.emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__i_fiq) ev = 'F';
-		else if (h.emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__i_irq) ev = 'I';
-		else if (h.emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__i_instr_abt) ev = 'P';
-		else if (h.emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__i_swi) ev = 'S';
-		else if (h.emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__i_und) ev = 'U';
-		else if ((h.emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__i_valid ||
-		          h.emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__i_decompile_valid) &&
-		         h.emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__i_uop_last)
+		else if (h.emu__DOT__tr_wb_fiq) ev = 'F';
+		else if (h.emu__DOT__tr_wb_irq) ev = 'I';
+		else if (h.emu__DOT__tr_wb_pabt) ev = 'P';
+		else if (h.emu__DOT__tr_wb_swi) ev = 'S';
+		else if (h.emu__DOT__tr_wb_und) ev = 'U';
+		else if ((h.emu__DOT__tr_wb_valid ||
+		          h.emu__DOT__tr_wb_dvalid) &&
+		         h.emu__DOT__tr_wb_uop_last)
 			ev = 'R';
 		if (!ev || h.emu__DOT__cpu_reset) { pending_ev = 0; return; }
-		pending_ev = ev;
+		if (exec_log) {
+            bool user = (cpsr & 31) == 16;
+            if (ev == 'R' && user) user_retired++;
+            if ((user && !was_user) || ev == 'S' || ev == 'D' || ev == 'P' || ev == 'U') {
+                if (user && !was_user) user_entries++;
+                if (ev == 'S') exec_calls++;
+                fprintf(exec_log, "%c %" PRIu64 " %" PRIu64 " pc=%08x cpsr=%08x r0=%08x r1=%08x r2=%08x r3=%08x r12=%08x sp=%08x lr=%08x\n",
+                    ev == 'R' ? 'T' : ev, clocks, retired, pc, cpsr,
+                    reg(phys_index(0,cpsr)),reg(phys_index(1,cpsr)),reg(phys_index(2,cpsr)),reg(phys_index(3,cpsr)),
+                    reg(phys_index(12,cpsr)),reg(phys_index(13,cpsr)),reg(phys_index(14,cpsr)));
+                fflush(exec_log);
+            }
+            was_user = user;
+        }
+        pending_ev = ev;
 		pending_pc = pc;
 		pending_thumb = thumb;
 	}
@@ -285,7 +310,7 @@ struct Bench {
 	bool pending_thumb = false;
 
 	uint32_t reg(int phys) {
-		return r->emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__u_zap_register_file__DOT__mem[phys];
+		return r->CORE_REGS[phys];
 	}
 
 	// after the edge: the registers after the committed instruction
@@ -293,7 +318,7 @@ struct Bench {
 		if (!pending_ev) return;
 		char ev = pending_ev;
 		uint32_t pc = pending_pc;
-		uint32_t cpsr = r->emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__cpsr_ff;
+		uint32_t cpsr = r->emu__DOT__tr_wb_cpsr;
 		// a Thumb BL pair counts once (QEMU's icount), as in tb/main.cpp
 		bool bl_second = false;
 		if (ev == 'R' && pending_thumb && last_ev == 'R' && pc == last_r_pc + 2 && (pc & 0x3FF))
@@ -334,8 +359,8 @@ struct Bench {
 		if (we && pa - 0x0DE00000u < 0x200000u)
 			for (unsigned i = 0; i < size; i++) sti_byte((uint8_t)(v >> (8 * i)));
 		if (devlog) {
-			uint32_t cpsr = h.emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__cpsr_ff;
-			uint32_t pc = h.emu__DOT__arm925t__DOT__u_zap__DOT__u_zap_core__DOT__postalu_pc_plus_8_ff - ((cpsr >> 5 & 1) ? 4 : 8);
+			uint32_t cpsr = h.emu__DOT__tr_wb_cpsr;
+			uint32_t pc = h.CORE_DATA_PC - ((cpsr >> 5 & 1) ? 4 : 8);
 			fprintf(devlog, "M %" PRIu64 " %c %u %08x %08x %08x\n", retired, we ? 'W' : 'R', size, pa, v, pc);
 		}
 	}
@@ -491,7 +516,10 @@ int main(int argc, char **argv) {
 	auto &R = *b.r;
 	b.out = out;
 	b.kern = fopen((out + "/kern.log").c_str(), "w");
-	if (devlog) b.devlog = fopen((out + "/dev.log").c_str(), "w");
+	if (devlog) {
+        b.devlog = fopen((out + "/dev.log").c_str(), "w");
+        b.exec_log = fopen((out + "/exec.log").c_str(), "w");
+    }
 	if (!tracep.empty()) { b.trace = fopen(tracep.c_str(), "w"); b.trace_after = trace_after; b.trace_count = trace_count; }
 	if (!keysp.empty()) {
 		FILE *f = fopen(keysp.c_str(), "r");
@@ -569,7 +597,12 @@ int main(int argc, char **argv) {
 	       b.clocks, b.clocks / CLK_HZ, b.retired, b.dev_accesses, b.pictures, b.audio.size() / 2, wall);
 	if (b.chip.errors) printf("the SDRAM chip model reported %d error(s)\n", b.chip.errors);
 	if (b.dm.protocol_errors) printf("%d DDRAM port protocol error(s)\n", b.dm.protocol_errors);
-	if (b.devlog) fclose(b.devlog);
+	if (b.exec_log) {
+        printf("User execution: %" PRIu64 " instructions, %" PRIu64 " entries, %" PRIu64 " exec calls\n",
+            b.user_retired,b.user_entries,b.exec_calls);
+        fclose(b.exec_log);
+    }
+    if (b.devlog) fclose(b.devlog);
 	if (b.trace) fclose(b.trace);
 	fclose(b.kern);
 	return 0;
