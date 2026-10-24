@@ -4957,3 +4957,36 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   instructions per guest second on the two cores, at the same 104
   MHz, is V2's cycle gain in the game itself, which neither the suite
   nor the kernel boot measures and the board cannot yet.
+- **ARM9 v2, session 11: the last zero-cycle cuts; V2 paused until the
+  game simulations say what it is worth** (Codex, codex/arm9v2
+  2ba41be..7ed5190; docs/consults/2026-10-24-codex-arm9v2-s11.md). The
+  short-port cut (the collision compare and the metadata selection
+  after the RAM-read edge, M10K inference kept after a failed inline
+  attempt): -2.818 ns, 15,439 ALMs; the S data-ready grants registered
+  beside the full producer matches: -2.473, 15,591; the next-lock
+  queries and the RF owner class in parallel: -2.877, 15,614 (the
+  accepted endpoint, 935 ALMs under ZAP's). 267/267, 69 QEMU, 85
+  windows, the firmware byte-identical through 4.5 guest seconds. The
+  gate (-1.5) missed by 1.38 ns, and the thread's reading is the
+  honest one: the leaders are now the front end (a queue word through
+  the Thumb expansion into D1's instruction bits, D1's classification
+  into D2's destination, -2.9 and -2.6) and the late-ALU flags path
+  (W's load word through A's bypass and the ALU's zero reduction,
+  11.1 ns), with independent ceilings at -1.9 to -2.3 (metadata/short
+  response, execute acceptance, fetch, RF); the address-launch stage
+  and a pre-rotator boundary would cut neither leader, so an extra
+  stage is not a closure plan for this fit; a bounded zero-cycle
+  front-end and late-ALU pass is estimated at 0.5-1.3 ns per family,
+  reaching -1.7 at best. Decision: V2's RTL work pauses here. Eleven
+  sessions have made a functionally complete core that runs the
+  kernel 13 % faster, but at 104 MHz its shape sits 1.5-2 ns from
+  where the board runs reliably, and each session's cuts move the
+  leader without moving the slack; before any further closure effort
+  (or a reorganisation with more stages), the Sonic simulations on
+  both cores decide whether V2's in-play gain is near the kernel's
+  13 % (then closure would still leave it far from 47 M/s and the
+  design needs more than timing) or the 30-40 % the consultants
+  budgeted (then the closure is worth a redesign). At 10 guest
+  seconds the runs are at the kernel boot (V2 654 M instructions
+  retired against ZAP's 465 M, polling loops included); about six
+  wall minutes per guest second, a day to the play captures.
