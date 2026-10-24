@@ -29,6 +29,7 @@ module arm925t (
 	bus_rdata,
 	bus_ack,
 	bus_err,
+	bus_no_late_error,
 	dbg_pc,
 	dbg_wb_valid,
 	dbg_wfi,
@@ -74,6 +75,7 @@ module arm925t (
 	input wire [31:0] bus_rdata;
 	input wire bus_ack;
 	input wire bus_err;
+	input wire bus_no_late_error;
 	output wire [31:0] dbg_pc;
 	output wire dbg_wb_valid;
 	output wire dbg_wfi;
@@ -153,7 +155,8 @@ module arm925t (
 		.o_wb_bte(bus_bte),
 		.i_wb_ack(bus_ack),
 		.i_wb_dat(bus_rdata),
-		.i_wb_err(bus_err)
+		.i_wb_err(bus_err),
+		.i_wb_no_late_error(bus_no_late_error)
 	);
 	assign bus_req = wb_cyc & wb_stb;
 	assign bus_burst = wb_cti == 3'b010;
@@ -1952,7 +1955,8 @@ module zap_cache (
 	o_wb_bte_nxt,
 	i_wb_dat,
 	i_wb_ack,
-	i_wb_err
+	i_wb_err,
+	i_wb_no_late_error
 );
 	reg _sv2v_0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
@@ -2018,6 +2022,7 @@ module zap_cache (
 	input wire [31:0] i_wb_dat;
 	input wire i_wb_ack;
 	input wire i_wb_err;
+	input wire i_wb_no_late_error;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
 	localparam [1:0] FINE_ID = 2'b11;
@@ -2437,7 +2442,8 @@ module zap_cache (
 		.o_wb_bte_nxt(cache_bte),
 		.i_wb_dat(i_wb_dat),
 		.i_wb_ack(wb_ack[0]),
-		.i_wb_err(wb_err[0])
+		.i_wb_err(wb_err[0]),
+		.i_wb_no_late_error(i_wb_no_late_error)
 	);
 	localparam [31:0] sv2v_uu_u_zap_cache_tag_ram_WAYS = WAYS;
 	localparam [(sv2v_uu_u_zap_cache_tag_ram_WAYS > 1 ? $clog2(sv2v_uu_u_zap_cache_tag_ram_WAYS) : 1) - 1:0] sv2v_uu_u_zap_cache_tag_ram_ext_i_line_way_0 = 1'sb0;
@@ -2702,7 +2708,8 @@ module zap_cache_fsm (
 	o_wb_bte_nxt,
 	i_wb_ack,
 	i_wb_dat,
-	i_wb_err
+	i_wb_err,
+	i_wb_no_late_error
 );
 	reg _sv2v_0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
@@ -2782,6 +2789,7 @@ module zap_cache_fsm (
 	input wire i_wb_ack;
 	input wire [31:0] i_wb_dat;
 	input wire i_wb_err;
+	input wire i_wb_no_late_error;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
 	localparam [1:0] FINE_ID = 2'b11;
@@ -3157,10 +3165,19 @@ module zap_cache_fsm (
 	wire [31:0] fill_lookup;
 	reg [31:0] response_dat_ff;
 	reg fill_ready_ff;
+	reg fill_no_late_error_ff;
+	always @(posedge i_clk)
+		if (i_reset || (state_nxt == IDLE))
+			fill_no_late_error_ff <= 1'b0;
+		else if (((state_ff == FETCH_SINGLE) && take) && (adr_ctr_ff == 0))
+			fill_no_late_error_ff <= (((CACHE_LINE == 16) && fetch_wrap_ff) && i_wb_no_late_error) && !i_wb_err;
+	always @(posedge i_clk)
+		if (((!i_reset && (state_ff == FETCH_SINGLE)) && fill_no_late_error_ff) && take)
+			;
 	assign fill_lookup = (i_stall ? i_address : i_address_check);
 	assign o_dbg_icache[0] = ((state_ff == FETCH_SINGLE) && take) && (o_wb_cti_ff == CTI_EOB);
 	assign o_dbg_icache[1] = (((state_ff == FETCH_SINGLE) && o_wb_cyc_ff) && o_wb_stb_ff) && !take;
-	assign o_fill_pending = state_ff == FETCH_SINGLE;
+	assign o_fill_pending = (state_ff == FETCH_SINGLE) && !fill_no_late_error_ff;
 	assign o_fill_done = state_ff == FILL_COMPLETE;
 	assign o_fill_fault = o_fill_done && fill_fault_ff;
 	always @(posedge i_clk) begin
@@ -20465,7 +20482,8 @@ module zap_top (
 	o_wb_bte,
 	i_wb_ack,
 	i_wb_dat,
-	i_wb_err
+	i_wb_err,
+	i_wb_no_late_error
 );
 	parameter [0:0] CP15_L4_DEFAULT = 1'd0;
 	parameter [0:0] ONLY_CORE = 1'd0;
@@ -20533,6 +20551,7 @@ module zap_top (
 	input wire i_wb_ack;
 	input wire [31:0] i_wb_dat;
 	input wire i_wb_err;
+	input wire i_wb_no_late_error;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
 	localparam [1:0] FINE_ID = 2'b11;
@@ -21028,6 +21047,7 @@ module zap_top (
 	wire [1:0] c_wb_bte;
 	wire c_wb_ack;
 	wire c_wb_err;
+	wire c_wb_no_late_error;
 	wire d_wb_stb;
 	wire d_wb_cyc;
 	wire d_wb_wen;
@@ -21262,6 +21282,7 @@ module zap_top (
 				.i_c_wb_bte(c_wb_bte),
 				.o_c_wb_ack(c_wb_ack),
 				.o_c_wb_err(c_wb_err),
+				.o_c_wb_no_late_error(c_wb_no_late_error),
 				.o_dbg_data_owner(dbg_data_owner),
 				.i_d_wb_stb(d_wb_stb),
 				.i_d_wb_cyc(d_wb_cyc),
@@ -21282,7 +21303,8 @@ module zap_top (
 				.o_wb_cti(wb_cti),
 				.o_wb_bte(o_wb_bte),
 				.i_wb_ack(wb_ack),
-				.i_wb_err(wb_err)
+				.i_wb_err(wb_err),
+				.i_wb_no_late_error(i_wb_no_late_error)
 			);
 		end
 		else begin : l_merger_for_core_without_cache_mmu
@@ -21299,6 +21321,7 @@ module zap_top (
 				.i_c_wb_bte(2'b00),
 				.o_c_wb_ack(instr_ack),
 				.o_c_wb_err(instr_err),
+				.o_c_wb_no_late_error(),
 				.o_dbg_data_owner(dbg_data_owner),
 				.i_d_wb_stb(cpu_dc_stb),
 				.i_d_wb_cyc(cpu_dc_stb),
@@ -21319,7 +21342,8 @@ module zap_top (
 				.o_wb_cti(o_wb_cti),
 				.o_wb_bte(o_wb_bte),
 				.i_wb_ack(i_wb_ack),
-				.i_wb_err(i_wb_err)
+				.i_wb_err(i_wb_err),
+				.i_wb_no_late_error(i_wb_no_late_error)
 			);
 		end
 		if (!ONLY_CORE) begin : l_generate_with_cache_mmu
@@ -21457,6 +21481,7 @@ module zap_top (
 				.o_wb_bte(),
 				.o_wb_bte_nxt(c_wb_bte),
 				.i_wb_err(c_wb_err),
+				.i_wb_no_late_error(c_wb_no_late_error),
 				.o_wb_stb_nxt(c_wb_stb),
 				.o_wb_cyc_nxt(c_wb_cyc),
 				.o_wb_wen_nxt(c_wb_wen),
@@ -21491,6 +21516,7 @@ module zap_wb_merger (
 	i_c_wb_bte,
 	o_c_wb_ack,
 	o_c_wb_err,
+	o_c_wb_no_late_error,
 	o_dbg_data_owner,
 	i_d_wb_stb,
 	i_d_wb_cyc,
@@ -21511,7 +21537,8 @@ module zap_wb_merger (
 	o_wb_cti,
 	o_wb_bte,
 	i_wb_ack,
-	i_wb_err
+	i_wb_err,
+	i_wb_no_late_error
 );
 	reg _sv2v_0;
 	parameter [0:0] ONLY_CORE = 1'd0;
@@ -21527,6 +21554,7 @@ module zap_wb_merger (
 	input wire [1:0] i_c_wb_bte;
 	output wire o_c_wb_ack;
 	output wire o_c_wb_err;
+	output wire o_c_wb_no_late_error;
 	output wire o_dbg_data_owner;
 	input wire i_d_wb_stb;
 	input wire i_d_wb_cyc;
@@ -21548,6 +21576,7 @@ module zap_wb_merger (
 	output reg [1:0] o_wb_bte;
 	input wire i_wb_ack;
 	input wire i_wb_err;
+	input wire i_wb_no_late_error;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
 	localparam [1:0] FINE_ID = 2'b11;
@@ -21854,6 +21883,7 @@ module zap_wb_merger (
 	assign o_c_wb_ack = (state_ff == 1'd0) & (i_wb_err | i_wb_ack);
 	assign o_d_wb_ack = (state_ff == 1'd1) & (i_wb_err | i_wb_ack);
 	assign o_c_wb_err = (state_ff == 1'd0) & i_wb_err;
+	assign o_c_wb_no_late_error = (state_ff == 1'd0) & i_wb_no_late_error;
 	assign o_d_wb_err = (state_ff == 1'd1) & i_wb_err;
 	generate
 		if (!ONLY_CORE) begin : l_genblk1

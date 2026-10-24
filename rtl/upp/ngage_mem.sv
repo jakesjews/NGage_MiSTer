@@ -40,6 +40,7 @@ module ngage_mem #(
 	input  logic [1:0]   wb_bte,
 	output logic         wb_ack,
 	output logic         wb_err,
+	output logic         wb_no_late_error, // meaningful only with this master's ACK
 	output logic [31:0]  wb_dat_o,
 	output logic         dbg_dma_owner,
 
@@ -167,6 +168,7 @@ module ngage_mem #(
 		.reset(reset),
 		.wb_cyc(b_cyc), .wb_stb(b_stb), .wb_we(b_we), .wb_adr(b_adr), .wb_dat_i(b_dat_w),
 		.wb_sel(b_sel), .wb_cti(b_cti), .wb_bte(b_bte), .wb_ack(b_ack), .wb_err(b_err), .wb_dat_o(b_dat_r),
+		.wb_no_late_error(wb_no_late_error),
 		.fl0_req(fl0_req), .fl0_we(fl0_we), .fl0_addr(fl0_addr), .fl0_wdata(fl0_wdata), .fl0_rdata(fl0_rdata), .fl0_ack(fl0_ack),
 		.fl0_array(fl0_array), .fl0_lreq(fl0_lreq), .fl0_laddr(fl0_laddr), .fl0_ltaken(fl0_ltaken),
 		.fl0_lrvalid(fl0_lrvalid), .fl0_lrbeat(fl0_lrbeat), .fl0_lrdata(fl0_lrdata),

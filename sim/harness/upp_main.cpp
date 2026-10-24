@@ -53,6 +53,7 @@ struct Txn {
 	uint8_t bte = 0;
 	std::vector<Beat> beats;
 	std::string what;
+	int safe_fill = -1; // explicit first-ACK class expectation for mode tests
 };
 
 struct Bench {
@@ -186,6 +187,7 @@ struct Bench {
 		t->eval();
 
 		bool ack = t->wb_ack, err = t->wb_err;
+		bool safe_fill = t->wb_no_late_error;
 		uint32_t rdat = t->wb_dat_o;
 		bool p_done = psel && !t->p_wait;
 		if (p_done) {
@@ -223,16 +225,26 @@ struct Bench {
 
 		if (ack || err) {
 			if (!busy) sim::fail("ack with no transaction (cycle %llu)", (unsigned long long)cyc);
-			else beat_done(rdat, err);
+			else beat_done(rdat, err, safe_fill);
 		}
 		t->clk = 0;
 		t->eval();
 	}
 
-	void beat_done(uint32_t rdat, bool err) {
+	void beat_done(uint32_t rdat, bool err, bool safe_fill) {
 		Beat &b = cur.beats[bi];
 		Region r = region(b.adr);
 		acks++;
+		if (bi == 0) {
+			// Only the first ACK carries the contract. Non-raw flash reads
+			// are array reads; raw command/status tests give explicit classes.
+			bool wrap_read = !cur.we && cur.bte == 1 && b.cti == 2 && b.sel == 15;
+			int want_safe = cur.safe_fill;
+			if (want_safe < 0 && (!raw || (r != R_CS0 && r != R_CS1) || !wrap_read))
+				want_safe = wrap_read && (r == R_SDRAM || r == R_ONCHIP || r == R_CS0 || r == R_CS1);
+			if (want_safe >= 0 && safe_fill != bool(want_safe))
+				sim::fail("%s: first-ACK no-late-error=%d, expected %d", cur.what.c_str(), safe_fill, want_safe);
+		}
 		if (err) sim::fail("%s: ERR at %08x", cur.what.c_str(), b.adr);
 		if (r == R_UNMAPPED) unmapped_txn_beats++;
 		if (cur.we) {
@@ -263,6 +275,11 @@ struct Bench {
 		uint64_t limit = cyc + 20000;
 		while (busy && cyc < limit) tick();
 		if (busy) { sim::fail("%s at %08x: no answer", x.what.c_str(), x.beats[bi].adr); busy = false; }
+	}
+
+	void run_class(Txn x, bool safe_fill) {
+		x.safe_fill = safe_fill;
+		run(x);
 	}
 
 	// ---------------- transactions ----------------
@@ -497,7 +514,7 @@ void flash_line_bursts(Bench &b) {
 			// Cold wrap-4
 			settle_idle();
 			b.raw = true;
-			b.run(t_wrap);
+			b.run_class(t_wrap, true);
 			std::vector<uint32_t> got_wcold = b.raw_beats;
 			b.raw = false;
 
@@ -505,7 +522,7 @@ void flash_line_bursts(Bench &b) {
 			settle_idle();
 			b.raw = true;
 			c0 = b.cyc;
-			b.run(t_wrap);
+			b.run_class(t_wrap, true);
 			uint64_t dt_wwarm = b.cyc - c0;
 			std::vector<uint32_t> got_wwarm = b.raw_beats;
 			b.raw = false;
@@ -529,7 +546,7 @@ void flash_line_bursts(Bench &b) {
 		b.raw = true;
 		b.run(b.burst(false, base, 4, 0, "autoselect linear burst"));
 		std::vector<uint32_t> auto_lin = b.raw_beats;
-		b.run(b.burst(false, base + 4, 4, 1, "autoselect wrap-4 burst"));
+		b.run_class(b.burst(false, base + 4, 4, 1, "autoselect wrap-4 burst"), false);
 		std::vector<uint32_t> auto_wrap = b.raw_beats;
 		b.raw = false;
 		CHECK_EQ(auto_lin[0], 0x000000ECu | ((uint32_t)dev_id << 16), "autoselect burst word 0 (mfg + dev)");
@@ -539,7 +556,7 @@ void flash_line_bursts(Bench &b) {
 		w16_at(base, 0, 0xF0);
 		// Immediately after F0 returns to read-array mode, a wrap-4 burst must read array data
 		b.raw = true;
-		b.run(b.burst(false, base + 8, 4, 1, "array wrap-4 after F0"));
+		b.run_class(b.burst(false, base + 8, 4, 1, "array wrap-4 after F0"), true);
 		std::vector<uint32_t> after_f0 = b.raw_beats;
 		b.raw = false;
 		for (int i = 0; i < 4; i++) {
@@ -566,7 +583,7 @@ void flash_line_bursts(Bench &b) {
 	unlock_at(0); w16_at(0, 0x555, 0xA0); w16_at(0, pa, new_w);
 	// Immediately do a 4-beat burst in the busy bank: must use S_FLASH status reads
 	b.raw = true;
-	b.run(b.burst(false, 2 * (pa & ~7u), 4, 1, "program status burst"));
+	b.run_class(b.burst(false, 2 * (pa & ~7u), 4, 1, "program status burst"), false);
 	std::vector<uint32_t> pstat = b.raw_beats;
 	b.raw = false;
 	for (int i = 0; i < 4; i++) {
@@ -581,7 +598,7 @@ void flash_line_bursts(Bench &b) {
 	while (((r16_at(0, pa) ^ new_w) & 0x80) != 0) {}
 	// Verify coherent line burst after program against halfword path
 	b.raw = true;
-	b.run(b.burst(false, 2 * (pa & ~7u) + 4, 4, 1, "wrap-4 burst after program"));
+	b.run_class(b.burst(false, 2 * (pa & ~7u) + 4, 4, 1, "wrap-4 burst after program"), true);
 	std::vector<uint32_t> post_prog = b.raw_beats;
 	b.raw = false;
 	for (int i = 0; i < 4; i++) {
@@ -592,7 +609,7 @@ void flash_line_bursts(Bench &b) {
 	// 2d. Erase status burst and erase-suspend burst
 	unlock_at(0); w16_at(0, 0x555, 0x80); unlock_at(0); w16_at(0, 0x7FF000, 0x30);
 	b.raw = true;
-	b.run(b.burst(false, 2 * 0x7FF008, 4, 1, "erase status wrap-4 burst"));
+	b.run_class(b.burst(false, 2 * 0x7FF008, 4, 1, "erase status wrap-4 burst"), false);
 	std::vector<uint32_t> estat = b.raw_beats;
 	b.raw = false;
 	for (int i = 0; i < 4; i++) {
@@ -605,7 +622,7 @@ void flash_line_bursts(Bench &b) {
 	b.raw = true;
 	b.run(b.burst(false, 2 * 0x7FF000, 4, 0, "erase-suspend status burst"));
 	std::vector<uint32_t> sstat = b.raw_beats;
-	b.run(b.burst(false, 0x00001000, 4, 1, "erase-suspend other-bank array burst"));
+	b.run_class(b.burst(false, 0x00001000, 4, 1, "erase-suspend other-bank array burst"), false);
 	std::vector<uint32_t> sarray = b.raw_beats;
 	b.raw = false;
 	for (int i = 0; i < 4; i++) {
@@ -694,6 +711,10 @@ int main(int argc, char **argv) {
 
 	// fill the on-chip RAM and EMIF block with write-back bursts so that every
 	// byte is known
+	for (uint32_t base : {0x00000000u, 0x02000000u, 0x04000000u, 0x08000000u,
+							 0x0A000000u, 0x0C000000u, 0x0C100000u, 0x10000000u})
+		for (uint32_t off = 0; off < 16; off += 4)
+			b.run(b.burst(false, base + off, 4, 1, "first-ACK target class"));
 	for (uint32_t a = 0; a < OC_BYTES; a += 16) b.run(b.burst(true, 0x0C000000u + a, 4, 0, "on-chip RAM fill"));
 	for (uint32_t a = 0; a < EMIF_BYTES; a += 16) b.run(b.burst(true, 0x08000000u + a, 4, 0, "EMIF fill"));
 

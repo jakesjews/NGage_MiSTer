@@ -96,7 +96,8 @@ output logic  [2:0]       o_wb_cti, o_wb_cti_nxt,
 output logic  [1:0]       o_wb_bte, o_wb_bte_nxt,
 input  logic [31:0]       i_wb_dat,
 input  logic              i_wb_ack,
-input  logic              i_wb_err
+input  logic              i_wb_err,
+input  logic              i_wb_no_late_error
 
 );
 
@@ -265,7 +266,8 @@ zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .
         .o_wb_bte_nxt           (cache_bte),
         .i_wb_dat               (i_wb_dat),
         .i_wb_ack               (wb_ack[0]),
-        .i_wb_err               (wb_err[0])
+        .i_wb_err               (wb_err[0]),
+        .i_wb_no_late_error     (i_wb_no_late_error)
 );
 
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
