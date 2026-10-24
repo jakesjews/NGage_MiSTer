@@ -7,17 +7,18 @@ criterion is the median of three whole-core slow-100C setup slacks at
 Retained so far: the registered TLB fault summary, per-slot issue decisions,
 local barrel pending selects, combined BL/LSL-zero decode, direct cache
 acknowledgement, binary background-completion tags, direct effective
-load interlocks, and classification before each micro-op case. Every retained
+load interlocks, classification before each micro-op case, and per-slot
+forwarding with unqualified issue capture. Every retained
 combination passes the complete CPU suite with identical cycles/instructions.
 The latest completed three-seed snapshot is `combined3` (`11bbda3`),
 including all six CPU changes and the unchanged owner-supplied card fix:
 **−0.645 / −0.486 / −0.880 ns, median −0.645 ns**. The final timing
 requirement is not met. The branch now also retains the paired-qualified
-interlock factoring and micro-op classification; that eight-change combination
-has not had a three-seed fit. Source manifests match for all three completed
-combined seeds. The remaining isolated trial targets issue forwarding; the
-barrel and bus fallbacks remain parked while the leading CPU families are
-addressed.
+interlock factoring, micro-op classification and per-slot forwarding; that
+nine-change combination is in its fixed three-seed sweep (`combined4`).
+Source manifests match for all three completed `combined3` seeds and between
+the retained source and the running `combined4` copies. The barrel and bus
+fallbacks remain parked pending the combined result.
 
 ## Measurement method
 
@@ -1025,7 +1026,7 @@ under the separately proved forwarding-validity contract. All 225 counts,
 `input reg` count remains ten. There is no new pipeline edge or register.
 The target is the same broad forwarding/store/operand-selection capture
 group, measured against `combined3`; the failed standalone result is not
-used as an easier baseline. It is not retained yet.
+used as an easier baseline.
 
 The first forwarding seed improves the group from −0.645 to −0.095 ns;
 store capture is +0.294 ns and operand selection +1.267 ns. The remaining
@@ -1034,7 +1035,16 @@ Whole-core slack is −0.500 ns, limited by the framework's host-configuration
 path (`gp_outr` to `cfg_custom_p2`), which is outside the permitted `sys/`
 edit scope. The fit uses 35,256 ALMs and 479 M10Ks, minimum four-corner hold
 +0.089 ns. All 149 input files,
-project settings and the build date match. Fixed seed 2 is running.
+project settings and the build date match. Seed 2's family is −0.302 ns,
+against −0.273 ns before: a 0.029 ns regression, while the worst-of-pair
+improves by 0.343 ns. Its store capture is −0.194 ns and operand selection
+−0.027 ns. The forwarding limit is again a saved operand index into normal
+shift-source capture. Whole-core slack is −0.478 ns, limited by Thumb
+instruction-valid into the undefined classifier addressed by `classifycase`.
+The fit uses 35,267 ALMs and 479 M10Ks, minimum four-corner hold +0.087 ns;
+all 149 source/project inputs and build date match. Keep it under the stated
+worst-of-pair rule, with the individual seed-2 regression visible. The full
+retained combination is regenerated and revalidated before its commit.
 
 A separate `nextjoin` preview combining `forwarddav`, `factoredlock` and
 `classifycase` also passes 225 exact counts, 57 comparisons, both lint modes
@@ -1095,6 +1105,16 @@ issue proof passes all 2,806 points under the independently proved ALU/shifter
 contract, and its predecode sources match the classifier proof. This preview
 is also unfitted and unretained; only individually qualifying changes may
 advance to the retained combination.
+
+The next fixed-seed whole-core sweep (`combined4`) starts from that tested
+preview while forwarding seed 2 is still running, using the otherwise free
+task lane. Every one of its 150 source/project inputs matches the validated
+preview, apart from the intentional MAIN macro and seed. This was speculative
+build scheduling, not early retention. Forwarding has now passed its independent
+pair gate, and the retained branch matches every non-QSF input byte-for-byte
+in all three build copies. Its base commit, exact patch and hashes remain
+archived separately from the eventual retained commit. Seeds 1 and 2 are
+running; seed 3 is queued. None replaces a completed seed or changes its value.
 
 ## Scope and risks
 

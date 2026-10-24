@@ -247,6 +247,11 @@ module zap_alu_main #(
         // Next version of the above to allow back-to-back execution.
         output logic                              o_dav_nxt,
 
+        // ARM925T: condition result for issue forwarding. The issue slot
+        // selects held refresh data whenever the ALU is waiting for a load,
+        // so its unused normal capture need not include that late hold.
+        output logic                              o_forward_dav,
+
         // Active CPSR out.
         output logic [FLAG_WDT-1:0]               o_flags_ff,
 
@@ -1019,9 +1024,9 @@ assign load_to_pc = i_mem_srcdest_index_ff == {2'd0, ARCH_PC} &&
 // ARM925T: an undefined instruction executes (takes the exception) only if
 // its condition passes; the decoder supplies AL where it must always be taken.
 //
-assign  o_dav_nxt  = !o_stall_from_alu &&
-                    (is_cc_satisfied ( i_condition_code_ff, flags_ff[31:28] )
-                     || i_irq_ff || i_fiq_ff || i_abt_ff);
+assign o_forward_dav = is_cc_satisfied ( i_condition_code_ff, flags_ff[31:28] )
+                       || i_irq_ff || i_fiq_ff || i_abt_ff;
+assign o_dav_nxt = !o_stall_from_alu && o_forward_dav;
 
 assign  sleep_nxt  =    i_irq_ff   ||
                         i_fiq_ff   ||

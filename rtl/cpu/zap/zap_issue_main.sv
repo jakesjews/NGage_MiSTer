@@ -131,7 +131,9 @@ module zap_issue_main
         //
 
         input logic                              i_shifter_dav_ff,
-        input logic                              i_alu_dav_nxt,
+        // ARM925T: condition valid before the ALU late-load hold. Used only
+        // for normal forwarding; that bank is unselected on a shifter hold.
+        input logic                              i_alu_forward_dav,
         input logic                              i_alu_dav_ff,
         input logic                              i_postalu0_dav_ff,
         input logic                              i_postalu1_dav_ff,
@@ -663,12 +665,40 @@ begin
         end
 end
 
+// ARM925T: finish forwarding priority for each slot before the late slot
+// choice, as for store data. The data OR tree and immediate/PC values stay
+// unchanged; a selected register-index mux no longer precedes comparisons.
+logic [6:0] operand_live_index[3], operand_saved_index[3];
+(* keep *) wire [11:0] operand_live_pick[3], operand_saved_pick[3];
+wire [11:0] operand_pick[3];
+assign operand_live_index[0] = {i_alu_source_ff[32], i_alu_source_ff[5:0]};
+assign operand_live_index[1] = {i_shift_source_ff[32], i_shift_source_ff[5:0]};
+assign operand_live_index[2] = {i_shift_length_ff[32], i_shift_length_ff[5:0]};
+assign operand_saved_index[0] = {skid_late_immediate_ff[0], skid_idx[23:18]};
+assign operand_saved_index[1] = {skid_late_immediate_ff[1], skid_idx[17:12]};
+assign operand_saved_index[2] = {skid_late_immediate_ff[2], skid_idx[11:6]};
+for (genvar op = 0; op < 3; op++) begin : g_forward_slot
+        assign operand_live_pick[op] = operand_forward_pick(operand_live_index[op]);
+        assign operand_saved_pick[op] = operand_forward_pick(operand_saved_index[op]);
+        assign operand_pick[op] = stall_late_ff ? operand_saved_pick[op] : operand_live_pick[op];
+end
+function automatic [11:0] operand_forward_pick(input [6:0] tag);
+        operand_forward_pick = forward_pick({tag[6], 26'd0, tag[5:0]},
+                i_shifter_destination_index_ff[5:0], i_alu_forward_dav,
+                i_alu_destination_index_ff[5:0], i_alu_dav_ff,
+                i_postalu0_destination_index_ff[5:0], i_postalu0_dav_ff,
+                i_postalu1_destination_index_ff[5:0], i_postalu1_dav_ff,
+                i_postalu_destination_index_ff[5:0], i_postalu_dav_ff,
+                i_memory_destination_index_ff[5:0], i_memory_dav_ff,
+                i_memory_mem_srcdest_index_ff[5:0], i_memory_mem_load_ff);
+endfunction
+
 // Get values from the feedback network.
 assign  o_alu_source_value_nxt  =
         get_forward_value (    {(stall_late_ff ? skid_late_immediate_ff[0] : i_alu_source_ff[32]),
                                 skid_alu_source_ff[31:6], late_reg_index[23:18]},
                                 i_shifter_destination_index_ff[5:0],
-                                i_alu_dav_nxt,
+                                i_alu_forward_dav,
                                 i_alu_destination_value_nxt,
                                 i_alu_destination_value_ff,
                                 i_alu_destination_index_ff[5:0],
@@ -695,7 +725,7 @@ assign  o_alu_source_value_nxt  =
                                 i_cpu_mode,
                                 skid_pc_plus_8_ff,
                                 skid_force32align_ff,
-                                1'b0, 12'd0
+                                1'b1, operand_pick[0]
         );
 
 
@@ -703,7 +733,7 @@ assign  o_shift_source_value_nxt=
         get_forward_value (    {(stall_late_ff ? skid_late_immediate_ff[1] : i_shift_source_ff[32]),
                                 skid_shift_source_ff[31:6], late_reg_index[17:12]},
                                 i_shifter_destination_index_ff[5:0],
-                                i_alu_dav_nxt,
+                                i_alu_forward_dav,
                                 i_alu_destination_value_nxt,
                                 i_alu_destination_value_ff,
                                 i_alu_destination_index_ff[5:0],
@@ -730,14 +760,14 @@ assign  o_shift_source_value_nxt=
                                 i_cpu_mode,
                                 skid_pc_plus_8_ff,
                                 1'd0,
-                                1'b0, 12'd0
+                                1'b1, operand_pick[1]
         );
 
 assign  o_shift_length_value_nxt=
         get_forward_value (    {(stall_late_ff ? skid_late_immediate_ff[2] : i_shift_length_ff[32]),
                                 skid_shift_length_ff[31:6], late_reg_index[11:6]},
                                 i_shifter_destination_index_ff[5:0],
-                                i_alu_dav_nxt,
+                                i_alu_forward_dav,
                                 i_alu_destination_value_nxt,
                                 i_alu_destination_value_ff,
                                 i_alu_destination_index_ff[5:0],
@@ -764,7 +794,7 @@ assign  o_shift_length_value_nxt=
                                 i_cpu_mode,
                                 skid_pc_plus_8_ff,
                                 1'd0,
-                                1'b0, 12'd0
+                                1'b1, operand_pick[2]
         );
 
 //
@@ -776,7 +806,7 @@ assign  o_shift_length_value_nxt=
 // is never aligned, so the index itself is not needed.
 //
 wire [11:0] ms_pick_live  = forward_pick ( {27'd0, i_mem_srcdest_index_ff[5:0]},
-                                i_shifter_destination_index_ff[5:0], i_alu_dav_nxt,
+                                i_shifter_destination_index_ff[5:0], i_alu_forward_dav,
                                 i_alu_destination_index_ff[5:0], i_alu_dav_ff,
                                 i_postalu0_destination_index_ff[5:0], i_postalu0_dav_ff,
                                 i_postalu1_destination_index_ff[5:0], i_postalu1_dav_ff,
@@ -784,7 +814,7 @@ wire [11:0] ms_pick_live  = forward_pick ( {27'd0, i_mem_srcdest_index_ff[5:0]},
                                 i_memory_destination_index_ff[5:0], i_memory_dav_ff,
                                 i_memory_mem_srcdest_index_ff[5:0], i_memory_mem_load_ff );
 wire [11:0] ms_pick_saved = forward_pick ( {27'd0, skid_idx[5:0]},
-                                i_shifter_destination_index_ff[5:0], i_alu_dav_nxt,
+                                i_shifter_destination_index_ff[5:0], i_alu_forward_dav,
                                 i_alu_destination_index_ff[5:0], i_alu_dav_ff,
                                 i_postalu0_destination_index_ff[5:0], i_postalu0_dav_ff,
                                 i_postalu1_destination_index_ff[5:0], i_postalu1_dav_ff,
@@ -798,7 +828,7 @@ assign  o_mem_srcdest_value_nxt =
         get_forward_value (    33'd0,
 
                                 i_shifter_destination_index_ff[5:0],
-                                i_alu_dav_nxt,
+                                i_alu_forward_dav,
                                 i_alu_destination_value_nxt,
                                 i_alu_destination_value_ff,
                                 i_alu_destination_index_ff[5:0],
@@ -1507,10 +1537,12 @@ function automatic [32:0] get_forward_value (
         // its PC aligned here too, so its address is aligned from the start
         // and the alignment check in zap_core sees no fault.
         //
+        // The PC pick already excludes immediates and RAZ; reuse it for
+        // Thumb PC alignment instead of comparing the selected index again.
         get_forward_value[32] = pick[11]; // Read the separately captured RF bank.
         get_forward_value[31:0] = force32_align_ff &&
                              ((!skid_mem_load_ff && !skid_mem_store_ff) ||
-                              (!index[32] && index[5:0] == {2'd0, ARCH_PC[3:0]})) ?
+                              pick[2]) ?
                              (get & 32'hffff_fffc) : get;
 
 endfunction : get_forward_value

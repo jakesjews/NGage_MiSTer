@@ -457,6 +457,7 @@ logic                            alu_fiq_ff;
 logic                            alu_swi_ff;
 logic                            alu_dav_ff;
 logic                            alu_dav_nxt;
+logic                            alu_forward_dav;
 logic [31:0]                     alu_pc_plus_8_ff;
 logic [31:0]                     pc_from_alu;
 logic [$clog2(PHY_REGS)-1:0]     alu_destination_index_ff;
@@ -1059,7 +1060,7 @@ u_zap_issue_main
         .i_alu_destination_index_ff     (alu_destination_index_ff),
         .i_memory_destination_index_ff  (memory_destination_index_ff),
         .i_shifter_dav_ff               (shifter_condition_code_ff != NV ? 1'd1 : 1'd0),
-        .i_alu_dav_nxt                  (alu_dav_nxt),
+        .i_alu_forward_dav              (alu_forward_dav),
         .i_alu_dav_ff                   (alu_dav_ff),
         .i_memory_dav_ff                (memory_dav_ff),
         .i_alu_destination_value_nxt    (alu_alu_result_nxt),
@@ -1355,6 +1356,7 @@ u_zap_alu_main
          .o_swi_ff                         (alu_swi_ff),
          .o_dav_ff                         (alu_dav_ff),
          .o_dav_nxt                        (alu_dav_nxt),
+         .o_forward_dav                    (alu_forward_dav),
          .o_pc_plus_8_ff                   (alu_pc_plus_8_ff),
          .o_mem_address_ff                 (alu_address_ff),
          .o_destination_index_ff           (alu_destination_index_ff),
