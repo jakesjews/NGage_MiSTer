@@ -4234,3 +4234,18 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   D1's head selector; the report's own recommendation is to restructure
   them before M/W. Session 4 launched with that order, then M/W,
   retirement, and the first full-suite run with CORE=ARM9 selecting V2.
+- **The debug logic is opt-in now** (user: "can we strip out debug code
+  for this work then add it in only when we actually need it so it
+  doesn't hurt timing"). The switch is flipped: the default build is the
+  stripped core (no overlay, per-second counters or trace triggers,
+  about 1,700 ALMs smaller, the same thing the nd-/ndm- sweeps and the
+  main slot's core already were), and NGAGE_NO_DEBUG is gone. A
+  measurement core, for tools/mister_dbg.py, the board tools' counters
+  and the loader words, is built with VERILOG_MACRO "NGAGE_DEBUG=1"
+  (the commented line in NGage.qsf; `tools/seed_sweep.sh COMMIT TAG
+  NGAGE_DEBUG ...`); the emu top bench passes -DNGAGE_DEBUG=1 itself,
+  since it checks the overlay. Both configurations lint clean and the
+  top bench runs. The Codex threads get the note with their next
+  resume (nothing to uncomment for a timing build). A reference build
+  of the stripped default, seed 2, went to the server as b26; its slack
+  and fit follow in the next entry.

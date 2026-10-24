@@ -105,7 +105,7 @@ localparam CONF_STR = {
 	"O[15:14],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"-;",
 	"O[6],Memory test,Off,On;",
-`ifndef NGAGE_NO_DEBUG
+`ifdef NGAGE_DEBUG
 	"O[8],Debug overlay,Off,On;",
 `endif
 	"-;",
@@ -1043,9 +1043,10 @@ wire [15:0] test_rgb = (test_errors != 16'd0)  ? 16'hF81F :
 wire        dbg_bus_beat  = wb_cyc && wb_stb && (wb_ack || wb_err);
 // The debug overlay (OSD "Debug overlay"): the CPU's PC, status bits and
 // 32-bit words as white pixels; tools/mister_dbg.py has the row layout and
-// decodes a screenshot. NGAGE_NO_DEBUG (NGage.qsf) leaves the overlay, its
-// per-second counters and the trace triggers out: the main core.
-`ifndef NGAGE_NO_DEBUG
+// decodes a screenshot. The overlay, its per-second counters and the trace
+// triggers are built only with NGAGE_DEBUG (NGage.qsf): the measurement
+// core; every other build is the stripped core, about 1,700 ALMs smaller.
+`ifdef NGAGE_DEBUG
 // Appended words 37/38 (rows 156-158 and 160-162): loader state and history.
 // Count actual ioctl_download rising edges, including raw F3/F4. These survive
 // CPU/OSD resets; sys_reset (RESET input/PLL unlock) clears the history.

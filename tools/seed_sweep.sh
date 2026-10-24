@@ -6,7 +6,7 @@
 # build/hardware/NGage-<tag>-s<seed>.rbf.
 #   tools/seed_sweep.sh COMMIT TAG MACRO SEED...
 # MACRO is a VERILOG_MACRO name whose commented line in NGage.qsf is
-# uncommented for the sweep (e.g. NGAGE_NO_DEBUG for the main core), or "".
+# uncommented for the sweep (e.g. NGAGE_DEBUG for a measurement core), or "".
 set -u
 commit=$1; tag=$2; macro=$3; shift 3
 root=$(cd "$(dirname "$0")/.." && pwd)
