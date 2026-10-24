@@ -34,7 +34,7 @@ sfx="$trial_suffix"
 [[ $seed == 1 && $mhz == 104 ]] || sfx="$trial_suffix-$seed-$mhz"
 dir=${BUILD_DIR:-dev/mister/ngage-cpu-quartus$sfx}
 image=theypsilon/quartus-lite-c5:17.0.2.docker0
-out=$root/sim/cpu/build/quartus$sfx
+out=${TRIAL_OUT:-$root/sim/cpu/build/quartus$sfx}
 mkdir -p "$out"
 
 running=$(ssh "$host" "docker ps --format '{{.Image}}' | grep -c quartus || true")

@@ -1,0 +1,127 @@
+----------------
+; Command Info ;
+----------------
+Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 0.009
+
+Tcl Command:
+    report_timing -setup -file output_files/detail_family_locks_Slow_1100mV_-40C_Model.txt -to [get_registers {*u_data_cache|*u_zap_cache_fsm|*lock*}] -npaths 1 -detail full_path
+
+Options:
+    -to [get_registers {*u_data_cache|*u_zap_cache_fsm|*lock*}]
+    -setup
+    -npaths 1
+    -detail full_path
+    -file {output_files/detail_family_locks_Slow_1100mV_-40C_Model.txt}
+
+Delay Model:
+    Slow 1100mV -40C Model
+
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+; Summary of Paths                                                                                                                                                                                                                                                                 ;
++-------+----------------------------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------+--------------+-------------+--------------+------------+------------+
+; Slack ; From Node                                                                  ; To Node                                                                                                               ; Launch Clock ; Latch Clock ; Relationship ; Clock Skew ; Data Delay ;
++-------+----------------------------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------+--------------+-------------+--------------+------------+------------+
+; 0.009 ; arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|memory_state.0001 ; arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[3] ; clk          ; clk         ; 9.615        ; -0.514     ; 8.922      ;
++-------+----------------------------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------+--------------+-------------+--------------+------------+------------+
+
+Path #1: Setup slack is 0.009
+===============================================================================
++--------------------------------------------------------------------------------------------------------------------------------------------+
+; Path Summary                                                                                                                               ;
++--------------------+-----------------------------------------------------------------------------------------------------------------------+
+; Property           ; Value                                                                                                                 ;
++--------------------+-----------------------------------------------------------------------------------------------------------------------+
+; From Node          ; arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|memory_state.0001                                            ;
+; To Node            ; arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[3] ;
+; Launch Clock       ; clk                                                                                                                   ;
+; Latch Clock        ; clk                                                                                                                   ;
+; Data Arrival Time  ; 13.697                                                                                                                ;
+; Data Required Time ; 13.706                                                                                                                ;
+; Slack              ; 0.009                                                                                                                 ;
++--------------------+-----------------------------------------------------------------------------------------------------------------------+
+
++------------------------------------------------------------------------------------+
+; Statistics                                                                         ;
++------------------------+--------+-------+-------------+------------+-------+-------+
+; Property               ; Value  ; Count ; Total Delay ; % of Total ; Min   ; Max   ;
++------------------------+--------+-------+-------------+------------+-------+-------+
+; Setup Relationship     ; 9.615  ;       ;             ;            ;       ;       ;
+; Clock Skew             ; -0.514 ;       ;             ;            ;       ;       ;
+; Data Delay             ; 8.922  ;       ;             ;            ;       ;       ;
+; Number of Logic Levels ;        ; 7     ;             ;            ;       ;       ;
+; Physical Delays        ;        ;       ;             ;            ;       ;       ;
+;  Arrival Path          ;        ;       ;             ;            ;       ;       ;
+;   Clock                ;        ;       ;             ;            ;       ;       ;
+;    IC                  ;        ; 3     ; 3.067       ; 64         ; 0.000 ; 2.480 ;
+;    Cell                ;        ; 3     ; 1.708       ; 36         ; 0.476 ; 0.704 ;
+;   Data                 ;        ;       ;             ;            ;       ;       ;
+;    IC                  ;        ; 8     ; 6.779       ; 76         ; 0.220 ; 1.790 ;
+;    Cell                ;        ; 9     ; 2.143       ; 24         ; 0.000 ; 0.650 ;
+;    uTco                ;        ; 1     ; 0.000       ; 0          ; 0.000 ; 0.000 ;
+;  Required Path         ;        ;       ;             ;            ;       ;       ;
+;   Clock                ;        ;       ;             ;            ;       ;       ;
+;    IC                  ;        ; 3     ; 2.584       ; 61         ; 0.000 ; 2.021 ;
+;    Cell                ;        ; 3     ; 1.629       ; 39         ; 0.452 ; 0.704 ;
++------------------------+--------+-------+-------------+------------+-------+-------+
+Note: Negative delays are omitted from totals when calculating percentages
+
++---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+; Data Arrival Path                                                                                                                                                                     ;
++----------+---------+----+------+--------+---------------------+-----------------------------------------------------------------------------------------------------------------------+
+; Total    ; Incr    ; RF ; Type ; Fanout ; Location            ; Element                                                                                                               ;
++----------+---------+----+------+--------+---------------------+-----------------------------------------------------------------------------------------------------------------------+
+; 0.000    ; 0.000   ;    ;      ;        ;                     ; launch edge time                                                                                                      ;
+; 4.775    ; 4.775   ;    ;      ;        ;                     ; clock path                                                                                                            ;
+;   0.000  ;   0.000 ;    ;      ;        ;                     ; source latency                                                                                                        ;
+;   0.000  ;   0.000 ;    ;      ; 1      ; PIN_W20             ; clk                                                                                                                   ;
+;   0.000  ;   0.000 ; RR ; IC   ; 1      ; IOIBUF_X89_Y23_N21  ; clk~input|i                                                                                                           ;
+;   0.704  ;   0.704 ; RR ; CELL ; 1      ; IOIBUF_X89_Y23_N21  ; clk~input|o                                                                                                           ;
+;   1.291  ;   0.587 ; RR ; IC   ; 1      ; CLKCTRL_G10         ; clk~inputCLKENA0|inclk                                                                                                ;
+;   1.767  ;   0.476 ; RR ; CELL ; 17319  ; CLKCTRL_G10         ; clk~inputCLKENA0|outclk                                                                                               ;
+;   4.247  ;   2.480 ; RR ; IC   ; 1      ; FF_X48_Y16_N14      ; cpu|u_zap|g_arm9.u_arm9_core|memory_state.0001|clk                                                                    ;
+;   4.775  ;   0.528 ; RR ; CELL ; 1      ; FF_X48_Y16_N14      ; arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|memory_state.0001                                            ;
+; 13.697   ; 8.922   ;    ;      ;        ;                     ; data path                                                                                                             ;
+;   4.775  ;   0.000 ;    ; uTco ; 1      ; FF_X48_Y16_N14      ; arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|memory_state.0001                                            ;
+;   4.775  ;   0.000 ; RR ; CELL ; 35     ; FF_X48_Y16_N14      ; cpu|u_zap|g_arm9.u_arm9_core|memory_state.0001|q                                                                      ;
+;   6.127  ;   1.352 ; RR ; IC   ; 1      ; LABCELL_X50_Y27_N0  ; cpu|u_zap|g_arm9.u_arm9_core|o_data_wb_stb~0|dataf                                                                    ;
+;   6.229  ;   0.102 ; RR ; CELL ; 6      ; LABCELL_X50_Y27_N0  ; cpu|u_zap|g_arm9.u_arm9_core|o_data_wb_stb~0|combout                                                                  ;
+;   6.488  ;   0.259 ; RR ; IC   ; 1      ; LABCELL_X50_Y27_N6  ; cpu|u_zap|comb~0|datad                                                                                                ;
+;   6.764  ;   0.276 ; RR ; CELL ; 6      ; LABCELL_X50_Y27_N6  ; cpu|u_zap|comb~0|combout                                                                                              ;
+;   7.984  ;   1.220 ; RR ; IC   ; 1      ; LABCELL_X50_Y16_N36 ; cpu|u_zap|l_generate_with_cache_mmu.u_data_cache|u_zap_cache_fsm|always15~13|datae                                    ;
+;   8.266  ;   0.282 ; RR ; CELL ; 4      ; LABCELL_X50_Y16_N36 ; cpu|u_zap|l_generate_with_cache_mmu.u_data_cache|u_zap_cache_fsm|always15~13|combout                                  ;
+;   8.486  ;   0.220 ; RR ; IC   ; 1      ; LABCELL_X50_Y16_N57 ; cpu|u_zap|l_generate_with_cache_mmu.u_data_cache|u_zap_cache_fsm|state_nxt~1|datae                                    ;
+;   8.791  ;   0.305 ; RF ; CELL ; 3      ; LABCELL_X50_Y16_N57 ; cpu|u_zap|l_generate_with_cache_mmu.u_data_cache|u_zap_cache_fsm|state_nxt~1|combout                                  ;
+;   10.581 ;   1.790 ; FF ; IC   ; 1      ; LABCELL_X48_Y34_N6  ; cpu|u_zap|l_generate_with_cache_mmu.u_data_cache|u_zap_cache_fsm|lock_ff~0|dataf                                      ;
+;   10.675 ;   0.094 ; FF ; CELL ; 43     ; LABCELL_X48_Y34_N6  ; cpu|u_zap|l_generate_with_cache_mmu.u_data_cache|u_zap_cache_fsm|lock_ff~0|combout                                    ;
+;   11.672 ;   0.997 ; FF ; IC   ; 1      ; MLABCELL_X47_Y36_N6 ; cpu|u_zap|l_generate_with_cache_mmu.u_data_cache|u_zap_cache_fsm|lock_ff~7|dataf                                      ;
+;   11.759 ;   0.087 ; FF ; CELL ; 4      ; MLABCELL_X47_Y36_N6 ; cpu|u_zap|l_generate_with_cache_mmu.u_data_cache|u_zap_cache_fsm|lock_ff~7|combout                                    ;
+;   12.230 ;   0.471 ; FF ; IC   ; 1      ; LABCELL_X45_Y36_N18 ; cpu|u_zap|l_generate_with_cache_mmu.u_data_cache|u_zap_cache_fsm|lock_ff~8|datad                                      ;
+;   12.577 ;   0.347 ; FF ; CELL ; 2      ; LABCELL_X45_Y36_N18 ; cpu|u_zap|l_generate_with_cache_mmu.u_data_cache|u_zap_cache_fsm|lock_ff~8|combout                                    ;
+;   13.047 ;   0.470 ; FF ; IC   ; 1      ; FF_X45_Y36_N25      ; cpu|u_zap|l_generate_with_cache_mmu.u_data_cache|u_zap_cache_fsm|lock_ff[3]|asdata                                    ;
+;   13.697 ;   0.650 ; FF ; CELL ; 1      ; FF_X45_Y36_N25      ; arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[3] ;
++----------+---------+----+------+--------+---------------------+-----------------------------------------------------------------------------------------------------------------------+
+
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+; Data Required Path                                                                                                                                                                   ;
++----------+---------+----+------+--------+--------------------+-----------------------------------------------------------------------------------------------------------------------+
+; Total    ; Incr    ; RF ; Type ; Fanout ; Location           ; Element                                                                                                               ;
++----------+---------+----+------+--------+--------------------+-----------------------------------------------------------------------------------------------------------------------+
+; 9.615    ; 9.615   ;    ;      ;        ;                    ; latch edge time                                                                                                       ;
+; 13.876   ; 4.261   ;    ;      ;        ;                    ; clock path                                                                                                            ;
+;   9.615  ;   0.000 ;    ;      ;        ;                    ; source latency                                                                                                        ;
+;   9.615  ;   0.000 ;    ;      ; 1      ; PIN_W20            ; clk                                                                                                                   ;
+;   9.615  ;   0.000 ; RR ; IC   ; 1      ; IOIBUF_X89_Y23_N21 ; clk~input|i                                                                                                           ;
+;   10.319 ;   0.704 ; RR ; CELL ; 1      ; IOIBUF_X89_Y23_N21 ; clk~input|o                                                                                                           ;
+;   10.882 ;   0.563 ; RR ; IC   ; 1      ; CLKCTRL_G10        ; clk~inputCLKENA0|inclk                                                                                                ;
+;   11.334 ;   0.452 ; RR ; CELL ; 17319  ; CLKCTRL_G10        ; clk~inputCLKENA0|outclk                                                                                               ;
+;   13.355 ;   2.021 ; RR ; IC   ; 1      ; FF_X45_Y36_N25     ; cpu|u_zap|l_generate_with_cache_mmu.u_data_cache|u_zap_cache_fsm|lock_ff[3]|clk                                       ;
+;   13.828 ;   0.473 ; RR ; CELL ; 1      ; FF_X45_Y36_N25     ; arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[3] ;
+;   13.876 ;   0.048 ;    ;      ;        ;                    ; clock pessimism removed                                                                                               ;
+; 13.706   ; -0.170  ;    ;      ;        ;                    ; clock uncertainty                                                                                                     ;
+; 13.706   ; 0.000   ;    ; uTsu ; 1      ; FF_X45_Y36_N25     ; arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[3] ;
++----------+---------+----+------+--------+--------------------+-----------------------------------------------------------------------------------------------------------------------+
+
+----------------------------
+; Extra Fitter Information ;
+----------------------------
+HTML report is unavailable in plain text report export.
