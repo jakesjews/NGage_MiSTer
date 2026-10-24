@@ -46,7 +46,7 @@ module decode_tb;
     logic [2:0] o_redirect_pointer;
     logic [3:0] o_redirect_count;
     logic [1:0] o_redirect_action;
-    arm9v2_decode dut (.i_forward_tag('0),.i_forward_write('0),.o_forward_match(),.i_rf_value('0),.o_rf_tag(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.*);
+    arm9v2_decode dut (.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_forward_tag('0),.i_forward_write('0),.o_forward_match(),.i_rf_value('0),.o_rf_tag(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.*);
     wire unused = &{1'b0,o_ready,o_valid,o_pc,o_instruction,o_pc_base,o_next_pc,o_raw,o_mode,o_thumb,o_fault,o_force_align,o_reg_shift,o_kind,o_condition,o_tag,o_used,o_value,o_dest,o_first,o_last,o_reg_count,o_offset,o_writeback_offset,o_transfer_reg,o_branch_target,o_direct,o_match_taken,o_match_fallthrough,o_predicted,o_pred_hit,o_pred_target,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count,o_hazard,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action};
     int checks=0,cycles=0,redirects=0;
     logic [31:0] last_target=0;

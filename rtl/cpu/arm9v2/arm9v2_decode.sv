@@ -28,6 +28,9 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     input logic [5:0] i_load_valid,i_load_speculate,
     input logic i_w_load_hit,
     output logic [3:0] o_pending,
+    input logic i_return_next_valid,
+    input logic [5:0] i_return_next_tag,
+    output logic [3:0] o_return_match,
     input logic [1:0][5:0] i_next_load_tag,
     input logic [1:0] i_next_load_valid,
     output logic o_load_wait,
@@ -424,6 +427,14 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
         if(front.fault)begin decoded.direct=0;decoded.used=0;decoded.early=0;decoded.writes=0;decoded.last=1;end
     end
     assign o_early=issued.early;
+    // Normal-load repair is compared before its data register, alongside
+    // D2/S admission. Refresh against the held owner when S cannot advance.
+    always_ff @(posedge i_clk) begin
+        if(i_reset||i_flush)o_return_match<=0;
+        else for(int src=0;src<4;src++)
+            o_return_match[src]<=i_return_next_valid&&i_return_next_tag==
+                ((!out_valid||i_ready)?d2.tag[src]:issued.tag[src]);
+    end
     always_ff @(posedge i_clk)begin
         if(i_reset||i_flush)o_forward_match<=0;
         else for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)

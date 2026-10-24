@@ -332,20 +332,22 @@ output  logic [7:0]                      o_dbg_stall
     wire w_locked=|(i_dc_lock&w_load_select);
     wire w_return=|(i_dc_reg_idx&w_load_select);
     wire scalar_replay=1'b0; // Retain consumers; scalar completion never flushes independent work.
-    (* dont_retime *) logic return_valid;
-    (* dont_retime *) logic [63:0] return_select;
+    (* dont_retime *) logic [5:0] return_tag;
     (* dont_retime *) logic [31:0] return_data;
-    logic [1:0][63:0] operand_return_select;
+    logic return_next_valid,return_ready;
+    logic [3:0] d_return_match;
     logic [1:0][31:0] operand_return_data;
     logic [1:0] forward_load;
     // Normal completion is qualified against the lock installed on its
     // accepting edge. A miss ACK installs a lock, not a usable data word.
-    assign operand_return_select[0]=return_valid&&!(| (return_select&i_dc_lock))?return_select:64'd0;
-    assign operand_return_select[1]=i_dc_reg_idx;
+    assign return_next_valid=!i_reset&&wb_complete&&w.load_writer&&!wb_exception;
+    // The accepting edge can install a miss lock. Test the registered
+    // return owner after that edge; never qualify it with the old lock.
+    // Only this one ready bit fans out to the eight registered matches.
+    assign return_ready=!i_dc_lock[return_tag];
     assign operand_return_data={i_dc_reg_dat,return_data};
     always_ff @(posedge i_clk) begin
-        return_valid<=!i_reset&&wb_complete&&w.load_writer&&!wb_exception;
-        return_select<=w_load_select;return_data<=load_data;
+        return_tag<=w.dest[0];return_data<=load_data;
     end
     (* dont_retime *) logic swap_write,cp_seen,cp_finished;
     (* dont_retime *) logic [3:0] cp_flags;
@@ -692,6 +694,7 @@ output  logic [7:0]                      o_dbg_stall
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1)) u_front_decode (
         .i_w_load_hit(i_data_short_hit&&!w_waited),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(forward_tag),
         .i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
+        .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),.o_return_match(d_return_match),
         .i_reset(i_reset),
         .i_flush(wb_flush||a_redirect),
         .i_mode(cpsr[4:0]),
@@ -782,7 +785,9 @@ output  logic [7:0]                      o_dbg_stall
         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),
         .i_load_owner({w.load_writer,m.load_writer}),.i_next_load_owner(forward_load),
         .i_load_hit(i_data_short_hit&&!w_waited),
-        .i_return_select(operand_return_select),.i_return_data(operand_return_data),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_next_write(forward_write),.i_early(d_early),
+        .i_return_select(i_dc_reg_idx),.i_return_data(operand_return_data),
+        .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),
+        .i_return_ready(return_ready),.i_return_s_match(d_return_match),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_next_write(forward_write),.i_early(d_early),
         .o_btb_pc(a_btb_pc),.o_btb_thumb(a_btb_thumb),
         .o_record_pointer(a_record_pointer),.o_record_count(a_record_count),
         .o_record_pred_hit(a_record_pred_hit),.o_record_pred_state(a_record_pred_state),.o_record_thumb(a_record_thumb),
