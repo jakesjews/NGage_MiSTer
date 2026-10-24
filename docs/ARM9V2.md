@@ -650,3 +650,30 @@ to D2 register indices, registered producer tags through S forwarding, and
 queue/Thumb selection. ZAP remains default; no whole-device build or game
 measurement is claimed. The full fit and continuation details are in the
 session-4 report.
+
+
+## Session 5: cache correctness restored; structural timing stop
+
+The short-port cache now updates LRU only for accepted hits, including HUM,
+and bypasses a same-set accepted way into the following victim choice.
+Unaccepted/replayed probes cannot change replacement state. The isolated
+shared-cache commit is `c85eacc`; the D-cache FSM and ZAP's cache path are
+unchanged. All 261 runs and 68 QEMU comparisons pass in ZAP and both V2
+predictor modes, resolving the session-4 HUM/dhold failures. Every ZAP
+cycle/instruction pair is unchanged.
+
+The cache-only integrated seed-2 fit reached -2.549 ns. A structural
+D2/S write-through cut captures RF raw words, write words and match bits
+separately before selecting the value. It preserves all V2/ZAP cycle counts
+and the 85 window models. Its fit improves to -2.109 ns worst slow
+(-2.109 at 100C, -1.665 at -40C), 15,745 ALMs, but still reaches the -2 ns
+stop rule. The limiting families are now registered M producer control
+through S forwarding/rotation (12 levels), memory recovery-state/FCSE
+selection into D-TLB permission (9), and W qualification into RF writes (9).
+
+The session stops before three-clock load pickup or W RAS checkpoint
+restoration. The five-clock load-use, false destination hazards and serial
+recovery costs described above remain. No final three-seed integration gate
+or whole-device fit is claimed. See the
+[session-5 report](consults/2026-10-23-codex-arm9v2-s5.md) for every workload
+ratio, measured windows, path lengths and the exact continuation point.

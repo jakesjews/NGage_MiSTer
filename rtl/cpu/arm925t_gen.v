@@ -1476,7 +1476,7 @@ module arm9v2_decode (
 	output wire [3:0] o_condition;
 	output wire [23:0] o_tag;
 	output wire [3:0] o_used;
-	output wire [127:0] o_value;
+	output reg [127:0] o_value;
 	output wire [11:0] o_dest;
 	output wire o_first;
 	output wire o_last;
@@ -1529,6 +1529,8 @@ module arm9v2_decode (
 	(* dont_retime *) reg [366:0] d2;
 	(* dont_retime *) reg [366:0] issued;
 	(* dont_retime *) reg [127:0] values;
+	(* dont_retime *) reg [11:0] write_through_match;
+	(* dont_retime *) reg [95:0] write_through_data;
 	(* dont_retime *) reg matches_taken;
 	(* dont_retime *) reg matches_fallthrough;
 	(* dont_retime *) reg previous_prefix;
@@ -1550,7 +1552,6 @@ module arm9v2_decode (
 	reg [31:0] suffix_base;
 	reg [4:0] transfer_mode;
 	wire [127:0] raw_values;
-	reg [127:0] read_values;
 	wire push;
 	wire pop;
 	wire accept;
@@ -2039,17 +2040,17 @@ module arm9v2_decode (
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		read_values = raw_values;
+		o_value = values;
 		begin : sv2v_autoblock_8
 			reg signed [31:0] n;
 			for (n = 0; n < 4; n = n + 1)
 				begin
-					if (i_wen && i_wr_addr_a[d2[94 + (n * 6)+:6]])
-						read_values[n * 32+:32] = i_wr_data_a;
-					if (i_wen && i_wr_addr_b[d2[94 + (n * 6)+:6]])
-						read_values[n * 32+:32] = i_wr_data_b;
-					if (i_wr_addr_c[d2[94 + (n * 6)+:6]])
-						read_values[n * 32+:32] = i_wr_data_c;
+					if (write_through_match[n * 3])
+						o_value[n * 32+:32] = write_through_data[0+:32];
+					if (write_through_match[(n * 3) + 1])
+						o_value[n * 32+:32] = write_through_data[32+:32];
+					if (write_through_match[(n * 3) + 2])
+						o_value[n * 32+:32] = write_through_data[64+:32];
 				end
 		end
 	end
@@ -2070,6 +2071,8 @@ module arm9v2_decode (
 			d2 <= 367'd0;
 			issued <= 367'd0;
 			values <= 0;
+			write_through_match <= 0;
+			write_through_data <= 0;
 			matches_taken <= 0;
 			matches_fallthrough <= 0;
 			redirect_ff[72-:32] <= 0;
@@ -2102,7 +2105,13 @@ module arm9v2_decode (
 			endcase
 			if (!out_valid || i_ready) begin
 				issued <= d2;
-				values <= read_values;
+				values <= raw_values;
+				write_through_data <= {i_wr_data_c, i_wr_data_b, i_wr_data_a};
+				begin : sv2v_autoblock_9
+					reg signed [31:0] n;
+					for (n = 0; n < 4; n = n + 1)
+						write_through_match[n * 3+:3] <= {i_wr_addr_c[d2[94 + (n * 6)+:6]], i_wen && i_wr_addr_b[d2[94 + (n * 6)+:6]], i_wen && i_wr_addr_a[d2[94 + (n * 6)+:6]]};
+				end
 				matches_taken <= taken_match;
 				matches_fallthrough <= fallthrough_match;
 			end
@@ -2185,7 +2194,6 @@ module arm9v2_decode (
 	assign o_reg_shift = issued[44];
 	assign o_tag = issued[117-:24];
 	assign o_used = issued[93-:4];
-	assign o_value = values;
 	assign o_dest = issued[89-:12];
 	assign o_first = issued[43];
 	assign o_last = issued[42];

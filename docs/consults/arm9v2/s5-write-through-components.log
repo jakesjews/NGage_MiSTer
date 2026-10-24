@@ -1,0 +1,55 @@
+PASS decode: 6061943 checks, 746737 cycles
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/decode_tb.sv:297: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 2us; walltime 0.525 s; speed 4.269 us/s
+- Verilator: cpu 0.524 s on 1 threads; allocated 2 MB
+PASS decode: 6061943 checks, 746737 cycles
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/decode_tb.sv:297: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 2us; walltime 0.549 s; speed 4.081 us/s
+- Verilator: cpu 0.546 s on 1 threads; allocated 2 MB
+PASS decode/cache latency=0: 1280 checks, 501 cycles; unpredicted spacing=4, predicted spacing=1
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/decode_cache_tb.sv:179: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 2ns; walltime 0.001 s; speed 2.552 us/s
+- Verilator: cpu 0.001 s on 1 threads; allocated 2 MB
+PASS decode/cache latency=3: 1852 checks, 781 cycles; unpredicted spacing=4, predicted spacing=1
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/decode_cache_tb.sv:179: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 2ns; walltime 0.001 s; speed 1.902 us/s
+- Verilator: cpu 0.001 s on 1 threads; allocated 2 MB
+PASS decode/cache latency=9: 3052 checks, 1381 cycles; unpredicted spacing=4, predicted spacing=1
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/decode_cache_tb.sv:179: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 4ns; walltime 0.002 s; speed 1.936 us/s
+- Verilator: cpu 0.002 s on 1 threads; allocated 2 MB
+PASS S/A/cache latency=0: 563 checks, 270 clocks, 145 records, shift=1 mac=5 hazard=10
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/execute_cache_tb.sv:172: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 810ps; walltime 0.000 s; speed 1.854 us/s
+- Verilator: cpu 0.000 s on 1 threads; allocated 2 MB
+PASS S/A/cache latency=3: 839 checks, 401 clocks, 145 records, shift=1 mac=5 hazard=6
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/execute_cache_tb.sv:172: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 1ns; walltime 0.001 s; speed 1.975 us/s
+- Verilator: cpu 0.001 s on 1 threads; allocated 2 MB
+PASS S/A/cache latency=9: 1390 checks, 677 clocks, 145 records, shift=1 mac=5 hazard=9
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/execute_cache_tb.sv:172: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 2ns; walltime 0.001 s; speed 1.783 us/s
+- Verilator: cpu 0.001 s on 1 threads; allocated 2 MB
+PASS S/A/cache latency=0: 563 checks, 270 clocks, 145 records, shift=1 mac=5 hazard=10
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/execute_cache_tb.sv:172: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 810ps; walltime 0.000 s; speed 1.636 us/s
+- Verilator: cpu 0.001 s on 1 threads; allocated 2 MB
+PASS S/A/cache latency=3: 839 checks, 401 clocks, 145 records, shift=1 mac=5 hazard=6
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/execute_cache_tb.sv:172: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 1ns; walltime 0.001 s; speed 2.137 us/s
+- Verilator: cpu 0.001 s on 1 threads; allocated 2 MB
+PASS S/A/cache latency=9: 1390 checks, 677 clocks, 145 records, shift=1 mac=5 hazard=9
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/execute_cache_tb.sv:172: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 2ns; walltime 0.001 s; speed 2.370 us/s
+- Verilator: cpu 0.001 s on 1 threads; allocated 2 MB

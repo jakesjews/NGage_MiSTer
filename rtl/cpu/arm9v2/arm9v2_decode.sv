@@ -99,6 +99,8 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     (* dont_retime *) logic d2_valid, out_valid;
     (* dont_retime *) decoded_t d2, issued;
     (* dont_retime *) logic [3:0][31:0] values;
+    (* dont_retime *) logic [3:0][2:0] write_through_match;
+    (* dont_retime *) logic [2:0][31:0] write_through_data;
     (* dont_retime *) logic matches_taken, matches_fallthrough;
     (* dont_retime *) logic previous_prefix, prefix_valid;
     (* dont_retime *) logic [31:0] previous_next_pc, prefix_target;
@@ -111,7 +113,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     logic [3:0] next_register;
     logic [31:0] suffix_base;
     logic [4:0] transfer_mode;
-    logic [3:0][31:0] raw_values, read_values;
+    logic [3:0][31:0] raw_values;
     logic push, pop, accept, shortcut, fast_select, new_d2, late_redirect, step, kill_younger, taken_match, fallthrough_match;
     logic [3:0] early_used, early_hazard;
     logic load_hazard;
@@ -441,21 +443,23 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
         .o_rd_data_a(raw_values[0]),.o_rd_data_b(raw_values[1]),.o_rd_data_c(raw_values[2]),.o_rd_data_d(raw_values[3])
     );
     end endgenerate
+    // Capture the RF read, write data and same-edge match independently.
+    // Retirement qualification ends at the match flops; it cannot traverse
+    // the word mux into the wide D2/S capture. The registered write-through
+    // remains C > B > A, and precedes S's younger A/M/W forwarding network.
     always_comb begin
-        read_values=raw_values;
-        // Same-edge RF write-through only: priority is C > B > A, as in ZAP.
-        // No A/M producer search and no readiness logic in this data path.
+        o_value=values;
         for (int n=0;n<4;n++) begin
-            if(i_wen&&i_wr_addr_a[d2.tag[n]])read_values[n]=i_wr_data_a;
-            if(i_wen&&i_wr_addr_b[d2.tag[n]])read_values[n]=i_wr_data_b;
-            if(i_wr_addr_c[d2.tag[n]])read_values[n]=i_wr_data_c;
+            if(write_through_match[n][0])o_value[n]=write_through_data[0];
+            if(write_through_match[n][1])o_value[n]=write_through_data[1];
+            if(write_through_match[n][2])o_value[n]=write_through_data[2];
         end
     end
     always_ff @(posedge i_clk) begin
         if(i_reset) begin
             fenced<=0;count<=0;head_select<=2'b01;tail<=0;d2_valid<=0;out_valid<=0;redirect_ff.valid<=0;redirect_in_d2<=0;
             previous_prefix<=0;prefix_valid<=0;previous_next_pc<=0;prefix_target<=0;
-            d2<=decoded_t'(0);issued<=decoded_t'(0);values<=0;matches_taken<=0;matches_fallthrough<=0;
+            d2<=decoded_t'(0);issued<=decoded_t'(0);values<=0;write_through_match<=0;write_through_data<=0;matches_taken<=0;matches_fallthrough<=0;
             redirect_ff.target<=0;redirect_ff.thumb<=0;redirect_ff.link<=0;
             redirect_ff.pointer<=0;redirect_ff.count<=0;redirect_ff.action<=0;
         end else begin
@@ -473,7 +477,10 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
             // Capacity alone clocks the payload. A source hazard changes
             // only validity and the owner; it never drives this wide enable.
             if(!out_valid||i_ready)begin
-                issued<=d2;values<=read_values;
+                issued<=d2;values<=raw_values;
+                write_through_data<={i_wr_data_c,i_wr_data_b,i_wr_data_a};
+                for(int n=0;n<4;n++)write_through_match[n]<=
+                    {i_wr_addr_c[d2.tag[n]],i_wen&&i_wr_addr_b[d2.tag[n]],i_wen&&i_wr_addr_a[d2.tag[n]]};
                 matches_taken<=taken_match;matches_fallthrough<=fallthrough_match;
             end
             if(step)begin
@@ -521,7 +528,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     assign o_pc_base=issued.p.pc_base;assign o_next_pc=issued.p.next_pc;
     assign o_thumb=issued.p.thumb;assign o_fault=issued.p.fault;assign o_force_align=issued.p.align_pc;
     assign o_kind=issued.kind;assign o_condition=issued.condition;assign o_reg_shift=issued.reg_shift;
-    assign o_tag=issued.tag;assign o_used=issued.used;assign o_value=values;assign o_dest=issued.dest;
+    assign o_tag=issued.tag;assign o_used=issued.used;assign o_dest=issued.dest;
     assign o_first=issued.first;assign o_last=issued.last;assign o_reg_count=issued.p.nregs;
     assign o_offset=issued.offset;assign o_writeback_offset=issued.wb_offset;assign o_transfer_reg=issued.transfer_reg;
     assign o_branch_target=issued.target;assign o_direct=issued.direct;
