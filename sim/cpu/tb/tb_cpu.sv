@@ -64,6 +64,7 @@ module tb_cpu #(
 	output logic          p_wfi,
 	// D-cache state machine, for main.cpp --dcdbg
 	output logic [15:0]   p_dc_state,
+	output logic [5:0]    p_dc_events, // accept/store/dirty/fill beat/writeback beat/EOB
 	output logic [31:0]   p_dc_addr,
 	output logic [31:0]   p_dc_din,
 	output logic [31:0]   p_dc_dat,
@@ -229,6 +230,21 @@ module tb_cpu #(
 				else $fatal(1, "Hit under miss wrote the background address");
 		end
 	end
+	assign p_dc_events = {
+		`DC.o_wb_cti_ff == 3'b111,
+		`DC.state_ff[3] && `DC.take,
+		`DC.state_ff[4] && `DC.take,
+		`DC.i_cache_tag_valid && `DC.i_cache_tag_dirty,
+		`DC.wr,
+		`DC.o_idle && (`DC.i_rd || `DC.i_wr) && !`DC.i_align_fault &&
+		!`DC.i_fault && !`DC.i_busy && `DC.i_cache_en && `DC.i_cacheable &&
+		!(`DC.i_wr && `DC.i_wt) && !`DC.i_cache_hit
+	};
+	// A cacheable store miss already completes at acceptance on master.
+	always_ff @(posedge clk)
+		if (!reset && p_dc_events[0] && `DC.i_wr)
+			assert (`DC.o_ack && !`DC.o_hold && !`DC.o_err && !`DC.o_err2)
+				else $fatal(1, "Write-back store miss did not complete at acceptance");
 	`undef DC
 	`undef DT
 	`undef TC
