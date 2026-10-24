@@ -249,6 +249,7 @@ logic [3:0]      c_wb_sel;
 logic [31:0]     c_wb_dat;
 logic [31:0]     c_wb_adr;
 logic [2:0]      c_wb_cti;
+logic [1:0]      c_wb_bte;
 logic            c_wb_ack;
 logic            c_wb_err;
 logic            d_wb_stb;
@@ -489,6 +490,7 @@ begin : l_tieoffs_only_core
         assign d_wb_adr        = '0;
         assign d_wb_cti        = CTI_EOB;
         assign d_wb_bte        = 2'b00;
+        assign c_wb_bte        = 2'b00;
         assign wb_dat          = '0;
 
         logic unused;
@@ -535,6 +537,7 @@ begin : l_tieoffs_only_core
          | (    |d_wb_adr          )
          | (    |d_wb_cti          )
          | (    |d_wb_bte          )
+         | (    |c_wb_bte          )
          | (    |wb_dat            )
          | (    |cpu_mmu_en        )
          | (    |cpu_cpsr          )
@@ -577,6 +580,7 @@ begin : l_merger_for_core_with_cache_mmu
         .i_c_wb_dat(c_wb_dat ),
         .i_c_wb_adr(c_wb_adr ),
         .i_c_wb_cti(c_wb_cti ),
+        .i_c_wb_bte(c_wb_bte ),
         .o_c_wb_ack(c_wb_ack ),
         .o_c_wb_err(c_wb_err ),
         .o_dbg_data_owner(dbg_data_owner),
@@ -619,6 +623,7 @@ begin : l_merger_for_core_without_cache_mmu
         .i_c_wb_dat(32'd0),
         .i_c_wb_adr(cpu_iaddr),
         .i_c_wb_cti(3'b111),
+        .i_c_wb_bte(2'b00),
         .o_c_wb_ack(instr_ack),
         .o_c_wb_err(instr_err),
         .o_dbg_data_owner(dbg_data_owner),
@@ -816,6 +821,8 @@ u_code_cache (
 
 .i_wb_dat       (wb_dat),
 .i_wb_ack       (c_wb_ack),
+.o_wb_bte       (),
+.o_wb_bte_nxt   (c_wb_bte),
 .i_wb_err       (c_wb_err),
 
 .o_wb_stb_nxt   (c_wb_stb),

@@ -126,6 +126,7 @@ output  logic     [31:0]        o_wb_dat_ff, o_wb_dat_nxt,
 output  logic     [3:0]         o_wb_sel_ff, o_wb_sel_nxt,
 output  logic                   o_wb_wen_ff, o_wb_wen_nxt,
 output  logic     [2:0]         o_wb_cti_ff, o_wb_cti_nxt,
+output  logic     [1:0]         o_wb_bte_nxt,
 input   logic                   i_wb_ack,
 input   logic    [31:0]         i_wb_dat,
 input   logic                   i_wb_err
@@ -201,8 +202,17 @@ assign cti_cur       = ({{ADR_PAD{1'd0}}, adr_ctr_ff}  != ((CACHE_LINE/4) - 1)) 
 assign cti_inc       = ({{ADR_PAD{1'd0}}, adr_ctr_inc} != ((CACHE_LINE/4) - 1)) ? CTI_BURST : CTI_EOB;
 assign wb_adr_cur    = {cache_tag[`ZAP_CACHE_TAG__PA], {$clog2(CACHE_LINE){1'd0}}} + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_ff,  2'd0});
 assign wb_adr_inc    = {cache_tag[`ZAP_CACHE_TAG__PA], {$clog2(CACHE_LINE){1'd0}}} + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_inc, 2'd0});
-assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE){1'd0}}}  + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_ff,  2'd0});
-assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE){1'd0}}}  + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_inc, 2'd0});
+assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_cur, 2'b00};
+assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_inc, 2'b00};
+// ARM925T: rotate only the 16-byte demand fill's word index. The beat
+// counter still counts from zero to three for EOB. Prefetch bursts remain
+// linear, including a prefetch adopted partway through by a demand miss.
+logic [$clog2(CACHE_LINE/4)-1:0] fetch_start_ff, fetch_start_nxt;
+logic [$clog2(CACHE_LINE/4)-1:0] fetch_word_cur, fetch_word_inc;
+logic fetch_wrap_ff, fetch_wrap_nxt;
+assign fetch_word_cur = fetch_start_ff + adr_ctr_ff[$clog2(CACHE_LINE/4)-1:0];
+assign fetch_word_inc = fetch_start_ff + adr_ctr_inc[$clog2(CACHE_LINE/4)-1:0];
+assign o_wb_bte_nxt = state_ff == FETCH_SINGLE && fetch_wrap_ff ? 2'b01 : 2'b00;
 logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] way;       // ARM925T: the line's way
 
 // ARM925T: one-line sequential prefetch buffer (PREFETCH = 1).
@@ -231,7 +241,7 @@ assign pf_va_hit    = PREFETCH && pf_valid_ff && (pf_va_ff == i_address[31:$clog
 assign pf_hit       = pf_va_hit && !pf_clear && (pf_pa_ff == i_phy_addr[31:$clog2(CACHE_LINE)]);
 
 // ARM925T: one registered word bypasses the tag/data lookup during a
-// linear fill. Select the next lookup when the PC pipeline advances, or
+// fill. Select the next lookup when the PC pipeline advances, or
 // refresh the held lookup when it stalls (including a just-arrived beat).
 // The valid mask belongs to this fill only; never use a previous line's data.
 logic [CACHE_LINE/4-1:0] fill_valid_ff, fill_valid_nxt;
@@ -357,6 +367,8 @@ begin
                 cache_clean_req_ff      <= 0;
                 cache_inv_req_ff        <= 0;
                 adr_ctr_ff              <= 0;
+                fetch_start_ff          <= '0;
+                fetch_wrap_ff           <= 1'b0;
 
                 // STATE
                 state_ff                <= IDLE;
@@ -373,6 +385,8 @@ begin
                 cache_clean_req_ff      <= cache_clean_req_nxt;
                 cache_inv_req_ff        <= cache_inv_req_nxt;
                 adr_ctr_ff              <= adr_ctr_nxt;
+                fetch_start_ff          <= fetch_start_nxt;
+                fetch_wrap_ff           <= fetch_wrap_nxt;
 
                 // STATE
                 state_ff                <= state_nxt;
@@ -491,6 +505,8 @@ begin:blk1
         pf_pa_nxt               = pf_pa_ff;
         pf_beat_valid_nxt       = pf_beat_valid_ff;
         adr_ctr_nxt             = adr_ctr_ff;
+        fetch_start_nxt         = fetch_start_ff;
+        fetch_wrap_nxt          = fetch_wrap_ff;
         o_wb_cyc_nxt            = o_wb_cyc_ff;
         o_wb_stb_nxt            = o_wb_stb_ff;
         o_wb_adr_nxt            = o_wb_adr_ff;
@@ -689,6 +705,10 @@ begin:blk1
                                                 begin
                                                         buf_nxt[i] = pf_buf_nxt[i];
                                                 end
+                                                // Keep the adopted bus transaction linear and
+                                                // keep its already-arrived words at their indices.
+                                                fetch_start_nxt   = '0;
+                                                fetch_wrap_nxt    = 1'b0;
                                                 fill_valid_nxt    = pf_beat_valid_nxt;
                                                 fill_fault_nxt    = 1'd0;
                                                 pf_active_nxt     = 1'd0;
@@ -726,7 +746,12 @@ begin:blk1
                                                         // Set up counter
                                                         adr_ctr_nxt = 0;
 
-                                                        // Fetch a single cache line
+                                                        // No address arithmetic follows ACK:
+                                                        // current/next wrapped candidates use these
+                                                        // miss-start registers in FETCH_SINGLE.
+                                                        fetch_start_nxt = CACHE_LINE == 16 ?
+                                                            i_phy_addr[$clog2(CACHE_LINE)-1:2] : '0;
+                                                        fetch_wrap_nxt = CACHE_LINE == 16;
                                                         state_nxt = FETCH_SINGLE;
                                                 end
                                         end
@@ -828,8 +853,10 @@ begin:blk1
                 adr_ctr_nxt = take ? adr_ctr_inc : adr_ctr_ff;
                 if (take)
                 begin
-                        buf_nxt[adr_ctr_ff[$clog2(CACHE_LINE/4)-1:0]] = i_wb_dat;
-                        fill_valid_nxt[adr_ctr_ff[$clog2(CACHE_LINE/4)-1:0]] = 1'd1;
+                        // Index by the registered bus address, not beat
+                        // ordinal: the first beat may be any word in the line.
+                        buf_nxt[o_wb_adr_ff[$clog2(CACHE_LINE)-1:2]] = i_wb_dat;
+                        fill_valid_nxt[o_wb_adr_ff[$clog2(CACHE_LINE)-1:2]] = 1'd1;
                         fill_fault_nxt = fill_fault_ff | i_wb_err;
                 end
 

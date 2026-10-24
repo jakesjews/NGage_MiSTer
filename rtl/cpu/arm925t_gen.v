@@ -1948,6 +1948,8 @@ module zap_cache (
 	o_wb_adr_nxt,
 	o_wb_cti,
 	o_wb_cti_nxt,
+	o_wb_bte,
+	o_wb_bte_nxt,
 	i_wb_dat,
 	i_wb_ack,
 	i_wb_err
@@ -2011,6 +2013,8 @@ module zap_cache (
 	output reg [31:0] o_wb_adr_nxt;
 	output reg [2:0] o_wb_cti;
 	output reg [2:0] o_wb_cti_nxt;
+	output reg [1:0] o_wb_bte;
+	output wire [1:0] o_wb_bte_nxt;
 	input wire [31:0] i_wb_dat;
 	input wire i_wb_ack;
 	input wire i_wb_err;
@@ -2296,6 +2300,7 @@ module zap_cache (
 	wire [31:0] wb_dat [2:0];
 	wire [31:0] wb_adr [2:0];
 	wire [2:0] wb_cti [2:0];
+	wire [1:0] cache_bte;
 	wire [31:0] tlb_phy_addr;
 	wire [7:0] tlb_fsr;
 	wire [31:0] tlb_far;
@@ -2429,6 +2434,7 @@ module zap_cache (
 		.o_wb_sel_nxt(wb_sel[0]),
 		.o_wb_wen_nxt(wb_wen[0]),
 		.o_wb_cti_nxt(wb_cti[0]),
+		.o_wb_bte_nxt(cache_bte),
 		.i_wb_dat(i_wb_dat),
 		.i_wb_ack(wb_ack[0]),
 		.i_wb_err(wb_err[0])
@@ -2545,6 +2551,7 @@ module zap_cache (
 			o_wb_cyc <= 1'd0;
 			o_wb_adr <= 1'sbx;
 			o_wb_cti <= CTI_EOB;
+			o_wb_bte <= 2'b00;
 			o_wb_sel <= 1'sbx;
 			o_wb_dat <= 1'sbx;
 			o_wb_wen <= 1'sbx;
@@ -2555,6 +2562,7 @@ module zap_cache (
 			o_wb_cyc <= o_wb_cyc_nxt;
 			o_wb_adr <= o_wb_adr_nxt;
 			o_wb_cti <= o_wb_cti_nxt;
+			o_wb_bte <= o_wb_bte_nxt;
 			o_wb_sel <= o_wb_sel_nxt;
 			o_wb_dat <= o_wb_dat_nxt;
 			o_wb_wen <= o_wb_wen_nxt;
@@ -2584,6 +2592,7 @@ module zap_cache (
 	end
 	assign o_wb_cyc_nxt = (!o_wb_stb || ((o_wb_stb && (i_wb_ack || i_wb_err)) && (o_wb_cti == CTI_EOB)) ? |wb_cyc : |(state_ff & wb_cyc));
 	assign o_wb_stb_nxt = ((!o_wb_stb || (o_wb_stb && i_wb_ack)) && |wb_cyc ? ((wb_cyc[2] && wb_stb[2]) || ((!wb_cyc[2] && wb_cyc[1]) && wb_stb[1])) || (((!wb_cyc[2] && !wb_cyc[1]) && wb_cyc[0]) && wb_stb[0]) : |(state_ff & wb_stb));
+	assign o_wb_bte_nxt = (state_nxt == SELECT_CCH ? cache_bte : 2'b00);
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -2690,6 +2699,7 @@ module zap_cache_fsm (
 	o_wb_wen_nxt,
 	o_wb_cti_ff,
 	o_wb_cti_nxt,
+	o_wb_bte_nxt,
 	i_wb_ack,
 	i_wb_dat,
 	i_wb_err
@@ -2768,6 +2778,7 @@ module zap_cache_fsm (
 	output reg o_wb_wen_nxt;
 	output reg [2:0] o_wb_cti_ff;
 	output reg [2:0] o_wb_cti_nxt;
+	output wire [1:0] o_wb_bte_nxt;
 	input wire i_wb_ack;
 	input wire [31:0] i_wb_dat;
 	input wire i_wb_err;
@@ -3095,8 +3106,17 @@ module zap_cache_fsm (
 	assign cti_inc = ({{ADR_PAD {1'd0}}, adr_ctr_inc} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
 	assign wb_adr_cur = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_ff, 2'd0};
 	assign wb_adr_inc = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_inc, 2'd0};
-	assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_ff, 2'd0};
-	assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_inc, 2'd0};
+	wire [$clog2(CACHE_LINE / 4) - 1:0] fetch_word_cur;
+	assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_cur, 2'b00};
+	wire [$clog2(CACHE_LINE / 4) - 1:0] fetch_word_inc;
+	assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_inc, 2'b00};
+	reg [$clog2(CACHE_LINE / 4) - 1:0] fetch_start_ff;
+	reg [$clog2(CACHE_LINE / 4) - 1:0] fetch_start_nxt;
+	reg fetch_wrap_ff;
+	reg fetch_wrap_nxt;
+	assign fetch_word_cur = fetch_start_ff + adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0];
+	assign fetch_word_inc = fetch_start_ff + adr_ctr_inc[$clog2(CACHE_LINE / 4) - 1:0];
+	assign o_wb_bte_nxt = ((state_ff == FETCH_SINGLE) && fetch_wrap_ff ? 2'b01 : 2'b00);
 	reg [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] way;
 	reg pf_valid_ff;
 	reg pf_valid_nxt;
@@ -3218,6 +3238,8 @@ module zap_cache_fsm (
 			cache_clean_req_ff <= 0;
 			cache_inv_req_ff <= 0;
 			adr_ctr_ff <= 0;
+			fetch_start_ff <= 1'sb0;
+			fetch_wrap_ff <= 1'b0;
 			state_ff <= IDLE;
 		end
 		else begin
@@ -3231,6 +3253,8 @@ module zap_cache_fsm (
 			cache_clean_req_ff <= cache_clean_req_nxt;
 			cache_inv_req_ff <= cache_inv_req_nxt;
 			adr_ctr_ff <= adr_ctr_nxt;
+			fetch_start_ff <= fetch_start_nxt;
+			fetch_wrap_ff <= fetch_wrap_nxt;
 			state_ff <= state_nxt;
 		end
 	always @(posedge i_clk) begin : sv2v_autoblock_3
@@ -3306,6 +3330,8 @@ module zap_cache_fsm (
 		pf_pa_nxt = pf_pa_ff;
 		pf_beat_valid_nxt = pf_beat_valid_ff;
 		adr_ctr_nxt = adr_ctr_ff;
+		fetch_start_nxt = fetch_start_ff;
+		fetch_wrap_nxt = fetch_wrap_ff;
 		o_wb_cyc_nxt = o_wb_cyc_ff;
 		o_wb_stb_nxt = o_wb_stb_ff;
 		o_wb_adr_nxt = o_wb_adr_ff;
@@ -3461,6 +3487,8 @@ module zap_cache_fsm (
 										for (i = 0; i < (CACHE_LINE / 4); i = i + 1)
 											buf_nxt[i] = pf_buf_nxt[i];
 									end
+									fetch_start_nxt = 1'sb0;
+									fetch_wrap_nxt = 1'b0;
 									fill_valid_nxt = pf_beat_valid_nxt;
 									fill_fault_nxt = 1'd0;
 									pf_active_nxt = 1'd0;
@@ -3480,6 +3508,8 @@ module zap_cache_fsm (
 									end
 									else if (i_rd | i_wr) begin
 										adr_ctr_nxt = 0;
+										fetch_start_nxt = (CACHE_LINE == 16 ? i_phy_addr[$clog2(CACHE_LINE) - 1:2] : {$clog2(CACHE_LINE / 4) {1'sb0}});
+										fetch_wrap_nxt = CACHE_LINE == 16;
 										state_nxt = FETCH_SINGLE;
 									end
 								end
@@ -3568,8 +3598,8 @@ module zap_cache_fsm (
 			FETCH_SINGLE: begin
 				adr_ctr_nxt = (take ? adr_ctr_inc : adr_ctr_ff);
 				if (take) begin
-					buf_nxt[adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0]] = i_wb_dat;
-					fill_valid_nxt[adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0]] = 1'd1;
+					buf_nxt[o_wb_adr_ff[$clog2(CACHE_LINE) - 1:2]] = i_wb_dat;
+					fill_valid_nxt[o_wb_adr_ff[$clog2(CACHE_LINE) - 1:2]] = 1'd1;
 					fill_fault_nxt = fill_fault_ff | i_wb_err;
 				end
 				if (wr) begin
@@ -20995,6 +21025,7 @@ module zap_top (
 	wire [31:0] c_wb_dat;
 	wire [31:0] c_wb_adr;
 	wire [2:0] c_wb_cti;
+	wire [1:0] c_wb_bte;
 	wire c_wb_ack;
 	wire c_wb_err;
 	wire d_wb_stb;
@@ -21212,9 +21243,10 @@ module zap_top (
 			assign d_wb_adr = 1'sb0;
 			assign d_wb_cti = CTI_EOB;
 			assign d_wb_bte = 2'b00;
+			assign c_wb_bte = 2'b00;
 			assign wb_dat = 1'sb0;
 			wire unused;
-			assign unused = (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((|dc_wreg_idx | (|dc_lock)) | (|dc_reg_data)) | (|dc_inv_done)) | (|ic_inv_done)) | (|dc_clean_done)) | (|ic_clean_done)) | (|icache_err2)) | (|dcache_err2)) | (|dc_fsr)) | (|dc_far)) | (|dc_data)) | (|ic_data)) | (|c_wb_ack)) | (|c_wb_err)) | (|d_wb_ack)) | (|d_wb_err)) | (|wb_cyc)) | (|wb_stb)) | (|wb_we)) | (|wb_sel)) | (|wb_idat)) | (|wb_adr)) | (|wb_cti)) | (|wb_ack)) | (|wb_err)) | (|c_wb_stb)) | (|c_wb_cyc)) | (|c_wb_wen)) | (|c_wb_sel)) | (|c_wb_dat)) | (|c_wb_adr)) | (|c_wb_cti)) | (|d_wb_stb)) | (|d_wb_cyc)) | (|d_wb_wen)) | (|d_wb_sel)) | (|d_wb_dat)) | (|d_wb_adr)) | (|d_wb_cti)) | (|d_wb_bte)) | (|wb_dat)) | (|cpu_mmu_en)) | (|cpu_cpsr)) | (|cpu_mem_translate)) | (|cpu_daddr_nxt)) | (|cpu_daddr_check)) | (|cpu_iaddr_nxt)) | (|cpu_iaddr_check)) | (|cpu_dc_en)) | (|cpu_ic_en)) | (|cpu_sr)) | (|cpu_baddr)) | (|cpu_dac_reg)) | (|cpu_dc_inv)) | (|cpu_ic_inv)) | (|cpu_dc_clean)) | (|cpu_ic_clean)) | (|cpu_dtlb_inv)) | (|cpu_itlb_inv)) | (|dc_rreg_idx)) | (|dc_rreg_idx_bin)) | (|cpu_dwe_check)) | (|cpu_dre_check)) | (|code_stall);
+			assign unused = ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((|dc_wreg_idx | (|dc_lock)) | (|dc_reg_data)) | (|dc_inv_done)) | (|ic_inv_done)) | (|dc_clean_done)) | (|ic_clean_done)) | (|icache_err2)) | (|dcache_err2)) | (|dc_fsr)) | (|dc_far)) | (|dc_data)) | (|ic_data)) | (|c_wb_ack)) | (|c_wb_err)) | (|d_wb_ack)) | (|d_wb_err)) | (|wb_cyc)) | (|wb_stb)) | (|wb_we)) | (|wb_sel)) | (|wb_idat)) | (|wb_adr)) | (|wb_cti)) | (|wb_ack)) | (|wb_err)) | (|c_wb_stb)) | (|c_wb_cyc)) | (|c_wb_wen)) | (|c_wb_sel)) | (|c_wb_dat)) | (|c_wb_adr)) | (|c_wb_cti)) | (|d_wb_stb)) | (|d_wb_cyc)) | (|d_wb_wen)) | (|d_wb_sel)) | (|d_wb_dat)) | (|d_wb_adr)) | (|d_wb_cti)) | (|d_wb_bte)) | (|c_wb_bte)) | (|wb_dat)) | (|cpu_mmu_en)) | (|cpu_cpsr)) | (|cpu_mem_translate)) | (|cpu_daddr_nxt)) | (|cpu_daddr_check)) | (|cpu_iaddr_nxt)) | (|cpu_iaddr_check)) | (|cpu_dc_en)) | (|cpu_ic_en)) | (|cpu_sr)) | (|cpu_baddr)) | (|cpu_dac_reg)) | (|cpu_dc_inv)) | (|cpu_ic_inv)) | (|cpu_dc_clean)) | (|cpu_ic_clean)) | (|cpu_dtlb_inv)) | (|cpu_itlb_inv)) | (|dc_rreg_idx)) | (|dc_rreg_idx_bin)) | (|cpu_dwe_check)) | (|cpu_dre_check)) | (|code_stall);
 		end
 		if (!ONLY_CORE) begin : l_merger_for_core_with_cache_mmu
 			zap_wb_merger #(.ONLY_CORE(1'd0)) u_zap_wb_merger(
@@ -21227,6 +21259,7 @@ module zap_top (
 				.i_c_wb_dat(c_wb_dat),
 				.i_c_wb_adr(c_wb_adr),
 				.i_c_wb_cti(c_wb_cti),
+				.i_c_wb_bte(c_wb_bte),
 				.o_c_wb_ack(c_wb_ack),
 				.o_c_wb_err(c_wb_err),
 				.o_dbg_data_owner(dbg_data_owner),
@@ -21263,6 +21296,7 @@ module zap_top (
 				.i_c_wb_dat(32'd0),
 				.i_c_wb_adr(cpu_iaddr),
 				.i_c_wb_cti(3'b111),
+				.i_c_wb_bte(2'b00),
 				.o_c_wb_ack(instr_ack),
 				.o_c_wb_err(instr_err),
 				.o_dbg_data_owner(dbg_data_owner),
@@ -21420,6 +21454,8 @@ module zap_top (
 				.o_wb_cti(),
 				.i_wb_dat(wb_dat),
 				.i_wb_ack(c_wb_ack),
+				.o_wb_bte(),
+				.o_wb_bte_nxt(c_wb_bte),
 				.i_wb_err(c_wb_err),
 				.o_wb_stb_nxt(c_wb_stb),
 				.o_wb_cyc_nxt(c_wb_cyc),
@@ -21452,6 +21488,7 @@ module zap_wb_merger (
 	i_c_wb_dat,
 	i_c_wb_adr,
 	i_c_wb_cti,
+	i_c_wb_bte,
 	o_c_wb_ack,
 	o_c_wb_err,
 	o_dbg_data_owner,
@@ -21487,6 +21524,7 @@ module zap_wb_merger (
 	input wire [31:0] i_c_wb_dat;
 	input wire [31:0] i_c_wb_adr;
 	input wire [2:0] i_c_wb_cti;
+	input wire [1:0] i_c_wb_bte;
 	output wire o_c_wb_ack;
 	output wire o_c_wb_err;
 	output wire o_dbg_data_owner;
@@ -21853,7 +21891,7 @@ module zap_wb_merger (
 					o_wb_sel <= i_c_wb_sel;
 					o_wb_adr <= i_c_wb_adr;
 					o_wb_cti <= i_c_wb_cti;
-					o_wb_bte <= 2'b00;
+					o_wb_bte <= i_c_wb_bte;
 				end
 				else begin
 					o_wb_cyc <= i_d_wb_cyc;
@@ -21877,7 +21915,7 @@ module zap_wb_merger (
 					o_wb_dat = i_c_wb_dat;
 					o_wb_adr = i_c_wb_adr;
 					o_wb_cti = i_c_wb_cti;
-					o_wb_bte = 2'b00;
+					o_wb_bte = i_c_wb_bte;
 				end
 				else begin
 					o_wb_cyc = i_d_wb_cyc;

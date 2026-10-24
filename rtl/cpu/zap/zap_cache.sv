@@ -93,6 +93,7 @@ output logic  [3:0]       o_wb_sel, o_wb_sel_nxt,
 output logic  [31:0]      o_wb_dat, o_wb_dat_nxt,
 output logic  [31:0]      o_wb_adr, o_wb_adr_nxt,
 output logic  [2:0]       o_wb_cti, o_wb_cti_nxt,
+output logic  [1:0]       o_wb_bte, o_wb_bte_nxt,
 input  logic [31:0]       i_wb_dat,
 input  logic              i_wb_ack,
 input  logic              i_wb_err
@@ -113,6 +114,7 @@ logic [3:0]                      wb_sel [2:0];
 logic [31:0]                     wb_dat [2:0];
 logic [31:0]                     wb_adr [2:0];
 logic [2:0]                      wb_cti [2:0];
+logic [1:0]                      cache_bte;
 logic [31:0]                     tlb_phy_addr;
 logic [7:0]                      tlb_fsr;
 logic [31:0]                     tlb_far;
@@ -260,6 +262,7 @@ zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .
         .o_wb_sel_nxt           (wb_sel[0]),
         .o_wb_wen_nxt           (wb_wen[0]),
         .o_wb_cti_nxt           (wb_cti[0]),
+        .o_wb_bte_nxt           (cache_bte),
         .i_wb_dat               (i_wb_dat),
         .i_wb_ack               (wb_ack[0]),
         .i_wb_err               (wb_err[0])
@@ -390,6 +393,7 @@ begin
                 o_wb_cyc <= 1'd0;
                 o_wb_adr <= 'x;
                 o_wb_cti <= CTI_EOB;
+                o_wb_bte <= 2'b00;
                 o_wb_sel <= 'x;
                 o_wb_dat <= 'x;
                 o_wb_wen <= 'x;
@@ -401,6 +405,7 @@ begin
                 o_wb_cyc <= o_wb_cyc_nxt;
                 o_wb_adr <= o_wb_adr_nxt;
                 o_wb_cti <= o_wb_cti_nxt;
+                o_wb_bte <= o_wb_bte_nxt;
                 o_wb_sel <= o_wb_sel_nxt;
                 o_wb_dat <= o_wb_dat_nxt;
                 o_wb_wen <= o_wb_wen_nxt;
@@ -457,6 +462,9 @@ assign o_wb_stb_nxt = ((!o_wb_stb || (o_wb_stb && i_wb_ack)) && (|wb_cyc)) ?
          (!wb_cyc[2] && wb_cyc[1] && wb_stb[1]) ||
          (!wb_cyc[2] && !wb_cyc[1] && wb_cyc[0] && wb_stb[0])) :
         (|(state_ff & wb_stb));
+
+// Only demand fills wrap; maintenance and TLB accesses remain linear.
+assign o_wb_bte_nxt = state_nxt == SELECT_CCH ? cache_bte : 2'b00;
 
 // Combo signals for external MUXing.
 always_comb
