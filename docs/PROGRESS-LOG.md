@@ -5143,3 +5143,37 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   ZAP Sonic baseline moved to the Mac, relaunched on the savable
   build with the 16 KB D-cache (the shipping configuration) and a
   snapshot at 100 guest seconds.
+- **The V2 kernel death, chased on the MiSTer.** The user's call: the
+  simulations are off (all of them, the server's and the Mac's) and the
+  fix loop runs on the board at 78 MHz. Three facts from three
+  builds: (1) the current source (a1ec904) at 78 MHz dies with
+  Kern::Fault("PLAT", 0x1005B); (2) session 8's first firmware-booting
+  source (22a4261) at 78 MHz (-0.763 ns, 37,630 ALMs,
+  build/hardware/NGage-v2d78s8-s2.rbf) is dead by 40 s with the
+  exception record "50323e78 e3a03007 10000000": an exception at the
+  `str r1,[r3]` of the kernel's doubly-linked-list insert at
+  0x50323DE0 with r3 = 0xE3A03007, an ARM instruction word (`mov r3,
+  #7`, 21 copies in the ROM) where a list node's link pointer should
+  be, the same shape as the 2026-10-19 crash in which a `this`
+  pointer held a vector instruction; its three callers compute the
+  anchor as one loaded pointer minus one loaded offset; (3) session
+  11's source (7ed5190, pre-merge, 8 KB D-cache) at 78 MHz with the
+  hardware trace on (the rings shrunk to 4096/256/256 entries so they
+  fit beside V2: -0.384 ns, 35,925 ALMs, build/hardware/NGage-v2d78t-
+  s2.rbf; the full rings overflowed the device twice) dies with
+  "aaaaaaa8 50321594 10000000": an exception at a garbage PC
+  0xAAAAAAA8 with the data address inside the kernel's code. So the
+  bug is in every V2 that boots the firmware, it shows as a wrong
+  value in a pointer or a return, and it predates sessions 9-12. The
+  fault-record write triggered the trace (two dumps, three triggers,
+  the first trigger's PC 0x514A3964 in CS1); the dump of the last
+  4,096 retired instructions and 256 data-port accesses is in
+  build/hardware/game/trace-v2/dump.bin, fetched through devmem with
+  a decoder copy matched to the small rings (scratch
+  mister_trace_small.py). Also run today: Quartus's design rule
+  checker on the V2 and ZAP builds (identical findings, all in the
+  framework's clock crossings; nothing V2-specific), radare2 and a
+  Ghidra headless analysis of CS0 (no static reference reaches the
+  fault epilogue; the fault path is indirect). The dump's decode and
+  the reconstruction went to an Opus 5.5 subagent (my own attempt was
+  stopped by the safety classifier, per the standing rule).
