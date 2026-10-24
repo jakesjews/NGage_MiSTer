@@ -57,6 +57,7 @@
 //      +2C W  select watched VA line and reset the two counters
 //      +30..+3C R D-cache load fills, store fills, line write-backs,
 //                uncached accesses (monotonic event counters)
+//      +40 R  instructions retired during background store transactions
 //   anything else          bus error (external abort)
 // Bus protocol checks: a request must stay unchanged until acked, and a
 // burst beat must be followed by the next word of the same line.

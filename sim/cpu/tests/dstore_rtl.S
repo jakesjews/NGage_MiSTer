@@ -51,6 +51,8 @@
 	mcr p15, 0, r0, c7, c10, 0 @ full clean drains, then cleans installed line
 	.elseif \kind == 8
 	mcr p15, 0, r0, c7, c6, 0  @ full invalidate drains victim, discards new line
+	.elseif \kind == 9
+	mcr p15, 0, r0, c7, c10, 4 @ explicit write-buffer drain
 	.endif
 	ldr r1, [r6, #4]           @ untouched bytes of the filling line
 	CHECK r1, 0xC4
@@ -102,6 +104,8 @@ test_main:
 	SETL1 0x00400000, r1
 	SECT r1, 0x00400000, 3, 0, 0
 	SETL1 0x20000000, r1
+	SECT r1, 0x00400000, 3, 0, 3
+	SETL1 0x10400000, r1
 	SECT r1, BENCH, 3, 0, 0
 	SETL1 BENCH, r1
 	TLBFLUSH
@@ -117,10 +121,25 @@ test_main:
 	mov r0, #24
 	str r0, [r11, #BENCH_LATENCY]
 	.irp dirty, 0, 1
-	.irp kind, 0, 1, 2, 3, 4, 5, 6, 7, 8
+	.irp kind, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
 	CASE \kind, \dirty
 	.endr
 	.endr
+	@ Same-PA dirty victim via a distinct VA: preserve clean-before-fill.
+	bl prepare
+	ldr r10, =0x10431E00
+	ldr r1, [r10]
+	CHECK r1, 0xB2
+	ldr r1, [r10, #4]
+	CHECK r1, 0xB4
+	mov r2, #0x55
+	strb r2, [r10, #1]
+	ldr r1, [r4]               @ ensure alias is the victim of the next miss
+	ldr r1, [r5]
+	CHECK r1, 0x55B2
+	mov r0, #0
+	mcr p15, 0, r0, c7, c10, 0
+	CHECKPOINT
 	mov r0, #0
 	str r0, [r11, #BENCH_LATENCY]
 	mcr p15, 0, r0, c7, c10, 0

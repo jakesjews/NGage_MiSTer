@@ -172,6 +172,7 @@ module zap_cp15_cb
         output  logic                            o_dcache_line_va,
         output  logic     [31:0]                 o_dcache_line_addr,
         output  logic                            o_dcache_line_way,
+        input   logic                            i_dcache_writeback_busy, // ARM925T: saved victim drain
         input   logic                            i_dcache_line_done
 );
 
@@ -693,7 +694,12 @@ begin
                                         state           <= CLFLUSH_D_CACHE;
                                 end
 
-                                7'b100_1010, // c7,c10,4: drain write buffer (there is none)
+                                7'b100_1010: // c7,c10,4: drain the saved dirty victim.
+                                begin
+                                        // No added cycle when the buffer is empty.
+                                        state <= i_dcache_writeback_busy ? ACTIVE : DONE;
+                                end
+
                                 7'b001_1101: // c7,c13,1: prefetch I-cache line
                                 begin
                                         state           <= DONE;
