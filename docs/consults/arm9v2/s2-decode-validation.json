@@ -1,0 +1,41 @@
+{
+  "scope": "Existing cores regression only; V2 decode component has no retirement",
+  "cpu_netlist_sha256": "2bd6b94c0a231069c5de0ce2dc3c45494b15592be46d86e7048257ced7fefd33",
+  "cycles_identical_to": "s1-merged-cycles.json",
+  "regression": {
+    "ZAP": {
+      "passes": 261,
+      "qemu_agree": 68,
+      "qemu_differ": 0,
+      "window_coverage_each_latency": 85,
+      "window_cycle_assertions_at_0_0": 0,
+      "window_cycle_assertions_other_latencies": 0,
+      "cycles_and_instructions_unchanged": true,
+      "excluded_tests": []
+    },
+    "ARM9-paused": {
+      "passes": 258,
+      "qemu_agree": 68,
+      "qemu_differ": 0,
+      "window_coverage_each_latency": 85,
+      "window_cycle_assertions_at_0_0": 85,
+      "window_cycle_assertions_other_latencies": 0,
+      "cycles_and_instructions_unchanged": true,
+      "excluded_tests": [
+        "dhum_rtl"
+      ]
+    },
+    "ARM9-paused-off": {
+      "passes": 258,
+      "qemu_agree": 68,
+      "qemu_differ": 0,
+      "window_coverage_each_latency": 85,
+      "window_cycle_assertions_at_0_0": 85,
+      "window_cycle_assertions_other_latencies": 0,
+      "cycles_and_instructions_unchanged": true,
+      "excluded_tests": [
+        "dhum_rtl"
+      ]
+    }
+  }
+}

@@ -1,8 +1,8 @@
 # ARM9V2: eight-stage redesign for 47 M instructions/s
 
-Status: F1/F2, predictor, return stack and raw instruction queue implemented and
-tested as a component. D1 through W and V2 instruction execution are not yet
-implemented. `CORE="ARM9"` still selects the paused core; ZAP remains default.
+Status: F1/F2, predictor, return stack, raw instruction queue and D1/D2 with
+the real register file are implemented and tested as components. S through W
+and V2 instruction execution are not yet implemented. `CORE="ARM9"` still selects the paused core; ZAP remains default.
 The paused implementation and its measured limitations remain in [ARM9.md](ARM9.md)
 and the [last report](consults/2026-10-23-codex-arm9-report.md). This is a new
 pipeline, not another timing patch to its six-producer execute/address chain.
@@ -344,3 +344,77 @@ measurement, and these cuts recovered timing without spending that throughput.
 These remain component-only fits; cache and backend integration can change them.
 Full paths and the consultation checklist are in the
 [session-2 report](consults/2026-10-23-codex-arm9v2-s2.md).
+
+
+## Session 2: decode boundary as implemented
+
+`arm9v2_decode.sv` has two elastic D1 slots, a registered D2 record and
+registered operands/control at the S entrance. Fetch sees capacity from the
+D1 occupancy registers. No cache response, permission fault, RF value or
+forwarding readiness selects the instruction entering D1. The single reused
+ARMv4T Thumb expander runs on the raw queue word/lane when D1 accepts it.
+
+D1 owns the expanded instruction, mode, PC+4/8, sequential PC, fault and
+prediction/checkpoint. Balanced count/priority trees capture the block list's
+population, first register and remaining list; Thumb PUSH/POP add implicit
+LR/PC beside expansion. D1 classification and banking terminate at D2's
+registered physical tags, kind, condition, direct target and signed eight-bit
+transfer/writeback offsets. The four raw RF reads and same-edge C>B>A RF
+write-through terminate at S. There is no A/M forwarding in decode. RF
+values for PC/CPSR remain raw: S must substitute the instruction PC, the
+register-shift PC adjustment, Thumb PC alignment and its registered flags
+using the attached metadata, as well as perform ordinary producer selection.
+
+D2 emits ascending register transfers, one per clock while accepted. The
+next scan terminates at the tag register before RF selection. IA/IB/DA/DB
+start at 0/4/(-4n+4)/(-4n), then add four; the base delta is +/-4n. User-bank
+transfers and final LDM PC+S SPSR selection are encoded. Base is read on the
+first transfer; the backend must retain it and implement writeback and abort
+restoration. Empty lists decode as undefined, matching the paused core.
+
+A source-only registered-scoreboard input holds D2 on used locked registers;
+unused encoding fields and load destinations do not stall. This is an
+interface test, not a demonstrated three-clock load-use schedule. Destination
+ordering, producer matching, flags, precise retirement and memory exceptions
+remain S/A/M/W work. A fetch fault overrides operand usage and list expansion
+and emits one record. Older flush wins over a direct redirect and clears all
+unissued records, including Thumb prefix pairing.
+
+Unconditional B/BL and adjacent Thumb BL pairs use registered D2 targets.
+Taken/fallthrough target comparisons include instruction state and become two
+S-entry bits. Redirect event, target, mode and RAS repair checkpoint/action
+are registers at D2/S; no operand readiness or branch add drives fetch in the
+same clock. Conditional branches, BX, orphan Thumb BL suffixes and PC loads
+remain late events. The paired suffix uses a dedicated registered prefix sum,
+including the immediately preceding D2 prefix; it does not add RF forwarding.
+
+Measured component timing at bus waits 0/3/9:
+
+| Window | Result | Scope |
+|---|---:|---|
+| Accepted D1 input to first S-entry record | 2 edges | No downstream hold or operand lock |
+| n-register block, acceptance through final S-entry | n+2 inclusive edges | First at +2, last at +(n+1); not a retired LDM/STM cycle count |
+| Trained three-target loop through real I-cache and D1/D2 | 1 record/clock | Zero lost predicted slots, after warmup |
+| Hot unpredicted direct loop through same harness | 7 clocks/branch | Six lost slots; **three more than the design target** |
+| Full cache-connected bench | 442 / 649 / 1,105 clocks | Includes initial fills, holds, hazards, Thumb, faults and redirect during fill |
+
+The six lost slots are measured, not relabeled as a three-slot redirect.
+After a D2 redirect register changes, the current front end applies it,
+launches on the following edge, passes F1/F2, enqueues the raw word, and
+crosses D1 and D2 to S. Removing redundant empty-queue/redirect handoffs is a
+future latency task; borrowing live cache validity into decode is prohibited.
+The three-slot table remains the design target. Same-cycle BTB cadence is
+already preserved; rare cold redirects currently pay for explicit boundaries.
+
+`make -C sim/cpu arm9v2-decode` checks source and generated decode and the real
+short-read I-cache/TLB integration. Tests cover every nonempty 16-bit list,
+all addressing modes, banks and user-bank selection, same-edge RF writes,
+locks/holds, Thumb lanes and PUSH/POP/BL, direct prediction repair, faulted
+block bits and older-flush priority. `TRIAL=arm9v2_decode` fits the real front
+end, D1/D2, register file and S-entry registers with variable registered
+interfaces. It excludes caches and S/A/M/W execution. Seeds 2/3/4 give
+worst-slow slack -0.697/-1.152/-0.890 ns (median -0.890),
+4,142/4,186/4,159 ALMs, two M10Ks and no DSPs; all hold checks pass. Queue
+selection into Thumb/list arithmetic and D1 branch-target selection remain
+the worst paths. Full evidence is in the session-2 report; no complete V2
+timing or CPU cycle result is implied by a component fit.

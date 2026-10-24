@@ -1,0 +1,26 @@
+PASS decode: 6037233 checks, 722064 cycles
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/decode_tb.sv:196: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 2us; walltime 0.398 s; speed 5.442 us/s
+- Verilator: cpu 0.397 s on 1 threads; allocated 2 MB
+PASS decode: 6037233 checks, 722064 cycles
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/decode_tb.sv:196: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 2us; walltime 0.409 s; speed 5.299 us/s
+- Verilator: cpu 0.408 s on 1 threads; allocated 2 MB
+/Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/decode_cache.sh
+PASS decode/cache latency=0: 1146 checks, 442 cycles; unpredicted spacing=7, predicted spacing=1
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/decode_cache_tb.sv:161: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 1ns; walltime 0.000 s; speed 2.657 us/s
+- Verilator: cpu 0.001 s on 1 threads; allocated 2 MB
+PASS decode/cache latency=3: 1573 checks, 649 cycles; unpredicted spacing=7, predicted spacing=1
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/decode_cache_tb.sv:161: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 2ns; walltime 0.001 s; speed 3.009 us/s
+- Verilator: cpu 0.001 s on 1 threads; allocated 2 MB
+PASS decode/cache latency=9: 2485 checks, 1105 cycles; unpredicted spacing=7, predicted spacing=1
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/decode_cache_tb.sv:161: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 3ns; walltime 0.001 s; speed 3.256 us/s
+- Verilator: cpu 0.001 s on 1 threads; allocated 2 MB

@@ -5,7 +5,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../../.." && pwd)
 build=$root/sim/cpu/build/arm9v2-frontend
 mkdir -p "$build"
-sources=("$root"/rtl/cpu/arm9v2/*.sv "$root/rtl/cpu/zap/zap_ram_simple_nopipe.sv")
+sources=("$root"/rtl/cpu/arm9v2/arm9v2_{fetch,predict}.sv "$root/rtl/cpu/zap/zap_ram_simple_nopipe.sv")
 for bench in predict fetch; do
     top=arm9v2_$bench
     [[ $bench != predict ]] || top=arm9v2_predict

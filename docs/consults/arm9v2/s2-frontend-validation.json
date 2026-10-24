@@ -7,28 +7,34 @@
       "failures": 0,
       "qemu_agree": 68,
       "qemu_differ": 0,
-      "windows_each_latency": 0,
-      "excluded_tests": []
+      "excluded_tests": [],
+      "window_cycle_assertions_at_0_0": 0,
+      "window_coverage_each_latency": 85,
+      "window_cycle_assertions_other_latencies": 0
     },
     "ARM9-paused": {
       "passes": 258,
       "failures": 0,
       "qemu_agree": 68,
       "qemu_differ": 0,
-      "windows_each_latency": 85,
       "excluded_tests": [
         "dhum_rtl"
-      ]
+      ],
+      "window_cycle_assertions_at_0_0": 85,
+      "window_coverage_each_latency": 85,
+      "window_cycle_assertions_other_latencies": 0
     },
     "ARM9-paused-off": {
       "passes": 258,
       "failures": 0,
       "qemu_agree": 68,
       "qemu_differ": 0,
-      "windows_each_latency": 85,
       "excluded_tests": [
         "dhum_rtl"
-      ]
+      ],
+      "window_cycle_assertions_at_0_0": 85,
+      "window_coverage_each_latency": 85,
+      "window_cycle_assertions_other_latencies": 0
     }
   },
   "cycles_identical_to": "s1-merged-cycles.json"
