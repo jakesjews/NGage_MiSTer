@@ -28,11 +28,16 @@ CLK = 104_000_000
 
 
 def overlay_on(board):
-    # OSD rows before "Debug overlay" (NGage.sv CONF_STR): the four file
-    # slots, Rotate, Aspect ratio, Scandoubler Fx, Vertical Crop, Crop
-    # Offset, Scale, Memory test; the crop rows are selectable in a profile
-    # run (upright, scandoubler off).
-    for k in ["f12"] + ["down"] * 11 + ["enter", "esc"]:
+    # The fallback when the config file did not take: OSD rows before "Debug
+    # overlay" (NGage.sv CONF_STR): the six file slots (F1-F4, S1, S0),
+    # Rotate, Aspect ratio, Scandoubler Fx, Vertical Crop, Crop Offset,
+    # Scale, Memory test; the crop rows are selectable in a profile run
+    # (upright, scandoubler off). Never while a launcher is still loading:
+    # an Enter into the MGL sequencer leaves a file entry's browser pending,
+    # and a later Enter meant for the phone selects the first file listed
+    # (RH2946.0C1 was re-sent that way on 2026-10-23). Two escapes close
+    # the OSD from a browser as well as from the menu.
+    for k in ["f12"] + ["down"] * 13 + ["enter", "esc", "esc"]:
         board.press(k)
         time.sleep(0.4)
 
@@ -55,7 +60,7 @@ def main():
     print(f"loaded {a.launcher} at MiSTer time {t0:.1f}", flush=True)
     w = csv.writer(open(out / "profile.csv", "w", newline=""))
     w.writerow(["t", "frames", "px", "minstr", "idle", "sdram", "flash", "other", "beats", "file"])
-    n, undecoded, on = 0, 0, False
+    n, undecoded, on, walked = 0, 0, False, False
     nxt = time.time() + 8
     while True:
         now = time.time()
@@ -87,9 +92,9 @@ def main():
         else:
             undecoded += 1
             print(f"{t:6.1f}s  (no counters: overlay {'lost' if on else 'not on yet'})", flush=True)
-            if undecoded >= 2 and t > 12:
-                overlay_on(board)
-                undecoded = 0
+            if undecoded >= 3 and t > 45 and not walked:
+                overlay_on(board)    # once, and only well after the launcher's loads
+                undecoded, walked = 0, True
         if t >= a.seconds:
             break
     board.close()
