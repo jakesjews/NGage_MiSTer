@@ -24,6 +24,19 @@
 //   --trace FILE --trace-after N --trace-count M
 //                      an instruction window (sim/cpu/boot/cmp_window.py)
 //   --progress N       a line every N clocks (with wall-clock time)
+//   --save FILE --save-at N [--save-exit]
+//                      write a snapshot when the clock count reaches N: the
+//                      model through Verilator's save (the bench is built
+//                      --savable) into FILE and the harness's state (the SDRAM
+//                      and DDRAM models, the counters) into FILE.bench; then
+//                      carry on, or stop with --save-exit
+//   --restore FILE     start from that snapshot instead of booting: the same
+//                      binary, --cs0/--cs1 not needed (the images and every
+//                      write to them are in the snapshot), --mmc the same
+//                      image, --keys with absolute times (events at or before
+//                      the snapshot's clock have happened), --cycles absolute,
+//                      --out a new directory (kern.log, dev.log and the
+//                      pictures start afresh; audio.wav restarts)
 // Always written: DIR/kern.log (the kernel's debug text through the STI
 // window), DIR/lcd-<ms>.png each time the picture at the video outputs
 // changes (and lcd-last.png), DIR/audio.wav (AUDIO_L/R at 48 kHz, once the
@@ -31,6 +44,7 @@
 #include "Vemu.h"
 #include "Vemu___024root.h"
 #include "verilated.h"
+#include "verilated_save.h"
 #include "common.h"
 #include "ddram_model.h"
 #include "sdram_model.h"
@@ -434,6 +448,68 @@ struct Bench {
 	}
 	void ticks(uint64_t n) { while (n--) tick(); }
 
+	// ---- snapshots: the model through Verilator, the rest of the bench raw
+	void save_bench(FILE *f) const {
+		snap::mark(f, 0xB3ACB301u);
+		snap::put(f, clocks);
+		dm.save(f);
+		chip.save(f);
+		snap::put(f, sd_state); snap::put(f, sd_delay); snap::put(f, sd_word); snap::put(f, sd_lba);
+		snap::put(f, sd_reads); snap::put(f, sd_writes);
+		snap::put(f, retired); snap::put(f, last_r_pc); snap::put(f, last_ev); snap::put(f, dev_accesses);
+		snap::put(f, fr); snap::put(f, row); snap::put(f, fr_rows); snap::put(f, fr_w); snap::put(f, fr_bad);
+		snap::put(f, de_prev); snap::put(f, vs_prev); snap::put(f, last_png); snap::put(f, pictures); snap::put(f, frames);
+		snap::put(f, audio_phase); snap::put(f, joy);
+		snap::put(f, pending_ev); snap::put(f, pending_pc); snap::put(f, pending_thumb);
+		snap::mark(f, 0xB3ACB302u);
+	}
+	void load_bench(FILE *f) {
+		snap::check(f, 0xB3ACB301u);
+		snap::get(f, clocks);
+		dm.load(f);
+		chip.load(f);
+		snap::get(f, sd_state); snap::get(f, sd_delay); snap::get(f, sd_word); snap::get(f, sd_lba);
+		snap::get(f, sd_reads); snap::get(f, sd_writes);
+		snap::get(f, retired); snap::get(f, last_r_pc); snap::get(f, last_ev); snap::get(f, dev_accesses);
+		snap::get(f, fr); snap::get(f, row); snap::get(f, fr_rows); snap::get(f, fr_w); snap::get(f, fr_bad);
+		snap::get(f, de_prev); snap::get(f, vs_prev); snap::get(f, last_png); snap::get(f, pictures); snap::get(f, frames);
+		snap::get(f, audio_phase); snap::get(f, joy);
+		snap::get(f, pending_ev); snap::get(f, pending_pc); snap::get(f, pending_thumb);
+		snap::check(f, 0xB3ACB302u);
+		audio.clear();
+		audio_on = false;
+	}
+	void save(const std::string &path) {
+		{
+			VerilatedSave os;
+			os.open(path);
+			os << Verilated::threadContextp();
+			os << *t;
+			os.close();
+		}
+		FILE *f = fopen((path + ".bench").c_str(), "wb");
+		if (!f) snap::fail("cannot write the bench file");
+		save_bench(f);
+		fclose(f);
+		printf("snapshot written at clock %" PRIu64 " (%.3f s), %" PRIu64 " instructions retired: %s, %s.bench\n", clocks, clocks / CLK_HZ, retired, path.c_str(), path.c_str());
+		fflush(stdout);
+	}
+	void restore(const std::string &path) {
+		{
+			VerilatedRestore is;
+			is.open(path);
+			is >> Verilated::threadContextp();
+			is >> *t;
+			is.close();
+		}
+		FILE *f = fopen((path + ".bench").c_str(), "rb");
+		if (!f) snap::fail("cannot read the bench file");
+		load_bench(f);
+		fclose(f);
+		printf("snapshot restored at clock %" PRIu64 " (%.3f s): %s\n", clocks, clocks / CLK_HZ, path.c_str());
+		fflush(stdout);
+	}
+
 	// a one-word ioctl download: the image is already in the DDRAM model
 	void mark_loaded(int index, const std::vector<uint8_t> &data) {
 		auto &h = *r;
@@ -461,9 +537,9 @@ int bcd(int v) { return (v / 10) << 4 | (v % 10); }
 int main(int argc, char **argv) {
 	Verilated::commandArgs(argc, argv);
 	crc_init();
-	std::string cs0p, cs1p, mmcp, out = ".", keysp, tracep, rtc = "2004-06-01 12:00:00";
-	uint64_t max_cycles = 1000000000ull, progress = 50000000ull, trace_after = 0, trace_count = 0;
-	bool devlog = false;
+	std::string cs0p, cs1p, mmcp, out = ".", keysp, tracep, rtc = "2004-06-01 12:00:00", savep, restorep;
+	uint64_t max_cycles = 1000000000ull, progress = 50000000ull, trace_after = 0, trace_count = 0, save_at = 0;
+	bool devlog = false, save_exit = false;
 	for (int i = 1; i < argc; i++) {
 		std::string a = argv[i];
 		auto next = [&]() -> const char * {
@@ -482,10 +558,15 @@ int main(int argc, char **argv) {
 		else if (a == "--trace-after") trace_after = strtoull(next(), nullptr, 0);
 		else if (a == "--trace-count") trace_count = strtoull(next(), nullptr, 0);
 		else if (a == "--progress") progress = strtoull(next(), nullptr, 0);
+		else if (a == "--save") savep = next();
+		else if (a == "--save-at") save_at = strtoull(next(), nullptr, 0);
+		else if (a == "--save-exit") save_exit = true;
+		else if (a == "--restore") restorep = next();
 		else if (a[0] == '+') continue;
 		else { fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
 	}
-	if (cs0p.empty() || cs1p.empty()) { fprintf(stderr, "--cs0 and --cs1 are needed\n"); return 2; }
+	if (restorep.empty() && (cs0p.empty() || cs1p.empty())) { fprintf(stderr, "--cs0 and --cs1 are needed\n"); return 2; }
+	if (!savep.empty() && !save_at) { fprintf(stderr, "--save needs --save-at\n"); return 2; }
 
 	Bench b;
 	auto &R = *b.r;
@@ -509,6 +590,13 @@ int main(int argc, char **argv) {
 		std::stable_sort(b.keys.begin(), b.keys.end(), [](const KeyEvent &x, const KeyEvent &y) { return x.clock < y.clock; });
 	}
 
+	uint64_t start = 0;
+	if (!restorep.empty()) {
+		b.restore(restorep);
+		if (!mmcp.empty()) b.img = read_file(mmcp);
+		while (b.key_next < b.keys.size() && b.keys[b.key_next].clock <= b.clocks) b.key_next++;
+		start = b.clocks;
+	} else {
 	// MiSTer's RTC (hps_io sends it when the core starts)
 	{
 		int Y, M, D, h, m, s;
@@ -538,15 +626,20 @@ int main(int argc, char **argv) {
 	memcpy(&b.dm.mem[b.DDR_BASE + 0x01000000u - DdramModel::BASE], cs1.data(), cs1.size());
 	b.mark_loaded(3, cs0);
 	b.mark_loaded(4, cs1);
-	uint64_t start = b.clocks;
+	start = b.clocks;
 	printf("flash images in DDR3; the CPU starts at clock %" PRIu64 "\n", start);
 	fflush(stdout);
+	}
 
 	auto t0 = std::chrono::steady_clock::now();
 	uint64_t last_c = b.clocks;
 	auto last_t = t0;
 	while (b.clocks < max_cycles) {
 		b.tick();
+		if (save_at && b.clocks == save_at) {
+			b.save(savep);
+			if (save_exit) break;
+		}
 		if (progress && b.clocks % progress == 0) {
 			auto now = std::chrono::steady_clock::now();
 			double wall = std::chrono::duration<double>(now - t0).count();

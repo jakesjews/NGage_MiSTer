@@ -5118,3 +5118,28 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   ARM926, fix it, prove a 40-guest-second boot, and restart the V2
   Sonic runs. The 78 MHz measurement build is then the fast path to
   V2's in-play number on the board: a build and a 20-minute run.
+- **Snapshots for the whole-core bench** (mine, on the user's "try
+  writing the code yourself too"). The coreboot bench is built
+  --savable now, and sim/harness/coreboot_main.cpp takes --save FILE
+  --save-at CLOCKS [--save-exit] and --restore FILE: Verilator saves
+  the model (its context and every signal and RAM) into FILE, and the
+  harness its own state into FILE.bench through sim/harness/snapshot.h
+  (the SDRAM chip model and the DDRAM model gained save/load of all
+  their members, memories, pending beats and random engines included;
+  the bench's counters, the video capture, the joystick state). A
+  restore needs the same binary, the same --mmc image, --keys with
+  absolute times, --cycles absolute and a fresh --out. Proved on the
+  Mac: one guest second of the boot with a snapshot at 0.5 s and a key
+  event at 0.7 s, then a run restored from it: the device logs after
+  the snapshot point identical line for line (162 lines), the kernel
+  log, the retired count (64,726,606), the device accesses (271) and
+  the pictures the same; the snapshot is 0.4 MB of model and 76 MB of
+  memories. The point: the firmware's idle screen comes at about 100
+  guest seconds (ten Mac hours); a snapshot there makes every later
+  game run on the same model start from it. Also measured: this Mac
+  (M2 Max) runs the bench at 565-586 k clocks/s with --x-assign fast
+  --x-initial fast and -O3 against the server's (Ryzen 5950X) 250-290 k,
+  and four Verilator threads are slower than one on this design; the
+  ZAP Sonic baseline moved to the Mac, relaunched on the savable
+  build with the 16 KB D-cache (the shipping configuration) and a
+  snapshot at 100 guest seconds.
