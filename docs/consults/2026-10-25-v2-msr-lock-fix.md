@@ -141,3 +141,134 @@ The new D2 terms are three registers (`live_lookup`, `fill_was_busy`,
 **Not done:** a fit of the new D2 term, and a board or whole-core run.
 The per-clock debug probe (a `bind` module) is in the session
 scratchpad, not committed.
+
+## Follow-up: exception entries and returns (`72e50e5`)
+
+On the board, the fixed core (`694252b`, 78 MHz) boots and plays. One
+boot of three still died in the logo phase, with the kernel record
+`00250030 503b27c0 10000000`:
+
+- The PC was `0x00250030`.
+- r14 was `0x503B27C0`, the return address of the executive-call stub
+  `svc 0xC000BF`.
+- The type word is a prefetch abort.
+
+The kernel's prefetch-abort handler stores the aborted mode's r14 (for
+USR, `stm lr, {sp, lr}^` at `0x50322124`). So the PC went wrong in a mode
+whose lr was the caller's, most plausibly on the way back to user. The
+candidates are:
+
+- `movs pc,lr` followed by `bx lr` at `0x50321618`-`0x50321620`;
+- the fast path at `0x503214c0`;
+- the context-switch resume at `0x50321660`-`0x50321670`.
+
+### The sweep
+
+`sim/cpu/tests/arm9_swi_lock_rtl.S` repeats the window shapes behind
+every other flush V2 takes, 584 cases:
+
+- **Flush:** SWI from SVC or USR; IRQ from SVC or USR; `movs pc,lr` to
+  SVC or USR; `ldmfd sp!,{r0,pc}^`; `subs pc,lr,#4`.
+- **Window:**
+  - the WAW pair, and the kernel's store-through-ip shape;
+  - `ldr pc,[r1,r2,lsl #2]` through the loaded table base;
+  - `bx` through the loaded register;
+  - each with and without a younger writer;
+  - a younger writer of the new mode's banked lr and sp;
+  - copies of the executive-call return and of the SWI entry.
+- **Lit1:** its line departs under a store miss beside a dirty or a
+  clean line, optionally after a TLB flush, or it is a cold miss behind
+  a TLB flush.
+- **Gap:** 0 or 2 instructions between the store miss and the flush.
+
+Each case runs cold and warm in three configurations: sections at the
+bench latency, small pages at 24, sections at 12.
+
+| RTL | 0:0 | 0:3 | 2:9 |
+|---|---:|---:|---:|
+| V2 before `137f6b8` (failing cases of 1,752) | 318 | 357 | 407 |
+| V2 at `137f6b8`, predictor on and off | 0 | 0 | 0 |
+| ZAP | 0 | 0 | 0 |
+
+Before the fix, every flush kind except `ldm ^` failed. So did every
+younger-writer window, including the banked lr and sp ones. The two
+kernel-shaped windows never failed: the SPSR `msr` flush, or the cold
+miss on the SVC word, separates the load from the departing line.
+
+On the fixed core, a counting probe confirms that the hazard is hit:
+
+- 822-1,166 unaccepted first-clock short hits per run;
+- 16-79 first-clock short hits on the fill-end clock;
+- at least one of each in every flush kind and every window kind.
+
+**No variant fails after the fix.**
+
+The test also stopped ZAP on a bench assertion ("Registered HUM tag
+match differs from live lookup"). It fired on idle clocks of a long
+deferred write-back, where ZAP's early compare follows the next check
+address. Only a presented access consumes that match: the HUM ACK,
+`live_write` and the accepted-hit LRU update all require `i_rd` or
+`i_wr`. The assertion now requires one too. With that change ZAP's
+results are all correct.
+
+Verification:
+- 294/294 runs in all three configurations.
+- All 291 earlier runs are cycle-identical.
+- QEMU: 73/73 agree.
+
+### Audit: consumers of the first-clock W short hit
+
+| Consumer | Trusts completion? | Verdict |
+|---|---|---|
+| D2 WAW exception, `arm9v2_decode.sv:535` | yes | the hole; fixed in `137f6b8` (`arm9v2_core.sv:838`) |
+| D2 S-entry pending bit `o_pending`, `arm9v2_decode.sv:599` | for data only | safe; gated by the same `i_w_load_hit`, and S re-evaluates live producers |
+| S/A waits and grants, `i_load_hit`, `arm9v2_execute.sv:144,147,162,228`; W forwarded word `mw_value[1]`, `arm9v2_core.sv:465` | for data only | safe by argument (below) |
+| `fast_pc_hit`, `defer_load`, `load_data`, `arm9v2_core.sv:695-697` | no | used only with `request_done` (an ACK); the assertion at 699 checks the word |
+| `d_return_match`, `return_a_match` (execute 126/130), `quick_reload`, `return_ready` | no | built from completion (`return_next_valid`) or registered locks, not from the short hit |
+
+The S/A argument: a reader that takes an unaccepted or stale short-hit
+word takes the departing line's current contents, which equal memory.
+The later background return writes the same value into the register
+file.
+
+### Ranked remaining candidates (none reproduced here)
+
+1. **A stale memory word through the short port's store-to-load
+   handling.** The context-save and resume code stores the thread's
+   saved PC and SPSR (`str r0,[ip,#0x3c]`, `str lr,[ip,#0x40]` at
+   `0x50321638`) and reloads them a few instructions later (`ldr
+   r0,[lr,#0x40]`, `ldm{ne} lr,{...pc}^`, `ldr lr,[lr,#0x3c]; movs pc,lr`
+   at `0x5032164c`-`0x50321670`). A stale read there gives a garbage PC
+   with lr_usr intact.
+   - It would be V2-only: the short port and its S11 captured-descriptor
+     forwarding live in `zap_dcache.sv` and `zap_cache_tag_ram.sv` under
+     `SHORT_READ`.
+   - It fits panics spread across contexts.
+   - Neither test covers same-word store-then-load at distances 2-8
+     under a fill.
+2. **The reader-side premise, if the short data can come from a line
+   that is half installed.** Readers trust that an unaccepted or stale
+   short hit carries the departing line's data. If the short data
+   register can capture the new line's bytes at the old tag on the
+   `UNLOCK_REG` edge (S11 post-edge forwarding), a reader's operand would
+   be wrong for good. That is `mw_value[1]` (core 465) and `i_load_hit`
+   (execute 144-228). The 16-79 fill-end events pass, so this is less
+   likely.
+3. **V2's fetch queue across a redirect into a filling I-line.** Entries
+   pushed as `pending` are released by any `i_fill_done`
+   (`arm9v2_fetch.sv:151-154`). A wrong word after an exception-entry
+   redirect would be executed. The sweep does not cover it.
+4. **A latent priority, not a cause under the D2 invariant.** When an
+   older background return (port 1, `i_dc_reg_dat`) and a younger normal
+   completion (port 0) match the same tag on one clock, port 1 wins the
+   S/A repair loop (execute 186-190, 213-218 and 288-296). Register-file
+   port C also beats B. Both are safe only while D2 never admits that
+   younger writer.
+5. **Low.** Banked tags on the mode switch: D1 maps tags with the live
+   CPSR (`arm9v2_decode.sv:298`), every mode change flushes, and the
+   banked windows pass. The RAS/BTB after the flush: BX and DP/LDM PC
+   writes are validated at A/W.
+
+The hardware trace of the fixed source should separate candidate 1
+(wrong word on a store-to-load pair in the save/resume code) from
+candidate 3 (a wrong instruction word on the refetch).
