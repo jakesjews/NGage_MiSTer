@@ -68,7 +68,7 @@ struct Bench {
 		t->clk = 0; t->reset = 1;
 		t->cs0_req = 0; t->cs0_lreq = 0; t->cs0_laddr = 0;
 		t->cs1_req = 0; t->cs1_lreq = 0; t->cs1_laddr = 0;
-		t->ld_we = 0; t->bk_req = 0; t->bk_blk = 0;
+		t->ld_rd = 0; t->ld_we = 0; t->bk_req = 0; t->bk_blk = 0;
 		t->ddram_busy = 0; t->ddram_dout = 0; t->ddram_dout_ready = 0;
 		t->eval();
 	}
@@ -205,6 +205,29 @@ struct Bench {
 		reset = false;
 	}
 
+	// Version reads must work under reset and drain any preceding chip read.
+	void loader_read(uint32_t address, bool in_reset) {
+		reset = in_reset;
+		ld_addr = address;
+		t->ld_rd = 1;
+		bool accepted = false, answered = false;
+		uint64_t want = 0;
+		memcpy(&want, &ddr.mem[address - DdramModel::BASE], 8);
+		for (int guard = 0; guard < 20000 && !answered; guard++) {
+			drive(); t->eval();
+			bool took = t->ld_rd && !t->ld_busy;
+			answered = t->ld_valid;
+			if (answered) {
+				CHECK(accepted, "loader response after its command");
+				CHECK_EQ(t->ld_data, want, "loader readback data");
+			}
+			tick();
+			if (took) { accepted = true; t->ld_rd = 0; }
+		}
+		CHECK(answered, "loader read answered");
+		reset = false;
+	}
+
 	// test a 16-byte line read (two 64-bit beats) on CS0 or CS1
 	void line_read(int n, uint32_t beat_addr, bool expect_hit_order) {
 		if (n == 0) { t->cs0_lreq = 1; t->cs0_laddr = beat_addr; }
@@ -262,7 +285,7 @@ void test_blank(uint32_t seed) {
 		p.req = true; p.we = true; p.addr = byte / 2; p.wdata = data; p.since = b.cyc;
 		b.settle();
 	};
-	load(0, 0x1234); // a new image re-arms the scan
+	load(0, 0x1234); // firmware data does not affect C: blankness
 	load(0x400000, 0xFFFF);
 	load(0x7FFFFE, 0xFFFF);
 	CHECK(b.t->c_blank, "erased loaded C: is blank");
@@ -277,7 +300,9 @@ void test_blank(uint32_t seed) {
 	b.reset = true; b.tick(); b.reset = false; b.tick();
 	CHECK(!b.t->c_blank, "erase/reset cannot re-arm blank");
 	load(0, 0xFFFF);
-	CHECK(b.t->c_blank, "new image re-arms blank");
+	CHECK(!b.t->c_blank, "firmware reload cannot re-arm a mounted C: save");
+	load(0x400000, 0xFFFF);
+	CHECK(b.t->c_blank, "new C: image re-arms blank");
 	load(0x7FFFFE, 0xFFFE); // last enabled byte lanes, first word still FF
 	CHECK(!b.t->c_blank, "loaded data anywhere in C: clears blank");
 	load(0x7FFFFE, 0xFFFF);
@@ -350,6 +375,16 @@ int main(int argc, char **argv) {
 		b.line_read(n, 0x201, true);
 		b.line_read(n, 0x203, true);
 	}
+	for (int i = 0; i < 24; i++) {
+		b.settle();
+		// Start an uncached CPU read just before the loader asks for the port.
+		b.p[0].req = true; b.p[0].we = false; b.p[0].addr = 0x10000 + i * 256; b.p[0].since = b.cyc;
+		b.tick(); b.tick();
+		b.loader_read(CS_BASE[i & 1] + 0x8F08 + 8 * i, false);
+		b.settle();
+		b.loader_read(CS_BASE[i & 1] + 0x8F08 + 8 * i, true);
+	}
+
 	for (int i = 0; i < 200; i++) b.tick();
 	CHECK(b.ddr.idle(), "DDR3 reads still in flight at the end");
 	// nothing else in DDR3 changed

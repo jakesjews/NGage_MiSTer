@@ -536,8 +536,8 @@ int main(int argc, char **argv) {
 	if (cs0.size() != (16u << 20) || cs1.size() != (8u << 20)) { fprintf(stderr, "images must be 16 MB and 8 MB\n"); return 2; }
 	memcpy(&b.dm.mem[b.DDR_BASE - DdramModel::BASE], cs0.data(), cs0.size());
 	memcpy(&b.dm.mem[b.DDR_BASE + 0x01000000u - DdramModel::BASE], cs1.data(), cs1.size());
-	b.mark_loaded(1, cs0);
-	b.mark_loaded(2, cs1);
+	b.mark_loaded(3, cs0);
+	b.mark_loaded(4, cs1);
 	uint64_t start = b.clocks;
 	printf("flash images in DDR3; the CPU starts at clock %" PRIu64 "\n", start);
 	fflush(stdout);

@@ -4079,3 +4079,278 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the suite's compiled proxies 35 % under ZAP as the acceptance, the
   shared ZAP caches through the CORE switch), beside the D-cache
   changes and the loader.
+- **The in-core firmware loader merged** (Codex, codex/firstboot
+  431e21e..08ceb7e, merged a83342a; docs/consults/2026-10-23-codex-
+  phoenix-report.md): rtl/mister/phoenix_load.sv parses the Phoenix
+  files as the framework streams them (the A2 header's token section,
+  records 14, 21, 20, 25, 26, 2E with their checksums), fills CS0 and
+  the CS1 firmware half with FF first, writes the records to DDR3
+  through ddram_flash's loader port with ioctl_wait as the back
+  pressure, verifies the 4.60 signatures, and applies the patches from
+  a generated ROM (tools/gen_patchrom.py -> rtl/mister/phoenix_patch.hex,
+  10 M10K) with the two digests; "Firmware 4.60 loaded" / "Firmware not
+  recognised: needs RH-29 4.60" / "Firmware file damaged" through the
+  info list; F1 = RH2946.0C1, F2 = RH2946.0S5, the flat images moved to
+  F3/F4 for development; C: is a 4 MB save (releases/ngage-c-drive.bin
+  blank, 8 MB saves still accepted with their lower half ignored); the
+  CPU waits for both files and the save. Verified: the real files
+  reconstruct both images byte for byte through the loader harness
+  (make -C sim phoenix-real; 62 M clocks, 30 % random DDR back
+  pressure), the synthetic bench (both file orders, damage, the version
+  check, C: isolation), the save and ddrflash benches, the top bench,
+  both lints. README rewritten for the no-PC setup (boot1.rom,
+  boot2.rom, boot1.vhd). Built as b24 (the debug core): -0.958 ns,
+  37,789 ALMs (90 %), 487 M10K; the loader costs about 700 ALMs and
+  the patch ROM's 10 M10K. On the debug slot for the board test (the
+  Phoenix files and a blank C: under launcher names; the boot names
+  wait until the main slot runs a loader core too).
+- **ARM9 v2, session 1** (Codex, codex/arm9v2; docs/ARM9V2.md,
+  docs/consults/2026-10-23-codex-arm9v2-s1.md): master merged into the
+  paused branch (the short-read cache adapted to hit-under-miss, the
+  BTB's earlier decision realigned; CORE=ZAP's cycles unchanged), the
+  eight-stage design specified with the 47 M/s acceptance gates, and
+  the front end built and tested standalone against the real I-cache:
+  F1/F2, a 256-entry predictor (60-bit entries in two M10Ks, same-edge
+  coherent, deciding in F1's own cycle so a trained loop loses no slot),
+  an eight-entry return stack with checkpoint and repair, an
+  eight-entry raw queue; a HOLD_READ option added to zap_ram_simple_nopipe.
+  Its fit alone: -0.574 / -0.856 / -0.895 ns at seeds 2-4, about 1,090
+  ALMs. D1 through W are not implemented. Session 2 started: the front
+  end's paths first, then the decode pair.
+- **b24 on the board: the in-core loader works end to end.** Launched
+  from an MGL with the Phoenix files themselves (F1 RH2946.0C1, F2
+  RH2946.0S5), a fresh copy of releases/ngage-c-drive.bin on S1 and the
+  card on S0: C: formatted at 44-84 s, the Time dialog at 96 s, the
+  first-time setup after the Date dialog (108-113 s), C: written back
+  (852 KB at 121 s), the idle screen at 170 s
+  (build/hardware/boot/phoenix-b24-rerun/); a second boot on that C:
+  went to the idle screen without a format. One of two identical first
+  boots failed: running at 106 s (the Date dialog's Enter), then Main
+  refused screenshots for 14 s (it does so only while loading a core or
+  files: the time the 18 MB MCU file takes), and from 120 s the CPU was
+  held in reset for good (overlay: cpu_reset=1, pc=0, the interrupt
+  enables cleared, the save still present, the LCD on the test pattern):
+  a Phoenix file sent again, which by design starts a fresh pair and
+  waits for the second file. What sent it is unknown (no core reload or
+  Main restart in dmesg, no OSD use, only Enter taps). The loader's
+  Codex thread is adding a loader status word to the debug overlay,
+  making an identical re-send verify instead of refill (so the pair
+  survives it), and reading Main's source for a path that re-sends an F
+  option's file. The debug launchers on the MiSTer are now the Phoenix
+  form (tools: scratch gen-dbg-launchers.sh); the main slot still runs
+  seed 18, the pre-loader core.
+- Main-core builds of the loader tree (8194b05, NGAGE_NO_DEBUG): seed
+  18 -1.260 ns (the D-cache tag RAM family on top), seed 9 -0.671 (the
+  MMU enable into the merger, the late memory index into the fetch
+  FIFO); 35.5-35.6 K ALMs. The loader moved the placement (seed 18 was
+  -0.43 on the tree before it); timing is paused. Seed 9's rbf
+  (build/hardware/NGage-ndp-s9.rbf) is the main-slot candidate once the
+  re-send hardening is in, with the user's launchers rewritten to the
+  Phoenix form (F1 RH2946.0C1, F2 RH2946.0S5, S1 the save: the 8 MB
+  rh29-460-cs1-save.bin is accepted, its C: half kept) and the boot-file
+  names added; until then the main slot keeps seed 18.
+- **The re-send, followed up** (Codex, codex/firstboot 087088d..754ebce,
+  merged): a transparent survival of an identical re-send is not sound
+  (the loaded image differs from the raw records where the patches
+  went, and the stream cannot rewind after a late mismatch), so a
+  single re-sent Phoenix file still starts a fresh pair, now with info
+  message 12 "Firmware reloaded: load both files" after its download.
+  The debug overlay gained words 37 and 38 (rows 156-162): ready, busy,
+  the pair's have bits, the last download's index, the last note, the
+  parser state; the download-start counts per index F1-F4 and the error
+  count; tools/mister_dbg.py prints them. Main's source (065d0d2) has no
+  path that re-sends an F file on Enter or periodically; the one path
+  that can load a file into a running core is an MGL whose sequence has
+  not finished. On a recurrence: the overlay's counts, the MGL, and
+  Main's stdout (user_io_file_tx prints each file and index). Built
+  into the next debug core with the overlay words.
+- **ARM9 v2, session 2** (Codex, codex/arm9v2 541f68f, 7f42e7a;
+  docs/consults/2026-10-23-codex-arm9v2-s2.md): the front end closed on
+  its own, -0.856 -> **+0.712 ns** median of seeds 2-4 at 104 MHz
+  (validity snapshotted and selected by the registered lookup PC, the
+  shared RAM's collision compare registered, the predicted and
+  sequential next PCs computed in parallel and the finished value
+  selected; no added stage, the trained loop still one fetch a clock).
+  The decode pair D1/D2 built: one Thumb expander at D1's input, the
+  LDM/STM list counted by balanced trees, signed 8-bit offsets, four
+  source and two destination indices at D2, all banks, direct B/BL
+  redirected from D2's registered target with the return stack's
+  checkpoint; 6.0 M checks exhaustive over every register list, the
+  real I-cache at three bus latencies. Front end + decode + register
+  file as one trial: -0.890 ns median (-0.37 to -1.15), 4,159 ALMs;
+  the chains are the queue head's 256 fanout into the Thumb expander
+  and the list arithmetic, and D1 into the branch target. An untrained
+  direct branch loses six slots against the design's three. ZAP's 777
+  cycle/instruction pairs unchanged. Session 3 running: those chains
+  and the redirect handoffs, then S/A (the forwarding network, the
+  rotator, flags, the multiplier).
+- b25 (the debug core with the loader words): -1.188 ns, 37,886 ALMs,
+  487 M10K.
+- **The re-send was the board tool, and the loader core is on the main
+  slot.** With b25's loader words the failure reproduced on every first
+  boot: the second Enter was followed by a second F1 download (starts
+  F1=2, note "reload-both") and the phone had never seen the first
+  Enter. The cause: tools/boot_profile.py's fallback switched the
+  overlay on by walking the OSD (F12, 11 downs, enter, esc) whenever two
+  captures past 12 s had no counters, which with the Phoenix loads
+  happens at 14 s, while the launcher is still sending the files; an
+  Enter into the MGL sequencer mid-load leaves a file entry's browser
+  pending (Codex's Main audit: the one path that loads a file into a
+  running core), and the Enter meant for the Date dialog then selects
+  the first file listed, RH2946.0C1; the menu had also grown by two file
+  entries since the walk was written. Fixed (7d396f1): the walk runs
+  once at most, only after 45 s and three blank captures, with 13 downs
+  and two escapes; jev_play's walk likewise. With the fix the first boot
+  from the Phoenix files and a blank C: runs through (the three Enters
+  taken, the setup animation at 124-172 s, the loader words at
+  "loaded" with one start per file throughout), the second boot comes
+  up without a format, Sonic plays at 16-18 frames/s. The no-debug
+  loader core at seed 9 (-0.671 ns; md5 ccfaf9cd...) is on the main
+  slot, b25 (the debug core with the loader words) on the debug slot;
+  all 17 main launchers and the 15 debug ones regenerated in the
+  Phoenix form (F1 RH2946.0C1, F2 RH2946.0S5, S1 the save: the user's
+  8 MB rh29-460-cs1-save.bin on the main slot, the 4 MB
+  rh29-460-c-drive.bin on the debug slot; the no-save launcher loads
+  the flat CS1 at F4); the main slot smoke-tested with a boot and Sonic.
+  The boot-file names (boot1.rom, boot2.rom, boot1.vhd) are not used on
+  this MiSTer: with launchers they would only double every load.
+- **ARM9 v2, session 3** (Codex, codex/arm9v2 4af6c02, 74d046a;
+  docs/consults/2026-10-23-codex-arm9v2-s3.md): the decode chains cut
+  (the queue head's fanout, the list arithmetic, the branch-target
+  select): front end + decode -0.890 -> **-0.210 ns** median, 4,666 ALMs;
+  an untrained direct branch loses three slots instead of six. Then
+  S/A built: one operand selector with three registered producers (A,
+  M, W) by match and age, a five-level rotator for every shift,
+  register shifts an extra S clock, the ALU and NZCV in A with
+  carry-preserve tokens, conditional B/BX resolved at A from D2's
+  registered matches with a one-shot redirect, the multiplier's DSP
+  moved behind the S/A operand registers after a first fit at -3.9 ns
+  (forwarding and the DSP in one clock). S/A component fit: -1.621 /
+  -1.729 / -1.966 ns at seeds 2-4 (median **-1.729**), 6,387 ALMs,
+  four DSPs: 1.5 ns below the decode milestone, which the user's
+  guardrail (one fit per milestone, nothing drastically worse) flags.
+  The chains: D2's admission (a 40-bit pending-destination mask indexed
+  back into source hazards, the issue enable with a fanout of 399) and
+  D1's head selector; the report's own recommendation is to restructure
+  them before M/W. Session 4 launched with that order, then M/W,
+  retirement, and the first full-suite run with CORE=ARM9 selecting V2.
+- **The debug logic is opt-in now** (user: "can we strip out debug code
+  for this work then add it in only when we actually need it so it
+  doesn't hurt timing"). The switch is flipped: the default build is the
+  stripped core (no overlay, per-second counters or trace triggers,
+  about 1,700 ALMs smaller, the same thing the nd-/ndm- sweeps and the
+  main slot's core already were), and NGAGE_NO_DEBUG is gone. A
+  measurement core, for tools/mister_dbg.py, the board tools' counters
+  and the loader words, is built with VERILOG_MACRO "NGAGE_DEBUG=1"
+  (the commented line in NGage.qsf; `tools/seed_sweep.sh COMMIT TAG
+  NGAGE_DEBUG ...`); the emu top bench passes -DNGAGE_DEBUG=1 itself,
+  since it checks the overlay. Both configurations lint clean and the
+  top bench runs. The Codex threads get the note with their next
+  resume (nothing to uncomment for a timing build). A reference build
+  of the stripped default, seed 2, went to the server as b26; its slack
+  and fit follow in the next entry.
+- **b26, the stripped default at seed 2** (f2de5bf, the loader tree with
+  the flipped switch; the netlist is the one the nd-/ndm- sweeps built):
+  setup **-0.395 ns** (slow 100C; -0.345 at -40C), hold +0.249,
+  35,898 ALMs (86 %), 43,775 registers, 63 % of the block memory,
+  43 DSPs. The best stripped figure so far (seed 18 of c8f18ef -0.431,
+  seed 9 of 8194b05 -0.671, the core on the main slot), and seed luck
+  like the others: the worst path is the D-cache FSM's write-back
+  register index (zap_dcache_fsm o_reg_idx) into the shifter's
+  registered source value, the fill-forwarding family the closure round
+  owns. The rbf is build/hardware/NGage-b26.rbf; the main slot keeps
+  seed 9 until a smoke test says otherwise. Timing stays paused per the
+  user's rule; the number is the reference the CPU work is measured
+  against ("don't let the timing become drastically worse").
+- **Timing round 5, done** (Codex's ZAP thread, codex/timing2 c188fe5,
+  RTL 7d1218c; docs/consults/2026-10-23-codex-timing5-report.md in the
+  cx-timing2 worktree). Nine CPU changes, all cycle-identical (225 CPU
+  runs with the same cycle and instruction counts, 57 QEMU agreements,
+  both lints, the ten `input reg`): a registered TLB fault summary,
+  per-slot interlocks and store forwarding resolved before the slot
+  select, local barrel pending selects, BL and LSL-zero decode fields
+  selected before register banking, the cache acknowledgement outside
+  the FSM's priority mux, binary background-completion tags, effective
+  load-lock factoring, case-local undefined classification in the
+  sequencer, per-slot operand forwarding before the stall-select mux.
+  Whole-core main-core fits at fixed seeds 1/2/3: **-0.211 / -0.221 /
+  -0.318 ns** (median -0.221; the baseline median of the same seeds was
+  -1.152, so 0.93 ns of tree), 35,845-35,969 ALMs (+419 over the
+  baseline median), 479 M10K, hold +0.075 or better at every corner.
+  The families left: post-ALU destination index into the issue
+  interlocks (-0.318 at seed 3), the peripheral owner into the UPP
+  bus's data capture (-0.211), the D-cache state into the merger's
+  address (-0.221). The branch is 28 commits behind master (the loader,
+  the flip): its rbfs carry the pre-loader file entries, so no board
+  test of them; the branch stays for a merge after the CPU code lands,
+  per the user's order (timing closure at the end, on the stripped
+  core). The same thread takes the D-cache task next, on a new branch
+  codex/dstore from master: the store miss completing at the fill's
+  launch and the dirty victim's write-back deferred behind the fill
+  (the Pocket core's two measured gains, 4-5 % and 2-3 %).
+- **b26 on the main slot** (the user: "smoke-test the b26 core (boot
+  and a game) and put it on the main slot if it passes"). Smoke-tested
+  on the debug slot with the Sonic sequence of tools/run_games.sh: the
+  idle screen with the clock and the date at 100 s, the phone menu with
+  SonicN, Sonic's intro and title, Neo Green Hill in play (the game's
+  timer 0:13.27 at the second play capture, 0:20.20 at the fourth:
+  6.9 s of game time in 7.0 s of wall time; captures in
+  build/hardware/game/smoke-b26/). Copied over
+  `_Console/_NGage/NGage_20261023.rbf` (md5 c0739aa2...; the seed-9
+  loader core it replaces is -0.671, this one -0.395), b25 back on
+  `_Debug/NGageDbg_20261023.rbf` (744cce36...), the launchers
+  unchanged. The main slot booted Sonic from its own launcher
+  afterwards (captures in build/hardware/game/smoke-b26-main/).
+- **The D-cache task, done** (Codex's ZAP thread, codex/dstore 29312a6
+  from f12bb8a; docs/consults/2026-10-23-codex-dstore-report.md in the
+  cx-timing2 worktree). Item 1, the store miss completing at the fill's
+  launch, was already there: this ZAP acknowledges a cacheable
+  write-back store miss in IDLE, before the fill's bus request and
+  before the victim's write-back (a new directed test, dstore_rtl,
+  shows 188 instructions retiring behind background stores at 0:0; the
+  Pocket consult's premise does not apply to this revision). Item 2,
+  the dirty victim's write-back deferred behind the fill, is
+  implemented with the registers the miss already captures (the
+  victim's line and tag) as the write-back buffer, no new RAM: IDLE
+  goes straight to FETCH_SINGLE on a dirty miss, the CPU resumes on
+  the fill, the buffered line drains afterwards, accesses to it wait.
+  The suite: 228/228, 57 QEMU agree, lint, gen check; the original 225
+  runs 20,630,566 -> 20,404,172 cycles (-1.10 %): the cache test -4.7 %
+  at 0:0 and -9.7 % at 2:9, the random cached tests -0.3 to -0.5 %,
+  dhold -0.2 to -0.4 %, dstore_rtl +37 clocks (a real drain where a
+  no-op was). The requested one-seed sanity fit (stripped default,
+  seed 2): **-0.956 ns** against b26's -0.395 at the same seed, +767
+  ALMs; the worst path is the merger's cycle into upp_bus's
+  acknowledge, not the new logic (the new families query at 0.000 and
+  -0.292; the saved victim into the merger +1.8). One seed, so not a
+  verdict, but 0.56 ns is above the sweeps' seed noise and the merge
+  decision needs the in-play number first: a debug core of the branch
+  goes to the server for a measurement on the debug slot against b25.
+- **ARM9 v2, session 4** (Codex, codex/arm9v2 bc3e838, e2a1dd0;
+  docs/consults/2026-10-23-codex-arm9v2-s4.md). The D2 admission
+  restructured (the 40-bit pending-destination mask round trip gone,
+  the issue enable's fanout bounded): the component fit from -1.729 to
+  **-0.748 ns** median (seeds 2-4: -1.406, -0.748, -0.721), 6,094 ALMs
+  (from 6,387), no cycle cost; accepted. Then M and W joined to the
+  shared writeback, CP15 and the caches, with CORE=ARM9 selecting V2
+  for the first time: the whole suite runs on it, 68 QEMU references
+  agree in both predictor modes, 257 of 261 runs pass. The four
+  failures (dhum_rtl check 26, dhold_rtl at 2:9) trace to the shared
+  short-port cache wrapper, which qualifies replacement-hit LRU
+  updates with idle, so a hit under a miss loses its update and a
+  later miss evicts the wrong way; the fix is in the cache files the
+  brief kept for the ZAP thread. The cycle picture is not there yet:
+  the load-use interlock measures five clocks instead of three (the
+  pending-load checks compare unused destination lanes and do not use
+  W's load as a ready source), so at 0:0 V2 is 6.8 % faster on the
+  cache test and 11-13 % on the GBA proxies but 1.6 % slower on
+  crand1 and level on ctrand1. The integrated CPU fit with the caches
+  (seeds 2-4): -1.959 / -1.579 / -1.329, median **-1.579 ns**, 15,902
+  ALMs; ZAP in the same wrapper at seed 2: -0.584 ns, 16,549 ALMs, so
+  V2 is 3.6 % smaller (the short cache pipelines) and about 1 ns
+  worse, 0.58 ns outside the integration gate but not at the -2 ns
+  stop. Session 5 launched with the ownership lifted (the ZAP thread's
+  branches are parked, so V2 may make the minimal cache fix on its
+  branch, ZAP's counts unchanged), then the real three-clock late
+  pickup, the RAS checkpoint, the suites and the V2/ZAP cycle table
+  with the random tests as the judge, then the three-seed fit.
