@@ -271,8 +271,11 @@ zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .
 );
 
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
-zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .PREFETCH(PREFETCH)) u_zap_cache_tag_ram (
+zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .PREFETCH(PREFETCH), .TRACK_DIRTY(1'b0)) u_zap_cache_tag_ram (
         .i_clk                  (i_clk),
+        .i_accepted_hit         (1'b0),
+        .i_accepted_address     (32'd0),
+        .i_accepted_way         ('0),
         .i_reset                (i_reset),
         .i_address_nxt          (i_address_nxt),
         .i_address              (cache_address),

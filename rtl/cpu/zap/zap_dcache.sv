@@ -302,6 +302,9 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
 zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS),
                    .INDEX_SIZE((WAYS == 2 && CACHE_SIZE > 8192) ? 32'd8192 : CACHE_SIZE)) u_zap_cache_tag_ram (
         .i_clk                  (i_clk),
+        .i_accepted_hit         (1'b0),
+        .i_accepted_address     (32'd0),
+        .i_accepted_way         ('0),
         .i_reset                (i_reset),
         .i_address_nxt          (lookup_address),
         .i_address              (cache_address),
