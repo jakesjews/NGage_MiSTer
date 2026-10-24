@@ -1,0 +1,37 @@
+
+sim/cpu/build/arm9v2-s14/cs0.bin:     file format binary
+
+
+Disassembly of section .data:
+
+5032d7c8 <.data+0x32d7c8>:
+5032d7c8:	e92d47f0 	push	{r4, r5, r6, r7, r8, r9, sl, lr}
+5032d7cc:	e24dd00c 	sub	sp, sp, #12
+5032d7d0:	e1a05000 	mov	r5, r0
+5032d7d4:	e1a07001 	mov	r7, r1
+5032d7d8:	e58d2000 	str	r2, [sp]
+5032d7dc:	e1a08003 	mov	r8, r3
+5032d7e0:	e5953024 	ldr	r3, [r5, #36]	@ 0x24
+5032d7e4:	e3530003 	cmp	r3, #3
+5032d7e8:	1a000053 	bne	0x5032d93c
+5032d7ec:	e5857024 	str	r7, [r5, #36]	@ 0x24
+5032d7f0:	e3570002 	cmp	r7, #2
+5032d7f4:	1a000003 	bne	0x5032d808
+5032d7f8:	e5d5c020 	ldrb	ip, [r5, #32]
+5032d7fc:	e31c0004 	tst	ip, #4
+5032d800:	13a0005b 	movne	r0, #91	@ 0x5b
+5032d804:	1b000164 	blne	0x5032dd9c
+5032d808:	e59dc000 	ldr	ip, [sp]
+5032d80c:	e585c028 	str	ip, [r5, #40]	@ 0x28
+5032d810:	e5981000 	ldr	r1, [r8]
+5032d814:	e3c1120f 	bic	r1, r1, #-268435456	@ 0xf0000000
+5032d818:	e1a00008 	mov	r0, r8
+5032d81c:	e3510010 	cmp	r1, #16
+5032d820:	a3a01010 	movge	r1, #16
+5032d824:	eb0048c5 	bl	0x5033fb40
+5032d828:	e98d0003 	stmib	sp, {r0, r1}
+5032d82c:	e2850074 	add	r0, r5, #116	@ 0x74
+5032d830:	e28d1004 	add	r1, sp, #4
+5032d834:	e3a02010 	mov	r2, #16
+5032d838:	eb0048c3 	bl	0x5033fb4c
+5032d83c:	e1a00005 	mov	r0, r5
