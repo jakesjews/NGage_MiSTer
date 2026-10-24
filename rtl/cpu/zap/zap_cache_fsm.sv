@@ -55,7 +55,8 @@ output  logic                       o_err,
 output  logic     [7:0]             o_fsr,
 output  logic     [31:0]            o_far,
 output  logic                       o_err2,
-// ARM925T: speculative fetch words must not leave the FIFO until done.
+// ARM925T: words with pending=1 must not execute until done resolves fault.
+// A first-beat no-late-error guarantee permits pending=0 during a demand fill.
 output  logic                       o_fill_pending,
 output  logic                       o_fill_done,
 output  logic                       o_fill_fault,
@@ -129,7 +130,8 @@ output  logic     [2:0]         o_wb_cti_ff, o_wb_cti_nxt,
 output  logic     [1:0]         o_wb_bte_nxt,
 input   logic                   i_wb_ack,
 input   logic    [31:0]         i_wb_dat,
-input   logic                   i_wb_err
+input   logic                   i_wb_err,
+input   logic                   i_wb_no_late_error
 
 );
 
@@ -248,10 +250,31 @@ logic [CACHE_LINE/4-1:0] fill_valid_ff, fill_valid_nxt;
 logic fill_fault_ff, fill_fault_nxt;
 logic [31:0] fill_lookup, response_dat_ff;
 logic fill_ready_ff;
+logic fill_no_late_error_ff;
+// The producer's first-beat guarantee is sampled alongside that beat's
+// data/valid bit. No word can ACK through fill_ready_ff before this edge.
+// Only ordinary 16-byte demand fills qualify; an adopted prefetch whose
+// first beat already passed stays provisional until full completion.
+// This bit removes only the FIFO execution quarantine, not translation,
+// permission, per-word validity, cache-control or redirect checks.
+always_ff @(posedge i_clk)
+        if (i_reset || state_nxt == IDLE)
+                fill_no_late_error_ff <= 1'b0;
+        else if (state_ff == FETCH_SINGLE && take && adr_ctr_ff == 0)
+                fill_no_late_error_ff <= CACHE_LINE == 16 && fetch_wrap_ff &&
+                                         i_wb_no_late_error && !i_wb_err;
+// synthesis translate_off
+always @(posedge i_clk)
+        if (!i_reset && state_ff == FETCH_SINGLE && fill_no_late_error_ff && take)
+                assert (!i_wb_err)
+                        else $fatal(1, "I-fill producer broke its first-beat no-late-error guarantee");
+// synthesis translate_on
 assign fill_lookup = i_stall ? i_address : i_address_check;
 assign o_dbg_icache[0] = state_ff == FETCH_SINGLE && take && o_wb_cti_ff == CTI_EOB;
 assign o_dbg_icache[1] = state_ff == FETCH_SINGLE && o_wb_cyc_ff && o_wb_stb_ff && !take;
-assign o_fill_pending = state_ff == FETCH_SINGLE;
+// Pending means provisional execution, not physical bus occupancy. The
+// separate debug demand-fill taps still observe the entire transaction.
+assign o_fill_pending = state_ff == FETCH_SINGLE && !fill_no_late_error_ff;
 assign o_fill_done = state_ff == FILL_COMPLETE;
 assign o_fill_fault = o_fill_done && fill_fault_ff;
 

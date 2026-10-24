@@ -93,6 +93,7 @@ module save_tb #(
 		.flash_rst_n(1'b1),
 		.wb_cyc(wb_cyc), .wb_stb(wb_stb), .wb_we(wb_we), .wb_adr(wb_adr), .wb_dat_i(wb_dat_i),
 		.wb_sel(wb_sel), .wb_cti(wb_cti), .wb_bte(wb_bte), .wb_ack(wb_ack), .wb_err(wb_err), .wb_dat_o(wb_dat_o),
+		.wb_no_late_error(),
 		.dma_cyc(1'b0), .dma_stb(1'b0), .dma_we(1'b0), .dma_adr(32'd0), .dma_dat_i(32'd0), .dma_sel(4'd0),
 		.dma_ack(), .dma_err(), .dma_dat_o(),
 		.p_sel(), .p_we(), .p_addr(), .p_wdata(), .p_be(), .p_rdata(32'd0), .p_wait(1'b0),

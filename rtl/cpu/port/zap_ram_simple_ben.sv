@@ -8,7 +8,8 @@
 // tools/gen_cpu.sh uses this file in place of the original.
 module zap_ram_simple_ben #(
 	parameter logic [31:0] WIDTH = 32'd32,
-	parameter logic [31:0] DEPTH = 32'd32
+	parameter logic [31:0] DEPTH = 32'd32,
+	parameter logic SHORT_READ = 1'b0
 ) (
 	input  logic                     i_clk,
 	input  logic                     i_clken,
@@ -23,7 +24,8 @@ module zap_ram_simple_ben #(
 	for (genvar i = 0; i < WIDTH / 8; i++) begin : lane
 		zap_ram_simple #(
 			.WIDTH(32'd8),
-			.DEPTH(DEPTH)
+			.DEPTH(DEPTH),
+			.SHORT_READ(SHORT_READ)
 		) u_lane (
 			.i_clk         (i_clk),
 			.i_clken       (i_clken),

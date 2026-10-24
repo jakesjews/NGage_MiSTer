@@ -85,6 +85,9 @@ module upp_bus #(
 	input  logic [1:0]        wb_bte,
 	output logic              wb_ack,
 	output logic              wb_err,
+	// First-ACK attribute for one 16-byte wrap-4 READ burst. Once true,
+	// every remaining beat is guaranteed not to ERR. Sample only with ACK.
+	output logic              wb_no_late_error,
 	output logic [31:0]       wb_dat_o,
 
 	output logic              fl0_req,
@@ -226,6 +229,13 @@ module upp_bus #(
 
 	assign wb_ack   = ack_q;
 	assign wb_err   = err_q;
+	logic no_late_error_q;
+	assign wb_no_late_error = no_late_error_q;
+	// synthesis translate_off
+	always @(posedge clk)
+		if (!reset && (ack_q || err_q) && no_late_error_q)
+			assert (!err_q) else $fatal(1, "Guaranteed memory target returned ERR");
+	// synthesis translate_on
 	assign wb_dat_o = dat_q;
 	assign idle     = state == S_IDLE;
 
@@ -475,6 +485,19 @@ module upp_bus #(
 		case (state)
 			S_IDLE: begin
 				if (wb_cyc && wb_stb) begin
+					// Registered with target acceptance, ahead of its first ACK.
+					// A wrap-4 fill cannot cross a decode boundary. SDRAM and
+					// on-chip RAM have no ERR return channel. The flash wide
+					// array port also has none (DDR3 wait/data-valid only).
+					// Command/status/query/program/erase accesses, EMIF,
+					// peripherals, empty CS and unmapped targets stay gated.
+					// Flash mode is sampled here, before its line read makes
+					// bus_array go low; no other bus master can change modes
+					// during the accepted burst. Reset cancels the CPU too.
+					no_late_error_q <= !wb_we && burst && wb_bte == 2'b01 &&
+					    wb_sel == 4'hf &&
+					    (tgt == T_SDRAM || tgt == T_ONCHIP ||
+					     ((tgt == T_CS0 || tgt == T_CS1) && fl_line_ok));
 					case (tgt)
 						T_UNMAPPED, T_EMPTY: begin
 							dat_q    <= (tgt == T_EMPTY) ? EMPTY_DATA : UNMAPPED_DATA;
@@ -665,6 +688,7 @@ module upp_bus #(
 			state    <= S_IDLE;
 			ack_q    <= 1'b0;
 			err_q    <= 1'b0;
+			no_late_error_q <= 1'b0;
 			sdr_req  <= 1'b0;
 			fl_req   <= 1'b0;
 			fl_lreq  <= 1'b0;

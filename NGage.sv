@@ -352,6 +352,7 @@ wire [31:0] wb_dat_r /* verilator public_flat_rd */;
 wire  [3:0] wb_sel /* verilator public_flat_rd */;
 wire  [2:0] wb_cti;
 wire  [1:0] wb_bte;
+wire        wb_no_late_error;
 
 // the peripheral register bus
 wire        p_sel, p_we, p_wait;
@@ -387,6 +388,7 @@ ngage_mem ngage_mem
 	.wb_bte(wb_bte),
 	.wb_ack(wb_ack),
 	.wb_err(wb_err),
+	.wb_no_late_error(wb_no_late_error),
 	.wb_dat_o(wb_dat_r),
 	.dbg_dma_owner(dbg_dma_owner),
 
@@ -695,6 +697,7 @@ arm925t #(
 	.bus_rdata(wb_dat_r),
 	.bus_ack(wb_ack & ~test_sel),
 	.bus_err(wb_err & ~test_sel),
+	.bus_no_late_error(wb_no_late_error), // consumed only with CPU ACK
 	.dbg_pc(cpu_dbg_pc),
 	.dbg_wb_valid(tr_wb_valid),
 	.dbg_wfi(cpu_dbg_wfi),

@@ -17,6 +17,7 @@
 //     --pddbg           also trace the branch prediction every cycle
 //     --buslog FILE     write one line per bus access
 //     --lat MIN:MAX     bus latency, cycles from request to ack (default 0:3)
+//     --icache-quarantine  force conservative I-fill class (negative test)
 //     --read-error ADDR  inject a bus error on reads of ADDR (repeatable)
 //     --seed N          RNG seed for the latency (default 1)
 //     --max-cycles N    give up after N cycles (default 50,000,000)
@@ -58,6 +59,9 @@
 //      +30..+3C R D-cache load fills, store fills, line write-backs,
 //                uncached accesses (monotonic event counters)
 //      +40 R  instructions retired during background store transactions
+//      +44 W  select I-fill VA line and clear its early-retirement word mask
+//      +48 R  watched-line words retired strictly before the terminal beat
+//      +4C R  watched-line words retired after beat one and before beat two
 //   anything else          bus error (external abort)
 // Bus protocol checks: a request must stay unchanged until acked, and a
 // burst beat must be followed by the next word of the same line.
@@ -159,7 +163,7 @@ int main(int argc, char **argv) {
 	uint64_t progress = 0;
 	uint64_t trace_after = 0, trace_count = 0;
 	bool dcdbg = false, pddbg = false;
-	bool quiet = false;
+	bool quiet = false, icache_quarantine = false;
 	bool halt_given = false;
 	std::string machine;
 	NGage::Options nopt;
@@ -185,6 +189,7 @@ int main(int argc, char **argv) {
 		else if (a == "--sig-base") sig_base = (uint32_t)strtoul(next(), nullptr, 0);
 		else if (a == "--sig-size") sig_size = (uint32_t)strtoul(next(), nullptr, 0);
 		else if (a == "--trace") trace_path = next();
+		else if (a == "--icache-quarantine") icache_quarantine = true;
 		else if (a == "--read-error") read_errors.push_back((uint32_t)strtoul(next(), nullptr, 0));
 		else if (a == "--buslog") buslog_path = next();
 		else if (a == "--lat") {
@@ -259,6 +264,7 @@ int main(int argc, char **argv) {
 	uint64_t dcache_events[4] = {};
 	uint64_t icache_events[8] = {};
 	uint32_t store_fill_retired = 0;
+	uint32_t ic_watch = ~15u, ic_early_mask = 0, ic_first_mask = 0;
 	uint64_t dirty_fill_first = 0, dirty_write_first = 0;
 	bool dirty_first_pending = false;
 	int64_t irq_timer = -1, fiq_timer = -1;
@@ -284,11 +290,14 @@ int main(int argc, char **argv) {
 		case 0x38: return (uint32_t)dcache_events[2];
 		case 0x3C: return (uint32_t)dcache_events[3];
 		case 0x40: return store_fill_retired;
+		case 0x48: return ic_early_mask;
+		case 0x4C: return ic_first_mask;
 		default: return 0;
 		}
 	};
 	auto mmio_write = [&](uint32_t off, uint32_t v, uint8_t be) {
 		switch (off) {
+		case 0x44: ic_watch = v & ~15u; ic_early_mask = 0; ic_first_mask = 0; break;
 		case 0x00:
 			if (be & 1) {
 				char c = (char)(v & 0xFF);
@@ -314,6 +323,7 @@ int main(int argc, char **argv) {
 	t->fiq = 0;
 	t->bus_ack = 0;
 	t->bus_err = 0;
+	t->bus_no_late_error = 0;
 	t->bus_rdata = 0;
 	t->eval();
 	for (int i = 0; i < 8; i++) {
@@ -380,6 +390,12 @@ int main(int argc, char **argv) {
 		else if (t->p_swi) ev = 'S';
 		else if (t->p_und) ev = 'U';
 		else if ((t->p_valid || t->p_cfail) && t->p_last) ev = 'R';
+
+		if (ev == 'R' && t->p_ic_fill_active && (pc & ~15u) == ic_watch &&
+		    (t->p_ic_fill_addr & ~15u) == ic_watch) {
+			if (!t->p_ic_fill_terminal) ic_early_mask |= 1u << ((pc >> 2) & 3);
+			if (t->p_ic_fill_first_window) ic_first_mask |= 1u << ((pc >> 2) & 3);
+		}
 
 		// bus: protocol checks and the responder
 		bool req = t->bus_req;
@@ -503,6 +519,7 @@ int main(int argc, char **argv) {
 		// bus outputs for the next cycle
 		t->bus_ack = 0;
 		t->bus_err = 0;
+		t->bus_no_late_error = 0;
 		if (complete) {
 			busy = false;
 			ack_out = false;
@@ -536,6 +553,12 @@ int main(int argc, char **argv) {
 			if (buslog && retired >= trace_after)
 				fprintf(buslog, "%" PRIu64 " %c %08x be=%x %08x%s%s\n", cycle, req_we ? 'W' : 'R', a, req_be,
 					req_we ? req_wdata : rdata, req_burst ? " burst" : "", err_out ? " ERR" : "");
+			// Ordinary bench RAM models an SDRAM-class target. A line
+			// configured with an injected error is an error-capable target
+			// for ALL its beats, including successful beats before the error.
+			bool error_line = std::any_of(read_errors.begin(), read_errors.end(),
+			    [a](uint32_t e) { return (e & ~15u) == (a & ~15u); });
+			t->bus_no_late_error = !icache_quarantine && p && !req_we && req_bte == 1 && !error_line && !err_out;
 			t->bus_ack = !err_out;
 			t->bus_err = err_out;
 			t->bus_rdata = err_out ? 0xDEADBEEFu : rdata;

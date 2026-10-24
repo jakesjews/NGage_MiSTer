@@ -64,6 +64,9 @@ module arm925t #(
 	input  logic [31:0] bus_rdata,
 	input  logic        bus_ack,
 	input  logic        bus_err,
+	// With the first ACK of a wrap-4 fill: the target guarantees no later
+	// beat can ERR. Tie low for buses without this guarantee.
+	input  logic        bus_no_late_error,
 	output logic [31:0] dbg_pc,      // committed PC (debug overlay)
 
 	// Debug trace taps (rtl/mister/dbg_trace.sv): the writeback stage as
@@ -157,7 +160,8 @@ module arm925t #(
 		.o_wb_bte (bus_bte),
 		.i_wb_ack (bus_ack),
 		.i_wb_dat (bus_rdata),
-		.i_wb_err (bus_err)
+		.i_wb_err (bus_err),
+		.i_wb_no_late_error (bus_no_late_error)
 	);
 
 	assign bus_req   = wb_cyc & wb_stb;

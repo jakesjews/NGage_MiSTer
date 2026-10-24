@@ -47,6 +47,7 @@ input logic [2:0]       i_c_wb_cti,
 input logic [1:0]       i_c_wb_bte, // ARM925T: I-cache critical-word-first
 output logic            o_c_wb_ack,
 output logic            o_c_wb_err,
+output logic            o_c_wb_no_late_error,
 output logic            o_dbg_data_owner, // registered grant, observation only
 
 // Wishbone bus 2
@@ -71,7 +72,8 @@ output logic [31:0]     o_wb_dat,
 output logic [2:0]      o_wb_cti,
 output logic [1:0]      o_wb_bte,
 input logic             i_wb_ack,
-input logic             i_wb_err
+input logic             i_wb_err,
+input logic             i_wb_no_late_error
 
 );
 
@@ -173,6 +175,8 @@ end
 assign o_c_wb_ack = (state_ff == CODE) & (i_wb_err | i_wb_ack);
 assign o_d_wb_ack = (state_ff == DATA) & (i_wb_err | i_wb_ack);
 assign o_c_wb_err = (state_ff == CODE) & i_wb_err;
+// Response sideband: same grant as ACK, no additional state or ACK path.
+assign o_c_wb_no_late_error = (state_ff == CODE) & i_wb_no_late_error;
 assign o_d_wb_err = (state_ff == DATA) & i_wb_err;
 
 /////////////////////////////////////

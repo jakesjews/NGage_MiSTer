@@ -177,7 +177,8 @@ parameter logic        HIVECS       = 1'd0           // Reset value of control b
         output  logic  [1:0]     o_wb_bte,
         input   logic            i_wb_ack,
         input   logic  [31:0]    i_wb_dat,
-        input   logic            i_wb_err
+        input   logic            i_wb_err,
+        input   logic            i_wb_no_late_error
 );
 
 `include "zap_defines.svh"
@@ -252,6 +253,7 @@ logic [2:0]      c_wb_cti;
 logic [1:0]      c_wb_bte;
 logic            c_wb_ack;
 logic            c_wb_err;
+logic            c_wb_no_late_error;
 logic            d_wb_stb;
 logic            d_wb_cyc;
 logic            d_wb_wen;
@@ -583,6 +585,7 @@ begin : l_merger_for_core_with_cache_mmu
         .i_c_wb_bte(c_wb_bte ),
         .o_c_wb_ack(c_wb_ack ),
         .o_c_wb_err(c_wb_err ),
+        .o_c_wb_no_late_error(c_wb_no_late_error),
         .o_dbg_data_owner(dbg_data_owner),
 
         .i_d_wb_stb(d_wb_stb ),
@@ -605,7 +608,8 @@ begin : l_merger_for_core_with_cache_mmu
         .o_wb_cti  (wb_cti   ),
         .o_wb_bte  (o_wb_bte ),
         .i_wb_ack  (wb_ack   ),
-        .i_wb_err  (wb_err   )
+        .i_wb_err  (wb_err   ),
+        .i_wb_no_late_error(i_wb_no_late_error)
 
         );
 end : l_merger_for_core_with_cache_mmu
@@ -626,6 +630,7 @@ begin : l_merger_for_core_without_cache_mmu
         .i_c_wb_bte(2'b00),
         .o_c_wb_ack(instr_ack),
         .o_c_wb_err(instr_err),
+        .o_c_wb_no_late_error(),
         .o_dbg_data_owner(dbg_data_owner),
 
         .i_d_wb_stb(cpu_dc_stb),
@@ -651,7 +656,8 @@ begin : l_merger_for_core_without_cache_mmu
         .o_wb_cti  (o_wb_cti ),
         .o_wb_bte  (o_wb_bte ),
         .i_wb_ack  (i_wb_ack ),
-        .i_wb_err  (i_wb_err )
+        .i_wb_err  (i_wb_err ),
+        .i_wb_no_late_error(i_wb_no_late_error)
 
         );
 end : l_merger_for_core_without_cache_mmu
@@ -824,6 +830,7 @@ u_code_cache (
 .o_wb_bte       (),
 .o_wb_bte_nxt   (c_wb_bte),
 .i_wb_err       (c_wb_err),
+.i_wb_no_late_error(c_wb_no_late_error),
 
 .o_wb_stb_nxt   (c_wb_stb),
 .o_wb_cyc_nxt   (c_wb_cyc),

@@ -744,6 +744,18 @@ zap_fetch_main #(.V4T(V4T)) u_zap_fetch_main (
         .o_pred                         (fetch_pred)
 );
 
+// ARM925T: the fetch register and its FIFO advance independently while the
+// next cache response waits. Remember an accepted held word so it enters the
+// FIFO exactly once. The FIFO itself rejects writes when full. On a fetch
+// advance, any old word is consumed and the replacement starts unconsumed;
+// redirects/reset discard both the fetch word and its consumed marker.
+logic fetch_consumed_ff;
+always_ff @(posedge i_clk)
+        if (reset || clear_from_writeback || clear_from_alu || clear_from_decode || !code_stall)
+                fetch_consumed_ff <= 1'b0;
+        else if (fetch_valid && !fifo_full)
+                fetch_consumed_ff <= 1'b1;
+
 //
 // Pre-fetch buffer.
 //
@@ -752,7 +764,7 @@ zap_fifo #( .WDT(67 + 33), .DEPTH(FIFO_DEPTH) ) U_ZAP_FIFO (
         .i_clk                          (i_clk),
         .i_reset                        (i_reset),
         .i_clear_from_writeback         (clear_from_writeback),
-        .i_write_inhibit                (code_stall),
+        .i_write_inhibit                (fetch_consumed_ff),
         .i_clear_from_alu               (clear_from_alu),
         .i_data_stall                   (data_stall         && mode16_valid && fifo_valid ),
         .i_stall_from_shifter           (stall_from_shifter && mode16_valid && fifo_valid ),
