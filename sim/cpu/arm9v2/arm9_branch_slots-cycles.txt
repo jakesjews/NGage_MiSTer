@@ -1,0 +1,6 @@
+# ARM9V2 session 4 integration measurements, warmed 0:0.
+# Name, last visit predictor on/off; optional penultimate visit on/off.
+# Exact implementation regression counts, not the design acceptance targets.
+branch_no_registers 8 15
+thumb_bl_cross_word 3 7
+thumb_bl_same_word 3 7

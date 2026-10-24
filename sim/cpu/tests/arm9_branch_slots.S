@@ -1,6 +1,6 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
 @ Branch immediates are not register operands; both Thumb BL alignments.
-@@ bench: --arm9-cycles --arm9-cycle-model arm9/branch-slots-cycles.txt
+@@ bench: --arm9-cycles --arm9-cycle-model arm9v2/arm9_branch_slots-cycles.txt
     .include "test.inc"
     .include "mmu.inc"
     .text

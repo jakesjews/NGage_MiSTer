@@ -16,6 +16,7 @@
 //     --dcdbg           also trace the D-cache state machine every cycle
 //     --arm9-cycles    check the embedded retirement windows
 //     --arm9-cycle-model FILE  use a complete versioned expectation table
+//     --measure-cycles         report warm windows without exact-count assertions
 //     --pddbg           also trace the branch prediction every cycle
 //     --buslog FILE     write one line per bus access
 //     --lat MIN:MAX     bus latency, cycles from request to ack (default 0:3)
@@ -159,7 +160,7 @@ int main(int argc, char **argv) {
 	uint64_t max_cycles = 50000000;
 	uint64_t progress = 0;
 	uint64_t trace_after = 0, trace_count = 0;
-	bool dcdbg = false, pddbg = false, arm9_cycles = false;
+	bool dcdbg = false, pddbg = false, arm9_cycles = false, measure_cycles = false;
     const char *arm9_cycle_model = nullptr;
 	bool quiet = false;
 	bool halt_given = false;
@@ -203,6 +204,7 @@ int main(int argc, char **argv) {
 		else if (a == "--trace-count") trace_count = strtoull(next(), nullptr, 0);
 		else if (a == "--dcdbg") dcdbg = true;
         else if (a == "--arm9-cycles") arm9_cycles = true;
+        else if (a == "--measure-cycles") { arm9_cycles = true; measure_cycles = true; }
         else if (a == "--arm9-cycle-model") arm9_cycle_model = next();
 		else if (a == "--pddbg") pddbg = true;
 		else if (a == "--watch") watch.push_back((uint32_t)strtoul(next(), nullptr, 0));
@@ -248,6 +250,7 @@ int main(int argc, char **argv) {
         uint32_t seen = 0;
         bool active = false;
         uint32_t without_predictor = 0;
+        uint32_t penultimate = 0, penultimate_without_predictor = 0;
     };
     std::vector<CycleWindow> windows;
     if (arm9_cycles) {
@@ -280,11 +283,13 @@ int main(int argc, char **argv) {
             if (!model) { perror(arm9_cycle_model); return 2; }
             std::vector<bool> named(windows.size(), false);
             char line[256], name[128], extra;
-            unsigned expected, without_predictor;
+            unsigned expected, without_predictor, penultimate, penultimate_without_predictor;
             while (fgets(line, sizeof(line), model)) {
                 if (line[0] == '#' || line[0] == '\n') continue;
-                const int fields = sscanf(line, "%127s %u %u %c", name, &expected, &without_predictor, &extra);
-                if ((fields != 2 && fields != 3) || !expected || (fields == 3 && !without_predictor)) {
+                const int fields = sscanf(line, "%127s %u %u %u %u %c", name, &expected, &without_predictor,
+                                          &penultimate, &penultimate_without_predictor, &extra);
+                if ((fields != 2 && fields != 3 && fields != 5) || !expected || (fields >= 3 && !without_predictor) ||
+                    (fields == 5 && (!penultimate || !penultimate_without_predictor))) {
                     fprintf(stderr, "invalid cycle model row: %s", line); fclose(model); return 2;
                 }
                 size_t n = 0;
@@ -294,7 +299,13 @@ int main(int argc, char **argv) {
                 }
                 named[n] = true;
                 windows[n].expected = expected;
-                windows[n].without_predictor = fields == 3 ? without_predictor : expected;
+                windows[n].without_predictor = fields >= 3 ? without_predictor : expected;
+                // Cache-line/redirect phase can differ on the last two
+                // visits. Keep exact per-visit counts, not a tolerance range.
+                if (fields == 5) {
+                    windows[n].penultimate = penultimate;
+                    windows[n].penultimate_without_predictor = penultimate_without_predictor;
+                }
             }
             fclose(model);
             for (size_t n = 0; n < windows.size(); ++n) if (!named[n]) {
@@ -445,13 +456,15 @@ int main(int argc, char **argv) {
                 if (pc == w.end && ev == 'R' && w.active) {
                     w.active = false;
                     ++w.seen;
-                    if (w.seen + 2 > w.visits && lat_min == 0 && lat_max == 0 && t->p_blocking_load) {
+                    if (w.seen + 2 > w.visits && (measure_cycles || (lat_min == 0 && lat_max == 0 && t->p_arm9))) {
                         const uint64_t elapsed = cycle - w.start;
-                        const uint32_t expected = !t->p_arm9_predictor && w.without_predictor ?
+                        uint32_t expected = !t->p_arm9_predictor && w.without_predictor ?
                             w.without_predictor : w.expected;
+                        if (w.seen + 1 == w.visits && w.penultimate)
+                            expected = t->p_arm9_predictor ? w.penultimate : w.penultimate_without_predictor;
                         printf("ARM9 cycles %s: %" PRIu64 " expected %u\n",
                                w.name.c_str(), elapsed, expected);
-                        if (elapsed != expected)
+                        if (!measure_cycles && elapsed != expected)
                             error("cycle window %s: %" PRIu64 " != %u",
                                   w.name.c_str(), elapsed, expected);
                     }

@@ -58,7 +58,7 @@ elif [[ $trial == arm9v2_execute ]]; then
     sv2v -DSYNTHESIS -I "$root/rtl/cpu/zap" --top=cpu_trial "$root"/rtl/cpu/arm9v2/*.sv \
         "$root/rtl/cpu/arm9/arm9_alu.sv" "$root/rtl/cpu/zap/zap_ram_simple_nopipe.sv" \
         "$root/rtl/cpu/zap/zap_mode16_decoder.sv" "$root/rtl/cpu/zap/zap_register_file.sv" \
-        "$root/sim/cpu/arm9v2/front_decode.sv" "$root/sim/cpu/arm9v2/front_execute.sv" \
+        "$root/sim/cpu/arm9v2/front_execute.sv" \
         "$here/arm9v2_execute_trial.sv" > "$out/arm925t_gen.v"
     printf '// Component top included in arm925t_gen.v\n' > "$out/cpu_trial.v"
     rsync -a "$out/arm925t_gen.v" "$out/cpu_trial.v" "$host:$dir/"
@@ -66,7 +66,7 @@ elif [[ $trial == arm9v2_decode ]]; then
     sv2v -DSYNTHESIS -I "$root/rtl/cpu/zap" --top=cpu_trial "$root"/rtl/cpu/arm9v2/*.sv \
         "$root/rtl/cpu/zap/zap_ram_simple_nopipe.sv" \
         "$root/rtl/cpu/zap/zap_mode16_decoder.sv" "$root/rtl/cpu/zap/zap_register_file.sv" \
-        "$root/sim/cpu/arm9v2/front_decode.sv" "$here/arm9v2_decode_trial.sv" > "$out/arm925t_gen.v"
+        "$here/arm9v2_decode_trial.sv" > "$out/arm925t_gen.v"
     printf '// Component top included in arm925t_gen.v\n' > "$out/cpu_trial.v"
     rsync -a "$out/arm925t_gen.v" "$out/cpu_trial.v" "$host:$dir/"
 elif [[ $trial == arm9v2_frontend ]]; then

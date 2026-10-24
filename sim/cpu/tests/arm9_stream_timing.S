@@ -1,7 +1,7 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
 @ Eight adjacent hit requests must retire in eight clocks plus the end marker.
 @ Three warmups, then two exact hot checks. Shared architecture with ZAP/QEMU.
-@@ bench: --arm9-cycles
+@@ bench: --arm9-cycles --arm9-cycle-model arm9v2/arm9_stream_timing-cycles.txt
     .include "test.inc"
     .include "mmu.inc"
     .text

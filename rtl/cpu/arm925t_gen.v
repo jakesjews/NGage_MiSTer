@@ -270,7 +270,7 @@ module arm9_alu (
 	end
 	initial _sv2v_0 = 0;
 endmodule
-module arm9_core (
+module arm9v2_core (
 	o_trace,
 	o_trace_valid,
 	o_trace_uop_last,
@@ -475,575 +475,198 @@ module arm9_core (
 	output wire [31:0] o_dbg_wb_cpsr;
 	output wire [31:0] o_dbg_wb_cpsr_nxt;
 	output wire [7:0] o_dbg_stall;
-	localparam [1:0] SECTION_ID = 2'b10;
-	localparam [1:0] PAGE_ID = 2'b01;
-	localparam [1:0] FINE_ID = 2'b11;
-	localparam [1:0] SPAGE_ID = 2'b10;
-	localparam [1:0] LPAGE_ID = 2'b01;
-	localparam [1:0] FPAGE_ID = 2'b11;
-	localparam [3:0] APSR_NA_NA = 4'b0000;
-	localparam [3:0] APSR_RO_RO = 4'b0001;
-	localparam [3:0] APSR_RO_NA = 4'b0010;
-	localparam [3:0] APSR_RW_NA = 4'b01zz;
-	localparam [3:0] APSR_RW_RO = 4'b10zz;
-	localparam [3:0] APSR_RW_RW = 4'b11zz;
-	localparam [1:0] DAC_MANAGER = 2'b11;
-	localparam [1:0] DAC_CLIENT = 2'b01;
-	localparam [3:0] FSR_SECTION_DOMAIN_FAULT = 4'b1001;
-	localparam [3:0] FSR_SECTION_TRANSLATION_FAULT = 4'b0101;
-	localparam [3:0] FSR_SECTION_PERMISSION_FAULT = 4'b1101;
-	localparam [3:0] FSR_L1_EXTERNAL_ABORT = 4'b1100;
-	localparam [3:0] FSR_PAGE_TRANSLATION_FAULT = 4'b0111;
-	localparam [3:0] FSR_PAGE_DOMAIN_FAULT = 4'b1011;
-	localparam [3:0] FSR_PAGE_PERMISSION_FAULT = 4'b1111;
-	localparam [3:0] FSR_L2_EXTERNAL_ABORT = 4'b1110;
-	parameter [3:0] TERMINAL_EXCEPTION = 4'b0010;
-	localparam [3:0] AND = 4'd0;
-	localparam [3:0] EOR = 4'd1;
-	localparam [3:0] SUB = 4'd2;
-	localparam [3:0] RSB = 4'd3;
-	localparam [3:0] ADD = 4'd4;
-	localparam [3:0] ADC = 4'd5;
-	localparam [3:0] SBC = 4'd6;
-	localparam [3:0] RSC = 4'd7;
-	localparam [3:0] TST = 4'd8;
-	localparam [3:0] TEQ = 4'd9;
-	localparam [3:0] CMP = 4'd10;
-	localparam [3:0] CMN = 4'd11;
-	localparam [3:0] ORR = 4'd12;
-	localparam [3:0] MOV = 4'd13;
-	localparam [3:0] BIC = 4'd14;
-	localparam [3:0] MVN = 4'd15;
-	localparam [4:0] MUL = 5'd16;
-	localparam [4:0] MLA = 5'd17;
-	localparam [4:0] FMOV = 5'd18;
-	localparam [4:0] MMOV = 5'd19;
-	localparam [4:0] UMLALL = 5'd20;
-	localparam [4:0] UMLALH = 5'd21;
-	localparam [4:0] SMLALL = 5'd22;
-	localparam [4:0] SMLALH = 5'd23;
-	localparam [4:0] CLZ = 5'd24;
-	localparam [4:0] OP_QADD = 5'd25;
-	localparam [4:0] OP_QSUB = 5'd26;
-	localparam [4:0] OP_QDADD = 5'd27;
-	localparam [4:0] OP_QDSUB = 5'd28;
-	localparam [5:0] SMULW0 = 6'd30;
-	localparam [5:0] SMULW1 = 6'd32;
-	localparam [5:0] SMUL00 = 6'd34;
-	localparam [5:0] SMUL01 = 6'd36;
-	localparam [5:0] SMUL10 = 6'd38;
-	localparam [5:0] SMUL11 = 6'd40;
-	localparam [5:0] SMLA00 = 6'd42;
-	localparam [5:0] SMLA01 = 6'd44;
-	localparam [5:0] SMLA10 = 6'd46;
-	localparam [5:0] SMLA11 = 6'd48;
-	localparam [5:0] SMLAW0 = 6'd50;
-	localparam [5:0] SMLAW1 = 6'd52;
-	localparam [5:0] SMLAL00L = 6'd54;
-	localparam [5:0] SMLAL00H = 6'd55;
-	localparam [5:0] SMLAL01L = 6'd56;
-	localparam [5:0] SMLAL01H = 6'd57;
-	localparam [5:0] SMLAL10L = 6'd58;
-	localparam [5:0] SMLAL10H = 6'd59;
-	localparam [5:0] SMLAL11L = 6'd60;
-	localparam [5:0] SMLAL11H = 6'd61;
-	localparam [5:0] FADD = 6'd62;
-	localparam [5:0] OP_SMULW0 = 6'd30;
-	localparam [5:0] OP_SMULW1 = 6'd32;
-	localparam [5:0] OP_SMUL00 = 6'd34;
-	localparam [5:0] OP_SMUL01 = 6'd36;
-	localparam [5:0] OP_SMUL10 = 6'd38;
-	localparam [5:0] OP_SMUL11 = 6'd40;
-	localparam [5:0] OP_SMLA00 = 6'd42;
-	localparam [5:0] OP_SMLA01 = 6'd44;
-	localparam [5:0] OP_SMLA10 = 6'd46;
-	localparam [5:0] OP_SMLA11 = 6'd48;
-	localparam [5:0] OP_SMLAW0 = 6'd50;
-	localparam [5:0] OP_SMLAW1 = 6'd52;
-	localparam [5:0] OP_SMLAL00L = 6'd54;
-	localparam [5:0] OP_SMLAL00H = 6'd55;
-	localparam [5:0] OP_SMLAL01L = 6'd56;
-	localparam [5:0] OP_SMLAL01H = 6'd57;
-	localparam [5:0] OP_SMLAL10L = 6'd58;
-	localparam [5:0] OP_SMLAL10H = 6'd59;
-	localparam [5:0] OP_SMLAL11L = 6'd60;
-	localparam [5:0] OP_SMLAL11H = 6'd61;
-	localparam [5:0] SAT_MOV = 6'd49;
-	localparam [3:0] EQ = 4'h0;
-	localparam [3:0] NE = 4'h1;
-	localparam [3:0] CS = 4'h2;
-	localparam [3:0] CC = 4'h3;
-	localparam [3:0] MI = 4'h4;
-	localparam [3:0] PL = 4'h5;
-	localparam [3:0] VS = 4'h6;
-	localparam [3:0] VC = 4'h7;
-	localparam [3:0] HI = 4'h8;
-	localparam [3:0] LS = 4'h9;
-	localparam [3:0] GE = 4'ha;
-	localparam [3:0] LT = 4'hb;
-	localparam [3:0] GT = 4'hc;
-	localparam [3:0] LE = 4'hd;
-	localparam [3:0] AL = 4'he;
-	localparam [3:0] NV = 4'hf;
-	localparam [31:0] N = 32'd31;
-	localparam [31:0] Z = 32'd30;
-	localparam [31:0] C = 32'd29;
-	localparam [31:0] V = 32'd28;
-	localparam [31:0] Q = 32'd27;
-	localparam [31:0] I = 32'd7;
-	localparam [31:0] F = 32'd6;
-	localparam [31:0] T = 32'd5;
-	localparam [31:0] ZAP_CPSR_MODE = 32'd4;
-	localparam [0:0] INDEX_EN = 1'd0;
-	localparam [0:0] IMMED_EN = 1'd1;
-	localparam [4:0] FIQ = 5'b10001;
-	localparam [4:0] IRQ = 5'b10010;
-	localparam [4:0] ABT = 5'b10111;
-	localparam [4:0] SVC = 5'b10011;
-	localparam [4:0] USR = 5'b10000;
-	localparam [4:0] SYS = 5'b11111;
-	localparam [4:0] UND = 5'b11011;
-	localparam [31:0] SMLAxy = 32'bzzzz00010000zzzzzzzzzzzz1zz0zzzz;
-	localparam [31:0] SMLAWy = 32'bzzzz00010010zzzzzzzzzzzz1z00zzzz;
-	localparam [31:0] SMLALxy = 32'bzzzz00010100zzzzzzzzzzzz1zz0zzzz;
-	localparam [31:0] SMULWy = 32'bzzzz00010010zzzz0000zzzz1z10zzzz;
-	localparam [31:0] SMULxy = 32'bzzzz00010110zzzz0000zzzz1zz0zzzz;
-	localparam [31:0] CLZ_INSTRUCTION = 32'bzzzz000101101111zzzz11110001zzzz;
-	localparam [31:0] QADD = 32'bzzzz00010000zzzzzzzz00000101zzzz;
-	localparam [31:0] QSUB = 32'bzzzz00010010zzzzzzzz00000101zzzz;
-	localparam [31:0] QDADD = 32'bzzzz00010100zzzzzzzz00000101zzzz;
-	localparam [31:0] QDSUB = 32'bzzzz00010110zzzzzzzz00000101zzzz;
-	localparam [31:0] PLD = 32'b111101z1z101zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] DATA_PROCESSING_IMMEDIATE = 32'bzzzz001zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] DATA_PROCESSING_REGISTER_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzz0zz1zzzz;
-	localparam [31:0] DATA_PROCESSING_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz000zzzzzzzzzzzzzzzzzzzz0zzzz;
-	localparam [31:0] BRANCH_INSTRUCTION = 32'bzzzz101zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] MRS = 32'bzzzz00010z001111zzzzzzzzzzzzzzzz;
-	localparam [31:0] MSR_IMMEDIATE = 32'bzzzz00110z10zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] MSR = 32'bzzzz00010z10zzzz1111zzzzzzzzzzzz;
-	localparam [31:0] LS_INSTRUCTION_SPECIFIED_SHIFT = 32'bzzzz011zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] LS_IMMEDIATE = 32'bzzzz010zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BX_INST = 32'bzzzz000100101111111111110001zzzz;
-	localparam [31:0] MULT_INST = 32'bzzzz000000zzzzzzzzzzzzzz1001zzzz;
-	localparam [31:0] LMULT_INST = 32'bzzzz00001zzzzzzzzzzzzzzz1001zzzz;
-	localparam [31:0] HALFWORD_LS = 32'bzzzz000zzzzzzzzzzzzzzzzz1zz1zzzz;
-	localparam [31:0] SOFTWARE_INTERRUPT = 32'bzzzz1111zzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] SWAP = 32'bzzzz00010z00zzzzzzzz00001001zzzz;
-	localparam [31:0] MCR = 32'bzzzz1110zzz0zzzzzzzz1111zzz1zzzz;
-	localparam [31:0] MCR2 = 32'b11111110zzz0zzzzzzzzzzzzzzz1zzzz;
-	localparam [31:0] MRC = 32'bzzzz1110zzz1zzzzzzzz1111zzz1zzzz;
-	localparam [31:0] MRC2 = 32'b11111110zzz1zzzzzzzzzzzzzzz1zzzz;
-	localparam [31:0] LDC = 32'bzzzz110zzzz1zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] STC = 32'bzzzz110zzzz0zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] LDC2 = 32'b1111110zzzz1zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] STC2 = 32'b1111110zzzz0zzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] CDP = 32'bzzzz1110zzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BLX1 = 32'b1111101zzzzzzzzzzzzzzzzzzzzzzzzz;
-	localparam [31:0] BLX2 = 32'bzzzz000100101111111111110011zzzz;
-	localparam [31:0] BKPT = 32'b111000010010zzzzzzzzzzzz0111zzzz;
-	localparam [15:0] T_BRANCH_COND = 16'b1101zzzzzzzzzzzz;
-	localparam [15:0] T_BRANCH_NOCOND = 16'b11100zzzzzzzzzzz;
-	localparam [15:0] T_BL = 16'b1111zzzzzzzzzzzz;
-	localparam [15:0] T_BLX1 = 16'b11101zzzzzzzzzzz;
-	localparam [15:0] T_BLX2 = 16'b010001111zzzz000;
-	localparam [15:0] T_BX = 16'b010001110zzzz000;
-	localparam [15:0] T_SWI = 16'b11011111zzzzzzzz;
-	localparam [15:0] T_SHIFT = 16'b000zzzzzzzzzzzzz;
-	localparam [15:0] T_ADD_SUB_LO = 16'b00011zzzzzzzzzzz;
-	localparam [15:0] T_MCAS_IMM = 16'b001zzzzzzzzzzzzz;
-	localparam [15:0] T_ALU_LO = 16'b010000zzzzzzzzzz;
-	localparam [15:0] T_ALU_HI = 16'b010001zzzzzzzzzz;
-	localparam [15:0] T_GET_ADDR = 16'b1010zzzzzzzzzzzz;
-	localparam [15:0] T_MOD_SP = 16'b10110000zzzzzzzz;
-	localparam [15:0] T_PC_REL_LOAD = 16'b01001zzzzzzzzzzz;
-	localparam [15:0] T_LDR_STR_5BIT_OFF = 16'b011zzzzzzzzzzzzz;
-	localparam [15:0] T_LDRH_STRH_5BIT_OFF = 16'b1000zzzzzzzzzzzz;
-	localparam [15:0] T_LDRH_STRH_REG = 16'b0101zzzzzzzzzzzz;
-	localparam [15:0] T_SP_REL_LDR_STR = 16'b1001zzzzzzzzzzzz;
-	localparam [15:0] T_LDMIA_STMIA = 16'b1100zzzzzzzzzzzz;
-	localparam [15:0] T_POP_PUSH = 16'b1011z10zzzzzzzzz;
-	localparam [15:0] T_BKPT = 16'b10111110zzzzzzzz;
-	localparam [31:0] TOTAL_ARCH_REGS = 28;
-	localparam [3:0] ARCH_SP = 13;
-	localparam [3:0] ARCH_LR = 14;
-	localparam [3:0] ARCH_PC = 15;
-	localparam [4:0] RAZ_REGISTER = 16;
-	localparam [4:0] ARCH_USR2_R8 = 18;
-	localparam [4:0] ARCH_USR2_R9 = 19;
-	localparam [4:0] ARCH_USR2_R10 = 20;
-	localparam [4:0] ARCH_USR2_R11 = 21;
-	localparam [4:0] ARCH_USR2_R12 = 22;
-	localparam [4:0] ARCH_USR2_R13 = 23;
-	localparam [4:0] ARCH_USR2_R14 = 24;
-	localparam [4:0] ARCH_DUMMY_REG0 = 25;
-	localparam [4:0] ARCH_DUMMY_REG1 = 26;
-	localparam [4:0] ARCH_CPSR = 17;
-	localparam [4:0] ARCH_CURR_SPSR = 27;
-	localparam [31:0] TOTAL_PHY_REGS = 40;
-	localparam [5:0] PHY_PC = 15;
-	localparam [5:0] PHY_RAZ_REGISTER = 16;
-	localparam [5:0] PHY_CPSR = 17;
-	localparam [5:0] PHY_USR_R0 = 0;
-	localparam [5:0] PHY_USR_R1 = 1;
-	localparam [5:0] PHY_USR_R2 = 2;
-	localparam [5:0] PHY_USR_R3 = 3;
-	localparam [5:0] PHY_USR_R4 = 4;
-	localparam [5:0] PHY_USR_R5 = 5;
-	localparam [5:0] PHY_USR_R6 = 6;
-	localparam [5:0] PHY_USR_R7 = 7;
-	localparam [5:0] PHY_USR_R8 = 8;
-	localparam [5:0] PHY_USR_R9 = 9;
-	localparam [5:0] PHY_USR_R10 = 10;
-	localparam [5:0] PHY_USR_R11 = 11;
-	localparam [5:0] PHY_USR_R12 = 12;
-	localparam [5:0] PHY_USR_R13 = 13;
-	localparam [5:0] PHY_USR_R14 = 14;
-	localparam [5:0] PHY_FIQ_R8 = 18;
-	localparam [5:0] PHY_FIQ_R9 = 19;
-	localparam [5:0] PHY_FIQ_R10 = 20;
-	localparam [5:0] PHY_FIQ_R11 = 21;
-	localparam [5:0] PHY_FIQ_R12 = 22;
-	localparam [5:0] PHY_FIQ_R13 = 23;
-	localparam [5:0] PHY_FIQ_R14 = 24;
-	localparam [5:0] PHY_IRQ_R13 = 25;
-	localparam [5:0] PHY_IRQ_R14 = 26;
-	localparam [5:0] PHY_SVC_R13 = 27;
-	localparam [5:0] PHY_SVC_R14 = 28;
-	localparam [5:0] PHY_UND_R13 = 29;
-	localparam [5:0] PHY_UND_R14 = 30;
-	localparam [5:0] PHY_ABT_R13 = 31;
-	localparam [5:0] PHY_ABT_R14 = 32;
-	localparam [5:0] PHY_DUMMY_REG0 = 33;
-	localparam [5:0] PHY_DUMMY_REG1 = 34;
-	localparam [5:0] PHY_FIQ_SPSR = 35;
-	localparam [5:0] PHY_IRQ_SPSR = 36;
-	localparam [5:0] PHY_SVC_SPSR = 37;
-	localparam [5:0] PHY_UND_SPSR = 38;
-	localparam [5:0] PHY_ABT_SPSR = 39;
-	localparam [1:0] LSL = 0;
-	localparam [1:0] LSR = 1;
-	localparam [1:0] ASR = 2;
-	localparam [1:0] ROR = 3;
-	localparam [2:0] RRC = 4;
-	localparam [2:0] RORI = 5;
-	localparam [2:0] ROR_1 = 6;
-	localparam [2:0] LSL_SAT = 7;
-	localparam [2:0] CTI_BURST = 3'b010;
-	localparam [2:0] CTI_EOB = 3'b111;
-	localparam [31:0] RST_VECTOR = 32'h00000000;
-	localparam [31:0] UND_VECTOR = 32'h00000004;
-	localparam [31:0] SWI_VECTOR = 32'h00000008;
-	localparam [31:0] PABT_VECTOR = 32'h0000000c;
-	localparam [31:0] DABT_VECTOR = 32'h00000010;
-	localparam [31:0] IRQ_VECTOR = 32'h00000018;
-	localparam [31:0] FIQ_VECTOR = 32'h0000001c;
-	localparam [1:0] SNT = 2'b00;
-	localparam [1:0] WNT = 2'b01;
-	localparam [1:0] WT = 2'b10;
-	localparam [1:0] ST = 2'b11;
-	localparam [31:0] ZAP_SRCDEST_EXTEND = 32'd32;
-	localparam [31:0] ZAP_DP_RB_EXTEND = 32'd32;
-	localparam [31:0] ZAP_BASE_EXTEND = 32'd33;
-	localparam [31:0] ZAP_DP_RD_EXTEND = 32'd33;
-	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
-	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
-	function automatic [31:0] be_32;
-		input [31:0] dat;
-		input [3:0] sel;
-		case (sel)
-			4'b1000: be_32 = {24'd0, dat[31:24]};
-			4'b0100: be_32 = {16'd0, dat[23:16], 8'd0};
-			4'b0010: be_32 = {8'd0, dat[15:8], 16'd0};
-			4'b0001: be_32 = {dat[7:0], 24'd0};
-			4'b1100: be_32 = {16'd0, dat[31:16]};
-			4'b0011: be_32 = {dat[15:0], 16'd0};
-			default: be_32 = dat;
-		endcase
-	endfunction
-	function automatic [3:0] be_sel_32;
-		input [3:0] sel;
-		case (sel)
-			4'b0001: be_sel_32 = 4'b1000;
-			4'b0010: be_sel_32 = 4'b0100;
-			4'b0100: be_sel_32 = 4'b0010;
-			4'b1000: be_sel_32 = 4'b0001;
-			4'b0011: be_sel_32 = 4'b1100;
-			4'b1100: be_sel_32 = 4'b0011;
-			4'b1111: be_sel_32 = sel;
-			default: be_sel_32 = {4 {1'bx}};
-		endcase
-	endfunction
-	function automatic is_cc_satisfied;
-		input [3:0] cc;
-		input [3:0] fl;
-		reg ok;
-		reg n;
-		reg z;
-		reg c;
-		reg v;
-		begin
-			{n, z, c, v} = fl;
-			case (cc)
-				EQ: ok = z;
-				NE: ok = !z;
-				CS: ok = c;
-				CC: ok = !c;
-				MI: ok = n;
-				PL: ok = !n;
-				VS: ok = v;
-				VC: ok = !v;
-				HI: ok = c && !z;
-				LS: ok = !c || z;
-				GE: ok = n == v;
-				LT: ok = n != v;
-				GT: ok = (n == v) && !z;
-				LE: ok = (n != v) || z;
-				AL: ok = 1'd1;
-				NV: ok = 1'd0;
-				default: ok = 1'sbx;
-			endcase
-			is_cc_satisfied = ok;
-		end
-	endfunction
-	function automatic [5:0] translate;
-		input [4:0] index;
-		input [4:0] cpu_mode;
-		begin
-			case (index)
-				0: translate = PHY_USR_R0;
-				1: translate = PHY_USR_R1;
-				2: translate = PHY_USR_R2;
-				3: translate = PHY_USR_R3;
-				4: translate = PHY_USR_R4;
-				5: translate = PHY_USR_R5;
-				6: translate = PHY_USR_R6;
-				7: translate = PHY_USR_R7;
-				8: translate = PHY_USR_R8;
-				9: translate = PHY_USR_R9;
-				10: translate = PHY_USR_R10;
-				11: translate = PHY_USR_R11;
-				12: translate = PHY_USR_R12;
-				13: translate = PHY_USR_R13;
-				14: translate = PHY_USR_R14;
-				15: translate = PHY_PC;
-				RAZ_REGISTER: translate = PHY_RAZ_REGISTER;
-				ARCH_CPSR: translate = PHY_CPSR;
-				ARCH_CURR_SPSR: translate = PHY_CPSR;
-				ARCH_USR2_R8: translate = PHY_USR_R8;
-				ARCH_USR2_R9: translate = PHY_USR_R9;
-				ARCH_USR2_R10: translate = PHY_USR_R10;
-				ARCH_USR2_R11: translate = PHY_USR_R11;
-				ARCH_USR2_R12: translate = PHY_USR_R12;
-				ARCH_USR2_R13: translate = PHY_USR_R13;
-				ARCH_USR2_R14: translate = PHY_USR_R14;
-				ARCH_DUMMY_REG0: translate = PHY_DUMMY_REG0;
-				ARCH_DUMMY_REG1: translate = PHY_DUMMY_REG1;
-				default: translate = {1'd0, index};
-			endcase
-			case (cpu_mode)
-				FIQ:
-					case (index)
-						8: translate = PHY_FIQ_R8;
-						9: translate = PHY_FIQ_R9;
-						10: translate = PHY_FIQ_R10;
-						11: translate = PHY_FIQ_R11;
-						12: translate = PHY_FIQ_R12;
-						13: translate = PHY_FIQ_R13;
-						14: translate = PHY_FIQ_R14;
-						ARCH_CURR_SPSR: translate = PHY_FIQ_SPSR;
-						default:
-							;
-					endcase
-				IRQ:
-					case (index)
-						13: translate = PHY_IRQ_R13;
-						14: translate = PHY_IRQ_R14;
-						ARCH_CURR_SPSR: translate = PHY_IRQ_SPSR;
-						default:
-							;
-					endcase
-				ABT:
-					case (index)
-						13: translate = PHY_ABT_R13;
-						14: translate = PHY_ABT_R14;
-						ARCH_CURR_SPSR: translate = PHY_ABT_SPSR;
-						default:
-							;
-					endcase
-				UND:
-					case (index)
-						13: translate = PHY_UND_R13;
-						14: translate = PHY_UND_R14;
-						ARCH_CURR_SPSR: translate = PHY_UND_SPSR;
-						default:
-							;
-					endcase
-				SVC:
-					case (index)
-						13: translate = PHY_SVC_R13;
-						14: translate = PHY_SVC_R14;
-						ARCH_CURR_SPSR: translate = PHY_SVC_SPSR;
-						default:
-							;
-					endcase
-				USR:
-					;
-				SYS:
-					;
-				default: translate = 1'sbx;
-			endcase
-			if (|{cpu_mode == USR, cpu_mode == SYS, cpu_mode == FIQ, cpu_mode == IRQ, cpu_mode == SVC, cpu_mode == UND, cpu_mode == ABT})
-				;
-		end
-	endfunction
-	(* dont_retime *) reg [3:0] state;
-	reg [3:0] kind_d;
-	(* dont_retime *) reg [3:0] kind_e;
-	(* dont_retime *) reg [31:0] pc;
-	(* dont_retime *) reg [31:0] raw_ins;
-	(* dont_retime *) reg [31:0] ins;
-	wire [31:0] pc8;
+	wire d_ready;
+	wire d_valid;
+	wire [31:0] d_pc;
+	wire [31:0] d_instruction;
+	wire [31:0] d_pc_base;
+	wire [31:0] d_next_pc;
+	wire [15:0] d_raw;
+	wire [4:0] d_mode;
+	wire d_thumb;
+	wire d_fault;
+	wire d_force_align;
+	wire d_reg_shift;
+	wire [3:0] d_kind;
+	wire [3:0] d_condition;
+	wire [23:0] d_tag;
+	wire [3:0] d_used;
+	wire [127:0] d_value;
+	wire [11:0] d_dest;
+	wire d_first;
+	wire d_last;
+	wire [4:0] d_reg_count;
+	wire signed [7:0] d_offset;
+	wire signed [7:0] d_writeback_offset;
+	wire [3:0] d_transfer_reg;
+	wire [31:0] d_branch_target;
+	wire d_direct;
+	wire d_match_taken;
+	wire d_match_fallthrough;
+	wire d_predicted;
+	wire d_pred_hit;
+	wire [31:0] d_pred_target;
+	wire [1:0] d_pred_state;
+	wire [1:0] d_pred_kind;
+	wire [2:0] d_ras_pointer;
+	wire [3:0] d_ras_count;
+	wire d_hazard;
+	wire d_redirect;
+	wire d_redirect_thumb;
+	wire [31:0] d_redirect_target;
+	wire [31:0] d_redirect_link;
+	wire [2:0] d_redirect_pointer;
+	wire [3:0] d_redirect_count;
+	wire [1:0] d_redirect_action;
+	wire a_execute_ready;
+	wire a_valid;
+	wire [31:0] a_pc;
+	wire [31:0] a_instruction;
+	wire [31:0] a_cpsr;
+	wire [31:0] a_cpsr_next;
+	wire [3:0] a_kind;
+	wire a_thumb;
+	wire a_fault;
+	wire a_first;
+	wire a_last;
+	wire a_condition_pass;
+	wire [11:0] a_dest;
+	wire [63:0] a_result;
+	wire [1:0] a_write;
+	wire a_write_flags;
+	wire a_pc_write;
+	wire a_memory;
+	wire a_store;
+	wire [31:0] a_data_address;
+	wire [31:0] a_store_data;
+	wire [3:0] a_flags;
+	wire a_redirect;
+	wire a_redirect_thumb;
+	wire [31:0] a_redirect_target;
+	wire [31:0] a_redirect_link;
+	wire [2:0] a_redirect_pointer;
+	wire [3:0] a_redirect_count;
+	wire [1:0] a_redirect_action;
+	wire a_btb_update;
+	wire a_btb_taken;
+	wire a_btb_hit;
+	wire [31:0] a_btb_target;
+	wire [1:0] a_btb_state;
+	wire [1:0] a_btb_kind;
+	wire a_a_valid;
+	wire a_a_can_finish;
+	wire [1:0] a_s_write;
+	wire [11:0] a_a_dest;
+	wire [1:0] a_a_write;
+	wire a_shift_wait;
+	wire a_multiply_wait;
+	wire a_a_load;
+	wire a_predicted;
+	wire [31:0] a_psr_source;
+	wire [31:0] a_saved_psr;
+	wire [31:0] a_original_base;
+	wire [31:0] a_next_pc;
+	wire [31:0] a_prediction_target;
+	wire [5:0] a_spsr_tag;
+	localparam [3:0] DP = 0;
+	localparam [3:0] MRS = 1;
+	localparam [3:0] MSR = 2;
+	localparam [3:0] BR = 3;
+	localparam [3:0] BX = 4;
+	localparam [3:0] MEM = 5;
+	localparam [3:0] BLOCK = 6;
+	localparam [3:0] CP = 7;
+	localparam [3:0] UND = 8;
+	localparam [3:0] SWI = 9;
+	localparam [3:0] PREFIX = 10;
+	localparam [3:0] SUFFIX = 11;
+	localparam [3:0] SWP = 12;
+	localparam [3:0] MUL = 13;
+	localparam [3:0] MULL = 14;
+	(* dont_retime *) reg [506:0] m;
+	(* dont_retime *) reg [506:0] w;
+	(* dont_retime *) reg [506:0] skid;
+	reg [506:0] input_record;
+	wire [506:0] check_record;
+	(* dont_retime *) reg [3:0] memory_state;
+	(* dont_retime *) reg [31:0] saved_load;
+	(* dont_retime *) reg swap_write;
+	(* dont_retime *) reg cp_seen;
+	(* dont_retime *) reg cp_finished;
+	(* dont_retime *) reg [3:0] cp_flags;
+	(* dont_retime *) reg wb_flush;
+	(* dont_retime *) reg wb_thumb;
+	(* dont_retime *) reg predictor_clear;
+	(* dont_retime *) reg [31:0] wb_target;
+	(* dont_retime *) reg w_train;
+	(* dont_retime *) reg w_train_thumb;
+	(* dont_retime *) reg w_train_hit;
+	(* dont_retime *) reg [31:0] w_train_pc;
+	(* dont_retime *) reg [31:0] w_train_target;
+	(* dont_retime *) reg [1:0] w_train_state;
+	(* dont_retime *) reg [1:0] w_train_kind;
+	wire train;
+	wire train_thumb;
+	wire train_taken;
+	wire train_hit;
+	wire [31:0] train_pc;
+	wire [31:0] train_target;
+	wire [1:0] train_state;
+	wire [1:0] train_kind;
+	wire [31:0] f_address_nxt;
+	wire [31:0] f_address_check;
+	wire [31:0] f_address;
 	wire [31:0] cpsr;
 	wire [31:0] cpsr_next;
-	wire [31:0] d_pc;
-	wire [31:0] d_pc8;
-	wire [31:0] d_raw;
-	wire [31:0] d_ins;
-	(* dont_retime *) reg [23:0] tag_e;
-	(* dont_retime *) reg [3:0] used_e;
-	wire fast_d;
-	wire issue;
-	wire execute_fast;
-	wire early_redirect;
-	(* dont_retime *) reg fast_e;
-	(* dont_retime *) reg e_predicted;
-	wire f_predicted;
-	(* dont_retime *) reg [31:0] e_pred_target;
-	wire [31:0] f_pred_target;
-	(* dont_retime *) reg [1:0] e_pred_state;
-	wire [1:0] f_pred_state;
-	wire slow_start;
-	wire block_start;
-	wire multiply_start;
-	(* dont_retime *) reg block_pending;
-	(* dont_retime *) reg pipe_multiply;
-	(* dont_retime *) reg multiply_add;
-	wire multiply_kind = (kind_e == 4'd13) || (kind_e == 4'd14);
-	reg [2:0] multiply_delay;
-	wire multiply_ready = (pipe_multiply && !multiply_add) && (multiply_delay == 0);
-	wire branch_kind = (kind_e == 4'd3) || (kind_e == 4'd11);
-	wire [127:0] held_value;
-	wire [31:0] branch_base = (kind_e == 4'd11 ? held_value[0+:32] : pc8);
-	wire [31:0] ex_branch;
-	wire [31:0] branch_target = {ex_branch[31:1], 1'b0};
-	wire ex_pass;
-	wire [31:0] execute_flags;
-	wire [31:0] resolved_next = (branch_kind && ex_pass ? branch_target : pc + (execute_flags[5] ? 32'd2 : 32'd4));
-	wire prediction_wrong = (e_predicted ? e_pred_target != resolved_next : branch_kind && ex_pass);
-	wire predictor_feedback = ((execute_fast || slow_start) || block_start) && (branch_kind || e_predicted);
-	wire predictor_direction_wrong = e_predicted != (branch_kind && ex_pass);
-	(* dont_retime *) reg e_valid;
-	(* dont_retime *) reg e_shifted;
-	(* dont_retime *) reg serial_ready_e;
-	wire execute_wait;
-	wire wb_cycle;
-	wire retire_fast;
-	wire pipe_hold;
-	wire pipe_fault;
-	(* dont_retime *) reg clear_e_late;
-	(* dont_retime *) reg clear_pipe_late;
-	wire retirement_redirect;
-	(* dont_retime *) reg [1:0] data_reload;
-	wire fast_load_ready;
-	wire block_issue;
-	wire block_restore_fault;
-	wire pipe_pc_redirect;
-	reg [31:0] sequence_flags;
-	wire [3:0] held_wait;
-	(* dont_retime *) reg [175:0] slow;
-	(* dont_retime *) reg [228:0] fast_1;
-	(* dont_retime *) reg [228:0] fast_m;
-	(* dont_retime *) reg [228:0] fast_w;
-	reg [228:0] fast_input;
-	wire [31:0] data_pc8 = (state == 4'd0 ? fast_m[156-:32] : slow[143-:32]);
-	wire [686:0] producers;
-	reg [191:0] forward_value;
-	reg [35:0] forward_tag;
-	reg [5:0] forward_valid;
-	reg [5:0] forward_ready;
-	wire [127:0] forwarded_read;
-	wire [3:0] unused_read_wait;
-	wire [34:0] translated;
-	wire thumb_und;
-	wire thumb_align;
-	(* dont_retime *) reg fetch_abort;
-	(* dont_retime *) reg irq_pending;
-	(* dont_retime *) reg fiq_pending;
-	reg [23:0] read_tag;
-	wire [127:0] read_value;
-	reg [127:0] value_d;
-	reg [127:0] value_e;
-	reg [3:0] op_d;
-	(* dont_retime *) reg [3:0] op_e;
-	reg [1:0] shift_type_d;
-	(* dont_retime *) reg [1:0] shift_type_e;
-	reg [4:0] shift_amount_d;
-	(* dont_retime *) reg [4:0] shift_amount_e;
-	reg shift_register_d;
-	reg immediate_d;
-	reg immediate_carry_d;
-	(* dont_retime *) reg shift_register_e;
-	(* dont_retime *) reg immediate_e;
-	(* dont_retime *) reg immediate_carry_e;
-	wire [31:0] ex_result;
-	wire [31:0] ex_store;
-	wire [3:0] ex_flags;
-	wire ex_write;
-	wire ex_write_flags;
-	reg [31:0] branch_offset_d;
-	reg [31:0] branch_offset_e;
-	(* dont_retime *) reg [5:0] dst_e;
-	(* dont_retime *) reg [5:0] base_e;
-	reg [31:0] psr_mask_d;
-	reg [31:0] psr_mask_e;
-	reg [31:0] m_address;
-	reg [31:0] m_write_data;
-	reg [31:0] m_read_data;
-	(* dont_retime *) reg [3:0] m_sel;
-	(* dont_retime *) reg [5:0] m_format;
-	(* dont_retime *) reg [5:0] m_dst;
-	(* dont_retime *) reg m_load;
-	(* dont_retime *) reg m_align;
-	(* dont_retime *) reg m_user;
-	(* dont_retime *) reg swap_store;
-	reg [31:0] w_value;
-	reg [31:0] w_flags;
-	reg [31:0] w_target;
-	(* dont_retime *) reg [5:0] w_dst;
-	(* dont_retime *) reg w_valid;
-	(* dont_retime *) reg w_cfail;
-	(* dont_retime *) reg w_load;
-	(* dont_retime *) reg w_redirect;
-	(* dont_retime *) reg w_dabt;
-	(* dont_retime *) reg w_pabt;
-	(* dont_retime *) reg w_irq;
-	(* dont_retime *) reg w_fiq;
-	(* dont_retime *) reg w_swi;
-	(* dont_retime *) reg w_und;
-	(* dont_retime *) reg [15:0] remaining;
-	reg [15:0] list_d;
-	reg [3:0] transfer_reg_d;
-	reg [4:0] transfer_count_d;
-	reg [4:0] transfer_count_e;
-	reg [7:0] block_delta_e;
-	reg [15:0] list_e;
-	(* dont_retime *) reg sequence_active;
-	reg [31:0] sequence_address;
-	reg [31:0] sequence_base;
-	reg [31:0] sequence_original;
-	reg [63:0] multiply_product;
-	reg [63:0] multiply_accumulator;
-	reg [63:0] multiply_result;
+	reg [31:0] wb_flags;
+	reg [31:0] wb_data0;
+	reg [31:0] wb_data1;
+	reg [31:0] return_target;
+	reg [31:0] psr_mask;
+	reg [5:0] wb_tag0;
+	reg [5:0] wb_tag1;
+	reg wb_valid;
+	reg wb_cfail;
+	reg wb_pair;
+	reg wb_last;
+	reg wb_complete;
+	reg wb_redirect;
+	reg wb_dabt;
+	reg wb_pabt;
+	reg wb_irq;
+	reg wb_fiq;
+	reg wb_swi;
+	reg wb_und;
+	reg wb_exception;
+	wire w_exception;
+	wire w_serial;
+	wire request;
+	wire request_done;
+	wire retry;
+	wire defer_load;
+	reg done;
+	wire check_enable;
+	wire backend_ready;
+	wire wb_restore;
+	reg return_event;
+	reg return_thumb;
+	reg return_kind;
+	reg fill_was_busy;
+	wire fill_ended = fill_was_busy && !i_data_fill_busy;
+	always @(posedge i_clk) fill_was_busy <= !i_reset && i_data_fill_busy;
+	wire [39:0] wa;
+	wire [39:0] wb;
+	wire [39:0] wc;
+	wire [39:0] locked;
+	wire [23:0] rf_tag;
+	wire [23:0] early_tag;
+	wire [127:0] rf_value;
+	wire [3:0] early_valid;
+	wire [35:0] load_tag;
+	wire [5:0] load_valid;
+	wire [127:0] mw_value;
+	wire [23:0] mw_tag;
+	wire [3:0] mw_write;
 	wire [31:0] copro_reg_wr_data;
 	wire [31:0] copro_reg_rd_data;
 	wire [5:0] copro_reg_wr_index;
@@ -1053,942 +676,549 @@ module arm9_core (
 	wire align_en;
 	wire hivecs;
 	wire l4_enable;
-	wire [31:0] effective_address;
-	wire [31:0] updated_base;
-	wire [31:0] next_pc;
-	wire [31:0] vector_base;
-	assign wb_cycle = (state == 4'd6) || (((state == 4'd4) && !i_dc_lock[m_dst]) && (slow[3-:4] != 4'd12));
-	wire load_capture = ((((state == 4'd4) || (state == 4'd5)) && m_load) && i_dc_reg_idx[m_dst]) || ((fast_w[228] && fast_w[123]) && i_dc_reg_idx[fast_w[116-:6]]);
-	wire [31:0] load_value = (fast_w[228] ? fast_w[31-:32] : m_read_data);
-	wire [63:0] load_commit = (((retire_fast && fast_w[227]) && fast_w[123]) && !fast_w[119] ? 64'd1 << fast_w[116-:6] : (((wb_cycle && w_valid) && w_load) && ((slow[3-:4] == 4'd5) || (slow[3-:4] == 4'd12)) ? 64'd1 << m_dst : 64'd0));
-	wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, translated[33:32], load_capture, load_commit, unused_read_wait, held_wait, data_pc8, load_value};
-	assign cpsr = o_dbg_wb_cpsr;
-	assign pc8 = pc + (cpsr[5] ? 32'd4 : 32'd8);
-	assign vector_base = (hivecs ? 32'hffff0000 : 32'd0);
-	assign d_ins = (sequence_active ? slow[111-:32] : translated[31:0]);
-	wire [31:0] f_pc;
-	assign d_pc = (sequence_active ? slow[175-:32] : f_pc);
-	assign d_pc8 = d_pc + (cpsr[5] ? 32'd4 : 32'd8);
-	wire [31:0] f_instruction;
-	assign d_raw = (sequence_active ? slow[79-:32] : f_instruction);
+	wire cp_request;
+	wire [31:0] load_data;
+	wire [31:0] vector_base = (hivecs ? 32'hffff0000 : 32'd0);
 	function automatic [31:0] fcse;
-		input [31:0] address;
+		input reg [31:0] address;
 		fcse = (address[31:25] == 0 ? {o_pid[6:0], address[24:0]} : address);
 	endfunction
-	function automatic [2:0] multiply_iterations;
-		input [31:8] rs;
-		input signed_end;
-		reg [0:1] _sv2v_jump;
-		begin
-			_sv2v_jump = 2'b00;
-			if ((rs[31:8] == 0) || (signed_end && &rs[31:8])) begin
-				multiply_iterations = 1;
-				_sv2v_jump = 2'b11;
-			end
-			if (_sv2v_jump == 2'b00) begin
-				if ((rs[31:16] == 0) || (signed_end && &rs[31:16])) begin
-					multiply_iterations = 2;
-					_sv2v_jump = 2'b11;
-				end
-				if (_sv2v_jump == 2'b00) begin
-					if ((rs[31:24] == 0) || (signed_end && &rs[31:24])) begin
-						multiply_iterations = 3;
-						_sv2v_jump = 2'b11;
-					end
-					if (_sv2v_jump == 2'b00) begin
-						multiply_iterations = 4;
-						_sv2v_jump = 2'b11;
-					end
-				end
-			end
-		end
-	endfunction
-	function automatic [31:0] rotate_right;
-		input [31:0] v;
-		input [4:0] n;
-		rotate_right = (v >> n) | (v << ((32 - {1'b0, n}) & 63));
-	endfunction
-	function automatic signed [3:0] sv2v_cast_4_signed;
-		input reg signed [3:0] inp;
-		sv2v_cast_4_signed = inp;
-	endfunction
+	assign cpsr = o_dbg_wb_cpsr;
+	assign backend_ready = (memory_state == 4'd0) && !wb_flush;
+	assign early_tag = {a_a_dest, d_dest};
+	assign early_valid = {a_a_write & {2 {a_a_valid && !a_a_can_finish}}, a_s_write} & {early_tag[18+:6] != 15, early_tag[12+:6] != 15, early_tag[6+:6] != 15, early_tag[0+:6] != 15};
+	assign load_tag = {skid[90+:6], w[90+:6], m[90+:6], a_dest[0+:6], a_a_dest[0+:6], d_dest[0+:6]};
+	assign load_valid = {(skid[506] && skid[500]) && !skid[499], (w[506] && w[500]) && !w[499], (m[506] && m[500]) && !m[499], (a_valid && a_memory) && !a_store, a_a_load, (d_valid && !d_fault) && ((d_kind == MEM) || (d_kind == BLOCK) ? d_instruction[20] : d_kind == SWP)};
+	assign locked = i_dc_lock[39:0];
+	assign mw_tag = {w[101-:12], m[101-:12]};
+	assign mw_value[0+:64] = m[89-:64];
+	assign mw_value[64+:64] = {w[58+:32], (w[500] && !w[499] ? load_data : w[26+:32])};
+	assign mw_write[0+:2] = m[25-:2] & {2 {(m[506] && m[505]) && !m[503]}};
+	assign mw_write[2+:2] = w[25-:2] & {2 {(w[506] && w[505]) && !w[503]}};
+	assign wa = (wb_valid && (wb_tag0 != 16) ? 40'd1 << wb_tag0 : 40'd0);
+	assign wb = ((wb_valid && wb_pair) && (wb_tag1 != 16) ? 40'd1 << wb_tag1 : 40'd0);
+	assign wc = i_dc_reg_idx[39:0];
+	assign train = w_train || a_btb_update;
+	assign train_pc = (w_train ? w_train_pc : a_pc);
+	assign train_target = (w_train ? w_train_target : a_btb_target);
+	assign train_thumb = (w_train ? w_train_thumb : a_thumb);
+	assign train_taken = w_train || a_btb_taken;
+	assign train_hit = (w_train ? w_train_hit : a_btb_hit);
+	assign train_state = (w_train ? w_train_state : a_btb_state);
+	assign train_kind = (w_train ? w_train_kind : a_btb_kind);
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		kind_d = 4'd8;
-		if (d_ins[27:24] == 4'hf)
-			kind_d = 4'd9;
-		else if (d_ins[27:25] == 3'b101)
-			kind_d = 4'd3;
-		else if (d_ins[27:25] == 3'b100)
-			kind_d = 4'd6;
-		else if ((d_ins[27:26] == 2'b01) && !(d_ins[25] && d_ins[4]))
-			kind_d = 4'd5;
-		else if ((d_ins & 32'h0fc000f0) == 32'h00000090)
-			kind_d = 4'd13;
-		else if ((d_ins & 32'h0f8000f0) == 32'h00800090)
-			kind_d = 4'd14;
-		else if ((d_ins & 32'h0fb00ff0) == 32'h01000090)
-			kind_d = 4'd12;
-		else if ((d_ins & 32'h0ffffff0) == 32'h012fff10)
-			kind_d = 4'd4;
-		else if ((d_ins & 32'h0fbf0fff) == 32'h010f0000)
-			kind_d = 4'd1;
-		else if (((d_ins & 32'h0fb0fff0) == 32'h0120f000) || ((d_ins & 32'h0fb0f000) == 32'h0320f000))
-			kind_d = 4'd2;
-		else if (((d_ins[27:24] == 4'he) && d_ins[4]) && (d_ins[11:8] == 4'hf))
-			kind_d = (cpsr[4:0] == USR ? 4'd8 : 4'd7);
-		else if ((((d_ins[27:25] == 0) && d_ins[7]) && d_ins[4]) && (d_ins[6:5] != 0))
-			kind_d = 4'd5;
-		else if (((d_ins[27:26] == 0) && !((d_ins[7] && d_ins[4]) && !d_ins[25])) && !(!d_ins[20] && (d_ins[24:23] == 2'b10)))
-			kind_d = 4'd0;
-		if (cpsr[5] && (d_raw[15:11] == 5'b11110))
-			kind_d = 4'd10;
-		if (cpsr[5] && (d_raw[15:11] == 5'b11111))
-			kind_d = 4'd11;
-		if ((((!cpsr[5] && (d_ins[31:28] == 4'hf)) || ((((kind_d == 4'd5) && (d_ins[27:26] == 0)) && !d_ins[20]) && d_ins[6])) || (cpsr[5] && (d_raw[15:11] == 5'b11101))) || (!sequence_active && thumb_und))
-			kind_d = 4'd8;
-		list_d = (sequence_active ? remaining : d_ins[15:0]);
-		if ((kind_d == 4'd6) && (list_d == 0))
-			kind_d = 4'd8;
-		if (sequence_active)
-			kind_d = 4'd6;
-		transfer_reg_d = 0;
-		transfer_count_d = 0;
-		begin : sv2v_autoblock_1
-			reg signed [31:0] n;
-			for (n = 15; n >= 0; n = n - 1)
-				begin
-					if (list_d[n])
-						transfer_reg_d = sv2v_cast_4_signed(n);
-					transfer_count_d = transfer_count_d + {4'd0, d_ins[n]};
+		input_record = 1'sb0;
+		input_record[506] = a_valid && backend_ready;
+		input_record[492-:32] = a_pc;
+		input_record[460-:32] = a_instruction;
+		input_record[6-:4] = a_kind;
+		input_record[505] = a_condition_pass;
+		input_record[504] = a_thumb;
+		input_record[503] = a_fault;
+		input_record[502] = a_first;
+		input_record[501] = a_last;
+		input_record[498] = a_pc_write;
+		input_record[428-:32] = a_cpsr;
+		input_record[396-:32] = a_cpsr_next;
+		input_record[101-:12] = a_dest;
+		input_record[89-:64] = a_result;
+		input_record[25-:2] = a_write;
+		input_record[500] = a_memory;
+		input_record[499] = a_store && (a_kind != SWP);
+		input_record[364-:32] = a_data_address;
+		input_record[332-:32] = a_store_data;
+		input_record[300-:32] = a_original_base;
+		input_record[268-:32] = a_psr_source;
+		input_record[236-:32] = a_saved_psr;
+		input_record[107-:6] = a_spsr_tag;
+		input_record[204-:32] = a_next_pc;
+		input_record[497] = a_predicted;
+		input_record[172-:32] = a_prediction_target;
+		input_record[140-:32] = a_redirect_target;
+		input_record[108] = a_redirect_thumb;
+		input_record[13-:3] = a_redirect_pointer;
+		input_record[10-:4] = a_redirect_count;
+		input_record[2] = a_btb_hit;
+		input_record[1-:2] = a_btb_state;
+		input_record[496] = (a_first && i_irq) && !a_cpsr[7];
+		input_record[495] = (a_first && i_fiq) && !a_cpsr[6];
+		input_record[17-:4] = 15;
+		input_record[23-:6] = {a_data_address[1:0], 4'b0000};
+		input_record[494] = align_en && |a_data_address[1:0];
+		input_record[493] = ((a_kind == MEM) && !a_instruction[24]) && a_instruction[21];
+		if ((((a_kind == MEM) && (a_instruction[27:26] == 1)) && a_instruction[22]) || ((a_kind == SWP) && a_instruction[22])) begin
+			input_record[17-:4] = 4'b0001 << a_data_address[1:0];
+			input_record[332-:32] = {4 {a_store_data[7:0]}};
+			input_record[20] = 1;
+			input_record[494] = 0;
+		end
+		else if ((a_kind == MEM) && (a_instruction[27:26] == 0))
+			case (a_instruction[6:5])
+				1: begin
+					input_record[17-:4] = (a_data_address[1] ? 4'b1100 : 4'b0011);
+					input_record[332-:32] = {2 {a_store_data[15:0]}};
+					input_record[18] = 1;
+					input_record[494] = align_en && a_data_address[0];
 				end
-		end
-		read_tag[0+:6] = translate({1'b0, d_ins[19:16]}, cpsr[4:0]);
-		read_tag[6+:6] = translate({1'b0, d_ins[3:0]}, cpsr[4:0]);
-		read_tag[12+:6] = translate(ARCH_CURR_SPSR, cpsr[4:0]);
-		read_tag[18+:6] = translate({1'b0, d_ins[15:12]}, cpsr[4:0]);
-		if (((kind_d == 4'd0) && d_ins[20]) && (d_ins[15:12] == 15))
-			read_tag[18+:6] = translate(ARCH_CURR_SPSR, cpsr[4:0]);
-		if (kind_d == 4'd6)
-			read_tag[18+:6] = translate({1'b0, transfer_reg_d}, (d_ins[22] && !(d_ins[20] && d_ins[15]) ? USR : cpsr[4:0]));
-		shift_register_d = ((kind_d == 4'd0) && !d_ins[25]) && d_ins[4];
-		if ((kind_d == 4'd13) || (kind_d == 4'd14))
-			read_tag[12+:6] = translate({1'b0, d_ins[11:8]}, cpsr[4:0]);
-		if (shift_register_d)
-			read_tag[12+:6] = translate({1'b0, d_ins[11:8]}, cpsr[4:0]);
-		if (kind_d == 4'd11)
-			read_tag[0+:6] = translate(5'd14, cpsr[4:0]);
-	end
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		op_d = d_ins[24:21];
-		shift_type_d = d_ins[6:5];
-		shift_amount_d = d_ins[11:7];
-		value_d = forwarded_read;
-		begin : sv2v_autoblock_2
-			reg signed [31:0] n;
-			for (n = 0; n < 4; n = n + 1)
-				begin
-					if (read_tag[n * 6+:6] == PHY_PC)
-						value_d[n * 32+:32] = d_pc8;
-					if (read_tag[n * 6+:6] == PHY_CPSR)
-						value_d[n * 32+:32] = cpsr;
+				2: begin
+					input_record[17-:4] = 4'b0001 << a_data_address[1:0];
+					input_record[21] = 1;
+					input_record[494] = 0;
 				end
-		end
-		if (shift_register_d) begin
-			if (read_tag[0+:6] == PHY_PC)
-				value_d[0+:32] = d_pc8 + 4;
-			if (read_tag[6+:6] == PHY_PC)
-				value_d[32+:32] = d_pc8 + 4;
-		end
-		if ((!sequence_active && thumb_align) && (read_tag[0+:6] == PHY_PC))
-			value_d[1-:2] = 0;
-		immediate_d = d_ins[25] && ((kind_d == 4'd0) || (kind_d == 4'd2));
-		immediate_carry_d = cpsr[29];
-		if (immediate_d) begin
-			value_d[32+:32] = rotate_right({24'd0, d_ins[7:0]}, {d_ins[11:8], 1'b0});
-			if (d_ins[11:8] != 0)
-				immediate_carry_d = value_d[63];
-		end
-		if (kind_d == 4'd5) begin
-			op_d = (d_ins[23] ? ADD : SUB);
-			if (d_ins[27:26] == 2'b01) begin
-				immediate_d = !d_ins[25];
-				if (!d_ins[25])
-					value_d[32+:32] = {20'd0, d_ins[11:0]};
-			end
-			else begin
-				immediate_d = d_ins[22];
-				shift_type_d = 0;
-				shift_amount_d = 0;
-				if (d_ins[22])
-					value_d[32+:32] = {24'd0, d_ins[11:8], d_ins[3:0]};
-			end
-		end
-		if (kind_d == 4'd4) begin
-			op_d = MOV;
-			shift_type_d = 0;
-			shift_amount_d = 0;
-			immediate_d = 0;
-		end
-		if (kind_d == 4'd11) begin
-			op_d = ADD;
-			immediate_d = 1;
-			value_d[32+:32] = {20'd0, d_raw[10:0], 1'b0};
-		end
-		branch_offset_d = (translated[34] ? {{7 {d_ins[23]}}, d_ins[23:0], 1'b0} : {{6 {d_ins[23]}}, d_ins[23:0], 2'b00});
-		if (kind_d == 4'd11)
-			branch_offset_d = {20'd0, d_raw[10:0], 1'b0};
-		else if (kind_d == 4'd10)
-			branch_offset_d = {{9 {d_raw[10]}}, d_raw[10:0], 12'd0};
-		psr_mask_d = {{8 {d_ins[19]}}, {8 {d_ins[18]}}, {8 {d_ins[17]}}, {8 {d_ins[16]}}} & 32'hf00000ff;
-		if (!d_ins[22]) begin
-			psr_mask_d[5] = 0;
-			if (cpsr[4:0] == USR)
-				psr_mask_d[27:0] = 0;
-		end
-	end
-	arm9_execute #(.PRODUCERS(6)) u_execute(
-		.i_valid(e_valid),
-		.i_condition(((((kind_e == 4'd10) || (kind_e == 4'd11)) || ((kind_e == 4'd8) && cpsr[5])) || (!cpsr[5] && (ins[31:28] == 4'hf)) ? 4'he : ins[31:28])),
-		.i_op(op_e),
-		.i_set_flags((kind_e == 4'd0) && ins[20]),
-		.i_flags(execute_flags[31:28]),
-		.i_value(value_e),
-		.i_tag(tag_e),
-		.i_used(used_e),
-		.i_write_value(forward_value),
-		.i_write_tag(forward_tag),
-		.i_write_valid(forward_valid),
-		.i_write_ready(forward_ready),
-		.i_shift_type(shift_type_e),
-		.i_shift_amount(shift_amount_e),
-		.i_shift_register(shift_register_e),
-		.i_immediate(immediate_e),
-		.i_shift_carry((ins[11:8] == 0 ? execute_flags[29] : immediate_carry_e)),
-		.i_pc8(branch_base),
-		.i_branch_offset(branch_offset_e),
-		.o_result(ex_result),
-		.o_store_data(ex_store),
-		.o_branch_target(ex_branch),
-		.o_flags(ex_flags),
-		.o_condition_pass(ex_pass),
-		.o_wait(execute_wait),
-		.o_execute(),
-		.o_write_result(ex_write),
-		.o_write_flags(ex_write_flags)
-	);
-	assign producers = {fast_w, fast_m, fast_1};
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		begin : sv2v_autoblock_3
-			reg signed [31:0] n;
-			for (n = 0; n < 3; n = n + 1)
-				begin
-					forward_value[(2 * n) * 32+:32] = producers[(n * 229) + 31-:32];
-					forward_tag[(2 * n) * 6+:6] = producers[(n * 229) + 116-:6];
-					forward_valid[2 * n] = ((producers[(n * 229) + 228] && producers[(n * 229) + 227]) && (producers[(n * 229) + 123] || producers[(n * 229) + 122])) && !producers[(n * 229) + 119];
-					forward_ready[2 * n] = producers[(n * 229) + 122] || ((n == 2) && fast_load_ready);
-					forward_value[((2 * n) + 1) * 32+:32] = producers[(n * 229) + 220-:32];
-					forward_tag[((2 * n) + 1) * 6+:6] = producers[(n * 229) + 226-:6];
-					forward_valid[(2 * n) + 1] = ((producers[(n * 229) + 228] && producers[(n * 229) + 227]) && (producers[(n * 229) + 226-:6] != PHY_RAZ_REGISTER)) && !producers[(n * 229) + 119];
-					forward_ready[(2 * n) + 1] = 1;
-				end
-		end
-	end
-	arm9_forward #(.PRODUCERS(6)) u_decode_forward(
-		.i_value(read_value),
-		.i_tag(read_tag),
-		.i_used(4'b1111),
-		.i_write_value(forward_value),
-		.i_write_tag(forward_tag),
-		.i_write_valid(forward_valid),
-		.i_write_ready(forward_ready),
-		.o_value(forwarded_read),
-		.o_wait(unused_read_wait)
-	);
-	arm9_forward #(.PRODUCERS(6)) u_held_forward(
-		.i_value(value_e),
-		.i_tag(tag_e),
-		.i_used(used_e),
-		.i_write_value(forward_value),
-		.i_write_tag(forward_tag),
-		.i_write_valid(forward_valid),
-		.i_write_ready(forward_ready),
-		.o_value(held_value),
-		.o_wait(held_wait)
-	);
-	assign execute_flags = (fast_1[228] ? fast_1[188-:32] : (fast_m[228] ? fast_m[188-:32] : (fast_w[228] ? fast_w[188-:32] : cpsr)));
-	assign fast_d = (((((((kind_d == 4'd0) && (d_ins[15:12] != 15)) || (kind_d == 4'd3)) || ((kind_d == 4'd5) && !((d_ins[19:16] == 15) && (d_ins[21] || !d_ins[24])))) || (kind_d == 4'd6)) || (kind_d == 4'd10)) || (kind_d == 4'd11)) || ((((kind_d == 4'd13) || (kind_d == 4'd14)) && (d_ins[19:16] != 15)) && ((kind_d == 4'd13) || (d_ins[15:12] != 15)));
-	wire shift_hold = (((e_valid && !e_shifted) && shift_register_e) && ex_pass) && !execute_wait;
-	assign fast_load_ready = !fast_w[123] || !i_dc_lock[fast_w[116-:6]];
-	assign retire_fast = (fast_w[228] && fast_load_ready) && !clear_pipe_late;
-	assign pipe_fault = retire_fast && fast_w[119];
-	assign block_restore_fault = (pipe_fault && fast_w[118]) && slow[101];
-	assign pipe_pc_redirect = (((retire_fast && fast_w[227]) && !fast_w[119]) && fast_w[123]) && (fast_w[116-:6] == PHY_PC);
-	assign block_issue = ((((((sequence_active && (remaining != 0)) && (state == 4'd0)) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) && !clear_pipe_late) && (slow[100] || !unused_read_wait[3]);
-	wire pipe_request = ((((((((state == 4'd0) && fast_m[228]) && fast_m[227]) && fast_m[124]) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_fault) && !pipe_pc_redirect) && !clear_pipe_late;
-	assign pipe_hold = (((((i_data_fill_busy && fast_m[228]) && fast_m[124]) && fast_m[227]) || (!i_data_fill_busy && (data_reload != 0))) || (fast_w[228] && !fast_load_ready)) || (pipe_request && (!i_data_wb_ack || i_dcache_err2));
-	assign o_data_stall = ((((state == 4'd0) && pipe_hold) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_request;
-	assign execute_fast = ((((((((e_valid && fast_e) && !shift_hold) && !execute_wait) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) && !clear_e_late) && ((kind_e != 4'd6) || !ex_pass)) && ((!multiply_kind || !ex_pass) || multiply_ready);
-	assign block_start = ((((((((e_valid && fast_e) && (kind_e == 4'd6)) && ex_pass) && !execute_wait) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) && !clear_e_late) && (!block_pending || ((retire_fast && fast_w[118]) && fast_w[117]));
-	assign multiply_start = ((((((((e_valid && fast_e) && multiply_kind) && ex_pass) && !pipe_multiply) && !execute_wait) && !pipe_hold) && !pipe_fault) && !pipe_pc_redirect) && !clear_e_late;
-	assign slow_start = ((((((((((((e_valid && !fast_e) && !shift_hold) && !execute_wait) && (serial_ready_e || !ex_pass)) && !fast_1[228]) && !fast_m[228]) && (!fast_w[228] || retire_fast)) && !pipe_hold) && !i_data_fill_busy) && (data_reload == 0)) && !pipe_fault) && !pipe_pc_redirect) && !clear_e_late;
-	assign early_redirect = (execute_fast && prediction_wrong) || ((slow_start || block_start) && e_predicted);
-	wire f_valid;
-	assign issue = (((f_valid && !sequence_active) && !clear_e_late) && (state == 4'd0)) && (!e_valid || execute_fast);
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		fast_input = 1'sb0;
-		fast_input[228] = execute_fast;
-		fast_input[117] = 1;
-		fast_input[227] = ex_pass;
-		fast_input[156-:32] = pc8;
-		fast_input[104-:5] = execute_flags[4:0];
-		fast_input[188-:32] = (kind_e == 4'd0 ? {ex_flags, execute_flags[27:0]} : execute_flags);
-		fast_input[226-:6] = (kind_e == 4'd3 ? (ins[24] ? translate(5'd14, cpsr[4:0]) : PHY_RAZ_REGISTER) : (kind_e == 4'd5 ? (ins[21] || !ins[24] ? base_e : PHY_RAZ_REGISTER) : (ex_write ? dst_e : PHY_RAZ_REGISTER)));
-		fast_input[220-:32] = (kind_e == 4'd3 ? pc + 4 : ex_result);
-		if ((kind_e == 4'd10) || (kind_e == 4'd11)) begin
-			fast_input[226-:6] = translate(5'd14, cpsr[4:0]);
-			fast_input[220-:32] = (kind_e == 4'd10 ? ex_branch : (pc + 2) | 1);
-		end
-		fast_input[124] = kind_e == 4'd5;
-		fast_input[123] = (kind_e == 4'd5) && ins[20];
-		fast_input[116-:6] = dst_e;
-		fast_input[95-:32] = effective_address;
-		fast_input[63-:32] = ex_store;
-		fast_input[120] = !ins[24] && ins[21];
-		fast_input[121] = align_en && |effective_address[1:0];
-		fast_input[110-:6] = {effective_address[1:0], 4'b0000};
-		fast_input[99-:4] = 4'hf;
-		if ((ins[27:26] == 2'b01) && ins[22]) begin
-			fast_input[99-:4] = 4'b0001 << effective_address[1:0];
-			fast_input[63-:32] = {4 {ex_store[7:0]}};
-			fast_input[107] = 1;
-			fast_input[121] = 0;
-		end
-		else if (ins[27:26] == 0)
-			case (ins[6:5])
-				2'b01: begin
-					fast_input[99-:4] = (effective_address[1] ? 4'b1100 : 4'b0011);
-					fast_input[63-:32] = {2 {ex_store[15:0]}};
-					fast_input[105] = 1;
-					fast_input[121] = align_en && effective_address[0];
-				end
-				2'b10: begin
-					fast_input[99-:4] = 4'b0001 << effective_address[1:0];
-					fast_input[108] = 1;
-					fast_input[121] = 0;
-				end
-				2'b11: begin
-					fast_input[99-:4] = (effective_address[1] ? 4'b1100 : 4'b0011);
-					fast_input[106] = 1;
-					fast_input[121] = align_en && effective_address[0];
+				3: begin
+					input_record[17-:4] = (a_data_address[1] ? 4'b1100 : 4'b0011);
+					input_record[19] = 1;
+					input_record[494] = align_en && a_data_address[0];
 				end
 				default:
 					;
 			endcase
-		if (multiply_kind) begin
-			fast_input[226-:6] = (kind_e == 4'd13 ? base_e : dst_e);
-			fast_input[220-:32] = multiply_result[31:0];
-			fast_input[122] = kind_e == 4'd14;
-			fast_input[116-:6] = base_e;
-			fast_input[31-:32] = multiply_result[63:32];
-			if (ins[20] && ex_pass) begin
-				fast_input[188] = (kind_e == 4'd14 ? multiply_result[63] : multiply_result[31]);
-				fast_input[187] = (kind_e == 4'd14 ? multiply_result == 0 : multiply_result[31:0] == 0);
-			end
-		end
-		if (kind_e == 4'd6)
-			fast_input[226-:6] = PHY_RAZ_REGISTER;
-		if (sequence_active || block_start) begin : make_block_packet
-			reg [31:0] block_ins;
-			reg [31:0] block_flags;
-			reg [15:0] block_list;
-			block_ins = (block_start ? ins : slow[111-:32]);
-			block_flags = (block_start ? execute_flags : slow[47-:32]);
-			block_list = (block_start ? list_e : remaining);
-			fast_input = 1'sb0;
-			fast_input[228] = block_start || block_issue;
-			fast_input[227] = 1;
-			fast_input[124] = 1;
-			fast_input[118] = 1;
-			fast_input[117] = (block_list & (block_list - 16'd1)) == 0;
-			fast_input[156-:32] = (block_start ? pc8 : slow[143-:32]);
-			fast_input[188-:32] = (((fast_input[117] && block_ins[20]) && block_ins[15]) && block_ins[22] ? (block_start ? held_value[64+:32] : sequence_flags) : block_flags);
-			fast_input[104-:5] = block_flags[4:0];
-			fast_input[123] = block_ins[20];
-			fast_input[116-:6] = (block_start ? tag_e[18+:6] : read_tag[18+:6]);
-			fast_input[226-:6] = ((fast_input[117] && block_ins[21]) && !(block_ins[20] && block_ins[{1'b0, block_ins[19:16]}]) ? (block_start ? base_e : slow[15-:6]) : PHY_RAZ_REGISTER);
-			fast_input[220-:32] = (block_start ? updated_base : sequence_base);
-			fast_input[95-:32] = (block_start ? effective_address : sequence_address);
-			fast_input[63-:32] = (block_start ? ex_store : value_d[96+:32]);
-			fast_input[99-:4] = 4'hf;
-			fast_input[121] = align_en && |fast_input[65:64];
-			fast_input[110-:6] = 0;
-		end
+		if (a_kind == BLOCK)
+			input_record[23-:6] = 0;
 	end
-	always @(posedge i_clk)
-		if (i_reset) begin
-			fast_1 <= 1'sb0;
-			fast_m <= 1'sb0;
-			fast_w <= 1'sb0;
-			data_reload <= 0;
-		end
-		else if (clear_pipe_late) begin
-			fast_1[228] <= 0;
-			fast_m[228] <= 0;
-			fast_w[228] <= 0;
-			data_reload <= 0;
-		end
-		else begin
-			if ((state == 4'd0) && (i_data_fill_busy || ((pipe_request && i_data_wb_ack) && i_dcache_err2)))
-				data_reload <= 2;
-			else if (data_reload != 0)
-				data_reload <= data_reload - 1'b1;
-			if (retire_fast)
-				fast_w[228] <= 0;
-			if ((fast_w[228] && fast_w[123]) && i_dc_reg_idx[fast_w[116-:6]])
-				fast_w[31-:32] <= i_dc_reg_dat;
-			if (!pipe_hold) begin
-				fast_w <= fast_m;
-				fast_w[119] <= pipe_request && i_data_wb_err;
-				fast_w[31-:32] <= (fast_m[123] ? i_data_wb_dat : fast_m[31-:32]);
-				fast_m <= fast_1;
-				fast_1 <= fast_input;
-			end
-		end
-	assign updated_base = (ins[23] ? held_value[0+:32] + {25'd0, transfer_count_e, 2'b00} : held_value[0+:32] - {25'd0, transfer_count_e, 2'b00});
-	assign effective_address = (kind_e == 4'd6 ? held_value[0+:32] + {{24 {block_delta_e[7]}}, block_delta_e} : (kind_e == 4'd12 ? value_e[0+:32] : (ins[24] ? ex_result : held_value[0+:32])));
-	assign next_pc = (w_dabt ? vector_base + 16 : (w_fiq ? vector_base + 28 : (w_irq ? vector_base + 24 : (w_pabt ? vector_base + 12 : (w_swi ? vector_base + 8 : (w_und ? vector_base + 4 : (w_load && (m_dst == PHY_PC) ? m_read_data : (w_redirect ? w_target : slow[175-:32] + (slow[21] ? 2 : 4)))))))));
-	wire f_abort;
-	wire f_ready;
-	wire redirect_event;
-	(* dont_retime *) reg f_redirect;
-	(* dont_retime *) reg predictor_clear_q;
-	(* dont_retime *) reg feedback_valid_q;
-	(* dont_retime *) reg feedback_wrong_q;
-	(* dont_retime *) reg [31:0] redirect_target_q;
-	(* dont_retime *) reg [31:0] feedback_pc_q;
-	(* dont_retime *) reg [31:0] feedback_target_q;
-	(* dont_retime *) reg redirect_thumb_q;
-	(* dont_retime *) reg [1:0] feedback_state_q;
-	wire [31:0] f_address_nxt;
-	wire [31:0] f_address_check;
-	wire [31:0] f_address;
-	assign f_ready = issue;
-	assign retirement_redirect = wb_cycle && (((((((((w_redirect || (w_load && (m_dst == PHY_PC))) || w_dabt) || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und) || (slow[3-:4] == 4'd7)) || (slow[3-:4] == 4'd2));
-	assign redirect_event = (((pipe_fault && !block_restore_fault) || pipe_pc_redirect) || early_redirect) || retirement_redirect;
-	always @(posedge i_clk) begin
-		clear_e_late <= !i_reset && (redirect_event || pipe_fault);
-		clear_pipe_late <= !i_reset && ((retirement_redirect || pipe_fault) || pipe_pc_redirect);
-		f_redirect <= !i_reset && redirect_event;
-		predictor_clear_q <= (!i_reset && wb_cycle) && ((slow[3-:4] == 4'd7) || (slow[3-:4] == 4'd2));
-		feedback_valid_q <= !i_reset && predictor_feedback;
-		feedback_wrong_q <= predictor_direction_wrong;
-		feedback_pc_q <= pc;
-		feedback_target_q <= resolved_next;
-		feedback_state_q <= e_pred_state;
-		redirect_target_q <= (pipe_fault ? vector_base + 16 : (pipe_pc_redirect ? (cpsr_next[5] ? fast_w[31-:32] & 32'hfffffffe : fast_w[31-:32] & 32'hfffffffc) : (early_redirect ? resolved_next : (cpsr_next[5] ? next_pc & 32'hfffffffe : next_pc & 32'hfffffffc))));
-		redirect_thumb_q <= cpsr_next[5];
-	end
-	arm9_fetch #(
-		.RESET_VECTOR(RESET_VECTOR),
-		.PREDICTOR(ARM9_PREDICTOR),
-		.BP_ENTRIES(BP_ENTRIES)
-	) u_fetch(
-		.i_clk(i_clk),
-		.i_reset(i_reset),
-		.i_redirect(f_redirect),
-		.i_predictor_clear(predictor_clear_q),
-		.i_fb_valid(feedback_valid_q),
-		.i_fb_wrong(feedback_wrong_q),
-		.i_fb_pc(feedback_pc_q),
-		.i_fb_target(feedback_target_q),
-		.i_fb_state(feedback_state_q),
-		.o_predicted(f_predicted),
-		.o_pred_target(f_pred_target),
-		.o_pred_state(f_pred_state),
-		.i_target(redirect_target_q),
-		.i_thumb(redirect_thumb_q),
-		.i_data(i_instr_wb_dat),
-		.i_ack(i_instr_wb_ack),
-		.i_data_early(i_instr_data_early),
-		.i_hit(i_instr_hit),
-		.i_error(i_instr_wb_err),
-		.i_retry(i_icache_err2),
-		.i_fill_pending(i_icache_fill_pending),
-		.i_fill_done(i_icache_fill_done),
-		.i_fill_fault(i_icache_fill_fault),
-		.o_address_nxt(f_address_nxt),
-		.o_address_check(f_address_check),
-		.o_address(f_address),
-		.o_request(o_instr_wb_stb),
-		.o_stall(o_code_stall),
-		.o_valid(f_valid),
-		.o_pc(f_pc),
-		.o_instruction(f_instruction),
-		.o_abort(f_abort),
-		.i_ready(f_ready),
-		.o_decoded(translated),
-		.o_thumb_und(thumb_und),
-		.o_thumb_align(thumb_align)
-	);
+	assign check_record = (((memory_state == 4'd1) || (memory_state == 4'd5)) || (memory_state == 4'd8) ? w : m);
+	assign check_enable = ((((memory_state == 4'd0) || (memory_state == 4'd1)) || (memory_state == 4'd3)) || (memory_state == 4'd5)) || (memory_state == 4'd8);
+	wire [31:0] lookup_address = (memory_state == 4'd2 ? m[364-:32] : (memory_state == 4'd3 ? skid[364-:32] : (((((memory_state == 4'd1) || (memory_state == 4'd4)) || (memory_state == 4'd5)) || (memory_state == 4'd7)) || (memory_state == 4'd8) ? w[364-:32] : a_data_address)));
+	assign o_data_wb_adr_nxt = fcse({lookup_address[31:2], 2'b00});
+	assign o_data_wb_adr_check = fcse({check_record[364:335], 2'b00});
+	assign o_data_wb_adr = fcse({w[364:335], 2'b00});
+	assign o_data_wb_re_check = (((check_enable && check_record[506]) && check_record[500]) && !check_record[499]) && !wb_flush;
+	assign o_data_wb_we_check = (((check_enable && check_record[506]) && check_record[500]) && check_record[499]) && !wb_flush;
+	assign o_data_wb_ldfmt_check = check_record[23-:6];
+	assign o_mem_cpsr = check_record[397 + CPSR_MODE:397];
+	assign o_mem_translate = check_record[493];
+	assign o_data_wb_cyc = request;
+	assign o_data_wb_stb = request;
+	assign o_data_wb_we = w[499];
+	assign o_data_wb_dat = w[332-:32];
+	assign o_data_wb_sel = w[17-:4];
+	assign o_data_wb_va = w[364-:32];
+	assign o_data_wb_ldfmt = w[23-:6];
+	assign o_data_wb_align_fault = w[494];
+	assign o_dc_reg_idx_bin = w[90+:6];
+	assign o_dc_reg_idx = 64'd1 << w[90+:6];
+	assign o_data_stall = 0;
 	assign o_instr_wb_adr_nxt = fcse(f_address_nxt);
 	assign o_instr_wb_adr_check = fcse(f_address_check);
 	assign o_instr_wb_adr = fcse(f_address);
 	assign o_instr_wb_cyc = o_instr_wb_stb;
 	assign o_instr_wb_we = 0;
-	assign o_instr_wb_sel = 4'hf;
-	wire [31:0] pipe_nxt_address = (data_reload == 2 ? fast_m[95-:32] : (data_reload == 1 ? fast_1[95-:32] : (sequence_active ? sequence_address : effective_address)));
-	wire reload_check = data_reload == 1;
-	wire pipe_check = !i_data_fill_busy && ((data_reload == 0) || reload_check);
-	assign o_data_wb_adr_nxt = fcse({(state == 4'd0 ? pipe_nxt_address[31:2] : m_address[31:2]), 2'b00});
-	assign o_data_wb_adr_check = fcse({(state == 4'd0 ? (reload_check ? fast_m[95:66] : fast_1[95:66]) : m_address[31:2]), 2'b00});
-	assign o_data_wb_adr = fcse({(state == 4'd0 ? fast_m[95:66] : m_address[31:2]), 2'b00});
-	assign o_data_wb_we_check = (state == 4'd0 ? pipe_check && (reload_check ? ((fast_m[228] && fast_m[227]) && fast_m[124]) && !fast_m[123] : ((fast_1[228] && fast_1[227]) && fast_1[124]) && !fast_1[123]) : ((state == 4'd2) && !m_load) || (((state == 4'd4) && (slow[3-:4] == 4'd12)) && !i_dc_lock[m_dst]));
-	assign o_data_wb_re_check = (state == 4'd0 ? pipe_check && (reload_check ? ((fast_m[228] && fast_m[227]) && fast_m[124]) && fast_m[123] : ((fast_1[228] && fast_1[227]) && fast_1[124]) && fast_1[123]) : (state == 4'd2) && m_load);
-	assign o_data_wb_stb = (state == 4'd0 ? pipe_request : state == 4'd3);
-	assign o_data_wb_cyc = o_data_wb_stb;
-	assign o_data_wb_we = (state == 4'd0 ? !fast_m[123] : !m_load);
-	assign o_data_wb_sel = (state == 4'd0 ? fast_m[99-:4] : m_sel);
-	assign o_data_wb_dat = (state == 4'd0 ? fast_m[63-:32] : m_write_data);
-	assign o_data_wb_align_fault = (state == 4'd0 ? fast_m[121] : m_align);
-	assign o_data_wb_va = (state == 4'd0 ? fast_m[95-:32] : m_address);
-	assign o_data_wb_ldfmt_check = (state == 4'd0 ? (reload_check ? fast_m[110-:6] : fast_1[110-:6]) : m_format);
-	assign o_data_wb_ldfmt = (state == 4'd0 ? fast_m[110-:6] : m_format);
-	assign o_mem_translate = (state == 4'd0 ? (reload_check ? fast_m[120] : fast_1[120]) : m_user);
-	assign o_mem_cpsr = (state == 4'd0 ? (reload_check ? fast_m[100 + CPSR_MODE:100] : fast_1[100 + CPSR_MODE:100]) : slow[16 + CPSR_MODE:16]);
+	assign o_instr_wb_sel = 15;
 	assign o_cpsr = cpsr[CPSR_MODE:0];
-	assign o_dc_reg_idx = 64'd1 << o_dc_reg_idx_bin;
-	assign o_dc_reg_idx_bin = (state == 4'd0 ? fast_m[116-:6] : m_dst);
+	assign w_serial = (((((((w[6-:4] == CP) || (w[6-:4] == MSR)) || (w[6-:4] == SWP)) || (w[6-:4] == SWI)) || (w[6-:4] == UND)) || w[503]) || (((w[6-:4] == DP) && w[449]) && (w[90+:6] == 15))) || (((((w[6-:4] == BLOCK) && w[451]) && w[449]) && w[444]) && w[501]);
+	assign w_exception = ((w[503] || w[496]) || w[495]) || (w[505] && ((w[6-:4] == SWI) || (w[6-:4] == UND)));
+	assign cp_request = (((((w[506] && w[505]) && (w[6-:4] == CP)) && !w_exception) && !(|i_dc_lock)) && !i_data_fill_busy) && !wb_flush;
+	assign request = ((((w[506] && w[500]) && !w_exception) && !wb_flush) && !fill_ended) && ((memory_state == 4'd0) || (memory_state == 4'd1));
+	assign request_done = request && (i_data_wb_ack || i_data_wb_err);
+	assign retry = request_done && i_dcache_err2;
+	assign defer_load = (((request_done && !retry) && !i_data_wb_err) && !w[499]) && ((w[90+:6] == 15) || (w[6-:4] == SWP));
+	assign load_data = ((memory_state == 4'd6) || swap_write ? saved_load : i_data_wb_dat);
+	assign wb_restore = memory_state == 4'd9;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		wb_complete = 0;
+		if (w[506] && !wb_flush) begin
+			if (memory_state == 4'd10)
+				wb_complete = 1;
+			else if (w_exception)
+				wb_complete = !(|i_dc_lock);
+			else if (w[505] && (w[6-:4] == CP))
+				wb_complete = cp_finished;
+			else if (memory_state == 4'd6)
+				wb_complete = !i_dc_lock[w[90+:6]] && (w[6-:4] != SWP);
+			else if ((memory_state == 4'd0) || (memory_state == 4'd1))
+				wb_complete = !w[500] || ((request_done && !retry) && !defer_load);
+		end
+		if (((request_done && i_data_wb_err) && (w[6-:4] == BLOCK)) && w[450])
+			wb_complete = 0;
+		done = !w[506] || wb_complete;
+		wb_dabt = wb_complete && ((memory_state == 4'd10) || (request_done && i_data_wb_err));
+		wb_fiq = (wb_complete && !wb_dabt) && w[495];
+		wb_irq = ((wb_complete && !wb_dabt) && !wb_fiq) && w[496];
+		wb_pabt = (((wb_complete && !wb_dabt) && !wb_fiq) && !wb_irq) && w[503];
+		wb_swi = (((((wb_complete && !wb_dabt) && !wb_fiq) && !wb_irq) && !wb_pabt) && w[505]) && (w[6-:4] == SWI);
+		wb_und = (((((wb_complete && !wb_dabt) && !wb_fiq) && !wb_irq) && !wb_pabt) && w[505]) && (w[6-:4] == UND);
+		wb_exception = ((((wb_dabt || wb_fiq) || wb_irq) || wb_pabt) || wb_swi) || wb_und;
+		wb_valid = ((wb_complete && w[505]) && !wb_exception) || wb_restore;
+		wb_cfail = (wb_complete && !w[505]) && !wb_exception;
+		wb_last = w[501] && !wb_restore;
+		wb_flags = w[396-:32];
+		wb_tag0 = (w[24] ? w[90+:6] : 6'd16);
+		wb_data0 = w[26+:32];
+		wb_tag1 = w[96+:6];
+		wb_data1 = w[58+:32];
+		wb_pair = w[25];
+		psr_mask = {{8 {w[448]}}, {8 {w[447]}}, {8 {w[446]}}, {8 {w[445]}}} & 32'hf00000ff;
+		if (!w[451]) begin
+			psr_mask[5] = 0;
+			if (w[401:397] == 5'h10)
+				psr_mask[27:0] = 0;
+		end
+		if (w[500]) begin
+			wb_tag0 = (w[25] ? w[96+:6] : 6'd16);
+			wb_data0 = w[58+:32];
+			wb_pair = !w[499] || (w[6-:4] == SWP);
+			wb_tag1 = w[90+:6];
+			wb_data1 = load_data;
+			if ((((w[6-:4] == BLOCK) && w[451]) && w[449]) && (w[90+:6] == 15))
+				wb_flags = w[236-:32] & 32'hf00000ff;
+		end
+		if ((w[6-:4] == BX) && w[505])
+			wb_flags[5] = w[108];
+		if (((w[6-:4] == DP) && w[498]) && w[449])
+			wb_flags = w[236-:32] & 32'hf00000ff;
+		if (w[6-:4] == MSR) begin
+			if ((w[451] && (w[401:397] != 5'h10)) && (w[401:397] != 5'h1f)) begin
+				wb_tag0 = w[107-:6];
+				wb_data0 = (w[236-:32] & ~psr_mask) | (w[268-:32] & psr_mask);
+			end
+			else if (!w[451])
+				wb_flags = (w[428-:32] & ~psr_mask) | (w[268-:32] & psr_mask);
+		end
+		if (w[6-:4] == CP)
+			wb_flags[31:28] = cp_flags;
+		if (wb_exception) begin
+			wb_data0 = w[492-:32] + 32'd4;
+			wb_pair = 0;
+			wb_flags = w[428-:32];
+		end
+		if (wb_restore) begin
+			wb_tag0 = w[96+:6];
+			wb_data0 = w[300-:32];
+			wb_pair = 0;
+			wb_flags = w[428-:32];
+		end
+		return_event = w[505] && (w[498] || ((w[500] && !w[499]) && (w[90+:6] == 15)));
+		return_target = (w[500] ? load_data : (w[6-:4] == SUFFIX ? w[364-:32] : w[26+:32]));
+		return_thumb = wb_flags[5];
+		if ((w[500] && (w[90+:6] == 15)) && !l4_enable)
+			return_thumb = return_target[0];
+		return_target = (return_thumb ? {return_target[31:1], 1'b0} : {return_target[31:2], 2'b00});
+		return_kind = ((w[6-:4] == BLOCK) && (w[90+:6] == 15)) || ((w[460-:32] & 32'h0fffffff) == 32'h01a0f00e);
+		wb_redirect = wb_complete && (((wb_exception || w_serial) || (return_event && (((!w[497] || (w[172-:32] != {return_target[31:1], return_thumb})) || ((w[6-:4] == DP) && w[449])) || ((w[6-:4] == BLOCK) && w[451])))) || (w[505] && (((w[6-:4] == CP) || (w[6-:4] == MSR)) || (w[6-:4] == SWP))));
+	end
 	always @(posedge i_clk)
 		if (i_reset) begin
-			state <= 4'd0;
-			e_valid <= 0;
-			e_shifted <= 0;
-			serial_ready_e <= 0;
-			slow <= 1'sb0;
-			pc <= RESET_VECTOR;
-			raw_ins <= 0;
-			ins <= 0;
-			tag_e <= 1'sb0;
-			used_e <= 0;
-			fast_e <= 0;
-			fetch_abort <= 0;
-			e_predicted <= 0;
-			e_pred_target <= 0;
-			e_pred_state <= 0;
-			irq_pending <= 0;
-			fiq_pending <= 0;
-			sequence_active <= 0;
-			block_pending <= 0;
-			pipe_multiply <= 0;
-			multiply_add <= 0;
-			remaining <= 0;
-			sequence_address <= 0;
-			sequence_base <= 0;
-			sequence_original <= 0;
-			sequence_flags <= 0;
-			multiply_product <= 0;
-			multiply_accumulator <= 0;
-			multiply_result <= 0;
-			multiply_delay <= 0;
-			w_valid <= 0;
-			w_cfail <= 0;
-			w_load <= 0;
-			w_redirect <= 0;
-			w_dabt <= 0;
-			w_pabt <= 0;
-			w_irq <= 0;
-			w_fiq <= 0;
-			w_swi <= 0;
-			w_und <= 0;
-			w_value <= 0;
-			w_flags <= CPSR_INIT;
-			w_target <= 0;
-			w_dst <= PHY_RAZ_REGISTER;
-			m_address <= 0;
-			m_write_data <= 0;
-			m_read_data <= 0;
-			m_sel <= 0;
-			m_format <= 0;
-			m_dst <= PHY_RAZ_REGISTER;
-			m_load <= 0;
-			m_align <= 0;
-			m_user <= 0;
-			swap_store <= 0;
-			block_delta_e <= 0;
-			transfer_count_e <= 0;
-			list_e <= 0;
-			kind_e <= 4'd8;
-			op_e <= 0;
-			value_e <= 1'sb0;
-			shift_type_e <= 0;
-			shift_amount_e <= 0;
-			shift_register_e <= 0;
-			immediate_e <= 0;
-			immediate_carry_e <= 0;
-			branch_offset_e <= 0;
-			dst_e <= PHY_RAZ_REGISTER;
-			base_e <= PHY_RAZ_REGISTER;
-			psr_mask_e <= 0;
+			m <= 1'sb0;
+			w <= 1'sb0;
+			skid <= 1'sb0;
+			memory_state <= 4'd0;
+			saved_load <= 0;
+			swap_write <= 0;
+			wb_flush <= 0;
+			wb_target <= RESET_VECTOR;
+			wb_thumb <= 0;
+			predictor_clear <= 0;
+			cp_seen <= 0;
+			cp_finished <= 0;
+			cp_flags <= 0;
+			w_train <= 0;
+			w_train_pc <= 0;
+			w_train_target <= 0;
+			w_train_thumb <= 0;
+			w_train_hit <= 0;
+			w_train_state <= 0;
+			w_train_kind <= 0;
 		end
 		else begin
-			if (e_valid) begin
-				value_e <= held_value;
-				serial_ready_e <= !(|held_wait);
-				if (shift_hold)
-					e_shifted <= 1;
-				if (execute_fast || block_start)
-					e_valid <= 0;
+			wb_flush <= wb_redirect;
+			predictor_clear <= (wb_redirect && w[505]) && ((w[6-:4] == CP) || (w[6-:4] == MSR));
+			wb_thumb <= (wb_exception ? 1'b0 : cpsr_next[5]);
+			wb_target <= (wb_dabt ? vector_base + 16 : (wb_fiq ? vector_base + 28 : (wb_irq ? vector_base + 24 : (wb_pabt ? vector_base + 12 : (wb_swi ? vector_base + 8 : (wb_und ? vector_base + 4 : (return_event ? return_target : w[204-:32])))))));
+			w_train <= (wb_complete && return_event) && !wb_exception;
+			w_train_pc <= w[492-:32];
+			w_train_target <= {return_target[31:1], return_thumb};
+			w_train_thumb <= w[504];
+			w_train_hit <= w[2];
+			w_train_state <= w[1-:2];
+			w_train_kind <= (return_kind ? 2'd2 : 2'd0);
+			if (cp_request && !cp_seen) begin
+				cp_seen <= 1;
+				cp_flags <= w[428:425];
 			end
-			if (multiply_start) begin
-				multiply_product <= $signed({((kind_e == 4'd14) && ins[22]) && held_value[63], held_value[32+:32]}) * $signed({((kind_e == 4'd14) && ins[22]) && held_value[95], held_value[64+:32]});
-				multiply_accumulator <= (!ins[21] ? 64'd0 : {(kind_e == 4'd14 ? held_value[0+:32] : 32'd0), held_value[96+:32]});
-				multiply_delay <= multiply_iterations(held_value[95-:24], (kind_e == 4'd13) || ins[22]) - (kind_e == 4'd13 ? 3'd1 : 3'd0);
-				pipe_multiply <= 1;
-				multiply_add <= 1;
+			if ((cp_request && copro_reg_en) && (copro_reg_wr_index == 15))
+				cp_flags <= copro_reg_wr_data[31:28];
+			if (cp_request && copro_done)
+				cp_finished <= 1;
+			if (wb_complete) begin
+				cp_seen <= 0;
+				cp_finished <= 0;
+				swap_write <= 0;
 			end
-			else if (pipe_multiply) begin
-				if (multiply_add) begin
-					multiply_result <= multiply_product + multiply_accumulator;
-					multiply_add <= 0;
-				end
-				else if (multiply_delay != 0)
-					multiply_delay <= multiply_delay - 1'b1;
-				if (execute_fast)
-					pipe_multiply <= 0;
-			end
-			if (slow_start) begin
-				e_valid <= 0;
-				slow[175-:32] <= pc;
-				slow[143-:32] <= pc8;
-				slow[111-:32] <= ins;
-				slow[79-:32] <= raw_ins;
-				slow[9-:6] <= dst_e;
-				slow[47-:32] <= execute_flags;
-				slow[15-:6] <= base_e;
-				slow[3-:4] <= kind_e;
-				state <= 4'd6;
-				w_valid <= ex_pass;
-				w_cfail <= !ex_pass;
-				swap_store <= 0;
-				w_load <= 0;
-				w_redirect <= 0;
-				w_dabt <= 0;
-				w_pabt <= 0;
-				w_irq <= 0;
-				w_fiq <= 0;
-				w_swi <= 0;
-				w_und <= 0;
-				w_dst <= PHY_RAZ_REGISTER;
-				w_value <= pc + 4;
-				w_flags <= execute_flags;
-				if ((fiq_pending || irq_pending) || fetch_abort) begin
-					w_fiq <= fiq_pending;
-					w_irq <= !fiq_pending && irq_pending;
-					w_pabt <= (!fiq_pending && !irq_pending) && fetch_abort;
-					w_valid <= 0;
-					w_cfail <= 0;
-				end
-				else if (ex_pass)
-					case (kind_e)
-						4'd0: begin
-							if (ex_write) begin
-								w_dst <= dst_e;
-								w_value <= ex_result;
-								if (dst_e == PHY_PC) begin
-									w_redirect <= 1;
-									w_target <= ex_result;
-								end
-							end
-							if (ex_write_flags)
-								w_flags[31:28] <= ex_flags;
-							if (((dst_e == PHY_PC) && ins[20]) && ex_write)
-								w_flags <= value_e[96+:32] & 32'hf00000ff;
-						end
-						4'd1: begin
-							w_dst <= dst_e;
-							w_value <= (ins[22] ? value_e[64+:32] : execute_flags);
-						end
-						4'd2:
-							if ((ins[22] && (cpsr[4:0] != USR)) && (cpsr[4:0] != SYS)) begin
-								w_dst <= translate(ARCH_CURR_SPSR, cpsr[4:0]);
-								w_value <= (value_e[64+:32] & ~psr_mask_e) | (value_e[32+:32] & psr_mask_e);
-							end
-							else if (!ins[22])
-								w_flags <= (execute_flags & ~psr_mask_e) | (value_e[32+:32] & psr_mask_e);
-						4'd3: begin
-							w_redirect <= 1;
-							w_target <= ex_branch;
-							if (ins[24]) begin
-								w_dst <= translate(5'd14, cpsr[4:0]);
-								w_value <= pc + 4;
-							end
-						end
-						4'd4: begin
-							w_redirect <= 1;
-							w_target <= ex_result;
-							w_flags[5] <= ex_result[0];
-						end
-						4'd5, 4'd12: begin
-							state <= 4'd1;
-							m_address <= effective_address;
-							m_dst <= dst_e;
-							m_load <= (kind_e == 4'd12) || ins[20];
-							w_load <= (kind_e == 4'd12) || ins[20];
-							m_user <= ((kind_e == 4'd5) && !ins[24]) && ins[21];
-							m_align <= align_en && |effective_address[1:0];
-							m_format <= {effective_address[1:0], 4'b0000};
-							m_sel <= 4'hf;
-							m_write_data <= ex_store;
-							if (kind_e == 4'd12) begin
-								m_write_data <= value_e[32+:32];
-								if (ins[22]) begin
-									m_sel <= 4'b0001 << effective_address[1:0];
-									m_write_data <= {4 {value_e[39-:8]}};
-									m_format[2] <= 1;
-									m_align <= 0;
-								end
-							end
-							else if (kind_e == 4'd5) begin
-								if (ins[21] || !ins[24]) begin
-									w_dst <= base_e;
-									w_value <= ex_result;
-								end
-								if ((ins[27:26] == 2'b01) && ins[22]) begin
-									m_sel <= 4'b0001 << effective_address[1:0];
-									m_write_data <= {4 {ex_store[7:0]}};
-									m_format[2] <= 1;
-									m_align <= 0;
-								end
-								else if (ins[27:26] == 0)
-									case (ins[6:5])
-										2'b01: begin
-											m_sel <= (effective_address[1] ? 4'b1100 : 4'b0011);
-											m_write_data <= {2 {ex_store[15:0]}};
-											m_format[0] <= 1;
-											m_align <= align_en && effective_address[0];
-										end
-										2'b10: begin
-											m_sel <= 4'b0001 << effective_address[1:0];
-											m_format[3] <= 1;
-											m_align <= 0;
-										end
-										2'b11: begin
-											m_sel <= (effective_address[1] ? 4'b1100 : 4'b0011);
-											m_format[1] <= 1;
-											m_align <= align_en && effective_address[0];
-										end
-										default:
-											;
-									endcase
-							end
-						end
-						4'd13, 4'd14: begin
-							multiply_product <= $signed({((kind_e == 4'd14) && ins[22]) && held_value[63], held_value[32+:32]}) * $signed({((kind_e == 4'd14) && ins[22]) && held_value[95], held_value[64+:32]});
-							multiply_accumulator <= (!ins[21] ? 64'd0 : {(kind_e == 4'd14 ? held_value[0+:32] : 32'd0), held_value[96+:32]});
-							multiply_delay <= multiply_iterations(held_value[95-:24], (kind_e == 4'd13) || ins[22]) - (kind_e == 4'd13 ? 3'd1 : 3'd0);
-							state <= 4'd9;
-						end
-						4'd7: begin
-							w_valid <= 0;
-							state <= 4'd7;
-						end
-						4'd9: begin
-							w_valid <= 0;
-							w_swi <= 1;
-						end
-						default: begin
-							w_valid <= 0;
-							w_und <= 1;
-						end
-					endcase
-			end
-			case (state)
-				4'd1: state <= 4'd2;
-				4'd2: state <= 4'd3;
-				4'd3:
-					if (i_data_wb_ack || i_data_wb_err) begin
-						if (i_dcache_err2)
-							state <= 4'd1;
-						else if (i_data_wb_err) begin
-							w_valid <= 0;
-							w_dabt <= 1;
-							state <= 4'd6;
-						end
-						else begin
-							if (m_load)
-								m_read_data <= i_data_wb_dat;
-							state <= (m_load ? 4'd4 : 4'd6);
-						end
+			if (i_dc_reg_idx[w[90+:6]])
+				saved_load <= i_dc_reg_dat;
+			case (memory_state)
+				4'd0:
+					if (done) begin
+						m <= input_record;
+						w <= m;
 					end
-				4'd4:
-					if (wb_cycle)
-						state <= 4'd0;
-					else if (m_load && i_dc_reg_idx[m_dst]) begin
-						m_read_data <= i_dc_reg_dat;
-						state <= (slow[3-:4] == 4'd12 ? 4'd1 : 4'd6);
-						if (slow[3-:4] == 4'd12) begin
-							m_load <= 0;
-							swap_store <= 1;
-						end
-					end
-					else if (m_load && i_dc_lock[m_dst])
-						state <= 4'd5;
-					else if ((slow[3-:4] == 4'd12) && !swap_store) begin
-						m_load <= 0;
-						swap_store <= 1;
-						state <= 4'd3;
-					end
-					else
-						state <= 4'd6;
-				4'd5:
-					if (i_dc_reg_idx[m_dst]) begin
-						m_read_data <= i_dc_reg_dat;
-						state <= (slow[3-:4] == 4'd12 ? 4'd1 : 4'd6);
-						if (slow[3-:4] == 4'd12) begin
-							m_load <= 0;
-							swap_store <= 1;
-						end
-					end
-				4'd8: state <= 4'd6;
-				4'd9: begin
-					multiply_result <= multiply_product + multiply_accumulator;
-					state <= 4'd10;
-				end
-				4'd10:
-					if (multiply_delay != 0)
-						multiply_delay <= multiply_delay - 1'b1;
 					else begin
-						w_dst <= (slow[3-:4] == 4'd14 ? slow[9-:6] : slow[15-:6]);
-						w_value <= multiply_result[31:0];
-						if (slow[3-:4] == 4'd14) begin
-							m_dst <= slow[15-:6];
-							m_read_data <= multiply_result[63:32];
-							w_load <= 1;
-						end
-						if (slow[100]) begin
-							w_flags[31] <= (slow[3-:4] == 4'd14 ? multiply_result[63] : multiply_result[31]);
-							w_flags[30] <= (slow[3-:4] == 4'd14 ? multiply_result == 0 : multiply_result[31:0] == 0);
-						end
-						state <= 4'd6;
+						skid <= input_record;
+						memory_state <= 4'd1;
 					end
-				4'd7: begin
-					if (copro_reg_en && (copro_reg_wr_index == PHY_PC))
-						w_flags[31:28] <= copro_reg_wr_data[31:28];
-					if (copro_done) begin
-						w_valid <= 1;
-						state <= 4'd6;
+				4'd1:
+					if (done) begin
+						w[506] <= 0;
+						memory_state <= 4'd2;
 					end
+				4'd2: memory_state <= 4'd3;
+				4'd3: begin
+					w <= m;
+					m <= skid;
+					skid[506] <= 0;
+					memory_state <= 4'd0;
 				end
-				4'd6: state <= 4'd0;
-				default:
-					;
+				4'd4: memory_state <= 4'd5;
+				4'd5: memory_state <= 4'd1;
+				4'd6:
+					if (!i_dc_lock[w[90+:6]]) begin
+						if (w[6-:4] == SWP) begin
+							w[499] <= 1;
+							swap_write <= 1;
+							memory_state <= 4'd7;
+						end
+						else if (done) begin
+							w[506] <= 0;
+							memory_state <= 4'd2;
+						end
+					end
+				4'd7: memory_state <= 4'd8;
+				4'd8: memory_state <= 4'd1;
+				4'd9: memory_state <= 4'd10;
+				4'd10:
+					if (done) begin
+						w[506] <= 0;
+						memory_state <= 4'd2;
+					end
+				default: memory_state <= 4'd0;
 			endcase
-			if (block_issue) begin
-				remaining <= remaining & (remaining - 16'd1);
-				sequence_address <= sequence_address + 4;
-				if ((remaining & (remaining - 16'd1)) == 0)
-					sequence_active <= 0;
+			if (retry || (((fill_ended && w[506]) && w[500]) && ((memory_state == 4'd0) || (memory_state == 4'd1))))
+				memory_state <= 4'd4;
+			if (defer_load) begin
+				saved_load <= i_data_wb_dat;
+				memory_state <= 4'd6;
 			end
-			if ((retire_fast && fast_w[118]) && fast_w[117])
-				block_pending <= 0;
-			if (block_start) begin
-				slow[175-:32] <= pc;
-				slow[143-:32] <= pc8;
-				slow[111-:32] <= ins;
-				slow[79-:32] <= raw_ins;
-				slow[9-:6] <= dst_e;
-				slow[47-:32] <= execute_flags;
-				slow[15-:6] <= base_e;
-				slow[3-:4] <= kind_e;
-				block_pending <= 1;
-				remaining <= list_e & (list_e - 16'd1);
-				sequence_active <= (list_e & (list_e - 16'd1)) != 0;
-				sequence_address <= effective_address + 4;
-				sequence_base <= updated_base;
-				sequence_original <= held_value[0+:32];
-				sequence_flags <= held_value[64+:32];
-			end
-			if (pipe_fault) begin
-				sequence_active <= 0;
-				block_pending <= 0;
-				remaining <= 0;
-				if (block_restore_fault) begin
-					state <= 4'd8;
-					w_valid <= 0;
-					w_cfail <= 0;
-					w_load <= 0;
-					w_redirect <= 0;
-					w_dabt <= 1;
-					w_flags <= slow[47-:32];
-				end
-			end
-			if (issue) begin
-				if (issue) begin
-					pc <= f_pc;
-					raw_ins <= f_instruction;
-					ins <= d_ins;
-					fetch_abort <= f_abort;
-					e_predicted <= f_predicted;
-					e_pred_target <= f_pred_target;
-					e_pred_state <= f_pred_state;
-				end
-				fast_e <= (((issue && fast_d) && !f_abort) && !(i_irq && !cpsr[7])) && !(i_fiq && !cpsr[6]);
-				serial_ready_e <= !(|unused_read_wait);
-				tag_e <= read_tag;
-				used_e <= ((kind_d == 4'd3) || (kind_d == 4'd10) ? 4'b0000 : (kind_d == 4'd11 ? 4'b0001 : (kind_d == 4'd6 ? {!d_ins[20], (d_ins[20] && d_ins[22]) && d_ins[15], 2'b01} : ((kind_d == 4'd13) || (kind_d == 4'd14) ? {d_ins[21], 2'b11, (kind_d == 4'd14) && d_ins[21]} : (kind_d == 4'd5 ? {!d_ins[20], 1'b0, !immediate_d, 1'b1} : (kind_d == 4'd0 ? {1'b0, shift_register_d, !immediate_d, (op_d != MOV) && (op_d != MVN)} : {2'b11, !immediate_d, 1'b1}))))));
-				block_delta_e <= (d_ins[23] ? (d_ins[24] ? 8'd4 : 8'd0) : (d_ins[24] ? 8'd0 : 8'd4) - {1'b0, transfer_count_d, 2'b00});
-				transfer_count_e <= transfer_count_d;
-				list_e <= list_d;
-				kind_e <= kind_d;
-				value_e <= value_d;
-				op_e <= op_d;
-				shift_type_e <= shift_type_d;
-				shift_amount_e <= shift_amount_d;
-				shift_register_e <= shift_register_d;
-				immediate_e <= immediate_d;
-				immediate_carry_e <= immediate_carry_d;
-				branch_offset_e <= branch_offset_d;
-				psr_mask_e <= psr_mask_d;
-				dst_e <= (kind_d == 4'd0 ? translate({1'b0, d_ins[15:12]}, cpsr[4:0]) : read_tag[18+:6]);
-				base_e <= read_tag[0+:6];
-				fiq_pending <= (!sequence_active && i_fiq) && !cpsr[6];
-				irq_pending <= (!sequence_active && i_irq) && !cpsr[7];
-				e_valid <= 1;
-				e_shifted <= 0;
-			end
-			if (clear_e_late)
-				e_valid <= 0;
-			if (clear_pipe_late) begin
-				pipe_multiply <= 0;
-				multiply_add <= 0;
-				sequence_active <= 0;
-				block_pending <= 0;
-			end
-			if (pipe_fault) begin
-				pipe_multiply <= 0;
-				multiply_add <= 0;
+			if (((request_done && i_data_wb_err) && (w[6-:4] == BLOCK)) && w[450])
+				memory_state <= 4'd9;
+			if (wb_flush) begin
+				m[506] <= 0;
+				w[506] <= 0;
+				skid[506] <= 0;
+				memory_state <= 4'd0;
+				swap_write <= 0;
+				cp_seen <= 0;
+				cp_finished <= 0;
 			end
 		end
-	assign o_dbg_wb_valid = (((retire_fast && fast_w[227]) && !fast_w[119]) || (wb_cycle && w_valid)) || (state == 4'd8);
-	assign o_dbg_wb_dvalid = (retire_fast && !fast_w[227]) || (wb_cycle && w_cfail);
-	assign o_dbg_wb_uop_last = (retire_fast ? fast_w[117] : state != 4'd8);
-	assign o_dbg_wb_dabt = {1'b0, (pipe_fault && !block_restore_fault) || (wb_cycle && w_dabt)};
-	assign o_dbg_wb_pabt = wb_cycle && w_pabt;
-	assign o_dbg_wb_irq = wb_cycle && w_irq;
-	assign o_dbg_wb_fiq = wb_cycle && w_fiq;
-	assign o_dbg_wb_swi = wb_cycle && w_swi;
-	assign o_dbg_wb_und = wb_cycle && w_und;
-	assign o_dbg_wb_pc = (retire_fast ? fast_w[156-:32] : slow[143-:32]);
+	assign o_dbg_wb_valid = wb_valid;
+	assign o_dbg_wb_dvalid = wb_cfail;
+	assign o_dbg_wb_uop_last = wb_last;
+	assign o_dbg_wb_dabt = {1'b0, wb_dabt};
+	assign o_dbg_wb_pabt = wb_pabt;
+	assign o_dbg_wb_fiq = wb_fiq;
+	assign o_dbg_wb_irq = wb_irq;
+	assign o_dbg_wb_swi = wb_swi;
+	assign o_dbg_wb_und = wb_und;
+	assign o_dbg_wb_pc = w[492-:32] + (w[504] ? 32'd4 : 32'd8);
 	assign o_dbg_wb_cpsr_nxt = cpsr_next;
-	assign o_dbg_stall = {pipe_fault || (wb_cycle && (((((w_dabt || w_pabt) || w_irq) || w_fiq) || w_swi) || w_und)), (early_redirect || pipe_pc_redirect) || (wb_cycle && w_redirect), (state == 4'd7) || sequence_active, ((shift_hold || pipe_multiply) || (state == 4'd9)) || (state == 4'd10), execute_wait || ((f_valid && !issue) && (!e_valid || execute_fast)), !f_valid, o_code_stall, (pipe_hold || (state == 4'd3)) || (state == 4'd5)};
+	assign o_dbg_stall = {wb_flush, a_redirect, w[506] && (w[6-:4] == CP), a_multiply_wait || a_shift_wait, d_hazard || !a_execute_ready, !d_valid, o_code_stall, memory_state != 4'd0};
+	wire [31:0] data_pc8 = w[492-:32] + (w[504] ? 32'd4 : 32'd8);
+	wire [31:0] pc = d_pc;
+	wire [31:0] ins = d_instruction;
+	wire [31:0] ex_result = a_result[0+:32];
+	wire load_capture = |i_dc_reg_idx;
+	wire [63:0] load_commit = 0;
+	wire [31:0] load_value = load_data;
+	wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, CP, UND, SWI, MRS, BR, PREFIX, MUL, MULL, i_instr_data_early, i_instr_hit, cp_seen, d_ready, d_raw, d_mode, d_reg_count, d_transfer_reg, d_pred_kind, a_flags, a_write_flags, a_store, a_btb_kind, a_predicted, a_psr_source, a_saved_psr, a_spsr_tag, data_pc8, pc, ins, ex_result, load_capture, load_commit, load_value};
+	arm9v2_front_decode #(
+		.RESET_VECTOR(RESET_VECTOR),
+		.PREDICTOR(ARM9_PREDICTOR),
+		.EXTERNAL_RF(1)
+	) u_front_decode(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_flush(wb_flush || a_redirect),
+		.i_mode(cpsr[4:0]),
+		.i_wen(wb_valid),
+		.i_wr_addr_a(wa),
+		.i_wr_addr_b(wb),
+		.i_wr_addr_c(wc),
+		.i_locked(locked),
+		.i_rf_value(rf_value),
+		.o_rf_tag(rf_tag),
+		.i_load_tag(load_tag),
+		.i_load_valid(load_valid),
+		.i_early_tag(early_tag),
+		.i_early_valid(early_valid),
+		.i_wr_data_a(wb_data0),
+		.i_wr_data_b(wb_data1),
+		.i_wr_data_c(i_dc_reg_dat),
+		.i_ready(a_execute_ready),
+		.i_backend_target((wb_flush ? wb_target : a_redirect_target)),
+		.i_backend_link(a_redirect_link),
+		.i_backend_thumb((wb_flush ? wb_thumb : a_redirect_thumb)),
+		.i_backend_pointer((wb_flush ? 3'd0 : a_redirect_pointer)),
+		.i_backend_count((wb_flush ? 4'd0 : a_redirect_count)),
+		.i_backend_action((wb_flush ? 2'd3 : a_redirect_action)),
+		.i_predictor_clear(predictor_clear),
+		.i_update(train),
+		.i_update_pc(train_pc),
+		.i_update_target(train_target),
+		.i_update_thumb(train_thumb),
+		.i_update_taken(train_taken),
+		.i_update_hit(train_hit),
+		.i_update_state(train_state),
+		.i_update_kind(train_kind),
+		.i_data(i_instr_wb_dat),
+		.i_ack(i_instr_wb_ack),
+		.i_error(i_instr_wb_err),
+		.i_retry(i_icache_err2),
+		.i_fill_pending(i_icache_fill_pending),
+		.i_fill_done(i_icache_fill_done),
+		.i_fill_fault(i_icache_fill_fault),
+		.o_ready(d_ready),
+		.o_valid(d_valid),
+		.o_pc(d_pc),
+		.o_instruction(d_instruction),
+		.o_pc_base(d_pc_base),
+		.o_next_pc(d_next_pc),
+		.o_raw(d_raw),
+		.o_mode(d_mode),
+		.o_thumb(d_thumb),
+		.o_fault(d_fault),
+		.o_force_align(d_force_align),
+		.o_reg_shift(d_reg_shift),
+		.o_kind(d_kind),
+		.o_condition(d_condition),
+		.o_tag(d_tag),
+		.o_used(d_used),
+		.o_value(d_value),
+		.o_dest(d_dest),
+		.o_first(d_first),
+		.o_last(d_last),
+		.o_reg_count(d_reg_count),
+		.o_offset(d_offset),
+		.o_writeback_offset(d_writeback_offset),
+		.o_transfer_reg(d_transfer_reg),
+		.o_branch_target(d_branch_target),
+		.o_direct(d_direct),
+		.o_match_taken(d_match_taken),
+		.o_match_fallthrough(d_match_fallthrough),
+		.o_predicted(d_predicted),
+		.o_pred_hit(d_pred_hit),
+		.o_pred_target(d_pred_target),
+		.o_pred_state(d_pred_state),
+		.o_pred_kind(d_pred_kind),
+		.o_ras_pointer(d_ras_pointer),
+		.o_ras_count(d_ras_count),
+		.o_hazard(d_hazard),
+		.o_redirect(d_redirect),
+		.o_redirect_thumb(d_redirect_thumb),
+		.o_redirect_target(d_redirect_target),
+		.o_redirect_link(d_redirect_link),
+		.o_redirect_pointer(d_redirect_pointer),
+		.o_redirect_count(d_redirect_count),
+		.o_redirect_action(d_redirect_action),
+		.o_address_nxt(f_address_nxt),
+		.o_address_check(f_address_check),
+		.o_address(f_address),
+		.o_request(o_instr_wb_stb),
+		.o_stall(o_code_stall)
+	);
+	arm9v2_execute u_execute(
+		.i_admit(backend_ready),
+		.o_a_load(a_a_load),
+		.o_psr_source(a_psr_source),
+		.o_saved_psr(a_saved_psr),
+		.o_original_base(a_original_base),
+		.o_next_pc(a_next_pc),
+		.o_prediction_target(a_prediction_target),
+		.o_spsr_tag(a_spsr_tag),
+		.o_predicted(a_predicted),
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_flush(wb_flush),
+		.i_cpsr({cpsr[31:6], d_thumb, cpsr[4:0]}),
+		.i_valid(d_valid),
+		.i_pc(d_pc),
+		.i_instruction(d_instruction),
+		.i_pc_base(d_pc_base),
+		.i_next_pc(d_next_pc),
+		.i_thumb(d_thumb),
+		.i_fault(d_fault),
+		.i_force_align(d_force_align),
+		.i_reg_shift(d_reg_shift),
+		.i_first(d_first),
+		.i_last(d_last),
+		.i_kind(d_kind),
+		.i_condition(d_condition),
+		.i_tag(d_tag),
+		.i_used(d_used),
+		.i_value(d_value),
+		.i_dest(d_dest),
+		.i_offset(d_offset),
+		.i_writeback_offset(d_writeback_offset),
+		.i_branch_target(d_branch_target),
+		.i_pred_target(d_pred_target),
+		.i_direct(d_direct),
+		.i_predicted(d_predicted),
+		.i_match_taken(d_match_taken),
+		.i_match_fallthrough(d_match_fallthrough),
+		.i_pred_hit(d_pred_hit),
+		.i_pred_state(d_pred_state),
+		.i_ras_pointer(d_ras_pointer),
+		.i_ras_count(d_ras_count),
+		.i_mw_value(mw_value),
+		.i_mw_tag(mw_tag),
+		.i_mw_valid(mw_write),
+		.i_ready(backend_ready),
+		.o_ready(a_execute_ready),
+		.o_valid(a_valid),
+		.o_pc(a_pc),
+		.o_instruction(a_instruction),
+		.o_cpsr(a_cpsr),
+		.o_cpsr_next(a_cpsr_next),
+		.o_kind(a_kind),
+		.o_thumb(a_thumb),
+		.o_fault(a_fault),
+		.o_first(a_first),
+		.o_last(a_last),
+		.o_condition_pass(a_condition_pass),
+		.o_dest(a_dest),
+		.o_result(a_result),
+		.o_write(a_write),
+		.o_write_flags(a_write_flags),
+		.o_pc_write(a_pc_write),
+		.o_memory(a_memory),
+		.o_store(a_store),
+		.o_address(a_data_address),
+		.o_store_data(a_store_data),
+		.o_flags(a_flags),
+		.o_redirect(a_redirect),
+		.o_redirect_thumb(a_redirect_thumb),
+		.o_redirect_target(a_redirect_target),
+		.o_redirect_link(a_redirect_link),
+		.o_redirect_pointer(a_redirect_pointer),
+		.o_redirect_count(a_redirect_count),
+		.o_redirect_action(a_redirect_action),
+		.o_btb_update(a_btb_update),
+		.o_btb_taken(a_btb_taken),
+		.o_btb_hit(a_btb_hit),
+		.o_btb_target(a_btb_target),
+		.o_btb_state(a_btb_state),
+		.o_btb_kind(a_btb_kind),
+		.o_a_valid(a_a_valid),
+		.o_a_can_finish(a_a_can_finish),
+		.o_s_write(a_s_write),
+		.o_a_dest(a_a_dest),
+		.o_a_write(a_a_write),
+		.o_shift_wait(a_shift_wait),
+		.o_multiply_wait(a_multiply_wait)
+	);
 	localparam [511:0] sv2v_uu_u_zap_writeback_ext_i_decompile_0 = 1'sb0;
 	zap_writeback #(
 		.BP_ENTRIES(32),
@@ -1999,10 +1229,10 @@ module arm9_core (
 	) u_zap_writeback(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
-		.i_valid(o_dbg_wb_valid),
+		.i_valid(wb_valid),
 		.i_decompile(sv2v_uu_u_zap_writeback_ext_i_decompile_0),
-		.i_decompile_valid(o_dbg_wb_dvalid),
-		.i_uop_last(o_dbg_wb_uop_last),
+		.i_decompile_valid(wb_cfail),
+		.i_uop_last(wb_last),
 		.o_decompile(),
 		.o_shelve(),
 		.i_cpu_pid(o_pid[6:0]),
@@ -2018,35 +1248,35 @@ module arm9_core (
 		.i_confirm_from_alu(1'b0),
 		.i_alu_pc_ff(32'd0),
 		.i_taken(2'd0),
-		.i_rd_index_0(read_tag[0+:6]),
-		.i_rd_index_1(read_tag[6+:6]),
-		.i_rd_index_2(read_tag[12+:6]),
-		.i_rd_index_3(read_tag[18+:6]),
-		.i_mem_load_ff((retire_fast ? fast_w[123] || fast_w[122] : w_load && (state != 4'd8))),
-		.i_wr_index((retire_fast ? fast_w[226-:6] : (state == 4'd8 ? slow[15-:6] : w_dst))),
-		.i_wr_data((retire_fast ? fast_w[220-:32] : (state == 4'd8 ? sequence_original : w_value))),
-		.i_flags((retire_fast ? (fast_w[119] && fast_w[118] ? slow[47-:32] : fast_w[188-:32]) : (state == 4'd8 ? cpsr : w_flags))),
-		.i_wr_index_1((retire_fast ? fast_w[116-:6] : m_dst)),
-		.i_wr_data_1((retire_fast ? fast_w[31-:32] : m_read_data)),
-		.i_wr_index_2(40'd0),
-		.i_wr_data_2(32'd0),
+		.i_rd_index_0(rf_tag[0+:6]),
+		.i_rd_index_1(rf_tag[6+:6]),
+		.i_rd_index_2(rf_tag[12+:6]),
+		.i_rd_index_3(rf_tag[18+:6]),
+		.i_mem_load_ff(wb_pair),
+		.i_wr_index(wb_tag0),
+		.i_wr_data(wb_data0),
+		.i_flags(wb_flags),
+		.i_wr_index_1(wb_tag1),
+		.i_wr_data_1(wb_data1),
+		.i_wr_index_2(i_dc_reg_idx[39:0]),
+		.i_wr_data_2(i_dc_reg_dat),
 		.i_mode16(cpsr[5]),
-		.i_irq(o_dbg_wb_irq),
-		.i_fiq(o_dbg_wb_fiq),
-		.i_instr_abt(o_dbg_wb_pabt),
-		.i_data_abt(o_dbg_wb_dabt),
-		.i_swi(o_dbg_wb_swi),
-		.i_und(o_dbg_wb_und),
+		.i_irq(wb_irq),
+		.i_fiq(wb_fiq),
+		.i_instr_abt(wb_pabt),
+		.i_data_abt({1'b0, wb_dabt}),
+		.i_swi(wb_swi),
+		.i_und(wb_und),
 		.i_pc_plus_8_buf_ff(o_dbg_wb_pc),
 		.i_copro_reg_en(copro_reg_en),
 		.i_copro_reg_wr_index(copro_reg_wr_index),
 		.i_copro_reg_rd_index(copro_reg_rd_index),
 		.i_copro_reg_wr_data(copro_reg_wr_data),
 		.o_copro_reg_rd_data_ff(copro_reg_rd_data),
-		.o_rd_data_0(read_value[0+:32]),
-		.o_rd_data_1(read_value[32+:32]),
-		.o_rd_data_2(read_value[64+:32]),
-		.o_rd_data_3(read_value[96+:32]),
+		.o_rd_data_0(rf_value[0+:32]),
+		.o_rd_data_1(rf_value[32+:32]),
+		.o_rd_data_2(rf_value[64+:32]),
+		.o_rd_data_3(rf_value[96+:32]),
 		.o_pc(),
 		.o_pc_check(),
 		.o_pc_nxt(),
@@ -2078,8 +1308,8 @@ module arm9_core (
 	) u_zap_cp15_cb(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
-		.i_cp_word(slow[111-:32]),
-		.i_cp_dav(state == 4'd7),
+		.i_cp_word(w[460-:32]),
+		.i_cp_dav(cp_request && !cp_seen),
 		.o_cp_done(copro_done),
 		.i_cpsr(cpsr),
 		.o_reg_en(copro_reg_en),
@@ -2121,166 +1351,1582 @@ module arm9_core (
 	);
 	initial _sv2v_0 = 0;
 endmodule
-module arm9_execute (
+module arm9v2_decode (
+	i_clk,
+	i_reset,
+	i_flush,
 	i_valid,
-	i_condition,
-	i_op,
-	i_set_flags,
-	i_flags,
-	i_value,
-	i_tag,
-	i_used,
-	i_write_value,
-	i_write_tag,
-	i_write_valid,
-	i_write_ready,
-	i_shift_type,
-	i_shift_amount,
-	i_shift_register,
-	i_immediate,
-	i_shift_carry,
-	i_pc8,
-	i_branch_offset,
-	o_result,
-	o_store_data,
+	o_ready,
+	i_pc,
+	i_word,
+	i_thumb,
+	i_fault,
+	i_mode,
+	i_predicted,
+	i_pred_hit,
+	i_pred_target,
+	i_pred_state,
+	i_pred_kind,
+	i_ras_pointer,
+	i_ras_count,
+	i_wen,
+	i_wr_addr_a,
+	i_wr_addr_b,
+	i_wr_addr_c,
+	i_locked,
+	i_early_tag,
+	i_early_valid,
+	i_wr_data_a,
+	i_wr_data_b,
+	i_wr_data_c,
+	i_rf_value,
+	o_rf_tag,
+	i_load_tag,
+	i_load_valid,
+	i_ready,
+	o_valid,
+	o_pc,
+	o_instruction,
+	o_pc_base,
+	o_next_pc,
+	o_raw,
+	o_mode,
+	o_thumb,
+	o_fault,
+	o_force_align,
+	o_reg_shift,
+	o_kind,
+	o_condition,
+	o_tag,
+	o_used,
+	o_value,
+	o_dest,
+	o_first,
+	o_last,
+	o_reg_count,
+	o_offset,
+	o_writeback_offset,
+	o_transfer_reg,
 	o_branch_target,
-	o_flags,
-	o_condition_pass,
-	o_wait,
-	o_execute,
-	o_write_result,
-	o_write_flags
+	o_direct,
+	o_match_taken,
+	o_match_fallthrough,
+	o_predicted,
+	o_pred_hit,
+	o_pred_target,
+	o_pred_state,
+	o_pred_kind,
+	o_ras_pointer,
+	o_ras_count,
+	o_hazard,
+	o_redirect,
+	o_redirect_thumb,
+	o_redirect_target,
+	o_redirect_link,
+	o_redirect_pointer,
+	o_redirect_count,
+	o_redirect_action
 );
 	reg _sv2v_0;
-	parameter [0:0] PRE_SHIFTED = 1'b0;
-	parameter integer PRODUCERS = 3;
+	parameter [0:0] EXTERNAL_RF = 0;
+	input wire i_clk;
+	input wire i_reset;
+	input wire i_flush;
 	input wire i_valid;
-	input wire [3:0] i_condition;
-	input wire [3:0] i_op;
-	input wire i_set_flags;
-	input wire [3:0] i_flags;
-	input wire [127:0] i_value;
-	input wire [23:0] i_tag;
-	input wire [3:0] i_used;
-	input wire [(PRODUCERS * 32) - 1:0] i_write_value;
-	input wire [(PRODUCERS * 6) - 1:0] i_write_tag;
-	input wire [PRODUCERS - 1:0] i_write_valid;
-	input wire [PRODUCERS - 1:0] i_write_ready;
-	input wire [1:0] i_shift_type;
-	input wire [4:0] i_shift_amount;
-	input wire i_shift_register;
-	input wire i_immediate;
-	input wire i_shift_carry;
-	input wire [31:0] i_pc8;
-	input wire [31:0] i_branch_offset;
-	output wire [31:0] o_result;
-	output wire [31:0] o_store_data;
+	output wire o_ready;
+	input wire [31:0] i_pc;
+	input wire [31:0] i_word;
+	input wire i_thumb;
+	input wire i_fault;
+	input wire [4:0] i_mode;
+	input wire i_predicted;
+	input wire i_pred_hit;
+	input wire [31:0] i_pred_target;
+	input wire [1:0] i_pred_state;
+	input wire [1:0] i_pred_kind;
+	input wire [2:0] i_ras_pointer;
+	input wire [3:0] i_ras_count;
+	input wire i_wen;
+	input wire [39:0] i_wr_addr_a;
+	input wire [39:0] i_wr_addr_b;
+	input wire [39:0] i_wr_addr_c;
+	input wire [39:0] i_locked;
+	input wire [23:0] i_early_tag;
+	input wire [3:0] i_early_valid;
+	input wire [31:0] i_wr_data_a;
+	input wire [31:0] i_wr_data_b;
+	input wire [31:0] i_wr_data_c;
+	input wire [127:0] i_rf_value;
+	output wire [23:0] o_rf_tag;
+	input wire [35:0] i_load_tag;
+	input wire [5:0] i_load_valid;
+	input wire i_ready;
+	output wire o_valid;
+	output wire [31:0] o_pc;
+	output wire [31:0] o_instruction;
+	output wire [31:0] o_pc_base;
+	output wire [31:0] o_next_pc;
+	output wire [15:0] o_raw;
+	output wire [4:0] o_mode;
+	output wire o_thumb;
+	output wire o_fault;
+	output wire o_force_align;
+	output wire o_reg_shift;
+	output wire [3:0] o_kind;
+	output wire [3:0] o_condition;
+	output wire [23:0] o_tag;
+	output wire [3:0] o_used;
+	output wire [127:0] o_value;
+	output wire [11:0] o_dest;
+	output wire o_first;
+	output wire o_last;
+	output wire [4:0] o_reg_count;
+	output wire signed [7:0] o_offset;
+	output wire signed [7:0] o_writeback_offset;
+	output wire [3:0] o_transfer_reg;
 	output wire [31:0] o_branch_target;
-	output wire [3:0] o_flags;
-	output reg o_condition_pass;
-	output wire o_wait;
-	output wire o_execute;
-	output wire o_write_result;
-	output wire o_write_flags;
-	wire [127:0] operand;
-	wire [3:0] operand_wait;
-	wire [3:0] flags;
-	wire [31:0] shifted;
-	wire shift_carry;
-	wire test_op;
-	arm9_forward #(.PRODUCERS(PRODUCERS)) u_forward(
-		.i_value(i_value),
-		.i_tag(i_tag),
-		.i_used(i_used),
-		.i_write_value(i_write_value),
-		.i_write_tag(i_write_tag),
-		.i_write_valid(i_write_valid),
-		.i_write_ready(i_write_ready),
-		.o_value(operand),
-		.o_wait(operand_wait)
-	);
-	generate
-		if (!PRE_SHIFTED) begin : g_shift
-			wire [31:0] value;
-			wire carry;
-			wire unused = &{1'b0, operand[95-:24]};
-			arm9_shift u_shift(
-				.i_value(operand[32+:32]),
-				.i_amount((i_shift_register ? operand[71-:8] : {3'd0, i_shift_amount})),
-				.i_type(i_shift_type),
-				.i_register(i_shift_register),
-				.i_carry(i_flags[1]),
-				.o_value(value),
-				.o_carry(carry)
-			);
-			assign shifted = (i_immediate ? operand[32+:32] : value);
-			assign shift_carry = (i_immediate ? i_shift_carry : carry);
+	output wire o_direct;
+	output wire o_match_taken;
+	output wire o_match_fallthrough;
+	output wire o_predicted;
+	output wire o_pred_hit;
+	output wire [31:0] o_pred_target;
+	output wire [1:0] o_pred_state;
+	output wire [1:0] o_pred_kind;
+	output wire [2:0] o_ras_pointer;
+	output wire [3:0] o_ras_count;
+	output wire o_hazard;
+	output wire o_redirect;
+	output wire o_redirect_thumb;
+	output wire [31:0] o_redirect_target;
+	output wire [31:0] o_redirect_link;
+	output wire [2:0] o_redirect_pointer;
+	output wire [3:0] o_redirect_count;
+	output wire [1:0] o_redirect_action;
+	localparam [3:0] K_DP = 0;
+	localparam [3:0] K_MRS = 1;
+	localparam [3:0] K_MSR = 2;
+	localparam [3:0] K_BRANCH = 3;
+	localparam [3:0] K_BX = 4;
+	localparam [3:0] K_MEM = 5;
+	localparam [3:0] K_BLOCK = 6;
+	localparam [3:0] K_CP = 7;
+	localparam [3:0] K_UND = 8;
+	localparam [3:0] K_SWI = 9;
+	localparam [3:0] K_BL_PREFIX = 10;
+	localparam [3:0] K_BL_SUFFIX = 11;
+	localparam [3:0] K_SWP = 12;
+	localparam [3:0] K_MUL = 13;
+	localparam [3:0] K_MULL = 14;
+	(* dont_retime *) reg [74:0] redirect_ff;
+	(* dont_retime *) reg redirect_in_d2;
+	(* dont_retime, ramstyle = "logic" *) reg [240:0] d1 [0:1];
+	(* dont_retime *) reg tail;
+	(* dont_retime *) reg [1:0] head_select;
+	(* dont_retime *) reg [1:0] count;
+	(* dont_retime *) reg d2_valid;
+	(* dont_retime *) reg out_valid;
+	(* dont_retime *) reg [366:0] d2;
+	(* dont_retime *) reg [366:0] issued;
+	(* dont_retime *) reg [127:0] values;
+	(* dont_retime *) reg matches_taken;
+	(* dont_retime *) reg matches_fallthrough;
+	(* dont_retime *) reg previous_prefix;
+	(* dont_retime *) reg prefix_valid;
+	(* dont_retime *) reg [31:0] previous_next_pc;
+	(* dont_retime *) reg [31:0] prefix_target;
+	reg [240:0] incoming;
+	wire [240:0] front;
+	reg [366:0] decoded;
+	reg [366:0] fast_branch;
+	wire [366:0] admitted;
+	wire [31:0] raw_word;
+	wire [34:0] expanded;
+	wire thumb_und;
+	wire thumb_align;
+	reg [15:0] reg_list;
+	wire [15:0] next_remaining;
+	wire [3:0] next_register;
+	reg [31:0] suffix_base;
+	reg [4:0] transfer_mode;
+	wire [127:0] raw_values;
+	reg [127:0] read_values;
+	wire push;
+	wire pop;
+	wire accept;
+	wire shortcut;
+	wire fast_select;
+	wire new_d2;
+	wire late_redirect;
+	wire step;
+	wire kill_younger;
+	wire taken_match;
+	wire fallthrough_match;
+	reg [3:0] early_used;
+	reg [3:0] early_hazard;
+	reg load_hazard;
+	(* dont_retime *) reg fenced;
+	wire unused;
+	assign unused = &{1'b0, expanded[33:32], issued[40-:5], issued[35-:16], issued[41], i_rf_value, fast_arm_twos[31], fast_thumb_twos[31]};
+	function automatic [2:0] count6;
+		input reg [5:0] v;
+		case (v)
+			6'd0: count6 = 3'd0;
+			6'd1: count6 = 3'd1;
+			6'd2: count6 = 3'd1;
+			6'd3: count6 = 3'd2;
+			6'd4: count6 = 3'd1;
+			6'd5: count6 = 3'd2;
+			6'd6: count6 = 3'd2;
+			6'd7: count6 = 3'd3;
+			6'd8: count6 = 3'd1;
+			6'd9: count6 = 3'd2;
+			6'd10: count6 = 3'd2;
+			6'd11: count6 = 3'd3;
+			6'd12: count6 = 3'd2;
+			6'd13: count6 = 3'd3;
+			6'd14: count6 = 3'd3;
+			6'd15: count6 = 3'd4;
+			6'd16: count6 = 3'd1;
+			6'd17: count6 = 3'd2;
+			6'd18: count6 = 3'd2;
+			6'd19: count6 = 3'd3;
+			6'd20: count6 = 3'd2;
+			6'd21: count6 = 3'd3;
+			6'd22: count6 = 3'd3;
+			6'd23: count6 = 3'd4;
+			6'd24: count6 = 3'd2;
+			6'd25: count6 = 3'd3;
+			6'd26: count6 = 3'd3;
+			6'd27: count6 = 3'd4;
+			6'd28: count6 = 3'd3;
+			6'd29: count6 = 3'd4;
+			6'd30: count6 = 3'd4;
+			6'd31: count6 = 3'd5;
+			6'd32: count6 = 3'd1;
+			6'd33: count6 = 3'd2;
+			6'd34: count6 = 3'd2;
+			6'd35: count6 = 3'd3;
+			6'd36: count6 = 3'd2;
+			6'd37: count6 = 3'd3;
+			6'd38: count6 = 3'd3;
+			6'd39: count6 = 3'd4;
+			6'd40: count6 = 3'd2;
+			6'd41: count6 = 3'd3;
+			6'd42: count6 = 3'd3;
+			6'd43: count6 = 3'd4;
+			6'd44: count6 = 3'd3;
+			6'd45: count6 = 3'd4;
+			6'd46: count6 = 3'd4;
+			6'd47: count6 = 3'd5;
+			6'd48: count6 = 3'd2;
+			6'd49: count6 = 3'd3;
+			6'd50: count6 = 3'd3;
+			6'd51: count6 = 3'd4;
+			6'd52: count6 = 3'd3;
+			6'd53: count6 = 3'd4;
+			6'd54: count6 = 3'd4;
+			6'd55: count6 = 3'd5;
+			6'd56: count6 = 3'd3;
+			6'd57: count6 = 3'd4;
+			6'd58: count6 = 3'd4;
+			6'd59: count6 = 3'd5;
+			6'd60: count6 = 3'd4;
+			6'd61: count6 = 3'd5;
+			6'd62: count6 = 3'd5;
+			6'd63: count6 = 3'd6;
+		endcase
+	endfunction
+	function automatic [4:0] popcount16;
+		input reg [15:0] v;
+		reg [2:0] a;
+		reg [2:0] b;
+		reg [2:0] c;
+		reg [2:0] ones;
+		reg [2:0] twos;
+		begin
+			a = count6(v[5:0]);
+			b = count6(v[11:6]);
+			c = count6({2'b00, v[15:12]});
+			ones = (a ^ b) ^ c;
+			twos = ((a & b) | (a & c)) | (b & c);
+			popcount16 = {2'b00, ones} + {1'b0, twos, 1'b0};
 		end
-		else begin : g_pre_shifted
-			assign shifted = operand[32+:32];
-			assign shift_carry = i_shift_carry;
-			wire unused = &{1'b0, i_shift_type, i_shift_amount, i_shift_register, i_immediate, operand[64+:32]};
+	endfunction
+	function automatic [15:0] clear_first;
+		input reg [15:0] v;
+		reg [15:0] result;
+		begin
+			begin : sv2v_autoblock_1
+				reg signed [31:0] n;
+				for (n = 0; n < 16; n = n + 1)
+					result[n] = v[n] && |(v & (16'hffff >> (16 - n)));
+			end
+			clear_first = result;
 		end
-	endgenerate
-	arm9_alu u_alu(
-		.i_a(operand[0+:32]),
-		.i_b(shifted),
-		.i_op(i_op),
-		.i_flags(i_flags),
-		.i_shift_carry(shift_carry),
-		.o_result(o_result),
-		.o_flags(flags)
+	endfunction
+	function automatic [3:0] first16;
+		input reg [14:0] v;
+		reg [3:0] r;
+		reg [6:0] b;
+		reg [2:0] q;
+		begin
+			r[3] = !(|v[7:0]);
+			b = (r[3] ? v[14:8] : v[6:0]);
+			r[2] = !(|b[3:0]);
+			q = (r[2] ? b[6:4] : b[2:0]);
+			r[1] = !(|q[1:0]);
+			r[0] = !(r[1] ? q[2] : q[0]);
+			first16 = r;
+		end
+	endfunction
+	function automatic [5:0] bank;
+		input reg [4:0] r;
+		input reg [4:0] mode;
+		reg [5:0] result;
+		begin
+			result = {1'b0, r};
+			if (r == 27)
+				case (mode)
+					5'h11: result = 35;
+					5'h12: result = 36;
+					5'h13: result = 37;
+					5'h1b: result = 38;
+					5'h17: result = 39;
+					default: result = 17;
+				endcase
+			else if (((r >= 8) && (r <= 14)) && (mode == 5'h11))
+				result = {1'b0, r} + 6'd10;
+			else if ((r == 13) || (r == 14))
+				case (mode)
+					5'h12: result = {1'b0, r} + 6'd12;
+					5'h13: result = {1'b0, r} + 6'd14;
+					5'h1b: result = {1'b0, r} + 6'd16;
+					5'h17: result = {1'b0, r} + 6'd18;
+					default:
+						;
+				endcase
+			bank = result;
+		end
+	endfunction
+	function automatic [3:0] classify;
+		input reg [31:0] ins;
+		input reg [4:0] raw_class;
+		input reg thumb;
+		input reg und;
+		input reg user_mode;
+		input reg empty_list;
+		reg [3:0] k;
+		begin
+			k = K_UND;
+			if (ins[27:24] == 4'hf)
+				k = K_SWI;
+			else if (ins[27:25] == 3'b101)
+				k = K_BRANCH;
+			else if (ins[27:25] == 3'b100)
+				k = K_BLOCK;
+			else if ((ins[27:26] == 2'b01) && !(ins[25] && ins[4]))
+				k = K_MEM;
+			else if ((ins & 32'h0fc000f0) == 32'h00000090)
+				k = K_MUL;
+			else if ((ins & 32'h0f8000f0) == 32'h00800090)
+				k = K_MULL;
+			else if ((ins & 32'h0fb00ff0) == 32'h01000090)
+				k = K_SWP;
+			else if ((ins & 32'h0ffffff0) == 32'h012fff10)
+				k = K_BX;
+			else if ((ins & 32'h0fbf0fff) == 32'h010f0000)
+				k = K_MRS;
+			else if (((ins & 32'h0fb0fff0) == 32'h0120f000) || ((ins & 32'h0fb0f000) == 32'h0320f000))
+				k = K_MSR;
+			else if (((ins[27:24] == 4'he) && ins[4]) && (ins[11:8] == 4'hf))
+				k = (user_mode ? K_UND : K_CP);
+			else if ((((ins[27:25] == 0) && ins[7]) && ins[4]) && (ins[6:5] != 0))
+				k = K_MEM;
+			else if (((ins[27:26] == 0) && !((ins[7] && ins[4]) && !ins[25])) && !(!ins[20] && (ins[24:23] == 2'b10)))
+				k = K_DP;
+			if (thumb && (raw_class == 5'b11110))
+				k = K_BL_PREFIX;
+			if (thumb && (raw_class == 5'b11111))
+				k = K_BL_SUFFIX;
+			if ((((und || (!thumb && (ins[31:28] == 4'hf))) || ((((k == K_MEM) && (ins[27:26] == 0)) && !ins[20]) && ins[6])) || (thumb && (raw_class == 5'b11101))) || ((k == K_BLOCK) && empty_list))
+				k = K_UND;
+			classify = k;
+		end
+	endfunction
+	assign raw_word = (i_thumb && i_pc[1] ? {16'd0, i_word[31:16]} : i_word);
+	zap_mode16_decoder #(.V4T(1'b1)) u_thumb(
+		.i_instruction(raw_word),
+		.i_instruction_valid(1'b1),
+		.i_offset(11'd0),
+		.i_prev_prefix(1'b0),
+		.i_irq(1'b0),
+		.i_fiq(1'b0),
+		.i_cpsr_ff_t(i_thumb),
+		.o_instruction(expanded),
+		.o_und(thumb_und),
+		.o_force32_align(thumb_align),
+		.o_instruction_valid(),
+		.o_irq(),
+		.o_fiq()
 	);
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		case (i_condition)
-			4'h0: o_condition_pass = i_flags[2];
-			4'h1: o_condition_pass = !i_flags[2];
-			4'h2: o_condition_pass = i_flags[1];
-			4'h3: o_condition_pass = !i_flags[1];
-			4'h4: o_condition_pass = i_flags[3];
-			4'h5: o_condition_pass = !i_flags[3];
-			4'h6: o_condition_pass = i_flags[0];
-			4'h7: o_condition_pass = !i_flags[0];
-			4'h8: o_condition_pass = i_flags[1] && !i_flags[2];
-			4'h9: o_condition_pass = !i_flags[1] || i_flags[2];
-			4'ha: o_condition_pass = i_flags[3] == i_flags[0];
-			4'hb: o_condition_pass = i_flags[3] != i_flags[0];
-			4'hc: o_condition_pass = !i_flags[2] && (i_flags[3] == i_flags[0]);
-			4'hd: o_condition_pass = i_flags[2] || (i_flags[3] != i_flags[0]);
-			4'he: o_condition_pass = 1'b1;
-			default: o_condition_pass = 1'b0;
+		reg_list = i_word[15:0];
+		if (i_thumb) begin
+			reg_list = {8'd0, raw_word[7:0]};
+			if (((raw_word[15:0] & 16'hf600) == 16'hb400) && raw_word[8]) begin
+				if (raw_word[11])
+					reg_list[15] = 1;
+				else
+					reg_list[14] = 1;
+			end
+		end
+		incoming = 241'd0;
+		incoming[240-:32] = i_pc;
+		incoming[208-:32] = expanded[31:0];
+		incoming[80-:16] = raw_word[15:0];
+		incoming[176-:32] = i_pc + (i_thumb ? 32'd4 : 32'd8);
+		incoming[144-:32] = i_pc + (i_thumb ? 32'd2 : 32'd4);
+		incoming[32-:5] = i_mode;
+		incoming[18] = i_thumb;
+		incoming[17] = i_fault;
+		incoming[16] = thumb_und;
+		incoming[15] = thumb_align;
+		incoming[14] = expanded[34];
+		incoming[64-:16] = reg_list;
+		incoming[48-:16] = clear_first(reg_list);
+		incoming[27-:5] = popcount16(reg_list);
+		incoming[22-:4] = first16(reg_list[14:0]);
+		incoming[13] = (previous_prefix && i_thumb) && (i_pc == previous_next_pc);
+		incoming[12] = i_predicted;
+		incoming[11] = i_pred_hit;
+		incoming[112-:32] = i_pred_target;
+		incoming[10-:2] = i_pred_state;
+		incoming[8-:2] = i_pred_kind;
+		incoming[6-:3] = i_ras_pointer;
+		incoming[3-:4] = i_ras_count;
+	end
+	(* keep *) wire [3:0] kind0 = classify(d1[0][208-:32], d1[0][80:76], d1[0][18], d1[0][16], d1[0][32-:5] == 5'h10, d1[0][27-:5] == 0);
+	(* keep *) wire [3:0] kind1 = classify(d1[1][208-:32], d1[1][80:76], d1[1][18], d1[1][16], d1[1][32-:5] == 5'h10, d1[1][27-:5] == 0);
+	assign front = (d1[0] & {241 {head_select[0]}}) | (d1[1] & {241 {head_select[1]}});
+	(* keep *) wire [31:0] arm_target = front[176-:32] + {{6 {front[200]}}, front[200:177], 2'b00};
+	(* keep *) wire [31:0] thumb_target = front[176-:32] + {{7 {front[200]}}, front[200:177], 1'b0};
+	(* keep *) wire [31:0] prefix_sum = front[176-:32] + {{9 {front[75]}}, front[75:65], 12'd0};
+	(* keep *) wire [31:0] suffix_sum = suffix_base + {20'd0, front[75:65], 1'b0};
+	wire [31:0] fast_arm_offset = {{6 {i_word[23]}}, i_word[23:0], 2'b00};
+	wire [31:0] fast_thumb_offset = {{20 {raw_word[10]}}, raw_word[10:0], 1'b0};
+	(* keep *) wire [31:0] fast_arm_ones = (i_pc ^ fast_arm_offset) ^ 32'd8;
+	(* keep *) wire [31:0] fast_arm_twos = (i_pc & fast_arm_offset) | ((i_pc | fast_arm_offset) & 32'd8);
+	(* keep *) wire [31:0] fast_thumb_ones = (i_pc ^ fast_thumb_offset) ^ 32'd4;
+	(* keep *) wire [31:0] fast_thumb_twos = (i_pc & fast_thumb_offset) | ((i_pc | fast_thumb_offset) & 32'd4);
+	(* keep *) wire [31:0] fast_arm_sum = fast_arm_ones + {fast_arm_twos[30:0], 1'b0};
+	(* keep *) wire [31:0] fast_thumb_sum = fast_thumb_ones + {fast_thumb_twos[30:0], 1'b0};
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		fast_branch = 367'd0;
+		fast_branch[366-:241] = incoming;
+		fast_branch[334-:32] = (i_thumb ? {8'hea, {13 {raw_word[10]}}, raw_word[10:0]} : i_word);
+		fast_branch[190-:16] = 0;
+		fast_branch[174-:16] = 0;
+		fast_branch[153-:5] = 0;
+		fast_branch[148-:4] = 0;
+		fast_branch[125-:4] = K_BRANCH;
+		fast_branch[121-:4] = 4'he;
+		fast_branch[78+:6] = bank(5'd14, i_mode);
+		fast_branch[43] = 1;
+		fast_branch[42] = 1;
+		fast_branch[45] = 1;
+		fast_branch[77-:32] = (i_thumb ? fast_thumb_sum : fast_arm_sum);
+	end
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		decoded = 367'd0;
+		decoded[366-:241] = front;
+		decoded[125-:4] = (kind0 & {4 {head_select[0]}}) | (kind1 & {4 {head_select[1]}});
+		decoded[121-:4] = front[208:205];
+		if ((((decoded[125-:4] == K_BL_PREFIX) || (decoded[125-:4] == K_BL_SUFFIX)) || (front[18] && (decoded[125-:4] == K_UND))) || (!front[18] && (front[208:205] == 4'hf)))
+			decoded[121-:4] = 4'he;
+		decoded[44] = ((decoded[125-:4] == K_DP) && !front[202]) && front[181];
+		decoded[94+:6] = bank({1'b0, front[196:193]}, front[32-:5]);
+		decoded[100+:6] = bank({1'b0, front[180:177]}, front[32-:5]);
+		decoded[106+:6] = bank(5'd27, front[32-:5]);
+		decoded[112+:6] = bank({1'b0, front[192:189]}, front[32-:5]);
+		decoded[78+:6] = decoded[112+:6];
+		decoded[84+:6] = decoded[94+:6];
+		decoded[43] = 1;
+		decoded[42] = 1;
+		decoded[40-:5] = front[27-:5];
+		decoded[35-:16] = front[48-:16];
+		decoded[19-:4] = front[22-:4];
+		decoded[7-:8] = (front[200] ? $signed({1'b0, front[27-:5], 2'b00}) : -$signed({1'b0, front[27-:5], 2'b00}));
+		decoded[15-:8] = (front[200] ? (front[201] ? 8'sd4 : 8'sd0) : $signed(decoded[7-:8]) + (front[201] ? 8'sd0 : 8'sd4));
+		transfer_mode = (front[199] && !(front[197] && front[64]) ? 5'h10 : front[32-:5]);
+		case (decoded[125-:4])
+			K_DP: begin
+				decoded[90] = (front[201:198] != 4'd13) && (front[201:198] != 4'd15);
+				decoded[91] = !front[202];
+				decoded[92] = decoded[44];
+				if (decoded[44])
+					decoded[106+:6] = bank({1'b0, front[188:185]}, front[32-:5]);
+				if (front[197] && (front[192:189] == 15)) begin
+					decoded[112+:6] = bank(5'd27, front[32-:5]);
+					decoded[93] = 1;
+				end
+			end
+			K_MRS: begin
+				decoded[92] = 1;
+				if (!front[199])
+					decoded[106+:6] = 6'd17;
+			end
+			K_MSR: begin
+				decoded[91] = !front[202];
+				decoded[92] = front[199];
+			end
+			K_BX: decoded[91] = 1;
+			K_MEM: begin
+				decoded[90] = 1;
+				decoded[91] = (front[204:203] == 1 ? front[202] : !front[199]);
+				decoded[93] = !front[197];
+			end
+			K_BLOCK: begin
+				decoded[112+:6] = bank({1'b0, front[22-:4]}, transfer_mode);
+				decoded[78+:6] = decoded[112+:6];
+				decoded[90] = 1;
+				decoded[93] = !front[197];
+				decoded[42] = front[27-:5] == 1;
+				decoded[92] = ((front[197] && front[199]) && decoded[42]) && (front[22-:4] == 15);
+			end
+			K_CP: decoded[93] = !front[197];
+			K_SWP: decoded[93-:4] = 4'b0011;
+			K_MUL, K_MULL: begin
+				decoded[106+:6] = bank({1'b0, front[188:185]}, front[32-:5]);
+				decoded[93-:4] = 4'b0110;
+				if (front[198])
+					decoded[93-:4] = (decoded[125-:4] == K_MUL ? 4'b1110 : 4'b1111);
+				if (decoded[125-:4] == K_MUL)
+					decoded[78+:6] = decoded[94+:6];
+			end
+			K_BRANCH, K_BL_PREFIX: decoded[78+:6] = bank(5'd14, front[32-:5]);
+			K_BL_SUFFIX: begin
+				decoded[94+:6] = bank(5'd14, front[32-:5]);
+				decoded[90] = !front[13];
+				decoded[78+:6] = decoded[94+:6];
+			end
+			default:
+				;
+		endcase
+		decoded[77-:32] = (front[14] ? thumb_target : arm_target);
+		if (front[18] && (front[80:76] == 5'b11110))
+			decoded[77-:32] = prefix_sum;
+		decoded[45] = (front[208:202] == 7'b1110101) && !front[16];
+		suffix_base = prefix_target;
+		if (d2_valid && (d2[125-:4] == K_BL_PREFIX))
+			suffix_base = d2[77-:32];
+		if (front[18] && (front[80:76] == 5'b11111)) begin
+			decoded[77-:32] = suffix_sum;
+			decoded[45] = (!front[16] && front[13]) && (prefix_valid || (d2_valid && (d2[125-:4] == K_BL_PREFIX)));
+		end
+		if (front[17]) begin
+			decoded[45] = 0;
+			decoded[93-:4] = 0;
+			decoded[42] = 1;
+		end
+	end
+	assign next_remaining = clear_first(d2[35-:16]);
+	assign next_register = first16(d2[34:20]);
+	assign taken_match = d2[238-:32] == {d2[77:47], d2[144]};
+	assign fallthrough_match = d2[238-:32] == {d2[270:240], d2[144]};
+	assign kill_younger = i_flush || redirect_ff[74];
+	assign o_ready = (count < 2) && !kill_younger;
+	assign accept = i_valid && o_ready;
+	assign fast_select = ((count == 0) && !i_fault) && (i_thumb ? raw_word[15:11] == 5'b11100 : i_word[31:25] == 7'b1110101);
+	assign shortcut = (accept && fast_select) && (!d2_valid || (step && d2[42]));
+	assign push = accept && !shortcut;
+	assign new_d2 = pop || shortcut;
+	assign admitted = (fast_select ? fast_branch : decoded);
+	assign late_redirect = ((step && d2[45]) && !d2[41]) && (!d2[138] || !taken_match);
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		early_used = 0;
+		case (d2[125-:4])
+			K_DP: begin
+				early_used[1] = d2[91] && (d2[314:307] != 0);
+				early_used[2] = d2[92];
+			end
+			K_MUL, K_MULL: early_used = d2[93-:4];
+			K_MEM, K_MSR: early_used[1] = d2[91];
+			K_BLOCK: early_used[0] = d2[90];
+			K_MRS: early_used[2] = d2[92] && (d2[106+:6] != 17);
+			default:
+				;
 		endcase
 	end
-	assign test_op = i_op[3:2] == 2'b10;
-	assign o_wait = (i_valid && o_condition_pass) && |operand_wait;
-	assign o_execute = (i_valid && o_condition_pass) && !o_wait;
-	assign o_write_result = o_execute && !test_op;
-	assign o_write_flags = o_execute && (i_set_flags || test_op);
-	assign o_flags = (o_write_flags ? flags : i_flags);
-	assign o_branch_target = i_pc8 + i_branch_offset;
-	assign o_store_data = operand[96+:32];
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		early_hazard = 0;
+		begin : sv2v_autoblock_2
+			reg signed [31:0] src;
+			for (src = 0; src < 4; src = src + 1)
+				begin : sv2v_autoblock_3
+					reg signed [31:0] pending;
+					for (pending = 0; pending < 4; pending = pending + 1)
+						early_hazard[src] = early_hazard[src] | ((early_used[src] && i_early_valid[pending]) && (d2[94 + (src * 6)+:6] == i_early_tag[pending * 6+:6]));
+				end
+		end
+	end
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		load_hazard = 0;
+		begin : sv2v_autoblock_4
+			reg signed [31:0] pending;
+			for (pending = 0; pending < 6; pending = pending + 1)
+				begin
+					begin : sv2v_autoblock_5
+						reg signed [31:0] src;
+						for (src = 0; src < 4; src = src + 1)
+							load_hazard = load_hazard | ((d2[90 + src] && i_load_valid[pending]) && (d2[94 + (src * 6)+:6] == i_load_tag[pending * 6+:6]));
+					end
+					if (EXTERNAL_RF) begin : sv2v_autoblock_6
+						reg signed [31:0] dst;
+						for (dst = 0; dst < 2; dst = dst + 1)
+							load_hazard = load_hazard | (i_load_valid[pending] && (d2[78 + (dst * 6)+:6] == i_load_tag[pending * 6+:6]));
+					end
+				end
+		end
+		if (EXTERNAL_RF) begin : sv2v_autoblock_7
+			reg signed [31:0] dst;
+			for (dst = 0; dst < 2; dst = dst + 1)
+				load_hazard = load_hazard | i_locked[d2[78 + (dst * 6)+:6]];
+		end
+	end
+	assign o_hazard = d2_valid && ((((((load_hazard || fenced) || (d2[90] && i_locked[d2[94+:6]])) || (d2[91] && i_locked[d2[100+:6]])) || (d2[92] && i_locked[d2[106+:6]])) || (d2[93] && i_locked[d2[112+:6]])) || |early_hazard);
+	assign step = (((d2_valid && (!out_valid || i_ready)) && !o_hazard) && !i_flush) && (!redirect_ff[74] || redirect_in_d2);
+	assign pop = ((count != 0) && (!d2_valid || (step && d2[42]))) && !kill_younger;
+	assign o_rf_tag = d2[117-:24];
+	generate
+		if (EXTERNAL_RF) begin : g_external_rf
+			assign raw_values = i_rf_value;
+		end
+		else begin : g_internal_rf
+			zap_register_file u_registers(
+				.i_clk(i_clk),
+				.i_reset(i_reset),
+				.i_wen(i_wen),
+				.i_wr_addr_a(i_wr_addr_a),
+				.i_wr_addr_b(i_wr_addr_b),
+				.i_wr_addr_c(i_wr_addr_c),
+				.i_wr_data_a(i_wr_data_a),
+				.i_wr_data_b(i_wr_data_b),
+				.i_wr_data_c(i_wr_data_c),
+				.i_rd_addr_a(d2[94+:6]),
+				.i_rd_addr_b(d2[100+:6]),
+				.i_rd_addr_c(d2[106+:6]),
+				.i_rd_addr_d(d2[112+:6]),
+				.o_rd_data_a(raw_values[0+:32]),
+				.o_rd_data_b(raw_values[32+:32]),
+				.o_rd_data_c(raw_values[64+:32]),
+				.o_rd_data_d(raw_values[96+:32])
+			);
+		end
+	endgenerate
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		read_values = raw_values;
+		begin : sv2v_autoblock_8
+			reg signed [31:0] n;
+			for (n = 0; n < 4; n = n + 1)
+				begin
+					if (i_wen && i_wr_addr_a[d2[94 + (n * 6)+:6]])
+						read_values[n * 32+:32] = i_wr_data_a;
+					if (i_wen && i_wr_addr_b[d2[94 + (n * 6)+:6]])
+						read_values[n * 32+:32] = i_wr_data_b;
+					if (i_wr_addr_c[d2[94 + (n * 6)+:6]])
+						read_values[n * 32+:32] = i_wr_data_c;
+				end
+		end
+	end
+	always @(posedge i_clk)
+		if (i_reset) begin
+			fenced <= 0;
+			count <= 0;
+			head_select <= 2'b01;
+			tail <= 0;
+			d2_valid <= 0;
+			out_valid <= 0;
+			redirect_ff[74] <= 0;
+			redirect_in_d2 <= 0;
+			previous_prefix <= 0;
+			prefix_valid <= 0;
+			previous_next_pc <= 0;
+			prefix_target <= 0;
+			d2 <= 367'd0;
+			issued <= 367'd0;
+			values <= 0;
+			matches_taken <= 0;
+			matches_fallthrough <= 0;
+			redirect_ff[72-:32] <= 0;
+			redirect_ff[73] <= 0;
+			redirect_ff[40-:32] <= 0;
+			redirect_ff[8-:3] <= 0;
+			redirect_ff[5-:4] <= 0;
+			redirect_ff[1-:2] <= 0;
+		end
+		else begin
+			redirect_ff[74] <= 0;
+			redirect_in_d2 <= 0;
+			if (i_ready)
+				out_valid <= 0;
+			if (push) begin
+				d1[tail] <= incoming;
+				tail <= !tail;
+			end
+			if (accept) begin
+				previous_prefix <= (i_thumb && !i_fault) && (raw_word[15:11] == 5'b11110);
+				previous_next_pc <= incoming[144-:32];
+			end
+			if (pop)
+				head_select <= {head_select[0], head_select[1]};
+			case ({push, pop})
+				2'b10: count <= count + 1'b1;
+				2'b01: count <= count - 1'b1;
+				default:
+					;
+			endcase
+			if (!out_valid || i_ready) begin
+				issued <= d2;
+				values <= read_values;
+				matches_taken <= taken_match;
+				matches_fallthrough <= fallthrough_match;
+			end
+			if (step) begin
+				if (EXTERNAL_RF && ((((((((d2[125-:4] == K_CP) || (d2[125-:4] == K_MSR)) || (d2[125-:4] == K_SWP)) || (d2[125-:4] == K_SWI)) || (d2[125-:4] == K_UND)) || d2[143]) || (((d2[125-:4] == K_DP) && d2[323]) && (d2[78+:6] == 15))) || (((((d2[125-:4] == K_BLOCK) && d2[325]) && d2[323]) && d2[190]) && d2[42])))
+					fenced <= 1;
+				out_valid <= 1;
+				if (d2[125-:4] == K_BL_PREFIX) begin
+					prefix_target <= d2[77-:32];
+					prefix_valid <= !d2[143];
+				end
+				else
+					prefix_valid <= 0;
+				if (d2[42])
+					d2_valid <= 0;
+				else begin
+					d2[43] <= 0;
+					d2[40-:5] <= d2[40-:5] - 1'b1;
+					d2[42] <= d2[40-:5] == 2;
+					d2[35-:16] <= next_remaining;
+					d2[19-:4] <= next_register;
+					d2[15-:8] <= $signed(d2[15-:8]) + 8'sd4;
+					d2[112+:6] <= bank({1'b0, next_register}, (d2[325] && !(d2[323] && d2[190]) ? 5'h10 : d2[158-:5]));
+					d2[78+:6] <= bank({1'b0, next_register}, (d2[325] && !(d2[323] && d2[190]) ? 5'h10 : d2[158-:5]));
+					d2[90] <= 0;
+					d2[92] <= ((d2[323] && d2[325]) && (d2[40-:5] == 2)) && (next_register == 15);
+				end
+				if (late_redirect) begin
+					redirect_ff[74] <= 1;
+					redirect_ff[72-:32] <= d2[77-:32];
+					redirect_ff[73] <= d2[144];
+					redirect_ff[40-:32] <= {d2[270:240], d2[144]};
+					redirect_ff[8-:3] <= d2[132-:3];
+					redirect_ff[5-:4] <= d2[129-:4];
+					redirect_ff[1-:2] <= ((d2[125-:4] == K_BL_SUFFIX) || d2[327] ? 2'd1 : 2'd0);
+				end
+			end
+			if (new_d2) begin
+				d2 <= admitted;
+				d2_valid <= 1;
+				if ((admitted[45] && !admitted[138]) && !late_redirect) begin
+					d2[41] <= 1;
+					redirect_in_d2 <= 1;
+					redirect_ff[74] <= 1;
+					redirect_ff[72-:32] <= admitted[77-:32];
+					redirect_ff[73] <= admitted[144];
+					redirect_ff[40-:32] <= {admitted[270:240], admitted[144]};
+					redirect_ff[8-:3] <= admitted[132-:3];
+					redirect_ff[5-:4] <= admitted[129-:4];
+					redirect_ff[1-:2] <= ((admitted[125-:4] == K_BL_SUFFIX) || admitted[327] ? 2'd1 : 2'd0);
+				end
+			end
+			if (kill_younger) begin
+				count <= 0;
+				head_select <= 2'b01;
+				tail <= 0;
+				previous_prefix <= 0;
+				prefix_valid <= 0;
+				if (i_flush || !redirect_in_d2)
+					d2_valid <= 0;
+			end
+			if (i_flush) begin
+				fenced <= 0;
+				out_valid <= 0;
+				redirect_ff[74] <= 0;
+			end
+		end
+	assign o_valid = out_valid;
+	assign o_pc = issued[366-:32];
+	assign o_instruction = issued[334-:32];
+	assign o_mode = issued[158-:5];
+	assign o_raw = issued[206-:16];
+	assign o_pc_base = issued[302-:32];
+	assign o_next_pc = issued[270-:32];
+	assign o_thumb = issued[144];
+	assign o_fault = issued[143];
+	assign o_force_align = issued[141];
+	assign o_kind = issued[125-:4];
+	assign o_condition = issued[121-:4];
+	assign o_reg_shift = issued[44];
+	assign o_tag = issued[117-:24];
+	assign o_used = issued[93-:4];
+	assign o_value = values;
+	assign o_dest = issued[89-:12];
+	assign o_first = issued[43];
+	assign o_last = issued[42];
+	assign o_reg_count = issued[153-:5];
+	assign o_offset = $signed(issued[15-:8]);
+	assign o_writeback_offset = $signed(issued[7-:8]);
+	assign o_transfer_reg = issued[19-:4];
+	assign o_branch_target = issued[77-:32];
+	assign o_direct = issued[45];
+	assign o_match_taken = matches_taken;
+	assign o_match_fallthrough = matches_fallthrough;
+	assign o_predicted = issued[138];
+	assign o_pred_hit = issued[137];
+	assign o_pred_target = issued[238-:32];
+	assign o_pred_state = issued[136-:2];
+	assign o_pred_kind = issued[134-:2];
+	assign o_ras_pointer = issued[132-:3];
+	assign o_ras_count = issued[129-:4];
+	assign o_redirect = redirect_ff[74];
+	assign o_redirect_thumb = redirect_ff[73];
+	assign o_redirect_target = redirect_ff[72-:32];
+	assign o_redirect_link = redirect_ff[40-:32];
+	assign o_redirect_pointer = redirect_ff[8-:3];
+	assign o_redirect_count = redirect_ff[5-:4];
+	assign o_redirect_action = redirect_ff[1-:2];
 	initial _sv2v_0 = 0;
 endmodule
-module arm9_fetch (
+module arm9v2_execute (
+	i_clk,
+	i_reset,
+	i_flush,
+	i_admit,
+	i_cpsr,
+	i_valid,
+	o_ready,
+	i_pc,
+	i_instruction,
+	i_pc_base,
+	i_next_pc,
+	i_thumb,
+	i_fault,
+	i_force_align,
+	i_reg_shift,
+	i_first,
+	i_last,
+	i_kind,
+	i_condition,
+	i_tag,
+	i_used,
+	i_value,
+	i_dest,
+	i_offset,
+	i_writeback_offset,
+	i_branch_target,
+	i_pred_target,
+	i_direct,
+	i_predicted,
+	i_match_taken,
+	i_match_fallthrough,
+	i_pred_hit,
+	i_pred_state,
+	i_ras_pointer,
+	i_ras_count,
+	i_mw_value,
+	i_mw_tag,
+	i_mw_valid,
+	i_ready,
+	o_valid,
+	o_pc,
+	o_instruction,
+	o_cpsr,
+	o_cpsr_next,
+	o_kind,
+	o_thumb,
+	o_fault,
+	o_first,
+	o_last,
+	o_condition_pass,
+	o_dest,
+	o_result,
+	o_write,
+	o_write_flags,
+	o_pc_write,
+	o_memory,
+	o_store,
+	o_address,
+	o_store_data,
+	o_flags,
+	o_redirect,
+	o_redirect_thumb,
+	o_redirect_target,
+	o_redirect_link,
+	o_redirect_pointer,
+	o_redirect_count,
+	o_redirect_action,
+	o_btb_update,
+	o_btb_taken,
+	o_btb_hit,
+	o_btb_target,
+	o_btb_state,
+	o_btb_kind,
+	o_a_valid,
+	o_a_can_finish,
+	o_s_write,
+	o_a_dest,
+	o_a_write,
+	o_shift_wait,
+	o_multiply_wait,
+	o_a_load,
+	o_psr_source,
+	o_saved_psr,
+	o_original_base,
+	o_next_pc,
+	o_prediction_target,
+	o_spsr_tag,
+	o_predicted
+);
+	reg _sv2v_0;
+	input wire i_clk;
+	input wire i_reset;
+	input wire i_flush;
+	input wire i_admit;
+	input wire [31:0] i_cpsr;
+	input wire i_valid;
+	output wire o_ready;
+	input wire [31:0] i_pc;
+	input wire [31:0] i_instruction;
+	input wire [31:0] i_pc_base;
+	input wire [31:0] i_next_pc;
+	input wire i_thumb;
+	input wire i_fault;
+	input wire i_force_align;
+	input wire i_reg_shift;
+	input wire i_first;
+	input wire i_last;
+	input wire [3:0] i_kind;
+	input wire [3:0] i_condition;
+	input wire [23:0] i_tag;
+	input wire [3:0] i_used;
+	input wire [127:0] i_value;
+	input wire [11:0] i_dest;
+	input wire signed [7:0] i_offset;
+	input wire signed [7:0] i_writeback_offset;
+	input wire [31:0] i_branch_target;
+	input wire [31:0] i_pred_target;
+	input wire i_direct;
+	input wire i_predicted;
+	input wire i_match_taken;
+	input wire i_match_fallthrough;
+	input wire i_pred_hit;
+	input wire [1:0] i_pred_state;
+	input wire [2:0] i_ras_pointer;
+	input wire [3:0] i_ras_count;
+	input wire [127:0] i_mw_value;
+	input wire [23:0] i_mw_tag;
+	input wire [3:0] i_mw_valid;
+	input wire i_ready;
+	output reg o_valid;
+	output reg [31:0] o_pc;
+	output reg [31:0] o_instruction;
+	output reg [31:0] o_cpsr;
+	output reg [31:0] o_cpsr_next;
+	output reg [3:0] o_kind;
+	output reg o_thumb;
+	output reg o_fault;
+	output reg o_first;
+	output reg o_last;
+	output reg o_condition_pass;
+	output reg [11:0] o_dest;
+	output reg [63:0] o_result;
+	output reg [1:0] o_write;
+	output reg o_write_flags;
+	output reg o_pc_write;
+	output reg o_memory;
+	output reg o_store;
+	output reg [31:0] o_address;
+	output reg [31:0] o_store_data;
+	output wire [3:0] o_flags;
+	output reg o_redirect;
+	output reg o_redirect_thumb;
+	output reg [31:0] o_redirect_target;
+	output reg [31:0] o_redirect_link;
+	output reg [2:0] o_redirect_pointer;
+	output reg [3:0] o_redirect_count;
+	output reg [1:0] o_redirect_action;
+	output reg o_btb_update;
+	output reg o_btb_taken;
+	output reg o_btb_hit;
+	output reg [31:0] o_btb_target;
+	output reg [1:0] o_btb_state;
+	output reg [1:0] o_btb_kind;
+	output wire o_a_valid;
+	output wire o_a_can_finish;
+	output wire [1:0] o_s_write;
+	output wire [11:0] o_a_dest;
+	output wire [1:0] o_a_write;
+	output wire o_shift_wait;
+	output wire o_multiply_wait;
+	output wire o_a_load;
+	output reg [31:0] o_psr_source;
+	output reg [31:0] o_saved_psr;
+	output reg [31:0] o_original_base;
+	output reg [31:0] o_next_pc;
+	output reg [31:0] o_prediction_target;
+	output reg [5:0] o_spsr_tag;
+	output reg o_predicted;
+	localparam [3:0] DP = 0;
+	localparam [3:0] MRS = 1;
+	localparam [3:0] MSR = 2;
+	localparam [3:0] BR = 3;
+	localparam [3:0] BX = 4;
+	localparam [3:0] MEM = 5;
+	localparam [3:0] BLOCK = 6;
+	localparam [3:0] CP = 7;
+	localparam [3:0] UND = 8;
+	localparam [3:0] SWI = 9;
+	localparam [3:0] PREFIX = 10;
+	localparam [3:0] SUFFIX = 11;
+	localparam [3:0] SWP = 12;
+	localparam [3:0] MUL = 13;
+	localparam [3:0] MULL = 14;
+	(* dont_retime *) reg [384:0] a;
+	(* dont_retime *) reg a_valid;
+	(* dont_retime *) reg prepared;
+	(* dont_retime *) reg holding;
+	(* dont_retime *) reg multiply_accumulate;
+	(* dont_retime *) reg multiply_product_ready;
+	(* dont_retime *) reg [3:0] flags;
+	(* dont_retime *) reg [127:0] held;
+	(* dont_retime *) reg [7:0] held_amount;
+	(* dont_retime *) reg [31:0] block_base;
+	(* dont_retime *) reg signed [33:0] ll;
+	(* dont_retime *) reg signed [33:0] lh;
+	(* dont_retime *) reg signed [33:0] hl;
+	(* dont_retime *) reg signed [33:0] hh;
+	(* dont_retime *) reg [63:0] product_saved;
+	(* dont_retime *) reg [63:0] accumulator;
+	wire [191:0] producer_value;
+	wire [35:0] producer_tag;
+	wire [5:0] producer_valid;
+	wire [127:0] forwarded;
+	reg [127:0] operand;
+	reg [31:0] shift_input;
+	wire [31:0] shifted;
+	reg [7:0] shift_amount;
+	reg [1:0] shift_type;
+	reg shift_register;
+	wire shift_carry;
+	wire carry_preserve;
+	wire rrx;
+	reg [31:0] left_a;
+	reg [31:0] right_a;
+	reg [31:0] store_a;
+	wire [31:0] alu_result;
+	wire [3:0] alu_flags;
+	reg [3:0] next_flags;
+	reg condition_pass;
+	wire finish;
+	wire accept;
+	wire space;
+	wire product_phase;
+	wire mac_phase;
+	reg will_write_flags;
+	reg [1:0] planned_writes;
+	wire [63:0] product;
+	wire [63:0] mac_result;
+	wire [63:0] mult_result;
+	reg [31:0] actual_target;
+	reg actual_thumb;
+	reg wrong_prediction;
+	wire unused = &{1'b0, i_cpsr[27:0], CP, UND, SWI, actual_target[0], lh[33:32], hl[33:32], hh[33:32]};
+	assign producer_value = {i_mw_value, o_result};
+	assign producer_tag = {i_mw_tag, o_dest};
+	assign producer_valid = {i_mw_valid, o_write & {2 {o_valid}}};
+	arm9v2_forward u_forward(
+		.i_value((holding ? held : i_value)),
+		.i_tag(i_tag),
+		.i_used(i_used),
+		.i_producer_value(producer_value),
+		.i_producer_tag(producer_tag),
+		.i_producer_valid(producer_valid),
+		.o_value(forwarded)
+	);
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		operand = forwarded;
+		begin : sv2v_autoblock_1
+			reg signed [31:0] s;
+			for (s = 0; s < 4; s = s + 1)
+				begin
+					if (i_tag[s * 6+:6] == 15) begin
+						operand[s * 32+:32] = i_pc_base;
+						if ((i_reg_shift && (s < 2)) || ((s == 3) && !i_thumb))
+							operand[s * 32+:32] = i_pc_base + 32'd4;
+						if ((s == 0) && i_force_align)
+							operand[s * 32+:32] = {i_pc_base[31:2], 2'b00};
+					end
+					if (i_tag[s * 6+:6] == 17)
+						operand[s * 32+:32] = {flags, i_cpsr[27:0]};
+				end
+		end
+		shift_input = operand[32+:32];
+		shift_type = i_instruction[6:5];
+		shift_amount = (prepared ? held_amount : {3'd0, i_instruction[11:7]});
+		shift_register = i_reg_shift;
+		if (((i_kind == DP) || (i_kind == MSR)) && i_instruction[25]) begin
+			shift_input = {24'd0, i_instruction[7:0]};
+			shift_type = 3;
+			shift_amount = {3'd0, i_instruction[11:8], 1'b0};
+			shift_register = 1;
+		end
+		if ((i_kind == MEM) && (i_instruction[27:26] == 0)) begin
+			shift_type = 0;
+			shift_amount = 0;
+			shift_register = 1;
+		end
+		if (((i_kind != DP) && (i_kind != MSR)) && (i_kind != MEM)) begin
+			shift_type = 0;
+			shift_amount = 0;
+			shift_register = 1;
+		end
+		planned_writes = 0;
+		case (i_kind)
+			DP: planned_writes[0] = i_instruction[24:23] != 2'b10;
+			MRS, MUL, PREFIX: planned_writes[0] = 1;
+			MULL: planned_writes = 3;
+			BR: planned_writes[0] = i_instruction[24];
+			SUFFIX: planned_writes[0] = 1;
+			MEM: planned_writes[1] = i_instruction[21] || !i_instruction[24];
+			BLOCK: planned_writes[1] = (i_last && i_instruction[21]) && !(i_instruction[20] && i_instruction[{1'b0, i_instruction[19:16]}]);
+			default:
+				;
+		endcase
+		if (i_fault)
+			planned_writes = 0;
+	end
+	arm9v2_rotate u_rotate(
+		.i_value(shift_input),
+		.i_amount(shift_amount),
+		.i_type(shift_type),
+		.i_register(shift_register),
+		.i_carry(1'b0),
+		.o_value(shifted),
+		.o_carry(shift_carry),
+		.o_preserve(carry_preserve),
+		.o_rrx(rrx)
+	);
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		left_a = a[150-:32];
+		right_a = a[118-:32];
+		store_a = a[86-:32];
+		begin : sv2v_autoblock_2
+			reg signed [31:0] lane;
+			for (lane = 0; lane < 2; lane = lane + 1)
+				if (o_valid && o_write[lane]) begin
+					if (a[8 + lane])
+						left_a = o_result[lane * 32+:32];
+					if (a[10 + lane])
+						right_a = o_result[lane * 32+:32];
+					if (a[12 + lane])
+						store_a = o_result[lane * 32+:32];
+				end
+		end
+		if (a[15])
+			right_a[31] = flags[1];
+	end
+	arm9_alu u_alu(
+		.i_a(left_a),
+		.i_b(right_a),
+		.i_op(a[22-:4]),
+		.i_flags(flags),
+		.i_shift_carry((a[16] ? flags[1] : a[17])),
+		.o_result(alu_result),
+		.o_flags(alu_flags)
+	);
+	wire [63:0] pp0 = {{30 {ll[33]}}, ll};
+	wire [63:0] pp1 = {{14 {lh[33]}}, lh, 16'd0};
+	wire [63:0] pp2 = {{14 {hl[33]}}, hl, 16'd0};
+	wire [63:0] pp3 = {hh[31:0], 32'd0};
+	wire [63:0] ones0 = (pp0 ^ pp1) ^ pp2;
+	wire [63:0] twos0 = (((pp0 & pp1) | (pp1 & pp2)) | (pp0 & pp2)) << 1;
+	wire [63:0] ones1 = (ones0 ^ twos0) ^ pp3;
+	wire [63:0] twos1 = (((ones0 & twos0) | (ones0 & pp3)) | (twos0 & pp3)) << 1;
+	assign product = ones1 + twos1;
+	assign mac_result = product_saved + accumulator;
+	assign mult_result = (a[342] ? mac_result : product);
+	assign product_phase = (a_valid && ((a[196-:4] == MUL) || (a[196-:4] == MULL))) && !multiply_product_ready;
+	assign mac_phase = (((a_valid && ((a[196-:4] == MUL) || (a[196-:4] == MULL))) && multiply_product_ready) && a[342]) && !multiply_accumulate;
+	assign space = !a_valid || finish;
+	assign o_shift_wait = (i_valid && i_reg_shift) && !prepared;
+	assign o_multiply_wait = product_phase || mac_phase;
+	assign o_ready = (((i_admit && space) && !o_shift_wait) && !i_flush) && !o_redirect;
+	assign accept = i_valid && o_ready;
+	assign finish = ((((a_valid && !product_phase) && !mac_phase) && (!o_valid || i_ready)) && !i_flush) && !o_redirect;
+	assign o_a_valid = a_valid;
+	assign o_a_can_finish = finish;
+	assign o_s_write = planned_writes & {2 {i_valid}};
+	assign o_a_dest = a[170-:12];
+	assign o_a_write = a[152-:2];
+	assign o_a_load = (a_valid && !a[187]) && ((a[196-:4] == MEM) || (a[196-:4] == BLOCK) ? a[341] : a[196-:4] == SWP);
+	assign o_flags = flags;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		case (a[192-:4])
+			0: condition_pass = flags[2];
+			1: condition_pass = !flags[2];
+			2: condition_pass = flags[1];
+			3: condition_pass = !flags[1];
+			4: condition_pass = flags[3];
+			5: condition_pass = !flags[3];
+			6: condition_pass = flags[0];
+			7: condition_pass = !flags[0];
+			8: condition_pass = flags[1] && !flags[2];
+			9: condition_pass = !flags[1] || flags[2];
+			10: condition_pass = flags[3] == flags[0];
+			11: condition_pass = flags[3] != flags[0];
+			12: condition_pass = !flags[2] && (flags[3] == flags[0]);
+			13: condition_pass = flags[2] || (flags[3] != flags[0]);
+			14: condition_pass = 1;
+			default: condition_pass = 0;
+		endcase
+		next_flags = flags;
+		will_write_flags = 0;
+		if (condition_pass && !a[187])
+			case (a[196-:4])
+				DP:
+					if (a[18] && (!a[151] || (a[159+:6] != 15))) begin
+						next_flags = alu_flags;
+						will_write_flags = 1;
+					end
+				MUL:
+					if (a[18]) begin
+						next_flags = {mult_result[31], mult_result[31:0] == 0, flags[1:0]};
+						will_write_flags = 1;
+					end
+				MULL:
+					if (a[18]) begin
+						next_flags = {mult_result[63], mult_result == 0, flags[1:0]};
+						will_write_flags = 1;
+					end
+				MSR:
+					if (!a[343] && a[340]) begin
+						next_flags = right_a[31:28];
+						will_write_flags = 1;
+					end
+				default:
+					;
+			endcase
+		actual_target = a[320-:32];
+		actual_thumb = a[188];
+		if ((a[196-:4] == BR) && condition_pass)
+			actual_target = a[288-:32];
+		wrong_prediction = (a[185] && a[183]) && !a[181];
+		if (a[196-:4] == BR)
+			wrong_prediction = (a[184] ? 1'b0 : (a[183] ? (condition_pass ? !a[182] : !a[181]) : condition_pass));
+		if (a[196-:4] == SUFFIX)
+			wrong_prediction = 0;
+		if ((a[196-:4] == BX) && condition_pass) begin
+			actual_thumb = right_a[0];
+			actual_target = {right_a[31:2], right_a[1] & right_a[0], 1'b0};
+			wrong_prediction = !a[183] || (a[256-:32] != {right_a[31:2], right_a[1] & right_a[0], right_a[0]});
+		end
+		if ((condition_pass && (a[159+:6] == 15)) && (a[151] || (((a[196-:4] == MEM) || (a[196-:4] == BLOCK)) && a[341])))
+			wrong_prediction = 0;
+		if (a[187])
+			wrong_prediction = 0;
+	end
+	always @(posedge i_clk)
+		if (i_reset || i_flush) begin
+			a_valid <= 0;
+			holding <= 0;
+			prepared <= 0;
+			multiply_accumulate <= 0;
+			multiply_product_ready <= 0;
+			o_valid <= 0;
+			o_write <= 0;
+			o_write_flags <= 0;
+			o_redirect <= 0;
+			o_btb_update <= 0;
+			o_btb_taken <= 0;
+			o_btb_hit <= 0;
+			o_btb_target <= 0;
+			o_btb_state <= 0;
+			o_btb_kind <= 0;
+			flags <= i_cpsr[31:28];
+			a <= 385'd0;
+			held <= 0;
+			held_amount <= 0;
+			block_base <= 0;
+			ll <= 0;
+			lh <= 0;
+			hl <= 0;
+			hh <= 0;
+			product_saved <= 0;
+			accumulator <= 0;
+			o_pc <= 0;
+			o_instruction <= 0;
+			o_cpsr <= 0;
+			o_cpsr_next <= 0;
+			o_kind <= 0;
+			o_thumb <= 0;
+			o_fault <= 0;
+			o_first <= 0;
+			o_last <= 0;
+			o_condition_pass <= 0;
+			o_dest <= 0;
+			o_result <= 0;
+			o_pc_write <= 0;
+			o_memory <= 0;
+			o_store <= 0;
+			o_address <= 0;
+			o_store_data <= 0;
+			o_redirect_thumb <= 0;
+			o_redirect_target <= 0;
+			o_redirect_link <= 0;
+			o_redirect_pointer <= 0;
+			o_redirect_count <= 0;
+			o_redirect_action <= 0;
+		end
+		else begin
+			o_redirect <= 0;
+			o_btb_update <= 0;
+			if (i_ready) begin
+				o_valid <= 0;
+				o_write <= 0;
+				o_write_flags <= 0;
+			end
+			if (i_valid && !accept) begin
+				holding <= 1;
+				held <= operand;
+			end
+			if ((((i_valid && i_admit) && space) && i_reg_shift) && !prepared) begin
+				prepared <= 1;
+				held_amount <= operand[71-:8];
+			end
+			if (a_valid) begin
+				a[150-:32] <= left_a;
+				a[118-:32] <= right_a;
+				a[86-:32] <= store_a;
+				a[13-:6] <= 0;
+			end
+			if (product_phase) begin
+				ll <= $signed({1'b0, a[102:87]}) * $signed({1'b0, a[38:23]});
+				lh <= $signed({1'b0, a[102:87]}) * $signed({((a[196-:4] == MULL) && a[343]) && a[54], a[54:39]});
+				hl <= $signed({((a[196-:4] == MULL) && a[343]) && a[118], a[118:103]}) * $signed({1'b0, a[38:23]});
+				hh <= $signed({((a[196-:4] == MULL) && a[343]) && a[118], a[118:103]}) * $signed({((a[196-:4] == MULL) && a[343]) && a[54], a[54:39]});
+				multiply_product_ready <= 1;
+			end
+			if (mac_phase) begin
+				product_saved <= product;
+				multiply_accumulate <= 1;
+			end
+			if (finish) begin
+				a_valid <= 0;
+				o_valid <= 1;
+				o_pc <= a[384-:32];
+				o_instruction <= a[352-:32];
+				o_kind <= a[196-:4];
+				o_thumb <= a[188];
+				o_fault <= a[187];
+				o_first <= a[186];
+				o_last <= a[185];
+				o_condition_pass <= condition_pass && !a[187];
+				o_dest <= a[170-:12];
+				o_psr_source <= right_a;
+				o_saved_psr <= (a[196-:4] == DP ? store_a : a[54-:32]);
+				o_original_base <= left_a;
+				o_spsr_tag <= a[158-:6];
+				o_next_pc <= a[320-:32];
+				o_predicted <= a[183];
+				o_prediction_target <= a[256-:32];
+				o_cpsr <= {flags, a[224-:28]};
+				o_cpsr_next <= {next_flags, a[224-:28]};
+				flags <= next_flags;
+				o_write_flags <= will_write_flags;
+				o_write <= a[152-:2] & {2 {condition_pass && !a[187]}};
+				o_result[0+:32] <= alu_result;
+				o_result[32+:32] <= 0;
+				o_address <= alu_result;
+				o_store_data <= store_a;
+				o_memory <= ((((a[196-:4] == MEM) || (a[196-:4] == BLOCK)) || (a[196-:4] == SWP)) && condition_pass) && !a[187];
+				o_store <= (((a[196-:4] == SWP) || (((a[196-:4] == MEM) || (a[196-:4] == BLOCK)) && !a[341])) && condition_pass) && !a[187];
+				o_pc_write <= (((a[151] && (a[159+:6] == 15)) || ((a[196-:4] == SUFFIX) && !a[184])) && condition_pass) && !a[187];
+				begin : sv2v_autoblock_3
+					reg signed [31:0] lane;
+					for (lane = 0; lane < 2; lane = lane + 1)
+						if (a[159 + (lane * 6)+:6] == 15)
+							o_write[lane] <= 0;
+				end
+				case (a[196-:4])
+					MRS: o_result[0+:32] <= (a[14] ? {flags, a[50:23]} : a[54-:32]);
+					BR, SUFFIX: o_result[0+:32] <= {a[320:290], a[188]};
+					PREFIX: o_result[0+:32] <= a[288-:32];
+					MUL: o_result[0+:32] <= mult_result[31:0];
+					MULL: begin
+						o_result[0+:32] <= mult_result[31:0];
+						o_result[32+:32] <= mult_result[63:32];
+					end
+					MEM: begin
+						o_address <= (a[345] ? alu_result : left_a);
+						o_result[32+:32] <= alu_result;
+					end
+					BLOCK: o_result[32+:32] <= left_a + {{24 {a[7]}}, $signed(a[7-:8])};
+					SWP: begin
+						o_address <= left_a;
+						o_store_data <= right_a;
+					end
+					default:
+						;
+				endcase
+				o_btb_update <= (((a[196-:4] == BR) || (a[196-:4] == BX)) || ((a[196-:4] == SUFFIX) && a[184])) && !a[187];
+				o_btb_taken <= condition_pass;
+				o_btb_hit <= a[180];
+				o_btb_state <= a[179-:2];
+				o_btb_target <= (a[196-:4] == BX ? {right_a[31:2], right_a[1] & right_a[0], right_a[0]} : {a[288:258], a[188]});
+				o_btb_kind <= ((a[196-:4] == SUFFIX) || ((a[196-:4] == BR) && a[345]) ? 2'd1 : ((a[196-:4] == BX) && (a[324:321] == 14) ? 2'd2 : 2'd0));
+				o_redirect <= wrong_prediction;
+				o_redirect_target <= {actual_target[31:1], 1'b0};
+				o_redirect_thumb <= actual_thumb;
+				o_redirect_link <= {a[320:290], a[188]};
+				o_redirect_pointer <= a[177-:3];
+				o_redirect_count <= a[174-:4];
+				o_redirect_action <= ((condition_pass && (a[196-:4] == BR)) && a[345] ? 2'd1 : ((condition_pass && (a[196-:4] == BX)) && (a[324:321] == 14) ? 2'd2 : 2'd0));
+			end
+			if (accept) begin
+				a_valid <= 1;
+				holding <= 0;
+				prepared <= 0;
+				multiply_accumulate <= 0;
+				multiply_product_ready <= 0;
+				a[384-:32] <= i_pc;
+				a[352-:32] <= i_instruction;
+				a[320-:32] <= i_next_pc;
+				a[288-:32] <= i_branch_target;
+				a[256-:32] <= i_pred_target;
+				a[224-:28] <= i_cpsr[27:0];
+				a[196-:4] <= i_kind;
+				a[192-:4] <= i_condition;
+				a[188] <= i_thumb;
+				a[187] <= i_fault;
+				a[186] <= i_first;
+				a[185] <= i_last;
+				a[184] <= i_direct;
+				a[183] <= i_predicted;
+				a[182] <= i_match_taken;
+				a[181] <= i_match_fallthrough;
+				a[180] <= i_pred_hit;
+				a[179-:2] <= i_pred_state;
+				a[177-:3] <= i_ras_pointer;
+				a[174-:4] <= i_ras_count;
+				a[158-:6] <= i_tag[12+:6];
+				a[170-:12] <= i_dest;
+				a[152-:2] <= planned_writes;
+				a[150-:32] <= operand[0+:32];
+				a[118-:32] <= shifted;
+				a[86-:32] <= operand[96+:32];
+				a[54-:32] <= operand[64+:32];
+				a[14] <= i_tag[12+:6] == 17;
+				a[22-:4] <= i_instruction[24:21];
+				a[18] <= i_instruction[20] || ((i_kind == DP) && (i_instruction[24:23] == 2'b10));
+				a[17] <= shift_carry;
+				a[16] <= carry_preserve;
+				a[15] <= rrx;
+				a[7-:8] <= i_writeback_offset;
+				a[13-:6] <= 0;
+				begin : sv2v_autoblock_4
+					reg signed [31:0] lane;
+					for (lane = 0; lane < 2; lane = lane + 1)
+						if ((a_valid && a[151 + lane]) && (a[159 + (lane * 6)+:6] != 15)) begin
+							if ((i_used[0] && (i_tag[0+:6] == a[159 + (lane * 6)+:6])) && (i_tag[0+:6] != 17))
+								a[8 + lane] <= 1;
+							if (((i_used[1] && (i_tag[6+:6] == a[159 + (lane * 6)+:6])) && (i_tag[6+:6] != 17)) && (((i_kind == BX) || (i_kind == SWP)) || (((i_kind == DP) && !i_instruction[25]) && (i_instruction[11:4] == 0))))
+								a[10 + lane] <= 1;
+							if ((i_used[3] && (i_tag[18+:6] == a[159 + (lane * 6)+:6])) && (i_tag[18+:6] != 17))
+								a[12 + lane] <= 1;
+						end
+				end
+				if (i_kind == MEM) begin
+					a[22-:4] <= (i_instruction[23] ? 4'd4 : 4'd2);
+					a[15] <= rrx;
+					if ((i_instruction[27:26] == 1) && !i_instruction[25]) begin
+						a[118-:32] <= {20'd0, i_instruction[11:0]};
+						a[15] <= 0;
+					end
+					if ((i_instruction[27:26] == 0) && i_instruction[22]) begin
+						a[118-:32] <= {24'd0, i_instruction[11:8], i_instruction[3:0]};
+						a[15] <= 0;
+					end
+				end
+				if (i_kind == BLOCK) begin
+					a[22-:4] <= 4;
+					a[150-:32] <= (i_first ? operand[0+:32] : block_base);
+					a[118-:32] <= {{24 {i_offset[7]}}, i_offset};
+					a[15] <= 0;
+					if (i_first)
+						block_base <= operand[0+:32];
+				end
+				if ((i_kind == BX) || (i_kind == SWP)) begin
+					a[118-:32] <= operand[32+:32];
+					a[15] <= 0;
+				end
+				if (i_kind == SUFFIX) begin
+					a[22-:4] <= 4;
+					a[118-:32] <= {20'd0, i_instruction[10:0], 1'b0};
+					a[15] <= 0;
+				end
+				if ((i_kind == MUL) || (i_kind == MULL))
+					accumulator <= (i_kind == MULL ? {operand[0+:32], operand[96+:32]} : {32'd0, operand[96+:32]});
+			end
+			if (o_redirect) begin
+				a_valid <= 0;
+				holding <= 0;
+				prepared <= 0;
+			end
+		end
+	initial _sv2v_0 = 0;
+endmodule
+module arm9v2_fetch (
 	i_clk,
 	i_reset,
 	i_redirect,
+	i_redirect_thumb,
+	i_redirect_target,
+	i_redirect_pointer,
+	i_redirect_count,
+	i_redirect_action,
+	i_redirect_link,
 	i_predictor_clear,
-	i_fb_valid,
-	i_fb_wrong,
-	i_fb_pc,
-	i_fb_target,
-	i_fb_state,
-	o_predicted,
-	o_pred_target,
-	o_pred_state,
-	i_target,
-	i_thumb,
+	i_update,
+	i_update_pc,
+	i_update_target,
+	i_update_thumb,
+	i_update_taken,
+	i_update_hit,
+	i_update_state,
+	i_update_kind,
 	i_data,
-	i_data_early,
-	i_hit,
 	i_ack,
 	i_error,
 	i_retry,
@@ -2292,36 +2938,42 @@ module arm9_fetch (
 	o_address,
 	o_request,
 	o_stall,
+	i_ready,
 	o_valid,
 	o_pc,
-	o_instruction,
-	o_abort,
-	o_decoded,
-	o_thumb_und,
-	o_thumb_align,
-	i_ready
+	o_word,
+	o_thumb,
+	o_fault,
+	o_predicted,
+	o_pred_hit,
+	o_pred_target,
+	o_pred_state,
+	o_pred_kind,
+	o_ras_pointer,
+	o_ras_count
 );
 	reg _sv2v_0;
 	parameter [31:0] RESET_VECTOR = 0;
 	parameter [0:0] PREDICTOR = 1'b1;
-	parameter [31:0] BP_ENTRIES = 512;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_redirect;
+	input wire i_redirect_thumb;
+	input wire [31:0] i_redirect_target;
+	input wire [2:0] i_redirect_pointer;
+	input wire [3:0] i_redirect_count;
+	input wire [1:0] i_redirect_action;
+	input wire [31:0] i_redirect_link;
 	input wire i_predictor_clear;
-	input wire i_fb_valid;
-	input wire i_fb_wrong;
-	input wire [31:0] i_fb_pc;
-	input wire [31:0] i_fb_target;
-	input wire [1:0] i_fb_state;
-	output wire o_predicted;
-	output wire [31:0] o_pred_target;
-	output wire [1:0] o_pred_state;
-	input wire [31:0] i_target;
-	input wire i_thumb;
+	input wire i_update;
+	input wire [31:0] i_update_pc;
+	input wire [31:0] i_update_target;
+	input wire i_update_thumb;
+	input wire i_update_taken;
+	input wire i_update_hit;
+	input wire [1:0] i_update_state;
+	input wire [1:0] i_update_kind;
 	input wire [31:0] i_data;
-	input wire [31:0] i_data_early;
-	input wire i_hit;
 	input wire i_ack;
 	input wire i_error;
 	input wire i_retry;
@@ -2333,287 +2985,756 @@ module arm9_fetch (
 	output wire [31:0] o_address;
 	output wire o_request;
 	output wire o_stall;
+	input wire i_ready;
 	output wire o_valid;
 	output wire [31:0] o_pc;
-	output wire [31:0] o_instruction;
-	output wire o_abort;
-	output wire [34:0] o_decoded;
-	output wire o_thumb_und;
-	output wire o_thumb_align;
-	input wire i_ready;
+	output wire [31:0] o_word;
+	output wire o_thumb;
+	output wire o_fault;
+	output wire o_predicted;
+	output wire o_pred_hit;
+	output wire [31:0] o_pred_target;
+	output wire [1:0] o_pred_state;
+	output wire [1:0] o_pred_kind;
+	output wire [2:0] o_ras_pointer;
+	output wire [3:0] o_ras_count;
 	(* dont_retime *) reg [35:0] f1;
 	(* dont_retime *) reg [35:0] f2;
-	(* dont_retime *) reg [139:0] queue [0:7];
-	(* dont_retime *) reg [2:0] head;
+	(* dont_retime *) reg [44:0] f2_prediction;
+	(* dont_retime *) reg [31:0] sequential_pc;
+	(* dont_retime *) reg [31:0] restart_pc;
+	(* dont_retime *) reg sequential_thumb;
+	(* dont_retime *) reg restart_thumb;
+	(* dont_retime *) reg killed;
+	(* dont_retime *) reg [1:0] epoch;
 	(* dont_retime *) reg [2:0] tail;
+	(* dont_retime *) reg [7:0] head_select;
 	(* dont_retime *) reg [3:0] count;
-	reg [31:0] launch_pc;
-	reg [31:0] target;
-	reg launch_thumb;
-	reg target_thumb;
-	reg killed;
-	reg [1:0] epoch;
+	reg [113:0] queue [0:7];
+	reg [113:0] head_packet;
+	wire [44:0] prediction;
+	wire predicted;
+	wire advance;
 	wire push;
 	wire pop;
 	wire retry;
-	wire response;
-	reg btb_taken;
-	wire prediction;
-	reg [31:0] btb_target;
-	wire [1:0] btb_state;
-	assign prediction = (((PREDICTOR && btb_taken) && f2[35]) && (f2[34-:2] == epoch)) && !killed;
-	generate
-		if (PREDICTOR) begin : g_predictor
-			wire taken_f1;
-			wire [31:0] target_f1;
-			always @(posedge i_clk) begin
-				if (i_reset || i_predictor_clear)
-					btb_taken <= 0;
-				else if (!o_stall)
-					btb_taken <= taken_f1;
-				if (!o_stall)
-					btb_target <= target_f1;
-			end
-			zap_btb #(.BP_ENTRIES(BP_ENTRIES)) u_btb(
-				.i_clk(i_clk),
-				.i_reset(i_reset),
-				.i_stall(o_stall),
-				.i_clear(i_predictor_clear),
-				.i_fb_ok(i_fb_valid && !i_fb_wrong),
-				.i_fb_nok(i_fb_valid && i_fb_wrong),
-				.i_fb_branch_src_address(i_fb_pc),
-				.i_fb_branch_dest_address(i_fb_target),
-				.i_fb_current_branch_state(i_fb_state),
-				.i_rd_addr(o_address_nxt),
-				.i_rd_addr_del(f1[31-:32]),
-				.o_clear_from_btb(taken_f1),
-				.o_pc_from_btb(target_f1),
-				.o_branch_state(btb_state)
-			);
-		end
-		else begin : g_no_predictor
-			wire [1:1] sv2v_tmp_015CD;
-			assign sv2v_tmp_015CD = 0;
-			always @(*) btb_taken = sv2v_tmp_015CD;
-			wire [32:1] sv2v_tmp_4409A;
-			assign sv2v_tmp_4409A = 0;
-			always @(*) btb_target = sv2v_tmp_4409A;
-			assign btb_state = 0;
-		end
-	endgenerate
-	reg [139:0] early_packet;
-	reg [139:0] selected_packet;
-	wire [31:0] early_incoming;
-	wire [34:0] early_decoded;
-	wire early_und;
-	wire early_align;
-	wire [31:0] incoming;
-	wire [34:0] decoded;
-	wire thumb_und;
-	wire thumb_align;
-	assign incoming = (f2[32] && f2[1] ? {16'd0, i_data[31:16]} : i_data);
-	zap_mode16_decoder #(.V4T(1'b1)) u_thumb(
-		.i_instruction(incoming),
-		.i_instruction_valid(1'b1),
-		.i_offset(11'd0),
-		.i_prev_prefix(1'b0),
-		.i_irq(1'b0),
-		.i_fiq(1'b0),
-		.i_cpsr_ff_t(f2[32]),
-		.o_instruction(decoded),
-		.o_instruction_valid(),
-		.o_und(thumb_und),
-		.o_force32_align(thumb_align),
-		.o_irq(),
-		.o_fiq()
-	);
-	assign early_incoming = (f1[32] && f1[1] ? {16'd0, i_data_early[31:16]} : i_data_early);
-	zap_mode16_decoder #(.V4T(1'b1)) u_thumb_early(
-		.i_instruction(early_incoming),
-		.i_instruction_valid(1'b1),
-		.i_offset(11'd0),
-		.i_prev_prefix(1'b0),
-		.i_irq(1'b0),
-		.i_fiq(1'b0),
-		.i_cpsr_ff_t(f1[32]),
-		.o_instruction(early_decoded),
-		.o_instruction_valid(),
-		.o_und(early_und),
-		.o_force32_align(early_align),
-		.o_irq(),
-		.o_fiq()
-	);
+	wire launch_thumb;
+	wire [31:0] launch_pc;
+	(* keep *) wire [31:0] redirect_next = {i_redirect_target[31:1], 1'b0} + (i_redirect_thumb ? 32'd2 : 32'd4);
+	(* keep *) wire [31:0] predicted_next = {prediction[42:12], 1'b0} + (prediction[11] ? 32'd2 : 32'd4);
+	(* keep *) wire [31:0] sequential_next = sequential_pc + (sequential_thumb ? 32'd2 : 32'd4);
+	wire unused;
+	assign unused = &{1'b0, i_redirect_target[0], i_redirect_pointer, i_redirect_count, i_redirect_action, i_redirect_link, i_predictor_clear, i_update, i_update_pc, i_update_target, i_update_thumb, i_update_taken, i_update_hit, i_update_state, i_update_kind};
+	assign predicted = (((PREDICTOR && prediction[44]) && f1[35]) && (f1[33-:2] == epoch)) && !killed;
+	assign launch_pc = (i_redirect ? {i_redirect_target[31:1], 1'b0} : (predicted ? {prediction[42:12], 1'b0} : sequential_pc));
+	assign launch_thumb = (i_redirect ? i_redirect_thumb : (predicted ? prediction[11] : sequential_thumb));
+	assign o_address_nxt = launch_pc;
+	assign o_address_check = f1[31-:32];
+	assign o_address = f2[31-:32];
+	assign o_request = (f2[35] && !killed) && !i_redirect;
+	assign o_stall = ((count == 8) && !killed) || (f2[35] && !i_ack);
+	assign advance = !o_stall;
+	assign retry = (((f2[35] && i_ack) && i_retry) && !killed) && !i_redirect;
+	assign push = (((((f2[35] && i_ack) && !i_retry) && advance) && !killed) && !i_redirect) && (f2[33-:2] == epoch);
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		selected_packet = early_packet;
-		if (!i_hit) begin
-			selected_packet[63-:32] = f2[31-:32];
-			selected_packet[139-:2] = f2[34-:2];
-			selected_packet[31-:32] = incoming;
-			selected_packet[100-:35] = (f2[32] ? decoded : {3'd0, incoming});
-			selected_packet[65] = thumb_und;
-			selected_packet[64] = thumb_align;
+		head_packet = 114'd0;
+		begin : sv2v_autoblock_1
+			reg signed [31:0] q;
+			for (q = 0; q < 8; q = q + 1)
+				head_packet = head_packet | (queue[q] & {114 {head_select[q]}});
 		end
-		selected_packet[137] = prediction;
-		selected_packet[136-:32] = btb_target;
-		selected_packet[104-:2] = (prediction ? btb_state : 2'b01);
-		selected_packet[102] = i_error || (i_fill_pending && i_fill_fault);
-		selected_packet[101] = i_fill_pending && !i_fill_done;
 	end
-	assign o_address_nxt = (prediction ? btb_target : launch_pc);
-	assign o_address_check = f1[31-:32];
-	assign o_address = f2[31-:32];
-	assign o_request = (f2[35] && !i_redirect) && !killed;
-	assign o_stall = ((count == 8) && !killed) || (f2[35] && !i_ack);
-	assign retry = (((f2[35] && i_ack) && i_retry) && !killed) && !i_redirect;
-	assign response = (((((f2[35] && i_ack) && !i_retry) && !o_stall) && !killed) && !i_redirect) && (f2[34-:2] == epoch);
-	assign push = response;
-	assign o_valid = ((count != 0) && !queue[head][101]) && (queue[head][139-:2] == epoch);
-	assign o_pc = queue[head][63-:32];
-	assign o_instruction = queue[head][31-:32];
-	assign o_abort = queue[head][102];
-	assign o_decoded = queue[head][100-:35];
-	assign o_thumb_und = queue[head][65];
-	assign o_thumb_align = queue[head][64];
-	assign o_predicted = queue[head][137];
-	assign o_pred_target = queue[head][136-:32];
-	assign o_pred_state = queue[head][104-:2];
+	assign o_valid = ((count != 0) && !head_packet[47]) && (head_packet[46-:2] == epoch);
 	assign pop = o_valid && i_ready;
+	assign o_pc = head_packet[81-:32];
+	assign o_word = head_packet[113-:32];
+	assign o_thumb = head_packet[49];
+	assign o_fault = head_packet[48];
+	assign o_predicted = head_packet[44];
+	assign o_pred_hit = head_packet[43];
+	assign o_pred_target = head_packet[42-:32];
+	assign o_pred_state = head_packet[10-:2];
+	assign o_pred_kind = head_packet[8-:2];
+	assign o_ras_pointer = head_packet[6-:3];
+	assign o_ras_count = head_packet[3-:4];
+	generate
+		if (PREDICTOR) begin : g_predictor
+			arm9v2_predict u_predict(
+				.i_clk(i_clk),
+				.i_reset(i_reset),
+				.i_clear(i_predictor_clear),
+				.i_lookup(advance),
+				.i_pc(launch_pc),
+				.i_thumb(launch_thumb),
+				.i_accept((((advance && f1[35]) && !i_redirect) && !retry) && !killed),
+				.i_update(i_update),
+				.i_update_pc(i_update_pc),
+				.i_update_target(i_update_target),
+				.i_update_thumb(i_update_thumb),
+				.i_update_taken(i_update_taken),
+				.i_update_hit(i_update_hit),
+				.i_update_state(i_update_state),
+				.i_update_kind(i_update_kind),
+				.i_repair(i_redirect || retry),
+				.i_repair_pointer((i_redirect ? i_redirect_pointer : f2_prediction[6-:3])),
+				.i_repair_count((i_redirect ? i_redirect_count : f2_prediction[3-:4])),
+				.i_repair_action((i_redirect ? i_redirect_action : 2'd0)),
+				.i_repair_link(i_redirect_link),
+				.o_hit(prediction[43]),
+				.o_taken(prediction[44]),
+				.o_target(prediction[42-:32]),
+				.o_state(prediction[10-:2]),
+				.o_kind(prediction[8-:2]),
+				.o_pointer(prediction[6-:3]),
+				.o_count(prediction[3-:4])
+			);
+		end
+		else begin : g_no_predictor
+			assign prediction = 45'd0;
+		end
+	endgenerate
+	genvar _gv_q_1;
+	generate
+		for (_gv_q_1 = 0; _gv_q_1 < 8; _gv_q_1 = _gv_q_1 + 1) begin : g_queue
+			localparam q = _gv_q_1;
+			always @(posedge i_clk)
+				if (push && (tail == q)) begin
+					queue[q][113-:32] <= i_data;
+					queue[q][81-:32] <= f2[31-:32];
+					queue[q][49] <= f2[34];
+					queue[q][46-:2] <= f2[33-:2];
+					queue[q][48] <= i_error || (i_fill_pending && i_fill_fault);
+					queue[q][47] <= i_fill_pending && !i_fill_done;
+					queue[q][44-:45] <= f2_prediction;
+				end
+				else if (i_fill_done) begin
+					queue[q][47] <= 0;
+					if (queue[q][47])
+						queue[q][48] <= queue[q][48] || i_fill_fault;
+				end
+		end
+	endgenerate
 	always @(posedge i_clk)
 		if (i_reset) begin
-			f1 <= 1'sb0;
-			f2 <= 1'sb0;
-			early_packet <= 1'sb0;
-			launch_pc <= RESET_VECTOR;
-			launch_thumb <= 0;
-			target <= RESET_VECTOR;
-			target_thumb <= 0;
+			f1 <= 36'd0;
+			f2 <= 36'd0;
+			f2_prediction <= 45'd0;
+			sequential_pc <= RESET_VECTOR;
+			sequential_thumb <= 0;
+			restart_pc <= RESET_VECTOR;
+			restart_thumb <= 0;
 			killed <= 0;
 			epoch <= 0;
-			head <= 0;
+			head_select <= 8'b00000001;
 			tail <= 0;
 			count <= 0;
-			begin : sv2v_autoblock_1
-				reg signed [31:0] n;
-				for (n = 0; n < 8; n = n + 1)
-					queue[n] <= 1'sb0;
-			end
 		end
 		else begin
-			if (!o_stall) begin
-				early_packet[139-:2] <= f1[34-:2];
-				early_packet[63-:32] <= f1[31-:32];
-				early_packet[31-:32] <= early_incoming;
-				early_packet[100-:35] <= early_decoded;
-				early_packet[65] <= early_und;
-				early_packet[64] <= early_align;
-			end
-			if (i_fill_done) begin : sv2v_autoblock_2
-				reg signed [31:0] n;
-				for (n = 0; n < 8; n = n + 1)
-					if (queue[n][101]) begin
-						queue[n][101] <= 0;
-						queue[n][102] <= queue[n][102] || i_fill_fault;
-					end
-			end
-			if (push) begin
-				queue[tail] <= selected_packet;
-				tail <= tail + 1'b1;
-			end
 			if (pop)
-				head <= head + 1'b1;
+				head_select <= {head_select[6:0], head_select[7]};
+			if (push)
+				tail <= tail + 1'b1;
 			case ({push, pop})
 				2'b10: count <= count + 1'b1;
 				2'b01: count <= count - 1'b1;
 				default:
 					;
 			endcase
-			if (((i_redirect || retry) || killed) && !o_stall) begin
-				f1 <= {1'b0, epoch, launch_thumb, o_address_nxt};
-				f2 <= {1'b0, f1[34-:2], f1[32], f1[31-:32]};
-				launch_pc <= (i_redirect ? i_target : (retry ? f2[31-:32] : target));
-				launch_thumb <= (i_redirect ? i_thumb : (retry ? f2[32] : target_thumb));
+			if (advance) begin
+				f1 <= {1'b1, launch_thumb, epoch, launch_pc};
+				f2 <= f1;
+				f2_prediction <= prediction;
+				f2_prediction[44] <= predicted;
+				sequential_pc <= (predicted ? predicted_next : sequential_next);
+				sequential_thumb <= launch_thumb;
+				if (retry || killed) begin
+					f1[35] <= 0;
+					f2[35] <= 0;
+					sequential_pc <= (i_redirect ? {i_redirect_target[31:1], 1'b0} : (retry ? f2[31-:32] : restart_pc));
+					sequential_thumb <= (i_redirect ? i_redirect_thumb : (retry ? f2[34] : restart_thumb));
+				end
+				if (i_redirect) begin
+					f1 <= {1'b1, i_redirect_thumb, epoch + 2'd1, i_redirect_target[31:1], 1'b0};
+					f2[35] <= 0;
+					sequential_pc <= redirect_next;
+					sequential_thumb <= i_redirect_thumb;
+				end
 			end
 			if (i_redirect) begin
 				epoch <= epoch + 1'b1;
-				head <= 0;
+				head_select <= 8'b00000001;
 				tail <= 0;
 				count <= 0;
 				killed <= o_stall;
-				target <= i_target;
-				target_thumb <= i_thumb;
+				restart_pc <= {i_redirect_target[31:1], 1'b0};
+				restart_thumb <= i_redirect_thumb;
 			end
 			else if (retry) begin
 				killed <= o_stall;
-				target <= f2[31-:32];
-				target_thumb <= f2[32];
+				restart_pc <= f2[31-:32];
+				restart_thumb <= f2[34];
 			end
-			else if (!o_stall) begin
-				if (killed)
-					killed <= 0;
-				else begin
-					f1 <= {1'b1, epoch, launch_thumb, o_address_nxt};
-					f2 <= f1;
-					if (prediction)
-						f2[35] <= 0;
-					launch_pc <= o_address_nxt + (launch_thumb ? 32'd2 : 32'd4);
-				end
-			end
+			else if (advance && killed)
+				killed <= 0;
 		end
 	initial _sv2v_0 = 0;
 endmodule
-module arm9_forward (
+module arm9v2_forward (
 	i_value,
 	i_tag,
 	i_used,
-	i_write_value,
-	i_write_tag,
-	i_write_valid,
-	i_write_ready,
-	o_value,
-	o_wait
+	i_producer_value,
+	i_producer_tag,
+	i_producer_valid,
+	o_value
 );
 	reg _sv2v_0;
-	parameter integer SOURCES = 4;
-	parameter integer PRODUCERS = 3;
-	input wire [(SOURCES * 32) - 1:0] i_value;
-	input wire [(SOURCES * 6) - 1:0] i_tag;
-	input wire [SOURCES - 1:0] i_used;
-	input wire [(PRODUCERS * 32) - 1:0] i_write_value;
-	input wire [(PRODUCERS * 6) - 1:0] i_write_tag;
-	input wire [PRODUCERS - 1:0] i_write_valid;
-	input wire [PRODUCERS - 1:0] i_write_ready;
-	output reg [(SOURCES * 32) - 1:0] o_value;
-	output reg [SOURCES - 1:0] o_wait;
+	input wire [127:0] i_value;
+	input wire [23:0] i_tag;
+	input wire [3:0] i_used;
+	input wire [191:0] i_producer_value;
+	input wire [35:0] i_producer_tag;
+	input wire [5:0] i_producer_valid;
+	output reg [127:0] o_value;
+	reg [23:0] match_word;
+	reg [23:0] grant;
+	reg [3:0] seen;
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		o_value = i_value;
-		o_wait = {SOURCES {1'b0}};
+		match_word = 0;
+		grant = 0;
+		seen = 0;
+		o_value = 0;
 		begin : sv2v_autoblock_1
-			integer s;
-			for (s = 0; s < SOURCES; s = s + 1)
-				begin : sv2v_autoblock_2
-					integer p;
-					for (p = PRODUCERS - 1; p >= 0; p = p - 1)
-						if ((i_used[s] && i_write_valid[p]) && (i_tag[s * 6+:6] == i_write_tag[p * 6+:6])) begin
-							o_value[s * 32+:32] = i_write_value[p * 32+:32];
-							o_wait[s] = !i_write_ready[p];
-						end
+			reg signed [31:0] s;
+			for (s = 0; s < 4; s = s + 1)
+				begin
+					begin : sv2v_autoblock_2
+						reg signed [31:0] rank;
+						for (rank = 0; rank < 6; rank = rank + 1)
+							begin
+								match_word[(s * 6) + rank] = (i_used[s] && i_producer_valid[((rank / 2) * 2) + (1 - (rank % 2))]) && (i_tag[s * 6+:6] == i_producer_tag[(((rank / 2) * 2) + (1 - (rank % 2))) * 6+:6]);
+								grant[(s * 6) + rank] = match_word[(s * 6) + rank] && !seen[s];
+								seen[s] = seen[s] | match_word[(s * 6) + rank];
+								o_value[s * 32+:32] = o_value[s * 32+:32] | (i_producer_value[(((rank / 2) * 2) + (1 - (rank % 2))) * 32+:32] & {32 {grant[(s * 6) + rank]}});
+							end
+					end
+					o_value[s * 32+:32] = o_value[s * 32+:32] | (i_value[s * 32+:32] & {32 {!seen[s]}});
 				end
 		end
 	end
 	initial _sv2v_0 = 0;
 endmodule
-module arm9_shift (
+module arm9v2_front_decode (
+	i_clk,
+	i_reset,
+	i_flush,
+	o_ready,
+	i_mode,
+	i_wen,
+	i_wr_addr_a,
+	i_wr_addr_b,
+	i_wr_addr_c,
+	i_locked,
+	i_early_tag,
+	i_early_valid,
+	i_wr_data_a,
+	i_wr_data_b,
+	i_wr_data_c,
+	i_rf_value,
+	o_rf_tag,
+	i_load_tag,
+	i_load_valid,
+	i_ready,
+	o_valid,
+	o_pc,
+	o_instruction,
+	o_pc_base,
+	o_next_pc,
+	o_raw,
+	o_mode,
+	o_thumb,
+	o_fault,
+	o_force_align,
+	o_reg_shift,
+	o_kind,
+	o_condition,
+	o_tag,
+	o_used,
+	o_value,
+	o_dest,
+	o_first,
+	o_last,
+	o_reg_count,
+	o_offset,
+	o_writeback_offset,
+	o_transfer_reg,
+	o_branch_target,
+	o_direct,
+	o_match_taken,
+	o_match_fallthrough,
+	o_predicted,
+	o_pred_hit,
+	o_pred_target,
+	o_pred_state,
+	o_pred_kind,
+	o_ras_pointer,
+	o_ras_count,
+	o_hazard,
+	o_redirect,
+	o_redirect_thumb,
+	o_redirect_target,
+	o_redirect_link,
+	o_redirect_pointer,
+	o_redirect_count,
+	o_redirect_action,
+	i_backend_target,
+	i_backend_link,
+	i_backend_thumb,
+	i_backend_pointer,
+	i_backend_count,
+	i_backend_action,
+	i_predictor_clear,
+	i_update,
+	i_update_pc,
+	i_update_target,
+	i_update_thumb,
+	i_update_taken,
+	i_update_hit,
+	i_update_state,
+	i_update_kind,
+	i_data,
+	i_ack,
+	i_error,
+	i_retry,
+	i_fill_pending,
+	i_fill_done,
+	i_fill_fault,
+	o_address_nxt,
+	o_address_check,
+	o_address,
+	o_request,
+	o_stall
+);
+	parameter [0:0] PREDICTOR = 1'b1;
+	parameter [0:0] EXTERNAL_RF = 0;
+	parameter [31:0] RESET_VECTOR = 0;
+	input wire i_clk;
+	input wire i_reset;
+	input wire i_flush;
+	output wire o_ready;
+	input wire [4:0] i_mode;
+	input wire i_wen;
+	input wire [39:0] i_wr_addr_a;
+	input wire [39:0] i_wr_addr_b;
+	input wire [39:0] i_wr_addr_c;
+	input wire [39:0] i_locked;
+	input wire [23:0] i_early_tag;
+	input wire [3:0] i_early_valid;
+	input wire [31:0] i_wr_data_a;
+	input wire [31:0] i_wr_data_b;
+	input wire [31:0] i_wr_data_c;
+	input wire [127:0] i_rf_value;
+	output wire [23:0] o_rf_tag;
+	input wire [35:0] i_load_tag;
+	input wire [5:0] i_load_valid;
+	input wire i_ready;
+	output wire o_valid;
+	output wire [31:0] o_pc;
+	output wire [31:0] o_instruction;
+	output wire [31:0] o_pc_base;
+	output wire [31:0] o_next_pc;
+	output wire [15:0] o_raw;
+	output wire [4:0] o_mode;
+	output wire o_thumb;
+	output wire o_fault;
+	output wire o_force_align;
+	output wire o_reg_shift;
+	output wire [3:0] o_kind;
+	output wire [3:0] o_condition;
+	output wire [23:0] o_tag;
+	output wire [3:0] o_used;
+	output wire [127:0] o_value;
+	output wire [11:0] o_dest;
+	output wire o_first;
+	output wire o_last;
+	output wire [4:0] o_reg_count;
+	output wire signed [7:0] o_offset;
+	output wire signed [7:0] o_writeback_offset;
+	output wire [3:0] o_transfer_reg;
+	output wire [31:0] o_branch_target;
+	output wire o_direct;
+	output wire o_match_taken;
+	output wire o_match_fallthrough;
+	output wire o_predicted;
+	output wire o_pred_hit;
+	output wire [31:0] o_pred_target;
+	output wire [1:0] o_pred_state;
+	output wire [1:0] o_pred_kind;
+	output wire [2:0] o_ras_pointer;
+	output wire [3:0] o_ras_count;
+	output wire o_hazard;
+	output wire o_redirect;
+	output wire o_redirect_thumb;
+	output wire [31:0] o_redirect_target;
+	output wire [31:0] o_redirect_link;
+	output wire [2:0] o_redirect_pointer;
+	output wire [3:0] o_redirect_count;
+	output wire [1:0] o_redirect_action;
+	input wire [31:0] i_backend_target;
+	input wire [31:0] i_backend_link;
+	input wire i_backend_thumb;
+	input wire [2:0] i_backend_pointer;
+	input wire [3:0] i_backend_count;
+	input wire [1:0] i_backend_action;
+	input wire i_predictor_clear;
+	input wire i_update;
+	input wire [31:0] i_update_pc;
+	input wire [31:0] i_update_target;
+	input wire i_update_thumb;
+	input wire i_update_taken;
+	input wire i_update_hit;
+	input wire [1:0] i_update_state;
+	input wire [1:0] i_update_kind;
+	input wire [31:0] i_data;
+	input wire i_ack;
+	input wire i_error;
+	input wire i_retry;
+	input wire i_fill_pending;
+	input wire i_fill_done;
+	input wire i_fill_fault;
+	output wire [31:0] o_address_nxt;
+	output wire [31:0] o_address_check;
+	output wire [31:0] o_address;
+	output wire o_request;
+	output wire o_stall;
+	wire f_valid;
+	wire f_thumb;
+	wire f_fault;
+	wire f_predicted;
+	wire f_hit;
+	wire [31:0] f_pc;
+	wire [31:0] f_word;
+	wire [31:0] f_target;
+	wire [1:0] f_state;
+	wire [1:0] f_kind;
+	wire [2:0] f_pointer;
+	wire [3:0] f_count;
+	arm9v2_fetch #(
+		.RESET_VECTOR(RESET_VECTOR),
+		.PREDICTOR(PREDICTOR)
+	) u_fetch(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_redirect(i_flush || o_redirect),
+		.i_redirect_target((i_flush ? i_backend_target : o_redirect_target)),
+		.i_redirect_thumb((i_flush ? i_backend_thumb : o_redirect_thumb)),
+		.i_redirect_pointer((i_flush ? i_backend_pointer : o_redirect_pointer)),
+		.i_redirect_count((i_flush ? i_backend_count : o_redirect_count)),
+		.i_redirect_action((i_flush ? i_backend_action : o_redirect_action)),
+		.i_redirect_link((i_flush ? i_backend_link : o_redirect_link)),
+		.i_predictor_clear(i_predictor_clear),
+		.i_update(i_update),
+		.i_update_pc(i_update_pc),
+		.i_update_target(i_update_target),
+		.i_update_thumb(i_update_thumb),
+		.i_update_taken(i_update_taken),
+		.i_update_hit(i_update_hit),
+		.i_update_state(i_update_state),
+		.i_update_kind(i_update_kind),
+		.i_data(i_data),
+		.i_ack(i_ack),
+		.i_error(i_error),
+		.i_retry(i_retry),
+		.i_fill_pending(i_fill_pending),
+		.i_fill_done(i_fill_done),
+		.i_fill_fault(i_fill_fault),
+		.o_address_nxt(o_address_nxt),
+		.o_address_check(o_address_check),
+		.o_address(o_address),
+		.o_request(o_request),
+		.o_stall(o_stall),
+		.i_ready(o_ready),
+		.o_valid(f_valid),
+		.o_pc(f_pc),
+		.o_word(f_word),
+		.o_thumb(f_thumb),
+		.o_fault(f_fault),
+		.o_predicted(f_predicted),
+		.o_pred_hit(f_hit),
+		.o_pred_target(f_target),
+		.o_pred_state(f_state),
+		.o_pred_kind(f_kind),
+		.o_ras_pointer(f_pointer),
+		.o_ras_count(f_count)
+	);
+	arm9v2_decode #(.EXTERNAL_RF(EXTERNAL_RF)) u_decode(
+		.i_valid(f_valid),
+		.i_pc(f_pc),
+		.i_word(f_word),
+		.i_thumb(f_thumb),
+		.i_fault(f_fault),
+		.i_predicted(f_predicted),
+		.i_pred_hit(f_hit),
+		.i_pred_target(f_target),
+		.i_pred_state(f_state),
+		.i_pred_kind(f_kind),
+		.i_ras_pointer(f_pointer),
+		.i_ras_count(f_count),
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_flush(i_flush),
+		.o_ready(o_ready),
+		.i_mode(i_mode),
+		.i_wen(i_wen),
+		.i_wr_addr_a(i_wr_addr_a),
+		.i_wr_addr_b(i_wr_addr_b),
+		.i_wr_addr_c(i_wr_addr_c),
+		.i_locked(i_locked),
+		.i_early_tag(i_early_tag),
+		.i_early_valid(i_early_valid),
+		.i_wr_data_a(i_wr_data_a),
+		.i_wr_data_b(i_wr_data_b),
+		.i_wr_data_c(i_wr_data_c),
+		.i_rf_value(i_rf_value),
+		.o_rf_tag(o_rf_tag),
+		.i_load_tag(i_load_tag),
+		.i_load_valid(i_load_valid),
+		.i_ready(i_ready),
+		.o_valid(o_valid),
+		.o_pc(o_pc),
+		.o_instruction(o_instruction),
+		.o_pc_base(o_pc_base),
+		.o_next_pc(o_next_pc),
+		.o_raw(o_raw),
+		.o_mode(o_mode),
+		.o_thumb(o_thumb),
+		.o_fault(o_fault),
+		.o_force_align(o_force_align),
+		.o_reg_shift(o_reg_shift),
+		.o_kind(o_kind),
+		.o_condition(o_condition),
+		.o_tag(o_tag),
+		.o_used(o_used),
+		.o_value(o_value),
+		.o_dest(o_dest),
+		.o_first(o_first),
+		.o_last(o_last),
+		.o_reg_count(o_reg_count),
+		.o_offset(o_offset),
+		.o_writeback_offset(o_writeback_offset),
+		.o_transfer_reg(o_transfer_reg),
+		.o_branch_target(o_branch_target),
+		.o_direct(o_direct),
+		.o_match_taken(o_match_taken),
+		.o_match_fallthrough(o_match_fallthrough),
+		.o_predicted(o_predicted),
+		.o_pred_hit(o_pred_hit),
+		.o_pred_target(o_pred_target),
+		.o_pred_state(o_pred_state),
+		.o_pred_kind(o_pred_kind),
+		.o_ras_pointer(o_ras_pointer),
+		.o_ras_count(o_ras_count),
+		.o_hazard(o_hazard),
+		.o_redirect(o_redirect),
+		.o_redirect_thumb(o_redirect_thumb),
+		.o_redirect_target(o_redirect_target),
+		.o_redirect_link(o_redirect_link),
+		.o_redirect_pointer(o_redirect_pointer),
+		.o_redirect_count(o_redirect_count),
+		.o_redirect_action(o_redirect_action)
+	);
+endmodule
+module arm9v2_predict (
+	i_clk,
+	i_reset,
+	i_clear,
+	i_lookup,
+	i_pc,
+	i_thumb,
+	i_accept,
+	i_update,
+	i_update_pc,
+	i_update_target,
+	i_update_thumb,
+	i_update_taken,
+	i_update_hit,
+	i_update_state,
+	i_update_kind,
+	i_repair,
+	i_repair_pointer,
+	i_repair_count,
+	i_repair_action,
+	i_repair_link,
+	o_hit,
+	o_taken,
+	o_target,
+	o_state,
+	o_kind,
+	o_pointer,
+	o_count
+);
+	reg _sv2v_0;
+	parameter integer ENTRIES = 256;
+	localparam integer INDEX_W = $clog2(ENTRIES);
+	localparam integer TAG_W = 31 - INDEX_W;
+	input wire i_clk;
+	input wire i_reset;
+	input wire i_clear;
+	input wire i_lookup;
+	input wire [31:0] i_pc;
+	input wire i_thumb;
+	input wire i_accept;
+	input wire i_update;
+	input wire [31:0] i_update_pc;
+	input wire [31:0] i_update_target;
+	input wire i_update_thumb;
+	input wire i_update_taken;
+	input wire i_update_hit;
+	input wire [1:0] i_update_state;
+	input wire [1:0] i_update_kind;
+	input wire i_repair;
+	input wire [2:0] i_repair_pointer;
+	input wire [3:0] i_repair_count;
+	input wire [1:0] i_repair_action;
+	input wire [31:0] i_repair_link;
+	output wire o_hit;
+	output wire o_taken;
+	output wire [31:0] o_target;
+	output wire [1:0] o_state;
+	output wire [1:0] o_kind;
+	output wire [2:0] o_pointer;
+	output wire [3:0] o_count;
+	localparam [1:0] CALL = 1;
+	localparam [1:0] RETURN = 2;
+	reg [TAG_W + 36:0] write_entry;
+	wire [TAG_W + 36:0] read_entry;
+	reg [ENTRIES - 1:0] valid;
+	(* dont_retime *) reg [ENTRIES - 1:0] read_valid;
+	reg [ENTRIES - 1:0] valid_next;
+	(* dont_retime *) reg read_thumb;
+	(* dont_retime *) reg [31:0] read_pc;
+	(* dont_retime *) reg [2:0] pointer;
+	(* dont_retime *) reg [3:0] count;
+	reg [31:0] stack [0:7];
+	reg [1:0] update_state;
+	wire write_enable = (i_update && !i_reset) && !i_clear;
+	wire [INDEX_W - 1:0] rd_index = i_pc[INDEX_W:1];
+	wire [INDEX_W - 1:0] wr_index = i_update_pc[INDEX_W:1];
+	wire unused = &{1'b0, i_pc[0], i_update_pc[0]};
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		update_state = (i_update_hit ? i_update_state : 2'b01);
+		if (i_update_taken) begin
+			if (update_state != 2'b11)
+				update_state = update_state + 1'b1;
+		end
+		else if (update_state != 2'b00)
+			update_state = update_state - 1'b1;
+		write_entry = {i_update_pc[31:INDEX_W + 1], i_update_thumb, i_update_target, update_state, i_update_kind};
+	end
+	zap_ram_simple_nopipe #(
+		.WIDTH(((TAG_W + 36) >= 0 ? TAG_W + 37 : 1 - (TAG_W + 36))),
+		.DEPTH(ENTRIES),
+		.HOLD_READ(1'b1),
+		.REGISTER_COLLISION(1'b1)
+	) u_entries(
+		.i_clk(i_clk),
+		.i_wr_en(write_enable),
+		.i_rd_en(i_lookup),
+		.i_wr_data(write_entry),
+		.i_wr_addr(wr_index),
+		.i_rd_addr(rd_index),
+		.o_rd_data(read_entry)
+	);
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		valid_next = valid;
+		if (write_enable)
+			valid_next[wr_index] = 1'b1;
+	end
+	always @(posedge i_clk) begin
+		if (i_reset || i_clear) begin
+			valid <= {ENTRIES {1'b0}};
+			read_valid <= {ENTRIES {1'b0}};
+		end
+		else begin
+			valid <= valid_next;
+			if (i_lookup)
+				read_valid <= valid_next;
+		end
+		if (i_lookup) begin
+			read_pc <= i_pc;
+			read_thumb <= i_thumb;
+		end
+	end
+	assign o_hit = (read_valid[read_pc[INDEX_W:1]] && (read_entry[TAG_W + 36-:((TAG_W + 36) >= 37 ? TAG_W + 0 : 38 - (TAG_W + 36))] == read_pc[31:INDEX_W + 1])) && (read_entry[36] == read_thumb);
+	assign o_taken = o_hit && read_entry[3];
+	assign o_target = ((read_entry[1-:2] == RETURN) && (count != 0) ? stack[pointer - 1'b1] : read_entry[35-:32]);
+	assign o_state = (o_hit ? read_entry[3-:2] : 2'b01);
+	assign o_kind = read_entry[1-:2];
+	assign o_pointer = pointer;
+	assign o_count = count;
+	always @(posedge i_clk)
+		if (i_reset || i_clear) begin
+			pointer <= 0;
+			count <= 0;
+		end
+		else if (i_repair) begin
+			pointer <= i_repair_pointer;
+			count <= i_repair_count;
+			case (i_repair_action)
+				CALL: begin
+					stack[i_repair_pointer] <= i_repair_link;
+					pointer <= i_repair_pointer + 1'b1;
+					count <= (i_repair_count == 8 ? 4'd8 : i_repair_count + 1'b1);
+				end
+				RETURN:
+					if (i_repair_count != 0) begin
+						pointer <= i_repair_pointer - 1'b1;
+						count <= i_repair_count - 1'b1;
+					end
+				2'd3: begin
+					pointer <= 0;
+					count <= 0;
+				end
+				default:
+					;
+			endcase
+		end
+		else if (i_accept && o_taken)
+			case (read_entry[1-:2])
+				CALL: begin
+					stack[pointer] <= (read_pc + (read_thumb ? 32'd2 : 32'd4)) | {31'd0, read_thumb};
+					pointer <= pointer + 1'b1;
+					if (count != 8)
+						count <= count + 1'b1;
+				end
+				RETURN:
+					if (count != 0) begin
+						pointer <= pointer - 1'b1;
+						count <= count - 1'b1;
+					end
+				default:
+					;
+			endcase
+	initial _sv2v_0 = 0;
+endmodule
+module arm9v2_rotate (
 	i_value,
 	i_amount,
 	i_type,
 	i_register,
 	i_carry,
 	o_value,
-	o_carry
+	o_carry,
+	o_preserve,
+	o_rrx
 );
 	reg _sv2v_0;
 	input wire [31:0] i_value;
@@ -2623,58 +3744,76 @@ module arm9_shift (
 	input wire i_carry;
 	output reg [31:0] o_value;
 	output reg o_carry;
-	wire [32:0] left_result;
-	wire signed [33:0] right_input;
-	wire signed [33:0] right_result;
-	wire [63:0] rotate_result;
-	wire left;
-	wire arithmetic;
-	wire rotate;
-	wire unused = &{1'b0, right_result[33], rotate_result[63:32]};
-	assign left = i_type == 2'b00;
-	assign arithmetic = i_type == 2'b10;
-	assign rotate = i_type == 2'b11;
-	assign left_result = {i_carry, i_value} << i_amount[4:0];
-	assign right_input = {arithmetic && i_value[31], i_value, i_carry};
-	assign right_result = right_input >>> i_amount[4:0];
-	assign rotate_result = {i_value, i_value} >> i_amount[4:0];
+	output reg o_preserve;
+	output reg o_rrx;
+	wire [4:0] amount = (i_type == 0 ? -i_amount[4:0] : i_amount[4:0]);
+	wire [31:0] stage [0:5];
+	assign stage[0] = i_value;
+	genvar _gv_sa_rot_stage_1;
+	generate
+		for (_gv_sa_rot_stage_1 = 0; _gv_sa_rot_stage_1 < 5; _gv_sa_rot_stage_1 = _gv_sa_rot_stage_1 + 1) begin : g_rotate
+			localparam sa_rot_stage = _gv_sa_rot_stage_1;
+			genvar _gv_sa_rot_bit_1;
+			for (_gv_sa_rot_bit_1 = 0; _gv_sa_rot_bit_1 < 32; _gv_sa_rot_bit_1 = _gv_sa_rot_bit_1 + 1) begin : g_bit
+				localparam sa_rot_bit = _gv_sa_rot_bit_1;
+				assign stage[sa_rot_stage + 1][sa_rot_bit] = (amount[sa_rot_stage] ? stage[sa_rot_stage][(sa_rot_bit + (1 << sa_rot_stage)) % 32] : stage[sa_rot_stage][sa_rot_bit]);
+			end
+		end
+	endgenerate
+	wire [31:0] left_mask = 32'hffffffff << i_amount[4:0];
+	wire [31:0] right_mask = 32'hffffffff >> i_amount[4:0];
 	always @(*) begin
 		if (_sv2v_0)
 			;
+		o_preserve = 0;
+		o_rrx = 0;
 		case (i_type)
-			2'b00: {o_carry, o_value} = left_result;
-			2'b01, 2'b10: {o_value, o_carry} = right_result[32:0];
+			0: begin
+				o_value = stage[5] & left_mask;
+				o_carry = stage[5][0];
+			end
+			1: begin
+				o_value = stage[5] & right_mask;
+				o_carry = stage[5][31];
+			end
+			2: begin
+				o_value = (stage[5] & right_mask) | ({32 {i_value[31]}} & ~right_mask);
+				o_carry = stage[5][31];
+			end
 			default: begin
-				o_value = rotate_result[31:0];
-				o_carry = rotate_result[31];
+				o_value = stage[5];
+				o_carry = stage[5][31];
 			end
 		endcase
 		if (i_amount == 0) begin
 			o_value = i_value;
 			o_carry = i_carry;
+			o_preserve = 1;
 			if (!i_register)
 				case (i_type)
-					2'b01: begin
+					1: begin
 						o_value = 0;
 						o_carry = i_value[31];
+						o_preserve = 0;
 					end
-					2'b10: begin
+					2: begin
 						o_value = {32 {i_value[31]}};
 						o_carry = i_value[31];
+						o_preserve = 0;
 					end
-					2'b11: begin
+					3: begin
 						o_value = {i_carry, i_value[31:1]};
 						o_carry = i_value[0];
+						o_preserve = 0;
+						o_rrx = 1;
 					end
 					default:
 						;
 				endcase
 		end
-		else if (rotate)
-			o_carry = rotate_result[31];
-		else if (|i_amount[7:5]) begin
-			o_value = (arithmetic ? {32 {i_value[31]}} : 32'd0);
-			o_carry = (arithmetic ? i_value[31] : (i_amount == 8'd32 ? (left ? i_value[0] : i_value[31]) : 1'b0));
+		else if ((i_type != 3) && |i_amount[7:5]) begin
+			o_value = (i_type == 2 ? {32 {i_value[31]}} : 32'd0);
+			o_carry = (i_type == 2 ? i_value[31] : (i_amount == 32 ? (i_type == 0 ? i_value[0] : i_value[31]) : 1'b0));
 		end
 	end
 	initial _sv2v_0 = 0;
@@ -23857,7 +24996,7 @@ module zap_top (
 			localparam [0:0] sv2v_uu_u_arm9_core_ext_i_icache_clean_done_0 = 1'sb0;
 			localparam [0:0] sv2v_uu_u_arm9_core_ext_i_icache_err2_0 = 1'sb0;
 			localparam [0:0] sv2v_uu_u_arm9_core_ext_i_dcache_err2_0 = 1'sb0;
-			arm9_core #(
+			arm9v2_core #(
 				.ARM9_PREDICTOR(ARM9_PREDICTOR),
 				.CP15_L4_DEFAULT(CP15_L4_DEFAULT),
 				.BP_ENTRIES(BP_ENTRIES),

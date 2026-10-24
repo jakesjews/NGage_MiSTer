@@ -2,7 +2,7 @@
 module execute_tb;
     logic i_clk,i_reset,i_flush;
     logic [31:0] i_cpsr;
-    logic i_valid;
+    logic i_valid,i_admit;
     logic o_ready;
     logic [31:0] i_pc,i_instruction,i_pc_base,i_next_pc;
     logic i_thumb,i_fault,i_force_align,i_reg_shift,i_first,i_last;
@@ -45,8 +45,11 @@ module execute_tb;
     logic o_btb_update,o_btb_taken,o_btb_hit;
     logic [31:0] o_btb_target;
     logic [1:0] o_btb_state,o_btb_kind;
+    logic o_a_load,o_predicted;
+    logic [31:0] o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target;
+    logic [5:0] o_spsr_tag;
     arm9v2_execute dut(.*);
-    wire unused=&{1'b0,o_btb_update,o_btb_taken,o_btb_hit,o_btb_target,o_btb_state,o_btb_kind,o_a_can_finish,o_s_write,o_ready,o_valid,o_pc,o_instruction,o_cpsr,o_cpsr_next,o_kind,o_thumb,o_fault,o_first,o_last,o_condition_pass,o_dest,o_result,o_write,o_write_flags,o_pc_write,o_memory,o_store,o_address,o_store_data,o_flags,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_a_valid,o_a_dest,o_a_write,o_shift_wait,o_multiply_wait};
+    wire unused=&{1'b0,o_a_load,o_predicted,o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target,o_spsr_tag,o_btb_update,o_btb_taken,o_btb_hit,o_btb_target,o_btb_state,o_btb_kind,o_a_can_finish,o_s_write,o_ready,o_valid,o_pc,o_instruction,o_cpsr,o_cpsr_next,o_kind,o_thumb,o_fault,o_first,o_last,o_condition_pass,o_dest,o_result,o_write,o_write_flags,o_pc_write,o_memory,o_store,o_address,o_store_data,o_flags,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_a_valid,o_a_dest,o_a_write,o_shift_wait,o_multiply_wait};
     int checks=0,cycles=0;
     logic [31:0] random_state=32'h315d97af;
     function automatic logic [31:0] rnd;
@@ -66,7 +69,7 @@ module execute_tb;
         i_reset='0;
         i_flush='0;
         i_cpsr='0;
-        i_valid='0;
+        i_valid='0;i_admit=1;
         i_pc='0;
         i_instruction='0;
         i_pc_base='0;
@@ -275,6 +278,14 @@ module execute_tb;
         check(o_address==32'h1004,"Thumb literal base aligns architectural PC");
         reset_case();i_kind=5;i_instruction=32'he580f000;i_used=9;i_tag[3]=15;i_value[0]=32'h3000;send();receive();
         check(o_address==32'h3000&&o_store_data==32'h100c&&o_store,"ARM STR PC uses pc+12");
+        // A back-end reservation can temporarily hide an older producer.
+        // Register-shift preparation must wait for admission, then capture
+        // the refreshed amount from the ordinary M producer.
+        reset_case();i_instruction=32'he1b22472;i_used=6;i_tag[1]=2;i_tag[2]=4;
+        i_reg_shift=1;i_value[1]=32'h12345678;i_value[2]=6;i_valid=1;i_admit=0;
+        repeat(3)begin tick();check(!o_ready&&!dut.prepared,"held shift does not prepare a stale amount");end
+        i_mw_valid[0][0]=1;i_mw_tag[0][0]=4;i_mw_value[0][0]=4;i_admit=1;
+        send();receive();check(o_result[0]==32'h81234567,"shift amount refreshed after reservation recovery");
         // Conditional direct branches use only the registered target-match
         // bits and ordered A flags. Check all conditions and prediction cases.
         for(int cf=0;cf<16;cf++)for(int cc=0;cc<16;cc++)for(int pred=0;pred<4;pred++)begin

@@ -77,6 +77,7 @@ module tb_cpu #(
 	output logic         p_dc_fill_take,
 	// Blocking ARM9 loads capture cache completion before architectural W.
     output logic         p_blocking_load,
+    output logic         p_arm9,
     output logic         p_arm9_predictor,
     output logic         p_load_capture,
     output logic [63:0]  p_load_commit,
@@ -136,7 +137,8 @@ module tb_cpu #(
 	assign p_ttb   = dut.u_zap.cpu_baddr;
 	assign p_dacr  = dut.u_zap.cpu_dac_reg;
 	assign p_mmu   = dut.u_zap.cpu_mmu_en;
-    assign p_blocking_load = CORE == "ARM9";
+    assign p_arm9 = CORE == "ARM9";
+    assign p_blocking_load = 1'b0; // V2 uses the shared nonblocking background write port.
     assign p_arm9_predictor = CORE == "ARM9" && ARM9_PREDICTOR;
 	if (CORE == "ZAP") begin : g_zap_probes
     assign p_load_capture = 0;
@@ -209,6 +211,7 @@ module tb_cpu #(
 	`undef AL
 	end else begin : g_arm9_probes
 	`define A9 dut.u_zap.g_arm9.u_arm9_core
+
     assign p_load_capture = `A9.load_capture;
     assign p_load_commit = `A9.load_commit;
     assign p_load_value = `A9.load_value;
@@ -250,11 +253,16 @@ module tb_cpu #(
 	`define TC dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_tlb.u_zap_tlb_check
 	localparam int DLINE_W = $clog2(CACHE_LINE);
 	localparam int DSET_W = $clog2(DCACHE_SIZE / DCACHE_WAYS / CACHE_LINE);
-	logic [DSET_W-1:0] dc_read_set;
+	logic [DSET_W-1:0] dc_read_set, dc_response_set;
 	logic dc_victim_valid;
 	logic [31:DLINE_W] dc_victim_line;
 	always_ff @(posedge clk) begin
-		if (!`DT.i_hold) dc_read_set <= CORE == "ARM9" ? `DT.rd_set : `DT.rd_set_del2;
+		if (!`DT.i_hold) begin
+            dc_read_set <= CORE == "ARM9" ? `DT.rd_set : `DT.rd_set_del2;
+            // SHORT_READ adds the registered compare/format response after
+            // the RAM edge. Check the set belonging to that response.
+            dc_response_set <= dc_read_set;
+        end
 		if (`DC.o_idle) begin
 			dc_victim_valid <= `DC.i_cache_tag_valid;
 			dc_victim_line <= {`DC.i_cache_tag[31-DLINE_W-DSET_W:0],
@@ -267,7 +275,7 @@ module tb_cpu #(
 			assert (!`DC.o_ack) else $fatal(1, "Hit collided with fill installation");
 		if (!reset && (`DC.state_ff[3] || `DC.state_ff[4] || `DC.state_ff[10]) &&
 		    (`DC.i_rd || `DC.i_wr) && `DC.o_ack) begin
-			assert (dc_read_set == `DC.i_address[DLINE_W +: DSET_W])
+			assert ((CORE == "ARM9" ? dc_response_set : dc_read_set) == `DC.i_address[DLINE_W +: DSET_W])
 				else $fatal(1, "Hit under miss used an unaligned cache lookup");
 			assert (`DC.i_address[31:DLINE_W] != `DC.address[31:DLINE_W])
 				else $fatal(1, "Hit under miss accessed the filling line");

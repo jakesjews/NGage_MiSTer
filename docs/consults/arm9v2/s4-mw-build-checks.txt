@@ -1,0 +1,71 @@
+Session 4 integrated candidate, production generated netlist.
+
+File: mw-gencheck.log
+rtl/cpu/arm925t_gen.v is current
+
+File: mw-lint.log
+lint emu
+- Verilator: Built from 8.219 MB sources in 106 modules, into 8.632 MB in 10 C++ files needing 0.000 MB
+lint lcd_panel
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.152 MB in 3 C++ files needing 0.000 MB
+lint video_out
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.035 MB in 3 C++ files needing 0.000 MB
+lint keypad_matrix
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.106 MB in 3 C++ files needing 0.000 MB
+lint nor_flash
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.103 MB in 3 C++ files needing 0.000 MB
+lint mmc_card
+- Verilator: Built from 8.219 MB sources in 106 modules, into 1.662 MB in 4 C++ files needing 0.000 MB
+lint ngage_input
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.045 MB in 3 C++ files needing 0.000 MB
+lint ddram_loader
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.027 MB in 3 C++ files needing 0.000 MB
+lint lcd_testgen
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.128 MB in 3 C++ files needing 0.000 MB
+lint dbg_trace
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.063 MB in 3 C++ files needing 0.000 MB
+lint dbg_sti
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.027 MB in 3 C++ files needing 0.000 MB
+lint dbg_counters
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.025 MB in 3 C++ files needing 0.000 MB
+lint sdram
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.065 MB in 3 C++ files needing 0.000 MB
+lint ddram_flash
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.122 MB in 3 C++ files needing 0.000 MB
+lint upp_bus
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.150 MB in 3 C++ files needing 0.000 MB
+lint ngage_mem
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.478 MB in 3 C++ files needing 0.000 MB
+lint wb_selftest
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.094 MB in 3 C++ files needing 0.000 MB
+lint flash_save
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.068 MB in 3 C++ files needing 0.000 MB
+lint rtc_wall
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.028 MB in 3 C++ files needing 0.000 MB
+lint upp_periph
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.612 MB in 3 C++ files needing 0.000 MB
+lint upp_intc
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.079 MB in 3 C++ files needing 0.000 MB
+lint upp_timers
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.080 MB in 3 C++ files needing 0.000 MB
+lint upp_dma
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.101 MB in 3 C++ files needing 0.000 MB
+lint upp_mmc
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.158 MB in 3 C++ files needing 0.000 MB
+lint upp_lcdif
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.047 MB in 3 C++ files needing 0.000 MB
+lint upp_uif
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.055 MB in 3 C++ files needing 0.000 MB
+lint upp_cbus
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.054 MB in 3 C++ files needing 0.000 MB
+lint upp_haudio
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.100 MB in 3 C++ files needing 0.000 MB
+lint wb_arb2
+- Verilator: Built from 8.219 MB sources in 106 modules, into 0.040 MB in 3 C++ files needing 0.000 MB
+
+File: mw-core-lint.log
+- Verilator: Built from 8.219 MB sources in 106 modules, into 3.615 MB in 6 C++ files needing 0.000 MB
+
+Explicit CORE=ARM9 lint uses the repository generated-CPU warning policy.
+Strict source/generated component checks are recorded in s4-mw-*-tests.log.
+The raw full-source -Wall run reports inherited ZAP warnings; it is not claimed as a clean strict source run.

@@ -431,7 +431,7 @@ zap_core #(
 .i_dcache_err2          (!ONLY_CORE ? dcache_err2 : '0)
 );
 end else if (CORE == "ARM9") begin : g_arm9
-arm9_core #(
+arm9v2_core #(
 .ARM9_PREDICTOR        (ARM9_PREDICTOR),
         .CP15_L4_DEFAULT(CP15_L4_DEFAULT),
         .BP_ENTRIES(BP_ENTRIES),

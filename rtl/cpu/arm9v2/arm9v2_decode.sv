@@ -2,7 +2,7 @@
 // ARM9V2 D1/D2, including the registers at the S entrance. ARMv4T class and
 // physical register mapping follow this project's GPL arm9_core/zap_functions
 // (ZAP copyright 2016-2024 Revanth Kamaraj). No execution or forwarding here.
-module arm9v2_decode (
+module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     input logic i_clk, i_reset, i_flush,
     input logic i_valid,
     output logic o_ready,
@@ -22,6 +22,10 @@ module arm9v2_decode (
     input logic [3:0][5:0] i_early_tag,
     input logic [3:0] i_early_valid,
     input logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c,
+    input logic [3:0][31:0] i_rf_value,
+    output logic [3:0][5:0] o_rf_tag,
+    input logic [5:0][5:0] i_load_tag,
+    input logic [5:0] i_load_valid,
     input logic i_ready,
     output logic o_valid,
     output logic [31:0] o_pc, o_instruction, o_pc_base, o_next_pc,
@@ -110,8 +114,10 @@ module arm9v2_decode (
     logic [3:0][31:0] raw_values, read_values;
     logic push, pop, accept, shortcut, fast_select, new_d2, late_redirect, step, kill_younger, taken_match, fallthrough_match;
     logic [3:0] early_used, early_hazard;
+    logic load_hazard;
+    (* dont_retime *) logic fenced;
     logic unused;
-    assign unused = &{1'b0, expanded[33:32], issued.left, issued.remaining, issued.redirected, fast_arm_twos[31], fast_thumb_twos[31]};
+    assign unused = &{1'b0, expanded[33:32], issued.left, issued.remaining, issued.redirected, i_rf_value, fast_arm_twos[31], fast_thumb_twos[31]};
 
     // Three small truth tables and a carry-save reduction avoid four serial
     // carry-propagating population-count additions after the queue mux.
@@ -408,11 +414,25 @@ module arm9v2_decode (
         for(int src=0;src<4;src++)for(int pending=0;pending<4;pending++)
             early_hazard[src]|=early_used[src]&&i_early_valid[pending]&&d2.tag[src]==i_early_tag[pending];
     end
-    assign o_hazard=d2_valid&&((d2.used[0]&&i_locked[d2.tag[0]]) ||
+    always_comb begin
+        load_hazard=0;
+        for(int pending=0;pending<6;pending++)begin
+            for(int src=0;src<4;src++)load_hazard|=d2.used[src]&&i_load_valid[pending]&&d2.tag[src]==i_load_tag[pending];
+            // No younger destination can be overwritten by an older fill.
+            if(EXTERNAL_RF)for(int dst=0;dst<2;dst++)
+                load_hazard|=i_load_valid[pending]&&d2.dest[dst]==i_load_tag[pending];
+        end
+        if(EXTERNAL_RF)for(int dst=0;dst<2;dst++)load_hazard|=i_locked[d2.dest[dst]];
+    end
+    assign o_hazard=d2_valid&&(load_hazard||fenced||(d2.used[0]&&i_locked[d2.tag[0]]) ||
         (d2.used[1]&&i_locked[d2.tag[1]]) || (d2.used[2]&&i_locked[d2.tag[2]]) || (d2.used[3]&&i_locked[d2.tag[3]]) ||
         (|early_hazard));
     assign step=d2_valid&&(!out_valid||i_ready)&&!o_hazard&&!i_flush&&(!redirect_ff.valid||redirect_in_d2);
     assign pop=count!=0&&(!d2_valid||(step&&d2.last))&&!kill_younger;
+    assign o_rf_tag=d2.tag;
+    generate if(EXTERNAL_RF)begin : g_external_rf
+        assign raw_values=i_rf_value;
+    end else begin : g_internal_rf
     zap_register_file u_registers (
         .i_clk(i_clk),.i_reset(i_reset),.i_wen(i_wen),
         .i_wr_addr_a(i_wr_addr_a),.i_wr_addr_b(i_wr_addr_b),.i_wr_addr_c(i_wr_addr_c),
@@ -420,6 +440,7 @@ module arm9v2_decode (
         .i_rd_addr_a(d2.tag[0]),.i_rd_addr_b(d2.tag[1]),.i_rd_addr_c(d2.tag[2]),.i_rd_addr_d(d2.tag[3]),
         .o_rd_data_a(raw_values[0]),.o_rd_data_b(raw_values[1]),.o_rd_data_c(raw_values[2]),.o_rd_data_d(raw_values[3])
     );
+    end endgenerate
     always_comb begin
         read_values=raw_values;
         // Same-edge RF write-through only: priority is C > B > A, as in ZAP.
@@ -432,7 +453,7 @@ module arm9v2_decode (
     end
     always_ff @(posedge i_clk) begin
         if(i_reset) begin
-            count<=0;head_select<=2'b01;tail<=0;d2_valid<=0;out_valid<=0;redirect_ff.valid<=0;redirect_in_d2<=0;
+            fenced<=0;count<=0;head_select<=2'b01;tail<=0;d2_valid<=0;out_valid<=0;redirect_ff.valid<=0;redirect_in_d2<=0;
             previous_prefix<=0;prefix_valid<=0;previous_next_pc<=0;prefix_target<=0;
             d2<=decoded_t'(0);issued<=decoded_t'(0);values<=0;matches_taken<=0;matches_fallthrough<=0;
             redirect_ff.target<=0;redirect_ff.thumb<=0;redirect_ff.link<=0;
@@ -456,6 +477,10 @@ module arm9v2_decode (
                 matches_taken<=taken_match;matches_fallthrough<=fallthrough_match;
             end
             if(step)begin
+                if(EXTERNAL_RF&&(d2.kind==K_CP||d2.kind==K_MSR||d2.kind==K_SWP||
+                    d2.kind==K_SWI||d2.kind==K_UND||d2.p.fault||
+                    (d2.kind==K_DP&&d2.p.ins[20]&&d2.dest[0]==15)||
+                    (d2.kind==K_BLOCK&&d2.p.ins[22]&&d2.p.ins[20]&&d2.p.list[15]&&d2.last)))fenced<=1;
                 out_valid<=1;
                 if(d2.kind==K_BL_PREFIX)begin prefix_target<=d2.target;prefix_valid<=!d2.p.fault;end
                 else prefix_valid<=0;
@@ -488,7 +513,7 @@ module arm9v2_decode (
                 count<=0;head_select<=2'b01;tail<=0;previous_prefix<=0;prefix_valid<=0;
                 if(i_flush||!redirect_in_d2)d2_valid<=0;
             end
-            if(i_flush)begin out_valid<=0;redirect_ff.valid<=0;end
+            if(i_flush)begin fenced<=0;out_valid<=0;redirect_ff.valid<=0;end
         end
     end
     assign o_valid=out_valid;assign o_pc=issued.p.pc;assign o_instruction=issued.p.ins;

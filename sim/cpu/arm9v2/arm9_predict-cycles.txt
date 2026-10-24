@@ -1,0 +1,5 @@
+# ARM9V2 session 4 integration measurements, warmed 0:0.
+# Name, last visit predictor on/off; optional penultimate visit on/off.
+# Exact implementation regression counts, not the design acceptance targets.
+predicted_taken 2 6
+mispredicted_not_taken 9 2

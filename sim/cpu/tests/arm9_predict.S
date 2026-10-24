@@ -1,6 +1,6 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
 @ Registered BTB: hot taken branch and trained-taken/actually-not-taken repair.
-@@ bench: --arm9-cycles --arm9-cycle-model arm9/predict-cycles.txt
+@@ bench: --arm9-cycles --arm9-cycle-model arm9v2/arm9_predict-cycles.txt
     .include "test.inc"
     .include "mmu.inc"
     .text

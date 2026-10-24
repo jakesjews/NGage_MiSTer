@@ -5,7 +5,7 @@
 // Pending S operands are stalled in D2. Unshifted operands can carry a late
 // token into A, selecting the just-completed REGISTERED A result there.
 module arm9v2_execute (
-    input logic i_clk,i_reset,i_flush,
+    input logic i_clk,i_reset,i_flush,i_admit,
     input logic [31:0] i_cpsr,
     input logic i_valid,
     output logic o_ready,
@@ -49,7 +49,11 @@ module arm9v2_execute (
     output logic [1:0] o_s_write,
     output logic [1:0][5:0] o_a_dest,
     output logic [1:0] o_a_write,
-    output logic o_shift_wait,o_multiply_wait
+    output logic o_shift_wait,o_multiply_wait,
+    output logic o_a_load,
+    output logic [31:0] o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target,
+    output logic [5:0] o_spsr_tag,
+    output logic o_predicted
 );
     localparam logic [3:0] DP=0,MRS=1,MSR=2,BR=3,BX=4,MEM=5,BLOCK=6,
         CP=7,UND=8,SWI=9,PREFIX=10,SUFFIX=11,SWP=12,MUL=13,MULL=14;
@@ -62,6 +66,7 @@ module arm9v2_execute (
         logic [2:0] ras_pointer;
         logic [3:0] ras_count;
         logic [1:0][5:0] dest;
+        logic [5:0] spsr_tag;
         logic [1:0] writes;
         logic [31:0] left,right,store_data,special;
         logic [3:0] op;
@@ -130,6 +135,8 @@ module arm9v2_execute (
             MULL:planned_writes=3;
             BR:planned_writes[0]=i_instruction[24];
             SUFFIX:planned_writes[0]=1;
+            MEM:planned_writes[1]=i_instruction[21]||!i_instruction[24];
+            BLOCK:planned_writes[1]=i_last&&i_instruction[21]&&!(i_instruction[20]&&i_instruction[{1'b0,i_instruction[19:16]}]);
             default:;
         endcase
         if(i_fault)planned_writes=0;
@@ -168,7 +175,7 @@ module arm9v2_execute (
     assign space=!a_valid||finish;
     assign o_shift_wait=i_valid&&i_reg_shift&&!prepared;
     assign o_multiply_wait=product_phase||mac_phase;
-    assign o_ready=space&&!o_shift_wait&&!i_flush&&!o_redirect;
+    assign o_ready=i_admit&&space&&!o_shift_wait&&!i_flush&&!o_redirect;
     assign accept=i_valid&&o_ready;
     assign finish=a_valid&&!product_phase&&!mac_phase&&(!o_valid||i_ready)&&!i_flush&&!o_redirect;
     assign o_a_valid=a_valid;
@@ -176,6 +183,7 @@ module arm9v2_execute (
     assign o_s_write=planned_writes&{2{i_valid}};
     assign o_a_dest=a.dest;
     assign o_a_write=a.writes;
+    assign o_a_load=a_valid&&!a.fault&&((a.kind==MEM||a.kind==BLOCK)?a.ins[20]:a.kind==SWP);
     assign o_flags=flags;
     always_comb begin
         case(a.condition)
@@ -231,7 +239,7 @@ module arm9v2_execute (
             o_redirect<=0;o_btb_update<=0;
             if(i_ready)begin o_valid<=0;o_write<=0;o_write_flags<=0;end
             if(i_valid&&!accept)begin holding<=1;held<=operand;end
-            if(i_valid&&i_reg_shift&&!prepared)begin prepared<=1;held_amount<=operand[2][7:0];end
+            if(i_valid&&i_admit&&space&&i_reg_shift&&!prepared)begin prepared<=1;held_amount<=operand[2][7:0];end
             if(a_valid)begin a.left<=left_a;a.right<=right_a;a.store_data<=store_a;a.late<=0;end
             if(product_phase)begin
                 ll<=$signed({1'b0,a.right[15:0]})*$signed({1'b0,a.special[15:0]});
@@ -245,6 +253,9 @@ module arm9v2_execute (
                 a_valid<=0;o_valid<=1;o_pc<=a.pc;o_instruction<=a.ins;o_kind<=a.kind;
                 o_thumb<=a.thumb;o_fault<=a.fault;o_first<=a.first;o_last<=a.last;
                 o_condition_pass<=condition_pass&&!a.fault;o_dest<=a.dest;
+                o_psr_source<=right_a;o_saved_psr<=a.kind==DP?store_a:a.special;
+                o_original_base<=left_a;o_spsr_tag<=a.spsr_tag;
+                o_next_pc<=a.next_pc;o_predicted<=a.predicted;o_prediction_target<=a.pred_target;
                 o_cpsr<={flags,a.cpsr_low};o_cpsr_next<={next_flags,a.cpsr_low};
                 flags<=next_flags;o_write_flags<=will_write_flags;
                 o_write<=a.writes&{2{condition_pass&&!a.fault}};
@@ -284,7 +295,7 @@ module arm9v2_execute (
                 a.thumb<=i_thumb;a.fault<=i_fault;a.first<=i_first;a.last<=i_last;
                 a.direct<=i_direct;a.predicted<=i_predicted;a.match_taken<=i_match_taken;
                 a.match_fallthrough<=i_match_fallthrough;a.pred_hit<=i_pred_hit;a.pred_state<=i_pred_state;a.ras_pointer<=i_ras_pointer;a.ras_count<=i_ras_count;
-                a.dest<=i_dest;a.writes<=planned_writes;a.left<=operand[0];a.right<=shifted;
+                a.spsr_tag<=i_tag[2];a.dest<=i_dest;a.writes<=planned_writes;a.left<=operand[0];a.right<=shifted;
                 a.store_data<=operand[3];a.special<=operand[2];a.cpsr_read<=i_tag[2]==17;
                 a.op<=i_instruction[24:21];a.set_flags<=i_instruction[20]||(i_kind==DP&&i_instruction[24:23]==2'b10);
                 a.shift_carry<=shift_carry;a.carry_preserve<=carry_preserve;a.rrx<=rrx;a.wb_offset<=i_writeback_offset;

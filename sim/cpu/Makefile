@@ -136,7 +136,7 @@ $(TB)/%.lst: $(TB)/%.elf
 VFLAGS := --cc --exe --build --assert -j $(JOBS) -O3 --x-assign unique --x-initial unique \
           -Wno-fatal -Wno-lint -Wno-style -Wno-MULTIDRIVEN -Wno-ASSIGNIN \
           --top-module tb_cpu -GCORE=\"$(CORE)\" -CFLAGS "-O2 -std=c++17" $(VEXTRA)
-ARM9_SV := $(wildcard $(ROOT)/rtl/cpu/arm9/*.sv)
+ARM9_SV := $(wildcard $(ROOT)/rtl/cpu/arm9/*.sv) $(wildcard $(ROOT)/rtl/cpu/arm9v2/*.sv)
 ZAP_SV  := $(wildcard $(ROOT)/rtl/cpu/zap/*.sv)
 ifeq ($(RTL),sv)
 RTL_SRC := +incdir+$(ROOT)/rtl/cpu/zap $(ROOT)/rtl/cpu/arm925t.sv $(ARM9_SV) $(ZAP_SV)

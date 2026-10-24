@@ -556,4 +556,97 @@ pass, including new four-lane hazard and held-payload checks. The joined
 S/A/cache bench stays 270 / 401 / 677 clocks. Hot untrained/predicted direct
 branches stay four/one clocks apart. The report retains the full before/after
 [trend and remaining paths](consults/2026-10-23-codex-arm9v2-s4.md).
-M/W completion and architectural retirement remain the next milestone.
+At admission commit `bc3e838`, M/W and architectural retirement remained
+the next milestone; the integration candidate below supersedes that stopping
+point.
+
+## Session 4: integrated M/W candidate (acceptance incomplete)
+
+`CORE="ARM9"` now instantiates `arm9v2_core`; ZAP remains the wrapper default.
+The old `rtl/cpu/arm9` sources remain available as the paused implementation.
+The front/decode integration module moved from the simulation directory to
+`rtl/cpu/arm9v2`. The new core uses the shared CP15 and banked writeback/RF
+blocks, caches, TLBs and merger. The current implementation is a candidate,
+not a completed three-clock-load-use or game-speed milestone. See the
+[session-4 report](consults/2026-10-23-codex-arm9v2-s4.md) for the failing cache
+cases, fit and exact stopping point.
+
+### Memory ownership and retirement
+
+The registered A result launches the cache/TLB lookup. An M record owns its
+check address, access mode and load format; W owns the request, store data,
+byte enables, destination and retirement. The cache's short-port compare and
+format register supplies the load word. No combinational ALU address drives
+the D-TLB. Loads currently wait conservatively through W in D2, so this does
+**not** yet implement the planned three-clock late pickup at S. The warmed
+`ldr_alu` marker window is eight clocks, including three instructions: five
+extra clocks, versus the intended three. Even an independent-load window
+is seven clocks because the conservative destination hazards include unused
+destination lanes. These are measured deficiencies, not new design targets.
+
+Cache ACK/replay changes the local backend state. Its registered hold then
+stops S admission; one reservation record preserves the A result accepted
+on the first blocked edge. After completion, two lookup clocks restore M
+and the reservation in order before normal admission resumes. The
+reservation's load destination participates in the D2 hazard checks. It is
+not a fourth producer in the S forwarding mux. Register-shift preparation
+waits for admission, so an older value temporarily in the reservation cannot
+be mistaken for the shift amount.
+
+During a held request, W owns the check/format payload as well as the bus
+request. When fill-busy falls, an arriving memory request is re-read before
+acceptance: its previous tag result can predate installation of the line.
+The cache's registered background data/mask writes RF port C, with the
+existing C-over-B-over-A priority and registered lock clearing. Independent
+instructions can retire while a fill runs; dependent sources and younger
+writers remain blocked by the lock. No cache source was changed.
+
+W is the only source of stores and architectural retirement. Faults suppress
+normal writes and younger requests. An aborting block with writeback restores
+its original physical base before entering ABT. Deferred load-PC and SWP
+records wait for their critical background return. SWP rechecks the write
+permission after its read and retires the saved old word only after its
+write completes. The existing cache contract for cacheable bus errors is
+unchanged; uncached errors enter the precise data-abort path.
+
+IRQ/FIQ are sampled for an instruction's first uop using its saved masks.
+Retirement waits for older background locks before taking an exception.
+Data abort wins over FIQ, IRQ, prefetch abort, SWI and undefined, in that order.
+The reused writeback handles banked LR/SPSR and vector-mode changes. Control
+MSR, CP15, SWP, faults and SPSR-return instructions fence D2; completion emits
+a registered W flush, including condition-failed serial records. CP15 is
+submitted once and waits for its completion, outstanding fills and locks.
+A registered W redirect has priority over the registered A redirect.
+
+PC loads and ALU PC writes are validated against the recorded prediction in
+W. The current W recovery clears the return stack rather than restoring its
+checkpoint; this is conservative and costs predictions. The frontend's
+trained direct-branch cadence remains one per clock in the component bench.
+
+### Verification contract for the candidate
+
+All 68 existing QEMU references agree with V2 in both predictor modes. This
+is broader than the original 57-reference acceptance list. It does not
+supersede the remaining cache-only failures. The suite has 87 tests / 261
+runs per configuration. All ZAP cycle/instruction pairs equal the session-1
+baseline. Existing binaries and QEMU references were reused.
+
+The 85 timing windows retain the original binary instruction streams and
+use versioned `sim/cpu/arm9v2/*-cycles.txt` model files. Counts pin the current
+candidate, separately from the target table above. Exact warm counts are
+checked at 0:0 in both predictor modes; all latencies/configurations check
+window coverage. Some serial/exception windows have different last-two
+visit counts because the fetch/prediction state differs. The table can name
+each of those two counts explicitly, rather than accepting a tolerance.
+`--measure-cycles` reports warm measurements without asserting the model.
+The shared background-load checks no longer double as the switch enabling
+timing assertions: V2 has a nonblocking return but still checks its windows.
+
+The integrated CPU/cache trial measures -1.959 / -1.579 / -1.329 ns at
+104 MHz on seeds 2/3/4, median -1.579 ns and 15,902 ALMs. Matched seed-2
+area is 15,955 versus ZAP's 16,549 ALMs. The area ceiling passes; the
+within-1-ns integration gate does not. The worst families are D1 classification
+to D2 register indices, registered producer tags through S forwarding, and
+queue/Thumb selection. ZAP remains default; no whole-device build or game
+measurement is claimed. The full fit and continuation details are in the
+session-4 report.

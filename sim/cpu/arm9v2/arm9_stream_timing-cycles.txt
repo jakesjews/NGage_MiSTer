@@ -1,0 +1,10 @@
+# ARM9V2 session 4 integration measurements, warmed 0:0.
+# Name, last visit predictor on/off; optional penultimate visit on/off.
+# Exact implementation regression counts, not the design acceptance targets.
+stores_same 9 9
+stores_sets 9 9
+loads_same 9 9
+loads_sets 9 9
+stores_index 9 9
+loads_index 9 9
+mixed 9 9

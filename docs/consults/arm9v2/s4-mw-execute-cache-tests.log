@@ -1,0 +1,6 @@
+PASS S/A/cache latency=0: 563 checks, 270 clocks, 145 records, shift=1 mac=5 hazard=10
+PASS S/A/cache latency=3: 839 checks, 401 clocks, 145 records, shift=1 mac=5 hazard=6
+PASS S/A/cache latency=9: 1390 checks, 677 clocks, 145 records, shift=1 mac=5 hazard=9
+PASS S/A/cache latency=0: 563 checks, 270 clocks, 145 records, shift=1 mac=5 hazard=10
+PASS S/A/cache latency=3: 839 checks, 401 clocks, 145 records, shift=1 mac=5 hazard=6
+PASS S/A/cache latency=9: 1390 checks, 677 clocks, 145 records, shift=1 mac=5 hazard=9

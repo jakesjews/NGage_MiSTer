@@ -1,0 +1,72 @@
+# ARM9V2 session 4 integration measurements, warmed 0:0.
+# Name, last visit predictor on/off; optional penultimate visit on/off.
+# Exact implementation regression counts, not the design acceptance targets.
+dp 9 9
+dp_dependency 5 5
+dp_flags 5 5
+dp_regshift 3 3
+failed_regshift 3 3
+dp_pc 2 12
+dp_regshift_pc 3 13
+ldr_independent 7 7
+ldr_alu 8 8
+ldr_base 8 8
+ldr_shift_amount 9 9
+ldr_shift_value 8 8
+ldr_store 8 8
+ldrb 8 8
+ldrh 8 8
+ldrsb 8 8
+ldrsh 8 8
+ldr_unaligned 8 8
+ldr_pc 5 13
+str 2 2
+ldm1 7 7
+stm1 2 2
+ldm3 7 7
+stm3 4 4
+ldm_pc 15 15 19 15
+swp 26 18 18 18
+swpb 27 19 19 19
+b 2 6
+bl 2 6
+bx 2 9
+mrs 2 2
+msr_flags 12 12
+msr_control 12 12
+mcr 26 20 20 20
+mrc 18 18 26 18
+mrc_use 19 19 27 19
+mrc_pc 18 18
+swi 26 26 18 26
+undefined 18 26 26 26
+cdp 18 26
+ldc 18 26
+stc 26 26 18 26
+mul_m1 3 3
+mul_m2 3 3
+mul_m3 3 3
+mul_m4 3 3
+mla_m1 4 4
+mla_m2 4 4
+mla_m3 4 4
+mla_m4 4 4
+smull_m1 3 3
+smull_m2 3 3
+smull_m3 3 3
+smull_m4 3 3
+umull_m1 3 3
+umull_m2 3 3
+umull_m3 3 3
+umull_m4 3 3
+smlal_m1 4 4
+smlal_m2 4 4
+smlal_m3 4 4
+smlal_m4 4 4
+umlal_m1 4 4
+umlal_m2 4 4
+umlal_m3 4 4
+umlal_m4 4 4
+load_distance1 9 9
+load_distance2 10 10
+load_distance3 11 11

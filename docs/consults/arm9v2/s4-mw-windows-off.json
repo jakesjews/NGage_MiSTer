@@ -1,0 +1,1062 @@
+{
+  "arm9_cycles": {
+    "0:0": {
+      "dp": [
+        9,
+        9
+      ],
+      "dp_dependency": [
+        5,
+        5
+      ],
+      "dp_flags": [
+        5,
+        5
+      ],
+      "dp_regshift": [
+        3,
+        3
+      ],
+      "failed_regshift": [
+        3,
+        3
+      ],
+      "dp_pc": [
+        12,
+        12
+      ],
+      "dp_regshift_pc": [
+        13,
+        13
+      ],
+      "ldr_independent": [
+        7,
+        7
+      ],
+      "ldr_alu": [
+        8,
+        8
+      ],
+      "ldr_base": [
+        8,
+        8
+      ],
+      "ldr_shift_amount": [
+        9,
+        9
+      ],
+      "ldr_shift_value": [
+        8,
+        8
+      ],
+      "ldr_store": [
+        8,
+        8
+      ],
+      "ldrb": [
+        8,
+        8
+      ],
+      "ldrh": [
+        8,
+        8
+      ],
+      "ldrsb": [
+        8,
+        8
+      ],
+      "ldrsh": [
+        8,
+        8
+      ],
+      "ldr_unaligned": [
+        8,
+        8
+      ],
+      "ldr_pc": [
+        13,
+        13
+      ],
+      "str": [
+        2,
+        2
+      ],
+      "ldm1": [
+        7,
+        7
+      ],
+      "stm1": [
+        2,
+        2
+      ],
+      "ldm3": [
+        7,
+        7
+      ],
+      "stm3": [
+        4,
+        4
+      ],
+      "ldm_pc": [
+        15,
+        15
+      ],
+      "swp": [
+        18,
+        18
+      ],
+      "swpb": [
+        19,
+        19
+      ],
+      "b": [
+        6,
+        6
+      ],
+      "bl": [
+        6,
+        6
+      ],
+      "bx": [
+        9,
+        9
+      ],
+      "mrs": [
+        2,
+        2
+      ],
+      "msr_flags": [
+        12,
+        12
+      ],
+      "msr_control": [
+        12,
+        12
+      ],
+      "mcr": [
+        20,
+        20
+      ],
+      "mrc": [
+        18,
+        18
+      ],
+      "mrc_use": [
+        19,
+        19
+      ],
+      "mrc_pc": [
+        18,
+        18
+      ],
+      "swi": [
+        26,
+        26
+      ],
+      "undefined": [
+        26,
+        26
+      ],
+      "cdp": [
+        26,
+        26
+      ],
+      "ldc": [
+        26,
+        26
+      ],
+      "stc": [
+        26,
+        26
+      ],
+      "mul_m1": [
+        3,
+        3
+      ],
+      "mul_m2": [
+        3,
+        3
+      ],
+      "mul_m3": [
+        3,
+        3
+      ],
+      "mul_m4": [
+        3,
+        3
+      ],
+      "mla_m1": [
+        4,
+        4
+      ],
+      "mla_m2": [
+        4,
+        4
+      ],
+      "mla_m3": [
+        4,
+        4
+      ],
+      "mla_m4": [
+        4,
+        4
+      ],
+      "smull_m1": [
+        3,
+        3
+      ],
+      "smull_m2": [
+        3,
+        3
+      ],
+      "smull_m3": [
+        3,
+        3
+      ],
+      "smull_m4": [
+        3,
+        3
+      ],
+      "umull_m1": [
+        3,
+        3
+      ],
+      "umull_m2": [
+        3,
+        3
+      ],
+      "umull_m3": [
+        3,
+        3
+      ],
+      "umull_m4": [
+        3,
+        3
+      ],
+      "smlal_m1": [
+        4,
+        4
+      ],
+      "smlal_m2": [
+        4,
+        4
+      ],
+      "smlal_m3": [
+        4,
+        4
+      ],
+      "smlal_m4": [
+        4,
+        4
+      ],
+      "umlal_m1": [
+        4,
+        4
+      ],
+      "umlal_m2": [
+        4,
+        4
+      ],
+      "umlal_m3": [
+        4,
+        4
+      ],
+      "umlal_m4": [
+        4,
+        4
+      ],
+      "load_distance1": [
+        9,
+        9
+      ],
+      "load_distance2": [
+        10,
+        10
+      ],
+      "load_distance3": [
+        11,
+        11
+      ]
+    },
+    "0:3": {
+      "dp": [
+        9,
+        9
+      ],
+      "dp_dependency": [
+        5,
+        5
+      ],
+      "dp_flags": [
+        5,
+        5
+      ],
+      "dp_regshift": [
+        3,
+        3
+      ],
+      "failed_regshift": [
+        3,
+        3
+      ],
+      "dp_pc": [
+        12,
+        12
+      ],
+      "dp_regshift_pc": [
+        13,
+        13
+      ],
+      "ldr_independent": [
+        7,
+        7
+      ],
+      "ldr_alu": [
+        8,
+        8
+      ],
+      "ldr_base": [
+        8,
+        8
+      ],
+      "ldr_shift_amount": [
+        9,
+        9
+      ],
+      "ldr_shift_value": [
+        8,
+        8
+      ],
+      "ldr_store": [
+        8,
+        8
+      ],
+      "ldrb": [
+        8,
+        8
+      ],
+      "ldrh": [
+        8,
+        8
+      ],
+      "ldrsb": [
+        8,
+        8
+      ],
+      "ldrsh": [
+        8,
+        8
+      ],
+      "ldr_unaligned": [
+        8,
+        8
+      ],
+      "ldr_pc": [
+        13,
+        13
+      ],
+      "str": [
+        2,
+        2
+      ],
+      "ldm1": [
+        7,
+        7
+      ],
+      "stm1": [
+        2,
+        2
+      ],
+      "ldm3": [
+        7,
+        7
+      ],
+      "stm3": [
+        4,
+        4
+      ],
+      "ldm_pc": [
+        15,
+        15
+      ],
+      "swp": [
+        18,
+        18
+      ],
+      "swpb": [
+        19,
+        19
+      ],
+      "b": [
+        6,
+        6
+      ],
+      "bl": [
+        6,
+        6
+      ],
+      "bx": [
+        9,
+        9
+      ],
+      "mrs": [
+        2,
+        2
+      ],
+      "msr_flags": [
+        12,
+        12
+      ],
+      "msr_control": [
+        12,
+        12
+      ],
+      "mcr": [
+        20,
+        20
+      ],
+      "mrc": [
+        18,
+        18
+      ],
+      "mrc_use": [
+        19,
+        19
+      ],
+      "mrc_pc": [
+        18,
+        18
+      ],
+      "swi": [
+        26,
+        26
+      ],
+      "undefined": [
+        26,
+        26
+      ],
+      "cdp": [
+        26,
+        26
+      ],
+      "ldc": [
+        26,
+        26
+      ],
+      "stc": [
+        26,
+        26
+      ],
+      "mul_m1": [
+        3,
+        3
+      ],
+      "mul_m2": [
+        3,
+        3
+      ],
+      "mul_m3": [
+        3,
+        3
+      ],
+      "mul_m4": [
+        3,
+        3
+      ],
+      "mla_m1": [
+        4,
+        4
+      ],
+      "mla_m2": [
+        4,
+        4
+      ],
+      "mla_m3": [
+        4,
+        4
+      ],
+      "mla_m4": [
+        4,
+        4
+      ],
+      "smull_m1": [
+        3,
+        3
+      ],
+      "smull_m2": [
+        3,
+        3
+      ],
+      "smull_m3": [
+        3,
+        3
+      ],
+      "smull_m4": [
+        3,
+        3
+      ],
+      "umull_m1": [
+        3,
+        3
+      ],
+      "umull_m2": [
+        3,
+        3
+      ],
+      "umull_m3": [
+        3,
+        3
+      ],
+      "umull_m4": [
+        3,
+        3
+      ],
+      "smlal_m1": [
+        4,
+        4
+      ],
+      "smlal_m2": [
+        4,
+        4
+      ],
+      "smlal_m3": [
+        4,
+        4
+      ],
+      "smlal_m4": [
+        4,
+        4
+      ],
+      "umlal_m1": [
+        4,
+        4
+      ],
+      "umlal_m2": [
+        4,
+        4
+      ],
+      "umlal_m3": [
+        4,
+        4
+      ],
+      "umlal_m4": [
+        4,
+        4
+      ],
+      "load_distance1": [
+        9,
+        9
+      ],
+      "load_distance2": [
+        10,
+        10
+      ],
+      "load_distance3": [
+        11,
+        11
+      ]
+    },
+    "2:9": {
+      "dp": [
+        9,
+        9
+      ],
+      "dp_dependency": [
+        5,
+        5
+      ],
+      "dp_flags": [
+        5,
+        5
+      ],
+      "dp_regshift": [
+        3,
+        3
+      ],
+      "failed_regshift": [
+        3,
+        3
+      ],
+      "dp_pc": [
+        12,
+        12
+      ],
+      "dp_regshift_pc": [
+        13,
+        13
+      ],
+      "ldr_independent": [
+        7,
+        7
+      ],
+      "ldr_alu": [
+        8,
+        8
+      ],
+      "ldr_base": [
+        8,
+        8
+      ],
+      "ldr_shift_amount": [
+        9,
+        9
+      ],
+      "ldr_shift_value": [
+        8,
+        8
+      ],
+      "ldr_store": [
+        8,
+        8
+      ],
+      "ldrb": [
+        8,
+        8
+      ],
+      "ldrh": [
+        8,
+        8
+      ],
+      "ldrsb": [
+        8,
+        8
+      ],
+      "ldrsh": [
+        8,
+        8
+      ],
+      "ldr_unaligned": [
+        8,
+        8
+      ],
+      "ldr_pc": [
+        13,
+        13
+      ],
+      "str": [
+        2,
+        2
+      ],
+      "ldm1": [
+        7,
+        7
+      ],
+      "stm1": [
+        2,
+        2
+      ],
+      "ldm3": [
+        7,
+        7
+      ],
+      "stm3": [
+        4,
+        4
+      ],
+      "ldm_pc": [
+        15,
+        15
+      ],
+      "swp": [
+        18,
+        18
+      ],
+      "swpb": [
+        19,
+        19
+      ],
+      "b": [
+        6,
+        6
+      ],
+      "bl": [
+        6,
+        6
+      ],
+      "bx": [
+        9,
+        9
+      ],
+      "mrs": [
+        2,
+        2
+      ],
+      "msr_flags": [
+        12,
+        12
+      ],
+      "msr_control": [
+        12,
+        12
+      ],
+      "mcr": [
+        20,
+        20
+      ],
+      "mrc": [
+        18,
+        18
+      ],
+      "mrc_use": [
+        19,
+        19
+      ],
+      "mrc_pc": [
+        18,
+        18
+      ],
+      "swi": [
+        26,
+        26
+      ],
+      "undefined": [
+        26,
+        26
+      ],
+      "cdp": [
+        26,
+        26
+      ],
+      "ldc": [
+        26,
+        26
+      ],
+      "stc": [
+        26,
+        26
+      ],
+      "mul_m1": [
+        3,
+        3
+      ],
+      "mul_m2": [
+        3,
+        3
+      ],
+      "mul_m3": [
+        3,
+        3
+      ],
+      "mul_m4": [
+        3,
+        3
+      ],
+      "mla_m1": [
+        4,
+        4
+      ],
+      "mla_m2": [
+        4,
+        4
+      ],
+      "mla_m3": [
+        4,
+        4
+      ],
+      "mla_m4": [
+        4,
+        4
+      ],
+      "smull_m1": [
+        3,
+        3
+      ],
+      "smull_m2": [
+        3,
+        3
+      ],
+      "smull_m3": [
+        3,
+        3
+      ],
+      "smull_m4": [
+        3,
+        3
+      ],
+      "umull_m1": [
+        3,
+        3
+      ],
+      "umull_m2": [
+        3,
+        3
+      ],
+      "umull_m3": [
+        3,
+        3
+      ],
+      "umull_m4": [
+        3,
+        3
+      ],
+      "smlal_m1": [
+        4,
+        4
+      ],
+      "smlal_m2": [
+        4,
+        4
+      ],
+      "smlal_m3": [
+        4,
+        4
+      ],
+      "smlal_m4": [
+        4,
+        4
+      ],
+      "umlal_m1": [
+        4,
+        4
+      ],
+      "umlal_m2": [
+        4,
+        4
+      ],
+      "umlal_m3": [
+        4,
+        4
+      ],
+      "umlal_m4": [
+        4,
+        4
+      ],
+      "load_distance1": [
+        9,
+        9
+      ],
+      "load_distance2": [
+        10,
+        10
+      ],
+      "load_distance3": [
+        11,
+        11
+      ]
+    }
+  },
+  "arm9_slots": {
+    "0:0": {
+      "stm8": [
+        9,
+        9
+      ],
+      "ldm8": [
+        9,
+        9
+      ],
+      "dependent_blocks": [
+        11,
+        11
+      ],
+      "multiply_pair_forward": [
+        7,
+        7
+      ]
+    },
+    "0:3": {
+      "stm8": [
+        9,
+        9
+      ],
+      "ldm8": [
+        9,
+        9
+      ],
+      "dependent_blocks": [
+        11,
+        11
+      ],
+      "multiply_pair_forward": [
+        7,
+        7
+      ]
+    },
+    "2:9": {
+      "stm8": [
+        9,
+        9
+      ],
+      "ldm8": [
+        9,
+        9
+      ],
+      "dependent_blocks": [
+        11,
+        11
+      ],
+      "multiply_pair_forward": [
+        7,
+        7
+      ]
+    }
+  },
+  "arm9_stream_timing": {
+    "0:0": {
+      "stores_same": [
+        9,
+        9
+      ],
+      "stores_sets": [
+        9,
+        9
+      ],
+      "loads_same": [
+        9,
+        9
+      ],
+      "loads_sets": [
+        9,
+        9
+      ],
+      "stores_index": [
+        9,
+        9
+      ],
+      "loads_index": [
+        9,
+        9
+      ],
+      "mixed": [
+        9,
+        9
+      ]
+    },
+    "0:3": {
+      "stores_same": [
+        9,
+        9
+      ],
+      "stores_sets": [
+        9,
+        9
+      ],
+      "loads_same": [
+        9,
+        9
+      ],
+      "loads_sets": [
+        9,
+        9
+      ],
+      "stores_index": [
+        9,
+        9
+      ],
+      "loads_index": [
+        9,
+        9
+      ],
+      "mixed": [
+        9,
+        9
+      ]
+    },
+    "2:9": {
+      "stores_same": [
+        9,
+        9
+      ],
+      "stores_sets": [
+        9,
+        9
+      ],
+      "loads_same": [
+        9,
+        9
+      ],
+      "loads_sets": [
+        9,
+        9
+      ],
+      "stores_index": [
+        9,
+        9
+      ],
+      "loads_index": [
+        9,
+        9
+      ],
+      "mixed": [
+        9,
+        9
+      ]
+    }
+  },
+  "arm9_branch_slots": {
+    "0:0": {
+      "branch_no_registers": [
+        15,
+        15
+      ],
+      "thumb_bl_cross_word": [
+        7,
+        7
+      ],
+      "thumb_bl_same_word": [
+        7,
+        7
+      ]
+    },
+    "0:3": {
+      "branch_no_registers": [
+        15,
+        15
+      ],
+      "thumb_bl_cross_word": [
+        7,
+        7
+      ],
+      "thumb_bl_same_word": [
+        7,
+        7
+      ]
+    },
+    "2:9": {
+      "branch_no_registers": [
+        15,
+        15
+      ],
+      "thumb_bl_cross_word": [
+        7,
+        7
+      ],
+      "thumb_bl_same_word": [
+        7,
+        7
+      ]
+    }
+  },
+  "arm9_predict": {
+    "0:0": {
+      "predicted_taken": [
+        6,
+        6
+      ],
+      "mispredicted_not_taken": [
+        2,
+        2
+      ]
+    },
+    "0:3": {
+      "predicted_taken": [
+        6,
+        6
+      ],
+      "mispredicted_not_taken": [
+        2,
+        2
+      ]
+    },
+    "2:9": {
+      "predicted_taken": [
+        6,
+        6
+      ],
+      "mispredicted_not_taken": [
+        2,
+        2
+      ]
+    }
+  }
+}

@@ -134,6 +134,7 @@ module arm9v2_front_execute #(
     assign o_retire_valid=mw_valid[1]&&i_ready&&!i_flush;
     assign o_retire_pc=mw_pc[1];assign o_retire_instruction=mw_ins[1];assign o_retire_value=mw_value[1][0];
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR)) u_front_decode (
+        .i_rf_value('0),.o_rf_tag(),.i_load_tag('0),.i_load_valid('0),
         .i_clk(i_clk),
         .i_reset(i_reset),
         .i_flush(i_flush||o_redirect),
@@ -221,6 +222,8 @@ module arm9v2_front_execute #(
         .o_stall(o_stall)
     );
     arm9v2_execute u_execute (
+        .i_admit(1'b1),
+        .o_a_load(),.o_psr_source(),.o_saved_psr(),.o_original_base(),.o_next_pc(),.o_prediction_target(),.o_spsr_tag(),.o_predicted(),
         .i_clk(i_clk),
         .i_reset(i_reset),
         .i_flush(i_flush),
