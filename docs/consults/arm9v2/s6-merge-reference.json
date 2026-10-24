@@ -1,0 +1,23 @@
+{
+  "master_revision": "a5895f14d6eec666944f8bb514c843d4fd665e82",
+  "master_model_source_sha256": {
+    "tb_cpu.sv": "bcf147f9c80e42e05e6169f1482ea0d1383b9e6fcc5ae8fa80e4e7d99f0edc83",
+    "arm925t_gen.v": "613fc14c002421ffa71e8a23822a1a8565ef7882d6c32940503558cda03bcb82",
+    "ngage.h": "94a2e8b9ed66b9946c94b71f3ab1af5978bf804037ff6c76ba0288169e684297",
+    "main.cpp": "6709939ff2b38e956db7ac04adedbb627cc92fc818f52596f05e5d105c57d57f"
+  },
+  "master_runs": 264,
+  "merged_zap_cycle_instruction_pairs_identical_to_master": true,
+  "rebuilt_test_binaries": [
+    "dhum_rtl",
+    "dstore_rtl"
+  ],
+  "reused_qemu_references": 68,
+  "literal_input_reg_count": {
+    "shared_ZAP": 10,
+    "V2_function_arguments": 13
+  },
+  "lint_stripped": "pass",
+  "lint_debug": "pass",
+  "cpu_gen_check": "pass"
+}

@@ -68,6 +68,7 @@ input   logic [5:0]      i_ldfmt,        // ARM925T: load format (see zap_core).
 input logic [5:0] i_ldfmt_check,
 output logic  [31:0]     o_dat,
 output  logic            o_ack,
+output  logic            o_writeback_busy, // ARM925T: CP15 drain fence
 output  logic            o_err,
 output  logic [7:0]      o_fsr,
 output  logic [31:0]     o_far,
@@ -234,6 +235,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .o_live_lookup          (live_lookup),
         .o_relookup             (relookup),
         .o_fill_busy            (fill_busy),
+        .o_writeback_busy       (o_writeback_busy),
         .i_ben                  (i_ben),
         .o_dat                  (o_dat),
         .o_ack                  (o_ack),

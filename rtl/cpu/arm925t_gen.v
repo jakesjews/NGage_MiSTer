@@ -300,6 +300,7 @@ module arm9v2_core (
 	o_dcache_line_addr,
 	o_dcache_line_way,
 	i_dcache_line_done,
+	i_dcache_writeback_busy,
 	i_fiq,
 	i_irq,
 	o_instr_wb_adr,
@@ -413,6 +414,7 @@ module arm9v2_core (
 	output wire [31:0] o_dcache_line_addr;
 	output wire o_dcache_line_way;
 	input wire i_dcache_line_done;
+	input wire i_dcache_writeback_busy;
 	input wire i_fiq;
 	input wire i_irq;
 	output wire [31:0] o_instr_wb_adr;
@@ -1347,7 +1349,8 @@ module arm9v2_core (
 		.o_dcache_line_va(o_dcache_line_va),
 		.o_dcache_line_addr(o_dcache_line_addr),
 		.o_dcache_line_way(o_dcache_line_way),
-		.i_dcache_line_done(i_dcache_line_done)
+		.i_dcache_line_done(i_dcache_line_done),
+		.i_dcache_writeback_busy(i_dcache_writeback_busy)
 	);
 	initial _sv2v_0 = 0;
 endmodule
@@ -8495,6 +8498,7 @@ module zap_core (
 	o_dcache_line_addr,
 	o_dcache_line_way,
 	i_dcache_line_done,
+	i_dcache_writeback_busy,
 	i_fiq,
 	i_irq,
 	o_instr_wb_adr,
@@ -8602,6 +8606,7 @@ module zap_core (
 	output wire [31:0] o_dcache_line_addr;
 	output wire o_dcache_line_way;
 	input wire i_dcache_line_done;
+	input wire i_dcache_writeback_busy;
 	input wire i_fiq;
 	input wire i_irq;
 	output wire [31:0] o_instr_wb_adr;
@@ -10229,7 +10234,8 @@ module zap_core (
 		.o_dcache_line_va(o_dcache_line_va),
 		.o_dcache_line_addr(o_dcache_line_addr),
 		.o_dcache_line_way(o_dcache_line_way),
-		.i_dcache_line_done(i_dcache_line_done)
+		.i_dcache_line_done(i_dcache_line_done),
+		.i_dcache_writeback_busy(i_dcache_writeback_busy)
 	);
 	always @(*) begin
 		if (_sv2v_0)
@@ -10292,6 +10298,7 @@ module zap_cp15_cb (
 	o_dcache_line_va,
 	o_dcache_line_addr,
 	o_dcache_line_way,
+	i_dcache_writeback_busy,
 	i_dcache_line_done
 );
 	reg _sv2v_0;
@@ -10350,6 +10357,7 @@ module zap_cp15_cb (
 	output reg o_dcache_line_va;
 	output reg [31:0] o_dcache_line_addr;
 	output reg o_dcache_line_way;
+	input wire i_dcache_writeback_busy;
 	input wire i_dcache_line_done;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
@@ -11083,7 +11091,8 @@ module zap_cp15_cb (
 								o_dcache_clean <= 1'd1;
 								state <= CLFLUSH_D_CACHE;
 							end
-							7'b1001010, 7'b0011101: state <= DONE;
+							7'b1001010: state <= (i_dcache_writeback_busy ? ACTIVE : DONE);
+							7'b0011101: state <= DONE;
 							7'b1000000: state <= WFI;
 							default: begin
 								o_dcache_clean <= 1'd1;
@@ -11279,6 +11288,7 @@ module zap_dcache (
 	i_ldfmt_check,
 	o_dat,
 	o_ack,
+	o_writeback_busy,
 	o_err,
 	o_fsr,
 	o_far,
@@ -11357,6 +11367,7 @@ module zap_dcache (
 	input wire [5:0] i_ldfmt_check;
 	output wire [31:0] o_dat;
 	output wire o_ack;
+	output wire o_writeback_busy;
 	output wire o_err;
 	output wire [7:0] o_fsr;
 	output wire [31:0] o_far;
@@ -11799,6 +11810,7 @@ module zap_dcache (
 		.o_live_lookup(live_lookup),
 		.o_relookup(relookup),
 		.o_fill_busy(fill_busy),
+		.o_writeback_busy(o_writeback_busy),
 		.i_ben(i_ben),
 		.o_dat(o_dat),
 		.o_ack(o_ack),
@@ -12244,6 +12256,7 @@ module zap_dcache_fsm (
 	o_live_lookup,
 	o_relookup,
 	o_fill_busy,
+	o_writeback_busy,
 	o_wb_cyc_ff,
 	o_wb_cyc_nxt,
 	o_wb_stb_ff,
@@ -12336,6 +12349,7 @@ module zap_dcache_fsm (
 	(* dont_retime *) output reg o_live_lookup;
 	(* dont_retime *) output reg [2:0] o_relookup;
 	(* dont_retime *) output reg o_fill_busy;
+	(* dont_retime *) output reg o_writeback_busy;
 	output reg o_wb_cyc_ff;
 	output wire o_wb_cyc_nxt;
 	output reg o_wb_stb_ff;
@@ -12793,6 +12807,8 @@ module zap_dcache_fsm (
 	localparam [31:0] ADR_PAD = (32'd32 - $clog2(CACHE_LINE / 4)) - 32'd1;
 	localparam [31:0] ADR_PAD_MINUS_2 = ADR_PAD - 32'd2;
 	wire cache_dirty;
+	reg defer_writeback;
+	wire victim_alias;
 	(* dont_retime *) reg [13:0] state_ff;
 	reg [13:0] state_nxt;
 	reg [31:0] buf_ff [(CACHE_LINE / 4) - 1:0];
@@ -12888,6 +12904,17 @@ module zap_dcache_fsm (
 	assign o_cache_inv_req = cache_inv_req_ff;
 	assign o_line_req = line_req_ff;
 	assign cache_dirty = i_cache_tag_dirty;
+	assign victim_alias = i_phy_addr[31:$clog2(CACHE_LINE)] == i_cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1];
+	always @(posedge i_clk)
+		if (state_ff[IDLE])
+			defer_writeback <= !victim_alias;
+	always @(posedge i_clk)
+		if (i_reset)
+			o_writeback_busy <= 1'b0;
+		else if (state_ff[IDLE])
+			o_writeback_busy <= ((state_nxt[FETCH_SINGLE] || state_nxt[CLEAN_SINGLE]) && i_cache_tag_valid) && cache_dirty;
+		else if ((state_ff[CLEAN_SINGLE] && take) && (o_wb_cti_ff == CTI_EOB))
+			o_writeback_busy <= 1'b0;
 	always @(posedge i_clk)
 		if (state_ff[IDLE]) begin
 			address <= i_address;
@@ -12985,6 +13012,19 @@ module zap_dcache_fsm (
 	localparam integer SET_W = $clog2((CACHE_SIZE / WAYS) / CACHE_LINE);
 	reg line_safe_ff;
 	reg line_safe_nxt;
+	reg victim_safe_ff;
+	reg victim_safe_nxt;
+	reg [1:0] install_delay_ff;
+	reg fill_visible_ff;
+	always @(posedge i_clk)
+		if (i_reset || state_ff[IDLE]) begin
+			install_delay_ff <= 2'b00;
+			fill_visible_ff <= 1'b0;
+		end
+		else begin
+			install_delay_ff <= {install_delay_ff[0], state_ff[UNLOCK_REG]};
+			fill_visible_ff <= fill_visible_ff || install_delay_ff[1];
+		end
 	reg lookup_ready_ff;
 	reg lookup_ready_nxt;
 	reg [2:0] repair_ff;
@@ -12999,11 +13039,16 @@ module zap_dcache_fsm (
 		if (_sv2v_0)
 			;
 		line_safe_nxt = line_safe_ff;
+		victim_safe_nxt = victim_safe_ff;
 		if (!cpu_wait) begin
-			if (o_idle)
-				line_safe_nxt = (i_address_check[31:LINE_W] != i_address[31:LINE_W]) && (!i_cache_tag_valid || (i_address_check[31:LINE_W] != {i_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0], i_address[LINE_W+:SET_W]}));
-			else
-				line_safe_nxt = (i_address_check[31:LINE_W] != address[31:LINE_W]) && (!victim_valid || (i_address_check[31:LINE_W] != {cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0], address[LINE_W+:SET_W]}));
+			if (o_idle) begin
+				victim_safe_nxt = !i_cache_tag_valid || (i_address_check[31:LINE_W] != {i_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0], i_address[LINE_W+:SET_W]});
+				line_safe_nxt = victim_safe_nxt && (i_address_check[31:LINE_W] != i_address[31:LINE_W]);
+			end
+			else begin
+				victim_safe_nxt = !victim_valid || (i_address_check[31:LINE_W] != {cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0], address[LINE_W+:SET_W]});
+				line_safe_nxt = victim_safe_nxt && (i_address_check[31:LINE_W] != address[31:LINE_W]);
+			end
 		end
 		repair_nxt = {repair_ff[1:0], 1'b0};
 		lookup_ready_nxt = lookup_ready_ff;
@@ -13025,6 +13070,7 @@ module zap_dcache_fsm (
 	always @(posedge i_clk)
 		if (i_reset) begin
 			line_safe_ff <= 1'b0;
+			victim_safe_ff <= 1'b0;
 			lookup_ready_ff <= 1'b1;
 			repair_ff <= 3'b000;
 			hum_slot_ff <= 1'b0;
@@ -13033,13 +13079,14 @@ module zap_dcache_fsm (
 		end
 		else begin
 			line_safe_ff <= line_safe_nxt;
+			victim_safe_ff <= victim_safe_nxt;
 			lookup_ready_ff <= lookup_ready_nxt;
 			repair_ff <= repair_nxt;
 			hum_slot_ff <= hum_slot_nxt;
 			o_live_lookup <= state_nxt[IDLE] || hum_slot_nxt;
 			o_relookup <= ((state_nxt[RELOOKUP0] || state_nxt[RELOOKUP1]) || state_nxt[RELOOKUP2] ? {state_nxt[RELOOKUP2], state_nxt[RELOOKUP1], state_nxt[RELOOKUP0]} : repair_nxt);
 		end
-	assign hum_slot_nxt = (((state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE]) || state_nxt[UNLOCK_WR]) && lookup_ready_nxt) && line_safe_nxt;
+	assign hum_slot_nxt = (((state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE]) || state_nxt[UNLOCK_WR]) && lookup_ready_nxt) && (line_safe_nxt || ((state_nxt[CLEAN_SINGLE] && fill_visible_ff) && victim_safe_nxt));
 	assign hum_ack = (((hum_slot_ff && i_hit_ok) && i_cache_en) && !i_align_fault) && i_cache_hit_early;
 	assign o_ack = idle_ack || hum_ack;
 	always @(posedge i_clk)
@@ -13080,7 +13127,7 @@ module zap_dcache_fsm (
 	endfunction
 	assign o_cache_line_ben = ((ben_comp(i_address[$clog2(CACHE_LINE) - 1:2], i_ben) & {CACHE_LINE {live_write}}) | (ben_comp(address[$clog2(CACHE_LINE) - 1:2], ben) & {CACHE_LINE {saved_write}})) | {CACHE_LINE {fill_write}};
 	always @(posedge i_clk) o_idle <= state_nxt[IDLE];
-	assign o_wb_stb_nxt = (((((((state_ff[IDLE] && (i_rd || i_wr)) && !i_align_fault) && !i_fault) && !i_busy) && !i_cache_en) || state_ff[UNCACHEABLE_PREPARE]) || ((state_ff[UNCACHEABLE] && o_wb_stb_ff) && !(i_wb_ack || i_wb_err))) || ((state_ff[CLEAN_SINGLE] || state_ff[FETCH_SINGLE]) && (take ? beat_inc_ok : beat_cur_ok));
+	assign o_wb_stb_nxt = ((((((((state_ff[IDLE] && (i_rd || i_wr)) && !i_align_fault) && !i_fault) && !i_busy) && !i_cache_en) || state_ff[UNCACHEABLE_PREPARE]) || (state_ff[UNLOCK_REG] && o_writeback_busy)) || ((state_ff[UNCACHEABLE] && o_wb_stb_ff) && !(i_wb_ack || i_wb_err))) || ((state_ff[CLEAN_SINGLE] || state_ff[FETCH_SINGLE]) && (take ? beat_inc_ok : beat_cur_ok));
 	assign o_wb_cyc_nxt = o_wb_stb_nxt;
 	task automatic kill_bus_payload;
 		begin
@@ -13196,7 +13243,7 @@ module zap_dcache_fsm (
 								idle_ack = 1'd1;
 								if (i_rd)
 									lock_nxt[i_reg_idx_bin] = 1'd1;
-								if (cache_dirty) begin
+								if (cache_dirty && victim_alias) begin
 									adr_ctr_nxt = 0;
 									state_nxt[IDLE] = 1'd0;
 									state_nxt[CLEAN_SINGLE] = 1'd1;
@@ -13272,7 +13319,12 @@ module zap_dcache_fsm (
 					kill_bus_payload;
 					adr_ctr_nxt = 0;
 					state_nxt[CLEAN_SINGLE] = 1'd0;
-					state_nxt[FETCH_SINGLE] = 1'd1;
+					if (defer_writeback) begin
+						state_nxt[RELOOKUP0] = (i_rd || i_wr) && !o_ack;
+						state_nxt[IDLE] = !(i_rd || i_wr) || o_ack;
+					end
+					else
+						state_nxt[FETCH_SINGLE] = 1'd1;
 				end
 			end
 			state_ff[FETCH_SINGLE]: begin
@@ -13292,9 +13344,20 @@ module zap_dcache_fsm (
 			end
 			state_ff[UNLOCK_REG]: begin
 				state_nxt[UNLOCK_REG] = 1'd0;
-				state_nxt[UNLOCK_WR] = !wr;
-				state_nxt[RELOOKUP0] = wr && (i_rd || i_wr);
-				state_nxt[IDLE] = wr && !(i_rd || i_wr);
+				if (o_writeback_busy) begin
+					adr_ctr_nxt = 0;
+					state_nxt[CLEAN_SINGLE] = 1'b1;
+					o_wb_wen_nxt = 1'b1;
+					o_wb_dat_nxt = cache_line[31:0];
+					o_wb_adr_nxt = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'b0}}};
+					o_wb_sel_nxt = 4'b1111;
+					o_wb_cti_nxt = CTI_BURST;
+				end
+				else begin
+					state_nxt[UNLOCK_WR] = !wr;
+					state_nxt[RELOOKUP0] = wr && (i_rd || i_wr);
+					state_nxt[IDLE] = wr && !(i_rd || i_wr);
+				end
 			end
 			state_ff[UNLOCK_WR]: begin
 				state_nxt[UNLOCK_WR] = 1'd0;
@@ -24887,6 +24950,7 @@ module zap_top (
 	wire [1023:0] o_trace;
 	wire o_trace_valid;
 	wire o_trace_uop_last;
+	wire dc_writeback_busy;
 	generate
 		if (CORE == "ZAP") begin : g_zap
 			assign arm9_data_stall = 1'b0;
@@ -24976,6 +25040,7 @@ module zap_top (
 				.o_dcache_line_addr(cpu_dline_addr),
 				.o_dcache_line_way(cpu_dline_way),
 				.i_dcache_line_done((!ONLY_CORE ? dc_line_done : 1'd1)),
+				.i_dcache_writeback_busy((!ONLY_CORE ? dc_writeback_busy : 1'd0)),
 				.o_dac(cpu_dac_reg),
 				.o_baddr(cpu_baddr),
 				.o_mmu_en(cpu_mmu_en),
@@ -25103,6 +25168,7 @@ module zap_top (
 				.o_dcache_line_addr(cpu_dline_addr),
 				.o_dcache_line_way(cpu_dline_way),
 				.i_dcache_line_done((!ONLY_CORE ? dc_line_done : 1'd1)),
+				.i_dcache_writeback_busy((!ONLY_CORE ? dc_writeback_busy : 1'd0)),
 				.o_dac(cpu_dac_reg),
 				.o_baddr(cpu_baddr),
 				.o_mmu_en(cpu_mmu_en),
@@ -25140,7 +25206,7 @@ module zap_top (
 		end
 		else begin : g_invalid_core
 			initial begin
-				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:575:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
+				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:579:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
 				$finish(1);
 			end
 		end
@@ -25306,6 +25372,7 @@ module zap_top (
 				.i_reg_idx_bin(dc_rreg_idx_bin),
 				.o_dat(dc_data),
 				.o_ack(data_ack),
+				.o_writeback_busy(dc_writeback_busy),
 				.o_err(data_err),
 				.o_lock(dc_lock),
 				.o_reg_dat(dc_reg_data),

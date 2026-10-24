@@ -293,6 +293,8 @@ logic                o_trace_uop_last;
 
 `endif
 
+wire dc_writeback_busy; // ARM925T: registered eviction ownership
+
 if (CORE == "ZAP") begin : g_zap
 assign arm9_data_stall = 1'b0;
 assign cpu_dldfmt_check = 6'd0;
@@ -393,6 +395,7 @@ zap_core #(
 .o_dcache_line_addr     (cpu_dline_addr),
 .o_dcache_line_way      (cpu_dline_way),
 .i_dcache_line_done     (!ONLY_CORE ? dc_line_done : 1'd1),
+.i_dcache_writeback_busy (!ONLY_CORE ? dc_writeback_busy : 1'd0),
 .o_dac                  (cpu_dac_reg),
 .o_baddr                (cpu_baddr),
 .o_mmu_en               (cpu_mmu_en),
@@ -534,6 +537,7 @@ arm9v2_core #(
 .o_dcache_line_addr     (cpu_dline_addr),
 .o_dcache_line_way      (cpu_dline_way),
 .i_dcache_line_done     (!ONLY_CORE ? dc_line_done : 1'd1),
+.i_dcache_writeback_busy (!ONLY_CORE ? dc_writeback_busy : 1'd0),
 .o_dac                  (cpu_dac_reg),
 .o_baddr                (cpu_baddr),
 .o_mmu_en               (cpu_mmu_en),
@@ -835,6 +839,7 @@ u_data_cache (
 
 .o_dat                  (dc_data),
 .o_ack                  (data_ack),
+.o_writeback_busy       (dc_writeback_busy),
 .o_err                  (data_err),
 .o_lock                 (dc_lock),
 .o_reg_dat              (dc_reg_data),

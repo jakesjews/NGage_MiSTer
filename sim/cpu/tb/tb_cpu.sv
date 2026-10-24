@@ -66,6 +66,7 @@ module tb_cpu #(
 	output logic          p_wfi,
 	// D-cache state machine, for main.cpp --dcdbg
 	output logic [15:0]   p_dc_state,
+	output logic [5:0]    p_dc_events, // accept/store/dirty/fill beat/writeback beat/EOB
 	output logic [31:0]   p_dc_addr,
 	output logic [31:0]   p_dc_din,
 	output logic [31:0]   p_dc_dat,
@@ -140,7 +141,10 @@ module tb_cpu #(
     assign p_arm9 = CORE == "ARM9";
     assign p_blocking_load = 1'b0; // V2 uses the shared nonblocking background write port.
     assign p_arm9_predictor = CORE == "ARM9" && ARM9_PREDICTOR;
+	wire cp_drain_done;
 	if (CORE == "ZAP") begin : g_zap_probes
+    assign cp_drain_done = dut.u_zap.g_zap.u_zap_core.u_zap_cp15_cb.o_cp_done &&
+        (dut.u_zap.g_zap.u_zap_core.u_zap_cp15_cb.i_cp_word[27:0] & 28'hfff0fff) == 28'he070f9a;
     assign p_load_capture = 0;
     assign p_load_commit = 0;
     assign p_load_value = 0;
@@ -210,6 +214,8 @@ module tb_cpu #(
 	`undef PD
 	`undef AL
 	end else begin : g_arm9_probes
+    assign cp_drain_done = dut.u_zap.g_arm9.u_arm9_core.u_zap_cp15_cb.o_cp_done &&
+        (dut.u_zap.g_arm9.u_arm9_core.u_zap_cp15_cb.i_cp_word[27:0] & 28'hfff0fff) == 28'he070f9a;
 	`define A9 dut.u_zap.g_arm9.u_arm9_core
 
     assign p_load_capture = `A9.load_capture;
@@ -255,14 +261,18 @@ module tb_cpu #(
 	localparam int DSET_W = $clog2(DCACHE_SIZE / DCACHE_WAYS / CACHE_LINE);
 	logic [DSET_W-1:0] dc_read_set, dc_response_set;
 	logic dc_victim_valid;
+	logic dc_installed;
 	logic [31:DLINE_W] dc_victim_line;
 	always_ff @(posedge clk) begin
+		if (reset || `DC.o_idle) dc_installed <= 1'b0;
+		else if (`DC.state_ff[7]) dc_installed <= 1'b1;
 		if (!`DT.i_hold) begin
             dc_read_set <= CORE == "ARM9" ? `DT.rd_set : `DT.rd_set_del2;
             // SHORT_READ adds the registered compare/format response after
             // the RAM edge. Check the set belonging to that response.
             dc_response_set <= dc_read_set;
         end
+
 		if (`DC.o_idle) begin
 			dc_victim_valid <= `DC.i_cache_tag_valid;
 			dc_victim_line <= {`DC.i_cache_tag[31-DLINE_W-DSET_W:0],
@@ -277,7 +287,7 @@ module tb_cpu #(
 		    (`DC.i_rd || `DC.i_wr) && `DC.o_ack) begin
 			assert ((CORE == "ARM9" ? dc_response_set : dc_read_set) == `DC.i_address[DLINE_W +: DSET_W])
 				else $fatal(1, "Hit under miss used an unaligned cache lookup");
-			assert (`DC.i_address[31:DLINE_W] != `DC.address[31:DLINE_W])
+			assert (dc_installed || `DC.i_address[31:DLINE_W] != `DC.address[31:DLINE_W])
 				else $fatal(1, "Hit under miss accessed the filling line");
 			assert (!dc_victim_valid || `DC.i_address[31:DLINE_W] != dc_victim_line)
 				else $fatal(1, "Hit under miss accessed the reserved victim");
@@ -289,6 +299,66 @@ module tb_cpu #(
 				else $fatal(1, "Hit under miss wrote the background address");
 		end
 	end
+	// Independent eviction scoreboard: capture the victim at acceptance,
+	// check every drained word, and check fill-before-drain except for a
+	// same-physical-line synonym. No DUT eligibility bit qualifies checks.
+	logic dc_dirty_pending, dc_defer_expected;
+	logic [31:DLINE_W] dc_saved_pa;
+	logic [CACHE_LINE*8-1:0] dc_saved_line;
+	integer dc_wb_beat;
+	always_ff @(posedge clk) begin
+		if (reset) begin
+			dc_dirty_pending <= 1'b0;
+			dc_defer_expected <= 1'b0;
+			dc_wb_beat <= 0;
+		end else begin
+			if (p_dc_events[0]) begin
+				assert (!dc_dirty_pending)
+					else $fatal(1, "Second miss overwrote the pending victim");
+				dc_dirty_pending <= p_dc_events[2];
+				dc_saved_pa <= `DC.i_cache_tag[$bits(`DC.i_cache_tag)-1 -: 32-DLINE_W];
+				dc_saved_line <= `DC.i_cache_line;
+				dc_wb_beat <= 0;
+				dc_defer_expected <= `DC.i_phy_addr[31:DLINE_W] !=
+					`DC.i_cache_tag[$bits(`DC.i_cache_tag)-1 -: 32-DLINE_W];
+			end
+			if (`DC.state_ff[3] && `DC.take) begin
+				assert (dc_dirty_pending && dc_installed == dc_defer_expected)
+					else $fatal(1, "Dirty eviction used the wrong fill/writeback order");
+				assert (`DC.o_wb_adr_ff == {dc_saved_pa, {DLINE_W{1'b0}}} + 32'(dc_wb_beat*4) &&
+				        `DC.o_wb_dat_ff == dc_saved_line[dc_wb_beat*32 +: 32] && `DC.o_wb_sel_ff == 4'hf)
+					else $fatal(1, "Deferred write-back lost the saved victim address or bytes");
+				dc_wb_beat <= dc_wb_beat + 1;
+				if (p_dc_events[5]) begin
+					assert (dc_wb_beat == CACHE_LINE/4-1)
+						else $fatal(1, "Incomplete victim write-back");
+					dc_dirty_pending <= 1'b0;
+				end
+			end
+			if (`DC.o_cache_inv_done || `DC.o_cache_clean_done || `DC.o_line_done)
+				assert (!dc_dirty_pending)
+					else $fatal(1, "Maintenance completed before the saved victim drained");
+		end
+	end
+	always_ff @(posedge clk)
+		if (!reset && cp_drain_done)
+			assert (!dc_dirty_pending)
+				else $fatal(1, "CP15 drain completed before the victim write-back");
+	assign p_dc_events = {
+		`DC.o_wb_cti_ff == 3'b111,
+		`DC.state_ff[3] && `DC.take,
+		`DC.state_ff[4] && `DC.take,
+		`DC.i_cache_tag_valid && `DC.i_cache_tag_dirty,
+		`DC.wr,
+		`DC.o_idle && (`DC.i_rd || `DC.i_wr) && !`DC.i_align_fault &&
+		!`DC.i_fault && !`DC.i_busy && `DC.i_cache_en && `DC.i_cacheable &&
+		!(`DC.i_wr && `DC.i_wt) && !`DC.i_cache_hit
+	};
+	// A cacheable store miss already completes at acceptance on master.
+	always_ff @(posedge clk)
+		if (!reset && p_dc_events[0] && `DC.i_wr)
+			assert (`DC.o_ack && !`DC.o_hold && !`DC.o_err && !`DC.o_err2)
+				else $fatal(1, "Write-back store miss did not complete at acceptance");
 	`undef DC
 	`undef DT
 	`undef TC

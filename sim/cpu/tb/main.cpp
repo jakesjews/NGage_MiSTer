@@ -60,6 +60,7 @@
 //      +2C W  select watched VA line and reset the two counters
 //      +30..+3C R D-cache load fills, store fills, line write-backs,
 //                uncached accesses (monotonic event counters)
+//      +40 R  instructions retired during background store transactions
 //   anything else          bus error (external abort)
 // Bus protocol checks: a request must stay unchanged until acked, and a
 // burst beat must be followed by the next word of the same line.
@@ -337,6 +338,9 @@ int main(int argc, char **argv) {
 	uint32_t hum_watch = 0, hum_loads = 0, hum_stores = 0;
 	uint64_t hum_total_loads = 0, hum_total_stores = 0;
 	uint64_t dcache_events[4] = {};
+	uint32_t store_fill_retired = 0;
+	uint64_t dirty_fill_first = 0, dirty_write_first = 0;
+	bool dirty_first_pending = false;
 	int64_t irq_timer = -1, fiq_timer = -1;
 	bool stop = false;
 	int exit_code = -1;
@@ -359,6 +363,7 @@ int main(int argc, char **argv) {
 		case 0x34: return (uint32_t)dcache_events[1];
 		case 0x38: return (uint32_t)dcache_events[2];
 		case 0x3C: return (uint32_t)dcache_events[3];
+		case 0x40: return store_fill_retired;
 		default: return 0;
 		}
 	};
@@ -416,6 +421,14 @@ int main(int argc, char **argv) {
 				hum_loads += !store;
 				hum_stores += store;
 			}
+		}
+		if ((t->p_dc_state & ((1u << 3) | (1u << 4))) &&
+		    (t->p_dc_events & 2) && (t->p_valid || t->p_cfail)) store_fill_retired++;
+		if (t->p_dc_events & 1) dirty_first_pending = t->p_dc_events & 4;
+		if (dirty_first_pending && (t->p_dc_events & 0x18)) {
+			dirty_fill_first += (t->p_dc_events & 8) != 0;
+			dirty_write_first += (t->p_dc_events & 16) != 0;
+			dirty_first_pending = false;
 		}
 		for (int b = 0; b < 6; b++) stall_clocks[b] += (t->p_stall >> b) & 1;
 		for (int b = 0; b < 4; b++) dcache_events[b] += (t->p_dcache >> b) & 1;
@@ -734,6 +747,8 @@ int main(int argc, char **argv) {
 		       " writebacks=%" PRIu64 " uncached=%" PRIu64 "\n",
 		       dcache_events[0], dcache_events[1], dcache_events[2], dcache_events[3]);
 		printf("Background writes: %" PRIu64 ", during fill: %" PRIu64 "\n", dc_writes, dc_early_writes);
+		printf("D-cache overlap: store_fill_retired=%u dirty_fill_first=%" PRIu64
+		       " dirty_write_first=%" PRIu64 "\n", store_fill_retired, dirty_fill_first, dirty_write_first);
 		printf("PASS (%" PRIu64 " cycles, %" PRIu64 " instructions)\n", cycle, retired);
 		rc = 0;
 	} else {

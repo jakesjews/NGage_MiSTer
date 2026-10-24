@@ -100,6 +100,7 @@ output logic                             o_dcache_line_va,
 output logic [31:0]                      o_dcache_line_addr,
 output logic                             o_dcache_line_way,   // ARM925T
 input  logic                             i_dcache_line_done,
+input  logic                             i_dcache_writeback_busy,
 
 // --------------------------------------------------
 // Interrupts. Active high.
@@ -840,7 +841,8 @@ zap_cp15_cb #(
         .o_dcache_line_va       (o_dcache_line_va),
         .o_dcache_line_addr     (o_dcache_line_addr),
         .o_dcache_line_way      (o_dcache_line_way),
-        .i_dcache_line_done     (i_dcache_line_done)
+        .i_dcache_line_done     (i_dcache_line_done),
+        .i_dcache_writeback_busy (i_dcache_writeback_busy)
 );
 
 
