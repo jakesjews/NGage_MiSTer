@@ -1,21 +1,23 @@
 # ARM9V2: eight-stage redesign for real-phone game speed
 
-Status after session 8: `CORE="ARM9"` selects integrated V2;
-the commented `NGAGE_CORE_ARM9=1` macro selects it in the MiSTer shell.
-ZAP remains default. Both V2 modes and ZAP pass 267 runs and 69 QEMU
-references, with extra comparisons at both higher bus latencies. Scalar
-loads retain consumers on registered operand locks instead of flushing
-younger independent work. Raw independent/late/early hit windows stay 3/4/5.
-The post-setup random-test gate now passes, with small high-latency margins;
-the cache test is faster than ZAP at every latency. The V2 whole-shell bench
-passes. The paired real-firmware run on ubuntu reaches EFile user threads
-and EStart without a logged synchronous fault through 4.5 guest seconds.
-The current integrated seed-2 fit is −2.838 ns at slow 100C and 18,349
-ALMs. The −2 ns structural stop is hit; no whole-device build or board
-measurement is claimed. The historical −1.237 ns belongs to older RTL.
-See the [session-8 report](consults/2026-10-24-codex-arm9v2-s8.md) for the
-final firmware outcome and stopping point. Session-labeled sections below
-retain the historical implementation and measurement record.
+Status after session 12: `CORE="ARM9"` selects integrated V2; the commented
+`NGAGE_CORE_ARM9=1` macro selects it in the MiSTer shell. ZAP remains default.
+ZAP and both V2 predictor modes pass 282 runs / 71 QEMU references at D8
+and D16. The 85 original windows plus four block-tail windows pass; scalar
+independent/late/early hit windows remain 3/4/5. Ordinary PSR writes and CP15
+reads retain the pipeline, final LDM words use scalar late pickup, and
+first-pass PC hits avoid a redundant return cycle. RAM metadata and early
+I-fill execution come from the master merge; hardware defaults to D16.
+
+The final paired firmware boot reaches EFile at 375876178 clocks
+(3.614194 s), EStart at 429348643, with no logged synchronous fault
+through 4.5 guest seconds. This is 0.460% fewer EFile clocks than merged V2
+and 13.78% fewer than merged ZAP, not the intended gameplay gain.
+The integrated seed-2 D16 CPU-only fit is **-2.951 ns**, **13,262 ALMs**;
+104 MHz is not met. No new timing cuts or second miss engine were added.
+See the [session-12 report](consults/2026-10-25-codex-arm9v2-s12.md) for
+per-item boot gains, complete cycle tables, fit families and the stopping
+point. Session-labeled sections below retain historical results.
 
 ## Goal and gates
 

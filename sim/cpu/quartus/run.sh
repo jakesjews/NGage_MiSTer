@@ -20,6 +20,8 @@ host=${BUILD_HOST:-ubuntu}
 seed=${SEED:-1}
 mhz=${MHZ:-104}
 trial=${TRIAL:-cpu}
+dcache_size=${DCACHE_SIZE:-8192}
+[[ $dcache_size == 8192 || $dcache_size == 16384 ]] || { echo "DCACHE_SIZE must be 8192 or 16384" >&2; exit 2; }
 case "$trial" in
     cpu) trial_suffix="" ;;
     arm9_core) trial_suffix="-arm9-core" ;;
@@ -51,7 +53,7 @@ if [[ $trial == arm9v2_* || $dir == *arm9v2* ]]; then
 fi
 ssh "$host" "mkdir -p \$HOME/$dir"
 if [[ $trial == arm9_core ]]; then
-    sed 's/arm925t cpu (/arm925t #(.CORE("ARM9")) cpu (/' "$here/cpu_trial.v" > "$out/cpu_trial.v"
+    sed -e 's/arm925t #(.DCACHE_SIZE(DCACHE_SIZE))/arm925t #(.CORE("ARM9"),.DCACHE_SIZE(DCACHE_SIZE))/' -e "s/parameter DCACHE_SIZE=8192/parameter DCACHE_SIZE=$dcache_size/" "$here/cpu_trial.v" > "$out/cpu_trial.v"
     cp "$root/rtl/cpu/arm925t_gen.v" "$out/arm925t_gen.v"
     rsync -a "$out/cpu_trial.v" "$out/arm925t_gen.v" "$host:$dir/"
 elif [[ $trial == arm9v2_execute ]]; then
@@ -83,7 +85,8 @@ elif [[ $trial != cpu ]]; then
     printf '// Top included in arm925t_gen.v\n' > "$out/cpu_trial.v"
     rsync -a "$out/arm925t_gen.v" "$out/cpu_trial.v" "$host:$dir/"
 else
-    rsync -a "$here/cpu_trial.v" "$root/rtl/cpu/arm925t_gen.v" "$host:$dir/"
+    sed "s/parameter DCACHE_SIZE=8192/parameter DCACHE_SIZE=$dcache_size/" "$here/cpu_trial.v" > "$out/cpu_trial.v"
+    rsync -a "$out/cpu_trial.v" "$root/rtl/cpu/arm925t_gen.v" "$host:$dir/"
 fi
 rsync -a "$here"/cpu_trial.{sdc,qpf,qsf} "$here/report.tcl" "$host:$dir/"
 period=$(awk -v m="$mhz" 'BEGIN { printf "%.3f", 1000 / m }')

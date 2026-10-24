@@ -28,7 +28,11 @@ foreach_in_collection op [get_available_operating_conditions] {
         dtlb {*u_data_cache|*u_zap_tlb_check|*}
         dtlb_hit {*u_data_cache|*u_zap_tlb_check|o_hit_ok*}
         dtlb_fault {*u_data_cache|*u_zap_tlb_check|o_fsr*}
-        metadata {*u_data_cache|*u_zap_cache_tag_ram|*g_short_meta*}
+        metadata {*u_data_cache|*u_zap_cache_tag_ram|*g_metadata*}
+        metadata_descriptor {*u_data_cache|*u_zap_cache_tag_ram|meta_*}
+        icache {*u_code_cache|*}
+        serial_mask {*u_execute|interrupt_mask*}
+        serial_release {*u_execute|o_serial_continue*}
         short_collision {*u_data_cache|*g_short_ram*addr_q*}
         short_response {*u_data_cache|tr_cache_words*}
         locks {*u_data_cache|*u_zap_cache_fsm|*lock*}

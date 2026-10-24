@@ -1,0 +1,60 @@
+{
+  "ARM9": {
+    "server_path": "/home/jacob/dev/mister/coreboot/arm9v2-s12-serial-ARM9/run",
+    "first_exec": [
+      "S 337589481 270625878 pc=503a7844 cpsr=6000001b r0=000000a4 r1=00000000 r2=00000000 r3=50345a3c r12=503c73dc sp=80403c40 lr=503ad884"
+    ],
+    "thread_entries": [
+      "T 376303112 301170441 pc=503247bc cpsr=00000010 r0=503c8ca5 r1=00000000 r2=00000000 r3=00000000 r12=00000000 sp=80602000 lr=00000000",
+      "T 376514967 301205160 pc=503247bc cpsr=00000010 r0=503ce4d5 r1=00000000 r2=00000000 r3=00000000 r12=00000000 sp=80804000 lr=00000000",
+      "T 376717042 301242611 pc=503247bc cpsr=00000010 r0=503d0231 r1=00000000 r2=00000000 r3=00000000 r12=00000000 sp=80d02000 lr=00000000",
+      "T 429408268 331294669 pc=503247bc cpsr=00000010 r0=503e9965 r1=00000000 r2=00000000 r3=00000000 r12=00000000 sp=00502000 lr=00000000"
+    ],
+    "faults": [],
+    "events": {
+      "S": 28387,
+      "T": 25586,
+      "I": 3
+    },
+    "run_log": [
+      "flash images in DDR3; the CPU starts at clock 52",
+      "picture 1 at 0.017 s (lcd-00000016.png)",
+      "clock 26000000 (0.250 s) retired 20688589 pc 00006228 dev 98 pictures 1 | wall 104 s, 250 k clocks/s",
+      "clock 52000000 (0.500 s) retired 41791192 pc 000064cc dev 117 pictures 1 | wall 208 s, 250 k clocks/s",
+      "clock 78000000 (0.750 s) retired 59797477 pc 00006504 dev 191 pictures 1 | wall 312 s, 251 k clocks/s",
+      "picture 2 at 0.966 s (lcd-00000965.png)",
+      "picture 3 at 0.982 s (lcd-00000982.png)",
+      "picture 4 at 0.999 s (lcd-00000998.png)",
+      "clock 104000000 (1.000 s) retired 75797223 pc 500040e8 dev 36955 pictures 4 | wall 415 s, 251 k clocks/s",
+      "clock 130000000 (1.250 s) retired 97648716 pc 50003eec dev 36955 pictures 4 | wall 523 s, 240 k clocks/s",
+      "clock 156000000 (1.500 s) retired 119017213 pc 500040ac dev 36955 pictures 4 | wall 632 s, 240 k clocks/s",
+      "clock 182000000 (1.750 s) retired 140879484 pc 500042f4 dev 36980 pictures 4 | wall 741 s, 239 k clocks/s",
+      "clock 208000000 (2.000 s) retired 162743899 pc 50004470 dev 36980 pictures 4 | wall 851 s, 236 k clocks/s",
+      "clock 234000000 (2.250 s) retired 184608375 pc 50003cf4 dev 36980 pictures 4 | wall 961 s, 236 k clocks/s",
+      "clock 260000000 (2.500 s) retired 206472741 pc 50003dac dev 36980 pictures 4 | wall 1071 s, 237 k clocks/s",
+      "clock 286000000 (2.750 s) retired 228336905 pc 50004528 dev 36980 pictures 4 | wall 1181 s, 235 k clocks/s",
+      "clock 312000000 (3.000 s) retired 250201421 pc 50003e4c dev 36980 pictures 4 | wall 1292 s, 235 k clocks/s",
+      "PROFILE first_exec clock=337589481 retired=270625878 stall=20860966,58400240,50479675,60222422,191,185225,933015,401, dc=1229331,1546,563,2365291, ic=58347353,56292,2525,52887,8412,27810,184,102834, fill_read_wait=19265",
+      "clock 338000000 (3.250 s) retired 270727658 pc 50322820 dev 36984 pictures 4 | wall 1402 s, 235 k clocks/s",
+      "picture 5 at 3.346 s (lcd-00003346.png)",
+      "clock 364000000 (3.500 s) retired 290556121 pc 503453ac dev 74737 pictures 5 | wall 1509 s, 243 k clocks/s",
+      "PROFILE thread_entry clock=376303112 retired=301170441 stall=24564063,63297381,53262436,65727087,4703,192071,1268486,7543, dc=1234900,54987,54727,2438433, ic=63057016,251555,14847,240365,41231,140220,388,153523, fill_read_wait=88922",
+      "PROFILE thread_entry clock=376514967 retired=301205160 stall=24641994,63426432,53346347,65833879,5128,192330,1270273,9106, dc=1235644,56337,56031,2438445, ic=63136322,302952,18937,290110,49365,166859,632,154834, fill_read_wait=94928",
+      "PROFILE thread_entry clock=376717042 retired=301242611 stall=24708010,63545180,53430231,65931274,5506,192645,1272260,10662, dc=1236403,57256,57288,2438457, ic=63202605,356977,23395,342575,57999,194243,664,156110, fill_read_wait=100758",
+      "clock 390000000 (3.750 s) retired 305216717 pc 5149e630 dev 74880 pictures 5 | wall 1617 s, 242 k clocks/s",
+      "clock 416000000 (4.000 s) retired 323026667 pc 5149e634 dev 75177 pictures 5 | wall 1726 s, 239 k clocks/s",
+      "PROFILE thread_entry clock=429408268 retired=331294669 stall=33769554,82397888,64148419,85133940,20244,300381,1438888,125042, dc=1259218,80664,85118,2439697, ic=80692775,1761165,147825,1705113,280148,871810,3478,427544, fill_read_wait=299540",
+      "clock 442000000 (4.250 s) retired 339143336 pc 5032bb70 dev 75273 pictures 5 | wall 1838 s, 232 k clocks/s",
+      "clock 468000000 (4.500 s) retired 356188123 pc 5149e618 dev 75369 pictures 5 | wall 1950 s, 233 k clocks/s",
+      "END after 468000000 clocks (4.500 s simulated), 356188123 instructions, 75369 device accesses, 5 pictures, 0 audio frames, 1950 s wall clock",
+      "PROFILE end clock=468000000 retired=356188123 stall=38458412,94964493,71183829,97557783,28262,409127,1489580,157866, dc=1272476,110797,117346,2440040, ic=92568334,2477139,210332,2396159,408493,1208595,5386,465437, fill_read_wait=414219",
+      "User execution: 2633612 instructions, 25589 entries, 28387 exec calls"
+    ],
+    "kernel": "TRtcQueue::Add: 2TRtcQueue::Add: 3TRtcQueue::Add: 5",
+    "sha256": {
+      "run.log": "e4f260ff1a4dc0bc796598c2e34c378f1ed97712e82f7a38931f4b3ee1447ace",
+      "kern.log": "1cfde0e7dda871288c060e163082025e9b559aa342a6cea2bd15fd0bb1c9893a",
+      "exec.log": "1dd1c3d84a67da6fe405fd9acf76b1c5faad453df5666c2abeb0ee998c25aa80"
+    }
+  }
+}

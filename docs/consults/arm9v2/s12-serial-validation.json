@@ -18,5 +18,13 @@
     5
   ],
   "timing_windows": 89,
-  "firmware_status": "frozen serial source running on Ubuntu; final milestone evidence follows"
+  "firmware_status": "complete, 4.5 guest seconds, EFile and EStart reached, no D/P/U faults",
+  "checks": [
+    "all four CPU/debug lints",
+    "cpu-gen-check",
+    "decode/execute/leaf components, source and generated",
+    "cache integration at three component latencies",
+    "emu D16 V2 top: Phoenix shell, save, memory, video"
+  ],
+  "firmware_evidence": "s12-serial-firmware.json"
 }

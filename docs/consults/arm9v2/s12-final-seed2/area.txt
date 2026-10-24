@@ -1,0 +1,13 @@
+Logic utilization (in ALMs) : 13,262 / 41,910 ( 32 % )
+Total registers : 13747
+Total block memory bits : 414,112 / 5,662,720 ( 7 % )
+Total RAM Blocks : 123 / 553 ( 22 % )
+Total DSP Blocks : 4 / 112 ( 4 % )
+CORNER Slow 1100mV 100C Model setup slack -2.951
+HOLD Slow 1100mV 100C Model hold slack 0.327
+CORNER Slow 1100mV -40C Model setup slack -2.539
+HOLD Slow 1100mV -40C Model hold slack 0.284
+CORNER Fast 1100mV 100C Model setup slack 2.558
+HOLD Fast 1100mV 100C Model hold slack 0.176
+CORNER Fast 1100mV -40C Model setup slack 3.729
+HOLD Fast 1100mV -40C Model hold slack 0.137

@@ -5,7 +5,7 @@
 // register and every bus output goes through a register to a pin, so no
 // logic can be optimised away and only the CPU's own paths (plus one
 // register at each side) are timed. See run.sh.
-module cpu_trial (
+module cpu_trial #(parameter DCACHE_SIZE=8192) (
 	input  wire        clk,
 	input  wire        rst_in,
 	input  wire        irq_in,
@@ -13,18 +13,21 @@ module cpu_trial (
 	input  wire [31:0] rdata_in,
 	input  wire        ack_in,
 	input  wire        err_in,
+	input  wire        no_late_error_in,
 	output reg         req_o,
 	output reg         we_o,
 	output reg         burst_o,
+	output reg  [1:0]  bte_o,
 	output reg  [31:0] addr_o,
 	output reg  [31:0] wdata_o,
 	output reg  [3:0]  be_o
 );
-	reg        reset, irq, fiq, ack, err;
+	reg        reset, irq, fiq, ack, err, no_late_error;
 	reg [31:0] rdata;
 	wire        bus_req, bus_we, bus_burst;
 	wire [31:0] bus_addr, bus_wdata;
 	wire [3:0]  bus_be;
+	wire [1:0]  bus_bte;
 
 	always @(posedge clk) begin
 		reset <= rst_in;
@@ -33,15 +36,17 @@ module cpu_trial (
 		rdata <= rdata_in;
 		ack   <= ack_in;
 		err   <= err_in;
+		no_late_error <= no_late_error_in;
 		req_o   <= bus_req;
 		we_o    <= bus_we;
 		burst_o <= bus_burst;
+		bte_o   <= bus_bte;
 		addr_o  <= bus_addr;
 		wdata_o <= bus_wdata;
 		be_o    <= bus_be;
 	end
 
-	arm925t cpu (
+	arm925t #(.DCACHE_SIZE(DCACHE_SIZE)) cpu (
 		.clk       (clk),
 		.reset     (reset),
 		.irq       (irq),
@@ -52,8 +57,10 @@ module cpu_trial (
 		.bus_be    (bus_be),
 		.bus_wdata (bus_wdata),
 		.bus_burst (bus_burst),
+		.bus_bte   (bus_bte),
 		.bus_rdata (rdata),
 		.bus_ack   (ack),
-		.bus_err   (err)
+		.bus_err   (err),
+		.bus_no_late_error(no_late_error)
 	);
 endmodule
