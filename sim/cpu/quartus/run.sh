@@ -4,6 +4,7 @@
 # in the Docker image on the build server.
 #   sim/cpu/quartus/run.sh            full compile, summary and worst paths
 #   TRIAL=arm9_core sim/cpu/quartus/run.sh   experimental integrated ARM9
+#   TRIAL=arm9v2_execute sim/cpu/quartus/run.sh   F1/F2/D1/D2/S/A with registered producers
 #   TRIAL=arm9v2_decode sim/cpu/quartus/run.sh   F1/F2/D1/D2 and register file
 #   TRIAL=arm9v2_frontend sim/cpu/quartus/run.sh   F1/F2 component only
 #   TRIAL=arm9_execute sim/cpu/quartus/run.sh   execute datapath only
@@ -24,6 +25,7 @@ case "$trial" in
     arm9_core) trial_suffix="-arm9-core" ;;
     arm9v2_frontend) trial_suffix="-arm9v2-frontend" ;;
     arm9v2_decode) trial_suffix="-arm9v2-decode" ;;
+    arm9v2_execute) trial_suffix="-arm9v2-execute" ;;
     arm9_execute) trial_suffix="-arm9-execute" ;;
     arm9_decode_shift) trial_suffix="-arm9-decode-shift" ;;
     *) echo "unknown TRIAL: $trial" >&2; exit 2 ;;
@@ -52,6 +54,14 @@ if [[ $trial == arm9_core ]]; then
     sed 's/arm925t cpu (/arm925t #(.CORE("ARM9")) cpu (/' "$here/cpu_trial.v" > "$out/cpu_trial.v"
     cp "$root/rtl/cpu/arm925t_gen.v" "$out/arm925t_gen.v"
     rsync -a "$out/cpu_trial.v" "$out/arm925t_gen.v" "$host:$dir/"
+elif [[ $trial == arm9v2_execute ]]; then
+    sv2v -DSYNTHESIS -I "$root/rtl/cpu/zap" --top=cpu_trial "$root"/rtl/cpu/arm9v2/*.sv \
+        "$root/rtl/cpu/arm9/arm9_alu.sv" "$root/rtl/cpu/zap/zap_ram_simple_nopipe.sv" \
+        "$root/rtl/cpu/zap/zap_mode16_decoder.sv" "$root/rtl/cpu/zap/zap_register_file.sv" \
+        "$root/sim/cpu/arm9v2/front_decode.sv" "$root/sim/cpu/arm9v2/front_execute.sv" \
+        "$here/arm9v2_execute_trial.sv" > "$out/arm925t_gen.v"
+    printf '// Component top included in arm925t_gen.v\n' > "$out/cpu_trial.v"
+    rsync -a "$out/arm925t_gen.v" "$out/cpu_trial.v" "$host:$dir/"
 elif [[ $trial == arm9v2_decode ]]; then
     sv2v -DSYNTHESIS -I "$root/rtl/cpu/zap" --top=cpu_trial "$root"/rtl/cpu/arm9v2/*.sv \
         "$root/rtl/cpu/zap/zap_ram_simple_nopipe.sv" \

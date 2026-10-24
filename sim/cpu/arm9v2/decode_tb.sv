@@ -12,7 +12,7 @@ module decode_tb;
     logic [2:0] i_ras_pointer;
     logic [3:0] i_ras_count;
     logic i_wen;
-    logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked;
+    logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked, i_early_locked;
     logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c;
     logic i_ready;
     logic o_valid;
@@ -118,7 +118,7 @@ module decode_tb;
         check(last_cycle==accepted+n+1,"block has no fixed setup or drain between transfers");
     endtask
     initial begin
-        i_clk=0;i_reset=0;i_flush=0;i_valid=0;i_pc=0;i_word=0;i_thumb=0;i_fault=0;i_mode=0;i_predicted=0;i_pred_hit=0;i_pred_target=0;i_pred_state=0;i_pred_kind=0;i_ras_pointer=0;i_ras_count=0;i_wen=0;i_wr_addr_a=0;i_wr_addr_b=0;i_wr_addr_c=0;i_locked=0;i_wr_data_a=0;i_wr_data_b=0;i_wr_data_c=0;i_ready=0;
+        i_clk=0;i_reset=0;i_flush=0;i_valid=0;i_pc=0;i_word=0;i_thumb=0;i_fault=0;i_mode=0;i_predicted=0;i_pred_hit=0;i_pred_target=0;i_pred_state=0;i_pred_kind=0;i_ras_pointer=0;i_ras_count=0;i_wen=0;i_wr_addr_a=0;i_wr_addr_b=0;i_wr_addr_c=0;i_locked=0;i_early_locked=0;i_wr_data_a=0;i_wr_data_b=0;i_wr_data_c=0;i_ready=0;
         i_reset=1;i_ready=1;i_mode=5'h13;tick();i_reset=0;seed_rf();
         single(32'he0812003,0);check(o_used==3&&o_tag[0]==1&&o_tag[1]==3&&o_dest[0]==2,"ADD indices");
         check(o_value[0]==rf(1)&&o_value[1]==rf(3),"raw operands at S boundary");tick();
@@ -145,6 +145,15 @@ module decode_tb;
         check(o_hazard&&!o_valid,"D2 load-use scoreboard stall");i_locked=0;tick();
         check(o_valid&&o_value[0]==rf(1),"registered lock release admits D2");tick();
         i_locked=1;single(32'he1a02003,0);check(!o_hazard,"unused Rn does not stall MOV");i_locked=0;tick();
+        // S-only locks hold shifted operands in D2, while plain ALU inputs
+        // may enter S and carry a late token into A.
+        i_early_locked=2;single(32'he1a02001,0);check(!o_hazard,"unshifted Rm permits late A pickup");tick();
+        send(32'he1a02081);repeat(4)tick();
+        check(o_hazard&&!o_valid,"shifted Rm waits in D2 for registered producer");
+        i_early_locked=0;tick();check(o_valid,"early source unlock admits S");tick();
+        i_early_locked=16;send(32'he1a02413);repeat(4)tick();
+        check(o_hazard&&!o_valid,"register shift amount waits in D2");
+        i_early_locked=0;tick();check(o_valid&&o_reg_shift,"register shift unlock");tick();
         // Direct targets and both equality results are registered with S data.
         single(32'hea000002,3);check(o_direct&&last_target==32'h1010,"unpredicted direct branch");
         check(last_action==0&&!o_match_taken,"B repairs without RAS push");tick();

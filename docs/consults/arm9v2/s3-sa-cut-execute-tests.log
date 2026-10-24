@@ -1,0 +1,10 @@
+PASS S/A execute: 68907 checks, 39160 clocks
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/execute_tb.sv:343: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 137ns; walltime 0.055 s; speed 2.498 us/s
+- Verilator: cpu 0.055 s on 1 threads; allocated 2 MB
+PASS S/A execute: 68907 checks, 39160 clocks
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/execute_tb.sv:343: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 137ns; walltime 0.041 s; speed 3.374 us/s
+- Verilator: cpu 0.041 s on 1 threads; allocated 2 MB

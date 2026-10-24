@@ -1,0 +1,1656 @@
+{
+  "2": {
+    "Slow_1100mV_100C_Model": {
+      "pending destination/phase -> early lock -> D2 admission": [
+        {
+          "slack_ns": -1.621,
+          "levels": 8,
+          "data_delay_ns": 10.557,
+          "clock_skew_ns": -0.509,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[94]"
+        },
+        {
+          "slack_ns": -1.621,
+          "levels": 8,
+          "data_delay_ns": 10.551,
+          "clock_skew_ns": -0.515,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[99]"
+        },
+        {
+          "slack_ns": -1.621,
+          "levels": 8,
+          "data_delay_ns": 10.551,
+          "clock_skew_ns": -0.515,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[97]"
+        },
+        {
+          "slack_ns": -1.621,
+          "levels": 8,
+          "data_delay_ns": 10.557,
+          "clock_skew_ns": -0.509,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[95]"
+        },
+        {
+          "slack_ns": -1.621,
+          "levels": 8,
+          "data_delay_ns": 10.557,
+          "clock_skew_ns": -0.509,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[96]"
+        },
+        {
+          "slack_ns": -1.621,
+          "levels": 8,
+          "data_delay_ns": 10.551,
+          "clock_skew_ns": -0.515,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[98]"
+        },
+        {
+          "slack_ns": -1.621,
+          "levels": 8,
+          "data_delay_ns": 10.551,
+          "clock_skew_ns": -0.515,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[90]"
+        },
+        {
+          "slack_ns": -1.621,
+          "levels": 8,
+          "data_delay_ns": 10.557,
+          "clock_skew_ns": -0.509,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[113]"
+        },
+        {
+          "slack_ns": -1.621,
+          "levels": 8,
+          "data_delay_ns": 10.557,
+          "clock_skew_ns": -0.509,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[116]"
+        },
+        {
+          "slack_ns": -1.621,
+          "levels": 8,
+          "data_delay_ns": 10.557,
+          "clock_skew_ns": -0.509,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[115]"
+        },
+        {
+          "slack_ns": -1.594,
+          "levels": 8,
+          "data_delay_ns": 10.525,
+          "clock_skew_ns": -0.514,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[111]"
+        },
+        {
+          "slack_ns": -1.594,
+          "levels": 8,
+          "data_delay_ns": 10.525,
+          "clock_skew_ns": -0.514,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[110]"
+        },
+        {
+          "slack_ns": -1.594,
+          "levels": 8,
+          "data_delay_ns": 10.531,
+          "clock_skew_ns": -0.508,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[107]"
+        },
+        {
+          "slack_ns": -1.594,
+          "levels": 8,
+          "data_delay_ns": 10.531,
+          "clock_skew_ns": -0.508,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[109]"
+        },
+        {
+          "slack_ns": -1.594,
+          "levels": 8,
+          "data_delay_ns": 10.525,
+          "clock_skew_ns": -0.514,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[108]"
+        },
+        {
+          "slack_ns": -1.594,
+          "levels": 8,
+          "data_delay_ns": 10.525,
+          "clock_skew_ns": -0.514,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[106]"
+        },
+        {
+          "slack_ns": -1.594,
+          "levels": 8,
+          "data_delay_ns": 10.525,
+          "clock_skew_ns": -0.514,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[92]"
+        },
+        {
+          "slack_ns": -1.589,
+          "levels": 8,
+          "data_delay_ns": 10.519,
+          "clock_skew_ns": -0.515,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[117]"
+        },
+        {
+          "slack_ns": -1.589,
+          "levels": 8,
+          "data_delay_ns": 10.525,
+          "clock_skew_ns": -0.509,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[112]"
+        },
+        {
+          "slack_ns": -1.589,
+          "levels": 8,
+          "data_delay_ns": 10.519,
+          "clock_skew_ns": -0.515,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[93]"
+        },
+        {
+          "slack_ns": -1.545,
+          "levels": 9,
+          "data_delay_ns": 10.483,
+          "clock_skew_ns": -0.507,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[83]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[94]"
+        },
+        {
+          "slack_ns": -1.545,
+          "levels": 9,
+          "data_delay_ns": 10.477,
+          "clock_skew_ns": -0.513,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[83]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[99]"
+        },
+        {
+          "slack_ns": -1.545,
+          "levels": 9,
+          "data_delay_ns": 10.477,
+          "clock_skew_ns": -0.513,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[83]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[97]"
+        },
+        {
+          "slack_ns": -1.545,
+          "levels": 9,
+          "data_delay_ns": 10.483,
+          "clock_skew_ns": -0.507,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[83]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[95]"
+        },
+        {
+          "slack_ns": -1.545,
+          "levels": 9,
+          "data_delay_ns": 10.483,
+          "clock_skew_ns": -0.507,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[83]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[96]"
+        },
+        {
+          "slack_ns": -1.545,
+          "levels": 9,
+          "data_delay_ns": 10.477,
+          "clock_skew_ns": -0.513,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[83]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[98]"
+        },
+        {
+          "slack_ns": -1.545,
+          "levels": 9,
+          "data_delay_ns": 10.477,
+          "clock_skew_ns": -0.513,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[83]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[90]"
+        },
+        {
+          "slack_ns": -1.545,
+          "levels": 9,
+          "data_delay_ns": 10.483,
+          "clock_skew_ns": -0.507,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[83]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[113]"
+        },
+        {
+          "slack_ns": -1.545,
+          "levels": 9,
+          "data_delay_ns": 10.483,
+          "clock_skew_ns": -0.507,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[83]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[116]"
+        },
+        {
+          "slack_ns": -1.545,
+          "levels": 9,
+          "data_delay_ns": 10.483,
+          "clock_skew_ns": -0.507,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[83]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[115]"
+        }
+      ]
+    },
+    "Slow_1100mV_-40C_Model": {
+      "pending destination/phase -> early lock -> D2 admission": [
+        {
+          "slack_ns": -1.511,
+          "levels": 9,
+          "data_delay_ns": 10.519,
+          "clock_skew_ns": -0.437,
+          "max_data_fanout": 35,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[156]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~400DUPLICATE"
+        },
+        {
+          "slack_ns": -1.509,
+          "levels": 9,
+          "data_delay_ns": 10.525,
+          "clock_skew_ns": -0.429,
+          "max_data_fanout": 35,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[156]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~398"
+        },
+        {
+          "slack_ns": -1.508,
+          "levels": 9,
+          "data_delay_ns": 10.526,
+          "clock_skew_ns": -0.427,
+          "max_data_fanout": 65,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[188]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~400DUPLICATE"
+        },
+        {
+          "slack_ns": -1.506,
+          "levels": 9,
+          "data_delay_ns": 10.532,
+          "clock_skew_ns": -0.419,
+          "max_data_fanout": 65,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[188]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~398"
+        },
+        {
+          "slack_ns": -1.503,
+          "levels": 9,
+          "data_delay_ns": 10.518,
+          "clock_skew_ns": -0.43,
+          "max_data_fanout": 35,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[156]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~400"
+        },
+        {
+          "slack_ns": -1.5,
+          "levels": 9,
+          "data_delay_ns": 10.525,
+          "clock_skew_ns": -0.42,
+          "max_data_fanout": 65,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[188]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~400"
+        },
+        {
+          "slack_ns": -1.459,
+          "levels": 9,
+          "data_delay_ns": 10.468,
+          "clock_skew_ns": -0.436,
+          "max_data_fanout": 51,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a_valid",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~400DUPLICATE"
+        },
+        {
+          "slack_ns": -1.457,
+          "levels": 9,
+          "data_delay_ns": 10.474,
+          "clock_skew_ns": -0.428,
+          "max_data_fanout": 51,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a_valid",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~398"
+        },
+        {
+          "slack_ns": -1.451,
+          "levels": 9,
+          "data_delay_ns": 10.467,
+          "clock_skew_ns": -0.429,
+          "max_data_fanout": 51,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a_valid",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~400"
+        },
+        {
+          "slack_ns": -1.438,
+          "levels": 9,
+          "data_delay_ns": 10.447,
+          "clock_skew_ns": -0.436,
+          "max_data_fanout": 51,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a_valid",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~400DUPLICATE"
+        },
+        {
+          "slack_ns": -1.436,
+          "levels": 9,
+          "data_delay_ns": 10.453,
+          "clock_skew_ns": -0.428,
+          "max_data_fanout": 51,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a_valid",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~398"
+        },
+        {
+          "slack_ns": -1.431,
+          "levels": 9,
+          "data_delay_ns": 10.449,
+          "clock_skew_ns": -0.427,
+          "max_data_fanout": 65,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[188]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~400DUPLICATE"
+        },
+        {
+          "slack_ns": -1.43,
+          "levels": 9,
+          "data_delay_ns": 10.446,
+          "clock_skew_ns": -0.429,
+          "max_data_fanout": 51,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a_valid",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~400"
+        },
+        {
+          "slack_ns": -1.429,
+          "levels": 9,
+          "data_delay_ns": 10.756,
+          "clock_skew_ns": -0.118,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[156]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.429,
+          "levels": 9,
+          "data_delay_ns": 10.756,
+          "clock_skew_ns": -0.118,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[156]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.429,
+          "levels": 9,
+          "data_delay_ns": 10.455,
+          "clock_skew_ns": -0.419,
+          "max_data_fanout": 65,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[188]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~398"
+        },
+        {
+          "slack_ns": -1.426,
+          "levels": 9,
+          "data_delay_ns": 10.763,
+          "clock_skew_ns": -0.108,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[188]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.426,
+          "levels": 9,
+          "data_delay_ns": 10.763,
+          "clock_skew_ns": -0.108,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[188]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.423,
+          "levels": 9,
+          "data_delay_ns": 10.448,
+          "clock_skew_ns": -0.42,
+          "max_data_fanout": 65,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[188]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~400"
+        },
+        {
+          "slack_ns": -1.419,
+          "levels": 9,
+          "data_delay_ns": 10.434,
+          "clock_skew_ns": -0.43,
+          "max_data_fanout": 36,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[156]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~179"
+        },
+        {
+          "slack_ns": -1.416,
+          "levels": 9,
+          "data_delay_ns": 10.441,
+          "clock_skew_ns": -0.42,
+          "max_data_fanout": 65,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[188]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~179"
+        },
+        {
+          "slack_ns": -1.415,
+          "levels": 9,
+          "data_delay_ns": 10.423,
+          "clock_skew_ns": -0.437,
+          "max_data_fanout": 36,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[156]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~169"
+        },
+        {
+          "slack_ns": -1.413,
+          "levels": 9,
+          "data_delay_ns": 10.421,
+          "clock_skew_ns": -0.437,
+          "max_data_fanout": 36,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[156]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~177DUPLICATE"
+        },
+        {
+          "slack_ns": -1.412,
+          "levels": 9,
+          "data_delay_ns": 10.43,
+          "clock_skew_ns": -0.427,
+          "max_data_fanout": 65,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[188]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~169"
+        },
+        {
+          "slack_ns": -1.41,
+          "levels": 9,
+          "data_delay_ns": 10.428,
+          "clock_skew_ns": -0.427,
+          "max_data_fanout": 65,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[188]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~177DUPLICATE"
+        },
+        {
+          "slack_ns": -1.407,
+          "levels": 9,
+          "data_delay_ns": 10.423,
+          "clock_skew_ns": -0.429,
+          "max_data_fanout": 36,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[156]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~177"
+        },
+        {
+          "slack_ns": -1.404,
+          "levels": 9,
+          "data_delay_ns": 10.412,
+          "clock_skew_ns": -0.437,
+          "max_data_fanout": 35,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[156]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~400DUPLICATE"
+        },
+        {
+          "slack_ns": -1.404,
+          "levels": 8,
+          "data_delay_ns": 10.346,
+          "clock_skew_ns": -0.503,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[94]"
+        },
+        {
+          "slack_ns": -1.404,
+          "levels": 8,
+          "data_delay_ns": 10.346,
+          "clock_skew_ns": -0.503,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[95]"
+        },
+        {
+          "slack_ns": -1.404,
+          "levels": 8,
+          "data_delay_ns": 10.346,
+          "clock_skew_ns": -0.503,
+          "max_data_fanout": 399,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[160]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[96]"
+        }
+      ]
+    }
+  },
+  "3": {
+    "Slow_1100mV_100C_Model": {
+      "pending destination/phase -> early lock -> D2 admission": [
+        {
+          "slack_ns": -1.699,
+          "levels": 9,
+          "data_delay_ns": 10.736,
+          "clock_skew_ns": -0.408,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[286]"
+        },
+        {
+          "slack_ns": -1.699,
+          "levels": 9,
+          "data_delay_ns": 10.738,
+          "clock_skew_ns": -0.406,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[284]"
+        },
+        {
+          "slack_ns": -1.699,
+          "levels": 9,
+          "data_delay_ns": 10.736,
+          "clock_skew_ns": -0.408,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[283]"
+        },
+        {
+          "slack_ns": -1.699,
+          "levels": 9,
+          "data_delay_ns": 10.736,
+          "clock_skew_ns": -0.408,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[292]"
+        },
+        {
+          "slack_ns": -1.696,
+          "levels": 9,
+          "data_delay_ns": 10.738,
+          "clock_skew_ns": -0.403,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[285]"
+        },
+        {
+          "slack_ns": -1.696,
+          "levels": 9,
+          "data_delay_ns": 10.738,
+          "clock_skew_ns": -0.403,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[287]"
+        },
+        {
+          "slack_ns": -1.634,
+          "levels": 9,
+          "data_delay_ns": 10.689,
+          "clock_skew_ns": -0.39,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[330]"
+        },
+        {
+          "slack_ns": -1.615,
+          "levels": 9,
+          "data_delay_ns": 10.622,
+          "clock_skew_ns": -0.438,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[190]"
+        },
+        {
+          "slack_ns": -1.609,
+          "levels": 9,
+          "data_delay_ns": 10.646,
+          "clock_skew_ns": -0.408,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[286]"
+        },
+        {
+          "slack_ns": -1.609,
+          "levels": 9,
+          "data_delay_ns": 10.648,
+          "clock_skew_ns": -0.406,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[284]"
+        },
+        {
+          "slack_ns": -1.609,
+          "levels": 9,
+          "data_delay_ns": 10.646,
+          "clock_skew_ns": -0.408,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[283]"
+        },
+        {
+          "slack_ns": -1.609,
+          "levels": 9,
+          "data_delay_ns": 10.646,
+          "clock_skew_ns": -0.408,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[292]"
+        },
+        {
+          "slack_ns": -1.606,
+          "levels": 9,
+          "data_delay_ns": 10.648,
+          "clock_skew_ns": -0.403,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[285]"
+        },
+        {
+          "slack_ns": -1.606,
+          "levels": 9,
+          "data_delay_ns": 10.648,
+          "clock_skew_ns": -0.403,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[287]"
+        },
+        {
+          "slack_ns": -1.602,
+          "levels": 9,
+          "data_delay_ns": 10.637,
+          "clock_skew_ns": -0.41,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[348]"
+        },
+        {
+          "slack_ns": -1.602,
+          "levels": 9,
+          "data_delay_ns": 10.639,
+          "clock_skew_ns": -0.408,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[295]"
+        },
+        {
+          "slack_ns": -1.598,
+          "levels": 9,
+          "data_delay_ns": 10.635,
+          "clock_skew_ns": -0.408,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[286]"
+        },
+        {
+          "slack_ns": -1.598,
+          "levels": 9,
+          "data_delay_ns": 10.637,
+          "clock_skew_ns": -0.406,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[284]"
+        },
+        {
+          "slack_ns": -1.598,
+          "levels": 9,
+          "data_delay_ns": 10.635,
+          "clock_skew_ns": -0.408,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[283]"
+        },
+        {
+          "slack_ns": -1.598,
+          "levels": 9,
+          "data_delay_ns": 10.635,
+          "clock_skew_ns": -0.408,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[292]"
+        },
+        {
+          "slack_ns": -1.595,
+          "levels": 9,
+          "data_delay_ns": 10.637,
+          "clock_skew_ns": -0.403,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[285]"
+        },
+        {
+          "slack_ns": -1.595,
+          "levels": 9,
+          "data_delay_ns": 10.637,
+          "clock_skew_ns": -0.403,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[287]"
+        },
+        {
+          "slack_ns": -1.588,
+          "levels": 9,
+          "data_delay_ns": 10.575,
+          "clock_skew_ns": -0.458,
+          "max_data_fanout": 35,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~380"
+        },
+        {
+          "slack_ns": -1.581,
+          "levels": 9,
+          "data_delay_ns": 10.568,
+          "clock_skew_ns": -0.458,
+          "max_data_fanout": 35,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~380"
+        },
+        {
+          "slack_ns": -1.579,
+          "levels": 9,
+          "data_delay_ns": 10.566,
+          "clock_skew_ns": -0.458,
+          "max_data_fanout": 35,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~380"
+        }
+      ],
+      "D1 select -> classification -> D2": [
+        {
+          "slack_ns": -1.604,
+          "levels": 9,
+          "data_delay_ns": 10.453,
+          "clock_skew_ns": -0.596,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.599,
+          "levels": 9,
+          "data_delay_ns": 10.448,
+          "clock_skew_ns": -0.596,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.594,
+          "levels": 10,
+          "data_delay_ns": 10.443,
+          "clock_skew_ns": -0.596,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.576,
+          "levels": 10,
+          "data_delay_ns": 10.425,
+          "clock_skew_ns": -0.596,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.572,
+          "levels": 10,
+          "data_delay_ns": 10.443,
+          "clock_skew_ns": -0.574,
+          "max_data_fanout": 22,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~386",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        }
+      ]
+    },
+    "Slow_1100mV_-40C_Model": {
+      "D1 select -> classification -> D2": [
+        {
+          "slack_ns": -1.729,
+          "levels": 9,
+          "data_delay_ns": 10.568,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.635,
+          "levels": 9,
+          "data_delay_ns": 10.474,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[113]"
+        },
+        {
+          "slack_ns": -1.635,
+          "levels": 9,
+          "data_delay_ns": 10.474,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.623,
+          "levels": 10,
+          "data_delay_ns": 10.462,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.597,
+          "levels": 8,
+          "data_delay_ns": 10.443,
+          "clock_skew_ns": -0.599,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[117]"
+        },
+        {
+          "slack_ns": -1.593,
+          "levels": 10,
+          "data_delay_ns": 10.432,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.587,
+          "levels": 9,
+          "data_delay_ns": 10.426,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.566,
+          "levels": 10,
+          "data_delay_ns": 10.405,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.547,
+          "levels": 9,
+          "data_delay_ns": 10.386,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.541,
+          "levels": 9,
+          "data_delay_ns": 10.38,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[113]"
+        },
+        {
+          "slack_ns": -1.53,
+          "levels": 10,
+          "data_delay_ns": 10.369,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[113]"
+        },
+        {
+          "slack_ns": -1.529,
+          "levels": 10,
+          "data_delay_ns": 10.368,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.519,
+          "levels": 10,
+          "data_delay_ns": 10.357,
+          "clock_skew_ns": -0.607,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[114]"
+        },
+        {
+          "slack_ns": -1.513,
+          "levels": 10,
+          "data_delay_ns": 10.352,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.505,
+          "levels": 10,
+          "data_delay_ns": 10.367,
+          "clock_skew_ns": -0.583,
+          "max_data_fanout": 22,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~386",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.503,
+          "levels": 8,
+          "data_delay_ns": 10.349,
+          "clock_skew_ns": -0.599,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[117]"
+        },
+        {
+          "slack_ns": -1.499,
+          "levels": 10,
+          "data_delay_ns": 10.338,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[113]"
+        },
+        {
+          "slack_ns": -1.495,
+          "levels": 10,
+          "data_delay_ns": 10.327,
+          "clock_skew_ns": -0.613,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[112]"
+        },
+        {
+          "slack_ns": -1.493,
+          "levels": 9,
+          "data_delay_ns": 10.332,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[113]"
+        },
+        {
+          "slack_ns": -1.491,
+          "levels": 9,
+          "data_delay_ns": 10.337,
+          "clock_skew_ns": -0.599,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[117]"
+        },
+        {
+          "slack_ns": -1.482,
+          "levels": 10,
+          "data_delay_ns": 10.344,
+          "clock_skew_ns": -0.583,
+          "max_data_fanout": 22,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~386",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.475,
+          "levels": 9,
+          "data_delay_ns": 10.336,
+          "clock_skew_ns": -0.584,
+          "max_data_fanout": 22,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~384",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.472,
+          "levels": 10,
+          "data_delay_ns": 10.311,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[113]"
+        },
+        {
+          "slack_ns": -1.472,
+          "levels": 10,
+          "data_delay_ns": 10.311,
+          "clock_skew_ns": -0.606,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[116]"
+        },
+        {
+          "slack_ns": -1.461,
+          "levels": 9,
+          "data_delay_ns": 10.307,
+          "clock_skew_ns": -0.599,
+          "max_data_fanout": 330,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|head",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[117]"
+        }
+      ],
+      "pending destination/phase -> early lock -> D2 admission": [
+        {
+          "slack_ns": -1.509,
+          "levels": 9,
+          "data_delay_ns": 10.551,
+          "clock_skew_ns": -0.403,
+          "max_data_fanout": 41,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[80]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~393"
+        },
+        {
+          "slack_ns": -1.502,
+          "levels": 9,
+          "data_delay_ns": 10.549,
+          "clock_skew_ns": -0.398,
+          "max_data_fanout": 41,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[80]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~393DUPLICATE"
+        },
+        {
+          "slack_ns": -1.484,
+          "levels": 9,
+          "data_delay_ns": 10.518,
+          "clock_skew_ns": -0.411,
+          "max_data_fanout": 35,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[123]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~393"
+        },
+        {
+          "slack_ns": -1.477,
+          "levels": 9,
+          "data_delay_ns": 10.516,
+          "clock_skew_ns": -0.406,
+          "max_data_fanout": 35,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[123]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~393DUPLICATE"
+        },
+        {
+          "slack_ns": -1.474,
+          "levels": 8,
+          "data_delay_ns": 10.48,
+          "clock_skew_ns": -0.439,
+          "max_data_fanout": 41,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[80]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~380"
+        }
+      ]
+    }
+  },
+  "4": {
+    "Slow_1100mV_100C_Model": {
+      "pending destination/phase -> early lock -> D2 admission": [
+        {
+          "slack_ns": -1.936,
+          "levels": 10,
+          "data_delay_ns": 10.92,
+          "clock_skew_ns": -0.461,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~174"
+        },
+        {
+          "slack_ns": -1.926,
+          "levels": 10,
+          "data_delay_ns": 10.924,
+          "clock_skew_ns": -0.447,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~178"
+        },
+        {
+          "slack_ns": -1.92,
+          "levels": 10,
+          "data_delay_ns": 10.922,
+          "clock_skew_ns": -0.443,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~178DUPLICATE"
+        },
+        {
+          "slack_ns": -1.86,
+          "levels": 9,
+          "data_delay_ns": 10.901,
+          "clock_skew_ns": -0.404,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~159"
+        },
+        {
+          "slack_ns": -1.859,
+          "levels": 9,
+          "data_delay_ns": 10.895,
+          "clock_skew_ns": -0.409,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~159DUPLICATE"
+        },
+        {
+          "slack_ns": -1.839,
+          "levels": 10,
+          "data_delay_ns": 10.827,
+          "clock_skew_ns": -0.457,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~175"
+        },
+        {
+          "slack_ns": -1.832,
+          "levels": 10,
+          "data_delay_ns": 10.82,
+          "clock_skew_ns": -0.457,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~173"
+        },
+        {
+          "slack_ns": -1.81,
+          "levels": 9,
+          "data_delay_ns": 10.737,
+          "clock_skew_ns": -0.518,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[104]"
+        },
+        {
+          "slack_ns": -1.81,
+          "levels": 9,
+          "data_delay_ns": 10.737,
+          "clock_skew_ns": -0.518,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[105]"
+        },
+        {
+          "slack_ns": -1.8,
+          "levels": 9,
+          "data_delay_ns": 10.837,
+          "clock_skew_ns": -0.408,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~380"
+        },
+        {
+          "slack_ns": -1.795,
+          "levels": 9,
+          "data_delay_ns": 10.779,
+          "clock_skew_ns": -0.461,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~174"
+        },
+        {
+          "slack_ns": -1.794,
+          "levels": 10,
+          "data_delay_ns": 10.777,
+          "clock_skew_ns": -0.462,
+          "max_data_fanout": 35,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~174"
+        },
+        {
+          "slack_ns": -1.792,
+          "levels": 10,
+          "data_delay_ns": 10.776,
+          "clock_skew_ns": -0.461,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~174"
+        },
+        {
+          "slack_ns": -1.785,
+          "levels": 9,
+          "data_delay_ns": 10.783,
+          "clock_skew_ns": -0.447,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~178"
+        },
+        {
+          "slack_ns": -1.784,
+          "levels": 10,
+          "data_delay_ns": 10.781,
+          "clock_skew_ns": -0.448,
+          "max_data_fanout": 35,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~178"
+        },
+        {
+          "slack_ns": -1.782,
+          "levels": 10,
+          "data_delay_ns": 10.78,
+          "clock_skew_ns": -0.447,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~178"
+        },
+        {
+          "slack_ns": -1.781,
+          "levels": 9,
+          "data_delay_ns": 10.708,
+          "clock_skew_ns": -0.518,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[104]"
+        },
+        {
+          "slack_ns": -1.781,
+          "levels": 9,
+          "data_delay_ns": 10.708,
+          "clock_skew_ns": -0.518,
+          "max_data_fanout": 254,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[105]"
+        },
+        {
+          "slack_ns": -1.779,
+          "levels": 9,
+          "data_delay_ns": 10.781,
+          "clock_skew_ns": -0.443,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~178DUPLICATE"
+        },
+        {
+          "slack_ns": -1.778,
+          "levels": 10,
+          "data_delay_ns": 10.779,
+          "clock_skew_ns": -0.444,
+          "max_data_fanout": 35,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~178DUPLICATE"
+        },
+        {
+          "slack_ns": -1.776,
+          "levels": 10,
+          "data_delay_ns": 10.778,
+          "clock_skew_ns": -0.443,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~178DUPLICATE"
+        },
+        {
+          "slack_ns": -1.766,
+          "levels": 10,
+          "data_delay_ns": 10.75,
+          "clock_skew_ns": -0.461,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~174"
+        },
+        {
+          "slack_ns": -1.763,
+          "levels": 10,
+          "data_delay_ns": 10.753,
+          "clock_skew_ns": -0.455,
+          "max_data_fanout": 41,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[80]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~174"
+        },
+        {
+          "slack_ns": -1.762,
+          "levels": 10,
+          "data_delay_ns": 10.746,
+          "clock_skew_ns": -0.461,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~174"
+        },
+        {
+          "slack_ns": -1.756,
+          "levels": 10,
+          "data_delay_ns": 10.754,
+          "clock_skew_ns": -0.447,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~178"
+        },
+        {
+          "slack_ns": -1.754,
+          "levels": 10,
+          "data_delay_ns": 10.738,
+          "clock_skew_ns": -0.461,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~174"
+        },
+        {
+          "slack_ns": -1.753,
+          "levels": 10,
+          "data_delay_ns": 10.737,
+          "clock_skew_ns": -0.461,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~174"
+        },
+        {
+          "slack_ns": -1.753,
+          "levels": 10,
+          "data_delay_ns": 10.757,
+          "clock_skew_ns": -0.441,
+          "max_data_fanout": 41,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[80]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~178"
+        },
+        {
+          "slack_ns": -1.752,
+          "levels": 10,
+          "data_delay_ns": 10.75,
+          "clock_skew_ns": -0.447,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~178"
+        },
+        {
+          "slack_ns": -1.75,
+          "levels": 10,
+          "data_delay_ns": 10.752,
+          "clock_skew_ns": -0.443,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~178DUPLICATE"
+        }
+      ]
+    },
+    "Slow_1100mV_-40C_Model": {
+      "pending destination/phase -> early lock -> D2 admission": [
+        {
+          "slack_ns": -1.966,
+          "levels": 10,
+          "data_delay_ns": 10.976,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.966,
+          "levels": 10,
+          "data_delay_ns": 10.976,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.935,
+          "levels": 10,
+          "data_delay_ns": 10.945,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.935,
+          "levels": 10,
+          "data_delay_ns": 10.945,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.921,
+          "levels": 10,
+          "data_delay_ns": 10.931,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~178"
+        },
+        {
+          "slack_ns": -1.913,
+          "levels": 10,
+          "data_delay_ns": 10.93,
+          "clock_skew_ns": -0.428,
+          "max_data_fanout": 53,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~178DUPLICATE"
+        },
+        {
+          "slack_ns": -1.899,
+          "levels": 10,
+          "data_delay_ns": 10.909,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 128,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.899,
+          "levels": 10,
+          "data_delay_ns": 10.909,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 128,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.884,
+          "levels": 10,
+          "data_delay_ns": 10.902,
+          "clock_skew_ns": -0.427,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[80]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.884,
+          "levels": 10,
+          "data_delay_ns": 10.902,
+          "clock_skew_ns": -0.427,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[80]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.87,
+          "levels": 10,
+          "data_delay_ns": 10.88,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[78]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.87,
+          "levels": 10,
+          "data_delay_ns": 10.88,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[78]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.868,
+          "levels": 10,
+          "data_delay_ns": 10.878,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 128,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.868,
+          "levels": 10,
+          "data_delay_ns": 10.878,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 128,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.867,
+          "levels": 10,
+          "data_delay_ns": 10.877,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.867,
+          "levels": 10,
+          "data_delay_ns": 10.877,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.862,
+          "levels": 10,
+          "data_delay_ns": 10.879,
+          "clock_skew_ns": -0.428,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[13]"
+        },
+        {
+          "slack_ns": -1.846,
+          "levels": 9,
+          "data_delay_ns": 10.856,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.846,
+          "levels": 9,
+          "data_delay_ns": 10.856,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.844,
+          "levels": 10,
+          "data_delay_ns": 10.854,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.844,
+          "levels": 10,
+          "data_delay_ns": 10.854,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.842,
+          "levels": 10,
+          "data_delay_ns": 10.854,
+          "clock_skew_ns": -0.433,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a_valid",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.842,
+          "levels": 10,
+          "data_delay_ns": 10.854,
+          "clock_skew_ns": -0.433,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a_valid",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.838,
+          "levels": 10,
+          "data_delay_ns": 10.855,
+          "clock_skew_ns": -0.428,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[15]"
+        },
+        {
+          "slack_ns": -1.831,
+          "levels": 10,
+          "data_delay_ns": 10.848,
+          "clock_skew_ns": -0.428,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[13]"
+        },
+        {
+          "slack_ns": -1.821,
+          "levels": 10,
+          "data_delay_ns": 10.831,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.821,
+          "levels": 10,
+          "data_delay_ns": 10.831,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|multiply_product_ready",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.819,
+          "levels": 10,
+          "data_delay_ns": 10.829,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.819,
+          "levels": 10,
+          "data_delay_ns": 10.829,
+          "clock_skew_ns": -0.435,
+          "max_data_fanout": 110,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_execute:u_execute|a[190]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        },
+        {
+          "slack_ns": -1.817,
+          "levels": 10,
+          "data_delay_ns": 10.835,
+          "clock_skew_ns": -0.427,
+          "max_data_fanout": 128,
+          "from": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[80]",
+          "to": "arm9v2_front_execute:u_front_execute|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[14]"
+        }
+      ]
+    }
+  }
+}

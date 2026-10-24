@@ -17,6 +17,7 @@ module arm9v2_decode (
     // These are registered W/scoreboard producers, not live cache responses.
     input logic i_wen,
     input logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked,
+    input logic [39:0] i_early_locked, // unavailable to S rotator/multiplier, but may be picked up in A
     input logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c,
     input logic i_ready,
     output logic o_valid,
@@ -104,6 +105,7 @@ module arm9v2_decode (
     logic [4:0] transfer_mode;
     logic [3:0][31:0] raw_values, read_values;
     logic push, pop, accept, shortcut, fast_select, new_d2, late_redirect, step, kill_younger, taken_match, fallthrough_match;
+    logic [3:0] early_used;
     logic unused;
     assign unused = &{1'b0, expanded[33:32], issued.left, issued.remaining, issued.redirected, fast_arm_twos[31], fast_thumb_twos[31]};
 
@@ -376,8 +378,28 @@ module arm9v2_decode (
     assign new_d2=pop||shortcut;
     assign admitted=fast_select?fast_branch:decoded;
     assign late_redirect=step&&d2.direct&&!d2.redirected&&(!d2.p.predicted||!taken_match);
+    // Only operands consumed before the S/A edge need the early ALU lock.
+    // Plain ALU inputs and store data can use A's precomputed late token.
+    always_comb begin
+        early_used=0;
+        case(d2.kind)
+            K_DP:begin
+                early_used[1]=d2.used[1]&&d2.p.ins[11:4]!=0;
+                early_used[2]=d2.used[2];
+            end
+            K_MUL,K_MULL:early_used=d2.used;
+            K_MEM,K_MSR:early_used[1]=d2.used[1];
+            K_BLOCK:early_used[0]=d2.used[0];
+            K_MRS:early_used[2]=d2.used[2]&&d2.tag[2]!=17;
+            default:;
+        endcase
+    end
     assign o_hazard=d2_valid&&((d2.used[0]&&i_locked[d2.tag[0]]) ||
-        (d2.used[1]&&i_locked[d2.tag[1]]) || (d2.used[2]&&i_locked[d2.tag[2]]) || (d2.used[3]&&i_locked[d2.tag[3]]));
+        (d2.used[1]&&i_locked[d2.tag[1]]) || (d2.used[2]&&i_locked[d2.tag[2]]) || (d2.used[3]&&i_locked[d2.tag[3]]) ||
+        (early_used[0]&&i_early_locked[d2.tag[0]]) ||
+        (early_used[1]&&i_early_locked[d2.tag[1]]) ||
+        (early_used[2]&&i_early_locked[d2.tag[2]]) ||
+        (early_used[3]&&i_early_locked[d2.tag[3]]));
     assign step=d2_valid&&(!out_valid||i_ready)&&!o_hazard&&!i_flush&&(!redirect_ff.valid||redirect_in_d2);
     assign pop=count!=0&&(!d2_valid||(step&&d2.last))&&!kill_younger;
     zap_register_file u_registers (

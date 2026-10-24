@@ -1,0 +1,10 @@
+PASS S/A leaves: 886016 checks
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/execute_leaf_tb.sv:54: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 295ns; walltime 0.053 s; speed 5.568 us/s
+- Verilator: cpu 0.053 s on 1 threads; allocated 2 MB
+PASS S/A leaves: 886016 checks
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/execute_leaf_tb.sv:54: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 295ns; walltime 0.053 s; speed 5.555 us/s
+- Verilator: cpu 0.053 s on 1 threads; allocated 2 MB

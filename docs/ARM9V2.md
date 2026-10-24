@@ -1,8 +1,9 @@
 # ARM9V2: eight-stage redesign for real-phone game speed
 
-Status: F1/F2, predictor, return stack, raw instruction queue and D1/D2 with
-the real register file are implemented and tested as components. S through W
-and V2 instruction execution are not yet implemented. `CORE="ARM9"` still selects the paused core; ZAP remains default.
+Status: F1/F2, predictor, return stack, raw instruction queue, D1/D2 and
+S/A arithmetic/branch execution are implemented and tested as components,
+with the real register file and registered arithmetic producer harness.
+M/W memory completion and precise architectural retirement are not implemented. `CORE="ARM9"` still selects the paused core; ZAP remains default.
 The paused implementation and its measured limitations remain in [ARM9.md](ARM9.md)
 and the [last report](consults/2026-10-23-codex-arm9-report.md). This is a new
 pipeline, not another timing patch to its six-producer execute/address chain.
@@ -89,7 +90,7 @@ control bit would reconnect a forwarding, address or admission chain.
 | F2 | Cache compare/way selection and permission status terminate at queue push and fault/pending metadata. Enqueue a raw instruction word, PC/state, prediction and epoch. No response-to-D bypass and no Thumb decoder here. |
 | D1 | One Thumb expander at the queue boundary. Predecode class, physical source/destination tags and instruction mode; compute LDM/STM population count, first register, next-list/last indicators and small offsets. PC-relative branch information is independent of operand forwarding. |
 | D2 | Read the existing register file from registered tags in parallel with final control decode. Resolve unconditional direct branches from registered PC/immediate information. Compute/register predicted taken/fallthrough target matches for A; compare source tags against registered pending destinations to stall loads in D2. |
-| S | One common forwarding selector, three registered producer records. One rotator implements LSL/LSR/ASR/ROR with parallel mask/fill/carry logic. Register-controlled shift captures the low-eight-bit amount before rotating. Multiplier stage one samples final operands at the S/A edge. |
+| S | One common forwarding selector, three registered producer records. One rotator implements LSL/LSR/ASR/ROR with parallel mask/fill/carry logic. Register-controlled shift captures the low-eight-bit amount before rotating. Multiplier stage one captures final operands at the S/A edge; no DSP multiply follows the forwarding mux in that clock. |
 | A | ALU, condition/flags, effective address, multiply completion. No barrel shifter in series. Result/address/control end in registers. Redirect event and target are registered, never gates on the whole backend's data. |
 | M | A's address register drives D-TLB/cache RAM. Request, mode, alignment, byte enables, source and destination remain attached during a hold. No ALU-to-TLB combinational address path. |
 | W | Consume the cache's registered compare/format output, architectural register writes, faults and trace retirement. Early critical-word/background replies are captured with their destination before becoming producers. |
@@ -227,8 +228,8 @@ issue cost is listed separately from dependency/redirect penalties.
 | SWI/undefined | 3 | ordered exception plus A redirect target; younger stores cancelled |
 | MCR/MRC | b+1, consumer b+2, PC b+3 | retain CP15 handshake; ordered mode/cache operations; count actual busy and drain clocks |
 | Unsupported CDP/LDC/STC | coprocessor-dependent | undefined trap under existing ARM925T rules |
-| MUL/MLA | 2+m | two-stage DSP pipeline starting at S/A, completion in A with bounded extra hold; exact early-out policy and measured windows fixed at that milestone |
-| SMULL/UMULL/SMLAL/UMLAL | 3+m | same multiply pipeline plus ordered high-word/accumulate work; preserve both writes and flags |
+| MUL/MLA | 2+m | S/A operand capture, private A partial-product clock, A combine; accumulation takes one more A clock. Component latency 3/4 clocks, independent issue occupancy 2/3. Fixed cost, no operand-size early termination. |
+| SMULL/UMULL/SMLAL/UMLAL | 3+m | same 3/4-clock component latency and 2/3-clock issue occupancy; both destination lanes complete together. C/V preserved; N/Z from 64-bit result. |
 | Thumb | corresponding ARM operation | one expansion in D1; BL halves retain architectural trace semantics |
 
 LDM offsets/count/next-register are D1 registers. D2 sequences an already
@@ -462,3 +463,72 @@ Median area is 4,666 ALMs, +507; two M10Ks and zero DSPs are unchanged.
 All hold checks pass. D1 classification/tag selection is worst in seeds 2/3;
 queue-to-Thumb remains worst in seed 4. This is still a component fit with
 negative setup slack, not complete-CPU closure or a demonstrated V2 CPI.
+
+## Session 3 S/A component contract
+
+The single `arm9v2_forward` selector takes four raw/held source words and
+three registered A/M/W producer records, two destination lanes each. Newest
+record wins, lane 1 wins a same-record duplicate as in the shared RF. Control
+priority is separate from the masked-OR data tree. It has no readiness output.
+A held S record updates its operand snapshot through this same selector;
+a retiring producer cannot disappear while the instruction waits.
+
+D2 distinguishes ordinary pending loads (`i_locked`, all used sources) from
+pending ALU/multiply sources needed in S (`i_early_locked`). Shifted Rm, Rs,
+all multiply inputs, block base and SPSR reads must be available before S.
+Plain ALU Rn/Rm, store data and BX/SWP Rm can carry precomputed two-lane
+match tokens into A and select the immediately preceding registered result.
+A held A slot absorbs that value and clears the tokens. Condition-failed
+writers expose the captured older fallback. These are bounded late-pickup
+muxes, not another tag-search network. The eventual memory scoreboard and
+registered return still need implementation in M/W.
+
+`arm9v2_rotate` contains one five-level 32-bit rotate network. Parallel
+mask/sign/carry logic implements LSL/LSR/ASR/ROR, amounts zero/32/>32, and
+RRX. A register shift captures Rs[7:0] for one private S clock. Carry-preserve
+and RRX tokens let A use its ordered flags without feeding A flags back
+through S's rotator. Architectural PC/CPSR substitution occurs in S; ARM
+register shifts and stores use PC+12, ordinary ARM PC+8, Thumb PC+4 with
+literal alignment. MRS merges the newest A flags at completion.
+
+A reuses the existing `arm9_alu` leaf. ALU results, effective addresses,
+condition pass and flags updates end at registers. Conditions use the A-local
+NZCV copy; an older flush restores that copy from the supplied CPSR. BR/BX
+validation emits a registered redirect and predictor feedback. A bad
+nonbranch prediction repairs fallthrough; a condition-failed PC write does
+the same. A block's prediction is checked only on its last transfer; load/ALU
+PC values and SPSR-return validation belong to M/W. CP15, control MSR,
+exception entry and architectural retirement are not implemented here.
+
+The first S/A fit put forwarding and DSP multiplication in one clock and
+failed at -3.904 ns. The structural correction captures Rm/Rs at S/A, then
+registers four half-products in a private A clock. Two carry-save reductions
+and one final sum combine them; accumulation uses a separate saved-product
+clock. MUL/MULL therefore have latency three clocks from S acceptance to A
+output, MLA/MLAL four; independent issue spacing is two/three. The first
+version's corresponding numbers were two/three and one/two. Older producer
+records continue to drain; this is A occupancy, not a whole-pipeline barrier.
+Dependent unshifted ALU operations and trained branches still sustain one
+output per clock. No early termination by multiplier magnitude is attempted.
+
+`sim/cpu/arm9v2/front_execute.sv` connects the real frontend/decode/RF to S/A
+and registered arithmetic M/W producer records. Its extra retained writeback
+harness is for component checking, not the final memory/retirement schedule.
+Do not infer end-to-end eight-stage latency or load-use timing from its
+arithmetic record count. The next milestone must align M/W with the cache
+edges, implement precise fault/PC ordering and prove the three-clock load-use
+window. Current component tests cannot establish full V2 QEMU agreement or
+compiled workload speed. See the session-3 report for fits and stopping point.
+
+
+The session-3 S/A structural pass measures worst-slow setup at **-1.621 /
+-1.729 / -1.966 ns** for seeds 2/3/4; median **-1.729 ns**, median **6,387
+ALMs**, four DSPs and two M10Ks. All holds are positive. This narrowly clears
+the -2 ns structural stop threshold but misses the -1 ns integration target.
+The remaining worst families are pending-destination/phase → early-source
+lock → D2 admission/payload enable (8–10 levels, up to 10.976 ns data delay),
+and D1 selector → classification → D2 tags (8–10 levels, up to 10.568 ns).
+The next timing work is D2 hazard/admission and D1 classification before M/W
+adds more load; the execute datapath must not absorb those control chains.
+The [session-3 report](consults/2026-10-23-codex-arm9v2-s3.md) retains all seeds,
+cycle costs, exact artifacts and the stopping point. ZAP remains default.
