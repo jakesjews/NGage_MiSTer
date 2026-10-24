@@ -4739,3 +4739,38 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   lever, as the consults said. The memory thread finishes the tag RAM
   task (area and timing for both cores) and then pauses until V2 is
   on the board.
+- **ARM9 v2, session 8: the miss policy, and the first run of the real
+  firmware on V2** (Codex, codex/arm9v2 8cd678d..22a4261; docs/consults/
+  2026-10-24-codex-arm9v2-s8.md in the worktree). The miss policy: a
+  scalar consumer is retained across a miss on a registered lock, no
+  retiring flush; younger loads keep ownership over older hits and
+  retired returns; operand readiness ordered by the youngest writer (a
+  chained-load ownership bug the firmware boot exposed, reproduced in
+  the suite first): 267/267 in ZAP and both V2 modes, 69 QEMU, the
+  3/4/5 hit windows kept. Then the whole core: NGAGE_CORE_ARM9=1 in
+  NGage.qsf makes arm925t instantiate V2 with the shared caches, TLBs,
+  CP15, merger and the debug taps; the emu top bench passes on it. And
+  the firmware: the whole-core Verilator boot on the server, 468 M
+  clocks (4.5 guest seconds, 27 minutes of wall time), 353 M
+  instructions retired, 75 K device accesses, no data abort, prefetch
+  abort or undefined instruction; the kernel schedules user threads:
+  the first executive call at 3.26 guest seconds (ZAP 3.71), the
+  EFile user entry at **3.63 s (ZAP 4.19)**, two more EFile threads,
+  then EStart at 4.17 s, beyond ZAP's observation; the first 37,552
+  MMIO accesses and the first 434 executive-call register snapshots
+  identical between the cores (the divergence after that is the live
+  timer counter, as expected). So V2 runs EKA1's boot 13 % faster
+  than ZAP through its first user threads. The cost: the integrated
+  seed-2 fit is **-2.838 ns, 18,349 ALMs** (S6: -1.237, 16,417): the
+  leader is the D-cache short port's store-merge and formatting cone
+  into the hit word (77 % routing), then the registered return/lock
+  qualification into the held S/A operands (fanout 66-69), the D-TLB
+  qualification, D1's classifier into D2's destination; the RF's
+  fitted registers doubled by duplication (1,874 to 3,604) with the
+  source unchanged. Stopped at the -2 ns rule, as told. Next: session
+  9 on the cuts the report proposes (accepted store/lookup ownership
+  with registered qualifiers at the request/store-merge boundary,
+  bounded per-operand repair matches precomputed beside the registered
+  return data, the D1 classifier path, the RF duplication), while a
+  measurement core of V2 as it stands goes to the board for the first
+  in-play number, timing risk and all.
