@@ -4,6 +4,7 @@
 @ opposite ways. Every case runs twice to warm its instruction lines.
 @ The bench's watched-line counters count actual CPU acknowledgements in
 @ CLEAN_SINGLE/FETCH_SINGLE/UNLOCK_WR, independently of HUM eligibility.
+@ The installed filling line can hit during the deferred victim drain.
 @@ qemu: no
 	.include "test.inc"
 	.include "mmu.inc"
@@ -127,7 +128,7 @@ test_main:
 	PAIR	\gap, \store, LA, 0xA2, 1
 	PAIR	\gap, \store, LD, 0xD1, 1
 	PAIR	\gap, \store, LE, 0xE1, 1
-	PAIR	\gap, \store, LC+4, 0xC4, 0
+	PAIR	\gap, \store, LC+4, 0xC4, 1
 	PAIR	\gap, \store, LB, 0xB2, 0
 	.endr
 	.endr

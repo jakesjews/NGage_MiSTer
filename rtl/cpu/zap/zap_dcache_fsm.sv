@@ -131,6 +131,9 @@ output  logic                      o_hold,
 // ARM925T: rebuild the three in-flight cache lookups after holding a fill.
 (* dont_retime *) output logic [2:0] o_relookup,
 (* dont_retime *) output logic      o_fill_busy,
+// ARM925T: the saved dirty victim has not yet reached memory. CP15 drain
+// observes this register; normal ACK/lookup logic does not consume it.
+(* dont_retime *) output logic      o_writeback_busy,
 
 // Bus access ports, both NXT and FF.
 output  logic             o_wb_cyc_ff, o_wb_cyc_nxt,
@@ -180,6 +183,8 @@ localparam [31:0] ADR_PAD_MINUS_2      =  ADR_PAD - 32'd2;
 // ----------------------------------------------------------------------------
 
 logic                                     cache_dirty;
+logic                                     defer_writeback;
+logic                                     victim_alias;
 
 // ARM925T: keep the one-hot control boundary. Retiming these bits through
 // the output muxes reconnects cache writes to the whole next-state tree.
@@ -296,6 +301,22 @@ assign o_line_req        = line_req_ff;        // ARM925T
 
 // Alias (ARM925T: the tag compare is in the tag RAM, i_cache_hit)
 assign cache_dirty = i_cache_tag_dirty;
+// A VIVT synonym that replaces the same physical line must read the dirty
+// bytes after cleaning them. Retain the old order in that exceptional case.
+assign victim_alias = i_phy_addr[31:$clog2(CACHE_LINE)] == i_cache_tag[`ZAP_CACHE_TAG__PA];
+always_ff @(posedge i_clk)
+        if (state_ff[IDLE]) defer_writeback <= !victim_alias;
+
+// cache_line/cache_tag already form a complete write-back buffer captured
+// on acceptance. Keep ownership until the final write beat; later misses,
+// uncached requests, TLB walks and maintenance cannot enter before IDLE.
+always_ff @(posedge i_clk)
+        if (i_reset) o_writeback_busy <= 1'b0;
+        else if (state_ff[IDLE])
+                o_writeback_busy <= (state_nxt[FETCH_SINGLE] || state_nxt[CLEAN_SINGLE]) &&
+                                    i_cache_tag_valid && cache_dirty;
+        else if (state_ff[CLEAN_SINGLE] && take && o_wb_cti_ff == CTI_EOB)
+                o_writeback_busy <= 1'b0;
 
 // Buffers
 always_ff @ ( posedge i_clk )
@@ -460,6 +481,20 @@ end
 localparam integer LINE_W = $clog2(CACHE_LINE);
 localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
 logic line_safe_ff, line_safe_nxt;
+logic victim_safe_ff, victim_safe_nxt;
+logic [1:0] install_delay_ff;
+logic fill_visible_ff;
+// The registered early tag match does not bypass the current RAM write.
+// Wait three edges after installation before admitting the new line;
+// the existing lookup repair independently handles a held CPU slot.
+always_ff @(posedge i_clk)
+        if (i_reset || state_ff[IDLE]) begin
+                install_delay_ff <= 2'b0;
+                fill_visible_ff <= 1'b0;
+        end else begin
+                install_delay_ff <= {install_delay_ff[0], state_ff[UNLOCK_REG]};
+                fill_visible_ff <= fill_visible_ff || install_delay_ff[1];
+        end
 logic lookup_ready_ff, lookup_ready_nxt;
 logic [2:0] repair_ff, repair_nxt;
 (* dont_retime *) logic hum_slot_ff;
@@ -468,19 +503,21 @@ assign cpu_wait = (i_rd || i_wr) && !o_ack;
 
 always_comb begin
         line_safe_nxt = line_safe_ff;
+        victim_safe_nxt = victim_safe_ff;
         if (!cpu_wait) begin
-                if (o_idle)
-                        line_safe_nxt =
-                            i_address_check[31:LINE_W] != i_address[31:LINE_W] &&
-                            (!i_cache_tag_valid ||
-                             i_address_check[31:LINE_W] !=
-                             {i_cache_tag[`ZAP_CACHE_TAG__TAG], i_address[LINE_W +: SET_W]});
-                else
-                        line_safe_nxt =
-                            i_address_check[31:LINE_W] != address[31:LINE_W] &&
-                            (!victim_valid ||
-                             i_address_check[31:LINE_W] !=
-                             {cache_tag[`ZAP_CACHE_TAG__TAG], address[LINE_W +: SET_W]});
+                if (o_idle) begin
+                        victim_safe_nxt = !i_cache_tag_valid ||
+                            i_address_check[31:LINE_W] !=
+                            {i_cache_tag[`ZAP_CACHE_TAG__TAG], i_address[LINE_W +: SET_W]};
+                        line_safe_nxt = victim_safe_nxt &&
+                            i_address_check[31:LINE_W] != i_address[31:LINE_W];
+                end else begin
+                        victim_safe_nxt = !victim_valid ||
+                            i_address_check[31:LINE_W] !=
+                            {cache_tag[`ZAP_CACHE_TAG__TAG], address[LINE_W +: SET_W]};
+                        line_safe_nxt = victim_safe_nxt &&
+                            i_address_check[31:LINE_W] != address[31:LINE_W];
+                end
         end
 
         // Cache RAMs keep running so the fill can write. After a CPU hold,
@@ -505,6 +542,7 @@ end
 always_ff @(posedge i_clk)
         if (i_reset) begin
                 line_safe_ff <= 1'b0;
+                victim_safe_ff <= 1'b0;
                 lookup_ready_ff <= 1'b1;
                 repair_ff <= 3'b0;
                 hum_slot_ff <= 1'b0;
@@ -512,6 +550,7 @@ always_ff @(posedge i_clk)
                 o_relookup <= 3'b0;
         end else begin
                 line_safe_ff <= line_safe_nxt;
+                victim_safe_ff <= victim_safe_nxt;
                 lookup_ready_ff <= lookup_ready_nxt;
                 repair_ff <= repair_nxt;
                 hum_slot_ff <= hum_slot_nxt;
@@ -521,7 +560,9 @@ always_ff @(posedge i_clk)
         end
 
 assign hum_slot_nxt = (state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE] ||
-                       state_nxt[UNLOCK_WR]) && lookup_ready_nxt && line_safe_nxt;
+                       state_nxt[UNLOCK_WR]) && lookup_ready_nxt &&
+                      (line_safe_nxt || (state_nxt[CLEAN_SINGLE] &&
+                       fill_visible_ff && victim_safe_nxt));
 // ARM925T: ACK combines registered predicates, independently of the bus
 // FSM's priority decode. In particular the live tag compare cannot feed
 // the high-fanout CPU stall through background-hit qualification.
@@ -588,6 +629,7 @@ end
 assign o_wb_stb_nxt =
         (state_ff[IDLE] && (i_rd || i_wr) && !i_align_fault && !i_fault && !i_busy && !i_cache_en) ||
         state_ff[UNCACHEABLE_PREPARE] ||
+        (state_ff[UNLOCK_REG] && o_writeback_busy) ||
         (state_ff[UNCACHEABLE] && o_wb_stb_ff && !(i_wb_ack || i_wb_err)) ||
         ((state_ff[CLEAN_SINGLE] || state_ff[FETCH_SINGLE]) && (take ? beat_inc_ok : beat_cur_ok));
 assign o_wb_cyc_nxt = o_wb_stb_nxt;
@@ -801,12 +843,12 @@ begin:next_state_logic
                                                 lock_nxt[i_reg_idx_bin] = 1'd1;
                                         end
 
-                                        if ( cache_dirty )
+                                        if ( cache_dirty && victim_alias )
                                         begin
                                                 // Set up counter
                                                 adr_ctr_nxt = 0;
 
-                                                // Clean a single cache line
+                                                // A physical synonym must clean before reading.
                                                 state_nxt[IDLE] = 1'd0;
                                                 state_nxt[CLEAN_SINGLE] = 1'd1;
                                         end
@@ -938,9 +980,13 @@ begin:next_state_logic
                         adr_ctr_nxt = 0;
 
                         state_nxt[CLEAN_SINGLE] = 1'd0;
-                        state_nxt[FETCH_SINGLE] = 1'd1;
-
-                        // The inaccessible victim is replaced at UNLOCK_REG.
+                        if (defer_writeback) begin
+                                // The new line is already installed. Preserve
+                                // aligned lookups when a hit advances the CPU.
+                                state_nxt[RELOOKUP0] = (i_rd || i_wr) && !o_ack;
+                                state_nxt[IDLE] = !(i_rd || i_wr) || o_ack;
+                        end else
+                                state_nxt[FETCH_SINGLE] = 1'd1;
 
                 end
         end
@@ -980,9 +1026,24 @@ begin:next_state_logic
 
                 // Back to IDLE (ARM925T: through UNLOCK_WR for a load)
                 state_nxt[UNLOCK_REG] = 1'd0;
-                state_nxt[UNLOCK_WR]  = !wr;
-                state_nxt[RELOOKUP0]  = wr && (i_rd || i_wr);
-                state_nxt[IDLE]       = wr && !(i_rd || i_wr);
+                if (o_writeback_busy) begin
+                        // Fill first, then drain the immutable saved victim.
+                        // No cache read or write port is needed by the drain.
+                        adr_ctr_nxt = 0;
+                        state_nxt[CLEAN_SINGLE] = 1'b1;
+                        // Launch beat zero on the installation edge. The
+                        // line and PA come from the saved victim registers;
+                        // there is no RAM port collision or extra bus bubble.
+                        o_wb_wen_nxt = 1'b1;
+                        o_wb_dat_nxt = cache_line[31:0];
+                        o_wb_adr_nxt = {cache_tag[`ZAP_CACHE_TAG__PA], {$clog2(CACHE_LINE){1'b0}}};
+                        o_wb_sel_nxt = 4'b1111;
+                        o_wb_cti_nxt = CTI_BURST;
+                end else begin
+                        state_nxt[UNLOCK_WR]  = !wr;
+                        state_nxt[RELOOKUP0]  = wr && (i_rd || i_wr);
+                        state_nxt[IDLE]       = wr && !(i_rd || i_wr);
+                end
         end
 
         state_ff[UNLOCK_WR]: // ARM925T: finish the load fill, without a second write.
