@@ -4580,3 +4580,15 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   taps, the emu top bench on V2, and the whole-core Verilator boot on
   the server against ZAP's, so the measurement core can go on the
   board, which is the number that counts.
+- **The memory branch's first step merged (counters and critical-word-
+  first); its stripped core at seed 9 fits better than the main slot's.**
+  The Mac's reopened lane built eeb1e47 stripped at seed 9: **-0.734 ns**,
+  35,839 ALMs (86 %), against dst-s9's -0.872 and 36,657 on the main
+  slot (the critical-word-first path replaced the wide line-base
+  addition with a concatenation; the counters prune away); the worst
+  path is ZAP's issue stall (stall_late_ff), not the new logic. Merged
+  into master as the first step of codex/memside (the thread continues
+  on the write-back buffer on the same branch); both lints and the
+  netlist check pass. The main checkout's tools now decode the debug
+  slot's instrumented core. The rbf build/hardware/NGage-ms-s9.rbf is
+  the main-slot candidate (same speed, 0.14 ns more slack).
