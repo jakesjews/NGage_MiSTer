@@ -4,6 +4,8 @@ module execute_tb;
     logic [31:0] i_cpsr;
     logic i_valid,i_admit;
     logic [3:0] i_pending;
+    logic manual_producers,i_load_hit;
+    logic [1:0] i_load_owner,i_next_load_owner;
     logic [1:0][63:0] i_return_select;
     logic [1:0][31:0] i_return_data;
     logic o_ready;
@@ -94,11 +96,11 @@ module execute_tb;
     logic [$bits(o_spsr_tag)-1:0] raw_o_spsr_tag;
     logic [$bits(o_predicted)-1:0] raw_o_predicted;
     wire ready_m=!o_valid||i_ready;
-    assign real_tag={|i_mw_valid?i_mw_tag[0]:w_tag,o_dest};
-    assign real_value={|i_mw_valid?i_mw_value[0]:w_value,o_result};
-    assign real_write={|i_mw_valid?i_mw_valid[0]:w_write,o_write&{2{o_valid}}};
-    assign i_next_tag={i_ready?o_dest:real_tag[1],ready_m?raw_o_dest:o_dest};
-    assign i_next_write=(i_reset||i_flush)?4'd0:
+    assign real_tag=manual_producers?i_mw_tag:{|i_mw_valid?i_mw_tag[0]:w_tag,o_dest};
+    assign real_value=manual_producers?i_mw_value:{|i_mw_valid?i_mw_value[0]:w_value,o_result};
+    assign real_write=manual_producers?i_mw_valid:{|i_mw_valid?i_mw_valid[0]:w_write,o_write&{2{o_valid}}};
+    assign i_next_tag=manual_producers?i_mw_tag:{i_ready?o_dest:real_tag[1],ready_m?raw_o_dest:o_dest};
+    assign i_next_write=(i_reset||i_flush)?4'd0:manual_producers?i_mw_valid:
         {i_ready?(o_write&{2{o_valid}}):real_write[1],ready_m?(raw_o_write&{2{raw_o_valid}}):real_write[0]};
     always_comb begin
         i_early=0;
@@ -171,7 +173,7 @@ module execute_tb;
             end
         end
     end
-    arm9v2_execute dut(.i_pending(i_pending),.i_load_owner(2'd0),.i_next_load_owner(2'd0),.i_load_hit(1'b0),.i_return_select(i_return_select),.i_return_data(i_return_data),.i_load_wait(1'b0),.i_ready(ready_m),.i_mw_tag(real_tag),.i_mw_value(real_value),.i_mw_valid(real_write),
+    arm9v2_execute dut(.i_pending(i_pending),.i_load_owner(i_load_owner),.i_next_load_owner(i_next_load_owner),.i_load_hit(i_load_hit),.i_return_select(i_return_select),.i_return_data(i_return_data),.i_load_wait(1'b0),.i_ready(ready_m),.i_mw_tag(real_tag),.i_mw_value(real_value),.i_mw_valid(real_write),
 .o_valid(raw_o_valid),.o_pc(raw_o_pc),.o_instruction(raw_o_instruction),.o_cpsr(raw_o_cpsr),.o_cpsr_next(raw_o_cpsr_next),.o_kind(raw_o_kind),.o_thumb(raw_o_thumb),.o_fault(raw_o_fault),.o_first(raw_o_first),.o_last(raw_o_last),.o_condition_pass(raw_o_condition_pass),.o_dest(raw_o_dest),.o_result(raw_o_result),.o_write(raw_o_write),.o_write_flags(raw_o_write_flags),.o_pc_write(raw_o_pc_write),.o_memory(raw_o_memory),.o_store(raw_o_store),.o_address(raw_o_address),.o_store_data(raw_o_store_data),.o_psr_source(raw_o_psr_source),.o_saved_psr(raw_o_saved_psr),.o_original_base(raw_o_original_base),.o_next_pc(raw_o_next_pc),.o_prediction_target(raw_o_prediction_target),.o_spsr_tag(raw_o_spsr_tag),.o_predicted(raw_o_predicted),.*);
     wire unused=&{1'b0,o_btb_pc,o_btb_thumb,o_record_pointer,o_record_count,o_record_pred_hit,o_record_thumb,o_record_pred_state,i_mw_tag[1],i_mw_value[1],o_a_load,o_predicted,o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target,o_spsr_tag,o_btb_update,o_btb_taken,o_btb_hit,o_btb_target,o_btb_state,o_btb_kind,o_a_can_finish,o_s_write,o_ready,o_valid,o_pc,o_instruction,o_cpsr,o_cpsr_next,o_kind,o_thumb,o_fault,o_first,o_last,o_condition_pass,o_dest,o_result,o_write,o_write_flags,o_pc_write,o_memory,o_store,o_address,o_store_data,o_flags,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_a_valid,o_a_dest,o_a_write,o_shift_wait,o_multiply_wait};
     int checks=0,cycles=0;
@@ -205,6 +207,7 @@ module execute_tb;
         i_first='0;
         i_last='0;
         i_kind='0;
+        manual_producers=0;i_load_hit=0;i_load_owner=0;i_next_load_owner=0;
         i_condition='0;i_pending=0;i_return_select=0;i_return_data=0;
         i_tag='0;
         i_used='0;
@@ -497,6 +500,17 @@ module execute_tb;
         i_return_select[0]=64'd2;i_return_data[0]=100;tick();i_return_select=0;
         #1;check(o_ready,"registered completion releases early consumer");tick();i_valid=0;tick();
         check(o_valid&&o_result[0]==205,"early consumer rotates the returned word");
+        // Two successive loads to one register: the older W hit/return must
+        // not release the consumer of the younger M load (firmware startup).
+        reset_case();manual_producers=1;i_pending=1;
+        i_mw_valid=4'b0101;i_mw_tag=0;i_load_owner=3;i_next_load_owner=3;i_load_hit=1;
+        i_mw_value[1][0]=32'h80006680;i_value[1]=6;send();
+        check(!raw_o_valid,"younger M load shadows older W hit");
+        i_return_select[0]=64'd1;i_return_data[0]=32'h80006680;tick();
+        check(!raw_o_valid,"older W return cannot repair younger load operand");
+        i_return_select=0;i_mw_valid=4'b0100;i_load_owner=2;i_next_load_owner=2;
+        i_mw_value[1][0]=100;tick();receive();
+        check(o_result[0]==106,"younger load hit supplies late operand");
         // Older exception/restore clears all younger slots and restores flags.
         reset_case();i_instruction=32'he3b0a001;send();i_cpsr=32'h90000013;i_flush=1;tick();i_flush=0;
         check(!o_valid&&!o_a_valid&&o_flags==9&&!o_redirect,"older flush and flag restore");

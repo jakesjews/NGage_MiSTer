@@ -113,7 +113,9 @@ module arm9v2_execute (
             if(i_forward_match[src][0][0]&&i_load_owner[0])begin
                 s_wait[src]=1;ready_match[src][0][0]=0;
             end
-            if(a.late[src][1][0]&&i_load_owner[1]&&i_load_hit)a_wait[src]=0;
+            // A younger M writer shadows W, including an older hit to the
+            // same register. Readiness must use the same age as data selection.
+            if(a.late[src][1][0]&&i_load_owner[1]&&i_load_hit&&!(|a.late[src][0]))a_wait[src]=0;
         end
     end
     logic [31:0] shift_input,shifted;
@@ -299,8 +301,10 @@ module arm9v2_execute (
             o_redirect<=0;o_btb_update<=0;
             if(i_valid&&!accept)begin
                 holding<=1;held<=operand;s_pending<=s_wait;
+                // A retired return is older than every live M/W match. It
+                // may repair only an operand whose live producer has left.
                 for(int src=0;src<4;src++)for(int port=0;port<2;port++)
-                    if(s_wait[src]&&i_return_select[port][{26'd0,i_tag[src]}])begin
+                    if(s_wait[src]&&!(|i_forward_match[src])&&i_return_select[port][{26'd0,i_tag[src]}])begin
                         held[src]<=i_return_data[port];s_pending[src]<=0;
                     end
             end
@@ -309,7 +313,7 @@ module arm9v2_execute (
                 a.left<=left_a;a.right<=right_a;a.store_data<=store_a;a.special<=special_a;
                 a.pending<=a_wait;
                 for(int src=0;src<4;src++)for(int port=0;port<2;port++)
-                    if(a_wait[src]&&i_return_select[port][{26'd0,a.tag[src]}])begin
+                    if(a_wait[src]&&!(|a.late[src])&&i_return_select[port][{26'd0,a.tag[src]}])begin
                         case(src)
                             0:a.left<=i_return_data[port];1:a.right<=i_return_data[port];
                             2:a.special<=i_return_data[port];3:a.store_data<=i_return_data[port];
@@ -379,7 +383,7 @@ module arm9v2_execute (
                 // (BX/SWP Rm and the first block base) on this same edge.
                 for(int src=0;src<4;src++)begin
                     for(int port=0;port<2;port++)
-                        if(i_used[src]&&!i_early[src]&&s_wait[src]&&i_return_select[port][{26'd0,i_tag[src]}])begin
+                        if(i_used[src]&&!i_early[src]&&s_wait[src]&&!(|i_forward_match[src])&&i_return_select[port][{26'd0,i_tag[src]}])begin
                             case(src)
                                 0:a.left<=i_return_data[port];1:a.right<=i_return_data[port];
                                 2:a.special<=i_return_data[port];3:a.store_data<=i_return_data[port];

@@ -2737,7 +2737,7 @@ module arm9v2_execute (
 						s_wait[src] = 1;
 						ready_match[(src * 2) * 2] = 0;
 					end
-					if ((a[40 + (((src * 2) + 1) * 2)] && i_load_owner[1]) && i_load_hit)
+					if (((a[40 + (((src * 2) + 1) * 2)] && i_load_owner[1]) && i_load_hit) && !(|a[40 + ((src * 2) * 2)+:2]))
 						a_wait[src] = 0;
 				end
 		end
@@ -3086,7 +3086,7 @@ module arm9v2_execute (
 						begin : sv2v_autoblock_7
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
-								if (s_wait[src] && i_return_select[(port * 64) + {26'd0, i_tag[src * 6+:6]}]) begin
+								if ((s_wait[src] && !(|i_forward_match[2 * (src * 2)+:4])) && i_return_select[(port * 64) + {26'd0, i_tag[src * 6+:6]}]) begin
 									held[src * 32+:32] <= i_return_data[port * 32+:32];
 									s_pending[src] <= 0;
 								end
@@ -3109,7 +3109,7 @@ module arm9v2_execute (
 						begin : sv2v_autoblock_9
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
-								if (a_wait[src] && i_return_select[(port * 64) + {26'd0, a[16 + (src * 6)+:6]}]) begin
+								if ((a_wait[src] && !(|a[40 + (2 * (src * 2))+:4])) && i_return_select[(port * 64) + {26'd0, a[16 + (src * 6)+:6]}]) begin
 									case (src)
 										0: a[192-:32] <= i_return_data[port * 32+:32];
 										1: a[160-:32] <= i_return_data[port * 32+:32];
@@ -3264,7 +3264,7 @@ module arm9v2_execute (
 						begin : sv2v_autoblock_18
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
-								if (((i_used[src] && !i_early[src]) && s_wait[src]) && i_return_select[(port * 64) + {26'd0, i_tag[src * 6+:6]}]) begin
+								if ((((i_used[src] && !i_early[src]) && s_wait[src]) && !(|i_forward_match[2 * (src * 2)+:4])) && i_return_select[(port * 64) + {26'd0, i_tag[src * 6+:6]}]) begin
 									case (src)
 										0: a[192-:32] <= i_return_data[port * 32+:32];
 										1: a[160-:32] <= i_return_data[port * 32+:32];
