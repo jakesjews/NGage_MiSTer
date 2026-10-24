@@ -4871,3 +4871,40 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   early-execution bits riding along (three bits, nil in play). The
   decision is the user's: merge codex/memside4 with the 16 KB default,
   one stripped build, a smoke test, the main slot.
+- **The V2 timing consults** (docs/consults/2026-10-24-v2-timing-consult-
+  brief.md; Codex 2026-10-24-codex-v2-timing-consult.md, read-only in
+  the worktree, 9 min; Antigravity 2026-10-24-agy-v2-timing-consult.md,
+  plan mode, 7 min; both with the fitted paths and the Pocket's
+  source). Where they agree: keep the two-clock late pickup (it is the
+  Pocket's schedule stage for stage: the RAM read launched from A, the
+  word registered at M/W, muxed at A's input; three clocks would buy
+  nothing by itself) and the miss retention (S7's replay was 15 %
+  slower on the cache test); the five families are removable
+  artifacts: the tag comparators run after completion's producer
+  select on both the hold and advance paths (the Pocket compares once
+  at D2/S and recodes registered bits), the check record muxed through
+  FCSE live into the D-TLB, and A's live adder output compared against
+  W's store set in the valid register and in each of 32 byte-lane RAM
+  wrappers before the clock (families 3-5 are lookup-address paths,
+  Codex's correction of the family table: W's owner reaches the
+  metadata through A's bypass and adder, not through a cache write);
+  the routing share is cluster crossings and two fanout nodes
+  (completion 163, the read set 110). The cuts, all zero-cycle: the
+  lock summaries registered from the lock's next value on its update
+  edge; the next-producer matches computed on the two registered
+  candidate pairs in parallel with completion, the transition used
+  only as the final select, the completion net split by consumer;
+  the translation/request descriptor registered with FCSE pre-applied
+  (the index bits never need it); the short-RAM collision compare and
+  the metadata selection moved after the A/M capture edge. Antigravity
+  also found cpu_trial.qsf lacks the placement-effort and router
+  settings NGage.qsf has. Their ceilings: Antigravity -0.75 to -1.1
+  ns in the CPU trial with all four; Codex -1.5 to -0.8 plausible,
+  -0.5 upside, and -2.5 to -1.1 on the whole device, with the fallback
+  an address-launch stage between A and the cache (windows 3/5/6)
+  rather than dropping features (Antigravity's fallback: a one-entry
+  lock instead of the 64-bit bitmap). Session 10 launched with the
+  combined order (lock summaries, the match split, the descriptor,
+  then the collision compare), per-family worst paths, the qsf
+  parity, the firmware re-run at the end; the address-launch stage is
+  the decision if session 11 ends below about -1.5 ns.
