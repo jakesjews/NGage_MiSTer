@@ -4214,3 +4214,23 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the flat CS1 at F4); the main slot smoke-tested with a boot and Sonic.
   The boot-file names (boot1.rom, boot2.rom, boot1.vhd) are not used on
   this MiSTer: with launchers they would only double every load.
+- **ARM9 v2, session 3** (Codex, codex/arm9v2 4af6c02, 74d046a;
+  docs/consults/2026-10-23-codex-arm9v2-s3.md): the decode chains cut
+  (the queue head's fanout, the list arithmetic, the branch-target
+  select): front end + decode -0.890 -> **-0.210 ns** median, 4,666 ALMs;
+  an untrained direct branch loses three slots instead of six. Then
+  S/A built: one operand selector with three registered producers (A,
+  M, W) by match and age, a five-level rotator for every shift,
+  register shifts an extra S clock, the ALU and NZCV in A with
+  carry-preserve tokens, conditional B/BX resolved at A from D2's
+  registered matches with a one-shot redirect, the multiplier's DSP
+  moved behind the S/A operand registers after a first fit at -3.9 ns
+  (forwarding and the DSP in one clock). S/A component fit: -1.621 /
+  -1.729 / -1.966 ns at seeds 2-4 (median **-1.729**), 6,387 ALMs,
+  four DSPs: 1.5 ns below the decode milestone, which the user's
+  guardrail (one fit per milestone, nothing drastically worse) flags.
+  The chains: D2's admission (a 40-bit pending-destination mask indexed
+  back into source hazards, the issue enable with a fanout of 399) and
+  D1's head selector; the report's own recommendation is to restructure
+  them before M/W. Session 4 launched with that order, then M/W,
+  retirement, and the first full-suite run with CORE=ARM9 selecting V2.
