@@ -261,7 +261,7 @@ file.
 4. **A latent priority, not a cause under the D2 invariant.** When an
    older background return (port 1, `i_dc_reg_dat`) and a younger normal
    completion (port 0) match the same tag on one clock, port 1 wins the
-   S/A repair loop (execute 186-190, 213-218 and 288-296). Register-file
+   S/A repair loops (`arm9v2_execute.sv:374`, `383` and `459`). Register-file
    port C also beats B. Both are safe only while D2 never admits that
    younger writer.
 5. **Low.** Banked tags on the mode switch: D1 maps tags with the live
