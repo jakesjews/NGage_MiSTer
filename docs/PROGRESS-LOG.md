@@ -4604,3 +4604,31 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   dst-s9 at -0.872, same speed), the instrumented core msd-s2 back on
   the debug slot; the main slot's own boot with the user's save in
   build/hardware/game/smoke-ms-s9-main/.
+- **The merger write-back buffer: measured, no gain, not merged**
+  (the memory thread's second step, codex/memside 64b8f33, 31466d9;
+  docs/consults/2026-10-24-codex-memside2-report.md in the worktree).
+  The D-cache hands a distinct-line dirty victim to a one-line buffer
+  in the merger on the install edge and resumes through its unlock
+  path; clean misses, hits and I-cache reads overlap the drain, a
+  second dirty miss waits, uncached and maintenance keep the drain
+  order, CP15's drain includes the buffer; 195 bits of new state, no
+  new RAM; 231/231, 57 QEMU, 0.08 % fewer suite cycles. On the board
+  (the measurement core wbd-s2: -1.401 ns, 38,342 ALMs, 91 %;
+  build/hardware/game/run-wbd.log against the instrumented baseline
+  run-msd.log, play medians): Sonic 31.07 against 30.87 M instr/s,
+  Asphalt 31.70 against 31.62, Tony Hawk 30.61 against 30.57: +0.1 to
+  +0.6 %, inside the run-to-run noise; the data-stall share 10.4 to
+  10.1 %, the SDRAM wait unchanged. So the deferred write-back already
+  took what there was: the FSM's ten clocks in CLEAN_SINGLE after the
+  install rarely block anything that matters. The cost would have been
+  real: the stripped core at seed 9 on the Mac **-1.137 ns**, 36,359
+  ALMs, against -0.734 and 35,839 for the tree without it (the worst
+  path in the D-cache tag RAM). Decision: not merged; the two commits
+  stay on codex/memside for the record, and both consultants'
+  estimates for a write buffer (+4-6 %; +0.8-2 M/s) were wrong for
+  this core. The debug slot is back on msd-s2, master's measurement
+  core. The memory thread's next step: the I-fetch early-execution
+  gate (the true fetch wait is 6-8 % of clocks and every fill still
+  waits for its last beat before a word may execute), with the 16 KB
+  D-cache switch to be re-measured on the stripped tree, where it now
+  fits.
