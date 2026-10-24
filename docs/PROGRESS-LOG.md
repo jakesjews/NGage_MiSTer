@@ -5062,3 +5062,30 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   them), the boot's breakdown now, and a second pair of Sonic runs on
   the session-12 source with the profile, started today so the
   gameplay breakdown follows the plain number by a day.
+- **ARM9 v2, session 13: the profile explains the 13 %** (Codex,
+  codex/arm9v2 a2d6708, a1ec904; docs/consults/2026-10-25-codex-arm9v2-
+  s13.md, with the tables under arm9v2/s13/). A bench-side observer
+  (no core change; 282/282, 71 QEMU, 89 windows unchanged) partitions
+  every clock of both cores into retired, data wait, dependency,
+  fetch starvation, branch/return recovery, serial/CP15, replay/
+  reservation, structural, and reset/WFI, with the retired mix. The
+  kernel init before the first executive call (identical instruction
+  streams, 270.6 M instructions): ZAP 386 M clocks, V2 338 M. V2
+  removes **42 % of ZAP's non-retiring clocks** there (dependency
+  17.2 M to 2.6 M, branch recovery 22.7 M to 7.6 M, fetch starvation
+  9.9 M to 1.4 M, structural 69 M to 28 M; its data wait rises 15 M to
+  30 M as the memory wait is exposed, and the reservation reloads add
+  5 M), but ZAP retires an instruction on 70 % of those clocks, so
+  even a perfect core could save only 30 % of that phase; the 13 % is
+  what the kernel's init can give. The design's mechanisms are
+  delivering where they apply: the dependency class is down eight
+  times, branch recovery three, structural two and a half; replay is
+  zero. The random bodies are memory-bound (data wait plus fetch
+  starvation 65-74 % at 2:9), which is why they hide the schedule.
+  The reading that matters for the goal: in play ZAP's CPI is 3.3, not
+  the kernel init's 1.4, so 70 % of its clocks are non-retiring there,
+  the regime where V2's mechanisms work; the Sonic profile (the S13
+  pair, started with the observer; the S10 pair at 41-45 guest
+  seconds, play from 200) is the measurement. The thread's one small
+  suggestion, the younger lookup owner kept across a W hold (0.7 % of
+  the boot), is not worth a session. No core change, no fit.
