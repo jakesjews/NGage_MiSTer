@@ -250,14 +250,6 @@ module tb_cpu #(
 	assign p_alu_dst = 0;
 	assign p_sh_dbg = 0;
 	assign p_mult_state = 0;
-    always @(posedge clk) if(!reset)begin
-        assert ({`A9.o_data_wb_we_check,`A9.o_data_wb_re_check} == `A9.check_reference[1:0])
-            else $fatal(1,"ARM9 registered memory check changed its schedule");
-        if(|`A9.check_reference[1:0])
-            assert ({`A9.o_data_wb_adr_check,`A9.o_mem_cpsr,`A9.o_mem_translate,
-                `A9.o_data_wb_ldfmt_check} == `A9.check_reference[45:2])
-                else $fatal(1,"ARM9 registered memory check changed its owner");
-    end
 	`undef A9
 	end
 	// These assertions also run against the baseline netlist: they observe

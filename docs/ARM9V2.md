@@ -707,3 +707,12 @@ pickup/replay and W RAS restoration remain unfinished. LDR + dependent ADD
 still measures eight clocks; the random suites have only about 1% cycle gain
 at 2:9. ZAP stays default. See the [session-6 report](consults/2026-10-24-codex-arm9v2-s6.md)
 for the trend, exact cycle table, fit evidence and stopping point.
+
+
+## Session 7 starting point
+
+The session-6 selected-check candidate is reverted with `git revert`; its
+report and fit evidence remain. CPU source resumes at accepted `51a0123`.
+The next structural work is true writer masks and registered early/late
+operand matching with bounded A-stage late pickup. See the
+[session-7 report](consults/2026-10-24-codex-arm9v2-s7.md).

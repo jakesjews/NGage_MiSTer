@@ -315,17 +315,6 @@ output  logic [7:0]                      o_dbg_stall
         LOAD_RETURN,SWAP0,SWAP1,RESTORE,ABORT} memory_state_t;
     (* dont_retime *) record_t m,w,skid;
     record_t input_record,check_record;
-    record_t next_check_record;
-    typedef struct packed {
-        logic [31:0] address;
-        logic [4:0] mode;
-        logic user_access;
-        logic [5:0] format;
-        logic wr,rd;
-    } check_t;
-    (* dont_retime *) check_t check_ff;
-    logic next_check_enable;
-    wire [45:0] check_reference;
     (* dont_retime *) memory_state_t memory_state;
     (* dont_retime *) logic [31:0] saved_load;
     (* dont_retime *) logic swap_write,cp_seen,cp_finished;
@@ -441,57 +430,17 @@ output  logic [7:0]                      o_dbg_stall
     end
     assign check_record=(memory_state==HOLD||memory_state==RETRY1||memory_state==SWAP1)?w:m;
     assign check_enable=memory_state==RUN||memory_state==HOLD||memory_state==RELOAD1||memory_state==RETRY1||memory_state==SWAP1;
-    // Select the next check owner beside the existing M/W transfer. The TLB
-    // sees this small registered record, not a recovery-state mux followed by
-    // FCSE in front of its match/permission logic. No request gains an edge.
-    always_comb begin
-        next_check_record=m;next_check_enable=0;
-        case(memory_state)
-            RUN:begin next_check_record=done?input_record:w;next_check_enable=1;end
-            HOLD:begin next_check_record=w;next_check_enable=!done;end
-            RELOAD0:next_check_enable=1;
-            RELOAD1:begin next_check_record=skid;next_check_enable=1;end
-            RETRY0,RETRY1,SWAP0,SWAP1:begin next_check_record=w;next_check_enable=1;end
-            LOAD_RETURN,RESTORE,ABORT:;
-            default:next_check_enable=1;
-        endcase
-        // These transitions suppress the check until its held owner has been
-        // read again. Keep abort restoration above speculative younger work.
-        if(retry||(fill_ended&&w.valid&&w.memory&&
-            (memory_state==RUN||memory_state==HOLD))||defer_load||
-            (request_done&&i_data_wb_err&&w.kind==BLOCK&&w.ins[21]))next_check_enable=0;
-    end
-    always_ff @(posedge i_clk)begin
-        if(i_reset)check_ff<='0;
-        else begin
-            check_ff.address<=fcse({next_check_record.address[31:2],2'b0});
-            check_ff.mode<=next_check_record.flags[CPSR_MODE:0];
-            check_ff.user_access<=next_check_record.user_access;
-            check_ff.format<=next_check_record.format;
-            check_ff.rd<=next_check_enable&&next_check_record.valid&&
-                next_check_record.memory&&!next_check_record.store&&!wb_flush;
-            check_ff.wr<=next_check_enable&&next_check_record.valid&&
-                next_check_record.memory&&next_check_record.store&&!wb_flush;
-        end
-    end
-    // Verification reference: the bench compares active registered checks to
-    // the previous schedule, including retry, fill installation and SWP.
-    // Unused in hardware; it does not drive the cache or any admission path.
-    assign check_reference={fcse({check_record.address[31:2],2'b0}),
-        check_record.flags[CPSR_MODE:0],check_record.user_access,check_record.format,
-        check_enable&&check_record.valid&&check_record.memory&&check_record.store&&!wb_flush,
-        check_enable&&check_record.valid&&check_record.memory&&!check_record.store&&!wb_flush};
     wire [31:0] lookup_address=memory_state==RELOAD0?m.address:
         memory_state==RELOAD1?skid.address:
         (memory_state==HOLD||memory_state==RETRY0||memory_state==RETRY1||memory_state==SWAP0||memory_state==SWAP1)?w.address:a_data_address;
     assign o_data_wb_adr_nxt=fcse({lookup_address[31:2],2'b0});
-    assign o_data_wb_adr_check=check_ff.address;
+    assign o_data_wb_adr_check=fcse({check_record.address[31:2],2'b0});
     assign o_data_wb_adr=fcse({w.address[31:2],2'b0});
-    assign o_data_wb_re_check=check_ff.rd&&!wb_flush;
-    assign o_data_wb_we_check=check_ff.wr&&!wb_flush;
-    assign o_data_wb_ldfmt_check=check_ff.format;
-    assign o_mem_cpsr=check_ff.mode;
-    assign o_mem_translate=check_ff.user_access;
+    assign o_data_wb_re_check=check_enable&&check_record.valid&&check_record.memory&&!check_record.store&&!wb_flush;
+    assign o_data_wb_we_check=check_enable&&check_record.valid&&check_record.memory&&check_record.store&&!wb_flush;
+    assign o_data_wb_ldfmt_check=check_record.format;
+    assign o_mem_cpsr=check_record.flags[CPSR_MODE:0];
+    assign o_mem_translate=check_record.user_access;
     assign o_data_wb_cyc=request;assign o_data_wb_stb=request;assign o_data_wb_we=w.store;
     assign o_data_wb_dat=w.store_data;assign o_data_wb_sel=w.sel;
     assign o_data_wb_va=w.address;assign o_data_wb_ldfmt=w.format;
@@ -638,7 +587,7 @@ output  logic [7:0]                      o_dbg_stall
     wire unused=&{1'b0,LOAD_FORMATTED,BP_ENTRIES,FIFO_DEPTH,RAS_DEPTH,CP,UND,SWI,MRS,BR,PREFIX,MUL,MULL,
         i_instr_data_early,i_instr_hit,cp_seen,d_ready,d_raw,d_mode,d_reg_count,d_transfer_reg,d_pred_kind,
         a_flags,a_write_flags,a_store,a_btb_kind,a_predicted,a_psr_source,a_saved_psr,a_spsr_tag,
-        data_pc8,pc,ins,ex_result,load_capture,load_commit,load_value,check_reference};
+        data_pc8,pc,ins,ex_result,load_capture,load_commit,load_value};
 
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1)) u_front_decode (
         .i_clk(i_clk),

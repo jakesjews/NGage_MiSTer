@@ -590,10 +590,6 @@ module arm9v2_core (
 	(* dont_retime *) reg [506:0] skid;
 	reg [506:0] input_record;
 	wire [506:0] check_record;
-	reg [506:0] next_check_record;
-	(* dont_retime *) reg [45:0] check_ff;
-	reg next_check_enable;
-	wire [45:0] check_reference;
 	(* dont_retime *) reg [3:0] memory_state;
 	(* dont_retime *) reg [31:0] saved_load;
 	(* dont_retime *) reg swap_write;
@@ -786,57 +782,15 @@ module arm9v2_core (
 	end
 	assign check_record = (((memory_state == 4'd1) || (memory_state == 4'd5)) || (memory_state == 4'd8) ? w : m);
 	assign check_enable = ((((memory_state == 4'd0) || (memory_state == 4'd1)) || (memory_state == 4'd3)) || (memory_state == 4'd5)) || (memory_state == 4'd8);
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		next_check_record = m;
-		next_check_enable = 0;
-		case (memory_state)
-			4'd0: begin
-				next_check_record = (done ? input_record : w);
-				next_check_enable = 1;
-			end
-			4'd1: begin
-				next_check_record = w;
-				next_check_enable = !done;
-			end
-			4'd2: next_check_enable = 1;
-			4'd3: begin
-				next_check_record = skid;
-				next_check_enable = 1;
-			end
-			4'd4, 4'd5, 4'd7, 4'd8: begin
-				next_check_record = w;
-				next_check_enable = 1;
-			end
-			4'd6, 4'd9, 4'd10:
-				;
-			default: next_check_enable = 1;
-		endcase
-		if (((retry || (((fill_ended && w[506]) && w[500]) && ((memory_state == 4'd0) || (memory_state == 4'd1)))) || defer_load) || (((request_done && i_data_wb_err) && (w[6-:4] == BLOCK)) && w[450]))
-			next_check_enable = 0;
-	end
-	always @(posedge i_clk)
-		if (i_reset)
-			check_ff <= 1'sb0;
-		else begin
-			check_ff[45-:32] <= fcse({next_check_record[364:335], 2'b00});
-			check_ff[13-:5] <= next_check_record[397 + CPSR_MODE:397];
-			check_ff[8] <= next_check_record[493];
-			check_ff[7-:6] <= next_check_record[23-:6];
-			check_ff[0] <= (((next_check_enable && next_check_record[506]) && next_check_record[500]) && !next_check_record[499]) && !wb_flush;
-			check_ff[1] <= (((next_check_enable && next_check_record[506]) && next_check_record[500]) && next_check_record[499]) && !wb_flush;
-		end
-	assign check_reference = {fcse({check_record[364:335], 2'b00}), check_record[397 + CPSR_MODE:397], check_record[493], check_record[23-:6], (((check_enable && check_record[506]) && check_record[500]) && check_record[499]) && !wb_flush, (((check_enable && check_record[506]) && check_record[500]) && !check_record[499]) && !wb_flush};
 	wire [31:0] lookup_address = (memory_state == 4'd2 ? m[364-:32] : (memory_state == 4'd3 ? skid[364-:32] : (((((memory_state == 4'd1) || (memory_state == 4'd4)) || (memory_state == 4'd5)) || (memory_state == 4'd7)) || (memory_state == 4'd8) ? w[364-:32] : a_data_address)));
 	assign o_data_wb_adr_nxt = fcse({lookup_address[31:2], 2'b00});
-	assign o_data_wb_adr_check = check_ff[45-:32];
+	assign o_data_wb_adr_check = fcse({check_record[364:335], 2'b00});
 	assign o_data_wb_adr = fcse({w[364:335], 2'b00});
-	assign o_data_wb_re_check = check_ff[0] && !wb_flush;
-	assign o_data_wb_we_check = check_ff[1] && !wb_flush;
-	assign o_data_wb_ldfmt_check = check_ff[7-:6];
-	assign o_mem_cpsr = check_ff[13-:5];
-	assign o_mem_translate = check_ff[8];
+	assign o_data_wb_re_check = (((check_enable && check_record[506]) && check_record[500]) && !check_record[499]) && !wb_flush;
+	assign o_data_wb_we_check = (((check_enable && check_record[506]) && check_record[500]) && check_record[499]) && !wb_flush;
+	assign o_data_wb_ldfmt_check = check_record[23-:6];
+	assign o_mem_cpsr = check_record[397 + CPSR_MODE:397];
+	assign o_mem_translate = check_record[493];
 	assign o_data_wb_cyc = request;
 	assign o_data_wb_stb = request;
 	assign o_data_wb_we = w[499];
@@ -1088,7 +1042,7 @@ module arm9v2_core (
 	wire load_capture = |i_dc_reg_idx;
 	wire [63:0] load_commit = 0;
 	wire [31:0] load_value = load_data;
-	wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, CP, UND, SWI, MRS, BR, PREFIX, MUL, MULL, i_instr_data_early, i_instr_hit, cp_seen, d_ready, d_raw, d_mode, d_reg_count, d_transfer_reg, d_pred_kind, a_flags, a_write_flags, a_store, a_btb_kind, a_predicted, a_psr_source, a_saved_psr, a_spsr_tag, data_pc8, pc, ins, ex_result, load_capture, load_commit, load_value, check_reference};
+	wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, CP, UND, SWI, MRS, BR, PREFIX, MUL, MULL, i_instr_data_early, i_instr_hit, cp_seen, d_ready, d_raw, d_mode, d_reg_count, d_transfer_reg, d_pred_kind, a_flags, a_write_flags, a_store, a_btb_kind, a_predicted, a_psr_source, a_saved_psr, a_spsr_tag, data_pc8, pc, ins, ex_result, load_capture, load_commit, load_value};
 	arm9v2_front_decode #(
 		.RESET_VECTOR(RESET_VECTOR),
 		.PREDICTOR(ARM9_PREDICTOR),
