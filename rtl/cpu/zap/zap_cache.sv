@@ -65,6 +65,9 @@ output  logic [7:0]      o_fsr,
 output  logic [31:0]     o_far,
 output  logic            o_err2,
 output  logic            o_fill_pending, o_fill_done, o_fill_fault,
+// [0] demand completion, [1] demand wait, [2] wait selected onto this
+// wrapper's bus, [3] I-TLB walk beat (ACK or ERR).
+output  logic [3:0]      o_dbg_icache,
 
 // MMU controls from/to processor.
 input   logic            i_mmu_en,
@@ -142,6 +145,8 @@ logic [1:0]                      sr_q;
 logic [31:0]                     baddr_q, dac_reg_q;
 logic                            pf_inv;
 logic                            unused;
+assign o_dbg_icache[2] = o_dbg_icache[1] && state_ff == SELECT_CCH;
+assign o_dbg_icache[3] = state_ff == SELECT_TLB && o_wb_cyc && o_wb_stb && (i_wb_ack || i_wb_err);
 
 //
 // ARM925T: the prefetch buffer is dropped on a TLB invalidate, a D-side
@@ -234,6 +239,7 @@ zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .
         .o_fill_pending         (o_fill_pending),
         .o_fill_done            (o_fill_done),
         .o_fill_fault           (o_fill_fault),
+        .o_dbg_icache           (o_dbg_icache[1:0]),
         .o_address              (cache_address),
         .o_wb_cyc_nxt           (wb_cyc[0]),
         .o_hold                 (hold),

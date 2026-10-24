@@ -18,11 +18,11 @@ bytes[15:0]} (rtl/mister/dbg_sti.sv), then the wall clock {valid, 10'b0,
 hour[4:0], 2'b0, min[5:0], 2'b0, sec[5:0]} (rows 40-42), its date
 year << 16 | month << 8 | day (rows 44-46), the audio peaks of the last
 frame {left[15:0], right[15:0]} (rows 48-50), {kernel-text writes
-dropped[7:0], 7'b0, dumping, 16'b0} (rows 52-54), then the 25 per-second
-counters of rtl/mister/dbg_counters.sv (rows 56-154; NGage.sv names them).
-Appended word 37 (rows 156-158) holds loader ready[31], busy[30], have[29:28]
+dropped[7:0], 7'b0, dumping, 16'b0} (rows 52-54), then the 33 per-second
+counters of rtl/mister/dbg_counters.sv (rows 56-186; NGage.sv names them).
+Appended word 45 (rows 188-190) holds loader ready[31], busy[30], have[29:28]
 (bit 0 MCU, bit 1 language), last ioctl index[27:22], last note[21:19], parser
-state[18:14]. Word 38 (rows 160-162) holds F1..F4 start counts[31:16] as four
+state[18:14]. Word 46 (rows 192-194) holds F1..F4 start counts[31:16] as four
 saturating 4-bit counters and the full current-file error count[15:0]. These
 words keep updating during CPU reset; sys_reset (RESET/PLL unlock) clears history.
 
@@ -53,7 +53,7 @@ def decode(path):
     bits = [bit(im, scale, 16 + i, 5) for i in range(8)]
     flags = " ".join("%s=%d" % (n, v) for n, v in zip(NAMES, bits))
     words = []
-    for row in range(9, 9 + 4 * 39, 4):     # 12 fixed words, 25 counters, 2 loader words
+    for row in range(9, 9 + 4 * 47, 4):     # 12 fixed words, 33 counters, 2 loader words
         w = 0
         for i in range(32):
             w = (w << 1) | bit(im, scale, 16 + i, row)
@@ -65,7 +65,7 @@ def decode(path):
         path, pc, flags, words[0], words[1], words[2], words[3], words[4], words[5], cat,
         words[6], words[7] >> 24, (words[7] >> 16) & 0xFF, words[7] & 0xFFFF, w11 >> 24,
         w8 >> 31, (w8 >> 16) & 0x1F, (w8 >> 8) & 0x3F, w8 & 0x3F, w9 >> 16, (w9 >> 8) & 0xFF, w9 & 0xFF,
-        w10 >> 16, w10 & 0xFFFF) + counters(words[12:37]) + loader(words[37:39])
+        w10 >> 16, w10 & 0xFFFF) + counters(words[12:45]) + loader(words[45:47])
 
 
 def loader(w):
@@ -84,7 +84,7 @@ def counters(w):
     # per second: frames, pixels, instructions retired, wait-for-interrupt
     # clocks, bus wait clocks on the SDRAM / the flash / elsewhere, bus beats;
     # then the CPU's stall taps (clocks): the data side's bus wait, the
-    # fetch's, no instruction out of the fetch FIFO, the issue, shifter and
+    # combined FIFO-full OR fetch-wait, no instruction out of the fetch FIFO, the issue, shifter and
     # decode stalls; the ALU's flushes and the writeback's (counts); uops,
     # replays, and the MMC card counters (512-byte blocks completed, data-phase
     # clocks, wire-wait-for-Linux clocks), and the D-cache's events (load-miss
@@ -93,12 +93,19 @@ def counters(w):
     dstall, cstall, nofifo, s_issue, s_shift, s_dec, clr_alu, clr_wb, uops, replays = w[8:18]
     mmc_blks, mmc_data, mmc_wait = w[18:21]
     dc_ld, dc_st, dc_wb, dc_unc = w[21:25]   # D-cache: load-miss fills, store-miss fills, write-backs, uncached completions
+    # New counter indices 25..32 = overlay words 37..44, rows 156..186:
+    # FIFO full; raw fetch wait; demand fill completions (including faults);
+    # fetch wait AND !FIFO full; demand fill wait behind DATA; demand fill
+    # wait for the external arbiter/self-test; I-TLB beats; D-TLB beats.
+    # The wait clocks overlap the old code counter and bus target counters.
+    fifo_full, fetch_wait, ic_fill, ic_wait, ic_merge, ic_arb, itlb, dtlb = w[25:33]
     clk = 104_000_000
     pct = lambda n: 100.0 * n / clk
-    return " | per s: %d frames, %d px, %.2f M instr, idle %.1f%%, bus wait sdram %.1f%% flash %.1f%% other %.1f%%, %d beats | stalls: data %.1f%% code %.1f%% nofifo %.1f%% issue %.1f%% shifter %.1f%% decode %.1f%%, flush alu %d wb %d, %.2f M uops, %d replays, mmc %d blk/s data %.1f%% wait %.1f%% | dcache %d ld-fill %d st-fill %d wb %d unc" % (
+    return " | per s: %d frames, %d px, %.2f M instr, idle %.1f%%, bus wait sdram %.1f%% flash %.1f%% other %.1f%%, %d beats | stalls: data %.1f%% code-combined %.1f%% nofifo %.1f%% issue %.1f%% shifter %.1f%% decode %.1f%%, flush alu %d wb %d, %.2f M uops, %d replays, mmc %d blk/s data %.1f%% wait %.1f%% | dcache %d ld-fill %d st-fill %d wb %d unc | icache %d demand-fill fifo-full %.1f%% fetch-wait %.1f%% true-wait %.1f%% fill-merger-wait %.1f%% fill-grant-wait %.1f%% | tlb %d I-beats %d D-beats" % (
         frames, pix, retired / 1e6, pct(wfi), pct(wsd), pct(wfl), pct(wot), beats,
         pct(dstall), pct(cstall), pct(nofifo), pct(s_issue), pct(s_shift), pct(s_dec), clr_alu, clr_wb, uops / 1e6, replays,
-        mmc_blks, pct(mmc_data), pct(mmc_wait), dc_ld, dc_st, dc_wb, dc_unc)
+        mmc_blks, pct(mmc_data), pct(mmc_wait), dc_ld, dc_st, dc_wb, dc_unc,
+        ic_fill, pct(fifo_full), pct(fetch_wait), pct(ic_wait), pct(ic_merge), pct(ic_arb), itlb, dtlb)
 
 
 if __name__ == "__main__":

@@ -59,6 +59,9 @@ output  logic                       o_err2,
 output  logic                       o_fill_pending,
 output  logic                       o_fill_done,
 output  logic                       o_fill_fault,
+// ARM925T: observation taps, pruned when the debug outputs are unused.
+// [0] demand burst completed (including a fault), [1] demand bus wait.
+output  logic [1:0]                 o_dbg_icache,
 
 // From/To CP15 unit
 input   logic                      i_cache_en,
@@ -236,6 +239,8 @@ logic fill_fault_ff, fill_fault_nxt;
 logic [31:0] fill_lookup, response_dat_ff;
 logic fill_ready_ff;
 assign fill_lookup = i_stall ? i_address : i_address_check;
+assign o_dbg_icache[0] = state_ff == FETCH_SINGLE && take && o_wb_cti_ff == CTI_EOB;
+assign o_dbg_icache[1] = state_ff == FETCH_SINGLE && o_wb_cyc_ff && o_wb_stb_ff && !take;
 assign o_fill_pending = state_ff == FETCH_SINGLE;
 assign o_fill_done = state_ff == FILL_COMPLETE;
 assign o_fill_fault = o_fill_done && fill_fault_ff;

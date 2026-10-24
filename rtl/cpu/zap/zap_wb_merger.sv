@@ -46,6 +46,7 @@ input logic [31:0]      i_c_wb_adr,
 input logic [2:0]       i_c_wb_cti,
 output logic            o_c_wb_ack,
 output logic            o_c_wb_err,
+output logic            o_dbg_data_owner, // registered grant, observation only
 
 // Wishbone bus 2
 input logic             i_d_wb_stb,
@@ -95,6 +96,8 @@ owner_t state_nxt;
 
 // Alias
 logic switch;
+
+assign o_dbg_data_owner = state_ff == DATA;
 
 assign switch = (i_wb_ack | i_wb_err) & (o_wb_cti == CTI_EOB);
 

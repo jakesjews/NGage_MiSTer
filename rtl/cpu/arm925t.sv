@@ -87,6 +87,11 @@ module arm925t #(
 	// [0] load-miss fill, [1] store-miss fill, [2] line write-back
 	// (eviction or maintenance), [3] uncached data access (excludes WT).
 	output logic [3:0]  dbg_dcache,
+	// [0] FIFO full, [1] fetch no ACK, [2] demand fill completed,
+	// [3] fetch no ACK and FIFO not full, [4] fill waits behind DATA,
+	// [5] fill selected on external bus (qualify with arbiter grant),
+	// [6] I-TLB beat, [7] D-TLB beat. See NGage.sv DBG_CNT layout.
+	output logic [7:0]  dbg_icache,
 	output logic        dbg_d_done,
 	output logic        dbg_d_we,
 	output logic [31:0] dbg_d_va,
@@ -135,6 +140,7 @@ module arm925t #(
 		.o_dbg_wb_cpsr_nxt (dbg_wb_cpsr_nxt),
 		.o_dbg_stall       (dbg_stall),
 		.o_dbg_dcache      (dbg_dcache),
+		.o_dbg_icache       (dbg_icache),
 		.o_dbg_d_done      (dbg_d_done),
 		.o_dbg_d_we        (dbg_d_we),
 		.o_dbg_d_va        (dbg_d_va),

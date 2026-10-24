@@ -364,6 +364,7 @@ wire        dma_cyc, dma_stb, dma_we, dma_ack, dma_err;
 wire [31:0] dma_adr, dma_dat_w, dma_dat_r;
 wire  [3:0] dma_sel;
 
+wire        dbg_dma_owner;
 wire        sdram_ready;
 wire [15:0] sdram_dq_o, sdram_dq_oe;
 wire        mem_reset = reset | ~sdram_ready;
@@ -387,6 +388,7 @@ ngage_mem ngage_mem
 	.wb_ack(wb_ack),
 	.wb_err(wb_err),
 	.wb_dat_o(wb_dat_r),
+	.dbg_dma_owner(dbg_dma_owner),
 
 	.dma_cyc(dma_cyc),
 	.dma_stb(dma_stb),
@@ -667,6 +669,7 @@ wire [31:0] tr_wb_pc, tr_wb_cpsr, tr_wb_cpsr_nxt;
 wire        tr_d_done, tr_d_we;
 wire        cpu_dbg_wfi;
 wire  [7:0] cpu_dbg_stall;
+wire  [7:0] cpu_dbg_icache;
 wire  [3:0] cpu_dbg_dcache;   // load fills, store fills, write-backs, uncached completions
 wire [31:0] tr_d_va, tr_d_wdata, tr_d_rdata;
 wire  [3:0] tr_d_sel;
@@ -697,6 +700,7 @@ arm925t #(
 	.dbg_wfi(cpu_dbg_wfi),
 	.dbg_stall(cpu_dbg_stall),
 	.dbg_dcache(cpu_dbg_dcache),
+	.dbg_icache(cpu_dbg_icache),
 	.dbg_wb_dvalid(tr_wb_dvalid),
 	.dbg_wb_uop_last(tr_wb_uop_last),
 	.dbg_wb_dabt(tr_wb_dabt),
@@ -1139,11 +1143,20 @@ wire        dbg_bus_flash = wb_adr[27:26] == 2'b00;       // CS0-CS3
 // instruction round again because the data cache was busy with a fill) has
 // no architectural effect and is not a retired instruction or uop, as the
 // CPU bench counts them (sim/cpu/tb/main.cpp).
-localparam DBG_CNT = 25;
+// Counter indices 0..24 retain their original meanings. Appended:
+// 25 FIFO full, 26 fetch request without ACK, 27 demand I-fill completions,
+// 28 fetch wait with FIFO not full, 29 I-fill waits behind the DATA owner,
+// 30 I-fill waits for the external DMA/self-test grant, 31/32 I/D TLB beats.
+// Overlay word index = counter index + 12 (37..44 for the additions).
+// Loader status/history follow at words 45/46 (rows 188/192).
+localparam DBG_CNT = 33;
 reg         dbg_mmc_busy_q = 0;
 always @(posedge clk_sys) dbg_mmc_busy_q <= dbg_src0[22];
 wire        tr_wb_retire = (tr_wb_valid || tr_wb_dvalid) && !tr_wb_dabt[1];
 wire [DBG_CNT-1:0] dbg_ev = {
+	cpu_dbg_icache[7:6],                                  // 32..31 D/I TLB walk beats
+	cpu_dbg_icache[5] && (dbg_dma_owner || test_sel),       // 30 I-fill external grant wait
+	cpu_dbg_icache[4:0],                                  // 29..25 merger wait, true wait, fills, fetch wait, FIFO full
 	cpu_dbg_dcache,                                       // 24..21 D-cache: uncached completions, line write-backs, store-miss fills, load-miss fills
 	dbg_src0[22] && dbg_src0[23] && !card_dat_oe,         // 20 mmc wire waits for Linux
 	dbg_src0[22],                                         // 19 mmc clocks in data phase
@@ -1208,7 +1221,7 @@ wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd13) ? {kt_dropped, 7'd0, tr_dumping, 16'd0} :
                         (scan_y[7:2] == 6'd14 + 6'(DBG_CNT)) ? dbg_loader_q :
                         (scan_y[7:2] == 6'd15 + 6'(DBG_CNT)) ? dbg_load_counts_q :
-                        (scan_y[7:2] >= 6'd14 && scan_y[7:2] < 6'd14 + 6'(DBG_CNT)) ? dbg_cnt[5'(scan_y[7:2] - 6'd14)] :
+                        (scan_y[7:2] >= 6'd14 && scan_y[7:2] < 6'd14 + 6'(DBG_CNT)) ? dbg_cnt[$clog2(DBG_CNT)'(scan_y[7:2] - 6'd14)] :
                                                  32'd0;
 // the row select and the word are registered once (scan_x/y hold for the 16
 // clocks of a pixel); the row mux into the bit select was the worst setup path
@@ -1230,7 +1243,7 @@ wire [15:0] dbg_rgb   = dbg_bit ? 16'hFFFF : 16'h0000;
 wire        dbg_on = 1'b0, dbg_pcrow_q = 1'b0, dbg_strow_q = 1'b0, dbg_wrow_q = 1'b0;
 wire [15:0] dbg_rgb = 16'h0000;
 assign dbg_trig = 1'b0;
-wire unused_dbg = &{1'b0, cpu_dbg_pc, cpu_dbg_stall, cpu_dbg_dcache, cpu_dbg_wfi, dbg_src0, dbg_en0_irq,
+wire unused_dbg = &{1'b0, cpu_dbg_pc, cpu_dbg_stall, cpu_dbg_dcache, cpu_dbg_icache, dbg_dma_owner, cpu_dbg_wfi, dbg_src0, dbg_en0_irq,
                     dbg_en0_fiq, tr_trig_pc, tr_dumps, tr_triggers, tr_dumping, kt_count, kt_dropped,
                     lcd_pix_ev, status[8], ph_have, ph_state, ph_errors};
 `endif

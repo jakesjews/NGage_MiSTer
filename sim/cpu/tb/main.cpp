@@ -257,6 +257,7 @@ int main(int argc, char **argv) {
 	uint32_t hum_watch = 0, hum_loads = 0, hum_stores = 0;
 	uint64_t hum_total_loads = 0, hum_total_stores = 0;
 	uint64_t dcache_events[4] = {};
+	uint64_t icache_events[8] = {};
 	uint32_t store_fill_retired = 0;
 	uint64_t dirty_fill_first = 0, dirty_write_first = 0;
 	bool dirty_first_pending = false;
@@ -349,6 +350,10 @@ int main(int argc, char **argv) {
 		}
 		for (int b = 0; b < 6; b++) stall_clocks[b] += (t->p_stall >> b) & 1;
 		for (int b = 0; b < 4; b++) dcache_events[b] += (t->p_dcache >> b) & 1;
+		for (int b = 0; b < 8; b++) icache_events[b] += (t->p_icache >> b) & 1;
+		if (((t->p_icache & 3) != 0) != ((t->p_stall & 2) != 0) ||
+		    bool(t->p_icache & 8) != ((t->p_icache & 3) == 2))
+			error("instruction-side debug taps disagree with code stall");
 		// A held redirect is counted on its accepting edge, not every held clock.
 		alu_flushes += (t->p_alu_flags & 0x30) == 0x20;
 		early_flushes += (t->p_stall & 0x41) == 0x40 && !(t->p_alu_flags & 0x20);
@@ -611,6 +616,11 @@ int main(int argc, char **argv) {
 		printf("D-cache events: load_fills=%" PRIu64 " store_fills=%" PRIu64
 		       " writebacks=%" PRIu64 " uncached=%" PRIu64 "\n",
 		       dcache_events[0], dcache_events[1], dcache_events[2], dcache_events[3]);
+		printf("I-cache events: fifo_full=%" PRIu64 " fetch_wait=%" PRIu64
+		       " fills=%" PRIu64 " true_wait=%" PRIu64 " merger_wait=%" PRIu64
+		       " bus_wait=%" PRIu64 " itlb_beats=%" PRIu64 " dtlb_beats=%" PRIu64 "\n",
+		       icache_events[0], icache_events[1], icache_events[2], icache_events[3],
+		       icache_events[4], icache_events[5], icache_events[6], icache_events[7]);
 		printf("Background writes: %" PRIu64 ", during fill: %" PRIu64 "\n", dc_writes, dc_early_writes);
 		printf("D-cache overlap: store_fill_retired=%u dirty_fill_first=%" PRIu64
 		       " dirty_write_first=%" PRIu64 "\n", store_fill_retired, dirty_fill_first, dirty_write_first);

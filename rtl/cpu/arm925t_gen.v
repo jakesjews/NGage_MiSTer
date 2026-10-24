@@ -45,6 +45,7 @@ module arm925t (
 	dbg_wb_cpsr_nxt,
 	dbg_stall,
 	dbg_dcache,
+	dbg_icache,
 	dbg_d_done,
 	dbg_d_we,
 	dbg_d_va,
@@ -89,6 +90,7 @@ module arm925t (
 	output wire [31:0] dbg_wb_cpsr_nxt;
 	output wire [7:0] dbg_stall;
 	output wire [3:0] dbg_dcache;
+	output wire [7:0] dbg_icache;
 	output wire dbg_d_done;
 	output wire dbg_d_we;
 	output wire [31:0] dbg_d_va;
@@ -134,6 +136,7 @@ module arm925t (
 		.o_dbg_wb_cpsr_nxt(dbg_wb_cpsr_nxt),
 		.o_dbg_stall(dbg_stall),
 		.o_dbg_dcache(dbg_dcache),
+		.o_dbg_icache(dbg_icache),
 		.o_dbg_d_done(dbg_d_done),
 		.o_dbg_d_we(dbg_d_we),
 		.o_dbg_d_va(dbg_d_va),
@@ -1917,6 +1920,7 @@ module zap_cache (
 	o_fill_pending,
 	o_fill_done,
 	o_fill_fault,
+	o_dbg_icache,
 	i_mmu_en,
 	i_cache_en,
 	i_cache_inv_req,
@@ -1979,6 +1983,7 @@ module zap_cache (
 	output wire o_fill_pending;
 	output wire o_fill_done;
 	output wire o_fill_fault;
+	output wire [3:0] o_dbg_icache;
 	input wire i_mmu_en;
 	input wire i_cache_en;
 	input wire i_cache_inv_req;
@@ -2330,6 +2335,8 @@ module zap_cache (
 	reg [31:0] dac_reg_q;
 	reg pf_inv;
 	wire unused;
+	assign o_dbg_icache[2] = o_dbg_icache[1] && (state_ff == SELECT_CCH);
+	assign o_dbg_icache[3] = (((state_ff == SELECT_TLB) && o_wb_cyc) && o_wb_stb) && (i_wb_ack || i_wb_err);
 	always @(posedge i_clk)
 		if (i_reset) begin
 			mmu_en_q <= 1'd0;
@@ -2405,6 +2412,7 @@ module zap_cache (
 		.o_fill_pending(o_fill_pending),
 		.o_fill_done(o_fill_done),
 		.o_fill_fault(o_fill_fault),
+		.o_dbg_icache(o_dbg_icache[1:0]),
 		.o_address(cache_address),
 		.o_wb_cyc_nxt(wb_cyc[0]),
 		.o_hold(hold),
@@ -2631,6 +2639,7 @@ module zap_cache_fsm (
 	o_fill_pending,
 	o_fill_done,
 	o_fill_fault,
+	o_dbg_icache,
 	i_cache_en,
 	i_cache_inv,
 	i_cache_clean,
@@ -2708,6 +2717,7 @@ module zap_cache_fsm (
 	output wire o_fill_pending;
 	output wire o_fill_done;
 	output wire o_fill_fault;
+	output wire [1:0] o_dbg_icache;
 	input wire i_cache_en;
 	input wire i_cache_inv;
 	input wire i_cache_clean;
@@ -3128,6 +3138,8 @@ module zap_cache_fsm (
 	reg [31:0] response_dat_ff;
 	reg fill_ready_ff;
 	assign fill_lookup = (i_stall ? i_address : i_address_check);
+	assign o_dbg_icache[0] = ((state_ff == FETCH_SINGLE) && take) && (o_wb_cti_ff == CTI_EOB);
+	assign o_dbg_icache[1] = (((state_ff == FETCH_SINGLE) && o_wb_cyc_ff) && o_wb_stb_ff) && !take;
 	assign o_fill_pending = state_ff == FETCH_SINGLE;
 	assign o_fill_done = state_ff == FILL_COMPLETE;
 	assign o_fill_fault = o_fill_done && fill_fault_ff;
@@ -4859,7 +4871,8 @@ module zap_core (
 	o_dbg_wb_pc,
 	o_dbg_wb_cpsr,
 	o_dbg_wb_cpsr_nxt,
-	o_dbg_stall
+	o_dbg_stall,
+	o_dbg_fetch
 );
 	reg _sv2v_0;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
@@ -4968,6 +4981,7 @@ module zap_core (
 	output wire [31:0] o_dbg_wb_cpsr;
 	output wire [31:0] o_dbg_wb_cpsr_nxt;
 	output wire [7:0] o_dbg_stall;
+	output wire [1:0] o_dbg_fetch;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
 	localparam [1:0] FINE_ID = 2'b11;
@@ -6469,6 +6483,7 @@ module zap_core (
 		.o_wb_stb(o_instr_wb_stb),
 		.o_wb_cyc(o_instr_wb_cyc)
 	);
+	assign o_dbg_fetch = {(o_instr_wb_stb && o_instr_wb_cyc) && !i_instr_wb_ack, fifo_full};
 	assign o_dbg_wb_valid = memory_dav_ff;
 	assign o_dbg_stall = {clear_from_writeback, clear_from_alu, stall_from_decode, stall_from_shifter, stall_from_issue, ~fifo_valid, code_stall, data_stall};
 	assign o_dbg_wb_dvalid = memory_decompile_valid;
@@ -7595,6 +7610,7 @@ module zap_dcache (
 	o_far,
 	o_err2,
 	o_dbg_dcache,
+	o_dbg_tlb,
 	i_reg_idx,
 	i_reg_idx_bin,
 	o_lock,
@@ -7671,6 +7687,7 @@ module zap_dcache (
 	output wire [31:0] o_far;
 	output wire o_err2;
 	output wire [3:0] o_dbg_dcache;
+	output wire o_dbg_tlb;
 	input wire [63:0] i_reg_idx;
 	input wire [5:0] i_reg_idx_bin;
 	output wire [63:0] o_lock;
@@ -8265,6 +8282,7 @@ module zap_dcache (
 		else
 			clean_line_event <= ((((state_ff == SELECT_TAG) && o_wb_stb) && o_wb_wen) && (o_wb_cti == CTI_EOB)) && (i_wb_ack || i_wb_err);
 	assign o_dbg_dcache = cf_dbg_dcache | {1'b0, clean_line_event, 2'b00};
+	assign o_dbg_tlb = (((state_ff == SELECT_TLB) && o_wb_cyc) && o_wb_stb) && (i_wb_ack || i_wb_err);
 	always @(posedge i_clk)
 		if (i_reset) begin
 			state_ff <= SELECT_CCH;
@@ -20396,6 +20414,7 @@ module zap_top (
 	o_dbg_wb_cpsr_nxt,
 	o_dbg_stall,
 	o_dbg_dcache,
+	o_dbg_icache,
 	o_dbg_d_done,
 	o_dbg_d_we,
 	o_dbg_d_va,
@@ -20462,6 +20481,7 @@ module zap_top (
 	output wire [31:0] o_dbg_wb_cpsr_nxt;
 	output wire [7:0] o_dbg_stall;
 	output wire [3:0] o_dbg_dcache;
+	output wire [7:0] o_dbg_icache;
 	output wire o_dbg_d_done;
 	output wire o_dbg_d_we;
 	output wire [31:0] o_dbg_d_va;
@@ -20963,6 +20983,11 @@ module zap_top (
 	wire instr_err;
 	wire [31:0] ic_data;
 	wire cpu_instr_stb;
+	wire [1:0] dbg_fetch;
+	wire [3:0] dbg_icache;
+	wire dbg_data_owner;
+	wire dbg_dtlb;
+	assign o_dbg_icache = {dbg_dtlb, dbg_icache[3], dbg_icache[2] && !dbg_data_owner, dbg_icache[1] && dbg_data_owner, dbg_fetch[1] && !dbg_fetch[0], dbg_icache[0], dbg_fetch};
 	wire c_wb_stb;
 	wire c_wb_cyc;
 	wire c_wb_wen;
@@ -21066,6 +21091,7 @@ module zap_top (
 		.o_dbg_wb_cpsr(o_dbg_wb_cpsr),
 		.o_dbg_wb_cpsr_nxt(o_dbg_wb_cpsr_nxt),
 		.o_dbg_stall(o_dbg_stall),
+		.o_dbg_fetch(dbg_fetch),
 		.i_clk(i_clk),
 		.i_reset(s_reset),
 		.o_instr_wb_adr(cpu_iaddr),
@@ -21142,6 +21168,8 @@ module zap_top (
 		end
 		else begin : l_tieoffs_only_core
 			assign o_dbg_dcache = 1'sb0;
+			assign dbg_icache = 1'sb0;
+			assign dbg_dtlb = 1'b0;
 			assign dc_wreg_idx = 1'sb0;
 			assign dc_lock = 1'sb0;
 			assign dc_reg_data = 1'sb0;
@@ -21201,6 +21229,7 @@ module zap_top (
 				.i_c_wb_cti(c_wb_cti),
 				.o_c_wb_ack(c_wb_ack),
 				.o_c_wb_err(c_wb_err),
+				.o_dbg_data_owner(dbg_data_owner),
 				.i_d_wb_stb(d_wb_stb),
 				.i_d_wb_cyc(d_wb_cyc),
 				.i_d_wb_wen(d_wb_wen),
@@ -21236,6 +21265,7 @@ module zap_top (
 				.i_c_wb_cti(3'b111),
 				.o_c_wb_ack(instr_ack),
 				.o_c_wb_err(instr_err),
+				.o_dbg_data_owner(dbg_data_owner),
 				.i_d_wb_stb(cpu_dc_stb),
 				.i_d_wb_cyc(cpu_dc_stb),
 				.i_d_wb_wen(cpu_dc_we),
@@ -21271,6 +21301,7 @@ module zap_top (
 				.EXT_ABORT_FS((TI925T ? 4'b1000 : 4'b0010))
 			) u_data_cache(
 				.o_dbg_dcache(o_dbg_dcache),
+				.o_dbg_tlb(dbg_dtlb),
 				.i_clk(i_clk),
 				.i_stall(1'd0),
 				.i_reset(s_reset),
@@ -21373,6 +21404,7 @@ module zap_top (
 				.i_baddr(cpu_baddr),
 				.i_dac_reg(cpu_dac_reg),
 				.i_tlb_inv(cpu_itlb_inv),
+				.o_dbg_icache(dbg_icache),
 				.i_wb_busy(((((d_wb_cyc || d_wb_ack) || |dc_lock) || cpu_dc_clean) || cpu_dc_inv) || cpu_dline_req),
 				.i_pf_inv((cpu_dc_clean || cpu_dc_inv) || cpu_dline_req),
 				.o_err2(icache_err2),
@@ -21422,6 +21454,7 @@ module zap_wb_merger (
 	i_c_wb_cti,
 	o_c_wb_ack,
 	o_c_wb_err,
+	o_dbg_data_owner,
 	i_d_wb_stb,
 	i_d_wb_cyc,
 	i_d_wb_wen,
@@ -21456,6 +21489,7 @@ module zap_wb_merger (
 	input wire [2:0] i_c_wb_cti;
 	output wire o_c_wb_ack;
 	output wire o_c_wb_err;
+	output wire o_dbg_data_owner;
 	input wire i_d_wb_stb;
 	input wire i_d_wb_cyc;
 	input wire i_d_wb_wen;
@@ -21751,6 +21785,7 @@ module zap_wb_merger (
 	(* preserve, dont_retime *) reg state_ff;
 	reg state_nxt;
 	wire switch;
+	assign o_dbg_data_owner = state_ff == 1'd1;
 	assign switch = (i_wb_ack | i_wb_err) & (o_wb_cti == CTI_EOB);
 	always @(*) begin
 		if (_sv2v_0)

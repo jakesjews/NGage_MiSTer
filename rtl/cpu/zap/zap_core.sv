@@ -211,7 +211,8 @@ output  logic [31:0]                     o_dbg_wb_cpsr_nxt,
 // side's bus wait, the fetch's, no instruction out of the fetch FIFO, the
 // issue, shifter and decode stalls, the ALU's flush (a branch the predictor
 // got wrong) and the writeback's (an exception, a CP15 fence).
-output  logic [7:0]                      o_dbg_stall
+output  logic [7:0]                      o_dbg_stall,
+output  logic [1:0]                      o_dbg_fetch // [0] FIFO full, [1] request without ACK
 
 );
 
@@ -1771,6 +1772,7 @@ u_zap_writeback
 );
 
 // ARM925T: debug trace taps.
+assign o_dbg_fetch = {o_instr_wb_stb && o_instr_wb_cyc && !i_instr_wb_ack, fifo_full};
 assign o_dbg_wb_valid    = memory_dav_ff;
 assign o_dbg_stall       = {clear_from_writeback, clear_from_alu, stall_from_decode, stall_from_shifter,
                             stall_from_issue, ~fifo_valid, code_stall, data_stall};
