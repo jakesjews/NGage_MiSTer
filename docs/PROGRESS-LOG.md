@@ -4937,3 +4937,23 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   decisive number is sought another way: the whole-core Verilator
   bench running a game on both cores, so V2's in-play instruction
   rate is known before more closure effort is spent on it.
+- **Sonic on both cores in the whole-core Verilator bench** (the
+  decisive number without timing closure). On the server, from
+  ~/dev/mister/coreboot/arm9v2-s10-final-src (the V2 branch at
+  c87d383, S10's source), two runs of the coreboot bench in parallel:
+  V2 (arm9v2-s10-final/coreboot/Vemu, built with NGAGE_CORE_ARM9) and
+  ZAP (zap-s10/coreboot/Vemu, the same tree without the macro), each
+  with cs0.bin, a cs1 composed from the board's pristine firmware
+  half and its clock-set 4 MB C: save (img/cs1-board.bin, so the boot
+  goes to the idle screen without the date dialogs as on the board),
+  sonicn.mmc on the card, and the Sonic key script of
+  tools/run_games.sh in guest seconds (img/sonic.keys: menu at 100 s,
+  three downs and OK, the four 5s from 176 s, play with held rights
+  and 5s from 200 to 231 s), 235 guest seconds (24.44 G clocks), a
+  progress line with the retired-instruction count every guest
+  second and a picture on every change, into arm9v2-s10-final/game/
+  and zap-s10/game/ (run.log, lcd-*.png). At about six wall minutes
+  per guest second it is a day's run; the in-play retired
+  instructions per guest second on the two cores, at the same 104
+  MHz, is V2's cycle gain in the game itself, which neither the suite
+  nor the kernel boot measures and the board cannot yet.
