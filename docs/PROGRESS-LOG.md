@@ -4510,3 +4510,7 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   early one two), the replay contract, the RAS checkpoint; the judge
   is crand/ctrand/mmu_page at 0:3 and 2:9 clearly under ZAP, then the
   integrated seed-2 fit at or better than -1.237.
+- The Mac's Quartus lane is open again (the user, 2026-10-24: "mac is
+  free for builds now too"): five lanes, the server's four for the
+  Codex threads and whole-core builds, the Mac for my own sweeps and
+  measurement cores.
