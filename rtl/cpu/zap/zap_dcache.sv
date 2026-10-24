@@ -70,6 +70,9 @@ input logic [5:0] i_ldfmt_check,
 // Permission and hit are registered on the same check edge as the word.
 output logic [31:0] o_short_data,
 output logic o_short_hit,
+// ARM9V2: the FSM can acknowledge a hit in this clock (IDLE or a background-
+// hit slot), registered. A short hit outside it is not accepted now.
+output logic o_short_live,
 output logic  [31:0]     o_dat,
 output  logic            o_ack,
 output  logic            o_writeback_busy, // ARM925T: CP15 drain fence
@@ -182,6 +185,11 @@ logic                            clean_line_event;
 assign o_fill_busy = fill_busy;
 assign o_short_data = SHORT_READ ? tr_cache_words[0] : 32'd0;
 assign o_short_hit = SHORT_READ && tr_cache_hit && tlb_hit_ok;
+// ARM9V2: during a fill, the line it evicts keeps its tag until UNLOCK_REG
+// and still gives a short hit, but its lookups are unsafe: the FSM withholds
+// the ACK, and after installation the access misses. live_lookup is
+// state_ff[IDLE] || hum_slot_ff, the only states with a hit ACK.
+assign o_short_live = SHORT_READ && live_lookup;
 localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
 localparam integer LINE_W = $clog2(CACHE_LINE);
 logic [SET_W-1:0]                lookup_s0, lookup_s1;

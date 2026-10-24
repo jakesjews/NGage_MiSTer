@@ -71,6 +71,7 @@ input logic                              i_data_wb_err,
 input logic  [31:0]                      i_data_wb_dat,
 input logic [31:0] i_data_short_data,
 input logic i_data_short_hit,
+input logic i_data_short_live,
 output logic [31:0]                      o_data_wb_dat,
 output logic  [3:0]                      o_data_wb_sel,
 
@@ -821,8 +822,20 @@ output logic [1:0] o_dbg_fetch
         a_flags,a_write_flags,a_store,a_btb_kind,a_predicted,a_psr_source,a_saved_psr,a_spsr_tag,
         d_early,data_pc8,pc,ins,ex_result,load_capture,load_commit,load_value};
 
+    // D2's WAW check lets a younger writer of W's load destination pass on
+    // a first-clock short hit (S's pending bit trusts it the same way): that
+    // hit must complete now. A short hit on a fill's departing victim is not
+    // accepted (i_data_short_live low); after installation the load misses
+    // and only then locks its register. The fill-end clock's response
+    // predates installation and W re-reads it (RETRY0), so a departing line
+    // can hit there too, typically for the first load after a W flush's
+    // refetch. Trusting either let the younger writer pass D2 before the
+    // lock existed; it hit and retired first, and the older load's
+    // background return then overwrote it (the EKA1 kernel's ip). Such a
+    // load is a pending owner. Readers may still take the word in S/A: it
+    // is the departing line's current data, and the return rewrites it.
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1)) u_front_decode (
-        .i_w_load_hit(w.memory&&i_data_short_hit&&!w_waited),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
+        .i_w_load_hit(w.memory&&i_data_short_hit&&i_data_short_live&&!w_waited&&!fill_ended),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
         .i_forward_load(forward_load),.o_forward_grant(d_forward_grant),.i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),.o_return_match(d_return_match),
         .i_reset(i_reset),

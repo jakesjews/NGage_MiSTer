@@ -232,7 +232,7 @@ logic            cpu_dtlb_inv, cpu_itlb_inv;
 logic            data_ack, data_err, instr_ack, instr_err;
 logic [31:0]     ic_data, dc_data, cpu_dc_dat;
 logic [31:0] dc_short_data;
-logic dc_short_hit;
+logic dc_short_hit, dc_short_live;
 logic            cpu_instr_stb;
 logic            cpu_dc_we, cpu_dc_stb;
 logic [3:0]      cpu_dc_sel;
@@ -534,7 +534,7 @@ arm9v2_core #(
 .o_pid                  (),
 /* verilator lint_on PINCONNECTEMPTY */
 .o_data_wb_stb          (cpu_dc_stb),
-.i_data_short_data(dc_short_data),.i_data_short_hit(dc_short_hit),
+.i_data_short_data(dc_short_data),.i_data_short_hit(dc_short_hit),.i_data_short_live(dc_short_live),
 .i_data_wb_dat          (!ONLY_CORE ? dc_data :
                          BE_32_ENABLE ? be_32(i_wb_dat, o_wb_sel) : i_wb_dat),
                         // Swap data into CPU based on current o_wb_sel.
@@ -633,7 +633,7 @@ begin : l_tieoffs_only_core
         assign dc_fsr          = '0;
         assign dc_far          = '0;
         assign dc_data         = '0;
-        assign dc_short_data = 0;assign dc_short_hit = 0;
+        assign dc_short_data = 0;assign dc_short_hit = 0;assign dc_short_live = 0;
         assign ic_data         = '0;
         assign c_wb_ack        = '0;
         assign c_wb_err        = '0;
@@ -882,7 +882,7 @@ u_data_cache (
 .i_reg_idx              (dc_rreg_idx),
 .i_reg_idx_bin          (dc_rreg_idx_bin),
 
-.o_short_data(dc_short_data),.o_short_hit(dc_short_hit),
+.o_short_data(dc_short_data),.o_short_hit(dc_short_hit),.o_short_live(dc_short_live),
 .o_dat                  (dc_data),
 .o_ack                  (data_ack),
 .o_writeback_busy       (dc_writeback_busy),

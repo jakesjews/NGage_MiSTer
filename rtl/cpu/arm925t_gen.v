@@ -291,6 +291,7 @@ module arm9v2_core (
 	i_data_wb_dat,
 	i_data_short_data,
 	i_data_short_hit,
+	i_data_short_live,
 	o_data_wb_dat,
 	o_data_wb_sel,
 	o_data_wb_adr_nxt,
@@ -413,6 +414,7 @@ module arm9v2_core (
 	input wire [31:0] i_data_wb_dat;
 	input wire [31:0] i_data_short_data;
 	input wire i_data_short_hit;
+	input wire i_data_short_live;
 	output wire [31:0] o_data_wb_dat;
 	output wire [3:0] o_data_wb_sel;
 	output wire [31:0] o_data_wb_adr_nxt;
@@ -1272,7 +1274,7 @@ module arm9v2_core (
 		.PREDICTOR(ARM9_PREDICTOR),
 		.EXTERNAL_RF(1)
 	) u_front_decode(
-		.i_w_load_hit((w[533] && i_data_short_hit) && !w_waited),
+		.i_w_load_hit((((w[533] && i_data_short_hit) && i_data_short_live) && !w_waited) && !fill_ended),
 		.o_pending(d_pending),
 		.o_writes(),
 		.o_early(d_early),
@@ -12420,6 +12422,7 @@ module zap_dcache (
 	i_ldfmt_check,
 	o_short_data,
 	o_short_hit,
+	o_short_live,
 	o_dat,
 	o_ack,
 	o_writeback_busy,
@@ -12507,6 +12510,7 @@ module zap_dcache (
 	input wire [5:0] i_ldfmt_check;
 	output wire [31:0] o_short_data;
 	output wire o_short_hit;
+	output wire o_short_live;
 	output wire [31:0] o_dat;
 	output wire o_ack;
 	output wire o_writeback_busy;
@@ -12904,6 +12908,7 @@ module zap_dcache (
 	assign o_fill_busy = fill_busy;
 	assign o_short_data = (SHORT_READ ? tr_cache_words[0+:32] : 32'd0);
 	assign o_short_hit = (SHORT_READ && tr_cache_hit) && tlb_hit_ok;
+	assign o_short_live = SHORT_READ && live_lookup;
 	localparam integer SET_W = $clog2((CACHE_SIZE / WAYS) / CACHE_LINE);
 	localparam integer LINE_W = $clog2(CACHE_LINE);
 	reg [SET_W - 1:0] lookup_s0;
@@ -26082,6 +26087,7 @@ module zap_top (
 	wire [31:0] ic_data;
 	wire [31:0] dc_short_data;
 	wire dc_short_hit;
+	wire dc_short_live;
 	wire cpu_instr_stb;
 	wire [1:0] dbg_fetch;
 	wire [3:0] dbg_icache;
@@ -26358,6 +26364,7 @@ module zap_top (
 				.o_data_wb_stb(cpu_dc_stb),
 				.i_data_short_data(dc_short_data),
 				.i_data_short_hit(dc_short_hit),
+				.i_data_short_live(dc_short_live),
 				.i_data_wb_dat((!ONLY_CORE ? dc_data : (BE_32_ENABLE ? be_32(i_wb_dat, o_wb_sel) : i_wb_dat))),
 				.i_data_wb_ack(data_ack),
 				.i_data_wb_err(data_err),
@@ -26447,6 +26454,7 @@ module zap_top (
 			assign dc_data = 1'sb0;
 			assign dc_short_data = 0;
 			assign dc_short_hit = 0;
+			assign dc_short_live = 0;
 			assign ic_data = 1'sb0;
 			assign c_wb_ack = 1'sb0;
 			assign c_wb_err = 1'sb0;
@@ -26601,6 +26609,7 @@ module zap_top (
 				.i_reg_idx_bin(dc_rreg_idx_bin),
 				.o_short_data(dc_short_data),
 				.o_short_hit(dc_short_hit),
+				.o_short_live(dc_short_live),
 				.o_dat(dc_data),
 				.o_ack(data_ack),
 				.o_writeback_busy(dc_writeback_busy),
