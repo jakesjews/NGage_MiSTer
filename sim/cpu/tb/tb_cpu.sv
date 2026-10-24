@@ -367,7 +367,11 @@ module tb_cpu #(
 			dc_victim_line <= {`DC.i_cache_tag[31-DLINE_W-DSET_W:0],
 			                   `DC.i_address[DLINE_W +: DSET_W]};
 		end
-		if (!reset && `DC.hum_slot_ff)
+		// Only a presented access consumes the registered match (the HUM ACK,
+		// live write and accepted-hit LRU update all need i_rd or i_wr). With
+		// no request, ZAP's early compare follows the next check address and
+		// may differ (seen in arm9_swi_lock_rtl's long deferred write-backs).
+		if (!reset && `DC.hum_slot_ff && (`DC.i_rd || `DC.i_wr))
 			assert (`DC.i_cache_hit_early == `DC.i_cache_hit)
 				else $fatal(1, "Registered HUM tag match differs from live lookup");
 		if (!reset && `DC.state_ff[7])
