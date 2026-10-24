@@ -156,7 +156,7 @@ logic                            tr_cache_hit, tr_cache_hit_dirty; // ARM925T
 logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] tr_cache_way, cf_cache_way; // ARM925T
 logic                            tr_cache_tag_dirty, cf_cache_tag_dirty;
 logic [CACHE_LINE*8-1:0] raw_cache_line, merged_line;
-logic [WAYS-1:0][31:0] raw_cache_words, merged_words;
+logic [WAYS-1:0][31:0] raw_cache_words;
 logic raw_cache_word_sel, raw_cache_tag_valid, raw_cache_hit, raw_cache_tag_dirty, raw_cache_hit_dirty;
 logic [`ZAP_CACHE_TAG_WDT-1:0] raw_cache_tag;
 logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] raw_cache_way;
@@ -405,26 +405,40 @@ assign forward_victim = forward_store &&
 // The RAM's collision register covers the E lookup sampled on this write
 // edge. This merge covers the older M1 lookup already outside the RAM.
 always_comb begin
-    merged_words = raw_cache_words;
     merged_line = raw_cache_line;
     for (int b=0; b<CACHE_LINE; b++) begin
         if (forward_victim && cf_cache_line_ben[b])
             merged_line[8*b +: 8] = cf_cache_line[8*b +: 8];
     end
-    for (int w=0; w<WAYS; w++) begin
-        for (int b=0; b<4; b++) begin
-            if (forward_store && cache_write_way == w &&
-                cf_cache_line_ben[4*compare_address[LINE_W-1:2]+b])
-                merged_words[w][8*b +: 8] = cf_cache_line[32*compare_address[LINE_W-1:2]+8*b +: 8];
-        end
-    end
 end
 `include "zap_load_format.svh"
 generate if (SHORT_READ) begin : g_short_response
-    logic [31:0] formatted;
-    assign formatted = raw_cache_word_sel ?
-        ld_transform(merged_words[(WAYS > 1) ? 1 : 0], i_ldfmt_check) :
-        ld_transform(merged_words[0], i_ldfmt_check);
+    logic [31:0] hit_word, store_word, formatted;
+    logic store_collision;
+    // ARM9: W already owns registered store data, byte enables and way.
+    // Build the possible word result independently of the FSM's full-line
+    // write enables. Permission/acceptance selects the finished result;
+    // it no longer traverses byte merge and load formatting in series.
+    assign hit_word = raw_cache_words[raw_cache_word_sel ? ((WAYS > 1) ? 1 : 0) : 0];
+    always_comb begin
+        store_word = hit_word;
+        for (int b=0; b<4; b++)
+            if (i_ben[b]) store_word[8*b +: 8] = i_dat[8*b +: 8];
+    end
+    assign store_collision = forward_store &&
+        compare_address[LINE_W-1:2] == i_address[LINE_W-1:2] &&
+        cache_write_way == ((WAYS > 1) ? raw_cache_word_sel : 1'b0);
+    assign formatted = store_collision ? ld_transform(store_word, i_ldfmt_check) :
+                                         ld_transform(hit_word, i_ldfmt_check);
+`ifndef SYNTHESIS
+    // A live lookup cannot own a fill/saved write. These assertions protect
+    // the factoring above if the FSM's ownership states change later.
+    always_ff @(posedge i_clk) if (!i_reset && forward_store && !hold && !i_stall) begin
+        assert (cf_cache_line == {(CACHE_LINE/4){i_dat}});
+        for (int b=0; b<4; b++)
+            assert (cf_cache_line_ben[4*i_address[LINE_W-1:2]+b] == i_ben[b]);
+    end
+`endif
     always_ff @(posedge i_clk) begin
         if (!hold && !i_stall) begin
             tr_cache_line <= merged_line;

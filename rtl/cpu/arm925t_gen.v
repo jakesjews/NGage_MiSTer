@@ -12127,7 +12127,6 @@ module zap_dcache (
 	wire [(CACHE_LINE * 8) - 1:0] raw_cache_line;
 	reg [(CACHE_LINE * 8) - 1:0] merged_line;
 	wire [(WAYS * 32) - 1:0] raw_cache_words;
-	reg [(WAYS * 32) - 1:0] merged_words;
 	wire raw_cache_word_sel;
 	wire raw_cache_tag_valid;
 	wire raw_cache_hit;
@@ -12360,23 +12359,12 @@ module zap_dcache (
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		merged_words = raw_cache_words;
 		merged_line = raw_cache_line;
 		begin : sv2v_autoblock_1
 			reg signed [31:0] b;
 			for (b = 0; b < CACHE_LINE; b = b + 1)
 				if (forward_victim && cf_cache_line_ben[b])
 					merged_line[8 * b+:8] = cf_cache_line[8 * b+:8];
-		end
-		begin : sv2v_autoblock_2
-			reg signed [31:0] w;
-			for (w = 0; w < WAYS; w = w + 1)
-				begin : sv2v_autoblock_3
-					reg signed [31:0] b;
-					for (b = 0; b < 4; b = b + 1)
-						if ((forward_store && (cache_write_way == w)) && cf_cache_line_ben[(4 * compare_address[LINE_W - 1:2]) + b])
-							merged_words[(w * 32) + (8 * b)+:8] = cf_cache_line[(32 * compare_address[LINE_W - 1:2]) + (8 * b)+:8];
-				end
 		end
 	end
 	function automatic [31:0] ld_transform;
@@ -12411,8 +12399,24 @@ module zap_dcache (
 	endfunction
 	generate
 		if (SHORT_READ) begin : g_short_response
+			wire [31:0] hit_word;
+			reg [31:0] store_word;
 			wire [31:0] formatted;
-			assign formatted = (raw_cache_word_sel ? ld_transform(merged_words[(WAYS > 1 ? 1 : 0) * 32+:32], i_ldfmt_check) : ld_transform(merged_words[0+:32], i_ldfmt_check));
+			wire store_collision;
+			assign hit_word = raw_cache_words[(raw_cache_word_sel ? (WAYS > 1 ? 1 : 0) : 0) * 32+:32];
+			always @(*) begin
+				if (_sv2v_0)
+					;
+				store_word = hit_word;
+				begin : sv2v_autoblock_2
+					reg signed [31:0] b;
+					for (b = 0; b < 4; b = b + 1)
+						if (i_ben[b])
+							store_word[8 * b+:8] = i_dat[8 * b+:8];
+				end
+			end
+			assign store_collision = (forward_store && (compare_address[LINE_W - 1:2] == i_address[LINE_W - 1:2])) && (cache_write_way == (WAYS > 1 ? raw_cache_word_sel : 1'b0));
+			assign formatted = (store_collision ? ld_transform(store_word, i_ldfmt_check) : ld_transform(hit_word, i_ldfmt_check));
 			always @(posedge i_clk)
 				if (!hold && !i_stall) begin
 					tr_cache_line <= merged_line;
@@ -12423,7 +12427,7 @@ module zap_dcache (
 					tr_cache_way <= raw_cache_way;
 					tr_cache_hit_dirty <= raw_cache_hit_dirty || ((forward_store && raw_cache_hit) && (raw_cache_way == cache_write_way));
 					tr_cache_word_sel <= 0;
-					begin : sv2v_autoblock_4
+					begin : sv2v_autoblock_3
 						reg signed [31:0] w;
 						for (w = 0; w < WAYS; w = w + 1)
 							tr_cache_words[w * 32+:32] <= formatted;
