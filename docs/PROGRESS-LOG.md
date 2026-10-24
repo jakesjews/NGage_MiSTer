@@ -4249,3 +4249,16 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   resume (nothing to uncomment for a timing build). A reference build
   of the stripped default, seed 2, went to the server as b26; its slack
   and fit follow in the next entry.
+- **b26, the stripped default at seed 2** (f2de5bf, the loader tree with
+  the flipped switch; the netlist is the one the nd-/ndm- sweeps built):
+  setup **-0.395 ns** (slow 100C; -0.345 at -40C), hold +0.249,
+  35,898 ALMs (86 %), 43,775 registers, 63 % of the block memory,
+  43 DSPs. The best stripped figure so far (seed 18 of c8f18ef -0.431,
+  seed 9 of 8194b05 -0.671, the core on the main slot), and seed luck
+  like the others: the worst path is the D-cache FSM's write-back
+  register index (zap_dcache_fsm o_reg_idx) into the shifter's
+  registered source value, the fill-forwarding family the closure round
+  owns. The rbf is build/hardware/NGage-b26.rbf; the main slot keeps
+  seed 9 until a smoke test says otherwise. Timing stays paused per the
+  user's rule; the number is the reference the CPU work is measured
+  against ("don't let the timing become drastically worse").
