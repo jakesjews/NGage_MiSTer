@@ -272,3 +272,121 @@ file.
 The hardware trace of the fixed source should separate candidate 1
 (wrong word on a store-to-load pair in the save/resume code) from
 candidate 3 (a wrong instruction word on the refetch).
+
+## Follow-up 2: candidates 1-3 as directed tests (`34ccaaf`)
+
+None of the three fails. Each test passes on V2 (both predictor modes)
+and on ZAP, at 0:0/0:3/2:9, D8 and D16. Expected values are computed in
+the tests, independently of either core. The full suites run 303/303 per
+configuration, and the 294 earlier runs are cycle-identical. There is no
+RTL change.
+
+### Candidate 1: `arm9_store_reload_rtl.S`, store then reload
+
+- **Stores:** str, strh, strb, stmia of three words.
+- **Reloads:** the same word, another word of the line, another width;
+  0, 1, 2, 4 or 6 instructions after the store.
+- **Line states:**
+  - present, or present and dirty;
+  - absent: the store allocates and is merged byte-wise into its own
+    fill buffer (`zap_dcache_fsm.sv:467`);
+  - departing under a store miss;
+  - dirty and departing under a load miss, so its write-back is deferred
+    behind the fill (`CLEAN_SINGLE` after `UNLOCK_REG`);
+  - being filled by a load miss;
+  - write-through (the store completes on the bus and updates the line
+    at `UNC_DONE`).
+- **Modes:** SVC, USR, and a store in SVC with the reload in UND after a
+  mode-change flush.
+- **Kernel case:** the context save/resume copied literally, in UND, for
+  a USR and a SYS thread. It does `stm ^`, stores the PC and SPSR words,
+  reloads them into `msr spsr_fc`, then `ldm{ne} {..pc}^` or `ldm ^` plus
+  `ldr lr,[lr,#0x3c]; movs pc,lr` into `bx lr`. The save area's lines are
+  present, dirty, absent or departing.
+
+1,688 cases, each cold and warm, at the bench latency and at 24. Every
+reload value, final PC, mode and restored register is correct. The
+same-set store/lookup collision window is covered by the gap-0..2 hits.
+Only 0-12 unaccepted short hits occur: W is in order, so a reload can't
+reach W before its store has been handled.
+
+### Candidate 2: `arm9_install_edge_rtl.S`, readers around installation
+
+- **First access:** a load or an allocating store misses word c (0-3).
+  The fill returns that word first and wraps (linear for c = 0).
+- **Then:** after 0-6 instructions, a load of word k, read at once by an
+  ALU operand (A) and a shifted operand (S), and a third load summed
+  with it.
+- **Set:** empty, or both ways dirty (deferred victim drain).
+
+448 cases, at the bench latency and at fixed 8 and 24.
+
+What the probe saw at each of the 2,688 installations per run:
+- W held the second load on the line: 2,420-2,670.
+- A held its pending reader: 2,260-2,452.
+- S held the pending shifted reader: 2,274-2,562.
+- The new line took background hits during the drain: 2,480-2,688.
+
+Measured from the install edge (the `UNLOCK_REG` clock), the second load
+completed at:
+
+| Latency | Completion clock: count |
+|---|---|
+| 0:0 | +3: 32, +4: 302, +5: 426, +6: 346, +7: 994, +8: 570 |
+| 0:3 | +4: 282, +5: 409, +6: 308, +7: 1011, +8: 660 |
+| 2:9 | +4: 287, +5: 380, +6: 331, +7: 1009, +8: 663 |
+
+A few cases at each latency complete later. None completes before +3:
+the FSM admits the installed line only three edges after `UNLOCK_REG`
+(`install_delay_ff`, `fill_visible_ff`), and a held access is
+re-looked-up. A half-installed line is therefore never readable in this
+design; all values were correct.
+
+### Candidate 3: `arm9_fetch_redirect_rtl.S`, fetch queue across a redirect
+
+The bench runs this test with `--icache-quarantine`, which makes every
+I-fill provisional.
+
+- **Entry:** after invalidating the I-cache, each case enters a cold
+  line at word e (each critical word).
+- **Redirect:** taken from that word, or after one plain instruction: b,
+  beq, bx, mov pc, ldr pc, or svc.
+- **Target:** a cold line two lines on, or far away, so that a second
+  fill follows.
+- **Poison:** every other word of both lines.
+
+120 cases, untrained and trained BTB, at three latencies. Per run:
+19,856-20,150 provisional pushes, 173-221 redirects that discarded
+pending entries, about 9,900 fill completions. No poison retired and no
+target word was wrong. The test passes with guaranteed fills too.
+
+By the RTL, the hazard can't occur:
+- During `FETCH_SINGLE` only the filling line's arrived words acknowledge
+  (`fill_ready_ff`), so a pending entry always belongs to the current
+  fill.
+- Its `fill_done` (`FILL_COMPLETE`) precedes any next fill.
+- A redirect clears the queue and bumps the epoch.
+- A pending entry's word has already arrived; "pending" only defers a
+  late bus error. An early release could at worst lose a prefetch abort,
+  never deliver a wrong instruction word.
+
+### Where that leaves the second death
+
+The directed sweeps now cover, without a failure:
+- the first loads after every flush kind;
+- the WAW, RAW, banked and dispatch shapes;
+- store-to-reload in every cache state, including the kernel's
+  context-switch code;
+- readers around line installation;
+- the fetch queue across redirects.
+
+The remaining explanations are outside these single-CPU, single-master
+shapes. In order of likelihood:
+1. An interaction with the other bus masters (DMA, LCD, the MMC host)
+   and with the board's real latencies and early-ACK behaviour, which
+   the bench's RAM does not model: `bus_no_late_error`, the merger's
+   arbitration, ROM wait states.
+2. Timing at 78 MHz on the trace build's specific paths.
+3. A V2 path not yet shaped, such as Thumb, multiply, SWP or CP15.
+
+The trace of the fixed source is the next evidence.
