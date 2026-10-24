@@ -136,6 +136,7 @@ module zap_cp15_cb
 
         // Cache clean signal.
         output logic                              o_dcache_clean,
+        output logic                              o_dcache_drain,
         output logic                              o_icache_clean,
 
         // TLB invalidate signal - single cycle.
@@ -416,6 +417,7 @@ begin
                 o_dcache_inv   <= 1'd0;
                 o_icache_inv   <= 1'd0;
                 o_dcache_clean <= 1'd0;
+                o_dcache_drain <= 1'd0;
                 o_icache_clean <= 1'd0;
                 o_dtlb_inv     <= 1'd0;
                 o_itlb_inv     <= 1'd0;
@@ -471,6 +473,7 @@ begin
                 o_icache_inv    <= 1'd0;
                 o_icache_clean  <= 1'd0;
                 o_dcache_clean  <= 1'd0;
+                o_dcache_drain <= 1'd0;
                 o_reg_en        <= 1'd0;
                 o_cp_done       <= 1'd0;
 
@@ -697,6 +700,7 @@ begin
                                 7'b100_1010: // c7,c10,4: drain the saved dirty victim.
                                 begin
                                         // No added cycle when the buffer is empty.
+                                        o_dcache_drain <= i_dcache_writeback_busy;
                                         state <= i_dcache_writeback_busy ? ACTIVE : DONE;
                                 end
 

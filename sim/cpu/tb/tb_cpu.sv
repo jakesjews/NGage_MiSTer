@@ -49,6 +49,7 @@ module tb_cpu #(
 	output logic [63:0]   p_lock,      // registers waiting for a background load
 	output logic [7:0]    p_stall,     // same overlapping level counters as hardware
 	output logic [7:0]    p_icache,    // fetch, fill, arbitration and TLB taps
+	output logic [9:0]    p_victim,    // merger-buffer overlap/ordering observations
 	output logic [3:0]    p_dcache,    // registered D-cache events exported by arm925t
 	// data side, for the bus log: request to the D-cache, its virtual
 	// address, alignment fault
@@ -235,6 +236,7 @@ module tb_cpu #(
 				else $fatal(1, "Hit under miss wrote the background address");
 		end
 	end
+	`define VM dut.u_zap.l_merger_for_core_with_cache_mmu.u_zap_wb_merger
 	// Independent eviction scoreboard: capture the victim at acceptance,
 	// check every drained word, and check fill-before-drain except for a
 	// same-physical-line synonym. No DUT eligibility bit qualifies checks.
@@ -248,7 +250,7 @@ module tb_cpu #(
 			dc_defer_expected <= 1'b0;
 			dc_wb_beat <= 0;
 		end else begin
-			if (p_dc_events[0]) begin
+			if (p_dc_events[0] && p_dc_events[2]) begin
 				assert (!dc_dirty_pending)
 					else $fatal(1, "Second miss overwrote the pending victim");
 				dc_dirty_pending <= p_dc_events[2];
@@ -258,14 +260,20 @@ module tb_cpu #(
 				dc_defer_expected <= `DC.i_phy_addr[31:DLINE_W] !=
 					`DC.i_cache_tag[$bits(`DC.i_cache_tag)-1 -: 32-DLINE_W];
 			end
-			if (`DC.state_ff[3] && `DC.take) begin
-				assert (dc_dirty_pending && dc_installed == dc_defer_expected)
+			if (`DC.o_victim_valid) begin
+				assert (dc_dirty_pending && dc_defer_expected && !`VM.o_victim_busy &&
+				        `DC.o_victim_line == dc_saved_line &&
+				        `DC.o_victim_addr == {dc_saved_pa, {DLINE_W{1'b0}}})
+					else $fatal(1, "Victim handoff lost ownership, address or bytes");
+			end
+			if ((`DC.state_ff[3] && `DC.take) || `VM.victim_take) begin
+				assert (dc_dirty_pending && (`VM.victim_take == dc_defer_expected))
 					else $fatal(1, "Dirty eviction used the wrong fill/writeback order");
-				assert (`DC.o_wb_adr_ff == {dc_saved_pa, {DLINE_W{1'b0}}} + 32'(dc_wb_beat*4) &&
-				        `DC.o_wb_dat_ff == dc_saved_line[dc_wb_beat*32 +: 32] && `DC.o_wb_sel_ff == 4'hf)
+				assert (bus_addr == {dc_saved_pa, {DLINE_W{1'b0}}} + 32'(dc_wb_beat*4) &&
+				        bus_wdata == dc_saved_line[dc_wb_beat*32 +: 32] && bus_be == 4'hf)
 					else $fatal(1, "Deferred write-back lost the saved victim address or bytes");
 				dc_wb_beat <= dc_wb_beat + 1;
-				if (p_dc_events[5]) begin
+				if (!bus_burst) begin
 					assert (dc_wb_beat == CACHE_LINE/4-1)
 						else $fatal(1, "Incomplete victim write-back");
 					dc_dirty_pending <= 1'b0;
@@ -283,20 +291,52 @@ module tb_cpu #(
 				else $fatal(1, "CP15 drain completed before the victim write-back");
 	`undef CP
 	assign p_dc_events = {
-		`DC.o_wb_cti_ff == 3'b111,
-		`DC.state_ff[3] && `DC.take,
+		!bus_burst,
+		(`DC.state_ff[3] && `DC.take) || `VM.victim_take,
 		`DC.state_ff[4] && `DC.take,
 		`DC.i_cache_tag_valid && `DC.i_cache_tag_dirty,
 		`DC.wr,
 		`DC.o_idle && (`DC.i_rd || `DC.i_wr) && !`DC.i_align_fault &&
 		!`DC.i_fault && !`DC.i_busy && `DC.i_cache_en && `DC.i_cacheable &&
-		!(`DC.i_wr && `DC.i_wt) && !`DC.i_cache_hit
+		!(`DC.i_wr && `DC.i_wt) && !`DC.i_cache_hit && `DC.o_ack
 	};
 	// A cacheable store miss already completes at acceptance on master.
 	always_ff @(posedge clk)
 		if (!reset && p_dc_events[0] && `DC.i_wr)
 			assert (`DC.o_ack && !`DC.o_hold && !`DC.o_err && !`DC.o_err2)
 				else $fatal(1, "Write-back store miss did not complete at acceptance");
+	// Check the physical ordering contract at the common bus, independently
+	// of the registered conflict flags which implement it.
+	integer victim_fence_wait;
+	always_ff @(posedge clk) begin
+		if (reset || !`VM.o_victim_busy || !`VM.i_victim_drain)
+			victim_fence_wait <= 0;
+		else begin
+			victim_fence_wait <= victim_fence_wait + 1;
+			assert (victim_fence_wait < 4096)
+				else $fatal(1, "Required victim drain starved");
+		end
+		if (!reset && `VM.o_victim_busy && (`VM.o_c_wb_ack || `VM.o_d_wb_ack))
+			assert (bus_addr[31:DLINE_W] != `VM.victim_pa_ff)
+				else $fatal(1, "Physical alias overtook pending victim");
+	end
+	assign p_victim = {
+		dut.u_zap.cpu_dc_drain && `VM.o_victim_busy,
+		(`DC.i_cache_inv || `DC.i_cache_clean || `DC.i_line_req) && `VM.o_victim_busy,
+		`DC.o_idle && `VM.o_victim_busy && (`DC.i_rd || `DC.i_wr) &&
+		    (!`DC.i_cache_en || !`DC.i_cacheable || (`DC.i_wr && `DC.i_wt)),
+		`DC.o_idle && `VM.o_victim_busy && (`DC.i_rd || `DC.i_wr) &&
+		    `DC.i_cache_en && `DC.i_cacheable && !`DC.i_cache_hit &&
+		    `DC.i_cache_tag_valid && `DC.i_cache_tag_dirty,
+		`VM.o_victim_busy && `VM.i_d_wb_stb && `VM.d_checked_ff && `VM.d_conflict_ff,
+		`VM.o_victim_busy && `VM.o_c_wb_ack,
+		`VM.o_victim_busy && `VM.o_d_wb_ack,
+		`DC.o_victim_valid,
+		`VM.o_victim_busy && `DC.o_idle && `DC.i_cache_hit &&
+		    `DC.i_cache_en && `DC.i_cacheable && !(`DC.i_wr && `DC.i_wt),
+		`VM.o_victim_busy
+	};
+	`undef VM
 	`undef DC
 	`undef DT
 	`undef TC

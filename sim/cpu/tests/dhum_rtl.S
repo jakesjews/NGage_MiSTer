@@ -3,7 +3,8 @@
 @ A/B/C share a set (B is the dirty victim); D/E share another set, in
 @ opposite ways. Every case runs twice to warm its instruction lines.
 @ The bench's watched-line counters count actual CPU acknowledgements in
-@ CLEAN_SINGLE/FETCH_SINGLE/UNLOCK_WR, independently of HUM eligibility.
+@ CLEAN_SINGLE/FETCH_SINGLE/UNLOCK_WR or an IDLE cache hit while the merger
+@ owns a victim, independently of HUM eligibility.
 @ The installed filling line can hit during the deferred victim drain.
 @@ qemu: no
 	.include "test.inc"

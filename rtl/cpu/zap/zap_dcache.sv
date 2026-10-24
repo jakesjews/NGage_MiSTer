@@ -66,6 +66,11 @@ input   logic [5:0]      i_ldfmt,        // ARM925T: load format (see zap_core).
 output logic  [31:0]     o_dat,
 output  logic            o_ack,
 output  logic            o_writeback_busy, // ARM925T: CP15 drain fence
+input   logic            i_victim_busy,
+output  logic            o_victim_valid,
+output  logic [CACHE_LINE*8-1:0] o_victim_line,
+output  logic [31:0]     o_victim_addr,
+output  logic            o_victim_drain,
 output  logic            o_err,
 output  logic [7:0]      o_fsr,
 output  logic [31:0]     o_far,
@@ -122,6 +127,8 @@ localparam [2:0] SELECT_CCH = 3'b001;
 localparam [2:0] SELECT_TAG = 3'b010;
 localparam [2:0] SELECT_TLB = 3'b100;
 
+logic cache_writeback_busy;
+assign o_writeback_busy = cache_writeback_busy || i_victim_busy;
 logic [2:0]                      wb_stb;
 logic [2:0]                      wb_cyc;
 logic [2:0]                      wb_wen;
@@ -221,7 +228,12 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .o_live_lookup          (live_lookup),
         .o_relookup             (relookup),
         .o_fill_busy            (fill_busy),
-        .o_writeback_busy       (o_writeback_busy),
+        .o_writeback_busy       (cache_writeback_busy),
+        .i_victim_busy          (i_victim_busy),
+        .o_victim_valid         (o_victim_valid),
+        .o_victim_line          (o_victim_line),
+        .o_victim_addr          (o_victim_addr),
+        .o_victim_drain         (o_victim_drain),
         .i_ben                  (i_ben),
         .o_dat                  (o_dat),
         .o_ack                  (o_ack),

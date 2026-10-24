@@ -260,6 +260,7 @@ int main(int argc, char **argv) {
 	uint64_t icache_events[8] = {};
 	uint32_t store_fill_retired = 0;
 	uint64_t dirty_fill_first = 0, dirty_write_first = 0;
+	uint64_t victim_events[8] = {};
 	bool dirty_first_pending = false;
 	int64_t irq_timer = -1, fiq_timer = -1;
 	bool stop = false;
@@ -330,7 +331,7 @@ int main(int argc, char **argv) {
 		// ---- before the rising edge: sample what commits at this edge ----
 		// Observe the external request/acknowledge, not the implementation's
 		// eligibility bit. Negative tests can prove an access was withheld.
-		if ((t->p_dc_state & ((1u << 3) | (1u << 4) | (1u << 10))) &&
+		if (((t->p_dc_state & ((1u << 3) | (1u << 4) | (1u << 10))) || (t->p_victim & 2)) &&
 		    (t->p_dc_flags & 4) && (t->p_dc_flags & 3)) {
 			bool store = t->p_dc_flags & 2;
 			hum_total_loads += !store;
@@ -348,6 +349,7 @@ int main(int argc, char **argv) {
 			dirty_write_first += (t->p_dc_events & 16) != 0;
 			dirty_first_pending = false;
 		}
+		for (int b = 0; b < 8; b++) victim_events[b] += (t->p_victim >> (b+2)) & 1;
 		for (int b = 0; b < 6; b++) stall_clocks[b] += (t->p_stall >> b) & 1;
 		for (int b = 0; b < 4; b++) dcache_events[b] += (t->p_dcache >> b) & 1;
 		for (int b = 0; b < 8; b++) icache_events[b] += (t->p_icache >> b) & 1;
@@ -622,6 +624,11 @@ int main(int argc, char **argv) {
 		       icache_events[0], icache_events[1], icache_events[2], icache_events[3],
 		       icache_events[4], icache_events[5], icache_events[6], icache_events[7]);
 		printf("Background writes: %" PRIu64 ", during fill: %" PRIu64 "\n", dc_writes, dc_early_writes);
+		printf("Victim buffer: handoffs=%" PRIu64 " d_beats=%" PRIu64 " i_beats=%" PRIu64
+		       " conflict=%" PRIu64 " full=%" PRIu64 " uncached=%" PRIu64
+		       " maintenance=%" PRIu64 " drain=%" PRIu64 "\n",
+		       victim_events[0], victim_events[1], victim_events[2], victim_events[3],
+		       victim_events[4], victim_events[5], victim_events[6], victim_events[7]);
 		printf("D-cache overlap: store_fill_retired=%u dirty_fill_first=%" PRIu64
 		       " dirty_write_first=%" PRIu64 "\n", store_fill_retired, dirty_fill_first, dirty_write_first);
 		printf("PASS (%" PRIu64 " cycles, %" PRIu64 " instructions)\n", cycle, retired);

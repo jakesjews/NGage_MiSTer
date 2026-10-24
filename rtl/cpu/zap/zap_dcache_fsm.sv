@@ -16,6 +16,17 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 // 02110-1301, USA.
 //
+// ARM925T ordering contract: a distinct-PA dirty victim is saved at miss
+// acceptance and handed atomically to the merger on the installation edge.
+// The merger owns it until all write beats complete; invalidation never
+// cancels it. Only one dirty eviction may be outstanding. Clean misses and
+// hits may proceed after lookup repair; a physical-line conflict drains in
+// the merger before its read. Uncached/WT accesses and all cache maintenance
+// wait for the buffer, preserving device/DMA publication ordering. Explicit
+// CP15 drain observes both ownership domains. Same-PA VIVT replacements keep
+// CLEAN_SINGLE before FETCH_SINGLE, so a fill cannot read stale dirty bytes.
+// Cacheable bus errors retain the existing completion/no-late-abort contract.
+//
 // This is the core state machine for the memory subsystem. Talks to both
 // processor and the TLB controller. Cache uploads and downloads are done
 // using an incrementing burst on the Wishbone bus for maximum efficiency
@@ -135,6 +146,14 @@ output  logic                      o_hold,
 // observes this register; normal ACK/lookup logic does not consume it.
 (* dont_retime *) output logic      o_writeback_busy,
 
+// Immutable victim handoff. Admission reserves an empty merger buffer;
+// o_victim_valid is a one-cycle installation pulse, accepted when !busy.
+input logic                       i_victim_busy,
+output logic                      o_victim_valid,
+output logic [CACHE_LINE*8-1:0]   o_victim_line,
+output logic [31:0]               o_victim_addr,
+output logic                      o_victim_drain,
+
 // Bus access ports, both NXT and FF.
 output  logic             o_wb_cyc_ff, o_wb_cyc_nxt,
 output  logic             o_wb_stb_ff, o_wb_stb_nxt,
@@ -183,7 +202,6 @@ localparam [31:0] ADR_PAD_MINUS_2      =  ADR_PAD - 32'd2;
 // ----------------------------------------------------------------------------
 
 logic                                     cache_dirty;
-logic                                     defer_writeback;
 logic                                     victim_alias;
 
 // ARM925T: keep the one-hot control boundary. Retiming these bits through
@@ -304,19 +322,28 @@ assign cache_dirty = i_cache_tag_dirty;
 // A VIVT synonym that replaces the same physical line must read the dirty
 // bytes after cleaning them. Retain the old order in that exceptional case.
 assign victim_alias = i_phy_addr[31:$clog2(CACHE_LINE)] == i_cache_tag[`ZAP_CACHE_TAG__PA];
-always_ff @(posedge i_clk)
-        if (state_ff[IDLE]) defer_writeback <= !victim_alias;
 
-// cache_line/cache_tag already form a complete write-back buffer captured
-// on acceptance. Keep ownership until the final write beat; later misses,
-// uncached requests, TLB walks and maintenance cannot enter before IDLE.
+// Cache ownership ends at handoff, or at the final beat for a same-PA
+// clean-before-fill. The wrapper ORs this with merger ownership for CP15.
 always_ff @(posedge i_clk)
         if (i_reset) o_writeback_busy <= 1'b0;
         else if (state_ff[IDLE])
                 o_writeback_busy <= (state_nxt[FETCH_SINGLE] || state_nxt[CLEAN_SINGLE]) &&
                                     i_cache_tag_valid && cache_dirty;
-        else if (state_ff[CLEAN_SINGLE] && take && o_wb_cti_ff == CTI_EOB)
+        else if (o_victim_valid || (state_ff[CLEAN_SINGLE] && take && o_wb_cti_ff == CTI_EOB))
                 o_writeback_busy <= 1'b0;
+
+assign o_victim_valid = state_ff[UNLOCK_REG] && o_writeback_busy;
+assign o_victim_line = cache_line;
+assign o_victim_addr = {cache_tag[`ZAP_CACHE_TAG__PA], {$clog2(CACHE_LINE){1'b0}}};
+// Force a bounded drain when a blocked operation needs the buffer empty.
+// This does not enter the hit acknowledge or bus-address data cones.
+always_ff @(posedge i_clk)
+        if (i_reset) o_victim_drain <= 1'b0;
+        else o_victim_drain <= i_victim_busy && state_ff[IDLE] &&
+            (i_cache_inv || i_cache_clean || i_line_req ||
+             ((i_rd || i_wr) && (!i_cache_en || !i_cacheable ||
+               (i_wr && i_wt) || (!i_cache_hit && i_cache_tag_valid && cache_dirty))));
 
 // Buffers
 always_ff @ ( posedge i_clk )
@@ -481,20 +508,7 @@ end
 localparam integer LINE_W = $clog2(CACHE_LINE);
 localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
 logic line_safe_ff, line_safe_nxt;
-logic victim_safe_ff, victim_safe_nxt;
-logic [1:0] install_delay_ff;
-logic fill_visible_ff;
-// The registered early tag match does not bypass the current RAM write.
-// Wait three edges after installation before admitting the new line;
-// the existing lookup repair independently handles a held CPU slot.
-always_ff @(posedge i_clk)
-        if (i_reset || state_ff[IDLE]) begin
-                install_delay_ff <= 2'b0;
-                fill_visible_ff <= 1'b0;
-        end else begin
-                install_delay_ff <= {install_delay_ff[0], state_ff[UNLOCK_REG]};
-                fill_visible_ff <= fill_visible_ff || install_delay_ff[1];
-        end
+logic victim_safe_nxt;
 logic lookup_ready_ff, lookup_ready_nxt;
 logic [2:0] repair_ff, repair_nxt;
 (* dont_retime *) logic hum_slot_ff;
@@ -503,7 +517,7 @@ assign cpu_wait = (i_rd || i_wr) && !o_ack;
 
 always_comb begin
         line_safe_nxt = line_safe_ff;
-        victim_safe_nxt = victim_safe_ff;
+        victim_safe_nxt = 1'b0;
         if (!cpu_wait) begin
                 if (o_idle) begin
                         victim_safe_nxt = !i_cache_tag_valid ||
@@ -542,7 +556,6 @@ end
 always_ff @(posedge i_clk)
         if (i_reset) begin
                 line_safe_ff <= 1'b0;
-                victim_safe_ff <= 1'b0;
                 lookup_ready_ff <= 1'b1;
                 repair_ff <= 3'b0;
                 hum_slot_ff <= 1'b0;
@@ -550,7 +563,6 @@ always_ff @(posedge i_clk)
                 o_relookup <= 3'b0;
         end else begin
                 line_safe_ff <= line_safe_nxt;
-                victim_safe_ff <= victim_safe_nxt;
                 lookup_ready_ff <= lookup_ready_nxt;
                 repair_ff <= repair_nxt;
                 hum_slot_ff <= hum_slot_nxt;
@@ -561,8 +573,7 @@ always_ff @(posedge i_clk)
 
 assign hum_slot_nxt = (state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE] ||
                        state_nxt[UNLOCK_WR]) && lookup_ready_nxt &&
-                      (line_safe_nxt || (state_nxt[CLEAN_SINGLE] &&
-                       fill_visible_ff && victim_safe_nxt));
+                      line_safe_nxt;
 // ARM925T: ACK combines registered predicates, independently of the bus
 // FSM's priority decode. In particular the live tag compare cannot feed
 // the high-fanout CPU stall through background-hit qualification.
@@ -627,9 +638,8 @@ end
 // enter with STB low, an invariant of the FSM. Decode requests in parallel
 // so maintenance/relookup state bits do not reach the merger's next owner.
 assign o_wb_stb_nxt =
-        (state_ff[IDLE] && (i_rd || i_wr) && !i_align_fault && !i_fault && !i_busy && !i_cache_en) ||
+        (state_ff[IDLE] && (i_rd || i_wr) && !i_align_fault && !i_fault && !i_busy && !i_cache_en && !i_victim_busy) ||
         state_ff[UNCACHEABLE_PREPARE] ||
-        (state_ff[UNLOCK_REG] && o_writeback_busy) ||
         (state_ff[UNCACHEABLE] && o_wb_stb_ff && !(i_wb_ack || i_wb_err)) ||
         ((state_ff[CLEAN_SINGLE] || state_ff[FETCH_SINGLE]) && (take ? beat_inc_ok : beat_cur_ok));
 assign o_wb_cyc_nxt = o_wb_stb_nxt;
@@ -719,17 +729,17 @@ begin:next_state_logic
                         //
                         idle_ack = 1'd1;
 
-                        if ( i_cache_inv )
+                        if ( i_cache_inv && !i_victim_busy )
                         begin
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[INVALIDATE] = 1'd1;
                         end
-                        else if ( i_cache_clean )
+                        else if ( i_cache_clean && !i_victim_busy )
                         begin
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[CLEAN] = 1'd1;
                         end
-                        else if ( i_line_req )
+                        else if ( i_line_req && !i_victim_busy )
                         begin
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[LINEOP] = 1'd1;
@@ -760,7 +770,13 @@ begin:next_state_logic
                 end
                 else if ( i_rd || i_wr )
                 begin
-                        if ( !i_cache_en )
+                        if ( i_victim_busy && (!i_cache_en || !i_cacheable || (i_wr && i_wt)) )
+                        begin
+                                // Device/WT ordering is a publication fence.
+                                o_hold = 1'b1;
+                                idle_ack = 1'b0;
+                        end
+                        else if ( !i_cache_en )
                         begin
                                 o_hold          = 1'd1;
 
@@ -829,7 +845,11 @@ begin:next_state_logic
                                 end
 
                                 2'b01: // Unrelated tag, possibly dirty.
-                                begin
+                                if (i_victim_busy && cache_dirty) begin
+                                        // Reserve the single buffer before accepting a dirty miss.
+                                        o_hold = 1'b1;
+                                        idle_ack = 1'b0;
+                                end else begin
                                         // Acknowledge current entry. Lock the register.
                                         idle_ack               = 1'd1;
 
@@ -980,13 +1000,8 @@ begin:next_state_logic
                         adr_ctr_nxt = 0;
 
                         state_nxt[CLEAN_SINGLE] = 1'd0;
-                        if (defer_writeback) begin
-                                // The new line is already installed. Preserve
-                                // aligned lookups when a hit advances the CPU.
-                                state_nxt[RELOOKUP0] = (i_rd || i_wr) && !o_ack;
-                                state_nxt[IDLE] = !(i_rd || i_wr) || o_ack;
-                        end else
-                                state_nxt[FETCH_SINGLE] = 1'd1;
+                        // Only same-PA clean-before-fill uses this state now.
+                        state_nxt[FETCH_SINGLE] = 1'd1;
 
                 end
         end
@@ -1026,24 +1041,11 @@ begin:next_state_logic
 
                 // Back to IDLE (ARM925T: through UNLOCK_WR for a load)
                 state_nxt[UNLOCK_REG] = 1'd0;
-                if (o_writeback_busy) begin
-                        // Fill first, then drain the immutable saved victim.
-                        // No cache read or write port is needed by the drain.
-                        adr_ctr_nxt = 0;
-                        state_nxt[CLEAN_SINGLE] = 1'b1;
-                        // Launch beat zero on the installation edge. The
-                        // line and PA come from the saved victim registers;
-                        // there is no RAM port collision or extra bus bubble.
-                        o_wb_wen_nxt = 1'b1;
-                        o_wb_dat_nxt = cache_line[31:0];
-                        o_wb_adr_nxt = {cache_tag[`ZAP_CACHE_TAG__PA], {$clog2(CACHE_LINE){1'b0}}};
-                        o_wb_sel_nxt = 4'b1111;
-                        o_wb_cti_nxt = CTI_BURST;
-                end else begin
-                        state_nxt[UNLOCK_WR]  = !wr;
-                        state_nxt[RELOOKUP0]  = wr && (i_rd || i_wr);
-                        state_nxt[IDLE]       = wr && !(i_rd || i_wr);
-                end
+                // Ownership transfers to the merger on this installation
+                // edge. Its drain no longer occupies the cache FSM.
+                state_nxt[UNLOCK_WR]  = !wr;
+                state_nxt[RELOOKUP0]  = wr && (i_rd || i_wr);
+                state_nxt[IDLE]       = wr && !(i_rd || i_wr);
         end
 
         state_ff[UNLOCK_WR]: // ARM925T: finish the load fill, without a second write.

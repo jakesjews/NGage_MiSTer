@@ -300,6 +300,11 @@ logic                o_trace_uop_last;
 
 `endif
 
+wire dc_victim_busy, dc_victim_valid, dc_victim_drain, dc_victim_done;
+wire cpu_dc_drain;
+wire [DATA_CACHE_LINE*8-1:0] dc_victim_line;
+wire [31:0] dc_victim_addr;
+wire [3:0] dc_dbg_events;
 wire dc_writeback_busy; // ARM925T: registered eviction ownership
 
 zap_core #(
@@ -408,6 +413,7 @@ zap_core #(
 .o_dcache_inv           (cpu_dc_inv),
 .o_icache_inv           (cpu_ic_inv),
 .o_dcache_clean         (cpu_dc_clean),
+.o_dcache_drain         (cpu_dc_drain),
 .o_icache_clean         (cpu_ic_clean),
 .o_dtlb_inv             (cpu_dtlb_inv),
 .o_itlb_inv             (cpu_itlb_inv),
@@ -568,11 +574,17 @@ end : l_tieoffs_only_core
 if ( !ONLY_CORE )
 begin : l_merger_for_core_with_cache_mmu
 
-        zap_wb_merger #(.ONLY_CORE(1'd0)) u_zap_wb_merger (
+        zap_wb_merger #(.ONLY_CORE(1'd0), .CACHE_LINE(DATA_CACHE_LINE)) u_zap_wb_merger (
 
         .i_clk(i_clk),
         .i_reset(s_reset),
 
+        .i_victim_valid(dc_victim_valid),
+        .i_victim_line(dc_victim_line),
+        .i_victim_addr(dc_victim_addr),
+        .i_victim_drain(dc_victim_drain || cpu_dc_drain),
+        .o_victim_busy(dc_victim_busy),
+        .o_victim_done(dc_victim_done),
         .i_c_wb_stb(c_wb_stb ),
         .i_c_wb_cyc(c_wb_cyc ),
         .i_c_wb_wen(c_wb_wen ),
@@ -616,6 +628,12 @@ begin : l_merger_for_core_without_cache_mmu
         .i_clk(i_clk),
         .i_reset(s_reset),
 
+        .i_victim_valid(1'b0),
+        .i_victim_line(64'b0),
+        .i_victim_addr(32'b0),
+        .i_victim_drain(1'b0),
+        .o_victim_busy(),
+        .o_victim_done(),
         .i_c_wb_stb(cpu_instr_stb),
         .i_c_wb_cyc(cpu_instr_stb),
         .i_c_wb_wen(1'h0),
@@ -663,6 +681,7 @@ end : l_merger_for_core_without_cache_mmu
 
 if ( !ONLY_CORE )
 begin: l_generate_with_cache_mmu
+assign o_dbg_dcache = dc_dbg_events | {1'b0, dc_victim_done, 2'b0};
 
 zap_dcache #(
         .CACHE_SIZE(DATA_CACHE_SIZE),
@@ -676,7 +695,12 @@ zap_dcache #(
         .EXT_ABORT_FS(TI925T ? 4'b1000 : 4'b0010)
 )
 u_data_cache (
-.o_dbg_dcache           (o_dbg_dcache),
+.i_victim_busy          (dc_victim_busy),
+.o_victim_valid         (dc_victim_valid),
+.o_victim_line          (dc_victim_line),
+.o_victim_addr          (dc_victim_addr),
+.o_victim_drain         (dc_victim_drain),
+.o_dbg_dcache           (dc_dbg_events),
 .o_dbg_tlb              (dbg_dtlb),
 .i_clk                  (i_clk),
 .i_stall                (1'd0), // For timing.

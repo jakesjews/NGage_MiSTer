@@ -18,7 +18,7 @@ VFLAGS := --cc --exe --build -j 4 -O3 --x-assign unique --x-initial unique \
           -CFLAGS "-O2 -std=c++17 -I$(ROOT)/sim/harness"
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
-BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash trace upp intc timers haudio periph save phoenix top
+BENCHES := lcd video keypad flash mmc merger sdram sdram-faults ddrflash trace upp intc timers haudio periph save phoenix top
 
 .PHONY: test $(BENCHES) coreboot clean
 
@@ -242,3 +242,12 @@ phoenix: $(BUILD)/phoenix/Vphoenix_load | $(OUT)
 	cd $(ROOT) && $<
 phoenix-real: $(BUILD)/phoenix/Vphoenix_load | $(OUT)
 	cd $(ROOT) && $< $(PHOENIX_DIR)/RH2946.0C1 $(PHOENIX_DIR)/RH2946.0S5 $(PHOENIX_REF)/cs0.bin $(PHOENIX_REF)/cs1.bin
+
+# Shared CPU merger victim buffer: independent NXT masters and bus monitor.
+MERGER_RTL := $(ROOT)/rtl/cpu/zap/zap_wb_merger.sv
+$(BUILD)/merger/Vzap_wb_merger: $(MERGER_RTL) $(ROOT)/sim/harness/wb_merger_main.cpp
+	mkdir -p $(BUILD)/merger && $(VERILATOR) $(VFLAGS) --assert --top-module zap_wb_merger --Mdir $(BUILD)/merger -o Vzap_wb_merger \
+		-I$(ROOT)/rtl/cpu/zap -GCACHE_LINE=16 $(MERGER_RTL) $(ROOT)/sim/harness/wb_merger_main.cpp
+.PHONY: merger
+merger: $(BUILD)/merger/Vzap_wb_merger
+	$< $(RUNFLAGS)
