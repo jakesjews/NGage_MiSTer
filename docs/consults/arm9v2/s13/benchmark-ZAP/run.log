@@ -1,0 +1,9 @@
+flash images in DDR3; the CPU starts at clock 52
+picture 1 at 0.017 s (lcd-00000016.png)
+clock 26000000 (0.250 s) retired 16086518 pc 00006214 dev 98 pictures 1 | wall 112 s, 233 k clocks/s
+clock 52000000 (0.500 s) retired 33496115 pc 00006230 dev 109 pictures 1 | wall 223 s, 233 k clocks/s
+clock 78000000 (0.750 s) retired 49625397 pc 00006230 dev 161 pictures 1 | wall 334 s, 234 k clocks/s
+clock 104000000 (1.000 s) retired 64726790 pc 00006230 dev 271 pictures 1 | wall 445 s, 234 k clocks/s
+END after 104000000 clocks (1.000 s simulated), 64726790 instructions, 271 device accesses, 1 pictures, 0 audio frames, 445 s wall clock
+PROFILE end clock=104000000 retired=64726790 stall=9200618,3335022,20701031,10215857,1073,5178901,1022157,0, dc=0,0,0,1413946, ic=3312994,22429,776,22028,1723,7856,0,0, fill_read_wait=0
+User execution: 0 instructions, 0 entries, 0 exec calls

@@ -1,0 +1,49 @@
+{
+  "ARM9": {
+    "plain": {
+      "clocks": 104000000.0,
+      "instructions": 75810829.0,
+      "device_accesses": 36955.0,
+      "pictures": 4.0,
+      "wall_seconds": 427.0
+    },
+    "profile": {
+      "clocks": 104000000.0,
+      "instructions": 75810829.0,
+      "device_accesses": 36955.0,
+      "pictures": 4.0,
+      "wall_seconds": 464.0
+    },
+    "wall_increase_percent": 8.665105386416872,
+    "device_log_equal": true,
+    "kernel_log_equal": true,
+    "first_10000_instruction_trace_equal": null
+  },
+  "ZAP": {
+    "plain": {
+      "clocks": 104000000.0,
+      "instructions": 64726647.0,
+      "device_accesses": 271.0,
+      "pictures": 1.0,
+      "wall_seconds": 444.0
+    },
+    "profile": {
+      "clocks": 104000000.0,
+      "instructions": 64726790.0,
+      "device_accesses": 271.0,
+      "pictures": 1.0,
+      "wall_seconds": 445.0
+    },
+    "profile_disabled": {
+      "clocks": 104000000.0,
+      "instructions": 64726790.0,
+      "device_accesses": 271.0,
+      "pictures": 1.0,
+      "wall_seconds": 455.0
+    },
+    "wall_increase_percent": 0.22522522522523403,
+    "device_log_equal": true,
+    "kernel_log_equal": true,
+    "first_10000_instruction_trace_equal": true
+  }
+}

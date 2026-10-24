@@ -1,0 +1,12 @@
+MMC image /home/jacob/dev/mister/coreboot/img/sonicn.mmc mounted (16773632 bytes, 1 SD reads)
+flash images in DDR3; the CPU starts at clock 20052
+picture 1 at 0.017 s (lcd-00000016.png)
+clock 104000000 (1.000 s) retired 64726790 pc 00006230 dev 271 pictures 1 | wall 453 s, 229 k clocks/s
+picture 2 at 1.182 s (lcd-00001181.png)
+picture 3 at 1.199 s (lcd-00001198.png)
+picture 4 at 1.215 s (lcd-00001215.png)
+picture 5 at 1.232 s (lcd-00001231.png)
+clock 208000000 (2.000 s) retired 135389664 pc 50003f20 dev 36980 pictures 5 | wall 908 s, 229 k clocks/s
+clock 312000000 (3.000 s) retired 214850067 pc 50004404 dev 36980 pictures 5 | wall 1367 s, 226 k clocks/s
+picture 6 at 3.812 s (lcd-00003812.png)
+clock 416000000 (4.000 s) retired 286955063 pc 503453bc dev 74749 pictures 6 | wall 1823 s, 228 k clocks/s

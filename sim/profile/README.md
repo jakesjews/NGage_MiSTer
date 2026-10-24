@@ -122,6 +122,10 @@ one PC transfer). `branches_taken/not_taken` includes explicit branches and
 ordinary PC destinations; `returns` is **return candidates** (BX lr, MOV pc
 lr, LDM with pc), not proof that every such instruction returns from a call.
 
+`e33/e32` measures presence of a prediction entry on A-validated branches,
+not prediction accuracy: a present entry can predict the wrong direction
+or target. `e17` counts A recovery pulses, including other PC destinations.
+
 Miss counts are completed line fills, not lookup misses or retry counts:
 `e29` D load fill, `e30` D store fill, `e31` I fill. Fills crossing an interval
 are counted where they complete. The raw debug events also include dirty

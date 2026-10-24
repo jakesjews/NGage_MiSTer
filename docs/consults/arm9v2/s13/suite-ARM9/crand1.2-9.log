@@ -1,0 +1,15 @@
+Uops: 16596
+Multiply: busy_clocks=0 releases=0 younger_waiting=0
+Pipeline: data=69897 code=165689 fifo_empty=126136 issue=74285 shifter=240 decode=7867 alu_flushes=0 early_flushes=14
+Replays: 0
+Retirement with load lock: 28 uops
+Recovery 1: events=0 killed_slots=0 refill_clocks=0
+Recovery 2: events=0 killed_slots=0 refill_clocks=0
+Recovery 3: events=0 killed_slots=0 refill_clocks=0
+Recovery 4: events=0 killed_slots=0 refill_clocks=0
+Hit under miss: loads=168 stores=182
+D-cache events: load_fills=170 store_fills=231 writebacks=248 uncached=4167
+I-cache events: fifo_full=16778 fetch_wait=149539 fills=442 true_wait=148911 merger_wait=6193 bus_wait=11342 itlb_beats=4 dtlb_beats=14
+Background writes: 170, during fill: 170
+D-cache overlap: store_fill_retired=356 dirty_fill_first=28 dirty_write_first=0
+PASS (182358 cycles, 15982 instructions)

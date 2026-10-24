@@ -1,0 +1,12 @@
+start_utc=2026-10-24T14:03:23Z
+e9eb89aa3eb955b1c9086033ebcb853d69ae2b7c4ef10e15bc5a3c65adb8e12c  /home/jacob/dev/mister/coreboot/arm9v2-s13-ARM9/coreboot/Vemu
+110285b5efd739353f505718c110e6c076c538248d9dab1352c5fdfc476b6685  rtl/cpu/arm925t_gen.v
+07aedfc70cc982c782c901f7b86114223911d506a86d32157a2f10cf6722b01e  sim/profile/cpu_profile.h
+25e9b0ec87dd2bcc88dc8eda7b964c189923628859f44ed4e3534588a98a48ca  sim/profile/cpu_profile_probe.sv
+0994dd033259468c24d8184a28f45f7e1358814b033104eb3792173cd1fbd327  sim/harness/coreboot_main.cpp
+7fd800c9318ea86a3ba57b5ecd1189d2c3609c413358706b17a172c36d94733e  /home/jacob/dev/mister/coreboot/img/sonicn.mmc
+79a40d76406ff3809c5a798c1262a44e52668f8c2b2c3a568c90c5fc223220c8  /home/jacob/dev/mister/coreboot/img/sonic.keys
+1f9367f6b052a85d0963fa9217794d0ea73f0a827e41893aa4d38ab618409541  /home/jacob/dev/mister/coreboot/img/cs0.bin
+1065629b68c7c2b257e71376bd350423e7d82d75aa456fa2f01b8d4445930fed  /home/jacob/dev/mister/coreboot/img/cs1-board.bin
+pid=1476627
+1476627 Sat Oct 24 10:03:23 2026 /home/jacob/dev/mister/coreboot/arm9v2-s13-ARM9/coreboot/Vemu +verilator+seed+1 +verilator+rand+reset+2 --cs0 /home/jacob/dev/mister/coreboot/img/cs0.bin --cs1 /home/jacob/dev/mister/coreboot/img/cs1-board.bin --mmc /home/jacob/dev/mister/coreboot/img/sonicn.mmc --keys /home/jacob/dev/mister/coreboot/img/sonic.keys --out /home/jacob/dev/mister/coreboot/arm9v2-s13-ARM9/game --progress 104000000 --cycles 24440000000
