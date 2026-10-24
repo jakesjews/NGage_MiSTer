@@ -4707,3 +4707,35 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   effect the thread predicted (the +0/+4/+8 offsets only, the word
   still waiting for the next ACK); the complete core with the
   handshake fix is building for the real number.
+- **The early-execution gate, complete: no gain on the board, not
+  merged.** The measurement core of df29e89 (ieh-s2, NGAGE_DEBUG:
+  -1.940 ns, 36,942 ALMs) on the debug slot, the three games
+  (build/hardware/game/run-ieh.log), play medians against the
+  instrumented baseline (run-msd.log) and the cache-side-only core
+  (run-ied.log):
+
+  | game | baseline | cache side only | complete |
+  |---|---:|---:|---:|
+  | Sonic N | 30.87 M instr/s | 31.30 | 30.98 |
+  | Asphalt | 31.62 | 31.70 | 31.47 |
+  | Tony Hawk | 30.57 | 30.75 | 30.76 |
+
+  Inside the noise, both; the true fetch wait stays at 6.5 / 5.9 /
+  7.5 % and the FIFO-full share at 36-44 %. The reading: the words
+  arrive earlier but the backend cannot consume them faster, so they
+  wait in the FIFO instead of in the fill; the suite's -1.33 % was the
+  synthetic tests' in-order streams. Stripped at seed 9 the branch
+  fits at -1.001 ns, 35,947 ALMs (the main slot's tree -0.734, 35,839;
+  the worst path in the D-TLB check, a ZAP family), the debug core
+  0.66 ns worse than the instrumented baseline at seed 2. Decision:
+  not merged; the three commits stay on codex/memside3 for the ARM9
+  v2 fetch, which waits for the whole fill today and may take the
+  cache-side mechanism with its own handshake. The debug slot is back
+  on msd-s2. The tally of the memory side on ZAP since the consults:
+  the write-back buffer nil, the early-execution gate nil, the 16 KB
+  D-cache too dear as the tag RAM stands; the I side's 6-8 % of fetch
+  wait is overlapped by the backend's own stalls, and the deferred
+  write-back (+5 %) was the last memory-side gain. The CPU is the
+  lever, as the consults said. The memory thread finishes the tag RAM
+  task (area and timing for both cores) and then pauses until V2 is
+  on the board.
