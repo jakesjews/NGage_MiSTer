@@ -5089,3 +5089,32 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   seconds, play from 200) is the measurement. The thread's one small
   suggestion, the younger lookup owner kept across a W hold (0.7 % of
   the boot), is not worth a session. No core change, no fit.
+- **V2's board hang is a bug, not timing: it never wakes from the
+  firmware's idle loop.** To get V2's in-play number without closure
+  I built its measurement core (a1ec904, NGAGE_CORE_ARM9 + NGAGE_DEBUG
+  + D16) with the whole system at **78 MHz** (the PLL output and
+  sdram's CLK_HZ parameter, nothing else; the overlay counts per
+  104 M clocks, so it would read the 104 MHz-equivalent rate): it
+  meets timing there, **+0.060 ns** setup at slow 100C, 33,146 ALMs
+  (build/hardware/NGage-v2d78-s2.rbf), the first V2 bitstream with
+  positive slack. On the board (tools/run_games.sh with every wait
+  scaled by 4/3; build/hardware/game/run-v2d78.log): the NOKIA splash
+  and nothing after, PC 5031e394 for minutes, irq=1 pending and never
+  taken, no bus beats, no frames, the instruction tap at one per
+  clock: exactly the 104 MHz attempt's signature, which cannot be
+  timing at +0.06 ns. And the Sonic simulation of S10's source shows
+  the same: V2's PC at 5031e394 from before guest second 25, its
+  device-access count frozen at 89,240 while it retires one
+  instruction per clock and its pictures stay at five, where ZAP's
+  run beside it keeps accessing devices and moving (so the S10 and
+  S13 V2 runs were dead from the kernel's first idle; killed; the ZAP
+  runs continue as the baselines). The 4.5-guest-second boots never
+  reached the idle loop, so the parity runs could not see it. EKA1
+  idles with the ARM9 wait-for-interrupt (MCR p15 c7,c0,4) or a loop
+  on a flag the tick sets; V2 either halts there without the wake-up
+  or does not take the pending IRQ (the CPSR I bit, the sampling
+  point, session 12's PSR/CP15 fence changes). Session 14 launched to
+  disassemble the loop, reproduce it in the suite against QEMU's
+  ARM926, fix it, prove a 40-guest-second boot, and restart the V2
+  Sonic runs. The 78 MHz measurement build is then the fast path to
+  V2's in-play number on the board: a build and a 20-minute run.
