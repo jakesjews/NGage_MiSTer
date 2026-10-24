@@ -4354,3 +4354,13 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   branch, ZAP's counts unchanged), then the real three-clock late
   pickup, the RAS checkpoint, the suites and the V2/ZAP cycle table
   with the random tests as the judge, then the three-seed fit.
+- **One CPU line** (the user: "we have just one line of development
+  with the new cpu right? no parallel development with two different
+  cpus" and "leave round 5 parked, no more ZAP-pipeline work; the ZAP
+  thread does only shared memory-side work from here"). ARM9 v2 is
+  the CPU; ZAP stays as the default only until V2 passes the suite and
+  the board. Round 5's branch (ZAP-only timing, cycle-identical) stays
+  parked and unmerged; the ZAP thread's remaining scope is the shared
+  memory side that V2 reuses (the caches, the merger, SDRAM, the write
+  buffer), the deferred write-back being the first of it, pending its
+  in-play measurement.
