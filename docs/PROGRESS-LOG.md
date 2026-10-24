@@ -4794,3 +4794,33 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   9's cuts bring the whole core near the -1 ns where every ZAP core
   has run reliably. The hang's PC goes to the thread with the next
   brief.
+- **The cache metadata in block RAM: a candidate, parked** (the memory
+  thread, codex/memside4 1f002ef, f9ddca2, on top of memside3;
+  docs/consults/2026-10-24-codex-memside4-report.md in the worktree).
+  Valid in four RAM banks with one live flag per four sets, dirty in
+  sixteen banks (keeping the clean scanner's throughput), LRU with one
+  read and one update port and a bounded fill deferral; whole-cache
+  invalidation cycle-identical; 948 CPU runs with every count
+  identical across the configurations, 57 QEMU each, the directed
+  tests, both lints, the board benches. Two stripped fits at seed 9:
+
+  | configuration | ALMs before -> after | slack before -> after | M10K after |
+  |---|---:|---:|---:|
+  | I16 / D8 (the shipping one) | 35,839 -> 32,567 (-9 %) | -0.734 -> -1.190 ns | 537 of 553 |
+  | I16 / D16 | 39,580 -> 32,702 (-17 %) | -1.472 -> -0.833 ns | 539 of 553 |
+
+  So the area saving is real and large, and with it the 16 KB
+  D-cache costs 135 ALMs and 0.1 ns, but two things keep it off
+  master for now: at the shipping size the slack falls 0.46 ns (a new
+  family, the maintenance control into the dirty banks' write enables,
+  eight of the worst thirty, with a named fix not yet applied), and
+  the fifty metadata banks spend fifty M10Ks on 2,816 bits, leaving
+  16 blocks free (97 %), which is the budget V2 and any larger cache
+  would need; the thread names a compact asymmetric-width RAM or a
+  read-modify-write metadata engine as the way out. The branch also
+  sits on the parked early-execution gate. Parked, with the memory
+  thread paused as planned until V2 runs on the board, where its ALM
+  saving is most likely to be wanted. One more measurement from my
+  side: the D16 variant's measurement core goes to the board for the
+  16 KB D-cache's in-play number (the consultants' +1-3 %), the one
+  memory-side candidate left with a measured timing benefit.
