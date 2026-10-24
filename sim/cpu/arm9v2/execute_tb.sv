@@ -48,15 +48,129 @@ module execute_tb;
     logic o_a_load,o_predicted;
     logic [31:0] o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target;
     logic [5:0] o_spsr_tag;
-    logic [3:0][2:0][1:0] i_forward_match;
-    wire [2:0][1:0][5:0] producer_tag={i_mw_tag,o_dest};
-    wire [2:0][1:0] producer_write={i_mw_valid,o_write};
-    always_comb for(int src=0;src<4;src++)for(int prod=0;prod<3;prod++)for(int lane=0;lane<2;lane++)
-        i_forward_match[src][prod][lane]=i_used[src]&&producer_write[prod][lane]&&i_tag[src]==producer_tag[prod][lane];
-    logic [1:0][5:0] o_next_tag;
-    logic [1:0] o_next_write;
-    arm9v2_execute dut(.*);
-    wire unused=&{1'b0,o_next_tag,o_next_write,o_a_load,o_predicted,o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target,o_spsr_tag,o_btb_update,o_btb_taken,o_btb_hit,o_btb_target,o_btb_state,o_btb_kind,o_a_can_finish,o_s_write,o_ready,o_valid,o_pc,o_instruction,o_cpsr,o_cpsr_next,o_kind,o_thumb,o_fault,o_first,o_last,o_condition_pass,o_dest,o_result,o_write,o_write_flags,o_pc_write,o_memory,o_store,o_address,o_store_data,o_flags,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_a_valid,o_a_dest,o_a_write,o_shift_wait,o_multiply_wait};
+    // Model the real M/W registers outside execute. Observations below are
+    // at M, so datapath semantics are checked after the acceptance edge.
+    logic [3:0] i_early;
+    logic [3:0][1:0][1:0] i_forward_match;
+    logic [1:0][1:0][5:0] i_next_tag,real_tag;
+    logic [1:0][1:0] i_next_write,real_write;
+    logic [1:0][1:0][31:0] real_value;
+    logic [1:0][5:0] w_tag;
+    logic [1:0][31:0] w_value;
+    logic [1:0] w_write;
+    logic o_btb_thumb,o_record_pred_hit,o_record_thumb;
+    logic [31:0] o_btb_pc;
+    logic [2:0] o_record_pointer;
+    logic [3:0] o_record_count;
+    logic [1:0] o_record_pred_state;
+    logic [$bits(o_valid)-1:0] raw_o_valid;
+    logic [$bits(o_pc)-1:0] raw_o_pc;
+    logic [$bits(o_instruction)-1:0] raw_o_instruction;
+    logic [$bits(o_cpsr)-1:0] raw_o_cpsr;
+    logic [$bits(o_cpsr_next)-1:0] raw_o_cpsr_next;
+    logic [$bits(o_kind)-1:0] raw_o_kind;
+    logic [$bits(o_thumb)-1:0] raw_o_thumb;
+    logic [$bits(o_fault)-1:0] raw_o_fault;
+    logic [$bits(o_first)-1:0] raw_o_first;
+    logic [$bits(o_last)-1:0] raw_o_last;
+    logic [$bits(o_condition_pass)-1:0] raw_o_condition_pass;
+    logic [$bits(o_dest)-1:0] raw_o_dest;
+    logic [$bits(o_result)-1:0] raw_o_result;
+    logic [$bits(o_write)-1:0] raw_o_write;
+    logic [$bits(o_write_flags)-1:0] raw_o_write_flags;
+    logic [$bits(o_pc_write)-1:0] raw_o_pc_write;
+    logic [$bits(o_memory)-1:0] raw_o_memory;
+    logic [$bits(o_store)-1:0] raw_o_store;
+    logic [$bits(o_address)-1:0] raw_o_address;
+    logic [$bits(o_store_data)-1:0] raw_o_store_data;
+    logic [$bits(o_psr_source)-1:0] raw_o_psr_source;
+    logic [$bits(o_saved_psr)-1:0] raw_o_saved_psr;
+    logic [$bits(o_original_base)-1:0] raw_o_original_base;
+    logic [$bits(o_next_pc)-1:0] raw_o_next_pc;
+    logic [$bits(o_prediction_target)-1:0] raw_o_prediction_target;
+    logic [$bits(o_spsr_tag)-1:0] raw_o_spsr_tag;
+    logic [$bits(o_predicted)-1:0] raw_o_predicted;
+    wire ready_m=!o_valid||i_ready;
+    assign real_tag={|i_mw_valid?i_mw_tag[0]:w_tag,o_dest};
+    assign real_value={|i_mw_valid?i_mw_value[0]:w_value,o_result};
+    assign real_write={|i_mw_valid?i_mw_valid[0]:w_write,o_write&{2{o_valid}}};
+    assign i_next_tag={i_ready?o_dest:real_tag[1],ready_m?raw_o_dest:o_dest};
+    assign i_next_write=(i_reset||i_flush)?4'd0:
+        {i_ready?(o_write&{2{o_valid}}):real_write[1],ready_m?(raw_o_write&{2{raw_o_valid}}):real_write[0]};
+    always_comb begin
+        i_early=0;
+        if(i_kind==0)begin i_early[1]=i_used[1]&&i_instruction[11:4]!=0;i_early[2]=i_reg_shift;end
+        if(i_kind==5)i_early[1]=i_used[1]&&i_instruction[27:26]==1&&i_instruction[11:4]!=0;
+        if(i_kind==13||i_kind==14)i_early=6;
+        for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
+            i_forward_match[src][prod][lane]=i_used[src]&&real_write[prod][lane]&&i_tag[src]==real_tag[prod][lane];
+    end
+    always_ff @(posedge i_clk)begin
+        if(i_reset||i_flush)begin
+            w_tag<=0;w_value<=0;w_write<=0;
+            o_valid<=0;
+            o_pc<=0;
+            o_instruction<=0;
+            o_cpsr<=0;
+            o_cpsr_next<=0;
+            o_kind<=0;
+            o_thumb<=0;
+            o_fault<=0;
+            o_first<=0;
+            o_last<=0;
+            o_condition_pass<=0;
+            o_dest<=0;
+            o_result<=0;
+            o_write<=0;
+            o_write_flags<=0;
+            o_pc_write<=0;
+            o_memory<=0;
+            o_store<=0;
+            o_address<=0;
+            o_store_data<=0;
+            o_psr_source<=0;
+            o_saved_psr<=0;
+            o_original_base<=0;
+            o_next_pc<=0;
+            o_prediction_target<=0;
+            o_spsr_tag<=0;
+            o_predicted<=0;
+        end else begin
+            if(i_ready)begin w_tag<=o_dest;w_value<=o_result;w_write<=o_write&{2{o_valid}};end
+            if(ready_m)begin
+                o_valid<=raw_o_valid;
+                o_pc<=raw_o_pc;
+                o_instruction<=raw_o_instruction;
+                o_cpsr<=raw_o_cpsr;
+                o_cpsr_next<=raw_o_cpsr_next;
+                o_kind<=raw_o_kind;
+                o_thumb<=raw_o_thumb;
+                o_fault<=raw_o_fault;
+                o_first<=raw_o_first;
+                o_last<=raw_o_last;
+                o_condition_pass<=raw_o_condition_pass;
+                o_dest<=raw_o_dest;
+                o_result<=raw_o_result;
+                o_write<=raw_o_write;
+                o_write_flags<=raw_o_write_flags;
+                o_pc_write<=raw_o_pc_write;
+                o_memory<=raw_o_memory;
+                o_store<=raw_o_store;
+                o_address<=raw_o_address;
+                o_store_data<=raw_o_store_data;
+                o_psr_source<=raw_o_psr_source;
+                o_saved_psr<=raw_o_saved_psr;
+                o_original_base<=raw_o_original_base;
+                o_next_pc<=raw_o_next_pc;
+                o_prediction_target<=raw_o_prediction_target;
+                o_spsr_tag<=raw_o_spsr_tag;
+                o_predicted<=raw_o_predicted;
+            end
+        end
+    end
+    arm9v2_execute dut(.i_ready(ready_m),.i_mw_tag(real_tag),.i_mw_value(real_value),.i_mw_valid(real_write),
+.o_valid(raw_o_valid),.o_pc(raw_o_pc),.o_instruction(raw_o_instruction),.o_cpsr(raw_o_cpsr),.o_cpsr_next(raw_o_cpsr_next),.o_kind(raw_o_kind),.o_thumb(raw_o_thumb),.o_fault(raw_o_fault),.o_first(raw_o_first),.o_last(raw_o_last),.o_condition_pass(raw_o_condition_pass),.o_dest(raw_o_dest),.o_result(raw_o_result),.o_write(raw_o_write),.o_write_flags(raw_o_write_flags),.o_pc_write(raw_o_pc_write),.o_memory(raw_o_memory),.o_store(raw_o_store),.o_address(raw_o_address),.o_store_data(raw_o_store_data),.o_psr_source(raw_o_psr_source),.o_saved_psr(raw_o_saved_psr),.o_original_base(raw_o_original_base),.o_next_pc(raw_o_next_pc),.o_prediction_target(raw_o_prediction_target),.o_spsr_tag(raw_o_spsr_tag),.o_predicted(raw_o_predicted),.*);
+    wire unused=&{1'b0,o_btb_pc,o_btb_thumb,o_record_pointer,o_record_count,o_record_pred_hit,o_record_thumb,o_record_pred_state,i_mw_tag[1],i_mw_value[1],o_a_load,o_predicted,o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target,o_spsr_tag,o_btb_update,o_btb_taken,o_btb_hit,o_btb_target,o_btb_state,o_btb_kind,o_a_can_finish,o_s_write,o_ready,o_valid,o_pc,o_instruction,o_cpsr,o_cpsr_next,o_kind,o_thumb,o_fault,o_first,o_last,o_condition_pass,o_dest,o_result,o_write,o_write_flags,o_pc_write,o_memory,o_store,o_address,o_store_data,o_flags,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_a_valid,o_a_dest,o_a_write,o_shift_wait,o_multiply_wait};
     int checks=0,cycles=0;
     logic [31:0] random_state=32'h315d97af;
     function automatic logic [31:0] rnd;
@@ -248,6 +362,15 @@ module execute_tb;
             i_ready=1;tick();check(o_valid&&o_result==product,"held product released once");
             tick();check(!o_valid&&!o_a_valid,"held product not duplicated");
         end
+        // A skid/reload can deliver an older accumulator only after the
+        // multiplier's private product clocks. Keep that operand late too.
+        reset_case();i_ready=0;i_instruction=32'he3a0a007;i_used=0;send();
+        i_kind=14;i_instruction=32'he0a00090;i_used=15;
+        i_value[0]=0;i_value[1]=3;i_value[2]=4;i_value[3]=1;send();
+        repeat(4)tick();
+        i_mw_valid[0][0]=1;i_mw_tag[0][0]=3;i_mw_value[0][0]=40;
+        repeat(2)tick();
+        i_ready=1;tick();check(o_valid&&o_result==52,"late accumulator arrives after held product clocks");
         // Flush at each private multiply phase cancels all younger products.
         for(int phase=0;phase<3;phase++)begin
             reset_case(4'hb);i_kind=14;i_instruction=32'he0f00090;i_used=15;

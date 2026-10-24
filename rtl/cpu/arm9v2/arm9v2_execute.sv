@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // S/A component. Inputs are the registered S-entry from D2. The output is
-// A's registered producer/record; M and W producers must also be registers.
+// A's combinational record; the consumer captures it in the A/M register.
 // i_ready is REGISTERED downstream capacity, never a cache ACK/hit/err2.
 // Pending S operands are stalled in D2. Unshifted operands can carry a late
 // token into A, selecting the just-completed REGISTERED A result there.
@@ -13,10 +13,10 @@ module arm9v2_execute (
     input logic i_thumb,i_fault,i_force_align,i_reg_shift,i_first,i_last,
     input logic [3:0] i_kind,i_condition,
     input logic [3:0][5:0] i_tag,
-    input logic [3:0] i_used,
-    input logic [3:0][2:0][1:0] i_forward_match,
-    output logic [1:0][5:0] o_next_tag,
-    output logic [1:0] o_next_write,
+    input logic [3:0] i_used,i_early,
+    input logic [3:0][1:0][1:0] i_forward_match,
+    input logic [1:0][1:0][5:0] i_next_tag,
+    input logic [1:0][1:0] i_next_write,
     input logic [3:0][31:0] i_value,
     input logic [1:0][5:0] i_dest,
     input logic signed [7:0] i_offset,i_writeback_offset,
@@ -46,7 +46,12 @@ module arm9v2_execute (
     output logic [1:0] o_redirect_action,
     // Registered pending A slot, for the eventual D2 load/multiply scoreboard.
     output logic o_btb_update,o_btb_taken,o_btb_hit,
-    output logic [31:0] o_btb_target,
+    output logic [31:0] o_btb_target,o_btb_pc,
+    output logic o_btb_thumb,
+    output logic [2:0] o_record_pointer,
+    output logic [3:0] o_record_count,
+    output logic o_record_pred_hit,o_record_thumb,
+    output logic [1:0] o_record_pred_state,
     output logic [1:0] o_btb_state,o_btb_kind,
     output logic o_a_valid,o_a_can_finish,
     output logic [1:0] o_s_write,
@@ -74,7 +79,9 @@ module arm9v2_execute (
         logic [31:0] left,right,store_data,special;
         logic [3:0] op;
         logic set_flags,shift_carry,carry_preserve,rrx,cpsr_read;
-        logic [2:0][1:0] late;
+        logic [3:0][1:0][1:0] late;
+        logic [3:0][5:0] tag;
+        logic [3:0] late_used;
         logic signed [7:0] wb_offset;
     } a_t;
     (* dont_retime *) a_t a;
@@ -84,14 +91,13 @@ module arm9v2_execute (
     (* dont_retime *) logic [7:0] held_amount;
     (* dont_retime *) logic [31:0] block_base;
     (* dont_retime *) logic signed [33:0] ll,lh,hl,hh;
-    (* dont_retime *) logic [63:0] product_saved,accumulator;
-    logic [2:0][1:0][31:0] producer_value;
+    (* dont_retime *) logic [63:0] product_saved;
     logic [3:0][31:0] forwarded,operand;
     logic [31:0] shift_input,shifted;
     logic [7:0] shift_amount;
     logic [1:0] shift_type;
     logic shift_register,shift_carry,carry_preserve,rrx;
-    logic [31:0] left_a,right_a,store_a,alu_result;
+    logic [31:0] left_a,right_a,store_a,special_a,alu_result;
     logic [3:0] alu_flags,next_flags;
     logic condition_pass,finish,accept,space,product_phase,mac_phase,will_write_flags;
     logic [1:0] planned_writes;
@@ -99,19 +105,8 @@ module arm9v2_execute (
     logic [31:0] actual_target;
     logic actual_thumb,wrong_prediction;
     wire unused=&{1'b0,i_cpsr[27:0],i_used[2],i_mw_tag,i_mw_valid,CP,UND,SWI,actual_target[0],lh[33:32],hl[33:32],hh[33:32]};
-    assign producer_value={i_mw_value,o_result};
     arm9v2_forward u_forward(.i_value(holding?held:i_value),.i_match(i_forward_match),
-        .i_producer_value(producer_value),.o_value(forwarded));
-    // Look ahead only to the bounded registered producer control, never data
-    // or cache readiness. D2 captures its comparisons at the same edge.
-    always_comb begin
-        o_next_tag=o_dest;o_next_write=i_ready?2'b0:o_write;
-        if(finish)begin
-            o_next_tag=a.dest;o_next_write=a.writes&{2{condition_pass&&!a.fault}};
-            for(int lane=0;lane<2;lane++)if(a.dest[lane]==15)o_next_write[lane]=0;
-        end
-        if(i_reset||i_flush)o_next_write=0;
-    end
+        .i_producer_value(i_mw_value),.o_value(forwarded));
     always_comb begin
         operand=forwarded;
         for(int s=0;s<4;s++)begin
@@ -152,14 +147,17 @@ module arm9v2_execute (
     arm9v2_rotate u_rotate(.i_value(shift_input),.i_amount(shift_amount),.i_type(shift_type),
         .i_register(shift_register),.i_carry(1'b0),.o_value(shifted),
         .o_carry(shift_carry),.o_preserve(carry_preserve),.o_rrx(rrx));
-    // Tokens are captured in S. No tags or producer readiness enter this mux.
+    // Late data bypass: tag comparisons were captured at S/A, and are
+    // refreshed each held edge. Only registered M/W words enter A.
     always_comb begin
-        left_a=a.left;right_a=a.right;store_a=a.store_data;
-        for(int lane=0;lane<2;lane++)if(o_valid&&o_write[lane])begin
-            if(a.late[0][lane])left_a=o_result[lane];
-            if(a.late[1][lane])right_a=o_result[lane];
-            if(a.late[2][lane])store_a=o_result[lane];
+        left_a=a.left;right_a=a.right;store_a=a.store_data;special_a=a.special;
+        for(int prod=1;prod>=0;prod--)for(int lane=0;lane<2;lane++)begin
+            if(a.late[0][prod][lane])left_a=i_mw_value[prod][lane];
+            if(a.late[1][prod][lane])right_a=i_mw_value[prod][lane];
+            if(a.late[2][prod][lane])special_a=i_mw_value[prod][lane];
+            if(a.late[3][prod][lane])store_a=i_mw_value[prod][lane];
         end
+        if(a.kind==BLOCK&&!a.first)left_a=block_base;
         if(a.rrx)right_a[31]=flags[1];
     end
     arm9_alu u_alu(.i_a(left_a),.i_b(right_a),.i_op(a.op),.i_flags(flags),
@@ -176,7 +174,7 @@ module arm9v2_execute (
     wire [63:0] ones1=ones0^twos0^pp3;
     wire [63:0] twos1=((ones0&twos0)|(ones0&pp3)|(twos0&pp3))<<1;
     assign product=ones1+twos1;
-    assign mac_result=product_saved+accumulator;
+    assign mac_result=product_saved+(a.kind==MULL?{left_a,store_a}:{32'd0,store_a});
     assign mult_result=a.ins[21]?mac_result:product;
     assign product_phase=a_valid&&(a.kind==MUL||a.kind==MULL)&&!multiply_product_ready;
     assign mac_phase=a_valid&&(a.kind==MUL||a.kind==MULL)&&multiply_product_ready&&a.ins[21]&&!multiply_accumulate;
@@ -185,7 +183,8 @@ module arm9v2_execute (
     assign o_multiply_wait=product_phase||mac_phase;
     assign o_ready=i_admit&&space&&!o_shift_wait&&!i_flush&&!o_redirect;
     assign accept=i_valid&&o_ready;
-    assign finish=a_valid&&!product_phase&&!mac_phase&&(!o_valid||i_ready)&&!i_flush&&!o_redirect;
+    assign o_valid=a_valid&&!product_phase&&!mac_phase&&!i_flush&&!o_redirect;
+    assign finish=o_valid&&i_ready;
     assign o_a_valid=a_valid;
     assign o_a_can_finish=finish;
     assign o_s_write=planned_writes&{2{i_valid}};
@@ -231,24 +230,55 @@ module arm9v2_execute (
             wrong_prediction=0;
         if(a.fault)wrong_prediction=0;
     end
+    always_comb begin
+                o_pc=a.pc;o_instruction=a.ins;o_kind=a.kind;
+                o_thumb=a.thumb;o_fault=a.fault;o_first=a.first;o_last=a.last;
+                o_condition_pass=condition_pass&&!a.fault;o_dest=a.dest;
+                o_psr_source=right_a;o_saved_psr=a.kind==DP?store_a:special_a;
+                o_original_base=left_a;o_spsr_tag=a.spsr_tag;
+                o_next_pc=a.next_pc;o_predicted=a.predicted;o_prediction_target=a.pred_target;
+                o_cpsr={flags,a.cpsr_low};o_cpsr_next={next_flags,a.cpsr_low};
+                o_write_flags=will_write_flags;
+                o_write=a.writes&{2{condition_pass&&!a.fault}};
+                o_result[0]=alu_result;o_result[1]=0;
+                o_address=alu_result;o_store_data=store_a;
+                o_memory=(a.kind==MEM||a.kind==BLOCK||a.kind==SWP)&&condition_pass&&!a.fault;
+                o_store=(a.kind==SWP||((a.kind==MEM||a.kind==BLOCK)&&!a.ins[20]))&&condition_pass&&!a.fault;
+                o_pc_write=((a.writes[0]&&a.dest[0]==15)||(a.kind==SUFFIX&&!a.direct))&&condition_pass&&!a.fault;
+                for(int lane=0;lane<2;lane++)if(a.dest[lane]==15)o_write[lane]=0;
+                case(a.kind)
+                    MRS:o_result[0]=a.cpsr_read?{flags,special_a[27:0]}:special_a;
+                    BR,SUFFIX:o_result[0]={a.next_pc[31:1],a.thumb};
+                    PREFIX:o_result[0]=a.target;
+                    MUL:o_result[0]=mult_result[31:0];
+                    MULL:begin o_result[0]=mult_result[31:0];o_result[1]=mult_result[63:32];end
+                    MEM:begin o_address=a.ins[24]?alu_result:left_a;o_result[1]=alu_result;end
+                    BLOCK:o_result[1]=left_a+{{24{a.wb_offset[7]}},a.wb_offset};
+                    SWP:begin o_address=left_a;o_store_data=right_a;end
+                    default:;
+                endcase
+                o_record_pointer=a.ras_pointer;o_record_count=a.ras_count;
+                o_record_pred_hit=a.pred_hit;o_record_pred_state=a.pred_state;
+                o_record_thumb=a.kind==BX?right_a[0]:a.thumb;
+    end
     always_ff @(posedge i_clk)begin
         if(i_reset||i_flush)begin
             a_valid<=0;holding<=0;prepared<=0;multiply_accumulate<=0;multiply_product_ready<=0;
-            o_valid<=0;o_write<=0;o_write_flags<=0;o_redirect<=0;
+            o_redirect<=0;o_btb_pc<=0;o_btb_thumb<=0;
             o_btb_update<=0;o_btb_taken<=0;o_btb_hit<=0;o_btb_target<=0;o_btb_state<=0;o_btb_kind<=0;
             flags<=i_cpsr[31:28];a<=a_t'(0);held<=0;held_amount<=0;block_base<=0;
-            ll<=0;lh<=0;hl<=0;hh<=0;product_saved<=0;accumulator<=0;
-            o_pc<=0;o_instruction<=0;o_cpsr<=0;o_cpsr_next<=0;o_kind<=0;
-            o_thumb<=0;o_fault<=0;o_first<=0;o_last<=0;o_condition_pass<=0;
-            o_dest<=0;o_result<=0;o_pc_write<=0;o_memory<=0;o_store<=0;
-            o_address<=0;o_store_data<=0;o_redirect_thumb<=0;o_redirect_target<=0;
+            ll<=0;lh<=0;hl<=0;hh<=0;product_saved<=0;
+            o_redirect_thumb<=0;o_redirect_target<=0;
             o_redirect_link<=0;o_redirect_pointer<=0;o_redirect_count<=0;o_redirect_action<=0;
         end else begin
             o_redirect<=0;o_btb_update<=0;
-            if(i_ready)begin o_valid<=0;o_write<=0;o_write_flags<=0;end
             if(i_valid&&!accept)begin holding<=1;held<=operand;end
             if(i_valid&&i_admit&&space&&i_reg_shift&&!prepared)begin prepared<=1;held_amount<=operand[2][7:0];end
-            if(a_valid)begin a.left<=left_a;a.right<=right_a;a.store_data<=store_a;a.late<=0;end
+            if(a_valid)begin
+                a.left<=left_a;a.right<=right_a;a.store_data<=store_a;a.special<=special_a;
+                for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
+                    a.late[src][prod][lane]<=a.late_used[src]&&i_next_write[prod][lane]&&a.tag[src]==i_next_tag[prod][lane];
+            end
             if(product_phase)begin
                 ll<=$signed({1'b0,a.right[15:0]})*$signed({1'b0,a.special[15:0]});
                 lh<=$signed({1'b0,a.right[15:0]})*$signed({a.kind==MULL&&a.ins[22]&&a.special[31],a.special[31:16]});
@@ -258,32 +288,9 @@ module arm9v2_execute (
             end
             if(mac_phase)begin product_saved<=product;multiply_accumulate<=1;end
             if(finish)begin
-                a_valid<=0;o_valid<=1;o_pc<=a.pc;o_instruction<=a.ins;o_kind<=a.kind;
-                o_thumb<=a.thumb;o_fault<=a.fault;o_first<=a.first;o_last<=a.last;
-                o_condition_pass<=condition_pass&&!a.fault;o_dest<=a.dest;
-                o_psr_source<=right_a;o_saved_psr<=a.kind==DP?store_a:a.special;
-                o_original_base<=left_a;o_spsr_tag<=a.spsr_tag;
-                o_next_pc<=a.next_pc;o_predicted<=a.predicted;o_prediction_target<=a.pred_target;
-                o_cpsr<={flags,a.cpsr_low};o_cpsr_next<={next_flags,a.cpsr_low};
-                flags<=next_flags;o_write_flags<=will_write_flags;
-                o_write<=a.writes&{2{condition_pass&&!a.fault}};
-                o_result[0]<=alu_result;o_result[1]<=0;
-                o_address<=alu_result;o_store_data<=store_a;
-                o_memory<=(a.kind==MEM||a.kind==BLOCK||a.kind==SWP)&&condition_pass&&!a.fault;
-                o_store<=(a.kind==SWP||((a.kind==MEM||a.kind==BLOCK)&&!a.ins[20]))&&condition_pass&&!a.fault;
-                o_pc_write<=((a.writes[0]&&a.dest[0]==15)||(a.kind==SUFFIX&&!a.direct))&&condition_pass&&!a.fault;
-                for(int lane=0;lane<2;lane++)if(a.dest[lane]==15)o_write[lane]<=0;
-                case(a.kind)
-                    MRS:o_result[0]<=a.cpsr_read?{flags,a.special[27:0]}:a.special;
-                    BR,SUFFIX:o_result[0]<={a.next_pc[31:1],a.thumb};
-                    PREFIX:o_result[0]<=a.target;
-                    MUL:o_result[0]<=mult_result[31:0];
-                    MULL:begin o_result[0]<=mult_result[31:0];o_result[1]<=mult_result[63:32];end
-                    MEM:begin o_address<=a.ins[24]?alu_result:left_a;o_result[1]<=alu_result;end
-                    BLOCK:o_result[1]<=left_a+{{24{a.wb_offset[7]}},a.wb_offset};
-                    SWP:begin o_address<=left_a;o_store_data<=right_a;end
-                    default:;
-                endcase
+                a_valid<=0;flags<=next_flags;
+                if(a.kind==BLOCK&&a.first)block_base<=left_a;
+                o_btb_pc<=a.pc;o_btb_thumb<=a.thumb;
                 o_btb_update<=(a.kind==BR||a.kind==BX||(a.kind==SUFFIX&&a.direct))&&!a.fault;
                 o_btb_taken<=condition_pass;o_btb_hit<=a.pred_hit;o_btb_state<=a.pred_state;
                 o_btb_target<=a.kind==BX?{right_a[31:2],right_a[1]&right_a[0],right_a[0]}:{a.target[31:1],a.thumb};
@@ -307,12 +314,12 @@ module arm9v2_execute (
                 a.store_data<=operand[3];a.special<=operand[2];a.cpsr_read<=i_tag[2]==17;
                 a.op<=i_instruction[24:21];a.set_flags<=i_instruction[20]||(i_kind==DP&&i_instruction[24:23]==2'b10);
                 a.shift_carry<=shift_carry;a.carry_preserve<=carry_preserve;a.rrx<=rrx;a.wb_offset<=i_writeback_offset;
-                a.late<=0;
-                for(int lane=0;lane<2;lane++)if(a_valid&&a.writes[lane]&&a.dest[lane]!=15)begin
-                    if(i_used[0]&&i_tag[0]==a.dest[lane]&&i_tag[0]!=17)a.late[0][lane]<=1;
-                    if(i_used[1]&&i_tag[1]==a.dest[lane]&&i_tag[1]!=17&&
-                       (i_kind==BX||i_kind==SWP||(i_kind==DP&&!i_instruction[25]&&i_instruction[11:4]==0)))a.late[1][lane]<=1;
-                    if(i_used[3]&&i_tag[3]==a.dest[lane]&&i_tag[3]!=17)a.late[2][lane]<=1;
+                a.tag<=i_tag;
+                for(int src=0;src<4;src++)begin
+                    a.late_used[src]<=i_used[src]&&!i_early[src]&&i_tag[src]!=15&&i_tag[src]!=17;
+                    for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
+                        a.late[src][prod][lane]<=i_used[src]&&!i_early[src]&&i_tag[src]!=15&&i_tag[src]!=17&&
+                            i_next_write[prod][lane]&&i_tag[src]==i_next_tag[prod][lane];
                 end
                 if(i_kind==MEM)begin
                     a.op<=i_instruction[23]?4'd4:4'd2;a.rrx<=rrx;
@@ -320,14 +327,10 @@ module arm9v2_execute (
                     if(i_instruction[27:26]==0&&i_instruction[22])begin a.right<={24'd0,i_instruction[11:8],i_instruction[3:0]};a.rrx<=0;end
                 end
                 if(i_kind==BLOCK)begin
-                    a.op<=4;a.left<=i_first?operand[0]:block_base;a.right<={{24{i_offset[7]}},i_offset};a.rrx<=0;
-                    if(i_first)block_base<=operand[0];
+                    a.op<=4;a.left<=operand[0];a.right<={{24{i_offset[7]}},i_offset};a.rrx<=0;
                 end
                 if(i_kind==BX||i_kind==SWP)begin a.right<=operand[1];a.rrx<=0;end
                 if(i_kind==SUFFIX)begin a.op<=4;a.right<={20'd0,i_instruction[10:0],1'b0};a.rrx<=0;end
-                if(i_kind==MUL||i_kind==MULL)begin
-                    accumulator<=i_kind==MULL?{operand[0],operand[3]}:{32'd0,operand[3]};
-                end
             end
             if(o_redirect)begin a_valid<=0;holding<=0;prepared<=0;end
         end

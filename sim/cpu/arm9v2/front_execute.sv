@@ -80,11 +80,12 @@ module arm9v2_front_execute #(
     logic [3:0] d_condition;
     logic [3:0][5:0] d_tag;
     logic [3:0] d_used;
-    logic [3:0][2:0][1:0] d_forward_match;
-    logic [2:0][1:0][5:0] forward_tag;
-    logic [2:0][1:0] forward_write;
-    logic [1:0][5:0] next_tag;
-    logic [1:0] next_write;
+    logic [3:0][1:0][1:0] d_forward_match;
+    logic [1:0][1:0][5:0] forward_tag;
+    logic [1:0][1:0] forward_write;
+    logic [3:0] d_early;
+    logic [31:0] btb_pc;
+    logic btb_thumb;
 
     logic [3:0][31:0] d_value;
     logic [1:0][5:0] d_dest;
@@ -121,10 +122,10 @@ module arm9v2_front_execute #(
     logic [39:0] wa,wb,wc;
     logic [3:0][5:0] early_tag;
     logic [3:0] early_valid;
-    assign forward_tag={i_ready?mw_tag[0]:mw_tag[1],i_ready?o_dest:mw_tag[0],next_tag};
-    assign forward_write=(i_reset||i_flush)?6'd0:
+    assign forward_tag={i_ready?mw_tag[0]:mw_tag[1],i_ready?o_dest:mw_tag[0]};
+    assign forward_write=(i_reset||i_flush)?4'd0:
         {i_ready?(mw_write[0]&{2{mw_valid[0]}}):(mw_write[1]&{2{mw_valid[1]}}),
-         i_ready?(o_write&{2{o_valid}}):(mw_write[0]&{2{mw_valid[0]}}),next_write};
+         i_ready?(o_write&{2{o_valid}}):(mw_write[0]&{2{mw_valid[0]}})};
     assign wa=(mw_write[1][0]&&mw_valid[1]) ? 40'd1<<mw_tag[1][0] : 40'd0;
     assign wb=(mw_write[1][1]&&mw_valid[1]) ? 40'd1<<mw_tag[1][1] : 40'd0;
     assign wc=(mw_flags[1]&&mw_valid[1]) ? 40'd1<<17 : 40'd0;
@@ -145,7 +146,7 @@ module arm9v2_front_execute #(
     assign o_retire_pc=mw_pc[1];assign o_retire_instruction=mw_ins[1];assign o_retire_value=mw_value[1][0];
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR)) u_front_decode (
         .i_rf_value('0),.o_rf_tag(),.i_load_tag('0),.i_load_valid('0),
-        .o_writes(),.o_early(),.i_forward_tag(forward_tag),.i_forward_write(forward_write),
+        .o_writes(),.o_early(d_early),.i_forward_tag(forward_tag),.i_forward_write(forward_write),
         .o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_reset(i_reset),
         .i_flush(i_flush||o_redirect),
@@ -169,9 +170,9 @@ module arm9v2_front_execute #(
         .i_backend_action(i_flush?2'd3:o_redirect_action),
         .i_predictor_clear(i_predictor_clear),
         .i_update(o_btb_update),
-        .i_update_pc(o_pc),
+        .i_update_pc(btb_pc),
         .i_update_target(o_btb_target),
-        .i_update_thumb(o_thumb),
+        .i_update_thumb(btb_thumb),
         .i_update_taken(o_btb_taken),
         .i_update_hit(o_btb_hit),
         .i_update_state(o_btb_state),
@@ -233,7 +234,9 @@ module arm9v2_front_execute #(
         .o_stall(o_stall)
     );
     arm9v2_execute u_execute (
-        .i_admit(1'b1),.i_forward_match(d_forward_match),.o_next_tag(next_tag),.o_next_write(next_write),
+        .i_admit(1'b1),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_next_write(forward_write),.i_early(d_early),
+        .o_btb_pc(btb_pc),.o_btb_thumb(btb_thumb),.o_record_pointer(),.o_record_count(),
+        .o_record_pred_hit(),.o_record_pred_state(),.o_record_thumb(),
         .o_a_load(),.o_psr_source(),.o_saved_psr(),.o_original_base(),.o_next_pc(),.o_prediction_target(),.o_spsr_tag(),.o_predicted(),
         .i_clk(i_clk),
         .i_reset(i_reset),

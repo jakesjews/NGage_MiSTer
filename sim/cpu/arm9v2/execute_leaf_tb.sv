@@ -7,13 +7,16 @@ module execute_leaf_tb;
     logic [3:0][31:0] value,forwarded;
     logic [3:0][5:0] tag;
     logic [3:0] used;
-    logic [2:0][1:0][31:0] pv;
-    logic [2:0][1:0][5:0] pt;
-    logic [2:0][1:0] valid;
+    logic [1:0][1:0][31:0] pv;
+    logic [1:0][1:0][5:0] pt;
+    logic [1:0][1:0] valid;
     arm9v2_rotate rotate(.i_value(x),.i_amount(amount),.i_type(kind),.i_register(reg_amount),
         .i_carry(carry),.o_value(y),.o_carry(out_carry),.o_preserve(preserve),.o_rrx(rrx));
-    arm9v2_forward forward(.i_value(value),.i_tag(tag),.i_used(used),
-        .i_producer_value(pv),.i_producer_tag(pt),.i_producer_valid(valid),.o_value(forwarded));
+    logic [3:0][1:0][1:0] match_bits;
+    always_comb for(int s=0;s<4;s++)for(int p=0;p<2;p++)for(int lane=0;lane<2;lane++)
+        match_bits[s][p][lane]=used[s]&&valid[p][lane]&&tag[s]==pt[p][lane];
+    arm9v2_forward forward(.i_value(value),.i_match(match_bits),
+        .i_producer_value(pv),.o_value(forwarded));
     // Independently exercised legacy ARM shifter is the shift oracle, not
     // another copy of the new rotator/mask implementation.
     arm9_shift reference(.i_value(x),.i_amount(amount),.i_type(kind),.i_register(reg_amount),
@@ -32,22 +35,22 @@ module execute_leaf_tb;
             for(int mode=0;mode<2;mode++)for(int c=0;c<2;c++)
                 for(int k=0;k<4;k++)for(int n=0;n<(mode==0?32:256);n++)begin
                     kind=2'(k);amount=8'(n);reg_amount=1'(mode);carry=1'(c);#1;
-                    check(y==reference_value&&out_carry==reference_carry,"single rotator matches ARM shift semantics");
+                    check(y==reference_value&&out_carry==reference_carry,"single rotator match_bits ARM shift semantics");
                     check(preserve==(n==0&&(mode!=0||k==0)),"carry preserve token");
                     check(rrx==(mode==0&&k==3&&n==0),"RRX token");
                 end
         end
-        // All six producer lanes can collide. Invalid (condition-failed)
+        // All four producer lanes can collide. Invalid (condition-failed)
         // younger writers must expose the newest older valid value.
         for(int s=0;s<4;s++)begin value[s]=32'h100+32'(s);tag[s]=6'(s);end
-        for(int p=0;p<3;p++)for(int lane=0;lane<2;lane++)pv[p][lane]=32'h200+32'(p*2+lane);
-        for(int source=0;source<4;source++)for(int mask=0;mask<64;mask++)begin
+        for(int p=0;p<2;p++)for(int lane=0;lane<2;lane++)pv[p][lane]=32'h200+32'(p*2+lane);
+        for(int source=0;source<4;source++)for(int mask=0;mask<16;mask++)begin
             logic [31:0] expected;
-            used='1;valid=6'(mask);pt='0;
-            for(int p=0;p<3;p++)for(int lane=0;lane<2;lane++)pt[p][lane]=6'(source);
+            used='1;valid=4'(mask);pt='0;
+            for(int p=0;p<2;p++)for(int lane=0;lane<2;lane++)pt[p][lane]=6'(source);
             expected=value[source];
-            for(int p=2;p>=0;p--)for(int lane=0;lane<2;lane++)if(valid[p][lane])expected=pv[p][lane];
-            #1;check(forwarded[source]==expected,"A/M/W age and lane priority");
+            for(int p=1;p>=0;p--)for(int lane=0;lane<2;lane++)if(valid[p][lane])expected=pv[p][lane];
+            #1;check(forwarded[source]==expected,"M/W age and lane priority");
             for(int s=0;s<4;s++)if(s!=source)check(forwarded[s]==value[s],"nonmatching physical tag");
             used=0;#1;check(forwarded==value,"unused sources ignore producers");
         end

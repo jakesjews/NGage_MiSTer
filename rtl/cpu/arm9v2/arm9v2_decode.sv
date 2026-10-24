@@ -27,9 +27,9 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     input logic [5:0][5:0] i_load_tag,
     input logic [5:0] i_load_valid,
     // Tags/eligibility of the producers that will exist after this edge.
-    input logic [2:0][1:0][5:0] i_forward_tag,
-    input logic [2:0][1:0] i_forward_write,
-    (* dont_retime *) output logic [3:0][2:0][1:0] o_forward_match,
+    input logic [1:0][1:0][5:0] i_forward_tag,
+    input logic [1:0][1:0] i_forward_write,
+    (* dont_retime *) output logic [3:0][1:0][1:0] o_forward_match,
     output logic [3:0] o_early,
     input logic i_ready,
     output logic o_valid,
@@ -421,7 +421,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     assign o_early=issued.early;
     always_ff @(posedge i_clk)begin
         if(i_reset||i_flush)o_forward_match<=0;
-        else for(int src=0;src<4;src++)for(int prod=0;prod<3;prod++)for(int lane=0;lane<2;lane++)
+        else for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
             if(!out_valid||i_ready)o_forward_match[src][prod][lane]<=d2.used[src]&&
                 i_forward_write[prod][lane]&&d2.tag[src]==i_forward_tag[prod][lane];
             else o_forward_match[src][prod][lane]<=issued.used[src]&&
@@ -443,20 +443,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     assign late_redirect=step&&d2.direct&&!d2.redirected&&(!d2.p.predicted||!taken_match);
     // Only operands consumed before the S/A edge need the early ALU lock.
     // Plain ALU inputs and store data can use A's precomputed late token.
-    always_comb begin
-        early_used=0;
-        case(d2.kind)
-            K_DP:begin
-                early_used[1]=d2.used[1]&&d2.p.ins[11:4]!=0;
-                early_used[2]=d2.used[2];
-            end
-            K_MUL,K_MULL:early_used=d2.used;
-            K_MEM,K_MSR:early_used[1]=d2.used[1];
-            K_BLOCK:early_used[0]=d2.used[0];
-            K_MRS:early_used[2]=d2.used[2]&&d2.tag[2]!=17;
-            default:;
-        endcase
-    end
+    assign early_used=d2.early;
     always_comb begin
         early_hazard=0;
         for(int src=0;src<4;src++)for(int pending=0;pending<4;pending++)

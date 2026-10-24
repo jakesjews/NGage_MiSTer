@@ -219,11 +219,14 @@ output  logic [7:0]                      o_dbg_stall
     logic [3:0] d_condition;
     logic [3:0][5:0] d_tag;
     logic [3:0] d_used,d_early;
-    logic [3:0][2:0][1:0] d_forward_match;
-    logic [2:0][1:0][5:0] forward_tag;
-    logic [2:0][1:0] forward_write;
-    logic [1:0][5:0] a_next_tag;
-    logic [1:0] a_next_write;
+    logic [3:0][1:0][1:0] d_forward_match;
+    logic [1:0][1:0][5:0] forward_tag;
+    logic [1:0][1:0] forward_write;
+    logic [31:0] a_btb_pc;
+    logic a_btb_thumb,a_record_pred_hit,a_record_thumb;
+    logic [2:0] a_record_pointer;
+    logic [3:0] a_record_count;
+    logic [1:0] a_record_pred_state;
     logic [3:0][31:0] d_value;
     logic [1:0][5:0] d_dest;
     logic d_first;
@@ -369,7 +372,7 @@ output  logic [7:0]                      o_dbg_stall
     // separate. No cache ACK or producer readiness is searched in forwarding.
     assign load_tag={skid.dest[0],w.dest[0],m.dest[0],a_dest[0],a_a_dest[0],d_dest[0]};
     assign load_valid={skid.valid&&skid.memory&&!skid.store,w.valid&&w.memory&&!w.store,m.valid&&m.memory&&!m.store,
-        a_valid&&a_memory&&!a_store,a_a_load,
+        1'b0,a_a_load,
         d_valid&&!d_fault&&((d_kind==MEM||d_kind==BLOCK)?d_instruction[20]:d_kind==SWP)};
     assign locked=i_dc_lock[39:0];
     assign mw_tag={w.dest,m.dest};
@@ -381,27 +384,27 @@ output  logic [7:0]                      o_dbg_stall
     assign mw_write[0]=m.writes;
     assign mw_write[1]=w.writes;
     always_comb begin
-        forward_tag={w.dest,m.dest,a_next_tag};
-        forward_write={w.writes,m.writes,a_next_write};
+        forward_tag={w.dest,m.dest};
+        forward_write={w.writes,m.writes};
         if(memory_state==RUN&&done)begin
-            forward_tag[1]=input_record.dest;forward_write[1]=input_record.writes;
-            forward_tag[2]=m.dest;forward_write[2]=m.writes;
+            forward_tag[0]=input_record.dest;forward_write[0]=input_record.writes;
+            forward_tag[1]=m.dest;forward_write[1]=m.writes;
         end
         if(memory_state==RELOAD1)begin
-            forward_tag[1]=skid.dest;forward_write[1]=skid.writes;
-            forward_tag[2]=m.dest;forward_write[2]=m.writes;
+            forward_tag[0]=skid.dest;forward_write[0]=skid.writes;
+            forward_tag[1]=m.dest;forward_write[1]=m.writes;
         end
         if((memory_state==HOLD&&done)||(memory_state==ABORT&&done)||
-            (memory_state==LOAD_RETURN&&!i_dc_lock[w.dest[0]]&&w.kind!=SWP&&done))forward_write[2]=0;
+            (memory_state==LOAD_RETURN&&!i_dc_lock[w.dest[0]]&&w.kind!=SWP&&done))forward_write[1]=0;
         if(i_reset||wb_flush)forward_write=0;
     end
     assign wa=wb_valid&&wb_tag0!=16?40'd1<<wb_tag0:40'd0;
     assign wb=wb_valid&&wb_pair&&wb_tag1!=16?40'd1<<wb_tag1:40'd0;
     assign wc=i_dc_reg_idx[39:0];
     assign train=w_train||a_btb_update;
-    assign train_pc=w_train?w_train_pc:a_pc;
+    assign train_pc=w_train?w_train_pc:a_btb_pc;
     assign train_target=w_train?w_train_target:a_btb_target;
-    assign train_thumb=w_train?w_train_thumb:a_thumb;
+    assign train_thumb=w_train?w_train_thumb:a_btb_thumb;
     assign train_taken=w_train||a_btb_taken;
     assign train_hit=w_train?w_train_hit:a_btb_hit;
     assign train_state=w_train?w_train_state:a_btb_state;
@@ -423,9 +426,9 @@ output  logic [7:0]                      o_dbg_stall
         input_record.saved_psr=a_saved_psr;input_record.spsr_tag=a_spsr_tag;
         input_record.next_pc=a_next_pc;input_record.predicted=a_predicted;
         input_record.pred_target=a_prediction_target;
-        input_record.resolved_target=a_redirect_target;input_record.resolved_thumb=a_redirect_thumb;
-        input_record.ras_pointer=a_redirect_pointer;input_record.ras_count=a_redirect_count;
-        input_record.pred_hit=a_btb_hit;input_record.pred_state=a_btb_state;
+        input_record.resolved_target=a_redirect_target;input_record.resolved_thumb=a_record_thumb;
+        input_record.ras_pointer=a_record_pointer;input_record.ras_count=a_record_count;
+        input_record.pred_hit=a_record_pred_hit;input_record.pred_state=a_record_pred_state;
         input_record.irq=a_first&&i_irq&&!a_cpsr[7];
         input_record.fiq=a_first&&i_fiq&&!a_cpsr[6];
         input_record.sel=15;input_record.format={a_data_address[1:0],4'b0};
@@ -699,7 +702,10 @@ output  logic [7:0]                      o_dbg_stall
         .o_stall(o_code_stall)
     );
     arm9v2_execute u_execute (
-        .i_admit(backend_ready),.i_forward_match(d_forward_match),.o_next_tag(a_next_tag),.o_next_write(a_next_write),
+        .i_admit(backend_ready),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_next_write(forward_write),.i_early(d_early),
+        .o_btb_pc(a_btb_pc),.o_btb_thumb(a_btb_thumb),
+        .o_record_pointer(a_record_pointer),.o_record_count(a_record_count),
+        .o_record_pred_hit(a_record_pred_hit),.o_record_pred_state(a_record_pred_state),.o_record_thumb(a_record_thumb),
         .o_a_load(a_a_load),.o_psr_source(a_psr_source),.o_saved_psr(a_saved_psr),.o_original_base(a_original_base),.o_next_pc(a_next_pc),.o_prediction_target(a_prediction_target),.o_spsr_tag(a_spsr_tag),.o_predicted(a_predicted),
         .i_clk(i_clk),
         .i_reset(i_reset),

@@ -1,4 +1,4 @@
-# ARM9V2 session 7 writer-mask measurements, warmed 0:0.
+# ARM9V2 session 7 split measurements, warmed 0:0.
 # Name, last visit predictor on/off; optional penultimate visit on/off.
 # Exact implementation regression counts, not the design acceptance targets.
 dp 9 9
@@ -6,43 +6,43 @@ dp_dependency 5 5
 dp_flags 5 5
 dp_regshift 3 3
 failed_regshift 3 3
-dp_pc 2 12
-dp_regshift_pc 3 13
+dp_pc 2 11
+dp_regshift_pc 3 12
 ldr_independent 3 3
-ldr_alu 8 8
-ldr_base 8 8
-ldr_shift_amount 9 9
-ldr_shift_value 8 8
-ldr_store 8 8
-ldrb 8 8
-ldrh 8 8
-ldrsb 8 8
-ldrsh 8 8
-ldr_unaligned 8 8
-ldr_pc 5 13
+ldr_alu 7 7
+ldr_base 7 7
+ldr_shift_amount 8 8
+ldr_shift_value 7 7
+ldr_store 7 7
+ldrb 7 7
+ldrh 7 7
+ldrsb 7 7
+ldrsh 7 7
+ldr_unaligned 7 7
+ldr_pc 5 12
 str 2 2
 ldm1 2 2
 stm1 2 2
 ldm3 4 4
 stm3 4 4
-ldm_pc 15 15 19 15
-swp 26 18 18 18
-swpb 27 19 19 19
+ldm_pc 14 14 19 14
+swp 17 17
+swpb 18 18
 b 2 6
 bl 2 6
 bx 2 9
 mrs 2 2
-msr_flags 12 12
-msr_control 12 12
-mcr 26 20 20 20
-mrc 18 18 26 18
-mrc_use 19 19 27 19
-mrc_pc 18 18
-swi 26 26 18 26
-undefined 18 26 26 26
-cdp 18 26
-ldc 18 26
-stc 26 26 18 26
+msr_flags 11 11 21 11
+msr_control 11 11
+mcr 26 19 19 19
+mrc 25 17 17 17
+mrc_use 26 18 18 18
+mrc_pc 17 17
+swi 15 22
+undefined 15 22
+cdp 25 22 15 22
+ldc 15 22 25 22
+stc 15 22
 mul_m1 3 3
 mul_m2 3 3
 mul_m3 3 3
@@ -67,6 +67,6 @@ umlal_m1 4 4
 umlal_m2 4 4
 umlal_m3 4 4
 umlal_m4 4 4
-load_distance1 8 8
-load_distance2 8 8
-load_distance3 8 8
+load_distance1 7 7
+load_distance2 7 7
+load_distance3 7 7

@@ -1,7 +1,7 @@
-# ARM9V2 session 4 integration measurements, warmed 0:0.
+# ARM9V2 session 7 split measurements, warmed 0:0.
 # Name, last visit predictor on/off; optional penultimate visit on/off.
 # Exact implementation regression counts, not the design acceptance targets.
 stm8 9 9
 ldm8 9 9
-dependent_blocks 11 11
+dependent_blocks 10 10
 multiply_pair_forward 7 7
