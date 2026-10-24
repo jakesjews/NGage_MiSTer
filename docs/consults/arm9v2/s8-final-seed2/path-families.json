@@ -1,0 +1,86 @@
+{
+  "100C": {
+    "memory request/store merge to short-hit word": {
+      "count_in_worst_30": 21,
+      "worst": {
+        "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|memory_state.0001",
+        "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_words[3]",
+        "slack_ns": -2.838,
+        "levels": 8,
+        "data_delay_ns": 11.732
+      }
+    },
+    "registered return/lock to S/A operand repair": {
+      "count_in_worst_30": 6,
+      "worst": {
+        "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|return_select[3]",
+        "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|held[40]",
+        "slack_ns": -2.35,
+        "levels": 9,
+        "data_delay_ns": 11.159
+      }
+    },
+    "D-TLB qualification to short-hit/control": {
+      "count_in_worst_30": 3,
+      "worst": {
+        "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_fsr[2]",
+        "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_words[3]",
+        "slack_ns": -2.34,
+        "levels": 8,
+        "data_delay_ns": 11.257
+      }
+    }
+  },
+  "-40C": {
+    "memory request/store merge to short-hit word": {
+      "count_in_worst_30": 1,
+      "worst": {
+        "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|memory_state.0001",
+        "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_words[3]",
+        "slack_ns": -2.44,
+        "levels": 8,
+        "data_delay_ns": 11.334
+      }
+    },
+    "D1 instruction classification to D2 destination": {
+      "count_in_worst_30": 5,
+      "worst": {
+        "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1[0][188]",
+        "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[82]",
+        "slack_ns": -2.304,
+        "levels": 10,
+        "data_delay_ns": 11.228
+      }
+    },
+    "registered return/lock to S/A operand repair": {
+      "count_in_worst_30": 20,
+      "worst": {
+        "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|return_select[3]",
+        "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[170]",
+        "slack_ns": -2.224,
+        "levels": 9,
+        "data_delay_ns": 11.018
+      }
+    },
+    "D-TLB qualification to short-hit/control": {
+      "count_in_worst_30": 2,
+      "worst": {
+        "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_hit_ok",
+        "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_section_tlb|g_short.read_valid_OTERM3852_OTERM26866",
+        "slack_ns": -2.15,
+        "levels": 7,
+        "data_delay_ns": 11.086
+      }
+    },
+    "D2 source/admission to registered redirect": {
+      "count_in_worst_30": 2,
+      "worst": {
+        "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[111]",
+        "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|redirect_ff[65]",
+        "slack_ns": -2.101,
+        "levels": 8,
+        "data_delay_ns": 10.981
+      }
+    }
+  }
+}

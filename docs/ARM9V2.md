@@ -1,6 +1,6 @@
 # ARM9V2: eight-stage redesign for real-phone game speed
 
-Status after session 8's firmware milestone: `CORE="ARM9"` selects integrated V2;
+Status after session 8: `CORE="ARM9"` selects integrated V2;
 the commented `NGAGE_CORE_ARM9=1` macro selects it in the MiSTer shell.
 ZAP remains default. Both V2 modes and ZAP pass 267 runs and 69 QEMU
 references, with extra comparisons at both higher bus latencies. Scalar
@@ -10,8 +10,9 @@ The post-setup random-test gate now passes, with small high-latency margins;
 the cache test is faster than ZAP at every latency. The V2 whole-shell bench
 passes. The paired real-firmware run on ubuntu reaches EFile user threads
 and EStart without a logged synchronous fault through 4.5 guest seconds.
-An integrated seed-2 fit is running; the historical −1.237 ns is not a
-measurement of this source.
+The current integrated seed-2 fit is −2.838 ns at slow 100C and 18,349
+ALMs. The −2 ns structural stop is hit; no whole-device build or board
+measurement is claimed. The historical −1.237 ns belongs to older RTL.
 See the [session-8 report](consults/2026-10-24-codex-arm9v2-s8.md) for the
 final firmware outcome and stopping point. Session-labeled sections below
 retain the historical implementation and measurement record.
@@ -771,3 +772,13 @@ load/writeback aliases expose only the winning loaded destination to M/W
 forwarding. The `loadchain` regression covers this complete-cache path;
 the session report records the original firmware failure and first-fix
 deadlock rather than treating CPU-suite agreement as firmware proof.
+
+
+The final S8 integrated fit is −2.838 ns (slow 100C), −2.440 ns (slow −40C),
+18,349 ALMs, minimum hold +0.140 ns. The worst family is memory request
+control through the cache store-byte merge and load formatting into
+`tr_cache_words` (8 levels / 11.732 ns). Return/lock qualification into held
+S/A operands and D1 classification into D2 destination tags also violate
+−2 ns. Work stops at that structural gate. See the S8 report for complete
+paths, area attribution and the precise next cut; the passing 4.5-second
+firmware run does not establish timing closure or board gameplay speed.
