@@ -3039,10 +3039,6 @@ module arm9v2_execute (
 		o_record_pred_state = a[221-:2];
 		o_record_thumb = (a[238-:4] == BX ? right_a[0] : a[230]);
 	end
-	function automatic signed [31:0] sv2v_cast_32_signed;
-		input reg signed [31:0] inp;
-		sv2v_cast_32_signed = inp;
-	endfunction
 	always @(posedge i_clk)
 		if (i_reset || i_flush) begin
 			a_valid <= 0;
@@ -3090,7 +3086,7 @@ module arm9v2_execute (
 						begin : sv2v_autoblock_7
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
-								if (s_wait[src] && i_return_select[(port * 64) + sv2v_cast_32_signed(i_tag[src * 6+:6])]) begin
+								if (s_wait[src] && i_return_select[(port * 64) + {26'd0, i_tag[src * 6+:6]}]) begin
 									held[src * 32+:32] <= i_return_data[port * 32+:32];
 									s_pending[src] <= 0;
 								end
@@ -3113,7 +3109,7 @@ module arm9v2_execute (
 						begin : sv2v_autoblock_9
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
-								if (a_wait[src] && i_return_select[(port * 64) + sv2v_cast_32_signed(a[16 + (src * 6)+:6])]) begin
+								if (a_wait[src] && i_return_select[(port * 64) + {26'd0, a[16 + (src * 6)+:6]}]) begin
 									case (src)
 										0: a[192-:32] <= i_return_data[port * 32+:32];
 										1: a[160-:32] <= i_return_data[port * 32+:32];
@@ -3268,7 +3264,7 @@ module arm9v2_execute (
 						begin : sv2v_autoblock_18
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
-								if (((i_used[src] && !i_early[src]) && s_wait[src]) && i_return_select[(port * 64) + sv2v_cast_32_signed(i_tag[src * 6+:6])]) begin
+								if (((i_used[src] && !i_early[src]) && s_wait[src]) && i_return_select[(port * 64) + {26'd0, i_tag[src * 6+:6]}]) begin
 									case (src)
 										0: a[192-:32] <= i_return_data[port * 32+:32];
 										1: a[160-:32] <= i_return_data[port * 32+:32];

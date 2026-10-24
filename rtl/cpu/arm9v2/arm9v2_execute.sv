@@ -300,7 +300,7 @@ module arm9v2_execute (
             if(i_valid&&!accept)begin
                 holding<=1;held<=operand;s_pending<=s_wait;
                 for(int src=0;src<4;src++)for(int port=0;port<2;port++)
-                    if(s_wait[src]&&i_return_select[port][int'(i_tag[src])])begin
+                    if(s_wait[src]&&i_return_select[port][{26'd0,i_tag[src]}])begin
                         held[src]<=i_return_data[port];s_pending[src]<=0;
                     end
             end
@@ -309,7 +309,7 @@ module arm9v2_execute (
                 a.left<=left_a;a.right<=right_a;a.store_data<=store_a;a.special<=special_a;
                 a.pending<=a_wait;
                 for(int src=0;src<4;src++)for(int port=0;port<2;port++)
-                    if(a_wait[src]&&i_return_select[port][int'(a.tag[src])])begin
+                    if(a_wait[src]&&i_return_select[port][{26'd0,a.tag[src]}])begin
                         case(src)
                             0:a.left<=i_return_data[port];1:a.right<=i_return_data[port];
                             2:a.special<=i_return_data[port];3:a.store_data<=i_return_data[port];
@@ -379,7 +379,7 @@ module arm9v2_execute (
                 // (BX/SWP Rm and the first block base) on this same edge.
                 for(int src=0;src<4;src++)begin
                     for(int port=0;port<2;port++)
-                        if(i_used[src]&&!i_early[src]&&s_wait[src]&&i_return_select[port][int'(i_tag[src])])begin
+                        if(i_used[src]&&!i_early[src]&&s_wait[src]&&i_return_select[port][{26'd0,i_tag[src]}])begin
                             case(src)
                                 0:a.left<=i_return_data[port];1:a.right<=i_return_data[port];
                                 2:a.special<=i_return_data[port];3:a.store_data<=i_return_data[port];
