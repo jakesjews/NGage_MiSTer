@@ -824,3 +824,49 @@ the exact stopping point. The final 4.5-second firmware run reproduces
 S9's kernel, exec and device logs byte for byte, including EFile at clock
 377,643,613 and EStart at 434,096,391. ZAP stays the default; no in-play speed or
 whole-device timing claim follows from these CPU-only trials.
+
+
+## Session 11: short-cache captures, ready grants and RF classes
+
+The short cache captures one read/write descriptor beside its read-first
+RAM edge. A shared post-edge set equality forwards captured tag/byte writes;
+the byte RAMs expose their raw registered read under `SHORT_RAW`. Short
+valid/dirty/LRU captures select sixteen entries per bank before the edge
+and the bank afterwards. Each output retains its separate hold/maintenance
+enable and live/pending update priority. The non-short RAM and metadata
+behavior is unchanged. An old/new cache miter and inductive metadata proof
+cover the transformation; the module-level RAM inference template is
+required for Quartus 17 to preserve the M10Ks.
+
+D2/S now registers data-ready grants separately from full producer matches.
+Both W-hit alternatives are captured, then the registered permission-qualified
+hit chooses one in S. S's selector consumes those grants; full matches still
+protect producer age, pending loads and held repairs. A's small late bypass
+retains its existing schedule. The cache queries held and advancing lock
+owners in parallel against next locks. A registered W exception class drives
+V2's RF data/port selection independently of completion, while the original
+write enable, abort restoration, CPSR and retirement control remain intact.
+Background port C retains priority and V2's RF retiming bound stays in place.
+
+| Integrated seed-2 milestone | Slow 100 C | Worst slow slack | ALMs |
+|---|---:|---:|---:|
+| S10 endpoint | -2.983 ns | -2.983 ns | 16,011 |
+| S11 shared short-port descriptor / banked capture | -2.706 ns | -2.818 ns | 15,439 |
+| S11 registered S data grants | -2.473 ns | -2.473 ns | 15,591 |
+| S11 parallel lock queries / RF owner class | -2.817 ns | -2.877 ns | 15,614 |
+
+Every cycle/instruction pair remains unchanged in all three configurations;
+267/267 runs and 69 QEMU comparisons pass per configuration, with all 85
+windows at all latencies unchanged, including raw hit intervals 3/4/5.
+The -1.5 ns gate is missed. The endpoint is functionally verified experimental
+RTL, not 104 MHz closure. The global leader is queue/Thumb to D1 (11.843 ns,
+9 levels); D1 destination mapping is 11.598 ns / 10 levels. A distinct
+registered W load word through A's late bypass, ALU and zero-flag reduction
+into M remains 11.123 ns / 10 levels. An address-launch stage does not cut
+that flag path, and neither proposed backend stage cuts the front end.
+
+See the [session-11 report](consults/2026-10-24-codex-arm9v2-s11.md) for the
+per-family tables, cycle pairs, equivalence scope and the stopping decision.
+The accepted endpoint reproduces S9 firmware logs byte for byte through
+4.5 seconds: EFile at clock 377,643,613 and EStart at 434,096,391, without
+faults. ZAP remains the default.

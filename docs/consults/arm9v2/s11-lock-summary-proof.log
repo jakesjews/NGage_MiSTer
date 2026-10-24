@@ -157,7 +157,7 @@ Finding unused cells or wires in module \proof..
 === proof ===
 
         +----------Local Count, excluding submodules.
-        | 
+        |
        23 wires
       268 wire bits
        12 public wires
@@ -216,15 +216,15 @@ Import proof for assert: $eq$proof.v:16$14_Y when 1'1.
 [induction step 1] Solving problem with 9668 variables and 27308 clauses..
 Induction step proven: SUCCESS!
 
-                  /$$$$$$      /$$$$$$$$     /$$$$$$$    
-                 /$$__  $$    | $$_____/    | $$__  $$   
-                | $$  \ $$    | $$          | $$  \ $$   
-                | $$  | $$    | $$$$$       | $$  | $$   
-                | $$  | $$    | $$__/       | $$  | $$   
-                | $$/$$ $$    | $$          | $$  | $$   
+                  /$$$$$$      /$$$$$$$$     /$$$$$$$
+                 /$$__  $$    | $$_____/    | $$__  $$
+                | $$  \ $$    | $$          | $$  \ $$
+                | $$  | $$    | $$$$$       | $$  | $$
+                | $$  | $$    | $$__/       | $$  | $$
+                | $$/$$ $$    | $$          | $$  | $$
                 |  $$$$$$/ /$$| $$$$$$$$ /$$| $$$$$$$//$$
                  \____ $$$|__/|________/|__/|_______/|__/
-                       \__/                              
+                       \__/
 
 End of script. Logfile hash: fffbfa1236, time: 0.06s, user: 0.06s, system: 0.01s, MEM: 32.03 MB peak
 Yosys 0.70+post (git sha1 0c11ea098be065e585a90a06e7b7da49936cf231, Release, AppleClang clang++ 21.0.0.21000334)
