@@ -23,7 +23,8 @@ module arm9v2_execute (
     input logic [3:0][5:0] i_tag,
     input logic [3:0] i_used,i_early,
     input logic [3:0][1:0][1:0] i_forward_match,
-    input logic [1:0][1:0][5:0] i_next_tag,
+    input logic [1:0][1:0][5:0] i_next_tag, i_advance_tag,
+    input logic i_next_advance,
     input logic [1:0][1:0] i_next_write,
     input logic [3:0][31:0] i_value,
     input logic [1:0][5:0] i_dest,
@@ -306,6 +307,24 @@ module arm9v2_execute (
                 o_record_pred_hit=a.pred_hit;o_record_pred_state=a.pred_state;
                 o_record_thumb=a.kind==BX?right_a[0]:a.thumb;
     end
+    (* keep *) logic [1:0][3:0][1:0][1:0] s_candidate_match, a_candidate_match;
+    always_comb for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)begin
+        s_candidate_match[0][src][prod][lane]=i_tag[src]==i_next_tag[prod][lane];
+        // Current M becomes W on advance. Its match is already registered
+        // at D2/S, and is refreshed there throughout a hold.
+        s_candidate_match[1][src][prod][lane]=prod==1?i_forward_match[src][0][lane]:
+            i_tag[src]==i_advance_tag[prod][lane];
+        a_candidate_match[0][src][prod][lane]=a.tag[src]==i_next_tag[prod][lane];
+        a_candidate_match[1][src][prod][lane]=a.tag[src]==i_advance_tag[prod][lane];
+    end
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if(!i_reset&&!i_flush&&i_valid)
+        for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)begin
+            assert((i_used[src]&&i_next_write[prod][lane]&&s_candidate_match[i_next_advance][src][prod][lane])==
+                (i_used[src]&&i_next_write[prod][lane]&&i_tag[src]==(i_next_advance?i_advance_tag[prod][lane]:i_next_tag[prod][lane])))
+                else $fatal(1,"next producer match/age");
+        end
+`endif
     always_ff @(posedge i_clk)begin
         if(i_reset||i_flush)begin
             a_valid<=0;holding<=0;prepared<=0;s_pending<=0;multiply_accumulate<=0;multiply_product_ready<=0;
@@ -339,7 +358,7 @@ module arm9v2_execute (
                         a.pending[src]<=0;
                     end
                 for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
-                    a.late[src][prod][lane]<=a.late_used[src]&&i_next_write[prod][lane]&&a.tag[src]==i_next_tag[prod][lane];
+                    a.late[src][prod][lane]<=a.late_used[src]&&i_next_write[prod][lane]&&a_candidate_match[i_next_advance][src][prod][lane];
             end
             if(product_phase)begin
                 ll<=$signed({1'b0,a.right[15:0]})*$signed({1'b0,a.special[15:0]});
@@ -380,12 +399,12 @@ module arm9v2_execute (
                 for(int src=0;src<4;src++)begin
                     a.pending[src]<=i_used[src]&&!i_early[src]&&s_wait[src];
                     for(int prod=0;prod<2;prod++)
-                        if(i_used[src]&&!i_early[src]&&i_next_load_owner[prod]&&i_tag[src]==i_next_tag[prod][0])
+                        if(i_used[src]&&!i_early[src]&&i_next_load_owner[prod]&&s_candidate_match[i_next_advance][src][prod][0])
                             a.pending[src]<=1;
                     a.late_used[src]<=i_used[src]&&!i_early[src]&&i_tag[src]!=15&&i_tag[src]!=17;
                     for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
                         a.late[src][prod][lane]<=i_used[src]&&!i_early[src]&&i_tag[src]!=15&&i_tag[src]!=17&&
-                            i_next_write[prod][lane]&&i_tag[src]==i_next_tag[prod][lane];
+                            i_next_write[prod][lane]&&s_candidate_match[i_next_advance][src][prod][lane];
                 end
                 if(i_kind==MEM)begin
                     a.op<=i_instruction[23]?4'd4:4'd2;a.rrx<=rrx;

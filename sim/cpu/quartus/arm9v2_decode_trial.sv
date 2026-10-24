@@ -148,5 +148,5 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
             32'(o_stall);
     end
     arm9v2_front_decode u_front_decode (.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_load_valid('0),.i_load_speculate('0),
-        .i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.i_rf_value('0),.o_rf_tag(),.o_writes(),.o_early(),.i_forward_tag('0),.i_forward_write('0),.o_forward_match(),.*);
+        .i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.i_rf_value('0),.o_rf_tag(),.o_writes(),.o_early(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_write('0),.o_forward_match(),.*);
 endmodule

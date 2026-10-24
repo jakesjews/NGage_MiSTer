@@ -188,7 +188,7 @@ module execute_tb;
             end
         end
     end
-    arm9v2_execute dut(.i_pending(i_pending),.i_load_owner(i_load_owner),.i_next_load_owner(i_next_load_owner),.i_load_hit(i_load_hit),.i_return_select(i_return_select[1]),.i_return_data({i_return_data[1],normal_return_data}),
+    arm9v2_execute dut(.i_advance_tag('0),.i_next_advance(1'b0),.i_pending(i_pending),.i_load_owner(i_load_owner),.i_next_load_owner(i_next_load_owner),.i_load_hit(i_load_hit),.i_return_select(i_return_select[1]),.i_return_data({i_return_data[1],normal_return_data}),
         .i_return_next_valid(|i_return_select[0]),.i_return_next_tag(normal_return_tag),
         .i_return_ready(1'b1),.i_return_s_match(normal_s_match),.i_load_wait(1'b0),.i_ready(ready_m),.i_mw_tag(real_tag),.i_mw_value(real_value),.i_mw_valid(real_write),
 .o_valid(raw_o_valid),.o_pc(raw_o_pc),.o_instruction(raw_o_instruction),.o_cpsr(raw_o_cpsr),.o_cpsr_next(raw_o_cpsr_next),.o_kind(raw_o_kind),.o_thumb(raw_o_thumb),.o_fault(raw_o_fault),.o_first(raw_o_first),.o_last(raw_o_last),.o_condition_pass(raw_o_condition_pass),.o_dest(raw_o_dest),.o_result(raw_o_result),.o_write(raw_o_write),.o_write_flags(raw_o_write_flags),.o_pc_write(raw_o_pc_write),.o_memory(raw_o_memory),.o_store(raw_o_store),.o_address(raw_o_address),.o_store_data(raw_o_store_data),.o_psr_source(raw_o_psr_source),.o_saved_psr(raw_o_saved_psr),.o_original_base(raw_o_original_base),.o_next_pc(raw_o_next_pc),.o_prediction_target(raw_o_prediction_target),.o_spsr_tag(raw_o_spsr_tag),.o_predicted(raw_o_predicted),.*);

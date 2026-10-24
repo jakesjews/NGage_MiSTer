@@ -35,7 +35,8 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     input logic [1:0] i_next_load_valid,
     output logic o_load_wait,
     // Tags/eligibility of the producers that will exist after this edge.
-    input logic [1:0][1:0][5:0] i_forward_tag,
+    input logic [1:0][1:0][5:0] i_forward_tag, i_advance_tag,
+    input logic i_forward_advance,
     input logic [1:0][1:0] i_forward_write,
     (* dont_retime *) output logic [3:0][1:0][1:0] o_forward_match,
     output logic [3:0] o_early,
@@ -435,13 +436,23 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
             o_return_match[src]<=i_return_next_valid&&i_return_next_tag==
                 ((!out_valid||i_ready)?d2.tag[src]:issued.tag[src]);
     end
+    // Both identities are compared in parallel with completion. Keep the
+    // comparison nodes so synthesis cannot move the transition mux ahead
+    // of a six-bit equality again.
+    (* keep *) logic [1:0][3:0][1:0][1:0] d2_candidate_match, held_candidate_match;
+    always_comb for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)begin
+        d2_candidate_match[0][src][prod][lane]=d2.tag[src]==i_forward_tag[prod][lane];
+        d2_candidate_match[1][src][prod][lane]=d2.tag[src]==i_advance_tag[prod][lane];
+        held_candidate_match[0][src][prod][lane]=issued.tag[src]==i_forward_tag[prod][lane];
+        held_candidate_match[1][src][prod][lane]=issued.tag[src]==i_advance_tag[prod][lane];
+    end
     always_ff @(posedge i_clk)begin
         if(i_reset||i_flush)o_forward_match<=0;
         else for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
             if(!out_valid||i_ready)o_forward_match[src][prod][lane]<=d2.used[src]&&
-                i_forward_write[prod][lane]&&d2.tag[src]==i_forward_tag[prod][lane];
+                i_forward_write[prod][lane]&&d2_candidate_match[i_forward_advance][src][prod][lane];
             else o_forward_match[src][prod][lane]<=issued.used[src]&&
-                i_forward_write[prod][lane]&&issued.tag[src]==i_forward_tag[prod][lane];
+                i_forward_write[prod][lane]&&held_candidate_match[i_forward_advance][src][prod][lane];
     end
     // Retain the latency separation when a backend hold compresses the
     // relative positions of load and consumer. All comparisons terminate

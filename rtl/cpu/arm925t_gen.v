@@ -749,27 +749,56 @@ module arm9v2_core (
 	assign mw_value[64+:64] = {w[58+:32], (w[493] ? (i_data_short_hit ? i_data_short_data : 32'd0) : w[26+:32])};
 	assign mw_write[0+:2] = m[25-:2] | {1'b0, m[493]};
 	assign mw_write[2+:2] = w[25-:2] | {1'b0, w[493]};
+	(* keep, maxfan = 32 *) reg [2:0] complete_class;
+	(* keep, maxfan = 32 *) wire done_forward = !w[507] || complete_class[2];
+	wire quick_forward = (((memory_state == 4'd1) && done_forward) && !(m[507] && m[501])) && !(skid[507] && skid[501]);
+	always @(*) begin : sv2v_autoblock_1
+		reg signed [31:0] consumer;
+		if (_sv2v_0)
+			;
+		for (consumer = 0; consumer < 3; consumer = consumer + 1)
+			begin
+				complete_class[consumer] = 0;
+				if (w[507] && !wb_flush) begin
+					if (memory_state == 4'd10)
+						complete_class[consumer] = 1;
+					else if (w_exception)
+						complete_class[consumer] = !i_dc_lock_any;
+					else if (w[506] && (w[6-:4] == CP))
+						complete_class[consumer] = cp_finished;
+					else if (memory_state == 4'd6)
+						complete_class[consumer] = !w_locked && (w[6-:4] != SWP);
+					else if ((memory_state == 4'd0) || (memory_state == 4'd1))
+						complete_class[consumer] = !w[501] || ((request_done && !retry) && !defer_load);
+				end
+				if (((request_done && i_data_wb_err) && (w[6-:4] == BLOCK)) && w[450])
+					complete_class[consumer] = 0;
+			end
+	end
+	wire [23:0] advance_tag;
+	(* keep, maxfan = 32 *) wire forward_advance = (((memory_state == 4'd0) && done_forward) || (memory_state == 4'd3)) || quick_forward;
+	assign advance_tag = {m[101-:12], ((memory_state == 4'd3) || (memory_state == 4'd1) ? skid[101-:12] : input_record[101-:12])};
 	always @(*) begin
 		if (_sv2v_0)
 			;
 		forward_tag = {w[101-:12], m[101-:12]};
 		forward_write = {mw_write[2+:2], mw_write[0+:2]};
 		forward_load = {w[493], m[493]};
-		if ((memory_state == 4'd0) && done) begin
+		if ((memory_state == 4'd0) && done_forward) begin
 			forward_tag[0+:12] = input_record[101-:12];
 			forward_write[0+:2] = input_record[25-:2] | {1'b0, input_record[493]};
 			forward_load = {m[493], input_record[493]};
 			forward_tag[12+:12] = m[101-:12];
 			forward_write[2+:2] = m[25-:2] | {1'b0, m[493]};
 		end
-		if ((memory_state == 4'd3) || quick_reload) begin
+		if ((memory_state == 4'd3) || quick_forward) begin
 			forward_tag[0+:12] = skid[101-:12];
 			forward_write[0+:2] = skid[25-:2] | {1'b0, skid[493]};
 			forward_load = {m[493], skid[493]};
 			forward_tag[12+:12] = m[101-:12];
 			forward_write[2+:2] = m[25-:2] | {1'b0, m[493]};
 		end
-		if (((((memory_state == 4'd1) && done) && !quick_reload) || ((memory_state == 4'd10) && done)) || ((((memory_state == 4'd6) && !w_locked) && (w[6-:4] != SWP)) && done)) begin
+		if (((((memory_state == 4'd1) && done_forward) && !quick_forward) || ((memory_state == 4'd10) && done_forward)) || ((((memory_state == 4'd6) && !w_locked) && (w[6-:4] != SWP)) && done_forward)) begin
 			forward_write[2+:2] = 0;
 			forward_load[1] = 0;
 		end
@@ -779,9 +808,9 @@ module arm9v2_core (
 			next_load_tag[0+:6] = d_dest[0+:6];
 			next_load_valid[0] = !d_fault && ((d_kind == MEM) || (d_kind == BLOCK) ? d_instruction[20] : d_kind == SWP);
 		end
-		if ((memory_state == 4'd0) && done)
+		if ((memory_state == 4'd0) && done_forward)
 			next_load_valid[1] = input_record[493];
-		if ((memory_state == 4'd3) || quick_reload)
+		if ((memory_state == 4'd3) || quick_forward)
 			next_load_valid[1] = skid[493];
 		if (a_redirect)
 			next_load_valid[0] = 0;
@@ -918,22 +947,8 @@ module arm9v2_core (
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		wb_complete = 0;
-		if (w[507] && !wb_flush) begin
-			if (memory_state == 4'd10)
-				wb_complete = 1;
-			else if (w_exception)
-				wb_complete = !i_dc_lock_any;
-			else if (w[506] && (w[6-:4] == CP))
-				wb_complete = cp_finished;
-			else if (memory_state == 4'd6)
-				wb_complete = !w_locked && (w[6-:4] != SWP);
-			else if ((memory_state == 4'd0) || (memory_state == 4'd1))
-				wb_complete = !w[501] || ((request_done && !retry) && !defer_load);
-		end
-		if (((request_done && i_data_wb_err) && (w[6-:4] == BLOCK)) && w[450])
-			wb_complete = 0;
-		done = !w[507] || wb_complete;
+		wb_complete = complete_class[0];
+		done = !w[507] || complete_class[1];
 		wb_dabt = wb_complete && ((memory_state == 4'd10) || (request_done && i_data_wb_err));
 		wb_fiq = (wb_complete && !wb_dabt) && w[496];
 		wb_irq = ((wb_complete && !wb_dabt) && !wb_fiq) && w[497];
@@ -1182,7 +1197,9 @@ module arm9v2_core (
 		.o_pending(d_pending),
 		.o_writes(),
 		.o_early(d_early),
-		.i_forward_tag(forward_tag),
+		.i_forward_tag(mw_tag),
+		.i_advance_tag(advance_tag),
+		.i_forward_advance(forward_advance),
 		.i_forward_write(forward_write),
 		.o_forward_match(d_forward_match),
 		.i_clk(i_clk),
@@ -1296,7 +1313,9 @@ module arm9v2_core (
 		.i_return_ready(return_ready),
 		.i_return_s_match(d_return_match),
 		.i_forward_match(d_forward_match),
-		.i_next_tag(forward_tag),
+		.i_next_tag(mw_tag),
+		.i_advance_tag(advance_tag),
+		.i_next_advance(forward_advance),
 		.i_next_write(forward_write),
 		.i_early(d_early),
 		.o_btb_pc(a_btb_pc),
@@ -1570,6 +1589,8 @@ module arm9v2_decode (
 	i_next_load_valid,
 	o_load_wait,
 	i_forward_tag,
+	i_advance_tag,
+	i_forward_advance,
 	i_forward_write,
 	o_forward_match,
 	o_early,
@@ -1661,6 +1682,8 @@ module arm9v2_decode (
 	input wire [1:0] i_next_load_valid;
 	output reg o_load_wait;
 	input wire [23:0] i_forward_tag;
+	input wire [23:0] i_advance_tag;
+	input wire i_forward_advance;
 	input wire [3:0] i_forward_write;
 	(* dont_retime *) output reg [15:0] o_forward_match;
 	output wire [3:0] o_early;
@@ -2181,22 +2204,44 @@ module arm9v2_decode (
 			for (src = 0; src < 4; src = src + 1)
 				o_return_match[src] <= i_return_next_valid && (i_return_next_tag == (!out_valid || i_ready ? d2[100 + (src * 6)+:6] : issued[100 + (src * 6)+:6]));
 		end
+	(* keep *) reg [31:0] d2_candidate_match;
+	(* keep *) reg [31:0] held_candidate_match;
+	always @(*) begin : sv2v_autoblock_3
+		reg signed [31:0] src;
+		if (_sv2v_0)
+			;
+		for (src = 0; src < 4; src = src + 1)
+			begin : sv2v_autoblock_4
+				reg signed [31:0] prod;
+				for (prod = 0; prod < 2; prod = prod + 1)
+					begin : sv2v_autoblock_5
+						reg signed [31:0] lane;
+						for (lane = 0; lane < 2; lane = lane + 1)
+							begin
+								d2_candidate_match[((((0 + src) * 2) + prod) * 2) + lane] = d2[100 + (src * 6)+:6] == i_forward_tag[((prod * 2) + lane) * 6+:6];
+								d2_candidate_match[((((4 + src) * 2) + prod) * 2) + lane] = d2[100 + (src * 6)+:6] == i_advance_tag[((prod * 2) + lane) * 6+:6];
+								held_candidate_match[((((0 + src) * 2) + prod) * 2) + lane] = issued[100 + (src * 6)+:6] == i_forward_tag[((prod * 2) + lane) * 6+:6];
+								held_candidate_match[((((4 + src) * 2) + prod) * 2) + lane] = issued[100 + (src * 6)+:6] == i_advance_tag[((prod * 2) + lane) * 6+:6];
+							end
+					end
+			end
+	end
 	always @(posedge i_clk)
 		if (i_reset || i_flush)
 			o_forward_match <= 0;
-		else begin : sv2v_autoblock_3
+		else begin : sv2v_autoblock_6
 			reg signed [31:0] src;
 			for (src = 0; src < 4; src = src + 1)
-				begin : sv2v_autoblock_4
+				begin : sv2v_autoblock_7
 					reg signed [31:0] prod;
 					for (prod = 0; prod < 2; prod = prod + 1)
-						begin : sv2v_autoblock_5
+						begin : sv2v_autoblock_8
 							reg signed [31:0] lane;
 							for (lane = 0; lane < 2; lane = lane + 1)
 								if (!out_valid || i_ready)
-									o_forward_match[(((src * 2) + prod) * 2) + lane] <= (d2[96 + src] && i_forward_write[(prod * 2) + lane]) && (d2[100 + (src * 6)+:6] == i_forward_tag[((prod * 2) + lane) * 6+:6]);
+									o_forward_match[(((src * 2) + prod) * 2) + lane] <= (d2[96 + src] && i_forward_write[(prod * 2) + lane]) && d2_candidate_match[(((((i_forward_advance * 4) + src) * 2) + prod) * 2) + lane];
 								else
-									o_forward_match[(((src * 2) + prod) * 2) + lane] <= (issued[96 + src] && i_forward_write[(prod * 2) + lane]) && (issued[100 + (src * 6)+:6] == i_forward_tag[((prod * 2) + lane) * 6+:6]);
+									o_forward_match[(((src * 2) + prod) * 2) + lane] <= (issued[96 + src] && i_forward_write[(prod * 2) + lane]) && held_candidate_match[(((((i_forward_advance * 4) + src) * 2) + prod) * 2) + lane];
 						end
 				end
 		end
@@ -2205,10 +2250,10 @@ module arm9v2_decode (
 		if (_sv2v_0)
 			;
 		load_wait_next = 0;
-		begin : sv2v_autoblock_6
+		begin : sv2v_autoblock_9
 			reg signed [31:0] src;
 			for (src = 0; src < 4; src = src + 1)
-				begin : sv2v_autoblock_7
+				begin : sv2v_autoblock_10
 					reg signed [31:0] prod;
 					for (prod = 0; prod < 2; prod = prod + 1)
 						if (!out_valid || i_ready)
@@ -2241,10 +2286,10 @@ module arm9v2_decode (
 		if (_sv2v_0)
 			;
 		early_hazard = 0;
-		begin : sv2v_autoblock_8
+		begin : sv2v_autoblock_11
 			reg signed [31:0] src;
 			for (src = 0; src < 4; src = src + 1)
-				begin : sv2v_autoblock_9
+				begin : sv2v_autoblock_12
 					reg signed [31:0] pending;
 					for (pending = 0; pending < 4; pending = pending + 1)
 						early_hazard[src] = early_hazard[src] | ((early_used[src] && i_early_valid[pending]) && (d2[100 + (src * 6)+:6] == i_early_tag[pending * 6+:6]));
@@ -2255,23 +2300,23 @@ module arm9v2_decode (
 		if (_sv2v_0)
 			;
 		load_hazard = 0;
-		begin : sv2v_autoblock_10
+		begin : sv2v_autoblock_13
 			reg signed [31:0] pending;
 			for (pending = 0; pending < 6; pending = pending + 1)
 				begin
-					begin : sv2v_autoblock_11
+					begin : sv2v_autoblock_14
 						reg signed [31:0] src;
 						for (src = 0; src < 4; src = src + 1)
 							load_hazard = load_hazard | (((d2[96 + src] && i_load_valid[pending]) && ((!i_load_speculate[pending] || (pending == 0)) || (d2[92 + src] && (pending == 1)))) && (d2[100 + (src * 6)+:6] == i_load_tag[pending * 6+:6]));
 					end
-					if (EXTERNAL_RF) begin : sv2v_autoblock_12
+					if (EXTERNAL_RF) begin : sv2v_autoblock_15
 						reg signed [31:0] dst;
 						for (dst = 0; dst < 2; dst = dst + 1)
 							load_hazard = load_hazard | (((d2[78 + dst] && i_load_valid[pending]) && (d2[80 + (dst * 6)+:6] == i_load_tag[pending * 6+:6])) && !(i_load_speculate[pending] && ((((((pending == 4) && i_w_load_hit) || (d2[96] && (d2[100+:6] == i_load_tag[pending * 6+:6]))) || (d2[97] && (d2[106+:6] == i_load_tag[pending * 6+:6]))) || (d2[98] && (d2[112+:6] == i_load_tag[pending * 6+:6]))) || (d2[99] && (d2[118+:6] == i_load_tag[pending * 6+:6])))));
 					end
 				end
 		end
-		if (EXTERNAL_RF) begin : sv2v_autoblock_13
+		if (EXTERNAL_RF) begin : sv2v_autoblock_16
 			reg signed [31:0] dst;
 			for (dst = 0; dst < 2; dst = dst + 1)
 				load_hazard = load_hazard | (d2[78 + dst] && i_locked[d2[80 + (dst * 6)+:6]]);
@@ -2311,7 +2356,7 @@ module arm9v2_decode (
 		if (_sv2v_0)
 			;
 		o_value = values;
-		begin : sv2v_autoblock_14
+		begin : sv2v_autoblock_17
 			reg signed [31:0] n;
 			for (n = 0; n < 4; n = n + 1)
 				begin
@@ -2377,13 +2422,13 @@ module arm9v2_decode (
 			if (!out_valid || i_ready) begin
 				issued <= d2;
 				values <= raw_values;
-				begin : sv2v_autoblock_15
+				begin : sv2v_autoblock_18
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
 						o_pending[src] <= ((d2[96 + src] && i_load_valid[4]) && !i_w_load_hit) && (d2[100 + (src * 6)+:6] == i_load_tag[24+:6]);
 				end
 				write_through_data <= {i_wr_data_c, i_wr_data_b, i_wr_data_a};
-				begin : sv2v_autoblock_16
+				begin : sv2v_autoblock_19
 					reg signed [31:0] n;
 					for (n = 0; n < 4; n = n + 1)
 						write_through_match[n * 3+:3] <= {i_wr_addr_c[d2[100 + (n * 6)+:6]], i_wen && i_wr_addr_b[d2[100 + (n * 6)+:6]], i_wen && i_wr_addr_a[d2[100 + (n * 6)+:6]]};
@@ -2535,6 +2580,8 @@ module arm9v2_execute (
 	i_early,
 	i_forward_match,
 	i_next_tag,
+	i_advance_tag,
+	i_next_advance,
 	i_next_write,
 	i_value,
 	i_dest,
@@ -2647,6 +2694,8 @@ module arm9v2_execute (
 	input wire [3:0] i_early;
 	input wire [15:0] i_forward_match;
 	input wire [23:0] i_next_tag;
+	input wire [23:0] i_advance_tag;
+	input wire i_next_advance;
 	input wire [3:0] i_next_write;
 	input wire [127:0] i_value;
 	input wire [11:0] i_dest;
@@ -3099,6 +3148,28 @@ module arm9v2_execute (
 		o_record_pred_state = a[221-:2];
 		o_record_thumb = (a[238-:4] == BX ? right_a[0] : a[230]);
 	end
+	(* keep *) reg [31:0] s_candidate_match;
+	(* keep *) reg [31:0] a_candidate_match;
+	always @(*) begin : sv2v_autoblock_9
+		reg signed [31:0] src;
+		if (_sv2v_0)
+			;
+		for (src = 0; src < 4; src = src + 1)
+			begin : sv2v_autoblock_10
+				reg signed [31:0] prod;
+				for (prod = 0; prod < 2; prod = prod + 1)
+					begin : sv2v_autoblock_11
+						reg signed [31:0] lane;
+						for (lane = 0; lane < 2; lane = lane + 1)
+							begin
+								s_candidate_match[((((0 + src) * 2) + prod) * 2) + lane] = i_tag[src * 6+:6] == i_next_tag[((prod * 2) + lane) * 6+:6];
+								s_candidate_match[((((4 + src) * 2) + prod) * 2) + lane] = (prod == 1 ? i_forward_match[((src * 2) * 2) + lane] : i_tag[src * 6+:6] == i_advance_tag[((prod * 2) + lane) * 6+:6]);
+								a_candidate_match[((((0 + src) * 2) + prod) * 2) + lane] = a[16 + (src * 6)+:6] == i_next_tag[((prod * 2) + lane) * 6+:6];
+								a_candidate_match[((((4 + src) * 2) + prod) * 2) + lane] = a[16 + (src * 6)+:6] == i_advance_tag[((prod * 2) + lane) * 6+:6];
+							end
+					end
+			end
+	end
 	always @(posedge i_clk)
 		if (i_reset || i_flush) begin
 			a_valid <= 0;
@@ -3140,10 +3211,10 @@ module arm9v2_execute (
 				holding <= 1;
 				held <= operand;
 				s_pending <= s_wait;
-				begin : sv2v_autoblock_9
+				begin : sv2v_autoblock_12
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_10
+						begin : sv2v_autoblock_13
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
 								if ((s_wait[src] && !(|i_forward_match[2 * (src * 2)+:4])) && s_return_match[(src * 2) + port]) begin
@@ -3163,10 +3234,10 @@ module arm9v2_execute (
 				a[128-:32] <= store_a;
 				a[96-:32] <= special_a;
 				a[11-:4] <= a_wait;
-				begin : sv2v_autoblock_11
+				begin : sv2v_autoblock_14
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_12
+						begin : sv2v_autoblock_15
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
 								if ((a_wait[src] && !(|a[40 + (2 * (src * 2))+:4])) && a_return_match[(src * 2) + port]) begin
@@ -3180,16 +3251,16 @@ module arm9v2_execute (
 								end
 						end
 				end
-				begin : sv2v_autoblock_13
+				begin : sv2v_autoblock_16
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_14
+						begin : sv2v_autoblock_17
 							reg signed [31:0] prod;
 							for (prod = 0; prod < 2; prod = prod + 1)
-								begin : sv2v_autoblock_15
+								begin : sv2v_autoblock_18
 									reg signed [31:0] lane;
 									for (lane = 0; lane < 2; lane = lane + 1)
-										a[40 + ((((src * 2) + prod) * 2) + lane)] <= (a[12 + src] && i_next_write[(prod * 2) + lane]) && (a[16 + (src * 6)+:6] == i_next_tag[((prod * 2) + lane) * 6+:6]);
+										a[40 + ((((src * 2) + prod) * 2) + lane)] <= (a[12 + src] && i_next_write[(prod * 2) + lane]) && a_candidate_match[(((((i_next_advance * 4) + src) * 2) + prod) * 2) + lane];
 								end
 						end
 				end
@@ -3268,25 +3339,25 @@ module arm9v2_execute (
 				a[57] <= rrx;
 				a[7-:8] <= i_writeback_offset;
 				a[39-:24] <= i_tag;
-				begin : sv2v_autoblock_16
+				begin : sv2v_autoblock_19
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
 						begin
 							a[8 + src] <= (i_used[src] && !i_early[src]) && s_wait[src];
-							begin : sv2v_autoblock_17
+							begin : sv2v_autoblock_20
 								reg signed [31:0] prod;
 								for (prod = 0; prod < 2; prod = prod + 1)
-									if (((i_used[src] && !i_early[src]) && i_next_load_owner[prod]) && (i_tag[src * 6+:6] == i_next_tag[(prod * 2) * 6+:6]))
+									if (((i_used[src] && !i_early[src]) && i_next_load_owner[prod]) && s_candidate_match[((((i_next_advance * 4) + src) * 2) + prod) * 2])
 										a[8 + src] <= 1;
 							end
 							a[12 + src] <= ((i_used[src] && !i_early[src]) && (i_tag[src * 6+:6] != 15)) && (i_tag[src * 6+:6] != 17);
-							begin : sv2v_autoblock_18
+							begin : sv2v_autoblock_21
 								reg signed [31:0] prod;
 								for (prod = 0; prod < 2; prod = prod + 1)
-									begin : sv2v_autoblock_19
+									begin : sv2v_autoblock_22
 										reg signed [31:0] lane;
 										for (lane = 0; lane < 2; lane = lane + 1)
-											a[40 + ((((src * 2) + prod) * 2) + lane)] <= ((((i_used[src] && !i_early[src]) && (i_tag[src * 6+:6] != 15)) && (i_tag[src * 6+:6] != 17)) && i_next_write[(prod * 2) + lane]) && (i_tag[src * 6+:6] == i_next_tag[((prod * 2) + lane) * 6+:6]);
+											a[40 + ((((src * 2) + prod) * 2) + lane)] <= ((((i_used[src] && !i_early[src]) && (i_tag[src * 6+:6] != 15)) && (i_tag[src * 6+:6] != 17)) && i_next_write[(prod * 2) + lane]) && s_candidate_match[(((((i_next_advance * 4) + src) * 2) + prod) * 2) + lane];
 									end
 							end
 						end
@@ -3318,10 +3389,10 @@ module arm9v2_execute (
 					a[160-:32] <= {20'd0, i_instruction[10:0], 1'b0};
 					a[57] <= 0;
 				end
-				begin : sv2v_autoblock_20
+				begin : sv2v_autoblock_23
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_21
+						begin : sv2v_autoblock_24
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
 								if ((((i_used[src] && !i_early[src]) && s_wait[src]) && !(|i_forward_match[2 * (src * 2)+:4])) && s_return_match[(src * 2) + port]) begin
@@ -3689,6 +3760,8 @@ module arm9v2_front_decode (
 	i_next_load_valid,
 	o_load_wait,
 	i_forward_tag,
+	i_advance_tag,
+	i_forward_advance,
 	i_forward_write,
 	o_forward_match,
 	o_early,
@@ -3796,6 +3869,8 @@ module arm9v2_front_decode (
 	input wire [1:0] i_next_load_valid;
 	output wire o_load_wait;
 	input wire [23:0] i_forward_tag;
+	input wire [23:0] i_advance_tag;
+	input wire i_forward_advance;
 	input wire [3:0] i_forward_write;
 	output wire [15:0] o_forward_match;
 	output wire [3:0] o_early;
@@ -3972,6 +4047,8 @@ module arm9v2_front_decode (
 		.i_next_load_valid(i_next_load_valid),
 		.o_load_wait(o_load_wait),
 		.i_forward_tag(i_forward_tag),
+		.i_advance_tag(i_advance_tag),
+		.i_forward_advance(i_forward_advance),
 		.i_forward_write(i_forward_write),
 		.o_forward_match(o_forward_match),
 		.o_early(o_early),
