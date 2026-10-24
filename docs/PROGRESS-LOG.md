@@ -4908,3 +4908,32 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   then the collision compare), per-family worst paths, the qsf
   parity, the firmware re-run at the end; the address-launch stage is
   the decision if session 11 ends below about -1.5 ns.
+- **ARM9 v2, session 10: three cuts, every count kept, the slack does
+  not move** (Codex, codex/arm9v2 051806f..c87d383; docs/consults/
+  2026-10-24-codex-arm9v2-s10.md). The fitter-settings parity alone
+  (placement effort 2.0, router timing maximum, as NGage.qsf) gave
+  0.19 ns hot and 0.54 cold on the same netlist (-2.871 to -2.678).
+  Then: the next-lock summaries on the owner edge (-2.555, 16,267
+  ALMs), both producer candidates compared before completion (-2.638,
+  16,145), the translation and request descriptors registered
+  (-2.983, 16,011); 267/267, 69 QEMU, 85 windows, the firmware logs
+  byte-identical to S9 through 4.5 guest seconds. The per-family
+  worst paths, now reported independently, show the wall: after the
+  three cuts the leaders are S's operand selection with M's
+  load-owner mask through the forwarding grant and the rotator into
+  A's right operand (11 levels, 11.93 ns, -2.98), the registered
+  D-TLB fault through the store acceptance and collision select into
+  the short word (-2.85), completion into the queried lock owner
+  (-2.63) and into the RF port selection (-2.57), A's bypass and adder
+  into the metadata read (-2.42, the short-port cut still to do), D1's
+  classification into D2's payload (-2.35), fetch's PC recurrence
+  (-2.08). Each cut removes a family and the next sits 0.1-0.3 ns
+  behind it at ten or eleven levels. The thread's own judgement: the
+  cache cut cannot reach the target alone; the post-S11 gate at
+  -1.5 ns stands, and the address-launch stage would fix A-to-cache
+  but not the S-to-A cone. Session 11 launched: the short-port cut,
+  then a registered data-ready grant separate from the producer match
+  in S, and the completion-to-RF selection; while, in parallel, the
+  decisive number is sought another way: the whole-core Verilator
+  bench running a game on both cores, so V2's in-play instruction
+  rate is known before more closure effort is spent on it.
