@@ -1,0 +1,28 @@
+{
+  "diagnostic": {
+    "source": "/home/jacob/dev/mister/coreboot/arm9v2-s14-src",
+    "build": "/home/jacob/dev/mister/coreboot/arm9v2-s14-diagnostic",
+    "sha256": {
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-src/rtl/cpu/arm925t_gen.v": "110285b5efd739353f505718c110e6c076c538248d9dab1352c5fdfc476b6685",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-src/NGage.sv": "88e55a60072b71f6b3a899701406ac7758038898fbe0dd44ff74116053584ecc",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-src/sim/harness/coreboot_main.cpp": "a6c33f53dcb9b33fc7669f57abc51308ee18a906d0ec16d969f9d67be6c0952e",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-diagnostic/coreboot/Vemu": "650d89e60e6a1b09f91d9b3c13afac6d3d95f2aa227410c97929ef6f7abfe372"
+    }
+  },
+  "no-predictor": {
+    "source": "/home/jacob/dev/mister/coreboot/arm9v2-s14-no-predictor-src",
+    "build": "/home/jacob/dev/mister/coreboot/arm9v2-s14-no-predictor",
+    "sha256": {
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-no-predictor-src/rtl/cpu/arm925t_gen.v": "110285b5efd739353f505718c110e6c076c538248d9dab1352c5fdfc476b6685",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-no-predictor-src/NGage.sv": "4abe761bf13e6be4d885732a8003761e08ab349c5ee6e1bf88d0ffdd57fd511a",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-no-predictor-src/sim/harness/coreboot_main.cpp": "a6c33f53dcb9b33fc7669f57abc51308ee18a906d0ec16d969f9d67be6c0952e",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-no-predictor/coreboot/Vemu": "415bfd33a755c630567db1777dfe62947296da01ef6fec11687da7406c2e35d0"
+    }
+  },
+  "images": {
+    "cs0.bin": "1f9367f6b052a85d0963fa9217794d0ea73f0a827e41893aa4d38ab618409541",
+    "cs1-board.bin": "1065629b68c7c2b257e71376bd350423e7d82d75aa456fa2f01b8d4445930fed",
+    "sonicn.mmc": "7fd800c9318ea86a3ba57b5ecd1189d2c3609c413358706b17a172c36d94733e",
+    "sonic.keys": "79a40d76406ff3809c5a798c1262a44e52668f8c2b2c3a568c90c5fc223220c8"
+  }
+}
