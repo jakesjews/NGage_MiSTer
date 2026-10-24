@@ -33,8 +33,10 @@ module phoenix_load #(
 	input logic [63:0] ld_data,
 	output logic ready = 0,
 	output logic busy,
-	output logic [1:0] note = 0, // 1 damaged, 2 unknown version, 3 loaded
-	output logic [15:0] errors = 0
+	output logic [2:0] note = 0, // 1 damaged, 2 unknown version, 3 loaded, 4 reload both
+	output logic [15:0] errors = 0,
+	output wire [1:0] debug_have,
+	output wire [4:0] debug_state
 );
 	`include "rtl/mister/phoenix_patch.vh"
 	localparam int PW = $clog2(PATCH_BYTES);
@@ -51,7 +53,10 @@ module phoenix_load #(
 	wire active = ioctl_download && (ioctl_index[5:0] == 1 || ioctl_index[5:0] == 2);
 	logic active_q = 0, start_pending = 0, next_lang = 0, lang = 0;
 	logic eof = 0, session_live = 0, seen_record = 0;
+	logic reload_notice = 0;
 	logic [1:0] have = 0;
+	assign debug_have = have;
+	assign debug_state = 5'(st);
 	logic [31:0] fifo;
 	logic [2:0] count = 0;
 	wire [7:0] byte_in = fifo[7:0];
@@ -136,6 +141,10 @@ module phoenix_load #(
 			lang <= next_lang;
 			eof <= !active;
 			fifo <= 0; count <= 0; errors <= 0; seen_record <= 0;
+			// A repeated completed file invalidates the previous pair. Report at
+			// EOF, after Main has finished its synchronous file transfer. Comparing
+			// the incoming original to DDR is not sufficient: DDR is now patched.
+			reload_notice <= session_live && have[next_lang];
 			if (!session_live || have[next_lang]) begin
 				have <= 0;
 				session_live <= 1;
@@ -247,7 +256,10 @@ module phoenix_load #(
 			end else begin
 				have[lang] <= 1;
 				if (have[!lang]) begin idx <= 0; version_bad <= 0; st <= VERIFY; end
-				else st <= IDLE;
+				else begin
+					st <= IDLE;
+					if (reload_notice) note <= 4;
+				end
 			end
 		end
 		if (st == VERIFY && !ld_rd) begin
@@ -284,7 +296,7 @@ module phoenix_load #(
 		end
 		if (reset) begin
 			st <= IDLE; active_q <= 0; start_pending <= 0; eof <= 0;
-			count <= 0; fifo <= 0; have <= 0; session_live <= 0;
+			count <= 0; fifo <= 0; have <= 0; session_live <= 0; reload_notice <= 0;
 			ready <= 0; errors <= 0; ld_we <= 0; ld_rd <= 0; note <= 0; rom_ptr <= 0;
 		end
 	end

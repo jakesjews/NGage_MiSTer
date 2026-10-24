@@ -42,7 +42,9 @@ For manual loading, choose **Load firmware (RH2946.0C1)**, **Load language
 pack (RH2946.0S5)** and **Mount C: save**. They can be selected in any order;
 loading firmware preserves C:, and mounting a save preserves firmware.
 Reselecting either file of a completed firmware pair starts a new pair, so
-select both again. After a damaged-file message, also reload both files.
+select both again. **Firmware reloaded: load both files** explains this wait;
+it also appears if a file is resent unexpectedly. After a damaged-file
+message, also reload both files. The mounted C: save is preserved.
 
 An [MGL launcher](https://mister-devel.github.io/MkDocs_MiSTer/advanced/mgl/)
 can select files explicitly. With these files in `games/NGage/`, for example:
@@ -111,9 +113,13 @@ demo) and its keys (5 skips the intro, the rocker moves through the
 character select), and the game's sound reaches the audio output (checked
 by measurement, not yet by ear).
 
-The direct Phoenix path passes simulation and reproduces the reference flash
-images byte for byte. Its FPGA build and board validation are pending; see
-the [implementation report](docs/consults/2026-10-23-codex-phoenix-report.md).
+The direct Phoenix path reproduces the reference flash images byte for byte.
+Board testing with debug build b24 confirmed a fresh C: format, Time/Date
+setup, save write-back and arrival at the idle screen; the next boot skipped
+formatting. One earlier run stalled after a suspected unexpected firmware
+resend. Loader diagnostics and a reload message now cover that case in
+simulation; their board check is pending. See the
+[implementation report](docs/consults/2026-10-23-codex-phoenix-report.md).
 
 ## Troubleshooting
 
@@ -125,6 +131,10 @@ the [implementation report](docs/consults/2026-10-23-codex-phoenix-report.md).
   shows the phone is busy.
 - **Firmware file damaged**: a checksum, record, or file-length check failed.
   Reload both original Phoenix files.
+- **Firmware reloaded: load both files**: a repeated MCU or language download
+  started a new pair. Select both original files again; keep the same C: save.
+  In a debug build, `tools/mister_dbg.py` prints the latest download index,
+  F1/F2/F3/F4 start counts, pair state, last message and error count.
 - **Firmware not recognised: needs RH-29 4.60**: the firmware integrity-table
   signatures do not match the supported release; the core leaves it unpatched
   and holds the phone in reset. Use the MCU and language pack named above.
