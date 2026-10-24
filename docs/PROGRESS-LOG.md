@@ -5177,3 +5177,58 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   fault epilogue; the fault path is indirect). The dump's decode and
   the reconstruction went to an Opus 5.5 subagent (my own attempt was
   stopped by the safety classifier, per the standing rule).
+- **"Are we spinning off into the weeds?" (the user) and the Codex
+  consult on it** (read-only, session 01a16fee; brief and answer in
+  docs/consults/2026-10-25-codex-backontrack-consult.md). The trace's
+  decode landed first: the first wrong value is ip at `ldr r0,[ip,#4]`
+  (0x50321578), the value of an older load to ip (`ldr ip,[pc,#2536]`
+  at 0x50321568, a D-TLB miss plus a D-cache miss with a dirty victim,
+  the first instruction after the kernel's `msr CPSR_fc` to 0xDB, which
+  V2 serialises with a W flush) returned from the bus in the clock the
+  younger hit to ip retired; the `str r0,[ip]` between them was not
+  stalled either. One cause for both: the destination of that
+  background miss had no working lock or ownership. Seven other misses
+  in the window interlocked correctly. No UND, no bad bus beat (all 28
+  ROM beats match the image). Codex's correction to my own account:
+  that S11/D8 capture faulted 4.83 s into the boot at 78 MHz, not 25 s;
+  keep the configurations' deaths apart. The directed test and the fix
+  went to an Opus subagent in the cx-arm9 worktree (my own attempt was
+  stopped by the classifier; the standing rule).
+  Codex's answer to the weeds question, digested: V2 is still the best
+  next experiment and not yet a demonstrated route to 47 M/s; the
+  simple extrapolation of the kernel profile (42 % of ZAP's
+  non-retiring clocks removed) into play is about 45 M/s at 104 MHz,
+  and 47 needs 46 %. The order: correctness (the reproducer must fail
+  before and pass after, plus independent ownership assertions, plus
+  repeated board boots into play), then the gameplay number on the
+  78 MHz board **with a ZAP control at the same 78 MHz** (the memory
+  behaves differently at a lower clock; report 104 × Δinstructions /
+  Δclocks over matched busy windows), then at most one bounded stage
+  redesign. Thresholds for the normalised number: >= 52 M/s gives the
+  redesign 0.21 CPI of headroom; 47-52 is fragile; < 47 does not
+  justify timing-only work. On timing: probably not closable at 104 MHz
+  with the present stage boundaries (S12's independent failing
+  families: address->metadata -2.95, address->TLB -2.67, load
+  word->late ALU -2.56, short response -2.23 ns; S10/S11 already spent
+  the old eight-cut list); its preferred redesign separates late
+  operand selection from the ALU/flags and address generation from the
+  cache lookup, 3-5 sessions, no promise, funded only if the gameplay
+  number holds and its projected CPI stays <= 2.21. Waste to stop: seed
+  hunting and zero-cycle tuning of the unchanged shape, unprofiled
+  features (S12's second-miss case was < 0.4 %), and more debugging
+  infrastructure or ROM archaeology now that a reproducible failure
+  exists. Acted on at once: the ZAP control, master (441bf20) at
+  78 MHz with the debug overlay and the 16 KB D-cache (worktree
+  ../NGage_MiSTer-zap78, server lane b5, seed 2), so the comparison is
+  ready when the V2 fix lands.
+- **The research archive.** The user's MEGA folder (the NGEmu-style
+  research collection, 144 k files, mostly SDKs) holds the N-Gage QD
+  RH-29 schematics V2.0 and the level 1-4 service manuals, the NEM-4
+  schematic, a Z-drive and C-drive dump from a QD, an executive-call
+  list, a reverse-engineering folder and the Symbian documentation;
+  pulled (the user's "download whatever") through the MEGA API with the
+  keys read from the web client and openssl for the AES-CTR, into
+  research/hardware/rh-29-service-docs/ and research/mega-research/
+  (research/ is untracked). The schematic is the primary source for the
+  physical map; nothing in it bears on the speed work, which stays the
+  one thread.
