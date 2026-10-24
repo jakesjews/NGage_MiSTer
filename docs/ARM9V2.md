@@ -782,3 +782,45 @@ S/A operands and D1 classification into D2 destination tags also violate
 −2 ns. Work stops at that structural gate. See the S8 report for complete
 paths, area attribution and the precise next cut; the passing 4.5-second
 firmware run does not establish timing closure or board gameplay speed.
+
+## Sessions 9–10: measured control boundaries, schedule unchanged
+
+The S9 store-format factoring and bounded return-repair matches remain.
+The register file disables retiming only in V2; ZAP retains its default.
+S10 captures global and W-owner lock summaries from the cache's **next**
+lock bitmap on its update edge. The owner query follows W's existing
+advance/reload/hold schedule. The normal-return readiness check still sees
+the post-acceptance lock, so a miss ACK never supplies an operand word.
+
+Producer comparisons now run in parallel for the hold `(M,W)` and advance
+`(A-or-skid,M)` candidates. Completion selects finished match bits at the
+existing D2/S and S/A edges. An advancing S operand reuses its registered
+M match as its W match. Completion has bounded consumer roots; retirement
+is not delayed. The memory check tuple and request qualification are
+registered on the existing owner transitions, with FCSE applied at A/M.
+There is no extra pipeline stage and all cycle/instruction pairs and the
+raw 3/4/5 hit windows remain unchanged.
+
+| Integrated seed-2 milestone | Worst slow slack | ALMs |
+|---|---:|---:|
+| S9 RF retiming bound | -2.871 ns | 16,561 |
+| S10 same source, placement/router effort parity | -2.678 ns | 16,561 |
+| S10 next-lock summaries | -2.555 ns | 16,267 |
+| S10 parallel producer matches | -2.638 ns | 16,145 |
+| S10 translation/request descriptors | -2.983 ns | 16,011 |
+
+The final row is an experimental, functionally verified endpoint, **not
+timing closure**. The remaining global leader is M's load-owner qualifier
+through S forwarding/rotation into A (11 levels / 11.926 ns). Permission
+through short-store collision selection, completion through the lock-owner
+query and RF port selection, A's metadata lookup, and D1 classification
+remain separate violations. The short-RAM/metadata cut is left for S11;
+its non-short path has not changed. An address-launch stage would shorten
+A→cache but would not by itself fix the leading S→A qualifier path.
+
+See the [session-10 report](consults/2026-10-24-codex-arm9v2-s10.md) for
+per-endpoint-family fits, proof scope, cycle tables, firmware parity and
+the exact stopping point. The final 4.5-second firmware run reproduces
+S9's kernel, exec and device logs byte for byte, including EFile at clock
+377,643,613 and EStart at 434,096,391. ZAP stays the default; no in-play speed or
+whole-device timing claim follows from these CPU-only trials.
