@@ -97,6 +97,20 @@ module predict_tb;
         lookup(32'h400); check(o_target==32'h105,"Thumb link keeps state and halfword PC");
         i_clear=1; i_update=1; tick(); i_clear=0; i_update=0;
         lookup(32'h102,1); check(!o_hit && o_count==0,"clear wins simultaneous feedback");
+        // BTB invalidation can accompany W recovery (CP15/MSR). The
+        // checkpoint repair wins for the RAS, and its own action occurs once.
+        i_clear=1;i_repair=1;i_repair_pointer=2;i_repair_count=2;
+        i_repair_action=1;i_repair_link=32'h4567;i_accept=1;
+        tick();i_clear=0;i_repair=0;i_accept=0;
+        check(!o_hit&&o_pointer==3&&o_count==3,"clear plus call repair restores checkpoint once");
+        train(32'h400,32'h888,0,2);lookup(32'h400);
+        check(o_target==32'h4567,"call repair preserves its link across BTB invalidation");
+        i_clear=1;i_repair=1;i_repair_pointer=3;i_repair_count=3;i_repair_action=2;i_accept=1;
+        tick();i_clear=0;i_repair=0;i_accept=0;
+        check(!o_hit&&o_pointer==2&&o_count==2,"clear plus return repair pops once");
+        i_clear=1;i_repair=1;i_repair_pointer=5;i_repair_count=4;i_repair_action=0;
+        tick();i_clear=0;i_repair=0;
+        check(o_pointer==5&&o_count==4,"serial recovery preserves pre-instruction checkpoint");
         $display("PASS predictor: %0d checks",checks); $finish;
     end
 endmodule

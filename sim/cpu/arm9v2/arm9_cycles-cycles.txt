@@ -1,4 +1,4 @@
-# ARM9V2 session 7 replay measurements, warmed 0:0.
+# ARM9V2 session 7 ras measurements, warmed 0:0.
 # Name, last visit predictor on/off; optional penultimate visit on/off.
 # Exact implementation regression counts, not the design acceptance targets.
 dp 9 9
@@ -39,8 +39,8 @@ mrc 25 17 17 17
 mrc_use 26 18 18 18
 mrc_pc 17 17
 swi 15 22
-undefined 25 22 15 22
-cdp 15 22 25 22
+undefined 15 22
+cdp 15 22
 ldc 15 22
 stc 15 22
 mul_m1 3 3

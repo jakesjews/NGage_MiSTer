@@ -96,7 +96,7 @@ module arm9v2_predict #(
     // restored, not contents: corruption of speculative history can only
     // cause another checked prediction miss, never an architectural write.
     always_ff @(posedge i_clk) begin
-        if (i_reset || i_clear) begin
+        if (i_reset) begin
             pointer <= 0;
             count <= 0;
         end else if (i_repair) begin
@@ -115,6 +115,8 @@ module arm9v2_predict #(
                 2'd3: begin pointer <= 0; count <= 0; end
                 default: ;
             endcase
+        end else if (i_clear) begin
+            pointer <= 0; count <= 0;
         end else if (i_accept && o_taken) begin
             case (read_entry.kind)
                 CALL: begin

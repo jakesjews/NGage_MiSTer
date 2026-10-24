@@ -335,7 +335,10 @@ output  logic [7:0]                      o_dbg_stall
     (* dont_retime *) logic swap_write,cp_seen,cp_finished;
     (* dont_retime *) logic [3:0] cp_flags;
     (* dont_retime *) logic wb_flush,wb_thumb,predictor_clear;
-    (* dont_retime *) logic [31:0] wb_target;
+    (* dont_retime *) logic [31:0] wb_target,wb_repair_link;
+    (* dont_retime *) logic [2:0] wb_repair_pointer;
+    (* dont_retime *) logic [3:0] wb_repair_count;
+    (* dont_retime *) logic [1:0] wb_repair_action;
     (* dont_retime *) logic w_train,w_train_thumb,w_train_hit;
     (* dont_retime *) logic [31:0] w_train_pc,w_train_target;
     (* dont_retime *) logic [1:0] w_train_state,w_train_kind;
@@ -394,7 +397,8 @@ output  logic [7:0]                      o_dbg_stall
     assign mw_value[0]=m.result;
     assign mw_value[1]={w.result[1],w.load_writer?
         (i_data_short_hit?i_data_short_data:32'd0):w.result[0]};
-    // Ready producer masks travel with the registered records. An empty,
+    // Producer masks travel with the registered records. Loads carry a
+    // speculative W owner, with invalid data discarded by retirement replay. An empty,
     // killed or condition-failed record has no writers; S never qualifies
     // the mask through the record's live valid/pass/fault cone.
     assign mw_write[0]=m.writes;
@@ -574,10 +578,19 @@ output  logic [7:0]                      o_dbg_stall
             m<='0;w<='0;skid<='0;memory_state<=RUN;saved_load<=0;swap_write<=0;
             w_load_select<=1;w_waited<=0;
             wb_flush<=0;wb_target<=RESET_VECTOR;wb_thumb<=0;predictor_clear<=0;
+            wb_repair_pointer<=0;wb_repair_count<=0;wb_repair_action<=0;wb_repair_link<=0;
             cp_seen<=0;cp_finished<=0;cp_flags<=0;
             w_train<=0;w_train_pc<=0;w_train_target<=0;w_train_thumb<=0;w_train_hit<=0;w_train_state<=0;w_train_kind<=0;
         end else begin
             wb_flush<=wb_redirect;predictor_clear<=wb_redirect&&w.pass&&(w.kind==CP||w.kind==MSR);
+            // W's pre-instruction checkpoint owns this recovery. Restore it
+            // and apply only the retiring instruction's actual action once.
+            // An exception cancels that instruction; it has no RAS action.
+            wb_repair_pointer<=w.ras_pointer;wb_repair_count<=w.ras_count;
+            wb_repair_link<={w.next_pc[31:1],w.thumb};
+            wb_repair_action<=wb_exception||!w.pass?2'd0:
+                (w.kind==BR&&w.ins[24])||w.kind==SUFFIX?2'd1:
+                return_event&&return_kind?2'd2:2'd0;
             wb_thumb<=wb_exception?1'b0:cpsr_next[5];
             wb_target<=wb_dabt?vector_base+16:wb_fiq?vector_base+28:wb_irq?vector_base+24:
                 wb_pabt?vector_base+12:wb_swi?vector_base+8:wb_und?vector_base+4:
@@ -665,11 +678,11 @@ output  logic [7:0]                      o_dbg_stall
         .i_wr_data_c(i_dc_reg_dat),
         .i_ready(a_execute_ready),
         .i_backend_target(wb_flush?wb_target:a_redirect_target),
-        .i_backend_link(a_redirect_link),
+        .i_backend_link(wb_flush?wb_repair_link:a_redirect_link),
         .i_backend_thumb(wb_flush?wb_thumb:a_redirect_thumb),
-        .i_backend_pointer(wb_flush?3'd0:a_redirect_pointer),
-        .i_backend_count(wb_flush?4'd0:a_redirect_count),
-        .i_backend_action(wb_flush?2'd3:a_redirect_action),
+        .i_backend_pointer(wb_flush?wb_repair_pointer:a_redirect_pointer),
+        .i_backend_count(wb_flush?wb_repair_count:a_redirect_count),
+        .i_backend_action(wb_flush?wb_repair_action:a_redirect_action),
         .i_predictor_clear(predictor_clear),
         .i_update(train),
         .i_update_pc(train_pc),

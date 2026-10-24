@@ -1,12 +1,16 @@
 # ARM9V2: eight-stage redesign for real-phone game speed
 
-Status: F1/F2, predictor, return stack, raw instruction queue, D1/D2 and
-S/A arithmetic/branch execution are implemented and tested as components,
-with the real register file and registered arithmetic producer harness.
-M/W memory completion and precise architectural retirement are not implemented. `CORE="ARM9"` still selects the paused core; ZAP remains default.
-The paused implementation and its measured limitations remain in [ARM9.md](ARM9.md)
-and the [last report](consults/2026-10-23-codex-arm9-report.md). This is a new
-pipeline, not another timing patch to its six-producer execute/address chain.
+Status after session 7: `CORE="ARM9"` selects the integrated V2 pipeline,
+including shared caches/MMU/CP15 and precise retirement. ZAP remains the
+default. Both V2 predictor modes and ZAP pass 264 runs and all 68 QEMU
+references. The early/late operand split achieves one/two/three-clock
+independent/late/early hit-load spacing. Whole-test high-latency random
+ratios remain about 0.99, so the session's cycle gate fails and work stops
+before a new integrated fit. The last accepted **older source** fit was
+−1.237 ns at seed 2; it is not a measurement of the current source.
+See the [session-7 report](consults/2026-10-24-codex-arm9v2-s7.md) for
+measurements, risks and stopping point. Later sections labeled by session
+retain the historical implementation and measurement record.
 
 ## Goal and gates
 
@@ -30,18 +34,19 @@ The suite and standalone fit are intermediate gates:
 | Gate | Required evidence |
 |---|---|
 | Architectural | All existing QEMU references agree, instruction traces and signatures; retain ARM925T modes, CP15/MMU, alignment, faults, FIQ/IRQ and abort base restoration. The brief named 57 references; the merged checkout has more. Run every available reference, not a reduced set of 57. |
-| Compiled throughput | At 0:0, ctrand1 <47,000 clocks and crand1 <47,500, with >=35% reduction against the same-revision ZAP. With ZAP 72,922, the 35% gate tightens crand1 to <=47,399. |
+| Compiled throughput | At 0:0, ctrand1 <47,000 clocks and crand1 <47,500, with >=35% reduction against the same-revision ZAP. With the merged ZAP reference 72,636, the 35% gate tightens crand1 to <=47,213. |
 | Cache workload | cache <520,000 at 0:0; compare all three latencies against ZAP. |
 | Breadth | Report cache, dcache_rtl, ctrand1, crand1, all random seeds, gba_arm, gba_thumb and mmu_page at 0:0 / 0:3 / 2:9, with instruction counts. |
+| Session-7 speed decision | crand/ctrand/mmu_page V2/ZAP at 0:3 and 2:9 must be clearly below 0.9; otherwise stop before timing work. This gate failed. |
 | CPU timing | 104 MHz, seed 2/3/4, same RTL and constraints: median worst slow-corner setup slack >=−1 ns, positive hold slack. Record every seed, area, RAM, DSP and worst 30 paths. This permits integration; it is not timing closure. |
 | Structural stop | If a completed structural pass is still below −2 ns, stop that shape and describe the remaining chains. Do not search seeds to conceal the failure. |
 | Area | Compare against same-cache ZAP; retain the previous <=5% ALM allowance unless the lead changes it. Whole-device fit is authoritative. |
 | Whole device | Only after the CPU timing gate: build ARM9V2 on the server, `BUILD_DIR=dev/mister/NGage_MiSTer-arm9v2 ./build.sh remote compile`. The merged master is stripped by default; measurement builds opt in with `NGAGE_DEBUG=1`. Whole-core 104 MHz must actually close before board performance is accepted. |
 
 Rare redirects may cost clocks to preserve timing. A systematic common-case
-bubble is measured explicitly. The prior two-clock load-use restriction is
-superseded by this redesign's **three-clock interlock**; the address must come
-from a register. A correctly predicted branch should lose **zero fetch slots**,
+bubble is measured explicitly. Session 7 separates late and early hit-load consumers: **two-clock late
+spacing and three-clock early spacing**, with one and two holds respectively.
+The D-TLB check address must still come from a register. A correctly predicted branch should lose **zero fetch slots**,
 not the paused core's one lost slot/two-clock branch spacing.
 
 ## Reuse and source boundaries
@@ -52,9 +57,10 @@ CP15/MMU, exception machinery, shared cache/TLB RAMs and Wishbone merger.
 remains default during development. The paused core is retained as a regression
 reference; V2 modules live under `rtl/cpu/arm9v2/` with distinct names.
 
-The other thread owns `rtl/cpu/zap/zap_dcache*.sv`: non-blocking store allocation
-and write-back after fill arrive through the shared cache. This redesign does
-not implement a competing cache FSM. Merge adaptations are documented separately
+The shared cache includes non-blocking store allocation and deferred dirty
+write-back from master. Shared-cache ownership was released in session 5;
+the accepted-hit replacement repair and the short response export are kept
+minimal. V2 does not implement a competing cache FSM. Merge adaptations are documented separately
 from V2 changes. Cache geometry, prefetch options and CP15's reported identity
 remain configurable through the merged wrapper.
 
@@ -90,18 +96,18 @@ control bit would reconnect a forwarding, address or admission chain.
 | F2 | Cache compare/way selection and permission status terminate at queue push and fault/pending metadata. Enqueue a raw instruction word, PC/state, prediction and epoch. No response-to-D bypass and no Thumb decoder here. |
 | D1 | One Thumb expander at the queue boundary. Predecode class, physical source/destination tags and instruction mode; compute LDM/STM population count, first register, next-list/last indicators and small offsets. PC-relative branch information is independent of operand forwarding. |
 | D2 | Read the existing register file from registered tags in parallel with final control decode. Resolve unconditional direct branches from registered PC/immediate information. Compute/register predicted taken/fallthrough target matches for A; compare source tags against registered pending destinations to stall loads in D2. |
-| S | One common forwarding selector, three registered producer records. One rotator implements LSL/LSR/ASR/ROR with parallel mask/fill/carry logic. Register-controlled shift captures the low-eight-bit amount before rotating. Multiplier stage one captures final operands at the S/A edge; no DSP multiply follows the forwarding mux in that clock. |
-| A | ALU, condition/flags, effective address, multiply completion. No barrel shifter in series. Result/address/control end in registers. Redirect event and target are registered, never gates on the whole backend's data. |
-| M | A's address register drives D-TLB/cache RAM. Request, mode, alignment, byte enables, source and destination remain attached during a hold. No ALU-to-TLB combinational address path. |
+| S | One common forwarding selector, registered M/W records and registered source matches. One rotator implements LSL/LSR/ASR/ROR with parallel mask/fill/carry logic. Register-controlled shift captures the low-eight-bit amount before rotating. Multiplier stage one captures final operands at the S/A edge; no DSP multiply follows the forwarding mux in that clock. |
+| A | Small late-operand M/W bypass, ALU, condition/flags, effective address, multiply completion. No barrel shifter in series. Result/address/control end in registers. Redirect event and target are registered, never gates on the whole backend's data. |
+| M | Cache RAM read launched by A; M's address register drives the D-TLB and cache comparison. Request, mode, alignment, byte enables, source and destination remain attached during a hold. No ALU-to-TLB combinational address path. |
 | W | Consume the cache's registered compare/format output, architectural register writes, faults and trace retirement. Early critical-word/background replies are captured with their destination before becoming producers. |
 
-The two cache edges occupy M and the input side of W. A hit load's formatted
-value reaches a registered cache output at the end of its W lookup cycle;
-S may then pick it up. This schedule must be demonstrated in edge-by-edge
-bench traces, not inferred from stage names. A preceding load in S at cycle 0
-is in A at 1, M at 2 and W lookup at 3; its immediate consumer enters S at 4.
-That is three skipped issue opportunities, while independent accesses can
-still launch on consecutive clocks.
+The RAM read is captured at A/M; compare/way/format and TLB permission are
+captured at M/W. A load in S at cycle 0 occupies A/M/W at 1/2/3. A late
+consumer occupies S/A at 2/3 and retires two clocks after that load; an early
+consumer occupies S/A at 3/4 and retires three clocks after it. An independent
+consumer occupies S at 1 and retires one clock after the load. These are
+measured warmed spacings. The raw LDR-plus-consumer marker windows include
+two additional clocks and therefore read 3/4/5, not 1/2/3.
 
 ## Flow control, forwarding and hazards
 
@@ -113,14 +119,13 @@ advance its local owner, but cannot select a new instruction or register-file
 address through several stages in the same clock. Prove occupancy bounds and
 stable requests under randomized holds.
 
-The common operand network uses three **registered producer records**, newest
-first, with primary/secondary destination lanes where the ISA requires two
-writes. Three records does not mean only three physical destination tags.
-There is no independent D forwarding tree and no duplicate held-S tree.
-Held S captures its own selected operands, preventing a producer that retires
-while S waits from disappearing. RF write-through handles a W write coincident
-with a D2 read. Background load values join a registered producer/retirement
-record rather than a fourth live cache input.
+The S operand network uses two **registered producer records**, M and W,
+newest first, with primary/secondary lanes for paired writes. A has no
+combinational forwarding path into S. Held S captures its selected operands;
+RF write-through handles W writes coincident with D2 reads. Normal W loads
+use the cache's registered, permission-qualified short response. Background
+load returns write the register file and release their registered lock;
+replayed work reads that value after the lock clears.
 
 Precompute tag matches for the stage positions the instruction will encounter;
 carry the match bits across the boundary and recompute while held. Producer
@@ -141,12 +146,12 @@ entrance. Two cases are distinct:
 
 | Hazard | Planned action |
 |---|---|
-| Immediate hit-load consumer | Hold D2 for three clocks; S consumes registered formatted data. Base, store data and shift amount are tracked separately. |
-| Load with independent intervening instructions | Subtract covered slots from the three-clock interlock; no blanket drain. |
+| Immediate hit-load consumer | Late: one hold and pickup at A; early: two holds and pickup at S. Registered S load-owner matches preserve spacing across backend holds. |
+| Load with independent intervening instructions | Cover the relevant early/late holds; true writer masks prevent unused destination lanes causing false WAW hazards. |
 | Shift amount from register | One additional capture clock, including zero amount; failed-condition instruction has no shift side effect. |
-| Background load miss | Destination scoreboard stays locked until the registered return. Independent instructions may proceed only within precise-retirement constraints. |
+| Background load miss | Scalar retirement registers recovery to the next PC, discarding younger speculative work. Miss/retry/hold/fill-installation cases recover with abort priority. Partial LDM/SWP/PC loads keep conservative protection. |
 | Store followed by lookup to the same set | Compare registered set/direction tags and hold the younger request through the RAM write collision window. No new combinational byte merge in M; a core-side interlock must make the old shared merge redundant before any request to remove it. |
-| Multiply destination or accumulator dependency | Stall D2 until its registered producer is ready; independent older work drains normally. No whole-pipeline multiply barrier. |
+| Multiply destination or accumulator dependency | Factors are early and registered before the DSP; accumulators remain late through the final add, including backend holds. Older work drains normally. |
 | CP15, mode change, SPSR restore, SWP | Ordered fence where required. Drain fault-capable older memory records; restart with new mode/translation after commit. |
 | IRQ/FIQ | Insert at an architectural instruction boundary, never inside an LDM/STM sequence or between inseparable internal uops. Preserve precise PC, mode and masks. |
 
@@ -709,10 +714,21 @@ at 2:9. ZAP stays default. See the [session-6 report](consults/2026-10-24-codex-
 for the trend, exact cycle table, fit evidence and stopping point.
 
 
-## Session 7 starting point
+## Session 7: early/late split and cycle-gate stop
 
-The session-6 selected-check candidate is reverted with `git revert`; its
-report and fit evidence remain. CPU source resumes at accepted `51a0123`.
-The next structural work is true writer masks and registered early/late
-operand matching with bounded A-stage late pickup. See the
-[session-7 report](consults/2026-10-24-codex-arm9v2-s7.md).
+The session-6 selected-check candidate was reverted with `git revert`;
+its report and fit remain in history. The new implementation carries true
+writer masks, registered source classes, M/W forwarding matches and held
+load-owner matches. The duplicate execute-output record is folded into A/M.
+W lock selection is one-hot and registered. Scalar miss/retry/hold recovery
+and W's RAS checkpoint/action repair are implemented; BTB invalidation
+cannot override RAS repair.
+
+The measured hit spacings meet the 1/2/3 target; the eight-register LDM/STM
+window is 9 clocks and the dependent-block tail is 10. The existing predicted
+branch windows remain 2. RAS repair passes integration assertions but does
+not improve the existing return windows. At 2:9, V2/ZAP is 0.988 for crand1,
+0.986 for ctrand1 and 0.990 for mmu_page. The requested below-0.9 gate fails.
+No new Quartus or whole-device trial is run; no timing or area improvement
+is claimed. See the [session-7 report](consults/2026-10-24-codex-arm9v2-s7.md)
+for the complete cycle table and exact stopping point.

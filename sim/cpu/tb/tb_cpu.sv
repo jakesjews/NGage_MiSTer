@@ -276,6 +276,33 @@ module tb_cpu #(
                 else $fatal(1,"ARM9 younger work escaped retirement recovery");
         end
     end
+    if(ARM9_PREDICTOR)begin : check_w_ras_repair
+        logic checked;
+        logic [2:0] expected_pointer;
+        logic [3:0] expected_count;
+        always @(posedge clk)begin
+            if(!reset&&checked)begin
+                assert (`A9.u_front_decode.u_fetch.g_predictor.u_predict.o_pointer==expected_pointer&&
+                        `A9.u_front_decode.u_fetch.g_predictor.u_predict.o_count==expected_count)
+                    else $fatal(1,"W recovery did not restore its own RAS checkpoint/action");
+            end
+            checked<=!reset&&`A9.wb_flush;
+            expected_pointer<=`A9.wb_repair_pointer;
+            expected_count<=`A9.wb_repair_count;
+            case(`A9.wb_repair_action)
+                1:begin
+                    expected_pointer<=`A9.wb_repair_pointer+1'b1;
+                    expected_count<=`A9.wb_repair_count==8?4'd8:`A9.wb_repair_count+1'b1;
+                end
+                2:if(`A9.wb_repair_count!=0)begin
+                    expected_pointer<=`A9.wb_repair_pointer-1'b1;
+                    expected_count<=`A9.wb_repair_count-1'b1;
+                end
+                3:begin expected_pointer<=0;expected_count<=0;end
+                default:;
+            endcase
+        end
+    end
 	`undef A9
 	end
 	// These assertions also run against the baseline netlist: they observe

@@ -1,0 +1,149 @@
+{
+  "crand1": {
+    "watch_pc": "0x344",
+    "ZAP": {
+      "0:0": {
+        "before_marker_cycles": 54908,
+        "before_marker_instructions": 12513,
+        "after_marker_cycles": 17728,
+        "after_marker_instructions": 3469,
+        "total_cycles": 72636
+      },
+      "0:3": {
+        "before_marker_cycles": 80989,
+        "before_marker_instructions": 12513,
+        "after_marker_cycles": 23159,
+        "after_marker_instructions": 3469,
+        "total_cycles": 104148
+      },
+      "2:9": {
+        "before_marker_cycles": 146962,
+        "before_marker_instructions": 12513,
+        "after_marker_cycles": 40019,
+        "after_marker_instructions": 3469,
+        "total_cycles": 186981
+      }
+    },
+    "ARM9": {
+      "0:0": {
+        "before_marker_cycles": 50696,
+        "before_marker_instructions": 12513,
+        "after_marker_cycles": 17313,
+        "after_marker_instructions": 3469,
+        "total_cycles": 68009
+      },
+      "0:3": {
+        "before_marker_cycles": 76963,
+        "before_marker_instructions": 12513,
+        "after_marker_cycles": 23666,
+        "after_marker_instructions": 3469,
+        "total_cycles": 100629
+      },
+      "2:9": {
+        "before_marker_cycles": 143723,
+        "before_marker_instructions": 12513,
+        "after_marker_cycles": 40958,
+        "after_marker_instructions": 3469,
+        "total_cycles": 184681
+      }
+    }
+  },
+  "ctrand1": {
+    "watch_pc": "0x344",
+    "ZAP": {
+      "0:0": {
+        "before_marker_cycles": 54908,
+        "before_marker_instructions": 12513,
+        "after_marker_cycles": 17471,
+        "after_marker_instructions": 3646,
+        "total_cycles": 72379
+      },
+      "0:3": {
+        "before_marker_cycles": 80989,
+        "before_marker_instructions": 12513,
+        "after_marker_cycles": 21188,
+        "after_marker_instructions": 3646,
+        "total_cycles": 102177
+      },
+      "2:9": {
+        "before_marker_cycles": 146962,
+        "before_marker_instructions": 12513,
+        "after_marker_cycles": 31874,
+        "after_marker_instructions": 3646,
+        "total_cycles": 178836
+      }
+    },
+    "ARM9": {
+      "0:0": {
+        "before_marker_cycles": 50696,
+        "before_marker_instructions": 12513,
+        "after_marker_cycles": 15339,
+        "after_marker_instructions": 3646,
+        "total_cycles": 66035
+      },
+      "0:3": {
+        "before_marker_cycles": 76963,
+        "before_marker_instructions": 12513,
+        "after_marker_cycles": 20252,
+        "after_marker_instructions": 3646,
+        "total_cycles": 97215
+      },
+      "2:9": {
+        "before_marker_cycles": 143723,
+        "before_marker_instructions": 12513,
+        "after_marker_cycles": 32539,
+        "after_marker_instructions": 3646,
+        "total_cycles": 176262
+      }
+    }
+  },
+  "mmu_page": {
+    "watch_pc": "0x324",
+    "ZAP": {
+      "0:0": {
+        "before_marker_cycles": 54477,
+        "before_marker_instructions": 12445,
+        "after_marker_cycles": 22593,
+        "after_marker_instructions": 4442,
+        "total_cycles": 77070
+      },
+      "0:3": {
+        "before_marker_cycles": 80344,
+        "before_marker_instructions": 12445,
+        "after_marker_cycles": 32394,
+        "after_marker_instructions": 4442,
+        "total_cycles": 112738
+      },
+      "2:9": {
+        "before_marker_cycles": 146023,
+        "before_marker_instructions": 12445,
+        "after_marker_cycles": 57042,
+        "after_marker_instructions": 4442,
+        "total_cycles": 203065
+      }
+    },
+    "ARM9": {
+      "0:0": {
+        "before_marker_cycles": 50339,
+        "before_marker_instructions": 12445,
+        "after_marker_cycles": 22825,
+        "after_marker_instructions": 4442,
+        "total_cycles": 73164
+      },
+      "0:3": {
+        "before_marker_cycles": 76417,
+        "before_marker_instructions": 12445,
+        "after_marker_cycles": 32894,
+        "after_marker_instructions": 4442,
+        "total_cycles": 109311
+      },
+      "2:9": {
+        "before_marker_cycles": 142837,
+        "before_marker_instructions": 12445,
+        "after_marker_cycles": 58252,
+        "after_marker_instructions": 4442,
+        "total_cycles": 201089
+      }
+    }
+  }
+}

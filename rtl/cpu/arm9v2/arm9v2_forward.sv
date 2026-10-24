@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The ONLY operand forwarding network. A/M/W are registered, ready producer
-// records, newest first. Two lanes allow long multiply/base-writeback pairs.
-// Pending destinations are interlocked in D2, never inside this data selector.
+// S operand forwarding selects registered M/W producer records, newest
+// first. Two lanes allow long multiply/base-writeback pairs.
+// Match and hazard decisions are registered before this data selector.
 module arm9v2_forward (
     input logic [3:0][31:0] i_value,
     input logic [3:0][1:0][1:0] i_match,

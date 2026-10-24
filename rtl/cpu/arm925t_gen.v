@@ -620,6 +620,10 @@ module arm9v2_core (
 	(* dont_retime *) reg wb_thumb;
 	(* dont_retime *) reg predictor_clear;
 	(* dont_retime *) reg [31:0] wb_target;
+	(* dont_retime *) reg [31:0] wb_repair_link;
+	(* dont_retime *) reg [2:0] wb_repair_pointer;
+	(* dont_retime *) reg [3:0] wb_repair_count;
+	(* dont_retime *) reg [1:0] wb_repair_action;
 	(* dont_retime *) reg w_train;
 	(* dont_retime *) reg w_train_thumb;
 	(* dont_retime *) reg w_train_hit;
@@ -979,6 +983,10 @@ module arm9v2_core (
 			wb_target <= RESET_VECTOR;
 			wb_thumb <= 0;
 			predictor_clear <= 0;
+			wb_repair_pointer <= 0;
+			wb_repair_count <= 0;
+			wb_repair_action <= 0;
+			wb_repair_link <= 0;
 			cp_seen <= 0;
 			cp_finished <= 0;
 			cp_flags <= 0;
@@ -993,6 +1001,10 @@ module arm9v2_core (
 		else begin
 			wb_flush <= wb_redirect;
 			predictor_clear <= (wb_redirect && w[506]) && ((w[6-:4] == CP) || (w[6-:4] == MSR));
+			wb_repair_pointer <= w[13-:3];
+			wb_repair_count <= w[10-:4];
+			wb_repair_link <= {w[204:174], w[505]};
+			wb_repair_action <= (wb_exception || !w[506] ? 2'd0 : (((w[6-:4] == BR) && w[453]) || (w[6-:4] == SUFFIX) ? 2'd1 : (return_event && return_kind ? 2'd2 : 2'd0)));
 			wb_thumb <= (wb_exception ? 1'b0 : cpsr_next[5]);
 			wb_target <= (wb_dabt ? vector_base + 16 : (wb_fiq ? vector_base + 28 : (wb_irq ? vector_base + 24 : (wb_pabt ? vector_base + 12 : (wb_swi ? vector_base + 8 : (wb_und ? vector_base + 4 : (return_event ? return_target : w[204-:32])))))));
 			w_train <= (wb_complete && return_event) && !wb_exception;
@@ -1155,11 +1167,11 @@ module arm9v2_core (
 		.i_wr_data_c(i_dc_reg_dat),
 		.i_ready(a_execute_ready),
 		.i_backend_target((wb_flush ? wb_target : a_redirect_target)),
-		.i_backend_link(a_redirect_link),
+		.i_backend_link((wb_flush ? wb_repair_link : a_redirect_link)),
 		.i_backend_thumb((wb_flush ? wb_thumb : a_redirect_thumb)),
-		.i_backend_pointer((wb_flush ? 3'd0 : a_redirect_pointer)),
-		.i_backend_count((wb_flush ? 4'd0 : a_redirect_count)),
-		.i_backend_action((wb_flush ? 2'd3 : a_redirect_action)),
+		.i_backend_pointer((wb_flush ? wb_repair_pointer : a_redirect_pointer)),
+		.i_backend_count((wb_flush ? wb_repair_count : a_redirect_count)),
+		.i_backend_action((wb_flush ? wb_repair_action : a_redirect_action)),
 		.i_predictor_clear(predictor_clear),
 		.i_update(train),
 		.i_update_pc(train_pc),
@@ -3922,7 +3934,7 @@ module arm9v2_predict (
 	assign o_pointer = pointer;
 	assign o_count = count;
 	always @(posedge i_clk)
-		if (i_reset || i_clear) begin
+		if (i_reset) begin
 			pointer <= 0;
 			count <= 0;
 		end
@@ -3947,6 +3959,10 @@ module arm9v2_predict (
 				default:
 					;
 			endcase
+		end
+		else if (i_clear) begin
+			pointer <= 0;
+			count <= 0;
 		end
 		else if (i_accept && o_taken)
 			case (read_entry[1-:2])

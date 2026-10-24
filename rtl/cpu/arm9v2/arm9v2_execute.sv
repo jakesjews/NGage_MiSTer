@@ -2,8 +2,8 @@
 // S/A component. Inputs are the registered S-entry from D2. The output is
 // A's combinational record; the consumer captures it in the A/M register.
 // i_ready is REGISTERED downstream capacity, never a cache ACK/hit/err2.
-// Pending S operands are stalled in D2. Unshifted operands can carry a late
-// token into A, selecting the just-completed REGISTERED A result there.
+// D2 interlocks early operands; a registered S wait preserves their
+// separation through backend holds. Late A operands select registered M/W.
 module arm9v2_execute (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
     input logic [31:0] i_cpsr,
