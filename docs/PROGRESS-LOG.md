@@ -4149,3 +4149,18 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   Phoenix form (F1 RH2946.0C1, F2 RH2946.0S5, S1 the save: the 8 MB
   rh29-460-cs1-save.bin is accepted, its C: half kept) and the boot-file
   names added; until then the main slot keeps seed 18.
+- **The re-send, followed up** (Codex, codex/firstboot 087088d..754ebce,
+  merged): a transparent survival of an identical re-send is not sound
+  (the loaded image differs from the raw records where the patches
+  went, and the stream cannot rewind after a late mismatch), so a
+  single re-sent Phoenix file still starts a fresh pair, now with info
+  message 12 "Firmware reloaded: load both files" after its download.
+  The debug overlay gained words 37 and 38 (rows 156-162): ready, busy,
+  the pair's have bits, the last download's index, the last note, the
+  parser state; the download-start counts per index F1-F4 and the error
+  count; tools/mister_dbg.py prints them. Main's source (065d0d2) has no
+  path that re-sends an F file on Enter or periodically; the one path
+  that can load a file into a running core is an MGL whose sequence has
+  not finished. On a recurrence: the overlay's counts, the MGL, and
+  Main's stdout (user_io_file_tx prints each file and index). Built
+  into the next debug core with the overlay words.
