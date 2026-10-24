@@ -4186,3 +4186,31 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   rotator, flags, the multiplier).
 - b25 (the debug core with the loader words): -1.188 ns, 37,886 ALMs,
   487 M10K.
+- **The re-send was the board tool, and the loader core is on the main
+  slot.** With b25's loader words the failure reproduced on every first
+  boot: the second Enter was followed by a second F1 download (starts
+  F1=2, note "reload-both") and the phone had never seen the first
+  Enter. The cause: tools/boot_profile.py's fallback switched the
+  overlay on by walking the OSD (F12, 11 downs, enter, esc) whenever two
+  captures past 12 s had no counters, which with the Phoenix loads
+  happens at 14 s, while the launcher is still sending the files; an
+  Enter into the MGL sequencer mid-load leaves a file entry's browser
+  pending (Codex's Main audit: the one path that loads a file into a
+  running core), and the Enter meant for the Date dialog then selects
+  the first file listed, RH2946.0C1; the menu had also grown by two file
+  entries since the walk was written. Fixed (7d396f1): the walk runs
+  once at most, only after 45 s and three blank captures, with 13 downs
+  and two escapes; jev_play's walk likewise. With the fix the first boot
+  from the Phoenix files and a blank C: runs through (the three Enters
+  taken, the setup animation at 124-172 s, the loader words at
+  "loaded" with one start per file throughout), the second boot comes
+  up without a format, Sonic plays at 16-18 frames/s. The no-debug
+  loader core at seed 9 (-0.671 ns; md5 ccfaf9cd...) is on the main
+  slot, b25 (the debug core with the loader words) on the debug slot;
+  all 17 main launchers and the 15 debug ones regenerated in the
+  Phoenix form (F1 RH2946.0C1, F2 RH2946.0S5, S1 the save: the user's
+  8 MB rh29-460-cs1-save.bin on the main slot, the 4 MB
+  rh29-460-c-drive.bin on the debug slot; the no-save launcher loads
+  the flat CS1 at F4); the main slot smoke-tested with a boot and Sonic.
+  The boot-file names (boot1.rom, boot2.rom, boot1.vhd) are not used on
+  this MiSTer: with launchers they would only double every load.
