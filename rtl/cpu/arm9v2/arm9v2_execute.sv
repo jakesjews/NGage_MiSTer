@@ -6,6 +6,11 @@
 // separation through backend holds. Late A operands select registered M/W.
 module arm9v2_execute (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
+    input logic [3:0] i_pending,
+    input logic [1:0] i_load_owner,i_next_load_owner,
+    input logic i_load_hit,
+    input logic [1:0][63:0] i_return_select,
+    input logic [1:0][31:0] i_return_data,
     input logic [31:0] i_cpsr,
     input logic i_valid,
     output logic o_ready,
@@ -81,7 +86,7 @@ module arm9v2_execute (
         logic set_flags,shift_carry,carry_preserve,rrx,cpsr_read;
         logic [3:0][1:0][1:0] late;
         logic [3:0][5:0] tag;
-        logic [3:0] late_used;
+        logic [3:0] late_used,pending;
         logic signed [7:0] wb_offset;
     } a_t;
     (* dont_retime *) a_t a;
@@ -93,6 +98,24 @@ module arm9v2_execute (
     (* dont_retime *) logic signed [33:0] ll,lh,hl,hh;
     (* dont_retime *) logic [63:0] product_saved;
     logic [3:0][31:0] forwarded,operand;
+    (* dont_retime *) logic [3:0] s_pending;
+    logic [3:0] s_wait,a_wait;
+    logic [3:0][1:0][1:0] ready_match;
+    // Matches are already registered at D2/S and S/A. A short hit is itself
+    // a registered permission-qualified response. No ACK drives admission.
+    always_comb begin
+        ready_match=i_forward_match;s_wait=holding?s_pending:i_pending;a_wait=a.pending;
+        for(int src=0;src<4;src++)begin
+            if(i_forward_match[src][1][0]&&i_load_owner[1])begin
+                s_wait[src]=!i_load_hit;
+                ready_match[src][1][0]=i_load_hit;
+            end
+            if(i_forward_match[src][0][0]&&i_load_owner[0])begin
+                s_wait[src]=1;ready_match[src][0][0]=0;
+            end
+            if(a.late[src][1][0]&&i_load_owner[1]&&i_load_hit)a_wait[src]=0;
+        end
+    end
     logic [31:0] shift_input,shifted;
     logic [7:0] shift_amount;
     logic [1:0] shift_type;
@@ -105,7 +128,7 @@ module arm9v2_execute (
     logic [31:0] actual_target;
     logic actual_thumb,wrong_prediction;
     wire unused=&{1'b0,i_cpsr[27:0],i_used[2],i_mw_tag,i_mw_valid,CP,UND,SWI,actual_target[0],lh[33:32],hl[33:32],hh[33:32]};
-    arm9v2_forward u_forward(.i_value(holding?held:i_value),.i_match(i_forward_match),
+    arm9v2_forward u_forward(.i_value(holding?held:i_value),.i_match(ready_match),
         .i_producer_value(i_mw_value),.o_value(forwarded));
     always_comb begin
         operand=forwarded;
@@ -152,10 +175,12 @@ module arm9v2_execute (
     always_comb begin
         left_a=a.left;right_a=a.right;store_a=a.store_data;special_a=a.special;
         for(int prod=1;prod>=0;prod--)for(int lane=0;lane<2;lane++)begin
+            if(!(lane==0&&i_load_owner[prod]&&(prod==0||!i_load_hit)))begin
             if(a.late[0][prod][lane])left_a=i_mw_value[prod][lane];
             if(a.late[1][prod][lane])right_a=i_mw_value[prod][lane];
             if(a.late[2][prod][lane])special_a=i_mw_value[prod][lane];
             if(a.late[3][prod][lane])store_a=i_mw_value[prod][lane];
+            end
         end
         if(a.kind==BLOCK&&!a.first)left_a=block_base;
         if(a.rrx)right_a[31]=flags[1];
@@ -181,9 +206,9 @@ module arm9v2_execute (
     assign space=!a_valid||finish;
     assign o_shift_wait=i_valid&&i_reg_shift&&!prepared;
     assign o_multiply_wait=product_phase||mac_phase;
-    assign o_ready=i_admit&&space&&!i_load_wait&&!o_shift_wait&&!i_flush&&!o_redirect;
+    assign o_ready=i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&!o_shift_wait&&!i_flush&&!o_redirect;
     assign accept=i_valid&&o_ready;
-    assign o_valid=a_valid&&!product_phase&&!mac_phase&&!i_flush&&!o_redirect;
+    assign o_valid=a_valid&&!(|a_wait)&&!product_phase&&!mac_phase&&!i_flush&&!o_redirect;
     assign finish=o_valid&&i_ready;
     assign o_a_valid=a_valid;
     assign o_a_can_finish=finish;
@@ -263,7 +288,7 @@ module arm9v2_execute (
     end
     always_ff @(posedge i_clk)begin
         if(i_reset||i_flush)begin
-            a_valid<=0;holding<=0;prepared<=0;multiply_accumulate<=0;multiply_product_ready<=0;
+            a_valid<=0;holding<=0;prepared<=0;s_pending<=0;multiply_accumulate<=0;multiply_product_ready<=0;
             o_redirect<=0;o_btb_pc<=0;o_btb_thumb<=0;
             o_btb_update<=0;o_btb_taken<=0;o_btb_hit<=0;o_btb_target<=0;o_btb_state<=0;o_btb_kind<=0;
             flags<=i_cpsr[31:28];a<=a_t'(0);held<=0;held_amount<=0;block_base<=0;
@@ -272,10 +297,25 @@ module arm9v2_execute (
             o_redirect_link<=0;o_redirect_pointer<=0;o_redirect_count<=0;o_redirect_action<=0;
         end else begin
             o_redirect<=0;o_btb_update<=0;
-            if(i_valid&&!accept)begin holding<=1;held<=operand;end
-            if(i_valid&&i_admit&&space&&!i_load_wait&&i_reg_shift&&!prepared)begin prepared<=1;held_amount<=operand[2][7:0];end
+            if(i_valid&&!accept)begin
+                holding<=1;held<=operand;s_pending<=s_wait;
+                for(int src=0;src<4;src++)for(int port=0;port<2;port++)
+                    if(s_wait[src]&&i_return_select[port][int'(i_tag[src])])begin
+                        held[src]<=i_return_data[port];s_pending[src]<=0;
+                    end
+            end
+            if(i_valid&&i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&i_reg_shift&&!prepared)begin prepared<=1;held_amount<=operand[2][7:0];end
             if(a_valid)begin
                 a.left<=left_a;a.right<=right_a;a.store_data<=store_a;a.special<=special_a;
+                a.pending<=a_wait;
+                for(int src=0;src<4;src++)for(int port=0;port<2;port++)
+                    if(a_wait[src]&&i_return_select[port][int'(a.tag[src])])begin
+                        case(src)
+                            0:a.left<=i_return_data[port];1:a.right<=i_return_data[port];
+                            2:a.special<=i_return_data[port];3:a.store_data<=i_return_data[port];
+                        endcase
+                        a.pending[src]<=0;
+                    end
                 for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
                     a.late[src][prod][lane]<=a.late_used[src]&&i_next_write[prod][lane]&&a.tag[src]==i_next_tag[prod][lane];
             end
@@ -304,7 +344,7 @@ module arm9v2_execute (
                     condition_pass&&a.kind==BX&&a.ins[3:0]==14?2'd2:2'd0;
             end
             if(accept)begin
-                a_valid<=1;holding<=0;prepared<=0;multiply_accumulate<=0;multiply_product_ready<=0;
+                a_valid<=1;holding<=0;prepared<=0;s_pending<=0;multiply_accumulate<=0;multiply_product_ready<=0;
                 a.pc<=i_pc;a.ins<=i_instruction;a.next_pc<=i_next_pc;a.target<=i_branch_target;
                 a.pred_target<=i_pred_target;a.cpsr_low<=i_cpsr[27:0];a.kind<=i_kind;a.condition<=i_condition;
                 a.thumb<=i_thumb;a.fault<=i_fault;a.first<=i_first;a.last<=i_last;
@@ -316,6 +356,10 @@ module arm9v2_execute (
                 a.shift_carry<=shift_carry;a.carry_preserve<=carry_preserve;a.rrx<=rrx;a.wb_offset<=i_writeback_offset;
                 a.tag<=i_tag;
                 for(int src=0;src<4;src++)begin
+                    a.pending[src]<=i_used[src]&&!i_early[src]&&s_wait[src];
+                    for(int prod=0;prod<2;prod++)
+                        if(i_used[src]&&!i_early[src]&&i_next_load_owner[prod]&&i_tag[src]==i_next_tag[prod][0])
+                            a.pending[src]<=1;
                     a.late_used[src]<=i_used[src]&&!i_early[src]&&i_tag[src]!=15&&i_tag[src]!=17;
                     for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
                         a.late[src][prod][lane]<=i_used[src]&&!i_early[src]&&i_tag[src]!=15&&i_tag[src]!=17&&
@@ -331,6 +375,18 @@ module arm9v2_execute (
                 end
                 if(i_kind==BX||i_kind==SWP)begin a.right<=operand[1];a.rrx<=0;end
                 if(i_kind==SUFFIX)begin a.op<=4;a.right<={20'd0,i_instruction[10:0],1'b0};a.rrx<=0;end
+                // Completion wins over class-specific raw operand captures
+                // (BX/SWP Rm and the first block base) on this same edge.
+                for(int src=0;src<4;src++)begin
+                    for(int port=0;port<2;port++)
+                        if(i_used[src]&&!i_early[src]&&s_wait[src]&&i_return_select[port][int'(i_tag[src])])begin
+                            case(src)
+                                0:a.left<=i_return_data[port];1:a.right<=i_return_data[port];
+                                2:a.special<=i_return_data[port];3:a.store_data<=i_return_data[port];
+                            endcase
+                            a.pending[src]<=0;
+                        end
+                end
             end
             if(o_redirect)begin a_valid<=0;holding<=0;prepared<=0;end
         end

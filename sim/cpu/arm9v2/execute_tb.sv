@@ -3,6 +3,9 @@ module execute_tb;
     logic i_clk,i_reset,i_flush;
     logic [31:0] i_cpsr;
     logic i_valid,i_admit;
+    logic [3:0] i_pending;
+    logic [1:0][63:0] i_return_select;
+    logic [1:0][31:0] i_return_data;
     logic o_ready;
     logic [31:0] i_pc,i_instruction,i_pc_base,i_next_pc;
     logic i_thumb,i_fault,i_force_align,i_reg_shift,i_first,i_last;
@@ -168,7 +171,7 @@ module execute_tb;
             end
         end
     end
-    arm9v2_execute dut(.i_load_wait(1'b0),.i_ready(ready_m),.i_mw_tag(real_tag),.i_mw_value(real_value),.i_mw_valid(real_write),
+    arm9v2_execute dut(.i_pending(i_pending),.i_load_owner(2'd0),.i_next_load_owner(2'd0),.i_load_hit(1'b0),.i_return_select(i_return_select),.i_return_data(i_return_data),.i_load_wait(1'b0),.i_ready(ready_m),.i_mw_tag(real_tag),.i_mw_value(real_value),.i_mw_valid(real_write),
 .o_valid(raw_o_valid),.o_pc(raw_o_pc),.o_instruction(raw_o_instruction),.o_cpsr(raw_o_cpsr),.o_cpsr_next(raw_o_cpsr_next),.o_kind(raw_o_kind),.o_thumb(raw_o_thumb),.o_fault(raw_o_fault),.o_first(raw_o_first),.o_last(raw_o_last),.o_condition_pass(raw_o_condition_pass),.o_dest(raw_o_dest),.o_result(raw_o_result),.o_write(raw_o_write),.o_write_flags(raw_o_write_flags),.o_pc_write(raw_o_pc_write),.o_memory(raw_o_memory),.o_store(raw_o_store),.o_address(raw_o_address),.o_store_data(raw_o_store_data),.o_psr_source(raw_o_psr_source),.o_saved_psr(raw_o_saved_psr),.o_original_base(raw_o_original_base),.o_next_pc(raw_o_next_pc),.o_prediction_target(raw_o_prediction_target),.o_spsr_tag(raw_o_spsr_tag),.o_predicted(raw_o_predicted),.*);
     wire unused=&{1'b0,o_btb_pc,o_btb_thumb,o_record_pointer,o_record_count,o_record_pred_hit,o_record_thumb,o_record_pred_state,i_mw_tag[1],i_mw_value[1],o_a_load,o_predicted,o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target,o_spsr_tag,o_btb_update,o_btb_taken,o_btb_hit,o_btb_target,o_btb_state,o_btb_kind,o_a_can_finish,o_s_write,o_ready,o_valid,o_pc,o_instruction,o_cpsr,o_cpsr_next,o_kind,o_thumb,o_fault,o_first,o_last,o_condition_pass,o_dest,o_result,o_write,o_write_flags,o_pc_write,o_memory,o_store,o_address,o_store_data,o_flags,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_a_valid,o_a_dest,o_a_write,o_shift_wait,o_multiply_wait};
     int checks=0,cycles=0;
@@ -202,7 +205,7 @@ module execute_tb;
         i_first='0;
         i_last='0;
         i_kind='0;
-        i_condition='0;
+        i_condition='0;i_pending=0;i_return_select=0;i_return_data=0;
         i_tag='0;
         i_used='0;
         i_value='0;
@@ -478,6 +481,22 @@ module execute_tb;
         i_mw_valid[0][0]=1;i_mw_tag[0][0]=0;i_mw_value[0][0]=100;i_valid=1;tick();
         i_mw_valid=0;repeat(3)tick();i_ready=1;#1;check(o_ready,"release held S");tick();i_valid=0;tick();
         check(o_valid&&o_result[0]==106,"one forwarding network retains held operand");
+        // A late consumer waits without retiring or redirecting. Completion
+        // repairs its operand register once, even while downstream is held.
+        reset_case();i_pending=1;i_value[0]=5;i_value[1]=6;send();
+        repeat(4)begin tick();check(o_a_valid&&!raw_o_valid&&!o_redirect,"miss holds late consumer");end
+        i_return_select[1]=64'd1;i_return_data[1]=100;i_ready=0;tick();
+        i_return_select=0;repeat(3)tick();
+        check(o_valid&&o_result[0]==106,"background return retained across hold");i_ready=1;tick();
+        reset_case();i_kind=4;i_instruction=32'he12fff11;i_used=2;i_pending=2;i_value[1]=32'h99;
+        i_return_select[0]=64'd2;i_return_data[0]=32'h951;send();i_return_select=0;receive();
+        check(o_redirect&&o_redirect_target==32'h950&&o_redirect_thumb,"BX completion wins raw operand capture");
+        // Early shifted input must stay in S, then use the repaired word.
+        reset_case();i_instruction=32'he080a081;i_pending=2;i_value[0]=5;i_value[1]=6;i_valid=1;
+        repeat(4)begin tick();check(!o_ready&&!o_a_valid,"miss holds early consumer in S");end
+        i_return_select[0]=64'd2;i_return_data[0]=100;tick();i_return_select=0;
+        #1;check(o_ready,"registered completion releases early consumer");tick();i_valid=0;tick();
+        check(o_valid&&o_result[0]==205,"early consumer rotates the returned word");
         // Older exception/restore clears all younger slots and restores flags.
         reset_case();i_instruction=32'he3b0a001;send();i_cpsr=32'h90000013;i_flush=1;tick();i_flush=0;
         check(!o_valid&&!o_a_valid&&o_flags==9&&!o_redirect,"older flush and flag restore");

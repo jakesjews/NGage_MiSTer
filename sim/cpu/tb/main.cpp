@@ -350,6 +350,7 @@ int main(int argc, char **argv) {
 	bool multiply_pending = false;
     uint64_t recovery_events[5] = {}, recovery_slots[5] = {}, recovery_refill[5] = {};
     unsigned recovering = 0;
+    uint64_t retirement_with_load_lock = 0;
 	std::string console;
 
 	auto mmio_read = [&](uint32_t off) -> uint32_t {
@@ -438,6 +439,7 @@ int main(int argc, char **argv) {
 		alu_flushes += (t->p_alu_flags & 0x30) == 0x20;
 		early_flushes += (t->p_stall & 0x41) == 0x40 && !(t->p_alu_flags & 0x20);
 		uops += t->p_valid || t->p_cfail;
+        retirement_with_load_lock += t->p_lock && (t->p_valid || t->p_cfail) && !(t->p_dabt & 2);
 		multiply_clocks += t->p_mult_state & 1;
 		if (t->p_mult_state & 8) {
 			multiply_pending = false;
@@ -755,6 +757,7 @@ int main(int argc, char **argv) {
 		       " alu_flushes=%" PRIu64 " early_flushes=%" PRIu64 "\n", stall_clocks[0], stall_clocks[1],
 		       stall_clocks[2], stall_clocks[3], stall_clocks[4], stall_clocks[5], alu_flushes, early_flushes);
 		printf("Replays: %" PRIu64 "\n", replays);
+        printf("Retirement with load lock: %" PRIu64 " uops\n", retirement_with_load_lock);
         for (unsigned k = 1; k < 5; k++)
             printf("Recovery %u: events=%" PRIu64 " killed_slots=%" PRIu64
                    " refill_clocks=%" PRIu64 "\n", k, recovery_events[k], recovery_slots[k], recovery_refill[k]);

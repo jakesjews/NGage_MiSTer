@@ -26,6 +26,8 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     output logic [3:0][5:0] o_rf_tag,
     input logic [5:0][5:0] i_load_tag,
     input logic [5:0] i_load_valid,i_load_speculate,
+    input logic i_w_load_hit,
+    output logic [3:0] o_pending,
     input logic [1:0][5:0] i_next_load_tag,
     input logic [1:0] i_next_load_valid,
     output logic o_load_wait,
@@ -475,7 +477,12 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
                 d2.tag[src]==i_load_tag[pending];
             // No younger destination can be overwritten by an older fill.
             if(EXTERNAL_RF)for(int dst=0;dst<2;dst++)
-                load_hazard|=d2.writes[dst]&&i_load_valid[pending]&&!i_load_speculate[pending]&&d2.dest[dst]==i_load_tag[pending];
+                load_hazard|=d2.writes[dst]&&i_load_valid[pending]&&d2.dest[dst]==i_load_tag[pending]&&
+                    !(i_load_speculate[pending]&&((pending==4&&i_w_load_hit)||
+                    (d2.used[0]&&d2.tag[0]==i_load_tag[pending])||
+                    (d2.used[1]&&d2.tag[1]==i_load_tag[pending])||
+                    (d2.used[2]&&d2.tag[2]==i_load_tag[pending])||
+                    (d2.used[3]&&d2.tag[3]==i_load_tag[pending])));
         end
         if(EXTERNAL_RF)for(int dst=0;dst<2;dst++)load_hazard|=d2.writes[dst]&&i_locked[d2.dest[dst]];
     end
@@ -512,7 +519,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
         if(i_reset) begin
             fenced<=0;count<=0;head_select<=2'b01;tail<=0;d2_valid<=0;out_valid<=0;redirect_ff.valid<=0;redirect_in_d2<=0;
             previous_prefix<=0;prefix_valid<=0;previous_next_pc<=0;prefix_target<=0;
-            d2<=decoded_t'(0);issued<=decoded_t'(0);values<=0;write_through_match<=0;write_through_data<=0;matches_taken<=0;matches_fallthrough<=0;
+            d2<=decoded_t'(0);issued<=decoded_t'(0);values<=0;write_through_match<=0;write_through_data<=0;matches_taken<=0;matches_fallthrough<=0;o_pending<=0;
             redirect_ff.target<=0;redirect_ff.thumb<=0;redirect_ff.link<=0;
             redirect_ff.pointer<=0;redirect_ff.count<=0;redirect_ff.action<=0;
         end else begin
@@ -531,6 +538,10 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
             // only validity and the owner; it never drives this wide enable.
             if(!out_valid||i_ready)begin
                 issued<=d2;values<=raw_values;
+                // W may accept a miss and install its lock on this same
+                // edge. Carry that owner to S instead of observing old locks.
+                for(int src=0;src<4;src++)o_pending[src]<=d2.used[src]&&
+                    i_load_valid[4]&&!i_w_load_hit&&d2.tag[src]==i_load_tag[4];
                 write_through_data<={i_wr_data_c,i_wr_data_b,i_wr_data_a};
                 for(int n=0;n<4;n++)write_through_match[n]<=
                     {i_wr_addr_c[d2.tag[n]],i_wen&&i_wr_addr_b[d2.tag[n]],i_wen&&i_wr_addr_a[d2.tag[n]]};

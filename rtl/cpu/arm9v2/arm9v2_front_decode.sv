@@ -18,6 +18,8 @@ module arm9v2_front_decode #(
     output logic [3:0][5:0] o_rf_tag,
     input logic [5:0][5:0] i_load_tag,
     input logic [5:0] i_load_valid,i_load_speculate,
+    input logic i_w_load_hit,
+    output logic [3:0] o_pending,
     input logic [1:0][5:0] i_next_load_tag,
     input logic [1:0] i_next_load_valid,
     output logic o_load_wait,

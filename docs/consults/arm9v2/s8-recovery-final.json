@@ -1,0 +1,1052 @@
+{
+  "ZAP": {
+    "crand1.0-3.log": {
+      "cycles_instructions": [
+        104148,
+        15982
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 7,
+          "killed_slots": 0,
+          "refill_clocks": 292
+        }
+      },
+      "retired_uops_with_load_lock": 189
+    },
+    "crand1.2-9.log": {
+      "cycles_instructions": [
+        186981,
+        15982
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 7,
+          "killed_slots": 0,
+          "refill_clocks": 460
+        }
+      },
+      "retired_uops_with_load_lock": 196
+    },
+    "ctrand1.0-3.log": {
+      "cycles_instructions": [
+        102177,
+        16159
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 7,
+          "killed_slots": 0,
+          "refill_clocks": 251
+        }
+      },
+      "retired_uops_with_load_lock": 77
+    },
+    "ctrand1.2-9.log": {
+      "cycles_instructions": [
+        178836,
+        16159
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 7,
+          "killed_slots": 0,
+          "refill_clocks": 434
+        }
+      },
+      "retired_uops_with_load_lock": 77
+    },
+    "mmu_page.0-3.log": {
+      "cycles_instructions": [
+        112738,
+        16887
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 17,
+          "killed_slots": 0,
+          "refill_clocks": 623
+        }
+      },
+      "retired_uops_with_load_lock": 0
+    },
+    "mmu_page.2-9.log": {
+      "cycles_instructions": [
+        203065,
+        16887
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 17,
+          "killed_slots": 0,
+          "refill_clocks": 971
+        }
+      },
+      "retired_uops_with_load_lock": 0
+    },
+    "cache.0-3.log": {
+      "cycles_instructions": [
+        861284,
+        293427
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 22,
+          "killed_slots": 0,
+          "refill_clocks": 688
+        }
+      },
+      "retired_uops_with_load_lock": 4137
+    },
+    "cache.2-9.log": {
+      "cycles_instructions": [
+        1130306,
+        293427
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 22,
+          "killed_slots": 0,
+          "refill_clocks": 1107
+        }
+      },
+      "retired_uops_with_load_lock": 4137
+    },
+    "dhold_rtl.0-3.log": {
+      "cycles_instructions": [
+        342784,
+        41081
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 3884,
+          "killed_slots": 0,
+          "refill_clocks": 78848
+        }
+      },
+      "retired_uops_with_load_lock": 4433
+    },
+    "dhold_rtl.2-9.log": {
+      "cycles_instructions": [
+        518764,
+        41081
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 3884,
+          "killed_slots": 0,
+          "refill_clocks": 89314
+        }
+      },
+      "retired_uops_with_load_lock": 4479
+    },
+    "dhum_rtl.0-3.log": {
+      "cycles_instructions": [
+        509160,
+        24632
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 3306,
+          "killed_slots": 0,
+          "refill_clocks": 102397
+        }
+      },
+      "retired_uops_with_load_lock": 1832
+    },
+    "dhum_rtl.2-9.log": {
+      "cycles_instructions": [
+        575392,
+        24632
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 3306,
+          "killed_slots": 0,
+          "refill_clocks": 102540
+        }
+      },
+      "retired_uops_with_load_lock": 1832
+    }
+  },
+  "ARM9": {
+    "crand1.0-3.log": {
+      "cycles_instructions": [
+        99278,
+        15982
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 36
+    },
+    "crand1.2-9.log": {
+      "cycles_instructions": [
+        183229,
+        15982
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 37
+    },
+    "ctrand1.0-3.log": {
+      "cycles_instructions": [
+        96424,
+        16159
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 2
+    },
+    "ctrand1.2-9.log": {
+      "cycles_instructions": [
+        175356,
+        16159
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 2
+    },
+    "mmu_page.0-3.log": {
+      "cycles_instructions": [
+        106325,
+        16887
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 0
+    },
+    "mmu_page.2-9.log": {
+      "cycles_instructions": [
+        196950,
+        16887
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 0
+    },
+    "cache.0-3.log": {
+      "cycles_instructions": [
+        698585,
+        293427
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 5
+    },
+    "cache.2-9.log": {
+      "cycles_instructions": [
+        1014159,
+        293427
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 7
+    },
+    "dhold_rtl.0-3.log": {
+      "cycles_instructions": [
+        324606,
+        41081
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 3448
+    },
+    "dhold_rtl.2-9.log": {
+      "cycles_instructions": [
+        537552,
+        41081
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 3595
+    },
+    "dhum_rtl.0-3.log": {
+      "cycles_instructions": [
+        565737,
+        24632
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 1441
+    },
+    "dhum_rtl.2-9.log": {
+      "cycles_instructions": [
+        632645,
+        24632
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 1441
+    }
+  },
+  "ARM9-off": {
+    "crand1.0-3.log": {
+      "cycles_instructions": [
+        136762,
+        15982
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 28
+    },
+    "crand1.2-9.log": {
+      "cycles_instructions": [
+        232077,
+        15982
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 37
+    },
+    "ctrand1.0-3.log": {
+      "cycles_instructions": [
+        134831,
+        16159
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 2
+    },
+    "ctrand1.2-9.log": {
+      "cycles_instructions": [
+        225243,
+        16159
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 2
+    },
+    "mmu_page.0-3.log": {
+      "cycles_instructions": [
+        152814,
+        16887
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 0
+    },
+    "mmu_page.2-9.log": {
+      "cycles_instructions": [
+        258283,
+        16887
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 0
+    },
+    "cache.0-3.log": {
+      "cycles_instructions": [
+        1000751,
+        293427
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 5
+    },
+    "cache.2-9.log": {
+      "cycles_instructions": [
+        1300846,
+        293427
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 8
+    },
+    "dhold_rtl.0-3.log": {
+      "cycles_instructions": [
+        360495,
+        41081
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 3439
+    },
+    "dhold_rtl.2-9.log": {
+      "cycles_instructions": [
+        584918,
+        41081
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 3605
+    },
+    "dhum_rtl.0-3.log": {
+      "cycles_instructions": [
+        601136,
+        24632
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 1441
+    },
+    "dhum_rtl.2-9.log": {
+      "cycles_instructions": [
+        679249,
+        24632
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      },
+      "retired_uops_with_load_lock": 1441
+    }
+  }
+}
