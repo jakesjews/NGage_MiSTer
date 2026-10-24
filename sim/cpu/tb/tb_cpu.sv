@@ -17,7 +17,11 @@ module tb_cpu #(
 	parameter int DCACHE_WAYS     = 2,
 	parameter int CACHE_LINE      = 16
 ) (
-	input  logic          clk,
+	`ifdef CPU_PROFILE
+    output logic [63:0] p_profile_flags,
+    output logic [31:0] p_profile_pc,p_profile_ins,p_profile_retire_ins,p_profile_target,
+`endif
+    input  logic          clk,
 	input  logic          reset,
 	input  logic          irq,
 	input  logic          fiq,
@@ -109,6 +113,14 @@ module tb_cpu #(
     output logic [5:0]    p_recovery_slots, // valid younger queue/uop slots, V2 only
 	output logic [3:0]    p_mult_state
 );
+`ifdef CPU_PROFILE
+    assign p_profile_flags=dut.profile_probe.flags;
+    assign p_profile_pc=dut.profile_probe.decode_pc;
+    assign p_profile_ins=dut.profile_probe.decode_ins;
+    assign p_profile_retire_ins=dut.profile_probe.retire_ins;
+    assign p_profile_target=dut.profile_probe.recovery_target;
+`endif
+
 
 	arm925t #(
 		.CORE (CORE),

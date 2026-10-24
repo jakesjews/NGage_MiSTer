@@ -34,6 +34,7 @@
 #include "common.h"
 #include "ddram_model.h"
 #include "sdram_model.h"
+#include "../profile/cpu_profile.h"
 
 #include <chrono>
 #include <cinttypes>
@@ -150,6 +151,8 @@ bool device(uint32_t a) {
 	       !(a >= 0x0C000000u && a < 0x0C040000u);
 }
 
+#define PROFILE_TAP(n) emu__DOT__arm925t__DOT__profile_probe__DOT__##n
+
 // Register snapshots and V2 held-read profiling use implementation-specific taps.
 #ifdef NGAGE_CORE_ARM9
 #define V2_TAP(n) emu__DOT__arm925t__DOT__u_zap__DOT__g_arm9__DOT__u_arm9_core__DOT__##n
@@ -195,6 +198,14 @@ struct Bench {
     uint64_t user_retired = 0, user_entries = 0, exec_calls = 0;
     uint64_t stall_clocks[8] = {}, dc_events[4] = {}, ic_events[8] = {};
     uint64_t fill_read_wait = 0;
+#ifdef NGAGE_CORE_ARM9
+    cpu_profile::Profile accounting{true};
+#else
+    cpu_profile::Profile accounting{false};
+#endif
+    cpu_profile::Sample accounting_sample;
+    bool profile_exec_seen=false,profile_was_user=false;
+    unsigned profile_threads=0;
     void profile(const char *label) {
         printf("PROFILE %s clock=%" PRIu64 " retired=%" PRIu64 " stall=",label,clocks,retired);
         for (auto n : stall_clocks) printf("%" PRIu64 ",",n);
@@ -280,6 +291,11 @@ struct Bench {
 	// what commits at the coming edge (the CPU's writeback stage)
 	void cpu_before_edge() {
 		auto &h = *r;
+#ifdef CPU_PROFILE
+        if(accounting.enabled) accounting_sample={h.PROFILE_TAP(flags),h.PROFILE_TAP(decode_pc),
+            h.PROFILE_TAP(decode_ins),h.PROFILE_TAP(retire_ins),h.PROFILE_TAP(recovery_target),
+            h.PROFILE_TAP(raw_stall),h.PROFILE_TAP(raw_icache),h.PROFILE_TAP(raw_dcache)};
+#endif
         if (!h.emu__DOT__cpu_reset) {
             for (int n=0;n<8;n++) {
                 stall_clocks[n]+=(h.emu__DOT__cpu_dbg_stall>>n)&1;
@@ -311,7 +327,15 @@ struct Bench {
 		         h.emu__DOT__tr_wb_uop_last)
 			ev = 'R';
 		if (!ev || h.emu__DOT__cpu_reset) { pending_ev = 0; return; }
-		if (exec_log) {
+		if(accounting.enabled) {
+            bool user=(cpsr&31)==16;
+            if(ev=='S'&&!profile_exec_seen){accounting.mark("first_exec",clocks);profile_exec_seen=true;}
+            if(user&&!profile_was_user&&pc==0x503247bc&&!reg(phys_index(14,cpsr))){
+                char label[32];snprintf(label,sizeof label,"thread_%u",++profile_threads);accounting.mark(label,clocks);
+            }
+            profile_was_user=user;
+        }
+        if (exec_log) {
             bool user = (cpsr & 31) == 16;
             if (ev == 'R' && user) user_retired++;
             if ((user && !was_user) || ev == 'S' || ev == 'D' || ev == 'P' || ev == 'U') {
@@ -340,7 +364,7 @@ struct Bench {
 
 	// after the edge: the registers after the committed instruction
 	void cpu_after_edge() {
-		if (!pending_ev) return;
+		if (!pending_ev) {accounting.observe(accounting_sample,false,false,0,0);return;}
 		char ev = pending_ev;
 		uint32_t pc = pending_pc;
 		uint32_t cpsr = r->emu__DOT__tr_wb_cpsr;
@@ -348,7 +372,9 @@ struct Bench {
 		bool bl_second = false;
 		if (ev == 'R' && pending_thumb && last_ev == 'R' && pc == last_r_pc + 2 && (pc & 0x3FF))
 			bl_second = reg(phys_index(14, cpsr)) == ((pc + 2) | 1);
-		if ((ev == 'R' && !bl_second) || ev == 'S' || ev == 'U') retired++;
+		bool counted=(ev == 'R' && !bl_second) || ev == 'S' || ev == 'U';
+        if(counted) retired++;
+        accounting.observe(accounting_sample,counted,bl_second,ev,pc);
 		if (devlog && ev != 'R') {
 			// interrupts and exceptions as the plugin records them: "X n exc
 			// from vector" (low vectors; n before an SWI or UND counts it)
@@ -513,7 +539,8 @@ int main(int argc, char **argv) {
 	crc_init();
 	std::string cs0p, cs1p, mmcp, out = ".", keysp, tracep, rtc = "2004-06-01 12:00:00";
 	uint64_t max_cycles = 1000000000ull, progress = 50000000ull, trace_after = 0, trace_count = 0;
-	bool devlog = false;
+	bool devlog = false, profile_enabled = true;
+    std::vector<uint64_t> profile_marks;size_t profile_mark_index=0;
 	for (int i = 1; i < argc; i++) {
 		std::string a = argv[i];
 		auto next = [&]() -> const char * {
@@ -528,6 +555,8 @@ int main(int argc, char **argv) {
 		else if (a == "--rtc") rtc = next();
 		else if (a == "--keys") keysp = next();
 		else if (a == "--devlog") devlog = true;
+        else if(a=="--no-profile") profile_enabled=false;
+        else if(a=="--profile-at") profile_marks.push_back(strtoull(next(),nullptr,0));
 		else if (a == "--trace") tracep = next();
 		else if (a == "--trace-after") trace_after = strtoull(next(), nullptr, 0);
 		else if (a == "--trace-count") trace_count = strtoull(next(), nullptr, 0);
@@ -537,9 +566,15 @@ int main(int argc, char **argv) {
 	}
 	if (cs0p.empty() || cs1p.empty()) { fprintf(stderr, "--cs0 and --cs1 are needed\n"); return 2; }
 
+	std::sort(profile_marks.begin(),profile_marks.end());
 	Bench b;
 	auto &R = *b.r;
 	b.out = out;
+#ifdef CPU_PROFILE
+    if(profile_enabled){b.accounting.open(out+"/profile.csv");b.accounting.total.clocks=b.clocks;b.accounting.total.why[cpu_profile::Reset]=b.clocks;}
+#else
+    (void)profile_enabled;
+#endif
 	b.kern = fopen((out + "/kern.log").c_str(), "w");
 	if (devlog) {
         b.devlog = fopen((out + "/dev.log").c_str(), "w");
@@ -600,6 +635,10 @@ int main(int argc, char **argv) {
 	auto last_t = t0;
 	while (b.clocks < max_cycles) {
 		b.tick();
+        if(b.accounting.enabled && b.clocks%104000000==0)b.accounting.second(b.clocks);
+        if(profile_mark_index<profile_marks.size()&&b.clocks==profile_marks[profile_mark_index]){
+            char label[48];snprintf(label,sizeof label,"clock_%" PRIu64,b.clocks);b.accounting.mark(label,b.clocks);profile_mark_index++;
+        }
 		if (progress && b.clocks % progress == 0) {
 			auto now = std::chrono::steady_clock::now();
 			double wall = std::chrono::duration<double>(now - t0).count();
@@ -621,6 +660,7 @@ int main(int argc, char **argv) {
 	       "%d pictures, %zu audio frames, %.0f s wall clock\n",
 	       b.clocks, b.clocks / CLK_HZ, b.retired, b.dev_accesses, b.pictures, b.audio.size() / 2, wall);
     b.profile("end");
+    b.accounting.finish(b.clocks);
 	if (b.chip.errors) printf("the SDRAM chip model reported %d error(s)\n", b.chip.errors);
 	if (b.dm.protocol_errors) printf("%d DDRAM port protocol error(s)\n", b.dm.protocol_errors);
 	if (b.exec_log) {

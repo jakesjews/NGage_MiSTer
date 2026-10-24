@@ -41,6 +41,9 @@ REMOTE    ?= ubuntu
 RDIR      ?= dev/mister/ngage-cpu
 LATS      ?= 0:0 0:3 2:9
 JOBS      ?= 8
+PROFILE   ?= 0
+PROFILE_FILES = $(if $(filter 1,$(PROFILE)),$(ROOT)/sim/profile/cpu_profile_probe.sv)
+PROFILE_FLAGS = $(if $(filter 1,$(PROFILE)),-DCPU_PROFILE=1 -CFLAGS "-DCPU_PROFILE=1")
 SHELL     := bash
 
 RAND_SEEDS ?= 1 2 3 4 5 6 7 8
@@ -135,7 +138,7 @@ $(TB)/%.lst: $(TB)/%.elf
 # ---------------------------------------------------------------- model
 VFLAGS := --cc --exe --build --assert -j $(JOBS) -O3 --x-assign unique --x-initial unique \
           -Wno-fatal -Wno-lint -Wno-style -Wno-MULTIDRIVEN -Wno-ASSIGNIN \
-          --top-module tb_cpu -GCORE=\"$(CORE)\" -CFLAGS "-O2 -std=c++17" $(VEXTRA)
+          --top-module tb_cpu -GCORE=\"$(CORE)\" -CFLAGS "-O2 -std=c++17" $(VEXTRA) $(PROFILE_FLAGS)
 ARM9_SV := $(wildcard $(ROOT)/rtl/cpu/arm9/*.sv) $(wildcard $(ROOT)/rtl/cpu/arm9v2/*.sv)
 ZAP_SV  := $(wildcard $(ROOT)/rtl/cpu/zap/*.sv)
 ifeq ($(RTL),sv)
@@ -147,10 +150,10 @@ RTL_DEP := $(RTL_SRC)
 endif
 
 model: $(MODEL)
-$(MODEL): $(RTL_DEP) $(HERE)/tb/tb_cpu.sv $(HERE)/tb/main.cpp $(HERE)/tb/ngage.h
+$(MODEL): $(RTL_DEP) $(HERE)/tb/tb_cpu.sv $(HERE)/tb/main.cpp $(HERE)/tb/ngage.h $(ROOT)/sim/profile/cpu_profile.h $(PROFILE_FILES)
 	@mkdir -p $(MODEL_DIR)
 	$(VERILATOR) $(VFLAGS) --Mdir $(MODEL_DIR) -o Vtb_cpu $(RTL_SRC) \
-		$(HERE)/tb/tb_cpu.sv $(HERE)/tb/main.cpp
+		$(HERE)/tb/tb_cpu.sv $(PROFILE_FILES) $(HERE)/tb/main.cpp
 
 # ---------------------------------------------------------------- RTL runs
 # Every test at every latency setting; the first setting's signature and

@@ -69,6 +69,7 @@
 // Bus protocol checks: a request must stay unchanged until acked, and a
 // burst beat must be followed by the next word of the same line.
 #include "Vtb_cpu.h"
+#include "../../profile/cpu_profile.h"
 #include "ngage.h"
 #include "verilated.h"
 
@@ -167,6 +168,7 @@ int main(int argc, char **argv) {
 	uint64_t trace_after = 0, trace_count = 0;
 	bool dcdbg = false, pddbg = false, arm9_cycles = false, measure_cycles = false;
     const char *arm9_cycle_model = nullptr;
+    const char *profile_path=nullptr;uint32_t profile_start=~0u,profile_end=~0u;bool profile_marked=false,profile_end_marked=false;
 	bool quiet = false, icache_quarantine = false;
 	bool halt_given = false;
 	std::string machine;
@@ -213,6 +215,9 @@ int main(int argc, char **argv) {
         else if (a == "--measure-cycles") { arm9_cycles = true; measure_cycles = true; }
         else if (a == "--arm9-cycle-model") arm9_cycle_model = next();
 		else if (a == "--pddbg") pddbg = true;
+		else if(a=="--profile") profile_path=next();
+        else if(a=="--profile-start") profile_start=strtoul(next(),nullptr,0);
+        else if(a=="--profile-end") profile_end=strtoul(next(),nullptr,0);
 		else if (a == "--watch") watch.push_back((uint32_t)strtoul(next(), nullptr, 0));
 		else if (a == "--dump") {
 			std::string v = next();
@@ -417,12 +422,22 @@ int main(int argc, char **argv) {
 	t->reset = 0;
 	t->eval();
 
+	cpu_profile::Profile accounting(t->p_arm9);
+    if(profile_path)accounting.open(profile_path);
 	bool halted = false;
 	uint32_t last_pc = 0, last_r_pc = 0;
     uint64_t pending_blocking_load = 0;
     uint32_t pending_blocking_data = 0;
 	char last_ev = 0;
 	while (!stop && cycle < max_cycles) {
+        uint64_t retired_before=retired;
+        cpu_profile::Sample profile_sample;
+#ifdef CPU_PROFILE
+        if(accounting.enabled)profile_sample={t->p_profile_flags,t->p_profile_pc,t->p_profile_ins,
+            t->p_profile_retire_ins,t->p_profile_target,t->p_stall,t->p_icache,t->p_dcache};
+#else
+        if(accounting.enabled)error("--profile requires PROFILE=1 model");
+#endif
 		// ---- before the rising edge: sample what commits at this edge ----
 		// Observe the external request/acknowledge, not the implementation's
 		// eligibility bit. Negative tests can prove an access was withheld.
@@ -728,9 +743,13 @@ int main(int argc, char **argv) {
 		t->clk = 0;
 		t->eval();
 
-		if (halted) break;
+		accounting.observe(profile_sample,retired!=retired_before,false,ev,pc);
+        if(ev=='R'&&pc==profile_start&&!profile_marked){accounting.mark("post_setup",cycle);profile_marked=true;}
+        if(ev=='R'&&pc==profile_end&&!profile_end_marked){accounting.mark("body_end",cycle);profile_end_marked=true;}
+        if (halted) break;
 	}
 
+	accounting.finish(cycle);
 	if (trace) fclose(trace);
 	if (buslog) fclose(buslog);
 	for (auto &d : dumps) {

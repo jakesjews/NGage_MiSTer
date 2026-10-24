@@ -19,6 +19,9 @@ VFLAGS := --cc --exe --build -j 4 -O3 --x-assign unique --x-initial unique \
 # Whole-core compile options, e.g. VEXTRA=-DNGAGE_CORE_ARM9=1. The CPU
 # selection also chooses the firmware bench's register-file hierarchy.
 VEXTRA ?=
+CORE_PROFILE ?= 1
+PROFILE_FILES = $(if $(filter 1,$(CORE_PROFILE)),$(ROOT)/sim/profile/cpu_profile_probe.sv)
+PROFILE_FLAGS = $(if $(filter 1,$(CORE_PROFILE)),-DCPU_PROFILE=1 -CFLAGS "-DCPU_PROFILE=1")
 CORE_CFLAGS = $(filter -DNGAGE_CORE_ARM9%,$(VEXTRA))
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
@@ -224,13 +227,13 @@ CORE_MMC     ?=
 CORE_ARGS    ?= --cycles 1000000000
 CORE_OUT     ?= $(BUILD)/coreboot/out
 CORE_THREADS ?= 1
-$(BUILD)/coreboot/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/coreboot_main.cpp $(ROOT)/sim/harness/coreboot.vlt \
+$(BUILD)/coreboot/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/coreboot_main.cpp $(ROOT)/sim/harness/coreboot.vlt $(ROOT)/sim/profile/cpu_profile.h $(PROFILE_FILES) \
                         $(ROOT)/sim/harness/common.h $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h \
                         $(ROOT)/rtl/mister/phoenix_patch.hex $(ROOT)/rtl/mister/phoenix_patch.vh
-	mkdir -p $(BUILD)/coreboot && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) $(if $(CORE_CFLAGS),-CFLAGS "$(CORE_CFLAGS)") --timescale 1ns/1ps --pins-inout-enables \
+	mkdir -p $(BUILD)/coreboot && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) $(PROFILE_FLAGS) $(if $(CORE_CFLAGS),-CFLAGS "$(CORE_CFLAGS)") --timescale 1ns/1ps --pins-inout-enables \
 		$(if $(filter-out 1,$(CORE_THREADS)),--threads $(CORE_THREADS)) \
 		--top-module emu -DNGAGE_DEBUG=1 --Mdir $(BUILD)/coreboot -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
-		$(ROOT)/sim/harness/coreboot.vlt $(TOP_RTL) $(ROOT)/sim/harness/coreboot_main.cpp
+		$(ROOT)/sim/harness/coreboot.vlt $(TOP_RTL) $(PROFILE_FILES) $(ROOT)/sim/harness/coreboot_main.cpp
 coreboot: $(BUILD)/coreboot/Vemu
 	mkdir -p $(CORE_OUT)
 	cd $(ROOT) && $< $(RUNFLAGS) --cs0 $(CORE_CS0) --cs1 $(CORE_CS1) $(if $(CORE_MMC),--mmc $(CORE_MMC)) --out $(CORE_OUT) $(CORE_ARGS)
