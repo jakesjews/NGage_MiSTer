@@ -5,7 +5,7 @@
 // Pending S operands are stalled in D2. Unshifted operands can carry a late
 // token into A, selecting the just-completed REGISTERED A result there.
 module arm9v2_execute (
-    input logic i_clk,i_reset,i_flush,i_admit,
+    input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
     input logic [31:0] i_cpsr,
     input logic i_valid,
     output logic o_ready,
@@ -181,7 +181,7 @@ module arm9v2_execute (
     assign space=!a_valid||finish;
     assign o_shift_wait=i_valid&&i_reg_shift&&!prepared;
     assign o_multiply_wait=product_phase||mac_phase;
-    assign o_ready=i_admit&&space&&!o_shift_wait&&!i_flush&&!o_redirect;
+    assign o_ready=i_admit&&space&&!i_load_wait&&!o_shift_wait&&!i_flush&&!o_redirect;
     assign accept=i_valid&&o_ready;
     assign o_valid=a_valid&&!product_phase&&!mac_phase&&!i_flush&&!o_redirect;
     assign finish=o_valid&&i_ready;
@@ -273,7 +273,7 @@ module arm9v2_execute (
         end else begin
             o_redirect<=0;o_btb_update<=0;
             if(i_valid&&!accept)begin holding<=1;held<=operand;end
-            if(i_valid&&i_admit&&space&&i_reg_shift&&!prepared)begin prepared<=1;held_amount<=operand[2][7:0];end
+            if(i_valid&&i_admit&&space&&!i_load_wait&&i_reg_shift&&!prepared)begin prepared<=1;held_amount<=operand[2][7:0];end
             if(a_valid)begin
                 a.left<=left_a;a.right<=right_a;a.store_data<=store_a;a.special<=special_a;
                 for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)

@@ -25,7 +25,10 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     input logic [3:0][31:0] i_rf_value,
     output logic [3:0][5:0] o_rf_tag,
     input logic [5:0][5:0] i_load_tag,
-    input logic [5:0] i_load_valid,
+    input logic [5:0] i_load_valid,i_load_speculate,
+    input logic [1:0][5:0] i_next_load_tag,
+    input logic [1:0] i_next_load_valid,
+    output logic o_load_wait,
     // Tags/eligibility of the producers that will exist after this edge.
     input logic [1:0][1:0][5:0] i_forward_tag,
     input logic [1:0][1:0] i_forward_write,
@@ -427,6 +430,21 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
             else o_forward_match[src][prod][lane]<=issued.used[src]&&
                 i_forward_write[prod][lane]&&issued.tag[src]==i_forward_tag[prod][lane];
     end
+    // Retain the latency separation when a backend hold compresses the
+    // relative positions of load and consumer. All comparisons terminate
+    // in the S-entry register; cache ACK never qualifies S admission.
+    logic load_wait_next;
+    always_comb begin
+        load_wait_next=0;
+        for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)
+            if(!out_valid||i_ready)load_wait_next|=d2.used[src]&&
+                (prod==0||d2.early[src])&&i_next_load_valid[prod]&&d2.tag[src]==i_next_load_tag[prod];
+            else load_wait_next|=issued.used[src]&&
+                (prod==0||issued.early[src])&&i_next_load_valid[prod]&&issued.tag[src]==i_next_load_tag[prod];
+    end
+    always_ff @(posedge i_clk)
+        if(i_reset||i_flush)o_load_wait<=0;
+        else o_load_wait<=load_wait_next;
     assign next_remaining=clear_first(d2.remaining);
     assign next_register=first16(d2.remaining[14:0]);
     assign taken_match=d2.p.pred_target=={d2.target[31:1],d2.p.thumb};
@@ -452,10 +470,12 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     always_comb begin
         load_hazard=0;
         for(int pending=0;pending<6;pending++)begin
-            for(int src=0;src<4;src++)load_hazard|=d2.used[src]&&i_load_valid[pending]&&d2.tag[src]==i_load_tag[pending];
+            for(int src=0;src<4;src++)load_hazard|=d2.used[src]&&i_load_valid[pending]&&
+                (!i_load_speculate[pending]||pending==0||(d2.early[src]&&pending==1))&&
+                d2.tag[src]==i_load_tag[pending];
             // No younger destination can be overwritten by an older fill.
             if(EXTERNAL_RF)for(int dst=0;dst<2;dst++)
-                load_hazard|=d2.writes[dst]&&i_load_valid[pending]&&d2.dest[dst]==i_load_tag[pending];
+                load_hazard|=d2.writes[dst]&&i_load_valid[pending]&&!i_load_speculate[pending]&&d2.dest[dst]==i_load_tag[pending];
         end
         if(EXTERNAL_RF)for(int dst=0;dst<2;dst++)load_hazard|=d2.writes[dst]&&i_locked[d2.dest[dst]];
     end

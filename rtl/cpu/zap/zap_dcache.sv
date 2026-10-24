@@ -66,6 +66,10 @@ input   logic            i_align_fault,  // ARM925T: alignment fault (see zap_co
 input   logic [31:0]     i_va,           // ARM925T: full address, for the FAR.
 input   logic [5:0]      i_ldfmt,        // ARM925T: load format (see zap_core).
 input logic [5:0] i_ldfmt_check,
+// ARM9V2: the short-port response registers, before the FSM response mux.
+// Permission and hit are registered on the same check edge as the word.
+output logic [31:0] o_short_data,
+output logic o_short_hit,
 output logic  [31:0]     o_dat,
 output  logic            o_ack,
 output  logic            o_writeback_busy, // ARM925T: CP15 drain fence
@@ -172,6 +176,8 @@ logic                            fill_busy;
 logic [3:0]                      cf_dbg_dcache;
 logic                            clean_line_event;
 assign o_fill_busy = fill_busy;
+assign o_short_data = SHORT_READ ? tr_cache_words[0] : 32'd0;
+assign o_short_hit = SHORT_READ && tr_cache_hit && tlb_hit_ok;
 localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
 localparam integer LINE_W = $clog2(CACHE_LINE);
 logic [SET_W-1:0]                lookup_s0, lookup_s1;

@@ -262,6 +262,20 @@ module tb_cpu #(
                 (`A9.d_used[src]&&producer_writes[prod*2+lane]&&
                 source_tags[src*6+:6]==producer_tags[prod*12+lane*6+:6]))
                 else $fatal(1,"ARM9 forwarding match lost its producer/consumer owner");
+    // W's lock select belongs to the held request, including reload/SWP.
+    // A first qualified hit must forward precisely the word being retired.
+    always @(posedge clk) if(!reset)begin
+        assert (`A9.w_load_select == (64'd1 << `A9.o_dc_reg_idx_bin))
+            else $fatal(1,"ARM9 W lock selector lost its destination owner");
+        if(`A9.wb_complete&&`A9.request&&!`A9.o_data_wb_we&&
+           `A9.i_data_short_hit&&!`A9.w_waited&&!`A9.wb_exception)
+            assert (`A9.i_data_short_data == `A9.load_data)
+                else $fatal(1,"ARM9 speculative load word differs from retired response");
+        if(`A9.wb_flush)begin
+            assert (!`A9.wb_complete&&!`A9.request)
+                else $fatal(1,"ARM9 younger work escaped retirement recovery");
+        end
+    end
 	`undef A9
 	end
 	// These assertions also run against the baseline netlist: they observe

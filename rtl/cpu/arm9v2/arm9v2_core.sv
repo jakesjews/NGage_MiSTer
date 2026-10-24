@@ -69,6 +69,8 @@ output logic[31:0]                       o_data_wb_adr,
 input logic                              i_data_wb_ack,
 input logic                              i_data_wb_err,
 input logic  [31:0]                      i_data_wb_dat,
+input logic [31:0] i_data_short_data,
+input logic i_data_short_hit,
 output logic [31:0]                      o_data_wb_dat,
 output logic  [3:0]                      o_data_wb_sel,
 
@@ -303,7 +305,7 @@ output  logic [7:0]                      o_dbg_stall
         CP=7,UND=8,SWI=9,PREFIX=10,SUFFIX=11,SWP=12,MUL=13,MULL=14;
     typedef struct packed {
         logic valid,pass,thumb,fault,first,last,memory,store,pc_write,predicted;
-        logic irq,fiq,align_fault,user_access;
+        logic irq,fiq,align_fault,user_access,load_writer;
         logic [31:0] pc,ins,flags,next_flags,address,store_data,original_base;
         logic [31:0] psr_source,saved_psr,next_pc,pred_target,resolved_target;
         logic resolved_thumb;
@@ -325,6 +327,11 @@ output  logic [7:0]                      o_dbg_stall
     record_t input_record,check_record;
     (* dont_retime *) memory_state_t memory_state;
     (* dont_retime *) logic [31:0] saved_load;
+    (* dont_retime *) logic [63:0] w_load_select;
+    (* dont_retime *) logic w_waited;
+    wire w_locked=|(i_dc_lock&w_load_select);
+    wire w_return=|(i_dc_reg_idx&w_load_select);
+    logic scalar_replay;
     (* dont_retime *) logic swap_write,cp_seen,cp_finished;
     (* dont_retime *) logic [3:0] cp_flags;
     (* dont_retime *) logic wb_flush,wb_thumb,predictor_clear;
@@ -350,7 +357,10 @@ output  logic [7:0]                      o_dbg_stall
     logic [3:0][31:0] rf_value;
     logic [3:0] early_valid;
     logic [5:0][5:0] load_tag;
-    logic [5:0] load_valid;
+    logic [5:0] load_valid,load_speculate;
+    logic [1:0][5:0] next_load_tag;
+    logic [1:0] next_load_valid;
+    logic d_load_wait;
     logic [1:0][1:0][31:0] mw_value;
     logic [1:0][1:0][5:0] mw_tag;
     logic [1:0][1:0] mw_write;
@@ -374,29 +384,44 @@ output  logic [7:0]                      o_dbg_stall
     assign load_valid={skid.valid&&skid.memory&&!skid.store,w.valid&&w.memory&&!w.store,m.valid&&m.memory&&!m.store,
         1'b0,a_a_load,
         d_valid&&!d_fault&&((d_kind==MEM||d_kind==BLOCK)?d_instruction[20]:d_kind==SWP)};
+    // Scalar loads can release younger work speculatively; retirement
+    // replays that work if the response was not the first checked hit.
+    // Block/SWP/PC loads keep their existing partial-operation protection.
+    assign load_speculate={skid.kind==MEM&&skid.dest[0]!=15,w.kind==MEM&&w.dest[0]!=15,
+        m.kind==MEM&&m.dest[0]!=15,1'b0,a_kind==MEM&&a_dest[0]!=15,d_kind==MEM&&d_dest[0]!=15};
     assign locked=i_dc_lock[39:0];
     assign mw_tag={w.dest,m.dest};
     assign mw_value[0]=m.result;
-    assign mw_value[1]={w.result[1],w.memory&&!w.store?load_data:w.result[0]};
+    assign mw_value[1]={w.result[1],w.load_writer?
+        (i_data_short_hit?i_data_short_data:32'd0):w.result[0]};
     // Ready producer masks travel with the registered records. An empty,
     // killed or condition-failed record has no writers; S never qualifies
     // the mask through the record's live valid/pass/fault cone.
     assign mw_write[0]=m.writes;
-    assign mw_write[1]=w.writes;
+    assign mw_write[1]=w.writes|{1'b0,w.load_writer};
     always_comb begin
         forward_tag={w.dest,m.dest};
-        forward_write={w.writes,m.writes};
+        forward_write={mw_write[1],m.writes};
         if(memory_state==RUN&&done)begin
             forward_tag[0]=input_record.dest;forward_write[0]=input_record.writes;
-            forward_tag[1]=m.dest;forward_write[1]=m.writes;
+            forward_tag[1]=m.dest;forward_write[1]=m.writes|{1'b0,m.load_writer};
         end
         if(memory_state==RELOAD1)begin
             forward_tag[0]=skid.dest;forward_write[0]=skid.writes;
-            forward_tag[1]=m.dest;forward_write[1]=m.writes;
+            forward_tag[1]=m.dest;forward_write[1]=m.writes|{1'b0,m.load_writer};
         end
         if((memory_state==HOLD&&done)||(memory_state==ABORT&&done)||
-            (memory_state==LOAD_RETURN&&!i_dc_lock[w.dest[0]]&&w.kind!=SWP&&done))forward_write[1]=0;
-        if(i_reset||wb_flush)forward_write=0;
+            (memory_state==LOAD_RETURN&&!w_locked&&w.kind!=SWP&&done))forward_write[1]=0;
+        next_load_tag={forward_tag[0][0],a_a_dest[0]};
+        next_load_valid={m.load_writer,a_a_load&&!a_a_can_finish};
+        if(d_valid&&a_execute_ready)begin
+            next_load_tag[0]=d_dest[0];
+            next_load_valid[0]=!d_fault&&((d_kind==MEM||d_kind==BLOCK)?d_instruction[20]:d_kind==SWP);
+        end
+        if(memory_state==RUN&&done)next_load_valid[1]=input_record.load_writer;
+        if(memory_state==RELOAD1)next_load_valid[1]=skid.load_writer;
+        if(a_redirect)next_load_valid[0]=0;
+        if(i_reset||wb_flush)begin forward_write=0;next_load_valid=0;end
     end
     assign wa=wb_valid&&wb_tag0!=16?40'd1<<wb_tag0:40'd0;
     assign wb=wb_valid&&wb_pair&&wb_tag1!=16?40'd1<<wb_tag1:40'd0;
@@ -420,6 +445,7 @@ output  logic [7:0]                      o_dbg_stall
         input_record.flags=a_cpsr;input_record.next_flags=a_cpsr_next;
         input_record.dest=a_dest;input_record.result=a_result;
         input_record.writes=a_write&{2{input_record.valid}};
+        input_record.load_writer=a_memory&&!a_store&&a_dest[0]!=15&&input_record.valid;
         input_record.memory=a_memory;input_record.store=a_store&&a_kind!=SWP;
         input_record.address=a_data_address;input_record.store_data=a_store_data;
         input_record.original_base=a_original_base;input_record.psr_source=a_psr_source;
@@ -468,7 +494,7 @@ output  logic [7:0]                      o_dbg_stall
     assign o_data_wb_dat=w.store_data;assign o_data_wb_sel=w.sel;
     assign o_data_wb_va=w.address;assign o_data_wb_ldfmt=w.format;
     assign o_data_wb_align_fault=w.align_fault;
-    assign o_dc_reg_idx_bin=w.dest[0];assign o_dc_reg_idx=64'd1<<w.dest[0];
+    assign o_dc_reg_idx_bin=w.dest[0];assign o_dc_reg_idx=w_load_select;
     assign o_data_stall=0;
     assign o_instr_wb_adr_nxt=fcse(f_address_nxt);
     assign o_instr_wb_adr_check=fcse(f_address_check);
@@ -493,7 +519,7 @@ output  logic [7:0]                      o_dbg_stall
             if(memory_state==ABORT)wb_complete=1;
             else if(w_exception)wb_complete=!(|i_dc_lock);
             else if(w.pass&&w.kind==CP)wb_complete=cp_finished;
-            else if(memory_state==LOAD_RETURN)wb_complete=!i_dc_lock[w.dest[0]]&&w.kind!=SWP;
+            else if(memory_state==LOAD_RETURN)wb_complete=!w_locked&&w.kind!=SWP;
             else if(memory_state==RUN||memory_state==HOLD)
                 wb_complete=!w.memory||(request_done&&!retry&&!defer_load);
         end
@@ -535,7 +561,9 @@ output  logic [7:0]                      o_dbg_stall
         if(w.memory&&w.dest[0]==15&&!l4_enable)return_thumb=return_target[0];
         return_target=return_thumb?{return_target[31:1],1'b0}:{return_target[31:2],2'b0};
         return_kind=(w.kind==BLOCK&&w.dest[0]==15)||((w.ins&32'h0fffffff)==32'h01a0f00e);
-        wb_redirect=wb_complete&&(wb_exception||w_serial||
+        scalar_replay=w.kind==MEM&&w.memory&&!w.store&&w.dest[0]!=15&&
+            (!i_data_short_hit||w_waited);
+        wb_redirect=wb_complete&&(wb_exception||w_serial||scalar_replay||
             (return_event&&(!w.predicted||w.pred_target!={return_target[31:1],return_thumb}||
              (w.kind==DP&&w.ins[20])||(w.kind==BLOCK&&w.ins[22])))||
             (w.pass&&(w.kind==CP||w.kind==MSR||w.kind==SWP)));
@@ -544,6 +572,7 @@ output  logic [7:0]                      o_dbg_stall
     always_ff @(posedge i_clk)begin
         if(i_reset)begin
             m<='0;w<='0;skid<='0;memory_state<=RUN;saved_load<=0;swap_write<=0;
+            w_load_select<=1;w_waited<=0;
             wb_flush<=0;wb_target<=RESET_VECTOR;wb_thumb<=0;predictor_clear<=0;
             cp_seen<=0;cp_finished<=0;cp_flags<=0;
             w_train<=0;w_train_pc<=0;w_train_target<=0;w_train_thumb<=0;w_train_hit<=0;w_train_state<=0;w_train_kind<=0;
@@ -561,23 +590,27 @@ output  logic [7:0]                      o_dbg_stall
             if(cp_request&&copro_reg_en&&copro_reg_wr_index==15)cp_flags<=copro_reg_wr_data[31:28];
             if(cp_request&&copro_done)cp_finished<=1;
             if(wb_complete)begin cp_seen<=0;cp_finished<=0;swap_write<=0;end
-            if(i_dc_reg_idx[w.dest[0]])saved_load<=i_dc_reg_dat;
+            if(w_return)saved_load<=i_dc_reg_dat;
+            if(w.valid&&!done)w_waited<=1;
+            if((memory_state==RUN&&done)||memory_state==RELOAD1)begin
+                w_load_select<=64'd1<<m.dest[0];w_waited<=0;
+            end
             case(memory_state)
                 RUN:if(done)begin m<=input_record;w<=m;end
                     else begin skid<=input_record;memory_state<=HOLD;end
-                HOLD:if(done)begin w.valid<=0;w.writes<=0;memory_state<=RELOAD0;end
+                HOLD:if(done)begin w.valid<=0;w.writes<=0;w.load_writer<=0;memory_state<=RELOAD0;end
                 RELOAD0:memory_state<=RELOAD1;
                 RELOAD1:begin w<=m;m<=skid;skid.valid<=0;skid.writes<=0;memory_state<=RUN;end
                 RETRY0:memory_state<=RETRY1;
                 RETRY1:memory_state<=HOLD;
-                LOAD_RETURN:if(!i_dc_lock[w.dest[0]])begin
+                LOAD_RETURN:if(!w_locked)begin
                     if(w.kind==SWP)begin w.store<=1;swap_write<=1;memory_state<=SWAP0;end
-                    else if(done)begin w.valid<=0;w.writes<=0;memory_state<=RELOAD0;end
+                    else if(done)begin w.valid<=0;w.writes<=0;w.load_writer<=0;memory_state<=RELOAD0;end
                 end
                 SWAP0:memory_state<=SWAP1;
                 SWAP1:memory_state<=HOLD;
                 RESTORE:memory_state<=ABORT;
-                ABORT:if(done)begin w.valid<=0;w.writes<=0;memory_state<=RELOAD0;end
+                ABORT:if(done)begin w.valid<=0;w.writes<=0;w.load_writer<=0;memory_state<=RELOAD0;end
                 default:memory_state<=RUN;
             endcase
             // A request arriving immediately after installation has a response
@@ -590,7 +623,8 @@ output  logic [7:0]                      o_dbg_stall
             if(request_done&&i_data_wb_err&&w.kind==BLOCK&&w.ins[21])memory_state<=RESTORE;
             if(wb_flush)begin
                 m.valid<=0;w.valid<=0;skid.valid<=0;
-                m.writes<=0;w.writes<=0;skid.writes<=0;memory_state<=RUN;
+                m.writes<=0;w.writes<=0;skid.writes<=0;
+                m.load_writer<=0;w.load_writer<=0;skid.load_writer<=0;w_waited<=0;memory_state<=RUN;
                 swap_write<=0;cp_seen<=0;cp_finished<=0;
             end
         end
@@ -623,7 +657,7 @@ output  logic [7:0]                      o_dbg_stall
         .i_wr_addr_b(wb),
         .i_wr_addr_c(wc),
         .i_locked(locked),
-        .i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag(load_tag),.i_load_valid(load_valid),
+        .i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag(load_tag),.i_load_valid(load_valid),.i_load_speculate(load_speculate),.i_next_load_tag(next_load_tag),.i_next_load_valid(next_load_valid),.o_load_wait(d_load_wait),
         .i_early_tag(early_tag),
         .i_early_valid(early_valid),
         .i_wr_data_a(wb_data0),
@@ -702,7 +736,7 @@ output  logic [7:0]                      o_dbg_stall
         .o_stall(o_code_stall)
     );
     arm9v2_execute u_execute (
-        .i_admit(backend_ready),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_next_write(forward_write),.i_early(d_early),
+        .i_admit(backend_ready),.i_load_wait(d_load_wait),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_next_write(forward_write),.i_early(d_early),
         .o_btb_pc(a_btb_pc),.o_btb_thumb(a_btb_thumb),
         .o_record_pointer(a_record_pointer),.o_record_count(a_record_count),
         .o_record_pred_hit(a_record_pred_hit),.o_record_pred_state(a_record_pred_state),.o_record_thumb(a_record_thumb),

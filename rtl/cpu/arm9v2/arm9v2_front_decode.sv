@@ -17,7 +17,10 @@ module arm9v2_front_decode #(
     input logic [3:0][31:0] i_rf_value,
     output logic [3:0][5:0] o_rf_tag,
     input logic [5:0][5:0] i_load_tag,
-    input logic [5:0] i_load_valid,
+    input logic [5:0] i_load_valid,i_load_speculate,
+    input logic [1:0][5:0] i_next_load_tag,
+    input logic [1:0] i_next_load_valid,
+    output logic o_load_wait,
     // Tags/eligibility of the producers that will exist after this edge.
     input logic [1:0][1:0][5:0] i_forward_tag,
     input logic [1:0][1:0] i_forward_write,

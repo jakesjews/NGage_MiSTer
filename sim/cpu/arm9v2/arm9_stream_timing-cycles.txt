@@ -1,4 +1,4 @@
-# ARM9V2 session 7 split measurements, warmed 0:0.
+# ARM9V2 session 7 replay measurements, warmed 0:0.
 # Name, last visit predictor on/off; optional penultimate visit on/off.
 # Exact implementation regression counts, not the design acceptance targets.
 stores_same 9 9

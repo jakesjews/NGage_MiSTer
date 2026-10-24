@@ -283,6 +283,8 @@ module arm9v2_core (
 	i_data_wb_ack,
 	i_data_wb_err,
 	i_data_wb_dat,
+	i_data_short_data,
+	i_data_short_hit,
 	o_data_wb_dat,
 	o_data_wb_sel,
 	o_data_wb_adr_nxt,
@@ -397,6 +399,8 @@ module arm9v2_core (
 	input wire i_data_wb_ack;
 	input wire i_data_wb_err;
 	input wire [31:0] i_data_wb_dat;
+	input wire [31:0] i_data_short_data;
+	input wire i_data_short_hit;
 	output wire [31:0] o_data_wb_dat;
 	output wire [3:0] o_data_wb_sel;
 	output wire [31:0] o_data_wb_adr_nxt;
@@ -596,13 +600,18 @@ module arm9v2_core (
 	localparam [3:0] SWP = 12;
 	localparam [3:0] MUL = 13;
 	localparam [3:0] MULL = 14;
-	(* dont_retime *) reg [506:0] m;
-	(* dont_retime *) reg [506:0] w;
-	(* dont_retime *) reg [506:0] skid;
-	reg [506:0] input_record;
-	wire [506:0] check_record;
+	(* dont_retime *) reg [507:0] m;
+	(* dont_retime *) reg [507:0] w;
+	(* dont_retime *) reg [507:0] skid;
+	reg [507:0] input_record;
+	wire [507:0] check_record;
 	(* dont_retime *) reg [3:0] memory_state;
 	(* dont_retime *) reg [31:0] saved_load;
+	(* dont_retime *) reg [63:0] w_load_select;
+	(* dont_retime *) reg w_waited;
+	wire w_locked = |(i_dc_lock & w_load_select);
+	wire w_return = |(i_dc_reg_idx & w_load_select);
+	reg scalar_replay;
 	(* dont_retime *) reg swap_write;
 	(* dont_retime *) reg cp_seen;
 	(* dont_retime *) reg cp_finished;
@@ -677,6 +686,10 @@ module arm9v2_core (
 	wire [3:0] early_valid;
 	wire [35:0] load_tag;
 	wire [5:0] load_valid;
+	wire [5:0] load_speculate;
+	reg [11:0] next_load_tag;
+	reg [1:0] next_load_valid;
+	wire d_load_wait;
 	wire [127:0] mw_value;
 	wire [23:0] mw_tag;
 	wire [3:0] mw_write;
@@ -701,34 +714,49 @@ module arm9v2_core (
 	assign early_tag = {a_a_dest, d_dest};
 	assign early_valid = {a_a_write & {2 {a_a_valid && !a_a_can_finish}}, a_s_write} & {early_tag[18+:6] != 15, early_tag[12+:6] != 15, early_tag[6+:6] != 15, early_tag[0+:6] != 15};
 	assign load_tag = {skid[90+:6], w[90+:6], m[90+:6], a_dest[0+:6], a_a_dest[0+:6], d_dest[0+:6]};
-	assign load_valid = {(skid[506] && skid[500]) && !skid[499], (w[506] && w[500]) && !w[499], (m[506] && m[500]) && !m[499], 1'b0, a_a_load, (d_valid && !d_fault) && ((d_kind == MEM) || (d_kind == BLOCK) ? d_instruction[20] : d_kind == SWP)};
+	assign load_valid = {(skid[507] && skid[501]) && !skid[500], (w[507] && w[501]) && !w[500], (m[507] && m[501]) && !m[500], 1'b0, a_a_load, (d_valid && !d_fault) && ((d_kind == MEM) || (d_kind == BLOCK) ? d_instruction[20] : d_kind == SWP)};
+	assign load_speculate = {(skid[6-:4] == MEM) && (skid[90+:6] != 15), (w[6-:4] == MEM) && (w[90+:6] != 15), (m[6-:4] == MEM) && (m[90+:6] != 15), 1'b0, (a_kind == MEM) && (a_dest[0+:6] != 15), (d_kind == MEM) && (d_dest[0+:6] != 15)};
 	assign locked = i_dc_lock[39:0];
 	assign mw_tag = {w[101-:12], m[101-:12]};
 	assign mw_value[0+:64] = m[89-:64];
-	assign mw_value[64+:64] = {w[58+:32], (w[500] && !w[499] ? load_data : w[26+:32])};
+	assign mw_value[64+:64] = {w[58+:32], (w[493] ? (i_data_short_hit ? i_data_short_data : 32'd0) : w[26+:32])};
 	assign mw_write[0+:2] = m[25-:2];
-	assign mw_write[2+:2] = w[25-:2];
+	assign mw_write[2+:2] = w[25-:2] | {1'b0, w[493]};
 	always @(*) begin
 		if (_sv2v_0)
 			;
 		forward_tag = {w[101-:12], m[101-:12]};
-		forward_write = {w[25-:2], m[25-:2]};
+		forward_write = {mw_write[2+:2], m[25-:2]};
 		if ((memory_state == 4'd0) && done) begin
 			forward_tag[0+:12] = input_record[101-:12];
 			forward_write[0+:2] = input_record[25-:2];
 			forward_tag[12+:12] = m[101-:12];
-			forward_write[2+:2] = m[25-:2];
+			forward_write[2+:2] = m[25-:2] | {1'b0, m[493]};
 		end
 		if (memory_state == 4'd3) begin
 			forward_tag[0+:12] = skid[101-:12];
 			forward_write[0+:2] = skid[25-:2];
 			forward_tag[12+:12] = m[101-:12];
-			forward_write[2+:2] = m[25-:2];
+			forward_write[2+:2] = m[25-:2] | {1'b0, m[493]};
 		end
-		if ((((memory_state == 4'd1) && done) || ((memory_state == 4'd10) && done)) || ((((memory_state == 4'd6) && !i_dc_lock[w[90+:6]]) && (w[6-:4] != SWP)) && done))
+		if ((((memory_state == 4'd1) && done) || ((memory_state == 4'd10) && done)) || ((((memory_state == 4'd6) && !w_locked) && (w[6-:4] != SWP)) && done))
 			forward_write[2+:2] = 0;
-		if (i_reset || wb_flush)
+		next_load_tag = {forward_tag[0+:6], a_a_dest[0+:6]};
+		next_load_valid = {m[493], a_a_load && !a_a_can_finish};
+		if (d_valid && a_execute_ready) begin
+			next_load_tag[0+:6] = d_dest[0+:6];
+			next_load_valid[0] = !d_fault && ((d_kind == MEM) || (d_kind == BLOCK) ? d_instruction[20] : d_kind == SWP);
+		end
+		if ((memory_state == 4'd0) && done)
+			next_load_valid[1] = input_record[493];
+		if (memory_state == 4'd3)
+			next_load_valid[1] = skid[493];
+		if (a_redirect)
+			next_load_valid[0] = 0;
+		if (i_reset || wb_flush) begin
 			forward_write = 0;
+			next_load_valid = 0;
+		end
 	end
 	assign wa = (wb_valid && (wb_tag0 != 16) ? 40'd1 << wb_tag0 : 40'd0);
 	assign wb = ((wb_valid && wb_pair) && (wb_tag1 != 16) ? 40'd1 << wb_tag1 : 40'd0);
@@ -745,23 +773,24 @@ module arm9v2_core (
 		if (_sv2v_0)
 			;
 		input_record = 1'sb0;
-		input_record[506] = a_valid && backend_ready;
+		input_record[507] = a_valid && backend_ready;
 		input_record[492-:32] = a_pc;
 		input_record[460-:32] = a_instruction;
 		input_record[6-:4] = a_kind;
-		input_record[505] = a_condition_pass;
-		input_record[504] = a_thumb;
-		input_record[503] = a_fault;
-		input_record[502] = a_first;
-		input_record[501] = a_last;
-		input_record[498] = a_pc_write;
+		input_record[506] = a_condition_pass;
+		input_record[505] = a_thumb;
+		input_record[504] = a_fault;
+		input_record[503] = a_first;
+		input_record[502] = a_last;
+		input_record[499] = a_pc_write;
 		input_record[428-:32] = a_cpsr;
 		input_record[396-:32] = a_cpsr_next;
 		input_record[101-:12] = a_dest;
 		input_record[89-:64] = a_result;
-		input_record[25-:2] = a_write & {2 {input_record[506]}};
-		input_record[500] = a_memory;
-		input_record[499] = a_store && (a_kind != SWP);
+		input_record[25-:2] = a_write & {2 {input_record[507]}};
+		input_record[493] = ((a_memory && !a_store) && (a_dest[0+:6] != 15)) && input_record[507];
+		input_record[501] = a_memory;
+		input_record[500] = a_store && (a_kind != SWP);
 		input_record[364-:32] = a_data_address;
 		input_record[332-:32] = a_store_data;
 		input_record[300-:32] = a_original_base;
@@ -769,7 +798,7 @@ module arm9v2_core (
 		input_record[236-:32] = a_saved_psr;
 		input_record[107-:6] = a_spsr_tag;
 		input_record[204-:32] = a_next_pc;
-		input_record[497] = a_predicted;
+		input_record[498] = a_predicted;
 		input_record[172-:32] = a_prediction_target;
 		input_record[140-:32] = a_redirect_target;
 		input_record[108] = a_record_thumb;
@@ -777,17 +806,17 @@ module arm9v2_core (
 		input_record[10-:4] = a_record_count;
 		input_record[2] = a_record_pred_hit;
 		input_record[1-:2] = a_record_pred_state;
-		input_record[496] = (a_first && i_irq) && !a_cpsr[7];
-		input_record[495] = (a_first && i_fiq) && !a_cpsr[6];
+		input_record[497] = (a_first && i_irq) && !a_cpsr[7];
+		input_record[496] = (a_first && i_fiq) && !a_cpsr[6];
 		input_record[17-:4] = 15;
 		input_record[23-:6] = {a_data_address[1:0], 4'b0000};
-		input_record[494] = align_en && |a_data_address[1:0];
-		input_record[493] = ((a_kind == MEM) && !a_instruction[24]) && a_instruction[21];
+		input_record[495] = align_en && |a_data_address[1:0];
+		input_record[494] = ((a_kind == MEM) && !a_instruction[24]) && a_instruction[21];
 		if ((((a_kind == MEM) && (a_instruction[27:26] == 1)) && a_instruction[22]) || ((a_kind == SWP) && a_instruction[22])) begin
 			input_record[17-:4] = 4'b0001 << a_data_address[1:0];
 			input_record[332-:32] = {4 {a_store_data[7:0]}};
 			input_record[20] = 1;
-			input_record[494] = 0;
+			input_record[495] = 0;
 		end
 		else if ((a_kind == MEM) && (a_instruction[27:26] == 0))
 			case (a_instruction[6:5])
@@ -795,17 +824,17 @@ module arm9v2_core (
 					input_record[17-:4] = (a_data_address[1] ? 4'b1100 : 4'b0011);
 					input_record[332-:32] = {2 {a_store_data[15:0]}};
 					input_record[18] = 1;
-					input_record[494] = align_en && a_data_address[0];
+					input_record[495] = align_en && a_data_address[0];
 				end
 				2: begin
 					input_record[17-:4] = 4'b0001 << a_data_address[1:0];
 					input_record[21] = 1;
-					input_record[494] = 0;
+					input_record[495] = 0;
 				end
 				3: begin
 					input_record[17-:4] = (a_data_address[1] ? 4'b1100 : 4'b0011);
 					input_record[19] = 1;
-					input_record[494] = align_en && a_data_address[0];
+					input_record[495] = align_en && a_data_address[0];
 				end
 				default:
 					;
@@ -819,21 +848,21 @@ module arm9v2_core (
 	assign o_data_wb_adr_nxt = fcse({lookup_address[31:2], 2'b00});
 	assign o_data_wb_adr_check = fcse({check_record[364:335], 2'b00});
 	assign o_data_wb_adr = fcse({w[364:335], 2'b00});
-	assign o_data_wb_re_check = (((check_enable && check_record[506]) && check_record[500]) && !check_record[499]) && !wb_flush;
-	assign o_data_wb_we_check = (((check_enable && check_record[506]) && check_record[500]) && check_record[499]) && !wb_flush;
+	assign o_data_wb_re_check = (((check_enable && check_record[507]) && check_record[501]) && !check_record[500]) && !wb_flush;
+	assign o_data_wb_we_check = (((check_enable && check_record[507]) && check_record[501]) && check_record[500]) && !wb_flush;
 	assign o_data_wb_ldfmt_check = check_record[23-:6];
 	assign o_mem_cpsr = check_record[397 + CPSR_MODE:397];
-	assign o_mem_translate = check_record[493];
+	assign o_mem_translate = check_record[494];
 	assign o_data_wb_cyc = request;
 	assign o_data_wb_stb = request;
-	assign o_data_wb_we = w[499];
+	assign o_data_wb_we = w[500];
 	assign o_data_wb_dat = w[332-:32];
 	assign o_data_wb_sel = w[17-:4];
 	assign o_data_wb_va = w[364-:32];
 	assign o_data_wb_ldfmt = w[23-:6];
-	assign o_data_wb_align_fault = w[494];
+	assign o_data_wb_align_fault = w[495];
 	assign o_dc_reg_idx_bin = w[90+:6];
-	assign o_dc_reg_idx = 64'd1 << w[90+:6];
+	assign o_dc_reg_idx = w_load_select;
 	assign o_data_stall = 0;
 	assign o_instr_wb_adr_nxt = fcse(f_address_nxt);
 	assign o_instr_wb_adr_check = fcse(f_address_check);
@@ -842,44 +871,44 @@ module arm9v2_core (
 	assign o_instr_wb_we = 0;
 	assign o_instr_wb_sel = 15;
 	assign o_cpsr = cpsr[CPSR_MODE:0];
-	assign w_serial = (((((((w[6-:4] == CP) || (w[6-:4] == MSR)) || (w[6-:4] == SWP)) || (w[6-:4] == SWI)) || (w[6-:4] == UND)) || w[503]) || (((w[6-:4] == DP) && w[449]) && (w[90+:6] == 15))) || (((((w[6-:4] == BLOCK) && w[451]) && w[449]) && w[444]) && w[501]);
-	assign w_exception = ((w[503] || w[496]) || w[495]) || (w[505] && ((w[6-:4] == SWI) || (w[6-:4] == UND)));
-	assign cp_request = (((((w[506] && w[505]) && (w[6-:4] == CP)) && !w_exception) && !(|i_dc_lock)) && !i_data_fill_busy) && !wb_flush;
-	assign request = ((((w[506] && w[500]) && !w_exception) && !wb_flush) && !fill_ended) && ((memory_state == 4'd0) || (memory_state == 4'd1));
+	assign w_serial = (((((((w[6-:4] == CP) || (w[6-:4] == MSR)) || (w[6-:4] == SWP)) || (w[6-:4] == SWI)) || (w[6-:4] == UND)) || w[504]) || (((w[6-:4] == DP) && w[449]) && (w[90+:6] == 15))) || (((((w[6-:4] == BLOCK) && w[451]) && w[449]) && w[444]) && w[502]);
+	assign w_exception = ((w[504] || w[497]) || w[496]) || (w[506] && ((w[6-:4] == SWI) || (w[6-:4] == UND)));
+	assign cp_request = (((((w[507] && w[506]) && (w[6-:4] == CP)) && !w_exception) && !(|i_dc_lock)) && !i_data_fill_busy) && !wb_flush;
+	assign request = ((((w[507] && w[501]) && !w_exception) && !wb_flush) && !fill_ended) && ((memory_state == 4'd0) || (memory_state == 4'd1));
 	assign request_done = request && (i_data_wb_ack || i_data_wb_err);
 	assign retry = request_done && i_dcache_err2;
-	assign defer_load = (((request_done && !retry) && !i_data_wb_err) && !w[499]) && ((w[90+:6] == 15) || (w[6-:4] == SWP));
+	assign defer_load = (((request_done && !retry) && !i_data_wb_err) && !w[500]) && ((w[90+:6] == 15) || (w[6-:4] == SWP));
 	assign load_data = ((memory_state == 4'd6) || swap_write ? saved_load : i_data_wb_dat);
 	assign wb_restore = memory_state == 4'd9;
 	always @(*) begin
 		if (_sv2v_0)
 			;
 		wb_complete = 0;
-		if (w[506] && !wb_flush) begin
+		if (w[507] && !wb_flush) begin
 			if (memory_state == 4'd10)
 				wb_complete = 1;
 			else if (w_exception)
 				wb_complete = !(|i_dc_lock);
-			else if (w[505] && (w[6-:4] == CP))
+			else if (w[506] && (w[6-:4] == CP))
 				wb_complete = cp_finished;
 			else if (memory_state == 4'd6)
-				wb_complete = !i_dc_lock[w[90+:6]] && (w[6-:4] != SWP);
+				wb_complete = !w_locked && (w[6-:4] != SWP);
 			else if ((memory_state == 4'd0) || (memory_state == 4'd1))
-				wb_complete = !w[500] || ((request_done && !retry) && !defer_load);
+				wb_complete = !w[501] || ((request_done && !retry) && !defer_load);
 		end
 		if (((request_done && i_data_wb_err) && (w[6-:4] == BLOCK)) && w[450])
 			wb_complete = 0;
-		done = !w[506] || wb_complete;
+		done = !w[507] || wb_complete;
 		wb_dabt = wb_complete && ((memory_state == 4'd10) || (request_done && i_data_wb_err));
-		wb_fiq = (wb_complete && !wb_dabt) && w[495];
-		wb_irq = ((wb_complete && !wb_dabt) && !wb_fiq) && w[496];
-		wb_pabt = (((wb_complete && !wb_dabt) && !wb_fiq) && !wb_irq) && w[503];
-		wb_swi = (((((wb_complete && !wb_dabt) && !wb_fiq) && !wb_irq) && !wb_pabt) && w[505]) && (w[6-:4] == SWI);
-		wb_und = (((((wb_complete && !wb_dabt) && !wb_fiq) && !wb_irq) && !wb_pabt) && w[505]) && (w[6-:4] == UND);
+		wb_fiq = (wb_complete && !wb_dabt) && w[496];
+		wb_irq = ((wb_complete && !wb_dabt) && !wb_fiq) && w[497];
+		wb_pabt = (((wb_complete && !wb_dabt) && !wb_fiq) && !wb_irq) && w[504];
+		wb_swi = (((((wb_complete && !wb_dabt) && !wb_fiq) && !wb_irq) && !wb_pabt) && w[506]) && (w[6-:4] == SWI);
+		wb_und = (((((wb_complete && !wb_dabt) && !wb_fiq) && !wb_irq) && !wb_pabt) && w[506]) && (w[6-:4] == UND);
 		wb_exception = ((((wb_dabt || wb_fiq) || wb_irq) || wb_pabt) || wb_swi) || wb_und;
-		wb_valid = ((wb_complete && w[505]) && !wb_exception) || wb_restore;
-		wb_cfail = (wb_complete && !w[505]) && !wb_exception;
-		wb_last = w[501] && !wb_restore;
+		wb_valid = ((wb_complete && w[506]) && !wb_exception) || wb_restore;
+		wb_cfail = (wb_complete && !w[506]) && !wb_exception;
+		wb_last = w[502] && !wb_restore;
 		wb_flags = w[396-:32];
 		wb_tag0 = (w[24] ? w[90+:6] : 6'd16);
 		wb_data0 = w[26+:32];
@@ -892,18 +921,18 @@ module arm9v2_core (
 			if (w[401:397] == 5'h10)
 				psr_mask[27:0] = 0;
 		end
-		if (w[500]) begin
+		if (w[501]) begin
 			wb_tag0 = (w[25] ? w[96+:6] : 6'd16);
 			wb_data0 = w[58+:32];
-			wb_pair = !w[499] || (w[6-:4] == SWP);
+			wb_pair = !w[500] || (w[6-:4] == SWP);
 			wb_tag1 = w[90+:6];
 			wb_data1 = load_data;
 			if ((((w[6-:4] == BLOCK) && w[451]) && w[449]) && (w[90+:6] == 15))
 				wb_flags = w[236-:32] & 32'hf00000ff;
 		end
-		if ((w[6-:4] == BX) && w[505])
+		if ((w[6-:4] == BX) && w[506])
 			wb_flags[5] = w[108];
-		if (((w[6-:4] == DP) && w[498]) && w[449])
+		if (((w[6-:4] == DP) && w[499]) && w[449])
 			wb_flags = w[236-:32] & 32'hf00000ff;
 		if (w[6-:4] == MSR) begin
 			if ((w[451] && (w[401:397] != 5'h10)) && (w[401:397] != 5'h1f)) begin
@@ -926,14 +955,15 @@ module arm9v2_core (
 			wb_pair = 0;
 			wb_flags = w[428-:32];
 		end
-		return_event = w[505] && (w[498] || ((w[500] && !w[499]) && (w[90+:6] == 15)));
-		return_target = (w[500] ? load_data : (w[6-:4] == SUFFIX ? w[364-:32] : w[26+:32]));
+		return_event = w[506] && (w[499] || ((w[501] && !w[500]) && (w[90+:6] == 15)));
+		return_target = (w[501] ? load_data : (w[6-:4] == SUFFIX ? w[364-:32] : w[26+:32]));
 		return_thumb = wb_flags[5];
-		if ((w[500] && (w[90+:6] == 15)) && !l4_enable)
+		if ((w[501] && (w[90+:6] == 15)) && !l4_enable)
 			return_thumb = return_target[0];
 		return_target = (return_thumb ? {return_target[31:1], 1'b0} : {return_target[31:2], 2'b00});
 		return_kind = ((w[6-:4] == BLOCK) && (w[90+:6] == 15)) || ((w[460-:32] & 32'h0fffffff) == 32'h01a0f00e);
-		wb_redirect = wb_complete && (((wb_exception || w_serial) || (return_event && (((!w[497] || (w[172-:32] != {return_target[31:1], return_thumb})) || ((w[6-:4] == DP) && w[449])) || ((w[6-:4] == BLOCK) && w[451])))) || (w[505] && (((w[6-:4] == CP) || (w[6-:4] == MSR)) || (w[6-:4] == SWP))));
+		scalar_replay = ((((w[6-:4] == MEM) && w[501]) && !w[500]) && (w[90+:6] != 15)) && (!i_data_short_hit || w_waited);
+		wb_redirect = wb_complete && ((((wb_exception || w_serial) || scalar_replay) || (return_event && (((!w[498] || (w[172-:32] != {return_target[31:1], return_thumb})) || ((w[6-:4] == DP) && w[449])) || ((w[6-:4] == BLOCK) && w[451])))) || (w[506] && (((w[6-:4] == CP) || (w[6-:4] == MSR)) || (w[6-:4] == SWP))));
 	end
 	always @(posedge i_clk)
 		if (i_reset) begin
@@ -943,6 +973,8 @@ module arm9v2_core (
 			memory_state <= 4'd0;
 			saved_load <= 0;
 			swap_write <= 0;
+			w_load_select <= 1;
+			w_waited <= 0;
 			wb_flush <= 0;
 			wb_target <= RESET_VECTOR;
 			wb_thumb <= 0;
@@ -960,13 +992,13 @@ module arm9v2_core (
 		end
 		else begin
 			wb_flush <= wb_redirect;
-			predictor_clear <= (wb_redirect && w[505]) && ((w[6-:4] == CP) || (w[6-:4] == MSR));
+			predictor_clear <= (wb_redirect && w[506]) && ((w[6-:4] == CP) || (w[6-:4] == MSR));
 			wb_thumb <= (wb_exception ? 1'b0 : cpsr_next[5]);
 			wb_target <= (wb_dabt ? vector_base + 16 : (wb_fiq ? vector_base + 28 : (wb_irq ? vector_base + 24 : (wb_pabt ? vector_base + 12 : (wb_swi ? vector_base + 8 : (wb_und ? vector_base + 4 : (return_event ? return_target : w[204-:32])))))));
 			w_train <= (wb_complete && return_event) && !wb_exception;
 			w_train_pc <= w[492-:32];
 			w_train_target <= {return_target[31:1], return_thumb};
-			w_train_thumb <= w[504];
+			w_train_thumb <= w[505];
 			w_train_hit <= w[2];
 			w_train_state <= w[1-:2];
 			w_train_kind <= (return_kind ? 2'd2 : 2'd0);
@@ -983,8 +1015,14 @@ module arm9v2_core (
 				cp_finished <= 0;
 				swap_write <= 0;
 			end
-			if (i_dc_reg_idx[w[90+:6]])
+			if (w_return)
 				saved_load <= i_dc_reg_dat;
+			if (w[507] && !done)
+				w_waited <= 1;
+			if (((memory_state == 4'd0) && done) || (memory_state == 4'd3)) begin
+				w_load_select <= 64'd1 << m[90+:6];
+				w_waited <= 0;
+			end
 			case (memory_state)
 				4'd0:
 					if (done) begin
@@ -997,30 +1035,32 @@ module arm9v2_core (
 					end
 				4'd1:
 					if (done) begin
-						w[506] <= 0;
+						w[507] <= 0;
 						w[25-:2] <= 0;
+						w[493] <= 0;
 						memory_state <= 4'd2;
 					end
 				4'd2: memory_state <= 4'd3;
 				4'd3: begin
 					w <= m;
 					m <= skid;
-					skid[506] <= 0;
+					skid[507] <= 0;
 					skid[25-:2] <= 0;
 					memory_state <= 4'd0;
 				end
 				4'd4: memory_state <= 4'd5;
 				4'd5: memory_state <= 4'd1;
 				4'd6:
-					if (!i_dc_lock[w[90+:6]]) begin
+					if (!w_locked) begin
 						if (w[6-:4] == SWP) begin
-							w[499] <= 1;
+							w[500] <= 1;
 							swap_write <= 1;
 							memory_state <= 4'd7;
 						end
 						else if (done) begin
-							w[506] <= 0;
+							w[507] <= 0;
 							w[25-:2] <= 0;
+							w[493] <= 0;
 							memory_state <= 4'd2;
 						end
 					end
@@ -1029,13 +1069,14 @@ module arm9v2_core (
 				4'd9: memory_state <= 4'd10;
 				4'd10:
 					if (done) begin
-						w[506] <= 0;
+						w[507] <= 0;
 						w[25-:2] <= 0;
+						w[493] <= 0;
 						memory_state <= 4'd2;
 					end
 				default: memory_state <= 4'd0;
 			endcase
-			if (retry || (((fill_ended && w[506]) && w[500]) && ((memory_state == 4'd0) || (memory_state == 4'd1))))
+			if (retry || (((fill_ended && w[507]) && w[501]) && ((memory_state == 4'd0) || (memory_state == 4'd1))))
 				memory_state <= 4'd4;
 			if (defer_load) begin
 				saved_load <= i_data_wb_dat;
@@ -1044,12 +1085,16 @@ module arm9v2_core (
 			if (((request_done && i_data_wb_err) && (w[6-:4] == BLOCK)) && w[450])
 				memory_state <= 4'd9;
 			if (wb_flush) begin
-				m[506] <= 0;
-				w[506] <= 0;
-				skid[506] <= 0;
+				m[507] <= 0;
+				w[507] <= 0;
+				skid[507] <= 0;
 				m[25-:2] <= 0;
 				w[25-:2] <= 0;
 				skid[25-:2] <= 0;
+				m[493] <= 0;
+				w[493] <= 0;
+				skid[493] <= 0;
+				w_waited <= 0;
 				memory_state <= 4'd0;
 				swap_write <= 0;
 				cp_seen <= 0;
@@ -1065,10 +1110,10 @@ module arm9v2_core (
 	assign o_dbg_wb_irq = wb_irq;
 	assign o_dbg_wb_swi = wb_swi;
 	assign o_dbg_wb_und = wb_und;
-	assign o_dbg_wb_pc = w[492-:32] + (w[504] ? 32'd4 : 32'd8);
+	assign o_dbg_wb_pc = w[492-:32] + (w[505] ? 32'd4 : 32'd8);
 	assign o_dbg_wb_cpsr_nxt = cpsr_next;
-	assign o_dbg_stall = {wb_flush, a_redirect, w[506] && (w[6-:4] == CP), a_multiply_wait || a_shift_wait, d_hazard || !a_execute_ready, !d_valid, o_code_stall, memory_state != 4'd0};
-	wire [31:0] data_pc8 = w[492-:32] + (w[504] ? 32'd4 : 32'd8);
+	assign o_dbg_stall = {wb_flush, a_redirect, w[507] && (w[6-:4] == CP), a_multiply_wait || a_shift_wait, d_hazard || !a_execute_ready, !d_valid, o_code_stall, memory_state != 4'd0};
+	wire [31:0] data_pc8 = w[492-:32] + (w[505] ? 32'd4 : 32'd8);
 	wire [31:0] pc = d_pc;
 	wire [31:0] ins = d_instruction;
 	wire [31:0] ex_result = a_result[0+:32];
@@ -1099,6 +1144,10 @@ module arm9v2_core (
 		.o_rf_tag(rf_tag),
 		.i_load_tag(load_tag),
 		.i_load_valid(load_valid),
+		.i_load_speculate(load_speculate),
+		.i_next_load_tag(next_load_tag),
+		.i_next_load_valid(next_load_valid),
+		.o_load_wait(d_load_wait),
 		.i_early_tag(early_tag),
 		.i_early_valid(early_valid),
 		.i_wr_data_a(wb_data0),
@@ -1178,6 +1227,7 @@ module arm9v2_core (
 	);
 	arm9v2_execute u_execute(
 		.i_admit(backend_ready),
+		.i_load_wait(d_load_wait),
 		.i_forward_match(d_forward_match),
 		.i_next_tag(forward_tag),
 		.i_next_write(forward_write),
@@ -1442,6 +1492,10 @@ module arm9v2_decode (
 	o_rf_tag,
 	i_load_tag,
 	i_load_valid,
+	i_load_speculate,
+	i_next_load_tag,
+	i_next_load_valid,
+	o_load_wait,
 	i_forward_tag,
 	i_forward_write,
 	o_forward_match,
@@ -1524,6 +1578,10 @@ module arm9v2_decode (
 	output wire [23:0] o_rf_tag;
 	input wire [35:0] i_load_tag;
 	input wire [5:0] i_load_valid;
+	input wire [5:0] i_load_speculate;
+	input wire [11:0] i_next_load_tag;
+	input wire [1:0] i_next_load_valid;
+	output reg o_load_wait;
 	input wire [23:0] i_forward_tag;
 	input wire [3:0] i_forward_write;
 	(* dont_retime *) output reg [15:0] o_forward_match;
@@ -2056,6 +2114,29 @@ module arm9v2_decode (
 						end
 				end
 		end
+	reg load_wait_next;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		load_wait_next = 0;
+		begin : sv2v_autoblock_5
+			reg signed [31:0] src;
+			for (src = 0; src < 4; src = src + 1)
+				begin : sv2v_autoblock_6
+					reg signed [31:0] prod;
+					for (prod = 0; prod < 2; prod = prod + 1)
+						if (!out_valid || i_ready)
+							load_wait_next = load_wait_next | (((d2[96 + src] && ((prod == 0) || d2[92 + src])) && i_next_load_valid[prod]) && (d2[100 + (src * 6)+:6] == i_next_load_tag[prod * 6+:6]));
+						else
+							load_wait_next = load_wait_next | (((issued[96 + src] && ((prod == 0) || issued[92 + src])) && i_next_load_valid[prod]) && (issued[100 + (src * 6)+:6] == i_next_load_tag[prod * 6+:6]));
+				end
+		end
+	end
+	always @(posedge i_clk)
+		if (i_reset || i_flush)
+			o_load_wait <= 0;
+		else
+			o_load_wait <= load_wait_next;
 	assign next_remaining = clear_first(d2[35-:16]);
 	assign next_register = first16(d2[34:20]);
 	assign taken_match = d2[244-:32] == {d2[77:47], d2[150]};
@@ -2074,10 +2155,10 @@ module arm9v2_decode (
 		if (_sv2v_0)
 			;
 		early_hazard = 0;
-		begin : sv2v_autoblock_5
+		begin : sv2v_autoblock_7
 			reg signed [31:0] src;
 			for (src = 0; src < 4; src = src + 1)
-				begin : sv2v_autoblock_6
+				begin : sv2v_autoblock_8
 					reg signed [31:0] pending;
 					for (pending = 0; pending < 4; pending = pending + 1)
 						early_hazard[src] = early_hazard[src] | ((early_used[src] && i_early_valid[pending]) && (d2[100 + (src * 6)+:6] == i_early_tag[pending * 6+:6]));
@@ -2088,23 +2169,23 @@ module arm9v2_decode (
 		if (_sv2v_0)
 			;
 		load_hazard = 0;
-		begin : sv2v_autoblock_7
+		begin : sv2v_autoblock_9
 			reg signed [31:0] pending;
 			for (pending = 0; pending < 6; pending = pending + 1)
 				begin
-					begin : sv2v_autoblock_8
+					begin : sv2v_autoblock_10
 						reg signed [31:0] src;
 						for (src = 0; src < 4; src = src + 1)
-							load_hazard = load_hazard | ((d2[96 + src] && i_load_valid[pending]) && (d2[100 + (src * 6)+:6] == i_load_tag[pending * 6+:6]));
+							load_hazard = load_hazard | (((d2[96 + src] && i_load_valid[pending]) && ((!i_load_speculate[pending] || (pending == 0)) || (d2[92 + src] && (pending == 1)))) && (d2[100 + (src * 6)+:6] == i_load_tag[pending * 6+:6]));
 					end
-					if (EXTERNAL_RF) begin : sv2v_autoblock_9
+					if (EXTERNAL_RF) begin : sv2v_autoblock_11
 						reg signed [31:0] dst;
 						for (dst = 0; dst < 2; dst = dst + 1)
-							load_hazard = load_hazard | ((d2[78 + dst] && i_load_valid[pending]) && (d2[80 + (dst * 6)+:6] == i_load_tag[pending * 6+:6]));
+							load_hazard = load_hazard | (((d2[78 + dst] && i_load_valid[pending]) && !i_load_speculate[pending]) && (d2[80 + (dst * 6)+:6] == i_load_tag[pending * 6+:6]));
 					end
 				end
 		end
-		if (EXTERNAL_RF) begin : sv2v_autoblock_10
+		if (EXTERNAL_RF) begin : sv2v_autoblock_12
 			reg signed [31:0] dst;
 			for (dst = 0; dst < 2; dst = dst + 1)
 				load_hazard = load_hazard | (d2[78 + dst] && i_locked[d2[80 + (dst * 6)+:6]]);
@@ -2144,7 +2225,7 @@ module arm9v2_decode (
 		if (_sv2v_0)
 			;
 		o_value = values;
-		begin : sv2v_autoblock_11
+		begin : sv2v_autoblock_13
 			reg signed [31:0] n;
 			for (n = 0; n < 4; n = n + 1)
 				begin
@@ -2210,7 +2291,7 @@ module arm9v2_decode (
 				issued <= d2;
 				values <= raw_values;
 				write_through_data <= {i_wr_data_c, i_wr_data_b, i_wr_data_a};
-				begin : sv2v_autoblock_12
+				begin : sv2v_autoblock_14
 					reg signed [31:0] n;
 					for (n = 0; n < 4; n = n + 1)
 						write_through_match[n * 3+:3] <= {i_wr_addr_c[d2[100 + (n * 6)+:6]], i_wen && i_wr_addr_b[d2[100 + (n * 6)+:6]], i_wen && i_wr_addr_a[d2[100 + (n * 6)+:6]]};
@@ -2331,6 +2412,7 @@ module arm9v2_execute (
 	i_reset,
 	i_flush,
 	i_admit,
+	i_load_wait,
 	i_cpsr,
 	i_valid,
 	o_ready,
@@ -2432,6 +2514,7 @@ module arm9v2_execute (
 	input wire i_reset;
 	input wire i_flush;
 	input wire i_admit;
+	input wire i_load_wait;
 	input wire [31:0] i_cpsr;
 	input wire i_valid;
 	output wire o_ready;
@@ -2715,7 +2798,7 @@ module arm9v2_execute (
 	assign space = !a_valid || finish;
 	assign o_shift_wait = (i_valid && i_reg_shift) && !prepared;
 	assign o_multiply_wait = product_phase || mac_phase;
-	assign o_ready = (((i_admit && space) && !o_shift_wait) && !i_flush) && !o_redirect;
+	assign o_ready = ((((i_admit && space) && !i_load_wait) && !o_shift_wait) && !i_flush) && !o_redirect;
 	assign accept = i_valid && o_ready;
 	assign o_valid = (((a_valid && !product_phase) && !mac_phase) && !i_flush) && !o_redirect;
 	assign finish = o_valid && i_ready;
@@ -2896,7 +2979,7 @@ module arm9v2_execute (
 				holding <= 1;
 				held <= operand;
 			end
-			if ((((i_valid && i_admit) && space) && i_reg_shift) && !prepared) begin
+			if (((((i_valid && i_admit) && space) && !i_load_wait) && i_reg_shift) && !prepared) begin
 				prepared <= 1;
 				held_amount <= operand[71-:8];
 			end
@@ -3379,6 +3462,10 @@ module arm9v2_front_decode (
 	o_rf_tag,
 	i_load_tag,
 	i_load_valid,
+	i_load_speculate,
+	i_next_load_tag,
+	i_next_load_valid,
+	o_load_wait,
 	i_forward_tag,
 	i_forward_write,
 	o_forward_match,
@@ -3477,6 +3564,10 @@ module arm9v2_front_decode (
 	output wire [23:0] o_rf_tag;
 	input wire [35:0] i_load_tag;
 	input wire [5:0] i_load_valid;
+	input wire [5:0] i_load_speculate;
+	input wire [11:0] i_next_load_tag;
+	input wire [1:0] i_next_load_valid;
+	output wire o_load_wait;
 	input wire [23:0] i_forward_tag;
 	input wire [3:0] i_forward_write;
 	output wire [15:0] o_forward_match;
@@ -3644,6 +3735,10 @@ module arm9v2_front_decode (
 		.o_rf_tag(o_rf_tag),
 		.i_load_tag(i_load_tag),
 		.i_load_valid(i_load_valid),
+		.i_load_speculate(i_load_speculate),
+		.i_next_load_tag(i_next_load_tag),
+		.i_next_load_valid(i_next_load_valid),
+		.o_load_wait(o_load_wait),
 		.i_forward_tag(i_forward_tag),
 		.i_forward_write(i_forward_write),
 		.o_forward_match(o_forward_match),
@@ -11421,6 +11516,8 @@ module zap_dcache (
 	i_va,
 	i_ldfmt,
 	i_ldfmt_check,
+	o_short_data,
+	o_short_hit,
 	o_dat,
 	o_ack,
 	o_writeback_busy,
@@ -11500,6 +11597,8 @@ module zap_dcache (
 	input wire [31:0] i_va;
 	input wire [5:0] i_ldfmt;
 	input wire [5:0] i_ldfmt_check;
+	output wire [31:0] o_short_data;
+	output wire o_short_hit;
 	output wire [31:0] o_dat;
 	output wire o_ack;
 	output wire o_writeback_busy;
@@ -11890,6 +11989,8 @@ module zap_dcache (
 	wire [3:0] cf_dbg_dcache;
 	reg clean_line_event;
 	assign o_fill_busy = fill_busy;
+	assign o_short_data = (SHORT_READ ? tr_cache_words[0+:32] : 32'd0);
+	assign o_short_hit = (SHORT_READ && tr_cache_hit) && tlb_hit_ok;
 	localparam integer SET_W = $clog2((CACHE_SIZE / WAYS) / CACHE_LINE);
 	localparam integer LINE_W = $clog2(CACHE_LINE);
 	reg [SET_W - 1:0] lookup_s0;
@@ -25026,6 +25127,8 @@ module zap_top (
 	wire instr_ack;
 	wire instr_err;
 	wire [31:0] ic_data;
+	wire [31:0] dc_short_data;
+	wire dc_short_hit;
 	wire cpu_instr_stb;
 	wire c_wb_stb;
 	wire c_wb_cyc;
@@ -25284,6 +25387,8 @@ module zap_top (
 				.o_data_wb_cyc(),
 				.o_pid(),
 				.o_data_wb_stb(cpu_dc_stb),
+				.i_data_short_data(dc_short_data),
+				.i_data_short_hit(dc_short_hit),
 				.i_data_wb_dat((!ONLY_CORE ? dc_data : (BE_32_ENABLE ? be_32(i_wb_dat, o_wb_sel) : i_wb_dat))),
 				.i_data_wb_ack(data_ack),
 				.i_data_wb_err(data_err),
@@ -25341,7 +25446,7 @@ module zap_top (
 		end
 		else begin : g_invalid_core
 			initial begin
-				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:579:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
+				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:582:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
 				$finish(1);
 			end
 		end
@@ -25363,6 +25468,8 @@ module zap_top (
 			assign dc_fsr = 1'sb0;
 			assign dc_far = 1'sb0;
 			assign dc_data = 1'sb0;
+			assign dc_short_data = 0;
+			assign dc_short_hit = 0;
 			assign ic_data = 1'sb0;
 			assign c_wb_ack = 1'sb0;
 			assign c_wb_err = 1'sb0;
@@ -25505,6 +25612,8 @@ module zap_top (
 				.o_line_done(dc_line_done),
 				.i_reg_idx(dc_rreg_idx),
 				.i_reg_idx_bin(dc_rreg_idx_bin),
+				.o_short_data(dc_short_data),
+				.o_short_hit(dc_short_hit),
 				.o_dat(dc_data),
 				.o_ack(data_ack),
 				.o_writeback_busy(dc_writeback_busy),
