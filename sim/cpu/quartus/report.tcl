@@ -21,13 +21,14 @@ foreach_in_collection op [get_available_operating_conditions] {
     foreach {family pattern} {
         execute {*u_execute|a*}
         decode_matches {*u_decode|o_forward_match*}
+        decode_grants {*u_decode|o_forward_grant*}
         decode_payload {*u_decode|d2*}
         decode_issue {*u_decode|issued*}
         dtlb {*u_data_cache|*u_zap_tlb_check|*}
         dtlb_hit {*u_data_cache|*u_zap_tlb_check|o_hit_ok*}
         dtlb_fault {*u_data_cache|*u_zap_tlb_check|o_fsr*}
-        metadata {*u_data_cache|*u_zap_cache_tag_ram|*valid_q*}
-        short_collision {*u_data_cache|*g_short.forward_write*}
+        metadata {*u_data_cache|*u_zap_cache_tag_ram|*g_short_meta*}
+        short_collision {*u_data_cache|*g_short_ram*addr_q*}
         short_response {*u_data_cache|tr_cache_words*}
         locks {*u_data_cache|*u_zap_cache_fsm|*lock*}
         backend {*|g_arm9.u_arm9_core|w*}

@@ -1,0 +1,13 @@
+cfg 0 hit/hold/clean/clear/line/HUM/collision 39191 51775 7550 8 2 24800 18064
+cfg 1 hit/hold/clean/clear/line/HUM/collision 66994 51809 9077 8 1 24777 15999
+cfg 3 hit/hold/clean/clear/line/HUM/collision 39263 49996 7756 8 5 25169 18381
+cfg 2 hit/hold/clean/clear/line/HUM/collision 31309 51812 4211 19 18 24798 23210
+PASS: 896616 old/new cache edges, all outputs and metadata
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/build/short-miter/tb.sv:365: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 2us; walltime 1.456 s; speed 1.540 us/s
+- Verilator: cpu 1.455 s on 1 threads; allocated 2 MB
+
+Golden tag module: c87d383
+zap_cache_tag_ram.sv SHA256 b75e19e1027c069d66889611b88673147cd3b4a007596e439f9d7f6abe82d241
+zap_ram_simple.sv SHA256 f7569df488918b57a7ae5546fbbfe4d06710a60244424359ef4063b3206c5e83

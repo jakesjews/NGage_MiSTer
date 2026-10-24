@@ -1,0 +1,923 @@
+Inconsistency detected by ld.so: dl-close.c: 762: _dl_close: Assertion `map->l_init_called' failed!
+Info: *******************************************************************
+Info: Running Quartus Prime Shell
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Copyright (C) 2017  Intel Corporation. All rights reserved.
+    Info: Your use of Intel Corporation's design tools, logic functions
+    Info: and other software and tools, and its AMPP partner logic
+    Info: functions, and any output files from any of the foregoing
+    Info: (including device programming or simulation files), and any
+    Info: associated documentation or information are expressly subject
+    Info: to the terms and conditions of the Intel Program License
+    Info: Subscription Agreement, the Intel Quartus Prime License Agreement,
+    Info: the Intel MegaCore Function License Agreement, or other
+    Info: applicable license agreement, including, without limitation,
+    Info: that your use is for the sole purpose of programming logic
+    Info: devices manufactured by Intel and sold by Intel or its
+    Info: authorized distributors.  Please refer to the applicable
+    Info: agreement for further details.
+    Info: Processing started: Sat Oct 24 09:58:18 2026
+Info: Command: quartus_sh --flow compile cpu_trial
+Info: Quartus(args): compile cpu_trial
+Info: Project Name = /project/cpu_trial
+Info: Revision Name = cpu_trial
+Info: *******************************************************************
+Info: Running Quartus Prime Analysis & Synthesis
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Processing started: Sat Oct 24 09:58:18 2026
+Info: Command: quartus_map --read_settings_files=on --write_settings_files=off cpu_trial -c cpu_trial
+Info (16303): High Performance Effort optimization mode selected -- timing performance will be prioritized at the potential cost of increased compilation time
+    Info (16304): Mode behavior is affected by advanced setting Placement Effort Multiplier (default for this mode is 4.0)
+Info (20030): Parallel compilation is enabled and will use 16 of the 32 processors detected
+Info (12021): Found 49 design units, including 49 entities, in source file arm925t_gen.v
+    Info (12023): Found entity 1: arm925t File: /project/arm925t_gen.v Line: 17
+    Info (12023): Found entity 2: zap_decompile File: /project/arm925t_gen.v Line: 162
+    Info (12023): Found entity 3: zap_ram_simple_ben File: /project/arm925t_gen.v Line: 175
+    Info (12023): Found entity 4: arm9_alu File: /project/arm925t_gen.v Line: 217
+    Info (12023): Found entity 5: arm9v2_core File: /project/arm925t_gen.v Line: 273
+    Info (12023): Found entity 6: arm9v2_decode File: /project/arm925t_gen.v Line: 1594
+    Info (12023): Found entity 7: arm9v2_execute File: /project/arm925t_gen.v Line: 2591
+    Info (12023): Found entity 8: arm9v2_fetch File: /project/arm925t_gen.v Line: 3462
+    Info (12023): Found entity 9: arm9v2_forward File: /project/arm925t_gen.v Line: 3736
+    Info (12023): Found entity 10: arm9v2_front_decode File: /project/arm925t_gen.v Line: 3777
+    Info (12023): Found entity 11: arm9v2_predict File: /project/arm925t_gen.v Line: 4145
+    Info (12023): Found entity 12: arm9v2_rotate File: /project/arm925t_gen.v Line: 4326
+    Info (12023): Found entity 13: zap_alu_main File: /project/arm925t_gen.v Line: 4419
+    Info (12023): Found entity 14: zap_btb File: /project/arm925t_gen.v Line: 5577
+    Info (12023): Found entity 15: zap_cache File: /project/arm925t_gen.v Line: 6106
+    Info (12023): Found entity 16: zap_cache_fsm File: /project/arm925t_gen.v Line: 6885
+    Info (12023): Found entity 17: zap_cache_tag_ram File: /project/arm925t_gen.v Line: 7983
+    Info (12023): Found entity 18: zap_core File: /project/arm925t_gen.v Line: 9245
+    Info (12023): Found entity 19: zap_cp15_cb File: /project/arm925t_gen.v Line: 11032
+    Info (12023): Found entity 20: zap_dcache File: /project/arm925t_gen.v Line: 12044
+    Info (12023): Found entity 21: zap_dcache_fsm File: /project/arm925t_gen.v Line: 12984
+    Info (12023): Found entity 22: zap_decode File: /project/arm925t_gen.v Line: 14237
+    Info (12023): Found entity 23: zap_decode_main File: /project/arm925t_gen.v Line: 15154
+    Info (12023): Found entity 24: zap_dual_rank_synchronizer File: /project/arm925t_gen.v Line: 15872
+    Info (12023): Found entity 25: zap_fetch_main File: /project/arm925t_gen.v Line: 15895
+    Info (12023): Found entity 26: zap_fifo File: /project/arm925t_gen.v Line: 16430
+    Info (12023): Found entity 27: zap_issue_main File: /project/arm925t_gen.v Line: 16574
+    Info (12023): Found entity 28: zap_mem_inv_block File: /project/arm925t_gen.v Line: 17512
+    Info (12023): Found entity 29: zap_memory_main File: /project/arm925t_gen.v Line: 17646
+    Info (12023): Found entity 30: zap_mode16_decoder File: /project/arm925t_gen.v Line: 18149
+    Info (12023): Found entity 31: zap_mode16_decoder_main File: /project/arm925t_gen.v Line: 18743
+    Info (12023): Found entity 32: zap_ones_counter File: /project/arm925t_gen.v Line: 19151
+    Info (12023): Found entity 33: zap_postalu_main File: /project/arm925t_gen.v Line: 19174
+    Info (12023): Found entity 34: zap_predecode_coproc File: /project/arm925t_gen.v Line: 19427
+    Info (12023): Found entity 35: zap_predecode_main File: /project/arm925t_gen.v Line: 19847
+    Info (12023): Found entity 36: zap_predecode_uop_sequencer File: /project/arm925t_gen.v Line: 20567
+    Info (12023): Found entity 37: zap_ram_simple File: /project/arm925t_gen.v Line: 21458
+    Info (12023): Found entity 38: zap_ram_simple_nopipe File: /project/arm925t_gen.v Line: 21572
+    Info (12023): Found entity 39: zap_register_file File: /project/arm925t_gen.v Line: 21632
+    Info (12023): Found entity 40: zap_shifter_main File: /project/arm925t_gen.v Line: 21690
+    Info (12023): Found entity 41: zap_shifter_multiply File: /project/arm925t_gen.v Line: 22538
+    Info (12023): Found entity 42: zap_shifter_shift File: /project/arm925t_gen.v Line: 23028
+    Info (12023): Found entity 43: zap_sync_fifo File: /project/arm925t_gen.v Line: 23355
+    Info (12023): Found entity 44: zap_tlb File: /project/arm925t_gen.v Line: 23426
+    Info (12023): Found entity 45: zap_tlb_check File: /project/arm925t_gen.v Line: 24040
+    Info (12023): Found entity 46: zap_tlb_fsm File: /project/arm925t_gen.v Line: 24578
+    Info (12023): Found entity 47: zap_top File: /project/arm925t_gen.v Line: 25112
+    Info (12023): Found entity 48: zap_wb_merger File: /project/arm925t_gen.v Line: 26315
+    Info (12023): Found entity 49: zap_writeback File: /project/arm925t_gen.v Line: 26764
+Info (12021): Found 1 design units, including 1 entities, in source file cpu_trial.v
+    Info (12023): Found entity 1: cpu_trial File: /project/cpu_trial.v Line: 8
+Info (12127): Elaborating entity "cpu_trial" for the top level hierarchy
+Info (12128): Elaborating entity "arm925t" for hierarchy "arm925t:cpu" File: /project/cpu_trial.v Line: 58
+Info (12128): Elaborating entity "zap_top" for hierarchy "arm925t:cpu|zap_top:u_zap" File: /project/arm925t_gen.v Line: 158
+Info (12128): Elaborating entity "zap_dual_rank_synchronizer" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dual_rank_synchronizer:u_sync" File: /project/arm925t_gen.v Line: 25757
+Info (12128): Elaborating entity "arm9v2_core" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core" File: /project/arm925t_gen.v Line: 26020
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(613): object "check_record" assigned a value but never read File: /project/arm925t_gen.v Line: 613
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(705): object "check_enable" assigned a value but never read File: /project/arm925t_gen.v Line: 705
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(1234): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 1234
+Info (12128): Elaborating entity "arm9v2_front_decode" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode" File: /project/arm925t_gen.v Line: 1345
+Info (12128): Elaborating entity "arm9v2_fetch" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch" File: /project/arm925t_gen.v Line: 4051
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(3578): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 3578
+Info (10264): Verilog HDL Case Statement information at arm925t_gen.v(3691): all case item expressions in this case statement are onehot File: /project/arm925t_gen.v Line: 3691
+Info (12128): Elaborating entity "arm9v2_predict" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|arm9v2_predict:g_predictor.u_predict" File: /project/arm925t_gen.v Line: 3644
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(4221): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 4221
+Info (10264): Verilog HDL Case Statement information at arm925t_gen.v(4309): all case item expressions in this case statement are onehot File: /project/arm925t_gen.v Line: 4309
+Info (12128): Elaborating entity "zap_ram_simple_nopipe" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|arm9v2_predict:g_predictor.u_predict|zap_ram_simple_nopipe:u_entries" File: /project/arm925t_gen.v Line: 4247
+Info (12128): Elaborating entity "arm9v2_decode" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode" File: /project/arm925t_gen.v Line: 4143
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(1842): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 1842
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(2202): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 2202
+Info (10264): Verilog HDL Case Statement information at arm925t_gen.v(2460): all case item expressions in this case statement are onehot File: /project/arm925t_gen.v Line: 2460
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(2499): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 2499
+Info (12128): Elaborating entity "zap_mode16_decoder" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|zap_mode16_decoder:u_thumb" File: /project/arm925t_gen.v Line: 2045
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(18506): truncated value with size 32 to match size of target (24) File: /project/arm925t_gen.v Line: 18506
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(18543): truncated value with size 32 to match size of target (24) File: /project/arm925t_gen.v Line: 18543
+Info (12128): Elaborating entity "arm9v2_execute" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute" File: /project/arm925t_gen.v Line: 1459
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(2927): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 2927
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(2981): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 2981
+Info (12128): Elaborating entity "arm9v2_forward" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|arm9v2_forward:u_forward" File: /project/arm925t_gen.v Line: 2933
+Info (12128): Elaborating entity "arm9v2_rotate" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|arm9v2_rotate:u_rotate" File: /project/arm925t_gen.v Line: 2998
+Info (12128): Elaborating entity "arm9_alu" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|arm9_alu:u_alu" File: /project/arm925t_gen.v Line: 3037
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(241): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 241
+Info (12128): Elaborating entity "zap_writeback" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback" File: /project/arm925t_gen.v Line: 1532
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(27173): object "wa1" assigned a value but never read File: /project/arm925t_gen.v Line: 27173
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(27174): object "wa2" assigned a value but never read File: /project/arm925t_gen.v Line: 27174
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(27499): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 27499
+Info (12128): Elaborating entity "zap_register_file" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file" File: /project/arm925t_gen.v Line: 27237
+Info (12128): Elaborating entity "zap_btb" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_btb:u_zap_btb" File: /project/arm925t_gen.v Line: 27495
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(6031): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 6031
+Info (12128): Elaborating entity "zap_ram_simple_nopipe" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_btb:u_zap_btb|zap_ram_simple_nopipe:u_br_ram" File: /project/arm925t_gen.v Line: 6079
+Info (12128): Elaborating entity "zap_cp15_cb" for hierarchy "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_cp15_cb:u_zap_cp15_cb" File: /project/arm925t_gen.v Line: 1591
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(12039): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 12039
+Info (12128): Elaborating entity "zap_wb_merger" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_wb_merger:l_merger_for_core_with_cache_mmu.u_zap_wb_merger" File: /project/arm925t_gen.v Line: 26115
+Info (12128): Elaborating entity "zap_dcache" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache" File: /project/arm925t_gen.v Line: 26236
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(12570): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 12570
+Info (10264): Verilog HDL Case Statement information at arm925t_gen.v(12935): all case item expressions in this case statement are onehot File: /project/arm925t_gen.v Line: 12935
+Info (10264): Verilog HDL Case Statement information at arm925t_gen.v(12947): all case item expressions in this case statement are onehot File: /project/arm925t_gen.v Line: 12947
+Info (12128): Elaborating entity "zap_dcache_fsm" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm" File: /project/arm925t_gen.v Line: 12669
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(13667): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 13667
+Info (12128): Elaborating entity "zap_cache_tag_ram" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram" File: /project/arm925t_gen.v Line: 12736
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(8462): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 8462
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(8737): object "unused_pf" assigned a value but never read File: /project/arm925t_gen.v Line: 8737
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(8770): object "unused_valid_dirty" assigned a value but never read File: /project/arm925t_gen.v Line: 8770
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(9058): object "shamt" assigned a value but never read File: /project/arm925t_gen.v Line: 9058
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(9060): object "pa" assigned a value but never read File: /project/arm925t_gen.v Line: 9060
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(8801): truncated value with size 8 to match size of target (4) File: /project/arm925t_gen.v Line: 8801
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(8810): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 8810
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(8818): truncated value with size 8 to match size of target (4) File: /project/arm925t_gen.v Line: 8818
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(8827): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 8827
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(8836): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 8836
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(8839): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 8839
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(8862): truncated value with size 8 to match size of target (4) File: /project/arm925t_gen.v Line: 8862
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(8868): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 8868
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(8910): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 8910
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(8938): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 8938
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(9145): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 9145
+Info (12128): Elaborating entity "zap_tlb" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb" File: /project/arm925t_gen.v Line: 12889
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(23809): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 23809
+Info (12128): Elaborating entity "zap_mem_inv_block" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_section_tlb" File: /project/arm925t_gen.v Line: 23905
+Info (12128): Elaborating entity "zap_ram_simple" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_section_tlb|zap_ram_simple:g_short.u_ram" File: /project/arm925t_gen.v Line: 17558
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(21468): object "_sv2v_0" assigned a value but never read File: /project/arm925t_gen.v Line: 21468
+Info (12128): Elaborating entity "zap_mem_inv_block" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_lpage_tlb" File: /project/arm925t_gen.v Line: 23923
+Info (12128): Elaborating entity "zap_ram_simple" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_lpage_tlb|zap_ram_simple:g_short.u_ram" File: /project/arm925t_gen.v Line: 17558
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(21468): object "_sv2v_0" assigned a value but never read File: /project/arm925t_gen.v Line: 21468
+Info (12128): Elaborating entity "zap_mem_inv_block" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_spage_tlb" File: /project/arm925t_gen.v Line: 23941
+Info (12128): Elaborating entity "zap_ram_simple" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_spage_tlb|zap_ram_simple:g_short.u_ram" File: /project/arm925t_gen.v Line: 17558
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(21468): object "_sv2v_0" assigned a value but never read File: /project/arm925t_gen.v Line: 21468
+Info (12128): Elaborating entity "zap_mem_inv_block" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_fpage_tlb" File: /project/arm925t_gen.v Line: 23959
+Info (12128): Elaborating entity "zap_ram_simple" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_fpage_tlb|zap_ram_simple:g_short.u_ram" File: /project/arm925t_gen.v Line: 17558
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(21468): object "_sv2v_0" assigned a value but never read File: /project/arm925t_gen.v Line: 21468
+Info (12128): Elaborating entity "zap_tlb_check" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check" File: /project/arm925t_gen.v Line: 23992
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(24373): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 24373
+Warning (10242): Verilog HDL Function Declaration warning at arm925t_gen.v(24451): variable "dummy" may have a Don't Care value because it may not be assigned a value in every possible path through the statements preceding its use File: /project/arm925t_gen.v Line: 24451
+Info (12128): Elaborating entity "zap_tlb_fsm" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_fsm:u_zap_tlb_fsm" File: /project/arm925t_gen.v Line: 24037
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(24955): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 24955
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(24988): truncated value with size 32 to match size of target (8) File: /project/arm925t_gen.v Line: 24988
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(25024): truncated value with size 32 to match size of target (6) File: /project/arm925t_gen.v Line: 25024
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(25033): truncated value with size 32 to match size of target (1) File: /project/arm925t_gen.v Line: 25033
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(25034): truncated value with size 32 to match size of target (1) File: /project/arm925t_gen.v Line: 25034
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(25035): truncated value with size 32 to match size of target (4) File: /project/arm925t_gen.v Line: 25035
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(25036): truncated value with size 32 to match size of target (6) File: /project/arm925t_gen.v Line: 25036
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(25060): truncated value with size 32 to match size of target (1) File: /project/arm925t_gen.v Line: 25060
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(25061): truncated value with size 32 to match size of target (1) File: /project/arm925t_gen.v Line: 25061
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(25062): truncated value with size 32 to match size of target (4) File: /project/arm925t_gen.v Line: 25062
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(25063): truncated value with size 32 to match size of target (6) File: /project/arm925t_gen.v Line: 25063
+Info (12128): Elaborating entity "zap_cache" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache" File: /project/arm925t_gen.v Line: 26301
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(6553): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 6553
+Info (10264): Verilog HDL Case Statement information at arm925t_gen.v(6840): all case item expressions in this case statement are onehot File: /project/arm925t_gen.v Line: 6840
+Info (10264): Verilog HDL Case Statement information at arm925t_gen.v(6852): all case item expressions in this case statement are onehot File: /project/arm925t_gen.v Line: 6852
+Info (12128): Elaborating entity "zap_cache_fsm" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_cache_fsm:u_zap_cache_fsm" File: /project/arm925t_gen.v Line: 6648
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(7451): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 7451
+Info (12128): Elaborating entity "zap_cache_tag_ram" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_cache_tag_ram:u_zap_cache_tag_ram" File: /project/arm925t_gen.v Line: 6717
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(8462): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 8462
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(8737): object "unused_pf" assigned a value but never read File: /project/arm925t_gen.v Line: 8737
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(8770): object "unused_valid_dirty" assigned a value but never read File: /project/arm925t_gen.v Line: 8770
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(9058): object "shamt" assigned a value but never read File: /project/arm925t_gen.v Line: 9058
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(9060): object "pa" assigned a value but never read File: /project/arm925t_gen.v Line: 9060
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(8801): truncated value with size 9 to match size of target (5) File: /project/arm925t_gen.v Line: 8801
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(8810): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 8810
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(8818): truncated value with size 9 to match size of target (5) File: /project/arm925t_gen.v Line: 8818
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(8827): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 8827
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(8836): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 8836
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(8839): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 8839
+Warning (10230): Verilog HDL assignment warning at arm925t_gen.v(8862): truncated value with size 9 to match size of target (5) File: /project/arm925t_gen.v Line: 8862
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(8868): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 8868
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(8910): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 8910
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(8938): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 8938
+Warning (10027): Verilog HDL or VHDL warning at the arm925t_gen.v(9145): index expression is not wide enough to address all of the elements in the array File: /project/arm925t_gen.v Line: 9145
+Info (12128): Elaborating entity "zap_tlb" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_tlb:u_zap_tlb" File: /project/arm925t_gen.v Line: 6802
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(23809): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 23809
+Info (12128): Elaborating entity "zap_tlb_check" for hierarchy "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check" File: /project/arm925t_gen.v Line: 23992
+Warning (10036): Verilog HDL or VHDL warning at arm925t_gen.v(24373): object "unused" assigned a value but never read File: /project/arm925t_gen.v Line: 24373
+Warning (10242): Verilog HDL Function Declaration warning at arm925t_gen.v(24451): variable "dummy" may have a Don't Care value because it may not be assigned a value in every possible path through the statements preceding its use File: /project/arm925t_gen.v Line: 24451
+Info (276014): Found 1 instances of uninferred RAM logic
+    Info (276007): RAM logic "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|arm9v2_predict:g_predictor.u_predict|stack" is uninferred due to asynchronous read logic File: /project/arm925t_gen.v Line: 4216
+Info (19000): Inferred 9 megafunctions from design logic
+    Info (276029): Inferred altsyncram megafunction from the following design logic: "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_fpage_tlb|zap_ram_simple:g_short.u_ram|g_short.mem_rtl_0"
+        Info (286033): Parameter OPERATION_MODE set to DUAL_PORT
+        Info (286033): Parameter WIDTH_A set to 45
+        Info (286033): Parameter WIDTHAD_A set to 6
+        Info (286033): Parameter NUMWORDS_A set to 64
+        Info (286033): Parameter WIDTH_B set to 45
+        Info (286033): Parameter WIDTHAD_B set to 6
+        Info (286033): Parameter NUMWORDS_B set to 64
+        Info (286033): Parameter ADDRESS_ACLR_A set to NONE
+        Info (286033): Parameter OUTDATA_REG_B set to UNREGISTERED
+        Info (286033): Parameter ADDRESS_ACLR_B set to NONE
+        Info (286033): Parameter OUTDATA_ACLR_B set to NONE
+        Info (286033): Parameter ADDRESS_REG_B set to CLOCK0
+        Info (286033): Parameter INDATA_ACLR_A set to NONE
+        Info (286033): Parameter WRCONTROL_ACLR_A set to NONE
+        Info (286033): Parameter READ_DURING_WRITE_MODE_MIXED_PORTS set to OLD_DATA
+        Info (286033): Parameter RDCONTROL_REG_B set to CLOCK0
+    Info (276029): Inferred altsyncram megafunction from the following design logic: "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_spage_tlb|zap_ram_simple:g_short.u_ram|g_short.mem_rtl_0"
+        Info (286033): Parameter OPERATION_MODE set to DUAL_PORT
+        Info (286033): Parameter WIDTH_A set to 47
+        Info (286033): Parameter WIDTHAD_A set to 8
+        Info (286033): Parameter NUMWORDS_A set to 256
+        Info (286033): Parameter WIDTH_B set to 47
+        Info (286033): Parameter WIDTHAD_B set to 8
+        Info (286033): Parameter NUMWORDS_B set to 256
+        Info (286033): Parameter ADDRESS_ACLR_A set to NONE
+        Info (286033): Parameter OUTDATA_REG_B set to UNREGISTERED
+        Info (286033): Parameter ADDRESS_ACLR_B set to NONE
+        Info (286033): Parameter OUTDATA_ACLR_B set to NONE
+        Info (286033): Parameter ADDRESS_REG_B set to CLOCK0
+        Info (286033): Parameter INDATA_ACLR_A set to NONE
+        Info (286033): Parameter WRCONTROL_ACLR_A set to NONE
+        Info (286033): Parameter READ_DURING_WRITE_MODE_MIXED_PORTS set to OLD_DATA
+        Info (286033): Parameter RDCONTROL_REG_B set to CLOCK0
+    Info (276029): Inferred altsyncram megafunction from the following design logic: "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_lpage_tlb|zap_ram_simple:g_short.u_ram|g_short.mem_rtl_0"
+        Info (286033): Parameter OPERATION_MODE set to DUAL_PORT
+        Info (286033): Parameter WIDTH_A set to 40
+        Info (286033): Parameter WIDTHAD_A set to 5
+        Info (286033): Parameter NUMWORDS_A set to 32
+        Info (286033): Parameter WIDTH_B set to 40
+        Info (286033): Parameter WIDTHAD_B set to 5
+        Info (286033): Parameter NUMWORDS_B set to 32
+        Info (286033): Parameter ADDRESS_ACLR_A set to NONE
+        Info (286033): Parameter OUTDATA_REG_B set to UNREGISTERED
+        Info (286033): Parameter ADDRESS_ACLR_B set to NONE
+        Info (286033): Parameter OUTDATA_ACLR_B set to NONE
+        Info (286033): Parameter ADDRESS_REG_B set to CLOCK0
+        Info (286033): Parameter INDATA_ACLR_A set to NONE
+        Info (286033): Parameter WRCONTROL_ACLR_A set to NONE
+        Info (286033): Parameter READ_DURING_WRITE_MODE_MIXED_PORTS set to OLD_DATA
+        Info (286033): Parameter RDCONTROL_REG_B set to CLOCK0
+    Info (276029): Inferred altsyncram megafunction from the following design logic: "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_section_tlb|zap_ram_simple:g_short.u_ram|g_short.mem_rtl_0"
+        Info (286033): Parameter OPERATION_MODE set to DUAL_PORT
+        Info (286033): Parameter WIDTH_A set to 27
+        Info (286033): Parameter WIDTHAD_A set to 6
+        Info (286033): Parameter NUMWORDS_A set to 64
+        Info (286033): Parameter WIDTH_B set to 27
+        Info (286033): Parameter WIDTHAD_B set to 6
+        Info (286033): Parameter NUMWORDS_B set to 64
+        Info (286033): Parameter ADDRESS_ACLR_A set to NONE
+        Info (286033): Parameter OUTDATA_REG_B set to UNREGISTERED
+        Info (286033): Parameter ADDRESS_ACLR_B set to NONE
+        Info (286033): Parameter OUTDATA_ACLR_B set to NONE
+        Info (286033): Parameter ADDRESS_REG_B set to CLOCK0
+        Info (286033): Parameter INDATA_ACLR_A set to NONE
+        Info (286033): Parameter WRCONTROL_ACLR_A set to NONE
+        Info (286033): Parameter READ_DURING_WRITE_MODE_MIXED_PORTS set to OLD_DATA
+        Info (286033): Parameter RDCONTROL_REG_B set to CLOCK0
+    Info (276029): Inferred altsyncram megafunction from the following design logic: "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_fpage_tlb|zap_ram_simple:g_short.u_ram|g_short.mem_rtl_0"
+        Info (286033): Parameter OPERATION_MODE set to DUAL_PORT
+        Info (286033): Parameter WIDTH_A set to 46
+        Info (286033): Parameter WIDTHAD_A set to 6
+        Info (286033): Parameter NUMWORDS_A set to 64
+        Info (286033): Parameter WIDTH_B set to 46
+        Info (286033): Parameter WIDTHAD_B set to 6
+        Info (286033): Parameter NUMWORDS_B set to 64
+        Info (286033): Parameter ADDRESS_ACLR_A set to NONE
+        Info (286033): Parameter OUTDATA_REG_B set to UNREGISTERED
+        Info (286033): Parameter ADDRESS_ACLR_B set to NONE
+        Info (286033): Parameter OUTDATA_ACLR_B set to NONE
+        Info (286033): Parameter ADDRESS_REG_B set to CLOCK0
+        Info (286033): Parameter INDATA_ACLR_A set to NONE
+        Info (286033): Parameter WRCONTROL_ACLR_A set to NONE
+        Info (286033): Parameter READ_DURING_WRITE_MODE_MIXED_PORTS set to OLD_DATA
+        Info (286033): Parameter RDCONTROL_REG_B set to CLOCK0
+    Info (276029): Inferred altsyncram megafunction from the following design logic: "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_spage_tlb|zap_ram_simple:g_short.u_ram|g_short.mem_rtl_0"
+        Info (286033): Parameter OPERATION_MODE set to DUAL_PORT
+        Info (286033): Parameter WIDTH_A set to 48
+        Info (286033): Parameter WIDTHAD_A set to 8
+        Info (286033): Parameter NUMWORDS_A set to 256
+        Info (286033): Parameter WIDTH_B set to 48
+        Info (286033): Parameter WIDTHAD_B set to 8
+        Info (286033): Parameter NUMWORDS_B set to 256
+        Info (286033): Parameter ADDRESS_ACLR_A set to NONE
+        Info (286033): Parameter OUTDATA_REG_B set to UNREGISTERED
+        Info (286033): Parameter ADDRESS_ACLR_B set to NONE
+        Info (286033): Parameter OUTDATA_ACLR_B set to NONE
+        Info (286033): Parameter ADDRESS_REG_B set to CLOCK0
+        Info (286033): Parameter INDATA_ACLR_A set to NONE
+        Info (286033): Parameter WRCONTROL_ACLR_A set to NONE
+        Info (286033): Parameter READ_DURING_WRITE_MODE_MIXED_PORTS set to OLD_DATA
+        Info (286033): Parameter RDCONTROL_REG_B set to CLOCK0
+    Info (276029): Inferred altsyncram megafunction from the following design logic: "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_lpage_tlb|zap_ram_simple:g_short.u_ram|g_short.mem_rtl_0"
+        Info (286033): Parameter OPERATION_MODE set to DUAL_PORT
+        Info (286033): Parameter WIDTH_A set to 41
+        Info (286033): Parameter WIDTHAD_A set to 5
+        Info (286033): Parameter NUMWORDS_A set to 32
+        Info (286033): Parameter WIDTH_B set to 41
+        Info (286033): Parameter WIDTHAD_B set to 5
+        Info (286033): Parameter NUMWORDS_B set to 32
+        Info (286033): Parameter ADDRESS_ACLR_A set to NONE
+        Info (286033): Parameter OUTDATA_REG_B set to UNREGISTERED
+        Info (286033): Parameter ADDRESS_ACLR_B set to NONE
+        Info (286033): Parameter OUTDATA_ACLR_B set to NONE
+        Info (286033): Parameter ADDRESS_REG_B set to CLOCK0
+        Info (286033): Parameter INDATA_ACLR_A set to NONE
+        Info (286033): Parameter WRCONTROL_ACLR_A set to NONE
+        Info (286033): Parameter READ_DURING_WRITE_MODE_MIXED_PORTS set to OLD_DATA
+        Info (286033): Parameter RDCONTROL_REG_B set to CLOCK0
+    Info (276029): Inferred altsyncram megafunction from the following design logic: "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_section_tlb|zap_ram_simple:g_short.u_ram|g_short.mem_rtl_0"
+        Info (286033): Parameter OPERATION_MODE set to DUAL_PORT
+        Info (286033): Parameter WIDTH_A set to 28
+        Info (286033): Parameter WIDTHAD_A set to 6
+        Info (286033): Parameter NUMWORDS_A set to 64
+        Info (286033): Parameter WIDTH_B set to 28
+        Info (286033): Parameter WIDTHAD_B set to 6
+        Info (286033): Parameter NUMWORDS_B set to 64
+        Info (286033): Parameter ADDRESS_ACLR_A set to NONE
+        Info (286033): Parameter OUTDATA_REG_B set to UNREGISTERED
+        Info (286033): Parameter ADDRESS_ACLR_B set to NONE
+        Info (286033): Parameter OUTDATA_ACLR_B set to NONE
+        Info (286033): Parameter ADDRESS_REG_B set to CLOCK0
+        Info (286033): Parameter INDATA_ACLR_A set to NONE
+        Info (286033): Parameter WRCONTROL_ACLR_A set to NONE
+        Info (286033): Parameter READ_DURING_WRITE_MODE_MIXED_PORTS set to OLD_DATA
+        Info (286033): Parameter RDCONTROL_REG_B set to CLOCK0
+    Info (276029): Inferred altsyncram megafunction from the following design logic: "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|arm9v2_predict:g_predictor.u_predict|zap_ram_simple_nopipe:u_entries|mem_rtl_0"
+        Info (286033): Parameter OPERATION_MODE set to DUAL_PORT
+        Info (286033): Parameter WIDTH_A set to 60
+        Info (286033): Parameter WIDTHAD_A set to 8
+        Info (286033): Parameter NUMWORDS_A set to 256
+        Info (286033): Parameter WIDTH_B set to 60
+        Info (286033): Parameter WIDTHAD_B set to 8
+        Info (286033): Parameter NUMWORDS_B set to 256
+        Info (286033): Parameter ADDRESS_ACLR_A set to NONE
+        Info (286033): Parameter OUTDATA_REG_B set to UNREGISTERED
+        Info (286033): Parameter ADDRESS_ACLR_B set to NONE
+        Info (286033): Parameter OUTDATA_ACLR_B set to NONE
+        Info (286033): Parameter ADDRESS_REG_B set to CLOCK0
+        Info (286033): Parameter INDATA_ACLR_A set to NONE
+        Info (286033): Parameter WRCONTROL_ACLR_A set to NONE
+        Info (286033): Parameter READ_DURING_WRITE_MODE_MIXED_PORTS set to OLD_DATA
+        Info (286033): Parameter RDCONTROL_REG_B set to CLOCK0
+Info (12130): Elaborated megafunction instantiation "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_fpage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0"
+Info (12133): Instantiated megafunction "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_fpage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0" with the following parameter:
+    Info (12134): Parameter "OPERATION_MODE" = "DUAL_PORT"
+    Info (12134): Parameter "WIDTH_A" = "45"
+    Info (12134): Parameter "WIDTHAD_A" = "6"
+    Info (12134): Parameter "NUMWORDS_A" = "64"
+    Info (12134): Parameter "WIDTH_B" = "45"
+    Info (12134): Parameter "WIDTHAD_B" = "6"
+    Info (12134): Parameter "NUMWORDS_B" = "64"
+    Info (12134): Parameter "ADDRESS_ACLR_A" = "NONE"
+    Info (12134): Parameter "OUTDATA_REG_B" = "UNREGISTERED"
+    Info (12134): Parameter "ADDRESS_ACLR_B" = "NONE"
+    Info (12134): Parameter "OUTDATA_ACLR_B" = "NONE"
+    Info (12134): Parameter "ADDRESS_REG_B" = "CLOCK0"
+    Info (12134): Parameter "INDATA_ACLR_A" = "NONE"
+    Info (12134): Parameter "WRCONTROL_ACLR_A" = "NONE"
+    Info (12134): Parameter "READ_DURING_WRITE_MODE_MIXED_PORTS" = "OLD_DATA"
+    Info (12134): Parameter "RDCONTROL_REG_B" = "CLOCK0"
+Info (12021): Found 1 design units, including 1 entities, in source file db/altsyncram_e0q1.tdf
+    Info (12023): Found entity 1: altsyncram_e0q1 File: /project/db/altsyncram_e0q1.tdf Line: 28
+Info (12130): Elaborated megafunction instantiation "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_spage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0"
+Info (12133): Instantiated megafunction "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_spage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0" with the following parameter:
+    Info (12134): Parameter "OPERATION_MODE" = "DUAL_PORT"
+    Info (12134): Parameter "WIDTH_A" = "47"
+    Info (12134): Parameter "WIDTHAD_A" = "8"
+    Info (12134): Parameter "NUMWORDS_A" = "256"
+    Info (12134): Parameter "WIDTH_B" = "47"
+    Info (12134): Parameter "WIDTHAD_B" = "8"
+    Info (12134): Parameter "NUMWORDS_B" = "256"
+    Info (12134): Parameter "ADDRESS_ACLR_A" = "NONE"
+    Info (12134): Parameter "OUTDATA_REG_B" = "UNREGISTERED"
+    Info (12134): Parameter "ADDRESS_ACLR_B" = "NONE"
+    Info (12134): Parameter "OUTDATA_ACLR_B" = "NONE"
+    Info (12134): Parameter "ADDRESS_REG_B" = "CLOCK0"
+    Info (12134): Parameter "INDATA_ACLR_A" = "NONE"
+    Info (12134): Parameter "WRCONTROL_ACLR_A" = "NONE"
+    Info (12134): Parameter "READ_DURING_WRITE_MODE_MIXED_PORTS" = "OLD_DATA"
+    Info (12134): Parameter "RDCONTROL_REG_B" = "CLOCK0"
+Info (12021): Found 1 design units, including 1 entities, in source file db/altsyncram_s3q1.tdf
+    Info (12023): Found entity 1: altsyncram_s3q1 File: /project/db/altsyncram_s3q1.tdf Line: 28
+Info (12130): Elaborated megafunction instantiation "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_lpage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0"
+Info (12133): Instantiated megafunction "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_lpage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0" with the following parameter:
+    Info (12134): Parameter "OPERATION_MODE" = "DUAL_PORT"
+    Info (12134): Parameter "WIDTH_A" = "40"
+    Info (12134): Parameter "WIDTHAD_A" = "5"
+    Info (12134): Parameter "NUMWORDS_A" = "32"
+    Info (12134): Parameter "WIDTH_B" = "40"
+    Info (12134): Parameter "WIDTHAD_B" = "5"
+    Info (12134): Parameter "NUMWORDS_B" = "32"
+    Info (12134): Parameter "ADDRESS_ACLR_A" = "NONE"
+    Info (12134): Parameter "OUTDATA_REG_B" = "UNREGISTERED"
+    Info (12134): Parameter "ADDRESS_ACLR_B" = "NONE"
+    Info (12134): Parameter "OUTDATA_ACLR_B" = "NONE"
+    Info (12134): Parameter "ADDRESS_REG_B" = "CLOCK0"
+    Info (12134): Parameter "INDATA_ACLR_A" = "NONE"
+    Info (12134): Parameter "WRCONTROL_ACLR_A" = "NONE"
+    Info (12134): Parameter "READ_DURING_WRITE_MODE_MIXED_PORTS" = "OLD_DATA"
+    Info (12134): Parameter "RDCONTROL_REG_B" = "CLOCK0"
+Info (12021): Found 1 design units, including 1 entities, in source file db/altsyncram_ovp1.tdf
+    Info (12023): Found entity 1: altsyncram_ovp1 File: /project/db/altsyncram_ovp1.tdf Line: 28
+Info (12130): Elaborated megafunction instantiation "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_section_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0"
+Info (12133): Instantiated megafunction "arm925t:cpu|zap_top:u_zap|zap_cache:l_generate_with_cache_mmu.u_code_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_section_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0" with the following parameter:
+    Info (12134): Parameter "OPERATION_MODE" = "DUAL_PORT"
+    Info (12134): Parameter "WIDTH_A" = "27"
+    Info (12134): Parameter "WIDTHAD_A" = "6"
+    Info (12134): Parameter "NUMWORDS_A" = "64"
+    Info (12134): Parameter "WIDTH_B" = "27"
+    Info (12134): Parameter "WIDTHAD_B" = "6"
+    Info (12134): Parameter "NUMWORDS_B" = "64"
+    Info (12134): Parameter "ADDRESS_ACLR_A" = "NONE"
+    Info (12134): Parameter "OUTDATA_REG_B" = "UNREGISTERED"
+    Info (12134): Parameter "ADDRESS_ACLR_B" = "NONE"
+    Info (12134): Parameter "OUTDATA_ACLR_B" = "NONE"
+    Info (12134): Parameter "ADDRESS_REG_B" = "CLOCK0"
+    Info (12134): Parameter "INDATA_ACLR_A" = "NONE"
+    Info (12134): Parameter "WRCONTROL_ACLR_A" = "NONE"
+    Info (12134): Parameter "READ_DURING_WRITE_MODE_MIXED_PORTS" = "OLD_DATA"
+    Info (12134): Parameter "RDCONTROL_REG_B" = "CLOCK0"
+Info (12021): Found 1 design units, including 1 entities, in source file db/altsyncram_f0q1.tdf
+    Info (12023): Found entity 1: altsyncram_f0q1 File: /project/db/altsyncram_f0q1.tdf Line: 28
+Info (12130): Elaborated megafunction instantiation "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_fpage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0"
+Info (12133): Instantiated megafunction "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_fpage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0" with the following parameter:
+    Info (12134): Parameter "OPERATION_MODE" = "DUAL_PORT"
+    Info (12134): Parameter "WIDTH_A" = "46"
+    Info (12134): Parameter "WIDTHAD_A" = "6"
+    Info (12134): Parameter "NUMWORDS_A" = "64"
+    Info (12134): Parameter "WIDTH_B" = "46"
+    Info (12134): Parameter "WIDTHAD_B" = "6"
+    Info (12134): Parameter "NUMWORDS_B" = "64"
+    Info (12134): Parameter "ADDRESS_ACLR_A" = "NONE"
+    Info (12134): Parameter "OUTDATA_REG_B" = "UNREGISTERED"
+    Info (12134): Parameter "ADDRESS_ACLR_B" = "NONE"
+    Info (12134): Parameter "OUTDATA_ACLR_B" = "NONE"
+    Info (12134): Parameter "ADDRESS_REG_B" = "CLOCK0"
+    Info (12134): Parameter "INDATA_ACLR_A" = "NONE"
+    Info (12134): Parameter "WRCONTROL_ACLR_A" = "NONE"
+    Info (12134): Parameter "READ_DURING_WRITE_MODE_MIXED_PORTS" = "OLD_DATA"
+    Info (12134): Parameter "RDCONTROL_REG_B" = "CLOCK0"
+Info (12021): Found 1 design units, including 1 entities, in source file db/altsyncram_g0q1.tdf
+    Info (12023): Found entity 1: altsyncram_g0q1 File: /project/db/altsyncram_g0q1.tdf Line: 28
+Info (12130): Elaborated megafunction instantiation "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_spage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0"
+Info (12133): Instantiated megafunction "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_spage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0" with the following parameter:
+    Info (12134): Parameter "OPERATION_MODE" = "DUAL_PORT"
+    Info (12134): Parameter "WIDTH_A" = "48"
+    Info (12134): Parameter "WIDTHAD_A" = "8"
+    Info (12134): Parameter "NUMWORDS_A" = "256"
+    Info (12134): Parameter "WIDTH_B" = "48"
+    Info (12134): Parameter "WIDTHAD_B" = "8"
+    Info (12134): Parameter "NUMWORDS_B" = "256"
+    Info (12134): Parameter "ADDRESS_ACLR_A" = "NONE"
+    Info (12134): Parameter "OUTDATA_REG_B" = "UNREGISTERED"
+    Info (12134): Parameter "ADDRESS_ACLR_B" = "NONE"
+    Info (12134): Parameter "OUTDATA_ACLR_B" = "NONE"
+    Info (12134): Parameter "ADDRESS_REG_B" = "CLOCK0"
+    Info (12134): Parameter "INDATA_ACLR_A" = "NONE"
+    Info (12134): Parameter "WRCONTROL_ACLR_A" = "NONE"
+    Info (12134): Parameter "READ_DURING_WRITE_MODE_MIXED_PORTS" = "OLD_DATA"
+    Info (12134): Parameter "RDCONTROL_REG_B" = "CLOCK0"
+Info (12021): Found 1 design units, including 1 entities, in source file db/altsyncram_u3q1.tdf
+    Info (12023): Found entity 1: altsyncram_u3q1 File: /project/db/altsyncram_u3q1.tdf Line: 28
+Info (12130): Elaborated megafunction instantiation "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_lpage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0"
+Info (12133): Instantiated megafunction "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_lpage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0" with the following parameter:
+    Info (12134): Parameter "OPERATION_MODE" = "DUAL_PORT"
+    Info (12134): Parameter "WIDTH_A" = "41"
+    Info (12134): Parameter "WIDTHAD_A" = "5"
+    Info (12134): Parameter "NUMWORDS_A" = "32"
+    Info (12134): Parameter "WIDTH_B" = "41"
+    Info (12134): Parameter "WIDTHAD_B" = "5"
+    Info (12134): Parameter "NUMWORDS_B" = "32"
+    Info (12134): Parameter "ADDRESS_ACLR_A" = "NONE"
+    Info (12134): Parameter "OUTDATA_REG_B" = "UNREGISTERED"
+    Info (12134): Parameter "ADDRESS_ACLR_B" = "NONE"
+    Info (12134): Parameter "OUTDATA_ACLR_B" = "NONE"
+    Info (12134): Parameter "ADDRESS_REG_B" = "CLOCK0"
+    Info (12134): Parameter "INDATA_ACLR_A" = "NONE"
+    Info (12134): Parameter "WRCONTROL_ACLR_A" = "NONE"
+    Info (12134): Parameter "READ_DURING_WRITE_MODE_MIXED_PORTS" = "OLD_DATA"
+    Info (12134): Parameter "RDCONTROL_REG_B" = "CLOCK0"
+Info (12021): Found 1 design units, including 1 entities, in source file db/altsyncram_qvp1.tdf
+    Info (12023): Found entity 1: altsyncram_qvp1 File: /project/db/altsyncram_qvp1.tdf Line: 28
+Info (12130): Elaborated megafunction instantiation "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_section_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0"
+Info (12133): Instantiated megafunction "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_section_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0" with the following parameter:
+    Info (12134): Parameter "OPERATION_MODE" = "DUAL_PORT"
+    Info (12134): Parameter "WIDTH_A" = "28"
+    Info (12134): Parameter "WIDTHAD_A" = "6"
+    Info (12134): Parameter "NUMWORDS_A" = "64"
+    Info (12134): Parameter "WIDTH_B" = "28"
+    Info (12134): Parameter "WIDTHAD_B" = "6"
+    Info (12134): Parameter "NUMWORDS_B" = "64"
+    Info (12134): Parameter "ADDRESS_ACLR_A" = "NONE"
+    Info (12134): Parameter "OUTDATA_REG_B" = "UNREGISTERED"
+    Info (12134): Parameter "ADDRESS_ACLR_B" = "NONE"
+    Info (12134): Parameter "OUTDATA_ACLR_B" = "NONE"
+    Info (12134): Parameter "ADDRESS_REG_B" = "CLOCK0"
+    Info (12134): Parameter "INDATA_ACLR_A" = "NONE"
+    Info (12134): Parameter "WRCONTROL_ACLR_A" = "NONE"
+    Info (12134): Parameter "READ_DURING_WRITE_MODE_MIXED_PORTS" = "OLD_DATA"
+    Info (12134): Parameter "RDCONTROL_REG_B" = "CLOCK0"
+Info (12021): Found 1 design units, including 1 entities, in source file db/altsyncram_h0q1.tdf
+    Info (12023): Found entity 1: altsyncram_h0q1 File: /project/db/altsyncram_h0q1.tdf Line: 28
+Info (12130): Elaborated megafunction instantiation "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|arm9v2_predict:g_predictor.u_predict|zap_ram_simple_nopipe:u_entries|altsyncram:mem_rtl_0"
+Info (12133): Instantiated megafunction "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|arm9v2_predict:g_predictor.u_predict|zap_ram_simple_nopipe:u_entries|altsyncram:mem_rtl_0" with the following parameter:
+    Info (12134): Parameter "OPERATION_MODE" = "DUAL_PORT"
+    Info (12134): Parameter "WIDTH_A" = "60"
+    Info (12134): Parameter "WIDTHAD_A" = "8"
+    Info (12134): Parameter "NUMWORDS_A" = "256"
+    Info (12134): Parameter "WIDTH_B" = "60"
+    Info (12134): Parameter "WIDTHAD_B" = "8"
+    Info (12134): Parameter "NUMWORDS_B" = "256"
+    Info (12134): Parameter "ADDRESS_ACLR_A" = "NONE"
+    Info (12134): Parameter "OUTDATA_REG_B" = "UNREGISTERED"
+    Info (12134): Parameter "ADDRESS_ACLR_B" = "NONE"
+    Info (12134): Parameter "OUTDATA_ACLR_B" = "NONE"
+    Info (12134): Parameter "ADDRESS_REG_B" = "CLOCK0"
+    Info (12134): Parameter "INDATA_ACLR_A" = "NONE"
+    Info (12134): Parameter "WRCONTROL_ACLR_A" = "NONE"
+    Info (12134): Parameter "READ_DURING_WRITE_MODE_MIXED_PORTS" = "OLD_DATA"
+    Info (12134): Parameter "RDCONTROL_REG_B" = "CLOCK0"
+Info (12021): Found 1 design units, including 1 entities, in source file db/altsyncram_i3q1.tdf
+    Info (12023): Found entity 1: altsyncram_i3q1 File: /project/db/altsyncram_i3q1.tdf Line: 28
+Warning (12241): 1 hierarchies have connectivity warnings - see the Connectivity Checks report folder
+Info (17026): Resynthesizing 0 WYSIWYG logic cells and I/Os using "speed" technology mapper which leaves 0 WYSIWYG logic cells and I/Os untouched
+Warning (13024): Output pins are stuck at VCC or GND
+    Warning (13410): Pin "addr_o[0]" is stuck at GND File: /project/cpu_trial.v Line: 29
+    Warning (13410): Pin "addr_o[1]" is stuck at GND File: /project/cpu_trial.v Line: 29
+Info (286030): Timing-Driven Synthesis is running
+Info (18062): Inserted logic cells for Maximum Fan-Out assignment
+    Info (18058): Inserted 2 logic cells for Maximum Fan-Out assignment on "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|complete_class[0]" File: /project/arm925t_gen.v Line: 760
+    Info (18058): Inserted 2 logic cells for Maximum Fan-Out assignment on "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|forward_advance" File: /project/arm925t_gen.v Line: 787
+Info (17049): 171 registers lost all their fanouts during netlist optimizations.
+Info (17016): Found the following redundant logic cells in design
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|s_candidate_match[22]" File: /project/arm925t_gen.v Line: 3195
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|s_candidate_match[23]" File: /project/arm925t_gen.v Line: 3195
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|s_candidate_match[18]" File: /project/arm925t_gen.v Line: 3195
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|s_candidate_match[19]" File: /project/arm925t_gen.v Line: 3195
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|s_candidate_match[26]" File: /project/arm925t_gen.v Line: 3195
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|s_candidate_match[27]" File: /project/arm925t_gen.v Line: 3195
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|s_candidate_match[30]" File: /project/arm925t_gen.v Line: 3195
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|s_candidate_match[31]" File: /project/arm925t_gen.v Line: 3195
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[14]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[14]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[14]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[14]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[14]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[14]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[12]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[12]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[12]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[12]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[12]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[12]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[13]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[13]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[13]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[13]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[13]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[13]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[11]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[11]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[11]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[11]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[11]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[6]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[6]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[6]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[6]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[6]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[7]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[7]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[7]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[7]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[7]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[8]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[8]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[8]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[8]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[8]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[9]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[9]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[9]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[9]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[9]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[10]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[10]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[10]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[10]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[10]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[2]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[2]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[2]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[2]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[2]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[5]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[5]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[5]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[5]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[5]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[3]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[3]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[3]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[3]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[3]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[4]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[4]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[4]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[4]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[4]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[1]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[1]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[1]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[1]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[30]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[30]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[30]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[30]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[30]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[30]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[29]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[29]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[29]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[29]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[29]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[29]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[18]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[18]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[18]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[18]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[18]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[18]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[19]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[19]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[19]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[19]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[19]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[19]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[20]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[20]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[20]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[20]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[20]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[20]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[27]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[27]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[27]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[27]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[27]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[27]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[28]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[28]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[28]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[28]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[28]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[28]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[23]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[23]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[23]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[23]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[23]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[23]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[26]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[26]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[26]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[26]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[26]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[26]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[24]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[24]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[24]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[24]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[24]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[24]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[25]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[25]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[25]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[25]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[25]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[25]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[21]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[21]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[21]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[21]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[21]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[21]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[22]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[22]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[22]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[22]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[22]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[22]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[15]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[15]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[15]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[15]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[15]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[15]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[16]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[16]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[16]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[16]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[16]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[16]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[17]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[17]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[17]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[17]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[17]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[17]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|arm_target[31]" File: /project/arm925t_gen.v Line: 2087
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|thumb_target[31]" File: /project/arm925t_gen.v Line: 2088
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|suffix_sum[31]" File: /project/arm925t_gen.v Line: 2090
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|prefix_sum[31]" File: /project/arm925t_gen.v Line: 2089
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[31]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[31]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[29]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[29]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[29]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[27]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[27]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[27]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[28]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[28]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[28]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[25]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[25]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[25]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[31]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[31]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[31]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[26]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[26]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[26]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[30]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[30]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[30]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[14]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[14]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[14]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[15]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[15]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[15]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[12]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[12]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[12]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[13]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[13]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[13]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[18]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[18]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[18]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[19]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[19]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[19]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[16]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[16]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[16]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[17]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[17]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[17]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[20]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[20]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[20]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[21]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[21]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[21]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[23]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[23]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[23]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[24]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[24]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[24]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[22]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[22]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[22]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[11]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[11]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[11]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[10]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[10]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[10]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[2]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[2]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[2]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[3]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[3]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[3]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[4]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[4]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[4]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[5]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[5]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[5]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[6]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[6]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[6]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[7]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[7]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[7]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[8]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[8]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[8]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[9]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[9]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[9]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_twos[1]" File: /project/arm925t_gen.v Line: 2094
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_twos[0]" File: /project/arm925t_gen.v Line: 2096
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_twos[0]" File: /project/arm925t_gen.v Line: 2094
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[1]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[1]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[1]" File: /project/arm925t_gen.v Line: 3575
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_thumb_sum[0]" File: /project/arm925t_gen.v Line: 2098
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|fast_arm_sum[0]" File: /project/arm925t_gen.v Line: 2097
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|sequential_next[0]" File: /project/arm925t_gen.v Line: 3577
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|predicted_next[0]" File: /project/arm925t_gen.v Line: 3576
+    Info (17048): Logic cell "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|redirect_next[0]" File: /project/arm925t_gen.v Line: 3575
+Info (144001): Generated suppressed messages file /project/output_files/cpu_trial.map.smsg
+Info (16010): Generating hard_block partition "hard_block:auto_generated_inst"
+    Info (16011): Adding 0 node(s), including 0 DDIO, 0 PLL, 0 transceiver and 0 LCELL
+Info (21057): Implemented 401458 device resources after synthesis - the final resource count might be different
+    Info (21058): Implemented 38 input pins
+    Info (21059): Implemented 71 output pins
+    Info (21061): Implemented 400963 logic cells
+    Info (21064): Implemented 382 RAM segments
+    Info (21062): Implemented 4 DSP elements
+Info: Quartus Prime Analysis & Synthesis was successful. 0 errors, 79 warnings
+    Info: Peak virtual memory: 4044 megabytes
+    Info: Processing ended: Sat Oct 24 10:04:23 2026
+    Info: Elapsed time: 00:06:05
+    Info: Total CPU time (on all processors): 00:09:47
+Info: *******************************************************************
+Info: Running Quartus Prime Fitter
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Processing started: Sat Oct 24 10:04:25 2026
+Info: Command: quartus_fit --read_settings_files=off --write_settings_files=off cpu_trial -c cpu_trial
+Info: qfit2_default_script.tcl version: #1
+Info: Project  = cpu_trial
+Info: Revision = cpu_trial
+Info (16303): High Performance Effort optimization mode selected -- timing performance will be prioritized at the potential cost of increased compilation time
+    Info (16304): Mode behavior is affected by advanced setting Placement Effort Multiplier (default for this mode is 4.0)
+Info (20030): Parallel compilation is enabled and will use 16 of the 32 processors detected
+Info (119006): Selected device 5CSEBA6U23I7 for design "cpu_trial"
+Info (21077): Low junction temperature is -40 degrees C
+Info (21077): High junction temperature is 100 degrees C
+Info (171004): Fitter is performing a Standard Fit compilation using maximum Fitter effort to optimize design performance
+Warning (292013): Feature LogicLock is only available with a valid subscription license. You can purchase a software subscription to gain full access to this feature.
+Warning (15714): Some pins have incomplete I/O assignments. Refer to the I/O Assignment Warnings report for details
+Info (176045): Design uses memory blocks. Violating setup or hold times of memory block address registers for either read or write operations could cause memory contents to be corrupted. Make sure that all memory block address registers meet the setup and hold time requirements.
+Critical Warning (169085): No exact pin location assignment(s) for 109 pins of 109 total pins. For the list of pins please refer to the I/O Assignment Warnings table in the fitter report.
+Info (184020): Starting Fitter periphery placement operations
+Info (11191): Automatically promoted 1 clock (1 global)
+    Info (11162): clk~inputCLKENA0 with 284888 fanout uses global clock CLKCTRL_G10
+Info (184021): Fitter periphery placement operations ending: elapsed time is 00:00:07
+Info (176233): Starting register packing
+Info (332104): Reading SDC File: 'cpu_trial.sdc'
+Info (332151): Clock uncertainty is not calculated until you update the timing netlist.
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in TimeQuest to see clock uncertainties.
+Info (332129): Detected timing requirements -- optimizing circuit to achieve only the specified requirements
+Info (332111): Found 1 clocks
+    Info (332111):   Period   Clock Name
+    Info (332111): ======== ============
+    Info (332111):    9.615          clk
+Info (176235): Finished register packing
+    Extra Info (176219): No registers were packed into other blocks
+Info (128000): Starting physical synthesis optimizations for speed
+Info (128002): Starting physical synthesis algorithm register retiming
+Info (128003): Physical synthesis algorithm register retiming complete: estimated slack improvement of 0 ps
+Info (128002): Starting physical synthesis algorithm combinational resynthesis using boolean division
+Info (128003): Physical synthesis algorithm combinational resynthesis using boolean division complete: estimated slack improvement of 0 ps
+Info (128002): Starting physical synthesis algorithm register retiming
+Info (128003): Physical synthesis algorithm register retiming complete: estimated slack improvement of 0 ps
+Info (128002): Starting physical synthesis algorithm combinational resynthesis using boolean division
+Info (128003): Physical synthesis algorithm combinational resynthesis using boolean division complete: estimated slack improvement of 0 ps
+Info (128001): Physical synthesis optimizations for speed complete: elapsed time is 00:03:37
+Info (176233): Starting register packing
+Info (176235): Finished register packing
+    Extra Info (176219): No registers were packed into other blocks
+Info (11798): Fitter preparation operations ending: elapsed time is 00:05:41
+Info (170189): Fitter placement preparation operations beginning
+Error (170011): Design contains 123410 blocks of type combinational node.  However, the device contains only 83820 blocks.
+Info (14951): The Fitter is using Advanced Physical Optimization.
+Error (170011): Design contains 123410 blocks of type combinational node.  However, the device contains only 83820 blocks.
+Info (170190): Fitter placement preparation operations ending: elapsed time is 00:09:31
+Info (11888): Total time spent on timing analysis during the Fitter is 104.70 seconds.
+Warning (169069): Following 2 pins have nothing, GND, or VCC driving datain port -- changes to this connectivity may change fitting results
+    Info (169070): Pin addr_o[0] has GND driving its datain port File: /project/cpu_trial.v Line: 29
+    Info (169070): Pin addr_o[1] has GND driving its datain port File: /project/cpu_trial.v Line: 29
+Error (11802): Can't fit design in device. Modify your design to reduce resources, or choose a larger device. The Intel FPGA Knowledge Database contains many articles with specific details on how to resolve this error. Visit the Knowledge Database at https://www.altera.com/support/support-resources/knowledge-base/search.html and search for this specific error message number.
+Info (144001): Generated suppressed messages file /project/output_files/cpu_trial.fit.smsg
+Error: Quartus Prime Fitter was unsuccessful. 3 errors, 4 warnings
+    Error: Peak virtual memory: 7911 megabytes
+    Error: Processing ended: Sat Oct 24 10:23:32 2026
+    Error: Elapsed time: 00:19:07
+    Error: Total CPU time (on all processors): 02:08:19
+Error (293001): Quartus Prime Full Compilation was unsuccessful. 5 errors, 83 warnings
+Error: Flow compile (for project /project/cpu_trial) was not successful
+Error: ERROR: Error(s) found while running an executable. See report file(s) for error message(s). Message log indicates which executable was run last.
+
+Error (23031): Evaluation of Tcl script /opt/intelFPGA_lite/quartus/common/tcl/internal/qsh_flow.tcl unsuccessful
+Error: Quartus Prime Shell was unsuccessful. 12 errors, 83 warnings
+    Error: Peak virtual memory: 808 megabytes
+    Error: Processing ended: Sat Oct 24 10:23:34 2026
+    Error: Elapsed time: 00:25:16
+    Error: Total CPU time (on all processors): 02:18:08

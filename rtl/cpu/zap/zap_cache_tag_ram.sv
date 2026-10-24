@@ -268,6 +268,53 @@ endfunction : flat
 // The valid/dirty/LRU output below uses that same set and edge, forwarding
 // both the current write and the pending write-behind update. The compare,
 // victim selection and per-way word mux below are shared without changes.
+if (SHORT_READ) begin : g_short_ram
+        // ARM9V2: one descriptor for the entire cache. The RAM read and
+        // write data capture are unchanged; equality belongs AFTER this
+        // edge, not after A's adder and before 32 byte-lane registers.
+        (* dont_retime *) logic [SET_W-1:0] rd_addr_q, wr_addr_q;
+        logic [WAYS-1:0] tag_en_q;
+        logic [WAYS-1:0][CACHE_LINE-1:0] byte_en_q;
+        logic [`ZAP_CACHE_TAG_WDT-1:0] tag_data_q;
+        logic [CACHE_LINE*8-1:0] line_data_q;
+        wire collision = rd_addr_q == wr_addr_q;
+        always_ff @(posedge i_clk) if (!i_hold) begin
+                rd_addr_q <= rd_set;
+                wr_addr_q <= tag_ram_wr_addr;
+                tag_data_q <= tag_ram_wr_data;
+                line_data_q <= i_cache_line;
+                for (int w=0; w<WAYS; w++) begin
+                        tag_en_q[w] <= tag_ram_wr_en && wr_sel[w];
+                        byte_en_q[w] <= i_cache_line_ben & {CACHE_LINE{wr_sel[w]}};
+                end
+        end
+        for (genvar w=0; w<WAYS; w++) begin : g_way
+                logic [`ZAP_CACHE_TAG_WDT-1:0] tag_read;
+                // Use the port's module-level RAM template: Quartus 17
+                // maps inline arrays in this enclosing cache to registers.
+                zap_ram_simple #(.WIDTH(`ZAP_CACHE_TAG_WDT), .DEPTH(LINES),
+                    .SHORT_READ(1'b1), .SHORT_RAW(1'b1)) u_tag (
+                    .i_clk(i_clk), .i_clken(!i_hold),
+                    .i_wr_en(tag_ram_wr_en && wr_sel[w]), .i_wr_data(tag_ram_wr_data),
+                    .i_wr_addr(tag_ram_wr_addr), .i_rd_addr(rd_set),
+                    .o_rd_data(tag_read), .o_rd_data_pre());
+                assign tag_q[w] = collision && tag_en_q[w] ? tag_data_q : tag_read;
+                for (genvar b=0; b<CACHE_LINE; b++) begin : g_byte
+                        logic [7:0] data_read;
+                        zap_ram_simple #(.WIDTH(32'd8), .DEPTH(LINES),
+                            .SHORT_READ(1'b1), .SHORT_RAW(1'b1)) u_data (
+                            .i_clk(i_clk), .i_clken(!i_hold),
+                            .i_wr_en(i_cache_line_ben[b] && wr_sel[w]),
+                            .i_wr_data(i_cache_line[8*b +: 8]),
+                            .i_wr_addr(tag_ram_wr_addr), .i_rd_addr(rd_set),
+                            .o_rd_data(data_read), .o_rd_data_pre());
+                        assign line_q[w][8*b +: 8] = collision && byte_en_q[w][b] ?
+                                line_data_q[8*b +: 8] : data_read;
+                end
+                assign w_dummy[w] = line_q[w];
+                assign w_dummy_1[w] = tag_q[w];
+        end
+end else begin : g_long_ram
 for ( genvar w = 0; w < WAYS; w++ )
 begin : g_way
 
@@ -300,6 +347,7 @@ zap_ram_simple #(.WIDTH(`ZAP_CACHE_TAG_WDT), .DEPTH(LINES), .SHORT_READ(SHORT_RE
 );
 
 end : g_way
+end : g_long_ram
 
 // ----------------------------------------------------------------------------
 
@@ -463,14 +511,13 @@ begin : g_lru
         begin
                 if ( i_reset )
                 begin
-                        lru_q  <= 1'd0;
+                        if (!SHORT_READ) lru_q <= 1'd0;
                         lru_s2 <= 1'd0;
                         lru_s1 <= 1'd0;
                 end
                 else if ( !i_hold || tag_ram_clear || line_clear )
                 begin
-                        lru_q  <= SHORT_READ ? lru_fwd_now(rd_set, lru[rd_set]) :
-                                  lru_fwd_now ( rd_set_del2, lru_s2 );
+                        if (!SHORT_READ) lru_q <= lru_fwd_now ( rd_set_del2, lru_s2 );
                         lru_s2 <= lru_fwd ( rd_set_del,  lru_s1 );
                         lru_s1 <= lru_fwd ( rd_set,      lru [ rd_set ] );
                 end
@@ -553,6 +600,94 @@ begin
         end
 end
 
+// ARM9V2: split metadata selection across the same read edge. Each bank
+// selects at most sixteen entries before the edge; the registered bank
+// selector and write descriptors finish selection/forwarding afterwards.
+// The array updates below (pending writes, then clears) are unchanged.
+if (SHORT_READ) begin : g_short_meta
+        localparam LOW_W = SET_W < 4 ? SET_W : 4;
+        localparam BANKS = LINES >> LOW_W;
+        localparam BANK_W = SET_W > LOW_W ? SET_W-LOW_W : 1;
+        typedef struct packed {
+                logic [SET_W-1:0] read_set, write_set, pending_set;
+                logic [WAYS-1:0] write_way, pending_way;
+                logic write_dirty, pending_dirty;
+        } meta_t;
+        meta_t descriptor, valid_desc, dirty_desc;
+        logic unused_valid_dirty;
+        assign unused_valid_dirty = |{valid_desc.write_dirty, valid_desc.pending_dirty};
+        logic [WAYS-1:0][BANKS-1:0] valid_bank, dirty_bank;
+        logic [BANK_W-1:0] valid_select, dirty_select;
+        always_comb begin
+                descriptor.read_set = rd_set;
+                descriptor.write_set = tag_ram_wr_addr;
+                descriptor.pending_set = pend_addr;
+                descriptor.write_way = wr_sel & {WAYS{tag_ram_wr_en}};
+                descriptor.pending_way = pend_sel & {WAYS{pend_en}};
+                descriptor.write_dirty = i_cache_tag_dirty;
+                descriptor.pending_dirty = pend_dirty;
+        end
+        always_ff @(posedge i_clk) begin
+                if (i_reset) begin
+                        valid_desc <= '0; dirty_desc <= '0;
+                        valid_bank <= '0; dirty_bank <= '0;
+                        valid_select <= '0; dirty_select <= '0;
+                end else begin
+                        if (!i_hold || tag_ram_clear || line_clear) begin
+                                valid_desc <= descriptor;
+                                valid_select <= BANK_W'(rd_set >> LOW_W);
+                                for (int w=0; w<WAYS; w++)
+                                        for (int b=0; b<BANKS; b++)
+                                                valid_bank[w][b] <= valid[flat(WAY_W'(w),
+                                                    SET_W'((b << LOW_W) | int'(rd_set[LOW_W-1:0])))];
+                        end
+                        if (!i_hold || tag_ram_clean || line_clear) begin
+                                dirty_desc <= descriptor;
+                                dirty_select <= BANK_W'(rd_set >> LOW_W);
+                                for (int w=0; w<WAYS; w++)
+                                        for (int b=0; b<BANKS; b++)
+                                                dirty_bank[w][b] <= dirty[flat(WAY_W'(w),
+                                                    SET_W'((b << LOW_W) | int'(rd_set[LOW_W-1:0])))];
+                        end
+                end
+        end
+        for (genvar w=0; w<WAYS; w++) begin : g_way
+                assign valid_q[w] =
+                    (valid_desc.read_set == valid_desc.write_set && valid_desc.write_way[w]) ||
+                    (valid_desc.read_set == valid_desc.pending_set && valid_desc.pending_way[w]) ||
+                    valid_bank[w][valid_select];
+                assign dirty_q[w] =
+                    dirty_desc.read_set == dirty_desc.write_set && dirty_desc.write_way[w] ? dirty_desc.write_dirty :
+                    dirty_desc.read_set == dirty_desc.pending_set && dirty_desc.pending_way[w] ? dirty_desc.pending_dirty :
+                    dirty_bank[w][dirty_select];
+        end
+        if (WAYS == 2) begin : g_lru
+                logic [BANKS-1:0] bank_q;
+                logic [BANK_W-1:0] bank_select;
+                logic [3:0][SET_W-1:0] update_set;
+                logic [3:0] update_en, update_val;
+                logic [SET_W-1:0] read_set;
+                always_ff @(posedge i_clk) begin
+                        if (i_reset) begin
+                                bank_q <= '0; bank_select <= '0; read_set <= '0;
+                                update_set <= '0; update_en <= '0; update_val <= '0;
+                        end else if (!i_hold || tag_ram_clear || line_clear) begin
+                                read_set <= rd_set;
+                                bank_select <= BANK_W'(rd_set >> LOW_W);
+                                for (int b=0; b<BANKS; b++)
+                                        bank_q[b] <= lru[SET_W'((b << LOW_W) | int'(rd_set[LOW_W-1:0]))];
+                                update_set <= {hit_upd_set, tag_ram_wr_addr, hit_pend_set, pend_addr};
+                                update_en <= {hit_upd_en, tag_ram_wr_en && (|wr_sel), hit_pend_en, pend_en && (|pend_sel)};
+                                update_val <= {~hit_upd_way, wr_sel[0], hit_pend_val, pend_sel[0]};
+                        end
+                end
+                assign lru_q = update_en[3] && read_set == update_set[3] ? update_val[3] :
+                               update_en[2] && read_set == update_set[2] ? update_val[2] :
+                               update_en[1] && read_set == update_set[1] ? update_val[1] :
+                               update_en[0] && read_set == update_set[0] ? update_val[0] : bank_q[bank_select];
+        end
+end
+
 // ----------------------------------------------------------------------------
 
 always_ff @ ( posedge i_clk )
@@ -596,7 +731,7 @@ always_ff @ ( posedge i_clk )
 begin
         if ( i_reset )
         begin
-                dirty_q               <= '0;
+                if (!SHORT_READ) dirty_q <= '0;
                 dirty_s2              <= '0;
                 dirty_s1              <= '0;
                 dirty                 <= '0;
@@ -607,10 +742,7 @@ begin
                 begin
                         for ( int w = 0; w < WAYS; w++ )
                         begin
-                                dirty_q[w]  <= SHORT_READ ?
-                                              (rd_set == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w] ? i_cache_tag_dirty :
-                                               rd_set == pend_addr && pend_en && pend_sel[w] ? pend_dirty :
-                                               dirty[flat(WAY_W'(w), rd_set)]) :
+                                if (!SHORT_READ) dirty_q[w] <=
                                                rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w]   ? i_cache_tag_dirty :
                                                rd_set_del2 == pend_addr       && pend_en       && pend_sel[w] ? pend_dirty        :
                                                dirty_s2[w];
@@ -639,7 +771,7 @@ always_ff @ ( posedge i_clk )
 begin
         if ( i_reset )
         begin
-                valid_q             <= '0;
+                if (!SHORT_READ) valid_q <= '0;
                 valid_s2            <= '0;
                 valid_s1            <= '0;
                 valid               <= '0;
@@ -650,10 +782,7 @@ begin
                 begin
                         for ( int w = 0; w < WAYS; w++ )
                         begin
-                                valid_q[w]  <= SHORT_READ ?
-                                              (rd_set == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w] ? 1'd1 :
-                                               rd_set == pend_addr && pend_en && pend_sel[w] ? 1'd1 :
-                                               valid[flat(WAY_W'(w), rd_set)]) :
+                                if (!SHORT_READ) valid_q[w] <=
                                                rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w]   ? 1'd1 :
                                                rd_set_del2 == pend_addr       && pend_en       && pend_sel[w] ? 1'd1 :
                                                valid_s2[w];

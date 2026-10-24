@@ -27,7 +27,9 @@
 module zap_ram_simple #(
         parameter logic [31:0] WIDTH = 32'd32,
         parameter logic [31:0] DEPTH = 32'd32,
-        parameter logic SHORT_READ = 1'b0
+        parameter logic SHORT_READ = 1'b0,
+        // Cache-level descriptor owns the short-port collision bypass.
+        parameter logic SHORT_RAW = 1'b0
 )
 (
         // Clock.
@@ -65,7 +67,7 @@ if (SHORT_READ) begin : g_short
         write_data <= i_wr_data;
         forward_write <= i_wr_en && i_wr_addr == i_rd_addr;
     end
-    assign o_rd_data = forward_write ? write_data : read_data;
+    assign o_rd_data = SHORT_RAW ? read_data : forward_write ? write_data : read_data;
     assign o_rd_data_pre = o_rd_data;
 end else begin : g_three_edge
 

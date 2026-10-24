@@ -1,0 +1,34 @@
+{
+  "ZAP": {
+    "runs": 267,
+    "qemu_agree": 69,
+    "qemu_differ": 0,
+    "all_cycle_instruction_pairs_equal_s8": true
+  },
+  "ARM9": {
+    "runs": 267,
+    "qemu_agree": 69,
+    "qemu_differ": 0,
+    "all_cycle_instruction_pairs_equal_s8": true
+  },
+  "ARM9-off": {
+    "runs": 267,
+    "qemu_agree": 69,
+    "qemu_differ": 0,
+    "all_cycle_instruction_pairs_equal_s8": true
+  },
+  "windows": {
+    "count": 85,
+    "modes": [
+      "on",
+      "off"
+    ],
+    "latencies": [
+      "0:0",
+      "0:3",
+      "2:9"
+    ],
+    "all_raw_intervals_equal_s8": true
+  },
+  "netlist_sha256": "65dfd0855b511573ba3093dffc764d01dd383c68dfb57e2f04f37301200b4607"
+}
