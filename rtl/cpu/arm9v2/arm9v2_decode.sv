@@ -269,6 +269,29 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
         return k;
     endfunction
 
+    // Destination selection does not need the full ISA kind. Compute the
+    // few exceptional destinations in parallel from each registered D1
+    // owner; select finished physical tags after the local predicates.
+    function automatic [5:0] destination0(input packet_t p);
+        logic valid_class,half_link,block,multiply,branch,spsr;
+        logic unused_packet;
+        logic [4:0] block_mode;
+        unused_packet=&{1'b0,p};
+        valid_class=!p.und&&(p.thumb||p.ins[31:28]!=4'hf)&&
+            !(p.thumb&&p.raw[15:11]==5'b11101);
+        half_link=p.thumb&&(p.raw[15:11]==5'b11110||p.raw[15:11]==5'b11111);
+        block=valid_class&&!half_link&&p.ins[27:25]==3'b100&&p.nregs!=0;
+        multiply=valid_class&&!half_link&&(p.ins&32'h0fc000f0)==32'h00000090;
+        branch=valid_class&&(half_link||p.ins[27:25]==3'b101);
+        spsr=valid_class&&!half_link&&p.ins[22]&&p.mode!=5'h10&&p.mode!=5'h1f&&
+            ((p.ins&32'h0fb0fff0)==32'h0120f000||(p.ins&32'h0fb0f000)==32'h0320f000);
+        block_mode=p.ins[22]&&!(p.ins[20]&&p.list[15])?5'h10:p.mode;
+        return (bank({1'b0,p.ins[15:12]},p.mode)&{6{!(block||multiply||branch||spsr)}})|
+            (bank({1'b0,p.first},block_mode)&{6{block}})|
+            (bank({1'b0,p.ins[19:16]},p.mode)&{6{multiply}})|
+            (bank(5'd14,p.mode)&{6{branch}})|(bank(5'd27,p.mode)&{6{spsr}});
+    endfunction
+
     assign raw_word = i_thumb && i_pc[1] ? {16'd0,i_word[31:16]} : i_word;
     // A suffix is kept as its own architectural record. Paired target
     // optimization uses the dedicated prefix register, not Thumb expansion.
@@ -304,6 +327,8 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     // classifier. Each queue slot is already a registered instruction.
     (* keep *) wire [3:0] kind0=classify(d1[0].ins,d1[0].raw[15:11],d1[0].thumb,d1[0].und,d1[0].mode==5'h10,d1[0].nregs==0);
     (* keep *) wire [3:0] kind1=classify(d1[1].ins,d1[1].raw[15:11],d1[1].thumb,d1[1].und,d1[1].mode==5'h10,d1[1].nregs==0);
+    (* keep *) wire [5:0] dest0=destination0(d1[0]);
+    (* keep *) wire [5:0] dest1=destination0(d1[1]);
     assign front=(d1[0]&{$bits(packet_t){head_select[0]}})|
                  (d1[1]&{$bits(packet_t){head_select[1]}});
     // Complete sums in parallel; instruction classification only selects a
@@ -347,7 +372,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
         decoded.tag[1]=bank({1'b0,front.ins[3:0]},front.mode);
         decoded.tag[2]=bank(5'd27,front.mode);
         decoded.tag[3]=bank({1'b0,front.ins[15:12]},front.mode);
-        decoded.dest[0]=decoded.tag[3];decoded.dest[1]=decoded.tag[0];
+        decoded.dest[0]=(dest0&{6{head_select[0]}})|(dest1&{6{head_select[1]}});decoded.dest[1]=decoded.tag[0];
         decoded.first=1;decoded.last=1;
         decoded.left=front.nregs;decoded.remaining=front.rest;decoded.transfer_reg=front.first;
         decoded.wb_offset=front.ins[23] ? $signed({1'b0,front.nregs,2'b0}) : -$signed({1'b0,front.nregs,2'b0});
@@ -366,7 +391,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
             K_MEM:begin decoded.used[0]=1;decoded.used[1]=front.ins[27:26]==1?front.ins[25]:!front.ins[22];decoded.used[3]=!front.ins[20];end
             K_BLOCK:begin
                 decoded.tag[3]=bank({1'b0,front.first},transfer_mode);
-                decoded.dest[0]=decoded.tag[3];decoded.used[0]=1;decoded.used[3]=!front.ins[20];
+                decoded.used[0]=1;decoded.used[3]=!front.ins[20];
                 decoded.last=front.nregs==1;
                 decoded.used[2]=front.ins[20]&&front.ins[22]&&decoded.last&&front.first==15;
             end
@@ -376,10 +401,8 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
                 decoded.tag[2]=bank({1'b0,front.ins[11:8]},front.mode);
                 decoded.used=4'b0110;
                 if(front.ins[21])decoded.used=decoded.kind==K_MUL?4'b1110:4'b1111;
-                if(decoded.kind==K_MUL)decoded.dest[0]=decoded.tag[0];
             end
-            K_BRANCH,K_BL_PREFIX:decoded.dest[0]=bank(5'd14,front.mode);
-            K_BL_SUFFIX:begin decoded.tag[0]=bank(5'd14,front.mode);decoded.used[0]=!front.paired;decoded.dest[0]=decoded.tag[0];end
+            K_BL_SUFFIX:begin decoded.tag[0]=bank(5'd14,front.mode);decoded.used[0]=!front.paired;end
             default:;
         endcase
         // Architectural destinations, not merely populated decode lanes.
@@ -396,7 +419,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
             K_SWP:decoded.writes[0]=1;
             K_CP:decoded.writes[0]=front.ins[20]&&front.ins[15:12]!=15;
             K_MSR:if(front.ins[22]&&front.mode!=5'h10&&front.mode!=5'h1f)begin
-                decoded.dest[0]=decoded.tag[2];decoded.writes[0]=1;
+                decoded.writes[0]=1;
             end
             default:;
         endcase

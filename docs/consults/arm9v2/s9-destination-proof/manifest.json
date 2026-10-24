@@ -1,0 +1,6 @@
+{
+  "tool": "Yosys SAT via sv2v",
+  "command": "yosys -p \"read_verilog destination-miter.v; prep -top destination_miter -flatten; sat -verify -prove ok 1 -show-inputs\"",
+  "result": "SUCCESS: independent destination predicates equal existing kind-based selection for all input combinations",
+  "source_sha256": "3c3d1d26769007784f59d951e4ed80be77719ebef272bbe4b5441468a30ac7c9"
+}

@@ -1952,6 +1952,28 @@ module arm9v2_decode (
 			classify = k;
 		end
 	endfunction
+	function automatic [5:0] destination0;
+		input reg [240:0] p;
+		reg valid_class;
+		reg half_link;
+		reg block;
+		reg multiply;
+		reg branch;
+		reg spsr;
+		reg unused_packet;
+		reg [4:0] block_mode;
+		begin
+			unused_packet = &{1'b0, p};
+			valid_class = (!p[16] && (p[18] || (p[208:205] != 4'hf))) && !(p[18] && (p[80:76] == 5'b11101));
+			half_link = p[18] && ((p[80:76] == 5'b11110) || (p[80:76] == 5'b11111));
+			block = ((valid_class && !half_link) && (p[204:202] == 3'b100)) && (p[27-:5] != 0);
+			multiply = (valid_class && !half_link) && ((p[208-:32] & 32'h0fc000f0) == 32'h00000090);
+			branch = valid_class && (half_link || (p[204:202] == 3'b101));
+			spsr = ((((valid_class && !half_link) && p[199]) && (p[32-:5] != 5'h10)) && (p[32-:5] != 5'h1f)) && (((p[208-:32] & 32'h0fb0fff0) == 32'h0120f000) || ((p[208-:32] & 32'h0fb0f000) == 32'h0320f000));
+			block_mode = (p[199] && !(p[197] && p[64]) ? 5'h10 : p[32-:5]);
+			destination0 = ((((bank({1'b0, p[192:189]}, p[32-:5]) & {6 {!(((block || multiply) || branch) || spsr)}}) | (bank({1'b0, p[22-:4]}, block_mode) & {6 {block}})) | (bank({1'b0, p[196:193]}, p[32-:5]) & {6 {multiply}})) | (bank(5'd14, p[32-:5]) & {6 {branch}})) | (bank(5'd27, p[32-:5]) & {6 {spsr}});
+		end
+	endfunction
 	assign raw_word = (i_thumb && i_pc[1] ? {16'd0, i_word[31:16]} : i_word);
 	zap_mode16_decoder #(.V4T(1'b1)) u_thumb(
 		.i_instruction(raw_word),
@@ -2008,6 +2030,8 @@ module arm9v2_decode (
 	end
 	(* keep *) wire [3:0] kind0 = classify(d1[0][208-:32], d1[0][80:76], d1[0][18], d1[0][16], d1[0][32-:5] == 5'h10, d1[0][27-:5] == 0);
 	(* keep *) wire [3:0] kind1 = classify(d1[1][208-:32], d1[1][80:76], d1[1][18], d1[1][16], d1[1][32-:5] == 5'h10, d1[1][27-:5] == 0);
+	(* keep *) wire [5:0] dest0 = destination0(d1[0]);
+	(* keep *) wire [5:0] dest1 = destination0(d1[1]);
 	assign front = (d1[0] & {241 {head_select[0]}}) | (d1[1] & {241 {head_select[1]}});
 	(* keep *) wire [31:0] arm_target = front[176-:32] + {{6 {front[200]}}, front[200:177], 2'b00};
 	(* keep *) wire [31:0] thumb_target = front[176-:32] + {{7 {front[200]}}, front[200:177], 1'b0};
@@ -2054,7 +2078,7 @@ module arm9v2_decode (
 		decoded[106+:6] = bank({1'b0, front[180:177]}, front[32-:5]);
 		decoded[112+:6] = bank(5'd27, front[32-:5]);
 		decoded[118+:6] = bank({1'b0, front[192:189]}, front[32-:5]);
-		decoded[80+:6] = decoded[118+:6];
+		decoded[80+:6] = (dest0 & {6 {head_select[0]}}) | (dest1 & {6 {head_select[1]}});
 		decoded[86+:6] = decoded[100+:6];
 		decoded[43] = 1;
 		decoded[42] = 1;
@@ -2093,7 +2117,6 @@ module arm9v2_decode (
 			end
 			K_BLOCK: begin
 				decoded[118+:6] = bank({1'b0, front[22-:4]}, transfer_mode);
-				decoded[80+:6] = decoded[118+:6];
 				decoded[96] = 1;
 				decoded[99] = !front[197];
 				decoded[42] = front[27-:5] == 1;
@@ -2106,14 +2129,10 @@ module arm9v2_decode (
 				decoded[99-:4] = 4'b0110;
 				if (front[198])
 					decoded[99-:4] = (decoded[131-:4] == K_MUL ? 4'b1110 : 4'b1111);
-				if (decoded[131-:4] == K_MUL)
-					decoded[80+:6] = decoded[100+:6];
 			end
-			K_BRANCH, K_BL_PREFIX: decoded[80+:6] = bank(5'd14, front[32-:5]);
 			K_BL_SUFFIX: begin
 				decoded[100+:6] = bank(5'd14, front[32-:5]);
 				decoded[96] = !front[13];
-				decoded[80+:6] = decoded[100+:6];
 			end
 			default:
 				;
@@ -2128,10 +2147,8 @@ module arm9v2_decode (
 			K_SWP: decoded[78] = 1;
 			K_CP: decoded[78] = front[197] && (front[192:189] != 15);
 			K_MSR:
-				if ((front[199] && (front[32-:5] != 5'h10)) && (front[32-:5] != 5'h1f)) begin
-					decoded[80+:6] = decoded[112+:6];
+				if ((front[199] && (front[32-:5] != 5'h10)) && (front[32-:5] != 5'h1f))
 					decoded[78] = 1;
-				end
 			default:
 				;
 		endcase

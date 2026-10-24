@@ -1,0 +1,531 @@
+
+-- Running command `read_verilog sim/cpu/build/arm9v2-s9/destination-miter.v; prep -top destination_miter -flatten; sat -verify -prove ok 1 -show-inputs' --
+
+1. Executing Verilog-2005 frontend: sim/cpu/build/arm9v2-s9/destination-miter.v
+Parsing Verilog input from `sim/cpu/build/arm9v2-s9/destination-miter.v' to AST representation.
+Generating RTLIL representation for module `\destination_miter'.
+Successfully finished Verilog frontend.
+
+2. Executing PREP pass.
+
+2.1. Executing HIERARCHY pass (managing design hierarchy).
+
+2.1.1. Analyzing design hierarchy..
+Top module:  \destination_miter
+
+2.1.2. Analyzing design hierarchy..
+Top module:  \destination_miter
+Removed 0 unused modules.
+
+2.2. Executing PROC pass (convert processes to netlists).
+
+2.2.1. Executing PROC_CLEAN pass (remove empty switches from decision trees).
+Found and cleaned up 1 empty switch in `\destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:161$214'.
+Found and cleaned up 4 empty switches in `\destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:136$14'.
+Cleaned up 5 empty switches.
+
+2.2.2. Executing PROC_RMDEAD pass (remove dead branches from decision trees).
+Marked 20 switch rules as full_case in process $proc$sim/cpu/build/arm9v2-s9/destination-miter.v:161$214 in module destination_miter.
+Marked 36 switch rules as full_case in process $proc$sim/cpu/build/arm9v2-s9/destination-miter.v:136$14 in module destination_miter.
+Removed a total of 0 dead cases.
+
+2.2.3. Executing PROC_PRUNE pass (remove redundant assignments in processes).
+Removed 0 redundant assignments.
+Promoted 67 assignments to connections.
+
+2.2.4. Executing PROC_INIT pass (extract init attributes).
+
+2.2.5. Executing PROC_ARST pass (detect async resets in processes).
+
+2.2.6. Executing PROC_ROM pass (convert switches to ROMs).
+Converted 0 switches.
+<suppressed ~56 debug messages>
+
+2.2.7. Executing PROC_MUX pass (convert decision trees to multiplexers).
+Creating decoders for process `\destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:162$366'.
+Creating decoders for process `\destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:161$214'.
+     1/21: $2\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$13.result[5:0]$352
+     2/21: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$13.result[5:0]$351
+     3/21: $4\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$12.result[5:0]$350
+     4/21: $3\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$12.result[5:0]$349
+     5/21: $2\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$12.result[5:0]$348
+     6/21: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$12.result[5:0]$345
+     7/21: $5\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$11.result[5:0]$340
+     8/21: $4\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$11.result[5:0]$339
+     9/21: $3\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$11.result[5:0]$334
+    10/21: $2\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$11.result[5:0]$328
+    11/21: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$11.result[5:0]$327
+    12/21: $5\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$10.result[5:0]$321
+    13/21: $4\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$10.result[5:0]$320
+    14/21: $3\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$10.result[5:0]$315
+    15/21: $2\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$10.result[5:0]$309
+    16/21: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$10.result[5:0]$308
+    17/21: $5\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$9.result[5:0]$302
+    18/21: $4\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$9.result[5:0]$301
+    19/21: $3\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$9.result[5:0]$296
+    20/21: $2\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$9.result[5:0]$290
+    21/21: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:130$9.result[5:0]$289
+Creating decoders for process `\destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:136$14'.
+     1/56: $4\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:156$6.result[5:0]$212
+     2/56: $3\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:156$6.result[5:0]$211
+     3/56: $2\reference[5:0]
+     4/56: $2\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:156$6.$result[5:0]$208
+     5/56: $2\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:156$6.result[5:0]$210
+     6/56: $2\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:156$6.mode[4:0]$209
+     7/56: $5\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:153$5.result[5:0]$203
+     8/56: $4\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:153$5.result[5:0]$202
+     9/56: $3\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:153$5.result[5:0]$201
+    10/56: $2\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:153$5.result[5:0]$198
+    11/56: $6\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:152$4.result[5:0]$193
+    12/56: $5\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:152$4.result[5:0]$192
+    13/56: $4\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:152$4.result[5:0]$187
+    14/56: $3\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:152$4.result[5:0]$181
+    15/56: $2\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:152$4.result[5:0]$180
+    16/56: $6\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:151$3.result[5:0]$174
+    17/56: $5\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:151$3.result[5:0]$173
+    18/56: $4\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:151$3.result[5:0]$168
+    19/56: $3\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:151$3.result[5:0]$162
+    20/56: $2\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:151$3.result[5:0]$161
+    21/56: $1\reference[5:0]
+    22/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:151$3.$result[5:0]$142
+    23/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:151$3.result[5:0]$145
+    24/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:151$3.mode[4:0]$144
+    25/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:151$3.r[4:0]$143
+    26/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:156$6.result[5:0]$155
+    27/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:156$6.mode[4:0]$154
+    28/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:156$6.$result[5:0]$153
+    29/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:153$5.result[5:0]$152
+    30/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:153$5.mode[4:0]$151
+    31/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:153$5.$result[5:0]$150
+    32/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:152$4.result[5:0]$149
+    33/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:152$4.mode[4:0]$148
+    34/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:152$4.r[4:0]$147
+    35/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:152$4.$result[5:0]$146
+    36/56: $5\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:149$2.result[5:0]$137
+    37/56: $4\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:149$2.result[5:0]$136
+    38/56: $3\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:149$2.result[5:0]$131
+    39/56: $2\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:149$2.result[5:0]$125
+    40/56: $1\bank$func$sim/cpu/build/arm9v2-s9/destination-miter.v:149$2.result[5:0]$124
+    41/56: $16\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$122
+    42/56: $15\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$104
+    43/56: $14\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$101
+    44/56: $13\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$98
+    45/56: $12\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$86
+    46/56: $11\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$79
+    47/56: $10\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$74
+    48/56: $9\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$68
+    49/56: $8\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$65
+    50/56: $7\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$62
+    51/56: $6\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$59
+    52/56: $5\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$56
+    53/56: $4\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$53
+    54/56: $3\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$48
+    55/56: $2\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$46
+    56/56: $1\classify$func$sim/cpu/build/arm9v2-s9/destination-miter.v:148$1.k[3:0]$44
+
+2.2.8. Executing PROC_DLATCH pass (convert process syncs to latches).
+No latch inferred for signal `\destination_miter.\_sv2v_0' from process `\destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:162$366'.
+No latch inferred for signal `\destination_miter.\destination0$func$sim/cpu/build/arm9v2-s9/destination-miter.v:161$7.$result' from process `\destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:161$214'.
+No latch inferred for signal `\destination_miter.\p' from process `\destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:136$14'.
+No latch inferred for signal `\destination_miter.\reference' from process `\destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:136$14'.
+No latch inferred for signal `\destination_miter.\kind' from process `\destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:136$14'.
+
+2.2.9. Executing PROC_DFF pass (convert process syncs to FFs).
+
+2.2.10. Executing PROC_MEMWR pass (convert process memory writes to cells).
+
+2.2.11. Executing PROC_CLEAN pass (remove empty switches from decision trees).
+Removing empty process `destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:162$366'.
+Found and cleaned up 20 empty switches in `\destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:161$214'.
+Removing empty process `destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:161$214'.
+Found and cleaned up 36 empty switches in `\destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:136$14'.
+Removing empty process `destination_miter.$proc$sim/cpu/build/arm9v2-s9/destination-miter.v:136$14'.
+Cleaned up 56 empty switches.
+
+2.2.12. Executing OPT_EXPR pass (perform const folding).
+Optimizing module destination_miter.
+<suppressed ~57 debug messages>
+
+2.3. Executing CHECK pass (checking for obvious problems).
+Checking module destination_miter...
+Found and reported 0 problems.
+
+2.4. Executing FLATTEN pass (flatten design).
+
+2.5. Executing FUTURE pass.
+
+2.6. Executing OPT_EXPR pass (perform const folding).
+Optimizing module destination_miter.
+
+2.7. Executing CHECK pass (checking for obvious problems).
+Checking module destination_miter...
+Found and reported 0 problems.
+
+2.8. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \destination_miter..
+Removed 84 unused cells and 447 unused wires.
+<suppressed ~85 debug messages>
+
+2.9. Executing OPT pass (performing simple optimizations).
+
+2.9.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module destination_miter.
+
+2.9.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\destination_miter'.
+Computing hashes of 436 cells of `\destination_miter'.
+Finding duplicate cells in `\destination_miter'.
+Computing hashes of 336 cells of `\destination_miter'.
+Finding duplicate cells in `\destination_miter'.
+Computing hashes of 321 cells of `\destination_miter'.
+Finding duplicate cells in `\destination_miter'.
+Computing hashes of 318 cells of `\destination_miter'.
+Finding duplicate cells in `\destination_miter'.
+<suppressed ~354 debug messages>
+Removed a total of 118 cells.
+
+2.9.3. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \destination_miter..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+    dead port 1/2 on $mux $procmux$911.
+    dead port 1/2 on $mux $procmux$914.
+    dead port 1/2 on $mux $procmux$917.
+    dead port 1/2 on $mux $procmux$920.
+    dead port 1/2 on $mux $procmux$923.
+    dead port 1/2 on $mux $procmux$926.
+    dead port 2/2 on $mux $procmux$547.
+    dead port 1/2 on $mux $procmux$989.
+    dead port 2/2 on $mux $procmux$541.
+    dead port 2/2 on $mux $procmux$539.
+    dead port 2/2 on $mux $procmux$535.
+    dead port 1/2 on $mux $procmux$992.
+    dead port 2/2 on $mux $procmux$533.
+    dead port 1/2 on $mux $procmux$866.
+    dead port 1/2 on $mux $procmux$869.
+    dead port 1/2 on $mux $procmux$872.
+    dead port 1/2 on $mux $procmux$1076.
+    dead port 1/2 on $mux $procmux$1079.
+    dead port 1/2 on $mux $procmux$929.
+    dead port 1/2 on $mux $procmux$932.
+    dead port 1/2 on $mux $procmux$935.
+    dead port 1/2 on $mux $procmux$941.
+    dead port 1/2 on $mux $procmux$944.
+    dead port 1/2 on $mux $procmux$1082.
+    dead port 1/2 on $mux $procmux$1085.
+    dead port 1/2 on $mux $procmux$500.
+    dead port 1/2 on $mux $procmux$1088.
+    dead port 1/2 on $mux $procmux$491.
+    dead port 2/2 on $mux $procmux$488.
+    dead port 1/2 on $mux $procmux$875.
+    dead port 1/2 on $mux $procmux$878.
+    dead port 2/2 on $mux $procmux$712.
+    dead port 1/2 on $mux $procmux$1034.
+    dead port 1/2 on $mux $procmux$1058.
+    dead port 1/2 on $mux $procmux$1061.
+    dead port 1/2 on $mux $procmux$947.
+    dead port 1/2 on $mux $procmux$950.
+    dead port 1/2 on $mux $procmux$953.
+    dead port 1/2 on $mux $procmux$956.
+    dead port 1/2 on $mux $procmux$959.
+    dead port 1/2 on $mux $procmux$962.
+    dead port 1/2 on $mux $procmux$1064.
+    dead port 1/2 on $mux $procmux$1067.
+    dead port 1/2 on $mux $procmux$457.
+    dead port 1/2 on $mux $procmux$1070.
+    dead port 1/2 on $mux $procmux$448.
+    dead port 2/2 on $mux $procmux$445.
+    dead port 1/2 on $mux $procmux$1040.
+    dead port 1/2 on $mux $procmux$1043.
+    dead port 1/2 on $mux $procmux$965.
+    dead port 1/2 on $mux $procmux$968.
+    dead port 1/2 on $mux $procmux$974.
+    dead port 1/2 on $mux $procmux$977.
+    dead port 1/2 on $mux $procmux$980.
+    dead port 1/2 on $mux $procmux$1046.
+    dead port 1/2 on $mux $procmux$1049.
+    dead port 1/2 on $mux $procmux$414.
+    dead port 1/2 on $mux $procmux$405.
+    dead port 2/2 on $mux $procmux$402.
+    dead port 1/2 on $mux $procmux$995.
+    dead port 2/2 on $mux $procmux$700.
+    dead port 1/2 on $mux $procmux$387.
+    dead port 1/2 on $mux $procmux$383.
+    dead port 1/2 on $mux $procmux$998.
+    dead port 1/2 on $mux $procmux$695.
+    dead port 2/2 on $mux $procmux$685.
+    dead port 1/2 on $mux $procmux$829.
+    dead port 1/2 on $mux $procmux$680.
+    dead port 2/2 on $mux $procmux$677.
+    dead port 1/2 on $mux $procmux$1037.
+    dead port 1/2 on $mux $procmux$1055.
+    dead port 1/2 on $mux $procmux$1097.
+    dead port 1/2 on $mux $procmux$1100.
+    dead port 1/2 on $mux $procmux$1094.
+    dead port 2/2 on $mux $procmux$664.
+    dead port 1/2 on $mux $procmux$983.
+    dead port 1/2 on $mux $procmux$1031.
+    dead port 1/2 on $mux $procmux$1004.
+    dead port 1/2 on $mux $procmux$1103.
+    dead port 1/2 on $mux $procmux$1007.
+    dead port 1/2 on $mux $procmux$881.
+    dead port 1/2 on $mux $procmux$1010.
+    dead port 1/2 on $mux $procmux$884.
+    dead port 1/2 on $mux $procmux$887.
+    dead port 1/2 on $mux $procmux$583.
+    dead port 1/2 on $mux $procmux$890.
+    dead port 1/2 on $mux $procmux$893.
+    dead port 1/2 on $mux $procmux$896.
+    dead port 1/2 on $mux $procmux$899.
+    dead port 2/2 on $mux $procmux$578.
+    dead port 2/2 on $mux $procmux$641.
+    dead port 1/2 on $mux $procmux$1013.
+    dead port 2/2 on $mux $procmux$630.
+    dead port 1/2 on $mux $procmux$1016.
+    dead port 1/2 on $mux $procmux$625.
+    dead port 2/2 on $mux $procmux$616.
+    dead port 1/2 on $mux $procmux$1109.
+    dead port 1/2 on $mux $procmux$905.
+    dead port 1/2 on $mux $procmux$1019.
+    dead port 1/2 on $mux $procmux$611.
+    dead port 2/2 on $mux $procmux$608.
+    dead port 1/2 on $mux $procmux$908.
+    dead port 2/2 on $mux $procmux$596.
+    dead port 1/2 on $mux $procmux$576.
+    dead port 2/2 on $mux $procmux$817.
+    dead port 1/2 on $mux $procmux$1112.
+    dead port 2/2 on $mux $procmux$737.
+    dead port 1/2 on $mux $procmux$1025.
+    dead port 1/2 on $mux $procmux$1022.
+    dead port 2/2 on $mux $procmux$592.
+    dead port 1/2 on $mux $procmux$820.
+    dead port 1/2 on $mux $procmux$1115.
+    dead port 1/2 on $mux $procmux$1121.
+    dead port 1/2 on $mux $procmux$1124.
+    dead port 1/2 on $mux $procmux$1130.
+    dead port 2/2 on $mux $procmux$585.
+    dead port 1/2 on $mux $procmux$986.
+Removed 117 multiplexer ports.
+<suppressed ~185 debug messages>
+
+2.9.4. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \destination_miter.
+Performed a total of 0 changes.
+
+2.9.5. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\destination_miter'.
+Computing hashes of 201 cells of `\destination_miter'.
+Finding duplicate cells in `\destination_miter'.
+Computing hashes of 196 cells of `\destination_miter'.
+Finding duplicate cells in `\destination_miter'.
+Computing hashes of 188 cells of `\destination_miter'.
+Finding duplicate cells in `\destination_miter'.
+Computing hashes of 184 cells of `\destination_miter'.
+Finding duplicate cells in `\destination_miter'.
+Computing hashes of 183 cells of `\destination_miter'.
+Finding duplicate cells in `\destination_miter'.
+Computing hashes of 182 cells of `\destination_miter'.
+Finding duplicate cells in `\destination_miter'.
+<suppressed ~57 debug messages>
+Removed a total of 19 cells.
+
+2.9.6. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \destination_miter..
+Removed 0 unused cells and 246 unused wires.
+<suppressed ~1 debug messages>
+
+2.9.7. Executing OPT_EXPR pass (perform const folding).
+Optimizing module destination_miter.
+
+2.9.8. Rerunning OPT passes. (Maybe there is more to do..)
+
+2.9.9. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \destination_miter..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~41 debug messages>
+
+2.9.10. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \destination_miter.
+Performed a total of 0 changes.
+
+2.9.11. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\destination_miter'.
+Computing hashes of 182 cells of `\destination_miter'.
+Finding duplicate cells in `\destination_miter'.
+Removed a total of 0 cells.
+
+2.9.12. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \destination_miter..
+
+2.9.13. Executing OPT_EXPR pass (perform const folding).
+Optimizing module destination_miter.
+
+2.9.14. Finished fast OPT passes. (There is nothing left to do.)
+
+2.10. Executing WREDUCE pass (reducing word size of cells).
+Removed top 1 bits (of 2) from port B of cell destination_miter.$eq$sim/cpu/build/arm9v2-s9/destination-miter.v:82$49 ($eq).
+Removed top 4 bits (of 9) from port B of cell destination_miter.$eq$sim/cpu/build/arm9v2-s9/destination-miter.v:86$58 ($eq).
+Removed top 3 bits (of 15) from port B of cell destination_miter.$eq$sim/cpu/build/arm9v2-s9/destination-miter.v:88$61 ($eq).
+Removed top 3 bits (of 24) from port B of cell destination_miter.$eq$sim/cpu/build/arm9v2-s9/destination-miter.v:90$64 ($eq).
+Removed top 3 bits (of 23) from port B of cell destination_miter.$eq$sim/cpu/build/arm9v2-s9/destination-miter.v:92$67 ($eq).
+Removed top 1 bits (of 4) from port B of cell destination_miter.$eq$sim/cpu/build/arm9v2-s9/destination-miter.v:106$109 ($eq).
+Removed top 1 bits (of 4) from port B of cell destination_miter.$eq$sim/cpu/build/arm9v2-s9/destination-miter.v:106$119 ($eq).
+Removed top 6 bits (of 10) from port B of cell destination_miter.$eq$sim/cpu/build/arm9v2-s9/destination-miter.v:126$266 ($eq).
+Removed top 3 bits (of 19) from port B of cell destination_miter.$eq$sim/cpu/build/arm9v2-s9/destination-miter.v:128$279 ($eq).
+Removed top 2 bits (of 11) from port B of cell destination_miter.$eq$sim/cpu/build/arm9v2-s9/destination-miter.v:128$281 ($eq).
+Removed top 1 bits (of 5) from port A of cell destination_miter.$ge$sim/cpu/build/arm9v2-s9/destination-miter.v:52$291 ($ge).
+Removed top 28 bits (of 32) from port B of cell destination_miter.$ge$sim/cpu/build/arm9v2-s9/destination-miter.v:52$291 ($ge).
+Removed top 1 bits (of 5) from port A of cell destination_miter.$le$sim/cpu/build/arm9v2-s9/destination-miter.v:52$292 ($le).
+Removed top 28 bits (of 32) from port B of cell destination_miter.$le$sim/cpu/build/arm9v2-s9/destination-miter.v:52$292 ($le).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:53$297 ($add).
+Removed top 2 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:53$297 ($add).
+Removed top 1 bits (of 6) from port Y of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:53$297 ($add).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:56$303 ($add).
+Removed top 2 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:56$303 ($add).
+Removed top 1 bits (of 6) from port Y of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:56$303 ($add).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:57$304 ($add).
+Removed top 2 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:57$304 ($add).
+Removed top 1 bits (of 6) from port Y of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:57$304 ($add).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:58$305 ($add).
+Removed top 1 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:58$305 ($add).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:59$306 ($add).
+Removed top 1 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:59$306 ($add).
+Removed top 1 bits (of 5) from port A of cell destination_miter.$ge$sim/cpu/build/arm9v2-s9/destination-miter.v:52$310 ($ge).
+Removed top 28 bits (of 32) from port B of cell destination_miter.$ge$sim/cpu/build/arm9v2-s9/destination-miter.v:52$310 ($ge).
+Removed top 1 bits (of 5) from port A of cell destination_miter.$le$sim/cpu/build/arm9v2-s9/destination-miter.v:52$311 ($le).
+Removed top 28 bits (of 32) from port B of cell destination_miter.$le$sim/cpu/build/arm9v2-s9/destination-miter.v:52$311 ($le).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:53$316 ($add).
+Removed top 2 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:53$316 ($add).
+Removed top 1 bits (of 6) from port Y of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:53$316 ($add).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:56$322 ($add).
+Removed top 2 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:56$322 ($add).
+Removed top 1 bits (of 6) from port Y of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:56$322 ($add).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:57$323 ($add).
+Removed top 2 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:57$323 ($add).
+Removed top 1 bits (of 6) from port Y of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:57$323 ($add).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:58$324 ($add).
+Removed top 1 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:58$324 ($add).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:59$325 ($add).
+Removed top 1 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:59$325 ($add).
+Removed top 1 bits (of 5) from port A of cell destination_miter.$ge$sim/cpu/build/arm9v2-s9/destination-miter.v:52$329 ($ge).
+Removed top 28 bits (of 32) from port B of cell destination_miter.$ge$sim/cpu/build/arm9v2-s9/destination-miter.v:52$329 ($ge).
+Removed top 1 bits (of 5) from port A of cell destination_miter.$le$sim/cpu/build/arm9v2-s9/destination-miter.v:52$330 ($le).
+Removed top 28 bits (of 32) from port B of cell destination_miter.$le$sim/cpu/build/arm9v2-s9/destination-miter.v:52$330 ($le).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:53$335 ($add).
+Removed top 2 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:53$335 ($add).
+Removed top 1 bits (of 6) from port Y of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:53$335 ($add).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:56$341 ($add).
+Removed top 2 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:56$341 ($add).
+Removed top 1 bits (of 6) from port Y of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:56$341 ($add).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:57$342 ($add).
+Removed top 2 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:57$342 ($add).
+Removed top 1 bits (of 6) from port Y of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:57$342 ($add).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:58$343 ($add).
+Removed top 1 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:58$343 ($add).
+Removed top 2 bits (of 6) from port A of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:59$344 ($add).
+Removed top 1 bits (of 6) from port B of cell destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:59$344 ($add).
+Removed top 2 bits (of 4) from port B of cell destination_miter.$procmux$741_CMP0 ($eq).
+Removed top 2 bits (of 4) from port B of cell destination_miter.$procmux$742_CMP0 ($eq).
+Removed top 1 bits (of 4) from port B of cell destination_miter.$procmux$744_CMP0 ($eq).
+Removed top 1 bits (of 6) from wire destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:53$169_Y.
+Removed top 1 bits (of 6) from wire destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:57$139_Y.
+Removed top 1 bits (of 6) from wire destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:56$138_Y.
+Removed top 1 bits (of 6) from wire destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:53$132_Y.
+Removed top 1 bits (of 6) from wire destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:57$195_Y.
+Removed top 1 bits (of 6) from wire destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:56$194_Y.
+Removed top 1 bits (of 6) from wire destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:53$188_Y.
+Removed top 1 bits (of 6) from wire destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:57$176_Y.
+Removed top 1 bits (of 6) from wire destination_miter.$add$sim/cpu/build/arm9v2-s9/destination-miter.v:56$175_Y.
+Removed top 32 bits (of 241) from wire destination_miter.p.
+
+2.11. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \destination_miter..
+Removed 0 unused cells and 10 unused wires.
+<suppressed ~1 debug messages>
+
+2.12. Executing MEMORY_COLLECT pass (generating $mem cells).
+
+2.13. Executing OPT pass (performing simple optimizations).
+
+2.13.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module destination_miter.
+
+2.13.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\destination_miter'.
+Computing hashes of 182 cells of `\destination_miter'.
+Finding duplicate cells in `\destination_miter'.
+Removed a total of 0 cells.
+
+2.13.3. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \destination_miter..
+
+2.13.4. Finished fast OPT passes.
+
+2.14. Executing SORT pass.
+
+2.15. Printing statistics.
+
+=== destination_miter ===
+
+        +----------Local Count, excluding submodules.
+        | 
+      232 wires
+     1120 wire bits
+       56 public wires
+      719 public wire bits
+        9 ports
+       55 port bits
+      182 cells
+       15   $add
+        5   $and
+       44   $eq
+        3   $ge
+        3   $le
+       42   $logic_and
+       14   $logic_not
+       14   $logic_or
+       26   $mux
+        3   $ne
+        4   $or
+        6   $pmux
+        2   $reduce_bool
+        1   $reduce_or
+
+2.16. Executing CHECK pass (checking for obvious problems).
+Checking module destination_miter...
+Found and reported 0 problems.
+
+3. Executing SAT pass (solving SAT problems in the circuit).
+Using SAT solver `minisat`.
+
+Setting up SAT problem:
+Final constraint equation: { } = { }
+Imported 182 cells to SAT database.
+Import proof-constraint: \ok = 1'1
+Final proof equation: \ok = 1'1
+Import show expression: \first
+Import show expression: \ins
+Import show expression: \list_pc
+Import show expression: \mode
+Import show expression: \nregs
+Import show expression: \raw_class
+Import show expression: \thumb
+Import show expression: \und
+
+Solving problem with 2966 variables and 8087 clauses..
+SAT proof finished - no model found: SUCCESS!
+
+                  /$$$$$$      /$$$$$$$$     /$$$$$$$    
+                 /$$__  $$    | $$_____/    | $$__  $$   
+                | $$  \ $$    | $$          | $$  \ $$   
+                | $$  | $$    | $$$$$       | $$  | $$   
+                | $$  | $$    | $$__/       | $$  | $$   
+                | $$/$$ $$    | $$          | $$  | $$   
+                |  $$$$$$/ /$$| $$$$$$$$ /$$| $$$$$$$//$$
+                 \____ $$$|__/|________/|__/|_______/|__/
+                       \__/                              
+
