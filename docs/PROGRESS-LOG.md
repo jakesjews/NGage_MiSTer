@@ -4682,3 +4682,19 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   stripped seed 9 (ie-s9) are building on the server, the 16 KB
   D-cache stripped build on the Mac. The memory thread is idle until
   those come in.
+- **The 16 KB D-cache on the stripped tree: too dear as the tag RAM
+  stands.** Master (8e965db) with NGAGE_DCACHE_16K at seed 9 on the
+  Mac: **-1.472 ns**, 39,580 ALMs (94 %), 64 % of the block memory,
+  against -0.734 and 35,839 ALMs (86 %) without it; the worst path
+  starts in the D-cache tag RAM's address counter. Doubling the D-cache
+  doubles the tag RAM's valid, dirty and LRU arrays, which ZAP keeps in
+  flip-flops with wide read muxes and three-stage write forwarding
+  (Antigravity's consult counted about 4,100 such flops for both
+  caches; the Pocket core keeps that metadata in M10K and saved about
+  4,900 ALMs doing so). So the switch stays off, and the memory
+  thread's next task is the tag RAM itself: the metadata into block
+  RAM, the unused short-read forwarding stages trimmed, whole-cache
+  invalidation kept, cycle-identical; it helps both cores' timing and
+  area (the tag RAM led the worst paths of the write-buffer and the
+  16 KB builds, and V2's integrated fit carries the same caches), and
+  makes the 16 KB D-cache affordable afterwards.
