@@ -1,0 +1,35 @@
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in TimeQuest to see clock uncertainties.
+Info (332146): Worst-case setup slack is 3.667
+    Info (332119):     Slack       End Point TNS Clock
+    Info (332119): ========= =================== =====================
+    Info (332119):     3.667               0.000 clk
+Info (332146): Worst-case hold slack is 0.130
+    Info (332119):     Slack       End Point TNS Clock
+    Info (332119): ========= =================== =====================
+    Info (332119):     0.130               0.000 clk
+Info (332140): No Recovery paths to report
+Info (332140): No Removal paths to report
+Info (332146): Worst-case minimum pulse width slack is 3.588
+    Info (332119):     Slack       End Point TNS Clock
+    Info (332119): ========= =================== =====================
+    Info (332119):     3.588               0.000 clk
+Info (332114): Report Metastability: Found 2 synchronizer chains.
+    Info (332114): The design MTBF is not calculated because there are no specified synchronizers in the design.
+    Info (332114): Number of Synchronizer Chains Found: 2
+    Info (332114): Shortest Synchronizer Chain: 3 Registers
+    Info (332114): Fraction of Chains for which MTBFs Could Not be Calculated: 1.000
+    Info (332114): Worst Case Available Settling Time: 22.859 ns
+Info (332101): Design is fully constrained for setup requirements
+Info (332101): Design is fully constrained for hold requirements
+Info: Quartus Prime TimeQuest Timing Analyzer was successful. 0 errors, 2 warnings
+    Info: Peak virtual memory: 2041 megabytes
+    Info: Processing ended: Sat Oct 24 08:11:27 2026
+    Info: Elapsed time: 00:00:26
+    Info: Total CPU time (on all processors): 00:02:21
+Info (293000): Quartus Prime Full Compilation was successful. 0 errors, 72 warnings
+Info (23030): Evaluation of Tcl script /opt/intelFPGA_lite/quartus/common/tcl/internal/qsh_flow.tcl was successful
+Info: Quartus Prime Shell was successful. 0 errors, 72 warnings
+    Info: Peak virtual memory: 822 megabytes
+    Info: Processing ended: Sat Oct 24 08:11:27 2026
+    Info: Elapsed time: 00:09:15
+    Info: Total CPU time (on all processors): 00:36:39

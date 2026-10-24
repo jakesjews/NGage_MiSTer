@@ -1,0 +1,221 @@
+{
+  "S6": {
+    "remote": "ngage-cx-arm9v2-s6-qualifiers-seed2",
+    "optimization_event_counts": {
+      "Deleted / Physical Synthesis": 1282,
+      "Retimed Register / Physical Synthesis": 3130,
+      "Modified / Physical Synthesis": 634,
+      "Duplicated / Router Logic Cell Insertion and Logic Duplication": 97
+    },
+    "note": "Optimization events, not final register counts. One node may be rewritten repeatedly.",
+    "examples": [
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~21",
+        "action": "Deleted"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~21_Duplicate_44",
+        "action": "Retimed Register"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|mem[0]",
+        "action": "Deleted"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|mem[0]_OTERM2967",
+        "action": "Retimed Register"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|mem[0]_OTERM8250",
+        "action": "Retimed Register"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|mem[1]",
+        "action": "Deleted"
+      }
+    ]
+  },
+  "S8": {
+    "remote": "ngage-cpu-arm9v2-s8-seed2",
+    "optimization_event_counts": {
+      "Deleted / Physical Synthesis": 1320,
+      "Retimed Register / Physical Synthesis": 6669,
+      "Modified / Physical Synthesis": 186,
+      "Created / Physical Synthesis": 9,
+      "Duplicated / Router Logic Cell Insertion and Logic Duplication": 42
+    },
+    "note": "Optimization events, not final register counts. One node may be rewritten repeatedly.",
+    "examples": [
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~2",
+        "action": "Deleted"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~2_Duplicate_73",
+        "action": "Retimed Register"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~3",
+        "action": "Deleted"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~3_Duplicate_72",
+        "action": "Retimed Register"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~4",
+        "action": "Deleted"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~4_Duplicate_68",
+        "action": "Retimed Register"
+      }
+    ]
+  },
+  "cut1": {
+    "remote": "ngage-cpu-arm9v2-s9-cut1-seed2",
+    "optimization_event_counts": {
+      "Modified / Physical Synthesis": 377,
+      "Created / Physical Synthesis": 14,
+      "Deleted / Physical Synthesis": 1328,
+      "Retimed Register / Physical Synthesis": 8121,
+      "Duplicated / Router Logic Cell Insertion and Logic Duplication": 35
+    },
+    "note": "Optimization events, not final register counts. One node may be rewritten repeatedly.",
+    "examples": [
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~2",
+        "action": "Modified"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~2_RESYN29821_BDD29822",
+        "action": "Created"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~4",
+        "action": "Deleted"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~5",
+        "action": "Deleted"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~6",
+        "action": "Deleted"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~7",
+        "action": "Deleted"
+      }
+    ]
+  },
+  "cut2": {
+    "remote": "ngage-cpu-arm9v2-s9-cut2-seed2",
+    "optimization_event_counts": {
+      "Deleted / Physical Synthesis": 1319,
+      "Modified / Physical Synthesis": 1407,
+      "Created / Physical Synthesis": 42,
+      "Retimed Register / Physical Synthesis": 7718,
+      "Duplicated / Router Logic Cell Insertion and Logic Duplication": 49
+    },
+    "note": "Optimization events, not final register counts. One node may be rewritten repeatedly.",
+    "examples": [
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~0",
+        "action": "Deleted"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~1",
+        "action": "Modified"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~1_RESYN31762_BDD31763",
+        "action": "Created"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~3",
+        "action": "Modified"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~13",
+        "action": "Modified"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~21",
+        "action": "Modified"
+      }
+    ]
+  },
+  "cut3_rejected": {
+    "remote": "ngage-cpu-arm9v2-s9-cut3-seed2",
+    "optimization_event_counts": {
+      "Modified / Physical Synthesis": 480,
+      "Deleted / Physical Synthesis": 1292,
+      "Created / Physical Synthesis": 8,
+      "Retimed Register / Physical Synthesis": 8096,
+      "Duplicated / Router Logic Cell Insertion and Logic Duplication": 45
+    },
+    "note": "Optimization events, not final register counts. One node may be rewritten repeatedly.",
+    "examples": [
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~1",
+        "action": "Modified"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~2",
+        "action": "Modified"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~3",
+        "action": "Modified"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~4",
+        "action": "Modified"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~5",
+        "action": "Modified"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~8",
+        "action": "Modified"
+      }
+    ]
+  },
+  "cut4": {
+    "remote": "ngage-cpu-arm9v2-s9-cut4-seed2",
+    "optimization_event_counts": {
+      "Modified / Physical Synthesis": 274,
+      "Created / Physical Synthesis": 117,
+      "Deleted / Physical Synthesis": 37
+    },
+    "note": "Optimization events, not final register counts. One node may be rewritten repeatedly.",
+    "examples": [
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~3",
+        "action": "Modified"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~21",
+        "action": "Modified"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~21_RESYN6272_BDD6273",
+        "action": "Created"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|always0~30",
+        "action": "Modified"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|mem[4]~2",
+        "action": "Deleted"
+      },
+      {
+        "node": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|mem[4]~3",
+        "action": "Modified"
+      }
+    ]
+  }
+}

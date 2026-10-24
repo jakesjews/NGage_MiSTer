@@ -1389,6 +1389,7 @@ module arm9v2_core (
 	);
 	localparam [511:0] sv2v_uu_u_zap_writeback_ext_i_decompile_0 = 1'sb0;
 	zap_writeback #(
+		.RF_ALLOW_RETIMING(0),
 		.BP_ENTRIES(32),
 		.PHY_REGS(40),
 		.FLAG_WDT(32),
@@ -21314,6 +21315,7 @@ module zap_register_file (
 	o_rd_data_c,
 	o_rd_data_d
 );
+	parameter integer ALLOW_RETIMING = 1;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_wen;
@@ -21331,7 +21333,7 @@ module zap_register_file (
 	output wire [31:0] o_rd_data_b;
 	output wire [31:0] o_rd_data_c;
 	output wire [31:0] o_rd_data_d;
-	reg [1279:0] mem;
+	(* syn_allow_retiming = ALLOW_RETIMING *) reg [1279:0] mem;
 	always @(posedge i_clk)
 		if (i_reset)
 			mem <= {32'd40 {32'd0}};
@@ -26480,6 +26482,7 @@ module zap_writeback (
 	o_trace_uop_last
 );
 	reg _sv2v_0;
+	parameter integer RF_ALLOW_RETIMING = 1;
 	parameter [31:0] BP_ENTRIES = 32'd1024;
 	parameter [31:0] FLAG_WDT = 32'd32;
 	parameter [31:0] PHY_REGS = 32'd46;
@@ -26868,7 +26871,7 @@ module zap_writeback (
 	assign o_wb_cyc = pc_del3_ff[32];
 	assign o_pred = {pred_valid_ff, pred_target_ff & {32 {pred_valid_ff}}};
 	assign o_taken = taken_del3_ff;
-	zap_register_file u_zap_register_file(
+	zap_register_file #(.ALLOW_RETIMING(RF_ALLOW_RETIMING)) u_zap_register_file(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
 		.i_wr_addr_a(write_sel1),

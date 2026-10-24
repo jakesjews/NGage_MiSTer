@@ -873,7 +873,7 @@ output  logic [7:0]                      o_dbg_stall
         .o_multiply_wait(a_multiply_wait)
     );
 
-    zap_writeback #(.BP_ENTRIES(32),.PHY_REGS(40),.FLAG_WDT(32),
+    zap_writeback #(.RF_ALLOW_RETIMING(0),.BP_ENTRIES(32),.PHY_REGS(40),.FLAG_WDT(32),
         .RESET_VECTOR(RESET_VECTOR),.CPSR_INIT(CPSR_INIT)) u_zap_writeback (
         .i_clk(i_clk),.i_reset(i_reset),.i_valid(wb_valid),
         .i_decompile('0),.i_decompile_valid(wb_cfail),.i_uop_last(wb_last),

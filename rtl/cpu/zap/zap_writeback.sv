@@ -18,6 +18,7 @@
 //
 
 module zap_writeback #(
+        parameter integer RF_ALLOW_RETIMING = 1,
         parameter logic [31:0] BP_ENTRIES   = 32'd1024,  // BP entries.
         parameter logic [31:0] FLAG_WDT     = 32'd32,    // Flags width a.k.a CPSR.
         parameter logic [31:0] PHY_REGS     = 32'd46,    // Number of physical registers.
@@ -205,7 +206,7 @@ assign  o_taken      = taken_del3_ff;
 // Register file
 // ----------------------------------------------------------------------------
 
-zap_register_file u_zap_register_file
+zap_register_file #(.ALLOW_RETIMING(RF_ALLOW_RETIMING)) u_zap_register_file
 (
 .i_clk(i_clk),
  .i_reset        (       i_reset         ),

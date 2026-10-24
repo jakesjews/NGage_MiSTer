@@ -21,7 +21,7 @@
 // plentiful.
 //
 
-module zap_register_file
+module zap_register_file #(parameter integer ALLOW_RETIMING=1)
 (
         // Clock and reset.
         input logic              i_clk,
@@ -53,7 +53,11 @@ module zap_register_file
         output logic  [31:0]      o_rd_data_d
 );
 
-logic [39:0][31:0] mem; // Flip-flop array.
+// ARM9V2: keep the RF edge at its architectural write boundary. Otherwise
+// physical synthesis can distribute storage across the RF mux network and
+// replicate registers without changing the HDL array size.
+// ZAP keeps its existing retiming policy (attribute 1 has no effect).
+(* syn_allow_retiming = ALLOW_RETIMING *) logic [39:0][31:0] mem;
 
 // 3 write ports. Synchronous reset for the register file.
 always_ff @ ( posedge i_clk )

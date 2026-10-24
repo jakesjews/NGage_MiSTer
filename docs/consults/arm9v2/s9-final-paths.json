@@ -1,0 +1,606 @@
+{
+  "Slow_1100mV_100C_Model": [
+    {
+      "rank": 1,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[21]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.803,
+      "slack": "-2.871 (VIOLATED)",
+      "routing_ns": 7.676,
+      "routing_percent": 65
+    },
+    {
+      "rank": 2,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[21]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]",
+      "levels": 10,
+      "data_ns": 11.708,
+      "slack": "-2.768 (VIOLATED)",
+      "routing_ns": 7.089,
+      "routing_percent": 61
+    },
+    {
+      "rank": 3,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[23]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.684,
+      "slack": "-2.752 (VIOLATED)",
+      "routing_ns": 7.463,
+      "routing_percent": 64
+    },
+    {
+      "rank": 4,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[20]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.676,
+      "slack": "-2.750 (VIOLATED)",
+      "routing_ns": 7.952,
+      "routing_percent": 68
+    },
+    {
+      "rank": 5,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[6]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.615,
+      "slack": "-2.689 (VIOLATED)",
+      "routing_ns": 7.832,
+      "routing_percent": 67
+    },
+    {
+      "rank": 6,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|memory_state.0001",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_hit_ok",
+      "levels": 8,
+      "data_ns": 11.588,
+      "slack": "-2.658 (VIOLATED)",
+      "routing_ns": 7.546,
+      "routing_percent": 65
+    },
+    {
+      "rank": 7,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|w[493]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|valid_q[1]_OTERM49_OTERM731_OTERM2017",
+      "levels": 7,
+      "data_ns": 11.595,
+      "slack": "-2.655 (VIOLATED)",
+      "routing_ns": 7.868,
+      "routing_percent": 68
+    },
+    {
+      "rank": 8,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[21]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[41]",
+      "levels": 10,
+      "data_ns": 11.597,
+      "slack": "-2.653 (VIOLATED)",
+      "routing_ns": 7.495,
+      "routing_percent": 65
+    },
+    {
+      "rank": 9,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|memory_state.0001",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_hit_ok~DUPLICATE",
+      "levels": 8,
+      "data_ns": 11.586,
+      "slack": "-2.653 (VIOLATED)",
+      "routing_ns": 7.546,
+      "routing_percent": 65
+    },
+    {
+      "rank": 10,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[23]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]",
+      "levels": 10,
+      "data_ns": 11.589,
+      "slack": "-2.649 (VIOLATED)",
+      "routing_ns": 6.876,
+      "routing_percent": 59
+    },
+    {
+      "rank": 11,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[20]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]",
+      "levels": 10,
+      "data_ns": 11.581,
+      "slack": "-2.647 (VIOLATED)",
+      "routing_ns": 7.365,
+      "routing_percent": 64
+    },
+    {
+      "rank": 12,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|w[493]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|zap_ram_simple_ben:g_way[0].u_zap_ram_simple_data_ram|zap_ram_simple:lane[14].u_lane|g_short.forward_write_OTERM453",
+      "levels": 6,
+      "data_ns": 11.618,
+      "slack": "-2.647 (VIOLATED)",
+      "routing_ns": 8.501,
+      "routing_percent": 73
+    },
+    {
+      "rank": 13,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[7]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.564,
+      "slack": "-2.644 (VIOLATED)",
+      "routing_ns": 7.866,
+      "routing_percent": 68
+    },
+    {
+      "rank": 14,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[43]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|valid_q[1]_OTERM49_OTERM731_OTERM2017",
+      "levels": 8,
+      "data_ns": 11.557,
+      "slack": "-2.619 (VIOLATED)",
+      "routing_ns": 7.477,
+      "routing_percent": 65
+    },
+    {
+      "rank": 15,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[43]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|zap_ram_simple_ben:g_way[0].u_zap_ram_simple_data_ram|zap_ram_simple:lane[14].u_lane|g_short.forward_write_OTERM453",
+      "levels": 7,
+      "data_ns": 11.58,
+      "slack": "-2.611 (VIOLATED)",
+      "routing_ns": 8.11,
+      "routing_percent": 70
+    },
+    {
+      "rank": 16,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[43]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|valid_q[1]_OTERM49_OTERM731_OTERM2017",
+      "levels": 8,
+      "data_ns": 11.545,
+      "slack": "-2.607 (VIOLATED)",
+      "routing_ns": 7.477,
+      "routing_percent": 65
+    },
+    {
+      "rank": 17,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[42]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|valid_q[1]_OTERM49_OTERM731_OTERM2017",
+      "levels": 8,
+      "data_ns": 11.544,
+      "slack": "-2.606 (VIOLATED)",
+      "routing_ns": 7.513,
+      "routing_percent": 65
+    },
+    {
+      "rank": 18,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[43]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|zap_ram_simple_ben:g_way[0].u_zap_ram_simple_data_ram|zap_ram_simple:lane[14].u_lane|g_short.forward_write_OTERM453",
+      "levels": 7,
+      "data_ns": 11.568,
+      "slack": "-2.599 (VIOLATED)",
+      "routing_ns": 8.11,
+      "routing_percent": 70
+    },
+    {
+      "rank": 19,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[42]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|zap_ram_simple_ben:g_way[0].u_zap_ram_simple_data_ram|zap_ram_simple:lane[14].u_lane|g_short.forward_write_OTERM453",
+      "levels": 7,
+      "data_ns": 11.567,
+      "slack": "-2.598 (VIOLATED)",
+      "routing_ns": 8.146,
+      "routing_percent": 70
+    },
+    {
+      "rank": 20,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[42]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|valid_q[1]_OTERM49_OTERM731_OTERM2017",
+      "levels": 8,
+      "data_ns": 11.532,
+      "slack": "-2.594 (VIOLATED)",
+      "routing_ns": 7.513,
+      "routing_percent": 65
+    },
+    {
+      "rank": 21,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[21]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[41]",
+      "levels": 9,
+      "data_ns": 11.531,
+      "slack": "-2.587 (VIOLATED)",
+      "routing_ns": 7.554,
+      "routing_percent": 66
+    },
+    {
+      "rank": 22,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[6]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]",
+      "levels": 10,
+      "data_ns": 11.52,
+      "slack": "-2.586 (VIOLATED)",
+      "routing_ns": 7.245,
+      "routing_percent": 63
+    },
+    {
+      "rank": 23,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[42]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|zap_ram_simple_ben:g_way[0].u_zap_ram_simple_data_ram|zap_ram_simple:lane[14].u_lane|g_short.forward_write_OTERM453",
+      "levels": 7,
+      "data_ns": 11.555,
+      "slack": "-2.586 (VIOLATED)",
+      "routing_ns": 8.146,
+      "routing_percent": 70
+    },
+    {
+      "rank": 24,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[21]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[41]",
+      "levels": 10,
+      "data_ns": 11.526,
+      "slack": "-2.582 (VIOLATED)",
+      "routing_ns": 7.895,
+      "routing_percent": 68
+    },
+    {
+      "rank": 25,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_hit~DUPLICATE",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|valid_q[1]_OTERM49_OTERM731_OTERM2017",
+      "levels": 9,
+      "data_ns": 11.527,
+      "slack": "-2.582 (VIOLATED)",
+      "routing_ns": 7.545,
+      "routing_percent": 65
+    },
+    {
+      "rank": 26,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_hit~DUPLICATE",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|zap_ram_simple_ben:g_way[0].u_zap_ram_simple_data_ram|zap_ram_simple:lane[14].u_lane|g_short.forward_write_OTERM453",
+      "levels": 8,
+      "data_ns": 11.55,
+      "slack": "-2.574 (VIOLATED)",
+      "routing_ns": 8.178,
+      "routing_percent": 71
+    },
+    {
+      "rank": 27,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_hit~DUPLICATE",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|valid_q[1]_OTERM49_OTERM731_OTERM2017",
+      "levels": 9,
+      "data_ns": 11.515,
+      "slack": "-2.570 (VIOLATED)",
+      "routing_ns": 7.545,
+      "routing_percent": 66
+    },
+    {
+      "rank": 28,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_hit~DUPLICATE",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|zap_ram_simple_ben:g_way[0].u_zap_ram_simple_data_ram|zap_ram_simple:lane[14].u_lane|g_short.forward_write_OTERM453",
+      "levels": 8,
+      "data_ns": 11.538,
+      "slack": "-2.562 (VIOLATED)",
+      "routing_ns": 8.178,
+      "routing_percent": 71
+    },
+    {
+      "rank": 29,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[15]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.478,
+      "slack": "-2.552 (VIOLATED)",
+      "routing_ns": 7.511,
+      "routing_percent": 65
+    },
+    {
+      "rank": 30,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[44]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|valid_q[1]_OTERM49_OTERM731_OTERM2017",
+      "levels": 7,
+      "data_ns": 11.492,
+      "slack": "-2.548 (VIOLATED)",
+      "routing_ns": 7.829,
+      "routing_percent": 68
+    }
+  ],
+  "Slow_1100mV_-40C_Model": [
+    {
+      "rank": 1,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[21]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.808,
+      "slack": "-2.865 (VIOLATED)",
+      "routing_ns": 7.011,
+      "routing_percent": 59
+    },
+    {
+      "rank": 2,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[21]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]",
+      "levels": 10,
+      "data_ns": 11.771,
+      "slack": "-2.820 (VIOLATED)",
+      "routing_ns": 6.414,
+      "routing_percent": 54
+    },
+    {
+      "rank": 3,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[23]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.731,
+      "slack": "-2.788 (VIOLATED)",
+      "routing_ns": 6.839,
+      "routing_percent": 58
+    },
+    {
+      "rank": 4,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[23]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]",
+      "levels": 10,
+      "data_ns": 11.694,
+      "slack": "-2.743 (VIOLATED)",
+      "routing_ns": 6.242,
+      "routing_percent": 53
+    },
+    {
+      "rank": 5,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[20]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.612,
+      "slack": "-2.677 (VIOLATED)",
+      "routing_ns": 7.3,
+      "routing_percent": 63
+    },
+    {
+      "rank": 6,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[20]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]",
+      "levels": 10,
+      "data_ns": 11.575,
+      "slack": "-2.632 (VIOLATED)",
+      "routing_ns": 6.703,
+      "routing_percent": 58
+    },
+    {
+      "rank": 7,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|memory_state.0001",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_hit_ok",
+      "levels": 8,
+      "data_ns": 11.549,
+      "slack": "-2.623 (VIOLATED)",
+      "routing_ns": 6.917,
+      "routing_percent": 60
+    },
+    {
+      "rank": 8,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|memory_state.0001",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_hit_ok~DUPLICATE",
+      "levels": 8,
+      "data_ns": 11.548,
+      "slack": "-2.617 (VIOLATED)",
+      "routing_ns": 6.917,
+      "routing_percent": 60
+    },
+    {
+      "rank": 9,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[6]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.547,
+      "slack": "-2.612 (VIOLATED)",
+      "routing_ns": 7.181,
+      "routing_percent": 62
+    },
+    {
+      "rank": 10,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[21]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[41]",
+      "levels": 9,
+      "data_ns": 11.559,
+      "slack": "-2.611 (VIOLATED)",
+      "routing_ns": 6.944,
+      "routing_percent": 60
+    },
+    {
+      "rank": 11,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[21]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[41]",
+      "levels": 10,
+      "data_ns": 11.544,
+      "slack": "-2.596 (VIOLATED)",
+      "routing_ns": 6.823,
+      "routing_percent": 59
+    },
+    {
+      "rank": 12,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[6]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]",
+      "levels": 10,
+      "data_ns": 11.51,
+      "slack": "-2.567 (VIOLATED)",
+      "routing_ns": 6.584,
+      "routing_percent": 57
+    },
+    {
+      "rank": 13,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[7]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.483,
+      "slack": "-2.554 (VIOLATED)",
+      "routing_ns": 7.204,
+      "routing_percent": 63
+    },
+    {
+      "rank": 14,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[23]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[41]",
+      "levels": 9,
+      "data_ns": 11.482,
+      "slack": "-2.534 (VIOLATED)",
+      "routing_ns": 6.772,
+      "routing_percent": 59
+    },
+    {
+      "rank": 15,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[23]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[41]",
+      "levels": 10,
+      "data_ns": 11.467,
+      "slack": "-2.519 (VIOLATED)",
+      "routing_ns": 6.651,
+      "routing_percent": 58
+    },
+    {
+      "rank": 16,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[21]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]",
+      "levels": 10,
+      "data_ns": 11.467,
+      "slack": "-2.516 (VIOLATED)",
+      "routing_ns": 5.966,
+      "routing_percent": 52
+    },
+    {
+      "rank": 17,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[7]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]",
+      "levels": 10,
+      "data_ns": 11.446,
+      "slack": "-2.509 (VIOLATED)",
+      "routing_ns": 6.607,
+      "routing_percent": 58
+    },
+    {
+      "rank": 18,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|w_load_select[23]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.442,
+      "slack": "-2.507 (VIOLATED)",
+      "routing_ns": 6.559,
+      "routing_percent": 57
+    },
+    {
+      "rank": 19,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[15]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.437,
+      "slack": "-2.502 (VIOLATED)",
+      "routing_ns": 6.883,
+      "routing_percent": 60
+    },
+    {
+      "rank": 20,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[21]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|o_forward_match[9]",
+      "levels": 10,
+      "data_ns": 11.442,
+      "slack": "-2.481 (VIOLATED)",
+      "routing_ns": 6.358,
+      "routing_percent": 56
+    },
+    {
+      "rank": 21,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[30]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.424,
+      "slack": "-2.480 (VIOLATED)",
+      "routing_ns": 7.086,
+      "routing_percent": 62
+    },
+    {
+      "rank": 22,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|w[493]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|valid_q[1]_OTERM49_OTERM731_OTERM2017",
+      "levels": 7,
+      "data_ns": 11.421,
+      "slack": "-2.476 (VIOLATED)",
+      "routing_ns": 7.269,
+      "routing_percent": 64
+    },
+    {
+      "rank": 23,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|w_load_select[23]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]",
+      "levels": 10,
+      "data_ns": 11.405,
+      "slack": "-2.462 (VIOLATED)",
+      "routing_ns": 5.962,
+      "routing_percent": 52
+    },
+    {
+      "rank": 24,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[15]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]",
+      "levels": 10,
+      "data_ns": 11.4,
+      "slack": "-2.457 (VIOLATED)",
+      "routing_ns": 6.286,
+      "routing_percent": 55
+    },
+    {
+      "rank": 25,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|m[360]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_hit_ok",
+      "levels": 9,
+      "data_ns": 11.383,
+      "slack": "-2.451 (VIOLATED)",
+      "routing_ns": 6.447,
+      "routing_percent": 57
+    },
+    {
+      "rank": 26,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|m[360]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_hit_ok~DUPLICATE",
+      "levels": 9,
+      "data_ns": 11.382,
+      "slack": "-2.445 (VIOLATED)",
+      "routing_ns": 6.447,
+      "routing_percent": 57
+    },
+    {
+      "rank": 27,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[8]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]",
+      "levels": 9,
+      "data_ns": 11.384,
+      "slack": "-2.441 (VIOLATED)",
+      "routing_ns": 7.111,
+      "routing_percent": 62
+    },
+    {
+      "rank": 28,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|lock_ff[23]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]",
+      "levels": 10,
+      "data_ns": 11.39,
+      "slack": "-2.439 (VIOLATED)",
+      "routing_ns": 5.794,
+      "routing_percent": 51
+    },
+    {
+      "rank": 29,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[43]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_spage_tlb|Mux0~62_OTERM7315",
+      "levels": 9,
+      "data_ns": 11.39,
+      "slack": "-2.437 (VIOLATED)",
+      "routing_ns": 5.241,
+      "routing_percent": 46
+    },
+    {
+      "rank": 30,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[43]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|valid_q[1]_OTERM49_OTERM731_OTERM2017",
+      "levels": 8,
+      "data_ns": 11.372,
+      "slack": "-2.437 (VIOLATED)",
+      "routing_ns": 6.416,
+      "routing_percent": 56
+    }
+  ]
+}
