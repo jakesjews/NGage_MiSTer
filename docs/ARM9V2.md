@@ -677,3 +677,33 @@ recovery costs described above remain. No final three-seed integration gate
 or whole-device fit is claimed. See the
 [session-5 report](consults/2026-10-23-codex-arm9v2-s5.md) for every workload
 ratio, measured windows, path lengths and the exact continuation point.
+
+
+## Session 6: shared deferred write-back and registered control records
+
+Master's deferred dirty-victim write-back is integrated alongside the short
+port's accepted-hit replacement update. ZAP exactly matches the new master's
+264 cycle/instruction pairs; V2 prediction on/off also pass 264/264 with
+68 QEMU agreements. The existing 85 windows are unchanged at all latencies.
+
+S now consumes registered A/M/W writer eligibility. Masks clear with killed
+or consumed records, without producer readiness or cache ACK in forwarding.
+A separate compact register carries the selected FCSE-adjusted D-TLB check
+address, mode, user override, load format and enables. It captures the next
+owner at the existing backend edge; no memory access gains a stage. Bench
+assertions compare every active check with the prior owner/schedule.
+
+Integrated seed 2 (104 MHz, worst slow corner) moves from -1.651 ns / 15,881
+ALMs after the master merge to -1.237 ns / 16,417 ALMs after producer
+qualification, then -1.385 ns / 16,354 ALMs for the selected-check candidate.
+The last cut regresses 0.148 ns and triggers the session's explicit no-pay
+stop. It is retained as a separately measured candidate; producer cut
+`51a0123` is the best measured source. No seeds 3/4 are claimed for these
+changes. The current worst family is queue Thumb selection through expansion
+into D1 (8 levels); the direct-branch shortcut shares it (7 levels).
+
+W lock-selector predecode, true-writer hazard masks, three-clock scalar-load
+pickup/replay and W RAS restoration remain unfinished. LDR + dependent ADD
+still measures eight clocks; the random suites have only about 1% cycle gain
+at 2:9. ZAP stays default. See the [session-6 report](consults/2026-10-24-codex-arm9v2-s6.md)
+for the trend, exact cycle table, fit evidence and stopping point.
