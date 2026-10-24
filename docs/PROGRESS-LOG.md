@@ -4364,3 +4364,26 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   memory side that V2 reuses (the caches, the merger, SDRAM, the write
   buffer), the deferred write-back being the first of it, pending its
   in-play measurement.
+- **The deferred write-back on the board: +4 to +6 % in play.** A debug
+  core of codex/dstore (29312a6, NGAGE_DEBUG, seed 2: -1.171 ns, 36,524
+  ALMs, against b25's -1.188 and 37,886; build/hardware/NGage-dstd-
+  s2.rbf) measured on the debug slot with tools/run_games.sh, b25
+  re-measured first with the same script as the baseline (logs
+  build/hardware/game/run-b25.log and run-dstd.log, the play captures'
+  medians over ten shots each):
+
+  | game | b25 M instr/s | dstd M instr/s | gain | fps b25 / dstd | CPI | SDRAM wait |
+  |---|---:|---:|---:|---|---|---|
+  | Sonic N (Neo Green Hill) | 29.38 | 31.09 | +5.8 % | 16 / 16 (mean 16.4 / 17.4) | 3.5 / 3.3 | 21.8 / 19.1 % |
+  | Asphalt (Cop Chase) | 30.26 | 31.74 | +4.9 % | 13 / 13 (mean 13.0 / 13.4) | 3.4 / 3.3 | 24.1 / 22.3 % |
+  | Tony Hawk | 29.52 | 30.62 | +3.7 % | 12 / 12.5 (mean 12.0 / 13.1) | 3.5 / 3.4 | 23.4 / 22.1 % |
+
+  The data-stall share in Sonic falls from 14 % to 10 %; the D-cache
+  event counts are the same (the same work, less waiting), so the gain
+  is the CPU running during the victim's drain, as designed. More than
+  the suite's 1.1 % and above the Pocket authors' 2-3 %, because the
+  games' working sets evict dirty lines constantly. The frame rates
+  move less than the instruction rates (the games' frame pacing). The
+  cost side is the one-seed stripped fit at -0.956 ns against b26's
+  -0.395; seeds 9 and 18 of the stripped core are building to say
+  whether that is placement. dstd stays on the debug slot meanwhile.
