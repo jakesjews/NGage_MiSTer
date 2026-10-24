@@ -4,7 +4,9 @@ Work is on `codex/memside4`, based on `codex/memside3` at `df29e89`.
 The inherited early-execution gate and one-bit fetch handshake are unchanged.
 No ZAP pipeline, ARM9, `sys/`, board RTL or cache-capacity default is changed.
 
-**Fit results and final stopping point are pending below.** The final design
+The default fit saves **3,272 ALMs** but worsens setup slack by **0.456 ns**.
+The 16 KB D-cache fit saves **6,878 ALMs** and improves slack by **0.639 ns**.
+Both retain a negative-slack dirty-RAM write-control path. The final design
 preserves single-cycle whole-cache invalidation; it does not use the initially
 tried invalidate sweep. CPU cycle and instruction equality is checked against
 fresh runs of the parent, separately for each cache-size configuration.
@@ -113,8 +115,8 @@ clear on reset even when the read port is held. An added soft-reset unit case
 found that omitting this could briefly revive a pre-reset read in the metadata
 pipeline. It is fixed and tested with both held and running ports. A synthesis
 attempt was stopped before fitting when this check found the issue; it is not
-reported as a fit result. The completed fit must use the corrected snapshot. A second mapping attempt
-showed that Quartus 17 ignored the RAM-style hint on the nested generated
+reported as a fit result. The completed fit uses the corrected snapshot.
+A second mapping attempt showed that Quartus 17 ignored the RAM-style hint on the nested generated
 scalar arrays: the sixteen-bit D-cache banks remained logic, while other
 banks were inferred as AUTO. That attempt was stopped before completing a
 fit. The arrays now sit inside the plain `zap_cache_metadata_ram` module,
@@ -203,8 +205,7 @@ maintenance clock-enable difference described above; preserving those enables
 restored cycle equality. The temporary reference/checker is evidence under
 `build/memside4/check/`, not a second production implementation.
 
-The final verification totals and cycle table are filled from the saved logs
-below. Stale logs for tests from older branches are excluded: the manifest is
+The verification totals and cycle table below use the saved logs. Stale logs for tests from older branches are excluded: the manifest is
 the current Makefile's 79 tests at exactly `0:0`, `0:3`, `2:9`.
 
 All **948 CPU runs pass** (237 per configuration), with **zero cycle changes** and
@@ -340,11 +341,112 @@ Requested references: stripped seed 9, 8 KB D-cache **-0.734 ns / 35,839 ALMs**;
 so it is not a pure same-commit tag-RAM A/B against those supplied figures.
 No measurement-core debug macro or prefetch macro is enabled.
 
-<!-- FIT_RESULTS -->
+The default build uses implementation commit `1f002ef`, with seed 9 selected
+only in its isolated build copy. Generated RTL SHA-256:
+`98e1e0f83a885d133cb302cfedc6db994fa9754908705f2d2b12d8ec46ea9ddd`.
+The server directory is `dev/mister/NGage_MiSTer-tag-s9`.
+
+| Configuration | ALMs before | ALMs after | ALMs saved | Slow 100C setup before | Setup after | M10Ks after |
+|---|---:|---:|---:|---:|---:|---:|
+| I16 / D8 | 35,839 | 32,567 | 3,272 (9.1%) | -0.734 ns | -1.190 ns | 537 / 553 |
+| I16 / D16 | 39,580 | 32,702 | 6,878 (17.4%) | -1.472 ns | -0.833 ns | 539 / 553 |
+
+The default fit uses 40,565 registers and 3,566,156 block-memory bits (63%).
+The physical RAM summary confirms that each of the 50 metadata banks uses
+one M10K: 50 blocks for 2,816 logical bits. The whole core leaves only
+**16 M10Ks free** (97% of blocks used), despite the much lower memory-bit
+percentage. The normal tag/data RAM organization is unchanged. The detailed
+instance/depth/block inventory is saved as `default-fit/metadata-packing.tsv`.
+Counting unique physical RAM locations, rather than summing rows for merged
+logical byte lanes, gives:
+
+| Default cache | Data M10Ks | Tag M10Ks | Metadata M10Ks | Total |
+|---|---:|---:|---:|---:|
+| I16 | 14 | 6 | 9 | 29 |
+| D8 | 32 | 4 | 41 | 77 |
+
+The remaining non-cache RAMs account for 431 blocks. Instruction byte lanes
+share physical RAMs because their write controls agree. Data byte lanes retain
+independent writes and occupy one block each. None of the 50 metadata RAMs
+share a physical block in this fit.
+
+Default slow-100C hold slack is +0.242 ns; the minimum hold slack across all
+four reported corners is +0.079 ns. Recovery and removal are positive.
+The build produces its RBF and reports, then exits 2 because setup timing
+is not met. This is a completed fit, not a failed compilation.
+
+The new worst family is **maintenance dirty-bank write control**:
+`o_wb_cyc_ff` -> maintenance decision -> `dirty_write_set` / initialization
+lookup -> dirty-bank write enable. It occupies eight of the worst 30 paths.
+The worst endpoint is way 1, bank 12's M10K `porta_we_reg`: **-1.190 ns**,
+six logic levels, 11.682 ns data delay (6.351 ns interconnect, 5.331 ns cells).
+This is a real new control cone and is not dismissed as placement noise.
+The next different cache family is tag forwarding into a data-RAM write
+enable at -0.933 ns; DMA write control into the bus is -0.714 ns.
+
+The metadata read still lands at the old hit-comparison register boundary,
+but that structural property does not establish whole-core timing closure.
+The default result is an area improvement and a timing regression. The
+substantial area saving justifies the conditional D16 fit, where capacity
+had pushed the old design to 94% ALM utilization; that run uses the identical
+RTL and only enables the D16 macro in a separate seed-9 build copy.
+
+The conditional D16 build also completes successfully and exits 2 for
+negative setup slack. Its server directory is
+`dev/mister/NGage_MiSTer-tag-d16-s9`. It has **41,068 registers**, **3,656,524
+memory bits** (65%), and the same 50 metadata M10Ks. The D-cache's two tag
+RAMs grow from two to three blocks each; its data lanes and metadata banks
+use the same number of blocks. Total cache blocks are I=29 / D=79, leaving
+**14 of 553 blocks free**. In these two fits the larger D-cache costs only
+135 additional ALMs and two M10Ks.
+
+D16 slow-100C setup is **-0.833 ns**, a **+0.639 ns** improvement against the
+supplied -1.472 ns reference. Slow-100C hold is +0.243 ns; minimum hold across
+all four corners is +0.114 ns. Recovery and removal are positive. The worst
+path is again dirty-bank write control, this time starting in the D-cache
+wrapper's `state_ff[1]` and ending at way 0, bank 6's `porta_we_reg`:
+six levels, 11.239 ns data delay (6.288 ns interconnect, 4.951 ns cells).
+Ten of its worst 30 paths end at dirty metadata write enables. The next
+family is top-level `test_on_q` into merger `o_wb_adr[7]`, at -0.707 ns.
+
+Thus D16 improves both measured area and slack, while D8 improves area at a
+timing cost. These are one-seed results on the inherited memside3 tree,
+not a seed sweep or a timing-closure claim. Both fits use the identical
+verified RTL. Their RBFs and reports remain in the isolated build copies;
+no bitstream has been deployed.
 
 ## Stopping point and risks
 
-<!-- STOPPING_POINT -->
+Stopped after implementation commit `1f002ef`, all requested simulation
+checks, one completed default seed-9 fit and one completed D16 seed-9 fit.
+This report is committed separately with the measured results. There are no
+unverified RTL changes after the fitted snapshot. The default cache sizes
+remain I16/D8; the branch is a functional and area-tested candidate, with the
+remaining timing issue explicitly unresolved.
+
+The main known limitation is the new maintenance-to-dirty-write-enable timing
+path. A next timing change would separate already-initialized maintenance
+clears from first-update group initialization, or register their bank/write
+selection before the existing clear edge. That needs its own cycle comparison
+and fit; it has not been applied after the measured snapshot. The existing
+hit/ACK timing boundary is preserved, but the default whole-core result does
+not meet 104 MHz.
+
+The RAM cost is also material. This implementation intentionally spends banks
+to preserve the sixteen-line dirty scan and single-cycle invalidation. A more
+compact asymmetric-width RAM or a read/modify/write metadata engine would need
+a separate forwarding and maintenance design. The 32 KB I-cache configurations
+are functionally verified here, but not fitted. With current packing, their
+larger data/tag RAMs leave little or no block headroom; the combined I32/D16
+configuration may exceed the device's 553 blocks. Do not treat simulation
+support as proof of physical fit.
+
+The short-port bench covers the shared RAM interface, including accepted HUM
+LRU ownership. The ARM9 branch still must integrate its real accepted-response
+wires and run its own core and physical timing checks. The one-entry deferred
+LRU update relies on the documented exclusive-install/miss interval; its
+assertion remains to catch a future interface that violates that bound.
+Board behavior and frame rates have not been measured in this task.
 
 Evidence lives under ignored `build/memside4/`: parent generated RTL/model,
 per-configuration before/after logs and count JSONs, current test manifest,
