@@ -175,6 +175,8 @@ input   logic                            i_dcache_err2,
 input   logic [63:0]                     i_dc_reg_idx, // Register to load to.
 input   logic [31:0]                     i_dc_reg_dat, // Register data.
 input   logic [63:0]                     i_dc_lock,    // Register that is locked.
+input   logic                            i_dc_lock_any, i_dc_lock_owner,
+output  logic [5:0]                      o_dc_lock_owner_next,
 output  logic [63:0]                     o_dc_reg_idx, // Register index.
 output  logic [5:0]                      o_dc_reg_idx_bin, // Binary index.
 
@@ -329,7 +331,18 @@ output  logic [7:0]                      o_dbg_stall
     (* dont_retime *) logic [31:0] saved_load;
     (* dont_retime *) logic [63:0] w_load_select;
     (* dont_retime *) logic w_waited;
-    wire w_locked=|(i_dc_lock&w_load_select);
+    wire w_locked=i_dc_lock_owner;
+    // The query owner follows the exact W capture schedule. The cache
+    // samples this owner against lock_nxt, including a simultaneous clear
+    // and new miss installation. No stale lock_ff summary is acceptable.
+    assign o_dc_lock_owner_next=i_reset?6'd0:
+        ((memory_state==RUN&&done)||memory_state==RELOAD1||quick_reload)?m.dest[0]:w.dest[0];
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if(!i_reset) begin
+        assert(i_dc_lock_any == (|i_dc_lock)) else $fatal(1,"global lock summary");
+        assert(w_locked == (|(i_dc_lock&w_load_select))) else $fatal(1,"W lock summary");
+    end
+`endif
     wire w_return=|(i_dc_reg_idx&w_load_select);
     wire scalar_replay=1'b0; // Retain consumers; scalar completion never flushes independent work.
     (* dont_retime *) logic [5:0] return_tag;
@@ -540,7 +553,7 @@ output  logic [7:0]                      o_dbg_stall
         (w.kind==DP&&w.ins[20]&&w.dest[0]==15)||
         (w.kind==BLOCK&&w.ins[22]&&w.ins[20]&&w.ins[15]&&w.last);
     assign w_exception=w.fault||w.irq||w.fiq||(w.pass&&(w.kind==SWI||w.kind==UND));
-    assign cp_request=w.valid&&w.pass&&w.kind==CP&&!w_exception&&!(|i_dc_lock)&&!i_data_fill_busy&&!wb_flush;
+    assign cp_request=w.valid&&w.pass&&w.kind==CP&&!w_exception&&!i_dc_lock_any&&!i_data_fill_busy&&!wb_flush;
     assign request=w.valid&&w.memory&&!w_exception&&!wb_flush&&!fill_ended&&
         (memory_state==RUN||memory_state==HOLD);
     assign request_done=request&&(i_data_wb_ack||i_data_wb_err);
@@ -552,7 +565,7 @@ output  logic [7:0]                      o_dbg_stall
         wb_complete=0;
         if(w.valid&&!wb_flush)begin
             if(memory_state==ABORT)wb_complete=1;
-            else if(w_exception)wb_complete=!(|i_dc_lock);
+            else if(w_exception)wb_complete=!i_dc_lock_any;
             else if(w.pass&&w.kind==CP)wb_complete=cp_finished;
             else if(memory_state==LOAD_RETURN)wb_complete=!w_locked&&w.kind!=SWP;
             else if(memory_state==RUN||memory_state==HOLD)

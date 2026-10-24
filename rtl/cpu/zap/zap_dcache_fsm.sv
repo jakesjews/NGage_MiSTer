@@ -60,6 +60,9 @@ input   logic    [5:0]             i_ldfmt,       // ARM925T: load format (zap_c
 input   logic    [63:0]            i_reg_idx,
 input   logic    [5:0]             i_reg_idx_bin,
 output  logic     [63:0]           o_lock,
+// ARM9V2: summaries capture NEXT locks on the lock installation/clear edge.
+input   logic     [5:0]            i_lock_owner_next,
+(* dont_retime *) output logic     o_lock_any, o_lock_owner,
 output  logic [31:0]               o_reg_dat,
 (* dont_retime *) output logic [63:0] o_reg_idx,
 output  logic     [31:0]           o_dat,
@@ -240,6 +243,16 @@ assign o_wb_bte_nxt = (state_ff[FETCH_SINGLE] && CACHE_LINE == 16) ? 2'b01 : 2'b
 logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] way;       // ARM925T: the line's way
 logic    [63:0]                           reg_idx;
 logic    [63:0]                           lock_nxt, lock_ff;
+`ifndef SYNTHESIS
+logic [5:0] lock_owner_check;
+always_ff @(posedge i_clk) begin
+    lock_owner_check <= i_reset ? 6'd0 : i_lock_owner_next;
+    if (!i_reset) begin
+        assert (o_lock_any == (|lock_ff)) else $fatal(1, "lock summary stale");
+        assert (o_lock_owner == lock_ff[lock_owner_check]) else $fatal(1, "lock owner stale");
+    end
+end
+`endif
 logic                                     victim_valid;
 logic                                     wt_hit, wt_dirty; // ARM925T: write-through store.
 logic    [5:0]                            ldfmt;            // ARM925T: format of a background load.
@@ -403,6 +416,7 @@ begin
                 line_req_ff             <= 0;
                 adr_ctr_ff              <= 0;
                 lock_ff                 <= 64'd0;
+                o_lock_any <= 0; o_lock_owner <= 0;
 
                 // STATE - Drive state to 000...0001.
                 state_ff                <= 0;       // Rest of bits
@@ -425,6 +439,8 @@ begin
                 line_req_ff             <= line_req_nxt;
                 adr_ctr_ff              <= adr_ctr_nxt;
                 lock_ff                 <= lock_nxt;
+                o_lock_any <= |lock_nxt;
+                o_lock_owner <= lock_nxt[i_lock_owner_next];
 
                 // STATE
                 state_ff                <= state_nxt;

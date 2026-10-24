@@ -349,6 +349,9 @@ module arm9v2_core (
 	i_dc_reg_idx,
 	i_dc_reg_dat,
 	i_dc_lock,
+	i_dc_lock_any,
+	i_dc_lock_owner,
+	o_dc_lock_owner_next,
 	o_dc_reg_idx,
 	o_dc_reg_idx_bin,
 	o_dbg_wb_valid,
@@ -465,6 +468,9 @@ module arm9v2_core (
 	input wire [63:0] i_dc_reg_idx;
 	input wire [31:0] i_dc_reg_dat;
 	input wire [63:0] i_dc_lock;
+	input wire i_dc_lock_any;
+	input wire i_dc_lock_owner;
+	output wire [5:0] o_dc_lock_owner_next;
 	output wire [63:0] o_dc_reg_idx;
 	output wire [5:0] o_dc_reg_idx_bin;
 	output wire o_dbg_wb_valid;
@@ -609,7 +615,10 @@ module arm9v2_core (
 	(* dont_retime *) reg [31:0] saved_load;
 	(* dont_retime *) reg [63:0] w_load_select;
 	(* dont_retime *) reg w_waited;
-	wire w_locked = |(i_dc_lock & w_load_select);
+	wire w_locked = i_dc_lock_owner;
+	reg done;
+	wire quick_reload = (((memory_state == 4'd1) && done) && !(m[507] && m[501])) && !(skid[507] && skid[501]);
+	assign o_dc_lock_owner_next = (i_reset ? 6'd0 : ((((memory_state == 4'd0) && done) || (memory_state == 4'd3)) || quick_reload ? m[90+:6] : w[90+:6]));
 	wire w_return = |(i_dc_reg_idx & w_load_select);
 	wire scalar_replay = 1'b0;
 	(* dont_retime *) reg [5:0] return_tag;
@@ -685,7 +694,6 @@ module arm9v2_core (
 	wire request_done;
 	wire retry;
 	wire defer_load;
-	reg done;
 	wire check_enable;
 	wire backend_ready;
 	wire wb_restore;
@@ -730,7 +738,6 @@ module arm9v2_core (
 	endfunction
 	assign cpsr = o_dbg_wb_cpsr;
 	assign backend_ready = (memory_state == 4'd0) && !wb_flush;
-	wire quick_reload = (((memory_state == 4'd1) && done) && !(m[507] && m[501])) && !(skid[507] && skid[501]);
 	assign early_tag = {a_a_dest, d_dest};
 	assign early_valid = {a_a_write & {2 {a_a_valid && !a_a_can_finish}}, a_s_write} & {early_tag[18+:6] != 15, early_tag[12+:6] != 15, early_tag[6+:6] != 15, early_tag[0+:6] != 15};
 	assign load_tag = {skid[90+:6], w[90+:6], m[90+:6], a_dest[0+:6], a_a_dest[0+:6], d_dest[0+:6]};
@@ -901,7 +908,7 @@ module arm9v2_core (
 	assign o_cpsr = cpsr[CPSR_MODE:0];
 	assign w_serial = (((((((w[6-:4] == CP) || (w[6-:4] == MSR)) || (w[6-:4] == SWP)) || (w[6-:4] == SWI)) || (w[6-:4] == UND)) || w[504]) || (((w[6-:4] == DP) && w[449]) && (w[90+:6] == 15))) || (((((w[6-:4] == BLOCK) && w[451]) && w[449]) && w[444]) && w[502]);
 	assign w_exception = ((w[504] || w[497]) || w[496]) || (w[506] && ((w[6-:4] == SWI) || (w[6-:4] == UND)));
-	assign cp_request = (((((w[507] && w[506]) && (w[6-:4] == CP)) && !w_exception) && !(|i_dc_lock)) && !i_data_fill_busy) && !wb_flush;
+	assign cp_request = (((((w[507] && w[506]) && (w[6-:4] == CP)) && !w_exception) && !i_dc_lock_any) && !i_data_fill_busy) && !wb_flush;
 	assign request = ((((w[507] && w[501]) && !w_exception) && !wb_flush) && !fill_ended) && ((memory_state == 4'd0) || (memory_state == 4'd1));
 	assign request_done = request && (i_data_wb_ack || i_data_wb_err);
 	assign retry = request_done && i_dcache_err2;
@@ -916,7 +923,7 @@ module arm9v2_core (
 			if (memory_state == 4'd10)
 				wb_complete = 1;
 			else if (w_exception)
-				wb_complete = !(|i_dc_lock);
+				wb_complete = !i_dc_lock_any;
 			else if (w[506] && (w[6-:4] == CP))
 				wb_complete = cp_finished;
 			else if (memory_state == 4'd6)
@@ -11758,6 +11765,9 @@ module zap_dcache (
 	i_reg_idx,
 	i_reg_idx_bin,
 	o_lock,
+	i_lock_owner_next,
+	o_lock_any,
+	o_lock_owner,
 	o_reg_dat,
 	o_reg_idx,
 	i_mmu_en,
@@ -11839,6 +11849,9 @@ module zap_dcache (
 	input wire [63:0] i_reg_idx;
 	input wire [5:0] i_reg_idx_bin;
 	output wire [63:0] o_lock;
+	input wire [5:0] i_lock_owner_next;
+	output wire o_lock_any;
+	output wire o_lock_owner;
 	output wire [31:0] o_reg_dat;
 	output wire [63:0] o_reg_idx;
 	input wire i_mmu_en;
@@ -12324,6 +12337,9 @@ module zap_dcache (
 		.i_reg_idx(i_reg_idx),
 		.i_reg_idx_bin(i_reg_idx_bin),
 		.o_lock(o_lock),
+		.i_lock_owner_next(i_lock_owner_next),
+		.o_lock_any(o_lock_any),
+		.o_lock_owner(o_lock_owner),
 		.o_reg_dat(o_reg_dat),
 		.o_reg_idx(o_reg_idx),
 		.o_wb_cyc_ff(),
@@ -12675,6 +12691,9 @@ module zap_dcache_fsm (
 	i_reg_idx,
 	i_reg_idx_bin,
 	o_lock,
+	i_lock_owner_next,
+	o_lock_any,
+	o_lock_owner,
 	o_reg_dat,
 	o_reg_idx,
 	o_dat,
@@ -12768,6 +12787,9 @@ module zap_dcache_fsm (
 	input wire [63:0] i_reg_idx;
 	input wire [5:0] i_reg_idx_bin;
 	output reg [63:0] o_lock;
+	input wire [5:0] i_lock_owner_next;
+	(* dont_retime *) output reg o_lock_any;
+	(* dont_retime *) output reg o_lock_owner;
 	output wire [31:0] o_reg_dat;
 	(* dont_retime *) output reg [63:0] o_reg_idx;
 	output reg [31:0] o_dat;
@@ -13443,6 +13465,8 @@ module zap_dcache_fsm (
 			line_req_ff <= 0;
 			adr_ctr_ff <= 0;
 			lock_ff <= 64'd0;
+			o_lock_any <= 0;
+			o_lock_owner <= 0;
 			state_ff <= 0;
 			state_ff[IDLE] <= 1'd1;
 		end
@@ -13459,6 +13483,8 @@ module zap_dcache_fsm (
 			line_req_ff <= line_req_nxt;
 			adr_ctr_ff <= adr_ctr_nxt;
 			lock_ff <= lock_nxt;
+			o_lock_any <= |lock_nxt;
+			o_lock_owner <= lock_nxt[i_lock_owner_next];
 			state_ff <= state_nxt;
 		end
 	always @(posedge i_clk) begin : sv2v_autoblock_1
@@ -25387,6 +25413,9 @@ module zap_top (
 	wire [63:0] dc_wreg_idx;
 	wire [5:0] dc_rreg_idx_bin;
 	wire [63:0] dc_lock;
+	wire dc_lock_any;
+	wire dc_lock_owner;
+	wire [5:0] dc_lock_owner_next;
 	wire [31:0] dc_reg_data;
 	wire icache_err2;
 	wire arm9_data_stall;
@@ -25426,6 +25455,8 @@ module zap_top (
 	generate
 		if (CORE == "ZAP") begin : g_zap
 			assign arm9_data_stall = 1'b0;
+			assign dc_lock_owner_next = 0;
+			wire unused_lock_summaries = &{1'b0, dc_lock_any, dc_lock_owner};
 			assign cpu_dldfmt_check = 6'd0;
 			localparam [31:0] sv2v_uu_u_zap_core_ext_i_fsr_0 = 1'sb0;
 			localparam [31:0] sv2v_uu_u_zap_core_ext_i_far_0 = 1'sb0;
@@ -25666,6 +25697,9 @@ module zap_top (
 				.o_dc_reg_idx_bin(dc_rreg_idx_bin),
 				.i_dc_reg_idx((!ONLY_CORE ? dc_wreg_idx : sv2v_uu_u_arm9_core_ext_i_dc_reg_idx_0)),
 				.i_dc_lock((!ONLY_CORE ? dc_lock : sv2v_uu_u_arm9_core_ext_i_dc_lock_0)),
+				.i_dc_lock_any(!ONLY_CORE && dc_lock_any),
+				.i_dc_lock_owner(!ONLY_CORE && dc_lock_owner),
+				.o_dc_lock_owner_next(dc_lock_owner_next),
 				.i_dc_reg_dat((!ONLY_CORE ? dc_reg_data : sv2v_uu_u_arm9_core_ext_i_dc_reg_dat_0)),
 				.i_dcache_inv_done((!ONLY_CORE ? dc_inv_done : sv2v_uu_u_arm9_core_ext_i_dcache_inv_done_0)),
 				.i_icache_inv_done((!ONLY_CORE ? ic_inv_done : sv2v_uu_u_arm9_core_ext_i_icache_inv_done_0)),
@@ -25680,7 +25714,7 @@ module zap_top (
 		end
 		else begin : g_invalid_core
 			initial begin
-				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:582:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
+				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:589:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
 				$finish(1);
 			end
 		end
@@ -25690,6 +25724,7 @@ module zap_top (
 			assign o_dbg_dcache = 1'sb0;
 			assign dc_wreg_idx = 1'sb0;
 			assign dc_lock = 1'sb0;
+			assign {dc_lock_any, dc_lock_owner} = 1'sb0;
 			assign dc_reg_data = 1'sb0;
 			assign dc_inv_done = 1'sb0;
 			assign ic_inv_done = 1'sb0;
@@ -25853,6 +25888,9 @@ module zap_top (
 				.o_writeback_busy(dc_writeback_busy),
 				.o_err(data_err),
 				.o_lock(dc_lock),
+				.i_lock_owner_next(dc_lock_owner_next),
+				.o_lock_any(dc_lock_any),
+				.o_lock_owner(dc_lock_owner),
 				.o_reg_dat(dc_reg_data),
 				.o_reg_idx(dc_wreg_idx),
 				.o_fsr(dc_fsr),

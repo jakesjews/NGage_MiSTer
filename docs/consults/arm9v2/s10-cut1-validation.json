@@ -1,0 +1,46 @@
+{
+  "ZAP": {
+    "runs": 267,
+    "qemu_agree": 69,
+    "qemu_differ": 0,
+    "all_cycle_instruction_pairs_equal_s8": true
+  },
+  "ARM9": {
+    "runs": 267,
+    "qemu_agree": 69,
+    "qemu_differ": 0,
+    "all_cycle_instruction_pairs_equal_s8": true
+  },
+  "ARM9-off": {
+    "runs": 267,
+    "qemu_agree": 69,
+    "qemu_differ": 0,
+    "all_cycle_instruction_pairs_equal_s8": true
+  },
+  "windows": {
+    "count": 85,
+    "modes": [
+      "on",
+      "off"
+    ],
+    "latencies": [
+      "0:0",
+      "0:3",
+      "2:9"
+    ],
+    "all_raw_intervals_equal_s8": true
+  },
+  "netlist_sha256": "673a3909d0b4ca6a480bd363b336922fbd1f245516ec8e139337ba913f5267f4",
+  "source_assertions": {
+    "runs": 267,
+    "all_cycle_instruction_pairs_equal_s9": true,
+    "lock_summary_induction": "PASS for arbitrary next bitmap and owner, simultaneous clear/install included"
+  },
+  "lints": [
+    "ZAP",
+    "ZAP+debug",
+    "ARM9",
+    "ARM9+debug"
+  ],
+  "cpu_gen_check": "PASS"
+}

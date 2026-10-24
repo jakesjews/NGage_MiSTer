@@ -81,6 +81,8 @@ output  logic [3:0]      o_dbg_dcache, // ARM925T: per-transaction debug events
 input   logic [63:0]     i_reg_idx,
 input   logic [5:0]      i_reg_idx_bin,
 output  logic [63:0]     o_lock,
+input   logic [5:0]      i_lock_owner_next,
+output  logic           o_lock_any, o_lock_owner,
 output  logic [31:0]     o_reg_dat,
 output  logic [63:0]     o_reg_idx,
 
@@ -291,6 +293,9 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_reg_idx              (i_reg_idx),
         .i_reg_idx_bin          (i_reg_idx_bin),
         .o_lock                 (o_lock),
+        .i_lock_owner_next      (i_lock_owner_next),
+        .o_lock_any             (o_lock_any),
+        .o_lock_owner           (o_lock_owner),
         .o_reg_dat              (o_reg_dat),
         .o_reg_idx              (o_reg_idx),
 

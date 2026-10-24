@@ -256,6 +256,8 @@ logic            d_wb_err;
 logic [63:0]     dc_rreg_idx, dc_wreg_idx;
 logic [5:0]      dc_rreg_idx_bin;
 logic [63:0]     dc_lock;
+logic dc_lock_any, dc_lock_owner;
+logic [5:0] dc_lock_owner_next;
 logic [31:0]     dc_reg_data;
 logic            icache_err2, dcache_err2;
 logic arm9_data_stall, data_fill_busy;
@@ -299,6 +301,8 @@ wire dc_writeback_busy; // ARM925T: registered eviction ownership
 
 if (CORE == "ZAP") begin : g_zap
 assign arm9_data_stall = 1'b0;
+assign dc_lock_owner_next = 0;
+wire unused_lock_summaries = &{1'b0,dc_lock_any,dc_lock_owner};
 assign cpu_dldfmt_check = 6'd0;
 zap_core #(
         .CP15_L4_DEFAULT(CP15_L4_DEFAULT),
@@ -567,6 +571,9 @@ arm9v2_core #(
 
 .i_dc_reg_idx           (!ONLY_CORE ? dc_wreg_idx : '0),
 .i_dc_lock              (!ONLY_CORE ? dc_lock : '0),
+.i_dc_lock_any          (!ONLY_CORE && dc_lock_any),
+.i_dc_lock_owner        (!ONLY_CORE && dc_lock_owner),
+.o_dc_lock_owner_next   (dc_lock_owner_next),
 .i_dc_reg_dat           (!ONLY_CORE ? dc_reg_data : '0),
 .i_dcache_inv_done      (!ONLY_CORE ? dc_inv_done : '0),
 .i_icache_inv_done      (!ONLY_CORE ? ic_inv_done : '0),
@@ -591,6 +598,7 @@ begin : l_tieoffs_only_core
         assign o_dbg_dcache    = '0;
         assign dc_wreg_idx     = '0;
         assign dc_lock         = '0;
+        assign {dc_lock_any,dc_lock_owner} = '0;
         assign dc_reg_data     = '0;
         assign dc_inv_done     = '0;
         assign ic_inv_done     = '0;
@@ -847,6 +855,9 @@ u_data_cache (
 .o_writeback_busy       (dc_writeback_busy),
 .o_err                  (data_err),
 .o_lock                 (dc_lock),
+.i_lock_owner_next      (dc_lock_owner_next),
+.o_lock_any             (dc_lock_any),
+.o_lock_owner           (dc_lock_owner),
 .o_reg_dat              (dc_reg_data),
 .o_reg_idx              (dc_wreg_idx),
 .o_fsr                  (dc_fsr),
