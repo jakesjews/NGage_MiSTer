@@ -5232,3 +5232,148 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   (research/ is untracked). The schematic is the primary source for the
   physical map; nothing in it bears on the speed work, which stays the
   one thread.
+- **The V2 kernel death: reproduced and fixed** (an Opus 5.5 subagent on
+  my brief, codex/arm9v2 17094db test, 137f6b8 fix, 694252b report:
+  docs/consults/2026-10-25-v2-msr-lock-fix.md). The directed test
+  sim/cpu/tests/arm9_msr_lock_rtl.S copies the system-call window at
+  0x50321564 from the board trace and varies the PSR write, the TLB
+  flush, the victim layout and the gap to the younger writer: 1,050
+  cases. The one ingredient the trace did not spell out: lit1's line had
+  to be *already in the D-cache as the LRU way* and evicted by the
+  `stmfd` store miss just before the window. Before the fix V2 failed
+  106/130/136 cases at 0:0/0:3/2:9 (the session-11 board source the
+  same, D16 too), every one with ip and r0 holding lit1's value, the
+  board's symptom; ZAP 0. The mechanism: D2's WAW check lets a younger
+  writer of W's load destination pass on a first-clock short hit (the
+  premise: the load completes now). Two short hits do not complete: a
+  hit on a fill's departing victim (the line keeps its tag until
+  UNLOCK_REG and compares equal, but the FSM withholds the ACK and the
+  load misses after installation, locking ip only then), and a hit on
+  the fill-end clock (W re-reads it through RETRY0; after the MSR's
+  W-flush the refetched first load often lands exactly there). The
+  younger `ldr ip,lit2` had left D2 before the lock existed, hit,
+  retired, and the older load's background return (RF port C, priority)
+  overwrote ip. The fix (zap_dcache.sv, arm9v2_core.sv): the D-cache
+  exports its registered live-lookup state (IDLE or a background-hit
+  slot, the only states with a hit ACK) as o_short_live, and D2's trust
+  requires it and !fill_ended; readers are unchanged (the departing
+  line's word is the right data). Verified: the test passes on both
+  cores at all latencies, D8 and D16; the full suites 291/291 in all
+  three configurations (ZAP, V2, V2 predictor-off); ZAP's and V2's 288
+  prior runs cycle-identical (predictor-off: ctrand3/ctrand7 +5 clocks
+  at 0:3); QEMU 73/73; four lint configurations; cpu-gen-check (with
+  LC_ALL=C: this Mac's sort order otherwise fails it falsely). Open: the
+  trace's TLB walk for lit1's page after the fill is not explained (in
+  the test a TLB miss at that clock prevents the failure), and the new
+  D2 terms had no fit yet. Builds at 78 MHz launched at once from
+  694252b (ARM9 + DEBUG + D16): the server at seed 2 and the Mac at
+  seed 9.
+- **The ZAP control at 78 MHz** (master 441bf20, debug overlay, 16 KB
+  D-cache, seed 2: +0.272 ns setup at the slow -40C corner, 33,515 ALMs
+  (80 %), build/hardware/NGage-zap78d-s2.rbf, md5 83e61372; on the
+  debug slot; tools/run_games_78.sh zap78d, captures under
+  build/hardware/game/*-zap78d/). Play medians per 104 M clocks: Sonic N
+  31.59 M instr/s (CPI 3.3, SDRAM wait 18.6 %, 17 fps), Asphalt 32.30
+  (CPI 3.2, 21.0 %, 14 fps), Tony Hawk 31.31 (CPI 3.3, 20.6 %, 11.5
+  fps); the idle screen at 133 s, menus and all three games normal. The
+  same tree's measurement core at 104 MHz gave Sonic 31.51, so the
+  lower clock changes ZAP's normalised rate by well under 1 %: the
+  78 MHz board number stands in for 104 MHz, and V2's number from the
+  same script compares directly with these three.
+- **V2 boots the firmware on the MiSTer and plays Sonic at 44.4 M
+  instructions/s.** The fixed source (694252b) at 78 MHz: the server's
+  seed-2 build +0.086 ns (slow 100C; +0.290 at -40C), 33,344 ALMs (80 %),
+  3.64 M memory bits, build/hardware/NGage-v2fix78-s2.rbf (md5
+  08c6cf23; the Mac's seed-9 build of the same source -0.247 ns, not
+  used). On the debug slot with tools/run_games_78.sh v2fix78 (captures
+  under build/hardware/game/*-v2fix78/): the idle screen at 133 s
+  (V2's idle loop reads 87.6 M instr/s at CPI 1.2 where ZAP's reads
+  39.5 at 2.6), the phone menu, Sonic's title and play. Sonic N play
+  medians per 104 M clocks, V2 against the same-script ZAP control:
+
+  | | ZAP (78 MHz control) | V2 (fixed, 78 MHz) | gain |
+  |---|---:|---:|---:|
+  | M instr/s | 31.59 | **44.40** | +40.6 % |
+  | CPI | 3.3 | 2.3 | |
+  | fps | 17.0 | 24.0 | +41 % |
+  | SDRAM wait | 18.6 % | 23.4 % | |
+
+  The ten play captures 42.1-45.6. The goal is 47 M/s; Codex's
+  extrapolation of the kernel profile into play was 45. Two residues,
+  both V2-only (ZAP's control run was clean): (1) in two of three
+  boots a Symbian "App. closed ... Server" panic dialog sits on the
+  idle screen (a server thread panicked during the boot; the kernel
+  survived); the dialog eats the script's Menu press, so the Asphalt
+  run never left the idle screen (its ten "play" captures are the idle
+  loop at 84 M instr/s, 0 fps, and the held 5s dialled "55555"), while
+  Sonic's run got through by luck; (2) Tony Hawk booted without the
+  dialog, ran its menus at 15-33 fps to the course's loading bar, and
+  panicked there ("App. closed", the thread name under the overlay's
+  bars), back to the phone menu. The thread names are being read with
+  the overlay switched off through the OSD (tools/boot_profile.py's
+  overlay_on sequence toggles it).
+- **A second V2 death, rarer, same shape.** A fourth boot of the fixed
+  core (to read the panic dialog with the overlay off: the OSD toggle
+  works from tools/game_keys.py, "tap f12", 13 downs, enter, esc, esc)
+  died during the Nokia logo phase: the overlay's PC 0x5031E394 (the
+  fault epilogue's spin), the CPU retiring 104 M instr per 104 M clocks
+  with no memory beats, and the kernel's record `00250030 503b27c0
+  10000000`: an exception at PC 0x00250030 with r14 0x503B27C0, the
+  return address of `bl 0x503A7748` at 0x503B27BC, an executive-call
+  stub (`svc 0xC000BF`). So the garbage jump happened inside the
+  kernel's SWI/executive dispatch right after the SVC exception entry:
+  a wrong register value again, this time on the exception-entry flush
+  rather than the MSR's. Two builds launched: a trace core of the fixed
+  source (694252b + 78 MHz + DBG_TRACE with the small rings 4096/256/
+  256, ARM9 + DEBUG + D16; worktree ../NGage_MiSTer-v2fixt, server lane
+  b7) to capture this death's window, and the subagent resumed to
+  extend the directed test to exception-entry flushes (SWI/IRQ entry,
+  exception returns, user-mode entry with banked registers, the exec
+  dispatch's `ldr pc` pattern) and to audit every consumer of the
+  first-clock short-hit trust. The archive's executive-call list
+  (research/mega-research/Executive calls/SVC.xlsx) names the calls.
+- A second full run of the fixed core (v2fix78b): Sonic N 43.48 M
+  instr/s median (42.1-45.0; 24.5 fps; CPI 2.4; SDRAM wait 23.9 %), so
+  the two samples agree within 2 %; Asphalt and Tony Hawk derailed at
+  the idle screen again (the panic dialog on both boots this time, the
+  dialled "5555" digits in their captures). A dialog-tolerant variant,
+  tools/run_games_78d.sh (a left-soft-key press before the Menu key:
+  it dismisses the dialog when present and opens Contacts when not,
+  and the Menu key opens the main menu from either), ran Asphalt and
+  Tony Hawk alone (v2fix78c).
+- **The exception-entry sweep finds nothing more** (the subagent,
+  codex/arm9v2 72e50e5 sim/cpu/tests/arm9_swi_lock_rtl.S, 2bbe79d the
+  report, 36a4544): 584 cases × cold/warm × three memory configurations
+  (1,752 runs) of SWI and IRQ entries from SVC and USR, `movs pc,lr`,
+  `ldm ^` and `subs pc,lr,#4` returns, with the younger-writer pair,
+  a table dispatch `ldr pc,[r1,r2,lsl #2]`, `bx`/`mov pc` through the
+  loaded register, younger writers of the new mode's lr and sp, and
+  copies of the kernel's exec-call entry and return; lit1 departing
+  under a store miss, TLB-missing or cold. Before the first fix V2
+  failed 318/357/407 of them through every flush kind except `ldm ^`;
+  after it none (the hazard itself was hit 822-1,166 times per run).
+  ZAP passes (a bench assertion in the shared cache fired on idle
+  clocks and was limited to clocks with an access). 294/294 runs in all
+  three configurations, 291 earlier runs cycle-identical, QEMU 73/73.
+  The audit of the first-clock short-hit trust: D2's WAW exception was
+  the only consumer needing the hit to complete now; the readers (S's
+  pending bit, the S/A waits and grants, W's forwarded word) need only
+  the data, the PC-load fast path requires the ACK, the return matches
+  and quick_reload come from completion or registered locks. Ranked
+  candidates for PC 0x00250030 (the abort handler records the aborted
+  mode's lr, and 0x503B27C0 is the user caller's, so the PC went wrong
+  on the way back to user mode): (1) a stale word through V2's short
+  D-cache port on a store-then-reload (the context save/resume reloads
+  the saved PC and SPSR a few instructions after storing them,
+  0x50321638-0x50321670); (2) the readers' premise failing on a
+  half-installed line at the fill's install edge; (3) V2's fetch queue
+  releasing pending entries on any I-fill completion, so a wrong
+  instruction word could execute after a redirect.
+  Its result: **Asphalt 41.40 M instr/s** median (41.1-42.3; 21 fps;
+  CPI 2.5; SDRAM wait 30.1 %) against the ZAP control's 32.30 at 14
+  fps: +28 % in instructions, +50 % in frames. Tony Hawk ran its menus
+  (16-27 fps) and panicked at the course load again, the second time
+  of two, back to the phone menu: a reproducible V2-only failure for
+  the trace core. The three V2 numbers so far against ZAP's control,
+  per 104 M clocks: Sonic 44.4 / 43.5 vs 31.6, Asphalt 41.4 vs 32.3,
+  Tony Hawk none yet vs 31.3; the goal is 47.
