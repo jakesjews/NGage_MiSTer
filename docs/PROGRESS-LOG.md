@@ -4632,3 +4632,30 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   waits for its last beat before a word may execute), with the 16 KB
   D-cache switch to be re-measured on the stripped tree, where it now
   fits.
+- **The I-fetch early-execution gate, cache side** (the memory thread,
+  codex/memside3 cb49df3, d533b3c from 8e965db; docs/consults/
+  2026-10-24-codex-memside3-report.md in the worktree). The bridge now
+  says with a fill's first beat whether the remaining beats can error
+  (`no_late_error`, one registered bit in upp_bus): SDRAM and its
+  mirror, on-chip RAM, and ordinary flash array line reads in
+  read-array mode are guaranteed; flash command/status modes, EMIF
+  registers, peripherals, unmapped targets, uncached and non-wrap
+  reads are not. The I-cache FSM keeps the bit with the demand fill
+  (one more register) and releases each guaranteed word as executable
+  when its early-restart bypass is valid; error-capable fills keep the
+  full-fill quarantine; the late-error assertions and a directed test
+  with errors injected on beats 2-4 of an error-capable fill stay.
+  231/231, 57 QEMU, 100 runs of 34 tests move, -0.03 % in total. The
+  finding that limits it: ZAP's fetch-to-FIFO handshake (zap_core uses
+  code_stall both to hold the fetch output register and to inhibit the
+  FIFO write) makes a received word wait for the NEXT fetch ACK before
+  it is queued, so with the missed word at +0/+4/+8 the next word
+  arrives in the same fill and retirement still precedes the last
+  beat, but at +12 the critical word waits for the whole fill and the
+  next line's response. The thread stopped on the scope rule (no
+  ZAP-pipeline changes) and proposes a one-bit consumed marker letting
+  the held word enqueue once while the next request waits; the
+  question is open. The wb branch's seed-2 point for the record:
+  -1.302 ns against -0.956 without it. The measurement core of
+  memside3 is building for the board; the 16 KB D-cache stripped
+  build runs on the Mac.
