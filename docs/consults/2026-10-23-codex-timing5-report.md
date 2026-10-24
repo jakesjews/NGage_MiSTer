@@ -946,7 +946,13 @@ slot; it does not silently change that ordering rule.
 All 4,038 actual issue-module comparison points prove without assumptions.
 All 225 counts, 57 QEMU comparisons, both lint modes and generated checks
 pass. There is no new register, RAM or pipeline edge. The pre-fit group
-covers all issue-stall and pending-register inputs. Its seed-1 fit is running against `combined3`; it is not retained.
+covers all issue-stall and pending-register inputs. Its first fit improves the combined family from −0.634 to −0.592 ns:
+stall feedback is −0.228 ns, but pending capture becomes the limit, from a
+saved operand index through writer/admission logic to shift-source pending.
+Whole-core slack is −0.694 ns, limited by Thumb validity into a retimed PC
+register. The fit uses 35,360 ALMs and 479 M10Ks, minimum four-corner hold
++0.081 ns; all 149 inputs and the build date match. Seed 2 is running.
+The 0.042 ns first-seed gain alone does not qualify it for retention.
 
 **Classification before each micro-op case (`classifycase`):** the failed
 first classification seed still runs from Thumb instruction-valid into
@@ -1024,6 +1030,36 @@ take 31,071,940 clocks with 4,119 marks. The complete shell benches also match a
 159,279,244 clocks and every reported memory transaction count. Pre-fit acceptance covers both sides of the original RAM and all
 new pending-write/read-forward registers. This is an unfitted fallback; the
 baseline supplementary queries must run before any candidate fit.
+
+**Raw metadata banks with shared forwarding (`icread4`):** a new version
+of the parked valid/LRU split targets `combined3` seed 3's PC-to-LRU path
+(−0.599 ns). Capture raw 16-set partial reads, the high set index, and one
+pending-update forwarding decision per metadata field at the original
+stage-one edge. Apply that registered forwarding decision after selecting
+the partial result. This removes the replicated forwarding logic from each
+bank's input. No valid/LRU array update, dirty bit, tag compare, replacement
+policy or hit-under-miss behavior changes. The dedicated high-index capture
+keeps the metadata enable, including clear while held; it does not reuse the
+lookup index register, whose enable differs.
+
+Equivalence of the extracted actual capture/forwarding RTL passes with
+shared arbitrary metadata-array/control inputs: two-way caches with 256,
+512 and 1,024 sets, a 128-set direct-mapped cache and an eight-set two-way
+case. This covers every original metadata output under arbitrary holds,
+resets, clears and update collisions; the array-write and control producers
+are unchanged. All 225 CPU counts, 57 comparisons, both lint modes and
+generation/checks pass, with ten `input reg` occurrences. The prospective
+family includes both incoming and outgoing stage-one paths on both caches,
+including the new forwarding registers. Its fit and baseline supplementary
+queries are not queued; area savings remain unmeasured.
+
+The newer `nextjoin2` preview combines the complete per-slot forwarding
+trial with factoring and case-local classification. It passes all 225 exact
+counts, 57 comparisons, both lint modes and generated checks. Its joined
+issue proof passes all 2,806 points under the independently proved ALU/shifter
+contract, and its predecode sources match the classifier proof. This preview
+is also unfitted and unretained; only individually qualifying changes may
+advance to the retained combination.
 
 ## Scope and risks
 
