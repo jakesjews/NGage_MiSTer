@@ -4288,3 +4288,16 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   codex/dstore from master: the store miss completing at the fill's
   launch and the dirty victim's write-back deferred behind the fill
   (the Pocket core's two measured gains, 4-5 % and 2-3 %).
+- **b26 on the main slot** (the user: "smoke-test the b26 core (boot
+  and a game) and put it on the main slot if it passes"). Smoke-tested
+  on the debug slot with the Sonic sequence of tools/run_games.sh: the
+  idle screen with the clock and the date at 100 s, the phone menu with
+  SonicN, Sonic's intro and title, Neo Green Hill in play (the game's
+  timer 0:13.27 at the second play capture, 0:20.20 at the fourth:
+  6.9 s of game time in 7.0 s of wall time; captures in
+  build/hardware/game/smoke-b26/). Copied over
+  `_Console/_NGage/NGage_20261023.rbf` (md5 c0739aa2...; the seed-9
+  loader core it replaces is -0.671, this one -0.395), b25 back on
+  `_Debug/NGageDbg_20261023.rbf` (744cce36...), the launchers
+  unchanged. The main slot booted Sonic from its own launcher
+  afterwards (captures in build/hardware/game/smoke-b26-main/).
