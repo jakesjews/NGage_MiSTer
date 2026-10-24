@@ -4592,3 +4592,15 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   netlist check pass. The main checkout's tools now decode the debug
   slot's instrumented core. The rbf build/hardware/NGage-ms-s9.rbf is
   the main-slot candidate (same speed, 0.14 ns more slack).
+- **Seed 9 of the merged tree on the main slot** (the user: "smoke-test
+  the merged tree's seed-9 core (boot and a game) and put it on the
+  main slot if it passes"). The Mac's build of eeb1e47 (the tree of
+  7d429fe) at seed 9, -0.734 ns, smoke-tested on the debug slot with
+  the Sonic sequence: the idle screen with the clock and the date, the
+  menu, Sonic's title, Neo Green Hill in play (the game's timer 0:13.48
+  to 0:20.45 across 6.9 s of wall time; captures in
+  build/hardware/game/smoke-ms-s9/). Copied over
+  `_Console/_NGage/NGage_20261023.rbf` (md5 76766144...; it replaces
+  dst-s9 at -0.872, same speed), the instrumented core msd-s2 back on
+  the debug slot; the main slot's own boot with the user's save in
+  build/hardware/game/smoke-ms-s9-main/.
