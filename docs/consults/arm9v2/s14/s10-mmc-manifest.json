@@ -1,0 +1,28 @@
+{
+  "pid": 1565751,
+  "started_utc": "2026-10-24T20:02:44.753841+00:00",
+  "args": [
+    "/home/jacob/dev/mister/coreboot/arm9v2-s14-s10-mmc/coreboot/Vemu",
+    "+verilator+seed+1",
+    "+verilator+rand+reset+2",
+    "--cs0",
+    "/home/jacob/dev/mister/coreboot/img/cs0.bin",
+    "--cs1",
+    "/home/jacob/dev/mister/coreboot/img/cs1-board.bin",
+    "--mmc",
+    "/home/jacob/dev/mister/coreboot/img/sonicn.mmc",
+    "--keys",
+    "/home/jacob/dev/mister/coreboot/img/sonic.keys",
+    "--out",
+    "/home/jacob/dev/mister/coreboot/arm9v2-s14-s10-mmc/game",
+    "--devlog",
+    "--fault-history",
+    "65536",
+    "--progress",
+    "104000000",
+    "--cycles",
+    "4160000000"
+  ],
+  "binary_sha256": "21ca5eb45b9dae59ace9d56b2517a45586733b956d16c4bbf1477f3a087f1a5e",
+  "variant": "Frozen S10 D8 plus only HPS burst-length fix and fault recorder"
+}
