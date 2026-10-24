@@ -88,6 +88,7 @@ module hps_io #(
 	reg         sim_readonly /* verilator public_flat_rw */ = 0;
 	reg  [63:0] sim_size /* verilator public_flat_rw */ = 0;
 	wire [31:0] sim_sd_lba /* verilator public_flat_rd */ = sd_lba[0];
+	wire  [5:0] sim_sd_blk_cnt /* verilator public_flat_rd */ = sd_blk_cnt[0];
 	wire        sim_sd_rd /* verilator public_flat_rd */ = sd_rd[0];
 	wire        sim_sd_wr /* verilator public_flat_rd */ = sd_wr[0];
 	wire [15:0] sim_sd_din /* verilator public_flat_rd */ = sd_buff_din[0];

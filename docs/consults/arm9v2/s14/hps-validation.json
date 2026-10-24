@@ -1,0 +1,26 @@
+{
+  "harnesses": {
+    "coreboot-V2": "pass",
+    "coreboot-ZAP": "pass",
+    "top-V2": "pass",
+    "top-ZAP": "pass"
+  },
+  "sectors": [
+    1,
+    2,
+    5,
+    8,
+    32
+  ],
+  "old_limit_negative_control": {
+    "exit_code": 1,
+    "failed_sector_counts": [
+      2,
+      5,
+      8,
+      32
+    ]
+  },
+  "scope": "Actual host adapters, synthetic requests, no RTL clocks after construction; whole-core firmware proof pending",
+  "cpu_gen_check": "pass"
+}

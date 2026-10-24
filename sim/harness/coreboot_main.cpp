@@ -189,7 +189,7 @@ struct Bench {
 	SdramChip chip{9};
 	// MMC image on SD slot 0
 	std::vector<uint8_t> img;
-	int sd_state = 0, sd_delay = 0, sd_word = 0;
+	int sd_state = 0, sd_delay = 0, sd_word = 0, sd_words = 0;
 	uint32_t sd_lba = 0;
 	uint64_t sd_reads = 0, sd_writes = 0;
 
@@ -304,6 +304,7 @@ struct Bench {
 		case 0:
 			if (h.emu__DOT__hps_io__DOT__sim_sd_rd) {
 				sd_lba = h.emu__DOT__hps_io__DOT__sim_sd_lba;
+				sd_words = 256 * (h.emu__DOT__hps_io__DOT__sim_sd_blk_cnt + 1);
 				sd_delay = 100;
 				sd_state = 1;
 			}
@@ -314,7 +315,7 @@ struct Bench {
 		case 2:
 			if (--sd_delay > 0) break;
 			sd_delay = 2;
-			if (sd_word < 256) {
+			if (sd_word < sd_words) {
 				size_t off = (size_t)sd_lba * 512 + sd_word * 2;
 				h.emu__DOT__hps_io__DOT__sim_sd_addr = sd_word;
 				h.emu__DOT__hps_io__DOT__sim_sd_dout = off + 1 < img.size() ? (uint16_t)(img[off] | img[off + 1] << 8) : 0;

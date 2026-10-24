@@ -27,7 +27,7 @@ RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
 BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash trace upp intc timers haudio periph save phoenix top
 
-.PHONY: test $(BENCHES) coreboot clean
+.PHONY: test $(BENCHES) coreboot hps-read-test clean
 
 test:
 	@for b in $(BENCHES); do $(MAKE) --no-print-directory $$b || exit 1; done
@@ -216,6 +216,7 @@ $(BUILD)/top/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/top_main.cpp
 		$(TOP_RTL) $(ROOT)/sim/harness/top_main.cpp
 top: $(BUILD)/top/Vemu | $(OUT)
 	cd $(ROOT) && $< $(RUNFLAGS) --out $(OUT)
+	cd $(ROOT) && sim/harness/hps_read_test.sh $(BUILD)/top $(CORE_CFLAGS)
 
 # The firmware on the whole core (sim/harness/coreboot_main.cpp): not in
 # `make test`, it needs the flash images (tools/mkimage.py; firmware, never
@@ -234,6 +235,10 @@ $(BUILD)/coreboot/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/coreboo
 		$(if $(filter-out 1,$(CORE_THREADS)),--threads $(CORE_THREADS)) \
 		--top-module emu -DNGAGE_DEBUG=1 --Mdir $(BUILD)/coreboot -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
 		$(ROOT)/sim/harness/coreboot.vlt $(TOP_RTL) $(PROFILE_FILES) $(ROOT)/sim/harness/coreboot_main.cpp
+# Exercise the firmware bench's HPS adapter without firmware images.
+hps-read-test: $(BUILD)/coreboot/Vemu
+	cd $(ROOT) && sim/harness/hps_read_test.sh $(BUILD)/coreboot $(CORE_CFLAGS) $(if $(filter 1,$(CORE_PROFILE)),-DCPU_PROFILE=1)
+
 coreboot: $(BUILD)/coreboot/Vemu
 	mkdir -p $(CORE_OUT)
 	cd $(ROOT) && $< $(RUNFLAGS) --cs0 $(CORE_CS0) --cs1 $(CORE_CS1) $(if $(CORE_MMC),--mmc $(CORE_MMC)) --out $(CORE_OUT) $(CORE_ARGS)
