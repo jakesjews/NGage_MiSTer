@@ -4387,3 +4387,49 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   cost side is the one-seed stripped fit at -0.956 ns against b26's
   -0.395; seeds 9 and 18 of the stripped core are building to say
   whether that is placement. dstd stays on the debug slot meanwhile.
+- **codex/dstore merged (a69e840); seed 9 of the tree on the main
+  slot** (the user: "Merge codex/dstore into master now; then one
+  stripped build of the merged tree at the best seed, a Sonic smoke
+  test, and the main slot if it passes"). The merge is clean (the
+  branch is from f12bb8a and master had only log entries since); both
+  lints and the netlist check (input reg 10) pass. Three stripped
+  seeds of the tree (the RTL of 29312a6 is the merged tree's RTL;
+  build/sweeps/dst-s*/, build/hardware/NGage-dst-s*.rbf): seed 2
+  -0.956 (Codex's fit), seed 9 **-0.872**, seed 18 -1.025, 36,657
+  ALMs (87 %); the previous tree at the same seeds: -0.395, -0.671,
+  -1.260, so about 0.3 ns worse at the median, with the worst paths
+  differing by seed (the merger's cycle into upp_bus's acknowledge,
+  decode's shift source, upp_bus's data register), none through the
+  new logic. Seed 9 smoke-tested on the debug slot (the idle screen,
+  the menu, Sonic's title, Neo Green Hill: the game's timer 0:13.25
+  to 0:20.32 across 7.1 s of wall time; captures in
+  build/hardware/game/smoke-dst-s9/), then copied over
+  `_Console/_NGage/NGage_20261023.rbf` (md5 e49c64b2...); the debug
+  slot holds the tree's measurement core dstd-s2 (NGAGE_DEBUG, -1.171
+  ns, md5 8215a65b...), so the per-second numbers come from the same
+  RTL as the main slot. The main slot's own boot and menu with the
+  user's save: build/hardware/game/smoke-dst-s9-main/.
+- **ARM9 v2, session 5: the cache fix accepted, stopped at the -2 ns
+  rule** (Codex, codex/arm9v2 c85eacc, 5609a2c;
+  docs/consults/2026-10-23-codex-arm9v2-s5.md). The short D-port's
+  replacement state now updates from the accepted response's
+  registered way and address, hits under a fill included, with a
+  same-set bypass into the next lookup's victim choice; a parameter on
+  the shared tag manager that only the short port enables, the FSM
+  untouched: 261/261 in ZAP and both V2 predictor modes, ZAP's counts
+  unchanged. Its seed-2 integrated fit fell to -2.549 ns, through an
+  existing family (the lock through retirement's write-through into
+  decode's operand capture), so the thread registered the RF
+  write-through selection before S's operand mux (every count
+  unchanged, 15,745 ALMs, 4.9 % below ZAP in the same wrapper): -2.109
+  ns at seed 2, still past the -2 ns stop, and it stopped there as
+  told. Three families remain (M's valid through S forwarding and the
+  rotator into A, the memory check record through FCSE into the
+  D-TLB, W's destination through the load lock into the RF write
+  data). The cycle model is unchanged: the LDR-to-dependent window
+  is still 8 clocks (five extra), the random tests sit at V2/ZAP
+  1.016 / 0.963 / 0.989 (crand1 at 0:0 / 0:3 / 2:9). Session 6
+  launched: merge master (the deferred write-back) and re-baseline,
+  then the three cuts to get back above -2 ns and within about 1 ns
+  of ZAP, then the three-clock pickup, the RAS checkpoint, and the
+  V2/ZAP table with the random tests at 0:3 and 2:9 as the judge.
