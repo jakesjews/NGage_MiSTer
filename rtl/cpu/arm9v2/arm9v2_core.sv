@@ -218,7 +218,12 @@ output  logic [7:0]                      o_dbg_stall
     logic [3:0] d_kind;
     logic [3:0] d_condition;
     logic [3:0][5:0] d_tag;
-    logic [3:0] d_used;
+    logic [3:0] d_used,d_early;
+    logic [3:0][2:0][1:0] d_forward_match;
+    logic [2:0][1:0][5:0] forward_tag;
+    logic [2:0][1:0] forward_write;
+    logic [1:0][5:0] a_next_tag;
+    logic [1:0] a_next_write;
     logic [3:0][31:0] d_value;
     logic [1:0][5:0] d_dest;
     logic d_first;
@@ -375,6 +380,21 @@ output  logic [7:0]                      o_dbg_stall
     // the mask through the record's live valid/pass/fault cone.
     assign mw_write[0]=m.writes;
     assign mw_write[1]=w.writes;
+    always_comb begin
+        forward_tag={w.dest,m.dest,a_next_tag};
+        forward_write={w.writes,m.writes,a_next_write};
+        if(memory_state==RUN&&done)begin
+            forward_tag[1]=input_record.dest;forward_write[1]=input_record.writes;
+            forward_tag[2]=m.dest;forward_write[2]=m.writes;
+        end
+        if(memory_state==RELOAD1)begin
+            forward_tag[1]=skid.dest;forward_write[1]=skid.writes;
+            forward_tag[2]=m.dest;forward_write[2]=m.writes;
+        end
+        if((memory_state==HOLD&&done)||(memory_state==ABORT&&done)||
+            (memory_state==LOAD_RETURN&&!i_dc_lock[w.dest[0]]&&w.kind!=SWP&&done))forward_write[2]=0;
+        if(i_reset||wb_flush)forward_write=0;
+    end
     assign wa=wb_valid&&wb_tag0!=16?40'd1<<wb_tag0:40'd0;
     assign wb=wb_valid&&wb_pair&&wb_tag1!=16?40'd1<<wb_tag1:40'd0;
     assign wc=i_dc_reg_idx[39:0];
@@ -587,10 +607,11 @@ output  logic [7:0]                      o_dbg_stall
     wire unused=&{1'b0,LOAD_FORMATTED,BP_ENTRIES,FIFO_DEPTH,RAS_DEPTH,CP,UND,SWI,MRS,BR,PREFIX,MUL,MULL,
         i_instr_data_early,i_instr_hit,cp_seen,d_ready,d_raw,d_mode,d_reg_count,d_transfer_reg,d_pred_kind,
         a_flags,a_write_flags,a_store,a_btb_kind,a_predicted,a_psr_source,a_saved_psr,a_spsr_tag,
-        data_pc8,pc,ins,ex_result,load_capture,load_commit,load_value};
+        d_early,data_pc8,pc,ins,ex_result,load_capture,load_commit,load_value};
 
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1)) u_front_decode (
-        .o_writes(),.i_clk(i_clk),
+        .o_writes(),.o_early(d_early),.i_forward_tag(forward_tag),
+        .i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_reset(i_reset),
         .i_flush(wb_flush||a_redirect),
         .i_mode(cpsr[4:0]),
@@ -678,7 +699,7 @@ output  logic [7:0]                      o_dbg_stall
         .o_stall(o_code_stall)
     );
     arm9v2_execute u_execute (
-        .i_admit(backend_ready),
+        .i_admit(backend_ready),.i_forward_match(d_forward_match),.o_next_tag(a_next_tag),.o_next_write(a_next_write),
         .o_a_load(a_a_load),.o_psr_source(a_psr_source),.o_saved_psr(a_saved_psr),.o_original_base(a_original_base),.o_next_pc(a_next_pc),.o_prediction_target(a_prediction_target),.o_spsr_tag(a_spsr_tag),.o_predicted(a_predicted),
         .i_clk(i_clk),
         .i_reset(i_reset),

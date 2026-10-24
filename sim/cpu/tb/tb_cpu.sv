@@ -250,6 +250,18 @@ module tb_cpu #(
 	assign p_alu_dst = 0;
 	assign p_sh_dbg = 0;
 	assign p_mult_state = 0;
+    // Compare the look-ahead matches with the producers actually occupying
+    // their registers now, including all hold/retry/reload transitions.
+    wire [35:0] producer_tags={`A9.mw_tag,`A9.a_dest};
+    wire [5:0] producer_writes={`A9.mw_write,`A9.a_write};
+    wire [23:0] source_tags=`A9.d_tag;
+    wire [23:0] source_matches=`A9.d_forward_match;
+    always @(posedge clk) if(!reset&&`A9.d_valid)
+        for(int src=0;src<4;src++)for(int prod=0;prod<3;prod++)for(int lane=0;lane<2;lane++)
+            assert (source_matches[src*6+prod*2+lane] ==
+                (`A9.d_used[src]&&producer_writes[prod*2+lane]&&
+                source_tags[src*6+:6]==producer_tags[prod*12+lane*6+:6]))
+                else $fatal(1,"ARM9 forwarding match lost its producer/consumer owner");
 	`undef A9
 	end
 	// These assertions also run against the baseline netlist: they observe

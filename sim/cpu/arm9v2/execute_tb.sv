@@ -48,8 +48,15 @@ module execute_tb;
     logic o_a_load,o_predicted;
     logic [31:0] o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target;
     logic [5:0] o_spsr_tag;
+    logic [3:0][2:0][1:0] i_forward_match;
+    wire [2:0][1:0][5:0] producer_tag={i_mw_tag,o_dest};
+    wire [2:0][1:0] producer_write={i_mw_valid,o_write};
+    always_comb for(int src=0;src<4;src++)for(int prod=0;prod<3;prod++)for(int lane=0;lane<2;lane++)
+        i_forward_match[src][prod][lane]=i_used[src]&&producer_write[prod][lane]&&i_tag[src]==producer_tag[prod][lane];
+    logic [1:0][5:0] o_next_tag;
+    logic [1:0] o_next_write;
     arm9v2_execute dut(.*);
-    wire unused=&{1'b0,o_a_load,o_predicted,o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target,o_spsr_tag,o_btb_update,o_btb_taken,o_btb_hit,o_btb_target,o_btb_state,o_btb_kind,o_a_can_finish,o_s_write,o_ready,o_valid,o_pc,o_instruction,o_cpsr,o_cpsr_next,o_kind,o_thumb,o_fault,o_first,o_last,o_condition_pass,o_dest,o_result,o_write,o_write_flags,o_pc_write,o_memory,o_store,o_address,o_store_data,o_flags,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_a_valid,o_a_dest,o_a_write,o_shift_wait,o_multiply_wait};
+    wire unused=&{1'b0,o_next_tag,o_next_write,o_a_load,o_predicted,o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target,o_spsr_tag,o_btb_update,o_btb_taken,o_btb_hit,o_btb_target,o_btb_state,o_btb_kind,o_a_can_finish,o_s_write,o_ready,o_valid,o_pc,o_instruction,o_cpsr,o_cpsr_next,o_kind,o_thumb,o_fault,o_first,o_last,o_condition_pass,o_dest,o_result,o_write,o_write_flags,o_pc_write,o_memory,o_store,o_address,o_store_data,o_flags,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_a_valid,o_a_dest,o_a_write,o_shift_wait,o_multiply_wait};
     int checks=0,cycles=0;
     logic [31:0] random_state=32'h315d97af;
     function automatic logic [31:0] rnd;

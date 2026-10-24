@@ -14,6 +14,9 @@ module arm9v2_execute (
     input logic [3:0] i_kind,i_condition,
     input logic [3:0][5:0] i_tag,
     input logic [3:0] i_used,
+    input logic [3:0][2:0][1:0] i_forward_match,
+    output logic [1:0][5:0] o_next_tag,
+    output logic [1:0] o_next_write,
     input logic [3:0][31:0] i_value,
     input logic [1:0][5:0] i_dest,
     input logic signed [7:0] i_offset,i_writeback_offset,
@@ -83,8 +86,6 @@ module arm9v2_execute (
     (* dont_retime *) logic signed [33:0] ll,lh,hl,hh;
     (* dont_retime *) logic [63:0] product_saved,accumulator;
     logic [2:0][1:0][31:0] producer_value;
-    logic [2:0][1:0][5:0] producer_tag;
-    logic [2:0][1:0] producer_valid;
     logic [3:0][31:0] forwarded,operand;
     logic [31:0] shift_input,shifted;
     logic [7:0] shift_amount;
@@ -97,16 +98,20 @@ module arm9v2_execute (
     logic [63:0] product,mac_result,mult_result;
     logic [31:0] actual_target;
     logic actual_thumb,wrong_prediction;
-    wire unused=&{1'b0,i_cpsr[27:0],CP,UND,SWI,actual_target[0],lh[33:32],hl[33:32],hh[33:32]};
+    wire unused=&{1'b0,i_cpsr[27:0],i_used[2],i_mw_tag,i_mw_valid,CP,UND,SWI,actual_target[0],lh[33:32],hl[33:32],hh[33:32]};
     assign producer_value={i_mw_value,o_result};
-    assign producer_tag={i_mw_tag,o_dest};
-    // o_write is already registered with condition/fault/PC qualification,
-    // and is cleared whenever o_valid is cleared. Keep this bounded mask
-    // at the producer boundary rather than rebuilding validity inside S.
-    assign producer_valid={i_mw_valid,o_write};
-    arm9v2_forward u_forward(.i_value(holding?held:i_value),.i_tag(i_tag),.i_used(i_used),
-        .i_producer_value(producer_value),.i_producer_tag(producer_tag),
-        .i_producer_valid(producer_valid),.o_value(forwarded));
+    arm9v2_forward u_forward(.i_value(holding?held:i_value),.i_match(i_forward_match),
+        .i_producer_value(producer_value),.o_value(forwarded));
+    // Look ahead only to the bounded registered producer control, never data
+    // or cache readiness. D2 captures its comparisons at the same edge.
+    always_comb begin
+        o_next_tag=o_dest;o_next_write=i_ready?2'b0:o_write;
+        if(finish)begin
+            o_next_tag=a.dest;o_next_write=a.writes&{2{condition_pass&&!a.fault}};
+            for(int lane=0;lane<2;lane++)if(a.dest[lane]==15)o_next_write[lane]=0;
+        end
+        if(i_reset||i_flush)o_next_write=0;
+    end
     always_comb begin
         operand=forwarded;
         for(int s=0;s<4;s++)begin

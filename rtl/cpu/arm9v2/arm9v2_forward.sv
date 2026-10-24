@@ -4,11 +4,8 @@
 // Pending destinations are interlocked in D2, never inside this data selector.
 module arm9v2_forward (
     input logic [3:0][31:0] i_value,
-    input logic [3:0][5:0] i_tag,
-    input logic [3:0] i_used,
+    input logic [3:0][2:0][1:0] i_match,
     input logic [2:0][1:0][31:0] i_producer_value,
-    input logic [2:0][1:0][5:0] i_producer_tag,
-    input logic [2:0][1:0] i_producer_valid,
     output logic [3:0][31:0] o_value
 );
     logic [3:0][5:0] match_word,grant;
@@ -19,8 +16,7 @@ module arm9v2_forward (
             // Control priority is separate from the wide data mux. A masked
             // OR tree avoids putting all six destination lanes in series.
             for(int rank=0;rank<6;rank++)begin
-                match_word[s][rank]=i_used[s]&&i_producer_valid[rank/2][1-rank%2]&&
-                    i_tag[s]==i_producer_tag[rank/2][1-rank%2];
+                match_word[s][rank]=i_match[s][rank/2][1-rank%2];
                 grant[s][rank]=match_word[s][rank]&&!seen[s];
                 seen[s]|=match_word[s][rank];
                 o_value[s]|=i_producer_value[rank/2][1-rank%2]&{32{grant[s][rank]}};

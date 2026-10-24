@@ -147,5 +147,5 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
             32'(o_request) ^
             32'(o_stall);
     end
-    arm9v2_front_decode u_front_decode (.o_writes(),.*);
+    arm9v2_front_decode u_front_decode (.o_writes(),.o_early(),.i_forward_tag('0),.i_forward_write('0),.o_forward_match(),.*);
 endmodule

@@ -26,6 +26,11 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     output logic [3:0][5:0] o_rf_tag,
     input logic [5:0][5:0] i_load_tag,
     input logic [5:0] i_load_valid,
+    // Tags/eligibility of the producers that will exist after this edge.
+    input logic [2:0][1:0][5:0] i_forward_tag,
+    input logic [2:0][1:0] i_forward_write,
+    (* dont_retime *) output logic [3:0][2:0][1:0] o_forward_match,
+    output logic [3:0] o_early,
     input logic i_ready,
     output logic o_valid,
     output logic [31:0] o_pc, o_instruction, o_pc_base, o_next_pc,
@@ -75,7 +80,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
         packet_t p;
         logic [3:0] kind, condition;
         logic [3:0][5:0] tag;
-        logic [3:0] used;
+        logic [3:0] used,early;
         logic [1:0][5:0] dest;
         logic [1:0] writes;
         logic [31:0] target;
@@ -387,6 +392,17 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
             end
             default:;
         endcase
+        // Needed before S/A: shifted Rm, register shift count, multiply
+        // factors. Bases, unshifted words, store data and accumulators are late.
+        case(decoded.kind)
+            K_DP:begin
+                decoded.early[1]=decoded.used[1]&&front.ins[11:4]!=0;
+                decoded.early[2]=decoded.reg_shift;
+            end
+            K_MEM:decoded.early[1]=decoded.used[1]&&front.ins[27:26]==1&&front.ins[11:4]!=0;
+            K_MUL,K_MULL:decoded.early=4'b0110;
+            default:;
+        endcase
         decoded.target=front.half_branch?thumb_target:arm_target;
         // Target selection has its own shallow class bits. It must not wait
         // for the complete ISA classifier (multiply, CP15, undefined, etc.).
@@ -400,7 +416,16 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
         end
         // A fetch fault is one exception record, independent of the invalid
         // instruction bits. It cannot wait for operands or expand a block.
-        if(front.fault)begin decoded.direct=0;decoded.used=0;decoded.writes=0;decoded.last=1;end
+        if(front.fault)begin decoded.direct=0;decoded.used=0;decoded.early=0;decoded.writes=0;decoded.last=1;end
+    end
+    assign o_early=issued.early;
+    always_ff @(posedge i_clk)begin
+        if(i_reset||i_flush)o_forward_match<=0;
+        else for(int src=0;src<4;src++)for(int prod=0;prod<3;prod++)for(int lane=0;lane<2;lane++)
+            if(!out_valid||i_ready)o_forward_match[src][prod][lane]<=d2.used[src]&&
+                i_forward_write[prod][lane]&&d2.tag[src]==i_forward_tag[prod][lane];
+            else o_forward_match[src][prod][lane]<=issued.used[src]&&
+                i_forward_write[prod][lane]&&issued.tag[src]==i_forward_tag[prod][lane];
     end
     assign next_remaining=clear_first(d2.remaining);
     assign next_register=first16(d2.remaining[14:0]);
