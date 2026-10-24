@@ -203,7 +203,8 @@ output  logic [31:0]                     o_dbg_wb_cpsr_nxt,
 // side's bus wait, the fetch's, no instruction out of the fetch FIFO, the
 // issue, shifter and decode stalls, the ALU's flush (a branch the predictor
 // got wrong) and the writeback's (an exception, a CP15 fence).
-output  logic [7:0]                      o_dbg_stall
+output  logic [7:0]                      o_dbg_stall,
+output logic [1:0] o_dbg_fetch
 
 );
 
@@ -892,7 +893,7 @@ output  logic [7:0]                      o_dbg_stall
         .o_address_check(f_address_check),
         .o_address(f_address),
         .o_request(o_instr_wb_stb),
-        .o_stall(o_code_stall)
+        .o_stall(o_code_stall),.o_dbg_fetch(o_dbg_fetch)
     );
     arm9v2_execute u_execute (
         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),

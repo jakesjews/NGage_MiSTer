@@ -4433,3 +4433,602 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   then the three cuts to get back above -2 ns and within about 1 ns
   of ZAP, then the three-clock pickup, the RAS checkpoint, and the
   V2/ZAP table with the random tests at 0:3 and 2:9 as the judge.
+- **The speed consults** (the user: "let's ask codex and antigravity
+  for a consult session. we know this is possible based on the pocket
+  core"). One brief with the facts and four questions
+  (docs/consults/2026-10-24-speed-consult-brief.md), my own plan first
+  (2026-10-24-speed-plan-mine.md), then Codex (2026-10-24-codex-speed-
+  consult.md, read-only, 9 min) and Antigravity (2026-10-24-agy-speed-
+  consult.md, plan mode, 9.5 min) independently, both with the V2
+  worktree and the Pocket core's source to read. Where all three
+  agree: V2 is the route; no CPU clock of its own (both consultants
+  work the arithmetic: 47 M/s at 104 MHz needs CPI 2.21, at 80 MHz
+  1.70, which even the Pocket's core with 64 KB caches and no kernel
+  only just reaches; a crossing costs 4-6 % on top); no port of the
+  Pocket's core (no aborts, no CP15/MMU, MCR traps to its kernel, and
+  no licence); ZAP tops out near 35-38 M/s however the memory side is
+  tuned; instrument the instruction side before buying anything there.
+  Facts the consultants found that change the reading, each checked
+  against the code: (1) the overlay's "code" stall tap is fifo_full |
+  (fetch request without ack) (zap_core.sv:664), so the 48 % in play
+  is mostly backend pressure; by beat conservation the I-cache fills
+  are about 400 K/s, 5-6 % of clocks, and the D side carries 72 % of
+  the bus beats. (2) V2's load-hazard loop (arm9v2_decode.sv:420-431)
+  compares both destination lanes against the pending loads without a
+  writes qualifier, so an instruction with one or no destination
+  stalls behind an unrelated load whenever the unused lane's default
+  matches (r0, the ABI's scratch register), which is the measured
+  7-clock independent LDR/ADD window; the RAS is wiped on every W
+  flush. (3) The I-cache FSM computes wrap-4 critical-word-first but
+  the merger drives bte 00 on the code path (zap_wb_merger.sv:212,
+  222; the D side passes it), and V2's fetch waits for the whole fill
+  instead of using the streaming words. (4) The core is configured
+  ARMv4T (arm925t.sv:104), so no ARMv5 work is owed. (5) The Pocket
+  closed its predictor-equipped CPU at 88.7 MHz median, not 96. Where
+  they differ: Codex plans V2 at 38-45 M/s at 104 MHz with 47 a
+  further gate and budgets the load fix at +2-5 M/s; Antigravity
+  projects CPI 2.12 (49 M/s) from the fetch-cycle predictor with a
+  working RAS, the load schedule, LDM/MUL and the memory levers, and
+  gives the Pocket-style split as the one change that fixes both the
+  -2.1 ns S-to-A cone and the load-use cost: operands classified in
+  D2 as early (shifted or multiplied, needed in S) or late (Rn, an
+  unshifted Rm, store data, needed only in A), the forwarding match
+  bits precomputed at the D2/S boundary, and a small late bypass at
+  A's input, so an unshifted consumer of a load stalls one clock and
+  S no longer carries the A producer's result through the rotator.
+  Codex's first structural choice is the same precomputed matches.
+  Decisions: V2 session 7 gets the early/late split with the A-stage
+  late pickup (session 6 is mid-way through the cuts); the memory
+  thread's next task is the instrumentation (the tap split, I-cache
+  fills and true wait, contention wait, TLB walk beats, debug builds
+  only) plus I-cache critical-word-first through the merger, measured
+  on the board before the merger write-back buffer (both consultants:
+  +4-6 % on ZAP, the FSM still holds in CLEAN_SINGLE about ten
+  clocks after the install), then the 16 KB D-cache once V2 has
+  ALMs to spare. Launched: the memory thread's task on codex/memside.
+- **ARM9 v2, session 6** (Codex, codex/arm9v2 7b96cc8, 51a0123,
+  9220667; docs/consults/2026-10-24-codex-arm9v2-s6.md in the worktree).
+  Master merged with the deferred write-back, both cache changes kept;
+  the new reference: 264/264 in ZAP and both V2 modes, 68 QEMU, the
+  merged integrated fit at seed 2 -1.651 ns, 15,881 ALMs. Cut 1, the
+  producer eligibility registered with the A/M/W payloads: **-1.237 ns**
+  at seed 2, 16,417 ALMs, every count unchanged; within the ~1 ns of
+  ZAP's same-wrapper -0.584 that the brief asked for. Cut 2, the
+  selected memory check registered before the D-TLB: -1.385, 0.148
+  worse at the one seed, so the thread stopped under the no-pay rule
+  (the candidate is on the branch tip, to be reverted). The leaders
+  now: the fetch queue's head select through the Thumb selection into
+  D1 (fanout 151, -1.38) and, before cut 2, still M into S's
+  forwarding and rotator into A. The cycle model is untouched (the
+  dependent LDR window 8 clocks; crand/ctrand about 1 % under ZAP at
+  2:9). Session 7 launched with the consults' structural decision:
+  true writer masks, operands classified early (shifted, multiplied)
+  or late (Rn, unshifted Rm, store data) in D2, the forwarding match
+  bits precomputed at the D2/S boundary, S selecting only from the
+  registered M/W producers, a late bypass at A's input, the load
+  schedule that follows (a late consumer of a hit load one hold, an
+  early one two), the replay contract, the RAS checkpoint; the judge
+  is crand/ctrand/mmu_page at 0:3 and 2:9 clearly under ZAP, then the
+  integrated seed-2 fit at or better than -1.237.
+- The Mac's Quartus lane is open again (the user, 2026-10-24: "mac is
+  free for builds now too"): five lanes, the server's four for the
+  Codex threads and whole-core builds, the Mac for my own sweeps and
+  measurement cores.
+- **The instruction side measured: 6-8 % of clocks, not 48** (the
+  memory thread's first step, codex/memside 50cbff0 and eeb1e47;
+  docs/consults/2026-10-24-codex-memside1-report.md in the cx-timing2
+  worktree). Eight counters under NGAGE_DEBUG split the old "code" tap
+  (kept as code-combined at word 9) into FIFO-full clocks and fetch
+  wait, and add I-cache demand fills, true fetch wait (no FIFO
+  backpressure), fill wait behind the merger's data owner, fill wait
+  behind the DMA/self-test owner, and the I- and D-TLB walk beats
+  (words 37-44; the loader words move to 45/46; the counter index is
+  six bits now, so tools/mister_dbg.py of this branch is needed for
+  this core's screenshots). The second piece makes I-cache fills
+  critical-word-first end to end (the FSM's wrap-4 was dropped by the
+  merger on the code path): 231/231, 57 QEMU, 34 tests move by
+  0.05 % in total because the fetch still gates on the whole fill. The
+  measurement core (NGAGE_DEBUG, seed 2: -1.282 ns, 37,573 ALMs, 90 %;
+  build/hardware/NGage-msd-s2.rbf) on the debug slot, the three games
+  with the branch's tools (build/hardware/game/run-msd.log), play
+  medians:
+
+  | game | M instr/s (dstd) | I-fills/s | FIFO full | true fetch wait | merger wait | TLB walk beats/s I + D |
+  |---|---:|---:|---:|---:|---:|---:|
+  | Sonic N | 30.9 (31.1) | 434 K | 42 % | 6.5 % | 1.2 % | 252 K + 159 K |
+  | Asphalt | 31.6 (31.7) | 357 K | 44 % | 6.0 % | 1.0 % | 146 K + 113 K |
+  | Tony Hawk | 30.6 (30.6) | 501 K | 36 % | 7.7 % | 1.3 % | 268 K + 192 K |
+
+  So the consultants' reading holds: the I-cache costs 6-8 % of the
+  clocks (a fill every 2.0-2.8 µs at 12-15 clocks), the merger
+  contention about 1 %, and the 42 % is the backend holding the fetch
+  FIFO full; the TLB walks are 300-460 K bus beats a second (about
+  5 % of the bus), worth a look later. Critical-word-first changes
+  nothing on the board for now; it pays only with the early-execution
+  gate removed, which is the memory thread's step after the write-back
+  buffer. The thread is on the write-back buffer now (memside2); a
+  stripped seed-9 build of the branch runs on the Mac for its slack.
+- **ARM9 v2, session 7: the split is in, the hit schedule proved, the
+  gate failed for a reason** (Codex, codex/arm9v2 16da5f9, 88e6d43,
+  f97c763, 7522ab3, 4616d9c; docs/consults/2026-10-24-codex-arm9v2-
+  s7.md in the worktree). Cut 2 reverted. Then, in five commits: the
+  load-hazard check qualified by the real destination writers; source
+  operands classified early (shifted, multiplied) or late (Rn, an
+  unshifted Rm, store data) with the forwarding matches registered at
+  the D2/S boundary; S forwarding from the registered M/W producers
+  only, a late bypass at A's input, A and M folded; the two-clock late
+  and three-clock early load pickup with a registered retirement
+  replay; W's RAS checkpoint restored on recovery. 264/264 in ZAP and
+  both V2 modes, 68 QEMU, 85 windows; the raw hit windows went from
+  7/8/8 (independent, late, early) to **3/4/5**, that is, one, two and
+  three instruction slots. Whole-test ratios V2/ZAP at 0:0: cache
+  0.904, ctrand1 0.912, crand1 0.936, mmu_page 0.949, the GBA proxies
+  0.94; at 2:9 about 0.99, the cache test 1.03. The thread stopped at
+  the gate without a fit, and its diagnosis is the useful part: the
+  random tests are three quarters uncached setup (mmu_on clears 4,096
+  table words before the cache is on: 143 K of the 185 K clocks at
+  2:9), so the ratio I set as the judge barely moves whatever the
+  pipeline does; and the post-setup remainder is 2 % SLOWER than ZAP
+  at 2:9 because the retirement replay discards younger work after a
+  scalar miss or a held access and the front end refills, so misses
+  now cost more than ZAP's hit-under-miss. Session 8 launched: measure
+  the recovery events, then make the miss cheap (a registered lock the
+  consumer waits on, younger independent work retiring past it as in
+  ZAP, replay only what must), judged on the post-setup remainder at
+  0:3 and 2:9; then the first firmware run on V2: a build macro that
+  makes the wrapper instantiate V2 with the same caches and the debug
+  taps, the emu top bench on V2, and the whole-core Verilator boot on
+  the server against ZAP's, so the measurement core can go on the
+  board, which is the number that counts.
+- **The memory branch's first step merged (counters and critical-word-
+  first); its stripped core at seed 9 fits better than the main slot's.**
+  The Mac's reopened lane built eeb1e47 stripped at seed 9: **-0.734 ns**,
+  35,839 ALMs (86 %), against dst-s9's -0.872 and 36,657 on the main
+  slot (the critical-word-first path replaced the wide line-base
+  addition with a concatenation; the counters prune away); the worst
+  path is ZAP's issue stall (stall_late_ff), not the new logic. Merged
+  into master as the first step of codex/memside (the thread continues
+  on the write-back buffer on the same branch); both lints and the
+  netlist check pass. The main checkout's tools now decode the debug
+  slot's instrumented core. The rbf build/hardware/NGage-ms-s9.rbf is
+  the main-slot candidate (same speed, 0.14 ns more slack).
+- **Seed 9 of the merged tree on the main slot** (the user: "smoke-test
+  the merged tree's seed-9 core (boot and a game) and put it on the
+  main slot if it passes"). The Mac's build of eeb1e47 (the tree of
+  7d429fe) at seed 9, -0.734 ns, smoke-tested on the debug slot with
+  the Sonic sequence: the idle screen with the clock and the date, the
+  menu, Sonic's title, Neo Green Hill in play (the game's timer 0:13.48
+  to 0:20.45 across 6.9 s of wall time; captures in
+  build/hardware/game/smoke-ms-s9/). Copied over
+  `_Console/_NGage/NGage_20261023.rbf` (md5 76766144...; it replaces
+  dst-s9 at -0.872, same speed), the instrumented core msd-s2 back on
+  the debug slot; the main slot's own boot with the user's save in
+  build/hardware/game/smoke-ms-s9-main/.
+- **The merger write-back buffer: measured, no gain, not merged**
+  (the memory thread's second step, codex/memside 64b8f33, 31466d9;
+  docs/consults/2026-10-24-codex-memside2-report.md in the worktree).
+  The D-cache hands a distinct-line dirty victim to a one-line buffer
+  in the merger on the install edge and resumes through its unlock
+  path; clean misses, hits and I-cache reads overlap the drain, a
+  second dirty miss waits, uncached and maintenance keep the drain
+  order, CP15's drain includes the buffer; 195 bits of new state, no
+  new RAM; 231/231, 57 QEMU, 0.08 % fewer suite cycles. On the board
+  (the measurement core wbd-s2: -1.401 ns, 38,342 ALMs, 91 %;
+  build/hardware/game/run-wbd.log against the instrumented baseline
+  run-msd.log, play medians): Sonic 31.07 against 30.87 M instr/s,
+  Asphalt 31.70 against 31.62, Tony Hawk 30.61 against 30.57: +0.1 to
+  +0.6 %, inside the run-to-run noise; the data-stall share 10.4 to
+  10.1 %, the SDRAM wait unchanged. So the deferred write-back already
+  took what there was: the FSM's ten clocks in CLEAN_SINGLE after the
+  install rarely block anything that matters. The cost would have been
+  real: the stripped core at seed 9 on the Mac **-1.137 ns**, 36,359
+  ALMs, against -0.734 and 35,839 for the tree without it (the worst
+  path in the D-cache tag RAM). Decision: not merged; the two commits
+  stay on codex/memside for the record, and both consultants'
+  estimates for a write buffer (+4-6 %; +0.8-2 M/s) were wrong for
+  this core. The debug slot is back on msd-s2, master's measurement
+  core. The memory thread's next step: the I-fetch early-execution
+  gate (the true fetch wait is 6-8 % of clocks and every fill still
+  waits for its last beat before a word may execute), with the 16 KB
+  D-cache switch to be re-measured on the stripped tree, where it now
+  fits.
+- **The I-fetch early-execution gate, cache side** (the memory thread,
+  codex/memside3 cb49df3, d533b3c from 8e965db; docs/consults/
+  2026-10-24-codex-memside3-report.md in the worktree). The bridge now
+  says with a fill's first beat whether the remaining beats can error
+  (`no_late_error`, one registered bit in upp_bus): SDRAM and its
+  mirror, on-chip RAM, and ordinary flash array line reads in
+  read-array mode are guaranteed; flash command/status modes, EMIF
+  registers, peripherals, unmapped targets, uncached and non-wrap
+  reads are not. The I-cache FSM keeps the bit with the demand fill
+  (one more register) and releases each guaranteed word as executable
+  when its early-restart bypass is valid; error-capable fills keep the
+  full-fill quarantine; the late-error assertions and a directed test
+  with errors injected on beats 2-4 of an error-capable fill stay.
+  231/231, 57 QEMU, 100 runs of 34 tests move, -0.03 % in total. The
+  finding that limits it: ZAP's fetch-to-FIFO handshake (zap_core uses
+  code_stall both to hold the fetch output register and to inhibit the
+  FIFO write) makes a received word wait for the NEXT fetch ACK before
+  it is queued, so with the missed word at +0/+4/+8 the next word
+  arrives in the same fill and retirement still precedes the last
+  beat, but at +12 the critical word waits for the whole fill and the
+  next line's response. The thread stopped on the scope rule (no
+  ZAP-pipeline changes) and proposes a one-bit consumed marker letting
+  the held word enqueue once while the next request waits; the
+  question is open. The wb branch's seed-2 point for the record:
+  -1.302 ns against -0.956 without it. The measurement core of
+  memside3 is building for the board; the 16 KB D-cache stripped
+  build runs on the Mac.
+- **The fetch handshake fixed: the early-execution gate complete on ZAP**
+  (the memory thread, codex/memside3 df29e89, with the user's one-bit
+  exception to the ZAP freeze; the report's "Authorized follow-up"
+  section). One register, zap_core's fetch_consumed_ff: set when the
+  held fetch register holds a valid word and the FIFO has room, it
+  replaces code_stall as the FIFO's write inhibit, so the held word
+  enqueues once without waiting for the next cache ACK; cleared on a
+  fetch advance, reset, the ALU and decode redirects and the writeback
+  clear; zap_fetch_main, zap_fifo, the decoders and every stage
+  boundary untouched. A new directed test (ifetch_rtl) retires the
+  critical instruction before the fill's second beat at every ARM and
+  Thumb offset, +12 included; the negative control against the
+  cache-side-only netlist fails it. 237/237, 57 QEMU; the existing
+  234 runs 21,699,562 -> 21,411,745 cycles (**-1.33 %**, the largest
+  suite gain of the memory-side items, every test moving); nine runs
+  of four clock-timed IRQ/FIQ tests retire a different number of
+  polling instructions, traced instruction by instruction; the board
+  benches and both lints pass. The complete change is three bits of
+  state. The cache-side-only core (ied-s2) is being measured on the
+  board for the separation; the complete core (ieh-s2) and the
+  stripped seed 9 (ie-s9) are building on the server, the 16 KB
+  D-cache stripped build on the Mac. The memory thread is idle until
+  those come in.
+- **The 16 KB D-cache on the stripped tree: too dear as the tag RAM
+  stands.** Master (8e965db) with NGAGE_DCACHE_16K at seed 9 on the
+  Mac: **-1.472 ns**, 39,580 ALMs (94 %), 64 % of the block memory,
+  against -0.734 and 35,839 ALMs (86 %) without it; the worst path
+  starts in the D-cache tag RAM's address counter. Doubling the D-cache
+  doubles the tag RAM's valid, dirty and LRU arrays, which ZAP keeps in
+  flip-flops with wide read muxes and three-stage write forwarding
+  (Antigravity's consult counted about 4,100 such flops for both
+  caches; the Pocket core keeps that metadata in M10K and saved about
+  4,900 ALMs doing so). So the switch stays off, and the memory
+  thread's next task is the tag RAM itself: the metadata into block
+  RAM, the unused short-read forwarding stages trimmed, whole-cache
+  invalidation kept, cycle-identical; it helps both cores' timing and
+  area (the tag RAM led the worst paths of the write-buffer and the
+  16 KB builds, and V2's integrated fit carries the same caches), and
+  makes the 16 KB D-cache affordable afterwards.
+- The cache-side-only early-execution core on the board (ied-s2,
+  NGAGE_DEBUG, -1.300 ns, 37,543 ALMs; build/hardware/game/run-ied.log
+  against run-msd.log, play medians): Sonic 31.30 against 30.87 M
+  instr/s (+1.4 %), Asphalt 31.70 against 31.62, Tony Hawk 30.75
+  against 30.57; the true fetch wait 6.5/6.0/7.7 % to 6.2/5.9/7.3 %,
+  the fetch-FIFO-empty share 15.9 to 15.1 % in Sonic. The partial
+  effect the thread predicted (the +0/+4/+8 offsets only, the word
+  still waiting for the next ACK); the complete core with the
+  handshake fix is building for the real number.
+- **The early-execution gate, complete: no gain on the board, not
+  merged.** The measurement core of df29e89 (ieh-s2, NGAGE_DEBUG:
+  -1.940 ns, 36,942 ALMs) on the debug slot, the three games
+  (build/hardware/game/run-ieh.log), play medians against the
+  instrumented baseline (run-msd.log) and the cache-side-only core
+  (run-ied.log):
+
+  | game | baseline | cache side only | complete |
+  |---|---:|---:|---:|
+  | Sonic N | 30.87 M instr/s | 31.30 | 30.98 |
+  | Asphalt | 31.62 | 31.70 | 31.47 |
+  | Tony Hawk | 30.57 | 30.75 | 30.76 |
+
+  Inside the noise, both; the true fetch wait stays at 6.5 / 5.9 /
+  7.5 % and the FIFO-full share at 36-44 %. The reading: the words
+  arrive earlier but the backend cannot consume them faster, so they
+  wait in the FIFO instead of in the fill; the suite's -1.33 % was the
+  synthetic tests' in-order streams. Stripped at seed 9 the branch
+  fits at -1.001 ns, 35,947 ALMs (the main slot's tree -0.734, 35,839;
+  the worst path in the D-TLB check, a ZAP family), the debug core
+  0.66 ns worse than the instrumented baseline at seed 2. Decision:
+  not merged; the three commits stay on codex/memside3 for the ARM9
+  v2 fetch, which waits for the whole fill today and may take the
+  cache-side mechanism with its own handshake. The debug slot is back
+  on msd-s2. The tally of the memory side on ZAP since the consults:
+  the write-back buffer nil, the early-execution gate nil, the 16 KB
+  D-cache too dear as the tag RAM stands; the I side's 6-8 % of fetch
+  wait is overlapped by the backend's own stalls, and the deferred
+  write-back (+5 %) was the last memory-side gain. The CPU is the
+  lever, as the consults said. The memory thread finishes the tag RAM
+  task (area and timing for both cores) and then pauses until V2 is
+  on the board.
+- **ARM9 v2, session 8: the miss policy, and the first run of the real
+  firmware on V2** (Codex, codex/arm9v2 8cd678d..22a4261; docs/consults/
+  2026-10-24-codex-arm9v2-s8.md in the worktree). The miss policy: a
+  scalar consumer is retained across a miss on a registered lock, no
+  retiring flush; younger loads keep ownership over older hits and
+  retired returns; operand readiness ordered by the youngest writer (a
+  chained-load ownership bug the firmware boot exposed, reproduced in
+  the suite first): 267/267 in ZAP and both V2 modes, 69 QEMU, the
+  3/4/5 hit windows kept. Then the whole core: NGAGE_CORE_ARM9=1 in
+  NGage.qsf makes arm925t instantiate V2 with the shared caches, TLBs,
+  CP15, merger and the debug taps; the emu top bench passes on it. And
+  the firmware: the whole-core Verilator boot on the server, 468 M
+  clocks (4.5 guest seconds, 27 minutes of wall time), 353 M
+  instructions retired, 75 K device accesses, no data abort, prefetch
+  abort or undefined instruction; the kernel schedules user threads:
+  the first executive call at 3.26 guest seconds (ZAP 3.71), the
+  EFile user entry at **3.63 s (ZAP 4.19)**, two more EFile threads,
+  then EStart at 4.17 s, beyond ZAP's observation; the first 37,552
+  MMIO accesses and the first 434 executive-call register snapshots
+  identical between the cores (the divergence after that is the live
+  timer counter, as expected). So V2 runs EKA1's boot 13 % faster
+  than ZAP through its first user threads. The cost: the integrated
+  seed-2 fit is **-2.838 ns, 18,349 ALMs** (S6: -1.237, 16,417): the
+  leader is the D-cache short port's store-merge and formatting cone
+  into the hit word (77 % routing), then the registered return/lock
+  qualification into the held S/A operands (fanout 66-69), the D-TLB
+  qualification, D1's classifier into D2's destination; the RF's
+  fitted registers doubled by duplication (1,874 to 3,604) with the
+  source unchanged. Stopped at the -2 ns rule, as told. Next: session
+  9 on the cuts the report proposes (accepted store/lookup ownership
+  with registered qualifiers at the request/store-merge boundary,
+  bounded per-operand repair matches precomputed beside the registered
+  return data, the D1 classifier path, the RF duplication), while a
+  measurement core of V2 as it stands goes to the board for the first
+  in-play number, timing risk and all.
+- **V2's first bitstream on the board: hangs in the kernel boot.** The
+  measurement core of 22a4261 (NGAGE_CORE_ARM9 + NGAGE_DEBUG, seed 2:
+  **-3.787 ns**, 38,674 ALMs, 92 %; the stripped whole core at seed 9
+  on the Mac: -3.688 ns, 38,059 ALMs, 91 %, the worst path from the
+  D-cache FSM's state; against the ZAP tree's -0.734 and 35,839) on
+  the debug slot with the Sonic launcher: the NOKIA splash and nothing
+  after it; the overlay (decoded with the branch's tools, the old
+  layout) shows PC 5031e394 unchanged from 30 s to 116 s, IRQ pending
+  and never taken, no bus beats, the instruction tap counting every
+  clock (a one-instruction loop, or the tap). Captures in
+  build/hardware/game/smoke-v2d-s2/. At -3.8 ns nothing can be
+  concluded about the design from this: the slow-corner model says
+  the worst path needs 13.4 ns of a 9.6 ns period and the board is at
+  room temperature, not the model's corner, so a failure of that size
+  is expected, and a logic or integration difference between the
+  Verilator boot (which runs the same netlist to EStart) and the
+  board would hide behind it. The board judges V2 only once session
+  9's cuts bring the whole core near the -1 ns where every ZAP core
+  has run reliably. The hang's PC goes to the thread with the next
+  brief.
+- **The cache metadata in block RAM: a candidate, parked** (the memory
+  thread, codex/memside4 1f002ef, f9ddca2, on top of memside3;
+  docs/consults/2026-10-24-codex-memside4-report.md in the worktree).
+  Valid in four RAM banks with one live flag per four sets, dirty in
+  sixteen banks (keeping the clean scanner's throughput), LRU with one
+  read and one update port and a bounded fill deferral; whole-cache
+  invalidation cycle-identical; 948 CPU runs with every count
+  identical across the configurations, 57 QEMU each, the directed
+  tests, both lints, the board benches. Two stripped fits at seed 9:
+
+  | configuration | ALMs before -> after | slack before -> after | M10K after |
+  |---|---:|---:|---:|
+  | I16 / D8 (the shipping one) | 35,839 -> 32,567 (-9 %) | -0.734 -> -1.190 ns | 537 of 553 |
+  | I16 / D16 | 39,580 -> 32,702 (-17 %) | -1.472 -> -0.833 ns | 539 of 553 |
+
+  So the area saving is real and large, and with it the 16 KB
+  D-cache costs 135 ALMs and 0.1 ns, but two things keep it off
+  master for now: at the shipping size the slack falls 0.46 ns (a new
+  family, the maintenance control into the dirty banks' write enables,
+  eight of the worst thirty, with a named fix not yet applied), and
+  the fifty metadata banks spend fifty M10Ks on 2,816 bits, leaving
+  16 blocks free (97 %), which is the budget V2 and any larger cache
+  would need; the thread names a compact asymmetric-width RAM or a
+  read-modify-write metadata engine as the way out. The branch also
+  sits on the parked early-execution gate. Parked, with the memory
+  thread paused as planned until V2 runs on the board, where its ALM
+  saving is most likely to be wanted. One more measurement from my
+  side: the D16 variant's measurement core goes to the board for the
+  16 KB D-cache's in-play number (the consultants' +1-3 %), the one
+  memory-side candidate left with a measured timing benefit.
+- **ARM9 v2, session 9: the area back, the timing not** (Codex,
+  codex/arm9v2 d648f64..efe6811; docs/consults/2026-10-24-codex-arm9v2-
+  s9.md in the worktree). Four cuts, one integrated seed-2 fit each:
+  the store collision resolved after the formatting (-2.527 ns from
+  -2.838), the normal-return repair matches bounded and precomputed
+  (-2.395), an independent D1 destination selection (-2.909, +307
+  ALMs: reverted), and the RF's storage boundary bounded against
+  retiming (the area back to **16,561 ALMs**, 12 above ZAP's 16,549;
+  the slack **-2.871**). Every count and all 85 windows unchanged;
+  267/267, 69 QEMU; the firmware boot identical through 4.5 guest
+  seconds including EFile and EStart. The remaining chains are the
+  late-pickup design's own: the D-cache lock through W's lock
+  reduction and completion (wb_complete, fanout 163) into the next
+  producer's tag and A's late match (13 of 30 hot paths, 22 of 30
+  cold), the memory state through the request and translation control
+  into the D-TLB's hit, W's load owner into the cache's valid metadata
+  and the short-RAM forwarding record; all at 65-73 % routing. So the
+  split and the miss policy cost about 1.6 ns against the S6 shape
+  (-1.237) and the cuts have recovered 0.4 of it. A wall: before
+  session 10, both consultants get the fitted paths and the question
+  of which boundary to register and what it costs in cycles (the
+  two-clock late pickup against a three-clock one on this cache
+  interface, the request owner, the completion fanout, the routing
+  share).
+- **The 16 KB D-cache with the metadata in block RAM: +2 to +2.6 % in
+  play.** The measurement core of f9ddca2 with NGAGE_DCACHE_16K
+  (tagd16d-s2: -1.330 ns, 34,248 ALMs, 82 %, 65 % of the block memory
+  bits; smaller than the baseline's measurement core by 3,300 ALMs)
+  on the debug slot, the three games (build/hardware/game/run-
+  tagd16.log against run-msd.log, play medians):
+
+  | game | baseline | 16 KB D + metadata RAM | gain | D-cache load fills/s | SDRAM wait |
+  |---|---:|---:|---:|---:|---:|
+  | Sonic N | 30.87 M instr/s | 31.51 | +2.1 % | 351 K -> 314 K | 20.1 -> 18.6 % |
+  | Asphalt | 31.62 | 32.37 | +2.4 % | 662 K -> 588 K | 22.2 -> 20.8 % |
+  | Tony Hawk | 30.57 | 31.35 | +2.6 % | 444 K -> 413 K | 22.2 -> 21.2 % |
+
+  Consistent across the three, the fills down 7-11 %, the data-stall
+  share down 0.7-0.8 points: the consultants' +1-3 % for the larger
+  D-cache, now affordable. The candidate for the main slot is this
+  tree with the 16 KB D-cache as the default: stripped at seed 9
+  -0.833 ns and 32,702 ALMs (78 %) against the main slot's -0.734 and
+  35,839, at the cost of 539 of the 553 M10K blocks (the metadata
+  packing, to be fixed before V2 needs the blocks) and the parked
+  early-execution bits riding along (three bits, nil in play). The
+  decision is the user's: merge codex/memside4 with the 16 KB default,
+  one stripped build, a smoke test, the main slot.
+- **The V2 timing consults** (docs/consults/2026-10-24-v2-timing-consult-
+  brief.md; Codex 2026-10-24-codex-v2-timing-consult.md, read-only in
+  the worktree, 9 min; Antigravity 2026-10-24-agy-v2-timing-consult.md,
+  plan mode, 7 min; both with the fitted paths and the Pocket's
+  source). Where they agree: keep the two-clock late pickup (it is the
+  Pocket's schedule stage for stage: the RAM read launched from A, the
+  word registered at M/W, muxed at A's input; three clocks would buy
+  nothing by itself) and the miss retention (S7's replay was 15 %
+  slower on the cache test); the five families are removable
+  artifacts: the tag comparators run after completion's producer
+  select on both the hold and advance paths (the Pocket compares once
+  at D2/S and recodes registered bits), the check record muxed through
+  FCSE live into the D-TLB, and A's live adder output compared against
+  W's store set in the valid register and in each of 32 byte-lane RAM
+  wrappers before the clock (families 3-5 are lookup-address paths,
+  Codex's correction of the family table: W's owner reaches the
+  metadata through A's bypass and adder, not through a cache write);
+  the routing share is cluster crossings and two fanout nodes
+  (completion 163, the read set 110). The cuts, all zero-cycle: the
+  lock summaries registered from the lock's next value on its update
+  edge; the next-producer matches computed on the two registered
+  candidate pairs in parallel with completion, the transition used
+  only as the final select, the completion net split by consumer;
+  the translation/request descriptor registered with FCSE pre-applied
+  (the index bits never need it); the short-RAM collision compare and
+  the metadata selection moved after the A/M capture edge. Antigravity
+  also found cpu_trial.qsf lacks the placement-effort and router
+  settings NGage.qsf has. Their ceilings: Antigravity -0.75 to -1.1
+  ns in the CPU trial with all four; Codex -1.5 to -0.8 plausible,
+  -0.5 upside, and -2.5 to -1.1 on the whole device, with the fallback
+  an address-launch stage between A and the cache (windows 3/5/6)
+  rather than dropping features (Antigravity's fallback: a one-entry
+  lock instead of the 64-bit bitmap). Session 10 launched with the
+  combined order (lock summaries, the match split, the descriptor,
+  then the collision compare), per-family worst paths, the qsf
+  parity, the firmware re-run at the end; the address-launch stage is
+  the decision if session 11 ends below about -1.5 ns.
+- **ARM9 v2, session 10: three cuts, every count kept, the slack does
+  not move** (Codex, codex/arm9v2 051806f..c87d383; docs/consults/
+  2026-10-24-codex-arm9v2-s10.md). The fitter-settings parity alone
+  (placement effort 2.0, router timing maximum, as NGage.qsf) gave
+  0.19 ns hot and 0.54 cold on the same netlist (-2.871 to -2.678).
+  Then: the next-lock summaries on the owner edge (-2.555, 16,267
+  ALMs), both producer candidates compared before completion (-2.638,
+  16,145), the translation and request descriptors registered
+  (-2.983, 16,011); 267/267, 69 QEMU, 85 windows, the firmware logs
+  byte-identical to S9 through 4.5 guest seconds. The per-family
+  worst paths, now reported independently, show the wall: after the
+  three cuts the leaders are S's operand selection with M's
+  load-owner mask through the forwarding grant and the rotator into
+  A's right operand (11 levels, 11.93 ns, -2.98), the registered
+  D-TLB fault through the store acceptance and collision select into
+  the short word (-2.85), completion into the queried lock owner
+  (-2.63) and into the RF port selection (-2.57), A's bypass and adder
+  into the metadata read (-2.42, the short-port cut still to do), D1's
+  classification into D2's payload (-2.35), fetch's PC recurrence
+  (-2.08). Each cut removes a family and the next sits 0.1-0.3 ns
+  behind it at ten or eleven levels. The thread's own judgement: the
+  cache cut cannot reach the target alone; the post-S11 gate at
+  -1.5 ns stands, and the address-launch stage would fix A-to-cache
+  but not the S-to-A cone. Session 11 launched: the short-port cut,
+  then a registered data-ready grant separate from the producer match
+  in S, and the completion-to-RF selection; while, in parallel, the
+  decisive number is sought another way: the whole-core Verilator
+  bench running a game on both cores, so V2's in-play instruction
+  rate is known before more closure effort is spent on it.
+- **Sonic on both cores in the whole-core Verilator bench** (the
+  decisive number without timing closure). On the server, from
+  ~/dev/mister/coreboot/arm9v2-s10-final-src (the V2 branch at
+  c87d383, S10's source), two runs of the coreboot bench in parallel:
+  V2 (arm9v2-s10-final/coreboot/Vemu, built with NGAGE_CORE_ARM9) and
+  ZAP (zap-s10/coreboot/Vemu, the same tree without the macro), each
+  with cs0.bin, a cs1 composed from the board's pristine firmware
+  half and its clock-set 4 MB C: save (img/cs1-board.bin, so the boot
+  goes to the idle screen without the date dialogs as on the board),
+  sonicn.mmc on the card, and the Sonic key script of
+  tools/run_games.sh in guest seconds (img/sonic.keys: menu at 100 s,
+  three downs and OK, the four 5s from 176 s, play with held rights
+  and 5s from 200 to 231 s), 235 guest seconds (24.44 G clocks), a
+  progress line with the retired-instruction count every guest
+  second and a picture on every change, into arm9v2-s10-final/game/
+  and zap-s10/game/ (run.log, lcd-*.png). At about six wall minutes
+  per guest second it is a day's run; the in-play retired
+  instructions per guest second on the two cores, at the same 104
+  MHz, is V2's cycle gain in the game itself, which neither the suite
+  nor the kernel boot measures and the board cannot yet.
+- **ARM9 v2, session 11: the last zero-cycle cuts; V2 paused until the
+  game simulations say what it is worth** (Codex, codex/arm9v2
+  2ba41be..7ed5190; docs/consults/2026-10-24-codex-arm9v2-s11.md). The
+  short-port cut (the collision compare and the metadata selection
+  after the RAM-read edge, M10K inference kept after a failed inline
+  attempt): -2.818 ns, 15,439 ALMs; the S data-ready grants registered
+  beside the full producer matches: -2.473, 15,591; the next-lock
+  queries and the RF owner class in parallel: -2.877, 15,614 (the
+  accepted endpoint, 935 ALMs under ZAP's). 267/267, 69 QEMU, 85
+  windows, the firmware byte-identical through 4.5 guest seconds. The
+  gate (-1.5) missed by 1.38 ns, and the thread's reading is the
+  honest one: the leaders are now the front end (a queue word through
+  the Thumb expansion into D1's instruction bits, D1's classification
+  into D2's destination, -2.9 and -2.6) and the late-ALU flags path
+  (W's load word through A's bypass and the ALU's zero reduction,
+  11.1 ns), with independent ceilings at -1.9 to -2.3 (metadata/short
+  response, execute acceptance, fetch, RF); the address-launch stage
+  and a pre-rotator boundary would cut neither leader, so an extra
+  stage is not a closure plan for this fit; a bounded zero-cycle
+  front-end and late-ALU pass is estimated at 0.5-1.3 ns per family,
+  reaching -1.7 at best. Decision: V2's RTL work pauses here. Eleven
+  sessions have made a functionally complete core that runs the
+  kernel 13 % faster, but at 104 MHz its shape sits 1.5-2 ns from
+  where the board runs reliably, and each session's cuts move the
+  leader without moving the slack; before any further closure effort
+  (or a reorganisation with more stages), the Sonic simulations on
+  both cores decide whether V2's in-play gain is near the kernel's
+  13 % (then closure would still leave it far from 47 M/s and the
+  design needs more than timing) or the 30-40 % the consultants
+  budgeted (then the closure is worth a redesign). At 10 guest
+  seconds the runs are at the kernel boot (V2 654 M instructions
+  retired against ZAP's 465 M, polling loops included); about six
+  wall minutes per guest second, a day to the play captures.
+- **The 16 KB D-cache tree on the main slot** (my call, under the
+  user's "pick what seems right": merged as 6abcccd, the 16 KB
+  D-cache the default build since f37e549, three lint configurations
+  clean). The Mac's seed-9 build of the merged tree: -1.215 ns, 33,507
+  ALMs (80 %), the worst path in the D-cache tag RAM's address counter
+  (the metadata family); the server's build of the identical RTL at
+  the same seed, from the memory thread's report (dev/mister/
+  NGage_MiSTer-tag-d16-s9, fetched as build/hardware/NGage-tag-d16-
+  s9.rbf): **-0.833 ns**; two Quartus installations, one netlist, 0.4
+  ns apart at one seed. The server's smoke-tested on the debug slot
+  (the idle screen with the clock and the date, the menu, Sonic's
+  title, Neo Green Hill: the timer 0:13.20 to 0:20.33 across 7.2 s;
+  captures in build/hardware/game/smoke-tag-d16-s9/) and copied over
+  `_Console/_NGage/NGage_20261023.rbf` (md5 2a28ac5f...; it replaces
+  ms-s9 at -0.734, for the measured +2 to +2.6 % in play); the
+  measurement core of the same tree (tagd16d-s2, -1.330 ns, md5
+  db4ad67a...) on the debug slot. The main slot's own boot with the
+  user's save: build/hardware/game/smoke-tag-d16-s9-main/. Also tried:
+  Verilator with four threads for the Sonic simulations is slower
+  than one thread on this design (no progress line in five minutes
+  where one thread takes three), so the runs stay single-threaded
+  (13 guest seconds after 90 minutes).
+- **"Remember the ultimate goal."** The user's reminder, and a
+  correction of my own call an hour earlier: V2 is not paused. The
+  goal is the phone's speed, about 47 M instructions/s in play; ZAP is
+  at 32 after today's two memory-side gains, and V2 has shown 13 % on
+  the kernel boot where the design was meant for 35-50 %. Idling the
+  one thread that can get there while a day-long simulation runs
+  serves nothing; the timing wall is a separate problem from the
+  cycle gain, and the cycle gain is what the goal needs. Session 12
+  launched on the cycle model, the timing shape left alone (one fit at
+  the end, no cuts), judged on the firmware's own boot milestones (the
+  EFile entry at 3.63 guest seconds against ZAP's 4.19) and the
+  windows: first the merge of master (the metadata in RAM, the
+  early-execution gate, the 16 KB default; the tag RAM conflicts with
+  the S11 short-port cut to be resolved keeping both), then V2's fetch
+  taking the early-execution words (its fetch still waits for the
+  whole fill), the serial fences (a flags-only MSR costs 12 clocks and
+  EKA1 does them around every critical section), the small-LDM tails
+  and the PC returns, and a second outstanding miss if the backend
+  still waits on the D-cache. The Sonic runs continue for the in-play
+  number.

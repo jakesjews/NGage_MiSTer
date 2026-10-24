@@ -373,8 +373,8 @@ static void test_phoenix(const std::string &out) {
 		for (int x = 16; x < 48; x++) value = (value << 1) | (frame.get(x, row) == 0xFFFFFF);
 		return value;
 	};
-	CHECK_EQ(word(reload, 157), (1u << 28) | (1u << 22) | (4u << 19), "MCU-only pair and retained reload note");
-	CHECK_EQ(word(reload, 161), 0x21000000u, "two MCU starts, one language start, no errors");
+	CHECK_EQ(word(reload, 189), (1u << 28) | (1u << 22) | (4u << 19), "MCU-only pair and retained reload note");
+	CHECK_EQ(word(reload, 193), 0x21000000u, "two MCU starts, one language start, no errors");
 	b.download(2, phoenix::language()); b.ticks(10000);
 	CHECK(r.emu__DOT__ph_ready && !r.emu__DOT__cpu_reset, "companion reload releases reset");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 12), 1, "companion needs no reload warning");
@@ -398,14 +398,14 @@ static void test_phoenix(const std::string &out) {
 	CHECK(!b.ddr_stray && !b.dm.protocol_errors, "Phoenix shared DDR protocol");
 	CHECK_EQ(b.s1_writes, 0, "firmware loads did not dirty C: save");
 	// Read the appended words through the actual video pixels, including while
-	// CPU reset. No original word or counter moved. F4 counts saturate at 15.
+	// CPU reset. The first 12 words and counters 0..24 are unchanged. F4 counts saturate at 15.
 	r.emu__DOT__hps_io__DOT__sim_status[0] = (1u << 8) | 1u;
 	b.download(3, {}); b.download(3, {});
 	for (int i = 0; i < 20; i++) b.download(4, {});
 	b.frame(); auto diag = b.frame();
 	diag.write_ppm(out + "/top_phoenix_loader.ppm");
-	CHECK_EQ(word(diag, 157), (4u << 22) | (1u << 19), "loader status while CPU reset");
-	CHECK_EQ(word(diag, 161), 0x542F0001u, "loader starts saturate; full error count visible");
+	CHECK_EQ(word(diag, 189), (4u << 22) | (1u << 19), "loader status while CPU reset");
+	CHECK_EQ(word(diag, 193), 0x542F0001u, "loader starts saturate; full error count visible");
 	printf("Phoenix shell: records, patches, version/damage rejection, resend recovery, overlay history and C: isolation (%llu clocks)\n", (unsigned long long)b.clocks);
 }
 

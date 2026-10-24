@@ -78,6 +78,7 @@ output  logic [7:0]      o_fsr,
 output  logic [31:0]     o_far,
 output  logic            o_err2,
 output  logic [3:0]      o_dbg_dcache, // ARM925T: per-transaction debug events
+output  logic            o_dbg_tlb,    // accepted D-TLB walk beat (ACK or ERR)
 input   logic [63:0]     i_reg_idx,
 input   logic [5:0]      i_reg_idx_bin,
 output  logic [63:0]     o_lock,
@@ -529,6 +530,7 @@ always_ff @(posedge i_clk)
                     o_wb_wen && o_wb_cti == CTI_EOB && (i_wb_ack || i_wb_err);
 
 assign o_dbg_dcache = cf_dbg_dcache | {1'b0, clean_line_event, 2'b0};
+assign o_dbg_tlb = state_ff == SELECT_TLB && o_wb_cyc && o_wb_stb && (i_wb_ack || i_wb_err);
 
 always_ff @ ( posedge i_clk )
 begin

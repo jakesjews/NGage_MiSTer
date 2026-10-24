@@ -5,6 +5,8 @@ module tb_icache_restart;
     logic clk = 0, reset = 1;
     logic [31:0] addr = 0, next_addr = 0, bus_data = 0, data;
     logic rd = 0, bus_ack = 0, bus_err = 0, force_stall = 0;
+    logic bus_no_late_error = 0;
+    logic [31:0] start_addr;
     wire ack, err, replay, pending, done, fault, bus_stb, tag_write;
     wire [31:0] bus_addr;
     wire [127:0] line_data;
@@ -23,7 +25,7 @@ module tb_icache_restart;
         .i_phy_addr(addr), .i_fsr(8'd0), .i_far(32'd0), .i_fault(1'b0),
         .i_cacheable(1'b1), .i_busy(1'b0), .o_wb_stb_ff(bus_stb),
         .o_wb_adr_ff(bus_addr), .i_wb_ack(bus_ack), .i_wb_err(bus_err), .i_wb_dat(bus_data),
-        .i_pf_hit(1'b0), .i_pf_inv(1'b0), .i_wb_busy(1'b0), .o_pf_addr()
+        .i_wb_no_late_error(bus_no_late_error), .i_pf_hit(1'b0), .i_pf_inv(1'b0), .i_wb_busy(1'b0), .o_pf_addr()
     );
 
     logic q_write = 0, q_stall = 1, q_clear = 0, q_pending = 0;
@@ -44,17 +46,21 @@ module tb_icache_restart;
     task automatic tick;
         #1; clk = 1; #1; clk = 0; #1;
     endtask
-    task automatic restart(input logic [31:0] a);
+    task automatic restart(input logic [31:0] a, input bit safe_fill = 0);
         reset = 1; rd = 0; bus_ack = 0; bus_err = 0; force_stall = 0;
+        bus_no_late_error = safe_fill; start_addr = a;
+        q_write = 0; q_stall = 1; q_clear = 0; q_done = 0; q_fault = 0;
         tick(); reset = 0; addr = a; next_addr = a; rd = 1;
         tick(); tick();
-        assert (pending && bus_stb && bus_addr == (a & ~32'hf) && !ack)
-            else $fatal(1, "linear fill did not start at word zero");
+        assert (pending && bus_stb && bus_addr == (a & ~32'h3) && !ack)
+            else $fatal(1, "wrap fill did not start at critical word");
     endtask
     task automatic beat(input int n, input bit error_beat = 0);
-        assert (bus_stb && bus_addr == (addr & ~32'hf) + 32'(4*n))
+        int word_idx;
+        word_idx = (int'(start_addr[3:2]) + n) % 4;
+        assert (bus_stb && bus_addr == (start_addr & ~32'hf) + 32'(4*word_idx))
             else $fatal(1, "wrong beat address");
-        bus_ack = !error_beat; bus_err = error_beat; bus_data = 32'h12340000 + 32'(n);
+        bus_ack = !error_beat; bus_err = error_beat; bus_data = 32'h12340000 + 32'(word_idx);
         tick(); bus_ack = 0; bus_err = 0; #1;
     endtask
     task automatic push(input int value, input bit provisional);
@@ -74,7 +80,7 @@ module tb_icache_restart;
             restart(32'h100 + 32'(4*word_idx));
             for (int n = 0; n < 4; n++) begin
                 beat(n);
-                assert (ack == (n >= word_idx)) else $fatal(1, "early response validity");
+                assert (ack) else $fatal(1, "early response validity");
                 if (ack) assert (data == 32'h12340000 + 32'(word_idx)) else $fatal(1, "wrong requested word");
                 if (n < 3) assert (pending && !done && !tag_write) else $fatal(1, "premature commit");
             end
@@ -90,6 +96,45 @@ module tb_icache_restart;
                 next_addr = addr + 4; tick(); addr = next_addr; #1;
                 assert (!ack) else $fatal(1, "ACK before next beat");
             end
+        end
+        // A guaranteed fill releases the first word through the actual FIFO
+        // before beat two. Later wrap-order words wait for their own valid bit.
+        for (int offset = 0; offset < 4; offset++) begin
+            restart(32'h500 + 32'(4*offset), 1);
+            for (int n = 0; n < 4; n++) begin
+                beat(n);
+                assert (ack && !pending && data == 32'h12340000 + 32'((offset+n)%4))
+                    else $fatal(1, "guaranteed fill word/order/quarantine");
+                if (n == 0) begin
+                    push(int'(data), pending); q_stall = 0;
+                    tick(); expect_word(int'(32'h12340000 + 32'(offset)), 0);
+                    assert (!done) else $fatal(1, "first word waited for whole fill");
+                    tick(); q_stall = 1;
+                end
+                if (n < 3) begin
+                    next_addr = {addr[31:4], addr[3:2] + 2'd1, 2'b00};
+                    tick(); addr = next_addr; #1;
+                    assert (!ack) else $fatal(1, "safe fill ACKed an unreturned word");
+                end
+            end
+            assert (tag_write && line_data == 128'h12340003123400021234000112340000)
+                else $fatal(1, "safe wrapped installation");
+        end
+        // Error-capable fills quarantine the first word for errors on each
+        // later beat (two, three and four). Successful early data is not enough.
+        for (int bad = 1; bad < 4; bad++) begin
+            restart(32'h600);
+            beat(0); push(int'(data), pending); q_stall = 0;
+            tick(); assert (!q_valid) else $fatal(1, "provisional first word escaped");
+            // A later beat cannot retroactively supply the first-beat promise.
+            bus_no_late_error = 1;
+            for (int n = 1; n < 4; n++) begin
+                beat(n, n == bad);
+                assert (!q_valid) else $fatal(1, "late-error fill executed provisionally");
+            end
+            assert (fault && !tag_write) else $fatal(1, "late error installed line");
+            q_done = done; q_fault = fault; tick();
+            expect_word(int'(32'h12340000), 1);
         end
         // FIFO full cannot stop the bus; a late error survives until done.
         restart(32'h300);
@@ -127,7 +172,7 @@ module tb_icache_restart;
         for (int n = 9; n < 18; n++) begin
             push(n, 0); tick(); expect_word(n, 0); tick();
         end
-        $display("PASS: I-cache early beats, sequential waits, late fault, redirect, reset, FIFO resolution and wrap");
+        $display("PASS: I-cache guaranteed execution, wrap order, all late errors, sequential waits, redirect, reset and FIFO resolution");
         $finish;
     end
 endmodule

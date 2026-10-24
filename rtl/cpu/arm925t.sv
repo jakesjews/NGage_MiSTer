@@ -67,6 +67,9 @@ module arm925t #(
 	input  logic [31:0] bus_rdata,
 	input  logic        bus_ack,
 	input  logic        bus_err,
+	// With the first ACK of a wrap-4 fill: the target guarantees no later
+	// beat can ERR. Tie low for buses without this guarantee.
+	input  logic        bus_no_late_error,
 	output logic [31:0] dbg_pc,      // committed PC (debug overlay)
 
 	// Debug trace taps (rtl/mister/dbg_trace.sv): the writeback stage as
@@ -90,6 +93,11 @@ module arm925t #(
 	// [0] load-miss fill, [1] store-miss fill, [2] line write-back
 	// (eviction or maintenance), [3] uncached data access (excludes WT).
 	output logic [3:0]  dbg_dcache,
+	// [0] FIFO full, [1] fetch no ACK, [2] demand fill completed,
+	// [3] fetch no ACK and FIFO not full, [4] fill waits behind DATA,
+	// [5] fill selected on external bus (qualify with arbiter grant),
+	// [6] I-TLB beat, [7] D-TLB beat. See NGage.sv DBG_CNT layout.
+	output logic [7:0]  dbg_icache,
 	output logic        dbg_d_done,
 	output logic        dbg_d_we,
 	output logic [31:0] dbg_d_va,
@@ -140,6 +148,7 @@ module arm925t #(
 		.o_dbg_wb_cpsr_nxt (dbg_wb_cpsr_nxt),
 		.o_dbg_stall       (dbg_stall),
 		.o_dbg_dcache      (dbg_dcache),
+		.o_dbg_icache       (dbg_icache),
 		.o_dbg_d_done      (dbg_d_done),
 		.o_dbg_d_we        (dbg_d_we),
 		.o_dbg_d_va        (dbg_d_va),
@@ -156,7 +165,8 @@ module arm925t #(
 		.o_wb_bte (bus_bte),
 		.i_wb_ack (bus_ack),
 		.i_wb_dat (bus_rdata),
-		.i_wb_err (bus_err)
+		.i_wb_err (bus_err),
+		.i_wb_no_late_error (bus_no_late_error)
 	);
 
 	assign bus_req   = wb_cyc & wb_stb;

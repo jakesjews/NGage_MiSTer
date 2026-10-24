@@ -75,7 +75,8 @@ module arm9v2_front_decode #(
     input logic [31:0] i_data,
     input logic i_ack, i_error, i_retry, i_fill_pending, i_fill_done, i_fill_fault,
     output logic [31:0] o_address_nxt, o_address_check, o_address,
-    output logic o_request, o_stall
+    output logic o_request, o_stall,
+    output logic [1:0] o_dbg_fetch
 );
     logic f_valid,f_thumb,f_fault,f_predicted,f_hit;
     logic [31:0] f_pc,f_word,f_target;
@@ -97,7 +98,7 @@ module arm9v2_front_decode #(
         .i_data(i_data),.i_ack(i_ack),.i_error(i_error),.i_retry(i_retry),
         .i_fill_pending(i_fill_pending),.i_fill_done(i_fill_done),.i_fill_fault(i_fill_fault),
         .o_address_nxt(o_address_nxt),.o_address_check(o_address_check),.o_address(o_address),
-        .o_request(o_request),.o_stall(o_stall),.i_ready(o_ready),
+        .o_request(o_request),.o_stall(o_stall),.o_dbg_fetch(o_dbg_fetch),.i_ready(o_ready),
         .o_valid(f_valid),.o_pc(f_pc),.o_word(f_word),.o_thumb(f_thumb),.o_fault(f_fault),
         .o_predicted(f_predicted),.o_pred_hit(f_hit),.o_pred_target(f_target),
         .o_pred_state(f_state),.o_pred_kind(f_kind),.o_ras_pointer(f_pointer),.o_ras_count(f_count)

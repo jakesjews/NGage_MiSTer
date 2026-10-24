@@ -145,6 +145,7 @@ parameter logic        HIVECS       = 1'd0           // Reset value of control b
         output  logic  [31:0]    o_dbg_wb_cpsr_nxt,
         output  logic  [7:0]     o_dbg_stall,
         output  logic  [3:0]     o_dbg_dcache,
+        output  logic  [7:0]     o_dbg_icache,
         output  logic            o_dbg_d_done,
         output  logic            o_dbg_d_we,
         output  logic  [31:0]    o_dbg_d_va,
@@ -178,7 +179,8 @@ parameter logic        HIVECS       = 1'd0           // Reset value of control b
         output  logic  [1:0]     o_wb_bte,
         input   logic            i_wb_ack,
         input   logic  [31:0]    i_wb_dat,
-        input   logic            i_wb_err
+        input   logic            i_wb_err,
+        input   logic            i_wb_no_late_error
 );
 
 `include "zap_defines.svh"
@@ -234,6 +236,17 @@ logic dc_short_hit;
 logic            cpu_instr_stb;
 logic            cpu_dc_we, cpu_dc_stb;
 logic [3:0]      cpu_dc_sel;
+logic [1:0]     dbg_fetch;
+logic [3:0]     dbg_icache;
+logic           dbg_data_owner, dbg_dtlb;
+// Raw taps: FIFO full, fetch without ACK, demand fill completions,
+// fetch wait without FIFO backpressure, fill waiting behind DATA,
+// fill selected through the merger (qualify with the external grant),
+// and I/D TLB walk beats. No control path consumes these observations.
+assign o_dbg_icache = {dbg_dtlb, dbg_icache[3],
+                      dbg_icache[2] && !dbg_data_owner,
+                      dbg_icache[1] && dbg_data_owner,
+                      dbg_fetch[1] && !dbg_fetch[0], dbg_icache[0], dbg_fetch};
 logic            c_wb_stb;
 logic            c_wb_cyc;
 logic            c_wb_wen;
@@ -241,8 +254,10 @@ logic [3:0]      c_wb_sel;
 logic [31:0]     c_wb_dat;
 logic [31:0]     c_wb_adr;
 logic [2:0]      c_wb_cti;
+logic [1:0]      c_wb_bte;
 logic            c_wb_ack;
 logic            c_wb_err;
+logic            c_wb_no_late_error;
 logic            d_wb_stb;
 logic            d_wb_cyc;
 logic            d_wb_wen;
@@ -347,6 +362,7 @@ zap_core #(
 .o_dbg_wb_cpsr          (o_dbg_wb_cpsr),
 .o_dbg_wb_cpsr_nxt      (o_dbg_wb_cpsr_nxt),
 .o_dbg_stall            (o_dbg_stall),
+.o_dbg_fetch            (dbg_fetch),
 
 // Clock and reset.
 .i_clk                  (i_clk),
@@ -484,6 +500,7 @@ arm9v2_core #(
 .o_dbg_wb_cpsr          (o_dbg_wb_cpsr),
 .o_dbg_wb_cpsr_nxt      (o_dbg_wb_cpsr_nxt),
 .o_dbg_stall            (o_dbg_stall),
+.o_dbg_fetch            (dbg_fetch),
 
 // Clock and reset.
 .o_data_stall           (arm9_data_stall),
@@ -599,6 +616,8 @@ end : l_tieoffs_full
 else
 begin : l_tieoffs_only_core
         assign o_dbg_dcache    = '0;
+        assign dbg_icache      = '0;
+        assign dbg_dtlb        = 1'b0;
         assign dc_wreg_idx     = '0;
         assign dc_lock         = '0;
         assign {dc_lock_any,dc_lock_owner} = '0;
@@ -644,6 +663,7 @@ begin : l_tieoffs_only_core
         assign d_wb_adr        = '0;
         assign d_wb_cti        = CTI_EOB;
         assign d_wb_bte        = 2'b00;
+        assign c_wb_bte        = 2'b00;
         assign wb_dat          = '0;
 
         logic unused;
@@ -690,6 +710,7 @@ begin : l_tieoffs_only_core
          | (    |d_wb_adr          )
          | (    |d_wb_cti          )
          | (    |d_wb_bte          )
+         | (    |c_wb_bte          )
          | (    |wb_dat            )
          | (    |cpu_mmu_en        )
          | (    |cpu_cpsr          )
@@ -732,8 +753,11 @@ begin : l_merger_for_core_with_cache_mmu
         .i_c_wb_dat(c_wb_dat ),
         .i_c_wb_adr(c_wb_adr ),
         .i_c_wb_cti(c_wb_cti ),
+        .i_c_wb_bte(c_wb_bte ),
         .o_c_wb_ack(c_wb_ack ),
         .o_c_wb_err(c_wb_err ),
+        .o_c_wb_no_late_error(c_wb_no_late_error),
+        .o_dbg_data_owner(dbg_data_owner),
 
         .i_d_wb_stb(d_wb_stb ),
         .i_d_wb_cyc(d_wb_cyc ),
@@ -755,7 +779,8 @@ begin : l_merger_for_core_with_cache_mmu
         .o_wb_cti  (wb_cti   ),
         .o_wb_bte  (o_wb_bte ),
         .i_wb_ack  (wb_ack   ),
-        .i_wb_err  (wb_err   )
+        .i_wb_err  (wb_err   ),
+        .i_wb_no_late_error(i_wb_no_late_error)
 
         );
 end : l_merger_for_core_with_cache_mmu
@@ -773,8 +798,11 @@ begin : l_merger_for_core_without_cache_mmu
         .i_c_wb_dat(32'd0),
         .i_c_wb_adr(cpu_iaddr),
         .i_c_wb_cti(3'b111),
+        .i_c_wb_bte(2'b00),
         .o_c_wb_ack(instr_ack),
         .o_c_wb_err(instr_err),
+        .o_c_wb_no_late_error(),
+        .o_dbg_data_owner(dbg_data_owner),
 
         .i_d_wb_stb(cpu_dc_stb),
         .i_d_wb_cyc(cpu_dc_stb),
@@ -799,7 +827,8 @@ begin : l_merger_for_core_without_cache_mmu
         .o_wb_cti  (o_wb_cti ),
         .o_wb_bte  (o_wb_bte ),
         .i_wb_ack  (i_wb_ack ),
-        .i_wb_err  (i_wb_err )
+        .i_wb_err  (i_wb_err ),
+        .i_wb_no_late_error(i_wb_no_late_error)
 
         );
 end : l_merger_for_core_without_cache_mmu
@@ -826,6 +855,7 @@ zap_dcache #(
 )
 u_data_cache (
 .o_dbg_dcache           (o_dbg_dcache),
+.o_dbg_tlb              (dbg_dtlb),
 .i_clk                  (i_clk),
 .i_stall                (arm9_data_stall),
 .o_fill_busy            (data_fill_busy),
@@ -960,6 +990,7 @@ u_code_cache (
 .i_baddr           (cpu_baddr),
 .i_dac_reg         (cpu_dac_reg),
 .i_tlb_inv         (cpu_itlb_inv),
+.o_dbg_icache      (dbg_icache),
 .i_wb_busy         (d_wb_cyc || d_wb_ack || (|dc_lock) || cpu_dc_clean || cpu_dc_inv || cpu_dline_req),
 .i_pf_inv          (cpu_dc_clean || cpu_dc_inv || cpu_dline_req),
 .o_err2            (icache_err2),
@@ -979,7 +1010,10 @@ u_code_cache (
 
 .i_wb_dat       (wb_dat),
 .i_wb_ack       (c_wb_ack),
+.o_wb_bte       (),
+.o_wb_bte_nxt   (c_wb_bte),
 .i_wb_err       (c_wb_err),
+.i_wb_no_late_error(c_wb_no_late_error),
 
 .o_wb_stb_nxt   (c_wb_stb),
 .o_wb_cyc_nxt   (c_wb_cyc),

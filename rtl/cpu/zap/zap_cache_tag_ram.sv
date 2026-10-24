@@ -44,7 +44,15 @@
 // o_cache_way (buffered across a fill). One LRU bit per set, the TI925T's
 // fixed LRU (TI SPRU671), updated on hits and fills; it is read with the
 // set, pipelined and forwarded like the valid bits, so that the way of
-// interest is one level of logic past the tag compares. A whole-cache clean
+// interest is one level of logic past the tag compares. Metadata lives in
+// synchronous M10Ks: four valid banks and sixteen dirty banks per way, plus
+// one LRU RAM. Valid groups have a live flag, cleared atomically on invalidate;
+// the first install rewrites the whole four-set group, without epoch rollover.
+// Dirty banking retains the original 16-line-per-clock maintenance scan.
+// SHORT_READ selects only the first RAM edge and its collision bypass; the
+// three-stage forwarding registers exist only in the normal configuration.
+// ACCEPTED_HIT_UPDATE retains the short D-port's accepted-response LRU owner,
+// independently of a younger/held lookup. A whole-cache clean
 // walks the lines of every way; a single-line operation by VA finds the
 // way holding the tag, one by index takes i_line_way.
 //
@@ -53,8 +61,9 @@
 
 module zap_cache_tag_ram #(
 
-parameter logic SHORT_READ = 1'b0, // ARM9: RAM edge then caller's compare/capture edge.
-parameter logic ACCEPTED_HIT_UPDATE = 1'b0, // Short D-port: replacement updates from accepted responses.
+parameter logic SHORT_READ = 1'b0,
+parameter logic ACCEPTED_HIT_UPDATE = 1'b0,
+parameter logic TRACK_DIRTY = 1'b1, // The instruction cache is read-only.
 parameter logic [31:0] CACHE_SIZE = 32'd1024, // Bytes, all ways together.
 parameter logic [31:0] CACHE_LINE = 32'd8,
 parameter logic [31:0] WAYS       = 32'd1,    // ARM925T: 1 or 2.
@@ -191,9 +200,22 @@ localparam [31:0] ZERO_WDT    = $clog2(CACHE_LINE/4) + 1;
 
 // ----------------------------------------------------------------------------
 
-logic [LINES_ALL-1:0]                      dirty;
-logic [LINES_ALL-1:0]                      valid;
-logic [LINES-1:0]                          lru;                 // ARM925T: the way to fill next (WAYS = 2).
+// Metadata arrays are synchronous block RAMs. Only group-initialized flags
+// remain flops, so reset does not require a sweep of the dirty RAM.
+logic [15:0] dirty_scan;
+logic [WAYS-1:0][15:0] dirty_group_q;
+logic valid_write_en;
+logic [SET_W-1:0] valid_write_set;
+logic [WAYS-1:0] valid_write_way;
+logic valid_write_data;
+logic dirty_write_en, dirty_write_data;
+logic [SET_W-1:0] dirty_write_set;
+logic [WAYS-1:0] dirty_write_way;
+logic [SET_W-5:0] dirty_read_group;
+logic [3:0] dirty_read_bit_ff;
+logic [WAYS-1:0] dirty_s1_raw, valid_s1_raw;
+logic [SET_W-1:0] hit_upd_set;
+logic [WAY_W-1:0] hit_upd_way;
 logic [`ZAP_CACHE_TAG_WDT-1:0]             tag_ram_wr_data;
 logic                                      tag_ram_wr_en;
 logic [SET_W-1:0]                          tag_ram_wr_addr;     // The set written.
@@ -223,8 +245,6 @@ logic [$clog2(CACHE_LINE)-3:0]             lk_word;             // ARM925T: the 
 logic [CACHE_LINE*8-1:0]                   walk_line;
 logic                                      lru_s1, lru_s2, lru_q; // ARM925T: the set's LRU bit, aligned with the RAMs' reads.
 logic                                      hit_upd_en;          // ARM925T: a hit updates the LRU bit of lk_set.
-logic [SET_W-1:0]                          hit_upd_set;
-logic [WAY_W-1:0]                          hit_upd_way;
 logic                                      hit_pend_en, hit_pend_val; // ARM925T: that update, written a cycle later.
 logic [SET_W-1:0]                          hit_pend_set;
 logic                                      cache_clean_done_nxt, cache_clean_done_ff;
@@ -235,7 +255,6 @@ logic                                      line_clear;                    // ARM
 logic                                      pend_en, pend_dirty;           // ARM925T: write-behind
 logic [SET_W-1:0]                          pend_addr;                     // ARM925T
 logic [WAYS-1:0]                           pend_sel;                      // ARM925T: its way, one-hot
-logic [WAYS-1:0][FLAT_W-1:0]               pend_flat;                     // ARM925T: its line in each way
 
 logic                                      unused;
 logic [BLK_CTR_PAD-1:0]                    dummy;
@@ -264,10 +283,6 @@ endfunction : flat
 // ----------------------------------------------------------------------------
 
 // ARM925T: one tag RAM and one data RAM per way, read at the same set.
-// ARM9 SHORT_READ retains only the RAM edge and its registered write bypass.
-// The valid/dirty/LRU output below uses that same set and edge, forwarding
-// both the current write and the pending write-behind update. The compare,
-// victim selection and per-way word mux below are shared without changes.
 if (SHORT_READ) begin : g_short_ram
         // ARM9V2: one descriptor for the entire cache. The RAM read and
         // write data capture are unchanged; equality belongs AFTER this
@@ -398,14 +413,12 @@ end
 always_ff @(posedge i_clk)
         if (i_reset) o_cache_hit_early <= 1'b0;
         else if (!i_hold)
-                o_cache_hit_early <= SHORT_READ ? (|hit) :
-                    i_lookup_stall ? (|hit_held) : (|hit_check);
+                o_cache_hit_early <= SHORT_READ ? (|hit) : i_lookup_stall ? (|hit_held) : (|hit_check);
 
 if ( WAYS == 1 )
 begin : g_direct
         assign victim            = 1'd0;
         assign sel               = 1'd0;
-        assign lru               = '0;
         assign lru_q             = 1'd0;
         assign lru_s1            = 1'd0;
         assign lru_s2            = 1'd0;
@@ -432,15 +445,11 @@ begin : g_lru
         // (write-behind, as the tag writes): the hit's through hit_pend_*,
         // the fill's through pend_*. The hit, the later event, wins a set.
         //
-        // Short D-port acceptance is one edge after the tag compare. Forward
-        // that older hit into the younger lookup's replacement choice, just
-        // as hit_pend forwards into RAM reads. The hit compares/data select
-        // are unchanged; this bypass affects only the victim metadata.
         assign victim            = !valid_q[0] ? 1'd0 : !valid_q[1] ? 1'd1 :
             (ACCEPTED_HIT_UPDATE && i_accepted_hit && hit_upd_set == lk_set) ? ~i_accepted_way : lru_q;
         assign sel               = hit[1] ? 1'd1 : hit[0] ? 1'd0 : victim;
         assign hit_upd_en        = ACCEPTED_HIT_UPDATE ? i_accepted_hit : i_access && o_cache_hit;
-        assign hit_upd_set       = ACCEPTED_HIT_UPDATE ? i_accepted_address[$clog2(CACHE_LINE) +: SET_W] : lk_set;
+        assign hit_upd_set       = ACCEPTED_HIT_UPDATE ? i_accepted_address[`ZAP_VA__CACHE_INDEX] : lk_set;
         assign hit_upd_way       = ACCEPTED_HIT_UPDATE ? i_accepted_way : sel;
 
         // Explicit 2:1 muxes: a variable part-select of the packed arrays
@@ -467,7 +476,7 @@ begin : g_lru
                        prev;
         endfunction
         function automatic logic lru_fwd_now ( input [SET_W-1:0] set, input logic prev );
-                return set == hit_upd_set     && hit_upd_en                 ? ~hit_upd_way :
+                return set == hit_upd_set     && hit_upd_en                 ? ~hit_upd_way      :
                        set == tag_ram_wr_addr && tag_ram_wr_en && (|wr_sel) ? wr_sel[0] :
                        lru_fwd ( set, prev );
         endfunction
@@ -487,41 +496,66 @@ begin : g_lru
                 hit_pend_val <= ~hit_upd_way;
         end
 
-        always_ff @ ( posedge i_clk )
-        begin
-                if ( i_reset || tag_ram_clear )
-                begin
-                        lru <= '0;
+        // One RAM write port. Hits take priority; an independent coincident
+        // fill waits in one entry. The exclusive install slot bounds this
+        // backlog. A newer hit to that set supersedes the deferred fill.
+        (* ramstyle = "M10K" *) logic lru_mem [LINES-1:0];
+        logic lru_read, lru_read_fwd, lru_read_value;
+        logic [SET_W-1:0] lru_read_set_q,lru_write_set_q;
+        logic defer_en, defer_val;
+        logic [SET_W-1:0] defer_set;
+        logic lru_wr_en, lru_wr_val;
+        logic [SET_W-1:0] lru_wr_set;
+        wire fill_update = pend_en && (|pend_sel);
+        assign lru_wr_en = hit_pend_en || fill_update || defer_en;
+        assign lru_wr_set = hit_pend_en ? hit_pend_set : fill_update ? pend_addr : defer_set;
+        assign lru_wr_val = hit_pend_en ? hit_pend_val : fill_update ? pend_sel[0] : defer_val;
+        always_ff @(posedge i_clk) begin
+                if (lru_wr_en) lru_mem[lru_wr_set] <= lru_wr_val;
+                if (!i_hold || tag_ram_clear || line_clear) begin
+                        lru_read <= lru_mem[rd_set];
+                        lru_read_fwd <= lru_wr_en && (SHORT_READ || lru_wr_set == rd_set);
+                        lru_read_set_q<=rd_set;lru_write_set_q<=lru_wr_set;
+                        lru_read_value <= lru_wr_val;
                 end
-                else
-                begin
-                        if ( pend_en && (|pend_sel) )
-                        begin
-                                lru [ pend_addr ] <= pend_sel[0]; // way 0 written: fill way 1 next
-                        end
-
-                        if ( hit_pend_en )
-                        begin
-                                lru [ hit_pend_set ] <= hit_pend_val;
+                if (i_reset || tag_ram_clear) defer_en <= 1'b0;
+                else begin
+                        if (lru_wr_en && lru_wr_set == defer_set) defer_en <= 1'b0;
+                        if (hit_pend_en && fill_update && hit_pend_set != pend_addr) begin
+                                defer_en <= 1'b1;
+                                defer_set <= pend_addr;
+                                defer_val <= pend_sel[0];
                         end
                 end
         end
-
-        always_ff @ ( posedge i_clk )
-        begin
-                if ( i_reset )
-                begin
-                        if (!SHORT_READ) lru_q <= 1'd0;
-                        lru_s2 <= 1'd0;
-                        lru_s1 <= 1'd0;
+        `ifndef SYNTHESIS
+        always_ff @(posedge i_clk) if (!i_reset)
+                assert (!(defer_en && hit_pend_en && fill_update &&
+                          hit_pend_set != pend_addr && hit_pend_set != defer_set && pend_addr != defer_set))
+                    else $fatal(1, "cache LRU deferred fill overflow");
+        `endif
+        wire lru_first = lru_read_fwd && (!SHORT_READ || lru_read_set_q==lru_write_set_q) ? lru_read_value : lru_read;
+        wire lru_deferred = defer_en && defer_set == rd_set_del ? defer_val : lru_first;
+        if (SHORT_READ) begin : g_short
+                logic hit_en,tag_en,deferred_en,hit_value,tag_value,deferred_value;
+                logic [SET_W-1:0] read_set,hit_set,tag_set,deferred_set;
+                always_ff @(posedge i_clk) if (!i_hold || tag_ram_clear || line_clear) begin
+                        read_set<=rd_set;hit_set<=hit_upd_set;tag_set<=tag_ram_wr_addr;deferred_set<=defer_set;
+                        hit_en<=hit_upd_en;tag_en<=tag_ram_wr_en&&(|wr_sel);deferred_en<=defer_en;
+                        hit_value<=~hit_upd_way;tag_value<=wr_sel[0];deferred_value<=defer_val;
                 end
-                else if ( !i_hold || tag_ram_clear || line_clear )
-                begin
-                        if (!SHORT_READ) lru_q <= lru_fwd_now ( rd_set_del2, lru_s2 );
-                        lru_s2 <= lru_fwd ( rd_set_del,  lru_s1 );
-                        lru_s1 <= lru_fwd ( rd_set,      lru [ rd_set ] );
+                assign lru_q = hit_en && hit_set==read_set ? hit_value :
+                    tag_en && tag_set==read_set ? tag_value :
+                    deferred_en && deferred_set==read_set ? deferred_value : lru_first;
+                assign lru_s1 = 1'b0;assign lru_s2 = 1'b0;
+        end else begin : g_long
+                assign lru_s1 = lru_deferred;
+                always_ff @(posedge i_clk) if (!i_hold || tag_ram_clear || line_clear) begin
+                        lru_s2 <= lru_fwd(rd_set_del, lru_s1);
+                        lru_q <= lru_fwd_now(rd_set_del2, lru_s2);
                 end
         end
+
 end
 
 assign o_cache_hit       = |hit;
@@ -536,6 +570,7 @@ assign o_cache_way       = sel;
 if ( PREFETCH )
 begin : g_prefetch
         logic [WAYS-1:0][TAG_W-1:0] pf_tag_q;
+        logic [WAYS-1:0] pf_valid_q;
         logic [SET_W-1:0]           pf_set_q;
         logic [TAG_W-1:0]           pf_addr_tag_q;
         logic [TAG_W-1:0]           pend_tag;
@@ -547,6 +582,37 @@ begin : g_prefetch
         for ( genvar w = 0; w < WAYS; w++ )
         begin : g_pf_way
                 logic [TAG_W-1:0] pf_tag_mem [LINES-1:0];
+                logic [LINES/4-1:0] pf_live;
+                logic pf_live_q;
+                logic [3:0] pf_valid_group;
+                logic [1:0] pf_bit_q;
+                wire [SET_W-1:0] pf_set = i_pf_addr[`ZAP_VA__CACHE_INDEX];
+                always_ff @(posedge i_clk) begin
+                        if (i_reset || tag_ram_clear || !i_cache_en) pf_live <= '0;
+                        else if (pend_en && pend_sel[w]) pf_live[pend_addr[SET_W-1:2]] <= 1'b1;
+                        pf_live_q <= !i_reset && !tag_ram_clear && i_cache_en &&
+                            (pf_live[pf_set[SET_W-1:2]] ||
+                             (pend_en && pend_sel[w] && pend_addr[SET_W-1:2] == pf_set[SET_W-1:2]));
+                        pf_bit_q <= pf_set[1:0];
+                end
+                for (genvar b=0; b<4; b++) begin : g_valid
+                        logic read_bit, collision, forward_bit;
+                        wire write_bank = valid_write_en && valid_write_way[w] &&
+                            ((!pf_live[valid_write_set[SET_W-1:2]] && valid_write_data) || valid_write_set[1:0] == b[1:0]);
+                        wire write_bit = valid_write_data && valid_write_set[1:0] == b[1:0];
+                        zap_cache_metadata_ram #(.DEPTH(LINES/4)) valid_ram (
+                                .i_clk(i_clk), .i_read_en(1'b1),
+                                .i_write_en(write_bank), .i_write_data(write_bit),
+                                .i_read_address(pf_set[SET_W-1:2]),
+                                .i_write_address(valid_write_set[SET_W-1:2]), .o_data(read_bit)
+                        );
+                        always_ff @(posedge i_clk) begin
+                                collision <= write_bank && valid_write_set[SET_W-1:2] == pf_set[SET_W-1:2];
+                                forward_bit <= write_bit;
+                        end
+                        assign pf_valid_group[b] = collision ? forward_bit : read_bit;
+                end
+                assign pf_valid_q[w] = pf_live_q && pf_valid_group[pf_bit_q];
 
                 always_ff @ ( posedge i_clk )
                 begin
@@ -573,7 +639,7 @@ begin : g_prefetch
                         pf_way_hit[w] = !tag_ram_clear && i_cache_en && (
                                 ( pend_en && pend_sel[w] && (pend_addr == pf_set_q) ) ?
                                         ( pend_tag == pf_addr_tag_q ) :
-                                        ( valid[flat(WAY_W'(w), pf_set_q)] && (pf_tag_q[w] == pf_addr_tag_q) )
+                                        ( pf_valid_q[w] && (pf_tag_q[w] == pf_addr_tag_q) )
                         );
                 end
         end
@@ -589,102 +655,11 @@ end : g_no_prefetch
 
 // The way a write goes to: idle, the way that hits (a store hit); else the
 // way the FSM buffered with the address (a fill, a clean, a write-through).
-// (pend_flat: the pending write's line, a wire so that no function call
-// indexes a nonblocking assignment, which Verilator 5.032 rejects.)
 always_comb
 begin
         for ( int w = 0; w < WAYS; w++ )
         begin
                 wr_sel[w]    = i_idle ? hit[w] : ( i_cache_way == WAY_W'(w) );
-                pend_flat[w] = flat ( WAY_W'(w), pend_addr );
-        end
-end
-
-// ARM9V2: split metadata selection across the same read edge. Each bank
-// selects at most sixteen entries before the edge; the registered bank
-// selector and write descriptors finish selection/forwarding afterwards.
-// The array updates below (pending writes, then clears) are unchanged.
-if (SHORT_READ) begin : g_short_meta
-        localparam LOW_W = SET_W < 4 ? SET_W : 4;
-        localparam BANKS = LINES >> LOW_W;
-        localparam BANK_W = SET_W > LOW_W ? SET_W-LOW_W : 1;
-        typedef struct packed {
-                logic [SET_W-1:0] read_set, write_set, pending_set;
-                logic [WAYS-1:0] write_way, pending_way;
-                logic write_dirty, pending_dirty;
-        } meta_t;
-        meta_t descriptor, valid_desc, dirty_desc;
-        logic unused_valid_dirty;
-        assign unused_valid_dirty = |{valid_desc.write_dirty, valid_desc.pending_dirty};
-        logic [WAYS-1:0][BANKS-1:0] valid_bank, dirty_bank;
-        logic [BANK_W-1:0] valid_select, dirty_select;
-        always_comb begin
-                descriptor.read_set = rd_set;
-                descriptor.write_set = tag_ram_wr_addr;
-                descriptor.pending_set = pend_addr;
-                descriptor.write_way = wr_sel & {WAYS{tag_ram_wr_en}};
-                descriptor.pending_way = pend_sel & {WAYS{pend_en}};
-                descriptor.write_dirty = i_cache_tag_dirty;
-                descriptor.pending_dirty = pend_dirty;
-        end
-        always_ff @(posedge i_clk) begin
-                if (i_reset) begin
-                        valid_desc <= '0; dirty_desc <= '0;
-                        valid_bank <= '0; dirty_bank <= '0;
-                        valid_select <= '0; dirty_select <= '0;
-                end else begin
-                        if (!i_hold || tag_ram_clear || line_clear) begin
-                                valid_desc <= descriptor;
-                                valid_select <= BANK_W'(rd_set >> LOW_W);
-                                for (int w=0; w<WAYS; w++)
-                                        for (int b=0; b<BANKS; b++)
-                                                valid_bank[w][b] <= valid[flat(WAY_W'(w),
-                                                    SET_W'((b << LOW_W) | int'(rd_set[LOW_W-1:0])))];
-                        end
-                        if (!i_hold || tag_ram_clean || line_clear) begin
-                                dirty_desc <= descriptor;
-                                dirty_select <= BANK_W'(rd_set >> LOW_W);
-                                for (int w=0; w<WAYS; w++)
-                                        for (int b=0; b<BANKS; b++)
-                                                dirty_bank[w][b] <= dirty[flat(WAY_W'(w),
-                                                    SET_W'((b << LOW_W) | int'(rd_set[LOW_W-1:0])))];
-                        end
-                end
-        end
-        for (genvar w=0; w<WAYS; w++) begin : g_way
-                assign valid_q[w] =
-                    (valid_desc.read_set == valid_desc.write_set && valid_desc.write_way[w]) ||
-                    (valid_desc.read_set == valid_desc.pending_set && valid_desc.pending_way[w]) ||
-                    valid_bank[w][valid_select];
-                assign dirty_q[w] =
-                    dirty_desc.read_set == dirty_desc.write_set && dirty_desc.write_way[w] ? dirty_desc.write_dirty :
-                    dirty_desc.read_set == dirty_desc.pending_set && dirty_desc.pending_way[w] ? dirty_desc.pending_dirty :
-                    dirty_bank[w][dirty_select];
-        end
-        if (WAYS == 2) begin : g_lru
-                logic [BANKS-1:0] bank_q;
-                logic [BANK_W-1:0] bank_select;
-                logic [3:0][SET_W-1:0] update_set;
-                logic [3:0] update_en, update_val;
-                logic [SET_W-1:0] read_set;
-                always_ff @(posedge i_clk) begin
-                        if (i_reset) begin
-                                bank_q <= '0; bank_select <= '0; read_set <= '0;
-                                update_set <= '0; update_en <= '0; update_val <= '0;
-                        end else if (!i_hold || tag_ram_clear || line_clear) begin
-                                read_set <= rd_set;
-                                bank_select <= BANK_W'(rd_set >> LOW_W);
-                                for (int b=0; b<BANKS; b++)
-                                        bank_q[b] <= lru[SET_W'((b << LOW_W) | int'(rd_set[LOW_W-1:0]))];
-                                update_set <= {hit_upd_set, tag_ram_wr_addr, hit_pend_set, pend_addr};
-                                update_en <= {hit_upd_en, tag_ram_wr_en && (|wr_sel), hit_pend_en, pend_en && (|pend_sel)};
-                                update_val <= {~hit_upd_way, wr_sel[0], hit_pend_val, pend_sel[0]};
-                        end
-                end
-                assign lru_q = update_en[3] && read_set == update_set[3] ? update_val[3] :
-                               update_en[2] && read_set == update_set[2] ? update_val[2] :
-                               update_en[1] && read_set == update_set[1] ? update_val[1] :
-                               update_en[0] && read_set == update_set[0] ? update_val[0] : bank_q[bank_select];
         end
 end
 
@@ -709,7 +684,7 @@ end
 // stage; upstream forwarded the live write into all three stages, so the
 // live enable, a function of the tag compare, sat in front of each. Same
 // cycles. Tag writes happen only in IDLE, where no clean, clear or line
-// operation is active, and the arrays are read directly only outside IDLE.
+// operation is active. Maintenance reads the same registered metadata.
 //
 always_ff @ ( posedge i_clk )
 begin
@@ -727,95 +702,180 @@ begin
         pend_dirty <= i_cache_tag_dirty;
 end
 
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_reset )
-        begin
-                if (!SHORT_READ) dirty_q <= '0;
-                dirty_s2              <= '0;
-                dirty_s1              <= '0;
-                dirty                 <= '0;
+// ARM925T: valid bits are four interleaved RAM banks per way. One live
+// flag per four-set group acts as a non-wrapping generation: invalidate
+// clears those flags in the original single clock. The next install in a
+// dead group writes all four bank entries, setting only the installed line.
+// No stale RAM bit can become live again; there is no epoch rollover.
+always_comb begin
+        valid_write_en = pend_en || line_clear;
+        valid_write_set = pend_addr;
+        valid_write_way = pend_sel;
+        valid_write_data = 1'b1;
+        if (line_clear) begin
+                valid_write_set = rd_flat_ff[SET_W-1:0];
+                for (int w=0; w<WAYS; w++) valid_write_way[w] = rd_way == WAY_W'(w);
+                valid_write_data = 1'b0;
         end
-        else
-        begin
-                if ( !i_hold || tag_ram_clean || line_clear )
-                begin
-                        for ( int w = 0; w < WAYS; w++ )
-                        begin
-                                if (!SHORT_READ) dirty_q[w] <=
-                                               rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w]   ? i_cache_tag_dirty :
-                                               rd_set_del2 == pend_addr       && pend_en       && pend_sel[w] ? pend_dirty        :
-                                               dirty_s2[w];
-                                dirty_s2[w] <= rd_set_del  == pend_addr && pend_en && pend_sel[w] ? pend_dirty : dirty_s1[w];
-                                dirty_s1[w] <= rd_set      == pend_addr && pend_en && pend_sel[w] ? pend_dirty :
-                                               dirty [ flat(WAY_W'(w), rd_set) ];
+        dirty_write_en = pend_en || tag_ram_clean || line_clear;
+        dirty_write_set = pend_addr;
+        dirty_write_way = pend_sel;
+        dirty_write_data = pend_dirty;
+        if (tag_ram_clean || line_clear) begin
+                dirty_write_set = rd_flat_ff[SET_W-1:0];
+                for (int w=0; w<WAYS; w++) dirty_write_way[w] = rd_way == WAY_W'(w);
+                dirty_write_data = 1'b0;
+        end
+        dirty_read_group = rd_set[SET_W-1:4];
+        if (state_ff == IDLE && i_cache_clean_req) dirty_read_group = '0;
+        else if (!line_mode_ff && state_ff != IDLE && state_ff != CACHE_INV)
+                dirty_read_group = blk_ctr_nxt[SET_W-5:0];
+end
+assign dirty_scan = dirty_group_q[WAY_W'(blk_ctr_ff >> (SET_W-4))];
+always_ff @(posedge i_clk) if (!i_hold || tag_ram_clean || line_clear) dirty_read_bit_ff <= rd_set[3:0];
+
+// ARM9V2: metadata uses RAM banks; the short port compares captured
+// descriptors after their RAM-read edge, as the tag/byte data port does.
+// Valid and dirty maintenance enables are deliberately independent.
+logic [SET_W-1:0] meta_v_read, meta_v_write, meta_v_pending;
+logic [SET_W-1:0] meta_d_write;
+logic [SET_W-5:0] meta_d_read;
+logic [SET_W-1:0] meta_now_v_read, meta_now_v_write, meta_now_d_read, meta_now_d_write;
+logic [WAYS-1:0] meta_now_v_en,meta_now_d_en,meta_pending_en;
+logic meta_now_dirty;
+if (SHORT_READ) begin : g_short_descriptors
+    always_ff @(posedge i_clk) begin
+        if (!i_hold || tag_ram_clear || line_clear) begin
+            meta_v_read<=rd_set;meta_v_write<=valid_write_set;meta_v_pending<=pend_addr;
+            meta_pending_en<=pend_sel&{WAYS{pend_en}};
+            meta_now_v_read<=rd_set;meta_now_v_write<=tag_ram_wr_addr;
+            meta_now_v_en<=wr_sel&{WAYS{tag_ram_wr_en}};
+        end
+        if (!i_hold || tag_ram_clean || line_clear) begin
+            meta_d_read<=dirty_read_group;meta_d_write<=dirty_write_set;
+            meta_now_d_read<=rd_set;meta_now_d_write<=tag_ram_wr_addr;
+            meta_now_d_en<=wr_sel&{WAYS{tag_ram_wr_en}};
+            meta_now_dirty<=i_cache_tag_dirty;
+        end
+        if (i_reset) begin meta_now_v_en<=0;meta_now_d_en<=0;meta_pending_en<=0;end
+    end
+end else begin : g_no_short_descriptors
+    assign meta_v_read=0;assign meta_v_write=0;assign meta_v_pending=0;
+    assign meta_d_write=0;assign meta_d_read=0;
+    assign meta_now_v_read=0;assign meta_now_v_write=0;
+    assign meta_now_d_read=0;assign meta_now_d_write=0;
+    assign meta_now_v_en=0;assign meta_now_d_en=0;assign meta_pending_en=0;assign meta_now_dirty=0;
+end
+
+for (genvar w=0; w<WAYS; w++) begin : g_metadata
+        logic [LINES/4-1:0] valid_live;
+        logic valid_live_q;
+        logic [3:0] valid_group_q;
+        logic [1:0] valid_read_bit;
+        always_ff @(posedge i_clk) begin
+                if (i_reset || tag_ram_clear || !i_cache_en) valid_live <= '0;
+                else if (pend_en && pend_sel[w]) valid_live[pend_addr[SET_W-1:2]] <= 1'b1;
+                if (!i_hold || tag_ram_clear || line_clear) begin
+                        valid_read_bit <= rd_set[1:0];
+                        valid_live_q <= valid_live[rd_set[SET_W-1:2]] ||
+                            (!SHORT_READ &&
+                            (pend_en && pend_sel[w] && pend_addr[SET_W-1:2] == rd_set[SET_W-1:2]));
+                end
+                if (i_reset) valid_live_q <= 1'b0;
+        end
+        for (genvar b=0; b<4; b++) begin : g_valid_bank
+                logic read_bit, collision, forward_bit;
+                wire write_bank = valid_write_en && valid_write_way[w] &&
+                    ((!valid_live[valid_write_set[SET_W-1:2]] && valid_write_data) ||
+                     valid_write_set[1:0] == b[1:0]);
+                wire write_bit = valid_write_set[1:0] == b[1:0] && valid_write_data;
+                zap_cache_metadata_ram #(.DEPTH(LINES/4)) valid_ram (
+                        .i_clk(i_clk), .i_read_en(!i_hold || tag_ram_clear || line_clear),
+                        .i_write_en(write_bank), .i_write_data(write_bit),
+                        .i_read_address(rd_set[SET_W-1:2]),
+                        .i_write_address(valid_write_set[SET_W-1:2]), .o_data(read_bit)
+                );
+                always_ff @(posedge i_clk) begin
+                        if (!i_hold || tag_ram_clear || line_clear) begin
+                                collision <= write_bank && (SHORT_READ || valid_write_set[SET_W-1:2] == rd_set[SET_W-1:2]);
+                                forward_bit <= write_bit;
                         end
                 end
+                assign valid_group_q[b] = collision && (!SHORT_READ || meta_v_write[SET_W-1:2]==meta_v_read[SET_W-1:2]) ? forward_bit : read_bit;
+        end
+        assign valid_s1_raw[w] = (valid_live_q || (SHORT_READ && meta_pending_en[w] && meta_v_pending[SET_W-1:2]==meta_v_read[SET_W-1:2])) && valid_group_q[valid_read_bit];
 
-                for ( int w = 0; w < WAYS; w++ )
-                begin
-                        if ( pend_en && pend_sel[w] )
-                        begin
-                                dirty [ pend_flat[w] ] <= pend_dirty;
+        // Sixteen banks preserve the old 16-line-per-clock clean scanner.
+        // No serial walk is introduced for clean/test-and-clean. Each bank
+        // has a synchronous read and one update port; no array read mux.
+        if (TRACK_DIRTY) begin : g_dirty
+        logic [LINES/16-1:0] dirty_initialized;
+        logic dirty_initialized_q, dirty_update_q;
+        always_ff @(posedge i_clk) begin
+                if (i_reset) dirty_initialized <= '0;
+                else if (dirty_write_en && dirty_write_way[w])
+                        dirty_initialized[dirty_write_set[SET_W-1:4]] <= 1'b1;
+                if (!i_hold || tag_ram_clean || line_clear)
+                        dirty_initialized_q <= dirty_initialized[dirty_read_group] ||
+                            (!SHORT_READ && dirty_write_en && dirty_write_way[w] && dirty_write_set[SET_W-1:4] == dirty_read_group);
+                if (!i_hold || tag_ram_clean || line_clear) dirty_update_q<=dirty_write_en&&dirty_write_way[w];
+                if (i_reset) dirty_update_q<=0;
+                if (i_reset) dirty_initialized_q <= 1'b0;
+        end
+        for (genvar b=0; b<16; b++) begin : g_bank
+                logic read_bit, collision, forward_bit;
+                wire write_bank = dirty_write_en && dirty_write_way[w] &&
+                    (!dirty_initialized[dirty_write_set[SET_W-1:4]] || dirty_write_set[3:0] == b[3:0]);
+                wire write_bit = dirty_write_set[3:0] == b[3:0] && dirty_write_data;
+                zap_cache_metadata_ram #(.DEPTH(LINES/16)) dirty_ram (
+                        .i_clk(i_clk), .i_read_en(!i_hold || tag_ram_clean || line_clear),
+                        .i_write_en(write_bank), .i_write_data(write_bit),
+                        .i_read_address(dirty_read_group),
+                        .i_write_address(dirty_write_set[SET_W-1:4]), .o_data(read_bit)
+                );
+                always_ff @(posedge i_clk) begin
+                        if (!i_hold || tag_ram_clean || line_clear) begin
+                                collision <= write_bank && (SHORT_READ || dirty_write_set[SET_W-1:4] == dirty_read_group);
+                                forward_bit <= write_bit;
                         end
                 end
-
-                if ( tag_ram_clean || line_clear )
-                begin
-                        dirty [ rd_flat_ff ] <= 1'd0;
+                assign dirty_group_q[w][b] = (dirty_initialized_q || (SHORT_READ && dirty_update_q && meta_d_write[SET_W-1:4]==meta_d_read)) &&
+                    (collision && (!SHORT_READ || meta_d_write[SET_W-1:4]==meta_d_read) ? forward_bit : read_bit);
+        end
+        end else begin : g_read_only
+                assign dirty_group_q[w] = 16'b0;
+        end
+        assign dirty_s1_raw[w] = dirty_group_q[w][dirty_read_bit_ff];
+        if (SHORT_READ) begin : g_short
+                assign valid_q[w] = (meta_now_v_en[w] && meta_now_v_write==meta_now_v_read) || valid_s1_raw[w];
+                assign dirty_q[w] = meta_now_d_en[w] && meta_now_d_write==meta_now_d_read ? meta_now_dirty : dirty_s1_raw[w];
+                assign valid_s1[w] = 1'b0;assign valid_s2[w] = 1'b0;
+                assign dirty_s1[w] = 1'b0;assign dirty_s2[w] = 1'b0;
+        end else begin : g_long
+                assign valid_s1[w] = valid_s1_raw[w];
+                assign dirty_s1[w] = dirty_s1_raw[w];
+                always_ff @(posedge i_clk) begin
+                        if (i_reset) begin
+                                valid_s2[w] <= 1'b0;
+                                valid_q[w] <= 1'b0;
+                                dirty_s2[w] <= 1'b0;
+                                dirty_q[w] <= 1'b0;
+                        end else begin
+                                if (!i_hold || tag_ram_clear || line_clear) begin
+                                        valid_s2[w] <= rd_set_del == pend_addr && pend_en && pend_sel[w] ? 1'b1 : valid_s1[w];
+                                        valid_q[w] <= rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w] ? 1'b1 :
+                                            rd_set_del2 == pend_addr && pend_en && pend_sel[w] ? 1'b1 : valid_s2[w];
+                                end
+                                if (!i_hold || tag_ram_clean || line_clear) begin
+                                        dirty_s2[w] <= rd_set_del == pend_addr && pend_en && pend_sel[w] ? pend_dirty : dirty_s1[w];
+                                        dirty_q[w] <= rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w] ? i_cache_tag_dirty :
+                                            rd_set_del2 == pend_addr && pend_en && pend_sel[w] ? pend_dirty : dirty_s2[w];
+                                end
+                        end
                 end
         end
 end
 
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_reset )
-        begin
-                if (!SHORT_READ) valid_q <= '0;
-                valid_s2            <= '0;
-                valid_s1            <= '0;
-                valid               <= '0;
-        end
-        else
-        begin
-                if ( !i_hold || tag_ram_clear || line_clear )
-                begin
-                        for ( int w = 0; w < WAYS; w++ )
-                        begin
-                                if (!SHORT_READ) valid_q[w] <=
-                                               rd_set_del2 == tag_ram_wr_addr && tag_ram_wr_en && wr_sel[w]   ? 1'd1 :
-                                               rd_set_del2 == pend_addr       && pend_en       && pend_sel[w] ? 1'd1 :
-                                               valid_s2[w];
-                                valid_s2[w] <= rd_set_del  == pend_addr && pend_en && pend_sel[w] ? 1'd1 : valid_s1[w];
-                                valid_s1[w] <= rd_set      == pend_addr && pend_en && pend_sel[w] ? 1'd1 :
-                                               valid [ flat(WAY_W'(w), rd_set) ];
-                        end
-                end
-
-                // ARM925T: the pending write (above) first, then the clears.
-                for ( int w = 0; w < WAYS; w++ )
-                begin
-                        if ( pend_en && pend_sel[w] )
-                        begin
-                                valid [ pend_flat[w] ] <= 1'd1;
-                        end
-                end
-
-                // ARM925T: a disabled cache is cleared in every cycle, held
-                // or not (upstream: only when not held). Nothing reads the
-                // valid bits while the cache is off, and the hold, which
-                // comes late from the cache FSM, no longer drives the
-                // synchronous clear of every valid flop (timing).
-                if ( tag_ram_clear || !i_cache_en )
-                begin
-                        valid <= '0;
-                end
-                else if ( line_clear )
-                begin
-                        valid [ rd_flat_ff ]   <= 1'd0; // ARM925T
-                end
-        end
-end
 
 // ----------------------------------------------------------------------------
 
@@ -906,7 +966,7 @@ begin:blk1
         pa                      = '0;
         dummy                   = '0;
         state_nxt               = state_ff;
-        rd_flat_nxt             = get_tag_ram_rd_addr (blk_ctr_ff, dirty);
+        rd_flat_nxt             = {blk_ctr_ff[$clog2(NUMBER_OF_DIRTY_BLOCKS)-1:0], 4'b0} + FLAT_W'(pri_enc(dirty_scan));
         tag_ram_wr_addr         = i_address[`ZAP_VA__CACHE_INDEX];
         tag_ram_wr_en           = 0;
         tag_ram_clear           = 0;
@@ -988,7 +1048,7 @@ begin:blk1
 
                 for ( int w = 0; w < WAYS; w++ )
                 begin
-                        if ( valid [ flat(WAY_W'(w), rd_flat_ff[SET_W-1:0]) ] &&
+                        if ( valid_q[w] &&
                              ( i_line_va ? tag_q[w][`ZAP_CACHE_TAG__TAG] == i_line_addr[`ZAP_VA__CACHE_TAG]
                                          : WAY_W'(w) == rd_way ) )
                         begin
@@ -999,7 +1059,7 @@ begin:blk1
 
                 adr_ctr_nxt = 0;
 
-                if ( i_line_op[0] && line_hit_nxt && dirty[rd_flat_nxt] )
+                if ( i_line_op[0] && line_hit_nxt && dirty_q[WAY_W'(rd_flat_nxt >> SET_W)] )
                 begin
                         // Write the line back (CACHE_CLEAN_WRITE returns to LINE_INV).
                         state_nxt = CACHE_CLEAN_WRITE;
@@ -1033,7 +1093,7 @@ begin:blk1
 
         CACHE_CLEAN_GET_ADDRESS:
         begin
-                if ( &baggage(dirty, blk_ctr_ff) )
+                if ( &pri_enc(dirty_scan) )
                 begin
                         // Move to next block.
                         {dummy, blk_ctr_nxt} = {dummy, blk_ctr_ff} + 32'd1;
@@ -1176,54 +1236,30 @@ endfunction : pri_enc
 
 // -----------------------------------------------------------------------------
 
-// The first dirty line of a block of 16, over the lines of every way.
-function automatic [FLAT_W-1:0] get_tag_ram_rd_addr (
-input [$clog2(NUMBER_OF_DIRTY_BLOCKS):0]   blk_ctr,
-input [LINES_ALL-1:0]                      Dirty
-);
-
-        localparam [31:0] W = $clog2(NUMBER_OF_DIRTY_BLOCKS) + 5;
-
-        logic [15:0]                               dirty_new;
-        logic [4:0]                                enc;
-        logic [W-1:0]                              shamt;
-        logic [31:0]                               sum;
-        logic [LINES_ALL - 16 - 1:0]               unused1;
-        logic                                      unused0;
-
-        sum                 = 32'd0;
-        shamt               = {blk_ctr, 4'd0};
-        {unused1,dirty_new} = Dirty >> shamt;
-        enc                 = pri_enc(dirty_new[15:0]);
-        sum[W:0]            = {1'd0, shamt[W-1:0]} + {1'd0, {{(W-5){1'd0}}, enc}};
-        unused0             = |{sum[31:FLAT_W]};
-        get_tag_ram_rd_addr = sum[FLAT_W-1:0];
-
-endfunction : get_tag_ram_rd_addr
-
-// ----------------------------------------------------------------------------
-
-function automatic [4:0] baggage (
-        input [LINES_ALL-1:0]                           Dirty,
-        input [$clog2(NUMBER_OF_DIRTY_BLOCKS):0]        blk_ctr
-);
-
-        logic [LINES_ALL-1:0] w_dirty;
-        logic [15:0] val;
-        logic [LINES_ALL - 16 - 1:0] unused1;
-
-        w_dirty        = Dirty >> {blk_ctr, 4'd0};
-        {unused1, val} = w_dirty;
-
-        return pri_enc(val);
-
-endfunction : baggage
-
-// ----------------------------------------------------------------------------
-
 endmodule : zap_cache_tag_ram
 
 // ----------------------------------------------------------------------------
 // END OF FILE
 // ----------------------------------------------------------------------------
 
+
+// A separate inference boundary is intentional. Quartus 17 loses ramstyle
+// on scalar memories inside nested generate loops after sv2v elaboration,
+// and otherwise implements the small dirty banks as registers.
+module zap_cache_metadata_ram #(
+        parameter integer DEPTH = 32
+) (
+        input logic i_clk,
+        input logic i_read_en,
+        input logic i_write_en,
+        input logic i_write_data,
+        input logic [$clog2(DEPTH)-1:0] i_read_address,
+        input logic [$clog2(DEPTH)-1:0] i_write_address,
+        output logic o_data
+);
+        (* ramstyle = "M10K" *) logic [0:0] mem [DEPTH-1:0];
+        always_ff @(posedge i_clk)
+                if (i_write_en) mem[i_write_address] <= i_write_data;
+        always_ff @(posedge i_clk)
+                if (i_read_en) o_data <= mem[i_read_address];
+endmodule

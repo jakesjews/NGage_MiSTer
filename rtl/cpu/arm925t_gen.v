@@ -29,6 +29,7 @@ module arm925t (
 	bus_rdata,
 	bus_ack,
 	bus_err,
+	bus_no_late_error,
 	dbg_pc,
 	dbg_wb_valid,
 	dbg_wfi,
@@ -45,6 +46,7 @@ module arm925t (
 	dbg_wb_cpsr_nxt,
 	dbg_stall,
 	dbg_dcache,
+	dbg_icache,
 	dbg_d_done,
 	dbg_d_we,
 	dbg_d_va,
@@ -75,6 +77,7 @@ module arm925t (
 	input wire [31:0] bus_rdata;
 	input wire bus_ack;
 	input wire bus_err;
+	input wire bus_no_late_error;
 	output wire [31:0] dbg_pc;
 	output wire dbg_wb_valid;
 	output wire dbg_wfi;
@@ -91,6 +94,7 @@ module arm925t (
 	output wire [31:0] dbg_wb_cpsr_nxt;
 	output wire [7:0] dbg_stall;
 	output wire [3:0] dbg_dcache;
+	output wire [7:0] dbg_icache;
 	output wire dbg_d_done;
 	output wire dbg_d_we;
 	output wire [31:0] dbg_d_va;
@@ -138,6 +142,7 @@ module arm925t (
 		.o_dbg_wb_cpsr_nxt(dbg_wb_cpsr_nxt),
 		.o_dbg_stall(dbg_stall),
 		.o_dbg_dcache(dbg_dcache),
+		.o_dbg_icache(dbg_icache),
 		.o_dbg_d_done(dbg_d_done),
 		.o_dbg_d_we(dbg_d_we),
 		.o_dbg_d_va(dbg_d_va),
@@ -154,7 +159,8 @@ module arm925t (
 		.o_wb_bte(bus_bte),
 		.i_wb_ack(bus_ack),
 		.i_wb_dat(bus_rdata),
-		.i_wb_err(bus_err)
+		.i_wb_err(bus_err),
+		.i_wb_no_late_error(bus_no_late_error)
 	);
 	assign bus_req = wb_cyc & wb_stb;
 	assign bus_burst = wb_cti == 3'b010;
@@ -369,7 +375,8 @@ module arm9v2_core (
 	o_dbg_wb_pc,
 	o_dbg_wb_cpsr,
 	o_dbg_wb_cpsr_nxt,
-	o_dbg_stall
+	o_dbg_stall,
+	o_dbg_fetch
 );
 	reg _sv2v_0;
 	parameter [0:0] ARM9_PREDICTOR = 1'b1;
@@ -491,6 +498,7 @@ module arm9v2_core (
 	output wire [31:0] o_dbg_wb_cpsr;
 	output wire [31:0] o_dbg_wb_cpsr_nxt;
 	output wire [7:0] o_dbg_stall;
+	output wire [1:0] o_dbg_fetch;
 	wire d_ready;
 	wire d_valid;
 	wire [31:0] d_pc;
@@ -1364,7 +1372,8 @@ module arm9v2_core (
 		.o_address_check(f_address_check),
 		.o_address(f_address),
 		.o_request(o_instr_wb_stb),
-		.o_stall(o_code_stall)
+		.o_stall(o_code_stall),
+		.o_dbg_fetch(o_dbg_fetch)
 	);
 	arm9v2_execute u_execute(
 		.i_pending(d_pending),
@@ -3567,6 +3576,7 @@ module arm9v2_fetch (
 	o_address,
 	o_request,
 	o_stall,
+	o_dbg_fetch,
 	i_ready,
 	o_valid,
 	o_pc,
@@ -3614,6 +3624,7 @@ module arm9v2_fetch (
 	output wire [31:0] o_address;
 	output wire o_request;
 	output wire o_stall;
+	output wire [1:0] o_dbg_fetch;
 	input wire i_ready;
 	output wire o_valid;
 	output wire [31:0] o_pc;
@@ -3662,6 +3673,7 @@ module arm9v2_fetch (
 	assign o_address = f2[31-:32];
 	assign o_request = (f2[35] && !killed) && !i_redirect;
 	assign o_stall = ((count == 8) && !killed) || (f2[35] && !i_ack);
+	assign o_dbg_fetch = {f2[35] && !i_ack, (count == 8) && !killed};
 	assign advance = !o_stall;
 	assign retry = (((f2[35] && i_ack) && i_retry) && !killed) && !i_redirect;
 	assign push = (((((f2[35] && i_ack) && !i_retry) && advance) && !killed) && !i_redirect) && (f2[33-:2] == epoch);
@@ -3947,7 +3959,8 @@ module arm9v2_front_decode (
 	o_address_check,
 	o_address,
 	o_request,
-	o_stall
+	o_stall,
+	o_dbg_fetch
 );
 	parameter [0:0] PREDICTOR = 1'b1;
 	parameter [0:0] EXTERNAL_RF = 0;
@@ -4059,6 +4072,7 @@ module arm9v2_front_decode (
 	output wire [31:0] o_address;
 	output wire o_request;
 	output wire o_stall;
+	output wire [1:0] o_dbg_fetch;
 	wire f_valid;
 	wire f_thumb;
 	wire f_fault;
@@ -4105,6 +4119,7 @@ module arm9v2_front_decode (
 		.o_address(o_address),
 		.o_request(o_request),
 		.o_stall(o_stall),
+		.o_dbg_fetch(o_dbg_fetch),
 		.i_ready(o_ready),
 		.o_valid(f_valid),
 		.o_pc(f_pc),
@@ -6199,6 +6214,7 @@ module zap_cache (
 	o_fill_pending,
 	o_fill_done,
 	o_fill_fault,
+	o_dbg_icache,
 	i_mmu_en,
 	i_cache_en,
 	i_cache_inv_req,
@@ -6226,9 +6242,12 @@ module zap_cache (
 	o_wb_adr_nxt,
 	o_wb_cti,
 	o_wb_cti_nxt,
+	o_wb_bte,
+	o_wb_bte_nxt,
 	i_wb_dat,
 	i_wb_ack,
-	i_wb_err
+	i_wb_err,
+	i_wb_no_late_error
 );
 	reg _sv2v_0;
 	parameter [0:0] SHORT_READ = 1'b0;
@@ -6264,6 +6283,7 @@ module zap_cache (
 	output wire o_fill_pending;
 	output wire o_fill_done;
 	output wire o_fill_fault;
+	output wire [3:0] o_dbg_icache;
 	input wire i_mmu_en;
 	input wire i_cache_en;
 	input wire i_cache_inv_req;
@@ -6291,9 +6311,12 @@ module zap_cache (
 	output reg [31:0] o_wb_adr_nxt;
 	output reg [2:0] o_wb_cti;
 	output reg [2:0] o_wb_cti_nxt;
+	output reg [1:0] o_wb_bte;
+	output wire [1:0] o_wb_bte_nxt;
 	input wire [31:0] i_wb_dat;
 	input wire i_wb_ack;
 	input wire i_wb_err;
+	input wire i_wb_no_late_error;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
 	localparam [1:0] FINE_ID = 2'b11;
@@ -6576,6 +6599,7 @@ module zap_cache (
 	wire [31:0] wb_dat [2:0];
 	wire [31:0] wb_adr [2:0];
 	wire [2:0] wb_cti [2:0];
+	wire [1:0] cache_bte;
 	wire [31:0] tlb_phy_addr;
 	wire [7:0] tlb_fsr;
 	wire [31:0] tlb_far;
@@ -6623,6 +6647,8 @@ module zap_cache (
 	reg [31:0] dac_reg_q;
 	reg pf_inv;
 	wire unused;
+	assign o_dbg_icache[2] = o_dbg_icache[1] && (state_ff == SELECT_CCH);
+	assign o_dbg_icache[3] = (((state_ff == SELECT_TLB) && o_wb_cyc) && o_wb_stb) && (i_wb_ack || i_wb_err);
 	always @(posedge i_clk)
 		if (i_reset) begin
 			mmu_en_q <= 1'd0;
@@ -6698,6 +6724,7 @@ module zap_cache (
 		.o_fill_pending(o_fill_pending),
 		.o_fill_done(o_fill_done),
 		.o_fill_fault(o_fill_fault),
+		.o_dbg_icache(o_dbg_icache[1:0]),
 		.o_address(cache_address),
 		.o_wb_cyc_nxt(wb_cyc[0]),
 		.o_hold(hold),
@@ -6714,9 +6741,11 @@ module zap_cache (
 		.o_wb_sel_nxt(wb_sel[0]),
 		.o_wb_wen_nxt(wb_wen[0]),
 		.o_wb_cti_nxt(wb_cti[0]),
+		.o_wb_bte_nxt(cache_bte),
 		.i_wb_dat(i_wb_dat),
 		.i_wb_ack(wb_ack[0]),
-		.i_wb_err(wb_err[0])
+		.i_wb_err(wb_err[0]),
+		.i_wb_no_late_error(i_wb_no_late_error)
 	);
 	localparam [31:0] sv2v_uu_u_zap_cache_tag_ram_WAYS = WAYS;
 	localparam [(sv2v_uu_u_zap_cache_tag_ram_WAYS > 1 ? $clog2(sv2v_uu_u_zap_cache_tag_ram_WAYS) : 1) - 1:0] sv2v_uu_u_zap_cache_tag_ram_ext_i_accepted_way_0 = 1'sb0;
@@ -6726,18 +6755,19 @@ module zap_cache (
 		.CACHE_LINE(CACHE_LINE),
 		.WAYS(WAYS),
 		.SHORT_READ(SHORT_READ),
-		.PREFETCH(PREFETCH)
+		.PREFETCH(PREFETCH),
+		.TRACK_DIRTY(1'b0)
 	) u_zap_cache_tag_ram(
 		.i_clk(i_clk),
+		.i_accepted_hit(1'b0),
+		.i_accepted_address(32'd0),
+		.i_accepted_way(sv2v_uu_u_zap_cache_tag_ram_ext_i_accepted_way_0),
 		.i_reset(i_reset),
 		.i_address_nxt(i_address_nxt),
 		.i_address(cache_address),
 		.i_lookup_address((SHORT_READ ? i_address_check : i_address)),
 		.i_lookup_check_address(32'b00000000000000000000000000000000),
 		.i_lookup_stall(1'b0),
-		.i_accepted_hit(1'b0),
-		.i_accepted_address(32'd0),
-		.i_accepted_way(sv2v_uu_u_zap_cache_tag_ram_ext_i_accepted_way_0),
 		.o_cache_hit_early(),
 		.i_access((SHORT_READ ? i_rd_check && idle : i_rd || i_wr)),
 		.i_idle(idle),
@@ -6879,6 +6909,7 @@ module zap_cache (
 			o_wb_cyc <= 1'd0;
 			o_wb_adr <= 1'sbx;
 			o_wb_cti <= CTI_EOB;
+			o_wb_bte <= 2'b00;
 			o_wb_sel <= 1'sbx;
 			o_wb_dat <= 1'sbx;
 			o_wb_wen <= 1'sbx;
@@ -6889,6 +6920,7 @@ module zap_cache (
 			o_wb_cyc <= o_wb_cyc_nxt;
 			o_wb_adr <= o_wb_adr_nxt;
 			o_wb_cti <= o_wb_cti_nxt;
+			o_wb_bte <= o_wb_bte_nxt;
 			o_wb_sel <= o_wb_sel_nxt;
 			o_wb_dat <= o_wb_dat_nxt;
 			o_wb_wen <= o_wb_wen_nxt;
@@ -6918,6 +6950,7 @@ module zap_cache (
 	end
 	assign o_wb_cyc_nxt = (!o_wb_stb || ((o_wb_stb && (i_wb_ack || i_wb_err)) && (o_wb_cti == CTI_EOB)) ? |wb_cyc : |(state_ff & wb_cyc));
 	assign o_wb_stb_nxt = ((!o_wb_stb || (o_wb_stb && i_wb_ack)) && |wb_cyc ? ((wb_cyc[2] && wb_stb[2]) || ((!wb_cyc[2] && wb_cyc[1]) && wb_stb[1])) || (((!wb_cyc[2] && !wb_cyc[1]) && wb_cyc[0]) && wb_stb[0]) : |(state_ff & wb_stb));
+	assign o_wb_bte_nxt = (state_nxt == SELECT_CCH ? cache_bte : 2'b00);
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -6973,6 +7006,7 @@ module zap_cache_fsm (
 	o_fill_pending,
 	o_fill_done,
 	o_fill_fault,
+	o_dbg_icache,
 	i_cache_en,
 	i_cache_inv,
 	i_cache_clean,
@@ -7023,9 +7057,11 @@ module zap_cache_fsm (
 	o_wb_wen_nxt,
 	o_wb_cti_ff,
 	o_wb_cti_nxt,
+	o_wb_bte_nxt,
 	i_wb_ack,
 	i_wb_dat,
-	i_wb_err
+	i_wb_err,
+	i_wb_no_late_error
 );
 	reg _sv2v_0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
@@ -7050,6 +7086,7 @@ module zap_cache_fsm (
 	output wire o_fill_pending;
 	output wire o_fill_done;
 	output wire o_fill_fault;
+	output wire [1:0] o_dbg_icache;
 	input wire i_cache_en;
 	input wire i_cache_inv;
 	input wire i_cache_clean;
@@ -7100,9 +7137,11 @@ module zap_cache_fsm (
 	output reg o_wb_wen_nxt;
 	output reg [2:0] o_wb_cti_ff;
 	output reg [2:0] o_wb_cti_nxt;
+	output wire [1:0] o_wb_bte_nxt;
 	input wire i_wb_ack;
 	input wire [31:0] i_wb_dat;
 	input wire i_wb_err;
+	input wire i_wb_no_late_error;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
 	localparam [1:0] FINE_ID = 2'b11;
@@ -7427,8 +7466,17 @@ module zap_cache_fsm (
 	assign cti_inc = ({{ADR_PAD {1'd0}}, adr_ctr_inc} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
 	assign wb_adr_cur = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_ff, 2'd0};
 	assign wb_adr_inc = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_inc, 2'd0};
-	assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_ff, 2'd0};
-	assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_inc, 2'd0};
+	wire [$clog2(CACHE_LINE / 4) - 1:0] fetch_word_cur;
+	assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_cur, 2'b00};
+	wire [$clog2(CACHE_LINE / 4) - 1:0] fetch_word_inc;
+	assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_inc, 2'b00};
+	reg [$clog2(CACHE_LINE / 4) - 1:0] fetch_start_ff;
+	reg [$clog2(CACHE_LINE / 4) - 1:0] fetch_start_nxt;
+	reg fetch_wrap_ff;
+	reg fetch_wrap_nxt;
+	assign fetch_word_cur = fetch_start_ff + adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0];
+	assign fetch_word_inc = fetch_start_ff + adr_ctr_inc[$clog2(CACHE_LINE / 4) - 1:0];
+	assign o_wb_bte_nxt = ((state_ff == FETCH_SINGLE) && fetch_wrap_ff ? 2'b01 : 2'b00);
 	reg [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] way;
 	reg pf_valid_ff;
 	reg pf_valid_nxt;
@@ -7469,8 +7517,19 @@ module zap_cache_fsm (
 	wire [31:0] fill_lookup;
 	reg [31:0] response_dat_ff;
 	reg fill_ready_ff;
+	reg fill_no_late_error_ff;
+	always @(posedge i_clk)
+		if (i_reset || (state_nxt == IDLE))
+			fill_no_late_error_ff <= 1'b0;
+		else if (((state_ff == FETCH_SINGLE) && take) && (adr_ctr_ff == 0))
+			fill_no_late_error_ff <= (((CACHE_LINE == 16) && fetch_wrap_ff) && i_wb_no_late_error) && !i_wb_err;
+	always @(posedge i_clk)
+		if (((!i_reset && (state_ff == FETCH_SINGLE)) && fill_no_late_error_ff) && take)
+			;
 	assign fill_lookup = (i_stall ? i_address : i_address_check);
-	assign o_fill_pending = state_ff == FETCH_SINGLE;
+	assign o_dbg_icache[0] = ((state_ff == FETCH_SINGLE) && take) && (o_wb_cti_ff == CTI_EOB);
+	assign o_dbg_icache[1] = (((state_ff == FETCH_SINGLE) && o_wb_cyc_ff) && o_wb_stb_ff) && !take;
+	assign o_fill_pending = (state_ff == FETCH_SINGLE) && !fill_no_late_error_ff;
 	assign o_fill_done = state_ff == FILL_COMPLETE;
 	assign o_fill_fault = o_fill_done && fill_fault_ff;
 	always @(posedge i_clk) begin
@@ -7548,6 +7607,8 @@ module zap_cache_fsm (
 			cache_clean_req_ff <= 0;
 			cache_inv_req_ff <= 0;
 			adr_ctr_ff <= 0;
+			fetch_start_ff <= 1'sb0;
+			fetch_wrap_ff <= 1'b0;
 			state_ff <= IDLE;
 		end
 		else begin
@@ -7561,6 +7622,8 @@ module zap_cache_fsm (
 			cache_clean_req_ff <= cache_clean_req_nxt;
 			cache_inv_req_ff <= cache_inv_req_nxt;
 			adr_ctr_ff <= adr_ctr_nxt;
+			fetch_start_ff <= fetch_start_nxt;
+			fetch_wrap_ff <= fetch_wrap_nxt;
 			state_ff <= state_nxt;
 		end
 	always @(posedge i_clk) begin : sv2v_autoblock_3
@@ -7636,6 +7699,8 @@ module zap_cache_fsm (
 		pf_pa_nxt = pf_pa_ff;
 		pf_beat_valid_nxt = pf_beat_valid_ff;
 		adr_ctr_nxt = adr_ctr_ff;
+		fetch_start_nxt = fetch_start_ff;
+		fetch_wrap_nxt = fetch_wrap_ff;
 		o_wb_cyc_nxt = o_wb_cyc_ff;
 		o_wb_stb_nxt = o_wb_stb_ff;
 		o_wb_adr_nxt = o_wb_adr_ff;
@@ -7791,6 +7856,8 @@ module zap_cache_fsm (
 										for (i = 0; i < (CACHE_LINE / 4); i = i + 1)
 											buf_nxt[i] = pf_buf_nxt[i];
 									end
+									fetch_start_nxt = 1'sb0;
+									fetch_wrap_nxt = 1'b0;
 									fill_valid_nxt = pf_beat_valid_nxt;
 									fill_fault_nxt = 1'd0;
 									pf_active_nxt = 1'd0;
@@ -7810,6 +7877,8 @@ module zap_cache_fsm (
 									end
 									else if (i_rd | i_wr) begin
 										adr_ctr_nxt = 0;
+										fetch_start_nxt = (CACHE_LINE == 16 ? i_phy_addr[$clog2(CACHE_LINE) - 1:2] : {$clog2(CACHE_LINE / 4) {1'sb0}});
+										fetch_wrap_nxt = CACHE_LINE == 16;
 										state_nxt = FETCH_SINGLE;
 									end
 								end
@@ -7898,8 +7967,8 @@ module zap_cache_fsm (
 			FETCH_SINGLE: begin
 				adr_ctr_nxt = (take ? adr_ctr_inc : adr_ctr_ff);
 				if (take) begin
-					buf_nxt[adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0]] = i_wb_dat;
-					fill_valid_nxt[adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0]] = 1'd1;
+					buf_nxt[o_wb_adr_ff[$clog2(CACHE_LINE) - 1:2]] = i_wb_dat;
+					fill_valid_nxt[o_wb_adr_ff[$clog2(CACHE_LINE) - 1:2]] = 1'd1;
 					fill_fault_nxt = fill_fault_ff | i_wb_err;
 				end
 				if (wr) begin
@@ -8115,6 +8184,7 @@ module zap_cache_tag_ram (
 	reg _sv2v_0;
 	parameter [0:0] SHORT_READ = 1'b0;
 	parameter [0:0] ACCEPTED_HIT_UPDATE = 1'b0;
+	parameter [0:0] TRACK_DIRTY = 1'b1;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] CACHE_LINE = 32'd8;
 	parameter [31:0] WAYS = 32'd1;
@@ -8462,9 +8532,22 @@ module zap_cache_tag_ram (
 	localparam [31:0] BLK_CTR_PAD = (32 - $clog2(NUMBER_OF_DIRTY_BLOCKS)) - 1;
 	localparam [31:0] ADR_CTR_PAD = (32 - $clog2(CACHE_LINE / 4)) - 1;
 	localparam [31:0] ZERO_WDT = $clog2(CACHE_LINE / 4) + 1;
-	reg [LINES_ALL - 1:0] dirty;
-	reg [LINES_ALL - 1:0] valid;
-	reg [LINES - 1:0] lru;
+	wire [15:0] dirty_scan;
+	wire [(WAYS * 16) - 1:0] dirty_group_q;
+	reg valid_write_en;
+	reg [SET_W - 1:0] valid_write_set;
+	reg [WAYS - 1:0] valid_write_way;
+	reg valid_write_data;
+	reg dirty_write_en;
+	reg dirty_write_data;
+	reg [SET_W - 1:0] dirty_write_set;
+	reg [WAYS - 1:0] dirty_write_way;
+	reg [SET_W - 5:0] dirty_read_group;
+	reg [3:0] dirty_read_bit_ff;
+	wire [WAYS - 1:0] dirty_s1_raw;
+	wire [WAYS - 1:0] valid_s1_raw;
+	wire [SET_W - 1:0] hit_upd_set;
+	wire [WAY_W - 1:0] hit_upd_way;
 	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tag_ram_wr_data;
 	reg tag_ram_wr_en;
 	reg [SET_W - 1:0] tag_ram_wr_addr;
@@ -8494,10 +8577,10 @@ module zap_cache_tag_ram (
 	reg [$clog2(NUMBER_OF_DIRTY_BLOCKS):0] blk_ctr_nxt;
 	reg [$clog2(CACHE_LINE / 4):0] adr_ctr_ff;
 	reg [$clog2(CACHE_LINE / 4):0] adr_ctr_nxt;
-	reg [WAYS - 1:0] dirty_s1;
+	wire [WAYS - 1:0] dirty_s1;
 	reg [WAYS - 1:0] dirty_s2;
 	reg [WAYS - 1:0] dirty_q;
-	reg [WAYS - 1:0] valid_s1;
+	wire [WAYS - 1:0] valid_s1;
 	reg [WAYS - 1:0] valid_s2;
 	reg [WAYS - 1:0] valid_q;
 	reg [WAYS - 1:0] hit;
@@ -8508,12 +8591,10 @@ module zap_cache_tag_ram (
 	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] walk_tag;
 	wire [$clog2(CACHE_LINE) - 3:0] lk_word;
 	wire [(CACHE_LINE * 8) - 1:0] walk_line;
-	reg lru_s1;
+	wire lru_s1;
 	reg lru_s2;
 	reg lru_q;
 	wire hit_upd_en;
-	wire [SET_W - 1:0] hit_upd_set;
-	wire [WAY_W - 1:0] hit_upd_way;
 	reg hit_pend_en;
 	reg hit_pend_val;
 	reg [SET_W - 1:0] hit_pend_set;
@@ -8530,7 +8611,6 @@ module zap_cache_tag_ram (
 	reg pend_dirty;
 	reg [SET_W - 1:0] pend_addr;
 	reg [WAYS - 1:0] pend_sel;
-	reg [(WAYS * FLAT_W) - 1:0] pend_flat;
 	wire unused;
 	reg [BLK_CTR_PAD - 1:0] dummy;
 	reg [(CACHE_LINE * 8) - 33:0] line_dummy;
@@ -8694,15 +8774,10 @@ module zap_cache_tag_ram (
 		if (WAYS == 1) begin : g_direct
 			assign victim = 1'd0;
 			assign sel = 1'd0;
-			wire [LINES:1] sv2v_tmp_38A54;
-			assign sv2v_tmp_38A54 = 1'sb0;
-			always @(*) lru = sv2v_tmp_38A54;
 			wire [1:1] sv2v_tmp_D8542;
 			assign sv2v_tmp_D8542 = 1'd0;
 			always @(*) lru_q = sv2v_tmp_D8542;
-			wire [1:1] sv2v_tmp_FF38F;
-			assign sv2v_tmp_FF38F = 1'd0;
-			always @(*) lru_s1 = sv2v_tmp_FF38F;
+			assign lru_s1 = 1'd0;
 			wire [1:1] sv2v_tmp_29135;
 			assign sv2v_tmp_29135 = 1'd0;
 			always @(*) lru_s2 = sv2v_tmp_29135;
@@ -8728,7 +8803,7 @@ module zap_cache_tag_ram (
 			assign victim = (!valid_q[0] ? 1'd0 : (!valid_q[1] ? 1'd1 : ((ACCEPTED_HIT_UPDATE && i_accepted_hit) && (hit_upd_set == lk_set) ? ~i_accepted_way : lru_q)));
 			assign sel = (hit[1] ? 1'd1 : (hit[0] ? 1'd0 : victim));
 			assign hit_upd_en = (ACCEPTED_HIT_UPDATE ? i_accepted_hit : i_access && o_cache_hit);
-			assign hit_upd_set = (ACCEPTED_HIT_UPDATE ? i_accepted_address[$clog2(CACHE_LINE)+:SET_W] : lk_set);
+			assign hit_upd_set = (ACCEPTED_HIT_UPDATE ? i_accepted_address[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)] : lk_set);
 			assign hit_upd_way = (ACCEPTED_HIT_UPDATE ? i_accepted_way : sel);
 			assign o_cache_tag = (victim ? tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))] : tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + 0+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))]);
 			assign o_cache_line = (victim ? line_q[CACHE_LINE * 8+:CACHE_LINE * 8] : line_q[0+:CACHE_LINE * 8]);
@@ -8756,39 +8831,94 @@ module zap_cache_tag_ram (
 				hit_pend_set <= hit_upd_set;
 				hit_pend_val <= ~hit_upd_way;
 			end
-			always @(posedge i_clk)
+			(* ramstyle = "M10K" *) reg lru_mem [LINES - 1:0];
+			reg lru_read;
+			reg lru_read_fwd;
+			reg lru_read_value;
+			reg [SET_W - 1:0] lru_read_set_q;
+			reg [SET_W - 1:0] lru_write_set_q;
+			reg defer_en;
+			reg defer_val;
+			reg [SET_W - 1:0] defer_set;
+			wire lru_wr_en;
+			wire lru_wr_val;
+			wire [SET_W - 1:0] lru_wr_set;
+			wire fill_update = pend_en && |pend_sel;
+			assign lru_wr_en = (hit_pend_en || fill_update) || defer_en;
+			assign lru_wr_set = (hit_pend_en ? hit_pend_set : (fill_update ? pend_addr : defer_set));
+			assign lru_wr_val = (hit_pend_en ? hit_pend_val : (fill_update ? pend_sel[0] : defer_val));
+			always @(posedge i_clk) begin
+				if (lru_wr_en)
+					lru_mem[lru_wr_set] <= lru_wr_val;
+				if ((!i_hold || tag_ram_clear) || line_clear) begin
+					lru_read <= lru_mem[rd_set];
+					lru_read_fwd <= lru_wr_en && (SHORT_READ || (lru_wr_set == rd_set));
+					lru_read_set_q <= rd_set;
+					lru_write_set_q <= lru_wr_set;
+					lru_read_value <= lru_wr_val;
+				end
 				if (i_reset || tag_ram_clear)
-					lru <= 1'sb0;
+					defer_en <= 1'b0;
 				else begin
-					if (pend_en && |pend_sel)
-						lru[pend_addr] <= pend_sel[0];
-					if (hit_pend_en)
-						lru[hit_pend_set] <= hit_pend_val;
+					if (lru_wr_en && (lru_wr_set == defer_set))
+						defer_en <= 1'b0;
+					if ((hit_pend_en && fill_update) && (hit_pend_set != pend_addr)) begin
+						defer_en <= 1'b1;
+						defer_set <= pend_addr;
+						defer_val <= pend_sel[0];
+					end
 				end
-			always @(posedge i_clk)
-				if (i_reset) begin
-					if (!SHORT_READ)
-						lru_q <= 1'd0;
-					lru_s2 <= 1'd0;
-					lru_s1 <= 1'd0;
-				end
-				else if ((!i_hold || tag_ram_clear) || line_clear) begin
-					if (!SHORT_READ)
+			end
+			wire lru_first = (lru_read_fwd && (!SHORT_READ || (lru_read_set_q == lru_write_set_q)) ? lru_read_value : lru_read);
+			wire lru_deferred = (defer_en && (defer_set == rd_set_del) ? defer_val : lru_first);
+			if (SHORT_READ) begin : g_short
+				reg hit_en;
+				reg tag_en;
+				reg deferred_en;
+				reg hit_value;
+				reg tag_value;
+				reg deferred_value;
+				reg [SET_W - 1:0] read_set;
+				reg [SET_W - 1:0] hit_set;
+				reg [SET_W - 1:0] tag_set;
+				reg [SET_W - 1:0] deferred_set;
+				always @(posedge i_clk)
+					if ((!i_hold || tag_ram_clear) || line_clear) begin
+						read_set <= rd_set;
+						hit_set <= hit_upd_set;
+						tag_set <= tag_ram_wr_addr;
+						deferred_set <= defer_set;
+						hit_en <= hit_upd_en;
+						tag_en <= tag_ram_wr_en && |wr_sel;
+						deferred_en <= defer_en;
+						hit_value <= ~hit_upd_way;
+						tag_value <= wr_sel[0];
+						deferred_value <= defer_val;
+					end
+				wire [1:1] sv2v_tmp_0DB98;
+				assign sv2v_tmp_0DB98 = (hit_en && (hit_set == read_set) ? hit_value : (tag_en && (tag_set == read_set) ? tag_value : (deferred_en && (deferred_set == read_set) ? deferred_value : lru_first)));
+				always @(*) lru_q = sv2v_tmp_0DB98;
+				assign lru_s1 = 1'b0;
+				wire [1:1] sv2v_tmp_7903C;
+				assign sv2v_tmp_7903C = 1'b0;
+				always @(*) lru_s2 = sv2v_tmp_7903C;
+			end
+			else begin : g_long
+				assign lru_s1 = lru_deferred;
+				always @(posedge i_clk)
+					if ((!i_hold || tag_ram_clear) || line_clear) begin
+						lru_s2 <= lru_fwd(rd_set_del, lru_s1);
 						lru_q <= lru_fwd_now(rd_set_del2, lru_s2);
-					lru_s2 <= lru_fwd(rd_set_del, lru_s1);
-					lru_s1 <= lru_fwd(rd_set, lru[rd_set]);
-				end
+					end
+			end
 		end
 	endgenerate
 	assign o_cache_hit = |hit;
 	assign o_cache_way = sel;
-	function automatic signed [WAY_W - 1:0] sv2v_cast_4BDF2_signed;
-		input reg signed [WAY_W - 1:0] inp;
-		sv2v_cast_4BDF2_signed = inp;
-	endfunction
 	generate
 		if (PREFETCH) begin : g_prefetch
 			reg [(WAYS * TAG_W) - 1:0] pf_tag_q;
+			wire [WAYS - 1:0] pf_valid_q;
 			reg [SET_W - 1:0] pf_set_q;
 			reg [TAG_W - 1:0] pf_addr_tag_q;
 			reg [TAG_W - 1:0] pend_tag;
@@ -8799,6 +8929,43 @@ module zap_cache_tag_ram (
 			for (_gv_w_4 = 0; _gv_w_4 < WAYS; _gv_w_4 = _gv_w_4 + 1) begin : g_pf_way
 				localparam w = _gv_w_4;
 				reg [TAG_W - 1:0] pf_tag_mem [LINES - 1:0];
+				reg [(LINES / 4) - 1:0] pf_live;
+				reg pf_live_q;
+				wire [3:0] pf_valid_group;
+				reg [1:0] pf_bit_q;
+				wire [SET_W - 1:0] pf_set = i_pf_addr[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)];
+				always @(posedge i_clk) begin
+					if ((i_reset || tag_ram_clear) || !i_cache_en)
+						pf_live <= 1'sb0;
+					else if (pend_en && pend_sel[w])
+						pf_live[pend_addr[SET_W - 1:2]] <= 1'b1;
+					pf_live_q <= ((!i_reset && !tag_ram_clear) && i_cache_en) && (pf_live[pf_set[SET_W - 1:2]] || ((pend_en && pend_sel[w]) && (pend_addr[SET_W - 1:2] == pf_set[SET_W - 1:2])));
+					pf_bit_q <= pf_set[1:0];
+				end
+				genvar _gv_b_2;
+				for (_gv_b_2 = 0; _gv_b_2 < 4; _gv_b_2 = _gv_b_2 + 1) begin : g_valid
+					localparam b = _gv_b_2;
+					wire read_bit;
+					reg collision;
+					reg forward_bit;
+					wire write_bank = (valid_write_en && valid_write_way[w]) && ((!pf_live[valid_write_set[SET_W - 1:2]] && valid_write_data) || (valid_write_set[1:0] == b[1:0]));
+					wire write_bit = valid_write_data && (valid_write_set[1:0] == b[1:0]);
+					zap_cache_metadata_ram #(.DEPTH(LINES / 4)) valid_ram(
+						.i_clk(i_clk),
+						.i_read_en(1'b1),
+						.i_write_en(write_bank),
+						.i_write_data(write_bit),
+						.i_read_address(pf_set[SET_W - 1:2]),
+						.i_write_address(valid_write_set[SET_W - 1:2]),
+						.o_data(read_bit)
+					);
+					always @(posedge i_clk) begin
+						collision <= write_bank && (valid_write_set[SET_W - 1:2] == pf_set[SET_W - 1:2]);
+						forward_bit <= write_bit;
+					end
+					assign pf_valid_group[b] = (collision ? forward_bit : read_bit);
+				end
+				assign pf_valid_q[w] = pf_live_q && pf_valid_group[pf_bit_q];
 				always @(posedge i_clk) begin
 					if ((!i_hold && tag_ram_wr_en) && wr_sel[w])
 						pf_tag_mem[tag_ram_wr_addr] <= tag_ram_wr_data[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0];
@@ -8816,7 +8983,7 @@ module zap_cache_tag_ram (
 				begin : sv2v_autoblock_4
 					reg signed [31:0] w;
 					for (w = 0; w < WAYS; w = w + 1)
-						pf_way_hit[w] = (!tag_ram_clear && i_cache_en) && ((pend_en && pend_sel[w]) && (pend_addr == pf_set_q) ? pend_tag == pf_addr_tag_q : valid[flat(sv2v_cast_4BDF2_signed(w), pf_set_q)] && (pf_tag_q[w * TAG_W+:TAG_W] == pf_addr_tag_q));
+						pf_way_hit[w] = (!tag_ram_clear && i_cache_en) && ((pend_en && pend_sel[w]) && (pend_addr == pf_set_q) ? pend_tag == pf_addr_tag_q : pf_valid_q[w] && (pf_tag_q[w * TAG_W+:TAG_W] == pf_addr_tag_q));
 				end
 			end
 			assign o_pf_hit = |pf_way_hit;
@@ -8827,144 +8994,19 @@ module zap_cache_tag_ram (
 			assign o_pf_hit = 1'd0;
 		end
 	endgenerate
+	function automatic signed [WAY_W - 1:0] sv2v_cast_4BDF2_signed;
+		input reg signed [WAY_W - 1:0] inp;
+		sv2v_cast_4BDF2_signed = inp;
+	endfunction
 	always @(*) begin
 		if (_sv2v_0)
 			;
 		begin : sv2v_autoblock_5
 			reg signed [31:0] w;
 			for (w = 0; w < WAYS; w = w + 1)
-				begin
-					wr_sel[w] = (i_idle ? hit[w] : i_cache_way == sv2v_cast_4BDF2_signed(w));
-					pend_flat[w * FLAT_W+:FLAT_W] = flat(sv2v_cast_4BDF2_signed(w), pend_addr);
-				end
+				wr_sel[w] = (i_idle ? hit[w] : i_cache_way == sv2v_cast_4BDF2_signed(w));
 		end
 	end
-	function automatic signed [SET_W - 1:0] sv2v_cast_18E2F_signed;
-		input reg signed [SET_W - 1:0] inp;
-		sv2v_cast_18E2F_signed = inp;
-	endfunction
-	function automatic signed [31:0] sv2v_cast_32_signed;
-		input reg signed [31:0] inp;
-		sv2v_cast_32_signed = inp;
-	endfunction
-	generate
-		if (SHORT_READ) begin : g_short_meta
-			localparam LOW_W = (SET_W < 4 ? SET_W : 4);
-			localparam BANKS = LINES >> LOW_W;
-			localparam BANK_W = (SET_W > LOW_W ? SET_W - LOW_W : 1);
-			reg [((((SET_W + SET_W) + SET_W) + WAYS) + WAYS) + 1:0] descriptor;
-			reg [((((SET_W + SET_W) + SET_W) + WAYS) + WAYS) + 1:0] valid_desc;
-			reg [((((SET_W + SET_W) + SET_W) + WAYS) + WAYS) + 1:0] dirty_desc;
-			wire unused_valid_dirty;
-			assign unused_valid_dirty = |{valid_desc[1], valid_desc[0]};
-			reg [(WAYS * BANKS) - 1:0] valid_bank;
-			reg [(WAYS * BANKS) - 1:0] dirty_bank;
-			reg [BANK_W - 1:0] valid_select;
-			reg [BANK_W - 1:0] dirty_select;
-			always @(*) begin
-				if (_sv2v_0)
-					;
-				descriptor[SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))-:((SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))) >= (SET_W + (SET_W + (WAYS + (WAYS + 2)))) ? ((SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))) - (SET_W + (SET_W + (WAYS + (WAYS + 2))))) + 1 : ((SET_W + (SET_W + (WAYS + (WAYS + 2)))) - (SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1)))))) + 1)] = rd_set;
-				descriptor[SET_W + (SET_W + (WAYS + (WAYS + 1)))-:((SET_W + (SET_W + (WAYS + (WAYS + 1)))) >= (SET_W + (WAYS + (WAYS + 2))) ? ((SET_W + (SET_W + (WAYS + (WAYS + 1)))) - (SET_W + (WAYS + (WAYS + 2)))) + 1 : ((SET_W + (WAYS + (WAYS + 2))) - (SET_W + (SET_W + (WAYS + (WAYS + 1))))) + 1)] = tag_ram_wr_addr;
-				descriptor[SET_W + (WAYS + (WAYS + 1))-:((SET_W + (WAYS + (WAYS + 1))) >= (WAYS + (WAYS + 2)) ? ((SET_W + (WAYS + (WAYS + 1))) - (WAYS + (WAYS + 2))) + 1 : ((WAYS + (WAYS + 2)) - (SET_W + (WAYS + (WAYS + 1)))) + 1)] = pend_addr;
-				descriptor[WAYS + (WAYS + 1)-:((WAYS + (WAYS + 1)) >= (WAYS + 2) ? ((WAYS + (WAYS + 1)) - (WAYS + 2)) + 1 : ((WAYS + 2) - (WAYS + (WAYS + 1))) + 1)] = wr_sel & {WAYS {tag_ram_wr_en}};
-				descriptor[WAYS + 1-:((WAYS + 1) >= 2 ? WAYS + 0 : 3 - (WAYS + 1))] = pend_sel & {WAYS {pend_en}};
-				descriptor[1] = i_cache_tag_dirty;
-				descriptor[0] = pend_dirty;
-			end
-			always @(posedge i_clk)
-				if (i_reset) begin
-					valid_desc <= 1'sb0;
-					dirty_desc <= 1'sb0;
-					valid_bank <= 1'sb0;
-					dirty_bank <= 1'sb0;
-					valid_select <= 1'sb0;
-					dirty_select <= 1'sb0;
-				end
-				else begin
-					if ((!i_hold || tag_ram_clear) || line_clear) begin
-						valid_desc <= descriptor;
-						begin : sv2v_autoblock_6
-							reg [BANK_W - 1:0] sv2v_tmp_cast;
-							sv2v_tmp_cast = rd_set >> LOW_W;
-							valid_select <= sv2v_tmp_cast;
-						end
-						begin : sv2v_autoblock_7
-							reg signed [31:0] w;
-							for (w = 0; w < WAYS; w = w + 1)
-								begin : sv2v_autoblock_8
-									reg signed [31:0] b;
-									for (b = 0; b < BANKS; b = b + 1)
-										valid_bank[(w * BANKS) + b] <= valid[flat(sv2v_cast_4BDF2_signed(w), sv2v_cast_18E2F_signed((b << LOW_W) | sv2v_cast_32_signed(rd_set[LOW_W - 1:0])))];
-								end
-						end
-					end
-					if ((!i_hold || tag_ram_clean) || line_clear) begin
-						dirty_desc <= descriptor;
-						begin : sv2v_autoblock_9
-							reg [BANK_W - 1:0] sv2v_tmp_cast;
-							sv2v_tmp_cast = rd_set >> LOW_W;
-							dirty_select <= sv2v_tmp_cast;
-						end
-						begin : sv2v_autoblock_10
-							reg signed [31:0] w;
-							for (w = 0; w < WAYS; w = w + 1)
-								begin : sv2v_autoblock_11
-									reg signed [31:0] b;
-									for (b = 0; b < BANKS; b = b + 1)
-										dirty_bank[(w * BANKS) + b] <= dirty[flat(sv2v_cast_4BDF2_signed(w), sv2v_cast_18E2F_signed((b << LOW_W) | sv2v_cast_32_signed(rd_set[LOW_W - 1:0])))];
-								end
-						end
-					end
-				end
-			genvar _gv_w_5;
-			for (_gv_w_5 = 0; _gv_w_5 < WAYS; _gv_w_5 = _gv_w_5 + 1) begin : g_way
-				localparam w = _gv_w_5;
-				wire [1:1] sv2v_tmp_01AA9;
-				assign sv2v_tmp_01AA9 = (((valid_desc[SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))-:((SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))) >= (SET_W + (SET_W + (WAYS + (WAYS + 2)))) ? ((SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))) - (SET_W + (SET_W + (WAYS + (WAYS + 2))))) + 1 : ((SET_W + (SET_W + (WAYS + (WAYS + 2)))) - (SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1)))))) + 1)] == valid_desc[SET_W + (SET_W + (WAYS + (WAYS + 1)))-:((SET_W + (SET_W + (WAYS + (WAYS + 1)))) >= (SET_W + (WAYS + (WAYS + 2))) ? ((SET_W + (SET_W + (WAYS + (WAYS + 1)))) - (SET_W + (WAYS + (WAYS + 2)))) + 1 : ((SET_W + (WAYS + (WAYS + 2))) - (SET_W + (SET_W + (WAYS + (WAYS + 1))))) + 1)]) && valid_desc[(WAYS + (WAYS + 1)) - ((WAYS - 1) - w)]) || ((valid_desc[SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))-:((SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))) >= (SET_W + (SET_W + (WAYS + (WAYS + 2)))) ? ((SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))) - (SET_W + (SET_W + (WAYS + (WAYS + 2))))) + 1 : ((SET_W + (SET_W + (WAYS + (WAYS + 2)))) - (SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1)))))) + 1)] == valid_desc[SET_W + (WAYS + (WAYS + 1))-:((SET_W + (WAYS + (WAYS + 1))) >= (WAYS + (WAYS + 2)) ? ((SET_W + (WAYS + (WAYS + 1))) - (WAYS + (WAYS + 2))) + 1 : ((WAYS + (WAYS + 2)) - (SET_W + (WAYS + (WAYS + 1)))) + 1)]) && valid_desc[(WAYS + 1) - ((WAYS - 1) - w)])) || valid_bank[(w * BANKS) + valid_select];
-				always @(*) valid_q[w] = sv2v_tmp_01AA9;
-				wire [1:1] sv2v_tmp_41917;
-				assign sv2v_tmp_41917 = ((dirty_desc[SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))-:((SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))) >= (SET_W + (SET_W + (WAYS + (WAYS + 2)))) ? ((SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))) - (SET_W + (SET_W + (WAYS + (WAYS + 2))))) + 1 : ((SET_W + (SET_W + (WAYS + (WAYS + 2)))) - (SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1)))))) + 1)] == dirty_desc[SET_W + (SET_W + (WAYS + (WAYS + 1)))-:((SET_W + (SET_W + (WAYS + (WAYS + 1)))) >= (SET_W + (WAYS + (WAYS + 2))) ? ((SET_W + (SET_W + (WAYS + (WAYS + 1)))) - (SET_W + (WAYS + (WAYS + 2)))) + 1 : ((SET_W + (WAYS + (WAYS + 2))) - (SET_W + (SET_W + (WAYS + (WAYS + 1))))) + 1)]) && dirty_desc[(WAYS + (WAYS + 1)) - ((WAYS - 1) - w)] ? dirty_desc[1] : ((dirty_desc[SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))-:((SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))) >= (SET_W + (SET_W + (WAYS + (WAYS + 2)))) ? ((SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1))))) - (SET_W + (SET_W + (WAYS + (WAYS + 2))))) + 1 : ((SET_W + (SET_W + (WAYS + (WAYS + 2)))) - (SET_W + (SET_W + (SET_W + (WAYS + (WAYS + 1)))))) + 1)] == dirty_desc[SET_W + (WAYS + (WAYS + 1))-:((SET_W + (WAYS + (WAYS + 1))) >= (WAYS + (WAYS + 2)) ? ((SET_W + (WAYS + (WAYS + 1))) - (WAYS + (WAYS + 2))) + 1 : ((WAYS + (WAYS + 2)) - (SET_W + (WAYS + (WAYS + 1)))) + 1)]) && dirty_desc[(WAYS + 1) - ((WAYS - 1) - w)] ? dirty_desc[0] : dirty_bank[(w * BANKS) + dirty_select]));
-				always @(*) dirty_q[w] = sv2v_tmp_41917;
-			end
-			if (WAYS == 2) begin : g_lru
-				reg [BANKS - 1:0] bank_q;
-				reg [BANK_W - 1:0] bank_select;
-				reg [(4 * SET_W) - 1:0] update_set;
-				reg [3:0] update_en;
-				reg [3:0] update_val;
-				reg [SET_W - 1:0] read_set;
-				always @(posedge i_clk)
-					if (i_reset) begin
-						bank_q <= 1'sb0;
-						bank_select <= 1'sb0;
-						read_set <= 1'sb0;
-						update_set <= 1'sb0;
-						update_en <= 1'sb0;
-						update_val <= 1'sb0;
-					end
-					else if ((!i_hold || tag_ram_clear) || line_clear) begin
-						read_set <= rd_set;
-						begin : sv2v_autoblock_12
-							reg [BANK_W - 1:0] sv2v_tmp_cast;
-							sv2v_tmp_cast = rd_set >> LOW_W;
-							bank_select <= sv2v_tmp_cast;
-						end
-						begin : sv2v_autoblock_13
-							reg signed [31:0] b;
-							for (b = 0; b < BANKS; b = b + 1)
-								bank_q[b] <= lru[sv2v_cast_18E2F_signed((b << LOW_W) | sv2v_cast_32_signed(rd_set[LOW_W - 1:0]))];
-						end
-						update_set <= {hit_upd_set, tag_ram_wr_addr, hit_pend_set, pend_addr};
-						update_en <= {hit_upd_en, tag_ram_wr_en && |wr_sel, hit_pend_en, pend_en && |pend_sel};
-						update_val <= {~hit_upd_way, wr_sel[0], hit_pend_val, pend_sel[0]};
-					end
-				wire [1:1] sv2v_tmp_D3E74;
-				assign sv2v_tmp_D3E74 = (update_en[3] && (read_set == update_set[3 * SET_W+:SET_W]) ? update_val[3] : (update_en[2] && (read_set == update_set[2 * SET_W+:SET_W]) ? update_val[2] : (update_en[1] && (read_set == update_set[SET_W+:SET_W]) ? update_val[1] : (update_en[0] && (read_set == update_set[0+:SET_W]) ? update_val[0] : bank_q[bank_select]))));
-				always @(*) lru_q = sv2v_tmp_D3E74;
-			end
-		end
-	endgenerate
 	always @(posedge i_clk)
 		if (!i_hold) begin
 			rd_set_del <= rd_set;
@@ -8979,64 +9021,262 @@ module zap_cache_tag_ram (
 		pend_sel <= wr_sel;
 		pend_dirty <= i_cache_tag_dirty;
 	end
-	always @(posedge i_clk)
-		if (i_reset) begin
-			if (!SHORT_READ)
-				dirty_q <= 1'sb0;
-			dirty_s2 <= 1'sb0;
-			dirty_s1 <= 1'sb0;
-			dirty <= 1'sb0;
-		end
-		else begin
-			if ((!i_hold || tag_ram_clean) || line_clear) begin : sv2v_autoblock_14
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		valid_write_en = pend_en || line_clear;
+		valid_write_set = pend_addr;
+		valid_write_way = pend_sel;
+		valid_write_data = 1'b1;
+		if (line_clear) begin
+			valid_write_set = rd_flat_ff[SET_W - 1:0];
+			begin : sv2v_autoblock_6
 				reg signed [31:0] w;
 				for (w = 0; w < WAYS; w = w + 1)
-					begin
-						if (!SHORT_READ)
+					valid_write_way[w] = rd_way == sv2v_cast_4BDF2_signed(w);
+			end
+			valid_write_data = 1'b0;
+		end
+		dirty_write_en = (pend_en || tag_ram_clean) || line_clear;
+		dirty_write_set = pend_addr;
+		dirty_write_way = pend_sel;
+		dirty_write_data = pend_dirty;
+		if (tag_ram_clean || line_clear) begin
+			dirty_write_set = rd_flat_ff[SET_W - 1:0];
+			begin : sv2v_autoblock_7
+				reg signed [31:0] w;
+				for (w = 0; w < WAYS; w = w + 1)
+					dirty_write_way[w] = rd_way == sv2v_cast_4BDF2_signed(w);
+			end
+			dirty_write_data = 1'b0;
+		end
+		dirty_read_group = rd_set[SET_W - 1:4];
+		if ((state_ff == 13'b0000000000001) && i_cache_clean_req)
+			dirty_read_group = 1'sb0;
+		else if ((!line_mode_ff && (state_ff != 13'b0000000000001)) && (state_ff != 13'b0000001000000))
+			dirty_read_group = blk_ctr_nxt[SET_W - 5:0];
+	end
+	function automatic [WAY_W - 1:0] sv2v_cast_4BDF2;
+		input reg [WAY_W - 1:0] inp;
+		sv2v_cast_4BDF2 = inp;
+	endfunction
+	assign dirty_scan = dirty_group_q[sv2v_cast_4BDF2(blk_ctr_ff >> (SET_W - 4)) * 16+:16];
+	always @(posedge i_clk)
+		if ((!i_hold || tag_ram_clean) || line_clear)
+			dirty_read_bit_ff <= rd_set[3:0];
+	reg [SET_W - 1:0] meta_v_read;
+	reg [SET_W - 1:0] meta_v_write;
+	reg [SET_W - 1:0] meta_v_pending;
+	reg [SET_W - 1:0] meta_d_write;
+	reg [SET_W - 5:0] meta_d_read;
+	reg [SET_W - 1:0] meta_now_v_read;
+	reg [SET_W - 1:0] meta_now_v_write;
+	reg [SET_W - 1:0] meta_now_d_read;
+	reg [SET_W - 1:0] meta_now_d_write;
+	reg [WAYS - 1:0] meta_now_v_en;
+	reg [WAYS - 1:0] meta_now_d_en;
+	reg [WAYS - 1:0] meta_pending_en;
+	reg meta_now_dirty;
+	generate
+		if (SHORT_READ) begin : g_short_descriptors
+			always @(posedge i_clk) begin
+				if ((!i_hold || tag_ram_clear) || line_clear) begin
+					meta_v_read <= rd_set;
+					meta_v_write <= valid_write_set;
+					meta_v_pending <= pend_addr;
+					meta_pending_en <= pend_sel & {WAYS {pend_en}};
+					meta_now_v_read <= rd_set;
+					meta_now_v_write <= tag_ram_wr_addr;
+					meta_now_v_en <= wr_sel & {WAYS {tag_ram_wr_en}};
+				end
+				if ((!i_hold || tag_ram_clean) || line_clear) begin
+					meta_d_read <= dirty_read_group;
+					meta_d_write <= dirty_write_set;
+					meta_now_d_read <= rd_set;
+					meta_now_d_write <= tag_ram_wr_addr;
+					meta_now_d_en <= wr_sel & {WAYS {tag_ram_wr_en}};
+					meta_now_dirty <= i_cache_tag_dirty;
+				end
+				if (i_reset) begin
+					meta_now_v_en <= 0;
+					meta_now_d_en <= 0;
+					meta_pending_en <= 0;
+				end
+			end
+		end
+		else begin : g_no_short_descriptors
+			wire [SET_W:1] sv2v_tmp_6EDF8;
+			assign sv2v_tmp_6EDF8 = 0;
+			always @(*) meta_v_read = sv2v_tmp_6EDF8;
+			wire [SET_W:1] sv2v_tmp_9AC0E;
+			assign sv2v_tmp_9AC0E = 0;
+			always @(*) meta_v_write = sv2v_tmp_9AC0E;
+			wire [SET_W:1] sv2v_tmp_07B42;
+			assign sv2v_tmp_07B42 = 0;
+			always @(*) meta_v_pending = sv2v_tmp_07B42;
+			wire [SET_W:1] sv2v_tmp_97E48;
+			assign sv2v_tmp_97E48 = 0;
+			always @(*) meta_d_write = sv2v_tmp_97E48;
+			wire [((SET_W - 5) >= 0 ? SET_W - 4 : 6 - SET_W):1] sv2v_tmp_1ED05;
+			assign sv2v_tmp_1ED05 = 0;
+			always @(*) meta_d_read = sv2v_tmp_1ED05;
+			wire [SET_W:1] sv2v_tmp_6839A;
+			assign sv2v_tmp_6839A = 0;
+			always @(*) meta_now_v_read = sv2v_tmp_6839A;
+			wire [SET_W:1] sv2v_tmp_99177;
+			assign sv2v_tmp_99177 = 0;
+			always @(*) meta_now_v_write = sv2v_tmp_99177;
+			wire [SET_W:1] sv2v_tmp_155E8;
+			assign sv2v_tmp_155E8 = 0;
+			always @(*) meta_now_d_read = sv2v_tmp_155E8;
+			wire [SET_W:1] sv2v_tmp_D89E9;
+			assign sv2v_tmp_D89E9 = 0;
+			always @(*) meta_now_d_write = sv2v_tmp_D89E9;
+			wire [WAYS:1] sv2v_tmp_E56C2;
+			assign sv2v_tmp_E56C2 = 0;
+			always @(*) meta_now_v_en = sv2v_tmp_E56C2;
+			wire [WAYS:1] sv2v_tmp_5BEB1;
+			assign sv2v_tmp_5BEB1 = 0;
+			always @(*) meta_now_d_en = sv2v_tmp_5BEB1;
+			wire [WAYS:1] sv2v_tmp_E1F83;
+			assign sv2v_tmp_E1F83 = 0;
+			always @(*) meta_pending_en = sv2v_tmp_E1F83;
+			wire [1:1] sv2v_tmp_0943A;
+			assign sv2v_tmp_0943A = 0;
+			always @(*) meta_now_dirty = sv2v_tmp_0943A;
+		end
+	endgenerate
+	genvar _gv_w_5;
+	generate
+		for (_gv_w_5 = 0; _gv_w_5 < WAYS; _gv_w_5 = _gv_w_5 + 1) begin : g_metadata
+			localparam w = _gv_w_5;
+			reg [(LINES / 4) - 1:0] valid_live;
+			reg valid_live_q;
+			wire [3:0] valid_group_q;
+			reg [1:0] valid_read_bit;
+			always @(posedge i_clk) begin
+				if ((i_reset || tag_ram_clear) || !i_cache_en)
+					valid_live <= 1'sb0;
+				else if (pend_en && pend_sel[w])
+					valid_live[pend_addr[SET_W - 1:2]] <= 1'b1;
+				if ((!i_hold || tag_ram_clear) || line_clear) begin
+					valid_read_bit <= rd_set[1:0];
+					valid_live_q <= valid_live[rd_set[SET_W - 1:2]] || (!SHORT_READ && ((pend_en && pend_sel[w]) && (pend_addr[SET_W - 1:2] == rd_set[SET_W - 1:2])));
+				end
+				if (i_reset)
+					valid_live_q <= 1'b0;
+			end
+			genvar _gv_b_3;
+			for (_gv_b_3 = 0; _gv_b_3 < 4; _gv_b_3 = _gv_b_3 + 1) begin : g_valid_bank
+				localparam b = _gv_b_3;
+				wire read_bit;
+				reg collision;
+				reg forward_bit;
+				wire write_bank = (valid_write_en && valid_write_way[w]) && ((!valid_live[valid_write_set[SET_W - 1:2]] && valid_write_data) || (valid_write_set[1:0] == b[1:0]));
+				wire write_bit = (valid_write_set[1:0] == b[1:0]) && valid_write_data;
+				zap_cache_metadata_ram #(.DEPTH(LINES / 4)) valid_ram(
+					.i_clk(i_clk),
+					.i_read_en((!i_hold || tag_ram_clear) || line_clear),
+					.i_write_en(write_bank),
+					.i_write_data(write_bit),
+					.i_read_address(rd_set[SET_W - 1:2]),
+					.i_write_address(valid_write_set[SET_W - 1:2]),
+					.o_data(read_bit)
+				);
+				always @(posedge i_clk)
+					if ((!i_hold || tag_ram_clear) || line_clear) begin
+						collision <= write_bank && (SHORT_READ || (valid_write_set[SET_W - 1:2] == rd_set[SET_W - 1:2]));
+						forward_bit <= write_bit;
+					end
+				assign valid_group_q[b] = (collision && (!SHORT_READ || (meta_v_write[SET_W - 1:2] == meta_v_read[SET_W - 1:2])) ? forward_bit : read_bit);
+			end
+			assign valid_s1_raw[w] = (valid_live_q || ((SHORT_READ && meta_pending_en[w]) && (meta_v_pending[SET_W - 1:2] == meta_v_read[SET_W - 1:2]))) && valid_group_q[valid_read_bit];
+			if (TRACK_DIRTY) begin : g_dirty
+				reg [(LINES / 16) - 1:0] dirty_initialized;
+				reg dirty_initialized_q;
+				reg dirty_update_q;
+				always @(posedge i_clk) begin
+					if (i_reset)
+						dirty_initialized <= 1'sb0;
+					else if (dirty_write_en && dirty_write_way[w])
+						dirty_initialized[dirty_write_set[SET_W - 1:4]] <= 1'b1;
+					if ((!i_hold || tag_ram_clean) || line_clear)
+						dirty_initialized_q <= dirty_initialized[dirty_read_group] || (((!SHORT_READ && dirty_write_en) && dirty_write_way[w]) && (dirty_write_set[SET_W - 1:4] == dirty_read_group));
+					if ((!i_hold || tag_ram_clean) || line_clear)
+						dirty_update_q <= dirty_write_en && dirty_write_way[w];
+					if (i_reset)
+						dirty_update_q <= 0;
+					if (i_reset)
+						dirty_initialized_q <= 1'b0;
+				end
+				genvar _gv_b_4;
+				for (_gv_b_4 = 0; _gv_b_4 < 16; _gv_b_4 = _gv_b_4 + 1) begin : g_bank
+					localparam b = _gv_b_4;
+					wire read_bit;
+					reg collision;
+					reg forward_bit;
+					wire write_bank = (dirty_write_en && dirty_write_way[w]) && (!dirty_initialized[dirty_write_set[SET_W - 1:4]] || (dirty_write_set[3:0] == b[3:0]));
+					wire write_bit = (dirty_write_set[3:0] == b[3:0]) && dirty_write_data;
+					zap_cache_metadata_ram #(.DEPTH(LINES / 16)) dirty_ram(
+						.i_clk(i_clk),
+						.i_read_en((!i_hold || tag_ram_clean) || line_clear),
+						.i_write_en(write_bank),
+						.i_write_data(write_bit),
+						.i_read_address(dirty_read_group),
+						.i_write_address(dirty_write_set[SET_W - 1:4]),
+						.o_data(read_bit)
+					);
+					always @(posedge i_clk)
+						if ((!i_hold || tag_ram_clean) || line_clear) begin
+							collision <= write_bank && (SHORT_READ || (dirty_write_set[SET_W - 1:4] == dirty_read_group));
+							forward_bit <= write_bit;
+						end
+					assign dirty_group_q[(w * 16) + b] = (dirty_initialized_q || ((SHORT_READ && dirty_update_q) && (meta_d_write[SET_W - 1:4] == meta_d_read))) && (collision && (!SHORT_READ || (meta_d_write[SET_W - 1:4] == meta_d_read)) ? forward_bit : read_bit);
+				end
+			end
+			else begin : g_read_only
+				assign dirty_group_q[w * 16+:16] = 16'b0000000000000000;
+			end
+			assign dirty_s1_raw[w] = dirty_group_q[(w * 16) + dirty_read_bit_ff];
+			if (SHORT_READ) begin : g_short
+				wire [1:1] sv2v_tmp_2284B;
+				assign sv2v_tmp_2284B = (meta_now_v_en[w] && (meta_now_v_write == meta_now_v_read)) || valid_s1_raw[w];
+				always @(*) valid_q[w] = sv2v_tmp_2284B;
+				wire [1:1] sv2v_tmp_46400;
+				assign sv2v_tmp_46400 = (meta_now_d_en[w] && (meta_now_d_write == meta_now_d_read) ? meta_now_dirty : dirty_s1_raw[w]);
+				always @(*) dirty_q[w] = sv2v_tmp_46400;
+				assign valid_s1[w] = 1'b0;
+				wire [1:1] sv2v_tmp_C65A7;
+				assign sv2v_tmp_C65A7 = 1'b0;
+				always @(*) valid_s2[w] = sv2v_tmp_C65A7;
+				assign dirty_s1[w] = 1'b0;
+				wire [1:1] sv2v_tmp_E0711;
+				assign sv2v_tmp_E0711 = 1'b0;
+				always @(*) dirty_s2[w] = sv2v_tmp_E0711;
+			end
+			else begin : g_long
+				assign valid_s1[w] = valid_s1_raw[w];
+				assign dirty_s1[w] = dirty_s1_raw[w];
+				always @(posedge i_clk)
+					if (i_reset) begin
+						valid_s2[w] <= 1'b0;
+						valid_q[w] <= 1'b0;
+						dirty_s2[w] <= 1'b0;
+						dirty_q[w] <= 1'b0;
+					end
+					else begin
+						if ((!i_hold || tag_ram_clear) || line_clear) begin
+							valid_s2[w] <= (((rd_set_del == pend_addr) && pend_en) && pend_sel[w] ? 1'b1 : valid_s1[w]);
+							valid_q[w] <= (((rd_set_del2 == tag_ram_wr_addr) && tag_ram_wr_en) && wr_sel[w] ? 1'b1 : (((rd_set_del2 == pend_addr) && pend_en) && pend_sel[w] ? 1'b1 : valid_s2[w]));
+						end
+						if ((!i_hold || tag_ram_clean) || line_clear) begin
+							dirty_s2[w] <= (((rd_set_del == pend_addr) && pend_en) && pend_sel[w] ? pend_dirty : dirty_s1[w]);
 							dirty_q[w] <= (((rd_set_del2 == tag_ram_wr_addr) && tag_ram_wr_en) && wr_sel[w] ? i_cache_tag_dirty : (((rd_set_del2 == pend_addr) && pend_en) && pend_sel[w] ? pend_dirty : dirty_s2[w]));
-						dirty_s2[w] <= (((rd_set_del == pend_addr) && pend_en) && pend_sel[w] ? pend_dirty : dirty_s1[w]);
-						dirty_s1[w] <= (((rd_set == pend_addr) && pend_en) && pend_sel[w] ? pend_dirty : dirty[flat(sv2v_cast_4BDF2_signed(w), rd_set)]);
+						end
 					end
 			end
-			begin : sv2v_autoblock_15
-				reg signed [31:0] w;
-				for (w = 0; w < WAYS; w = w + 1)
-					if (pend_en && pend_sel[w])
-						dirty[pend_flat[w * FLAT_W+:FLAT_W]] <= pend_dirty;
-			end
-			if (tag_ram_clean || line_clear)
-				dirty[rd_flat_ff] <= 1'd0;
 		end
-	always @(posedge i_clk)
-		if (i_reset) begin
-			if (!SHORT_READ)
-				valid_q <= 1'sb0;
-			valid_s2 <= 1'sb0;
-			valid_s1 <= 1'sb0;
-			valid <= 1'sb0;
-		end
-		else begin
-			if ((!i_hold || tag_ram_clear) || line_clear) begin : sv2v_autoblock_16
-				reg signed [31:0] w;
-				for (w = 0; w < WAYS; w = w + 1)
-					begin
-						if (!SHORT_READ)
-							valid_q[w] <= (((rd_set_del2 == tag_ram_wr_addr) && tag_ram_wr_en) && wr_sel[w] ? 1'd1 : (((rd_set_del2 == pend_addr) && pend_en) && pend_sel[w] ? 1'd1 : valid_s2[w]));
-						valid_s2[w] <= (((rd_set_del == pend_addr) && pend_en) && pend_sel[w] ? 1'd1 : valid_s1[w]);
-						valid_s1[w] <= (((rd_set == pend_addr) && pend_en) && pend_sel[w] ? 1'd1 : valid[flat(sv2v_cast_4BDF2_signed(w), rd_set)]);
-					end
-			end
-			begin : sv2v_autoblock_17
-				reg signed [31:0] w;
-				for (w = 0; w < WAYS; w = w + 1)
-					if (pend_en && pend_sel[w])
-						valid[pend_flat[w * FLAT_W+:FLAT_W]] <= 1'd1;
-			end
-			if (tag_ram_clear || !i_cache_en)
-				valid <= 1'sb0;
-			else if (line_clear)
-				valid[rd_flat_ff] <= 1'd0;
-		end
+	endgenerate
 	always @(posedge i_clk)
 		if (i_reset) begin
 			o_wb_cyc_ff <= 0;
@@ -9073,10 +9313,6 @@ module zap_cache_tag_ram (
 			state_ff <= state_nxt;
 		end
 	assign rd_set = (state_ff == 13'b0000000000001 ? i_address_nxt[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)] : rd_flat_ff[SET_W - 1:0]);
-	function automatic [WAY_W - 1:0] sv2v_cast_4BDF2;
-		input reg [WAY_W - 1:0] inp;
-		sv2v_cast_4BDF2 = inp;
-	endfunction
 	assign rd_way = sv2v_cast_4BDF2(rd_flat_ff >> SET_W);
 	assign take = i_wb_ack && o_wb_stb_ff;
 	assign adr_ctr_inc = adr_ctr_ff + {{ZERO_WDT - 1 {1'd0}}, 1'd1};
@@ -9110,38 +9346,6 @@ module zap_cache_tag_ram (
 			default: pri_enc = 5'b11111;
 		endcase
 	endfunction
-	function automatic [4:0] baggage;
-		input [LINES_ALL - 1:0] Dirty;
-		input [$clog2(NUMBER_OF_DIRTY_BLOCKS):0] blk_ctr;
-		reg [LINES_ALL - 1:0] w_dirty;
-		reg [15:0] val;
-		reg [LINES_ALL - 17:0] unused1;
-		begin
-			w_dirty = Dirty >> {blk_ctr, 4'd0};
-			{unused1, val} = w_dirty;
-			baggage = pri_enc(val);
-		end
-	endfunction
-	function automatic [FLAT_W - 1:0] get_tag_ram_rd_addr;
-		input [$clog2(NUMBER_OF_DIRTY_BLOCKS):0] blk_ctr;
-		input [LINES_ALL - 1:0] Dirty;
-		localparam [31:0] W = $clog2(NUMBER_OF_DIRTY_BLOCKS) + 5;
-		reg [15:0] dirty_new;
-		reg [4:0] enc;
-		reg [W - 1:0] shamt;
-		reg [31:0] sum;
-		reg [LINES_ALL - 17:0] unused1;
-		reg unused0;
-		begin
-			sum = 32'd0;
-			shamt = {blk_ctr, 4'd0};
-			{unused1, dirty_new} = Dirty >> shamt;
-			enc = pri_enc(dirty_new[15:0]);
-			sum[W:0] = {1'd0, shamt[W - 1:0]} + {1'd0, {W - 5 {1'd0}}, enc};
-			unused0 = |{sum[31:FLAT_W]};
-			get_tag_ram_rd_addr = sum[FLAT_W - 1:0];
-		end
-	endfunction
 	always @(*) begin : blk1
 		reg [31:0] shamt;
 		reg [31:0] data;
@@ -9154,7 +9358,7 @@ module zap_cache_tag_ram (
 		pa = 1'sb0;
 		dummy = 1'sb0;
 		state_nxt = state_ff;
-		rd_flat_nxt = get_tag_ram_rd_addr(blk_ctr_ff, dirty);
+		rd_flat_nxt = {blk_ctr_ff[$clog2(NUMBER_OF_DIRTY_BLOCKS) - 1:0], 4'b0000} + sv2v_cast_50C4F(pri_enc(dirty_scan));
 		tag_ram_wr_addr = i_address[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)];
 		tag_ram_wr_en = 0;
 		tag_ram_clear = 0;
@@ -9227,16 +9431,16 @@ module zap_cache_tag_ram (
 			13'b0100000000000: begin
 				rd_flat_nxt = rd_flat_ff;
 				line_hit_nxt = 1'd0;
-				begin : sv2v_autoblock_18
+				begin : sv2v_autoblock_8
 					reg signed [31:0] w;
 					for (w = 0; w < WAYS; w = w + 1)
-						if (valid[flat(sv2v_cast_4BDF2_signed(w), rd_flat_ff[SET_W - 1:0])] && (i_line_va ? tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)) : (((w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1))) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)-:((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))] == i_line_addr[31:$clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)] : sv2v_cast_4BDF2_signed(w) == rd_way)) begin
+						if (valid_q[w] && (i_line_va ? tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)) : (((w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1))) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)-:((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))] == i_line_addr[31:$clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)] : sv2v_cast_4BDF2_signed(w) == rd_way)) begin
 							line_hit_nxt = 1'd1;
 							rd_flat_nxt = flat(sv2v_cast_4BDF2_signed(w), rd_flat_ff[SET_W - 1:0]);
 						end
 				end
 				adr_ctr_nxt = 0;
-				if ((i_line_op[0] && line_hit_nxt) && dirty[rd_flat_nxt])
+				if ((i_line_op[0] && line_hit_nxt) && dirty_q[sv2v_cast_4BDF2(rd_flat_nxt >> SET_W)])
 					state_nxt = 13'b0000000100000;
 				else
 					state_nxt = 13'b1000000000000;
@@ -9255,7 +9459,7 @@ module zap_cache_tag_ram (
 				end
 			end
 			13'b0000000000010: begin
-				if (&baggage(dirty, blk_ctr_ff)) begin
+				if (&pri_enc(dirty_scan)) begin
 					{dummy, blk_ctr_nxt} = {dummy, blk_ctr_ff} + 32'd1;
 					if ({{BLK_CTR_PAD {1'd0}}, blk_ctr_ff} == (NUMBER_OF_DIRTY_BLOCKS - 1)) begin
 						state_nxt = 13'b0000000000001;
@@ -9329,6 +9533,31 @@ module zap_cache_tag_ram (
 		endcase
 	end
 	initial _sv2v_0 = 0;
+endmodule
+module zap_cache_metadata_ram (
+	i_clk,
+	i_read_en,
+	i_write_en,
+	i_write_data,
+	i_read_address,
+	i_write_address,
+	o_data
+);
+	parameter integer DEPTH = 32;
+	input wire i_clk;
+	input wire i_read_en;
+	input wire i_write_en;
+	input wire i_write_data;
+	input wire [$clog2(DEPTH) - 1:0] i_read_address;
+	input wire [$clog2(DEPTH) - 1:0] i_write_address;
+	output reg o_data;
+	(* ramstyle = "M10K" *) reg [0:0] mem [DEPTH - 1:0];
+	always @(posedge i_clk)
+		if (i_write_en)
+			mem[i_write_address] <= i_write_data;
+	always @(posedge i_clk)
+		if (i_read_en)
+			o_data <= mem[i_read_address];
 endmodule
 module zap_core (
 	o_trace,
@@ -9417,7 +9646,8 @@ module zap_core (
 	o_dbg_wb_pc,
 	o_dbg_wb_cpsr,
 	o_dbg_wb_cpsr_nxt,
-	o_dbg_stall
+	o_dbg_stall,
+	o_dbg_fetch
 );
 	reg _sv2v_0;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
@@ -9526,6 +9756,7 @@ module zap_core (
 	output wire [31:0] o_dbg_wb_cpsr;
 	output wire [31:0] o_dbg_wb_cpsr_nxt;
 	output wire [7:0] o_dbg_stall;
+	output wire [1:0] o_dbg_fetch;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
 	localparam [1:0] FINE_ID = 2'b11;
@@ -10212,6 +10443,12 @@ module zap_core (
 		.o_taken(fetch_bp_state),
 		.o_pred(fetch_pred)
 	);
+	reg fetch_consumed_ff;
+	always @(posedge i_clk)
+		if ((((reset || clear_from_writeback) || clear_from_alu) || clear_from_decode) || !code_stall)
+			fetch_consumed_ff <= 1'b0;
+		else if (fetch_valid && !fifo_full)
+			fetch_consumed_ff <= 1'b1;
 	zap_fifo #(
 		.WDT(100),
 		.DEPTH(FIFO_DEPTH)
@@ -10219,7 +10456,7 @@ module zap_core (
 		.i_clk(i_clk),
 		.i_reset(i_reset),
 		.i_clear_from_writeback(clear_from_writeback),
-		.i_write_inhibit(code_stall),
+		.i_write_inhibit(fetch_consumed_ff),
 		.i_clear_from_alu(clear_from_alu),
 		.i_data_stall((data_stall && mode16_valid) && fifo_valid),
 		.i_stall_from_shifter((stall_from_shifter && mode16_valid) && fifo_valid),
@@ -11028,6 +11265,7 @@ module zap_core (
 		.o_wb_stb(o_instr_wb_stb),
 		.o_wb_cyc(o_instr_wb_cyc)
 	);
+	assign o_dbg_fetch = {(o_instr_wb_stb && o_instr_wb_cyc) && !i_instr_wb_ack, fifo_full};
 	assign o_dbg_wb_valid = memory_dav_ff;
 	assign o_dbg_stall = {clear_from_writeback, clear_from_alu, stall_from_decode, stall_from_shifter, stall_from_issue, ~fifo_valid, code_stall, data_stall};
 	assign o_dbg_wb_dvalid = memory_decompile_valid;
@@ -12158,6 +12396,7 @@ module zap_dcache (
 	o_far,
 	o_err2,
 	o_dbg_dcache,
+	o_dbg_tlb,
 	i_reg_idx,
 	i_reg_idx_bin,
 	o_lock,
@@ -12244,6 +12483,7 @@ module zap_dcache (
 	output wire [31:0] o_far;
 	output wire o_err2;
 	output wire [3:0] o_dbg_dcache;
+	output wire o_dbg_tlb;
 	input wire [63:0] i_reg_idx;
 	input wire [5:0] i_reg_idx_bin;
 	output wire [63:0] o_lock;
@@ -12988,6 +13228,7 @@ module zap_dcache (
 		else
 			clean_line_event <= ((((state_ff == SELECT_TAG) && o_wb_stb) && o_wb_wen) && (o_wb_cti == CTI_EOB)) && (i_wb_ack || i_wb_err);
 	assign o_dbg_dcache = cf_dbg_dcache | {1'b0, clean_line_event, 2'b00};
+	assign o_dbg_tlb = (((state_ff == SELECT_TLB) && o_wb_cyc) && o_wb_stb) && (i_wb_ack || i_wb_err);
 	always @(posedge i_clk)
 		if (i_reset) begin
 			state_ff <= SELECT_CCH;
@@ -13904,9 +14145,9 @@ module zap_dcache_fsm (
 	generate
 		for (_gv_k_2 = 0; _gv_k_2 < (CACHE_LINE / 4); _gv_k_2 = _gv_k_2 + 1) begin : g_buffer_word
 			localparam k = _gv_k_2;
-			genvar _gv_b_2;
-			for (_gv_b_2 = 0; _gv_b_2 < 4; _gv_b_2 = _gv_b_2 + 1) begin : g_byte
-				localparam b = _gv_b_2;
+			genvar _gv_b_5;
+			for (_gv_b_5 = 0; _gv_b_5 < 4; _gv_b_5 = _gv_b_5 + 1) begin : g_byte
+				localparam b = _gv_b_5;
 				assign buf_nxt[k][b * 8+:8] = (!state_ff[FETCH_SINGLE] ? buf_ff[k][b * 8+:8] : ((wr && (address[$clog2(CACHE_LINE) - 1:2] == k)) && ben[b] ? din[b * 8+:8] : (take && (fetch_word_cur == k) ? i_wb_dat[b * 8+:8] : buf_ff[k][b * 8+:8])));
 			end
 		end
@@ -25235,6 +25476,7 @@ module zap_top (
 	o_dbg_wb_cpsr_nxt,
 	o_dbg_stall,
 	o_dbg_dcache,
+	o_dbg_icache,
 	o_dbg_d_done,
 	o_dbg_d_we,
 	o_dbg_d_va,
@@ -25255,7 +25497,8 @@ module zap_top (
 	o_wb_bte,
 	i_wb_ack,
 	i_wb_dat,
-	i_wb_err
+	i_wb_err,
+	i_wb_no_late_error
 );
 	parameter CORE = "ZAP";
 	parameter [0:0] ARM9_PREDICTOR = 1'b1;
@@ -25303,6 +25546,7 @@ module zap_top (
 	output wire [31:0] o_dbg_wb_cpsr_nxt;
 	output wire [7:0] o_dbg_stall;
 	output wire [3:0] o_dbg_dcache;
+	output wire [7:0] o_dbg_icache;
 	output wire o_dbg_d_done;
 	output wire o_dbg_d_we;
 	output wire [31:0] o_dbg_d_va;
@@ -25324,6 +25568,7 @@ module zap_top (
 	input wire i_wb_ack;
 	input wire [31:0] i_wb_dat;
 	input wire i_wb_err;
+	input wire i_wb_no_late_error;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
 	localparam [1:0] FINE_ID = 2'b11;
@@ -25806,6 +26051,11 @@ module zap_top (
 	wire [31:0] dc_short_data;
 	wire dc_short_hit;
 	wire cpu_instr_stb;
+	wire [1:0] dbg_fetch;
+	wire [3:0] dbg_icache;
+	wire dbg_data_owner;
+	wire dbg_dtlb;
+	assign o_dbg_icache = {dbg_dtlb, dbg_icache[3], dbg_icache[2] && !dbg_data_owner, dbg_icache[1] && dbg_data_owner, dbg_fetch[1] && !dbg_fetch[0], dbg_icache[0], dbg_fetch};
 	wire c_wb_stb;
 	wire c_wb_cyc;
 	wire c_wb_wen;
@@ -25813,8 +26063,10 @@ module zap_top (
 	wire [31:0] c_wb_dat;
 	wire [31:0] c_wb_adr;
 	wire [2:0] c_wb_cti;
+	wire [1:0] c_wb_bte;
 	wire c_wb_ack;
 	wire c_wb_err;
+	wire c_wb_no_late_error;
 	wire d_wb_stb;
 	wire d_wb_cyc;
 	wire d_wb_wen;
@@ -25925,6 +26177,7 @@ module zap_top (
 				.o_dbg_wb_cpsr(o_dbg_wb_cpsr),
 				.o_dbg_wb_cpsr_nxt(o_dbg_wb_cpsr_nxt),
 				.o_dbg_stall(o_dbg_stall),
+				.o_dbg_fetch(dbg_fetch),
 				.i_clk(i_clk),
 				.i_reset(s_reset),
 				.o_instr_wb_adr(cpu_iaddr),
@@ -26048,6 +26301,7 @@ module zap_top (
 				.o_dbg_wb_cpsr(o_dbg_wb_cpsr),
 				.o_dbg_wb_cpsr_nxt(o_dbg_wb_cpsr_nxt),
 				.o_dbg_stall(o_dbg_stall),
+				.o_dbg_fetch(dbg_fetch),
 				.o_data_stall(arm9_data_stall),
 				.i_data_fill_busy(data_fill_busy),
 				.i_clk(i_clk),
@@ -26134,7 +26388,7 @@ module zap_top (
 		end
 		else begin : g_invalid_core
 			initial begin
-				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:592:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
+				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:609:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
 				$finish(1);
 			end
 		end
@@ -26142,6 +26396,8 @@ module zap_top (
 		end
 		else begin : l_tieoffs_only_core
 			assign o_dbg_dcache = 1'sb0;
+			assign dbg_icache = 1'sb0;
+			assign dbg_dtlb = 1'b0;
 			assign dc_wreg_idx = 1'sb0;
 			assign dc_lock = 1'sb0;
 			assign {dc_lock_any, dc_lock_owner} = 1'sb0;
@@ -26188,9 +26444,10 @@ module zap_top (
 			assign d_wb_adr = 1'sb0;
 			assign d_wb_cti = CTI_EOB;
 			assign d_wb_bte = 2'b00;
+			assign c_wb_bte = 2'b00;
 			assign wb_dat = 1'sb0;
 			wire unused;
-			assign unused = (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((|dc_wreg_idx | (|dc_lock)) | (|dc_reg_data)) | (|dc_inv_done)) | (|ic_inv_done)) | (|dc_clean_done)) | (|ic_clean_done)) | (|icache_err2)) | (|dcache_err2)) | (|dc_fsr)) | (|dc_far)) | (|dc_data)) | (|ic_data)) | (|c_wb_ack)) | (|c_wb_err)) | (|d_wb_ack)) | (|d_wb_err)) | (|wb_cyc)) | (|wb_stb)) | (|wb_we)) | (|wb_sel)) | (|wb_idat)) | (|wb_adr)) | (|wb_cti)) | (|wb_ack)) | (|wb_err)) | (|c_wb_stb)) | (|c_wb_cyc)) | (|c_wb_wen)) | (|c_wb_sel)) | (|c_wb_dat)) | (|c_wb_adr)) | (|c_wb_cti)) | (|d_wb_stb)) | (|d_wb_cyc)) | (|d_wb_wen)) | (|d_wb_sel)) | (|d_wb_dat)) | (|d_wb_adr)) | (|d_wb_cti)) | (|d_wb_bte)) | (|wb_dat)) | (|cpu_mmu_en)) | (|cpu_cpsr)) | (|cpu_mem_translate)) | (|cpu_daddr_nxt)) | (|cpu_daddr_check)) | (|cpu_iaddr_nxt)) | (|cpu_iaddr_check)) | (|cpu_dc_en)) | (|cpu_ic_en)) | (|cpu_sr)) | (|cpu_baddr)) | (|cpu_dac_reg)) | (|cpu_dc_inv)) | (|cpu_ic_inv)) | (|cpu_dc_clean)) | (|cpu_ic_clean)) | (|cpu_dtlb_inv)) | (|cpu_itlb_inv)) | (|dc_rreg_idx)) | (|dc_rreg_idx_bin)) | (|cpu_dwe_check)) | (|cpu_dre_check)) | (|code_stall);
+			assign unused = ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((|dc_wreg_idx | (|dc_lock)) | (|dc_reg_data)) | (|dc_inv_done)) | (|ic_inv_done)) | (|dc_clean_done)) | (|ic_clean_done)) | (|icache_err2)) | (|dcache_err2)) | (|dc_fsr)) | (|dc_far)) | (|dc_data)) | (|ic_data)) | (|c_wb_ack)) | (|c_wb_err)) | (|d_wb_ack)) | (|d_wb_err)) | (|wb_cyc)) | (|wb_stb)) | (|wb_we)) | (|wb_sel)) | (|wb_idat)) | (|wb_adr)) | (|wb_cti)) | (|wb_ack)) | (|wb_err)) | (|c_wb_stb)) | (|c_wb_cyc)) | (|c_wb_wen)) | (|c_wb_sel)) | (|c_wb_dat)) | (|c_wb_adr)) | (|c_wb_cti)) | (|d_wb_stb)) | (|d_wb_cyc)) | (|d_wb_wen)) | (|d_wb_sel)) | (|d_wb_dat)) | (|d_wb_adr)) | (|d_wb_cti)) | (|d_wb_bte)) | (|c_wb_bte)) | (|wb_dat)) | (|cpu_mmu_en)) | (|cpu_cpsr)) | (|cpu_mem_translate)) | (|cpu_daddr_nxt)) | (|cpu_daddr_check)) | (|cpu_iaddr_nxt)) | (|cpu_iaddr_check)) | (|cpu_dc_en)) | (|cpu_ic_en)) | (|cpu_sr)) | (|cpu_baddr)) | (|cpu_dac_reg)) | (|cpu_dc_inv)) | (|cpu_ic_inv)) | (|cpu_dc_clean)) | (|cpu_ic_clean)) | (|cpu_dtlb_inv)) | (|cpu_itlb_inv)) | (|dc_rreg_idx)) | (|dc_rreg_idx_bin)) | (|cpu_dwe_check)) | (|cpu_dre_check)) | (|code_stall);
 		end
 		if (!ONLY_CORE) begin : l_merger_for_core_with_cache_mmu
 			zap_wb_merger #(.ONLY_CORE(1'd0)) u_zap_wb_merger(
@@ -26203,8 +26460,11 @@ module zap_top (
 				.i_c_wb_dat(c_wb_dat),
 				.i_c_wb_adr(c_wb_adr),
 				.i_c_wb_cti(c_wb_cti),
+				.i_c_wb_bte(c_wb_bte),
 				.o_c_wb_ack(c_wb_ack),
 				.o_c_wb_err(c_wb_err),
+				.o_c_wb_no_late_error(c_wb_no_late_error),
+				.o_dbg_data_owner(dbg_data_owner),
 				.i_d_wb_stb(d_wb_stb),
 				.i_d_wb_cyc(d_wb_cyc),
 				.i_d_wb_wen(d_wb_wen),
@@ -26224,7 +26484,8 @@ module zap_top (
 				.o_wb_cti(wb_cti),
 				.o_wb_bte(o_wb_bte),
 				.i_wb_ack(wb_ack),
-				.i_wb_err(wb_err)
+				.i_wb_err(wb_err),
+				.i_wb_no_late_error(i_wb_no_late_error)
 			);
 		end
 		else begin : l_merger_for_core_without_cache_mmu
@@ -26238,8 +26499,11 @@ module zap_top (
 				.i_c_wb_dat(32'd0),
 				.i_c_wb_adr(cpu_iaddr),
 				.i_c_wb_cti(3'b111),
+				.i_c_wb_bte(2'b00),
 				.o_c_wb_ack(instr_ack),
 				.o_c_wb_err(instr_err),
+				.o_c_wb_no_late_error(),
+				.o_dbg_data_owner(dbg_data_owner),
 				.i_d_wb_stb(cpu_dc_stb),
 				.i_d_wb_cyc(cpu_dc_stb),
 				.i_d_wb_wen(cpu_dc_we),
@@ -26259,7 +26523,8 @@ module zap_top (
 				.o_wb_cti(o_wb_cti),
 				.o_wb_bte(o_wb_bte),
 				.i_wb_ack(i_wb_ack),
-				.i_wb_err(i_wb_err)
+				.i_wb_err(i_wb_err),
+				.i_wb_no_late_error(i_wb_no_late_error)
 			);
 		end
 		if (!ONLY_CORE) begin : l_generate_with_cache_mmu
@@ -26276,6 +26541,7 @@ module zap_top (
 				.EXT_ABORT_FS((TI925T ? 4'b1000 : 4'b0010))
 			) u_data_cache(
 				.o_dbg_dcache(o_dbg_dcache),
+				.o_dbg_tlb(dbg_dtlb),
 				.i_clk(i_clk),
 				.i_stall(arm9_data_stall),
 				.o_fill_busy(data_fill_busy),
@@ -26390,6 +26656,7 @@ module zap_top (
 				.i_baddr(cpu_baddr),
 				.i_dac_reg(cpu_dac_reg),
 				.i_tlb_inv(cpu_itlb_inv),
+				.o_dbg_icache(dbg_icache),
 				.i_wb_busy(((((d_wb_cyc || d_wb_ack) || |dc_lock) || cpu_dc_clean) || cpu_dc_inv) || cpu_dline_req),
 				.i_pf_inv((cpu_dc_clean || cpu_dc_inv) || cpu_dline_req),
 				.o_err2(icache_err2),
@@ -26405,7 +26672,10 @@ module zap_top (
 				.o_wb_cti(),
 				.i_wb_dat(wb_dat),
 				.i_wb_ack(c_wb_ack),
+				.o_wb_bte(),
+				.o_wb_bte_nxt(c_wb_bte),
 				.i_wb_err(c_wb_err),
+				.i_wb_no_late_error(c_wb_no_late_error),
 				.o_wb_stb_nxt(c_wb_stb),
 				.o_wb_cyc_nxt(c_wb_cyc),
 				.o_wb_wen_nxt(c_wb_wen),
@@ -26437,8 +26707,11 @@ module zap_wb_merger (
 	i_c_wb_dat,
 	i_c_wb_adr,
 	i_c_wb_cti,
+	i_c_wb_bte,
 	o_c_wb_ack,
 	o_c_wb_err,
+	o_c_wb_no_late_error,
+	o_dbg_data_owner,
 	i_d_wb_stb,
 	i_d_wb_cyc,
 	i_d_wb_wen,
@@ -26458,7 +26731,8 @@ module zap_wb_merger (
 	o_wb_cti,
 	o_wb_bte,
 	i_wb_ack,
-	i_wb_err
+	i_wb_err,
+	i_wb_no_late_error
 );
 	reg _sv2v_0;
 	parameter [0:0] ONLY_CORE = 1'd0;
@@ -26471,8 +26745,11 @@ module zap_wb_merger (
 	input wire [31:0] i_c_wb_dat;
 	input wire [31:0] i_c_wb_adr;
 	input wire [2:0] i_c_wb_cti;
+	input wire [1:0] i_c_wb_bte;
 	output wire o_c_wb_ack;
 	output wire o_c_wb_err;
+	output wire o_c_wb_no_late_error;
+	output wire o_dbg_data_owner;
 	input wire i_d_wb_stb;
 	input wire i_d_wb_cyc;
 	input wire i_d_wb_wen;
@@ -26493,6 +26770,7 @@ module zap_wb_merger (
 	output reg [1:0] o_wb_bte;
 	input wire i_wb_ack;
 	input wire i_wb_err;
+	input wire i_wb_no_late_error;
 	localparam [1:0] SECTION_ID = 2'b10;
 	localparam [1:0] PAGE_ID = 2'b01;
 	localparam [1:0] FINE_ID = 2'b11;
@@ -26768,6 +27046,7 @@ module zap_wb_merger (
 	(* preserve, dont_retime *) reg state_ff;
 	reg state_nxt;
 	wire switch;
+	assign o_dbg_data_owner = state_ff == 1'd1;
 	assign switch = (i_wb_ack | i_wb_err) & (o_wb_cti == CTI_EOB);
 	always @(*) begin
 		if (_sv2v_0)
@@ -26798,6 +27077,7 @@ module zap_wb_merger (
 	assign o_c_wb_ack = (state_ff == 1'd0) & (i_wb_err | i_wb_ack);
 	assign o_d_wb_ack = (state_ff == 1'd1) & (i_wb_err | i_wb_ack);
 	assign o_c_wb_err = (state_ff == 1'd0) & i_wb_err;
+	assign o_c_wb_no_late_error = (state_ff == 1'd0) & i_wb_no_late_error;
 	assign o_d_wb_err = (state_ff == 1'd1) & i_wb_err;
 	generate
 		if (!ONLY_CORE) begin : l_genblk1
@@ -26835,7 +27115,7 @@ module zap_wb_merger (
 					o_wb_sel <= i_c_wb_sel;
 					o_wb_adr <= i_c_wb_adr;
 					o_wb_cti <= i_c_wb_cti;
-					o_wb_bte <= 2'b00;
+					o_wb_bte <= i_c_wb_bte;
 				end
 				else begin
 					o_wb_cyc <= i_d_wb_cyc;
@@ -26859,7 +27139,7 @@ module zap_wb_merger (
 					o_wb_dat = i_c_wb_dat;
 					o_wb_adr = i_c_wb_adr;
 					o_wb_cti = i_c_wb_cti;
-					o_wb_bte = 2'b00;
+					o_wb_bte = i_c_wb_bte;
 				end
 				else begin
 					o_wb_cyc = i_d_wb_cyc;

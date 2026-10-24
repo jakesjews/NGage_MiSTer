@@ -1,0 +1,19 @@
+{
+  "merge_parent": "b8ef0e8f8996d6a6695a695567fd9b77ee0bce66",
+  "netlist_sha256": "477ea20b9c03c507232c0ecf470bb7577d912987ffaf63647ccdfa06dc832653",
+  "runs_per_config": 276,
+  "qemu_per_config": 69,
+  "configurations": [
+    "ZAP",
+    "ARM9",
+    "ARM9-off"
+  ],
+  "dcache_sizes": [
+    8192,
+    16384
+  ],
+  "zap_matches_master": true,
+  "miter_edges": 896616,
+  "windows_per_config_per_latency": 85,
+  "source_assertion_runs": 276
+}

@@ -27,6 +27,7 @@ module wb_arb2 (
 	input  logic [1:0]  m0_bte,
 	output logic        m0_ack,
 	output logic        m0_err,
+	output logic        dbg_m1_owner, // observation of registered grant
 
 	input  logic        m1_cyc,
 	input  logic        m1_stb,
@@ -55,6 +56,7 @@ module wb_arb2 (
 	// into upp_bus through them; timing), kept apart from gnt
 	(* preserve *) logic gnt_ad = 1'b0;
 
+	assign dbg_m1_owner = gnt;
 	assign s_cyc = gnt ? m1_cyc : m0_cyc;
 	assign s_stb = gnt ? m1_stb : m0_stb;
 	assign s_we  = gnt_ad ? m1_we  : m0_we;

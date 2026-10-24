@@ -23,6 +23,7 @@ module arm9v2_fetch #(
     input logic i_fill_pending, i_fill_done, i_fill_fault,
     output logic [31:0] o_address_nxt, o_address_check, o_address,
     output logic o_request, o_stall,
+    output logic [1:0] o_dbg_fetch,
     input logic i_ready,
     output logic o_valid,
     output logic [31:0] o_pc, o_word,
@@ -90,6 +91,7 @@ module arm9v2_fetch #(
     // Cache lookup metadata and the cache RAM enable advance together.
     // Queue backpressure ends here; it does not qualify the queue's D output.
     assign o_stall = (count == 8 && !killed) || (f2.valid && !i_ack);
+    assign o_dbg_fetch = {f2.valid && !i_ack, count == 8 && !killed};
     assign advance = !o_stall;
     assign retry = f2.valid && i_ack && i_retry && !killed && !i_redirect;
     assign push = f2.valid && i_ack && !i_retry && advance &&

@@ -20,6 +20,7 @@
 //     --pddbg           also trace the branch prediction every cycle
 //     --buslog FILE     write one line per bus access
 //     --lat MIN:MAX     bus latency, cycles from request to ack (default 0:3)
+//     --icache-quarantine  force conservative I-fill class (negative test)
 //     --read-error ADDR  inject a bus error on reads of ADDR (repeatable)
 //     --seed N          RNG seed for the latency (default 1)
 //     --max-cycles N    give up after N cycles (default 50,000,000)
@@ -61,6 +62,9 @@
 //      +30..+3C R D-cache load fills, store fills, line write-backs,
 //                uncached accesses (monotonic event counters)
 //      +40 R  instructions retired during background store transactions
+//      +44 W  select I-fill VA line and clear its early-retirement word mask
+//      +48 R  watched-line words retired strictly before the terminal beat
+//      +4C R  watched-line words retired after beat one and before beat two
 //   anything else          bus error (external abort)
 // Bus protocol checks: a request must stay unchanged until acked, and a
 // burst beat must be followed by the next word of the same line.
@@ -163,7 +167,7 @@ int main(int argc, char **argv) {
 	uint64_t trace_after = 0, trace_count = 0;
 	bool dcdbg = false, pddbg = false, arm9_cycles = false, measure_cycles = false;
     const char *arm9_cycle_model = nullptr;
-	bool quiet = false;
+	bool quiet = false, icache_quarantine = false;
 	bool halt_given = false;
 	std::string machine;
 	NGage::Options nopt;
@@ -189,6 +193,7 @@ int main(int argc, char **argv) {
 		else if (a == "--sig-base") sig_base = (uint32_t)strtoul(next(), nullptr, 0);
 		else if (a == "--sig-size") sig_size = (uint32_t)strtoul(next(), nullptr, 0);
 		else if (a == "--trace") trace_path = next();
+		else if (a == "--icache-quarantine") icache_quarantine = true;
 		else if (a == "--read-error") read_errors.push_back((uint32_t)strtoul(next(), nullptr, 0));
 		else if (a == "--buslog") buslog_path = next();
 		else if (a == "--lat") {
@@ -338,7 +343,9 @@ int main(int argc, char **argv) {
 	uint32_t hum_watch = 0, hum_loads = 0, hum_stores = 0;
 	uint64_t hum_total_loads = 0, hum_total_stores = 0;
 	uint64_t dcache_events[4] = {};
+	uint64_t icache_events[8] = {};
 	uint32_t store_fill_retired = 0;
+	uint32_t ic_watch = ~15u, ic_early_mask = 0, ic_first_mask = 0;
 	uint64_t dirty_fill_first = 0, dirty_write_first = 0;
 	bool dirty_first_pending = false;
 	int64_t irq_timer = -1, fiq_timer = -1;
@@ -367,11 +374,14 @@ int main(int argc, char **argv) {
 		case 0x38: return (uint32_t)dcache_events[2];
 		case 0x3C: return (uint32_t)dcache_events[3];
 		case 0x40: return store_fill_retired;
+		case 0x48: return ic_early_mask;
+		case 0x4C: return ic_first_mask;
 		default: return 0;
 		}
 	};
 	auto mmio_write = [&](uint32_t off, uint32_t v, uint8_t be) {
 		switch (off) {
+		case 0x44: ic_watch = v & ~15u; ic_early_mask = 0; ic_first_mask = 0; break;
 		case 0x00:
 			if (be & 1) {
 				char c = (char)(v & 0xFF);
@@ -397,6 +407,7 @@ int main(int argc, char **argv) {
 	t->fiq = 0;
 	t->bus_ack = 0;
 	t->bus_err = 0;
+	t->bus_no_late_error = 0;
 	t->bus_rdata = 0;
 	t->eval();
 	for (int i = 0; i < 8; i++) {
@@ -435,6 +446,10 @@ int main(int argc, char **argv) {
 		}
 		for (int b = 0; b < 6; b++) stall_clocks[b] += (t->p_stall >> b) & 1;
 		for (int b = 0; b < 4; b++) dcache_events[b] += (t->p_dcache >> b) & 1;
+		for (int b = 0; b < 8; b++) icache_events[b] += (t->p_icache >> b) & 1;
+		if (((t->p_icache & 3) != 0) != ((t->p_stall & 2) != 0) ||
+		    bool(t->p_icache & 8) != ((t->p_icache & 3) == 2))
+			error("instruction-side debug taps disagree with code stall");
 		// A held redirect is counted on its accepting edge, not every held clock.
 		alu_flushes += (t->p_alu_flags & 0x30) == 0x20;
 		early_flushes += (t->p_stall & 0x41) == 0x40 && !(t->p_alu_flags & 0x20);
@@ -499,6 +514,11 @@ int main(int argc, char **argv) {
                 }
             }
         }
+		if (ev == 'R' && t->p_ic_fill_active && (pc & ~15u) == ic_watch &&
+		    (t->p_ic_fill_addr & ~15u) == ic_watch) {
+			if (!t->p_ic_fill_terminal) ic_early_mask |= 1u << ((pc >> 2) & 3);
+			if (t->p_ic_fill_first_window) ic_first_mask |= 1u << ((pc >> 2) & 3);
+		}
 
 		// bus: protocol checks and the responder
 		bool req = t->bus_req;
@@ -643,6 +663,7 @@ int main(int argc, char **argv) {
 		// bus outputs for the next cycle
 		t->bus_ack = 0;
 		t->bus_err = 0;
+		t->bus_no_late_error = 0;
 		if (complete) {
 			busy = false;
 			ack_out = false;
@@ -676,6 +697,12 @@ int main(int argc, char **argv) {
 			if (buslog && retired >= trace_after)
 				fprintf(buslog, "%" PRIu64 " %c %08x be=%x %08x%s%s\n", cycle, req_we ? 'W' : 'R', a, req_be,
 					req_we ? req_wdata : rdata, req_burst ? " burst" : "", err_out ? " ERR" : "");
+			// Ordinary bench RAM models an SDRAM-class target. A line
+			// configured with an injected error is an error-capable target
+			// for ALL its beats, including successful beats before the error.
+			bool error_line = std::any_of(read_errors.begin(), read_errors.end(),
+			    [a](uint32_t e) { return (e & ~15u) == (a & ~15u); });
+			t->bus_no_late_error = !icache_quarantine && p && !req_we && req_bte == 1 && !error_line && !err_out;
 			t->bus_ack = !err_out;
 			t->bus_err = err_out;
 			t->bus_rdata = err_out ? 0xDEADBEEFu : rdata;
@@ -765,6 +792,11 @@ int main(int argc, char **argv) {
 		printf("D-cache events: load_fills=%" PRIu64 " store_fills=%" PRIu64
 		       " writebacks=%" PRIu64 " uncached=%" PRIu64 "\n",
 		       dcache_events[0], dcache_events[1], dcache_events[2], dcache_events[3]);
+		printf("I-cache events: fifo_full=%" PRIu64 " fetch_wait=%" PRIu64
+		       " fills=%" PRIu64 " true_wait=%" PRIu64 " merger_wait=%" PRIu64
+		       " bus_wait=%" PRIu64 " itlb_beats=%" PRIu64 " dtlb_beats=%" PRIu64 "\n",
+		       icache_events[0], icache_events[1], icache_events[2], icache_events[3],
+		       icache_events[4], icache_events[5], icache_events[6], icache_events[7]);
 		printf("Background writes: %" PRIu64 ", during fill: %" PRIu64 "\n", dc_writes, dc_early_writes);
 		printf("D-cache overlap: store_fill_retired=%u dirty_fill_first=%" PRIu64
 		       " dirty_write_first=%" PRIu64 "\n", store_fill_retired, dirty_fill_first, dirty_write_first);

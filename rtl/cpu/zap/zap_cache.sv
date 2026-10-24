@@ -69,6 +69,9 @@ output  logic [7:0]      o_fsr,
 output  logic [31:0]     o_far,
 output  logic            o_err2,
 output  logic            o_fill_pending, o_fill_done, o_fill_fault,
+// [0] demand completion, [1] demand wait, [2] wait selected onto this
+// wrapper's bus, [3] I-TLB walk beat (ACK or ERR).
+output  logic [3:0]      o_dbg_icache,
 
 // MMU controls from/to processor.
 input   logic            i_mmu_en,
@@ -94,9 +97,11 @@ output logic  [3:0]       o_wb_sel, o_wb_sel_nxt,
 output logic  [31:0]      o_wb_dat, o_wb_dat_nxt,
 output logic  [31:0]      o_wb_adr, o_wb_adr_nxt,
 output logic  [2:0]       o_wb_cti, o_wb_cti_nxt,
+output logic  [1:0]       o_wb_bte, o_wb_bte_nxt,
 input  logic [31:0]       i_wb_dat,
 input  logic              i_wb_ack,
-input  logic              i_wb_err
+input  logic              i_wb_err,
+input  logic              i_wb_no_late_error
 
 );
 
@@ -114,6 +119,7 @@ logic [3:0]                      wb_sel [2:0];
 logic [31:0]                     wb_dat [2:0];
 logic [31:0]                     wb_adr [2:0];
 logic [2:0]                      wb_cti [2:0];
+logic [1:0]                      cache_bte;
 logic [31:0]                     tlb_phy_addr;
 logic [7:0]                      tlb_fsr;
 logic [31:0]                     tlb_far;
@@ -152,6 +158,8 @@ logic [1:0]                      sr_q;
 logic [31:0]                     baddr_q, dac_reg_q;
 logic                            pf_inv;
 logic                            unused;
+assign o_dbg_icache[2] = o_dbg_icache[1] && state_ff == SELECT_CCH;
+assign o_dbg_icache[3] = state_ff == SELECT_TLB && o_wb_cyc && o_wb_stb && (i_wb_ack || i_wb_err);
 
 //
 // ARM925T: the prefetch buffer is dropped on a TLB invalidate, a D-side
@@ -244,6 +252,7 @@ zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .
         .o_fill_pending         (o_fill_pending),
         .o_fill_done            (o_fill_done),
         .o_fill_fault           (o_fill_fault),
+        .o_dbg_icache           (o_dbg_icache[1:0]),
         .o_address              (cache_address),
         .o_wb_cyc_nxt           (wb_cyc[0]),
         .o_hold                 (hold),
@@ -264,24 +273,26 @@ zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .
         .o_wb_sel_nxt           (wb_sel[0]),
         .o_wb_wen_nxt           (wb_wen[0]),
         .o_wb_cti_nxt           (wb_cti[0]),
+        .o_wb_bte_nxt           (cache_bte),
         .i_wb_dat               (i_wb_dat),
         .i_wb_ack               (wb_ack[0]),
-        .i_wb_err               (wb_err[0])
+        .i_wb_err               (wb_err[0]),
+        .i_wb_no_late_error     (i_wb_no_late_error)
 );
 
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
 // ARM9 reads cache and TLB together, then registers compare/selection.
-zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .SHORT_READ(SHORT_READ), .PREFETCH(PREFETCH)) u_zap_cache_tag_ram     (
+zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .SHORT_READ(SHORT_READ), .PREFETCH(PREFETCH), .TRACK_DIRTY(1'b0)) u_zap_cache_tag_ram     (
         .i_clk                  (i_clk),
+        .i_accepted_hit         (1'b0),
+        .i_accepted_address     (32'd0),
+        .i_accepted_way         ('0),
         .i_reset                (i_reset),
         .i_address_nxt          (i_address_nxt),
         .i_address              (cache_address),
         .i_lookup_address       (SHORT_READ ? i_address_check : i_address),
         .i_lookup_check_address (32'b0),
         .i_lookup_stall         (1'b0),
-        .i_accepted_hit         (1'b0),
-        .i_accepted_address     (32'd0),
-        .i_accepted_way         ('0),
         /* verilator lint_off PINCONNECTEMPTY */
         .o_cache_hit_early      (),
         /* verilator lint_on PINCONNECTEMPTY */            // ARM925T
@@ -429,6 +440,7 @@ begin
                 o_wb_cyc <= 1'd0;
                 o_wb_adr <= 'x;
                 o_wb_cti <= CTI_EOB;
+                o_wb_bte <= 2'b00;
                 o_wb_sel <= 'x;
                 o_wb_dat <= 'x;
                 o_wb_wen <= 'x;
@@ -440,6 +452,7 @@ begin
                 o_wb_cyc <= o_wb_cyc_nxt;
                 o_wb_adr <= o_wb_adr_nxt;
                 o_wb_cti <= o_wb_cti_nxt;
+                o_wb_bte <= o_wb_bte_nxt;
                 o_wb_sel <= o_wb_sel_nxt;
                 o_wb_dat <= o_wb_dat_nxt;
                 o_wb_wen <= o_wb_wen_nxt;
@@ -496,6 +509,9 @@ assign o_wb_stb_nxt = ((!o_wb_stb || (o_wb_stb && i_wb_ack)) && (|wb_cyc)) ?
          (!wb_cyc[2] && wb_cyc[1] && wb_stb[1]) ||
          (!wb_cyc[2] && !wb_cyc[1] && wb_cyc[0] && wb_stb[0])) :
         (|(state_ff & wb_stb));
+
+// Only demand fills wrap; maintenance and TLB accesses remain linear.
+assign o_wb_bte_nxt = state_nxt == SELECT_CCH ? cache_bte : 2'b00;
 
 // Combo signals for external MUXing.
 always_comb
