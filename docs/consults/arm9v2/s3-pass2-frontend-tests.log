@@ -1,0 +1,47 @@
+/Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/run.sh
+PASS predictor: 313 checks
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/predict_tb.sv:100: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 2ns; walltime 0.000 s; speed 7.626 us/s
+- Verilator: cpu 0.000 s on 1 threads; allocated 2 MB
+PASS predictor: 313 checks
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/predict_tb.sv:100: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 2ns; walltime 0.000 s; speed 7.961 us/s
+- Verilator: cpu 0.000 s on 1 threads; allocated 2 MB
+PASS fetch predictor=0: 903 checks
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/fetch_tb.sv:113: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 3ns; walltime 0.000 s; speed 8.515 us/s
+- Verilator: cpu 0.000 s on 1 threads; allocated 2 MB
+PASS fetch predictor=1: 1082 checks
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/fetch_tb.sv:113: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 3ns; walltime 0.000 s; speed 7.317 us/s
+- Verilator: cpu 0.000 s on 1 threads; allocated 2 MB
+PASS fetch predictor=0: 903 checks
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/fetch_tb.sv:113: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 3ns; walltime 0.000 s; speed 8.515 us/s
+- Verilator: cpu 0.000 s on 1 threads; allocated 2 MB
+PASS fetch predictor=1: 1082 checks
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/fetch_tb.sv:113: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 3ns; walltime 0.000 s; speed 7.860 us/s
+- Verilator: cpu 0.000 s on 1 threads; allocated 2 MB
+/Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/cache.sh
+PASS real I-cache frontend latency=0: 1316 checks, 515 cycles, 154 beats
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/fetch_cache_tb.sv:113: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 2ns; walltime 0.000 s; speed 4.120 us/s
+- Verilator: cpu 0.000 s on 1 threads; allocated 2 MB
+PASS real I-cache frontend latency=3: 2216 checks, 959 cycles, 152 beats
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/fetch_cache_tb.sv:113: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 3ns; walltime 0.001 s; speed 4.013 us/s
+- Verilator: cpu 0.001 s on 1 threads; allocated 2 MB
+PASS real I-cache frontend latency=9: 4016 checks, 1847 cycles, 152 beats
+- /Users/jacob/dev/fpga/mister/NGage_MiSTer-cx-arm9/sim/cpu/arm9v2/fetch_cache_tb.sv:113: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 6ns; walltime 0.001 s; speed 4.387 us/s
+- Verilator: cpu 0.001 s on 1 threads; allocated 2 MB

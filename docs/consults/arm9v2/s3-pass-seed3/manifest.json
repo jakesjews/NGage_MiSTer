@@ -1,0 +1,64 @@
+{
+  "phase": "pass",
+  "scope": "decode component, not integrated CPU",
+  "parent_revision": "7f42e7ad8b55efcadcec9ba184ab0307399280bb",
+  "seed": 3,
+  "mhz": 104,
+  "source_sha256": {
+    "rtl/cpu/arm9v2/arm9v2_predict.sv": "79f1a835b440ab878a59ae5a057486aa5a2c37d9ffc14f65b0b5bf0c3bd8460c",
+    "rtl/cpu/arm9v2/arm9v2_decode.sv": "3cf0ba819b6e5628d5dd9c7256505d5263e68e8822357b867b8d0adedb429ebf",
+    "rtl/cpu/arm9v2/arm9v2_fetch.sv": "70b767e9a12c79a0dd0900161c802d990046ed761781dabc6bd5bdb5532289fd",
+    "rtl/cpu/zap/zap_ram_simple_nopipe.sv": "15d2387f6025beb33a83fe2c097ac22697055ee515a29fc23a773651df4b4bfc",
+    "sim/cpu/quartus/arm9v2_decode_trial.sv": "4ff80917c51495ad8c368a61fb3f392dba3819bd4407ed975f53cf77b3bad1e0",
+    "sim/cpu/arm9v2/front_decode.sv": "ea6c5864b4d83967f6678cd77f3b08870da77f345f5596ebad4e5b69d7fdff94",
+    "rtl/cpu/zap/zap_mode16_decoder.sv": "a5c7987f8176ce93a706568abe2e1e3521813cccfb4c657ca1b10a40b83de7f3",
+    "rtl/cpu/zap/zap_register_file.sv": "b21d924a08a67210795b5aa60d31ec722b4f7c70a97800efd2ec8c1c6d28e3ff"
+  },
+  "netlist_sha256": "d6e378d18673182754c4d2207dd48f4e667b7b41af6579515d14d38f62591a19",
+  "cpu_netlist_sha256": "2bd6b94c0a231069c5de0ce2dc3c45494b15592be46d86e7048257ced7fefd33",
+  "remote_directory": "dev/mister/ngage-cx-arm9v2-s3-pass-seed3",
+  "command": "TRIAL=arm9v2_decode SEED=3 BUILD_DIR=dev/mister/ngage-cx-arm9v2-s3-pass-seed3 sim/cpu/quartus/run.sh",
+  "setup_ns": {
+    "Slow 1100mV 100C Model": -0.951,
+    "Slow 1100mV -40C Model": -1.02,
+    "Fast 1100mV 100C Model": 3.475,
+    "Fast 1100mV -40C Model": 4.501
+  },
+  "hold_ns": {
+    "Slow 1100mV 100C Model": 0.328,
+    "Slow 1100mV -40C Model": 0.27,
+    "Fast 1100mV 100C Model": 0.179,
+    "Fast 1100mV -40C Model": 0.136
+  },
+  "alms": 4458,
+  "worst_paths": {
+    "Fast_1100mV_100C_Model": {
+      "from": "arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|head_select[0]",
+      "to": "arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|redirect_ff[18]",
+      "levels": 7,
+      "data_delay_ns": 5.929,
+      "clock_skew_ns": -0.041
+    },
+    "Fast_1100mV_-40C_Model": {
+      "from": "arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|head_select[0]",
+      "to": "arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|redirect_ff[18]",
+      "levels": 7,
+      "data_delay_ns": 4.908,
+      "clock_skew_ns": -0.036
+    },
+    "Slow_1100mV_-40C_Model": {
+      "from": "arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1~411",
+      "to": "arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|redirect_ff[71]",
+      "levels": 9,
+      "data_delay_ns": 9.94,
+      "clock_skew_ns": -0.525
+    },
+    "Slow_1100mV_100C_Model": {
+      "from": "arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|head_select[0]",
+      "to": "arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|redirect_ff[18]",
+      "levels": 7,
+      "data_delay_ns": 10.271,
+      "clock_skew_ns": -0.125
+    }
+  }
+}

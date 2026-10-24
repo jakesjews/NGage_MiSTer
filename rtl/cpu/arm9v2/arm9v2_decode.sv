@@ -69,7 +69,7 @@ module arm9v2_decode (
         logic [3:0] used;
         logic [1:0][5:0] dest;
         logic [31:0] target;
-        logic direct, reg_shift, first, last;
+        logic direct, reg_shift, first, last, redirected;
         logic [4:0] left;
         logic [15:0] remaining;
         logic [3:0] transfer_reg;
@@ -83,6 +83,7 @@ module arm9v2_decode (
         logic [1:0] action;
     } redirect_t;
     (* dont_retime *) redirect_t redirect_ff;
+    (* dont_retime *) logic redirect_in_d2;
     (* dont_retime, ramstyle = "logic" *) packet_t d1[0:1];
     (* dont_retime *) logic head, tail;
     (* dont_retime *) logic [1:0] count;
@@ -93,28 +94,99 @@ module arm9v2_decode (
     (* dont_retime *) logic previous_prefix, prefix_valid;
     (* dont_retime *) logic [31:0] previous_next_pc, prefix_target;
     packet_t incoming, front;
-    decoded_t decoded;
+    decoded_t decoded, fast_branch, admitted;
     logic [31:0] raw_word;
     logic [34:0] expanded;
     logic thumb_und, thumb_align;
     logic [15:0] reg_list, next_remaining;
     logic [3:0] next_register;
-    logic [31:0] displacement, suffix_base;
+    logic [31:0] suffix_base;
     logic [4:0] transfer_mode;
     logic [3:0][31:0] raw_values, read_values;
-    logic push, pop, step, kill_younger, taken_match, fallthrough_match;
+    logic push, pop, accept, shortcut, fast_select, new_d2, late_redirect, step, kill_younger, taken_match, fallthrough_match;
     logic unused;
-    assign unused = &{1'b0, expanded[33:32], issued.left, issued.remaining};
+    assign unused = &{1'b0, expanded[33:32], issued.left, issued.remaining, issued.redirected, fast_arm_twos[31], fast_thumb_twos[31]};
 
-    // Balanced narrow count and priority trees: no sixteen-deep add/scan.
+    // Three small truth tables and a carry-save reduction avoid four serial
+    // carry-propagating population-count additions after the queue mux.
+    function automatic [2:0] count6(input logic [5:0] v);
+        case (v)
+            6'd0:count6=3'd0;
+            6'd1:count6=3'd1;
+            6'd2:count6=3'd1;
+            6'd3:count6=3'd2;
+            6'd4:count6=3'd1;
+            6'd5:count6=3'd2;
+            6'd6:count6=3'd2;
+            6'd7:count6=3'd3;
+            6'd8:count6=3'd1;
+            6'd9:count6=3'd2;
+            6'd10:count6=3'd2;
+            6'd11:count6=3'd3;
+            6'd12:count6=3'd2;
+            6'd13:count6=3'd3;
+            6'd14:count6=3'd3;
+            6'd15:count6=3'd4;
+            6'd16:count6=3'd1;
+            6'd17:count6=3'd2;
+            6'd18:count6=3'd2;
+            6'd19:count6=3'd3;
+            6'd20:count6=3'd2;
+            6'd21:count6=3'd3;
+            6'd22:count6=3'd3;
+            6'd23:count6=3'd4;
+            6'd24:count6=3'd2;
+            6'd25:count6=3'd3;
+            6'd26:count6=3'd3;
+            6'd27:count6=3'd4;
+            6'd28:count6=3'd3;
+            6'd29:count6=3'd4;
+            6'd30:count6=3'd4;
+            6'd31:count6=3'd5;
+            6'd32:count6=3'd1;
+            6'd33:count6=3'd2;
+            6'd34:count6=3'd2;
+            6'd35:count6=3'd3;
+            6'd36:count6=3'd2;
+            6'd37:count6=3'd3;
+            6'd38:count6=3'd3;
+            6'd39:count6=3'd4;
+            6'd40:count6=3'd2;
+            6'd41:count6=3'd3;
+            6'd42:count6=3'd3;
+            6'd43:count6=3'd4;
+            6'd44:count6=3'd3;
+            6'd45:count6=3'd4;
+            6'd46:count6=3'd4;
+            6'd47:count6=3'd5;
+            6'd48:count6=3'd2;
+            6'd49:count6=3'd3;
+            6'd50:count6=3'd3;
+            6'd51:count6=3'd4;
+            6'd52:count6=3'd3;
+            6'd53:count6=3'd4;
+            6'd54:count6=3'd4;
+            6'd55:count6=3'd5;
+            6'd56:count6=3'd3;
+            6'd57:count6=3'd4;
+            6'd58:count6=3'd4;
+            6'd59:count6=3'd5;
+            6'd60:count6=3'd4;
+            6'd61:count6=3'd5;
+            6'd62:count6=3'd5;
+            6'd63:count6=3'd6;
+        endcase
+    endfunction
     function automatic [4:0] popcount16(input logic [15:0] v);
-        logic [7:0][1:0] pairs;
-        logic [3:0][2:0] quads;
-        logic [1:0][3:0] octets;
-        for (int n=0;n<8;n++) pairs[n]={1'b0,v[2*n]}+{1'b0,v[2*n+1]};
-        for (int n=0;n<4;n++) quads[n]={1'b0,pairs[2*n]}+{1'b0,pairs[2*n+1]};
-        for (int n=0;n<2;n++) octets[n]={1'b0,quads[2*n]}+{1'b0,quads[2*n+1]};
-        return {1'b0,octets[0]}+{1'b0,octets[1]};
+        logic [2:0] a,b,c,ones,twos;
+        a=count6(v[5:0]);b=count6(v[11:6]);c=count6({2'b0,v[15:12]});
+        ones=a^b^c;twos=(a&b)|(a&c)|(b&c);
+        return {2'b0,ones}+{1'b0,twos,1'b0};
+    endfunction
+    function automatic [15:0] clear_first(input logic [15:0] v);
+        logic [15:0] result;
+        for (int n=0;n<16;n++) result[n]=v[n] && |(v & (16'hffff >> (16-n)));
+        return result;
     endfunction
     // Bit 15 is implied when the lower fifteen are zero. Empty lists are
     // classified as undefined before this index can name a transfer.
@@ -192,7 +264,7 @@ module arm9v2_decode (
         incoming.next_pc=i_pc+(i_thumb?32'd2:32'd4);
         incoming.mode=i_mode;incoming.thumb=i_thumb;incoming.fault=i_fault;
         incoming.und=thumb_und;incoming.align_pc=thumb_align;incoming.half_branch=expanded[34];
-        incoming.list=reg_list;incoming.rest=reg_list&(reg_list-16'd1);
+        incoming.list=reg_list;incoming.rest=clear_first(reg_list);
         incoming.nregs=popcount16(reg_list);incoming.first=first16(reg_list[14:0]);
         incoming.paired=previous_prefix && i_thumb && i_pc==previous_next_pc;
         incoming.predicted=i_predicted;incoming.pred_hit=i_pred_hit;incoming.pred_target=i_pred_target;
@@ -200,6 +272,35 @@ module arm9v2_decode (
         incoming.ras_pointer=i_ras_pointer;incoming.ras_count=i_ras_count;
     end
     assign front=d1[head];
+    // Complete sums in parallel; instruction classification only selects a
+    // finished target and never selects the operands of its carry chain.
+    (* keep *) wire [31:0] arm_target=front.pc_base+{{6{front.ins[23]}},front.ins[23:0],2'b0};
+    (* keep *) wire [31:0] thumb_target=front.pc_base+{{7{front.ins[23]}},front.ins[23:0],1'b0};
+    (* keep *) wire [31:0] prefix_sum=front.pc_base+{{9{front.raw[10]}},front.raw[10:0],12'd0};
+    (* keep *) wire [31:0] suffix_sum=suffix_base+{20'd0,front.raw[10:0],1'b0};
+    wire [31:0] fast_arm_offset={{6{i_word[23]}},i_word[23:0],2'b0};
+    wire [31:0] fast_thumb_offset={{20{raw_word[10]}},raw_word[10:0],1'b0};
+    // Include the architectural PC bias with carry-save logic. Writing
+    // pc+offset+8/4 inferred TWO serial carry chains on the shortcut path.
+    (* keep *) wire [31:0] fast_arm_ones=i_pc^fast_arm_offset^32'd8;
+    (* keep *) wire [31:0] fast_arm_twos=(i_pc&fast_arm_offset)|((i_pc|fast_arm_offset)&32'd8);
+    (* keep *) wire [31:0] fast_thumb_ones=i_pc^fast_thumb_offset^32'd4;
+    (* keep *) wire [31:0] fast_thumb_twos=(i_pc&fast_thumb_offset)|((i_pc|fast_thumb_offset)&32'd4);
+    (* keep *) wire [31:0] fast_arm_sum=fast_arm_ones+{fast_arm_twos[30:0],1'b0};
+    (* keep *) wire [31:0] fast_thumb_sum=fast_thumb_ones+{fast_thumb_twos[30:0],1'b0};
+    always_comb begin
+        // Only direct B/BL takes the empty-D1 shortcut. Its controls/indices
+        // are trivial and independent of general decode or list arithmetic.
+        // The source is the REGISTERED fetch queue, never the cache response.
+        fast_branch=decoded_t'(0);
+        fast_branch.p=incoming;
+        fast_branch.p.ins=i_thumb?{4'he,4'ha,{13{raw_word[10]}},raw_word[10:0]}:i_word;
+        fast_branch.p.list=0;fast_branch.p.rest=0;fast_branch.p.nregs=0;fast_branch.p.first=0;
+        fast_branch.kind=K_BRANCH;fast_branch.condition=4'he;
+        fast_branch.dest[0]=bank(5'd14,i_mode);
+        fast_branch.first=1;fast_branch.last=1;fast_branch.direct=1;
+        fast_branch.target=i_thumb?fast_thumb_sum:fast_arm_sum;
+    end
     always_comb begin
         decoded=decoded_t'(0);decoded.p=front;
         decoded.kind=classify(front.ins,front.raw[15:11],front.thumb,front.und,front.mode==5'h10,front.nregs==0);
@@ -246,30 +347,38 @@ module arm9v2_decode (
             K_BL_SUFFIX:begin decoded.tag[0]=bank(5'd14,front.mode);decoded.used[0]=!front.paired;decoded.dest[0]=decoded.tag[0];end
             default:;
         endcase
-        displacement=front.half_branch?{{7{front.ins[23]}},front.ins[23:0],1'b0}:{{6{front.ins[23]}},front.ins[23:0],2'b0};
-        if (decoded.kind==K_BL_PREFIX) displacement={{9{front.raw[10]}},front.raw[10:0],12'd0};
-        decoded.target=front.pc_base+displacement;
-        decoded.direct=decoded.kind==K_BRANCH&&decoded.condition==4'he;
+        decoded.target=front.half_branch?thumb_target:arm_target;
+        // Target selection has its own shallow class bits. It must not wait
+        // for the complete ISA classifier (multiply, CP15, undefined, etc.).
+        if (front.thumb&&front.raw[15:11]==5'b11110)decoded.target=prefix_sum;
+        decoded.direct=front.ins[31:25]==7'b1110101&&!front.und;
         suffix_base=prefix_target;
         if (d2_valid && d2.kind==K_BL_PREFIX) suffix_base=d2.target;
-        if (decoded.kind==K_BL_SUFFIX) begin
-            decoded.target=suffix_base+{20'd0,front.raw[10:0],1'b0};
-            decoded.direct=front.paired && (prefix_valid || (d2_valid&&d2.kind==K_BL_PREFIX));
+        if (front.thumb&&front.raw[15:11]==5'b11111) begin
+            decoded.target=suffix_sum;
+            decoded.direct=!front.und&&front.paired && (prefix_valid || (d2_valid&&d2.kind==K_BL_PREFIX));
         end
         // A fetch fault is one exception record, independent of the invalid
         // instruction bits. It cannot wait for operands or expand a block.
         if(front.fault)begin decoded.direct=0;decoded.used=0;decoded.last=1;end
     end
-    assign next_remaining=d2.remaining&(d2.remaining-16'd1);
+    assign next_remaining=clear_first(d2.remaining);
     assign next_register=first16(d2.remaining[14:0]);
     assign taken_match=d2.p.pred_target=={d2.target[31:1],d2.p.thumb};
     assign fallthrough_match=d2.p.pred_target=={d2.p.next_pc[31:1],d2.p.thumb};
     assign kill_younger=i_flush||redirect_ff.valid;
     assign o_ready=count<2&&!kill_younger;
-    assign push=i_valid&&o_ready;
+    assign accept=i_valid&&o_ready;
+    assign fast_select=count==0&&!i_fault&&
+        (i_thumb?raw_word[15:11]==5'b11100:i_word[31:25]==7'b1110101);
+    assign shortcut=accept&&fast_select&&(!d2_valid||(step&&d2.last));
+    assign push=accept&&!shortcut;
+    assign new_d2=pop||shortcut;
+    assign admitted=fast_select?fast_branch:decoded;
+    assign late_redirect=step&&d2.direct&&!d2.redirected&&(!d2.p.predicted||!taken_match);
     assign o_hazard=d2_valid&&((d2.used[0]&&i_locked[d2.tag[0]]) ||
         (d2.used[1]&&i_locked[d2.tag[1]]) || (d2.used[2]&&i_locked[d2.tag[2]]) || (d2.used[3]&&i_locked[d2.tag[3]]));
-    assign step=d2_valid&&(!out_valid||i_ready)&&!o_hazard&&!kill_younger;
+    assign step=d2_valid&&(!out_valid||i_ready)&&!o_hazard&&!i_flush&&(!redirect_ff.valid||redirect_in_d2);
     assign pop=count!=0&&(!d2_valid||(step&&d2.last))&&!kill_younger;
     zap_register_file u_registers (
         .i_clk(i_clk),.i_reset(i_reset),.i_wen(i_wen),
@@ -290,16 +399,18 @@ module arm9v2_decode (
     end
     always_ff @(posedge i_clk) begin
         if(i_reset) begin
-            count<=0;head<=0;tail<=0;d2_valid<=0;out_valid<=0;redirect_ff.valid<=0;
+            count<=0;head<=0;tail<=0;d2_valid<=0;out_valid<=0;redirect_ff.valid<=0;redirect_in_d2<=0;
             previous_prefix<=0;prefix_valid<=0;previous_next_pc<=0;prefix_target<=0;
             d2<=decoded_t'(0);issued<=decoded_t'(0);values<=0;matches_taken<=0;matches_fallthrough<=0;
             redirect_ff.target<=0;redirect_ff.thumb<=0;redirect_ff.link<=0;
             redirect_ff.pointer<=0;redirect_ff.count<=0;redirect_ff.action<=0;
         end else begin
-            redirect_ff.valid<=0;
+            redirect_ff.valid<=0;redirect_in_d2<=0;
             if(i_ready)out_valid<=0;
             if(push)begin
                 d1[tail]<=incoming;tail<=!tail;
+            end
+            if(accept)begin
                 previous_prefix<=i_thumb&&!i_fault&&raw_word[15:11]==5'b11110;
                 previous_next_pc<=incoming.next_pc;
             end
@@ -318,15 +429,27 @@ module arm9v2_decode (
                     d2.dest[0]<=bank({1'b0,next_register},d2.p.ins[22]&&!(d2.p.ins[20]&&d2.p.list[15])?5'h10:d2.p.mode);
                     d2.used[0]<=0;d2.used[2]<=d2.p.ins[20]&&d2.p.ins[22]&&d2.left==2&&next_register==15;
                 end
-                if(d2.direct&&(!d2.p.predicted||!taken_match))begin
+                if(late_redirect)begin
                     redirect_ff.valid<=1;redirect_ff.target<=d2.target;redirect_ff.thumb<=d2.p.thumb;
                     redirect_ff.link<={d2.p.next_pc[31:1],d2.p.thumb};
                     redirect_ff.pointer<=d2.p.ras_pointer;redirect_ff.count<=d2.p.ras_count;
                     redirect_ff.action<=d2.kind==K_BL_SUFFIX||d2.p.ins[24]?2'd1:2'd0;
                 end
             end
-            if(pop)begin d2<=decoded;d2_valid<=1;end
-            if(kill_younger)begin count<=0;head<=0;tail<=0;d2_valid<=0;previous_prefix<=0;prefix_valid<=0;end
+            if(new_d2)begin
+                d2<=admitted;d2_valid<=1;
+                if(admitted.direct&&!admitted.p.predicted&&!late_redirect)begin
+                    d2.redirected<=1;redirect_in_d2<=1;
+                    redirect_ff.valid<=1;redirect_ff.target<=admitted.target;redirect_ff.thumb<=admitted.p.thumb;
+                    redirect_ff.link<={admitted.p.next_pc[31:1],admitted.p.thumb};
+                    redirect_ff.pointer<=admitted.p.ras_pointer;redirect_ff.count<=admitted.p.ras_count;
+                    redirect_ff.action<=admitted.kind==K_BL_SUFFIX||admitted.p.ins[24]?2'd1:2'd0;
+                end
+            end
+            if(kill_younger)begin
+                count<=0;head<=0;tail<=0;previous_prefix<=0;prefix_valid<=0;
+                if(i_flush||!redirect_in_d2)d2_valid<=0;
+            end
             if(i_flush)begin out_valid<=0;redirect_ff.valid<=0;end
         end
     end

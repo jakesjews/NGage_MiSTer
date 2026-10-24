@@ -44,9 +44,19 @@ module decode_tb;
     logic [1:0] o_redirect_action;
     arm9v2_decode dut (.*);
     wire unused = &{1'b0,o_ready,o_valid,o_pc,o_instruction,o_pc_base,o_next_pc,o_raw,o_mode,o_thumb,o_fault,o_force_align,o_reg_shift,o_kind,o_condition,o_tag,o_used,o_value,o_dest,o_first,o_last,o_reg_count,o_offset,o_writeback_offset,o_transfer_reg,o_branch_target,o_direct,o_match_taken,o_match_fallthrough,o_predicted,o_pred_hit,o_pred_target,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count,o_hazard,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action};
-    int checks=0,cycles=0;
+    int checks=0,cycles=0,redirects=0;
+    logic [31:0] last_target=0;
+    logic last_thumb=0;
+    logic [1:0] last_action=0;
+    // Events may precede their S record. Observe every registered pulse rather
+    // than requiring a pulse at a particular receive() call.
+
     task automatic tick;
         #1;i_clk=1;#1;i_clk=0;#1;cycles++;
+        if(o_redirect&&!i_reset)begin
+            redirects++;last_target=o_redirect_target;
+            last_thumb=o_redirect_thumb;last_action=o_redirect_action;
+        end
     endtask
     task automatic check(input bit ok,input string message);
         checks++;assert(ok)else $fatal(1,"%s cycle=%0d pc=%h ins=%h kind=%0d",message,cycles,o_pc,o_instruction,o_kind);
@@ -73,9 +83,13 @@ module decode_tb;
         check(o_valid,"D2/S output progress");
     endtask
     task automatic single(input logic [31:0] ins,input logic [3:0] kind);
+        int before_redirects;
+        before_redirects=redirects;
         send(ins);receive();check(o_kind==kind&&o_instruction==ins,"ARM class and raw instruction");
         check(o_pc==32'h1000&&o_pc_base==32'h1008&&o_next_pc==32'h1004,"registered PC metadata");
         check(o_first&&o_last&&!o_thumb&&o_fault==i_fault,"ordinary single record");
+        check(redirects==before_redirects+int'(o_direct&&(!i_predicted||!o_match_taken)),
+              "exactly one redirect for a direct miss, none for a hit or nonbranch");
     endtask
     task automatic block_test(input logic [15:0] list,input bit p,u,l,s,input int mode,input int base=4);
         int n,seen,expected_offset,last_cycle,bank_mode,accepted;
@@ -132,9 +146,9 @@ module decode_tb;
         check(o_valid&&o_value[0]==rf(1),"registered lock release admits D2");tick();
         i_locked=1;single(32'he1a02003,0);check(!o_hazard,"unused Rn does not stall MOV");i_locked=0;tick();
         // Direct targets and both equality results are registered with S data.
-        single(32'hea000002,3);check(o_direct&&o_redirect&&o_redirect_target==32'h1010,"unpredicted direct branch");
-        check(o_redirect_action==0&&!o_match_taken,"B repairs without RAS push");tick();
-        single(32'heafffffc,3);check(o_redirect_target==32'hff8,"negative branch offset");tick();
+        single(32'hea000002,3);check(o_direct&&last_target==32'h1010,"unpredicted direct branch");
+        check(last_action==0&&!o_match_taken,"B repairs without RAS push");tick();
+        single(32'heafffffc,3);check(last_target==32'hff8,"negative branch offset");tick();
         i_predicted=1;i_pred_hit=1;i_pred_target=32'h1010;
         single(32'heb000002,3);check(o_direct&&!o_redirect&&o_match_taken&&!o_match_fallthrough,"correct BL prediction");tick();
         i_pred_target=32'h1004;i_ras_pointer=3;i_ras_count=4;
@@ -148,9 +162,9 @@ module decode_tb;
         i_fault=0;i_locked=0;tick();check(!o_valid,"faulted block does not expand");
         // Thumb word lanes, raw expansion and paired/unpaired BL halves.
         send(32'h2001ffff,32'h1002,1);receive();check(o_instruction==32'he3b00001&&o_raw==16'h2001,"Thumb upper halfword expansion");tick();
-        send(32'h0000e7fe,32'h2000,1);receive();check(o_redirect&&o_redirect_target==32'h2000&&o_redirect_thumb,"Thumb direct branch target");tick();
+        send(32'h0000e7fe,32'h2000,1);receive();check(last_target==32'h2000&&last_thumb,"Thumb direct branch target");tick();
         send(32'h0000f001,32'h2000,1);send(32'hf8020000,32'h2002,1);receive();
-        check(o_kind==10&&o_branch_target==32'h3004&&!o_redirect,"Thumb prefix target register");tick();
+        check(o_kind==10&&o_branch_target==32'h3004,"Thumb prefix target register");tick();
         check(o_valid&&o_kind==11&&o_direct&&o_redirect_target==32'h3008&&o_redirect_link==32'h2005,"paired suffix bypasses registered prefix sum");tick();
         send(32'hf8020000,32'h4002,1);receive();check(o_kind==11&&!o_direct&&o_used[0]&&o_tag[0]==28,"standalone suffix reads SVC LR later");tick();
         send(32'h0000d0fd,32'h6000,1);receive();
@@ -173,6 +187,58 @@ module decode_tb;
         check(o_kind==6&&o_reg_count==3&&o_transfer_reg==0&&o_offset==0,"Thumb POP count/first");tick();
         check(o_valid&&o_transfer_reg==1&&o_offset==4,"Thumb POP next");tick();
         check(o_valid&&o_transfer_reg==15&&o_last&&o_offset==8&&!o_direct&&!o_redirect,"Thumb POP PC remains a late return");tick();
+        // The early redirect cannot consume its branch while S is occupied.
+        i_ready=0;single(32'he1a00000,0);
+        begin
+            int events;events=redirects;
+            send(32'hea000000,32'h9000);
+            check(o_redirect&&o_redirect_target==32'h9008,"empty-D1 branch redirects at D2 entrance");
+            repeat(5)tick();
+            check(o_valid&&o_pc==32'h1000&&redirects==events+1,"early branch owner retained behind held S");
+            i_ready=1;tick();
+            check(o_valid&&o_pc==32'h9000&&o_direct,"early branch reaches S exactly once after hold");
+            tick();check(!o_valid&&redirects==events+1,"no duplicate redirect or branch record");
+        end
+        // An older wrong-target prediction beats a younger unpredicted branch
+        // accepted at the same edge. The younger record must be killed.
+        begin
+            int events;events=redirects;
+            i_predicted=1;i_pred_target=32'hdead0000;
+            send(32'hea000000,32'ha000);
+            i_predicted=0;i_pred_target=0;
+            send(32'hea000000,32'hb000);
+            check(o_redirect&&o_redirect_target==32'ha008&&o_pc==32'ha000,
+                  "older late redirect wins simultaneous younger early redirect");
+            tick();repeat(3)tick();
+            check(!o_valid&&redirects==events+1,"wrong-path early branch killed");
+        end
+        // An older exception flush supersedes an early direct redirect and
+        // its held owner, without admitting any target record.
+        i_ready=0;single(32'he1a00000,0);send(32'hea000000,32'hc000);
+        i_flush=1;tick();i_flush=0;i_ready=1;repeat(3)tick();
+        check(!o_valid&&!o_redirect,"older flush cancels held early redirect owner");
+        // The shortcut's three-operand PC sum must wrap at 32 bits, with
+        // signed offsets and either Thumb word lane. Reference ordinary +.
+        begin
+            logic [31:0] state,pc,ins,expected;
+            logic [15:0] half_ins;
+            int events;
+            state=32'h8f13627d;
+            for(int n=0;n<4096;n++)begin
+                state=state^(state<<13);state=state^(state>>17);state=state^(state<<5);
+                pc=(n<4 ? 32'hfffffff0+32'(n*4) : state)&32'hfffffffc;
+                ins=32'hea000000|{8'd0,state[23:0]};
+                expected=pc+32'd8+{{6{ins[23]}},ins[23:0],2'b0};
+                events=redirects;send(ins,pc);receive();
+                check(o_branch_target==expected&&last_target==expected&&redirects==events+1,
+                      "ARM shortcut signed sum and wrap");tick();
+                half_ins={5'b11100,state[10:0]};pc=pc|{30'd0,state[11],1'b0};
+                expected=pc+32'd4+{{20{half_ins[10]}},half_ins[10:0],1'b0};
+                events=redirects;send(pc[1]?{half_ins,16'h46c0}:{16'h46c0,half_ins},pc,1);receive();
+                check(o_branch_target==expected&&last_target==expected&&last_thumb&&redirects==events+1,
+                      "Thumb shortcut signed sum, lane and wrap");tick();
+            end
+        end
         // Full-mask/sparse lists across addressing modes and bank selections.
         for(int mode_n=0;mode_n<7;mode_n++)begin
             int mode;case(mode_n)0:mode=16;1:mode=17;2:mode=18;3:mode=19;4:mode=23;5:mode=27;default:mode=31;endcase

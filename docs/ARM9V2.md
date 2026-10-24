@@ -1,4 +1,4 @@
-# ARM9V2: eight-stage redesign for 47 M instructions/s
+# ARM9V2: eight-stage redesign for real-phone game speed
 
 Status: F1/F2, predictor, return stack, raw instruction queue and D1/D2 with
 the real register file are implemented and tested as components. S through W
@@ -9,12 +9,20 @@ pipeline, not another timing patch to its six-producer execute/address chain.
 
 ## Goal and gates
 
-The acceptance result is at least **47 M architecturally retired instructions/s
-in gameplay on the MiSTer**, with the whole device meeting **104 MHz**. This is
-CPI <= 104/47 = 2.213; the working target is 2.2. Measure busy gameplay windows,
-report idle time separately, and compare the same scenes and input sequence.
-Asphalt's 21 frames/s, smooth Tony Hawk, and Sonic in the teens-to-twenties are
-board outcomes, not conclusions drawn from synthetic CPU tests.
+The goal is **the real phone's game speed on the MiSTer**: Asphalt at its
+21 frames/s cap, smooth Tony Hawk, and Sonic in the teens-to-twenties, with
+the whole device meeting **104 MHz**. Asphalt's approximately 2.3 million
+instructions per frame implies 47–48 million instructions/s; that is the
+origin of the 47 M/s yardstick and approximately 2.2 CPI, not a standalone
+performance objective. Measure busy gameplay windows, report idle separately,
+and compare the same scenes and input sequence. Synthetic CPU cycles and
+component fits are intermediate evidence, not proof of those board outcomes.
+
+Unobservable implementation choices may favor speed: cache capacity and
+associativity, prediction, faster memory, non-blocking stores and deeper
+write buffering. Firmware-visible CP15 identity, instruction semantics,
+exceptions, MMU behavior and timer rates must remain correct. Timing closure
+takes precedence over a few percent of synthetic cycles.
 
 The suite and standalone fit are intermediate gates:
 
@@ -418,3 +426,39 @@ worst-slow slack -0.697/-1.152/-0.890 ns (median -0.890),
 selection into Thumb/list arithmetic and D1 branch-target selection remain
 the worst paths. Full evidence is in the session-2 report; no complete V2
 timing or CPU cycle result is implied by a component fit.
+
+## Session 3: queue selection and cold direct redirects
+
+The historical session-2 cadence above is superseded for simple direct B/BL
+and Thumb B. The fetch queue now selects stored packets with a registered
+one-hot head. D1 list count uses six-input mappings and a carry-save reduction;
+first-bit removal uses parallel prefix masks. ARM, Thumb and BL-half target
+sums finish independently, with shallow branch class selection rather than
+the full ISA classifier. The empty-D1 shortcut includes the PC bias using
+carry-save logic and one carry-propagating sum.
+
+A registered redirect launches its target RAM lookup on the applying edge.
+An unpredicted direct branch redirects at D2 entrance and retains its owner
+through the next younger-record kill. Simple direct branches may enter D2
+from the registered raw queue when D1 is empty; other instructions retain
+both decode edges. Correct predictions still lose no slots. Predicted
+mistargets validate at D2/S; older mistargets and backend flushes take priority
+over a simultaneous younger early event. No cache-data bypass is introduced.
+
+The real-cache component tests at waits 0/3/9 measure four clocks per hot
+untrained ARM/Thumb direct branch, **three lost slots**, versus seven clocks
+previously. Trained direct branches still arrive every clock. Ordinary D1
+input to S-entry stays two edges; the simple direct shortcut is one edge.
+Block streaming and source-lock behavior are unchanged. Paired BL and late
+redirect costs remain separate measurements when the execution stage is
+connected; the simple direct-loop result is not a claim about every branch.
+See the [session-3 report](consults/2026-10-23-codex-arm9v2-s3.md) for seed
+results, remaining chains and the distinction between component cadence and
+retired CPU cycles.
+
+The final frontend/decode/RF/S-entry fits are -0.811 / -0.210 / -0.172 ns
+worst slow over seeds 2/3/4: median **-0.210 ns**, an improvement of 0.680 ns.
+Median area is 4,666 ALMs, +507; two M10Ks and zero DSPs are unchanged.
+All hold checks pass. D1 classification/tag selection is worst in seeds 2/3;
+queue-to-Thumb remains worst in seed 4. This is still a component fit with
+negative setup slack, not complete-CPU closure or a demonstrated V2 CPI.

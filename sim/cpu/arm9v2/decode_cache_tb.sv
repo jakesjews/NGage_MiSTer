@@ -55,7 +55,8 @@ module decode_cache_tb;
     wire [31:0] bus_addr;
     logic bus_ack=0;
     logic [31:0] bus_data=0;
-    int cycles=0,checks=0,beats=0;
+    int cycles=0,checks=0,beats=0,redirects=0;
+    logic [31:0] last_target=0;
     zap_cache #(.SHORT_READ(1'b1),.CACHE_SIZE(16384),.WAYS(2),.CACHE_LINE(16)) cache (
         .i_clk(i_clk),.i_reset(i_reset),.i_stall(o_stall),.i_address_check(o_address_check),
         .i_wr_check(1'b0),.i_rd_check(1'b1),.i_address(o_address),.i_address_nxt(o_address_nxt),
@@ -83,6 +84,10 @@ module decode_cache_tb;
             32'h10c0:return 32'heaffffce;
             32'h3000:return 32'he8b4010a;
             32'h3004:return 32'he92d4003;
+            // Upper-halfword Thumb direct branches, untrained hot loop.
+            32'hb000:return 32'he03e46c0;
+            32'hb080:return 32'he01e46c0;
+            32'hb0c0:return 32'he79e46c0;
             default:return 32'he1a00000;
         endcase
     endfunction
@@ -100,6 +105,7 @@ module decode_cache_tb;
             else wait_left--;
         end else check(!busy,"outstanding bus request retained");
         #1;i_clk=1;#1;i_clk=0;bus_ack=0;#1;cycles++;
+        if(o_redirect&&!i_reset)begin redirects++;last_target=o_redirect_target;end
     endtask
     task automatic go(input logic [31:0] pc,input bit thumb=0);
         i_flush=1;i_backend_target=pc;i_backend_thumb=thumb;tick();i_flush=0;
@@ -120,12 +126,12 @@ module decode_cache_tb;
         tick();i_reset=0;want=32'h1000;last_cycle=0;unpredicted_spacing=0;
         for(int n=0;n<15;n++)begin
             receive();check(o_pc==want&&o_kind==3&&o_direct&&!o_fault,"unpredicted direct loop sequence");
-            check(o_redirect&&o_branch_target==loop_next(want),"registered D2 redirect payload");
+            check(redirects==n+1&&last_target==loop_next(want)&&o_branch_target==loop_next(want),"registered D2 redirect payload");
             if(n==8)unpredicted_spacing=cycles-last_cycle;
             if(n>8)check(cycles-last_cycle==unpredicted_spacing,"constant hot unpredicted spacing");
             last_cycle=cycles;want=loop_next(want);tick();
         end
-        check(unpredicted_spacing==7,"measured unpredicted refill with registered queue and redirect");
+        check(unpredicted_spacing==4,"measured unpredicted refill with registered queue and redirect");
         train(32'h1000,32'h1080);train(32'h1080,32'h10c0);train(32'h10c0,32'h1000);
         go(32'h1000);want=32'h1000;last_cycle=0;
         for(int n=0;n<100;n++)begin
@@ -137,6 +143,16 @@ module decode_cache_tb;
         i_ready=0;receive();want=o_pc;repeat(30)tick();
         check(o_stall&&o_pc==want,"frontend and decode bounded backpressure");
         i_ready=1;for(int n=0;n<30;n++)begin receive();check(o_pc==want,"held branch stream order");want=loop_next(want);tick();end
+        go(32'hb002,1);want=32'hb002;last_cycle=0;
+        for(int n=0;n<15;n++)begin
+            receive();
+            check(o_pc==want&&o_kind==3&&o_direct&&o_thumb&&!o_fault,
+                  "untrained upper-halfword Thumb direct loop");
+            want=want==32'hb002 ? 32'hb082 : want==32'hb082 ? 32'hb0c2 : 32'hb002;
+            check(last_target==want&&o_branch_target==want,"Thumb redirect payload");
+            if(n>8)check(cycles-last_cycle==4,"Thumb cold redirect loses three hot slots");
+            last_cycle=cycles;tick();
+        end
         go(32'h2002,1);want=32'h2002;
         for(int n=0;n<30;n++)begin
             receive();check(o_pc==want&&o_thumb&&o_kind==0&&!o_fault,"real-cache Thumb stream");

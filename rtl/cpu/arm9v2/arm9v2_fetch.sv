@@ -55,12 +55,18 @@ module arm9v2_fetch #(
     (* dont_retime *) logic [31:0] sequential_pc, restart_pc;
     (* dont_retime *) logic sequential_thumb, restart_thumb, killed;
     (* dont_retime *) logic [1:0] epoch;
-    (* dont_retime *) logic [2:0] head, tail;
+    (* dont_retime *) logic [2:0] tail;
+    (* dont_retime *) logic [7:0] head_select;
     (* dont_retime *) logic [3:0] count;
     packet_t queue [0:7];
+    packet_t head_packet;
     prediction_t prediction;
     logic predicted, advance, push, pop, retry, launch_thumb;
     logic [31:0] launch_pc;
+    // Redirect is already a backend register. Launch its RAM lookup on the
+    // applying edge, rather than first copying it into sequential_pc.
+    (* keep *) wire [31:0] redirect_next = {i_redirect_target[31:1],1'b0} +
+                                                (i_redirect_thumb ? 32'd2 : 32'd4);
     // Both continuations are independent of the hit decision. Keep the
     // increment off the RAM -> tag -> launch-select path into sequential_pc.
     (* keep *) wire [31:0] predicted_next = {prediction.target[31:1],1'b0} +
@@ -75,8 +81,8 @@ module arm9v2_fetch #(
 
     assign predicted = PREDICTOR && prediction.predicted && f1.valid &&
                        f1.epoch == epoch && !killed;
-    assign launch_pc = predicted ? {prediction.target[31:1],1'b0} : sequential_pc;
-    assign launch_thumb = predicted ? prediction.target[0] : sequential_thumb;
+    assign launch_pc = i_redirect ? {i_redirect_target[31:1],1'b0} : predicted ? {prediction.target[31:1],1'b0} : sequential_pc;
+    assign launch_thumb = i_redirect ? i_redirect_thumb : predicted ? prediction.target[0] : sequential_thumb;
     assign o_address_nxt = launch_pc;
     assign o_address_check = f1.pc;
     assign o_address = f2.pc;
@@ -88,19 +94,26 @@ module arm9v2_fetch #(
     assign retry = f2.valid && i_ack && i_retry && !killed && !i_redirect;
     assign push = f2.valid && i_ack && !i_retry && advance &&
                   !killed && !i_redirect && f2.epoch == epoch;
-    assign o_valid = count != 0 && !queue[head].pending && queue[head].epoch == epoch;
+    // Registered one-hot selection avoids a binary head decoder driving all
+    // packet bits. Only stored queue data appears at this boundary.
+    always_comb begin
+        head_packet=packet_t'(0);
+        for (int q=0;q<8;q++)
+            head_packet |= queue[q] & {$bits(packet_t){head_select[q]}};
+    end
+    assign o_valid = count != 0 && !head_packet.pending && head_packet.epoch == epoch;
     assign pop = o_valid && i_ready;
-    assign o_pc = queue[head].pc;
-    assign o_word = queue[head].word;
-    assign o_thumb = queue[head].thumb;
-    assign o_fault = queue[head].fault;
-    assign o_predicted = queue[head].prediction.predicted;
-    assign o_pred_hit = queue[head].prediction.hit;
-    assign o_pred_target = queue[head].prediction.target;
-    assign o_pred_state = queue[head].prediction.state;
-    assign o_pred_kind = queue[head].prediction.kind;
-    assign o_ras_pointer = queue[head].prediction.pointer;
-    assign o_ras_count = queue[head].prediction.count;
+    assign o_pc = head_packet.pc;
+    assign o_word = head_packet.word;
+    assign o_thumb = head_packet.thumb;
+    assign o_fault = head_packet.fault;
+    assign o_predicted = head_packet.prediction.predicted;
+    assign o_pred_hit = head_packet.prediction.hit;
+    assign o_pred_target = head_packet.prediction.target;
+    assign o_pred_state = head_packet.prediction.state;
+    assign o_pred_kind = head_packet.prediction.kind;
+    assign o_ras_pointer = head_packet.prediction.pointer;
+    assign o_ras_count = head_packet.prediction.count;
 
     if (PREDICTOR) begin : g_predictor
         arm9v2_predict u_predict (
@@ -146,9 +159,9 @@ module arm9v2_fetch #(
             f1 <= lookup_t'(0); f2 <= lookup_t'(0); f2_prediction <= prediction_t'(0);
             sequential_pc <= RESET_VECTOR; sequential_thumb <= 0;
             restart_pc <= RESET_VECTOR; restart_thumb <= 0;
-            killed <= 0; epoch <= 0; head <= 0; tail <= 0; count <= 0;
+            killed <= 0; epoch <= 0; head_select <= 8'b1; tail <= 0; count <= 0;
         end else begin
-            if (pop) head <= head + 1'b1;
+            if (pop) head_select <= {head_select[6:0],head_select[7]};
             if (push) tail <= tail + 1'b1;
             case ({push,pop})
                 2'b10: count <= count + 1'b1;
@@ -162,7 +175,7 @@ module arm9v2_fetch #(
                 f2_prediction.predicted <= predicted;
                 sequential_pc <= predicted ? predicted_next : sequential_next;
                 sequential_thumb <= launch_thumb;
-                if (i_redirect || retry || killed) begin
+                if (retry || killed) begin
                     f1.valid <= 0;
                     f2.valid <= 0;
                     sequential_pc <= i_redirect ? {i_redirect_target[31:1],1'b0} :
@@ -170,10 +183,16 @@ module arm9v2_fetch #(
                     sequential_thumb <= i_redirect ? i_redirect_thumb :
                                         retry ? f2.thumb : restart_thumb;
                 end
+                if (i_redirect) begin
+                    f1 <= {1'b1,i_redirect_thumb,epoch+2'd1,{i_redirect_target[31:1],1'b0}};
+                    f2.valid <= 0;
+                    sequential_pc <= redirect_next;
+                    sequential_thumb <= i_redirect_thumb;
+                end
             end
             if (i_redirect) begin
                 epoch <= epoch + 1'b1;
-                head <= 0; tail <= 0; count <= 0;
+                head_select <= 8'b1; tail <= 0; count <= 0;
                 killed <= o_stall;
                 restart_pc <= {i_redirect_target[31:1],1'b0};
                 restart_thumb <= i_redirect_thumb;

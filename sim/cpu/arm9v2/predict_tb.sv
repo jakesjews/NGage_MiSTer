@@ -84,7 +84,11 @@ module predict_tb;
         lookup(32'h400); i_accept=1; tick(); i_accept=0;
         check(o_count==0 && o_pointer==2,"empty return holds pointer");
         i_repair=1; i_repair_pointer=3; i_repair_count=2; i_repair_action=1; i_repair_link=32'h1235;
-        tick(); i_repair=0;
+        // A cold direct redirect now launches its target on this repair edge.
+        i_lookup=1;i_pc=32'h400;i_thumb=0;
+        tick(); i_repair=0;i_lookup=0;
+        check(o_taken&&o_target==32'h1235&&o_pointer==4&&o_count==3,
+              "target lookup concurrent with call repair sees new RAS top");
         lookup(32'h400); check(o_target==32'h1235 && o_count==3 && o_pointer==4,"repair and actual call");
         i_repair=1; i_repair_pointer=4; i_repair_count=3; i_repair_action=2;
         tick(); i_repair=0; check(o_count==2 && o_pointer==3,"repair and actual return");
