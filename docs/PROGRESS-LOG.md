@@ -5012,3 +5012,23 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   than one thread on this design (no progress line in five minutes
   where one thread takes three), so the runs stay single-threaded
   (13 guest seconds after 90 minutes).
+- **"Remember the ultimate goal."** The user's reminder, and a
+  correction of my own call an hour earlier: V2 is not paused. The
+  goal is the phone's speed, about 47 M instructions/s in play; ZAP is
+  at 32 after today's two memory-side gains, and V2 has shown 13 % on
+  the kernel boot where the design was meant for 35-50 %. Idling the
+  one thread that can get there while a day-long simulation runs
+  serves nothing; the timing wall is a separate problem from the
+  cycle gain, and the cycle gain is what the goal needs. Session 12
+  launched on the cycle model, the timing shape left alone (one fit at
+  the end, no cuts), judged on the firmware's own boot milestones (the
+  EFile entry at 3.63 guest seconds against ZAP's 4.19) and the
+  windows: first the merge of master (the metadata in RAM, the
+  early-execution gate, the 16 KB default; the tag RAM conflicts with
+  the S11 short-port cut to be resolved keeping both), then V2's fetch
+  taking the early-execution words (its fetch still waits for the
+  whole fill), the serial fences (a flags-only MSR costs 12 clocks and
+  EKA1 does them around every critical section), the small-LDM tails
+  and the PC returns, and a second outstanding miss if the backend
+  still waits on the D-cache. The Sonic runs continue for the in-play
+  number.
