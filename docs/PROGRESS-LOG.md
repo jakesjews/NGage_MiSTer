@@ -4433,3 +4433,56 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   then the three cuts to get back above -2 ns and within about 1 ns
   of ZAP, then the three-clock pickup, the RAS checkpoint, and the
   V2/ZAP table with the random tests at 0:3 and 2:9 as the judge.
+- **The speed consults** (the user: "let's ask codex and antigravity
+  for a consult session. we know this is possible based on the pocket
+  core"). One brief with the facts and four questions
+  (docs/consults/2026-10-24-speed-consult-brief.md), my own plan first
+  (2026-10-24-speed-plan-mine.md), then Codex (2026-10-24-codex-speed-
+  consult.md, read-only, 9 min) and Antigravity (2026-10-24-agy-speed-
+  consult.md, plan mode, 9.5 min) independently, both with the V2
+  worktree and the Pocket core's source to read. Where all three
+  agree: V2 is the route; no CPU clock of its own (both consultants
+  work the arithmetic: 47 M/s at 104 MHz needs CPI 2.21, at 80 MHz
+  1.70, which even the Pocket's core with 64 KB caches and no kernel
+  only just reaches; a crossing costs 4-6 % on top); no port of the
+  Pocket's core (no aborts, no CP15/MMU, MCR traps to its kernel, and
+  no licence); ZAP tops out near 35-38 M/s however the memory side is
+  tuned; instrument the instruction side before buying anything there.
+  Facts the consultants found that change the reading, each checked
+  against the code: (1) the overlay's "code" stall tap is fifo_full |
+  (fetch request without ack) (zap_core.sv:664), so the 48 % in play
+  is mostly backend pressure; by beat conservation the I-cache fills
+  are about 400 K/s, 5-6 % of clocks, and the D side carries 72 % of
+  the bus beats. (2) V2's load-hazard loop (arm9v2_decode.sv:420-431)
+  compares both destination lanes against the pending loads without a
+  writes qualifier, so an instruction with one or no destination
+  stalls behind an unrelated load whenever the unused lane's default
+  matches (r0, the ABI's scratch register), which is the measured
+  7-clock independent LDR/ADD window; the RAS is wiped on every W
+  flush. (3) The I-cache FSM computes wrap-4 critical-word-first but
+  the merger drives bte 00 on the code path (zap_wb_merger.sv:212,
+  222; the D side passes it), and V2's fetch waits for the whole fill
+  instead of using the streaming words. (4) The core is configured
+  ARMv4T (arm925t.sv:104), so no ARMv5 work is owed. (5) The Pocket
+  closed its predictor-equipped CPU at 88.7 MHz median, not 96. Where
+  they differ: Codex plans V2 at 38-45 M/s at 104 MHz with 47 a
+  further gate and budgets the load fix at +2-5 M/s; Antigravity
+  projects CPI 2.12 (49 M/s) from the fetch-cycle predictor with a
+  working RAS, the load schedule, LDM/MUL and the memory levers, and
+  gives the Pocket-style split as the one change that fixes both the
+  -2.1 ns S-to-A cone and the load-use cost: operands classified in
+  D2 as early (shifted or multiplied, needed in S) or late (Rn, an
+  unshifted Rm, store data, needed only in A), the forwarding match
+  bits precomputed at the D2/S boundary, and a small late bypass at
+  A's input, so an unshifted consumer of a load stalls one clock and
+  S no longer carries the A producer's result through the rotator.
+  Codex's first structural choice is the same precomputed matches.
+  Decisions: V2 session 7 gets the early/late split with the A-stage
+  late pickup (session 6 is mid-way through the cuts); the memory
+  thread's next task is the instrumentation (the tap split, I-cache
+  fills and true wait, contention wait, TLB walk beats, debug builds
+  only) plus I-cache critical-word-first through the merger, measured
+  on the board before the merger write-back buffer (both consultants:
+  +4-6 % on ZAP, the FSM still holds in CLEAN_SINGLE about ten
+  clocks after the install), then the 16 KB D-cache once V2 has
+  ALMs to spare. Launched: the memory thread's task on codex/memside.
