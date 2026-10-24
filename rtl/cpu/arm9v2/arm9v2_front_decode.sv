@@ -29,6 +29,7 @@ module arm9v2_front_decode #(
     output logic [3:0] o_used,
     output logic [3:0][31:0] o_value,
     output logic [1:0][5:0] o_dest,
+    output logic [1:0] o_writes,
     output logic o_first, o_last,
     output logic [4:0] o_reg_count,
     output logic signed [7:0] o_offset, o_writeback_offset,

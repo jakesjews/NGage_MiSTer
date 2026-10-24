@@ -37,6 +37,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     output logic [3:0] o_used,
     output logic [3:0][31:0] o_value,
     output logic [1:0][5:0] o_dest,
+    output logic [1:0] o_writes,
     output logic o_first, o_last,
     output logic [4:0] o_reg_count,
     output logic signed [7:0] o_offset, o_writeback_offset,
@@ -76,6 +77,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
         logic [3:0][5:0] tag;
         logic [3:0] used;
         logic [1:0][5:0] dest;
+        logic [1:0] writes;
         logic [31:0] target;
         logic direct, reg_shift, first, last, redirected;
         logic [4:0] left;
@@ -317,6 +319,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
         fast_branch.p.list=0;fast_branch.p.rest=0;fast_branch.p.nregs=0;fast_branch.p.first=0;
         fast_branch.kind=K_BRANCH;fast_branch.condition=4'he;
         fast_branch.dest[0]=bank(5'd14,i_mode);
+        fast_branch.writes[0]=!i_thumb&&i_word[24];
         fast_branch.first=1;fast_branch.last=1;fast_branch.direct=1;
         fast_branch.target=i_thumb?fast_thumb_sum:fast_arm_sum;
     end
@@ -366,6 +369,24 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
             K_BL_SUFFIX:begin decoded.tag[0]=bank(5'd14,front.mode);decoded.used[0]=!front.paired;decoded.dest[0]=decoded.tag[0];end
             default:;
         endcase
+        // Architectural destinations, not merely populated decode lanes.
+        // Loads write lane 0 at memory completion; their base update is lane
+        // 1. These masks stay with D2 and its held S-entry record.
+        case(decoded.kind)
+            K_DP:decoded.writes[0]=front.ins[24:23]!=2'b10;
+            K_MRS,K_MUL,K_BL_PREFIX,K_BL_SUFFIX:decoded.writes[0]=1;
+            K_MULL:decoded.writes=3;
+            K_BRANCH:decoded.writes[0]=front.ins[24];
+            K_MEM:decoded.writes={front.ins[21]||!front.ins[24],front.ins[20]};
+            K_BLOCK:decoded.writes={decoded.last&&front.ins[21]&&
+                !(front.ins[20]&&front.list[front.ins[19:16]]),front.ins[20]};
+            K_SWP:decoded.writes[0]=1;
+            K_CP:decoded.writes[0]=front.ins[20]&&front.ins[15:12]!=15;
+            K_MSR:if(front.ins[22]&&front.mode!=5'h10&&front.mode!=5'h1f)begin
+                decoded.dest[0]=decoded.tag[2];decoded.writes[0]=1;
+            end
+            default:;
+        endcase
         decoded.target=front.half_branch?thumb_target:arm_target;
         // Target selection has its own shallow class bits. It must not wait
         // for the complete ISA classifier (multiply, CP15, undefined, etc.).
@@ -379,7 +400,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
         end
         // A fetch fault is one exception record, independent of the invalid
         // instruction bits. It cannot wait for operands or expand a block.
-        if(front.fault)begin decoded.direct=0;decoded.used=0;decoded.last=1;end
+        if(front.fault)begin decoded.direct=0;decoded.used=0;decoded.writes=0;decoded.last=1;end
     end
     assign next_remaining=clear_first(d2.remaining);
     assign next_register=first16(d2.remaining[14:0]);
@@ -422,9 +443,9 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
             for(int src=0;src<4;src++)load_hazard|=d2.used[src]&&i_load_valid[pending]&&d2.tag[src]==i_load_tag[pending];
             // No younger destination can be overwritten by an older fill.
             if(EXTERNAL_RF)for(int dst=0;dst<2;dst++)
-                load_hazard|=i_load_valid[pending]&&d2.dest[dst]==i_load_tag[pending];
+                load_hazard|=d2.writes[dst]&&i_load_valid[pending]&&d2.dest[dst]==i_load_tag[pending];
         end
-        if(EXTERNAL_RF)for(int dst=0;dst<2;dst++)load_hazard|=i_locked[d2.dest[dst]];
+        if(EXTERNAL_RF)for(int dst=0;dst<2;dst++)load_hazard|=d2.writes[dst]&&i_locked[d2.dest[dst]];
     end
     assign o_hazard=d2_valid&&(load_hazard||fenced||(d2.used[0]&&i_locked[d2.tag[0]]) ||
         (d2.used[1]&&i_locked[d2.tag[1]]) || (d2.used[2]&&i_locked[d2.tag[2]]) || (d2.used[3]&&i_locked[d2.tag[3]]) ||
@@ -494,6 +515,8 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
                 if(d2.last)d2_valid<=0;
                 else begin
                     d2.first<=0;d2.left<=d2.left-1'b1;d2.last<=d2.left==2;
+                    d2.writes[1]<=d2.left==2&&d2.p.ins[21]&&
+                        !(d2.p.ins[20]&&d2.p.list[d2.p.ins[19:16]]);
                     d2.remaining<=next_remaining;d2.transfer_reg<=next_register;d2.offset<=d2.offset+8'sd4;
                     d2.tag[3]<=bank({1'b0,next_register},d2.p.ins[22]&&!(d2.p.ins[20]&&d2.p.list[15])?5'h10:d2.p.mode);
                     d2.dest[0]<=bank({1'b0,next_register},d2.p.ins[22]&&!(d2.p.ins[20]&&d2.p.list[15])?5'h10:d2.p.mode);
@@ -528,6 +551,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     assign o_pc_base=issued.p.pc_base;assign o_next_pc=issued.p.next_pc;
     assign o_thumb=issued.p.thumb;assign o_fault=issued.p.fault;assign o_force_align=issued.p.align_pc;
     assign o_kind=issued.kind;assign o_condition=issued.condition;assign o_reg_shift=issued.reg_shift;
+    assign o_writes=issued.writes;
     assign o_tag=issued.tag;assign o_used=issued.used;assign o_dest=issued.dest;
     assign o_first=issued.first;assign o_last=issued.last;assign o_reg_count=issued.p.nregs;
     assign o_offset=issued.offset;assign o_writeback_offset=issued.wb_offset;assign o_transfer_reg=issued.transfer_reg;

@@ -590,7 +590,7 @@ output  logic [7:0]                      o_dbg_stall
         data_pc8,pc,ins,ex_result,load_capture,load_commit,load_value};
 
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1)) u_front_decode (
-        .i_clk(i_clk),
+        .o_writes(),.i_clk(i_clk),
         .i_reset(i_reset),
         .i_flush(wb_flush||a_redirect),
         .i_mode(cpsr[4:0]),

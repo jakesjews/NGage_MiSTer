@@ -1,4 +1,4 @@
-# ARM9V2 session 4 integration measurements, warmed 0:0.
+# ARM9V2 session 7 writer-mask measurements, warmed 0:0.
 # Name, last visit predictor on/off; optional penultimate visit on/off.
 # Exact implementation regression counts, not the design acceptance targets.
 dp 9 9
@@ -8,7 +8,7 @@ dp_regshift 3 3
 failed_regshift 3 3
 dp_pc 2 12
 dp_regshift_pc 3 13
-ldr_independent 7 7
+ldr_independent 3 3
 ldr_alu 8 8
 ldr_base 8 8
 ldr_shift_amount 9 9
@@ -21,9 +21,9 @@ ldrsh 8 8
 ldr_unaligned 8 8
 ldr_pc 5 13
 str 2 2
-ldm1 7 7
+ldm1 2 2
 stm1 2 2
-ldm3 7 7
+ldm3 4 4
 stm3 4 4
 ldm_pc 15 15 19 15
 swp 26 18 18 18
@@ -67,6 +67,6 @@ umlal_m1 4 4
 umlal_m2 4 4
 umlal_m3 4 4
 umlal_m4 4 4
-load_distance1 9 9
-load_distance2 10 10
-load_distance3 11 11
+load_distance1 8 8
+load_distance2 8 8
+load_distance3 8 8

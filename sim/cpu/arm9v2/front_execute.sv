@@ -135,7 +135,7 @@ module arm9v2_front_execute #(
     assign o_retire_pc=mw_pc[1];assign o_retire_instruction=mw_ins[1];assign o_retire_value=mw_value[1][0];
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR)) u_front_decode (
         .i_rf_value('0),.o_rf_tag(),.i_load_tag('0),.i_load_valid('0),
-        .i_clk(i_clk),
+        .o_writes(),.i_clk(i_clk),
         .i_reset(i_reset),
         .i_flush(i_flush||o_redirect),
         .i_mode(i_cpsr[4:0]),

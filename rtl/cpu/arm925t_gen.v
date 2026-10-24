@@ -1048,6 +1048,7 @@ module arm9v2_core (
 		.PREDICTOR(ARM9_PREDICTOR),
 		.EXTERNAL_RF(1)
 	) u_front_decode(
+		.o_writes(),
 		.i_clk(i_clk),
 		.i_reset(i_reset),
 		.i_flush(wb_flush || a_redirect),
@@ -1411,6 +1412,7 @@ module arm9v2_decode (
 	o_used,
 	o_value,
 	o_dest,
+	o_writes,
 	o_first,
 	o_last,
 	o_reg_count,
@@ -1488,6 +1490,7 @@ module arm9v2_decode (
 	output wire [3:0] o_used;
 	output reg [127:0] o_value;
 	output wire [11:0] o_dest;
+	output wire [1:0] o_writes;
 	output wire o_first;
 	output wire o_last;
 	output wire [4:0] o_reg_count;
@@ -1536,8 +1539,8 @@ module arm9v2_decode (
 	(* dont_retime *) reg [1:0] count;
 	(* dont_retime *) reg d2_valid;
 	(* dont_retime *) reg out_valid;
-	(* dont_retime *) reg [366:0] d2;
-	(* dont_retime *) reg [366:0] issued;
+	(* dont_retime *) reg [368:0] d2;
+	(* dont_retime *) reg [368:0] issued;
 	(* dont_retime *) reg [127:0] values;
 	(* dont_retime *) reg [11:0] write_through_match;
 	(* dont_retime *) reg [95:0] write_through_data;
@@ -1549,9 +1552,9 @@ module arm9v2_decode (
 	(* dont_retime *) reg [31:0] prefix_target;
 	reg [240:0] incoming;
 	wire [240:0] front;
-	reg [366:0] decoded;
-	reg [366:0] fast_branch;
-	wire [366:0] admitted;
+	reg [368:0] decoded;
+	reg [368:0] fast_branch;
+	wire [368:0] admitted;
 	wire [31:0] raw_word;
 	wire [34:0] expanded;
 	wire thumb_und;
@@ -1837,16 +1840,17 @@ module arm9v2_decode (
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		fast_branch = 367'd0;
-		fast_branch[366-:241] = incoming;
-		fast_branch[334-:32] = (i_thumb ? {8'hea, {13 {raw_word[10]}}, raw_word[10:0]} : i_word);
-		fast_branch[190-:16] = 0;
-		fast_branch[174-:16] = 0;
-		fast_branch[153-:5] = 0;
-		fast_branch[148-:4] = 0;
-		fast_branch[125-:4] = K_BRANCH;
-		fast_branch[121-:4] = 4'he;
-		fast_branch[78+:6] = bank(5'd14, i_mode);
+		fast_branch = 369'd0;
+		fast_branch[368-:241] = incoming;
+		fast_branch[336-:32] = (i_thumb ? {8'hea, {13 {raw_word[10]}}, raw_word[10:0]} : i_word);
+		fast_branch[192-:16] = 0;
+		fast_branch[176-:16] = 0;
+		fast_branch[155-:5] = 0;
+		fast_branch[150-:4] = 0;
+		fast_branch[127-:4] = K_BRANCH;
+		fast_branch[123-:4] = 4'he;
+		fast_branch[80+:6] = bank(5'd14, i_mode);
+		fast_branch[78] = !i_thumb && i_word[24];
 		fast_branch[43] = 1;
 		fast_branch[42] = 1;
 		fast_branch[45] = 1;
@@ -1855,19 +1859,19 @@ module arm9v2_decode (
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		decoded = 367'd0;
-		decoded[366-:241] = front;
-		decoded[125-:4] = (kind0 & {4 {head_select[0]}}) | (kind1 & {4 {head_select[1]}});
-		decoded[121-:4] = front[208:205];
-		if ((((decoded[125-:4] == K_BL_PREFIX) || (decoded[125-:4] == K_BL_SUFFIX)) || (front[18] && (decoded[125-:4] == K_UND))) || (!front[18] && (front[208:205] == 4'hf)))
-			decoded[121-:4] = 4'he;
-		decoded[44] = ((decoded[125-:4] == K_DP) && !front[202]) && front[181];
-		decoded[94+:6] = bank({1'b0, front[196:193]}, front[32-:5]);
-		decoded[100+:6] = bank({1'b0, front[180:177]}, front[32-:5]);
-		decoded[106+:6] = bank(5'd27, front[32-:5]);
-		decoded[112+:6] = bank({1'b0, front[192:189]}, front[32-:5]);
-		decoded[78+:6] = decoded[112+:6];
-		decoded[84+:6] = decoded[94+:6];
+		decoded = 369'd0;
+		decoded[368-:241] = front;
+		decoded[127-:4] = (kind0 & {4 {head_select[0]}}) | (kind1 & {4 {head_select[1]}});
+		decoded[123-:4] = front[208:205];
+		if ((((decoded[127-:4] == K_BL_PREFIX) || (decoded[127-:4] == K_BL_SUFFIX)) || (front[18] && (decoded[127-:4] == K_UND))) || (!front[18] && (front[208:205] == 4'hf)))
+			decoded[123-:4] = 4'he;
+		decoded[44] = ((decoded[127-:4] == K_DP) && !front[202]) && front[181];
+		decoded[96+:6] = bank({1'b0, front[196:193]}, front[32-:5]);
+		decoded[102+:6] = bank({1'b0, front[180:177]}, front[32-:5]);
+		decoded[108+:6] = bank(5'd27, front[32-:5]);
+		decoded[114+:6] = bank({1'b0, front[192:189]}, front[32-:5]);
+		decoded[80+:6] = decoded[114+:6];
+		decoded[86+:6] = decoded[96+:6];
 		decoded[43] = 1;
 		decoded[42] = 1;
 		decoded[40-:5] = front[27-:5];
@@ -1876,57 +1880,74 @@ module arm9v2_decode (
 		decoded[7-:8] = (front[200] ? $signed({1'b0, front[27-:5], 2'b00}) : -$signed({1'b0, front[27-:5], 2'b00}));
 		decoded[15-:8] = (front[200] ? (front[201] ? 8'sd4 : 8'sd0) : $signed(decoded[7-:8]) + (front[201] ? 8'sd0 : 8'sd4));
 		transfer_mode = (front[199] && !(front[197] && front[64]) ? 5'h10 : front[32-:5]);
-		case (decoded[125-:4])
+		case (decoded[127-:4])
 			K_DP: begin
-				decoded[90] = (front[201:198] != 4'd13) && (front[201:198] != 4'd15);
-				decoded[91] = !front[202];
-				decoded[92] = decoded[44];
+				decoded[92] = (front[201:198] != 4'd13) && (front[201:198] != 4'd15);
+				decoded[93] = !front[202];
+				decoded[94] = decoded[44];
 				if (decoded[44])
-					decoded[106+:6] = bank({1'b0, front[188:185]}, front[32-:5]);
+					decoded[108+:6] = bank({1'b0, front[188:185]}, front[32-:5]);
 				if (front[197] && (front[192:189] == 15)) begin
-					decoded[112+:6] = bank(5'd27, front[32-:5]);
-					decoded[93] = 1;
+					decoded[114+:6] = bank(5'd27, front[32-:5]);
+					decoded[95] = 1;
 				end
 			end
 			K_MRS: begin
-				decoded[92] = 1;
+				decoded[94] = 1;
 				if (!front[199])
-					decoded[106+:6] = 6'd17;
+					decoded[108+:6] = 6'd17;
 			end
 			K_MSR: begin
-				decoded[91] = !front[202];
-				decoded[92] = front[199];
+				decoded[93] = !front[202];
+				decoded[94] = front[199];
 			end
-			K_BX: decoded[91] = 1;
+			K_BX: decoded[93] = 1;
 			K_MEM: begin
-				decoded[90] = 1;
-				decoded[91] = (front[204:203] == 1 ? front[202] : !front[199]);
-				decoded[93] = !front[197];
+				decoded[92] = 1;
+				decoded[93] = (front[204:203] == 1 ? front[202] : !front[199]);
+				decoded[95] = !front[197];
 			end
 			K_BLOCK: begin
-				decoded[112+:6] = bank({1'b0, front[22-:4]}, transfer_mode);
-				decoded[78+:6] = decoded[112+:6];
-				decoded[90] = 1;
-				decoded[93] = !front[197];
+				decoded[114+:6] = bank({1'b0, front[22-:4]}, transfer_mode);
+				decoded[80+:6] = decoded[114+:6];
+				decoded[92] = 1;
+				decoded[95] = !front[197];
 				decoded[42] = front[27-:5] == 1;
-				decoded[92] = ((front[197] && front[199]) && decoded[42]) && (front[22-:4] == 15);
+				decoded[94] = ((front[197] && front[199]) && decoded[42]) && (front[22-:4] == 15);
 			end
-			K_CP: decoded[93] = !front[197];
-			K_SWP: decoded[93-:4] = 4'b0011;
+			K_CP: decoded[95] = !front[197];
+			K_SWP: decoded[95-:4] = 4'b0011;
 			K_MUL, K_MULL: begin
-				decoded[106+:6] = bank({1'b0, front[188:185]}, front[32-:5]);
-				decoded[93-:4] = 4'b0110;
+				decoded[108+:6] = bank({1'b0, front[188:185]}, front[32-:5]);
+				decoded[95-:4] = 4'b0110;
 				if (front[198])
-					decoded[93-:4] = (decoded[125-:4] == K_MUL ? 4'b1110 : 4'b1111);
-				if (decoded[125-:4] == K_MUL)
-					decoded[78+:6] = decoded[94+:6];
+					decoded[95-:4] = (decoded[127-:4] == K_MUL ? 4'b1110 : 4'b1111);
+				if (decoded[127-:4] == K_MUL)
+					decoded[80+:6] = decoded[96+:6];
 			end
-			K_BRANCH, K_BL_PREFIX: decoded[78+:6] = bank(5'd14, front[32-:5]);
+			K_BRANCH, K_BL_PREFIX: decoded[80+:6] = bank(5'd14, front[32-:5]);
 			K_BL_SUFFIX: begin
-				decoded[94+:6] = bank(5'd14, front[32-:5]);
-				decoded[90] = !front[13];
-				decoded[78+:6] = decoded[94+:6];
+				decoded[96+:6] = bank(5'd14, front[32-:5]);
+				decoded[92] = !front[13];
+				decoded[80+:6] = decoded[96+:6];
 			end
+			default:
+				;
+		endcase
+		case (decoded[127-:4])
+			K_DP: decoded[78] = front[201:200] != 2'b10;
+			K_MRS, K_MUL, K_BL_PREFIX, K_BL_SUFFIX: decoded[78] = 1;
+			K_MULL: decoded[79-:2] = 3;
+			K_BRANCH: decoded[78] = front[201];
+			K_MEM: decoded[79-:2] = {front[198] || !front[201], front[197]};
+			K_BLOCK: decoded[79-:2] = {(decoded[42] && front[198]) && !(front[197] && front[49 + front[196:193]]), front[197]};
+			K_SWP: decoded[78] = 1;
+			K_CP: decoded[78] = front[197] && (front[192:189] != 15);
+			K_MSR:
+				if ((front[199] && (front[32-:5] != 5'h10)) && (front[32-:5] != 5'h1f)) begin
+					decoded[80+:6] = decoded[108+:6];
+					decoded[78] = 1;
+				end
 			default:
 				;
 		endcase
@@ -1935,22 +1956,23 @@ module arm9v2_decode (
 			decoded[77-:32] = prefix_sum;
 		decoded[45] = (front[208:202] == 7'b1110101) && !front[16];
 		suffix_base = prefix_target;
-		if (d2_valid && (d2[125-:4] == K_BL_PREFIX))
+		if (d2_valid && (d2[127-:4] == K_BL_PREFIX))
 			suffix_base = d2[77-:32];
 		if (front[18] && (front[80:76] == 5'b11111)) begin
 			decoded[77-:32] = suffix_sum;
-			decoded[45] = (!front[16] && front[13]) && (prefix_valid || (d2_valid && (d2[125-:4] == K_BL_PREFIX)));
+			decoded[45] = (!front[16] && front[13]) && (prefix_valid || (d2_valid && (d2[127-:4] == K_BL_PREFIX)));
 		end
 		if (front[17]) begin
 			decoded[45] = 0;
-			decoded[93-:4] = 0;
+			decoded[95-:4] = 0;
+			decoded[79-:2] = 0;
 			decoded[42] = 1;
 		end
 	end
 	assign next_remaining = clear_first(d2[35-:16]);
 	assign next_register = first16(d2[34:20]);
-	assign taken_match = d2[238-:32] == {d2[77:47], d2[144]};
-	assign fallthrough_match = d2[238-:32] == {d2[270:240], d2[144]};
+	assign taken_match = d2[240-:32] == {d2[77:47], d2[146]};
+	assign fallthrough_match = d2[240-:32] == {d2[272:242], d2[146]};
 	assign kill_younger = i_flush || redirect_ff[74];
 	assign o_ready = (count < 2) && !kill_younger;
 	assign accept = i_valid && o_ready;
@@ -1959,20 +1981,20 @@ module arm9v2_decode (
 	assign push = accept && !shortcut;
 	assign new_d2 = pop || shortcut;
 	assign admitted = (fast_select ? fast_branch : decoded);
-	assign late_redirect = ((step && d2[45]) && !d2[41]) && (!d2[138] || !taken_match);
+	assign late_redirect = ((step && d2[45]) && !d2[41]) && (!d2[140] || !taken_match);
 	always @(*) begin
 		if (_sv2v_0)
 			;
 		early_used = 0;
-		case (d2[125-:4])
+		case (d2[127-:4])
 			K_DP: begin
-				early_used[1] = d2[91] && (d2[314:307] != 0);
-				early_used[2] = d2[92];
+				early_used[1] = d2[93] && (d2[316:309] != 0);
+				early_used[2] = d2[94];
 			end
-			K_MUL, K_MULL: early_used = d2[93-:4];
-			K_MEM, K_MSR: early_used[1] = d2[91];
-			K_BLOCK: early_used[0] = d2[90];
-			K_MRS: early_used[2] = d2[92] && (d2[106+:6] != 17);
+			K_MUL, K_MULL: early_used = d2[95-:4];
+			K_MEM, K_MSR: early_used[1] = d2[93];
+			K_BLOCK: early_used[0] = d2[92];
+			K_MRS: early_used[2] = d2[94] && (d2[108+:6] != 17);
 			default:
 				;
 		endcase
@@ -1987,7 +2009,7 @@ module arm9v2_decode (
 				begin : sv2v_autoblock_3
 					reg signed [31:0] pending;
 					for (pending = 0; pending < 4; pending = pending + 1)
-						early_hazard[src] = early_hazard[src] | ((early_used[src] && i_early_valid[pending]) && (d2[94 + (src * 6)+:6] == i_early_tag[pending * 6+:6]));
+						early_hazard[src] = early_hazard[src] | ((early_used[src] && i_early_valid[pending]) && (d2[96 + (src * 6)+:6] == i_early_tag[pending * 6+:6]));
 				end
 		end
 	end
@@ -2002,25 +2024,25 @@ module arm9v2_decode (
 					begin : sv2v_autoblock_5
 						reg signed [31:0] src;
 						for (src = 0; src < 4; src = src + 1)
-							load_hazard = load_hazard | ((d2[90 + src] && i_load_valid[pending]) && (d2[94 + (src * 6)+:6] == i_load_tag[pending * 6+:6]));
+							load_hazard = load_hazard | ((d2[92 + src] && i_load_valid[pending]) && (d2[96 + (src * 6)+:6] == i_load_tag[pending * 6+:6]));
 					end
 					if (EXTERNAL_RF) begin : sv2v_autoblock_6
 						reg signed [31:0] dst;
 						for (dst = 0; dst < 2; dst = dst + 1)
-							load_hazard = load_hazard | (i_load_valid[pending] && (d2[78 + (dst * 6)+:6] == i_load_tag[pending * 6+:6]));
+							load_hazard = load_hazard | ((d2[78 + dst] && i_load_valid[pending]) && (d2[80 + (dst * 6)+:6] == i_load_tag[pending * 6+:6]));
 					end
 				end
 		end
 		if (EXTERNAL_RF) begin : sv2v_autoblock_7
 			reg signed [31:0] dst;
 			for (dst = 0; dst < 2; dst = dst + 1)
-				load_hazard = load_hazard | i_locked[d2[78 + (dst * 6)+:6]];
+				load_hazard = load_hazard | (d2[78 + dst] && i_locked[d2[80 + (dst * 6)+:6]]);
 		end
 	end
-	assign o_hazard = d2_valid && ((((((load_hazard || fenced) || (d2[90] && i_locked[d2[94+:6]])) || (d2[91] && i_locked[d2[100+:6]])) || (d2[92] && i_locked[d2[106+:6]])) || (d2[93] && i_locked[d2[112+:6]])) || |early_hazard);
+	assign o_hazard = d2_valid && ((((((load_hazard || fenced) || (d2[92] && i_locked[d2[96+:6]])) || (d2[93] && i_locked[d2[102+:6]])) || (d2[94] && i_locked[d2[108+:6]])) || (d2[95] && i_locked[d2[114+:6]])) || |early_hazard);
 	assign step = (((d2_valid && (!out_valid || i_ready)) && !o_hazard) && !i_flush) && (!redirect_ff[74] || redirect_in_d2);
 	assign pop = ((count != 0) && (!d2_valid || (step && d2[42]))) && !kill_younger;
-	assign o_rf_tag = d2[117-:24];
+	assign o_rf_tag = d2[119-:24];
 	generate
 		if (EXTERNAL_RF) begin : g_external_rf
 			assign raw_values = i_rf_value;
@@ -2036,10 +2058,10 @@ module arm9v2_decode (
 				.i_wr_data_a(i_wr_data_a),
 				.i_wr_data_b(i_wr_data_b),
 				.i_wr_data_c(i_wr_data_c),
-				.i_rd_addr_a(d2[94+:6]),
-				.i_rd_addr_b(d2[100+:6]),
-				.i_rd_addr_c(d2[106+:6]),
-				.i_rd_addr_d(d2[112+:6]),
+				.i_rd_addr_a(d2[96+:6]),
+				.i_rd_addr_b(d2[102+:6]),
+				.i_rd_addr_c(d2[108+:6]),
+				.i_rd_addr_d(d2[114+:6]),
 				.o_rd_data_a(raw_values[0+:32]),
 				.o_rd_data_b(raw_values[32+:32]),
 				.o_rd_data_c(raw_values[64+:32]),
@@ -2078,8 +2100,8 @@ module arm9v2_decode (
 			prefix_valid <= 0;
 			previous_next_pc <= 0;
 			prefix_target <= 0;
-			d2 <= 367'd0;
-			issued <= 367'd0;
+			d2 <= 369'd0;
+			issued <= 369'd0;
 			values <= 0;
 			write_through_match <= 0;
 			write_through_data <= 0;
@@ -2120,18 +2142,18 @@ module arm9v2_decode (
 				begin : sv2v_autoblock_9
 					reg signed [31:0] n;
 					for (n = 0; n < 4; n = n + 1)
-						write_through_match[n * 3+:3] <= {i_wr_addr_c[d2[94 + (n * 6)+:6]], i_wen && i_wr_addr_b[d2[94 + (n * 6)+:6]], i_wen && i_wr_addr_a[d2[94 + (n * 6)+:6]]};
+						write_through_match[n * 3+:3] <= {i_wr_addr_c[d2[96 + (n * 6)+:6]], i_wen && i_wr_addr_b[d2[96 + (n * 6)+:6]], i_wen && i_wr_addr_a[d2[96 + (n * 6)+:6]]};
 				end
 				matches_taken <= taken_match;
 				matches_fallthrough <= fallthrough_match;
 			end
 			if (step) begin
-				if (EXTERNAL_RF && ((((((((d2[125-:4] == K_CP) || (d2[125-:4] == K_MSR)) || (d2[125-:4] == K_SWP)) || (d2[125-:4] == K_SWI)) || (d2[125-:4] == K_UND)) || d2[143]) || (((d2[125-:4] == K_DP) && d2[323]) && (d2[78+:6] == 15))) || (((((d2[125-:4] == K_BLOCK) && d2[325]) && d2[323]) && d2[190]) && d2[42])))
+				if (EXTERNAL_RF && ((((((((d2[127-:4] == K_CP) || (d2[127-:4] == K_MSR)) || (d2[127-:4] == K_SWP)) || (d2[127-:4] == K_SWI)) || (d2[127-:4] == K_UND)) || d2[145]) || (((d2[127-:4] == K_DP) && d2[325]) && (d2[80+:6] == 15))) || (((((d2[127-:4] == K_BLOCK) && d2[327]) && d2[325]) && d2[192]) && d2[42])))
 					fenced <= 1;
 				out_valid <= 1;
-				if (d2[125-:4] == K_BL_PREFIX) begin
+				if (d2[127-:4] == K_BL_PREFIX) begin
 					prefix_target <= d2[77-:32];
-					prefix_valid <= !d2[143];
+					prefix_valid <= !d2[145];
 				end
 				else
 					prefix_valid <= 0;
@@ -2141,37 +2163,38 @@ module arm9v2_decode (
 					d2[43] <= 0;
 					d2[40-:5] <= d2[40-:5] - 1'b1;
 					d2[42] <= d2[40-:5] == 2;
+					d2[79] <= ((d2[40-:5] == 2) && d2[326]) && !(d2[325] && d2[177 + d2[324:321]]);
 					d2[35-:16] <= next_remaining;
 					d2[19-:4] <= next_register;
 					d2[15-:8] <= $signed(d2[15-:8]) + 8'sd4;
-					d2[112+:6] <= bank({1'b0, next_register}, (d2[325] && !(d2[323] && d2[190]) ? 5'h10 : d2[158-:5]));
-					d2[78+:6] <= bank({1'b0, next_register}, (d2[325] && !(d2[323] && d2[190]) ? 5'h10 : d2[158-:5]));
-					d2[90] <= 0;
-					d2[92] <= ((d2[323] && d2[325]) && (d2[40-:5] == 2)) && (next_register == 15);
+					d2[114+:6] <= bank({1'b0, next_register}, (d2[327] && !(d2[325] && d2[192]) ? 5'h10 : d2[160-:5]));
+					d2[80+:6] <= bank({1'b0, next_register}, (d2[327] && !(d2[325] && d2[192]) ? 5'h10 : d2[160-:5]));
+					d2[92] <= 0;
+					d2[94] <= ((d2[325] && d2[327]) && (d2[40-:5] == 2)) && (next_register == 15);
 				end
 				if (late_redirect) begin
 					redirect_ff[74] <= 1;
 					redirect_ff[72-:32] <= d2[77-:32];
-					redirect_ff[73] <= d2[144];
-					redirect_ff[40-:32] <= {d2[270:240], d2[144]};
-					redirect_ff[8-:3] <= d2[132-:3];
-					redirect_ff[5-:4] <= d2[129-:4];
-					redirect_ff[1-:2] <= ((d2[125-:4] == K_BL_SUFFIX) || d2[327] ? 2'd1 : 2'd0);
+					redirect_ff[73] <= d2[146];
+					redirect_ff[40-:32] <= {d2[272:242], d2[146]};
+					redirect_ff[8-:3] <= d2[134-:3];
+					redirect_ff[5-:4] <= d2[131-:4];
+					redirect_ff[1-:2] <= ((d2[127-:4] == K_BL_SUFFIX) || d2[329] ? 2'd1 : 2'd0);
 				end
 			end
 			if (new_d2) begin
 				d2 <= admitted;
 				d2_valid <= 1;
-				if ((admitted[45] && !admitted[138]) && !late_redirect) begin
+				if ((admitted[45] && !admitted[140]) && !late_redirect) begin
 					d2[41] <= 1;
 					redirect_in_d2 <= 1;
 					redirect_ff[74] <= 1;
 					redirect_ff[72-:32] <= admitted[77-:32];
-					redirect_ff[73] <= admitted[144];
-					redirect_ff[40-:32] <= {admitted[270:240], admitted[144]};
-					redirect_ff[8-:3] <= admitted[132-:3];
-					redirect_ff[5-:4] <= admitted[129-:4];
-					redirect_ff[1-:2] <= ((admitted[125-:4] == K_BL_SUFFIX) || admitted[327] ? 2'd1 : 2'd0);
+					redirect_ff[73] <= admitted[146];
+					redirect_ff[40-:32] <= {admitted[272:242], admitted[146]};
+					redirect_ff[8-:3] <= admitted[134-:3];
+					redirect_ff[5-:4] <= admitted[131-:4];
+					redirect_ff[1-:2] <= ((admitted[127-:4] == K_BL_SUFFIX) || admitted[329] ? 2'd1 : 2'd0);
 				end
 			end
 			if (kill_younger) begin
@@ -2190,24 +2213,25 @@ module arm9v2_decode (
 			end
 		end
 	assign o_valid = out_valid;
-	assign o_pc = issued[366-:32];
-	assign o_instruction = issued[334-:32];
-	assign o_mode = issued[158-:5];
-	assign o_raw = issued[206-:16];
-	assign o_pc_base = issued[302-:32];
-	assign o_next_pc = issued[270-:32];
-	assign o_thumb = issued[144];
-	assign o_fault = issued[143];
-	assign o_force_align = issued[141];
-	assign o_kind = issued[125-:4];
-	assign o_condition = issued[121-:4];
+	assign o_pc = issued[368-:32];
+	assign o_instruction = issued[336-:32];
+	assign o_mode = issued[160-:5];
+	assign o_raw = issued[208-:16];
+	assign o_pc_base = issued[304-:32];
+	assign o_next_pc = issued[272-:32];
+	assign o_thumb = issued[146];
+	assign o_fault = issued[145];
+	assign o_force_align = issued[143];
+	assign o_kind = issued[127-:4];
+	assign o_condition = issued[123-:4];
 	assign o_reg_shift = issued[44];
-	assign o_tag = issued[117-:24];
-	assign o_used = issued[93-:4];
-	assign o_dest = issued[89-:12];
+	assign o_writes = issued[79-:2];
+	assign o_tag = issued[119-:24];
+	assign o_used = issued[95-:4];
+	assign o_dest = issued[91-:12];
 	assign o_first = issued[43];
 	assign o_last = issued[42];
-	assign o_reg_count = issued[153-:5];
+	assign o_reg_count = issued[155-:5];
 	assign o_offset = $signed(issued[15-:8]);
 	assign o_writeback_offset = $signed(issued[7-:8]);
 	assign o_transfer_reg = issued[19-:4];
@@ -2215,13 +2239,13 @@ module arm9v2_decode (
 	assign o_direct = issued[45];
 	assign o_match_taken = matches_taken;
 	assign o_match_fallthrough = matches_fallthrough;
-	assign o_predicted = issued[138];
-	assign o_pred_hit = issued[137];
-	assign o_pred_target = issued[238-:32];
-	assign o_pred_state = issued[136-:2];
-	assign o_pred_kind = issued[134-:2];
-	assign o_ras_pointer = issued[132-:3];
-	assign o_ras_count = issued[129-:4];
+	assign o_predicted = issued[140];
+	assign o_pred_hit = issued[139];
+	assign o_pred_target = issued[240-:32];
+	assign o_pred_state = issued[138-:2];
+	assign o_pred_kind = issued[136-:2];
+	assign o_ras_pointer = issued[134-:3];
+	assign o_ras_count = issued[131-:4];
 	assign o_redirect = redirect_ff[74];
 	assign o_redirect_thumb = redirect_ff[73];
 	assign o_redirect_target = redirect_ff[72-:32];
@@ -3284,6 +3308,7 @@ module arm9v2_front_decode (
 	o_used,
 	o_value,
 	o_dest,
+	o_writes,
 	o_first,
 	o_last,
 	o_reg_count,
@@ -3377,6 +3402,7 @@ module arm9v2_front_decode (
 	output wire [3:0] o_used;
 	output wire [127:0] o_value;
 	output wire [11:0] o_dest;
+	output wire [1:0] o_writes;
 	output wire o_first;
 	output wire o_last;
 	output wire [4:0] o_reg_count;
@@ -3539,6 +3565,7 @@ module arm9v2_front_decode (
 		.o_used(o_used),
 		.o_value(o_value),
 		.o_dest(o_dest),
+		.o_writes(o_writes),
 		.o_first(o_first),
 		.o_last(o_last),
 		.o_reg_count(o_reg_count),
