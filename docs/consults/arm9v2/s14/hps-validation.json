@@ -22,5 +22,15 @@
     ]
   },
   "scope": "Actual host adapters, synthetic requests, no RTL clocks after construction; whole-core firmware proof pending",
-  "cpu_gen_check": "pass"
+  "cpu_gen_check": "pass",
+  "full_top_bench": {
+    "V2": {
+      "passed": true,
+      "clocks": 148891468
+    },
+    "ZAP": {
+      "passed": true,
+      "clocks": 150622764
+    }
+  }
 }
