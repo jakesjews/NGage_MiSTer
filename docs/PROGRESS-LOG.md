@@ -4848,3 +4848,26 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   two-clock late pickup against a three-clock one on this cache
   interface, the request owner, the completion fanout, the routing
   share).
+- **The 16 KB D-cache with the metadata in block RAM: +2 to +2.6 % in
+  play.** The measurement core of f9ddca2 with NGAGE_DCACHE_16K
+  (tagd16d-s2: -1.330 ns, 34,248 ALMs, 82 %, 65 % of the block memory
+  bits; smaller than the baseline's measurement core by 3,300 ALMs)
+  on the debug slot, the three games (build/hardware/game/run-
+  tagd16.log against run-msd.log, play medians):
+
+  | game | baseline | 16 KB D + metadata RAM | gain | D-cache load fills/s | SDRAM wait |
+  |---|---:|---:|---:|---:|---:|
+  | Sonic N | 30.87 M instr/s | 31.51 | +2.1 % | 351 K -> 314 K | 20.1 -> 18.6 % |
+  | Asphalt | 31.62 | 32.37 | +2.4 % | 662 K -> 588 K | 22.2 -> 20.8 % |
+  | Tony Hawk | 30.57 | 31.35 | +2.6 % | 444 K -> 413 K | 22.2 -> 21.2 % |
+
+  Consistent across the three, the fills down 7-11 %, the data-stall
+  share down 0.7-0.8 points: the consultants' +1-3 % for the larger
+  D-cache, now affordable. The candidate for the main slot is this
+  tree with the 16 KB D-cache as the default: stripped at seed 9
+  -0.833 ns and 32,702 ALMs (78 %) against the main slot's -0.734 and
+  35,839, at the cost of 539 of the 553 M10K blocks (the metadata
+  packing, to be fixed before V2 needs the blocks) and the parked
+  early-execution bits riding along (three bits, nil in play). The
+  decision is the user's: merge codex/memside4 with the 16 KB default,
+  one stripped build, a smoke test, the main slot.
