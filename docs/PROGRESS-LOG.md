@@ -4514,3 +4514,37 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   free for builds now too"): five lanes, the server's four for the
   Codex threads and whole-core builds, the Mac for my own sweeps and
   measurement cores.
+- **The instruction side measured: 6-8 % of clocks, not 48** (the
+  memory thread's first step, codex/memside 50cbff0 and eeb1e47;
+  docs/consults/2026-10-24-codex-memside1-report.md in the cx-timing2
+  worktree). Eight counters under NGAGE_DEBUG split the old "code" tap
+  (kept as code-combined at word 9) into FIFO-full clocks and fetch
+  wait, and add I-cache demand fills, true fetch wait (no FIFO
+  backpressure), fill wait behind the merger's data owner, fill wait
+  behind the DMA/self-test owner, and the I- and D-TLB walk beats
+  (words 37-44; the loader words move to 45/46; the counter index is
+  six bits now, so tools/mister_dbg.py of this branch is needed for
+  this core's screenshots). The second piece makes I-cache fills
+  critical-word-first end to end (the FSM's wrap-4 was dropped by the
+  merger on the code path): 231/231, 57 QEMU, 34 tests move by
+  0.05 % in total because the fetch still gates on the whole fill. The
+  measurement core (NGAGE_DEBUG, seed 2: -1.282 ns, 37,573 ALMs, 90 %;
+  build/hardware/NGage-msd-s2.rbf) on the debug slot, the three games
+  with the branch's tools (build/hardware/game/run-msd.log), play
+  medians:
+
+  | game | M instr/s (dstd) | I-fills/s | FIFO full | true fetch wait | merger wait | TLB walk beats/s I + D |
+  |---|---:|---:|---:|---:|---:|---:|
+  | Sonic N | 30.9 (31.1) | 434 K | 42 % | 6.5 % | 1.2 % | 252 K + 159 K |
+  | Asphalt | 31.6 (31.7) | 357 K | 44 % | 6.0 % | 1.0 % | 146 K + 113 K |
+  | Tony Hawk | 30.6 (30.6) | 501 K | 36 % | 7.7 % | 1.3 % | 268 K + 192 K |
+
+  So the consultants' reading holds: the I-cache costs 6-8 % of the
+  clocks (a fill every 2.0-2.8 µs at 12-15 clocks), the merger
+  contention about 1 %, and the 42 % is the backend holding the fetch
+  FIFO full; the TLB walks are 300-460 K bus beats a second (about
+  5 % of the bus), worth a look later. Critical-word-first changes
+  nothing on the board for now; it pays only with the early-execution
+  gate removed, which is the memory thread's step after the write-back
+  buffer. The thread is on the write-back buffer now (memside2); a
+  stripped seed-9 build of the branch runs on the Mac for its slack.
