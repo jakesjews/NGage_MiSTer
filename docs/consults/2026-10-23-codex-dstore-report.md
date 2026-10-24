@@ -130,6 +130,15 @@ test's expected count for the installed filling line changes from zero to
 one: it now hits during victim drain. The instruction sequence length is
 unchanged. No architectural check was relaxed.
 
+A two-state Yosys induction/equivalence check on the actual old/new FSMs
+with `i_cache_tag_dirty=0` proves all 1,394 output/common-state
+equivalence points agree
+cycle for cycle. The no-CLEAN_SINGLE/no-pending-buffer reachability
+invariants used by that comparison are proved separately from reset on
+both modules, with arbitrary remaining inputs. This proof covers the
+non-dirty path; it is not a whole-cache refinement proof for reordered
+transactions or an X-propagation proof.
+
 The independent bench scoreboard captures the victim PA and every byte at
 miss acceptance, checks every write-back beat against that snapshot, checks
 fill/install-before-write-back for distinct physical lines and the opposite
@@ -145,7 +154,10 @@ The six directed cache tests (`dstore_rtl`, `dhold_rtl`, `dhum_rtl`,
 `dcsize_rtl`, `walloc_rtl`, `dcwf`) also pass all **18/18** runs with a
 16 KB two-way D-cache. This tests the changed exclusion and maintenance
 behavior at the board variant's geometry. No board test or firmware boot
-bench is claimed.
+bench is claimed. Another **27/27** runs pass with bus latency 2:31 and
+random seeds 2, 7 and 19 (`cache`, `dhold_rtl`, `dhum_rtl`, `dstore_rtl`,
+`walloc_rtl`, `dcwf`, `dcwf_rtl`, `crand1`, `ctrand1`), including
+`dcwf_rtl`'s existing read-error injections.
 
 ### Cycles
 
@@ -192,13 +204,102 @@ because useful load work now starts before dirty victims drain. HUM and
 hold tests still intentionally wait on blocked addresses and maintenance.
 Two tests have small regressions: `dcsize_rtl` adds 5/7 clocks at variable
 latencies, and `dstore_rtl` adds 37 clocks at each setting. The latter now
-includes a real explicit drain instead of the old no-op. These are retained
+includes a real explicit drain instead of the old no-op; the delta also
+includes the changed transaction scheduling. These are retained
 and reported; neither changes instruction count or memory results.
+
+### Limits and remaining risks
+
+This remains a one-entry miss/eviction engine. A second miss, an uncached
+access, a WT store or a TLB walk cannot overlap the pending drain. Buffered
+victim accesses wait rather than forwarding from the buffer. General VIVT
+synonym coherence still depends on firmware maintenance; the same-PA
+replacement exception only preserves the old behavior of that replacement.
+DMA visibility still requires firmware cache clean/drain; there is no snooping.
+Cacheable fill/write-back ERR is still treated as completion, without a
+late abort; adding precise external aborts would require another design.
+Reset cancels in-flight cache work as before. The new ordering has extensive
+CPU simulation coverage, but no firmware boot or gameplay validation here.
+The main timing risks are the saved-victim launch mux and HUM phase control,
+not a widened cache tag compare. One fit is a sanity check, not evidence
+that a family improves across placement seeds.
 
 ### Whole-core timing sanity check and stopping point
 
-One stripped-default whole-core fit, seed 2, is pending. Reference b26 is
-−0.395 ns at slow 100C, 35,898 ALMs; its original report was copied from the
-main checkout into `build/dstore/b26-timing`. No timing-closure campaign or
-seed selection is part of this task. Final fit numbers and exact stopping
-point will replace this paragraph.
+The one completed whole-core fit is **−0.956 ns at slow 100C**, versus
+b26's **−0.395 ns** at the same seed 2: **0.561 ns worse**. This is a timing
+regression in the requested sanity check, not timing closure or a demonstrated
+zero-cost change. The worst path is `zap_wb_merger.o_wb_cyc` →
+`upp_bus.ack_q` (−0.956 ns; its duplicate is −0.950 ns). Other leading paths
+are Thumb-valid → predecode undefined classification (−0.872 ns), D-cache
+data forwarding → memory-stage load data (−0.843 ns), and D-cache FSM
+`state_ff[3]` → post-ALU valid/clear control (−0.728 ns). The last path still
+passes through the baseline FSM's priority logic; the separately parked
+round-5 changes are not included in this branch.
+
+| Fit metric | b26, seed 2 | dstore, seed 2 |
+| --- | ---: | ---: |
+| Slow 100C setup | −0.395 ns | −0.956 ns |
+| Slow 100C hold | +0.249 ns | +0.250 ns |
+| ALMs | 35,898 | 36,665 (+767) |
+| Registers | 43,775 | 43,308 (−467) |
+| M10K blocks | 487 | 487 |
+| Block memory bits | 3,563,340 | 3,563,340 |
+| DSP blocks | 43 | 43 |
+
+Other setup corners: slow −40C **−0.927 ns**, fast 100C **+3.188 ns**,
+fast −40C **+3.693 ns**. All four hold, recovery and removal checks are
+positive; minimum hold across corners is **+0.080 ns**. The physical ALM
+increase is the observed whole-fit cost, not an estimate of the six source
+flip-flops and comparator. With one placement, source cost and changed
+packing/routing cannot be separated. No extra M10K is consumed.
+
+The added targeted slow-100C queries use the same fitted database:
+
+| Family (worst matching path) | Slack |
+| --- | ---: |
+| Inputs to FSM state / defer / write-back ownership | 0.000 ns |
+| Inputs to HUM slot / victim exclusion / visibility registers | −0.292 ns |
+| Registered HUM slot → CPU pipeline | +0.786 ns |
+| FSM state / write-back ownership → bus merger | −0.271 ns |
+| Saved victim data/tag → bus merger | +1.777 ns |
+| Write-back ownership → CP15 | +3.162 ns |
+| Background load index → shifter/ALU | −0.577 ns |
+| Cache tag/data RAM → memory stage | −0.843 ns |
+
+The HUM-input query starts at the victim LRU register and ends at
+`hum_slot_ff`; the bus-control query starts at IDLE's state bit and ends
+at the merger's write enable. Thus the new snapshot and CP15 drain do not
+create the worst paths in this placement, but the existing cache-control
+and cache-data timing families still need attention. This is not a paired
+seed comparison, and no timing improvement is claimed.
+
+Build: `BUILD_DIR=dev/mister/NGage_MiSTer-dstore ./build.sh remote compile`
+from isolated worktree `NGage_MiSTer-dstore-fit`, source **`d94d4b2`**, on
+Ubuntu only. QSF seed is 2; `NGAGE_DEBUG` remains commented, with no obsolete
+`NGAGE_NO_DEBUG` override. All **153** audited HDL/project inputs match the
+source commit, allowing only Quartus's version metadata rewrite in QSF.
+The final build ID is `261023`, matching b26. An initial synthesis was
+stopped before fitting because the server's UTC date generated `261024`;
+its generated database was removed and the same source/seed restarted with
+`TZ=America/Detroit`. No completed fit or seed was discarded. A lane check
+preceded each container phase; only one task-owned Quartus container ran at
+a time, and the total stayed below four. All task-owned containers exited.
+The report script's negative-timing exit was expected and the reports/RBF
+were copied back successfully.
+
+Local evidence: `build/dstore/baseline`, `final`, `d16`, `stress`, `proof`,
+`b26-timing`, and `fit`; the fit directory contains the full critical paths,
+corner checks, targeted families, fit summary/report and `NGage.rbf`.
+RBF SHA-256:
+`2bddf0018c0cf6cec2db15315ecc1ac2ce7c126484d78ca199032e3800577eed`.
+
+**Exact stopping point:** item 1 is verified as already present; item 2 is
+implemented and committed, with all functional verification above complete.
+Stopped after the single requested fit, retaining the functional change
+and reporting its worse timing. No closure sweep, board deployment or
+firmware boot bench was run. `codex/timing2` remains exactly at `c188fe5`;
+all this task's work is on `codex/dstore`. The next steps belong to the
+integration/board work: measure gameplay, then revalidate the combined tree
+when the parked timing changes are merged. The 0.561 ns sanity-check
+regression must remain visible in that decision.
