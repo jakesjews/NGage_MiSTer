@@ -4301,3 +4301,28 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   `_Debug/NGageDbg_20261023.rbf` (744cce36...), the launchers
   unchanged. The main slot booted Sonic from its own launcher
   afterwards (captures in build/hardware/game/smoke-b26-main/).
+- **The D-cache task, done** (Codex's ZAP thread, codex/dstore 29312a6
+  from f12bb8a; docs/consults/2026-10-23-codex-dstore-report.md in the
+  cx-timing2 worktree). Item 1, the store miss completing at the fill's
+  launch, was already there: this ZAP acknowledges a cacheable
+  write-back store miss in IDLE, before the fill's bus request and
+  before the victim's write-back (a new directed test, dstore_rtl,
+  shows 188 instructions retiring behind background stores at 0:0; the
+  Pocket consult's premise does not apply to this revision). Item 2,
+  the dirty victim's write-back deferred behind the fill, is
+  implemented with the registers the miss already captures (the
+  victim's line and tag) as the write-back buffer, no new RAM: IDLE
+  goes straight to FETCH_SINGLE on a dirty miss, the CPU resumes on
+  the fill, the buffered line drains afterwards, accesses to it wait.
+  The suite: 228/228, 57 QEMU agree, lint, gen check; the original 225
+  runs 20,630,566 -> 20,404,172 cycles (-1.10 %): the cache test -4.7 %
+  at 0:0 and -9.7 % at 2:9, the random cached tests -0.3 to -0.5 %,
+  dhold -0.2 to -0.4 %, dstore_rtl +37 clocks (a real drain where a
+  no-op was). The requested one-seed sanity fit (stripped default,
+  seed 2): **-0.956 ns** against b26's -0.395 at the same seed, +767
+  ALMs; the worst path is the merger's cycle into upp_bus's
+  acknowledge, not the new logic (the new families query at 0.000 and
+  -0.292; the saved victim into the merger +1.8). One seed, so not a
+  verdict, but 0.56 ns is above the sweeps' seed noise and the merge
+  decision needs the in-play number first: a debug core of the branch
+  goes to the server for a measurement on the debug slot against b25.
