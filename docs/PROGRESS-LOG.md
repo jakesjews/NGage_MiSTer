@@ -4824,3 +4824,27 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   side: the D16 variant's measurement core goes to the board for the
   16 KB D-cache's in-play number (the consultants' +1-3 %), the one
   memory-side candidate left with a measured timing benefit.
+- **ARM9 v2, session 9: the area back, the timing not** (Codex,
+  codex/arm9v2 d648f64..efe6811; docs/consults/2026-10-24-codex-arm9v2-
+  s9.md in the worktree). Four cuts, one integrated seed-2 fit each:
+  the store collision resolved after the formatting (-2.527 ns from
+  -2.838), the normal-return repair matches bounded and precomputed
+  (-2.395), an independent D1 destination selection (-2.909, +307
+  ALMs: reverted), and the RF's storage boundary bounded against
+  retiming (the area back to **16,561 ALMs**, 12 above ZAP's 16,549;
+  the slack **-2.871**). Every count and all 85 windows unchanged;
+  267/267, 69 QEMU; the firmware boot identical through 4.5 guest
+  seconds including EFile and EStart. The remaining chains are the
+  late-pickup design's own: the D-cache lock through W's lock
+  reduction and completion (wb_complete, fanout 163) into the next
+  producer's tag and A's late match (13 of 30 hot paths, 22 of 30
+  cold), the memory state through the request and translation control
+  into the D-TLB's hit, W's load owner into the cache's valid metadata
+  and the short-RAM forwarding record; all at 65-73 % routing. So the
+  split and the miss policy cost about 1.6 ns against the S6 shape
+  (-1.237) and the cuts have recovered 0.4 of it. A wall: before
+  session 10, both consultants get the fitted paths and the question
+  of which boundary to register and what it costs in cycles (the
+  two-clock late pickup against a three-clock one on this cache
+  interface, the request owner, the completion fanout, the routing
+  share).
