@@ -19,13 +19,13 @@ ldrh 4 4
 ldrsb 4 4
 ldrsh 4 4
 ldr_unaligned 4 4
-ldr_pc 5 12
+ldr_pc 2 11
 str 2 2
 ldm1 2 2
 stm1 2 2
 ldm3 4 4
 stm3 4 4
-ldm_pc 14 14 19 14
+ldm_pc 13 13 19 13
 swp 17 17
 swpb 18 18
 b 2 6
@@ -38,11 +38,11 @@ mcr 26 19 19 19
 mrc 6 6
 mrc_use 11 11
 mrc_pc 11 11
-swi 15 22
-undefined 15 22
-cdp 15 22
-ldc 15 22
-stc 15 22
+swi 12 21
+undefined 12 21
+cdp 12 21
+ldc 12 21
+stc 12 21
 mul_m1 3 3
 mul_m2 3 3
 mul_m3 3 3

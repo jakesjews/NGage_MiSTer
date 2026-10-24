@@ -768,7 +768,7 @@ module arm9v2_core (
 	assign early_valid = {a_a_write & {2 {a_a_valid && !a_a_can_finish}}, a_s_write} & {early_tag[18+:6] != 15, early_tag[12+:6] != 15, early_tag[6+:6] != 15, early_tag[0+:6] != 15};
 	assign load_tag = {skid[90+:6], w[90+:6], m[90+:6], a_dest[0+:6], a_a_dest[0+:6], d_dest[0+:6]};
 	assign load_valid = {skid[539] && ((skid[533] && !skid[532]) || skid[525]), w[539] && ((w[533] && !w[532]) || w[525]), m[539] && ((m[533] && !m[532]) || m[525]), 1'b0, a_a_load, (d_valid && !d_fault) && ((d_kind == MEM) || (d_kind == BLOCK) ? d_instruction[20] : (d_kind == SWP) || (((d_kind == CP) && d_instruction[20]) && (d_dest[0+:6] != 15)))};
-	assign load_speculate = {(skid[6-:4] == MEM) && (skid[90+:6] != 15), (w[6-:4] == MEM) && (w[90+:6] != 15), (m[6-:4] == MEM) && (m[90+:6] != 15), 1'b0, (a_kind == MEM) && (a_dest[0+:6] != 15), (d_kind == MEM) && (d_dest[0+:6] != 15)};
+	assign load_speculate = {((skid[6-:4] == MEM) || ((skid[6-:4] == BLOCK) && skid[534])) && (skid[90+:6] != 15), ((w[6-:4] == MEM) || ((w[6-:4] == BLOCK) && w[534])) && (w[90+:6] != 15), ((m[6-:4] == MEM) || ((m[6-:4] == BLOCK) && m[534])) && (m[90+:6] != 15), 1'b0, ((a_kind == MEM) || ((a_kind == BLOCK) && a_last)) && (a_dest[0+:6] != 15), ((d_kind == MEM) || ((d_kind == BLOCK) && d_last)) && (d_dest[0+:6] != 15)};
 	assign locked = i_dc_lock[39:0];
 	assign mw_tag = {w[101-:12], m[101-:12]};
 	assign mw_value[0+:64] = m[89-:64];
@@ -1076,8 +1076,9 @@ module arm9v2_core (
 	assign request = (request_ff && !wb_flush) && !fill_ended;
 	assign request_done = request && (i_data_wb_ack || i_data_wb_err);
 	assign retry = request_done && i_dcache_err2;
-	assign defer_load = (((request_done && !retry) && !i_data_wb_err) && !w[532]) && ((w[90+:6] == 15) || (w[6-:4] == SWP));
-	assign load_data = ((memory_state == 4'd6) || swap_write ? saved_load : i_data_wb_dat);
+	wire fast_pc_hit = ((((w[533] && !w[532]) && (w[90+:6] == 15)) && (w[6-:4] != SWP)) && i_data_short_hit) && !w_waited;
+	assign defer_load = (((request_done && !retry) && !i_data_wb_err) && !w[532]) && (((w[90+:6] == 15) && !fast_pc_hit) || (w[6-:4] == SWP));
+	assign load_data = ((memory_state == 4'd6) || swap_write ? saved_load : (fast_pc_hit ? i_data_short_data : i_data_wb_dat));
 	(* dont_retime *) reg [5:1] rf_static_class;
 	wire [5:0] rf_class;
 	always @(posedge i_clk)

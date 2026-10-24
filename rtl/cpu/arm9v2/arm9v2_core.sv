@@ -452,9 +452,11 @@ output logic [1:0] o_dbg_fetch
         d_valid&&!d_fault&&((d_kind==MEM||d_kind==BLOCK)?d_instruction[20]:d_kind==SWP||(d_kind==CP&&d_instruction[20]&&d_dest[0]!=15))};
     // Scalar consumers may enter S/A before the result is known; their
     // registered operand locks retain them until a hit or completion.
-    // Block/SWP/PC loads keep their existing partial-operation protection.
-    assign load_speculate={skid.kind==MEM&&skid.dest[0]!=15,w.kind==MEM&&w.dest[0]!=15,
-        m.kind==MEM&&m.dest[0]!=15,1'b0,a_kind==MEM&&a_dest[0]!=15,d_kind==MEM&&d_dest[0]!=15};
+    // Only the final non-PC block word may use the scalar schedule. Earlier
+    // words retain partial-LDM protection; an abort restores Rn and kills
+    // younger records before any can retire. SWP/PC retain their interlock.
+    assign load_speculate={(skid.kind==MEM||(skid.kind==BLOCK&&skid.last))&&skid.dest[0]!=15,(w.kind==MEM||(w.kind==BLOCK&&w.last))&&w.dest[0]!=15,
+        (m.kind==MEM||(m.kind==BLOCK&&m.last))&&m.dest[0]!=15,1'b0,(a_kind==MEM||(a_kind==BLOCK&&a_last))&&a_dest[0]!=15,(d_kind==MEM||(d_kind==BLOCK&&d_last))&&d_dest[0]!=15};
     assign locked=i_dc_lock[39:0];
     assign mw_tag={w.dest,m.dest};
     assign mw_value[0]=m.result;
@@ -686,8 +688,16 @@ output logic [1:0] o_dbg_fetch
     assign request=request_ff&&!wb_flush&&!fill_ended;
     assign request_done=request&&(i_data_wb_ack||i_data_wb_err);
     assign retry=request_done&&i_dcache_err2;
-    assign defer_load=request_done&&!retry&&!i_data_wb_err&&!w.store&&(w.dest[0]==15||w.kind==SWP);
-    assign load_data=(memory_state==LOAD_RETURN||swap_write)?saved_load:i_data_wb_dat;
+    // A first-pass PC hit is already permission-qualified and formatted in
+    // the M/W short-response register. Retire it once here; W's registered
+    // recovery owns any redirect. Miss/hold/retry/SWP still use LOAD_RETURN.
+    wire fast_pc_hit=w.memory&&!w.store&&w.dest[0]==15&&w.kind!=SWP&&i_data_short_hit&&!w_waited;
+    assign defer_load=request_done&&!retry&&!i_data_wb_err&&!w.store&&((w.dest[0]==15&&!fast_pc_hit)||w.kind==SWP);
+    assign load_data=(memory_state==LOAD_RETURN||swap_write)?saved_load:fast_pc_hit?i_data_short_data:i_data_wb_dat;
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk)if(!i_reset&&fast_pc_hit&&request_done&&!retry&&!i_data_wb_err)
+        assert(i_data_short_data==i_data_wb_dat) else $fatal(1,"PC hit short/normal word mismatch");
+`endif
     // Raw write-port class follows the W owner, independently of its
     // eventual completion. A data abort is the only late class override.
     // Architectural write enable, CPSR/exception control and trace remain

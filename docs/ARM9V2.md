@@ -910,3 +910,20 @@ Cache ACK/readiness does not enter D2 admission through these controls.
 CP15 RAW/WAW and independent work. `arm9_tail.S` measures four dependent
 block tails, initially 7/9 clocks for one/three registers. Firmware and
 final fit measurements are recorded in the session-12 report.
+
+
+The final non-PC LDM word now advertises the same late-consumer eligibility
+as a scalar load. Earlier block words remain non-speculative; locks and
+partial-block abort/base-restoration rules are unchanged. The new dependent
+one/three-register windows improve 7/9 to 4/6 clocks for unshifted consumers,
+and 7/9 to 5/7 for shifted consumers. Independent LDM issue spacing is unchanged.
+
+A PC load's first-pass short hit already has a permission-qualified,
+formatted M/W word. W may retire it directly and register its recovery
+once, instead of taking LOAD_RETURN merely to save that same word. Held,
+missed, retried and uncached PC loads and SWP retain the old path. PC alignment,
+L4/Thumb selection, SPSR restoration, exception priority and RAS repair
+remain at W. An assertion compares the short and normal formatted words
+on every accepted fast PC hit. Predicted LDR-PC's warm window falls 5 to 2;
+LDM-PC's final warm visit falls 14 to 13 (its prior visit stays 19).
+The vector-table LDR-PC also shortens the measured exception-entry windows.
