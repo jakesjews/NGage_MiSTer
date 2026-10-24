@@ -4698,3 +4698,12 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   area (the tag RAM led the worst paths of the write-buffer and the
   16 KB builds, and V2's integrated fit carries the same caches), and
   makes the 16 KB D-cache affordable afterwards.
+- The cache-side-only early-execution core on the board (ied-s2,
+  NGAGE_DEBUG, -1.300 ns, 37,543 ALMs; build/hardware/game/run-ied.log
+  against run-msd.log, play medians): Sonic 31.30 against 30.87 M
+  instr/s (+1.4 %), Asphalt 31.70 against 31.62, Tony Hawk 30.75
+  against 30.57; the true fetch wait 6.5/6.0/7.7 % to 6.2/5.9/7.3 %,
+  the fetch-FIFO-empty share 15.9 to 15.1 % in Sonic. The partial
+  effect the thread predicted (the +0/+4/+8 offsets only, the word
+  still waiting for the next ACK); the complete core with the
+  handshake fix is building for the real number.
