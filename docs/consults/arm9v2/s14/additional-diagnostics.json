@@ -1,0 +1,151 @@
+{
+  "zap-diagnostic": {
+    "source": "/home/jacob/dev/mister/coreboot/arm9v2-s14-src",
+    "build": "/home/jacob/dev/mister/coreboot/arm9v2-s14-zap-diagnostic",
+    "sha256": {
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-src/rtl/cpu/arm925t_gen.v": "110285b5efd739353f505718c110e6c076c538248d9dab1352c5fdfc476b6685",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-src/NGage.sv": "88e55a60072b71f6b3a899701406ac7758038898fbe0dd44ff74116053584ecc",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-src/sim/harness/coreboot_main.cpp": "a6c33f53dcb9b33fc7669f57abc51308ee18a906d0ec16d969f9d67be6c0952e",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-zap-diagnostic/coreboot/Vemu": "a2508bc64244e2f29fd26e5ff7f8df7c955765a0ee6874f048e8556ba7ddb286"
+    }
+  },
+  "s10-diagnostic": {
+    "source": "/home/jacob/dev/mister/coreboot/arm9v2-s14-s10-diagnostic-src",
+    "build": "/home/jacob/dev/mister/coreboot/arm9v2-s14-s10-diagnostic",
+    "sha256": {
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-s10-diagnostic-src/rtl/cpu/arm925t_gen.v": "14ea2e1373d223a057ce178a986caded40396aa648fc22d5dbc8134eb704c594",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-s10-diagnostic-src/NGage.sv": "407945763f78818560a59c8a07fd5a397d0da9f46365d84b127a978afab7b6a4",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-s10-diagnostic-src/sim/harness/coreboot_main.cpp": "c5d6f99d3c5e4dc711d64f2aec140c27849031a8472427ac07d31e32180db974",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-s10-diagnostic/coreboot/Vemu": "4cc066e33ed2d79f8ada1152963cadc1480e19b56d73ec3745ad6fc04cee8b07"
+    },
+    "launch": {
+      "pid": 1553767,
+      "started_utc": "2026-10-24T18:43:29.522411+00:00",
+      "cwd": "/home/jacob/dev/mister/coreboot/arm9v2-s14-s10-diagnostic-src",
+      "args": [
+        "nice",
+        "-n",
+        "10",
+        "/home/jacob/dev/mister/coreboot/arm9v2-s14-s10-diagnostic/coreboot/Vemu",
+        "+verilator+seed+1",
+        "+verilator+rand+reset+2",
+        "--cs0",
+        "/home/jacob/dev/mister/coreboot/img/cs0.bin",
+        "--cs1",
+        "/home/jacob/dev/mister/coreboot/img/cs1-board.bin",
+        "--mmc",
+        "/home/jacob/dev/mister/coreboot/img/sonicn.mmc",
+        "--keys",
+        "/home/jacob/dev/mister/coreboot/img/sonic.keys",
+        "--out",
+        "/home/jacob/dev/mister/coreboot/arm9v2-s14-s10-diagnostic/game",
+        "--devlog",
+        "--fault-history",
+        "65536",
+        "--progress",
+        "104000000",
+        "--cycles",
+        "4160000000"
+      ]
+    }
+  },
+  "current-d8": {
+    "source": "/home/jacob/dev/mister/coreboot/arm9v2-s14-src",
+    "build": "/home/jacob/dev/mister/coreboot/arm9v2-s14-current-d8",
+    "sha256": {
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-src/rtl/cpu/arm925t_gen.v": "110285b5efd739353f505718c110e6c076c538248d9dab1352c5fdfc476b6685",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-src/NGage.sv": "88e55a60072b71f6b3a899701406ac7758038898fbe0dd44ff74116053584ecc",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-src/sim/harness/coreboot_main.cpp": "a6c33f53dcb9b33fc7669f57abc51308ee18a906d0ec16d969f9d67be6c0952e",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-current-d8/coreboot/Vemu": "794190919e82ecfbed97fe21059de927576734ba69424b71bd4c6cf8f88822a8"
+    },
+    "launch": {
+      "pid": 1557563,
+      "started_utc": "2026-10-24T19:15:44.611778+00:00",
+      "cwd": "/home/jacob/dev/mister/coreboot/arm9v2-s14-src",
+      "args": [
+        "nice",
+        "-n",
+        "10",
+        "/home/jacob/dev/mister/coreboot/arm9v2-s14-current-d8/coreboot/Vemu",
+        "+verilator+seed+1",
+        "+verilator+rand+reset+2",
+        "--cs0",
+        "/home/jacob/dev/mister/coreboot/img/cs0.bin",
+        "--cs1",
+        "/home/jacob/dev/mister/coreboot/img/cs1-board.bin",
+        "--mmc",
+        "/home/jacob/dev/mister/coreboot/img/sonicn.mmc",
+        "--keys",
+        "/home/jacob/dev/mister/coreboot/img/sonic.keys",
+        "--out",
+        "/home/jacob/dev/mister/coreboot/arm9v2-s14-current-d8/game",
+        "--devlog",
+        "--fault-history",
+        "65536",
+        "--progress",
+        "104000000",
+        "--cycles",
+        "4160000000"
+      ]
+    }
+  },
+  "board-input": {
+    "source": "/home/jacob/dev/mister/coreboot/arm9v2-s14-src",
+    "build": "/home/jacob/dev/mister/coreboot/arm9v2-s14-diagnostic",
+    "sha256": {
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-src/rtl/cpu/arm925t_gen.v": "110285b5efd739353f505718c110e6c076c538248d9dab1352c5fdfc476b6685",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-src/NGage.sv": "88e55a60072b71f6b3a899701406ac7758038898fbe0dd44ff74116053584ecc",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-src/sim/harness/coreboot_main.cpp": "a6c33f53dcb9b33fc7669f57abc51308ee18a906d0ec16d969f9d67be6c0952e",
+      "/home/jacob/dev/mister/coreboot/arm9v2-s14-diagnostic/coreboot/Vemu": "650d89e60e6a1b09f91d9b3c13afac6d3d95f2aa227410c97929ef6f7abfe372"
+    },
+    "launch": {
+      "pid": 1554901,
+      "started_utc": "2026-10-24T18:50:26.245250+00:00",
+      "cwd": "/home/jacob/dev/mister/coreboot/arm9v2-s14-src",
+      "args": [
+        "nice",
+        "-n",
+        "10",
+        "/home/jacob/dev/mister/coreboot/arm9v2-s14-diagnostic/coreboot/Vemu",
+        "+verilator+seed+1",
+        "+verilator+rand+reset+2",
+        "--cs0",
+        "/home/jacob/dev/mister/coreboot/arm9v2-s14-board-img/cs0.bin",
+        "--cs1",
+        "/home/jacob/dev/mister/coreboot/arm9v2-s14-board-img/cs1.bin",
+        "--mmc",
+        "/home/jacob/dev/mister/coreboot/img/sonicn.mmc",
+        "--keys",
+        "/home/jacob/dev/mister/coreboot/img/sonic.keys",
+        "--out",
+        "/home/jacob/dev/mister/coreboot/arm9v2-s14-board-input/game",
+        "--devlog",
+        "--fault-history",
+        "65536",
+        "--progress",
+        "104000000",
+        "--cycles",
+        "4160000000"
+      ],
+      "sha256": {
+        "cs0.bin": "4d38ebd7c804e7fd194a0de7243e322e3a0b6b8bc604e252551724319dbc8d70",
+        "cs1.bin": "c5b68d685c608ed896f9f9cf0b166976bac9e932672b79e5f20f8fa7ac50d012"
+      }
+    }
+  },
+  "board-build": {
+    "path": "/home/jacob/dev/mister/NGage_MiSTer-v2d78",
+    "matches_s14": [
+      "rtl/cpu/arm925t_gen.v",
+      "NGage.sv",
+      "rtl/mister/phoenix_patch.hex",
+      "rtl/mister/phoenix_patch.vh"
+    ],
+    "macros": [
+      "NGAGE_CORE_ARM9=1",
+      "NGAGE_DEBUG=1",
+      "NGAGE_DCACHE_16K=1"
+    ],
+    "sdram_clock_hz": 78000000
+  }
+}
