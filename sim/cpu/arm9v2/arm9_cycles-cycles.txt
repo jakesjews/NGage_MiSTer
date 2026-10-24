@@ -32,12 +32,12 @@ b 2 6
 bl 2 6
 bx 2 9
 mrs 2 2
-msr_flags 11 11 21 11
-msr_control 11 11
+msr_flags 2 2
+msr_control 5 5
 mcr 26 19 19 19
-mrc 25 17 17 17
-mrc_use 26 18 18 18
-mrc_pc 17 17
+mrc 6 6
+mrc_use 11 11
+mrc_pc 11 11
 swi 15 22
 undefined 15 22
 cdp 15 22

@@ -146,6 +146,7 @@ module arm9v2_front_execute #(
     assign o_retire_valid=mw_valid[1]&&i_ready&&!i_flush;
     assign o_retire_pc=mw_pc[1];assign o_retire_instruction=mw_ins[1];assign o_retire_value=mw_value[1][0];
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR)) u_front_decode (
+        .i_serial_continue(1'b0),.o_dbg_fetch(),
         .i_rf_value('0),.o_rf_tag(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),
         .o_writes(),.o_early(d_early),.i_forward_tag(forward_tag),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_write(forward_write),
         .i_forward_load('0),.o_forward_grant(d_forward_grant),.o_forward_match(d_forward_match),.i_clk(i_clk),
@@ -235,7 +236,8 @@ module arm9v2_front_execute #(
         .o_request(o_request),
         .o_stall(o_stall)
     );
-    arm9v2_execute u_execute (.i_pending(4'd0),.i_load_owner(2'd0),.i_next_load_owner(2'd0),.i_load_hit(1'b0),.i_return_select(64'd0),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.i_return_ready(1'b0),.i_return_s_match(4'd0),.i_return_data(64'd0),
+    arm9v2_execute u_execute (
+        .i_flags_refresh(1'b0),.o_serial_continue(),.i_pending(4'd0),.i_load_owner(2'd0),.i_next_load_owner(2'd0),.i_load_hit(1'b0),.i_return_select(64'd0),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.i_return_ready(1'b0),.i_return_s_match(4'd0),.i_return_data(64'd0),
         .i_admit(1'b1),.i_load_wait(1'b0),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_advance_tag('0),.i_next_advance(1'b0),.i_next_write(forward_write),.i_early(d_early),
         .o_btb_pc(btb_pc),.o_btb_thumb(btb_thumb),.o_record_pointer(),.o_record_count(),
         .o_record_pred_hit(),.o_record_pred_state(),.o_record_thumb(),

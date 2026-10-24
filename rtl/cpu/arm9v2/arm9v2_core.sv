@@ -373,7 +373,7 @@ output logic [1:0] o_dbg_fetch
     logic [1:0] forward_load;
     // Normal completion is qualified against the lock installed on its
     // accepting edge. A miss ACK installs a lock, not a usable data word.
-    assign return_next_valid=!i_reset&&wb_complete&&w.load_writer&&!wb_exception;
+    assign return_next_valid=!i_reset&&wb_complete&&w.memory&&w.load_writer&&!wb_exception;
     // The accepting edge can install a miss lock. Test the registered
     // return owner after that edge; never qualify it with the old lock.
     // Only this one ready bit fans out to the eight registered matches.
@@ -425,6 +425,9 @@ output logic [1:0] o_dbg_fetch
     logic [5:0] copro_reg_wr_index,copro_reg_rd_index;
     logic copro_done,copro_reg_en,align_en,hivecs,l4_enable;
     logic cp_request;
+    logic a_serial_continue;
+    (* dont_retime *) logic w_serial_continue;
+    wire cp_read=w.kind==CP&&w.ins[20]&&w.ins[19:16]!=7;
     logic [31:0] load_data;
     wire [31:0] vector_base=hivecs?32'hffff0000:32'd0;
     function automatic [31:0] fcse(input logic [31:0] address);
@@ -443,9 +446,10 @@ output logic [1:0] o_dbg_fetch
     // Pipeline load ownership and the cache's registered background lock are
     // separate. No cache ACK or producer readiness is searched in forwarding.
     assign load_tag={skid.dest[0],w.dest[0],m.dest[0],a_dest[0],a_a_dest[0],d_dest[0]};
-    assign load_valid={skid.valid&&skid.memory&&!skid.store,w.valid&&w.memory&&!w.store,m.valid&&m.memory&&!m.store,
+    assign load_valid={skid.valid&&((skid.memory&&!skid.store)||skid.load_writer),
+        w.valid&&((w.memory&&!w.store)||w.load_writer),m.valid&&((m.memory&&!m.store)||m.load_writer),
         1'b0,a_a_load,
-        d_valid&&!d_fault&&((d_kind==MEM||d_kind==BLOCK)?d_instruction[20]:d_kind==SWP)};
+        d_valid&&!d_fault&&((d_kind==MEM||d_kind==BLOCK)?d_instruction[20]:d_kind==SWP||(d_kind==CP&&d_instruction[20]&&d_dest[0]!=15))};
     // Scalar consumers may enter S/A before the result is known; their
     // registered operand locks retain them until a hit or completion.
     // Block/SWP/PC loads keep their existing partial-operation protection.
@@ -505,7 +509,7 @@ output logic [1:0] o_dbg_fetch
         next_load_valid={m.load_writer,a_a_load&&!a_a_can_finish};
         if(d_valid&&a_execute_ready)begin
             next_load_tag[0]=d_dest[0];
-            next_load_valid[0]=!d_fault&&((d_kind==MEM||d_kind==BLOCK)?d_instruction[20]:d_kind==SWP);
+            next_load_valid[0]=!d_fault&&((d_kind==MEM||d_kind==BLOCK)?d_instruction[20]:d_kind==SWP||(d_kind==CP&&d_instruction[20]&&d_dest[0]!=15));
         end
         if(memory_state==RUN&&done_forward)next_load_valid[1]=input_record.load_writer;
         if(memory_state==RELOAD1||quick_forward)next_load_valid[1]=skid.load_writer;
@@ -540,7 +544,7 @@ output logic [1:0] o_dbg_fetch
         input_record.flags=a_cpsr;input_record.next_flags=a_cpsr_next;
         input_record.dest=a_dest;input_record.result=a_result;
         input_record.writes=a_write&{2{input_record.valid}};
-        input_record.load_writer=a_memory&&!a_store&&a_dest[0]!=15&&input_record.valid;
+        input_record.load_writer=(a_memory&&!a_store||(a_kind==CP&&a_instruction[20]&&a_condition_pass))&&a_dest[0]!=15&&input_record.valid;
         // Scalar Rd == Rn writeback: the load (RF port B) wins over the
         // address update (port A). Expose only that architectural writer to
         // M/W forwarding, including a permission-qualified short hit.
@@ -673,11 +677,12 @@ output logic [1:0] o_dbg_fetch
     assign o_instr_wb_adr=fcse(f_address);assign o_instr_wb_cyc=o_instr_wb_stb;
     assign o_instr_wb_we=0;assign o_instr_wb_sel=15;assign o_cpsr=cpsr[CPSR_MODE:0];
 
-    assign w_serial=w.kind==CP||w.kind==MSR||w.kind==SWP||w.kind==SWI||w.kind==UND||w.fault||
+    assign w_serial=(w.kind==CP&&!cp_read)||
+        (w.kind==MSR&&(w.ins[22]||(w.pass&&w.ins[16]&&w.flags[4:0]!=5'h10&&w.psr_source[4:0]!=w.flags[4:0])))||w.kind==SWP||w.kind==SWI||w.kind==UND||w.fault||
         (w.kind==DP&&w.ins[20]&&w.dest[0]==15)||
         (w.kind==BLOCK&&w.ins[22]&&w.ins[20]&&w.ins[15]&&w.last);
     assign w_exception=w.fault||w.irq||w.fiq||(w.pass&&(w.kind==SWI||w.kind==UND));
-    assign cp_request=w.valid&&w.pass&&w.kind==CP&&!w_exception&&!i_dc_lock_any&&!i_data_fill_busy&&!wb_flush;
+    assign cp_request=w.valid&&w.pass&&w.kind==CP&&!w_exception&&(cp_read||(!i_dc_lock_any&&!i_data_fill_busy))&&!wb_flush;
     assign request=request_ff&&!wb_flush&&!fill_ended;
     assign request_done=request&&(i_data_wb_ack||i_data_wb_err);
     assign retry=request_done&&i_dcache_err2;
@@ -730,7 +735,7 @@ output logic [1:0] o_dbg_fetch
                 wb_tag0=w.spsr_tag;wb_data0=(w.saved_psr&~psr_mask)|(w.psr_source&psr_mask);
             end else if(!w.ins[22])wb_flags=(w.flags&~psr_mask)|(w.psr_source&psr_mask);
         end
-        if(w.kind==CP)wb_flags[31:28]=cp_flags;
+        if(w.kind==CP&&w.pass)wb_flags[31:28]=cp_flags;
         if(|rf_class)begin wb_data0=w.pc+32'd4;wb_pair=0;end
         if(wb_exception)wb_flags=w.flags;
         if(wb_restore)begin wb_tag0=w.dest[1];wb_data0=w.original_base;wb_pair=0;wb_flags=w.flags;end
@@ -743,7 +748,7 @@ output logic [1:0] o_dbg_fetch
         wb_redirect=wb_complete&&(wb_exception||w_serial||scalar_replay||
             (return_event&&(!w.predicted||w.pred_target!={return_target[31:1],return_thumb}||
              (w.kind==DP&&w.ins[20])||(w.kind==BLOCK&&w.ins[22])))||
-            (w.pass&&(w.kind==CP||w.kind==MSR||w.kind==SWP)));
+            (w.pass&&w.kind==SWP));
     end
 
     always_ff @(posedge i_clk)begin
@@ -752,9 +757,10 @@ output logic [1:0] o_dbg_fetch
             w_load_select<=1;w_waited<=0;
             wb_flush<=0;wb_target<=RESET_VECTOR;wb_thumb<=0;predictor_clear<=0;
             wb_repair_pointer<=0;wb_repair_count<=0;wb_repair_action<=0;wb_repair_link<=0;
-            cp_seen<=0;cp_finished<=0;cp_flags<=0;
+            cp_seen<=0;cp_finished<=0;cp_flags<=0;w_serial_continue<=0;
             w_train<=0;w_train_pc<=0;w_train_target<=0;w_train_thumb<=0;w_train_hit<=0;w_train_state<=0;w_train_kind<=0;
         end else begin
+            w_serial_continue<=wb_complete&&cp_read&&w.dest[0]==15&&!wb_exception;
             wb_flush<=wb_redirect;predictor_clear<=wb_redirect&&w.pass&&(w.kind==CP||w.kind==MSR);
             // W's pre-instruction checkpoint owns this recovery. Restore it
             // and apply only the retiring instruction's actual action once.
@@ -806,11 +812,12 @@ output logic [1:0] o_dbg_fetch
         d_early,data_pc8,pc,ins,ex_result,load_capture,load_commit,load_value};
 
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1)) u_front_decode (
-        .i_w_load_hit(i_data_short_hit&&!w_waited),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
+        .i_w_load_hit(w.memory&&i_data_short_hit&&!w_waited),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
         .i_forward_load(forward_load),.o_forward_grant(d_forward_grant),.i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),.o_return_match(d_return_match),
         .i_reset(i_reset),
         .i_flush(wb_flush||a_redirect),
+        .i_serial_continue(a_serial_continue||w_serial_continue),
         .i_mode(cpsr[4:0]),
         .i_wen(wb_valid),
         .i_wr_addr_a(wa),
@@ -898,7 +905,7 @@ output logic [1:0] o_dbg_fetch
     arm9v2_execute u_execute (
         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),
         .i_load_owner({w.load_writer,m.load_writer}),.i_next_load_owner(forward_load),
-        .i_load_hit(i_data_short_hit&&!w_waited),
+        .i_load_hit(w.memory&&i_data_short_hit&&!w_waited),
         .i_return_select(i_dc_reg_idx),.i_return_data(operand_return_data),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),
         .i_return_ready(return_ready),.i_return_s_match(d_return_match),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(mw_tag),.i_advance_tag(advance_tag),.i_next_advance(forward_advance),.i_next_write(forward_write),.i_early(d_early),
@@ -909,6 +916,7 @@ output logic [1:0] o_dbg_fetch
         .i_clk(i_clk),
         .i_reset(i_reset),
         .i_flush(wb_flush),
+        .i_flags_refresh(w_serial_continue),.o_serial_continue(a_serial_continue),
         .i_cpsr({cpsr[31:6],d_thumb,cpsr[4:0]}),
         .i_valid(d_valid),
         .i_pc(d_pc),
@@ -1005,7 +1013,9 @@ output logic [1:0] o_dbg_fetch
         .i_irq(wb_irq),.i_fiq(wb_fiq),.i_instr_abt(wb_pabt),
         .i_data_abt({1'b0,wb_dabt}),.i_swi(wb_swi),.i_und(wb_und),
         .i_pc_plus_8_buf_ff(o_dbg_wb_pc),.i_copro_reg_en(copro_reg_en),
-        .i_copro_reg_wr_index(copro_reg_wr_index),.i_copro_reg_rd_index(copro_reg_rd_index),
+        // MRC only writes the RF. Preserve D2's read address on shared port A;
+        // only the fenced MCR may borrow that port for its source read.
+        .i_copro_reg_wr_index(copro_reg_wr_index),.i_copro_reg_rd_index(w.ins[20]?rf_tag[0]:copro_reg_rd_index),
         .i_copro_reg_wr_data(copro_reg_wr_data),.o_copro_reg_rd_data_ff(copro_reg_rd_data),
         .o_rd_data_0(rf_value[0]),.o_rd_data_1(rf_value[1]),
         .o_rd_data_2(rf_value[2]),.o_rd_data_3(rf_value[3]),

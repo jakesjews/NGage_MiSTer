@@ -1,0 +1,22 @@
+{
+  "netlist_sha256": "b526e08cfb9f0e212d65ddb2bd14a5c1556095b5aa48efc8a66a61cd70be61eb",
+  "runs_per_configuration": 282,
+  "qemu_per_configuration": 71,
+  "source_assertion_runs": 282,
+  "sizes": [
+    8192,
+    16384
+  ],
+  "modes": [
+    "ZAP",
+    "ARM9",
+    "ARM9-off"
+  ],
+  "raw_hit_windows": [
+    3,
+    4,
+    5
+  ],
+  "timing_windows": 89,
+  "firmware_status": "frozen serial source running on Ubuntu; final milestone evidence follows"
+}

@@ -20,3 +20,12 @@ public_flat_rd -module "zap_core" -var "postalu_pc_plus_8_ff"
 // Architectural events use the same wrapper taps as hardware counters.
 public_flat_rd -module "emu" -var "tr_wb_*"
 public_flat_rd -module "arm9v2_core" -var "data_pc8"
+
+// Cycle-model profiling; observation only, no RTL feedback.
+public_flat_rd -module "emu" -var "cpu_dbg_stall"
+public_flat_rd -module "emu" -var "cpu_dbg_dcache"
+public_flat_rd -module "emu" -var "cpu_dbg_icache"
+public_flat_rd -module "arm9v2_core" -var "request"
+public_flat_rd -module "arm9v2_core" -var "request_done"
+public_flat_rd -module "arm9v2_core" -var "i_data_fill_busy"
+public_flat_rd -module "arm9v2_core" -var "o_data_wb_we"

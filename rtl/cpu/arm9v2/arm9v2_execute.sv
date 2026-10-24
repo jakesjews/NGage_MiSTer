@@ -6,6 +6,8 @@
 // separation through backend holds. Late A operands select registered M/W.
 module arm9v2_execute (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
+    input logic i_flags_refresh,
+    output logic o_serial_continue,
     input logic [3:0] i_pending,
     input logic [1:0] i_load_owner,i_next_load_owner,
     input logic i_load_hit,
@@ -97,6 +99,14 @@ module arm9v2_execute (
     (* dont_retime *) a_t a;
     (* dont_retime *) logic a_valid,prepared,holding,multiply_accumulate,multiply_product_ready;
     (* dont_retime *) logic [3:0] flags;
+    // I/F follows executed same-mode MSRs, independently of retirement.
+    // Real bank/mode changes remain fenced until the W recovery.
+    (* dont_retime *) logic [1:0] interrupt_mask;
+    logic [1:0] next_interrupt_mask;
+    logic msr_same_mode;
+    assign msr_same_mode=!condition_pass||a.cpsr_low[4:0]==5'h10||right_a[4:0]==a.cpsr_low[4:0];
+    assign next_interrupt_mask=finish&&a.kind==MSR&&!a.ins[22]&&a.ins[16]&&
+        condition_pass&&!a.fault&&a.cpsr_low[4:0]!=5'h10&&msr_same_mode?right_a[7:6]:interrupt_mask;
     (* dont_retime *) logic [3:0][31:0] held;
     (* dont_retime *) logic [7:0] held_amount;
     (* dont_retime *) logic [31:0] block_base;
@@ -178,7 +188,7 @@ module arm9v2_execute (
                 if((i_reg_shift&&s<2)||(s==3&&!i_thumb))operand[s]=i_pc_base+32'd4;
                 if(s==0&&i_force_align)operand[s]={i_pc_base[31:2],2'b0};
             end
-            if(i_tag[s]==17)operand[s]={flags,i_cpsr[27:0]};
+            if(i_tag[s]==17)operand[s]={flags,i_cpsr[27:8],interrupt_mask,i_cpsr[5:0]};
         end
         shift_input=operand[1];shift_type=i_instruction[6:5];
         shift_amount=prepared?held_amount:{3'd0,i_instruction[11:7]};
@@ -255,7 +265,7 @@ module arm9v2_execute (
     assign o_s_write=planned_writes&{2{i_valid}};
     assign o_a_dest=a.dest;
     assign o_a_write=a.writes;
-    assign o_a_load=a_valid&&!a.fault&&((a.kind==MEM||a.kind==BLOCK)?a.ins[20]:a.kind==SWP);
+    assign o_a_load=a_valid&&!a.fault&&((a.kind==MEM||a.kind==BLOCK)?a.ins[20]:a.kind==SWP||(a.kind==CP&&a.ins[20]&&a.dest[0]!=15));
     assign o_flags=flags;
     always_comb begin
         case(a.condition)
@@ -349,12 +359,14 @@ module arm9v2_execute (
             a_valid<=0;holding<=0;prepared<=0;s_pending<=0;multiply_accumulate<=0;multiply_product_ready<=0;
             o_redirect<=0;o_btb_pc<=0;o_btb_thumb<=0;
             o_btb_update<=0;o_btb_taken<=0;o_btb_hit<=0;o_btb_target<=0;o_btb_state<=0;o_btb_kind<=0;
-            flags<=i_cpsr[31:28];a<=a_t'(0);held<=0;held_amount<=0;block_base<=0;
+            flags<=i_cpsr[31:28];interrupt_mask<=i_cpsr[7:6];o_serial_continue<=0;a<=a_t'(0);held<=0;held_amount<=0;block_base<=0;
             ll<=0;lh<=0;hl<=0;hh<=0;product_saved<=0;
             o_redirect_thumb<=0;o_redirect_target<=0;
             o_redirect_link<=0;o_redirect_pointer<=0;o_redirect_count<=0;o_redirect_action<=0;
         end else begin
-            o_redirect<=0;o_btb_update<=0;
+            o_redirect<=0;o_btb_update<=0;o_serial_continue<=0;
+            interrupt_mask<=next_interrupt_mask;
+            if(i_flags_refresh)flags<=i_cpsr[31:28];
             if(i_valid&&!accept)begin
                 holding<=1;held<=operand;s_pending<=s_wait;
                 // A retired return is older than every live M/W match. It
@@ -388,7 +400,13 @@ module arm9v2_execute (
             end
             if(mac_phase)begin product_saved<=product;multiply_accumulate<=1;end
             if(finish)begin
+`ifndef SYNTHESIS
+                // D2's control-MSR fence is released by the registered A
+                // result. No next S record can capture I/F on this edge.
+                if(a.kind==MSR&&a.ins[16]&&!a.ins[22])assert(!accept);
+`endif
                 a_valid<=0;flags<=next_flags;
+                o_serial_continue<=a.kind==MSR&&!a.ins[22]&&a.ins[16]&&msr_same_mode&&!a.fault;
                 if(a.kind==BLOCK&&a.first)block_base<=left_a;
                 o_btb_pc<=a.pc;o_btb_thumb<=a.thumb;
                 o_btb_update<=(a.kind==BR||a.kind==BX||(a.kind==SUFFIX&&a.direct))&&!a.fault;
@@ -406,7 +424,7 @@ module arm9v2_execute (
             if(accept)begin
                 a_valid<=1;holding<=0;prepared<=0;s_pending<=0;multiply_accumulate<=0;multiply_product_ready<=0;
                 a.pc<=i_pc;a.ins<=i_instruction;a.next_pc<=i_next_pc;a.target<=i_branch_target;
-                a.pred_target<=i_pred_target;a.cpsr_low<=i_cpsr[27:0];a.kind<=i_kind;a.condition<=i_condition;
+                a.pred_target<=i_pred_target;a.cpsr_low<={i_cpsr[27:8],interrupt_mask,i_cpsr[5:0]};a.kind<=i_kind;a.condition<=i_condition;
                 a.thumb<=i_thumb;a.fault<=i_fault;a.first<=i_first;a.last<=i_last;
                 a.direct<=i_direct;a.predicted<=i_predicted;a.match_taken<=i_match_taken;
                 a.match_fallthrough<=i_match_fallthrough;a.pred_hit<=i_pred_hit;a.pred_state<=i_pred_state;a.ras_pointer<=i_ras_pointer;a.ras_count<=i_ras_count;

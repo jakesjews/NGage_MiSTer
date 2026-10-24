@@ -1,0 +1,5 @@
+# Session 12 pre-tail baseline; measured warmed 0:0 on/off.
+tail1 7 7
+tail3 9 9
+tail1_shift 7 7
+tail3_shift 9 9

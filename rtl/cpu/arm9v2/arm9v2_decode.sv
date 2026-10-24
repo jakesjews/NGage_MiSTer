@@ -4,6 +4,7 @@
 // (ZAP copyright 2016-2024 Revanth Kamaraj). No execution or forwarding here.
 module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     input logic i_clk, i_reset, i_flush,
+    input logic i_serial_continue,
     input logic i_valid,
     output logic o_ready,
     input logic [31:0] i_pc, i_word,
@@ -578,6 +579,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
         end else begin
             redirect_ff.valid<=0;redirect_in_d2<=0;
             if(i_ready)out_valid<=0;
+            if(i_serial_continue)fenced<=0;
             if(push)begin
                 d1[tail]<=incoming;tail<=!tail;
             end
@@ -601,7 +603,8 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
                 matches_taken<=taken_match;matches_fallthrough<=fallthrough_match;
             end
             if(step)begin
-                if(EXTERNAL_RF&&(d2.kind==K_CP||d2.kind==K_MSR||d2.kind==K_SWP||
+                if(EXTERNAL_RF&&((d2.kind==K_CP&&(!d2.p.ins[20]||d2.p.ins[19:16]==7||d2.p.ins[15:12]==15))||
+                    (d2.kind==K_MSR&&(d2.p.ins[22]||d2.p.ins[16]))||d2.kind==K_SWP||
                     d2.kind==K_SWI||d2.kind==K_UND||d2.p.fault||
                     (d2.kind==K_DP&&d2.p.ins[20]&&d2.dest[0]==15)||
                     (d2.kind==K_BLOCK&&d2.p.ins[22]&&d2.p.ins[20]&&d2.p.list[15]&&d2.last)))fenced<=1;

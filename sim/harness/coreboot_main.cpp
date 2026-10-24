@@ -150,8 +150,9 @@ bool device(uint32_t a) {
 	       !(a >= 0x0C000000u && a < 0x0C040000u);
 }
 
-// Only these two diagnostics need an implementation-specific hierarchy.
+// Register snapshots and V2 held-read profiling use implementation-specific taps.
 #ifdef NGAGE_CORE_ARM9
+#define V2_TAP(n) emu__DOT__arm925t__DOT__u_zap__DOT__g_arm9__DOT__u_arm9_core__DOT__##n
 #define CORE_REGS emu__DOT__arm925t__DOT__u_zap__DOT__g_arm9__DOT__u_arm9_core__DOT__u_zap_writeback__DOT__u_zap_register_file__DOT__mem
 #define CORE_DATA_PC emu__DOT__arm925t__DOT__u_zap__DOT__g_arm9__DOT__u_arm9_core__DOT__data_pc8
 #else
@@ -192,6 +193,16 @@ struct Bench {
 	FILE *devlog = nullptr, *trace = nullptr, *exec_log = nullptr;
     bool was_user = false;
     uint64_t user_retired = 0, user_entries = 0, exec_calls = 0;
+    uint64_t stall_clocks[8] = {}, dc_events[4] = {}, ic_events[8] = {};
+    uint64_t fill_read_wait = 0;
+    void profile(const char *label) {
+        printf("PROFILE %s clock=%" PRIu64 " retired=%" PRIu64 " stall=",label,clocks,retired);
+        for (auto n : stall_clocks) printf("%" PRIu64 ",",n);
+        printf(" dc="); for (auto n : dc_events) printf("%" PRIu64 ",",n);
+        printf(" ic="); for (auto n : ic_events) printf("%" PRIu64 ",",n);
+        printf(" fill_read_wait=%" PRIu64 "\n",fill_read_wait);
+        fflush(stdout);
+    }
 	uint64_t trace_after = 0, trace_count = 0;
 	bool trace_done = false;
 	uint64_t dev_accesses = 0;
@@ -269,6 +280,19 @@ struct Bench {
 	// what commits at the coming edge (the CPU's writeback stage)
 	void cpu_before_edge() {
 		auto &h = *r;
+        if (!h.emu__DOT__cpu_reset) {
+            for (int n=0;n<8;n++) {
+                stall_clocks[n]+=(h.emu__DOT__cpu_dbg_stall>>n)&1;
+                ic_events[n]+=(h.emu__DOT__cpu_dbg_icache>>n)&1;
+            }
+            for (int n=0;n<4;n++) dc_events[n]+=(h.emu__DOT__cpu_dbg_dcache>>n)&1;
+#ifdef NGAGE_CORE_ARM9
+            // Upper bound: held reads during a fill include hits and uncached
+            // accesses. This is not a counter of proven second misses.
+            fill_read_wait+=h.V2_TAP(request)&&!h.V2_TAP(request_done)&&
+                !h.V2_TAP(o_data_wb_we)&&h.V2_TAP(i_data_fill_busy);
+#endif
+        }
 		uint32_t cpsr = h.emu__DOT__tr_wb_cpsr;
 		bool thumb = cpsr >> 5 & 1;
 		uint32_t pc = h.emu__DOT__tr_wb_pc -
@@ -292,7 +316,8 @@ struct Bench {
             if (ev == 'R' && user) user_retired++;
             if ((user && !was_user) || ev == 'S' || ev == 'D' || ev == 'P' || ev == 'U') {
                 if (user && !was_user) user_entries++;
-                if (ev == 'S') exec_calls++;
+                if (ev == 'S') { if (!exec_calls) profile("first_exec"); exec_calls++; }
+                if (user && !was_user && pc==0x503247bc && !reg(phys_index(14,cpsr))) profile("thread_entry");
                 fprintf(exec_log, "%c %" PRIu64 " %" PRIu64 " pc=%08x cpsr=%08x r0=%08x r1=%08x r2=%08x r3=%08x r12=%08x sp=%08x lr=%08x\n",
                     ev == 'R' ? 'T' : ev, clocks, retired, pc, cpsr,
                     reg(phys_index(0,cpsr)),reg(phys_index(1,cpsr)),reg(phys_index(2,cpsr)),reg(phys_index(3,cpsr)),
@@ -595,6 +620,7 @@ int main(int argc, char **argv) {
 	printf("END after %" PRIu64 " clocks (%.3f s simulated), %" PRIu64 " instructions, %" PRIu64 " device accesses, "
 	       "%d pictures, %zu audio frames, %.0f s wall clock\n",
 	       b.clocks, b.clocks / CLK_HZ, b.retired, b.dev_accesses, b.pictures, b.audio.size() / 2, wall);
+    b.profile("end");
 	if (b.chip.errors) printf("the SDRAM chip model reported %d error(s)\n", b.chip.errors);
 	if (b.dm.protocol_errors) printf("%d DDRAM port protocol error(s)\n", b.dm.protocol_errors);
 	if (b.exec_log) {

@@ -870,3 +870,43 @@ per-family tables, cycle pairs, equivalence scope and the stopping decision.
 The accepted endpoint reproduces S9 firmware logs byte for byte through
 4.5 seconds: EFile at clock 377,643,613 and EStart at 434,096,391, without
 faults. ZAP remains the default.
+
+
+## Session 12: ordinary PSR and CP15 reads retain the pipeline
+
+The master merge supplies RAM metadata and guaranteed early I-fill words.
+V2 already consumes the ACK/quarantine contract; there is no hit-only gate
+requiring another bypass. D16 is enabled in the hardware QSF. D8 and D16
+CPU regressions are kept separately.
+
+Flags-only CPSR MSRs no longer fence D2 or redirect W. A's ordered NZCV
+register supplies subsequent conditions. A control-field MSR still stops
+D2 until A determines whether the mode changes. Its registered same-mode
+result releases D2 without refilling fetch. Registered I/F bits accompany
+subsequent A records and CPSR reads, even while older memory work holds W.
+Actual mode changes, SPSR writes, CP15 writes and maintenance retain their
+full recovery and architectural ordering. Exception recovery restores the
+executed flags and mask copies from architectural CPSR.
+
+Ordinary MRCs retain the CP15 handshake without clearing the queue or BTB.
+Their destination is an unavailable writer in the existing pending-load
+scoreboard; RAW/WAW consumers wait for completion, independent work stays.
+The shared RF read port is borrowed only for MCR, so an MRC cannot replace
+D2's Rn read with the coprocessor's stale read index. MRC-to-PC keeps a
+local flag interlock through W, then refreshes A's NZCV and releases D2
+without a fetch refill. Cache-operation reads keep the conservative fence.
+Cache ACK/readiness does not enter D2 admission through these controls.
+
+| Warm marker window | Before, on/off | After, on/off |
+|---|---:|---:|
+| flags MSR | 11 / 11 (on penultimate 21) | 2 / 2 |
+| same-mode control MSR | 11 / 11 | 5 / 5 |
+| MRC, independent marker | 25 / 17 (on penultimate 17) | 6 / 6 |
+| MRC plus dependent ADD | 26 / 18 (on penultimate 18) | 11 / 11 |
+| MRC to PC | 17 / 17 | 11 / 11 |
+| scalar hit independent / late / early | 3 / 4 / 5 | 3 / 4 / 5 |
+
+`psrflow.S` checks adjacent flags and mask writes, conditional mode writes,
+CP15 RAW/WAW and independent work. `arm9_tail.S` measures four dependent
+block tails, initially 7/9 clocks for one/three registers. Firmware and
+final fit measurements are recorded in the session-12 report.

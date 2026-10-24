@@ -653,7 +653,7 @@ module arm9v2_core (
 	reg [1:0] forward_load;
 	reg wb_complete;
 	reg wb_exception;
-	assign return_next_valid = ((!i_reset && wb_complete) && w[525]) && !wb_exception;
+	assign return_next_valid = (((!i_reset && wb_complete) && w[533]) && w[525]) && !wb_exception;
 	assign return_ready = !i_dc_lock[return_tag];
 	assign operand_return_data = {i_dc_reg_dat, return_data};
 	wire [31:0] load_data;
@@ -754,6 +754,9 @@ module arm9v2_core (
 	wire hivecs;
 	wire l4_enable;
 	wire cp_request;
+	wire a_serial_continue;
+	(* dont_retime *) reg w_serial_continue;
+	wire cp_read = ((w[6-:4] == CP) && w[481]) && (w[480:477] != 7);
 	wire [31:0] vector_base = (hivecs ? 32'hffff0000 : 32'd0);
 	function automatic [31:0] fcse;
 		input reg [31:0] address;
@@ -764,7 +767,7 @@ module arm9v2_core (
 	assign early_tag = {a_a_dest, d_dest};
 	assign early_valid = {a_a_write & {2 {a_a_valid && !a_a_can_finish}}, a_s_write} & {early_tag[18+:6] != 15, early_tag[12+:6] != 15, early_tag[6+:6] != 15, early_tag[0+:6] != 15};
 	assign load_tag = {skid[90+:6], w[90+:6], m[90+:6], a_dest[0+:6], a_a_dest[0+:6], d_dest[0+:6]};
-	assign load_valid = {(skid[539] && skid[533]) && !skid[532], (w[539] && w[533]) && !w[532], (m[539] && m[533]) && !m[532], 1'b0, a_a_load, (d_valid && !d_fault) && ((d_kind == MEM) || (d_kind == BLOCK) ? d_instruction[20] : d_kind == SWP)};
+	assign load_valid = {skid[539] && ((skid[533] && !skid[532]) || skid[525]), w[539] && ((w[533] && !w[532]) || w[525]), m[539] && ((m[533] && !m[532]) || m[525]), 1'b0, a_a_load, (d_valid && !d_fault) && ((d_kind == MEM) || (d_kind == BLOCK) ? d_instruction[20] : (d_kind == SWP) || (((d_kind == CP) && d_instruction[20]) && (d_dest[0+:6] != 15)))};
 	assign load_speculate = {(skid[6-:4] == MEM) && (skid[90+:6] != 15), (w[6-:4] == MEM) && (w[90+:6] != 15), (m[6-:4] == MEM) && (m[90+:6] != 15), 1'b0, (a_kind == MEM) && (a_dest[0+:6] != 15), (d_kind == MEM) && (d_dest[0+:6] != 15)};
 	assign locked = i_dc_lock[39:0];
 	assign mw_tag = {w[101-:12], m[101-:12]};
@@ -829,7 +832,7 @@ module arm9v2_core (
 		next_load_valid = {m[525], a_a_load && !a_a_can_finish};
 		if (d_valid && a_execute_ready) begin
 			next_load_tag[0+:6] = d_dest[0+:6];
-			next_load_valid[0] = !d_fault && ((d_kind == MEM) || (d_kind == BLOCK) ? d_instruction[20] : d_kind == SWP);
+			next_load_valid[0] = !d_fault && ((d_kind == MEM) || (d_kind == BLOCK) ? d_instruction[20] : (d_kind == SWP) || (((d_kind == CP) && d_instruction[20]) && (d_dest[0+:6] != 15)));
 		end
 		if ((memory_state == 4'd0) && done_forward)
 			next_load_valid[1] = input_record[525];
@@ -854,7 +857,7 @@ module arm9v2_core (
 	assign train_hit = (w_train ? w_train_hit : a_btb_hit);
 	assign train_state = (w_train ? w_train_state : a_btb_state);
 	assign train_kind = (w_train ? w_train_kind : a_btb_kind);
-	always @(a_kind or a_data_address[0] or align_en or a_data_address[1] or a_data_address[1:0] or a_data_address[0] or align_en or a_store_data[15:0] or a_data_address[1] or a_instruction[6:5] or a_instruction[27:26] or a_kind or a_store_data[7:0] or a_data_address[1:0] or a_instruction[22] or a_kind or a_instruction[22] or a_instruction[27:26] or a_kind or a_instruction[21] or a_instruction[24] or a_kind or a_data_address[1:0] or align_en or a_data_address[1:0] or a_cpsr[6] or i_fiq or a_first or a_cpsr[7] or i_irq or a_first or a_record_pred_state or a_record_pred_hit or a_record_count or a_record_pointer or a_record_thumb or a_redirect_target or a_prediction_target or a_predicted or a_next_pc or a_spsr_tag or a_saved_psr or a_psr_source or a_original_base or a_store_data or a_data_address or o_pid[6:0] or a_data_address or a_kind or a_store or a_memory or a_dest[6+:6] or a_dest[0+:6] or input_record[525] or a_kind or input_record[539] or a_dest[0+:6] or a_store or a_memory or input_record[539] or a_write or a_result or a_dest or a_cpsr_next or a_cpsr or a_pc_write or a_last or a_first or a_fault or a_thumb or a_condition_pass or a_kind or a_instruction or a_pc or backend_ready or a_valid or _sv2v_0) begin
+	always @(a_kind or a_data_address[0] or align_en or a_data_address[1] or a_data_address[1:0] or a_data_address[0] or align_en or a_store_data[15:0] or a_data_address[1] or a_instruction[6:5] or a_instruction[27:26] or a_kind or a_store_data[7:0] or a_data_address[1:0] or a_instruction[22] or a_kind or a_instruction[22] or a_instruction[27:26] or a_kind or a_instruction[21] or a_instruction[24] or a_kind or a_data_address[1:0] or align_en or a_data_address[1:0] or a_cpsr[6] or i_fiq or a_first or a_cpsr[7] or i_irq or a_first or a_record_pred_state or a_record_pred_hit or a_record_count or a_record_pointer or a_record_thumb or a_redirect_target or a_prediction_target or a_predicted or a_next_pc or a_spsr_tag or a_saved_psr or a_psr_source or a_original_base or a_store_data or a_data_address or o_pid[6:0] or a_data_address or a_kind or a_store or a_memory or a_dest[6+:6] or a_dest[0+:6] or input_record[525] or a_kind or input_record[539] or a_dest[0+:6] or a_condition_pass or a_instruction[20] or a_kind or a_store or a_memory or input_record[539] or a_write or a_result or a_dest or a_cpsr_next or a_cpsr or a_pc_write or a_last or a_first or a_fault or a_thumb or a_condition_pass or a_kind or a_instruction or a_pc or backend_ready or a_valid or _sv2v_0) begin
 		if (_sv2v_0)
 			;
 		input_record = 1'sb0;
@@ -873,7 +876,7 @@ module arm9v2_core (
 		input_record[101-:12] = a_dest;
 		input_record[89-:64] = a_result;
 		input_record[25-:2] = a_write & {2 {input_record[539]}};
-		input_record[525] = ((a_memory && !a_store) && (a_dest[0+:6] != 15)) && input_record[539];
+		input_record[525] = (((a_memory && !a_store) || (((a_kind == CP) && a_instruction[20]) && a_condition_pass)) && (a_dest[0+:6] != 15)) && input_record[539];
 		if (((a_kind == MEM) && input_record[525]) && (a_dest[0+:6] == a_dest[6+:6]))
 			input_record[25] = 0;
 		input_record[533] = a_memory;
@@ -1067,9 +1070,9 @@ module arm9v2_core (
 	assign o_instr_wb_we = 0;
 	assign o_instr_wb_sel = 15;
 	assign o_cpsr = cpsr[CPSR_MODE:0];
-	assign w_serial = (((((((w[6-:4] == CP) || (w[6-:4] == MSR)) || (w[6-:4] == SWP)) || (w[6-:4] == SWI)) || (w[6-:4] == UND)) || w[536]) || (((w[6-:4] == DP) && w[481]) && (w[90+:6] == 15))) || (((((w[6-:4] == BLOCK) && w[483]) && w[481]) && w[476]) && w[534]);
+	assign w_serial = ((((((((w[6-:4] == CP) && !cp_read) || ((w[6-:4] == MSR) && (w[483] || (((w[538] && w[477]) && (w[433:429] != 5'h10)) && (w[241:237] != w[433:429]))))) || (w[6-:4] == SWP)) || (w[6-:4] == SWI)) || (w[6-:4] == UND)) || w[536]) || (((w[6-:4] == DP) && w[481]) && (w[90+:6] == 15))) || (((((w[6-:4] == BLOCK) && w[483]) && w[481]) && w[476]) && w[534]);
 	assign w_exception = ((w[536] || w[529]) || w[528]) || (w[538] && ((w[6-:4] == SWI) || (w[6-:4] == UND)));
-	assign cp_request = (((((w[539] && w[538]) && (w[6-:4] == CP)) && !w_exception) && !i_dc_lock_any) && !i_data_fill_busy) && !wb_flush;
+	assign cp_request = ((((w[539] && w[538]) && (w[6-:4] == CP)) && !w_exception) && (cp_read || (!i_dc_lock_any && !i_data_fill_busy))) && !wb_flush;
 	assign request = (request_ff && !wb_flush) && !fill_ended;
 	assign request_done = request && (i_data_wb_ack || i_data_wb_err);
 	assign retry = request_done && i_dcache_err2;
@@ -1137,7 +1140,7 @@ module arm9v2_core (
 			else if (!w[483])
 				wb_flags = (w[460-:32] & ~psr_mask) | (w[268-:32] & psr_mask);
 		end
-		if (w[6-:4] == CP)
+		if ((w[6-:4] == CP) && w[538])
 			wb_flags[31:28] = cp_flags;
 		if (|rf_class) begin
 			wb_data0 = w[524-:32] + 32'd4;
@@ -1158,7 +1161,7 @@ module arm9v2_core (
 			return_thumb = return_target[0];
 		return_target = (return_thumb ? {return_target[31:1], 1'b0} : {return_target[31:2], 2'b00});
 		return_kind = ((w[6-:4] == BLOCK) && (w[90+:6] == 15)) || ((w[492-:32] & 32'h0fffffff) == 32'h01a0f00e);
-		wb_redirect = wb_complete && ((((wb_exception || w_serial) || scalar_replay) || (return_event && (((!w[530] || (w[172-:32] != {return_target[31:1], return_thumb})) || ((w[6-:4] == DP) && w[481])) || ((w[6-:4] == BLOCK) && w[483])))) || (w[538] && (((w[6-:4] == CP) || (w[6-:4] == MSR)) || (w[6-:4] == SWP))));
+		wb_redirect = wb_complete && ((((wb_exception || w_serial) || scalar_replay) || (return_event && (((!w[530] || (w[172-:32] != {return_target[31:1], return_thumb})) || ((w[6-:4] == DP) && w[481])) || ((w[6-:4] == BLOCK) && w[483])))) || (w[538] && (w[6-:4] == SWP)));
 	end
 	always @(posedge i_clk)
 		if (i_reset) begin
@@ -1181,6 +1184,7 @@ module arm9v2_core (
 			cp_seen <= 0;
 			cp_finished <= 0;
 			cp_flags <= 0;
+			w_serial_continue <= 0;
 			w_train <= 0;
 			w_train_pc <= 0;
 			w_train_target <= 0;
@@ -1190,6 +1194,7 @@ module arm9v2_core (
 			w_train_kind <= 0;
 		end
 		else begin
+			w_serial_continue <= ((wb_complete && cp_read) && (w[90+:6] == 15)) && !wb_exception;
 			wb_flush <= wb_redirect;
 			predictor_clear <= (wb_redirect && w[538]) && ((w[6-:4] == CP) || (w[6-:4] == MSR));
 			wb_repair_pointer <= w[13-:3];
@@ -1266,7 +1271,7 @@ module arm9v2_core (
 		.PREDICTOR(ARM9_PREDICTOR),
 		.EXTERNAL_RF(1)
 	) u_front_decode(
-		.i_w_load_hit(i_data_short_hit && !w_waited),
+		.i_w_load_hit((w[533] && i_data_short_hit) && !w_waited),
 		.o_pending(d_pending),
 		.o_writes(),
 		.o_early(d_early),
@@ -1283,6 +1288,7 @@ module arm9v2_core (
 		.o_return_match(d_return_match),
 		.i_reset(i_reset),
 		.i_flush(wb_flush || a_redirect),
+		.i_serial_continue(a_serial_continue || w_serial_continue),
 		.i_mode(cpsr[4:0]),
 		.i_wen(wb_valid),
 		.i_wr_addr_a(wa),
@@ -1381,7 +1387,7 @@ module arm9v2_core (
 		.i_load_wait(d_load_wait),
 		.i_load_owner({w[525], m[525]}),
 		.i_next_load_owner(forward_load),
-		.i_load_hit(i_data_short_hit && !w_waited),
+		.i_load_hit((w[533] && i_data_short_hit) && !w_waited),
 		.i_return_select(i_dc_reg_idx),
 		.i_return_data(operand_return_data),
 		.i_return_next_valid(return_next_valid),
@@ -1413,6 +1419,8 @@ module arm9v2_core (
 		.i_clk(i_clk),
 		.i_reset(i_reset),
 		.i_flush(wb_flush),
+		.i_flags_refresh(w_serial_continue),
+		.o_serial_continue(a_serial_continue),
 		.i_cpsr({cpsr[31:6], d_thumb, cpsr[4:0]}),
 		.i_valid(d_valid),
 		.i_pc(d_pc),
@@ -1544,7 +1552,7 @@ module arm9v2_core (
 		.i_pc_plus_8_buf_ff(o_dbg_wb_pc),
 		.i_copro_reg_en(copro_reg_en),
 		.i_copro_reg_wr_index(copro_reg_wr_index),
-		.i_copro_reg_rd_index(copro_reg_rd_index),
+		.i_copro_reg_rd_index((w[481] ? rf_tag[0+:6] : copro_reg_rd_index)),
 		.i_copro_reg_wr_data(copro_reg_wr_data),
 		.o_copro_reg_rd_data_ff(copro_reg_rd_data),
 		.o_rd_data_0(rf_value[0+:32]),
@@ -1630,6 +1638,7 @@ module arm9v2_decode (
 	i_clk,
 	i_reset,
 	i_flush,
+	i_serial_continue,
 	i_valid,
 	o_ready,
 	i_pc,
@@ -1725,6 +1734,7 @@ module arm9v2_decode (
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
+	input wire i_serial_continue;
 	input wire i_valid;
 	output wire o_ready;
 	input wire [31:0] i_pc;
@@ -2535,6 +2545,8 @@ module arm9v2_decode (
 			redirect_in_d2 <= 0;
 			if (i_ready)
 				out_valid <= 0;
+			if (i_serial_continue)
+				fenced <= 0;
 			if (push) begin
 				d1[tail] <= incoming;
 				tail <= !tail;
@@ -2569,7 +2581,7 @@ module arm9v2_decode (
 				matches_fallthrough <= fallthrough_match;
 			end
 			if (step) begin
-				if (EXTERNAL_RF && ((((((((d2[131-:4] == K_CP) || (d2[131-:4] == K_MSR)) || (d2[131-:4] == K_SWP)) || (d2[131-:4] == K_SWI)) || (d2[131-:4] == K_UND)) || d2[149]) || (((d2[131-:4] == K_DP) && d2[329]) && (d2[80+:6] == 15))) || (((((d2[131-:4] == K_BLOCK) && d2[331]) && d2[329]) && d2[196]) && d2[42])))
+				if (EXTERNAL_RF && (((((((((d2[131-:4] == K_CP) && ((!d2[329] || (d2[328:325] == 7)) || (d2[324:321] == 15))) || ((d2[131-:4] == K_MSR) && (d2[331] || d2[325]))) || (d2[131-:4] == K_SWP)) || (d2[131-:4] == K_SWI)) || (d2[131-:4] == K_UND)) || d2[149]) || (((d2[131-:4] == K_DP) && d2[329]) && (d2[80+:6] == 15))) || (((((d2[131-:4] == K_BLOCK) && d2[331]) && d2[329]) && d2[196]) && d2[42])))
 					fenced <= 1;
 				out_valid <= 1;
 				if (d2[131-:4] == K_BL_PREFIX) begin
@@ -2682,6 +2694,8 @@ module arm9v2_execute (
 	i_flush,
 	i_admit,
 	i_load_wait,
+	i_flags_refresh,
+	o_serial_continue,
 	i_pending,
 	i_load_owner,
 	i_next_load_owner,
@@ -2797,6 +2811,8 @@ module arm9v2_execute (
 	input wire i_flush;
 	input wire i_admit;
 	input wire i_load_wait;
+	input wire i_flags_refresh;
+	output reg o_serial_continue;
 	input wire [3:0] i_pending;
 	input wire [1:0] i_load_owner;
 	input wire [1:0] i_next_load_owner;
@@ -2927,6 +2943,14 @@ module arm9v2_execute (
 	(* dont_retime *) reg multiply_accumulate;
 	(* dont_retime *) reg multiply_product_ready;
 	(* dont_retime *) reg [3:0] flags;
+	(* dont_retime *) reg [1:0] interrupt_mask;
+	wire [1:0] next_interrupt_mask;
+	wire msr_same_mode;
+	reg condition_pass;
+	reg [31:0] right_a;
+	assign msr_same_mode = (!condition_pass || (a[243:239] == 5'h10)) || (right_a[4:0] == a[243:239]);
+	wire finish;
+	assign next_interrupt_mask = (((((((finish && (a[238-:4] == MSR)) && !a[385]) && a[379]) && condition_pass) && !a[229]) && (a[243:239] != 5'h10)) && msr_same_mode ? right_a[7:6] : interrupt_mask);
 	(* dont_retime *) reg [127:0] held;
 	(* dont_retime *) reg [7:0] held_amount;
 	(* dont_retime *) reg [31:0] block_base;
@@ -2991,14 +3015,11 @@ module arm9v2_execute (
 	wire carry_preserve;
 	wire rrx;
 	reg [31:0] left_a;
-	reg [31:0] right_a;
 	reg [31:0] store_a;
 	reg [31:0] special_a;
 	wire [31:0] alu_result;
 	wire [3:0] alu_flags;
 	reg [3:0] next_flags;
-	reg condition_pass;
-	wire finish;
 	wire space;
 	wire product_phase;
 	wire mac_phase;
@@ -3033,7 +3054,7 @@ module arm9v2_execute (
 							operand[s * 32+:32] = {i_pc_base[31:2], 2'b00};
 					end
 					if (i_tag[s * 6+:6] == 17)
-						operand[s * 32+:32] = {flags, i_cpsr[27:0]};
+						operand[s * 32+:32] = {flags, i_cpsr[27:8], interrupt_mask, i_cpsr[5:0]};
 				end
 		end
 		shift_input = operand[32+:32];
@@ -3146,7 +3167,7 @@ module arm9v2_execute (
 	assign o_s_write = planned_writes & {2 {i_valid}};
 	assign o_a_dest = a[212-:12];
 	assign o_a_write = a[194-:2];
-	assign o_a_load = (a_valid && !a[229]) && ((a[238-:4] == MEM) || (a[238-:4] == BLOCK) ? a[383] : a[238-:4] == SWP);
+	assign o_a_load = (a_valid && !a[229]) && ((a[238-:4] == MEM) || (a[238-:4] == BLOCK) ? a[383] : (a[238-:4] == SWP) || (((a[238-:4] == CP) && a[383]) && (a[201+:6] != 15)));
 	assign o_flags = flags;
 	always @(*) begin
 		if (_sv2v_0)
@@ -3318,6 +3339,8 @@ module arm9v2_execute (
 			o_btb_state <= 0;
 			o_btb_kind <= 0;
 			flags <= i_cpsr[31:28];
+			interrupt_mask <= i_cpsr[7:6];
+			o_serial_continue <= 0;
 			a <= 427'd0;
 			held <= 0;
 			held_amount <= 0;
@@ -3337,6 +3360,10 @@ module arm9v2_execute (
 		else begin
 			o_redirect <= 0;
 			o_btb_update <= 0;
+			o_serial_continue <= 0;
+			interrupt_mask <= next_interrupt_mask;
+			if (i_flags_refresh)
+				flags <= i_cpsr[31:28];
 			if (i_valid && !accept) begin
 				holding <= 1;
 				held <= operand;
@@ -3409,6 +3436,7 @@ module arm9v2_execute (
 			if (finish) begin
 				a_valid <= 0;
 				flags <= next_flags;
+				o_serial_continue <= ((((a[238-:4] == MSR) && !a[385]) && a[379]) && msr_same_mode) && !a[229];
 				if ((a[238-:4] == BLOCK) && a[228])
 					block_base <= left_a;
 				o_btb_pc <= a[426-:32];
@@ -3439,7 +3467,7 @@ module arm9v2_execute (
 				a[362-:32] <= i_next_pc;
 				a[330-:32] <= i_branch_target;
 				a[298-:32] <= i_pred_target;
-				a[266-:28] <= i_cpsr[27:0];
+				a[266-:28] <= {i_cpsr[27:8], interrupt_mask, i_cpsr[5:0]};
 				a[238-:4] <= i_kind;
 				a[234-:4] <= i_condition;
 				a[230] <= i_thumb;
@@ -3856,6 +3884,7 @@ module arm9v2_front_decode (
 	i_clk,
 	i_reset,
 	i_flush,
+	i_serial_continue,
 	o_ready,
 	i_mode,
 	i_wen,
@@ -3968,6 +3997,7 @@ module arm9v2_front_decode (
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
+	input wire i_serial_continue;
 	output wire o_ready;
 	input wire [4:0] i_mode;
 	input wire i_wen;
@@ -4150,6 +4180,7 @@ module arm9v2_front_decode (
 		.i_clk(i_clk),
 		.i_reset(i_reset),
 		.i_flush(i_flush),
+		.i_serial_continue(i_serial_continue),
 		.o_ready(o_ready),
 		.i_mode(i_mode),
 		.i_wen(i_wen),

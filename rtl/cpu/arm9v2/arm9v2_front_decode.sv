@@ -7,6 +7,7 @@ module arm9v2_front_decode #(
     parameter logic [31:0] RESET_VECTOR=0
 ) (
     input logic i_clk, i_reset, i_flush,
+    input logic i_serial_continue,
     output logic o_ready,
     input logic [4:0] i_mode,
     input logic i_wen,
