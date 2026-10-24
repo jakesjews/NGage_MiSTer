@@ -6,16 +6,16 @@ criterion is the median of three whole-core slow-100C setup slacks at
 
 Retained so far: the registered TLB fault summary, per-slot issue decisions,
 local barrel pending selects, combined BL/LSL-zero decode, direct cache
-acknowledgement, binary background-completion tags, and direct effective
-load interlocks. Every retained
+acknowledgement, binary background-completion tags, direct effective
+load interlocks, and classification before each micro-op case. Every retained
 combination passes the complete CPU suite with identical cycles/instructions.
 The latest completed three-seed snapshot is `combined3` (`11bbda3`),
 including all six CPU changes and the unchanged owner-supplied card fix:
 **−0.645 / −0.486 / −0.880 ns, median −0.645 ns**. The final timing
 requirement is not met. The branch now also retains the paired-qualified
-interlock factoring; that seven-change combination has not had a three-seed
-fit. Source manifests match for all three completed combined seeds. The next
-isolated trials target issue forwarding and predecode classification; the
+interlock factoring and micro-op classification; that eight-change combination
+has not had a three-seed fit. Source manifests match for all three completed
+combined seeds. The remaining isolated trial targets issue forwarding; the
 barrel and bus fallbacks remain parked while the leading CPU families are
 addressed.
 
@@ -998,8 +998,14 @@ path is now the registered skid selector into `o_v5_und_ff`. Whole-core
 slack is −0.457 ns, limited by D-cache FSM state into post-ALU2 address
 capture. The fit uses 35,330 ALMs and 479 M10Ks, minimum four-corner hold
 +0.098 ns; all 150 inputs, including the shared header, and the build date
-match. Fixed seed 2 is running after the capacity-related mapping restart
-described above. The classifier is not retained until that paired result.
+match. Fixed seed 2, after the capacity-related mapping restart described
+above, improves the family from −0.486 to +1.260 ns. Its limit is the D-TLB's
+write-through flag through pipeline hold into `o_v5_und_ff`; whole-core
+slack is −0.449 ns, limited by D-TLB page data into physical-address capture.
+It uses 35,413 ALMs and 479 M10Ks, minimum four-corner hold +0.093 ns.
+All 150 inputs and the build date match at both seeds. Keep the classifier:
+both seeds improve, with a worst-of-pair gain of 1.746 ns. The branch is
+regenerated and revalidated after combining it with the retained factoring.
 
 **Per-slot forwarding plus unqualified issue capture (`forwardslots`):**
 the first `forwarddav` seed removes the original late-hold-qualified
@@ -1020,6 +1026,15 @@ under the separately proved forwarding-validity contract. All 225 counts,
 The target is the same broad forwarding/store/operand-selection capture
 group, measured against `combined3`; the failed standalone result is not
 used as an easier baseline. It is not retained yet.
+
+The first forwarding seed improves the group from −0.645 to −0.095 ns;
+store capture is +0.294 ns and operand selection +1.267 ns. The remaining
+forwarding limit is a saved operand index into the normal shift-source bank.
+Whole-core slack is −0.500 ns, limited by the framework's host-configuration
+path (`gp_outr` to `cfg_custom_p2`), which is outside the permitted `sys/`
+edit scope. The fit uses 35,256 ALMs and 479 M10Ks, minimum four-corner hold
++0.089 ns. All 149 input files,
+project settings and the build date match. Fixed seed 2 is running.
 
 A separate `nextjoin` preview combining `forwarddav`, `factoredlock` and
 `classifycase` also passes 225 exact counts, 57 comparisons, both lint modes

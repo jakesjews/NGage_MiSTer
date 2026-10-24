@@ -731,27 +731,38 @@ end
 //     UNDEFINED). In Thumb state the BL first half is a NOP with condition
 //     NV and stays one; the BLX suffix becomes BLX(1) (NV, 101).
 //
-always_comb
-begin: v5_classify
-        logic [34:0] x;
-        x          = o_instruction_nxt[34:0];
-        v5_und_nxt = (!i_cpu_mode_t && x[27:25] == 3'b011 && x[4]) || V4T && (
-                (!i_cpu_mode_t && x[31:28] == NV)        ||
-                (i_cpu_mode_t && x[31:25] == 7'b1111_101) ||
-                x[31:0] ==? CLZ_INSTRUCTION              ||
-                x[31:0] ==? BLX2                         ||
-                x[31:0] ==? BKPT                         ||
-                x[31:0] ==? QADD                         ||
-                x[31:0] ==? QSUB                         ||
-                x[31:0] ==? QDADD                        ||
-                x[31:0] ==? QDSUB                        ||
-                x[31:0] ==? SMLAxy                       ||
-                x[31:0] ==? SMLAWy                       ||
-                x[31:0] ==? SMLALxy                      ||
-                x[31:0] ==? SMULWy                       ||
-                x[31:0] ==? SMULxy                       ||
-                (x[27:25] == 3'b000 && !x[20] && x[7:4] ==? 4'b11?1) );
-end
+`include "zap_predecode_classify.svh"
+
+// ARM925T: classify before the skid mux and before the uop rewrite.
+// Keep both ARM and Thumb answers: the current mode chooses between them,
+// exactly as the original classifier did even while the slot is held.
+// Classifying zero gives false in both modes. Apply validity after the
+// classification so a late valid bit does not gate all instruction bits.
+wire [1:0] live_class = {2{i_instruction_valid}} &
+        {classify_undefined(i_instruction, 1'b1),
+         classify_undefined(i_instruction, 1'b0)};
+wire live_thumb_bl = i_instruction[31:24] == 8'hfb ||
+        (i_instruction[34:32] == 3'd0 && i_instruction[31:28] == NV &&
+         i_instruction[27:13] == 15'd0);
+(* dont_retime *) logic [1:0] saved_class_ff;
+(* dont_retime *) logic saved_thumb_bl_ff;
+logic idle_undefined;
+wire [1:0] selected_class = instruction_skid_select_ff ? saved_class_ff : live_class;
+wire selected_thumb_bl = instruction_skid_select_ff ? saved_thumb_bl_ff : live_thumb_bl;
+always_ff @(posedge i_clk)
+        if (!o_stall_from_decode) begin
+                saved_class_ff <= live_class;
+                saved_thumb_bl_ff <= live_thumb_bl;
+        end
+assign idle_undefined = selected_class[i_cpu_mode_t] &&
+        !(i_cpu_mode_t && mode32_instruction_valid && selected_thumb_bl);
+
+// synthesis translate_off
+always @(posedge i_clk)
+        if (!i_reset && !stall && o_instruction_valid_nxt)
+                assert (v5_und_nxt == classify_undefined(o_instruction_nxt[34:0], i_cpu_mode_t))
+                else $error("predecode undefined classification changed");
+// synthesis translate_on
 
 // This FSM handles LDM/STM/SWAP/SWAPB/BL/LMULT
 zap_predecode_uop_sequencer #(.V4T(V4T)) u_zap_uop_sequencer (
@@ -778,6 +789,8 @@ zap_predecode_uop_sequencer #(.V4T(V4T)) u_zap_uop_sequencer (
         .o_irq(irq_mask),
         .o_fiq(fiq_mask),
 
+        .i_idle_undefined(idle_undefined),
+        .o_undefined(v5_und_nxt),
         .o_instruction(o_instruction_nxt), // 40-bit, upper 4 bits RESERVED.
         .o_instruction_valid(o_instruction_valid_nxt),
         .o_align(align_nxt),

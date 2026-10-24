@@ -75,6 +75,8 @@ module zap_predecode_uop_sequencer #(
 
         // Instruction output.
         output logic [39:0]       o_instruction,
+        input  logic              i_idle_undefined,
+        output logic              o_undefined,
         output logic              o_instruction_valid,
         output logic              o_align,
         output logic              o_switch,
@@ -129,6 +131,11 @@ assign t_bl_prefix = V4T && i_cpsr_t && i_instruction_valid && i_instruction[34:
                      i_instruction[31:28] == NV && i_instruction[27:12] == 16'd0;
 assign t_bl_alone  = V4T && i_cpsr_t && i_instruction_valid && i_instruction[34:32] == 3'd0 &&
                      i_instruction[31:28] == NV && i_instruction[27:12] == 16'd1;
+
+// ARM925T: classify each constructed micro-op before the state mux.
+// Constant opcode fields simplify here instead of passing the complete
+// rewritten word through a second instruction decoder in predecode.
+`include "zap_predecode_classify.svh"
 
 // ARM925T: the condition under which zap_predecode_coproc hands an
 // instruction to zap_cp15_cb (keep the two in step).
@@ -210,6 +217,7 @@ begin:next_state_logic_and_output_logic
         reglist_nxt             = reglist_ff;
         o_stall_from_decode     = 1'd0;
         o_switch                = 0;
+        o_undefined = classify_undefined(i_instruction, i_cpsr_t);
 
         // =========================================
         // Code Section
@@ -230,6 +238,7 @@ begin:next_state_logic_and_output_logic
                         o_fiq = 1'd0;
 
                         state_nxt = IDLE;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 BLX1_STATE_S0: // SCONST = ($signed(constant) << 2) + ( H(i.e., [24]) << 1 ))
@@ -244,6 +253,7 @@ begin:next_state_logic_and_output_logic
                         {o_instruction[ZAP_DP_RD_EXTEND], o_instruction[`ZAP_DP_RD]} = ARCH_DUMMY_REG0;
 
                         state_nxt = BLX1_STATE_S1;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 // The 3 states here try to build up a constant in the internal register using immediate+rotates.
@@ -259,6 +269,7 @@ begin:next_state_logic_and_output_logic
                         {o_instruction[ZAP_DP_RA_EXTEND], o_instruction[`ZAP_DP_RA]} = ARCH_DUMMY_REG0;
 
                         state_nxt = BLX1_STATE_S2;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 BLX1_STATE_S2:
@@ -271,6 +282,7 @@ begin:next_state_logic_and_output_logic
                         {o_instruction[ZAP_DP_RA_EXTEND], o_instruction[`ZAP_DP_RA]} = ARCH_DUMMY_REG0;
 
                         state_nxt = BLX1_STATE_S3;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 BLX1_STATE_S3:
@@ -283,6 +295,7 @@ begin:next_state_logic_and_output_logic
                         {o_instruction[ZAP_DP_RA_EXTEND], o_instruction[`ZAP_DP_RA]} = ARCH_DUMMY_REG0;
 
                         state_nxt = BLX1_STATE_S4;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 BLX1_STATE_S4:
@@ -296,6 +309,7 @@ begin:next_state_logic_and_output_logic
                         {o_instruction[ZAP_DP_RA_EXTEND], o_instruction[`ZAP_DP_RA]} = ARCH_DUMMY_REG0;
 
                         state_nxt = BLX1_STATE_S5;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 BLX1_STATE_S5:
@@ -308,6 +322,7 @@ begin:next_state_logic_and_output_logic
                         {o_instruction[ZAP_DP_RB_EXTEND], o_instruction[`ZAP_DP_RB]} = ARCH_DUMMY_REG0;
 
                         state_nxt = IDLE;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 BLX2_STATE_S0:
@@ -321,6 +336,7 @@ begin:next_state_logic_and_output_logic
                         o_instruction[5]        = 1'd0;
 
                         state_nxt               = IDLE;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 LDRD_STRD_S0:
@@ -380,6 +396,7 @@ begin:next_state_logic_and_output_logic
                         begin
                                 o_instruction[20] = 1'd1;       // Load
                         end
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 LDRD_STRD_S1:
@@ -408,6 +425,7 @@ begin:next_state_logic_and_output_logic
                         end
 
                         state_nxt = IDLE;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 // Issue ANDEQ R0, R0, R0 - block interrupts.
@@ -421,6 +439,7 @@ begin:next_state_logic_and_output_logic
                                 state_ff == DEP_WAIT_2 ? DEP_WAIT_3 :
                                 state_ff;
 
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 // Issue ANDEQ R0, R0, R0 - block interrupts.
@@ -429,6 +448,7 @@ begin:next_state_logic_and_output_logic
                         o_stall_from_decode = 1'd0;
                         o_instruction       = '0;
                         state_nxt           = IDLE;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 IDLE:
@@ -807,6 +827,7 @@ begin:next_state_logic_and_output_logic
                                 o_irq                   = i_irq;
                                 o_fiq                   = i_fiq;
                         end
+                        o_undefined = V4T ? i_idle_undefined : classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 // ARM925T: Thumb BL first half, second step.
@@ -818,6 +839,7 @@ begin:next_state_logic_and_output_logic
                         o_instruction_valid = 1'd1;
                         o_stall_from_decode = 1'd0;
                         state_nxt           = IDLE;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 // ARM925T: Thumb BL second half on its own.
@@ -833,6 +855,7 @@ begin:next_state_logic_and_output_logic
                         o_instruction_valid = 1'd1;
                         o_stall_from_decode = 1'd1;
                         state_nxt           = BLS_S2;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 BLS_S2:
@@ -843,6 +866,7 @@ begin:next_state_logic_and_output_logic
                         o_instruction_valid = 1'd1;
                         o_stall_from_decode = 1'd1;
                         state_nxt           = BLS_S3;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 BLS_S3:
@@ -855,6 +879,7 @@ begin:next_state_logic_and_output_logic
                         o_instruction_valid = 1'd1;
                         o_stall_from_decode = 1'd0;
                         state_nxt           = IDLE;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 BL_S1:
@@ -873,6 +898,7 @@ begin:next_state_logic_and_output_logic
                         // Continue to silence interrupts.
                         o_irq           = 0;
                         o_fiq           = 0;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 LMULT_BUSY:
@@ -883,6 +909,7 @@ begin:next_state_logic_and_output_logic
                         o_instruction_valid     = i_instruction_valid;
                         o_stall_from_decode     = 1'd0;
                         state_nxt               = IDLE;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 SWAP1:
@@ -899,6 +926,7 @@ begin:next_state_logic_and_output_logic
                                         i_instruction[3:0], 12'd0}; // BUG FIX
 
                         state_nxt = SWAP2;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 SWAP2:
@@ -917,6 +945,7 @@ begin:next_state_logic_and_output_logic
                                         = ARCH_DUMMY_REG0;
 
                         state_nxt = IDLE;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 MEMOP:
@@ -991,6 +1020,7 @@ begin:next_state_logic_and_output_logic
                                 state_nxt = MEMOP;
                                 o_stall_from_decode = 1'd1;
                         end
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 //
@@ -1011,6 +1041,7 @@ begin:next_state_logic_and_output_logic
                         o_instruction_valid     = 1'd1;
                         o_irq                   = 1'd0;
                         o_fiq                   = 1'd0;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 // If needed, we finally write to the program counter as
@@ -1036,6 +1067,7 @@ begin:next_state_logic_and_output_logic
                         o_instruction_valid = 1'd1;
                         o_irq = 0;
                         o_fiq = 0;
+                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
                 end
 
                 // ========================================
@@ -1056,6 +1088,7 @@ begin:next_state_logic_and_output_logic
                         ,o_switch
                         ,o_align
                         } = 'x;
+                        o_undefined = 1'bx;
                 end
         endcase
 end

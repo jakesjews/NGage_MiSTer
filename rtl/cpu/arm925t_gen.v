@@ -15775,7 +15775,7 @@ module zap_predecode_main (
 	wire switch_nxt;
 	wire stall;
 	wire cp15_release;
-	reg v5_und_nxt;
+	wire v5_und_nxt;
 	assign stall = (i_data_stall || i_stall_from_shifter) || i_stall_from_issue;
 	assign ras_upd = (!((i_clear_from_writeback || (i_clear_from_alu && !i_data_stall)) || (o_clear_from_decode && !stall)) && !stall) && (mem_fetch_stall == 1'd0);
 	always @(posedge i_clk) begin
@@ -16049,13 +16049,27 @@ module zap_predecode_main (
 			taken_nxt = SNT;
 		end
 	end
-	always @(*) begin : v5_classify
-		reg [34:0] x;
-		if (_sv2v_0)
+	function automatic classify_undefined;
+		input [34:0] x;
+		input thumb;
+		classify_undefined = ((!thumb && (x[27:25] == 3'b011)) && x[4]) || (V4T && (((((((((((((((!thumb && (x[31:28] == NV)) || (thumb && (x[31:25] == 7'b1111101))) || ((x[31:0] | 32'b11110000000000001111000000001111) == 32'b11110001011011111111111100011111)) || ((x[31:0] | 32'b11110000000000000000000000001111) == 32'b11110001001011111111111100111111)) || ((x[31:0] | 32'b00000000000011111111111100001111) == 32'b11100001001011111111111101111111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001000011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001001011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001010011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001011011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111111101101111) == 32'b11110001000011111111111111101111)) || ((x[31:0] | 32'b11110000000011111111111101001111) == 32'b11110001001011111111111111001111)) || ((x[31:0] | 32'b11110000000011111111111101101111) == 32'b11110001010011111111111111101111)) || ((x[31:0] | 32'b11110000000011110000111101001111) == 32'b11110001001011110000111111101111)) || ((x[31:0] | 32'b11110000000011110000111101101111) == 32'b11110001011011110000111111101111)) || (((x[27:25] == 3'b000) && !x[20]) && ((x[7:4] | 4'b0010) == 4'b1111))));
+	endfunction
+	wire [1:0] live_class = {2 {i_instruction_valid}} & {classify_undefined(i_instruction, 1'b1), classify_undefined(i_instruction, 1'b0)};
+	wire live_thumb_bl = (i_instruction[31:24] == 8'hfb) || (((i_instruction[34:32] == 3'd0) && (i_instruction[31:28] == NV)) && (i_instruction[27:13] == 15'd0));
+	(* dont_retime *) reg [1:0] saved_class_ff;
+	(* dont_retime *) reg saved_thumb_bl_ff;
+	wire idle_undefined;
+	wire [1:0] selected_class = (instruction_skid_select_ff ? saved_class_ff : live_class);
+	wire selected_thumb_bl = (instruction_skid_select_ff ? saved_thumb_bl_ff : live_thumb_bl);
+	always @(posedge i_clk)
+		if (!o_stall_from_decode) begin
+			saved_class_ff <= live_class;
+			saved_thumb_bl_ff <= live_thumb_bl;
+		end
+	assign idle_undefined = selected_class[i_cpu_mode_t] && !((i_cpu_mode_t && mode32_instruction_valid) && selected_thumb_bl);
+	always @(posedge i_clk)
+		if ((!i_reset && !stall) && o_instruction_valid_nxt)
 			;
-		x = o_instruction_nxt[34:0];
-		v5_und_nxt = ((!i_cpu_mode_t && (x[27:25] == 3'b011)) && x[4]) || (V4T && (((((((((((((((!i_cpu_mode_t && (x[31:28] == NV)) || (i_cpu_mode_t && (x[31:25] == 7'b1111101))) || ((x[31:0] | 32'b11110000000000001111000000001111) == 32'b11110001011011111111111100011111)) || ((x[31:0] | 32'b11110000000000000000000000001111) == 32'b11110001001011111111111100111111)) || ((x[31:0] | 32'b00000000000011111111111100001111) == 32'b11100001001011111111111101111111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001000011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001001011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001010011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001011011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111111101101111) == 32'b11110001000011111111111111101111)) || ((x[31:0] | 32'b11110000000011111111111101001111) == 32'b11110001001011111111111111001111)) || ((x[31:0] | 32'b11110000000011111111111101101111) == 32'b11110001010011111111111111101111)) || ((x[31:0] | 32'b11110000000011110000111101001111) == 32'b11110001001011110000111111101111)) || ((x[31:0] | 32'b11110000000011110000111101101111) == 32'b11110001011011110000111111101111)) || (((x[27:25] == 3'b000) && !x[20]) && ((x[7:4] | 4'b0010) == 4'b1111))));
-	end
 	zap_predecode_uop_sequencer #(.V4T(V4T)) u_zap_uop_sequencer(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -16076,6 +16090,8 @@ module zap_predecode_main (
 		.i_clear_from_decode(o_clear_from_decode),
 		.o_irq(irq_mask),
 		.o_fiq(fiq_mask),
+		.i_idle_undefined(idle_undefined),
+		.o_undefined(v5_und_nxt),
 		.o_instruction(o_instruction_nxt),
 		.o_instruction_valid(o_instruction_valid_nxt),
 		.o_align(align_nxt),
@@ -16104,6 +16120,8 @@ module zap_predecode_uop_sequencer (
 	i_issue_stall,
 	i_clear_from_decode,
 	o_instruction,
+	i_idle_undefined,
+	o_undefined,
 	o_instruction_valid,
 	o_align,
 	o_switch,
@@ -16132,6 +16150,8 @@ module zap_predecode_uop_sequencer (
 	input wire i_issue_stall;
 	input wire i_clear_from_decode;
 	output reg [39:0] o_instruction;
+	input wire i_idle_undefined;
+	output reg o_undefined;
 	output reg o_instruction_valid;
 	output reg o_align;
 	output reg o_switch;
@@ -16438,6 +16458,11 @@ module zap_predecode_uop_sequencer (
 	assign blp_mag = (blp_neg ? ~i_instruction[10:0] + 11'd1 : i_instruction[10:0]);
 	assign t_bl_prefix = ((((V4T && i_cpsr_t) && i_instruction_valid) && (i_instruction[34:32] == 3'd0)) && (i_instruction[31:28] == NV)) && (i_instruction[27:12] == 16'd0);
 	assign t_bl_alone = ((((V4T && i_cpsr_t) && i_instruction_valid) && (i_instruction[34:32] == 3'd0)) && (i_instruction[31:28] == NV)) && (i_instruction[27:12] == 16'd1);
+	function automatic classify_undefined;
+		input [34:0] x;
+		input thumb;
+		classify_undefined = ((!thumb && (x[27:25] == 3'b011)) && x[4]) || (V4T && (((((((((((((((!thumb && (x[31:28] == NV)) || (thumb && (x[31:25] == 7'b1111101))) || ((x[31:0] | 32'b11110000000000001111000000001111) == 32'b11110001011011111111111100011111)) || ((x[31:0] | 32'b11110000000000000000000000001111) == 32'b11110001001011111111111100111111)) || ((x[31:0] | 32'b00000000000011111111111100001111) == 32'b11100001001011111111111101111111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001000011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001001011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001010011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111000000001111) == 32'b11110001011011111111000001011111)) || ((x[31:0] | 32'b11110000000011111111111101101111) == 32'b11110001000011111111111111101111)) || ((x[31:0] | 32'b11110000000011111111111101001111) == 32'b11110001001011111111111111001111)) || ((x[31:0] | 32'b11110000000011111111111101101111) == 32'b11110001010011111111111111101111)) || ((x[31:0] | 32'b11110000000011110000111101001111) == 32'b11110001001011110000111111101111)) || ((x[31:0] | 32'b11110000000011110000111101101111) == 32'b11110001011011110000111111101111)) || (((x[27:25] == 3'b000) && !x[20]) && ((x[7:4] | 4'b0010) == 4'b1111))));
+	endfunction
 	assign cp15_done = ((((!i_cpsr_t && (i_instruction[34:32] == 3'd0)) && (((i_instruction[31:0] | 32'b11110000111011111111000011101111) == 32'b11111110111111111111111111111111) || ((i_instruction[31:0] | 32'b11110000111011111111000011101111) == 32'b11111110111011111111111111111111))) && (i_instruction[31:28] != NV)) && (i_instruction[11:8] == 4'b1111)) && (i_cpsr_mode != USR);
 	assign o_cp15_release = ((cp15_done && !i_cp_stall) && i_instruction_valid) && (state_ff == 26'd1);
 	assign {cc, id, pre_index, up, s_bit, writeback, load, base, reglist} = i_instruction[31:0];
@@ -16512,7 +16537,7 @@ module zap_predecode_uop_sequencer (
 			default: pri_enc = 4'h0;
 		endcase
 	endfunction
-	always @(s_bit or cc or i_l4_enable or base or cc or base_in_list or load or i_instruction[{2'd0, ARCH_PC}] or reglist_ff or base_in_list or load or i_instruction[15] or base or writeback or base or base or i_instruction or load or up or writeback or reglist_nxt or reglist_ff or o_instruction[27:26] or reglist_ff or reglist_ff or i_instruction[31:0] or load or base_in_list or base or load or s_bit or load or s_bit or store or oc_offset or base or base or cc or base or cc or up or writeback or up or reglist_ff or reglist_ff or i_instruction[15:12] or cc or i_instruction[3:0] or i_instruction[19:16] or i_instruction[22] or cc or i_instruction_valid or i_instruction or i_instruction_valid or i_instruction or i_instruction[2:0] or blp_mag[3:0] or blp_neg or i_fiq or i_irq or i_instruction_valid or i_instruction or state_ff or i_fiq or i_irq or i_instruction[20] or i_instruction[15:12] or i_instruction[4] or i_instruction[25] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction[31:28] or i_instruction[31:28] or i_cpsr_t or i_instruction_valid or i_instruction[24] or i_instruction[27:25] or i_instruction_valid or i_instruction[31:28] or i_instruction[27:24] or i_cpsr_t or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[20] or i_instruction[22:21] or i_instruction[27:23] or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[7:4] or i_instruction[27:23] or i_instruction[19:16] or i_instruction[22] or cc or i_fiq or i_irq or i_instruction_valid or i_instruction[31:0] or i_fiq or i_irq or reglist or oc_offset or base or cc or base or cc or up or i_instruction_valid or id or i_fiq or i_irq or i_cpsr_t or i_instruction[31:28] or i_instruction_valid or i_instruction[27:4] or i_fiq or i_irq or i_cpsr_t or i_instruction_valid or i_instruction[31:25] or i_fiq or i_irq or i_instruction[19:12] or i_instruction[6:5] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[3:0] or i_instruction[11:8] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[22] or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[12] or i_instruction[6:5] or i_instruction[6:5] or i_instruction[20] or i_instruction[27:25] or i_fiq or i_irq or i_instruction or cc or cp15_done or i_cp_stall or cp15_done or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction[10:3] or t_bl_alone or i_fiq or i_irq or blp_mag[10:4] or blp_neg or t_bl_prefix or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:28] or i_cpsr_t or state_ff or state_ff or state_ff or state_ff or i_instruction[6:5] or i_instruction[15:12] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[15:12] or i_instruction[31:28] or i_instruction[6:5] or i_instruction[19:16] or o_instruction[11:0] or i_instruction[22] or i_instruction[21] or i_instruction[19:16] or i_instruction[24:23] or i_instruction[15:12] or i_instruction[31:28] or i_instruction or i_cpsr_t or const_nxt[31:24] or const_nxt[23:16] or const_nxt[15:8] or const_nxt[7:0] or i_instruction[24] or i_instruction[23:0] or i_instruction[23] or cc or state_ff or reglist_ff or i_instruction_valid or i_instruction or state_ff or const_ff or _sv2v_0) begin : next_state_logic_and_output_logic
+	always @(i_cpsr_t or o_instruction[34:0] or s_bit or cc or i_l4_enable or i_cpsr_t or o_instruction[34:0] or base or cc or i_cpsr_t or o_instruction[34:0] or base_in_list or load or i_instruction[{2'd0, ARCH_PC}] or reglist_ff or base_in_list or load or i_instruction[15] or base or writeback or base or base or i_instruction or load or up or writeback or reglist_nxt or reglist_ff or o_instruction[27:26] or reglist_ff or reglist_ff or i_instruction[31:0] or load or base_in_list or base or load or s_bit or load or s_bit or store or oc_offset or base or base or cc or base or cc or up or writeback or up or reglist_ff or reglist_ff or i_cpsr_t or o_instruction[34:0] or i_instruction[15:12] or cc or i_cpsr_t or o_instruction[34:0] or i_instruction[3:0] or i_instruction[19:16] or i_instruction[22] or cc or i_cpsr_t or o_instruction[34:0] or i_instruction_valid or i_instruction or i_cpsr_t or o_instruction[34:0] or i_instruction_valid or i_instruction or i_cpsr_t or o_instruction[34:0] or i_cpsr_t or o_instruction[34:0] or i_cpsr_t or o_instruction[34:0] or i_instruction[2:0] or i_cpsr_t or o_instruction[34:0] or blp_mag[3:0] or blp_neg or i_cpsr_t or o_instruction[34:0] or i_idle_undefined or i_fiq or i_irq or i_instruction_valid or i_instruction or state_ff or i_fiq or i_irq or i_instruction[20] or i_instruction[15:12] or i_instruction[4] or i_instruction[25] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction[31:28] or i_instruction[31:28] or i_cpsr_t or i_instruction_valid or i_instruction[24] or i_instruction[27:25] or i_instruction_valid or i_instruction[31:28] or i_instruction[27:24] or i_cpsr_t or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[20] or i_instruction[22:21] or i_instruction[27:23] or i_instruction_valid or i_instruction or i_fiq or i_irq or i_instruction_valid or i_instruction[7:4] or i_instruction[27:23] or i_instruction[19:16] or i_instruction[22] or cc or i_fiq or i_irq or i_instruction_valid or i_instruction[31:0] or i_fiq or i_irq or reglist or oc_offset or base or cc or base or cc or up or i_instruction_valid or id or i_fiq or i_irq or i_cpsr_t or i_instruction[31:28] or i_instruction_valid or i_instruction[27:4] or i_fiq or i_irq or i_cpsr_t or i_instruction_valid or i_instruction[31:25] or i_fiq or i_irq or i_instruction[19:12] or i_instruction[6:5] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[3:0] or i_instruction[11:8] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[11] or i_instruction[22] or i_instruction_valid or i_instruction[4] or i_instruction[7] or i_instruction[12] or i_instruction[6:5] or i_instruction[6:5] or i_instruction[20] or i_instruction[27:25] or i_fiq or i_irq or i_instruction or cc or cp15_done or i_cp_stall or cp15_done or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_instruction[31:0] or i_fiq or i_irq or i_instruction[10:3] or t_bl_alone or i_fiq or i_irq or blp_mag[10:4] or blp_neg or t_bl_prefix or i_fiq or i_irq or i_instruction or i_instruction_valid or i_instruction[31:28] or i_cpsr_t or i_cpsr_t or o_instruction[34:0] or i_cpsr_t or o_instruction[34:0] or state_ff or state_ff or state_ff or state_ff or i_cpsr_t or o_instruction[34:0] or i_instruction[6:5] or i_instruction[15:12] or i_instruction[21] or i_instruction[24:23] or i_instruction[11:0] or i_instruction[15:12] or i_instruction[31:28] or i_cpsr_t or o_instruction[34:0] or i_instruction[6:5] or i_instruction[19:16] or o_instruction[11:0] or i_instruction[22] or i_instruction[21] or i_instruction[19:16] or i_instruction[24:23] or i_instruction[15:12] or i_instruction[31:28] or i_cpsr_t or o_instruction[34:0] or i_instruction or i_cpsr_t or o_instruction[34:0] or i_cpsr_t or o_instruction[34:0] or i_cpsr_t or i_cpsr_t or o_instruction[34:0] or const_nxt[31:24] or i_cpsr_t or o_instruction[34:0] or const_nxt[23:16] or i_cpsr_t or o_instruction[34:0] or const_nxt[15:8] or i_cpsr_t or o_instruction[34:0] or const_nxt[7:0] or i_instruction[24] or i_instruction[23:0] or i_instruction[23] or i_cpsr_t or o_instruction[34:0] or cc or state_ff or i_cpsr_t or i_instruction or reglist_ff or i_instruction_valid or i_instruction or state_ff or const_ff or _sv2v_0) begin : next_state_logic_and_output_logic
 		if (_sv2v_0)
 			;
 		const_nxt = const_ff;
@@ -16525,6 +16550,7 @@ module zap_predecode_uop_sequencer (
 		reglist_nxt = reglist_ff;
 		o_stall_from_decode = 1'd0;
 		o_switch = 0;
+		o_undefined = classify_undefined(i_instruction, i_cpsr_t);
 		case (state_ff)
 			26'd65536: begin
 				o_stall_from_decode = 1'd0;
@@ -16534,6 +16560,7 @@ module zap_predecode_uop_sequencer (
 				o_irq = 1'd0;
 				o_fiq = 1'd0;
 				state_nxt = 26'd1;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd128: begin
 				o_stall_from_decode = 1'd1;
@@ -16541,6 +16568,7 @@ module zap_predecode_uop_sequencer (
 				o_instruction[31:0] = {AL, 3'b001, MOV, 13'h0000, const_nxt[7:0]};
 				{o_instruction[ZAP_DP_RD_EXTEND], o_instruction[15:12]} = ARCH_DUMMY_REG0;
 				state_nxt = 26'd256;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd256: begin
 				o_stall_from_decode = 1'd1;
@@ -16548,6 +16576,7 @@ module zap_predecode_uop_sequencer (
 				{o_instruction[ZAP_DP_RD_EXTEND], o_instruction[15:12]} = ARCH_DUMMY_REG0;
 				{o_instruction[ZAP_DP_RA_EXTEND], o_instruction[19:16]} = ARCH_DUMMY_REG0;
 				state_nxt = 26'd512;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd512: begin
 				o_stall_from_decode = 1'd1;
@@ -16555,6 +16584,7 @@ module zap_predecode_uop_sequencer (
 				{o_instruction[ZAP_DP_RD_EXTEND], o_instruction[15:12]} = ARCH_DUMMY_REG0;
 				{o_instruction[ZAP_DP_RA_EXTEND], o_instruction[19:16]} = ARCH_DUMMY_REG0;
 				state_nxt = 26'd1024;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd1024: begin
 				o_stall_from_decode = 1'd1;
@@ -16562,6 +16592,7 @@ module zap_predecode_uop_sequencer (
 				{o_instruction[ZAP_DP_RD_EXTEND], o_instruction[15:12]} = ARCH_DUMMY_REG0;
 				{o_instruction[ZAP_DP_RA_EXTEND], o_instruction[19:16]} = ARCH_DUMMY_REG0;
 				state_nxt = 26'd2048;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd2048: begin
 				o_stall_from_decode = 1'd1;
@@ -16569,18 +16600,21 @@ module zap_predecode_uop_sequencer (
 				{o_instruction[ZAP_DP_RD_EXTEND], o_instruction[15:12]} = ARCH_DUMMY_REG0;
 				{o_instruction[ZAP_DP_RA_EXTEND], o_instruction[19:16]} = ARCH_DUMMY_REG0;
 				state_nxt = 26'd4096;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd4096: begin
 				o_stall_from_decode = 1'd0;
 				o_instruction = 40'h00e12fff10;
 				{o_instruction[ZAP_DP_RB_EXTEND], o_instruction[3:0]} = ARCH_DUMMY_REG0;
 				state_nxt = 26'd1;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd8192: begin
 				o_stall_from_decode = 1'd0;
 				o_instruction = {5'd0, i_instruction};
 				o_instruction[5] = 1'd0;
 				state_nxt = 26'd1;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd16384: begin
 				o_stall_from_decode = 1'd0;
@@ -16610,6 +16644,7 @@ module zap_predecode_uop_sequencer (
 					o_instruction[20] = 1'd0;
 				else
 					o_instruction[20] = 1'd1;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd32768: begin
 				o_stall_from_decode = 1'd0;
@@ -16628,18 +16663,21 @@ module zap_predecode_uop_sequencer (
 				else
 					o_instruction[20] = 1'd1;
 				state_nxt = 26'd1;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd131072, 26'd262144, 26'd524288: begin
 				o_stall_from_decode = 1'd1;
 				o_instruction = 1'sb0;
 				state_nxt = (state_ff == 26'd131072 ? 26'd262144 : (state_ff == 26'd262144 ? 26'd524288 : (state_ff == 26'd524288 ? 26'd1048576 : state_ff)));
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd1048576: begin
 				o_stall_from_decode = 1'd0;
 				o_instruction = 1'sb0;
 				state_nxt = 26'd1;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
-			26'd1:
+			26'd1: begin
 				if (((V4T && !i_cpsr_t) && (i_instruction[31:28] == NV)) && i_instruction_valid) begin
 					o_instruction = {5'd0, i_instruction};
 					o_irq = i_irq;
@@ -16799,12 +16837,15 @@ module zap_predecode_uop_sequencer (
 					o_irq = i_irq;
 					o_fiq = i_fiq;
 				end
+				o_undefined = (V4T ? i_idle_undefined : classify_undefined(o_instruction[34:0], i_cpsr_t));
+			end
 			26'd2097152: begin
 				o_instruction = 1'sb0;
 				o_instruction[31:0] = {AL, 3'b001, (blp_neg ? SUB : ADD), 17'h0eea0, blp_mag[3:0]};
 				o_instruction_valid = 1'd1;
 				o_stall_from_decode = 1'd0;
 				state_nxt = 26'd1;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd4194304: begin
 				o_instruction = 1'sb0;
@@ -16814,6 +16855,7 @@ module zap_predecode_uop_sequencer (
 				o_instruction_valid = 1'd1;
 				o_stall_from_decode = 1'd1;
 				state_nxt = 26'd8388608;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd8388608: begin
 				o_instruction = 1'sb0;
@@ -16821,6 +16863,7 @@ module zap_predecode_uop_sequencer (
 				o_instruction_valid = 1'd1;
 				o_stall_from_decode = 1'd1;
 				state_nxt = 26'd16777216;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd16777216: begin
 				o_instruction = 1'sb0;
@@ -16829,6 +16872,7 @@ module zap_predecode_uop_sequencer (
 				o_instruction_valid = 1'd1;
 				o_stall_from_decode = 1'd0;
 				state_nxt = 26'd1;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd64: begin
 				o_instruction = {5'd0, i_instruction} & ~16777216;
@@ -16837,6 +16881,7 @@ module zap_predecode_uop_sequencer (
 				o_stall_from_decode = 1'd0;
 				o_irq = 0;
 				o_fiq = 0;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd32: begin
 				o_irq = 0;
@@ -16845,6 +16890,7 @@ module zap_predecode_uop_sequencer (
 				o_instruction_valid = i_instruction_valid;
 				o_stall_from_decode = 1'd0;
 				state_nxt = 26'd1;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd8: begin
 				o_irq = 0;
@@ -16853,6 +16899,7 @@ module zap_predecode_uop_sequencer (
 				o_instruction_valid = 1;
 				o_instruction[31:0] = {cc, 5'h0a, i_instruction[22], 2'h0, i_instruction[19:16], i_instruction[3:0], 12'd0};
 				state_nxt = 26'd16;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd16: begin : SWP2BLK
 				o_stall_from_decode = 1'd0;
@@ -16862,6 +16909,7 @@ module zap_predecode_uop_sequencer (
 				o_instruction[31:0] = {cc, 3'h0, MOV, 5'h00, i_instruction[15:12], 12'd0};
 				{o_instruction[ZAP_DP_RB_EXTEND], o_instruction[3:0]} = ARCH_DUMMY_REG0;
 				state_nxt = 26'd1;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd2: begin
 				reglist_nxt = reglist_ff & ~(16'd1 << pri_enc(reglist_ff));
@@ -16905,6 +16953,7 @@ module zap_predecode_uop_sequencer (
 					state_nxt = 26'd2;
 					o_stall_from_decode = 1'd1;
 				end
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd33554432: begin
 				state_nxt = 26'd1;
@@ -16914,6 +16963,7 @@ module zap_predecode_uop_sequencer (
 				o_instruction_valid = 1'd1;
 				o_irq = 1'd0;
 				o_fiq = 1'd0;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			26'd4: begin
 				state_nxt = 26'd1;
@@ -16925,10 +16975,12 @@ module zap_predecode_uop_sequencer (
 				o_instruction_valid = 1'd1;
 				o_irq = 0;
 				o_fiq = 0;
+				o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
 			end
 			default: begin
 				state_nxt = 26'bxxxxxxxxxxxxxxxxxxxxxxxxxx;
 				{const_nxt, o_stall_from_decode, o_irq, o_fiq, o_instruction, o_instruction_valid, reglist_nxt, o_switch, o_align} = 1'sbx;
+				o_undefined = 1'bx;
 			end
 		endcase
 	end
