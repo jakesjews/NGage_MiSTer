@@ -60,7 +60,8 @@
 //                uncached accesses (monotonic event counters)
 //      +40 R  instructions retired during background store transactions
 //      +44 W  select I-fill VA line and clear its early-retirement word mask
-//      +48 R  watched-line words retired before their I-fill completed
+//      +48 R  watched-line words retired strictly before the terminal beat
+//      +4C R  watched-line words retired after beat one and before beat two
 //   anything else          bus error (external abort)
 // Bus protocol checks: a request must stay unchanged until acked, and a
 // burst beat must be followed by the next word of the same line.
@@ -263,7 +264,7 @@ int main(int argc, char **argv) {
 	uint64_t dcache_events[4] = {};
 	uint64_t icache_events[8] = {};
 	uint32_t store_fill_retired = 0;
-	uint32_t ic_watch = ~15u, ic_early_mask = 0;
+	uint32_t ic_watch = ~15u, ic_early_mask = 0, ic_first_mask = 0;
 	uint64_t dirty_fill_first = 0, dirty_write_first = 0;
 	bool dirty_first_pending = false;
 	int64_t irq_timer = -1, fiq_timer = -1;
@@ -290,12 +291,13 @@ int main(int argc, char **argv) {
 		case 0x3C: return (uint32_t)dcache_events[3];
 		case 0x40: return store_fill_retired;
 		case 0x48: return ic_early_mask;
+		case 0x4C: return ic_first_mask;
 		default: return 0;
 		}
 	};
 	auto mmio_write = [&](uint32_t off, uint32_t v, uint8_t be) {
 		switch (off) {
-		case 0x44: ic_watch = v & ~15u; ic_early_mask = 0; break;
+		case 0x44: ic_watch = v & ~15u; ic_early_mask = 0; ic_first_mask = 0; break;
 		case 0x00:
 			if (be & 1) {
 				char c = (char)(v & 0xFF);
@@ -390,8 +392,10 @@ int main(int argc, char **argv) {
 		else if ((t->p_valid || t->p_cfail) && t->p_last) ev = 'R';
 
 		if (ev == 'R' && t->p_ic_fill_active && (pc & ~15u) == ic_watch &&
-			(t->p_ic_fill_addr & ~15u) == ic_watch)
-			ic_early_mask |= 1u << ((pc >> 2) & 3);
+		    (t->p_ic_fill_addr & ~15u) == ic_watch) {
+			if (!t->p_ic_fill_terminal) ic_early_mask |= 1u << ((pc >> 2) & 3);
+			if (t->p_ic_fill_first_window) ic_first_mask |= 1u << ((pc >> 2) & 3);
+		}
 
 		// bus: protocol checks and the responder
 		bool req = t->bus_req;

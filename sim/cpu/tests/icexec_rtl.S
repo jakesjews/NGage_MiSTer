@@ -56,9 +56,8 @@ cold_return:
 	mov r0, #1
 	mov r0, r0, lsl r9
 	and r8, r8, r0
-@ The existing fetch-to-FIFO handshake waits for the NEXT fetch ACK. At
-@ +12 that is another line, so record the mask but do not claim early CPU
-@ retirement there. The cache/FIFO unit test proves release at all offsets.
+@ Historical cache-side-only probe: keep its binary/counts as the baseline.
+@ ifetch_rtl now requires early retirement at ALL offsets, including +12.
 	cmp r5, #12
 	beq last_word_wait
 	CHECKR r8, r0             @ critical instruction retired during its fill

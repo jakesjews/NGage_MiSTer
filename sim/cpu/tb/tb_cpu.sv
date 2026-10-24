@@ -50,6 +50,8 @@ module tb_cpu #(
 	output logic [63:0]   p_lock,      // registers waiting for a background load
 	output logic [7:0]    p_stall,     // same overlapping level counters as hardware
 	output logic          p_ic_fill_active,
+	output logic          p_ic_fill_terminal,
+	output logic          p_ic_fill_first_window,
 	output logic [31:0]   p_ic_fill_addr,
 	output logic [7:0]    p_icache,    // fetch, fill, arbitration and TLB taps
 	output logic [3:0]    p_dcache,    // registered D-cache events exported by arm925t
@@ -334,6 +336,8 @@ module tb_cpu #(
 	// Count accepted beats; derive the expected order from the original miss.
 	`define IC dut.u_zap.l_generate_with_cache_mmu.u_code_cache.u_zap_cache_fsm
 	assign p_ic_fill_active = `IC.state_ff == 4;
+	assign p_ic_fill_terminal = p_ic_fill_active && `IC.take && `IC.o_wb_cti_ff == 3'b111;
+	assign p_ic_fill_first_window = p_ic_fill_active && `IC.adr_ctr_ff == 1 && !`IC.take;
 	assign p_ic_fill_addr = `IC.address;
 	if (CACHE_LINE == 16 && !ICACHE_PREFETCH) begin : g_icwf_check
 		logic [31:0] expected_addr;

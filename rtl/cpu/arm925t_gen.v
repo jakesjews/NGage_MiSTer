@@ -5715,6 +5715,12 @@ module zap_core (
 		.o_taken(fetch_bp_state),
 		.o_pred(fetch_pred)
 	);
+	reg fetch_consumed_ff;
+	always @(posedge i_clk)
+		if ((((reset || clear_from_writeback) || clear_from_alu) || clear_from_decode) || !code_stall)
+			fetch_consumed_ff <= 1'b0;
+		else if (fetch_valid && !fifo_full)
+			fetch_consumed_ff <= 1'b1;
 	zap_fifo #(
 		.WDT(100),
 		.DEPTH(FIFO_DEPTH)
@@ -5722,7 +5728,7 @@ module zap_core (
 		.i_clk(i_clk),
 		.i_reset(i_reset),
 		.i_clear_from_writeback(clear_from_writeback),
-		.i_write_inhibit(code_stall),
+		.i_write_inhibit(fetch_consumed_ff),
 		.i_clear_from_alu(clear_from_alu),
 		.i_data_stall((data_stall && mode16_valid) && fifo_valid),
 		.i_stall_from_shifter((stall_from_shifter && mode16_valid) && fifo_valid),
