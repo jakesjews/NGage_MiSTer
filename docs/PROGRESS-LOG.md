@@ -4262,3 +4262,29 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   seed 9 until a smoke test says otherwise. Timing stays paused per the
   user's rule; the number is the reference the CPU work is measured
   against ("don't let the timing become drastically worse").
+- **Timing round 5, done** (Codex's ZAP thread, codex/timing2 c188fe5,
+  RTL 7d1218c; docs/consults/2026-10-23-codex-timing5-report.md in the
+  cx-timing2 worktree). Nine CPU changes, all cycle-identical (225 CPU
+  runs with the same cycle and instruction counts, 57 QEMU agreements,
+  both lints, the ten `input reg`): a registered TLB fault summary,
+  per-slot interlocks and store forwarding resolved before the slot
+  select, local barrel pending selects, BL and LSL-zero decode fields
+  selected before register banking, the cache acknowledgement outside
+  the FSM's priority mux, binary background-completion tags, effective
+  load-lock factoring, case-local undefined classification in the
+  sequencer, per-slot operand forwarding before the stall-select mux.
+  Whole-core main-core fits at fixed seeds 1/2/3: **-0.211 / -0.221 /
+  -0.318 ns** (median -0.221; the baseline median of the same seeds was
+  -1.152, so 0.93 ns of tree), 35,845-35,969 ALMs (+419 over the
+  baseline median), 479 M10K, hold +0.075 or better at every corner.
+  The families left: post-ALU destination index into the issue
+  interlocks (-0.318 at seed 3), the peripheral owner into the UPP
+  bus's data capture (-0.211), the D-cache state into the merger's
+  address (-0.221). The branch is 28 commits behind master (the loader,
+  the flip): its rbfs carry the pre-loader file entries, so no board
+  test of them; the branch stays for a merge after the CPU code lands,
+  per the user's order (timing closure at the end, on the stripped
+  core). The same thread takes the D-cache task next, on a new branch
+  codex/dstore from master: the store miss completing at the fill's
+  launch and the dirty victim's write-back deferred behind the fill
+  (the Pocket core's two measured gains, 4-5 % and 2-3 %).
