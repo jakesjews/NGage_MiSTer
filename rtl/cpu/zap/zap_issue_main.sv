@@ -1003,7 +1003,7 @@ assign late_saved[3] = skid_late_store_ff && late_load(skid_idx[5:0], 1'b1, skid
 logic [3:0]                   sl_cc       [2];
 logic [$clog2(ALU_OPS)-1:0]   sl_alu_op   [2];
 logic [$clog2(SHIFT_OPS)-1:0] sl_shift_op [2];
-logic [1:0]                   sl_lsl0;
+logic [1:0]                   sl_lsl0, sl_store;
 logic [6:0]                   sl_alu_src  [2];   // {immediate, index}
 logic [6:0]                   sl_shift_src[2];
 logic [6:0]                   sl_shift_len[2];
@@ -1017,6 +1017,7 @@ assign sl_cc[0]        = i_condition_code_ff;
 assign sl_alu_op[0]    = i_alu_operation_ff;
 assign sl_shift_op[0]  = i_shift_operation_ff;
 assign sl_lsl0[0]      = i_shift_is_lsl0_ff;
+assign sl_store[0]     = i_mem_store_ff;
 assign sl_alu_src[0]   = {i_alu_source_ff[32], i_alu_source_ff[5:0]};
 assign sl_shift_src[0] = {i_shift_source_ff[32], i_shift_source_ff[5:0]};
 assign sl_shift_len[0] = {i_shift_length_ff[32], i_shift_length_ff[5:0]};
@@ -1030,6 +1031,7 @@ assign sl_cc[1]        = sv_condition_code_ff;
 assign sl_alu_op[1]    = sv_alu_operation_ff;
 assign sl_shift_op[1]  = sv_shift_operation_ff;
 assign sl_lsl0[1]      = skid_lsl0_ff;
+assign sl_store[1]     = skid_late_store_ff;
 assign sl_alu_src[1]   = {skid_late_immediate_ff[0], skid_idx[23:18]};
 assign sl_shift_src[1] = {skid_late_immediate_ff[1], skid_idx[17:12]};
 assign sl_shift_len[1] = {skid_late_immediate_ff[2], skid_idx[11:6]};
@@ -1042,7 +1044,9 @@ assign sl_exc[1]       = sv_force32align_ff || sv_irq_ff || sv_fiq_ff || sv_abt_
 for ( genvar sl = 0; sl < 2; sl++ )
 begin : g_slot
         logic       is_mult, no_shift, w_shift_lock, shift_lock, load_lock, dest_lock;
-        logic [3:0] operand_lock, late;
+        logic [3:0] effective_lock, late;
+        logic defer_allowed;
+        assign defer_allowed = !is_mult && !sl_exc[sl];
 
         assign is_mult  = is_mult_op ( sl_alu_op[sl] );
 
@@ -1076,10 +1080,19 @@ begin : g_slot
         // Look for reads from registers to be loaded from memory. Four
         // register sources may cause a load lock.
         //
-        assign operand_lock[0] = load_lock_of ( {sl_alu_src[sl][6],   26'd0, sl_alu_src[sl][5:0]},   sl_locked[sl][0] );
-        assign operand_lock[1] = load_lock_of ( {sl_shift_src[sl][6], 26'd0, sl_shift_src[sl][5:0]}, sl_locked[sl][1] );
-        assign operand_lock[2] = load_lock_of ( {sl_shift_len[sl][6], 26'd0, sl_shift_len[sl][5:0]}, sl_locked[sl][2] );
-        assign operand_lock[3] = load_lock_of ( {27'd0, sl_ms_idx[sl]},                               sl_locked[sl][3] );
+        // ARM925T: calculate the final operand block directly. Early loads
+        // and locked registers always block; an eligible late load blocks
+        // only for a conflicting writer or a disallowed late operand.
+        // This avoids putting the complete late-admission tree in series
+        // with the original load-lock tree. The pending mask is unchanged.
+        assign effective_lock[0] = effective_load_lock(sl_alu_src[sl], 1'b0,
+                                        defer_allowed, sl_locked[sl][0]);
+        assign effective_lock[1] = effective_load_lock(sl_shift_src[sl], !sl_lsl0[sl],
+                                        defer_allowed, sl_locked[sl][1]);
+        assign effective_lock[2] = effective_load_lock(sl_shift_len[sl], 1'b1,
+                                        defer_allowed, sl_locked[sl][2]);
+        assign effective_lock[3] = effective_load_lock({1'b0, sl_ms_idx[sl]}, 1'b1,
+                                        defer_allowed && sl_store[sl], sl_locked[sl][3]);
 
         //
         // ARM925T: nor an instruction that writes a register that an
@@ -1098,11 +1111,41 @@ begin : g_slot
         // deferred (late_live/late_saved); never a multiply, a forced
         // alignment or an exception.
         assign late      = sl_late[sl] & {4{!is_mult && !sl_exc[sl]}};
-        assign load_lock = |(operand_lock & ~late) || dest_lock;
+        assign load_lock = |effective_lock || dest_lock;
 
         assign slot_lock[sl] = (shift_lock || load_lock) && sl_cc[sl] != NV;
         assign slot_pend[sl] = (slot_lock[sl] || sl_cc[sl] == NV) ? 4'b0 : late;
 end
+
+// ARM925T: exact factoring of load_lock_of(index) & ~late_admitted.
+// Preserve the live exception lock even while using the saved slot: its
+// original suppression by an admitted late operand is intentional here.
+function automatic effective_load_lock(input [6:0] index, input early,
+                                        input allowed, input locked);
+        logic [5:0] r;
+        logic candidate, early_load, writer, can_defer, exception_lock;
+        r = index[5:0];
+        candidate = (i_postalu_dav_ff && i_postalu_mem_load_ff && i_postalu_mem_srcdest_index_ff == r) ||
+                    (!early && i_postalu1_dav_ff && i_postalu1_mem_load_ff && i_postalu1_mem_srcdest_index_ff == r);
+        early_load = (o_condition_code_ff != NV && o_mem_load_ff && o_mem_srcdest_index_ff == r) ||
+                     (i_shifter_dav_ff && i_shifter_mem_load_ff && i_shifter_mem_srcdest_index_ff == r) ||
+                     (i_alu_dav_ff && i_alu_mem_load_ff && i_alu_mem_srcdest_index_ff == r) ||
+                     (i_postalu0_dav_ff && i_postalu0_mem_load_ff && i_postalu0_mem_srcdest_index_ff == r) ||
+                     (early && i_postalu1_dav_ff && i_postalu1_mem_load_ff && i_postalu1_mem_srcdest_index_ff == r);
+        writer = (o_condition_code_ff != NV && o_destination_index_ff == r) ||
+                 (i_shifter_dav_ff && i_shifter_destination_index_ff == r) ||
+                 (i_alu_dav_ff && i_alu_destination_index_ff == r) ||
+                 (i_postalu0_dav_ff && i_postalu0_destination_index_ff == r) ||
+                 (i_postalu1_dav_ff && i_postalu1_destination_index_ff == r) ||
+                 (i_postalu_dav_ff && i_postalu_destination_index_ff == r);
+        can_defer = allowed && r != PHY_PC && r != PHY_RAZ_REGISTER &&
+                    r != PHY_CPSR && r < PHY_DUMMY_REG0;
+        exception_lock = (|i_dc_lock) && (i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff);
+        effective_load_lock = !index[6] && r != PHY_RAZ_REGISTER[5:0] &&
+                 (locked || early_load ||
+                  (candidate && (writer || !can_defer)) ||
+                  (exception_lock && (!candidate || writer || !can_defer)));
+endfunction
 
 function automatic late_load(input [5:0] r, input early, input reg_locked);
         logic candidate, conflict;

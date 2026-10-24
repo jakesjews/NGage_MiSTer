@@ -6,12 +6,15 @@ criterion is the median of three whole-core slow-100C setup slacks at
 
 Retained so far: the registered TLB fault summary, per-slot issue decisions,
 local barrel pending selects, combined BL/LSL-zero decode, direct cache
-acknowledgement, and binary background-completion tags. Every retained
+acknowledgement, binary background-completion tags, and direct effective
+load interlocks. Every retained
 combination passes the complete CPU suite with identical cycles/instructions.
 The latest completed three-seed snapshot is `combined3` (`11bbda3`),
 including all six CPU changes and the unchanged owner-supplied card fix:
 **−0.645 / −0.486 / −0.880 ns, median −0.645 ns**. The final timing
-requirement is not met. Source manifests match for all three seeds. The next
+requirement is not met. The branch now also retains the paired-qualified
+interlock factoring; that seven-change combination has not had a three-seed
+fit. Source manifests match for all three completed combined seeds. The next
 isolated trials target issue forwarding and predecode classification; the
 barrel and bus fallbacks remain parked while the leading CPU families are
 addressed.
@@ -946,13 +949,20 @@ slot; it does not silently change that ordering rule.
 All 4,038 actual issue-module comparison points prove without assumptions.
 All 225 counts, 57 QEMU comparisons, both lint modes and generated checks
 pass. There is no new register, RAM or pipeline edge. The pre-fit group
-covers all issue-stall and pending-register inputs. Its first fit improves the combined family from −0.634 to −0.592 ns:
-stall feedback is −0.228 ns, but pending capture becomes the limit, from a
-saved operand index through writer/admission logic to shift-source pending.
-Whole-core slack is −0.694 ns, limited by Thumb validity into a retimed PC
-register. The fit uses 35,360 ALMs and 479 M10Ks, minimum four-corner hold
-+0.081 ns; all 149 inputs and the build date match. Seed 2 is running.
-The 0.042 ns first-seed gain alone does not qualify it for retention.
+covers all issue-stall and pending-register inputs. Keep the factoring: the combined family improves from −0.634/−0.155 to
+−0.592/−0.073 ns, improving both seeds and the pair minimum by 0.042 ns.
+Stall-feedback inputs are −0.228/−0.073 ns; pending inputs −0.592/−0.072 ns.
+Seed 1's limit moves to a saved operand index through writer/admission logic
+into shift-source pending. Whole-core slacks are −0.694/−0.476 ns: the
+limits are Thumb validity into a retimed PC register and SDRAM ready into a
+DDR-flash RAM read-address register, respectively.
+
+The fits use 35,360/35,334 ALMs and 479 M10Ks, with minimum four-corner
+holds +0.081/+0.047 ns. All source/project inputs and build dates match.
+The retained branch is regenerated and revalidated: 225 identical counts,
+57 agreements, both lint modes and generation/checks pass. Its source hashes
+match both fitted candidates. This small paired family gain does not establish
+the final whole-core median.
 
 **Classification before each micro-op case (`classifycase`):** the failed
 first classification seed still runs from Thumb instruction-valid into
