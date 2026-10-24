@@ -1,0 +1,678 @@
+{
+  "ZAP": {
+    "cache.0-3.log": {
+      "cycles_instructions": [
+        861284,
+        293427
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 22,
+          "killed_slots": 0,
+          "refill_clocks": 688
+        }
+      }
+    },
+    "cache.2-9.log": {
+      "cycles_instructions": [
+        1130306,
+        293427
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 22,
+          "killed_slots": 0,
+          "refill_clocks": 1107
+        }
+      }
+    },
+    "crand1.0-3.log": {
+      "cycles_instructions": [
+        104148,
+        15982
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 7,
+          "killed_slots": 0,
+          "refill_clocks": 292
+        }
+      }
+    },
+    "crand1.2-9.log": {
+      "cycles_instructions": [
+        186981,
+        15982
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 7,
+          "killed_slots": 0,
+          "refill_clocks": 460
+        }
+      }
+    },
+    "ctrand1.0-3.log": {
+      "cycles_instructions": [
+        102177,
+        16159
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 7,
+          "killed_slots": 0,
+          "refill_clocks": 251
+        }
+      }
+    },
+    "ctrand1.2-9.log": {
+      "cycles_instructions": [
+        178836,
+        16159
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 7,
+          "killed_slots": 0,
+          "refill_clocks": 434
+        }
+      }
+    },
+    "dhold_rtl.0-3.log": {
+      "cycles_instructions": [
+        342784,
+        41081
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 3884,
+          "killed_slots": 0,
+          "refill_clocks": 78848
+        }
+      }
+    },
+    "dhold_rtl.2-9.log": {
+      "cycles_instructions": [
+        518764,
+        41081
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 3884,
+          "killed_slots": 0,
+          "refill_clocks": 89314
+        }
+      }
+    },
+    "dhum_rtl.0-3.log": {
+      "cycles_instructions": [
+        509160,
+        24632
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 3306,
+          "killed_slots": 0,
+          "refill_clocks": 102397
+        }
+      }
+    },
+    "dhum_rtl.2-9.log": {
+      "cycles_instructions": [
+        575392,
+        24632
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 3306,
+          "killed_slots": 0,
+          "refill_clocks": 102540
+        }
+      }
+    },
+    "mmu_page.0-3.log": {
+      "cycles_instructions": [
+        112738,
+        16887
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 17,
+          "killed_slots": 0,
+          "refill_clocks": 623
+        }
+      }
+    },
+    "mmu_page.2-9.log": {
+      "cycles_instructions": [
+        203065,
+        16887
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 17,
+          "killed_slots": 0,
+          "refill_clocks": 971
+        }
+      }
+    }
+  },
+  "ARM9": {
+    "cache.0-3.log": {
+      "cycles_instructions": [
+        844665,
+        293427
+      ],
+      "recovery": {
+        "1": {
+          "events": 4114,
+          "killed_slots": 32995,
+          "refill_clocks": 40505
+        },
+        "2": {
+          "events": 16410,
+          "killed_slots": 188572,
+          "refill_clocks": 156350
+        },
+        "3": {
+          "events": 4006,
+          "killed_slots": 54259,
+          "refill_clocks": 43382
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      }
+    },
+    "cache.2-9.log": {
+      "cycles_instructions": [
+        1165512,
+        293427
+      ],
+      "recovery": {
+        "1": {
+          "events": 3921,
+          "killed_slots": 31236,
+          "refill_clocks": 53849
+        },
+        "2": {
+          "events": 16603,
+          "killed_slots": 226059,
+          "refill_clocks": 180081
+        },
+        "3": {
+          "events": 4138,
+          "killed_slots": 57754,
+          "refill_clocks": 45762
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      }
+    },
+    "crand1.0-3.log": {
+      "cycles_instructions": [
+        100629,
+        15982
+      ],
+      "recovery": {
+        "1": {
+          "events": 152,
+          "killed_slots": 1079,
+          "refill_clocks": 2573
+        },
+        "2": {
+          "events": 17,
+          "killed_slots": 127,
+          "refill_clocks": 531
+        },
+        "3": {
+          "events": 122,
+          "killed_slots": 1360,
+          "refill_clocks": 1698
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      }
+    },
+    "crand1.2-9.log": {
+      "cycles_instructions": [
+        184681,
+        15982
+      ],
+      "recovery": {
+        "1": {
+          "events": 148,
+          "killed_slots": 1019,
+          "refill_clocks": 4384
+        },
+        "2": {
+          "events": 21,
+          "killed_slots": 147,
+          "refill_clocks": 1055
+        },
+        "3": {
+          "events": 128,
+          "killed_slots": 1357,
+          "refill_clocks": 2703
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      }
+    },
+    "ctrand1.0-3.log": {
+      "cycles_instructions": [
+        97215,
+        16159
+      ],
+      "recovery": {
+        "1": {
+          "events": 72,
+          "killed_slots": 826,
+          "refill_clocks": 896
+        },
+        "2": {
+          "events": 8,
+          "killed_slots": 53,
+          "refill_clocks": 265
+        },
+        "3": {
+          "events": 71,
+          "killed_slots": 968,
+          "refill_clocks": 810
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      }
+    },
+    "ctrand1.2-9.log": {
+      "cycles_instructions": [
+        176262,
+        16159
+      ],
+      "recovery": {
+        "1": {
+          "events": 72,
+          "killed_slots": 823,
+          "refill_clocks": 1342
+        },
+        "2": {
+          "events": 8,
+          "killed_slots": 46,
+          "refill_clocks": 477
+        },
+        "3": {
+          "events": 72,
+          "killed_slots": 984,
+          "refill_clocks": 891
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      }
+    },
+    "dhold_rtl.0-3.log": {
+      "cycles_instructions": [
+        336253,
+        41081
+      ],
+      "recovery": {
+        "1": {
+          "events": 1682,
+          "killed_slots": 12745,
+          "refill_clocks": 18516
+        },
+        "2": {
+          "events": 1149,
+          "killed_slots": 13749,
+          "refill_clocks": 14166
+        },
+        "3": {
+          "events": 1213,
+          "killed_slots": 17846,
+          "refill_clocks": 13640
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      }
+    },
+    "dhold_rtl.2-9.log": {
+      "cycles_instructions": [
+        551655,
+        41081
+      ],
+      "recovery": {
+        "1": {
+          "events": 1012,
+          "killed_slots": 8720,
+          "refill_clocks": 15807
+        },
+        "2": {
+          "events": 1819,
+          "killed_slots": 25076,
+          "refill_clocks": 24650
+        },
+        "3": {
+          "events": 1251,
+          "killed_slots": 18478,
+          "refill_clocks": 14265
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      }
+    },
+    "dhum_rtl.0-3.log": {
+      "cycles_instructions": [
+        565536,
+        24632
+      ],
+      "recovery": {
+        "1": {
+          "events": 176,
+          "killed_slots": 1024,
+          "refill_clocks": 4614
+        },
+        "2": {
+          "events": 1461,
+          "killed_slots": 20913,
+          "refill_clocks": 60741
+        },
+        "3": {
+          "events": 411,
+          "killed_slots": 6093,
+          "refill_clocks": 6817
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      }
+    },
+    "dhum_rtl.2-9.log": {
+      "cycles_instructions": [
+        632633,
+        24632
+      ],
+      "recovery": {
+        "1": {
+          "events": 176,
+          "killed_slots": 1024,
+          "refill_clocks": 4614
+        },
+        "2": {
+          "events": 1461,
+          "killed_slots": 20906,
+          "refill_clocks": 61018
+        },
+        "3": {
+          "events": 411,
+          "killed_slots": 6099,
+          "refill_clocks": 6803
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      }
+    },
+    "mmu_page.0-3.log": {
+      "cycles_instructions": [
+        109311,
+        16887
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 163,
+          "killed_slots": 432,
+          "refill_clocks": 4187
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      }
+    },
+    "mmu_page.2-9.log": {
+      "cycles_instructions": [
+        201089,
+        16887
+      ],
+      "recovery": {
+        "1": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "2": {
+          "events": 163,
+          "killed_slots": 309,
+          "refill_clocks": 6616
+        },
+        "3": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        },
+        "4": {
+          "events": 0,
+          "killed_slots": 0,
+          "refill_clocks": 0
+        }
+      }
+    }
+  }
+}

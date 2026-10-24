@@ -348,6 +348,8 @@ int main(int argc, char **argv) {
 	uint64_t stall_clocks[6] = {}, alu_flushes = 0, early_flushes = 0, uops = 0;
 	uint64_t multiply_clocks = 0, multiply_releases = 0, multiply_next = 0;
 	bool multiply_pending = false;
+    uint64_t recovery_events[5] = {}, recovery_slots[5] = {}, recovery_refill[5] = {};
+    unsigned recovering = 0;
 	std::string console;
 
 	auto mmio_read = [&](uint32_t off) -> uint32_t {
@@ -459,6 +461,17 @@ int main(int argc, char **argv) {
 		else if (t->p_und) ev = 'U';
 		else if ((t->p_valid || t->p_cfail) && t->p_last) ev = 'R';
 
+        // Count clocks from the registered recovery until retirement resumes.
+        // Includes cache/bus wait; this is not an exclusive frontend-stall CPI.
+        if (t->p_recovery) {
+            recovering = t->p_recovery;
+            recovery_events[recovering]++;
+            recovery_slots[recovering] += t->p_recovery_slots;
+        }
+        if (recovering) {
+            if (ev) recovering = 0;
+            else recovery_refill[recovering]++;
+        }
         if (ev) {
             for (auto &w : windows) {
                 if (pc == w.begin && ev == 'R') {
@@ -742,6 +755,9 @@ int main(int argc, char **argv) {
 		       " alu_flushes=%" PRIu64 " early_flushes=%" PRIu64 "\n", stall_clocks[0], stall_clocks[1],
 		       stall_clocks[2], stall_clocks[3], stall_clocks[4], stall_clocks[5], alu_flushes, early_flushes);
 		printf("Replays: %" PRIu64 "\n", replays);
+        for (unsigned k = 1; k < 5; k++)
+            printf("Recovery %u: events=%" PRIu64 " killed_slots=%" PRIu64
+                   " refill_clocks=%" PRIu64 "\n", k, recovery_events[k], recovery_slots[k], recovery_refill[k]);
 		printf("Hit under miss: loads=%" PRIu64 " stores=%" PRIu64 "\n", hum_total_loads, hum_total_stores);
 		printf("D-cache events: load_fills=%" PRIu64 " store_fills=%" PRIu64
 		       " writebacks=%" PRIu64 " uncached=%" PRIu64 "\n",

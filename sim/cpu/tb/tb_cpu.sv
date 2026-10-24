@@ -99,6 +99,8 @@ module tb_cpu #(
 	output logic [7:0]    p_alu_dst,
 	output logic [63:0]   p_sh_dbg,
 	// Multiply occupancy and the selected younger instruction (bench only).
+	output logic [2:0]    p_recovery, // 1 miss, 2 held/retry, 3 late hit, 4 ZAP replay
+    output logic [5:0]    p_recovery_slots, // valid younger queue/uop slots, V2 only
 	output logic [3:0]    p_mult_state
 );
 
@@ -145,6 +147,8 @@ module tb_cpu #(
 	if (CORE == "ZAP") begin : g_zap_probes
     assign cp_drain_done = dut.u_zap.g_zap.u_zap_core.u_zap_cp15_cb.o_cp_done &&
         (dut.u_zap.g_zap.u_zap_core.u_zap_cp15_cb.i_cp_word[27:0] & 28'hfff0fff) == 28'he070f9a;
+    assign p_recovery = p_dabt[1] ? 3'd4 : 3'd0;
+    assign p_recovery_slots = 0; // ZAP has no comparable scalar-retirement flush.
     assign p_load_capture = 0;
     assign p_load_commit = 0;
     assign p_load_value = 0;
@@ -218,6 +222,18 @@ module tb_cpu #(
         (dut.u_zap.g_arm9.u_arm9_core.u_zap_cp15_cb.i_cp_word[27:0] & 28'hfff0fff) == 28'he070f9a;
 	`define A9 dut.u_zap.g_arm9.u_arm9_core
 
+    // Snapshot before retirement changes the backend owners. These counters
+    // describe discarded valid uop/queue slots, not unique ISA instructions.
+    always @(posedge clk) begin
+        p_recovery <= 0; p_recovery_slots <= 0;
+        if (!reset && `A9.wb_complete && `A9.scalar_replay && !`A9.wb_exception) begin
+            p_recovery <= `A9.i_data_short_hit ? 3'd3 : `A9.w_waited ? 3'd2 : 3'd1;
+            p_recovery_slots <= 6'(`A9.u_front_decode.u_fetch.count) +
+                6'(`A9.u_front_decode.u_decode.count) +
+                6'(`A9.u_front_decode.u_decode.d2_valid) + 6'(`A9.d_valid) +
+                6'(`A9.a_a_valid) + 6'(`A9.m[$bits(`A9.m)-1]) + 6'(`A9.skid[$bits(`A9.skid)-1]);
+        end
+    end
     assign p_load_capture = `A9.load_capture;
     assign p_load_commit = `A9.load_commit;
     assign p_load_value = `A9.load_value;
