@@ -4548,3 +4548,35 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   gate removed, which is the memory thread's step after the write-back
   buffer. The thread is on the write-back buffer now (memside2); a
   stripped seed-9 build of the branch runs on the Mac for its slack.
+- **ARM9 v2, session 7: the split is in, the hit schedule proved, the
+  gate failed for a reason** (Codex, codex/arm9v2 16da5f9, 88e6d43,
+  f97c763, 7522ab3, 4616d9c; docs/consults/2026-10-24-codex-arm9v2-
+  s7.md in the worktree). Cut 2 reverted. Then, in five commits: the
+  load-hazard check qualified by the real destination writers; source
+  operands classified early (shifted, multiplied) or late (Rn, an
+  unshifted Rm, store data) with the forwarding matches registered at
+  the D2/S boundary; S forwarding from the registered M/W producers
+  only, a late bypass at A's input, A and M folded; the two-clock late
+  and three-clock early load pickup with a registered retirement
+  replay; W's RAS checkpoint restored on recovery. 264/264 in ZAP and
+  both V2 modes, 68 QEMU, 85 windows; the raw hit windows went from
+  7/8/8 (independent, late, early) to **3/4/5**, that is, one, two and
+  three instruction slots. Whole-test ratios V2/ZAP at 0:0: cache
+  0.904, ctrand1 0.912, crand1 0.936, mmu_page 0.949, the GBA proxies
+  0.94; at 2:9 about 0.99, the cache test 1.03. The thread stopped at
+  the gate without a fit, and its diagnosis is the useful part: the
+  random tests are three quarters uncached setup (mmu_on clears 4,096
+  table words before the cache is on: 143 K of the 185 K clocks at
+  2:9), so the ratio I set as the judge barely moves whatever the
+  pipeline does; and the post-setup remainder is 2 % SLOWER than ZAP
+  at 2:9 because the retirement replay discards younger work after a
+  scalar miss or a held access and the front end refills, so misses
+  now cost more than ZAP's hit-under-miss. Session 8 launched: measure
+  the recovery events, then make the miss cheap (a registered lock the
+  consumer waits on, younger independent work retiring past it as in
+  ZAP, replay only what must), judged on the post-setup remainder at
+  0:3 and 2:9; then the first firmware run on V2: a build macro that
+  makes the wrapper instantiate V2 with the same caches and the debug
+  taps, the emu top bench on V2, and the whole-core Verilator boot on
+  the server against ZAP's, so the measurement core can go on the
+  board, which is the number that counts.
