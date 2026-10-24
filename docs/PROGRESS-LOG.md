@@ -4326,3 +4326,31 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   verdict, but 0.56 ns is above the sweeps' seed noise and the merge
   decision needs the in-play number first: a debug core of the branch
   goes to the server for a measurement on the debug slot against b25.
+- **ARM9 v2, session 4** (Codex, codex/arm9v2 bc3e838, e2a1dd0;
+  docs/consults/2026-10-23-codex-arm9v2-s4.md). The D2 admission
+  restructured (the 40-bit pending-destination mask round trip gone,
+  the issue enable's fanout bounded): the component fit from -1.729 to
+  **-0.748 ns** median (seeds 2-4: -1.406, -0.748, -0.721), 6,094 ALMs
+  (from 6,387), no cycle cost; accepted. Then M and W joined to the
+  shared writeback, CP15 and the caches, with CORE=ARM9 selecting V2
+  for the first time: the whole suite runs on it, 68 QEMU references
+  agree in both predictor modes, 257 of 261 runs pass. The four
+  failures (dhum_rtl check 26, dhold_rtl at 2:9) trace to the shared
+  short-port cache wrapper, which qualifies replacement-hit LRU
+  updates with idle, so a hit under a miss loses its update and a
+  later miss evicts the wrong way; the fix is in the cache files the
+  brief kept for the ZAP thread. The cycle picture is not there yet:
+  the load-use interlock measures five clocks instead of three (the
+  pending-load checks compare unused destination lanes and do not use
+  W's load as a ready source), so at 0:0 V2 is 6.8 % faster on the
+  cache test and 11-13 % on the GBA proxies but 1.6 % slower on
+  crand1 and level on ctrand1. The integrated CPU fit with the caches
+  (seeds 2-4): -1.959 / -1.579 / -1.329, median **-1.579 ns**, 15,902
+  ALMs; ZAP in the same wrapper at seed 2: -0.584 ns, 16,549 ALMs, so
+  V2 is 3.6 % smaller (the short cache pipelines) and about 1 ns
+  worse, 0.58 ns outside the integration gate but not at the -2 ns
+  stop. Session 5 launched with the ownership lifted (the ZAP thread's
+  branches are parked, so V2 may make the minimal cache fix on its
+  branch, ZAP's counts unchanged), then the real three-clock late
+  pickup, the RAS checkpoint, the suites and the V2/ZAP cycle table
+  with the random tests as the judge, then the three-seed fit.
