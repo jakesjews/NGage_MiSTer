@@ -1113,8 +1113,33 @@ preview, apart from the intentional MAIN macro and seed. This was speculative
 build scheduling, not early retention. Forwarding has now passed its independent
 pair gate, and the retained branch matches every non-QSF input byte-for-byte
 in all three build copies. Its base commit, exact patch and hashes remain
-archived separately from the eventual retained commit. Seeds 1 and 2 are
-running; seed 3 is queued. None replaces a completed seed or changes its value.
+archived separately from the eventual retained commit. Each fixed seed's
+status is recorded below. None replaces a completed seed or changes its value.
+
+## Fourth combined sweep
+
+Source `7d1218c`: all nine retained CPU changes plus the unchanged owner card
+fix. The previously speculative preview is now verified against that commit
+for every compiled RTL/project input; the original base/patch record is kept.
+The retained source passes 225 exact cycle/instruction counts, 57 QEMU
+agreements, normal and MAIN lint, regeneration/check and ten `input reg`
+occurrences. The fixed seeds are 1/2/3.
+
+| Seed | Slow 100C setup | ALMs | M10Ks | Status |
+| --- | ---: | ---: | ---: | --- |
+| 1 | −0.211 ns | 35,845 | 479 | Complete; all 150 inputs verified |
+| 2 | Pending | — | — | Running |
+| 3 | Pending | — | — | Running |
+
+Seed 1 is within the requested −0.300 ns margin, but is not a median or
+positive timing closure. Its limit is `upp_periph.own_au` into SDRAM
+write-data capture (`sdr_wdata[82]`), −0.211 ns. Next is D-cache valid into
+the pipeline-not-empty/hold logic at −0.169 ns. Issue forwarding is
++0.217 ns, issue feedback −0.130 ns, pending capture 0.000 ns, and undefined
+classification +1.337 ns. The I-cache metadata input is +0.277 ns and the
+flash-bitmap input +0.278 ns. Minimum hold across all four corners is
++0.104 ns. Final retention does not yet establish the
+requested whole-core median; seeds 2 and 3 remain outstanding.
 
 ## Scope and risks
 
