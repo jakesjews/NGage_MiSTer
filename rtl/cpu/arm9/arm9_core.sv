@@ -1174,6 +1174,7 @@ assign o_dbg_stall = {pipe_fault || (wb_cycle && (w_dabt || w_pabt || w_irq || w
 // PC/BTB is disconnected; ARM9 fetch owns its optional predictor.
 zap_writeback #(.BP_ENTRIES(32), .PHY_REGS(40), .FLAG_WDT(32),
     .RESET_VECTOR(RESET_VECTOR), .CPSR_INIT(CPSR_INIT)) u_zap_writeback (
+.i_rf_class(6'd0),
     .i_clk(i_clk), .i_reset(i_reset), .i_valid(o_dbg_wb_valid),
     .i_decompile('0), .i_decompile_valid(o_dbg_wb_dvalid), .i_uop_last(o_dbg_wb_uop_last),
     .o_decompile(), .o_shelve(), .i_cpu_pid(o_pid[6:0]),

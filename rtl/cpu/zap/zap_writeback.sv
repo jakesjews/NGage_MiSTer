@@ -19,6 +19,7 @@
 
 module zap_writeback #(
         parameter integer RF_ALLOW_RETIMING = 1,
+        parameter logic RF_EARLY_SELECT = 0,
         parameter logic [31:0] BP_ENTRIES   = 32'd1024,  // BP entries.
         parameter logic [31:0] FLAG_WDT     = 32'd32,    // Flags width a.k.a CPSR.
         parameter logic [31:0] PHY_REGS     = 32'd46,    // Number of physical registers.
@@ -54,6 +55,7 @@ module zap_writeback #(
 
         // Inputs from memory unit valid signal.
         input logic                           i_valid,
+        input logic [5:0] i_rf_class, // V2 registered owner class, independent of completion.
 
         // The PC can either be frozen in place or changed based on signals
         // from other units. If a unit clears the PC, it must provide the
@@ -206,17 +208,67 @@ assign  o_taken      = taken_del3_ff;
 // Register file
 // ----------------------------------------------------------------------------
 
-zap_register_file #(.ALLOW_RETIMING(RF_ALLOW_RETIMING)) u_zap_register_file
+// ARM9V2: completion is the write enable, not part of the port's data
+// selection. Static exception classes arrived with W; a data abort alone
+// overrides them late. The original tree below still controls CPSR, PC,
+// trace and wen. ZAP does not use this alternative data-only path.
+logic [39:0] rf_sel1,rf_sel2;
+logic [31:0] rf_data1,rf_data2;
+if (RF_EARLY_SELECT) begin : g_rf_select
+    always_comb begin
+        rf_sel1=write_alu;
+        rf_sel2=i_mem_load_ff?write_load:(40'b1<<PHY_RAZ_REGISTER);
+        rf_data1=i_wr_data;rf_data2=i_wr_data_1;
+        if(i_copro_reg_en)begin
+            rf_sel1=write_copro;rf_sel2=40'b1<<PHY_RAZ_REGISTER;
+            rf_data1=i_copro_reg_wr_data;rf_data2=0;
+        end
+        if(|i_rf_class)begin
+            rf_data2=cpsr_ff;
+            if(i_rf_class[0])begin
+                rf_sel1=40'b1<<PHY_ABT_R14;rf_sel2=40'b1<<PHY_ABT_SPSR;
+                rf_data1=mode32?i_pc_plus_8_buf_ff:i_pc_plus_8_buf_ff+32'd4;
+            end else if(i_rf_class[1])begin
+                rf_sel1=40'b1<<PHY_FIQ_R14;rf_sel2=40'b1<<PHY_FIQ_SPSR;
+                rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff;
+            end else if(i_rf_class[2])begin
+                rf_sel1=40'b1<<PHY_IRQ_R14;rf_sel2=40'b1<<PHY_IRQ_SPSR;
+                rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff;
+            end else if(i_rf_class[3])begin
+                rf_sel1=40'b1<<PHY_ABT_R14;rf_sel2=40'b1<<PHY_ABT_SPSR;
+                rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff;
+            end else if(i_rf_class[4])begin
+                rf_sel1=40'b1<<PHY_SVC_R14;rf_sel2=40'b1<<PHY_SVC_SPSR;
+                rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff-32'd2;
+            end else begin
+                rf_sel1=40'b1<<PHY_UND_R14;rf_sel2=40'b1<<PHY_UND_SPSR;
+                rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff-32'd2;
+            end
+        end
+    end
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if(!i_reset&&wen)begin
+        assert(rf_sel1==write_sel1&&rf_sel2==write_sel2)else $fatal(1,"RF port class");
+        assert(rf_data1==wdata1&&rf_data2==wdata2)else $fatal(1,"RF data class");
+    end
+`endif
+end else begin : g_rf_original
+    wire unused_class=&{1'b0,i_rf_class};
+    assign rf_sel1=write_sel1;assign rf_sel2=write_sel2;
+    assign rf_data1=wdata1;assign rf_data2=wdata2;
+end
+
+zap_register_file #(.ALLOW_RETIMING(RF_ALLOW_RETIMING),.EARLY_PORT_SELECT(RF_EARLY_SELECT)) u_zap_register_file
 (
 .i_clk(i_clk),
  .i_reset        (       i_reset         ),
 
- .i_wr_addr_a    (       write_sel1      ),
- .i_wr_addr_b    (       write_sel2      ),
+ .i_wr_addr_a    (       rf_sel1         ),
+ .i_wr_addr_b    (       rf_sel2         ),
  .i_wr_addr_c    (     i_wr_index_2      ),
 
- .i_wr_data_a    (       wdata1          ),
- .i_wr_data_b    (       wdata2          ),
+ .i_wr_data_a    (       rf_data1        ),
+ .i_wr_data_b    (       rf_data2        ),
  .i_wr_data_c    (     i_wr_data_2       ),
 
  .i_wen          (       wen             ),

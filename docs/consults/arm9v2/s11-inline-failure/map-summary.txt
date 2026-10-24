@@ -1,0 +1,17 @@
+Analysis & Synthesis Status : Successful - Sat Oct 24 10:04:18 2026
+Quartus Prime Version : 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+Revision Name : cpu_trial
+Top-level Entity Name : cpu_trial
+Family : Cyclone V
+Logic utilization (in ALMs) : N/A
+Total registers : 284506
+Total pins : 109
+Total virtual pins : 0
+Total block memory bits : 51,616
+Total DSP Blocks : 4
+Total HSSI RX PCSs : 0
+Total HSSI PMA RX Deserializers : 0
+Total HSSI TX PCSs : 0
+Total HSSI PMA TX Serializers : 0
+Total PLLs : 0
+Total DLLs : 0

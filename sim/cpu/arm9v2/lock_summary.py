@@ -20,13 +20,18 @@ for name in ('lock_ff', 'o_lock_any', 'o_lock_owner'):
 out = root / 'sim/cpu/build/lock-summary'
 out.mkdir(parents=True, exist_ok=True)
 model = '''module proof(input clk, reset, input [63:0] lock_nxt,
-    input [5:0] i_lock_owner_next);
+    input [5:0] i_lock_owner_hold, i_lock_owner_advance,
+    input i_lock_owner_move);
 reg [63:0] lock_ff;
 reg o_lock_any, o_lock_owner;
 reg [5:0] owner;
+QUERIES
 always @(posedge clk) begin
-    owner <= reset ? 0 : i_lock_owner_next;
+    owner <= reset ? 0 : i_lock_owner_move ? i_lock_owner_advance : i_lock_owner_hold;
 '''
+queries = re.findall(r'wire (owner_\w+_locked) = ([^;]+);', source)
+assert len(queries) == 2, queries
+model = model.replace('QUERIES', '\n'.join(f'wire {n} = {e};' for n,e in queries))
 for name, (reset, update) in updates:
     model += f'    {name} <= reset ? ({reset}) : ({update});\n'
 model += '''end

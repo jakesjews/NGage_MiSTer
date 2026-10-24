@@ -61,7 +61,8 @@ input   logic    [63:0]            i_reg_idx,
 input   logic    [5:0]             i_reg_idx_bin,
 output  logic     [63:0]           o_lock,
 // ARM9V2: summaries capture NEXT locks on the lock installation/clear edge.
-input   logic     [5:0]            i_lock_owner_next,
+input logic [5:0] i_lock_owner_hold, i_lock_owner_advance,
+input logic i_lock_owner_move,
 (* dont_retime *) output logic     o_lock_any, o_lock_owner,
 output  logic [31:0]               o_reg_dat,
 (* dont_retime *) output logic [63:0] o_reg_idx,
@@ -243,10 +244,14 @@ assign o_wb_bte_nxt = (state_ff[FETCH_SINGLE] && CACHE_LINE == 16) ? 2'b01 : 2'b
 logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] way;       // ARM925T: the line's way
 logic    [63:0]                           reg_idx;
 logic    [63:0]                           lock_nxt, lock_ff;
+// ARM9V2: completion selects finished bits, never a tag before a
+// 64-way bitmap query. Keep the two query cones physically separate.
+(* keep *) wire owner_held_locked = lock_nxt[i_lock_owner_hold];
+(* keep *) wire owner_advance_locked = lock_nxt[i_lock_owner_advance];
 `ifndef SYNTHESIS
 logic [5:0] lock_owner_check;
 always_ff @(posedge i_clk) begin
-    lock_owner_check <= i_reset ? 6'd0 : i_lock_owner_next;
+    lock_owner_check <= i_reset ? 6'd0 : i_lock_owner_move ? i_lock_owner_advance : i_lock_owner_hold;
     if (!i_reset) begin
         assert (o_lock_any == (|lock_ff)) else $fatal(1, "lock summary stale");
         assert (o_lock_owner == lock_ff[lock_owner_check]) else $fatal(1, "lock owner stale");
@@ -440,7 +445,7 @@ begin
                 adr_ctr_ff              <= adr_ctr_nxt;
                 lock_ff                 <= lock_nxt;
                 o_lock_any <= |lock_nxt;
-                o_lock_owner <= lock_nxt[i_lock_owner_next];
+                o_lock_owner <= i_lock_owner_move ? owner_advance_locked : owner_held_locked;
 
                 // STATE
                 state_ff                <= state_nxt;

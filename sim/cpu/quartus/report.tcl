@@ -23,6 +23,7 @@ foreach_in_collection op [get_available_operating_conditions] {
         decode_matches {*u_decode|o_forward_match*}
         decode_grants {*u_decode|o_forward_grant*}
         decode_payload {*u_decode|d2*}
+        decode_d1 {*u_decode|d1*}
         decode_issue {*u_decode|issued*}
         dtlb {*u_data_cache|*u_zap_tlb_check|*}
         dtlb_hit {*u_data_cache|*u_zap_tlb_check|o_hit_ok*}

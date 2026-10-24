@@ -351,7 +351,9 @@ module arm9v2_core (
 	i_dc_lock,
 	i_dc_lock_any,
 	i_dc_lock_owner,
-	o_dc_lock_owner_next,
+	o_dc_lock_owner_hold,
+	o_dc_lock_owner_advance,
+	o_dc_lock_owner_move,
 	o_dc_reg_idx,
 	o_dc_reg_idx_bin,
 	o_dbg_wb_valid,
@@ -470,7 +472,9 @@ module arm9v2_core (
 	input wire [63:0] i_dc_lock;
 	input wire i_dc_lock_any;
 	input wire i_dc_lock_owner;
-	output wire [5:0] o_dc_lock_owner_next;
+	output wire [5:0] o_dc_lock_owner_hold;
+	output wire [5:0] o_dc_lock_owner_advance;
+	output wire o_dc_lock_owner_move;
 	output wire [63:0] o_dc_reg_idx;
 	output wire [5:0] o_dc_reg_idx_bin;
 	output wire o_dbg_wb_valid;
@@ -625,9 +629,11 @@ module arm9v2_core (
 	(* dont_retime *) reg [63:0] w_load_select;
 	(* dont_retime *) reg w_waited;
 	wire w_locked = i_dc_lock_owner;
+	assign o_dc_lock_owner_hold = w[90+:6];
+	assign o_dc_lock_owner_advance = m[90+:6];
 	reg done;
 	wire quick_reload = (((memory_state == 4'd1) && done) && !(m[539] && m[533])) && !(skid[539] && skid[533]);
-	assign o_dc_lock_owner_next = (i_reset ? 6'd0 : ((((memory_state == 4'd0) && done) || (memory_state == 4'd3)) || quick_reload ? m[90+:6] : w[90+:6]));
+	assign o_dc_lock_owner_move = (((memory_state == 4'd0) && done) || (memory_state == 4'd3)) || quick_reload;
 	wire w_return = |(i_dc_reg_idx & w_load_select);
 	wire scalar_replay = 1'b0;
 	(* dont_retime *) reg [5:0] return_tag;
@@ -1061,6 +1067,19 @@ module arm9v2_core (
 	assign retry = request_done && i_dcache_err2;
 	assign defer_load = (((request_done && !retry) && !i_data_wb_err) && !w[532]) && ((w[90+:6] == 15) || (w[6-:4] == SWP));
 	assign load_data = ((memory_state == 4'd6) || swap_write ? saved_load : i_data_wb_dat);
+	(* dont_retime *) reg [5:1] rf_static_class;
+	wire [5:0] rf_class;
+	always @(posedge i_clk)
+		if (i_reset)
+			rf_static_class <= 0;
+		else begin
+			rf_static_class[1] <= w_next[539] && w_next[528];
+			rf_static_class[2] <= w_next[539] && w_next[529];
+			rf_static_class[3] <= w_next[539] && w_next[536];
+			rf_static_class[4] <= (w_next[539] && w_next[538]) && (w_next[6-:4] == SWI);
+			rf_static_class[5] <= (w_next[539] && w_next[538]) && (w_next[6-:4] == UND);
+		end
+	assign rf_class = (memory_state == 4'd9 ? 6'd0 : {rf_static_class, (memory_state == 4'd10) || (request_done && i_data_wb_err)});
 	assign wb_restore = memory_state == 4'd9;
 	always @(*) begin
 		if (_sv2v_0)
@@ -1112,11 +1131,12 @@ module arm9v2_core (
 		end
 		if (w[6-:4] == CP)
 			wb_flags[31:28] = cp_flags;
-		if (wb_exception) begin
+		if (|rf_class) begin
 			wb_data0 = w[524-:32] + 32'd4;
 			wb_pair = 0;
-			wb_flags = w[460-:32];
 		end
+		if (wb_exception)
+			wb_flags = w[460-:32];
 		if (wb_restore) begin
 			wb_tag0 = w[96+:6];
 			wb_data0 = w[300-:32];
@@ -1463,6 +1483,7 @@ module arm9v2_core (
 	);
 	localparam [511:0] sv2v_uu_u_zap_writeback_ext_i_decompile_0 = 1'sb0;
 	zap_writeback #(
+		.RF_EARLY_SELECT(1),
 		.RF_ALLOW_RETIMING(0),
 		.BP_ENTRIES(32),
 		.PHY_REGS(40),
@@ -1470,6 +1491,7 @@ module arm9v2_core (
 		.RESET_VECTOR(RESET_VECTOR),
 		.CPSR_INIT(CPSR_INIT)
 	) u_zap_writeback(
+		.i_rf_class(rf_class),
 		.i_clk(i_clk),
 		.i_reset(i_reset),
 		.i_valid(wb_valid),
@@ -10941,6 +10963,7 @@ module zap_core (
 		.RESET_VECTOR(RESET_VECTOR),
 		.CPSR_INIT(CPSR_INIT)
 	) u_zap_writeback(
+		.i_rf_class(6'd0),
 		.o_trace(o_trace),
 		.o_trace_valid(o_trace_valid),
 		.o_trace_uop_last(o_trace_uop_last),
@@ -12138,7 +12161,9 @@ module zap_dcache (
 	i_reg_idx,
 	i_reg_idx_bin,
 	o_lock,
-	i_lock_owner_next,
+	i_lock_owner_hold,
+	i_lock_owner_advance,
+	i_lock_owner_move,
 	o_lock_any,
 	o_lock_owner,
 	o_reg_dat,
@@ -12222,7 +12247,9 @@ module zap_dcache (
 	input wire [63:0] i_reg_idx;
 	input wire [5:0] i_reg_idx_bin;
 	output wire [63:0] o_lock;
-	input wire [5:0] i_lock_owner_next;
+	input wire [5:0] i_lock_owner_hold;
+	input wire [5:0] i_lock_owner_advance;
+	input wire i_lock_owner_move;
 	output wire o_lock_any;
 	output wire o_lock_owner;
 	output wire [31:0] o_reg_dat;
@@ -12710,7 +12737,9 @@ module zap_dcache (
 		.i_reg_idx(i_reg_idx),
 		.i_reg_idx_bin(i_reg_idx_bin),
 		.o_lock(o_lock),
-		.i_lock_owner_next(i_lock_owner_next),
+		.i_lock_owner_hold(i_lock_owner_hold),
+		.i_lock_owner_advance(i_lock_owner_advance),
+		.i_lock_owner_move(i_lock_owner_move),
 		.o_lock_any(o_lock_any),
 		.o_lock_owner(o_lock_owner),
 		.o_reg_dat(o_reg_dat),
@@ -13064,7 +13093,9 @@ module zap_dcache_fsm (
 	i_reg_idx,
 	i_reg_idx_bin,
 	o_lock,
-	i_lock_owner_next,
+	i_lock_owner_hold,
+	i_lock_owner_advance,
+	i_lock_owner_move,
 	o_lock_any,
 	o_lock_owner,
 	o_reg_dat,
@@ -13160,7 +13191,9 @@ module zap_dcache_fsm (
 	input wire [63:0] i_reg_idx;
 	input wire [5:0] i_reg_idx_bin;
 	output reg [63:0] o_lock;
-	input wire [5:0] i_lock_owner_next;
+	input wire [5:0] i_lock_owner_hold;
+	input wire [5:0] i_lock_owner_advance;
+	input wire i_lock_owner_move;
 	(* dont_retime *) output reg o_lock_any;
 	(* dont_retime *) output reg o_lock_owner;
 	output wire [31:0] o_reg_dat;
@@ -13721,6 +13754,8 @@ module zap_dcache_fsm (
 	reg [63:0] reg_idx;
 	reg [63:0] lock_nxt;
 	reg [63:0] lock_ff;
+	(* keep *) wire owner_held_locked = lock_nxt[i_lock_owner_hold];
+	(* keep *) wire owner_advance_locked = lock_nxt[i_lock_owner_advance];
 	reg victim_valid;
 	reg wt_hit;
 	reg wt_dirty;
@@ -13857,7 +13892,7 @@ module zap_dcache_fsm (
 			adr_ctr_ff <= adr_ctr_nxt;
 			lock_ff <= lock_nxt;
 			o_lock_any <= |lock_nxt;
-			o_lock_owner <= lock_nxt[i_lock_owner_next];
+			o_lock_owner <= (i_lock_owner_move ? owner_advance_locked : owner_held_locked);
 			state_ff <= state_nxt;
 		end
 	always @(posedge i_clk) begin : sv2v_autoblock_1
@@ -21716,6 +21751,7 @@ module zap_register_file (
 	o_rd_data_d
 );
 	parameter integer ALLOW_RETIMING = 1;
+	parameter [0:0] EARLY_PORT_SELECT = 0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_wen;
@@ -21741,10 +21777,16 @@ module zap_register_file (
 			reg signed [31:0] r;
 			for (r = 0; r < 40; r = r + 1)
 				begin
-					if (i_wen && i_wr_addr_a[r])
-						mem[r * 32+:32] <= i_wr_data_a;
-					if (i_wen && i_wr_addr_b[r])
-						mem[r * 32+:32] <= i_wr_data_b;
+					if (EARLY_PORT_SELECT) begin
+						if (i_wen && (i_wr_addr_a[r] || i_wr_addr_b[r]))
+							mem[r * 32+:32] <= (i_wr_addr_b[r] ? i_wr_data_b : i_wr_data_a);
+					end
+					else begin
+						if (i_wen && i_wr_addr_a[r])
+							mem[r * 32+:32] <= i_wr_data_a;
+						if (i_wen && i_wr_addr_b[r])
+							mem[r * 32+:32] <= i_wr_data_b;
+					end
 					if (i_wr_addr_c[r])
 						mem[r * 32+:32] <= i_wr_data_c;
 				end
@@ -25789,7 +25831,9 @@ module zap_top (
 	wire [63:0] dc_lock;
 	wire dc_lock_any;
 	wire dc_lock_owner;
-	wire [5:0] dc_lock_owner_next;
+	wire [5:0] dc_lock_owner_hold;
+	wire [5:0] dc_lock_owner_advance;
+	wire dc_lock_owner_move;
 	wire [31:0] dc_reg_data;
 	wire icache_err2;
 	wire arm9_data_stall;
@@ -25829,7 +25873,7 @@ module zap_top (
 	generate
 		if (CORE == "ZAP") begin : g_zap
 			assign arm9_data_stall = 1'b0;
-			assign dc_lock_owner_next = 0;
+			assign {dc_lock_owner_hold, dc_lock_owner_advance, dc_lock_owner_move} = 0;
 			wire unused_lock_summaries = &{1'b0, dc_lock_any, dc_lock_owner};
 			assign cpu_dldfmt_check = 6'd0;
 			localparam [31:0] sv2v_uu_u_zap_core_ext_i_fsr_0 = 1'sb0;
@@ -26073,7 +26117,9 @@ module zap_top (
 				.i_dc_lock((!ONLY_CORE ? dc_lock : sv2v_uu_u_arm9_core_ext_i_dc_lock_0)),
 				.i_dc_lock_any(!ONLY_CORE && dc_lock_any),
 				.i_dc_lock_owner(!ONLY_CORE && dc_lock_owner),
-				.o_dc_lock_owner_next(dc_lock_owner_next),
+				.o_dc_lock_owner_hold(dc_lock_owner_hold),
+				.o_dc_lock_owner_advance(dc_lock_owner_advance),
+				.o_dc_lock_owner_move(dc_lock_owner_move),
 				.i_dc_reg_dat((!ONLY_CORE ? dc_reg_data : sv2v_uu_u_arm9_core_ext_i_dc_reg_dat_0)),
 				.i_dcache_inv_done((!ONLY_CORE ? dc_inv_done : sv2v_uu_u_arm9_core_ext_i_dcache_inv_done_0)),
 				.i_icache_inv_done((!ONLY_CORE ? ic_inv_done : sv2v_uu_u_arm9_core_ext_i_icache_inv_done_0)),
@@ -26088,7 +26134,7 @@ module zap_top (
 		end
 		else begin : g_invalid_core
 			initial begin
-				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:589:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
+				$display("Fatal [%0t] rtl/cpu/zap/zap_top.sv:592:13 - zap_top.g_invalid_core.<unnamed_block>\n msg: ", $time, "CORE must be ZAP or ARM9");
 				$finish(1);
 			end
 		end
@@ -26262,7 +26308,9 @@ module zap_top (
 				.o_writeback_busy(dc_writeback_busy),
 				.o_err(data_err),
 				.o_lock(dc_lock),
-				.i_lock_owner_next(dc_lock_owner_next),
+				.i_lock_owner_hold(dc_lock_owner_hold),
+				.i_lock_owner_advance(dc_lock_owner_advance),
+				.i_lock_owner_move(dc_lock_owner_move),
 				.o_lock_any(dc_lock_any),
 				.o_lock_owner(dc_lock_owner),
 				.o_reg_dat(dc_reg_data),
@@ -26841,6 +26889,7 @@ module zap_writeback (
 	i_clk,
 	i_reset,
 	i_valid,
+	i_rf_class,
 	i_code_stall,
 	i_clear_from_alu,
 	i_pc_from_alu,
@@ -26895,6 +26944,7 @@ module zap_writeback (
 );
 	reg _sv2v_0;
 	parameter integer RF_ALLOW_RETIMING = 1;
+	parameter [0:0] RF_EARLY_SELECT = 0;
 	parameter [31:0] BP_ENTRIES = 32'd1024;
 	parameter [31:0] FLAG_WDT = 32'd32;
 	parameter [31:0] PHY_REGS = 32'd46;
@@ -26912,6 +26962,7 @@ module zap_writeback (
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_valid;
+	input wire [5:0] i_rf_class;
 	input wire i_code_stall;
 	input wire i_clear_from_alu;
 	input wire [31:0] i_pc_from_alu;
@@ -27283,14 +27334,87 @@ module zap_writeback (
 	assign o_wb_cyc = pc_del3_ff[32];
 	assign o_pred = {pred_valid_ff, pred_target_ff & {32 {pred_valid_ff}}};
 	assign o_taken = taken_del3_ff;
-	zap_register_file #(.ALLOW_RETIMING(RF_ALLOW_RETIMING)) u_zap_register_file(
+	reg [39:0] rf_sel1;
+	reg [39:0] rf_sel2;
+	reg [31:0] rf_data1;
+	reg [31:0] rf_data2;
+	generate
+		if (RF_EARLY_SELECT) begin : g_rf_select
+			always @(*) begin
+				if (_sv2v_0)
+					;
+				rf_sel1 = write_alu;
+				rf_sel2 = (i_mem_load_ff ? write_load : 40'b0000000000000000000000000000000000000001 << PHY_RAZ_REGISTER);
+				rf_data1 = i_wr_data;
+				rf_data2 = i_wr_data_1;
+				if (i_copro_reg_en) begin
+					rf_sel1 = write_copro;
+					rf_sel2 = 40'b0000000000000000000000000000000000000001 << PHY_RAZ_REGISTER;
+					rf_data1 = i_copro_reg_wr_data;
+					rf_data2 = 0;
+				end
+				if (|i_rf_class) begin
+					rf_data2 = cpsr_ff;
+					if (i_rf_class[0]) begin
+						rf_sel1 = 40'b0000000000000000000000000000000000000001 << PHY_ABT_R14;
+						rf_sel2 = 40'b0000000000000000000000000000000000000001 << PHY_ABT_SPSR;
+						rf_data1 = (mode32 ? i_pc_plus_8_buf_ff : i_pc_plus_8_buf_ff + 32'd4);
+					end
+					else if (i_rf_class[1]) begin
+						rf_sel1 = 40'b0000000000000000000000000000000000000001 << PHY_FIQ_R14;
+						rf_sel2 = 40'b0000000000000000000000000000000000000001 << PHY_FIQ_SPSR;
+						rf_data1 = (mode32 ? i_wr_data : i_pc_plus_8_buf_ff);
+					end
+					else if (i_rf_class[2]) begin
+						rf_sel1 = 40'b0000000000000000000000000000000000000001 << PHY_IRQ_R14;
+						rf_sel2 = 40'b0000000000000000000000000000000000000001 << PHY_IRQ_SPSR;
+						rf_data1 = (mode32 ? i_wr_data : i_pc_plus_8_buf_ff);
+					end
+					else if (i_rf_class[3]) begin
+						rf_sel1 = 40'b0000000000000000000000000000000000000001 << PHY_ABT_R14;
+						rf_sel2 = 40'b0000000000000000000000000000000000000001 << PHY_ABT_SPSR;
+						rf_data1 = (mode32 ? i_wr_data : i_pc_plus_8_buf_ff);
+					end
+					else if (i_rf_class[4]) begin
+						rf_sel1 = 40'b0000000000000000000000000000000000000001 << PHY_SVC_R14;
+						rf_sel2 = 40'b0000000000000000000000000000000000000001 << PHY_SVC_SPSR;
+						rf_data1 = (mode32 ? i_wr_data : i_pc_plus_8_buf_ff - 32'd2);
+					end
+					else begin
+						rf_sel1 = 40'b0000000000000000000000000000000000000001 << PHY_UND_R14;
+						rf_sel2 = 40'b0000000000000000000000000000000000000001 << PHY_UND_SPSR;
+						rf_data1 = (mode32 ? i_wr_data : i_pc_plus_8_buf_ff - 32'd2);
+					end
+				end
+			end
+		end
+		else begin : g_rf_original
+			wire unused_class = &{1'b0, i_rf_class};
+			wire [40:1] sv2v_tmp_93AAF;
+			assign sv2v_tmp_93AAF = write_sel1;
+			always @(*) rf_sel1 = sv2v_tmp_93AAF;
+			wire [40:1] sv2v_tmp_FFB7A;
+			assign sv2v_tmp_FFB7A = write_sel2;
+			always @(*) rf_sel2 = sv2v_tmp_FFB7A;
+			wire [32:1] sv2v_tmp_1DE8F;
+			assign sv2v_tmp_1DE8F = wdata1;
+			always @(*) rf_data1 = sv2v_tmp_1DE8F;
+			wire [32:1] sv2v_tmp_43CE6;
+			assign sv2v_tmp_43CE6 = wdata2;
+			always @(*) rf_data2 = sv2v_tmp_43CE6;
+		end
+	endgenerate
+	zap_register_file #(
+		.ALLOW_RETIMING(RF_ALLOW_RETIMING),
+		.EARLY_PORT_SELECT(RF_EARLY_SELECT)
+	) u_zap_register_file(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
-		.i_wr_addr_a(write_sel1),
-		.i_wr_addr_b(write_sel2),
+		.i_wr_addr_a(rf_sel1),
+		.i_wr_addr_b(rf_sel2),
 		.i_wr_addr_c(i_wr_index_2),
-		.i_wr_data_a(wdata1),
-		.i_wr_data_b(wdata2),
+		.i_wr_data_a(rf_data1),
+		.i_wr_data_b(rf_data2),
 		.i_wr_data_c(i_wr_data_2),
 		.i_wen(wen),
 		.i_rd_addr_a((i_copro_reg_en ? i_copro_reg_rd_index : i_rd_index_0)),

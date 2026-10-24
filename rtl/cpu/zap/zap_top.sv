@@ -257,7 +257,8 @@ logic [63:0]     dc_rreg_idx, dc_wreg_idx;
 logic [5:0]      dc_rreg_idx_bin;
 logic [63:0]     dc_lock;
 logic dc_lock_any, dc_lock_owner;
-logic [5:0] dc_lock_owner_next;
+logic [5:0] dc_lock_owner_hold, dc_lock_owner_advance;
+logic dc_lock_owner_move;
 logic [31:0]     dc_reg_data;
 logic            icache_err2, dcache_err2;
 logic arm9_data_stall, data_fill_busy;
@@ -301,7 +302,7 @@ wire dc_writeback_busy; // ARM925T: registered eviction ownership
 
 if (CORE == "ZAP") begin : g_zap
 assign arm9_data_stall = 1'b0;
-assign dc_lock_owner_next = 0;
+assign {dc_lock_owner_hold,dc_lock_owner_advance,dc_lock_owner_move} = 0;
 wire unused_lock_summaries = &{1'b0,dc_lock_any,dc_lock_owner};
 assign cpu_dldfmt_check = 6'd0;
 zap_core #(
@@ -573,7 +574,9 @@ arm9v2_core #(
 .i_dc_lock              (!ONLY_CORE ? dc_lock : '0),
 .i_dc_lock_any          (!ONLY_CORE && dc_lock_any),
 .i_dc_lock_owner        (!ONLY_CORE && dc_lock_owner),
-.o_dc_lock_owner_next   (dc_lock_owner_next),
+.o_dc_lock_owner_hold(dc_lock_owner_hold),
+.o_dc_lock_owner_advance(dc_lock_owner_advance),
+.o_dc_lock_owner_move(dc_lock_owner_move),
 .i_dc_reg_dat           (!ONLY_CORE ? dc_reg_data : '0),
 .i_dcache_inv_done      (!ONLY_CORE ? dc_inv_done : '0),
 .i_icache_inv_done      (!ONLY_CORE ? ic_inv_done : '0),
@@ -855,7 +858,9 @@ u_data_cache (
 .o_writeback_busy       (dc_writeback_busy),
 .o_err                  (data_err),
 .o_lock                 (dc_lock),
-.i_lock_owner_next      (dc_lock_owner_next),
+.i_lock_owner_hold(dc_lock_owner_hold),
+.i_lock_owner_advance(dc_lock_owner_advance),
+.i_lock_owner_move(dc_lock_owner_move),
 .o_lock_any             (dc_lock_any),
 .o_lock_owner           (dc_lock_owner),
 .o_reg_dat              (dc_reg_data),

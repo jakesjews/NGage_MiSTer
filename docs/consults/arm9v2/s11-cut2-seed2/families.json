@@ -59,6 +59,26 @@
       "clock_skew_ns": -0.51
     }
   ],
+  "decode_d1": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -1.969,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|head_select[6]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1[0][190]",
+      "levels": 7,
+      "delay_ns": 10.896,
+      "clock_skew_ns": -0.518
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -2.1,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|head_select[1]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d1[0][190]",
+      "levels": 8,
+      "delay_ns": 11.03,
+      "clock_skew_ns": -0.515
+    }
+  ],
   "decode_grants": [
     {
       "corner": "1100mV_-40C_Model",

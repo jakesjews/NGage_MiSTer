@@ -176,7 +176,8 @@ input   logic [63:0]                     i_dc_reg_idx, // Register to load to.
 input   logic [31:0]                     i_dc_reg_dat, // Register data.
 input   logic [63:0]                     i_dc_lock,    // Register that is locked.
 input   logic                            i_dc_lock_any, i_dc_lock_owner,
-output  logic [5:0]                      o_dc_lock_owner_next,
+output logic [5:0] o_dc_lock_owner_hold, o_dc_lock_owner_advance,
+output logic o_dc_lock_owner_move,
 output  logic [63:0]                     o_dc_reg_idx, // Register index.
 output  logic [5:0]                      o_dc_reg_idx_bin, // Binary index.
 
@@ -352,8 +353,9 @@ output  logic [7:0]                      o_dbg_stall
     // The query owner follows the exact W capture schedule. The cache
     // samples this owner against lock_nxt, including a simultaneous clear
     // and new miss installation. No stale lock_ff summary is acceptable.
-    assign o_dc_lock_owner_next=i_reset?6'd0:
-        ((memory_state==RUN&&done)||memory_state==RELOAD1||quick_reload)?m.dest[0]:w.dest[0];
+    assign o_dc_lock_owner_hold=w.dest[0];
+    assign o_dc_lock_owner_advance=m.dest[0];
+    assign o_dc_lock_owner_move=(memory_state==RUN&&done)||memory_state==RELOAD1||quick_reload;
 `ifndef SYNTHESIS
     always_ff @(posedge i_clk) if(!i_reset) begin
         assert(i_dc_lock_any == (|i_dc_lock)) else $fatal(1,"global lock summary");
@@ -680,6 +682,23 @@ output  logic [7:0]                      o_dbg_stall
     assign retry=request_done&&i_dcache_err2;
     assign defer_load=request_done&&!retry&&!i_data_wb_err&&!w.store&&(w.dest[0]==15||w.kind==SWP);
     assign load_data=(memory_state==LOAD_RETURN||swap_write)?saved_load:i_data_wb_dat;
+    // Raw write-port class follows the W owner, independently of its
+    // eventual completion. A data abort is the only late class override.
+    // Architectural write enable, CPSR/exception control and trace remain
+    // qualified by completion in the original writeback control tree.
+    (* dont_retime *) logic [5:1] rf_static_class;
+    logic [5:0] rf_class;
+    always_ff @(posedge i_clk) begin
+        if(i_reset)rf_static_class<=0;
+        else begin
+            rf_static_class[1]<=w_next.valid&&w_next.fiq;
+            rf_static_class[2]<=w_next.valid&&w_next.irq;
+            rf_static_class[3]<=w_next.valid&&w_next.fault;
+            rf_static_class[4]<=w_next.valid&&w_next.pass&&w_next.kind==SWI;
+            rf_static_class[5]<=w_next.valid&&w_next.pass&&w_next.kind==UND;
+        end
+    end
+    assign rf_class=memory_state==RESTORE?6'd0:{rf_static_class,(memory_state==ABORT)||(request_done&&i_data_wb_err)};
     assign wb_restore=memory_state==RESTORE;
     always_comb begin
         wb_complete=complete_class[0];
@@ -711,7 +730,8 @@ output  logic [7:0]                      o_dbg_stall
             end else if(!w.ins[22])wb_flags=(w.flags&~psr_mask)|(w.psr_source&psr_mask);
         end
         if(w.kind==CP)wb_flags[31:28]=cp_flags;
-        if(wb_exception)begin wb_data0=w.pc+32'd4;wb_pair=0;wb_flags=w.flags;end
+        if(|rf_class)begin wb_data0=w.pc+32'd4;wb_pair=0;end
+        if(wb_exception)wb_flags=w.flags;
         if(wb_restore)begin wb_tag0=w.dest[1];wb_data0=w.original_base;wb_pair=0;wb_flags=w.flags;end
         return_event=w.pass&&(w.pc_write||(w.memory&&!w.store&&w.dest[0]==15));
         return_target=w.memory?load_data:w.kind==SUFFIX?w.address:w.result[0];
@@ -966,9 +986,9 @@ output  logic [7:0]                      o_dbg_stall
         .o_multiply_wait(a_multiply_wait)
     );
 
-    zap_writeback #(.RF_ALLOW_RETIMING(0),.BP_ENTRIES(32),.PHY_REGS(40),.FLAG_WDT(32),
+    zap_writeback #(.RF_EARLY_SELECT(1),.RF_ALLOW_RETIMING(0),.BP_ENTRIES(32),.PHY_REGS(40),.FLAG_WDT(32),
         .RESET_VECTOR(RESET_VECTOR),.CPSR_INIT(CPSR_INIT)) u_zap_writeback (
-        .i_clk(i_clk),.i_reset(i_reset),.i_valid(wb_valid),
+        .i_rf_class(rf_class),.i_clk(i_clk),.i_reset(i_reset),.i_valid(wb_valid),
         .i_decompile('0),.i_decompile_valid(wb_cfail),.i_uop_last(wb_last),
         .o_decompile(),.o_shelve(),.i_cpu_pid(o_pid[6:0]),
         .i_l4_enable(l4_enable),.i_hivecs(hivecs),.i_clear_btb(1'b0),

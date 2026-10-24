@@ -21,7 +21,7 @@
 // plentiful.
 //
 
-module zap_register_file #(parameter integer ALLOW_RETIMING=1)
+module zap_register_file #(parameter integer ALLOW_RETIMING=1, parameter logic EARLY_PORT_SELECT=0)
 (
         // Clock and reset.
         input logic              i_clk,
@@ -72,8 +72,15 @@ begin
                 // binary address. Preserve B over A, and background over
                 // both, including writes to the dummy/RAZ storage entries.
                 for (int r = 0; r < 40; r++) begin
-                        if (i_wen && i_wr_addr_a[r]) mem[r] <= i_wr_data_a;
-                        if (i_wen && i_wr_addr_b[r]) mem[r] <= i_wr_data_b;
+                        if (EARLY_PORT_SELECT) begin
+                                // V2: port priority uses the registered owner
+                                // class. Completion only enables the update.
+                                if (i_wen && (i_wr_addr_a[r] || i_wr_addr_b[r]))
+                                        mem[r] <= i_wr_addr_b[r] ? i_wr_data_b : i_wr_data_a;
+                        end else begin
+                                if (i_wen && i_wr_addr_a[r]) mem[r] <= i_wr_data_a;
+                                if (i_wen && i_wr_addr_b[r]) mem[r] <= i_wr_data_b;
+                        end
                         if (i_wr_addr_c[r]) mem[r] <= i_wr_data_c;
                 end
         end

@@ -7,6 +7,7 @@ foreach_in_collection op [get_available_operating_conditions] {
  update_timing_netlist
  set name [get_operating_conditions_info -display_name $op]
  foreach {family pattern} {
+  decode_d1 {*u_decode|d1*}
   backend_m {*|g_arm9.u_arm9_core|m*}
   backend_skid {*|g_arm9.u_arm9_core|skid*}
   tlb_metadata {*u_data_cache|*u_zap_tlb|*g_short.valid*}

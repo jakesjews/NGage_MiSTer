@@ -14,7 +14,7 @@ module tb_btb;
     wire [1:0] taken;
     wire valid, shelve;
 
-    zap_writeback #(.BP_ENTRIES(512)) dut (
+    zap_writeback #(.BP_ENTRIES(512)) dut (.i_rf_class(6'd0),
         .i_clk(clk), .i_reset(reset), .i_code_stall(stall),
         .i_clear_btb(clear_btb), .i_confirm_from_alu(confirm),
         .i_clear_from_alu(clear_alu), .i_alu_pc_ff(source),

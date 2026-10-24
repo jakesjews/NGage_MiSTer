@@ -1679,6 +1679,7 @@ zap_writeback #(
 )
 u_zap_writeback
 (
+.i_rf_class(6'd0),
         .o_trace                (o_trace),
         .o_trace_valid          (o_trace_valid),
         .o_trace_uop_last       (o_trace_uop_last),
