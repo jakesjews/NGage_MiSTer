@@ -4164,3 +4164,25 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   not finished. On a recurrence: the overlay's counts, the MGL, and
   Main's stdout (user_io_file_tx prints each file and index). Built
   into the next debug core with the overlay words.
+- **ARM9 v2, session 2** (Codex, codex/arm9v2 541f68f, 7f42e7a;
+  docs/consults/2026-10-23-codex-arm9v2-s2.md): the front end closed on
+  its own, -0.856 -> **+0.712 ns** median of seeds 2-4 at 104 MHz
+  (validity snapshotted and selected by the registered lookup PC, the
+  shared RAM's collision compare registered, the predicted and
+  sequential next PCs computed in parallel and the finished value
+  selected; no added stage, the trained loop still one fetch a clock).
+  The decode pair D1/D2 built: one Thumb expander at D1's input, the
+  LDM/STM list counted by balanced trees, signed 8-bit offsets, four
+  source and two destination indices at D2, all banks, direct B/BL
+  redirected from D2's registered target with the return stack's
+  checkpoint; 6.0 M checks exhaustive over every register list, the
+  real I-cache at three bus latencies. Front end + decode + register
+  file as one trial: -0.890 ns median (-0.37 to -1.15), 4,159 ALMs;
+  the chains are the queue head's 256 fanout into the Thumb expander
+  and the list arithmetic, and D1 into the branch target. An untrained
+  direct branch loses six slots against the design's three. ZAP's 777
+  cycle/instruction pairs unchanged. Session 3 running: those chains
+  and the redirect handoffs, then S/A (the forwarding network, the
+  rotator, flags, the multiplier).
+- b25 (the debug core with the loader words): -1.188 ns, 37,886 ALMs,
+  487 M10K.
