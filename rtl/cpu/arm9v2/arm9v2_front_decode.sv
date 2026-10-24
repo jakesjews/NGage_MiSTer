@@ -30,6 +30,8 @@ module arm9v2_front_decode #(
     input logic [1:0][1:0][5:0] i_forward_tag, i_advance_tag,
     input logic i_forward_advance,
     input logic [1:0][1:0] i_forward_write,
+    input logic [1:0] i_forward_load,
+    (* dont_retime *) output logic [1:0][3:0][4:0] o_forward_grant,
     output logic [3:0][1:0][1:0] o_forward_match,
     output logic [3:0] o_early,
     input logic i_ready,

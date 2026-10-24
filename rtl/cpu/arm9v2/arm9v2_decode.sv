@@ -38,6 +38,8 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     input logic [1:0][1:0][5:0] i_forward_tag, i_advance_tag,
     input logic i_forward_advance,
     input logic [1:0][1:0] i_forward_write,
+    input logic [1:0] i_forward_load,
+    (* dont_retime *) output logic [1:0][3:0][4:0] o_forward_grant,
     (* dont_retime *) output logic [3:0][1:0][1:0] o_forward_match,
     output logic [3:0] o_early,
     input logic i_ready,
@@ -453,6 +455,35 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
                 i_forward_write[prod][lane]&&d2_candidate_match[i_forward_advance][src][prod][lane];
             else o_forward_match[src][prod][lane]<=issued.used[src]&&
                 i_forward_write[prod][lane]&&held_candidate_match[i_forward_advance][src][prod][lane];
+    end
+    // Data grants are distinct from full age/pending matches. Resolve
+    // M's unavailable load and the lane priority before the D2/S edge.
+    // W's permission-qualified hit arrives on that SAME edge. Capture
+    // both finished grant alternatives; its registered hit selects them
+    // in S without looking at either producer's load-writer mask.
+    logic [1:0][3:0][4:0] grant_next;
+    always_comb begin
+        logic [1:0][1:0] data_match;
+        logic seen;
+        grant_next='0;
+        for(int hit=0;hit<2;hit++)for(int src=0;src<4;src++)begin
+            for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
+                data_match[prod][lane]=i_forward_write[prod][lane]&&
+                    ((!out_valid||i_ready)?d2.used[src]&&d2_candidate_match[i_forward_advance][src][prod][lane]:
+                                          issued.used[src]&&held_candidate_match[i_forward_advance][src][prod][lane])&&
+                    !(lane==0&&i_forward_load[prod]&&(prod==0||hit==0));
+            seen=0;
+            for(int rank=0;rank<4;rank++)begin
+                grant_next[hit][src][rank]=data_match[rank/2][1-rank%2]&&!seen;
+                seen|=data_match[rank/2][1-rank%2];
+            end
+            grant_next[hit][src][4]=!seen;
+        end
+    end
+    always_ff @(posedge i_clk) begin
+        if(i_reset||i_flush)for(int hit=0;hit<2;hit++)for(int src=0;src<4;src++)
+            o_forward_grant[hit][src]<=5'b10000;
+        else o_forward_grant<=grant_next;
     end
     // Retain the latency separation when a backend hold compresses the
     // relative positions of load and consumer. All comparisons terminate

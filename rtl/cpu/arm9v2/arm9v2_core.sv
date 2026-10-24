@@ -224,6 +224,7 @@ output  logic [7:0]                      o_dbg_stall
     logic [3:0][5:0] d_tag;
     logic [3:0] d_used,d_early;
     logic [3:0][1:0][1:0] d_forward_match;
+    logic [1:0][3:0][4:0] d_forward_grant;
     logic [1:0][1:0][5:0] forward_tag;
     logic [1:0][1:0] forward_write;
     logic [31:0] a_btb_pc;
@@ -785,7 +786,7 @@ output  logic [7:0]                      o_dbg_stall
 
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1)) u_front_decode (
         .i_w_load_hit(i_data_short_hit&&!w_waited),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
-        .i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
+        .i_forward_load(forward_load),.o_forward_grant(d_forward_grant),.i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),.o_return_match(d_return_match),
         .i_reset(i_reset),
         .i_flush(wb_flush||a_redirect),
@@ -879,7 +880,7 @@ output  logic [7:0]                      o_dbg_stall
         .i_load_hit(i_data_short_hit&&!w_waited),
         .i_return_select(i_dc_reg_idx),.i_return_data(operand_return_data),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),
-        .i_return_ready(return_ready),.i_return_s_match(d_return_match),.i_forward_match(d_forward_match),.i_next_tag(mw_tag),.i_advance_tag(advance_tag),.i_next_advance(forward_advance),.i_next_write(forward_write),.i_early(d_early),
+        .i_return_ready(return_ready),.i_return_s_match(d_return_match),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(mw_tag),.i_advance_tag(advance_tag),.i_next_advance(forward_advance),.i_next_write(forward_write),.i_early(d_early),
         .o_btb_pc(a_btb_pc),.o_btb_thumb(a_btb_thumb),
         .o_record_pointer(a_record_pointer),.o_record_count(a_record_count),
         .o_record_pred_hit(a_record_pred_hit),.o_record_pred_state(a_record_pred_state),.o_record_thumb(a_record_thumb),

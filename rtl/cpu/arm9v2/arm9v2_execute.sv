@@ -23,6 +23,7 @@ module arm9v2_execute (
     input logic [3:0][5:0] i_tag,
     input logic [3:0] i_used,i_early,
     input logic [3:0][1:0][1:0] i_forward_match,
+    input logic [1:0][3:0][4:0] i_forward_grant,
     input logic [1:0][1:0][5:0] i_next_tag, i_advance_tag,
     input logic i_next_advance,
     input logic [1:0][1:0] i_next_write,
@@ -119,11 +120,11 @@ module arm9v2_execute (
         s_return_match[src]={i_return_select[{26'd0,i_tag[src]}],i_return_ready&&i_return_s_match[src]};
         a_return_match[src]={i_return_select[{26'd0,a.tag[src]}],i_return_ready&&return_a_match[src]};
     end
-    logic [3:0][1:0][1:0] ready_match;
+
     // Matches are already registered at D2/S and S/A. A short hit is itself
     // a registered permission-qualified response. No ACK drives admission.
     always_comb begin
-        ready_match=i_forward_match;s_wait=holding?s_pending:i_pending;a_wait=a.pending;
+        s_wait=holding?s_pending:i_pending;a_wait=a.pending;
         // Resolve readiness in exactly the data network's age order. A
         // newer ready ALU writer cancels an older load's pending token;
         // a newer unresolved load shadows an older hit/return.
@@ -131,7 +132,6 @@ module arm9v2_execute (
             if(|i_forward_match[src][prod])
                 s_wait[src]=i_forward_match[src][prod][0]&&
                     i_load_owner[prod]&&(prod==0||!i_load_hit);
-            if(i_load_owner[prod]&&(prod==0||!i_load_hit))ready_match[src][prod][0]=0;
             if(|a.late[src][prod])
                 a_wait[src]=a.late[src][prod][0]&&
                     i_load_owner[prod]&&(prod==0||!i_load_hit);
@@ -149,8 +149,27 @@ module arm9v2_execute (
     logic [31:0] actual_target;
     logic actual_thumb,wrong_prediction;
     wire unused=&{1'b0,i_cpsr[27:0],i_used[2],i_mw_tag,i_mw_valid,CP,UND,SWI,actual_target[0],lh[33:32],hl[33:32],hh[33:32]};
-    arm9v2_forward u_forward(.i_value(holding?held:i_value),.i_match(ready_match),
+    arm9v2_forward u_forward(.i_value(holding?held:i_value),.i_grant(i_forward_grant[i_load_hit]),
         .i_producer_value(i_mw_value),.o_value(forwarded));
+`ifndef SYNTHESIS
+    // Prove every selected data source is ready, and that the precomputed
+    // grants preserve the old selector (including its RF/held fallback).
+    always_ff @(posedge i_clk) if(!i_reset&&!i_flush&&i_valid) begin
+        for(int src=0;src<4;src++)begin
+            logic seen,eligible;
+            seen=0;
+            for(int rank=0;rank<4;rank++)begin
+                eligible=i_forward_match[src][rank/2][1-rank%2]&&
+                    !(rank%2==1&&i_load_owner[rank/2]&&(rank/2==0||!i_load_hit));
+                assert(i_forward_grant[i_load_hit][src][rank]==(eligible&&!seen))
+                    else $fatal(1,"S grant age/readiness src=%0d rank=%0d",src,rank);
+                seen|=eligible;
+            end
+            assert(i_forward_grant[i_load_hit][src][4]==!seen);
+            assert($onehot(i_forward_grant[i_load_hit][src]));
+        end
+    end
+`endif
     always_comb begin
         operand=forwarded;
         for(int s=0;s<4;s++)begin

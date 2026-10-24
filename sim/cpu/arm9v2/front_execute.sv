@@ -81,6 +81,7 @@ module arm9v2_front_execute #(
     logic [3:0][5:0] d_tag;
     logic [3:0] d_used;
     logic [3:0][1:0][1:0] d_forward_match;
+    logic [1:0][3:0][4:0] d_forward_grant;
     logic [1:0][1:0][5:0] forward_tag;
     logic [1:0][1:0] forward_write;
     logic [3:0] d_early;
@@ -147,7 +148,7 @@ module arm9v2_front_execute #(
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR)) u_front_decode (
         .i_rf_value('0),.o_rf_tag(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),
         .o_writes(),.o_early(d_early),.i_forward_tag(forward_tag),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_write(forward_write),
-        .o_forward_match(d_forward_match),.i_clk(i_clk),
+        .i_forward_load('0),.o_forward_grant(d_forward_grant),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),
         .i_reset(i_reset),
         .i_flush(i_flush||o_redirect),
@@ -235,7 +236,7 @@ module arm9v2_front_execute #(
         .o_stall(o_stall)
     );
     arm9v2_execute u_execute (.i_pending(4'd0),.i_load_owner(2'd0),.i_next_load_owner(2'd0),.i_load_hit(1'b0),.i_return_select(64'd0),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.i_return_ready(1'b0),.i_return_s_match(4'd0),.i_return_data(64'd0),
-        .i_admit(1'b1),.i_load_wait(1'b0),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_advance_tag('0),.i_next_advance(1'b0),.i_next_write(forward_write),.i_early(d_early),
+        .i_admit(1'b1),.i_load_wait(1'b0),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_advance_tag('0),.i_next_advance(1'b0),.i_next_write(forward_write),.i_early(d_early),
         .o_btb_pc(btb_pc),.o_btb_thumb(btb_thumb),.o_record_pointer(),.o_record_count(),
         .o_record_pred_hit(),.o_record_pred_state(),.o_record_thumb(),
         .o_a_load(),.o_psr_source(),.o_saved_psr(),.o_original_base(),.o_next_pc(),.o_prediction_target(),.o_spsr_tag(),.o_predicted(),

@@ -32,6 +32,9 @@ foreach_in_collection op [get_available_operating_conditions] {
         short_response {*u_data_cache|tr_cache_words*}
         locks {*u_data_cache|*u_zap_cache_fsm|*lock*}
         backend {*|g_arm9.u_arm9_core|w*}
+        backend_m {*|g_arm9.u_arm9_core|m*}
+        backend_skid {*|g_arm9.u_arm9_core|skid*}
+        tlb_metadata {*u_data_cache|*u_zap_tlb|*g_short.valid*}
         fetch {*u_fetch|*}
         rf {*u_zap_register_file|*}
     } {

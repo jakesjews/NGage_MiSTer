@@ -72,6 +72,7 @@ module execute_tb;
     // at M, so datapath semantics are checked after the acceptance edge.
     logic [3:0] i_early;
     logic [3:0][1:0][1:0] i_forward_match;
+    logic [1:0][3:0][4:0] i_forward_grant;
     logic [1:0][1:0][5:0] i_next_tag,real_tag;
     logic [1:0][1:0] i_next_write,real_write;
     logic [1:0][1:0][31:0] real_value;
@@ -124,6 +125,18 @@ module execute_tb;
         if(i_kind==13||i_kind==14)i_early=6;
         for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
             i_forward_match[src][prod][lane]=i_used[src]&&real_write[prod][lane]&&i_tag[src]==real_tag[prod][lane];
+    end
+    always_comb begin
+        logic seen;
+        i_forward_grant=0;
+        for(int hit=0;hit<2;hit++)for(int src=0;src<4;src++)begin
+            seen=0;
+            for(int rank=0;rank<4;rank++)begin
+                i_forward_grant[hit][src][rank]=i_forward_match[src][rank/2][1-rank%2]&&!(rank%2==1&&i_load_owner[rank/2]&&(rank/2==0||hit==0))&&!seen;
+                seen|=i_forward_match[src][rank/2][1-rank%2]&&!(rank%2==1&&i_load_owner[rank/2]&&(rank/2==0||hit==0));
+            end
+            i_forward_grant[hit][src][4]=!seen;
+        end
     end
     always_ff @(posedge i_clk)begin
         if(i_reset||i_flush)begin

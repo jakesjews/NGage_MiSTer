@@ -15,7 +15,17 @@ module execute_leaf_tb;
     logic [3:0][1:0][1:0] match_bits;
     always_comb for(int s=0;s<4;s++)for(int p=0;p<2;p++)for(int lane=0;lane<2;lane++)
         match_bits[s][p][lane]=used[s]&&valid[p][lane]&&tag[s]==pt[p][lane];
-    arm9v2_forward forward(.i_value(value),.i_match(match_bits),
+    logic [3:0][4:0] grants;
+    always_comb for(int s=0;s<4;s++)begin
+        logic seen;
+        seen=0;
+        for(int rank=0;rank<4;rank++)begin
+            grants[s][rank]=match_bits[s][rank/2][1-rank%2]&&!seen;
+            seen|=match_bits[s][rank/2][1-rank%2];
+        end
+        grants[s][4]=!seen;
+    end
+    arm9v2_forward forward(.i_value(value),.i_grant(grants),
         .i_producer_value(pv),.o_value(forwarded));
     // Independently exercised legacy ARM shifter is the shift oracle, not
     // another copy of the new rotator/mask implementation.

@@ -505,6 +505,7 @@ module arm9v2_core (
 	wire [3:0] d_used;
 	wire [3:0] d_early;
 	wire [15:0] d_forward_match;
+	wire [39:0] d_forward_grant;
 	reg [23:0] forward_tag;
 	reg [3:0] forward_write;
 	wire [31:0] a_btb_pc;
@@ -1244,6 +1245,8 @@ module arm9v2_core (
 		.i_forward_tag(mw_tag),
 		.i_advance_tag(advance_tag),
 		.i_forward_advance(forward_advance),
+		.i_forward_load(forward_load),
+		.o_forward_grant(d_forward_grant),
 		.i_forward_write(forward_write),
 		.o_forward_match(d_forward_match),
 		.i_clk(i_clk),
@@ -1356,6 +1359,7 @@ module arm9v2_core (
 		.i_return_next_tag(w[90+:6]),
 		.i_return_ready(return_ready),
 		.i_return_s_match(d_return_match),
+		.i_forward_grant(d_forward_grant),
 		.i_forward_match(d_forward_match),
 		.i_next_tag(mw_tag),
 		.i_advance_tag(advance_tag),
@@ -1636,6 +1640,8 @@ module arm9v2_decode (
 	i_advance_tag,
 	i_forward_advance,
 	i_forward_write,
+	i_forward_load,
+	o_forward_grant,
 	o_forward_match,
 	o_early,
 	i_ready,
@@ -1729,6 +1735,8 @@ module arm9v2_decode (
 	input wire [23:0] i_advance_tag;
 	input wire i_forward_advance;
 	input wire [3:0] i_forward_write;
+	input wire [1:0] i_forward_load;
+	(* dont_retime *) output reg [39:0] o_forward_grant;
 	(* dont_retime *) output reg [15:0] o_forward_match;
 	output wire [3:0] o_early;
 	input wire i_ready;
@@ -2289,15 +2297,64 @@ module arm9v2_decode (
 						end
 				end
 		end
+	reg [39:0] grant_next;
+	always @(*) begin : sv2v_autoblock_9
+		reg [3:0] data_match;
+		reg seen;
+		if (_sv2v_0)
+			;
+		grant_next = 1'sb0;
+		begin : sv2v_autoblock_10
+			reg signed [31:0] hit;
+			for (hit = 0; hit < 2; hit = hit + 1)
+				begin : sv2v_autoblock_11
+					reg signed [31:0] src;
+					for (src = 0; src < 4; src = src + 1)
+						begin
+							begin : sv2v_autoblock_12
+								reg signed [31:0] prod;
+								for (prod = 0; prod < 2; prod = prod + 1)
+									begin : sv2v_autoblock_13
+										reg signed [31:0] lane;
+										for (lane = 0; lane < 2; lane = lane + 1)
+											data_match[(prod * 2) + lane] = (i_forward_write[(prod * 2) + lane] && (!out_valid || i_ready ? d2[96 + src] && d2_candidate_match[(((((i_forward_advance * 4) + src) * 2) + prod) * 2) + lane] : issued[96 + src] && held_candidate_match[(((((i_forward_advance * 4) + src) * 2) + prod) * 2) + lane])) && !(((lane == 0) && i_forward_load[prod]) && ((prod == 0) || (hit == 0)));
+									end
+							end
+							seen = 0;
+							begin : sv2v_autoblock_14
+								reg signed [31:0] rank;
+								for (rank = 0; rank < 4; rank = rank + 1)
+									begin
+										grant_next[(((hit * 4) + src) * 5) + rank] = data_match[((rank / 2) * 2) + (1 - (rank % 2))] && !seen;
+										seen = seen | data_match[((rank / 2) * 2) + (1 - (rank % 2))];
+									end
+							end
+							grant_next[(((hit * 4) + src) * 5) + 4] = !seen;
+						end
+				end
+		end
+	end
+	always @(posedge i_clk)
+		if (i_reset || i_flush) begin : sv2v_autoblock_15
+			reg signed [31:0] hit;
+			for (hit = 0; hit < 2; hit = hit + 1)
+				begin : sv2v_autoblock_16
+					reg signed [31:0] src;
+					for (src = 0; src < 4; src = src + 1)
+						o_forward_grant[((hit * 4) + src) * 5+:5] <= 5'b10000;
+				end
+		end
+		else
+			o_forward_grant <= grant_next;
 	reg load_wait_next;
 	always @(*) begin
 		if (_sv2v_0)
 			;
 		load_wait_next = 0;
-		begin : sv2v_autoblock_9
+		begin : sv2v_autoblock_17
 			reg signed [31:0] src;
 			for (src = 0; src < 4; src = src + 1)
-				begin : sv2v_autoblock_10
+				begin : sv2v_autoblock_18
 					reg signed [31:0] prod;
 					for (prod = 0; prod < 2; prod = prod + 1)
 						if (!out_valid || i_ready)
@@ -2330,10 +2387,10 @@ module arm9v2_decode (
 		if (_sv2v_0)
 			;
 		early_hazard = 0;
-		begin : sv2v_autoblock_11
+		begin : sv2v_autoblock_19
 			reg signed [31:0] src;
 			for (src = 0; src < 4; src = src + 1)
-				begin : sv2v_autoblock_12
+				begin : sv2v_autoblock_20
 					reg signed [31:0] pending;
 					for (pending = 0; pending < 4; pending = pending + 1)
 						early_hazard[src] = early_hazard[src] | ((early_used[src] && i_early_valid[pending]) && (d2[100 + (src * 6)+:6] == i_early_tag[pending * 6+:6]));
@@ -2344,23 +2401,23 @@ module arm9v2_decode (
 		if (_sv2v_0)
 			;
 		load_hazard = 0;
-		begin : sv2v_autoblock_13
+		begin : sv2v_autoblock_21
 			reg signed [31:0] pending;
 			for (pending = 0; pending < 6; pending = pending + 1)
 				begin
-					begin : sv2v_autoblock_14
+					begin : sv2v_autoblock_22
 						reg signed [31:0] src;
 						for (src = 0; src < 4; src = src + 1)
 							load_hazard = load_hazard | (((d2[96 + src] && i_load_valid[pending]) && ((!i_load_speculate[pending] || (pending == 0)) || (d2[92 + src] && (pending == 1)))) && (d2[100 + (src * 6)+:6] == i_load_tag[pending * 6+:6]));
 					end
-					if (EXTERNAL_RF) begin : sv2v_autoblock_15
+					if (EXTERNAL_RF) begin : sv2v_autoblock_23
 						reg signed [31:0] dst;
 						for (dst = 0; dst < 2; dst = dst + 1)
 							load_hazard = load_hazard | (((d2[78 + dst] && i_load_valid[pending]) && (d2[80 + (dst * 6)+:6] == i_load_tag[pending * 6+:6])) && !(i_load_speculate[pending] && ((((((pending == 4) && i_w_load_hit) || (d2[96] && (d2[100+:6] == i_load_tag[pending * 6+:6]))) || (d2[97] && (d2[106+:6] == i_load_tag[pending * 6+:6]))) || (d2[98] && (d2[112+:6] == i_load_tag[pending * 6+:6]))) || (d2[99] && (d2[118+:6] == i_load_tag[pending * 6+:6])))));
 					end
 				end
 		end
-		if (EXTERNAL_RF) begin : sv2v_autoblock_16
+		if (EXTERNAL_RF) begin : sv2v_autoblock_24
 			reg signed [31:0] dst;
 			for (dst = 0; dst < 2; dst = dst + 1)
 				load_hazard = load_hazard | (d2[78 + dst] && i_locked[d2[80 + (dst * 6)+:6]]);
@@ -2400,7 +2457,7 @@ module arm9v2_decode (
 		if (_sv2v_0)
 			;
 		o_value = values;
-		begin : sv2v_autoblock_17
+		begin : sv2v_autoblock_25
 			reg signed [31:0] n;
 			for (n = 0; n < 4; n = n + 1)
 				begin
@@ -2466,13 +2523,13 @@ module arm9v2_decode (
 			if (!out_valid || i_ready) begin
 				issued <= d2;
 				values <= raw_values;
-				begin : sv2v_autoblock_18
+				begin : sv2v_autoblock_26
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
 						o_pending[src] <= ((d2[96 + src] && i_load_valid[4]) && !i_w_load_hit) && (d2[100 + (src * 6)+:6] == i_load_tag[24+:6]);
 				end
 				write_through_data <= {i_wr_data_c, i_wr_data_b, i_wr_data_a};
-				begin : sv2v_autoblock_19
+				begin : sv2v_autoblock_27
 					reg signed [31:0] n;
 					for (n = 0; n < 4; n = n + 1)
 						write_through_match[n * 3+:3] <= {i_wr_addr_c[d2[100 + (n * 6)+:6]], i_wen && i_wr_addr_b[d2[100 + (n * 6)+:6]], i_wen && i_wr_addr_a[d2[100 + (n * 6)+:6]]};
@@ -2623,6 +2680,7 @@ module arm9v2_execute (
 	i_used,
 	i_early,
 	i_forward_match,
+	i_forward_grant,
 	i_next_tag,
 	i_advance_tag,
 	i_next_advance,
@@ -2737,6 +2795,7 @@ module arm9v2_execute (
 	input wire [3:0] i_used;
 	input wire [3:0] i_early;
 	input wire [15:0] i_forward_match;
+	input wire [39:0] i_forward_grant;
 	input wire [23:0] i_next_tag;
 	input wire [23:0] i_advance_tag;
 	input wire i_next_advance;
@@ -2872,11 +2931,9 @@ module arm9v2_execute (
 				a_return_match[src * 2+:2] = {i_return_select[{26'd0, a[16 + (src * 6)+:6]}], i_return_ready && return_a_match[src]};
 			end
 	end
-	reg [15:0] ready_match;
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		ready_match = i_forward_match;
 		s_wait = (holding ? s_pending : i_pending);
 		a_wait = a[11-:4];
 		begin : sv2v_autoblock_3
@@ -2888,8 +2945,6 @@ module arm9v2_execute (
 						begin
 							if (|i_forward_match[((src * 2) + prod) * 2+:2])
 								s_wait[src] = (i_forward_match[((src * 2) + prod) * 2] && i_load_owner[prod]) && ((prod == 0) || !i_load_hit);
-							if (i_load_owner[prod] && ((prod == 0) || !i_load_hit))
-								ready_match[((src * 2) + prod) * 2] = 0;
 							if (|a[40 + (((src * 2) + prod) * 2)+:2])
 								a_wait[src] = (a[40 + (((src * 2) + prod) * 2)] && i_load_owner[prod]) && ((prod == 0) || !i_load_hit);
 						end
@@ -2927,7 +2982,7 @@ module arm9v2_execute (
 	wire unused = &{1'b0, i_cpsr[27:0], i_used[2], i_mw_tag, i_mw_valid, CP, UND, SWI, actual_target[0], lh[33:32], hl[33:32], hh[33:32]};
 	arm9v2_forward u_forward(
 		.i_value((holding ? held : i_value)),
-		.i_match(ready_match),
+		.i_grant(i_forward_grant[5 * (i_load_hit * 4)+:20]),
 		.i_producer_value(i_mw_value),
 		.o_value(forwarded)
 	);
@@ -3735,24 +3790,18 @@ module arm9v2_fetch (
 endmodule
 module arm9v2_forward (
 	i_value,
-	i_match,
+	i_grant,
 	i_producer_value,
 	o_value
 );
 	reg _sv2v_0;
 	input wire [127:0] i_value;
-	input wire [15:0] i_match;
+	input wire [19:0] i_grant;
 	input wire [127:0] i_producer_value;
 	output reg [127:0] o_value;
-	reg [15:0] match_word;
-	reg [15:0] grant;
-	reg [3:0] seen;
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		match_word = 0;
-		grant = 0;
-		seen = 0;
 		o_value = 0;
 		begin : sv2v_autoblock_1
 			reg signed [31:0] s;
@@ -3761,14 +3810,9 @@ module arm9v2_forward (
 					begin : sv2v_autoblock_2
 						reg signed [31:0] rank;
 						for (rank = 0; rank < 4; rank = rank + 1)
-							begin
-								match_word[(s * 4) + rank] = i_match[(((s * 2) + (rank / 2)) * 2) + (1 - (rank % 2))];
-								grant[(s * 4) + rank] = match_word[(s * 4) + rank] && !seen[s];
-								seen[s] = seen[s] | match_word[(s * 4) + rank];
-								o_value[s * 32+:32] = o_value[s * 32+:32] | (i_producer_value[(((rank / 2) * 2) + (1 - (rank % 2))) * 32+:32] & {32 {grant[(s * 4) + rank]}});
-							end
+							o_value[s * 32+:32] = o_value[s * 32+:32] | (i_producer_value[(((rank / 2) * 2) + (1 - (rank % 2))) * 32+:32] & {32 {i_grant[(s * 5) + rank]}});
 					end
-					o_value[s * 32+:32] = o_value[s * 32+:32] | (i_value[s * 32+:32] & {32 {!seen[s]}});
+					o_value[s * 32+:32] = o_value[s * 32+:32] | (i_value[s * 32+:32] & {32 {i_grant[(s * 5) + 4]}});
 				end
 		end
 	end
@@ -3807,6 +3851,8 @@ module arm9v2_front_decode (
 	i_advance_tag,
 	i_forward_advance,
 	i_forward_write,
+	i_forward_load,
+	o_forward_grant,
 	o_forward_match,
 	o_early,
 	i_ready,
@@ -3916,6 +3962,8 @@ module arm9v2_front_decode (
 	input wire [23:0] i_advance_tag;
 	input wire i_forward_advance;
 	input wire [3:0] i_forward_write;
+	input wire [1:0] i_forward_load;
+	(* dont_retime *) output wire [39:0] o_forward_grant;
 	output wire [15:0] o_forward_match;
 	output wire [3:0] o_early;
 	input wire i_ready;
@@ -4094,6 +4142,8 @@ module arm9v2_front_decode (
 		.i_advance_tag(i_advance_tag),
 		.i_forward_advance(i_forward_advance),
 		.i_forward_write(i_forward_write),
+		.i_forward_load(i_forward_load),
+		.o_forward_grant(o_forward_grant),
 		.o_forward_match(o_forward_match),
 		.o_early(o_early),
 		.i_ready(i_ready),

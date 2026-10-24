@@ -1,0 +1,382 @@
+{
+  "backend": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -1.512,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_words[6]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|wb_flush",
+      "levels": 10,
+      "delay_ns": 10.454,
+      "clock_skew_ns": -0.503
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -1.857,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_words[6]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|wb_flush",
+      "levels": 10,
+      "delay_ns": 10.801,
+      "clock_skew_ns": -0.501
+    }
+  ],
+  "backend_m": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -1.912,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_words[23]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|m[427]",
+      "levels": 9,
+      "delay_ns": 10.819,
+      "clock_skew_ns": -0.538
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -2.204,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_words[23]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|m[427]",
+      "levels": 9,
+      "delay_ns": 11.111,
+      "clock_skew_ns": -0.538
+    }
+  ],
+  "backend_skid": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -1.517,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_words[23]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|skid[427]",
+      "levels": 8,
+      "delay_ns": 10.452,
+      "clock_skew_ns": -0.51
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -1.774,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_words[23]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|skid[427]",
+      "levels": 8,
+      "delay_ns": 10.709,
+      "clock_skew_ns": -0.51
+    }
+  ],
+  "decode_grants": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -1.037,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|w_waited",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|o_forward_grant[39]",
+      "levels": 7,
+      "delay_ns": 9.988,
+      "clock_skew_ns": -0.494
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -1.379,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|w_waited",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|o_forward_grant[39]",
+      "levels": 7,
+      "delay_ns": 10.335,
+      "clock_skew_ns": -0.489
+    }
+  ],
+  "decode_issue": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -0.431,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|w[525]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[252]",
+      "levels": 5,
+      "delay_ns": 9.354,
+      "clock_skew_ns": -0.522
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -0.941,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_hit~DUPLICATE",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|issued[252]",
+      "levels": 5,
+      "delay_ns": 9.883,
+      "clock_skew_ns": -0.503
+    }
+  ],
+  "decode_matches": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -0.955,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|flags[2]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|o_forward_match[9]",
+      "levels": 8,
+      "delay_ns": 9.891,
+      "clock_skew_ns": -0.509
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -1.24,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|w[527]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|o_forward_match[6]",
+      "levels": 7,
+      "delay_ns": 10.179,
+      "clock_skew_ns": -0.506
+    }
+  ],
+  "decode_payload": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -2.306,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|head_select[3]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[120]",
+      "levels": 8,
+      "delay_ns": 11.221,
+      "clock_skew_ns": -0.53
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -2.473,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|head_select[3]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|d2[120]",
+      "levels": 8,
+      "delay_ns": 11.388,
+      "clock_skew_ns": -0.53
+    }
+  ],
+  "dtlb": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -1.815,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_fpage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0|altsyncram_h0q1:auto_generated|ram_block1a2~PORT_B_WRITE_ENABLE_REG",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_hit_ok",
+      "levels": 6,
+      "delay_ns": 8.713,
+      "clock_skew_ns": -2.547
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -1.558,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_fpage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0|altsyncram_h0q1:auto_generated|ram_block1a2~PORT_B_WRITE_ENABLE_REG",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_hit_ok",
+      "levels": 6,
+      "delay_ns": 8.571,
+      "clock_skew_ns": -2.432
+    }
+  ],
+  "dtlb_fault": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -0.835,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_fpage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0|altsyncram_h0q1:auto_generated|ram_block1a2~PORT_B_WRITE_ENABLE_REG",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_fsr[3]~DUPLICATE",
+      "levels": 6,
+      "delay_ns": 7.737,
+      "clock_skew_ns": -2.543
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -0.687,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_spage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0|altsyncram_u3q1:auto_generated|ram_block1a0~PORT_B_WRITE_ENABLE_REG",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_fsr[0]~DUPLICATE",
+      "levels": 6,
+      "delay_ns": 7.699,
+      "clock_skew_ns": -2.433
+    }
+  ],
+  "dtlb_hit": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -1.815,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_fpage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0|altsyncram_h0q1:auto_generated|ram_block1a2~PORT_B_WRITE_ENABLE_REG",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_hit_ok",
+      "levels": 6,
+      "delay_ns": 8.713,
+      "clock_skew_ns": -2.547
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -1.558,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_fpage_tlb|zap_ram_simple:g_short.u_ram|altsyncram:g_short.mem_rtl_0|altsyncram_h0q1:auto_generated|ram_block1a2~PORT_B_WRITE_ENABLE_REG",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_hit_ok",
+      "levels": 6,
+      "delay_ns": 8.571,
+      "clock_skew_ns": -2.432
+    }
+  ],
+  "execute": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -1.66,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_decode:u_decode|write_through_match[4]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[138]",
+      "levels": 9,
+      "delay_ns": 10.61,
+      "clock_skew_ns": -0.495
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -1.967,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_hit_ok~DUPLICATE",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[147]",
+      "levels": 9,
+      "delay_ns": 10.922,
+      "clock_skew_ns": -0.49
+    }
+  ],
+  "execute_late": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -1.032,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|w[4]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[45]",
+      "levels": 8,
+      "delay_ns": 9.985,
+      "clock_skew_ns": -0.492
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -1.347,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|w[4]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[45]",
+      "levels": 8,
+      "delay_ns": 10.291,
+      "clock_skew_ns": -0.501
+    }
+  ],
+  "fetch": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -1.561,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|arm9v2_predict:g_predictor.u_predict|read_pc[3]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|arm9v2_predict:g_predictor.u_predict|read_pc[24]",
+      "levels": 7,
+      "delay_ns": 10.874,
+      "clock_skew_ns": -0.132
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -1.683,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|arm9v2_predict:g_predictor.u_predict|read_pc[3]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_front_decode:u_front_decode|arm9v2_fetch:u_fetch|arm9v2_predict:g_predictor.u_predict|read_pc[24]",
+      "levels": 7,
+      "delay_ns": 10.982,
+      "clock_skew_ns": -0.146
+    }
+  ],
+  "locks": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -1.429,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|request_ff",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|o_lock_any",
+      "levels": 9,
+      "delay_ns": 10.772,
+      "clock_skew_ns": -0.102
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -1.673,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|request_ff",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|o_lock_any",
+      "levels": 9,
+      "delay_ns": 11.012,
+      "clock_skew_ns": -0.106
+    }
+  ],
+  "metadata": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -1.36,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_hit~DUPLICATE",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|g_short_meta.valid_bank[21]",
+      "levels": 8,
+      "delay_ns": 10.308,
+      "clock_skew_ns": -0.497
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -1.583,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_hit~DUPLICATE",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|g_short_meta.valid_bank[21]",
+      "levels": 8,
+      "delay_ns": 10.524,
+      "clock_skew_ns": -0.504
+    }
+  ],
+  "rf": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -2.096,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|state_ff[9]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|mem[818]",
+      "levels": 8,
+      "delay_ns": 11.033,
+      "clock_skew_ns": -0.508
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -2.467,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|state_ff[9]",
+      "to": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|zap_writeback:u_zap_writeback|zap_register_file:u_zap_register_file|mem[809]",
+      "levels": 8,
+      "delay_ns": 11.401,
+      "clock_skew_ns": -0.511
+    }
+  ],
+  "short_collision": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -0.018,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_hit~DUPLICATE",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|g_short_ram.rd_addr_q[6]",
+      "levels": 6,
+      "delay_ns": 8.98,
+      "clock_skew_ns": -0.483
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -0.206,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_hit~DUPLICATE",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|g_short_ram.rd_addr_q[6]",
+      "levels": 6,
+      "delay_ns": 9.158,
+      "clock_skew_ns": -0.493
+    }
+  ],
+  "short_response": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -1.792,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_cache_tag_ram:u_zap_cache_tag_ram|g_short_ram.rd_addr_q[1]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_words[22]",
+      "levels": 8,
+      "delay_ns": 10.721,
+      "clock_skew_ns": -0.516
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -1.955,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_dcache_fsm:u_zap_cache_fsm|o_relookup[0]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|tr_cache_words[10]",
+      "levels": 9,
+      "delay_ns": 10.908,
+      "clock_skew_ns": -0.492
+    }
+  ],
+  "tlb_metadata": [
+    {
+      "corner": "1100mV_-40C_Model",
+      "slack_ns": -0.015,
+      "from": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_tlb_check:u_zap_tlb_check|o_fsr[2]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_spage_tlb|g_short.valid[69]",
+      "levels": 7,
+      "delay_ns": 8.972,
+      "clock_skew_ns": -0.488
+    },
+    {
+      "corner": "1100mV_100C_Model",
+      "slack_ns": -0.179,
+      "from": "arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|w[527]",
+      "to": "arm925t:cpu|zap_top:u_zap|zap_dcache:l_generate_with_cache_mmu.u_data_cache|zap_tlb:u_zap_tlb|zap_mem_inv_block:u_spage_tlb|g_short.valid[222]",
+      "levels": 6,
+      "delay_ns": 9.151,
+      "clock_skew_ns": -0.473
+    }
+  ]
+}
