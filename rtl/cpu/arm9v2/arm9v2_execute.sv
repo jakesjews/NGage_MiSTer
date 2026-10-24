@@ -105,17 +105,17 @@ module arm9v2_execute (
     // a registered permission-qualified response. No ACK drives admission.
     always_comb begin
         ready_match=i_forward_match;s_wait=holding?s_pending:i_pending;a_wait=a.pending;
-        for(int src=0;src<4;src++)begin
-            if(i_forward_match[src][1][0]&&i_load_owner[1])begin
-                s_wait[src]=!i_load_hit;
-                ready_match[src][1][0]=i_load_hit;
-            end
-            if(i_forward_match[src][0][0]&&i_load_owner[0])begin
-                s_wait[src]=1;ready_match[src][0][0]=0;
-            end
-            // A younger M writer shadows W, including an older hit to the
-            // same register. Readiness must use the same age as data selection.
-            if(a.late[src][1][0]&&i_load_owner[1]&&i_load_hit&&!(|a.late[src][0]))a_wait[src]=0;
+        // Resolve readiness in exactly the data network's age order. A
+        // newer ready ALU writer cancels an older load's pending token;
+        // a newer unresolved load shadows an older hit/return.
+        for(int src=0;src<4;src++)for(int prod=1;prod>=0;prod--)begin
+            if(|i_forward_match[src][prod])
+                s_wait[src]=i_forward_match[src][prod][0]&&
+                    i_load_owner[prod]&&(prod==0||!i_load_hit);
+            if(i_load_owner[prod]&&(prod==0||!i_load_hit))ready_match[src][prod][0]=0;
+            if(|a.late[src][prod])
+                a_wait[src]=a.late[src][prod][0]&&
+                    i_load_owner[prod]&&(prod==0||!i_load_hit);
         end
     end
     logic [31:0] shift_input,shifted;

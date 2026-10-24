@@ -1,0 +1,83 @@
+{
+  "ZAP": {
+    "runs": 267,
+    "qemu_agree": 69,
+    "qemu_differ": 0,
+    "original_264_pairs_equal_priority_manifest": true,
+    "loadchain": {
+      "loadchain.0-0.log": [
+        56661,
+        12799
+      ],
+      "loadchain.0-3.log": [
+        82856,
+        12799
+      ],
+      "loadchain.2-9.log": [
+        149430,
+        12799
+      ]
+    },
+    "loadchain_high_latency_qemu_agree": 2
+  },
+  "ARM9": {
+    "runs": 267,
+    "qemu_agree": 69,
+    "qemu_differ": 0,
+    "original_264_pairs_equal_priority_manifest": true,
+    "loadchain": {
+      "loadchain.0-0.log": [
+        51789,
+        12799
+      ],
+      "loadchain.0-3.log": [
+        78127,
+        12799
+      ],
+      "loadchain.2-9.log": [
+        145433,
+        12799
+      ]
+    },
+    "loadchain_high_latency_qemu_agree": 2
+  },
+  "ARM9-off": {
+    "runs": 267,
+    "qemu_agree": 69,
+    "qemu_differ": 0,
+    "original_264_pairs_equal_priority_manifest": true,
+    "loadchain": {
+      "loadchain.0-0.log": [
+        92947,
+        12799
+      ],
+      "loadchain.0-3.log": [
+        113545,
+        12799
+      ],
+      "loadchain.2-9.log": [
+        192094,
+        12799
+      ]
+    },
+    "loadchain_high_latency_qemu_agree": 2
+  },
+  "source_netlist_sha256": "8b97867f01618e98315243d3fabc99b752aafe700e21277447d13ddec60b0547",
+  "before_age_fix_loadchain_failures": {
+    "0:0": {
+      "result": "0xbad00004",
+      "check": 4,
+      "cycle": 50949
+    },
+    "0:3": {
+      "result": "0xbad00004",
+      "check": 4,
+      "cycle": 77243
+    },
+    "2:9": {
+      "result": "0xbad00004",
+      "check": 4,
+      "cycle": 144260
+    }
+  }
+}

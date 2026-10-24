@@ -475,6 +475,10 @@ output  logic [7:0]                      o_dbg_stall
         input_record.dest=a_dest;input_record.result=a_result;
         input_record.writes=a_write&{2{input_record.valid}};
         input_record.load_writer=a_memory&&!a_store&&a_dest[0]!=15&&input_record.valid;
+        // Scalar Rd == Rn writeback: the load (RF port B) wins over the
+        // address update (port A). Expose only that architectural writer to
+        // M/W forwarding, including a permission-qualified short hit.
+        if(a_kind==MEM&&input_record.load_writer&&a_dest[0]==a_dest[1])input_record.writes[1]=0;
         input_record.memory=a_memory;input_record.store=a_store&&a_kind!=SWP;
         input_record.address=a_data_address;input_record.store_data=a_store_data;
         input_record.original_base=a_original_base;input_record.psr_source=a_psr_source;

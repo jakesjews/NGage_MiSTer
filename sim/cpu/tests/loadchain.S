@@ -35,6 +35,8 @@ test_main:
 	ldr r3, pointer
 	ldr r3, [r3]
 	rsb r3, r1, r3
+	cmp r3, #0
+	beq wrong
 	CHECK r3, 0x7fc00000
 	ldr r3, pointer
 	ldr r3, [r3]
@@ -49,6 +51,16 @@ test_main:
 	str r3, [r4, #8]
 	ldr r2, [r4, #8]
 	CHECK r2, 7
+	@ The loaded destination wins over base writeback when Rd == Rn,
+	@ as the reference core and QEMU specify (word and halfword).
+	ldr r3, pointer
+	.word 0xe4933004 @ ldr r3,[r3],#4
+	cmp r3, #0
+	bne wrong
+	ldr r3, pointer
+	.word 0xe0d330b4 @ ldrh r3,[r3],#4
+	cmp r3, #0
+	bne wrong
 	subs r8, r8, #1
 	bne 1b
 	CHECKPOINT

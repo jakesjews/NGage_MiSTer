@@ -508,9 +508,17 @@ module execute_tb;
         check(!raw_o_valid,"younger M load shadows older W hit");
         i_return_select[0]=64'd1;i_return_data[0]=32'h80006680;tick();
         check(!raw_o_valid,"older W return cannot repair younger load operand");
-        i_return_select=0;i_mw_valid=4'b0100;i_load_owner=2;i_next_load_owner=2;
-        i_mw_value[1][0]=100;tick();receive();
+        i_return_select=0;i_mw_valid=4'b0100;i_next_load_owner=2;
+        // Advance the precomputed token before dropping the manually driven
+        // M ownership; real M/W registers and this token move on one edge.
+        i_mw_value[1][0]=100;tick();i_load_owner=2;receive();
         check(o_result[0]==106,"younger load hit supplies late operand");
+        // The youngest writer can also be an ALU result. A stale pending
+        // bit from an older load must not deadlock its ready replacement.
+        reset_case();manual_producers=1;i_pending=1;
+        i_mw_valid=4'b0101;i_mw_tag=0;i_load_owner=2;i_next_load_owner=2;
+        i_mw_value[0][0]=100;i_mw_value[1][0]=32'h80006680;i_value[1]=6;send();receive();
+        check(o_result[0]==106,"ready M ALU supersedes pending older load");
         // Older exception/restore clears all younger slots and restores flags.
         reset_case();i_instruction=32'he3b0a001;send();i_cpsr=32'h90000013;i_flush=1;tick();i_flush=0;
         check(!o_valid&&!o_a_valid&&o_flags==9&&!o_redirect,"older flush and flag restore");
