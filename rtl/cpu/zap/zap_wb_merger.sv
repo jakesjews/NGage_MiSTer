@@ -44,8 +44,10 @@ input logic [3:0]       i_c_wb_sel,
 input logic [31:0]      i_c_wb_dat,
 input logic [31:0]      i_c_wb_adr,
 input logic [2:0]       i_c_wb_cti,
+input logic [1:0]       i_c_wb_bte, // ARM925T: I-cache critical-word-first
 output logic            o_c_wb_ack,
 output logic            o_c_wb_err,
+output logic            o_dbg_data_owner, // registered grant, observation only
 
 // Wishbone bus 2
 input logic             i_d_wb_stb,
@@ -95,6 +97,8 @@ owner_t state_nxt;
 
 // Alias
 logic switch;
+
+assign o_dbg_data_owner = state_ff == DATA;
 
 assign switch = (i_wb_ack | i_wb_err) & (o_wb_cti == CTI_EOB);
 
@@ -219,7 +223,7 @@ begin: l_genblk1
                         o_wb_sel <= i_c_wb_sel;
                         o_wb_adr <= i_c_wb_adr;
                         o_wb_cti <= i_c_wb_cti;
-                        o_wb_bte <= 2'b00;
+                        o_wb_bte <= i_c_wb_bte;
                 end
                 else
                 begin
@@ -253,7 +257,7 @@ begin: l_genblk2
                         o_wb_dat = i_c_wb_dat;
                         o_wb_adr = i_c_wb_adr;
                         o_wb_cti = i_c_wb_cti;
-                        o_wb_bte = 2'b00;
+                        o_wb_bte = i_c_wb_bte;
                 end
                 else
                 begin

@@ -48,6 +48,7 @@ module tb_cpu #(
 	output logic [1279:0] p_regs,      // 40 physical registers, 32 bits each
 	output logic [63:0]   p_lock,      // registers waiting for a background load
 	output logic [7:0]    p_stall,     // same overlapping level counters as hardware
+	output logic [7:0]    p_icache,    // fetch, fill, arbitration and TLB taps
 	output logic [3:0]    p_dcache,    // registered D-cache events exported by arm925t
 	// data side, for the bus log: request to the D-cache, its virtual
 	// address, alignment fault
@@ -116,6 +117,7 @@ module tb_cpu #(
 		.bus_rdata (bus_rdata),
 		.bus_ack   (bus_ack),
 		.bus_err   (bus_err),
+		.dbg_icache (p_icache),
 		.dbg_dcache (p_dcache)
 	);
 
@@ -323,5 +325,64 @@ module tb_cpu #(
 		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_wr,          // 1
 		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_rd           // 0
 	};
+
+	// End-to-end demand CWF checks independent of the FSM's word selectors.
+	// Count accepted beats; derive the expected order from the original miss.
+	`define IC dut.u_zap.l_generate_with_cache_mmu.u_code_cache.u_zap_cache_fsm
+	if (CACHE_LINE == 16 && !ICACHE_PREFETCH) begin : g_icwf_check
+		logic [31:0] expected_addr;
+		logic [1:0] beat;
+		logic [3:0] seen;
+		logic [127:0] returned;
+		logic pending, first_ready;
+		logic [31:0] first_data;
+		always @(posedge clk) begin
+			if (reset) begin
+				pending <= 1'b0;
+				first_ready <= 1'b0;
+				seen <= '0;
+				beat <= '0;
+			end else begin
+				first_ready <= 1'b0;
+				if (`IC.state_ff == 0 && `IC.state_nxt == 4) begin
+					assert (!pending) else $fatal(1, "Overlapping I demand fills");
+					expected_addr <= {`IC.i_phy_addr[31:2], 2'b00};
+					beat <= '0;
+					seen <= '0;
+					pending <= 1'b1;
+				end
+				if (`IC.state_ff == 4 && `IC.take) begin
+					assert (pending && `IC.o_wb_adr_ff == expected_addr)
+						else $fatal(1, "I fill did not start at / wrap from critical word");
+					assert (bus_req && !bus_we && bus_addr == expected_addr && bus_bte == 1)
+						else $fatal(1, "I fill wrap/address lost through merger");
+					assert (bus_burst == (beat != 3))
+						else $fatal(1, "I fill EOB follows word index instead of beat count");
+					assert (!seen[expected_addr[3:2]]) else $fatal(1, "I fill repeated a word");
+					seen[expected_addr[3:2]] <= 1'b1;
+					returned[32*expected_addr[3:2] +: 32] <= `IC.i_wb_dat;
+					expected_addr <= {expected_addr[31:4], expected_addr[3:2] + 2'd1, 2'b00};
+					beat <= beat + 2'd1;
+					if (beat == 0 && `IC.fill_lookup[31:2] == `IC.address[31:2]) begin
+						first_ready <= 1'b1;
+						first_data <= `IC.i_wb_dat;
+					end
+				end
+				if (first_ready) begin
+					assert (`IC.fill_ready_ff && `IC.response_dat_ff == first_data)
+						else $fatal(1, "Critical I word did not reach registered early-restart bypass");
+				end
+				if (`IC.state_ff == 8 && pending) begin
+					assert (seen == 4'b1111 && `IC.fill_valid_ff == 4'b1111)
+						else $fatal(1, "Incomplete I fill at completion");
+					for (int w = 0; w < 4; w++)
+						assert (`IC.buf_ff[w] == returned[32*w +: 32])
+							else $fatal(1, "I fill installed rotated words");
+					pending <= 1'b0;
+				end
+			end
+		end
+	end
+	`undef IC
 
 endmodule

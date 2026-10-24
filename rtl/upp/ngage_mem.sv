@@ -41,6 +41,7 @@ module ngage_mem #(
 	output logic         wb_ack,
 	output logic         wb_err,
 	output logic [31:0]  wb_dat_o,
+	output logic         dbg_dma_owner,
 
 	// the DMA controller: Wishbone B3 classic single beats
 	input  logic         dma_cyc,
@@ -147,6 +148,7 @@ module ngage_mem #(
 	logic [1:0]  b_bte;
 
 	wb_arb2 arb (
+		.dbg_m1_owner(dbg_dma_owner),
 		.clk(clk),
 		.reset(reset),
 		.m0_cyc(wb_cyc), .m0_stb(wb_stb), .m0_we(wb_we), .m0_adr(wb_adr), .m0_dat(wb_dat_i),
