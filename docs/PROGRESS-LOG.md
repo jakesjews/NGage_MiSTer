@@ -4659,3 +4659,26 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   -1.302 ns against -0.956 without it. The measurement core of
   memside3 is building for the board; the 16 KB D-cache stripped
   build runs on the Mac.
+- **The fetch handshake fixed: the early-execution gate complete on ZAP**
+  (the memory thread, codex/memside3 df29e89, with the user's one-bit
+  exception to the ZAP freeze; the report's "Authorized follow-up"
+  section). One register, zap_core's fetch_consumed_ff: set when the
+  held fetch register holds a valid word and the FIFO has room, it
+  replaces code_stall as the FIFO's write inhibit, so the held word
+  enqueues once without waiting for the next cache ACK; cleared on a
+  fetch advance, reset, the ALU and decode redirects and the writeback
+  clear; zap_fetch_main, zap_fifo, the decoders and every stage
+  boundary untouched. A new directed test (ifetch_rtl) retires the
+  critical instruction before the fill's second beat at every ARM and
+  Thumb offset, +12 included; the negative control against the
+  cache-side-only netlist fails it. 237/237, 57 QEMU; the existing
+  234 runs 21,699,562 -> 21,411,745 cycles (**-1.33 %**, the largest
+  suite gain of the memory-side items, every test moving); nine runs
+  of four clock-timed IRQ/FIQ tests retire a different number of
+  polling instructions, traced instruction by instruction; the board
+  benches and both lints pass. The complete change is three bits of
+  state. The cache-side-only core (ied-s2) is being measured on the
+  board for the separation; the complete core (ieh-s2) and the
+  stripped seed 9 (ie-s9) are building on the server, the 16 KB
+  D-cache stripped build on the Mac. The memory thread is idle until
+  those come in.
