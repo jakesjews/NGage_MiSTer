@@ -6229,3 +6229,38 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the JTAG server (the cable enumerated as 6810, then 6010 "DE-SoC"),
   and the first SignalTap capture of the sector copy on the full-effort
   flash-probe core runs (scratch capture_flash.sh v2stp1).
+- **First SignalTap capture: the session works end to end, the trigger
+  did not fire.** The JTAG server found the hardware and the "flash"
+  instance in the running core, armed it 14 s after the launcher load
+  and timed out at 90 s (build/hardware/game/stp-v2stp1/); the
+  stripped probe core itself booted to the idle screen with the
+  dialog, and without the overlay's bars the thread name is readable
+  at last: **"App. closed EmonServer"**. The data-port taps do exist in
+  the stripped build (zap_top assigns o_dbg_d_va = cpu_daddr
+  unconditionally), so the miss is the trigger's address: the sector's
+  virtual address depends on which window base (0x59200000 or
+  0x59600000) maps the CS1 offset. SignalTap's basic trigger is
+  programmable at run time, so the second capture uses the same
+  compiled instance with a new pattern (no rebuild): any completed
+  data-port read in the 0x59xxxxxx window whose word is the file's
+  first word 0x10000050, the storage qualifier widened to the whole
+  0x59xxxxxx window.
+  EmonServer in the ROM: its strings sit at 0x50E11A00 ("Emon server
+  panic", "EmonServer", beside "NOSDRIVER", the phone-side driver), so
+  it is a server with its own panic category, consistent with a
+  startup ConstructL that Leaves (the -20 from CommDb) and panics.
+- The second capture (the file's first word in any 0x59xxxxxx read) did
+  not fire either (stp-v2stp2); a sanity capture triggered on any
+  completed data-port access (stp-v2stp3) fired at once, so the
+  headless mechanism works and the misses are the address or data
+  assumptions, not the tooling. Learned: a run-time .stp must keep the
+  compiled instance's storage-qualifier mode (the sanity file without
+  the qualifier drew "SignalTap II File is not compatible with the
+  file programmed in your device" and its data was not saved). The
+  trace decoder's note gives the cached XIP view of CS1 at 0x51000000
+  after CS0's 16 MB at 0x50000000, so the media driver's window bases
+  0x59200000/0x59600000 may be CS1 offsets under an uncached alias at
+  0x58000000 rather than the C: partition's base; the fourth capture
+  (stp-flash6) triggers on the first completed read anywhere in
+  0x59xxxxxx after arming and stores only those, to learn the real
+  addresses.
