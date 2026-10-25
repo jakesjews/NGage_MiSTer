@@ -5917,3 +5917,29 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the board has run (-0.8); a full-effort build of the same worktree
   follows on lane b8 as the capture core, the fast one kept as a
   fallback.
+- **The stale-descriptor lead confirmed in RTL** (the subagent,
+  codex/arm9v2 1dab72e: sim/cpu/tests/arm9_tlb_stale_rtl.S; pushed).
+  For a non-memory instruction at W, arm9v2_execute sets o_address =
+  alu_result and the pre-fix-3 walker walked it; zap_tlb_fsm installs
+  an entry even for a fault descriptor, which zap_tlb_check turns into
+  a translation abort. The trigger shape is `L1 hit; mov r3,#S; L2
+  miss`, which garbage-walks section S that the program never
+  addresses. (a) reproduces: S unmapped at the trigger, then mapped
+  valid with no flush, then loaded: pre-fix V2 aborts on the stale
+  fault entry, ZAP and fixed V2 read the RAM. (b) does not: a cached
+  fault entry surviving a fault-to-valid remap aborts on every core,
+  the ordinary ARM flush rule, and any c8 flush (all or by VA)
+  invalidates the whole TLB. **(c) reproduces as wrong data**: S mapped
+  to PA_A at the trigger (only the garbage walk reads it), remapped to
+  PA_B without a flush, then loaded: pre-fix V2 returns PA_A's word
+  with no abort, exactly the "read back wrong" shape; ZAP and fixed V2
+  return PA_B. Fix 3 closes all of it: V2 walks only the checked
+  address and no longer poisons untouched sections; the residual
+  concern (a stale descriptor bus read) is the normal page-table
+  coherency rule, the same as ZAP's, and the kernel's tables are
+  uncached. The test passes on ZAP and V2 (D8, D16, predictor off) at
+  every latency; the pre-fix netlist fails it everywhere. The comms
+  database misread fits: the media driver's flash window is a
+  remappable section, and a stale entry from a garbage walk of it
+  would make the copy read another page of the flash. The TLB-fix
+  core on the board decides it (paused until the MiSTer returns).
