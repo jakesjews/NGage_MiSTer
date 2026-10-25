@@ -6157,3 +6157,33 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   two-colour indexing back at the front for that core, with a rarer
   path still present at 8 KB (one dialog in twelve). The second
   subagent has both.
+- **Lanes C, D and E done, no cycle cost** (the subagent, codex/arm9v2
+  1e14cce/1cd5fc6/1065256 lane C, 5a381d4/38b9cda lane D, 731fe94/
+  69bfe61/3f945c8 lane E; pushed): the whole device at 104 MHz seed 2
+  from -2.312 to **-2.086 ns** (TNS -4,689 -> -3,368). C: each short-
+  port way formatted before the hit selects (the plan's C1, no sub-word
+  fallback needed); the trial's leader was the RAM read/write collision
+  compare driving ~280 bypass selects, now registered: the CPU trial's
+  short_response -2.98 -> -1.02; the load word through S's shifter
+  (only the consumer's own operand shift, often by zero) gets its own
+  rotator in S: the device path -2.31 -> -1.98; arm9_short_format_rtl
+  catches five mutants. D: Quartus had retimed the TLB's hit register
+  onto o_wt; the short hit now uses a copy the fitter cannot retime:
+  decode_redirect -2.29 -> -1.56 (the TLB check's own input slipped to
+  -0.71); not taken: A's wait -> D2 step -> queue pop, now the CPU
+  trial's worst at -2.31, which needs a skid entry between D2 and S or
+  the plan's registered completion (+1.0-1.3 %). E: the Thumb halfword
+  moved at queue push (decode_d1 -2.20 -> -1.62); W's return target
+  compared per source in parallel (the wb_flush family -2.08 ->
+  -0.85); arm9_return_target_rtl matches QEMU's trace. 330/330 in all
+  five configurations, the 321 runs shared with A1 cycle-identical,
+  the source RTL with assertions clean at D8 and D16, QEMU 75/75, lints
+  clean, netlist check passes, boot milestones identical. Caveats:
+  with C and D alone the device was worse (-2.53) in families none of
+  the lanes touch; area up about 1,070 ALMs to 81 %. The device
+  leaders now: the front end (the RAS pointer into the I-TLB, -2.09)
+  and the cache FSM's completion signal into the register file. So the
+  zero-cycle cuts have taken the device from -3.70 to -2.09 ns; the
+  rest of the way to the -0.6 gate is placement variance plus the cuts
+  that cost cycles. A seed sweep of the integrated stripped core at
+  104 MHz runs next.
