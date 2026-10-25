@@ -5712,3 +5712,47 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   .stp instance; the first intended capture is the pipeline state (the
   D2 and S/A hazard terms, the lock bitmap, the cache FSM) around an
   abort or the store library's Leave.
+- **V2 copies the C: sectors correctly** (the subagent, codex/arm9v2
+  2f0df8a the test, c0185c5 the report; pushed): the media driver
+  (medint.pdd, 0x50381864) copies each 0x200-byte sector with one
+  Mem::Copy (0x503A1D38) from the CS1 window (0x59200000/0x59600000):
+  for a 2-mod-4 source and a word-aligned destination, one aligned
+  word, then sixteen uncached 8-word `ldm r1!,{r4-fp}` with a 16-bit
+  shift-merge chain and `stmia r0!`, no rotated or unaligned loads
+  (copies of 15 bytes or fewer go through an ldrb/strb run; src < dst
+  copies descend). sim/cpu/tests/arm9_unc_copy_rtl.S (278 cases, cold
+  and warm: Mem::Copy's own sequence both directions, source offsets
+  0-3, lengths 512/1024/511, uncached and cached source, destination
+  line present/departing/absent and offsets 1-3, 1-15-byte copies, the
+  LFFS 2-byte header then 510-byte body, a shift-merge loop and a plain
+  ldm/stm loop, each checked against a byte-loop reference and a
+  consumer sum; four planted bugs caught) passes on ZAP and V2 at
+  0:0, 0:3, 2:9, 8:12 and 16:40, D8 and D16, predictor off, and on
+  the pre-fix-2 netlist. Suites 312/312 in all three configurations,
+  the 306 shared runs cycle-identical. Cache maintenance during a fill
+  is ruled out too (every MCR waits for no lock and no fill,
+  arm9v2_core.sv:689, and serialises). **Next suspect: the board's CS1
+  path, which the bench replaces with flat memory**: each uncached word
+  passes wb_arb2 (ngage_mem.sv:151), upp_bus's split into two 16-bit
+  reads (upp_bus.sv:309-310) and ddram_flash's same-clock beat buffer,
+  arbitration and write-through updates (ddram_flash.sv:172-180,
+  193-195, 409-471); V2's stream there (back-to-back 8-word uncached
+  LDMs, data reads with its own fetches in flight) is one ZAP never
+  makes. The subagent replays that request stream through the
+  memory-side path against the file image; the board trace with the
+  store library's Leave trigger will show what the bus delivered.
+- **Every trace core of the fix-2 source boots clean** (the 8 KB
+  Leave core 13 of 13, the 16 KB two-stub core 14 of 14 at the board's
+  new place, no user abort either: dumps stay at one), while the same
+  source without the trace shows the panic dialog on two boots of three
+  (16 KB) and the PLAT fault on two of three (8 KB). The one thing the
+  trace cores all do that the plain ones do not is dump their rings
+  when the kernel's routine write hits the fault area at 3.27 s (256 KB
+  to DDR3 through the loader port), which shifts the rest of the boot
+  against the board's periodic events (video, refresh, the HPS's card
+  service and wall clock); so the panic is a race that the shifted
+  schedule happens to miss. Two more trace cores build with that
+  routine dump gated off (the fault-record trigger only from 5 s) and
+  both Leave stubs armed: 16 KB (rings 512/128/128, lane b5, worktree
+  ../NGage_MiSTer-v2fix2g16) and 8 KB (1,024/256/256, lane b6,
+  ../NGage_MiSTer-v2fix2g8).
