@@ -1,0 +1,382 @@
+# worktree NGage_MiSTer-t5-arbiter-s2: HEAD c03088f (HEAD); uncommitted changes saved before the worktree was removed on 2026-10-25
+diff --git a/NGage.qsf b/NGage.qsf
+index b08e03c..15a5c68 100644
+--- a/NGage.qsf
++++ b/NGage.qsf
+@@ -84,7 +84,7 @@ set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
+ 
+ # The main core: no debug overlay, per-second counters or trace triggers
+ # (about 900 ALMs); the debug core keeps them for tools/mister_dbg.py
+-#set_global_assignment -name VERILOG_MACRO "NGAGE_NO_DEBUG=1"
++set_global_assignment -name VERILOG_MACRO "NGAGE_NO_DEBUG=1"
+ # Experimental 16 KB two-way D-cache (default 8 KB); index maintenance
+ # covers both physical set colours while CP15 keeps reporting 8 KB.
+ #set_global_assignment -name VERILOG_MACRO "NGAGE_DCACHE_16K=1"
+diff --git a/NGage.sv b/NGage.sv
+index 14a631e..2a6d0a1 100644
+--- a/NGage.sv
++++ b/NGage.sv
+@@ -321,7 +321,17 @@ wire [31:0] wb_adr /* verilator public_flat_rd */, wb_dat_w /* verilator public_
+ wire [31:0] wb_dat_r /* verilator public_flat_rd */;
+ wire  [3:0] wb_sel /* verilator public_flat_rd */;
+ wire  [2:0] wb_cti;
+-wire  [1:0] wb_bte;
++// the CPU's master (arm925t below)
++wire        cpu_req, cpu_we, cpu_burst;
++wire  [1:0] cpu_bte;
++wire [31:0] cpu_addr, cpu_wdata;
++wire  [3:0] cpu_be;
++// the self-test's master (wb_selftest below)
++wire        st_cyc, st_stb, st_we;
++wire [31:0] st_adr, st_dat;
++wire  [3:0] st_sel;
++wire  [2:0] st_cti;
++wire  [1:0] st_bte;
+ 
+ // the peripheral register bus
+ wire        p_sel, p_we, p_wait;
+@@ -346,18 +356,31 @@ ngage_mem ngage_mem
+ 	.sdram_ready(sdram_ready),
+ 	.flash_rst_n(1'b1),
+ 
+-	.wb_cyc(wb_cyc),
+-	.wb_stb(wb_stb),
+-	.wb_we(wb_we),
+-	.wb_adr(wb_adr),
+-	.wb_dat_i(wb_dat_w),
+-	.wb_sel(wb_sel),
+-	.wb_cti(wb_cti),
+-	.wb_bte(wb_bte),
++	// the CPU's master and the self-test's, kept apart up to wb_arb2's
++	// one-level select (the wb_* port above is that select, for watchers)
++	.wb_cyc(cpu_req),
++	.wb_stb(cpu_req),
++	.wb_we(cpu_we),
++	.wb_adr(cpu_addr),
++	.wb_dat_i(cpu_wdata),
++	.wb_sel(cpu_be),
++	.wb_cti(cpu_burst ? 3'b010 : 3'b111),
++	.wb_bte(cpu_bte),
+ 	.wb_ack(wb_ack),
+ 	.wb_err(wb_err),
+ 	.wb_dat_o(wb_dat_r),
+ 
++	.st_on(test_sel),
++	.st_on_nxt(test_on),         // test_on_q's D input
++	.st_cyc(st_cyc),
++	.st_stb(st_stb),
++	.st_we(st_we),
++	.st_adr(st_adr),
++	.st_dat_i(st_dat),
++	.st_sel(st_sel),
++	.st_cti(st_cti),
++	.st_bte(st_bte),
++
+ 	.dma_cyc(dma_cyc),
+ 	.dma_stb(dma_stb),
+ 	.dma_we(dma_we),
+@@ -621,10 +644,6 @@ end
+ reg         cpu_reset /* verilator public_flat_rd */ = 1'b1;
+ always @(posedge clk_sys) cpu_reset <= mem_reset | test_on | ~images_in | rtc_wait;
+ 
+-wire        cpu_req, cpu_we, cpu_burst;
+-wire  [1:0] cpu_bte;
+-wire [31:0] cpu_addr, cpu_wdata;
+-wire  [3:0] cpu_be;
+ 
+ wire [31:0] cpu_dbg_pc;
+ 
+@@ -746,16 +765,11 @@ assign tr_dumping = 1'b0;
+ assign tr_trig_pc = 32'd0;
+ wire unused_trace = &{1'b0, tr_wb_valid, tr_wb_dvalid, tr_wb_uop_last, tr_wb_dabt, tr_wb_pabt, tr_wb_und,
+                       tr_wb_swi, tr_wb_irq, tr_wb_fiq, tr_wb_pc, tr_wb_cpsr, tr_wb_cpsr_nxt, tr_d_done, tr_d_we,
+-                      tr_d_va, tr_d_sel, tr_d_wdata, tr_d_rdata, dbg_trig};
++                      tr_d_va, tr_d_sel, tr_d_wdata, tr_d_rdata, dbg_trig, wb_cti};
+ end endgenerate
+ 
+-// the Wishbone port: the CPU, or the self-test while it runs (test_sel)
+-wire        st_cyc, st_stb, st_we;
+-wire [31:0] st_adr, st_dat;
+-wire  [3:0] st_sel;
+-wire  [2:0] st_cti;
+-wire  [1:0] st_bte;
+-
++// the Wishbone port: the CPU, or the self-test while it runs (test_sel), as
++// ngage_mem's arbiter selects them (for the debug taps and the benches)
+ assign wb_cyc   = test_sel ? st_cyc : cpu_req;
+ assign wb_stb   = test_sel ? st_stb : cpu_req;
+ assign wb_we    = test_sel ? st_we  : cpu_we;
+@@ -763,7 +777,6 @@ assign wb_adr   = test_sel ? st_adr : cpu_addr;
+ assign wb_dat_w = test_sel ? st_dat : cpu_wdata;
+ assign wb_sel   = test_sel ? st_sel : cpu_be;
+ assign wb_cti   = test_sel ? st_cti : (cpu_burst ? 3'b010 : 3'b111);
+-assign wb_bte   = test_sel ? st_bte : cpu_bte;
+ 
+ wire [15:0] test_errors;
+ wire        test_pass_done;
+diff --git a/rtl/upp/ngage_mem.sv b/rtl/upp/ngage_mem.sv
+index 84b3b18..18aed2d 100644
+--- a/rtl/upp/ngage_mem.sv
++++ b/rtl/upp/ngage_mem.sv
+@@ -1,7 +1,8 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+ //
+ // The N-Gage QD's memory system behind the CPU's Wishbone master and the DMA
+-// controller's (rtl/upp/upp_dma.sv), which wb_arb2 takes in turns:
++// controller's (rtl/upp/upp_dma.sv), which wb_arb2 takes in turns (the
++// memory self-test's master stands in for the CPU's while it runs):
+ //   upp_bus      the UPP_WD2 map (flash, EMIF registers, SDRAM, on-chip RAM,
+ //                the peripheral register bus)
+ //   nor_flash    CS0 (16 MB, K8S2815ETA) and CS1 (8 MB, K8S6415ETA)
+@@ -42,6 +43,20 @@ module ngage_mem #(
+ 	output logic         wb_err,
+ 	output logic [31:0]  wb_dat_o,
+ 
++	// the memory self-test (rtl/upp/wb_selftest.sv): on the CPU's port, in
++	// its place, while st_on (a register outside) is high; st_on_nxt is
++	// st_on's D input (wb_arb2). wb_ack, wb_err and wb_dat_o answer it then.
++	input  logic         st_on,
++	input  logic         st_on_nxt,
++	input  logic         st_cyc,
++	input  logic         st_stb,
++	input  logic         st_we,
++	input  logic [31:0]  st_adr,
++	input  logic [31:0]  st_dat_i,
++	input  logic [3:0]   st_sel,
++	input  logic [2:0]   st_cti,
++	input  logic [1:0]   st_bte,
++
+ 	// the DMA controller: Wishbone B3 classic single beats
+ 	input  logic         dma_cyc,
+ 	input  logic         dma_stb,
+@@ -150,6 +165,8 @@ module ngage_mem #(
+ 		.m0_sel(wb_sel), .m0_cti(wb_cti), .m0_bte(wb_bte), .m0_ack(wb_ack), .m0_err(wb_err),
+ 		.m1_cyc(dma_cyc), .m1_stb(dma_stb), .m1_we(dma_we), .m1_adr(dma_adr), .m1_dat(dma_dat_i),
+ 		.m1_sel(dma_sel), .m1_ack(dma_ack), .m1_err(dma_err),
++		.m2_on(st_on), .m2_on_nxt(st_on_nxt), .m2_cyc(st_cyc), .m2_stb(st_stb), .m2_we(st_we),
++		.m2_adr(st_adr), .m2_dat(st_dat_i), .m2_sel(st_sel), .m2_cti(st_cti), .m2_bte(st_bte),
+ 		.s_cyc(b_cyc), .s_stb(b_stb), .s_we(b_we), .s_adr(b_adr), .s_dat(b_dat_w), .s_sel(b_sel),
+ 		.s_cti(b_cti), .s_bte(b_bte), .s_ack(b_ack), .s_err(b_err), .s_idle(b_idle)
+ 	);
+diff --git a/rtl/upp/wb_arb2.sv b/rtl/upp/wb_arb2.sv
+index 0c10298..3f801a8 100644
+--- a/rtl/upp/wb_arb2.sv
++++ b/rtl/upp/wb_arb2.sv
+@@ -13,6 +13,14 @@
+ //     is asking.
+ // So with both asking the masters take turns transaction by transaction; a
+ // master that is not granted waits with its request up.
++//
++// m2 (the memory self-test, rtl/upp/wb_selftest.sv) takes m0's place while
++// m2_on is high: m2_on is a register outside (the core's self-test select,
++// which changes only at the start of a reset pulse) and m2_on_nxt its D
++// input. The slave's signals are then one AND-OR of the three masters with
++// registered one-hot selects formed from the grant's and m2_on's next
++// values: the same signals as "gnt ? m1 : m2_on ? m2 : m0", one level of
++// logic from the masters' registers instead of two multiplexers (timing).
+ module wb_arb2 (
+ 	input  logic        clk,
+ 	input  logic        reset,
+@@ -37,6 +45,17 @@ module wb_arb2 (
+ 	output logic        m1_ack,
+ 	output logic        m1_err,
+ 
++	input  logic        m2_on,
++	input  logic        m2_on_nxt,
++	input  logic        m2_cyc,
++	input  logic        m2_stb,
++	input  logic        m2_we,
++	input  logic [31:0] m2_adr,
++	input  logic [31:0] m2_dat,
++	input  logic [3:0]  m2_sel,
++	input  logic [2:0]  m2_cti,
++	input  logic [1:0]  m2_bte,
++
+ 	output logic        s_cyc,
+ 	output logic        s_stb,
+ 	output logic        s_we,
+@@ -51,45 +70,47 @@ module wb_arb2 (
+ );
+ 
+ 	logic gnt = 1'b0;                  // 1: m1
+-	// a copy for the address and data multiplexers (the grant reaches far
+-	// into upp_bus through them; timing), kept apart from gnt
+-	(* preserve *) logic gnt_ad = 1'b0;
++	// one-hot selects {m2, m1, m0}: gnt ? m1 : m2_on ? m2 : m0. One copy
++	// for the address and data multiplexers (the grant reaches far into
++	// upp_bus through them; timing), one for the controls, kept apart
++	(* preserve *) logic [2:0] sel_ad = 3'b001;
++	(* preserve *) logic [2:0] sel_ct = 3'b001;
+ 
+-	assign s_cyc = gnt ? m1_cyc : m0_cyc;
+-	assign s_stb = gnt ? m1_stb : m0_stb;
+-	assign s_we  = gnt_ad ? m1_we  : m0_we;
+-	assign s_adr = gnt_ad ? m1_adr : m0_adr;
+-	assign s_dat = gnt_ad ? m1_dat : m0_dat;
+-	assign s_sel = gnt_ad ? m1_sel : m0_sel;
+-	assign s_cti = gnt ? 3'b111 : m0_cti;
+-	assign s_bte = gnt ? 2'b00  : m0_bte;
++	assign s_cyc = (sel_ct[0] && m0_cyc) || (sel_ct[1] && m1_cyc) || (sel_ct[2] && m2_cyc);
++	assign s_stb = (sel_ct[0] && m0_stb) || (sel_ct[1] && m1_stb) || (sel_ct[2] && m2_stb);
++	assign s_we  = (sel_ad[0] && m0_we)  || (sel_ad[1] && m1_we)  || (sel_ad[2] && m2_we);
++	assign s_adr = ({32{sel_ad[0]}} & m0_adr) | ({32{sel_ad[1]}} & m1_adr) | ({32{sel_ad[2]}} & m2_adr);
++	assign s_dat = ({32{sel_ad[0]}} & m0_dat) | ({32{sel_ad[1]}} & m1_dat) | ({32{sel_ad[2]}} & m2_dat);
++	assign s_sel = ({4{sel_ad[0]}} & m0_sel)  | ({4{sel_ad[1]}} & m1_sel)  | ({4{sel_ad[2]}} & m2_sel);
++	assign s_cti = ({3{sel_ct[0]}} & m0_cti)  | {3{sel_ct[1]}}             | ({3{sel_ct[2]}} & m2_cti);
++	assign s_bte = ({2{sel_ct[0]}} & m0_bte)  | ({2{sel_ct[2]}} & m2_bte);
+ 
+ 	assign m0_ack = s_ack && !gnt;
+ 	assign m0_err = s_err && !gnt;
+ 	assign m1_ack = s_ack && gnt;
+ 	assign m1_err = s_err && gnt;
+ 
+-	wire other   = gnt ? m0_cyc : m1_cyc;
++	wire other   = gnt ? (m2_on ? m2_cyc : m0_cyc) : m1_cyc;
+ 	wire txn_end = (s_ack || s_err) && s_cti != 3'b010;
+ 	wire swap    = other && (txn_end || (!s_cyc && s_idle));
++	wire gnt_nxt = reset ? 1'b0 : (swap ? !gnt : gnt);
++	wire [2:0] sel_nxt = {!gnt_nxt && m2_on_nxt, gnt_nxt, !gnt_nxt && !m2_on_nxt};
+ 
+ 	always_ff @(posedge clk) begin
+-		if (swap) begin
+-			gnt    <= !gnt;
+-			gnt_ad <= !gnt;
+-		end
+-		if (reset) begin
+-			gnt    <= 1'b0;
+-			gnt_ad <= 1'b0;
+-		end
++		gnt    <= gnt_nxt;
++		sel_ad <= sel_nxt;
++		sel_ct <= sel_nxt;
+ 	end
+ 
+-	// simulation: upp_bus is idle in the clock after every change of grant
++	// simulation: upp_bus is idle in the clock after every change of grant,
++	// and the selects follow the grant and m2_on
+ 	// synthesis translate_off
+ 	logic swapped = 1'b0;
+ 	always_ff @(posedge clk) begin
+ 		if (swapped && !s_idle && !reset) $error("wb_arb2: the grant changed while upp_bus was busy");
+ 		swapped <= swap && !reset;
++		if (sel_ad != {!gnt && m2_on, gnt, !gnt && !m2_on} || sel_ct != sel_ad)
++			$error("wb_arb2: the selects do not follow the grant and m2_on");
+ 	end
+ 	// synthesis translate_on
+ 
+diff --git a/sim/harness/periph_tb.sv b/sim/harness/periph_tb.sv
+index 200d5f5..79f8d3a 100644
+--- a/sim/harness/periph_tb.sv
++++ b/sim/harness/periph_tb.sv
+@@ -113,6 +113,8 @@ module periph_tb #(
+ 		.flash_rst_n(1'b1),
+ 		.wb_cyc(wb_cyc), .wb_stb(wb_stb), .wb_we(wb_we), .wb_adr(wb_adr), .wb_dat_i(wb_dat_i),
+ 		.wb_sel(wb_sel), .wb_cti(wb_cti), .wb_bte(wb_bte), .wb_ack(wb_ack), .wb_err(wb_err), .wb_dat_o(wb_dat_o),
++		.st_on(1'b0), .st_on_nxt(1'b0), .st_cyc(1'b0), .st_stb(1'b0), .st_we(1'b0), .st_adr(32'd0),
++		.st_dat_i(32'd0), .st_sel(4'd0), .st_cti(3'd0), .st_bte(2'd0),
+ 		.dma_cyc(dma_cyc), .dma_stb(dma_stb), .dma_we(dma_we), .dma_adr(dma_adr), .dma_dat_i(dma_dat_w),
+ 		.dma_sel(dma_sel), .dma_ack(dma_ack), .dma_err(dma_err), .dma_dat_o(dma_dat_r),
+ 		.p_sel(p_sel), .p_we(p_we), .p_addr(p_addr), .p_wdata(p_wdata), .p_be(p_be), .p_rdata(p_rdata), .p_wait(p_wait),
+diff --git a/sim/harness/save_tb.sv b/sim/harness/save_tb.sv
+index 62b86b0..f9b289f 100644
+--- a/sim/harness/save_tb.sv
++++ b/sim/harness/save_tb.sv
+@@ -93,6 +93,8 @@ module save_tb #(
+ 		.flash_rst_n(1'b1),
+ 		.wb_cyc(wb_cyc), .wb_stb(wb_stb), .wb_we(wb_we), .wb_adr(wb_adr), .wb_dat_i(wb_dat_i),
+ 		.wb_sel(wb_sel), .wb_cti(wb_cti), .wb_bte(wb_bte), .wb_ack(wb_ack), .wb_err(wb_err), .wb_dat_o(wb_dat_o),
++		.st_on(1'b0), .st_on_nxt(1'b0), .st_cyc(1'b0), .st_stb(1'b0), .st_we(1'b0), .st_adr(32'd0),
++		.st_dat_i(32'd0), .st_sel(4'd0), .st_cti(3'd0), .st_bte(2'd0),
+ 		.dma_cyc(1'b0), .dma_stb(1'b0), .dma_we(1'b0), .dma_adr(32'd0), .dma_dat_i(32'd0), .dma_sel(4'd0),
+ 		.dma_ack(), .dma_err(), .dma_dat_o(),
+ 		.p_sel(), .p_we(), .p_addr(), .p_wdata(), .p_be(), .p_rdata(32'd0), .p_wait(1'b0),
+diff --git a/sim/harness/upp_main.cpp b/sim/harness/upp_main.cpp
+index b18f11f..371f32a 100644
+--- a/sim/harness/upp_main.cpp
++++ b/sim/harness/upp_main.cpp
+@@ -102,6 +102,9 @@ struct Bench {
+ 		t->wb_cyc = 0; t->wb_stb = 0; t->wb_we = 0; t->wb_adr = 0; t->wb_dat_i = 0; t->wb_sel = 0; t->wb_cti = 0; t->wb_bte = 0;
+ 		t->p_rdata = 0; t->p_wait = 0;
+ 		t->dma_cyc = 0; t->dma_stb = 0; t->dma_we = 0; t->dma_adr = 0; t->dma_dat_i = 0; t->dma_sel = 0;
++		// the memory self-test port (NGage.sv drives it): off
++		t->st_on = 0; t->st_on_nxt = 0; t->st_cyc = 0; t->st_stb = 0; t->st_we = 0; t->st_adr = 0;
++		t->st_dat_i = 0; t->st_sel = 0; t->st_cti = 0; t->st_bte = 0;
+ 		t->save_rd = 0; t->save_blk = 0;
+ 		t->ld_we = 0; t->ld_addr = 0; t->ld_din = 0; t->ld_be = 0;
+ 		t->ddram_busy = 0; t->ddram_dout = 0; t->ddram_dout_ready = 0; t->sdram_dq_i = 0;
+diff --git a/tools/report_timing.tcl b/tools/report_timing.tcl
+index 5fdcef0..400bbff 100644
+--- a/tools/report_timing.tcl
++++ b/tools/report_timing.tcl
+@@ -4,6 +4,7 @@ create_timing_netlist
+ read_sdc
+ update_timing_netlist
+ file mkdir build
++source tools/report_timing5_families.tcl
+ report_timing -setup -npaths 30 -nworst 1 -detail full_path -file build/critical-paths.rpt
+ report_timing -hold -npaths 10 -detail full_path -file build/hold-paths.rpt
+ report_ucp -file build/unconstrained-paths.rpt
+diff --git a/tools/report_timing5_families.tcl b/tools/report_timing5_families.tcl
+new file mode 100644
+index 0000000..af8fec7
+--- /dev/null
++++ b/tools/report_timing5_families.tcl
+@@ -0,0 +1,58 @@
++# Loaded after create_timing_netlist/read_sdc/update_timing_netlist.
++# Report matching register sets even when a family leaves the worst 30.
++# Empty from/to means unconstrained on that side.
++set found_corner 0
++foreach_in_collection corner [get_available_operating_conditions] {
++    if {[get_operating_conditions_info -display_name $corner] eq "Slow 1100mV 100C Model"} {
++        set_operating_conditions $corner
++        update_timing_netlist
++        set found_corner 1
++    }
++}
++if {!$found_corner} { error "Missing slow 100C corner" }
++set families {
++    icvalid_input {} {*u_code_cache*valid_s1* *u_code_cache*valid_part* *u_code_cache*lru_s1* *u_code_cache*lru_part* *u_code_cache*rd_hi_s1*}
++    icvalid_output {*u_code_cache*valid_s1* *u_code_cache*valid_part* *u_code_cache*lru_s1* *u_code_cache*lru_part* *u_code_cache*rd_hi_s1*} {*u_code_cache*valid_s2* *u_code_cache*lru_s2*}
++    dcvalid_input {} {*u_data_cache*valid_s1* *u_data_cache*valid_part* *u_data_cache*lru_s1* *u_data_cache*lru_part* *u_data_cache*rd_hi_s1*}
++    multiply {*u_zap_issue_main*o_alu_operation_ff* *u_zap_issue_main*o_alu_is_mult_ff*} {*u_zap_shifter_main*}
++    multiply_output {*u_zap_issue_main*o_alu_operation_ff* *u_zap_issue_main*o_alu_is_mult_ff*} {*u_zap_shifter_main|o_*}
++    dtlb_fault {*u_data_cache*u_zap_tlb_check*o_fsr*} {}
++    itlb_fault {*u_code_cache*u_zap_tlb_check*o_fsr*} {}
++    issue_stall {*u_zap_issue_main*stall*} {*u_zap_issue_main*}
++    issue_feedback {} {*u_zap_issue_main*stall_idx_ff* *u_zap_issue_main*stall_late_ff* *u_zap_issue_main*stall_lock_ff* *u_zap_issue_main*o_stall_from_issue*}
++    issue_stall_feedback {*u_zap_issue_main*stall*} {*u_zap_issue_main*stall_idx_ff* *u_zap_issue_main*stall_late_ff* *u_zap_issue_main*stall_lock_ff* *u_zap_issue_main*o_stall_from_issue*}
++    issue_pending {} {*u_zap_issue_main*o_load_pending_ff* *u_zap_issue_main*o_shift_source_pending_ff*}
++    decode_pending {*u_zap_decode_main*o_shift_length_ff*} {*u_zap_issue_main*o_load_pending_ff*}
++    issue_store {} {*u_zap_issue_main*mem_srcdest_normal_ff* *u_zap_issue_main*mem_srcdest_select_ff*}
++    arbiter_control {*test_on_q* *arb*sel_* *arb*gnt*} {*upp_bus*}
++    bus_address {*zap_wb_merger*o_wb_adr*} {*upp_bus*}
++    bus_input {} {*upp_bus*adr_q* *upp_bus*dat_q* *upp_bus*fe_* *upp_bus*sdr_addr*}
++    bl_decode {*zap_predecode_main*o_instruction_ff* *zap_predecode_main*o_bl*} {*u_zap_decode_main*}
++    dcache_bus {*u_data_cache*u_zap_cache_fsm*state_ff*} {*zap_wb_merger*o_wb_adr*}
++    predecode_und {} {*zap_predecode_main*o_v5_und_ff*}
++    cache_stall_to_core {*u_data_cache* *u_zap_cp15_cb*o_mmu_en*} {*u_zap_alu_main|* *u_zap_shifter_main|*}
++    issue_to_decode {*u_zap_issue_main*} {*u_zap_decode_main*}
++}
++file mkdir build/timing5-families
++set family_summary [open build/timing5-families/slacks.tsv w]
++puts $family_summary "family\tslack_ns\tfrom\tto"
++foreach {family from to} $families {
++    set args [list -setup -npaths 1]
++    if {[llength $from]} {
++        set regs [get_registers $from]
++        if {[get_collection_size $regs] == 0} { puts $family_summary "$family\tNO_SOURCE\t$from\t$to"; continue }
++        lappend args -from $regs
++    }
++    if {[llength $to]} {
++        set regs [get_registers $to]
++        if {[get_collection_size $regs] == 0} { puts $family_summary "$family\tNO_DESTINATION\t$from\t$to"; continue }
++        lappend args -to $regs
++    }
++    set paths [eval get_timing_paths $args]
++    if {[get_collection_size $paths] == 0} { puts $family_summary "$family\tNO_PATH\t$from\t$to"; continue }
++    foreach_in_collection path $paths {
++        puts $family_summary "$family\t[get_path_info -slack $path]\t[get_node_info -name [get_path_info -from $path]]\t[get_node_info -name [get_path_info -to $path]]"
++    }
++    eval report_timing $args [list -detail full_path -file build/timing5-families/$family.rpt]
++}
++close $family_summary

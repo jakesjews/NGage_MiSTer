@@ -1,0 +1,188 @@
+# worktree NGage_MiSTer-t5-pendingselect-s1: HEAD 35aa83e (HEAD); uncommitted changes saved before the worktree was removed on 2026-10-25
+diff --git a/NGage.qsf b/NGage.qsf
+index b08e03c..163d384 100644
+--- a/NGage.qsf
++++ b/NGage.qsf
+@@ -51,7 +51,7 @@ set_global_assignment -name ECO_OPTIMIZE_TIMING ON
+ set_global_assignment -name PERIPHERY_TO_CORE_PLACEMENT_AND_ROUTING_OPTIMIZATION ON
+ set_global_assignment -name PHYSICAL_SYNTHESIS_ASYNCHRONOUS_SIGNAL_PIPELINING ON
+ set_global_assignment -name ALM_REGISTER_PACKING_EFFORT MEDIUM
+-set_global_assignment -name SEED 2
++set_global_assignment -name SEED 1
+ 
+ #set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
+ 
+@@ -84,7 +84,7 @@ set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
+ 
+ # The main core: no debug overlay, per-second counters or trace triggers
+ # (about 900 ALMs); the debug core keeps them for tools/mister_dbg.py
+-#set_global_assignment -name VERILOG_MACRO "NGAGE_NO_DEBUG=1"
++set_global_assignment -name VERILOG_MACRO "NGAGE_NO_DEBUG=1"
+ # Experimental 16 KB two-way D-cache (default 8 KB); index maintenance
+ # covers both physical set colours while CP15 keeps reporting 8 KB.
+ #set_global_assignment -name VERILOG_MACRO "NGAGE_DCACHE_16K=1"
+diff --git a/rtl/cpu/zap/zap_core.sv b/rtl/cpu/zap/zap_core.sv
+index 481183f..0c5b21b 100644
+--- a/rtl/cpu/zap/zap_core.sv
++++ b/rtl/cpu/zap/zap_core.sv
+@@ -414,7 +414,7 @@ logic                            shifter_und_ff;
+ logic                            stall_from_shifter;
+ logic                            stall_from_alu;
+ logic [3:0] issue_load_pending_ff, shifter_late_ready;
+-logic issue_shift_source_pending_ff;
++logic issue_shift_source_pending_ff, issue_shift_length_pending_ff;
+ logic [5:0] issue_shift_length_index_ff;
+ logic [127:0] shifter_late_value;
+ logic [1:0] shifter_load_pending_ff, alu_late_ready;
+@@ -1129,6 +1129,7 @@ u_zap_issue_main
+         .o_load_pending_ff              (issue_load_pending_ff),
+         .o_shift_length_index_ff        (issue_shift_length_index_ff),
+         .o_shift_source_pending_ff      (issue_shift_source_pending_ff),
++        .o_shift_length_pending_ff      (issue_shift_length_pending_ff),
+         .i_late_ready                   (shifter_late_ready),
+         .i_late_value                   (shifter_late_value),
+         .o_shifter_disable_ff           (issue_shifter_disable_ff)
+@@ -1153,6 +1154,7 @@ u_zap_shifter_main
+         .i_load_pending_ff              (issue_load_pending_ff),
+         .i_shift_length_index_ff        (issue_shift_length_index_ff),
+         .i_shift_source_pending_ff      (issue_shift_source_pending_ff),
++        .i_shift_length_pending_ff      (issue_shift_length_pending_ff),
+         .i_memory_load_valid            (memory_load_valid),
+         .i_memory_load_index            (late_memory_index_ff),
+         .i_memory_load_value            (late_memory_value_ff),
+diff --git a/rtl/cpu/zap/zap_issue_main.sv b/rtl/cpu/zap/zap_issue_main.sv
+index 3a7652f..07656ea 100644
+--- a/rtl/cpu/zap/zap_issue_main.sv
++++ b/rtl/cpu/zap/zap_issue_main.sv
+@@ -195,6 +195,7 @@ module zap_issue_main
+         output logic [3:0]                        o_load_pending_ff,
+         output logic [5:0]                        o_shift_length_index_ff,
+         (* preserve, dont_retime *) output logic  o_shift_source_pending_ff,
++        (* preserve, dont_retime *) output logic  o_shift_length_pending_ff,
+         input logic [3:0]                         i_late_ready,
+         input logic [127:0]                       i_late_value,
+ 
+@@ -553,6 +554,15 @@ always_ff @(posedge i_clk) begin
+         else o_shift_source_pending_ff <= o_shift_source_pending_ff && !i_late_ready[1];
+ end
+ 
++// ARM925T: the barrel amount mux gets the same local pending-bit boundary.
++// Keep both mux selects independent of the completion/interlock fanout.
++always_ff @(posedge i_clk) begin
++        if (i_reset || clear) o_shift_length_pending_ff <= 1'b0;
++        else if (!stall)
++                o_shift_length_pending_ff <= issue_pending[2];
++        else o_shift_length_pending_ff <= o_shift_length_pending_ff && !i_late_ready[2];
++end
++
+ // ARM925T: capture register-file, forwarded and held-slot refresh data
+ // independently at the existing issue edge. Local registered one-hot
+ // selects keep both the RF read and the cache stall out of wide input
+diff --git a/rtl/cpu/zap/zap_shifter_main.sv b/rtl/cpu/zap/zap_shifter_main.sv
+index 4967fde..87c39bf 100644
+--- a/rtl/cpu/zap/zap_shifter_main.sv
++++ b/rtl/cpu/zap/zap_shifter_main.sv
+@@ -72,6 +72,7 @@ module zap_shifter_main
+         input logic [5:0] i_memory_load_index,
+         input logic [31:0] i_memory_load_value,
+         input logic i_shift_source_pending_ff,
++        input logic i_shift_length_pending_ff,
+         input logic [63:0] i_dc_reg_idx,
+         input logic [31:0] i_dc_reg_dat,
+         input logic i_stall_from_alu,
+@@ -497,8 +498,9 @@ U_SHIFT
+         // ARM925T: forwarding is only used by the unshifted bypass. Do not
+         // route it through the barrel shifter as well: that creates an
+         // ALU -> forwarding -> barrel path whose output is never selected.
+-        .i_source       ( i_load_pending_ff[1] ? i_memory_load_value : i_shift_source_value_ff ),
+-        .i_amount       ( i_load_pending_ff[2] ? i_memory_load_value[7:0] : i_shift_length_value_ff[7:0] ),
++        // Local issue-register copies select the registered memory snapshot.
++        .i_source       ( i_shift_source_pending_ff ? i_memory_load_value : i_shift_source_value_ff ),
++        .i_amount       ( i_shift_length_pending_ff ? i_memory_load_value[7:0] : i_shift_length_value_ff[7:0] ),
+         .i_shift_type   ( i_shift_operation_ff ),
+         .i_carry        ( i_cpsr_ff_29 ),
+         .o_result       ( shout ),
+diff --git a/tools/report_timing.tcl b/tools/report_timing.tcl
+index 5fdcef0..400bbff 100644
+--- a/tools/report_timing.tcl
++++ b/tools/report_timing.tcl
+@@ -4,6 +4,7 @@ create_timing_netlist
+ read_sdc
+ update_timing_netlist
+ file mkdir build
++source tools/report_timing5_families.tcl
+ report_timing -setup -npaths 30 -nworst 1 -detail full_path -file build/critical-paths.rpt
+ report_timing -hold -npaths 10 -detail full_path -file build/hold-paths.rpt
+ report_ucp -file build/unconstrained-paths.rpt
+diff --git a/tools/report_timing5_families.tcl b/tools/report_timing5_families.tcl
+new file mode 100644
+index 0000000..0fe9012
+--- /dev/null
++++ b/tools/report_timing5_families.tcl
+@@ -0,0 +1,66 @@
++# Loaded after create_timing_netlist/read_sdc/update_timing_netlist.
++# Report matching register sets even when a family leaves the worst 30.
++# Empty from/to means unconstrained on that side.
++set found_corner 0
++foreach_in_collection corner [get_available_operating_conditions] {
++    if {[get_operating_conditions_info -display_name $corner] eq "Slow 1100mV 100C Model"} {
++        set_operating_conditions $corner
++        update_timing_netlist
++        set found_corner 1
++    }
++}
++if {!$found_corner} { error "Missing slow 100C corner" }
++set families {
++    icvalid_input {} {*u_code_cache*valid_s1* *u_code_cache*valid_part* *u_code_cache*lru_s1* *u_code_cache*lru_part* *u_code_cache*rd_hi_s1*}
++    icvalid_output {*u_code_cache*valid_s1* *u_code_cache*valid_part* *u_code_cache*lru_s1* *u_code_cache*lru_part* *u_code_cache*rd_hi_s1*} {*u_code_cache*valid_s2* *u_code_cache*lru_s2*}
++    dcvalid_input {} {*u_data_cache*valid_s1* *u_data_cache*valid_part* *u_data_cache*lru_s1* *u_data_cache*lru_part* *u_data_cache*rd_hi_s1*}
++    multiply {*u_zap_issue_main*o_alu_operation_ff* *u_zap_issue_main*o_alu_is_mult_ff*} {*u_zap_shifter_main*}
++    multiply_output {*u_zap_issue_main*o_alu_operation_ff* *u_zap_issue_main*o_alu_is_mult_ff*} {*u_zap_shifter_main|o_*}
++    dtlb_fault {*u_data_cache*u_zap_tlb_check*o_fsr*} {}
++    dtlb_check_input {} {*u_data_cache*u_zap_tlb_check*o_fsr* *u_data_cache*u_zap_tlb_check*o_hit_ok*}
++    itlb_check_input {} {*u_code_cache*u_zap_tlb_check*o_fsr* *u_code_cache*u_zap_tlb_check*o_hit_ok*}
++    issue_forward {} {*u_zap_issue_main*alu_source_normal_ff* *u_zap_issue_main*shift_source_normal_ff* *u_zap_issue_main*shift_length_normal_ff*}
++    card_model {*mmc_card*} {*mmc_card*}
++    itlb_fault {*u_code_cache*u_zap_tlb_check*o_fsr*} {}
++    issue_stall {*u_zap_issue_main*stall*} {*u_zap_issue_main*}
++    issue_feedback {} {*u_zap_issue_main*stall_idx_ff* *u_zap_issue_main*stall_late_ff* *u_zap_issue_main*stall_lock_ff* *u_zap_issue_main*o_stall_from_issue*}
++    issue_stall_feedback {*u_zap_issue_main*stall*} {*u_zap_issue_main*stall_idx_ff* *u_zap_issue_main*stall_late_ff* *u_zap_issue_main*stall_lock_ff* *u_zap_issue_main*o_stall_from_issue*}
++    issue_pending {} {*u_zap_issue_main*o_load_pending_ff* *u_zap_issue_main*o_shift_source_pending_ff* *u_zap_issue_main*o_shift_length_pending_ff*}
++    decode_pending {*u_zap_decode_main*o_shift_length_ff*} {*u_zap_issue_main*o_load_pending_ff*}
++    issue_store {} {*u_zap_issue_main*mem_srcdest_normal_ff* *u_zap_issue_main*mem_srcdest_select_ff*}
++    arbiter_control {*test_on_q* *arb*sel_* *arb*gnt*} {*upp_bus*}
++    bus_address {*zap_wb_merger*o_wb_adr*} {*upp_bus*}
++    bus_input {} {*upp_bus*adr_q* *upp_bus*dat_q* *upp_bus*fe_* *upp_bus*sdr_addr*}
++    bl_decode {*zap_predecode_main*o_instruction_ff* *zap_predecode_main*o_bl*} {*u_zap_decode_main*}
++    dcache_bus {*u_data_cache*u_zap_cache_fsm*state_ff*} {*zap_wb_merger*o_wb_adr*}
++    predecode_und {} {*zap_predecode_main*o_v5_und_ff* *zap_predecode_main*saved_class_ff* *zap_predecode_main*saved_thumb_bl_ff*}
++    cache_stall_to_core {*u_data_cache* *u_zap_cp15_cb*o_mmu_en*} {*u_zap_alu_main|* *u_zap_shifter_main|*}
++    background_pickup {*u_data_cache*u_zap_cache_fsm*o_reg_idx* *u_data_cache*u_zap_cache_fsm*o_reg_valid*} {*u_zap_alu_main|* *u_zap_shifter_main|*}
++    shifter_output {} {*u_zap_shifter_main*o_shifted_source_value_ff* *u_zap_shifter_main*o_shift_carry_ff* *u_zap_shifter_main*o_shift_sat_ff*}
++    predecode_copro {} {*zap_predecode_main*copro_word*ff* *zap_predecode_coproc*cp_word_ff*}
++    fifo_control {} {*u_zap_sync_fifo*empty_ff* *u_zap_sync_fifo*full_ff* *u_zap_sync_fifo*wptr_ff* *u_zap_sync_fifo*rptr_ff*}
++    issue_to_decode {*u_zap_issue_main*} {*u_zap_decode_main*}
++}
++file mkdir build/timing5-families
++set family_summary [open build/timing5-families/slacks.tsv w]
++puts $family_summary "family\tslack_ns\tfrom\tto"
++foreach {family from to} $families {
++    set args [list -setup -npaths 1]
++    if {[llength $from]} {
++        set regs [get_registers $from]
++        if {[get_collection_size $regs] == 0} { puts $family_summary "$family\tNO_SOURCE\t$from\t$to"; continue }
++        lappend args -from $regs
++    }
++    if {[llength $to]} {
++        set regs [get_registers $to]
++        if {[get_collection_size $regs] == 0} { puts $family_summary "$family\tNO_DESTINATION\t$from\t$to"; continue }
++        lappend args -to $regs
++    }
++    set paths [eval get_timing_paths $args]
++    if {[get_collection_size $paths] == 0} { puts $family_summary "$family\tNO_PATH\t$from\t$to"; continue }
++    foreach_in_collection path $paths {
++        puts $family_summary "$family\t[get_path_info -slack $path]\t[get_node_info -name [get_path_info -from $path]]\t[get_node_info -name [get_path_info -to $path]]"
++    }
++    eval report_timing $args [list -detail full_path -file build/timing5-families/$family.rpt]
++}
++close $family_summary

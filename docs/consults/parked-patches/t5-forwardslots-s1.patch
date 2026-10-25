@@ -1,0 +1,332 @@
+# worktree NGage_MiSTer-t5-forwardslots-s1: HEAD 11bbda3 (HEAD); uncommitted changes saved before the worktree was removed on 2026-10-25
+diff --git a/NGage.qsf b/NGage.qsf
+index b08e03c..163d384 100644
+--- a/NGage.qsf
++++ b/NGage.qsf
+@@ -51,7 +51,7 @@ set_global_assignment -name ECO_OPTIMIZE_TIMING ON
+ set_global_assignment -name PERIPHERY_TO_CORE_PLACEMENT_AND_ROUTING_OPTIMIZATION ON
+ set_global_assignment -name PHYSICAL_SYNTHESIS_ASYNCHRONOUS_SIGNAL_PIPELINING ON
+ set_global_assignment -name ALM_REGISTER_PACKING_EFFORT MEDIUM
+-set_global_assignment -name SEED 2
++set_global_assignment -name SEED 1
+ 
+ #set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
+ 
+@@ -84,7 +84,7 @@ set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
+ 
+ # The main core: no debug overlay, per-second counters or trace triggers
+ # (about 900 ALMs); the debug core keeps them for tools/mister_dbg.py
+-#set_global_assignment -name VERILOG_MACRO "NGAGE_NO_DEBUG=1"
++set_global_assignment -name VERILOG_MACRO "NGAGE_NO_DEBUG=1"
+ # Experimental 16 KB two-way D-cache (default 8 KB); index maintenance
+ # covers both physical set colours while CP15 keeps reporting 8 KB.
+ #set_global_assignment -name VERILOG_MACRO "NGAGE_DCACHE_16K=1"
+diff --git a/build.sh b/build.sh
+index 3c99150..3e8138e 100755
+--- a/build.sh
++++ b/build.sh
+@@ -23,7 +23,7 @@ if [[ "$where" == remote ]]; then
+     rsync -a --delete --exclude build --exclude db --exclude incremental_db --exclude output_files \
+         --exclude research --exclude .git --exclude '*.rbf' --exclude 'sim/build' --exclude 'sim/cpu/build' \
+         --exclude 'model/.out' --exclude 'model/qemu*' ./ "$host:$dir/"
+-    docker_run="docker run --rm --user \$(id -u):\$(id -g) -e HOME=/tmp -v \$HOME/$dir:/project -w /project $image"
++    docker_run="docker run --rm --user \$(id -u):\$(id -g) -e HOME=/tmp -e TZ=America/Detroit -v \$HOME/$dir:/project -w /project $image"
+     if [[ "$build_mode" == map ]]; then
+         ssh "$host" "$docker_run /opt/intelFPGA_lite/quartus/bin/quartus_map --read_settings_files=on --write_settings_files=off $proj -c $proj" \
+             2>&1 | tee build/quartus-map.log
+diff --git a/rtl/cpu/zap/zap_alu_main.sv b/rtl/cpu/zap/zap_alu_main.sv
+index 9df2139..766b433 100644
+--- a/rtl/cpu/zap/zap_alu_main.sv
++++ b/rtl/cpu/zap/zap_alu_main.sv
+@@ -247,6 +247,11 @@ module zap_alu_main #(
+         // Next version of the above to allow back-to-back execution.
+         output logic                              o_dav_nxt,
+ 
++        // ARM925T: condition result for issue forwarding. The issue slot
++        // selects held refresh data whenever the ALU is waiting for a load,
++        // so its unused normal capture need not include that late hold.
++        output logic                              o_forward_dav,
++
+         // Active CPSR out.
+         output logic [FLAG_WDT-1:0]               o_flags_ff,
+ 
+@@ -1019,9 +1024,9 @@ assign load_to_pc = i_mem_srcdest_index_ff == {2'd0, ARCH_PC} &&
+ // ARM925T: an undefined instruction executes (takes the exception) only if
+ // its condition passes; the decoder supplies AL where it must always be taken.
+ //
+-assign  o_dav_nxt  = !o_stall_from_alu &&
+-                    (is_cc_satisfied ( i_condition_code_ff, flags_ff[31:28] )
+-                     || i_irq_ff || i_fiq_ff || i_abt_ff);
++assign o_forward_dav = is_cc_satisfied ( i_condition_code_ff, flags_ff[31:28] )
++                       || i_irq_ff || i_fiq_ff || i_abt_ff;
++assign o_dav_nxt = !o_stall_from_alu && o_forward_dav;
+ 
+ assign  sleep_nxt  =    i_irq_ff   ||
+                         i_fiq_ff   ||
+diff --git a/rtl/cpu/zap/zap_core.sv b/rtl/cpu/zap/zap_core.sv
+index b2c85e1..726a516 100644
+--- a/rtl/cpu/zap/zap_core.sv
++++ b/rtl/cpu/zap/zap_core.sv
+@@ -457,6 +457,7 @@ logic                            alu_fiq_ff;
+ logic                            alu_swi_ff;
+ logic                            alu_dav_ff;
+ logic                            alu_dav_nxt;
++logic                            alu_forward_dav;
+ logic [31:0]                     alu_pc_plus_8_ff;
+ logic [31:0]                     pc_from_alu;
+ logic [$clog2(PHY_REGS)-1:0]     alu_destination_index_ff;
+@@ -1059,7 +1060,7 @@ u_zap_issue_main
+         .i_alu_destination_index_ff     (alu_destination_index_ff),
+         .i_memory_destination_index_ff  (memory_destination_index_ff),
+         .i_shifter_dav_ff               (shifter_condition_code_ff != NV ? 1'd1 : 1'd0),
+-        .i_alu_dav_nxt                  (alu_dav_nxt),
++        .i_alu_forward_dav              (alu_forward_dav),
+         .i_alu_dav_ff                   (alu_dav_ff),
+         .i_memory_dav_ff                (memory_dav_ff),
+         .i_alu_destination_value_nxt    (alu_alu_result_nxt),
+@@ -1355,6 +1356,7 @@ u_zap_alu_main
+          .o_swi_ff                         (alu_swi_ff),
+          .o_dav_ff                         (alu_dav_ff),
+          .o_dav_nxt                        (alu_dav_nxt),
++         .o_forward_dav                    (alu_forward_dav),
+          .o_pc_plus_8_ff                   (alu_pc_plus_8_ff),
+          .o_mem_address_ff                 (alu_address_ff),
+          .o_destination_index_ff           (alu_destination_index_ff),
+diff --git a/rtl/cpu/zap/zap_issue_main.sv b/rtl/cpu/zap/zap_issue_main.sv
+index 07656ea..05b7e56 100644
+--- a/rtl/cpu/zap/zap_issue_main.sv
++++ b/rtl/cpu/zap/zap_issue_main.sv
+@@ -131,7 +131,9 @@ module zap_issue_main
+         //
+ 
+         input logic                              i_shifter_dav_ff,
+-        input logic                              i_alu_dav_nxt,
++        // ARM925T: condition valid before the ALU late-load hold. Used only
++        // for normal forwarding; that bank is unselected on a shifter hold.
++        input logic                              i_alu_forward_dav,
+         input logic                              i_alu_dav_ff,
+         input logic                              i_postalu0_dav_ff,
+         input logic                              i_postalu1_dav_ff,
+@@ -663,12 +665,40 @@ begin
+         end
+ end
+ 
++// ARM925T: finish forwarding priority for each slot before the late slot
++// choice, as for store data. The data OR tree and immediate/PC values stay
++// unchanged; a selected register-index mux no longer precedes comparisons.
++logic [6:0] operand_live_index[3], operand_saved_index[3];
++(* keep *) wire [11:0] operand_live_pick[3], operand_saved_pick[3];
++wire [11:0] operand_pick[3];
++assign operand_live_index[0] = {i_alu_source_ff[32], i_alu_source_ff[5:0]};
++assign operand_live_index[1] = {i_shift_source_ff[32], i_shift_source_ff[5:0]};
++assign operand_live_index[2] = {i_shift_length_ff[32], i_shift_length_ff[5:0]};
++assign operand_saved_index[0] = {skid_late_immediate_ff[0], skid_idx[23:18]};
++assign operand_saved_index[1] = {skid_late_immediate_ff[1], skid_idx[17:12]};
++assign operand_saved_index[2] = {skid_late_immediate_ff[2], skid_idx[11:6]};
++for (genvar op = 0; op < 3; op++) begin : g_forward_slot
++        assign operand_live_pick[op] = operand_forward_pick(operand_live_index[op]);
++        assign operand_saved_pick[op] = operand_forward_pick(operand_saved_index[op]);
++        assign operand_pick[op] = stall_late_ff ? operand_saved_pick[op] : operand_live_pick[op];
++end
++function automatic [11:0] operand_forward_pick(input [6:0] tag);
++        operand_forward_pick = forward_pick({tag[6], 26'd0, tag[5:0]},
++                i_shifter_destination_index_ff[5:0], i_alu_forward_dav,
++                i_alu_destination_index_ff[5:0], i_alu_dav_ff,
++                i_postalu0_destination_index_ff[5:0], i_postalu0_dav_ff,
++                i_postalu1_destination_index_ff[5:0], i_postalu1_dav_ff,
++                i_postalu_destination_index_ff[5:0], i_postalu_dav_ff,
++                i_memory_destination_index_ff[5:0], i_memory_dav_ff,
++                i_memory_mem_srcdest_index_ff[5:0], i_memory_mem_load_ff);
++endfunction
++
+ // Get values from the feedback network.
+ assign  o_alu_source_value_nxt  =
+         get_forward_value (    {(stall_late_ff ? skid_late_immediate_ff[0] : i_alu_source_ff[32]),
+                                 skid_alu_source_ff[31:6], late_reg_index[23:18]},
+                                 i_shifter_destination_index_ff[5:0],
+-                                i_alu_dav_nxt,
++                                i_alu_forward_dav,
+                                 i_alu_destination_value_nxt,
+                                 i_alu_destination_value_ff,
+                                 i_alu_destination_index_ff[5:0],
+@@ -695,7 +725,7 @@ assign  o_alu_source_value_nxt  =
+                                 i_cpu_mode,
+                                 skid_pc_plus_8_ff,
+                                 skid_force32align_ff,
+-                                1'b0, 12'd0
++                                1'b1, operand_pick[0]
+         );
+ 
+ 
+@@ -703,7 +733,7 @@ assign  o_shift_source_value_nxt=
+         get_forward_value (    {(stall_late_ff ? skid_late_immediate_ff[1] : i_shift_source_ff[32]),
+                                 skid_shift_source_ff[31:6], late_reg_index[17:12]},
+                                 i_shifter_destination_index_ff[5:0],
+-                                i_alu_dav_nxt,
++                                i_alu_forward_dav,
+                                 i_alu_destination_value_nxt,
+                                 i_alu_destination_value_ff,
+                                 i_alu_destination_index_ff[5:0],
+@@ -730,14 +760,14 @@ assign  o_shift_source_value_nxt=
+                                 i_cpu_mode,
+                                 skid_pc_plus_8_ff,
+                                 1'd0,
+-                                1'b0, 12'd0
++                                1'b1, operand_pick[1]
+         );
+ 
+ assign  o_shift_length_value_nxt=
+         get_forward_value (    {(stall_late_ff ? skid_late_immediate_ff[2] : i_shift_length_ff[32]),
+                                 skid_shift_length_ff[31:6], late_reg_index[11:6]},
+                                 i_shifter_destination_index_ff[5:0],
+-                                i_alu_dav_nxt,
++                                i_alu_forward_dav,
+                                 i_alu_destination_value_nxt,
+                                 i_alu_destination_value_ff,
+                                 i_alu_destination_index_ff[5:0],
+@@ -764,7 +794,7 @@ assign  o_shift_length_value_nxt=
+                                 i_cpu_mode,
+                                 skid_pc_plus_8_ff,
+                                 1'd0,
+-                                1'b0, 12'd0
++                                1'b1, operand_pick[2]
+         );
+ 
+ //
+@@ -776,7 +806,7 @@ assign  o_shift_length_value_nxt=
+ // is never aligned, so the index itself is not needed.
+ //
+ wire [11:0] ms_pick_live  = forward_pick ( {27'd0, i_mem_srcdest_index_ff[5:0]},
+-                                i_shifter_destination_index_ff[5:0], i_alu_dav_nxt,
++                                i_shifter_destination_index_ff[5:0], i_alu_forward_dav,
+                                 i_alu_destination_index_ff[5:0], i_alu_dav_ff,
+                                 i_postalu0_destination_index_ff[5:0], i_postalu0_dav_ff,
+                                 i_postalu1_destination_index_ff[5:0], i_postalu1_dav_ff,
+@@ -784,7 +814,7 @@ wire [11:0] ms_pick_live  = forward_pick ( {27'd0, i_mem_srcdest_index_ff[5:0]},
+                                 i_memory_destination_index_ff[5:0], i_memory_dav_ff,
+                                 i_memory_mem_srcdest_index_ff[5:0], i_memory_mem_load_ff );
+ wire [11:0] ms_pick_saved = forward_pick ( {27'd0, skid_idx[5:0]},
+-                                i_shifter_destination_index_ff[5:0], i_alu_dav_nxt,
++                                i_shifter_destination_index_ff[5:0], i_alu_forward_dav,
+                                 i_alu_destination_index_ff[5:0], i_alu_dav_ff,
+                                 i_postalu0_destination_index_ff[5:0], i_postalu0_dav_ff,
+                                 i_postalu1_destination_index_ff[5:0], i_postalu1_dav_ff,
+@@ -798,7 +828,7 @@ assign  o_mem_srcdest_value_nxt =
+         get_forward_value (    33'd0,
+ 
+                                 i_shifter_destination_index_ff[5:0],
+-                                i_alu_dav_nxt,
++                                i_alu_forward_dav,
+                                 i_alu_destination_value_nxt,
+                                 i_alu_destination_value_ff,
+                                 i_alu_destination_index_ff[5:0],
+@@ -1464,10 +1494,12 @@ function automatic [32:0] get_forward_value (
+         // its PC aligned here too, so its address is aligned from the start
+         // and the alignment check in zap_core sees no fault.
+         //
++        // The PC pick already excludes immediates and RAZ; reuse it for
++        // Thumb PC alignment instead of comparing the selected index again.
+         get_forward_value[32] = pick[11]; // Read the separately captured RF bank.
+         get_forward_value[31:0] = force32_align_ff &&
+                              ((!skid_mem_load_ff && !skid_mem_store_ff) ||
+-                              (!index[32] && index[5:0] == {2'd0, ARCH_PC[3:0]})) ?
++                              pick[2]) ?
+                              (get & 32'hffff_fffc) : get;
+ 
+ endfunction : get_forward_value
+diff --git a/tools/report_timing.tcl b/tools/report_timing.tcl
+index 5fdcef0..400bbff 100644
+--- a/tools/report_timing.tcl
++++ b/tools/report_timing.tcl
+@@ -4,6 +4,7 @@ create_timing_netlist
+ read_sdc
+ update_timing_netlist
+ file mkdir build
++source tools/report_timing5_families.tcl
+ report_timing -setup -npaths 30 -nworst 1 -detail full_path -file build/critical-paths.rpt
+ report_timing -hold -npaths 10 -detail full_path -file build/hold-paths.rpt
+ report_ucp -file build/unconstrained-paths.rpt
+diff --git a/tools/report_timing5_families.tcl b/tools/report_timing5_families.tcl
+new file mode 100644
+index 0000000..2b0bb0c
+--- /dev/null
++++ b/tools/report_timing5_families.tcl
+@@ -0,0 +1,78 @@
++# Loaded after create_timing_netlist/read_sdc/update_timing_netlist.
++# Report matching register sets even when a family leaves the worst 30.
++# Empty from/to means unconstrained on that side.
++set found_corner 0
++foreach_in_collection corner [get_available_operating_conditions] {
++    if {[get_operating_conditions_info -display_name $corner] eq "Slow 1100mV 100C Model"} {
++        set_operating_conditions $corner
++        update_timing_netlist
++        set found_corner 1
++    }
++}
++if {!$found_corner} { error "Missing slow 100C corner" }
++set families {
++    icvalid_input {} {*u_code_cache*valid_s1* *u_code_cache*valid_part* *u_code_cache*lru_s1* *u_code_cache*lru_part* *u_code_cache*rd_hi_s1*}
++    icvalid_output {*u_code_cache*valid_s1* *u_code_cache*valid_part* *u_code_cache*lru_s1* *u_code_cache*lru_part* *u_code_cache*rd_hi_s1*} {*u_code_cache*valid_s2* *u_code_cache*lru_s2*}
++    dcvalid_input {} {*u_data_cache*valid_s1* *u_data_cache*valid_part* *u_data_cache*lru_s1* *u_data_cache*lru_part* *u_data_cache*rd_hi_s1*}
++    multiply {*u_zap_issue_main*o_alu_operation_ff* *u_zap_issue_main*o_alu_is_mult_ff*} {*u_zap_shifter_main*}
++    multiply_output {*u_zap_issue_main*o_alu_operation_ff* *u_zap_issue_main*o_alu_is_mult_ff*} {*u_zap_shifter_main|o_*}
++    dtlb_fault {*u_data_cache*u_zap_tlb_check*o_fsr*} {}
++    dtlb_fault_capture {} {*u_data_cache*u_zap_tlb_check*o_fsr*}
++    itlb_fault_capture {} {*u_code_cache*u_zap_tlb_check*o_fsr*}
++    dtlb_check_input {} {*u_data_cache*u_zap_tlb_check*o_fsr* *u_data_cache*u_zap_tlb_check*o_hit_ok*}
++    itlb_check_input {} {*u_code_cache*u_zap_tlb_check*o_fsr* *u_code_cache*u_zap_tlb_check*o_hit_ok*}
++    load_valid_input {} {*zap_postalu_main*o_load_valid_ff* *zap_postalu_main*o_dav_ff* *zap_postalu_main*o_mem_load_ff*}
++    issue_operand_select {} {*u_zap_issue_main*alu_source_select_ff* *u_zap_issue_main*shift_source_select_ff* *u_zap_issue_main*shift_length_select_ff* *u_zap_issue_main*mem_srcdest_select_ff*}
++    issue_forward {} {*u_zap_issue_main*alu_source_normal_ff* *u_zap_issue_main*shift_source_normal_ff* *u_zap_issue_main*shift_length_normal_ff* *u_zap_issue_main*saved_special_ff*}
++    card_model {*mmc_card*} {*mmc_card*}
++    itlb_fault {*u_code_cache*u_zap_tlb_check*o_fsr*} {}
++    issue_stall {*u_zap_issue_main*stall*} {*u_zap_issue_main*}
++    issue_feedback {} {*u_zap_issue_main*stall_idx_ff* *u_zap_issue_main*stall_late_ff* *u_zap_issue_main*stall_lock_ff* *u_zap_issue_main*o_stall_from_issue*}
++    issue_stall_feedback {*u_zap_issue_main*stall*} {*u_zap_issue_main*stall_idx_ff* *u_zap_issue_main*stall_late_ff* *u_zap_issue_main*stall_lock_ff* *u_zap_issue_main*o_stall_from_issue*}
++    issue_pending {} {*u_zap_issue_main*o_load_pending_ff* *u_zap_issue_main*o_shift_source_pending_ff* *u_zap_issue_main*o_shift_length_pending_ff*}
++    decode_pending {*u_zap_decode_main*o_shift_length_ff*} {*u_zap_issue_main*o_load_pending_ff*}
++    issue_store {} {*u_zap_issue_main*mem_srcdest_normal_ff* *u_zap_issue_main*mem_srcdest_select_ff*}
++    arbiter_control {*test_on_q* *arb*sel_* *arb*gnt*} {*upp_bus*}
++    bus_address {*zap_wb_merger*o_wb_adr*} {*upp_bus*}
++    bus_register_inputs {} {*upp_bus*}
++    bus_input {} {*upp_bus*adr_q* *upp_bus*dat_q* *upp_bus*fe_* *upp_bus*sdr_addr*}
++    bl_decode {*zap_predecode_main*o_instruction_ff* *zap_predecode_main*o_bl*} {*u_zap_decode_main*}
++    merger_inputs {} {*zap_wb_merger*}
++    dcache_tag_inputs {} {*u_data_cache*u_zap_cache_fsm*reg_idx* *u_data_cache*u_zap_cache_fsm*reg_valid*}
++    dcache_bus {*u_data_cache*u_zap_cache_fsm*state_ff*} {*zap_wb_merger*o_wb_adr*}
++    predecode_payload {} {*zap_predecode_main*o_ppc_ff* *zap_predecode_main*o_pc_from_decode* *zap_predecode_main*ras_ptr_ff* *zap_predecode_main*prediction*ff*}
++    prediction_output {*zap_predecode_main*o_ppc_ff* *zap_predecode_main*o_pc_from_decode* *zap_predecode_main*prediction*ff*} {}
++    predecode_und {} {*zap_predecode_main*o_v5_und_ff* *zap_predecode_main*saved_class_ff* *zap_predecode_main*saved_thumb_bl_ff*}
++    cache_stall_pipeline {*u_data_cache* *u_zap_cp15_cb*o_mmu_en*} {*u_zap_core*}
++    cache_stall_to_core {*u_data_cache* *u_zap_cp15_cb*o_mmu_en*} {*u_zap_alu_main|* *u_zap_shifter_main|*}
++    background_pickup {*u_data_cache*u_zap_cache_fsm*o_reg_idx* *u_data_cache*u_zap_cache_fsm*o_reg_valid*} {*u_zap_alu_main|* *u_zap_shifter_main|*}
++    shifter_output {} {*u_zap_shifter_main*o_shifted_source_value_ff* *u_zap_shifter_main*o_shift_carry_ff* *u_zap_shifter_main*o_shift_sat_ff*}
++    predecode_copro {} {*zap_predecode_main*copro_word*ff* *zap_predecode_coproc*cp_word_ff*}
++    flash_bitmap_input {} {*flash_save*bitmap* *flash_save*bm_pending* *flash_save*bm_forward*}
++    flash_bitmap_output {*flash_save*bitmap* *flash_save*bm_pending* *flash_save*bm_forward*} {}
++    fifo_control {} {*u_zap_sync_fifo*empty_ff* *u_zap_sync_fifo*full_ff* *u_zap_sync_fifo*wptr_ff* *u_zap_sync_fifo*rptr_ff*}
++    issue_to_decode {*u_zap_issue_main*} {*u_zap_decode_main*}
++}
++file mkdir build/timing5-families
++set family_summary [open build/timing5-families/slacks.tsv w]
++puts $family_summary "family\tslack_ns\tfrom\tto"
++foreach {family from to} $families {
++    set args [list -setup -npaths 1]
++    if {[llength $from]} {
++        set regs [get_registers $from]
++        if {[get_collection_size $regs] == 0} { puts $family_summary "$family\tNO_SOURCE\t$from\t$to"; continue }
++        lappend args -from $regs
++    }
++    if {[llength $to]} {
++        set regs [get_registers $to]
++        if {[get_collection_size $regs] == 0} { puts $family_summary "$family\tNO_DESTINATION\t$from\t$to"; continue }
++        lappend args -to $regs
++    }
++    set paths [eval get_timing_paths $args]
++    if {[get_collection_size $paths] == 0} { puts $family_summary "$family\tNO_PATH\t$from\t$to"; continue }
++    foreach_in_collection path $paths {
++        puts $family_summary "$family\t[get_path_info -slack $path]\t[get_node_info -name [get_path_info -from $path]]\t[get_node_info -name [get_path_info -to $path]]"
++    }
++    eval report_timing $args [list -detail full_path -file build/timing5-families/$family.rpt]
++}
++close $family_summary

@@ -1,0 +1,45 @@
+# worktree NGage_MiSTer-v2d8: HEAD 22a4261 (HEAD); uncommitted changes saved before the worktree was removed on 2026-10-25
+diff --git a/NGage.qsf b/NGage.qsf
+index 2e8d9b2..087f2ed 100644
+--- a/NGage.qsf
++++ b/NGage.qsf
+@@ -85,11 +85,11 @@ set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
+ # The measurement core: the debug overlay, its per-second counters and the
+ # trace triggers (about 1,700 ALMs, for tools/mister_dbg.py and the board
+ # tools); every build without this macro is the stripped core
+-#set_global_assignment -name VERILOG_MACRO "NGAGE_DEBUG=1"
++set_global_assignment -name VERILOG_MACRO "NGAGE_DEBUG=1"
+ 
+ # Experimental ARM9V2 CPU, same shared caches/MMU/CP15 and debug protocol.
+ # Leave commented for the default ZAP core; enable with NGAGE_DEBUG to measure.
+-#set_global_assignment -name VERILOG_MACRO "NGAGE_CORE_ARM9=1"
++set_global_assignment -name VERILOG_MACRO "NGAGE_CORE_ARM9=1"
+ # Experimental 16 KB two-way D-cache (default 8 KB); index maintenance
+ # covers both physical set colours while CP15 keeps reporting 8 KB.
+ #set_global_assignment -name VERILOG_MACRO "NGAGE_DCACHE_16K=1"
+diff --git a/rtl/mem/sdram.sv b/rtl/mem/sdram.sv
+index 60d47c2..ddccc75 100644
+--- a/rtl/mem/sdram.sv
++++ b/rtl/mem/sdram.sv
+@@ -81,7 +81,7 @@
+ // board delay that CAPTURE_CLKS assumes, the module size (only the first
+ // 32 MB, 9 column bits, are used, which every module has).
+ module sdram #(
+-	parameter int CLK_HZ          = 104_000_000,
++	parameter int CLK_HZ          = 78_000_000,
+ 	parameter int CAS_LATENCY     = 2,
+ 	parameter int CAPTURE_CLKS    = 1,       // clocks from the chip's data edge to the DQ capture
+ 	parameter int T_RCD_NS        = 20,
+diff --git a/rtl/pll/pll_0002.v b/rtl/pll/pll_0002.v
+index 752b7fd..6da5869 100644
+--- a/rtl/pll/pll_0002.v
++++ b/rtl/pll/pll_0002.v
+@@ -19,7 +19,7 @@ module  pll_0002(
+ 		.reference_clock_frequency("50.0 MHz"),
+ 		.operation_mode("direct"),
+ 		.number_of_clocks(1),
+-		.output_clock_frequency0("104.000000 MHz"),
++		.output_clock_frequency0("78.000000 MHz"),
+ 		.phase_shift0("0 ps"),
+ 		.duty_cycle0(50),
+ 		.output_clock_frequency1("0 MHz"),
