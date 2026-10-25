@@ -5823,3 +5823,75 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   `quartus_sh --flow compile` never runs that step (the GUI does, as a
   flow stage); build.sh now runs quartus_stp before the compile when
   the settings name a SignalTap file.
+- **The gated cores were not gated**: the 3.27 s dump is the RTC-read
+  trigger (DBG_TRIG_RD, 0x0C1F0100, the kernel's first read of the HLE
+  date register at PC 0x514A3964), not the fault-area write, so the two
+  "gated" builds are ordinary trace cores; their eight boots (the 8 KB
+  one, build/hardware/game/v2g8-1..8/) were clean like all the others.
+  The tally is now stark: **every trace core of the fix-2 source boots
+  clean, 37 of 37**, while the same source without the trace fails two
+  boots in three (16 KB: the dialog; 8 KB: PLAT). The dump's schedule
+  shift cannot be the whole story (the fix-1 trace cores dumped the same
+  way and did fail), so the trace logic's presence itself changes the
+  outcome: it adds a client on the loader port (`ld_busy || ld_own !=
+  3'd2`) beside the flash loader and the flash_save path that the
+  memory-side bench does not model with the real HPS DDR3 bridge, and
+  it changes the placement. The stripped SignalTap core (no trace, the
+  configuration that fails) is the one build that can see the misread.
+- tools/gen_stp.py gained don't-care nibbles in bus patterns and a
+  conditional storage qualifier; the second spec (stp-flash2.json,
+  worktree ../NGage_MiSTer-stpc: the stripped 8 KB V2 core) keeps only
+  the data port's completed reads from the flash window (tr_d_done,
+  !tr_d_we, tr_d_va = 0x596xxxxx) in 4,096 samples with the data port,
+  ddram_flash's cs1_ack/addr/rdata and bb_hit and upp_bus's fe_hi
+  (108 bits), triggered on the first read of sector 0, so one capture
+  holds every word of the whole 9 KB file as the CPU and the flash
+  path saw it; quartus_stp validated it (0 errors). The first,
+  unqualified probe build was stopped as redundant on the user's "kill
+  all useless tests and builds"; the qualified one builds on lane b8.
+- **Fix 3: V2's excess D-side TLB walks** (the subagent, codex/arm9v2
+  e8a4b9e the test, fe65a2d the fix, 37eeaf4 the report; pushed). The
+  premise corrected: the section TLBs are not shared and not 8 entries
+  (each cache has its own 64-entry direct-mapped one; zap_top overrides
+  zap_tlb's default of 8). V2 drove three addresses from three stages
+  into one request's machinery: the lookup used A's address every clock
+  (a data value for an ALU instruction), the miss check M's, and the
+  walker fetched the cache's i_address, W's (arm9v2_core.sv:662-669,
+  zap_tlb_fsm.sv:168-175), where ZAP's three belong to one request. So
+  three kinds of waste walk: after a hold (a fill or an uncached access
+  froze the TLB on A's speculative lookup; at release W's check missed
+  and re-walked a section already held), at the wrong address (a real
+  miss at M walked at W's address, possibly a non-memory instruction's
+  garbage, so the miss stayed), and after an install (the check
+  registered in the install clock still saw the old entry: the same
+  section walked twice). flashcopy's 193,735 re-walks were the first
+  two. The test sim/cpu/tests/arm9_tlb_walks_rtl.S cycles two code
+  sections and N data sections at distinct indexes (the right count
+  after a warm-up pass is 0): before the fix V2 made 35/70/132/164/196
+  excess walks for N = 4..12, ZAP 0. The fix is a parameter CHECK_WALK
+  set only for V2's D-cache: the TLB keeps reading through holds, walks
+  the address that missed, and waits one fresh check after an install.
+  After it: 0 excess walks in the test; the copy test's D-side walks
+  29,839 -> 11,311, exactly ZAP's; the whole-core flashcopy 10.76 M ->
+  6.71 M clocks (ZAP 7.19 M), about 20.5 clocks per avoided walk;
+  ZAP cycle-identical at D8 and D16; V2's suite totals -5.6 to -6.1 %
+  (instruction counts move only in the interrupt-timed tests); suites
+  315/315 in all five configurations, QEMU 73/73, lints clean, netlist
+  regenerated. Expected on the board: 100-140 K fewer walks per second
+  at ~20 clocks, about +3 % game speed (+7 % at most). Two leads left:
+  with the predictor off V2 can still walk for a wrong-path load; and
+  **before the fix V2 cached fault descriptors from walks of garbage
+  addresses**, so a section the kernel maps later without a TLB flush
+  could abort, which may bear on the deaths. First board core: the
+  16 KB debug build of 37eeaf4 at seed 9 with the new FAST=1 fast-fit
+  profile (lane b5), for the game numbers and the boot statistics.
+- Two false starts, both fixed: the first FAST=1 build died at once on
+  a settings-file parse error (the appended fast-fit lines landed on
+  the last line, which had no newline; build.sh now writes one first,
+  master 5888b3a), and the 4,096-sample probe core overflowed the 553
+  M10K; the probe is now 86 bits (the data port's done/we/va/rdata,
+  cs1_ack, cs1_rdata, bb_hit, fe_hi) at 2,048 samples, still storage-
+  qualified to the flash-window reads, so one capture holds 16 of the
+  file's 18 sectors. Both rebuilt with the fast fit: the TLB-fix debug
+  core (worktree ../NGage_MiSTer-v2fix3, lane b5) and the probe core
+  (../NGage_MiSTer-stpc, lane b8).
