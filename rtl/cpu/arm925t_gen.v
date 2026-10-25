@@ -406,6 +406,7 @@ module arm9v2_core (
 	parameter [0:0] FREE_SELECT = 1'b1;
 	parameter [0:0] TRUST_FF = 1'b1;
 	parameter [0:0] FAST_Z = 1'b1;
+	parameter [0:0] W_ROTATE = 1'b1;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
 	parameter [31:0] DATA_CACHE_SIZE = 1024;
 	parameter [31:0] CODE_CACHE_SIZE = 1024;
@@ -1426,7 +1427,8 @@ module arm9v2_core (
 	arm9v2_execute #(
 		.S_AGU(S_AGU),
 		.FREE_SELECT(FREE_SELECT),
-		.FAST_Z(FAST_Z)
+		.FAST_Z(FAST_Z),
+		.W_ROTATE(W_ROTATE)
 	) u_execute(
 		.i_pending(d_pending),
 		.i_admit(backend_ready),
@@ -2899,6 +2901,7 @@ module arm9v2_execute (
 	parameter [0:0] S_AGU = 0;
 	parameter [0:0] FREE_SELECT = 0;
 	parameter [0:0] FAST_Z = 0;
+	parameter [0:0] W_ROTATE = 0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
@@ -3192,17 +3195,56 @@ module arm9v2_execute (
 		if (i_fault)
 			planned_writes = 0;
 	end
+	reg [31:0] operand1_nw;
+	reg [31:0] shift_input_nw;
+	wire [4:0] grant1 = i_forward_grant[((s_grant_hit * 4) + 1) * 5+:5];
+	wire w_take = (((W_ROTATE && grant1[3]) && (i_tag[6+:6] != 15)) && (i_tag[6+:6] != 17)) && !(((i_kind == DP) || (i_kind == MSR)) && i_instruction[25]);
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		operand1_nw = (((i_mw_value[32+:32] & {32 {grant1[0]}}) | (i_mw_value[0+:32] & {32 {grant1[1]}})) | (i_mw_value[96+:32] & {32 {grant1[2]}})) | ((holding ? held[32+:32] : i_value[32+:32]) & {32 {grant1[4]}});
+		if (i_tag[6+:6] == 15)
+			operand1_nw = (i_reg_shift ? i_pc_base + 32'd4 : i_pc_base);
+		if (i_tag[6+:6] == 17)
+			operand1_nw = {flags, i_cpsr[27:8], interrupt_mask, i_cpsr[5:0]};
+		shift_input_nw = operand1_nw;
+		if (((i_kind == DP) || (i_kind == MSR)) && i_instruction[25])
+			shift_input_nw = {24'd0, i_instruction[7:0]};
+	end
+	wire [31:0] shifted_main;
+	wire [31:0] shifted_w;
+	wire carry_main;
+	wire preserve_main;
+	wire rrx_main;
+	wire carry_w;
+	wire preserve_w;
+	wire rrx_w;
 	arm9v2_rotate u_rotate(
-		.i_value(shift_input),
+		.i_value((W_ROTATE ? shift_input_nw : shift_input)),
 		.i_amount(shift_amount),
 		.i_type(shift_type),
 		.i_register(shift_register),
 		.i_carry(1'b0),
-		.o_value(shifted),
-		.o_carry(shift_carry),
-		.o_preserve(carry_preserve),
-		.o_rrx(rrx)
+		.o_value(shifted_main),
+		.o_carry(carry_main),
+		.o_preserve(preserve_main),
+		.o_rrx(rrx_main)
 	);
+	arm9v2_rotate u_rotate_w(
+		.i_value(i_mw_value[64+:32]),
+		.i_amount(shift_amount),
+		.i_type(shift_type),
+		.i_register(shift_register),
+		.i_carry(1'b0),
+		.o_value(shifted_w),
+		.o_carry(carry_w),
+		.o_preserve(preserve_w),
+		.o_rrx(rrx_w)
+	);
+	assign shifted = (w_take ? shifted_w : shifted_main);
+	assign shift_carry = (w_take ? carry_w : carry_main);
+	assign carry_preserve = (w_take ? preserve_w : preserve_main);
+	assign rrx = (w_take ? rrx_w : rrx_main);
 	wire agu_scaled = (((S_AGU && (i_kind == MEM)) && (i_instruction[27:26] == 1)) && i_instruction[25]) && (i_instruction[11:4] != 0);
 	reg agu_forward;
 	reg agu_sub;
@@ -8436,6 +8478,7 @@ module zap_cache_tag_ram (
 	reg _sv2v_0;
 	parameter [0:0] SHORT_READ = 1'b0;
 	parameter [0:0] ACCEPTED_HIT_UPDATE = 1'b0;
+	parameter [0:0] REG_COLLISION = 1'b0;
 	parameter [0:0] TRACK_DIRTY = 1'b1;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] CACHE_LINE = 32'd8;
@@ -8890,11 +8933,13 @@ module zap_cache_tag_ram (
 			reg [(WAYS * CACHE_LINE) - 1:0] byte_en_q;
 			reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tag_data_q;
 			reg [(CACHE_LINE * 8) - 1:0] line_data_q;
-			wire collision = rd_addr_q == wr_addr_q;
+			(* dont_retime *) reg collision_q;
+			wire collision = (REG_COLLISION ? collision_q : rd_addr_q == wr_addr_q);
 			always @(posedge i_clk)
 				if (!i_hold) begin
 					rd_addr_q <= rd_set;
 					wr_addr_q <= tag_ram_wr_addr;
+					collision_q <= rd_set == tag_ram_wr_addr;
 					tag_data_q <= tag_ram_wr_data;
 					line_data_q <= i_cache_line;
 					begin : sv2v_autoblock_1
@@ -12700,6 +12745,8 @@ module zap_dcache (
 );
 	reg _sv2v_0;
 	parameter [0:0] SHORT_READ = 1'b0;
+	parameter [0:0] WAY_FORMAT = 1'b0;
+	parameter [0:0] REG_COLLISION = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
@@ -13267,6 +13314,7 @@ module zap_dcache (
 		.CACHE_LINE(CACHE_LINE),
 		.WAYS(WAYS),
 		.SHORT_READ(SHORT_READ),
+		.REG_COLLISION(REG_COLLISION),
 		.ACCEPTED_HIT_UPDATE(SHORT_READ),
 		.INDEX_SIZE(((WAYS == 2) && (CACHE_SIZE > 8192) ? 32'd8192 : CACHE_SIZE))
 	) u_zap_cache_tag_ram(
@@ -13394,7 +13442,25 @@ module zap_dcache (
 				end
 			end
 			assign store_collision = (forward_store && (compare_address[LINE_W - 1:2] == i_address[LINE_W - 1:2])) && (cache_write_way == (WAYS > 1 ? raw_cache_word_sel : 1'b0));
-			assign formatted = (store_collision ? ld_transform(store_word, i_ldfmt_check) : ld_transform(hit_word, i_ldfmt_check));
+			reg [(WAYS * 32) - 1:0] way_formatted;
+			always @(*) begin : sv2v_autoblock_3
+				reg signed [31:0] w;
+				if (_sv2v_0)
+					;
+				for (w = 0; w < WAYS; w = w + 1)
+					begin : sv2v_autoblock_4
+						reg [31:0] way_store;
+						way_store = raw_cache_words[w * 32+:32];
+						begin : sv2v_autoblock_5
+							reg signed [31:0] b;
+							for (b = 0; b < 4; b = b + 1)
+								if (i_ben[b])
+									way_store[8 * b+:8] = i_dat[8 * b+:8];
+						end
+						way_formatted[w * 32+:32] = ((forward_store && (compare_address[LINE_W - 1:2] == i_address[LINE_W - 1:2])) && (cache_write_way == (WAYS > 1 ? w[0] : 1'b0)) ? ld_transform(way_store, i_ldfmt_check) : ld_transform(raw_cache_words[w * 32+:32], i_ldfmt_check));
+					end
+			end
+			assign formatted = (WAY_FORMAT ? way_formatted[((WAYS > 1) && raw_cache_word_sel ? 1 : 0) * 32+:32] : (store_collision ? ld_transform(store_word, i_ldfmt_check) : ld_transform(hit_word, i_ldfmt_check)));
 			always @(posedge i_clk)
 				if (!hold && !i_stall) begin
 					tr_cache_line <= merged_line;
@@ -13405,7 +13471,7 @@ module zap_dcache (
 					tr_cache_way <= raw_cache_way;
 					tr_cache_hit_dirty <= raw_cache_hit_dirty || ((forward_store && raw_cache_hit) && (raw_cache_way == cache_write_way));
 					tr_cache_word_sel <= 0;
-					begin : sv2v_autoblock_3
+					begin : sv2v_autoblock_6
 						reg signed [31:0] w;
 						for (w = 0; w < WAYS; w = w + 1)
 							tr_cache_words[w * 32+:32] <= formatted;
@@ -26831,6 +26897,8 @@ module zap_top (
 				.CACHE_LINE(DATA_CACHE_LINE),
 				.WAYS(DATA_CACHE_WAYS),
 				.SHORT_READ(CORE == "ARM9"),
+				.WAY_FORMAT(CORE == "ARM9"),
+				.REG_COLLISION(CORE == "ARM9"),
 				.BE_32_ENABLE(BE_32_ENABLE),
 				.EXT_ABORT_FS((TI925T ? 4'b1000 : 4'b0010))
 			) u_data_cache(

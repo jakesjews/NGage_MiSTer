@@ -24,6 +24,11 @@
 module zap_dcache #(
 
 parameter logic SHORT_READ = 1'b0, // ARM9: RAM edge then caller's compare/capture edge.
+// ARM9V2 (SHORT_READ only): format each way's word, and its store-collision
+// merge, before the hit selects a way (WAY_FORMAT); register the short RAMs'
+// read/write set collision on the RAMs' own edge (REG_COLLISION).
+parameter logic WAY_FORMAT = 1'b0,
+parameter logic REG_COLLISION = 1'b0,
 parameter logic [31:0] CACHE_SIZE             = 32'd1024,
 parameter logic [31:0] SPAGE_TLB_ENTRIES      = 32'd8,
 parameter logic [31:0] LPAGE_TLB_ENTRIES      = 32'd8,
@@ -340,6 +345,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
 // ARM925T: enlarged two-way D-caches retain the reported 8 KB geometry
 // for index maintenance. The tag manager visits all physical set colours.
 zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .SHORT_READ(SHORT_READ),
+                   .REG_COLLISION(REG_COLLISION),
                    .ACCEPTED_HIT_UPDATE(SHORT_READ),
                    .INDEX_SIZE((WAYS == 2 && CACHE_SIZE > 8192) ? 32'd8192 : CACHE_SIZE)) u_zap_cache_tag_ram (
         .i_clk                  (i_clk),
@@ -448,8 +454,28 @@ generate if (SHORT_READ) begin : g_short_response
     assign store_collision = forward_store &&
         compare_address[LINE_W-1:2] == i_address[LINE_W-1:2] &&
         cache_write_way == ((WAYS > 1) ? raw_cache_word_sel : 1'b0);
-    assign formatted = store_collision ? ld_transform(store_word, i_ldfmt_check) :
+    // WAY_FORMAT: each way's candidate is finished (merge and format)
+    // before the hit chooses; the hit, the last-arriving term, drives only
+    // the final 2:1 select. Equal to the serial form for every way.
+    logic [WAYS-1:0][31:0] way_formatted;
+    always_comb for (int w=0; w<WAYS; w++) begin
+        logic [31:0] way_store;
+        way_store = raw_cache_words[w];
+        for (int b=0; b<4; b++)
+            if (i_ben[b]) way_store[8*b +: 8] = i_dat[8*b +: 8];
+        way_formatted[w] = forward_store &&
+            compare_address[LINE_W-1:2] == i_address[LINE_W-1:2] &&
+            cache_write_way == ((WAYS > 1) ? w[0] : 1'b0) ?
+            ld_transform(way_store, i_ldfmt_check) : ld_transform(raw_cache_words[w], i_ldfmt_check);
+    end
+    assign formatted = WAY_FORMAT ? way_formatted[(WAYS > 1 && raw_cache_word_sel) ? 1 : 0] :
+                       store_collision ? ld_transform(store_word, i_ldfmt_check) :
                                          ld_transform(hit_word, i_ldfmt_check);
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if (!i_reset && !hold && !i_stall)
+        assert (formatted == (store_collision ? ld_transform(store_word, i_ldfmt_check) :
+                              ld_transform(hit_word, i_ldfmt_check))) else $fatal(1, "way-parallel format");
+`endif
 `ifndef SYNTHESIS
     // A live lookup cannot own a fill/saved write. These assertions protect
     // the factoring above if the FSM's ownership states change later.

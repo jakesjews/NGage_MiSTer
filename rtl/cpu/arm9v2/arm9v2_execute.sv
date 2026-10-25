@@ -18,7 +18,13 @@
 // the producer's hit, a newer producer or the return replaces it. The hit
 // and the trust then reach only the waits, not the 32-bit selects.
 // FAST_Z: the ALU's carry-free zero (arm9_alu).
-module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, parameter logic FAST_Z=0) (
+// W_ROTATE: W's load word, the forward network's last-arriving input, has
+// a rotator of its own in S with the record's shift controls; the main
+// rotator's input excludes that lane, and the grant selects the finished
+// value. The operand multiplexer is no longer between the cache and the
+// shifter.
+module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, parameter logic FAST_Z=0,
+    parameter logic W_ROTATE=0) (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
     input logic i_flags_refresh,
     output logic o_serial_continue,
@@ -266,9 +272,41 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
         endcase
         if(i_fault)planned_writes=0;
     end
-    arm9v2_rotate u_rotate(.i_value(shift_input),.i_amount(shift_amount),.i_type(shift_type),
-        .i_register(shift_register),.i_carry(1'b0),.o_value(shifted),
-        .o_carry(shift_carry),.o_preserve(carry_preserve),.o_rrx(rrx));
+    // W_ROTATE: src 1's forwarded word without W's load lane (rank 3), and
+    // the shifter input built from it exactly as shift_input is.
+    logic [31:0] operand1_nw,shift_input_nw;
+    wire [4:0] grant1=i_forward_grant[s_grant_hit][1];
+    wire w_take=W_ROTATE&&grant1[3]&&i_tag[1]!=15&&i_tag[1]!=17&&!((i_kind==DP||i_kind==MSR)&&i_instruction[25]);
+    always_comb begin
+        operand1_nw=(i_mw_value[0][1]&{32{grant1[0]}})|(i_mw_value[0][0]&{32{grant1[1]}})|
+            (i_mw_value[1][1]&{32{grant1[2]}})|((holding?held[1]:i_value[1])&{32{grant1[4]}});
+        if(i_tag[1]==15)operand1_nw=i_reg_shift?i_pc_base+32'd4:i_pc_base;
+        if(i_tag[1]==17)operand1_nw={flags,i_cpsr[27:8],interrupt_mask,i_cpsr[5:0]};
+        shift_input_nw=operand1_nw;
+        if((i_kind==DP||i_kind==MSR)&&i_instruction[25])shift_input_nw={24'd0,i_instruction[7:0]};
+    end
+    logic [31:0] shifted_main,shifted_w;
+    logic carry_main,preserve_main,rrx_main,carry_w,preserve_w,rrx_w;
+    arm9v2_rotate u_rotate(.i_value(W_ROTATE?shift_input_nw:shift_input),.i_amount(shift_amount),.i_type(shift_type),
+        .i_register(shift_register),.i_carry(1'b0),.o_value(shifted_main),
+        .o_carry(carry_main),.o_preserve(preserve_main),.o_rrx(rrx_main));
+    arm9v2_rotate u_rotate_w(.i_value(i_mw_value[1][0]),.i_amount(shift_amount),.i_type(shift_type),
+        .i_register(shift_register),.i_carry(1'b0),.o_value(shifted_w),
+        .o_carry(carry_w),.o_preserve(preserve_w),.o_rrx(rrx_w));
+    assign shifted=w_take?shifted_w:shifted_main;
+    assign shift_carry=w_take?carry_w:carry_main;
+    assign carry_preserve=w_take?preserve_w:preserve_main;
+    assign rrx=w_take?rrx_w:rrx_main;
+`ifndef SYNTHESIS
+    logic [31:0] shifted_ref;
+    logic carry_ref,preserve_ref,rrx_ref;
+    arm9v2_rotate u_rotate_ref(.i_value(shift_input),.i_amount(shift_amount),.i_type(shift_type),
+        .i_register(shift_register),.i_carry(1'b0),.o_value(shifted_ref),
+        .o_carry(carry_ref),.o_preserve(preserve_ref),.o_rrx(rrx_ref));
+    always_ff @(posedge i_clk) if(!i_reset&&!i_flush&&i_valid)
+        assert({shifted,shift_carry,carry_preserve,rrx}=={shifted_ref,carry_ref,preserve_ref,rrx_ref})
+            else $fatal(1,"S W-lane rotator");
+`endif
     // S_AGU: the address adder. Inputs are S's selected operands (registered
     // producers or the RF), never A's ALU. A scaled register offset uses
     // held_offset from the prepared clock, so no rotator precedes the sum.

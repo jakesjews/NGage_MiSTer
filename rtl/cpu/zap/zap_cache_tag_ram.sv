@@ -63,6 +63,9 @@ module zap_cache_tag_ram #(
 
 parameter logic SHORT_READ = 1'b0,
 parameter logic ACCEPTED_HIT_UPDATE = 1'b0,
+// ARM9V2 (SHORT_READ): the read/write set collision as a register loaded on
+// the RAM address registers' own edge, not compared after them.
+parameter logic REG_COLLISION = 1'b0,
 parameter logic TRACK_DIRTY = 1'b1, // The instruction cache is read-only.
 parameter logic [31:0] CACHE_SIZE = 32'd1024, // Bytes, all ways together.
 parameter logic [31:0] CACHE_LINE = 32'd8,
@@ -292,10 +295,15 @@ if (SHORT_READ) begin : g_short_ram
         logic [WAYS-1:0][CACHE_LINE-1:0] byte_en_q;
         logic [`ZAP_CACHE_TAG_WDT-1:0] tag_data_q;
         logic [CACHE_LINE*8-1:0] line_data_q;
-        wire collision = rd_addr_q == wr_addr_q;
+        // REG_COLLISION: collision_q is rd_addr_q == wr_addr_q, compared
+        // before the edge that loads them both; it then drives every byte's
+        // and tag's bypass select (fanout ~280) straight from a register.
+        (* dont_retime *) logic collision_q;
+        wire collision = REG_COLLISION ? collision_q : rd_addr_q == wr_addr_q;
         always_ff @(posedge i_clk) if (!i_hold) begin
                 rd_addr_q <= rd_set;
                 wr_addr_q <= tag_ram_wr_addr;
+                collision_q <= rd_set == tag_ram_wr_addr;
                 tag_data_q <= tag_ram_wr_data;
                 line_data_q <= i_cache_line;
                 for (int w=0; w<WAYS; w++) begin
@@ -329,6 +337,12 @@ if (SHORT_READ) begin : g_short_ram
                 assign w_dummy[w] = line_q[w];
                 assign w_dummy_1[w] = tag_q[w];
         end
+`ifndef SYNTHESIS
+        logic loaded;
+        always_ff @(posedge i_clk) if (!i_hold) loaded <= 1'b1;
+        always_ff @(posedge i_clk) if (loaded && !i_reset)
+                assert (collision_q == (rd_addr_q == wr_addr_q)) else $fatal(1, "registered set collision");
+`endif
 end else begin : g_long_ram
 for ( genvar w = 0; w < WAYS; w++ )
 begin : g_way
