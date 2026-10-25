@@ -6,6 +6,13 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 where=${1:-remote}
+# FAST=1: append tools/fast-fit.qsf to the settings for this build only (a
+# fast fit for debug cores: about a third of the fitter time, 1-2 ns worse).
+if [[ -n "${FAST:-}" ]]; then
+    cp NGage.qsf build/NGage.qsf.orig 2>/dev/null || { mkdir -p build; cp NGage.qsf build/NGage.qsf.orig; }
+    cat tools/fast-fit.qsf >> NGage.qsf
+    trap 'cp build/NGage.qsf.orig NGage.qsf' EXIT
+fi
 build_mode=${2:-compile}
 case "$where" in remote|local) ;; *) print -u2 'Usage: ./build.sh [remote|local] [map|compile]'; exit 1 ;; esac
 case "$build_mode" in map|compile) ;; *) print -u2 'Usage: ./build.sh [remote|local] [map|compile]'; exit 1 ;; esac
