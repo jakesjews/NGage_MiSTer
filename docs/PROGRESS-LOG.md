@@ -6150,3 +6150,10 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   wb_flush. B2 not done: family B's device worst (backend_m, -1.95)
   starts at the late select and carries ALU results too, so B2 would
   not move it and costs 0.6-2.3 % of clocks.
+- The 8 KB fix-3 core's dialog rate, firmed up: six more boots all
+  clean (build/hardware/game/v2fix3d8stat-1..6/), so **eleven of twelve
+  boots clean** against the 16 KB fix-3 core's none of four. The cache
+  size is the dominant factor in the rate, which puts the 16 KB cache's
+  two-colour indexing back at the front for that core, with a rarer
+  path still present at 8 KB (one dialog in twelve). The second
+  subagent has both.
