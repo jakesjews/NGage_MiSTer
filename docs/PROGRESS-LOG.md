@@ -5997,3 +5997,30 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   before fix 3), three boots of the 8 KB core for the PLAT rate (two of
   three before), then the three games on the 16 KB core for fix 3's
   gain, and the SignalTap capture only if the panic survives.
+- **Plan step 0, measured** (the subagent, codex/arm9v2 4652205, §6 of
+  the plan; pushed): a bench-only observer (sim/profile/load_use.h) on
+  the 4.5-second whole-core boot with fixes 1-3 (the same 270,625,878
+  kernel-init instructions as S13; EFile 0.35 % and EStart 1.0 % sooner
+  than S13). In busy code 10-12 % of memory ops take their base from a
+  load just ahead (vtable and global dereferences), an ALU-produced
+  base just ahead only 0.3-4 %, scaled offsets negligible; 20-50 % of
+  loads feed a compare or other flag setter at once; sub-word loads
+  0-12 % (not the assumed 20-40 %); misses and uncached completions
+  1.5-64 per 1,000 instructions on the bench, 24-30 on the board in
+  play. Recomputed, projected to play (the plan's estimate in
+  brackets): A1 address adder in S 0.1-2.4 % (0.4-0.8); A2 extra
+  address stage 0.9-6.7 % (3-8); B2 flag consumers wait 0.6-2.3 %
+  (0.4-0.9); B3 no late pickup of load words 0.7-6.5 % (2.5-5); C2
+  sub-word formatting in W 0-0.8 % (1.5-3.5); D1 registered completion
+  1.0-1.2 %; **the preferred set A1+B2+D1 about 4 %** (1.9-7.3; the plan
+  said 1.8-3.0), the fallback set 10-11 %. With the TLB fix's +2-3 %
+  the preferred path lands near **41.9 M/s at 104 MHz** (CPI 2.48),
+  inside the 41-44 gate; the fallbacks near 39.4, failing it. B2 is as
+  costly as A1, so the zero-cycle parallel-Z cut must carry the flags
+  family; C2 is the cheapest fallback; A2 and B3 must not be taken
+  together. Caveat: the busy windows are mostly a kernel polling loop
+  (load a global, compare); play itself is unmeasured and is the
+  deciding number (the bench's snapshot support is on master, not the
+  branch). The session restarted here (the user's "shit did i boot
+  you"); nothing was lost: all results committed and pushed, no build
+  or simulation running, the board paused.

@@ -5,6 +5,9 @@
 #   ssh ubuntu 'dev/mister/NGage_MiSTer/tools/jtag-server.sh chain'   # list the chain
 #   ssh ubuntu 'dev/mister/NGage_MiSTer/tools/jtag-server.sh stp ARGS' # quartus_stp ...
 #   ssh ubuntu 'dev/mister/NGage_MiSTer/tools/jtag-server.sh stop'
+# Remote clients (the SignalTap GUI in a Quartus elsewhere, e.g. the Mac's):
+#   jtagconfig --addserver <server-ip> ngage   (the server accepts remote
+#   JTAG clients on TCP 1309 with that password; --network host exposes it)
 # The container runs as root, so no host udev rule is needed for it; the rule
 # below only matters for host-side users. The cable enumerates as 09fb:6810
 # until jtagd loads its firmware, then re-enumerates as 09fb:6010 "DE-SoC";
@@ -26,8 +29,9 @@ case "${1:-chain}" in
     docker rm -f $name >/dev/null 2>&1 || true
     docker run -d --name $name --device=/dev/bus/usb -v /dev/bus/usb:/dev/bus/usb \
       -v $HOME/$dir:/project -w /project --network host $image \
-      bash -c "ln -sf /lib/x86_64-linux-gnu/libudev.so.1 /lib/x86_64-linux-gnu/libudev.so.0; $q/jtagd --foreground --user-start" >/dev/null
-    sleep 2; docker exec $name $q/jtagconfig ;;
+      bash -c "ln -sf /lib/x86_64-linux-gnu/libudev.so.1 /lib/x86_64-linux-gnu/libudev.so.0; $q/jtagd --foreground" >/dev/null
+    sleep 2; docker exec $name $q/jtagconfig --enableremote ngage >/dev/null 2>&1 || true
+    docker exec $name $q/jtagconfig ;;
   chain) docker exec $name $q/jtagconfig ;;
   stp) shift; docker exec $name $q/quartus_stp "$@" ;;
   pgm) shift; docker exec $name $q/quartus_pgm "$@" ;;
