@@ -412,6 +412,7 @@ module arm9v2_core (
 	parameter [0:0] RF_WRITE_FF = 1'b1;
 	parameter [0:0] SHIFT_PRE = 1'b1;
 	parameter [0:0] PAYLOAD_FREE = 1'b1;
+	parameter [0:0] REDIRECT_PAYLOAD = 1'b1;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
 	parameter [31:0] DATA_CACHE_SIZE = 1024;
 	parameter [31:0] CODE_CACHE_SIZE = 1024;
@@ -1336,7 +1337,8 @@ module arm9v2_core (
 		.S_AGU(S_AGU),
 		.THUMB_HALF(THUMB_HALF),
 		.SHIFT_PRE(SHIFT_PRE),
-		.PAYLOAD_FREE(PAYLOAD_FREE)
+		.PAYLOAD_FREE(PAYLOAD_FREE),
+		.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD)
 	) u_front_decode(
 		.i_w_load_hit(w_load_hit),
 		.o_self_dep(d_self_dep),
@@ -1819,6 +1821,7 @@ module arm9v2_decode (
 	parameter [0:0] THUMB_HALF = 0;
 	parameter [0:0] SHIFT_PRE = 0;
 	parameter [0:0] PAYLOAD_FREE = 0;
+	parameter [0:0] REDIRECT_PAYLOAD = 0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
@@ -2546,6 +2549,7 @@ module arm9v2_decode (
 	assign new_d2 = pop || shortcut;
 	assign admitted = (fast_select ? fast_branch : decoded);
 	assign late_redirect = ((step && d2[45]) && !d2[41]) && (!d2[144] || !taken_match);
+	wire d2_late = ((d2_valid && d2[45]) && !d2[41]) && (!d2[144] || !taken_match);
 	assign early_used = d2[95-:4];
 	always @(*) begin
 		if (_sv2v_0)
@@ -2802,6 +2806,14 @@ module arm9v2_decode (
 				fenced <= 0;
 				out_valid <= 0;
 				redirect_ff[74] <= 0;
+			end
+			if (REDIRECT_PAYLOAD) begin
+				redirect_ff[72-:32] <= (d2_late ? d2[77-:32] : admitted[77-:32]);
+				redirect_ff[73] <= (d2_late ? d2[150] : admitted[150]);
+				redirect_ff[40-:32] <= (d2_late ? {d2[276:246], d2[150]} : {admitted[276:246], admitted[150]});
+				redirect_ff[8-:3] <= (d2_late ? d2[138-:3] : admitted[138-:3]);
+				redirect_ff[5-:4] <= (d2_late ? d2[135-:4] : admitted[135-:4]);
+				redirect_ff[1-:2] <= (d2_late ? ((d2[131-:4] == K_BL_SUFFIX) || d2[333] ? 2'd1 : 2'd0) : ((admitted[131-:4] == K_BL_SUFFIX) || admitted[333] ? 2'd1 : 2'd0));
 			end
 		end
 	assign o_valid = out_valid;
@@ -4349,6 +4361,7 @@ module arm9v2_front_decode (
 	parameter [0:0] THUMB_HALF = 0;
 	parameter [0:0] SHIFT_PRE = 0;
 	parameter [0:0] PAYLOAD_FREE = 0;
+	parameter [0:0] REDIRECT_PAYLOAD = 0;
 	parameter [31:0] RESET_VECTOR = 0;
 	input wire i_clk;
 	input wire i_reset;
@@ -4529,7 +4542,8 @@ module arm9v2_front_decode (
 		.S_AGU(S_AGU),
 		.THUMB_HALF(THUMB_HALF),
 		.SHIFT_PRE(SHIFT_PRE),
-		.PAYLOAD_FREE(PAYLOAD_FREE)
+		.PAYLOAD_FREE(PAYLOAD_FREE),
+		.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD)
 	) u_decode(
 		.i_valid(f_valid),
 		.i_pc(f_pc),

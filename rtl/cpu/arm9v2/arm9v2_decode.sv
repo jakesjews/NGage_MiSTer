@@ -18,8 +18,11 @@
 // without the kill; the valid bits, the counts and the redirect state
 // still see the kill, so a killed load is never valid, and D2's record
 // is kept whenever it stays valid.
+// REDIRECT_PAYLOAD (from codex/arm9v2-c4): D2's direct-branch redirect
+// payload loads on every edge, selected by whether D2's record redirects;
+// only its valid bit waits for S's acceptance (step/pop).
 module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, parameter logic THUMB_HALF=0,
-    parameter logic SHIFT_PRE=0, parameter logic PAYLOAD_FREE=0) (
+    parameter logic SHIFT_PRE=0, parameter logic PAYLOAD_FREE=0, parameter logic REDIRECT_PAYLOAD=0) (
     input logic i_clk, i_reset, i_flush,
     input logic i_serial_continue,
     input logic i_valid,
@@ -559,6 +562,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
     assign new_d2=pop||shortcut;
     assign admitted=fast_select?fast_branch:decoded;
     assign late_redirect=step&&d2.direct&&!d2.redirected&&(!d2.p.predicted||!taken_match);
+    wire d2_late=d2_valid&&d2.direct&&!d2.redirected&&(!d2.p.predicted||!taken_match);
     // Only operands consumed before the S/A edge need the early ALU lock.
     // Plain ALU inputs and store data can use A's precomputed late token.
     assign early_used=d2.early;
@@ -704,8 +708,45 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
                 if(i_flush||!redirect_in_d2)d2_valid<=0;
             end
             if(i_flush)begin fenced<=0;out_valid<=0;redirect_ff.valid<=0;end
+            // A valid redirect is set only by the late (step) or the admit
+            // (new_d2) branch; d2_late chooses between them without step.
+            if(REDIRECT_PAYLOAD)begin
+                redirect_ff.target<=d2_late?d2.target:admitted.target;
+                redirect_ff.thumb<=d2_late?d2.p.thumb:admitted.p.thumb;
+                redirect_ff.link<=d2_late?{d2.p.next_pc[31:1],d2.p.thumb}:{admitted.p.next_pc[31:1],admitted.p.thumb};
+                redirect_ff.pointer<=d2_late?d2.p.ras_pointer:admitted.p.ras_pointer;
+                redirect_ff.count<=d2_late?d2.p.ras_count:admitted.p.ras_count;
+                redirect_ff.action<=d2_late?(d2.kind==K_BL_SUFFIX||d2.p.ins[24]?2'd1:2'd0):
+                    (admitted.kind==K_BL_SUFFIX||admitted.p.ins[24]?2'd1:2'd0);
+            end
         end
     end
+`ifndef SYNTHESIS
+    // The old payload, loaded under the step/new_d2 conditions, must equal
+    // the new one whenever a redirect is valid.
+    redirect_t redirect_ref;
+    always_ff @(posedge i_clk) begin
+        if(i_reset)redirect_ref<=redirect_t'(0);
+        else begin
+            if(step&&late_redirect)begin
+                redirect_ref.target<=d2.target;redirect_ref.thumb<=d2.p.thumb;
+                redirect_ref.link<={d2.p.next_pc[31:1],d2.p.thumb};
+                redirect_ref.pointer<=d2.p.ras_pointer;redirect_ref.count<=d2.p.ras_count;
+                redirect_ref.action<=d2.kind==K_BL_SUFFIX||d2.p.ins[24]?2'd1:2'd0;
+            end
+            if(new_d2&&admitted.direct&&!admitted.p.predicted&&!late_redirect)begin
+                redirect_ref.target<=admitted.target;redirect_ref.thumb<=admitted.p.thumb;
+                redirect_ref.link<={admitted.p.next_pc[31:1],admitted.p.thumb};
+                redirect_ref.pointer<=admitted.p.ras_pointer;redirect_ref.count<=admitted.p.ras_count;
+                redirect_ref.action<=admitted.kind==K_BL_SUFFIX||admitted.p.ins[24]?2'd1:2'd0;
+            end
+        end
+    end
+    always_ff @(posedge i_clk) if(!i_reset&&REDIRECT_PAYLOAD&&redirect_ff.valid)
+        assert({redirect_ff.target,redirect_ff.thumb,redirect_ff.link,redirect_ff.pointer,redirect_ff.count,redirect_ff.action}==
+            {redirect_ref.target,redirect_ref.thumb,redirect_ref.link,redirect_ref.pointer,redirect_ref.count,redirect_ref.action})
+            else $fatal(1,"D2 redirect payload");
+`endif
 `ifndef SYNTHESIS
     // PAYLOAD_FREE: every original load is still a load, and a D2 record that
     // stays valid across an edge without stepping or a new admission keeps
