@@ -210,7 +210,7 @@ struct Bench {
 	bool check_window = false, check_copy = false;
 	uint64_t win_unc = 0, win_hit = 0, win_miss = 0, win_bad = 0, copies = 0, copy_stores = 0, copy_loads = 0;
 	struct WinPend { uint32_t va, data, sel; uint64_t clock; bool used; char kind; } win_pend[16] = {};
-	struct { uint32_t dst = 0, src = 0, n = 0; uint64_t clock = 0; } copy;
+	struct { uint32_t dst = 0, src = 0, n = 0, lr = 0; uint64_t clock = 0; bool active = false, dirty = false; } copy;
 	std::string trace_on_bad;
 #define WIN_FSM(x) emu__DOT__arm925t__DOT__u_zap__DOT__l_generate_with_cache_mmu__DOT__u_data_cache__DOT__u_zap_cache_fsm__DOT__##x
 	uint8_t flash_byte(uint32_t va) {   // the live image behind a C: alias address
@@ -219,7 +219,7 @@ struct Bench {
 		return dm.mem[DDR_BASE + 0x01000000u + off - DdramModel::BASE];
 	}
 	bool in_window(uint32_t va) { return va >= 0x59200000u && va < 0x59a00000u; }
-	bool in_buffer(uint32_t va) { return copy.n && va >= copy.dst && va < copy.dst + copy.n && clocks - copy.clock < 4000000; }
+	bool in_buffer(uint32_t va) { return copy.n && va >= copy.dst && va < copy.dst + copy.n; }
 	// the word the image gives for a data-port access at VA (word address):
 	// a window address directly; a buffer address through the copy's source
 	uint32_t expected_word(uint32_t va, uint32_t got) {
@@ -268,6 +268,7 @@ struct Bench {
 		uint32_t dst = reg(phys_index(0, cpsr)), src = reg(phys_index(1, cpsr)), n = reg(phys_index(2, cpsr));
 		if (!in_window(src) || n == 0 || n > 0x10000) return;
 		copies++; copy.dst = dst; copy.src = src; copy.n = n; copy.clock = clocks;
+		copy.lr = reg(phys_index(14, cpsr)) & ~1u; copy.active = true; copy.dirty = false;
 	}
 	uint64_t win_last_cmd = 0;
 	void win_watch() {
@@ -282,10 +283,16 @@ struct Bench {
 			uint32_t va = r->emu__DOT__tr_d_va, sel = r->emu__DOT__tr_d_sel;
 			bool we = r->emu__DOT__tr_d_we;
 			if (we) {
-				if (check_copy && in_buffer(va)) { copy_stores++; win_check("store", va, r->emu__DOT__tr_d_wdata, sel, clocks); }
+				// the copy's own stores are checked; a later store by other code
+				// (the buffer is often on the stack) ends the buffer's checks
+				if (check_copy && in_buffer(va)) {
+					if (copy.active) { copy_stores++; win_check("store", va, r->emu__DOT__tr_d_wdata, sel, clocks); }
+					else copy.dirty = true;
+				}
 			} else if (check_window && quiet && va >= 0x59200000u && va < 0x59600000u) {
 				win_unc++; win_check("unc", va, r->emu__DOT__tr_d_rdata, sel, clocks);
-			} else if ((check_window && quiet && va >= 0x59600000u && va < 0x59a00000u) || (check_copy && in_buffer(va))) {
+			} else if ((check_window && quiet && va >= 0x59600000u && va < 0x59a00000u) ||
+			           (check_copy && in_buffer(va) && !copy.active && !copy.dirty && clocks - copy.clock < 4000000)) {
 				// a hit's data is here; a miss is acknowledged with the way's current
 				// word and gets its data by the background write below
 				int k = 0; while (k < 16 && win_pend[k].used) k++;
@@ -581,7 +588,7 @@ struct Bench {
 			fprintf(trace, " %08x\n", cpsr);
 			if (trace_count && retired >= trace_after + trace_count) { trace_done = true; fclose(trace); trace = nullptr; }
 		}
-		if (check_copy && ev == 'R' && pc == 0x503A1D38u) copy_entry(cpsr);
+		if (check_copy && ev == 'R') { if (pc == 0x503A1D38u) copy_entry(cpsr); else if (copy.active && pc == copy.lr) copy.active = false; }
 		last_ev = ev;
 		if (ev == 'R') last_r_pc = pc;
 	}
