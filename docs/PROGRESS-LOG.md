@@ -5756,3 +5756,54 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   both Leave stubs armed: 16 KB (rings 512/128/128, lane b5, worktree
   ../NGage_MiSTer-v2fix2g16) and 8 KB (1,024/256/256, lane b6,
   ../NGage_MiSTer-v2fix2g8).
+- The timing-clean seed-9 fix-2 core (16 KB, -0.069 ns) shows the
+  "App. closed ... Server" dialog on two boots of three too
+  (build/hardware/game/v2fix2s9boot-1..3/, no kernel fault), the same
+  rate as the seed-2 core at -0.668: the panic is not a slack effect.
+  Headless SignalTap: the server's Quartus has no generator for the
+  sld_signaltap instance (qmegawiz does not know it), so a SignalTap
+  build needs the .stp authored in a Quartus GUI (the user's, attached
+  to the server's JTAG server remotely: 192.168.50.173:1309, password
+  ngage, tools/jtag-server.sh) or a hand-written instantiation; the
+  remote-client option is enabled on the server's jtagd.
+- **The memory side is clean in simulation** (the subagent, codex/arm9v2
+  b72ba26 the bench, 235ee7f the report; pushed): a new whole-core
+  program, sim/harness/flashcopy.S, maps C: where the kernel has it
+  (uncached at 0x59200000 and 0x59600000) and copies sectors with
+  Mem::Copy's own sequence through the real ngage_mem, upp_bus,
+  nor_flash and ddram_flash RTL and the DDRAM model, with V2's own
+  CS0 fetch line reads (I-cache invalidated first) and the destination's
+  SDRAM traffic; 126 cases (every source offset 0-35, ascending and
+  descending, copies straddling a sector end, 511 and 1,024 bytes,
+  uncached/write-through/write-back destinations, a cached source,
+  small copies, a header then the body, a flash program of the first,
+  middle or last halfword of the line just read), each run twice so
+  the first meets a cold ddram_flash read cache, at four DDR3 timings;
+  a `--check-flash` option compares every flash read beat with the
+  image: **0 mismatches on both cores** (V2 156,785 CS1 beats, ZAP
+  156,782), a planted bug (no write-through update of the beat
+  buffer) caught. V2's stream is slower, not faster (11 clocks ack to
+  ack against ZAP's 9). Not modelled: the real DDR3 controller and HPS
+  bridge, flash_save block reads, DMA, erases, interrupts, the board's
+  timing. So the misread exists only on the board, and the board
+  captures decide. **A side finding worth cycles:** in that test V2
+  re-read the code section's page-table entry 193,735 times against
+  ZAP's 1,124 (10.76 M clocks to ZAP's 7.19 M), a thrash of the shared
+  8-entry section TLB (zap_tlb.sv:230-245); the game runs agree: per
+  second at 78 MHz the overlay counts ZAP's TLB walks at 194 K I-beats
+  and 141 K D-beats, V2's at 2 K I-beats and **272 K D-beats**, so V2
+  walks the D-side twice as often as ZAP in play (of the order of 10 %
+  of its clocks), a cycle item for the profile work.
+- **SignalTap, headless.** tools/gen_stp.py writes a Quartus 17 .stp
+  from a JSON spec (clock, depth, instances with node lists and a basic
+  trigger per node), modelled on an example .stp from the Quartus Pro
+  install; the first spec, stp-flash.json in worktree
+  ../NGage_MiSTer-stpb (the stripped 8 KB V2 core at 78 MHz: no overlay,
+  no rings), probes the data port (tr_d_done/we/va/rdata), the flash
+  path (ddram_flash's cs1_req/ack/addr/rdata, bb_hit, take_go;
+  upp_bus's fl_req/ack, fe_hi, fe_need_hi) at 2,048 samples, triggered
+  on the first read of the database file's sector 0 (virtual
+  0x5967C6A4 = the flash window + CS1 offset 0x47C6A4); the server
+  builds it on lane b7 (the synthesis step validates the file). The
+  Mac elaborated the same source (worktree ../NGage_MiSTer-stp) for the
+  GUI's node finder should the dialect need fixing by hand.
