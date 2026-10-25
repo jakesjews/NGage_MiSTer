@@ -5644,3 +5644,46 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   line, before any cycle work on the profile that session 13 drew
   (the data wait that V2 exposes is now 30 % of the clocks in Asphalt
   and Tony Hawk against ZAP's 21 %).
+- **The Leave-trigger core boots clean six times out of six**
+  (8 KB, fix-2 source, -0.583 ns; build/hardware/NGage-v2fix2t8b-
+  s2.rbf; build/hardware/game/v2lv-1..6/), no fault and no Leave
+  retired after 17 s, where the same source without the trace died with
+  PLAT on two boots of three and fix 1's 8 KB trace core failed
+  start-up on three of three. So the chain behind PLAT is a race whose
+  odds depend on the boot's memory-traffic schedule (the trace core's
+  own 256 KB dump at 3.27 s shifts it), not a fixed sequence; once
+  lost, it plays out deterministically (the two identical PLAT boots).
+  Twelve more boots of this core run on the board, and a 16 KB variant
+  with the same Leave trigger (rings 512/128/128, the configuration
+  that produced two PLAT boots in nine) builds on lane b6.
+- **Where the -20 is made** (the subagent, codex/arm9v2 17682f9,
+  pushed; one step of its analysis went to an Opus subagent of its own
+  after a safety stop, per the standing rule): the C: file exists, so
+  CommDb opens it through the DBMS server (RDbs::Connect, then
+  RDbNamedDatabase::Open of c:\System\Data\Cdbv2.dat from 0x5045EF00);
+  the store library's checks run in the *server* thread (the header
+  check at 0x508B53D0 leaving at 0x508B5470, the frame type/length at
+  0x508AF8F2/0x508AF91C, the table-of-contents checks 0x508B4494-
+  0x508B4668, the read's error check at 0x508ACC8A; a checksum
+  mismatch would give -5, not -20), and the CommDb thread only receives
+  the -20 and leaves. The C: copy rebuilt from the flash log passes
+  every check (header 0x4F58, handle 0, reference 0x239D, checksum
+  0x0955; frames 0x8043, 0x80E8, 0x5534); it differs from the ROM
+  default from offset 0x1A27 on, and several of its 512-byte sectors
+  start at flash addresses 2 mod 4: **a misaligned copy out of the
+  uncached flash window is the prime suspect** for where V2 reads it
+  differently. Also run: a new test arm9_unc_chain_rtl.S (an uncached
+  older load or an uncached LDM's last word before cached chains, ARM
+  and Thumb; fails 30 of 540 before fix 2, all with the chain's own
+  line evicted; passes after) and the existing directed tests at 8:12
+  and 16:40 with their data uncached: all pass. So the euser-stub Leave
+  trigger would show only the return code; a third trace core
+  (worktree ../NGage_MiSTer-v2fix2t16c, lane b5; 16 KB, rings
+  512/128/128) triggers on either stub, euser's 0x503A785C or the
+  store library's Thumb import stub at 0x508B625C, from 17 s. The
+  subagent writes the directed test of the misaligned uncached copy
+  (the file server's sector copy routine as the ROM has it, rotated
+  unaligned loads, halfword pairs, aligned LDM with shifts, at 0-3 mod
+  4 source offsets, long latencies, both cache sizes, against ZAP).
+  The subagent's notes, the rebuilt C: file and a validator are in the
+  scratch cdb/ directory.
