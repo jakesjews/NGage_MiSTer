@@ -6694,7 +6694,11 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   on the sources with the assertions live, QEMU 76/76, and
   cycle-identical to lane E in every one of the 330 runs per
   configuration (the ARM9 logs byte-identical); the whole-core boot
-  with the assertions live ran to 12 s (BENCH_RESULT). Fitted as the
+  with the assertions live ran to 12 s with no assertion firing, its
+  retired-instruction count per second equal to the lane E 16 KB boot's
+  through 3 s and within 94-587 instructions through 9 s (a different
+  image: the current NOS stand-in bytes and the hci.dll patch, whose
+  effect shows from 10 s), 40 thread entries profiled. Fitted as the
   integrated stripped 16 KB core at 104 MHz, three seeds against lane
   E's (3f945c8) at the same seeds:
 
