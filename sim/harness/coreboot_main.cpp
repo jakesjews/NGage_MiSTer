@@ -220,8 +220,16 @@ struct Bench {
 			printf("WINDOW %s clock %" PRIu64 " VA %08x got %08x image %08x pc %08x\n", kind, at, va, got, img,
 			       (uint32_t)(r->CORE_DATA_PC - 8));
 	}
+	uint64_t win_last_cmd = 0;
 	void win_watch() {
-		if (r->emu__DOT__tr_d_done && !r->emu__DOT__tr_d_we) {
+		// the CS1 chip answers commands (autoselect, status) instead of the
+		// array: medint reads word 4 of every block in autoselect mode at
+		// 0x503800ac; skip loads near any such mode, as flash_watch does
+#define WIN_ARRAY (r->emu__DOT__ngage_mem__DOT__flash_cs1__DOT__mode == 0 && r->emu__DOT__ngage_mem__DOT__flash_cs1__DOT__cseq == 0 && \
+                   r->emu__DOT__ngage_mem__DOT__flash_cs1__DOT__p_state == 0 && r->emu__DOT__ngage_mem__DOT__flash_cs1__DOT__e_state == 0)
+		if (!WIN_ARRAY) win_last_cmd = clocks;
+		bool quiet = clocks - win_last_cmd > 64;
+		if (r->emu__DOT__tr_d_done && !r->emu__DOT__tr_d_we && quiet) {
 			uint32_t va = r->emu__DOT__tr_d_va, d = r->emu__DOT__tr_d_rdata;
 			if (va >= 0x59200000u && va < 0x59600000u) { win_unc++; win_check("unc", va, d, 0x59200000u, clocks); }
 			else if (va >= 0x59600000u && va < 0x59a00000u) {
@@ -231,7 +239,7 @@ struct Bench {
 				if (k < 16) win_pend[k] = {va, d, clocks, true};
 			}
 		}
-		if (r->WIN_FSM(o_reg_idx)) {
+		if (r->WIN_FSM(o_reg_idx) && quiet) {
 			uint32_t va = r->WIN_FSM(address);
 			if (va >= 0x59600000u && va < 0x59a00000u) {
 				for (int k = 0; k < 16; k++)
