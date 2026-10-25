@@ -390,3 +390,98 @@ shapes. In order of likelihood:
 3. A V2 path not yet shaped, such as Thumb, multiply, SWP or CP15.
 
 The trace of the fixed source is the next evidence.
+
+## The second death (`5c652ee` test, `6a85407` fix)
+
+A 16 KB trace core of the fixed source caught a user-mode data abort at
+25.25 s (the "App. closed" panics). The thread runs Thumb code: it calls
+`0x503CBDD8`, which calls `0x503CBDC0`, which calls through an import
+stub into Symbian's handle lookup at `0x503A320C` (ARM). The lookup
+returned NULL, and the caller's `ldr r0,[r4,#28]; ldr r0,[r0,#56]`
+aborted at `0x503CBDF4`.
+
+### Every load returned memory's word
+
+Each value below is checked against the data ring and the bus ring.
+Where a load missed, the data tap shows the victim's word, the known
+artifact; the bus gives the delivered word.
+
+| PC | Load | Address | Value | How |
+|---|---|---|---|---|
+| `0x503CBDE6` | `ldr r1,[r5,#60]` | `0x80629DF0` | `0x00080000` (the handle) | hit; stored there earlier in the window |
+| `0x503CBDC2` | `ldr r0,[r0,#36]` | `0x80629DD8` | `0x8062A274` | miss; bus line `0x0A1D4DD0`, critical word first |
+| `0x503A320C` | count | `0x8062A27C` | 1 | hit |
+| `0x503A3210` | array base | `0x8062A288` | `0x8062A358` | hit |
+| `0x503A3228` | entry id | `0x8062A358` | `0x00030008` | hit |
+| `0x503CBDC4` | `ldr r2,[pc,#12]` | `0x503CBDD4` | `0x801009D0` | miss; ROM line `0x003CBDD0`, critical word first |
+| `0x503CBDC6` | `ldr r2,[r2]` | `0x801009D0` | `0x80602148` | hit |
+| `0x503CBDC8` | `ldr r2,[r2,#4]` | `0x8060214C` | 3 | hit |
+
+From these, r1 = 8 | (3 << 16) = `0x00030008`, equal to the entry id.
+**But the `cmp r1,r3` at `0x503A3238` cleared Z.** The first wrong value
+is therefore the CPU's r2: the value consistent with the result is the
+literal `0x801009D0`, which gives r1 = `0x09D00008`.
+
+### Pipeline situation
+
+1. `ldr r0,[r0,#36]` missed. Its fill (line `0x80629DD0`, set `0x1DD`)
+   began evicting the literal line `0x503CBDD0`, the set's LRU way.
+2. The literal load reached W on the next clock and hit the departing
+   line: a short hit the cache never acknowledges.
+3. After installation it missed. Its fill evicted the set's other, dirty
+   way (`0x0A2FFDD0`, written back after the fill), and its word returned
+   in the background.
+4. `ldr r2,[r2]` and `ldr r2,[r2,#4]` read r2 and also write it. D2
+   passes such a writer behind an older pending load of its source,
+   reasoning that it must wait for that load's data. But S/A trusted the
+   unaccepted first-clock short hit and took the departing line's word
+   (the right value). Its data-port address `0x801009D0` precedes the
+   literal's bus beat, as in the first death.
+5. Both younger loads hit and retired first. The literal's background
+   return then wrote r2 = `0x801009D0`.
+
+The first fix had covered only D2's independent-writer exception, not
+this self-dependent one.
+
+### Test and fix
+
+`sim/cpu/tests/arm9_dep_waw_rtl.S` copies the shape:
+- **ISA:** ARM and Thumb.
+- **Eviction:** by a load miss (the board's) or by a store miss to the
+  literal's set.
+- **Gap:** 0-2 instructions.
+- **Younger writer:** two dependent loads, one, an add, a shift.
+- **Other way:** clean or dirty.
+- **Check:** r2 read from the register file after a call.
+
+At `36a4544`, V2 fails 128/142/144 of 192 at 0:0/0:3/2:9, at D8 and
+D16, in both predictor modes, every time with r2 = the literal. ZAP
+passes.
+
+The fix:
+- D2 registers, with the S-entry record, whether the instruction writes
+  a register it reads (`o_self_dep`).
+- For such an instruction, S and A accept W's first-clock short hit only
+  if `o_short_live` holds and it is not the fill-end clock
+  (`arm9v2_execute.sv`, `s_load_hit` and `a_load_hit`).
+- Other readers keep taking the word.
+
+### Verification
+
+- **Suites:** 306/306 runs in all three configurations, plus V2 at D16.
+- **ZAP:** all 306 cycle-identical.
+- **V2, earlier runs moved by the fix** (out of 303):
+  - predictor on: 17 runs; crand/ctrand −2..+9 clocks, `cache.0-3` +182,
+    `cache.2-9` +6, `store_reload` +4, `psr_irq.0-3` +3 (timer-driven);
+  - predictor off: 18 runs, up to `cache.0-3` +1,500 (0.15 %);
+  - D16, predictor on: 14 runs.
+  - The 3/4/5 windows are unchanged.
+- **Why counts moved:** in those runs a self-dependent writer used to
+  rely on a short hit that later proved to be a hit anyway. At the first
+  W clock the schedule can't tell, short of a new victim-exact
+  comparator in the shared cache. Gating every reader instead moved 33
+  runs, so it was rejected.
+- **QEMU:** 73/73 agree in all three. The four lint configurations are
+  clean, and `cpu-gen-check` passes with `LC_ALL=C` (23 `input reg`,
+  unchanged).
+- **Not done:** no fit and no board run of the change.
