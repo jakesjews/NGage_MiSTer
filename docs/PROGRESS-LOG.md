@@ -6187,3 +6187,9 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   rest of the way to the -0.6 gate is placement variance plus the cuts
   that cost cycles. A seed sweep of the integrated stripped core at
   104 MHz runs next.
+- Seed sweep of the integrated stripped core (3f945c8, ARM9 + 16 KB,
+  no overlay) at 104 MHz: seed 5 **-2.700 ns** (slow 100C; -2.665 at
+  -40C; 33,882 ALMs, 81 %) against seed 2's -2.086: about 0.6 ns of
+  placement variance between two seeds; seed 9 fitting, seed 7
+  launched.
+- Seed 9 of the integrated core: -2.239 ns (slow 100C).
