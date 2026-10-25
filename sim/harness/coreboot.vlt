@@ -38,3 +38,15 @@ public_flat_rd -module "nor_flash" -var "mode"
 public_flat_rd -module "nor_flash" -var "cseq"
 public_flat_rd -module "nor_flash" -var "p_state"
 public_flat_rd -module "nor_flash" -var "e_state"
+
+// --check-window: every load from the C: drive's aliases checked against the
+// live flash image: the data port's completion (the uncached alias answers
+// there; a cached-alias hit too) and the cache's background register write
+// (a cached-alias miss: the FSM's saved address names the line).
+public_flat_rd -module "emu" -var "tr_d_done"
+public_flat_rd -module "emu" -var "tr_d_we"
+public_flat_rd -module "emu" -var "tr_d_va"
+public_flat_rd -module "emu" -var "tr_d_rdata"
+public_flat_rd -module "zap_dcache_fsm" -var "address"
+public_flat_rd -module "zap_dcache_fsm" -var "reg_dat_ff"
+public_flat_rd -module "zap_dcache_fsm" -var "o_reg_idx"
