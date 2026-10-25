@@ -661,3 +661,102 @@ check itself.
 
 Scratch notes, the reconstructed files and a validator are in the
 session scratchpad (`cdb/`).
+
+## The flash copy itself (`arm9_unc_copy_rtl.S`)
+
+### The routine (verified by disassembly)
+
+medint.pdd copies the sector at `0x50381864`:
+- dest = the request descriptor's pointer plus its offset (`[[this+0x350]]`
+  and `+8`);
+- src = `[this+0x128]` (the CS1 window at `0x59200000` / `0x59600000`)
+  plus `[this+0x354]`;
+- length `[this+0x358]` (0x200);
+- through the stub `0x503830B4` to EUser `Mem::Copy` (`0x503A1D38`).
+
+This branch is taken when the descriptor is local (`r4 != 0` at
+`0x50381820`). Otherwise `0x50381884` hands a TPtrC8 of the flash to the
+kernel's thread write.
+
+Mem::Copy, for a source 2 mod 4 and a word-aligned dest (ascending,
+src > dst):
+1. `bic r1,r1,#3; ldr fp,[r1],#4`.
+2. At `0x503A1F70`, sixteen 32-byte blocks: `lsr r3,fp,#16`,
+   `ldm r1!,{r4-fp}`, an `orr ..,lsl #16` / `lsr #16` chain, then
+   `stmia r0!,{r3-sl}`.
+3. `msr CPSR_f`-chosen 16/8/4-byte tails, then up to two `ldrb`/`strb`.
+
+So the flash is read as aligned words, eight at a time (an uncached
+8-word LDM). There are no rotated or unaligned loads. The other paths:
+- **Aligned source:** eight unrolled `ldm`/`stm` pairs per 256 bytes.
+- **n ≤ 15:** `add ip,pc,#120; sub pc,ip,r2,lsl #3` jumps into an
+  `ldrb`/`strb` run.
+- **src < dst:** the descending copy (`0x503A2104`, `ldmdb`/`stmdb`).
+
+**Not determined:**
+- whether the window is cached (its C/B bits);
+- whether the dest lies below `0x59200000` (ascending) or at a kernel
+  address (descending).
+
+The test covers both cases of each.
+
+### Coverage
+
+278 cases, each run cold and then warm:
+- **Mem::Copy's own sequence** (a functional copy of `0x503A1D38`),
+  ascending and descending: k 0-3; n 512, 1024 (crosses 1 KB) and 511
+  (every tail); an uncached or a cached source; the dest's first line
+  present, departing or absent;
+- **dest offsets 1-3** (the head bytes), with k 0 and 2;
+- **small copies:** n 1, 2, 3, 7 and 15 (the computed jump), with dest
+  offset 0 and 3;
+- **an LFFS header then the body:** a 2-byte copy, then the 510-byte
+  rest;
+- **two simpler loops:** a word-at-a-time shift-merge and a plain
+  `ldm`/`stm` loop.
+
+Each case is compared with a byte-loop reference copy, and a consumer
+sums both. Rotated unaligned `ldr`/`ldrh` copies were dropped: the ROM
+never issues them, and `ldrh` at an odd address is unpredictable.
+
+### Result
+
+- **Passes** on ZAP and V2 at 0:0, 0:3, 2:9, 8:12 and 16:40, in four V2
+  builds: D8, D16, predictor off, and the netlist before fix 2
+  (`5c652ee`).
+- **The checks bite:** mutants of the ascending byte tail, the
+  descending 16-byte tail and both small paths fail on both cores, at
+  the expected first case.
+- **Suites:** 312/312 in all three configurations. The 306 runs shared
+  with the fix-2 baseline are cycle-identical in all three.
+
+**Ruled out on the way:**
+- **Cache maintenance during a fill:** every MCR waits at W until there
+  is no lock and no fill (`arm9v2_core.sv:689`), and it is serialising
+  (`:684`, `:760`).
+- **The kernel's DACR writes:** those at `0x50321588`, `0x50321A84` and
+  the others (ahead of `ldm {..,pc}^`) are such MCRs.
+
+### Next suspect: the board's CS1 path
+
+The CPU bench replaces this path with flat memory. On the board, each
+uncached CS1 word goes through:
+1. `wb_arb2` (CPU against DMA, `ngage_mem.sv:151`);
+2. upp_bus's split into two 16-bit `nor_flash` reads (`upp_bus.sv:309`
+   and `:310`);
+3. `ddram_flash`:
+   - a beat buffer that answers in the same clock (`ddram_flash.sv:172`
+     to `:180`, gated by `!ack_q`);
+   - the want/arbitration logic (`:193` to `:195`);
+   - write-through updates of the buffer (`:409` and `:410`) and of
+     the read cache (`:422` to `:471`).
+
+V2 times its requests differently from ZAP:
+- 8-word uncached LDMs back to back;
+- D-side reads while its own I-side line fills are in flight.
+
+The block benches (`sim/Makefile` targets `ddrflash` and `upp`) drive
+this path with random traffic, not with a CPU.
+
+**Next step:** replay V2's CS1 request stream from this test through the
+`upp` bench.
