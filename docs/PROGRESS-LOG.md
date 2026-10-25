@@ -5953,3 +5953,38 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   (md5 a53e0a57); the .sof and the compiled stp-flash3.stp stay in the
   server's dev/mister/NGage_MiSTer-b8/. It is the capture core; the
   fast-fit one (-1.885) is kept only as a fallback.
+- **The 104 MHz plan** (the subagent, codex/arm9v2 a36512a, docs/
+  consults/2026-10-25-v2-104mhz-plan.md, copied to master; pushed).
+  The four named families are not enough: the CPU trial needs about
+  -0.3 ns (whole-device slack runs 0.3-1.0 ns worse than the CPU
+  trial, and the board's envelope is -0.6 to -0.8), and with those four
+  removed S12 still leads near -2.0 ns (rf, backend, execute,
+  backend_skid, decode_payload, execute_late, dtlb, decode_grants, ...):
+  fifteen failing families from six root causes, all six to cut. The
+  cuts, preferred first: a dedicated address adder in S registered into
+  A so A drives the cache and TLB from a register (no new stage, 3/4/5
+  kept; loads whose base comes from the instruction just ahead or with
+  a scaled offset pay +1: +0.4-0.8 % cycles; the fallback an address
+  stage after A, 3/5/6 and one more clock on W redirects, +3-8 %);
+  load word into flags: parallel zero detection (free), else the
+  slower path for flag-setting consumers, last the loss of the late
+  pickup for load words (3/5/5, +2.5-5 %); the short response:
+  per-way formatting, sub-word loads a clock later as the fallback;
+  cache state driving core control: a registered completion contract
+  (+1 clock per miss or uncached completion, +1.0-1.3 %); the front
+  end and the rest: zero-cycle cuts. In play: about +2-3 % cycles on
+  the preferred path, roughly **42-43 M/s at 104 MHz with the TLB fix**,
+  inside the "near 41-44" gate but ~10 % short of 47; with every
+  fallback 36-39, failing the gate; the remaining gap to 47 is the data
+  wait (20-28 % of play clocks), a separate track. Order: a measurement
+  first (the load-to-consumer distance mix, never measured), then the
+  address adder, the formatter, the front end and the flags work as
+  four parallel lanes, then the completion contract, the stragglers,
+  integration with seeds, the whole device, the board at 78 then
+  104 MHz; each step gated on its families' slack; stop the shape if
+  the integrated result stays below -1.5 ns; nothing to the board
+  before the panic is shown fixed. Budget about five sessions and
+  12-22 fits on the preferred path, one or two sessions per fallback.
+  "Meets timing" is taken as the board-proven envelope (-0.6 ns at the
+  slow 100C corner on the server's Quartus, ZAP's own shipping figure),
+  not 0.
