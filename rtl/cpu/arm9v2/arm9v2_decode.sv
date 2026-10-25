@@ -12,8 +12,14 @@
 // SHIFT_PRE: S's shifter controls (type, immediate amount, the rotate amount
 // negated for LSL, the register flag) are worked out here from D2's record
 // and registered beside issued, so S's rotator starts at flops.
+// PAYLOAD_FREE: the D1 queue's and D2's wide payload enables leave out
+// the kill (W's flush, D2's own redirect). A free queue slot is written
+// whenever one exists, and D2's record loads whenever it would load
+// without the kill; the valid bits, the counts and the redirect state
+// still see the kill, so a killed load is never valid, and D2's record
+// is kept whenever it stays valid.
 module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, parameter logic THUMB_HALF=0,
-    parameter logic SHIFT_PRE=0) (
+    parameter logic SHIFT_PRE=0, parameter logic PAYLOAD_FREE=0) (
     input logic i_clk, i_reset, i_flush,
     input logic i_serial_continue,
     input logic i_valid,
@@ -546,6 +552,10 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
         (i_thumb?raw_word[15:11]==5'b11100:i_word[31:25]==7'b1110101);
     assign shortcut=accept&&fast_select&&(!d2_valid||(step&&d2.last));
     assign push=accept&&!shortcut;
+    // PAYLOAD_FREE: the same terms without kill_younger (or step's i_flush).
+    wire step_raw=d2_valid&&(!out_valid||i_ready)&&!o_hazard&&(!redirect_ff.valid||redirect_in_d2);
+    wire d2_load=PAYLOAD_FREE?(count!=0||(i_valid&&count<2&&fast_select))&&(!d2_valid||(step_raw&&d2.last)):new_d2;
+    wire d1_load=PAYLOAD_FREE?count<2:push;
     assign new_d2=pop||shortcut;
     assign admitted=fast_select?fast_branch:decoded;
     assign late_redirect=step&&d2.direct&&!d2.redirected&&(!d2.p.predicted||!taken_match);
@@ -627,8 +637,9 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
             redirect_ff.valid<=0;redirect_in_d2<=0;
             if(i_ready)out_valid<=0;
             if(i_serial_continue)fenced<=0;
+            if(d1_load)d1[tail]<=incoming;
             if(push)begin
-                d1[tail]<=incoming;tail<=!tail;
+                tail<=!tail;
             end
             if(accept)begin
                 previous_prefix<=i_thumb&&!i_fault&&raw_word[15:11]==5'b11110;
@@ -677,8 +688,9 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
                     redirect_ff.action<=d2.kind==K_BL_SUFFIX||d2.p.ins[24]?2'd1:2'd0;
                 end
             end
+            if(d2_load)d2<=admitted;
             if(new_d2)begin
-                d2<=admitted;d2_valid<=1;
+                d2_valid<=1;
                 if(admitted.direct&&!admitted.p.predicted&&!late_redirect)begin
                     d2.redirected<=1;redirect_in_d2<=1;
                     redirect_ff.valid<=1;redirect_ff.target<=admitted.target;redirect_ff.thumb<=admitted.p.thumb;
@@ -694,6 +706,23 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
             if(i_flush)begin fenced<=0;out_valid<=0;redirect_ff.valid<=0;end
         end
     end
+`ifndef SYNTHESIS
+    // PAYLOAD_FREE: every original load is still a load, and a D2 record that
+    // stays valid across an edge without stepping or a new admission keeps
+    // its payload (a payload-only load never lands on a live record).
+    decoded_t d2_before;
+    logic d2_kept;
+    always_ff @(posedge i_clk) begin
+        d2_kept<=!i_reset&&d2_valid&&!new_d2&&!step&&!(kill_younger&&(i_flush||!redirect_in_d2));
+        d2_before<=d2;
+        if(!i_reset&&PAYLOAD_FREE)begin
+            assert(!push||d1_load) else $fatal(1,"D1 payload enable");
+            assert(!new_d2||d2_load) else $fatal(1,"D2 payload enable");
+        end
+        if(!i_reset&&PAYLOAD_FREE&&d2_kept)
+            assert(d2==d2_before) else $fatal(1,"D2 kept record changed");
+    end
+`endif
     assign o_valid=out_valid;assign o_pc=issued.p.pc;assign o_instruction=issued.p.ins;
     assign o_mode=issued.p.mode;assign o_raw=issued.p.raw;
     assign o_pc_base=issued.p.pc_base;assign o_next_pc=issued.p.next_pc;

@@ -411,6 +411,7 @@ module arm9v2_core (
 	parameter [0:0] REDIRECT_EQ = 1'b1;
 	parameter [0:0] RF_WRITE_FF = 1'b1;
 	parameter [0:0] SHIFT_PRE = 1'b1;
+	parameter [0:0] PAYLOAD_FREE = 1'b1;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
 	parameter [31:0] DATA_CACHE_SIZE = 1024;
 	parameter [31:0] CODE_CACHE_SIZE = 1024;
@@ -1334,7 +1335,8 @@ module arm9v2_core (
 		.EXTERNAL_RF(1),
 		.S_AGU(S_AGU),
 		.THUMB_HALF(THUMB_HALF),
-		.SHIFT_PRE(SHIFT_PRE)
+		.SHIFT_PRE(SHIFT_PRE),
+		.PAYLOAD_FREE(PAYLOAD_FREE)
 	) u_front_decode(
 		.i_w_load_hit(w_load_hit),
 		.o_self_dep(d_self_dep),
@@ -1816,6 +1818,7 @@ module arm9v2_decode (
 	parameter [0:0] S_AGU = 0;
 	parameter [0:0] THUMB_HALF = 0;
 	parameter [0:0] SHIFT_PRE = 0;
+	parameter [0:0] PAYLOAD_FREE = 0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
@@ -2537,6 +2540,9 @@ module arm9v2_decode (
 	assign fast_select = ((count == 0) && !i_fault) && (i_thumb ? raw_word[15:11] == 5'b11100 : i_word[31:25] == 7'b1110101);
 	assign shortcut = (accept && fast_select) && (!d2_valid || (step && d2[42]));
 	assign push = accept && !shortcut;
+	wire step_raw = ((d2_valid && (!out_valid || i_ready)) && !o_hazard) && (!redirect_ff[74] || redirect_in_d2);
+	wire d2_load = (PAYLOAD_FREE ? ((count != 0) || ((i_valid && (count < 2)) && fast_select)) && (!d2_valid || (step_raw && d2[42])) : new_d2);
+	wire d1_load = (PAYLOAD_FREE ? count < 2 : push);
 	assign new_d2 = pop || shortcut;
 	assign admitted = (fast_select ? fast_branch : decoded);
 	assign late_redirect = ((step && d2[45]) && !d2[41]) && (!d2[144] || !taken_match);
@@ -2695,10 +2701,10 @@ module arm9v2_decode (
 				out_valid <= 0;
 			if (i_serial_continue)
 				fenced <= 0;
-			if (push) begin
+			if (d1_load)
 				d1[tail] <= incoming;
+			if (push)
 				tail <= !tail;
-			end
 			if (accept) begin
 				previous_prefix <= (i_thumb && !i_fault) && (raw_word[15:11] == 5'b11110);
 				previous_next_pc <= incoming[144-:32];
@@ -2767,8 +2773,9 @@ module arm9v2_decode (
 					redirect_ff[1-:2] <= ((d2[131-:4] == K_BL_SUFFIX) || d2[333] ? 2'd1 : 2'd0);
 				end
 			end
-			if (new_d2) begin
+			if (d2_load)
 				d2 <= admitted;
+			if (new_d2) begin
 				d2_valid <= 1;
 				if ((admitted[45] && !admitted[144]) && !late_redirect) begin
 					d2[41] <= 1;
@@ -4341,6 +4348,7 @@ module arm9v2_front_decode (
 	parameter [0:0] S_AGU = 0;
 	parameter [0:0] THUMB_HALF = 0;
 	parameter [0:0] SHIFT_PRE = 0;
+	parameter [0:0] PAYLOAD_FREE = 0;
 	parameter [31:0] RESET_VECTOR = 0;
 	input wire i_clk;
 	input wire i_reset;
@@ -4520,7 +4528,8 @@ module arm9v2_front_decode (
 		.EXTERNAL_RF(EXTERNAL_RF),
 		.S_AGU(S_AGU),
 		.THUMB_HALF(THUMB_HALF),
-		.SHIFT_PRE(SHIFT_PRE)
+		.SHIFT_PRE(SHIFT_PRE),
+		.PAYLOAD_FREE(PAYLOAD_FREE)
 	) u_decode(
 		.i_valid(f_valid),
 		.i_pc(f_pc),
