@@ -201,24 +201,73 @@ struct Bench {
 	static constexpr uint32_t DDR_BASE = 0x31000000u;
 	// --check-window (2026-10-25): loads from the C: drive's two aliases
 	// (0x59200000 uncached, 0x59600000 cached) against the live flash image.
-	bool check_window = false;
-	uint64_t win_unc = 0, win_hit = 0, win_miss = 0, win_bad = 0;
-	struct WinPend { uint32_t va, data; uint64_t clock; bool used; } win_pend[16] = {};
+	// --check-copy: every Mem::Copy (0x503A1D38) out of those aliases: its
+	// stores against the source bytes in the image, and the buffer's loads
+	// for a while after. The data port reports the word's address and the
+	// byte enables; a value is the selected bytes, shifted down, sign-extended
+	// for LDRSB/H. --trace-on-bad FILE starts an instruction trace at the
+	// first wrong value.
+	bool check_window = false, check_copy = false;
+	uint64_t win_unc = 0, win_hit = 0, win_miss = 0, win_bad = 0, copies = 0, copy_stores = 0, copy_loads = 0;
+	struct WinPend { uint32_t va, data, sel; uint64_t clock; bool used; char kind; } win_pend[16] = {};
+	struct { uint32_t dst = 0, src = 0, n = 0; uint64_t clock = 0; } copy;
+	std::string trace_on_bad;
 #define WIN_FSM(x) emu__DOT__arm925t__DOT__u_zap__DOT__l_generate_with_cache_mmu__DOT__u_data_cache__DOT__u_zap_cache_fsm__DOT__##x
-	void win_check(const char *kind, uint32_t va, uint32_t got, uint32_t base, uint64_t at) {
+	uint8_t flash_byte(uint32_t va) {   // the live image behind a C: alias address
+		uint32_t base = va < 0x59600000u ? 0x59200000u : 0x59600000u;
 		uint32_t off = 0x400000u + (va - base);
-		uint32_t idx = DDR_BASE + 0x01000000u + (off & ~3u) - DdramModel::BASE;
-		uint32_t img; memcpy(&img, &dm.mem[idx], 4);
-		unsigned sh = (va & 3) * 8, hs = (va & 2) * 8;
-		uint32_t byte = (img >> sh) & 0xffu, half = (img >> hs) & 0xffffu;
-		uint32_t rot = (img >> sh) | (sh ? (img << (32 - sh)) : 0);
-		bool ok = got == img || got == rot || got == byte || got == half ||
-		          got == (uint32_t)(int32_t)(int8_t)byte || got == (uint32_t)(int32_t)(int16_t)half;
-		if (ok) return;
+		return dm.mem[DDR_BASE + 0x01000000u + off - DdramModel::BASE];
+	}
+	bool in_window(uint32_t va) { return va >= 0x59200000u && va < 0x59a00000u; }
+	bool in_buffer(uint32_t va) { return copy.n && va >= copy.dst && va < copy.dst + copy.n && clocks - copy.clock < 4000000; }
+	// the word the image gives for a data-port access at VA (word address):
+	// a window address directly; a buffer address through the copy's source
+	uint32_t expected_word(uint32_t va, uint32_t got) {
+		uint32_t w = 0;
+		for (int k = 0; k < 4; k++) {
+			uint32_t a = (va & ~3u) + k, b;
+			if (in_window(a)) b = flash_byte(a);
+			else if (copy.n && a >= copy.dst && a < copy.dst + copy.n) b = flash_byte(copy.src + (a - copy.dst));
+			else b = (got >> (8 * k)) & 0xffu;
+			w |= (uint32_t)b << (8 * k);
+		}
+		return w;
+	}
+	bool win_ok(uint32_t got, uint32_t img, uint32_t sel) {
+		if (sel == 0xf || sel == 0)
+			for (unsigned sh = 0; sh < 32; sh += 8)
+				if (got == ((img >> sh) | (sh ? (img << (32 - sh)) : 0))) return true;
+		if (sel == 0xf) return false;
+		for (int lo = 0; lo < 4; lo++) {
+			if (sel && lo != __builtin_ctz(sel)) continue;
+			int n = sel ? __builtin_popcount(sel) : 1;
+			for (int bytes = n; bytes <= (sel ? n : 2); bytes++) {
+				if (lo + bytes > 4) break;
+				uint32_t v = (img >> (8 * lo)) & (bytes == 1 ? 0xffu : 0xffffu);
+				uint32_t sx = bytes == 1 ? (uint32_t)(int32_t)(int8_t)v : (uint32_t)(int32_t)(int16_t)v;
+				if (got == v || got == sx) return true;
+			}
+		}
+		return false;
+	}
+	void win_report(const char *kind, uint32_t va, uint32_t got, uint32_t sel, uint32_t img, uint64_t at) {
 		win_bad++;
 		if (win_bad <= 60)
-			printf("WINDOW %s clock %" PRIu64 " VA %08x got %08x image %08x pc %08x\n", kind, at, va, got, img,
-			       (uint32_t)(r->CORE_DATA_PC - 8));
+			printf("WINDOW %s clock %" PRIu64 " VA %08x sel %x got %08x image %08x pc %08x copy dst %08x src %08x n %x\n", kind, at, va, sel, got, img,
+			       (uint32_t)(r->CORE_DATA_PC - 8), copy.dst, copy.src, copy.n);
+		if (win_bad == 1 && !trace_on_bad.empty() && !trace) {
+			trace = fopen(trace_on_bad.c_str(), "w"); trace_after = retired; trace_count = 300000; trace_done = false;
+			printf("trace started at retired %" PRIu64 "\n", retired);
+		}
+	}
+	void win_check(const char *kind, uint32_t va, uint32_t got, uint32_t sel, uint64_t at) {
+		uint32_t img = expected_word(va, got);
+		if (!win_ok(got, img, sel)) win_report(kind, va, got, sel, img, at);
+	}
+	void copy_entry(uint32_t cpsr) {   // Mem::Copy retired: r0 dst, r1 src, r2 n
+		uint32_t dst = reg(phys_index(0, cpsr)), src = reg(phys_index(1, cpsr)), n = reg(phys_index(2, cpsr));
+		if (!in_window(src) || n == 0 || n > 0x10000) return;
+		copies++; copy.dst = dst; copy.src = src; copy.n = n; copy.clock = clocks;
 	}
 	uint64_t win_last_cmd = 0;
 	void win_watch() {
@@ -229,28 +278,35 @@ struct Bench {
                    r->emu__DOT__ngage_mem__DOT__flash_cs1__DOT__p_state == 0 && r->emu__DOT__ngage_mem__DOT__flash_cs1__DOT__e_state == 0)
 		if (!WIN_ARRAY) win_last_cmd = clocks;
 		bool quiet = clocks - win_last_cmd > 64;
-		if (r->emu__DOT__tr_d_done && !r->emu__DOT__tr_d_we && quiet) {
-			uint32_t va = r->emu__DOT__tr_d_va, d = r->emu__DOT__tr_d_rdata;
-			if (va >= 0x59200000u && va < 0x59600000u) { win_unc++; win_check("unc", va, d, 0x59200000u, clocks); }
-			else if (va >= 0x59600000u && va < 0x59a00000u) {
+		if (r->emu__DOT__tr_d_done) {
+			uint32_t va = r->emu__DOT__tr_d_va, sel = r->emu__DOT__tr_d_sel;
+			bool we = r->emu__DOT__tr_d_we;
+			if (we) {
+				if (check_copy && in_buffer(va)) { copy_stores++; win_check("store", va, r->emu__DOT__tr_d_wdata, sel, clocks); }
+			} else if (check_window && quiet && va >= 0x59200000u && va < 0x59600000u) {
+				win_unc++; win_check("unc", va, r->emu__DOT__tr_d_rdata, sel, clocks);
+			} else if ((check_window && quiet && va >= 0x59600000u && va < 0x59a00000u) || (check_copy && in_buffer(va))) {
 				// a hit's data is here; a miss is acknowledged with the way's current
 				// word and gets its data by the background write below
 				int k = 0; while (k < 16 && win_pend[k].used) k++;
-				if (k < 16) win_pend[k] = {va, d, clocks, true};
+				if (k < 16) win_pend[k] = {va, r->emu__DOT__tr_d_rdata, sel, clocks, true, in_window(va) ? 'w' : 'b'};
 			}
 		}
-		if (r->WIN_FSM(o_reg_idx) && quiet) {
+		if (r->WIN_FSM(o_reg_idx)) {
 			uint32_t va = r->WIN_FSM(address);
-			if (va >= 0x59600000u && va < 0x59a00000u) {
-				for (int k = 0; k < 16; k++)
-					if (win_pend[k].used && (win_pend[k].va & ~3u) == (va & ~3u)) { win_pend[k].used = false; break; }
-				win_miss++; win_check("miss", va, r->WIN_FSM(reg_dat_ff), 0x59600000u, clocks);
-			}
+			for (int k = 0; k < 16; k++)
+				if (win_pend[k].used && (win_pend[k].va & ~3u) == (va & ~3u)) {
+					win_pend[k].used = false;
+					if (win_pend[k].kind == 'w') win_miss++; else copy_loads++;
+					win_check(win_pend[k].kind == 'w' ? "miss" : "bufmiss", va, r->WIN_FSM(reg_dat_ff), win_pend[k].sel, clocks);
+					break;
+				}
 		}
 		for (int k = 0; k < 16; k++)
 			if (win_pend[k].used && clocks - win_pend[k].clock > 200) {
-				win_pend[k].used = false; win_hit++;
-				win_check("hit", win_pend[k].va, win_pend[k].data, 0x59600000u, win_pend[k].clock);
+				win_pend[k].used = false;
+				if (win_pend[k].kind == 'w') win_hit++; else copy_loads++;
+				win_check(win_pend[k].kind == 'w' ? "hit" : "bufhit", win_pend[k].va, win_pend[k].data, win_pend[k].sel, win_pend[k].clock);
 			}
 	}
 	DdramModel dm{40u << 20, 5};
@@ -525,6 +581,7 @@ struct Bench {
 			fprintf(trace, " %08x\n", cpsr);
 			if (trace_count && retired >= trace_after + trace_count) { trace_done = true; fclose(trace); trace = nullptr; }
 		}
+		if (check_copy && ev == 'R' && pc == 0x503A1D38u) copy_entry(cpsr);
 		last_ev = ev;
 		if (ev == 'R') last_r_pc = pc;
 	}
@@ -686,7 +743,7 @@ struct Bench {
 		cpu_after_edge();
 		bus_watch();
 		if (check_flash || buslog) flash_watch();
-		if (check_window) win_watch();
+		if (check_window || check_copy) win_watch();
 		video_watch();
 		audio_watch();
 		key_watch();
@@ -724,7 +781,8 @@ int main(int argc, char **argv) {
 	crc_init();
 	std::string cs0p, cs1p, mmcp, out = ".", keysp, tracep, rtc = "2004-06-01 12:00:00";
 	uint64_t max_cycles = 1000000000ull, progress = 50000000ull, trace_after = 0, trace_count = 0;
-	bool devlog = false, profile_enabled = true, check_flash = false, check_window = false;
+	bool devlog = false, profile_enabled = true, check_flash = false, check_window = false, check_copy = false;
+	std::string trace_on_bad;
 	std::string buslogp, until, loadusep;
 	DdramProfile ddr;
 	bool ddr_set = false;
@@ -753,6 +811,8 @@ int main(int argc, char **argv) {
         else if (a == "--fault-history") fault_history = strtoull(next(), nullptr, 0);
 		else if (a == "--check-flash") check_flash = true;
 		else if (a == "--check-window") check_window = true;
+		else if (a == "--check-copy") check_copy = true;
+		else if (a == "--trace-on-bad") trace_on_bad = next();
 		else if (a == "--load-use") loadusep = next();
 		else if (a == "--buslog") buslogp = next();
 		else if (a == "--until") until = next();
@@ -778,6 +838,8 @@ int main(int argc, char **argv) {
 	b.kern = fopen((out + "/kern.log").c_str(), "w");
 	b.check_flash = check_flash;
 	b.check_window = check_window;
+	b.check_copy = check_copy;
+	b.trace_on_bad = trace_on_bad;
 	if (!loadusep.empty()) b.loaduse.open(loadusep);
 	if (ddr_set) b.dm.prof = ddr;
 	b.until = until;
@@ -876,6 +938,9 @@ int main(int argc, char **argv) {
 	if (b.check_window)
 		printf("window check: %" PRIu64 " uncached, %" PRIu64 " cached-hit, %" PRIu64 " cached-miss loads of the C: drive, %" PRIu64 " wrong\n",
 		       b.win_unc, b.win_hit, b.win_miss, b.win_bad);
+	if (b.check_copy)
+		printf("copy check: %" PRIu64 " Mem::Copy calls out of the C: drive, %" PRIu64 " stores and %" PRIu64 " loads of their buffers checked\n",
+		       b.copies, b.copy_stores, b.copy_loads);
 	if (b.buslog) fclose(b.buslog);
 	if (b.exec_log) {
         printf("User execution: %" PRIu64 " instructions, %" PRIu64 " entries, %" PRIu64 " exec calls\n",
