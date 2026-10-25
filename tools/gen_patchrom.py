@@ -14,10 +14,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PATCH_DIGESTS = {
     0x8F00: "a4e51308de06c2145c2ac9f801dc6099",
-    0x8F18: "fc2658343cc56fd28cdd2c2125b359d2",
+    0x8F18: "50c7d0a4f1cf3f71e9581a2c91c62eff",
 }
 # SHA256 of the encoded patch records, before the digest records/terminator.
-PAYLOAD_SHA256 = "fda98035b7f0510d174100d6d919a7377318e013326a405cb2786d014320c4e2"
+PAYLOAD_SHA256 = "693a180a2650efded88d7713f35b9ea722c7d51ab228dd434cd5088e4f7564ed"
 
 
 def record(chip, offset, data):
