@@ -6193,3 +6193,30 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   placement variance between two seeds; seed 9 fitting, seed 7
   launched.
 - Seed 9 of the integrated core: -2.239 ns (slow 100C).
+- **Neither the interrupt nor the aliasing** (the second subagent,
+  codex/arm9v2-irq 244ce51/58ff966/3efe968; pushed). The interrupt
+  sweep sim/cpu/tests/arm9_irq_ldm_rtl.S: both cores attach an
+  interrupt only to an instruction's first micro-op (arm9v2_core.sv:
+  573-574; ZAP's sequencer), V2 takes the exception only with no load
+  outstanding (:491) and writes the LDM base on the last micro-op
+  (arm9v2_execute.sv:238); Mem::Copy's own sequence (n 512 and 511,
+  k 0-3, both directions) with an IRQ or FIQ at every clock of the
+  head, of a window longer than one LDM/shift/STM block, of the last
+  block and the `msr CPSR_f` tails, then 36 coarse delays; handlers of
+  the kernel's shape (`subs pc,lr,#4`), EKA1's `ldm ^` exit, a context
+  save/restore, an FIQ checking its bank, a nested IRQ then FIQ; ZAP
+  D8/D16 and V2 D8/D16/predictor off at seven latencies: **995,171
+  interrupted copies, 0 wrong words**, 228,960 interrupts landing right
+  after an `ldm`; a mutant that takes interrupts mid-LDM fails 1,834 of
+  its first 3,784 copies while the existing tests pass on it. The
+  two-colour test arm9_alias16_rtl.S (1,728 cases: every store form,
+  eviction with the write-back in flight, hit-under-miss, with and
+  without cleaning): every architectural check passes on all five
+  models and V2's record equals ZAP's word for word at 8 and 16 KB. Its
+  ranked next candidates: (1) boot V2 with the 16 KB cache in the
+  whole-core bench, the only bench with the real memory side and the
+  real tick; (2) flash_save's periodic block reads overlapping V2's
+  slower uncached CS1 reads in ddram_flash, unmodelled in the replay;
+  (3) V2's SHORT_READ D-cache variant under DMA, and the two-colour
+  index-clean loop interrupted by the tick. The whole-core 16 KB boot
+  goes next, on the Mac.
