@@ -290,9 +290,28 @@ module upp_bus #(
 	logic [2:0]  rd_pend = 3'd0;         // read words still to come
 	wire         sdr_free = !sdr_req;
 
-	wire        tb_in_blk = tb[31:4] == blk;
-	wire        tb_have   = lb_v[tb[3:2]] || (sdr_rvalid && sdr_rword == tb[3:2]);
-	wire [31:0] tb_word   = (sdr_rvalid && sdr_rword == tb[3:2]) ? sdr_rdata : lb[tb[3:2]];
+	// tb's block test, word index and next block without nxt's adder on the
+	// bus address. In a clock with ack high the bus shows the beat being
+	// answered, which came from blk's line buffer, so wb_adr[31:4] == blk;
+	// nxt(wb_adr) then stays in blk exactly when it does not cross the
+	// block's end (bits 3:2 at 3 in a burst that is not wrap-4), and the
+	// block it crosses into is blk's successor in the burst's order.
+	wire        tb_cross  = wb_bte != 2'b01 && wb_adr[3:2] == 2'b11;
+	wire        tb_in_blk = ack_q ? !tb_cross : wb_adr[31:4] == blk;
+	wire [1:0]  tb_idx    = wb_adr[3:2] + {1'b0, ack_q};
+	wire [27:0] blk_next  = wb_bte == 2'b10 ? {blk[27:1], ~blk[0]} :
+	                        wb_bte == 2'b11 ? {blk[27:2], blk[1:0] + 2'd1} : blk + 28'd1;
+	wire [31:0] tb_start  = ack_q ? {blk_next, 4'b0000} : wb_adr;   // tb, where a new block starts
+	wire        tb_have   = lb_v[tb_idx] || (sdr_rvalid && sdr_rword == tb_idx);
+	wire [31:0] tb_word   = (sdr_rvalid && sdr_rword == tb_idx) ? sdr_rdata : lb[tb_idx];
+`ifndef SYNTHESIS
+	always_ff @(posedge clk) if (!reset && state == S_SDR_RD && tb_ok) begin
+		if (ack_q) assert (wb_adr[31:4] == blk) else $fatal(1, "upp_bus: an answered SDRAM beat outside blk");
+		assert (tb_in_blk == (tb[31:4] == blk)) else $fatal(1, "upp_bus: tb_in_blk");
+		assert (tb_idx == tb[3:2]) else $fatal(1, "upp_bus: tb_idx");
+		if (!tb_in_blk) assert (tb_start == tb) else $fatal(1, "upp_bus: tb_start");
+	end
+`endif
 
 	// ------------------------------------------------------------------
 	// Flash: the halfword engine and a two-word queue of read beats
@@ -605,11 +624,11 @@ module upp_bus #(
 					end
 				end else if (sdr_free && rd_pend == 3'd0) begin
 					// the burst runs on into the next block
-					blk      <= tb[31:4];
+					blk      <= tb_start[31:4];
 					lb_v     <= 4'b0000;
 					sdr_req  <= 1'b1;
 					sdr_line <= 1'b1;
-					sdr_addr <= sdr_word(tb, blk_oc);
+					sdr_addr <= sdr_word(tb_start, blk_oc);
 				end
 			end
 
