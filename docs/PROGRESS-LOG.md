@@ -6298,3 +6298,25 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   clocks), the trigger being a completed read in 0x5xxxxxxx whose
   word is the file's first word 0x10000050 (stp-flash11, fast fit,
   lane b8).
+- The qualifier-free probe core (fast fit, -1.363 ns; build/hardware/
+  NGage-stp-flash11-fast.rbf) with the multi-bit trigger (a completed
+  read in 0x5xxxxxxx of the word 0x10000050) did not fire either
+  (stp-v2stp8). Two things run to settle it: a test of whether any
+  multi-bit pattern is honoured (a trigger on any completed read in
+  0x5xxxxxxx, which must occur: stp-v2stp9), and a probe core whose
+  trigger is a wire computed in RTL (NGage.sv: stp_trig_word, the data
+  port completing a read of the file's first word; stp_va_flash, any
+  completed read in the ROM/flash virtual space), so the capture rests
+  on a single-node trigger, the one form proven to fire (worktree
+  ../NGage_MiSTer-stpd, lane b5, fast fit); the full-effort
+  qualifier-free core builds on lane b8 meanwhile.
+- Two more tests on the qualifier-free core: a multi-bit pattern that
+  must occur (any completed read in 0x5xxxxxxx: stp-v2stp9) and a
+  single "low" condition that must occur (the write-enable tap low:
+  stp-v2stp10) both failed to fire, where a single "high" condition
+  fired at once. So in the generated files only "high" levels are
+  honoured at run time: "low" and the bus patterns are not, which
+  explains every miss. The RTL-trigger core (a single wire that goes
+  high on the event) is the right form and builds now; the generator's
+  low/pattern encoding is a problem for later (the GUI's own file of a
+  "low" condition would show the right attribute).
