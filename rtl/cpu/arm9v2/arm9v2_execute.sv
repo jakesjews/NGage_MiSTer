@@ -11,7 +11,14 @@
 // offset takes one prepared S clock (the rotated offset is registered
 // before the sum). A base whose writer is the scalar MEM in A (its
 // writeback is that record's registered S-AGU sum) is taken from A.
-module arm9v2_execute #(parameter logic S_AGU=0) (
+// FREE_SELECT: S's forward grant and A's late bypass select data as if W's
+// load hit and M's load word existed. A source whose producer is a load
+// without an accepted hit waits (s_wait/a_wait, unchanged), so the word it
+// selected is never consumed: S holds it as pending, A as a.pending, until
+// the producer's hit, a newer producer or the return replaces it. The hit
+// and the trust then reach only the waits, not the 32-bit selects.
+// FAST_Z: the ALU's carry-free zero (arm9_alu).
+module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, parameter logic FAST_Z=0) (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
     input logic i_flags_refresh,
     output logic o_serial_continue,
@@ -109,6 +116,7 @@ module arm9v2_execute #(parameter logic S_AGU=0) (
         logic self_dep;
         logic signed [7:0] wb_offset;
         logic [31:0] agu,agu_sum;          // S_AGU: registered address and writeback sum
+        logic [3:0][5:0] take;             // FREE_SELECT: one-hot late selects (take_of)
     } a_t;
     (* dont_retime *) a_t a;
     (* dont_retime *) logic a_valid,prepared,holding,multiply_accumulate,multiply_product_ready;
@@ -182,26 +190,44 @@ module arm9v2_execute #(parameter logic S_AGU=0) (
     logic [31:0] actual_target;
     logic actual_thumb,wrong_prediction;
     wire unused=&{1'b0,i_cpsr[27:0],i_used[2],i_mw_tag,i_mw_valid,CP,UND,SWI,actual_target[0],lh[33:32],hl[33:32],hh[33:32]};
-    arm9v2_forward u_forward(.i_value(holding?held:i_value),.i_grant(i_forward_grant[s_load_hit]),
+    wire s_grant_hit=FREE_SELECT||s_load_hit;
+    arm9v2_forward u_forward(.i_value(holding?held:i_value),.i_grant(i_forward_grant[s_grant_hit]),
         .i_producer_value(i_mw_value),.o_value(forwarded));
 `ifndef SYNTHESIS
     // Prove every selected data source is ready, and that the precomputed
-    // grants preserve the old selector (including its RF/held fallback).
+    // grants preserve the old selector (including its RF/held fallback),
+    // for both hit alternatives.
     always_ff @(posedge i_clk) if(!i_reset&&!i_flush&&i_valid) begin
-        for(int src=0;src<4;src++)begin
+        for(int hit=0;hit<2;hit++)for(int src=0;src<4;src++)begin
             logic seen,eligible;
             seen=0;
             for(int rank=0;rank<4;rank++)begin
                 eligible=i_forward_match[src][rank/2][1-rank%2]&&
-                    !(rank%2==1&&i_load_owner[rank/2]&&(rank/2==0||!s_load_hit));
-                assert(i_forward_grant[s_load_hit][src][rank]==(eligible&&!seen))
-                    else $fatal(1,"S grant age/readiness src=%0d rank=%0d",src,rank);
+                    !(rank%2==1&&i_load_owner[rank/2]&&(rank/2==0||hit==0));
+                assert(i_forward_grant[hit][src][rank]==(eligible&&!seen))
+                    else $fatal(1,"S grant age/readiness hit=%0d src=%0d rank=%0d",hit,src,rank);
                 seen|=eligible;
             end
-            assert(i_forward_grant[s_load_hit][src][4]==!seen);
-            assert($onehot(i_forward_grant[s_load_hit][src]));
+            assert(i_forward_grant[hit][src][4]==!seen);
+            assert($onehot(i_forward_grant[hit][src]));
         end
     end
+    // FREE_SELECT: a source that does not wait selects the old word. The
+    // old producer word had W's load lane zeroed without a short hit (the
+    // core's gate); any such word is unhit here, so its readers wait.
+    logic [1:0][1:0][31:0] mw_ref;
+    always_comb begin
+        mw_ref=i_mw_value;
+        if(i_load_owner[1]&&!i_load_hit)mw_ref[1][0]=0;
+    end
+    logic [3:0][31:0] forwarded_ref;
+    arm9v2_forward u_forward_ref(.i_value(holding?held:i_value),.i_grant(i_forward_grant[s_load_hit]),
+        .i_producer_value(mw_ref),.o_value(forwarded_ref));
+    always_ff @(posedge i_clk) if(!i_reset&&!i_flush&&i_valid)
+        for(int src=0;src<4;src++)
+            if(i_used[src]&&!s_wait[src]&&i_tag[src]!=15&&i_tag[src]!=17)
+                assert(forwarded[src]==forwarded_ref[src])
+                    else $fatal(1,"S free select src=%0d",src);
 `endif
     always_comb begin
         operand=forwarded;
@@ -272,20 +298,65 @@ module arm9v2_execute #(parameter logic S_AGU=0) (
     end
     // Late data bypass: tag comparisons were captured at S/A, and are
     // refreshed each held edge. Only registered M/W words enter A.
+    // FREE_SELECT: the selects no longer depend on the hit, so they are
+    // registered one-hot beside a.late (a.take, refreshed on the same edges):
+    // the bypass is a two-level AND-OR of the record's operand, the four M/W
+    // words and, for a later block transfer's base, block_base.
+    function automatic logic [5:0] take_of(input logic [1:0][1:0] late,input logic block);
+        take_of=0;
+        if(block)take_of[5]=1;
+        else if(late[0][1])take_of[3]=1;   // M lane 1, the newest
+        else if(late[0][0])take_of[2]=1;   // M lane 0
+        else if(late[1][1])take_of[1]=1;   // W lane 1
+        else if(late[1][0])take_of[0]=1;   // W lane 0
+        else take_of[4]=1;                 // the record's own operand
+    endfunction
+    logic [3:0][31:0] late_own,late_value;
+    always_comb begin
+        late_own={a.store_data,a.special,a.right,a.left};
+        for(int src=0;src<4;src++)
+            late_value[src]=({32{a.take[src][4]}}&late_own[src])|({32{a.take[src][0]}}&i_mw_value[1][0])|
+                ({32{a.take[src][1]}}&i_mw_value[1][1])|({32{a.take[src][2]}}&i_mw_value[0][0])|
+                ({32{a.take[src][3]}}&i_mw_value[0][1])|({32{a.take[src][5]}}&block_base);
+    end
     always_comb begin
         left_a=a.left;right_a=a.right;store_a=a.store_data;special_a=a.special;
-        for(int prod=1;prod>=0;prod--)for(int lane=0;lane<2;lane++)begin
-            if(!(lane==0&&i_load_owner[prod]&&(prod==0||!a_load_hit)))begin
-            if(a.late[0][prod][lane])left_a=i_mw_value[prod][lane];
-            if(a.late[1][prod][lane])right_a=i_mw_value[prod][lane];
-            if(a.late[2][prod][lane])special_a=i_mw_value[prod][lane];
-            if(a.late[3][prod][lane])store_a=i_mw_value[prod][lane];
+        if(FREE_SELECT)begin
+            left_a=late_value[0];right_a=late_value[1];special_a=late_value[2];store_a=late_value[3];
+        end else begin
+            for(int prod=1;prod>=0;prod--)for(int lane=0;lane<2;lane++)begin
+                if(!(lane==0&&i_load_owner[prod]&&(prod==0||!a_load_hit)))begin
+                if(a.late[0][prod][lane])left_a=i_mw_value[prod][lane];
+                if(a.late[1][prod][lane])right_a=i_mw_value[prod][lane];
+                if(a.late[2][prod][lane])special_a=i_mw_value[prod][lane];
+                if(a.late[3][prod][lane])store_a=i_mw_value[prod][lane];
+                end
             end
+            if(a.kind==BLOCK&&!a.first)left_a=block_base;
         end
-        if(a.kind==BLOCK&&!a.first)left_a=block_base;
         if(a.rrx)right_a[31]=flags[1];
     end
-    arm9_alu u_alu(.i_a(left_a),.i_b(right_a),.i_op(a.op),.i_flags(flags),
+`ifndef SYNTHESIS
+    // FREE_SELECT: an operand that does not wait is the old selector's word.
+    logic [3:0][31:0] late_ref;
+    always_comb begin
+        late_ref={a.store_data,a.special,a.right,a.left};
+        for(int prod=1;prod>=0;prod--)for(int lane=0;lane<2;lane++)
+            if(!(lane==0&&i_load_owner[prod]&&(prod==0||!a_load_hit)))
+                for(int src=0;src<4;src++)if(a.late[src][prod][lane])late_ref[src]=mw_ref[prod][lane];
+        if(a.kind==BLOCK&&!a.first)late_ref[0]=block_base;
+        if(a.rrx)late_ref[1][31]=flags[1];
+    end
+    always_ff @(posedge i_clk) if(!i_reset&&!i_flush&&a_valid)
+        for(int src=0;src<4;src++)begin
+            if(!a_wait[src])
+                assert(late_ref[src]==(src==0?left_a:src==1?right_a:src==2?special_a:store_a))
+                    else $fatal(1,"A free select src=%0d",src);
+            if(FREE_SELECT)assert(a.take[src]==take_of(a.late[src],src==0&&a.kind==BLOCK&&!a.first))
+                else $fatal(1,"A one-hot late select src=%0d",src);
+        end
+`endif
+    arm9_alu #(.FAST_Z(FAST_Z)) u_alu(.i_a(left_a),.i_b(right_a),.i_op(a.op),.i_flags(flags),
         .i_shift_carry(a.carry_preserve?flags[1]:a.shift_carry),.o_result(alu_result),.o_flags(alu_flags));
     // S/A captures multiplier operands. A private first clock registers four
     // half-products from those registers; forwarding never precedes a DSP.
@@ -387,6 +458,13 @@ module arm9v2_execute #(parameter logic S_AGU=0) (
                 o_record_thumb=a.kind==BX?right_a[0]:a.thumb;
     end
     (* keep *) logic [1:0][3:0][1:0][1:0] s_candidate_match, a_candidate_match;
+    // a.late's next value on a held edge and on acceptance.
+    logic [3:0][1:0][1:0] late_hold,late_accept;
+    always_comb for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)begin
+        late_hold[src][prod][lane]=a.late_used[src]&&i_next_write[prod][lane]&&a_candidate_match[i_next_advance][src][prod][lane];
+        late_accept[src][prod][lane]=i_used[src]&&!i_early[src]&&i_tag[src]!=15&&i_tag[src]!=17&&
+            i_next_write[prod][lane]&&s_candidate_match[i_next_advance][src][prod][lane];
+    end
     always_comb for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)begin
         s_candidate_match[0][src][prod][lane]=i_tag[src]==i_next_tag[prod][lane];
         // Current M becomes W on advance. Its match is already registered
@@ -441,7 +519,8 @@ module arm9v2_execute #(parameter logic S_AGU=0) (
                         a.pending[src]<=0;
                     end
                 for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
-                    a.late[src][prod][lane]<=a.late_used[src]&&i_next_write[prod][lane]&&a_candidate_match[i_next_advance][src][prod][lane];
+                    a.late[src][prod][lane]<=late_hold[src][prod][lane];
+                for(int src=0;src<4;src++)a.take[src]<=take_of(late_hold[src],src==0&&a.kind==BLOCK&&!a.first);
             end
             if(product_phase)begin
                 ll<=$signed({1'b0,a.right[15:0]})*$signed({1'b0,a.special[15:0]});
@@ -493,8 +572,8 @@ module arm9v2_execute #(parameter logic S_AGU=0) (
                             a.pending[src]<=1;
                     a.late_used[src]<=i_used[src]&&!i_early[src]&&i_tag[src]!=15&&i_tag[src]!=17;
                     for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
-                        a.late[src][prod][lane]<=i_used[src]&&!i_early[src]&&i_tag[src]!=15&&i_tag[src]!=17&&
-                            i_next_write[prod][lane]&&s_candidate_match[i_next_advance][src][prod][lane];
+                        a.late[src][prod][lane]<=late_accept[src][prod][lane];
+                    a.take[src]<=take_of(late_accept[src],src==0&&i_kind==BLOCK&&!i_first);
                 end
                 if(i_kind==MEM)begin
                     a.op<=i_instruction[23]?4'd4:4'd2;a.rrx<=rrx;

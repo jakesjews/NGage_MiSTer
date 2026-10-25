@@ -136,6 +136,11 @@ output  logic                      o_hold,
 // ARM925T: rebuild the three in-flight cache lookups after holding a fill.
 (* dont_retime *) output logic [2:0] o_relookup,
 (* dont_retime *) output logic      o_fill_busy,
+// ARM9V2: the CPU's copy of "a short hit is accepted now": o_live_lookup and
+// not the clock a fill ends (o_fill_busy falling). Loaded from the same next
+// state, so it is equal to that term on every clock; it only spares the CPU
+// o_live_lookup's fanout into the lookup address and tag multiplexers.
+(* dont_retime *) output logic      o_live_trust,
 // ARM925T: the saved dirty victim has not yet reached memory. CP15 drain
 // observes this register; normal ACK/lookup logic does not consume it.
 (* dont_retime *) output logic      o_writeback_busy,
@@ -496,7 +501,7 @@ always_ff @(posedge i_clk)
 logic lookup_ready_ff, lookup_ready_nxt;
 logic [2:0] repair_ff, repair_nxt;
 (* dont_retime *) logic hum_slot_ff;
-logic cpu_wait, hum_ack, idle_ack, hum_slot_nxt;
+logic cpu_wait, hum_ack, idle_ack, hum_slot_nxt, fill_busy_nxt;
 assign cpu_wait = (i_rd || i_wr) && !o_ack;
 
 always_comb begin
@@ -545,6 +550,7 @@ always_ff @(posedge i_clk)
                 repair_ff <= 3'b0;
                 hum_slot_ff <= 1'b0;
                 o_live_lookup <= 1'b1;
+                o_live_trust <= 1'b1;
                 o_relookup <= 3'b0;
         end else begin
                 line_safe_ff <= line_safe_nxt;
@@ -553,6 +559,7 @@ always_ff @(posedge i_clk)
                 repair_ff <= repair_nxt;
                 hum_slot_ff <= hum_slot_nxt;
                 o_live_lookup <= state_nxt[IDLE] || hum_slot_nxt;
+                o_live_trust <= (state_nxt[IDLE] || hum_slot_nxt) && !(o_fill_busy && !fill_busy_nxt);
                 o_relookup <= (state_nxt[RELOOKUP0] || state_nxt[RELOOKUP1] || state_nxt[RELOOKUP2]) ?
                     {state_nxt[RELOOKUP2], state_nxt[RELOOKUP1], state_nxt[RELOOKUP0]} : repair_nxt;
         end
@@ -567,11 +574,12 @@ assign hum_slot_nxt = (state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE] ||
 assign hum_ack = hum_slot_ff && i_hit_ok && i_cache_en &&
                  !i_align_fault && i_cache_hit_early;
 assign o_ack = idle_ack || hum_ack;
-always_ff @(posedge i_clk)
-        if (i_reset) o_fill_busy <= 1'b0;
-        else o_fill_busy <= state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE] ||
+assign fill_busy_nxt = state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE] ||
                 state_nxt[UNLOCK_REG] || state_nxt[UNLOCK_WR] ||
                 state_nxt[RELOOKUP0] || state_nxt[RELOOKUP1] || state_nxt[RELOOKUP2];
+always_ff @(posedge i_clk)
+        if (i_reset) o_fill_busy <= 1'b0;
+        else o_fill_busy <= fill_busy_nxt;
 
 // ARM925T: RAM write payloads are independent of the write event. Only
 // enables need fault/acknowledge qualification; forwarding data registers

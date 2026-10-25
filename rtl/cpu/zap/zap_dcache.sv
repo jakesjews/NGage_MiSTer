@@ -73,6 +73,7 @@ output logic o_short_hit,
 // ARM9V2: the FSM can acknowledge a hit in this clock (IDLE or a background-
 // hit slot), registered. A short hit outside it is not accepted now.
 output logic o_short_live,
+output logic o_short_trust,   // o_short_live, and not the clock a fill ends (a register)
 output logic  [31:0]     o_dat,
 output  logic            o_ack,
 output  logic            o_writeback_busy, // ARM925T: CP15 drain fence
@@ -177,7 +178,7 @@ logic [2:0]                      wb_ack;
 logic [2:0]                      state_ff, state_nxt;
 logic [31:0]                     cache_address;
 logic                            hold;
-logic                            idle, live_lookup;
+logic                            idle, live_lookup, live_trust;
 logic [2:0]                      relookup;
 logic                            fill_busy;
 logic [3:0]                      cf_dbg_dcache;
@@ -190,6 +191,7 @@ assign o_short_hit = SHORT_READ && tr_cache_hit && tlb_hit_ok;
 // the ACK, and after installation the access misses. live_lookup is
 // state_ff[IDLE] || hum_slot_ff, the only states with a hit ACK.
 assign o_short_live = SHORT_READ && live_lookup;
+assign o_short_trust = SHORT_READ && live_trust;
 localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
 localparam integer LINE_W = $clog2(CACHE_LINE);
 logic [SET_W-1:0]                lookup_s0, lookup_s1;
@@ -251,6 +253,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_ldfmt                (i_ldfmt),
         .o_idle                 (idle),
         .o_live_lookup          (live_lookup),
+        .o_live_trust           (live_trust),
         .o_relookup             (relookup),
         .o_fill_busy            (fill_busy),
         .o_writeback_busy       (o_writeback_busy),

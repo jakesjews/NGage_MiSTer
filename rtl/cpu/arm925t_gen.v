@@ -230,6 +230,7 @@ module arm9_alu (
 	o_flags
 );
 	reg _sv2v_0;
+	parameter [0:0] FAST_Z = 1'b0;
 	input wire [31:0] i_a;
 	input wire [31:0] i_b;
 	input wire [3:0] i_op;
@@ -251,6 +252,23 @@ module arm9_alu (
 	assign a = i_a ^ {32 {inv_a}};
 	assign b = i_b ^ {32 {inv_b}};
 	assign sum = ({1'b0, a} + {1'b0, b}) + {32'd0, cin};
+	reg [31:0] logic_result;
+	reg arith_zero;
+	reg logic_zero;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		case (i_op)
+			4'h0, 4'h8: logic_result = i_a & i_b;
+			4'h1, 4'h9: logic_result = i_a ^ i_b;
+			4'hc: logic_result = i_a | i_b;
+			4'he: logic_result = i_a & ~i_b;
+			4'hf: logic_result = ~i_b;
+			default: logic_result = i_b;
+		endcase
+		arith_zero = (a ^ b) == {a[30:0] | b[30:0], cin};
+		logic_zero = logic_result == 0;
+	end
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -268,8 +286,10 @@ module arm9_alu (
 			end
 		endcase
 		o_flags = {o_result[31], o_result == 0, i_shift_carry, i_flags[0]};
+		if (FAST_Z)
+			o_flags[3:2] = {logic_result[31], logic_zero};
 		if (arithmetic) begin
-			o_flags[3:2] = {sum[31], sum[31:0] == 0};
+			o_flags[3:2] = {sum[31], (FAST_Z ? arith_zero : sum[31:0] == 0)};
 			o_flags[1] = sum[32];
 			o_flags[0] = (a[31] == b[31]) && (a[31] != sum[31]);
 		end
@@ -292,6 +312,7 @@ module arm9v2_core (
 	i_data_short_data,
 	i_data_short_hit,
 	i_data_short_live,
+	i_data_short_trust,
 	o_data_wb_dat,
 	o_data_wb_sel,
 	o_data_wb_adr_nxt,
@@ -382,6 +403,9 @@ module arm9v2_core (
 	reg _sv2v_0;
 	parameter [0:0] ARM9_PREDICTOR = 1'b1;
 	parameter [0:0] S_AGU = 1'b1;
+	parameter [0:0] FREE_SELECT = 1'b1;
+	parameter [0:0] TRUST_FF = 1'b1;
+	parameter [0:0] FAST_Z = 1'b1;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
 	parameter [31:0] DATA_CACHE_SIZE = 1024;
 	parameter [31:0] CODE_CACHE_SIZE = 1024;
@@ -416,6 +440,7 @@ module arm9v2_core (
 	input wire [31:0] i_data_short_data;
 	input wire i_data_short_hit;
 	input wire i_data_short_live;
+	input wire i_data_short_trust;
 	output wire [31:0] o_data_wb_dat;
 	output wire [3:0] o_data_wb_sel;
 	output wire [31:0] o_data_wb_adr_nxt;
@@ -642,6 +667,7 @@ module arm9v2_core (
 	(* dont_retime *) reg [31:0] saved_load;
 	(* dont_retime *) reg [63:0] w_load_select;
 	(* dont_retime *) reg w_waited;
+	(* dont_retime *) reg w_hit_candidate;
 	wire w_locked = i_dc_lock_owner;
 	assign o_dc_lock_owner_hold = w[90+:6];
 	assign o_dc_lock_owner_advance = m[90+:6];
@@ -779,7 +805,7 @@ module arm9v2_core (
 	assign locked = i_dc_lock[39:0];
 	assign mw_tag = {w[101-:12], m[101-:12]};
 	assign mw_value[0+:64] = m[89-:64];
-	assign mw_value[64+:64] = {w[58+:32], (w[525] ? (i_data_short_hit ? i_data_short_data : 32'd0) : w[26+:32])};
+	assign mw_value[64+:64] = {w[58+:32], (w[525] ? (FREE_SELECT || i_data_short_hit ? i_data_short_data : 32'd0) : w[26+:32])};
 	assign mw_write[0+:2] = m[25-:2] | {1'b0, m[525]};
 	assign mw_write[2+:2] = w[25-:2] | {1'b0, w[525]};
 	(* keep, maxfan = 32 *) reg [2:0] complete_class;
@@ -1181,6 +1207,7 @@ module arm9v2_core (
 			swap_write <= 0;
 			w_load_select <= 1;
 			w_waited <= 0;
+			w_hit_candidate <= 0;
 			wb_flush <= 0;
 			wb_target <= RESET_VECTOR;
 			wb_thumb <= 0;
@@ -1253,6 +1280,7 @@ module arm9v2_core (
 				cp_seen <= 0;
 				cp_finished <= 0;
 			end
+			w_hit_candidate <= w_next[533] && ((((wb_flush || ((memory_state == 4'd0) && done)) || (memory_state == 4'd3)) || quick_reload) || !((w[539] && !done) || w_waited));
 		end
 	assign o_dbg_wb_valid = wb_valid;
 	assign o_dbg_wb_dvalid = wb_cfail;
@@ -1274,7 +1302,9 @@ module arm9v2_core (
 	wire [63:0] load_commit = 0;
 	wire [31:0] load_value = load_data;
 	wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, CP, UND, SWI, MRS, BR, PREFIX, MUL, MULL, i_instr_data_early, i_instr_hit, cp_seen, d_ready, d_raw, d_mode, d_reg_count, d_transfer_reg, d_pred_kind, a_flags, a_write_flags, a_store, a_btb_kind, a_predicted, a_psr_source, a_saved_psr, a_spsr_tag, d_early, data_pc8, pc, ins, ex_result, load_capture, load_commit, load_value};
-	wire w_load_hit = (((w[533] && i_data_short_hit) && i_data_short_live) && !w_waited) && !fill_ended;
+	wire load_trust = (TRUST_FF ? i_data_short_trust : i_data_short_live && !fill_ended);
+	wire w_hit = (TRUST_FF ? w_hit_candidate : w[533] && !w_waited);
+	wire w_load_hit = (w_hit && i_data_short_hit) && load_trust;
 	arm9v2_front_decode #(
 		.RESET_VECTOR(RESET_VECTOR),
 		.PREDICTOR(ARM9_PREDICTOR),
@@ -1393,14 +1423,18 @@ module arm9v2_core (
 		.o_stall(o_code_stall),
 		.o_dbg_fetch(o_dbg_fetch)
 	);
-	arm9v2_execute #(.S_AGU(S_AGU)) u_execute(
+	arm9v2_execute #(
+		.S_AGU(S_AGU),
+		.FREE_SELECT(FREE_SELECT),
+		.FAST_Z(FAST_Z)
+	) u_execute(
 		.i_pending(d_pending),
 		.i_admit(backend_ready),
 		.i_load_wait(d_load_wait),
 		.i_load_owner({w[525], m[525]}),
 		.i_next_load_owner(forward_load),
-		.i_load_hit((w[533] && i_data_short_hit) && !w_waited),
-		.i_load_trust(i_data_short_live && !fill_ended),
+		.i_load_hit(w_hit && i_data_short_hit),
+		.i_load_trust(load_trust),
 		.i_self_dep(d_self_dep),
 		.i_return_select(i_dc_reg_idx),
 		.i_return_data(operand_return_data),
@@ -2863,6 +2897,8 @@ module arm9v2_execute (
 );
 	reg _sv2v_0;
 	parameter [0:0] S_AGU = 0;
+	parameter [0:0] FREE_SELECT = 0;
+	parameter [0:0] FAST_Z = 0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
@@ -2996,7 +3032,7 @@ module arm9v2_execute (
 	localparam [3:0] SWP = 12;
 	localparam [3:0] MUL = 13;
 	localparam [3:0] MULL = 14;
-	(* dont_retime *) reg [491:0] a;
+	(* dont_retime *) reg [515:0] a;
 	(* dont_retime *) reg a_valid;
 	(* dont_retime *) reg prepared;
 	(* dont_retime *) reg holding;
@@ -3008,9 +3044,9 @@ module arm9v2_execute (
 	wire msr_same_mode;
 	reg condition_pass;
 	reg [31:0] right_a;
-	assign msr_same_mode = (!condition_pass || (a[308:304] == 5'h10)) || (right_a[4:0] == a[308:304]);
+	assign msr_same_mode = (!condition_pass || (a[332:328] == 5'h10)) || (right_a[4:0] == a[332:328]);
 	wire finish;
-	assign next_interrupt_mask = (((((((finish && (a[303-:4] == MSR)) && !a[450]) && a[444]) && condition_pass) && !a[294]) && (a[308:304] != 5'h10)) && msr_same_mode ? right_a[7:6] : interrupt_mask);
+	assign next_interrupt_mask = (((((((finish && (a[327-:4] == MSR)) && !a[474]) && a[468]) && condition_pass) && !a[318]) && (a[332:328] != 5'h10)) && msr_same_mode ? right_a[7:6] : interrupt_mask);
 	(* dont_retime *) reg [127:0] held;
 	(* dont_retime *) reg [7:0] held_amount;
 	(* dont_retime *) reg [31:0] held_offset;
@@ -3029,7 +3065,7 @@ module arm9v2_execute (
 	reg [7:0] s_return_match;
 	reg [7:0] a_return_match;
 	wire s_load_hit = i_load_hit && (!i_self_dep || i_load_trust);
-	wire a_load_hit = i_load_hit && (!a[72] || i_load_trust);
+	wire a_load_hit = i_load_hit && (!a[96] || i_load_trust);
 	wire accept;
 	always @(posedge i_clk)
 		if ((i_reset || i_flush) || o_redirect)
@@ -3037,7 +3073,7 @@ module arm9v2_execute (
 		else begin : sv2v_autoblock_1
 			reg signed [31:0] src;
 			for (src = 0; src < 4; src = src + 1)
-				return_a_match[src] <= i_return_next_valid && (i_return_next_tag == (accept ? i_tag[src * 6+:6] : a[81 + (src * 6)+:6]));
+				return_a_match[src] <= i_return_next_valid && (i_return_next_tag == (accept ? i_tag[src * 6+:6] : a[105 + (src * 6)+:6]));
 		end
 	always @(*) begin : sv2v_autoblock_2
 		reg signed [31:0] src;
@@ -3046,14 +3082,14 @@ module arm9v2_execute (
 		for (src = 0; src < 4; src = src + 1)
 			begin
 				s_return_match[src * 2+:2] = {i_return_select[{26'd0, i_tag[src * 6+:6]}], i_return_ready && i_return_s_match[src]};
-				a_return_match[src * 2+:2] = {i_return_select[{26'd0, a[81 + (src * 6)+:6]}], i_return_ready && return_a_match[src]};
+				a_return_match[src * 2+:2] = {i_return_select[{26'd0, a[105 + (src * 6)+:6]}], i_return_ready && return_a_match[src]};
 			end
 	end
 	always @(*) begin
 		if (_sv2v_0)
 			;
 		s_wait = (holding ? s_pending : i_pending);
-		a_wait = a[76-:4];
+		a_wait = a[100-:4];
 		begin : sv2v_autoblock_3
 			reg signed [31:0] src;
 			for (src = 0; src < 4; src = src + 1)
@@ -3063,8 +3099,8 @@ module arm9v2_execute (
 						begin
 							if (|i_forward_match[((src * 2) + prod) * 2+:2])
 								s_wait[src] = (i_forward_match[((src * 2) + prod) * 2] && i_load_owner[prod]) && ((prod == 0) || !s_load_hit);
-							if (|a[105 + (((src * 2) + prod) * 2)+:2])
-								a_wait[src] = (a[105 + (((src * 2) + prod) * 2)] && i_load_owner[prod]) && ((prod == 0) || !a_load_hit);
+							if (|a[129 + (((src * 2) + prod) * 2)+:2])
+								a_wait[src] = (a[129 + (((src * 2) + prod) * 2)] && i_load_owner[prod]) && ((prod == 0) || !a_load_hit);
 						end
 				end
 		end
@@ -3095,9 +3131,10 @@ module arm9v2_execute (
 	reg actual_thumb;
 	reg wrong_prediction;
 	wire unused = &{1'b0, i_cpsr[27:0], i_used[2], i_mw_tag, i_mw_valid, CP, UND, SWI, actual_target[0], lh[33:32], hl[33:32], hh[33:32]};
+	wire s_grant_hit = FREE_SELECT || s_load_hit;
 	arm9v2_forward u_forward(
 		.i_value((holding ? held : i_value)),
-		.i_grant(i_forward_grant[5 * (s_load_hit * 4)+:20]),
+		.i_grant(i_forward_grant[5 * (s_grant_hit * 4)+:20]),
 		.i_producer_value(i_mw_value),
 		.o_value(forwarded)
 	);
@@ -3178,8 +3215,8 @@ module arm9v2_execute (
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		agu_forward = ((((((((S_AGU && (((i_kind == MEM) || (i_kind == SWP)) || ((i_kind == BLOCK) && i_first))) && a_valid) && (a[303-:4] == MEM)) && a[259]) && condition_pass) && !a[294]) && !(a[448] && (a[266+:6] == a[272+:6]))) && (a[272+:6] == i_tag[0+:6])) && (i_tag[0+:6] != 15);
-		s_base = (agu_forward ? a[31-:32] : operand[0+:32]);
+		agu_forward = ((((((((S_AGU && (((i_kind == MEM) || (i_kind == SWP)) || ((i_kind == BLOCK) && i_first))) && a_valid) && (a[327-:4] == MEM)) && a[283]) && condition_pass) && !a[318]) && !(a[472] && (a[290+:6] == a[296+:6]))) && (a[296+:6] == i_tag[0+:6])) && (i_tag[0+:6] != 15);
+		s_base = (agu_forward ? a[55-:32] : operand[0+:32]);
 		agu_base = s_base;
 		agu_sub = !i_instruction[23];
 		agu_pre = i_instruction[24];
@@ -3189,7 +3226,7 @@ module arm9v2_execute (
 		else if (i_instruction[25])
 			agu_offset = (i_instruction[11:4] != 0 ? held_offset : operand[32+:32]);
 		if (i_kind == BLOCK) begin
-			agu_base = (i_first ? s_base : ((a_valid && (a[303-:4] == BLOCK)) && a[293] ? a[257-:32] : block_base));
+			agu_base = (i_first ? s_base : ((a_valid && (a[327-:4] == BLOCK)) && a[317] ? a[281-:32] : block_base));
 			agu_offset = {{24 {i_offset[7]}}, i_offset};
 			agu_sub = 0;
 			agu_pre = 1;
@@ -3202,42 +3239,81 @@ module arm9v2_execute (
 		agu_sum = (agu_sub ? agu_base - agu_offset : agu_base + agu_offset);
 		agu_address = (agu_pre ? agu_sum : agu_base);
 	end
+	function automatic [5:0] take_of;
+		input reg [3:0] late;
+		input reg block;
+		begin
+			take_of = 0;
+			if (block)
+				take_of[5] = 1;
+			else if (late[1])
+				take_of[3] = 1;
+			else if (late[0])
+				take_of[2] = 1;
+			else if (late[3])
+				take_of[1] = 1;
+			else if (late[2])
+				take_of[0] = 1;
+			else
+				take_of[4] = 1;
+		end
+	endfunction
+	reg [127:0] late_own;
+	reg [127:0] late_value;
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		left_a = a[257-:32];
-		right_a = a[225-:32];
-		store_a = a[193-:32];
-		special_a = a[161-:32];
+		late_own = {a[217-:32], a[185-:32], a[249-:32], a[281-:32]};
 		begin : sv2v_autoblock_6
-			reg signed [31:0] prod;
-			for (prod = 1; prod >= 0; prod = prod - 1)
-				begin : sv2v_autoblock_7
-					reg signed [31:0] lane;
-					for (lane = 0; lane < 2; lane = lane + 1)
-						if (!(((lane == 0) && i_load_owner[prod]) && ((prod == 0) || !a_load_hit))) begin
-							if (a[105 + (((0 + prod) * 2) + lane)])
-								left_a = i_mw_value[((prod * 2) + lane) * 32+:32];
-							if (a[105 + (((2 + prod) * 2) + lane)])
-								right_a = i_mw_value[((prod * 2) + lane) * 32+:32];
-							if (a[105 + (((4 + prod) * 2) + lane)])
-								special_a = i_mw_value[((prod * 2) + lane) * 32+:32];
-							if (a[105 + (((6 + prod) * 2) + lane)])
-								store_a = i_mw_value[((prod * 2) + lane) * 32+:32];
-						end
-				end
+			reg signed [31:0] src;
+			for (src = 0; src < 4; src = src + 1)
+				late_value[src * 32+:32] = ((((({32 {a[0 + ((src * 6) + 4)]}} & late_own[src * 32+:32]) | ({32 {a[0 + (src * 6)]}} & i_mw_value[64+:32])) | ({32 {a[0 + ((src * 6) + 1)]}} & i_mw_value[96+:32])) | ({32 {a[0 + ((src * 6) + 2)]}} & i_mw_value[0+:32])) | ({32 {a[0 + ((src * 6) + 3)]}} & i_mw_value[32+:32])) | ({32 {a[0 + ((src * 6) + 5)]}} & block_base);
 		end
-		if ((a[303-:4] == BLOCK) && !a[293])
-			left_a = block_base;
-		if (a[122])
+	end
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		left_a = a[281-:32];
+		right_a = a[249-:32];
+		store_a = a[217-:32];
+		special_a = a[185-:32];
+		if (FREE_SELECT) begin
+			left_a = late_value[0+:32];
+			right_a = late_value[32+:32];
+			special_a = late_value[64+:32];
+			store_a = late_value[96+:32];
+		end
+		else begin
+			begin : sv2v_autoblock_7
+				reg signed [31:0] prod;
+				for (prod = 1; prod >= 0; prod = prod - 1)
+					begin : sv2v_autoblock_8
+						reg signed [31:0] lane;
+						for (lane = 0; lane < 2; lane = lane + 1)
+							if (!(((lane == 0) && i_load_owner[prod]) && ((prod == 0) || !a_load_hit))) begin
+								if (a[129 + (((0 + prod) * 2) + lane)])
+									left_a = i_mw_value[((prod * 2) + lane) * 32+:32];
+								if (a[129 + (((2 + prod) * 2) + lane)])
+									right_a = i_mw_value[((prod * 2) + lane) * 32+:32];
+								if (a[129 + (((4 + prod) * 2) + lane)])
+									special_a = i_mw_value[((prod * 2) + lane) * 32+:32];
+								if (a[129 + (((6 + prod) * 2) + lane)])
+									store_a = i_mw_value[((prod * 2) + lane) * 32+:32];
+							end
+					end
+			end
+			if ((a[327-:4] == BLOCK) && !a[317])
+				left_a = block_base;
+		end
+		if (a[146])
 			right_a[31] = flags[1];
 	end
-	arm9_alu u_alu(
+	arm9_alu #(.FAST_Z(FAST_Z)) u_alu(
 		.i_a(left_a),
 		.i_b(right_a),
-		.i_op(a[129-:4]),
+		.i_op(a[153-:4]),
 		.i_flags(flags),
-		.i_shift_carry((a[123] ? flags[1] : a[124])),
+		.i_shift_carry((a[147] ? flags[1] : a[148])),
 		.o_result(alu_result),
 		.o_flags(alu_flags)
 	);
@@ -3250,10 +3326,10 @@ module arm9v2_execute (
 	wire [63:0] ones1 = (ones0 ^ twos0) ^ pp3;
 	wire [63:0] twos1 = (((ones0 & twos0) | (ones0 & pp3)) | (twos0 & pp3)) << 1;
 	assign product = ones1 + twos1;
-	assign mac_result = product_saved + (a[303-:4] == MULL ? {left_a, store_a} : {32'd0, store_a});
-	assign mult_result = (a[449] ? mac_result : product);
-	assign product_phase = (a_valid && ((a[303-:4] == MUL) || (a[303-:4] == MULL))) && !multiply_product_ready;
-	assign mac_phase = (((a_valid && ((a[303-:4] == MUL) || (a[303-:4] == MULL))) && multiply_product_ready) && a[449]) && !multiply_accumulate;
+	assign mac_result = product_saved + (a[327-:4] == MULL ? {left_a, store_a} : {32'd0, store_a});
+	assign mult_result = (a[473] ? mac_result : product);
+	assign product_phase = (a_valid && ((a[327-:4] == MUL) || (a[327-:4] == MULL))) && !multiply_product_ready;
+	assign mac_phase = (((a_valid && ((a[327-:4] == MUL) || (a[327-:4] == MULL))) && multiply_product_ready) && a[473]) && !multiply_accumulate;
 	assign space = !a_valid || finish;
 	assign o_shift_wait = (i_valid && (i_reg_shift || agu_scaled)) && !prepared;
 	assign o_multiply_wait = product_phase || mac_phase;
@@ -3264,14 +3340,14 @@ module arm9v2_execute (
 	assign o_a_valid = a_valid;
 	assign o_a_can_finish = finish;
 	assign o_s_write = planned_writes & {2 {i_valid}};
-	assign o_a_dest = a[277-:12];
-	assign o_a_write = a[259-:2];
-	assign o_a_load = (a_valid && !a[294]) && ((a[303-:4] == MEM) || (a[303-:4] == BLOCK) ? a[448] : (a[303-:4] == SWP) || (((a[303-:4] == CP) && a[448]) && (a[266+:6] != 15)));
+	assign o_a_dest = a[301-:12];
+	assign o_a_write = a[283-:2];
+	assign o_a_load = (a_valid && !a[318]) && ((a[327-:4] == MEM) || (a[327-:4] == BLOCK) ? a[472] : (a[327-:4] == SWP) || (((a[327-:4] == CP) && a[472]) && (a[290+:6] != 15)));
 	assign o_flags = flags;
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		case (a[299-:4])
+		case (a[323-:4])
 			0: condition_pass = flags[2];
 			1: condition_pass = !flags[2];
 			2: condition_pass = flags[1];
@@ -3291,91 +3367,91 @@ module arm9v2_execute (
 		endcase
 		next_flags = flags;
 		will_write_flags = 0;
-		if (condition_pass && !a[294])
-			case (a[303-:4])
+		if (condition_pass && !a[318])
+			case (a[327-:4])
 				DP:
-					if (a[125] && (!a[258] || (a[266+:6] != 15))) begin
+					if (a[149] && (!a[282] || (a[290+:6] != 15))) begin
 						next_flags = alu_flags;
 						will_write_flags = 1;
 					end
 				MUL:
-					if (a[125]) begin
+					if (a[149]) begin
 						next_flags = {mult_result[31], mult_result[31:0] == 0, flags[1:0]};
 						will_write_flags = 1;
 					end
 				MULL:
-					if (a[125]) begin
+					if (a[149]) begin
 						next_flags = {mult_result[63], mult_result == 0, flags[1:0]};
 						will_write_flags = 1;
 					end
 				MSR:
-					if (!a[450] && a[447]) begin
+					if (!a[474] && a[471]) begin
 						next_flags = right_a[31:28];
 						will_write_flags = 1;
 					end
 				default:
 					;
 			endcase
-		actual_target = a[427-:32];
-		actual_thumb = a[295];
-		if ((a[303-:4] == BR) && condition_pass)
-			actual_target = a[395-:32];
-		wrong_prediction = (a[292] && a[290]) && !a[288];
-		if (a[303-:4] == BR)
-			wrong_prediction = (a[291] ? 1'b0 : (a[290] ? (condition_pass ? !a[289] : !a[288]) : condition_pass));
-		if (a[303-:4] == SUFFIX)
+		actual_target = a[451-:32];
+		actual_thumb = a[319];
+		if ((a[327-:4] == BR) && condition_pass)
+			actual_target = a[419-:32];
+		wrong_prediction = (a[316] && a[314]) && !a[312];
+		if (a[327-:4] == BR)
+			wrong_prediction = (a[315] ? 1'b0 : (a[314] ? (condition_pass ? !a[313] : !a[312]) : condition_pass));
+		if (a[327-:4] == SUFFIX)
 			wrong_prediction = 0;
-		if ((a[303-:4] == BX) && condition_pass) begin
+		if ((a[327-:4] == BX) && condition_pass) begin
 			actual_thumb = right_a[0];
 			actual_target = {right_a[31:2], right_a[1] & right_a[0], 1'b0};
-			wrong_prediction = !a[290] || (a[363-:32] != {right_a[31:2], right_a[1] & right_a[0], right_a[0]});
+			wrong_prediction = !a[314] || (a[387-:32] != {right_a[31:2], right_a[1] & right_a[0], right_a[0]});
 		end
-		if ((condition_pass && (a[266+:6] == 15)) && (a[258] || (((a[303-:4] == MEM) || (a[303-:4] == BLOCK)) && a[448])))
+		if ((condition_pass && (a[290+:6] == 15)) && (a[282] || (((a[327-:4] == MEM) || (a[327-:4] == BLOCK)) && a[472])))
 			wrong_prediction = 0;
-		if (a[294])
+		if (a[318])
 			wrong_prediction = 0;
 	end
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		o_pc = a[491-:32];
-		o_instruction = a[459-:32];
-		o_kind = a[303-:4];
-		o_thumb = a[295];
-		o_fault = a[294];
-		o_first = a[293];
-		o_last = a[292];
-		o_condition_pass = condition_pass && !a[294];
-		o_dest = a[277-:12];
+		o_pc = a[515-:32];
+		o_instruction = a[483-:32];
+		o_kind = a[327-:4];
+		o_thumb = a[319];
+		o_fault = a[318];
+		o_first = a[317];
+		o_last = a[316];
+		o_condition_pass = condition_pass && !a[318];
+		o_dest = a[301-:12];
 		o_psr_source = right_a;
-		o_saved_psr = (a[303-:4] == DP ? store_a : special_a);
+		o_saved_psr = (a[327-:4] == DP ? store_a : special_a);
 		o_original_base = left_a;
-		o_spsr_tag = a[265-:6];
-		o_next_pc = a[427-:32];
-		o_predicted = a[290];
-		o_prediction_target = a[363-:32];
-		o_cpsr = {flags, a[331-:28]};
-		o_cpsr_next = {next_flags, a[331-:28]};
+		o_spsr_tag = a[289-:6];
+		o_next_pc = a[451-:32];
+		o_predicted = a[314];
+		o_prediction_target = a[387-:32];
+		o_cpsr = {flags, a[355-:28]};
+		o_cpsr_next = {next_flags, a[355-:28]};
 		o_write_flags = will_write_flags;
-		o_write = a[259-:2] & {2 {condition_pass && !a[294]}};
+		o_write = a[283-:2] & {2 {condition_pass && !a[318]}};
 		o_result[0+:32] = alu_result;
 		o_result[32+:32] = 0;
-		o_address = (S_AGU ? a[63-:32] : alu_result);
+		o_address = (S_AGU ? a[87-:32] : alu_result);
 		o_store_data = store_a;
 		o_alu_address = alu_result;
-		o_memory = ((((a[303-:4] == MEM) || (a[303-:4] == BLOCK)) || (a[303-:4] == SWP)) && condition_pass) && !a[294];
-		o_store = (((a[303-:4] == SWP) || (((a[303-:4] == MEM) || (a[303-:4] == BLOCK)) && !a[448])) && condition_pass) && !a[294];
-		o_pc_write = (((a[258] && (a[266+:6] == 15)) || ((a[303-:4] == SUFFIX) && !a[291])) && condition_pass) && !a[294];
-		begin : sv2v_autoblock_8
+		o_memory = ((((a[327-:4] == MEM) || (a[327-:4] == BLOCK)) || (a[327-:4] == SWP)) && condition_pass) && !a[318];
+		o_store = (((a[327-:4] == SWP) || (((a[327-:4] == MEM) || (a[327-:4] == BLOCK)) && !a[472])) && condition_pass) && !a[318];
+		o_pc_write = (((a[282] && (a[290+:6] == 15)) || ((a[327-:4] == SUFFIX) && !a[315])) && condition_pass) && !a[318];
+		begin : sv2v_autoblock_9
 			reg signed [31:0] lane;
 			for (lane = 0; lane < 2; lane = lane + 1)
-				if (a[266 + (lane * 6)+:6] == 15)
+				if (a[290 + (lane * 6)+:6] == 15)
 					o_write[lane] = 0;
 		end
-		case (a[303-:4])
-			MRS: o_result[0+:32] = (a[121] ? {flags, special_a[27:0]} : special_a);
-			BR, SUFFIX: o_result[0+:32] = {a[427:397], a[295]};
-			PREFIX: o_result[0+:32] = a[395-:32];
+		case (a[327-:4])
+			MRS: o_result[0+:32] = (a[145] ? {flags, special_a[27:0]} : special_a);
+			BR, SUFFIX: o_result[0+:32] = {a[451:421], a[319]};
+			PREFIX: o_result[0+:32] = a[419-:32];
 			MUL: o_result[0+:32] = mult_result[31:0];
 			MULL: begin
 				o_result[0+:32] = mult_result[31:0];
@@ -3383,10 +3459,10 @@ module arm9v2_execute (
 			end
 			MEM: begin
 				if (!S_AGU)
-					o_address = (a[452] ? alu_result : left_a);
+					o_address = (a[476] ? alu_result : left_a);
 				o_result[32+:32] = alu_result;
 			end
-			BLOCK: o_result[32+:32] = left_a + {{24 {a[71]}}, $signed(a[71-:8])};
+			BLOCK: o_result[32+:32] = left_a + {{24 {a[95]}}, $signed(a[95-:8])};
 			SWP: begin
 				if (!S_AGU)
 					o_address = left_a;
@@ -3395,30 +3471,50 @@ module arm9v2_execute (
 			default:
 				;
 		endcase
-		o_record_pointer = a[284-:3];
-		o_record_count = a[281-:4];
-		o_record_pred_hit = a[287];
-		o_record_pred_state = a[286-:2];
-		o_record_thumb = (a[303-:4] == BX ? right_a[0] : a[295]);
+		o_record_pointer = a[308-:3];
+		o_record_count = a[305-:4];
+		o_record_pred_hit = a[311];
+		o_record_pred_state = a[310-:2];
+		o_record_thumb = (a[327-:4] == BX ? right_a[0] : a[319]);
 	end
 	(* keep *) reg [31:0] s_candidate_match;
 	(* keep *) reg [31:0] a_candidate_match;
-	always @(*) begin : sv2v_autoblock_9
+	reg [15:0] late_hold;
+	reg [15:0] late_accept;
+	always @(*) begin : sv2v_autoblock_10
 		reg signed [31:0] src;
 		if (_sv2v_0)
 			;
 		for (src = 0; src < 4; src = src + 1)
-			begin : sv2v_autoblock_10
+			begin : sv2v_autoblock_11
 				reg signed [31:0] prod;
 				for (prod = 0; prod < 2; prod = prod + 1)
-					begin : sv2v_autoblock_11
+					begin : sv2v_autoblock_12
+						reg signed [31:0] lane;
+						for (lane = 0; lane < 2; lane = lane + 1)
+							begin
+								late_hold[(((src * 2) + prod) * 2) + lane] = (a[101 + src] && i_next_write[(prod * 2) + lane]) && a_candidate_match[(((((i_next_advance * 4) + src) * 2) + prod) * 2) + lane];
+								late_accept[(((src * 2) + prod) * 2) + lane] = ((((i_used[src] && !i_early[src]) && (i_tag[src * 6+:6] != 15)) && (i_tag[src * 6+:6] != 17)) && i_next_write[(prod * 2) + lane]) && s_candidate_match[(((((i_next_advance * 4) + src) * 2) + prod) * 2) + lane];
+							end
+					end
+			end
+	end
+	always @(*) begin : sv2v_autoblock_13
+		reg signed [31:0] src;
+		if (_sv2v_0)
+			;
+		for (src = 0; src < 4; src = src + 1)
+			begin : sv2v_autoblock_14
+				reg signed [31:0] prod;
+				for (prod = 0; prod < 2; prod = prod + 1)
+					begin : sv2v_autoblock_15
 						reg signed [31:0] lane;
 						for (lane = 0; lane < 2; lane = lane + 1)
 							begin
 								s_candidate_match[((((0 + src) * 2) + prod) * 2) + lane] = i_tag[src * 6+:6] == i_next_tag[((prod * 2) + lane) * 6+:6];
 								s_candidate_match[((((4 + src) * 2) + prod) * 2) + lane] = (prod == 1 ? i_forward_match[((src * 2) * 2) + lane] : i_tag[src * 6+:6] == i_advance_tag[((prod * 2) + lane) * 6+:6]);
-								a_candidate_match[((((0 + src) * 2) + prod) * 2) + lane] = a[81 + (src * 6)+:6] == i_next_tag[((prod * 2) + lane) * 6+:6];
-								a_candidate_match[((((4 + src) * 2) + prod) * 2) + lane] = a[81 + (src * 6)+:6] == i_advance_tag[((prod * 2) + lane) * 6+:6];
+								a_candidate_match[((((0 + src) * 2) + prod) * 2) + lane] = a[105 + (src * 6)+:6] == i_next_tag[((prod * 2) + lane) * 6+:6];
+								a_candidate_match[((((4 + src) * 2) + prod) * 2) + lane] = a[105 + (src * 6)+:6] == i_advance_tag[((prod * 2) + lane) * 6+:6];
 							end
 					end
 			end
@@ -3443,7 +3539,7 @@ module arm9v2_execute (
 			flags <= i_cpsr[31:28];
 			interrupt_mask <= i_cpsr[7:6];
 			o_serial_continue <= 0;
-			a <= 492'd0;
+			a <= 516'd0;
 			held <= 0;
 			held_amount <= 0;
 			held_offset <= 0;
@@ -3471,10 +3567,10 @@ module arm9v2_execute (
 				holding <= 1;
 				held <= operand;
 				s_pending <= s_wait;
-				begin : sv2v_autoblock_12
+				begin : sv2v_autoblock_16
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_13
+						begin : sv2v_autoblock_17
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
 								if ((s_wait[src] && !(|i_forward_match[2 * (src * 2)+:4])) && s_return_match[(src * 2) + port]) begin
@@ -3492,47 +3588,52 @@ module arm9v2_execute (
 					held_offset <= shifted;
 			end
 			if (a_valid) begin
-				a[257-:32] <= left_a;
-				a[225-:32] <= right_a;
-				a[193-:32] <= store_a;
-				a[161-:32] <= special_a;
-				a[76-:4] <= a_wait;
-				begin : sv2v_autoblock_14
+				a[281-:32] <= left_a;
+				a[249-:32] <= right_a;
+				a[217-:32] <= store_a;
+				a[185-:32] <= special_a;
+				a[100-:4] <= a_wait;
+				begin : sv2v_autoblock_18
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_15
+						begin : sv2v_autoblock_19
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
-								if ((a_wait[src] && !(|a[105 + (2 * (src * 2))+:4])) && a_return_match[(src * 2) + port]) begin
+								if ((a_wait[src] && !(|a[129 + (2 * (src * 2))+:4])) && a_return_match[(src * 2) + port]) begin
 									case (src)
-										0: a[257-:32] <= i_return_data[port * 32+:32];
-										1: a[225-:32] <= i_return_data[port * 32+:32];
-										2: a[161-:32] <= i_return_data[port * 32+:32];
-										3: a[193-:32] <= i_return_data[port * 32+:32];
+										0: a[281-:32] <= i_return_data[port * 32+:32];
+										1: a[249-:32] <= i_return_data[port * 32+:32];
+										2: a[185-:32] <= i_return_data[port * 32+:32];
+										3: a[217-:32] <= i_return_data[port * 32+:32];
 									endcase
-									a[73 + src] <= 0;
+									a[97 + src] <= 0;
 								end
 						end
 				end
-				begin : sv2v_autoblock_16
+				begin : sv2v_autoblock_20
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_17
+						begin : sv2v_autoblock_21
 							reg signed [31:0] prod;
 							for (prod = 0; prod < 2; prod = prod + 1)
-								begin : sv2v_autoblock_18
+								begin : sv2v_autoblock_22
 									reg signed [31:0] lane;
 									for (lane = 0; lane < 2; lane = lane + 1)
-										a[105 + ((((src * 2) + prod) * 2) + lane)] <= (a[77 + src] && i_next_write[(prod * 2) + lane]) && a_candidate_match[(((((i_next_advance * 4) + src) * 2) + prod) * 2) + lane];
+										a[129 + ((((src * 2) + prod) * 2) + lane)] <= late_hold[(((src * 2) + prod) * 2) + lane];
 								end
 						end
+				end
+				begin : sv2v_autoblock_23
+					reg signed [31:0] src;
+					for (src = 0; src < 4; src = src + 1)
+						a[0 + (src * 6)+:6] <= take_of(late_hold[2 * (src * 2)+:4], ((src == 0) && (a[327-:4] == BLOCK)) && !a[317]);
 				end
 			end
 			if (product_phase) begin
-				ll <= $signed({1'b0, a[209:194]}) * $signed({1'b0, a[145:130]});
-				lh <= $signed({1'b0, a[209:194]}) * $signed({((a[303-:4] == MULL) && a[450]) && a[161], a[161:146]});
-				hl <= $signed({((a[303-:4] == MULL) && a[450]) && a[225], a[225:210]}) * $signed({1'b0, a[145:130]});
-				hh <= $signed({((a[303-:4] == MULL) && a[450]) && a[225], a[225:210]}) * $signed({((a[303-:4] == MULL) && a[450]) && a[161], a[161:146]});
+				ll <= $signed({1'b0, a[233:218]}) * $signed({1'b0, a[169:154]});
+				lh <= $signed({1'b0, a[233:218]}) * $signed({((a[327-:4] == MULL) && a[474]) && a[185], a[185:170]});
+				hl <= $signed({((a[327-:4] == MULL) && a[474]) && a[249], a[249:234]}) * $signed({1'b0, a[169:154]});
+				hh <= $signed({((a[327-:4] == MULL) && a[474]) && a[249], a[249:234]}) * $signed({((a[327-:4] == MULL) && a[474]) && a[185], a[185:170]});
 				multiply_product_ready <= 1;
 			end
 			if (mac_phase) begin
@@ -3542,24 +3643,24 @@ module arm9v2_execute (
 			if (finish) begin
 				a_valid <= 0;
 				flags <= next_flags;
-				o_serial_continue <= ((((a[303-:4] == MSR) && !a[450]) && a[444]) && msr_same_mode) && !a[294];
-				if ((a[303-:4] == BLOCK) && a[293])
+				o_serial_continue <= ((((a[327-:4] == MSR) && !a[474]) && a[468]) && msr_same_mode) && !a[318];
+				if ((a[327-:4] == BLOCK) && a[317])
 					block_base <= left_a;
-				o_btb_pc <= a[491-:32];
-				o_btb_thumb <= a[295];
-				o_btb_update <= (((a[303-:4] == BR) || (a[303-:4] == BX)) || ((a[303-:4] == SUFFIX) && a[291])) && !a[294];
+				o_btb_pc <= a[515-:32];
+				o_btb_thumb <= a[319];
+				o_btb_update <= (((a[327-:4] == BR) || (a[327-:4] == BX)) || ((a[327-:4] == SUFFIX) && a[315])) && !a[318];
 				o_btb_taken <= condition_pass;
-				o_btb_hit <= a[287];
-				o_btb_state <= a[286-:2];
-				o_btb_target <= (a[303-:4] == BX ? {right_a[31:2], right_a[1] & right_a[0], right_a[0]} : {a[395:365], a[295]});
-				o_btb_kind <= ((a[303-:4] == SUFFIX) || ((a[303-:4] == BR) && a[452]) ? 2'd1 : ((a[303-:4] == BX) && (a[431:428] == 14) ? 2'd2 : 2'd0));
+				o_btb_hit <= a[311];
+				o_btb_state <= a[310-:2];
+				o_btb_target <= (a[327-:4] == BX ? {right_a[31:2], right_a[1] & right_a[0], right_a[0]} : {a[419:389], a[319]});
+				o_btb_kind <= ((a[327-:4] == SUFFIX) || ((a[327-:4] == BR) && a[476]) ? 2'd1 : ((a[327-:4] == BX) && (a[455:452] == 14) ? 2'd2 : 2'd0));
 				o_redirect <= wrong_prediction;
 				o_redirect_target <= {actual_target[31:1], 1'b0};
 				o_redirect_thumb <= actual_thumb;
-				o_redirect_link <= {a[427:397], a[295]};
-				o_redirect_pointer <= a[284-:3];
-				o_redirect_count <= a[281-:4];
-				o_redirect_action <= ((condition_pass && (a[303-:4] == BR)) && a[452] ? 2'd1 : ((condition_pass && (a[303-:4] == BX)) && (a[431:428] == 14) ? 2'd2 : 2'd0));
+				o_redirect_link <= {a[451:421], a[319]};
+				o_redirect_pointer <= a[308-:3];
+				o_redirect_count <= a[305-:4];
+				o_redirect_action <= ((condition_pass && (a[327-:4] == BR)) && a[476] ? 2'd1 : ((condition_pass && (a[327-:4] == BX)) && (a[455:452] == 14) ? 2'd2 : 2'd0));
 			end
 			if (accept) begin
 				a_valid <= 1;
@@ -3568,108 +3669,109 @@ module arm9v2_execute (
 				s_pending <= 0;
 				multiply_accumulate <= 0;
 				multiply_product_ready <= 0;
-				a[491-:32] <= i_pc;
-				a[459-:32] <= i_instruction;
-				a[427-:32] <= i_next_pc;
-				a[395-:32] <= i_branch_target;
-				a[363-:32] <= i_pred_target;
-				a[331-:28] <= {i_cpsr[27:8], interrupt_mask, i_cpsr[5:0]};
-				a[303-:4] <= i_kind;
-				a[299-:4] <= i_condition;
-				a[295] <= i_thumb;
-				a[294] <= i_fault;
-				a[293] <= i_first;
-				a[292] <= i_last;
-				a[291] <= i_direct;
-				a[290] <= i_predicted;
-				a[289] <= i_match_taken;
-				a[288] <= i_match_fallthrough;
-				a[287] <= i_pred_hit;
-				a[286-:2] <= i_pred_state;
-				a[284-:3] <= i_ras_pointer;
-				a[281-:4] <= i_ras_count;
-				a[265-:6] <= i_tag[12+:6];
-				a[72] <= i_self_dep;
-				a[277-:12] <= i_dest;
-				a[259-:2] <= planned_writes;
-				a[257-:32] <= (S_AGU ? s_base : operand[0+:32]);
-				a[225-:32] <= shifted;
-				a[63-:32] <= agu_address;
-				a[31-:32] <= agu_sum;
-				a[193-:32] <= operand[96+:32];
-				a[161-:32] <= operand[64+:32];
-				a[121] <= i_tag[12+:6] == 17;
-				a[129-:4] <= i_instruction[24:21];
-				a[125] <= i_instruction[20] || ((i_kind == DP) && (i_instruction[24:23] == 2'b10));
-				a[124] <= shift_carry;
-				a[123] <= carry_preserve;
-				a[122] <= rrx;
-				a[71-:8] <= i_writeback_offset;
-				a[104-:24] <= i_tag;
-				begin : sv2v_autoblock_19
+				a[515-:32] <= i_pc;
+				a[483-:32] <= i_instruction;
+				a[451-:32] <= i_next_pc;
+				a[419-:32] <= i_branch_target;
+				a[387-:32] <= i_pred_target;
+				a[355-:28] <= {i_cpsr[27:8], interrupt_mask, i_cpsr[5:0]};
+				a[327-:4] <= i_kind;
+				a[323-:4] <= i_condition;
+				a[319] <= i_thumb;
+				a[318] <= i_fault;
+				a[317] <= i_first;
+				a[316] <= i_last;
+				a[315] <= i_direct;
+				a[314] <= i_predicted;
+				a[313] <= i_match_taken;
+				a[312] <= i_match_fallthrough;
+				a[311] <= i_pred_hit;
+				a[310-:2] <= i_pred_state;
+				a[308-:3] <= i_ras_pointer;
+				a[305-:4] <= i_ras_count;
+				a[289-:6] <= i_tag[12+:6];
+				a[96] <= i_self_dep;
+				a[301-:12] <= i_dest;
+				a[283-:2] <= planned_writes;
+				a[281-:32] <= (S_AGU ? s_base : operand[0+:32]);
+				a[249-:32] <= shifted;
+				a[87-:32] <= agu_address;
+				a[55-:32] <= agu_sum;
+				a[217-:32] <= operand[96+:32];
+				a[185-:32] <= operand[64+:32];
+				a[145] <= i_tag[12+:6] == 17;
+				a[153-:4] <= i_instruction[24:21];
+				a[149] <= i_instruction[20] || ((i_kind == DP) && (i_instruction[24:23] == 2'b10));
+				a[148] <= shift_carry;
+				a[147] <= carry_preserve;
+				a[146] <= rrx;
+				a[95-:8] <= i_writeback_offset;
+				a[128-:24] <= i_tag;
+				begin : sv2v_autoblock_24
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
 						begin
-							a[73 + src] <= (i_used[src] && !i_early[src]) && s_wait[src];
-							begin : sv2v_autoblock_20
+							a[97 + src] <= (i_used[src] && !i_early[src]) && s_wait[src];
+							begin : sv2v_autoblock_25
 								reg signed [31:0] prod;
 								for (prod = 0; prod < 2; prod = prod + 1)
 									if (((i_used[src] && !i_early[src]) && i_next_load_owner[prod]) && s_candidate_match[((((i_next_advance * 4) + src) * 2) + prod) * 2])
-										a[73 + src] <= 1;
+										a[97 + src] <= 1;
 							end
-							a[77 + src] <= ((i_used[src] && !i_early[src]) && (i_tag[src * 6+:6] != 15)) && (i_tag[src * 6+:6] != 17);
-							begin : sv2v_autoblock_21
+							a[101 + src] <= ((i_used[src] && !i_early[src]) && (i_tag[src * 6+:6] != 15)) && (i_tag[src * 6+:6] != 17);
+							begin : sv2v_autoblock_26
 								reg signed [31:0] prod;
 								for (prod = 0; prod < 2; prod = prod + 1)
-									begin : sv2v_autoblock_22
+									begin : sv2v_autoblock_27
 										reg signed [31:0] lane;
 										for (lane = 0; lane < 2; lane = lane + 1)
-											a[105 + ((((src * 2) + prod) * 2) + lane)] <= ((((i_used[src] && !i_early[src]) && (i_tag[src * 6+:6] != 15)) && (i_tag[src * 6+:6] != 17)) && i_next_write[(prod * 2) + lane]) && s_candidate_match[(((((i_next_advance * 4) + src) * 2) + prod) * 2) + lane];
+											a[129 + ((((src * 2) + prod) * 2) + lane)] <= late_accept[(((src * 2) + prod) * 2) + lane];
 									end
 							end
+							a[0 + (src * 6)+:6] <= take_of(late_accept[2 * (src * 2)+:4], ((src == 0) && (i_kind == BLOCK)) && !i_first);
 						end
 				end
 				if (i_kind == MEM) begin
-					a[129-:4] <= (i_instruction[23] ? 4'd4 : 4'd2);
-					a[122] <= rrx;
+					a[153-:4] <= (i_instruction[23] ? 4'd4 : 4'd2);
+					a[146] <= rrx;
 					if ((i_instruction[27:26] == 1) && !i_instruction[25]) begin
-						a[225-:32] <= {20'd0, i_instruction[11:0]};
-						a[122] <= 0;
+						a[249-:32] <= {20'd0, i_instruction[11:0]};
+						a[146] <= 0;
 					end
 					if ((i_instruction[27:26] == 0) && i_instruction[22]) begin
-						a[225-:32] <= {24'd0, i_instruction[11:8], i_instruction[3:0]};
-						a[122] <= 0;
+						a[249-:32] <= {24'd0, i_instruction[11:8], i_instruction[3:0]};
+						a[146] <= 0;
 					end
 				end
 				if (i_kind == BLOCK) begin
-					a[129-:4] <= 4;
-					a[257-:32] <= (S_AGU ? s_base : operand[0+:32]);
-					a[225-:32] <= {{24 {i_offset[7]}}, i_offset};
-					a[122] <= 0;
+					a[153-:4] <= 4;
+					a[281-:32] <= (S_AGU ? s_base : operand[0+:32]);
+					a[249-:32] <= {{24 {i_offset[7]}}, i_offset};
+					a[146] <= 0;
 				end
 				if ((i_kind == BX) || (i_kind == SWP)) begin
-					a[225-:32] <= operand[32+:32];
-					a[122] <= 0;
+					a[249-:32] <= operand[32+:32];
+					a[146] <= 0;
 				end
 				if (i_kind == SUFFIX) begin
-					a[129-:4] <= 4;
-					a[225-:32] <= {20'd0, i_instruction[10:0], 1'b0};
-					a[122] <= 0;
+					a[153-:4] <= 4;
+					a[249-:32] <= {20'd0, i_instruction[10:0], 1'b0};
+					a[146] <= 0;
 				end
-				begin : sv2v_autoblock_23
+				begin : sv2v_autoblock_28
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_24
+						begin : sv2v_autoblock_29
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
 								if ((((i_used[src] && !i_early[src]) && s_wait[src]) && !(|i_forward_match[2 * (src * 2)+:4])) && s_return_match[(src * 2) + port]) begin
 									case (src)
-										0: a[257-:32] <= i_return_data[port * 32+:32];
-										1: a[225-:32] <= i_return_data[port * 32+:32];
-										2: a[161-:32] <= i_return_data[port * 32+:32];
-										3: a[193-:32] <= i_return_data[port * 32+:32];
+										0: a[281-:32] <= i_return_data[port * 32+:32];
+										1: a[249-:32] <= i_return_data[port * 32+:32];
+										2: a[185-:32] <= i_return_data[port * 32+:32];
+										3: a[217-:32] <= i_return_data[port * 32+:32];
 									endcase
-									a[73 + src] <= 0;
+									a[97 + src] <= 0;
 								end
 						end
 				end
@@ -12539,6 +12641,7 @@ module zap_dcache (
 	o_short_data,
 	o_short_hit,
 	o_short_live,
+	o_short_trust,
 	o_dat,
 	o_ack,
 	o_writeback_busy,
@@ -12627,6 +12730,7 @@ module zap_dcache (
 	output wire [31:0] o_short_data;
 	output wire o_short_hit;
 	output wire o_short_live;
+	output wire o_short_trust;
 	output wire [31:0] o_dat;
 	output wire o_ack;
 	output wire o_writeback_busy;
@@ -13017,6 +13121,7 @@ module zap_dcache (
 	wire hold;
 	wire idle;
 	wire live_lookup;
+	wire live_trust;
 	wire [2:0] relookup;
 	wire fill_busy;
 	wire [3:0] cf_dbg_dcache;
@@ -13025,6 +13130,7 @@ module zap_dcache (
 	assign o_short_data = (SHORT_READ ? tr_cache_words[0+:32] : 32'd0);
 	assign o_short_hit = (SHORT_READ && tr_cache_hit) && tlb_hit_ok;
 	assign o_short_live = SHORT_READ && live_lookup;
+	assign o_short_trust = SHORT_READ && live_trust;
 	localparam integer SET_W = $clog2((CACHE_SIZE / WAYS) / CACHE_LINE);
 	localparam integer LINE_W = $clog2(CACHE_LINE);
 	reg [SET_W - 1:0] lookup_s0;
@@ -13078,6 +13184,7 @@ module zap_dcache (
 		.i_ldfmt(i_ldfmt),
 		.o_idle(idle),
 		.o_live_lookup(live_lookup),
+		.o_live_trust(live_trust),
 		.o_relookup(relookup),
 		.o_fill_busy(fill_busy),
 		.o_writeback_busy(o_writeback_busy),
@@ -13543,6 +13650,7 @@ module zap_dcache_fsm (
 	o_live_lookup,
 	o_relookup,
 	o_fill_busy,
+	o_live_trust,
 	o_writeback_busy,
 	o_wb_cyc_ff,
 	o_wb_cyc_nxt,
@@ -13641,6 +13749,7 @@ module zap_dcache_fsm (
 	(* dont_retime *) output reg o_live_lookup;
 	(* dont_retime *) output reg [2:0] o_relookup;
 	(* dont_retime *) output reg o_fill_busy;
+	(* dont_retime *) output reg o_live_trust;
 	(* dont_retime *) output reg o_writeback_busy;
 	output reg o_wb_cyc_ff;
 	output wire o_wb_cyc_nxt;
@@ -14332,6 +14441,7 @@ module zap_dcache_fsm (
 	wire hum_ack;
 	reg idle_ack;
 	wire hum_slot_nxt;
+	wire fill_busy_nxt;
 	assign cpu_wait = (i_rd || i_wr) && !o_ack;
 	always @(*) begin
 		if (_sv2v_0)
@@ -14373,6 +14483,7 @@ module zap_dcache_fsm (
 			repair_ff <= 3'b000;
 			hum_slot_ff <= 1'b0;
 			o_live_lookup <= 1'b1;
+			o_live_trust <= 1'b1;
 			o_relookup <= 3'b000;
 		end
 		else begin
@@ -14382,16 +14493,18 @@ module zap_dcache_fsm (
 			repair_ff <= repair_nxt;
 			hum_slot_ff <= hum_slot_nxt;
 			o_live_lookup <= state_nxt[IDLE] || hum_slot_nxt;
+			o_live_trust <= (state_nxt[IDLE] || hum_slot_nxt) && !(o_fill_busy && !fill_busy_nxt);
 			o_relookup <= ((state_nxt[RELOOKUP0] || state_nxt[RELOOKUP1]) || state_nxt[RELOOKUP2] ? {state_nxt[RELOOKUP2], state_nxt[RELOOKUP1], state_nxt[RELOOKUP0]} : repair_nxt);
 		end
 	assign hum_slot_nxt = (((state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE]) || state_nxt[UNLOCK_WR]) && lookup_ready_nxt) && (line_safe_nxt || ((state_nxt[CLEAN_SINGLE] && fill_visible_ff) && victim_safe_nxt));
 	assign hum_ack = (((hum_slot_ff && i_hit_ok) && i_cache_en) && !i_align_fault) && i_cache_hit_early;
 	assign o_ack = idle_ack || hum_ack;
+	assign fill_busy_nxt = (((((state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE]) || state_nxt[UNLOCK_REG]) || state_nxt[UNLOCK_WR]) || state_nxt[RELOOKUP0]) || state_nxt[RELOOKUP1]) || state_nxt[RELOOKUP2];
 	always @(posedge i_clk)
 		if (i_reset)
 			o_fill_busy <= 1'b0;
 		else
-			o_fill_busy <= (((((state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE]) || state_nxt[UNLOCK_REG]) || state_nxt[UNLOCK_WR]) || state_nxt[RELOOKUP0]) || state_nxt[RELOOKUP1]) || state_nxt[RELOOKUP2];
+			o_fill_busy <= fill_busy_nxt;
 	wire live_write;
 	wire fill_write;
 	wire saved_write;
@@ -26226,6 +26339,7 @@ module zap_top (
 	wire [31:0] dc_short_data;
 	wire dc_short_hit;
 	wire dc_short_live;
+	wire dc_short_trust;
 	wire cpu_instr_stb;
 	wire [1:0] dbg_fetch;
 	wire [3:0] dbg_icache;
@@ -26503,6 +26617,7 @@ module zap_top (
 				.i_data_short_data(dc_short_data),
 				.i_data_short_hit(dc_short_hit),
 				.i_data_short_live(dc_short_live),
+				.i_data_short_trust(dc_short_trust),
 				.i_data_wb_dat((!ONLY_CORE ? dc_data : (BE_32_ENABLE ? be_32(i_wb_dat, o_wb_sel) : i_wb_dat))),
 				.i_data_wb_ack(data_ack),
 				.i_data_wb_err(data_err),
@@ -26593,6 +26708,7 @@ module zap_top (
 			assign dc_short_data = 0;
 			assign dc_short_hit = 0;
 			assign dc_short_live = 0;
+			assign dc_short_trust = 0;
 			assign ic_data = 1'sb0;
 			assign c_wb_ack = 1'sb0;
 			assign c_wb_err = 1'sb0;
@@ -26748,6 +26864,7 @@ module zap_top (
 				.o_short_data(dc_short_data),
 				.o_short_hit(dc_short_hit),
 				.o_short_live(dc_short_live),
+				.o_short_trust(dc_short_trust),
 				.o_dat(dc_data),
 				.o_ack(data_ack),
 				.o_writeback_busy(dc_writeback_busy),

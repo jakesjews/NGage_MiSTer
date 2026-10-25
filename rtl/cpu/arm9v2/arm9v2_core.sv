@@ -6,6 +6,14 @@ module arm9v2_core #(
         // Memory addresses summed in S and registered into A; the D-cache and
         // TLB lookup comes from that register (arm9v2_execute, arm9v2_decode).
         parameter logic S_AGU = 1'b1,
+        // Lane B of the 104 MHz plan. FREE_SELECT: S's forward grant and A's
+        // late bypass (registered one-hot) select data as if W's load hit;
+        // the hit and the trust gate only the waits (arm9v2_execute).
+        // TRUST_FF: the trust (the cache FSM's i_data_short_trust) and W's
+        // hit candidate are registers of their own. FAST_Z: carry-free Z.
+        parameter logic FREE_SELECT = 1'b1,
+        parameter logic TRUST_FF = 1'b1,
+        parameter logic FAST_Z = 1'b1,
 
         // For CP15 purposes.
         parameter logic [0:0]  CP15_L4_DEFAULT = 0,
@@ -75,6 +83,7 @@ input logic  [31:0]                      i_data_wb_dat,
 input logic [31:0] i_data_short_data,
 input logic i_data_short_hit,
 input logic i_data_short_live,
+input logic i_data_short_trust,   // i_data_short_live && !fill_ended, registered in the cache FSM
 output logic [31:0]                      o_data_wb_dat,
 output logic  [3:0]                      o_data_wb_sel,
 
@@ -356,6 +365,10 @@ output logic [1:0] o_dbg_fetch
     (* dont_retime *) logic [31:0] saved_load;
     (* dont_retime *) logic [63:0] w_load_select;
     (* dont_retime *) logic w_waited;
+    // TRUST_FF: w.memory&&!w_waited in a register of its own, loaded from
+    // the next state of both; it starts W's short-hit terms without
+    // w.memory's fanout. Equal to that term on every clock.
+    (* dont_retime *) logic w_hit_candidate;
     wire w_locked=i_dc_lock_owner;
     // The query owner follows the exact W capture schedule. The cache
     // samples this owner against lock_nxt, including a simultaneous clear
@@ -469,8 +482,10 @@ output logic [1:0] o_dbg_fetch
     assign locked=i_dc_lock[39:0];
     assign mw_tag={w.dest,m.dest};
     assign mw_value[0]=m.result;
+    // FREE_SELECT: a W load word is consumed only with W's hit (otherwise
+    // its consumers wait), so it needs no hit gate of its own.
     assign mw_value[1]={w.result[1],w.load_writer?
-        (i_data_short_hit?i_data_short_data:32'd0):w.result[0]};
+        (FREE_SELECT||i_data_short_hit?i_data_short_data:32'd0):w.result[0]};
     // Producer masks travel with the registered records. Load ownership
     // produces a match even before data is ready; execute retains the
     // operand instead of selecting the unavailable word. An empty,
@@ -774,7 +789,7 @@ output logic [1:0] o_dbg_fetch
     always_ff @(posedge i_clk)begin
         if(i_reset)begin
             m<='0;w<='0;skid<='0;memory_state<=RUN;saved_load<=0;swap_write<=0;
-            w_load_select<=1;w_waited<=0;
+            w_load_select<=1;w_waited<=0;w_hit_candidate<=0;
             wb_flush<=0;wb_target<=RESET_VECTOR;wb_thumb<=0;predictor_clear<=0;
             wb_repair_pointer<=0;wb_repair_count<=0;wb_repair_action<=0;wb_repair_link<=0;
             cp_seen<=0;cp_finished<=0;cp_flags<=0;w_serial_continue<=0;
@@ -811,6 +826,9 @@ output logic [1:0] o_dbg_fetch
             if(memory_state==LOAD_RETURN&&!w_locked&&w.kind==SWP)swap_write<=1;
             if(defer_load)saved_load<=i_data_wb_dat;
             if(wb_flush)begin w_waited<=0;swap_write<=0;cp_seen<=0;cp_finished<=0;end
+            // w_waited's next value, from the three assignments above.
+            w_hit_candidate<=w_next.memory&&(wb_flush||(memory_state==RUN&&done)||memory_state==RELOAD1||quick_reload||
+                !((w.valid&&!done)||w_waited));
 
         end
     end
@@ -848,7 +866,22 @@ output logic [1:0] o_dbg_fetch
     //   at 0x503CBDC6, the user data abort at 25 s). arm9v2_execute
     //   applies i_load_trust only to such writers (d_self_dep); other
     //   readers may take the word, the departing line's current data.
-    wire w_load_hit=w.memory&&i_data_short_hit&&i_data_short_live&&!w_waited&&!fill_ended;
+    wire load_trust=TRUST_FF?i_data_short_trust:i_data_short_live&&!fill_ended;
+`ifndef SYNTHESIS
+    // The FSM loads its trust register from the next state: no clock is
+    // added or lost against the departing-victim and fill-end terms.
+    logic fill_reset_done;
+    always_ff @(posedge i_clk) fill_reset_done<=!i_reset;
+    always_ff @(posedge i_clk) if(!i_reset&&fill_reset_done)
+        assert(i_data_short_trust==(i_data_short_live&&!fill_ended))
+            else $fatal(1,"short-hit trust register");
+`endif
+    wire w_hit=TRUST_FF?w_hit_candidate:w.memory&&!w_waited;
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if(!i_reset)
+        assert(w_hit_candidate==(w.memory&&!w_waited)) else $fatal(1,"W hit candidate register");
+`endif
+    wire w_load_hit=w_hit&&i_data_short_hit&&load_trust;
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1),.S_AGU(S_AGU)) u_front_decode (
         .i_w_load_hit(w_load_hit),.o_self_dep(d_self_dep),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
         .i_forward_load(forward_load),.o_forward_grant(d_forward_grant),.i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
@@ -941,10 +974,10 @@ output logic [1:0] o_dbg_fetch
         .o_request(o_instr_wb_stb),
         .o_stall(o_code_stall),.o_dbg_fetch(o_dbg_fetch)
     );
-    arm9v2_execute #(.S_AGU(S_AGU)) u_execute (
+    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z)) u_execute (
         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),
         .i_load_owner({w.load_writer,m.load_writer}),.i_next_load_owner(forward_load),
-        .i_load_hit(w.memory&&i_data_short_hit&&!w_waited),.i_load_trust(i_data_short_live&&!fill_ended),.i_self_dep(d_self_dep),
+        .i_load_hit(w_hit&&i_data_short_hit),.i_load_trust(load_trust),.i_self_dep(d_self_dep),
         .i_return_select(i_dc_reg_idx),.i_return_data(operand_return_data),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),
         .i_return_ready(return_ready),.i_return_s_match(d_return_match),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(mw_tag),.i_advance_tag(advance_tag),.i_next_advance(forward_advance),.i_next_write(forward_write),.i_early(d_early),

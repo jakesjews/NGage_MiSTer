@@ -2,7 +2,12 @@
 // ARM data processing operation numbers are instruction bits [24:21].
 // Flags are NZCV. This leaf produces candidate flags; its caller controls
 // architectural writes, including condition failure and SPSR restoration.
-module arm9_alu (
+// FAST_Z: Z without the adder or the result mux. a+b+cin is zero (mod 2^32)
+// exactly when every bit's carry-in equals a^b at that bit, and the carry
+// out of a zero-sum bit is a|b: (a^b) == {a[30:0]|b[30:0], cin}. Each bit
+// is one function of a, b and their lower neighbours, then one AND tree.
+// Logical N and Z come from the logical result itself, never the adder.
+module arm9_alu #(parameter logic FAST_Z = 1'b0) (
     input  logic [31:0] i_a,
     input  logic [31:0] i_b,
     input  logic [3:0]  i_op,
@@ -22,6 +27,20 @@ module arm9_alu (
     assign a = i_a ^ {32{inv_a}};
     assign b = i_b ^ {32{inv_b}};
     assign sum = {1'b0, a} + {1'b0, b} + {32'd0, cin};
+    logic [31:0] logic_result;
+    logic arith_zero, logic_zero;
+    always_comb begin
+        case (i_op)
+            4'h0, 4'h8: logic_result = i_a & i_b;
+            4'h1, 4'h9: logic_result = i_a ^ i_b;
+            4'hc: logic_result = i_a | i_b;
+            4'he: logic_result = i_a & ~i_b;
+            4'hf: logic_result = ~i_b;
+            default: logic_result = i_b;
+        endcase
+        arith_zero = (a ^ b) == {a[30:0] | b[30:0], cin};
+        logic_zero = logic_result == 0;
+    end
     always_comb begin
         arithmetic = 1'b0;
         case (i_op)
@@ -34,9 +53,10 @@ module arm9_alu (
             default: begin o_result = sum[31:0]; arithmetic = 1'b1; end
         endcase
         o_flags = {o_result[31], o_result == 0, i_shift_carry, i_flags[0]};
+        if (FAST_Z) o_flags[3:2] = {logic_result[31], logic_zero};
         if (arithmetic) begin
             // Arithmetic NZ does not need to wait for the logical/result mux.
-            o_flags[3:2] = {sum[31], sum[31:0] == 0};
+            o_flags[3:2] = {sum[31], FAST_Z ? arith_zero : sum[31:0] == 0};
             o_flags[1] = sum[32];
             o_flags[0] = (a[31] == b[31]) && (a[31] != sum[31]);
         end
