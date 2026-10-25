@@ -5377,3 +5377,209 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the trace core. The three V2 numbers so far against ZAP's control,
   per 104 M clocks: Sonic 44.4 / 43.5 vs 31.6, Asphalt 41.4 vs 32.3,
   Tony Hawk none yet vs 31.3; the goal is 47.
+- **The three candidates for the second death tested, none fails** (the
+  subagent, codex/arm9v2 34ccaaf the tests, e90316e the report;
+  pushed). arm9_store_reload_rtl.S (1,688 cases: word/halfword/byte/STM
+  stores reloaded 0-6 instructions later, same word, other word, other
+  width; the line present, dirty, absent with the store merged into its
+  own fill, departing, write-back in flight, being filled,
+  write-through; SVC, USR and a mode change between; the kernel's
+  context save/resume at 0x50321624-0x50321670 copied literally for a
+  USR and a SYS thread): every value, PC, mode and restored register
+  correct. arm9_install_edge_rtl.S (448 cases, both fill orders,
+  readers in S and A at 2,688 installs per run): loads on the line
+  complete 3-8 clocks after the install edge, never earlier; the cache
+  admits the new line three edges after installing it, so a
+  half-installed line cannot be read. arm9_fetch_redirect_rtl.S (120
+  cases; b/beq/bx/mov pc/ldr pc/svc from a cold line's entry word to a
+  cold target with every other word poisoned, every I-fill forced
+  provisional): 173-221 redirects per run discarded pending entries, no
+  poison retired; by the RTL only one I-fill runs at a time and a
+  pending entry's word has already arrived ("pending" only defers a
+  late bus error). 303/303 runs in each configuration, the 294 earlier
+  runs cycle-identical. The subagent's remaining reading: the second
+  death lies outside the single-CPU bench shapes (another bus master
+  and the board's memory timing, or a V2 path the firmware uses that
+  the suite does not: Thumb, multiply, SWP, CP15). The hardware trace
+  is the evidence: the trace core of the fixed source fits only with
+  the 8 KB D-cache and the PC ring at 1,024 entries (the 16 KB and the
+  4,096-entry builds overflowed the 553 M10K: the merged tree keeps the
+  cache metadata in block RAM, which the session-11 trace core did not).
+- **The trace core's first boot (8 KB D-cache, PC ring 1,024; -0.185 ns
+  slow 100C, -0.457 at -40C, 33,763 ALMs; build/hardware/NGage-v2fixt-
+  s2.rbf) failed at start-up**: "App. closed ScreenSaver" (the boot-time
+  panic's thread name, readable this time), then "Device start-up
+  failed. Contact the retailer." on the N-Gage splash; no kernel fault,
+  no abort or UND (the trace's exception trigger never fired); the three
+  dumps it holds (build/hardware/game/trace-v2fixt/dump0-2.bin) are the
+  kernel's routine write to the fault area at 3.27 s and the two
+  leftover timed triggers at 55 s and 130 s (DBG_TRIG_AT1/2_S from the
+  2026-10-22 investigation), both in the idle loop. So the boot-time
+  panics are software panics, not exceptions, and the trace as
+  configured cannot catch them; the exception death (the exec-call
+  record) can be caught when it recurs. Launched: a 16 KB-D-cache trace
+  core with 512/128/128 rings and the timed triggers off (worktree
+  ../NGage_MiSTer-v2fixt16, lane b8), and a two-game run on the 8 KB
+  trace core to give the exception death its one-in-four chance.
+- The 8 KB trace core fails start-up on every boot (three of three:
+  "App. closed ScreenSaver", then "Device start-up failed"), with no
+  exception and no kernel fault, where the 16 KB fixed core reached
+  the idle screen in six of seven boots. Either the smaller cache
+  multiplies the remaining bug's hits or the trace core's negative
+  slack adds its own; a fixed-source 8 KB build without the trace
+  (../NGage_MiSTer-v2fixd8, lane b5) separates the two. Tried and
+  dropped: Symbian's ErrRd flag file (c:\system\bootdata\ErrRd makes
+  the "App. closed" dialog show the panic category and reason): the C:
+  save is the phone's log-structured flash image (LFFS), not FAT, so
+  there is no way to plant the file from outside.
+- The 16 KB trace core fits with the 512/128/128 rings and the timed
+  triggers off (33,976 ALMs, 3.71 M memory bits; slack -0.25 ns at the
+  slow -40C corner; build/hardware/NGage-v2fixt16-s2.rbf): its four
+  dump slots wait for exceptions and fault-record writes only.
+- **Boot statistics on the fixed 16 KB core** (three plain boots,
+  build/hardware/game/v2boot-1..3/): boot 1 died with the kernel record
+  `00250030 50447b53 10000000`, the same garbage PC 0x00250030 as
+  before but from a Thumb caller this time (r14 = 0x50447B53, the
+  return of `bl 0x50459C38` at 0x50447B4E); boots 2 and 3 reached the
+  idle screen with the "App. closed ... Server" dialog. So the
+  exception death is about one boot in four and always lands on the
+  same address, which points at a fixed wrong table entry rather than
+  random corruption: the kernel's SWI entry reads the call number with
+  `ldr ip,[lr,#-4]` at 0x50321490 and indexes the executive table.
+  Reading the handler: a fast executive call jumps through the ROM
+  table (`ldr pc,[ip,#-0x3C8]` at 0x503214A8), but no ROM word near any
+  table holds 0x00250030, so the garbage PC is not a wrong table slot.
+  The slow path (bit 23 set, as in `svc 0xC000BF`) goes through RAM:
+  `ldr ip,[0x50321F58]` (= 0x80005668), `mov lr,pc`, `ldr pc,[ip,#-4]`
+  at 0x50321558, a jump through the kernel word at 0x80005664, in the
+  very line (0x80005660) whose neighbours the first bug's window
+  touched (0x80005668, 0x8000566C = 0xAAAAAAAA). So the second death is
+  most likely a load that delivered the wrong word to pc: the same
+  class as the first (a wrong value out of a load), on a load whose
+  destination is pc, at the kernel's executive entry. The trace core's
+  data ring will show what that load returned and what the cache and
+  bus carried.
+- The fixed source with the 8 KB D-cache and no trace (lane b5, seed
+  2): -0.255 ns at the slow 100C corner (+0.017 at -40C), 33,066 ALMs,
+  build/hardware/NGage-v2fixd8-s2.rbf; so at 78 MHz the 8 KB cache is
+  no easier to fit than the 16 KB one for V2 (the metadata-in-RAM
+  tree's address paths dominate either way). Its boots, to separate the
+  cache size from the trace core's timing in the start-up failures,
+  follow the trace core's boot loop on the board.
+- **A death captured on the 16 KB trace core** (boot 7 of the loop,
+  build/hardware/game/trace-v2t16/dump1.bin, decoded to the scratch
+  trace-v2t16-dump1.txt; six earlier boots reached idle with one
+  routine dump each): not the executive-call record but the other
+  kind, a **user-mode data abort 25.25 s into the boot** (the trigger
+  "exception" at 0x503CBDF4), which is what the "App. closed" dialogs
+  on the idle screen are. The window: a Thumb user thread calls
+  through an import stub into the ARM handle lookup at 0x503A320C
+  (count at +8, array base at +20, the entry's id compared with the
+  handle's index/id, the object pointer at +4); the data port logged
+  count 1, base 0x8062A358, entry id 0x00030008, the handle 0x00080000
+  and the id word 3, which should compare equal, yet the CPU's flags
+  after the compare were Z clear: the lookup returned 0, the caller's
+  `ldr r0,[r4,#28]` read address 0x1C (the vector page) and the next
+  load aborted. So a register held a value different from what the
+  data port delivered, again. Handed to the subagent with the decoded
+  rings to name the load and the pipeline situation and to write the
+  directed test.
+- **The 8 KB no-trace core dies deterministically with Kern::Fault
+  ("PLAT", 0x1005B)**: three of three boots (build/hardware/game/
+  v2d8boot-1..3/), the same record the pre-fix 16 KB core gave at
+  78 MHz on 2026-10-24. So the start-up failures of the 8 KB trace core
+  were the cache size, not its slack, and the 8 KB configuration is the
+  reproducer for this third death. The 16 KB trace core then produced
+  it too on its next boot (one of eight so far), with **three events in
+  one boot** (build/hardware/game/trace-v2t16b/dump1-3.bin, decoded
+  alongside): a user-mode data abort at 17.9 s (a Thumb thread at
+  0x5044A72A loading through a pointer that read back as 0), another at
+  20.6 s (ARM user code at 0x50394D08 through a null object pointer
+  that the memory word itself held as 0), and the PLAT fault's record
+  write at 21.1 s, whose 512-instruction window is the kernel's event
+  dispatch (0x5033A390: an event word read from the variant's structure
+  at [0x5033A534], a jump table up to type 0x58, then message handling
+  through 0x5033B948, 0x5039D248, a descriptor copy) ending in the
+  Kern::Fault category copy. The two user aborts look like consequences
+  of an earlier wrong store (null words where pointers belong), so the
+  first wrong value lies before all three; the PLAT window is the
+  deterministic one to decode.
+- **The second hole, from the 25 s capture: found and fixed** (the
+  subagent, codex/arm9v2 5c652ee the test, 6a85407 the fix, 7dd5509 the
+  report; pushed). Every load in the window returned what memory
+  delivered (checked against the data and bus rings; where a load
+  missed, the data tap shows the victim's word, a known artifact), yet
+  the compare cleared Z: only r2 = 0x801009D0, the *literal's own
+  address*, gives that result, so the CPU's r2 was wrong. The chain:
+  `ldr r0,[r0,#36]` missed and its fill began evicting the literal's
+  line from the same set; `ldr r2,[pc,#12]` hit that departing line on
+  its first clock (never accepted by the cache: it missed later and
+  returned in the background); `ldr r2,[r2]` and `ldr r2,[r2,#4]` read
+  r2 *and* write it: D2 let such writers past the older pending load on
+  the premise that they wait for its data, but S/A still trusted the
+  unaccepted hit and took the word early, so both retired first and the
+  literal's late return overwrote r2. The first fix covered only
+  younger writers that do not read the register. The test
+  sim/cpu/tests/arm9_dep_waw_rtl.S copies the shape in ARM and Thumb
+  with five chain variants: before the fix V2 fails 128-144 of 192
+  cases at every latency, both predictor modes, both D-cache sizes,
+  always with r2 = the literal; ZAP passes. The fix: D2 registers a
+  "writes a register it reads" bit with each instruction, and for
+  those instructions only, S and A trust a first-clock short hit only
+  when the cache accepts it. Verification: 306/306 in all three
+  configurations plus V2 at D16; ZAP's 306 cycle-identical; V2 not
+  fully: 17 earlier predictor-on runs move (random tests -2..+9
+  clocks; `cache` +182 at 0:3, +6 at 2:9; predictor-off at most +1,500,
+  0.15 %); the 3/4/5 windows unchanged (recovering those runs would
+  need a new comparator in the shared cache; gating every reader moved
+  33 runs, so it was not used); QEMU 73/73; four lints clean; netlist
+  regenerated. Builds of 7dd5509 at 78 MHz launched at once: 16 KB
+  (lane b6) and 8 KB (lane b5, the PLAT reproducer).
+- A second PLAT boot on the 16 KB trace core (build/hardware/game/
+  trace-v2t16c/, decoded alongside) is the same sequence to the
+  millisecond: the user abort at 0x5044A72A at 17.890 s, the one at
+  0x50394D08 at 20.572 s, the PLAT record at 21.120 s. So this death is
+  a deterministic consequence of one early wrong value, not a race at
+  the fault; the boots that escape it (six of nine on this core, all
+  three on the 8 KB core fall into it) diverge earlier.
+- **The PLAT fault decoded** (the subagent, codex/arm9v2 1b56b38, the
+  report's new section): the fault itself is the kernel working as
+  designed. The kernel server, in UND mode, takes a message at
+  0x80006C00 asking it to panic the requesting thread (handle
+  0xFFFF8001, reason 0), resolves it to thread 0x8040E370 and calls
+  DThread::Exit (0x5032D7C8) with exit type 2 (panic); the thread's
+  critical flag ([0x8040E390] = 4) makes it take `movne r0,#0x5B; blne`
+  at 0x5032D800, Kern::Fault("PLAT", 0x1005B). So a system-critical
+  thread panicked itself, and the kernel refused to go on without it.
+  Every load in all three windows is consistent with memory (dump 3's
+  128 accesses match the instruction stream; dump 1's null was
+  delivered by the bus; dump 2's null was in memory): the first wrong
+  value is before any window, so no third mechanism is visible. The
+  second fix plausibly covers it: the idiom (a literal load, then a
+  load that reads and rewrites the same register) occurs 5-11 times per
+  512-instruction window, it is how Thumb code reads globals and goes
+  through import stubs; several of those literal loads missed in the
+  windows; and 3/3 at 8 KB against 1 in 8 at 16 KB is what an
+  eviction-driven mechanism predicts. The 8 KB build of 7dd5509 on the
+  board is the test that decides it.
+- Fix 2 (7dd5509) at 78 MHz: the 16 KB build (lane b6, seed 2) slips
+  to **-0.668 ns** at the slow 100C corner (-0.285 at -40C; 33,404
+  ALMs; build/hardware/NGage-v2fix2-s2.rbf) where fix 1 had +0.086: the
+  self-dependent-writer gate in S and A costs on the D2/S/A hazard
+  paths. The 8 KB build (lane b5, seed 2) meets timing (+0.015 /
+  +0.244, 33,007 ALMs; build/hardware/NGage-v2fix2d8-s2.rbf). Seeds 9
+  and 5 of the 16 KB build launched on lanes b7 and b8 for the slack.
+- **Fix 2 does not remove the PLAT death**: the 8 KB fix-2 core died
+  with PLAT 0x1005B on two of three boots (build/hardware/game/
+  v2fix2d8boot-1..3/), where fix 1's 8 KB core died on three of three.
+  So a third wrong value remains, before the 17.9 s abort. Seeds of the
+  16 KB fix-2 build: seed 9 **-0.069 ns** (slow 100C; +0.086 at -40C;
+  33,297 ALMs; build/hardware/NGage-v2fix2-s9.rbf), seed 5 -0.442 /
+  -0.470, seed 2 -0.668 / -0.285; seed 9 is the measurement core. To
+  reach the first wrong value, a trace core of fix 2 (8 KB, the
+  deterministic reproducer; rings 1,024/256/256; timed triggers off)
+  gained a trigger on a data-port store to either word the PLAT boots
+  later read back as a null pointer, virtual 0x8540BEA4 (the 17.9 s
+  abort's) and 0x0040C7A8 (the 20.6 s abort's): NGage.sv
+  dbg_trig_store in worktree ../NGage_MiSTer-v2fix2t8, lane b5. Its
+  dumps will hold the instructions that wrote those words.
