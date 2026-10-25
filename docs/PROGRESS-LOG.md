@@ -6117,3 +6117,36 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   most be the 16 KB core's extra rate, and the phase-sensitive reading
   (the tick interrupt against the uncached sector copy) stays the main
   line.
+- **Lane B done, at no cycle cost** (the subagent, codex/arm9v2 c4ca01a
+  the test, 4993a1e the RTL, b555caf the report docs/consults/2026-10-
+  25-v2-lane-b.md, evidence under arm9v2/laneb-seed2/; pushed). Three
+  parameters, on by default in arm9v2_core: FREE_SELECT (S's forward
+  grant and A's late bypass choose data as if W's load hit; the hit and
+  the trust control only the waits; A's selects registered one-hot;
+  the W load word without its own hit gate: safe because a source whose
+  load is not accepted still waits, so the word it picked is never
+  used; simulation checks confirm every non-waiting operand matches the
+  old selection), TRUST_FF (the cache FSM's o_live_trust and the core's
+  w_hit_candidate loaded from the same next-state terms they replace;
+  assertions show them equal on every clock, no clock added;
+  o_live_lookup now has no timing path to any CPU register), FAST_Z (Z
+  for add/subtract off the carry chain, logical N/Z from the logic
+  result). The register's clock matters: the trust depends on the
+  access, not only the FSM state, and a register one clock late would
+  carry the previous access's verdict onto a hit on the departing
+  victim; the new arm9_trust_sweep_rtl (4,704 cases) catches that late
+  register in 1,236-1,439 cases where the existing tests miss it (and a
+  trust without the fill-end term in 6 cases at 0:0). 324/324 in all
+  five configurations, the 321 runs shared with A1 cycle-identical,
+  boot milestones identical, the SystemVerilog sources with every
+  assertion on clean at D8 and D16, QEMU 74/74, lints clean, netlist
+  regenerated. Fits (104 MHz, seed 2): **the whole device -3.703 ->
+  -2.312 ns** (TNS -7,724 -> -4,689); the CPU trial is noisy at this
+  level (its worst -2.691 -> -2.976, led by the short-response path
+  lane B does not touch); lane B's own paths improved (load word into
+  the flags -1.30 -> -0.59, backend_skid -0.66). The device leader now
+  is the load word through S's shifter into A (-2.31), then the
+  D-decode paths from the D-TLB's o_wt bit (-2.29), the front end and
+  wb_flush. B2 not done: family B's device worst (backend_m, -1.95)
+  starts at the late select and carries ALU results too, so B2 would
+  not move it and costs 0.6-2.3 % of clocks.
