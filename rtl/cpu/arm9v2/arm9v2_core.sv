@@ -16,6 +16,11 @@ module arm9v2_core #(
         parameter logic FAST_Z = 1'b1,
         // Lane C: W's load word has its own rotator in S (arm9v2_execute).
         parameter logic W_ROTATE = 1'b1,
+        // Lane E: the fetch queue stores a Thumb pc[1] halfword low
+        // (THUMB_HALF); W's redirect compares each load-word source in
+        // parallel and selects the result (REDIRECT_EQ).
+        parameter logic THUMB_HALF = 1'b1,
+        parameter logic REDIRECT_EQ = 1'b1,
 
         // For CP15 purposes.
         parameter logic [0:0]  CP15_L4_DEFAULT = 0,
@@ -743,6 +748,20 @@ output logic [1:0] o_dbg_fetch
     end
     assign rf_class=memory_state==RESTORE?6'd0:{rf_static_class,(memory_state==ABORT)||(request_done&&i_data_wb_err)};
     assign wb_restore=memory_state==RESTORE;
+    // REDIRECT_EQ: the return target's upper 30 bits against the prediction,
+    // once per source, in parallel; the load-word select then picks one bit.
+    logic [4:0] target_hi_eq;
+    logic target_mismatch,target_mismatch_ref;
+    logic [1:0] target_raw_low;
+    always_comb begin
+        target_hi_eq[0]=w.pred_target[31:2]==saved_load[31:2];
+        target_hi_eq[1]=w.pred_target[31:2]==i_data_short_data[31:2];
+        target_hi_eq[2]=w.pred_target[31:2]==i_data_wb_dat[31:2];
+        target_hi_eq[3]=w.pred_target[31:2]==w.address[31:2];
+        target_hi_eq[4]=w.pred_target[31:2]==w.result[0][31:2];
+    end
+    wire [2:0] target_source=!w.memory?(w.kind==SUFFIX?3'd3:3'd4):
+        (memory_state==LOAD_RETURN||swap_write)?3'd0:fast_pc_hit?3'd1:3'd2;
     always_comb begin
         wb_complete=complete_class[0];
         done=!w.valid||complete_class[1];
@@ -778,16 +797,25 @@ output logic [1:0] o_dbg_fetch
         if(wb_restore)begin wb_tag0=w.dest[1];wb_data0=w.original_base;wb_pair=0;wb_flags=w.flags;end
         return_event=w.pass&&(w.pc_write||(w.memory&&!w.store&&w.dest[0]==15));
         return_target=w.memory?load_data:w.kind==SUFFIX?w.address:w.result[0];
+        target_raw_low=return_target[1:0];
         return_thumb=wb_flags[5];
         if(w.memory&&w.dest[0]==15&&!l4_enable)return_thumb=return_target[0];
         return_target=return_thumb?{return_target[31:1],1'b0}:{return_target[31:2],2'b0};
+        target_mismatch_ref=w.pred_target!={return_target[31:1],return_thumb};
+        target_mismatch=REDIRECT_EQ?!target_hi_eq[target_source]||
+            w.pred_target[1]!=(return_thumb&&target_raw_low[1])||w.pred_target[0]!=return_thumb:
+            target_mismatch_ref;
         return_kind=(w.kind==BLOCK&&w.dest[0]==15)||((w.ins&32'h0fffffff)==32'h01a0f00e);
         wb_redirect=wb_complete&&(wb_exception||w_serial||scalar_replay||
-            (return_event&&(!w.predicted||w.pred_target!={return_target[31:1],return_thumb}||
+            (return_event&&(!w.predicted||target_mismatch||
              (w.kind==DP&&w.ins[20])||(w.kind==BLOCK&&w.ins[22])))||
             (w.pass&&w.kind==SWP));
     end
 
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if(!i_reset&&w.valid)
+        assert(target_mismatch==target_mismatch_ref) else $fatal(1,"W return-target compare");
+`endif
     always_ff @(posedge i_clk)begin
         if(i_reset)begin
             m<='0;w<='0;skid<='0;memory_state<=RUN;saved_load<=0;swap_write<=0;
@@ -884,7 +912,7 @@ output logic [1:0] o_dbg_fetch
         assert(w_hit_candidate==(w.memory&&!w_waited)) else $fatal(1,"W hit candidate register");
 `endif
     wire w_load_hit=w_hit&&i_data_short_hit&&load_trust;
-    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1),.S_AGU(S_AGU)) u_front_decode (
+    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF)) u_front_decode (
         .i_w_load_hit(w_load_hit),.o_self_dep(d_self_dep),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
         .i_forward_load(forward_load),.o_forward_grant(d_forward_grant),.i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),.o_return_match(d_return_match),

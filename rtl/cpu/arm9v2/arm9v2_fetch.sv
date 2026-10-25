@@ -2,9 +2,13 @@
 // ARM9V2 F1/F2 and raw-word queue. The cache/TLB use the retained short-read
 // interface. Prediction is attached in F1; only queue push consumes validity
 // from the cache. There is no Thumb decoder or response-to-D bypass here.
+// THUMB_HALF: a Thumb fetch at pc[1] stores its upper halfword in the low
+// half at queue push, so decode's instruction is the queue's word without
+// a thumb/pc multiplexer behind the head select.
 module arm9v2_fetch #(
     parameter logic [31:0] RESET_VECTOR = 0,
-    parameter logic PREDICTOR = 1'b1
+    parameter logic PREDICTOR = 1'b1,
+    parameter logic THUMB_HALF = 1'b0
 ) (
     input logic i_clk, i_reset,
     // Backend redirect, payload and predictor update are registered by owner.
@@ -143,7 +147,7 @@ module arm9v2_fetch #(
     for (genvar q=0; q<8; q++) begin : g_queue
         always_ff @(posedge i_clk) begin
             if (push && tail == q) begin
-                queue[q].word <= i_data;
+                queue[q].word <= THUMB_HALF && f2.thumb && f2.pc[1] ? {16'd0,i_data[31:16]} : i_data;
                 queue[q].pc <= f2.pc;
                 queue[q].thumb <= f2.thumb;
                 queue[q].epoch <= f2.epoch;

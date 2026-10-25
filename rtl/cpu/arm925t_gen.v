@@ -407,6 +407,8 @@ module arm9v2_core (
 	parameter [0:0] TRUST_FF = 1'b1;
 	parameter [0:0] FAST_Z = 1'b1;
 	parameter [0:0] W_ROTATE = 1'b1;
+	parameter [0:0] THUMB_HALF = 1'b1;
+	parameter [0:0] REDIRECT_EQ = 1'b1;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
 	parameter [31:0] DATA_CACHE_SIZE = 1024;
 	parameter [31:0] CODE_CACHE_SIZE = 1024;
@@ -1127,6 +1129,20 @@ module arm9v2_core (
 		end
 	assign rf_class = (memory_state == 4'd9 ? 6'd0 : {rf_static_class, (memory_state == 4'd10) || (request_done && i_data_wb_err)});
 	assign wb_restore = memory_state == 4'd9;
+	reg [4:0] target_hi_eq;
+	reg target_mismatch;
+	reg target_mismatch_ref;
+	reg [1:0] target_raw_low;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		target_hi_eq[0] = w[172:143] == saved_load[31:2];
+		target_hi_eq[1] = w[172:143] == i_data_short_data[31:2];
+		target_hi_eq[2] = w[172:143] == i_data_wb_dat[31:2];
+		target_hi_eq[3] = w[172:143] == w[396:367];
+		target_hi_eq[4] = w[172:143] == w[57-:30];
+	end
+	wire [2:0] target_source = (!w[533] ? (w[6-:4] == SUFFIX ? 3'd3 : 3'd4) : ((memory_state == 4'd6) || swap_write ? 3'd0 : (fast_pc_hit ? 3'd1 : 3'd2)));
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -1191,12 +1207,15 @@ module arm9v2_core (
 		end
 		return_event = w[538] && (w[531] || ((w[533] && !w[532]) && (w[90+:6] == 15)));
 		return_target = (w[533] ? load_data : (w[6-:4] == SUFFIX ? w[396-:32] : w[26+:32]));
+		target_raw_low = return_target[1:0];
 		return_thumb = wb_flags[5];
 		if ((w[533] && (w[90+:6] == 15)) && !l4_enable)
 			return_thumb = return_target[0];
 		return_target = (return_thumb ? {return_target[31:1], 1'b0} : {return_target[31:2], 2'b00});
+		target_mismatch_ref = w[172-:32] != {return_target[31:1], return_thumb};
+		target_mismatch = (REDIRECT_EQ ? (!target_hi_eq[target_source] || (w[142] != (return_thumb && target_raw_low[1]))) || (w[141] != return_thumb) : target_mismatch_ref);
 		return_kind = ((w[6-:4] == BLOCK) && (w[90+:6] == 15)) || ((w[492-:32] & 32'h0fffffff) == 32'h01a0f00e);
-		wb_redirect = wb_complete && ((((wb_exception || w_serial) || scalar_replay) || (return_event && (((!w[530] || (w[172-:32] != {return_target[31:1], return_thumb})) || ((w[6-:4] == DP) && w[481])) || ((w[6-:4] == BLOCK) && w[483])))) || (w[538] && (w[6-:4] == SWP)));
+		wb_redirect = wb_complete && ((((wb_exception || w_serial) || scalar_replay) || (return_event && (((!w[530] || target_mismatch) || ((w[6-:4] == DP) && w[481])) || ((w[6-:4] == BLOCK) && w[483])))) || (w[538] && (w[6-:4] == SWP)));
 	end
 	always @(posedge i_clk)
 		if (i_reset) begin
@@ -1310,7 +1329,8 @@ module arm9v2_core (
 		.RESET_VECTOR(RESET_VECTOR),
 		.PREDICTOR(ARM9_PREDICTOR),
 		.EXTERNAL_RF(1),
-		.S_AGU(S_AGU)
+		.S_AGU(S_AGU),
+		.THUMB_HALF(THUMB_HALF)
 	) u_front_decode(
 		.i_w_load_hit(w_load_hit),
 		.o_self_dep(d_self_dep),
@@ -1785,6 +1805,7 @@ module arm9v2_decode (
 	reg _sv2v_0;
 	parameter [0:0] EXTERNAL_RF = 0;
 	parameter [0:0] S_AGU = 0;
+	parameter [0:0] THUMB_HALF = 0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
@@ -2132,7 +2153,7 @@ module arm9v2_decode (
 			classify = k;
 		end
 	endfunction
-	assign raw_word = (i_thumb && i_pc[1] ? {16'd0, i_word[31:16]} : i_word);
+	assign raw_word = ((!THUMB_HALF && i_thumb) && i_pc[1] ? {16'd0, i_word[31:16]} : i_word);
 	zap_mode16_decoder #(.V4T(1'b1)) u_thumb(
 		.i_instruction(raw_word),
 		.i_instruction_valid(1'b1),
@@ -3875,6 +3896,7 @@ module arm9v2_fetch (
 	reg _sv2v_0;
 	parameter [31:0] RESET_VECTOR = 0;
 	parameter [0:0] PREDICTOR = 1'b1;
+	parameter [0:0] THUMB_HALF = 1'b0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_redirect;
@@ -4023,7 +4045,7 @@ module arm9v2_fetch (
 			localparam q = _gv_q_1;
 			always @(posedge i_clk)
 				if (push && (tail == q)) begin
-					queue[q][113-:32] <= i_data;
+					queue[q][113-:32] <= ((THUMB_HALF && f2[34]) && f2[1] ? {16'd0, i_data[31:16]} : i_data);
 					queue[q][81-:32] <= f2[31-:32];
 					queue[q][49] <= f2[34];
 					queue[q][46-:2] <= f2[33-:2];
@@ -4249,6 +4271,7 @@ module arm9v2_front_decode (
 	parameter [0:0] PREDICTOR = 1'b1;
 	parameter [0:0] EXTERNAL_RF = 0;
 	parameter [0:0] S_AGU = 0;
+	parameter [0:0] THUMB_HALF = 0;
 	parameter [31:0] RESET_VECTOR = 0;
 	input wire i_clk;
 	input wire i_reset;
@@ -4375,7 +4398,8 @@ module arm9v2_front_decode (
 	wire [3:0] f_count;
 	arm9v2_fetch #(
 		.RESET_VECTOR(RESET_VECTOR),
-		.PREDICTOR(PREDICTOR)
+		.PREDICTOR(PREDICTOR),
+		.THUMB_HALF(THUMB_HALF)
 	) u_fetch(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -4424,7 +4448,8 @@ module arm9v2_front_decode (
 	);
 	arm9v2_decode #(
 		.EXTERNAL_RF(EXTERNAL_RF),
-		.S_AGU(S_AGU)
+		.S_AGU(S_AGU),
+		.THUMB_HALF(THUMB_HALF)
 	) u_decode(
 		.i_valid(f_valid),
 		.i_pc(f_pc),

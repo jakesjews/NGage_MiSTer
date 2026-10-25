@@ -7,7 +7,9 @@
 // a register offset, the SWP base and a block's first base are then early
 // (S-needed) sources. A base whose pending writer is a scalar MEM writeback
 // (an S-AGU sum) is exempt: S takes that sum from A's register.
-module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0) (
+// THUMB_HALF: the fetch queue already moved a Thumb pc[1] halfword down
+// (arm9v2_fetch); every other use of i_word is ARM-only.
+module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, parameter logic THUMB_HALF=0) (
     input logic i_clk, i_reset, i_flush,
     input logic i_serial_continue,
     input logic i_valid,
@@ -283,7 +285,11 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0) (
         return k;
     endfunction
 
-    assign raw_word = i_thumb && i_pc[1] ? {16'd0,i_word[31:16]} : i_word;
+    assign raw_word = !THUMB_HALF && i_thumb && i_pc[1] ? {16'd0,i_word[31:16]} : i_word;
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if (!i_reset && THUMB_HALF && i_valid && i_thumb && i_pc[1])
+        assert (i_word[31:16] == 0) else $fatal(1, "Thumb upper halfword not moved at push");
+`endif
     // A suffix is kept as its own architectural record. Paired target
     // optimization uses the dedicated prefix register, not Thumb expansion.
     zap_mode16_decoder #(.V4T(1'b1)) u_thumb (
