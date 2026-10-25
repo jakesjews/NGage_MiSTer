@@ -760,3 +760,78 @@ this path with random traffic, not with a CPU.
 
 **Next step:** replay V2's CS1 request stream from this test through the
 `upp` bench.
+
+## The CS1 stream through the real memory side (`make -C sim flashcopy`)
+
+### What was replayed
+
+The replay is closed-loop, not scripted. A V2 run in the CPU bench shows
+why a script would mislead: V2 times each request from the previous ack,
+and at a fixed latency of 3 it issues an uncached source word every 10
+clocks, against ZAP's 8. The replay therefore runs the real CPU on the
+whole core (`coreboot_main.cpp`).
+
+The CS0 image `sim/harness/flashcopy.S`:
+- maps C: as the kernel does (CS1 + 4 MB, uncached at `0x59200000` and
+  `0x59600000`);
+- runs Mem::Copy's sequence (`sim/cpu/tests/mem_copy.inc`) through
+  `ngage_mem`, `upp_bus`, `nor_flash`, `ddram_flash` and the DDRAM
+  model.
+
+That covers:
+- **uncached LDM words**, each split into two 16-bit flash reads;
+- **V2's own I-fetch line reads** from CS0 (the I-cache is invalidated
+  before the copy);
+- **the destination's SDRAM traffic.**
+
+126 cases, each run twice; the copy under test runs first, so the first
+run meets a cold `ddram_flash` read cache:
+- every source offset 0-35 in a sector, ascending and descending;
+- copies straddling a sector end, 511 and 1024 bytes;
+- uncached, write-through and write-back dests, and a cached source;
+- small copies, and a header then the body;
+- a word program of the first, middle or last halfword (the beat
+  buffer's) of the line just read.
+
+**The new bench options:**
+- **`--check-flash`:** compares every CPU flash read beat with the DDRAM
+  image, while the chip is in read-array mode.
+- **`--ddr-*`:** sets the DDRAM port's timing.
+
+### Result
+
+- **V2 and ZAP:** 0 mismatches over 156,785 / 156,782 CS1 beats and
+  59,355 / 52,064 CS0 beats, and 0 failed cases.
+- **Four DDRAM timings:** 14:16 with 5 % busy; 6:30 with 20 % busy and
+  10 % gaps; 20:24 with stalls; 3:5 with 40 % busy and 30 % gaps.
+- **The checks bite:** a `ddram_flash` mutant without the beat buffer's
+  write-through update fails both the bus check and the program's own
+  checks.
+
+### How V2's stream differs from ZAP's
+
+- **V2 is slower per word:** consecutive uncached CS1 words take at
+  least 11 clocks ack to ack (median 16). ZAP's take at least 9 (median
+  14). V2 never sends a flash read sooner after the previous answer
+  than ZAP does.
+- **V2 re-walks the code section:** it reads the code section's L1
+  descriptor (`0x0A100000`) 193,735 times; ZAP reads the page table
+  1,124 times in all.
+  - The re-walk happens on nearly every iteration of loops that have
+    data-side bus traffic, so V2 takes 10.76 M clocks to ZAP's 7.19 M.
+  - The descriptor read is correct, so this changes timing only.
+  - The CPU bench shows 416 walks.
+  - The section TLB both cores share is 8 entries, direct-mapped, and
+    read with `i_clken(!i_hold)` (`zap_tlb.sv:230` to `:245`). Its
+    install under V2's fetch timing is the lead; the cause was not
+    chased.
+
+### Not modelled
+
+- the HPS DDR3 controller and f2sdram bridge (real latency, refresh,
+  other masters);
+- `flash_save`'s block reads interleaved with CPU reads;
+- DMA on `wb_arb2`'s second port;
+- erases, erase-suspend and read-while-write;
+- interrupts;
+- the board build's timing closure.
