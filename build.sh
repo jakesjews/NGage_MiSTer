@@ -10,6 +10,7 @@ where=${1:-remote}
 # fast fit for debug cores: about a third of the fitter time, 1-2 ns worse).
 if [[ -n "${FAST:-}" ]]; then
     cp NGage.qsf build/NGage.qsf.orig 2>/dev/null || { mkdir -p build; cp NGage.qsf build/NGage.qsf.orig; }
+    printf '\n' >> NGage.qsf    # the settings file may lack a final newline
     cat tools/fast-fit.qsf >> NGage.qsf
     trap 'cp build/NGage.qsf.orig NGage.qsf' EXIT
 fi
