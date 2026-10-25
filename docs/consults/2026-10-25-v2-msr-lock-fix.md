@@ -943,3 +943,196 @@ V2 walk were excess, is about 7 %.
   an entry stays until the next TLB flush, so a section mapped later
   without one would abort.
 - **Not done:** no fit and no board run.
+
+## Interrupts across the flash copy, and synonyms at 16 KB (`arm9_irq_ldm_rtl.S`, `arm9_alias16_rtl.S`)
+
+### The hypothesis
+
+The board's misread of Cdbv2.dat looks phase-sensitive:
+- the trace core never fails;
+- fix 3 moved the rate.
+
+The strongest periodic event is the kernel's 1 ms tick IRQ. The
+hypothesis was that V2 mishandles an interrupt that arrives while an
+uncached 8-word LDM (about 90 clocks on the board), or the STM after it,
+is in flight.
+
+### What the RTL does
+
+On ARMv4 an LDM or STM is not interruptible part-way, and both cores
+attach an interrupt to an instruction's first micro-op only.
+
+**V2:**
+- **Where it attaches:** `input_record.irq=a_first&&i_irq&&!a_cpsr[7]`,
+  and the same for `fiq`, at A (`arm9v2_core.sv:573-574`). A block's later
+  micro-ops have `first` clear (`arm9v2_decode.sv:640`).
+- **What it waits for:** the flagged record reaches W behind every
+  micro-op of the LDM. It never issues a memory request (`request_ff`,
+  `:661-663`). It completes only when no load lock is outstanding
+  (`complete_class`, `:491`).
+- **So** no beat can return after the mode change. A beat writes the
+  physical register chosen at decode, in the old mode's bank.
+
+**ZAP:** the predecode sequencer passes `i_irq`/`i_fiq` only on an entry
+micro-op and clears them mid-sequence
+(`zap_predecode_uop_sequencer.sv:201`, `:229`, `:527`).
+
+V2 also writes an LDM's base back on its last micro-op
+(`arm9v2_execute.sv:238`). So even a forced mid-LDM interrupt restarts
+cleanly. A mutant that attaches the IRQ to every micro-op passes the new
+test (below), with 1,079 IRQs taken at the k 2 `ldm` itself.
+
+### `arm9_irq_ldm_rtl.S`
+
+Mem::Copy's sequence (`mem_copy.inc`) copies 512 or 511 bytes from an
+uncached source at k mod 4 to a cached dest. The bench timer raises an
+IRQ or FIQ at a chosen clock.
+
+**Handlers:**
+- **kind 0:** the kernel's shape.
+  - It saves on the IRQ stack, reads the timer (an uncached device
+    word), acknowledges and counts.
+  - It loads and stores two other tags of the sets of the interrupted
+    r0 (the dest pointer) and of r0-4. The dest lines being written
+    leave the cache, the dirty ones written back.
+  - It returns with `subs pc,lr,#4`.
+- **kind 1:** an FIQ. It uses the banked r8-r12 (the copy's LDM registers
+  are r3-fp) and checks on entry that the bank holds what it left there.
+- **kind 2:** a USR copy. The handler exits as EKA1 does (ekern
+  `0x50321a80`): a DACR write, then `ldmfd sp!,{r0-r3,ip,pc}^`.
+- **kind 3:** a USR copy. The handler saves the context as the scheduler
+  does (`stm {r0-r12}`, `stm {sp,lr}^`). It then poisons every user
+  register and restores them with `ldm {sp,lr}^` and `ldm {r0-r12}`.
+- **kind 4:** an IRQ, then an FIQ 0-22 clocks later, nested in the IRQ
+  entry or handler.
+
+**Each sweep:**
+1. One uninterrupted copy gives T and the reference registers.
+2. W = max(200, 1.25·T/16 + 16), more than one 32-byte block.
+3. The interrupt is raised at every clock of three windows:
+   - delays 1-200: the entry and the aligned `ldr fp,[r1],#4`;
+   - W clocks mid-copy;
+   - the W clocks before T + 48: the last block, the `msr CPSR_f`-chosen
+     tails, the byte tail and the return.
+4. Then 36 coarse delays.
+
+Dest lines start present and dirty, or cleaned and invalidated, on
+alternate copies.
+
+**Every copy is checked:**
+- 144 words (the dest and 32 bytes either side), against a byte-loop
+  reference made into the same poison;
+- r0-r12, sp, lr and the CPSR, against the uninterrupted run's;
+- exactly the interrupts raised;
+- the handlers' own checks.
+
+**The sweeps:**
+- **Default, 19 sweeps:** kinds 0 and 1 in both directions at k 0 and 2,
+  with n 512 and 511; kinds 2-4 ascending at k 2. That is 12,103 copies,
+  55 M clocks on V2 at 0:0, hence `@@ bench: --max-cycles 1500000000`.
+- **`--defsym FULL=1`, 33 sweeps:** adds k 1 and 3, kinds 2-3 at k 0
+  and descending, kind 2 with n 511, and kind 4 descending.
+
+### Result
+
+**FULL, 35 runs, 0 failing copies:** ZAP D8/D16 and V2 D8/D16/predictor
+off, each at 0:0, 0:3, 2:9, 3:3, 11:11 (the board's per-word cost,
+fixed), 8:12 and 16:40.
+- **Size:** 995,171 interrupted copies in all, 21,021 to 50,573 per run.
+- **Landings:** 228,960 interrupts landed right after an `ldm` and
+  149,952 right after an `stm`.
+- **The tails were hit:** landings after each `msr CPSR_f` and in the
+  conditional tails.
+- **The default binary** passes `make run` (0:0/0:3/2:9) in all five
+  configurations.
+
+| k 2, n 512, kind 0 | 0:0 | 2:9 | 11:11 | 16:40 |
+|---|---:|---:|---:|---:|
+| V2 T / W (clocks) | 2,173 / 200 | 3,945 / 323 | 5,814 / 469 | 11,324 / 899 |
+| ZAP T / W | 2,064 / 200 | 3,821 / 313 | 5,594 / 452 | 11,250 / 894 |
+
+**The checks bite.** A V2 mutant that takes the IRQ on any micro-op
+*and* writes the base back on the first fails 1,834 of the first 3,784
+copies: the restarted `ldmfd sp!` gives a wrong sp. The existing
+`arm9_unc_copy_rtl`, `ldm`, `loaduse_irq` and `irq` all pass on it.
+
+### `arm9_alias16_rtl.S`
+
+The board A/B with fix 3:
+
+| Core | Boots with the dialog |
+|---|---|
+| V2, 16 KB D-cache | 4 of 4 |
+| V2, 8 KB D-cache | 1 of 12 |
+| ZAP, 16 KB D-cache | none |
+
+The 16 KB two-way cache indexes with VA[12:4]. So two VAs of a page
+that differ in bit 12 use different sets. The cache is VIVT, and two
+cached copies are never kept coherent.
+
+**Mappings** of one physical page:
+- A, D: write-back sections;
+- T: a write-through section;
+- C: small pages of the same colour;
+- B: small pages mapping page n to PA page n^1 (VA[12] flipped).
+
+**Pairs** (writer to reader):
+- A→D and A→C: the same colour;
+- A→B, B→A and C→B: the other colour at 16 KB;
+- T→B: write-through.
+
+**Each case** starts from a clean, empty cache with OLD in memory, and
+varies:
+- **the pre-state:** the reader's copy present (stale), and/or the
+  writer's line present;
+- **the write:** `str`, `strh`, `strb`, `stm`; a 256-byte `stm` stream
+  whose allocations evict dirty lines; or `str` and two loads that evict
+  the written line, its write-back in flight;
+- **maintenance:** none (the kernel's IPC copy), or a clean+invalidate
+  or clean by MVA of the writer's line;
+- **timing:** the aliased read right after, after 3 or 16 instructions,
+  or behind a load miss to another line (hit-under-miss).
+
+That makes 1,728 cases. Recorded: the reader's words, memory right
+after, and memory after a whole-cache clean.
+
+**Architectural checks:**
+- the final memory is the written line;
+- once the writer's line is cleaned or written through, memory holds
+  it, and so does a reader without a copy;
+- an evicted written line reaches memory before a later miss, in
+  either colour.
+
+**Result:**
+- Every check passes on all five models at 0:0, 0:3, 2:9 and 16:40.
+- V2's record equals ZAP's word for word at 8 KB and at 16 KB, at every
+  latency. That includes the stale reads VIVT allows: per pair, 184 at
+  16 KB on the other-colour pairs, against 160 at 8 KB.
+- **V2 handles synonyms exactly as ZAP does at both sizes.** Aliasing
+  does not explain the 16 KB core's rate.
+
+### Ranked next candidates
+
+1. **Reproduce in the whole-core bench with V2 + 16 KB** (`NGAGE_CORE_ARM9=1`,
+   `NGAGE_DCACHE_16K=1`).
+   - **Why:** this configuration fails 4 of 4 on the board. A coreboot
+     boot to the idle screen has the real memory side and the kernel's
+     real tick, which the CPU bench (flat memory, bench timer) and
+     flashcopy (no interrupts) lack.
+   - **How:** check medint's copy destination against the file (or
+     extend `--check-flash`), to tell a bad copy from a bad later read.
+2. **The HPS's periodic flash traffic in `ddram_flash`.**
+   - **Where:** `flash_save`'s block reads, or HPS image writes,
+     interleaved with V2's ≥11-clock uncached CS1 reads in the beat
+     buffer and read cache (`ddram_flash.sv:172-195`, `:409-471`).
+     flashcopy does not model this.
+   - **Why V2:** ZAP's ≥9-clock spacing puts its reads at other phases.
+   - **How:** flashcopy with a random-phase `flash_save` block reader,
+     with `--check-flash` on.
+3. **V2's own D-cache variant (`SHORT_READ`, `zap_top.sv:852`) under
+   concurrency the bench never creates.**
+   - **What:** DMA writes beside cached lines, and the by-index clean
+     loop (two colours per op at 16 KB) preempted by the tick.
+   - **Where:** the short port's set-width-dependent bypasses
+     (`zap_cache_tag_ram.sv:517`, `:800`).
+   - **Status:** not checked.
