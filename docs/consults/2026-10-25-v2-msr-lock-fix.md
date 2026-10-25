@@ -485,3 +485,67 @@ The fix:
   clean, and `cpu-gen-check` passes with `LC_ALL=C` (23 `input reg`,
   unchanged).
 - **Not done:** no fit and no board run of the change.
+
+## The third death, Kern::Fault("PLAT", 0x1005B) (trace v2t16b, dumps 1-3)
+
+### Dump 3, 21.1 s: where the fault is raised
+
+The kernel server (UND mode) takes a message from `0x80006C00`, with
+handle `0xFFFF8001` (the requesting thread itself) at +4 and reason 0 at
++8. It dispatches it as a panic request:
+1. The event dispatch at `0x5033A390`, then `0x50338F6C`; the
+   category descriptor is copied by `0x5033B948`.
+2. The handle `0xFFFF8001` is translated to `0xFFFF0003`, then to the
+   thread `0x8040E370` (via `0x5033791C` and `0x50324714`).
+3. The virtual panic `ldr pc,[ip,#60]` goes to `0x5032D9DC`. A check at
+   `0x50325AE4` returns −2, and the call continues with `mov r1,#2`
+   (exit type panic) and `ldr pc,[ip,#52]` to `DThread::Exit` at
+   `0x5032D7C8`.
+4. There, `[thread+36]` = 3 is rewritten to 2. `[thread+32]` = 4 is the
+   critical flag, so `movne r0,#0x5B; blne 0x5032DD9C` raises
+   Kern::Fault("PLAT", 0x5B | 0x10000).
+
+So a system-critical thread panicked itself (User::Panic, reason 0); its
+category string was copied before the data ring's start. The kernel's
+reaction is correct.
+
+### Consistency
+
+All 128 data-ring accesses of dump 3 are consistent with the
+instruction stream. The 25 ROM reads whose tap differs from cs0.bin are
+explained:
+- misses whose bus fill delivers the ROM word, or whose fill precedes
+  the bus ring's start;
+- halfword loads of the UTF-16 "PLAT" string.
+
+No register value in the window is inconsistent.
+
+### Dumps 1 and 2, the user aborts
+
+Both dereference zeros that memory delivered:
+- **Dump 1, 17.9 s:** `ldr r0,[r0]` at `0x5094EA3E` missed on
+  `0x8540BEA4`. The bus filled line `0x0A1D4EA0` with zeros, and the
+  tap's `0x8040F840` is the victim's word. That null then flows into
+  `ldr r0,[r0,#28]` and on to the fault at `0x5044A72A`.
+- **Dump 2, 20.6 s:** `[0x0040C7A8]` = 0, a hit.
+
+All three events are consequences of earlier wrong data, outside the
+windows.
+
+### Relation to the second fix
+
+The second fix's precondition is common in these windows:
+- `ldr rX,[pc,#n]` followed within three instructions by
+  `ldr rX,[rX,...]` occurs 11, 5 and 7 times per 512 instructions in
+  dumps 1-3. These are the global-access and import-stub idioms (for
+  example `0x5095590C`, `0x50AD0BA4`, `0x5033C9F0`).
+- Several of those literal loads missed (tap ≠ ROM, with bus fills).
+- The fault's frequency follows the conflict rate: 3/3 boots at D8,
+  about 1/8 at D16. That is consistent with the departing-line
+  precondition.
+
+The corruption itself (a register replaced by its literal, then stored
+or used as a pointer) happens earlier than any of these windows. The
+evidence supports the second mechanism but does not prove it. No third
+mechanism is visible, so there is no test or RTL change here. The board
+run of the D8 build of `7dd5509` is the discriminating experiment.
