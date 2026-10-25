@@ -5807,3 +5807,19 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   builds it on lane b7 (the synthesis step validates the file). The
   Mac elaborated the same source (worktree ../NGage_MiSTer-stp) for the
   GUI's node finder should the dialect need fixing by hand.
+- The gated trace cores fit: 16 KB (rings 512/128/128) -0.774 /
+  -0.259 ns, 34,074 ALMs, build/hardware/NGage-v2fix2g16-s2.rbf; 8 KB
+  (1,024/256/256) -0.438 / -0.249 ns, build/hardware/NGage-v2fix2g8-
+  s2.rbf. With the routine dump gated off, a boot's first dump is an
+  event (an exception or a Leave after 17 s), so the loop stops at any
+  PLAT boot with one dump or more. The 8 KB one went first.
+- **The generated SignalTap file is valid**: `quartus_stp NGage
+  --stp_file=stp-flash.stp --enable` on the server's copy of the
+  project ran with 0 errors and wrote the SLD_NODE_* / CONNECT_TO_SLD_
+  NODE_ENTITY_PORT tap assignments (one per probe bit, the clock
+  emu:emu|clk_sys) into the .qsf. The first build of worktree stpb
+  (-0.234 / -0.139 ns, 32,092 ALMs, 3.55 M memory bits: the plain
+  stripped 8 KB core) had no instance in it because build.sh's
+  `quartus_sh --flow compile` never runs that step (the GUI does, as a
+  flow stage); build.sh now runs quartus_stp before the compile when
+  the settings name a SignalTap file.

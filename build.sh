@@ -28,6 +28,13 @@ if [[ "$where" == remote ]]; then
         ssh "$host" "$docker_run /opt/intelFPGA_lite/quartus/bin/quartus_map --read_settings_files=on --write_settings_files=off $proj -c $proj" \
             2>&1 | tee build/quartus-map.log
     else
+        # A SignalTap file named in the settings needs quartus_stp before the
+        # compile (the GUI runs it as a flow stage; quartus_sh --flow compile
+        # does not): it turns the .stp into the SLD_* tap assignments.
+        stp_file=$(sed -n 's/^set_global_assignment -name USE_SIGNALTAP_FILE //p' $proj.qsf | tail -1)
+        if [[ -n "$stp_file" ]]; then
+            ssh "$host" "$docker_run /opt/intelFPGA_lite/quartus/bin/quartus_stp $proj --stp_file=$stp_file --enable" 2>&1 | tee build/quartus-stp.log
+        fi
         ssh "$host" "$docker_run /opt/intelFPGA_lite/quartus/bin/quartus_sh --flow compile $proj" 2>&1 | tee build/quartus-compile.log
         # The report script exits 3 while any slack is negative: keep going so
         # the rbf and the reports still come back, then exit with its code.
