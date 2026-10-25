@@ -6613,3 +6613,32 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   comparison of the two channel-open timelines was handed to an Opus 5.5
   subagent (the step here was stopped by the safety classifier), and the
   ZAP boot is being rerun to 41 s so that its emon start is covered.
+- The panic itself, from the trace: emon.exe is the "EPOC Monitor Server"
+  (its debug strings: "Starting EPOC Monitor Server", "EPOC Monitor Server
+  started succesfully"); its main loop TRAPs the server start (0x50E10D4E
+  -> 0x50E1132C), and a nonzero leave code goes to `User::Panic(_L("Emon
+  server panic"), 4)` (0x50E10D60-0x50E10D68, category at 0x50E119C8,
+  reason 4). The leave code is the -11 from its ESock request. So the
+  dialog is "Emon server panic 4", the server's start failing on ESock's
+  Bluetooth channel open.
+- **The cause (an Opus 5.5 subagent's analysis of the two exec logs;
+  scratchpad bt-channel-findings.md and btan/):** the bt_driver channel is
+  held by BTTestServer.exe (SelfTestServer starts it in every boot) through
+  its own copy of hci.dll, which, with no Bluetooth chip to answer, times
+  out after 1.52-1.56 s ("BTLDD: CompleteWithError: 1 -33" in kern.log),
+  closes the channel, unloads and reloads the driver and opens it again,
+  ten times (the restart code compares an error counter with 9 at
+  0x5046EAF2 and 0x5046EC4C). On V2 it holds the channel from 9.0285 s in
+  ten spells with free gaps of 22-128 ms until the tenth timeout at
+  25.3965 s, after which the unload returns 0 and ESock's next load and
+  open (26.25 s) succeed; the EPOC Monitor Server's request at 24.61 s
+  lands 0.79 s before that give-up. On ZAP the boot runs 1.19-1.38 times
+  slower, the give-up comes at about 28.9 s (its 29.8 s run has exactly
+  ten timeouts) and the monitor's start at about 33-34 s, after it. Every
+  request both cores make gets the same reply wherever the logs overlap.
+  A start-up ordering race in the ROM software, exposed by the faster CPU
+  (and by the hardware's 8 KB core's speed): on the phone the Bluetooth
+  chip answers, the self test ends at once and the channel is free. The
+  fix belongs in the peripheral side (a minimal Bluetooth controller on
+  the BT UART, or a port that fails at once so the ten retries do not take
+  16 s), or in a two-halfword ROM patch of hci.dll's retry count.
