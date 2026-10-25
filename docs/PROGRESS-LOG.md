@@ -6495,3 +6495,121 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   design (medint's own invalidate-by-MVA loop at 0x503817dc, stride 16,
   is for it), and its three line-start misses got their registers written
   with the fill's word. V2 and ZAP look alike on every tap so far.
+
+### 2026-10-25 (late) — the EmonServer panic reproduces in the whole-core bench
+
+- The 8 KB V2 whole-core boot (worktree ../NGage_MiSTer-v2sim at 3f945c8,
+  VEXTRA=-DNGAGE_CORE_ARM9=1, images cs0.bin + cs1-now.bin = the board's
+  pristine lower half with its current C: save, the Sonic card) shows
+  "App. closed EmonServer" at 25.1 guest seconds, after the N-Gage
+  animation (18 s) and the operator splash (20 s): the board's symptom, in
+  a run where every register write and store is visible. The QEMU model
+  boots the same image clean, so the save is sound. The 16 KB V2 control
+  runs beside it (at 22 s, no dialog yet).
+- Instrumentation (branch codex/arm9v2-panic, coreboot_main.cpp):
+  --check-window (every load from the C: drive's aliases against the live
+  image, by byte enables; misses paired through the cache FSM's saved
+  address and its background write; loads near the CS1 chip's command
+  modes skipped), --check-copy (every Mem::Copy out of the aliases: its
+  stores and the buffer's loads against the source bytes), --trace-on-bad
+  FILE (an instruction trace from the first wrong value). The first two
+  checked runs taught the checker its blind spots: medint's autoselect
+  read of word 4 of every block (0x503800ac) returns the protect status,
+  and byte loads report the word's address.
+- The 16 KB V2 control shows the same dialog in the bench at 27.1 s (the
+  board's 16 KB core booted 4 of 4), so the bench reproduces it for both
+  cache sizes; a ZAP boot of the same bench and images is the control
+  that decides whether the bench's panic is the CPU's.
+- **The 8 KB V2 boot with --check-window reaches the dialog (25.1 s, the
+  same picture) with ZERO wrong C: reads**: every uncached completion,
+  cached hit and cached miss (by its background write) through the whole
+  boot equals the live flash image. The misread hypothesis is dead: V2
+  reads the flash correctly. The copy's stores and the buffer read-backs
+  (--check-copy), the LFFS's own programming stores through the uncached
+  alias (--check-store, each against the bus beat that carries it) and the
+  exec-call log (--devlog) are the runs in flight.
+- **ZAP control in the same bench with the same images: no dialog** (to
+  29.8 s; the operator splash stays from 26.5 s), while both V2 builds show
+  it at 25-27 s: the bench's panic is the CPU's.
+- The exec-call log (--devlog, 2.64 M calls to 26.4 s): no user-mode abort
+  and no self-panic exec in the whole boot. The dying thread is the one on
+  the 0x00E00000 stack: its last system calls are at 24.9556 s (the dialog
+  at 25.10 s), a 0x36 / 0x0C / 0x76 tail after a loop of 0x6C/0x8F/0x8E
+  descriptor calls; the EKA1 (6.1) exec numbering is not in the research
+  files (EKA2L1's epoc6 table does not fit the stubs at 0x503A7694 + 4n),
+  so a trace of that thread's last 70 k retirements (run7, --trace-after
+  1047300000) is the next source.
+- Correction: the thread on the 0x00E00000 stack is the UI server's
+  notifier (its function 0x506ED2F5 is in EikSrvUi.dll), created at
+  24.631 s to show the dialog and then waiting for the key. emon.exe
+  (0x50E0FCC0) starts two threads at 24.442 s (main, stack 0x00400000) and
+  24.462 s (the server loop, stack 0x00602000). The server thread is alive
+  after the dialog (receive, dispatch, wait at 24.69 s and 25.02 s). The
+  main thread's calls stop at 24.6232 s (retired 1,036,533,233) with an
+  exec 0x4D after a 0x71/0x4A/0x72/0x72 sequence, and its stack is reused
+  by a new thread at 26.388 s: it died between 24.6232 s and the
+  notifier's creation at 24.631 s (retired 1,036,723,486). An instruction
+  trace of that window (run8, --trace-after 1036530000 --trace-count
+  200000) is running. The EUser exec stubs at 0x503A7694.. are not one
+  number per slot (fast execs with bit 23 are interleaved): decode the SWI
+  immediate at the logged pc, never the slot index.
+- The full-check run (--check-window --check-copy, lane-masked) also
+  passes the dialog with zero reports: the sector copies' stores and the
+  buffers' read-backs are right as well. emon's main thread never resumes
+  after its WaitForAnyRequest at 24.6232 s (no user-mode entry on its
+  stack after it), so it was killed while blocked: the shape of a server
+  panicking a client whose request it rejected. Its last request: exec
+  0x4A (r0=004026A0 r1=40050003 r2=00403048 r3=004026C0, caller
+  0x50904385), then 0x72/0x73 with function pointers, then the wait.
+- The uncached-store check (--check-store: every store through the
+  0x59200000 alias against the bus beat that carries it) also passes the
+  dialog (26.9 s) with zero reports. Every path between the CPU and the
+  flash is right on V2 for the whole boot: reads through both aliases, the
+  sector copies, the LFFS's programming stores. The corruption that makes a
+  server reject emon's request is in RAM-side data or in a computation.
+- Correction again, with the kernel-server function numbers now matched
+  to EKA2L1's EKA1 table (the fast exec 0xC00076 carries the function in
+  r0: 0x27 create_thread, 0x16 create_session, 0x10 close_handle, 0x2F
+  panic_thread): emon.exe's main thread creates the server thread (0x27)
+  at 24.4487 s; the server thread opens a session to ESock (connect through
+  ESock.dll code at 24.4761 s, functions 2 and 6), and its function-6
+  request completes with KErrAlreadyExists (-11) at 24.6134 s; it then
+  closes a handle and calls panic_thread (0x2F) at 24.6208 s: that is the
+  "App. closed EmonServer" dialog. The -11 first appears at 24.6067 s in the
+  thread on the 0x80403 stack (the kernel side answering ESock), then in
+  ESock (24.6074, which completes emon's request with it at 24.6091). So
+  the panic is a startup collision ("already exists") inside ESock's
+  handling of EmonServer's request: a timing-exposed race in the ROM, or a
+  wrong name/handle comparison; the ZAP exec log (running) and the trace
+  of that window (run9) decide which.
+- Pinned one step further: ESock serves EmonServer's request by asking the
+  kernel server to load a logical device driver (fast exec 0xC00076,
+  function 5 = add_logical_device, at 24.6065 s), the kernel server answers
+  KErrAlreadyExists (24.6067 s, its reply 0x73 with -11), ESock fails the
+  client's request with it (24.6074/24.6091 s) and EmonServer panics. The
+  boot loads 57 drivers (functions 5 and 8); ESock itself loads at 16.36,
+  23.98, 24.20, 24.35 s and the failing 24.61 s, the Starter-like thread on
+  the 0x00401D90 stack most of the rest. So the dialog is an "already
+  loaded" collision on one driver between two loaders whose order depends
+  on timing, unless a name comparison is wrong; the ZAP exec log (does its
+  ESock load get KErrNone at that point?) and the trace (the driver's name
+  read by the kernel server) settle it.
+- The trace (run9, retired 1,035,995,420 + 520 k) names the driver:
+  "bt_driver", the Bluetooth LDD, loaded by hci.dll (the HCI layer running
+  in ESock) while serving EmonServer's request. hci.dll tolerates
+  KErrAlreadyExists for the load (`cmn r1,#11; bne` at 0x5046E9A6; the
+  trace shows Z set and the branch correctly not taken, so no CPU compare
+  bug there) and goes on to open a channel on the driver through EUser
+  0x503B233C; the -11 ESock finally reports comes from that step.
+- The failing step itself: after the tolerated load, hci.dll opens a
+  channel on bt_driver (kernel-server function 0x0A) and gets
+  KErrAlreadyExists, then tries to unload the driver (0x06) and gets
+  KErrInUse; ESock fails the client's request with the -11. ESock makes the
+  same three-call attempt five times on V2 (16.36, 23.98, 24.20, 24.35,
+  24.61 s: the channel open fails each time; a sixth at 26.25 s succeeds
+  after a 00401-thread unload at 25.40 s) and once on ZAP before 27.9 s
+  (22.20 s, failing the same way). So the question is who holds the
+  Bluetooth driver's single channel at those moments on each core; the
+  comparison of the two channel-open timelines was handed to an Opus 5.5
+  subagent (the step here was stopped by the safety classifier), and the
+  ZAP boot is being rerun to 41 s so that its emon start is covered.
