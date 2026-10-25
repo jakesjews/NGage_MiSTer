@@ -6070,3 +6070,30 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   them. A second subagent takes that test in a separate worktree
   (../NGage_MiSTer-cx-arm9b, branch codex/arm9v2-irq from 80f04ff)
   while the first stays on lane B.
+- **Fix 3 on the board: the games, and the PLAT death gone.** The 8 KB
+  fix-3 core booted three of three times without a kernel fault
+  (build/hardware/game/v2fix3d8boot-1..3/; before fix 3 two of three
+  died with PLAT 0x1005B), so the stale-descriptor mechanism was the
+  PLAT death's, while the server panic dialog remains. The 16 KB fix-3
+  core with the plain three-game script (v2fix3), play medians per
+  104 M clocks:
+
+  | game | ZAP | V2 fix 2 | V2 fix 3 | fix 3 over fix 2 |
+  |---|---:|---:|---:|---:|
+  | Sonic N | 31.59 (17 fps) | 43.97 (25 fps) | **46.89** (26.5 fps, CPI 2.2) | +6.6 % |
+  | Asphalt | 32.30 (14 fps) | 41.47 (19 fps) | **44.90** (20 fps, CPI 2.3) | +8.3 % |
+
+  twice the estimated +3 %: the SDRAM wait fell from 23.8 to 19.8 %
+  (Sonic) and 30.0 to 25.6 % (Asphalt) as the walks went. Sonic is at
+  the goal's 47 per 104 M clocks. Tony Hawk's boot derailed on the
+  dialog again (the plain script); rerun with the dialog-tolerant one.
+  And the 8 KB fix-3 core's three idle screens are **clean: no dialog**
+  (build/hardware/game/v2fix3d8boot-1..3/), where the 16 KB fix-3 core
+  shows the dialog on four of four. Same RTL, the cache size the only
+  difference; ZAP with the 16 KB cache boots clean. That points the
+  search at the 16 KB cache's two colours (its index uses virtual bit
+  12, one above the page, so one physical page can live in two sets
+  under two mappings) in combination with V2's lookups, the kernel's
+  inter-process copy through a client's home address being the shape
+  that aliases; the second subagent takes that beside the interrupt
+  sweep. The three games on the 8 KB fix-3 core follow on the board.
