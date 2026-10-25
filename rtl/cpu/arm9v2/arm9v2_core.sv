@@ -21,6 +21,9 @@ module arm9v2_core #(
         // parallel and selects the result (REDIRECT_EQ).
         parameter logic THUMB_HALF = 1'b1,
         parameter logic REDIRECT_EQ = 1'b1,
+        // The register file's write port registered, reads bypassing the
+        // held write (zap_register_file WRITE_FF): zero cycles.
+        parameter logic RF_WRITE_FF = 1'b1,
 
         // For CP15 purposes.
         parameter logic [0:0]  CP15_L4_DEFAULT = 0,
@@ -1097,7 +1100,7 @@ output logic [1:0] o_dbg_fetch
         .o_multiply_wait(a_multiply_wait)
     );
 
-    zap_writeback #(.RF_EARLY_SELECT(1),.RF_ALLOW_RETIMING(0),.BP_ENTRIES(32),.PHY_REGS(40),.FLAG_WDT(32),
+    zap_writeback #(.RF_EARLY_SELECT(1),.RF_ALLOW_RETIMING(0),.RF_WRITE_FF(RF_WRITE_FF),.BP_ENTRIES(32),.PHY_REGS(40),.FLAG_WDT(32),
         .RESET_VECTOR(RESET_VECTOR),.CPSR_INIT(CPSR_INIT)) u_zap_writeback (
         .i_rf_class(rf_class),.i_clk(i_clk),.i_reset(i_reset),.i_valid(wb_valid),
         .i_decompile('0),.i_decompile_valid(wb_cfail),.i_uop_last(wb_last),

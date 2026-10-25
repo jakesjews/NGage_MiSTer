@@ -21,7 +21,17 @@
 // plentiful.
 //
 
-module zap_register_file #(parameter integer ALLOW_RETIMING=1, parameter logic EARLY_PORT_SELECT=0)
+// ARM9V2 (WRITE_FF): the write port is registered. Each clock's writes are
+// held in three one-hot masks and three words and reach the flip-flops one
+// clock later; every read port bypasses the held write, so a read sees
+// exactly what it saw with the direct write (the same clock, the same
+// priority C > B > A). The write data and enables then travel to the 40
+// registers from these few flops instead of from W's completion logic.
+// mem is the architectural contents in both forms (the benches read it);
+// with WRITE_FF the storage is store and mem its view with the held write
+// applied, which no synthesised logic reads.
+module zap_register_file #(parameter integer ALLOW_RETIMING=1, parameter logic EARLY_PORT_SELECT=0,
+        parameter logic WRITE_FF=0)
 (
         // Clock and reset.
         input logic              i_clk,
@@ -57,40 +67,81 @@ module zap_register_file #(parameter integer ALLOW_RETIMING=1, parameter logic E
 // physical synthesis can distribute storage across the RF mux network and
 // replicate registers without changing the HDL array size.
 // ZAP keeps its existing retiming policy (attribute 1 has no effect).
-(* syn_allow_retiming = ALLOW_RETIMING *) logic [39:0][31:0] mem;
+logic [39:0][31:0] mem;
 
-// 3 write ports. Synchronous reset for the register file.
+generate if (!WRITE_FF) begin : g_direct
+
+(* syn_allow_retiming = ALLOW_RETIMING *) logic [39:0][31:0] store;
+
 always_ff @ ( posedge i_clk )
 begin
         if ( i_reset )
         begin
-                mem <= {32'd40{32'd0}};
+                store <= {32'd40{32'd0}};
         end
         else
         begin
-                // ARM925T: per-register enables avoid decoding a muxed
-                // binary address. Preserve B over A, and background over
-                // both, including writes to the dummy/RAZ storage entries.
                 for (int r = 0; r < 40; r++) begin
                         if (EARLY_PORT_SELECT) begin
-                                // V2: port priority uses the registered owner
-                                // class. Completion only enables the update.
                                 if (i_wen && (i_wr_addr_a[r] || i_wr_addr_b[r]))
-                                        mem[r] <= i_wr_addr_b[r] ? i_wr_data_b : i_wr_data_a;
+                                        store[r] <= i_wr_addr_b[r] ? i_wr_data_b : i_wr_data_a;
                         end else begin
-                                if (i_wen && i_wr_addr_a[r]) mem[r] <= i_wr_data_a;
-                                if (i_wen && i_wr_addr_b[r]) mem[r] <= i_wr_data_b;
+                                if (i_wen && i_wr_addr_a[r]) store[r] <= i_wr_data_a;
+                                if (i_wen && i_wr_addr_b[r]) store[r] <= i_wr_data_b;
                         end
-                        if (i_wr_addr_c[r]) mem[r] <= i_wr_data_c;
+                        if (i_wr_addr_c[r]) store[r] <= i_wr_data_c;
                 end
         end
 end
 
-// 4 read ports.
-assign o_rd_data_a = mem [ i_rd_addr_a ];
-assign o_rd_data_b = mem [ i_rd_addr_b ];
-assign o_rd_data_c = mem [ i_rd_addr_c ];
-assign o_rd_data_d = mem [ i_rd_addr_d ];
+assign mem = store;
+assign o_rd_data_a = store [ i_rd_addr_a ];
+assign o_rd_data_b = store [ i_rd_addr_b ];
+assign o_rd_data_c = store [ i_rd_addr_c ];
+assign o_rd_data_d = store [ i_rd_addr_d ];
+
+end else begin : g_write_ff
+
+(* syn_allow_retiming = ALLOW_RETIMING *) logic [39:0][31:0] store;
+(* dont_retime *) logic [39:0] held_a, held_b, held_c;
+(* dont_retime *) logic [31:0] held_data_a, held_data_b, held_data_c;
+
+always_ff @ ( posedge i_clk )
+begin
+        if ( i_reset )
+        begin
+                store <= {32'd40{32'd0}};
+                held_a <= 0; held_b <= 0; held_c <= 0;
+                held_data_a <= 0; held_data_b <= 0; held_data_c <= 0;
+        end
+        else
+        begin
+                held_a <= i_wen ? i_wr_addr_a : 40'd0;
+                held_b <= i_wen ? i_wr_addr_b : 40'd0;
+                held_c <= i_wr_addr_c;
+                held_data_a <= i_wr_data_a; held_data_b <= i_wr_data_b; held_data_c <= i_wr_data_c;
+                for (int r = 0; r < 40; r++)
+                        if (held_a[r] || held_b[r] || held_c[r])
+                                store[r] <= held_c[r] ? held_data_c : held_b[r] ? held_data_b : held_data_a;
+        end
+end
+
+// One register's architectural value: the held write, else the storage.
+// Indexed like the direct form (an address above 39 reads nothing defined).
+function automatic [31:0] view (input logic [5:0] r);
+        if (held_c[r]) view = held_data_c;
+        else if (held_b[r]) view = held_data_b;
+        else if (held_a[r]) view = held_data_a;
+        else view = store[r];
+endfunction
+
+always_comb for (int r = 0; r < 40; r++) mem[r] = view(6'(r));
+assign o_rd_data_a = view(i_rd_addr_a);
+assign o_rd_data_b = view(i_rd_addr_b);
+assign o_rd_data_c = view(i_rd_addr_c);
+assign o_rd_data_d = view(i_rd_addr_d);
+
+end endgenerate
 
 `ifndef SYNTHESIS
 

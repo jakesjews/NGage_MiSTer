@@ -20,6 +20,7 @@
 module zap_writeback #(
         parameter integer RF_ALLOW_RETIMING = 1,
         parameter logic RF_EARLY_SELECT = 0,
+        parameter logic RF_WRITE_FF = 0,        // ARM9V2: zap_register_file's registered write port
         parameter logic [31:0] BP_ENTRIES   = 32'd1024,  // BP entries.
         parameter logic [31:0] FLAG_WDT     = 32'd32,    // Flags width a.k.a CPSR.
         parameter logic [31:0] PHY_REGS     = 32'd46,    // Number of physical registers.
@@ -258,7 +259,7 @@ end else begin : g_rf_original
     assign rf_data1=wdata1;assign rf_data2=wdata2;
 end
 
-zap_register_file #(.ALLOW_RETIMING(RF_ALLOW_RETIMING),.EARLY_PORT_SELECT(RF_EARLY_SELECT)) u_zap_register_file
+zap_register_file #(.ALLOW_RETIMING(RF_ALLOW_RETIMING),.EARLY_PORT_SELECT(RF_EARLY_SELECT),.WRITE_FF(RF_WRITE_FF)) u_zap_register_file
 (
 .i_clk(i_clk),
  .i_reset        (       i_reset         ),
