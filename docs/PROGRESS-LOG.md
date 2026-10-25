@@ -6024,3 +6024,30 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   branch). The session restarted here (the user's "shit did i boot
   you"); nothing was lost: all results committed and pushed, no build
   or simulation running, the board paused.
+- **Cut A1 done** (the subagent, codex/arm9v2 64ae85c the test,
+  2554624 the RTL, 80f04ff the report docs/consults/2026-10-25-v2-cut-
+  a1.md with the evidence under arm9v2/a1-seed2/; pushed): a dedicated
+  address adder in S registered into A, so the D-cache and the TLB are
+  driven from a register. Timing at 104 MHz, seed 2, the parent
+  4652205 fitted the same way for the before: address->metadata -3.173
+  -> -0.973 ns, address->TLB capture -2.628 -> -0.245, the CPU trial's
+  worst -3.843 -> -2.691, two smaller address families now positive;
+  area 13,040 -> 13,434 ALMs (+3 %); **the whole device (V2, D16) at
+  -3.703 ns** against the -0.6 target. What leads now is not address
+  logic: in the whole device the top paths run from the cache's
+  o_live_lookup into A's held operands and the Z flag, i.e. the load-
+  trust check fixes 1 and 2 added to the late bypass (about 0.9 ns since
+  S12 on its own), then the short-port response (-2.16), the completion
+  paths through wb_flush (-1.9 to -2.5) and the front end (decode_d1
+  -2.42); the plan's B, C, D and E all remain, with registering the
+  trust signal added to B. Cycles: 3/4/5 unchanged, back-to-back
+  post-increment streams still 9, only a load feeding the next base
+  4 -> 5 as designed; ZAP cycle-identical at D8 and D16; V2's suite
+  totals +0.02 % (+0.04 % predictor off; the pointer-chasing `cache`
+  bench +5.8 % at 0:0, crand1/ctrand1 within 0.1 %); the boot's first
+  exec +0.020 %, EFile +0.038 %, EStart +0.028 %, no faults, matching
+  the step-0 model. Suites 321/321 and QEMU 74/74 in all five
+  configurations, four lints clean, netlist regenerated; the new test
+  matches QEMU's trace and catches two planted bugs. (The component
+  benches for V2 were already broken before this change and were not
+  used as gates.)
