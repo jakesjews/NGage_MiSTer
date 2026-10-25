@@ -6106,3 +6106,14 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   +56 %, +43 %, +65 %. The goal's 47 is reached in Sonic and within
   5 % in the other two, per clock; the clock itself is the remaining
   distance.
+- **The 8 KB fix-3 core's games** (v2fix3d8, the plain script): Sonic N
+  46.2 M instr/s median (44.7-47.0), Tony Hawk 44.22 (17.5 fps; CPI
+  2.4; SDRAM wait 27.4 %), i.e. about 1.5-2 % below the 16 KB core's
+  46.9 and 45.2; Asphalt's boot showed the dialog and its run derailed.
+  So the 8 KB core shows the server panic too, once in six boots
+  (build/hardware/game/v2fix3d8boot-1..3/ and the three game boots)
+  against the 16 KB core's four of four: the cache size changes the
+  rate, not the existence of the race; the two-colour aliasing can at
+  most be the 16 KB core's extra rate, and the phase-sensitive reading
+  (the tick interrupt against the uncached sector copy) stays the main
+  line.
