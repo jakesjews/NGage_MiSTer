@@ -6097,3 +6097,12 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   inter-process copy through a client's home address being the shape
   that aliases; the second subagent takes that beside the interrupt
   sweep. The three games on the 8 KB fix-3 core follow on the board.
+- Tony Hawk on the 16 KB fix-3 core (the dialog-tolerant script,
+  v2fix3b): **45.17 M instr/s** median (44.2-46.6; 19 fps; CPI 2.3;
+  SDRAM wait 26.1 %) against ZAP's 31.31 at 11.5 fps, with Asphalt
+  repeating at 44.73 (20 fps). V2 with fixes 1-3 against ZAP's control,
+  per 104 M clocks on the 78 MHz board: Sonic 46.9 vs 31.6 (+48 %),
+  Asphalt 44.9 vs 32.3 (+39 %), Tony Hawk 45.2 vs 31.3 (+44 %); frames
+  +56 %, +43 %, +65 %. The goal's 47 is reached in Sonic and within
+  5 % in the other two, per clock; the clock itself is the remaining
+  distance.
