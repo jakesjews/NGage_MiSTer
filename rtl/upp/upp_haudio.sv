@@ -145,7 +145,15 @@ module upp_haudio #(
 	wire        play   = full[b];
 	wire [31:0] p1     = p + 32'd1;
 	wire [31:0] blen   = b ? len1 : len0;
-	wire        ends   = p1 >= blen;
+	// p1 >= blen without p1's carry chain in front of the compare: the
+	// length minus one and its zero flag are registers, set with the length
+	// (p + 1 >= blen is blen == 0, or p >= blen - 1 unless p + 1 wraps).
+	logic [31:0] len0m1, len1m1;
+	logic        len0z, len1z;
+	wire        ends   = (b ? len1z : len0z) || (p >= (b ? len1m1 : len0m1) && p != 32'hFFFF_FFFF);
+`ifndef SYNTHESIS
+	always_ff @(posedge clk) if (!reset) assert (ends == (p1 >= blen)) else $fatal(1, "haudio buffer end");
+`endif
 	wire [31:1] fadr   = (b ? addr1[31:1] : addr0[31:1]) + (stereo ? {p[29:0], 1'b0} : p[30:0]);
 
 	wire        run_set = wr && off == 8'h04 && wdata[0] && !ctrl[0];
@@ -211,8 +219,8 @@ module upp_haudio #(
 				end
 				8'h10: addr0 <= {wdata[31:1], 1'b0};
 				8'h14: addr1 <= {wdata[31:1], 1'b0};
-				8'h18: begin len0 <= wdata; full[0] <= wdata != 32'd0; end
-				8'h1C: begin len1 <= wdata; full[1] <= wdata != 32'd0; end
+				8'h18: begin len0 <= wdata; len0m1 <= wdata - 32'd1; len0z <= wdata == 32'd0; full[0] <= wdata != 32'd0; end
+				8'h1C: begin len1 <= wdata; len1m1 <= wdata - 32'd1; len1z <= wdata == 32'd0; full[1] <= wdata != 32'd0; end
 				8'h20: begin
 					if (wdata[0]) done[0] <= 1'b0;
 					if (wdata[1]) done[1] <= 1'b0;
@@ -230,6 +238,10 @@ module upp_haudio #(
 			addr1   <= 32'd0;
 			len0    <= 32'd0;
 			len1    <= 32'd0;
+			len0m1  <= 32'hFFFF_FFFF;
+			len1m1  <= 32'hFFFF_FFFF;
+			len0z   <= 1'b1;
+			len1z   <= 1'b1;
 			full    <= 2'b00;
 			done    <= 2'b00;
 			cur     <= 1'b0;
