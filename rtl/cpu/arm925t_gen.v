@@ -22544,12 +22544,36 @@ module zap_register_file (
 			(* dont_retime *) reg [31:0] held_data_a;
 			(* dont_retime *) reg [31:0] held_data_b;
 			(* dont_retime *) reg [31:0] held_data_c;
+			(* dont_retime *) reg [5:0] held_index_a;
+			(* dont_retime *) reg [5:0] held_index_b;
+			(* dont_retime *) reg [5:0] held_index_c;
+			(* dont_retime *) reg held_any_a;
+			(* dont_retime *) reg held_any_b;
+			(* dont_retime *) reg held_any_c;
+			function automatic [5:0] onehot_index;
+				input reg [39:0] m;
+				begin
+					onehot_index = 6'd0;
+					begin : sv2v_autoblock_2
+						reg signed [31:0] r;
+						for (r = 0; r < 40; r = r + 1)
+							if (m[r])
+								onehot_index = onehot_index | sv2v_cast_6_signed(r);
+					end
+				end
+			endfunction
 			always @(posedge i_clk)
 				if (i_reset) begin
 					store <= {32'd40 {32'd0}};
 					held_a <= 0;
 					held_b <= 0;
 					held_c <= 0;
+					held_any_a <= 0;
+					held_any_b <= 0;
+					held_any_c <= 0;
+					held_index_a <= 0;
+					held_index_b <= 0;
+					held_index_c <= 0;
 					held_data_a <= 0;
 					held_data_b <= 0;
 					held_data_c <= 0;
@@ -22561,7 +22585,13 @@ module zap_register_file (
 					held_data_a <= i_wr_data_a;
 					held_data_b <= i_wr_data_b;
 					held_data_c <= i_wr_data_c;
-					begin : sv2v_autoblock_2
+					held_any_a <= i_wen && |i_wr_addr_a;
+					held_any_b <= i_wen && |i_wr_addr_b;
+					held_any_c <= |i_wr_addr_c;
+					held_index_a <= onehot_index(i_wr_addr_a);
+					held_index_b <= onehot_index(i_wr_addr_b);
+					held_index_c <= onehot_index(i_wr_addr_c);
+					begin : sv2v_autoblock_3
 						reg signed [31:0] r;
 						for (r = 0; r < 40; r = r + 1)
 							if ((held_a[r] || held_b[r]) || held_c[r])
@@ -22570,16 +22600,16 @@ module zap_register_file (
 				end
 			function automatic [31:0] view;
 				input reg [5:0] r;
-				if (held_c[r])
+				if (held_any_c && (held_index_c == r))
 					view = held_data_c;
-				else if (held_b[r])
+				else if (held_any_b && (held_index_b == r))
 					view = held_data_b;
-				else if (held_a[r])
+				else if (held_any_a && (held_index_a == r))
 					view = held_data_a;
 				else
 					view = store[r * 32+:32];
 			endfunction
-			always @(zap_register_file.g_write_ff.store or zap_register_file.g_write_ff.held_data_a or zap_register_file.g_write_ff.held_a or zap_register_file.g_write_ff.held_data_b or zap_register_file.g_write_ff.held_b or zap_register_file.g_write_ff.held_data_c or zap_register_file.g_write_ff.held_c or _sv2v_0) begin : sv2v_autoblock_3
+			always @(zap_register_file.g_write_ff.store or zap_register_file.g_write_ff.held_data_a or zap_register_file.g_write_ff.held_index_a or zap_register_file.g_write_ff.held_any_a or zap_register_file.g_write_ff.held_data_b or zap_register_file.g_write_ff.held_index_b or zap_register_file.g_write_ff.held_any_b or zap_register_file.g_write_ff.held_data_c or zap_register_file.g_write_ff.held_index_c or zap_register_file.g_write_ff.held_any_c or _sv2v_0) begin : sv2v_autoblock_4
 				reg signed [31:0] r;
 				if (_sv2v_0)
 					;

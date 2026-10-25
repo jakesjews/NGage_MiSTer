@@ -105,6 +105,15 @@ end else begin : g_write_ff
 (* syn_allow_retiming = ALLOW_RETIMING *) logic [39:0][31:0] store;
 (* dont_retime *) logic [39:0] held_a, held_b, held_c;
 (* dont_retime *) logic [31:0] held_data_a, held_data_b, held_data_c;
+// The read bypass compares the read address with each held write's binary
+// index (a 6-bit compare beside the storage read) instead of selecting the
+// held one-hot mask's bit with a 40-way mux. The write ports are one-hot.
+(* dont_retime *) logic [5:0] held_index_a, held_index_b, held_index_c;
+(* dont_retime *) logic held_any_a, held_any_b, held_any_c;
+function automatic [5:0] onehot_index (input logic [39:0] m);
+        onehot_index = 6'd0;
+        for (int r = 0; r < 40; r++) if (m[r]) onehot_index = onehot_index | 6'(r);
+endfunction
 
 always_ff @ ( posedge i_clk )
 begin
@@ -112,6 +121,8 @@ begin
         begin
                 store <= {32'd40{32'd0}};
                 held_a <= 0; held_b <= 0; held_c <= 0;
+                held_any_a <= 0; held_any_b <= 0; held_any_c <= 0;
+                held_index_a <= 0; held_index_b <= 0; held_index_c <= 0;
                 held_data_a <= 0; held_data_b <= 0; held_data_c <= 0;
         end
         else
@@ -120,6 +131,9 @@ begin
                 held_b <= i_wen ? i_wr_addr_b : 40'd0;
                 held_c <= i_wr_addr_c;
                 held_data_a <= i_wr_data_a; held_data_b <= i_wr_data_b; held_data_c <= i_wr_data_c;
+                held_any_a <= i_wen && |i_wr_addr_a; held_any_b <= i_wen && |i_wr_addr_b; held_any_c <= |i_wr_addr_c;
+                held_index_a <= onehot_index(i_wr_addr_a); held_index_b <= onehot_index(i_wr_addr_b);
+                held_index_c <= onehot_index(i_wr_addr_c);
                 for (int r = 0; r < 40; r++)
                         if (held_a[r] || held_b[r] || held_c[r])
                                 store[r] <= held_c[r] ? held_data_c : held_b[r] ? held_data_b : held_data_a;
@@ -129,11 +143,22 @@ end
 // One register's architectural value: the held write, else the storage.
 // Indexed like the direct form (an address above 39 reads nothing defined).
 function automatic [31:0] view (input logic [5:0] r);
-        if (held_c[r]) view = held_data_c;
-        else if (held_b[r]) view = held_data_b;
-        else if (held_a[r]) view = held_data_a;
+        if (held_any_c && held_index_c == r) view = held_data_c;
+        else if (held_any_b && held_index_b == r) view = held_data_b;
+        else if (held_any_a && held_index_a == r) view = held_data_a;
         else view = store[r];
 endfunction
+`ifndef SYNTHESIS
+always_ff @ ( posedge i_clk ) if ( !i_reset ) begin
+        assert ($onehot0(i_wr_addr_a) && $onehot0(i_wr_addr_b) && $onehot0(i_wr_addr_c))
+                else $fatal(1, "register file: a write port is not one-hot");
+        for (int r = 0; r < 40; r++)
+                assert ((held_any_c && held_index_c == 6'(r)) == held_c[r] &&
+                        (held_any_b && held_index_b == 6'(r)) == held_b[r] &&
+                        (held_any_a && held_index_a == 6'(r)) == held_a[r])
+                        else $fatal(1, "register file: held index");
+end
+`endif
 
 always_comb for (int r = 0; r < 40; r++) mem[r] = view(6'(r));
 assign o_rd_data_a = view(i_rd_addr_a);
