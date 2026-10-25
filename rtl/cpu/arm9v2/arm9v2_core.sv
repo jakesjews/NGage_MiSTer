@@ -24,6 +24,9 @@ module arm9v2_core #(
         // The register file's write port registered, reads bypassing the
         // held write (zap_register_file WRITE_FF): zero cycles.
         parameter logic RF_WRITE_FF = 1'b1,
+        // S's shifter controls registered by decode (arm9v2_decode
+        // SHIFT_PRE): zero cycles.
+        parameter logic SHIFT_PRE = 1'b1,
 
         // For CP15 purposes.
         parameter logic [0:0]  CP15_L4_DEFAULT = 0,
@@ -244,6 +247,7 @@ output logic [1:0] o_dbg_fetch
     logic d_fault;
     logic d_force_align;
     logic d_reg_shift;
+    logic [15:0] d_shift_pre;
     logic [3:0] d_kind;
     logic [3:0] d_condition;
     logic [3:0][5:0] d_tag;
@@ -915,7 +919,7 @@ output logic [1:0] o_dbg_fetch
         assert(w_hit_candidate==(w.memory&&!w_waited)) else $fatal(1,"W hit candidate register");
 `endif
     wire w_load_hit=w_hit&&i_data_short_hit&&load_trust;
-    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF)) u_front_decode (
+    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE)) u_front_decode (
         .i_w_load_hit(w_load_hit),.o_self_dep(d_self_dep),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
         .i_forward_load(forward_load),.o_forward_grant(d_forward_grant),.i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),.o_return_match(d_return_match),
@@ -970,6 +974,7 @@ output logic [1:0] o_dbg_fetch
         .o_fault(d_fault),
         .o_force_align(d_force_align),
         .o_reg_shift(d_reg_shift),
+        .o_shift_pre(d_shift_pre),
         .o_kind(d_kind),
         .o_condition(d_condition),
         .o_tag(d_tag),
@@ -1007,7 +1012,7 @@ output logic [1:0] o_dbg_fetch
         .o_request(o_instr_wb_stb),
         .o_stall(o_code_stall),.o_dbg_fetch(o_dbg_fetch)
     );
-    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE)) u_execute (
+    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE)) u_execute (
         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),
         .i_load_owner({w.load_writer,m.load_writer}),.i_next_load_owner(forward_load),
         .i_load_hit(w_hit&&i_data_short_hit),.i_load_trust(load_trust),.i_self_dep(d_self_dep),
@@ -1032,6 +1037,7 @@ output logic [1:0] o_dbg_fetch
         .i_fault(d_fault),
         .i_force_align(d_force_align),
         .i_reg_shift(d_reg_shift),
+        .i_shift_pre(d_shift_pre),
         .i_first(d_first),
         .i_last(d_last),
         .i_kind(d_kind),

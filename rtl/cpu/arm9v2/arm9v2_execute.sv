@@ -24,7 +24,7 @@
 // value. The operand multiplexer is no longer between the cache and the
 // shifter.
 module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, parameter logic FAST_Z=0,
-    parameter logic W_ROTATE=0) (
+    parameter logic W_ROTATE=0, parameter logic SHIFT_PRE=0) (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
     input logic i_flags_refresh,
     output logic o_serial_continue,
@@ -45,6 +45,7 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
     output logic o_ready,
     input logic [31:0] i_pc,i_instruction,i_pc_base,i_next_pc,
     input logic i_thumb,i_fault,i_force_align,i_reg_shift,i_first,i_last,
+    input logic [15:0] i_shift_pre,   // SHIFT_PRE: {type, amount, rotate amount, register}
     input logic [3:0] i_kind,i_condition,
     input logic [3:0][5:0] i_tag,
     input logic [3:0] i_used,i_early,
@@ -137,6 +138,7 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
         condition_pass&&!a.fault&&a.cpsr_low[4:0]!=5'h10&&msr_same_mode?right_a[7:6]:interrupt_mask;
     (* dont_retime *) logic [3:0][31:0] held;
     (* dont_retime *) logic [7:0] held_amount;
+    (* dont_retime *) logic [4:0] held_rot;      // SHIFT_PRE: held_amount's rotate amount
     (* dont_retime *) logic [31:0] held_offset;   // S_AGU: a scaled offset, rotated on the prepared clock
     (* dont_retime *) logic [31:0] block_base;
     (* dont_retime *) logic signed [33:0] ll,lh,hl,hh;
@@ -186,7 +188,10 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
     end
     logic [31:0] shift_input,shifted;
     logic [7:0] shift_amount;
-    logic [1:0] shift_type;
+    logic [1:0] shift_type,ref_type;
+    logic [7:0] ref_amount;
+    logic [4:0] shift_rot;
+    logic ref_register;
     logic shift_register,shift_carry,carry_preserve,rrx;
     logic [31:0] left_a,right_a,store_a,special_a,alu_result;
     logic [3:0] alu_flags,next_flags;
@@ -245,19 +250,29 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
             end
             if(i_tag[s]==17)operand[s]={flags,i_cpsr[27:8],interrupt_mask,i_cpsr[5:0]};
         end
-        shift_input=operand[1];shift_type=i_instruction[6:5];
-        shift_amount=prepared&&i_reg_shift?held_amount:{3'd0,i_instruction[11:7]};
-        shift_register=i_reg_shift;
+        shift_input=operand[1];ref_type=i_instruction[6:5];
+        ref_amount=prepared&&i_reg_shift?held_amount:{3'd0,i_instruction[11:7]};
+        ref_register=i_reg_shift;
         if((i_kind==DP||i_kind==MSR)&&i_instruction[25])begin
-            shift_input={24'd0,i_instruction[7:0]};shift_type=3;
-            shift_amount={3'd0,i_instruction[11:8],1'b0};shift_register=1;
+            shift_input={24'd0,i_instruction[7:0]};ref_type=3;
+            ref_amount={3'd0,i_instruction[11:8],1'b0};ref_register=1;
         end
         // MEM/SWP/block offsets bypass the rotator when immediate/unshifted.
         if(i_kind==MEM&&i_instruction[27:26]==0)begin
-            shift_type=0;shift_amount=0;shift_register=1;
+            ref_type=0;ref_amount=0;ref_register=1;
         end
         if(i_kind!=DP&&i_kind!=MSR&&i_kind!=MEM)begin
-            shift_type=0;shift_amount=0;shift_register=1;
+            ref_type=0;ref_amount=0;ref_register=1;
+        end
+        // SHIFT_PRE: the same controls from decode's registers; a prepared
+        // register shift takes the amount held on its prepare clock.
+        if(SHIFT_PRE)begin
+            shift_type=i_shift_pre[15:14];shift_register=i_shift_pre[0];
+            shift_amount=prepared&&i_reg_shift?held_amount:i_shift_pre[13:6];
+            shift_rot=prepared&&i_reg_shift?held_rot:i_shift_pre[5:1];
+        end else begin
+            shift_type=ref_type;shift_amount=ref_amount;shift_register=ref_register;
+            shift_rot=ref_type==0?5'(-ref_amount[4:0]):ref_amount[4:0];
         end
         planned_writes=0;
         case(i_kind)
@@ -287,10 +302,10 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
     end
     logic [31:0] shifted_main,shifted_w;
     logic carry_main,preserve_main,rrx_main,carry_w,preserve_w,rrx_w;
-    arm9v2_rotate u_rotate(.i_value(W_ROTATE?shift_input_nw:shift_input),.i_amount(shift_amount),.i_type(shift_type),
+    arm9v2_rotate #(.PRE_ROT(SHIFT_PRE)) u_rotate(.i_value(W_ROTATE?shift_input_nw:shift_input),.i_amount(shift_amount),.i_type(shift_type),.i_rot(shift_rot),
         .i_register(shift_register),.i_carry(1'b0),.o_value(shifted_main),
         .o_carry(carry_main),.o_preserve(preserve_main),.o_rrx(rrx_main));
-    arm9v2_rotate u_rotate_w(.i_value(i_mw_value[1][0]),.i_amount(shift_amount),.i_type(shift_type),
+    arm9v2_rotate #(.PRE_ROT(SHIFT_PRE)) u_rotate_w(.i_value(i_mw_value[1][0]),.i_amount(shift_amount),.i_type(shift_type),.i_rot(shift_rot),
         .i_register(shift_register),.i_carry(1'b0),.o_value(shifted_w),
         .o_carry(carry_w),.o_preserve(preserve_w),.o_rrx(rrx_w));
     assign shifted=w_take?shifted_w:shifted_main;
@@ -300,12 +315,17 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
 `ifndef SYNTHESIS
     logic [31:0] shifted_ref;
     logic carry_ref,preserve_ref,rrx_ref;
-    arm9v2_rotate u_rotate_ref(.i_value(shift_input),.i_amount(shift_amount),.i_type(shift_type),
-        .i_register(shift_register),.i_carry(1'b0),.o_value(shifted_ref),
+    arm9v2_rotate u_rotate_ref(.i_value(shift_input),.i_amount(ref_amount),.i_type(ref_type),.i_rot(5'd0),
+        .i_register(ref_register),.i_carry(1'b0),.o_value(shifted_ref),
         .o_carry(carry_ref),.o_preserve(preserve_ref),.o_rrx(rrx_ref));
     always_ff @(posedge i_clk) if(!i_reset&&!i_flush&&i_valid)
         assert({shifted,shift_carry,carry_preserve,rrx}=={shifted_ref,carry_ref,preserve_ref,rrx_ref})
             else $fatal(1,"S W-lane rotator");
+    // SHIFT_PRE: decode's registered controls equal the in-stage formulas.
+    always_ff @(posedge i_clk) if(!i_reset&&SHIFT_PRE&&i_valid)
+        assert({shift_type,shift_amount,shift_register,shift_rot}==
+            {ref_type,ref_amount,ref_register,ref_type==0?5'(-ref_amount[4:0]):ref_amount[4:0]})
+            else $fatal(1,"S shifter controls");
 `endif
     // S_AGU: the address adder. Inputs are S's selected operands (registered
     // producers or the RF), never A's ALU. A scaled register offset uses
@@ -525,7 +545,7 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
             a_valid<=0;holding<=0;prepared<=0;s_pending<=0;multiply_accumulate<=0;multiply_product_ready<=0;
             o_redirect<=0;o_btb_pc<=0;o_btb_thumb<=0;
             o_btb_update<=0;o_btb_taken<=0;o_btb_hit<=0;o_btb_target<=0;o_btb_state<=0;o_btb_kind<=0;
-            flags<=i_cpsr[31:28];interrupt_mask<=i_cpsr[7:6];o_serial_continue<=0;a<=a_t'(0);held<=0;held_amount<=0;held_offset<=0;block_base<=0;
+            flags<=i_cpsr[31:28];interrupt_mask<=i_cpsr[7:6];o_serial_continue<=0;a<=a_t'(0);held<=0;held_amount<=0;held_rot<=0;held_offset<=0;block_base<=0;
             ll<=0;lh<=0;hl<=0;hh<=0;product_saved<=0;
             o_redirect_thumb<=0;o_redirect_target<=0;
             o_redirect_link<=0;o_redirect_pointer<=0;o_redirect_count<=0;o_redirect_action<=0;
@@ -543,7 +563,8 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
                     end
             end
             if(i_valid&&i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&(i_reg_shift||agu_scaled)&&!prepared)begin
-                prepared<=1;if(i_reg_shift)held_amount<=operand[2][7:0];if(agu_scaled)held_offset<=shifted;
+                prepared<=1;if(i_reg_shift)begin held_amount<=operand[2][7:0];held_rot<=shift_type==0?5'(-operand[2][4:0]):operand[2][4:0];end
+                if(agu_scaled)held_offset<=shifted;
             end
             if(a_valid)begin
                 a.left<=left_a;a.right<=right_a;a.store_data<=store_a;a.special<=special_a;

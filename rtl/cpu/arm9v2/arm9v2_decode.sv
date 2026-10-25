@@ -9,7 +9,11 @@
 // (an S-AGU sum) is exempt: S takes that sum from A's register.
 // THUMB_HALF: the fetch queue already moved a Thumb pc[1] halfword down
 // (arm9v2_fetch); every other use of i_word is ARM-only.
-module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, parameter logic THUMB_HALF=0) (
+// SHIFT_PRE: S's shifter controls (type, immediate amount, the rotate amount
+// negated for LSL, the register flag) are worked out here from D2's record
+// and registered beside issued, so S's rotator starts at flops.
+module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, parameter logic THUMB_HALF=0,
+    parameter logic SHIFT_PRE=0) (
     input logic i_clk, i_reset, i_flush,
     input logic i_serial_continue,
     input logic i_valid,
@@ -61,6 +65,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
     output logic [15:0] o_raw,
     output logic [4:0] o_mode,
     output logic o_thumb, o_fault, o_force_align, o_reg_shift,
+    output logic [15:0] o_shift_pre,   // SHIFT_PRE: {type, amount, rotate amount, register}
     output logic [3:0] o_kind, o_condition,
     output logic [3:0][5:0] o_tag,
     output logic [3:0] o_used,
@@ -587,6 +592,18 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
         .o_rd_data_a(raw_values[0]),.o_rd_data_b(raw_values[1]),.o_rd_data_c(raw_values[2]),.o_rd_data_d(raw_values[3])
     );
     end endgenerate
+    // S's shifter controls for record r, exactly as arm9v2_execute forms
+    // them from the issued record (its ref_* terms).
+    function automatic logic [15:0] shift_controls(input decoded_t r);
+        logic [1:0] t; logic [7:0] n; logic g;
+        t=r.p.ins[6:5]; n={3'd0,r.p.ins[11:7]}; g=r.reg_shift;
+        if((r.kind==K_DP||r.kind==K_MSR)&&r.p.ins[25])begin t=3; n={3'd0,r.p.ins[11:8],1'b0}; g=1; end
+        if(r.kind==K_MEM&&r.p.ins[27:26]==0)begin t=0; n=0; g=1; end
+        if(r.kind!=K_DP&&r.kind!=K_MSR&&r.kind!=K_MEM)begin t=0; n=0; g=1; end
+        return {t,n,(t==0?5'(-n[4:0]):n[4:0]),g};
+    endfunction
+    (* dont_retime *) logic [15:0] shift_pre_ff;
+    assign o_shift_pre=SHIFT_PRE?shift_pre_ff:16'd0;
     // Capture the RF read, write data and same-edge match independently.
     // Retirement qualification ends at the match flops; it cannot traverse
     // the word mux into the wide D2/S capture. The registered write-through
@@ -603,7 +620,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
         if(i_reset) begin
             fenced<=0;count<=0;head_select<=2'b01;tail<=0;d2_valid<=0;out_valid<=0;redirect_ff.valid<=0;redirect_in_d2<=0;
             previous_prefix<=0;prefix_valid<=0;previous_next_pc<=0;prefix_target<=0;
-            d2<=decoded_t'(0);issued<=decoded_t'(0);self_dep<=0;values<=0;write_through_match<=0;write_through_data<=0;matches_taken<=0;matches_fallthrough<=0;o_pending<=0;
+            d2<=decoded_t'(0);issued<=decoded_t'(0);shift_pre_ff<=0;self_dep<=0;values<=0;write_through_match<=0;write_through_data<=0;matches_taken<=0;matches_fallthrough<=0;o_pending<=0;
             redirect_ff.target<=0;redirect_ff.thumb<=0;redirect_ff.link<=0;
             redirect_ff.pointer<=0;redirect_ff.count<=0;redirect_ff.action<=0;
         end else begin
@@ -623,6 +640,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
             // only validity and the owner; it never drives this wide enable.
             if(!out_valid||i_ready)begin
                 issued<=d2;values<=raw_values;self_dep<=d2_self_dep;
+                shift_pre_ff<=shift_controls(d2);
                 // W may accept a miss and install its lock on this same
                 // edge. Carry that owner to S instead of observing old locks.
                 for(int src=0;src<4;src++)o_pending[src]<=d2.used[src]&&

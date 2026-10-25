@@ -410,6 +410,7 @@ module arm9v2_core (
 	parameter [0:0] THUMB_HALF = 1'b1;
 	parameter [0:0] REDIRECT_EQ = 1'b1;
 	parameter [0:0] RF_WRITE_FF = 1'b1;
+	parameter [0:0] SHIFT_PRE = 1'b1;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
 	parameter [31:0] DATA_CACHE_SIZE = 1024;
 	parameter [31:0] CODE_CACHE_SIZE = 1024;
@@ -543,6 +544,7 @@ module arm9v2_core (
 	wire d_fault;
 	wire d_force_align;
 	wire d_reg_shift;
+	wire [15:0] d_shift_pre;
 	wire [3:0] d_kind;
 	wire [3:0] d_condition;
 	wire [23:0] d_tag;
@@ -1331,7 +1333,8 @@ module arm9v2_core (
 		.PREDICTOR(ARM9_PREDICTOR),
 		.EXTERNAL_RF(1),
 		.S_AGU(S_AGU),
-		.THUMB_HALF(THUMB_HALF)
+		.THUMB_HALF(THUMB_HALF),
+		.SHIFT_PRE(SHIFT_PRE)
 	) u_front_decode(
 		.i_w_load_hit(w_load_hit),
 		.o_self_dep(d_self_dep),
@@ -1407,6 +1410,7 @@ module arm9v2_core (
 		.o_fault(d_fault),
 		.o_force_align(d_force_align),
 		.o_reg_shift(d_reg_shift),
+		.o_shift_pre(d_shift_pre),
 		.o_kind(d_kind),
 		.o_condition(d_condition),
 		.o_tag(d_tag),
@@ -1449,7 +1453,8 @@ module arm9v2_core (
 		.S_AGU(S_AGU),
 		.FREE_SELECT(FREE_SELECT),
 		.FAST_Z(FAST_Z),
-		.W_ROTATE(W_ROTATE)
+		.W_ROTATE(W_ROTATE),
+		.SHIFT_PRE(SHIFT_PRE)
 	) u_execute(
 		.i_pending(d_pending),
 		.i_admit(backend_ready),
@@ -1502,6 +1507,7 @@ module arm9v2_core (
 		.i_fault(d_fault),
 		.i_force_align(d_force_align),
 		.i_reg_shift(d_reg_shift),
+		.i_shift_pre(d_shift_pre),
 		.i_first(d_first),
 		.i_last(d_last),
 		.i_kind(d_kind),
@@ -1771,6 +1777,7 @@ module arm9v2_decode (
 	o_fault,
 	o_force_align,
 	o_reg_shift,
+	o_shift_pre,
 	o_kind,
 	o_condition,
 	o_tag,
@@ -1808,6 +1815,7 @@ module arm9v2_decode (
 	parameter [0:0] EXTERNAL_RF = 0;
 	parameter [0:0] S_AGU = 0;
 	parameter [0:0] THUMB_HALF = 0;
+	parameter [0:0] SHIFT_PRE = 0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
@@ -1871,6 +1879,7 @@ module arm9v2_decode (
 	output wire o_fault;
 	output wire o_force_align;
 	output wire o_reg_shift;
+	output wire [15:0] o_shift_pre;
 	output wire [3:0] o_kind;
 	output wire [3:0] o_condition;
 	output wire [23:0] o_tag;
@@ -2602,6 +2611,35 @@ module arm9v2_decode (
 			);
 		end
 	endgenerate
+	function automatic [15:0] shift_controls;
+		input reg [372:0] r;
+		reg [1:0] t;
+		reg [7:0] n;
+		reg g;
+		begin
+			t = r[315:314];
+			n = {3'd0, r[320:316]};
+			g = r[44];
+			if (((r[131-:4] == K_DP) || (r[131-:4] == K_MSR)) && r[334]) begin
+				t = 3;
+				n = {3'd0, r[320:317], 1'b0};
+				g = 1;
+			end
+			if ((r[131-:4] == K_MEM) && (r[336:335] == 0)) begin
+				t = 0;
+				n = 0;
+				g = 1;
+			end
+			if (((r[131-:4] != K_DP) && (r[131-:4] != K_MSR)) && (r[131-:4] != K_MEM)) begin
+				t = 0;
+				n = 0;
+				g = 1;
+			end
+			shift_controls = {t, n, (t == 0 ? -n[4:0] : n[4:0]), g};
+		end
+	endfunction
+	(* dont_retime *) reg [15:0] shift_pre_ff;
+	assign o_shift_pre = (SHIFT_PRE ? shift_pre_ff : 16'd0);
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -2635,6 +2673,7 @@ module arm9v2_decode (
 			prefix_target <= 0;
 			d2 <= 373'd0;
 			issued <= 373'd0;
+			shift_pre_ff <= 0;
 			self_dep <= 0;
 			values <= 0;
 			write_through_match <= 0;
@@ -2676,6 +2715,7 @@ module arm9v2_decode (
 				issued <= d2;
 				values <= raw_values;
 				self_dep <= d2_self_dep;
+				shift_pre_ff <= shift_controls(d2);
 				begin : sv2v_autoblock_28
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
@@ -2833,6 +2873,7 @@ module arm9v2_execute (
 	i_reg_shift,
 	i_first,
 	i_last,
+	i_shift_pre,
 	i_kind,
 	i_condition,
 	i_tag,
@@ -2925,6 +2966,7 @@ module arm9v2_execute (
 	parameter [0:0] FREE_SELECT = 0;
 	parameter [0:0] FAST_Z = 0;
 	parameter [0:0] W_ROTATE = 0;
+	parameter [0:0] SHIFT_PRE = 0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
@@ -2957,6 +2999,7 @@ module arm9v2_execute (
 	input wire i_reg_shift;
 	input wire i_first;
 	input wire i_last;
+	input wire [15:0] i_shift_pre;
 	input wire [3:0] i_kind;
 	input wire [3:0] i_condition;
 	input wire [23:0] i_tag;
@@ -3075,6 +3118,7 @@ module arm9v2_execute (
 	assign next_interrupt_mask = (((((((finish && (a[327-:4] == MSR)) && !a[474]) && a[468]) && condition_pass) && !a[318]) && (a[332:328] != 5'h10)) && msr_same_mode ? right_a[7:6] : interrupt_mask);
 	(* dont_retime *) reg [127:0] held;
 	(* dont_retime *) reg [7:0] held_amount;
+	(* dont_retime *) reg [4:0] held_rot;
 	(* dont_retime *) reg [31:0] held_offset;
 	(* dont_retime *) reg [31:0] block_base;
 	(* dont_retime *) reg signed [33:0] ll;
@@ -3135,6 +3179,10 @@ module arm9v2_execute (
 	wire [31:0] shifted;
 	reg [7:0] shift_amount;
 	reg [1:0] shift_type;
+	reg [1:0] ref_type;
+	reg [7:0] ref_amount;
+	reg [4:0] shift_rot;
+	reg ref_register;
 	reg shift_register;
 	wire shift_carry;
 	wire carry_preserve;
@@ -3184,24 +3232,36 @@ module arm9v2_execute (
 				end
 		end
 		shift_input = operand[32+:32];
-		shift_type = i_instruction[6:5];
-		shift_amount = (prepared && i_reg_shift ? held_amount : {3'd0, i_instruction[11:7]});
-		shift_register = i_reg_shift;
+		ref_type = i_instruction[6:5];
+		ref_amount = (prepared && i_reg_shift ? held_amount : {3'd0, i_instruction[11:7]});
+		ref_register = i_reg_shift;
 		if (((i_kind == DP) || (i_kind == MSR)) && i_instruction[25]) begin
 			shift_input = {24'd0, i_instruction[7:0]};
-			shift_type = 3;
-			shift_amount = {3'd0, i_instruction[11:8], 1'b0};
-			shift_register = 1;
+			ref_type = 3;
+			ref_amount = {3'd0, i_instruction[11:8], 1'b0};
+			ref_register = 1;
 		end
 		if ((i_kind == MEM) && (i_instruction[27:26] == 0)) begin
-			shift_type = 0;
-			shift_amount = 0;
-			shift_register = 1;
+			ref_type = 0;
+			ref_amount = 0;
+			ref_register = 1;
 		end
 		if (((i_kind != DP) && (i_kind != MSR)) && (i_kind != MEM)) begin
-			shift_type = 0;
-			shift_amount = 0;
-			shift_register = 1;
+			ref_type = 0;
+			ref_amount = 0;
+			ref_register = 1;
+		end
+		if (SHIFT_PRE) begin
+			shift_type = i_shift_pre[15:14];
+			shift_register = i_shift_pre[0];
+			shift_amount = (prepared && i_reg_shift ? held_amount : i_shift_pre[13:6]);
+			shift_rot = (prepared && i_reg_shift ? held_rot : i_shift_pre[5:1]);
+		end
+		else begin
+			shift_type = ref_type;
+			shift_amount = ref_amount;
+			shift_register = ref_register;
+			shift_rot = (ref_type == 0 ? -ref_amount[4:0] : ref_amount[4:0]);
 		end
 		planned_writes = 0;
 		case (i_kind)
@@ -3242,10 +3302,11 @@ module arm9v2_execute (
 	wire carry_w;
 	wire preserve_w;
 	wire rrx_w;
-	arm9v2_rotate u_rotate(
+	arm9v2_rotate #(.PRE_ROT(SHIFT_PRE)) u_rotate(
 		.i_value((W_ROTATE ? shift_input_nw : shift_input)),
 		.i_amount(shift_amount),
 		.i_type(shift_type),
+		.i_rot(shift_rot),
 		.i_register(shift_register),
 		.i_carry(1'b0),
 		.o_value(shifted_main),
@@ -3253,10 +3314,11 @@ module arm9v2_execute (
 		.o_preserve(preserve_main),
 		.o_rrx(rrx_main)
 	);
-	arm9v2_rotate u_rotate_w(
+	arm9v2_rotate #(.PRE_ROT(SHIFT_PRE)) u_rotate_w(
 		.i_value(i_mw_value[64+:32]),
 		.i_amount(shift_amount),
 		.i_type(shift_type),
+		.i_rot(shift_rot),
 		.i_register(shift_register),
 		.i_carry(1'b0),
 		.o_value(shifted_w),
@@ -3607,6 +3669,7 @@ module arm9v2_execute (
 			a <= 516'd0;
 			held <= 0;
 			held_amount <= 0;
+			held_rot <= 0;
 			held_offset <= 0;
 			block_base <= 0;
 			ll <= 0;
@@ -3647,8 +3710,10 @@ module arm9v2_execute (
 			end
 			if ((((((i_valid && i_admit) && space) && !i_load_wait) && !(|(s_wait & i_early))) && (i_reg_shift || agu_scaled)) && !prepared) begin
 				prepared <= 1;
-				if (i_reg_shift)
+				if (i_reg_shift) begin
 					held_amount <= operand[71-:8];
+					held_rot <= (shift_type == 0 ? -operand[68-:5] : operand[68-:5]);
+				end
 				if (agu_scaled)
 					held_offset <= shifted;
 			end
@@ -4209,6 +4274,7 @@ module arm9v2_front_decode (
 	o_fault,
 	o_force_align,
 	o_reg_shift,
+	o_shift_pre,
 	o_kind,
 	o_condition,
 	o_tag,
@@ -4274,6 +4340,7 @@ module arm9v2_front_decode (
 	parameter [0:0] EXTERNAL_RF = 0;
 	parameter [0:0] S_AGU = 0;
 	parameter [0:0] THUMB_HALF = 0;
+	parameter [0:0] SHIFT_PRE = 0;
 	parameter [31:0] RESET_VECTOR = 0;
 	input wire i_clk;
 	input wire i_reset;
@@ -4326,6 +4393,7 @@ module arm9v2_front_decode (
 	output wire o_fault;
 	output wire o_force_align;
 	output wire o_reg_shift;
+	output wire [15:0] o_shift_pre;
 	output wire [3:0] o_kind;
 	output wire [3:0] o_condition;
 	output wire [23:0] o_tag;
@@ -4451,7 +4519,8 @@ module arm9v2_front_decode (
 	arm9v2_decode #(
 		.EXTERNAL_RF(EXTERNAL_RF),
 		.S_AGU(S_AGU),
-		.THUMB_HALF(THUMB_HALF)
+		.THUMB_HALF(THUMB_HALF),
+		.SHIFT_PRE(SHIFT_PRE)
 	) u_decode(
 		.i_valid(f_valid),
 		.i_pc(f_pc),
@@ -4516,6 +4585,7 @@ module arm9v2_front_decode (
 		.o_fault(o_fault),
 		.o_force_align(o_force_align),
 		.o_reg_shift(o_reg_shift),
+		.o_shift_pre(o_shift_pre),
 		.o_kind(o_kind),
 		.o_condition(o_condition),
 		.o_tag(o_tag),
@@ -4735,6 +4805,7 @@ module arm9v2_rotate (
 	i_value,
 	i_amount,
 	i_type,
+	i_rot,
 	i_register,
 	i_carry,
 	o_value,
@@ -4743,16 +4814,18 @@ module arm9v2_rotate (
 	o_rrx
 );
 	reg _sv2v_0;
+	parameter [0:0] PRE_ROT = 0;
 	input wire [31:0] i_value;
 	input wire [7:0] i_amount;
 	input wire [1:0] i_type;
+	input wire [4:0] i_rot;
 	input wire i_register;
 	input wire i_carry;
 	output reg [31:0] o_value;
 	output reg o_carry;
 	output reg o_preserve;
 	output reg o_rrx;
-	wire [4:0] amount = (i_type == 0 ? -i_amount[4:0] : i_amount[4:0]);
+	wire [4:0] amount = (PRE_ROT ? i_rot : (i_type == 0 ? -i_amount[4:0] : i_amount[4:0]));
 	wire [31:0] stage [0:5];
 	assign stage[0] = i_value;
 	genvar _gv_sa_rot_stage_1;

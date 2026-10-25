@@ -10,7 +10,7 @@ module execute_leaf_tb;
     logic [1:0][1:0][31:0] pv;
     logic [1:0][1:0][5:0] pt;
     logic [1:0][1:0] valid;
-    arm9v2_rotate rotate(.i_value(x),.i_amount(amount),.i_type(kind),.i_register(reg_amount),
+    arm9v2_rotate rotate(.i_value(x),.i_amount(amount),.i_type(kind),.i_rot(5'd0),.i_register(reg_amount),
         .i_carry(carry),.o_value(y),.o_carry(out_carry),.o_preserve(preserve),.o_rrx(rrx));
     logic [3:0][1:0][1:0] match_bits;
     always_comb for(int s=0;s<4;s++)for(int p=0;p<2;p++)for(int lane=0;lane<2;lane++)
