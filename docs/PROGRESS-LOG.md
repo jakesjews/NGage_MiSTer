@@ -6642,3 +6642,40 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   fix belongs in the peripheral side (a minimal Bluetooth controller on
   the BT UART, or a port that fails at once so the ten retries do not take
   16 s), or in a two-halfword ROM patch of hci.dll's retry count.
+- **The fix: hci.dll gives up after one attempt** (model/rom-patches.txt,
+  tools/gen_patchrom.py, the regenerated rtl/mister/phoenix_patch.hex/.vh).
+  Two halfwords of hci.dll in CS0: the retry checks at 0x5046EAF2 and
+  0x5046EC4C are Thumb `ldr r0,[r5,#0x30]; cmp r0,#9; bgt give_up`
+  (arm-none-eabi-objdump over the image); `cmp r0,#0` (0x2809 ->
+  0x2800, stored bytes 09 28 -> 00 28) makes BTTestServer's self test
+  stop after its first 1.5 s timeout, so bt_driver's channel is free
+  about 10.5 s after boot instead of 25 s, long before the EPOC
+  Monitor Server asks for it. The same ROM is shared by every hci.dll
+  user, so emon's own HCI reset also fails after one timeout instead of
+  ten. The peripheral-side alternative (a Bluetooth controller model
+  answering on the BT UART, or a port that fails at once) stays the
+  accurate long-term answer; this is the shortcut, recorded with its
+  reasons in the patch list. The mechanism already existed: the model
+  applies the list at load, the core's Phoenix loader applies the patch
+  ROM after the stream with the recomputed bootstrap digest of entry
+  0x8F18 as a constant (the new digest 50c7d0a4f1cf3f71e9581a2c91c62eff
+  from `mkimage.py phoenix` over the RH2946.0C1/.0S5 files, fetched from
+  the MiSTer; entry 0x8F00 unchanged). Checks: tools/patchcheck.sh (the
+  model's patcher and mkimage.py agree byte for byte), `make -C sim
+  phoenix-real` (the Verilated loader over the real Phoenix files
+  reproduces the reference images: "all checks passed"), lint clean,
+  `gen_patchrom.py --check` clean. The bench's hand-patched
+  cs0-hcipatch.bin differs from the generated image only in the NOS
+  stand-in bytes (an older build) and the digest.
+- Validation. Whole-core bench, the 8 KB V2 at 104 MHz with the patched
+  ROM (run10): "EPOC Monitor Server started succesfully" once in kern.log (never in the unpatched run), the Bluetooth driver's CompleteWithError three times instead of ten, no "Emon" string, and the idle screen clean at 25.7 and 26.3 s where the unpatched run drew the "App. closed EmonServer" dialog at 25.1 s (gamesim/v2d8e/run10, stopped at 27 s). The board: the 8 KB fix-3 core rebuilt with
+  the patch ROM (NGage-v2fix3d8hci-s2.rbf: the identical fit, -0.623 /
+  -0.558 ns, 33,421 ALMs; only the loader's ROM contents differ)
+  booted clean three of three (build/hardware/game/v2fix3d8hci-1..3/); the 16 KB fix-3 core, the one that showed the dialog
+  four of four, rebuilt the same way (NGage-v2fix3hci-s9.rbf, the identical fit too: -0.516 ns, 33,380 ALMs)
+  **booted clean four of four** (build/hardware/game/v2fix3hci-1..4/, the idle screen at 110 and 130 s). The fix is committed on master (dba643d) and cherry-picked onto codex/arm9v2-panic (5956fe9), both pushed; the V2 main worktree (codex/arm9v2) was left as the stopped 104 MHz subagent left it, with its four uncommitted parameterised cuts (RAS_TOP_FF, REDIRECT_PAYLOAD, COPRO_PORT, FLAT_ACK) and arm9_ras_rtl.S. The long ZAP run (run3, to 41 s): the race resolving the other way on the slower core. The self test's tenth hold ends at 28.88 s (holds of 1.53-1.56 s from 20.70 s on, the channel free only in the gaps); ESock's first attempt comes at 31.20 s, finds bt_driver free, and the load and the channel open return 0; kern.log has "started succesfully" once and no Emon panic; emon's own hci.dll then cycles load, open, unload every 1.5 s (16 BTLDD timeouts by 41 s: the self test's ten and emon's six), and the idle screen is clean at 41 s (gamesim/zapc/run3).
+- Corrected: it is not "the 8 KB core fails on the board": at 78 MHz the
+  8 KB V2 core booted clean eleven of twelve and the 16 KB core, the
+  faster boot, none of four; in the bench at 104 MHz both V2 sizes
+  showed the dialog and ZAP did not. All of it is the one race: the ask
+  lands a few seconds before or after the give-up with the CPU's speed.
