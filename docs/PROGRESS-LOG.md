@@ -6264,3 +6264,37 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   (stp-flash6) triggers on the first completed read anywhere in
   0x59xxxxxx after arming and stores only those, to learn the real
   addresses.
+- The fourth capture (any completed data-port read in 0x59xxxxxx after
+  arming) did not fire in 90 s either (stp-v2stp4): the CPU's data
+  port does not read a 0x59 window in that period. The ROM holds the
+  constant 0x59200000 once (at 0x50343EB8) and 0x59600000 never, so
+  the media driver's base may be read at run time from elsewhere, or
+  the copy goes through the cached XIP view of CS1 at 0x51000000 (the
+  trace decoder's map: CS0 at 0x50000000, CS1 at 0x51000000; sector 0
+  would then be at 0x5147C6A4). A bus-side capture triggered on the
+  flash controller's CS1 acknowledges runs to learn the real virtual
+  addresses of the CS1 reads; a 0x51-window data-value trigger is
+  staged.
+- Captures five and six did not fire either: the bus-side trigger on
+  ddram_flash's cs1_ack (stp-v2stp5; CS1 reads reach it from nor_flash
+  through the array port, so the ack may be on another port), and a
+  survey trigger on any data-port completion with the storage
+  qualifier narrowed to 0x5xxxxxxx reads (stp-v2stp6), where the same
+  trigger without a qualifier had fired at once: in SignalTap's
+  conditional mode the trigger is evaluated on qualified samples only,
+  so a qualifier that never matches hides the trigger too, and none of
+  the virtual-address patterns matched. A capture with a qualifier that
+  always matches (data-port completions) runs to get a saved data set
+  and the real address values.
+- The seventh capture, with a storage qualifier that must match on
+  every data-port completion, did not fire either (stp-v2stp7). So the
+  generated storage-qualifier configuration is what quartus_stp does
+  not honour: with the conditional mode compiled in, nothing is ever
+  stored and the trigger, evaluated on stored samples, never fires;
+  the one unqualified file fired at once but was refused as
+  incompatible with the compiled instance and saved no data. The probe
+  core is rebuilt without a qualifier (continuous capture: 2,048
+  clocks after the trigger, enough for one whole sector copy of ~1,400
+  clocks), the trigger being a completed read in 0x5xxxxxxx whose
+  word is the file's first word 0x10000050 (stp-flash11, fast fit,
+  lane b8).
