@@ -32,6 +32,9 @@
 //   --buslog FILE      one line per CPU beat to CS0/CS1/SDRAM: clock, R|W,
 //                      address, SEL, data, CTI
 //   --until TEXT       stop when the STI text ends with TEXT
+//   --load-use FILE    the load-to-consumer mix and the modelled cost of the
+//                      104 MHz pipeline cuts (sim/profile/load_use.h), per
+//                      profile segment (needs a CPU_PROFILE build)
 //   --ddr-lat MIN:MAX, --ddr-busy PCT, --ddr-gap PCT, --ddr-stall PCT_X1000
 //                      the DDRAM port's timing (ddram_model.h's DdramProfile)
 //   --fault-history N  retain N retirements in memory; dump on D/P/U and
@@ -49,6 +52,7 @@
 #include "ddram_model.h"
 #include "sdram_model.h"
 #include "../profile/cpu_profile.h"
+#include "../profile/load_use.h"
 
 #include <chrono>
 #include <cinttypes>
@@ -218,6 +222,7 @@ struct Bench {
     cpu_profile::Profile accounting{false};
 #endif
     cpu_profile::Sample accounting_sample;
+    load_use::Observer loaduse;
     bool profile_exec_seen=false,profile_was_user=false;
     unsigned profile_threads=0;
     void profile(const char *label) {
@@ -401,9 +406,9 @@ struct Bench {
 		if (!ev || h.emu__DOT__cpu_reset) { pending_ev = 0; return; }
 		if(accounting.enabled) {
             bool user=(cpsr&31)==16;
-            if(ev=='S'&&!profile_exec_seen){accounting.mark("first_exec",clocks);profile_exec_seen=true;}
+            if(ev=='S'&&!profile_exec_seen){accounting.mark("first_exec",clocks);loaduse.mark("first_exec",clocks);profile_exec_seen=true;}
             if(user&&!profile_was_user&&pc==0x503247bc&&!reg(phys_index(14,cpsr))){
-                char label[32];snprintf(label,sizeof label,"thread_%u",++profile_threads);accounting.mark(label,clocks);
+                char label[32];snprintf(label,sizeof label,"thread_%u",++profile_threads);accounting.mark(label,clocks);loaduse.mark(label,clocks);
             }
             profile_was_user=user;
         }
@@ -436,6 +441,7 @@ struct Bench {
 
 	// after the edge: the registers after the committed instruction
 	void cpu_after_edge() {
+		if (loaduse.enabled) loaduse.clock(accounting_sample.dcache);
 		if (!pending_ev) {accounting.observe(accounting_sample,false,false,0,0);return;}
 		char ev = pending_ev;
 		uint32_t pc = pending_pc;
@@ -448,6 +454,11 @@ struct Bench {
         if(counted) retired++;
         record_history(ev, pc, cpsr);
         accounting.observe(accounting_sample,counted,bl_second,ev,pc);
+        if (loaduse.enabled) {
+            if (ev == 'R') loaduse.retire(accounting_sample.retire_ins, (accounting_sample.flags >> 24) & 1,
+                                          (accounting_sample.flags >> 25) & 1);
+            else loaduse.barrier();
+        }
 		if (devlog && ev != 'R') {
 			// interrupts and exceptions as the plugin records them: "X n exc
 			// from vector" (low vectors; n before an SWI or UND counts it)
@@ -659,7 +670,7 @@ int main(int argc, char **argv) {
 	std::string cs0p, cs1p, mmcp, out = ".", keysp, tracep, rtc = "2004-06-01 12:00:00";
 	uint64_t max_cycles = 1000000000ull, progress = 50000000ull, trace_after = 0, trace_count = 0;
 	bool devlog = false, profile_enabled = true, check_flash = false;
-	std::string buslogp, until;
+	std::string buslogp, until, loadusep;
 	DdramProfile ddr;
 	bool ddr_set = false;
     size_t fault_history = 0;
@@ -686,6 +697,7 @@ int main(int argc, char **argv) {
 		else if (a == "--progress") progress = strtoull(next(), nullptr, 0);
         else if (a == "--fault-history") fault_history = strtoull(next(), nullptr, 0);
 		else if (a == "--check-flash") check_flash = true;
+		else if (a == "--load-use") loadusep = next();
 		else if (a == "--buslog") buslogp = next();
 		else if (a == "--until") until = next();
 		else if (a == "--ddr-lat") { ddr_set = true; if (sscanf(next(), "%d:%d", &ddr.lat_min, &ddr.lat_max) != 2) return 2; }
@@ -709,6 +721,7 @@ int main(int argc, char **argv) {
 #endif
 	b.kern = fopen((out + "/kern.log").c_str(), "w");
 	b.check_flash = check_flash;
+	if (!loadusep.empty()) b.loaduse.open(loadusep);
 	if (ddr_set) b.dm.prof = ddr;
 	b.until = until;
 	if (!buslogp.empty() && !(b.buslog = fopen(buslogp.c_str(), "w"))) { fprintf(stderr, "cannot write %s\n", buslogp.c_str()); return 2; }
@@ -797,6 +810,7 @@ int main(int argc, char **argv) {
 	       b.clocks, b.clocks / CLK_HZ, b.retired, b.dev_accesses, b.pictures, b.audio.size() / 2, wall);
     b.profile("end");
     b.accounting.finish(b.clocks);
+    b.loaduse.finish(b.clocks);
 	if (b.chip.errors) printf("the SDRAM chip model reported %d error(s)\n", b.chip.errors);
 	if (b.dm.protocol_errors) printf("%d DDRAM port protocol error(s)\n", b.dm.protocol_errors);
 	if (b.check_flash)
