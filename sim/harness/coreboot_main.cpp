@@ -207,7 +207,9 @@ struct Bench {
 	// byte enables; a value is the selected bytes, shifted down, sign-extended
 	// for LDRSB/H. --trace-on-bad FILE starts an instruction trace at the
 	// first wrong value.
-	bool check_window = false, check_copy = false;
+	bool check_window = false, check_copy = false, check_store = false;
+	uint64_t ustores = 0, ustore_bad = 0;
+	struct { uint32_t pa, data, sel; uint64_t clock; } ubeat[32] = {}; int ubeat_n = 0;
 	uint64_t win_unc = 0, win_hit = 0, win_miss = 0, win_bad = 0, copies = 0, copy_stores = 0, copy_loads = 0;
 	struct WinPend { uint32_t va, data, sel; uint64_t clock; bool used; char kind; } win_pend[16] = {};
 	struct { uint32_t dst = 0, src = 0, n = 0, lr = 0; uint64_t clock = 0; bool active = false, dirty = false; } copy;
@@ -289,6 +291,26 @@ struct Bench {
 			uint32_t va = r->emu__DOT__tr_d_va, sel = r->emu__DOT__tr_d_sel;
 			bool we = r->emu__DOT__tr_d_we;
 			if (we) {
+				if (check_store && va >= 0x59200000u && va < 0x59600000u) {
+					// an uncached store completes after its beat: the beat with this PA
+					uint32_t pa = 0x02400000u + (va - 0x59200000u), d = r->emu__DOT__tr_d_wdata;
+					int found = -1;
+					for (int i = 1; i <= 32 && i <= ubeat_n; i++)
+						if ((ubeat[(ubeat_n - i) % 32].pa & ~3u) == (pa & ~3u) && clocks - ubeat[(ubeat_n - i) % 32].clock < 400) { found = (ubeat_n - i) % 32; break; }
+					ustores++;
+					uint32_t mask = 0; for (int k = 0; k < 4; k++) if (sel >> k & 1) mask |= 0xffu << (8 * k);
+					if (found < 0 || ((ubeat[found].data ^ d) & mask) != 0 || ubeat[found].sel != sel) {
+						ustore_bad++;
+						if (ustore_bad <= 40)
+							printf("USTORE clock %" PRIu64 " VA %08x sel %x data %08x : beat %s pc %08x\n", clocks, va, sel, d,
+							       found < 0 ? "none" : "", (uint32_t)(r->CORE_DATA_PC - 8));
+						if (found >= 0 && ustore_bad <= 40) printf("   beat clock %" PRIu64 " PA %07x sel %x data %08x\n", ubeat[found].clock, ubeat[found].pa, ubeat[found].sel, ubeat[found].data);
+						if (ustore_bad == 1 && !trace_on_bad.empty() && !trace) {
+							trace = fopen(trace_on_bad.c_str(), "w"); trace_after = retired; trace_count = 300000; trace_done = false;
+							printf("trace started at retired %" PRIu64 "\n", retired);
+						}
+					}
+				}
 				// the copy's own stores are checked; a later store by other code
 				// (the buffer is often on the stack) ends the buffer's checks
 				if (check_copy && in_buffer(va)) {
@@ -604,6 +626,9 @@ struct Bench {
 		auto &h = *r;
 		if (h.emu__DOT__test_on || !h.emu__DOT__wb_cyc || !h.emu__DOT__wb_ack) return;
 		uint32_t a = h.emu__DOT__wb_adr;
+		if (check_store && h.emu__DOT__wb_we && a >= 0x02400000u && a < 0x02800000u) {
+			ubeat[ubeat_n % 32] = {a, (uint32_t)h.emu__DOT__wb_dat_w, (uint32_t)h.emu__DOT__wb_sel, clocks}; ubeat_n++;
+		}
 		if (!device(a)) return;
 		bool we = h.emu__DOT__wb_we;
 		unsigned be = h.emu__DOT__wb_sel;
@@ -755,7 +780,7 @@ struct Bench {
 		cpu_after_edge();
 		bus_watch();
 		if (check_flash || buslog) flash_watch();
-		if (check_window || check_copy) win_watch();
+		if (check_window || check_copy || check_store) win_watch();
 		video_watch();
 		audio_watch();
 		key_watch();
@@ -793,7 +818,7 @@ int main(int argc, char **argv) {
 	crc_init();
 	std::string cs0p, cs1p, mmcp, out = ".", keysp, tracep, rtc = "2004-06-01 12:00:00";
 	uint64_t max_cycles = 1000000000ull, progress = 50000000ull, trace_after = 0, trace_count = 0;
-	bool devlog = false, profile_enabled = true, check_flash = false, check_window = false, check_copy = false;
+	bool devlog = false, profile_enabled = true, check_flash = false, check_window = false, check_copy = false, check_store = false;
 	std::string trace_on_bad;
 	std::string buslogp, until, loadusep;
 	DdramProfile ddr;
@@ -824,6 +849,7 @@ int main(int argc, char **argv) {
 		else if (a == "--check-flash") check_flash = true;
 		else if (a == "--check-window") check_window = true;
 		else if (a == "--check-copy") check_copy = true;
+		else if (a == "--check-store") check_store = true;
 		else if (a == "--trace-on-bad") trace_on_bad = next();
 		else if (a == "--load-use") loadusep = next();
 		else if (a == "--buslog") buslogp = next();
@@ -851,6 +877,7 @@ int main(int argc, char **argv) {
 	b.check_flash = check_flash;
 	b.check_window = check_window;
 	b.check_copy = check_copy;
+	b.check_store = check_store;
 	b.trace_on_bad = trace_on_bad;
 	if (!loadusep.empty()) b.loaduse.open(loadusep);
 	if (ddr_set) b.dm.prof = ddr;
@@ -951,6 +978,8 @@ int main(int argc, char **argv) {
 	if (b.check_window)
 		printf("window check: %" PRIu64 " uncached, %" PRIu64 " cached-hit, %" PRIu64 " cached-miss loads of the C: drive, %" PRIu64 " wrong\n",
 		       b.win_unc, b.win_hit, b.win_miss, b.win_bad);
+	if (b.check_store)
+		printf("store check: %" PRIu64 " stores through the uncached C: alias, %" PRIu64 " not matching their bus beat\n", b.ustores, b.ustore_bad);
 	if (b.check_copy)
 		printf("copy check: %" PRIu64 " Mem::Copy calls out of the C: drive, %" PRIu64 " stores and %" PRIu64 " loads of their buffers checked\n",
 		       b.copies, b.copy_stores, b.copy_loads);
