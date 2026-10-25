@@ -5988,3 +5988,12 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   "Meets timing" is taken as the board-proven envelope (-0.6 ns at the
   slow 100C corner on the server's Quartus, ZAP's own shipping figure),
   not 0.
+- The 8 KB TLB-fix debug core (seed 2, full effort): -0.623 / -0.558
+  ns, 33,421 ALMs, build/hardware/NGage-v2fix3d8-s2.rbf (md5
+  c372d9d8). Ready for the board with the 16 KB one (NGage-v2fix3-
+  s9.rbf) and the flash-probe core (NGage-stp-flash3-full.rbf); no
+  build of mine runs on the server now. The board test when the MiSTer
+  returns: boots of the 16 KB core for the dialog rate (two of three
+  before fix 3), three boots of the 8 KB core for the PLAT rate (two of
+  three before), then the three games on the 16 KB core for fix 3's
+  gain, and the SignalTap capture only if the panic survives.
