@@ -5943,3 +5943,13 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   remappable section, and a stale entry from a garbage walk of it
   would make the copy read another page of the flash. The TLB-fix
   core on the board decides it (paused until the MiSTer returns).
+- The full-effort TLB-fix debug core (16 KB, seed 9): -0.516 / -0.372
+  ns, 33,380 ALMs, build/hardware/NGage-v2fix3-s9.rbf (md5 5598e48c);
+  fix 3's walk-check logic costs about 0.45 ns against fix 2's seed-9
+  fit. An 8 KB build of the same source (the PLAT reproducer
+  configuration) follows on lane b5 for the board's PLAT test.
+- The full-effort flash-probe core: -0.371 / -0.367 ns, 32,604 ALMs,
+  the same 3.73 M memory bits, build/hardware/NGage-stp-flash3-full.rbf
+  (md5 a53e0a57); the .sof and the compiled stp-flash3.stp stay in the
+  server's dev/mister/NGage_MiSTer-b8/. It is the capture core; the
+  fast-fit one (-1.885) is kept only as a fallback.
