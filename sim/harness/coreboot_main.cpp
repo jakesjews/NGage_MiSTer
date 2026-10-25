@@ -540,7 +540,6 @@ struct Bench {
                     ev == 'R' ? 'T' : ev, clocks, retired, pc, cpsr,
                     reg(phys_index(0,cpsr)),reg(phys_index(1,cpsr)),reg(phys_index(2,cpsr)),reg(phys_index(3,cpsr)),
                     reg(phys_index(12,cpsr)),reg(phys_index(13,cpsr)),reg(phys_index(14,cpsr)));
-                fflush(exec_log);
             }
             was_user = user;
         }
@@ -925,6 +924,7 @@ int main(int argc, char **argv) {
 			last_c = b.clocks;
 			last_t = now;
 			if (b.devlog) fflush(b.devlog);
+			if (b.exec_log) fflush(b.exec_log);
 			fflush(b.kern);
 			if (b.audio_on) write_wav(out + "/audio.wav", b.audio);
 		}
