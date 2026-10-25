@@ -6220,3 +6220,12 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   (3) V2's SHORT_READ D-cache variant under DMA, and the two-colour
   index-clean loop interrupted by the tick. The whole-core 16 KB boot
   goes next, on the Mac.
+- Seed 7 of the integrated core: -2.472 ns (slow 100C; -2.423 at -40C;
+  33,935 ALMs). The four seeds of the zero-cycle shape at 104 MHz:
+  seed 2 -2.086, seed 9 -2.239, seed 7 -2.472, seed 5 -2.700: a 0.6 ns
+  spread, the best seed 1.5 ns from the -0.6 gate.
+- **The MiSTer is beside the server again** (the user: "The mister
+  should be hooked up"); the JTAG chain came back after one restart of
+  the JTAG server (the cable enumerated as 6810, then 6010 "DE-SoC"),
+  and the first SignalTap capture of the sector copy on the full-effort
+  flash-probe core runs (scratch capture_flash.sh v2stp1).
