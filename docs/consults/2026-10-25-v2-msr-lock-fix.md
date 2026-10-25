@@ -549,3 +549,62 @@ or used as a pointer) happens earlier than any of these windows. The
 evidence supports the second mechanism but does not prove it. No third
 mechanism is visible, so there is no test or RTL change here. The board
 run of the D8 build of `7dd5509` is the discriminating experiment.
+
+### What should have written the two null words
+
+Neither word is ever written in the failing boot. Both objects are being
+destroyed after a Leave, before their construction reached the store;
+each field still holds the allocator's zero fill.
+
+**Dump 1, `0x8540BEA4` = `this+0xC0` of the object at `0x8540BDE4`:**
+1. A nested `NewL` at `0x5045E548` allocates 0x40 bytes and constructs
+   them (`0x5045E5E0`, vtable `0x504699DC`).
+2. It calls the object's virtual +0x10 (`0x5045EDB1`), which opens the
+   comms database: `RFs`, `c:\System\Data\Cdbv2.dat`, falling back to
+   `z:\System\Data\DefaultCdbv2.dat`.
+3. That returns −20 (`KErrCorrupt`), at `0x5045E56A`. `NewL` deletes the
+   object and calls `User::Leave(-20)`, the code being r5 at
+   `0x5045E580`.
+4. `CleanupStack::PopAndDestroy` then runs the outer object's destructor
+   (`0x5094EA28`, vtables `0x5095A9B8`/`E4`/`AA24`). It dereferences
+   +0xC0 without a NULL check.
+
+**Dump 2, `0x0040C7A8` = `this+4` of the object at `0x0040C7A4`:**
+- It is built by `NewL` at `0x50AD03F8` (0x1C bytes, constructor
+  `0x50AD0428`, vtable `0x50AD1E6C`) and then ConstructL at `0x50AD0450`.
+- ConstructL retries `0x50531CFD` on member +0x18 three times with
+  `User::After(50000)`, then calls `User::LeaveIfError`.
+- **+4 is written only at `0x50AD0490`** (`str r0,[r5,#4]`), from
+  `bl 0x50AD1494`, after those steps.
+- The destructor path (`0x50AD0530` to `0x50394CF0`) dereferences +4
+  unguarded.
+
+The earliest anomaly visible is therefore the `KErrCorrupt` from opening
+`c:\System\Data\Cdbv2.dat`. The later aborts and the critical
+self-panic are plausibly its consequences.
+
+For the store-triggered capture: these words are written only by the
+allocator's zero fill, so that capture will show heap code.
+Discriminating triggers would be:
+- `User::Leave` with r0 = −20 (svc 0x73 at `0x503A785C`);
+- `0x5045E56A` with r0 = −20;
+- or a comparison of the board's `Cdbv2.dat` on C: against ROM's
+  `DefaultCdbv2.dat`. A corrupted copy points at the copy and write
+  path; an intact one points at the DBMS read and validation.
+
+### Audit of the panicking threads' less-covered paths
+
+None of these has a first-clock trust or a lock-free window after the
+two fixes:
+- **Thumb literal plus `ldr rX,[rX]`:** the self-dependent case is gated
+  (`arm9v2_execute.sv` `s_load_hit`/`a_load_hit`, `arm9v2_decode.sv`
+  `d2_self_dep`). The I-cache and D-cache share no state for a line both
+  touch, only bus arbitration.
+- **`bx r3` after `ldr r3,[r3]` in import stubs:** bx writes no register,
+  so it may take the departing line's word, which is the current data.
+  The target is validated at A against that operand.
+- **`pop {r0}; bx r0`:** the same reader argument for the LDM final-word
+  pickup. LDM/LDR to PC retires its short word only with the cache's
+  ACK (`arm9v2_core.sv` `fast_pc_hit`/`defer_load`/`load_data`).
+- **Thumb SWI:** EKA1 user code calls ARM exec stubs. Exception entry is
+  ISA-independent at W.
