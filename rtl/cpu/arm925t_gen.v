@@ -13257,6 +13257,7 @@ module zap_dcache (
 	endgenerate
 	zap_tlb #(
 		.SHORT_READ(SHORT_READ),
+		.CHECK_WALK(SHORT_READ),
 		.LPAGE_TLB_ENTRIES(LPAGE_TLB_ENTRIES),
 		.SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
 		.SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
@@ -17941,6 +17942,7 @@ module zap_mem_inv_block (
 	parameter [31:0] DEPTH = 32;
 	parameter [31:0] WIDTH = 32;
 	parameter [0:0] SHORT_READ = 1'b0;
+	parameter [0:0] READ_THROUGH = 1'b0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_clken;
@@ -17963,7 +17965,7 @@ module zap_mem_inv_block (
 				.SHORT_READ(1'b1)
 			) u_ram(
 				.i_clk(i_clk),
-				.i_clken(i_clken),
+				.i_clken(READ_THROUGH || i_clken),
 				.i_wr_en(i_wen),
 				.i_wr_data(i_wdata),
 				.i_wr_addr(i_waddr),
@@ -17976,7 +17978,7 @@ module zap_mem_inv_block (
 					valid <= 1'sb0;
 					read_valid <= 0;
 				end
-				else if (i_clken) begin
+				else if (READ_THROUGH || i_clken) begin
 					if (i_wen)
 						valid[i_waddr] <= 1;
 					read_valid <= (i_wen && (i_raddr == i_waddr)) || valid[i_raddr];
@@ -23886,6 +23888,7 @@ module zap_tlb (
 	parameter [31:0] FPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] CPSR_MODE = 32'd4;
 	parameter [0:0] SHORT_READ = 1'b0;
+	parameter [0:0] CHECK_WALK = 1'b0;
 	parameter [0:0] MMU_OFF_CACHEABLE = 1'd0;
 	input wire i_clk;
 	input wire i_reset;
@@ -24217,6 +24220,9 @@ module zap_tlb (
 	wire fptlb_ren_pre;
 	wire fptlb_wen;
 	wire walk;
+	wire [31:0] walk_va;
+	wire fsm_busy;
+	reg check_stale;
 	wire [7:0] fsr;
 	wire [31:0] far;
 	wire cacheable;
@@ -24311,7 +24317,8 @@ module zap_tlb (
 	zap_mem_inv_block #(
 		.WIDTH(44 - $clog2(SECTION_TLB_ENTRIES)),
 		.DEPTH(SECTION_TLB_ENTRIES),
-		.SHORT_READ(SHORT_READ)
+		.SHORT_READ(SHORT_READ),
+		.READ_THROUGH(CHECK_WALK)
 	) u_section_tlb(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -24329,7 +24336,8 @@ module zap_tlb (
 	zap_mem_inv_block #(
 		.WIDTH(48 - $clog2(LPAGE_TLB_ENTRIES)),
 		.DEPTH(LPAGE_TLB_ENTRIES),
-		.SHORT_READ(SHORT_READ)
+		.SHORT_READ(SHORT_READ),
+		.READ_THROUGH(CHECK_WALK)
 	) u_lpage_tlb(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -24347,7 +24355,8 @@ module zap_tlb (
 	zap_mem_inv_block #(
 		.WIDTH(56 - $clog2(SPAGE_TLB_ENTRIES)),
 		.DEPTH(SPAGE_TLB_ENTRIES),
-		.SHORT_READ(SHORT_READ)
+		.SHORT_READ(SHORT_READ),
+		.READ_THROUGH(CHECK_WALK)
 	) u_spage_tlb(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -24365,7 +24374,8 @@ module zap_tlb (
 	zap_mem_inv_block #(
 		.WIDTH(54 - $clog2(FPAGE_TLB_ENTRIES)),
 		.DEPTH(FPAGE_TLB_ENTRIES),
-		.SHORT_READ(SHORT_READ)
+		.SHORT_READ(SHORT_READ),
+		.READ_THROUGH(CHECK_WALK)
 	) u_fpage_tlb(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -24406,6 +24416,7 @@ module zap_tlb (
 		.i_fptlb_rdata(fptlb_rdata_pre),
 		.i_fptlb_rdav(fptlb_ren_pre),
 		.o_walk(walk),
+		.o_walk_va(walk_va),
 		.o_hit_ok(o_hit_ok),
 		.o_fsr(fsr),
 		.o_far(far),
@@ -24423,8 +24434,8 @@ module zap_tlb (
 		.i_reset(i_reset),
 		.i_mmu_en(i_mmu_en),
 		.i_baddr(i_baddr),
-		.i_address(i_address),
-		.i_walk(walk),
+		.i_address((CHECK_WALK ? walk_va : i_address)),
+		.i_walk(walk && !check_stale),
 		.i_fsr(fsr),
 		.i_far(far),
 		.i_cacheable(cacheable),
@@ -24435,7 +24446,7 @@ module zap_tlb (
 		.o_fault(o_fault),
 		.o_phy_addr(o_phy_addr),
 		.o_cacheable(o_cacheable),
-		.o_busy(o_busy),
+		.o_busy(fsm_busy),
 		.o_setlb_wdata(setlb_wdata),
 		.o_setlb_wen(setlb_wen),
 		.o_sptlb_wdata(sptlb_wdata),
@@ -24459,6 +24470,14 @@ module zap_tlb (
 		.o_wb_adr_nxt(o_wb_adr_nxt)
 	);
 	assign o_wt = wt;
+	always @(posedge i_clk)
+		if (i_reset || !CHECK_WALK)
+			check_stale <= 1'b0;
+		else if (((setlb_wen || sptlb_wen) || lptlb_wen) || fptlb_wen)
+			check_stale <= 1'b1;
+		else if (!i_hold)
+			check_stale <= 1'b0;
+	assign o_busy = fsm_busy || ((check_stale && walk) && i_mmu_en);
 endmodule
 module zap_tlb_check (
 	i_clk,
@@ -24480,6 +24499,7 @@ module zap_tlb_check (
 	i_fptlb_rdav,
 	o_hit_ok,
 	o_walk,
+	o_walk_va,
 	o_fsr,
 	o_far,
 	o_cacheable,
@@ -24512,6 +24532,7 @@ module zap_tlb_check (
 	input wire i_fptlb_rdav;
 	output reg o_hit_ok;
 	output reg o_walk;
+	output reg [31:0] o_walk_va;
 	output reg [7:0] o_fsr;
 	output reg [31:0] o_far;
 	output reg o_cacheable;
@@ -24812,6 +24833,7 @@ module zap_tlb_check (
 			o_far <= far_nxt;
 			o_phy_addr <= phy_addr_nxt;
 			o_walk <= walk_nxt;
+			o_walk_va <= i_va;
 			o_cacheable <= cacheable_nxt;
 			o_wt <= wt_nxt;
 			dummy <= dummy_nxt;

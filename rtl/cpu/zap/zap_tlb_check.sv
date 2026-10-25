@@ -62,6 +62,7 @@ input logic                              i_fptlb_rdav,   // Fine page TLB valid.
 
 output logic                            o_hit_ok,       // ARM925T: translated, permitted cache hit (WB stores only).
 output logic                            o_walk,         // Signal page walk.
+output logic [31:0]                     o_walk_va,      // ARM925T: the address o_walk is for.
 output logic [7:0]                      o_fsr,          // FSR. 0 means all OK.
 output logic [31:0]                     o_far,          // Fault Address Register.
 output logic                            o_cacheable,    // Cacheble stats of the PTE.
@@ -104,6 +105,7 @@ always_ff @(posedge i_clk)
                 o_far <= far_nxt;
                 o_phy_addr <= phy_addr_nxt;
                 o_walk <= walk_nxt;
+                o_walk_va <= i_va;
                 o_cacheable <= cacheable_nxt;
                 o_wt <= wt_nxt;
                 dummy <= dummy_nxt;

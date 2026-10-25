@@ -29,6 +29,16 @@ parameter logic [31:0] SECTION_TLB_ENTRIES = 32'd8,
 parameter logic [31:0] FPAGE_TLB_ENTRIES   = 32'd8,
 parameter logic [31:0] CPSR_MODE           = 32'd4,
 parameter logic SHORT_READ = 1'b0,
+// ARM925T, V2's D-side (its check address is the next request's, not the
+// cache's i_address, and it looks up speculatively every clock):
+//  * the TLB RAMs read through holds, so the first check after a hold
+//    sees the lookup address's entry, not the read made before the hold;
+//  * a walk is for the address whose check missed (o_walk_va), not for
+//    i_address (W's address, possibly a non-memory instruction's);
+//  * after an install, no walk starts until the check has registered
+//    again (the check registered in the install clock used older data);
+//    the TLB stays busy meanwhile.
+parameter logic CHECK_WALK = 1'b0,
 parameter logic        MMU_OFF_CACHEABLE   = 1'd0     // ARM925T: see zap_tlb_check
 
 ) (
@@ -98,6 +108,8 @@ logic                            sptlb_ren, lptlb_ren, setlb_ren;
 logic                            sptlb_ren_pre, lptlb_ren_pre, setlb_ren_pre;
 logic                            fptlb_ren, fptlb_ren_pre, fptlb_wen;
 logic                            walk;
+logic [31:0]                     walk_va;
+logic                            fsm_busy, check_stale;
 logic [7:0]                      fsr;
 logic [31:0]                     far;
 logic                            cacheable;
@@ -227,7 +239,7 @@ assign unused = |{i_address_nxt[9:0], tlb_address[9:0], i_address_nxt[31:W],
 
 // ----------------------------------------------------------------------------
 
-zap_mem_inv_block #(.WIDTH(`ZAP_SECTION_TLB_WDT), .DEPTH(SECTION_TLB_ENTRIES), .SHORT_READ(SHORT_READ))
+zap_mem_inv_block #(.WIDTH(`ZAP_SECTION_TLB_WDT), .DEPTH(SECTION_TLB_ENTRIES), .SHORT_READ(SHORT_READ), .READ_THROUGH(CHECK_WALK))
 u_section_tlb (
 .i_clk          (i_clk),
 .i_reset        (i_reset),
@@ -250,7 +262,7 @@ u_section_tlb (
 
 // ----------------------------------------------------------------------------
 
-zap_mem_inv_block #(.WIDTH(`ZAP_LPAGE_TLB_WDT), .DEPTH(LPAGE_TLB_ENTRIES), .SHORT_READ(SHORT_READ))
+zap_mem_inv_block #(.WIDTH(`ZAP_LPAGE_TLB_WDT), .DEPTH(LPAGE_TLB_ENTRIES), .SHORT_READ(SHORT_READ), .READ_THROUGH(CHECK_WALK))
 u_lpage_tlb   (
 .i_clk          (i_clk),
 .i_reset        (i_reset),
@@ -273,7 +285,7 @@ u_lpage_tlb   (
 
 // ----------------------------------------------------------------------------
 
-zap_mem_inv_block #(.WIDTH(`ZAP_SPAGE_TLB_WDT), .DEPTH(SPAGE_TLB_ENTRIES), .SHORT_READ(SHORT_READ))
+zap_mem_inv_block #(.WIDTH(`ZAP_SPAGE_TLB_WDT), .DEPTH(SPAGE_TLB_ENTRIES), .SHORT_READ(SHORT_READ), .READ_THROUGH(CHECK_WALK))
 u_spage_tlb   (
 .i_clk          (i_clk),
 .i_reset        (i_reset),
@@ -296,7 +308,7 @@ u_spage_tlb   (
 
 // ----------------------------------------------------------------------------
 
-zap_mem_inv_block #(.WIDTH(`ZAP_FPAGE_TLB_WDT), .DEPTH(FPAGE_TLB_ENTRIES), .SHORT_READ(SHORT_READ))
+zap_mem_inv_block #(.WIDTH(`ZAP_FPAGE_TLB_WDT), .DEPTH(FPAGE_TLB_ENTRIES), .SHORT_READ(SHORT_READ), .READ_THROUGH(CHECK_WALK))
 u_fpage_tlb (
 .i_clk          (i_clk),
 .i_reset        (i_reset),
@@ -353,6 +365,7 @@ u_zap_tlb_check (
 .i_fptlb_rdav   (fptlb_ren_pre),
 
 .o_walk         (walk),
+.o_walk_va      (walk_va),
 .o_hit_ok       (o_hit_ok),
 .o_fsr          (fsr),
 .o_far          (far),
@@ -374,8 +387,8 @@ zap_tlb_fsm #(
 .i_reset        (i_reset),
 .i_mmu_en       (i_mmu_en),
 .i_baddr        (i_baddr),
-.i_address      (i_address),
-.i_walk         (walk),
+.i_address      (CHECK_WALK ? walk_va : i_address),
+.i_walk         (walk && !check_stale),
 .i_fsr          (fsr),
 .i_far          (far),
 .i_cacheable    (cacheable),
@@ -387,7 +400,7 @@ zap_tlb_fsm #(
 .o_fault        (o_fault),
 .o_phy_addr     (o_phy_addr),
 .o_cacheable    (o_cacheable),
-.o_busy         (o_busy),
+.o_busy         (fsm_busy),
 
 .o_setlb_wdata  (setlb_wdata),
 .o_setlb_wen    (setlb_wen),
@@ -425,6 +438,15 @@ zap_tlb_fsm #(
 
 // ARM925T: passed straight on, like o_cacheable through zap_tlb_fsm.
 assign o_wt = wt;
+
+// ARM925T, CHECK_WALK: an install makes the registered check stale until
+// it registers again (at the next edge without i_hold).
+always_ff @(posedge i_clk)
+        if (i_reset || !CHECK_WALK) check_stale <= 1'b0;
+        else if (setlb_wen || sptlb_wen || lptlb_wen || fptlb_wen) check_stale <= 1'b1;
+        else if (!i_hold) check_stale <= 1'b0;
+
+assign o_busy = fsm_busy || (check_stale && walk && i_mmu_en);
 
 endmodule : zap_tlb
 

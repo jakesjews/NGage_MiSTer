@@ -25,7 +25,10 @@
 module zap_mem_inv_block #(
         parameter [31:0] DEPTH = 32,
         parameter [31:0] WIDTH = 32,  // Not including valid bit.
-        parameter logic SHORT_READ = 1'b0
+        parameter logic SHORT_READ = 1'b0,
+        // ARM925T, SHORT_READ only: read (and write) every clock, ignoring
+        // i_clken, so the data follows the read address through a hold.
+        parameter logic READ_THROUGH = 1'b0
 )(
 
 
@@ -64,7 +67,7 @@ if (SHORT_READ) begin : g_short
     logic [DEPTH-1:0] valid;
     logic read_valid;
     zap_ram_simple #(.WIDTH(WIDTH), .DEPTH(DEPTH), .SHORT_READ(1'b1)) u_ram (
-        .i_clk(i_clk), .i_clken(i_clken), .i_wr_en(i_wen),
+        .i_clk(i_clk), .i_clken(READ_THROUGH || i_clken), .i_wr_en(i_wen),
         .i_wr_data(i_wdata), .i_wr_addr(i_waddr), .i_rd_addr(i_raddr),
         .o_rd_data_pre(), .o_rd_data(o_rdata_pre)
     );
@@ -72,7 +75,7 @@ if (SHORT_READ) begin : g_short
         if (i_reset || i_inv) begin
             valid <= '0;
             read_valid <= 0;
-        end else if (i_clken) begin
+        end else if (READ_THROUGH || i_clken) begin
             if (i_wen) valid[i_waddr] <= 1;
             read_valid <= (i_wen && i_raddr == i_waddr) || valid[i_raddr];
         end
