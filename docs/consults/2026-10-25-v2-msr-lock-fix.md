@@ -608,3 +608,56 @@ two fixes:
   ACK (`arm9v2_core.sv` `fast_pc_hit`/`defer_load`/`load_data`).
 - **Thumb SWI:** EKA1 user code calls ARM exec stubs. Exception entry is
   ISA-independent at W.
+
+### Uncached and long-latency runs (`arm9_unc_chain_rtl.S`)
+
+The new test covers an older load that is uncached (a word, or an LDM's
+last word) or a cached literal, followed by self-dependent chains, an
+independent younger writer, or a reader then the writer. The chain's
+cached line is present, departing or absent. ARM and Thumb.
+
+- **Before fix 2** (`5c652ee`): it fails 30 of 540, all of them
+  departing-line self-dependent chains, including both uncached older
+  kinds.
+- **At `3c492f8`:** it passes on V2 and ZAP at 0:0, 8:12 and 16:40,
+  D8 and D16.
+- **The other directed tests:** `msr_lock`, `dep_waw`, `store_reload`,
+  `swi_lock` and `install_edge`, plus copies of `msr_lock`, `dep_waw`
+  and `store_reload` with their data section mapped uncached and the
+  code cached. All 64 runs pass at 8:12 and 16:40, D8 and D16, V2 and
+  ZAP.
+
+### Where the Cdbv2.dat check runs (static ROM analysis by a subagent)
+
+**Verified by disassembly:**
+- The C: file exists, so the client calls `RDbs::Connect`, then
+  `RDbNamedDatabase::Open(RDbs&, c:\System\Data\Cdbv2.dat, "[10004e1d]")`
+  (stub `0x50465A68`, called from `0x5045EF00`). The store checks
+  therefore run in the DBMS server thread. The client only receives the
+  −20 and leaves.
+- `0x50465AC0` is Create; it runs only if `RFs::Att` fails.
+- The ESTOR −20 sites, with the correct values for the C: file:
+  - header check at `0x508B53D0` (leave at `0x508B5470`): iBackup
+    `0x4F58`, iHandle 0, iRef `0x239D`, iCrc `0x0955`;
+  - frame type and length at `0x508AF8F2` and `0x508AF91C`: descriptors
+    `0x8043`, `0x80E8`, `0x5534`;
+  - TOC and delta-TOC checks from `0x508B4494` to `0x508B4668`;
+  - `RFile::Read` and `LeaveIfError` at `0x508ACC86`/`0x508ACC8A`.
+- A CRC mismatch would give −5, not −20.
+
+**Inferred:**
+- The C: file was rebuilt from the LFFS log by taking the newest record
+  per 512-byte sector. It passes every check, and it differs from
+  `Z:\System\Data\cdbv2.dat` from offset `0x1A27` on, so it is not a
+  plain copy.
+- Several of its sectors start at flash addresses that are 2 mod 4. A
+  misaligned copy out of the uncached flash window, in the file server
+  or the media driver, is a plausible place for V2 to differ.
+
+**For the capture:** a trigger on the client's Leave will show only the
+IPC return. Triggers on ESTOR's `User::Leave` stub (`0x508B625C` with
+r0 = −20, in EDbsrv) or on the file server's read path would show the
+check itself.
+
+Scratch notes, the reconstructed files and a validator are in the
+session scratchpad (`cdb/`).
