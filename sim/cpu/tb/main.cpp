@@ -19,6 +19,10 @@
 //     --measure-cycles         report warm windows without exact-count assertions
 //     --pddbg           also trace the branch prediction every cycle
 //     --buslog FILE     write one line per bus access
+//     --walklog FILE    one line per TLB walk: cycle, side, walked VA, the
+//                       checked VA that missed, a mark when they are in
+//                       different sections, V2's W request and memory state,
+//                       the PC of the data access at W
 //     --lat MIN:MAX     bus latency, cycles from request to ack (default 0:3)
 //     --icache-quarantine  force conservative I-fill class (negative test)
 //     --read-error ADDR  inject a bus error on reads of ADDR (repeatable)
@@ -160,7 +164,7 @@ int main(int argc, char **argv) {
 	std::vector<std::pair<uint32_t, std::string>> loads;
 	uint32_t halt = 0x40;
 	uint32_t sig_base = 0x00F00000, sig_size = 0x10000;
-	const char *sig_path = nullptr, *trace_path = nullptr, *buslog_path = nullptr;
+	const char *sig_path = nullptr, *trace_path = nullptr, *buslog_path = nullptr, *walklog_path = nullptr;
 	int lat_min = 0, lat_max = 3;
 	uint32_t seed = 1;
 	uint64_t max_cycles = 50000000;
@@ -198,6 +202,7 @@ int main(int argc, char **argv) {
 		else if (a == "--icache-quarantine") icache_quarantine = true;
 		else if (a == "--read-error") read_errors.push_back((uint32_t)strtoul(next(), nullptr, 0));
 		else if (a == "--buslog") buslog_path = next();
+		else if (a == "--walklog") walklog_path = next();
 		else if (a == "--lat") {
 			if (sscanf(next(), "%d:%d", &lat_min, &lat_max) != 2 || lat_min < 0 || lat_max < lat_min) {
 				fprintf(stderr, "--lat MIN:MAX\n");
@@ -329,6 +334,8 @@ int main(int argc, char **argv) {
 	if (trace_path && !(trace = fopen(trace_path, "w"))) { fprintf(stderr, "cannot write %s\n", trace_path); return 2; }
 
 	FILE *buslog = nullptr;
+	FILE *walklog = nullptr;
+	if (walklog_path && !(walklog = fopen(walklog_path, "w"))) { fprintf(stderr, "cannot write %s\n", walklog_path); return 2; }
 	if (buslog_path && !(buslog = fopen(buslog_path, "w"))) { fprintf(stderr, "cannot write %s\n", buslog_path); return 2; }
 
 	std::mt19937 rng(seed);
@@ -349,6 +356,8 @@ int main(int argc, char **argv) {
 	uint64_t hum_total_loads = 0, hum_total_stores = 0;
 	uint64_t dcache_events[4] = {};
 	uint64_t icache_events[8] = {};
+	// TLB walks (tb_cpu p_tlbwalk): D, D of another section, I, I of another
+	uint64_t tlb_walks[4] = {};
 	uint32_t store_fill_retired = 0;
 	uint32_t ic_watch = ~15u, ic_early_mask = 0, ic_first_mask = 0;
 	uint64_t dirty_fill_first = 0, dirty_write_first = 0;
@@ -380,6 +389,10 @@ int main(int argc, char **argv) {
 		case 0x3C: return (uint32_t)dcache_events[3];
 		case 0x40: return store_fill_retired;
 		case 0x48: return ic_early_mask;
+		case 0x50: return (uint32_t)tlb_walks[0];   // D-side walks
+		case 0x54: return (uint32_t)tlb_walks[1];   // ... of another section than the miss
+		case 0x58: return (uint32_t)tlb_walks[2];   // I-side walks
+		case 0x5C: return (uint32_t)tlb_walks[3];
 		case 0x4C: return ic_first_mask;
 		default: return 0;
 		}
@@ -462,6 +475,14 @@ int main(int argc, char **argv) {
 		for (int b = 0; b < 6; b++) stall_clocks[b] += (t->p_stall >> b) & 1;
 		for (int b = 0; b < 4; b++) dcache_events[b] += (t->p_dcache >> b) & 1;
 		for (int b = 0; b < 8; b++) icache_events[b] += (t->p_icache >> b) & 1;
+		for (int b = 0; b < 4; b++) tlb_walks[b] += (t->p_tlbwalk >> b) & 1;
+		if (walklog && (t->p_tlbwalk & 1))
+			fprintf(walklog, "%" PRIu64 " D %08x miss %08x%s req=%u state=%u dpc=%08x\n", cycle, (uint32_t)t->p_dwalk_va,
+			        (uint32_t)t->p_dwalk_miss_va, (t->p_tlbwalk & 2) ? " OTHER" : "",
+			        (unsigned)(t->p_dwalk_ctx >> 4) & 1, (unsigned)t->p_dwalk_ctx & 15, (uint32_t)t->p_dpc8 - 8);
+		if (walklog && (t->p_tlbwalk & 4))
+			fprintf(walklog, "%" PRIu64 " I %08x miss %08x%s\n", cycle, (uint32_t)t->p_iwalk_va,
+			        (uint32_t)t->p_iwalk_miss_va, (t->p_tlbwalk & 8) ? " OTHER" : "");
 		if (((t->p_icache & 3) != 0) != ((t->p_stall & 2) != 0) ||
 		    bool(t->p_icache & 8) != ((t->p_icache & 3) == 2))
 			error("instruction-side debug taps disagree with code stall");
@@ -752,6 +773,7 @@ int main(int argc, char **argv) {
 	accounting.finish(cycle);
 	if (trace) fclose(trace);
 	if (buslog) fclose(buslog);
+	if (walklog) fclose(walklog);
 	for (auto &d : dumps) {
 		FILE *f = fopen(d.path.c_str(), "wb");
 		if (!f) { fprintf(stderr, "cannot write %s\n", d.path.c_str()); return 2; }
@@ -816,6 +838,8 @@ int main(int argc, char **argv) {
 		       " bus_wait=%" PRIu64 " itlb_beats=%" PRIu64 " dtlb_beats=%" PRIu64 "\n",
 		       icache_events[0], icache_events[1], icache_events[2], icache_events[3],
 		       icache_events[4], icache_events[5], icache_events[6], icache_events[7]);
+		printf("TLB walks: D=%" PRIu64 " (another section %" PRIu64 ") I=%" PRIu64 " (another section %" PRIu64 ")\n",
+		       tlb_walks[0], tlb_walks[1], tlb_walks[2], tlb_walks[3]);
 		printf("Background writes: %" PRIu64 ", during fill: %" PRIu64 "\n", dc_writes, dc_early_writes);
 		printf("D-cache overlap: store_fill_retired=%u dirty_fill_first=%" PRIu64
 		       " dirty_write_first=%" PRIu64 "\n", store_fill_retired, dirty_fill_first, dirty_write_first);

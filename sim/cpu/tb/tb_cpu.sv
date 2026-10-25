@@ -68,6 +68,13 @@ module tb_cpu #(
 	output logic          p_dalign,
 	// address + 8 (+ 4 in Thumb) of the instruction making the data access
 	output logic [31:0]   p_dpc8,
+	// TLB walks: [0] a D-side walk starts, [1] of another section than the
+	// check that asked for it, [2] an I-side walk starts, [3] of another
+	// section; the walked and the missed (checked) addresses; for V2 the
+	// memory pipeline's state and W's request when a D-side walk starts
+	output logic [3:0]    p_tlbwalk,
+	output logic [31:0]   p_dwalk_va, p_dwalk_miss_va, p_iwalk_va, p_iwalk_miss_va,
+	output logic [4:0]    p_dwalk_ctx,
 	// CP15 state: translation table base, domain access, MMU enable
 	output logic [31:0]   p_ttb,
 	output logic [31:0]   p_dacr,
@@ -158,6 +165,26 @@ module tb_cpu #(
 	assign p_dva   = dut.u_zap.cpu_daddr_va;
 	assign p_dalign = dut.u_zap.cpu_align_fault;
 	assign p_ttb   = dut.u_zap.cpu_baddr;
+	// A walker fetches the descriptor of the address its cache presents
+	// (zap_tlb_fsm i_address, captured while IDLE); the miss that started
+	// it was decided on the check address registered with o_walk.
+	`define TLBD dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_tlb
+	`define TLBI dut.u_zap.l_generate_with_cache_mmu.u_code_cache.u_zap_tlb
+	logic [31:0] dwalk_miss_va = 0, iwalk_miss_va = 0;
+	always @(posedge clk) begin
+		if (`TLBD.u_zap_tlb_check.i_clkena) dwalk_miss_va <= `TLBD.u_zap_tlb_check.i_va;
+		if (`TLBI.u_zap_tlb_check.i_clkena) iwalk_miss_va <= `TLBI.u_zap_tlb_check.i_va;
+	end
+	assign p_tlbwalk = {`TLBI.u_zap_tlb_fsm.walk && `TLBI.u_zap_tlb_fsm.i_address[31:20] != iwalk_miss_va[31:20],
+	                    `TLBI.u_zap_tlb_fsm.walk,
+	                    `TLBD.u_zap_tlb_fsm.walk && `TLBD.u_zap_tlb_fsm.i_address[31:20] != dwalk_miss_va[31:20],
+	                    `TLBD.u_zap_tlb_fsm.walk};
+	assign p_dwalk_va = `TLBD.u_zap_tlb_fsm.i_address;
+	assign p_dwalk_miss_va = dwalk_miss_va;
+	assign p_iwalk_va = `TLBI.u_zap_tlb_fsm.i_address;
+	assign p_iwalk_miss_va = iwalk_miss_va;
+	`undef TLBD
+	`undef TLBI
 	assign p_dacr  = dut.u_zap.cpu_dac_reg;
 	assign p_mmu   = dut.u_zap.cpu_mmu_en;
     assign p_arm9 = CORE == "ARM9";
@@ -165,6 +192,7 @@ module tb_cpu #(
     assign p_arm9_predictor = CORE == "ARM9" && ARM9_PREDICTOR;
 	wire cp_drain_done;
 	if (CORE == "ZAP") begin : g_zap_probes
+	assign p_dwalk_ctx = '0;
     assign cp_drain_done = dut.u_zap.g_zap.u_zap_core.u_zap_cp15_cb.o_cp_done &&
         (dut.u_zap.g_zap.u_zap_core.u_zap_cp15_cb.i_cp_word[27:0] & 28'hfff0fff) == 28'he070f9a;
     assign p_recovery = p_dabt[1] ? 3'd4 : 3'd0;
@@ -241,6 +269,7 @@ module tb_cpu #(
     assign cp_drain_done = dut.u_zap.g_arm9.u_arm9_core.u_zap_cp15_cb.o_cp_done &&
         (dut.u_zap.g_arm9.u_arm9_core.u_zap_cp15_cb.i_cp_word[27:0] & 28'hfff0fff) == 28'he070f9a;
 	`define A9 dut.u_zap.g_arm9.u_arm9_core
+    assign p_dwalk_ctx = {`A9.request, 4'(`A9.memory_state)};
 
     // Snapshot before retirement changes the backend owners. These counters
     // describe discarded valid uop/queue slots, not unique ISA instructions.
