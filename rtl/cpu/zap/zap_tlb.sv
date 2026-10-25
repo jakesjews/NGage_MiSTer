@@ -76,6 +76,7 @@ output  logic            o_cacheable,
 output  logic            o_wt,          // ARM925T: write-through page (C=1 B=0).
 output  logic            o_busy,
 output  logic            o_hit_ok,      // ARM925T: registered check, independent of walker IDLE.
+output  logic            o_hit_ok_short, // ARM9V2: o_hit_ok's unretimed copy (zap_tlb_check)
 input   logic            i_idle,
 
 // Wishbone memory interface - Needs to go through some OR gates.
@@ -367,6 +368,7 @@ u_zap_tlb_check (
 .o_walk         (walk),
 .o_walk_va      (walk_va),
 .o_hit_ok       (o_hit_ok),
+.o_hit_ok_short (o_hit_ok_short),
 .o_fsr          (fsr),
 .o_far          (far),
 .o_cacheable    (cacheable),

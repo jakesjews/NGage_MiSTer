@@ -61,6 +61,9 @@ input logic [`ZAP_FPAGE_TLB_WDT-1:0]     i_fptlb_rdata,  // Fine page TLB read d
 input logic                              i_fptlb_rdav,   // Fine page TLB valid.
 
 output logic                            o_hit_ok,       // ARM925T: translated, permitted cache hit (WB stores only).
+// ARM9V2: o_hit_ok's copy for the D-cache's short hit, kept a register of
+// its own (no retiming, no merging): the CPU's W hit starts at a flop.
+(* dont_retime, preserve *) output logic o_hit_ok_short,
 output logic                            o_walk,         // Signal page walk.
 output logic [31:0]                     o_walk_va,      // ARM925T: the address o_walk is for.
 output logic [7:0]                      o_fsr,          // FSR. 0 means all OK.
@@ -111,7 +114,15 @@ always_ff @(posedge i_clk)
                 dummy <= dummy_nxt;
                 o_hit_ok <= !walk_nxt && !(|fsr_nxt[3:0]) &&
                             cacheable_nxt && !(i_wr && wt_nxt);
+                o_hit_ok_short <= !walk_nxt && !(|fsr_nxt[3:0]) &&
+                            cacheable_nxt && !(i_wr && wt_nxt);
         end
+
+`ifndef SYNTHESIS
+logic hit_ok_loaded = 1'b0;
+always_ff @(posedge i_clk) if (i_clkena) hit_ok_loaded <= 1'b1;
+always_ff @(posedge i_clk) if (hit_ok_loaded) assert (o_hit_ok_short == o_hit_ok) else $fatal(1, "TLB hit_ok copy");
+`endif
 
 always_comb
 begin : tlb_match_logic

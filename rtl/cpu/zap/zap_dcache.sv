@@ -29,6 +29,8 @@ parameter logic SHORT_READ = 1'b0, // ARM9: RAM edge then caller's compare/captu
 // read/write set collision on the RAMs' own edge (REG_COLLISION).
 parameter logic WAY_FORMAT = 1'b0,
 parameter logic REG_COLLISION = 1'b0,
+// ARM9V2 (SHORT_READ): the short hit takes the TLB's unretimed hit_ok copy.
+parameter logic HIT_FF = 1'b0,
 parameter logic [31:0] CACHE_SIZE             = 32'd1024,
 parameter logic [31:0] SPAGE_TLB_ENTRIES      = 32'd8,
 parameter logic [31:0] LPAGE_TLB_ENTRIES      = 32'd8,
@@ -155,7 +157,7 @@ logic [31:0]                     tlb_far;
 logic                            tlb_fault;
 logic                            tlb_cacheable;
 logic                            tlb_wt;        // ARM925T
-logic                            tlb_busy, tlb_hit_ok;
+logic                            tlb_busy, tlb_hit_ok, tlb_hit_ok_short;
 logic [CACHE_LINE*8-1:0]         tr_cache_line;
 logic [WAYS-1:0][31:0]           tr_cache_words;   // ARM925T
 logic                            tr_cache_word_sel; // ARM925T
@@ -190,7 +192,7 @@ logic [3:0]                      cf_dbg_dcache;
 logic                            clean_line_event;
 assign o_fill_busy = fill_busy;
 assign o_short_data = SHORT_READ ? tr_cache_words[0] : 32'd0;
-assign o_short_hit = SHORT_READ && tr_cache_hit && tlb_hit_ok;
+assign o_short_hit = SHORT_READ && tr_cache_hit && (HIT_FF ? tlb_hit_ok_short : tlb_hit_ok);
 // ARM9V2: during a fill, the line it evicts keeps its tag until UNLOCK_REG
 // and still gives a short hit, but its lookups are unsafe: the FSM withholds
 // the ACK, and after installation the access misses. live_lookup is
@@ -546,6 +548,7 @@ u_zap_tlb (
         .o_wt           (tlb_wt),
         .o_busy         (tlb_busy),
         .o_hit_ok       (tlb_hit_ok),
+        .o_hit_ok_short (tlb_hit_ok_short),
         .o_wb_stb_nxt   (wb_stb[2]),
         .o_wb_cyc_nxt   (wb_cyc[2]),
         .o_wb_adr_nxt   (wb_adr[2]),

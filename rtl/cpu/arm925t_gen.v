@@ -7184,6 +7184,7 @@ module zap_cache (
 		.o_fault(tlb_fault),
 		.o_wt(),
 		.o_hit_ok(),
+		.o_hit_ok_short(),
 		.o_cacheable(tlb_cacheable),
 		.o_busy(tlb_busy),
 		.o_wb_stb_nxt(wb_stb[2]),
@@ -12747,6 +12748,7 @@ module zap_dcache (
 	parameter [0:0] SHORT_READ = 1'b0;
 	parameter [0:0] WAY_FORMAT = 1'b0;
 	parameter [0:0] REG_COLLISION = 1'b0;
+	parameter [0:0] HIT_FF = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
@@ -13124,6 +13126,7 @@ module zap_dcache (
 	wire tlb_wt;
 	wire tlb_busy;
 	wire tlb_hit_ok;
+	wire tlb_hit_ok_short;
 	reg [(CACHE_LINE * 8) - 1:0] tr_cache_line;
 	reg [(WAYS * 32) - 1:0] tr_cache_words;
 	reg tr_cache_word_sel;
@@ -13175,7 +13178,7 @@ module zap_dcache (
 	reg clean_line_event;
 	assign o_fill_busy = fill_busy;
 	assign o_short_data = (SHORT_READ ? tr_cache_words[0+:32] : 32'd0);
-	assign o_short_hit = (SHORT_READ && tr_cache_hit) && tlb_hit_ok;
+	assign o_short_hit = (SHORT_READ && tr_cache_hit) && (HIT_FF ? tlb_hit_ok_short : tlb_hit_ok);
 	assign o_short_live = SHORT_READ && live_lookup;
 	assign o_short_trust = SHORT_READ && live_trust;
 	localparam integer SET_W = $clog2((CACHE_SIZE / WAYS) / CACHE_LINE);
@@ -13539,6 +13542,7 @@ module zap_dcache (
 		.o_wt(tlb_wt),
 		.o_busy(tlb_busy),
 		.o_hit_ok(tlb_hit_ok),
+		.o_hit_ok_short(tlb_hit_ok_short),
 		.o_wb_stb_nxt(wb_stb[2]),
 		.o_wb_cyc_nxt(wb_cyc[2]),
 		.o_wb_adr_nxt(wb_adr[2]),
@@ -24130,6 +24134,7 @@ module zap_tlb (
 	o_wt,
 	o_busy,
 	o_hit_ok,
+	o_hit_ok_short,
 	i_idle,
 	o_wb_stb_nxt,
 	o_wb_cyc_nxt,
@@ -24171,6 +24176,7 @@ module zap_tlb (
 	output wire o_wt;
 	output wire o_busy;
 	output wire o_hit_ok;
+	output wire o_hit_ok_short;
 	input wire i_idle;
 	output wire o_wb_stb_nxt;
 	output wire o_wb_cyc_nxt;
@@ -24677,6 +24683,7 @@ module zap_tlb (
 		.o_walk(walk),
 		.o_walk_va(walk_va),
 		.o_hit_ok(o_hit_ok),
+		.o_hit_ok_short(o_hit_ok_short),
 		.o_fsr(fsr),
 		.o_far(far),
 		.o_cacheable(cacheable),
@@ -24757,6 +24764,7 @@ module zap_tlb_check (
 	i_fptlb_rdata,
 	i_fptlb_rdav,
 	o_hit_ok,
+	o_hit_ok_short,
 	o_walk,
 	o_walk_va,
 	o_fsr,
@@ -24790,6 +24798,7 @@ module zap_tlb_check (
 	input wire [(54 - $clog2(FPAGE_TLB_ENTRIES)) - 1:0] i_fptlb_rdata;
 	input wire i_fptlb_rdav;
 	output reg o_hit_ok;
+	(* dont_retime, preserve *) output reg o_hit_ok_short;
 	output reg o_walk;
 	output reg [31:0] o_walk_va;
 	output reg [7:0] o_fsr;
@@ -25097,6 +25106,7 @@ module zap_tlb_check (
 			o_wt <= wt_nxt;
 			dummy <= dummy_nxt;
 			o_hit_ok <= ((!walk_nxt && !(|fsr_nxt[3:0])) && cacheable_nxt) && !(i_wr && wt_nxt);
+			o_hit_ok_short <= ((!walk_nxt && !(|fsr_nxt[3:0])) && cacheable_nxt) && !(i_wr && wt_nxt);
 		end
 	function automatic is_apsr_ok;
 		input user;
@@ -26899,6 +26909,7 @@ module zap_top (
 				.SHORT_READ(CORE == "ARM9"),
 				.WAY_FORMAT(CORE == "ARM9"),
 				.REG_COLLISION(CORE == "ARM9"),
+				.HIT_FF(CORE == "ARM9"),
 				.BE_32_ENABLE(BE_32_ENABLE),
 				.EXT_ABORT_FS((TI925T ? 4'b1000 : 4'b0010))
 			) u_data_cache(

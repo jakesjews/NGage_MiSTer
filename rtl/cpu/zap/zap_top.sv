@@ -852,6 +852,7 @@ zap_dcache #(
         .SHORT_READ(CORE == "ARM9"),
         .WAY_FORMAT(CORE == "ARM9"),
         .REG_COLLISION(CORE == "ARM9"),
+        .HIT_FF(CORE == "ARM9"),
         .BE_32_ENABLE(BE_32_ENABLE),
         .EXT_ABORT_FS(TI925T ? 4'b1000 : 4'b0010)
 )

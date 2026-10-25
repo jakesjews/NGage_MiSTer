@@ -416,6 +416,7 @@ u_zap_tlb (
         /* verilator lint_off PINCONNECTEMPTY */
         .o_wt           (),
         .o_hit_ok       (),             // ARM925T: D-side only
+        .o_hit_ok_short (),
         /* verilator lint_on PINCONNECTEMPTY */
         .o_cacheable    (tlb_cacheable),
         .o_busy         (tlb_busy),
