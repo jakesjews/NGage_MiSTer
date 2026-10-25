@@ -29,3 +29,12 @@ public_flat_rd -module "arm9v2_core" -var "request"
 public_flat_rd -module "arm9v2_core" -var "request_done"
 public_flat_rd -module "arm9v2_core" -var "i_data_fill_busy"
 public_flat_rd -module "arm9v2_core" -var "o_data_wb_we"
+
+// --check-flash and --buslog: the burst kind on the CPU's port, and each
+// flash chip's state (in read-array mode, with no command sequence, program
+// or erase, its reads equal the image).
+public_flat_rd -module "emu" -var "wb_cti"
+public_flat_rd -module "nor_flash" -var "mode"
+public_flat_rd -module "nor_flash" -var "cseq"
+public_flat_rd -module "nor_flash" -var "p_state"
+public_flat_rd -module "nor_flash" -var "e_state"

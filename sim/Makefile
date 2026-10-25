@@ -27,7 +27,7 @@ RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
 BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash trace upp intc timers haudio periph save phoenix top
 
-.PHONY: test $(BENCHES) coreboot hps-read-test clean
+.PHONY: test $(BENCHES) coreboot flashcopy hps-read-test clean
 
 test:
 	@for b in $(BENCHES); do $(MAKE) --no-print-directory $$b || exit 1; done
@@ -235,6 +235,26 @@ $(BUILD)/coreboot/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/coreboo
 		$(if $(filter-out 1,$(CORE_THREADS)),--threads $(CORE_THREADS)) \
 		--top-module emu -DNGAGE_DEBUG=1 --Mdir $(BUILD)/coreboot -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
 		$(ROOT)/sim/harness/coreboot.vlt $(TOP_RTL) $(PROFILE_FILES) $(ROOT)/sim/harness/coreboot_main.cpp
+# The LFFS sector copy on the whole core (sim/harness/flashcopy.S, no
+# firmware needed): the CPU copies C: sectors out of the flash window with
+# Mem::Copy's sequence through the real memory side; --check-flash compares
+# every flash read beat with the image. VEXTRA chooses the CPU as for
+# coreboot (VEXTRA=-DNGAGE_CORE_ARM9=1 for V2); FC_ARGS adds bench options
+# (e.g. --ddr-lat 6:30 --ddr-busy 20 --buslog FILE).
+FC_DIR  ?= $(BUILD)/flashcopy
+FC_ARGS ?=
+$(FC_DIR)/cs0.bin: $(ROOT)/sim/harness/flashcopy.S $(ROOT)/sim/cpu/tests/mem_copy.inc $(ROOT)/sim/harness/flashcopy_images.py
+	mkdir -p $(FC_DIR)
+	arm-none-eabi-as -mcpu=arm9tdmi -mfloat-abi=soft -I$(ROOT)/sim/cpu/tests -o $(FC_DIR)/flashcopy.o $<
+	arm-none-eabi-ld -Ttext=0 -Tdata=0x0A300000 -o $(FC_DIR)/flashcopy.elf $(FC_DIR)/flashcopy.o
+	arm-none-eabi-objcopy -O binary -j .text $(FC_DIR)/flashcopy.elf $(FC_DIR)/flashcopy.bin
+	python3 $(ROOT)/sim/harness/flashcopy_images.py $(FC_DIR)/flashcopy.bin $@ $(FC_DIR)/cs1.bin
+flashcopy: $(BUILD)/coreboot/Vemu $(FC_DIR)/cs0.bin
+	cd $(ROOT) && $< $(RUNFLAGS) --cs0 $(FC_DIR)/cs0.bin --cs1 $(FC_DIR)/cs1.bin --out $(FC_DIR) \
+		--check-flash --until '#END' --cycles 400000000 --progress 0 --no-profile $(FC_ARGS) | tee $(FC_DIR)/run.log
+	cat $(FC_DIR)/kern.log
+	grep -q ' 0 mismatch(es)' $(FC_DIR)/run.log && grep -q ' 00000000 failures' $(FC_DIR)/kern.log
+
 # Exercise the firmware bench's HPS adapter without firmware images.
 hps-read-test: $(BUILD)/coreboot/Vemu
 	cd $(ROOT) && sim/harness/hps_read_test.sh $(BUILD)/coreboot $(CORE_CFLAGS) $(if $(filter 1,$(CORE_PROFILE)),-DCPU_PROFILE=1)

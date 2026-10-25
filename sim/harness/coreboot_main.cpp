@@ -24,6 +24,16 @@
 //   --trace FILE --trace-after N --trace-count M
 //                      an instruction window (sim/cpu/boot/cmp_window.py)
 //   --progress N       a line every N clocks (with wall-clock time)
+//   --check-flash      compare every CPU read beat from CS0/CS1 with the
+//                      image in the DDRAM model (the flash contents, writes
+//                      included) when that chip was in read-array mode (no
+//                      command, program or erase) from before the beat
+//                      began; report the first mismatches and the count
+//   --buslog FILE      one line per CPU beat to CS0/CS1/SDRAM: clock, R|W,
+//                      address, SEL, data, CTI
+//   --until TEXT       stop when the STI text ends with TEXT
+//   --ddr-lat MIN:MAX, --ddr-busy PCT, --ddr-gap PCT, --ddr-stall PCT_X1000
+//                      the DDRAM port's timing (ddram_model.h's DdramProfile)
 //   --fault-history N  retain N retirements in memory; dump on D/P/U and
 //                      this ROM's Kern::Fault entry (0x5031e340), plus raw
 //                      SDRAM and the generated RTL state (including caches).
@@ -265,6 +275,14 @@ struct Bench {
         fflush(stdout);
     }
 	uint64_t dev_accesses = 0;
+	// --check-flash, --buslog, --until
+	bool check_flash = false;
+	uint64_t flash_checked[2] = {}, flash_bad = 0;
+	uint64_t beat_start = 0, array_since[2] = {};
+	bool beat_prev = false, ack_prev = false, array_prev[2] = {};
+	FILE *buslog = nullptr;
+	std::string until, sti_tail;
+	bool stop = false;
 	// STI debug text
 	FILE *kern = nullptr;
 	// video
@@ -335,6 +353,11 @@ struct Bench {
 		if (c == '\n' || c == '\t' || (c >= 0x20 && c < 0x7F)) fputc(c, kern);
 		else fprintf(kern, "<%02x>", c);
 		if (c == '\n') fflush(kern);
+		if (!until.empty()) {
+			sti_tail += (char)c;
+			if (sti_tail.size() > until.size()) sti_tail.erase(0, sti_tail.size() - until.size());
+			if (sti_tail == until) stop = true;
+		}
 	}
 
 	// what commits at the coming edge (the CPU's writeback stage)
@@ -466,6 +489,51 @@ struct Bench {
 		}
 	}
 
+	// --check-flash / --buslog: a completed beat on the CPU's port to the
+	// flash chips (and SDRAM for the log), against the DDRAM model's image
+	void flash_watch() {
+		auto &h = *r;
+		// when the current beat began, and since when each chip has been in
+		// read-array mode (M_READ, no command sequence, program or erase): a
+		// read is checked only if that held before the beat began (a status
+		// read can end in the clock the operation ends)
+		bool beat = h.emu__DOT__wb_cyc && h.emu__DOT__wb_stb, ack = h.emu__DOT__wb_ack;
+		if (beat && (!beat_prev || ack_prev)) beat_start = clocks;
+		beat_prev = beat;
+		ack_prev = ack;
+#define FL_ARRAY(f) (h.emu__DOT__ngage_mem__DOT__##f##__DOT__mode == 0 && h.emu__DOT__ngage_mem__DOT__##f##__DOT__cseq == 0 && \
+                     h.emu__DOT__ngage_mem__DOT__##f##__DOT__p_state == 0 && h.emu__DOT__ngage_mem__DOT__##f##__DOT__e_state == 0)
+		for (int c = 0; c < 2; c++) {
+			bool arr = c ? FL_ARRAY(flash_cs1) : FL_ARRAY(flash_cs0);
+			if (arr && !array_prev[c]) array_since[c] = clocks;
+			array_prev[c] = arr;
+		}
+		if (h.emu__DOT__test_on || !h.emu__DOT__wb_cyc || !h.emu__DOT__wb_ack) return;
+		uint32_t a = h.emu__DOT__wb_adr;
+		bool we = h.emu__DOT__wb_we;
+		unsigned be = h.emu__DOT__wb_sel;
+		uint32_t d = we ? h.emu__DOT__wb_dat_w : h.emu__DOT__wb_dat_r;
+		bool fl = a < 0x04000000u, sd = a >= 0x0A000000u && a < 0x0C000000u;
+		if (buslog && (fl || sd))
+			fprintf(buslog, "%" PRIu64 " %c %08x %x %08x %u\n", clocks, we ? 'W' : 'R', a, be, d,
+			        (unsigned)h.emu__DOT__wb_cti);
+		if (!check_flash || we || !fl) return;
+		int chip_n = a >= 0x02000000u;
+		if (!array_prev[chip_n] || array_since[chip_n] >= beat_start) return;
+		uint32_t off = chip_n ? ((a - 0x02000000u) & 0x7FFFFFu) : (a & 0xFFFFFFu);
+		uint32_t base = DDR_BASE + (chip_n ? 0x01000000u : 0) + (off & ~3u) - DdramModel::BASE;
+		uint32_t want = 0, mask = 0;
+		for (int i = 0; i < 4; i++)
+			if (be >> i & 1) { want |= (uint32_t)dm.mem[base + i] << (8 * i); mask |= 0xFFu << (8 * i); }
+		flash_checked[chip_n]++;
+		if ((d & mask) != want) {
+			if (flash_bad < 20)
+				printf("FLASH MISMATCH clock %" PRIu64 " CS%d %08x sel %x cti %u: read %08x, image %08x\n",
+				       clocks, chip_n, a, be, (unsigned)h.emu__DOT__wb_cti, d & mask, want);
+			flash_bad++;
+		}
+	}
+
 	// the picture at the video outputs, a PNG each time it changes
 	void video_watch() {
 		bool vs = t->VGA_VS;
@@ -552,6 +620,7 @@ struct Bench {
 		if (clocks > 2) chip.edge(clocks, p);
 		cpu_after_edge();
 		bus_watch();
+		if (check_flash || buslog) flash_watch();
 		video_watch();
 		audio_watch();
 		key_watch();
@@ -589,7 +658,10 @@ int main(int argc, char **argv) {
 	crc_init();
 	std::string cs0p, cs1p, mmcp, out = ".", keysp, tracep, rtc = "2004-06-01 12:00:00";
 	uint64_t max_cycles = 1000000000ull, progress = 50000000ull, trace_after = 0, trace_count = 0;
-	bool devlog = false, profile_enabled = true;
+	bool devlog = false, profile_enabled = true, check_flash = false;
+	std::string buslogp, until;
+	DdramProfile ddr;
+	bool ddr_set = false;
     size_t fault_history = 0;
     std::vector<uint64_t> profile_marks;size_t profile_mark_index=0;
 	for (int i = 1; i < argc; i++) {
@@ -613,6 +685,13 @@ int main(int argc, char **argv) {
 		else if (a == "--trace-count") trace_count = strtoull(next(), nullptr, 0);
 		else if (a == "--progress") progress = strtoull(next(), nullptr, 0);
         else if (a == "--fault-history") fault_history = strtoull(next(), nullptr, 0);
+		else if (a == "--check-flash") check_flash = true;
+		else if (a == "--buslog") buslogp = next();
+		else if (a == "--until") until = next();
+		else if (a == "--ddr-lat") { ddr_set = true; if (sscanf(next(), "%d:%d", &ddr.lat_min, &ddr.lat_max) != 2) return 2; }
+		else if (a == "--ddr-busy") { ddr_set = true; ddr.busy_pct = atoi(next()); }
+		else if (a == "--ddr-gap") { ddr_set = true; ddr.gap_pct = atoi(next()); }
+		else if (a == "--ddr-stall") { ddr_set = true; ddr.stall_pct_x1000 = atoi(next()); }
 		else if (a[0] == '+') continue;
 		else { fprintf(stderr, "unknown option %s\n", a.c_str()); return 2; }
 	}
@@ -629,6 +708,10 @@ int main(int argc, char **argv) {
     (void)profile_enabled;
 #endif
 	b.kern = fopen((out + "/kern.log").c_str(), "w");
+	b.check_flash = check_flash;
+	if (ddr_set) b.dm.prof = ddr;
+	b.until = until;
+	if (!buslogp.empty() && !(b.buslog = fopen(buslogp.c_str(), "w"))) { fprintf(stderr, "cannot write %s\n", buslogp.c_str()); return 2; }
 	if (devlog) {
         b.devlog = fopen((out + "/dev.log").c_str(), "w");
         b.exec_log = fopen((out + "/exec.log").c_str(), "w");
@@ -686,7 +769,7 @@ int main(int argc, char **argv) {
 	auto t0 = std::chrono::steady_clock::now();
 	uint64_t last_c = b.clocks;
 	auto last_t = t0;
-	while (b.clocks < max_cycles) {
+	while (b.clocks < max_cycles && !b.stop) {
 		b.tick();
         if(b.accounting.enabled && b.clocks%104000000==0)b.accounting.second(b.clocks);
         if(profile_mark_index<profile_marks.size()&&b.clocks==profile_marks[profile_mark_index]){
@@ -716,6 +799,10 @@ int main(int argc, char **argv) {
     b.accounting.finish(b.clocks);
 	if (b.chip.errors) printf("the SDRAM chip model reported %d error(s)\n", b.chip.errors);
 	if (b.dm.protocol_errors) printf("%d DDRAM port protocol error(s)\n", b.dm.protocol_errors);
+	if (b.check_flash)
+		printf("flash check: %" PRIu64 " CS0 and %" PRIu64 " CS1 read beats in array mode, %" PRIu64 " mismatch(es)\n",
+		       b.flash_checked[0], b.flash_checked[1], b.flash_bad);
+	if (b.buslog) fclose(b.buslog);
 	if (b.exec_log) {
         printf("User execution: %" PRIu64 " instructions, %" PRIu64 " entries, %" PRIu64 " exec calls\n",
             b.user_retired,b.user_entries,b.exec_calls);
