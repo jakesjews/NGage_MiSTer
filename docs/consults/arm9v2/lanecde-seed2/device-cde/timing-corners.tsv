@@ -1,0 +1,17 @@
+corner	check	worst_slack_ns
+Slow 1100mV 100C Model	setup	-2.086
+Slow 1100mV 100C Model	hold	0.211
+Slow 1100mV 100C Model	recovery	3.998
+Slow 1100mV 100C Model	removal	1.180
+Slow 1100mV -40C Model	setup	-2.149
+Slow 1100mV -40C Model	hold	0.110
+Slow 1100mV -40C Model	recovery	4.138
+Slow 1100mV -40C Model	removal	1.082
+Fast 1100mV 100C Model	setup	2.550
+Fast 1100mV 100C Model	hold	0.136
+Fast 1100mV 100C Model	recovery	5.213
+Fast 1100mV 100C Model	removal	0.570
+Fast 1100mV -40C Model	setup	3.640
+Fast 1100mV -40C Model	hold	0.090
+Fast 1100mV -40C Model	recovery	5.427
+Fast 1100mV -40C Model	removal	0.479
