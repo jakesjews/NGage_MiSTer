@@ -155,7 +155,7 @@ module arm9v2_front_execute #(
         .i_flush(i_flush||o_redirect),
         .i_mode(i_cpsr[4:0]),
         .i_wen(i_ready&&!i_flush),
-        .i_wr_addr_a(wa),
+        .i_wr_tag_a(6'd16),.i_wr_tag_b(6'd16),.i_wr_pair(1'b0),.i_wr_addr_a(wa),
         .i_wr_addr_b(wb),
         .i_wr_addr_c(wc),
         .i_locked(i_locked),

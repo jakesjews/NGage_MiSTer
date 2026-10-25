@@ -9,6 +9,7 @@ module arm9v2_front_decode #(
     parameter logic SHIFT_PRE=0,
     parameter logic PAYLOAD_FREE=0,
     parameter logic REDIRECT_PAYLOAD=0,
+    parameter logic WT_TAGS=0,
     parameter logic [31:0] RESET_VECTOR=0
 ) (
     input logic i_clk, i_reset, i_flush,
@@ -21,6 +22,8 @@ module arm9v2_front_decode #(
     input logic [3:0] i_early_valid,
     input logic [3:0] i_early_agu,
     input logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c,
+    input logic [5:0] i_wr_tag_a, i_wr_tag_b,
+    input logic i_wr_pair,
     input logic [3:0][31:0] i_rf_value,
     output logic [3:0][5:0] o_rf_tag,
     input logic [5:0][5:0] i_load_tag,
@@ -113,7 +116,7 @@ module arm9v2_front_decode #(
         .o_predicted(f_predicted),.o_pred_hit(f_hit),.o_pred_target(f_target),
         .o_pred_state(f_state),.o_pred_kind(f_kind),.o_ras_pointer(f_pointer),.o_ras_count(f_count)
     );
-    arm9v2_decode #(.EXTERNAL_RF(EXTERNAL_RF),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD)) u_decode (
+    arm9v2_decode #(.EXTERNAL_RF(EXTERNAL_RF),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS)) u_decode (
         .i_valid(f_valid),.i_pc(f_pc),.i_word(f_word),.i_thumb(f_thumb),.i_fault(f_fault),
         .i_predicted(f_predicted),.i_pred_hit(f_hit),.i_pred_target(f_target),
         .i_pred_state(f_state),.i_pred_kind(f_kind),.i_ras_pointer(f_pointer),.i_ras_count(f_count),

@@ -413,6 +413,7 @@ module arm9v2_core (
 	parameter [0:0] SHIFT_PRE = 1'b1;
 	parameter [0:0] PAYLOAD_FREE = 1'b1;
 	parameter [0:0] REDIRECT_PAYLOAD = 1'b1;
+	parameter [0:0] WT_TAGS = 1'b1;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
 	parameter [31:0] DATA_CACHE_SIZE = 1024;
 	parameter [31:0] CODE_CACHE_SIZE = 1024;
@@ -1339,7 +1340,8 @@ module arm9v2_core (
 		.THUMB_HALF(THUMB_HALF),
 		.SHIFT_PRE(SHIFT_PRE),
 		.PAYLOAD_FREE(PAYLOAD_FREE),
-		.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD)
+		.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),
+		.WT_TAGS(WT_TAGS)
 	) u_front_decode(
 		.i_w_load_hit(w_load_hit),
 		.o_self_dep(d_self_dep),
@@ -1363,6 +1365,9 @@ module arm9v2_core (
 		.i_mode(cpsr[4:0]),
 		.i_wen(wb_valid),
 		.i_wr_addr_a(wa),
+		.i_wr_tag_a(wb_tag0),
+		.i_wr_tag_b(wb_tag1),
+		.i_wr_pair(wb_pair),
 		.i_wr_addr_b(wb),
 		.i_wr_addr_c(wc),
 		.i_locked(locked),
@@ -1751,6 +1756,9 @@ module arm9v2_decode (
 	i_wr_data_a,
 	i_wr_data_b,
 	i_wr_data_c,
+	i_wr_tag_a,
+	i_wr_tag_b,
+	i_wr_pair,
 	i_rf_value,
 	o_rf_tag,
 	i_load_tag,
@@ -1827,6 +1835,7 @@ module arm9v2_decode (
 	parameter [0:0] SHIFT_PRE = 0;
 	parameter [0:0] PAYLOAD_FREE = 0;
 	parameter [0:0] REDIRECT_PAYLOAD = 0;
+	parameter [0:0] WT_TAGS = 0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
@@ -1856,6 +1865,9 @@ module arm9v2_decode (
 	input wire [31:0] i_wr_data_a;
 	input wire [31:0] i_wr_data_b;
 	input wire [31:0] i_wr_data_c;
+	input wire [5:0] i_wr_tag_a;
+	input wire [5:0] i_wr_tag_b;
+	input wire i_wr_pair;
 	input wire [127:0] i_rf_value;
 	output wire [23:0] o_rf_tag;
 	input wire [35:0] i_load_tag;
@@ -2656,11 +2668,23 @@ module arm9v2_decode (
 	endfunction
 	(* dont_retime *) reg [15:0] shift_pre_ff;
 	assign o_shift_pre = (SHIFT_PRE ? shift_pre_ff : 16'd0);
+	reg [3:0] wt_hit_a;
+	reg [3:0] wt_hit_b;
+	always @(*) begin : sv2v_autoblock_27
+		reg signed [31:0] n;
+		if (_sv2v_0)
+			;
+		for (n = 0; n < 4; n = n + 1)
+			begin
+				wt_hit_a[n] = ((i_wr_tag_a != 16) && (i_wr_tag_a < 40)) && (i_wr_tag_a == d2[100 + (n * 6)+:6]);
+				wt_hit_b[n] = ((i_wr_pair && (i_wr_tag_b != 16)) && (i_wr_tag_b < 40)) && (i_wr_tag_b == d2[100 + (n * 6)+:6]);
+			end
+	end
 	always @(*) begin
 		if (_sv2v_0)
 			;
 		o_value = values;
-		begin : sv2v_autoblock_27
+		begin : sv2v_autoblock_28
 			reg signed [31:0] n;
 			for (n = 0; n < 4; n = n + 1)
 				begin
@@ -2732,16 +2756,16 @@ module arm9v2_decode (
 				values <= raw_values;
 				self_dep <= d2_self_dep;
 				shift_pre_ff <= shift_controls(d2);
-				begin : sv2v_autoblock_28
+				begin : sv2v_autoblock_29
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
 						o_pending[src] <= ((d2[96 + src] && i_load_valid[4]) && !i_w_load_hit) && (d2[100 + (src * 6)+:6] == i_load_tag[24+:6]);
 				end
 				write_through_data <= {i_wr_data_c, i_wr_data_b, i_wr_data_a};
-				begin : sv2v_autoblock_29
+				begin : sv2v_autoblock_30
 					reg signed [31:0] n;
 					for (n = 0; n < 4; n = n + 1)
-						write_through_match[n * 3+:3] <= {i_wr_addr_c[d2[100 + (n * 6)+:6]], i_wen && i_wr_addr_b[d2[100 + (n * 6)+:6]], i_wen && i_wr_addr_a[d2[100 + (n * 6)+:6]]};
+						write_through_match[n * 3+:3] <= (WT_TAGS ? {i_wr_addr_c[d2[100 + (n * 6)+:6]], i_wen && wt_hit_b[n], i_wen && wt_hit_a[n]} : {i_wr_addr_c[d2[100 + (n * 6)+:6]], i_wen && i_wr_addr_b[d2[100 + (n * 6)+:6]], i_wen && i_wr_addr_a[d2[100 + (n * 6)+:6]]});
 				end
 				matches_taken <= taken_match;
 				matches_fallthrough <= fallthrough_match;
@@ -4282,6 +4306,9 @@ module arm9v2_front_decode (
 	i_wr_data_a,
 	i_wr_data_b,
 	i_wr_data_c,
+	i_wr_tag_a,
+	i_wr_tag_b,
+	i_wr_pair,
 	i_rf_value,
 	o_rf_tag,
 	i_load_tag,
@@ -4386,6 +4413,7 @@ module arm9v2_front_decode (
 	parameter [0:0] SHIFT_PRE = 0;
 	parameter [0:0] PAYLOAD_FREE = 0;
 	parameter [0:0] REDIRECT_PAYLOAD = 0;
+	parameter [0:0] WT_TAGS = 0;
 	parameter [31:0] RESET_VECTOR = 0;
 	input wire i_clk;
 	input wire i_reset;
@@ -4404,6 +4432,9 @@ module arm9v2_front_decode (
 	input wire [31:0] i_wr_data_a;
 	input wire [31:0] i_wr_data_b;
 	input wire [31:0] i_wr_data_c;
+	input wire [5:0] i_wr_tag_a;
+	input wire [5:0] i_wr_tag_b;
+	input wire i_wr_pair;
 	input wire [127:0] i_rf_value;
 	output wire [23:0] o_rf_tag;
 	input wire [35:0] i_load_tag;
@@ -4568,7 +4599,8 @@ module arm9v2_front_decode (
 		.THUMB_HALF(THUMB_HALF),
 		.SHIFT_PRE(SHIFT_PRE),
 		.PAYLOAD_FREE(PAYLOAD_FREE),
-		.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD)
+		.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),
+		.WT_TAGS(WT_TAGS)
 	) u_decode(
 		.i_valid(f_valid),
 		.i_pc(f_pc),
@@ -4599,6 +4631,9 @@ module arm9v2_front_decode (
 		.i_wr_data_a(i_wr_data_a),
 		.i_wr_data_b(i_wr_data_b),
 		.i_wr_data_c(i_wr_data_c),
+		.i_wr_tag_a(i_wr_tag_a),
+		.i_wr_tag_b(i_wr_tag_b),
+		.i_wr_pair(i_wr_pair),
 		.i_rf_value(i_rf_value),
 		.o_rf_tag(o_rf_tag),
 		.i_load_tag(i_load_tag),

@@ -21,8 +21,12 @@
 // REDIRECT_PAYLOAD (from codex/arm9v2-c4): D2's direct-branch redirect
 // payload loads on every edge, selected by whether D2's record redirects;
 // only its valid bit waits for S's acceptance (step/pop).
+// WT_TAGS: the same-edge write-through compares D2's tags with W's binary
+// write tags (registers) and ANDs W's late write enable at the end,
+// instead of selecting the one-hot write masks' bits after completion.
 module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, parameter logic THUMB_HALF=0,
-    parameter logic SHIFT_PRE=0, parameter logic PAYLOAD_FREE=0, parameter logic REDIRECT_PAYLOAD=0) (
+    parameter logic SHIFT_PRE=0, parameter logic PAYLOAD_FREE=0, parameter logic REDIRECT_PAYLOAD=0,
+    parameter logic WT_TAGS=0) (
     input logic i_clk, i_reset, i_flush,
     input logic i_serial_continue,
     input logic i_valid,
@@ -44,6 +48,8 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
     input logic [3:0] i_early_valid,
     input logic [3:0] i_early_agu,      // that pending writer lane is a MEM writeback (S_AGU)
     input logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c,
+    input logic [5:0] i_wr_tag_a, i_wr_tag_b,   // WT_TAGS: W's write tags (16: none)
+    input logic i_wr_pair,                     // WT_TAGS: port B writes
     input logic [3:0][31:0] i_rf_value,
     output logic [3:0][5:0] o_rf_tag,
     input logic [5:0][5:0] i_load_tag,
@@ -619,6 +625,18 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
     endfunction
     (* dont_retime *) logic [15:0] shift_pre_ff;
     assign o_shift_pre=SHIFT_PRE?shift_pre_ff:16'd0;
+    // WT_TAGS: the tag compares, from registers; the late enable joins after.
+    logic [3:0] wt_hit_a, wt_hit_b;
+    always_comb for(int n=0;n<4;n++)begin
+        wt_hit_a[n]=i_wr_tag_a!=16&&i_wr_tag_a<40&&i_wr_tag_a==d2.tag[n];
+        wt_hit_b[n]=i_wr_pair&&i_wr_tag_b!=16&&i_wr_tag_b<40&&i_wr_tag_b==d2.tag[n];
+    end
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if(!i_reset&&WT_TAGS&&i_wen)
+        for(int n=0;n<4;n++)if(d2.tag[n]<40)
+            assert({wt_hit_b[n],wt_hit_a[n]}=={i_wr_addr_b[d2.tag[n]],i_wr_addr_a[d2.tag[n]]})
+                else $fatal(1,"write-through tags");
+`endif
     // Capture the RF read, write data and same-edge match independently.
     // Retirement qualification ends at the match flops; it cannot traverse
     // the word mux into the wide D2/S capture. The registered write-through
@@ -662,7 +680,8 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
                 for(int src=0;src<4;src++)o_pending[src]<=d2.used[src]&&
                     i_load_valid[4]&&!i_w_load_hit&&d2.tag[src]==i_load_tag[4];
                 write_through_data<={i_wr_data_c,i_wr_data_b,i_wr_data_a};
-                for(int n=0;n<4;n++)write_through_match[n]<=
+                for(int n=0;n<4;n++)write_through_match[n]<=WT_TAGS?
+                    {i_wr_addr_c[d2.tag[n]],i_wen&&wt_hit_b[n],i_wen&&wt_hit_a[n]}:
                     {i_wr_addr_c[d2.tag[n]],i_wen&&i_wr_addr_b[d2.tag[n]],i_wen&&i_wr_addr_a[d2.tag[n]]};
                 matches_taken<=taken_match;matches_fallthrough<=fallthrough_match;
             end
