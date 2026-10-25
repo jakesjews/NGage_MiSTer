@@ -6679,3 +6679,61 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   faster boot, none of four; in the bench at 104 MHz both V2 sizes
   showed the dialog and ZAP did not. All of it is the one race: the ask
   lands a few seconds before or after the give-up with the CPU's speed.
+- **104 MHz, resumed in-session: the stopped subagent's four cuts
+  measured and set aside; a timing exception for the memory test.**
+  The V2 main worktree held four uncommitted parameterised zero-cycle
+  cuts (RAS_TOP_FF: the return stack's top as a register; REDIRECT_
+  PAYLOAD: D2's redirect payload loaded every edge, only its valid
+  waiting for S; COPRO_PORT: the coprocessor's own register-file read
+  port; FLAT_ACK: the D-cache FSM's acknowledge and errors as flat
+  functions of the state), each with a simulation assertion against
+  the old form, and arm9_ras_rtl.S. Verification, all clean: the
+  netlist regenerated on the Mac (deterministic; the subagent's copy
+  differed by 14.5 k lines, another sv2v run), the CPU suite 333/333
+  in all five configurations, 333/333 for the three V2 configurations
+  on the sources with the assertions live, QEMU 76/76, and
+  cycle-identical to lane E in every one of the 330 runs per
+  configuration (the ARM9 logs byte-identical); the whole-core boot
+  with the assertions live ran to 12 s (BENCH_RESULT). Fitted as the
+  integrated stripped 16 KB core at 104 MHz, three seeds against lane
+  E's (3f945c8) at the same seeds:
+
+  | seed | lane E | the four cuts |
+  |---|---:|---:|
+  | 2 | -2.086 | -2.942 |
+  | 9 | -2.239 | -2.426 |
+  | 5 | -2.700 | -2.912 |
+
+  33.4 k ALMs (80 %) either way; the fits take 13-17 min each now. The
+  D-cache FSM's paths leave the leaders (the FLAT_ACK target), but the
+  issued record through the execute shifter into A takes the lead at
+  every seed (-2.4 to -2.9, 10 levels, 68 % interconnect: the rotator's
+  stages placed 1.5-1.9 ns apart), with memory-side paths behind it
+  (upp_periph's own_au arbitration into upp_bus's dat_q, 13 of 30 at
+  seed 2; the bus ack into the I-cache FSM). Worse at every seed, so
+  not merged: committed on the side branch codex/arm9v2-c4 (50ed1e6)
+  for the record; the V2 main worktree is back on codex/arm9v2, which
+  is fast-forwarded onto the panic branch (5956fe9: the bench checks
+  and the hci.dll patch). The emu-level leaders are the 80 % device's
+  placement: the ZAP main core is the same size (33.5 k ALMs) and
+  meets -0.833, so the gap is V2's logic depth, not density.
+- A free exception (master cfb1e38, NGage.sdc): the memory test's
+  master select test_on_q changes only in the first clock of a reset
+  pulse test_sw holds for four clocks, with the CPU in its own reset,
+  so its paths into the Wishbone muxes, the SDRAM write data and the
+  self-test engine are four-clock paths; test_sw itself stays
+  single-clock. It held 19 of the 30 worst paths of lane E's seed 9
+  (-2.23, 80 % interconnect). Checked by a timing-analysis rerun on the
+  main ZAP core's build: two registers matched, test_sw at +4.4 ns, the
+  rest at +28.1 ns, the device worst unchanged at -0.833 (the metadata
+  RAM path); it takes those paths out of the fitter's effort in every
+  future fit.
+- Where 104 MHz stands: the best integrated seed is lane E's -2.086
+  against the -0.6 gate; what is left on the plan is the cycle-costing
+  cuts (D1 registered completion, F, B2; +2-3 % clocks each) and
+  seeds, and the device-level leaders include memory-side paths at
+  -2.2 to -2.4 that no CPU cut touches. Meanwhile the 16 KB V2 fix-3
+  core at 78 MHz, panic fixed, is within the board envelope (-0.516)
+  and in play already ahead of the shipping ZAP core at 104 MHz
+  (Sonic 46.9 per 104 M clocks at 78 MHz = 35 M instr/s against ZAP's
+  31.6 M/s at 104 MHz).
