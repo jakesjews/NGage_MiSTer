@@ -5687,3 +5687,28 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   4 source offsets, long latencies, both cache sizes, against ZAP).
   The subagent's notes, the rebuilt C: file and a validator are in the
   scratch cdb/ directory.
+- The 8 KB Leave-trigger core stayed clean for thirteen boots in a row
+  (v2lv-1..6, v2lv2-1..7), so its schedule simply avoids the race; the
+  loop was stopped. The 16 KB Leave-trigger core (euser's stub only;
+  -0.290 / -0.199 ns; 33,747 ALMs; build/hardware/NGage-v2fix2t16b-
+  s2.rbf) took the debug slot for the same loop while the two-stub core
+  finishes on lane b5.
+- The two-stub Leave-trigger core (16 KB, rings 512/128/128; -0.542 /
+  -0.350 ns; build/hardware/NGage-v2fix2t16c-s2.rbf) replaced the
+  euser-only one on the debug slot before that one's first boot
+  finished; the PLAT loop runs on it (up to ten boots).
+- **JTAG to the server.** The user moved the MiSTer next to the Ubuntu
+  server and cabled the DE10-nano's USB-Blaster II (mini-B) to it; a
+  modem power loss on the way cut the subagent's session (resumed). The
+  Quartus image already holds jtagd, jtagconfig, quartus_stp and
+  quartus_pgm; tools/jtag-server.sh runs a persistent root container
+  with /dev/bus/usb and the JTAG server (`start`, `chain`, `stp`,
+  `pgm`, `stop`), so no host udev rule is needed. The cable enumerates
+  as 09fb:6810 until jtagd loads its firmware, then as 09fb:6010
+  "DE-SoC"; jtagd without libudev.so.0 misses that re-enumeration (the
+  helper symlinks libudev.so.1 to .so.0 before starting it). The chain:
+  DE-SoC [3-1], 4BA00477 SOCVHPS, 02D020DD 5CSEBA6. SignalTap can now
+  attach to a core the MiSTer loaded, provided the build carried the
+  .stp instance; the first intended capture is the pipeline state (the
+  D2 and S/A hazard terms, the lock bitmap, the cache FSM) around an
+  abort or the store library's Leave.
