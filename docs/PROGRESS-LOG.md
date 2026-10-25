@@ -6336,3 +6336,162 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   chip-level CS1 halfwords (fl1_ack/addr/rdata), upp_bus's assembled
   word (fe_word) and the data port, so the three views of each flash
   word can be compared.
+
+### 2026-10-25 (later) — why no SignalTap capture ever fired: the taps were never connected
+
+- The twelve headless captures (stp-v2stp1..12) never acquired a sample: none
+  of the saved files holds a data log. The map report of the last probe build
+  (section "Connections to In-System Debugging Instance") says why. Status
+  per node, 319 required inputs, 102 connected: every CPU-side tap
+  (`tr_d_done/we/va/rdata`, the RTL trigger wires `stp_trig_*`) "missing,
+  the name does not exist" (wires with no fanout outside DBG_TRACE, swept
+  before the tap); `fl1_addr/rdata/ack` missing ("the pre-synthesis tap must
+  be preserved by Analysis & Synthesis before it can be tapped"); and the
+  acquisition clock `emu:emu|clk_sys` itself **missing, tied to GND**. Only
+  `bb_hit`, `cs1_ack` and `fe_word` (combinational nodes with fanout) were
+  connected, by post-synthesis name. With the clock at ground the instance
+  never sampled, so every conclusion drawn from "which trigger fires" (only
+  single high levels, no bus patterns, no qualifier) was an artefact; the
+  Critical Warning 35025 ("Partially connected in-system debug instance") had
+  been in every probe build's log since the first.
+- Two causes, both in tools/gen_stp.py's output, found by comparing it with
+  .stp files the Quartus 17 GUI wrote (other MiSTer cores on this machine):
+  the signal-vector wires carried `type="combinatorial"` (the GUI writes
+  none), and a condition is stored as text inside its `<level>` element
+  (`'node' == high && 'other' == falling edge`), likewise inside the first
+  `<storage_qualifier_level>`; the generator wrote only the per-node
+  `level-0` attributes. Analysis & Synthesis then preserved no pre-synthesis
+  tap and the connection step looked the names up post-synthesis.
+- The fix, belt and braces: gen_stp.py rewritten to the GUI's encoding (text
+  conditions, no wire type, `storage_mode="off"`/`"conditional"`, per-instance
+  depth/RAM), and the probe itself made of registers kept through synthesis
+  (`(* preserve, noprune *)`, one stage on every view so they stay aligned),
+  with the acquisition clock named by a net that survives synthesis
+  (`pll_0002:pll_inst|altera_pll:altera_pll_i|outclk_wire[0]`, the map
+  report's maximum-fanout node). ngage_mem exports the CS1 flash beats
+  (`fl1_*`: upp_bus to the CS1 model; `m1_*`: the model to the DDR3 backing
+  store). Three instances in one core, armed together
+  (tools/stp_capture.tcl now takes a comma list and uses
+  run_multiple_start/end): `sanity` (a free-running counter, 256 deep, proves
+  clock, trigger and data layout), `flashc` (CPU view + fl1 beats, 256 deep,
+  continuous), `flash` (CPU + fl1 + m1 views, 1024 deep, storage qualified
+  to window completions and flash beats; trigger = the data port completing
+  the read of the database file's first word 0x10000050 from the CS1 window
+  VA 0x59xxxxxx). M10K budget: the 8 KB V2 design plus the last 88-bit x 2048
+  probe filled 551 of 553 blocks, so the new set is 149 bits x 1024 plus two
+  small AUTO instances. tools/stp_decode.py decodes the saved data log
+  (sample-major, one bit per data node), checked on a GUI capture.
+- First real capture (stp-stpf2, probe core NGage-stp-probe-fast.rbf, fast
+  fit -1.94 ns at 78 MHz): all three instances fired within 18 s of arming
+  (the Tcl script had also been dying at a `save_session` that does not exist
+  in this package, so no earlier run could have written data; close_session
+  writes the file). The sanity counter steps by one per sample, so clock,
+  trigger, acquisition and tools/stp_decode.py's layout are right. The
+  trigger (a window read returning 0x10000050) caught a chunked descending
+  Mem::Copy out of VA 0x596f05xx into RAM 0x806189xx, eight words a chunk,
+  not the database file: 0x10000050 is the store UID that heads many LFFS
+  records, and that read was itself wrong.
+- **The misread, caught in the act.** Against the C: image
+  (build/hwtest/save/c-now.bin at VA - 0x59600000) 675 of the 1,024
+  qualified window reads match; of the 349 that differ, 138 only have bits
+  cleared (LFFS flag words programmed since the dump) and 211 carry bits the
+  flash cannot have set. Those sit on the first word of each 16-byte line:
+  by word-in-line, positions 0 and 4 of the 8-word chunk are wrong 121 and
+  123 times of 128, positions 1-3 and 5-7 about 17 (the flag words). The
+  continuous view gives the timing: the first word of a line completes one
+  clock after the previous access (before any flash fetch), the second waits
+  about 30 clocks (the line fetch), the third and fourth follow in 1-3. The
+  wrong words look like RAM and ROM contents (0x503a1028, 0x503a0530,
+  0x5039ec34, 0xe59cf000 = LDR PC,[R12], 0x80618ba4 near the copy's
+  destination), i.e. stale data from somewhere in the CPU, handed over
+  before the uncached word was fetched. The halfword path to the CS1 model
+  (fl1_*, m1_*) carried nothing during these reads: the window is served
+  through upp_bus's 16-byte flash line buffer. Next probe (building): the
+  CPU's Wishbone side (request/address/ack/data) beside the data-port
+  completions, triggered on any window read completing at a line's first
+  word, to see whether that word ever reaches the bus.
+- The wrong first words are real flash data from the SAME cache set and
+  word position but a DIFFERENT line: the read of 0x596f06a0 returned the
+  word at 0x596e06a0 (the image holds that value once), 0x596f0680 the
+  word at 0x596e0680, 0x596f0690 at 0x596e1690, 0x596f0620 at 0x596e1620:
+  lines 64 KB below, read earlier, still sitting in the set (8 KB two-way:
+  set = VA[11:4]). So the core is handed the set's other (stale, LRU) line's
+  word for a load that then turns out to be a miss (the FSM fills the line,
+  and words 1-3 hit it correctly), with the data port's done flag set at
+  that clock: an acknowledged false hit.
+- The C: drive has two aliases: 0x59200000 is the UNCACHED one (its reads
+  are single bus beats, one per completion, PA 0x02400000 + offset; the
+  second capture, triggered too early on VA 0x59a00000 = the EMIF block,
+  shows 26 of them, address and data equal on both sides) and 0x59600000 the
+  CACHED one (served by 16-byte line bursts, no halfword-engine activity):
+  the misread copy runs through the cached alias, so the window is a
+  cacheable mapping and the fault is in the cache, not the flash path.
+- Bench: sim/cpu/tests/arm9_fill_victim_rtl.S (both ways of every source
+  set occupied by other tags, clean or dirty; the ROM's descending
+  ldmdb/stmdb copy into a +0x408 destination; bus latency random, 8 and 24)
+  passes on the V2 core, so the flat bench still lacks an ingredient of the
+  board (the I-side's line fills on the same bus, the TLB, or the fill's
+  beat pattern).
+- **Correction (the same evening).** zap_dcache_fsm's IDLE state acknowledges a
+  cacheable MISS at once (`idle_ack = 1`, "Acknowledge current entry. Lock the
+  register."), locks the destination register and delivers the word later by
+  a background write (critical_take -> reg_dat_ff/o_reg_idx). The data-port
+  tap (zap_top o_dbg_d_done/rdata = o_ack/o_dat) therefore shows, at a miss,
+  the selected (victim) way's current word, not what the register will get.
+  So "the first word of every line wrong, the same set's older line's word"
+  is exactly what a line-start miss looks like through that tap: words 1-3
+  hit after the fill and show real data. The first capture is consistent
+  with normal operation and is NOT evidence of a misread; the directed
+  bench passing fits. The panic's cause is still open; what the board taps
+  cannot show is the background write's value and the store side, so the
+  next step is the whole-core bench boot of the 8 KB V2 configuration (the
+  panicking one), where every register write and store is visible.
+- Whole-core reproduction started (09:02): the bench of the V2 branch head
+  (3f945c8, worktree ../NGage_MiSTer-v2sim, 8 KB two-way D-cache,
+  VEXTRA=-DNGAGE_CORE_ARM9=1, which the harness needs as much as the RTL)
+  boots the board's images (cs0.bin; cs1-now.bin = the board's pristine
+  lower half + its current C: save build/hwtest/save/c-now.bin, the one
+  that panics) with the Sonic card, at about 550 k clocks/s, to 32 guest
+  seconds. If the EmonServer panic appears there, every register write and
+  store of the copy is visible and the bench's trace options can find the
+  first wrong value.
+- Third capture (stp-stph1, the trigger on a cached-alias read at a line
+  start, the CPU's Wishbone side beside the data port): 448 window reads,
+  461 C: read beats. Every line's first word is acknowledged one to two
+  clocks BEFORE its fill request leaves the CPU (109 of 112: "beat only
+  after"), the fill's four beats carry the image's words, and words 1-3
+  complete after their beat with the beat's data (112 of 112 each). So the
+  bus delivers the right words and the first word is a locked-register
+  miss, as the FSM code says; its value reaches the register by the
+  background write, which no tap so far shows. Nor does any tap show the
+  write-back data of the dirty lines the fills evict (the read-data bus was
+  sampled on write beats). Next probe: both.
+- Hypothesis under test (directed): the board shows V2 reading the C:
+  drive's 0x59600000 alias through line fills (cached) while the driver
+  programs flash through the uncached 0x59200000 alias; between the two
+  the driver must drop the cached alias's lines by MVA. A faulty
+  invalidate/clean-by-MVA on the 8 KB two-way D-cache would leave stale
+  sectors behind, which is what "KErrCorrupt" would look like, and would
+  spare ZAP (its own maintenance path), the 16 KB build (other sets and
+  ways) and every copy bench (none programs and re-reads).
+  sim/cpu/tests/arm9_dcinv_mva_rtl.S: 24 cases (invalidate by MVA,
+  clean+invalidate by MVA, invalidate all; the target in either way; the
+  MVA at word 0 or 3; two window offsets).
+- QEMU reference model with the board's current C: image (cs1-now.bin,
+  NGAGE_SAVE1=none, the Sonic card): boots to the idle screen, no panic, so
+  the file is intact on the save; the 8 KB V2 core spoils it during its own
+  boot (the 16 KB core boots the same image).
+- Fourth capture (stp-stpi1: the cache's background register write exported
+  from zap_top as o_dbg_bg_we/idx/data, the bus write data, the storage
+  qualifier widened to SDRAM writes): the qualifier let the SDRAM write
+  beats (360 of 512 samples) crowd out the copy, but the three line-start
+  misses it holds all got their register written with the fill beat's word,
+  equal to the image's. The bus write-data tap samples cpu_wdata at the
+  acknowledge, which is not the beat's data for a pipelined write, so the
+  write-back values it shows are not usable as they stand.
+- ZAP control (stp-stpz1, the same probe on the shipping core): ZAP fills
+  the 0x59600000 alias by line bursts as well (9 burst beats, 3 single
+  among 12 cached-alias reads), so the alias is a cacheable mapping by
+  design (medint's own invalidate-by-MVA loop at 0x503817dc, stride 16,
+  is for it), and its three line-start misses got their registers written
+  with the fill's word. V2 and ZAP look alike on every tap so far.
