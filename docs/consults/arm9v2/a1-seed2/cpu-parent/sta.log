@@ -1,0 +1,664 @@
+Inconsistency detected by ld.so: dl-close.c: 762: _dl_close: Assertion `map->l_init_called' failed!
+Info: *******************************************************************
+Info: Running Quartus Prime TimeQuest Timing Analyzer
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Copyright (C) 2017  Intel Corporation. All rights reserved.
+    Info: Your use of Intel Corporation's design tools, logic functions 
+    Info: and other software and tools, and its AMPP partner logic 
+    Info: functions, and any output files from any of the foregoing 
+    Info: (including device programming or simulation files), and any 
+    Info: associated documentation or information are expressly subject 
+    Info: to the terms and conditions of the Intel Program License 
+    Info: Subscription Agreement, the Intel Quartus Prime License Agreement,
+    Info: the Intel MegaCore Function License Agreement, or other 
+    Info: applicable license agreement, including, without limitation, 
+    Info: that your use is for the sole purpose of programming logic 
+    Info: devices manufactured by Intel and sold by Intel or its 
+    Info: authorized distributors.  Please refer to the applicable 
+    Info: agreement for further details.
+    Info: Processing started: Sun Oct 25 07:15:01 2026
+Info: Command: quartus_sta -t report.tcl
+Info (20030): Parallel compilation is enabled and will use 16 of the 32 processors detected
+Info (21077): Low junction temperature is -40 degrees C
+Info (21077): High junction temperature is 100 degrees C
+Info (332104): Reading SDC File: 'cpu_trial.sdc'
+Info (332151): Clock uncertainty is not calculated until you update the timing netlist.
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in TimeQuest to see clock uncertainties.
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in TimeQuest to see clock uncertainties.
+CORNER Slow 1100mV 100C Model setup slack -3.843
+HOLD Slow 1100mV 100C Model hold slack 0.362
+Info (332115): Report Timing: Found 30 setup paths (30 violated).  Worst case slack is -3.843
+    Info (332115): -setup
+    Info (332115): -npaths 30
+    Info (332115): -detail summary
+    Info (332115): -file {output_files/paths_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 30 setup paths (30 violated).  Worst case slack is -3.843
+    Info (332115): -setup
+    Info (332115): -npaths 30
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.726
+    Info (332115): -to [get_registers {*u_execute|a*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_execute_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.045
+    Info (332115): -to [get_registers {*u_decode|o_forward_match*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_matches_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.160
+    Info (332115): -to [get_registers {*u_decode|o_forward_grant*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_grants_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.316
+    Info (332115): -to [get_registers {*u_decode|d2*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_payload_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.090
+    Info (332115): -to [get_registers {*u_decode|d1*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_d1_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -0.619
+    Info (332115): -to [get_registers {*u_decode|issued*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_issue_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.037
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb_check|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_dtlb_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.037
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb_check|o_hit_ok*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_dtlb_hit_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -1.875
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb_check|o_fsr*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_dtlb_fault_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -3.843
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_cache_tag_ram|*g_metadata*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_metadata_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -3.153
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_cache_tag_ram|meta_*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_metadata_descriptor_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.192
+    Info (332115): -to [get_registers {*u_code_cache|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_icache_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -1.008
+    Info (332115): -to [get_registers {*u_execute|interrupt_mask*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_serial_mask_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 0.461
+    Info (332115): -to [get_registers {*u_execute|o_serial_continue*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_serial_release_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.373
+    Info (332115): -to [get_registers {*u_data_cache|*g_short_ram*addr_q*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_short_collision_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.262
+    Info (332115): -to [get_registers {*u_data_cache|tr_cache_words*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_short_response_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.726
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_cache_fsm|*lock*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_locks_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.297
+    Info (332115): -to [get_registers {*|g_arm9.u_arm9_core|w*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_backend_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.867
+    Info (332115): -to [get_registers {*|g_arm9.u_arm9_core|m*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_backend_m_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.413
+    Info (332115): -to [get_registers {*|g_arm9.u_arm9_core|skid*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_backend_skid_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 2.954
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb|*g_short.valid*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_tlb_metadata_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -1.288
+    Info (332115): -to [get_registers {*u_fetch|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_fetch_Slow_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.940
+    Info (332115): -to [get_registers {*u_zap_register_file|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_rf_Slow_1100mV_100C_Model.txt}
+LATE_MATCH_ENDPOINTS 16
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -1.904
+    Info (332115): -to [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [get_registers {*__no_late_endpoint__*}] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[44]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[45]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[41]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[43]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[47]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[46]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[48]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[50]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[49]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[51]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[42]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[40]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[55]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[54]}]]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_execute_late_Slow_1100mV_100C_Model.txt}
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in TimeQuest to see clock uncertainties.
+CORNER Slow 1100mV -40C Model setup slack -3.572
+HOLD Slow 1100mV -40C Model hold slack 0.321
+Info (332115): Report Timing: Found 30 setup paths (30 violated).  Worst case slack is -3.572
+    Info (332115): -setup
+    Info (332115): -npaths 30
+    Info (332115): -detail summary
+    Info (332115): -file {output_files/paths_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 30 setup paths (30 violated).  Worst case slack is -3.572
+    Info (332115): -setup
+    Info (332115): -npaths 30
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.629
+    Info (332115): -to [get_registers {*u_execute|a*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_execute_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -1.777
+    Info (332115): -to [get_registers {*u_decode|o_forward_match*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_matches_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -1.823
+    Info (332115): -to [get_registers {*u_decode|o_forward_grant*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_grants_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.511
+    Info (332115): -to [get_registers {*u_decode|d2*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_payload_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.111
+    Info (332115): -to [get_registers {*u_decode|d1*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_d1_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -0.366
+    Info (332115): -to [get_registers {*u_decode|issued*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_issue_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.195
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb_check|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_dtlb_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.195
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb_check|o_hit_ok*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_dtlb_hit_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -1.964
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb_check|o_fsr*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_dtlb_fault_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -3.572
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_cache_tag_ram|*g_metadata*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_metadata_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -3.088
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_cache_tag_ram|meta_*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_metadata_descriptor_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.218
+    Info (332115): -to [get_registers {*u_code_cache|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_icache_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -0.584
+    Info (332115): -to [get_registers {*u_execute|interrupt_mask*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_serial_mask_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 0.828
+    Info (332115): -to [get_registers {*u_execute|o_serial_continue*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_serial_release_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.297
+    Info (332115): -to [get_registers {*u_data_cache|*g_short_ram*addr_q*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_short_collision_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.211
+    Info (332115): -to [get_registers {*u_data_cache|tr_cache_words*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_short_response_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.560
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_cache_fsm|*lock*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_locks_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.124
+    Info (332115): -to [get_registers {*|g_arm9.u_arm9_core|w*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_backend_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.713
+    Info (332115): -to [get_registers {*|g_arm9.u_arm9_core|m*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_backend_m_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.284
+    Info (332115): -to [get_registers {*|g_arm9.u_arm9_core|skid*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_backend_skid_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.172
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb|*g_short.valid*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_tlb_metadata_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -1.143
+    Info (332115): -to [get_registers {*u_fetch|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_fetch_Slow_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -2.506
+    Info (332115): -to [get_registers {*u_zap_register_file|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_rf_Slow_1100mV_-40C_Model.txt}
+LATE_MATCH_ENDPOINTS 16
+Info (332115): Report Timing: Found 1 setup paths (1 violated).  Worst case slack is -1.612
+    Info (332115): -to [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [get_registers {*__no_late_endpoint__*}] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[44]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[45]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[41]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[43]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[47]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[46]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[48]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[50]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[49]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[51]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[42]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[40]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[55]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[54]}]]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_execute_late_Slow_1100mV_-40C_Model.txt}
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in TimeQuest to see clock uncertainties.
+CORNER Fast 1100mV 100C Model setup slack 2.164
+HOLD Fast 1100mV 100C Model hold slack 0.174
+Info (332115): Report Timing: Found 30 setup paths (0 violated).  Worst case slack is 2.164
+    Info (332115): -setup
+    Info (332115): -npaths 30
+    Info (332115): -detail summary
+    Info (332115): -file {output_files/paths_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 30 setup paths (0 violated).  Worst case slack is 2.164
+    Info (332115): -setup
+    Info (332115): -npaths 30
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 2.564
+    Info (332115): -to [get_registers {*u_execute|a*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_execute_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 2.959
+    Info (332115): -to [get_registers {*u_decode|o_forward_match*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_matches_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 2.917
+    Info (332115): -to [get_registers {*u_decode|o_forward_grant*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_grants_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.275
+    Info (332115): -to [get_registers {*u_decode|d2*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_payload_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.156
+    Info (332115): -to [get_registers {*u_decode|d1*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_d1_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.981
+    Info (332115): -to [get_registers {*u_decode|issued*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_issue_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.525
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb_check|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_dtlb_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.525
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb_check|o_hit_ok*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_dtlb_hit_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.751
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb_check|o_fsr*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_dtlb_fault_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 2.164
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_cache_tag_ram|*g_metadata*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_metadata_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 2.417
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_cache_tag_ram|meta_*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_metadata_descriptor_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.228
+    Info (332115): -to [get_registers {*u_code_cache|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_icache_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.676
+    Info (332115): -to [get_registers {*u_execute|interrupt_mask*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_serial_mask_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 4.317
+    Info (332115): -to [get_registers {*u_execute|o_serial_continue*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_serial_release_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.042
+    Info (332115): -to [get_registers {*u_data_cache|*g_short_ram*addr_q*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_short_collision_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.139
+    Info (332115): -to [get_registers {*u_data_cache|tr_cache_words*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_short_response_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 2.824
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_cache_fsm|*lock*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_locks_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 2.903
+    Info (332115): -to [get_registers {*|g_arm9.u_arm9_core|w*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_backend_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 2.486
+    Info (332115): -to [get_registers {*|g_arm9.u_arm9_core|m*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_backend_m_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.048
+    Info (332115): -to [get_registers {*|g_arm9.u_arm9_core|skid*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_backend_skid_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 5.684
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb|*g_short.valid*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_tlb_metadata_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.511
+    Info (332115): -to [get_registers {*u_fetch|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_fetch_Fast_1100mV_100C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 2.343
+    Info (332115): -to [get_registers {*u_zap_register_file|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_rf_Fast_1100mV_100C_Model.txt}
+LATE_MATCH_ENDPOINTS 16
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.012
+    Info (332115): -to [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [get_registers {*__no_late_endpoint__*}] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[44]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[45]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[41]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[43]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[47]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[46]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[48]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[50]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[49]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[51]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[42]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[40]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[55]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[54]}]]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_execute_late_Fast_1100mV_100C_Model.txt}
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in TimeQuest to see clock uncertainties.
+CORNER Fast 1100mV -40C Model setup slack 3.361
+HOLD Fast 1100mV -40C Model hold slack 0.135
+Info (332115): Report Timing: Found 30 setup paths (0 violated).  Worst case slack is 3.361
+    Info (332115): -setup
+    Info (332115): -npaths 30
+    Info (332115): -detail summary
+    Info (332115): -file {output_files/paths_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 30 setup paths (0 violated).  Worst case slack is 3.361
+    Info (332115): -setup
+    Info (332115): -npaths 30
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.767
+    Info (332115): -to [get_registers {*u_execute|a*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_execute_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 4.009
+    Info (332115): -to [get_registers {*u_decode|o_forward_match*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_matches_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.981
+    Info (332115): -to [get_registers {*u_decode|o_forward_grant*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_grants_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 4.165
+    Info (332115): -to [get_registers {*u_decode|d2*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_payload_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 4.166
+    Info (332115): -to [get_registers {*u_decode|d1*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_d1_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 4.867
+    Info (332115): -to [get_registers {*u_decode|issued*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_decode_issue_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 4.271
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb_check|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_dtlb_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 4.271
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb_check|o_hit_ok*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_dtlb_hit_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 4.494
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb_check|o_fsr*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_dtlb_fault_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.361
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_cache_tag_ram|*g_metadata*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_metadata_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.507
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_cache_tag_ram|meta_*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_metadata_descriptor_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 4.214
+    Info (332115): -to [get_registers {*u_code_cache|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_icache_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 4.634
+    Info (332115): -to [get_registers {*u_execute|interrupt_mask*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_serial_mask_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 5.186
+    Info (332115): -to [get_registers {*u_execute|o_serial_continue*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_serial_release_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 4.010
+    Info (332115): -to [get_registers {*u_data_cache|*g_short_ram*addr_q*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_short_collision_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.998
+    Info (332115): -to [get_registers {*u_data_cache|tr_cache_words*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_short_response_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.836
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_cache_fsm|*lock*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_locks_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.913
+    Info (332115): -to [get_registers {*|g_arm9.u_arm9_core|w*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_backend_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.700
+    Info (332115): -to [get_registers {*|g_arm9.u_arm9_core|m*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_backend_m_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 4.026
+    Info (332115): -to [get_registers {*|g_arm9.u_arm9_core|skid*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_backend_skid_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 6.327
+    Info (332115): -to [get_registers {*u_data_cache|*u_zap_tlb|*g_short.valid*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_tlb_metadata_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 4.503
+    Info (332115): -to [get_registers {*u_fetch|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_fetch_Fast_1100mV_-40C_Model.txt}
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 3.603
+    Info (332115): -to [get_registers {*u_zap_register_file|*}]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_rf_Fast_1100mV_-40C_Model.txt}
+LATE_MATCH_ENDPOINTS 16
+Info (332115): Report Timing: Found 1 setup paths (0 violated).  Worst case slack is 4.080
+    Info (332115): -to [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [add_to_collection [get_registers {*__no_late_endpoint__*}] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[44]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[45]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[41]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[43]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[47]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[46]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[48]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[52]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[50]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[49]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[51]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[42]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[53]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[40]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[55]}]] [get_registers {arm925t:cpu|zap_top:u_zap|arm9v2_core:g_arm9.u_arm9_core|arm9v2_execute:u_execute|a[54]}]]
+    Info (332115): -setup
+    Info (332115): -npaths 1
+    Info (332115): -detail full_path
+    Info (332115): -file {output_files/detail_family_execute_late_Fast_1100mV_-40C_Model.txt}
+Info (23030): Evaluation of Tcl script report.tcl was successful
+Info: Quartus Prime TimeQuest Timing Analyzer was successful. 0 errors, 0 warnings
+    Info: Peak virtual memory: 1506 megabytes
+    Info: Processing ended: Sun Oct 25 07:15:11 2026
+    Info: Elapsed time: 00:00:10
+    Info: Total CPU time (on all processors): 00:00:18

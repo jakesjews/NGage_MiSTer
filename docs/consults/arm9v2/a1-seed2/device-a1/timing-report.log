@@ -1,0 +1,202 @@
+Inconsistency detected by ld.so: dl-close.c: 762: _dl_close: Assertion `map->l_init_called' failed!
+Info: *******************************************************************
+Info: Running Quartus Prime TimeQuest Timing Analyzer
+    Info: Version 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+    Info: Copyright (C) 2017  Intel Corporation. All rights reserved.
+    Info: Your use of Intel Corporation's design tools, logic functions 
+    Info: and other software and tools, and its AMPP partner logic 
+    Info: functions, and any output files from any of the foregoing 
+    Info: (including device programming or simulation files), and any 
+    Info: associated documentation or information are expressly subject 
+    Info: to the terms and conditions of the Intel Program License 
+    Info: Subscription Agreement, the Intel Quartus Prime License Agreement,
+    Info: the Intel MegaCore Function License Agreement, or other 
+    Info: applicable license agreement, including, without limitation, 
+    Info: that your use is for the sole purpose of programming logic 
+    Info: devices manufactured by Intel and sold by Intel or its 
+    Info: authorized distributors.  Please refer to the applicable 
+    Info: agreement for further details.
+    Info: Processing started: Sun Oct 25 07:04:23 2026
+Info: Command: quartus_sta -t tools/report_timing.tcl
+Info (20030): Parallel compilation is enabled and will use 16 of the 32 processors detected
+Info (21077): Low junction temperature is -40 degrees C
+Info (21077): High junction temperature is 100 degrees C
+Info (332164): Evaluating HDL-embedded SDC commands
+    Info (332165): Entity altera_std_synchronizer
+        Info (332166): set_false_path -to [get_keepers {*altera_std_synchronizer:*|din_s1}]
+Info (332104): Reading SDC File: 'sys/sys_top.sdc'
+Warning (332174): Ignored filter at sys_top.sdc(6): spi|sclk_out could not be matched with a pin File: /project/sys/sys_top.sdc Line: 6
+Warning (332049): Ignored create_clock at sys_top.sdc(6): Argument <targets> is an empty collection File: /project/sys/sys_top.sdc Line: 6
+    Info (332050): create_clock -period "100.0 MHz" [get_pins -compatibility_mode spi|sclk_out] -name spi_sck File: /project/sys/sys_top.sdc Line: 6
+Info (332110): Deriving PLL clocks
+    Info (332110): create_generated_clock -source {pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter|vco0ph[0]} -divide_by 3 -duty_cycle 50.00 -name {pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter|divclk} {pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter|divclk}
+    Info (332110): create_generated_clock -source {pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|fpll|refclkin} -divide_by 512 -multiply_by 4563 -duty_cycle 50.00 -name {pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|fpll|vcoph[0]} {pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|fpll|vcoph[0]}
+    Info (332110): create_generated_clock -source {pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|refclkin} -divide_by 512 -multiply_by 4279 -duty_cycle 50.00 -name {pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0]} {pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0]}
+    Info (332110): create_generated_clock -source {pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|vco0ph[0]} -divide_by 17 -duty_cycle 50.00 -name {pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk} {pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}
+    Info (332110): create_generated_clock -source {emu|pll|pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|refclkin} -divide_by 5 -multiply_by 52 -duty_cycle 50.00 -name {emu|pll|pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0]} {emu|pll|pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0]}
+    Info (332110): create_generated_clock -source {emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|vco0ph[0]} -divide_by 5 -duty_cycle 50.00 -name {emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk} {emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}
+Info (332151): Clock uncertainty is not calculated until you update the timing netlist.
+Warning (332174): Ignored filter at sys_top.sdc(17): spi_sck could not be matched with a clock File: /project/sys/sys_top.sdc Line: 17
+Warning (332054): Assignment set_clock_groups is accepted but has some problems at sys_top.sdc(13): Argument -group with value [get_clocks { spi_sck}] contains zero elements File: /project/sys/sys_top.sdc Line: 13
+    Info (332050): set_clock_groups -exclusive \
+   -group [get_clocks { *|pll|pll_inst|altera_pll_i|*[*].*|divclk}] \
+   -group [get_clocks { pll_hdmi|pll_hdmi_inst|altera_pll_i|*[0].*|divclk}] \
+   -group [get_clocks { pll_audio|pll_audio_inst|altera_pll_i|*[0].*|divclk}] \
+   -group [get_clocks { spi_sck}] \
+   -group [get_clocks { hdmi_sck}] \
+   -group [get_clocks { *|h2f_user0_clk}] \
+   -group [get_clocks { FPGA_CLK1_50 }] \
+   -group [get_clocks { FPGA_CLK2_50 }] \
+   -group [get_clocks { FPGA_CLK3_50 }] File: /project/sys/sys_top.sdc Line: 13
+Info (332104): Reading SDC File: 'NGage.sdc'
+Info (332151): Clock uncertainty is not calculated until you update the timing netlist.
+Info (332097): The following timing edges are non-unate.  TimeQuest will assume pos-unate behavior for these edges in the clock network.
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|fpll  from: refclkin  to: fbclk
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_762
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_827
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_920
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_7
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_6
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_5
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_3  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_4
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_3
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_2
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_1
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_3  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_0
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in TimeQuest to see clock uncertainties.
+Info (332115): Report Timing: Found 30 setup paths (30 violated).  Worst case slack is -3.703
+    Info (332115): -setup
+    Info (332115): -nworst 1
+    Info (332115): -npaths 30
+    Info (332115): -detail full_path
+    Info (332115): -file {build/critical-paths.rpt}
+Info (332115): Report Timing: Found 10 hold paths (0 violated).  Worst case slack is 0.208
+    Info (332115): -hold
+    Info (332115): -npaths 10
+    Info (332115): -detail full_path
+    Info (332115): -file {build/hold-paths.rpt}
+Info (332102): Design is not fully constrained for setup requirements
+Info (332102): Design is not fully constrained for hold requirements
+Info (332097): The following timing edges are non-unate.  TimeQuest will assume pos-unate behavior for these edges in the clock network.
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|fpll  from: refclkin  to: fbclk
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_762
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_827
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_920
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_7
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_6
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_5
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_3  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_4
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_3
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_2
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_1
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_3  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_0
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in TimeQuest to see clock uncertainties.
+Info: Slow 1100mV 100C Model setup: -3.703 ns
+Info: Slow 1100mV 100C Model hold: 0.208 ns
+Info: Slow 1100mV 100C Model recovery: 3.145 ns
+Info: Slow 1100mV 100C Model removal: 0.893 ns
+Info (334003): Started post-fitting delay annotation
+Info (334004): Delay annotation completed successfully
+Info (332097): The following timing edges are non-unate.  TimeQuest will assume pos-unate behavior for these edges in the clock network.
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|fpll  from: refclkin  to: fbclk
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_762
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_827
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_920
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_7
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_6
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_5
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_3  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_4
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_3
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_2
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_1
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_3  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_0
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in TimeQuest to see clock uncertainties.
+Info: Slow 1100mV -40C Model setup: -3.601 ns
+Info: Slow 1100mV -40C Model hold: 0.091 ns
+Info: Slow 1100mV -40C Model recovery: 3.363 ns
+Info: Slow 1100mV -40C Model removal: 0.792 ns
+Info (334003): Started post-fitting delay annotation
+Info (334004): Delay annotation completed successfully
+Info (332097): The following timing edges are non-unate.  TimeQuest will assume pos-unate behavior for these edges in the clock network.
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|fpll  from: refclkin  to: fbclk
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_762
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_827
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_920
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_7
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_6
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_5
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_3  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_4
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_3
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_2
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_1
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_3  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_0
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in TimeQuest to see clock uncertainties.
+Info: Fast 1100mV 100C Model setup: 2.137 ns
+Info: Fast 1100mV 100C Model hold: 0.095 ns
+Info: Fast 1100mV 100C Model recovery: 4.493 ns
+Info: Fast 1100mV 100C Model removal: 0.444 ns
+Info (332097): The following timing edges are non-unate.  TimeQuest will assume pos-unate behavior for these edges in the clock network.
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL  from: refclkin  to: fbclk
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter  from: vco0ph[0]  to: divclk
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|REFCLK_SELECT  from: clkin[0]  to: clkout
+    Info (332098): Cell: pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|fpll  from: refclkin  to: fbclk
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_762
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_827
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|cmd_port_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_920
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_7
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_6
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_5
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|rd_clk_3  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_4
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_0  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_3
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_1  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_2
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_2  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_1
+    Info (332098): From: sysmem|fpga_interfaces|f2sdram|wr_clk_3  to: sysmem_lite:sysmem|sysmem_HPS_fpga_interfaces:fpga_interfaces|f2sdram~FF_0
+Info (332123): Deriving Clock Uncertainty. Please refer to report_sdc in TimeQuest to see clock uncertainties.
+Info: Fast 1100mV -40C Model setup: 3.313 ns
+Info: Fast 1100mV -40C Model hold: 0.078 ns
+Info: Fast 1100mV -40C Model recovery: 4.877 ns
+Info: Fast 1100mV -40C Model removal: 0.356 ns
+Error: Negative timing slack; see build/timing-corners.tsv
+Error (23031): Evaluation of Tcl script tools/report_timing.tcl unsuccessful
+Error: Quartus Prime TimeQuest Timing Analyzer was unsuccessful. 2 errors, 4 warnings
+    Error: Peak virtual memory: 3142 megabytes
+    Error: Processing ended: Sun Oct 25 07:05:07 2026
+    Error: Elapsed time: 00:00:44
+    Error: Total CPU time (on all processors): 00:03:48
