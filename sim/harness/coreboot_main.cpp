@@ -262,7 +262,13 @@ struct Bench {
 	}
 	void win_check(const char *kind, uint32_t va, uint32_t got, uint32_t sel, uint64_t at) {
 		uint32_t img = expected_word(va, got);
-		if (!win_ok(got, img, sel)) win_report(kind, va, got, sel, img, at);
+		bool ok;
+		if (kind[0] == 's') {   // a store: the data bus carries the selected lanes in place
+			uint32_t mask = 0;
+			for (int k = 0; k < 4; k++) if (sel >> k & 1) mask |= 0xffu << (8 * k);
+			ok = ((got ^ img) & mask) == 0;
+		} else ok = win_ok(got, img, sel);
+		if (!ok) win_report(kind, va, got, sel, img, at);
 	}
 	void copy_entry(uint32_t cpsr) {   // Mem::Copy retired: r0 dst, r1 src, r2 n
 		uint32_t dst = reg(phys_index(0, cpsr)), src = reg(phys_index(1, cpsr)), n = reg(phys_index(2, cpsr));
