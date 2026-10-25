@@ -5895,3 +5895,25 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   file's 18 sectors. Both rebuilt with the fast fit: the TLB-fix debug
   core (worktree ../NGage_MiSTer-v2fix3, lane b5) and the probe core
   (../NGage_MiSTer-stpc, lane b8).
+- The first FAST=1 build, the TLB-fix debug core (16 KB, seed 9;
+  build/hardware/NGage-v2fix3-fast-s9.rbf, 33,083 ALMs): the fitter in
+  13 min 26 s against the usual ~35, the whole build about 27 minutes;
+  slack -0.900 ns at the slow 100C corner. It waits for the MiSTer,
+  which the user took upstairs again (board work paused).
+- **The flash-probe core is built** (worktree stpc, fast fit; build/
+  hardware/NGage-stp-flash3.rbf, md5 4ae31527; the .sof and the
+  compiled stp-flash3.stp stay on the server in dev/mister/
+  NGage_MiSTer-b8/): the SignalTap instance "flash" is in it (block
+  memory 3.73 M bits against the plain core's 3.55 M), 32,185 ALMs,
+  slack -1.885 ns at the slow 100C corner (-1.450 at -40C): a debug
+  core for the capture only. The procedure (scratch capture_flash.sh)
+  loads it on the debug slot, boots the phone through the Sonic
+  launcher, arms the instance through the server's JTAG server 8 s
+  after the launcher load with a 90 s timeout and fetches the saved
+  .stp. It waits for the MiSTer to come back beside the server; a
+  full-effort seed-9 build of the TLB-fix debug core runs on lane b5
+  meanwhile for the measurement.
+- The fast-fit probe core sits at -1.885 ns (slow 100C), beyond what
+  the board has run (-0.8); a full-effort build of the same worktree
+  follows on lane b8 as the capture core, the fast one kept as a
+  fallback.
