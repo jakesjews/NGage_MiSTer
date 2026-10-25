@@ -6051,3 +6051,22 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   matches QEMU's trace and catches two planted bugs. (The component
   benches for V2 were already broken before this change and were not
   used as gates.)
+- **Fix 3 does not remove the boot panic**: four of four boots of the
+  16 KB fix-3 core (build/hardware/game/v2fix3boot-1..4/) came up with
+  the "App. closed ... Server" dialog, no kernel fault (before fix 3:
+  two of three). The stale-descriptor mechanism is real but not this
+  panic. What the tally now says: the panic hits every plain core and
+  never a core with the trace in it (37 of 37), and the trace's one
+  functional effect is a few milliseconds' delay of the CPU's flash
+  reads at 3.27 s while the rings dump through the shared DDR3 port: a
+  phase shift of the instruction stream against the board's periodic
+  events (the kernel's millisecond tick, the video frame, the HPS's
+  card service). The new hypothesis: the tick interrupt landing inside
+  the sector copy's long uncached 8-word loads, and V2 handling an
+  interrupt during a multi-beat uncached LDM wrongly (a beat lost or
+  repeated, the base restored wrongly), which the suites do not
+  exercise; the misread then depends on the tick's phase, which fix 3's
+  slightly different timing moved from two boots in three to all of
+  them. A second subagent takes that test in a separate worktree
+  (../NGage_MiSTer-cx-arm9b, branch codex/arm9v2-irq from 80f04ff)
+  while the first stays on lane B.
