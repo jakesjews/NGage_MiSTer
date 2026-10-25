@@ -6320,3 +6320,19 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   high on the event) is the right form and builds now; the generator's
   low/pattern encoding is a problem for later (the GUI's own file of a
   "low" condition would show the right attribute).
+- The RTL-trigger core (fast fit, -1.986 ns; build/hardware/NGage-stp-
+  word-fast.rbf; the wire stp_trig_word = the data port completing a
+  read of the word 0x10000050) did not fire in 90 s either (stp-
+  v2stp11). The board's current C: save (fetched to build/hwtest/save/
+  c-now.bin) still holds the file's first sector at CS1 0x47C6A4 and
+  ten older copies of its head in the LFFS log, so the word is there
+  to be read; either the data port's rdata tap (zap_top's dc_data) does
+  not carry uncached words, or the file is read some other way. Two
+  moves: a trigger on the RTL wire for any completed read in the
+  ROM/flash space (must fire at once, proving the wire form), and a
+  third probe core (worktree ../NGage_MiSTer-stpe, lane b5, fast fit)
+  whose trigger wire is any completed read with VA[31:24] = 0x59 (the
+  media driver's window per the ROM constant) and which probes the
+  chip-level CS1 halfwords (fl1_ack/addr/rdata), upp_bus's assembled
+  word (fe_word) and the data port, so the three views of each flash
+  word can be compared.
