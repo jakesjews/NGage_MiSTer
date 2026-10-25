@@ -263,7 +263,14 @@ always @(posedge clk_sys) begin
 	test_on_q <= test_on;
 	test_sw   <= (test_on != test_on_q) ? 4'hF : {test_sw[2:0], 1'b0};
 end
-wire reset = sys_reset | status[0] | buttons[1] | ioctl_download | fs_loading | ph_busy | test_sw[3];
+// The slow sources (the framework's reset, the OSD's reset bit and button,
+// a download, the two loaders) are registered once; their OR fanned out to
+// the whole memory side from hps_io in one clock. The memory test's pulse
+// stays direct: the bus is in reset in the clock its master select changes
+// (test_sel; the test_on_q multicycle exception in NGage.sdc relies on it).
+reg  reset_slow = 1'b1;
+always @(posedge clk_sys) reset_slow <= sys_reset | status[0] | buttons[1] | ioctl_download | fs_loading | ph_busy;
+wire reset = reset_slow | test_sw[3];
 // the Wishbone port's master select, from a local register (hps_io's status
 // bit is far away); it changes in the first clock of the reset pulse
 wire test_sel = test_on_q;
