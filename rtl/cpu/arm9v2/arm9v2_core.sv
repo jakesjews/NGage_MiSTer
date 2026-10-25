@@ -21,6 +21,13 @@ module arm9v2_core #(
         // parallel and selects the result (REDIRECT_EQ).
         parameter logic THUMB_HALF = 1'b1,
         parameter logic REDIRECT_EQ = 1'b1,
+        // The return stack's top as a register (arm9v2_predict).
+        parameter logic RAS_TOP_FF = 1'b1,
+        // D2's redirect payload loads every edge; only valid waits for S.
+        parameter logic REDIRECT_PAYLOAD = 1'b1,
+        // The coprocessor reads the RF through its own port (zap_writeback),
+        // off D2's port A.
+        parameter logic COPRO_PORT = 1'b1,
 
         // For CP15 purposes.
         parameter logic [0:0]  CP15_L4_DEFAULT = 0,
@@ -912,7 +919,7 @@ output logic [1:0] o_dbg_fetch
         assert(w_hit_candidate==(w.memory&&!w_waited)) else $fatal(1,"W hit candidate register");
 `endif
     wire w_load_hit=w_hit&&i_data_short_hit&&load_trust;
-    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF)) u_front_decode (
+    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.RAS_TOP_FF(RAS_TOP_FF),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD)) u_front_decode (
         .i_w_load_hit(w_load_hit),.o_self_dep(d_self_dep),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
         .i_forward_load(forward_load),.o_forward_grant(d_forward_grant),.i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),.o_return_match(d_return_match),
@@ -1097,7 +1104,7 @@ output logic [1:0] o_dbg_fetch
         .o_multiply_wait(a_multiply_wait)
     );
 
-    zap_writeback #(.RF_EARLY_SELECT(1),.RF_ALLOW_RETIMING(0),.BP_ENTRIES(32),.PHY_REGS(40),.FLAG_WDT(32),
+    zap_writeback #(.RF_EARLY_SELECT(1),.RF_ALLOW_RETIMING(0),.COPRO_PORT(COPRO_PORT),.BP_ENTRIES(32),.PHY_REGS(40),.FLAG_WDT(32),
         .RESET_VECTOR(RESET_VECTOR),.CPSR_INIT(CPSR_INIT)) u_zap_writeback (
         .i_rf_class(rf_class),.i_clk(i_clk),.i_reset(i_reset),.i_valid(wb_valid),
         .i_decompile('0),.i_decompile_valid(wb_cfail),.i_uop_last(wb_last),

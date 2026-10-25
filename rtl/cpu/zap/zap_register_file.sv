@@ -45,12 +45,14 @@ module zap_register_file #(parameter integer ALLOW_RETIMING=1, parameter logic E
         input logic  [5:0]       i_rd_addr_b,
         input logic  [5:0]       i_rd_addr_c,
         input logic  [5:0]       i_rd_addr_d,
+        input logic  [5:0]       i_rd_addr_e,   // ARM9V2: the coprocessor's own read port (unused: tie 0)
 
         // Read data corresponding. Combinationally read via MUX.
         output logic  [31:0]      o_rd_data_a,
         output logic  [31:0]      o_rd_data_b,
         output logic  [31:0]      o_rd_data_c,
-        output logic  [31:0]      o_rd_data_d
+        output logic  [31:0]      o_rd_data_d,
+        output logic  [31:0]      o_rd_data_e
 );
 
 // ARM9V2: keep the RF edge at its architectural write boundary. Otherwise
@@ -91,6 +93,7 @@ assign o_rd_data_a = mem [ i_rd_addr_a ];
 assign o_rd_data_b = mem [ i_rd_addr_b ];
 assign o_rd_data_c = mem [ i_rd_addr_c ];
 assign o_rd_data_d = mem [ i_rd_addr_d ];
+assign o_rd_data_e = mem [ i_rd_addr_e ];
 
 `ifndef SYNTHESIS
 

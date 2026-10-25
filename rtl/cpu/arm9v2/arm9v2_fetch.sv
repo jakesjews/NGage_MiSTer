@@ -8,7 +8,8 @@
 module arm9v2_fetch #(
     parameter logic [31:0] RESET_VECTOR = 0,
     parameter logic PREDICTOR = 1'b1,
-    parameter logic THUMB_HALF = 1'b0
+    parameter logic THUMB_HALF = 1'b0,
+    parameter logic RAS_TOP_FF = 1'b0
 ) (
     input logic i_clk, i_reset,
     // Backend redirect, payload and predictor update are registered by owner.
@@ -122,7 +123,7 @@ module arm9v2_fetch #(
     assign o_ras_count = head_packet.prediction.count;
 
     if (PREDICTOR) begin : g_predictor
-        arm9v2_predict u_predict (
+        arm9v2_predict #(.RAS_TOP_FF(RAS_TOP_FF)) u_predict (
             .i_clk(i_clk), .i_reset(i_reset), .i_clear(i_predictor_clear),
             .i_lookup(advance), .i_pc(launch_pc), .i_thumb(launch_thumb),
             .i_accept(advance && f1.valid && !i_redirect && !retry && !killed),

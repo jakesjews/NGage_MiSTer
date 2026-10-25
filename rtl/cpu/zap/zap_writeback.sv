@@ -20,6 +20,9 @@
 module zap_writeback #(
         parameter integer RF_ALLOW_RETIMING = 1,
         parameter logic RF_EARLY_SELECT = 0,
+        // ARM9V2: the coprocessor reads through a fifth RF port, so the
+        // decode-side port A's address never waits for the coprocessor.
+        parameter logic COPRO_PORT = 0,
         parameter logic [31:0] BP_ENTRIES   = 32'd1024,  // BP entries.
         parameter logic [31:0] FLAG_WDT     = 32'd32,    // Flags width a.k.a CPSR.
         parameter logic [31:0] PHY_REGS     = 32'd46,    // Number of physical registers.
@@ -258,6 +261,7 @@ end else begin : g_rf_original
     assign rf_data1=wdata1;assign rf_data2=wdata2;
 end
 
+logic [31:0] copro_rd_data;
 zap_register_file #(.ALLOW_RETIMING(RF_ALLOW_RETIMING),.EARLY_PORT_SELECT(RF_EARLY_SELECT)) u_zap_register_file
 (
 .i_clk(i_clk),
@@ -273,15 +277,17 @@ zap_register_file #(.ALLOW_RETIMING(RF_ALLOW_RETIMING),.EARLY_PORT_SELECT(RF_EAR
 
  .i_wen          (       wen             ),
 
- .i_rd_addr_a    ( i_copro_reg_en ? i_copro_reg_rd_index : i_rd_index_0 ),
+ .i_rd_addr_a    ( !COPRO_PORT && i_copro_reg_en ? i_copro_reg_rd_index : i_rd_index_0 ),
  .i_rd_addr_b    (       i_rd_index_1    ),
  .i_rd_addr_c    (       i_rd_index_2    ),
  .i_rd_addr_d    (       i_rd_index_3    ),
+ .i_rd_addr_e    ( COPRO_PORT ? i_copro_reg_rd_index : '0 ),
 
  .o_rd_data_a    (       o_rd_data_0     ),
  .o_rd_data_b    (       o_rd_data_1     ),
  .o_rd_data_c    (       o_rd_data_2     ),
- .o_rd_data_d    (       o_rd_data_3     )
+ .o_rd_data_d    (       o_rd_data_3     ),
+ .o_rd_data_e    (       copro_rd_data   )
 
 );
 
@@ -591,7 +597,7 @@ begin
 
                 cpsr_ff                   <= cpsr_nxt;
                 o_decompile               <= i_decompile;
-                o_copro_reg_rd_data_ff    <= o_rd_data_0;
+                o_copro_reg_rd_data_ff    <= COPRO_PORT ? copro_rd_data : o_rd_data_0;
         end
 end
 
