@@ -835,3 +835,111 @@ run meets a cold `ddram_flash` read cache:
 - erases, erase-suspend and read-while-write;
 - interrupts;
 - the board build's timing closure.
+
+## V2's excess D-side TLB walks (`arm9_tlb_walks_rtl.S`, `fe65a2d`)
+
+### On the board
+
+Per second at 78 MHz, in game:
+- **V2:** 224-334 K D-TLB beats and 0.5-0.7 K I-TLB beats.
+- **ZAP:** 93-197 K D-TLB beats and 165-172 K I-TLB beats.
+
+(Logs `run-v2fix2.log` and `run-zap78d.log`.) ZAP's I-side walks are
+ZAP's own behaviour and are left unchanged.
+
+### The mechanism
+
+The structure:
+- Each cache has its own TLB (`zap_tlb`), with a 64-entry
+  direct-mapped section RAM indexed by VA[25:20].
+- `zap_tlb_check` registers the miss (`o_walk`) from the check address
+  (`i_address_check`).
+- The walker (`zap_tlb_fsm`) fetches the descriptor of the cache's
+  `i_address`, captured while IDLE (`zap_tlb_fsm.sv:168` to `:175`).
+- In ZAP those three addresses belong to one request.
+
+V2 drives them from different stages (`arm9v2_core.sv:662` to `:669`):
+- **The lookup** is A's address, every clock, for any instruction. For
+  an ALU instruction it is a data value.
+- **The check** is M's address (W's in HOLD and RETRY1).
+- **`i_address`** is W's address.
+
+The CPU bench's walk log (`--walklog`) shows three ways V2 walks where
+ZAP does not:
+1. **A hold freezes the TLB RAM on the read made before it** (the TLB's
+   clock enable is `!i_hold`). That read is usually A's speculative
+   lookup.
+   - At the hold's end, W's check compares against that entry, misses,
+     and the walker re-walks W's section, which the TLB already holds.
+   - Fills cause it (RETRY0 walks), and so do uncached accesses (RELOAD0
+     walks).
+   - On `arm9_unc_copy_rtl` at 3:3 this accounted for 15,447 plus
+     1,217 of V2's 29,839 D-side walks.
+2. **M's real miss was walked at W's address.** W may hold a non-memory
+   instruction, so this walked addresses like `0xEF8215A8` and installed
+   their descriptors, fault descriptors included. The miss stayed (1,537
+   walks).
+   - flashcopy's 193,735 re-walks of the section-0 descriptor are this
+     case and case 1: counters and sums sitting at W in tight
+     store/load loops.
+3. **The check registered in the install clock used the pre-install
+   entry.** The walker, back in IDLE, walked the same section again
+   (HOLD walks, 473).
+
+### The fix (V2's D-cache only)
+
+`zap_tlb` gets the parameter `CHECK_WALK`. `zap_dcache` sets it for
+SHORT_READ; ZAP and both I-sides keep 0. It does three things:
+- **The TLB RAMs read through holds** (`zap_mem_inv_block` READ_THROUGH).
+  The registered check stays frozen as before.
+- **The walk is for the registered check address**
+  (`zap_tlb_check o_walk_va`).
+- **After an install, no walk starts until the check has registered
+  again**, and the TLB stays busy meanwhile.
+
+A core-side variant tried first (withholding the check in the fill-end
+clock) gave cycle-identical results once these were in, so it was
+dropped.
+
+### Results
+
+- **`arm9_tlb_walks_rtl`:** two code sections and N data sections, at
+  distinct TLB indexes; 16 counted passes after a warm-up.
+  - ZAP and fixed V2: 0 walks in every configuration and window.
+  - V2 before the fix: 35, 70, 132, 164 and 196 D walks for N = 4, 6,
+    8, 10 and 12.
+- **`arm9_unc_copy_rtl` at 3:3:** V2's D walks fall from 29,839 to
+  11,311, exactly ZAP's count, none of them for another section.
+- **Whole-core flashcopy:** V2's D-TLB beats fall from 197,989 to 825,
+  and its clocks from 10.76 M to 6.71 M (ZAP: 7.19 M and 1,122,
+  unchanged). That is 20.5 clocks saved per avoided walk on the real
+  memory path.
+- **Suites:** 315/315 in ZAP D8/D16 and V2 D8/D16/predictor off.
+  - ZAP is cycle-identical: 309/309 D8 against the saved logs (the
+    other three are `arm9_unc_copy_rtl`'s older version), and 312/312
+    D16 against the HEAD netlist.
+  - V2: 185-186 of 309 runs move. Totals fall 6.1 % (D8), 5.6 %
+    (predictor off) and 6.0 % (D16).
+  - The slowest moves are random tests at most +43 clocks.
+  - Instruction counts move only in the interrupt-timed tests:
+    `fiq_perm`, `loaduse_irq`, `psr_irq` and `wfi_irq`.
+- **QEMU:** 73/73 in all five configurations. The four lint
+  configurations are clean, and `cpu-gen-check` passes (23 `input reg`).
+
+### Expected gain on the board
+
+If fixed V2's D walks fall to ZAP's rate, as they do in both benches,
+V2 saves 100-140 K walks/s. At about 20 clocks each, that is 2.1-2.9 M
+of its 78 M clocks/s, roughly 3 % more game speed. The bound, if every
+V2 walk were excess, is about 7 %.
+
+### Left
+
+- **Wrong-path walks:** walks still start from M's check. With the
+  predictor off, V2 can walk for a wrong-path load: in the test, the
+  load after the stub's return falls through. The test pads that path.
+- **A lead for the deaths, not checked:** before this fix, V2 walked
+  W's non-memory "addresses" and cached their fault descriptors. Such
+  an entry stays until the next TLB flush, so a section mapped later
+  without one would abort.
+- **Not done:** no fit and no board run.
