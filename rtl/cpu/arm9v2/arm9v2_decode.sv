@@ -43,6 +43,10 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     (* dont_retime *) output logic [1:0][3:0][4:0] o_forward_grant,
     (* dont_retime *) output logic [3:0][1:0][1:0] o_forward_match,
     output logic [3:0] o_early,
+    // The S-entry instruction writes a register it also reads (ldr r2,[r2],
+    // add r2,r2,#4). D2's WAW check lets it pass an older pending load of
+    // that register; such a writer must not take an unaccepted W short hit.
+    output logic o_self_dep,
     input logic i_ready,
     output logic o_valid,
     output logic [31:0] o_pc, o_instruction, o_pc_base, o_next_pc,
@@ -431,6 +435,14 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
         if(front.fault)begin decoded.direct=0;decoded.used=0;decoded.early=0;decoded.writes=0;decoded.last=1;end
     end
     assign o_early=issued.early;
+    (* dont_retime *) logic self_dep;
+    logic d2_self_dep;
+    always_comb begin
+        d2_self_dep=0;
+        for(int dst=0;dst<2;dst++)for(int src=0;src<4;src++)
+            d2_self_dep|=d2.writes[dst]&&d2.used[src]&&d2.tag[src]==d2.dest[dst];
+    end
+    assign o_self_dep=self_dep;
     // Normal-load repair is compared before its data register, alongside
     // D2/S admission. Refresh against the held owner when S cannot advance.
     always_ff @(posedge i_clk) begin
@@ -573,7 +585,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
         if(i_reset) begin
             fenced<=0;count<=0;head_select<=2'b01;tail<=0;d2_valid<=0;out_valid<=0;redirect_ff.valid<=0;redirect_in_d2<=0;
             previous_prefix<=0;prefix_valid<=0;previous_next_pc<=0;prefix_target<=0;
-            d2<=decoded_t'(0);issued<=decoded_t'(0);values<=0;write_through_match<=0;write_through_data<=0;matches_taken<=0;matches_fallthrough<=0;o_pending<=0;
+            d2<=decoded_t'(0);issued<=decoded_t'(0);self_dep<=0;values<=0;write_through_match<=0;write_through_data<=0;matches_taken<=0;matches_fallthrough<=0;o_pending<=0;
             redirect_ff.target<=0;redirect_ff.thumb<=0;redirect_ff.link<=0;
             redirect_ff.pointer<=0;redirect_ff.count<=0;redirect_ff.action<=0;
         end else begin
@@ -592,7 +604,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
             // Capacity alone clocks the payload. A source hazard changes
             // only validity and the owner; it never drives this wide enable.
             if(!out_valid||i_ready)begin
-                issued<=d2;values<=raw_values;
+                issued<=d2;values<=raw_values;self_dep<=d2_self_dep;
                 // W may accept a miss and install its lock on this same
                 // edge. Carry that owner to S instead of observing old locks.
                 for(int src=0;src<4;src++)o_pending[src]<=d2.used[src]&&

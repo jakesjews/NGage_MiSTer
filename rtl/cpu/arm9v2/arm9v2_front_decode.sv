@@ -35,6 +35,7 @@ module arm9v2_front_decode #(
     (* dont_retime *) output logic [1:0][3:0][4:0] o_forward_grant,
     output logic [3:0][1:0][1:0] o_forward_match,
     output logic [3:0] o_early,
+    output logic o_self_dep,
     input logic i_ready,
     output logic o_valid,
     output logic [31:0] o_pc, o_instruction, o_pc_base, o_next_pc,

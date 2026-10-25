@@ -226,6 +226,7 @@ output logic [1:0] o_dbg_fetch
     logic [3:0] d_condition;
     logic [3:0][5:0] d_tag;
     logic [3:0] d_used,d_early;
+    logic d_self_dep;
     logic [3:0][1:0][1:0] d_forward_match;
     logic [1:0][3:0][4:0] d_forward_grant;
     logic [1:0][1:0][5:0] forward_tag;
@@ -822,20 +823,26 @@ output logic [1:0] o_dbg_fetch
         a_flags,a_write_flags,a_store,a_btb_kind,a_predicted,a_psr_source,a_saved_psr,a_spsr_tag,
         d_early,data_pc8,pc,ins,ex_result,load_capture,load_commit,load_value};
 
-    // D2's WAW check lets a younger writer of W's load destination pass on
-    // a first-clock short hit (S's pending bit trusts it the same way): that
-    // hit must complete now. A short hit on a fill's departing victim is not
-    // accepted (i_data_short_live low); after installation the load misses
-    // and only then locks its register. The fill-end clock's response
-    // predates installation and W re-reads it (RETRY0), so a departing line
-    // can hit there too, typically for the first load after a W flush's
-    // refetch. Trusting either let the younger writer pass D2 before the
-    // lock existed; it hit and retired first, and the older load's
-    // background return then overwrote it (the EKA1 kernel's ip). Such a
-    // load is a pending owner. Readers may still take the word in S/A: it
-    // is the departing line's current data, and the return rewrites it.
+    // A first-clock W short hit is trusted as a load that completes now.
+    // A short hit on a fill's departing victim is not accepted
+    // (i_data_short_live low); after installation the load misses and
+    // only then locks its register. The fill-end clock's response predates
+    // installation and W re-reads it (RETRY0), typically for the first
+    // load after a W flush. Neither may be trusted where completion order
+    // matters:
+    // - D2's WAW check: an independent younger writer passed before the
+    //   lock existed, hit and retired first; the older load's background
+    //   return then overwrote it (the EKA1 kernel's ip, 0x50321574).
+    // - S/A, for a younger writer that READS the destination (ldr r2,[r2]):
+    //   D2 passes it on the premise that it waits for the older load's
+    //   data. Taking the departing line's word early let it retire before
+    //   the background return, which overwrote it (the handle lookup's r2
+    //   at 0x503CBDC6, the user data abort at 25 s). arm9v2_execute
+    //   applies i_load_trust only to such writers (d_self_dep); other
+    //   readers may take the word, the departing line's current data.
+    wire w_load_hit=w.memory&&i_data_short_hit&&i_data_short_live&&!w_waited&&!fill_ended;
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1)) u_front_decode (
-        .i_w_load_hit(w.memory&&i_data_short_hit&&i_data_short_live&&!w_waited&&!fill_ended),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
+        .i_w_load_hit(w_load_hit),.o_self_dep(d_self_dep),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
         .i_forward_load(forward_load),.o_forward_grant(d_forward_grant),.i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),.o_return_match(d_return_match),
         .i_reset(i_reset),
@@ -928,7 +935,7 @@ output logic [1:0] o_dbg_fetch
     arm9v2_execute u_execute (
         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),
         .i_load_owner({w.load_writer,m.load_writer}),.i_next_load_owner(forward_load),
-        .i_load_hit(w.memory&&i_data_short_hit&&!w_waited),
+        .i_load_hit(w.memory&&i_data_short_hit&&!w_waited),.i_load_trust(i_data_short_live&&!fill_ended),.i_self_dep(d_self_dep),
         .i_return_select(i_dc_reg_idx),.i_return_data(operand_return_data),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),
         .i_return_ready(return_ready),.i_return_s_match(d_return_match),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(mw_tag),.i_advance_tag(advance_tag),.i_next_advance(forward_advance),.i_next_write(forward_write),.i_early(d_early),

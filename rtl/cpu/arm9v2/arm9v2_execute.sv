@@ -11,6 +11,10 @@ module arm9v2_execute (
     input logic [3:0] i_pending,
     input logic [1:0] i_load_owner,i_next_load_owner,
     input logic i_load_hit,
+    // i_load_trust: the cache accepts W's short hit now (not a departing
+    // line, not the fill-end clock). i_self_dep: the S record writes a
+    // register it reads; only such a writer needs the accepted hit.
+    input logic i_load_trust,i_self_dep,
     input logic [63:0] i_return_select, // Registered background port C.
     input logic i_return_next_valid,i_return_ready,
     input logic [5:0] i_return_next_tag,
@@ -94,6 +98,7 @@ module arm9v2_execute (
         logic [3:0][1:0][1:0] late;
         logic [3:0][5:0] tag;
         logic [3:0] late_used,pending;
+        logic self_dep;
         logic signed [7:0] wb_offset;
     } a_t;
     (* dont_retime *) a_t a;
@@ -117,6 +122,14 @@ module arm9v2_execute (
     logic [3:0] s_wait,a_wait;
     (* dont_retime *) logic [3:0] return_a_match;
     logic [3:0][1:0] s_return_match,a_return_match;
+    // A writer of a register it reads passes D2 behind an older pending
+    // load of that register only because it waits for that load's data.
+    // It must not take a short-hit word the cache has not accepted: that
+    // load can still miss, and its background return would then overwrite
+    // this younger writer. Other readers may take the word (the departing
+    // line's current data); the return rewrites the same value.
+    wire s_load_hit=i_load_hit&&(!i_self_dep||i_load_trust);
+    wire a_load_hit=i_load_hit&&(!a.self_dep||i_load_trust);
     // The return data and these bounded matches take the same edge. A's
     // owner is the accepted S record or its existing held record. Producer
     // age/pending checks remain at consumption, just as for background C.
@@ -141,10 +154,10 @@ module arm9v2_execute (
         for(int src=0;src<4;src++)for(int prod=1;prod>=0;prod--)begin
             if(|i_forward_match[src][prod])
                 s_wait[src]=i_forward_match[src][prod][0]&&
-                    i_load_owner[prod]&&(prod==0||!i_load_hit);
+                    i_load_owner[prod]&&(prod==0||!s_load_hit);
             if(|a.late[src][prod])
                 a_wait[src]=a.late[src][prod][0]&&
-                    i_load_owner[prod]&&(prod==0||!i_load_hit);
+                    i_load_owner[prod]&&(prod==0||!a_load_hit);
         end
     end
     logic [31:0] shift_input,shifted;
@@ -159,7 +172,7 @@ module arm9v2_execute (
     logic [31:0] actual_target;
     logic actual_thumb,wrong_prediction;
     wire unused=&{1'b0,i_cpsr[27:0],i_used[2],i_mw_tag,i_mw_valid,CP,UND,SWI,actual_target[0],lh[33:32],hl[33:32],hh[33:32]};
-    arm9v2_forward u_forward(.i_value(holding?held:i_value),.i_grant(i_forward_grant[i_load_hit]),
+    arm9v2_forward u_forward(.i_value(holding?held:i_value),.i_grant(i_forward_grant[s_load_hit]),
         .i_producer_value(i_mw_value),.o_value(forwarded));
 `ifndef SYNTHESIS
     // Prove every selected data source is ready, and that the precomputed
@@ -170,13 +183,13 @@ module arm9v2_execute (
             seen=0;
             for(int rank=0;rank<4;rank++)begin
                 eligible=i_forward_match[src][rank/2][1-rank%2]&&
-                    !(rank%2==1&&i_load_owner[rank/2]&&(rank/2==0||!i_load_hit));
-                assert(i_forward_grant[i_load_hit][src][rank]==(eligible&&!seen))
+                    !(rank%2==1&&i_load_owner[rank/2]&&(rank/2==0||!s_load_hit));
+                assert(i_forward_grant[s_load_hit][src][rank]==(eligible&&!seen))
                     else $fatal(1,"S grant age/readiness src=%0d rank=%0d",src,rank);
                 seen|=eligible;
             end
-            assert(i_forward_grant[i_load_hit][src][4]==!seen);
-            assert($onehot(i_forward_grant[i_load_hit][src]));
+            assert(i_forward_grant[s_load_hit][src][4]==!seen);
+            assert($onehot(i_forward_grant[s_load_hit][src]));
         end
     end
 `endif
@@ -225,7 +238,7 @@ module arm9v2_execute (
     always_comb begin
         left_a=a.left;right_a=a.right;store_a=a.store_data;special_a=a.special;
         for(int prod=1;prod>=0;prod--)for(int lane=0;lane<2;lane++)begin
-            if(!(lane==0&&i_load_owner[prod]&&(prod==0||!i_load_hit)))begin
+            if(!(lane==0&&i_load_owner[prod]&&(prod==0||!a_load_hit)))begin
             if(a.late[0][prod][lane])left_a=i_mw_value[prod][lane];
             if(a.late[1][prod][lane])right_a=i_mw_value[prod][lane];
             if(a.late[2][prod][lane])special_a=i_mw_value[prod][lane];
@@ -428,7 +441,7 @@ module arm9v2_execute (
                 a.thumb<=i_thumb;a.fault<=i_fault;a.first<=i_first;a.last<=i_last;
                 a.direct<=i_direct;a.predicted<=i_predicted;a.match_taken<=i_match_taken;
                 a.match_fallthrough<=i_match_fallthrough;a.pred_hit<=i_pred_hit;a.pred_state<=i_pred_state;a.ras_pointer<=i_ras_pointer;a.ras_count<=i_ras_count;
-                a.spsr_tag<=i_tag[2];a.dest<=i_dest;a.writes<=planned_writes;a.left<=operand[0];a.right<=shifted;
+                a.spsr_tag<=i_tag[2];a.self_dep<=i_self_dep;a.dest<=i_dest;a.writes<=planned_writes;a.left<=operand[0];a.right<=shifted;
                 a.store_data<=operand[3];a.special<=operand[2];a.cpsr_read<=i_tag[2]==17;
                 a.op<=i_instruction[24:21];a.set_flags<=i_instruction[20]||(i_kind==DP&&i_instruction[24:23]==2'b10);
                 a.shift_carry<=shift_carry;a.carry_preserve<=carry_preserve;a.rrx<=rrx;a.wb_offset<=i_writeback_offset;
