@@ -165,6 +165,7 @@ module arm9v2_front_execute #(
         .i_wr_data_b(mw_value[1][1]),
         .i_wr_data_c(mw_cpsr[1]),
         .i_ready(o_execute_ready),
+        .i_ready_payload(o_execute_ready),
         .i_backend_target(i_flush?i_backend_target:o_redirect_target),
         .i_backend_link(o_redirect_link),
         .i_backend_thumb(i_flush?i_backend_thumb:o_redirect_thumb),

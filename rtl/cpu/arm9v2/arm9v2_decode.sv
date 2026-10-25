@@ -69,6 +69,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
     // that register; such a writer must not take an unaccepted W short hit.
     output logic o_self_dep,
     input logic i_ready,
+    input logic i_ready_payload,   // i_ready without the terms that also flush decode
     output logic o_valid,
     output logic [31:0] o_pc, o_instruction, o_pc_base, o_next_pc,
     output logic [15:0] o_raw,
@@ -556,7 +557,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
     assign shortcut=accept&&fast_select&&(!d2_valid||(step&&d2.last));
     assign push=accept&&!shortcut;
     // PAYLOAD_FREE: the same terms without kill_younger (or step's i_flush).
-    wire step_raw=d2_valid&&(!out_valid||i_ready)&&!o_hazard&&(!redirect_ff.valid||redirect_in_d2);
+    wire step_raw=d2_valid&&(!out_valid||i_ready_payload)&&!o_hazard&&(!redirect_ff.valid||redirect_in_d2);
     wire d2_load=PAYLOAD_FREE?(count!=0||(i_valid&&count<2&&fast_select))&&(!d2_valid||(step_raw&&d2.last)):new_d2;
     wire d1_load=PAYLOAD_FREE?count<2:push;
     assign new_d2=pop||shortcut;
@@ -653,7 +654,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
             case({push,pop})2'b10:count<=count+1'b1;2'b01:count<=count-1'b1;default:;endcase
             // Capacity alone clocks the payload. A source hazard changes
             // only validity and the owner; it never drives this wide enable.
-            if(!out_valid||i_ready)begin
+            if(!out_valid||(PAYLOAD_FREE?i_ready_payload:i_ready))begin
                 issued<=d2;values<=raw_values;self_dep<=d2_self_dep;
                 shift_pre_ff<=shift_controls(d2);
                 // W may accept a miss and install its lock on this same
@@ -758,6 +759,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
         d2_before<=d2;
         if(!i_reset&&PAYLOAD_FREE)begin
             assert(!push||d1_load) else $fatal(1,"D1 payload enable");
+            assert(i_ready==i_ready_payload||i_flush) else $fatal(1,"payload ready outside a flush");
             assert(!new_d2||d2_load) else $fatal(1,"D2 payload enable");
         end
         if(!i_reset&&PAYLOAD_FREE&&d2_kept)

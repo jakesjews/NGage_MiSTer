@@ -43,6 +43,7 @@ module arm9v2_front_decode #(
     output logic [3:0] o_early,
     output logic o_self_dep,
     input logic i_ready,
+    input logic i_ready_payload,
     output logic o_valid,
     output logic [31:0] o_pc, o_instruction, o_pc_base, o_next_pc,
     output logic [15:0] o_raw,

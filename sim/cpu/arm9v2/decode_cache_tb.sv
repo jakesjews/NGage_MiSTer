@@ -10,6 +10,7 @@ module decode_cache_tb;
     logic [3:0] i_early_valid;
     logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c;
     logic i_ready;
+    wire i_ready_payload=i_ready;
     logic o_valid;
     logic [31:0] o_pc, o_instruction, o_pc_base, o_next_pc;
     logic [15:0] o_raw;

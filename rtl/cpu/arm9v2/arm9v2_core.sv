@@ -295,7 +295,7 @@ output logic [1:0] o_dbg_fetch
     logic [2:0] d_redirect_pointer;
     logic [3:0] d_redirect_count;
     logic [1:0] d_redirect_action;
-    logic a_execute_ready;
+    logic a_execute_ready,a_execute_ready_payload;
     logic a_valid;
     logic [31:0] a_pc;
     logic [31:0] a_instruction;
@@ -946,6 +946,7 @@ output logic [1:0] o_dbg_fetch
         .i_wr_data_b(wb_data1),
         .i_wr_data_c(i_dc_reg_dat),
         .i_ready(a_execute_ready),
+        .i_ready_payload(a_execute_ready_payload),
         .i_backend_target(wb_flush?wb_target:a_redirect_target),
         .i_backend_link(wb_flush?wb_repair_link:a_redirect_link),
         .i_backend_thumb(wb_flush?wb_thumb:a_redirect_thumb),
@@ -1018,7 +1019,7 @@ output logic [1:0] o_dbg_fetch
         .o_request(o_instr_wb_stb),
         .o_stall(o_code_stall),.o_dbg_fetch(o_dbg_fetch)
     );
-    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE)) u_execute (
+    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE)) u_execute (
         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),
         .i_load_owner({w.load_writer,m.load_writer}),.i_next_load_owner(forward_load),
         .i_load_hit(w_hit&&i_data_short_hit),.i_load_trust(load_trust),.i_self_dep(d_self_dep),
@@ -1068,7 +1069,7 @@ output logic [1:0] o_dbg_fetch
         .i_mw_tag(mw_tag),
         .i_mw_valid(mw_write),
         .i_ready(backend_ready),
-        .o_ready(a_execute_ready),
+        .o_ready(a_execute_ready),.o_ready_payload(a_execute_ready_payload),
         .o_valid(a_valid),
         .o_pc(a_pc),
         .o_instruction(a_instruction),

@@ -592,6 +592,7 @@ module arm9v2_core (
 	wire [3:0] d_redirect_count;
 	wire [1:0] d_redirect_action;
 	wire a_execute_ready;
+	wire a_execute_ready_payload;
 	wire a_valid;
 	wire [31:0] a_pc;
 	wire [31:0] a_instruction;
@@ -1380,6 +1381,7 @@ module arm9v2_core (
 		.i_wr_data_b(wb_data1),
 		.i_wr_data_c(i_dc_reg_dat),
 		.i_ready(a_execute_ready),
+		.i_ready_payload(a_execute_ready_payload),
 		.i_backend_target((wb_flush ? wb_target : a_redirect_target)),
 		.i_backend_link((wb_flush ? wb_repair_link : a_redirect_link)),
 		.i_backend_thumb((wb_flush ? wb_thumb : a_redirect_thumb)),
@@ -1458,7 +1460,8 @@ module arm9v2_core (
 		.FREE_SELECT(FREE_SELECT),
 		.FAST_Z(FAST_Z),
 		.W_ROTATE(W_ROTATE),
-		.SHIFT_PRE(SHIFT_PRE)
+		.SHIFT_PRE(SHIFT_PRE),
+		.PAYLOAD_FREE(PAYLOAD_FREE)
 	) u_execute(
 		.i_pending(d_pending),
 		.i_admit(backend_ready),
@@ -1537,6 +1540,7 @@ module arm9v2_core (
 		.i_mw_valid(mw_write),
 		.i_ready(backend_ready),
 		.o_ready(a_execute_ready),
+		.o_ready_payload(a_execute_ready_payload),
 		.o_valid(a_valid),
 		.o_pc(a_pc),
 		.o_instruction(a_instruction),
@@ -1770,6 +1774,7 @@ module arm9v2_decode (
 	o_early,
 	o_self_dep,
 	i_ready,
+	i_ready_payload,
 	o_valid,
 	o_pc,
 	o_instruction,
@@ -1874,6 +1879,7 @@ module arm9v2_decode (
 	output wire [3:0] o_early;
 	output wire o_self_dep;
 	input wire i_ready;
+	input wire i_ready_payload;
 	output wire o_valid;
 	output wire [31:0] o_pc;
 	output wire [31:0] o_instruction;
@@ -2543,7 +2549,7 @@ module arm9v2_decode (
 	assign fast_select = ((count == 0) && !i_fault) && (i_thumb ? raw_word[15:11] == 5'b11100 : i_word[31:25] == 7'b1110101);
 	assign shortcut = (accept && fast_select) && (!d2_valid || (step && d2[42]));
 	assign push = accept && !shortcut;
-	wire step_raw = ((d2_valid && (!out_valid || i_ready)) && !o_hazard) && (!redirect_ff[74] || redirect_in_d2);
+	wire step_raw = ((d2_valid && (!out_valid || i_ready_payload)) && !o_hazard) && (!redirect_ff[74] || redirect_in_d2);
 	wire d2_load = (PAYLOAD_FREE ? ((count != 0) || ((i_valid && (count < 2)) && fast_select)) && (!d2_valid || (step_raw && d2[42])) : new_d2);
 	wire d1_load = (PAYLOAD_FREE ? count < 2 : push);
 	assign new_d2 = pop || shortcut;
@@ -2721,7 +2727,7 @@ module arm9v2_decode (
 				default:
 					;
 			endcase
-			if (!out_valid || i_ready) begin
+			if (!out_valid || (PAYLOAD_FREE ? i_ready_payload : i_ready)) begin
 				issued <= d2;
 				values <= raw_values;
 				self_dep <= d2_self_dep;
@@ -2882,6 +2888,7 @@ module arm9v2_execute (
 	i_cpsr,
 	i_valid,
 	o_ready,
+	o_ready_payload,
 	i_pc,
 	i_instruction,
 	i_pc_base,
@@ -2986,6 +2993,7 @@ module arm9v2_execute (
 	parameter [0:0] FAST_Z = 0;
 	parameter [0:0] W_ROTATE = 0;
 	parameter [0:0] SHIFT_PRE = 0;
+	parameter [0:0] PAYLOAD_FREE = 0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
@@ -3008,6 +3016,7 @@ module arm9v2_execute (
 	input wire [31:0] i_cpsr;
 	input wire i_valid;
 	output wire o_ready;
+	output wire o_ready_payload;
 	input wire [31:0] i_pc;
 	input wire [31:0] i_instruction;
 	input wire [31:0] i_pc_base;
@@ -3479,7 +3488,8 @@ module arm9v2_execute (
 	assign space = !a_valid || finish;
 	assign o_shift_wait = (i_valid && (i_reg_shift || agu_scaled)) && !prepared;
 	assign o_multiply_wait = product_phase || mac_phase;
-	assign o_ready = (((((i_admit && space) && !i_load_wait) && !(|(s_wait & i_early))) && !o_shift_wait) && !i_flush) && !o_redirect;
+	assign o_ready_payload = (((i_admit && space) && !i_load_wait) && !(|(s_wait & i_early))) && !o_shift_wait;
+	assign o_ready = (o_ready_payload && !i_flush) && !o_redirect;
 	assign accept = i_valid && o_ready;
 	assign o_valid = ((((a_valid && !(|a_wait)) && !product_phase) && !mac_phase) && !i_flush) && !o_redirect;
 	assign finish = o_valid && i_ready;
@@ -3666,7 +3676,7 @@ module arm9v2_execute (
 			end
 	end
 	always @(posedge i_clk)
-		if (i_reset || i_flush) begin
+		if (i_reset || (!PAYLOAD_FREE && i_flush)) begin
 			a_valid <= 0;
 			holding <= 0;
 			prepared <= 0;
@@ -3929,6 +3939,19 @@ module arm9v2_execute (
 				a_valid <= 0;
 				holding <= 0;
 				prepared <= 0;
+			end
+			if (PAYLOAD_FREE && i_flush) begin
+				a_valid <= 0;
+				holding <= 0;
+				prepared <= 0;
+				s_pending <= 0;
+				multiply_accumulate <= 0;
+				multiply_product_ready <= 0;
+				o_redirect <= 0;
+				o_btb_update <= 0;
+				o_serial_continue <= 0;
+				flags <= i_cpsr[31:28];
+				interrupt_mask <= i_cpsr[7:6];
 			end
 		end
 	initial _sv2v_0 = 0;
@@ -4282,6 +4305,7 @@ module arm9v2_front_decode (
 	o_early,
 	o_self_dep,
 	i_ready,
+	i_ready_payload,
 	o_valid,
 	o_pc,
 	o_instruction,
@@ -4403,6 +4427,7 @@ module arm9v2_front_decode (
 	output wire [3:0] o_early;
 	output wire o_self_dep;
 	input wire i_ready;
+	input wire i_ready_payload;
 	output wire o_valid;
 	output wire [31:0] o_pc;
 	output wire [31:0] o_instruction;
@@ -4597,6 +4622,7 @@ module arm9v2_front_decode (
 		.o_early(o_early),
 		.o_self_dep(o_self_dep),
 		.i_ready(i_ready),
+		.i_ready_payload(i_ready_payload),
 		.o_valid(o_valid),
 		.o_pc(o_pc),
 		.o_instruction(o_instruction),

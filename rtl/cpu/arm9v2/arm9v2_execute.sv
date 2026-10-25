@@ -24,7 +24,7 @@
 // value. The operand multiplexer is no longer between the cache and the
 // shifter.
 module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, parameter logic FAST_Z=0,
-    parameter logic W_ROTATE=0, parameter logic SHIFT_PRE=0) (
+    parameter logic W_ROTATE=0, parameter logic SHIFT_PRE=0, parameter logic PAYLOAD_FREE=0) (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
     input logic i_flags_refresh,
     output logic o_serial_continue,
@@ -43,6 +43,7 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
     input logic [31:0] i_cpsr,
     input logic i_valid,
     output logic o_ready,
+    output logic o_ready_payload,   // o_ready without the flush and A's redirect (decode's payload enables)
     input logic [31:0] i_pc,i_instruction,i_pc_base,i_next_pc,
     input logic i_thumb,i_fault,i_force_align,i_reg_shift,i_first,i_last,
     input logic [15:0] i_shift_pre,   // SHIFT_PRE: {type, amount, rotate amount, register}
@@ -435,7 +436,8 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
     assign space=!a_valid||finish;
     assign o_shift_wait=i_valid&&(i_reg_shift||agu_scaled)&&!prepared;
     assign o_multiply_wait=product_phase||mac_phase;
-    assign o_ready=i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&!o_shift_wait&&!i_flush&&!o_redirect;
+    assign o_ready_payload=i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&!o_shift_wait;
+    assign o_ready=o_ready_payload&&!i_flush&&!o_redirect;
     assign accept=i_valid&&o_ready;
     assign o_valid=a_valid&&!(|a_wait)&&!product_phase&&!mac_phase&&!i_flush&&!o_redirect;
     assign finish=o_valid&&i_ready;
@@ -540,8 +542,12 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
                 else $fatal(1,"next producer match/age");
         end
 `endif
+    // PAYLOAD_FREE: a flush resets the control and valid state only (the
+    // block below); the payload (A's record, the held operands, the
+    // multiplier partials, the redirect/BTB fields) loads as it would
+    // without the flush, and every reader of it is gated by a valid bit.
     always_ff @(posedge i_clk)begin
-        if(i_reset||i_flush)begin
+        if(i_reset||(!PAYLOAD_FREE&&i_flush))begin
             a_valid<=0;holding<=0;prepared<=0;s_pending<=0;multiply_accumulate<=0;multiply_product_ready<=0;
             o_redirect<=0;o_btb_pc<=0;o_btb_thumb<=0;
             o_btb_update<=0;o_btb_taken<=0;o_btb_hit<=0;o_btb_target<=0;o_btb_state<=0;o_btb_kind<=0;
@@ -658,6 +664,11 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
                 end
             end
             if(o_redirect)begin a_valid<=0;holding<=0;prepared<=0;end
+            if(PAYLOAD_FREE&&i_flush)begin
+                a_valid<=0;holding<=0;prepared<=0;s_pending<=0;multiply_accumulate<=0;multiply_product_ready<=0;
+                o_redirect<=0;o_btb_update<=0;o_serial_continue<=0;
+                flags<=i_cpsr[31:28];interrupt_mask<=i_cpsr[7:6];
+            end
         end
     end
 endmodule
