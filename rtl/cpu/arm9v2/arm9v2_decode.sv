@@ -2,7 +2,12 @@
 // ARM9V2 D1/D2, including the registers at the S entrance. ARMv4T class and
 // physical register mapping follow this project's GPL arm9_core/zap_functions
 // (ZAP copyright 2016-2024 Revanth Kamaraj). No execution or forwarding here.
-module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
+// S_AGU: memory addresses are formed in S and registered into A, so A
+// drives the D-cache/TLB lookup from a register (arm9v2_execute). The base,
+// a register offset, the SWP base and a block's first base are then early
+// (S-needed) sources. A base whose pending writer is a scalar MEM writeback
+// (an S-AGU sum) is exempt: S takes that sum from A's register.
+module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0) (
     input logic i_clk, i_reset, i_flush,
     input logic i_serial_continue,
     input logic i_valid,
@@ -22,6 +27,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     // do not decode a destination mask and index it back by each source.
     input logic [3:0][5:0] i_early_tag,
     input logic [3:0] i_early_valid,
+    input logic [3:0] i_early_agu,      // that pending writer lane is a MEM writeback (S_AGU)
     input logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c,
     input logic [3:0][31:0] i_rf_value,
     output logic [3:0][5:0] o_rf_tag,
@@ -415,7 +421,12 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
                 decoded.early[1]=decoded.used[1]&&front.ins[11:4]!=0;
                 decoded.early[2]=decoded.reg_shift;
             end
-            K_MEM:decoded.early[1]=decoded.used[1]&&front.ins[27:26]==1&&front.ins[11:4]!=0;
+            K_MEM:begin
+                decoded.early[1]=decoded.used[1]&&front.ins[27:26]==1&&front.ins[11:4]!=0;
+                if(S_AGU)begin decoded.early[0]=decoded.used[0];decoded.early[1]=decoded.used[1];end
+            end
+            K_SWP:if(S_AGU)decoded.early[0]=1;
+            K_BLOCK:if(S_AGU)decoded.early[0]=decoded.used[0];
             K_MUL,K_MULL:decoded.early=4'b0110;
             default:;
         endcase
@@ -533,7 +544,8 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
     always_comb begin
         early_hazard=0;
         for(int src=0;src<4;src++)for(int pending=0;pending<4;pending++)
-            early_hazard[src]|=early_used[src]&&i_early_valid[pending]&&d2.tag[src]==i_early_tag[pending];
+            early_hazard[src]|=early_used[src]&&i_early_valid[pending]&&d2.tag[src]==i_early_tag[pending]&&
+                !(S_AGU&&src==0&&i_early_agu[pending]&&(d2.kind==K_MEM||d2.kind==K_SWP||d2.kind==K_BLOCK));
     end
     always_comb begin
         load_hazard=0;
@@ -632,6 +644,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0) (
                     d2.tag[3]<=bank({1'b0,next_register},d2.p.ins[22]&&!(d2.p.ins[20]&&d2.p.list[15])?5'h10:d2.p.mode);
                     d2.dest[0]<=bank({1'b0,next_register},d2.p.ins[22]&&!(d2.p.ins[20]&&d2.p.list[15])?5'h10:d2.p.mode);
                     d2.used[0]<=0;d2.used[2]<=d2.p.ins[20]&&d2.p.ins[22]&&d2.left==2&&next_register==15;
+                    if(S_AGU)d2.early[0]<=0;
                 end
                 if(late_redirect)begin
                     redirect_ff.valid<=1;redirect_ff.target<=d2.target;redirect_ff.thumb<=d2.p.thumb;

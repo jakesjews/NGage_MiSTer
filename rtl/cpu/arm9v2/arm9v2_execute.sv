@@ -4,7 +4,14 @@
 // i_ready is REGISTERED downstream capacity, never a cache ACK/hit/err2.
 // D2 interlocks early operands; a registered S wait preserves their
 // separation through backend holds. Late A operands select registered M/W.
-module arm9v2_execute (
+// S_AGU: the effective address is summed in S from S's registered-producer
+// operands and registered into A (a.agu); A drives the D-cache/TLB lookup
+// from that register instead of through its late bypass and ALU. Decode
+// makes the base and a register offset early sources. A scaled register
+// offset takes one prepared S clock (the rotated offset is registered
+// before the sum). A base whose writer is the scalar MEM in A (its
+// writeback is that record's registered S-AGU sum) is taken from A.
+module arm9v2_execute #(parameter logic S_AGU=0) (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
     input logic i_flags_refresh,
     output logic o_serial_continue,
@@ -54,6 +61,7 @@ module arm9v2_execute (
     (* dont_retime *) output logic [1:0] o_write,
     output logic o_write_flags,o_pc_write,o_memory,o_store,
     output logic [31:0] o_address,o_store_data,
+    output logic [31:0] o_alu_address,   // A's ALU result (a Thumb BL suffix's target)
     output logic [3:0] o_flags,
     output logic o_redirect,o_redirect_thumb,
     output logic [31:0] o_redirect_target,o_redirect_link,
@@ -100,6 +108,7 @@ module arm9v2_execute (
         logic [3:0] late_used,pending;
         logic self_dep;
         logic signed [7:0] wb_offset;
+        logic [31:0] agu,agu_sum;          // S_AGU: registered address and writeback sum
     } a_t;
     (* dont_retime *) a_t a;
     (* dont_retime *) logic a_valid,prepared,holding,multiply_accumulate,multiply_product_ready;
@@ -114,6 +123,7 @@ module arm9v2_execute (
         condition_pass&&!a.fault&&a.cpsr_low[4:0]!=5'h10&&msr_same_mode?right_a[7:6]:interrupt_mask;
     (* dont_retime *) logic [3:0][31:0] held;
     (* dont_retime *) logic [7:0] held_amount;
+    (* dont_retime *) logic [31:0] held_offset;   // S_AGU: a scaled offset, rotated on the prepared clock
     (* dont_retime *) logic [31:0] block_base;
     (* dont_retime *) logic signed [33:0] ll,lh,hl,hh;
     (* dont_retime *) logic [63:0] product_saved;
@@ -204,7 +214,7 @@ module arm9v2_execute (
             if(i_tag[s]==17)operand[s]={flags,i_cpsr[27:8],interrupt_mask,i_cpsr[5:0]};
         end
         shift_input=operand[1];shift_type=i_instruction[6:5];
-        shift_amount=prepared?held_amount:{3'd0,i_instruction[11:7]};
+        shift_amount=prepared&&i_reg_shift?held_amount:{3'd0,i_instruction[11:7]};
         shift_register=i_reg_shift;
         if((i_kind==DP||i_kind==MSR)&&i_instruction[25])begin
             shift_input={24'd0,i_instruction[7:0]};shift_type=3;
@@ -233,6 +243,33 @@ module arm9v2_execute (
     arm9v2_rotate u_rotate(.i_value(shift_input),.i_amount(shift_amount),.i_type(shift_type),
         .i_register(shift_register),.i_carry(1'b0),.o_value(shifted),
         .o_carry(shift_carry),.o_preserve(carry_preserve),.o_rrx(rrx));
+    // S_AGU: the address adder. Inputs are S's selected operands (registered
+    // producers or the RF), never A's ALU. A scaled register offset uses
+    // held_offset from the prepared clock, so no rotator precedes the sum.
+    wire agu_scaled=S_AGU&&i_kind==MEM&&i_instruction[27:26]==1&&i_instruction[25]&&i_instruction[11:4]!=0;
+    logic agu_forward,agu_sub,agu_pre;
+    logic [31:0] agu_base,agu_offset,agu_sum,agu_address,s_base;
+    always_comb begin
+        // The scalar MEM in A writes this base (its writeback lane, condition
+        // passed): its registered sum is the newest value; S's network still
+        // holds the older one. Decode let this record pass D2 on that basis.
+        agu_forward=S_AGU&&(i_kind==MEM||i_kind==SWP||(i_kind==BLOCK&&i_first))&&
+            a_valid&&a.kind==MEM&&a.writes[1]&&condition_pass&&!a.fault&&
+            !(a.ins[20]&&a.dest[0]==a.dest[1])&&a.dest[1]==i_tag[0]&&i_tag[0]!=15;
+        s_base=agu_forward?a.agu_sum:operand[0];
+        agu_base=s_base;agu_sub=!i_instruction[23];agu_pre=i_instruction[24];
+        agu_offset={20'd0,i_instruction[11:0]};
+        if(i_instruction[27:26]==0)
+            agu_offset=i_instruction[22]?{24'd0,i_instruction[11:8],i_instruction[3:0]}:operand[1];
+        else if(i_instruction[25])agu_offset=i_instruction[11:4]!=0?held_offset:operand[1];
+        if(i_kind==BLOCK)begin
+            agu_base=i_first?s_base:(a_valid&&a.kind==BLOCK&&a.first)?a.left:block_base;
+            agu_offset={{24{i_offset[7]}},i_offset};agu_sub=0;agu_pre=1;
+        end
+        if(i_kind==SWP)begin agu_offset=0;agu_sub=0;agu_pre=1;end
+        agu_sum=agu_sub?agu_base-agu_offset:agu_base+agu_offset;
+        agu_address=agu_pre?agu_sum:agu_base;
+    end
     // Late data bypass: tag comparisons were captured at S/A, and are
     // refreshed each held edge. Only registered M/W words enter A.
     always_comb begin
@@ -267,7 +304,7 @@ module arm9v2_execute (
     assign product_phase=a_valid&&(a.kind==MUL||a.kind==MULL)&&!multiply_product_ready;
     assign mac_phase=a_valid&&(a.kind==MUL||a.kind==MULL)&&multiply_product_ready&&a.ins[21]&&!multiply_accumulate;
     assign space=!a_valid||finish;
-    assign o_shift_wait=i_valid&&i_reg_shift&&!prepared;
+    assign o_shift_wait=i_valid&&(i_reg_shift||agu_scaled)&&!prepared;
     assign o_multiply_wait=product_phase||mac_phase;
     assign o_ready=i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&!o_shift_wait&&!i_flush&&!o_redirect;
     assign accept=i_valid&&o_ready;
@@ -329,7 +366,7 @@ module arm9v2_execute (
                 o_write_flags=will_write_flags;
                 o_write=a.writes&{2{condition_pass&&!a.fault}};
                 o_result[0]=alu_result;o_result[1]=0;
-                o_address=alu_result;o_store_data=store_a;
+                o_address=S_AGU?a.agu:alu_result;o_store_data=store_a;o_alu_address=alu_result;
                 o_memory=(a.kind==MEM||a.kind==BLOCK||a.kind==SWP)&&condition_pass&&!a.fault;
                 o_store=(a.kind==SWP||((a.kind==MEM||a.kind==BLOCK)&&!a.ins[20]))&&condition_pass&&!a.fault;
                 o_pc_write=((a.writes[0]&&a.dest[0]==15)||(a.kind==SUFFIX&&!a.direct))&&condition_pass&&!a.fault;
@@ -340,9 +377,9 @@ module arm9v2_execute (
                     PREFIX:o_result[0]=a.target;
                     MUL:o_result[0]=mult_result[31:0];
                     MULL:begin o_result[0]=mult_result[31:0];o_result[1]=mult_result[63:32];end
-                    MEM:begin o_address=a.ins[24]?alu_result:left_a;o_result[1]=alu_result;end
+                    MEM:begin if(!S_AGU)o_address=a.ins[24]?alu_result:left_a;o_result[1]=alu_result;end
                     BLOCK:o_result[1]=left_a+{{24{a.wb_offset[7]}},a.wb_offset};
-                    SWP:begin o_address=left_a;o_store_data=right_a;end
+                    SWP:begin if(!S_AGU)o_address=left_a;o_store_data=right_a;end
                     default:;
                 endcase
                 o_record_pointer=a.ras_pointer;o_record_count=a.ras_count;
@@ -372,7 +409,7 @@ module arm9v2_execute (
             a_valid<=0;holding<=0;prepared<=0;s_pending<=0;multiply_accumulate<=0;multiply_product_ready<=0;
             o_redirect<=0;o_btb_pc<=0;o_btb_thumb<=0;
             o_btb_update<=0;o_btb_taken<=0;o_btb_hit<=0;o_btb_target<=0;o_btb_state<=0;o_btb_kind<=0;
-            flags<=i_cpsr[31:28];interrupt_mask<=i_cpsr[7:6];o_serial_continue<=0;a<=a_t'(0);held<=0;held_amount<=0;block_base<=0;
+            flags<=i_cpsr[31:28];interrupt_mask<=i_cpsr[7:6];o_serial_continue<=0;a<=a_t'(0);held<=0;held_amount<=0;held_offset<=0;block_base<=0;
             ll<=0;lh<=0;hl<=0;hh<=0;product_saved<=0;
             o_redirect_thumb<=0;o_redirect_target<=0;
             o_redirect_link<=0;o_redirect_pointer<=0;o_redirect_count<=0;o_redirect_action<=0;
@@ -389,7 +426,9 @@ module arm9v2_execute (
                         held[src]<=i_return_data[port];s_pending[src]<=0;
                     end
             end
-            if(i_valid&&i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&i_reg_shift&&!prepared)begin prepared<=1;held_amount<=operand[2][7:0];end
+            if(i_valid&&i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&(i_reg_shift||agu_scaled)&&!prepared)begin
+                prepared<=1;if(i_reg_shift)held_amount<=operand[2][7:0];if(agu_scaled)held_offset<=shifted;
+            end
             if(a_valid)begin
                 a.left<=left_a;a.right<=right_a;a.store_data<=store_a;a.special<=special_a;
                 a.pending<=a_wait;
@@ -441,7 +480,8 @@ module arm9v2_execute (
                 a.thumb<=i_thumb;a.fault<=i_fault;a.first<=i_first;a.last<=i_last;
                 a.direct<=i_direct;a.predicted<=i_predicted;a.match_taken<=i_match_taken;
                 a.match_fallthrough<=i_match_fallthrough;a.pred_hit<=i_pred_hit;a.pred_state<=i_pred_state;a.ras_pointer<=i_ras_pointer;a.ras_count<=i_ras_count;
-                a.spsr_tag<=i_tag[2];a.self_dep<=i_self_dep;a.dest<=i_dest;a.writes<=planned_writes;a.left<=operand[0];a.right<=shifted;
+                a.spsr_tag<=i_tag[2];a.self_dep<=i_self_dep;a.dest<=i_dest;a.writes<=planned_writes;a.left<=S_AGU?s_base:operand[0];a.right<=shifted;
+                a.agu<=agu_address;a.agu_sum<=agu_sum;
                 a.store_data<=operand[3];a.special<=operand[2];a.cpsr_read<=i_tag[2]==17;
                 a.op<=i_instruction[24:21];a.set_flags<=i_instruction[20]||(i_kind==DP&&i_instruction[24:23]==2'b10);
                 a.shift_carry<=shift_carry;a.carry_preserve<=carry_preserve;a.rrx<=rrx;a.wb_offset<=i_writeback_offset;
@@ -462,7 +502,7 @@ module arm9v2_execute (
                     if(i_instruction[27:26]==0&&i_instruction[22])begin a.right<={24'd0,i_instruction[11:8],i_instruction[3:0]};a.rrx<=0;end
                 end
                 if(i_kind==BLOCK)begin
-                    a.op<=4;a.left<=operand[0];a.right<={{24{i_offset[7]}},i_offset};a.rrx<=0;
+                    a.op<=4;a.left<=S_AGU?s_base:operand[0];a.right<={{24{i_offset[7]}},i_offset};a.rrx<=0;
                 end
                 if(i_kind==BX||i_kind==SWP)begin a.right<=operand[1];a.rrx<=0;end
                 if(i_kind==SUFFIX)begin a.op<=4;a.right<={20'd0,i_instruction[10:0],1'b0};a.rrx<=0;end

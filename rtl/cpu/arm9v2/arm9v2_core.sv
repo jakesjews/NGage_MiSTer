@@ -3,6 +3,9 @@
 // See docs/ARM9V2.md for the registered address and completion contracts.
 module arm9v2_core #(
         parameter logic ARM9_PREDICTOR = 1'b1,
+        // Memory addresses summed in S and registered into A; the D-cache and
+        // TLB lookup comes from that register (arm9v2_execute, arm9v2_decode).
+        parameter logic S_AGU = 1'b1,
 
         // For CP15 purposes.
         parameter logic [0:0]  CP15_L4_DEFAULT = 0,
@@ -282,7 +285,8 @@ output logic [1:0] o_dbg_fetch
     logic a_pc_write;
     logic a_memory;
     logic a_store;
-    logic [31:0] a_data_address;
+    logic [31:0] a_data_address,a_alu_address;
+    logic [3:0] early_agu;
     logic [31:0] a_store_data;
     logic [3:0] a_flags;
     logic a_redirect;
@@ -443,6 +447,9 @@ output logic [1:0] o_dbg_fetch
     wire quick_reload=memory_state==HOLD&&done&&
         !(m.valid&&m.memory)&&!(skid.valid&&skid.memory);
     assign early_tag={a_a_dest,d_dest};
+    // The writeback lane (1) of a scalar MEM in S or A is an S-AGU sum: a
+    // memory base consumer takes it from A's register, without the D2 hold.
+    assign early_agu={a_kind==MEM,1'b0,d_kind==MEM,1'b0};
     assign early_valid={a_a_write&{2{a_a_valid&&!a_a_can_finish}},a_s_write}&
         {early_tag[3]!=15,early_tag[2]!=15,early_tag[1]!=15,early_tag[0]!=15};
     // Pipeline load ownership and the cache's registered background lock are
@@ -554,7 +561,8 @@ output logic [1:0] o_dbg_fetch
         // M/W forwarding, including a permission-qualified short hit.
         if(a_kind==MEM&&input_record.load_writer&&a_dest[0]==a_dest[1])input_record.writes[1]=0;
         input_record.memory=a_memory;input_record.store=a_store&&a_kind!=SWP;
-        input_record.address=a_data_address;input_record.fcse_address=fcse(a_data_address);input_record.store_data=a_store_data;
+        input_record.address=S_AGU&&a_kind==SUFFIX?a_alu_address:a_data_address;
+        input_record.fcse_address=fcse(a_data_address);input_record.store_data=a_store_data;
         input_record.original_base=a_original_base;input_record.psr_source=a_psr_source;
         input_record.saved_psr=a_saved_psr;input_record.spsr_tag=a_spsr_tag;
         input_record.next_pc=a_next_pc;input_record.predicted=a_predicted;
@@ -841,7 +849,7 @@ output logic [1:0] o_dbg_fetch
     //   applies i_load_trust only to such writers (d_self_dep); other
     //   readers may take the word, the departing line's current data.
     wire w_load_hit=w.memory&&i_data_short_hit&&i_data_short_live&&!w_waited&&!fill_ended;
-    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1)) u_front_decode (
+    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1),.S_AGU(S_AGU)) u_front_decode (
         .i_w_load_hit(w_load_hit),.o_self_dep(d_self_dep),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
         .i_forward_load(forward_load),.o_forward_grant(d_forward_grant),.i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),.o_return_match(d_return_match),
@@ -857,6 +865,7 @@ output logic [1:0] o_dbg_fetch
         .i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag(load_tag),.i_load_valid(load_valid),.i_load_speculate(load_speculate),.i_next_load_tag(next_load_tag),.i_next_load_valid(next_load_valid),.o_load_wait(d_load_wait),
         .i_early_tag(early_tag),
         .i_early_valid(early_valid),
+        .i_early_agu(early_agu),
         .i_wr_data_a(wb_data0),
         .i_wr_data_b(wb_data1),
         .i_wr_data_c(i_dc_reg_dat),
@@ -932,7 +941,7 @@ output logic [1:0] o_dbg_fetch
         .o_request(o_instr_wb_stb),
         .o_stall(o_code_stall),.o_dbg_fetch(o_dbg_fetch)
     );
-    arm9v2_execute u_execute (
+    arm9v2_execute #(.S_AGU(S_AGU)) u_execute (
         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),
         .i_load_owner({w.load_writer,m.load_writer}),.i_next_load_owner(forward_load),
         .i_load_hit(w.memory&&i_data_short_hit&&!w_waited),.i_load_trust(i_data_short_live&&!fill_ended),.i_self_dep(d_self_dep),
@@ -1000,7 +1009,7 @@ output logic [1:0] o_dbg_fetch
         .o_pc_write(a_pc_write),
         .o_memory(a_memory),
         .o_store(a_store),
-        .o_address(a_data_address),
+        .o_address(a_data_address),.o_alu_address(a_alu_address),
         .o_store_data(a_store_data),
         .o_flags(a_flags),
         .o_redirect(a_redirect),
