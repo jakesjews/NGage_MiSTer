@@ -5583,3 +5583,64 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   abort's) and 0x0040C7A8 (the 20.6 s abort's): NGage.sv
   dbg_trig_store in worktree ../NGage_MiSTer-v2fix2t8, lane b5. Its
   dumps will hold the instructions that wrote those words.
+- **Fix 2 on the board, 16 KB (seed 2, -0.668 ns), the plain
+  three-game script (v2fix2)**: no kernel fault in the three boots;
+  Sonic N 43.97 M instr/s median (43.2-45.9; 25 fps; CPI 2.4), Asphalt
+  41.47 (40.9-42.2; 19 fps; CPI 2.5), both the same as fix 1's numbers
+  within 0.5 %, so the second fix costs no speed; Asphalt's boot came
+  up without the dialog this time and its run went through the plain
+  script. Tony Hawk's boot derailed at the idle screen again (the
+  dialog); rerun with the dialog-tolerant script.
+  The idle screens of those three boots: Sonic's and Tony Hawk's with
+  the "App. closed ... Server" dialog, Asphalt's clean, so the
+  boot-time server panic persists at the same rate after fix 2 (two of
+  three); the 25 s capture that fix 2 answers was one instance of it,
+  and the remaining instances share the third wrong value with the
+  PLAT death.
+- **The chain behind the PLAT boots starts at the comms database**
+  (the subagent, codex/arm9v2 3c492f8, pushed): in the failing boot
+  neither null word is ever written by its intended code. The 17.9 s
+  abort's object (0x8540BDE4, field +0xC0) is destroyed mid-
+  construction: an inner NewL (0x5045E548) builds a 0x40-byte object
+  whose virtual open (0x5045EDB1) opens c:\System\Data\Cdbv2.dat, the
+  comms database (z:\System\Data\DefaultCdbv2.dat in ROM is the
+  default), gets **-20, KErrCorrupt**, deletes the object and
+  User::Leave(-20)s; the cleanup runs the outer destructor
+  (0x5094EA28), which reads +0xC0 without a null check, and the field
+  still holds the allocator's zero fill. The 20.6 s abort's object
+  (0x0040C7A4, field +4) likewise: its only writer, `str r0,[r5,#4]` at
+  0x50AD0490, runs after a three-try call with 50 ms pauses and a
+  LeaveIfError that never completed; the destructor (0x50AD0530 →
+  0x50394CF0) dereferences +4 unguarded. Then the critical thread's
+  self-panic, the PLAT fault. So the earliest wrong value is the
+  KErrCorrupt verdict on Cdbv2.dat; ZAP reads the same file from the
+  same save image cleanly on every boot, so V2 misreads it (the file
+  lives in the CS1 NOR flash's log-structured file system, read through
+  the data path). The store-trigger core is moot (the words are never
+  written). The audit of the Thumb and interworking paths (Thumb
+  literal then a self-dependent load; the import stub `ldr r3,[pc];
+  ldr r3,[r3]; bx r3`; `pop {r0}; bx r0`; Thumb SWI) finds no early
+  trust or unlocked window left after the two fixes. New trace core
+  (worktree ../NGage_MiSTer-v2fix2t8b, lane b6; 8 KB, fix-2 source,
+  rings 1,024/256/256, timed triggers off): a trigger when the CPU
+  retires the User::Leave stub (svc 0x73 at 0x503A785C) from 17 s
+  after the CPU start, so the dump holds the database reads that
+  produced the -20.
+- **Tony Hawk plays on fix 2** (v2fix2b, the dialog-tolerant script):
+  **41.75 M instr/s** median (39.1-42.4; 17.5 fps; CPI 2.5; SDRAM wait
+  30.6 %) against the ZAP control's 31.31 at 11.5 fps, and its
+  course-load panic (three of three on fix 1) did not recur: that panic
+  was fix 2's mechanism. V2 against ZAP in all three games now, per
+  104 M clocks on the 78 MHz board:
+
+  | game | ZAP | V2 (fix 2) | instructions | frames |
+  |---|---:|---:|---:|---:|
+  | Sonic N | 31.59 (17 fps) | 43.97 (25 fps) | +39 % | +47 % |
+  | Asphalt | 32.30 (14 fps) | 41.47 (19 fps) | +28 % | +36 % |
+  | Tony Hawk | 31.31 (11.5 fps) | 41.75 (17.5 fps) | +33 % | +52 % |
+
+  The goal is 47; by Codex's thresholds (>= 52 headroom, 47-52
+  fragile, < 47 no timing-only work) V2 as it stands is below the
+  line, before any cycle work on the profile that session 13 drew
+  (the data wait that V2 exposes is now 30 % of the clocks in Asphalt
+  and Tony Hawk against ZAP's 21 %).
