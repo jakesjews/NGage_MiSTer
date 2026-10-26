@@ -43,9 +43,9 @@ module arm925t #(
 	parameter int          ICACHE_SIZE     = 16384,
 	parameter int          ICACHE_WAYS     = 2,
 	parameter bit          ICACHE_PREFETCH = 1'b0,
-	// A 16 KB two-way experiment retains the 8 KB CP15 identity; its
-	// by-index maintenance visits both physical set colours (docs/CPU.md).
-	parameter int          DCACHE_SIZE     = 8192,
+	// The D-cache is 16 KB two-way (512 sets, VA[12:4]); CP15 still reports
+	// the phone's 8 KB, and by-index maintenance visits both physical set
+	// colours of the named architectural set (docs/CPU.md).
 	parameter int          DCACHE_WAYS     = 2,
 	parameter int          CACHE_LINE      = 16
 ) (
@@ -121,7 +121,7 @@ module arm925t #(
 		.CODE_CACHE_LINE     (32'(CACHE_LINE)),
 		.CODE_CACHE_WAYS     (32'(ICACHE_WAYS)),
 		.CODE_CACHE_PREFETCH (ICACHE_PREFETCH),
-		.DATA_CACHE_SIZE     (32'(DCACHE_SIZE)),
+		.DATA_CACHE_SIZE     (32'd16384),
 		.DATA_CACHE_LINE     (32'(CACHE_LINE)),
 		.DATA_CACHE_WAYS     (32'(DCACHE_WAYS))
 	) u_zap (

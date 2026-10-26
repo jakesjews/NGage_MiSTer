@@ -17,8 +17,6 @@ host=${BUILD_HOST:-ubuntu}
 seed=${SEED:-1}
 mhz=${MHZ:-104}
 trial=${TRIAL:-cpu}
-dcache_size=${DCACHE_SIZE:-8192}
-[[ $dcache_size == 8192 || $dcache_size == 16384 ]] || { echo "DCACHE_SIZE must be 8192 or 16384" >&2; exit 2; }
 case "$trial" in
     cpu) trial_suffix="" ;;
     arm9v2_frontend) trial_suffix="-arm9v2-frontend" ;;
@@ -67,7 +65,7 @@ elif [[ $trial == arm9v2_frontend ]]; then
     printf '// Component top included in arm925t_gen.v\n' > "$out/cpu_trial.v"
     rsync -a "$out/arm925t_gen.v" "$out/cpu_trial.v" "$host:$dir/"
 else
-    sed "s/parameter DCACHE_SIZE=8192/parameter DCACHE_SIZE=$dcache_size/" "$here/cpu_trial.v" > "$out/cpu_trial.v"
+    cp "$here/cpu_trial.v" "$out/cpu_trial.v"
     rsync -a "$out/cpu_trial.v" "$root/rtl/cpu/arm925t_gen.v" "$host:$dir/"
 fi
 rsync -a "$here"/cpu_trial.{sdc,qpf,qsf} "$here/report.tcl" "$host:$dir/"

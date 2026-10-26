@@ -22,8 +22,7 @@ Use separate build directories when changing profile/core parameters:
 ```sh
 # Whole core: profile on by default, ordinary Verilator optimization flags.
 make -C sim BUILD=/absolute/build/path \
-  VEXTRA='-DNGAGE_DCACHE_16K=1 -DNGAGE_CORE_ARM9=1' \
-  /absolute/build/path/coreboot/Vemu
+    /absolute/build/path/coreboot/Vemu
 # Omit NGAGE_CORE_ARM9 for ZAP. CORE_PROFILE=0 removes the bound probe.
 # --no-profile disables accumulation in the same instrumented binary.
 /absolute/build/path/coreboot/Vemu +verilator+seed+1 +verilator+rand+reset+2 \
@@ -31,7 +30,7 @@ make -C sim BUILD=/absolute/build/path \
   --progress 104000000 --profile-at 468000000 --cycles 468000000
 
 # CPU-only bench; reuse existing binaries and QEMU references.
-make -C sim/cpu model CORE=ARM9 PROFILE=1 VEXTRA=-GDCACHE_SIZE=16384 \
+make -C sim/cpu model PROFILE=1 \
   MODEL_DIR=/absolute/cpu/build
 /absolute/cpu/build/Vtb_cpu --bin sim/cpu/build/tests/crand1.bin --lat 2:9 \
   --profile /tmp/crand1.csv --profile-start 0x344 --profile-end 0x128

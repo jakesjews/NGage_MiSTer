@@ -45,12 +45,6 @@ module emu #(
 `else
 	parameter bit ICACHE_PREFETCH            = 1'b0,
 `endif
-	// Experimental capacity; c0 still reports the phone's 8 KB D-cache.
-`ifdef NGAGE_DCACHE_16K
-	parameter int DCACHE_SIZE                = 16384,
-`else
-	parameter int DCACHE_SIZE                = 8192,
-`endif
 	parameter int DCACHE_WAYS                = 2
 ) (
 	`include "sys/emu_ports.vh"
@@ -686,7 +680,6 @@ wire  [3:0] tr_d_sel;
 arm925t #(
 	.ICACHE_SIZE(ICACHE_SIZE),
 	.ICACHE_PREFETCH(ICACHE_PREFETCH),
-	.DCACHE_SIZE(DCACHE_SIZE),
 	.DCACHE_WAYS(DCACHE_WAYS)
 ) arm925t
 (

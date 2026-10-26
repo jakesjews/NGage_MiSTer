@@ -12,7 +12,6 @@ module tb_cpu #(
 	parameter int ICACHE_SIZE     = 16384,
 	parameter int ICACHE_WAYS     = 2,
 	parameter bit ICACHE_PREFETCH = 1'b0,
-	parameter int DCACHE_SIZE     = 8192,
 	parameter int DCACHE_WAYS     = 2,
 	parameter int CACHE_LINE      = 16
 ) (
@@ -134,7 +133,6 @@ module tb_cpu #(
 		.ICACHE_SIZE     (ICACHE_SIZE),
 		.ICACHE_WAYS     (ICACHE_WAYS),
 		.ICACHE_PREFETCH (ICACHE_PREFETCH),
-		.DCACHE_SIZE     (DCACHE_SIZE),
 		.DCACHE_WAYS     (DCACHE_WAYS),
 		.CACHE_LINE      (CACHE_LINE)
 	) dut (
@@ -300,7 +298,7 @@ module tb_cpu #(
 	`define DT dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_tag_ram
 	`define TC dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_tlb.u_zap_tlb_check
 	localparam int DLINE_W = $clog2(CACHE_LINE);
-	localparam int DSET_W = $clog2(DCACHE_SIZE / DCACHE_WAYS / CACHE_LINE);
+	localparam int DSET_W = $clog2(16384 / DCACHE_WAYS / CACHE_LINE);   // the fixed 16 KB D-cache
 	logic [DSET_W-1:0] dc_read_set, dc_response_set;
 	logic dc_victim_valid;
 	logic dc_installed;

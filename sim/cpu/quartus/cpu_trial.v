@@ -5,7 +5,7 @@
 // register and every bus output goes through a register to a pin, so no
 // logic can be optimised away and only the CPU's own paths (plus one
 // register at each side) are timed. See run.sh.
-module cpu_trial #(parameter DCACHE_SIZE=8192) (
+module cpu_trial (
 	input  wire        clk,
 	input  wire        rst_in,
 	input  wire        irq_in,
@@ -46,7 +46,7 @@ module cpu_trial #(parameter DCACHE_SIZE=8192) (
 		be_o    <= bus_be;
 	end
 
-	arm925t #(.DCACHE_SIZE(DCACHE_SIZE)) cpu (
+	arm925t cpu (
 		.clk       (clk),
 		.reset     (reset),
 		.irq       (irq),

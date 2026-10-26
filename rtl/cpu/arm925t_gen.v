@@ -59,7 +59,6 @@ module arm925t (
 	parameter signed [31:0] ICACHE_SIZE = 16384;
 	parameter signed [31:0] ICACHE_WAYS = 2;
 	parameter [0:0] ICACHE_PREFETCH = 1'b0;
-	parameter signed [31:0] DCACHE_SIZE = 8192;
 	parameter signed [31:0] DCACHE_WAYS = 2;
 	parameter signed [31:0] CACHE_LINE = 16;
 	input wire clk;
@@ -116,7 +115,7 @@ module arm925t (
 		.CODE_CACHE_LINE(CACHE_LINE),
 		.CODE_CACHE_WAYS(ICACHE_WAYS),
 		.CODE_CACHE_PREFETCH(ICACHE_PREFETCH),
-		.DATA_CACHE_SIZE(DCACHE_SIZE),
+		.DATA_CACHE_SIZE(32'd16384),
 		.DATA_CACHE_LINE(CACHE_LINE),
 		.DATA_CACHE_WAYS(DCACHE_WAYS)
 	) u_zap(

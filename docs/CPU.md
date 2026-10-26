@@ -41,12 +41,12 @@ Parameters:
 - `HIVECS` (0): reset value of control bit V, the ARM925T's HIVECS pin. 1
   puts the vectors and the reset address at 0xFFFF0000. The N-Gage boots
   from CS0 at 0, so the core uses 0.
-- `ICACHE_SIZE` (16384), `DCACHE_SIZE` (8192), `CACHE_LINE` (16): cache
+- `ICACHE_SIZE` (16384), `CACHE_LINE` (16): cache
   geometry in bytes. `ICACHE_SIZE` 32768 is a 1,024-set I-cache (16 M10K
   more); the cache type register still reports 16 KB.
-  `NGAGE_DCACHE_16K` in `NGage.qsf` selects an experimental 16 KB two-way
-  D-cache (512 sets, VA[12:4]); the default remains 8 KB. CP15 still
-  reports 8 KB, so a D-cache by-index operation visits both physical set
+  The D-cache is 16 KB two-way (512 sets, VA[12:4]), twice the phone's 8 KB,
+  for speed (since 2026-10-26 the only size; the 8 KB form is in git
+  history). CP15 still reports 8 KB, so a D-cache by-index operation visits both physical set
   colours for the named architectural set/way. By-VA operations stay
   targeted. The live two-way compare/select and hit-under-miss protocol
   are unchanged. This VIVT cache still relies on firmware alias/DMA

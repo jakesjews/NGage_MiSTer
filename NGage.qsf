@@ -87,11 +87,6 @@ set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
 # tools); every build without this macro is the stripped core
 #set_global_assignment -name VERILOG_MACRO "NGAGE_DEBUG=1"
 
-# Experimental ARM9V2 CPU, same shared caches/MMU/CP15 and debug protocol.
-# The 16 KB two-way D-cache (the default since 2026-10-25: +2 to +2.6 % in
-# play with the metadata in block RAM); index maintenance covers both
-# physical set colours while CP15 keeps reporting 8 KB. Comment out for 8 KB.
-set_global_assignment -name VERILOG_MACRO "NGAGE_DCACHE_16K=1"
 
 source sys/sys.tcl
 source sys/sys_analog.tcl
