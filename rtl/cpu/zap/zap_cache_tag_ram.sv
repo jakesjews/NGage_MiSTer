@@ -78,12 +78,12 @@ parameter logic        PREFETCH   = 1'd0,     // ARM925T: I-cache next-line pref
 // group (a bank per byte lane, byte enables): the banks share their read
 // and write addresses, so the RAM ports are the same; one M10K holds four
 // banks instead of one each.
-parameter logic        META_PACK  = SHORT_READ,
+parameter logic        META_PACK  = 1'b0,   // off: sv2v's form gives Quartus one RAM per lane (no saving)
 // ARM9V2: a way's data byte lanes in one byte-enabled RAM (zap_ram_bytes)
 // instead of one RAM per byte; the lanes share the clock enable and the
 // read and write addresses. The D-cache only (its stores write bytes;
 // Quartus already merges the I-cache's lanes).
-parameter logic        DATA_PACK  = SHORT_READ && TRACK_DIRTY
+parameter logic        DATA_PACK  = 1'b0    // off: sv2v's form is not inferred as RAM (16 KB of flip-flops)
 
 )(
 

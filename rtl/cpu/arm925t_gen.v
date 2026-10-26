@@ -6704,8 +6704,8 @@ module zap_cache_tag_ram (
 	parameter [31:0] WAYS = 32'd1;
 	parameter [31:0] INDEX_SIZE = CACHE_SIZE;
 	parameter [0:0] PREFETCH = 1'd0;
-	parameter [0:0] META_PACK = SHORT_READ;
-	parameter [0:0] DATA_PACK = SHORT_READ && TRACK_DIRTY;
+	parameter [0:0] META_PACK = 1'b0;
+	parameter [0:0] DATA_PACK = 1'b0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire [31:0] i_address_nxt;
