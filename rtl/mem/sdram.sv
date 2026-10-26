@@ -81,7 +81,7 @@
 // board delay that CAPTURE_CLKS assumes, the module size (only the first
 // 32 MB, 9 column bits, are used, which every module has).
 module sdram #(
-	parameter int CLK_HZ          = 104_000_000,
+	parameter int CLK_HZ          = 78_000_000,
 	parameter int CAS_LATENCY     = 2,
 	parameter int CAPTURE_CLKS    = 1,       // clocks from the chip's data edge to the DQ capture
 	parameter int T_RCD_NS        = 20,
