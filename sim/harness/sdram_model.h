@@ -37,6 +37,7 @@
 #include <random>
 #include <string>
 #include <vector>
+#include "snapshot.h"
 
 struct SdramTiming {
 	double tck = 1000.0 / 104.0;   // ns
@@ -266,6 +267,30 @@ public:
 
 	int cas_latency() const { return cl; }
 	bool initialised() const { return mode_set; }
+
+	// the whole chip state to and from a snapshot file (snapshot.h)
+	void save(FILE *f) const {
+		snap::mark(f, 0x5D5A4D01u);
+		snap::put(f, tm); snap::put(f, mem); snap::put(f, errors);
+		snap::put(f, refreshes); snap::put(f, reads); snap::put(f, writes); snap::put(f, activates);
+		snap::put(f, precharges); snap::put(f, stops); snap::put(f, max_refresh_gap); snap::put(f, quiet);
+		snap::put(f, bank); snap::put(f, rd); snap::put(f, dqm_hist); snap::put(f, rng);
+		snap::put(f, cur_edge); snap::put(f, mrd_until); snap::put(f, last_refresh); snap::put(f, rfc_until);
+		snap::put(f, started); snap::put(f, precharged_all); snap::put(f, mode_set); snap::put(f, wburst_single);
+		snap::put(f, refresh_late); snap::put(f, bl); snap::put(f, cl);
+		snap::mark(f, 0x5D5A4D02u);
+	}
+	void load(FILE *f) {
+		snap::check(f, 0x5D5A4D01u);
+		snap::get(f, tm); snap::get(f, mem); snap::get(f, errors);
+		snap::get(f, refreshes); snap::get(f, reads); snap::get(f, writes); snap::get(f, activates);
+		snap::get(f, precharges); snap::get(f, stops); snap::get(f, max_refresh_gap); snap::get(f, quiet);
+		snap::get(f, bank); snap::get(f, rd); snap::get(f, dqm_hist); snap::get(f, rng);
+		snap::get(f, cur_edge); snap::get(f, mrd_until); snap::get(f, last_refresh); snap::get(f, rfc_until);
+		snap::get(f, started); snap::get(f, precharged_all); snap::get(f, mode_set); snap::get(f, wburst_single);
+		snap::get(f, refresh_late); snap::get(f, bl); snap::get(f, cl);
+		snap::check(f, 0x5D5A4D02u);
+	}
 
 private:
 	enum State { IDLE, ACT, PRE };
