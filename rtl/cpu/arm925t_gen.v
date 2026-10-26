@@ -368,6 +368,8 @@ module arm9v2_core (
 	parameter [0:0] LOAD_CLASS = 1'b1;
 	parameter [0:0] COMPLETE_FLAT = 1'b1;
 	parameter [0:0] MUL_FAST_Z = 1'b1;
+	parameter [0:0] W_CLASS = 1'b1;
+	parameter [0:0] AGU_AL = 1'b1;
 	parameter [0:0] VALID_BIT = 1'b1;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
 	parameter [31:0] DATA_CACHE_SIZE = 1024;
@@ -564,6 +566,7 @@ module arm9v2_core (
 	wire [31:0] a_data_address;
 	wire [31:0] a_alu_address;
 	wire [3:0] early_agu;
+	wire a_a_cond_al;
 	wire [31:0] a_store_data;
 	wire [3:0] a_flags;
 	wire a_redirect;
@@ -617,6 +620,22 @@ module arm9v2_core (
 		input reg [541:0] r;
 		sp_of = ((r[8-:4] == MEM) || ((r[8-:4] == BLOCK) && r[536])) && (r[92+:6] != 15);
 	endfunction
+	function automatic [3:0] w_cls_of;
+		input reg [541:0] r;
+		begin
+			w_cls_of[3] = ((r[538] || r[531]) || r[530]) || (r[540] && ((r[8-:4] == SWI) || (r[8-:4] == UND)));
+			w_cls_of[2] = r[540] && (r[8-:4] == CP);
+			w_cls_of[1] = r[8-:4] == SWP;
+			w_cls_of[0] = (r[8-:4] == BLOCK) && r[484];
+		end
+	endfunction
+	(* dont_retime *) reg [3:0] w_cls;
+	reg [3:0] w_cls_next;
+	wire [3:0] w_cls_ref;
+	assign w_cls_ref = w_cls_of(w);
+	wire w_cp = (W_CLASS ? w_cls[2] : w_cls_ref[2]);
+	wire w_swp = (W_CLASS ? w_cls[1] : w_cls_ref[1]);
+	wire w_blkwb = (W_CLASS ? w_cls[0] : w_cls_ref[0]);
 	(* dont_retime *) reg [541:0] m;
 	(* dont_retime *) reg [541:0] w;
 	(* dont_retime *) reg [541:0] skid;
@@ -772,7 +791,7 @@ module arm9v2_core (
 	assign cpsr = o_dbg_wb_cpsr;
 	assign backend_ready = (memory_state == 4'd0) && !wb_flush;
 	assign early_tag = {a_a_dest, d_dest};
-	assign early_agu = {a_kind == MEM, 1'b0, d_kind == MEM, 1'b0};
+	assign early_agu = {(a_kind == MEM) && (!AGU_AL || a_a_cond_al), 1'b0, (d_kind == MEM) && (!AGU_AL || (d_condition == 4'he)), 1'b0};
 	assign early_valid = {a_a_write & {2 {a_a_valid && !a_a_can_finish}}, a_s_write} & {early_tag[18+:6] != 15, early_tag[12+:6] != 15, early_tag[6+:6] != 15, early_tag[0+:6] != 15};
 	assign load_tag = {skid[92+:6], w[92+:6], m[92+:6], a_dest[0+:6], a_a_dest[0+:6], d_dest[0+:6]};
 	assign load_valid = {skid[541] && (LOAD_CLASS ? skid[1] : (skid[535] && !skid[534]) || skid[527]), w[541] && (LOAD_CLASS ? w[1] : (w[535] && !w[534]) || w[527]), m[541] && (LOAD_CLASS ? m[1] : (m[535] && !m[534]) || m[527]), 1'b0, a_a_load, (d_valid && !d_fault) && ((d_kind == MEM) || (d_kind == BLOCK) ? d_instruction[20] : (d_kind == SWP) || (((d_kind == CP) && d_instruction[20]) && (d_dest[0+:6] != 15)))};
@@ -799,14 +818,14 @@ module arm9v2_core (
 						complete_class[consumer] = 1;
 					else if (w_exception)
 						complete_class[consumer] = !i_dc_lock_any;
-					else if (w[540] && (w[8-:4] == CP))
+					else if (w_cp)
 						complete_class[consumer] = cp_finished;
 					else if (memory_state == 4'd6)
-						complete_class[consumer] = !w_locked && (w[8-:4] != SWP);
+						complete_class[consumer] = !w_locked && !w_swp;
 					else if ((memory_state == 4'd0) || (memory_state == 4'd1))
-						complete_class[consumer] = !w[535] || ((request_done && !retry) && (COMPLETE_FLAT ? (resp_err || w[534]) || ((w[8-:4] != SWP) && ((w[92+:6] != 15) || fast_pc_hit)) : !defer_load));
+						complete_class[consumer] = !w[535] || ((request_done && !retry) && (COMPLETE_FLAT ? (resp_err || w[534]) || (!w_swp && ((w[92+:6] != 15) || fast_pc_hit)) : !defer_load));
 				end
-				if (((request_done && resp_err) && (w[8-:4] == BLOCK)) && w[484])
+				if ((request_done && resp_err) && w_blkwb)
 					complete_class[consumer] = 0;
 			end
 	end
@@ -951,11 +970,13 @@ module arm9v2_core (
 		w_next = w;
 		skid_next = skid;
 		memory_state_next = memory_state;
+		w_cls_next = w_cls;
 		case (memory_state)
 			4'd0:
 				if (done) begin
 					m_next = input_record;
 					w_next = m;
+					w_cls_next = w_cls_of(m);
 				end
 				else begin
 					skid_next = input_record;
@@ -965,6 +986,7 @@ module arm9v2_core (
 				if (done) begin
 					if (quick_reload) begin
 						w_next = m;
+						w_cls_next = w_cls_of(m);
 						m_next = skid;
 						skid_next[541] = 0;
 						skid_next[27-:2] = 0;
@@ -981,6 +1003,7 @@ module arm9v2_core (
 			4'd2: memory_state_next = 4'd3;
 			4'd3: begin
 				w_next = m;
+				w_cls_next = w_cls_of(m);
 				m_next = skid;
 				skid_next[541] = 0;
 				skid_next[27-:2] = 0;
@@ -1018,7 +1041,7 @@ module arm9v2_core (
 			memory_state_next = 4'd4;
 		if (defer_load)
 			memory_state_next = 4'd6;
-		if (((request_done && resp_err) && (w[8-:4] == BLOCK)) && w[484])
+		if ((request_done && resp_err) && w_blkwb)
 			memory_state_next = 4'd9;
 		if (wb_flush) begin
 			m_next[541] = 0;
@@ -1085,8 +1108,8 @@ module arm9v2_core (
 	assign o_instr_wb_sel = 15;
 	assign o_cpsr = cpsr[CPSR_MODE:0];
 	assign w_serial = ((((((((w[8-:4] == CP) && !cp_read) || ((w[8-:4] == MSR) && (w[485] || (((w[540] && w[479]) && (w[435:431] != 5'h10)) && (w[243:239] != w[435:431]))))) || (w[8-:4] == SWP)) || (w[8-:4] == SWI)) || (w[8-:4] == UND)) || w[538]) || (((w[8-:4] == DP) && w[483]) && (w[92+:6] == 15))) || (((((w[8-:4] == BLOCK) && w[485]) && w[483]) && w[478]) && w[536]);
-	assign w_exception = ((w[538] || w[531]) || w[530]) || (w[540] && ((w[8-:4] == SWI) || (w[8-:4] == UND)));
-	assign cp_request = ((((w[541] && w[540]) && (w[8-:4] == CP)) && !w_exception) && (cp_read || (!i_dc_lock_any && !i_data_fill_busy))) && !wb_flush;
+	assign w_exception = (W_CLASS ? w_cls[3] : w_cls_ref[3]);
+	assign cp_request = (((w[541] && w_cp) && !w_exception) && (cp_read || (!i_dc_lock_any && !i_data_fill_busy))) && !wb_flush;
 	wire request_raw = (REQ_FF ? request_live : (request_ff && !wb_flush) && !fill_ended);
 	assign request = request_raw && !(REG_DONE && late_done);
 	wire ack_now = (REG_DONE ? request && i_data_ack_fast : request && (i_data_wb_ack || i_data_wb_err));
@@ -1213,6 +1236,7 @@ module arm9v2_core (
 			memory_state <= 4'd0;
 			saved_load <= 0;
 			swap_write <= 0;
+			w_cls <= 0;
 			w_load_select <= 1;
 			w_waited <= 0;
 			w_hit_candidate <= 0;
@@ -1278,6 +1302,7 @@ module arm9v2_core (
 			w <= w_next;
 			skid <= skid_next;
 			memory_state <= memory_state_next;
+			w_cls <= w_cls_next;
 			if (((memory_state == 4'd6) && !w_locked) && (w[8-:4] == SWP))
 				swap_write <= 1;
 			if (defer_load)
@@ -1457,7 +1482,8 @@ module arm9v2_core (
 		.WRITES_PRE(WRITES_PRE),
 		.TAG_PRE(TAG_PRE),
 		.HELD_FREE(HELD_FREE),
-		.MUL_FAST_Z(MUL_FAST_Z)
+		.MUL_FAST_Z(MUL_FAST_Z),
+		.AGU_AL(AGU_AL)
 	) u_execute(
 		.i_pending(d_pending),
 		.i_admit(backend_ready),
@@ -1576,6 +1602,7 @@ module arm9v2_core (
 		.o_btb_kind(a_btb_kind),
 		.o_a_valid(a_a_valid),
 		.o_a_can_finish(a_a_can_finish),
+		.o_a_cond_al(a_a_cond_al),
 		.o_s_write(a_s_write),
 		.o_a_dest(a_a_dest),
 		.o_a_write(a_a_write),
@@ -2992,6 +3019,7 @@ module arm9v2_execute (
 	o_btb_kind,
 	o_a_valid,
 	o_a_can_finish,
+	o_a_cond_al,
 	o_s_write,
 	o_a_dest,
 	o_a_write,
@@ -3019,6 +3047,7 @@ module arm9v2_execute (
 	parameter [0:0] TAG_PRE = 1'b1;
 	parameter [0:0] HELD_FREE = 1'b1;
 	parameter [0:0] MUL_FAST_Z = 1'b1;
+	parameter [0:0] AGU_AL = 1'b1;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
@@ -3128,6 +3157,7 @@ module arm9v2_execute (
 	output reg [1:0] o_btb_kind;
 	output wire o_a_valid;
 	output wire o_a_can_finish;
+	output wire o_a_cond_al;
 	output wire [1:0] o_s_write;
 	output wire [11:0] o_a_dest;
 	output wire [1:0] o_a_write;
@@ -3414,7 +3444,7 @@ module arm9v2_execute (
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		agu_forward = ((((((((S_AGU && (((i_kind == MEM) || (i_kind == SWP)) || ((i_kind == BLOCK) && i_first))) && a_valid) && (a[327-:4] == MEM)) && a[283]) && condition_pass) && !a[318]) && !(a[472] && (a[290+:6] == a[296+:6]))) && (a[296+:6] == i_tag[0+:6])) && (i_tag[0+:6] != 15);
+		agu_forward = ((((((((S_AGU && (((i_kind == MEM) || (i_kind == SWP)) || ((i_kind == BLOCK) && i_first))) && a_valid) && (a[327-:4] == MEM)) && a[283]) && (AGU_AL ? a[323-:4] == 4'he : condition_pass)) && !a[318]) && !(a[472] && (a[290+:6] == a[296+:6]))) && (a[296+:6] == i_tag[0+:6])) && (i_tag[0+:6] != 15);
 		s_base = (agu_forward ? a[55-:32] : operand[0+:32]);
 		agu_base = s_base;
 		agu_sub = !i_instruction[23];
@@ -3551,6 +3581,7 @@ module arm9v2_execute (
 	assign finish = o_valid && i_ready;
 	assign o_a_valid = a_valid;
 	assign o_a_can_finish = finish;
+	assign o_a_cond_al = a[323-:4] == 4'he;
 	wire [1:0] writes_lanes = {((i_kind == MULL) || (i_kind == MEM)) || (i_kind == BLOCK), ((((((i_kind == DP) || (i_kind == MRS)) || (i_kind == MUL)) || (i_kind == MULL)) || (i_kind == BR)) || (i_kind == PREFIX)) || (i_kind == SUFFIX)};
 	assign planned_writes = (WRITES_PRE ? i_writes & writes_lanes : planned_writes_ref);
 	assign o_s_write = planned_writes & {2 {i_valid}};
@@ -9137,6 +9168,7 @@ module zap_dcache_fsm (
 );
 	reg _sv2v_0;
 	parameter [0:0] FLAT_ACK = 1'b0;
+	parameter [0:0] LOCK_SPLIT = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] CACHE_LINE = 32'd8;
 	parameter [0:0] BE_32_ENABLE = 1'd0;
@@ -9725,8 +9757,11 @@ module zap_dcache_fsm (
 	reg [63:0] reg_idx;
 	reg [63:0] lock_nxt;
 	reg [63:0] lock_ff;
-	(* keep *) wire owner_held_locked = lock_nxt[i_lock_owner_hold];
-	(* keep *) wire owner_advance_locked = lock_nxt[i_lock_owner_advance];
+	reg lock_set_nxt;
+	wire held_set = lock_set_nxt && (i_reg_idx_bin == i_lock_owner_hold);
+	wire advance_set = lock_set_nxt && (i_reg_idx_bin == i_lock_owner_advance);
+	(* keep *) wire owner_held_locked = (LOCK_SPLIT ? (lock_ff[i_lock_owner_hold] && !o_reg_idx[i_lock_owner_hold]) || held_set : lock_nxt[i_lock_owner_hold]);
+	(* keep *) wire owner_advance_locked = (LOCK_SPLIT ? (lock_ff[i_lock_owner_advance] && !o_reg_idx[i_lock_owner_advance]) || advance_set : lock_nxt[i_lock_owner_advance]);
 	reg victim_valid;
 	reg wt_hit;
 	reg wt_dirty;
@@ -10048,6 +10083,7 @@ module zap_dcache_fsm (
 		o_wb_dat_nxt = o_wb_dat_ff;
 		o_wb_cti_nxt = o_wb_cti_ff;
 		lock_nxt = lock_ff & ~o_reg_idx;
+		lock_set_nxt = 1'd0;
 		o_wb_wen_nxt = o_wb_wen_ff;
 		o_wb_sel_nxt = o_wb_sel_ff;
 		cache_clean_req_nxt = cache_clean_req_ff;
@@ -10130,8 +10166,10 @@ module zap_dcache_fsm (
 									idle_ack = 1'd1;
 							2'b01: begin
 								idle_ack = 1'd1;
-								if (i_rd)
+								if (i_rd) begin
 									lock_nxt[i_reg_idx_bin] = 1'd1;
+									lock_set_nxt = 1'd1;
+								end
 								if (cache_dirty && victim_alias) begin
 									adr_ctr_nxt = 0;
 									state_nxt[IDLE] = 1'd0;
@@ -10148,8 +10186,10 @@ module zap_dcache_fsm (
 								adr_ctr_nxt = 0;
 								state_nxt[IDLE] = 1'd0;
 								state_nxt[FETCH_SINGLE] = 1'd1;
-								if (i_rd)
+								if (i_rd) begin
 									lock_nxt[i_reg_idx_bin] = 1'd1;
+									lock_set_nxt = 1'd1;
+								end
 							end
 						endcase
 					else begin
@@ -10302,6 +10342,7 @@ module zap_dcache_fsm (
 				o_wb_dat_nxt = 1'sbx;
 				o_wb_cti_nxt = 1'sbx;
 				lock_nxt = 1'sbx;
+				lock_set_nxt = 1'sbx;
 				o_wb_wen_nxt = 1'sbx;
 				o_wb_sel_nxt = 1'sbx;
 				cache_clean_req_nxt = 1'sbx;
@@ -10408,6 +10449,7 @@ module zap_dcache (
 	parameter [0:0] REG_COLLISION = 1'b0;
 	parameter [0:0] HIT_FF = 1'b0;
 	parameter [0:0] FLAT_ACK = 1'b0;
+	parameter [0:0] LOCK_SPLIT = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
@@ -10880,7 +10922,8 @@ module zap_dcache (
 		.BE_32_ENABLE(BE_32_ENABLE),
 		.EXT_ABORT_FS(EXT_ABORT_FS),
 		.WAYS(WAYS),
-		.FLAT_ACK(FLAT_ACK)
+		.FLAT_ACK(FLAT_ACK),
+		.LOCK_SPLIT(LOCK_SPLIT)
 	) u_zap_cache_fsm(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -14790,6 +14833,7 @@ module zap_top (
 				.REG_COLLISION(1'b1),
 				.HIT_FF(1'b1),
 				.FLAT_ACK(1'b1),
+				.LOCK_SPLIT(1'b1),
 				.BE_32_ENABLE(BE_32_ENABLE),
 				.EXT_ABORT_FS(4'b1000)
 			) u_data_cache(

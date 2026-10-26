@@ -132,7 +132,8 @@ module arm9v2_front_execute #(
     logic [3:0][5:0] early_tag;
     logic [3:0] early_valid;
     assign forward_tag={i_ready?mw_tag[0]:mw_tag[1],i_ready?o_dest:mw_tag[0]};
-    assign early_agu={o_kind==4'd5,1'b0,d_kind==4'd5,1'b0};
+    logic o_a_cond_al;   // AGU_AL: the waiver covers only unconditional writers (as the core)
+    assign early_agu={o_kind==4'd5&&o_a_cond_al,1'b0,d_kind==4'd5&&d_condition==4'hE,1'b0};
     assign forward_write=(i_reset||i_flush)?4'd0:
         {i_ready?(mw_write[0]&{2{mw_valid[0]}}):(mw_write[1]&{2{mw_valid[1]}}),
          i_ready?(o_write&{2{o_valid}}):(mw_write[0]&{2{mw_valid[0]}})};
@@ -345,7 +346,7 @@ module arm9v2_front_execute #(
         .o_btb_state(o_btb_state),
         .o_btb_kind(o_btb_kind),
         .o_a_valid(o_a_valid),
-        .o_a_can_finish(o_a_can_finish),
+        .o_a_can_finish(o_a_can_finish),.o_a_cond_al(o_a_cond_al),
         .o_s_write(o_s_write),
         .o_a_dest(o_a_dest),
         .o_a_write(o_a_write),

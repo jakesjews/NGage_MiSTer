@@ -34,6 +34,8 @@ parameter logic REG_COLLISION = 1'b0,
 parameter logic HIT_FF = 1'b0,
 // ARM9V2: the FSM's acknowledge and errors as flat functions of registers.
 parameter logic FLAT_ACK = 1'b0,
+// ARM9V2: the owner lock summaries without the indexed 64-bit lock_nxt.
+parameter logic LOCK_SPLIT = 1'b0,
 parameter logic [31:0] CACHE_SIZE             = 32'd1024,
 parameter logic [31:0] SPAGE_TLB_ENTRIES      = 32'd8,
 parameter logic [31:0] LPAGE_TLB_ENTRIES      = 32'd8,
@@ -251,7 +253,7 @@ assign unused = |{wb_err[1]};
 
 // Basic cache FSM - serves as manager 0.
 zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE(BE_32_ENABLE),
-                 .EXT_ABORT_FS(EXT_ABORT_FS), .WAYS(WAYS), .FLAT_ACK(FLAT_ACK)) u_zap_cache_fsm (
+                 .EXT_ABORT_FS(EXT_ABORT_FS), .WAYS(WAYS), .FLAT_ACK(FLAT_ACK), .LOCK_SPLIT(LOCK_SPLIT)) u_zap_cache_fsm (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address              (i_address),

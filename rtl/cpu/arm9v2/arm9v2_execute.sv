@@ -38,11 +38,15 @@
 // MUL_FAST_Z: a flag-setting multiply's Z from the final adder's two inputs
 // without the carry ((x ^ y) == (x | y) << 1 is x + y == 0, as arm9_alu's
 // FAST_Z), instead of a zero test of the 64-bit sum. Asserted equal.
+// AGU_AL: S takes A's MEM writeback sum as its base only for an
+// unconditional writer, so the forward needs no condition evaluation; the
+// core's early lock waiver (decode) covers only such writers, so a record
+// whose base writer in A is conditional never reaches S. Asserted.
 // Parameter defaults are the core's configuration (arm9v2_core sets each
 // explicitly); 0 selects a cut's original form, kept for A/B timing trials.
 module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=1'b1, parameter logic FAST_Z=1'b1,
     parameter logic W_ROTATE=1'b1, parameter logic SHIFT_PRE=1'b1, parameter logic PAYLOAD_FREE=1'b1,
-    parameter logic DSP_PRODUCT=1'b1, parameter logic OP1_PRE=1'b1, parameter logic WRITES_PRE=1'b1, parameter logic TAG_PRE=1'b1, parameter logic HELD_FREE=1'b1, parameter logic MUL_FAST_Z=1'b1) (
+    parameter logic DSP_PRODUCT=1'b1, parameter logic OP1_PRE=1'b1, parameter logic WRITES_PRE=1'b1, parameter logic TAG_PRE=1'b1, parameter logic HELD_FREE=1'b1, parameter logic MUL_FAST_Z=1'b1, parameter logic AGU_AL=1'b1) (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
     input logic i_flags_refresh,
     output logic o_serial_continue,
@@ -117,6 +121,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     output logic [1:0] o_record_pred_state,
     output logic [1:0] o_btb_state,o_btb_kind,
     output logic o_a_valid,o_a_can_finish,
+    output logic o_a_cond_al,   // AGU_AL: A's record is unconditional
     output logic [1:0] o_s_write,
     output logic [1:0][5:0] o_a_dest,
     output logic [1:0] o_a_write,
@@ -293,6 +298,12 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
         if(a.kind==MUL)assert(mul_z32==(mult_result[31:0]==0)) else $fatal(1,"multiply Z (32)");
         if(a.kind==MULL)assert(mul_z64==(mult_result==0)) else $fatal(1,"multiply Z (64)");
     end
+    // AGU_AL: every forward the condition-passed form makes, this one makes.
+    wire agu_forward_ref=S_AGU&&(i_kind==MEM||i_kind==SWP||(i_kind==BLOCK&&i_first))&&
+        a_valid&&a.kind==MEM&&a.writes[1]&&condition_pass&&!a.fault&&
+        !(a.ins[20]&&a.dest[0]==a.dest[1])&&a.dest[1]==i_tag[0]&&i_tag[0]!=15;
+    always_ff @(posedge i_clk) if(!i_reset&&AGU_AL&&i_valid)
+        assert(agu_forward==agu_forward_ref) else $fatal(1,"S base forward from a conditional writer");
     always_ff @(posedge i_clk) if(!i_reset&&TAG_PRE)
         for(int s=0;s<4;s++)assert(i_tag_class[s]=={i_tag[s]==6'd17,i_tag[s]==6'd15}) else $fatal(1,"S tag class %0d",s);
     always_ff @(posedge i_clk) if(!i_reset&&WRITES_PRE&&i_valid)
@@ -410,7 +421,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
         // passed): its registered sum is the newest value; S's network still
         // holds the older one. Decode let this record pass D2 on that basis.
         agu_forward=S_AGU&&(i_kind==MEM||i_kind==SWP||(i_kind==BLOCK&&i_first))&&
-            a_valid&&a.kind==MEM&&a.writes[1]&&condition_pass&&!a.fault&&
+            a_valid&&a.kind==MEM&&a.writes[1]&&(AGU_AL?a.condition==4'hE:condition_pass)&&!a.fault&&
             !(a.ins[20]&&a.dest[0]==a.dest[1])&&a.dest[1]==i_tag[0]&&i_tag[0]!=15;
         s_base=agu_forward?a.agu_sum:operand[0];
         agu_base=s_base;agu_sub=!i_instruction[23];agu_pre=i_instruction[24];
@@ -523,6 +534,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     assign finish=o_valid&&i_ready;
     assign o_a_valid=a_valid;
     assign o_a_can_finish=finish;
+    assign o_a_cond_al=a.condition==4'hE;
     wire [1:0] writes_lanes={i_kind==MULL||i_kind==MEM||i_kind==BLOCK,
         i_kind==DP||i_kind==MRS||i_kind==MUL||i_kind==MULL||i_kind==BR||i_kind==PREFIX||i_kind==SUFFIX};
     assign planned_writes=WRITES_PRE?i_writes&writes_lanes:planned_writes_ref;

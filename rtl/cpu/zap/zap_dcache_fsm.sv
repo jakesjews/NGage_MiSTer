@@ -27,6 +27,11 @@ module zap_dcache_fsm   #(
         // ARM9V2: o_ack/o_err/o_err2 as flat functions of the state and
         // the registered access predicates, beside the case statement.
         parameter logic FLAT_ACK = 1'b0,
+        // ARM9V2 LOCK_SPLIT: the owner lock summaries from lock_ff, the
+        // completion's clear and the FSM's one new lock separately, so the
+        // FSM's decision enters only their final OR instead of a 64-bit
+        // lock_nxt indexed afterwards. Asserted equal.
+        parameter logic LOCK_SPLIT = 1'b0,
 parameter logic [31:0] CACHE_SIZE    = 32'd1024,  // Bytes.
         parameter logic [31:0] CACHE_LINE    = 32'd8,
         parameter logic        BE_32_ENABLE  = 1'd0,
@@ -262,8 +267,15 @@ logic    [63:0]                           reg_idx;
 logic    [63:0]                           lock_nxt, lock_ff;
 // ARM9V2: completion selects finished bits, never a tag before a
 // 64-way bitmap query. Keep the two query cones physically separate.
-(* keep *) wire owner_held_locked = lock_nxt[i_lock_owner_hold];
-(* keep *) wire owner_advance_locked = lock_nxt[i_lock_owner_advance];
+// LOCK_SPLIT: lock_nxt is lock_ff without o_reg_idx's clears, plus at most
+// one lock the FSM sets (lock_set_nxt, at i_reg_idx_bin).
+logic lock_set_nxt;
+wire held_set = lock_set_nxt && i_reg_idx_bin == i_lock_owner_hold;
+wire advance_set = lock_set_nxt && i_reg_idx_bin == i_lock_owner_advance;
+(* keep *) wire owner_held_locked = LOCK_SPLIT ? (lock_ff[i_lock_owner_hold] && !o_reg_idx[i_lock_owner_hold]) || held_set :
+                                     lock_nxt[i_lock_owner_hold];
+(* keep *) wire owner_advance_locked = LOCK_SPLIT ? (lock_ff[i_lock_owner_advance] && !o_reg_idx[i_lock_owner_advance]) || advance_set :
+                                     lock_nxt[i_lock_owner_advance];
 `ifndef SYNTHESIS
 logic [5:0] lock_owner_check;
 always_ff @(posedge i_clk) begin
@@ -271,6 +283,9 @@ always_ff @(posedge i_clk) begin
     if (!i_reset) begin
         assert (o_lock_any == (|lock_ff)) else $fatal(1, "lock summary stale");
         assert (o_lock_owner == lock_ff[lock_owner_check]) else $fatal(1, "lock owner stale");
+        if (LOCK_SPLIT && $onehot(state_ff))
+            assert (lock_nxt == ((lock_ff & ~o_reg_idx) | (lock_set_nxt ? 64'd1 << i_reg_idx_bin : 64'd0)))
+                else $fatal(1, "lock split");
     end
 end
 `endif
@@ -707,6 +722,7 @@ begin:next_state_logic
         // ARM925T: the registered completion mask writes and unlocks on
         // the same edge as the former reg_wr_ff-qualified saved mask.
         lock_nxt                = lock_ff & ~o_reg_idx;
+        lock_set_nxt            = 1'd0;
         o_wb_wen_nxt            = o_wb_wen_ff;
         o_wb_sel_nxt            = o_wb_sel_ff;
         cache_clean_req_nxt     = cache_clean_req_ff;
@@ -888,6 +904,7 @@ begin:next_state_logic
                                         if ( i_rd )
                                         begin
                                                 lock_nxt[i_reg_idx_bin] = 1'd1;
+                                                lock_set_nxt = 1'd1;
                                         end
 
                                         if ( cache_dirty && victim_alias )
@@ -926,6 +943,7 @@ begin:next_state_logic
                                                 if ( i_rd )
                                                 begin
                                                         lock_nxt[i_reg_idx_bin] = 1'd1;
+                                                        lock_set_nxt = 1'd1;
                                                 end
                                 end
                                 endcase
@@ -1182,6 +1200,7 @@ begin:next_state_logic
                 o_wb_dat_nxt            = 'x;
                 o_wb_cti_nxt            = 'x;
                 lock_nxt                = 'x;
+                lock_set_nxt            = 'x;
                 o_wb_wen_nxt            = 'x;
                 o_wb_sel_nxt            = 'x;
                 cache_clean_req_nxt     = 'x;

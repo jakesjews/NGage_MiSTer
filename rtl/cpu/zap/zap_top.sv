@@ -503,6 +503,7 @@ zap_dcache #(
         .REG_COLLISION(1'b1),
         .HIT_FF(1'b1),
         .FLAT_ACK(1'b1),
+        .LOCK_SPLIT(1'b1),
         .BE_32_ENABLE(BE_32_ENABLE),
         .EXT_ABORT_FS(4'b1000)   // TI925T's external abort status
 )
