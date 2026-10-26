@@ -77,6 +77,12 @@ module arm9v2_front_execute #(
     logic d_force_align;
     logic d_reg_shift;
     logic [3:0] d_kind;
+    // Wired as arm9v2_core wires them: decode's registered shift controls and
+    // operand class, the self-dependency flag, the payload-ready S admission
+    // and the S-AGU writeback lanes (MEM=5 in A and in D2/S).
+    logic [18:0] d_shift_pre;
+    logic d_self_dep, execute_ready_payload;
+    logic [3:0] early_agu;
     logic [3:0] d_condition;
     logic [3:0][5:0] d_tag;
     logic [3:0] d_used;
@@ -124,6 +130,7 @@ module arm9v2_front_execute #(
     logic [3:0][5:0] early_tag;
     logic [3:0] early_valid;
     assign forward_tag={i_ready?mw_tag[0]:mw_tag[1],i_ready?o_dest:mw_tag[0]};
+    assign early_agu={o_kind==4'd5,1'b0,d_kind==4'd5,1'b0};
     assign forward_write=(i_reset||i_flush)?4'd0:
         {i_ready?(mw_write[0]&{2{mw_valid[0]}}):(mw_write[1]&{2{mw_valid[1]}}),
          i_ready?(o_write&{2{o_valid}}):(mw_write[0]&{2{mw_valid[0]}})};
@@ -145,9 +152,24 @@ module arm9v2_front_execute #(
     end
     assign o_retire_valid=mw_valid[1]&&i_ready&&!i_flush;
     assign o_retire_pc=mw_pc[1];assign o_retire_instruction=mw_ins[1];assign o_retire_value=mw_value[1][0];
+    // The core's register file (zap_register_file) as this bench's model:
+    // A and B written under i_wen, C always, C > B > A on the same edge,
+    // each write visible from the next clock. Decode reads it through
+    // o_rf_tag/i_rf_value, as in the core.
+    logic [39:0][31:0] model_rf;
+    always_ff @(posedge i_clk)
+        if(i_reset)model_rf<='0;
+        else for(int r=0;r<40;r++)begin
+            if((i_ready&&!i_flush)&&wa[r])model_rf[r]<=mw_value[1][0];
+            if((i_ready&&!i_flush)&&wb[r])model_rf[r]<=mw_value[1][1];
+            if(wc[r])model_rf[r]<=mw_cpsr[1];
+        end
+    logic [3:0][5:0] rf_tag;
+    logic [3:0][31:0] rf_value;
+    always_comb for(int n=0;n<4;n++)rf_value[n]=(rf_tag[n]<6'd40) ? model_rf[rf_tag[n]] : 32'd0;
     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR)) u_front_decode (
-        .i_serial_continue(1'b0),.o_dbg_fetch(),
-        .i_rf_value('0),.o_rf_tag(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),
+        .i_serial_continue(1'b1),.o_dbg_fetch(),
+        .i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),
         .o_writes(),.o_early(d_early),.i_forward_tag(forward_tag),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_write(forward_write),
         .i_forward_load('0),.o_forward_grant(d_forward_grant),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),
@@ -155,7 +177,10 @@ module arm9v2_front_execute #(
         .i_flush(i_flush||o_redirect),
         .i_mode(i_cpsr[4:0]),
         .i_wen(i_ready&&!i_flush),
-        .i_wr_tag_a(6'd16),.i_wr_tag_b(6'd16),.i_wr_pair(1'b0),.i_wr_addr_a(wa),
+        // W's write tags: the same writes as wa/wb, as binary tags (16: none).
+        .i_wr_tag_a((mw_write[1][0]&&mw_valid[1])?mw_tag[1][0]:6'd16),
+        .i_wr_tag_b((mw_write[1][1]&&mw_valid[1])?mw_tag[1][1]:6'd16),
+        .i_wr_pair(mw_write[1][1]&&mw_valid[1]),.i_wr_addr_a(wa),
         .i_wr_addr_b(wb),
         .i_wr_addr_c(wc),
         .i_locked(i_locked),
@@ -165,7 +190,8 @@ module arm9v2_front_execute #(
         .i_wr_data_b(mw_value[1][1]),
         .i_wr_data_c(mw_cpsr[1]),
         .i_ready(o_execute_ready),
-        .i_ready_payload(o_execute_ready),
+        .i_ready_payload(execute_ready_payload),
+        .o_shift_pre(d_shift_pre),.o_self_dep(d_self_dep),.i_early_agu(early_agu),
         .i_backend_target(i_flush?i_backend_target:o_redirect_target),
         .i_backend_link(o_redirect_link),
         .i_backend_thumb(i_flush?i_backend_thumb:o_redirect_thumb),
@@ -239,6 +265,7 @@ module arm9v2_front_execute #(
     );
     arm9v2_execute u_execute (
         .i_flags_refresh(1'b0),.o_serial_continue(),.i_pending(4'd0),.i_load_owner(2'd0),.i_next_load_owner(2'd0),.i_load_hit(1'b0),.i_return_select(64'd0),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.i_return_ready(1'b0),.i_return_s_match(4'd0),.i_return_data(64'd0),
+        .i_shift_pre(d_shift_pre),.i_self_dep(d_self_dep),.i_load_trust(1'b1),.o_ready_payload(execute_ready_payload),
         .i_admit(1'b1),.i_load_wait(1'b0),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_advance_tag('0),.i_next_advance(1'b0),.i_next_write(forward_write),.i_early(d_early),
         .o_btb_pc(btb_pc),.o_btb_thumb(btb_thumb),.o_record_pointer(),.o_record_count(),
         .o_record_pred_hit(),.o_record_pred_state(),.o_record_thumb(),

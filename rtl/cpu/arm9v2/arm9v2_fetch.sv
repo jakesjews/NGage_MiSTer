@@ -5,11 +5,14 @@
 // THUMB_HALF: a Thumb fetch at pc[1] stores its upper halfword in the low
 // half at queue push, so decode's instruction is the queue's word without
 // a thumb/pc multiplexer behind the head select.
+// Parameter defaults are the core's configuration (arm9v2_core sets each
+// explicitly); 0 selects a cut's original form, kept for A/B timing trials.
 module arm9v2_fetch #(
     parameter logic [31:0] RESET_VECTOR = 0,
     parameter logic PREDICTOR = 1'b1,
-    parameter logic THUMB_HALF = 1'b0,
-    parameter logic RAS_TOP_FF = 1'b0
+    parameter logic THUMB_HALF = 1'b1,
+    parameter logic RAS_TOP_FF = 1'b1,
+    parameter logic VALID_BIT = 1'b1
 ) (
     input logic i_clk, i_reset,
     // Backend redirect, payload and predictor update are registered by owner.
@@ -123,9 +126,11 @@ module arm9v2_fetch #(
     assign o_ras_count = head_packet.prediction.count;
 
     if (PREDICTOR) begin : g_predictor
-        arm9v2_predict #(.RAS_TOP_FF(RAS_TOP_FF)) u_predict (
+        arm9v2_predict #(.RAS_TOP_FF(RAS_TOP_FF), .VALID_BIT(VALID_BIT)) u_predict (
             .i_clk(i_clk), .i_reset(i_reset), .i_clear(i_predictor_clear),
             .i_lookup(advance), .i_pc(launch_pc), .i_thumb(launch_thumb),
+            .i_pc_redirect(i_redirect_target), .i_pc_sequential(sequential_pc),
+            .i_sel_redirect(i_redirect), .i_sel_predicted(predicted),
             .i_accept(advance && f1.valid && !i_redirect && !retry && !killed),
             .i_update(i_update), .i_update_pc(i_update_pc), .i_update_target(i_update_target),
             .i_update_thumb(i_update_thumb), .i_update_taken(i_update_taken),

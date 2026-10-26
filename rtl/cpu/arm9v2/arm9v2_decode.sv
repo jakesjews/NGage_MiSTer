@@ -24,12 +24,14 @@
 // WT_TAGS: the same-edge write-through compares D2's tags with W's binary
 // write tags (registers) and ANDs W's late write enable at the end,
 // instead of selecting the one-hot write masks' bits after completion.
-module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, parameter logic THUMB_HALF=0,
-    parameter logic SHIFT_PRE=0, parameter logic PAYLOAD_FREE=0, parameter logic REDIRECT_PAYLOAD=0,
-    parameter logic WT_TAGS=0,
+// Parameter defaults are the core's configuration (arm9v2_core sets each
+// explicitly); 0 selects a cut's original form, kept for A/B timing trials.
+module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'b1,
+    parameter logic SHIFT_PRE=1'b1, parameter logic PAYLOAD_FREE=1'b1, parameter logic REDIRECT_PAYLOAD=1'b1,
+    parameter logic WT_TAGS=1'b1,
     // PREFIX_FREE: prefix_target loads while D2 holds a BL prefix, not on
     // S's acceptance (step): it is read only once D2 no longer holds it.
-    parameter logic PREFIX_FREE=0) (
+    parameter logic PREFIX_FREE=1'b1) (
     input logic i_clk, i_reset, i_flush,
     input logic i_serial_continue,
     input logic i_valid,
@@ -317,7 +319,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
 `endif
     // A suffix is kept as its own architectural record. Paired target
     // optimization uses the dedicated prefix register, not Thumb expansion.
-    zap_mode16_decoder #(.V4T(1'b1)) u_thumb (
+    zap_mode16_decoder u_thumb (
         .i_instruction(raw_word),.i_instruction_valid(1'b1),.i_offset(11'd0),
         .i_prev_prefix(1'b0),.i_irq(1'b0),.i_fiq(1'b0),.i_cpsr_ff_t(i_thumb),
         .o_instruction(expanded),.o_und(thumb_und),.o_force32_align(thumb_align),
@@ -602,7 +604,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
                 (!i_load_speculate[pending]||pending==0||(d2.early[src]&&pending==1))&&
                 d2.tag[src]==i_load_tag[pending];
             // No younger destination can be overwritten by an older fill.
-            if(EXTERNAL_RF)for(int dst=0;dst<2;dst++)
+            for(int dst=0;dst<2;dst++)
                 load_hazard|=d2.writes[dst]&&i_load_valid[pending]&&d2.dest[dst]==i_load_tag[pending]&&
                     !(i_load_speculate[pending]&&((pending==4&&i_w_load_hit)||
                     (d2.used[0]&&d2.tag[0]==i_load_tag[pending])||
@@ -610,7 +612,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
                     (d2.used[2]&&d2.tag[2]==i_load_tag[pending])||
                     (d2.used[3]&&d2.tag[3]==i_load_tag[pending])));
         end
-        if(EXTERNAL_RF)for(int dst=0;dst<2;dst++)load_hazard|=d2.writes[dst]&&i_locked[d2.dest[dst]];
+        for(int dst=0;dst<2;dst++)load_hazard|=d2.writes[dst]&&i_locked[d2.dest[dst]];
     end
     assign o_hazard=d2_valid&&(load_hazard||fenced||(d2.used[0]&&i_locked[d2.tag[0]]) ||
         (d2.used[1]&&i_locked[d2.tag[1]]) || (d2.used[2]&&i_locked[d2.tag[2]]) || (d2.used[3]&&i_locked[d2.tag[3]]) ||
@@ -618,20 +620,13 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
     assign step=d2_valid&&(!out_valid||i_ready)&&!o_hazard&&!i_flush&&(!redirect_ff.valid||redirect_in_d2);
     assign pop=count!=0&&(!d2_valid||(step&&d2.last))&&!kill_younger;
     assign o_rf_tag=d2.tag;
-    generate if(EXTERNAL_RF)begin : g_external_rf
-        assign raw_values=i_rf_value;
-    end else begin : g_internal_rf
-    zap_register_file u_registers (
-        .i_clk(i_clk),.i_reset(i_reset),.i_wen(i_wen),
-        .i_wr_addr_a(i_wr_addr_a),.i_wr_addr_b(i_wr_addr_b),.i_wr_addr_c(i_wr_addr_c),
-        .i_wr_data_a(i_wr_data_a),.i_wr_data_b(i_wr_data_b),.i_wr_data_c(i_wr_data_c),
-        .i_rd_addr_a(d2.tag[0]),.i_rd_addr_b(d2.tag[1]),.i_rd_addr_c(d2.tag[2]),.i_rd_addr_d(d2.tag[3]),.i_rd_addr_e(6'd0),
-        .o_rd_data_a(raw_values[0]),.o_rd_data_b(raw_values[1]),.o_rd_data_c(raw_values[2]),.o_rd_data_d(raw_values[3]),
-        .o_rd_data_e()
-    );
-    end endgenerate
+    // The register file is the core's (zap_writeback); decode reads it
+    // through o_rf_tag/i_rf_value.
+    assign raw_values=i_rf_value;
     // S's shifter controls for record r, exactly as arm9v2_execute forms
     // them from the issued record (its ref_* terms).
+    // Both functions read a few fields of the whole record.
+    /* verilator lint_off UNUSEDSIGNAL */
     function automatic logic [15:0] shift_controls(input decoded_t r);
         logic [1:0] t; logic [7:0] n; logic g;
         t=r.p.ins[6:5]; n={3'd0,r.p.ins[11:7]}; g=r.reg_shift;
@@ -644,6 +639,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
     function automatic logic [2:0] op1_class(input decoded_t r);
         return {(r.kind==K_DP||r.kind==K_MSR)&&r.p.ins[25],r.tag[1]==15,r.tag[1]==17};
     endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
     (* dont_retime *) logic [18:0] shift_pre_ff;
     assign o_shift_pre={shift_pre_ff[18:16],SHIFT_PRE?shift_pre_ff[15:0]:16'd0};
     // WT_TAGS: the tag compares, from registers; the late enable joins after.
@@ -708,7 +704,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
                 matches_taken<=taken_match;matches_fallthrough<=fallthrough_match;
             end
             if(step)begin
-                if(EXTERNAL_RF&&((d2.kind==K_CP&&(!d2.p.ins[20]||d2.p.ins[19:16]==7||d2.p.ins[15:12]==15))||
+                if(((d2.kind==K_CP&&(!d2.p.ins[20]||d2.p.ins[19:16]==7||d2.p.ins[15:12]==15))||
                     (d2.kind==K_MSR&&(d2.p.ins[22]||d2.p.ins[16]))||d2.kind==K_SWP||
                     d2.kind==K_SWI||d2.kind==K_UND||d2.p.fault||
                     (d2.kind==K_DP&&d2.p.ins[20]&&d2.dest[0]==15)||

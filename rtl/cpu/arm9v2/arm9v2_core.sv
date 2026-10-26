@@ -21,9 +21,6 @@ module arm9v2_core #(
         // parallel and selects the result (REDIRECT_EQ).
         parameter logic THUMB_HALF = 1'b1,
         parameter logic REDIRECT_EQ = 1'b1,
-        // The register file's write port registered, reads bypassing the
-        // held write (zap_register_file WRITE_FF): zero cycles.
-        parameter logic RF_WRITE_FF = 1'b1,
         // S's shifter controls registered by decode (arm9v2_decode
         // SHIFT_PRE): zero cycles.
         parameter logic SHIFT_PRE = 1'b1,
@@ -47,9 +44,10 @@ module arm9v2_core #(
         parameter logic COPRO_PORT = 1'b1,
         // W completion, 104 MHz step 2 (2026-10-25). REG_DONE: an access the
         // D-cache acknowledges for certain from registered predicates
-        // (i_data_ack_fast: a cacheable IDLE access, hit or miss, or a hit
-        // under a miss) completes in its clock as before; any other
-        // acknowledge (uncached, fault, alignment, TLB busy) is registered
+        // (i_data_ack_fast: a cacheable IDLE access, hit or miss, a hit
+        // under a miss, or an uncached access's UNC_DONE) completes in its
+        // clock as before; any other acknowledge (an MMU or alignment fault,
+        // the TLB busy retry) is registered
         // and completes W one clock later, with the request withdrawn from
         // the cache in that clock. Costs cycles on those accesses only.
         parameter logic REG_DONE = 1'b1,
@@ -68,6 +66,9 @@ module arm9v2_core #(
         // S's operand-1 class (immediate, PC, PSR) registered by decode
         // beside the shift controls (arm9v2_execute OP1_PRE): zero cycles.
         parameter logic OP1_PRE = 1'b1,
+        // The predictor's looked-up valid bit as a register (arm9v2_predict
+        // VALID_BIT): zero cycles.
+        parameter logic VALID_BIT = 1'b1,
 
         // For CP15 purposes.
         parameter logic [0:0]  CP15_L4_DEFAULT = 0,
@@ -100,8 +101,6 @@ module arm9v2_core #(
         parameter logic [31:0] CPSR_MODE        = 32'd4,
 
         // ARM925T options (see zap_top).
-        parameter logic        V4T              = 1'd0,
-        parameter logic        TI925T           = 1'd0,
         parameter logic [31:0] CP15_ID          = 32'h0005AAA0,
         parameter logic [31:0] CP15_CTYPE       = 32'd0,
         parameter logic        HIVECS           = 1'd0
@@ -112,9 +111,6 @@ module arm9v2_core #(
 // Trace port
 // ------------------------------------------------
 
-output logic [1023:0]                    o_trace,
-output logic                             o_trace_valid,
-output logic                             o_trace_uop_last,
 
 // ------------------------------------------------
 // Clock and reset. Reset is synchronous.
@@ -138,6 +134,7 @@ input logic [31:0] i_data_short_data,
 input logic i_data_short_hit,
 input logic i_data_short_live,
 input logic i_data_ack_fast,      // zap_dcache_fsm o_ack_fast (REG_DONE)
+input logic i_data_err_fast,      // zap_dcache_fsm o_err_fast: UNC_DONE's bus error
 input logic i_data_short_trust,   // i_data_short_live && !fill_ended, registered in the cache FSM
 output logic [31:0]                      o_data_wb_dat,
 output logic  [3:0]                      o_data_wb_sel,
@@ -326,13 +323,6 @@ output logic [1:0] o_dbg_fetch
     logic [2:0] d_ras_pointer;
     logic [3:0] d_ras_count;
     logic d_hazard;
-    logic d_redirect;
-    logic d_redirect_thumb;
-    logic [31:0] d_redirect_target;
-    logic [31:0] d_redirect_link;
-    logic [2:0] d_redirect_pointer;
-    logic [3:0] d_redirect_count;
-    logic [1:0] d_redirect_action;
     logic a_execute_ready,a_execute_ready_payload;
     logic a_valid;
     logic [31:0] a_pc;
@@ -470,7 +460,10 @@ output logic [1:0] o_dbg_fetch
     end
     (* dont_retime *) logic swap_write,cp_seen,cp_finished;
     (* dont_retime *) logic [3:0] cp_flags;
-    (* dont_retime *) logic wb_flush,wb_thumb,predictor_clear;
+    (* dont_retime, maxfan = 32 *) logic wb_flush;
+    (* dont_retime *) logic wb_thumb;
+    // maxfan: the clear reaches the predictor's 256-entry valid bitmap.
+    (* dont_retime, maxfan = 32 *) logic predictor_clear;
     (* dont_retime *) logic [31:0] wb_target,wb_repair_link;
     (* dont_retime *) logic [2:0] wb_repair_pointer;
     (* dont_retime *) logic [3:0] wb_repair_count;
@@ -755,9 +748,9 @@ output logic [1:0] o_dbg_fetch
 `endif
     assign check_record=(memory_state==HOLD||memory_state==RETRY1||memory_state==SWAP1)?w:m;
     assign check_enable=memory_state==RUN||memory_state==HOLD||memory_state==RELOAD1||memory_state==RETRY1||memory_state==SWAP1;
-    wire [31:0] lookup_address=memory_state==RELOAD0?m.address:
-        memory_state==RELOAD1?skid.address:
-        (memory_state==HOLD||memory_state==RETRY0||memory_state==RETRY1||memory_state==SWAP0||memory_state==SWAP1)?w.address:a_data_address;
+    wire [31:2] lookup_address=memory_state==RELOAD0?m.address[31:2]:
+        memory_state==RELOAD1?skid.address[31:2]:
+        (memory_state==HOLD||memory_state==RETRY0||memory_state==RETRY1||memory_state==SWAP0||memory_state==SWAP1)?w.address[31:2]:a_data_address[31:2];
     assign o_data_wb_adr_nxt={lookup_address[31:25]==0?o_pid[6:0]:lookup_address[31:25],lookup_address[24:2],2'b0};
     assign o_data_wb_adr_check=check_ff.address;
     assign o_data_wb_adr={w.fcse_address[31:2],2'b0};
@@ -790,7 +783,7 @@ output logic [1:0] o_dbg_fetch
     assign request=request_raw&&!(REG_DONE&&late_done);
     wire ack_now=REG_DONE?request&&i_data_ack_fast:request&&(i_data_wb_ack||i_data_wb_err);
     assign request_done=ack_now||(REG_DONE&&late_done);
-    assign resp_err=REG_DONE?late_done&&late_err:i_data_wb_err;
+    assign resp_err=REG_DONE?(late_done?late_err:ack_now&&i_data_err_fast):i_data_wb_err;
     assign resp_err2=REG_DONE?late_done&&late_err2:i_dcache_err2;
     assign resp_dat=REG_DONE&&late_done?late_dat:i_data_wb_dat;
     assign retry=request_done&&resp_err2;
@@ -800,7 +793,7 @@ output logic [1:0] o_dbg_fetch
     end
 `ifndef SYNTHESIS
     always_ff @(posedge i_clk) if(!i_reset)begin
-        if(REG_DONE&&request&&i_data_ack_fast)assert(i_data_wb_ack&&!i_data_wb_err&&!i_dcache_err2)
+        if(REG_DONE&&request&&i_data_ack_fast)assert(i_data_wb_ack&&!i_dcache_err2&&i_data_wb_err==i_data_err_fast)
             else $fatal(1,"fast acknowledge without the cache's");
         if(REG_DONE&&late_done)assert(!wb_flush&&w.valid&&w.memory&&(memory_state==RUN||memory_state==HOLD))
             else $fatal(1,"registered completion lost its owner");
@@ -838,7 +831,7 @@ output logic [1:0] o_dbg_fetch
     // once per source, in parallel; the load-word select then picks one bit.
     logic [4:0] target_hi_eq;
     logic target_mismatch,target_mismatch_ref;
-    logic [1:0] target_raw_low;
+    logic target_raw_bit1;
     always_comb begin
         target_hi_eq[0]=w.pred_target[31:2]==saved_load[31:2];
         target_hi_eq[1]=w.pred_target[31:2]==i_data_short_data[31:2];
@@ -883,13 +876,13 @@ output logic [1:0] o_dbg_fetch
         if(wb_restore)begin wb_tag0=w.dest[1];wb_data0=w.original_base;wb_pair=0;wb_flags=w.flags;end
         return_event=w.pass&&(w.pc_write||(w.memory&&!w.store&&w.dest[0]==15));
         return_target=w.memory?load_data:w.kind==SUFFIX?w.address:w.result[0];
-        target_raw_low=return_target[1:0];
+        target_raw_bit1=return_target[1];
         return_thumb=wb_flags[5];
         if(w.memory&&w.dest[0]==15&&!l4_enable)return_thumb=return_target[0];
         return_target=return_thumb?{return_target[31:1],1'b0}:{return_target[31:2],2'b0};
         target_mismatch_ref=w.pred_target!={return_target[31:1],return_thumb};
         target_mismatch=REDIRECT_EQ?!target_hi_eq[target_source]||
-            w.pred_target[1]!=(return_thumb&&target_raw_low[1])||w.pred_target[0]!=return_thumb:
+            w.pred_target[1]!=(return_thumb&&target_raw_bit1)||w.pred_target[0]!=return_thumb:
             target_mismatch_ref;
         return_kind=(w.kind==BLOCK&&w.dest[0]==15)||((w.ins&32'h0fffffff)==32'h01a0f00e);
         wb_redirect=wb_complete&&(wb_exception||w_serial||scalar_replay||
@@ -998,7 +991,7 @@ output logic [1:0] o_dbg_fetch
         assert(w_hit_candidate==(w.memory&&!w_waited)) else $fatal(1,"W hit candidate register");
 `endif
     wire w_load_hit=w_hit&&i_data_short_hit&&load_trust;
-    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS),.RAS_TOP_FF(RAS_TOP_FF),.PREFIX_FREE(PREFIX_FREE)) u_front_decode (
+    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS),.RAS_TOP_FF(RAS_TOP_FF),.PREFIX_FREE(PREFIX_FREE),.VALID_BIT(VALID_BIT)) u_front_decode (
         .i_w_load_hit(w_load_hit),.o_self_dep(d_self_dep),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
         .i_forward_load(forward_load),.o_forward_grant(d_forward_grant),.i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),.o_return_match(d_return_match),
@@ -1080,13 +1073,9 @@ output logic [1:0] o_dbg_fetch
         .o_ras_pointer(d_ras_pointer),
         .o_ras_count(d_ras_count),
         .o_hazard(d_hazard),
-        .o_redirect(d_redirect),
-        .o_redirect_thumb(d_redirect_thumb),
-        .o_redirect_target(d_redirect_target),
-        .o_redirect_link(d_redirect_link),
-        .o_redirect_pointer(d_redirect_pointer),
-        .o_redirect_count(d_redirect_count),
-        .o_redirect_action(d_redirect_action),
+        // D2's redirect is applied inside front_decode (fetch); not used here.
+        .o_redirect(),.o_redirect_thumb(),.o_redirect_target(),.o_redirect_link(),
+        .o_redirect_pointer(),.o_redirect_count(),.o_redirect_action(),
         .o_address_nxt(f_address_nxt),
         .o_address_check(f_address_check),
         .o_address(f_address),
@@ -1187,42 +1176,31 @@ output logic [1:0] o_dbg_fetch
         .o_multiply_wait(a_multiply_wait)
     );
 
-    zap_writeback #(.RF_EARLY_SELECT(1),.RF_ALLOW_RETIMING(0),.RF_WRITE_FF(RF_WRITE_FF),.COPRO_PORT(COPRO_PORT),.BP_ENTRIES(32),.PHY_REGS(40),.FLAG_WDT(32),
-        .RESET_VECTOR(RESET_VECTOR),.CPSR_INIT(CPSR_INIT)) u_zap_writeback (
+    zap_writeback #(.COPRO_PORT(COPRO_PORT),.PHY_REGS(40),.FLAG_WDT(32),.CPSR_INIT(CPSR_INIT)) u_zap_writeback (
         .i_rf_class(rf_class),.i_clk(i_clk),.i_reset(i_reset),.i_valid(wb_valid),
-        .i_decompile('0),.i_decompile_valid(wb_cfail),.i_uop_last(wb_last),
-        .o_decompile(),.o_shelve(),.i_cpu_pid(o_pid[6:0]),
-        .i_l4_enable(l4_enable),.i_hivecs(hivecs),.i_clear_btb(1'b0),
-        .i_code_stall(1'b1),.i_clear_from_alu(1'b0),.i_pc_from_alu(32'd0),
-        .i_clear_from_decode(1'b0),.i_pc_from_decode(32'd0),
-        .i_clear_from_icache(1'b0),.i_confirm_from_alu(1'b0),
-        .i_alu_pc_ff(32'd0),.i_taken(2'd0),
+        .i_l4_enable(l4_enable),
         .i_rd_index_0(rf_tag[0]),.i_rd_index_1(rf_tag[1]),
         .i_rd_index_2(rf_tag[2]),.i_rd_index_3(rf_tag[3]),
         .i_mem_load_ff(wb_pair),.i_wr_index(wb_tag0),.i_wr_data(wb_data0),
         .i_flags(wb_flags),.i_wr_index_1(wb_tag1),.i_wr_data_1(wb_data1),
-        .i_wr_index_2(i_dc_reg_idx[39:0]),.i_wr_data_2(i_dc_reg_dat),.i_mode16(cpsr[5]),
+        .i_wr_index_2(i_dc_reg_idx[39:0]),.i_wr_data_2(i_dc_reg_dat),
         .i_irq(wb_irq),.i_fiq(wb_fiq),.i_instr_abt(wb_pabt),
         .i_data_abt({1'b0,wb_dabt}),.i_swi(wb_swi),.i_und(wb_und),
         .i_pc_plus_8_buf_ff(o_dbg_wb_pc),.i_copro_reg_en(copro_reg_en),
-        // MRC only writes the RF. Preserve D2's read address on shared port A;
-        // only the fenced MCR may borrow that port for its source read.
-        .i_copro_reg_wr_index(copro_reg_wr_index),.i_copro_reg_rd_index(w.ins[20]?rf_tag[0]:copro_reg_rd_index),
+        // MRC only writes the RF. Without COPRO_PORT the coprocessor shares
+        // port A: preserve D2's read address there; only the fenced MCR may
+        // borrow it. With COPRO_PORT, port E is the coprocessor's alone.
+        .i_copro_reg_wr_index(copro_reg_wr_index),.i_copro_reg_rd_index(COPRO_PORT?copro_reg_rd_index:w.ins[20]?rf_tag[0]:copro_reg_rd_index),
         .i_copro_reg_wr_data(copro_reg_wr_data),.o_copro_reg_rd_data_ff(copro_reg_rd_data),
         .o_rd_data_0(rf_value[0]),.o_rd_data_1(rf_value[1]),
         .o_rd_data_2(rf_value[2]),.o_rd_data_3(rf_value[3]),
-        .o_pc(),.o_pc_check(),.o_pc_nxt(),.o_taken(),.o_pred(),
-        .o_cpsr_nxt(cpsr_next),.o_dbg_cpsr_ff(o_dbg_wb_cpsr),
-        .o_clear_from_writeback(),.o_wb_stb(),.o_wb_cyc(),
-        .o_trace(o_trace),.o_trace_valid(o_trace_valid),.o_trace_uop_last(o_trace_uop_last)
+        .o_cpsr_nxt(cpsr_next),.o_dbg_cpsr_ff(o_dbg_wb_cpsr)
     );
 
 zap_cp15_cb #(
 .BE_32_ENABLE(BE_32_ENABLE),
 .PHY_REGS(40),
 .CP15_L4_DEFAULT(CP15_L4_DEFAULT),
-.V4T(V4T),
-.TI925T(TI925T),
 .CP15_ID(CP15_ID),
 .CP15_CTYPE(CP15_CTYPE),
 .HIVECS(HIVECS),

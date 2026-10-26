@@ -19,7 +19,7 @@ for rtl in sv gen; do
     dir=$build/$rtl-lat-$latency
     verilator --binary --timing --assert -j 8 -Wno-fatal -Wno-lint -Wno-style \
         --top-module execute_cache_tb -GLATENCY=$latency --Mdir "$dir" \
-        "$build/shared-gen.v" "${inputs[@]}" \
+        "$build/shared-gen.v" "$root/sim/stubs/altsyncram.sv" "${inputs[@]}" \
         "$root/sim/cpu/arm9v2/execute_cache_tb.sv" > "$dir.log" 2>&1 || { cat "$dir.log";exit 1; }
     "$dir/Vexecute_cache_tb"
   done

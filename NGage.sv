@@ -32,18 +32,12 @@ module emu #(
 	parameter int SELFTEST_SDRAM_WORDS_LOG2  = 22,
 	parameter int SELFTEST_ONCHIP_WORDS_LOG2 = 14,
 	parameter int SELFTEST_FLASH_WORDS_LOG2  = 12,
-	// the CPU's I-cache: 16 KB (the phone's) or 32 KB with NGAGE_ICACHE_32K;
-	// the sequential next-line prefetch is off (the phone has none, and it
-	// measured no gain in play) unless NGAGE_ICACHE_PREFETCH; macros in NGage.qsf
+	// the CPU's I-cache: 16 KB (the phone's) or 32 KB with NGAGE_ICACHE_32K
+	// (a macro in NGage.qsf)
 `ifdef NGAGE_ICACHE_32K
 	parameter int ICACHE_SIZE                = 32768,
 `else
 	parameter int ICACHE_SIZE                = 16384,
-`endif
-`ifdef NGAGE_ICACHE_PREFETCH
-	parameter bit ICACHE_PREFETCH            = 1'b1,
-`else
-	parameter bit ICACHE_PREFETCH            = 1'b0,
 `endif
 	parameter int DCACHE_WAYS                = 2
 ) (
@@ -681,7 +675,6 @@ wire  [3:0] tr_d_sel;
 
 arm925t #(
 	.ICACHE_SIZE(ICACHE_SIZE),
-	.ICACHE_PREFETCH(ICACHE_PREFETCH),
 	.DCACHE_WAYS(DCACHE_WAYS)
 ) arm925t
 (

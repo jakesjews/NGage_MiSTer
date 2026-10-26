@@ -21,11 +21,19 @@ help:
 	@echo "make standin-check  Check that tools/standin matches model/nos-stub"
 	@echo "make image-check CS0=.. CS1=..  Check tools/mkimage.py against the model's own patcher"
 
+# The CPU from its sources (rtl/cpu/arm925t_gen.v, which the shell lints, is
+# the sv2v output and is excluded from style checks): the same files
+# tools/gen_cpu.sh converts, with the altsyncram simulation model.
+CPU_LINT_SRCS := rtl/cpu/arm925t.sv $(wildcard rtl/cpu/arm9/*.sv rtl/cpu/arm9v2/*.sv rtl/cpu/zap/*.sv)
+
 lint: lint-prepare
 	@for t in $(LINT_TOPS); do \
 		echo "lint $$t"; \
 		$(VERILATOR) --lint-only -Wall --top-module $$t -f lint/rtl.f || exit 1; \
 	done
+	@echo "lint arm925t (sources)"
+	@$(VERILATOR) --lint-only -Wall --top-module arm925t -Irtl/cpu/zap lint/exclusions.vlt \
+		sim/stubs/altsyncram.sv $(CPU_LINT_SRCS)
 
 lint-prepare:
 	@mkdir -p lint/gen

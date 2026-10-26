@@ -13,12 +13,15 @@ for bench in predict fetch; do
     for rtl in sv gen; do
         inputs=("${sources[@]}")
         [[ $rtl == sv ]] || inputs=("$build/$bench-gen.v")
-        configs=(1)
-        [[ $bench != fetch ]] || configs=(0 1)
+        # Each configuration: the predictor (fetch only), then the V2 cuts
+        # RAS_TOP_FF/VALID_BIT off (the original forms) and on (the core's).
+        configs=(1-0 1-1)
+        [[ $bench != fetch ]] || configs=(0-0 1-0 1-1)
         for pred in "${configs[@]}"; do
-            args=()
-            [[ $bench != fetch ]] || args=(-GPREDICTOR=$pred)
-            dir=$build/$bench-$rtl-$pred
+            cuts=${pred#*-}; pred=${pred%-*}
+            args=(-GRAS_TOP_FF=$cuts -GVALID_BIT=$cuts)
+            [[ $bench != fetch ]] || args+=(-GPREDICTOR=$pred -GTHUMB_HALF=$cuts)
+            dir=$build/$bench-$rtl-$pred-$cuts
             verilator --binary --timing --assert -j 8 -Wall -Wno-DECLFILENAME \
                 --top-module "${bench}_tb" ${args[@]+"${args[@]}"} --Mdir "$dir" \
                 "${inputs[@]}" "$root/sim/cpu/arm9v2/${bench}_tb.sv" > "$dir.log" 2>&1 || {

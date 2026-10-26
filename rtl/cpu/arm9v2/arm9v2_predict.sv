@@ -6,15 +6,25 @@
 // own, loaded on every edge that changes the stack or the pointer, so a
 // return's predicted target (and the next fetch's I-TLB lookup) starts at a
 // flop instead of the pointer's decrement and an 8:1 stack read.
+// Parameter defaults are the core's configuration (arm9v2_core sets each
+// explicitly); 0 selects a cut's original form, kept for A/B timing trials.
 module arm9v2_predict #(
     parameter integer ENTRIES = 256,
-    parameter logic RAS_TOP_FF = 1'b0,
+    parameter logic RAS_TOP_FF = 1'b1,
+    // VALID_BIT: the looked-up entry's valid bit as one register, loaded
+    // from the valid bit of each launch candidate (redirect, predicted
+    // target, sequential) selected as fetch selects the launch PC, so
+    // o_hit does not read the bitmap through read_pc (a 256:1 mux).
+    parameter logic VALID_BIT = 1'b1,
     localparam integer INDEX_W = $clog2(ENTRIES),
     localparam integer TAG_W = 31 - INDEX_W
 ) (
     input logic i_clk, i_reset, i_clear,
     input logic i_lookup,
     input logic [31:0] i_pc,
+    // VALID_BIT: i_pc's candidates and its selects (arm9v2_fetch launch_pc).
+    input logic [31:0] i_pc_redirect, i_pc_sequential,
+    input logic i_sel_redirect, i_sel_predicted,
     input logic i_thumb,
     input logic i_accept,
     input logic i_update,
@@ -56,7 +66,8 @@ module arm9v2_predict #(
     wire write_enable = i_update && !i_reset && !i_clear;
     wire [INDEX_W-1:0] rd_index = i_pc[INDEX_W:1];
     wire [INDEX_W-1:0] wr_index = i_update_pc[INDEX_W:1];
-    wire unused = &{1'b0, i_pc[0], i_update_pc[0]};
+    wire unused = &{1'b0, i_pc[0], i_update_pc[0], i_pc_redirect[31:INDEX_W+1], i_pc_redirect[0],
+                    i_pc_sequential[31:INDEX_W+1], i_pc_sequential[0]};
 
     always_comb begin
         update_state = i_update_hit ? i_update_state : 2'b01;
@@ -89,7 +100,21 @@ module arm9v2_predict #(
             read_thumb <= i_thumb;
         end
     end
-    assign o_hit = read_valid[read_pc[INDEX_W:1]] && read_entry.tag == read_pc[31:INDEX_W+1] &&
+    (* dont_retime *) logic read_valid_bit;
+    wire valid_redirect = valid_next[i_pc_redirect[INDEX_W:1]];
+    wire valid_predicted = valid_next[o_target[INDEX_W:1]];
+    wire valid_sequential = valid_next[i_pc_sequential[INDEX_W:1]];
+    wire valid_launch = i_sel_redirect ? valid_redirect : i_sel_predicted ? valid_predicted : valid_sequential;
+    always_ff @(posedge i_clk)
+        if (i_reset || i_clear) read_valid_bit <= 1'b0;
+        else if (i_lookup) read_valid_bit <= valid_launch;
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if (!i_reset && VALID_BIT) begin
+        if (i_lookup) assert (valid_launch == valid_next[rd_index]) else $fatal(1, "predictor launch valid");
+        assert (read_valid_bit == read_valid[read_pc[INDEX_W:1]]) else $fatal(1, "predictor valid bit");
+    end
+`endif
+    assign o_hit = (VALID_BIT ? read_valid_bit : read_valid[read_pc[INDEX_W:1]]) && read_entry.tag == read_pc[31:INDEX_W+1] &&
                    read_entry.thumb == read_thumb;
     assign o_taken = o_hit && read_entry.state[1];
     assign o_target = read_entry.kind == RETURN && count != 0 ?

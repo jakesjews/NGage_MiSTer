@@ -37,12 +37,9 @@ module arm925t #(
 	parameter bit          HIVECS      = 1'b0,
 	// Cache geometry: the ARM925T's 16 KB I / 8 KB D, 2-way with LRU
 	// replacement, 16-byte lines (docs/CPU.md). ICACHE_SIZE may also be
-	// set to 32768 (32 KB, 1,024 sets); ICACHE_PREFETCH enables the
-	// one-line sequential next-line prefetch (off: the phone has none and
-	// the games measured no gain from it; the logic is cycle-identical off).
+	// set to 32768 (32 KB, 1,024 sets).
 	parameter int          ICACHE_SIZE     = 16384,
 	parameter int          ICACHE_WAYS     = 2,
-	parameter bit          ICACHE_PREFETCH = 1'b0,
 	// The D-cache is 16 KB two-way (512 sets, VA[12:4]); CP15 still reports
 	// the phone's 8 KB, and by-index maintenance visits both physical set
 	// colours of the named architectural set (docs/CPU.md).
@@ -111,8 +108,6 @@ module arm925t #(
 
 	zap_top #(
 		.ARM9_PREDICTOR (ARM9_PREDICTOR),
-		.V4T             (1'b1),
-		.TI925T          (1'b1),
 		.CP15_ID         (32'h54029252),
 		.CP15_CTYPE      (32'h05109149),
 		.HIVECS          (HIVECS),
@@ -120,7 +115,6 @@ module arm925t #(
 		.CODE_CACHE_SIZE     (32'(ICACHE_SIZE)),
 		.CODE_CACHE_LINE     (32'(CACHE_LINE)),
 		.CODE_CACHE_WAYS     (32'(ICACHE_WAYS)),
-		.CODE_CACHE_PREFETCH (ICACHE_PREFETCH),
 		.DATA_CACHE_SIZE     (32'd16384),
 		.DATA_CACHE_LINE     (32'(CACHE_LINE)),
 		.DATA_CACHE_WAYS     (32'(DCACHE_WAYS))

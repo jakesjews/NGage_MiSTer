@@ -25,8 +25,7 @@
 module zap_mem_inv_block #(
         parameter [31:0] DEPTH = 32,
         parameter [31:0] WIDTH = 32,  // Not including valid bit.
-        parameter logic SHORT_READ = 1'b0,
-        // ARM925T, SHORT_READ only: read (and write) every clock, ignoring
+        // ARM925T: read (and write) every clock, ignoring
         // i_clken, so the data follows the read address through a hold.
         parameter logic READ_THROUGH = 1'b0
 )(
@@ -63,10 +62,10 @@ module zap_mem_inv_block #(
 // ARM9: the pre output is the synchronous RAM read, including a same-edge
 // collision bypass. The caller still registers the translation/permission
 // check. Invalidation clears the valid array and its read even while held.
-if (SHORT_READ) begin : g_short
+if (1) begin : g_short
     logic [DEPTH-1:0] valid;
     logic read_valid;
-    zap_ram_simple #(.WIDTH(WIDTH), .DEPTH(DEPTH), .SHORT_READ(1'b1)) u_ram (
+    zap_ram_simple #(.WIDTH(WIDTH), .DEPTH(DEPTH)) u_ram (
         .i_clk(i_clk), .i_clken(READ_THROUGH || i_clken), .i_wr_en(i_wen),
         .i_wr_data(i_wdata), .i_wr_addr(i_waddr), .i_rd_addr(i_raddr),
         .o_rd_data_pre(), .o_rd_data(o_rdata_pre)
@@ -85,164 +84,7 @@ if (SHORT_READ) begin : g_short
     // defined as the same read instead of retaining dead pipeline registers.
     assign o_rdata = o_rdata_pre;
     assign o_rdav = o_rdav_pre;
-end else begin : g_three_edge
-// These are valid bits corresponding to each memory location.
-logic [DEPTH-1:0]         dav_ff;
-
-logic                     rdav_st1;
-
-logic [$clog2(DEPTH)-1:0] raddr_del;
-logic [$clog2(DEPTH)-1:0] raddr_del2;
-
-//
-// Detect conflicts at each pipeline stage. When a conflict happens, make
-// the dav=1. This is intended to reflect the write data on the read
-// side.
-//
-logic conflict_st1, conflict_st2, conflict_st3;
-
-// Block RAM.
-zap_ram_simple #(.WIDTH(WIDTH), .DEPTH(DEPTH)) u_ram_simple (
-        .i_clk     ( i_clk ),
-        .i_clken   ( i_clken ),
-
-        .i_wr_en   ( i_wen ),
-        .i_wr_data ( i_wdata ),
-
-        .o_rd_data_pre ( o_rdata_pre ),
-        .o_rd_data     ( o_rdata ),
-
-        .i_wr_addr ( i_waddr ),
-        .i_rd_addr ( i_raddr )
-);
-
-////////////////////////////
-// Write logic.
-////////////////////////////
-
-// Set valid bit on write. Clear valid bits on invalidate.
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_reset )
-        begin
-               dav_ff <= '0;
-        end
-        else if ( i_inv )
-        begin
-               dav_ff <= {DEPTH{1'd0}};
-        end
-        else if ( i_wen && i_clken )
-        begin
-              dav_ff [ i_waddr ] <= 1'd1;
-        end
-end
-
-////////////////////////////
-// Read logic.
-////////////////////////////
-
-// ----------------------------------------------------------------------------
-// Stage 1
-// ----------------------------------------------------------------------------
-
-// If write and read target the same address, there is a conflict.
-assign conflict_st1 = i_raddr == i_waddr && i_wen;
-
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_reset )
-        begin
-                rdav_st1 <= '0;
-        end
-        else if ( i_inv )
-        begin
-                rdav_st1 <= 1'd0;
-        end
-        else if ( i_clken )
-        begin
-                rdav_st1 <= conflict_st1 ? 1'd1 : dav_ff [ i_raddr ];
-        end
-end
-
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_reset )
-        begin
-                raddr_del <= '0;
-        end
-        else if ( i_inv )
-        begin
-                raddr_del <= '0;
-        end
-        else if ( i_clken )
-        begin
-                raddr_del <= i_raddr;
-        end
-end
-
-// ----------------------------------------------------------------------------
-// Stage 2
-// ----------------------------------------------------------------------------
-
-// If write address and read delay target are same, there is a conflict.
-assign conflict_st2 = raddr_del == i_waddr && i_wen;
-
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_reset )
-        begin
-                o_rdav_pre <= 1'd0;
-        end
-        else if ( i_inv )
-        begin
-                o_rdav_pre <= 1'd0;
-        end
-        else if  ( i_clken )
-        begin
-                o_rdav_pre <= conflict_st2 ? 1'd1 : rdav_st1;
-        end
-end
-
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_reset )
-        begin
-                raddr_del2 <= '0;
-        end
-        else if ( i_inv )
-        begin
-                raddr_del2 <= '0;
-        end
-        else if ( i_clken )
-        begin
-                raddr_del2 <= raddr_del;
-        end
-end
-
-// ----------------------------------------------------------------------------
-// Stage 3
-// ----------------------------------------------------------------------------
-
-// If write address and read delay-delay are same, there is a conflict.
-assign conflict_st3 = raddr_del2 == i_waddr && i_wen;
-
-always_ff @  (posedge i_clk )
-begin
-        if ( i_reset )
-        begin
-                o_rdav <= '0;
-        end
-        else if ( i_inv )
-        begin
-                o_rdav <= 1'd0;
-        end
-        else if ( i_clken )
-        begin
-                o_rdav <= conflict_st3 ? 1'd1 : o_rdav_pre;
-        end
-end
-
-end
+end : g_short
 
 endmodule
 

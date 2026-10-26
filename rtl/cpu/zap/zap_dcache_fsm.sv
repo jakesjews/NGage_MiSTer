@@ -24,7 +24,6 @@
 `include "zap_defines.svh"
 
 module zap_dcache_fsm   #(
-        parameter logic HIT_FORMATTED = 1'b0,
         // ARM9V2: o_ack/o_err/o_err2 as flat functions of the state and
         // the registered access predicates, beside the case statement.
         parameter logic FLAT_ACK = 1'b0,
@@ -72,8 +71,10 @@ input logic i_lock_owner_move,
 (* dont_retime *) output logic     o_lock_return,
 // ARM9V2: an acknowledge that is certain from registered predicates
 // alone (a cacheable IDLE access without fault, walk or alignment error,
-// hit or miss; or a hit under a miss). It implies o_ack, !o_err, !o_err2.
-output logic                      o_ack_fast,
+// hit or miss; a hit under a miss; or UNC_DONE, a registered state). It
+// implies o_ack and !o_err2, with o_err == o_err_fast (UNC_DONE's
+// registered bus error; 0 otherwise).
+output logic                      o_ack_fast, o_err_fast,
 output logic                      o_fill_busy_nxt,
 output  logic [31:0]               o_reg_dat,
 (* dont_retime *) output logic [63:0] o_reg_idx,
@@ -103,8 +104,7 @@ input   logic                       i_line_done_tr,   // from the tag RAM
 
 // From/to cache.
 input   logic    [CACHE_LINE*8-1:0]     i_cache_line,       // the victim's line
-input   logic    [WAYS-1:0][31:0]       i_cache_words,      // ARM925T: each way's word at i_address
-input   logic                           i_cache_word_sel,   // ARM925T: the hit way's is [1]
+input   logic    [31:0]                 i_cache_word,       // ARM9V2: the short response's formatted hit word
 
 input   logic                           i_cache_tag_dirty,
 input   logic  [`ZAP_CACHE_TAG_WDT-1:0] i_cache_tag,
@@ -139,6 +139,7 @@ input   logic                      i_fault,
 input   logic                      i_cacheable,
 input   logic                      i_wt,          // ARM925T: write-through page.
 input   logic                      i_busy,
+input   logic                      i_tlb_idle,    // ARM9V2: the TLB walker FSM's IDLE (a register)
 output  logic                      o_hold,
 
 // Cache state
@@ -180,14 +181,14 @@ input   logic             i_wb_err
 `include "zap_functions.svh"
 
 // States. FSM is 1-hot.
-localparam [2:0] IDLE                 = 3'd0; // Resting state.
-localparam [2:0] UNCACHEABLE          = 3'd1; // Uncacheable access.
-localparam [2:0] UNCACHEABLE_PREPARE  = 3'd2; // Prepare uncacheable access.
-localparam [2:0] CLEAN_SINGLE         = 3'd3; // Ultimately cleans up cache line. Parent state
-localparam [2:0] FETCH_SINGLE         = 3'd4; // Ultimately validates cache line. Parent state
-localparam [2:0] INVALIDATE           = 3'd5; // Cache invalidate parent state
-localparam [2:0] CLEAN                = 3'd6; // Cache clean parent state
-localparam [2:0] UNLOCK_REG           = 3'd7; // ARM925T: install the buffered line/tag.
+localparam [3:0] IDLE                 = 4'd0; // Resting state.
+localparam [3:0] UNCACHEABLE          = 4'd1; // Uncacheable access.
+localparam [3:0] UNCACHEABLE_PREPARE  = 4'd2; // Prepare uncacheable access.
+localparam [3:0] CLEAN_SINGLE         = 4'd3; // Ultimately cleans up cache line. Parent state
+localparam [3:0] FETCH_SINGLE         = 4'd4; // Ultimately validates cache line. Parent state
+localparam [3:0] INVALIDATE           = 4'd5; // Cache invalidate parent state
+localparam [3:0] CLEAN                = 4'd6; // Cache clean parent state
+localparam [3:0] UNLOCK_REG           = 4'd7; // ARM925T: install the buffered line/tag.
 localparam [3:0] LINEOP               = 4'd8; // ARM925T: single-line operation
 localparam [3:0] UNC_DONE             = 4'd9; // ARM925T: uncacheable access completes
 localparam [3:0] UNLOCK_WR            = 4'd10; // ARM925T: load fill completion
@@ -604,10 +605,15 @@ always_ff @(posedge i_clk) if (!i_reset && $onehot(state_ff))
         assert ({ack_idle_flat || state_ff[UNC_DONE], err_flat, err2_flat} == {idle_ack, err_case, err2_case})
                 else $fatal(1, "flat D-cache acknowledge");
 `endif
-assign o_ack_fast = (state_ff[IDLE] && !i_align_fault && i_cache_en && i_hit_ok && !i_busy) || hum_ack;
+// With i_hit_ok (the registered check, which excludes a walk) the TLB is
+// busy only outside its IDLE state: one register instead of i_busy's terms.
+assign o_ack_fast = (state_ff[IDLE] && !i_align_fault && i_cache_en && i_hit_ok && i_tlb_idle) || hum_ack ||
+                    state_ff[UNC_DONE];
+assign o_err_fast = state_ff[UNC_DONE] && unc_err_ff;
 `ifndef SYNTHESIS
+always_ff @(posedge i_clk) if (!i_reset && i_hit_ok) assert (!i_busy == i_tlb_idle) else $fatal(1, "TLB idle under a registered hit");
 always_ff @(posedge i_clk) if (!i_reset && $onehot(state_ff) && (i_rd || i_wr) && o_ack_fast)
-        assert (o_ack && !o_err && !o_err2) else $fatal(1, "fast D-cache acknowledge");
+        assert (o_ack && !o_err2 && o_err == o_err_fast) else $fatal(1, "fast D-cache acknowledge");
 `endif
 assign o_fill_busy_nxt = fill_busy_nxt;
 assign fill_busy_nxt = state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE] ||
@@ -734,14 +740,10 @@ begin:next_state_logic
         begin
             o_dat = ld_transform(unc_dat_ff, ldfmt);
         end
-        else if (HIT_FORMATTED)
-        begin
-            o_dat = i_cache_words[0];
-        end
         else
         begin
-            o_dat = i_cache_word_sel ? ld_transform(i_cache_words[(WAYS > 1) ? 1 : 0], i_ldfmt)
-                                     : ld_transform(i_cache_words[0], i_ldfmt);
+            // The tag RAM's short response is already the formatted word.
+            o_dat = i_cache_word;
         end
 
         // ====================================================

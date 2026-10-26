@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 module fetch_tb;
     parameter bit PREDICTOR=1;
+    parameter bit RAS_TOP_FF=0, VALID_BIT=0, THUMB_HALF=0;
     logic i_clk=0,i_reset=1,i_redirect=0,i_redirect_thumb=0;
     logic [31:0] i_redirect_target=0,i_redirect_link=0;
     logic [2:0] i_redirect_pointer=0;
@@ -13,14 +14,15 @@ module fetch_tb;
     logic i_ack=1,i_error=0,i_retry=0,i_fill_pending=0,i_fill_done=0,i_fill_fault=0;
     wire [31:0] o_address_nxt,o_address_check,o_address;
     wire o_request,o_stall;
+    wire [1:0] o_dbg_fetch;
     logic i_ready=1;
     wire o_valid,o_thumb,o_fault,o_predicted,o_pred_hit;
     wire [31:0] o_pc,o_word,o_pred_target;
     wire [1:0] o_pred_state,o_pred_kind;
     wire [2:0] o_ras_pointer;
     wire [3:0] o_ras_count;
-    wire unused = &{1'b0,o_address_nxt,o_address_check,o_pred_hit,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count};
-    arm9v2_fetch #(.PREDICTOR(PREDICTOR)) dut (.*);
+    wire unused = &{1'b0,o_dbg_fetch,o_address_nxt,o_address_check,o_pred_hit,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count};
+    arm9v2_fetch #(.PREDICTOR(PREDICTOR),.RAS_TOP_FF(RAS_TOP_FF),.VALID_BIT(VALID_BIT),.THUMB_HALF(THUMB_HALF)) dut (.*);
     int checks=0,cycle=0;
     task automatic tick;
         #1; i_clk=1; #1; i_clk=0; #1; cycle++;
@@ -43,12 +45,14 @@ module fetch_tb;
     endtask
     task automatic expect_linear(input logic [31:0] first,input int length,input logic thumb=0);
         int received,limit;
-        logic [31:0] expected_pc;
+        logic [31:0] expected_pc, raw;
         received=0;limit=0;expected_pc=first;
         while(received<length && limit<length+30) begin
             if(o_valid && i_ready) begin
                 check(o_pc==expected_pc && o_thumb==thumb,"linear PC and state");
-                check(o_word==(expected_pc^32'h31415926),"raw word follows metadata");
+                // THUMB_HALF: a Thumb instruction at pc[1] arrives in the low halfword.
+                raw=expected_pc^32'h31415926;
+                check(o_word==(THUMB_HALF&&thumb&&expected_pc[1]?{16'd0,raw[31:16]}:raw),"raw word follows metadata");
                 check(!o_fault,"no spurious permission fault");
                 received++;expected_pc+=thumb?2:4;
             end

@@ -8,15 +8,17 @@ mkdir -p "$build"
 # retaining it would silently shadow the component RTL under test.
 sv2v --top=zap_cache --top=zap_mode16_decoder --top=zap_register_file \
     --top=arm9_alu --top=zap_ram_simple_nopipe "$root/rtl/cpu/arm925t_gen.v" > "$build/shared-gen.v"
+for cuts in 0 1; do
 for latency in 0 3 9; do
-    dir=$build/lat-$latency
+    dir=$build/lat-$latency-$cuts
     # Cache is the actual committed sv2v netlist. Unused debug outputs are
     # intentionally unconnected, like the CPU suite's device-only benches.
     verilator --binary --timing --assert -j 8 -Wno-fatal -Wno-lint -Wno-style \
-        --top-module decode_cache_tb -GLATENCY=$latency --Mdir "$dir" \
-        "$build/shared-gen.v" "$root"/rtl/cpu/arm9v2/*.sv \
+        --top-module decode_cache_tb -GLATENCY=$latency -GCUTS=$cuts --Mdir "$dir" \
+        "$build/shared-gen.v" "$root/sim/stubs/altsyncram.sv" "$root"/rtl/cpu/arm9v2/*.sv \
         "$root/sim/cpu/arm9v2/decode_cache_tb.sv" > "$dir.log" 2>&1 || {
         cat "$dir.log"; exit 1;
     }
     "$dir/Vdecode_cache_tb"
+done
 done

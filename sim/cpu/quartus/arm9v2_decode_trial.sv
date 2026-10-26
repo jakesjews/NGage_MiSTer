@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Real F1/F2 + D1/D2 + register file + registered S-entry. Caches and S/A/M/W
+// Real F1/F2 + D1/D2 + the core's register file (zap_register_file, read
+// through o_rf_tag/i_rf_value as in the core) + registered S-entry, in the
+// core's configuration (the modules' parameter defaults). Caches and S/A/M/W
 // execution are excluded. Every interface input is registered and variable.
 module cpu_trial(input logic clk,input logic [31:0] serial_in,
     output logic [31:0] address_o, data_o, observe_o);
@@ -53,6 +55,13 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
     logic i_ack, i_error, i_retry, i_fill_pending, i_fill_done, i_fill_fault;
     logic [31:0] o_address_nxt, o_address_check, o_address;
     logic o_request, o_stall;
+    logic [3:0] i_early_agu;
+    logic [5:0] i_wr_tag_a, i_wr_tag_b;
+    logic i_wr_pair, i_ready_payload, serial_continue;
+    logic o_self_dep;
+    logic [18:0] o_shift_pre;
+    logic [3:0][5:0] rf_tag;
+    logic [3:0][31:0] rf_value;
     assign i_early_tag=0;
     assign i_early_valid=0;
     assign i_clk=clk;
@@ -90,8 +99,14 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
     assign i_fill_pending=stimulus[447:447];
     assign i_fill_done=stimulus[448:448];
     assign i_fill_fault=stimulus[449:449];
+    assign i_early_agu=stimulus[453:450];
+    assign i_wr_tag_a=stimulus[459:454];
+    assign i_wr_tag_b=stimulus[465:460];
+    assign i_wr_pair=stimulus[466:466];
+    assign serial_continue=stimulus[467:467];
+    assign i_ready_payload=i_ready;
     wire [127:0] flat_o_value=o_value;
-    wire unused = &{1'b0,stimulus[479:450]};
+    wire unused = &{1'b0,stimulus[479:468]};
     always_ff @(posedge clk) begin
         stimulus<={stimulus[447:0],serial_in};
         address_o<=o_address_nxt;data_o<=o_instruction;
@@ -145,8 +160,16 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
             32'(o_address_check) ^
             32'(o_address) ^
             32'(o_request) ^
-            32'(o_stall);
+            32'(o_stall) ^
+            32'(o_self_dep) ^
+            32'(o_shift_pre) ^
+            32'(rf_tag);
     end
-    arm9v2_front_decode u_front_decode (.i_serial_continue(1'b0),.o_dbg_fetch(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_load_valid('0),.i_load_speculate('0),
-        .i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.i_rf_value('0),.o_rf_tag(),.o_writes(),.o_early(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.*);
+    zap_register_file u_rf (.i_clk(i_clk),.i_reset(i_reset),.i_wen(i_wen),
+        .i_wr_addr_a(i_wr_addr_a),.i_wr_addr_b(i_wr_addr_b),.i_wr_addr_c(i_wr_addr_c),
+        .i_wr_data_a(i_wr_data_a),.i_wr_data_b(i_wr_data_b),.i_wr_data_c(i_wr_data_c),
+        .i_rd_addr_a(rf_tag[0]),.i_rd_addr_b(rf_tag[1]),.i_rd_addr_c(rf_tag[2]),.i_rd_addr_d(rf_tag[3]),.i_rd_addr_e(6'd0),
+        .o_rd_data_a(rf_value[0]),.o_rd_data_b(rf_value[1]),.o_rd_data_c(rf_value[2]),.o_rd_data_d(rf_value[3]),.o_rd_data_e());
+    arm9v2_front_decode u_front_decode (.i_serial_continue(serial_continue),.o_dbg_fetch(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_load_valid('0),.i_load_speculate('0),
+        .i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.i_rf_value(rf_value),.o_rf_tag(rf_tag),.o_writes(),.o_early(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.*);
 endmodule

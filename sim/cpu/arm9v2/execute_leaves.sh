@@ -4,7 +4,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../../.." && pwd)
 build=$root/sim/cpu/build/arm9v2-execute-leaves
 mkdir -p "$build"
-sources=("$root/rtl/cpu/arm9v2/arm9v2_forward.sv" "$root/rtl/cpu/arm9v2/arm9v2_rotate.sv" "$root/rtl/cpu/arm9/arm9_shift.sv")
+sources=("$root/rtl/cpu/arm9v2/arm9v2_forward.sv" "$root/rtl/cpu/arm9v2/arm9v2_rotate.sv" "$root/sim/cpu/arm9v2/arm9_shift.sv")
 sv2v "${sources[@]}" > "$build/leaves-gen.v"
 for rtl in sv gen; do
     inputs=("${sources[@]}")

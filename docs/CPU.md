@@ -15,13 +15,12 @@ difference from a real ARM925T, how it is tested, and the FPGA numbers.
 
 ## Files
 
-- `rtl/cpu/zap/`: ZAP at commit fc7bd75, with `NOTICE` and `LICENSE`.
-  Every change is tagged `ARM925T:` in the source. The new behaviour is
-  switched on by parameters (`V4T`, `TI925T`, `CP15_ID`, `CP15_CTYPE`,
-  `HIVECS`); the upstream behaviour stays the default where that is
-  possible. Bug fixes that apply to every configuration are unconditional.
-- `rtl/cpu/port/`: a replacement module for Quartus 17 (a byte-lane RAM
-  that infers M10K).
+- `rtl/cpu/zap/`: derived from ZAP at commit fc7bd75, with `NOTICE` and
+  `LICENSE`. Changes are tagged `ARM925T:` in the source. Since
+  2026-10-26 the ARM925T behaviour (ARMv4T, the TI925T CP15 registers) is
+  unconditional and the options only V2 never used are removed (ZAP's
+  long cache reads, the I-cache prefetch, the BTB, the byte-lane RAM
+  wrapper in `rtl/cpu/port/`); they are in git history.
 - `rtl/cpu/arm925t.sv`: the wrapper the rest of the core uses.
 - `rtl/cpu/arm925t_gen.v`: the Verilog-2005 netlist Quartus compiles,
   made by `tools/gen_cpu.sh` (sv2v 0.0.13, `-DSYNTHESIS`, plus the Quartus
@@ -52,13 +51,10 @@ Parameters:
   are unchanged. This VIVT cache still relies on firmware alias/DMA
   maintenance; see [the capacity analysis](consults/2026-10-23-codex-dcache-report.md)
   for the recommendation, projected cost and validation limits.
-- `ICACHE_PREFETCH` (0): a one-line sequential I-cache prefetch. After a
-  line fill, the next line (within the same 1 KB) is read into a line buffer
-  while the bus is free; a later miss on that line is answered from it and
-  installs it. Off by default: the ARM925T has none, the games measured no
-  gain from it on the board (2026-10-23) and it costs about 1 ns of slack;
-  NGAGE_ICACHE_PREFETCH in NGage.qsf turns it on.
-  docs/consults/2026-10-23-agy-iprefetch-report.md.
+- The one-line sequential I-cache prefetch (`ICACHE_PREFETCH`) was
+  removed on 2026-10-26: the ARM925T has none, the games measured no gain
+  from it on the board (2026-10-23) and it cost about 1 ns of slack
+  (docs/consults/2026-10-23-agy-iprefetch-report.md).
 
 Ports:
 
@@ -426,13 +422,13 @@ checkpoints (all registers and the CPSR) in the signature.
   ways and the LRU choice, and the D-side's index operations act on the
   named way. Both fail on a direct-mapped build (`VEXTRA=-GICACHE_WAYS=1`,
   `-GDCACHE_WAYS=1`).
-- `iprefetch_rtl`: the I-cache prefetch: sequential code over 32 lines
+- `iprefetch_rtl` (written for the removed I-cache prefetch; it still
+  checks the I-cache's sequential and invalidate behaviour): sequential code over 32 lines
   (cold, warm, backward; an execution-bound variant), a branch away from a
   prefetched line, the I-cache invalidates (all and by MVA) with code
   rewritten behind the buffer, and sequential code across a 4 KB page end
   into a page mapped elsewhere (poison at the contiguous address) and up to
-  an unmapped page. Exact results, loose cycle shape; passes with and
-  without `-GICACHE_PREFETCH=0`.
+  an unmapped page. Exact results, loose cycle shape.
 - `cache`, `cache_rtl`: 64 KB through the 8 KB D-cache (evictions and
   write-backs), bytes and halfwords in cached lines, loads of every size
   and unaligned loads that miss, LDM/STM across lines,

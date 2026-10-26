@@ -28,7 +28,6 @@ module zap_cp15_cb
 #(
         parameter logic CP15_L4_DEFAULT          = 1'd0,
         parameter logic BE_32_ENABLE             = 1'd0,
-        parameter logic ONLY_CORE                = 1'd0,
 
         parameter logic [31:0] PHY_REGS          = 32'd64,
         parameter logic [31:0] CODE_CACHE_LINE   = 32'd64,
@@ -37,10 +36,8 @@ module zap_cp15_cb
         parameter logic [31:0] DATA_CACHE_SIZE   = 32'd1024,
         parameter logic [31:0] DATA_CACHE_WAYS   = 32'd1,     // ARM925T: 1 or 2 (zap_cache_tag_ram).
 
-        // ARM925T options (see zap_top). TI925T selects the TI925T register
-        // set described in research/arm925t/CP15.md and docs/CPU.md.
-        parameter logic        V4T               = 1'd0,
-        parameter logic        TI925T            = 1'd0,
+        // ARM925T options (see zap_top). The TI925T register set is
+        // described in research/arm925t/CP15.md and docs/CPU.md.
         parameter logic [31:0] CP15_ID           = 32'h0005AAA0,
         parameter logic [31:0] CP15_CTYPE        = 32'd0,
         parameter logic        HIVECS            = 1'd0,
@@ -160,7 +157,7 @@ module zap_cp15_cb
         input   logic                            i_fiq,
 
         // ARM925T: control register V (vectors at 0xFFFF0000) and A
-        // (alignment faults). Both read 0 unless TI925T.
+        // (alignment faults).
         output  logic                            o_hivecs,
         output  logic                            o_align_en,
 
@@ -265,7 +262,7 @@ logic [31:0]      CTYPE_BUILT;      // ARM925T: built from the cache parameters.
 assign xCACHE_TYPE_WORD[0][1:0]  = CODE_CACHE_LINE == 16 ? 2'd1 :
                                    CODE_CACHE_LINE == 32 ? 2'd2 : 2'd3;
 
-assign xCACHE_TYPE_WORD[0][2]    = ONLY_CORE ? 1'd1 : 1'd0;
+assign xCACHE_TYPE_WORD[0][2]    = 1'd0;
 
 assign xCACHE_TYPE_WORD[0][5:3]  = '0;
 
@@ -284,7 +281,7 @@ begin
         begin
                 // Cannot happen - assign X to OPTIMIZE. OK to do for FPGA synth.
                 xCACHE_TYPE_WORD[0][8:6] = {3{1'dx}};
-                assert(ONLY_CORE) else $fatal(2, "Code cache size not in range.");
+                $fatal(2, "Code cache size not in range.");
         end
         endcase
 end
@@ -294,7 +291,7 @@ assign xCACHE_TYPE_WORD[0][11:9] = '0;
 assign xCACHE_TYPE_WORD[1][1:0]  = DATA_CACHE_LINE == 16 ? 2'd1 :
                                    DATA_CACHE_LINE == 32 ? 2'd2 : 2'd3;
 
-assign xCACHE_TYPE_WORD[1][2]    = ONLY_CORE ? 1'd1 : 1'd0;
+assign xCACHE_TYPE_WORD[1][2]    = 1'd0;
 
 assign xCACHE_TYPE_WORD[1][5:3]  = '0;
 
@@ -313,7 +310,7 @@ begin
         begin
                 // Cannot happen - assign X to OPTIMIZE. OK to do for FPGA synth.
                 xCACHE_TYPE_WORD[1][8:6] = {3{1'dx}};
-                assert(ONLY_CORE) else $fatal(2, "Data cache size not in range.");
+                $fatal(2, "Data cache size not in range.");
         end
         endcase
 end
@@ -334,7 +331,7 @@ assign CACHE_TYPE_WORD           = CP15_CTYPE != 32'd0 ? CP15_CTYPE : CTYPE_BUIL
 assign cp_op1 = i_cp_word[23:21];
 
 //
-// ARM925T: what MRC reads in TI925T mode. Registers without contents read 0
+// ARM925T: what MRC reads. Registers without contents read 0
 // (CP15.md: c4, c7, c8, c9, c11, c12, c14 and unused c15 entries are UNP or
 // write-only); the ID depends on the TI configuration O bit (part 0x915 when
 // set, as QEMU's ti925t does).
@@ -381,8 +378,8 @@ begin
                 o_icache_en <= 1'd0;
                 o_mmu_en    <= 1'd0;
                 o_pid       <= 8'd0;
-                o_l4_enable <= V4T ? 1'd1 : CP15_L4_DEFAULT;
-                o_hivecs    <= TI925T ? HIVECS : 1'd0;
+                o_l4_enable <= 1'd1;
+                o_hivecs    <= HIVECS;
                 o_align_en  <= 1'd0;
         end
         else
@@ -393,9 +390,9 @@ begin
                 o_pid       <= {1'd0, r[13][31:25]}; // PID register.
 
                 // ARM925T: ARMv4T interworking is fixed with V4T (no L4 bit).
-                o_l4_enable <= V4T ? 1'd1 : r[1][14]; // 1 for v4T compatibility.
-                o_hivecs    <= TI925T ? r[1][13] : 1'd0;
-                o_align_en  <= TI925T ? r[1][1]  : 1'd0;
+                o_l4_enable <= 1'd1; // ARMv4T: no L4 (loads to PC interwork).
+                o_hivecs    <= r[1][13];
+                o_align_en  <= r[1][1];
         end
 end
 
@@ -441,10 +438,7 @@ begin
 
                 // ARM925T: control register 0x70 with V from HIVECS; TI config
                 // with L (SWP lock) set; I_min/I_max as after a flush.
-                if ( TI925T )
-                begin
-                        r[1]   <= {18'd0, HIVECS, 13'h0070};
-                end
+                r[1]   <= {18'd0, HIVECS, 13'h0070};
 
                 ti_config      <= 8'h01;
                 ti_imax        <= 32'd0;
@@ -530,11 +524,6 @@ begin
                 begin
                         state <= DONE;
 
-                        if ( !TI925T )
-                        begin
-                                r [ i_cp_word.ZAP_CRN ] <= i_reg_rd_data;
-                        end
-                        else
                         begin
                                 //
                                 // ARM925T: TI925T register writes. c0, c4, c9, c11,
@@ -626,7 +615,7 @@ begin
 
                                 endcase
                         end
-                        else if ( i_cp_word.ZAP_CRN == CACHE_REG && TI925T )
+                        else if ( i_cp_word.ZAP_CRN == CACHE_REG )
                         // ARM925T: TI925T cache operations (CP15.md section 6).
                         // D-cache entry operations act on one line (LINE_D);
                         // invalidating an I-cache entry invalidates the whole
@@ -890,9 +879,7 @@ begin
                                                 // Register write command.
                                                 o_reg_en        <= 1'd1;
                                                 o_reg_wr_index  <= translate( {1'd0, i_cp_word[15:12]}, i_cpsr[ZAP_CPSR_MODE:0] );
-                                                o_reg_wr_data   <= TI925T ? ti_rd_data :
-                                                                   i_cp_word[19:16] == 0 && i_cp_word.ZAP_OPCODE_2 == 1 ?
-                                                                   CACHE_TYPE_WORD : r[ i_cp_word[19:16] ];
+                                                o_reg_wr_data   <= ti_rd_data;
                                                 state           <= DONE;
                                         end
                                         else // Store from CPU register.
@@ -945,27 +932,12 @@ begin
                 r[0][23:20] <= 4'd0;
                 r[0][31:24] <= 8'd0;
 
-                if ( TI925T )
-                begin
                         // ARM925T: bits 31:14, 11:10 and 7 read 0, 6:4 read 1.
-                        r[1][31:14] <= 18'd0;
-                        r[1][11:10] <= 2'd0;
-                        r[1][7:4]   <= 4'b0111;
-                end
-                else
-                begin
-                        r[1][1]     <= 1'd0;
-                        r[1][7]     <= BE_32_ENABLE ? 1'd1 : 1'd0;
-                        r[1][6:3]   <= 4'b1111;
-                        r[1][11]    <= 1'd1;
-                end
+                r[1][31:14] <= 18'd0;
+                r[1][11:10] <= 2'd0;
+                r[1][7:4]   <= 4'b0111;
 
-                if ( ONLY_CORE )
-                begin
-                        r[1][2]  <= 1'd0;
-                        r[1][12] <= 1'd0;
-                        r[1][0]  <= 1'd0;
-                end
+
         end
 end
 

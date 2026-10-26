@@ -18,18 +18,11 @@
 //
 // Merges two Wishbone busses onto a single bus. One side can from the
 // instruction cache while the other from data cache. This module can
-// be used to connect I and D caches to a common interface. Take note of
-// special interface requirements based on ONLY_CORE parameter.
+// be used to connect I and D caches to a common interface (the caches' NXT
+// ports; ZAP's cacheless form was removed on 2026-10-25).
 //
 
-module zap_wb_merger #(
-
-        //
-        // If ONLY_CORE=0, use NXT ports from cache,
-        // else use FF ports from CPU.
-        //
-        parameter logic ONLY_CORE = 1'd0
-)
+module zap_wb_merger
 (
 
 // Clock and reset
@@ -183,7 +176,7 @@ assign o_d_wb_err = (state_ff == DATA) & i_wb_err;
 // WB output generation logic.
 /////////////////////////////////////
 
-if ( !ONLY_CORE )
+if (1)
 begin: l_genblk1
         // ARM925T: only write data uses speculative banks. Keep the bus
         // address registered after arbitration: a post-register address
@@ -242,41 +235,6 @@ begin: l_genblk1
         end
 
 end: l_genblk1
-else
-begin: l_genblk2
-
-        //
-        // Not required to flop these since the sources are flops themselves.
-        // Just a 2:1 MUX on the path - very little delay - won't affect timing.
-        // Here, we use all FF versions.
-        //
-        always_comb
-        begin
-                if ( state_ff == CODE )
-                begin
-                        o_wb_cyc = i_c_wb_cyc;
-                        o_wb_stb = i_c_wb_stb;
-                        o_wb_wen = i_c_wb_wen;
-                        o_wb_sel = i_c_wb_sel;
-                        o_wb_dat = i_c_wb_dat;
-                        o_wb_adr = i_c_wb_adr;
-                        o_wb_cti = i_c_wb_cti;
-                        o_wb_bte = i_c_wb_bte;
-                end
-                else
-                begin
-                        o_wb_cyc = i_d_wb_cyc;
-                        o_wb_stb = i_d_wb_stb;
-                        o_wb_wen = i_d_wb_wen;
-                        o_wb_sel = i_d_wb_sel;
-                        o_wb_dat = i_d_wb_dat;
-                        o_wb_adr = i_d_wb_adr;
-                        o_wb_cti = i_d_wb_cti;
-                        o_wb_bte = i_d_wb_bte;
-                end
-        end
-
-end: l_genblk2
 
 endmodule : zap_wb_merger
 

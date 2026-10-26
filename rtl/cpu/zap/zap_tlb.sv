@@ -28,7 +28,6 @@ parameter logic [31:0] SPAGE_TLB_ENTRIES   = 32'd8,
 parameter logic [31:0] SECTION_TLB_ENTRIES = 32'd8,
 parameter logic [31:0] FPAGE_TLB_ENTRIES   = 32'd8,
 parameter logic [31:0] CPSR_MODE           = 32'd4,
-parameter logic SHORT_READ = 1'b0,
 // ARM925T, V2's D-side (its check address is the next request's, not the
 // cache's i_address, and it looks up speculatively every clock):
 //  * the TLB RAMs read through holds, so the first check after a hold
@@ -75,6 +74,7 @@ output  logic            o_fault,
 output  logic            o_cacheable,
 output  logic            o_wt,          // ARM925T: write-through page (C=1 B=0).
 output  logic            o_busy,
+output  logic            o_idle_state,  // ARM9V2: the walker FSM's IDLE state (a register)
 output  logic            o_hit_ok,      // ARM925T: registered check, independent of walker IDLE.
 output  logic            o_hit_ok_short, // ARM9V2: o_hit_ok's unretimed copy (zap_tlb_check)
 input   logic            i_idle,
@@ -240,7 +240,7 @@ assign unused = |{i_address_nxt[9:0], tlb_address[9:0], i_address_nxt[31:W],
 
 // ----------------------------------------------------------------------------
 
-zap_mem_inv_block #(.WIDTH(`ZAP_SECTION_TLB_WDT), .DEPTH(SECTION_TLB_ENTRIES), .SHORT_READ(SHORT_READ), .READ_THROUGH(CHECK_WALK))
+zap_mem_inv_block #(.WIDTH(`ZAP_SECTION_TLB_WDT), .DEPTH(SECTION_TLB_ENTRIES), .READ_THROUGH(CHECK_WALK))
 u_section_tlb (
 .i_clk          (i_clk),
 .i_reset        (i_reset),
@@ -263,7 +263,7 @@ u_section_tlb (
 
 // ----------------------------------------------------------------------------
 
-zap_mem_inv_block #(.WIDTH(`ZAP_LPAGE_TLB_WDT), .DEPTH(LPAGE_TLB_ENTRIES), .SHORT_READ(SHORT_READ), .READ_THROUGH(CHECK_WALK))
+zap_mem_inv_block #(.WIDTH(`ZAP_LPAGE_TLB_WDT), .DEPTH(LPAGE_TLB_ENTRIES), .READ_THROUGH(CHECK_WALK))
 u_lpage_tlb   (
 .i_clk          (i_clk),
 .i_reset        (i_reset),
@@ -286,7 +286,7 @@ u_lpage_tlb   (
 
 // ----------------------------------------------------------------------------
 
-zap_mem_inv_block #(.WIDTH(`ZAP_SPAGE_TLB_WDT), .DEPTH(SPAGE_TLB_ENTRIES), .SHORT_READ(SHORT_READ), .READ_THROUGH(CHECK_WALK))
+zap_mem_inv_block #(.WIDTH(`ZAP_SPAGE_TLB_WDT), .DEPTH(SPAGE_TLB_ENTRIES), .READ_THROUGH(CHECK_WALK))
 u_spage_tlb   (
 .i_clk          (i_clk),
 .i_reset        (i_reset),
@@ -309,7 +309,7 @@ u_spage_tlb   (
 
 // ----------------------------------------------------------------------------
 
-zap_mem_inv_block #(.WIDTH(`ZAP_FPAGE_TLB_WDT), .DEPTH(FPAGE_TLB_ENTRIES), .SHORT_READ(SHORT_READ), .READ_THROUGH(CHECK_WALK))
+zap_mem_inv_block #(.WIDTH(`ZAP_FPAGE_TLB_WDT), .DEPTH(FPAGE_TLB_ENTRIES), .READ_THROUGH(CHECK_WALK))
 u_fpage_tlb (
 .i_clk          (i_clk),
 .i_reset        (i_reset),
@@ -403,6 +403,7 @@ zap_tlb_fsm #(
 .o_phy_addr     (o_phy_addr),
 .o_cacheable    (o_cacheable),
 .o_busy         (fsm_busy),
+.o_idle_state   (o_idle_state),
 
 .o_setlb_wdata  (setlb_wdata),
 .o_setlb_wen    (setlb_wen),

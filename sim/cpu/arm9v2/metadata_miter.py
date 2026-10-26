@@ -1,43 +1,58 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Cycle-exact cache RAM/metadata miter against the master metadata-RAM source at the merge parent.
+"""Cycle-exact cache RAM/metadata miter against the reviewed metadata-RAM source (9037af9).
 
 Compares all outputs and registered metadata state under randomized per-cycle requests,
 byte writes, accepted HUM hits, holds, cache enable, fills and maintenance.
 Fill/HUM bursts respect the FSM's one-entry deferred-LRU contract.
-The golden RTL is read from git, not a reimplementation of its behavior.
+The golden RTL (and the RAM modules it used) is read from git, not a
+reimplementation of its behavior. It runs in the short-read configuration,
+the only one the current tag RAM keeps; ports the golden had and the current
+one removed (the prefetch lookup, the long-read stall and check addresses)
+are driven at random on the golden only.
 """
 from pathlib import Path
 import re, subprocess
 root=Path(__file__).resolve().parents[3]
 b=root/'sim/cpu/build/metadata-miter'; b.mkdir(parents=True,exist_ok=True)
-s=subprocess.check_output(['git','show','9037af9:rtl/cpu/zap/zap_cache_tag_ram.sv'],cwd=root,text=True)
-(b/'gold.sv').write_text(s.replace('zap_cache_tag_ram','gold_cache_tag_ram').replace('zap_cache_metadata_ram','gold_cache_metadata_ram'))
+git=lambda f:subprocess.check_output(['git','show','9037af9:'+f],cwd=root,text=True)
+s=git('rtl/cpu/zap/zap_cache_tag_ram.sv')
+ren=lambda t:(t.replace('zap_cache_tag_ram','gold_cache_tag_ram').replace('zap_cache_metadata_ram','gold_cache_metadata_ram')
+              .replace('zap_ram_simple_ben','gold_ram_simple_ben').replace('zap_ram_simple ','gold_ram_simple ').replace('module zap_ram_simple','module gold_ram_simple')
+              .replace('endmodule : zap_ram_simple_ben','endmodule : gold_ram_simple_ben').replace('endmodule : zap_ram_simple','endmodule : gold_ram_simple'))
+(b/'gold.sv').write_text(ren(s)+ren(git('rtl/cpu/zap/zap_ram_simple.sv'))+ren(git('rtl/cpu/port/zap_ram_simple_ben.sv')))
 # Extract the actual port declarations so every output is compared, including
 # the registered AND next Wishbone ports during clean/line writeback.
-ports=s[s.index(')(\n')+3:s.index('\n);')]
-ports=re.sub(r'\(\*.*?\*\)','',ports,flags=re.S); ports=re.sub(r'/\*.*?\*/','',ports,flags=re.S); ports=re.sub(r'//[^\n]*','',ports)
-entries=re.findall(r'\b(input|output)\s+logic\s*((?:\[[^\]]+\]\s*)*)([\w,\s]+?)(?=,?\s*\b(?:input|output)\b|$)',ports,re.S)
-ins=[];outs=[];decl=''
-for direction,width,names in entries:
+def port_list(src):
+ ports=src[src.index(')(\n')+3:src.index('\n);')]
+ ports=re.sub(r'\(\*.*?\*\)','',ports,flags=re.S); ports=re.sub(r'/\*.*?\*/','',ports,flags=re.S); ports=re.sub(r'//[^\n]*','',ports)
+ return re.findall(r'\b(input|output)\s+logic\s*((?:\[[^\]]+\]\s*)*)([\w,\s]+?)(?=,?\s*\b(?:input|output)\b|$)',ports,re.S)
+cur=port_list((root/'rtl/cpu/zap/zap_cache_tag_ram.sv').read_text())
+cur_names={n for _,_,names in cur for n in re.findall(r'\b[io]_\w+',names)}
+ins=[];outs=[];gold_ins=[];gold_outs=[];all_ins=[];decl=''
+for direction,width,names in port_list(s):
  for name in re.findall(r'\b[io]_\w+',names):
-  (ins if direction=='input' else outs).append(name)
+  both=name in cur_names
+  if direction=='input':(ins if both else gold_ins).append(name); all_ins.append(name)
+  else:(outs if both else gold_outs).append(name)
   decl+=f'logic {width} {name};\n'
   if direction=='output':decl+=f'wire {width} gold_{name};\n'
-assert len(ins)==30,(len(ins),ins)
-con=lambda golden:',\n'.join(f'.{n}({"gold_" if golden and n in outs else ""}{n})' for n in ins+outs)
+assert len(ins)==27 and sorted(gold_ins)==['i_lookup_check_address','i_lookup_stall','i_pf_addr'],(len(ins),gold_ins)
+assert gold_outs==['o_pf_hit'],gold_outs
+con=lambda golden:',\n'.join([f'.{n}({"gold_" if golden and n in outs+gold_outs else ""}{n})' for n in ins+outs]+
+                                ([f'.{n}({n})' for n in gold_ins]+[f'.{n}(gold_{n})' for n in gold_outs] if golden else []))
 checks='\n'.join(f'assert({n} === gold_{n}) else $fatal(1,"cfg %0d cycle %0d {n}",CFG,cycle);' for n in outs)
 checks+='\n'+'\n'.join(f'assert(dut.{n} === gold.{n}) else $fatal(1,"cfg %0d cycle %0d {n}",CFG,cycle);' for n in ['valid_q','dirty_q','lru_q','state_ff'])
-rand='\n'.join(f'{n} = $random(rng);' for n in ins if n not in ['i_clk','i_reset'])
+rand='\n'.join(f'{n} = $random(rng);' for n in all_ins if n not in ['i_clk','i_reset'])
 # Deliberately small enough for repeated full maintenance walks, yet all 16
 # metadata banks are exercised (256 sets). A second instance uses 512 I sets.
 tb='''`include "zap_defines.svh"
-module test #(parameter CFG=0, parameter SHORT_READ=1, parameter WAYS=2,
+module test #(parameter CFG=0, parameter WAYS=2,
  parameter CACHE_SIZE=8192, parameter CACHE_LINE=16)(output logic done);
 localparam INDEX_SIZE=CACHE_SIZE;
 '''+decl+f'''
-gold_cache_tag_ram #(.SHORT_READ(SHORT_READ),.WAYS(WAYS),.CACHE_SIZE(CACHE_SIZE),.CACHE_LINE(CACHE_LINE),.ACCEPTED_HIT_UPDATE(CFG%2)) gold ({con(True)});
-zap_cache_tag_ram #(.SHORT_READ(SHORT_READ),.WAYS(WAYS),.CACHE_SIZE(CACHE_SIZE),.CACHE_LINE(CACHE_LINE),.ACCEPTED_HIT_UPDATE(CFG%2)) dut ({con(False)});
+gold_cache_tag_ram #(.SHORT_READ(1'b1),.WAYS(WAYS),.CACHE_SIZE(CACHE_SIZE),.CACHE_LINE(CACHE_LINE),.ACCEPTED_HIT_UPDATE(CFG%2)) gold ({con(True)});
+zap_cache_tag_ram #(.WAYS(WAYS),.CACHE_SIZE(CACHE_SIZE),.CACHE_LINE(CACHE_LINE),.ACCEPTED_HIT_UPDATE(CFG%2)) dut ({con(False)});
 integer rng=32'h187a62+CFG,cycle;
 integer hits=0,held=0,cleans=0,clears=0,lines=0,hum=0,collisions=0;
 task tick;
@@ -108,16 +123,15 @@ initial begin
 end
 endmodule
 module short_miter;
-wire [3:0] done;
+wire [2:0] done;
 test #(.CFG(0)) a(done[0]);
 test #(.CFG(1),.CACHE_SIZE(16384)) b(done[1]);
 test #(.CFG(2),.WAYS(1),.CACHE_SIZE(4096)) c(done[2]);
-test #(.CFG(3),.SHORT_READ(0)) d(done[3]);
-initial begin wait(&done); $display("PASS: 896616 old/new cache edges, all outputs and registered metadata"); $finish; end
+initial begin wait(&done); $display("PASS: old/new cache edges in three configurations, all common outputs and registered metadata"); $finish; end
 endmodule
 '''
 (b/'tb.sv').write_text(tb)
-args=['verilator','--binary','--timing','--assert','-Wno-fatal','--top-module','short_miter','-j','6','--Mdir',str(b/'obj'),'-I'+str(root/'rtl/cpu/zap'),str(b/'tb.sv'),str(b/'gold.sv'),str(root/'rtl/cpu/zap/zap_cache_tag_ram.sv'),str(root/'rtl/cpu/zap/zap_ram_simple.sv'),str(root/'rtl/cpu/port/zap_ram_simple_ben.sv')]
+args=['verilator','--binary','--timing','--assert','-Wno-fatal','--top-module','short_miter','-j','6','--Mdir',str(b/'obj'),'-I'+str(root/'rtl/cpu/zap'),str(b/'tb.sv'),str(b/'gold.sv'),str(root/'rtl/cpu/zap/zap_cache_tag_ram.sv'),str(root/'rtl/cpu/zap/zap_ram_simple.sv')]
 with (b/'build.log').open('w') as f:subprocess.run(args,stdout=f,stderr=subprocess.STDOUT,check=True)
 with (b/'run.log').open('w') as f:subprocess.run([str(b/'obj/Vshort_miter')],stdout=f,stderr=subprocess.STDOUT,check=True)
 print((b/'run.log').read_text())

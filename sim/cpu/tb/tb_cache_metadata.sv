@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 `include "zap_defines.svh"
 module tb_cache_metadata #(
-    parameter integer CACHE_SIZE = 8192,
-    parameter bit SHORT_READ = 0,
-    parameter bit PREFETCH = 0
+    parameter integer CACHE_SIZE = 8192
 );
     localparam integer CACHE_LINE = 16, WAYS = 2;
     localparam integer SETS = CACHE_SIZE / WAYS / CACHE_LINE;
@@ -17,7 +15,6 @@ module tb_cache_metadata #(
     logic [127:0] line_data=0;
     logic [15:0] ben=0;
     logic hit, hit_dirty, victim_valid, victim_dirty, selected;
-    logic pf_hit;
     logic inv=0, inv_done, clean=0, clean_done;
     logic line_req=0, line_done, line_va=1, line_way=0;
     logic [1:0] line_op=0;
@@ -27,10 +24,9 @@ module tb_cache_metadata #(
     logic [2:0] bus_cti;
     int beats=0;
     zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS),
-        .SHORT_READ(SHORT_READ), .ACCEPTED_HIT_UPDATE(SHORT_READ), .PREFETCH(PREFETCH)) dut (
+        .ACCEPTED_HIT_UPDATE(1'b1)) dut (
         .i_clk(clk), .i_reset(reset), .i_hold(hold), .i_cache_en(enabled),
         .i_address_nxt(next_address), .i_address(address), .i_lookup_address(lookup),
-        .i_lookup_check_address(lookup), .i_lookup_stall(1'b1),
         .i_access(access_en), .i_idle(idle), .i_accepted_hit(accepted),
         .i_accepted_address(accepted_address), .i_accepted_way(accepted_way),
         .i_cache_tag_wr_en(tag_we), .i_cache_tag(tag_data), .i_cache_tag_dirty(dirty),
@@ -41,7 +37,7 @@ module tb_cache_metadata #(
         .i_cache_clean_req(clean), .o_cache_clean_done(clean_done),
         .i_line_req(line_req), .i_line_op(line_op), .i_line_va(line_va),
         .i_line_addr(line_addr), .i_line_way(line_way), .o_line_done(line_done),
-        .i_pf_addr(next_address), .o_pf_hit(pf_hit), .i_wb_dat(32'd0), .i_wb_ack(bus_req),
+        .i_wb_dat(32'd0), .i_wb_ack(bus_req),
         .o_wb_stb_ff(bus_req), .o_wb_adr_ff(bus_addr), .o_wb_dat_ff(bus_data), .o_wb_cti_ff(bus_cti)
     );
     task automatic tick;
@@ -55,7 +51,7 @@ module tb_cache_metadata #(
     endtask
     task automatic settle(input logic[31:0] a);
         next_address=a; lookup=a;
-        repeat(SHORT_READ ? 1 : 3) tick();
+        tick();
     endtask
     task automatic install(input logic[31:0] a, input bit w, input bit d);
         address=a; way=w; dirty=d; idle=0; tag_we=1; ben='1;
@@ -65,14 +61,10 @@ module tb_cache_metadata #(
         tick(); tag_we=0; ben=0;
     endtask
     task automatic touch(input logic[31:0] a, input bit w);
-        if (SHORT_READ) begin
-            // Accepted HUM response is independent of a younger held probe.
-            next_address=a+16; lookup=a+16; tick();
-            hold=1; accepted_address=a; accepted_way=w; accepted=1;
-            tick(); accepted=0; hold=0;
-        end else begin
-            settle(a); access_en=1; tick(); access_en=0;
-        end
+        // Accepted HUM response is independent of a younger held probe.
+        next_address=a+16; lookup=a+16; tick();
+        hold=1; accepted_address=a; accepted_way=w; accepted=1;
+        tick(); accepted=0; hold=0;
     endtask
     task automatic line_operation(input logic[31:0] a, input logic[1:0] op);
         line_addr=a; line_op=op; line_req=1;
@@ -89,7 +81,6 @@ module tb_cache_metadata #(
         // Same-edge install/read, then immediate hit and dirty forwarding.
         next_address=32'h10000; lookup=32'h10000;
         install(32'h10000,0,1);
-        repeat(SHORT_READ ? 0 : 2) tick();
         assert(hit && hit_dirty && selected==0) else $fatal(1,"immediate dirty install hit");
         install(32'h10000+WAY_BYTES,1,0);
         settle(32'h10000+2*WAY_BYTES);
@@ -110,22 +101,19 @@ module tb_cache_metadata #(
         touch(32'h10000+WAY_BYTES,1);
         settle(32'h10000+2*WAY_BYTES);
         assert(selected==0 && victim_dirty) else $fatal(1,"dirty mark lost before eviction");
-        if (SHORT_READ) begin
-            install(32'h10020+WAY_BYTES,1,0); settle(32'h10020);
-            accepted=1; accepted_address=32'h10000; accepted_way=0;
-            install(32'h10020,0,0);
-            repeat(3) tick();
-            settle(32'h10020+2*WAY_BYTES);
-            assert(selected==1) else $fatal(1,"coincident fill/accepted-hit LRU lost");
-            accepted=0; repeat(3) tick();
-            assert(selected==1) else $fatal(1,"deferred LRU drain changed victim");
-        end
+        install(32'h10020+WAY_BYTES,1,0); settle(32'h10020);
+        accepted=1; accepted_address=32'h10000; accepted_way=0;
+        install(32'h10020,0,0);
+        repeat(3) tick();
+        settle(32'h10020+2*WAY_BYTES);
+        assert(selected==1) else $fatal(1,"coincident fill/accepted-hit LRU lost");
+        accepted=0; repeat(3) tick();
+        assert(selected==1) else $fatal(1,"deferred LRU drain changed victim");
         // The first dirty update in a group must not dirty its neighbours.
         for(int n=1;n<17;n++) begin
             install(32'h10000+32'(16*n),0,n==16);
         end
         settle(32'h10010); assert(hit && !hit_dirty) else $fatal(1,"dirty bank initialization");
-        if(PREFETCH) assert(pf_hit) else $fatal(1,"prefetch valid copy missed install");
         settle(32'h10100); assert(hit && hit_dirty) else $fatal(1,"second dirty group");
         // Line clean keeps valid; line invalidate clears valid and dirty.
         beats=0; line_operation(32'h10000,2'b01);
@@ -159,7 +147,6 @@ module tb_cache_metadata #(
             assert(hit) else $fatal(1,"group reinitialization lost install");
             settle(32'h10000+32'(16*((round+1)%4)));
             assert(!hit) else $fatal(1,"stale group bit resurrected");
-            if(PREFETCH) assert(!pf_hit) else $fatal(1,"stale prefetch group bit");
         end
         // Disable/re-enable also removes old lines; soft reset reinitializes
         // dirty groups without relying on power-up RAM contents.
@@ -177,7 +164,7 @@ module tb_cache_metadata #(
         repeat(4) begin
             tick(); assert(!hit) else $fatal(1,"held-port reset revived a lookup");
         end
-        $display("PASS metadata size=%0d short=%0d",CACHE_SIZE,SHORT_READ);
+        $display("PASS metadata size=%0d",CACHE_SIZE);
         $finish;
     end
 endmodule

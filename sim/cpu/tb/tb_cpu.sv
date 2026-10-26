@@ -11,7 +11,6 @@ module tb_cpu #(
 	parameter bit HIVECS          = 1'b0,
 	parameter int ICACHE_SIZE     = 16384,
 	parameter int ICACHE_WAYS     = 2,
-	parameter bit ICACHE_PREFETCH = 1'b0,
 	parameter int DCACHE_WAYS     = 2,
 	parameter int CACHE_LINE      = 16
 ) (
@@ -132,7 +131,6 @@ module tb_cpu #(
 		.HIVECS          (HIVECS),
 		.ICACHE_SIZE     (ICACHE_SIZE),
 		.ICACHE_WAYS     (ICACHE_WAYS),
-		.ICACHE_PREFETCH (ICACHE_PREFETCH),
 		.DCACHE_WAYS     (DCACHE_WAYS),
 		.CACHE_LINE      (CACHE_LINE)
 	) dut (
@@ -308,8 +306,8 @@ module tb_cpu #(
 		else if (`DC.state_ff[7]) dc_installed <= 1'b1;
 		if (!`DT.i_hold) begin
             dc_read_set <= `DT.rd_set;
-            // SHORT_READ adds the registered compare/format response after
-            // the RAM edge. Check the set belonging to that response.
+            // The registered compare/format response follows the RAM
+            // edge. Check the set belonging to that response.
             dc_response_set <= dc_read_set;
         end
 
@@ -439,7 +437,7 @@ module tb_cpu #(
 	assign p_ic_fill_terminal = p_ic_fill_active && `IC.take && `IC.o_wb_cti_ff == 3'b111;
 	assign p_ic_fill_first_window = p_ic_fill_active && `IC.adr_ctr_ff == 1 && !`IC.take;
 	assign p_ic_fill_addr = `IC.address;
-	if (CACHE_LINE == 16 && !ICACHE_PREFETCH) begin : g_icwf_check
+	if (CACHE_LINE == 16) begin : g_icwf_check
 		logic [31:0] expected_addr;
 		logic [1:0] beat;
 		logic [3:0] seen;

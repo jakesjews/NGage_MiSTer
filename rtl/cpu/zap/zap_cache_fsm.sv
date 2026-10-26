@@ -26,8 +26,7 @@
 module zap_cache_fsm   #(
         parameter logic [31:0] CACHE_SIZE    = 32'd1024,  // Bytes.
         parameter logic [31:0] CACHE_LINE    = 32'd8,
-        parameter logic [31:0] WAYS          = 32'd1,     // ARM925T: ways (zap_cache_tag_ram).
-        parameter logic        PREFETCH      = 1'd0       // ARM925T: sequential next-line prefetch.
+        parameter logic [31:0] WAYS          = 32'd1      // ARM925T: ways (zap_cache_tag_ram).
 )
 
 // ----------------------------------------------
@@ -113,12 +112,6 @@ output  logic                      o_hold,
 // Cache state
 output  logic                      o_idle,
 
-// ARM925T: sequential next-line prefetch interface.
-input   logic                      i_pf_hit,
-input   logic                      i_pf_inv,
-input   logic                      i_wb_busy,
-output  logic    [31:0]            o_pf_addr,
-
 // Bus access ports.
 output  logic                   o_wb_cyc_ff, o_wb_cyc_nxt,
 output  logic                   o_wb_stb_ff, o_wb_stb_nxt,
@@ -159,7 +152,6 @@ localparam [31:0] NUMBER_OF_STATES    = 32'd9;
 localparam [31:0] ADR_PAD              =  32'd32 - $clog2(CACHE_LINE/4) - 32'd1;
 localparam [31:0] ADR_PAD_MINUS_2      =  ADR_PAD - 32'd2;
 localparam [31:0] LINE_PAD             = (CACHE_LINE * 32'd8) - 32'd32;
-localparam [31:0] LINE_ADDR_W          =  32'd32 - $clog2(CACHE_LINE);
 
 // ----------------------------------------------------------------------------
 // Variables
@@ -207,8 +199,7 @@ assign wb_adr_inc    = {cache_tag[`ZAP_CACHE_TAG__PA], {$clog2(CACHE_LINE){1'd0}
 assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_cur, 2'b00};
 assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_inc, 2'b00};
 // ARM925T: rotate only the 16-byte demand fill's word index. The beat
-// counter still counts from zero to three for EOB. Prefetch bursts remain
-// linear, including a prefetch adopted partway through by a demand miss.
+// counter still counts from zero to three for EOB.
 logic [$clog2(CACHE_LINE/4)-1:0] fetch_start_ff, fetch_start_nxt;
 logic [$clog2(CACHE_LINE/4)-1:0] fetch_word_cur, fetch_word_inc;
 logic fetch_wrap_ff, fetch_wrap_nxt;
@@ -217,30 +208,6 @@ assign fetch_word_inc = fetch_start_ff + adr_ctr_inc[$clog2(CACHE_LINE/4)-1:0];
 assign o_wb_bte_nxt = state_ff == FETCH_SINGLE && fetch_wrap_ff ? 2'b01 : 2'b00;
 logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] way;       // ARM925T: the line's way
 
-// ARM925T: one-line sequential prefetch buffer (PREFETCH = 1).
-logic                                     pf_valid_ff, pf_valid_nxt;
-logic                                     pf_pend_ff,  pf_pend_nxt;
-logic                                     pf_active_ff, pf_active_nxt;
-logic                                     pf_drop_ff,  pf_drop_nxt;
-logic [31:$clog2(CACHE_LINE)]             pf_va_ff,    pf_va_nxt;
-logic [31:$clog2(CACHE_LINE)]             pf_pa_ff,    pf_pa_nxt;
-logic [(CACHE_LINE/4)-1:0]                pf_beat_valid_ff, pf_beat_valid_nxt;
-logic [31:0]                              pf_buf_ff [(CACHE_LINE/4)-1:0];
-logic [31:0]                              pf_buf_nxt[(CACHE_LINE/4)-1:0];
-logic [31:0]                              pf_word_ff;
-logic [31:0]                              pf_adr_cur, pf_adr_inc;
-logic [31:$clog2(CACHE_LINE)]             next_va_line, next_pa_line;
-logic                                     pf_clear, pf_va_hit, pf_hit;
-
-assign pf_adr_cur   = {pf_pa_ff, {$clog2(CACHE_LINE){1'd0}}} + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_ff,  2'd0});
-assign pf_adr_inc   = {pf_pa_ff, {$clog2(CACHE_LINE){1'd0}}} + ({{ADR_PAD_MINUS_2{1'd0}}, adr_ctr_inc, 2'd0});
-assign next_va_line = address[31:$clog2(CACHE_LINE)]  + {{(LINE_ADDR_W-1){1'd0}}, 1'd1};
-assign next_pa_line = phy_addr[31:$clog2(CACHE_LINE)] + {{(LINE_ADDR_W-1){1'd0}}, 1'd1};
-assign o_pf_addr    = {((state_ff == IDLE) ? i_address[31:$clog2(CACHE_LINE)] : address[31:$clog2(CACHE_LINE)]) +
-                       {{(LINE_ADDR_W-1){1'd0}}, 1'd1}, {$clog2(CACHE_LINE){1'd0}}};
-assign pf_clear     = !i_cache_en || i_cache_inv || i_cache_clean || i_pf_inv;
-assign pf_va_hit    = PREFETCH && pf_valid_ff && (pf_va_ff == i_address[31:$clog2(CACHE_LINE)]);
-assign pf_hit       = pf_va_hit && !pf_clear && (pf_pa_ff == i_phy_addr[31:$clog2(CACHE_LINE)]);
 
 // ARM925T: one registered word bypasses the tag/data lookup during a
 // fill. Select the next lookup when the PC pipeline advances, or
@@ -253,8 +220,7 @@ logic fill_ready_ff;
 logic fill_no_late_error_ff;
 // The producer's first-beat guarantee is sampled alongside that beat's
 // data/valid bit. No word can ACK through fill_ready_ff before this edge.
-// Only ordinary 16-byte demand fills qualify; an adopted prefetch whose
-// first beat already passed stays provisional until full completion.
+// Only ordinary 16-byte demand fills qualify.
 // This bit removes only the FIFO execution quarantine, not translation,
 // permission, per-word validity, cache-control or redirect checks.
 always_ff @(posedge i_clk)
@@ -300,39 +266,6 @@ begin
                 response_dat_ff <= buf_nxt[fill_lookup[$clog2(CACHE_LINE)-1:2]];
 end
 
-always_ff @(posedge i_clk)
-begin
-        if (i_reset || !PREFETCH)
-        begin
-                pf_valid_ff      <= 1'd0;
-                pf_pend_ff       <= 1'd0;
-                pf_active_ff     <= 1'd0;
-                pf_drop_ff       <= 1'd0;
-                pf_va_ff         <= '0;
-                pf_pa_ff         <= '0;
-                pf_beat_valid_ff <= '0;
-                pf_word_ff       <= '0;
-                for (int i=0; i<CACHE_LINE/4; i++)
-                begin
-                        pf_buf_ff[i] <= '0;
-                end
-        end
-        else
-        begin
-                pf_valid_ff      <= pf_valid_nxt;
-                pf_pend_ff       <= pf_pend_nxt;
-                pf_active_ff     <= pf_active_nxt;
-                pf_drop_ff       <= pf_drop_nxt;
-                pf_va_ff         <= pf_va_nxt;
-                pf_pa_ff         <= pf_pa_nxt;
-                pf_beat_valid_ff <= pf_beat_valid_nxt;
-                pf_word_ff       <= pf_buf_nxt[fill_lookup[$clog2(CACHE_LINE)-1:2]];
-                for (int i=0; i<CACHE_LINE/4; i++)
-                begin
-                        pf_buf_ff[i] <= pf_buf_nxt[i];
-                end
-        end
-end
 
 logic                                     unused;
 
@@ -341,12 +274,7 @@ logic                                     unused;
 // ----------------------------------------------------------------------------
 
 // Unused
-assign unused = |{rhit, whit, phy_addr[$clog2(CACHE_LINE)-1:0],
-                  i_pf_hit, i_pf_inv, i_wb_busy,
-                  pf_valid_ff, pf_pend_ff, pf_active_ff, pf_drop_ff,
-                  pf_va_ff, pf_pa_ff, pf_beat_valid_ff, pf_word_ff,
-                  pf_adr_cur, pf_adr_inc, next_va_line, next_pa_line,
-                  pf_clear, pf_va_hit, pf_hit};
+assign unused = |{rhit, whit, phy_addr[$clog2(CACHE_LINE)-1:0]};
 
 // Tie flops to the output
 assign o_cache_clean_req = cache_clean_req_ff; // Tie req flop to output.
@@ -449,7 +377,6 @@ end
 // the tag RAM by the address before the hit; only the hit chooses here).
 assign o_dat = (state_ff == UNC_DONE || state_ff == FETCH_SINGLE || state_ff == FILL_COMPLETE) ?
                response_dat_ff :
-               pf_va_hit ? pf_word_ff :
                i_cache_word_sel ? i_cache_words[(WAYS > 1) ? 1 : 0] : i_cache_words[0];
 
 // ==========================================================
@@ -476,7 +403,7 @@ begin : ack_comb
                 else if ( i_cache_hit )
                         o_ack = i_rd || i_wr;
                 else
-                        o_ack = PREFETCH && pf_hit && i_rd && !i_wr;
+                        o_ack = 1'd0;
         end
 
         UNCACHEABLE_PREPARE,
@@ -508,7 +435,6 @@ begin:blk1
        // ----------------------------------------
 
        logic [$clog2(CACHE_LINE/4)-1:0] tmp;
-       logic                            pf_can_start;
 
         // ---------------------------------------
         // Default Values Section
@@ -516,17 +442,9 @@ begin:blk1
         // ---------------------------------------
 
         tmp                     = {($clog2(CACHE_LINE/4)){1'd0}};
-        pf_can_start            = 1'd0;
         state_nxt               = state_ff;
         fill_valid_nxt          = fill_valid_ff;
         fill_fault_nxt          = fill_fault_ff;
-        pf_valid_nxt            = pf_valid_ff;
-        pf_pend_nxt             = pf_pend_ff;
-        pf_active_nxt           = pf_active_ff;
-        pf_drop_nxt             = pf_drop_ff;
-        pf_va_nxt               = pf_va_ff;
-        pf_pa_nxt               = pf_pa_ff;
-        pf_beat_valid_nxt       = pf_beat_valid_ff;
         adr_ctr_nxt             = adr_ctr_ff;
         fetch_start_nxt         = fetch_start_ff;
         fetch_wrap_nxt          = fetch_wrap_ff;
@@ -557,7 +475,6 @@ begin:blk1
         for(int i=0;i<CACHE_LINE/4;i++)
         begin
                 buf_nxt[i]    = buf_ff[i];
-                pf_buf_nxt[i] = pf_buf_ff[i];
         end
 
         rhit                     = 0;
@@ -573,51 +490,18 @@ begin:blk1
         begin
                 `zap_kill_access;
 
-                if ( PREFETCH && pf_clear )
-                begin
-                        pf_valid_nxt = 1'd0;
-                        pf_pend_nxt  = 1'd0;
-                        pf_drop_nxt  = 1'd1;
-                end
 
-                if ( PREFETCH && pf_active_ff )
-                begin
-                        adr_ctr_nxt = take ? adr_ctr_inc : adr_ctr_ff;
-                        if ( take )
-                        begin
-                                pf_buf_nxt[adr_ctr_ff[$clog2(CACHE_LINE/4)-1:0]] = i_wb_dat;
-                                pf_beat_valid_nxt[adr_ctr_ff[$clog2(CACHE_LINE/4)-1:0]] = 1'd1;
-                                if ( i_wb_err )
-                                begin
-                                        pf_drop_nxt = 1'd1;
-                                end
-                        end
-
-                        if ( take ? beat_inc_ok : beat_cur_ok )
-                        begin
-                                `zap_wb_prpr_read(take ? pf_adr_inc : pf_adr_cur, take ? cti_inc : cti_cur);
-                        end
-                        else
-                        begin
-                                `zap_kill_access;
-                                pf_active_nxt = 1'd0;
-                                pf_valid_nxt  = !pf_drop_nxt;
-                        end
-                end
 
                 if ( i_cache_inv )
                 begin
-                        pf_pend_nxt = 1'd0;
-                        state_nxt   = (PREFETCH && pf_active_nxt) ? IDLE : INVALIDATE;
+                        state_nxt   = INVALIDATE;
                 end
                 else if ( i_cache_clean )
                 begin
-                        pf_pend_nxt = 1'd0;
-                        state_nxt   = (PREFETCH && pf_active_nxt) ? IDLE : CLEAN;
+                        state_nxt   = CLEAN;
                 end
                 else if ( !i_rd && !i_wr )
                 begin
-                        pf_can_start = 1'd1;
                 end
                 else if ( i_fault )
                 begin
@@ -625,25 +509,16 @@ begin:blk1
                         o_err        = 1'd1;
                         o_fsr        = i_fsr;
                         o_far        = i_far;
-                        pf_pend_nxt  = 1'd0;
-                        if ( PREFETCH && pf_va_hit )
-                        begin
-                                pf_valid_nxt = 1'd0;
-                        end
                 end
                 else if ( i_busy )
                 begin
                         // Wait it out
                         o_err2      = 1'd1;
-                        pf_pend_nxt = 1'd0;
                 end
                 else if ( i_rd || i_wr )
                 begin
                         if ( !i_cache_en )
                         begin
-                                pf_pend_nxt = 1'd0;
-                                if ( !(PREFETCH && pf_active_ff) )
-                                begin
                                         state_nxt       = UNCACHEABLE;
                                         o_wb_stb_nxt    = 1'd1;
                                         o_wb_cyc_nxt    = 1'd1;
@@ -653,7 +528,8 @@ begin:blk1
                                         o_wb_wen_nxt    = i_wr;
                                         o_wb_sel_nxt    = i_ben;
                                         o_wb_cti_nxt    = CTI_EOB;
-                                end
+                                
+
                         end
                         else if ( i_cacheable )
                         begin
@@ -666,11 +542,6 @@ begin:blk1
                                         if ( i_rd ) // Read request.
                                         begin
                                                 rhit         = 1'd1;
-                                                pf_can_start = 1'd1;
-                                                if ( PREFETCH && pf_va_hit )
-                                                begin
-                                                        pf_valid_nxt = 1'd0;
-                                                end
                                         end
                                         else if ( i_wr ) // Write request
                                         begin
@@ -698,63 +569,9 @@ begin:blk1
 
                                 default: // Cache Miss (2'b01 or 2'b00)
                                 begin
-                                        if ( PREFETCH && pf_hit && i_rd && !i_wr )
-                                        begin
-                                                // ARM925T: prefetch buffer hit. Serve the word
-                                                // from pf_word_ff and write the line to the cache
-                                                // in FILL_COMPLETE.
-                                                rhit        = 1'd1;
-                                                pf_pend_nxt = 1'd0;
-                                                if ( !i_stall )
-                                                begin
-                                                        pf_valid_nxt   = 1'd0;
-                                                        for ( int i = 0; i < CACHE_LINE/4; i++ )
-                                                        begin
-                                                                buf_nxt[i] = pf_buf_ff[i];
-                                                        end
-                                                        fill_valid_nxt = {(CACHE_LINE/4){1'd1}};
-                                                        fill_fault_nxt = 1'd0;
-                                                        state_nxt      = FILL_COMPLETE;
-                                                end
-                                        end
-                                        else if ( PREFETCH && pf_active_ff && i_rd && !i_wr && !pf_drop_nxt &&
-                                                  (pf_va_ff == i_address[31:$clog2(CACHE_LINE)]) &&
-                                                  (pf_pa_ff == i_phy_addr[31:$clog2(CACHE_LINE)]) )
-                                        begin
-                                                // ARM925T: demand miss matches the in-flight prefetch.
-                                                // Adopt its beats into the demand fill buffer.
-                                                pf_pend_nxt       = 1'd0;
-                                                for ( int i = 0; i < CACHE_LINE/4; i++ )
-                                                begin
-                                                        buf_nxt[i] = pf_buf_nxt[i];
-                                                end
-                                                // Keep the adopted bus transaction linear and
-                                                // keep its already-arrived words at their indices.
-                                                fetch_start_nxt   = '0;
-                                                fetch_wrap_nxt    = 1'b0;
-                                                fill_valid_nxt    = pf_beat_valid_nxt;
-                                                fill_fault_nxt    = 1'd0;
-                                                pf_active_nxt     = 1'd0;
-                                                pf_valid_nxt      = 1'd0;
-                                                pf_beat_valid_nxt = '0;
-                                                state_nxt         = (take ? beat_inc_ok : beat_cur_ok) ?
-                                                                    FETCH_SINGLE : FILL_COMPLETE;
-                                        end
-                                        else if ( PREFETCH && pf_active_nxt )
-                                        begin
-                                                // ARM925T: an in-flight prefetch burst on the bus
-                                                // to another line completes before the demand fill starts.
-                                                pf_pend_nxt = 1'd0;
-                                        end
-                                        else
                                         begin
                                                 // ARM925T: hold the lookup; the fill buffer
                                                 // will answer it without a PC replay.
-                                                pf_pend_nxt = 1'd0;
-                                                if ( PREFETCH && pf_va_hit )
-                                                begin
-                                                        pf_valid_nxt = 1'd0;
-                                                end
 
                                                 if ( i_cache_tag_valid && cache_dirty )
                                                 begin
@@ -783,25 +600,13 @@ begin:blk1
                         end
                         else // Non cacheable.
                         begin
-                                pf_pend_nxt = 1'd0;
-                                if ( !(PREFETCH && pf_active_nxt) )
-                                begin
                                         state_nxt = UNCACHEABLE_PREPARE;
                                         o_hold    = 1'd1;
-                                end
+                                
+
                         end
                 end
 
-                if ( PREFETCH && !pf_active_ff && pf_pend_nxt && pf_can_start && !i_wb_busy )
-                begin
-                        pf_pend_nxt       = 1'd0;
-                        pf_active_nxt     = 1'd1;
-                        pf_drop_nxt       = 1'd0;
-                        pf_valid_nxt      = 1'd0;
-                        pf_beat_valid_nxt = '0;
-                        adr_ctr_nxt       = 0;
-                        `zap_wb_prpr_read({pf_pa_ff, {$clog2(CACHE_LINE){1'd0}}}, CTI_BURST);
-                end
         end
 
         UNCACHEABLE_PREPARE:
@@ -906,7 +711,7 @@ begin:blk1
         FILL_COMPLETE:
         begin
                 // The error is sticky across ALL beats. Provisional FIFO
-                // entries become precise prefetch aborts, including when the
+                // entries become precise prefetch aborts (instruction aborts), including when the
                 // fetch PC has moved beyond this line. Redirects discard them
                 // using the normal pipeline clear priority.
                 // No provisional word available: abort the held lookup here.
@@ -930,8 +735,6 @@ begin:blk1
                         // Do not wait for that FIFO to drain before servicing
                         // the fence. This clean I-side line may be discarded;
                         // an invalidate would discard it immediately anyway.
-                        pf_valid_nxt = 1'd0;
-                        pf_pend_nxt  = 1'd0;
                         state_nxt = IDLE;
                 end
                 else if (!i_stall)
@@ -945,37 +748,6 @@ begin:blk1
                                 o_cache_tag[`ZAP_CACHE_TAG__TAG] = address[`ZAP_VA__CACHE_TAG];
                                 o_cache_tag[`ZAP_CACHE_TAG__PA] = phy_addr[31:$clog2(CACHE_LINE)];
                                 o_cache_tag_dirty = wr;
-
-                                // ARM925T: prefetch the next line, never past
-                                // a 1 KB boundary: 1 KB is the smallest unit
-                                // of translation and permission (tiny pages,
-                                // the subpage AP fields of small and large
-                                // pages), so this fill's translation and
-                                // permission check cover the next line too.
-                                if ( PREFETCH && !wr && !pf_clear && i_cache_en && i_cacheable &&
-                                     !i_fault && !i_busy &&
-                                     i_rd && (fill_ready_ff || (i_address[31:$clog2(CACHE_LINE)] == next_va_line)) &&
-                                     !(&address[9:$clog2(CACHE_LINE)]) && !i_pf_hit &&
-                                     !(pf_valid_ff && (pf_va_ff == next_va_line) && (pf_pa_ff == next_pa_line)) )
-                                begin
-                                        pf_va_nxt         = next_va_line;
-                                        pf_pa_nxt         = next_pa_line;
-                                        pf_valid_nxt      = 1'd0;
-                                        pf_drop_nxt       = 1'd0;
-                                        pf_beat_valid_nxt = '0;
-                                        if ( !i_wb_busy )
-                                        begin
-                                                pf_active_nxt = 1'd1;
-                                                pf_pend_nxt   = 1'd0;
-                                                adr_ctr_nxt   = 0;
-                                                `zap_wb_prpr_read({next_pa_line, {$clog2(CACHE_LINE){1'd0}}}, CTI_BURST);
-                                        end
-                                        else
-                                        begin
-                                                pf_active_nxt = 1'd0;
-                                                pf_pend_nxt   = 1'd1;
-                                        end
-                                end
                         end
                         state_nxt = IDLE;
                 end
@@ -1056,15 +828,6 @@ begin:blk1
         // ARM925T: a clear (cache off, invalidate, clean, or i_pf_inv's
         // pulse) drops the buffer in any state; one in flight is dropped
         // when its burst ends.
-        if ( PREFETCH && pf_clear )
-        begin
-                pf_valid_nxt = 1'd0;
-                pf_pend_nxt  = 1'd0;
-                if ( pf_active_nxt )
-                begin
-                        pf_drop_nxt = 1'd1;
-                end
-        end
 end:blk1
 
 // ----------------------------------------------------------------------------

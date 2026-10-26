@@ -21,9 +21,8 @@
 // seem a bit complex.
 //
 
-module zap_mode16_decoder #(
-        parameter logic V4T = 1'd0      // ARM925T: ARMv4T BL (see T_BL).
-)
+module zap_mode16_decoder   // ARM925T: ARMv4T BL (see T_BL).
+
 (
         // Input from I-cache.
         // Instruction and valid qualifier.
@@ -228,15 +227,15 @@ begin
                                                 o_instruction[31:28] = 4'b1111;
                                                 o_instruction[34:32] = 3'b000;
 
-                                                // ARM925T: with V4T, the uop sequencer turns this
+                                                // ARM925T: the uop sequencer turns this
                                                 // into LR = PC + 4 + (offset << 12), as on the
                                                 // ARM9TDMI, and an interrupt may come before it.
-                                                o_irq                = V4T ? i_irq : 1'd0;
-                                                o_fiq                = V4T ? i_fiq : 1'd0;
+                                                o_irq                = i_irq;
+                                                o_fiq                = i_fiq;
                                         end
                                         1'd1:
                                         begin
-                                                if ( V4T && !i_prev_prefix )
+                                                if ( !i_prev_prefix )
                                                 begin
                                                         //
                                                         // ARM925T: second half without the first just
@@ -260,8 +259,8 @@ begin
                                                 o_instruction[34:0] = {1'd1, 2'b0, AL, 3'b101, 1'b1, 24'd0};
                                                 o_instruction[23:0] = ($signed({offset_w[10], offset_w[10], offset_w[10:0], i_instruction[10:0]}));
                                                 o_instruction[23:0]--;
-                                                o_irq               = V4T ? i_irq : 1'd0; // ARM925T
-                                                o_fiq               = V4T ? i_fiq : 1'd0; // ARM925T
+                                                o_irq               = i_irq; // ARM925T
+                                                o_fiq               = i_fiq; // ARM925T
                                                 end
                                         end
                                         default:

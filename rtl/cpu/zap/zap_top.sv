@@ -37,7 +37,6 @@ parameter logic [0:0] CP15_L4_DEFAULT            = 1'd0,
 // are not present.
 // -----------------------------------
 
-parameter logic [0:0]      ONLY_CORE          = 1'd0,
 
 // -----------------------------------
 // Set reset vector here
@@ -93,33 +92,16 @@ parameter logic [31:0] CODE_FPAGE_TLB_ENTRIES   =  32'd64,   // Fine page TLB en
 parameter logic [31:0] CODE_CACHE_SIZE          =  32'd8192, // Cache size in bytes.
 parameter logic [31:0] CODE_CACHE_LINE          =  32'd64,   // Ccahe line size in bytes.
 parameter logic [31:0] CODE_CACHE_WAYS          =  32'd1,    // ARM925T: 1 or 2.
-parameter logic        CODE_CACHE_PREFETCH      =  1'd0,     // ARM925T: sequential next-line prefetch.
 
 // ----------------------------------
-// ARM925T options. The defaults give upstream ZAP; rtl/cpu/arm925t.sv
-// sets the ARM925T values. See docs/CPU.md.
+// ARM925T options; rtl/cpu/arm925t.sv sets the phone's values. See
+// docs/CPU.md.
 // ----------------------------------
-parameter logic        V4T          = 1'd0,          // ARMv4T: ARMv5 instructions are UNDEFINED,
-                                                     // v4T interworking, ARMv4 PSRs.
-parameter logic        TI925T       = 1'd0,          // TI925T CP15: control register, A and V bits,
-                                                     // c15 registers, c7 operations, FSR codes.
-parameter logic [31:0] CP15_ID      = 32'h0005AAA0,  // c0 main ID (with TI925T: TI config O = 0).
+parameter logic [31:0] CP15_ID      = 32'h0005AAA0,  // c0 main ID (TI config O = 0).
 parameter logic [31:0] CP15_CTYPE   = 32'd0,         // c0 cache type; 0 = from the cache parameters.
 parameter logic        HIVECS       = 1'd0           // Reset value of control bit V (TI925T).
 
 )(
-        `ifndef SYNTHESIS
-
-        // --------------------------------------
-        // Trace. Only for DV. Leave open.
-        // --------------------------------------
-
-        output  logic  [1023:0]    o_trace,
-        output  logic              o_trace_valid,
-        output  logic              o_trace_uop_last,
-
-        `endif
-
         // --------------------------------------
         // Clock and reset
         // --------------------------------------
@@ -271,7 +253,7 @@ logic [63:0]     dc_rreg_idx, dc_wreg_idx;
 logic [5:0]      dc_rreg_idx_bin;
 logic [63:0]     dc_lock;
 logic dc_lock_any, dc_lock_owner;
-logic dc_lock_return, dc_ack_fast, data_fill_busy_nxt;
+logic dc_lock_return, dc_ack_fast, dc_err_fast, data_fill_busy_nxt;
 logic [5:0] dc_lock_owner_hold, dc_lock_owner_advance;
 logic dc_lock_owner_move;
 logic [31:0]     dc_reg_data;
@@ -301,17 +283,6 @@ zap_dual_rank_synchronizer #(.WIDTH(2)) u_sync (
         .o_sync  ({s_fiq, s_irq})
 );
 
-`ifdef SYNTHESIS
-
-/* verilator lint_off UNUSEDSIGNAL */
-
-logic [1023:0]       o_trace;
-logic                o_trace_valid;
-logic                o_trace_uop_last;
-
-/* verilator lint_on UNUSEDSIGNAL */
-
-`endif
 
 wire dc_writeback_busy; // ARM925T: registered eviction ownership
 
@@ -329,22 +300,15 @@ arm9v2_core #(
         .DATA_CACHE_SIZE(DATA_CACHE_SIZE),
         .DATA_CACHE_LINE(DATA_CACHE_LINE),
         .DATA_CACHE_WAYS(DATA_CACHE_WAYS),
-        .LOAD_FORMATTED(!ONLY_CORE),     // ARM925T
+        .LOAD_FORMATTED(1'b1),     // ARM925T
         .CODE_CACHE_SIZE(CODE_CACHE_SIZE),
         .CODE_CACHE_LINE(CODE_CACHE_LINE),
         .CPSR_MODE(ZAP_CPSR_MODE),
-        .V4T(V4T),
-        .TI925T(TI925T),
         .CP15_ID(CP15_ID),
         .CP15_CTYPE(CP15_CTYPE),
         .HIVECS(HIVECS)
 ) u_arm9_core
 (
-// Trace
-.o_trace                (o_trace),
-.o_trace_valid          (o_trace_valid),
-.o_trace_uop_last       (o_trace_uop_last),
-
 // ARM925T: debug trace taps.
 .o_dbg_wb_valid         (o_dbg_wb_valid),
 .o_dbg_wfi              (o_dbg_wfi),
@@ -378,9 +342,9 @@ arm9v2_core #(
 /* verilator lint_on PINCONNECTEMPTY */
 .o_code_stall           (code_stall),
 
-.i_instr_wb_dat         (!ONLY_CORE ? ic_data   : i_wb_dat),
+.i_instr_wb_dat         (ic_data  ),
 .i_instr_data_early     (ic_data_early),
-.i_instr_hit            (!ONLY_CORE && ic_hit),
+.i_instr_hit            (ic_hit),
 .i_instr_wb_ack         (instr_ack),
 .i_instr_wb_err         (instr_err),
 
@@ -395,9 +359,7 @@ arm9v2_core #(
 /* verilator lint_on PINCONNECTEMPTY */
 .o_data_wb_stb          (cpu_dc_stb),
 .i_data_short_data(dc_short_data),.i_data_short_hit(dc_short_hit),.i_data_short_live(dc_short_live),.i_data_short_trust(dc_short_trust),
-.i_data_wb_dat          (!ONLY_CORE ? dc_data :
-                         BE_32_ENABLE ? be_32(i_wb_dat, o_wb_sel) : i_wb_dat),
-                        // Swap data into CPU based on current o_wb_sel.
+.i_data_wb_dat          (dc_data),
 
 .i_data_wb_ack          (data_ack),
 .i_data_wb_err          (data_err),
@@ -407,8 +369,8 @@ arm9v2_core #(
 .i_irq                  (s_irq),
 
 // MMU/cache is present.
-.i_fsr                  (!ONLY_CORE ? {24'd0,dc_fsr} : '0),
-.i_far                  (!ONLY_CORE ? dc_far : '0),
+.i_fsr                  ({24'd0,dc_fsr}),
+.i_far                  (dc_far),
 
 .o_mem_translate        (cpu_mem_translate),
 .o_mem_cpsr             (cpu_mem_cpsr),
@@ -421,8 +383,8 @@ arm9v2_core #(
 .o_dcache_line_va       (cpu_dline_va),
 .o_dcache_line_addr     (cpu_dline_addr),
 .o_dcache_line_way      (cpu_dline_way),
-.i_dcache_line_done     (!ONLY_CORE ? dc_line_done : 1'd1),
-.i_dcache_writeback_busy (!ONLY_CORE ? dc_writeback_busy : 1'd0),
+.i_dcache_line_done     (dc_line_done),
+.i_dcache_writeback_busy (dc_writeback_busy),
 .o_dac                  (cpu_dac_reg),
 .o_baddr                (cpu_baddr),
 .o_mmu_en               (cpu_mmu_en),
@@ -447,163 +409,36 @@ arm9v2_core #(
 .o_dc_reg_idx           (dc_rreg_idx),
 .o_dc_reg_idx_bin       (dc_rreg_idx_bin),
 
-.i_dc_reg_idx           (!ONLY_CORE ? dc_wreg_idx : '0),
-.i_dc_lock              (!ONLY_CORE ? dc_lock : '0),
-.i_dc_lock_any          (!ONLY_CORE && dc_lock_any),
-.i_dc_lock_owner        (!ONLY_CORE && dc_lock_owner),
-.i_dc_lock_return       (!ONLY_CORE && dc_lock_return),
-.i_data_ack_fast        (!ONLY_CORE && dc_ack_fast),
-.i_data_fill_busy_nxt   (!ONLY_CORE && data_fill_busy_nxt),
+.i_dc_reg_idx           (dc_wreg_idx),
+.i_dc_lock              (dc_lock),
+.i_dc_lock_any          (dc_lock_any),
+.i_dc_lock_owner        (dc_lock_owner),
+.i_dc_lock_return       (dc_lock_return),
+.i_data_ack_fast        (dc_ack_fast),
+.i_data_err_fast        (dc_err_fast),
+.i_data_fill_busy_nxt   (data_fill_busy_nxt),
 .o_dc_lock_owner_hold(dc_lock_owner_hold),
 .o_dc_lock_owner_advance(dc_lock_owner_advance),
 .o_dc_lock_owner_move(dc_lock_owner_move),
-.i_dc_reg_dat           (!ONLY_CORE ? dc_reg_data : '0),
-.i_dcache_inv_done      (!ONLY_CORE ? dc_inv_done : '0),
-.i_icache_inv_done      (!ONLY_CORE ? ic_inv_done : '0),
-.i_dcache_clean_done    (!ONLY_CORE ? dc_clean_done : '0),
-.i_icache_clean_done    (!ONLY_CORE ? ic_clean_done : '0),
-.i_icache_err2          (!ONLY_CORE ? icache_err2 : '0),
-.i_icache_fill_pending  (!ONLY_CORE && icache_fill_pending),
-.i_icache_fill_done     (!ONLY_CORE && icache_fill_done),
-.i_icache_fill_fault    (!ONLY_CORE && icache_fill_fault),
-.i_dcache_err2          (!ONLY_CORE ? dcache_err2 : '0)
+.i_dc_reg_dat           (dc_reg_data),
+.i_dcache_inv_done      (dc_inv_done),
+.i_icache_inv_done      (ic_inv_done),
+.i_dcache_clean_done    (dc_clean_done),
+.i_icache_clean_done    (ic_clean_done),
+.i_icache_err2          (icache_err2),
+.i_icache_fill_pending  (icache_fill_pending),
+.i_icache_fill_done     (icache_fill_done),
+.i_icache_fill_fault    (icache_fill_fault),
+.i_dcache_err2          (dcache_err2)
 );
 end
 
-if ( !ONLY_CORE )
-begin : l_tieoffs_full
-         // Normal case - with cache and MMU.
-end : l_tieoffs_full
-else
-begin : l_tieoffs_only_core
-        assign o_dbg_dcache    = '0;
-        assign dbg_icache      = '0;
-        assign dbg_dtlb        = 1'b0;
-        assign dc_wreg_idx     = '0;
-        assign dc_lock         = '0;
-        assign {dc_lock_any,dc_lock_owner} = '0;
-        assign {dc_lock_return,dc_ack_fast,data_fill_busy_nxt} = '0;
-        assign dc_reg_data     = '0;
-        assign dc_inv_done     = '0;
-        assign ic_inv_done     = '0;
-        assign dc_clean_done   = '0;
-        assign ic_clean_done   = '0;
-        assign icache_err2     = '0;
-        assign {icache_fill_pending, icache_fill_done, icache_fill_fault} = '0;
-        assign dcache_err2     = '0;
-        assign data_fill_busy = 1'b0;
-        assign dc_fsr          = '0;
-        assign dc_far          = '0;
-        assign dc_data         = '0;
-        assign dc_short_data = 0;assign dc_short_hit = 0;assign dc_short_live = 0;assign dc_short_trust = 0;
-        assign ic_data         = '0;
-        assign c_wb_ack        = '0;
-        assign c_wb_err        = '0;
-        assign d_wb_ack        = '0;
-        assign d_wb_err        = '0;
-        assign wb_cyc          = '0;
-        assign wb_stb          = '0;
-        assign wb_we           = '0;
-        assign wb_sel          = '0;
-        assign wb_idat         = '0;
-        assign wb_adr          = '0;
-        assign wb_cti          = CTI_EOB;
-        assign wb_ack          = '0;
-        assign wb_err          = '0;
-        assign c_wb_stb        = '0;
-        assign c_wb_cyc        = '0;
-        assign c_wb_wen        = '0;
-        assign c_wb_sel        = '0;
-        assign c_wb_dat        = '0;
-        assign c_wb_adr        = '0;
-        assign c_wb_cti        = CTI_EOB;
-        assign d_wb_stb        = '0;
-        assign d_wb_cyc        = '0;
-        assign d_wb_wen        = '0;
-        assign d_wb_sel        = '0;
-        assign d_wb_dat        = '0;
-        assign d_wb_adr        = '0;
-        assign d_wb_cti        = CTI_EOB;
-        assign d_wb_bte        = 2'b00;
-        assign c_wb_bte        = 2'b00;
-        assign wb_dat          = '0;
 
-        logic unused;
 
-        assign unused =
-           (    |dc_wreg_idx       )
-         | (    |dc_lock           )
-         | (    |dc_reg_data       )
-         | (    |dc_inv_done       )
-         | (    |ic_inv_done       )
-         | (    |dc_clean_done     )
-         | (    |ic_clean_done     )
-         | (    |icache_err2       )
-         | (    |dcache_err2       )
-         | (    |dc_fsr            )
-         | (    |dc_far            )
-         | (    |dc_data           )
-         | (    |ic_data           )
-         | (    |c_wb_ack          )
-         | (    |c_wb_err          )
-         | (    |d_wb_ack          )
-         | (    |d_wb_err          )
-         | (    |wb_cyc            )
-         | (    |wb_stb            )
-         | (    |wb_we             )
-         | (    |wb_sel            )
-         | (    |wb_idat           )
-         | (    |wb_adr            )
-         | (    |wb_cti            )
-         | (    |wb_ack            )
-         | (    |wb_err            )
-         | (    |c_wb_stb          )
-         | (    |c_wb_cyc          )
-         | (    |c_wb_wen          )
-         | (    |c_wb_sel          )
-         | (    |c_wb_dat          )
-         | (    |c_wb_adr          )
-         | (    |c_wb_cti          )
-         | (    |d_wb_stb          )
-         | (    |d_wb_cyc          )
-         | (    |d_wb_wen          )
-         | (    |d_wb_sel          )
-         | (    |d_wb_dat          )
-         | (    |d_wb_adr          )
-         | (    |d_wb_cti          )
-         | (    |d_wb_bte          )
-         | (    |c_wb_bte          )
-         | (    |wb_dat            )
-         | (    |cpu_mmu_en        )
-         | (    |cpu_cpsr          )
-         | (    |cpu_mem_translate )
-         | (    |cpu_daddr_nxt     )
-         | (    |cpu_daddr_check   )
-         | (    |cpu_iaddr_nxt     )
-         | (    |cpu_iaddr_check   )
-         | (    |cpu_dc_en         )
-         | (    |cpu_ic_en         )
-         | (    |cpu_sr            )
-         | (    |cpu_baddr         )
-         | (    |cpu_dac_reg       )
-         | (    |cpu_dc_inv        )
-         | (    |cpu_ic_inv        )
-         | (    |cpu_dc_clean      )
-         | (    |cpu_ic_clean      )
-         | (    |cpu_dtlb_inv      )
-         | (    |cpu_itlb_inv      )
-         | (    |dc_rreg_idx       )
-         | (    |dc_rreg_idx_bin   )
-         | (    |cpu_dwe_check     )
-         | (    |cpu_dre_check     )
-         | (    |code_stall        )
-         ;
-end : l_tieoffs_only_core
-
-if ( !ONLY_CORE )
+if (1)
 begin : l_merger_for_core_with_cache_mmu
 
-        zap_wb_merger #(.ONLY_CORE(1'd0)) u_zap_wb_merger (
+        zap_wb_merger u_zap_wb_merger (
 
         .i_clk(i_clk),
         .i_reset(s_reset),
@@ -646,61 +481,14 @@ begin : l_merger_for_core_with_cache_mmu
 
         );
 end : l_merger_for_core_with_cache_mmu
-else // if ( ONLY_CORE )
-begin : l_merger_for_core_without_cache_mmu
-        zap_wb_merger #(.ONLY_CORE(1'd1)) u_zap_wb_merger (
 
-        .i_clk(i_clk),
-        .i_reset(s_reset),
-
-        .i_c_wb_stb(cpu_instr_stb),
-        .i_c_wb_cyc(cpu_instr_stb),
-        .i_c_wb_wen(1'h0),
-        .i_c_wb_sel(4'hF),
-        .i_c_wb_dat(32'd0),
-        .i_c_wb_adr(cpu_iaddr),
-        .i_c_wb_cti(3'b111),
-        .i_c_wb_bte(2'b00),
-        .o_c_wb_ack(instr_ack),
-        .o_c_wb_err(instr_err),
-        .o_c_wb_no_late_error(),
-        .o_dbg_data_owner(dbg_data_owner),
-
-        .i_d_wb_stb(cpu_dc_stb),
-        .i_d_wb_cyc(cpu_dc_stb),
-        .i_d_wb_wen(cpu_dc_we),
-
-        // Swap sel from CPU if BE_32_ENABLE = 1.
-        .i_d_wb_sel(BE_32_ENABLE ? be_sel_32(cpu_dc_sel) : cpu_dc_sel),
-
-        .i_d_wb_dat(cpu_dc_dat),
-        .i_d_wb_adr(cpu_daddr),
-        .i_d_wb_cti(3'b111),
-        .i_d_wb_bte(2'b00),
-        .o_d_wb_ack(data_ack),
-        .o_d_wb_err(data_err),
-
-        .o_wb_cyc  (o_wb_cyc ),
-        .o_wb_stb  (o_wb_stb ),
-        .o_wb_wen  (o_wb_we  ),
-        .o_wb_sel  (o_wb_sel ),
-        .o_wb_dat  (o_wb_dat ),
-        .o_wb_adr  (o_wb_adr ),
-        .o_wb_cti  (o_wb_cti ),
-        .o_wb_bte  (o_wb_bte ),
-        .i_wb_ack  (i_wb_ack ),
-        .i_wb_err  (i_wb_err ),
-        .i_wb_no_late_error(i_wb_no_late_error)
-
-        );
-end : l_merger_for_core_without_cache_mmu
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// Put cache and MMU only if ONLY_CORE == 0
+// The caches and the MMU.
 ///////////////////////////////////////////////////////////////////////////////
 
-if ( !ONLY_CORE )
+if (1)
 begin: l_generate_with_cache_mmu
 
 zap_dcache #(
@@ -711,13 +499,12 @@ zap_dcache #(
         .FPAGE_TLB_ENTRIES(DATA_FPAGE_TLB_ENTRIES),
         .CACHE_LINE(DATA_CACHE_LINE), // ARM925T: upstream passed CODE_CACHE_LINE.
         .WAYS(DATA_CACHE_WAYS),
-        .SHORT_READ(1'b1),
         .WAY_FORMAT(1'b1),
         .REG_COLLISION(1'b1),
         .HIT_FF(1'b1),
         .FLAT_ACK(1'b1),
         .BE_32_ENABLE(BE_32_ENABLE),
-        .EXT_ABORT_FS(TI925T ? 4'b1000 : 4'b0010)
+        .EXT_ABORT_FS(4'b1000)   // TI925T's external abort status
 )
 u_data_cache (
 .o_dbg_dcache           (o_dbg_dcache),
@@ -761,6 +548,7 @@ u_data_cache (
 .o_lock_owner           (dc_lock_owner),
 .o_lock_return          (dc_lock_return),
 .o_ack_fast             (dc_ack_fast),
+.o_err_fast             (dc_err_fast),
 .o_fill_busy_nxt        (data_fill_busy_nxt),
 .o_reg_dat              (dc_reg_data),
 .o_reg_idx              (dc_wreg_idx),
@@ -813,9 +601,7 @@ zap_cache #(
 .SECTION_TLB_ENTRIES(CODE_SECTION_TLB_ENTRIES),
 .FPAGE_TLB_ENTRIES(CODE_FPAGE_TLB_ENTRIES),
 .CACHE_LINE(CODE_CACHE_LINE), // ARM925T: upstream passed DATA_CACHE_LINE.
-.WAYS(CODE_CACHE_WAYS),
-.SHORT_READ(1'b1),
-.PREFETCH(CODE_CACHE_PREFETCH)
+.WAYS(CODE_CACHE_WAYS)
 )
 u_code_cache (
 .i_clk              (i_clk),
@@ -860,8 +646,6 @@ u_code_cache (
 .i_dac_reg         (cpu_dac_reg),
 .i_tlb_inv         (cpu_itlb_inv),
 .o_dbg_icache      (dbg_icache),
-.i_wb_busy         (d_wb_cyc || d_wb_ack || (|dc_lock) || cpu_dc_clean || cpu_dc_inv || cpu_dline_req),
-.i_pf_inv          (cpu_dc_clean || cpu_dc_inv || cpu_dline_req),
 .o_err2            (icache_err2),
 .o_fill_pending    (icache_fill_pending),
 .o_fill_done       (icache_fill_done),

@@ -76,11 +76,8 @@ set_global_assignment -name SEED 2
 # Disable ALSA audio output to save some resources
 set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
 
-# CPU I-cache (NGage.sv): the 32 KB variant (1,024 sets, +16 M10K), and the
-# sequential next-line prefetch (off by default: the phone's ARM925T has
-# none, and the games measured no gain from it; it costs about 1 ns)
+# CPU I-cache (NGage.sv): the 32 KB variant (1,024 sets, +16 M10K)
 #set_global_assignment -name VERILOG_MACRO "NGAGE_ICACHE_32K=1"
-#set_global_assignment -name VERILOG_MACRO "NGAGE_ICACHE_PREFETCH=1"
 
 # The measurement core: the debug overlay, its per-second counters and the
 # trace triggers (about 1,700 ALMs, for tools/mister_dbg.py and the board

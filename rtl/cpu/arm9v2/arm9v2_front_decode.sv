@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Integration harness shared by the component bench and Quartus trial.
 // Older backend redirects have priority over the registered D2 redirect.
+// Parameter defaults are the core's configuration (arm9v2_core sets each
+// explicitly); 0 selects a cut's original form, kept for A/B timing trials.
 module arm9v2_front_decode #(
     parameter logic PREDICTOR=1'b1,
-    parameter logic EXTERNAL_RF=0,
-    parameter logic S_AGU=0,
-    parameter logic THUMB_HALF=0,
-    parameter logic SHIFT_PRE=0,
-    parameter logic PAYLOAD_FREE=0,
-    parameter logic REDIRECT_PAYLOAD=0,
-    parameter logic WT_TAGS=0,
-    parameter logic RAS_TOP_FF=0,
-    parameter logic PREFIX_FREE=0,
+    parameter logic S_AGU=1'b1,
+    parameter logic THUMB_HALF=1'b1,
+    parameter logic SHIFT_PRE=1'b1,
+    parameter logic PAYLOAD_FREE=1'b1,
+    parameter logic REDIRECT_PAYLOAD=1'b1,
+    parameter logic WT_TAGS=1'b1,
+    parameter logic RAS_TOP_FF=1'b1,
+    parameter logic VALID_BIT=1'b1,
+    parameter logic PREFIX_FREE=1'b1,
     parameter logic [31:0] RESET_VECTOR=0
 ) (
     input logic i_clk, i_reset, i_flush,
@@ -98,7 +100,7 @@ module arm9v2_front_decode #(
     logic [1:0] f_state,f_kind;
     logic [2:0] f_pointer;
     logic [3:0] f_count;
-    arm9v2_fetch #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR),.THUMB_HALF(THUMB_HALF),.RAS_TOP_FF(RAS_TOP_FF)) u_fetch (
+    arm9v2_fetch #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR),.THUMB_HALF(THUMB_HALF),.RAS_TOP_FF(RAS_TOP_FF),.VALID_BIT(VALID_BIT)) u_fetch (
         .i_clk(i_clk),.i_reset(i_reset),.i_redirect(i_flush||o_redirect),
         .i_redirect_target(i_flush?i_backend_target:o_redirect_target),
         .i_redirect_thumb(i_flush?i_backend_thumb:o_redirect_thumb),
@@ -118,7 +120,7 @@ module arm9v2_front_decode #(
         .o_predicted(f_predicted),.o_pred_hit(f_hit),.o_pred_target(f_target),
         .o_pred_state(f_state),.o_pred_kind(f_kind),.o_ras_pointer(f_pointer),.o_ras_count(f_count)
     );
-    arm9v2_decode #(.EXTERNAL_RF(EXTERNAL_RF),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS),.PREFIX_FREE(PREFIX_FREE)) u_decode (
+    arm9v2_decode #(.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS),.PREFIX_FREE(PREFIX_FREE)) u_decode (
         .i_valid(f_valid),.i_pc(f_pc),.i_word(f_word),.i_thumb(f_thumb),.i_fault(f_fault),
         .i_predicted(f_predicted),.i_pred_hit(f_hit),.i_pred_target(f_target),
         .i_pred_state(f_state),.i_pred_kind(f_kind),.i_ras_pointer(f_pointer),.i_ras_count(f_count),

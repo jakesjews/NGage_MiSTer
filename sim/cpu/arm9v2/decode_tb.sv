@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 module decode_tb;
+    // CUTS: the decode timing cuts' parameters, off (original) or on (the core's).
+    parameter bit CUTS=0;
     logic i_clk, i_reset, i_flush;
     logic i_valid;
     logic o_ready;
@@ -17,6 +19,38 @@ module decode_tb;
     logic [3:0] i_early_valid;
     logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c;
     logic i_ready;
+    wire i_ready_payload=i_ready;
+    // Ports added by the timing cuts (S_AGU, WT_TAGS, PAYLOAD_FREE, SHIFT_PRE,
+    // OP1_PRE), driven consistently with the bench's own signals: W's write
+    // tags are the one-hot write masks' indices (16: none).
+    wire [3:0] i_early_agu=4'd0;
+    logic [5:0] i_wr_tag_a, i_wr_tag_b;
+    logic i_wr_pair;
+    always_comb begin
+        i_wr_tag_a=6'd16; i_wr_tag_b=6'd16;
+        for(int r=0;r<40;r++)begin
+            if(i_wr_addr_a[r])i_wr_tag_a=6'(r);
+            if(i_wr_addr_b[r])i_wr_tag_b=6'(r);
+        end
+        i_wr_pair=|i_wr_addr_b;
+    end
+    wire o_self_dep;
+    wire [18:0] o_shift_pre;
+    // The core's register file (zap_register_file) as this bench's model:
+    // A and B written under i_wen, C always, C > B > A on the same edge,
+    // each write visible from the next clock. Decode reads it through
+    // o_rf_tag/i_rf_value, as in the core.
+    logic [39:0][31:0] model_rf;
+    always_ff @(posedge i_clk)
+        if(i_reset)model_rf<='0;
+        else for(int r=0;r<40;r++)begin
+            if(i_wen&&i_wr_addr_a[r])model_rf[r]<=i_wr_data_a;
+            if(i_wen&&i_wr_addr_b[r])model_rf[r]<=i_wr_data_b;
+            if(i_wr_addr_c[r])model_rf[r]<=i_wr_data_c;
+        end
+    logic [3:0][5:0] o_rf_tag;
+    logic [3:0][31:0] i_rf_value;
+    always_comb for(int n=0;n<4;n++)i_rf_value[n]=(o_rf_tag[n]<6'd40) ? model_rf[o_rf_tag[n]] : 32'd0;
     logic o_valid;
     logic [31:0] o_pc, o_instruction, o_pc_base, o_next_pc;
     logic [15:0] o_raw;
@@ -46,8 +80,8 @@ module decode_tb;
     logic [2:0] o_redirect_pointer;
     logic [3:0] o_redirect_count;
     logic [1:0] o_redirect_action;
-    arm9v2_decode dut (.i_serial_continue(1'b0),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.i_rf_value('0),.o_rf_tag(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.*);
-    wire unused = &{1'b0,o_ready,o_valid,o_pc,o_instruction,o_pc_base,o_next_pc,o_raw,o_mode,o_thumb,o_fault,o_force_align,o_reg_shift,o_kind,o_condition,o_tag,o_used,o_value,o_dest,o_first,o_last,o_reg_count,o_offset,o_writeback_offset,o_transfer_reg,o_branch_target,o_direct,o_match_taken,o_match_fallthrough,o_predicted,o_pred_hit,o_pred_target,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count,o_hazard,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action};
+    arm9v2_decode #(.S_AGU(CUTS),.THUMB_HALF(CUTS),.SHIFT_PRE(CUTS),.PAYLOAD_FREE(CUTS),.REDIRECT_PAYLOAD(CUTS),.WT_TAGS(CUTS),.PREFIX_FREE(CUTS)) dut (.i_serial_continue(1'b1),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.*);
+    wire unused = &{1'b0,o_self_dep,o_shift_pre,o_ready,o_valid,o_pc,o_instruction,o_pc_base,o_next_pc,o_raw,o_mode,o_thumb,o_fault,o_force_align,o_reg_shift,o_kind,o_condition,o_tag,o_used,o_value,o_dest,o_first,o_last,o_reg_count,o_offset,o_writeback_offset,o_transfer_reg,o_branch_target,o_direct,o_match_taken,o_match_fallthrough,o_predicted,o_pred_hit,o_pred_target,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count,o_hazard,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action};
     int checks=0,cycles=0,redirects=0;
     logic [31:0] last_target=0;
     logic last_thumb=0;
@@ -79,7 +113,10 @@ module decode_tb;
     task automatic send(input logic [31:0] ins,input logic [31:0] pc=32'h1000,input bit thumb=0);
         int limit;limit=0;
         while(!o_ready&&limit<30)begin tick();limit++;end
-        check(o_ready,"D1 capacity");i_valid=1;i_word=ins;i_pc=pc;i_thumb=thumb;tick();i_valid=0;
+        check(o_ready,"D1 capacity");i_valid=1;i_pc=pc;i_thumb=thumb;
+        // With THUMB_HALF the core's fetch stores a Thumb instruction at pc[1]
+        // in the low halfword (arm9v2_fetch), so the bench sends it so.
+        i_word=CUTS&&thumb&&pc[1]?{16'd0,ins[31:16]}:ins;tick();i_valid=0;
     endtask
     task automatic receive;
         int limit;limit=0;

@@ -126,3 +126,29 @@ lint_off -rule MULTIDRIVEN -file "sys/*"
 // The PLL is a port-only boundary, not a behavioral model.
 lint_off -file "lint/pll.sv"
 lint_off -rule TIMESCALEMOD -file "lint/pll.sv"
+
+// ---- The CPU sources (make lint's "arm925t sources" step) ----
+// The two caches share zap_cache_tag_ram: dirty tracking and the packed data
+// RAM are the D-cache's (TRACK_DIRTY); in the I-cache's instance these are idle.
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_tag_ram.sv" -match "*Signal is not used: 'dirty_write_*'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_tag_ram.sv" -match "*Signal is not used: 'meta_d_read'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_tag_ram.sv" -match "*Signal is not used: 'packed_read'*"
+// Set indices, line offsets and tags carried whole into logic that uses some
+// of their bits (the metadata banks' set groups, the walk's tag, the
+// accepted and line-operation addresses, the D-cache FSM's check address,
+// the I-cache FSM's fill word index).
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_tag_ram.sv" -match "*Bits of signal are not used: 'meta_*'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_tag_ram.sv" -match "*Bits of signal are not used: 'walk_tag'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_tag_ram.sv" -match "*Bits of signal are not used: 'i_accepted_address'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_tag_ram.sv" -match "*Bits of signal are not used: 'i_line_addr'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_dcache_fsm.sv" -match "*Bits of signal are not used: 'i_address_check'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_fsm.sv" -match "*Bits of signal are not used: 'fill_lookup'*"
+// CP15's control decode reads the bits it implements of a whole word.
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cp15_cb.sv" -match "*Bits of function variable are not used: 'd'*"
+// V2's whole-record registers: the translation owner reads a few fields of
+// the next record; decode's redirect reference is a simulation copy.
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm9v2/arm9v2_core.sv" -match "*Bits of signal are not used: 'next_check_record'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm9v2/arm9v2_decode.sv" -match "*Bits of signal are not used: 'redirect_ref'*"
+// zap_register_file: r0..r39 are the simulation's waveform taps of the
+// architectural view.
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_register_file.sv" -match "*Signal is not used: 'r*'*"

@@ -23,13 +23,14 @@
 
 module zap_dcache #(
 
-parameter logic SHORT_READ = 1'b0, // ARM9: RAM edge then caller's compare/capture edge.
-// ARM9V2 (SHORT_READ only): format each way's word, and its store-collision
+// The RAMs are read on the first edge (ZAP's short read; its three-stage
+// form was removed on 2026-10-25).
+// ARM9V2: format each way's word, and its store-collision
 // merge, before the hit selects a way (WAY_FORMAT); register the short RAMs'
 // read/write set collision on the RAMs' own edge (REG_COLLISION).
 parameter logic WAY_FORMAT = 1'b0,
 parameter logic REG_COLLISION = 1'b0,
-// ARM9V2 (SHORT_READ): the short hit takes the TLB's unretimed hit_ok copy.
+// ARM9V2: the short hit takes the TLB's unretimed hit_ok copy.
 parameter logic HIT_FF = 1'b0,
 // ARM9V2: the FSM's acknowledge and errors as flat functions of registers.
 parameter logic FLAT_ACK = 1'b0,
@@ -100,6 +101,7 @@ input logic i_lock_owner_move,
 output  logic           o_lock_any, o_lock_owner,
 output  logic           o_lock_return,   // ARM9V2: zap_dcache_fsm
 output  logic           o_ack_fast,      // ARM9V2: zap_dcache_fsm
+output  logic           o_err_fast,      // ARM9V2: zap_dcache_fsm
 output  logic           o_fill_busy_nxt, // ARM9V2: zap_dcache_fsm
 output  logic [31:0]     o_reg_dat,
 output  logic [63:0]     o_reg_idx,
@@ -162,10 +164,9 @@ logic [31:0]                     tlb_far;
 logic                            tlb_fault;
 logic                            tlb_cacheable;
 logic                            tlb_wt;        // ARM925T
-logic                            tlb_busy, tlb_hit_ok, tlb_hit_ok_short;
+logic                            tlb_busy, tlb_hit_ok, tlb_hit_ok_short, tlb_idle;
 logic [CACHE_LINE*8-1:0]         tr_cache_line;
-logic [WAYS-1:0][31:0]           tr_cache_words;   // ARM925T
-logic                            tr_cache_word_sel; // ARM925T
+logic [31:0]                     tr_cache_word;    // ARM9V2: the short response's formatted hit word
 logic [CACHE_LINE*8-1:0]         cf_cache_line;
 logic [CACHE_LINE-1:0]           cf_cache_line_ben;
 logic                            cf_cache_tag_wr_en;
@@ -196,14 +197,14 @@ logic                            fill_busy;
 logic [3:0]                      cf_dbg_dcache;
 logic                            clean_line_event;
 assign o_fill_busy = fill_busy;
-assign o_short_data = SHORT_READ ? tr_cache_words[0] : 32'd0;
-assign o_short_hit = SHORT_READ && tr_cache_hit && (HIT_FF ? tlb_hit_ok_short : tlb_hit_ok);
+assign o_short_data = tr_cache_word;
+assign o_short_hit = tr_cache_hit && (HIT_FF ? tlb_hit_ok_short : tlb_hit_ok);
 // ARM9V2: during a fill, the line it evicts keeps its tag until UNLOCK_REG
 // and still gives a short hit, but its lookups are unsafe: the FSM withholds
 // the ACK, and after installation the access misses. live_lookup is
 // state_ff[IDLE] || hum_slot_ff, the only states with a hit ACK.
-assign o_short_live = SHORT_READ && live_lookup;
-assign o_short_trust = SHORT_READ && live_trust;
+assign o_short_live = live_lookup;
+assign o_short_trust = live_trust;
 localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
 localparam integer LINE_W = $clog2(CACHE_LINE);
 logic [SET_W-1:0]                lookup_s0, lookup_s1;
@@ -234,7 +235,7 @@ end
 always_comb
 begin
         lookup_address = i_address_nxt;
-        if      ( SHORT_READ && (|relookup) ) lookup_address = i_address;
+        if      ( |relookup ) lookup_address = i_address;
         else if ( relookup[0] ) lookup_address[LINE_W +: SET_W] = i_address[LINE_W +: SET_W];
         else if ( relookup[1] ) lookup_address[LINE_W +: SET_W] = lookup_s1;
         else if ( relookup[2] ) lookup_address[LINE_W +: SET_W] = lookup_s0;
@@ -250,7 +251,7 @@ assign unused = |{wb_err[1]};
 
 // Basic cache FSM - serves as manager 0.
 zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE(BE_32_ENABLE),
-                 .EXT_ABORT_FS(EXT_ABORT_FS), .WAYS(WAYS), .HIT_FORMATTED(SHORT_READ), .FLAT_ACK(FLAT_ACK)) u_zap_cache_fsm (
+                 .EXT_ABORT_FS(EXT_ABORT_FS), .WAYS(WAYS), .FLAT_ACK(FLAT_ACK)) u_zap_cache_fsm (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address              (i_address),
@@ -285,8 +286,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .o_line_req             (cf_line_req),
         .i_line_done_tr         (tr_line_done),
         .i_cache_line           (tr_cache_line),
-        .i_cache_words          (tr_cache_words),
-        .i_cache_word_sel       (tr_cache_word_sel),
+        .i_cache_word           (tr_cache_word),
         .i_cache_tag_dirty      (tr_cache_tag_dirty),
         .i_cache_tag            (tr_cache_tag),
         .i_cache_tag_valid      (tr_cache_tag_valid),
@@ -310,6 +310,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_cacheable            (tlb_cacheable),
         .i_wt                   (tlb_wt),
         .i_busy                 (tlb_busy),
+        .i_tlb_idle             (tlb_idle),
         .o_err2                 (o_err2),
         .o_dbg_dcache           (cf_dbg_dcache),
         .o_address              (cache_address),
@@ -325,6 +326,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .o_lock_owner           (o_lock_owner),
         .o_lock_return          (o_lock_return),
         .o_ack_fast             (o_ack_fast),
+        .o_err_fast             (o_err_fast),
         .o_fill_busy_nxt        (o_fill_busy_nxt),
         .o_reg_dat              (o_reg_dat),
         .o_reg_idx              (o_reg_idx),
@@ -354,26 +356,24 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
 // ARM925T: enlarged two-way D-caches retain the reported 8 KB geometry
 // for index maintenance. The tag manager visits all physical set colours.
-zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .SHORT_READ(SHORT_READ),
+zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS),
                    .REG_COLLISION(REG_COLLISION),
-                   .ACCEPTED_HIT_UPDATE(SHORT_READ),
+                   .ACCEPTED_HIT_UPDATE(1'b1),
                    .INDEX_SIZE((WAYS == 2 && CACHE_SIZE > 8192) ? 32'd8192 : CACHE_SIZE)) u_zap_cache_tag_ram (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address_nxt          (lookup_address),
         .i_address              (cache_address),
-        .i_lookup_address       (SHORT_READ ? compare_address : i_address),            // ARM925T
-        .i_lookup_check_address (i_address_check),
-        .i_lookup_stall         ((i_rd || i_wr) && !o_ack),
+        .i_lookup_address       (compare_address),            // ARM925T
         .o_cache_hit_early      (tr_cache_hit_early),
         // Held/stale lookups must not update replacement state.
-        .i_access               (SHORT_READ ? (i_rd_check || i_wr_check) && idle : (i_rd || i_wr) && (idle || (live_lookup && o_ack))),
+        .i_access               ((i_rd_check || i_wr_check) && idle),
         // ARM9: only the accepted response updates LRU, including HUM. Its
         // way is registered; a younger check probe may be held or replayed.
         .i_accepted_hit         ((i_rd || i_wr) && o_ack && !o_err && !o_err2 && live_lookup && tr_cache_hit),
         .i_accepted_address     (i_address),
         .i_accepted_way         (tr_cache_way),
-        .i_idle                 (SHORT_READ ? 1'b0 : live_lookup),
+        .i_idle                 (1'b0),
         .o_cache_hit            (raw_cache_hit),
         .o_cache_hit_dirty      (raw_cache_hit_dirty),
         .o_cache_way            (raw_cache_way),
@@ -420,9 +420,7 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .o_wb_wen_nxt           (wb_wen[1]),
         .o_wb_cti_nxt           (wb_cti[1]),
         .i_wb_dat               (i_wb_dat),
-        .i_wb_ack               (wb_ack[1]),
-        .i_pf_addr      (32'd0),
-        .o_pf_hit       ()
+        .i_wb_ack               (wb_ack[1])
 );
 
 // ARM9: compare the E-launched RAM result in M1, then capture M2.
@@ -430,10 +428,10 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
 // permission check. A store writes its registered way, never the younger
 // probe's hit way. On a miss no speculative store write reaches the RAM.
 assign compare_address = (|relookup) ? i_address : i_address_check;
-// The FSM exposes its saved victim way. SHORT_READ stores use the
-// registered live hit way; ZAP selects the live way inside the tag RAM.
-assign cache_write_way = SHORT_READ && live_lookup ? tr_cache_way : cf_cache_way;
-assign ram_write = !SHORT_READ || !live_lookup || tr_cache_hit;
+// The FSM exposes its saved victim way. Stores while the lookup is live
+// use the registered live hit way.
+assign cache_write_way = live_lookup ? tr_cache_way : cf_cache_way;
+assign ram_write = !live_lookup || tr_cache_hit;
 assign forward_store = live_lookup && cf_cache_tag_wr_en && tr_cache_hit &&
                        compare_address[LINE_W +: SET_W] == cache_address[LINE_W +: SET_W];
 assign forward_victim = forward_store &&
@@ -448,7 +446,7 @@ always_comb begin
     end
 end
 `include "zap_load_format.svh"
-generate if (SHORT_READ) begin : g_short_response
+generate if (1) begin : g_short_response
     logic [31:0] hit_word, store_word, formatted;
     logic store_collision;
     // ARM9: W already owns registered store data, byte enables and way.
@@ -505,26 +503,14 @@ generate if (SHORT_READ) begin : g_short_response
             tr_cache_way <= raw_cache_way;
             tr_cache_hit_dirty <= raw_cache_hit_dirty ||
                 (forward_store && raw_cache_hit && raw_cache_way == cache_write_way);
-            tr_cache_word_sel <= 0;
-            for (int w=0; w<WAYS; w++) tr_cache_words[w] <= formatted;
+            tr_cache_word <= formatted;
         end
     end
-end else begin : g_original_response
-    assign tr_cache_line = raw_cache_line;
-    assign tr_cache_words = raw_cache_words;
-    assign tr_cache_word_sel = raw_cache_word_sel;
-    assign tr_cache_tag = raw_cache_tag;
-    assign tr_cache_tag_valid = raw_cache_tag_valid;
-    assign tr_cache_hit = raw_cache_hit;
-    assign tr_cache_hit_dirty = raw_cache_hit_dirty;
-    assign tr_cache_way = raw_cache_way;
-    assign tr_cache_tag_dirty = raw_cache_tag_dirty;
-end endgenerate
+end : g_short_response endgenerate
 
 // ZAP TLB control module. Includes TLB RAM inside - Manager 2.
 zap_tlb #(
-        .SHORT_READ            (SHORT_READ),
-        .CHECK_WALK            (SHORT_READ),
+        .CHECK_WALK            (1'b1),
         .LPAGE_TLB_ENTRIES      (LPAGE_TLB_ENTRIES),
         .SPAGE_TLB_ENTRIES      (SPAGE_TLB_ENTRIES),
         .SECTION_TLB_ENTRIES    (SECTION_TLB_ENTRIES),
@@ -555,6 +541,7 @@ u_zap_tlb (
         .o_cacheable    (tlb_cacheable),
         .o_wt           (tlb_wt),
         .o_busy         (tlb_busy),
+        .o_idle_state   (tlb_idle),
         .o_hit_ok       (tlb_hit_ok),
         .o_hit_ok_short (tlb_hit_ok_short),
         .o_wb_stb_nxt   (wb_stb[2]),

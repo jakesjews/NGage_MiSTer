@@ -67,11 +67,20 @@ MODEL     := $(MODEL_DIR)/Vtb_cpu
 
 ASFLAGS := -mcpu=arm9tdmi -mfloat-abi=soft -I $(HERE)/tests
 
-.PHONY: all bins model run qemu diff remote boot boot-prep boot-model clean arm9v2-frontend arm9v2-decode arm9v2-execute
+.PHONY: all bins model run qemu diff remote boot boot-prep boot-model clean arm9v2 arm9v2-frontend arm9v2-decode arm9v2-execute arm9v2-proofs
 .SECONDARY:
 all: bins remote qemu diff
 
-# Standalone new-pipeline datapath checks; no ARM test rebuild or QEMU.
+# Standalone V2 component checks (the core's own sources and parameters,
+# on the SystemVerilog and on sv2v's output); no ARM test rebuild or QEMU.
+arm9v2: arm9v2-frontend arm9v2-decode arm9v2-execute arm9v2-proofs
+
+# The lock summary against its definition, and the cache metadata
+# against its last reviewed implementation (9037af9), over arbitrary inputs.
+arm9v2-proofs:
+	$(PY) $(HERE)/arm9v2/lock_summary.py
+	$(PY) $(HERE)/arm9v2/metadata_miter.py
+
 arm9v2-execute:
 	$(HERE)/arm9v2/execute_leaves.sh
 	$(HERE)/arm9v2/execute.sh

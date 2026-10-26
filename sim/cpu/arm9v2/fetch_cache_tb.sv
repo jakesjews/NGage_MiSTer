@@ -28,7 +28,7 @@ module fetch_cache_tb;
         .o_request(request),.o_stall(stall),.i_ready(ready),.o_valid(valid),
         .o_pc(pc),.o_word(word_data),.o_fault(fault),.o_predicted(predicted),.o_pred_target(pred_target)
     );
-    zap_cache #(.SHORT_READ(1'b1),.CACHE_SIZE(16384),.WAYS(2),.CACHE_LINE(16)) cache (
+    zap_cache #(.CACHE_SIZE(16384),.WAYS(2),.CACHE_LINE(16)) cache (
         .i_clk(clk),.i_reset(reset),.i_stall(stall),.i_address_check(addr_check),
         .i_wr_check(1'b0),.i_rd_check(1'b1),.i_address(addr),.i_address_nxt(addr_next),
         .i_rd(request),.i_wr(1'b0),.i_ben(4'hf),.i_dat(32'd0),.o_dat(data),
@@ -36,7 +36,7 @@ module fetch_cache_tb;
         .o_fill_done(fill_done),.o_fill_fault(fill_fault),.i_mmu_en(mmu),.i_cache_en(1'b1),
         .i_cache_inv_req(1'b0),.i_cache_clean_req(1'b0),.i_cpsr(5'b10011),
         .i_sr(2'd0),.i_baddr(32'h4000),.i_dac_reg(32'd1),.i_tlb_inv(1'b0),
-        .i_wb_busy(1'b0),.i_pf_inv(1'b0),.o_wb_stb(bus_stb),.o_wb_wen(bus_we),
+        .o_wb_stb(bus_stb),.o_wb_wen(bus_we),
         .o_wb_adr(bus_addr),.i_wb_dat(bus_data),.i_wb_ack(bus_ack),.i_wb_err(1'b0)
     );
     bit busy=0;

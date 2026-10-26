@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 module decode_cache_tb;
     parameter integer LATENCY=0;
+    parameter bit CUTS=0;   // the front end's timing cuts off or on
     logic i_clk, i_reset, i_flush;
     logic o_ready;
     logic [4:0] i_mode;
@@ -11,6 +12,37 @@ module decode_cache_tb;
     logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c;
     logic i_ready;
     wire i_ready_payload=i_ready;
+    // Ports added by the timing cuts (S_AGU, WT_TAGS, PAYLOAD_FREE, SHIFT_PRE,
+    // OP1_PRE), driven consistently with the bench's own signals: W's write
+    // tags are the one-hot write masks' indices (16: none).
+    wire [3:0] i_early_agu=4'd0;
+    logic [5:0] i_wr_tag_a, i_wr_tag_b;
+    logic i_wr_pair;
+    always_comb begin
+        i_wr_tag_a=6'd16; i_wr_tag_b=6'd16;
+        for(int r=0;r<40;r++)begin
+            if(i_wr_addr_a[r])i_wr_tag_a=6'(r);
+            if(i_wr_addr_b[r])i_wr_tag_b=6'(r);
+        end
+        i_wr_pair=|i_wr_addr_b;
+    end
+    wire o_self_dep;
+    wire [18:0] o_shift_pre;
+    // The core's register file (zap_register_file) as this bench's model:
+    // A and B written under i_wen, C always, C > B > A on the same edge,
+    // each write visible from the next clock. Decode reads it through
+    // o_rf_tag/i_rf_value, as in the core.
+    logic [39:0][31:0] model_rf;
+    always_ff @(posedge i_clk)
+        if(i_reset)model_rf<='0;
+        else for(int r=0;r<40;r++)begin
+            if(i_wen&&i_wr_addr_a[r])model_rf[r]<=i_wr_data_a;
+            if(i_wen&&i_wr_addr_b[r])model_rf[r]<=i_wr_data_b;
+            if(i_wr_addr_c[r])model_rf[r]<=i_wr_data_c;
+        end
+    logic [3:0][5:0] rf_tag;
+    logic [3:0][31:0] rf_value;
+    always_comb for(int n=0;n<4;n++)rf_value[n]=(rf_tag[n]<6'd40) ? model_rf[rf_tag[n]] : 32'd0;
     logic o_valid;
     logic [31:0] o_pc, o_instruction, o_pc_base, o_next_pc;
     logic [15:0] o_raw;
@@ -51,8 +83,9 @@ module decode_cache_tb;
     logic i_ack, i_error, i_retry, i_fill_pending, i_fill_done, i_fill_fault;
     logic [31:0] o_address_nxt, o_address_check, o_address;
     logic o_request, o_stall;
-    arm9v2_front_decode #(.RESET_VECTOR(32'h1000)) dut (.i_serial_continue(1'b0),.o_dbg_fetch(),.o_writes(),.o_early(),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.i_rf_value('0),.o_rf_tag(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.*);
-    wire unused=&{1'b0,o_ready,o_valid,o_pc,o_instruction,o_pc_base,o_next_pc,o_raw,o_mode,o_thumb,o_fault,o_force_align,o_reg_shift,o_kind,o_condition,o_tag,o_used,o_value,o_dest,o_first,o_last,o_reg_count,o_offset,o_writeback_offset,o_transfer_reg,o_branch_target,o_direct,o_match_taken,o_match_fallthrough,o_predicted,o_pred_hit,o_pred_target,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count,o_hazard,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_address_nxt,o_address_check,o_address,o_request,o_stall};
+    arm9v2_front_decode #(.RESET_VECTOR(32'h1000),.SHIFT_PRE(CUTS),.PAYLOAD_FREE(CUTS),.REDIRECT_PAYLOAD(CUTS),
+        .WT_TAGS(CUTS),.RAS_TOP_FF(CUTS),.PREFIX_FREE(CUTS),.VALID_BIT(CUTS)) dut (.i_serial_continue(1'b1),.o_dbg_fetch(),.o_writes(),.o_early(),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.*);
+    wire unused=&{1'b0,o_self_dep,o_shift_pre,o_ready,o_valid,o_pc,o_instruction,o_pc_base,o_next_pc,o_raw,o_mode,o_thumb,o_fault,o_force_align,o_reg_shift,o_kind,o_condition,o_tag,o_used,o_value,o_dest,o_first,o_last,o_reg_count,o_offset,o_writeback_offset,o_transfer_reg,o_branch_target,o_direct,o_match_taken,o_match_fallthrough,o_predicted,o_pred_hit,o_pred_target,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count,o_hazard,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_address_nxt,o_address_check,o_address,o_request,o_stall};
     logic mmu=1;
     wire bus_stb,bus_we;
     wire [31:0] bus_addr;
@@ -60,7 +93,7 @@ module decode_cache_tb;
     logic [31:0] bus_data=0;
     int cycles=0,checks=0,beats=0,redirects=0;
     logic [31:0] last_target=0;
-    zap_cache #(.SHORT_READ(1'b1),.CACHE_SIZE(16384),.WAYS(2),.CACHE_LINE(16)) cache (
+    zap_cache #(.CACHE_SIZE(16384),.WAYS(2),.CACHE_LINE(16)) cache (
         .i_clk(i_clk),.i_reset(i_reset),.i_stall(o_stall),.i_address_check(o_address_check),
         .i_wr_check(1'b0),.i_rd_check(1'b1),.i_address(o_address),.i_address_nxt(o_address_nxt),
         .i_rd(o_request),.i_wr(1'b0),.i_ben(4'hf),.i_dat(32'd0),.o_dat(i_data),
@@ -68,7 +101,7 @@ module decode_cache_tb;
         .o_fill_done(i_fill_done),.o_fill_fault(i_fill_fault),.i_mmu_en(mmu),.i_cache_en(1'b1),
         .i_cache_inv_req(1'b0),.i_cache_clean_req(1'b0),.i_cpsr(5'b10011),
         .i_sr(2'd0),.i_baddr(32'h4000),.i_dac_reg(32'd1),.i_tlb_inv(1'b0),
-        .i_wb_busy(1'b0),.i_pf_inv(1'b0),.o_wb_stb(bus_stb),.o_wb_wen(bus_we),
+        .o_wb_stb(bus_stb),.o_wb_wen(bus_we),
         .o_wb_adr(bus_addr),.i_wb_dat(bus_data),.i_wb_ack(bus_ack),.i_wb_err(1'b0)
     );
     bit busy=0;
@@ -164,9 +197,12 @@ module decode_cache_tb;
         end
         go(32'h3000);receive();
         check(o_kind==6&&o_transfer_reg==1&&o_offset==0&&o_first,"LDM first transfer");
-        i_locked=8;tick();receive();
-        check(o_pc==32'h3000&&o_transfer_reg==3&&o_offset==4&&!o_hazard,"load destination is not a source hazard");
-        tick();receive();check(o_transfer_reg==8&&o_offset==8&&o_last,"LDM final transfer");i_locked=0;tick();
+        // The core's decode holds a transfer whose destination
+        // still has a load in flight (write after write), as a source would.
+        i_locked=8;tick();repeat(3)begin check(!o_valid&&o_hazard,"locked LDM destination held in D2");tick();end
+        i_locked=0;tick();receive();
+        check(o_pc==32'h3000&&o_transfer_reg==3&&o_offset==4&&!o_hazard,"LDM transfer once its destination unlocks");
+        tick();receive();check(o_transfer_reg==8&&o_offset==8&&o_last,"LDM final transfer");tick();
         receive();check(o_pc==32'h3004&&o_transfer_reg==0&&o_offset==-8'sd12,"STM first transfer");
         i_locked=2;tick();repeat(3)begin check(!o_valid&&o_hazard,"dependent store source held in D2");tick();end
         i_locked=0;tick();

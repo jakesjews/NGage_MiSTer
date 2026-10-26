@@ -23,9 +23,11 @@
 // rotator's input excludes that lane, and the grant selects the finished
 // value. The operand multiplexer is no longer between the cache and the
 // shifter.
-module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, parameter logic FAST_Z=0,
-    parameter logic W_ROTATE=0, parameter logic SHIFT_PRE=0, parameter logic PAYLOAD_FREE=0,
-    parameter logic DSP_PRODUCT=0, parameter logic OP1_PRE=0) (
+// Parameter defaults are the core's configuration (arm9v2_core sets each
+// explicitly); 0 selects a cut's original form, kept for A/B timing trials.
+module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=1'b1, parameter logic FAST_Z=1'b1,
+    parameter logic W_ROTATE=1'b1, parameter logic SHIFT_PRE=1'b1, parameter logic PAYLOAD_FREE=1'b1,
+    parameter logic DSP_PRODUCT=1'b1, parameter logic OP1_PRE=1'b1) (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
     input logic i_flags_refresh,
     output logic o_serial_continue,
@@ -80,7 +82,10 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
     output logic [31:0] o_address,o_store_data,
     output logic [31:0] o_alu_address,   // A's ALU result (a Thumb BL suffix's target)
     output logic [3:0] o_flags,
-    output logic o_redirect,o_redirect_thumb,
+    // maxfan: A's redirect reaches A's record, S and fetch across the core
+    // (7.9 ns of routing on o_redirect -> a, seed 3 of 3f97f0b).
+    (* maxfan = 32 *) output logic o_redirect,
+    output logic o_redirect_thumb,
     output logic [31:0] o_redirect_target,o_redirect_link,
     output logic [2:0] o_redirect_pointer,
     output logic [3:0] o_redirect_count,

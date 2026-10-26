@@ -22,7 +22,6 @@
 
 module zap_cache #( // INSTRUCTION CACHE
 
-parameter logic SHORT_READ = 1'b0, // ARM9: RAM edge then caller's compare/capture edge.
 parameter [31:0] CACHE_SIZE             = 32'd1024,
 parameter [31:0] SPAGE_TLB_ENTRIES      = 32'd8,
 parameter [31:0] LPAGE_TLB_ENTRIES      = 32'd8,
@@ -30,8 +29,7 @@ parameter [31:0] SECTION_TLB_ENTRIES    = 32'd8,
 parameter [31:0] FPAGE_TLB_ENTRIES      = 32'd8,
 parameter [31:0] CACHE_LINE             = 32'd8,
 parameter [31:0] WAYS                   = 32'd1, // ARM925T: 1 or 2 (zap_cache_tag_ram).
-parameter [31:0] CPSR_MODE              = 32'd4,
-parameter [0:0]  PREFETCH               = 1'd0   // ARM925T: sequential next-line prefetch.
+parameter [31:0] CPSR_MODE              = 32'd4
 
 )
 (
@@ -86,8 +84,6 @@ input   logic [1:0]            i_sr,
 input   logic [31:0]           i_baddr,
 input   logic [31:0]           i_dac_reg,
 input   logic                  i_tlb_inv,
-input   logic                  i_wb_busy,
-input   logic                  i_pf_inv,
 
 // Wishbone. Signals from all 4 modules are ORed.
 output logic              o_wb_stb, o_wb_stb_nxt,
@@ -151,45 +147,10 @@ logic [31:0]                     cache_address;
 logic                            hold;
 logic                            idle;
 logic [2:0]                      wb_err;
-logic [31:0]                     pf_addr;
-logic                            tr_pf_hit;
-logic                            mmu_en_q;
-logic [1:0]                      sr_q;
-logic [31:0]                     baddr_q, dac_reg_q;
-logic                            pf_inv;
 logic                            unused;
 assign o_dbg_icache[2] = o_dbg_icache[1] && state_ff == SELECT_CCH;
 assign o_dbg_icache[3] = state_ff == SELECT_TLB && o_wb_cyc && o_wb_stb && (i_wb_ack || i_wb_err);
 
-//
-// ARM925T: the prefetch buffer is dropped on a TLB invalidate, a D-side
-// clean/invalidate or line operation (code may have been written), and on
-// any change of the MMU enable, S/R, translation base or domain access.
-// Registered (a cycle late) to keep the 32-bit compares off the fetch
-// acknowledge; harmless, since a buffer hit is still checked against the
-// live translation (fault, cacheable, physical address) like a cache hit,
-// and the cache itself (virtually tagged) is not dropped on these at all.
-//
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_reset )
-        begin
-                mmu_en_q  <= 1'd0;
-                sr_q      <= 2'd0;
-                baddr_q   <= 32'd0;
-                dac_reg_q <= 32'd0;
-                pf_inv    <= 1'd1;
-        end
-        else
-        begin
-                mmu_en_q  <= i_mmu_en;
-                sr_q      <= i_sr;
-                baddr_q   <= i_baddr;
-                dac_reg_q <= i_dac_reg;
-                pf_inv    <= i_tlb_inv || i_pf_inv || (i_mmu_en != mmu_en_q) || (i_sr != sr_q) ||
-                             (i_baddr != baddr_q) || (i_dac_reg != dac_reg_q);
-        end
-end
 
 // Selection 2 of Wishbone CTI[2x3] is always on all CPU supported modes.
 assign wb_cti[2] = CTI_EOB;
@@ -198,7 +159,7 @@ assign wb_cti[2] = CTI_EOB;
 assign unused = |{wb_err[1]};
 
 // Basic cache FSM - serves as manager 0.
-zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .PREFETCH(PREFETCH)) u_zap_cache_fsm (
+zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u_zap_cache_fsm (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address              (i_address),
@@ -208,11 +169,6 @@ zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .
         .i_wr                   (i_wr),
         .i_din                  (i_dat),
         .o_idle                 (idle),
-        .i_pf_hit               (tr_pf_hit),
-        .i_pf_inv               (pf_inv),
-        .i_wb_busy              (i_wb_busy || tlb_busy ||
-                                 (state_ff != SELECT_CCH && o_wb_stb)),
-        .o_pf_addr              (pf_addr),
         .i_ben                  (i_ben),
         .o_dat                  (o_dat),
         .o_ack                  (o_ack),
@@ -282,7 +238,7 @@ zap_cache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .
 
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
 // ARM9 reads cache and TLB together, then registers compare/selection.
-zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .SHORT_READ(SHORT_READ), .PREFETCH(PREFETCH), .TRACK_DIRTY(1'b0)) u_zap_cache_tag_ram     (
+zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .TRACK_DIRTY(1'b0)) u_zap_cache_tag_ram     (
         .i_clk                  (i_clk),
         .i_accepted_hit         (1'b0),
         .i_accepted_address     (32'd0),
@@ -290,13 +246,11 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .i_reset                (i_reset),
         .i_address_nxt          (i_address_nxt),
         .i_address              (cache_address),
-        .i_lookup_address       (SHORT_READ ? i_address_check : i_address),
-        .i_lookup_check_address (32'b0),
-        .i_lookup_stall         (1'b0),
+        .i_lookup_address       (i_address_check),
         /* verilator lint_off PINCONNECTEMPTY */
         .o_cache_hit_early      (),
         /* verilator lint_on PINCONNECTEMPTY */            // ARM925T
-        .i_access               (SHORT_READ ? i_rd_check && idle : i_rd || i_wr),
+        .i_access               (i_rd_check && idle),
         .i_idle                 (idle),
         .o_cache_hit            (raw_cache_hit),
         /* verilator lint_off PINCONNECTEMPTY */
@@ -329,8 +283,6 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         /* verilator lint_off PINCONNECTEMPTY */
         .o_line_done            (),
         /* verilator lint_on PINCONNECTEMPTY */
-        .i_pf_addr              (pf_addr),
-        .o_pf_hit               (tr_pf_hit),
 
         /* verilator lint_off PINCONNECTEMPTY */
         .o_wb_cyc_ff            (),
@@ -357,9 +309,9 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
 // on the permission-check edge, without changing the shared compare logic.
 // Misses and uncached responses continue through the FSM's normal response.
 assign o_data_early = raw_cache_word_sel ? raw_cache_words[(WAYS > 1) ? 1 : 0] : raw_cache_words[0];
-assign o_hit = SHORT_READ && idle && i_cache_en && tlb_cacheable &&
+assign o_hit = idle && i_cache_en && tlb_cacheable &&
                tr_cache_hit && !tlb_busy && !tlb_fault;
-generate if (SHORT_READ) begin : g_short_response
+generate if (1) begin : g_short_response
     always_ff @(posedge i_clk) begin
         if (!hold && !i_stall) begin
             tr_cache_line <= raw_cache_line;
@@ -372,20 +324,11 @@ generate if (SHORT_READ) begin : g_short_response
             tr_cache_tag_dirty <= raw_cache_tag_dirty;
         end
     end
-end else begin : g_original_response
-    assign tr_cache_line = raw_cache_line;
-    assign tr_cache_words = raw_cache_words;
-    assign tr_cache_word_sel = raw_cache_word_sel;
-    assign tr_cache_tag = raw_cache_tag;
-    assign tr_cache_tag_valid = raw_cache_tag_valid;
-    assign tr_cache_hit = raw_cache_hit;
-    assign tr_cache_way = raw_cache_way;
-    assign tr_cache_tag_dirty = raw_cache_tag_dirty;
-end endgenerate
+end : g_short_response
+endgenerate
 
 // ZAP TLB control module. Includes TLB RAM inside - manager 2.
 zap_tlb #(
-        .SHORT_READ            (SHORT_READ),
         .LPAGE_TLB_ENTRIES      (LPAGE_TLB_ENTRIES),
         .SPAGE_TLB_ENTRIES      (SPAGE_TLB_ENTRIES),
         .SECTION_TLB_ENTRIES    (SECTION_TLB_ENTRIES),
@@ -420,6 +363,7 @@ u_zap_tlb (
         /* verilator lint_on PINCONNECTEMPTY */
         .o_cacheable    (tlb_cacheable),
         .o_busy         (tlb_busy),
+        .o_idle_state   (),
         .o_wb_stb_nxt   (wb_stb[2]),
         .o_wb_cyc_nxt   (wb_cyc[2]),
         .o_wb_adr_nxt   (wb_adr[2]),

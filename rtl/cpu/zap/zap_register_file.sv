@@ -30,8 +30,10 @@
 // mem is the architectural contents in both forms (the benches read it);
 // with WRITE_FF the storage is store and mem its view with the held write
 // applied, which no synthesised logic reads.
-module zap_register_file #(parameter integer ALLOW_RETIMING=1, parameter logic EARLY_PORT_SELECT=0,
-        parameter logic WRITE_FF=0)
+// ARM9V2: the write port is registered (the held writes) and the reads
+// bypass a held write; the direct-write form ZAP used was removed on
+// 2026-10-25 with its EARLY_PORT_SELECT and ALLOW_RETIMING options.
+module zap_register_file
 (
         // Clock and reset.
         input logic              i_clk,
@@ -68,44 +70,14 @@ module zap_register_file #(parameter integer ALLOW_RETIMING=1, parameter logic E
 // ARM9V2: keep the RF edge at its architectural write boundary. Otherwise
 // physical synthesis can distribute storage across the RF mux network and
 // replicate registers without changing the HDL array size.
-// ZAP keeps its existing retiming policy (attribute 1 has no effect).
+// The architectural view: read by the simulation taps below (not under SYNTHESIS).
+/* verilator lint_off UNUSEDSIGNAL */
 logic [39:0][31:0] mem;
+/* verilator lint_on UNUSEDSIGNAL */
 
-generate if (!WRITE_FF) begin : g_direct
+if (1) begin : g_write_ff
 
-(* syn_allow_retiming = ALLOW_RETIMING *) logic [39:0][31:0] store;
-
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_reset )
-        begin
-                store <= {32'd40{32'd0}};
-        end
-        else
-        begin
-                for (int r = 0; r < 40; r++) begin
-                        if (EARLY_PORT_SELECT) begin
-                                if (i_wen && (i_wr_addr_a[r] || i_wr_addr_b[r]))
-                                        store[r] <= i_wr_addr_b[r] ? i_wr_data_b : i_wr_data_a;
-                        end else begin
-                                if (i_wen && i_wr_addr_a[r]) store[r] <= i_wr_data_a;
-                                if (i_wen && i_wr_addr_b[r]) store[r] <= i_wr_data_b;
-                        end
-                        if (i_wr_addr_c[r]) store[r] <= i_wr_data_c;
-                end
-        end
-end
-
-assign mem = store;
-assign o_rd_data_a = store [ i_rd_addr_a ];
-assign o_rd_data_b = store [ i_rd_addr_b ];
-assign o_rd_data_c = store [ i_rd_addr_c ];
-assign o_rd_data_d = store [ i_rd_addr_d ];
-assign o_rd_data_e = store [ i_rd_addr_e ];
-
-end else begin : g_write_ff
-
-(* syn_allow_retiming = ALLOW_RETIMING *) logic [39:0][31:0] store;
+(* syn_allow_retiming = 0 *) logic [39:0][31:0] store;
 (* dont_retime *) logic [39:0] held_a, held_b, held_c;
 (* dont_retime *) logic [31:0] held_data_a, held_data_b, held_data_c;
 // The read bypass compares the read address with each held write's binary
@@ -170,7 +142,7 @@ assign o_rd_data_c = view(i_rd_addr_c);
 assign o_rd_data_d = view(i_rd_addr_d);
 assign o_rd_data_e = view(i_rd_addr_e);
 
-end endgenerate
+end
 
 `ifndef SYNTHESIS
 

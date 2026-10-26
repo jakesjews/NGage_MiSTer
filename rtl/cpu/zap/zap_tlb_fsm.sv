@@ -71,6 +71,7 @@ output  logic                     o_fault,
 output  logic   [31:0]            o_phy_addr,
 output  logic                     o_cacheable,
 output  logic                     o_busy,
+output  logic                     o_idle_state,   // ARM9V2: state_ff[IDLE], a register
 
 // ----------------------------------------------------------------------------
 // To TLBs
@@ -182,6 +183,7 @@ assign examine_fsr = state_ff[IDLE] & i_mmu_en & i_idle & ~i_walk;
 
 // Busy when going to walk or walking.
 assign o_busy  = walk | (~state_ff[IDLE]);
+assign o_idle_state = state_ff[IDLE];
 
 // Access violation detection condition.
 assign o_fault = examine_fsr & |i_fsr[3:0];

@@ -27,7 +27,6 @@
 module zap_ram_simple #(
         parameter logic [31:0] WIDTH = 32'd32,
         parameter logic [31:0] DEPTH = 32'd32,
-        parameter logic SHORT_READ = 1'b0,
         // Cache-level descriptor owns the short-port collision bypass.
         parameter logic SHORT_RAW = 1'b0
 )
@@ -57,7 +56,7 @@ module zap_ram_simple #(
 // ARM9: one enabled RAM edge. Capture the colliding write on that edge;
 // the next edge belongs to the caller's compare/select/format register.
 // Data and enables hold together, including across cache/core stalls.
-if (SHORT_READ) begin : g_short
+if (1) begin : g_short
     logic [WIDTH-1:0] mem [DEPTH-1:0];
     logic [WIDTH-1:0] read_data, write_data;
     logic forward_write;
@@ -69,194 +68,7 @@ if (SHORT_READ) begin : g_short
     end
     assign o_rd_data = SHORT_RAW ? read_data : forward_write ? write_data : read_data;
     assign o_rd_data_pre = o_rd_data;
-end else begin : g_three_edge
-
-
-// ----------------------------------------------------------------------------
-// Stage 1
-// ----------------------------------------------------------------------------
-
-logic [WIDTH-1:0]         mem [DEPTH-1:0];
-logic [WIDTH-1:0]         mem_data_st1, mem_data_st2;
-logic [WIDTH-1:0]         buffer_st1, buffer_st2, buffer_st2_x;
-logic [1:0]               sel_st1;
-logic [2:0]               sel_st2;
-logic [$clog2(DEPTH)-1:0] rd_addr_st1, rd_addr_st2;
-
-// ----------------------------------------------------------------------------
-// Write RAM
-// ----------------------------------------------------------------------------
-
-always_ff @ (posedge i_clk)
-begin
-        if ( i_clken )
-        begin
-                if ( i_wr_en )
-                begin
-                        mem [ i_wr_addr ] <= i_wr_data;
-                end
-        end
-end
-
-// ----------------------------------------------------------------------------
-// Stage 1
-// ----------------------------------------------------------------------------
-
-// Memory read. Direct output from block RAM.
-always_ff @ (posedge i_clk)
-begin
-        if ( i_clken )
-        begin
-                mem_data_st1 <= mem [ i_rd_addr ];
-        end
-end
-
-//
-// Hazard Detection Logic. If the read data from this stage should be modified
-// mark it as such. This happens when write address collides with read
-// address.
-//
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_clken )
-        begin
-                //
-                // If 2, then collision occured, else it did not.
-                // We encode as 1-hot.
-                //
-                if ( i_wr_addr == i_rd_addr && i_wr_en )
-                begin
-                        sel_st1 <= 2'b10;
-                end
-                else
-                begin
-                        sel_st1 <= 2'b01;
-                end
-        end
-end
-
-// Buffer update logic.
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_clken )
-        begin
-                // Take a copy of the write data. We will need it if sel = 1.
-                buffer_st1  <= i_wr_data;
-
-                // Keep pumping address down.
-                rd_addr_st1 <= i_rd_addr;
-        end
-end
-
-// ----------------------------------------------------------------------------
-// Stage 2
-// ----------------------------------------------------------------------------
-
-// Delay the memory read for another cycle to deal with slow SRAMs.
-always_ff @ (posedge i_clk)
-begin
-        if ( i_clken )
-        begin
-                mem_data_st2 <= mem_data_st1;
-        end
-end
-
-//
-// Hazard detection logic. If the data in this stage needs to be modified
-// with current write data mark it as such. Else, Pass the previous
-// stage modifier signal too.
-//
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_clken )
-        begin
-                //
-                // If a collision occured here, give priority to this
-                // replacement for the address - even if the address
-                // is associated with a data replacement in the previous
-                // stages. Think about writes to the same address happening
-                // over 3 cycles :
-                // W1    W2     W3 (Write to same address)
-                // <-- Read Lat.--> Read trig. at W1 reads W3
-                //
-                if ( i_wr_addr == rd_addr_st1 && i_wr_en )
-                begin
-                        sel_st2       <= 3'b100;
-                end
-                else
-                begin
-                        sel_st2       <= {1'd0, sel_st1};
-                end
-        end
-end
-
-// Keep passing the address down.
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_clken )
-        begin
-                rd_addr_st2 <= rd_addr_st1;
-        end
-end
-
-// Take a copy of the write data and pass the buffer down.
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_clken )
-        begin
-                buffer_st2   <= i_wr_data;
-                buffer_st2_x <= buffer_st1;
-        end
-end
-
-//
-// If the read data should be overriden in st2, then do that. Is fast to do
-// as the encoding is 1-hot. Default case is assigned X for synthesis to
-// OPTIMIZE. This is OK for FPGA synthesis.
-//
-always_comb
-begin
-        case (sel_st2)
-        3'b100  : o_rd_data_pre = buffer_st2;
-        3'b010  : o_rd_data_pre = buffer_st2_x;
-        3'b001  : o_rd_data_pre = mem_data_st2;
-        default : o_rd_data_pre = {WIDTH{1'dx}}; // Synthesis will OPTIMIZE.
-                                                 // OK for FPGA synthesis.
-        endcase
-end
-
-// ----------------------------------------------------------------------------
-// Stage 3
-// ----------------------------------------------------------------------------
-
-//
-// We want a purely registered output. Once again check for collisions. This
-// will override any replacements done in the previous stages for this
-// read packet.
-//
-//
-// ARM925T: the last collision check is registered (fwd_st3) together with
-// the write data and the read data, and the choice is made after the
-// registers. Upstream chose before them, so the late write enable from the
-// cache FSM went through a mux into every output flop (timing). Same
-// values: when i_clken is 0, all three hold.
-//
-logic             fwd_st3;
-logic [WIDTH-1:0] fwd_data_st3, rd_data_st3;
-
-always_ff @ ( posedge i_clk )
-begin
-        if ( i_clken )
-        begin
-                fwd_st3      <= i_wr_addr == rd_addr_st2 && i_wr_en;
-                fwd_data_st3 <= i_wr_data;
-                rd_data_st3  <= o_rd_data_pre;
-        end
-end
-
-assign o_rd_data = fwd_st3 ? fwd_data_st3 : rd_data_st3;
-
-end
+end : g_short
 
 endmodule : zap_ram_simple
 
@@ -267,7 +79,7 @@ endmodule : zap_ram_simple
 // ARM9V2 (zap_cache_tag_ram DATA_PACK): BYTES byte-wide RAMs with shared
 // clock enable and addresses as one RAM with byte enables, so Quartus puts
 // two or four lanes in an M10K. Equal to BYTES zap_ram_simple instances with
-// SHORT_READ and SHORT_RAW: one enabled edge writes the enabled bytes and
+// SHORT_RAW: one enabled edge writes the enabled bytes and
 // registers the read word.
 module zap_ram_bytes #(
         parameter integer BYTES = 16,
