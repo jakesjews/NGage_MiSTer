@@ -6919,3 +6919,20 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   the CPU's own (CPU and caches on their own PLL, crossing at the CPU's
   bus port) would close timing now, at what the CPU meets (about 90 MHz
   at the best seeds, ~95 MHz within the board's -0.6 ns envelope).
+- **The cleanup fitted worse; master is back at C2.** The cleaned tree
+  (F, C2 + LATE_HOLD_SPLIT, commit 1d0fddb) fits at -1.884/-1.825/-2.059/
+  -3.171, TNS -6566 over four seeds, endpoints below -0.6 4099, against
+  C2's -2918 / 1395. Within C3, dropping LATE_HOLD_SPLIT had cost (-4731 ->
+  -6831); on C2, adding it costs about as much (-2918 -> -6566). The two
+  fits contradict each other, so ablations of one small cut sit below the
+  synthesis lottery even at four seeds. The CPU sources are restored to
+  8b8819f (C2) byte for byte; every tracked file matches the tree the C2
+  fit ran from, so master's fit is C2's (Quartus fits an identical input
+  identically, as C3A showed). Not refitted. The C2 sources passed the
+  suite 342/342 in all four lanes, QEMU 75/75, when committed; the
+  component benches and proofs pass again on the restored tree.
+- **What this says about the method.** C1 (-2578) and C2 (-2918) are the
+  only trees under -3000; every tree fitted since (C3, its three
+  ablations and F) has landed between -4030 and -6831. More cuts of this size are
+  unlikely to show up at four seeds; a change has to move the leaders by
+  more than the lottery (about a factor of two in TNS) to be measurable.

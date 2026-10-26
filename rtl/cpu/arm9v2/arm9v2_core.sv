@@ -108,10 +108,6 @@ module arm9v2_core #(
         // so A's finish is not among their inputs (arm9v2_execute
         // LATE_HOLD_STATIC): zero cycles.
         parameter logic LATE_HOLD_STATIC = 1'b1,
-        // A's held late matches built for both values of W's completion
-        // (done_forward), from registers, and selected by it last
-        // (arm9v2_execute LATE_HOLD_SPLIT): zero cycles.
-        parameter logic LATE_HOLD_SPLIT = 1'b1,
         // The predictor's looked-up valid bit as a register (arm9v2_predict
         // VALID_BIT): zero cycles.
         parameter logic VALID_BIT = 1'b1,
@@ -680,23 +676,6 @@ output logic [1:0] o_dbg_fetch
         if(a_redirect)next_load_valid[0]=0;
         if((!RESET_LEAN&&i_reset)||wb_flush)begin forward_write=0;forward_load=0;next_load_valid=0;end
     end
-    // LATE_HOLD_SPLIT: forward_write_hold and forward_advance for each value
-    // of done_forward, from registered state alone.
-    logic [1:0][1:0][1:0] forward_write_hold_by;
-    logic [1:0] forward_advance_by;
-    always_comb for(int d=0;d<2;d++)begin
-        logic qf;
-        logic [1:0][1:0] fwh;
-        qf=memory_state==HOLD&&d==1&&!(m.valid&&m.memory)&&!(skid.valid&&skid.memory);
-        forward_advance_by[d]=(memory_state==RUN&&d==1)||memory_state==RELOAD1||qf;
-        fwh={mw_write[1],mw_write[0]};
-        if(memory_state==RUN&&d==1)begin fwh[0]=0;fwh[1]=m.writes|{1'b0,m.load_writer};end
-        if(memory_state==RELOAD1||qf)begin fwh[0]=skid.writes|{1'b0,skid.load_writer};fwh[1]=m.writes|{1'b0,m.load_writer};end
-        if((memory_state==HOLD&&d==1&&!qf)||(memory_state==ABORT&&d==1)||
-            (memory_state==LOAD_RETURN&&!w_locked&&w.kind!=SWP&&d==1))fwh[1]=0;
-        if((!RESET_LEAN&&i_reset)||wb_flush)fwh=0;
-        forward_write_hold_by[d]=fwh;
-    end
     // LATE_HOLD_STATIC: forward_write with A's record not entering M.
     logic [1:0][1:0] forward_write_hold;
     always_comb begin
@@ -1195,14 +1174,13 @@ output logic [1:0] o_dbg_fetch
         .o_request(o_instr_wb_stb),
         .o_stall(o_code_stall),.o_dbg_fetch(o_dbg_fetch)
     );
-    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.DSP_PRODUCT(DSP_PRODUCT),.OP1_PRE(OP1_PRE),.WRITES_PRE(WRITES_PRE),.TAG_PRE(TAG_PRE),.HELD_FREE(HELD_FREE),.MUL_FAST_Z(MUL_FAST_Z),.AGU_AL(AGU_AL),.LATE_HOLD_STATIC(LATE_HOLD_STATIC),.LATE_HOLD_SPLIT(LATE_HOLD_SPLIT)) u_execute (
+    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.DSP_PRODUCT(DSP_PRODUCT),.OP1_PRE(OP1_PRE),.WRITES_PRE(WRITES_PRE),.TAG_PRE(TAG_PRE),.HELD_FREE(HELD_FREE),.MUL_FAST_Z(MUL_FAST_Z),.AGU_AL(AGU_AL),.LATE_HOLD_STATIC(LATE_HOLD_STATIC)) u_execute (
         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),
         .i_load_owner({w.load_writer,m.load_writer}),.i_next_load_owner(forward_load),
         .i_load_hit(w_hit&&i_data_short_hit),.i_load_trust(load_trust),.i_self_dep(d_self_dep),
         .i_return_select(i_dc_reg_idx),.i_return_data(operand_return_data),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),
-        .i_return_ready(return_ready),.i_return_s_match(d_return_match),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(mw_tag),.i_advance_tag(advance_tag),.i_next_advance(forward_advance),.i_next_write(forward_write),.i_next_write_hold(forward_write_hold),
-        .i_next_write_hold_by(forward_write_hold_by),.i_next_advance_by(forward_advance_by),.i_next_done(done_forward),.i_early(d_early),
+        .i_return_ready(return_ready),.i_return_s_match(d_return_match),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(mw_tag),.i_advance_tag(advance_tag),.i_next_advance(forward_advance),.i_next_write(forward_write),.i_next_write_hold(forward_write_hold),.i_early(d_early),
         .o_btb_pc(a_btb_pc),.o_btb_thumb(a_btb_thumb),
         .o_record_pointer(a_record_pointer),.o_record_count(a_record_count),
         .o_record_pred_hit(a_record_pred_hit),.o_record_pred_state(a_record_pred_state),.o_record_thumb(a_record_thumb),
