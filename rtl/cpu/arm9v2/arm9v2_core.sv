@@ -39,6 +39,35 @@ module arm9v2_core #(
         // The multiplier's partial products without a reset, kept in the
         // DSP blocks' output registers (arm9v2_execute DSP_PRODUCT).
         parameter logic DSP_PRODUCT = 1'b1,
+        // The return stack's top as a register (arm9v2_predict RAS_TOP_FF,
+        // from codex/arm9v2-c4 50ed1e6): zero cycles.
+        parameter logic RAS_TOP_FF = 1'b1,
+        // The coprocessor's own register-file read port (zap_writeback
+        // COPRO_PORT): zero cycles.
+        parameter logic COPRO_PORT = 1'b1,
+        // W completion, 104 MHz step 2 (2026-10-25). REG_DONE: an access the
+        // D-cache acknowledges for certain from registered predicates
+        // (i_data_ack_fast: a cacheable IDLE access, hit or miss, or a hit
+        // under a miss) completes in its clock as before; any other
+        // acknowledge (uncached, fault, alignment, TLB busy) is registered
+        // and completes W one clock later, with the request withdrawn from
+        // the cache in that clock. Costs cycles on those accesses only.
+        parameter logic REG_DONE = 1'b1,
+        // The cache request (request_ff, W's flush, the fill end) as one
+        // register loaded from their next values: zero cycles.
+        parameter logic REQ_FF = 1'b1,
+        // The return owner's lock from the cache's registered lookup of
+        // lock_nxt (zap_dcache_fsm o_lock_return): zero cycles.
+        parameter logic RETURN_READY_FF = 1'b1,
+        // No reset term in the forwarding/return combinational logic (the
+        // records it reads are reset): zero cycles.
+        parameter logic RESET_LEAN = 1'b1,
+        // decode's prefix_target without S's acceptance (arm9v2_decode
+        // PREFIX_FREE): zero cycles.
+        parameter logic PREFIX_FREE = 1'b1,
+        // S's operand-1 class (immediate, PC, PSR) registered by decode
+        // beside the shift controls (arm9v2_execute OP1_PRE): zero cycles.
+        parameter logic OP1_PRE = 1'b1,
 
         // For CP15 purposes.
         parameter logic [0:0]  CP15_L4_DEFAULT = 0,
@@ -108,6 +137,7 @@ input logic  [31:0]                      i_data_wb_dat,
 input logic [31:0] i_data_short_data,
 input logic i_data_short_hit,
 input logic i_data_short_live,
+input logic i_data_ack_fast,      // zap_dcache_fsm o_ack_fast (REG_DONE)
 input logic i_data_short_trust,   // i_data_short_live && !fill_ended, registered in the cache FSM
 output logic [31:0]                      o_data_wb_dat,
 output logic  [3:0]                      o_data_wb_sel,
@@ -183,6 +213,7 @@ output logic      [CPSR_MODE:0]           o_mem_cpsr,
 output logic                             o_code_stall,
 output logic                             o_data_stall,
 input logic                              i_data_fill_busy,
+input logic                              i_data_fill_busy_nxt,   // REQ_FF
 input logic      [31:0]                  i_fsr,
 input logic      [31:0]                  i_far,
 output logic      [31:0]                 o_dac,
@@ -214,6 +245,7 @@ input   logic [63:0]                     i_dc_reg_idx, // Register to load to.
 input   logic [31:0]                     i_dc_reg_dat, // Register data.
 input   logic [63:0]                     i_dc_lock,    // Register that is locked.
 input   logic                            i_dc_lock_any, i_dc_lock_owner,
+input   logic                            i_dc_lock_return,       // RETURN_READY_FF
 output logic [5:0] o_dc_lock_owner_hold, o_dc_lock_owner_advance,
 output logic o_dc_lock_owner_move,
 output  logic [63:0]                     o_dc_reg_idx, // Register index.
@@ -259,7 +291,7 @@ output logic [1:0] o_dbg_fetch
     logic d_fault;
     logic d_force_align;
     logic d_reg_shift;
-    logic [15:0] d_shift_pre;
+    logic [18:0] d_shift_pre;
     logic [3:0] d_kind;
     logic [3:0] d_condition;
     logic [3:0][5:0] d_tag;
@@ -385,6 +417,11 @@ output logic [1:0] o_dbg_fetch
     } check_t;
     (* dont_retime *) check_t check_ff;
     (* dont_retime, maxfan = 32 *) logic request_ff;
+    (* dont_retime, maxfan = 32 *) logic request_live;   // REQ_FF
+    (* dont_retime *) logic late_done,late_err,late_err2;  // REG_DONE
+    (* dont_retime *) logic [31:0] late_dat;
+    logic resp_err,resp_err2;
+    logic [31:0] resp_dat;
     logic next_check_enable;
 
     (* dont_retime *) memory_state_t memory_state;
@@ -418,11 +455,15 @@ output logic [1:0] o_dbg_fetch
     logic [1:0] forward_load;
     // Normal completion is qualified against the lock installed on its
     // accepting edge. A miss ACK installs a lock, not a usable data word.
-    assign return_next_valid=!i_reset&&wb_complete&&w.memory&&w.load_writer&&!wb_exception;
+    assign return_next_valid=(RESET_LEAN||!i_reset)&&wb_complete&&w.memory&&w.load_writer&&!wb_exception;
     // The accepting edge can install a miss lock. Test the registered
     // return owner after that edge; never qualify it with the old lock.
     // Only this one ready bit fans out to the eight registered matches.
-    assign return_ready=!i_dc_lock[return_tag];
+    assign return_ready=RETURN_READY_FF?!i_dc_lock_return:!i_dc_lock[return_tag];
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if(!i_reset)
+        assert(i_dc_lock_return==i_dc_lock[return_tag]) else $fatal(1,"return owner lock register");
+`endif
     assign operand_return_data={i_dc_reg_dat,return_data};
     always_ff @(posedge i_clk) begin
         return_tag<=w.dest[0];return_data<=load_data;
@@ -536,7 +577,7 @@ output logic [1:0] o_dbg_fetch
                 complete_class[consumer]=!w.memory||(request_done&&!retry&&!defer_load);
         end
         // Restore Rn on an aborting block before the exception writes ABT LR.
-        if(request_done&&i_data_wb_err&&w.kind==BLOCK&&w.ins[21])complete_class[consumer]=0;
+        if(request_done&&resp_err&&w.kind==BLOCK&&w.ins[21])complete_class[consumer]=0;
     end
     logic [1:0][1:0][5:0] advance_tag;
     (* keep, maxfan = 32 *) wire forward_advance=(memory_state==RUN&&done_forward)||memory_state==RELOAD1||quick_forward;
@@ -566,7 +607,7 @@ output logic [1:0] o_dbg_fetch
         if(memory_state==RUN&&done_forward)next_load_valid[1]=input_record.load_writer;
         if(memory_state==RELOAD1||quick_forward)next_load_valid[1]=skid.load_writer;
         if(a_redirect)next_load_valid[0]=0;
-        if(i_reset||wb_flush)begin forward_write=0;forward_load=0;next_load_valid=0;end
+        if((!RESET_LEAN&&i_reset)||wb_flush)begin forward_write=0;forward_load=0;next_load_valid=0;end
     end
 `ifndef SYNTHESIS
     always_ff @(posedge i_clk) if(!i_reset)begin
@@ -660,10 +701,10 @@ output logic [1:0] o_dbg_fetch
             // captured before the new tag/data existed. Re-read that owner
             // before exposing it to IDLE; otherwise a false miss can evict
             // the freshly installed dirty store line.
-            if(retry||(fill_ended&&w.valid&&w.memory&&
+            if(retry||(fill_ended&&!late_done&&w.valid&&w.memory&&
                 (memory_state==RUN||memory_state==HOLD)))memory_state_next=RETRY0;
             if(defer_load)begin memory_state_next=LOAD_RETURN;end
-            if(request_done&&i_data_wb_err&&w.kind==BLOCK&&w.ins[21])memory_state_next=RESTORE;
+            if(request_done&&resp_err&&w.kind==BLOCK&&w.ins[21])memory_state_next=RESTORE;
             if(wb_flush)begin
                 m_next.valid=0;w_next.valid=0;skid_next.valid=0;
                 m_next.writes=0;w_next.writes=0;skid_next.writes=0;
@@ -678,7 +719,7 @@ output logic [1:0] o_dbg_fetch
         next_check_enable=memory_state_next==RUN||memory_state_next==HOLD||memory_state_next==RELOAD1||memory_state_next==RETRY1||memory_state_next==SWAP1;
     end
     always_ff @(posedge i_clk) begin
-        if(i_reset)begin check_ff<='0;request_ff<=0;end
+        if(i_reset)begin check_ff<='0;request_ff<=0;request_live<=0;end
         else begin
             check_ff.address<={next_check_record.fcse_address[31:2],2'b0};
             check_ff.mode<=next_check_record.flags[CPSR_MODE:0];
@@ -689,9 +730,14 @@ output logic [1:0] o_dbg_fetch
             request_ff<=w_next.valid&&w_next.memory&&
                 !(w_next.fault||w_next.irq||w_next.fiq||(w_next.pass&&(w_next.kind==SWI||w_next.kind==UND)))&&
                 (memory_state_next==RUN||memory_state_next==HOLD);
+            request_live<=(w_next.valid&&w_next.memory&&
+                !(w_next.fault||w_next.irq||w_next.fiq||(w_next.pass&&(w_next.kind==SWI||w_next.kind==UND)))&&
+                (memory_state_next==RUN||memory_state_next==HOLD))&&!wb_redirect&&!(i_data_fill_busy&&!i_data_fill_busy_nxt);
         end
     end
 `ifndef SYNTHESIS
+    logic request_reset_done;
+    always_ff @(posedge i_clk) request_reset_done<=!i_reset;
     // Compare with the original schedule at every edge, including holds,
     // relookup, SWP, abort restoration, flush, and fill installation.
     always_ff @(posedge i_clk) if(!i_reset)begin
@@ -701,8 +747,9 @@ output logic [1:0] o_dbg_fetch
             assert({o_data_wb_adr_check,o_mem_cpsr,o_mem_translate,o_data_wb_ldfmt_check}==
                 {fcse({check_record.address[31:2],2'b0}),check_record.flags[CPSR_MODE:0],check_record.user_access,check_record.format});
         end
-        assert(request==(w.valid&&w.memory&&!w_exception&&!wb_flush&&!fill_ended&&
+        assert(request_raw==(w.valid&&w.memory&&!w_exception&&!wb_flush&&!fill_ended&&
             (memory_state==RUN||memory_state==HOLD)));
+        if(REQ_FF&&request_reset_done)assert(request_live==(request_ff&&!wb_flush&&!fill_ended)) else $fatal(1,"request register");
         if(request)assert(o_data_wb_adr==fcse({w.address[31:2],2'b0}));
     end
 `endif
@@ -736,18 +783,38 @@ output logic [1:0] o_dbg_fetch
         (w.kind==BLOCK&&w.ins[22]&&w.ins[20]&&w.ins[15]&&w.last);
     assign w_exception=w.fault||w.irq||w.fiq||(w.pass&&(w.kind==SWI||w.kind==UND));
     assign cp_request=w.valid&&w.pass&&w.kind==CP&&!w_exception&&(cp_read||(!i_dc_lock_any&&!i_data_fill_busy))&&!wb_flush;
-    assign request=request_ff&&!wb_flush&&!fill_ended;
-    assign request_done=request&&(i_data_wb_ack||i_data_wb_err);
-    assign retry=request_done&&i_dcache_err2;
+    // REQ_FF: request_ff&&!wb_flush&&!fill_ended as one register.
+    wire request_raw=REQ_FF?request_live:request_ff&&!wb_flush&&!fill_ended;
+    // REG_DONE: a non-fast acknowledge waits in late_done for one clock;
+    // the request is withdrawn from the cache in that clock.
+    assign request=request_raw&&!(REG_DONE&&late_done);
+    wire ack_now=REG_DONE?request&&i_data_ack_fast:request&&(i_data_wb_ack||i_data_wb_err);
+    assign request_done=ack_now||(REG_DONE&&late_done);
+    assign resp_err=REG_DONE?late_done&&late_err:i_data_wb_err;
+    assign resp_err2=REG_DONE?late_done&&late_err2:i_dcache_err2;
+    assign resp_dat=REG_DONE&&late_done?late_dat:i_data_wb_dat;
+    assign retry=request_done&&resp_err2;
+    always_ff @(posedge i_clk)begin
+        late_done<=!i_reset&&REG_DONE&&request&&(i_data_wb_ack||i_data_wb_err)&&!i_data_ack_fast;
+        late_err<=i_data_wb_err;late_err2<=i_dcache_err2;late_dat<=i_data_wb_dat;
+    end
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if(!i_reset)begin
+        if(REG_DONE&&request&&i_data_ack_fast)assert(i_data_wb_ack&&!i_data_wb_err&&!i_dcache_err2)
+            else $fatal(1,"fast acknowledge without the cache's");
+        if(REG_DONE&&late_done)assert(!wb_flush&&w.valid&&w.memory&&(memory_state==RUN||memory_state==HOLD))
+            else $fatal(1,"registered completion lost its owner");
+    end
+`endif
     // A first-pass PC hit is already permission-qualified and formatted in
     // the M/W short-response register. Retire it once here; W's registered
     // recovery owns any redirect. Miss/hold/retry/SWP still use LOAD_RETURN.
     wire fast_pc_hit=w.memory&&!w.store&&w.dest[0]==15&&w.kind!=SWP&&i_data_short_hit&&!w_waited;
-    assign defer_load=request_done&&!retry&&!i_data_wb_err&&!w.store&&((w.dest[0]==15&&!fast_pc_hit)||w.kind==SWP);
-    assign load_data=(memory_state==LOAD_RETURN||swap_write)?saved_load:fast_pc_hit?i_data_short_data:i_data_wb_dat;
+    assign defer_load=request_done&&!retry&&!resp_err&&!w.store&&((w.dest[0]==15&&!fast_pc_hit)||w.kind==SWP);
+    assign load_data=(memory_state==LOAD_RETURN||swap_write)?saved_load:fast_pc_hit?i_data_short_data:resp_dat;
 `ifndef SYNTHESIS
-    always_ff @(posedge i_clk)if(!i_reset&&fast_pc_hit&&request_done&&!retry&&!i_data_wb_err)
-        assert(i_data_short_data==i_data_wb_dat) else $fatal(1,"PC hit short/normal word mismatch");
+    always_ff @(posedge i_clk)if(!i_reset&&fast_pc_hit&&request_done&&!retry&&!resp_err)
+        assert(i_data_short_data==resp_dat) else $fatal(1,"PC hit short/normal word mismatch");
 `endif
     // Raw write-port class follows the W owner, independently of its
     // eventual completion. A data abort is the only late class override.
@@ -765,7 +832,7 @@ output logic [1:0] o_dbg_fetch
             rf_static_class[5]<=w_next.valid&&w_next.pass&&w_next.kind==UND;
         end
     end
-    assign rf_class=memory_state==RESTORE?6'd0:{rf_static_class,(memory_state==ABORT)||(request_done&&i_data_wb_err)};
+    assign rf_class=memory_state==RESTORE?6'd0:{rf_static_class,(memory_state==ABORT)||(request_done&&resp_err)};
     assign wb_restore=memory_state==RESTORE;
     // REDIRECT_EQ: the return target's upper 30 bits against the prediction,
     // once per source, in parallel; the load-word select then picks one bit.
@@ -775,7 +842,7 @@ output logic [1:0] o_dbg_fetch
     always_comb begin
         target_hi_eq[0]=w.pred_target[31:2]==saved_load[31:2];
         target_hi_eq[1]=w.pred_target[31:2]==i_data_short_data[31:2];
-        target_hi_eq[2]=w.pred_target[31:2]==i_data_wb_dat[31:2];
+        target_hi_eq[2]=w.pred_target[31:2]==resp_dat[31:2];
         target_hi_eq[3]=w.pred_target[31:2]==w.address[31:2];
         target_hi_eq[4]=w.pred_target[31:2]==w.result[0][31:2];
     end
@@ -784,7 +851,7 @@ output logic [1:0] o_dbg_fetch
     always_comb begin
         wb_complete=complete_class[0];
         done=!w.valid||complete_class[1];
-        wb_dabt=wb_complete&&(memory_state==ABORT||(request_done&&i_data_wb_err));
+        wb_dabt=wb_complete&&(memory_state==ABORT||(request_done&&resp_err));
         wb_fiq=wb_complete&&!wb_dabt&&w.fiq;
         wb_irq=wb_complete&&!wb_dabt&&!wb_fiq&&w.irq;
         wb_pabt=wb_complete&&!wb_dabt&&!wb_fiq&&!wb_irq&&w.fault;
@@ -873,7 +940,7 @@ output logic [1:0] o_dbg_fetch
             end
             m<=m_next;w<=w_next;skid<=skid_next;memory_state<=memory_state_next;
             if(memory_state==LOAD_RETURN&&!w_locked&&w.kind==SWP)swap_write<=1;
-            if(defer_load)saved_load<=i_data_wb_dat;
+            if(defer_load)saved_load<=resp_dat;
             if(wb_flush)begin w_waited<=0;swap_write<=0;cp_seen<=0;cp_finished<=0;end
             // w_waited's next value, from the three assignments above.
             w_hit_candidate<=w_next.memory&&(wb_flush||(memory_state==RUN&&done)||memory_state==RELOAD1||quick_reload||
@@ -931,7 +998,7 @@ output logic [1:0] o_dbg_fetch
         assert(w_hit_candidate==(w.memory&&!w_waited)) else $fatal(1,"W hit candidate register");
 `endif
     wire w_load_hit=w_hit&&i_data_short_hit&&load_trust;
-    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS)) u_front_decode (
+    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.EXTERNAL_RF(1),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS),.RAS_TOP_FF(RAS_TOP_FF),.PREFIX_FREE(PREFIX_FREE)) u_front_decode (
         .i_w_load_hit(w_load_hit),.o_self_dep(d_self_dep),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
         .i_forward_load(forward_load),.o_forward_grant(d_forward_grant),.i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),.o_return_match(d_return_match),
@@ -1026,7 +1093,7 @@ output logic [1:0] o_dbg_fetch
         .o_request(o_instr_wb_stb),
         .o_stall(o_code_stall),.o_dbg_fetch(o_dbg_fetch)
     );
-    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.DSP_PRODUCT(DSP_PRODUCT)) u_execute (
+    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.DSP_PRODUCT(DSP_PRODUCT),.OP1_PRE(OP1_PRE)) u_execute (
         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),
         .i_load_owner({w.load_writer,m.load_writer}),.i_next_load_owner(forward_load),
         .i_load_hit(w_hit&&i_data_short_hit),.i_load_trust(load_trust),.i_self_dep(d_self_dep),
@@ -1120,7 +1187,7 @@ output logic [1:0] o_dbg_fetch
         .o_multiply_wait(a_multiply_wait)
     );
 
-    zap_writeback #(.RF_EARLY_SELECT(1),.RF_ALLOW_RETIMING(0),.RF_WRITE_FF(RF_WRITE_FF),.BP_ENTRIES(32),.PHY_REGS(40),.FLAG_WDT(32),
+    zap_writeback #(.RF_EARLY_SELECT(1),.RF_ALLOW_RETIMING(0),.RF_WRITE_FF(RF_WRITE_FF),.COPRO_PORT(COPRO_PORT),.BP_ENTRIES(32),.PHY_REGS(40),.FLAG_WDT(32),
         .RESET_VECTOR(RESET_VECTOR),.CPSR_INIT(CPSR_INIT)) u_zap_writeback (
         .i_rf_class(rf_class),.i_clk(i_clk),.i_reset(i_reset),.i_valid(wb_valid),
         .i_decompile('0),.i_decompile_valid(wb_cfail),.i_uop_last(wb_last),

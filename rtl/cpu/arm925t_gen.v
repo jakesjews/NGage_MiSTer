@@ -296,6 +296,7 @@ module arm9v2_core (
 	i_data_short_data,
 	i_data_short_hit,
 	i_data_short_live,
+	i_data_ack_fast,
 	i_data_short_trust,
 	o_data_wb_dat,
 	o_data_wb_sel,
@@ -334,6 +335,7 @@ module arm9v2_core (
 	o_code_stall,
 	o_data_stall,
 	i_data_fill_busy,
+	i_data_fill_busy_nxt,
 	i_fsr,
 	i_far,
 	o_dac,
@@ -363,6 +365,7 @@ module arm9v2_core (
 	i_dc_lock,
 	i_dc_lock_any,
 	i_dc_lock_owner,
+	i_dc_lock_return,
 	o_dc_lock_owner_hold,
 	o_dc_lock_owner_advance,
 	o_dc_lock_owner_move,
@@ -399,6 +402,14 @@ module arm9v2_core (
 	parameter [0:0] REDIRECT_PAYLOAD = 1'b1;
 	parameter [0:0] WT_TAGS = 1'b1;
 	parameter [0:0] DSP_PRODUCT = 1'b1;
+	parameter [0:0] RAS_TOP_FF = 1'b1;
+	parameter [0:0] COPRO_PORT = 1'b1;
+	parameter [0:0] REG_DONE = 1'b1;
+	parameter [0:0] REQ_FF = 1'b1;
+	parameter [0:0] RETURN_READY_FF = 1'b1;
+	parameter [0:0] RESET_LEAN = 1'b1;
+	parameter [0:0] PREFIX_FREE = 1'b1;
+	parameter [0:0] OP1_PRE = 1'b1;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
 	parameter [31:0] DATA_CACHE_SIZE = 1024;
 	parameter [31:0] CODE_CACHE_SIZE = 1024;
@@ -433,6 +444,7 @@ module arm9v2_core (
 	input wire [31:0] i_data_short_data;
 	input wire i_data_short_hit;
 	input wire i_data_short_live;
+	input wire i_data_ack_fast;
 	input wire i_data_short_trust;
 	output wire [31:0] o_data_wb_dat;
 	output wire [3:0] o_data_wb_sel;
@@ -471,6 +483,7 @@ module arm9v2_core (
 	output wire o_code_stall;
 	output wire o_data_stall;
 	input wire i_data_fill_busy;
+	input wire i_data_fill_busy_nxt;
 	input wire [31:0] i_fsr;
 	input wire [31:0] i_far;
 	output wire [31:0] o_dac;
@@ -500,6 +513,7 @@ module arm9v2_core (
 	input wire [63:0] i_dc_lock;
 	input wire i_dc_lock_any;
 	input wire i_dc_lock_owner;
+	input wire i_dc_lock_return;
 	output wire [5:0] o_dc_lock_owner_hold;
 	output wire [5:0] o_dc_lock_owner_advance;
 	output wire o_dc_lock_owner_move;
@@ -532,7 +546,7 @@ module arm9v2_core (
 	wire d_fault;
 	wire d_force_align;
 	wire d_reg_shift;
-	wire [15:0] d_shift_pre;
+	wire [18:0] d_shift_pre;
 	wire [3:0] d_kind;
 	wire [3:0] d_condition;
 	wire [23:0] d_tag;
@@ -657,6 +671,14 @@ module arm9v2_core (
 	reg [3:0] memory_state_next;
 	(* dont_retime *) reg [45:0] check_ff;
 	(* dont_retime, maxfan = 32 *) reg request_ff;
+	(* dont_retime, maxfan = 32 *) reg request_live;
+	(* dont_retime *) reg late_done;
+	(* dont_retime *) reg late_err;
+	(* dont_retime *) reg late_err2;
+	(* dont_retime *) reg [31:0] late_dat;
+	wire resp_err;
+	wire resp_err2;
+	wire [31:0] resp_dat;
 	reg next_check_enable;
 	(* dont_retime *) reg [3:0] memory_state;
 	(* dont_retime *) reg [31:0] saved_load;
@@ -680,8 +702,8 @@ module arm9v2_core (
 	reg [1:0] forward_load;
 	reg wb_complete;
 	reg wb_exception;
-	assign return_next_valid = (((!i_reset && wb_complete) && w[533]) && w[525]) && !wb_exception;
-	assign return_ready = !i_dc_lock[return_tag];
+	assign return_next_valid = ((((RESET_LEAN || !i_reset) && wb_complete) && w[533]) && w[525]) && !wb_exception;
+	assign return_ready = (RETURN_READY_FF ? !i_dc_lock_return : !i_dc_lock[return_tag]);
 	assign operand_return_data = {i_dc_reg_dat, return_data};
 	wire [31:0] load_data;
 	always @(posedge i_clk) begin
@@ -825,7 +847,7 @@ module arm9v2_core (
 					else if ((memory_state == 4'd0) || (memory_state == 4'd1))
 						complete_class[consumer] = !w[533] || ((request_done && !retry) && !defer_load);
 				end
-				if (((request_done && i_data_wb_err) && (w[6-:4] == BLOCK)) && w[482])
+				if (((request_done && resp_err) && (w[6-:4] == BLOCK)) && w[482])
 					complete_class[consumer] = 0;
 			end
 	end
@@ -868,7 +890,7 @@ module arm9v2_core (
 			next_load_valid[1] = skid[525];
 		if (a_redirect)
 			next_load_valid[0] = 0;
-		if (i_reset || wb_flush) begin
+		if ((!RESET_LEAN && i_reset) || wb_flush) begin
 			forward_write = 0;
 			forward_load = 0;
 			next_load_valid = 0;
@@ -1030,11 +1052,11 @@ module arm9v2_core (
 				end
 			default: memory_state_next = 4'd0;
 		endcase
-		if (retry || (((fill_ended && w[539]) && w[533]) && ((memory_state == 4'd0) || (memory_state == 4'd1))))
+		if (retry || ((((fill_ended && !late_done) && w[539]) && w[533]) && ((memory_state == 4'd0) || (memory_state == 4'd1))))
 			memory_state_next = 4'd4;
 		if (defer_load)
 			memory_state_next = 4'd6;
-		if (((request_done && i_data_wb_err) && (w[6-:4] == BLOCK)) && w[482])
+		if (((request_done && resp_err) && (w[6-:4] == BLOCK)) && w[482])
 			memory_state_next = 4'd9;
 		if (wb_flush) begin
 			m_next[539] = 0;
@@ -1059,6 +1081,7 @@ module arm9v2_core (
 		if (i_reset) begin
 			check_ff <= 1'sb0;
 			request_ff <= 0;
+			request_live <= 0;
 		end
 		else begin
 			check_ff[45-:32] <= {next_check_record[364:335], 2'b00};
@@ -1068,6 +1091,7 @@ module arm9v2_core (
 			check_ff[1] <= ((next_check_enable && next_check_record[539]) && next_check_record[533]) && !next_check_record[532];
 			check_ff[0] <= ((next_check_enable && next_check_record[539]) && next_check_record[533]) && next_check_record[532];
 			request_ff <= ((w_next[539] && w_next[533]) && !(((w_next[536] || w_next[529]) || w_next[528]) || (w_next[538] && ((w_next[6-:4] == SWI) || (w_next[6-:4] == UND))))) && ((memory_state_next == 4'd0) || (memory_state_next == 4'd1));
+			request_live <= ((((w_next[539] && w_next[533]) && !(((w_next[536] || w_next[529]) || w_next[528]) || (w_next[538] && ((w_next[6-:4] == SWI) || (w_next[6-:4] == UND))))) && ((memory_state_next == 4'd0) || (memory_state_next == 4'd1))) && !wb_redirect) && !(i_data_fill_busy && !i_data_fill_busy_nxt);
 		end
 	assign check_record = (((memory_state == 4'd1) || (memory_state == 4'd5)) || (memory_state == 4'd8) ? w : m);
 	assign check_enable = ((((memory_state == 4'd0) || (memory_state == 4'd1)) || (memory_state == 4'd3)) || (memory_state == 4'd5)) || (memory_state == 4'd8);
@@ -1101,12 +1125,23 @@ module arm9v2_core (
 	assign w_serial = ((((((((w[6-:4] == CP) && !cp_read) || ((w[6-:4] == MSR) && (w[483] || (((w[538] && w[477]) && (w[433:429] != 5'h10)) && (w[241:237] != w[433:429]))))) || (w[6-:4] == SWP)) || (w[6-:4] == SWI)) || (w[6-:4] == UND)) || w[536]) || (((w[6-:4] == DP) && w[481]) && (w[90+:6] == 15))) || (((((w[6-:4] == BLOCK) && w[483]) && w[481]) && w[476]) && w[534]);
 	assign w_exception = ((w[536] || w[529]) || w[528]) || (w[538] && ((w[6-:4] == SWI) || (w[6-:4] == UND)));
 	assign cp_request = ((((w[539] && w[538]) && (w[6-:4] == CP)) && !w_exception) && (cp_read || (!i_dc_lock_any && !i_data_fill_busy))) && !wb_flush;
-	assign request = (request_ff && !wb_flush) && !fill_ended;
-	assign request_done = request && (i_data_wb_ack || i_data_wb_err);
-	assign retry = request_done && i_dcache_err2;
+	wire request_raw = (REQ_FF ? request_live : (request_ff && !wb_flush) && !fill_ended);
+	assign request = request_raw && !(REG_DONE && late_done);
+	wire ack_now = (REG_DONE ? request && i_data_ack_fast : request && (i_data_wb_ack || i_data_wb_err));
+	assign request_done = ack_now || (REG_DONE && late_done);
+	assign resp_err = (REG_DONE ? late_done && late_err : i_data_wb_err);
+	assign resp_err2 = (REG_DONE ? late_done && late_err2 : i_dcache_err2);
+	assign resp_dat = (REG_DONE && late_done ? late_dat : i_data_wb_dat);
+	assign retry = request_done && resp_err2;
+	always @(posedge i_clk) begin
+		late_done <= (((!i_reset && REG_DONE) && request) && (i_data_wb_ack || i_data_wb_err)) && !i_data_ack_fast;
+		late_err <= i_data_wb_err;
+		late_err2 <= i_dcache_err2;
+		late_dat <= i_data_wb_dat;
+	end
 	wire fast_pc_hit = ((((w[533] && !w[532]) && (w[90+:6] == 15)) && (w[6-:4] != SWP)) && i_data_short_hit) && !w_waited;
-	assign defer_load = (((request_done && !retry) && !i_data_wb_err) && !w[532]) && (((w[90+:6] == 15) && !fast_pc_hit) || (w[6-:4] == SWP));
-	assign load_data = ((memory_state == 4'd6) || swap_write ? saved_load : (fast_pc_hit ? i_data_short_data : i_data_wb_dat));
+	assign defer_load = (((request_done && !retry) && !resp_err) && !w[532]) && (((w[90+:6] == 15) && !fast_pc_hit) || (w[6-:4] == SWP));
+	assign load_data = ((memory_state == 4'd6) || swap_write ? saved_load : (fast_pc_hit ? i_data_short_data : resp_dat));
 	(* dont_retime *) reg [5:1] rf_static_class;
 	wire [5:0] rf_class;
 	always @(posedge i_clk)
@@ -1119,7 +1154,7 @@ module arm9v2_core (
 			rf_static_class[4] <= (w_next[539] && w_next[538]) && (w_next[6-:4] == SWI);
 			rf_static_class[5] <= (w_next[539] && w_next[538]) && (w_next[6-:4] == UND);
 		end
-	assign rf_class = (memory_state == 4'd9 ? 6'd0 : {rf_static_class, (memory_state == 4'd10) || (request_done && i_data_wb_err)});
+	assign rf_class = (memory_state == 4'd9 ? 6'd0 : {rf_static_class, (memory_state == 4'd10) || (request_done && resp_err)});
 	assign wb_restore = memory_state == 4'd9;
 	reg [4:0] target_hi_eq;
 	reg target_mismatch;
@@ -1130,7 +1165,7 @@ module arm9v2_core (
 			;
 		target_hi_eq[0] = w[172:143] == saved_load[31:2];
 		target_hi_eq[1] = w[172:143] == i_data_short_data[31:2];
-		target_hi_eq[2] = w[172:143] == i_data_wb_dat[31:2];
+		target_hi_eq[2] = w[172:143] == resp_dat[31:2];
 		target_hi_eq[3] = w[172:143] == w[396:367];
 		target_hi_eq[4] = w[172:143] == w[57-:30];
 	end
@@ -1140,7 +1175,7 @@ module arm9v2_core (
 			;
 		wb_complete = complete_class[0];
 		done = !w[539] || complete_class[1];
-		wb_dabt = wb_complete && ((memory_state == 4'd10) || (request_done && i_data_wb_err));
+		wb_dabt = wb_complete && ((memory_state == 4'd10) || (request_done && resp_err));
 		wb_fiq = (wb_complete && !wb_dabt) && w[528];
 		wb_irq = ((wb_complete && !wb_dabt) && !wb_fiq) && w[529];
 		wb_pabt = (((wb_complete && !wb_dabt) && !wb_fiq) && !wb_irq) && w[536];
@@ -1285,7 +1320,7 @@ module arm9v2_core (
 			if (((memory_state == 4'd6) && !w_locked) && (w[6-:4] == SWP))
 				swap_write <= 1;
 			if (defer_load)
-				saved_load <= i_data_wb_dat;
+				saved_load <= resp_dat;
 			if (wb_flush) begin
 				w_waited <= 0;
 				swap_write <= 0;
@@ -1326,7 +1361,9 @@ module arm9v2_core (
 		.SHIFT_PRE(SHIFT_PRE),
 		.PAYLOAD_FREE(PAYLOAD_FREE),
 		.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),
-		.WT_TAGS(WT_TAGS)
+		.WT_TAGS(WT_TAGS),
+		.RAS_TOP_FF(RAS_TOP_FF),
+		.PREFIX_FREE(PREFIX_FREE)
 	) u_front_decode(
 		.i_w_load_hit(w_load_hit),
 		.o_self_dep(d_self_dep),
@@ -1452,7 +1489,8 @@ module arm9v2_core (
 		.W_ROTATE(W_ROTATE),
 		.SHIFT_PRE(SHIFT_PRE),
 		.PAYLOAD_FREE(PAYLOAD_FREE),
-		.DSP_PRODUCT(DSP_PRODUCT)
+		.DSP_PRODUCT(DSP_PRODUCT),
+		.OP1_PRE(OP1_PRE)
 	) u_execute(
 		.i_pending(d_pending),
 		.i_admit(backend_ready),
@@ -1580,6 +1618,7 @@ module arm9v2_core (
 		.RF_EARLY_SELECT(1),
 		.RF_ALLOW_RETIMING(0),
 		.RF_WRITE_FF(RF_WRITE_FF),
+		.COPRO_PORT(COPRO_PORT),
 		.BP_ENTRIES(32),
 		.PHY_REGS(40),
 		.FLAG_WDT(32),
@@ -1822,6 +1861,7 @@ module arm9v2_decode (
 	parameter [0:0] PAYLOAD_FREE = 0;
 	parameter [0:0] REDIRECT_PAYLOAD = 0;
 	parameter [0:0] WT_TAGS = 0;
+	parameter [0:0] PREFIX_FREE = 0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
@@ -1889,7 +1929,7 @@ module arm9v2_decode (
 	output wire o_fault;
 	output wire o_force_align;
 	output wire o_reg_shift;
-	output wire [15:0] o_shift_pre;
+	output wire [18:0] o_shift_pre;
 	output wire [3:0] o_kind;
 	output wire [3:0] o_condition;
 	output wire [23:0] o_tag;
@@ -2618,10 +2658,12 @@ module arm9v2_decode (
 				.i_rd_addr_b(d2[106+:6]),
 				.i_rd_addr_c(d2[112+:6]),
 				.i_rd_addr_d(d2[118+:6]),
+				.i_rd_addr_e(6'd0),
 				.o_rd_data_a(raw_values[0+:32]),
 				.o_rd_data_b(raw_values[32+:32]),
 				.o_rd_data_c(raw_values[64+:32]),
-				.o_rd_data_d(raw_values[96+:32])
+				.o_rd_data_d(raw_values[96+:32]),
+				.o_rd_data_e()
 			);
 		end
 	endgenerate
@@ -2652,8 +2694,12 @@ module arm9v2_decode (
 			shift_controls = {t, n, (t == 0 ? -n[4:0] : n[4:0]), g};
 		end
 	endfunction
-	(* dont_retime *) reg [15:0] shift_pre_ff;
-	assign o_shift_pre = (SHIFT_PRE ? shift_pre_ff : 16'd0);
+	function automatic [2:0] op1_class;
+		input reg [372:0] r;
+		op1_class = {((r[131-:4] == K_DP) || (r[131-:4] == K_MSR)) && r[334], r[106+:6] == 15, r[106+:6] == 17};
+	endfunction
+	(* dont_retime *) reg [18:0] shift_pre_ff;
+	assign o_shift_pre = {shift_pre_ff[18:16], (SHIFT_PRE ? shift_pre_ff[15:0] : 16'd0)};
 	reg [3:0] wt_hit_a;
 	reg [3:0] wt_hit_b;
 	always @(*) begin : sv2v_autoblock_27
@@ -2719,6 +2765,8 @@ module arm9v2_decode (
 			redirect_in_d2 <= 0;
 			if (i_ready)
 				out_valid <= 0;
+			if ((PREFIX_FREE && d2_valid) && (d2[131-:4] == K_BL_PREFIX))
+				prefix_target <= d2[77-:32];
 			if (i_serial_continue)
 				fenced <= 0;
 			if (d1_load)
@@ -2741,7 +2789,7 @@ module arm9v2_decode (
 				issued <= d2;
 				values <= raw_values;
 				self_dep <= d2_self_dep;
-				shift_pre_ff <= shift_controls(d2);
+				shift_pre_ff <= {op1_class(d2), shift_controls(d2)};
 				begin : sv2v_autoblock_29
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
@@ -2761,7 +2809,8 @@ module arm9v2_decode (
 					fenced <= 1;
 				out_valid <= 1;
 				if (d2[131-:4] == K_BL_PREFIX) begin
-					prefix_target <= d2[77-:32];
+					if (!PREFIX_FREE)
+						prefix_target <= d2[77-:32];
 					prefix_valid <= !d2[149];
 				end
 				else
@@ -3005,6 +3054,7 @@ module arm9v2_execute (
 	parameter [0:0] SHIFT_PRE = 0;
 	parameter [0:0] PAYLOAD_FREE = 0;
 	parameter [0:0] DSP_PRODUCT = 0;
+	parameter [0:0] OP1_PRE = 0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
@@ -3038,7 +3088,7 @@ module arm9v2_execute (
 	input wire i_reg_shift;
 	input wire i_first;
 	input wire i_last;
-	input wire [15:0] i_shift_pre;
+	input wire [18:0] i_shift_pre;
 	input wire [3:0] i_kind;
 	input wire [3:0] i_condition;
 	input wire [23:0] i_tag;
@@ -3320,17 +3370,21 @@ module arm9v2_execute (
 	reg [31:0] operand1_nw;
 	reg [31:0] shift_input_nw;
 	wire [4:0] grant1 = i_forward_grant[((s_grant_hit * 4) + 1) * 5+:5];
-	wire w_take = (((W_ROTATE && grant1[3]) && (i_tag[6+:6] != 15)) && (i_tag[6+:6] != 17)) && !(((i_kind == DP) || (i_kind == MSR)) && i_instruction[25]);
+	wire op1_imm_ref = ((i_kind == DP) || (i_kind == MSR)) && i_instruction[25];
+	wire op1_imm = (OP1_PRE ? i_shift_pre[18] : op1_imm_ref);
+	wire op1_pc = (OP1_PRE ? i_shift_pre[17] : i_tag[6+:6] == 15);
+	wire op1_psr = (OP1_PRE ? i_shift_pre[16] : i_tag[6+:6] == 17);
+	wire w_take = (((W_ROTATE && grant1[3]) && !op1_pc) && !op1_psr) && !op1_imm;
 	always @(*) begin
 		if (_sv2v_0)
 			;
 		operand1_nw = (((i_mw_value[32+:32] & {32 {grant1[0]}}) | (i_mw_value[0+:32] & {32 {grant1[1]}})) | (i_mw_value[96+:32] & {32 {grant1[2]}})) | ((holding ? held[32+:32] : i_value[32+:32]) & {32 {grant1[4]}});
-		if (i_tag[6+:6] == 15)
+		if (op1_pc)
 			operand1_nw = (i_reg_shift ? i_pc_base + 32'd4 : i_pc_base);
-		if (i_tag[6+:6] == 17)
+		if (op1_psr)
 			operand1_nw = {flags, i_cpsr[27:8], interrupt_mask, i_cpsr[5:0]};
 		shift_input_nw = operand1_nw;
-		if (((i_kind == DP) || (i_kind == MSR)) && i_instruction[25])
+		if (op1_imm)
 			shift_input_nw = {24'd0, i_instruction[7:0]};
 	end
 	wire [31:0] shifted_main;
@@ -4019,6 +4073,7 @@ module arm9v2_fetch (
 	parameter [31:0] RESET_VECTOR = 0;
 	parameter [0:0] PREDICTOR = 1'b1;
 	parameter [0:0] THUMB_HALF = 1'b0;
+	parameter [0:0] RAS_TOP_FF = 1'b0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_redirect;
@@ -4127,7 +4182,7 @@ module arm9v2_fetch (
 	assign o_ras_count = head_packet[3-:4];
 	generate
 		if (PREDICTOR) begin : g_predictor
-			arm9v2_predict u_predict(
+			arm9v2_predict #(.RAS_TOP_FF(RAS_TOP_FF)) u_predict(
 				.i_clk(i_clk),
 				.i_reset(i_reset),
 				.i_clear(i_predictor_clear),
@@ -4403,6 +4458,8 @@ module arm9v2_front_decode (
 	parameter [0:0] PAYLOAD_FREE = 0;
 	parameter [0:0] REDIRECT_PAYLOAD = 0;
 	parameter [0:0] WT_TAGS = 0;
+	parameter [0:0] RAS_TOP_FF = 0;
+	parameter [0:0] PREFIX_FREE = 0;
 	parameter [31:0] RESET_VECTOR = 0;
 	input wire i_clk;
 	input wire i_reset;
@@ -4459,7 +4516,7 @@ module arm9v2_front_decode (
 	output wire o_fault;
 	output wire o_force_align;
 	output wire o_reg_shift;
-	output wire [15:0] o_shift_pre;
+	output wire [18:0] o_shift_pre;
 	output wire [3:0] o_kind;
 	output wire [3:0] o_condition;
 	output wire [23:0] o_tag;
@@ -4535,7 +4592,8 @@ module arm9v2_front_decode (
 	arm9v2_fetch #(
 		.RESET_VECTOR(RESET_VECTOR),
 		.PREDICTOR(PREDICTOR),
-		.THUMB_HALF(THUMB_HALF)
+		.THUMB_HALF(THUMB_HALF),
+		.RAS_TOP_FF(RAS_TOP_FF)
 	) u_fetch(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -4589,7 +4647,8 @@ module arm9v2_front_decode (
 		.SHIFT_PRE(SHIFT_PRE),
 		.PAYLOAD_FREE(PAYLOAD_FREE),
 		.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),
-		.WT_TAGS(WT_TAGS)
+		.WT_TAGS(WT_TAGS),
+		.PREFIX_FREE(PREFIX_FREE)
 	) u_decode(
 		.i_valid(f_valid),
 		.i_pc(f_pc),
@@ -4724,6 +4783,7 @@ module arm9v2_predict (
 );
 	reg _sv2v_0;
 	parameter integer ENTRIES = 256;
+	parameter [0:0] RAS_TOP_FF = 1'b0;
 	localparam integer INDEX_W = $clog2(ENTRIES);
 	localparam integer TAG_W = 31 - INDEX_W;
 	input wire i_clk;
@@ -4765,6 +4825,8 @@ module arm9v2_predict (
 	(* dont_retime *) reg [2:0] pointer;
 	(* dont_retime *) reg [3:0] count;
 	reg [31:0] stack [0:7];
+	(* dont_retime *) reg [31:0] ras_top;
+	wire [31:0] call_link = (read_pc + (read_thumb ? 32'd2 : 32'd4)) | {31'd0, read_thumb};
 	reg [1:0] update_state;
 	wire write_enable = (i_update && !i_reset) && !i_clear;
 	wire [INDEX_W - 1:0] rd_index = i_pc[INDEX_W:1];
@@ -4820,11 +4882,15 @@ module arm9v2_predict (
 	end
 	assign o_hit = (read_valid[read_pc[INDEX_W:1]] && (read_entry[TAG_W + 36-:((TAG_W + 36) >= 37 ? TAG_W + 0 : 38 - (TAG_W + 36))] == read_pc[31:INDEX_W + 1])) && (read_entry[36] == read_thumb);
 	assign o_taken = o_hit && read_entry[3];
-	assign o_target = ((read_entry[1-:2] == RETURN) && (count != 0) ? stack[pointer - 1'b1] : read_entry[35-:32]);
+	assign o_target = ((read_entry[1-:2] == RETURN) && (count != 0) ? (RAS_TOP_FF ? ras_top : stack[pointer - 1'b1]) : read_entry[35-:32]);
 	assign o_state = (o_hit ? read_entry[3-:2] : 2'b01);
 	assign o_kind = read_entry[1-:2];
 	assign o_pointer = pointer;
 	assign o_count = count;
+	function automatic [2:0] sv2v_cast_3;
+		input reg [2:0] inp;
+		sv2v_cast_3 = inp;
+	endfunction
 	always @(posedge i_clk)
 		if (i_reset) begin
 			pointer <= 0;
@@ -4833,14 +4899,17 @@ module arm9v2_predict (
 		else if (i_repair) begin
 			pointer <= i_repair_pointer;
 			count <= i_repair_count;
+			ras_top <= stack[i_repair_pointer - 1'b1];
 			case (i_repair_action)
 				CALL: begin
 					stack[i_repair_pointer] <= i_repair_link;
+					ras_top <= i_repair_link;
 					pointer <= i_repair_pointer + 1'b1;
 					count <= (i_repair_count == 8 ? 4'd8 : i_repair_count + 1'b1);
 				end
 				RETURN:
 					if (i_repair_count != 0) begin
+						ras_top <= stack[sv2v_cast_3(i_repair_pointer - 2'd2)];
 						pointer <= i_repair_pointer - 1'b1;
 						count <= i_repair_count - 1'b1;
 					end
@@ -4859,13 +4928,15 @@ module arm9v2_predict (
 		else if (i_accept && o_taken)
 			case (read_entry[1-:2])
 				CALL: begin
-					stack[pointer] <= (read_pc + (read_thumb ? 32'd2 : 32'd4)) | {31'd0, read_thumb};
+					stack[pointer] <= call_link;
+					ras_top <= call_link;
 					pointer <= pointer + 1'b1;
 					if (count != 8)
 						count <= count + 1'b1;
 				end
 				RETURN:
 					if (count != 0) begin
+						ras_top <= stack[sv2v_cast_3(pointer - 2'd2)];
 						pointer <= pointer - 1'b1;
 						count <= count - 1'b1;
 					end
@@ -10064,6 +10135,9 @@ module zap_dcache_fsm (
 	i_lock_owner_move,
 	o_lock_any,
 	o_lock_owner,
+	o_lock_return,
+	o_ack_fast,
+	o_fill_busy_nxt,
 	o_reg_dat,
 	o_reg_idx,
 	o_dat,
@@ -10137,6 +10211,7 @@ module zap_dcache_fsm (
 );
 	reg _sv2v_0;
 	parameter [0:0] HIT_FORMATTED = 1'b0;
+	parameter [0:0] FLAT_ACK = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] CACHE_LINE = 32'd8;
 	parameter [0:0] BE_32_ENABLE = 1'd0;
@@ -10163,14 +10238,17 @@ module zap_dcache_fsm (
 	input wire i_lock_owner_move;
 	(* dont_retime *) output reg o_lock_any;
 	(* dont_retime *) output reg o_lock_owner;
+	(* dont_retime *) output reg o_lock_return;
+	output wire o_ack_fast;
+	output wire o_fill_busy_nxt;
 	output wire [31:0] o_reg_dat;
 	(* dont_retime *) output reg [63:0] o_reg_idx;
 	output reg [31:0] o_dat;
 	output wire o_ack;
-	output reg o_err;
+	output wire o_err;
 	output reg [7:0] o_fsr;
 	output reg [31:0] o_far;
-	output reg o_err2;
+	output wire o_err2;
 	output reg [3:0] o_dbg_dcache;
 	input wire i_cache_en;
 	input wire i_cache_inv;
@@ -10843,6 +10921,7 @@ module zap_dcache_fsm (
 			lock_ff <= 64'd0;
 			o_lock_any <= 0;
 			o_lock_owner <= 0;
+			o_lock_return <= 0;
 			state_ff <= 0;
 			state_ff[IDLE] <= 1'd1;
 		end
@@ -10861,6 +10940,7 @@ module zap_dcache_fsm (
 			lock_ff <= lock_nxt;
 			o_lock_any <= |lock_nxt;
 			o_lock_owner <= (i_lock_owner_move ? owner_advance_locked : owner_held_locked);
+			o_lock_return <= owner_held_locked;
 			state_ff <= state_nxt;
 		end
 	always @(posedge i_clk) begin : sv2v_autoblock_1
@@ -10962,7 +11042,17 @@ module zap_dcache_fsm (
 		end
 	assign hum_slot_nxt = (((state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE]) || state_nxt[UNLOCK_WR]) && lookup_ready_nxt) && (line_safe_nxt || ((state_nxt[CLEAN_SINGLE] && fill_visible_ff) && victim_safe_nxt));
 	assign hum_ack = (((hum_slot_ff && i_hit_ok) && i_cache_en) && !i_align_fault) && i_cache_hit_early;
-	assign o_ack = idle_ack || hum_ack;
+	reg err_case;
+	reg err2_case;
+	wire access_now = i_rd || i_wr;
+	wire ack_idle_flat = state_ff[IDLE] && ((((!access_now || i_align_fault) || i_fault) || i_busy) || ((i_cache_en && i_cacheable) && !(i_wr && i_wt)));
+	wire err_flat = ((state_ff[IDLE] && access_now) && (i_align_fault || i_fault)) || (state_ff[UNC_DONE] && unc_err_ff);
+	wire err2_flat = (((state_ff[IDLE] && access_now) && !i_align_fault) && !i_fault) && i_busy;
+	assign o_ack = (FLAT_ACK ? (ack_idle_flat || state_ff[UNC_DONE]) || hum_ack : idle_ack || hum_ack);
+	assign o_err = (FLAT_ACK ? err_flat : err_case);
+	assign o_err2 = (FLAT_ACK ? err2_flat : err2_case);
+	assign o_ack_fast = ((((state_ff[IDLE] && !i_align_fault) && i_cache_en) && i_hit_ok) && !i_busy) || hum_ack;
+	assign o_fill_busy_nxt = fill_busy_nxt;
 	assign fill_busy_nxt = (((((state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE]) || state_nxt[UNLOCK_REG]) || state_nxt[UNLOCK_WR]) || state_nxt[RELOOKUP0]) || state_nxt[RELOOKUP1]) || state_nxt[RELOOKUP2];
 	always @(posedge i_clk)
 		if (i_reset)
@@ -11044,8 +11134,8 @@ module zap_dcache_fsm (
 		o_cache_clean_done = 0;
 		o_hold = 1'd0;
 		idle_ack = 1'b0;
-		o_err = 0;
-		o_err2 = 0;
+		err_case = 0;
+		err2_case = 0;
 		if (state_ff[UNC_DONE])
 			o_dat = ld_transform(unc_dat_ff, ldfmt);
 		else if (HIT_FORMATTED)
@@ -11071,19 +11161,19 @@ module zap_dcache_fsm (
 					end
 				end
 				else if (i_align_fault) begin
-					o_err = 1'd1;
+					err_case = 1'd1;
 					idle_ack = 1'd1;
 					o_fsr = 8'b00000001;
 					o_far = i_va;
 				end
 				else if (i_fault) begin
-					o_err = 1'd1;
+					err_case = 1'd1;
 					idle_ack = 1'd1;
 					o_fsr = i_fsr;
 					o_far = i_far;
 				end
 				else if (i_busy) begin
-					o_err2 = 1'd1;
+					err2_case = 1'd1;
 					idle_ack = 1'd1;
 				end
 				else if (i_rd || i_wr) begin
@@ -11174,7 +11264,7 @@ module zap_dcache_fsm (
 				o_hold = 1'd0;
 				state_nxt[UNC_DONE] = 1'd0;
 				state_nxt[IDLE] = 1'd1;
-				o_err = unc_err_ff;
+				err_case = unc_err_ff;
 				if (unc_err_ff) begin
 					o_fsr[3:0] = EXT_ABORT_FS;
 					o_far = i_va;
@@ -11300,8 +11390,8 @@ module zap_dcache_fsm (
 				o_cache_clean_done = 1'sbx;
 				o_hold = 1'sbx;
 				idle_ack = 1'sbx;
-				o_err = 1'sbx;
-				o_err2 = 1'sbx;
+				err_case = 1'sbx;
+				err2_case = 1'sbx;
 			end
 		endcase
 	end
@@ -11346,6 +11436,9 @@ module zap_dcache (
 	i_lock_owner_move,
 	o_lock_any,
 	o_lock_owner,
+	o_lock_return,
+	o_ack_fast,
+	o_fill_busy_nxt,
 	o_reg_dat,
 	o_reg_idx,
 	i_mmu_en,
@@ -11390,6 +11483,7 @@ module zap_dcache (
 	parameter [0:0] WAY_FORMAT = 1'b0;
 	parameter [0:0] REG_COLLISION = 1'b0;
 	parameter [0:0] HIT_FF = 1'b0;
+	parameter [0:0] FLAT_ACK = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
@@ -11438,6 +11532,9 @@ module zap_dcache (
 	input wire i_lock_owner_move;
 	output wire o_lock_any;
 	output wire o_lock_owner;
+	output wire o_lock_return;
+	output wire o_ack_fast;
+	output wire o_fill_busy_nxt;
 	output wire [31:0] o_reg_dat;
 	output wire [63:0] o_reg_idx;
 	input wire i_mmu_en;
@@ -11859,7 +11956,8 @@ module zap_dcache (
 		.BE_32_ENABLE(BE_32_ENABLE),
 		.EXT_ABORT_FS(EXT_ABORT_FS),
 		.WAYS(WAYS),
-		.HIT_FORMATTED(SHORT_READ)
+		.HIT_FORMATTED(SHORT_READ),
+		.FLAT_ACK(FLAT_ACK)
 	) u_zap_cache_fsm(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -11933,6 +12031,9 @@ module zap_dcache (
 		.i_lock_owner_move(i_lock_owner_move),
 		.o_lock_any(o_lock_any),
 		.o_lock_owner(o_lock_owner),
+		.o_lock_return(o_lock_return),
+		.o_ack_fast(o_ack_fast),
+		.o_fill_busy_nxt(o_fill_busy_nxt),
 		.o_reg_dat(o_reg_dat),
 		.o_reg_idx(o_reg_idx),
 		.o_wb_cyc_ff(),
@@ -13286,10 +13387,12 @@ module zap_register_file (
 	i_rd_addr_b,
 	i_rd_addr_c,
 	i_rd_addr_d,
+	i_rd_addr_e,
 	o_rd_data_a,
 	o_rd_data_b,
 	o_rd_data_c,
-	o_rd_data_d
+	o_rd_data_d,
+	o_rd_data_e
 );
 	reg _sv2v_0;
 	parameter integer ALLOW_RETIMING = 1;
@@ -13308,10 +13411,12 @@ module zap_register_file (
 	input wire [5:0] i_rd_addr_b;
 	input wire [5:0] i_rd_addr_c;
 	input wire [5:0] i_rd_addr_d;
+	input wire [5:0] i_rd_addr_e;
 	output wire [31:0] o_rd_data_a;
 	output wire [31:0] o_rd_data_b;
 	output wire [31:0] o_rd_data_c;
 	output wire [31:0] o_rd_data_d;
+	output wire [31:0] o_rd_data_e;
 	reg [1279:0] mem;
 	function automatic signed [5:0] sv2v_cast_6_signed;
 		input reg signed [5:0] inp;
@@ -13348,6 +13453,7 @@ module zap_register_file (
 			assign o_rd_data_b = store[i_rd_addr_b * 32+:32];
 			assign o_rd_data_c = store[i_rd_addr_c * 32+:32];
 			assign o_rd_data_d = store[i_rd_addr_d * 32+:32];
+			assign o_rd_data_e = store[i_rd_addr_e * 32+:32];
 		end
 		else begin : g_write_ff
 			(* syn_allow_retiming = ALLOW_RETIMING *) reg [1279:0] store;
@@ -13433,6 +13539,7 @@ module zap_register_file (
 			assign o_rd_data_b = view(i_rd_addr_b);
 			assign o_rd_data_c = view(i_rd_addr_c);
 			assign o_rd_data_d = view(i_rd_addr_d);
+			assign o_rd_data_e = view(i_rd_addr_e);
 		end
 	endgenerate
 	initial _sv2v_0 = 0;
@@ -15774,6 +15881,9 @@ module zap_top (
 	wire [63:0] dc_lock;
 	wire dc_lock_any;
 	wire dc_lock_owner;
+	wire dc_lock_return;
+	wire dc_ack_fast;
+	wire data_fill_busy_nxt;
 	wire [5:0] dc_lock_owner_hold;
 	wire [5:0] dc_lock_owner_advance;
 	wire dc_lock_owner_move;
@@ -15937,6 +16047,9 @@ module zap_top (
 				.i_dc_lock((!ONLY_CORE ? dc_lock : sv2v_uu_u_arm9_core_ext_i_dc_lock_0)),
 				.i_dc_lock_any(!ONLY_CORE && dc_lock_any),
 				.i_dc_lock_owner(!ONLY_CORE && dc_lock_owner),
+				.i_dc_lock_return(!ONLY_CORE && dc_lock_return),
+				.i_data_ack_fast(!ONLY_CORE && dc_ack_fast),
+				.i_data_fill_busy_nxt(!ONLY_CORE && data_fill_busy_nxt),
 				.o_dc_lock_owner_hold(dc_lock_owner_hold),
 				.o_dc_lock_owner_advance(dc_lock_owner_advance),
 				.o_dc_lock_owner_move(dc_lock_owner_move),
@@ -15961,6 +16074,7 @@ module zap_top (
 			assign dc_wreg_idx = 1'sb0;
 			assign dc_lock = 1'sb0;
 			assign {dc_lock_any, dc_lock_owner} = 1'sb0;
+			assign {dc_lock_return, dc_ack_fast, data_fill_busy_nxt} = 1'sb0;
 			assign dc_reg_data = 1'sb0;
 			assign dc_inv_done = 1'sb0;
 			assign ic_inv_done = 1'sb0;
@@ -16102,6 +16216,7 @@ module zap_top (
 				.WAY_FORMAT(1'b1),
 				.REG_COLLISION(1'b1),
 				.HIT_FF(1'b1),
+				.FLAT_ACK(1'b1),
 				.BE_32_ENABLE(BE_32_ENABLE),
 				.EXT_ABORT_FS((TI925T ? 4'b1000 : 4'b0010))
 			) u_data_cache(
@@ -16146,6 +16261,9 @@ module zap_top (
 				.i_lock_owner_move(dc_lock_owner_move),
 				.o_lock_any(dc_lock_any),
 				.o_lock_owner(dc_lock_owner),
+				.o_lock_return(dc_lock_return),
+				.o_ack_fast(dc_ack_fast),
+				.o_fill_busy_nxt(data_fill_busy_nxt),
 				.o_reg_dat(dc_reg_data),
 				.o_reg_idx(dc_wreg_idx),
 				.o_fsr(dc_fsr),
@@ -16793,6 +16911,7 @@ module zap_writeback (
 	parameter integer RF_ALLOW_RETIMING = 1;
 	parameter [0:0] RF_EARLY_SELECT = 0;
 	parameter [0:0] RF_WRITE_FF = 0;
+	parameter [0:0] COPRO_PORT = 0;
 	parameter [31:0] BP_ENTRIES = 32'd1024;
 	parameter [31:0] FLAG_WDT = 32'd32;
 	parameter [31:0] PHY_REGS = 32'd46;
@@ -17252,6 +17371,7 @@ module zap_writeback (
 			always @(*) rf_data2 = sv2v_tmp_43CE6;
 		end
 	endgenerate
+	wire [31:0] copro_rd_data;
 	zap_register_file #(
 		.ALLOW_RETIMING(RF_ALLOW_RETIMING),
 		.EARLY_PORT_SELECT(RF_EARLY_SELECT),
@@ -17266,14 +17386,16 @@ module zap_writeback (
 		.i_wr_data_b(rf_data2),
 		.i_wr_data_c(i_wr_data_2),
 		.i_wen(wen),
-		.i_rd_addr_a((i_copro_reg_en ? i_copro_reg_rd_index : i_rd_index_0)),
+		.i_rd_addr_a((COPRO_PORT ? i_rd_index_0 : (i_copro_reg_en ? i_copro_reg_rd_index : i_rd_index_0))),
 		.i_rd_addr_b(i_rd_index_1),
 		.i_rd_addr_c(i_rd_index_2),
 		.i_rd_addr_d(i_rd_index_3),
+		.i_rd_addr_e(i_copro_reg_rd_index),
 		.o_rd_data_a(o_rd_data_0),
 		.o_rd_data_b(o_rd_data_1),
 		.o_rd_data_c(o_rd_data_2),
-		.o_rd_data_d(o_rd_data_3)
+		.o_rd_data_d(o_rd_data_3),
+		.o_rd_data_e(copro_rd_data)
 	);
 	function automatic [31:0] map_pc;
 		input [31:0] address;
@@ -17515,7 +17637,7 @@ module zap_writeback (
 			end
 			cpsr_ff <= cpsr_nxt;
 			o_decompile <= i_decompile;
-			o_copro_reg_rd_data_ff <= o_rd_data_0;
+			o_copro_reg_rd_data_ff <= (COPRO_PORT ? copro_rd_data : o_rd_data_0);
 		end
 	zap_btb #(.BP_ENTRIES(BP_ENTRIES)) u_zap_btb(
 		.i_clk(i_clk),

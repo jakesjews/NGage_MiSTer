@@ -25,6 +25,9 @@
 
 module zap_dcache_fsm   #(
         parameter logic HIT_FORMATTED = 1'b0,
+        // ARM9V2: o_ack/o_err/o_err2 as flat functions of the state and
+        // the registered access predicates, beside the case statement.
+        parameter logic FLAT_ACK = 1'b0,
 parameter logic [31:0] CACHE_SIZE    = 32'd1024,  // Bytes.
         parameter logic [31:0] CACHE_LINE    = 32'd8,
         parameter logic        BE_32_ENABLE  = 1'd0,
@@ -64,6 +67,14 @@ output  logic     [63:0]           o_lock,
 input logic [5:0] i_lock_owner_hold, i_lock_owner_advance,
 input logic i_lock_owner_move,
 (* dont_retime *) output logic     o_lock_any, o_lock_owner,
+// ARM9V2: lock_nxt[i_lock_owner_hold] registered: on the next clock, the
+// lock of the register W held on this one (the core's return_tag).
+(* dont_retime *) output logic     o_lock_return,
+// ARM9V2: an acknowledge that is certain from registered predicates
+// alone (a cacheable IDLE access without fault, walk or alignment error,
+// hit or miss; or a hit under a miss). It implies o_ack, !o_err, !o_err2.
+output logic                      o_ack_fast,
+output logic                      o_fill_busy_nxt,
 output  logic [31:0]               o_reg_dat,
 (* dont_retime *) output logic [63:0] o_reg_idx,
 output  logic     [31:0]           o_dat,
@@ -426,7 +437,7 @@ begin
                 line_req_ff             <= 0;
                 adr_ctr_ff              <= 0;
                 lock_ff                 <= 64'd0;
-                o_lock_any <= 0; o_lock_owner <= 0;
+                o_lock_any <= 0; o_lock_owner <= 0; o_lock_return <= 0;
 
                 // STATE - Drive state to 000...0001.
                 state_ff                <= 0;       // Rest of bits
@@ -451,6 +462,7 @@ begin
                 lock_ff                 <= lock_nxt;
                 o_lock_any <= |lock_nxt;
                 o_lock_owner <= i_lock_owner_move ? owner_advance_locked : owner_held_locked;
+                o_lock_return <= owner_held_locked;
 
                 // STATE
                 state_ff                <= state_nxt;
@@ -573,7 +585,31 @@ assign hum_slot_nxt = (state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE] ||
 // the high-fanout CPU stall through background-hit qualification.
 assign hum_ack = hum_slot_ff && i_hit_ok && i_cache_en &&
                  !i_align_fault && i_cache_hit_early;
-assign o_ack = idle_ack || hum_ack;
+// FLAT_ACK: IDLE acknowledges every access except an uncached one, a
+// cacheable write-through store, or one without the cache enabled (each
+// waits); UNC_DONE acknowledges unconditionally. Equal to the case form in
+// every reachable (one-hot) state.
+logic err_case, err2_case;
+wire access_now = i_rd || i_wr;
+wire ack_idle_flat = state_ff[IDLE] && (!access_now || i_align_fault || i_fault || i_busy ||
+                     (i_cache_en && i_cacheable && !(i_wr && i_wt)));
+wire err_flat = (state_ff[IDLE] && access_now && (i_align_fault || i_fault)) ||
+                (state_ff[UNC_DONE] && unc_err_ff);
+wire err2_flat = state_ff[IDLE] && access_now && !i_align_fault && !i_fault && i_busy;
+assign o_ack = FLAT_ACK ? ack_idle_flat || state_ff[UNC_DONE] || hum_ack : idle_ack || hum_ack;
+assign o_err = FLAT_ACK ? err_flat : err_case;
+assign o_err2 = FLAT_ACK ? err2_flat : err2_case;
+`ifndef SYNTHESIS
+always_ff @(posedge i_clk) if (!i_reset && $onehot(state_ff))
+        assert ({ack_idle_flat || state_ff[UNC_DONE], err_flat, err2_flat} == {idle_ack, err_case, err2_case})
+                else $fatal(1, "flat D-cache acknowledge");
+`endif
+assign o_ack_fast = (state_ff[IDLE] && !i_align_fault && i_cache_en && i_hit_ok && !i_busy) || hum_ack;
+`ifndef SYNTHESIS
+always_ff @(posedge i_clk) if (!i_reset && $onehot(state_ff) && (i_rd || i_wr) && o_ack_fast)
+        assert (o_ack && !o_err && !o_err2) else $fatal(1, "fast D-cache acknowledge");
+`endif
+assign o_fill_busy_nxt = fill_busy_nxt;
 assign fill_busy_nxt = state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE] ||
                 state_nxt[UNLOCK_REG] || state_nxt[UNLOCK_WR] ||
                 state_nxt[RELOOKUP0] || state_nxt[RELOOKUP1] || state_nxt[RELOOKUP2];
@@ -678,8 +714,8 @@ begin:next_state_logic
         o_cache_clean_done      = 0;
         o_hold                  = 1'd0;
         idle_ack                = 1'b0;
-        o_err                   = 0;
-        o_err2                  = 0;
+        err_case                   = 0;
+        err2_case                  = 0;
 
         // ======================================================
         // Generate output data.
@@ -749,7 +785,7 @@ begin:next_state_logic
                 begin
                         // ARM925T: alignment fault, highest priority: FSR
                         // status 0b0001 (no domain), FAR = the address.
-                        o_err = 1'd1;
+                        err_case = 1'd1;
                         idle_ack = 1'd1;
                         o_fsr = 8'b0000_0001;
                         o_far = i_va;
@@ -757,7 +793,7 @@ begin:next_state_logic
                 else if ( i_fault )
                 begin
                         // MMU access fault.
-                        o_err = 1'd1;
+                        err_case = 1'd1;
                         idle_ack = 1'd1;
                         o_fsr = i_fsr;
                         o_far = i_far;
@@ -765,7 +801,7 @@ begin:next_state_logic
                 else if ( i_busy )
                 begin
                         // Wait it out - this is what err2 is for.
-                        o_err2 = 1'd1;
+                        err2_case = 1'd1;
                         idle_ack  = 1'd1;
                 end
                 else if ( i_rd || i_wr )
@@ -951,7 +987,7 @@ begin:next_state_logic
                 state_nxt[IDLE]     = 1'd1;
 
                 begin
-                        o_err      = unc_err_ff;
+                        err_case      = unc_err_ff;
 
                         // ARM925T: report a fault only for an error. Upstream
                         // set the FSR on every uncached access, so CP15 c5/c6
@@ -1157,8 +1193,8 @@ begin:next_state_logic
                 o_cache_clean_done      = 'x;
                 o_hold                  = 'x;
                 idle_ack                   = 'x;
-                o_err                   = 'x;
-                o_err2                  = 'x;
+                err_case                   = 'x;
+                err2_case                  = 'x;
         end
         endcase
 end : next_state_logic

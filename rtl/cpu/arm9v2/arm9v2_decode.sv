@@ -26,7 +26,10 @@
 // instead of selecting the one-hot write masks' bits after completion.
 module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, parameter logic THUMB_HALF=0,
     parameter logic SHIFT_PRE=0, parameter logic PAYLOAD_FREE=0, parameter logic REDIRECT_PAYLOAD=0,
-    parameter logic WT_TAGS=0) (
+    parameter logic WT_TAGS=0,
+    // PREFIX_FREE: prefix_target loads while D2 holds a BL prefix, not on
+    // S's acceptance (step): it is read only once D2 no longer holds it.
+    parameter logic PREFIX_FREE=0) (
     input logic i_clk, i_reset, i_flush,
     input logic i_serial_continue,
     input logic i_valid,
@@ -81,7 +84,8 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
     output logic [15:0] o_raw,
     output logic [4:0] o_mode,
     output logic o_thumb, o_fault, o_force_align, o_reg_shift,
-    output logic [15:0] o_shift_pre,   // SHIFT_PRE: {type, amount, rotate amount, register}
+    output logic [18:0] o_shift_pre,   // SHIFT_PRE: {type, amount, rotate amount, register};
+                                       // [18:16] operand 1 immediate / PC / PSR (OP1_PRE)
     output logic [3:0] o_kind, o_condition,
     output logic [3:0][5:0] o_tag,
     output logic [3:0] o_used,
@@ -551,6 +555,18 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
     always_ff @(posedge i_clk)
         if(i_reset||i_flush)o_load_wait<=0;
         else o_load_wait<=load_wait_next;
+`ifndef SYNTHESIS
+    // PREFIX_FREE against the step-loaded original wherever a suffix in
+    // D1's head reads it (D2 not holding a prefix).
+    logic [31:0] prefix_target_ref;
+    always_ff @(posedge i_clk)begin
+        if(i_reset)prefix_target_ref<=0;
+        else if(step&&d2.kind==K_BL_PREFIX)prefix_target_ref<=d2.target;
+        if(!i_reset&&PREFIX_FREE&&count!=0&&prefix_valid&&!(d2_valid&&d2.kind==K_BL_PREFIX)&&
+            front.thumb&&front.raw[15:11]==5'b11111)
+            assert(prefix_target==prefix_target_ref) else $fatal(1,"prefix target register");
+    end
+`endif
     assign next_remaining=clear_first(d2.remaining);
     assign next_register=first16(d2.remaining[14:0]);
     assign taken_match=d2.p.pred_target=={d2.target[31:1],d2.p.thumb};
@@ -609,8 +625,9 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
         .i_clk(i_clk),.i_reset(i_reset),.i_wen(i_wen),
         .i_wr_addr_a(i_wr_addr_a),.i_wr_addr_b(i_wr_addr_b),.i_wr_addr_c(i_wr_addr_c),
         .i_wr_data_a(i_wr_data_a),.i_wr_data_b(i_wr_data_b),.i_wr_data_c(i_wr_data_c),
-        .i_rd_addr_a(d2.tag[0]),.i_rd_addr_b(d2.tag[1]),.i_rd_addr_c(d2.tag[2]),.i_rd_addr_d(d2.tag[3]),
-        .o_rd_data_a(raw_values[0]),.o_rd_data_b(raw_values[1]),.o_rd_data_c(raw_values[2]),.o_rd_data_d(raw_values[3])
+        .i_rd_addr_a(d2.tag[0]),.i_rd_addr_b(d2.tag[1]),.i_rd_addr_c(d2.tag[2]),.i_rd_addr_d(d2.tag[3]),.i_rd_addr_e(6'd0),
+        .o_rd_data_a(raw_values[0]),.o_rd_data_b(raw_values[1]),.o_rd_data_c(raw_values[2]),.o_rd_data_d(raw_values[3]),
+        .o_rd_data_e()
     );
     end endgenerate
     // S's shifter controls for record r, exactly as arm9v2_execute forms
@@ -623,8 +640,12 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
         if(r.kind!=K_DP&&r.kind!=K_MSR&&r.kind!=K_MEM)begin t=0; n=0; g=1; end
         return {t,n,(t==0?5'(-n[4:0]):n[4:0]),g};
     endfunction
-    (* dont_retime *) logic [15:0] shift_pre_ff;
-    assign o_shift_pre=SHIFT_PRE?shift_pre_ff:16'd0;
+    // OP1_PRE: S's operand-1 class (an immediate, the PC, the PSR), from D2.
+    function automatic logic [2:0] op1_class(input decoded_t r);
+        return {(r.kind==K_DP||r.kind==K_MSR)&&r.p.ins[25],r.tag[1]==15,r.tag[1]==17};
+    endfunction
+    (* dont_retime *) logic [18:0] shift_pre_ff;
+    assign o_shift_pre={shift_pre_ff[18:16],SHIFT_PRE?shift_pre_ff[15:0]:16'd0};
     // WT_TAGS: the tag compares, from registers; the late enable joins after.
     logic [3:0] wt_hit_a, wt_hit_b;
     always_comb for(int n=0;n<4;n++)begin
@@ -659,6 +680,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
         end else begin
             redirect_ff.valid<=0;redirect_in_d2<=0;
             if(i_ready)out_valid<=0;
+            if(PREFIX_FREE&&d2_valid&&d2.kind==K_BL_PREFIX)prefix_target<=d2.target;
             if(i_serial_continue)fenced<=0;
             if(d1_load)d1[tail]<=incoming;
             if(push)begin
@@ -674,7 +696,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
             // only validity and the owner; it never drives this wide enable.
             if(!out_valid||(PAYLOAD_FREE?i_ready_payload:i_ready))begin
                 issued<=d2;values<=raw_values;self_dep<=d2_self_dep;
-                shift_pre_ff<=shift_controls(d2);
+                shift_pre_ff<={op1_class(d2),shift_controls(d2)};
                 // W may accept a miss and install its lock on this same
                 // edge. Carry that owner to S instead of observing old locks.
                 for(int src=0;src<4;src++)o_pending[src]<=d2.used[src]&&
@@ -692,7 +714,7 @@ module arm9v2_decode #(parameter logic EXTERNAL_RF=0, parameter logic S_AGU=0, p
                     (d2.kind==K_DP&&d2.p.ins[20]&&d2.dest[0]==15)||
                     (d2.kind==K_BLOCK&&d2.p.ins[22]&&d2.p.ins[20]&&d2.p.list[15]&&d2.last)))fenced<=1;
                 out_valid<=1;
-                if(d2.kind==K_BL_PREFIX)begin prefix_target<=d2.target;prefix_valid<=!d2.p.fault;end
+                if(d2.kind==K_BL_PREFIX)begin if(!PREFIX_FREE)prefix_target<=d2.target;prefix_valid<=!d2.p.fault;end
                 else prefix_valid<=0;
                 if(d2.last)d2_valid<=0;
                 else begin

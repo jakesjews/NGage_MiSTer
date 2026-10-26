@@ -25,7 +25,7 @@
 // shifter.
 module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, parameter logic FAST_Z=0,
     parameter logic W_ROTATE=0, parameter logic SHIFT_PRE=0, parameter logic PAYLOAD_FREE=0,
-    parameter logic DSP_PRODUCT=0) (
+    parameter logic DSP_PRODUCT=0, parameter logic OP1_PRE=0) (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
     input logic i_flags_refresh,
     output logic o_serial_continue,
@@ -47,7 +47,8 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
     output logic o_ready_payload,   // o_ready without the flush and A's redirect (decode's payload enables)
     input logic [31:0] i_pc,i_instruction,i_pc_base,i_next_pc,
     input logic i_thumb,i_fault,i_force_align,i_reg_shift,i_first,i_last,
-    input logic [15:0] i_shift_pre,   // SHIFT_PRE: {type, amount, rotate amount, register}
+    input logic [18:0] i_shift_pre,   // SHIFT_PRE: {type, amount, rotate amount, register};
+                                      // [18:16] operand 1 immediate / PC / PSR (OP1_PRE)
     input logic [3:0] i_kind,i_condition,
     input logic [3:0][5:0] i_tag,
     input logic [3:0] i_used,i_early,
@@ -297,14 +298,23 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
     // the shifter input built from it exactly as shift_input is.
     logic [31:0] operand1_nw,shift_input_nw;
     wire [4:0] grant1=i_forward_grant[s_grant_hit][1];
-    wire w_take=W_ROTATE&&grant1[3]&&i_tag[1]!=15&&i_tag[1]!=17&&!((i_kind==DP||i_kind==MSR)&&i_instruction[25]);
+    // OP1_PRE: decode's registered class bits instead of S's compares.
+    wire op1_imm_ref=(i_kind==DP||i_kind==MSR)&&i_instruction[25];
+    wire op1_imm=OP1_PRE?i_shift_pre[18]:op1_imm_ref;
+    wire op1_pc=OP1_PRE?i_shift_pre[17]:i_tag[1]==15;
+    wire op1_psr=OP1_PRE?i_shift_pre[16]:i_tag[1]==17;
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if(!i_reset&&OP1_PRE&&i_valid)
+        assert({op1_imm,op1_pc,op1_psr}=={op1_imm_ref,i_tag[1]==6'd15,i_tag[1]==6'd17}) else $fatal(1,"S operand-1 class");
+`endif
+    wire w_take=W_ROTATE&&grant1[3]&&!op1_pc&&!op1_psr&&!op1_imm;
     always_comb begin
         operand1_nw=(i_mw_value[0][1]&{32{grant1[0]}})|(i_mw_value[0][0]&{32{grant1[1]}})|
             (i_mw_value[1][1]&{32{grant1[2]}})|((holding?held[1]:i_value[1])&{32{grant1[4]}});
-        if(i_tag[1]==15)operand1_nw=i_reg_shift?i_pc_base+32'd4:i_pc_base;
-        if(i_tag[1]==17)operand1_nw={flags,i_cpsr[27:8],interrupt_mask,i_cpsr[5:0]};
+        if(op1_pc)operand1_nw=i_reg_shift?i_pc_base+32'd4:i_pc_base;
+        if(op1_psr)operand1_nw={flags,i_cpsr[27:8],interrupt_mask,i_cpsr[5:0]};
         shift_input_nw=operand1_nw;
-        if((i_kind==DP||i_kind==MSR)&&i_instruction[25])shift_input_nw={24'd0,i_instruction[7:0]};
+        if(op1_imm)shift_input_nw={24'd0,i_instruction[7:0]};
     end
     logic [31:0] shifted_main,shifted_w;
     logic carry_main,preserve_main,rrx_main,carry_w,preserve_w,rrx_w;

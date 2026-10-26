@@ -10,6 +10,8 @@ module arm9v2_front_decode #(
     parameter logic PAYLOAD_FREE=0,
     parameter logic REDIRECT_PAYLOAD=0,
     parameter logic WT_TAGS=0,
+    parameter logic RAS_TOP_FF=0,
+    parameter logic PREFIX_FREE=0,
     parameter logic [31:0] RESET_VECTOR=0
 ) (
     input logic i_clk, i_reset, i_flush,
@@ -52,7 +54,7 @@ module arm9v2_front_decode #(
     output logic [15:0] o_raw,
     output logic [4:0] o_mode,
     output logic o_thumb, o_fault, o_force_align, o_reg_shift,
-    output logic [15:0] o_shift_pre,
+    output logic [18:0] o_shift_pre,
     output logic [3:0] o_kind, o_condition,
     output logic [3:0][5:0] o_tag,
     output logic [3:0] o_used,
@@ -96,7 +98,7 @@ module arm9v2_front_decode #(
     logic [1:0] f_state,f_kind;
     logic [2:0] f_pointer;
     logic [3:0] f_count;
-    arm9v2_fetch #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR),.THUMB_HALF(THUMB_HALF)) u_fetch (
+    arm9v2_fetch #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR),.THUMB_HALF(THUMB_HALF),.RAS_TOP_FF(RAS_TOP_FF)) u_fetch (
         .i_clk(i_clk),.i_reset(i_reset),.i_redirect(i_flush||o_redirect),
         .i_redirect_target(i_flush?i_backend_target:o_redirect_target),
         .i_redirect_thumb(i_flush?i_backend_thumb:o_redirect_thumb),
@@ -116,7 +118,7 @@ module arm9v2_front_decode #(
         .o_predicted(f_predicted),.o_pred_hit(f_hit),.o_pred_target(f_target),
         .o_pred_state(f_state),.o_pred_kind(f_kind),.o_ras_pointer(f_pointer),.o_ras_count(f_count)
     );
-    arm9v2_decode #(.EXTERNAL_RF(EXTERNAL_RF),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS)) u_decode (
+    arm9v2_decode #(.EXTERNAL_RF(EXTERNAL_RF),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS),.PREFIX_FREE(PREFIX_FREE)) u_decode (
         .i_valid(f_valid),.i_pc(f_pc),.i_word(f_word),.i_thumb(f_thumb),.i_fault(f_fault),
         .i_predicted(f_predicted),.i_pred_hit(f_hit),.i_pred_target(f_target),
         .i_pred_state(f_state),.i_pred_kind(f_kind),.i_ras_pointer(f_pointer),.i_ras_count(f_count),

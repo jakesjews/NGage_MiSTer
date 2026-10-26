@@ -2,8 +2,13 @@
 // ARM9V2 fetch-cycle predictor. Independently implemented for this project.
 // The synchronous entry read and source PC are captured on the SAME edge;
 // the resulting decision chooses the following fetch without another stage.
+// RAS_TOP_FF: the return stack's top, stack[pointer-1], is a register of its
+// own, loaded on every edge that changes the stack or the pointer, so a
+// return's predicted target (and the next fetch's I-TLB lookup) starts at a
+// flop instead of the pointer's decrement and an 8:1 stack read.
 module arm9v2_predict #(
     parameter integer ENTRIES = 256,
+    parameter logic RAS_TOP_FF = 1'b0,
     localparam integer INDEX_W = $clog2(ENTRIES),
     localparam integer TAG_W = 31 - INDEX_W
 ) (
@@ -45,6 +50,8 @@ module arm9v2_predict #(
     (* dont_retime *) logic [2:0] pointer;
     (* dont_retime *) logic [3:0] count;
     logic [31:0] stack [0:7];
+    (* dont_retime *) logic [31:0] ras_top;   // RAS_TOP_FF: stack[pointer - 1]
+    wire [31:0] call_link = (read_pc + (read_thumb ? 32'd2 : 32'd4)) | {31'd0,read_thumb};
     logic [1:0] update_state;
     wire write_enable = i_update && !i_reset && !i_clear;
     wire [INDEX_W-1:0] rd_index = i_pc[INDEX_W:1];
@@ -86,7 +93,12 @@ module arm9v2_predict #(
                    read_entry.thumb == read_thumb;
     assign o_taken = o_hit && read_entry.state[1];
     assign o_target = read_entry.kind == RETURN && count != 0 ?
-                      stack[3'(pointer - 1'b1)] : read_entry.target;
+                      (RAS_TOP_FF ? ras_top : stack[3'(pointer - 1'b1)]) : read_entry.target;
+`ifndef SYNTHESIS
+    // Only a non-empty stack's top is ever used.
+    always_ff @(posedge i_clk) if (!i_reset && RAS_TOP_FF && count != 0)
+        assert (ras_top == stack[3'(pointer - 1'b1)]) else $fatal(1, "RAS top register");
+`endif
     assign o_state = o_hit ? read_entry.state : 2'b01;
     assign o_kind = read_entry.kind;
     assign o_pointer = pointer;
@@ -102,13 +114,16 @@ module arm9v2_predict #(
         end else if (i_repair) begin
             pointer <= i_repair_pointer;
             count <= i_repair_count;
+            ras_top <= stack[3'(i_repair_pointer - 1'b1)];
             case (i_repair_action)
                 CALL: begin
                     stack[i_repair_pointer] <= i_repair_link;
+                    ras_top <= i_repair_link;
                     pointer <= i_repair_pointer + 1'b1;
                     count <= i_repair_count == 8 ? 4'd8 : i_repair_count + 1'b1;
                 end
                 RETURN: if (i_repair_count != 0) begin
+                    ras_top <= stack[3'(i_repair_pointer - 2'd2)];
                     pointer <= i_repair_pointer - 1'b1;
                     count <= i_repair_count - 1'b1;
                 end
@@ -120,12 +135,13 @@ module arm9v2_predict #(
         end else if (i_accept && o_taken) begin
             case (read_entry.kind)
                 CALL: begin
-                    stack[pointer] <= (read_pc + (read_thumb ? 32'd2 : 32'd4)) |
-                                      {31'd0,read_thumb};
+                    stack[pointer] <= call_link;
+                    ras_top <= call_link;
                     pointer <= pointer + 1'b1;
                     if (count != 8) count <= count + 1'b1;
                 end
                 RETURN: if (count != 0) begin
+                    ras_top <= stack[3'(pointer - 2'd2)];
                     pointer <= pointer - 1'b1;
                     count <= count - 1'b1;
                 end

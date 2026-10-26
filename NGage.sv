@@ -655,7 +655,9 @@ always @(posedge clk_sys) begin
 	rtc_wait <= !rtc_valid && rtc_timer != 29'(RTC_WAIT_CLKS);
 end
 
-reg         cpu_reset /* verilator public_flat_rd */ = 1'b1;
+// maxfan: Quartus copies this register near its loads (its one copy
+// crossed the device to the whole CPU, 3.2 ns of routing at 104 MHz).
+(* maxfan = 32 *) reg cpu_reset /* verilator public_flat_rd */ = 1'b1;
 always @(posedge clk_sys) cpu_reset <= mem_reset | test_on | ~images_in | rtc_wait;
 
 wire        cpu_req, cpu_we, cpu_burst;

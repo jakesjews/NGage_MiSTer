@@ -271,6 +271,7 @@ logic [63:0]     dc_rreg_idx, dc_wreg_idx;
 logic [5:0]      dc_rreg_idx_bin;
 logic [63:0]     dc_lock;
 logic dc_lock_any, dc_lock_owner;
+logic dc_lock_return, dc_ack_fast, data_fill_busy_nxt;
 logic [5:0] dc_lock_owner_hold, dc_lock_owner_advance;
 logic dc_lock_owner_move;
 logic [31:0]     dc_reg_data;
@@ -450,6 +451,9 @@ arm9v2_core #(
 .i_dc_lock              (!ONLY_CORE ? dc_lock : '0),
 .i_dc_lock_any          (!ONLY_CORE && dc_lock_any),
 .i_dc_lock_owner        (!ONLY_CORE && dc_lock_owner),
+.i_dc_lock_return       (!ONLY_CORE && dc_lock_return),
+.i_data_ack_fast        (!ONLY_CORE && dc_ack_fast),
+.i_data_fill_busy_nxt   (!ONLY_CORE && data_fill_busy_nxt),
 .o_dc_lock_owner_hold(dc_lock_owner_hold),
 .o_dc_lock_owner_advance(dc_lock_owner_advance),
 .o_dc_lock_owner_move(dc_lock_owner_move),
@@ -478,6 +482,7 @@ begin : l_tieoffs_only_core
         assign dc_wreg_idx     = '0;
         assign dc_lock         = '0;
         assign {dc_lock_any,dc_lock_owner} = '0;
+        assign {dc_lock_return,dc_ack_fast,data_fill_busy_nxt} = '0;
         assign dc_reg_data     = '0;
         assign dc_inv_done     = '0;
         assign ic_inv_done     = '0;
@@ -710,6 +715,7 @@ zap_dcache #(
         .WAY_FORMAT(1'b1),
         .REG_COLLISION(1'b1),
         .HIT_FF(1'b1),
+        .FLAT_ACK(1'b1),
         .BE_32_ENABLE(BE_32_ENABLE),
         .EXT_ABORT_FS(TI925T ? 4'b1000 : 4'b0010)
 )
@@ -753,6 +759,9 @@ u_data_cache (
 .i_lock_owner_move(dc_lock_owner_move),
 .o_lock_any             (dc_lock_any),
 .o_lock_owner           (dc_lock_owner),
+.o_lock_return          (dc_lock_return),
+.o_ack_fast             (dc_ack_fast),
+.o_fill_busy_nxt        (data_fill_busy_nxt),
 .o_reg_dat              (dc_reg_data),
 .o_reg_idx              (dc_wreg_idx),
 .o_fsr                  (dc_fsr),
