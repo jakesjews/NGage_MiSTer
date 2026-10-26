@@ -284,7 +284,7 @@ wire  [1:0] ph_have;
 wire  [4:0] ph_state;
 wire [15:0] ph_errors;
 reg   [2:0] ld_own = 3'd0;             // flat, save, trace, kernel text, Phoenix
-localparam DBG_TRACE = 0;              // debug rings off for a release build
+localparam DBG_TRACE = 1;              // debug rings off for a release build
 
 wire ld_own_cmd = ld_we || ld_rd;
 always @(posedge clk_sys) begin
@@ -1119,8 +1119,8 @@ reg [31:0] dbg_f0 = 0, dbg_f4 = 0, dbg_f8 = 0;
 // (docs/PROGRESS-LOG.md, 2026-10-21 and 2026-10-22)
 localparam [31:0] DBG_TRIG_RD = 32'h0C1F0100;
 localparam [7:0] DBG_TRIG_WR_AFTER_S = 8'd0;
-localparam [7:0] DBG_TRIG_AT1_S = 8'd55;
-localparam [7:0] DBG_TRIG_AT2_S = 8'd130;
+localparam [7:0] DBG_TRIG_AT1_S = 8'd0;
+localparam [7:0] DBG_TRIG_AT2_S = 8'd0;
 reg  [26:0] dbg_sec_pre = 0;
 reg   [7:0] dbg_sec = 0;
 always @(posedge clk_sys) begin
@@ -1197,8 +1197,13 @@ wire dbg_trig_at = dbg_sec_pre == 27'd0 &&
 reg  [15:0] dbg_trd_q = 0;
 always @(posedge clk_sys) dbg_trd_q <= {dbg_trd_q[14:0],
 	(DBG_TRIG_RD != 32'd0 && cpu_req && wb_ack && !wb_we && wb_adr[31:2] == DBG_TRIG_RD[31:2]) || dbg_trig_wr || dbg_trig_at};
+// 2026-10-25: also trigger when the CPU retires the User::Leave executive
+// stub (svc 0x73 at 0x503A785C) from 17 s after the CPU start (the PLAT
+// boots Leave with KErrCorrupt from the comms database open just before
+// their 17.9 s abort).
+wire dbg_trig_leave = dbg_sec >= 8'd17 && tr_wb_valid && tr_wb_pc == 32'h503A785C;
 assign dbg_trig = (wb_cyc && wb_stb && wb_we && wb_ack && wb_adr[31:20] == 12'h0C0 &&
-                   wb_adr[15:2] == 14'(32'h47F0 >> 2)) || dbg_trd_q[15];
+                   wb_adr[15:2] == 14'(32'h47F0 >> 2)) || dbg_trd_q[15] || dbg_trig_leave;
 always @(posedge clk_sys) begin
 	if (wb_cyc && wb_stb && wb_we && wb_ack && wb_adr[31:20] == 12'h0C0) begin
 		if (wb_adr[15:2] == 14'(32'h47F0 >> 2)) dbg_f0 <= wb_dat_w;
