@@ -83,6 +83,9 @@ output logic                      o_ack_fast, o_err_fast,
 output logic                      o_fill_busy_nxt,
 output  logic [31:0]               o_reg_dat,
 (* dont_retime *) output logic [63:0] o_reg_idx,
+// ARM9V2: o_reg_idx's register as a binary index and a valid (registered).
+(* dont_retime *) output logic [5:0] o_return_tag,
+(* dont_retime *) output logic o_return_valid,
 output  logic     [31:0]           o_dat,
 output  logic                      o_ack,
 output  logic                      o_err,
@@ -264,6 +267,7 @@ assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_inc, 2'b00};
 assign o_wb_bte_nxt = (state_ff[FETCH_SINGLE] && CACHE_LINE == 16) ? 2'b01 : 2'b00;
 logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] way;       // ARM925T: the line's way
 logic    [63:0]                           reg_idx;
+logic    [5:0]                            reg_idx_bin;
 logic    [63:0]                           lock_nxt, lock_ff;
 // ARM9V2: completion selects finished bits, never a tag before a
 // 64-way bitmap query. Keep the two query cones physically separate.
@@ -283,6 +287,7 @@ always_ff @(posedge i_clk) begin
     if (!i_reset) begin
         assert (o_lock_any == (|lock_ff)) else $fatal(1, "lock summary stale");
         assert (o_lock_owner == lock_ff[lock_owner_check]) else $fatal(1, "lock owner stale");
+        assert (o_reg_idx == (o_return_valid ? 64'd1 << o_return_tag : 64'd0)) else $fatal(1, "binary return index");
         if (LOCK_SPLIT && $onehot(state_ff))
             assert (lock_nxt == ((lock_ff & ~o_reg_idx) | (lock_set_nxt ? 64'd1 << i_reg_idx_bin : 64'd0)))
                 else $fatal(1, "lock split");
@@ -381,10 +386,14 @@ assign critical_take = state_ff[FETCH_SINGLE] && !wr && take &&
 
 always_ff @ ( posedge i_clk )
 begin
-        if ( i_reset )
+        if ( i_reset ) begin
                 o_reg_idx <= 64'b0;
-        else
+                o_return_valid <= 1'b0;
+        end else begin
                 o_reg_idx <= critical_take ? reg_idx : 64'b0;
+                o_return_valid <= critical_take;
+        end
+        o_return_tag <= reg_idx_bin;
 
         if ( critical_take )
         begin
@@ -410,6 +419,7 @@ begin
                 phy_addr        <= i_phy_addr;
                 way             <= i_cache_way;
                 reg_idx         <= i_reg_idx;
+                reg_idx_bin     <= i_reg_idx_bin;
                 ldfmt           <= i_ldfmt;
                 wt_hit          <= i_wr && i_wt && i_cacheable && i_cache_hit;
                 wt_dirty        <= i_cache_hit_dirty;
@@ -475,7 +485,7 @@ begin
                 line_req_ff             <= line_req_nxt;
                 adr_ctr_ff              <= adr_ctr_nxt;
                 lock_ff                 <= lock_nxt;
-                o_lock_any <= |lock_nxt;
+                o_lock_any <= LOCK_SPLIT ? (|(lock_ff & ~o_reg_idx)) || lock_set_nxt : |lock_nxt;
                 o_lock_owner <= i_lock_owner_move ? owner_advance_locked : owner_held_locked;
                 o_lock_return <= owner_held_locked;
 

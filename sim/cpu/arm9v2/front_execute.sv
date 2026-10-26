@@ -272,9 +272,9 @@ module arm9v2_front_execute #(
         .o_stall(o_stall)
     );
     arm9v2_execute u_execute (
-        .i_flags_refresh(1'b0),.o_serial_continue(),.i_pending(4'd0),.i_load_owner(2'd0),.i_next_load_owner(2'd0),.i_load_hit(1'b0),.i_return_select(64'd0),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.i_return_ready(1'b0),.i_return_s_match(4'd0),.i_return_data(64'd0),
+        .i_flags_refresh(1'b0),.o_serial_continue(),.i_pending(4'd0),.i_load_owner(2'd0),.i_next_load_owner(2'd0),.i_load_hit(1'b0),.i_return_select(64'd0),.i_return_tag(6'd0),.i_return_valid(1'b0),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.i_return_ready(1'b0),.i_return_s_match(4'd0),.i_return_data(64'd0),
         .i_shift_pre(d_shift_pre),.i_tag_class(d_tag_class),.i_self_dep(d_self_dep),.i_load_trust(1'b1),.o_ready_payload(execute_ready_payload),
-        .i_admit(1'b1),.i_load_wait(1'b0),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_advance_tag('0),.i_next_advance(1'b0),.i_next_write(forward_write),.i_next_write_hold(forward_write_hold),.i_early(d_early),
+        .i_admit(1'b1),.i_load_wait(1'b0),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_advance_tag('0),.i_next_advance(1'b0),.i_next_write(forward_write),.i_next_write_hold(forward_write_hold),.i_next_write_hold_by({2{forward_write_hold}}),.i_next_advance_by(2'b00),.i_next_done(1'b0),.i_early(d_early),
         .o_btb_pc(btb_pc),.o_btb_thumb(btb_thumb),.o_record_pointer(),.o_record_count(),
         .o_record_pred_hit(),.o_record_pred_state(),.o_record_thumb(),
         .o_a_load(),.o_psr_source(),.o_saved_psr(),.o_original_base(),.o_next_pc(),.o_prediction_target(),.o_spsr_tag(),.o_predicted(),

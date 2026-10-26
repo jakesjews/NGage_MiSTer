@@ -11,6 +11,12 @@ module execute_tb;
     logic manual_producers,i_load_hit;
     logic [1:0] i_load_owner,i_next_load_owner;
     logic [1:0][63:0] i_return_select;
+    // RETURN_BIN: the background select as a binary index and a valid.
+    logic [5:0] i_return_tag; logic i_return_valid;
+    always_comb begin
+        i_return_tag=0; i_return_valid=|i_return_select[1];
+        for(int n=0;n<64;n++)if(i_return_select[1][n])i_return_tag=6'(n);
+    end
     logic [1:0][31:0] i_return_data;
     logic [63:0] normal_return_select;
     logic [31:0] normal_return_data;
@@ -160,6 +166,10 @@ module execute_tb;
     assign i_next_tag=manual_producers?i_mw_tag:{i_ready?o_dest:real_tag[1],ready_m?raw_o_dest:o_dest};
     assign i_next_write=(i_reset||i_flush)?4'd0:manual_producers?i_mw_valid:
         {i_ready?(o_write&{2{o_valid}}):real_write[1],ready_m?(raw_o_write&{2{raw_o_valid}}):real_write[0]};
+    // LATE_HOLD_SPLIT: no W completion here; both entries are the actual values.
+    wire [1:0][1:0][1:0] i_next_write_hold_by={2{i_next_write_hold}};
+    wire [1:0] i_next_advance_by=2'b00;
+    wire i_next_done=1'b0;
     // LATE_HOLD_STATIC: the same with A's record not entering M.
     assign i_next_write_hold=(i_reset||i_flush)?4'd0:manual_producers?i_mw_valid:
         {i_ready?(o_write&{2{o_valid}}):real_write[1],ready_m?2'b00:real_write[0]};

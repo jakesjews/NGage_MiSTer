@@ -313,6 +313,8 @@ module arm9v2_core (
 	i_icache_fill_fault,
 	i_dcache_err2,
 	i_dc_reg_idx,
+	i_dc_return_tag,
+	i_dc_return_valid,
 	i_dc_reg_dat,
 	i_dc_lock,
 	i_dc_lock_any,
@@ -372,6 +374,8 @@ module arm9v2_core (
 	parameter [0:0] AGU_AL = 1'b1;
 	parameter [0:0] EARLY_NOHIT = 1'b1;
 	parameter [0:0] LATE_HOLD_STATIC = 1'b1;
+	parameter [0:0] RETURN_BIN = 1'b1;
+	parameter [0:0] LATE_HOLD_SPLIT = 1'b1;
 	parameter [0:0] VALID_BIT = 1'b1;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
 	parameter [31:0] DATA_CACHE_SIZE = 1024;
@@ -468,6 +472,8 @@ module arm9v2_core (
 	input wire i_icache_fill_fault;
 	input wire i_dcache_err2;
 	input wire [63:0] i_dc_reg_idx;
+	input wire [5:0] i_dc_return_tag;
+	input wire i_dc_return_valid;
 	input wire [31:0] i_dc_reg_dat;
 	input wire [63:0] i_dc_lock;
 	input wire i_dc_lock_any;
@@ -876,6 +882,34 @@ module arm9v2_core (
 			forward_load = 0;
 			next_load_valid = 0;
 		end
+	end
+	reg [7:0] forward_write_hold_by;
+	reg [1:0] forward_advance_by;
+	always @(*) begin : sv2v_autoblock_2
+		reg signed [31:0] d;
+		if (_sv2v_0)
+			;
+		for (d = 0; d < 2; d = d + 1)
+			begin : sv2v_autoblock_3
+				reg qf;
+				reg [3:0] fwh;
+				qf = (((memory_state == 4'd1) && (d == 1)) && !(m[541] && m[535])) && !(skid[541] && skid[535]);
+				forward_advance_by[d] = (((memory_state == 4'd0) && (d == 1)) || (memory_state == 4'd3)) || qf;
+				fwh = {mw_write[2+:2], mw_write[0+:2]};
+				if ((memory_state == 4'd0) && (d == 1)) begin
+					fwh[0+:2] = 0;
+					fwh[2+:2] = m[27-:2] | {1'b0, m[527]};
+				end
+				if ((memory_state == 4'd3) || qf) begin
+					fwh[0+:2] = skid[27-:2] | {1'b0, skid[527]};
+					fwh[2+:2] = m[27-:2] | {1'b0, m[527]};
+				end
+				if (((((memory_state == 4'd1) && (d == 1)) && !qf) || ((memory_state == 4'd10) && (d == 1))) || ((((memory_state == 4'd6) && !w_locked) && (w[8-:4] != SWP)) && (d == 1)))
+					fwh[2+:2] = 0;
+				if ((!RESET_LEAN && i_reset) || wb_flush)
+					fwh = 0;
+				forward_write_hold_by[2 * (d * 2)+:4] = fwh;
+			end
 	end
 	reg [3:0] forward_write_hold;
 	always @(*) begin
@@ -1497,7 +1531,9 @@ module arm9v2_core (
 		.HELD_FREE(HELD_FREE),
 		.MUL_FAST_Z(MUL_FAST_Z),
 		.AGU_AL(AGU_AL),
-		.LATE_HOLD_STATIC(LATE_HOLD_STATIC)
+		.LATE_HOLD_STATIC(LATE_HOLD_STATIC),
+		.RETURN_BIN(RETURN_BIN),
+		.LATE_HOLD_SPLIT(LATE_HOLD_SPLIT)
 	) u_execute(
 		.i_pending(d_pending),
 		.i_admit(backend_ready),
@@ -1508,6 +1544,8 @@ module arm9v2_core (
 		.i_load_trust(load_trust),
 		.i_self_dep(d_self_dep),
 		.i_return_select(i_dc_reg_idx),
+		.i_return_tag(i_dc_return_tag),
+		.i_return_valid(i_dc_return_valid),
 		.i_return_data(operand_return_data),
 		.i_return_next_valid(return_next_valid),
 		.i_return_next_tag(w[92+:6]),
@@ -1520,6 +1558,9 @@ module arm9v2_core (
 		.i_next_advance(forward_advance),
 		.i_next_write(forward_write),
 		.i_next_write_hold(forward_write_hold),
+		.i_next_write_hold_by(forward_write_hold_by),
+		.i_next_advance_by(forward_advance_by),
+		.i_next_done(done_forward),
 		.i_early(d_early),
 		.o_btb_pc(a_btb_pc),
 		.o_btb_thumb(a_btb_thumb),
@@ -2940,6 +2981,8 @@ module arm9v2_execute (
 	i_load_trust,
 	i_self_dep,
 	i_return_select,
+	i_return_tag,
+	i_return_valid,
 	i_return_next_valid,
 	i_return_ready,
 	i_return_next_tag,
@@ -2974,6 +3017,9 @@ module arm9v2_execute (
 	i_next_advance,
 	i_next_write,
 	i_next_write_hold,
+	i_next_write_hold_by,
+	i_next_advance_by,
+	i_next_done,
 	i_value,
 	i_dest,
 	i_offset,
@@ -3067,6 +3113,8 @@ module arm9v2_execute (
 	parameter [0:0] MUL_FAST_Z = 1'b1;
 	parameter [0:0] AGU_AL = 1'b1;
 	parameter [0:0] LATE_HOLD_STATIC = 1'b1;
+	parameter [0:0] RETURN_BIN = 1'b1;
+	parameter [0:0] LATE_HOLD_SPLIT = 1'b1;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
@@ -3081,6 +3129,8 @@ module arm9v2_execute (
 	input wire i_load_trust;
 	input wire i_self_dep;
 	input wire [63:0] i_return_select;
+	input wire [5:0] i_return_tag;
+	input wire i_return_valid;
 	input wire i_return_next_valid;
 	input wire i_return_ready;
 	input wire [5:0] i_return_next_tag;
@@ -3115,6 +3165,9 @@ module arm9v2_execute (
 	input wire i_next_advance;
 	input wire [3:0] i_next_write;
 	input wire [3:0] i_next_write_hold;
+	input wire [7:0] i_next_write_hold_by;
+	input wire [1:0] i_next_advance_by;
+	input wire i_next_done;
 	input wire [127:0] i_value;
 	input wire [11:0] i_dest;
 	input wire signed [7:0] i_offset;
@@ -3257,8 +3310,8 @@ module arm9v2_execute (
 			;
 		for (src = 0; src < 4; src = src + 1)
 			begin
-				s_return_match[src * 2+:2] = {i_return_select[{26'd0, i_tag[src * 6+:6]}], i_return_ready && i_return_s_match[src]};
-				a_return_match[src * 2+:2] = {i_return_select[{26'd0, a[105 + (src * 6)+:6]}], i_return_ready && return_a_match[src]};
+				s_return_match[src * 2+:2] = {(RETURN_BIN ? i_return_valid && (i_return_tag == i_tag[src * 6+:6]) : i_return_select[{26'd0, i_tag[src * 6+:6]}]), i_return_ready && i_return_s_match[src]};
+				a_return_match[src * 2+:2] = {(RETURN_BIN ? i_return_valid && (i_return_tag == a[105 + (src * 6)+:6]) : i_return_select[{26'd0, a[105 + (src * 6)+:6]}]), i_return_ready && return_a_match[src]};
 			end
 	end
 	always @(*) begin
@@ -3764,15 +3817,39 @@ module arm9v2_execute (
 	(* keep *) reg [31:0] a_candidate_match;
 	reg [15:0] late_hold;
 	reg [15:0] late_accept;
+	reg [31:0] late_hold_by;
+	reg [47:0] take_hold_by;
 	always @(*) begin : sv2v_autoblock_13
+		reg signed [31:0] d;
+		if (_sv2v_0)
+			;
+		for (d = 0; d < 2; d = d + 1)
+			begin : sv2v_autoblock_14
+				reg signed [31:0] src;
+				for (src = 0; src < 4; src = src + 1)
+					begin
+						begin : sv2v_autoblock_15
+							reg signed [31:0] prod;
+							for (prod = 0; prod < 2; prod = prod + 1)
+								begin : sv2v_autoblock_16
+									reg signed [31:0] lane;
+									for (lane = 0; lane < 2; lane = lane + 1)
+										late_hold_by[(((((d * 4) + src) * 2) + prod) * 2) + lane] = (a[101 + src] && i_next_write_hold_by[(((d * 2) + prod) * 2) + lane]) && a_candidate_match[(((((i_next_advance_by[d] * 4) + src) * 2) + prod) * 2) + lane];
+								end
+						end
+						take_hold_by[((d * 4) + src) * 6+:6] = take_of(late_hold_by[2 * (((d * 4) + src) * 2)+:4], ((src == 0) && (a[327-:4] == BLOCK)) && !a[317]);
+					end
+			end
+	end
+	always @(*) begin : sv2v_autoblock_17
 		reg signed [31:0] src;
 		if (_sv2v_0)
 			;
 		for (src = 0; src < 4; src = src + 1)
-			begin : sv2v_autoblock_14
+			begin : sv2v_autoblock_18
 				reg signed [31:0] prod;
 				for (prod = 0; prod < 2; prod = prod + 1)
-					begin : sv2v_autoblock_15
+					begin : sv2v_autoblock_19
 						reg signed [31:0] lane;
 						for (lane = 0; lane < 2; lane = lane + 1)
 							begin
@@ -3782,15 +3859,15 @@ module arm9v2_execute (
 					end
 			end
 	end
-	always @(*) begin : sv2v_autoblock_16
+	always @(*) begin : sv2v_autoblock_20
 		reg signed [31:0] src;
 		if (_sv2v_0)
 			;
 		for (src = 0; src < 4; src = src + 1)
-			begin : sv2v_autoblock_17
+			begin : sv2v_autoblock_21
 				reg signed [31:0] prod;
 				for (prod = 0; prod < 2; prod = prod + 1)
-					begin : sv2v_autoblock_18
+					begin : sv2v_autoblock_22
 						reg signed [31:0] lane;
 						for (lane = 0; lane < 2; lane = lane + 1)
 							begin
@@ -3851,10 +3928,10 @@ module arm9v2_execute (
 				flags <= i_cpsr[31:28];
 			if (i_valid && (HELD_FREE || !accept)) begin
 				held <= operand;
-				begin : sv2v_autoblock_19
+				begin : sv2v_autoblock_23
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_20
+						begin : sv2v_autoblock_24
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
 								if (((HELD_FREE ? (holding ? s_pending[src] : i_pending[src]) : s_wait[src]) && !(|i_forward_match[2 * (src * 2)+:4])) && s_return_match[(src * 2) + port])
@@ -3865,10 +3942,10 @@ module arm9v2_execute (
 			if (i_valid && !accept) begin
 				holding <= 1;
 				s_pending <= s_wait;
-				begin : sv2v_autoblock_21
+				begin : sv2v_autoblock_25
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_22
+						begin : sv2v_autoblock_26
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
 								if ((s_wait[src] && !(|i_forward_match[2 * (src * 2)+:4])) && s_return_match[(src * 2) + port])
@@ -3892,10 +3969,10 @@ module arm9v2_execute (
 				a[217-:32] <= store_a;
 				a[185-:32] <= special_a;
 				a[100-:4] <= a_wait;
-				begin : sv2v_autoblock_23
+				begin : sv2v_autoblock_27
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_24
+						begin : sv2v_autoblock_28
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
 								if ((a_wait[src] && !(|a[129 + (2 * (src * 2))+:4])) && a_return_match[(src * 2) + port]) begin
@@ -3909,23 +3986,23 @@ module arm9v2_execute (
 								end
 						end
 				end
-				begin : sv2v_autoblock_25
+				begin : sv2v_autoblock_29
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_26
+						begin : sv2v_autoblock_30
 							reg signed [31:0] prod;
 							for (prod = 0; prod < 2; prod = prod + 1)
-								begin : sv2v_autoblock_27
+								begin : sv2v_autoblock_31
 									reg signed [31:0] lane;
 									for (lane = 0; lane < 2; lane = lane + 1)
-										a[129 + ((((src * 2) + prod) * 2) + lane)] <= late_hold[(((src * 2) + prod) * 2) + lane];
+										a[129 + ((((src * 2) + prod) * 2) + lane)] <= (LATE_HOLD_SPLIT ? late_hold_by[(((((i_next_done * 4) + src) * 2) + prod) * 2) + lane] : late_hold[(((src * 2) + prod) * 2) + lane]);
 								end
 						end
 				end
-				begin : sv2v_autoblock_28
+				begin : sv2v_autoblock_32
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						a[0 + (src * 6)+:6] <= take_of(late_hold[2 * (src * 2)+:4], ((src == 0) && (a[327-:4] == BLOCK)) && !a[317]);
+						a[0 + (src * 6)+:6] <= (LATE_HOLD_SPLIT ? take_hold_by[((i_next_done * 4) + src) * 6+:6] : take_of(late_hold[2 * (src * 2)+:4], ((src == 0) && (a[327-:4] == BLOCK)) && !a[317]));
 				end
 			end
 			if (product_phase) begin
@@ -4006,22 +4083,22 @@ module arm9v2_execute (
 				a[146] <= rrx;
 				a[95-:8] <= i_writeback_offset;
 				a[128-:24] <= i_tag;
-				begin : sv2v_autoblock_29
+				begin : sv2v_autoblock_33
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
 						begin
 							a[97 + src] <= (i_used[src] && !i_early[src]) && s_wait[src];
-							begin : sv2v_autoblock_30
+							begin : sv2v_autoblock_34
 								reg signed [31:0] prod;
 								for (prod = 0; prod < 2; prod = prod + 1)
 									if (((i_used[src] && !i_early[src]) && i_next_load_owner[prod]) && s_candidate_match[((((i_next_advance * 4) + src) * 2) + prod) * 2])
 										a[97 + src] <= 1;
 							end
 							a[101 + src] <= ((i_used[src] && !i_early[src]) && !tag_pc[src]) && !tag_psr[src];
-							begin : sv2v_autoblock_31
+							begin : sv2v_autoblock_35
 								reg signed [31:0] prod;
 								for (prod = 0; prod < 2; prod = prod + 1)
-									begin : sv2v_autoblock_32
+									begin : sv2v_autoblock_36
 										reg signed [31:0] lane;
 										for (lane = 0; lane < 2; lane = lane + 1)
 											a[129 + ((((src * 2) + prod) * 2) + lane)] <= late_accept[(((src * 2) + prod) * 2) + lane];
@@ -4057,10 +4134,10 @@ module arm9v2_execute (
 					a[249-:32] <= {20'd0, i_instruction[10:0], 1'b0};
 					a[146] <= 0;
 				end
-				begin : sv2v_autoblock_33
+				begin : sv2v_autoblock_37
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_34
+						begin : sv2v_autoblock_38
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
 								if ((((i_used[src] && !i_early[src]) && s_wait[src]) && !(|i_forward_match[2 * (src * 2)+:4])) && s_return_match[(src * 2) + port]) begin
@@ -4904,6 +4981,7 @@ module arm9v2_predict (
 	parameter integer ENTRIES = 256;
 	parameter [0:0] RAS_TOP_FF = 1'b1;
 	parameter [0:0] VALID_BIT = 1'b1;
+	parameter [0:0] CLEAR_LATE = 1'b1;
 	localparam integer INDEX_W = $clog2(ENTRIES);
 	localparam integer TAG_W = 31 - INDEX_W;
 	input wire i_clk;
@@ -4986,7 +5064,7 @@ module arm9v2_predict (
 		if (_sv2v_0)
 			;
 		valid_next = valid;
-		if (write_enable)
+		if ((CLEAR_LATE ? i_update : write_enable))
 			valid_next[wr_index] = 1'b1;
 	end
 	always @(posedge i_clk) begin
@@ -9136,6 +9214,8 @@ module zap_dcache_fsm (
 	o_fill_busy_nxt,
 	o_reg_dat,
 	o_reg_idx,
+	o_return_tag,
+	o_return_valid,
 	o_dat,
 	o_ack,
 	o_err,
@@ -9239,6 +9319,8 @@ module zap_dcache_fsm (
 	output wire o_fill_busy_nxt;
 	output wire [31:0] o_reg_dat;
 	(* dont_retime *) output reg [63:0] o_reg_idx;
+	(* dont_retime *) output reg [5:0] o_return_tag;
+	(* dont_retime *) output reg o_return_valid;
 	output reg [31:0] o_dat;
 	output wire o_ack;
 	output wire o_err;
@@ -9793,6 +9875,7 @@ module zap_dcache_fsm (
 	assign o_wb_bte_nxt = (state_ff[FETCH_SINGLE] && (CACHE_LINE == 16) ? 2'b01 : 2'b00);
 	reg [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] way;
 	reg [63:0] reg_idx;
+	reg [5:0] reg_idx_bin;
 	reg [63:0] lock_nxt;
 	reg [63:0] lock_ff;
 	reg lock_set_nxt;
@@ -9870,10 +9953,15 @@ module zap_dcache_fsm (
 			cache_line <= i_cache_line;
 	assign critical_take = ((state_ff[FETCH_SINGLE] && !wr) && take) && (fetch_word_cur == address[$clog2(CACHE_LINE) - 1:2]);
 	always @(posedge i_clk) begin
-		if (i_reset)
+		if (i_reset) begin
 			o_reg_idx <= 64'b0000000000000000000000000000000000000000000000000000000000000000;
-		else
+			o_return_valid <= 1'b0;
+		end
+		else begin
 			o_reg_idx <= (critical_take ? reg_idx : 64'b0000000000000000000000000000000000000000000000000000000000000000);
+			o_return_valid <= critical_take;
+		end
+		o_return_tag <= reg_idx_bin;
 		if (critical_take)
 			reg_dat_ff <= ld_transform(i_wb_dat, ldfmt);
 	end
@@ -9889,6 +9977,7 @@ module zap_dcache_fsm (
 			phy_addr <= i_phy_addr;
 			way <= i_cache_way;
 			reg_idx <= i_reg_idx;
+			reg_idx_bin <= i_reg_idx_bin;
 			ldfmt <= i_ldfmt;
 			wt_hit <= ((i_wr && i_wt) && i_cacheable) && i_cache_hit;
 			wt_dirty <= i_cache_hit_dirty;
@@ -9936,7 +10025,7 @@ module zap_dcache_fsm (
 			line_req_ff <= line_req_nxt;
 			adr_ctr_ff <= adr_ctr_nxt;
 			lock_ff <= lock_nxt;
-			o_lock_any <= |lock_nxt;
+			o_lock_any <= (LOCK_SPLIT ? |(lock_ff & ~o_reg_idx) || lock_set_nxt : |lock_nxt);
 			o_lock_owner <= (i_lock_owner_move ? owner_advance_locked : owner_held_locked);
 			o_lock_return <= owner_held_locked;
 			state_ff <= state_nxt;
@@ -10445,6 +10534,8 @@ module zap_dcache (
 	o_fill_busy_nxt,
 	o_reg_dat,
 	o_reg_idx,
+	o_return_tag,
+	o_return_valid,
 	i_mmu_en,
 	i_cache_en,
 	i_cache_inv_req,
@@ -10488,6 +10579,7 @@ module zap_dcache (
 	parameter [0:0] HIT_FF = 1'b0;
 	parameter [0:0] FLAT_ACK = 1'b0;
 	parameter [0:0] LOCK_SPLIT = 1'b0;
+	parameter [0:0] COLLIDE_FLAT = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
@@ -10542,6 +10634,8 @@ module zap_dcache (
 	output wire o_fill_busy_nxt;
 	output wire [31:0] o_reg_dat;
 	output wire [63:0] o_reg_idx;
+	output wire [5:0] o_return_tag;
+	output wire o_return_valid;
 	input wire i_mmu_en;
 	input wire i_cache_en;
 	input wire i_cache_inv_req;
@@ -11040,6 +11134,8 @@ module zap_dcache (
 		.o_fill_busy_nxt(o_fill_busy_nxt),
 		.o_reg_dat(o_reg_dat),
 		.o_reg_idx(o_reg_idx),
+		.o_return_tag(o_return_tag),
+		.o_return_valid(o_return_valid),
 		.o_wb_cyc_ff(),
 		.o_wb_stb_ff(),
 		.o_wb_adr_ff(),
@@ -11185,7 +11281,9 @@ module zap_dcache (
 							store_word[8 * b+:8] = i_dat[8 * b+:8];
 				end
 			end
-			assign store_collision = (forward_store && (compare_address[LINE_W - 1:2] == i_address[LINE_W - 1:2])) && (cache_write_way == (WAYS > 1 ? raw_cache_word_sel : 1'b0));
+			wire collide_word_ref = compare_address[LINE_W - 1:2] == i_address[LINE_W - 1:2];
+			wire collide_word = (COLLIDE_FLAT ? |relookup || (i_address_check[LINE_W - 1:2] == i_address[LINE_W - 1:2]) : collide_word_ref);
+			assign store_collision = (forward_store && collide_word) && (cache_write_way == (WAYS > 1 ? raw_cache_word_sel : 1'b0));
 			reg [(WAYS * 32) - 1:0] way_formatted;
 			always @(*) begin : sv2v_autoblock_3
 				reg signed [31:0] w;
@@ -11201,7 +11299,7 @@ module zap_dcache (
 								if (i_ben[b])
 									way_store[8 * b+:8] = i_dat[8 * b+:8];
 						end
-						way_formatted[w * 32+:32] = ((forward_store && (compare_address[LINE_W - 1:2] == i_address[LINE_W - 1:2])) && (cache_write_way == (WAYS > 1 ? w[0] : 1'b0)) ? ld_transform(way_store, i_ldfmt_check) : ld_transform(raw_cache_words[w * 32+:32], i_ldfmt_check));
+						way_formatted[w * 32+:32] = ((forward_store && collide_word) && (cache_write_way == (WAYS > 1 ? w[0] : 1'b0)) ? ld_transform(way_store, i_ldfmt_check) : ld_transform(raw_cache_words[w * 32+:32], i_ldfmt_check));
 					end
 			end
 			assign formatted = (WAY_FORMAT ? way_formatted[((WAYS > 1) && raw_cache_word_sel ? 1 : 0) * 32+:32] : (store_collision ? ld_transform(store_word, i_ldfmt_check) : ld_transform(hit_word, i_ldfmt_check)));
@@ -14648,6 +14746,8 @@ module zap_top (
 	wire d_wb_err;
 	wire [63:0] dc_rreg_idx;
 	wire [63:0] dc_wreg_idx;
+	wire [5:0] dc_return_tag;
+	wire dc_return_valid;
 	wire [5:0] dc_rreg_idx_bin;
 	wire [63:0] dc_lock;
 	wire dc_lock_any;
@@ -14797,6 +14897,8 @@ module zap_top (
 				.o_dc_reg_idx(dc_rreg_idx),
 				.o_dc_reg_idx_bin(dc_rreg_idx_bin),
 				.i_dc_reg_idx(dc_wreg_idx),
+				.i_dc_return_tag(dc_return_tag),
+				.i_dc_return_valid(dc_return_valid),
 				.i_dc_lock(dc_lock),
 				.i_dc_lock_any(dc_lock_any),
 				.i_dc_lock_owner(dc_lock_owner),
@@ -14872,6 +14974,7 @@ module zap_top (
 				.HIT_FF(1'b1),
 				.FLAT_ACK(1'b1),
 				.LOCK_SPLIT(1'b1),
+				.COLLIDE_FLAT(1'b1),
 				.BE_32_ENABLE(BE_32_ENABLE),
 				.EXT_ABORT_FS(4'b1000)
 			) u_data_cache(
@@ -14922,6 +15025,8 @@ module zap_top (
 				.o_fill_busy_nxt(data_fill_busy_nxt),
 				.o_reg_dat(dc_reg_data),
 				.o_reg_idx(dc_wreg_idx),
+				.o_return_tag(dc_return_tag),
+				.o_return_valid(dc_return_valid),
 				.o_fsr(dc_fsr),
 				.o_far(dc_far),
 				.o_cache_inv_done(dc_inv_done),
