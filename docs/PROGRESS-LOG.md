@@ -6858,3 +6858,44 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   and the CPSR from the D-cache FSM's idle state (-2.09) and the cache
   enable into the forward match (-2.35 at seed 9). Each cut is being
   fitted alone on G0 at all four seeds (G1-G9).
+- **Single cuts on the baseline, four seeds** (TNS over seeds 2/3/5/9;
+  endpoints below -0.6): baseline G0 -8185 / 5092; HEAD_FF -7330 / 4552;
+  D2_BANKS -6309 / 3874 (D2's family from 929 endpoints below -0.6 and
+  TNS -1327 to 367 / -445); LOAD_CLASS -7828 / 5253; PAYLOAD_NORESET
+  -7445 / 4998. The rest were not fitted alone: the combined tree told
+  more. (The checkpoint commit 9fc01a3 says "seven more" cuts; it lists
+  nine.)
+- **Small cycle costs, approved ("try to minimize reduction").** Two
+  cuts cost cycles, both by construction only in narrow cases:
+  AGU_AL (S's base forward from A only for an unconditional writer; a
+  dependent of a conditional base-writeback access waits in D2): 6 cycles
+  over the whole suite. EARLY_NOHIT (A's early locks released on the
+  clock A finishes only if it finishes without W's short hit): +0.016 %
+  suite cycles with prediction, +0.046 % without. Suite totals now
+  +0.255 % / +0.211 % against lane E. The rest are zero-cycle and
+  asserted equal: W_CLASS (W's static completion terms as registers
+  loaded from M), LOCK_SPLIT (the D-cache owner and any-lock summaries
+  from lock_ff, the clears and the one new lock, proved in
+  lock_summary.py), LATE_HOLD_STATIC and LATE_HOLD_SPLIT (A's held late
+  matches without A's finish, and for both values of W's completion),
+  RETURN_BIN (binary background-return matches), COLLIDE_FLAT (the
+  D-cache's store-collision compare without the relookup select),
+  CLEAR_LATE (the predictor clear only as its registers' clear).
+- **Combined trees, four seeds:** C1 (all cuts through LOCK_SPLIT):
+  worst -1.814/-1.756/-1.991/-1.705, TNS -2578, endpoints below -0.6
+  1360 (a third of the baseline's TNS, 0.59 of round 2's). C2 (+
+  EARLY_NOHIT, LATE_HOLD_STATIC): -1.487/-2.248/-1.458/-1.729, TNS -2918
+  (within noise of C1; seeds 2 and 5 the best worst slacks yet). The
+  leaders left are flat (no pair beyond about -70 over four seeds):
+  execute's A from W's completion and the short hit, D2's stepped
+  destination from S's readiness, A's late accept from A's own
+  destination through the advance tags, the D-cache response word, the
+  ALU into M.
+- C3 (C2 + RETURN_BIN, COLLIDE_FLAT, LATE_HOLD_SPLIT, the any-lock split,
+  CLEAR_LATE; committed e006dc9): -2.385/-2.295/-2.711/-1.952, TNS -4731
+  over four seeds — worse than C1/C2. The growth is spread (D2 from the
+  S-entry record, A from W's hit qualifier, the fetch queue, W), plus
+  the predictor's looked-up valid bit from its update path (-2.71 and
+  -2.15 at two seeds, absent in C2), CLEAR_LATE's neighbourhood. The
+  any-lock split now has its own parameter (LOCK_ANY_SPLIT) so the five
+  additions can be fitted out in three groups.

@@ -32,6 +32,8 @@ module zap_dcache_fsm   #(
         // FSM's decision enters only their final OR instead of a 64-bit
         // lock_nxt indexed afterwards. Asserted equal.
         parameter logic LOCK_SPLIT = 1'b0,
+        // ARM9V2 LOCK_ANY_SPLIT: the any-lock summary the same way.
+        parameter logic LOCK_ANY_SPLIT = 1'b0,
 parameter logic [31:0] CACHE_SIZE    = 32'd1024,  // Bytes.
         parameter logic [31:0] CACHE_LINE    = 32'd8,
         parameter logic        BE_32_ENABLE  = 1'd0,
@@ -485,7 +487,7 @@ begin
                 line_req_ff             <= line_req_nxt;
                 adr_ctr_ff              <= adr_ctr_nxt;
                 lock_ff                 <= lock_nxt;
-                o_lock_any <= LOCK_SPLIT ? (|(lock_ff & ~o_reg_idx)) || lock_set_nxt : |lock_nxt;
+                o_lock_any <= LOCK_ANY_SPLIT ? (|(lock_ff & ~o_reg_idx)) || lock_set_nxt : |lock_nxt;
                 o_lock_owner <= i_lock_owner_move ? owner_advance_locked : owner_held_locked;
                 o_lock_return <= owner_held_locked;
 

@@ -9287,6 +9287,7 @@ module zap_dcache_fsm (
 	reg _sv2v_0;
 	parameter [0:0] FLAT_ACK = 1'b0;
 	parameter [0:0] LOCK_SPLIT = 1'b0;
+	parameter [0:0] LOCK_ANY_SPLIT = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] CACHE_LINE = 32'd8;
 	parameter [0:0] BE_32_ENABLE = 1'd0;
@@ -10025,7 +10026,7 @@ module zap_dcache_fsm (
 			line_req_ff <= line_req_nxt;
 			adr_ctr_ff <= adr_ctr_nxt;
 			lock_ff <= lock_nxt;
-			o_lock_any <= (LOCK_SPLIT ? |(lock_ff & ~o_reg_idx) || lock_set_nxt : |lock_nxt);
+			o_lock_any <= (LOCK_ANY_SPLIT ? |(lock_ff & ~o_reg_idx) || lock_set_nxt : |lock_nxt);
 			o_lock_owner <= (i_lock_owner_move ? owner_advance_locked : owner_held_locked);
 			o_lock_return <= owner_held_locked;
 			state_ff <= state_nxt;
@@ -10579,6 +10580,7 @@ module zap_dcache (
 	parameter [0:0] HIT_FF = 1'b0;
 	parameter [0:0] FLAT_ACK = 1'b0;
 	parameter [0:0] LOCK_SPLIT = 1'b0;
+	parameter [0:0] LOCK_ANY_SPLIT = 1'b0;
 	parameter [0:0] COLLIDE_FLAT = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
@@ -11055,7 +11057,8 @@ module zap_dcache (
 		.EXT_ABORT_FS(EXT_ABORT_FS),
 		.WAYS(WAYS),
 		.FLAT_ACK(FLAT_ACK),
-		.LOCK_SPLIT(LOCK_SPLIT)
+		.LOCK_SPLIT(LOCK_SPLIT),
+		.LOCK_ANY_SPLIT(LOCK_ANY_SPLIT)
 	) u_zap_cache_fsm(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
@@ -14974,6 +14977,7 @@ module zap_top (
 				.HIT_FF(1'b1),
 				.FLAT_ACK(1'b1),
 				.LOCK_SPLIT(1'b1),
+				.LOCK_ANY_SPLIT(1'b1),
 				.COLLIDE_FLAT(1'b1),
 				.BE_32_ENABLE(BE_32_ENABLE),
 				.EXT_ABORT_FS(4'b1000)

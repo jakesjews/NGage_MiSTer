@@ -28,6 +28,7 @@ model = '''module proof(input clk, reset, input [63:0] o_reg_idx,
     input [5:0] i_lock_owner_hold, i_lock_owner_advance,
     input i_lock_owner_move);
 localparam LOCK_SPLIT = @SPLIT@;
+localparam LOCK_ANY_SPLIT = @SPLIT@;
 reg [63:0] lock_ff;
 wire [63:0] lock_nxt = (lock_ff & ~o_reg_idx) | (lock_set_nxt ? 64'd1 << i_reg_idx_bin : 64'd0);
 reg o_lock_any, o_lock_owner;
