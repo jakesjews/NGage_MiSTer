@@ -137,6 +137,11 @@ module arm9v2_front_execute #(
     assign forward_write=(i_reset||i_flush)?4'd0:
         {i_ready?(mw_write[0]&{2{mw_valid[0]}}):(mw_write[1]&{2{mw_valid[1]}}),
          i_ready?(o_write&{2{o_valid}}):(mw_write[0]&{2{mw_valid[0]}})};
+    // LATE_HOLD_STATIC: the same with A's record not entering M.
+    logic [1:0][1:0] forward_write_hold;
+    assign forward_write_hold=(i_reset||i_flush)?4'd0:
+        {i_ready?(mw_write[0]&{2{mw_valid[0]}}):(mw_write[1]&{2{mw_valid[1]}}),
+         i_ready?2'b00:(mw_write[0]&{2{mw_valid[0]}})};
     assign wa=(mw_write[1][0]&&mw_valid[1]) ? 40'd1<<mw_tag[1][0] : 40'd0;
     assign wb=(mw_write[1][1]&&mw_valid[1]) ? 40'd1<<mw_tag[1][1] : 40'd0;
     assign wc=(mw_flags[1]&&mw_valid[1]) ? 40'd1<<17 : 40'd0;
@@ -269,7 +274,7 @@ module arm9v2_front_execute #(
     arm9v2_execute u_execute (
         .i_flags_refresh(1'b0),.o_serial_continue(),.i_pending(4'd0),.i_load_owner(2'd0),.i_next_load_owner(2'd0),.i_load_hit(1'b0),.i_return_select(64'd0),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.i_return_ready(1'b0),.i_return_s_match(4'd0),.i_return_data(64'd0),
         .i_shift_pre(d_shift_pre),.i_tag_class(d_tag_class),.i_self_dep(d_self_dep),.i_load_trust(1'b1),.o_ready_payload(execute_ready_payload),
-        .i_admit(1'b1),.i_load_wait(1'b0),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_advance_tag('0),.i_next_advance(1'b0),.i_next_write(forward_write),.i_early(d_early),
+        .i_admit(1'b1),.i_load_wait(1'b0),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_advance_tag('0),.i_next_advance(1'b0),.i_next_write(forward_write),.i_next_write_hold(forward_write_hold),.i_early(d_early),
         .o_btb_pc(btb_pc),.o_btb_thumb(btb_thumb),.o_record_pointer(),.o_record_count(),
         .o_record_pred_hit(),.o_record_pred_state(),.o_record_thumb(),
         .o_a_load(),.o_psr_source(),.o_saved_psr(),.o_original_base(),.o_next_pc(),.o_prediction_target(),.o_spsr_tag(),.o_predicted(),
@@ -346,7 +351,7 @@ module arm9v2_front_execute #(
         .o_btb_state(o_btb_state),
         .o_btb_kind(o_btb_kind),
         .o_a_valid(o_a_valid),
-        .o_a_can_finish(o_a_can_finish),.o_a_cond_al(o_a_cond_al),
+        .o_a_can_finish(o_a_can_finish),.o_a_cond_al(o_a_cond_al),.o_a_can_finish_nohit(),
         .o_s_write(o_s_write),
         .o_a_dest(o_a_dest),
         .o_a_write(o_a_write),

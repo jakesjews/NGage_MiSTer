@@ -42,11 +42,16 @@
 // unconditional writer, so the forward needs no condition evaluation; the
 // core's early lock waiver (decode) covers only such writers, so a record
 // whose base writer in A is conditional never reaches S. Asserted.
+// o_a_can_finish_nohit: A's finish as if W's short hit were absent (A's
+// late operands from W's load still wait), for the core's early locks.
+// LATE_HOLD_STATIC: A's held late matches take i_next_write_hold (the next
+// producers' writes with A's own record not entering M), the only case in
+// which they are used, so A's finish is not among their inputs. Asserted.
 // Parameter defaults are the core's configuration (arm9v2_core sets each
 // explicitly); 0 selects a cut's original form, kept for A/B timing trials.
 module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=1'b1, parameter logic FAST_Z=1'b1,
     parameter logic W_ROTATE=1'b1, parameter logic SHIFT_PRE=1'b1, parameter logic PAYLOAD_FREE=1'b1,
-    parameter logic DSP_PRODUCT=1'b1, parameter logic OP1_PRE=1'b1, parameter logic WRITES_PRE=1'b1, parameter logic TAG_PRE=1'b1, parameter logic HELD_FREE=1'b1, parameter logic MUL_FAST_Z=1'b1, parameter logic AGU_AL=1'b1) (
+    parameter logic DSP_PRODUCT=1'b1, parameter logic OP1_PRE=1'b1, parameter logic WRITES_PRE=1'b1, parameter logic TAG_PRE=1'b1, parameter logic HELD_FREE=1'b1, parameter logic MUL_FAST_Z=1'b1, parameter logic AGU_AL=1'b1, parameter logic LATE_HOLD_STATIC=1'b1) (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
     input logic i_flags_refresh,
     output logic o_serial_continue,
@@ -80,6 +85,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     input logic [1:0][1:0][5:0] i_next_tag, i_advance_tag,
     input logic i_next_advance,
     input logic [1:0][1:0] i_next_write,
+    input logic [1:0][1:0] i_next_write_hold,   // LATE_HOLD_STATIC: i_next_write if A stays
     input logic [3:0][31:0] i_value,
     input logic [1:0][5:0] i_dest,
     input logic signed [7:0] i_offset,i_writeback_offset,
@@ -122,6 +128,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     output logic [1:0] o_btb_state,o_btb_kind,
     output logic o_a_valid,o_a_can_finish,
     output logic o_a_cond_al,   // AGU_AL: A's record is unconditional
+    output logic o_a_can_finish_nohit,   // A finishes without W's short hit (EARLY_NOHIT)
     output logic [1:0] o_s_write,
     output logic [1:0][5:0] o_a_dest,
     output logic [1:0] o_a_write,
@@ -220,6 +227,13 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
                     i_load_owner[prod]&&(prod==0||!a_load_hit);
         end
     end
+    // A's waits with W's short hit taken as absent (o_a_can_finish_nohit).
+    logic [3:0] a_wait_nohit;
+    always_comb begin
+        a_wait_nohit=a.pending;
+        for(int src=0;src<4;src++)for(int prod=1;prod>=0;prod--)
+            if(|a.late[src][prod])a_wait_nohit[src]=a.late[src][prod][0]&&i_load_owner[prod];
+    end
     logic [31:0] shift_input,shifted;
     logic [7:0] shift_amount;
     logic [1:0] shift_type,ref_type;
@@ -298,6 +312,12 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
         if(a.kind==MUL)assert(mul_z32==(mult_result[31:0]==0)) else $fatal(1,"multiply Z (32)");
         if(a.kind==MULL)assert(mul_z64==(mult_result==0)) else $fatal(1,"multiply Z (64)");
     end
+    always_ff @(posedge i_clk) if(!i_reset&&LATE_HOLD_STATIC&&a_valid&&!finish)
+        assert(i_next_write_hold==i_next_write) else $fatal(1,"A's held late matches");
+    // A finishes without W's hit only if it finishes (the early lock it
+    // releases is held at least as long).
+    always_ff @(posedge i_clk) if(!i_reset)
+        assert(!o_a_can_finish_nohit||o_a_can_finish) else $fatal(1,"A finish without the hit");
     // AGU_AL: every forward the condition-passed form makes, this one makes.
     wire agu_forward_ref=S_AGU&&(i_kind==MEM||i_kind==SWP||(i_kind==BLOCK&&i_first))&&
         a_valid&&a.kind==MEM&&a.writes[1]&&condition_pass&&!a.fault&&
@@ -534,6 +554,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     assign finish=o_valid&&i_ready;
     assign o_a_valid=a_valid;
     assign o_a_can_finish=finish;
+    assign o_a_can_finish_nohit=a_valid&&!(|a_wait_nohit)&&!product_phase&&!mac_phase&&!i_flush&&!o_redirect&&i_ready;
     assign o_a_cond_al=a.condition==4'hE;
     wire [1:0] writes_lanes={i_kind==MULL||i_kind==MEM||i_kind==BLOCK,
         i_kind==DP||i_kind==MRS||i_kind==MUL||i_kind==MULL||i_kind==BR||i_kind==PREFIX||i_kind==SUFFIX};
@@ -616,7 +637,8 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     // a.late's next value on a held edge and on acceptance.
     logic [3:0][1:0][1:0] late_hold,late_accept;
     always_comb for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)begin
-        late_hold[src][prod][lane]=a.late_used[src]&&i_next_write[prod][lane]&&a_candidate_match[i_next_advance][src][prod][lane];
+        late_hold[src][prod][lane]=a.late_used[src]&&(LATE_HOLD_STATIC?i_next_write_hold[prod][lane]:i_next_write[prod][lane])&&
+            a_candidate_match[i_next_advance][src][prod][lane];
         late_accept[src][prod][lane]=i_used[src]&&!i_early[src]&&!tag_pc[src]&&!tag_psr[src]&&
             i_next_write[prod][lane]&&s_candidate_match[i_next_advance][src][prod][lane];
     end

@@ -98,6 +98,16 @@ module arm9v2_core #(
         // of a conditional base writer waits in D2 (AGU_AL): a clock only for
         // a conditional writeback memory access followed by its base's user.
         parameter logic AGU_AL = 1'b1,
+        // A's early locks released on the clock A finishes only if it
+        // finishes without W's short hit, otherwise a clock later
+        // (EARLY_NOHIT): a clock only when a load's A consumer and an early
+        // (S-needed) user of that consumer meet at exactly that spacing.
+        parameter logic EARLY_NOHIT = 1'b1,
+        // A's held late matches use the next producers' writes as if A
+        // stays (its own record absent from M), the only case they serve,
+        // so A's finish is not among their inputs (arm9v2_execute
+        // LATE_HOLD_STATIC): zero cycles.
+        parameter logic LATE_HOLD_STATIC = 1'b1,
         // The predictor's looked-up valid bit as a register (arm9v2_predict
         // VALID_BIT): zero cycles.
         parameter logic VALID_BIT = 1'b1,
@@ -379,6 +389,7 @@ output logic [1:0] o_dbg_fetch
     logic [31:0] a_data_address,a_alu_address;
     logic [3:0] early_agu;
     logic a_a_cond_al;   // AGU_AL: A's record is unconditional
+    logic a_a_can_finish_nohit;   // EARLY_NOHIT
     logic [31:0] a_store_data;
     logic [3:0] a_flags;
     logic a_redirect;
@@ -585,7 +596,7 @@ output logic [1:0] o_dbg_fetch
     // The writeback lane (1) of a scalar MEM in S or A is an S-AGU sum: a
     // memory base consumer takes it from A's register, without the D2 hold.
     assign early_agu={a_kind==MEM&&(!AGU_AL||a_a_cond_al),1'b0,d_kind==MEM&&(!AGU_AL||d_condition==4'hE),1'b0};
-    assign early_valid={a_a_write&{2{a_a_valid&&!a_a_can_finish}},a_s_write}&
+    assign early_valid={a_a_write&{2{a_a_valid&&!(EARLY_NOHIT?a_a_can_finish_nohit:a_a_can_finish)}},a_s_write}&
         {early_tag[3]!=15,early_tag[2]!=15,early_tag[1]!=15,early_tag[0]!=15};
     // Pipeline load ownership and the cache's registered background lock are
     // separate. No cache ACK or producer readiness is searched in forwarding.
@@ -664,6 +675,13 @@ output logic [1:0] o_dbg_fetch
         if(memory_state==RELOAD1||quick_forward)next_load_valid[1]=skid.load_writer;
         if(a_redirect)next_load_valid[0]=0;
         if((!RESET_LEAN&&i_reset)||wb_flush)begin forward_write=0;forward_load=0;next_load_valid=0;end
+    end
+    // LATE_HOLD_STATIC: forward_write with A's record not entering M.
+    logic [1:0][1:0] forward_write_hold;
+    always_comb begin
+        forward_write_hold=forward_write;
+        if(memory_state==RUN&&done_forward)forward_write_hold[0]=0;
+        if((!RESET_LEAN&&i_reset)||wb_flush)forward_write_hold=0;
     end
 `ifndef SYNTHESIS
     always_ff @(posedge i_clk) if(!i_reset&&LOAD_CLASS)begin
@@ -1156,13 +1174,13 @@ output logic [1:0] o_dbg_fetch
         .o_request(o_instr_wb_stb),
         .o_stall(o_code_stall),.o_dbg_fetch(o_dbg_fetch)
     );
-    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.DSP_PRODUCT(DSP_PRODUCT),.OP1_PRE(OP1_PRE),.WRITES_PRE(WRITES_PRE),.TAG_PRE(TAG_PRE),.HELD_FREE(HELD_FREE),.MUL_FAST_Z(MUL_FAST_Z),.AGU_AL(AGU_AL)) u_execute (
+    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.DSP_PRODUCT(DSP_PRODUCT),.OP1_PRE(OP1_PRE),.WRITES_PRE(WRITES_PRE),.TAG_PRE(TAG_PRE),.HELD_FREE(HELD_FREE),.MUL_FAST_Z(MUL_FAST_Z),.AGU_AL(AGU_AL),.LATE_HOLD_STATIC(LATE_HOLD_STATIC)) u_execute (
         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),
         .i_load_owner({w.load_writer,m.load_writer}),.i_next_load_owner(forward_load),
         .i_load_hit(w_hit&&i_data_short_hit),.i_load_trust(load_trust),.i_self_dep(d_self_dep),
         .i_return_select(i_dc_reg_idx),.i_return_data(operand_return_data),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),
-        .i_return_ready(return_ready),.i_return_s_match(d_return_match),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(mw_tag),.i_advance_tag(advance_tag),.i_next_advance(forward_advance),.i_next_write(forward_write),.i_early(d_early),
+        .i_return_ready(return_ready),.i_return_s_match(d_return_match),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(mw_tag),.i_advance_tag(advance_tag),.i_next_advance(forward_advance),.i_next_write(forward_write),.i_next_write_hold(forward_write_hold),.i_early(d_early),
         .o_btb_pc(a_btb_pc),.o_btb_thumb(a_btb_thumb),
         .o_record_pointer(a_record_pointer),.o_record_count(a_record_count),
         .o_record_pred_hit(a_record_pred_hit),.o_record_pred_state(a_record_pred_state),.o_record_thumb(a_record_thumb),
@@ -1242,7 +1260,7 @@ output logic [1:0] o_dbg_fetch
         .o_btb_state(a_btb_state),
         .o_btb_kind(a_btb_kind),
         .o_a_valid(a_a_valid),
-        .o_a_can_finish(a_a_can_finish),.o_a_cond_al(a_a_cond_al),
+        .o_a_can_finish(a_a_can_finish),.o_a_cond_al(a_a_cond_al),.o_a_can_finish_nohit(a_a_can_finish_nohit),
         .o_s_write(a_s_write),
         .o_a_dest(a_a_dest),
         .o_a_write(a_a_write),
