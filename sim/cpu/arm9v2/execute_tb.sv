@@ -11,12 +11,6 @@ module execute_tb;
     logic manual_producers,i_load_hit;
     logic [1:0] i_load_owner,i_next_load_owner;
     logic [1:0][63:0] i_return_select;
-    // RETURN_BIN: the background select as a binary index and a valid.
-    logic [5:0] i_return_tag; logic i_return_valid;
-    always_comb begin
-        i_return_tag=0; i_return_valid=|i_return_select[1];
-        for(int n=0;n<64;n++)if(i_return_select[1][n])i_return_tag=6'(n);
-    end
     logic [1:0][31:0] i_return_data;
     logic [63:0] normal_return_select;
     logic [31:0] normal_return_data;

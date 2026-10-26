@@ -6899,3 +6899,23 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   -2.15 at two seeds, absent in C2), CLEAR_LATE's neighbourhood. The
   any-lock split now has its own parameter (LOCK_ANY_SPLIT) so the five
   additions can be fitted out in three groups.
+- OPTIMIZATION_MODE "AGGRESSIVE PERFORMANCE" (C3A, the C3 netlist): Quartus
+  reports the mode selected and fits identically to "HIGH PERFORMANCE
+  EFFORT" at all four seeds (same slack, TNS and ALMs): no effect in Lite.
+- **C3's additions fitted out, four seeds each** (TNS over seeds 2/3/5/9;
+  C3 -4731): without RETURN_BIN and COLLIDE_FLAT -4176; without
+  LATE_HOLD_SPLIT -6831; without the any-lock split and CLEAR_LATE -4030.
+  LATE_HOLD_SPLIT stays; RETURN_BIN, COLLIDE_FLAT, LOCK_ANY_SPLIT and
+  CLEAR_LATE are removed from the code (the user: "Cleanup anything on
+  master that made things worse"), leaving C2 + LATE_HOLD_SPLIT. Other
+  measured losers had already gone: the load-hit split, READS_DEST,
+  keep/maxfan on D2's enables, the TLB-idle acknowledge.
+- **Clocks.** About 80 % of the failing slack is inside the CPU (C1:
+  TNS -2107 of -2578, every worst endpoint); the memory side (ngage_mem,
+  flash, DDR3, SDRAM) holds -295 to -564 with worst -1.48, peripherals and
+  the rest -1.0 to -1.6. Moving the non-CPU logic to clocks of its own (as
+  the Cray core's I/O subsystem and video run on their own PLLs) would
+  remove about a fifth; the CPU's own worst paths stay. Only a clock of
+  the CPU's own (CPU and caches on their own PLL, crossing at the CPU's
+  bus port) would close timing now, at what the CPU meets (about 90 MHz
+  at the best seeds, ~95 MHz within the board's -0.6 ns envelope).

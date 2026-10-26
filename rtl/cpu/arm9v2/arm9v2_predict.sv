@@ -16,11 +16,6 @@ module arm9v2_predict #(
     // target, sequential) selected as fetch selects the launch PC, so
     // o_hit does not read the bitmap through read_pc (a 256:1 mux).
     parameter logic VALID_BIT = 1'b1,
-    // CLEAR_LATE: the next valid bitmap sets the updated entry without the
-    // reset/clear terms (every register built from it is cleared outright
-    // on those clocks), so the clear reaches the valid registers only as
-    // their clear, not through the bitmap and the lookup select.
-    parameter logic CLEAR_LATE = 1'b1,
     localparam integer INDEX_W = $clog2(ENTRIES),
     localparam integer TAG_W = 31 - INDEX_W
 ) (
@@ -90,7 +85,7 @@ module arm9v2_predict #(
     );
     always_comb begin
         valid_next = valid;
-        if (CLEAR_LATE ? i_update : write_enable) valid_next[wr_index] = 1'b1;
+        if (write_enable) valid_next[wr_index] = 1'b1;
     end
     always_ff @(posedge i_clk) begin
         if (i_reset || i_clear) begin

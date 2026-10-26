@@ -36,12 +36,6 @@ parameter logic HIT_FF = 1'b0,
 parameter logic FLAT_ACK = 1'b0,
 // ARM9V2: the owner lock summaries without the indexed 64-bit lock_nxt.
 parameter logic LOCK_SPLIT = 1'b0,
-parameter logic LOCK_ANY_SPLIT = 1'b0,
-// ARM9V2 COLLIDE_FLAT: the response's store-collision word compare as
-// |relookup || i_address_check == i_address (word bits), which is what
-// comparing compare_address (i_address under a relookup) with i_address
-// is, so the relookup select is not in front of the compare.
-parameter logic COLLIDE_FLAT = 1'b0,
 parameter logic [31:0] CACHE_SIZE             = 32'd1024,
 parameter logic [31:0] SPAGE_TLB_ENTRIES      = 32'd8,
 parameter logic [31:0] LPAGE_TLB_ENTRIES      = 32'd8,
@@ -113,8 +107,6 @@ output  logic           o_err_fast,      // ARM9V2: zap_dcache_fsm
 output  logic           o_fill_busy_nxt, // ARM9V2: zap_dcache_fsm
 output  logic [31:0]     o_reg_dat,
 output  logic [63:0]     o_reg_idx,
-output  logic [5:0]      o_return_tag,    // ARM9V2: o_reg_idx as a binary index ...
-output  logic            o_return_valid,  // ... and its valid (registered)
 
 // MMU controls from/to processor.
 input   logic            i_mmu_en,
@@ -261,7 +253,7 @@ assign unused = |{wb_err[1]};
 
 // Basic cache FSM - serves as manager 0.
 zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE(BE_32_ENABLE),
-                 .EXT_ABORT_FS(EXT_ABORT_FS), .WAYS(WAYS), .FLAT_ACK(FLAT_ACK), .LOCK_SPLIT(LOCK_SPLIT), .LOCK_ANY_SPLIT(LOCK_ANY_SPLIT)) u_zap_cache_fsm (
+                 .EXT_ABORT_FS(EXT_ABORT_FS), .WAYS(WAYS), .FLAT_ACK(FLAT_ACK), .LOCK_SPLIT(LOCK_SPLIT)) u_zap_cache_fsm (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address              (i_address),
@@ -339,8 +331,6 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .o_fill_busy_nxt        (o_fill_busy_nxt),
         .o_reg_dat              (o_reg_dat),
         .o_reg_idx              (o_reg_idx),
-        .o_return_tag           (o_return_tag),
-        .o_return_valid         (o_return_valid),
 
         /* verilator lint_off PINCONNECTEMPTY */
         .o_wb_cyc_ff            (),
@@ -470,10 +460,8 @@ generate if (1) begin : g_short_response
         for (int b=0; b<4; b++)
             if (i_ben[b]) store_word[8*b +: 8] = i_dat[8*b +: 8];
     end
-    wire collide_word_ref = compare_address[LINE_W-1:2] == i_address[LINE_W-1:2];
-    wire collide_word = COLLIDE_FLAT ? (|relookup) || i_address_check[LINE_W-1:2] == i_address[LINE_W-1:2] :
-                        collide_word_ref;
-    assign store_collision = forward_store && collide_word &&
+    assign store_collision = forward_store &&
+        compare_address[LINE_W-1:2] == i_address[LINE_W-1:2] &&
         cache_write_way == ((WAYS > 1) ? raw_cache_word_sel : 1'b0);
     // WAY_FORMAT: each way's candidate is finished (merge and format)
     // before the hit chooses; the hit, the last-arriving term, drives only
@@ -484,7 +472,8 @@ generate if (1) begin : g_short_response
         way_store = raw_cache_words[w];
         for (int b=0; b<4; b++)
             if (i_ben[b]) way_store[8*b +: 8] = i_dat[8*b +: 8];
-        way_formatted[w] = forward_store && collide_word &&
+        way_formatted[w] = forward_store &&
+            compare_address[LINE_W-1:2] == i_address[LINE_W-1:2] &&
             cache_write_way == ((WAYS > 1) ? w[0] : 1'b0) ?
             ld_transform(way_store, i_ldfmt_check) : ld_transform(raw_cache_words[w], i_ldfmt_check);
     end
@@ -492,7 +481,6 @@ generate if (1) begin : g_short_response
                        store_collision ? ld_transform(store_word, i_ldfmt_check) :
                                          ld_transform(hit_word, i_ldfmt_check);
 `ifndef SYNTHESIS
-    always_ff @(posedge i_clk) if (!i_reset) assert (collide_word == collide_word_ref) else $fatal(1, "flat collision compare");
     always_ff @(posedge i_clk) if (!i_reset && !hold && !i_stall)
         assert (formatted == (store_collision ? ld_transform(store_word, i_ldfmt_check) :
                               ld_transform(hit_word, i_ldfmt_check))) else $fatal(1, "way-parallel format");

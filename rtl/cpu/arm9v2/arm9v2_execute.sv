@@ -47,9 +47,6 @@
 // LATE_HOLD_STATIC: A's held late matches take i_next_write_hold (the next
 // producers' writes with A's own record not entering M), the only case in
 // which they are used, so A's finish is not among their inputs. Asserted.
-// RETURN_BIN: the background return's matches compare its binary index
-// (i_return_tag/i_return_valid) with the source tags instead of selecting
-// the one-hot i_return_select by them. Asserted equal.
 // LATE_HOLD_SPLIT: A's held late matches and their takes for both values
 // of W's completion (i_next_done), from i_next_write_hold_by and
 // i_next_advance_by (registered state), the completion selecting last.
@@ -58,7 +55,7 @@
 // explicitly); 0 selects a cut's original form, kept for A/B timing trials.
 module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=1'b1, parameter logic FAST_Z=1'b1,
     parameter logic W_ROTATE=1'b1, parameter logic SHIFT_PRE=1'b1, parameter logic PAYLOAD_FREE=1'b1,
-    parameter logic DSP_PRODUCT=1'b1, parameter logic OP1_PRE=1'b1, parameter logic WRITES_PRE=1'b1, parameter logic TAG_PRE=1'b1, parameter logic HELD_FREE=1'b1, parameter logic MUL_FAST_Z=1'b1, parameter logic AGU_AL=1'b1, parameter logic LATE_HOLD_STATIC=1'b1, parameter logic RETURN_BIN=1'b1, parameter logic LATE_HOLD_SPLIT=1'b1) (
+    parameter logic DSP_PRODUCT=1'b1, parameter logic OP1_PRE=1'b1, parameter logic WRITES_PRE=1'b1, parameter logic TAG_PRE=1'b1, parameter logic HELD_FREE=1'b1, parameter logic MUL_FAST_Z=1'b1, parameter logic AGU_AL=1'b1, parameter logic LATE_HOLD_STATIC=1'b1, parameter logic LATE_HOLD_SPLIT=1'b1) (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
     input logic i_flags_refresh,
     output logic o_serial_continue,
@@ -70,8 +67,6 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     // register it reads; only such a writer needs the accepted hit.
     input logic i_load_trust,i_self_dep,
     input logic [63:0] i_return_select, // Registered background port C.
-    input logic [5:0] i_return_tag,     // RETURN_BIN: i_return_select as a binary index ...
-    input logic i_return_valid,         // ... and its valid
     input logic i_return_next_valid,i_return_ready,
     input logic [5:0] i_return_next_tag,
     input logic [3:0] i_return_s_match,
@@ -219,10 +214,8 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
                 (accept?i_tag[src]:a.tag[src]);
     end
     always_comb for(int src=0;src<4;src++) begin
-        s_return_match[src]={RETURN_BIN?i_return_valid&&i_return_tag==i_tag[src]:i_return_select[{26'd0,i_tag[src]}],
-            i_return_ready&&i_return_s_match[src]};
-        a_return_match[src]={RETURN_BIN?i_return_valid&&i_return_tag==a.tag[src]:i_return_select[{26'd0,a.tag[src]}],
-            i_return_ready&&return_a_match[src]};
+        s_return_match[src]={i_return_select[{26'd0,i_tag[src]}],i_return_ready&&i_return_s_match[src]};
+        a_return_match[src]={i_return_select[{26'd0,a.tag[src]}],i_return_ready&&return_a_match[src]};
     end
 
     // Matches are already registered at D2/S and S/A. A short hit is itself
@@ -326,8 +319,6 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
         if(a.kind==MUL)assert(mul_z32==(mult_result[31:0]==0)) else $fatal(1,"multiply Z (32)");
         if(a.kind==MULL)assert(mul_z64==(mult_result==0)) else $fatal(1,"multiply Z (64)");
     end
-    always_ff @(posedge i_clk) if(!i_reset&&RETURN_BIN)
-        assert(i_return_select==(i_return_valid?64'd1<<i_return_tag:64'd0)) else $fatal(1,"binary return select");
     always_ff @(posedge i_clk) if(!i_reset&&LATE_HOLD_SPLIT&&a_valid&&!finish)
         assert(i_next_write_hold_by[i_next_done]==i_next_write_hold&&i_next_advance_by[i_next_done]==i_next_advance&&
             late_hold_by[i_next_done]==late_hold) else $fatal(1,"A's held late matches by completion");

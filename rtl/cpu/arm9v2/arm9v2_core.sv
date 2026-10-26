@@ -108,10 +108,6 @@ module arm9v2_core #(
         // so A's finish is not among their inputs (arm9v2_execute
         // LATE_HOLD_STATIC): zero cycles.
         parameter logic LATE_HOLD_STATIC = 1'b1,
-        // S's and A's background-return matches compare the return's binary
-        // index with the source tags instead of selecting the 64-bit one-hot
-        // by them (arm9v2_execute RETURN_BIN): zero cycles.
-        parameter logic RETURN_BIN = 1'b1,
         // A's held late matches built for both values of W's completion
         // (done_forward), from registers, and selected by it last
         // (arm9v2_execute LATE_HOLD_SPLIT): zero cycles.
@@ -289,8 +285,6 @@ input   logic                            i_dcache_err2,
 // -----------------------------------------------------
 
 input   logic [63:0]                     i_dc_reg_idx, // Register to load to.
-input   logic [5:0]                      i_dc_return_tag,   // i_dc_reg_idx as a binary index ...
-input   logic                            i_dc_return_valid, // ... and its valid
 input   logic [31:0]                     i_dc_reg_dat, // Register data.
 input   logic [63:0]                     i_dc_lock,    // Register that is locked.
 input   logic                            i_dc_lock_any, i_dc_lock_owner,
@@ -1201,11 +1195,11 @@ output logic [1:0] o_dbg_fetch
         .o_request(o_instr_wb_stb),
         .o_stall(o_code_stall),.o_dbg_fetch(o_dbg_fetch)
     );
-    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.DSP_PRODUCT(DSP_PRODUCT),.OP1_PRE(OP1_PRE),.WRITES_PRE(WRITES_PRE),.TAG_PRE(TAG_PRE),.HELD_FREE(HELD_FREE),.MUL_FAST_Z(MUL_FAST_Z),.AGU_AL(AGU_AL),.LATE_HOLD_STATIC(LATE_HOLD_STATIC),.RETURN_BIN(RETURN_BIN),.LATE_HOLD_SPLIT(LATE_HOLD_SPLIT)) u_execute (
+    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.DSP_PRODUCT(DSP_PRODUCT),.OP1_PRE(OP1_PRE),.WRITES_PRE(WRITES_PRE),.TAG_PRE(TAG_PRE),.HELD_FREE(HELD_FREE),.MUL_FAST_Z(MUL_FAST_Z),.AGU_AL(AGU_AL),.LATE_HOLD_STATIC(LATE_HOLD_STATIC),.LATE_HOLD_SPLIT(LATE_HOLD_SPLIT)) u_execute (
         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),
         .i_load_owner({w.load_writer,m.load_writer}),.i_next_load_owner(forward_load),
         .i_load_hit(w_hit&&i_data_short_hit),.i_load_trust(load_trust),.i_self_dep(d_self_dep),
-        .i_return_select(i_dc_reg_idx),.i_return_tag(i_dc_return_tag),.i_return_valid(i_dc_return_valid),.i_return_data(operand_return_data),
+        .i_return_select(i_dc_reg_idx),.i_return_data(operand_return_data),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),
         .i_return_ready(return_ready),.i_return_s_match(d_return_match),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(mw_tag),.i_advance_tag(advance_tag),.i_next_advance(forward_advance),.i_next_write(forward_write),.i_next_write_hold(forward_write_hold),
         .i_next_write_hold_by(forward_write_hold_by),.i_next_advance_by(forward_advance_by),.i_next_done(done_forward),.i_early(d_early),

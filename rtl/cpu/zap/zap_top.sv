@@ -250,8 +250,6 @@ logic [1:0]      d_wb_bte;
 logic            d_wb_ack;
 logic            d_wb_err;
 logic [63:0]     dc_rreg_idx, dc_wreg_idx;
-logic [5:0]      dc_return_tag;
-logic            dc_return_valid;
 logic [5:0]      dc_rreg_idx_bin;
 logic [63:0]     dc_lock;
 logic dc_lock_any, dc_lock_owner;
@@ -412,8 +410,6 @@ arm9v2_core #(
 .o_dc_reg_idx_bin       (dc_rreg_idx_bin),
 
 .i_dc_reg_idx           (dc_wreg_idx),
-.i_dc_return_tag        (dc_return_tag),
-.i_dc_return_valid      (dc_return_valid),
 .i_dc_lock              (dc_lock),
 .i_dc_lock_any          (dc_lock_any),
 .i_dc_lock_owner        (dc_lock_owner),
@@ -508,8 +504,6 @@ zap_dcache #(
         .HIT_FF(1'b1),
         .FLAT_ACK(1'b1),
         .LOCK_SPLIT(1'b1),
-        .LOCK_ANY_SPLIT(1'b1),
-        .COLLIDE_FLAT(1'b1),
         .BE_32_ENABLE(BE_32_ENABLE),
         .EXT_ABORT_FS(4'b1000)   // TI925T's external abort status
 )
@@ -559,8 +553,6 @@ u_data_cache (
 .o_fill_busy_nxt        (data_fill_busy_nxt),
 .o_reg_dat              (dc_reg_data),
 .o_reg_idx              (dc_wreg_idx),
-.o_return_tag           (dc_return_tag),
-.o_return_valid         (dc_return_valid),
 .o_fsr                  (dc_fsr),
 .o_far                  (dc_far),
 .o_cache_inv_done       (dc_inv_done),
