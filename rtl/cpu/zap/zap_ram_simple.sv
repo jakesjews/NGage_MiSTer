@@ -281,7 +281,28 @@ module zap_ram_bytes #(
         input logic [$clog2(DEPTH)-1:0]      i_rd_addr,
         output logic [8*BYTES-1:0]           o_rd_data
 );
-        (* ramstyle = "M10K" *) logic [BYTES-1:0][7:0] mem [DEPTH-1:0];
+`ifdef SYNTHESIS
+        // Intel's primitive directly: Quartus 17 does not infer byte enables
+        // from sv2v's form of the array below (it became flip-flops).
+        localparam integer W = 8*BYTES;
+        wire [$clog2(DEPTH)-1:0] i_wr_addr_x = i_wr_addr, i_rd_addr_x = i_rd_addr;
+        altsyncram #(
+                .operation_mode("DUAL_PORT"), .ram_block_type("M10K"), .intended_device_family("Cyclone V"),
+                .lpm_type("altsyncram"), .power_up_uninitialized("FALSE"),
+                .width_a(W), .widthad_a($clog2(DEPTH)), .numwords_a(DEPTH),
+                .width_b(W), .widthad_b($clog2(DEPTH)), .numwords_b(DEPTH),
+                .width_byteena_a(BYTES), .byte_size(8),
+                .address_reg_b("CLOCK0"), .outdata_reg_b("UNREGISTERED"),
+                .clock_enable_input_a("NORMAL"), .clock_enable_input_b("NORMAL"),
+                .clock_enable_output_b("BYPASS"), .rdcontrol_reg_b("CLOCK0"),
+                .read_during_write_mode_mixed_ports("OLD_DATA"),
+                .address_aclr_b("NONE"), .outdata_aclr_b("NONE")
+        ) u_ram (
+                .clock0(i_clk), .clocken0(i_clken), .wren_a(|i_wr_en), .address_a(i_wr_addr_x), .data_a(i_wr_data),
+                .byteena_a(i_wr_en), .address_b(i_rd_addr_x), .rden_b(1'b1), .q_b(o_rd_data)
+        );
+`else
+        logic [BYTES-1:0][7:0] mem [DEPTH-1:0];
         logic [BYTES-1:0][7:0] q;
         always_ff @(posedge i_clk) if (i_clken) begin
                 for (int b = 0; b < BYTES; b++)
@@ -289,5 +310,6 @@ module zap_ram_bytes #(
                 q <= mem[i_rd_addr];
         end
         assign o_rd_data = q;
+`endif
 endmodule
 

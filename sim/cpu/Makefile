@@ -142,7 +142,7 @@ ifeq ($(RTL),sv)
 RTL_SRC := +incdir+$(ROOT)/rtl/cpu/zap $(ROOT)/rtl/cpu/arm925t.sv $(ARM9_SV) $(ZAP_SV)
 RTL_DEP := $(ROOT)/rtl/cpu/arm925t.sv $(ARM9_SV) $(ZAP_SV) $(wildcard $(ROOT)/rtl/cpu/zap/*.svh)
 else
-RTL_SRC := $(ROOT)/rtl/cpu/arm925t_gen.v
+RTL_SRC := $(ROOT)/rtl/cpu/arm925t_gen.v $(ROOT)/sim/stubs/altsyncram.sv
 RTL_DEP := $(RTL_SRC)
 endif
 

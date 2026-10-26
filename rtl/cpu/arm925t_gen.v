@@ -3161,10 +3161,10 @@ module arm9v2_execute (
 	(* dont_retime *) reg [4:0] held_rot;
 	(* dont_retime *) reg [31:0] held_offset;
 	(* dont_retime *) reg [31:0] block_base;
-	(* dont_retime *) reg signed [33:0] ll;
-	(* dont_retime *) reg signed [33:0] lh;
-	(* dont_retime *) reg signed [33:0] hl;
-	(* dont_retime *) reg signed [33:0] hh;
+	reg signed [33:0] ll;
+	reg signed [33:0] lh;
+	reg signed [33:0] hl;
+	reg signed [33:0] hh;
 	(* dont_retime *) reg [63:0] product_saved;
 	wire [127:0] forwarded;
 	reg [127:0] operand;
@@ -6704,8 +6704,8 @@ module zap_cache_tag_ram (
 	parameter [31:0] WAYS = 32'd1;
 	parameter [31:0] INDEX_SIZE = CACHE_SIZE;
 	parameter [0:0] PREFETCH = 1'd0;
-	parameter [0:0] META_PACK = 1'b0;
-	parameter [0:0] DATA_PACK = 1'b0;
+	parameter [0:0] META_PACK = SHORT_READ;
+	parameter [0:0] DATA_PACK = SHORT_READ && TRACK_DIRTY;
 	input wire i_clk;
 	input wire i_reset;
 	input wire [31:0] i_address_nxt;
@@ -8152,17 +8152,14 @@ module zap_cache_metadata_lanes (
 	input wire [$clog2(DEPTH) - 1:0] i_read_address;
 	input wire [$clog2(DEPTH) - 1:0] i_write_address;
 	output reg [LANES - 1:0] o_data;
-	(* ramstyle = "M10K" *) reg [(LANES * 8) - 1:0] mem [DEPTH - 1:0];
-	reg [(LANES * 8) - 1:0] q;
-	always @(posedge i_clk) begin
-		begin : sv2v_autoblock_1
-			reg signed [31:0] l;
-			for (l = 0; l < LANES; l = l + 1)
-				if (i_write_en[l])
-					mem[i_write_address][l * 8+:8] <= {7'd0, i_write_data[l]};
-		end
-		if (i_read_en)
-			q <= mem[i_read_address];
+	reg [(LANES * 8) - 1:0] wdata;
+	wire [(LANES * 8) - 1:0] q;
+	always @(*) begin : sv2v_autoblock_1
+		reg signed [31:0] l;
+		if (_sv2v_0)
+			;
+		for (l = 0; l < LANES; l = l + 1)
+			wdata[l * 8+:8] = {7'd0, i_write_data[l]};
 	end
 	always @(*) begin : sv2v_autoblock_2
 		reg signed [31:0] l;
@@ -8171,6 +8168,44 @@ module zap_cache_metadata_lanes (
 		for (l = 0; l < LANES; l = l + 1)
 			o_data[l] = q[l * 8];
 	end
+	localparam integer W = 8 * LANES;
+	localparam integer BYTES = LANES;
+	wire [$clog2(DEPTH) - 1:0] i_wr_addr_x = i_write_address;
+	wire [$clog2(DEPTH) - 1:0] i_rd_addr_x = i_read_address;
+	altsyncram #(
+		.operation_mode("DUAL_PORT"),
+		.ram_block_type("M10K"),
+		.intended_device_family("Cyclone V"),
+		.lpm_type("altsyncram"),
+		.power_up_uninitialized("FALSE"),
+		.width_a(W),
+		.widthad_a($clog2(DEPTH)),
+		.numwords_a(DEPTH),
+		.width_b(W),
+		.widthad_b($clog2(DEPTH)),
+		.numwords_b(DEPTH),
+		.width_byteena_a(BYTES),
+		.byte_size(8),
+		.address_reg_b("CLOCK0"),
+		.outdata_reg_b("UNREGISTERED"),
+		.clock_enable_input_a("NORMAL"),
+		.clock_enable_input_b("NORMAL"),
+		.clock_enable_output_b("BYPASS"),
+		.rdcontrol_reg_b("CLOCK0"),
+		.read_during_write_mode_mixed_ports("OLD_DATA"),
+		.address_aclr_b("NONE"),
+		.outdata_aclr_b("NONE")
+	) u_ram(
+		.clock0(i_clk),
+		.clocken0(1'b1),
+		.wren_a(|i_write_en),
+		.address_a(i_wr_addr_x),
+		.data_a(wdata),
+		.byteena_a(i_write_en),
+		.address_b(i_rd_addr_x),
+		.rden_b(i_read_en),
+		.q_b(q)
+	);
 	initial _sv2v_0 = 0;
 endmodule
 module zap_cache_metadata_ram (
@@ -13200,19 +13235,43 @@ module zap_ram_bytes (
 	input wire [$clog2(DEPTH) - 1:0] i_wr_addr;
 	input wire [$clog2(DEPTH) - 1:0] i_rd_addr;
 	output wire [(8 * BYTES) - 1:0] o_rd_data;
-	(* ramstyle = "M10K" *) reg [(BYTES * 8) - 1:0] mem [DEPTH - 1:0];
-	reg [(BYTES * 8) - 1:0] q;
-	always @(posedge i_clk)
-		if (i_clken) begin
-			begin : sv2v_autoblock_1
-				reg signed [31:0] b;
-				for (b = 0; b < BYTES; b = b + 1)
-					if (i_wr_en[b])
-						mem[i_wr_addr][b * 8+:8] <= i_wr_data[8 * b+:8];
-			end
-			q <= mem[i_rd_addr];
-		end
-	assign o_rd_data = q;
+	localparam integer W = 8 * BYTES;
+	wire [$clog2(DEPTH) - 1:0] i_wr_addr_x = i_wr_addr;
+	wire [$clog2(DEPTH) - 1:0] i_rd_addr_x = i_rd_addr;
+	altsyncram #(
+		.operation_mode("DUAL_PORT"),
+		.ram_block_type("M10K"),
+		.intended_device_family("Cyclone V"),
+		.lpm_type("altsyncram"),
+		.power_up_uninitialized("FALSE"),
+		.width_a(W),
+		.widthad_a($clog2(DEPTH)),
+		.numwords_a(DEPTH),
+		.width_b(W),
+		.widthad_b($clog2(DEPTH)),
+		.numwords_b(DEPTH),
+		.width_byteena_a(BYTES),
+		.byte_size(8),
+		.address_reg_b("CLOCK0"),
+		.outdata_reg_b("UNREGISTERED"),
+		.clock_enable_input_a("NORMAL"),
+		.clock_enable_input_b("NORMAL"),
+		.clock_enable_output_b("BYPASS"),
+		.rdcontrol_reg_b("CLOCK0"),
+		.read_during_write_mode_mixed_ports("OLD_DATA"),
+		.address_aclr_b("NONE"),
+		.outdata_aclr_b("NONE")
+	) u_ram(
+		.clock0(i_clk),
+		.clocken0(i_clken),
+		.wren_a(|i_wr_en),
+		.address_a(i_wr_addr_x),
+		.data_a(i_wr_data),
+		.byteena_a(i_wr_en),
+		.address_b(i_rd_addr_x),
+		.rden_b(1'b1),
+		.q_b(o_rd_data)
+	);
 endmodule
 module zap_register_file (
 	i_clk,

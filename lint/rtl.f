@@ -10,6 +10,8 @@ lint/exclusions.vlt
 
 // Lint-only PLL boundary.
 lint/pll.sv
+// The behavioural altsyncram (the CPU netlist instantiates it).
+sim/stubs/altsyncram.sv
 
 // Framework modules that the video output uses and that are not in a file of
 // their own name.

@@ -78,12 +78,12 @@ parameter logic        PREFETCH   = 1'd0,     // ARM925T: I-cache next-line pref
 // group (a bank per byte lane, byte enables): the banks share their read
 // and write addresses, so the RAM ports are the same; one M10K holds four
 // banks instead of one each.
-parameter logic        META_PACK  = 1'b0,   // off: sv2v's form gives Quartus one RAM per lane (no saving)
+parameter logic        META_PACK  = SHORT_READ,
 // ARM9V2: a way's data byte lanes in one byte-enabled RAM (zap_ram_bytes)
 // instead of one RAM per byte; the lanes share the clock enable and the
 // read and write addresses. The D-cache only (its stores write bytes;
 // Quartus already merges the I-cache's lanes).
-parameter logic        DATA_PACK  = 1'b0    // off: sv2v's form is not inferred as RAM (16 KB of flip-flops)
+parameter logic        DATA_PACK  = SHORT_READ && TRACK_DIRTY
 
 )(
 
@@ -1336,14 +1336,36 @@ module zap_cache_metadata_lanes #(
         input logic [$clog2(DEPTH)-1:0] i_write_address,
         output logic [LANES-1:0] o_data
 );
-        (* ramstyle = "M10K" *) logic [LANES-1:0][7:0] mem [DEPTH-1:0];
-        logic [LANES-1:0][7:0] q;
+        logic [LANES-1:0][7:0] wdata, q;
+        always_comb for (int l = 0; l < LANES; l++) wdata[l] = {7'd0, i_write_data[l]};
+        always_comb for (int l = 0; l < LANES; l++) o_data[l] = q[l][0];
+`ifdef SYNTHESIS
+        // Intel's primitive directly (see zap_ram_bytes): four lanes per M10K.
+        localparam integer W = 8*LANES, BYTES = LANES;
+        wire [$clog2(DEPTH)-1:0] i_wr_addr_x = i_write_address, i_rd_addr_x = i_read_address;
+        altsyncram #(
+                .operation_mode("DUAL_PORT"), .ram_block_type("M10K"), .intended_device_family("Cyclone V"),
+                .lpm_type("altsyncram"), .power_up_uninitialized("FALSE"),
+                .width_a(W), .widthad_a($clog2(DEPTH)), .numwords_a(DEPTH),
+                .width_b(W), .widthad_b($clog2(DEPTH)), .numwords_b(DEPTH),
+                .width_byteena_a(BYTES), .byte_size(8),
+                .address_reg_b("CLOCK0"), .outdata_reg_b("UNREGISTERED"),
+                .clock_enable_input_a("NORMAL"), .clock_enable_input_b("NORMAL"),
+                .clock_enable_output_b("BYPASS"), .rdcontrol_reg_b("CLOCK0"),
+                .read_during_write_mode_mixed_ports("OLD_DATA"),
+                .address_aclr_b("NONE"), .outdata_aclr_b("NONE")
+        ) u_ram (
+                .clock0(i_clk), .clocken0(1'b1), .wren_a(|i_write_en), .address_a(i_wr_addr_x), .data_a(wdata),
+                .byteena_a(i_write_en), .address_b(i_rd_addr_x), .rden_b(i_read_en), .q_b(q)
+        );
+`else
+        logic [LANES-1:0][7:0] mem [DEPTH-1:0];
         always_ff @(posedge i_clk) begin
                 for (int l = 0; l < LANES; l++)
-                        if (i_write_en[l]) mem[i_write_address][l] <= {7'd0, i_write_data[l]};
+                        if (i_write_en[l]) mem[i_write_address][l] <= wdata[l];
                 if (i_read_en) q <= mem[i_read_address];
         end
-        always_comb for (int l = 0; l < LANES; l++) o_data[l] = q[l][0];
+`endif
 endmodule
 
 module zap_cache_metadata_ram #(

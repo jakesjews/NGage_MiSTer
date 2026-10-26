@@ -146,7 +146,8 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
     // DSP_PRODUCT: the partial products have no reset (they are read only
     // after product_phase writes them), so Quartus keeps them in the DSP
     // blocks' output registers, which take only an asynchronous clear.
-    (* dont_retime *) logic signed [33:0] ll,lh,hl,hh;
+    // No dont_retime here: it protects the registers from exactly that move.
+    logic signed [33:0] ll,lh,hl,hh;
     (* dont_retime *) logic [63:0] product_saved;
     logic [3:0][31:0] forwarded,operand;
     (* dont_retime *) logic [3:0] s_pending;
