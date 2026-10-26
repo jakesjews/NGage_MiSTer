@@ -1,0 +1,80 @@
+# worktree NGage_MiSTer-v2fixt: HEAD 694252b (HEAD); uncommitted changes saved before the worktree was removed on 2026-10-25
+diff --git a/NGage.qsf b/NGage.qsf
+index 5fad4e1..30ceceb 100644
+--- a/NGage.qsf
++++ b/NGage.qsf
+@@ -85,15 +85,15 @@ set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
+ # The measurement core: the debug overlay, its per-second counters and the
+ # trace triggers (about 1,700 ALMs, for tools/mister_dbg.py and the board
+ # tools); every build without this macro is the stripped core
+-#set_global_assignment -name VERILOG_MACRO "NGAGE_DEBUG=1"
++set_global_assignment -name VERILOG_MACRO "NGAGE_DEBUG=1"
+ 
+ # Experimental ARM9V2 CPU, same shared caches/MMU/CP15 and debug protocol.
+ # Leave commented for the default ZAP core; enable with NGAGE_DEBUG to measure.
+-#set_global_assignment -name VERILOG_MACRO "NGAGE_CORE_ARM9=1"
++set_global_assignment -name VERILOG_MACRO "NGAGE_CORE_ARM9=1"
+ # The 16 KB two-way D-cache (the default since 2026-10-25: +2 to +2.6 % in
+ # play with the metadata in block RAM); index maintenance covers both
+ # physical set colours while CP15 keeps reporting 8 KB. Comment out for 8 KB.
+-set_global_assignment -name VERILOG_MACRO "NGAGE_DCACHE_16K=1"
++#set_global_assignment -name VERILOG_MACRO "NGAGE_DCACHE_16K=1"
+ 
+ source sys/sys.tcl
+ source sys/sys_analog.tcl
+diff --git a/NGage.sv b/NGage.sv
+index bdaaa5e..082ed5b 100644
+--- a/NGage.sv
++++ b/NGage.sv
+@@ -284,7 +284,7 @@ wire  [1:0] ph_have;
+ wire  [4:0] ph_state;
+ wire [15:0] ph_errors;
+ reg   [2:0] ld_own = 3'd0;             // flat, save, trace, kernel text, Phoenix
+-localparam DBG_TRACE = 0;              // debug rings off for a release build
++localparam DBG_TRACE = 1;              // debug rings off for a release build
+ 
+ wire ld_own_cmd = ld_we || ld_rd;
+ always @(posedge clk_sys) begin
+diff --git a/rtl/mem/sdram.sv b/rtl/mem/sdram.sv
+index 60d47c2..ddccc75 100644
+--- a/rtl/mem/sdram.sv
++++ b/rtl/mem/sdram.sv
+@@ -81,7 +81,7 @@
+ // board delay that CAPTURE_CLKS assumes, the module size (only the first
+ // 32 MB, 9 column bits, are used, which every module has).
+ module sdram #(
+-	parameter int CLK_HZ          = 104_000_000,
++	parameter int CLK_HZ          = 78_000_000,
+ 	parameter int CAS_LATENCY     = 2,
+ 	parameter int CAPTURE_CLKS    = 1,       // clocks from the chip's data edge to the DQ capture
+ 	parameter int T_RCD_NS        = 20,
+diff --git a/rtl/mister/dbg_trace.sv b/rtl/mister/dbg_trace.sv
+index 432e054..d833539 100644
+--- a/rtl/mister/dbg_trace.sv
++++ b/rtl/mister/dbg_trace.sv
+@@ -94,9 +94,9 @@ module dbg_trace #(
+ 	output logic [31:0] trig_pc       // the first trigger's PC
+ );
+ 
+-	localparam int PC_LOG2 = 13;
+-	localparam int D_LOG2  = 12;
+-	localparam int B_LOG2  = 11;
++	localparam int PC_LOG2 = 10;
++	localparam int D_LOG2  = 8;
++	localparam int B_LOG2  = 8;
+ 	localparam logic [28:0] DUMP_WORDS = 29'h8000;
+ 	localparam logic [28:0] PC_OFF = 29'h2000;
+ 	localparam logic [28:0] D_OFF  = 29'h4000;
+diff --git a/rtl/pll/pll_0002.v b/rtl/pll/pll_0002.v
+index 752b7fd..6da5869 100644
+--- a/rtl/pll/pll_0002.v
++++ b/rtl/pll/pll_0002.v
+@@ -19,7 +19,7 @@ module  pll_0002(
+ 		.reference_clock_frequency("50.0 MHz"),
+ 		.operation_mode("direct"),
+ 		.number_of_clocks(1),
+-		.output_clock_frequency0("104.000000 MHz"),
++		.output_clock_frequency0("78.000000 MHz"),
+ 		.phase_shift0("0 ps"),
+ 		.duty_cycle0(50),
+ 		.output_clock_frequency1("0 MHz"),

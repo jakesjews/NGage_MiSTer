@@ -1,0 +1,174 @@
+# worktree NGage_MiSTer-t5-cppayload-s2: HEAD c03088f (HEAD); uncommitted changes saved before the worktree was removed on 2026-10-25
+diff --git a/NGage.qsf b/NGage.qsf
+index b08e03c..15a5c68 100644
+--- a/NGage.qsf
++++ b/NGage.qsf
+@@ -84,7 +84,7 @@ set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
+ 
+ # The main core: no debug overlay, per-second counters or trace triggers
+ # (about 900 ALMs); the debug core keeps them for tools/mister_dbg.py
+-#set_global_assignment -name VERILOG_MACRO "NGAGE_NO_DEBUG=1"
++set_global_assignment -name VERILOG_MACRO "NGAGE_NO_DEBUG=1"
+ # Experimental 16 KB two-way D-cache (default 8 KB); index maintenance
+ # covers both physical set colours while CP15 keeps reporting 8 KB.
+ #set_global_assignment -name VERILOG_MACRO "NGAGE_DCACHE_16K=1"
+diff --git a/rtl/cpu/zap/zap_predecode_coproc.sv b/rtl/cpu/zap/zap_predecode_coproc.sv
+index 1433fa9..719424e 100644
+--- a/rtl/cpu/zap/zap_predecode_coproc.sv
++++ b/rtl/cpu/zap/zap_predecode_coproc.sv
+@@ -98,6 +98,12 @@ assign unused = |{PHY_REGS};
+ ///////////////////////////////////////////////////////////////////////////////
+ 
+ // Connect next state to output.
++// ARM925T: DAV qualifies the command. The pipeline-empty test controls
++// launch, not the command payload. Keep the accepted word throughout BUSY;
++// IDLE can present its instruction even while older instructions drain.
++// Removing inactive-word clearing keeps pipeline-valid fanout out of the
++// predecode command banks without changing CP15 launch or completion.
++assign cp_word_nxt = state_ff == BUSY ? cp_word_ff : i_instruction[31:0];
+ assign  o_copro_word_nxt = cp_word_nxt;
+ assign  o_copro_dav_nxt  = cp_dav_nxt;
+ 
+@@ -112,7 +118,7 @@ begin
+         // -----------------------------------------------------
+ 
+         cp_dav_nxt              = cp_dav_ff;
+-        cp_word_nxt             = cp_word_ff;
++
+         o_stall_from_decode     = 1'd0;
+         o_instruction           = i_instruction;
+         o_valid                 = i_valid;
+@@ -154,15 +160,15 @@ begin
+                                         o_valid                 = i_valid;
+                                         o_stall_from_decode     = 1'd1;
+                                         cp_dav_nxt              = 1'd0;
+-                                        cp_word_nxt             = 32'd0;
++
+                                 end
+                                 else
+                                 begin
+                                         // Prepare to move to BUSY. Continue holding
+-                                        // stall. Send out 0s.
++                                        // stall and launch the command.
+                                         o_valid                 = i_valid;
+                                         o_stall_from_decode     = 1'd1;
+-                                        cp_word_nxt             = i_instruction[31:0];
++
+                                         cp_dav_nxt              = 1'd1;
+                                         state_nxt               = BUSY;
+                                 end
+@@ -180,9 +186,6 @@ begin
+                                 o_stall_from_decode     = 0;
+ 
+ 
+-                                // Don't care. This is perfectly OK - synth will OPTIMIZE.
+-                                // OK to do for FPGA synthesis.
+-                                cp_word_nxt             = {32{1'dx}};
+                         end
+                 end
+                 default:
+@@ -196,16 +199,13 @@ begin
+                         cp_dav_nxt              = 0;
+                         o_stall_from_decode     = 0;
+ 
+-                        // Don't care. This is perfectly OK - synth will OPTIMIZE.
+-                        // OK to do for FPGA synthesis.
+-                        cp_word_nxt             = {32{1'dx}};
+                 end
+                 endcase
+ 
+         BUSY:
+         begin
+                 // Provide coprocessor word and valid to the coprocessor.
+-                cp_word_nxt             = cp_word_ff;
++
+                 cp_dav_nxt              = cp_dav_ff;
+ 
+                 // Continue holding stall.
+@@ -224,7 +224,7 @@ begin
+                 if ( i_copro_done )
+                 begin
+                         cp_dav_nxt              = 1'd0;
+-                        cp_word_nxt             = 32'd0;
++
+                         state_nxt               = IDLE;
+                         o_stall_from_decode     = 1'd0;
+                 end
+diff --git a/tools/report_timing.tcl b/tools/report_timing.tcl
+index 5fdcef0..400bbff 100644
+--- a/tools/report_timing.tcl
++++ b/tools/report_timing.tcl
+@@ -4,6 +4,7 @@ create_timing_netlist
+ read_sdc
+ update_timing_netlist
+ file mkdir build
++source tools/report_timing5_families.tcl
+ report_timing -setup -npaths 30 -nworst 1 -detail full_path -file build/critical-paths.rpt
+ report_timing -hold -npaths 10 -detail full_path -file build/hold-paths.rpt
+ report_ucp -file build/unconstrained-paths.rpt
+diff --git a/tools/report_timing5_families.tcl b/tools/report_timing5_families.tcl
+new file mode 100644
+index 0000000..637cca1
+--- /dev/null
++++ b/tools/report_timing5_families.tcl
+@@ -0,0 +1,60 @@
++# Loaded after create_timing_netlist/read_sdc/update_timing_netlist.
++# Report matching register sets even when a family leaves the worst 30.
++# Empty from/to means unconstrained on that side.
++set found_corner 0
++foreach_in_collection corner [get_available_operating_conditions] {
++    if {[get_operating_conditions_info -display_name $corner] eq "Slow 1100mV 100C Model"} {
++        set_operating_conditions $corner
++        update_timing_netlist
++        set found_corner 1
++    }
++}
++if {!$found_corner} { error "Missing slow 100C corner" }
++set families {
++    icvalid_input {} {*u_code_cache*valid_s1* *u_code_cache*valid_part* *u_code_cache*lru_s1* *u_code_cache*lru_part* *u_code_cache*rd_hi_s1*}
++    icvalid_output {*u_code_cache*valid_s1* *u_code_cache*valid_part* *u_code_cache*lru_s1* *u_code_cache*lru_part* *u_code_cache*rd_hi_s1*} {*u_code_cache*valid_s2* *u_code_cache*lru_s2*}
++    dcvalid_input {} {*u_data_cache*valid_s1* *u_data_cache*valid_part* *u_data_cache*lru_s1* *u_data_cache*lru_part* *u_data_cache*rd_hi_s1*}
++    multiply {*u_zap_issue_main*o_alu_operation_ff* *u_zap_issue_main*o_alu_is_mult_ff*} {*u_zap_shifter_main*}
++    multiply_output {*u_zap_issue_main*o_alu_operation_ff* *u_zap_issue_main*o_alu_is_mult_ff*} {*u_zap_shifter_main|o_*}
++    dtlb_fault {*u_data_cache*u_zap_tlb_check*o_fsr*} {}
++    itlb_fault {*u_code_cache*u_zap_tlb_check*o_fsr*} {}
++    issue_stall {*u_zap_issue_main*stall*} {*u_zap_issue_main*}
++    issue_feedback {} {*u_zap_issue_main*stall_idx_ff* *u_zap_issue_main*stall_late_ff* *u_zap_issue_main*stall_lock_ff* *u_zap_issue_main*o_stall_from_issue*}
++    issue_stall_feedback {*u_zap_issue_main*stall*} {*u_zap_issue_main*stall_idx_ff* *u_zap_issue_main*stall_late_ff* *u_zap_issue_main*stall_lock_ff* *u_zap_issue_main*o_stall_from_issue*}
++    issue_pending {} {*u_zap_issue_main*o_load_pending_ff* *u_zap_issue_main*o_shift_source_pending_ff*}
++    decode_pending {*u_zap_decode_main*o_shift_length_ff*} {*u_zap_issue_main*o_load_pending_ff*}
++    issue_store {} {*u_zap_issue_main*mem_srcdest_normal_ff* *u_zap_issue_main*mem_srcdest_select_ff*}
++    arbiter_control {*test_on_q* *arb*sel_* *arb*gnt*} {*upp_bus*}
++    bus_address {*zap_wb_merger*o_wb_adr*} {*upp_bus*}
++    bus_input {} {*upp_bus*adr_q* *upp_bus*dat_q* *upp_bus*fe_* *upp_bus*sdr_addr*}
++    bl_decode {*zap_predecode_main*o_instruction_ff* *zap_predecode_main*o_bl*} {*u_zap_decode_main*}
++    dcache_bus {*u_data_cache*u_zap_cache_fsm*state_ff*} {*zap_wb_merger*o_wb_adr*}
++    predecode_und {} {*zap_predecode_main*o_v5_und_ff*}
++    cache_stall_to_core {*u_data_cache* *u_zap_cp15_cb*o_mmu_en*} {*u_zap_alu_main|* *u_zap_shifter_main|*}
++    shifter_output {} {*u_zap_shifter_main*o_shifted_source_value_ff* *u_zap_shifter_main*o_shift_carry_ff* *u_zap_shifter_main*o_shift_sat_ff*}
++    predecode_copro {} {*zap_predecode_main*copro_word*ff* *zap_predecode_coproc*cp_word_ff*}
++    issue_to_decode {*u_zap_issue_main*} {*u_zap_decode_main*}
++}
++file mkdir build/timing5-families
++set family_summary [open build/timing5-families/slacks.tsv w]
++puts $family_summary "family\tslack_ns\tfrom\tto"
++foreach {family from to} $families {
++    set args [list -setup -npaths 1]
++    if {[llength $from]} {
++        set regs [get_registers $from]
++        if {[get_collection_size $regs] == 0} { puts $family_summary "$family\tNO_SOURCE\t$from\t$to"; continue }
++        lappend args -from $regs
++    }
++    if {[llength $to]} {
++        set regs [get_registers $to]
++        if {[get_collection_size $regs] == 0} { puts $family_summary "$family\tNO_DESTINATION\t$from\t$to"; continue }
++        lappend args -to $regs
++    }
++    set paths [eval get_timing_paths $args]
++    if {[get_collection_size $paths] == 0} { puts $family_summary "$family\tNO_PATH\t$from\t$to"; continue }
++    foreach_in_collection path $paths {
++        puts $family_summary "$family\t[get_path_info -slack $path]\t[get_node_info -name [get_path_info -from $path]]\t[get_node_info -name [get_path_info -to $path]]"
++    }
++    eval report_timing $args [list -detail full_path -file build/timing5-families/$family.rpt]
++}
++close $family_summary

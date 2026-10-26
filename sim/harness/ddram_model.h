@@ -17,6 +17,7 @@
 #include <random>
 #include <string>
 #include <vector>
+#include "snapshot.h"
 
 struct DdramProfile {
 	int lat_min = 14, lat_max = 16;  // clocks from accepting a read to the first word (about 15 at 105 MHz on a DE10-Nano)
@@ -106,6 +107,28 @@ public:
 	}
 
 	bool idle() const { return pending.empty() && !waiting; }
+
+	// the whole model state to and from a snapshot file (snapshot.h)
+	void save(FILE *f) const {
+		snap::mark(f, 0xDD3A4D01u);
+		snap::put(f, mem); snap::put(f, prof); snap::put(f, reads); snap::put(f, writes);
+		snap::put(f, bad_access); snap::put(f, protocol_errors);
+		snap::put(f, busy); snap::put(f, dout_ready); snap::put(f, dout);
+		snap::put(f, pending); snap::put(f, rng); snap::put(f, now); snap::put(f, last_data);
+		snap::put(f, waiting); snap::put(f, w_rd); snap::put(f, w_we); snap::put(f, w_addr);
+		snap::put(f, w_cnt); snap::put(f, w_be); snap::put(f, w_din);
+		snap::mark(f, 0xDD3A4D02u);
+	}
+	void load(FILE *f) {
+		snap::check(f, 0xDD3A4D01u);
+		snap::get(f, mem); snap::get(f, prof); snap::get(f, reads); snap::get(f, writes);
+		snap::get(f, bad_access); snap::get(f, protocol_errors);
+		snap::get(f, busy); snap::get(f, dout_ready); snap::get(f, dout);
+		snap::get(f, pending); snap::get(f, rng); snap::get(f, now); snap::get(f, last_data);
+		snap::get(f, waiting); snap::get(f, w_rd); snap::get(f, w_we); snap::get(f, w_addr);
+		snap::get(f, w_cnt); snap::get(f, w_be); snap::get(f, w_din);
+		snap::check(f, 0xDD3A4D02u);
+	}
 
 private:
 	struct Beat { uint64_t when; uint64_t data; };

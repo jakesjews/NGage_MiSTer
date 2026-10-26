@@ -1,0 +1,864 @@
+# worktree NGage_MiSTer-t5-issue-s1: HEAD c03088f (HEAD); uncommitted changes saved before the worktree was removed on 2026-10-25
+diff --git a/NGage.qsf b/NGage.qsf
+index b08e03c..163d384 100644
+--- a/NGage.qsf
++++ b/NGage.qsf
+@@ -51,7 +51,7 @@ set_global_assignment -name ECO_OPTIMIZE_TIMING ON
+ set_global_assignment -name PERIPHERY_TO_CORE_PLACEMENT_AND_ROUTING_OPTIMIZATION ON
+ set_global_assignment -name PHYSICAL_SYNTHESIS_ASYNCHRONOUS_SIGNAL_PIPELINING ON
+ set_global_assignment -name ALM_REGISTER_PACKING_EFFORT MEDIUM
+-set_global_assignment -name SEED 2
++set_global_assignment -name SEED 1
+ 
+ #set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
+ 
+@@ -84,7 +84,7 @@ set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
+ 
+ # The main core: no debug overlay, per-second counters or trace triggers
+ # (about 900 ALMs); the debug core keeps them for tools/mister_dbg.py
+-#set_global_assignment -name VERILOG_MACRO "NGAGE_NO_DEBUG=1"
++set_global_assignment -name VERILOG_MACRO "NGAGE_NO_DEBUG=1"
+ # Experimental 16 KB two-way D-cache (default 8 KB); index maintenance
+ # covers both physical set colours while CP15 keeps reporting 8 KB.
+ #set_global_assignment -name VERILOG_MACRO "NGAGE_DCACHE_16K=1"
+diff --git a/rtl/cpu/zap/zap_issue_main.sv b/rtl/cpu/zap/zap_issue_main.sv
+index 2577888..3a7652f 100644
+--- a/rtl/cpu/zap/zap_issue_main.sv
++++ b/rtl/cpu/zap/zap_issue_main.sv
+@@ -283,11 +283,7 @@ logic [32:0] o_alu_source_value_nxt,
+ logic [32+32+1+2+64*8+1+4+$clog2(PHY_REGS)+33+$clog2(ALU_OPS)+33+$clog2(SHIFT_OPS)
+ +33+1+$clog2(PHY_REGS)+14+32-1:0] skid;
+ 
+-// Individual lock signals. These are ORed to get the final lock.
+-logic shift_lock;
+-logic load_lock;
+-logic [3:0] operand_load_lock, late_pending;
+-logic destination_load_lock;
++// The interlock (ARM925T: from the per-slot results below).
+ logic lock;
+ 
+ //
+@@ -302,6 +298,9 @@ logic lock;
+ // ARM925T: late admission compares the same physical tags, but must not
+ // start at the heavily loaded control/skid stall mux or load the RF mux.
+ (* preserve, dont_retime *) logic stall_late_ff;
++// ARM925T: and a copy that only selects between the two slots' finished
++// interlock results and store-data forwarding picks (below).
++(* preserve, dont_retime *) logic stall_lock_ff;
+ logic [23:0]                late_reg_index;
+ logic [23:0]                skid_idx;
+ logic [5:0]                 skid_dest_idx;
+@@ -318,7 +317,6 @@ wire [33:0] selected_link_branch = stall_late_ff ? skid_link_branch : i_link_bra
+ // back across the bitmap reads. The bitmap is still the live cache lock:
+ // no lock assertion or completion is delayed by a clock.
+ (* keep *) wire [4:0] live_locked, skid_locked;
+-wire [4:0] slot_locked = stall_late_ff ? skid_locked : live_locked;
+ assign live_locked = {i_dc_lock[i_destination_index_ff],
+                       i_dc_lock[i_mem_srcdest_index_ff],
+                       i_dc_lock[i_shift_length_ff[5:0]],
+@@ -366,11 +364,53 @@ logic                              skid_swi_ff;
+ logic                              skid_force32align_ff;
+ logic                              skid_und_ff;
+ logic  [31:0]                      skid_ppc_ff;
++// ARM925T: the skid register's fields (the saved slot), for the interlock.
++logic  [31:0]                      sv_pc_plus_8_ff;
++logic  [31:0]                      sv_pc_ff;
++logic                              sv_switch_ff;
++logic    [1:0]                     sv_taken_ff;
++logic      [64*8-1:0]              sv_decompile;
++logic                              sv_uop_last;
++logic      [3:0]                   sv_condition_code_ff;
++logic      [$clog2(PHY_REGS )-1:0] sv_destination_index_ff;
++logic      [32:0]                  sv_alu_source_ff;
++logic      [$clog2(ALU_OPS)-1:0]   sv_alu_operation_ff;
++logic      [32:0]                  sv_shift_source_ff;
++logic      [$clog2(SHIFT_OPS)-1:0] sv_shift_operation_ff;
++logic      [32:0]                  sv_shift_length_ff;
++logic                              sv_flag_update_ff;
++logic    [$clog2(PHY_REGS )-1:0]   sv_mem_srcdest_index_ff;
++logic                              sv_mem_load_ff;
++logic                              sv_mem_store_ff;
++logic                              sv_mem_pre_index_ff;
++logic                              sv_mem_unsigned_byte_enable_ff;
++logic                              sv_mem_signed_byte_enable_ff;
++logic                              sv_mem_signed_halfword_enable_ff;
++logic                              sv_mem_unsigned_halfword_enable_ff;
++logic                              sv_mem_translate_ff;
++logic                              sv_irq_ff;
++logic                              sv_fiq_ff;
++logic                              sv_abt_ff;
++logic                              sv_swi_ff;
++logic                              sv_force32align_ff;
++logic                              sv_und_ff;
++logic  [31:0]                      sv_ppc_ff;
+ logic                              clear;
+ logic                              stall;
+ 
+-assign lock = (shift_lock | load_lock) &
+-              (skid_condition_code_ff != NV);
++//
++// ARM925T: the interlock and the late-pending mask are evaluated for both
++// instruction slots, the live decode output and the saved skid entry, each
++// from its own registers, and the finished results are selected by a stall
++// copy. Upstream selected the slot first (the skid mux, hundreds of loads
++// on the stall register) and then compared its tags with every stage. Same
++// function: every field the interlock reads is the stall-selected one.
++//
++logic [1:0] slot_lock;
++logic [3:0] slot_pend [2];
++logic [3:0] issue_pending;
++assign lock          = stall_lock_ff ? slot_lock[1] : slot_lock[0];
++assign issue_pending = stall_lock_ff ? slot_pend[1] : slot_pend[0];
+ 
+ assign clear = i_clear_from_writeback | i_clear_from_alu;
+ assign stall = i_data_stall           | i_stall_from_shifter;
+@@ -390,6 +430,7 @@ begin
+                 o_stall_from_issue                <= 0;
+                 stall_idx_ff                      <= 0;
+                 stall_late_ff <= 0;
++                stall_lock_ff <= 0;
+ 
+                 o_destination_index_ff            <= 'x;
+                 o_alu_operation_ff                <= 'x;
+@@ -428,6 +469,7 @@ begin
+                 o_stall_from_issue   <= 0;
+                 stall_idx_ff         <= 0;
+                 stall_late_ff <= 0;
++                stall_lock_ff <= 0;
+ 
+                 o_destination_index_ff            <= 'x;
+                 o_alu_operation_ff                <= 'x;
+@@ -455,7 +497,7 @@ begin
+         end
+         else if ( ~stall )
+         begin
+-                o_load_pending_ff                 <= (lock || skid_condition_code_ff == NV) ? 4'b0 : late_pending;
++                o_load_pending_ff                 <= issue_pending; // (lock or NV: none)
+                 o_shift_length_index_ff           <= skid_shift_length_ff[5:0];
+                 o_condition_code_ff               <= lock ? NV : skid_condition_code_ff;
+                 o_destination_index_ff            <= skid_destination_index_ff;
+@@ -491,6 +533,7 @@ begin
+                 o_stall_from_issue                <= lock;
+                 stall_idx_ff                      <= lock;
+                 stall_late_ff <= lock;
++                stall_lock_ff <= lock;
+         end
+         else
+         begin
+@@ -506,7 +549,7 @@ end
+ always_ff @(posedge i_clk) begin
+         if (i_reset || clear) o_shift_source_pending_ff <= 1'b0;
+         else if (!stall)
+-                o_shift_source_pending_ff <= !(lock || skid_condition_code_ff == NV) && late_pending[1];
++                o_shift_source_pending_ff <= issue_pending[1];
+         else o_shift_source_pending_ff <= o_shift_source_pending_ff && !i_late_ready[1];
+ end
+ 
+@@ -641,7 +684,8 @@ assign  o_alu_source_value_nxt  =
+                                 i_memory_mem_rd_data,
+                                 i_cpu_mode,
+                                 skid_pc_plus_8_ff,
+-                                skid_force32align_ff
++                                skid_force32align_ff,
++                                1'b0, 12'd0
+         );
+ 
+ 
+@@ -675,7 +719,8 @@ assign  o_shift_source_value_nxt=
+                                 i_memory_mem_rd_data,
+                                 i_cpu_mode,
+                                 skid_pc_plus_8_ff,
+-                                1'd0
++                                1'd0,
++                                1'b0, 12'd0
+         );
+ 
+ assign  o_shift_length_value_nxt=
+@@ -708,12 +753,39 @@ assign  o_shift_length_value_nxt=
+                                 i_memory_mem_rd_data,
+                                 i_cpu_mode,
+                                 skid_pc_plus_8_ff,
+-                                1'd0
++                                1'd0,
++                                1'b0, 12'd0
+         );
+ 
++//
++// ARM925T: the store data's forwarding priority is resolved for both slots
++// from their own index registers, and the stall copy selects the finished
++// pick vector; the data then sees one AND-OR. Upstream selected the index
++// first (the stall register's late_reg_index mux) and compared it with
++// every stage after. The value is never an immediate, and a store's data
++// is never aligned, so the index itself is not needed.
++//
++wire [11:0] ms_pick_live  = forward_pick ( {27'd0, i_mem_srcdest_index_ff[5:0]},
++                                i_shifter_destination_index_ff[5:0], i_alu_dav_nxt,
++                                i_alu_destination_index_ff[5:0], i_alu_dav_ff,
++                                i_postalu0_destination_index_ff[5:0], i_postalu0_dav_ff,
++                                i_postalu1_destination_index_ff[5:0], i_postalu1_dav_ff,
++                                i_postalu_destination_index_ff[5:0], i_postalu_dav_ff,
++                                i_memory_destination_index_ff[5:0], i_memory_dav_ff,
++                                i_memory_mem_srcdest_index_ff[5:0], i_memory_mem_load_ff );
++wire [11:0] ms_pick_saved = forward_pick ( {27'd0, skid_idx[5:0]},
++                                i_shifter_destination_index_ff[5:0], i_alu_dav_nxt,
++                                i_alu_destination_index_ff[5:0], i_alu_dav_ff,
++                                i_postalu0_destination_index_ff[5:0], i_postalu0_dav_ff,
++                                i_postalu1_destination_index_ff[5:0], i_postalu1_dav_ff,
++                                i_postalu_destination_index_ff[5:0], i_postalu_dav_ff,
++                                i_memory_destination_index_ff[5:0], i_memory_dav_ff,
++                                i_memory_mem_srcdest_index_ff[5:0], i_memory_mem_load_ff );
++wire [11:0] ms_pick = stall_lock_ff ? ms_pick_saved : ms_pick_live;
++
+ // Value of a register index, never an immediate.
+ assign  o_mem_srcdest_value_nxt =
+-        get_forward_value (    {27'd0, late_reg_index[5:0]},
++        get_forward_value (    33'd0,
+ 
+                                 i_shifter_destination_index_ff[5:0],
+                                 i_alu_dav_nxt,
+@@ -742,7 +814,8 @@ assign  o_mem_srcdest_value_nxt =
+                                 i_memory_mem_rd_data,
+                                 i_cpu_mode,
+                                 skid_pc_plus_8_ff,
+-                                1'd0
++                                1'd0,
++                                1'b1, ms_pick
+         );
+ 
+ // Apply index to register file.
+@@ -751,6 +824,37 @@ assign o_rd_index_1 = stall_idx_ff ? skid_idx[17:12] : i_shift_source_ff[5:0];
+ assign o_rd_index_2 = stall_idx_ff ? skid_idx[11:6]  : i_shift_length_ff[5:0];
+ assign o_rd_index_3 = stall_idx_ff ? skid_idx[5:0]   : i_mem_srcdest_index_ff[5:0];
+ 
++assign {sv_pc_plus_8_ff,
++        sv_pc_ff,
++        sv_switch_ff,
++        sv_taken_ff,
++        sv_decompile,
++        sv_uop_last,
++        sv_condition_code_ff,
++        sv_destination_index_ff,
++        sv_alu_source_ff,
++        sv_alu_operation_ff,
++        sv_shift_source_ff,
++        sv_shift_operation_ff,
++        sv_shift_length_ff,
++        sv_flag_update_ff,
++        sv_mem_srcdest_index_ff,
++        sv_mem_load_ff,
++        sv_mem_store_ff,
++        sv_mem_pre_index_ff,
++        sv_mem_unsigned_byte_enable_ff,
++        sv_mem_signed_byte_enable_ff,
++        sv_mem_signed_halfword_enable_ff,
++        sv_mem_unsigned_halfword_enable_ff,
++        sv_mem_translate_ff,
++        sv_irq_ff,
++        sv_fiq_ff,
++        sv_abt_ff,
++        sv_swi_ff,
++        sv_force32align_ff,
++        sv_und_ff,
++        sv_ppc_ff} = skid;
++
+ always_comb
+ begin
+         if ( o_stall_from_issue )
+@@ -852,211 +956,14 @@ begin
+ end
+ 
+ logic skid_is_lsl_0;
+-logic skid_is_rori;
+-logic w_shift_lock;
+ logic skid_is_mult;
+ 
+ assign skid_is_lsl_0 = stall_late_ff ? skid_lsl0_ff : i_shift_is_lsl0_ff;
+ 
+-assign   skid_is_rori          = skid_shift_operation_ff == RORI;
+-
+ // Constant RORI #0 were converted to Constant LSL #0 in decode.
+ assign o_shifter_disable_nxt = skid_is_lsl_0 | skid_is_mult;
+ 
+-assign w_shift_lock =
+-   shifter_lock_check ( skid_shift_source_ff,
+-                        o_destination_index_ff, o_condition_code_ff )
+-|| shifter_lock_check ( skid_shift_length_ff,
+-                        o_destination_index_ff, o_condition_code_ff )
+-|| shifter_lock_check ( {skid_alu_source_ff[32:6], late_reg_index[23:18]},
+-                        o_destination_index_ff, o_condition_code_ff )
+-|| shifter_lock_check ( {27'd0, skid_mem_srcdest_index_ff},
+-                        o_destination_index_ff, o_condition_code_ff );
+-
+-
+-assign skid_is_mult = skid_alu_operation_ff == {1'd0, UMLALL}     ||
+-                      skid_alu_operation_ff == {1'd0, UMLALH}     ||
+-                      skid_alu_operation_ff == {1'd0, SMLALL}     ||
+-                      skid_alu_operation_ff == {1'd0, SMLALH}     ||
+-                      skid_alu_operation_ff == SMULW0             ||
+-                      skid_alu_operation_ff == SMULW1             ||
+-                      skid_alu_operation_ff == SMUL00             ||
+-                      skid_alu_operation_ff == SMUL01             ||
+-                      skid_alu_operation_ff == SMUL10             ||
+-                      skid_alu_operation_ff == SMUL11             ||
+-                      skid_alu_operation_ff == SMLA00             ||
+-                      skid_alu_operation_ff == SMLA01             ||
+-                      skid_alu_operation_ff == SMLA10             ||
+-                      skid_alu_operation_ff == SMLA11             ||
+-                      skid_alu_operation_ff == SMLAW0             ||
+-                      skid_alu_operation_ff == SMLAW1             ||
+-                      skid_alu_operation_ff == SMLAL00L           ||
+-                      skid_alu_operation_ff == SMLAL01L           ||
+-                      skid_alu_operation_ff == SMLAL10L           ||
+-                      skid_alu_operation_ff == SMLAL11L           ||
+-                      skid_alu_operation_ff == SMLAL00H           ||
+-                      skid_alu_operation_ff == SMLAL01H           ||
+-                      skid_alu_operation_ff == SMLAL10H           ||
+-                      skid_alu_operation_ff == SMLAL11H;
+-
+-//
+-// Look for reads from registers to be loaded from memory. Four
+-// register sources may cause a load lock.
+-//
+-assign operand_load_lock[0] = determine_load_lock
+-                        ( {skid_alu_source_ff[32:6], late_reg_index[23:18]},
+-                        slot_locked[0],
+-                        o_mem_srcdest_index_ff,
+-                        o_condition_code_ff,
+-                        o_mem_load_ff,
+-                        i_shifter_mem_srcdest_index_ff,
+-                        i_shifter_dav_ff,
+-                        i_shifter_mem_load_ff,
+-                        i_alu_mem_srcdest_index_ff,
+-                        i_alu_dav_ff,
+-                        i_alu_mem_load_ff,
+-                        i_postalu0_mem_srcdest_index_ff,
+-                        i_postalu0_mem_load_ff,
+-                        i_postalu0_dav_ff,
+-                        i_postalu1_mem_srcdest_index_ff,
+-                        i_postalu1_mem_load_ff,
+-                        i_postalu1_dav_ff,
+-                        i_postalu_mem_srcdest_index_ff,
+-                        i_postalu_mem_load_ff,
+-                        i_postalu_dav_ff,
+-                        i_memory_mem_srcdest_index_ff,
+-                        i_memory_mem_load_ff,
+-                        i_memory_dav_ff,
+-                        i_dc_lock,
+-                        i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_abt_ff
+-                        );
+-assign operand_load_lock[1] = determine_load_lock
+-                        (
+-                        {skid_shift_source_ff[32:6], late_reg_index[17:12]},
+-                        slot_locked[1],
+-                        o_mem_srcdest_index_ff,
+-                        o_condition_code_ff,
+-                        o_mem_load_ff,
+-                        i_shifter_mem_srcdest_index_ff,
+-                        i_shifter_dav_ff,
+-                        i_shifter_mem_load_ff,
+-                        i_alu_mem_srcdest_index_ff,
+-                        i_alu_dav_ff,
+-                        i_alu_mem_load_ff,
+-                        i_postalu0_mem_srcdest_index_ff,
+-                        i_postalu0_mem_load_ff,
+-                        i_postalu0_dav_ff,
+-                        i_postalu1_mem_srcdest_index_ff,
+-                        i_postalu1_mem_load_ff,
+-                        i_postalu1_dav_ff,
+-                        i_postalu_mem_srcdest_index_ff,
+-                        i_postalu_mem_load_ff,
+-                        i_postalu_dav_ff,
+-                        i_memory_mem_srcdest_index_ff,
+-                        i_memory_mem_load_ff,
+-                        i_memory_dav_ff,
+-                        i_dc_lock,
+-                        i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_abt_ff
+-                        );
+-assign operand_load_lock[2] = determine_load_lock
+-                        ( {skid_shift_length_ff[32:6], late_reg_index[11:6]},
+-                        slot_locked[2],
+-                        o_mem_srcdest_index_ff,
+-                        o_condition_code_ff,
+-                        o_mem_load_ff,
+-                        i_shifter_mem_srcdest_index_ff,
+-                        i_shifter_dav_ff,
+-                        i_shifter_mem_load_ff,
+-                        i_alu_mem_srcdest_index_ff,
+-                        i_alu_dav_ff,
+-                        i_alu_mem_load_ff,
+-                        i_postalu0_mem_srcdest_index_ff,
+-                        i_postalu0_mem_load_ff,
+-                        i_postalu0_dav_ff,
+-                        i_postalu1_mem_srcdest_index_ff,
+-                        i_postalu1_mem_load_ff,
+-                        i_postalu1_dav_ff,
+-                        i_postalu_mem_srcdest_index_ff,
+-                        i_postalu_mem_load_ff,
+-                        i_postalu_dav_ff,
+-                        i_memory_mem_srcdest_index_ff,
+-                        i_memory_mem_load_ff,
+-                        i_memory_dav_ff,
+-                        i_dc_lock,
+-                        i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_abt_ff
+-                        );
+-assign operand_load_lock[3] = determine_load_lock
+-                        ( {27'd0, late_reg_index[5:0]},
+-                        slot_locked[3],
+-                        o_mem_srcdest_index_ff,
+-                        o_condition_code_ff,
+-                        o_mem_load_ff,
+-                        i_shifter_mem_srcdest_index_ff,
+-                        i_shifter_dav_ff,
+-                        i_shifter_mem_load_ff,
+-                        i_alu_mem_srcdest_index_ff,
+-                        i_alu_dav_ff,
+-                        i_alu_mem_load_ff,
+-                        i_postalu0_mem_srcdest_index_ff,
+-                        i_postalu0_mem_load_ff,
+-                        i_postalu0_dav_ff,
+-                        i_postalu1_mem_srcdest_index_ff,
+-                        i_postalu1_mem_load_ff,
+-                        i_postalu1_dav_ff,
+-                        i_postalu_mem_srcdest_index_ff,
+-                        i_postalu_mem_load_ff,
+-                        i_postalu_dav_ff,
+-                        i_memory_mem_srcdest_index_ff,
+-                        i_memory_mem_load_ff,
+-                        i_memory_dav_ff,
+-                        i_dc_lock,
+-                        i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_abt_ff
+-                        );
+-//
+-// ARM925T: nor an instruction that writes a register that an
+-// older load still in the pipeline will write. The load may
+-// miss the D-cache, which then writes the register in the
+-// background after this instruction (upstream only checked
+-// the lock, which is set once the load has reached the cache).
+-//
+-assign destination_load_lock = determine_load_lock
+-                        ( {27'd0, skid_destination_index_ff},
+-                        slot_locked[4],
+-                        o_mem_srcdest_index_ff,
+-                        o_condition_code_ff,
+-                        o_mem_load_ff,
+-                        i_shifter_mem_srcdest_index_ff,
+-                        i_shifter_dav_ff,
+-                        i_shifter_mem_load_ff,
+-                        i_alu_mem_srcdest_index_ff,
+-                        i_alu_dav_ff,
+-                        i_alu_mem_load_ff,
+-                        i_postalu0_mem_srcdest_index_ff,
+-                        i_postalu0_mem_load_ff,
+-                        i_postalu0_dav_ff,
+-                        i_postalu1_mem_srcdest_index_ff,
+-                        i_postalu1_mem_load_ff,
+-                        i_postalu1_dav_ff,
+-                        i_postalu_mem_srcdest_index_ff,
+-                        i_postalu_mem_load_ff,
+-                        i_postalu_dav_ff,
+-                        i_memory_mem_srcdest_index_ff,
+-                        i_memory_mem_load_ff,
+-                        i_memory_dav_ff,
+-                        i_dc_lock,
+-                        i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_abt_ff
+-                        )
+-                        ||
+-                        //
+-                        // If a register is locked by load, don't issue an instruction that
+-                        // writes to that register. Assert load lock. Else, background
+-                        // load will overwrite the latest value.
+-                        //
+-                        (
+-                          skid_destination_index_ff[5:0] != PHY_RAZ_REGISTER[5:0]
+-                          &&
+-                          slot_locked[4]
+-                        );
++assign skid_is_mult = is_mult_op ( skid_alu_operation_ff );
+ 
+ // ARM925T: only condition-resolved loads near memory can be deferred.
+ // Early users need the value in shifter; plain rn/rm need it in ALU.
+@@ -1068,8 +975,6 @@ assign late_reg_index = stall_late_ff ? skid_idx :
+ // The stall copy now selects four results instead of preceding all of the
+ // stage-tag comparisons in its own feedback/interlock path.
+ (* keep *) wire [3:0] late_live, late_saved;
+-wire late_instruction_ok = !skid_is_mult && !skid_force32align_ff &&
+-        !(skid_irq_ff || skid_fiq_ff || skid_abt_ff || skid_swi_ff || skid_und_ff);
+ assign late_live[0] = !i_alu_source_ff[32] && late_load(i_alu_source_ff[5:0], 1'b0, live_locked[0]);
+ assign late_live[1] = !i_shift_source_ff[32] && late_load(i_shift_source_ff[5:0], !i_shift_is_lsl0_ff, live_locked[1]);
+ assign late_live[2] = !i_shift_length_ff[32] && late_load(i_shift_length_ff[5:0], 1'b1, live_locked[2]);
+@@ -1078,8 +983,116 @@ assign late_saved[0] = !skid_late_immediate_ff[0] && late_load(skid_idx[23:18],
+ assign late_saved[1] = !skid_late_immediate_ff[1] && late_load(skid_idx[17:12], !skid_lsl0_ff, skid_locked[1]);
+ assign late_saved[2] = !skid_late_immediate_ff[2] && late_load(skid_idx[11:6], 1'b1, skid_locked[2]);
+ assign late_saved[3] = skid_late_store_ff && late_load(skid_idx[5:0], 1'b1, skid_locked[3]);
+-assign late_pending = (stall_late_ff ? late_saved : late_live) & {4{late_instruction_ok}};
+-assign load_lock = |(operand_load_lock & ~late_pending) || destination_load_lock;
++
++
++//
++// ARM925T: the issue interlock of one instruction slot (see lock above).
++// Slot 0 is the live decode output, slot 1 the saved skid entry. Each
++// field is the one the stall-selected skid mux would give for that slot.
++//
++logic [3:0]                   sl_cc       [2];
++logic [$clog2(ALU_OPS)-1:0]   sl_alu_op   [2];
++logic [$clog2(SHIFT_OPS)-1:0] sl_shift_op [2];
++logic [1:0]                   sl_lsl0;
++logic [6:0]                   sl_alu_src  [2];   // {immediate, index}
++logic [6:0]                   sl_shift_src[2];
++logic [6:0]                   sl_shift_len[2];
++logic [5:0]                   sl_ms_idx   [2];
++logic [5:0]                   sl_dst_idx  [2];
++logic [4:0]                   sl_locked   [2];
++logic [3:0]                   sl_late     [2];
++logic [1:0]                   sl_exc;            // force32 or an exception: never late
++
++assign sl_cc[0]        = i_condition_code_ff;
++assign sl_alu_op[0]    = i_alu_operation_ff;
++assign sl_shift_op[0]  = i_shift_operation_ff;
++assign sl_lsl0[0]      = i_shift_is_lsl0_ff;
++assign sl_alu_src[0]   = {i_alu_source_ff[32], i_alu_source_ff[5:0]};
++assign sl_shift_src[0] = {i_shift_source_ff[32], i_shift_source_ff[5:0]};
++assign sl_shift_len[0] = {i_shift_length_ff[32], i_shift_length_ff[5:0]};
++assign sl_ms_idx[0]    = i_mem_srcdest_index_ff[5:0];
++assign sl_dst_idx[0]   = i_destination_index_ff[5:0];
++assign sl_locked[0]    = live_locked;
++assign sl_late[0]      = late_live;
++assign sl_exc[0]       = i_force32align_ff || i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_und_ff;
++
++assign sl_cc[1]        = sv_condition_code_ff;
++assign sl_alu_op[1]    = sv_alu_operation_ff;
++assign sl_shift_op[1]  = sv_shift_operation_ff;
++assign sl_lsl0[1]      = skid_lsl0_ff;
++assign sl_alu_src[1]   = {skid_late_immediate_ff[0], skid_idx[23:18]};
++assign sl_shift_src[1] = {skid_late_immediate_ff[1], skid_idx[17:12]};
++assign sl_shift_len[1] = {skid_late_immediate_ff[2], skid_idx[11:6]};
++assign sl_ms_idx[1]    = skid_idx[5:0];
++assign sl_dst_idx[1]   = skid_dest_idx;
++assign sl_locked[1]    = skid_locked;
++assign sl_late[1]      = late_saved;
++assign sl_exc[1]       = sv_force32align_ff || sv_irq_ff || sv_fiq_ff || sv_abt_ff || sv_swi_ff || sv_und_ff;
++
++for ( genvar sl = 0; sl < 2; sl++ )
++begin : g_slot
++        logic       is_mult, no_shift, w_shift_lock, shift_lock, load_lock, dest_lock;
++        logic [3:0] operand_lock, late;
++
++        assign is_mult  = is_mult_op ( sl_alu_op[sl] );
++
++        // Constant RORI #0 were converted to Constant LSL #0 in decode.
++        assign no_shift = !sl_lsl0[sl] && sl_shift_op[sl] != RORI;
++
++        //
++        // A shift lock occurs if the current instruction requires a shift
++        // amount as a register other than LSL #0 or RORI if the operands are
++        // right on the output of this stage because in that case we do not
++        // have the register value and thus a shift lock.
++        //
++        // Another case is when the output of this stage has a flag update, a
++        // shift operation that is not LSL#0 or RORI cannot be issued since flags are
++        // not actually available in the next cycle. They are only available in the
++        // next-2-next cycle.
++        //
++        assign w_shift_lock =
++           shifter_lock_check ( {sl_shift_src[sl][6], 26'd0, sl_shift_src[sl][5:0]},
++                                o_destination_index_ff, o_condition_code_ff )
++        || shifter_lock_check ( {sl_shift_len[sl][6], 26'd0, sl_shift_len[sl][5:0]},
++                                o_destination_index_ff, o_condition_code_ff )
++        || shifter_lock_check ( {sl_alu_src[sl][6], 26'd0, sl_alu_src[sl][5:0]},
++                                o_destination_index_ff, o_condition_code_ff )
++        || shifter_lock_check ( {27'd0, sl_ms_idx[sl]},
++                                o_destination_index_ff, o_condition_code_ff );
++
++        assign shift_lock = ((is_mult || no_shift) && w_shift_lock) || (o_flag_update_ff && no_shift);
++
++        //
++        // Look for reads from registers to be loaded from memory. Four
++        // register sources may cause a load lock.
++        //
++        assign operand_lock[0] = load_lock_of ( {sl_alu_src[sl][6],   26'd0, sl_alu_src[sl][5:0]},   sl_locked[sl][0] );
++        assign operand_lock[1] = load_lock_of ( {sl_shift_src[sl][6], 26'd0, sl_shift_src[sl][5:0]}, sl_locked[sl][1] );
++        assign operand_lock[2] = load_lock_of ( {sl_shift_len[sl][6], 26'd0, sl_shift_len[sl][5:0]}, sl_locked[sl][2] );
++        assign operand_lock[3] = load_lock_of ( {27'd0, sl_ms_idx[sl]},                               sl_locked[sl][3] );
++
++        //
++        // ARM925T: nor an instruction that writes a register that an
++        // older load still in the pipeline will write. The load may
++        // miss the D-cache, which then writes the register in the
++        // background after this instruction (upstream only checked
++        // the lock, which is set once the load has reached the cache).
++        // If a register is locked by load, don't issue an instruction that
++        // writes to that register. Assert load lock. Else, background
++        // load will overwrite the latest value.
++        //
++        assign dest_lock = load_lock_of ( {27'd0, sl_dst_idx[sl]}, sl_locked[sl][4] ) ||
++                           ( sl_dst_idx[sl] != PHY_RAZ_REGISTER[5:0] && sl_locked[sl][4] );
++
++        // ARM925T: only condition-resolved loads near memory can be
++        // deferred (late_live/late_saved); never a multiply, a forced
++        // alignment or an exception.
++        assign late      = sl_late[sl] & {4{!is_mult && !sl_exc[sl]}};
++        assign load_lock = |(operand_lock & ~late) || dest_lock;
++
++        assign slot_lock[sl] = (shift_lock || load_lock) && sl_cc[sl] != NV;
++        assign slot_pend[sl] = (slot_lock[sl] || sl_cc[sl] == NV) ? 4'b0 : late;
++end
+ 
+ function automatic late_load(input [5:0] r, input early, input reg_locked);
+         logic candidate, conflict;
+@@ -1117,14 +1130,70 @@ endfunction
+ // not actually available in the next cycle. They are only available in the
+ // next-2-next cycle.
+ //
+-assign shift_lock =
+-  (((skid_is_mult |   ((~skid_is_lsl_0) & (~skid_is_rori)))) & w_shift_lock)
+-| (o_flag_update_ff & ((~skid_is_lsl_0) & (~skid_is_rori)));
+-
+ ////////////////////////////////////
+ // Functions
+ ////////////////////////////////////
+ 
++
++// ARM925T: the multiply operations (the shifter's MAC unit).
++function automatic is_mult_op ( input [$clog2(ALU_OPS)-1:0] op );
++        is_mult_op = op == {1'd0, UMLALL}     ||
++                     op == {1'd0, UMLALH}     ||
++                     op == {1'd0, SMLALL}     ||
++                     op == {1'd0, SMLALH}     ||
++                     op == SMULW0             ||
++                     op == SMULW1             ||
++                     op == SMUL00             ||
++                     op == SMUL01             ||
++                     op == SMUL10             ||
++                     op == SMUL11             ||
++                     op == SMLA00             ||
++                     op == SMLA01             ||
++                     op == SMLA10             ||
++                     op == SMLA11             ||
++                     op == SMLAW0             ||
++                     op == SMLAW1             ||
++                     op == SMLAL00L           ||
++                     op == SMLAL01L           ||
++                     op == SMLAL10L           ||
++                     op == SMLAL11L           ||
++                     op == SMLAL00H           ||
++                     op == SMLAL01H           ||
++                     op == SMLAL10H           ||
++                     op == SMLAL11H;
++endfunction : is_mult_op
++
++// ARM925T: determine_load_lock against this cycle's pipeline stages.
++function automatic load_lock_of ( input [32:0] index, input locked );
++        load_lock_of = determine_load_lock
++                        ( index,
++                        locked,
++                        o_mem_srcdest_index_ff,
++                        o_condition_code_ff,
++                        o_mem_load_ff,
++                        i_shifter_mem_srcdest_index_ff,
++                        i_shifter_dav_ff,
++                        i_shifter_mem_load_ff,
++                        i_alu_mem_srcdest_index_ff,
++                        i_alu_dav_ff,
++                        i_alu_mem_load_ff,
++                        i_postalu0_mem_srcdest_index_ff,
++                        i_postalu0_mem_load_ff,
++                        i_postalu0_dav_ff,
++                        i_postalu1_mem_srcdest_index_ff,
++                        i_postalu1_mem_load_ff,
++                        i_postalu1_dav_ff,
++                        i_postalu_mem_srcdest_index_ff,
++                        i_postalu_mem_load_ff,
++                        i_postalu_dav_ff,
++                        i_memory_mem_srcdest_index_ff,
++                        i_memory_mem_load_ff,
++                        i_memory_dav_ff,
++                        i_dc_lock,
++                        i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff || i_abt_ff
++                        );
++endfunction : load_lock_of
++
+ // ---------------------------------------------
+ // Shifter lock check.
+ // ---------------------------------------------
+@@ -1244,6 +1313,48 @@ endfunction : determine_load_lock
+ 
+ // ----------------------------------------------------------------------------
+ 
++//
++// ARM925T: the forwarding priority as one-hot picks. Match order is
++// unchanged, including immediates/special registers and the memory load
++// before that instruction's base writeback; bit 11 is the register file.
++//
++function automatic [11:0] forward_pick (
++        input [32:0]                    index,
++        input [$clog2(PHY_REGS)-1:0]    shifter_destination_index_ff,
++        input                           alu_dav_nxt,
++        input [$clog2(PHY_REGS)-1:0]    alu_destination_index_ff,
++        input                           alu_dav_ff,
++        input [$clog2(PHY_REGS)-1:0]    postalu0_destination_index_ff,
++        input                           postalu0_dav_ff,
++        input [$clog2(PHY_REGS)-1:0]    postalu1_destination_index_ff,
++        input                           postalu1_dav_ff,
++        input [$clog2(PHY_REGS)-1:0]    postalu_destination_index_ff,
++        input                           postalu_dav_ff,
++        input [$clog2(PHY_REGS)-1:0]    memory_destination_index_ff,
++        input                           memory_dav_ff,
++        input [$clog2(PHY_REGS)-1:0]    memory_mem_srcdest_index_ff,
++        input                           memory_mem_load_ff
++);
++        logic [11:0] match;
++        logic unused;
++        unused = |index[31:6];
++        match[0] = index[32];
++        match[1] = index[5:0] == PHY_RAZ_REGISTER[5:0];
++        match[2] = index[5:0] == {2'd0, ARCH_PC[3:0]};
++        match[3] = index[5:0] == PHY_CPSR[5:0];
++        match[4] = index[5:0] == shifter_destination_index_ff && alu_dav_nxt;
++        match[5] = index[5:0] == alu_destination_index_ff && alu_dav_ff;
++        match[6] = index[5:0] == postalu0_destination_index_ff && postalu0_dav_ff;
++        match[7] = index[5:0] == postalu1_destination_index_ff && postalu1_dav_ff;
++        match[8] = index[5:0] == postalu_destination_index_ff && postalu_dav_ff;
++        match[9] = index[5:0] == memory_mem_srcdest_index_ff && memory_dav_ff && memory_mem_load_ff;
++        match[10] = index[5:0] == memory_destination_index_ff && memory_dav_ff;
++        match[11] = 1'b1;
++        for (int k = 0; k < 12; k++) begin
++                forward_pick[k] = match[k] && !(|(match & ((12'b1 << k) - 12'b1)));
++        end
++endfunction : forward_pick
++
+ //
+ // Forwarding result: bit 32 selects the separately captured register-file
+ // bank; bits 31:0 contain the newest matching pipeline value or special value.
+@@ -1299,30 +1410,20 @@ function automatic [32:0] get_forward_value (
+         input [31:0]                    pc_plus_8_ff,
+ 
+         // PC access control.
+-        input                           force32_align_ff
++        input                           force32_align_ff,
++
++        // ARM925T: a pick vector resolved outside (forward_pick), if set.
++        input                           pick_ext_en,
++        input [11:0]                    pick_ext
+ );
+ 
+         logic [31:0] get;
+-        logic [11:0] match;
+         logic [11:0] pick;
+         logic [31:0] value [0:10];
+ 
+-        // ARM925T: encode priority on single-bit selects; the 32-bit data
+-        // sees only parallel masks and an OR tree. Match order is unchanged,
+-        // including immediates/special registers and the memory load before
+-        // that instruction's base writeback.
+-        match[0] = index[32];
+-        match[1] = index[5:0] == PHY_RAZ_REGISTER[5:0];
+-        match[2] = index[5:0] == {2'd0, ARCH_PC[3:0]};
+-        match[3] = index[5:0] == PHY_CPSR[5:0];
+-        match[4] = index[5:0] == shifter_destination_index_ff && alu_dav_nxt;
+-        match[5] = index[5:0] == alu_destination_index_ff && alu_dav_ff;
+-        match[6] = index[5:0] == postalu0_destination_index_ff && postalu0_dav_ff;
+-        match[7] = index[5:0] == postalu1_destination_index_ff && postalu1_dav_ff;
+-        match[8] = index[5:0] == postalu_destination_index_ff && postalu_dav_ff;
+-        match[9] = index[5:0] == memory_mem_srcdest_index_ff && memory_dav_ff && memory_mem_load_ff;
+-        match[10] = index[5:0] == memory_destination_index_ff && memory_dav_ff;
+-        match[11] = 1'b1;
++        // ARM925T: the priority is encoded on single-bit selects
++        // (forward_pick); the 32-bit data sees only parallel masks and an
++        // OR tree.
+         value[0] = index[31:0];
+         value[1] = 32'b0;
+         value[2] = pc_plus_8_ff;
+@@ -1335,9 +1436,14 @@ function automatic [32:0] get_forward_value (
+         value[9] = memory_mem_rd_data;
+         value[10] = memory_destination_value_ff;
+         get = 32'b0;
+-        for (int k = 0; k < 12; k++) begin
+-                pick[k] = match[k] && !(|(match & ((12'b1 << k) - 12'b1)));
+-        end
++        pick = pick_ext_en ? pick_ext :
++               forward_pick ( index, shifter_destination_index_ff, alu_dav_nxt,
++                              alu_destination_index_ff, alu_dav_ff,
++                              postalu0_destination_index_ff, postalu0_dav_ff,
++                              postalu1_destination_index_ff, postalu1_dav_ff,
++                              postalu_destination_index_ff, postalu_dav_ff,
++                              memory_destination_index_ff, memory_dav_ff,
++                              memory_mem_srcdest_index_ff, memory_mem_load_ff );
+         for (int k = 0; k < 11; k++)
+                 get |= value[k] & {32{pick[k]}};
+ 
+diff --git a/tools/report_timing.tcl b/tools/report_timing.tcl
+index 5fdcef0..400bbff 100644
+--- a/tools/report_timing.tcl
++++ b/tools/report_timing.tcl
+@@ -4,6 +4,7 @@ create_timing_netlist
+ read_sdc
+ update_timing_netlist
+ file mkdir build
++source tools/report_timing5_families.tcl
+ report_timing -setup -npaths 30 -nworst 1 -detail full_path -file build/critical-paths.rpt
+ report_timing -hold -npaths 10 -detail full_path -file build/hold-paths.rpt
+ report_ucp -file build/unconstrained-paths.rpt
+diff --git a/tools/report_timing5_families.tcl b/tools/report_timing5_families.tcl
+new file mode 100644
+index 0000000..af8fec7
+--- /dev/null
++++ b/tools/report_timing5_families.tcl
+@@ -0,0 +1,58 @@
++# Loaded after create_timing_netlist/read_sdc/update_timing_netlist.
++# Report matching register sets even when a family leaves the worst 30.
++# Empty from/to means unconstrained on that side.
++set found_corner 0
++foreach_in_collection corner [get_available_operating_conditions] {
++    if {[get_operating_conditions_info -display_name $corner] eq "Slow 1100mV 100C Model"} {
++        set_operating_conditions $corner
++        update_timing_netlist
++        set found_corner 1
++    }
++}
++if {!$found_corner} { error "Missing slow 100C corner" }
++set families {
++    icvalid_input {} {*u_code_cache*valid_s1* *u_code_cache*valid_part* *u_code_cache*lru_s1* *u_code_cache*lru_part* *u_code_cache*rd_hi_s1*}
++    icvalid_output {*u_code_cache*valid_s1* *u_code_cache*valid_part* *u_code_cache*lru_s1* *u_code_cache*lru_part* *u_code_cache*rd_hi_s1*} {*u_code_cache*valid_s2* *u_code_cache*lru_s2*}
++    dcvalid_input {} {*u_data_cache*valid_s1* *u_data_cache*valid_part* *u_data_cache*lru_s1* *u_data_cache*lru_part* *u_data_cache*rd_hi_s1*}
++    multiply {*u_zap_issue_main*o_alu_operation_ff* *u_zap_issue_main*o_alu_is_mult_ff*} {*u_zap_shifter_main*}
++    multiply_output {*u_zap_issue_main*o_alu_operation_ff* *u_zap_issue_main*o_alu_is_mult_ff*} {*u_zap_shifter_main|o_*}
++    dtlb_fault {*u_data_cache*u_zap_tlb_check*o_fsr*} {}
++    itlb_fault {*u_code_cache*u_zap_tlb_check*o_fsr*} {}
++    issue_stall {*u_zap_issue_main*stall*} {*u_zap_issue_main*}
++    issue_feedback {} {*u_zap_issue_main*stall_idx_ff* *u_zap_issue_main*stall_late_ff* *u_zap_issue_main*stall_lock_ff* *u_zap_issue_main*o_stall_from_issue*}
++    issue_stall_feedback {*u_zap_issue_main*stall*} {*u_zap_issue_main*stall_idx_ff* *u_zap_issue_main*stall_late_ff* *u_zap_issue_main*stall_lock_ff* *u_zap_issue_main*o_stall_from_issue*}
++    issue_pending {} {*u_zap_issue_main*o_load_pending_ff* *u_zap_issue_main*o_shift_source_pending_ff*}
++    decode_pending {*u_zap_decode_main*o_shift_length_ff*} {*u_zap_issue_main*o_load_pending_ff*}
++    issue_store {} {*u_zap_issue_main*mem_srcdest_normal_ff* *u_zap_issue_main*mem_srcdest_select_ff*}
++    arbiter_control {*test_on_q* *arb*sel_* *arb*gnt*} {*upp_bus*}
++    bus_address {*zap_wb_merger*o_wb_adr*} {*upp_bus*}
++    bus_input {} {*upp_bus*adr_q* *upp_bus*dat_q* *upp_bus*fe_* *upp_bus*sdr_addr*}
++    bl_decode {*zap_predecode_main*o_instruction_ff* *zap_predecode_main*o_bl*} {*u_zap_decode_main*}
++    dcache_bus {*u_data_cache*u_zap_cache_fsm*state_ff*} {*zap_wb_merger*o_wb_adr*}
++    predecode_und {} {*zap_predecode_main*o_v5_und_ff*}
++    cache_stall_to_core {*u_data_cache* *u_zap_cp15_cb*o_mmu_en*} {*u_zap_alu_main|* *u_zap_shifter_main|*}
++    issue_to_decode {*u_zap_issue_main*} {*u_zap_decode_main*}
++}
++file mkdir build/timing5-families
++set family_summary [open build/timing5-families/slacks.tsv w]
++puts $family_summary "family\tslack_ns\tfrom\tto"
++foreach {family from to} $families {
++    set args [list -setup -npaths 1]
++    if {[llength $from]} {
++        set regs [get_registers $from]
++        if {[get_collection_size $regs] == 0} { puts $family_summary "$family\tNO_SOURCE\t$from\t$to"; continue }
++        lappend args -from $regs
++    }
++    if {[llength $to]} {
++        set regs [get_registers $to]
++        if {[get_collection_size $regs] == 0} { puts $family_summary "$family\tNO_DESTINATION\t$from\t$to"; continue }
++        lappend args -to $regs
++    }
++    set paths [eval get_timing_paths $args]
++    if {[get_collection_size $paths] == 0} { puts $family_summary "$family\tNO_PATH\t$from\t$to"; continue }
++    foreach_in_collection path $paths {
++        puts $family_summary "$family\t[get_path_info -slack $path]\t[get_node_info -name [get_path_info -from $path]]\t[get_node_info -name [get_path_info -to $path]]"
++    }
++    eval report_timing $args [list -detail full_path -file build/timing5-families/$family.rpt]
++}
++close $family_summary

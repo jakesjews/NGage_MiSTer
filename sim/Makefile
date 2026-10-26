@@ -221,7 +221,11 @@ top: $(BUILD)/top/Vemu | $(OUT)
 # The firmware on the whole core (sim/harness/coreboot_main.cpp): not in
 # `make test`, it needs the flash images (tools/mkimage.py; firmware, never
 # committed) and runs for hours. CORE_THREADS > 1 builds a multithreaded model
-# (slower here: 4 threads ran at a quarter of the single-threaded speed).
+# (slower here: 4 threads ran at a quarter of the single-threaded speed). The
+# model is built --savable: the bench's --save/--save-at and --restore keep a
+# snapshot (the firmware at its idle screen, say) so later runs skip the boot.
+# Speed: an M2 Max runs it at about 565 k clocks/s with --x-assign fast
+# --x-initial fast and -O3, a Ryzen 5950X at 250-290 k with the defaults.
 CORE_CS0     ?= $(ROOT)/build/coreboot/cs0.bin
 CORE_CS1     ?= $(ROOT)/build/coreboot/cs1.bin
 CORE_MMC     ?=
@@ -229,9 +233,9 @@ CORE_ARGS    ?= --cycles 1000000000
 CORE_OUT     ?= $(BUILD)/coreboot/out
 CORE_THREADS ?= 1
 $(BUILD)/coreboot/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/coreboot_main.cpp $(ROOT)/sim/harness/coreboot.vlt $(ROOT)/sim/profile/cpu_profile.h $(PROFILE_FILES) \
-                        $(ROOT)/sim/harness/common.h $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h \
+                        $(ROOT)/sim/harness/common.h $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h $(ROOT)/sim/harness/snapshot.h \
                         $(ROOT)/rtl/mister/phoenix_patch.hex $(ROOT)/rtl/mister/phoenix_patch.vh
-	mkdir -p $(BUILD)/coreboot && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) $(PROFILE_FLAGS) $(if $(CORE_CFLAGS),-CFLAGS "$(CORE_CFLAGS)") --timescale 1ns/1ps --pins-inout-enables \
+	mkdir -p $(BUILD)/coreboot && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) $(PROFILE_FLAGS) $(if $(CORE_CFLAGS),-CFLAGS "$(CORE_CFLAGS)") --timescale 1ns/1ps --pins-inout-enables --savable \
 		$(if $(filter-out 1,$(CORE_THREADS)),--threads $(CORE_THREADS)) \
 		--top-module emu -DNGAGE_DEBUG=1 --Mdir $(BUILD)/coreboot -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
 		$(ROOT)/sim/harness/coreboot.vlt $(TOP_RTL) $(PROFILE_FILES) $(ROOT)/sim/harness/coreboot_main.cpp

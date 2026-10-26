@@ -1,0 +1,232 @@
+# worktree NGage_MiSTer-t5-icvalid-s1: HEAD c03088f (HEAD); uncommitted changes saved before the worktree was removed on 2026-10-25
+diff --git a/NGage.qsf b/NGage.qsf
+index b08e03c..163d384 100644
+--- a/NGage.qsf
++++ b/NGage.qsf
+@@ -51,7 +51,7 @@ set_global_assignment -name ECO_OPTIMIZE_TIMING ON
+ set_global_assignment -name PERIPHERY_TO_CORE_PLACEMENT_AND_ROUTING_OPTIMIZATION ON
+ set_global_assignment -name PHYSICAL_SYNTHESIS_ASYNCHRONOUS_SIGNAL_PIPELINING ON
+ set_global_assignment -name ALM_REGISTER_PACKING_EFFORT MEDIUM
+-set_global_assignment -name SEED 2
++set_global_assignment -name SEED 1
+ 
+ #set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
+ 
+@@ -84,7 +84,7 @@ set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
+ 
+ # The main core: no debug overlay, per-second counters or trace triggers
+ # (about 900 ALMs); the debug core keeps them for tools/mister_dbg.py
+-#set_global_assignment -name VERILOG_MACRO "NGAGE_NO_DEBUG=1"
++set_global_assignment -name VERILOG_MACRO "NGAGE_NO_DEBUG=1"
+ # Experimental 16 KB two-way D-cache (default 8 KB); index maintenance
+ # covers both physical set colours while CP15 keeps reporting 8 KB.
+ #set_global_assignment -name VERILOG_MACRO "NGAGE_DCACHE_16K=1"
+diff --git a/rtl/cpu/zap/zap_cache_tag_ram.sv b/rtl/cpu/zap/zap_cache_tag_ram.sv
+index ddb8d7b..00cc76a 100644
+--- a/rtl/cpu/zap/zap_cache_tag_ram.sv
++++ b/rtl/cpu/zap/zap_cache_tag_ram.sv
+@@ -159,6 +159,20 @@ localparam [31:0] WAY_W     = WAYS > 1 ? $clog2(WAYS) : 32'd1;
+ localparam [31:0] FLAT_W    = $clog2(LINES_ALL);      // A line of any way: {way, set}.
+ localparam [31:0] TAG_W     = 32'd31 - $clog2(CACHE_LINE) - SET_W + 32'd1;
+ 
++//
++// ARM925T: the first read stage of the valid and LRU bits is split in two.
++// At the read edge, each part register takes the bit of the set whose low
++// LO_W index bits are the set read's and whose high bits are the part's
++// number, with the same pending-write forwarding as before; rd_hi_s1 takes
++// the set's high bits under the same enable. The stage-1 bit is the part
++// rd_hi_s1 names: the same value the single register had, but the index
++// path from the next fetch address now passes a 2^LO_W:1 mux instead of a
++// LINES:1 mux before its register (timing). Same cycles.
++//
++localparam [31:0] LO_W      = SET_W > 32'd4 ? 32'd4 : 32'd1;
++localparam [31:0] HI_W      = SET_W - LO_W;
++localparam [31:0] PARTS     = 32'd1 << HI_W;
++
+ localparam [31:0] NUMBER_OF_DIRTY_BLOCKS = LINES_ALL/16; // Keep cache size > 16 bytes.
+ 
+ // States.
+@@ -209,6 +223,10 @@ logic [$clog2(NUMBER_OF_DIRTY_BLOCKS):0]   blk_ctr_ff, blk_ctr_nxt;
+ logic [$clog2(CACHE_LINE/4):0]             adr_ctr_ff, adr_ctr_nxt;
+ logic [WAYS-1:0]                           dirty_s1, dirty_s2, dirty_q;   // ARM925T: per way, aligned with the RAMs' reads.
+ logic [WAYS-1:0]                           valid_s1, valid_s2, valid_q;
++logic [WAYS-1:0][PARTS-1:0]                valid_part;          // ARM925T: stage 1, split (above).
++logic [PARTS-1:0]                          lru_part;            // ARM925T: likewise.
++logic [HI_W-1:0]                           rd_hi_s1;            // ARM925T: the stage-1 set's high bits.
++logic                                      s1_en;               // ARM925T: the stage-1 enable.
+ logic [WAYS-1:0]                           hit;                 // ARM925T: per way.
+ logic [WAY_W-1:0]                          sel, victim;         // ARM925T: the way of interest; the way a fill takes.
+ logic [WAYS-1:0][`ZAP_CACHE_TAG_WDT-1:0]   tag_q;               // ARM925T: the tag RAMs' outputs.
+@@ -348,6 +366,7 @@ begin : g_direct
+         assign lru               = '0;
+         assign lru_q             = 1'd0;
+         assign lru_s1            = 1'd0;
++        assign lru_part          = '0;
+         assign lru_s2            = 1'd0;
+         assign hit_pend_en       = 1'd0;
+         assign hit_pend_val      = 1'd0;
+@@ -444,17 +463,23 @@ begin : g_lru
+         begin
+                 if ( i_reset )
+                 begin
+-                        lru_q  <= 1'd0;
+-                        lru_s2 <= 1'd0;
+-                        lru_s1 <= 1'd0;
++                        lru_q    <= 1'd0;
++                        lru_s2   <= 1'd0;
++                        lru_part <= '0;
+                 end
+-                else if ( !i_hold || tag_ram_clear || line_clear )
++                else if ( s1_en )
+                 begin
+                         lru_q  <= lru_fwd_now ( rd_set_del2, lru_s2 );
+                         lru_s2 <= lru_fwd ( rd_set_del,  lru_s1 );
+-                        lru_s1 <= lru_fwd ( rd_set,      lru [ rd_set ] );
++                        for ( int p = 0; p < PARTS; p++ )
++                        begin
++                                lru_part[p] <= lru_fwd ( {p[HI_W-1:0], rd_set[LO_W-1:0]},
++                                                         lru [ {p[HI_W-1:0], rd_set[LO_W-1:0]} ] );
++                        end
+                 end
+         end
++
++        assign lru_s1 = lru_part [ rd_hi_s1 ];
+ end
+ 
+ assign o_cache_hit       = |hit;
+@@ -544,6 +569,30 @@ begin
+         end
+ end
+ 
++// ARM925T: the stage-1 valid and LRU registers' enable, and the high set
++// bits that pick the stage-1 bit from the parts (see LO_W).
++assign s1_en = !i_hold || tag_ram_clear || line_clear;
++
++always_ff @ ( posedge i_clk )
++begin
++        if ( i_reset )
++        begin
++                rd_hi_s1 <= '0;
++        end
++        else if ( s1_en )
++        begin
++                rd_hi_s1 <= rd_set[SET_W-1:LO_W];
++        end
++end
++
++always_comb
++begin
++        for ( int w = 0; w < WAYS; w++ )
++        begin
++                valid_s1[w] = valid_part[w][rd_hi_s1];
++        end
++end
++
+ //
+ // ARM925T: the valid and dirty bits are written one cycle after the tag RAM
+ // (write-behind), so that the late write enable from the D-cache FSM drives
+@@ -617,12 +666,12 @@ begin
+         begin
+                 valid_q             <= '0;
+                 valid_s2            <= '0;
+-                valid_s1            <= '0;
++                valid_part          <= '0;
+                 valid               <= '0;
+         end
+         else
+         begin
+-                if ( !i_hold || tag_ram_clear || line_clear )
++                if ( s1_en )
+                 begin
+                         for ( int w = 0; w < WAYS; w++ )
+                         begin
+@@ -630,8 +679,11 @@ begin
+                                                rd_set_del2 == pend_addr       && pend_en       && pend_sel[w] ? 1'd1 :
+                                                valid_s2[w];
+                                 valid_s2[w] <= rd_set_del  == pend_addr && pend_en && pend_sel[w] ? 1'd1 : valid_s1[w];
+-                                valid_s1[w] <= rd_set      == pend_addr && pend_en && pend_sel[w] ? 1'd1 :
+-                                               valid [ flat(WAY_W'(w), rd_set) ];
++                                for ( int p = 0; p < PARTS; p++ )
++                                begin
++                                        valid_part[w][p] <= {p[HI_W-1:0], rd_set[LO_W-1:0]} == pend_addr && pend_en && pend_sel[w] ? 1'd1 :
++                                                            valid [ flat(WAY_W'(w), {p[HI_W-1:0], rd_set[LO_W-1:0]}) ];
++                                end
+                         end
+                 end
+ 
+diff --git a/tools/report_timing.tcl b/tools/report_timing.tcl
+index 5fdcef0..400bbff 100644
+--- a/tools/report_timing.tcl
++++ b/tools/report_timing.tcl
+@@ -4,6 +4,7 @@ create_timing_netlist
+ read_sdc
+ update_timing_netlist
+ file mkdir build
++source tools/report_timing5_families.tcl
+ report_timing -setup -npaths 30 -nworst 1 -detail full_path -file build/critical-paths.rpt
+ report_timing -hold -npaths 10 -detail full_path -file build/hold-paths.rpt
+ report_ucp -file build/unconstrained-paths.rpt
+diff --git a/tools/report_timing5_families.tcl b/tools/report_timing5_families.tcl
+new file mode 100644
+index 0000000..af8fec7
+--- /dev/null
++++ b/tools/report_timing5_families.tcl
+@@ -0,0 +1,58 @@
++# Loaded after create_timing_netlist/read_sdc/update_timing_netlist.
++# Report matching register sets even when a family leaves the worst 30.
++# Empty from/to means unconstrained on that side.
++set found_corner 0
++foreach_in_collection corner [get_available_operating_conditions] {
++    if {[get_operating_conditions_info -display_name $corner] eq "Slow 1100mV 100C Model"} {
++        set_operating_conditions $corner
++        update_timing_netlist
++        set found_corner 1
++    }
++}
++if {!$found_corner} { error "Missing slow 100C corner" }
++set families {
++    icvalid_input {} {*u_code_cache*valid_s1* *u_code_cache*valid_part* *u_code_cache*lru_s1* *u_code_cache*lru_part* *u_code_cache*rd_hi_s1*}
++    icvalid_output {*u_code_cache*valid_s1* *u_code_cache*valid_part* *u_code_cache*lru_s1* *u_code_cache*lru_part* *u_code_cache*rd_hi_s1*} {*u_code_cache*valid_s2* *u_code_cache*lru_s2*}
++    dcvalid_input {} {*u_data_cache*valid_s1* *u_data_cache*valid_part* *u_data_cache*lru_s1* *u_data_cache*lru_part* *u_data_cache*rd_hi_s1*}
++    multiply {*u_zap_issue_main*o_alu_operation_ff* *u_zap_issue_main*o_alu_is_mult_ff*} {*u_zap_shifter_main*}
++    multiply_output {*u_zap_issue_main*o_alu_operation_ff* *u_zap_issue_main*o_alu_is_mult_ff*} {*u_zap_shifter_main|o_*}
++    dtlb_fault {*u_data_cache*u_zap_tlb_check*o_fsr*} {}
++    itlb_fault {*u_code_cache*u_zap_tlb_check*o_fsr*} {}
++    issue_stall {*u_zap_issue_main*stall*} {*u_zap_issue_main*}
++    issue_feedback {} {*u_zap_issue_main*stall_idx_ff* *u_zap_issue_main*stall_late_ff* *u_zap_issue_main*stall_lock_ff* *u_zap_issue_main*o_stall_from_issue*}
++    issue_stall_feedback {*u_zap_issue_main*stall*} {*u_zap_issue_main*stall_idx_ff* *u_zap_issue_main*stall_late_ff* *u_zap_issue_main*stall_lock_ff* *u_zap_issue_main*o_stall_from_issue*}
++    issue_pending {} {*u_zap_issue_main*o_load_pending_ff* *u_zap_issue_main*o_shift_source_pending_ff*}
++    decode_pending {*u_zap_decode_main*o_shift_length_ff*} {*u_zap_issue_main*o_load_pending_ff*}
++    issue_store {} {*u_zap_issue_main*mem_srcdest_normal_ff* *u_zap_issue_main*mem_srcdest_select_ff*}
++    arbiter_control {*test_on_q* *arb*sel_* *arb*gnt*} {*upp_bus*}
++    bus_address {*zap_wb_merger*o_wb_adr*} {*upp_bus*}
++    bus_input {} {*upp_bus*adr_q* *upp_bus*dat_q* *upp_bus*fe_* *upp_bus*sdr_addr*}
++    bl_decode {*zap_predecode_main*o_instruction_ff* *zap_predecode_main*o_bl*} {*u_zap_decode_main*}
++    dcache_bus {*u_data_cache*u_zap_cache_fsm*state_ff*} {*zap_wb_merger*o_wb_adr*}
++    predecode_und {} {*zap_predecode_main*o_v5_und_ff*}
++    cache_stall_to_core {*u_data_cache* *u_zap_cp15_cb*o_mmu_en*} {*u_zap_alu_main|* *u_zap_shifter_main|*}
++    issue_to_decode {*u_zap_issue_main*} {*u_zap_decode_main*}
++}
++file mkdir build/timing5-families
++set family_summary [open build/timing5-families/slacks.tsv w]
++puts $family_summary "family\tslack_ns\tfrom\tto"
++foreach {family from to} $families {
++    set args [list -setup -npaths 1]
++    if {[llength $from]} {
++        set regs [get_registers $from]
++        if {[get_collection_size $regs] == 0} { puts $family_summary "$family\tNO_SOURCE\t$from\t$to"; continue }
++        lappend args -from $regs
++    }
++    if {[llength $to]} {
++        set regs [get_registers $to]
++        if {[get_collection_size $regs] == 0} { puts $family_summary "$family\tNO_DESTINATION\t$from\t$to"; continue }
++        lappend args -to $regs
++    }
++    set paths [eval get_timing_paths $args]
++    if {[get_collection_size $paths] == 0} { puts $family_summary "$family\tNO_PATH\t$from\t$to"; continue }
++    foreach_in_collection path $paths {
++        puts $family_summary "$family\t[get_path_info -slack $path]\t[get_node_info -name [get_path_info -from $path]]\t[get_node_info -name [get_path_info -to $path]]"
++    }
++    eval report_timing $args [list -detail full_path -file build/timing5-families/$family.rpt]
++}
++close $family_summary

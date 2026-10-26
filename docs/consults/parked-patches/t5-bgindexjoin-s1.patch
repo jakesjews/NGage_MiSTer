@@ -1,0 +1,185 @@
+# worktree NGage_MiSTer-t5-bgindexjoin-s1: HEAD 9f99fb2 (HEAD); uncommitted changes saved before the worktree was removed on 2026-10-25
+diff --git a/rtl/cpu/zap/zap_alu_main.sv b/rtl/cpu/zap/zap_alu_main.sv
+index 639b1ed..9df2139 100644
+--- a/rtl/cpu/zap/zap_alu_main.sv
++++ b/rtl/cpu/zap/zap_alu_main.sv
+@@ -72,7 +72,8 @@ module zap_alu_main #(
+         input logic i_memory_load_valid,
+         input logic [5:0] i_memory_load_index,
+         input logic [31:0] i_memory_load_value,
+-        input logic [63:0] i_dc_reg_idx,
++        input logic [5:0] i_dc_reg_idx_bin,
++        input logic i_dc_reg_valid,
+         input logic [31:0] i_dc_reg_dat,
+         output logic o_stall_from_alu,
+         output logic [1:0] o_late_ready,
+@@ -424,7 +425,7 @@ for (genvar k = 0; k < 2; k = k + 1) begin : g_load_pickup
+         assign memory_match[k] = i_load_pending_ff[k] && i_memory_load_valid &&
+                                  i_load_index_ff[k*6 +: 6] == i_memory_load_index;
+         assign background_match[k] = i_load_pending_ff[k] &&
+-                                     i_dc_reg_idx[i_load_index_ff[k*6 +: 6]];
++                                     i_dc_reg_valid && i_load_index_ff[k*6 +: 6] == i_dc_reg_idx_bin;
+         assign o_late_ready[k] = memory_match[k] || background_match[k];
+         assign o_late_value[k*32 +: 32] = background_match[k] ?
+                                          i_dc_reg_dat : i_memory_load_value;
+diff --git a/rtl/cpu/zap/zap_core.sv b/rtl/cpu/zap/zap_core.sv
+index 0c5b21b..b2c85e1 100644
+--- a/rtl/cpu/zap/zap_core.sv
++++ b/rtl/cpu/zap/zap_core.sv
+@@ -183,6 +183,8 @@ input   logic                            i_dcache_err2,
+ // -----------------------------------------------------
+ 
+ input   logic [63:0]                     i_dc_reg_idx, // Register to load to.
++input   logic [5:0]                      i_dc_reg_idx_bin,
++input   logic                            i_dc_reg_valid,
+ input   logic [31:0]                     i_dc_reg_dat, // Register data.
+ input   logic [63:0]                     i_dc_lock,    // Register that is locked.
+ output  logic [63:0]                     o_dc_reg_idx, // Register index.
+@@ -1158,7 +1160,8 @@ u_zap_shifter_main
+         .i_memory_load_valid            (memory_load_valid),
+         .i_memory_load_index            (late_memory_index_ff),
+         .i_memory_load_value            (late_memory_value_ff),
+-        .i_dc_reg_idx                   (i_dc_reg_idx),
++        .i_dc_reg_idx_bin               (i_dc_reg_idx_bin),
++        .i_dc_reg_valid                 (i_dc_reg_valid),
+         .i_dc_reg_dat                   (i_dc_reg_dat),
+         .i_stall_from_alu               (stall_from_alu),
+         .i_alu_late_ready               (alu_late_ready),
+@@ -1289,7 +1292,8 @@ u_zap_alu_main
+          .i_memory_load_valid            (memory_load_valid),
+          .i_memory_load_index            (late_memory_index_ff),
+          .i_memory_load_value            (late_memory_value_ff),
+-         .i_dc_reg_idx                   (i_dc_reg_idx),
++         .i_dc_reg_idx_bin               (i_dc_reg_idx_bin),
++        .i_dc_reg_valid                 (i_dc_reg_valid),
+          .i_dc_reg_dat                   (i_dc_reg_dat),
+          .o_stall_from_alu               (stall_from_alu),
+          .o_late_ready                   (alu_late_ready),
+diff --git a/rtl/cpu/zap/zap_dcache.sv b/rtl/cpu/zap/zap_dcache.sv
+index e333457..a133072 100644
+--- a/rtl/cpu/zap/zap_dcache.sv
++++ b/rtl/cpu/zap/zap_dcache.sv
+@@ -75,6 +75,8 @@ input   logic [5:0]      i_reg_idx_bin,
+ output  logic [63:0]     o_lock,
+ output  logic [31:0]     o_reg_dat,
+ output  logic [63:0]     o_reg_idx,
++output  logic [5:0]      o_reg_idx_bin,
++output  logic            o_reg_valid,
+ 
+ // MMU controls from/to processor.
+ input   logic            i_mmu_en,
+@@ -270,6 +272,8 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
+         .o_lock                 (o_lock),
+         .o_reg_dat              (o_reg_dat),
+         .o_reg_idx              (o_reg_idx),
++        .o_reg_idx_bin          (o_reg_idx_bin),
++        .o_reg_valid            (o_reg_valid),
+ 
+         /* verilator lint_off PINCONNECTEMPTY */
+         .o_wb_cyc_ff            (),
+diff --git a/rtl/cpu/zap/zap_dcache_fsm.sv b/rtl/cpu/zap/zap_dcache_fsm.sv
+index 63e64cf..c05adb1 100644
+--- a/rtl/cpu/zap/zap_dcache_fsm.sv
++++ b/rtl/cpu/zap/zap_dcache_fsm.sv
+@@ -61,6 +61,10 @@ input   logic    [5:0]             i_reg_idx_bin,
+ output  logic     [63:0]           o_lock,
+ output  logic [31:0]               o_reg_dat,
+ (* dont_retime *) output logic [63:0] o_reg_idx,
++// ARM925T: the same completion in binary form for late operand matching.
++// The one-hot mask remains the register-file write and lock-clear interface.
++(* dont_retime *) output logic [5:0] o_reg_idx_bin,
++(* dont_retime *) output logic o_reg_valid,
+ output  logic     [31:0]           o_dat,
+ output  logic                      o_ack,
+ output  logic                      o_err,
+@@ -233,6 +237,8 @@ assign fetch_adr_inc = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_inc, 2'b00};
+ assign o_wb_bte_nxt = (state_ff[FETCH_SINGLE] && CACHE_LINE == 16) ? 2'b01 : 2'b00;
+ logic  [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] way;       // ARM925T: the line's way
+ logic    [63:0]                           reg_idx;
++logic    [5:0]                            reg_idx_bin;
++logic                                     reg_valid;
+ logic    [63:0]                           lock_nxt, lock_ff;
+ logic                                     victim_valid;
+ logic                                     wt_hit, wt_dirty; // ARM925T: write-through store.
+@@ -334,10 +340,15 @@ assign critical_take = state_ff[FETCH_SINGLE] && !wr && take &&
+ 
+ always_ff @ ( posedge i_clk )
+ begin
+-        if ( i_reset )
++        if ( i_reset ) begin
+                 o_reg_idx <= 64'b0;
+-        else
++                o_reg_valid <= 1'b0;
++        end else begin
+                 o_reg_idx <= critical_take ? reg_idx : 64'b0;
++                o_reg_valid <= critical_take && reg_valid;
++        end
++        if (critical_take)
++                o_reg_idx_bin <= reg_idx_bin;
+ 
+         if ( critical_take )
+         begin
+@@ -363,6 +374,8 @@ begin
+                 phy_addr        <= i_phy_addr;
+                 way             <= i_cache_way;
+                 reg_idx         <= i_reg_idx;
++                reg_idx_bin     <= i_reg_idx_bin;
++                reg_valid       <= |i_reg_idx;
+                 ldfmt           <= i_ldfmt;
+                 wt_hit          <= i_wr && i_wt && i_cacheable && i_cache_hit;
+                 wt_dirty        <= i_cache_hit_dirty;
+diff --git a/rtl/cpu/zap/zap_shifter_main.sv b/rtl/cpu/zap/zap_shifter_main.sv
+index 87c39bf..9eab133 100644
+--- a/rtl/cpu/zap/zap_shifter_main.sv
++++ b/rtl/cpu/zap/zap_shifter_main.sv
+@@ -73,7 +73,8 @@ module zap_shifter_main
+         input logic [31:0] i_memory_load_value,
+         input logic i_shift_source_pending_ff,
+         input logic i_shift_length_pending_ff,
+-        input logic [63:0] i_dc_reg_idx,
++        input logic [5:0] i_dc_reg_idx_bin,
++        input logic i_dc_reg_valid,
+         input logic [31:0] i_dc_reg_dat,
+         input logic i_stall_from_alu,
+         input logic [1:0] i_alu_late_ready,
+@@ -260,7 +261,7 @@ for (genvar k = 0; k < 4; k = k + 1) begin : g_load_pickup
+         assign memory_match[k] = i_load_pending_ff[k] && i_memory_load_valid &&
+                                  load_index[k*6 +: 6] == i_memory_load_index;
+         assign background_match[k] = i_load_pending_ff[k] &&
+-                                     i_dc_reg_idx[load_index[k*6 +: 6]];
++                                     i_dc_reg_valid && load_index[k*6 +: 6] == i_dc_reg_idx_bin;
+         assign o_late_ready[k] = memory_match[k] || background_match[k];
+         assign pickup_value[k*32 +: 32] = background_match[k] ? i_dc_reg_dat :
+                                          memory_match[k] ? i_memory_load_value :
+diff --git a/rtl/cpu/zap/zap_top.sv b/rtl/cpu/zap/zap_top.sv
+index ef637dc..b41bdd9 100644
+--- a/rtl/cpu/zap/zap_top.sv
++++ b/rtl/cpu/zap/zap_top.sv
+@@ -250,7 +250,8 @@ logic [1:0]      d_wb_bte;
+ logic            d_wb_ack;
+ logic            d_wb_err;
+ logic [63:0]     dc_rreg_idx, dc_wreg_idx;
+-logic [5:0]      dc_rreg_idx_bin;
++logic [5:0]      dc_rreg_idx_bin, dc_wreg_idx_bin;
++logic            dc_wreg_valid;
+ logic [63:0]     dc_lock;
+ logic [31:0]     dc_reg_data;
+ logic            icache_err2, dcache_err2;
+@@ -409,6 +410,8 @@ zap_core #(
+ .o_dc_reg_idx_bin       (dc_rreg_idx_bin),
+ 
+ .i_dc_reg_idx           (!ONLY_CORE ? dc_wreg_idx : '0),
++.i_dc_reg_idx_bin       (!ONLY_CORE ? dc_wreg_idx_bin : 6'd0),
++.i_dc_reg_valid         (!ONLY_CORE && dc_wreg_valid),
+ .i_dc_lock              (!ONLY_CORE ? dc_lock : '0),
+ .i_dc_reg_dat           (!ONLY_CORE ? dc_reg_data : '0),
+ .i_dcache_inv_done      (!ONLY_CORE ? dc_inv_done : '0),
+@@ -682,6 +685,8 @@ u_data_cache (
+ .o_lock                 (dc_lock),
+ .o_reg_dat              (dc_reg_data),
+ .o_reg_idx              (dc_wreg_idx),
++.o_reg_idx_bin          (dc_wreg_idx_bin),
++.o_reg_valid            (dc_wreg_valid),
+ .o_fsr                  (dc_fsr),
+ .o_far                  (dc_far),
+ .o_cache_inv_done       (dc_inv_done),

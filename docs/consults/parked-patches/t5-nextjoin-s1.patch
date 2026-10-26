@@ -1,0 +1,565 @@
+# worktree NGage_MiSTer-t5-nextjoin-s1: HEAD 11bbda3 (HEAD); uncommitted changes saved before the worktree was removed on 2026-10-25
+diff --git a/rtl/cpu/zap/zap_alu_main.sv b/rtl/cpu/zap/zap_alu_main.sv
+index 9df2139..766b433 100644
+--- a/rtl/cpu/zap/zap_alu_main.sv
++++ b/rtl/cpu/zap/zap_alu_main.sv
+@@ -247,6 +247,11 @@ module zap_alu_main #(
+         // Next version of the above to allow back-to-back execution.
+         output logic                              o_dav_nxt,
+ 
++        // ARM925T: condition result for issue forwarding. The issue slot
++        // selects held refresh data whenever the ALU is waiting for a load,
++        // so its unused normal capture need not include that late hold.
++        output logic                              o_forward_dav,
++
+         // Active CPSR out.
+         output logic [FLAG_WDT-1:0]               o_flags_ff,
+ 
+@@ -1019,9 +1024,9 @@ assign load_to_pc = i_mem_srcdest_index_ff == {2'd0, ARCH_PC} &&
+ // ARM925T: an undefined instruction executes (takes the exception) only if
+ // its condition passes; the decoder supplies AL where it must always be taken.
+ //
+-assign  o_dav_nxt  = !o_stall_from_alu &&
+-                    (is_cc_satisfied ( i_condition_code_ff, flags_ff[31:28] )
+-                     || i_irq_ff || i_fiq_ff || i_abt_ff);
++assign o_forward_dav = is_cc_satisfied ( i_condition_code_ff, flags_ff[31:28] )
++                       || i_irq_ff || i_fiq_ff || i_abt_ff;
++assign o_dav_nxt = !o_stall_from_alu && o_forward_dav;
+ 
+ assign  sleep_nxt  =    i_irq_ff   ||
+                         i_fiq_ff   ||
+diff --git a/rtl/cpu/zap/zap_core.sv b/rtl/cpu/zap/zap_core.sv
+index b2c85e1..726a516 100644
+--- a/rtl/cpu/zap/zap_core.sv
++++ b/rtl/cpu/zap/zap_core.sv
+@@ -457,6 +457,7 @@ logic                            alu_fiq_ff;
+ logic                            alu_swi_ff;
+ logic                            alu_dav_ff;
+ logic                            alu_dav_nxt;
++logic                            alu_forward_dav;
+ logic [31:0]                     alu_pc_plus_8_ff;
+ logic [31:0]                     pc_from_alu;
+ logic [$clog2(PHY_REGS)-1:0]     alu_destination_index_ff;
+@@ -1059,7 +1060,7 @@ u_zap_issue_main
+         .i_alu_destination_index_ff     (alu_destination_index_ff),
+         .i_memory_destination_index_ff  (memory_destination_index_ff),
+         .i_shifter_dav_ff               (shifter_condition_code_ff != NV ? 1'd1 : 1'd0),
+-        .i_alu_dav_nxt                  (alu_dav_nxt),
++        .i_alu_forward_dav              (alu_forward_dav),
+         .i_alu_dav_ff                   (alu_dav_ff),
+         .i_memory_dav_ff                (memory_dav_ff),
+         .i_alu_destination_value_nxt    (alu_alu_result_nxt),
+@@ -1355,6 +1356,7 @@ u_zap_alu_main
+          .o_swi_ff                         (alu_swi_ff),
+          .o_dav_ff                         (alu_dav_ff),
+          .o_dav_nxt                        (alu_dav_nxt),
++         .o_forward_dav                    (alu_forward_dav),
+          .o_pc_plus_8_ff                   (alu_pc_plus_8_ff),
+          .o_mem_address_ff                 (alu_address_ff),
+          .o_destination_index_ff           (alu_destination_index_ff),
+diff --git a/rtl/cpu/zap/zap_issue_main.sv b/rtl/cpu/zap/zap_issue_main.sv
+index 07656ea..e0d783e 100644
+--- a/rtl/cpu/zap/zap_issue_main.sv
++++ b/rtl/cpu/zap/zap_issue_main.sv
+@@ -131,7 +131,9 @@ module zap_issue_main
+         //
+ 
+         input logic                              i_shifter_dav_ff,
+-        input logic                              i_alu_dav_nxt,
++        // ARM925T: condition valid before the ALU late-load hold. Used only
++        // for normal forwarding; that bank is unselected on a shifter hold.
++        input logic                              i_alu_forward_dav,
+         input logic                              i_alu_dav_ff,
+         input logic                              i_postalu0_dav_ff,
+         input logic                              i_postalu1_dav_ff,
+@@ -668,7 +670,7 @@ assign  o_alu_source_value_nxt  =
+         get_forward_value (    {(stall_late_ff ? skid_late_immediate_ff[0] : i_alu_source_ff[32]),
+                                 skid_alu_source_ff[31:6], late_reg_index[23:18]},
+                                 i_shifter_destination_index_ff[5:0],
+-                                i_alu_dav_nxt,
++                                i_alu_forward_dav,
+                                 i_alu_destination_value_nxt,
+                                 i_alu_destination_value_ff,
+                                 i_alu_destination_index_ff[5:0],
+@@ -703,7 +705,7 @@ assign  o_shift_source_value_nxt=
+         get_forward_value (    {(stall_late_ff ? skid_late_immediate_ff[1] : i_shift_source_ff[32]),
+                                 skid_shift_source_ff[31:6], late_reg_index[17:12]},
+                                 i_shifter_destination_index_ff[5:0],
+-                                i_alu_dav_nxt,
++                                i_alu_forward_dav,
+                                 i_alu_destination_value_nxt,
+                                 i_alu_destination_value_ff,
+                                 i_alu_destination_index_ff[5:0],
+@@ -737,7 +739,7 @@ assign  o_shift_length_value_nxt=
+         get_forward_value (    {(stall_late_ff ? skid_late_immediate_ff[2] : i_shift_length_ff[32]),
+                                 skid_shift_length_ff[31:6], late_reg_index[11:6]},
+                                 i_shifter_destination_index_ff[5:0],
+-                                i_alu_dav_nxt,
++                                i_alu_forward_dav,
+                                 i_alu_destination_value_nxt,
+                                 i_alu_destination_value_ff,
+                                 i_alu_destination_index_ff[5:0],
+@@ -776,7 +778,7 @@ assign  o_shift_length_value_nxt=
+ // is never aligned, so the index itself is not needed.
+ //
+ wire [11:0] ms_pick_live  = forward_pick ( {27'd0, i_mem_srcdest_index_ff[5:0]},
+-                                i_shifter_destination_index_ff[5:0], i_alu_dav_nxt,
++                                i_shifter_destination_index_ff[5:0], i_alu_forward_dav,
+                                 i_alu_destination_index_ff[5:0], i_alu_dav_ff,
+                                 i_postalu0_destination_index_ff[5:0], i_postalu0_dav_ff,
+                                 i_postalu1_destination_index_ff[5:0], i_postalu1_dav_ff,
+@@ -784,7 +786,7 @@ wire [11:0] ms_pick_live  = forward_pick ( {27'd0, i_mem_srcdest_index_ff[5:0]},
+                                 i_memory_destination_index_ff[5:0], i_memory_dav_ff,
+                                 i_memory_mem_srcdest_index_ff[5:0], i_memory_mem_load_ff );
+ wire [11:0] ms_pick_saved = forward_pick ( {27'd0, skid_idx[5:0]},
+-                                i_shifter_destination_index_ff[5:0], i_alu_dav_nxt,
++                                i_shifter_destination_index_ff[5:0], i_alu_forward_dav,
+                                 i_alu_destination_index_ff[5:0], i_alu_dav_ff,
+                                 i_postalu0_destination_index_ff[5:0], i_postalu0_dav_ff,
+                                 i_postalu1_destination_index_ff[5:0], i_postalu1_dav_ff,
+@@ -798,7 +800,7 @@ assign  o_mem_srcdest_value_nxt =
+         get_forward_value (    33'd0,
+ 
+                                 i_shifter_destination_index_ff[5:0],
+-                                i_alu_dav_nxt,
++                                i_alu_forward_dav,
+                                 i_alu_destination_value_nxt,
+                                 i_alu_destination_value_ff,
+                                 i_alu_destination_index_ff[5:0],
+@@ -1003,7 +1005,7 @@ assign late_saved[3] = skid_late_store_ff && late_load(skid_idx[5:0], 1'b1, skid
+ logic [3:0]                   sl_cc       [2];
+ logic [$clog2(ALU_OPS)-1:0]   sl_alu_op   [2];
+ logic [$clog2(SHIFT_OPS)-1:0] sl_shift_op [2];
+-logic [1:0]                   sl_lsl0;
++logic [1:0]                   sl_lsl0, sl_store;
+ logic [6:0]                   sl_alu_src  [2];   // {immediate, index}
+ logic [6:0]                   sl_shift_src[2];
+ logic [6:0]                   sl_shift_len[2];
+@@ -1017,6 +1019,7 @@ assign sl_cc[0]        = i_condition_code_ff;
+ assign sl_alu_op[0]    = i_alu_operation_ff;
+ assign sl_shift_op[0]  = i_shift_operation_ff;
+ assign sl_lsl0[0]      = i_shift_is_lsl0_ff;
++assign sl_store[0]     = i_mem_store_ff;
+ assign sl_alu_src[0]   = {i_alu_source_ff[32], i_alu_source_ff[5:0]};
+ assign sl_shift_src[0] = {i_shift_source_ff[32], i_shift_source_ff[5:0]};
+ assign sl_shift_len[0] = {i_shift_length_ff[32], i_shift_length_ff[5:0]};
+@@ -1030,6 +1033,7 @@ assign sl_cc[1]        = sv_condition_code_ff;
+ assign sl_alu_op[1]    = sv_alu_operation_ff;
+ assign sl_shift_op[1]  = sv_shift_operation_ff;
+ assign sl_lsl0[1]      = skid_lsl0_ff;
++assign sl_store[1]     = skid_late_store_ff;
+ assign sl_alu_src[1]   = {skid_late_immediate_ff[0], skid_idx[23:18]};
+ assign sl_shift_src[1] = {skid_late_immediate_ff[1], skid_idx[17:12]};
+ assign sl_shift_len[1] = {skid_late_immediate_ff[2], skid_idx[11:6]};
+@@ -1042,7 +1046,9 @@ assign sl_exc[1]       = sv_force32align_ff || sv_irq_ff || sv_fiq_ff || sv_abt_
+ for ( genvar sl = 0; sl < 2; sl++ )
+ begin : g_slot
+         logic       is_mult, no_shift, w_shift_lock, shift_lock, load_lock, dest_lock;
+-        logic [3:0] operand_lock, late;
++        logic [3:0] effective_lock, late;
++        logic defer_allowed;
++        assign defer_allowed = !is_mult && !sl_exc[sl];
+ 
+         assign is_mult  = is_mult_op ( sl_alu_op[sl] );
+ 
+@@ -1076,10 +1082,19 @@ begin : g_slot
+         // Look for reads from registers to be loaded from memory. Four
+         // register sources may cause a load lock.
+         //
+-        assign operand_lock[0] = load_lock_of ( {sl_alu_src[sl][6],   26'd0, sl_alu_src[sl][5:0]},   sl_locked[sl][0] );
+-        assign operand_lock[1] = load_lock_of ( {sl_shift_src[sl][6], 26'd0, sl_shift_src[sl][5:0]}, sl_locked[sl][1] );
+-        assign operand_lock[2] = load_lock_of ( {sl_shift_len[sl][6], 26'd0, sl_shift_len[sl][5:0]}, sl_locked[sl][2] );
+-        assign operand_lock[3] = load_lock_of ( {27'd0, sl_ms_idx[sl]},                               sl_locked[sl][3] );
++        // ARM925T: calculate the final operand block directly. Early loads
++        // and locked registers always block; an eligible late load blocks
++        // only for a conflicting writer or a disallowed late operand.
++        // This avoids putting the complete late-admission tree in series
++        // with the original load-lock tree. The pending mask is unchanged.
++        assign effective_lock[0] = effective_load_lock(sl_alu_src[sl], 1'b0,
++                                        defer_allowed, sl_locked[sl][0]);
++        assign effective_lock[1] = effective_load_lock(sl_shift_src[sl], !sl_lsl0[sl],
++                                        defer_allowed, sl_locked[sl][1]);
++        assign effective_lock[2] = effective_load_lock(sl_shift_len[sl], 1'b1,
++                                        defer_allowed, sl_locked[sl][2]);
++        assign effective_lock[3] = effective_load_lock({1'b0, sl_ms_idx[sl]}, 1'b1,
++                                        defer_allowed && sl_store[sl], sl_locked[sl][3]);
+ 
+         //
+         // ARM925T: nor an instruction that writes a register that an
+@@ -1098,12 +1113,42 @@ begin : g_slot
+         // deferred (late_live/late_saved); never a multiply, a forced
+         // alignment or an exception.
+         assign late      = sl_late[sl] & {4{!is_mult && !sl_exc[sl]}};
+-        assign load_lock = |(operand_lock & ~late) || dest_lock;
++        assign load_lock = |effective_lock || dest_lock;
+ 
+         assign slot_lock[sl] = (shift_lock || load_lock) && sl_cc[sl] != NV;
+         assign slot_pend[sl] = (slot_lock[sl] || sl_cc[sl] == NV) ? 4'b0 : late;
+ end
+ 
++// ARM925T: exact factoring of load_lock_of(index) & ~late_admitted.
++// Preserve the live exception lock even while using the saved slot: its
++// original suppression by an admitted late operand is intentional here.
++function automatic effective_load_lock(input [6:0] index, input early,
++                                        input allowed, input locked);
++        logic [5:0] r;
++        logic candidate, early_load, writer, can_defer, exception_lock;
++        r = index[5:0];
++        candidate = (i_postalu_dav_ff && i_postalu_mem_load_ff && i_postalu_mem_srcdest_index_ff == r) ||
++                    (!early && i_postalu1_dav_ff && i_postalu1_mem_load_ff && i_postalu1_mem_srcdest_index_ff == r);
++        early_load = (o_condition_code_ff != NV && o_mem_load_ff && o_mem_srcdest_index_ff == r) ||
++                     (i_shifter_dav_ff && i_shifter_mem_load_ff && i_shifter_mem_srcdest_index_ff == r) ||
++                     (i_alu_dav_ff && i_alu_mem_load_ff && i_alu_mem_srcdest_index_ff == r) ||
++                     (i_postalu0_dav_ff && i_postalu0_mem_load_ff && i_postalu0_mem_srcdest_index_ff == r) ||
++                     (early && i_postalu1_dav_ff && i_postalu1_mem_load_ff && i_postalu1_mem_srcdest_index_ff == r);
++        writer = (o_condition_code_ff != NV && o_destination_index_ff == r) ||
++                 (i_shifter_dav_ff && i_shifter_destination_index_ff == r) ||
++                 (i_alu_dav_ff && i_alu_destination_index_ff == r) ||
++                 (i_postalu0_dav_ff && i_postalu0_destination_index_ff == r) ||
++                 (i_postalu1_dav_ff && i_postalu1_destination_index_ff == r) ||
++                 (i_postalu_dav_ff && i_postalu_destination_index_ff == r);
++        can_defer = allowed && r != PHY_PC && r != PHY_RAZ_REGISTER &&
++                    r != PHY_CPSR && r < PHY_DUMMY_REG0;
++        exception_lock = (|i_dc_lock) && (i_irq_ff || i_fiq_ff || i_abt_ff || i_swi_ff);
++        effective_load_lock = !index[6] && r != PHY_RAZ_REGISTER[5:0] &&
++                 (locked || early_load ||
++                  (candidate && (writer || !can_defer)) ||
++                  (exception_lock && (!candidate || writer || !can_defer)));
++endfunction
++
+ function automatic late_load(input [5:0] r, input early, input reg_locked);
+         logic candidate, conflict;
+         candidate = (i_postalu_dav_ff && i_postalu_mem_load_ff &&
+diff --git a/rtl/cpu/zap/zap_predecode_main.sv b/rtl/cpu/zap/zap_predecode_main.sv
+index e520a84..1bc5d10 100644
+--- a/rtl/cpu/zap/zap_predecode_main.sv
++++ b/rtl/cpu/zap/zap_predecode_main.sv
+@@ -731,27 +731,38 @@ end
+ //     UNDEFINED). In Thumb state the BL first half is a NOP with condition
+ //     NV and stays one; the BLX suffix becomes BLX(1) (NV, 101).
+ //
+-always_comb
+-begin: v5_classify
+-        logic [34:0] x;
+-        x          = o_instruction_nxt[34:0];
+-        v5_und_nxt = (!i_cpu_mode_t && x[27:25] == 3'b011 && x[4]) || V4T && (
+-                (!i_cpu_mode_t && x[31:28] == NV)        ||
+-                (i_cpu_mode_t && x[31:25] == 7'b1111_101) ||
+-                x[31:0] ==? CLZ_INSTRUCTION              ||
+-                x[31:0] ==? BLX2                         ||
+-                x[31:0] ==? BKPT                         ||
+-                x[31:0] ==? QADD                         ||
+-                x[31:0] ==? QSUB                         ||
+-                x[31:0] ==? QDADD                        ||
+-                x[31:0] ==? QDSUB                        ||
+-                x[31:0] ==? SMLAxy                       ||
+-                x[31:0] ==? SMLAWy                       ||
+-                x[31:0] ==? SMLALxy                      ||
+-                x[31:0] ==? SMULWy                       ||
+-                x[31:0] ==? SMULxy                       ||
+-                (x[27:25] == 3'b000 && !x[20] && x[7:4] ==? 4'b11?1) );
+-end
++`include "zap_predecode_classify.svh"
++
++// ARM925T: classify before the skid mux and before the uop rewrite.
++// Keep both ARM and Thumb answers: the current mode chooses between them,
++// exactly as the original classifier did even while the slot is held.
++// Classifying zero gives false in both modes. Apply validity after the
++// classification so a late valid bit does not gate all instruction bits.
++wire [1:0] live_class = {2{i_instruction_valid}} &
++        {classify_undefined(i_instruction, 1'b1),
++         classify_undefined(i_instruction, 1'b0)};
++wire live_thumb_bl = i_instruction[31:24] == 8'hfb ||
++        (i_instruction[34:32] == 3'd0 && i_instruction[31:28] == NV &&
++         i_instruction[27:13] == 15'd0);
++(* dont_retime *) logic [1:0] saved_class_ff;
++(* dont_retime *) logic saved_thumb_bl_ff;
++logic idle_undefined;
++wire [1:0] selected_class = instruction_skid_select_ff ? saved_class_ff : live_class;
++wire selected_thumb_bl = instruction_skid_select_ff ? saved_thumb_bl_ff : live_thumb_bl;
++always_ff @(posedge i_clk)
++        if (!o_stall_from_decode) begin
++                saved_class_ff <= live_class;
++                saved_thumb_bl_ff <= live_thumb_bl;
++        end
++assign idle_undefined = selected_class[i_cpu_mode_t] &&
++        !(i_cpu_mode_t && mode32_instruction_valid && selected_thumb_bl);
++
++// synthesis translate_off
++always @(posedge i_clk)
++        if (!i_reset && !stall && o_instruction_valid_nxt)
++                assert (v5_und_nxt == classify_undefined(o_instruction_nxt[34:0], i_cpu_mode_t))
++                else $error("predecode undefined classification changed");
++// synthesis translate_on
+ 
+ // This FSM handles LDM/STM/SWAP/SWAPB/BL/LMULT
+ zap_predecode_uop_sequencer #(.V4T(V4T)) u_zap_uop_sequencer (
+@@ -778,6 +789,8 @@ zap_predecode_uop_sequencer #(.V4T(V4T)) u_zap_uop_sequencer (
+         .o_irq(irq_mask),
+         .o_fiq(fiq_mask),
+ 
++        .i_idle_undefined(idle_undefined),
++        .o_undefined(v5_und_nxt),
+         .o_instruction(o_instruction_nxt), // 40-bit, upper 4 bits RESERVED.
+         .o_instruction_valid(o_instruction_valid_nxt),
+         .o_align(align_nxt),
+diff --git a/rtl/cpu/zap/zap_predecode_uop_sequencer.sv b/rtl/cpu/zap/zap_predecode_uop_sequencer.sv
+index c2a3805..6d2a82d 100644
+--- a/rtl/cpu/zap/zap_predecode_uop_sequencer.sv
++++ b/rtl/cpu/zap/zap_predecode_uop_sequencer.sv
+@@ -75,6 +75,8 @@ module zap_predecode_uop_sequencer #(
+ 
+         // Instruction output.
+         output logic [39:0]       o_instruction,
++        input  logic              i_idle_undefined,
++        output logic              o_undefined,
+         output logic              o_instruction_valid,
+         output logic              o_align,
+         output logic              o_switch,
+@@ -130,6 +132,11 @@ assign t_bl_prefix = V4T && i_cpsr_t && i_instruction_valid && i_instruction[34:
+ assign t_bl_alone  = V4T && i_cpsr_t && i_instruction_valid && i_instruction[34:32] == 3'd0 &&
+                      i_instruction[31:28] == NV && i_instruction[27:12] == 16'd1;
+ 
++// ARM925T: classify each constructed micro-op before the state mux.
++// Constant opcode fields simplify here instead of passing the complete
++// rewritten word through a second instruction decoder in predecode.
++`include "zap_predecode_classify.svh"
++
+ // ARM925T: the condition under which zap_predecode_coproc hands an
+ // instruction to zap_cp15_cb (keep the two in step).
+ assign cp15_done = !i_cpsr_t && i_instruction[34:32] == 3'd0 &&
+@@ -210,6 +217,7 @@ begin:next_state_logic_and_output_logic
+         reglist_nxt             = reglist_ff;
+         o_stall_from_decode     = 1'd0;
+         o_switch                = 0;
++        o_undefined = classify_undefined(i_instruction, i_cpsr_t);
+ 
+         // =========================================
+         // Code Section
+@@ -230,6 +238,7 @@ begin:next_state_logic_and_output_logic
+                         o_fiq = 1'd0;
+ 
+                         state_nxt = IDLE;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 BLX1_STATE_S0: // SCONST = ($signed(constant) << 2) + ( H(i.e., [24]) << 1 ))
+@@ -244,6 +253,7 @@ begin:next_state_logic_and_output_logic
+                         {o_instruction[ZAP_DP_RD_EXTEND], o_instruction[`ZAP_DP_RD]} = ARCH_DUMMY_REG0;
+ 
+                         state_nxt = BLX1_STATE_S1;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 // The 3 states here try to build up a constant in the internal register using immediate+rotates.
+@@ -259,6 +269,7 @@ begin:next_state_logic_and_output_logic
+                         {o_instruction[ZAP_DP_RA_EXTEND], o_instruction[`ZAP_DP_RA]} = ARCH_DUMMY_REG0;
+ 
+                         state_nxt = BLX1_STATE_S2;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 BLX1_STATE_S2:
+@@ -271,6 +282,7 @@ begin:next_state_logic_and_output_logic
+                         {o_instruction[ZAP_DP_RA_EXTEND], o_instruction[`ZAP_DP_RA]} = ARCH_DUMMY_REG0;
+ 
+                         state_nxt = BLX1_STATE_S3;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 BLX1_STATE_S3:
+@@ -283,6 +295,7 @@ begin:next_state_logic_and_output_logic
+                         {o_instruction[ZAP_DP_RA_EXTEND], o_instruction[`ZAP_DP_RA]} = ARCH_DUMMY_REG0;
+ 
+                         state_nxt = BLX1_STATE_S4;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 BLX1_STATE_S4:
+@@ -296,6 +309,7 @@ begin:next_state_logic_and_output_logic
+                         {o_instruction[ZAP_DP_RA_EXTEND], o_instruction[`ZAP_DP_RA]} = ARCH_DUMMY_REG0;
+ 
+                         state_nxt = BLX1_STATE_S5;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 BLX1_STATE_S5:
+@@ -308,6 +322,7 @@ begin:next_state_logic_and_output_logic
+                         {o_instruction[ZAP_DP_RB_EXTEND], o_instruction[`ZAP_DP_RB]} = ARCH_DUMMY_REG0;
+ 
+                         state_nxt = IDLE;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 BLX2_STATE_S0:
+@@ -321,6 +336,7 @@ begin:next_state_logic_and_output_logic
+                         o_instruction[5]        = 1'd0;
+ 
+                         state_nxt               = IDLE;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 LDRD_STRD_S0:
+@@ -380,6 +396,7 @@ begin:next_state_logic_and_output_logic
+                         begin
+                                 o_instruction[20] = 1'd1;       // Load
+                         end
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 LDRD_STRD_S1:
+@@ -408,6 +425,7 @@ begin:next_state_logic_and_output_logic
+                         end
+ 
+                         state_nxt = IDLE;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 // Issue ANDEQ R0, R0, R0 - block interrupts.
+@@ -421,6 +439,7 @@ begin:next_state_logic_and_output_logic
+                                 state_ff == DEP_WAIT_2 ? DEP_WAIT_3 :
+                                 state_ff;
+ 
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 // Issue ANDEQ R0, R0, R0 - block interrupts.
+@@ -429,6 +448,7 @@ begin:next_state_logic_and_output_logic
+                         o_stall_from_decode = 1'd0;
+                         o_instruction       = '0;
+                         state_nxt           = IDLE;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 IDLE:
+@@ -807,6 +827,7 @@ begin:next_state_logic_and_output_logic
+                                 o_irq                   = i_irq;
+                                 o_fiq                   = i_fiq;
+                         end
++                        o_undefined = V4T ? i_idle_undefined : classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 // ARM925T: Thumb BL first half, second step.
+@@ -818,6 +839,7 @@ begin:next_state_logic_and_output_logic
+                         o_instruction_valid = 1'd1;
+                         o_stall_from_decode = 1'd0;
+                         state_nxt           = IDLE;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 // ARM925T: Thumb BL second half on its own.
+@@ -833,6 +855,7 @@ begin:next_state_logic_and_output_logic
+                         o_instruction_valid = 1'd1;
+                         o_stall_from_decode = 1'd1;
+                         state_nxt           = BLS_S2;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 BLS_S2:
+@@ -843,6 +866,7 @@ begin:next_state_logic_and_output_logic
+                         o_instruction_valid = 1'd1;
+                         o_stall_from_decode = 1'd1;
+                         state_nxt           = BLS_S3;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 BLS_S3:
+@@ -855,6 +879,7 @@ begin:next_state_logic_and_output_logic
+                         o_instruction_valid = 1'd1;
+                         o_stall_from_decode = 1'd0;
+                         state_nxt           = IDLE;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 BL_S1:
+@@ -873,6 +898,7 @@ begin:next_state_logic_and_output_logic
+                         // Continue to silence interrupts.
+                         o_irq           = 0;
+                         o_fiq           = 0;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 LMULT_BUSY:
+@@ -883,6 +909,7 @@ begin:next_state_logic_and_output_logic
+                         o_instruction_valid     = i_instruction_valid;
+                         o_stall_from_decode     = 1'd0;
+                         state_nxt               = IDLE;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 SWAP1:
+@@ -899,6 +926,7 @@ begin:next_state_logic_and_output_logic
+                                         i_instruction[3:0], 12'd0}; // BUG FIX
+ 
+                         state_nxt = SWAP2;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 SWAP2:
+@@ -917,6 +945,7 @@ begin:next_state_logic_and_output_logic
+                                         = ARCH_DUMMY_REG0;
+ 
+                         state_nxt = IDLE;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 MEMOP:
+@@ -991,6 +1020,7 @@ begin:next_state_logic_and_output_logic
+                                 state_nxt = MEMOP;
+                                 o_stall_from_decode = 1'd1;
+                         end
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 //
+@@ -1011,6 +1041,7 @@ begin:next_state_logic_and_output_logic
+                         o_instruction_valid     = 1'd1;
+                         o_irq                   = 1'd0;
+                         o_fiq                   = 1'd0;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 // If needed, we finally write to the program counter as
+@@ -1036,6 +1067,7 @@ begin:next_state_logic_and_output_logic
+                         o_instruction_valid = 1'd1;
+                         o_irq = 0;
+                         o_fiq = 0;
++                        o_undefined = classify_undefined(o_instruction[34:0], i_cpsr_t);
+                 end
+ 
+                 // ========================================
+@@ -1056,6 +1088,7 @@ begin:next_state_logic_and_output_logic
+                         ,o_switch
+                         ,o_align
+                         } = 'x;
++                        o_undefined = 1'bx;
+                 end
+         endcase
+ end
+diff --git a/rtl/cpu/zap/zap_predecode_classify.svh b/rtl/cpu/zap/zap_predecode_classify.svh
+new file mode 100644
+index 0000000..244b126
+--- /dev/null
++++ b/rtl/cpu/zap/zap_predecode_classify.svh
+@@ -0,0 +1,21 @@
++// ARM925T: shared classification of encodings that predecode must trap.
++// Included inside predecode and the sequencer after zap_localparams.svh;
++// V4T belongs to the enclosing module. Deliberately no global include guard.
++function automatic classify_undefined(input [34:0] x, input thumb);
++        classify_undefined = (!thumb && x[27:25] == 3'b011 && x[4]) || V4T && (
++                (!thumb && x[31:28] == NV)        ||
++                (thumb && x[31:25] == 7'b1111_101) ||
++                x[31:0] ==? CLZ_INSTRUCTION              ||
++                x[31:0] ==? BLX2                         ||
++                x[31:0] ==? BKPT                         ||
++                x[31:0] ==? QADD                         ||
++                x[31:0] ==? QSUB                         ||
++                x[31:0] ==? QDADD                        ||
++                x[31:0] ==? QDSUB                        ||
++                x[31:0] ==? SMLAxy                       ||
++                x[31:0] ==? SMLAWy                       ||
++                x[31:0] ==? SMLALxy                      ||
++                x[31:0] ==? SMULWy                       ||
++                x[31:0] ==? SMULxy                       ||
++                (x[27:25] == 3'b000 && !x[20] && x[7:4] ==? 4'b11?1) );
++endfunction

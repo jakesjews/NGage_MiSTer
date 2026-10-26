@@ -1,0 +1,105 @@
+# worktree NGage_MiSTer-dstore-fit: HEAD d94d4b2 (HEAD); uncommitted changes saved before the worktree was removed on 2026-10-25
+diff --git a/build.sh b/build.sh
+index 3c99150..44750e6 100755
+--- a/build.sh
++++ b/build.sh
+@@ -23,16 +23,16 @@ if [[ "$where" == remote ]]; then
+     rsync -a --delete --exclude build --exclude db --exclude incremental_db --exclude output_files \
+         --exclude research --exclude .git --exclude '*.rbf' --exclude 'sim/build' --exclude 'sim/cpu/build' \
+         --exclude 'model/.out' --exclude 'model/qemu*' ./ "$host:$dir/"
+-    docker_run="docker run --rm --user \$(id -u):\$(id -g) -e HOME=/tmp -v \$HOME/$dir:/project -w /project $image"
++    docker_run="docker run --rm --user \$(id -u):\$(id -g) -e HOME=/tmp -e TZ=America/Detroit -v \$HOME/$dir:/project -w /project $image"
+     if [[ "$build_mode" == map ]]; then
+-        ssh "$host" "$docker_run /opt/intelFPGA_lite/quartus/bin/quartus_map --read_settings_files=on --write_settings_files=off $proj -c $proj" \
++        ssh "$host" "python3 \$HOME/$dir/tools/quartus_dstore_lane.py $docker_run /opt/intelFPGA_lite/quartus/bin/quartus_map --read_settings_files=on --write_settings_files=off $proj -c $proj" \
+             2>&1 | tee build/quartus-map.log
+     else
+-        ssh "$host" "$docker_run /opt/intelFPGA_lite/quartus/bin/quartus_sh --flow compile $proj" 2>&1 | tee build/quartus-compile.log
++        ssh "$host" "python3 \$HOME/$dir/tools/quartus_dstore_lane.py $docker_run /opt/intelFPGA_lite/quartus/bin/quartus_sh --flow compile $proj" 2>&1 | tee build/quartus-compile.log
+         # The report script exits 3 while any slack is negative: keep going so
+         # the rbf and the reports still come back, then exit with its code.
+         sta_rc=0
+-        ssh "$host" "$docker_run /opt/intelFPGA_lite/quartus/bin/quartus_sta -t tools/report_timing.tcl" 2>&1 | tee build/timing-report.log || sta_rc=$?
++        ssh "$host" "python3 \$HOME/$dir/tools/quartus_dstore_lane.py $docker_run /opt/intelFPGA_lite/quartus/bin/quartus_sta -t tools/report_timing.tcl" 2>&1 | tee build/timing-report.log || sta_rc=$?
+         mkdir -p output_files
+         rsync -a "$host:$dir/output_files/$proj.rbf" output_files/
+         rsync -a "$host:$dir/output_files/$proj.fit.summary" "$host:$dir/output_files/$proj.sta.summary" output_files/ 2>/dev/null || true
+diff --git a/tools/report_timing.tcl b/tools/report_timing.tcl
+index 5fdcef0..3a9add0 100644
+--- a/tools/report_timing.tcl
++++ b/tools/report_timing.tcl
+@@ -7,6 +7,7 @@ file mkdir build
+ report_timing -setup -npaths 30 -nworst 1 -detail full_path -file build/critical-paths.rpt
+ report_timing -hold -npaths 10 -detail full_path -file build/hold-paths.rpt
+ report_ucp -file build/unconstrained-paths.rpt
++source tools/report_dstore_families.tcl
+ set summary [open build/timing-corners.tsv w]
+ puts $summary "corner\tcheck\tworst_slack_ns"
+ set failed 0
+diff --git a/tools/quartus_dstore_lane.py b/tools/quartus_dstore_lane.py
+new file mode 100644
+index 0000000..704f05d
+--- /dev/null
++++ b/tools/quartus_dstore_lane.py
+@@ -0,0 +1,10 @@
++import subprocess,sys,time,json
++while True:
++ ids=subprocess.check_output(['docker','ps','-q'],text=True).split()
++ ds=json.loads(subprocess.check_output(['docker','inspect']+ids,text=True)) if ids else []
++ qs=[d for d in ds if 'quartus' in d['Config']['Image'].lower()]
++ own=[d for d in qs if any('NGage_MiSTer-dstore' in m['Source'] for m in d['Mounts'])]
++ if len(qs)<4 and len(own)<2: break
++ print('Waiting for Quartus lane:',len(qs),'total,',len(own),'dstore',flush=True)
++ time.sleep(10)
++raise SystemExit(subprocess.call(sys.argv[1:]))
+diff --git a/tools/report_dstore_families.tcl b/tools/report_dstore_families.tcl
+new file mode 100644
+index 0000000..41a20f5
+--- /dev/null
++++ b/tools/report_dstore_families.tcl
+@@ -0,0 +1,45 @@
++# Loaded after create_timing_netlist/read_sdc/update_timing_netlist.
++# Report matching register sets even when a family leaves the worst 30.
++# Empty from/to means unconstrained on that side.
++set found_corner 0
++foreach_in_collection corner [get_available_operating_conditions] {
++    if {[get_operating_conditions_info -display_name $corner] eq "Slow 1100mV 100C Model"} {
++        set_operating_conditions $corner
++        update_timing_netlist
++        set found_corner 1
++    }
++}
++if {!$found_corner} { error "Missing slow 100C corner" }
++set families {
++    miss_control_input {} {*u_data_cache*u_zap_cache_fsm*state_ff* *u_data_cache*u_zap_cache_fsm*defer_writeback* *u_data_cache*u_zap_cache_fsm*o_writeback_busy*}
++    hum_control_input {} {*u_data_cache*u_zap_cache_fsm*hum_slot_ff* *u_data_cache*u_zap_cache_fsm*victim_safe_ff* *u_data_cache*u_zap_cache_fsm*fill_visible_ff* *u_data_cache*u_zap_cache_fsm*install_delay_ff*}
++    hum_to_pipeline {*u_data_cache*u_zap_cache_fsm*hum_slot_ff*} {*u_zap_core*}
++    dcache_fsm_to_bus {*u_data_cache*u_zap_cache_fsm*state_ff* *u_data_cache*u_zap_cache_fsm*o_writeback_busy*} {*zap_wb_merger*}
++    saved_victim_to_bus {*u_data_cache*u_zap_cache_fsm*cache_line* *u_data_cache*u_zap_cache_fsm*cache_tag*} {*zap_wb_merger*}
++    drain_to_cp15 {*u_data_cache*u_zap_cache_fsm*o_writeback_busy*} {*u_zap_cp15_cb*}
++    background_pickup {*u_data_cache*u_zap_cache_fsm*o_reg_idx*} {*u_zap_alu_main|* *u_zap_shifter_main|*}
++    cache_to_memory {*u_data_cache*u_zap_cache_tag_ram*} {*u_zap_memory_main*}
++}
++file mkdir build/dstore-families
++set family_summary [open build/dstore-families/slacks.tsv w]
++puts $family_summary "family\tslack_ns\tfrom\tto"
++foreach {family from to} $families {
++    set args [list -setup -npaths 1]
++    if {[llength $from]} {
++        set regs [get_registers $from]
++        if {[get_collection_size $regs] == 0} { puts $family_summary "$family\tNO_SOURCE\t$from\t$to"; continue }
++        lappend args -from $regs
++    }
++    if {[llength $to]} {
++        set regs [get_registers $to]
++        if {[get_collection_size $regs] == 0} { puts $family_summary "$family\tNO_DESTINATION\t$from\t$to"; continue }
++        lappend args -to $regs
++    }
++    set paths [eval get_timing_paths $args]
++    if {[get_collection_size $paths] == 0} { puts $family_summary "$family\tNO_PATH\t$from\t$to"; continue }
++    foreach_in_collection path $paths {
++        puts $family_summary "$family\t[get_path_info -slack $path]\t[get_node_info -name [get_path_info -from $path]]\t[get_node_info -name [get_path_info -to $path]]"
++    }
++    eval report_timing $args [list -detail full_path -file build/dstore-families/$family.rpt]
++}
++close $family_summary

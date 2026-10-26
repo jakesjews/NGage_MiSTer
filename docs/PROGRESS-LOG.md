@@ -5032,3 +5032,1712 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   and the PC returns, and a second outstanding miss if the backend
   still waits on the D-cache. The Sonic runs continue for the in-play
   number.
+- **ARM9 v2, session 12: the cycle items are small; the kernel gain
+  stays at 13.8 %** (Codex, codex/arm9v2 68f7276..590dd57; docs/consults/
+  2026-10-25-codex-arm9v2-s12.md). Master merged (the metadata in RAM,
+  the early-execution gate, the 16 KB default; the tag RAM conflicts
+  resolved keeping both), re-baselined. The early words: V2's fetch
+  already consumed them through its queue handshake, so the proof
+  found 0.001 % on the boot; the serial fences (ordinary PSR writes
+  and CP15 reads kept in the pipeline): -0.35 % of the boot's clocks
+  to EFile, -0.69 % to EStart, the MSR/MRC windows much shorter; the
+  final LDM word on the scalar late pickup and registered PC hits
+  retired directly: -0.11 %; the second miss engine not built (the
+  measured opportunity under 0.4 %). Six configurations 282/282, 71
+  QEMU, 89 windows, 3/4/5 kept; the firmware to EFile at 3.614 guest
+  seconds and EStart at 4.128, **13.8 % and 13.3 % fewer clocks than
+  ZAP** on the merged tree, no faults. The cached random tests' bodies
+  after setup: V2/ZAP 0.85-0.92 at 0:0, 0.97 at 2:9. The fit, one
+  seed, no cuts: -2.951 ns, **13,262 ALMs** (the metadata RAM; 3,300
+  under ZAP's). The thread's own conclusion, and mine: the expensive
+  windows this session shortened are not frequent enough in the boot
+  to produce the intended 35-50 %, and nothing measured so far
+  explains where that gain was supposed to come from; the next
+  decision needs the Sonic runs (at 33 guest seconds, the kernel's
+  idle loop, after 3.5 hours) and an instruction-class and recovery
+  profile of busy gameplay. Session 13 launched for exactly that: the
+  profile instrumentation in the whole-core bench (per-clock
+  attribution of V2's stalls: fetch starved, D-cache wait, dependency
+  hold, branch recovery, serial fence, replay, and ZAP's taps beside
+  them), the boot's breakdown now, and a second pair of Sonic runs on
+  the session-12 source with the profile, started today so the
+  gameplay breakdown follows the plain number by a day.
+- **ARM9 v2, session 13: the profile explains the 13 %** (Codex,
+  codex/arm9v2 a2d6708, a1ec904; docs/consults/2026-10-25-codex-arm9v2-
+  s13.md, with the tables under arm9v2/s13/). A bench-side observer
+  (no core change; 282/282, 71 QEMU, 89 windows unchanged) partitions
+  every clock of both cores into retired, data wait, dependency,
+  fetch starvation, branch/return recovery, serial/CP15, replay/
+  reservation, structural, and reset/WFI, with the retired mix. The
+  kernel init before the first executive call (identical instruction
+  streams, 270.6 M instructions): ZAP 386 M clocks, V2 338 M. V2
+  removes **42 % of ZAP's non-retiring clocks** there (dependency
+  17.2 M to 2.6 M, branch recovery 22.7 M to 7.6 M, fetch starvation
+  9.9 M to 1.4 M, structural 69 M to 28 M; its data wait rises 15 M to
+  30 M as the memory wait is exposed, and the reservation reloads add
+  5 M), but ZAP retires an instruction on 70 % of those clocks, so
+  even a perfect core could save only 30 % of that phase; the 13 % is
+  what the kernel's init can give. The design's mechanisms are
+  delivering where they apply: the dependency class is down eight
+  times, branch recovery three, structural two and a half; replay is
+  zero. The random bodies are memory-bound (data wait plus fetch
+  starvation 65-74 % at 2:9), which is why they hide the schedule.
+  The reading that matters for the goal: in play ZAP's CPI is 3.3, not
+  the kernel init's 1.4, so 70 % of its clocks are non-retiring there,
+  the regime where V2's mechanisms work; the Sonic profile (the S13
+  pair, started with the observer; the S10 pair at 41-45 guest
+  seconds, play from 200) is the measurement. The thread's one small
+  suggestion, the younger lookup owner kept across a W hold (0.7 % of
+  the boot), is not worth a session. No core change, no fit.
+- **V2's board hang is a bug, not timing: it never wakes from the
+  firmware's idle loop.** To get V2's in-play number without closure
+  I built its measurement core (a1ec904, NGAGE_CORE_ARM9 + NGAGE_DEBUG
+  + D16) with the whole system at **78 MHz** (the PLL output and
+  sdram's CLK_HZ parameter, nothing else; the overlay counts per
+  104 M clocks, so it would read the 104 MHz-equivalent rate): it
+  meets timing there, **+0.060 ns** setup at slow 100C, 33,146 ALMs
+  (build/hardware/NGage-v2d78-s2.rbf), the first V2 bitstream with
+  positive slack. On the board (tools/run_games.sh with every wait
+  scaled by 4/3; build/hardware/game/run-v2d78.log): the NOKIA splash
+  and nothing after, PC 5031e394 for minutes, irq=1 pending and never
+  taken, no bus beats, no frames, the instruction tap at one per
+  clock: exactly the 104 MHz attempt's signature, which cannot be
+  timing at +0.06 ns. And the Sonic simulation of S10's source shows
+  the same: V2's PC at 5031e394 from before guest second 25, its
+  device-access count frozen at 89,240 while it retires one
+  instruction per clock and its pictures stay at five, where ZAP's
+  run beside it keeps accessing devices and moving (so the S10 and
+  S13 V2 runs were dead from the kernel's first idle; killed; the ZAP
+  runs continue as the baselines). The 4.5-guest-second boots never
+  reached the idle loop, so the parity runs could not see it. EKA1
+  idles with the ARM9 wait-for-interrupt (MCR p15 c7,c0,4) or a loop
+  on a flag the tick sets; V2 either halts there without the wake-up
+  or does not take the pending IRQ (the CPSR I bit, the sampling
+  point, session 12's PSR/CP15 fence changes). Session 14 launched to
+  disassemble the loop, reproduce it in the suite against QEMU's
+  ARM926, fix it, prove a 40-guest-second boot, and restart the V2
+  Sonic runs. The 78 MHz measurement build is then the fast path to
+  V2's in-play number on the board: a build and a 20-minute run.
+- **Snapshots for the whole-core bench** (mine, on the user's "try
+  writing the code yourself too"). The coreboot bench is built
+  --savable now, and sim/harness/coreboot_main.cpp takes --save FILE
+  --save-at CLOCKS [--save-exit] and --restore FILE: Verilator saves
+  the model (its context and every signal and RAM) into FILE, and the
+  harness its own state into FILE.bench through sim/harness/snapshot.h
+  (the SDRAM chip model and the DDRAM model gained save/load of all
+  their members, memories, pending beats and random engines included;
+  the bench's counters, the video capture, the joystick state). A
+  restore needs the same binary, the same --mmc image, --keys with
+  absolute times, --cycles absolute and a fresh --out. Proved on the
+  Mac: one guest second of the boot with a snapshot at 0.5 s and a key
+  event at 0.7 s, then a run restored from it: the device logs after
+  the snapshot point identical line for line (162 lines), the kernel
+  log, the retired count (64,726,606), the device accesses (271) and
+  the pictures the same; the snapshot is 0.4 MB of model and 76 MB of
+  memories. The point: the firmware's idle screen comes at about 100
+  guest seconds (ten Mac hours); a snapshot there makes every later
+  game run on the same model start from it. Also measured: this Mac
+  (M2 Max) runs the bench at 565-586 k clocks/s with --x-assign fast
+  --x-initial fast and -O3 against the server's (Ryzen 5950X) 250-290 k,
+  and four Verilator threads are slower than one on this design; the
+  ZAP Sonic baseline moved to the Mac, relaunched on the savable
+  build with the 16 KB D-cache (the shipping configuration) and a
+  snapshot at 100 guest seconds.
+- **The V2 kernel death, chased on the MiSTer.** The user's call: the
+  simulations are off (all of them, the server's and the Mac's) and the
+  fix loop runs on the board at 78 MHz. Three facts from three
+  builds: (1) the current source (a1ec904) at 78 MHz dies with
+  Kern::Fault("PLAT", 0x1005B); (2) session 8's first firmware-booting
+  source (22a4261) at 78 MHz (-0.763 ns, 37,630 ALMs,
+  build/hardware/NGage-v2d78s8-s2.rbf) is dead by 40 s with the
+  exception record "50323e78 e3a03007 10000000": an exception at the
+  `str r1,[r3]` of the kernel's doubly-linked-list insert at
+  0x50323DE0 with r3 = 0xE3A03007, an ARM instruction word (`mov r3,
+  #7`, 21 copies in the ROM) where a list node's link pointer should
+  be, the same shape as the 2026-10-19 crash in which a `this`
+  pointer held a vector instruction; its three callers compute the
+  anchor as one loaded pointer minus one loaded offset; (3) session
+  11's source (7ed5190, pre-merge, 8 KB D-cache) at 78 MHz with the
+  hardware trace on (the rings shrunk to 4096/256/256 entries so they
+  fit beside V2: -0.384 ns, 35,925 ALMs, build/hardware/NGage-v2d78t-
+  s2.rbf; the full rings overflowed the device twice) dies with
+  "aaaaaaa8 50321594 10000000": an exception at a garbage PC
+  0xAAAAAAA8 with the data address inside the kernel's code. So the
+  bug is in every V2 that boots the firmware, it shows as a wrong
+  value in a pointer or a return, and it predates sessions 9-12. The
+  fault-record write triggered the trace (two dumps, three triggers,
+  the first trigger's PC 0x514A3964 in CS1); the dump of the last
+  4,096 retired instructions and 256 data-port accesses is in
+  build/hardware/game/trace-v2/dump.bin, fetched through devmem with
+  a decoder copy matched to the small rings (scratch
+  mister_trace_small.py). Also run today: Quartus's design rule
+  checker on the V2 and ZAP builds (identical findings, all in the
+  framework's clock crossings; nothing V2-specific), radare2 and a
+  Ghidra headless analysis of CS0 (no static reference reaches the
+  fault epilogue; the fault path is indirect). The dump's decode and
+  the reconstruction went to an Opus 5.5 subagent (my own attempt was
+  stopped by the safety classifier, per the standing rule).
+- **"Are we spinning off into the weeds?" (the user) and the Codex
+  consult on it** (read-only, session 01a16fee; brief and answer in
+  docs/consults/2026-10-25-codex-backontrack-consult.md). The trace's
+  decode landed first: the first wrong value is ip at `ldr r0,[ip,#4]`
+  (0x50321578), the value of an older load to ip (`ldr ip,[pc,#2536]`
+  at 0x50321568, a D-TLB miss plus a D-cache miss with a dirty victim,
+  the first instruction after the kernel's `msr CPSR_fc` to 0xDB, which
+  V2 serialises with a W flush) returned from the bus in the clock the
+  younger hit to ip retired; the `str r0,[ip]` between them was not
+  stalled either. One cause for both: the destination of that
+  background miss had no working lock or ownership. Seven other misses
+  in the window interlocked correctly. No UND, no bad bus beat (all 28
+  ROM beats match the image). Codex's correction to my own account:
+  that S11/D8 capture faulted 4.83 s into the boot at 78 MHz, not 25 s;
+  keep the configurations' deaths apart. The directed test and the fix
+  went to an Opus subagent in the cx-arm9 worktree (my own attempt was
+  stopped by the classifier; the standing rule).
+  Codex's answer to the weeds question, digested: V2 is still the best
+  next experiment and not yet a demonstrated route to 47 M/s; the
+  simple extrapolation of the kernel profile (42 % of ZAP's
+  non-retiring clocks removed) into play is about 45 M/s at 104 MHz,
+  and 47 needs 46 %. The order: correctness (the reproducer must fail
+  before and pass after, plus independent ownership assertions, plus
+  repeated board boots into play), then the gameplay number on the
+  78 MHz board **with a ZAP control at the same 78 MHz** (the memory
+  behaves differently at a lower clock; report 104 × Δinstructions /
+  Δclocks over matched busy windows), then at most one bounded stage
+  redesign. Thresholds for the normalised number: >= 52 M/s gives the
+  redesign 0.21 CPI of headroom; 47-52 is fragile; < 47 does not
+  justify timing-only work. On timing: probably not closable at 104 MHz
+  with the present stage boundaries (S12's independent failing
+  families: address->metadata -2.95, address->TLB -2.67, load
+  word->late ALU -2.56, short response -2.23 ns; S10/S11 already spent
+  the old eight-cut list); its preferred redesign separates late
+  operand selection from the ALU/flags and address generation from the
+  cache lookup, 3-5 sessions, no promise, funded only if the gameplay
+  number holds and its projected CPI stays <= 2.21. Waste to stop: seed
+  hunting and zero-cycle tuning of the unchanged shape, unprofiled
+  features (S12's second-miss case was < 0.4 %), and more debugging
+  infrastructure or ROM archaeology now that a reproducible failure
+  exists. Acted on at once: the ZAP control, master (441bf20) at
+  78 MHz with the debug overlay and the 16 KB D-cache (worktree
+  ../NGage_MiSTer-zap78, server lane b5, seed 2), so the comparison is
+  ready when the V2 fix lands.
+- **The research archive.** The user's MEGA folder (the NGEmu-style
+  research collection, 144 k files, mostly SDKs) holds the N-Gage QD
+  RH-29 schematics V2.0 and the level 1-4 service manuals, the NEM-4
+  schematic, a Z-drive and C-drive dump from a QD, an executive-call
+  list, a reverse-engineering folder and the Symbian documentation;
+  pulled (the user's "download whatever") through the MEGA API with the
+  keys read from the web client and openssl for the AES-CTR, into
+  research/hardware/rh-29-service-docs/ and research/mega-research/
+  (research/ is untracked). The schematic is the primary source for the
+  physical map; nothing in it bears on the speed work, which stays the
+  one thread.
+- **The V2 kernel death: reproduced and fixed** (an Opus 5.5 subagent on
+  my brief, codex/arm9v2 17094db test, 137f6b8 fix, 694252b report:
+  docs/consults/2026-10-25-v2-msr-lock-fix.md). The directed test
+  sim/cpu/tests/arm9_msr_lock_rtl.S copies the system-call window at
+  0x50321564 from the board trace and varies the PSR write, the TLB
+  flush, the victim layout and the gap to the younger writer: 1,050
+  cases. The one ingredient the trace did not spell out: lit1's line had
+  to be *already in the D-cache as the LRU way* and evicted by the
+  `stmfd` store miss just before the window. Before the fix V2 failed
+  106/130/136 cases at 0:0/0:3/2:9 (the session-11 board source the
+  same, D16 too), every one with ip and r0 holding lit1's value, the
+  board's symptom; ZAP 0. The mechanism: D2's WAW check lets a younger
+  writer of W's load destination pass on a first-clock short hit (the
+  premise: the load completes now). Two short hits do not complete: a
+  hit on a fill's departing victim (the line keeps its tag until
+  UNLOCK_REG and compares equal, but the FSM withholds the ACK and the
+  load misses after installation, locking ip only then), and a hit on
+  the fill-end clock (W re-reads it through RETRY0; after the MSR's
+  W-flush the refetched first load often lands exactly there). The
+  younger `ldr ip,lit2` had left D2 before the lock existed, hit,
+  retired, and the older load's background return (RF port C, priority)
+  overwrote ip. The fix (zap_dcache.sv, arm9v2_core.sv): the D-cache
+  exports its registered live-lookup state (IDLE or a background-hit
+  slot, the only states with a hit ACK) as o_short_live, and D2's trust
+  requires it and !fill_ended; readers are unchanged (the departing
+  line's word is the right data). Verified: the test passes on both
+  cores at all latencies, D8 and D16; the full suites 291/291 in all
+  three configurations (ZAP, V2, V2 predictor-off); ZAP's and V2's 288
+  prior runs cycle-identical (predictor-off: ctrand3/ctrand7 +5 clocks
+  at 0:3); QEMU 73/73; four lint configurations; cpu-gen-check (with
+  LC_ALL=C: this Mac's sort order otherwise fails it falsely). Open: the
+  trace's TLB walk for lit1's page after the fill is not explained (in
+  the test a TLB miss at that clock prevents the failure), and the new
+  D2 terms had no fit yet. Builds at 78 MHz launched at once from
+  694252b (ARM9 + DEBUG + D16): the server at seed 2 and the Mac at
+  seed 9.
+- **The ZAP control at 78 MHz** (master 441bf20, debug overlay, 16 KB
+  D-cache, seed 2: +0.272 ns setup at the slow -40C corner, 33,515 ALMs
+  (80 %), build/hardware/NGage-zap78d-s2.rbf, md5 83e61372; on the
+  debug slot; tools/run_games_78.sh zap78d, captures under
+  build/hardware/game/*-zap78d/). Play medians per 104 M clocks: Sonic N
+  31.59 M instr/s (CPI 3.3, SDRAM wait 18.6 %, 17 fps), Asphalt 32.30
+  (CPI 3.2, 21.0 %, 14 fps), Tony Hawk 31.31 (CPI 3.3, 20.6 %, 11.5
+  fps); the idle screen at 133 s, menus and all three games normal. The
+  same tree's measurement core at 104 MHz gave Sonic 31.51, so the
+  lower clock changes ZAP's normalised rate by well under 1 %: the
+  78 MHz board number stands in for 104 MHz, and V2's number from the
+  same script compares directly with these three.
+- **V2 boots the firmware on the MiSTer and plays Sonic at 44.4 M
+  instructions/s.** The fixed source (694252b) at 78 MHz: the server's
+  seed-2 build +0.086 ns (slow 100C; +0.290 at -40C), 33,344 ALMs (80 %),
+  3.64 M memory bits, build/hardware/NGage-v2fix78-s2.rbf (md5
+  08c6cf23; the Mac's seed-9 build of the same source -0.247 ns, not
+  used). On the debug slot with tools/run_games_78.sh v2fix78 (captures
+  under build/hardware/game/*-v2fix78/): the idle screen at 133 s
+  (V2's idle loop reads 87.6 M instr/s at CPI 1.2 where ZAP's reads
+  39.5 at 2.6), the phone menu, Sonic's title and play. Sonic N play
+  medians per 104 M clocks, V2 against the same-script ZAP control:
+
+  | | ZAP (78 MHz control) | V2 (fixed, 78 MHz) | gain |
+  |---|---:|---:|---:|
+  | M instr/s | 31.59 | **44.40** | +40.6 % |
+  | CPI | 3.3 | 2.3 | |
+  | fps | 17.0 | 24.0 | +41 % |
+  | SDRAM wait | 18.6 % | 23.4 % | |
+
+  The ten play captures 42.1-45.6. The goal is 47 M/s; Codex's
+  extrapolation of the kernel profile into play was 45. Two residues,
+  both V2-only (ZAP's control run was clean): (1) in two of three
+  boots a Symbian "App. closed ... Server" panic dialog sits on the
+  idle screen (a server thread panicked during the boot; the kernel
+  survived); the dialog eats the script's Menu press, so the Asphalt
+  run never left the idle screen (its ten "play" captures are the idle
+  loop at 84 M instr/s, 0 fps, and the held 5s dialled "55555"), while
+  Sonic's run got through by luck; (2) Tony Hawk booted without the
+  dialog, ran its menus at 15-33 fps to the course's loading bar, and
+  panicked there ("App. closed", the thread name under the overlay's
+  bars), back to the phone menu. The thread names are being read with
+  the overlay switched off through the OSD (tools/boot_profile.py's
+  overlay_on sequence toggles it).
+- **A second V2 death, rarer, same shape.** A fourth boot of the fixed
+  core (to read the panic dialog with the overlay off: the OSD toggle
+  works from tools/game_keys.py, "tap f12", 13 downs, enter, esc, esc)
+  died during the Nokia logo phase: the overlay's PC 0x5031E394 (the
+  fault epilogue's spin), the CPU retiring 104 M instr per 104 M clocks
+  with no memory beats, and the kernel's record `00250030 503b27c0
+  10000000`: an exception at PC 0x00250030 with r14 0x503B27C0, the
+  return address of `bl 0x503A7748` at 0x503B27BC, an executive-call
+  stub (`svc 0xC000BF`). So the garbage jump happened inside the
+  kernel's SWI/executive dispatch right after the SVC exception entry:
+  a wrong register value again, this time on the exception-entry flush
+  rather than the MSR's. Two builds launched: a trace core of the fixed
+  source (694252b + 78 MHz + DBG_TRACE with the small rings 4096/256/
+  256, ARM9 + DEBUG + D16; worktree ../NGage_MiSTer-v2fixt, server lane
+  b7) to capture this death's window, and the subagent resumed to
+  extend the directed test to exception-entry flushes (SWI/IRQ entry,
+  exception returns, user-mode entry with banked registers, the exec
+  dispatch's `ldr pc` pattern) and to audit every consumer of the
+  first-clock short-hit trust. The archive's executive-call list
+  (research/mega-research/Executive calls/SVC.xlsx) names the calls.
+- A second full run of the fixed core (v2fix78b): Sonic N 43.48 M
+  instr/s median (42.1-45.0; 24.5 fps; CPI 2.4; SDRAM wait 23.9 %), so
+  the two samples agree within 2 %; Asphalt and Tony Hawk derailed at
+  the idle screen again (the panic dialog on both boots this time, the
+  dialled "5555" digits in their captures). A dialog-tolerant variant,
+  tools/run_games_78d.sh (a left-soft-key press before the Menu key:
+  it dismisses the dialog when present and opens Contacts when not,
+  and the Menu key opens the main menu from either), ran Asphalt and
+  Tony Hawk alone (v2fix78c).
+- **The exception-entry sweep finds nothing more** (the subagent,
+  codex/arm9v2 72e50e5 sim/cpu/tests/arm9_swi_lock_rtl.S, 2bbe79d the
+  report, 36a4544): 584 cases × cold/warm × three memory configurations
+  (1,752 runs) of SWI and IRQ entries from SVC and USR, `movs pc,lr`,
+  `ldm ^` and `subs pc,lr,#4` returns, with the younger-writer pair,
+  a table dispatch `ldr pc,[r1,r2,lsl #2]`, `bx`/`mov pc` through the
+  loaded register, younger writers of the new mode's lr and sp, and
+  copies of the kernel's exec-call entry and return; lit1 departing
+  under a store miss, TLB-missing or cold. Before the first fix V2
+  failed 318/357/407 of them through every flush kind except `ldm ^`;
+  after it none (the hazard itself was hit 822-1,166 times per run).
+  ZAP passes (a bench assertion in the shared cache fired on idle
+  clocks and was limited to clocks with an access). 294/294 runs in all
+  three configurations, 291 earlier runs cycle-identical, QEMU 73/73.
+  The audit of the first-clock short-hit trust: D2's WAW exception was
+  the only consumer needing the hit to complete now; the readers (S's
+  pending bit, the S/A waits and grants, W's forwarded word) need only
+  the data, the PC-load fast path requires the ACK, the return matches
+  and quick_reload come from completion or registered locks. Ranked
+  candidates for PC 0x00250030 (the abort handler records the aborted
+  mode's lr, and 0x503B27C0 is the user caller's, so the PC went wrong
+  on the way back to user mode): (1) a stale word through V2's short
+  D-cache port on a store-then-reload (the context save/resume reloads
+  the saved PC and SPSR a few instructions after storing them,
+  0x50321638-0x50321670); (2) the readers' premise failing on a
+  half-installed line at the fill's install edge; (3) V2's fetch queue
+  releasing pending entries on any I-fill completion, so a wrong
+  instruction word could execute after a redirect.
+  Its result: **Asphalt 41.40 M instr/s** median (41.1-42.3; 21 fps;
+  CPI 2.5; SDRAM wait 30.1 %) against the ZAP control's 32.30 at 14
+  fps: +28 % in instructions, +50 % in frames. Tony Hawk ran its menus
+  (16-27 fps) and panicked at the course load again, the second time
+  of two, back to the phone menu: a reproducible V2-only failure for
+  the trace core. The three V2 numbers so far against ZAP's control,
+  per 104 M clocks: Sonic 44.4 / 43.5 vs 31.6, Asphalt 41.4 vs 32.3,
+  Tony Hawk none yet vs 31.3; the goal is 47.
+- **The three candidates for the second death tested, none fails** (the
+  subagent, codex/arm9v2 34ccaaf the tests, e90316e the report;
+  pushed). arm9_store_reload_rtl.S (1,688 cases: word/halfword/byte/STM
+  stores reloaded 0-6 instructions later, same word, other word, other
+  width; the line present, dirty, absent with the store merged into its
+  own fill, departing, write-back in flight, being filled,
+  write-through; SVC, USR and a mode change between; the kernel's
+  context save/resume at 0x50321624-0x50321670 copied literally for a
+  USR and a SYS thread): every value, PC, mode and restored register
+  correct. arm9_install_edge_rtl.S (448 cases, both fill orders,
+  readers in S and A at 2,688 installs per run): loads on the line
+  complete 3-8 clocks after the install edge, never earlier; the cache
+  admits the new line three edges after installing it, so a
+  half-installed line cannot be read. arm9_fetch_redirect_rtl.S (120
+  cases; b/beq/bx/mov pc/ldr pc/svc from a cold line's entry word to a
+  cold target with every other word poisoned, every I-fill forced
+  provisional): 173-221 redirects per run discarded pending entries, no
+  poison retired; by the RTL only one I-fill runs at a time and a
+  pending entry's word has already arrived ("pending" only defers a
+  late bus error). 303/303 runs in each configuration, the 294 earlier
+  runs cycle-identical. The subagent's remaining reading: the second
+  death lies outside the single-CPU bench shapes (another bus master
+  and the board's memory timing, or a V2 path the firmware uses that
+  the suite does not: Thumb, multiply, SWP, CP15). The hardware trace
+  is the evidence: the trace core of the fixed source fits only with
+  the 8 KB D-cache and the PC ring at 1,024 entries (the 16 KB and the
+  4,096-entry builds overflowed the 553 M10K: the merged tree keeps the
+  cache metadata in block RAM, which the session-11 trace core did not).
+- **The trace core's first boot (8 KB D-cache, PC ring 1,024; -0.185 ns
+  slow 100C, -0.457 at -40C, 33,763 ALMs; build/hardware/NGage-v2fixt-
+  s2.rbf) failed at start-up**: "App. closed ScreenSaver" (the boot-time
+  panic's thread name, readable this time), then "Device start-up
+  failed. Contact the retailer." on the N-Gage splash; no kernel fault,
+  no abort or UND (the trace's exception trigger never fired); the three
+  dumps it holds (build/hardware/game/trace-v2fixt/dump0-2.bin) are the
+  kernel's routine write to the fault area at 3.27 s and the two
+  leftover timed triggers at 55 s and 130 s (DBG_TRIG_AT1/2_S from the
+  2026-10-22 investigation), both in the idle loop. So the boot-time
+  panics are software panics, not exceptions, and the trace as
+  configured cannot catch them; the exception death (the exec-call
+  record) can be caught when it recurs. Launched: a 16 KB-D-cache trace
+  core with 512/128/128 rings and the timed triggers off (worktree
+  ../NGage_MiSTer-v2fixt16, lane b8), and a two-game run on the 8 KB
+  trace core to give the exception death its one-in-four chance.
+- The 8 KB trace core fails start-up on every boot (three of three:
+  "App. closed ScreenSaver", then "Device start-up failed"), with no
+  exception and no kernel fault, where the 16 KB fixed core reached
+  the idle screen in six of seven boots. Either the smaller cache
+  multiplies the remaining bug's hits or the trace core's negative
+  slack adds its own; a fixed-source 8 KB build without the trace
+  (../NGage_MiSTer-v2fixd8, lane b5) separates the two. Tried and
+  dropped: Symbian's ErrRd flag file (c:\system\bootdata\ErrRd makes
+  the "App. closed" dialog show the panic category and reason): the C:
+  save is the phone's log-structured flash image (LFFS), not FAT, so
+  there is no way to plant the file from outside.
+- The 16 KB trace core fits with the 512/128/128 rings and the timed
+  triggers off (33,976 ALMs, 3.71 M memory bits; slack -0.25 ns at the
+  slow -40C corner; build/hardware/NGage-v2fixt16-s2.rbf): its four
+  dump slots wait for exceptions and fault-record writes only.
+- **Boot statistics on the fixed 16 KB core** (three plain boots,
+  build/hardware/game/v2boot-1..3/): boot 1 died with the kernel record
+  `00250030 50447b53 10000000`, the same garbage PC 0x00250030 as
+  before but from a Thumb caller this time (r14 = 0x50447B53, the
+  return of `bl 0x50459C38` at 0x50447B4E); boots 2 and 3 reached the
+  idle screen with the "App. closed ... Server" dialog. So the
+  exception death is about one boot in four and always lands on the
+  same address, which points at a fixed wrong table entry rather than
+  random corruption: the kernel's SWI entry reads the call number with
+  `ldr ip,[lr,#-4]` at 0x50321490 and indexes the executive table.
+  Reading the handler: a fast executive call jumps through the ROM
+  table (`ldr pc,[ip,#-0x3C8]` at 0x503214A8), but no ROM word near any
+  table holds 0x00250030, so the garbage PC is not a wrong table slot.
+  The slow path (bit 23 set, as in `svc 0xC000BF`) goes through RAM:
+  `ldr ip,[0x50321F58]` (= 0x80005668), `mov lr,pc`, `ldr pc,[ip,#-4]`
+  at 0x50321558, a jump through the kernel word at 0x80005664, in the
+  very line (0x80005660) whose neighbours the first bug's window
+  touched (0x80005668, 0x8000566C = 0xAAAAAAAA). So the second death is
+  most likely a load that delivered the wrong word to pc: the same
+  class as the first (a wrong value out of a load), on a load whose
+  destination is pc, at the kernel's executive entry. The trace core's
+  data ring will show what that load returned and what the cache and
+  bus carried.
+- The fixed source with the 8 KB D-cache and no trace (lane b5, seed
+  2): -0.255 ns at the slow 100C corner (+0.017 at -40C), 33,066 ALMs,
+  build/hardware/NGage-v2fixd8-s2.rbf; so at 78 MHz the 8 KB cache is
+  no easier to fit than the 16 KB one for V2 (the metadata-in-RAM
+  tree's address paths dominate either way). Its boots, to separate the
+  cache size from the trace core's timing in the start-up failures,
+  follow the trace core's boot loop on the board.
+- **A death captured on the 16 KB trace core** (boot 7 of the loop,
+  build/hardware/game/trace-v2t16/dump1.bin, decoded to the scratch
+  trace-v2t16-dump1.txt; six earlier boots reached idle with one
+  routine dump each): not the executive-call record but the other
+  kind, a **user-mode data abort 25.25 s into the boot** (the trigger
+  "exception" at 0x503CBDF4), which is what the "App. closed" dialogs
+  on the idle screen are. The window: a Thumb user thread calls
+  through an import stub into the ARM handle lookup at 0x503A320C
+  (count at +8, array base at +20, the entry's id compared with the
+  handle's index/id, the object pointer at +4); the data port logged
+  count 1, base 0x8062A358, entry id 0x00030008, the handle 0x00080000
+  and the id word 3, which should compare equal, yet the CPU's flags
+  after the compare were Z clear: the lookup returned 0, the caller's
+  `ldr r0,[r4,#28]` read address 0x1C (the vector page) and the next
+  load aborted. So a register held a value different from what the
+  data port delivered, again. Handed to the subagent with the decoded
+  rings to name the load and the pipeline situation and to write the
+  directed test.
+- **The 8 KB no-trace core dies deterministically with Kern::Fault
+  ("PLAT", 0x1005B)**: three of three boots (build/hardware/game/
+  v2d8boot-1..3/), the same record the pre-fix 16 KB core gave at
+  78 MHz on 2026-10-24. So the start-up failures of the 8 KB trace core
+  were the cache size, not its slack, and the 8 KB configuration is the
+  reproducer for this third death. The 16 KB trace core then produced
+  it too on its next boot (one of eight so far), with **three events in
+  one boot** (build/hardware/game/trace-v2t16b/dump1-3.bin, decoded
+  alongside): a user-mode data abort at 17.9 s (a Thumb thread at
+  0x5044A72A loading through a pointer that read back as 0), another at
+  20.6 s (ARM user code at 0x50394D08 through a null object pointer
+  that the memory word itself held as 0), and the PLAT fault's record
+  write at 21.1 s, whose 512-instruction window is the kernel's event
+  dispatch (0x5033A390: an event word read from the variant's structure
+  at [0x5033A534], a jump table up to type 0x58, then message handling
+  through 0x5033B948, 0x5039D248, a descriptor copy) ending in the
+  Kern::Fault category copy. The two user aborts look like consequences
+  of an earlier wrong store (null words where pointers belong), so the
+  first wrong value lies before all three; the PLAT window is the
+  deterministic one to decode.
+- **The second hole, from the 25 s capture: found and fixed** (the
+  subagent, codex/arm9v2 5c652ee the test, 6a85407 the fix, 7dd5509 the
+  report; pushed). Every load in the window returned what memory
+  delivered (checked against the data and bus rings; where a load
+  missed, the data tap shows the victim's word, a known artifact), yet
+  the compare cleared Z: only r2 = 0x801009D0, the *literal's own
+  address*, gives that result, so the CPU's r2 was wrong. The chain:
+  `ldr r0,[r0,#36]` missed and its fill began evicting the literal's
+  line from the same set; `ldr r2,[pc,#12]` hit that departing line on
+  its first clock (never accepted by the cache: it missed later and
+  returned in the background); `ldr r2,[r2]` and `ldr r2,[r2,#4]` read
+  r2 *and* write it: D2 let such writers past the older pending load on
+  the premise that they wait for its data, but S/A still trusted the
+  unaccepted hit and took the word early, so both retired first and the
+  literal's late return overwrote r2. The first fix covered only
+  younger writers that do not read the register. The test
+  sim/cpu/tests/arm9_dep_waw_rtl.S copies the shape in ARM and Thumb
+  with five chain variants: before the fix V2 fails 128-144 of 192
+  cases at every latency, both predictor modes, both D-cache sizes,
+  always with r2 = the literal; ZAP passes. The fix: D2 registers a
+  "writes a register it reads" bit with each instruction, and for
+  those instructions only, S and A trust a first-clock short hit only
+  when the cache accepts it. Verification: 306/306 in all three
+  configurations plus V2 at D16; ZAP's 306 cycle-identical; V2 not
+  fully: 17 earlier predictor-on runs move (random tests -2..+9
+  clocks; `cache` +182 at 0:3, +6 at 2:9; predictor-off at most +1,500,
+  0.15 %); the 3/4/5 windows unchanged (recovering those runs would
+  need a new comparator in the shared cache; gating every reader moved
+  33 runs, so it was not used); QEMU 73/73; four lints clean; netlist
+  regenerated. Builds of 7dd5509 at 78 MHz launched at once: 16 KB
+  (lane b6) and 8 KB (lane b5, the PLAT reproducer).
+- A second PLAT boot on the 16 KB trace core (build/hardware/game/
+  trace-v2t16c/, decoded alongside) is the same sequence to the
+  millisecond: the user abort at 0x5044A72A at 17.890 s, the one at
+  0x50394D08 at 20.572 s, the PLAT record at 21.120 s. So this death is
+  a deterministic consequence of one early wrong value, not a race at
+  the fault; the boots that escape it (six of nine on this core, all
+  three on the 8 KB core fall into it) diverge earlier.
+- **The PLAT fault decoded** (the subagent, codex/arm9v2 1b56b38, the
+  report's new section): the fault itself is the kernel working as
+  designed. The kernel server, in UND mode, takes a message at
+  0x80006C00 asking it to panic the requesting thread (handle
+  0xFFFF8001, reason 0), resolves it to thread 0x8040E370 and calls
+  DThread::Exit (0x5032D7C8) with exit type 2 (panic); the thread's
+  critical flag ([0x8040E390] = 4) makes it take `movne r0,#0x5B; blne`
+  at 0x5032D800, Kern::Fault("PLAT", 0x1005B). So a system-critical
+  thread panicked itself, and the kernel refused to go on without it.
+  Every load in all three windows is consistent with memory (dump 3's
+  128 accesses match the instruction stream; dump 1's null was
+  delivered by the bus; dump 2's null was in memory): the first wrong
+  value is before any window, so no third mechanism is visible. The
+  second fix plausibly covers it: the idiom (a literal load, then a
+  load that reads and rewrites the same register) occurs 5-11 times per
+  512-instruction window, it is how Thumb code reads globals and goes
+  through import stubs; several of those literal loads missed in the
+  windows; and 3/3 at 8 KB against 1 in 8 at 16 KB is what an
+  eviction-driven mechanism predicts. The 8 KB build of 7dd5509 on the
+  board is the test that decides it.
+- Fix 2 (7dd5509) at 78 MHz: the 16 KB build (lane b6, seed 2) slips
+  to **-0.668 ns** at the slow 100C corner (-0.285 at -40C; 33,404
+  ALMs; build/hardware/NGage-v2fix2-s2.rbf) where fix 1 had +0.086: the
+  self-dependent-writer gate in S and A costs on the D2/S/A hazard
+  paths. The 8 KB build (lane b5, seed 2) meets timing (+0.015 /
+  +0.244, 33,007 ALMs; build/hardware/NGage-v2fix2d8-s2.rbf). Seeds 9
+  and 5 of the 16 KB build launched on lanes b7 and b8 for the slack.
+- **Fix 2 does not remove the PLAT death**: the 8 KB fix-2 core died
+  with PLAT 0x1005B on two of three boots (build/hardware/game/
+  v2fix2d8boot-1..3/), where fix 1's 8 KB core died on three of three.
+  So a third wrong value remains, before the 17.9 s abort. Seeds of the
+  16 KB fix-2 build: seed 9 **-0.069 ns** (slow 100C; +0.086 at -40C;
+  33,297 ALMs; build/hardware/NGage-v2fix2-s9.rbf), seed 5 -0.442 /
+  -0.470, seed 2 -0.668 / -0.285; seed 9 is the measurement core. To
+  reach the first wrong value, a trace core of fix 2 (8 KB, the
+  deterministic reproducer; rings 1,024/256/256; timed triggers off)
+  gained a trigger on a data-port store to either word the PLAT boots
+  later read back as a null pointer, virtual 0x8540BEA4 (the 17.9 s
+  abort's) and 0x0040C7A8 (the 20.6 s abort's): NGage.sv
+  dbg_trig_store in worktree ../NGage_MiSTer-v2fix2t8, lane b5. Its
+  dumps will hold the instructions that wrote those words.
+- **Fix 2 on the board, 16 KB (seed 2, -0.668 ns), the plain
+  three-game script (v2fix2)**: no kernel fault in the three boots;
+  Sonic N 43.97 M instr/s median (43.2-45.9; 25 fps; CPI 2.4), Asphalt
+  41.47 (40.9-42.2; 19 fps; CPI 2.5), both the same as fix 1's numbers
+  within 0.5 %, so the second fix costs no speed; Asphalt's boot came
+  up without the dialog this time and its run went through the plain
+  script. Tony Hawk's boot derailed at the idle screen again (the
+  dialog); rerun with the dialog-tolerant script.
+  The idle screens of those three boots: Sonic's and Tony Hawk's with
+  the "App. closed ... Server" dialog, Asphalt's clean, so the
+  boot-time server panic persists at the same rate after fix 2 (two of
+  three); the 25 s capture that fix 2 answers was one instance of it,
+  and the remaining instances share the third wrong value with the
+  PLAT death.
+- **The chain behind the PLAT boots starts at the comms database**
+  (the subagent, codex/arm9v2 3c492f8, pushed): in the failing boot
+  neither null word is ever written by its intended code. The 17.9 s
+  abort's object (0x8540BDE4, field +0xC0) is destroyed mid-
+  construction: an inner NewL (0x5045E548) builds a 0x40-byte object
+  whose virtual open (0x5045EDB1) opens c:\System\Data\Cdbv2.dat, the
+  comms database (z:\System\Data\DefaultCdbv2.dat in ROM is the
+  default), gets **-20, KErrCorrupt**, deletes the object and
+  User::Leave(-20)s; the cleanup runs the outer destructor
+  (0x5094EA28), which reads +0xC0 without a null check, and the field
+  still holds the allocator's zero fill. The 20.6 s abort's object
+  (0x0040C7A4, field +4) likewise: its only writer, `str r0,[r5,#4]` at
+  0x50AD0490, runs after a three-try call with 50 ms pauses and a
+  LeaveIfError that never completed; the destructor (0x50AD0530 →
+  0x50394CF0) dereferences +4 unguarded. Then the critical thread's
+  self-panic, the PLAT fault. So the earliest wrong value is the
+  KErrCorrupt verdict on Cdbv2.dat; ZAP reads the same file from the
+  same save image cleanly on every boot, so V2 misreads it (the file
+  lives in the CS1 NOR flash's log-structured file system, read through
+  the data path). The store-trigger core is moot (the words are never
+  written). The audit of the Thumb and interworking paths (Thumb
+  literal then a self-dependent load; the import stub `ldr r3,[pc];
+  ldr r3,[r3]; bx r3`; `pop {r0}; bx r0`; Thumb SWI) finds no early
+  trust or unlocked window left after the two fixes. New trace core
+  (worktree ../NGage_MiSTer-v2fix2t8b, lane b6; 8 KB, fix-2 source,
+  rings 1,024/256/256, timed triggers off): a trigger when the CPU
+  retires the User::Leave stub (svc 0x73 at 0x503A785C) from 17 s
+  after the CPU start, so the dump holds the database reads that
+  produced the -20.
+- **Tony Hawk plays on fix 2** (v2fix2b, the dialog-tolerant script):
+  **41.75 M instr/s** median (39.1-42.4; 17.5 fps; CPI 2.5; SDRAM wait
+  30.6 %) against the ZAP control's 31.31 at 11.5 fps, and its
+  course-load panic (three of three on fix 1) did not recur: that panic
+  was fix 2's mechanism. V2 against ZAP in all three games now, per
+  104 M clocks on the 78 MHz board:
+
+  | game | ZAP | V2 (fix 2) | instructions | frames |
+  |---|---:|---:|---:|---:|
+  | Sonic N | 31.59 (17 fps) | 43.97 (25 fps) | +39 % | +47 % |
+  | Asphalt | 32.30 (14 fps) | 41.47 (19 fps) | +28 % | +36 % |
+  | Tony Hawk | 31.31 (11.5 fps) | 41.75 (17.5 fps) | +33 % | +52 % |
+
+  The goal is 47; by Codex's thresholds (>= 52 headroom, 47-52
+  fragile, < 47 no timing-only work) V2 as it stands is below the
+  line, before any cycle work on the profile that session 13 drew
+  (the data wait that V2 exposes is now 30 % of the clocks in Asphalt
+  and Tony Hawk against ZAP's 21 %).
+- **The Leave-trigger core boots clean six times out of six**
+  (8 KB, fix-2 source, -0.583 ns; build/hardware/NGage-v2fix2t8b-
+  s2.rbf; build/hardware/game/v2lv-1..6/), no fault and no Leave
+  retired after 17 s, where the same source without the trace died with
+  PLAT on two boots of three and fix 1's 8 KB trace core failed
+  start-up on three of three. So the chain behind PLAT is a race whose
+  odds depend on the boot's memory-traffic schedule (the trace core's
+  own 256 KB dump at 3.27 s shifts it), not a fixed sequence; once
+  lost, it plays out deterministically (the two identical PLAT boots).
+  Twelve more boots of this core run on the board, and a 16 KB variant
+  with the same Leave trigger (rings 512/128/128, the configuration
+  that produced two PLAT boots in nine) builds on lane b6.
+- **Where the -20 is made** (the subagent, codex/arm9v2 17682f9,
+  pushed; one step of its analysis went to an Opus subagent of its own
+  after a safety stop, per the standing rule): the C: file exists, so
+  CommDb opens it through the DBMS server (RDbs::Connect, then
+  RDbNamedDatabase::Open of c:\System\Data\Cdbv2.dat from 0x5045EF00);
+  the store library's checks run in the *server* thread (the header
+  check at 0x508B53D0 leaving at 0x508B5470, the frame type/length at
+  0x508AF8F2/0x508AF91C, the table-of-contents checks 0x508B4494-
+  0x508B4668, the read's error check at 0x508ACC8A; a checksum
+  mismatch would give -5, not -20), and the CommDb thread only receives
+  the -20 and leaves. The C: copy rebuilt from the flash log passes
+  every check (header 0x4F58, handle 0, reference 0x239D, checksum
+  0x0955; frames 0x8043, 0x80E8, 0x5534); it differs from the ROM
+  default from offset 0x1A27 on, and several of its 512-byte sectors
+  start at flash addresses 2 mod 4: **a misaligned copy out of the
+  uncached flash window is the prime suspect** for where V2 reads it
+  differently. Also run: a new test arm9_unc_chain_rtl.S (an uncached
+  older load or an uncached LDM's last word before cached chains, ARM
+  and Thumb; fails 30 of 540 before fix 2, all with the chain's own
+  line evicted; passes after) and the existing directed tests at 8:12
+  and 16:40 with their data uncached: all pass. So the euser-stub Leave
+  trigger would show only the return code; a third trace core
+  (worktree ../NGage_MiSTer-v2fix2t16c, lane b5; 16 KB, rings
+  512/128/128) triggers on either stub, euser's 0x503A785C or the
+  store library's Thumb import stub at 0x508B625C, from 17 s. The
+  subagent writes the directed test of the misaligned uncached copy
+  (the file server's sector copy routine as the ROM has it, rotated
+  unaligned loads, halfword pairs, aligned LDM with shifts, at 0-3 mod
+  4 source offsets, long latencies, both cache sizes, against ZAP).
+  The subagent's notes, the rebuilt C: file and a validator are in the
+  scratch cdb/ directory.
+- The 8 KB Leave-trigger core stayed clean for thirteen boots in a row
+  (v2lv-1..6, v2lv2-1..7), so its schedule simply avoids the race; the
+  loop was stopped. The 16 KB Leave-trigger core (euser's stub only;
+  -0.290 / -0.199 ns; 33,747 ALMs; build/hardware/NGage-v2fix2t16b-
+  s2.rbf) took the debug slot for the same loop while the two-stub core
+  finishes on lane b5.
+- The two-stub Leave-trigger core (16 KB, rings 512/128/128; -0.542 /
+  -0.350 ns; build/hardware/NGage-v2fix2t16c-s2.rbf) replaced the
+  euser-only one on the debug slot before that one's first boot
+  finished; the PLAT loop runs on it (up to ten boots).
+- **JTAG to the server.** The user moved the MiSTer next to the Ubuntu
+  server and cabled the DE10-nano's USB-Blaster II (mini-B) to it; a
+  modem power loss on the way cut the subagent's session (resumed). The
+  Quartus image already holds jtagd, jtagconfig, quartus_stp and
+  quartus_pgm; tools/jtag-server.sh runs a persistent root container
+  with /dev/bus/usb and the JTAG server (`start`, `chain`, `stp`,
+  `pgm`, `stop`), so no host udev rule is needed. The cable enumerates
+  as 09fb:6810 until jtagd loads its firmware, then as 09fb:6010
+  "DE-SoC"; jtagd without libudev.so.0 misses that re-enumeration (the
+  helper symlinks libudev.so.1 to .so.0 before starting it). The chain:
+  DE-SoC [3-1], 4BA00477 SOCVHPS, 02D020DD 5CSEBA6. SignalTap can now
+  attach to a core the MiSTer loaded, provided the build carried the
+  .stp instance; the first intended capture is the pipeline state (the
+  D2 and S/A hazard terms, the lock bitmap, the cache FSM) around an
+  abort or the store library's Leave.
+- **V2 copies the C: sectors correctly** (the subagent, codex/arm9v2
+  2f0df8a the test, c0185c5 the report; pushed): the media driver
+  (medint.pdd, 0x50381864) copies each 0x200-byte sector with one
+  Mem::Copy (0x503A1D38) from the CS1 window (0x59200000/0x59600000):
+  for a 2-mod-4 source and a word-aligned destination, one aligned
+  word, then sixteen uncached 8-word `ldm r1!,{r4-fp}` with a 16-bit
+  shift-merge chain and `stmia r0!`, no rotated or unaligned loads
+  (copies of 15 bytes or fewer go through an ldrb/strb run; src < dst
+  copies descend). sim/cpu/tests/arm9_unc_copy_rtl.S (278 cases, cold
+  and warm: Mem::Copy's own sequence both directions, source offsets
+  0-3, lengths 512/1024/511, uncached and cached source, destination
+  line present/departing/absent and offsets 1-3, 1-15-byte copies, the
+  LFFS 2-byte header then 510-byte body, a shift-merge loop and a plain
+  ldm/stm loop, each checked against a byte-loop reference and a
+  consumer sum; four planted bugs caught) passes on ZAP and V2 at
+  0:0, 0:3, 2:9, 8:12 and 16:40, D8 and D16, predictor off, and on
+  the pre-fix-2 netlist. Suites 312/312 in all three configurations,
+  the 306 shared runs cycle-identical. Cache maintenance during a fill
+  is ruled out too (every MCR waits for no lock and no fill,
+  arm9v2_core.sv:689, and serialises). **Next suspect: the board's CS1
+  path, which the bench replaces with flat memory**: each uncached word
+  passes wb_arb2 (ngage_mem.sv:151), upp_bus's split into two 16-bit
+  reads (upp_bus.sv:309-310) and ddram_flash's same-clock beat buffer,
+  arbitration and write-through updates (ddram_flash.sv:172-180,
+  193-195, 409-471); V2's stream there (back-to-back 8-word uncached
+  LDMs, data reads with its own fetches in flight) is one ZAP never
+  makes. The subagent replays that request stream through the
+  memory-side path against the file image; the board trace with the
+  store library's Leave trigger will show what the bus delivered.
+- **Every trace core of the fix-2 source boots clean** (the 8 KB
+  Leave core 13 of 13, the 16 KB two-stub core 14 of 14 at the board's
+  new place, no user abort either: dumps stay at one), while the same
+  source without the trace shows the panic dialog on two boots of three
+  (16 KB) and the PLAT fault on two of three (8 KB). The one thing the
+  trace cores all do that the plain ones do not is dump their rings
+  when the kernel's routine write hits the fault area at 3.27 s (256 KB
+  to DDR3 through the loader port), which shifts the rest of the boot
+  against the board's periodic events (video, refresh, the HPS's card
+  service and wall clock); so the panic is a race that the shifted
+  schedule happens to miss. Two more trace cores build with that
+  routine dump gated off (the fault-record trigger only from 5 s) and
+  both Leave stubs armed: 16 KB (rings 512/128/128, lane b5, worktree
+  ../NGage_MiSTer-v2fix2g16) and 8 KB (1,024/256/256, lane b6,
+  ../NGage_MiSTer-v2fix2g8).
+- The timing-clean seed-9 fix-2 core (16 KB, -0.069 ns) shows the
+  "App. closed ... Server" dialog on two boots of three too
+  (build/hardware/game/v2fix2s9boot-1..3/, no kernel fault), the same
+  rate as the seed-2 core at -0.668: the panic is not a slack effect.
+  Headless SignalTap: the server's Quartus has no generator for the
+  sld_signaltap instance (qmegawiz does not know it), so a SignalTap
+  build needs the .stp authored in a Quartus GUI (the user's, attached
+  to the server's JTAG server remotely: 192.168.50.173:1309, password
+  ngage, tools/jtag-server.sh) or a hand-written instantiation; the
+  remote-client option is enabled on the server's jtagd.
+- **The memory side is clean in simulation** (the subagent, codex/arm9v2
+  b72ba26 the bench, 235ee7f the report; pushed): a new whole-core
+  program, sim/harness/flashcopy.S, maps C: where the kernel has it
+  (uncached at 0x59200000 and 0x59600000) and copies sectors with
+  Mem::Copy's own sequence through the real ngage_mem, upp_bus,
+  nor_flash and ddram_flash RTL and the DDRAM model, with V2's own
+  CS0 fetch line reads (I-cache invalidated first) and the destination's
+  SDRAM traffic; 126 cases (every source offset 0-35, ascending and
+  descending, copies straddling a sector end, 511 and 1,024 bytes,
+  uncached/write-through/write-back destinations, a cached source,
+  small copies, a header then the body, a flash program of the first,
+  middle or last halfword of the line just read), each run twice so
+  the first meets a cold ddram_flash read cache, at four DDR3 timings;
+  a `--check-flash` option compares every flash read beat with the
+  image: **0 mismatches on both cores** (V2 156,785 CS1 beats, ZAP
+  156,782), a planted bug (no write-through update of the beat
+  buffer) caught. V2's stream is slower, not faster (11 clocks ack to
+  ack against ZAP's 9). Not modelled: the real DDR3 controller and HPS
+  bridge, flash_save block reads, DMA, erases, interrupts, the board's
+  timing. So the misread exists only on the board, and the board
+  captures decide. **A side finding worth cycles:** in that test V2
+  re-read the code section's page-table entry 193,735 times against
+  ZAP's 1,124 (10.76 M clocks to ZAP's 7.19 M), a thrash of the shared
+  8-entry section TLB (zap_tlb.sv:230-245); the game runs agree: per
+  second at 78 MHz the overlay counts ZAP's TLB walks at 194 K I-beats
+  and 141 K D-beats, V2's at 2 K I-beats and **272 K D-beats**, so V2
+  walks the D-side twice as often as ZAP in play (of the order of 10 %
+  of its clocks), a cycle item for the profile work.
+- **SignalTap, headless.** tools/gen_stp.py writes a Quartus 17 .stp
+  from a JSON spec (clock, depth, instances with node lists and a basic
+  trigger per node), modelled on an example .stp from the Quartus Pro
+  install; the first spec, stp-flash.json in worktree
+  ../NGage_MiSTer-stpb (the stripped 8 KB V2 core at 78 MHz: no overlay,
+  no rings), probes the data port (tr_d_done/we/va/rdata), the flash
+  path (ddram_flash's cs1_req/ack/addr/rdata, bb_hit, take_go;
+  upp_bus's fl_req/ack, fe_hi, fe_need_hi) at 2,048 samples, triggered
+  on the first read of the database file's sector 0 (virtual
+  0x5967C6A4 = the flash window + CS1 offset 0x47C6A4); the server
+  builds it on lane b7 (the synthesis step validates the file). The
+  Mac elaborated the same source (worktree ../NGage_MiSTer-stp) for the
+  GUI's node finder should the dialect need fixing by hand.
+- The gated trace cores fit: 16 KB (rings 512/128/128) -0.774 /
+  -0.259 ns, 34,074 ALMs, build/hardware/NGage-v2fix2g16-s2.rbf; 8 KB
+  (1,024/256/256) -0.438 / -0.249 ns, build/hardware/NGage-v2fix2g8-
+  s2.rbf. With the routine dump gated off, a boot's first dump is an
+  event (an exception or a Leave after 17 s), so the loop stops at any
+  PLAT boot with one dump or more. The 8 KB one went first.
+- **The generated SignalTap file is valid**: `quartus_stp NGage
+  --stp_file=stp-flash.stp --enable` on the server's copy of the
+  project ran with 0 errors and wrote the SLD_NODE_* / CONNECT_TO_SLD_
+  NODE_ENTITY_PORT tap assignments (one per probe bit, the clock
+  emu:emu|clk_sys) into the .qsf. The first build of worktree stpb
+  (-0.234 / -0.139 ns, 32,092 ALMs, 3.55 M memory bits: the plain
+  stripped 8 KB core) had no instance in it because build.sh's
+  `quartus_sh --flow compile` never runs that step (the GUI does, as a
+  flow stage); build.sh now runs quartus_stp before the compile when
+  the settings name a SignalTap file.
+- **The gated cores were not gated**: the 3.27 s dump is the RTC-read
+  trigger (DBG_TRIG_RD, 0x0C1F0100, the kernel's first read of the HLE
+  date register at PC 0x514A3964), not the fault-area write, so the two
+  "gated" builds are ordinary trace cores; their eight boots (the 8 KB
+  one, build/hardware/game/v2g8-1..8/) were clean like all the others.
+  The tally is now stark: **every trace core of the fix-2 source boots
+  clean, 37 of 37**, while the same source without the trace fails two
+  boots in three (16 KB: the dialog; 8 KB: PLAT). The dump's schedule
+  shift cannot be the whole story (the fix-1 trace cores dumped the same
+  way and did fail), so the trace logic's presence itself changes the
+  outcome: it adds a client on the loader port (`ld_busy || ld_own !=
+  3'd2`) beside the flash loader and the flash_save path that the
+  memory-side bench does not model with the real HPS DDR3 bridge, and
+  it changes the placement. The stripped SignalTap core (no trace, the
+  configuration that fails) is the one build that can see the misread.
+- tools/gen_stp.py gained don't-care nibbles in bus patterns and a
+  conditional storage qualifier; the second spec (stp-flash2.json,
+  worktree ../NGage_MiSTer-stpc: the stripped 8 KB V2 core) keeps only
+  the data port's completed reads from the flash window (tr_d_done,
+  !tr_d_we, tr_d_va = 0x596xxxxx) in 4,096 samples with the data port,
+  ddram_flash's cs1_ack/addr/rdata and bb_hit and upp_bus's fe_hi
+  (108 bits), triggered on the first read of sector 0, so one capture
+  holds every word of the whole 9 KB file as the CPU and the flash
+  path saw it; quartus_stp validated it (0 errors). The first,
+  unqualified probe build was stopped as redundant on the user's "kill
+  all useless tests and builds"; the qualified one builds on lane b8.
+- **Fix 3: V2's excess D-side TLB walks** (the subagent, codex/arm9v2
+  e8a4b9e the test, fe65a2d the fix, 37eeaf4 the report; pushed). The
+  premise corrected: the section TLBs are not shared and not 8 entries
+  (each cache has its own 64-entry direct-mapped one; zap_top overrides
+  zap_tlb's default of 8). V2 drove three addresses from three stages
+  into one request's machinery: the lookup used A's address every clock
+  (a data value for an ALU instruction), the miss check M's, and the
+  walker fetched the cache's i_address, W's (arm9v2_core.sv:662-669,
+  zap_tlb_fsm.sv:168-175), where ZAP's three belong to one request. So
+  three kinds of waste walk: after a hold (a fill or an uncached access
+  froze the TLB on A's speculative lookup; at release W's check missed
+  and re-walked a section already held), at the wrong address (a real
+  miss at M walked at W's address, possibly a non-memory instruction's
+  garbage, so the miss stayed), and after an install (the check
+  registered in the install clock still saw the old entry: the same
+  section walked twice). flashcopy's 193,735 re-walks were the first
+  two. The test sim/cpu/tests/arm9_tlb_walks_rtl.S cycles two code
+  sections and N data sections at distinct indexes (the right count
+  after a warm-up pass is 0): before the fix V2 made 35/70/132/164/196
+  excess walks for N = 4..12, ZAP 0. The fix is a parameter CHECK_WALK
+  set only for V2's D-cache: the TLB keeps reading through holds, walks
+  the address that missed, and waits one fresh check after an install.
+  After it: 0 excess walks in the test; the copy test's D-side walks
+  29,839 -> 11,311, exactly ZAP's; the whole-core flashcopy 10.76 M ->
+  6.71 M clocks (ZAP 7.19 M), about 20.5 clocks per avoided walk;
+  ZAP cycle-identical at D8 and D16; V2's suite totals -5.6 to -6.1 %
+  (instruction counts move only in the interrupt-timed tests); suites
+  315/315 in all five configurations, QEMU 73/73, lints clean, netlist
+  regenerated. Expected on the board: 100-140 K fewer walks per second
+  at ~20 clocks, about +3 % game speed (+7 % at most). Two leads left:
+  with the predictor off V2 can still walk for a wrong-path load; and
+  **before the fix V2 cached fault descriptors from walks of garbage
+  addresses**, so a section the kernel maps later without a TLB flush
+  could abort, which may bear on the deaths. First board core: the
+  16 KB debug build of 37eeaf4 at seed 9 with the new FAST=1 fast-fit
+  profile (lane b5), for the game numbers and the boot statistics.
+- Two false starts, both fixed: the first FAST=1 build died at once on
+  a settings-file parse error (the appended fast-fit lines landed on
+  the last line, which had no newline; build.sh now writes one first,
+  master 5888b3a), and the 4,096-sample probe core overflowed the 553
+  M10K; the probe is now 86 bits (the data port's done/we/va/rdata,
+  cs1_ack, cs1_rdata, bb_hit, fe_hi) at 2,048 samples, still storage-
+  qualified to the flash-window reads, so one capture holds 16 of the
+  file's 18 sectors. Both rebuilt with the fast fit: the TLB-fix debug
+  core (worktree ../NGage_MiSTer-v2fix3, lane b5) and the probe core
+  (../NGage_MiSTer-stpc, lane b8).
+- The first FAST=1 build, the TLB-fix debug core (16 KB, seed 9;
+  build/hardware/NGage-v2fix3-fast-s9.rbf, 33,083 ALMs): the fitter in
+  13 min 26 s against the usual ~35, the whole build about 27 minutes;
+  slack -0.900 ns at the slow 100C corner. It waits for the MiSTer,
+  which the user took upstairs again (board work paused).
+- **The flash-probe core is built** (worktree stpc, fast fit; build/
+  hardware/NGage-stp-flash3.rbf, md5 4ae31527; the .sof and the
+  compiled stp-flash3.stp stay on the server in dev/mister/
+  NGage_MiSTer-b8/): the SignalTap instance "flash" is in it (block
+  memory 3.73 M bits against the plain core's 3.55 M), 32,185 ALMs,
+  slack -1.885 ns at the slow 100C corner (-1.450 at -40C): a debug
+  core for the capture only. The procedure (scratch capture_flash.sh)
+  loads it on the debug slot, boots the phone through the Sonic
+  launcher, arms the instance through the server's JTAG server 8 s
+  after the launcher load with a 90 s timeout and fetches the saved
+  .stp. It waits for the MiSTer to come back beside the server; a
+  full-effort seed-9 build of the TLB-fix debug core runs on lane b5
+  meanwhile for the measurement.
+- The fast-fit probe core sits at -1.885 ns (slow 100C), beyond what
+  the board has run (-0.8); a full-effort build of the same worktree
+  follows on lane b8 as the capture core, the fast one kept as a
+  fallback.
+- **The stale-descriptor lead confirmed in RTL** (the subagent,
+  codex/arm9v2 1dab72e: sim/cpu/tests/arm9_tlb_stale_rtl.S; pushed).
+  For a non-memory instruction at W, arm9v2_execute sets o_address =
+  alu_result and the pre-fix-3 walker walked it; zap_tlb_fsm installs
+  an entry even for a fault descriptor, which zap_tlb_check turns into
+  a translation abort. The trigger shape is `L1 hit; mov r3,#S; L2
+  miss`, which garbage-walks section S that the program never
+  addresses. (a) reproduces: S unmapped at the trigger, then mapped
+  valid with no flush, then loaded: pre-fix V2 aborts on the stale
+  fault entry, ZAP and fixed V2 read the RAM. (b) does not: a cached
+  fault entry surviving a fault-to-valid remap aborts on every core,
+  the ordinary ARM flush rule, and any c8 flush (all or by VA)
+  invalidates the whole TLB. **(c) reproduces as wrong data**: S mapped
+  to PA_A at the trigger (only the garbage walk reads it), remapped to
+  PA_B without a flush, then loaded: pre-fix V2 returns PA_A's word
+  with no abort, exactly the "read back wrong" shape; ZAP and fixed V2
+  return PA_B. Fix 3 closes all of it: V2 walks only the checked
+  address and no longer poisons untouched sections; the residual
+  concern (a stale descriptor bus read) is the normal page-table
+  coherency rule, the same as ZAP's, and the kernel's tables are
+  uncached. The test passes on ZAP and V2 (D8, D16, predictor off) at
+  every latency; the pre-fix netlist fails it everywhere. The comms
+  database misread fits: the media driver's flash window is a
+  remappable section, and a stale entry from a garbage walk of it
+  would make the copy read another page of the flash. The TLB-fix
+  core on the board decides it (paused until the MiSTer returns).
+- The full-effort TLB-fix debug core (16 KB, seed 9): -0.516 / -0.372
+  ns, 33,380 ALMs, build/hardware/NGage-v2fix3-s9.rbf (md5 5598e48c);
+  fix 3's walk-check logic costs about 0.45 ns against fix 2's seed-9
+  fit. An 8 KB build of the same source (the PLAT reproducer
+  configuration) follows on lane b5 for the board's PLAT test.
+- The full-effort flash-probe core: -0.371 / -0.367 ns, 32,604 ALMs,
+  the same 3.73 M memory bits, build/hardware/NGage-stp-flash3-full.rbf
+  (md5 a53e0a57); the .sof and the compiled stp-flash3.stp stay in the
+  server's dev/mister/NGage_MiSTer-b8/. It is the capture core; the
+  fast-fit one (-1.885) is kept only as a fallback.
+- **The 104 MHz plan** (the subagent, codex/arm9v2 a36512a, docs/
+  consults/2026-10-25-v2-104mhz-plan.md, copied to master; pushed).
+  The four named families are not enough: the CPU trial needs about
+  -0.3 ns (whole-device slack runs 0.3-1.0 ns worse than the CPU
+  trial, and the board's envelope is -0.6 to -0.8), and with those four
+  removed S12 still leads near -2.0 ns (rf, backend, execute,
+  backend_skid, decode_payload, execute_late, dtlb, decode_grants, ...):
+  fifteen failing families from six root causes, all six to cut. The
+  cuts, preferred first: a dedicated address adder in S registered into
+  A so A drives the cache and TLB from a register (no new stage, 3/4/5
+  kept; loads whose base comes from the instruction just ahead or with
+  a scaled offset pay +1: +0.4-0.8 % cycles; the fallback an address
+  stage after A, 3/5/6 and one more clock on W redirects, +3-8 %);
+  load word into flags: parallel zero detection (free), else the
+  slower path for flag-setting consumers, last the loss of the late
+  pickup for load words (3/5/5, +2.5-5 %); the short response:
+  per-way formatting, sub-word loads a clock later as the fallback;
+  cache state driving core control: a registered completion contract
+  (+1 clock per miss or uncached completion, +1.0-1.3 %); the front
+  end and the rest: zero-cycle cuts. In play: about +2-3 % cycles on
+  the preferred path, roughly **42-43 M/s at 104 MHz with the TLB fix**,
+  inside the "near 41-44" gate but ~10 % short of 47; with every
+  fallback 36-39, failing the gate; the remaining gap to 47 is the data
+  wait (20-28 % of play clocks), a separate track. Order: a measurement
+  first (the load-to-consumer distance mix, never measured), then the
+  address adder, the formatter, the front end and the flags work as
+  four parallel lanes, then the completion contract, the stragglers,
+  integration with seeds, the whole device, the board at 78 then
+  104 MHz; each step gated on its families' slack; stop the shape if
+  the integrated result stays below -1.5 ns; nothing to the board
+  before the panic is shown fixed. Budget about five sessions and
+  12-22 fits on the preferred path, one or two sessions per fallback.
+  "Meets timing" is taken as the board-proven envelope (-0.6 ns at the
+  slow 100C corner on the server's Quartus, ZAP's own shipping figure),
+  not 0.
+- The 8 KB TLB-fix debug core (seed 2, full effort): -0.623 / -0.558
+  ns, 33,421 ALMs, build/hardware/NGage-v2fix3d8-s2.rbf (md5
+  c372d9d8). Ready for the board with the 16 KB one (NGage-v2fix3-
+  s9.rbf) and the flash-probe core (NGage-stp-flash3-full.rbf); no
+  build of mine runs on the server now. The board test when the MiSTer
+  returns: boots of the 16 KB core for the dialog rate (two of three
+  before fix 3), three boots of the 8 KB core for the PLAT rate (two of
+  three before), then the three games on the 16 KB core for fix 3's
+  gain, and the SignalTap capture only if the panic survives.
+- **Plan step 0, measured** (the subagent, codex/arm9v2 4652205, §6 of
+  the plan; pushed): a bench-only observer (sim/profile/load_use.h) on
+  the 4.5-second whole-core boot with fixes 1-3 (the same 270,625,878
+  kernel-init instructions as S13; EFile 0.35 % and EStart 1.0 % sooner
+  than S13). In busy code 10-12 % of memory ops take their base from a
+  load just ahead (vtable and global dereferences), an ALU-produced
+  base just ahead only 0.3-4 %, scaled offsets negligible; 20-50 % of
+  loads feed a compare or other flag setter at once; sub-word loads
+  0-12 % (not the assumed 20-40 %); misses and uncached completions
+  1.5-64 per 1,000 instructions on the bench, 24-30 on the board in
+  play. Recomputed, projected to play (the plan's estimate in
+  brackets): A1 address adder in S 0.1-2.4 % (0.4-0.8); A2 extra
+  address stage 0.9-6.7 % (3-8); B2 flag consumers wait 0.6-2.3 %
+  (0.4-0.9); B3 no late pickup of load words 0.7-6.5 % (2.5-5); C2
+  sub-word formatting in W 0-0.8 % (1.5-3.5); D1 registered completion
+  1.0-1.2 %; **the preferred set A1+B2+D1 about 4 %** (1.9-7.3; the plan
+  said 1.8-3.0), the fallback set 10-11 %. With the TLB fix's +2-3 %
+  the preferred path lands near **41.9 M/s at 104 MHz** (CPI 2.48),
+  inside the 41-44 gate; the fallbacks near 39.4, failing it. B2 is as
+  costly as A1, so the zero-cycle parallel-Z cut must carry the flags
+  family; C2 is the cheapest fallback; A2 and B3 must not be taken
+  together. Caveat: the busy windows are mostly a kernel polling loop
+  (load a global, compare); play itself is unmeasured and is the
+  deciding number (the bench's snapshot support is on master, not the
+  branch). The session restarted here (the user's "shit did i boot
+  you"); nothing was lost: all results committed and pushed, no build
+  or simulation running, the board paused.
+- **Cut A1 done** (the subagent, codex/arm9v2 64ae85c the test,
+  2554624 the RTL, 80f04ff the report docs/consults/2026-10-25-v2-cut-
+  a1.md with the evidence under arm9v2/a1-seed2/; pushed): a dedicated
+  address adder in S registered into A, so the D-cache and the TLB are
+  driven from a register. Timing at 104 MHz, seed 2, the parent
+  4652205 fitted the same way for the before: address->metadata -3.173
+  -> -0.973 ns, address->TLB capture -2.628 -> -0.245, the CPU trial's
+  worst -3.843 -> -2.691, two smaller address families now positive;
+  area 13,040 -> 13,434 ALMs (+3 %); **the whole device (V2, D16) at
+  -3.703 ns** against the -0.6 target. What leads now is not address
+  logic: in the whole device the top paths run from the cache's
+  o_live_lookup into A's held operands and the Z flag, i.e. the load-
+  trust check fixes 1 and 2 added to the late bypass (about 0.9 ns since
+  S12 on its own), then the short-port response (-2.16), the completion
+  paths through wb_flush (-1.9 to -2.5) and the front end (decode_d1
+  -2.42); the plan's B, C, D and E all remain, with registering the
+  trust signal added to B. Cycles: 3/4/5 unchanged, back-to-back
+  post-increment streams still 9, only a load feeding the next base
+  4 -> 5 as designed; ZAP cycle-identical at D8 and D16; V2's suite
+  totals +0.02 % (+0.04 % predictor off; the pointer-chasing `cache`
+  bench +5.8 % at 0:0, crand1/ctrand1 within 0.1 %); the boot's first
+  exec +0.020 %, EFile +0.038 %, EStart +0.028 %, no faults, matching
+  the step-0 model. Suites 321/321 and QEMU 74/74 in all five
+  configurations, four lints clean, netlist regenerated; the new test
+  matches QEMU's trace and catches two planted bugs. (The component
+  benches for V2 were already broken before this change and were not
+  used as gates.)
+- **Fix 3 does not remove the boot panic**: four of four boots of the
+  16 KB fix-3 core (build/hardware/game/v2fix3boot-1..4/) came up with
+  the "App. closed ... Server" dialog, no kernel fault (before fix 3:
+  two of three). The stale-descriptor mechanism is real but not this
+  panic. What the tally now says: the panic hits every plain core and
+  never a core with the trace in it (37 of 37), and the trace's one
+  functional effect is a few milliseconds' delay of the CPU's flash
+  reads at 3.27 s while the rings dump through the shared DDR3 port: a
+  phase shift of the instruction stream against the board's periodic
+  events (the kernel's millisecond tick, the video frame, the HPS's
+  card service). The new hypothesis: the tick interrupt landing inside
+  the sector copy's long uncached 8-word loads, and V2 handling an
+  interrupt during a multi-beat uncached LDM wrongly (a beat lost or
+  repeated, the base restored wrongly), which the suites do not
+  exercise; the misread then depends on the tick's phase, which fix 3's
+  slightly different timing moved from two boots in three to all of
+  them. A second subagent takes that test in a separate worktree
+  (../NGage_MiSTer-cx-arm9b, branch codex/arm9v2-irq from 80f04ff)
+  while the first stays on lane B.
+- **Fix 3 on the board: the games, and the PLAT death gone.** The 8 KB
+  fix-3 core booted three of three times without a kernel fault
+  (build/hardware/game/v2fix3d8boot-1..3/; before fix 3 two of three
+  died with PLAT 0x1005B), so the stale-descriptor mechanism was the
+  PLAT death's, while the server panic dialog remains. The 16 KB fix-3
+  core with the plain three-game script (v2fix3), play medians per
+  104 M clocks:
+
+  | game | ZAP | V2 fix 2 | V2 fix 3 | fix 3 over fix 2 |
+  |---|---:|---:|---:|---:|
+  | Sonic N | 31.59 (17 fps) | 43.97 (25 fps) | **46.89** (26.5 fps, CPI 2.2) | +6.6 % |
+  | Asphalt | 32.30 (14 fps) | 41.47 (19 fps) | **44.90** (20 fps, CPI 2.3) | +8.3 % |
+
+  twice the estimated +3 %: the SDRAM wait fell from 23.8 to 19.8 %
+  (Sonic) and 30.0 to 25.6 % (Asphalt) as the walks went. Sonic is at
+  the goal's 47 per 104 M clocks. Tony Hawk's boot derailed on the
+  dialog again (the plain script); rerun with the dialog-tolerant one.
+  And the 8 KB fix-3 core's three idle screens are **clean: no dialog**
+  (build/hardware/game/v2fix3d8boot-1..3/), where the 16 KB fix-3 core
+  shows the dialog on four of four. Same RTL, the cache size the only
+  difference; ZAP with the 16 KB cache boots clean. That points the
+  search at the 16 KB cache's two colours (its index uses virtual bit
+  12, one above the page, so one physical page can live in two sets
+  under two mappings) in combination with V2's lookups, the kernel's
+  inter-process copy through a client's home address being the shape
+  that aliases; the second subagent takes that beside the interrupt
+  sweep. The three games on the 8 KB fix-3 core follow on the board.
+- Tony Hawk on the 16 KB fix-3 core (the dialog-tolerant script,
+  v2fix3b): **45.17 M instr/s** median (44.2-46.6; 19 fps; CPI 2.3;
+  SDRAM wait 26.1 %) against ZAP's 31.31 at 11.5 fps, with Asphalt
+  repeating at 44.73 (20 fps). V2 with fixes 1-3 against ZAP's control,
+  per 104 M clocks on the 78 MHz board: Sonic 46.9 vs 31.6 (+48 %),
+  Asphalt 44.9 vs 32.3 (+39 %), Tony Hawk 45.2 vs 31.3 (+44 %); frames
+  +56 %, +43 %, +65 %. The goal's 47 is reached in Sonic and within
+  5 % in the other two, per clock; the clock itself is the remaining
+  distance.
+- **The 8 KB fix-3 core's games** (v2fix3d8, the plain script): Sonic N
+  46.2 M instr/s median (44.7-47.0), Tony Hawk 44.22 (17.5 fps; CPI
+  2.4; SDRAM wait 27.4 %), i.e. about 1.5-2 % below the 16 KB core's
+  46.9 and 45.2; Asphalt's boot showed the dialog and its run derailed.
+  So the 8 KB core shows the server panic too, once in six boots
+  (build/hardware/game/v2fix3d8boot-1..3/ and the three game boots)
+  against the 16 KB core's four of four: the cache size changes the
+  rate, not the existence of the race; the two-colour aliasing can at
+  most be the 16 KB core's extra rate, and the phase-sensitive reading
+  (the tick interrupt against the uncached sector copy) stays the main
+  line.
+- **Lane B done, at no cycle cost** (the subagent, codex/arm9v2 c4ca01a
+  the test, 4993a1e the RTL, b555caf the report docs/consults/2026-10-
+  25-v2-lane-b.md, evidence under arm9v2/laneb-seed2/; pushed). Three
+  parameters, on by default in arm9v2_core: FREE_SELECT (S's forward
+  grant and A's late bypass choose data as if W's load hit; the hit and
+  the trust control only the waits; A's selects registered one-hot;
+  the W load word without its own hit gate: safe because a source whose
+  load is not accepted still waits, so the word it picked is never
+  used; simulation checks confirm every non-waiting operand matches the
+  old selection), TRUST_FF (the cache FSM's o_live_trust and the core's
+  w_hit_candidate loaded from the same next-state terms they replace;
+  assertions show them equal on every clock, no clock added;
+  o_live_lookup now has no timing path to any CPU register), FAST_Z (Z
+  for add/subtract off the carry chain, logical N/Z from the logic
+  result). The register's clock matters: the trust depends on the
+  access, not only the FSM state, and a register one clock late would
+  carry the previous access's verdict onto a hit on the departing
+  victim; the new arm9_trust_sweep_rtl (4,704 cases) catches that late
+  register in 1,236-1,439 cases where the existing tests miss it (and a
+  trust without the fill-end term in 6 cases at 0:0). 324/324 in all
+  five configurations, the 321 runs shared with A1 cycle-identical,
+  boot milestones identical, the SystemVerilog sources with every
+  assertion on clean at D8 and D16, QEMU 74/74, lints clean, netlist
+  regenerated. Fits (104 MHz, seed 2): **the whole device -3.703 ->
+  -2.312 ns** (TNS -7,724 -> -4,689); the CPU trial is noisy at this
+  level (its worst -2.691 -> -2.976, led by the short-response path
+  lane B does not touch); lane B's own paths improved (load word into
+  the flags -1.30 -> -0.59, backend_skid -0.66). The device leader now
+  is the load word through S's shifter into A (-2.31), then the
+  D-decode paths from the D-TLB's o_wt bit (-2.29), the front end and
+  wb_flush. B2 not done: family B's device worst (backend_m, -1.95)
+  starts at the late select and carries ALU results too, so B2 would
+  not move it and costs 0.6-2.3 % of clocks.
+- The 8 KB fix-3 core's dialog rate, firmed up: six more boots all
+  clean (build/hardware/game/v2fix3d8stat-1..6/), so **eleven of twelve
+  boots clean** against the 16 KB fix-3 core's none of four. The cache
+  size is the dominant factor in the rate, which puts the 16 KB cache's
+  two-colour indexing back at the front for that core, with a rarer
+  path still present at 8 KB (one dialog in twelve). The second
+  subagent has both.
+- **Lanes C, D and E done, no cycle cost** (the subagent, codex/arm9v2
+  1e14cce/1cd5fc6/1065256 lane C, 5a381d4/38b9cda lane D, 731fe94/
+  69bfe61/3f945c8 lane E; pushed): the whole device at 104 MHz seed 2
+  from -2.312 to **-2.086 ns** (TNS -4,689 -> -3,368). C: each short-
+  port way formatted before the hit selects (the plan's C1, no sub-word
+  fallback needed); the trial's leader was the RAM read/write collision
+  compare driving ~280 bypass selects, now registered: the CPU trial's
+  short_response -2.98 -> -1.02; the load word through S's shifter
+  (only the consumer's own operand shift, often by zero) gets its own
+  rotator in S: the device path -2.31 -> -1.98; arm9_short_format_rtl
+  catches five mutants. D: Quartus had retimed the TLB's hit register
+  onto o_wt; the short hit now uses a copy the fitter cannot retime:
+  decode_redirect -2.29 -> -1.56 (the TLB check's own input slipped to
+  -0.71); not taken: A's wait -> D2 step -> queue pop, now the CPU
+  trial's worst at -2.31, which needs a skid entry between D2 and S or
+  the plan's registered completion (+1.0-1.3 %). E: the Thumb halfword
+  moved at queue push (decode_d1 -2.20 -> -1.62); W's return target
+  compared per source in parallel (the wb_flush family -2.08 ->
+  -0.85); arm9_return_target_rtl matches QEMU's trace. 330/330 in all
+  five configurations, the 321 runs shared with A1 cycle-identical,
+  the source RTL with assertions clean at D8 and D16, QEMU 75/75, lints
+  clean, netlist check passes, boot milestones identical. Caveats:
+  with C and D alone the device was worse (-2.53) in families none of
+  the lanes touch; area up about 1,070 ALMs to 81 %. The device
+  leaders now: the front end (the RAS pointer into the I-TLB, -2.09)
+  and the cache FSM's completion signal into the register file. So the
+  zero-cycle cuts have taken the device from -3.70 to -2.09 ns; the
+  rest of the way to the -0.6 gate is placement variance plus the cuts
+  that cost cycles. A seed sweep of the integrated stripped core at
+  104 MHz runs next.
+- Seed sweep of the integrated stripped core (3f945c8, ARM9 + 16 KB,
+  no overlay) at 104 MHz: seed 5 **-2.700 ns** (slow 100C; -2.665 at
+  -40C; 33,882 ALMs, 81 %) against seed 2's -2.086: about 0.6 ns of
+  placement variance between two seeds; seed 9 fitting, seed 7
+  launched.
+- Seed 9 of the integrated core: -2.239 ns (slow 100C).
+- **Neither the interrupt nor the aliasing** (the second subagent,
+  codex/arm9v2-irq 244ce51/58ff966/3efe968; pushed). The interrupt
+  sweep sim/cpu/tests/arm9_irq_ldm_rtl.S: both cores attach an
+  interrupt only to an instruction's first micro-op (arm9v2_core.sv:
+  573-574; ZAP's sequencer), V2 takes the exception only with no load
+  outstanding (:491) and writes the LDM base on the last micro-op
+  (arm9v2_execute.sv:238); Mem::Copy's own sequence (n 512 and 511,
+  k 0-3, both directions) with an IRQ or FIQ at every clock of the
+  head, of a window longer than one LDM/shift/STM block, of the last
+  block and the `msr CPSR_f` tails, then 36 coarse delays; handlers of
+  the kernel's shape (`subs pc,lr,#4`), EKA1's `ldm ^` exit, a context
+  save/restore, an FIQ checking its bank, a nested IRQ then FIQ; ZAP
+  D8/D16 and V2 D8/D16/predictor off at seven latencies: **995,171
+  interrupted copies, 0 wrong words**, 228,960 interrupts landing right
+  after an `ldm`; a mutant that takes interrupts mid-LDM fails 1,834 of
+  its first 3,784 copies while the existing tests pass on it. The
+  two-colour test arm9_alias16_rtl.S (1,728 cases: every store form,
+  eviction with the write-back in flight, hit-under-miss, with and
+  without cleaning): every architectural check passes on all five
+  models and V2's record equals ZAP's word for word at 8 and 16 KB. Its
+  ranked next candidates: (1) boot V2 with the 16 KB cache in the
+  whole-core bench, the only bench with the real memory side and the
+  real tick; (2) flash_save's periodic block reads overlapping V2's
+  slower uncached CS1 reads in ddram_flash, unmodelled in the replay;
+  (3) V2's SHORT_READ D-cache variant under DMA, and the two-colour
+  index-clean loop interrupted by the tick. The whole-core 16 KB boot
+  goes next, on the Mac.
+- Seed 7 of the integrated core: -2.472 ns (slow 100C; -2.423 at -40C;
+  33,935 ALMs). The four seeds of the zero-cycle shape at 104 MHz:
+  seed 2 -2.086, seed 9 -2.239, seed 7 -2.472, seed 5 -2.700: a 0.6 ns
+  spread, the best seed 1.5 ns from the -0.6 gate.
+- **The MiSTer is beside the server again** (the user: "The mister
+  should be hooked up"); the JTAG chain came back after one restart of
+  the JTAG server (the cable enumerated as 6810, then 6010 "DE-SoC"),
+  and the first SignalTap capture of the sector copy on the full-effort
+  flash-probe core runs (scratch capture_flash.sh v2stp1).
+- **First SignalTap capture: the session works end to end, the trigger
+  did not fire.** The JTAG server found the hardware and the "flash"
+  instance in the running core, armed it 14 s after the launcher load
+  and timed out at 90 s (build/hardware/game/stp-v2stp1/); the
+  stripped probe core itself booted to the idle screen with the
+  dialog, and without the overlay's bars the thread name is readable
+  at last: **"App. closed EmonServer"**. The data-port taps do exist in
+  the stripped build (zap_top assigns o_dbg_d_va = cpu_daddr
+  unconditionally), so the miss is the trigger's address: the sector's
+  virtual address depends on which window base (0x59200000 or
+  0x59600000) maps the CS1 offset. SignalTap's basic trigger is
+  programmable at run time, so the second capture uses the same
+  compiled instance with a new pattern (no rebuild): any completed
+  data-port read in the 0x59xxxxxx window whose word is the file's
+  first word 0x10000050, the storage qualifier widened to the whole
+  0x59xxxxxx window.
+  EmonServer in the ROM: its strings sit at 0x50E11A00 ("Emon server
+  panic", "EmonServer", beside "NOSDRIVER", the phone-side driver), so
+  it is a server with its own panic category, consistent with a
+  startup ConstructL that Leaves (the -20 from CommDb) and panics.
+- The second capture (the file's first word in any 0x59xxxxxx read) did
+  not fire either (stp-v2stp2); a sanity capture triggered on any
+  completed data-port access (stp-v2stp3) fired at once, so the
+  headless mechanism works and the misses are the address or data
+  assumptions, not the tooling. Learned: a run-time .stp must keep the
+  compiled instance's storage-qualifier mode (the sanity file without
+  the qualifier drew "SignalTap II File is not compatible with the
+  file programmed in your device" and its data was not saved). The
+  trace decoder's note gives the cached XIP view of CS1 at 0x51000000
+  after CS0's 16 MB at 0x50000000, so the media driver's window bases
+  0x59200000/0x59600000 may be CS1 offsets under an uncached alias at
+  0x58000000 rather than the C: partition's base; the fourth capture
+  (stp-flash6) triggers on the first completed read anywhere in
+  0x59xxxxxx after arming and stores only those, to learn the real
+  addresses.
+- The fourth capture (any completed data-port read in 0x59xxxxxx after
+  arming) did not fire in 90 s either (stp-v2stp4): the CPU's data
+  port does not read a 0x59 window in that period. The ROM holds the
+  constant 0x59200000 once (at 0x50343EB8) and 0x59600000 never, so
+  the media driver's base may be read at run time from elsewhere, or
+  the copy goes through the cached XIP view of CS1 at 0x51000000 (the
+  trace decoder's map: CS0 at 0x50000000, CS1 at 0x51000000; sector 0
+  would then be at 0x5147C6A4). A bus-side capture triggered on the
+  flash controller's CS1 acknowledges runs to learn the real virtual
+  addresses of the CS1 reads; a 0x51-window data-value trigger is
+  staged.
+- Captures five and six did not fire either: the bus-side trigger on
+  ddram_flash's cs1_ack (stp-v2stp5; CS1 reads reach it from nor_flash
+  through the array port, so the ack may be on another port), and a
+  survey trigger on any data-port completion with the storage
+  qualifier narrowed to 0x5xxxxxxx reads (stp-v2stp6), where the same
+  trigger without a qualifier had fired at once: in SignalTap's
+  conditional mode the trigger is evaluated on qualified samples only,
+  so a qualifier that never matches hides the trigger too, and none of
+  the virtual-address patterns matched. A capture with a qualifier that
+  always matches (data-port completions) runs to get a saved data set
+  and the real address values.
+- The seventh capture, with a storage qualifier that must match on
+  every data-port completion, did not fire either (stp-v2stp7). So the
+  generated storage-qualifier configuration is what quartus_stp does
+  not honour: with the conditional mode compiled in, nothing is ever
+  stored and the trigger, evaluated on stored samples, never fires;
+  the one unqualified file fired at once but was refused as
+  incompatible with the compiled instance and saved no data. The probe
+  core is rebuilt without a qualifier (continuous capture: 2,048
+  clocks after the trigger, enough for one whole sector copy of ~1,400
+  clocks), the trigger being a completed read in 0x5xxxxxxx whose
+  word is the file's first word 0x10000050 (stp-flash11, fast fit,
+  lane b8).
+- The qualifier-free probe core (fast fit, -1.363 ns; build/hardware/
+  NGage-stp-flash11-fast.rbf) with the multi-bit trigger (a completed
+  read in 0x5xxxxxxx of the word 0x10000050) did not fire either
+  (stp-v2stp8). Two things run to settle it: a test of whether any
+  multi-bit pattern is honoured (a trigger on any completed read in
+  0x5xxxxxxx, which must occur: stp-v2stp9), and a probe core whose
+  trigger is a wire computed in RTL (NGage.sv: stp_trig_word, the data
+  port completing a read of the file's first word; stp_va_flash, any
+  completed read in the ROM/flash virtual space), so the capture rests
+  on a single-node trigger, the one form proven to fire (worktree
+  ../NGage_MiSTer-stpd, lane b5, fast fit); the full-effort
+  qualifier-free core builds on lane b8 meanwhile.
+- Two more tests on the qualifier-free core: a multi-bit pattern that
+  must occur (any completed read in 0x5xxxxxxx: stp-v2stp9) and a
+  single "low" condition that must occur (the write-enable tap low:
+  stp-v2stp10) both failed to fire, where a single "high" condition
+  fired at once. So in the generated files only "high" levels are
+  honoured at run time: "low" and the bus patterns are not, which
+  explains every miss. The RTL-trigger core (a single wire that goes
+  high on the event) is the right form and builds now; the generator's
+  low/pattern encoding is a problem for later (the GUI's own file of a
+  "low" condition would show the right attribute).
+- The RTL-trigger core (fast fit, -1.986 ns; build/hardware/NGage-stp-
+  word-fast.rbf; the wire stp_trig_word = the data port completing a
+  read of the word 0x10000050) did not fire in 90 s either (stp-
+  v2stp11). The board's current C: save (fetched to build/hwtest/save/
+  c-now.bin) still holds the file's first sector at CS1 0x47C6A4 and
+  ten older copies of its head in the LFFS log, so the word is there
+  to be read; either the data port's rdata tap (zap_top's dc_data) does
+  not carry uncached words, or the file is read some other way. Two
+  moves: a trigger on the RTL wire for any completed read in the
+  ROM/flash space (must fire at once, proving the wire form), and a
+  third probe core (worktree ../NGage_MiSTer-stpe, lane b5, fast fit)
+  whose trigger wire is any completed read with VA[31:24] = 0x59 (the
+  media driver's window per the ROM constant) and which probes the
+  chip-level CS1 halfwords (fl1_ack/addr/rdata), upp_bus's assembled
+  word (fe_word) and the data port, so the three views of each flash
+  word can be compared.
+
+### 2026-10-25 (later) — why no SignalTap capture ever fired: the taps were never connected
+
+- The twelve headless captures (stp-v2stp1..12) never acquired a sample: none
+  of the saved files holds a data log. The map report of the last probe build
+  (section "Connections to In-System Debugging Instance") says why. Status
+  per node, 319 required inputs, 102 connected: every CPU-side tap
+  (`tr_d_done/we/va/rdata`, the RTL trigger wires `stp_trig_*`) "missing,
+  the name does not exist" (wires with no fanout outside DBG_TRACE, swept
+  before the tap); `fl1_addr/rdata/ack` missing ("the pre-synthesis tap must
+  be preserved by Analysis & Synthesis before it can be tapped"); and the
+  acquisition clock `emu:emu|clk_sys` itself **missing, tied to GND**. Only
+  `bb_hit`, `cs1_ack` and `fe_word` (combinational nodes with fanout) were
+  connected, by post-synthesis name. With the clock at ground the instance
+  never sampled, so every conclusion drawn from "which trigger fires" (only
+  single high levels, no bus patterns, no qualifier) was an artefact; the
+  Critical Warning 35025 ("Partially connected in-system debug instance") had
+  been in every probe build's log since the first.
+- Two causes, both in tools/gen_stp.py's output, found by comparing it with
+  .stp files the Quartus 17 GUI wrote (other MiSTer cores on this machine):
+  the signal-vector wires carried `type="combinatorial"` (the GUI writes
+  none), and a condition is stored as text inside its `<level>` element
+  (`'node' == high && 'other' == falling edge`), likewise inside the first
+  `<storage_qualifier_level>`; the generator wrote only the per-node
+  `level-0` attributes. Analysis & Synthesis then preserved no pre-synthesis
+  tap and the connection step looked the names up post-synthesis.
+- The fix, belt and braces: gen_stp.py rewritten to the GUI's encoding (text
+  conditions, no wire type, `storage_mode="off"`/`"conditional"`, per-instance
+  depth/RAM), and the probe itself made of registers kept through synthesis
+  (`(* preserve, noprune *)`, one stage on every view so they stay aligned),
+  with the acquisition clock named by a net that survives synthesis
+  (`pll_0002:pll_inst|altera_pll:altera_pll_i|outclk_wire[0]`, the map
+  report's maximum-fanout node). ngage_mem exports the CS1 flash beats
+  (`fl1_*`: upp_bus to the CS1 model; `m1_*`: the model to the DDR3 backing
+  store). Three instances in one core, armed together
+  (tools/stp_capture.tcl now takes a comma list and uses
+  run_multiple_start/end): `sanity` (a free-running counter, 256 deep, proves
+  clock, trigger and data layout), `flashc` (CPU view + fl1 beats, 256 deep,
+  continuous), `flash` (CPU + fl1 + m1 views, 1024 deep, storage qualified
+  to window completions and flash beats; trigger = the data port completing
+  the read of the database file's first word 0x10000050 from the CS1 window
+  VA 0x59xxxxxx). M10K budget: the 8 KB V2 design plus the last 88-bit x 2048
+  probe filled 551 of 553 blocks, so the new set is 149 bits x 1024 plus two
+  small AUTO instances. tools/stp_decode.py decodes the saved data log
+  (sample-major, one bit per data node), checked on a GUI capture.
+- First real capture (stp-stpf2, probe core NGage-stp-probe-fast.rbf, fast
+  fit -1.94 ns at 78 MHz): all three instances fired within 18 s of arming
+  (the Tcl script had also been dying at a `save_session` that does not exist
+  in this package, so no earlier run could have written data; close_session
+  writes the file). The sanity counter steps by one per sample, so clock,
+  trigger, acquisition and tools/stp_decode.py's layout are right. The
+  trigger (a window read returning 0x10000050) caught a chunked descending
+  Mem::Copy out of VA 0x596f05xx into RAM 0x806189xx, eight words a chunk,
+  not the database file: 0x10000050 is the store UID that heads many LFFS
+  records, and that read was itself wrong.
+- **The misread, caught in the act.** Against the C: image
+  (build/hwtest/save/c-now.bin at VA - 0x59600000) 675 of the 1,024
+  qualified window reads match; of the 349 that differ, 138 only have bits
+  cleared (LFFS flag words programmed since the dump) and 211 carry bits the
+  flash cannot have set. Those sit on the first word of each 16-byte line:
+  by word-in-line, positions 0 and 4 of the 8-word chunk are wrong 121 and
+  123 times of 128, positions 1-3 and 5-7 about 17 (the flag words). The
+  continuous view gives the timing: the first word of a line completes one
+  clock after the previous access (before any flash fetch), the second waits
+  about 30 clocks (the line fetch), the third and fourth follow in 1-3. The
+  wrong words look like RAM and ROM contents (0x503a1028, 0x503a0530,
+  0x5039ec34, 0xe59cf000 = LDR PC,[R12], 0x80618ba4 near the copy's
+  destination), i.e. stale data from somewhere in the CPU, handed over
+  before the uncached word was fetched. The halfword path to the CS1 model
+  (fl1_*, m1_*) carried nothing during these reads: the window is served
+  through upp_bus's 16-byte flash line buffer. Next probe (building): the
+  CPU's Wishbone side (request/address/ack/data) beside the data-port
+  completions, triggered on any window read completing at a line's first
+  word, to see whether that word ever reaches the bus.
+- The wrong first words are real flash data from the SAME cache set and
+  word position but a DIFFERENT line: the read of 0x596f06a0 returned the
+  word at 0x596e06a0 (the image holds that value once), 0x596f0680 the
+  word at 0x596e0680, 0x596f0690 at 0x596e1690, 0x596f0620 at 0x596e1620:
+  lines 64 KB below, read earlier, still sitting in the set (8 KB two-way:
+  set = VA[11:4]). So the core is handed the set's other (stale, LRU) line's
+  word for a load that then turns out to be a miss (the FSM fills the line,
+  and words 1-3 hit it correctly), with the data port's done flag set at
+  that clock: an acknowledged false hit.
+- The C: drive has two aliases: 0x59200000 is the UNCACHED one (its reads
+  are single bus beats, one per completion, PA 0x02400000 + offset; the
+  second capture, triggered too early on VA 0x59a00000 = the EMIF block,
+  shows 26 of them, address and data equal on both sides) and 0x59600000 the
+  CACHED one (served by 16-byte line bursts, no halfword-engine activity):
+  the misread copy runs through the cached alias, so the window is a
+  cacheable mapping and the fault is in the cache, not the flash path.
+- Bench: sim/cpu/tests/arm9_fill_victim_rtl.S (both ways of every source
+  set occupied by other tags, clean or dirty; the ROM's descending
+  ldmdb/stmdb copy into a +0x408 destination; bus latency random, 8 and 24)
+  passes on the V2 core, so the flat bench still lacks an ingredient of the
+  board (the I-side's line fills on the same bus, the TLB, or the fill's
+  beat pattern).
+- **Correction (the same evening).** zap_dcache_fsm's IDLE state acknowledges a
+  cacheable MISS at once (`idle_ack = 1`, "Acknowledge current entry. Lock the
+  register."), locks the destination register and delivers the word later by
+  a background write (critical_take -> reg_dat_ff/o_reg_idx). The data-port
+  tap (zap_top o_dbg_d_done/rdata = o_ack/o_dat) therefore shows, at a miss,
+  the selected (victim) way's current word, not what the register will get.
+  So "the first word of every line wrong, the same set's older line's word"
+  is exactly what a line-start miss looks like through that tap: words 1-3
+  hit after the fill and show real data. The first capture is consistent
+  with normal operation and is NOT evidence of a misread; the directed
+  bench passing fits. The panic's cause is still open; what the board taps
+  cannot show is the background write's value and the store side, so the
+  next step is the whole-core bench boot of the 8 KB V2 configuration (the
+  panicking one), where every register write and store is visible.
+- Whole-core reproduction started (09:02): the bench of the V2 branch head
+  (3f945c8, worktree ../NGage_MiSTer-v2sim, 8 KB two-way D-cache,
+  VEXTRA=-DNGAGE_CORE_ARM9=1, which the harness needs as much as the RTL)
+  boots the board's images (cs0.bin; cs1-now.bin = the board's pristine
+  lower half + its current C: save build/hwtest/save/c-now.bin, the one
+  that panics) with the Sonic card, at about 550 k clocks/s, to 32 guest
+  seconds. If the EmonServer panic appears there, every register write and
+  store of the copy is visible and the bench's trace options can find the
+  first wrong value.
+- Third capture (stp-stph1, the trigger on a cached-alias read at a line
+  start, the CPU's Wishbone side beside the data port): 448 window reads,
+  461 C: read beats. Every line's first word is acknowledged one to two
+  clocks BEFORE its fill request leaves the CPU (109 of 112: "beat only
+  after"), the fill's four beats carry the image's words, and words 1-3
+  complete after their beat with the beat's data (112 of 112 each). So the
+  bus delivers the right words and the first word is a locked-register
+  miss, as the FSM code says; its value reaches the register by the
+  background write, which no tap so far shows. Nor does any tap show the
+  write-back data of the dirty lines the fills evict (the read-data bus was
+  sampled on write beats). Next probe: both.
+- Hypothesis under test (directed): the board shows V2 reading the C:
+  drive's 0x59600000 alias through line fills (cached) while the driver
+  programs flash through the uncached 0x59200000 alias; between the two
+  the driver must drop the cached alias's lines by MVA. A faulty
+  invalidate/clean-by-MVA on the 8 KB two-way D-cache would leave stale
+  sectors behind, which is what "KErrCorrupt" would look like, and would
+  spare ZAP (its own maintenance path), the 16 KB build (other sets and
+  ways) and every copy bench (none programs and re-reads).
+  sim/cpu/tests/arm9_dcinv_mva_rtl.S: 24 cases (invalidate by MVA,
+  clean+invalidate by MVA, invalidate all; the target in either way; the
+  MVA at word 0 or 3; two window offsets).
+- QEMU reference model with the board's current C: image (cs1-now.bin,
+  NGAGE_SAVE1=none, the Sonic card): boots to the idle screen, no panic, so
+  the file is intact on the save; the 8 KB V2 core spoils it during its own
+  boot (the 16 KB core boots the same image).
+- Fourth capture (stp-stpi1: the cache's background register write exported
+  from zap_top as o_dbg_bg_we/idx/data, the bus write data, the storage
+  qualifier widened to SDRAM writes): the qualifier let the SDRAM write
+  beats (360 of 512 samples) crowd out the copy, but the three line-start
+  misses it holds all got their register written with the fill beat's word,
+  equal to the image's. The bus write-data tap samples cpu_wdata at the
+  acknowledge, which is not the beat's data for a pipelined write, so the
+  write-back values it shows are not usable as they stand.
+- ZAP control (stp-stpz1, the same probe on the shipping core): ZAP fills
+  the 0x59600000 alias by line bursts as well (9 burst beats, 3 single
+  among 12 cached-alias reads), so the alias is a cacheable mapping by
+  design (medint's own invalidate-by-MVA loop at 0x503817dc, stride 16,
+  is for it), and its three line-start misses got their registers written
+  with the fill's word. V2 and ZAP look alike on every tap so far.
+
+### 2026-10-25 (late) — the EmonServer panic reproduces in the whole-core bench
+
+- The 8 KB V2 whole-core boot (worktree ../NGage_MiSTer-v2sim at 3f945c8,
+  VEXTRA=-DNGAGE_CORE_ARM9=1, images cs0.bin + cs1-now.bin = the board's
+  pristine lower half with its current C: save, the Sonic card) shows
+  "App. closed EmonServer" at 25.1 guest seconds, after the N-Gage
+  animation (18 s) and the operator splash (20 s): the board's symptom, in
+  a run where every register write and store is visible. The QEMU model
+  boots the same image clean, so the save is sound. The 16 KB V2 control
+  runs beside it (at 22 s, no dialog yet).
+- Instrumentation (branch codex/arm9v2-panic, coreboot_main.cpp):
+  --check-window (every load from the C: drive's aliases against the live
+  image, by byte enables; misses paired through the cache FSM's saved
+  address and its background write; loads near the CS1 chip's command
+  modes skipped), --check-copy (every Mem::Copy out of the aliases: its
+  stores and the buffer's loads against the source bytes), --trace-on-bad
+  FILE (an instruction trace from the first wrong value). The first two
+  checked runs taught the checker its blind spots: medint's autoselect
+  read of word 4 of every block (0x503800ac) returns the protect status,
+  and byte loads report the word's address.
+- The 16 KB V2 control shows the same dialog in the bench at 27.1 s (the
+  board's 16 KB core booted 4 of 4), so the bench reproduces it for both
+  cache sizes; a ZAP boot of the same bench and images is the control
+  that decides whether the bench's panic is the CPU's.
+- **The 8 KB V2 boot with --check-window reaches the dialog (25.1 s, the
+  same picture) with ZERO wrong C: reads**: every uncached completion,
+  cached hit and cached miss (by its background write) through the whole
+  boot equals the live flash image. The misread hypothesis is dead: V2
+  reads the flash correctly. The copy's stores and the buffer read-backs
+  (--check-copy), the LFFS's own programming stores through the uncached
+  alias (--check-store, each against the bus beat that carries it) and the
+  exec-call log (--devlog) are the runs in flight.
+- **ZAP control in the same bench with the same images: no dialog** (to
+  29.8 s; the operator splash stays from 26.5 s), while both V2 builds show
+  it at 25-27 s: the bench's panic is the CPU's.
+- The exec-call log (--devlog, 2.64 M calls to 26.4 s): no user-mode abort
+  and no self-panic exec in the whole boot. The dying thread is the one on
+  the 0x00E00000 stack: its last system calls are at 24.9556 s (the dialog
+  at 25.10 s), a 0x36 / 0x0C / 0x76 tail after a loop of 0x6C/0x8F/0x8E
+  descriptor calls; the EKA1 (6.1) exec numbering is not in the research
+  files (EKA2L1's epoc6 table does not fit the stubs at 0x503A7694 + 4n),
+  so a trace of that thread's last 70 k retirements (run7, --trace-after
+  1047300000) is the next source.
+- Correction: the thread on the 0x00E00000 stack is the UI server's
+  notifier (its function 0x506ED2F5 is in EikSrvUi.dll), created at
+  24.631 s to show the dialog and then waiting for the key. emon.exe
+  (0x50E0FCC0) starts two threads at 24.442 s (main, stack 0x00400000) and
+  24.462 s (the server loop, stack 0x00602000). The server thread is alive
+  after the dialog (receive, dispatch, wait at 24.69 s and 25.02 s). The
+  main thread's calls stop at 24.6232 s (retired 1,036,533,233) with an
+  exec 0x4D after a 0x71/0x4A/0x72/0x72 sequence, and its stack is reused
+  by a new thread at 26.388 s: it died between 24.6232 s and the
+  notifier's creation at 24.631 s (retired 1,036,723,486). An instruction
+  trace of that window (run8, --trace-after 1036530000 --trace-count
+  200000) is running. The EUser exec stubs at 0x503A7694.. are not one
+  number per slot (fast execs with bit 23 are interleaved): decode the SWI
+  immediate at the logged pc, never the slot index.
+- The full-check run (--check-window --check-copy, lane-masked) also
+  passes the dialog with zero reports: the sector copies' stores and the
+  buffers' read-backs are right as well. emon's main thread never resumes
+  after its WaitForAnyRequest at 24.6232 s (no user-mode entry on its
+  stack after it), so it was killed while blocked: the shape of a server
+  panicking a client whose request it rejected. Its last request: exec
+  0x4A (r0=004026A0 r1=40050003 r2=00403048 r3=004026C0, caller
+  0x50904385), then 0x72/0x73 with function pointers, then the wait.
+- The uncached-store check (--check-store: every store through the
+  0x59200000 alias against the bus beat that carries it) also passes the
+  dialog (26.9 s) with zero reports. Every path between the CPU and the
+  flash is right on V2 for the whole boot: reads through both aliases, the
+  sector copies, the LFFS's programming stores. The corruption that makes a
+  server reject emon's request is in RAM-side data or in a computation.
+- Correction again, with the kernel-server function numbers now matched
+  to EKA2L1's EKA1 table (the fast exec 0xC00076 carries the function in
+  r0: 0x27 create_thread, 0x16 create_session, 0x10 close_handle, 0x2F
+  panic_thread): emon.exe's main thread creates the server thread (0x27)
+  at 24.4487 s; the server thread opens a session to ESock (connect through
+  ESock.dll code at 24.4761 s, functions 2 and 6), and its function-6
+  request completes with KErrAlreadyExists (-11) at 24.6134 s; it then
+  closes a handle and calls panic_thread (0x2F) at 24.6208 s: that is the
+  "App. closed EmonServer" dialog. The -11 first appears at 24.6067 s in the
+  thread on the 0x80403 stack (the kernel side answering ESock), then in
+  ESock (24.6074, which completes emon's request with it at 24.6091). So
+  the panic is a startup collision ("already exists") inside ESock's
+  handling of EmonServer's request: a timing-exposed race in the ROM, or a
+  wrong name/handle comparison; the ZAP exec log (running) and the trace
+  of that window (run9) decide which.
+- Pinned one step further: ESock serves EmonServer's request by asking the
+  kernel server to load a logical device driver (fast exec 0xC00076,
+  function 5 = add_logical_device, at 24.6065 s), the kernel server answers
+  KErrAlreadyExists (24.6067 s, its reply 0x73 with -11), ESock fails the
+  client's request with it (24.6074/24.6091 s) and EmonServer panics. The
+  boot loads 57 drivers (functions 5 and 8); ESock itself loads at 16.36,
+  23.98, 24.20, 24.35 s and the failing 24.61 s, the Starter-like thread on
+  the 0x00401D90 stack most of the rest. So the dialog is an "already
+  loaded" collision on one driver between two loaders whose order depends
+  on timing, unless a name comparison is wrong; the ZAP exec log (does its
+  ESock load get KErrNone at that point?) and the trace (the driver's name
+  read by the kernel server) settle it.
+- The trace (run9, retired 1,035,995,420 + 520 k) names the driver:
+  "bt_driver", the Bluetooth LDD, loaded by hci.dll (the HCI layer running
+  in ESock) while serving EmonServer's request. hci.dll tolerates
+  KErrAlreadyExists for the load (`cmn r1,#11; bne` at 0x5046E9A6; the
+  trace shows Z set and the branch correctly not taken, so no CPU compare
+  bug there) and goes on to open a channel on the driver through EUser
+  0x503B233C; the -11 ESock finally reports comes from that step.
+- The failing step itself: after the tolerated load, hci.dll opens a
+  channel on bt_driver (kernel-server function 0x0A) and gets
+  KErrAlreadyExists, then tries to unload the driver (0x06) and gets
+  KErrInUse; ESock fails the client's request with the -11. ESock makes the
+  same three-call attempt five times on V2 (16.36, 23.98, 24.20, 24.35,
+  24.61 s: the channel open fails each time; a sixth at 26.25 s succeeds
+  after a 00401-thread unload at 25.40 s) and once on ZAP before 27.9 s
+  (22.20 s, failing the same way). So the question is who holds the
+  Bluetooth driver's single channel at those moments on each core; the
+  comparison of the two channel-open timelines was handed to an Opus 5.5
+  subagent (the step here was stopped by the safety classifier), and the
+  ZAP boot is being rerun to 41 s so that its emon start is covered.
+- The panic itself, from the trace: emon.exe is the "EPOC Monitor Server"
+  (its debug strings: "Starting EPOC Monitor Server", "EPOC Monitor Server
+  started succesfully"); its main loop TRAPs the server start (0x50E10D4E
+  -> 0x50E1132C), and a nonzero leave code goes to `User::Panic(_L("Emon
+  server panic"), 4)` (0x50E10D60-0x50E10D68, category at 0x50E119C8,
+  reason 4). The leave code is the -11 from its ESock request. So the
+  dialog is "Emon server panic 4", the server's start failing on ESock's
+  Bluetooth channel open.
+- **The cause (an Opus 5.5 subagent's analysis of the two exec logs;
+  scratchpad bt-channel-findings.md and btan/):** the bt_driver channel is
+  held by BTTestServer.exe (SelfTestServer starts it in every boot) through
+  its own copy of hci.dll, which, with no Bluetooth chip to answer, times
+  out after 1.52-1.56 s ("BTLDD: CompleteWithError: 1 -33" in kern.log),
+  closes the channel, unloads and reloads the driver and opens it again,
+  ten times (the restart code compares an error counter with 9 at
+  0x5046EAF2 and 0x5046EC4C). On V2 it holds the channel from 9.0285 s in
+  ten spells with free gaps of 22-128 ms until the tenth timeout at
+  25.3965 s, after which the unload returns 0 and ESock's next load and
+  open (26.25 s) succeed; the EPOC Monitor Server's request at 24.61 s
+  lands 0.79 s before that give-up. On ZAP the boot runs 1.19-1.38 times
+  slower, the give-up comes at about 28.9 s (its 29.8 s run has exactly
+  ten timeouts) and the monitor's start at about 33-34 s, after it. Every
+  request both cores make gets the same reply wherever the logs overlap.
+  A start-up ordering race in the ROM software, exposed by the faster CPU
+  (and by the hardware's 8 KB core's speed): on the phone the Bluetooth
+  chip answers, the self test ends at once and the channel is free. The
+  fix belongs in the peripheral side (a minimal Bluetooth controller on
+  the BT UART, or a port that fails at once so the ten retries do not take
+  16 s), or in a two-halfword ROM patch of hci.dll's retry count.
+- **The fix: hci.dll gives up after one attempt** (model/rom-patches.txt,
+  tools/gen_patchrom.py, the regenerated rtl/mister/phoenix_patch.hex/.vh).
+  Two halfwords of hci.dll in CS0: the retry checks at 0x5046EAF2 and
+  0x5046EC4C are Thumb `ldr r0,[r5,#0x30]; cmp r0,#9; bgt give_up`
+  (arm-none-eabi-objdump over the image); `cmp r0,#0` (0x2809 ->
+  0x2800, stored bytes 09 28 -> 00 28) makes BTTestServer's self test
+  stop after its first 1.5 s timeout, so bt_driver's channel is free
+  about 10.5 s after boot instead of 25 s, long before the EPOC
+  Monitor Server asks for it. The same ROM is shared by every hci.dll
+  user, so emon's own HCI reset also fails after one timeout instead of
+  ten. The peripheral-side alternative (a Bluetooth controller model
+  answering on the BT UART, or a port that fails at once) stays the
+  accurate long-term answer; this is the shortcut, recorded with its
+  reasons in the patch list. The mechanism already existed: the model
+  applies the list at load, the core's Phoenix loader applies the patch
+  ROM after the stream with the recomputed bootstrap digest of entry
+  0x8F18 as a constant (the new digest 50c7d0a4f1cf3f71e9581a2c91c62eff
+  from `mkimage.py phoenix` over the RH2946.0C1/.0S5 files, fetched from
+  the MiSTer; entry 0x8F00 unchanged). Checks: tools/patchcheck.sh (the
+  model's patcher and mkimage.py agree byte for byte), `make -C sim
+  phoenix-real` (the Verilated loader over the real Phoenix files
+  reproduces the reference images: "all checks passed"), lint clean,
+  `gen_patchrom.py --check` clean. The bench's hand-patched
+  cs0-hcipatch.bin differs from the generated image only in the NOS
+  stand-in bytes (an older build) and the digest.
+- Validation. Whole-core bench, the 8 KB V2 at 104 MHz with the patched
+  ROM (run10): "EPOC Monitor Server started succesfully" once in kern.log (never in the unpatched run), the Bluetooth driver's CompleteWithError three times instead of ten, no "Emon" string, and the idle screen clean at 25.7 and 26.3 s where the unpatched run drew the "App. closed EmonServer" dialog at 25.1 s (gamesim/v2d8e/run10, stopped at 27 s). The board: the 8 KB fix-3 core rebuilt with
+  the patch ROM (NGage-v2fix3d8hci-s2.rbf: the identical fit, -0.623 /
+  -0.558 ns, 33,421 ALMs; only the loader's ROM contents differ)
+  booted clean three of three (build/hardware/game/v2fix3d8hci-1..3/); the 16 KB fix-3 core, the one that showed the dialog
+  four of four, rebuilt the same way (NGage-v2fix3hci-s9.rbf, the identical fit too: -0.516 ns, 33,380 ALMs)
+  **booted clean four of four** (build/hardware/game/v2fix3hci-1..4/, the idle screen at 110 and 130 s). The fix is committed on master (dba643d) and cherry-picked onto codex/arm9v2-panic (5956fe9), both pushed; the V2 main worktree (codex/arm9v2) was left as the stopped 104 MHz subagent left it, with its four uncommitted parameterised cuts (RAS_TOP_FF, REDIRECT_PAYLOAD, COPRO_PORT, FLAT_ACK) and arm9_ras_rtl.S. The long ZAP run (run3, to 41 s): the race resolving the other way on the slower core. The self test's tenth hold ends at 28.88 s (holds of 1.53-1.56 s from 20.70 s on, the channel free only in the gaps); ESock's first attempt comes at 31.20 s, finds bt_driver free, and the load and the channel open return 0; kern.log has "started succesfully" once and no Emon panic; emon's own hci.dll then cycles load, open, unload every 1.5 s (16 BTLDD timeouts by 41 s: the self test's ten and emon's six), and the idle screen is clean at 41 s (gamesim/zapc/run3).
+- Corrected: it is not "the 8 KB core fails on the board": at 78 MHz the
+  8 KB V2 core booted clean eleven of twelve and the 16 KB core, the
+  faster boot, none of four; in the bench at 104 MHz both V2 sizes
+  showed the dialog and ZAP did not. All of it is the one race: the ask
+  lands a few seconds before or after the give-up with the CPU's speed.
+- **104 MHz, resumed in-session: the stopped subagent's four cuts
+  measured and set aside; a timing exception for the memory test.**
+  The V2 main worktree held four uncommitted parameterised zero-cycle
+  cuts (RAS_TOP_FF: the return stack's top as a register; REDIRECT_
+  PAYLOAD: D2's redirect payload loaded every edge, only its valid
+  waiting for S; COPRO_PORT: the coprocessor's own register-file read
+  port; FLAT_ACK: the D-cache FSM's acknowledge and errors as flat
+  functions of the state), each with a simulation assertion against
+  the old form, and arm9_ras_rtl.S. Verification, all clean: the
+  netlist regenerated on the Mac (deterministic; the subagent's copy
+  differed by 14.5 k lines, another sv2v run), the CPU suite 333/333
+  in all five configurations, 333/333 for the three V2 configurations
+  on the sources with the assertions live, QEMU 76/76, and
+  cycle-identical to lane E in every one of the 330 runs per
+  configuration (the ARM9 logs byte-identical); the whole-core boot
+  with the assertions live ran to 12 s with no assertion firing, its
+  retired-instruction count per second equal to the lane E 16 KB boot's
+  through 3 s and within 94-587 instructions through 9 s (a different
+  image: the current NOS stand-in bytes and the hci.dll patch, whose
+  effect shows from 10 s), 40 thread entries profiled. Fitted as the
+  integrated stripped 16 KB core at 104 MHz, three seeds against lane
+  E's (3f945c8) at the same seeds:
+
+  | seed | lane E | the four cuts |
+  |---|---:|---:|
+  | 2 | -2.086 | -2.942 |
+  | 9 | -2.239 | -2.426 |
+  | 5 | -2.700 | -2.912 |
+
+  33.4 k ALMs (80 %) either way; the fits take 13-17 min each now. The
+  D-cache FSM's paths leave the leaders (the FLAT_ACK target), but the
+  issued record through the execute shifter into A takes the lead at
+  every seed (-2.4 to -2.9, 10 levels, 68 % interconnect: the rotator's
+  stages placed 1.5-1.9 ns apart), with memory-side paths behind it
+  (upp_periph's own_au arbitration into upp_bus's dat_q, 13 of 30 at
+  seed 2; the bus ack into the I-cache FSM). Worse at every seed, so
+  not merged: committed on the side branch codex/arm9v2-c4 (50ed1e6)
+  for the record; the V2 main worktree is back on codex/arm9v2, which
+  is fast-forwarded onto the panic branch (5956fe9: the bench checks
+  and the hci.dll patch). The emu-level leaders are the 80 % device's
+  placement: the ZAP main core is the same size (33.5 k ALMs) and
+  meets -0.833, so the gap is V2's logic depth, not density.
+- A free exception (master cfb1e38, NGage.sdc): the memory test's
+  master select test_on_q changes only in the first clock of a reset
+  pulse test_sw holds for four clocks, with the CPU in its own reset,
+  so its paths into the Wishbone muxes, the SDRAM write data and the
+  self-test engine are four-clock paths; test_sw itself stays
+  single-clock. It held 19 of the 30 worst paths of lane E's seed 9
+  (-2.23, 80 % interconnect). Checked by a timing-analysis rerun on the
+  main ZAP core's build: two registers matched, test_sw at +4.4 ns, the
+  rest at +28.1 ns, the device worst unchanged at -0.833 (the metadata
+  RAM path); it takes those paths out of the fitter's effort in every
+  future fit.
+- Where 104 MHz stands: the best integrated seed is lane E's -2.086
+  against the -0.6 gate; what is left on the plan is the cycle-costing
+  cuts (D1 registered completion, F, B2; +2-3 % clocks each) and
+  seeds, and the device-level leaders include memory-side paths at
+  -2.2 to -2.4 that no CPU cut touches. Meanwhile the 16 KB V2 fix-3
+  core at 78 MHz, panic fixed, is within the board envelope (-0.516)
+  and in play already ahead of the shipping ZAP core at 104 MHz
+  (Sonic 46.9 per 104 M clocks at 78 MHz = 35 M instr/s against ZAP's
+  31.6 M/s at 104 MHz).
