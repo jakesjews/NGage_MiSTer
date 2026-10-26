@@ -6741,3 +6741,120 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   and in play already ahead of the shipping ZAP core at 104 MHz
   (Sonic 46.9 per 104 M clocks at 78 MHz = 35 M instr/s against ZAP's
   31.6 M/s at 104 MHz).
+
+### 2026-10-26 — 104 MHz: rounds 2-3, the ZAP strip, and the W short-hit cluster
+
+- **Committed** (master 72d7e07 round 1, 1ff0fa8 rounds 2-3 and the strip,
+  both pushed). Rounds 2-3: REG_DONE's uncached completion back on the
+  fast acknowledge (UNC_DONE from registers: the suite's REG_DONE cost
+  +3.04 % -> +0.239 %), VALID_BIT (the branch predictor's looked-up valid
+  bit as a register; the commit message calls it the I-cache's, wrongly),
+  maxfan on wb_flush, predictor_clear and o_redirect, and the D-cache fast
+  acknowledge on the TLB walker's IDLE register. The strip removed every
+  ZAP option V2 never builds: SHORT_READ (short form kept), META_PACK, the
+  I-cache prefetch, ONLY_CORE, V4T/TI925T (always on), the BTB, the
+  decompiler, both zap_ram_simple_ben copies (rtl/cpu/port is gone),
+  zap_cache_metadata_ram, decode's internal register file and the trace
+  outputs; zap_writeback is down to the register file, the CPSR and the
+  coprocessor port. The arm9v2 parameter defaults are now the core's
+  configuration, so every component bench, proof and Quartus trial tests
+  what the core builds; make lint covers the CPU sources.
+- **CPU speed did not regress**: the suite's cycle total is +0.239 %
+  (+0.165 % without prediction) against lane E, with 144 of 342 tests
+  identical; the 12-second whole-core boot (Sonic card, hci patch)
+  retires within 0.011 % of the reference's instructions at 12 s
+  (-0.025 % at worst, at 6 s); no assertion fired.
+- **Fits** (16 KB V2, 104 MHz, slow 100C, seeds 2/3/5/9): round 2
+  -2.134/-2.058/-1.913/-1.866; round 3 -2.262/-2.277/-2.358/-2.258 with
+  about twice the failing endpoints and total negative slack (TNS -1053
+  -> -2152 at seed 2), the jump almost all in paths from the TLB check's
+  short-hit copy (o_hit_ok_short) into decode's D2 (62 -> 621 endpoints
+  below -0.6 over four seeds). Seed-2 A/B of round 3's two timing
+  changes on the final tree: without predictor_clear's maxfan the fit is
+  identical to the ps and the ALM (the attribute changes nothing there);
+  with the fast acknowledge back on !i_busy, -1.953 against -2.206 ns and
+  TNS -1273 against -1592 (endpoints below -0.6: 700 against 1024). The
+  TLB-idle form is reverted (a comment at the acknowledge keeps the
+  numbers); it did not even fix the lock-owner endpoint it targeted.
+- **Disk**: each untrimmed suite run left ~39 GB in sim/cpu/build (a few
+  tests log every instruction: arm9_irq_ldm_rtl writes 3-4 GB per latency
+  plus a 2.5 GB trace, the two source lanes 16 GB each); six runs filled
+  the Mac mid-suite. The scratch suite script now trims its results to
+  the counters and PASS lines once the comparisons have run (53 MB a
+  run); the trimmed references still total the same cycles.
+- **Codex consult** on the short-hit cluster
+  (docs/consults/2026-10-26-codex-short-hit.md): the regression is a
+  synthesis/placement outcome on a fragile structure, not a new
+  dependency; ranked options: factor the hit to the end of S/A readiness
+  and D2's updates (including A's finish into D2's early hazard, a route
+  I had missed), flatten completion and select finished forwarding
+  alternatives, take readiness off S's hold payload enables, duplicate
+  the registered roots, fuse the response predicates at the M/W
+  boundary; reject registering o_ready, retiming or exceptions.
+- **New zero-cycle cuts, kept** (each a parameter, default on, asserted
+  equal to the original form): WRITES_PRE (S's planned writes from
+  decode's registered destination mask, by kind, instead of a second
+  decode with the block's base-bit select); TAG_PRE (each source's PC/PSR
+  class registered by decode beside the tags); HELD_FREE (S's 128-bit
+  held operands and the prepared shift payload load on every valid S
+  clock, read only while holding/prepared, the return repair under the
+  saved pending bit); HEAD_FF (the fetch queue's head entry as its own
+  register, loaded with the next head on each edge, so decode reads flops
+  instead of the eight-entry select); PAYLOAD_NORESET (D2's record and
+  the S-entry payload take their loads in reset instead of a clear, so
+  their enables are the load conditions alone; the D2 enable had a
+  load-or-reset LUT between its copies and the flops); READS_DEST (D2's
+  per-destination self-read bits registered with the record: W's WAW
+  exemption and the self-dependency take one bit instead of four tag
+  compares — withdrawn, see below); LOAD_CLASS (M/W/skid carry their
+  load-ownership and speculation classes as record bits); D2_BANKS (D2's
+  241-bit packet in two banks: the unowned bank captures the admitted
+  packet every edge and D2's load flips a one-bit owner, so the hazard
+  drives one flop instead of the packet's enables; Codex's option 3);
+  COMPLETE_FLAT (W's completion class without the defer_load node, an
+  identity); MUL_FAST_Z (a flag-setting multiply's Z from the final
+  adder's two inputs without the carry, as arm9_alu's FAST_Z). All pass
+  the component benches and the CPU suite (342/342 in all four lanes with
+  their assertions, QEMU 75/75, cycle totals unchanged).
+- **Withdrawn: LOAD_HIT_SPLIT** (Codex's option 1 as built: S/A waits,
+  readiness and finish for both values of W's short hit, decode's hazard,
+  step, D2 load, payload enable and load wait for both, the hit selecting
+  last). Correct (the suite passed with its assertions) but worse in
+  every form at seed 2; parked as
+  docs/consults/parked-patches/2026-10-26-load-hit-split.patch. Seed 2,
+  worst / endpoints below -0.6 / TNS: round 2 -2.134 / 627 / -1053; the
+  TLB revert alone -1.953 / 700 / -1273; everything with the split
+  -2.655 / 2106 / -3201; the split without the keep/maxfan attributes on
+  decode's per-hit wires and enables -1.967 / 892 / -1442; only execute's
+  half -2.634 / 1090 / -1774; no split, the other cuts kept -2.015 / 527
+  / -914 (the best seed-2 tree so far). With the hit moved last, D2's
+  hazard tree itself led (D2's tag compare -> W's WAW term -> the
+  hazard OR -> D2 load -> a 2 ns enable broadcast), and the kept per-hit
+  wires built that OR tree twice. maxfan does duplicate a kept
+  combinational node (d2_load~SynDup); predictor_clear's maxfan changed
+  nothing (identical fit).
+- **Measuring cuts on four seeds.** Single-seed A/Bs proved unreliable:
+  the same tree's TNS spreads ~50 % across seeds 2/3/5/9, and a changed
+  netlist re-rolls placement, so the seed-2 lead of the no-split tree
+  (-914) did not survive: k13 (no split, PAYLOAD_NORESET in) at seeds
+  2/3/5 is -2.244/-2.353/-2.299, TNS -4050 against round 2's -3473 at the
+  same seeds. Targeted families tell more: HEAD_FF took decode's D1
+  family from -1.74/-1.82/-1.62 to -0.71/-0.71/-0.59 and its endpoints
+  below -0.6 from 19/41/23 to 1/1/0, at all three seeds, while D2 and
+  execute's A got worse at all three (D2 -1.83/-1.43/-1.57 ->
+  -1.94/-1.91/-2.30). k14 (k13 + READS_DEST + LOAD_CLASS):
+  -2.920/-3.392/-2.506/-2.669, TNS -8296 against -4405 — READS_DEST's own
+  next value (D1's decode into the self-read compares) became the worst
+  path, as Codex had warned. Each cut is now fitted alone on the baseline
+  (master + the TLB revert) at all four seeds.
+- **The baseline moved, not the cuts.** The committed tree with the TLB
+  revert and none of the later cuts (G0) fits at -2.199/-2.314/-2.407/
+  -2.991, TNS -8185 over four seeds against round 2's -4405; k13 (the
+  kept cuts) beats G0 at every seed it was fitted (TNS -1111/-1806/-1133
+  against -1670/-2025/-1294). Two "equivalent" netlists of the same logic
+  (G0 and the earlier seed-2 TLB-revert fit) land at TNS -1670 and -1273,
+  so synthesis structure is a second lottery that seeds do not average.
+  G0's leaders include W completion into the register file's held writes
+  and the CPSR from the D-cache FSM's idle state (-2.09) and the cache
+  enable into the forward match (-2.35 at seed 9). Each cut is being
+  fitted alone on G0 at all four seeds (G1-G9).

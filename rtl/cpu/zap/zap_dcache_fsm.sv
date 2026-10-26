@@ -139,7 +139,6 @@ input   logic                      i_fault,
 input   logic                      i_cacheable,
 input   logic                      i_wt,          // ARM925T: write-through page.
 input   logic                      i_busy,
-input   logic                      i_tlb_idle,    // ARM9V2: the TLB walker FSM's IDLE (a register)
 output  logic                      o_hold,
 
 // Cache state
@@ -605,13 +604,13 @@ always_ff @(posedge i_clk) if (!i_reset && $onehot(state_ff))
         assert ({ack_idle_flat || state_ff[UNC_DONE], err_flat, err2_flat} == {idle_ack, err_case, err2_case})
                 else $fatal(1, "flat D-cache acknowledge");
 `endif
-// With i_hit_ok (the registered check, which excludes a walk) the TLB is
-// busy only outside its IDLE state: one register instead of i_busy's terms.
-assign o_ack_fast = (state_ff[IDLE] && !i_align_fault && i_cache_en && i_hit_ok && i_tlb_idle) || hum_ack ||
+// (Under i_hit_ok, !i_busy equals the walker's IDLE register; using that
+// register instead was tried on 2026-10-26 and fitted worse at seed 2:
+// -2.206 against -1.953 ns, TNS -1592 against -1273.)
+assign o_ack_fast = (state_ff[IDLE] && !i_align_fault && i_cache_en && i_hit_ok && !i_busy) || hum_ack ||
                     state_ff[UNC_DONE];
 assign o_err_fast = state_ff[UNC_DONE] && unc_err_ff;
 `ifndef SYNTHESIS
-always_ff @(posedge i_clk) if (!i_reset && i_hit_ok) assert (!i_busy == i_tlb_idle) else $fatal(1, "TLB idle under a registered hit");
 always_ff @(posedge i_clk) if (!i_reset && $onehot(state_ff) && (i_rd || i_wr) && o_ack_fast)
         assert (o_ack && !o_err2 && o_err == o_err_fast) else $fatal(1, "fast D-cache acknowledge");
 `endif

@@ -74,7 +74,6 @@ output  logic            o_fault,
 output  logic            o_cacheable,
 output  logic            o_wt,          // ARM925T: write-through page (C=1 B=0).
 output  logic            o_busy,
-output  logic            o_idle_state,  // ARM9V2: the walker FSM's IDLE state (a register)
 output  logic            o_hit_ok,      // ARM925T: registered check, independent of walker IDLE.
 output  logic            o_hit_ok_short, // ARM9V2: o_hit_ok's unretimed copy (zap_tlb_check)
 input   logic            i_idle,
@@ -403,7 +402,6 @@ zap_tlb_fsm #(
 .o_phy_addr     (o_phy_addr),
 .o_cacheable    (o_cacheable),
 .o_busy         (fsm_busy),
-.o_idle_state   (o_idle_state),
 
 .o_setlb_wdata  (setlb_wdata),
 .o_setlb_wen    (setlb_wen),

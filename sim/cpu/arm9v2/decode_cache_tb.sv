@@ -28,6 +28,7 @@ module decode_cache_tb;
     end
     wire o_self_dep;
     wire [18:0] o_shift_pre;
+    wire [3:0][1:0] o_tag_class;
     // The core's register file (zap_register_file) as this bench's model:
     // A and B written under i_wen, C always, C > B > A on the same edge,
     // each write visible from the next clock. Decode reads it through
@@ -85,7 +86,7 @@ module decode_cache_tb;
     logic o_request, o_stall;
     arm9v2_front_decode #(.RESET_VECTOR(32'h1000),.SHIFT_PRE(CUTS),.PAYLOAD_FREE(CUTS),.REDIRECT_PAYLOAD(CUTS),
         .WT_TAGS(CUTS),.RAS_TOP_FF(CUTS),.PREFIX_FREE(CUTS),.VALID_BIT(CUTS)) dut (.i_serial_continue(1'b1),.o_dbg_fetch(),.o_writes(),.o_early(),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.*);
-    wire unused=&{1'b0,o_self_dep,o_shift_pre,o_ready,o_valid,o_pc,o_instruction,o_pc_base,o_next_pc,o_raw,o_mode,o_thumb,o_fault,o_force_align,o_reg_shift,o_kind,o_condition,o_tag,o_used,o_value,o_dest,o_first,o_last,o_reg_count,o_offset,o_writeback_offset,o_transfer_reg,o_branch_target,o_direct,o_match_taken,o_match_fallthrough,o_predicted,o_pred_hit,o_pred_target,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count,o_hazard,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_address_nxt,o_address_check,o_address,o_request,o_stall};
+    wire unused=&{1'b0,o_self_dep,o_shift_pre,o_tag_class,o_ready,o_valid,o_pc,o_instruction,o_pc_base,o_next_pc,o_raw,o_mode,o_thumb,o_fault,o_force_align,o_reg_shift,o_kind,o_condition,o_tag,o_used,o_value,o_dest,o_first,o_last,o_reg_count,o_offset,o_writeback_offset,o_transfer_reg,o_branch_target,o_direct,o_match_taken,o_match_fallthrough,o_predicted,o_pred_hit,o_pred_target,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count,o_hazard,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_address_nxt,o_address_check,o_address,o_request,o_stall};
     logic mmu=1;
     wire bus_stb,bus_we;
     wire [31:0] bus_addr;

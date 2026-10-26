@@ -1,0 +1,1194 @@
+diff --git a/rtl/cpu/arm9v2/arm9v2_core.sv b/rtl/cpu/arm9v2/arm9v2_core.sv
+index 721c58b..f4559eb 100644
+--- a/rtl/cpu/arm9v2/arm9v2_core.sv
++++ b/rtl/cpu/arm9v2/arm9v2_core.sv
+@@ -66,6 +66,21 @@ module arm9v2_core #(
+         // S's operand-1 class (immediate, PC, PSR) registered by decode
+         // beside the shift controls (arm9v2_execute OP1_PRE): zero cycles.
+         parameter logic OP1_PRE = 1'b1,
++        // S's and A's waits and readiness for both values of W's short hit,
++        // the hit selecting last (arm9v2_execute LOAD_HIT_SPLIT): zero cycles.
++        parameter logic LOAD_HIT_SPLIT = 1'b1,
++        // S's planned writes from decode's registered destination mask
++        // (arm9v2_execute WRITES_PRE): zero cycles.
++        parameter logic WRITES_PRE = 1'b1,
++        // S's PC/PSR source classes registered by decode (arm9v2_execute
++        // TAG_PRE): zero cycles.
++        parameter logic TAG_PRE = 1'b1,
++        // S's held operands and prepared payload without the readiness
++        // enables (arm9v2_execute HELD_FREE): zero cycles.
++        parameter logic HELD_FREE = 1'b1,
++        // The fetch queue's head entry as its own register (arm9v2_fetch
++        // HEAD_FF): zero cycles.
++        parameter logic HEAD_FF = 1'b1,
+         // The predictor's looked-up valid bit as a register (arm9v2_predict
+         // VALID_BIT): zero cycles.
+         parameter logic VALID_BIT = 1'b1,
+@@ -324,6 +339,9 @@ output logic [1:0] o_dbg_fetch
+     logic [3:0] d_ras_count;
+     logic d_hazard;
+     logic a_execute_ready,a_execute_ready_payload;
++    logic [1:0] a_execute_ready_by,a_execute_ready_payload_by;   // LOAD_HIT_SPLIT
++    logic [1:0] d_writes;   // WRITES_PRE
++    logic [3:0][1:0] d_tag_class;   // TAG_PRE
+     logic a_valid;
+     logic [31:0] a_pc;
+     logic [31:0] a_instruction;
+@@ -361,6 +379,8 @@ output logic [1:0] o_dbg_fetch
+     logic [1:0] a_btb_kind;
+     logic a_a_valid;
+     logic a_a_can_finish;
++    logic [1:0] a_a_can_finish_by;   // LOAD_HIT_SPLIT
++    logic [1:0][3:0] early_valid_by;
+     logic [1:0] a_s_write;
+     logic [1:0][5:0] a_a_dest;
+     logic [1:0] a_a_write;
+@@ -525,6 +545,9 @@ output logic [1:0] o_dbg_fetch
+     assign early_agu={a_kind==MEM,1'b0,d_kind==MEM,1'b0};
+     assign early_valid={a_a_write&{2{a_a_valid&&!a_a_can_finish}},a_s_write}&
+         {early_tag[3]!=15,early_tag[2]!=15,early_tag[1]!=15,early_tag[0]!=15};
++    // LOAD_HIT_SPLIT: the same for each value of W's short hit.
++    always_comb for(int h=0;h<2;h++)early_valid_by[h]={a_a_write&{2{a_a_valid&&!a_a_can_finish_by[h]}},a_s_write}&
++        {early_tag[3]!=15,early_tag[2]!=15,early_tag[1]!=15,early_tag[0]!=15};
+     // Pipeline load ownership and the cache's registered background lock are
+     // separate. No cache ACK or producer readiness is searched in forwarding.
+     assign load_tag={skid.dest[0],w.dest[0],m.dest[0],a_dest[0],a_a_dest[0],d_dest[0]};
+@@ -602,6 +625,21 @@ output logic [1:0] o_dbg_fetch
+         if(a_redirect)next_load_valid[0]=0;
+         if((!RESET_LEAN&&i_reset)||wb_flush)begin forward_write=0;forward_load=0;next_load_valid=0;end
+     end
++    // LOAD_HIT_SPLIT: next_load's S-entry lane for each value of W's short hit
++    // (it follows S's acceptance and A's finish); the M/W lane does not.
++    logic [1:0][1:0][5:0] next_load_tag_by;
++    logic [1:0][1:0] next_load_valid_by;
++    always_comb for(int h=0;h<2;h++)begin
++        next_load_tag_by[h]=next_load_tag;next_load_valid_by[h]=next_load_valid;
++        next_load_tag_by[h][0]=a_a_dest[0];
++        next_load_valid_by[h][0]=a_a_load&&!a_a_can_finish_by[h];
++        if(d_valid&&a_execute_ready_by[h])begin
++            next_load_tag_by[h][0]=d_dest[0];
++            next_load_valid_by[h][0]=!d_fault&&((d_kind==MEM||d_kind==BLOCK)?d_instruction[20]:d_kind==SWP||(d_kind==CP&&d_instruction[20]&&d_dest[0]!=15));
++        end
++        if(a_redirect)next_load_valid_by[h][0]=0;
++        if((!RESET_LEAN&&i_reset)||wb_flush)next_load_valid_by[h][0]=0;
++    end
+ `ifndef SYNTHESIS
+     always_ff @(posedge i_clk) if(!i_reset)begin
+         assert(complete_class=={3{wb_complete}});
+@@ -991,8 +1029,8 @@ output logic [1:0] o_dbg_fetch
+         assert(w_hit_candidate==(w.memory&&!w_waited)) else $fatal(1,"W hit candidate register");
+ `endif
+     wire w_load_hit=w_hit&&i_data_short_hit&&load_trust;
+-    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS),.RAS_TOP_FF(RAS_TOP_FF),.PREFIX_FREE(PREFIX_FREE),.VALID_BIT(VALID_BIT)) u_front_decode (
+-        .i_w_load_hit(w_load_hit),.o_self_dep(d_self_dep),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
++    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS),.RAS_TOP_FF(RAS_TOP_FF),.PREFIX_FREE(PREFIX_FREE),.VALID_BIT(VALID_BIT),.LOAD_HIT_SPLIT(LOAD_HIT_SPLIT),.HEAD_FF(HEAD_FF)) u_front_decode (
++        .i_w_load_hit(w_load_hit),.o_self_dep(d_self_dep),.o_pending(d_pending),.o_writes(d_writes),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
+         .i_forward_load(forward_load),.o_forward_grant(d_forward_grant),.i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
+         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),.o_return_match(d_return_match),
+         .i_reset(i_reset),
+@@ -1005,15 +1043,17 @@ output logic [1:0] o_dbg_fetch
+         .i_wr_addr_b(wb),
+         .i_wr_addr_c(wc),
+         .i_locked(locked),
+-        .i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag(load_tag),.i_load_valid(load_valid),.i_load_speculate(load_speculate),.i_next_load_tag(next_load_tag),.i_next_load_valid(next_load_valid),.o_load_wait(d_load_wait),
++        .i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag(load_tag),.i_load_valid(load_valid),.i_load_speculate(load_speculate),.i_next_load_tag(next_load_tag),.i_next_load_valid(next_load_valid),.i_next_load_tag_by(next_load_tag_by),.i_next_load_valid_by(next_load_valid_by),.o_load_wait(d_load_wait),
+         .i_early_tag(early_tag),
+-        .i_early_valid(early_valid),
++        .i_early_valid(early_valid),.i_early_valid_by(early_valid_by),
+         .i_early_agu(early_agu),
+         .i_wr_data_a(wb_data0),
+         .i_wr_data_b(wb_data1),
+         .i_wr_data_c(i_dc_reg_dat),
+         .i_ready(a_execute_ready),
+         .i_ready_payload(a_execute_ready_payload),
++        .i_ready_by(a_execute_ready_by),.i_ready_payload_by(a_execute_ready_payload_by),
++        .i_hit_sel(w_hit&&i_data_short_hit),.i_w_load_trust(load_trust),
+         .i_backend_target(wb_flush?wb_target:a_redirect_target),
+         .i_backend_link(wb_flush?wb_repair_link:a_redirect_link),
+         .i_backend_thumb(wb_flush?wb_thumb:a_redirect_thumb),
+@@ -1048,7 +1088,7 @@ output logic [1:0] o_dbg_fetch
+         .o_fault(d_fault),
+         .o_force_align(d_force_align),
+         .o_reg_shift(d_reg_shift),
+-        .o_shift_pre(d_shift_pre),
++        .o_shift_pre(d_shift_pre),.o_tag_class(d_tag_class),
+         .o_kind(d_kind),
+         .o_condition(d_condition),
+         .o_tag(d_tag),
+@@ -1082,7 +1122,7 @@ output logic [1:0] o_dbg_fetch
+         .o_request(o_instr_wb_stb),
+         .o_stall(o_code_stall),.o_dbg_fetch(o_dbg_fetch)
+     );
+-    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.DSP_PRODUCT(DSP_PRODUCT),.OP1_PRE(OP1_PRE)) u_execute (
++    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.DSP_PRODUCT(DSP_PRODUCT),.OP1_PRE(OP1_PRE),.LOAD_HIT_SPLIT(LOAD_HIT_SPLIT),.WRITES_PRE(WRITES_PRE),.TAG_PRE(TAG_PRE),.HELD_FREE(HELD_FREE)) u_execute (
+         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),
+         .i_load_owner({w.load_writer,m.load_writer}),.i_next_load_owner(forward_load),
+         .i_load_hit(w_hit&&i_data_short_hit),.i_load_trust(load_trust),.i_self_dep(d_self_dep),
+@@ -1107,10 +1147,10 @@ output logic [1:0] o_dbg_fetch
+         .i_fault(d_fault),
+         .i_force_align(d_force_align),
+         .i_reg_shift(d_reg_shift),
+-        .i_shift_pre(d_shift_pre),
++        .i_shift_pre(d_shift_pre),.i_tag_class(d_tag_class),
+         .i_first(d_first),
+         .i_last(d_last),
+-        .i_kind(d_kind),
++        .i_kind(d_kind),.i_writes(d_writes),
+         .i_condition(d_condition),
+         .i_tag(d_tag),
+         .i_used(d_used),
+@@ -1132,7 +1172,7 @@ output logic [1:0] o_dbg_fetch
+         .i_mw_tag(mw_tag),
+         .i_mw_valid(mw_write),
+         .i_ready(backend_ready),
+-        .o_ready(a_execute_ready),.o_ready_payload(a_execute_ready_payload),
++        .o_ready(a_execute_ready),.o_ready_payload(a_execute_ready_payload),.o_ready_by(a_execute_ready_by),.o_ready_payload_by(a_execute_ready_payload_by),
+         .o_valid(a_valid),
+         .o_pc(a_pc),
+         .o_instruction(a_instruction),
+@@ -1168,7 +1208,7 @@ output logic [1:0] o_dbg_fetch
+         .o_btb_state(a_btb_state),
+         .o_btb_kind(a_btb_kind),
+         .o_a_valid(a_a_valid),
+-        .o_a_can_finish(a_a_can_finish),
++        .o_a_can_finish(a_a_can_finish),.o_a_can_finish_by(a_a_can_finish_by),
+         .o_s_write(a_s_write),
+         .o_a_dest(a_a_dest),
+         .o_a_write(a_a_write),
+diff --git a/rtl/cpu/arm9v2/arm9v2_decode.sv b/rtl/cpu/arm9v2/arm9v2_decode.sv
+index 33535eb..b19b697 100644
+--- a/rtl/cpu/arm9v2/arm9v2_decode.sv
++++ b/rtl/cpu/arm9v2/arm9v2_decode.sv
+@@ -24,6 +24,16 @@
+ // WT_TAGS: the same-edge write-through compares D2's tags with W's binary
+ // write tags (registers) and ANDs W's late write enable at the end,
+ // instead of selecting the one-hot write masks' bits after completion.
++// LOAD_HIT_SPLIT: W's short hit (i_hit_sel, three registers in the core)
++// reaches S's readiness (arm9v2_execute) and D2's speculative-load WAW
++// hazard. D2's step, record load and payload enable are worked out for
++// both values of the hit, from execute's readiness for both, and the hit
++// selects last. Equal to the original form (asserted).
++// PAYLOAD_NORESET: D2's record and the S-entry payload (issued, values and
++// the registers loaded with them) are not cleared by reset; reset loads
++// them on their usual enables instead, so each enable is the load
++// condition alone rather than load-or-reset. Their valid bits still reset,
++// and nothing reads a payload while its valid bit is clear.
+ // Parameter defaults are the core's configuration (arm9v2_core sets each
+ // explicitly); 0 selects a cut's original form, kept for A/B timing trials.
+ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'b1,
+@@ -31,7 +41,8 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
+     parameter logic WT_TAGS=1'b1,
+     // PREFIX_FREE: prefix_target loads while D2 holds a BL prefix, not on
+     // S's acceptance (step): it is read only once D2 no longer holds it.
+-    parameter logic PREFIX_FREE=1'b1) (
++    parameter logic PREFIX_FREE=1'b1, parameter logic LOAD_HIT_SPLIT=1'b1,
++    parameter logic PAYLOAD_NORESET=1'b1) (
+     input logic i_clk, i_reset, i_flush,
+     input logic i_serial_continue,
+     input logic i_valid,
+@@ -51,6 +62,7 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
+     // do not decode a destination mask and index it back by each source.
+     input logic [3:0][5:0] i_early_tag,
+     input logic [3:0] i_early_valid,
++    input logic [1:0][3:0] i_early_valid_by,   // LOAD_HIT_SPLIT: i_early_valid for each value of i_hit_sel
+     input logic [3:0] i_early_agu,      // that pending writer lane is a MEM writeback (S_AGU)
+     input logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c,
+     input logic [5:0] i_wr_tag_a, i_wr_tag_b,   // WT_TAGS: W's write tags (16: none)
+@@ -66,6 +78,10 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
+     output logic [3:0] o_return_match,
+     input logic [1:0][5:0] i_next_load_tag,
+     input logic [1:0] i_next_load_valid,
++    // LOAD_HIT_SPLIT: the same for each value of i_hit_sel (the S-entry's
++    // lane follows S's acceptance and A's finish).
++    input logic [1:0][1:0][5:0] i_next_load_tag_by,
++    input logic [1:0][1:0] i_next_load_valid_by,
+     output logic o_load_wait,
+     // Tags/eligibility of the producers that will exist after this edge.
+     input logic [1:0][1:0][5:0] i_forward_tag, i_advance_tag,
+@@ -81,11 +97,16 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
+     output logic o_self_dep,
+     input logic i_ready,
+     input logic i_ready_payload,   // i_ready without the terms that also flush decode
++    // LOAD_HIT_SPLIT: i_ready and i_ready_payload for each value of W's
++    // short hit i_hit_sel; i_w_load_hit is i_hit_sel && i_w_load_trust.
++    input logic [1:0] i_ready_by, i_ready_payload_by,
++    input logic i_hit_sel, i_w_load_trust,
+     output logic o_valid,
+     output logic [31:0] o_pc, o_instruction, o_pc_base, o_next_pc,
+     output logic [15:0] o_raw,
+     output logic [4:0] o_mode,
+     output logic o_thumb, o_fault, o_force_align, o_reg_shift,
++    output logic [3:0][1:0] o_tag_class,   // {tag is the PSR, tag is the PC} per source, beside issued
+     output logic [18:0] o_shift_pre,   // SHIFT_PRE: {type, amount, rotate amount, register};
+                                        // [18:16] operand 1 immediate / PC / PSR (OP1_PRE)
+     output logic [3:0] o_kind, o_condition,
+@@ -554,9 +575,18 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
+             else load_wait_next|=issued.used[src]&&
+                 (prod==0||issued.early[src])&&i_next_load_valid[prod]&&issued.tag[src]==i_next_load_tag[prod];
+     end
++    logic [1:0] load_wait_by;
++    always_comb for(int h=0;h<2;h++)begin
++        load_wait_by[h]=0;
++        for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)
++            if(!out_valid||i_ready_by[h])load_wait_by[h]|=d2.used[src]&&
++                (prod==0||d2.early[src])&&i_next_load_valid_by[h][prod]&&d2.tag[src]==i_next_load_tag_by[h][prod];
++            else load_wait_by[h]|=issued.used[src]&&
++                (prod==0||issued.early[src])&&i_next_load_valid_by[h][prod]&&issued.tag[src]==i_next_load_tag_by[h][prod];
++    end
+     always_ff @(posedge i_clk)
+         if(i_reset||i_flush)o_load_wait<=0;
+-        else o_load_wait<=load_wait_next;
++        else o_load_wait<=LOAD_HIT_SPLIT?load_wait_by[i_hit_sel]:load_wait_next;
+ `ifndef SYNTHESIS
+     // PREFIX_FREE against the step-loaded original wherever a suffix in
+     // D1's head reads it (D2 not holding a prefix).
+@@ -582,7 +612,13 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
+     assign push=accept&&!shortcut;
+     // PAYLOAD_FREE: the same terms without kill_younger (or step's i_flush).
+     wire step_raw=d2_valid&&(!out_valid||i_ready_payload)&&!o_hazard&&(!redirect_ff.valid||redirect_in_d2);
+-    wire d2_load=PAYLOAD_FREE?(count!=0||(i_valid&&count<2&&fast_select))&&(!d2_valid||(step_raw&&d2.last)):new_d2;
++    wire d2_load_ref=(count!=0||(i_valid&&count<2&&fast_select))&&(!d2_valid||(step_raw&&d2.last));
++    (* keep *) logic [1:0] hazard_by,step_by,d2_load_by,payload_by;
++    // maxfan: the record's load enable and the S-entry payload enable each
++    // reach several hundred flip-flops; duplicates sit beside them.
++    (* keep, maxfan = 32 *) wire d2_load=PAYLOAD_FREE?(LOAD_HIT_SPLIT?d2_load_by[i_hit_sel]:d2_load_ref):new_d2;
++    (* keep, maxfan = 32 *) wire payload_en=LOAD_HIT_SPLIT&&PAYLOAD_FREE?payload_by[i_hit_sel]:
++        !out_valid||(PAYLOAD_FREE?i_ready_payload:i_ready);
+     wire d1_load=PAYLOAD_FREE?count<2:push;
+     assign new_d2=pop||shortcut;
+     assign admitted=fast_select?fast_branch:decoded;
+@@ -597,6 +633,14 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
+             early_hazard[src]|=early_used[src]&&i_early_valid[pending]&&d2.tag[src]==i_early_tag[pending]&&
+                 !(S_AGU&&src==0&&i_early_agu[pending]&&(d2.kind==K_MEM||d2.kind==K_SWP||d2.kind==K_BLOCK));
+     end
++    // LOAD_HIT_SPLIT: A's finish (so its early locks) depends on W's hit.
++    logic [1:0][3:0] early_hazard_by;
++    always_comb for(int h=0;h<2;h++)begin
++        early_hazard_by[h]=0;
++        for(int src=0;src<4;src++)for(int pending=0;pending<4;pending++)
++            early_hazard_by[h][src]|=early_used[src]&&i_early_valid_by[h][pending]&&d2.tag[src]==i_early_tag[pending]&&
++                !(S_AGU&&src==0&&i_early_agu[pending]&&(d2.kind==K_MEM||d2.kind==K_SWP||d2.kind==K_BLOCK));
++    end
+     always_comb begin
+         load_hazard=0;
+         for(int pending=0;pending<6;pending++)begin
+@@ -614,10 +658,51 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
+         end
+         for(int dst=0;dst<2;dst++)load_hazard|=d2.writes[dst]&&i_locked[d2.dest[dst]];
+     end
++    // LOAD_HIT_SPLIT: load_hazard without its one hit-dependent term (W's
++    // speculative load, pending 4, against a younger destination), and that
++    // term for each value of the hit.
++    logic hazard_rest;
++    logic [1:0] waw_w_by;
++    always_comb begin
++        hazard_rest=0;
++        for(int pending=0;pending<6;pending++)begin
++            for(int src=0;src<4;src++)hazard_rest|=d2.used[src]&&i_load_valid[pending]&&
++                (!i_load_speculate[pending]||pending==0||(d2.early[src]&&pending==1))&&
++                d2.tag[src]==i_load_tag[pending];
++            if(pending!=4)for(int dst=0;dst<2;dst++)
++                hazard_rest|=d2.writes[dst]&&i_load_valid[pending]&&d2.dest[dst]==i_load_tag[pending]&&
++                    !(i_load_speculate[pending]&&(
++                    (d2.used[0]&&d2.tag[0]==i_load_tag[pending])||
++                    (d2.used[1]&&d2.tag[1]==i_load_tag[pending])||
++                    (d2.used[2]&&d2.tag[2]==i_load_tag[pending])||
++                    (d2.used[3]&&d2.tag[3]==i_load_tag[pending])));
++        end
++        for(int dst=0;dst<2;dst++)hazard_rest|=d2.writes[dst]&&i_locked[d2.dest[dst]];
++        for(int h=0;h<2;h++)begin
++            waw_w_by[h]=0;
++            for(int dst=0;dst<2;dst++)
++                waw_w_by[h]|=d2.writes[dst]&&i_load_valid[4]&&d2.dest[dst]==i_load_tag[4]&&
++                    !(i_load_speculate[4]&&((h==1&&i_w_load_trust)||
++                    (d2.used[0]&&d2.tag[0]==i_load_tag[4])||
++                    (d2.used[1]&&d2.tag[1]==i_load_tag[4])||
++                    (d2.used[2]&&d2.tag[2]==i_load_tag[4])||
++                    (d2.used[3]&&d2.tag[3]==i_load_tag[4])));
++        end
++    end
+     assign o_hazard=d2_valid&&(load_hazard||fenced||(d2.used[0]&&i_locked[d2.tag[0]]) ||
+         (d2.used[1]&&i_locked[d2.tag[1]]) || (d2.used[2]&&i_locked[d2.tag[2]]) || (d2.used[3]&&i_locked[d2.tag[3]]) ||
+         (|early_hazard));
+-    assign step=d2_valid&&(!out_valid||i_ready)&&!o_hazard&&!i_flush&&(!redirect_ff.valid||redirect_in_d2);
++    wire hazard_static=fenced||(d2.used[0]&&i_locked[d2.tag[0]]) ||
++        (d2.used[1]&&i_locked[d2.tag[1]]) || (d2.used[2]&&i_locked[d2.tag[2]]) || (d2.used[3]&&i_locked[d2.tag[3]]);
++    always_comb for(int h=0;h<2;h++)begin
++        hazard_by[h]=d2_valid&&(hazard_rest||waw_w_by[h]||hazard_static||(|early_hazard_by[h]));
++        step_by[h]=d2_valid&&(!out_valid||i_ready_by[h])&&!hazard_by[h]&&!i_flush&&(!redirect_ff.valid||redirect_in_d2);
++        d2_load_by[h]=(count!=0||(i_valid&&count<2&&fast_select))&&(!d2_valid||
++            (d2_valid&&(!out_valid||i_ready_payload_by[h])&&!hazard_by[h]&&(!redirect_ff.valid||redirect_in_d2)&&d2.last));
++        payload_by[h]=!out_valid||i_ready_payload_by[h];
++    end
++    wire step_ref=d2_valid&&(!out_valid||i_ready)&&!o_hazard&&!i_flush&&(!redirect_ff.valid||redirect_in_d2);
++    assign step=LOAD_HIT_SPLIT?step_by[i_hit_sel]:step_ref;
+     assign pop=count!=0&&(!d2_valid||(step&&d2.last))&&!kill_younger;
+     assign o_rf_tag=d2.tag;
+     // The register file is the core's (zap_writeback); decode reads it
+@@ -641,6 +726,8 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
+     endfunction
+     /* verilator lint_on UNUSEDSIGNAL */
+     (* dont_retime *) logic [18:0] shift_pre_ff;
++    (* dont_retime *) logic [3:0][1:0] tag_class_ff;
++    assign o_tag_class=tag_class_ff;
+     assign o_shift_pre={shift_pre_ff[18:16],SHIFT_PRE?shift_pre_ff[15:0]:16'd0};
+     // WT_TAGS: the tag compares, from registers; the late enable joins after.
+     logic [3:0] wt_hit_a, wt_hit_b;
+@@ -666,11 +753,29 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
+             if(write_through_match[n][2])o_value[n]=write_through_data[2];
+         end
+     end
++    // The S-entry payload loaded on payload_en (PAYLOAD_NORESET: in reset too).
++`define S_ENTRY_PAYLOAD \
++                issued<=d2;values<=raw_values;self_dep<=d2_self_dep; \
++                for(int n=0;n<4;n++)tag_class_ff[n]<={d2.tag[n]==17,d2.tag[n]==15}; \
++                shift_pre_ff<={op1_class(d2),shift_controls(d2)}; \
++                write_through_data<={i_wr_data_c,i_wr_data_b,i_wr_data_a}; \
++                for(int n=0;n<4;n++)write_through_match[n]<=WT_TAGS? \
++                    {i_wr_addr_c[d2.tag[n]],i_wen&&wt_hit_b[n],i_wen&&wt_hit_a[n]}: \
++                    {i_wr_addr_c[d2.tag[n]],i_wen&&i_wr_addr_b[d2.tag[n]],i_wen&&i_wr_addr_a[d2.tag[n]]}; \
++                matches_taken<=taken_match;matches_fallthrough<=fallthrough_match;
+     always_ff @(posedge i_clk) begin
+         if(i_reset) begin
+             fenced<=0;count<=0;head_select<=2'b01;tail<=0;d2_valid<=0;out_valid<=0;redirect_ff.valid<=0;redirect_in_d2<=0;
+             previous_prefix<=0;prefix_valid<=0;previous_next_pc<=0;prefix_target<=0;
+-            d2<=decoded_t'(0);issued<=decoded_t'(0);shift_pre_ff<=0;self_dep<=0;values<=0;write_through_match<=0;write_through_data<=0;matches_taken<=0;matches_fallthrough<=0;o_pending<=0;
++            o_pending<=0;
++            if(PAYLOAD_NORESET)begin
++                if(d2_load)d2<=admitted;
++                if(payload_en)begin
++                    `S_ENTRY_PAYLOAD
++                end
++            end else begin
++                d2<=decoded_t'(0);issued<=decoded_t'(0);shift_pre_ff<=0;tag_class_ff<=0;self_dep<=0;values<=0;write_through_match<=0;write_through_data<=0;matches_taken<=0;matches_fallthrough<=0;
++            end
+             redirect_ff.target<=0;redirect_ff.thumb<=0;redirect_ff.link<=0;
+             redirect_ff.pointer<=0;redirect_ff.count<=0;redirect_ff.action<=0;
+         end else begin
+@@ -690,18 +795,12 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
+             case({push,pop})2'b10:count<=count+1'b1;2'b01:count<=count-1'b1;default:;endcase
+             // Capacity alone clocks the payload. A source hazard changes
+             // only validity and the owner; it never drives this wide enable.
+-            if(!out_valid||(PAYLOAD_FREE?i_ready_payload:i_ready))begin
+-                issued<=d2;values<=raw_values;self_dep<=d2_self_dep;
+-                shift_pre_ff<={op1_class(d2),shift_controls(d2)};
++            if(payload_en)begin
++                `S_ENTRY_PAYLOAD
+                 // W may accept a miss and install its lock on this same
+                 // edge. Carry that owner to S instead of observing old locks.
+                 for(int src=0;src<4;src++)o_pending[src]<=d2.used[src]&&
+                     i_load_valid[4]&&!i_w_load_hit&&d2.tag[src]==i_load_tag[4];
+-                write_through_data<={i_wr_data_c,i_wr_data_b,i_wr_data_a};
+-                for(int n=0;n<4;n++)write_through_match[n]<=WT_TAGS?
+-                    {i_wr_addr_c[d2.tag[n]],i_wen&&wt_hit_b[n],i_wen&&wt_hit_a[n]}:
+-                    {i_wr_addr_c[d2.tag[n]],i_wen&&i_wr_addr_b[d2.tag[n]],i_wen&&i_wr_addr_a[d2.tag[n]]};
+-                matches_taken<=taken_match;matches_fallthrough<=fallthrough_match;
+             end
+             if(step)begin
+                 if(((d2.kind==K_CP&&(!d2.p.ins[20]||d2.p.ins[19:16]==7||d2.p.ins[15:12]==15))||
+@@ -797,6 +896,16 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
+         if(!i_reset&&PAYLOAD_FREE)begin
+             assert(!push||d1_load) else $fatal(1,"D1 payload enable");
+             assert(i_ready==i_ready_payload||i_flush) else $fatal(1,"payload ready outside a flush");
++            if(LOAD_HIT_SPLIT)begin
++                assert(i_w_load_hit==(i_hit_sel&&i_w_load_trust)&&i_ready_by[i_hit_sel]==i_ready&&
++                    i_early_valid_by[i_hit_sel]==i_early_valid&&i_next_load_valid_by[i_hit_sel]==i_next_load_valid&&
++                    (i_next_load_tag_by[i_hit_sel][0]==i_next_load_tag[0]||!i_next_load_valid[0])&&
++                    (i_next_load_tag_by[i_hit_sel][1]==i_next_load_tag[1]||!i_next_load_valid[1])&&
++                    i_ready_payload_by[i_hit_sel]==i_ready_payload) else $fatal(1,"load-hit split inputs");
++                assert(load_wait_by[i_hit_sel]==load_wait_next) else $fatal(1,"load-hit split load wait");
++                assert(hazard_by[i_hit_sel]==o_hazard&&step_by[i_hit_sel]==step_ref&&
++                    d2_load_by[i_hit_sel]==d2_load_ref) else $fatal(1,"load-hit split");
++            end
+             assert(!new_d2||d2_load) else $fatal(1,"D2 payload enable");
+         end
+         if(!i_reset&&PAYLOAD_FREE&&d2_kept)
+@@ -824,4 +933,5 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
+     assign o_redirect_pointer=redirect_ff.pointer;
+     assign o_redirect_count=redirect_ff.count;
+     assign o_redirect_action=redirect_ff.action;
++`undef S_ENTRY_PAYLOAD
+ endmodule
+diff --git a/rtl/cpu/arm9v2/arm9v2_execute.sv b/rtl/cpu/arm9v2/arm9v2_execute.sv
+index 320f8d2..7969305 100644
+--- a/rtl/cpu/arm9v2/arm9v2_execute.sv
++++ b/rtl/cpu/arm9v2/arm9v2_execute.sv
+@@ -23,11 +23,28 @@
+ // rotator's input excludes that lane, and the grant selects the finished
+ // value. The operand multiplexer is no longer between the cache and the
+ // shifter.
++// LOAD_HIT_SPLIT: S's and A's waits, and the readiness and validity they
++// give, are computed for both values of i_load_hit (W's short hit, three
++// registers in the core) and the hit selects the finished values, instead
++// of entering the waits first. Equal to the original form (asserted).
++// WRITES_PRE: S's planned writes are decode's registered destination mask
++// (i_writes, issued.writes) without the lanes a load or an SPSR write
++// fills later, by the kind alone, instead of being decoded again from the
++// instruction (a block's base bit select among them). Asserted equal.
++// TAG_PRE: whether each source is the PC or the PSR comes registered from
++// decode (i_tag_class) instead of from compares of i_tag. Asserted equal.
++// HELD_FREE: S's held operands load on every valid S clock (they are read
++// only while holding, which acceptance clears), and the prepared shift
++// amount/offset on every valid clock until prepared, so neither wide
++// enable waits for readiness; a return repairs a held operand under its
++// saved pending bit (what the wait is when no live producer matches).
++// Asserted equal wherever the original's values are read.
+ // Parameter defaults are the core's configuration (arm9v2_core sets each
+ // explicitly); 0 selects a cut's original form, kept for A/B timing trials.
+ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=1'b1, parameter logic FAST_Z=1'b1,
+     parameter logic W_ROTATE=1'b1, parameter logic SHIFT_PRE=1'b1, parameter logic PAYLOAD_FREE=1'b1,
+-    parameter logic DSP_PRODUCT=1'b1, parameter logic OP1_PRE=1'b1) (
++    parameter logic DSP_PRODUCT=1'b1, parameter logic OP1_PRE=1'b1, parameter logic LOAD_HIT_SPLIT=1'b1,
++    parameter logic WRITES_PRE=1'b1, parameter logic TAG_PRE=1'b1, parameter logic HELD_FREE=1'b1) (
+     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
+     input logic i_flags_refresh,
+     output logic o_serial_continue,
+@@ -47,11 +64,14 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
+     input logic i_valid,
+     output logic o_ready,
+     output logic o_ready_payload,   // o_ready without the flush and A's redirect (decode's payload enables)
++    output logic [1:0] o_ready_by,o_ready_payload_by,   // LOAD_HIT_SPLIT: both for each value of i_load_hit
+     input logic [31:0] i_pc,i_instruction,i_pc_base,i_next_pc,
+     input logic i_thumb,i_fault,i_force_align,i_reg_shift,i_first,i_last,
+     input logic [18:0] i_shift_pre,   // SHIFT_PRE: {type, amount, rotate amount, register};
+                                       // [18:16] operand 1 immediate / PC / PSR (OP1_PRE)
+     input logic [3:0] i_kind,i_condition,
++    input logic [1:0] i_writes,   // WRITES_PRE: decode's issued.writes
++    input logic [3:0][1:0] i_tag_class,   // TAG_PRE: {i_tag==17, i_tag==15} per source
+     input logic [3:0][5:0] i_tag,
+     input logic [3:0] i_used,i_early,
+     input logic [3:0][1:0][1:0] i_forward_match,
+@@ -100,6 +120,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
+     output logic [1:0] o_record_pred_state,
+     output logic [1:0] o_btb_state,o_btb_kind,
+     output logic o_a_valid,o_a_can_finish,
++    output logic [1:0] o_a_can_finish_by,   // LOAD_HIT_SPLIT: o_a_can_finish for each value of i_load_hit
+     output logic [1:0] o_s_write,
+     output logic [1:0][5:0] o_a_dest,
+     output logic [1:0] o_a_write,
+@@ -198,6 +219,19 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
+                     i_load_owner[prod]&&(prod==0||!a_load_hit);
+         end
+     end
++    // LOAD_HIT_SPLIT: the same waits with i_load_hit fixed at 0 and at 1.
++    (* keep *) logic [1:0][3:0] s_wait_by,a_wait_by;
++    always_comb for(int h=0;h<2;h++)begin
++        s_wait_by[h]=holding?s_pending:i_pending;a_wait_by[h]=a.pending;
++        for(int src=0;src<4;src++)for(int prod=1;prod>=0;prod--)begin
++            if(|i_forward_match[src][prod])
++                s_wait_by[h][src]=i_forward_match[src][prod][0]&&
++                    i_load_owner[prod]&&(prod==0||!(h==1&&(!i_self_dep||i_load_trust)));
++            if(|a.late[src][prod])
++                a_wait_by[h][src]=a.late[src][prod][0]&&
++                    i_load_owner[prod]&&(prod==0||!(h==1&&(!a.self_dep||i_load_trust)));
++        end
++    end
+     logic [31:0] shift_input,shifted;
+     logic [7:0] shift_amount;
+     logic [1:0] shift_type,ref_type;
+@@ -208,7 +242,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
+     logic [31:0] left_a,right_a,store_a,special_a,alu_result;
+     logic [3:0] alu_flags,next_flags;
+     logic condition_pass,finish,accept,space,product_phase,mac_phase,will_write_flags;
+-    logic [1:0] planned_writes;
++    logic [1:0] planned_writes,planned_writes_ref;
+     logic [63:0] product,mac_result,mult_result;
+     logic [31:0] actual_target;
+     logic actual_thumb,wrong_prediction;
+@@ -251,16 +285,51 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
+             if(i_used[src]&&!s_wait[src]&&i_tag[src]!=15&&i_tag[src]!=17)
+                 assert(forwarded[src]==forwarded_ref[src])
+                     else $fatal(1,"S free select src=%0d",src);
++    // HELD_FREE: the original enables as shadows; compared where read.
++    logic [3:0][31:0] held_ref;
++    logic [7:0] held_amount_ref;
++    logic [4:0] held_rot_ref;
++    logic [31:0] held_offset_ref;
++    always_ff @(posedge i_clk) begin
++        if(i_valid&&!accept)begin
++            held_ref<=operand;
++            for(int src=0;src<4;src++)for(int port=0;port<2;port++)
++                if(s_wait[src]&&!(|i_forward_match[src])&&s_return_match[src][port])held_ref[src]<=i_return_data[port];
++        end
++        if(i_valid&&i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&(i_reg_shift||agu_scaled)&&!prepared)begin
++            if(i_reg_shift)begin held_amount_ref<=operand[2][7:0];held_rot_ref<=shift_type==0?5'(-operand[2][4:0]):operand[2][4:0];end
++            if(agu_scaled)held_offset_ref<=shifted;
++        end
++    end
++    always_ff @(posedge i_clk) if(!i_reset&&HELD_FREE&&i_valid)begin
++        if(holding)assert(held==held_ref) else $fatal(1,"S held operands");
++        if(prepared&&i_reg_shift)assert(held_amount==held_amount_ref&&held_rot==held_rot_ref) else $fatal(1,"S prepared amount");
++        if(prepared&&agu_scaled)assert(held_offset==held_offset_ref) else $fatal(1,"S prepared offset");
++    end
++    always_ff @(posedge i_clk) if(!i_reset&&TAG_PRE)
++        for(int s=0;s<4;s++)assert(i_tag_class[s]=={i_tag[s]==6'd17,i_tag[s]==6'd15}) else $fatal(1,"S tag class %0d",s);
++    always_ff @(posedge i_clk) if(!i_reset&&WRITES_PRE&&i_valid)
++        assert(planned_writes==planned_writes_ref) else $fatal(1,"S planned writes");
++    // LOAD_HIT_SPLIT: the selected values are the original form's.
++    always_ff @(posedge i_clk) if(!i_reset)
++        assert(s_wait_by[i_load_hit]==s_wait&&a_wait_by[i_load_hit]==a_wait&&
++            valid_by[i_load_hit]==valid_ref&&ready_payload_by[i_load_hit]==ready_payload_ref)
++            else $fatal(1,"load-hit split");
+ `endif
++    logic [3:0] tag_pc,tag_psr;
++    always_comb for(int s=0;s<4;s++)begin
++        tag_pc[s]=TAG_PRE?i_tag_class[s][0]:i_tag[s]==15;
++        tag_psr[s]=TAG_PRE?i_tag_class[s][1]:i_tag[s]==17;
++    end
+     always_comb begin
+         operand=forwarded;
+         for(int s=0;s<4;s++)begin
+-            if(i_tag[s]==15)begin
++            if(tag_pc[s])begin
+                 operand[s]=i_pc_base;
+                 if((i_reg_shift&&s<2)||(s==3&&!i_thumb))operand[s]=i_pc_base+32'd4;
+                 if(s==0&&i_force_align)operand[s]={i_pc_base[31:2],2'b0};
+             end
+-            if(i_tag[s]==17)operand[s]={flags,i_cpsr[27:8],interrupt_mask,i_cpsr[5:0]};
++            if(tag_psr[s])operand[s]={flags,i_cpsr[27:8],interrupt_mask,i_cpsr[5:0]};
+         end
+         shift_input=operand[1];ref_type=i_instruction[6:5];
+         ref_amount=prepared&&i_reg_shift?held_amount:{3'd0,i_instruction[11:7]};
+@@ -286,18 +355,18 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
+             shift_type=ref_type;shift_amount=ref_amount;shift_register=ref_register;
+             shift_rot=ref_type==0?5'(-ref_amount[4:0]):ref_amount[4:0];
+         end
+-        planned_writes=0;
++        planned_writes_ref=0;
+         case(i_kind)
+-            DP:planned_writes[0]=i_instruction[24:23]!=2'b10;
+-            MRS,MUL,PREFIX:planned_writes[0]=1;
+-            MULL:planned_writes=3;
+-            BR:planned_writes[0]=i_instruction[24];
+-            SUFFIX:planned_writes[0]=1;
+-            MEM:planned_writes[1]=i_instruction[21]||!i_instruction[24];
+-            BLOCK:planned_writes[1]=i_last&&i_instruction[21]&&!(i_instruction[20]&&i_instruction[{1'b0,i_instruction[19:16]}]);
++            DP:planned_writes_ref[0]=i_instruction[24:23]!=2'b10;
++            MRS,MUL,PREFIX:planned_writes_ref[0]=1;
++            MULL:planned_writes_ref=3;
++            BR:planned_writes_ref[0]=i_instruction[24];
++            SUFFIX:planned_writes_ref[0]=1;
++            MEM:planned_writes_ref[1]=i_instruction[21]||!i_instruction[24];
++            BLOCK:planned_writes_ref[1]=i_last&&i_instruction[21]&&!(i_instruction[20]&&i_instruction[{1'b0,i_instruction[19:16]}]);
+             default:;
+         endcase
+-        if(i_fault)planned_writes=0;
++        if(i_fault)planned_writes_ref=0;
+     end
+     // W_ROTATE: src 1's forwarded word without W's load lane (rank 3), and
+     // the shifter input built from it exactly as shift_input is.
+@@ -456,13 +525,27 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
+     assign space=!a_valid||finish;
+     assign o_shift_wait=i_valid&&(i_reg_shift||agu_scaled)&&!prepared;
+     assign o_multiply_wait=product_phase||mac_phase;
+-    assign o_ready_payload=i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&!o_shift_wait;
++    wire ready_payload_ref=i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&!o_shift_wait;
++    wire valid_ref=a_valid&&!(|a_wait)&&!product_phase&&!mac_phase&&!i_flush&&!o_redirect;
++    (* keep *) logic [1:0] valid_by,ready_payload_by;
++    always_comb for(int h=0;h<2;h++)begin
++        valid_by[h]=a_valid&&!(|a_wait_by[h])&&!product_phase&&!mac_phase&&!i_flush&&!o_redirect;
++        ready_payload_by[h]=i_admit&&(!a_valid||(valid_by[h]&&i_ready))&&!i_load_wait&&
++            !(|(s_wait_by[h]&i_early))&&!o_shift_wait;
++    end
++    assign o_ready_payload=LOAD_HIT_SPLIT?ready_payload_by[i_load_hit]:ready_payload_ref;
++    assign o_ready_payload_by=ready_payload_by;
++    assign o_ready_by=ready_payload_by&{2{!i_flush&&!o_redirect}};
+     assign o_ready=o_ready_payload&&!i_flush&&!o_redirect;
+     assign accept=i_valid&&o_ready;
+-    assign o_valid=a_valid&&!(|a_wait)&&!product_phase&&!mac_phase&&!i_flush&&!o_redirect;
++    assign o_valid=LOAD_HIT_SPLIT?valid_by[i_load_hit]:valid_ref;
+     assign finish=o_valid&&i_ready;
+     assign o_a_valid=a_valid;
+     assign o_a_can_finish=finish;
++    assign o_a_can_finish_by=valid_by&{2{i_ready}};
++    wire [1:0] writes_lanes={i_kind==MULL||i_kind==MEM||i_kind==BLOCK,
++        i_kind==DP||i_kind==MRS||i_kind==MUL||i_kind==MULL||i_kind==BR||i_kind==PREFIX||i_kind==SUFFIX};
++    assign planned_writes=WRITES_PRE?i_writes&writes_lanes:planned_writes_ref;
+     assign o_s_write=planned_writes&{2{i_valid}};
+     assign o_a_dest=a.dest;
+     assign o_a_write=a.writes;
+@@ -542,7 +625,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
+     logic [3:0][1:0][1:0] late_hold,late_accept;
+     always_comb for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)begin
+         late_hold[src][prod][lane]=a.late_used[src]&&i_next_write[prod][lane]&&a_candidate_match[i_next_advance][src][prod][lane];
+-        late_accept[src][prod][lane]=i_used[src]&&!i_early[src]&&i_tag[src]!=15&&i_tag[src]!=17&&
++        late_accept[src][prod][lane]=i_used[src]&&!i_early[src]&&!tag_pc[src]&&!tag_psr[src]&&
+             i_next_write[prod][lane]&&s_candidate_match[i_next_advance][src][prod][lane];
+     end
+     always_comb for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)begin
+@@ -580,17 +663,24 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
+             o_redirect<=0;o_btb_update<=0;o_serial_continue<=0;
+             interrupt_mask<=next_interrupt_mask;
+             if(i_flags_refresh)flags<=i_cpsr[31:28];
+-            if(i_valid&&!accept)begin
+-                holding<=1;held<=operand;s_pending<=s_wait;
++            if(i_valid&&(HELD_FREE||!accept))begin
++                held<=operand;
+                 // A retired return is older than every live M/W match. It
+                 // may repair only an operand whose live producer has left.
+                 for(int src=0;src<4;src++)for(int port=0;port<2;port++)
+-                    if(s_wait[src]&&!(|i_forward_match[src])&&s_return_match[src][port])begin
+-                        held[src]<=i_return_data[port];s_pending[src]<=0;
+-                    end
++                    if((HELD_FREE?(holding?s_pending[src]:i_pending[src]):s_wait[src])&&
++                        !(|i_forward_match[src])&&s_return_match[src][port])
++                        held[src]<=i_return_data[port];
++            end
++            if(i_valid&&!accept)begin
++                holding<=1;s_pending<=s_wait;
++                for(int src=0;src<4;src++)for(int port=0;port<2;port++)
++                    if(s_wait[src]&&!(|i_forward_match[src])&&s_return_match[src][port])s_pending[src]<=0;
+             end
+-            if(i_valid&&i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&(i_reg_shift||agu_scaled)&&!prepared)begin
+-                prepared<=1;if(i_reg_shift)begin held_amount<=operand[2][7:0];held_rot<=shift_type==0?5'(-operand[2][4:0]):operand[2][4:0];end
++            if(i_valid&&i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&(i_reg_shift||agu_scaled)&&!prepared)
++                prepared<=1;
++            if(i_valid&&!prepared&&(HELD_FREE||(i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early)))))begin
++                if(i_reg_shift)begin held_amount<=operand[2][7:0];held_rot<=shift_type==0?5'(-operand[2][4:0]):operand[2][4:0];end
+                 if(agu_scaled)held_offset<=shifted;
+             end
+             if(a_valid)begin
+@@ -647,7 +737,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
+                 a.match_fallthrough<=i_match_fallthrough;a.pred_hit<=i_pred_hit;a.pred_state<=i_pred_state;a.ras_pointer<=i_ras_pointer;a.ras_count<=i_ras_count;
+                 a.spsr_tag<=i_tag[2];a.self_dep<=i_self_dep;a.dest<=i_dest;a.writes<=planned_writes;a.left<=S_AGU?s_base:operand[0];a.right<=shifted;
+                 a.agu<=agu_address;a.agu_sum<=agu_sum;
+-                a.store_data<=operand[3];a.special<=operand[2];a.cpsr_read<=i_tag[2]==17;
++                a.store_data<=operand[3];a.special<=operand[2];a.cpsr_read<=tag_psr[2];
+                 a.op<=i_instruction[24:21];a.set_flags<=i_instruction[20]||(i_kind==DP&&i_instruction[24:23]==2'b10);
+                 a.shift_carry<=shift_carry;a.carry_preserve<=carry_preserve;a.rrx<=rrx;a.wb_offset<=i_writeback_offset;
+                 a.tag<=i_tag;
+@@ -656,7 +746,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
+                     for(int prod=0;prod<2;prod++)
+                         if(i_used[src]&&!i_early[src]&&i_next_load_owner[prod]&&s_candidate_match[i_next_advance][src][prod][0])
+                             a.pending[src]<=1;
+-                    a.late_used[src]<=i_used[src]&&!i_early[src]&&i_tag[src]!=15&&i_tag[src]!=17;
++                    a.late_used[src]<=i_used[src]&&!i_early[src]&&!tag_pc[src]&&!tag_psr[src];
+                     for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
+                         a.late[src][prod][lane]<=late_accept[src][prod][lane];
+                     a.take[src]<=take_of(late_accept[src],src==0&&i_kind==BLOCK&&!i_first);
+diff --git a/rtl/cpu/arm9v2/arm9v2_fetch.sv b/rtl/cpu/arm9v2/arm9v2_fetch.sv
+index 30f21f7..9c99ae7 100644
+--- a/rtl/cpu/arm9v2/arm9v2_fetch.sv
++++ b/rtl/cpu/arm9v2/arm9v2_fetch.sv
+@@ -5,6 +5,12 @@
+ // THUMB_HALF: a Thumb fetch at pc[1] stores its upper halfword in the low
+ // half at queue push, so decode's instruction is the queue's word without
+ // a thumb/pc multiplexer behind the head select.
++// HEAD_FF: the queue's head entry is a register of its own, loaded on every
++// edge with the entry that will be at the head after it (the next entry on
++// a pop, the pushed packet when the push lands at the head, the pending
++// and fault bits updated by a finishing fill), so decode reads it straight
++// from flops instead of through the eight-entry select. Asserted equal to
++// the select whenever the queue holds an entry.
+ // Parameter defaults are the core's configuration (arm9v2_core sets each
+ // explicitly); 0 selects a cut's original form, kept for A/B timing trials.
+ module arm9v2_fetch #(
+@@ -12,7 +18,8 @@ module arm9v2_fetch #(
+     parameter logic PREDICTOR = 1'b1,
+     parameter logic THUMB_HALF = 1'b1,
+     parameter logic RAS_TOP_FF = 1'b1,
+-    parameter logic VALID_BIT = 1'b1
++    parameter logic VALID_BIT = 1'b1,
++    parameter logic HEAD_FF = 1'b1
+ ) (
+     input logic i_clk, i_reset,
+     // Backend redirect, payload and predictor update are registered by owner.
+@@ -106,11 +113,42 @@ module arm9v2_fetch #(
+                   !killed && !i_redirect && f2.epoch == epoch;
+     // Registered one-hot selection avoids a binary head decoder driving all
+     // packet bits. Only stored queue data appears at this boundary.
++    packet_t head_select_packet, next_packet, pushed, head_next;
++    (* dont_retime *) packet_t head_ff;
++    wire [7:0] next_select = {head_select[6:0],head_select[7]};
+     always_comb begin
+-        head_packet=packet_t'(0);
+-        for (int q=0;q<8;q++)
+-            head_packet |= queue[q] & {$bits(packet_t){head_select[q]}};
++        head_select_packet=packet_t'(0);
++        next_packet=packet_t'(0);
++        for (int q=0;q<8;q++) begin
++            head_select_packet |= queue[q] & {$bits(packet_t){head_select[q]}};
++            next_packet |= queue[q] & {$bits(packet_t){next_select[q]}};
++        end
++    end
++    assign head_packet = HEAD_FF ? head_ff : head_select_packet;
++    // The packet a push writes (the queue entries' own write below).
++    always_comb begin
++        pushed.word = THUMB_HALF && f2.thumb && f2.pc[1] ? {16'd0,i_data[31:16]} : i_data;
++        pushed.pc = f2.pc;
++        pushed.thumb = f2.thumb;
++        pushed.epoch = f2.epoch;
++        pushed.fault = i_error || (i_fill_pending && i_fill_fault);
++        pushed.pending = i_fill_pending && !i_fill_done;
++        pushed.prediction = f2_prediction;
++    end
++    // HEAD_FF: the entry at the head after this edge, with this edge's writes.
++    always_comb begin
++        head_next = i_redirect ? queue[0] : pop ? next_packet : head_ff;
++        if (!i_redirect && push && (pop ? next_select[tail] : head_select[tail])) head_next = pushed;
++        else if (i_fill_done) begin
++            if (head_next.pending) head_next.fault = head_next.fault || i_fill_fault;
++            head_next.pending = 0;
++        end
+     end
++    always_ff @(posedge i_clk) head_ff <= head_next;
++`ifndef SYNTHESIS
++    always_ff @(posedge i_clk) if (!i_reset && HEAD_FF && count != 0)
++        assert (head_ff == head_select_packet) else $fatal(1, "fetch head register");
++`endif
+     assign o_valid = count != 0 && !head_packet.pending && head_packet.epoch == epoch;
+     assign pop = o_valid && i_ready;
+     assign o_pc = head_packet.pc;
+@@ -153,13 +191,7 @@ module arm9v2_fetch #(
+     for (genvar q=0; q<8; q++) begin : g_queue
+         always_ff @(posedge i_clk) begin
+             if (push && tail == q) begin
+-                queue[q].word <= THUMB_HALF && f2.thumb && f2.pc[1] ? {16'd0,i_data[31:16]} : i_data;
+-                queue[q].pc <= f2.pc;
+-                queue[q].thumb <= f2.thumb;
+-                queue[q].epoch <= f2.epoch;
+-                queue[q].fault <= i_error || (i_fill_pending && i_fill_fault);
+-                queue[q].pending <= i_fill_pending && !i_fill_done;
+-                queue[q].prediction <= f2_prediction;
++                queue[q] <= pushed;
+             end else if (i_fill_done) begin
+                 queue[q].pending <= 0;
+                 if (queue[q].pending) queue[q].fault <= queue[q].fault || i_fill_fault;
+diff --git a/rtl/cpu/arm9v2/arm9v2_front_decode.sv b/rtl/cpu/arm9v2/arm9v2_front_decode.sv
+index 5df69e3..4ba4e74 100644
+--- a/rtl/cpu/arm9v2/arm9v2_front_decode.sv
++++ b/rtl/cpu/arm9v2/arm9v2_front_decode.sv
+@@ -14,6 +14,8 @@ module arm9v2_front_decode #(
+     parameter logic RAS_TOP_FF=1'b1,
+     parameter logic VALID_BIT=1'b1,
+     parameter logic PREFIX_FREE=1'b1,
++    parameter logic LOAD_HIT_SPLIT=1'b1,
++    parameter logic HEAD_FF=1'b1,
+     parameter logic [31:0] RESET_VECTOR=0
+ ) (
+     input logic i_clk, i_reset, i_flush,
+@@ -24,6 +26,7 @@ module arm9v2_front_decode #(
+     input logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked,
+     input logic [3:0][5:0] i_early_tag,
+     input logic [3:0] i_early_valid,
++    input logic [1:0][3:0] i_early_valid_by,   // LOAD_HIT_SPLIT
+     input logic [3:0] i_early_agu,
+     input logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c,
+     input logic [5:0] i_wr_tag_a, i_wr_tag_b,
+@@ -39,6 +42,8 @@ module arm9v2_front_decode #(
+     output logic [3:0] o_return_match,
+     input logic [1:0][5:0] i_next_load_tag,
+     input logic [1:0] i_next_load_valid,
++    input logic [1:0][1:0][5:0] i_next_load_tag_by,   // LOAD_HIT_SPLIT
++    input logic [1:0][1:0] i_next_load_valid_by,
+     output logic o_load_wait,
+     // Tags/eligibility of the producers that will exist after this edge.
+     input logic [1:0][1:0][5:0] i_forward_tag, i_advance_tag,
+@@ -51,11 +56,14 @@ module arm9v2_front_decode #(
+     output logic o_self_dep,
+     input logic i_ready,
+     input logic i_ready_payload,
++    input logic [1:0] i_ready_by, i_ready_payload_by,   // LOAD_HIT_SPLIT (arm9v2_decode)
++    input logic i_hit_sel, i_w_load_trust,
+     output logic o_valid,
+     output logic [31:0] o_pc, o_instruction, o_pc_base, o_next_pc,
+     output logic [15:0] o_raw,
+     output logic [4:0] o_mode,
+     output logic o_thumb, o_fault, o_force_align, o_reg_shift,
++    output logic [3:0][1:0] o_tag_class,
+     output logic [18:0] o_shift_pre,
+     output logic [3:0] o_kind, o_condition,
+     output logic [3:0][5:0] o_tag,
+@@ -100,7 +108,7 @@ module arm9v2_front_decode #(
+     logic [1:0] f_state,f_kind;
+     logic [2:0] f_pointer;
+     logic [3:0] f_count;
+-    arm9v2_fetch #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR),.THUMB_HALF(THUMB_HALF),.RAS_TOP_FF(RAS_TOP_FF),.VALID_BIT(VALID_BIT)) u_fetch (
++    arm9v2_fetch #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR),.THUMB_HALF(THUMB_HALF),.RAS_TOP_FF(RAS_TOP_FF),.VALID_BIT(VALID_BIT),.HEAD_FF(HEAD_FF)) u_fetch (
+         .i_clk(i_clk),.i_reset(i_reset),.i_redirect(i_flush||o_redirect),
+         .i_redirect_target(i_flush?i_backend_target:o_redirect_target),
+         .i_redirect_thumb(i_flush?i_backend_thumb:o_redirect_thumb),
+@@ -120,7 +128,7 @@ module arm9v2_front_decode #(
+         .o_predicted(f_predicted),.o_pred_hit(f_hit),.o_pred_target(f_target),
+         .o_pred_state(f_state),.o_pred_kind(f_kind),.o_ras_pointer(f_pointer),.o_ras_count(f_count)
+     );
+-    arm9v2_decode #(.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS),.PREFIX_FREE(PREFIX_FREE)) u_decode (
++    arm9v2_decode #(.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS),.PREFIX_FREE(PREFIX_FREE),.LOAD_HIT_SPLIT(LOAD_HIT_SPLIT)) u_decode (
+         .i_valid(f_valid),.i_pc(f_pc),.i_word(f_word),.i_thumb(f_thumb),.i_fault(f_fault),
+         .i_predicted(f_predicted),.i_pred_hit(f_hit),.i_pred_target(f_target),
+         .i_pred_state(f_state),.i_pred_kind(f_kind),.i_ras_pointer(f_pointer),.i_ras_count(f_count),
+diff --git a/rtl/cpu/zap/zap_cache.sv b/rtl/cpu/zap/zap_cache.sv
+index af79ad4..4f0a5c3 100644
+--- a/rtl/cpu/zap/zap_cache.sv
++++ b/rtl/cpu/zap/zap_cache.sv
+@@ -363,7 +363,6 @@ u_zap_tlb (
+         /* verilator lint_on PINCONNECTEMPTY */
+         .o_cacheable    (tlb_cacheable),
+         .o_busy         (tlb_busy),
+-        .o_idle_state   (),
+         .o_wb_stb_nxt   (wb_stb[2]),
+         .o_wb_cyc_nxt   (wb_cyc[2]),
+         .o_wb_adr_nxt   (wb_adr[2]),
+diff --git a/rtl/cpu/zap/zap_dcache.sv b/rtl/cpu/zap/zap_dcache.sv
+index 420e2ed..4c05615 100644
+--- a/rtl/cpu/zap/zap_dcache.sv
++++ b/rtl/cpu/zap/zap_dcache.sv
+@@ -164,7 +164,7 @@ logic [31:0]                     tlb_far;
+ logic                            tlb_fault;
+ logic                            tlb_cacheable;
+ logic                            tlb_wt;        // ARM925T
+-logic                            tlb_busy, tlb_hit_ok, tlb_hit_ok_short, tlb_idle;
++logic                            tlb_busy, tlb_hit_ok, tlb_hit_ok_short;
+ logic [CACHE_LINE*8-1:0]         tr_cache_line;
+ logic [31:0]                     tr_cache_word;    // ARM9V2: the short response's formatted hit word
+ logic [CACHE_LINE*8-1:0]         cf_cache_line;
+@@ -310,7 +310,6 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
+         .i_cacheable            (tlb_cacheable),
+         .i_wt                   (tlb_wt),
+         .i_busy                 (tlb_busy),
+-        .i_tlb_idle             (tlb_idle),
+         .o_err2                 (o_err2),
+         .o_dbg_dcache           (cf_dbg_dcache),
+         .o_address              (cache_address),
+@@ -541,7 +540,6 @@ u_zap_tlb (
+         .o_cacheable    (tlb_cacheable),
+         .o_wt           (tlb_wt),
+         .o_busy         (tlb_busy),
+-        .o_idle_state   (tlb_idle),
+         .o_hit_ok       (tlb_hit_ok),
+         .o_hit_ok_short (tlb_hit_ok_short),
+         .o_wb_stb_nxt   (wb_stb[2]),
+diff --git a/rtl/cpu/zap/zap_dcache_fsm.sv b/rtl/cpu/zap/zap_dcache_fsm.sv
+index 84b9ea1..8825330 100644
+--- a/rtl/cpu/zap/zap_dcache_fsm.sv
++++ b/rtl/cpu/zap/zap_dcache_fsm.sv
+@@ -139,7 +139,6 @@ input   logic                      i_fault,
+ input   logic                      i_cacheable,
+ input   logic                      i_wt,          // ARM925T: write-through page.
+ input   logic                      i_busy,
+-input   logic                      i_tlb_idle,    // ARM9V2: the TLB walker FSM's IDLE (a register)
+ output  logic                      o_hold,
+ 
+ // Cache state
+@@ -605,13 +604,13 @@ always_ff @(posedge i_clk) if (!i_reset && $onehot(state_ff))
+         assert ({ack_idle_flat || state_ff[UNC_DONE], err_flat, err2_flat} == {idle_ack, err_case, err2_case})
+                 else $fatal(1, "flat D-cache acknowledge");
+ `endif
+-// With i_hit_ok (the registered check, which excludes a walk) the TLB is
+-// busy only outside its IDLE state: one register instead of i_busy's terms.
+-assign o_ack_fast = (state_ff[IDLE] && !i_align_fault && i_cache_en && i_hit_ok && i_tlb_idle) || hum_ack ||
++// (Under i_hit_ok, !i_busy equals the walker's IDLE register; using that
++// register instead was tried on 2026-10-26 and fitted worse at seed 2:
++// -2.206 against -1.953 ns, TNS -1592 against -1273.)
++assign o_ack_fast = (state_ff[IDLE] && !i_align_fault && i_cache_en && i_hit_ok && !i_busy) || hum_ack ||
+                     state_ff[UNC_DONE];
+ assign o_err_fast = state_ff[UNC_DONE] && unc_err_ff;
+ `ifndef SYNTHESIS
+-always_ff @(posedge i_clk) if (!i_reset && i_hit_ok) assert (!i_busy == i_tlb_idle) else $fatal(1, "TLB idle under a registered hit");
+ always_ff @(posedge i_clk) if (!i_reset && $onehot(state_ff) && (i_rd || i_wr) && o_ack_fast)
+         assert (o_ack && !o_err2 && o_err == o_err_fast) else $fatal(1, "fast D-cache acknowledge");
+ `endif
+diff --git a/rtl/cpu/zap/zap_tlb.sv b/rtl/cpu/zap/zap_tlb.sv
+index 75e1303..8e6d376 100644
+--- a/rtl/cpu/zap/zap_tlb.sv
++++ b/rtl/cpu/zap/zap_tlb.sv
+@@ -74,7 +74,6 @@ output  logic            o_fault,
+ output  logic            o_cacheable,
+ output  logic            o_wt,          // ARM925T: write-through page (C=1 B=0).
+ output  logic            o_busy,
+-output  logic            o_idle_state,  // ARM9V2: the walker FSM's IDLE state (a register)
+ output  logic            o_hit_ok,      // ARM925T: registered check, independent of walker IDLE.
+ output  logic            o_hit_ok_short, // ARM9V2: o_hit_ok's unretimed copy (zap_tlb_check)
+ input   logic            i_idle,
+@@ -403,7 +402,6 @@ zap_tlb_fsm #(
+ .o_phy_addr     (o_phy_addr),
+ .o_cacheable    (o_cacheable),
+ .o_busy         (fsm_busy),
+-.o_idle_state   (o_idle_state),
+ 
+ .o_setlb_wdata  (setlb_wdata),
+ .o_setlb_wen    (setlb_wen),
+diff --git a/rtl/cpu/zap/zap_tlb_fsm.sv b/rtl/cpu/zap/zap_tlb_fsm.sv
+index f7a0a95..f21235f 100644
+--- a/rtl/cpu/zap/zap_tlb_fsm.sv
++++ b/rtl/cpu/zap/zap_tlb_fsm.sv
+@@ -71,7 +71,6 @@ output  logic                     o_fault,
+ output  logic   [31:0]            o_phy_addr,
+ output  logic                     o_cacheable,
+ output  logic                     o_busy,
+-output  logic                     o_idle_state,   // ARM9V2: state_ff[IDLE], a register
+ 
+ // ----------------------------------------------------------------------------
+ // To TLBs
+@@ -183,7 +182,6 @@ assign examine_fsr = state_ff[IDLE] & i_mmu_en & i_idle & ~i_walk;
+ 
+ // Busy when going to walk or walking.
+ assign o_busy  = walk | (~state_ff[IDLE]);
+-assign o_idle_state = state_ff[IDLE];
+ 
+ // Access violation detection condition.
+ assign o_fault = examine_fsr & |i_fsr[3:0];
+diff --git a/sim/cpu/arm9v2/decode_cache_tb.sv b/sim/cpu/arm9v2/decode_cache_tb.sv
+index eb21d5e..36b2a98 100644
+--- a/sim/cpu/arm9v2/decode_cache_tb.sv
++++ b/sim/cpu/arm9v2/decode_cache_tb.sv
+@@ -12,6 +12,10 @@ module decode_cache_tb;
+     logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c;
+     logic i_ready;
+     wire i_ready_payload=i_ready;
++    // LOAD_HIT_SPLIT: no W short hit here, so both readiness values are i_ready.
++    wire [1:0] i_ready_by={2{i_ready}}, i_ready_payload_by={2{i_ready}};
++    wire i_hit_sel=1'b0, i_w_load_trust=1'b0;
++    wire [1:0][3:0] i_early_valid_by={2{i_early_valid}};
+     // Ports added by the timing cuts (S_AGU, WT_TAGS, PAYLOAD_FREE, SHIFT_PRE,
+     // OP1_PRE), driven consistently with the bench's own signals: W's write
+     // tags are the one-hot write masks' indices (16: none).
+@@ -28,6 +32,7 @@ module decode_cache_tb;
+     end
+     wire o_self_dep;
+     wire [18:0] o_shift_pre;
++    wire [3:0][1:0] o_tag_class;
+     // The core's register file (zap_register_file) as this bench's model:
+     // A and B written under i_wen, C always, C > B > A on the same edge,
+     // each write visible from the next clock. Decode reads it through
+@@ -84,8 +89,8 @@ module decode_cache_tb;
+     logic [31:0] o_address_nxt, o_address_check, o_address;
+     logic o_request, o_stall;
+     arm9v2_front_decode #(.RESET_VECTOR(32'h1000),.SHIFT_PRE(CUTS),.PAYLOAD_FREE(CUTS),.REDIRECT_PAYLOAD(CUTS),
+-        .WT_TAGS(CUTS),.RAS_TOP_FF(CUTS),.PREFIX_FREE(CUTS),.VALID_BIT(CUTS)) dut (.i_serial_continue(1'b1),.o_dbg_fetch(),.o_writes(),.o_early(),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.*);
+-    wire unused=&{1'b0,o_self_dep,o_shift_pre,o_ready,o_valid,o_pc,o_instruction,o_pc_base,o_next_pc,o_raw,o_mode,o_thumb,o_fault,o_force_align,o_reg_shift,o_kind,o_condition,o_tag,o_used,o_value,o_dest,o_first,o_last,o_reg_count,o_offset,o_writeback_offset,o_transfer_reg,o_branch_target,o_direct,o_match_taken,o_match_fallthrough,o_predicted,o_pred_hit,o_pred_target,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count,o_hazard,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_address_nxt,o_address_check,o_address,o_request,o_stall};
++        .WT_TAGS(CUTS),.RAS_TOP_FF(CUTS),.PREFIX_FREE(CUTS),.VALID_BIT(CUTS)) dut (.i_serial_continue(1'b1),.o_dbg_fetch(),.o_writes(),.o_early(),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.i_next_load_tag_by('0),.i_next_load_valid_by('0),.o_load_wait(),.*);
++    wire unused=&{1'b0,o_self_dep,o_shift_pre,o_tag_class,o_ready,o_valid,o_pc,o_instruction,o_pc_base,o_next_pc,o_raw,o_mode,o_thumb,o_fault,o_force_align,o_reg_shift,o_kind,o_condition,o_tag,o_used,o_value,o_dest,o_first,o_last,o_reg_count,o_offset,o_writeback_offset,o_transfer_reg,o_branch_target,o_direct,o_match_taken,o_match_fallthrough,o_predicted,o_pred_hit,o_pred_target,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count,o_hazard,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_address_nxt,o_address_check,o_address,o_request,o_stall};
+     logic mmu=1;
+     wire bus_stb,bus_we;
+     wire [31:0] bus_addr;
+diff --git a/sim/cpu/arm9v2/decode_tb.sv b/sim/cpu/arm9v2/decode_tb.sv
+index dccebc0..3b1ac1b 100644
+--- a/sim/cpu/arm9v2/decode_tb.sv
++++ b/sim/cpu/arm9v2/decode_tb.sv
+@@ -20,6 +20,10 @@ module decode_tb;
+     logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c;
+     logic i_ready;
+     wire i_ready_payload=i_ready;
++    // LOAD_HIT_SPLIT: no W short hit here, so both readiness values are i_ready.
++    wire [1:0] i_ready_by={2{i_ready}}, i_ready_payload_by={2{i_ready}};
++    wire i_hit_sel=1'b0, i_w_load_trust=1'b0;
++    wire [1:0][3:0] i_early_valid_by={2{i_early_valid}};
+     // Ports added by the timing cuts (S_AGU, WT_TAGS, PAYLOAD_FREE, SHIFT_PRE,
+     // OP1_PRE), driven consistently with the bench's own signals: W's write
+     // tags are the one-hot write masks' indices (16: none).
+@@ -36,6 +40,7 @@ module decode_tb;
+     end
+     wire o_self_dep;
+     wire [18:0] o_shift_pre;
++    wire [3:0][1:0] o_tag_class;
+     // The core's register file (zap_register_file) as this bench's model:
+     // A and B written under i_wen, C always, C > B > A on the same edge,
+     // each write visible from the next clock. Decode reads it through
+@@ -80,8 +85,8 @@ module decode_tb;
+     logic [2:0] o_redirect_pointer;
+     logic [3:0] o_redirect_count;
+     logic [1:0] o_redirect_action;
+-    arm9v2_decode #(.S_AGU(CUTS),.THUMB_HALF(CUTS),.SHIFT_PRE(CUTS),.PAYLOAD_FREE(CUTS),.REDIRECT_PAYLOAD(CUTS),.WT_TAGS(CUTS),.PREFIX_FREE(CUTS)) dut (.i_serial_continue(1'b1),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.*);
+-    wire unused = &{1'b0,o_self_dep,o_shift_pre,o_ready,o_valid,o_pc,o_instruction,o_pc_base,o_next_pc,o_raw,o_mode,o_thumb,o_fault,o_force_align,o_reg_shift,o_kind,o_condition,o_tag,o_used,o_value,o_dest,o_first,o_last,o_reg_count,o_offset,o_writeback_offset,o_transfer_reg,o_branch_target,o_direct,o_match_taken,o_match_fallthrough,o_predicted,o_pred_hit,o_pred_target,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count,o_hazard,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action};
++    arm9v2_decode #(.S_AGU(CUTS),.THUMB_HALF(CUTS),.SHIFT_PRE(CUTS),.PAYLOAD_FREE(CUTS),.REDIRECT_PAYLOAD(CUTS),.WT_TAGS(CUTS),.PREFIX_FREE(CUTS)) dut (.i_serial_continue(1'b1),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.i_next_load_tag_by('0),.i_next_load_valid_by('0),.o_load_wait(),.*);
++    wire unused = &{1'b0,o_self_dep,o_shift_pre,o_tag_class,o_ready,o_valid,o_pc,o_instruction,o_pc_base,o_next_pc,o_raw,o_mode,o_thumb,o_fault,o_force_align,o_reg_shift,o_kind,o_condition,o_tag,o_used,o_value,o_dest,o_first,o_last,o_reg_count,o_offset,o_writeback_offset,o_transfer_reg,o_branch_target,o_direct,o_match_taken,o_match_fallthrough,o_predicted,o_pred_hit,o_pred_target,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count,o_hazard,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action};
+     int checks=0,cycles=0,redirects=0;
+     logic [31:0] last_target=0;
+     logic last_thumb=0;
+diff --git a/sim/cpu/arm9v2/execute_tb.sv b/sim/cpu/arm9v2/execute_tb.sv
+index efb0434..bc38cc8 100644
+--- a/sim/cpu/arm9v2/execute_tb.sv
++++ b/sim/cpu/arm9v2/execute_tb.sv
+@@ -37,8 +37,31 @@ module execute_tb;
+     // op1_class); execute's own assertions compare it with its formulas.
+     wire i_load_trust=1'b1, i_self_dep=1'b0;
+     wire o_ready_payload;
++    wire [1:0] o_ready_by,o_ready_payload_by;
+     wire [31:0] o_alu_address;
+     logic [18:0] i_shift_pre;
++    // WRITES_PRE: decode's destination mask for this record (arm9v2_decode
++    // decoded.writes, with the block's register list in ins[15:0]).
++    logic [1:0] i_writes;
++    // TAG_PRE: the PC/PSR classes decode registers beside the tags.
++    logic [3:0][1:0] i_tag_class;
++    always_comb for(int s=0;s<4;s++)i_tag_class[s]={i_tag[s]==6'd17,i_tag[s]==6'd15};
++    always_comb begin
++        i_writes=0;
++        case(i_kind)
++            4'd0:i_writes[0]=i_instruction[24:23]!=2'b10;
++            4'd1,4'd10,4'd11,4'd13:i_writes[0]=1;
++            4'd14:i_writes=3;
++            4'd3:i_writes[0]=i_instruction[24];
++            4'd5:i_writes={i_instruction[21]||!i_instruction[24],i_instruction[20]};
++            4'd6:i_writes={i_last&&i_instruction[21]&&!(i_instruction[20]&&i_instruction[{1'b0,i_instruction[19:16]}]),i_instruction[20]};
++            4'd12:i_writes[0]=1;
++            4'd7:i_writes[0]=i_instruction[20]&&i_instruction[15:12]!=15;
++            4'd2:i_writes[0]=i_instruction[22];
++            default:;
++        endcase
++        if(i_fault)i_writes=0;
++    end
+     always_comb begin
+         logic [1:0] t; logic [7:0] n; logic g;
+         t=i_instruction[6:5]; n={3'd0,i_instruction[11:7]}; g=i_reg_shift;
+@@ -76,6 +99,7 @@ module execute_tb;
+     logic [3:0] o_redirect_count;
+     logic [1:0] o_redirect_action;
+     logic o_a_valid,o_a_can_finish;
++    logic [1:0] o_a_can_finish_by;
+     logic [1:0] o_s_write;
+     logic [1:0][5:0] o_a_dest;
+     logic [1:0] o_a_write;
+@@ -225,7 +249,7 @@ module execute_tb;
+         .i_return_next_valid(|i_return_select[0]),.i_return_next_tag(normal_return_tag),
+         .i_return_ready(1'b1),.i_return_s_match(normal_s_match),.i_load_wait(1'b0),.i_ready(ready_m),.i_mw_tag(real_tag),.i_mw_value(real_value),.i_mw_valid(real_write),
+ .o_valid(raw_o_valid),.o_pc(raw_o_pc),.o_instruction(raw_o_instruction),.o_cpsr(raw_o_cpsr),.o_cpsr_next(raw_o_cpsr_next),.o_kind(raw_o_kind),.o_thumb(raw_o_thumb),.o_fault(raw_o_fault),.o_first(raw_o_first),.o_last(raw_o_last),.o_condition_pass(raw_o_condition_pass),.o_dest(raw_o_dest),.o_result(raw_o_result),.o_write(raw_o_write),.o_write_flags(raw_o_write_flags),.o_pc_write(raw_o_pc_write),.o_memory(raw_o_memory),.o_store(raw_o_store),.o_address(raw_o_address),.o_store_data(raw_o_store_data),.o_psr_source(raw_o_psr_source),.o_saved_psr(raw_o_saved_psr),.o_original_base(raw_o_original_base),.o_next_pc(raw_o_next_pc),.o_prediction_target(raw_o_prediction_target),.o_spsr_tag(raw_o_spsr_tag),.o_predicted(raw_o_predicted),.*);
+-    wire unused=&{1'b0,o_ready_payload,o_alu_address,o_btb_pc,o_btb_thumb,o_record_pointer,o_record_count,o_record_pred_hit,o_record_thumb,o_record_pred_state,i_mw_tag[1],i_mw_value[1],o_a_load,o_predicted,o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target,o_spsr_tag,o_btb_update,o_btb_taken,o_btb_hit,o_btb_target,o_btb_state,o_btb_kind,o_a_can_finish,o_s_write,o_ready,o_valid,o_pc,o_instruction,o_cpsr,o_cpsr_next,o_kind,o_thumb,o_fault,o_first,o_last,o_condition_pass,o_dest,o_result,o_write,o_write_flags,o_pc_write,o_memory,o_store,o_address,o_store_data,o_flags,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_a_valid,o_a_dest,o_a_write,o_shift_wait,o_multiply_wait};
++    wire unused=&{1'b0,o_ready_payload,o_ready_by,o_ready_payload_by,o_alu_address,o_btb_pc,o_btb_thumb,o_record_pointer,o_record_count,o_record_pred_hit,o_record_thumb,o_record_pred_state,i_mw_tag[1],i_mw_value[1],o_a_load,o_predicted,o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target,o_spsr_tag,o_btb_update,o_btb_taken,o_btb_hit,o_btb_target,o_btb_state,o_btb_kind,o_a_can_finish,o_a_can_finish_by,o_s_write,o_ready,o_valid,o_pc,o_instruction,o_cpsr,o_cpsr_next,o_kind,o_thumb,o_fault,o_first,o_last,o_condition_pass,o_dest,o_result,o_write,o_write_flags,o_pc_write,o_memory,o_store,o_address,o_store_data,o_flags,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_a_valid,o_a_dest,o_a_write,o_shift_wait,o_multiply_wait};
+     int checks=0,cycles=0;
+     logic [31:0] random_state=32'h315d97af;
+     function automatic logic [31:0] rnd;
+diff --git a/sim/cpu/arm9v2/front_execute.sv b/sim/cpu/arm9v2/front_execute.sv
+index a120ec2..2911914 100644
+--- a/sim/cpu/arm9v2/front_execute.sv
++++ b/sim/cpu/arm9v2/front_execute.sv
+@@ -81,7 +81,10 @@ module arm9v2_front_execute #(
+     // operand class, the self-dependency flag, the payload-ready S admission
+     // and the S-AGU writeback lanes (MEM=5 in A and in D2/S).
+     logic [18:0] d_shift_pre;
++    logic [3:0][1:0] d_tag_class;   // TAG_PRE
+     logic d_self_dep, execute_ready_payload;
++    logic [1:0] execute_ready_by, execute_ready_payload_by;   // LOAD_HIT_SPLIT (no W load hit here)
++    logic [1:0] d_writes;   // WRITES_PRE
+     logic [3:0] early_agu;
+     logic [3:0] d_condition;
+     logic [3:0][5:0] d_tag;
+@@ -129,6 +132,8 @@ module arm9v2_front_execute #(
+     logic [39:0] wa,wb,wc;
+     logic [3:0][5:0] early_tag;
+     logic [3:0] early_valid;
++    logic [1:0][3:0] early_valid_by;   // LOAD_HIT_SPLIT
++    logic [1:0] o_a_can_finish_by;
+     assign forward_tag={i_ready?mw_tag[0]:mw_tag[1],i_ready?o_dest:mw_tag[0]};
+     assign early_agu={o_kind==4'd5,1'b0,d_kind==4'd5,1'b0};
+     assign forward_write=(i_reset||i_flush)?4'd0:
+@@ -140,6 +145,8 @@ module arm9v2_front_execute #(
+     assign early_tag={o_a_dest,d_dest};
+     assign early_valid={o_a_write&{2{o_a_valid&&!o_a_can_finish}},o_s_write}&
+         {early_tag[3]!=15,early_tag[2]!=15,early_tag[1]!=15,early_tag[0]!=15};
++    always_comb for(int h=0;h<2;h++)early_valid_by[h]={o_a_write&{2{o_a_valid&&!o_a_can_finish_by[h]}},o_s_write}&
++        {early_tag[3]!=15,early_tag[2]!=15,early_tag[1]!=15,early_tag[0]!=15};
+     always_ff @(posedge i_clk)begin
+         if(i_reset||i_flush)begin
+             mw_valid<=0;mw_write<=0;mw_flags<=0;mw_value<=0;mw_tag<=0;mw_pc<=0;mw_ins<=0;mw_cpsr<=0;
+@@ -169,8 +176,8 @@ module arm9v2_front_execute #(
+     always_comb for(int n=0;n<4;n++)rf_value[n]=(rf_tag[n]<6'd40) ? model_rf[rf_tag[n]] : 32'd0;
+     arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR)) u_front_decode (
+         .i_serial_continue(1'b1),.o_dbg_fetch(),
+-        .i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),
+-        .o_writes(),.o_early(d_early),.i_forward_tag(forward_tag),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_write(forward_write),
++        .i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.i_next_load_tag_by('0),.i_next_load_valid_by('0),.o_load_wait(),
++        .o_writes(d_writes),.o_early(d_early),.i_forward_tag(forward_tag),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_write(forward_write),
+         .i_forward_load('0),.o_forward_grant(d_forward_grant),.o_forward_match(d_forward_match),.i_clk(i_clk),
+         .i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),
+         .i_reset(i_reset),
+@@ -185,13 +192,14 @@ module arm9v2_front_execute #(
+         .i_wr_addr_c(wc),
+         .i_locked(i_locked),
+         .i_early_tag(early_tag),
+-        .i_early_valid(early_valid),
++        .i_early_valid(early_valid),.i_early_valid_by(early_valid_by),
+         .i_wr_data_a(mw_value[1][0]),
+         .i_wr_data_b(mw_value[1][1]),
+         .i_wr_data_c(mw_cpsr[1]),
+         .i_ready(o_execute_ready),
+         .i_ready_payload(execute_ready_payload),
+-        .o_shift_pre(d_shift_pre),.o_self_dep(d_self_dep),.i_early_agu(early_agu),
++        .i_ready_by(execute_ready_by),.i_ready_payload_by(execute_ready_payload_by),.i_hit_sel(1'b0),.i_w_load_trust(1'b0),
++        .o_shift_pre(d_shift_pre),.o_tag_class(d_tag_class),.o_self_dep(d_self_dep),.i_early_agu(early_agu),
+         .i_backend_target(i_flush?i_backend_target:o_redirect_target),
+         .i_backend_link(o_redirect_link),
+         .i_backend_thumb(i_flush?i_backend_thumb:o_redirect_thumb),
+@@ -265,7 +273,7 @@ module arm9v2_front_execute #(
+     );
+     arm9v2_execute u_execute (
+         .i_flags_refresh(1'b0),.o_serial_continue(),.i_pending(4'd0),.i_load_owner(2'd0),.i_next_load_owner(2'd0),.i_load_hit(1'b0),.i_return_select(64'd0),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.i_return_ready(1'b0),.i_return_s_match(4'd0),.i_return_data(64'd0),
+-        .i_shift_pre(d_shift_pre),.i_self_dep(d_self_dep),.i_load_trust(1'b1),.o_ready_payload(execute_ready_payload),
++        .i_shift_pre(d_shift_pre),.i_tag_class(d_tag_class),.i_self_dep(d_self_dep),.i_load_trust(1'b1),.o_ready_payload(execute_ready_payload),.o_ready_by(execute_ready_by),.o_ready_payload_by(execute_ready_payload_by),
+         .i_admit(1'b1),.i_load_wait(1'b0),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_advance_tag('0),.i_next_advance(1'b0),.i_next_write(forward_write),.i_early(d_early),
+         .o_btb_pc(btb_pc),.o_btb_thumb(btb_thumb),.o_record_pointer(),.o_record_count(),
+         .o_record_pred_hit(),.o_record_pred_state(),.o_record_thumb(),
+@@ -285,7 +293,7 @@ module arm9v2_front_execute #(
+         .i_reg_shift(d_reg_shift),
+         .i_first(d_first),
+         .i_last(d_last),
+-        .i_kind(d_kind),
++        .i_kind(d_kind),.i_writes(d_writes),
+         .i_condition(d_condition),
+         .i_tag(d_tag),
+         .i_used(d_used),
+@@ -343,7 +351,7 @@ module arm9v2_front_execute #(
+         .o_btb_state(o_btb_state),
+         .o_btb_kind(o_btb_kind),
+         .o_a_valid(o_a_valid),
+-        .o_a_can_finish(o_a_can_finish),
++        .o_a_can_finish(o_a_can_finish),.o_a_can_finish_by(o_a_can_finish_by),
+         .o_s_write(o_s_write),
+         .o_a_dest(o_a_dest),
+         .o_a_write(o_a_write),
+diff --git a/sim/cpu/quartus/arm9v2_decode_trial.sv b/sim/cpu/quartus/arm9v2_decode_trial.sv
+index 3a6e6c1..05a4d8c 100644
+--- a/sim/cpu/quartus/arm9v2_decode_trial.sv
++++ b/sim/cpu/quartus/arm9v2_decode_trial.sv
+@@ -13,6 +13,7 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
+     logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked;
+     logic [3:0][5:0] i_early_tag;
+     logic [3:0] i_early_valid;
++    logic [1:0][3:0] i_early_valid_by;   // LOAD_HIT_SPLIT
+     logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c;
+     logic i_ready;
+     logic o_valid;
+@@ -58,12 +59,16 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
+     logic [3:0] i_early_agu;
+     logic [5:0] i_wr_tag_a, i_wr_tag_b;
+     logic i_wr_pair, i_ready_payload, serial_continue;
++    logic [1:0] i_ready_by, i_ready_payload_by;   // LOAD_HIT_SPLIT
++    logic i_hit_sel, i_w_load_trust;
+     logic o_self_dep;
+     logic [18:0] o_shift_pre;
++    logic [3:0][1:0] o_tag_class;
+     logic [3:0][5:0] rf_tag;
+     logic [3:0][31:0] rf_value;
+     assign i_early_tag=0;
+     assign i_early_valid=0;
++    assign i_early_valid_by=0;
+     assign i_clk=clk;
+     assign i_reset=stimulus[0:0];
+     assign i_flush=stimulus[1:1];
+@@ -105,6 +110,10 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
+     assign i_wr_pair=stimulus[466:466];
+     assign serial_continue=stimulus[467:467];
+     assign i_ready_payload=i_ready;
++    assign i_ready_by={2{i_ready}};
++    assign i_ready_payload_by={2{i_ready}};
++    assign i_hit_sel=1'b0;
++    assign i_w_load_trust=1'b0;
+     wire [127:0] flat_o_value=o_value;
+     wire unused = &{1'b0,stimulus[479:468]};
+     always_ff @(posedge clk) begin
+@@ -163,6 +172,7 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
+             32'(o_stall) ^
+             32'(o_self_dep) ^
+             32'(o_shift_pre) ^
++            32'(o_tag_class) ^
+             32'(rf_tag);
+     end
+     zap_register_file u_rf (.i_clk(i_clk),.i_reset(i_reset),.i_wen(i_wen),
+@@ -171,5 +181,5 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
+         .i_rd_addr_a(rf_tag[0]),.i_rd_addr_b(rf_tag[1]),.i_rd_addr_c(rf_tag[2]),.i_rd_addr_d(rf_tag[3]),.i_rd_addr_e(6'd0),
+         .o_rd_data_a(rf_value[0]),.o_rd_data_b(rf_value[1]),.o_rd_data_c(rf_value[2]),.o_rd_data_d(rf_value[3]),.o_rd_data_e());
+     arm9v2_front_decode u_front_decode (.i_serial_continue(serial_continue),.o_dbg_fetch(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_load_valid('0),.i_load_speculate('0),
+-        .i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.i_rf_value(rf_value),.o_rf_tag(rf_tag),.o_writes(),.o_early(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.*);
++        .i_next_load_tag('0),.i_next_load_valid('0),.i_next_load_tag_by('0),.i_next_load_valid_by('0),.o_load_wait(),.i_rf_value(rf_value),.o_rf_tag(rf_tag),.o_writes(),.o_early(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.*);
+ endmodule

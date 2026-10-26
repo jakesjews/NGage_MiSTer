@@ -24,6 +24,16 @@
 // WT_TAGS: the same-edge write-through compares D2's tags with W's binary
 // write tags (registers) and ANDs W's late write enable at the end,
 // instead of selecting the one-hot write masks' bits after completion.
+// PAYLOAD_NORESET: D2's record and the S-entry payload (issued, values and
+// the registers loaded with them) are not cleared by reset; reset loads
+// them on their usual enables instead, so each enable is the load
+// condition alone rather than load-or-reset. Their valid bits still reset,
+// and nothing reads a payload while its valid bit is clear.
+// D2_BANKS: D2's packet (the fields a block step never changes) is held in
+// two banks: the bank D2 does not own captures the admitted packet on every
+// edge and D2's load flips a one-bit owner, so the hazard-dependent load
+// drives one flop instead of the packet's enables. The record's other
+// fields (tags, masks, block counters) stay single. Asserted equal.
 // Parameter defaults are the core's configuration (arm9v2_core sets each
 // explicitly); 0 selects a cut's original form, kept for A/B timing trials.
 module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'b1,
@@ -31,7 +41,8 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
     parameter logic WT_TAGS=1'b1,
     // PREFIX_FREE: prefix_target loads while D2 holds a BL prefix, not on
     // S's acceptance (step): it is read only once D2 no longer holds it.
-    parameter logic PREFIX_FREE=1'b1) (
+    parameter logic PREFIX_FREE=1'b1,
+    parameter logic PAYLOAD_NORESET=1'b1, parameter logic D2_BANKS=1'b1) (
     input logic i_clk, i_reset, i_flush,
     input logic i_serial_continue,
     input logic i_valid,
@@ -86,6 +97,7 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
     output logic [15:0] o_raw,
     output logic [4:0] o_mode,
     output logic o_thumb, o_fault, o_force_align, o_reg_shift,
+    output logic [3:0][1:0] o_tag_class,   // {tag is the PSR, tag is the PC} per source, beside issued
     output logic [18:0] o_shift_pre,   // SHIFT_PRE: {type, amount, rotate amount, register};
                                        // [18:16] operand 1 immediate / PC / PSR (OP1_PRE)
     output logic [3:0] o_kind, o_condition,
@@ -155,7 +167,15 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
     (* dont_retime *) logic [1:0] head_select;
     (* dont_retime *) logic [1:0] count;
     (* dont_retime *) logic d2_valid, out_valid;
-    (* dont_retime *) decoded_t d2, issued;
+    (* dont_retime *) decoded_t d2_q, issued;
+    decoded_t d2;   // D2's record: d2_q, with its packet from the owned bank (D2_BANKS)
+    (* dont_retime *) packet_t d2_bank [0:1];
+    (* dont_retime, maxfan = 32 *) logic d2_owner;
+    always_comb begin
+        d2=d2_q;
+        if(D2_BANKS)d2.p=d2_bank[d2_owner];
+    end
+    always_ff @(posedge i_clk) if(D2_BANKS) d2_bank[!d2_owner]<=admitted.p;
     (* dont_retime *) logic [3:0][31:0] values;
     (* dont_retime *) logic [3:0][2:0] write_through_match;
     (* dont_retime *) logic [2:0][31:0] write_through_data;
@@ -583,6 +603,7 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
     // PAYLOAD_FREE: the same terms without kill_younger (or step's i_flush).
     wire step_raw=d2_valid&&(!out_valid||i_ready_payload)&&!o_hazard&&(!redirect_ff.valid||redirect_in_d2);
     wire d2_load=PAYLOAD_FREE?(count!=0||(i_valid&&count<2&&fast_select))&&(!d2_valid||(step_raw&&d2.last)):new_d2;
+    wire payload_en=!out_valid||(PAYLOAD_FREE?i_ready_payload:i_ready);
     wire d1_load=PAYLOAD_FREE?count<2:push;
     assign new_d2=pop||shortcut;
     assign admitted=fast_select?fast_branch:decoded;
@@ -641,6 +662,8 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
     (* dont_retime *) logic [18:0] shift_pre_ff;
+    (* dont_retime *) logic [3:0][1:0] tag_class_ff;
+    assign o_tag_class=tag_class_ff;
     assign o_shift_pre={shift_pre_ff[18:16],SHIFT_PRE?shift_pre_ff[15:0]:16'd0};
     // WT_TAGS: the tag compares, from registers; the late enable joins after.
     logic [3:0] wt_hit_a, wt_hit_b;
@@ -666,11 +689,30 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
             if(write_through_match[n][2])o_value[n]=write_through_data[2];
         end
     end
+    // The S-entry payload loaded on payload_en (PAYLOAD_NORESET: in reset too).
+`define S_ENTRY_PAYLOAD \
+                issued<=d2;values<=raw_values;self_dep<=d2_self_dep; \
+                for(int n=0;n<4;n++)tag_class_ff[n]<={d2.tag[n]==17,d2.tag[n]==15}; \
+                shift_pre_ff<={op1_class(d2),shift_controls(d2)}; \
+                write_through_data<={i_wr_data_c,i_wr_data_b,i_wr_data_a}; \
+                for(int n=0;n<4;n++)write_through_match[n]<=WT_TAGS? \
+                    {i_wr_addr_c[d2.tag[n]],i_wen&&wt_hit_b[n],i_wen&&wt_hit_a[n]}: \
+                    {i_wr_addr_c[d2.tag[n]],i_wen&&i_wr_addr_b[d2.tag[n]],i_wen&&i_wr_addr_a[d2.tag[n]]}; \
+                matches_taken<=taken_match;matches_fallthrough<=fallthrough_match;
     always_ff @(posedge i_clk) begin
         if(i_reset) begin
             fenced<=0;count<=0;head_select<=2'b01;tail<=0;d2_valid<=0;out_valid<=0;redirect_ff.valid<=0;redirect_in_d2<=0;
+            d2_owner<=0;
             previous_prefix<=0;prefix_valid<=0;previous_next_pc<=0;prefix_target<=0;
-            d2<=decoded_t'(0);issued<=decoded_t'(0);shift_pre_ff<=0;self_dep<=0;values<=0;write_through_match<=0;write_through_data<=0;matches_taken<=0;matches_fallthrough<=0;o_pending<=0;
+            o_pending<=0;
+            if(PAYLOAD_NORESET)begin
+                if(d2_load)d2_q<=admitted;
+                if(payload_en)begin
+                    `S_ENTRY_PAYLOAD
+                end
+            end else begin
+                d2_q<=decoded_t'(0);issued<=decoded_t'(0);shift_pre_ff<=0;tag_class_ff<=0;self_dep<=0;values<=0;write_through_match<=0;write_through_data<=0;matches_taken<=0;matches_fallthrough<=0;
+            end
             redirect_ff.target<=0;redirect_ff.thumb<=0;redirect_ff.link<=0;
             redirect_ff.pointer<=0;redirect_ff.count<=0;redirect_ff.action<=0;
         end else begin
@@ -690,18 +732,12 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
             case({push,pop})2'b10:count<=count+1'b1;2'b01:count<=count-1'b1;default:;endcase
             // Capacity alone clocks the payload. A source hazard changes
             // only validity and the owner; it never drives this wide enable.
-            if(!out_valid||(PAYLOAD_FREE?i_ready_payload:i_ready))begin
-                issued<=d2;values<=raw_values;self_dep<=d2_self_dep;
-                shift_pre_ff<={op1_class(d2),shift_controls(d2)};
+            if(payload_en)begin
+                `S_ENTRY_PAYLOAD
                 // W may accept a miss and install its lock on this same
                 // edge. Carry that owner to S instead of observing old locks.
                 for(int src=0;src<4;src++)o_pending[src]<=d2.used[src]&&
                     i_load_valid[4]&&!i_w_load_hit&&d2.tag[src]==i_load_tag[4];
-                write_through_data<={i_wr_data_c,i_wr_data_b,i_wr_data_a};
-                for(int n=0;n<4;n++)write_through_match[n]<=WT_TAGS?
-                    {i_wr_addr_c[d2.tag[n]],i_wen&&wt_hit_b[n],i_wen&&wt_hit_a[n]}:
-                    {i_wr_addr_c[d2.tag[n]],i_wen&&i_wr_addr_b[d2.tag[n]],i_wen&&i_wr_addr_a[d2.tag[n]]};
-                matches_taken<=taken_match;matches_fallthrough<=fallthrough_match;
             end
             if(step)begin
                 if(((d2.kind==K_CP&&(!d2.p.ins[20]||d2.p.ins[19:16]==7||d2.p.ins[15:12]==15))||
@@ -714,14 +750,14 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
                 else prefix_valid<=0;
                 if(d2.last)d2_valid<=0;
                 else begin
-                    d2.first<=0;d2.left<=d2.left-1'b1;d2.last<=d2.left==2;
-                    d2.writes[1]<=d2.left==2&&d2.p.ins[21]&&
+                    d2_q.first<=0;d2_q.left<=d2.left-1'b1;d2_q.last<=d2.left==2;
+                    d2_q.writes[1]<=d2.left==2&&d2.p.ins[21]&&
                         !(d2.p.ins[20]&&d2.p.list[d2.p.ins[19:16]]);
-                    d2.remaining<=next_remaining;d2.transfer_reg<=next_register;d2.offset<=d2.offset+8'sd4;
-                    d2.tag[3]<=bank({1'b0,next_register},d2.p.ins[22]&&!(d2.p.ins[20]&&d2.p.list[15])?5'h10:d2.p.mode);
-                    d2.dest[0]<=bank({1'b0,next_register},d2.p.ins[22]&&!(d2.p.ins[20]&&d2.p.list[15])?5'h10:d2.p.mode);
-                    d2.used[0]<=0;d2.used[2]<=d2.p.ins[20]&&d2.p.ins[22]&&d2.left==2&&next_register==15;
-                    if(S_AGU)d2.early[0]<=0;
+                    d2_q.remaining<=next_remaining;d2_q.transfer_reg<=next_register;d2_q.offset<=d2.offset+8'sd4;
+                    d2_q.tag[3]<=bank({1'b0,next_register},d2.p.ins[22]&&!(d2.p.ins[20]&&d2.p.list[15])?5'h10:d2.p.mode);
+                    d2_q.dest[0]<=bank({1'b0,next_register},d2.p.ins[22]&&!(d2.p.ins[20]&&d2.p.list[15])?5'h10:d2.p.mode);
+                    d2_q.used[0]<=0;d2_q.used[2]<=d2.p.ins[20]&&d2.p.ins[22]&&d2.left==2&&next_register==15;
+                    if(S_AGU)d2_q.early[0]<=0;
                 end
                 if(late_redirect)begin
                     redirect_ff.valid<=1;redirect_ff.target<=d2.target;redirect_ff.thumb<=d2.p.thumb;
@@ -730,11 +766,11 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
                     redirect_ff.action<=d2.kind==K_BL_SUFFIX||d2.p.ins[24]?2'd1:2'd0;
                 end
             end
-            if(d2_load)d2<=admitted;
+            if(d2_load)begin d2_q<=admitted;d2_owner<=!d2_owner;end
             if(new_d2)begin
                 d2_valid<=1;
                 if(admitted.direct&&!admitted.p.predicted&&!late_redirect)begin
-                    d2.redirected<=1;redirect_in_d2<=1;
+                    d2_q.redirected<=1;redirect_in_d2<=1;
                     redirect_ff.valid<=1;redirect_ff.target<=admitted.target;redirect_ff.thumb<=admitted.p.thumb;
                     redirect_ff.link<={admitted.p.next_pc[31:1],admitted.p.thumb};
                     redirect_ff.pointer<=admitted.p.ras_pointer;redirect_ff.count<=admitted.p.ras_count;
@@ -790,6 +826,10 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
     // stays valid across an edge without stepping or a new admission keeps
     // its payload (a payload-only load never lands on a live record).
     decoded_t d2_before;
+    packet_t d2_p_ref;   // D2_BANKS: the single-register packet
+    always_ff @(posedge i_clk)
+        if(i_reset&&!PAYLOAD_NORESET)d2_p_ref<=packet_t'(0);
+        else if(d2_load)d2_p_ref<=admitted.p;
     logic d2_kept;
     always_ff @(posedge i_clk) begin
         d2_kept<=!i_reset&&d2_valid&&!new_d2&&!step&&!(kill_younger&&(i_flush||!redirect_in_d2));
@@ -798,6 +838,7 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
             assert(!push||d1_load) else $fatal(1,"D1 payload enable");
             assert(i_ready==i_ready_payload||i_flush) else $fatal(1,"payload ready outside a flush");
             assert(!new_d2||d2_load) else $fatal(1,"D2 payload enable");
+            if(D2_BANKS&&d2_valid)assert(d2.p==d2_p_ref) else $fatal(1,"D2 packet banks");
         end
         if(!i_reset&&PAYLOAD_FREE&&d2_kept)
             assert(d2==d2_before) else $fatal(1,"D2 kept record changed");
@@ -824,4 +865,5 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
     assign o_redirect_pointer=redirect_ff.pointer;
     assign o_redirect_count=redirect_ff.count;
     assign o_redirect_action=redirect_ff.action;
+`undef S_ENTRY_PAYLOAD
 endmodule

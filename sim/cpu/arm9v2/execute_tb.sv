@@ -39,6 +39,28 @@ module execute_tb;
     wire o_ready_payload;
     wire [31:0] o_alu_address;
     logic [18:0] i_shift_pre;
+    // WRITES_PRE: decode's destination mask for this record (arm9v2_decode
+    // decoded.writes, with the block's register list in ins[15:0]).
+    logic [1:0] i_writes;
+    // TAG_PRE: the PC/PSR classes decode registers beside the tags.
+    logic [3:0][1:0] i_tag_class;
+    always_comb for(int s=0;s<4;s++)i_tag_class[s]={i_tag[s]==6'd17,i_tag[s]==6'd15};
+    always_comb begin
+        i_writes=0;
+        case(i_kind)
+            4'd0:i_writes[0]=i_instruction[24:23]!=2'b10;
+            4'd1,4'd10,4'd11,4'd13:i_writes[0]=1;
+            4'd14:i_writes=3;
+            4'd3:i_writes[0]=i_instruction[24];
+            4'd5:i_writes={i_instruction[21]||!i_instruction[24],i_instruction[20]};
+            4'd6:i_writes={i_last&&i_instruction[21]&&!(i_instruction[20]&&i_instruction[{1'b0,i_instruction[19:16]}]),i_instruction[20]};
+            4'd12:i_writes[0]=1;
+            4'd7:i_writes[0]=i_instruction[20]&&i_instruction[15:12]!=15;
+            4'd2:i_writes[0]=i_instruction[22];
+            default:;
+        endcase
+        if(i_fault)i_writes=0;
+    end
     always_comb begin
         logic [1:0] t; logic [7:0] n; logic g;
         t=i_instruction[6:5]; n={3'd0,i_instruction[11:7]}; g=i_reg_shift;

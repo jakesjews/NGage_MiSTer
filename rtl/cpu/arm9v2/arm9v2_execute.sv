@@ -23,11 +23,26 @@
 // rotator's input excludes that lane, and the grant selects the finished
 // value. The operand multiplexer is no longer between the cache and the
 // shifter.
+// WRITES_PRE: S's planned writes are decode's registered destination mask
+// (i_writes, issued.writes) without the lanes a load or an SPSR write
+// fills later, by the kind alone, instead of being decoded again from the
+// instruction (a block's base bit select among them). Asserted equal.
+// TAG_PRE: whether each source is the PC or the PSR comes registered from
+// decode (i_tag_class) instead of from compares of i_tag. Asserted equal.
+// HELD_FREE: S's held operands load on every valid S clock (they are read
+// only while holding, which acceptance clears), and the prepared shift
+// amount/offset on every valid clock until prepared, so neither wide
+// enable waits for readiness; a return repairs a held operand under its
+// saved pending bit (what the wait is when no live producer matches).
+// Asserted equal wherever the original's values are read.
+// MUL_FAST_Z: a flag-setting multiply's Z from the final adder's two inputs
+// without the carry ((x ^ y) == (x | y) << 1 is x + y == 0, as arm9_alu's
+// FAST_Z), instead of a zero test of the 64-bit sum. Asserted equal.
 // Parameter defaults are the core's configuration (arm9v2_core sets each
 // explicitly); 0 selects a cut's original form, kept for A/B timing trials.
 module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=1'b1, parameter logic FAST_Z=1'b1,
     parameter logic W_ROTATE=1'b1, parameter logic SHIFT_PRE=1'b1, parameter logic PAYLOAD_FREE=1'b1,
-    parameter logic DSP_PRODUCT=1'b1, parameter logic OP1_PRE=1'b1) (
+    parameter logic DSP_PRODUCT=1'b1, parameter logic OP1_PRE=1'b1, parameter logic WRITES_PRE=1'b1, parameter logic TAG_PRE=1'b1, parameter logic HELD_FREE=1'b1, parameter logic MUL_FAST_Z=1'b1) (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
     input logic i_flags_refresh,
     output logic o_serial_continue,
@@ -52,6 +67,8 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     input logic [18:0] i_shift_pre,   // SHIFT_PRE: {type, amount, rotate amount, register};
                                       // [18:16] operand 1 immediate / PC / PSR (OP1_PRE)
     input logic [3:0] i_kind,i_condition,
+    input logic [1:0] i_writes,   // WRITES_PRE: decode's issued.writes
+    input logic [3:0][1:0] i_tag_class,   // TAG_PRE: {i_tag==17, i_tag==15} per source
     input logic [3:0][5:0] i_tag,
     input logic [3:0] i_used,i_early,
     input logic [3:0][1:0][1:0] i_forward_match,
@@ -208,7 +225,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     logic [31:0] left_a,right_a,store_a,special_a,alu_result;
     logic [3:0] alu_flags,next_flags;
     logic condition_pass,finish,accept,space,product_phase,mac_phase,will_write_flags;
-    logic [1:0] planned_writes;
+    logic [1:0] planned_writes,planned_writes_ref;
     logic [63:0] product,mac_result,mult_result;
     logic [31:0] actual_target;
     logic actual_thumb,wrong_prediction;
@@ -251,16 +268,50 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
             if(i_used[src]&&!s_wait[src]&&i_tag[src]!=15&&i_tag[src]!=17)
                 assert(forwarded[src]==forwarded_ref[src])
                     else $fatal(1,"S free select src=%0d",src);
+    // HELD_FREE: the original enables as shadows; compared where read.
+    logic [3:0][31:0] held_ref;
+    logic [7:0] held_amount_ref;
+    logic [4:0] held_rot_ref;
+    logic [31:0] held_offset_ref;
+    always_ff @(posedge i_clk) begin
+        if(i_valid&&!accept)begin
+            held_ref<=operand;
+            for(int src=0;src<4;src++)for(int port=0;port<2;port++)
+                if(s_wait[src]&&!(|i_forward_match[src])&&s_return_match[src][port])held_ref[src]<=i_return_data[port];
+        end
+        if(i_valid&&i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&(i_reg_shift||agu_scaled)&&!prepared)begin
+            if(i_reg_shift)begin held_amount_ref<=operand[2][7:0];held_rot_ref<=shift_type==0?5'(-operand[2][4:0]):operand[2][4:0];end
+            if(agu_scaled)held_offset_ref<=shifted;
+        end
+    end
+    always_ff @(posedge i_clk) if(!i_reset&&HELD_FREE&&i_valid)begin
+        if(holding)assert(held==held_ref) else $fatal(1,"S held operands");
+        if(prepared&&i_reg_shift)assert(held_amount==held_amount_ref&&held_rot==held_rot_ref) else $fatal(1,"S prepared amount");
+        if(prepared&&agu_scaled)assert(held_offset==held_offset_ref) else $fatal(1,"S prepared offset");
+    end
+    always_ff @(posedge i_clk) if(!i_reset&&MUL_FAST_Z&&a_valid&&a.set_flags)begin
+        if(a.kind==MUL)assert(mul_z32==(mult_result[31:0]==0)) else $fatal(1,"multiply Z (32)");
+        if(a.kind==MULL)assert(mul_z64==(mult_result==0)) else $fatal(1,"multiply Z (64)");
+    end
+    always_ff @(posedge i_clk) if(!i_reset&&TAG_PRE)
+        for(int s=0;s<4;s++)assert(i_tag_class[s]=={i_tag[s]==6'd17,i_tag[s]==6'd15}) else $fatal(1,"S tag class %0d",s);
+    always_ff @(posedge i_clk) if(!i_reset&&WRITES_PRE&&i_valid)
+        assert(planned_writes==planned_writes_ref) else $fatal(1,"S planned writes");
 `endif
+    logic [3:0] tag_pc,tag_psr;
+    always_comb for(int s=0;s<4;s++)begin
+        tag_pc[s]=TAG_PRE?i_tag_class[s][0]:i_tag[s]==15;
+        tag_psr[s]=TAG_PRE?i_tag_class[s][1]:i_tag[s]==17;
+    end
     always_comb begin
         operand=forwarded;
         for(int s=0;s<4;s++)begin
-            if(i_tag[s]==15)begin
+            if(tag_pc[s])begin
                 operand[s]=i_pc_base;
                 if((i_reg_shift&&s<2)||(s==3&&!i_thumb))operand[s]=i_pc_base+32'd4;
                 if(s==0&&i_force_align)operand[s]={i_pc_base[31:2],2'b0};
             end
-            if(i_tag[s]==17)operand[s]={flags,i_cpsr[27:8],interrupt_mask,i_cpsr[5:0]};
+            if(tag_psr[s])operand[s]={flags,i_cpsr[27:8],interrupt_mask,i_cpsr[5:0]};
         end
         shift_input=operand[1];ref_type=i_instruction[6:5];
         ref_amount=prepared&&i_reg_shift?held_amount:{3'd0,i_instruction[11:7]};
@@ -286,18 +337,18 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
             shift_type=ref_type;shift_amount=ref_amount;shift_register=ref_register;
             shift_rot=ref_type==0?5'(-ref_amount[4:0]):ref_amount[4:0];
         end
-        planned_writes=0;
+        planned_writes_ref=0;
         case(i_kind)
-            DP:planned_writes[0]=i_instruction[24:23]!=2'b10;
-            MRS,MUL,PREFIX:planned_writes[0]=1;
-            MULL:planned_writes=3;
-            BR:planned_writes[0]=i_instruction[24];
-            SUFFIX:planned_writes[0]=1;
-            MEM:planned_writes[1]=i_instruction[21]||!i_instruction[24];
-            BLOCK:planned_writes[1]=i_last&&i_instruction[21]&&!(i_instruction[20]&&i_instruction[{1'b0,i_instruction[19:16]}]);
+            DP:planned_writes_ref[0]=i_instruction[24:23]!=2'b10;
+            MRS,MUL,PREFIX:planned_writes_ref[0]=1;
+            MULL:planned_writes_ref=3;
+            BR:planned_writes_ref[0]=i_instruction[24];
+            SUFFIX:planned_writes_ref[0]=1;
+            MEM:planned_writes_ref[1]=i_instruction[21]||!i_instruction[24];
+            BLOCK:planned_writes_ref[1]=i_last&&i_instruction[21]&&!(i_instruction[20]&&i_instruction[{1'b0,i_instruction[19:16]}]);
             default:;
         endcase
-        if(i_fault)planned_writes=0;
+        if(i_fault)planned_writes_ref=0;
     end
     // W_ROTATE: src 1's forwarded word without W's load lane (rank 3), and
     // the shifter input built from it exactly as shift_input is.
@@ -451,6 +502,15 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     assign product=ones1+twos1;
     assign mac_result=product_saved+(a.kind==MULL?{left_a,store_a}:{32'd0,store_a});
     assign mult_result=a.ins[21]?mac_result:product;
+    // MUL_FAST_Z: x + y == 0 without the carry chain.
+    function automatic logic zero_sum32(input logic [31:0] x,y);
+        zero_sum32=(x^y)=={x[30:0]|y[30:0],1'b0};
+    endfunction
+    function automatic logic zero_sum64(input logic [63:0] x,y);
+        zero_sum64=(x^y)=={x[62:0]|y[62:0],1'b0};
+    endfunction
+    wire mul_z32=a.ins[21]?zero_sum32(product_saved[31:0],store_a):zero_sum32(ones1[31:0],twos1[31:0]);
+    wire mul_z64=a.ins[21]?zero_sum64(product_saved,{left_a,store_a}):zero_sum64(ones1,twos1);
     assign product_phase=a_valid&&(a.kind==MUL||a.kind==MULL)&&!multiply_product_ready;
     assign mac_phase=a_valid&&(a.kind==MUL||a.kind==MULL)&&multiply_product_ready&&a.ins[21]&&!multiply_accumulate;
     assign space=!a_valid||finish;
@@ -463,6 +523,9 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     assign finish=o_valid&&i_ready;
     assign o_a_valid=a_valid;
     assign o_a_can_finish=finish;
+    wire [1:0] writes_lanes={i_kind==MULL||i_kind==MEM||i_kind==BLOCK,
+        i_kind==DP||i_kind==MRS||i_kind==MUL||i_kind==MULL||i_kind==BR||i_kind==PREFIX||i_kind==SUFFIX};
+    assign planned_writes=WRITES_PRE?i_writes&writes_lanes:planned_writes_ref;
     assign o_s_write=planned_writes&{2{i_valid}};
     assign o_a_dest=a.dest;
     assign o_a_write=a.writes;
@@ -483,8 +546,8 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
         next_flags=flags;will_write_flags=0;
         if(condition_pass&&!a.fault)case(a.kind)
             DP:if(a.set_flags&&(!a.writes[0]||a.dest[0]!=15))begin next_flags=alu_flags;will_write_flags=1;end
-            MUL:if(a.set_flags)begin next_flags={mult_result[31],mult_result[31:0]==0,flags[1:0]};will_write_flags=1;end
-            MULL:if(a.set_flags)begin next_flags={mult_result[63],mult_result==0,flags[1:0]};will_write_flags=1;end
+            MUL:if(a.set_flags)begin next_flags={mult_result[31],MUL_FAST_Z?mul_z32:mult_result[31:0]==0,flags[1:0]};will_write_flags=1;end
+            MULL:if(a.set_flags)begin next_flags={mult_result[63],MUL_FAST_Z?mul_z64:mult_result==0,flags[1:0]};will_write_flags=1;end
             MSR:if(!a.ins[22]&&a.ins[19])begin next_flags=right_a[31:28];will_write_flags=1;end
             default:;
         endcase
@@ -542,7 +605,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     logic [3:0][1:0][1:0] late_hold,late_accept;
     always_comb for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)begin
         late_hold[src][prod][lane]=a.late_used[src]&&i_next_write[prod][lane]&&a_candidate_match[i_next_advance][src][prod][lane];
-        late_accept[src][prod][lane]=i_used[src]&&!i_early[src]&&i_tag[src]!=15&&i_tag[src]!=17&&
+        late_accept[src][prod][lane]=i_used[src]&&!i_early[src]&&!tag_pc[src]&&!tag_psr[src]&&
             i_next_write[prod][lane]&&s_candidate_match[i_next_advance][src][prod][lane];
     end
     always_comb for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)begin
@@ -580,17 +643,24 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
             o_redirect<=0;o_btb_update<=0;o_serial_continue<=0;
             interrupt_mask<=next_interrupt_mask;
             if(i_flags_refresh)flags<=i_cpsr[31:28];
-            if(i_valid&&!accept)begin
-                holding<=1;held<=operand;s_pending<=s_wait;
+            if(i_valid&&(HELD_FREE||!accept))begin
+                held<=operand;
                 // A retired return is older than every live M/W match. It
                 // may repair only an operand whose live producer has left.
                 for(int src=0;src<4;src++)for(int port=0;port<2;port++)
-                    if(s_wait[src]&&!(|i_forward_match[src])&&s_return_match[src][port])begin
-                        held[src]<=i_return_data[port];s_pending[src]<=0;
-                    end
+                    if((HELD_FREE?(holding?s_pending[src]:i_pending[src]):s_wait[src])&&
+                        !(|i_forward_match[src])&&s_return_match[src][port])
+                        held[src]<=i_return_data[port];
             end
-            if(i_valid&&i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&(i_reg_shift||agu_scaled)&&!prepared)begin
-                prepared<=1;if(i_reg_shift)begin held_amount<=operand[2][7:0];held_rot<=shift_type==0?5'(-operand[2][4:0]):operand[2][4:0];end
+            if(i_valid&&!accept)begin
+                holding<=1;s_pending<=s_wait;
+                for(int src=0;src<4;src++)for(int port=0;port<2;port++)
+                    if(s_wait[src]&&!(|i_forward_match[src])&&s_return_match[src][port])s_pending[src]<=0;
+            end
+            if(i_valid&&i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early))&&(i_reg_shift||agu_scaled)&&!prepared)
+                prepared<=1;
+            if(i_valid&&!prepared&&(HELD_FREE||(i_admit&&space&&!i_load_wait&&!(|(s_wait&i_early)))))begin
+                if(i_reg_shift)begin held_amount<=operand[2][7:0];held_rot<=shift_type==0?5'(-operand[2][4:0]):operand[2][4:0];end
                 if(agu_scaled)held_offset<=shifted;
             end
             if(a_valid)begin
@@ -647,7 +717,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
                 a.match_fallthrough<=i_match_fallthrough;a.pred_hit<=i_pred_hit;a.pred_state<=i_pred_state;a.ras_pointer<=i_ras_pointer;a.ras_count<=i_ras_count;
                 a.spsr_tag<=i_tag[2];a.self_dep<=i_self_dep;a.dest<=i_dest;a.writes<=planned_writes;a.left<=S_AGU?s_base:operand[0];a.right<=shifted;
                 a.agu<=agu_address;a.agu_sum<=agu_sum;
-                a.store_data<=operand[3];a.special<=operand[2];a.cpsr_read<=i_tag[2]==17;
+                a.store_data<=operand[3];a.special<=operand[2];a.cpsr_read<=tag_psr[2];
                 a.op<=i_instruction[24:21];a.set_flags<=i_instruction[20]||(i_kind==DP&&i_instruction[24:23]==2'b10);
                 a.shift_carry<=shift_carry;a.carry_preserve<=carry_preserve;a.rrx<=rrx;a.wb_offset<=i_writeback_offset;
                 a.tag<=i_tag;
@@ -656,7 +726,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
                     for(int prod=0;prod<2;prod++)
                         if(i_used[src]&&!i_early[src]&&i_next_load_owner[prod]&&s_candidate_match[i_next_advance][src][prod][0])
                             a.pending[src]<=1;
-                    a.late_used[src]<=i_used[src]&&!i_early[src]&&i_tag[src]!=15&&i_tag[src]!=17;
+                    a.late_used[src]<=i_used[src]&&!i_early[src]&&!tag_pc[src]&&!tag_psr[src];
                     for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
                         a.late[src][prod][lane]<=late_accept[src][prod][lane];
                     a.take[src]<=take_of(late_accept[src],src==0&&i_kind==BLOCK&&!i_first);

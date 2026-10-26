@@ -5,6 +5,12 @@
 // THUMB_HALF: a Thumb fetch at pc[1] stores its upper halfword in the low
 // half at queue push, so decode's instruction is the queue's word without
 // a thumb/pc multiplexer behind the head select.
+// HEAD_FF: the queue's head entry is a register of its own, loaded on every
+// edge with the entry that will be at the head after it (the next entry on
+// a pop, the pushed packet when the push lands at the head, the pending
+// and fault bits updated by a finishing fill), so decode reads it straight
+// from flops instead of through the eight-entry select. Asserted equal to
+// the select whenever the queue holds an entry.
 // Parameter defaults are the core's configuration (arm9v2_core sets each
 // explicitly); 0 selects a cut's original form, kept for A/B timing trials.
 module arm9v2_fetch #(
@@ -12,7 +18,8 @@ module arm9v2_fetch #(
     parameter logic PREDICTOR = 1'b1,
     parameter logic THUMB_HALF = 1'b1,
     parameter logic RAS_TOP_FF = 1'b1,
-    parameter logic VALID_BIT = 1'b1
+    parameter logic VALID_BIT = 1'b1,
+    parameter logic HEAD_FF = 1'b1
 ) (
     input logic i_clk, i_reset,
     // Backend redirect, payload and predictor update are registered by owner.
@@ -106,11 +113,42 @@ module arm9v2_fetch #(
                   !killed && !i_redirect && f2.epoch == epoch;
     // Registered one-hot selection avoids a binary head decoder driving all
     // packet bits. Only stored queue data appears at this boundary.
+    packet_t head_select_packet, next_packet, pushed, head_next;
+    (* dont_retime *) packet_t head_ff;
+    wire [7:0] next_select = {head_select[6:0],head_select[7]};
     always_comb begin
-        head_packet=packet_t'(0);
-        for (int q=0;q<8;q++)
-            head_packet |= queue[q] & {$bits(packet_t){head_select[q]}};
+        head_select_packet=packet_t'(0);
+        next_packet=packet_t'(0);
+        for (int q=0;q<8;q++) begin
+            head_select_packet |= queue[q] & {$bits(packet_t){head_select[q]}};
+            next_packet |= queue[q] & {$bits(packet_t){next_select[q]}};
+        end
     end
+    assign head_packet = HEAD_FF ? head_ff : head_select_packet;
+    // The packet a push writes (the queue entries' own write below).
+    always_comb begin
+        pushed.word = THUMB_HALF && f2.thumb && f2.pc[1] ? {16'd0,i_data[31:16]} : i_data;
+        pushed.pc = f2.pc;
+        pushed.thumb = f2.thumb;
+        pushed.epoch = f2.epoch;
+        pushed.fault = i_error || (i_fill_pending && i_fill_fault);
+        pushed.pending = i_fill_pending && !i_fill_done;
+        pushed.prediction = f2_prediction;
+    end
+    // HEAD_FF: the entry at the head after this edge, with this edge's writes.
+    always_comb begin
+        head_next = i_redirect ? queue[0] : pop ? next_packet : head_ff;
+        if (!i_redirect && push && (pop ? next_select[tail] : head_select[tail])) head_next = pushed;
+        else if (i_fill_done) begin
+            if (head_next.pending) head_next.fault = head_next.fault || i_fill_fault;
+            head_next.pending = 0;
+        end
+    end
+    always_ff @(posedge i_clk) head_ff <= head_next;
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if (!i_reset && HEAD_FF && count != 0)
+        assert (head_ff == head_select_packet) else $fatal(1, "fetch head register");
+`endif
     assign o_valid = count != 0 && !head_packet.pending && head_packet.epoch == epoch;
     assign pop = o_valid && i_ready;
     assign o_pc = head_packet.pc;
@@ -153,13 +191,7 @@ module arm9v2_fetch #(
     for (genvar q=0; q<8; q++) begin : g_queue
         always_ff @(posedge i_clk) begin
             if (push && tail == q) begin
-                queue[q].word <= THUMB_HALF && f2.thumb && f2.pc[1] ? {16'd0,i_data[31:16]} : i_data;
-                queue[q].pc <= f2.pc;
-                queue[q].thumb <= f2.thumb;
-                queue[q].epoch <= f2.epoch;
-                queue[q].fault <= i_error || (i_fill_pending && i_fill_fault);
-                queue[q].pending <= i_fill_pending && !i_fill_done;
-                queue[q].prediction <= f2_prediction;
+                queue[q] <= pushed;
             end else if (i_fill_done) begin
                 queue[q].pending <= 0;
                 if (queue[q].pending) queue[q].fault <= queue[q].fault || i_fill_fault;

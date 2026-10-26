@@ -363,7 +363,6 @@ u_zap_tlb (
         /* verilator lint_on PINCONNECTEMPTY */
         .o_cacheable    (tlb_cacheable),
         .o_busy         (tlb_busy),
-        .o_idle_state   (),
         .o_wb_stb_nxt   (wb_stb[2]),
         .o_wb_cyc_nxt   (wb_cyc[2]),
         .o_wb_adr_nxt   (wb_adr[2]),

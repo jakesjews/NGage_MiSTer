@@ -164,7 +164,7 @@ logic [31:0]                     tlb_far;
 logic                            tlb_fault;
 logic                            tlb_cacheable;
 logic                            tlb_wt;        // ARM925T
-logic                            tlb_busy, tlb_hit_ok, tlb_hit_ok_short, tlb_idle;
+logic                            tlb_busy, tlb_hit_ok, tlb_hit_ok_short;
 logic [CACHE_LINE*8-1:0]         tr_cache_line;
 logic [31:0]                     tr_cache_word;    // ARM9V2: the short response's formatted hit word
 logic [CACHE_LINE*8-1:0]         cf_cache_line;
@@ -310,7 +310,6 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_cacheable            (tlb_cacheable),
         .i_wt                   (tlb_wt),
         .i_busy                 (tlb_busy),
-        .i_tlb_idle             (tlb_idle),
         .o_err2                 (o_err2),
         .o_dbg_dcache           (cf_dbg_dcache),
         .o_address              (cache_address),
@@ -541,7 +540,6 @@ u_zap_tlb (
         .o_cacheable    (tlb_cacheable),
         .o_wt           (tlb_wt),
         .o_busy         (tlb_busy),
-        .o_idle_state   (tlb_idle),
         .o_hit_ok       (tlb_hit_ok),
         .o_hit_ok_short (tlb_hit_ok_short),
         .o_wb_stb_nxt   (wb_stb[2]),

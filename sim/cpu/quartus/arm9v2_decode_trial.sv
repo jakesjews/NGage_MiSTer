@@ -60,6 +60,7 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
     logic i_wr_pair, i_ready_payload, serial_continue;
     logic o_self_dep;
     logic [18:0] o_shift_pre;
+    logic [3:0][1:0] o_tag_class;
     logic [3:0][5:0] rf_tag;
     logic [3:0][31:0] rf_value;
     assign i_early_tag=0;
@@ -163,6 +164,7 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
             32'(o_stall) ^
             32'(o_self_dep) ^
             32'(o_shift_pre) ^
+            32'(o_tag_class) ^
             32'(rf_tag);
     end
     zap_register_file u_rf (.i_clk(i_clk),.i_reset(i_reset),.i_wen(i_wen),

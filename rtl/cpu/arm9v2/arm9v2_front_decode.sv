@@ -14,6 +14,7 @@ module arm9v2_front_decode #(
     parameter logic RAS_TOP_FF=1'b1,
     parameter logic VALID_BIT=1'b1,
     parameter logic PREFIX_FREE=1'b1,
+    parameter logic HEAD_FF=1'b1,
     parameter logic [31:0] RESET_VECTOR=0
 ) (
     input logic i_clk, i_reset, i_flush,
@@ -56,6 +57,7 @@ module arm9v2_front_decode #(
     output logic [15:0] o_raw,
     output logic [4:0] o_mode,
     output logic o_thumb, o_fault, o_force_align, o_reg_shift,
+    output logic [3:0][1:0] o_tag_class,
     output logic [18:0] o_shift_pre,
     output logic [3:0] o_kind, o_condition,
     output logic [3:0][5:0] o_tag,
@@ -100,7 +102,7 @@ module arm9v2_front_decode #(
     logic [1:0] f_state,f_kind;
     logic [2:0] f_pointer;
     logic [3:0] f_count;
-    arm9v2_fetch #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR),.THUMB_HALF(THUMB_HALF),.RAS_TOP_FF(RAS_TOP_FF),.VALID_BIT(VALID_BIT)) u_fetch (
+    arm9v2_fetch #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR),.THUMB_HALF(THUMB_HALF),.RAS_TOP_FF(RAS_TOP_FF),.VALID_BIT(VALID_BIT),.HEAD_FF(HEAD_FF)) u_fetch (
         .i_clk(i_clk),.i_reset(i_reset),.i_redirect(i_flush||o_redirect),
         .i_redirect_target(i_flush?i_backend_target:o_redirect_target),
         .i_redirect_thumb(i_flush?i_backend_thumb:o_redirect_thumb),

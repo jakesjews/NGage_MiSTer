@@ -66,6 +66,29 @@ module arm9v2_core #(
         // S's operand-1 class (immediate, PC, PSR) registered by decode
         // beside the shift controls (arm9v2_execute OP1_PRE): zero cycles.
         parameter logic OP1_PRE = 1'b1,
+        // S's planned writes from decode's registered destination mask
+        // (arm9v2_execute WRITES_PRE): zero cycles.
+        parameter logic WRITES_PRE = 1'b1,
+        // S's PC/PSR source classes registered by decode (arm9v2_execute
+        // TAG_PRE): zero cycles.
+        parameter logic TAG_PRE = 1'b1,
+        // S's held operands and prepared payload without the readiness
+        // enables (arm9v2_execute HELD_FREE): zero cycles.
+        parameter logic HELD_FREE = 1'b1,
+        // The fetch queue's head entry as its own register (arm9v2_fetch
+        // HEAD_FF): zero cycles.
+        parameter logic HEAD_FF = 1'b1,
+        // M/W/skid carry their load-ownership and speculation classes as
+        // record bits (ld, sp), set where a record is formed or changed,
+        // instead of decoding them from kind/last/dest every clock: zero cycles.
+        parameter logic LOAD_CLASS = 1'b1,
+        // W's completion class without the defer_load node: request_done &&
+        // !retry && !defer_load written out as one equation (an identity),
+        // so the completion roots do not wait for defer_load: zero cycles.
+        parameter logic COMPLETE_FLAT = 1'b1,
+        // A flag-setting multiply's Z without the carry (arm9v2_execute
+        // MUL_FAST_Z): zero cycles.
+        parameter logic MUL_FAST_Z = 1'b1,
         // The predictor's looked-up valid bit as a register (arm9v2_predict
         // VALID_BIT): zero cycles.
         parameter logic VALID_BIT = 1'b1,
@@ -324,6 +347,8 @@ output logic [1:0] o_dbg_fetch
     logic [3:0] d_ras_count;
     logic d_hazard;
     logic a_execute_ready,a_execute_ready_payload;
+    logic [1:0] d_writes;   // WRITES_PRE
+    logic [3:0][1:0] d_tag_class;   // TAG_PRE
     logic a_valid;
     logic [31:0] a_pc;
     logic [31:0] a_instruction;
@@ -388,7 +413,18 @@ output logic [1:0] o_dbg_fetch
         logic [3:0] kind;
         logic pred_hit;
         logic [1:0] pred_state;
+        logic ld,sp;   // LOAD_CLASS: ld_of and sp_of of the record's own fields
     } record_t;
+    // LOAD_CLASS: a record owns a load result (ld) / is a speculative load
+    // (sp), the terms load_valid and load_speculate use.
+    /* verilator lint_off UNUSEDSIGNAL */
+    function automatic logic ld_of(input record_t r);
+        ld_of=(r.memory&&!r.store)||r.load_writer;
+    endfunction
+    function automatic logic sp_of(input record_t r);
+        sp_of=(r.kind==MEM||(r.kind==BLOCK&&r.last))&&r.dest[0]!=15;
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
     typedef enum logic [3:0] {RUN,HOLD,RELOAD0,RELOAD1,RETRY0,RETRY1,
         LOAD_RETURN,SWAP0,SWAP1,RESTORE,ABORT} memory_state_t;
     (* dont_retime *) record_t m,w,skid;
@@ -528,8 +564,8 @@ output logic [1:0] o_dbg_fetch
     // Pipeline load ownership and the cache's registered background lock are
     // separate. No cache ACK or producer readiness is searched in forwarding.
     assign load_tag={skid.dest[0],w.dest[0],m.dest[0],a_dest[0],a_a_dest[0],d_dest[0]};
-    assign load_valid={skid.valid&&((skid.memory&&!skid.store)||skid.load_writer),
-        w.valid&&((w.memory&&!w.store)||w.load_writer),m.valid&&((m.memory&&!m.store)||m.load_writer),
+    assign load_valid={skid.valid&&(LOAD_CLASS?skid.ld:(skid.memory&&!skid.store)||skid.load_writer),
+        w.valid&&(LOAD_CLASS?w.ld:(w.memory&&!w.store)||w.load_writer),m.valid&&(LOAD_CLASS?m.ld:(m.memory&&!m.store)||m.load_writer),
         1'b0,a_a_load,
         d_valid&&!d_fault&&((d_kind==MEM||d_kind==BLOCK)?d_instruction[20]:d_kind==SWP||(d_kind==CP&&d_instruction[20]&&d_dest[0]!=15))};
     // Scalar consumers may enter S/A before the result is known; their
@@ -537,8 +573,8 @@ output logic [1:0] o_dbg_fetch
     // Only the final non-PC block word may use the scalar schedule. Earlier
     // words retain partial-LDM protection; an abort restores Rn and kills
     // younger records before any can retire. SWP/PC retain their interlock.
-    assign load_speculate={(skid.kind==MEM||(skid.kind==BLOCK&&skid.last))&&skid.dest[0]!=15,(w.kind==MEM||(w.kind==BLOCK&&w.last))&&w.dest[0]!=15,
-        (m.kind==MEM||(m.kind==BLOCK&&m.last))&&m.dest[0]!=15,1'b0,(a_kind==MEM||(a_kind==BLOCK&&a_last))&&a_dest[0]!=15,(d_kind==MEM||(d_kind==BLOCK&&d_last))&&d_dest[0]!=15};
+    assign load_speculate={LOAD_CLASS?skid.sp:sp_of(skid),LOAD_CLASS?w.sp:sp_of(w),
+        LOAD_CLASS?m.sp:sp_of(m),1'b0,(a_kind==MEM||(a_kind==BLOCK&&a_last))&&a_dest[0]!=15,(d_kind==MEM||(d_kind==BLOCK&&d_last))&&d_dest[0]!=15};
     assign locked=i_dc_lock[39:0];
     assign mw_tag={w.dest,m.dest};
     assign mw_value[0]=m.result;
@@ -567,7 +603,8 @@ output logic [1:0] o_dbg_fetch
             else if(w.pass&&w.kind==CP)complete_class[consumer]=cp_finished;
             else if(memory_state==LOAD_RETURN)complete_class[consumer]=!w_locked&&w.kind!=SWP;
             else if(memory_state==RUN||memory_state==HOLD)
-                complete_class[consumer]=!w.memory||(request_done&&!retry&&!defer_load);
+                complete_class[consumer]=!w.memory||(request_done&&!retry&&(COMPLETE_FLAT?
+                    resp_err||w.store||(w.kind!=SWP&&(w.dest[0]!=15||fast_pc_hit)):!defer_load));
         end
         // Restore Rn on an aborting block before the exception writes ABT LR.
         if(request_done&&resp_err&&w.kind==BLOCK&&w.ins[21])complete_class[consumer]=0;
@@ -603,6 +640,14 @@ output logic [1:0] o_dbg_fetch
         if((!RESET_LEAN&&i_reset)||wb_flush)begin forward_write=0;forward_load=0;next_load_valid=0;end
     end
 `ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if(!i_reset&&LOAD_CLASS)begin
+        if(m.valid)assert(m.ld==ld_of(m)&&m.sp==sp_of(m)) else $fatal(1,"M load class");
+        if(w.valid)assert(w.ld==ld_of(w)&&w.sp==sp_of(w)) else $fatal(1,"W load class");
+        if(skid.valid)assert(skid.ld==ld_of(skid)&&skid.sp==sp_of(skid)) else $fatal(1,"skid load class");
+    end
+    always_ff @(posedge i_clk) if(!i_reset&&COMPLETE_FLAT)
+        assert((request_done&&!retry&&!defer_load)==(request_done&&!retry&&
+            (resp_err||w.store||(w.kind!=SWP&&(w.dest[0]!=15||fast_pc_hit))))) else $fatal(1,"flat completion");
     always_ff @(posedge i_clk) if(!i_reset)begin
         assert(complete_class=={3{wb_complete}});
         assert((forward_advance?advance_tag:mw_tag)==forward_tag);
@@ -666,6 +711,7 @@ output logic [1:0] o_dbg_fetch
             default:;
         endcase
         if(a_kind==BLOCK)input_record.format=0;
+        input_record.ld=ld_of(input_record);input_record.sp=sp_of(input_record);
     end
     always_comb begin
         m_next=m;w_next=w;skid_next=skid;memory_state_next=memory_state;
@@ -681,7 +727,7 @@ output logic [1:0] o_dbg_fetch
                 RETRY0:memory_state_next=RETRY1;
                 RETRY1:memory_state_next=HOLD;
                 LOAD_RETURN:if(!w_locked)begin
-                    if(w.kind==SWP)begin w_next.store=1;memory_state_next=SWAP0;end
+                    if(w.kind==SWP)begin w_next.store=1;w_next.ld=w_next.load_writer;memory_state_next=SWAP0;end
                     else if(done)begin w_next.valid=0;w_next.writes=0;w_next.load_writer=0;memory_state_next=RELOAD0;end
                 end
                 SWAP0:memory_state_next=SWAP1;
@@ -991,8 +1037,8 @@ output logic [1:0] o_dbg_fetch
         assert(w_hit_candidate==(w.memory&&!w_waited)) else $fatal(1,"W hit candidate register");
 `endif
     wire w_load_hit=w_hit&&i_data_short_hit&&load_trust;
-    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS),.RAS_TOP_FF(RAS_TOP_FF),.PREFIX_FREE(PREFIX_FREE),.VALID_BIT(VALID_BIT)) u_front_decode (
-        .i_w_load_hit(w_load_hit),.o_self_dep(d_self_dep),.o_pending(d_pending),.o_writes(),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
+    arm9v2_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(ARM9_PREDICTOR),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS),.RAS_TOP_FF(RAS_TOP_FF),.PREFIX_FREE(PREFIX_FREE),.VALID_BIT(VALID_BIT),.HEAD_FF(HEAD_FF)) u_front_decode (
+        .i_w_load_hit(w_load_hit),.o_self_dep(d_self_dep),.o_pending(d_pending),.o_writes(d_writes),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
         .i_forward_load(forward_load),.o_forward_grant(d_forward_grant),.i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),.o_return_match(d_return_match),
         .i_reset(i_reset),
@@ -1048,7 +1094,7 @@ output logic [1:0] o_dbg_fetch
         .o_fault(d_fault),
         .o_force_align(d_force_align),
         .o_reg_shift(d_reg_shift),
-        .o_shift_pre(d_shift_pre),
+        .o_shift_pre(d_shift_pre),.o_tag_class(d_tag_class),
         .o_kind(d_kind),
         .o_condition(d_condition),
         .o_tag(d_tag),
@@ -1082,7 +1128,7 @@ output logic [1:0] o_dbg_fetch
         .o_request(o_instr_wb_stb),
         .o_stall(o_code_stall),.o_dbg_fetch(o_dbg_fetch)
     );
-    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.DSP_PRODUCT(DSP_PRODUCT),.OP1_PRE(OP1_PRE)) u_execute (
+    arm9v2_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.DSP_PRODUCT(DSP_PRODUCT),.OP1_PRE(OP1_PRE),.WRITES_PRE(WRITES_PRE),.TAG_PRE(TAG_PRE),.HELD_FREE(HELD_FREE),.MUL_FAST_Z(MUL_FAST_Z)) u_execute (
         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),
         .i_load_owner({w.load_writer,m.load_writer}),.i_next_load_owner(forward_load),
         .i_load_hit(w_hit&&i_data_short_hit),.i_load_trust(load_trust),.i_self_dep(d_self_dep),
@@ -1107,10 +1153,10 @@ output logic [1:0] o_dbg_fetch
         .i_fault(d_fault),
         .i_force_align(d_force_align),
         .i_reg_shift(d_reg_shift),
-        .i_shift_pre(d_shift_pre),
+        .i_shift_pre(d_shift_pre),.i_tag_class(d_tag_class),
         .i_first(d_first),
         .i_last(d_last),
-        .i_kind(d_kind),
+        .i_kind(d_kind),.i_writes(d_writes),
         .i_condition(d_condition),
         .i_tag(d_tag),
         .i_used(d_used),
