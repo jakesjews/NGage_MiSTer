@@ -263,3 +263,31 @@ endmodule : zap_ram_simple
 // ----------------------------------------------------------------------------
 // END OF FILE
 // ----------------------------------------------------------------------------
+
+// ARM9V2 (zap_cache_tag_ram DATA_PACK): BYTES byte-wide RAMs with shared
+// clock enable and addresses as one RAM with byte enables, so Quartus puts
+// two or four lanes in an M10K. Equal to BYTES zap_ram_simple instances with
+// SHORT_READ and SHORT_RAW: one enabled edge writes the enabled bytes and
+// registers the read word.
+module zap_ram_bytes #(
+        parameter integer BYTES = 16,
+        parameter integer DEPTH = 32
+) (
+        input logic                          i_clk,
+        input logic                          i_clken,
+        input logic [BYTES-1:0]              i_wr_en,
+        input logic [8*BYTES-1:0]            i_wr_data,
+        input logic [$clog2(DEPTH)-1:0]      i_wr_addr,
+        input logic [$clog2(DEPTH)-1:0]      i_rd_addr,
+        output logic [8*BYTES-1:0]           o_rd_data
+);
+        (* ramstyle = "M10K" *) logic [BYTES-1:0][7:0] mem [DEPTH-1:0];
+        logic [BYTES-1:0][7:0] q;
+        always_ff @(posedge i_clk) if (i_clken) begin
+                for (int b = 0; b < BYTES; b++)
+                        if (i_wr_en[b]) mem[i_wr_addr][b] <= i_wr_data[8*b +: 8];
+                q <= mem[i_rd_addr];
+        end
+        assign o_rd_data = q;
+endmodule
+

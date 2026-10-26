@@ -414,6 +414,7 @@ module arm9v2_core (
 	parameter [0:0] PAYLOAD_FREE = 1'b1;
 	parameter [0:0] REDIRECT_PAYLOAD = 1'b1;
 	parameter [0:0] WT_TAGS = 1'b1;
+	parameter [0:0] DSP_PRODUCT = 1'b1;
 	parameter [0:0] CP15_L4_DEFAULT = 0;
 	parameter [31:0] DATA_CACHE_SIZE = 1024;
 	parameter [31:0] CODE_CACHE_SIZE = 1024;
@@ -1466,7 +1467,8 @@ module arm9v2_core (
 		.FAST_Z(FAST_Z),
 		.W_ROTATE(W_ROTATE),
 		.SHIFT_PRE(SHIFT_PRE),
-		.PAYLOAD_FREE(PAYLOAD_FREE)
+		.PAYLOAD_FREE(PAYLOAD_FREE),
+		.DSP_PRODUCT(DSP_PRODUCT)
 	) u_execute(
 		.i_pending(d_pending),
 		.i_admit(backend_ready),
@@ -3018,6 +3020,7 @@ module arm9v2_execute (
 	parameter [0:0] W_ROTATE = 0;
 	parameter [0:0] SHIFT_PRE = 0;
 	parameter [0:0] PAYLOAD_FREE = 0;
+	parameter [0:0] DSP_PRODUCT = 0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_flush;
@@ -3725,10 +3728,12 @@ module arm9v2_execute (
 			held_rot <= 0;
 			held_offset <= 0;
 			block_base <= 0;
-			ll <= 0;
-			lh <= 0;
-			hl <= 0;
-			hh <= 0;
+			if (!DSP_PRODUCT) begin
+				ll <= 0;
+				lh <= 0;
+				hl <= 0;
+				hh <= 0;
+			end
 			product_saved <= 0;
 			o_redirect_thumb <= 0;
 			o_redirect_target <= 0;
@@ -7873,6 +7878,7 @@ module zap_cache_tag_ram (
 	parameter [31:0] INDEX_SIZE = CACHE_SIZE;
 	parameter [0:0] PREFETCH = 1'd0;
 	parameter [0:0] META_PACK = SHORT_READ;
+	parameter [0:0] DATA_PACK = SHORT_READ && TRACK_DIRTY;
 	input wire i_clk;
 	input wire i_reset;
 	input wire [31:0] i_address_nxt;
@@ -8359,25 +8365,48 @@ module zap_cache_tag_ram (
 					.o_rd_data_pre()
 				);
 				assign tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)))+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))] = (collision && tag_en_q[w] ? tag_data_q : tag_read);
+				wire [(CACHE_LINE * 8) - 1:0] packed_read;
+				if (DATA_PACK) begin : g_packed_data
+					zap_ram_bytes #(
+						.BYTES(CACHE_LINE),
+						.DEPTH(LINES)
+					) u_data(
+						.i_clk(i_clk),
+						.i_clken(!i_hold),
+						.i_wr_en(i_cache_line_ben & {CACHE_LINE {wr_sel[w]}}),
+						.i_wr_data(i_cache_line),
+						.i_wr_addr(tag_ram_wr_addr),
+						.i_rd_addr(rd_set),
+						.o_rd_data(packed_read)
+					);
+				end
+				else begin : g_byte_data
+					assign packed_read = 1'sb0;
+				end
 				genvar _gv_b_1;
 				for (_gv_b_1 = 0; _gv_b_1 < CACHE_LINE; _gv_b_1 = _gv_b_1 + 1) begin : g_byte
 					localparam b = _gv_b_1;
 					wire [7:0] data_read;
-					zap_ram_simple #(
-						.WIDTH(32'd8),
-						.DEPTH(LINES),
-						.SHORT_READ(1'b1),
-						.SHORT_RAW(1'b1)
-					) u_data(
-						.i_clk(i_clk),
-						.i_clken(!i_hold),
-						.i_wr_en(i_cache_line_ben[b] && wr_sel[w]),
-						.i_wr_data(i_cache_line[8 * b+:8]),
-						.i_wr_addr(tag_ram_wr_addr),
-						.i_rd_addr(rd_set),
-						.o_rd_data(data_read),
-						.o_rd_data_pre()
-					);
+					if (DATA_PACK) begin : g_packed
+						assign data_read = packed_read[8 * b+:8];
+					end
+					else begin : g_ram
+						zap_ram_simple #(
+							.WIDTH(32'd8),
+							.DEPTH(LINES),
+							.SHORT_READ(1'b1),
+							.SHORT_RAW(1'b1)
+						) u_data(
+							.i_clk(i_clk),
+							.i_clken(!i_hold),
+							.i_wr_en(i_cache_line_ben[b] && wr_sel[w]),
+							.i_wr_data(i_cache_line[8 * b+:8]),
+							.i_wr_addr(tag_ram_wr_addr),
+							.i_rd_addr(rd_set),
+							.o_rd_data(data_read),
+							.o_rd_data_pre()
+						);
+					end
 					assign line_q[(w * (CACHE_LINE * 8)) + (8 * b)+:8] = (collision && byte_en_q[(w * CACHE_LINE) + b] ? line_data_q[8 * b+:8] : data_read);
 				end
 				assign w_dummy[w * (CACHE_LINE * 8)+:CACHE_LINE * 8] = line_q[w * (CACHE_LINE * 8)+:CACHE_LINE * 8];
@@ -22592,6 +22621,38 @@ module zap_ram_simple (
 		end
 	endgenerate
 	initial _sv2v_0 = 0;
+endmodule
+module zap_ram_bytes (
+	i_clk,
+	i_clken,
+	i_wr_en,
+	i_wr_data,
+	i_wr_addr,
+	i_rd_addr,
+	o_rd_data
+);
+	parameter integer BYTES = 16;
+	parameter integer DEPTH = 32;
+	input wire i_clk;
+	input wire i_clken;
+	input wire [BYTES - 1:0] i_wr_en;
+	input wire [(8 * BYTES) - 1:0] i_wr_data;
+	input wire [$clog2(DEPTH) - 1:0] i_wr_addr;
+	input wire [$clog2(DEPTH) - 1:0] i_rd_addr;
+	output wire [(8 * BYTES) - 1:0] o_rd_data;
+	(* ramstyle = "M10K" *) reg [(BYTES * 8) - 1:0] mem [DEPTH - 1:0];
+	reg [(BYTES * 8) - 1:0] q;
+	always @(posedge i_clk)
+		if (i_clken) begin
+			begin : sv2v_autoblock_1
+				reg signed [31:0] b;
+				for (b = 0; b < BYTES; b = b + 1)
+					if (i_wr_en[b])
+						mem[i_wr_addr][b * 8+:8] <= i_wr_data[8 * b+:8];
+			end
+			q <= mem[i_rd_addr];
+		end
+	assign o_rd_data = q;
 endmodule
 module zap_register_file (
 	i_clk,

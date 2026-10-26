@@ -24,7 +24,8 @@
 // value. The operand multiplexer is no longer between the cache and the
 // shifter.
 module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, parameter logic FAST_Z=0,
-    parameter logic W_ROTATE=0, parameter logic SHIFT_PRE=0, parameter logic PAYLOAD_FREE=0) (
+    parameter logic W_ROTATE=0, parameter logic SHIFT_PRE=0, parameter logic PAYLOAD_FREE=0,
+    parameter logic DSP_PRODUCT=0) (
     input logic i_clk,i_reset,i_flush,i_admit,i_load_wait,
     input logic i_flags_refresh,
     output logic o_serial_continue,
@@ -142,6 +143,9 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
     (* dont_retime *) logic [4:0] held_rot;      // SHIFT_PRE: held_amount's rotate amount
     (* dont_retime *) logic [31:0] held_offset;   // S_AGU: a scaled offset, rotated on the prepared clock
     (* dont_retime *) logic [31:0] block_base;
+    // DSP_PRODUCT: the partial products have no reset (they are read only
+    // after product_phase writes them), so Quartus keeps them in the DSP
+    // blocks' output registers, which take only an asynchronous clear.
     (* dont_retime *) logic signed [33:0] ll,lh,hl,hh;
     (* dont_retime *) logic [63:0] product_saved;
     logic [3:0][31:0] forwarded,operand;
@@ -552,7 +556,8 @@ module arm9v2_execute #(parameter logic S_AGU=0, parameter logic FREE_SELECT=0, 
             o_redirect<=0;o_btb_pc<=0;o_btb_thumb<=0;
             o_btb_update<=0;o_btb_taken<=0;o_btb_hit<=0;o_btb_target<=0;o_btb_state<=0;o_btb_kind<=0;
             flags<=i_cpsr[31:28];interrupt_mask<=i_cpsr[7:6];o_serial_continue<=0;a<=a_t'(0);held<=0;held_amount<=0;held_rot<=0;held_offset<=0;block_base<=0;
-            ll<=0;lh<=0;hl<=0;hh<=0;product_saved<=0;
+            if(!DSP_PRODUCT)begin ll<=0;lh<=0;hl<=0;hh<=0;end
+            product_saved<=0;
             o_redirect_thumb<=0;o_redirect_target<=0;
             o_redirect_link<=0;o_redirect_pointer<=0;o_redirect_count<=0;o_redirect_action<=0;
         end else begin

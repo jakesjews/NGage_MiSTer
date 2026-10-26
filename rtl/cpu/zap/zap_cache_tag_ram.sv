@@ -78,7 +78,12 @@ parameter logic        PREFETCH   = 1'd0,     // ARM925T: I-cache next-line pref
 // group (a bank per byte lane, byte enables): the banks share their read
 // and write addresses, so the RAM ports are the same; one M10K holds four
 // banks instead of one each.
-parameter logic        META_PACK  = SHORT_READ
+parameter logic        META_PACK  = SHORT_READ,
+// ARM9V2: a way's data byte lanes in one byte-enabled RAM (zap_ram_bytes)
+// instead of one RAM per byte; the lanes share the clock enable and the
+// read and write addresses. The D-cache only (its stores write bytes;
+// Quartus already merges the I-cache's lanes).
+parameter logic        DATA_PACK  = SHORT_READ && TRACK_DIRTY
 
 )(
 
@@ -327,8 +332,22 @@ if (SHORT_READ) begin : g_short_ram
                     .i_wr_addr(tag_ram_wr_addr), .i_rd_addr(rd_set),
                     .o_rd_data(tag_read), .o_rd_data_pre());
                 assign tag_q[w] = collision && tag_en_q[w] ? tag_data_q : tag_read;
+                logic [CACHE_LINE*8-1:0] packed_read;
+                if (DATA_PACK) begin : g_packed_data
+                        zap_ram_bytes #(.BYTES(CACHE_LINE), .DEPTH(LINES)) u_data (
+                            .i_clk(i_clk), .i_clken(!i_hold),
+                            .i_wr_en(i_cache_line_ben & {CACHE_LINE{wr_sel[w]}}),
+                            .i_wr_data(i_cache_line),
+                            .i_wr_addr(tag_ram_wr_addr), .i_rd_addr(rd_set),
+                            .o_rd_data(packed_read));
+                end else begin : g_byte_data
+                        assign packed_read = '0;
+                end
                 for (genvar b=0; b<CACHE_LINE; b++) begin : g_byte
                         logic [7:0] data_read;
+                        if (DATA_PACK) begin : g_packed
+                                assign data_read = packed_read[8*b +: 8];
+                        end else begin : g_ram
                         zap_ram_simple #(.WIDTH(32'd8), .DEPTH(LINES),
                             .SHORT_READ(1'b1), .SHORT_RAW(1'b1)) u_data (
                             .i_clk(i_clk), .i_clken(!i_hold),
@@ -336,6 +355,7 @@ if (SHORT_READ) begin : g_short_ram
                             .i_wr_data(i_cache_line[8*b +: 8]),
                             .i_wr_addr(tag_ram_wr_addr), .i_rd_addr(rd_set),
                             .o_rd_data(data_read), .o_rd_data_pre());
+                        end
                         assign line_q[w][8*b +: 8] = collision && byte_en_q[w][b] ?
                                 line_data_q[8*b +: 8] : data_read;
                 end
