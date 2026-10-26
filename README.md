@@ -155,5 +155,6 @@ the stand-in for the phone's cellular firmware, and
 [docs/RETROTINK4K.md](docs/RETROTINK4K.md) is a RetroTINK 4K profile recipe for
 direct video, shaped like the QD's own screen.
 This project's own files are GPL-2.0-or-later ([LICENSE](LICENSE)); the
-CPU is built from the ZAP core ([rtl/cpu/zap](rtl/cpu/zap), GPL-3.0-or-later),
-so the core as a whole is distributed under the GPL version 3.
+CPU's caches, MMU and writeback come from the ZAP core
+([rtl/cpu/zap](rtl/cpu/zap), GPL-3.0-or-later), so the core as a whole is
+distributed under the GPL version 3.

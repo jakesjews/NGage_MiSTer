@@ -186,14 +186,9 @@ bool device(uint32_t a) {
 #define PROFILE_TAP(n) emu__DOT__arm925t__DOT__profile_probe__DOT__##n
 
 // Register snapshots and V2 held-read profiling use implementation-specific taps.
-#ifdef NGAGE_CORE_ARM9
 #define V2_TAP(n) emu__DOT__arm925t__DOT__u_zap__DOT__g_arm9__DOT__u_arm9_core__DOT__##n
 #define CORE_REGS emu__DOT__arm925t__DOT__u_zap__DOT__g_arm9__DOT__u_arm9_core__DOT__u_zap_writeback__DOT__u_zap_register_file__DOT__mem
 #define CORE_DATA_PC emu__DOT__arm925t__DOT__u_zap__DOT__g_arm9__DOT__u_arm9_core__DOT__data_pc8
-#else
-#define CORE_REGS emu__DOT__arm925t__DOT__u_zap__DOT__g_zap__DOT__u_zap_core__DOT__u_zap_writeback__DOT__u_zap_register_file__DOT__mem
-#define CORE_DATA_PC emu__DOT__arm925t__DOT__u_zap__DOT__g_zap__DOT__u_zap_core__DOT__postalu_pc_plus_8_ff
-#endif
 
 // keys of the key script: a joystick bit (ngage_input.sv) or a PS/2 code
 struct KeyName { const char *name; int joy; int ps2; };
@@ -375,11 +370,7 @@ struct Bench {
     uint64_t user_retired = 0, user_entries = 0, exec_calls = 0;
     uint64_t stall_clocks[8] = {}, dc_events[4] = {}, ic_events[8] = {};
     uint64_t fill_read_wait = 0;
-#ifdef NGAGE_CORE_ARM9
     cpu_profile::Profile accounting{true};
-#else
-    cpu_profile::Profile accounting{false};
-#endif
     cpu_profile::Sample accounting_sample;
     load_use::Observer loaduse;
     bool profile_exec_seen=false,profile_was_user=false;
@@ -538,12 +529,10 @@ struct Bench {
                 ic_events[n]+=(h.emu__DOT__cpu_dbg_icache>>n)&1;
             }
             for (int n=0;n<4;n++) dc_events[n]+=(h.emu__DOT__cpu_dbg_dcache>>n)&1;
-#ifdef NGAGE_CORE_ARM9
             // Upper bound: held reads during a fill include hits and uncached
             // accesses. This is not a counter of proven second misses.
             fill_read_wait+=h.V2_TAP(request)&&!h.V2_TAP(request_done)&&
                 !h.V2_TAP(o_data_wb_we)&&h.V2_TAP(i_data_fill_busy);
-#endif
         }
 		uint32_t cpsr = h.emu__DOT__tr_wb_cpsr;
 		bool thumb = cpsr >> 5 & 1;

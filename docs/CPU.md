@@ -1,5 +1,11 @@
 # CPU: the ARM925T
 
+> Since 2026-10-26 the CPU is V2, this project's eight-stage pipeline
+> ([docs/ARM9V2.md](ARM9V2.md), `rtl/cpu/arm9v2/`). ZAP's caches, MMU, CP15,
+> writeback and register file in `rtl/cpu/zap/` are still the ones V2 uses;
+> the sections below that describe ZAP's own pipeline (fetch, decode, issue,
+> shifter, ALU, memory stages) are history, and those files are in git history.
+
 The N-Gage QD's processor is the TI ARM925T inside Nokia's UPP_WD2 ASIC: an
 ARM9TDMI integer core (ARMv4T: ARM and Thumb), TI's CP15 with an MMU, a
 16 KB instruction cache and an 8 KB data cache (2-way, 16-byte lines). The
@@ -14,8 +20,8 @@ difference from a real ARM925T, how it is tested, and the FPGA numbers.
   switched on by parameters (`V4T`, `TI925T`, `CP15_ID`, `CP15_CTYPE`,
   `HIVECS`); the upstream behaviour stays the default where that is
   possible. Bug fixes that apply to every configuration are unconditional.
-- `rtl/cpu/port/`: two replacement modules for Quartus 17 (a byte-lane RAM
-  that infers M10K, and a stub for the simulation-only decompiler).
+- `rtl/cpu/port/`: a replacement module for Quartus 17 (a byte-lane RAM
+  that infers M10K).
 - `rtl/cpu/arm925t.sv`: the wrapper the rest of the core uses.
 - `rtl/cpu/arm925t_gen.v`: the Verilog-2005 netlist Quartus compiles,
   made by `tools/gen_cpu.sh` (sv2v 0.0.13, `-DSYNTHESIS`, plus the Quartus

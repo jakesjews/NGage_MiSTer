@@ -15,7 +15,6 @@ public_flat_rd -module "zap_writeback" -var "i_und"
 public_flat_rd -module "zap_writeback" -var "i_pc_plus_8_buf_ff"
 public_flat_rd -module "zap_writeback" -var "cpsr_ff"
 public_flat_rd -module "zap_register_file" -var "mem"
-public_flat_rd -module "zap_core" -var "postalu_pc_plus_8_ff"
 
 // Architectural events use the same wrapper taps as hardware counters.
 public_flat_rd -module "emu" -var "tr_wb_*"

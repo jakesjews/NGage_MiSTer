@@ -1,7 +1,11 @@
 # ARM9V2: eight-stage redesign for real-phone game speed
 
-Status after session 12: `CORE="ARM9"` selects integrated V2; the commented
-`NGAGE_CORE_ARM9=1` macro selects it in the MiSTer shell. ZAP remains default.
+Since 2026-10-26 V2 is the core's only CPU: the ZAP pipeline it replaced and
+the `CORE`/`NGAGE_CORE_ARM9` selection are in git history (before the merge
+of codex/arm9v2 into master). The session notes below describe the state at
+the time; where they mention ZAP results or options, those no longer exist.
+
+Status after session 12: integrated V2.
 ZAP and both V2 predictor modes pass 282 runs / 71 QEMU references at D8
 and D16. The 85 original windows plus four block-tail windows pass; scalar
 independent/late/early hit windows remain 3/4/5. Ordinary PSR writes and CP15
@@ -760,7 +764,7 @@ The default shared ZAP/cache FSM is unchanged. All 264 ZAP pairs match;
 V2's cycle-timed interrupt-loop counts may change, with all other instruction
 counts unchanged. See the session report for exact before/after tables.
 
-NGAGE_CORE_ARM9 and NGAGE_DEBUG are independent QSF options. The hardware
+NGAGE_DEBUG is the only CPU-related QSF option. The hardware
 counter/debug packet layout is unchanged; tools/mister_dbg.py describes V2
 stall meanings. The whole-core firmware harness uses common retirement
 taps and records executive calls/user entries for the first paired boot.

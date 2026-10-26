@@ -31,8 +31,7 @@ ROOT      := $(abspath ../..)
 HERE      := $(ROOT)/sim/cpu
 BUILD     := $(HERE)/build
 RTL       ?= gen
-CORE      ?= ZAP
-RESULTS   ?= $(BUILD)/$(if $(filter ZAP,$(CORE)),rtl,rtl-$(CORE))
+RESULTS   ?= $(BUILD)/rtl
 VERILATOR ?= verilator
 CROSS     ?= arm-none-eabi-
 QEMU      ?= qemu-system-arm
@@ -63,19 +62,16 @@ ALL_TESTS := $(sort $(basename $(notdir $(filter-out %/crt0.S,$(wildcard $(HERE)
              $(RAND_TESTS) $(GBA_TESTS)
 T         ?= $(ALL_TESTS)
 TB        := $(BUILD)/tests
-MODEL_DIR := $(BUILD)/obj-$(RTL)$(if $(filter ZAP,$(CORE)),,-$(CORE))
+MODEL_DIR ?= $(BUILD)/obj-$(RTL)
 MODEL     := $(MODEL_DIR)/Vtb_cpu
 
 ASFLAGS := -mcpu=arm9tdmi -mfloat-abi=soft -I $(HERE)/tests
 
-.PHONY: all bins model run qemu diff remote boot boot-prep boot-model clean arm9-execute arm9v2-frontend arm9v2-decode arm9v2-execute
+.PHONY: all bins model run qemu diff remote boot boot-prep boot-model clean arm9v2-frontend arm9v2-decode arm9v2-execute
 .SECONDARY:
 all: bins remote qemu diff
 
 # Standalone new-pipeline datapath checks; no ARM test rebuild or QEMU.
-arm9-execute:
-	$(HERE)/arm9/run.sh
-
 arm9v2-execute:
 	$(HERE)/arm9v2/execute_leaves.sh
 	$(HERE)/arm9v2/execute.sh
@@ -139,7 +135,7 @@ $(TB)/%.lst: $(TB)/%.elf
 # ---------------------------------------------------------------- model
 VFLAGS := --cc --exe --build --assert -j $(JOBS) -O3 --x-assign unique --x-initial unique \
           -Wno-fatal -Wno-lint -Wno-style -Wno-MULTIDRIVEN -Wno-ASSIGNIN \
-          --top-module tb_cpu -GCORE=\"$(CORE)\" -CFLAGS "-O2 -std=c++17" $(VEXTRA) $(PROFILE_FLAGS)
+          --top-module tb_cpu -CFLAGS "-O2 -std=c++17" $(VEXTRA) $(PROFILE_FLAGS)
 ARM9_SV := $(wildcard $(ROOT)/rtl/cpu/arm9/*.sv) $(wildcard $(ROOT)/rtl/cpu/arm9v2/*.sv)
 ZAP_SV  := $(wildcard $(ROOT)/rtl/cpu/zap/*.sv)
 ifeq ($(RTL),sv)

@@ -31,8 +31,6 @@
 // ARM925T's nIRQ/nFIQ); they pass a two-flop synchroniser inside ZAP.
 // reset is synchronous and active high; drive it from a flip-flop.
 module arm925t #(
-	// ARM9 is experimental; keep the verified ZAP path as the default.
-	parameter              CORE        = "ZAP",
 	parameter bit          ARM9_PREDICTOR = 1'b1,
 	// Reset value of control register bit V (the ARM925T's HIVECS pin):
 	// 1 puts the exception vectors, and the reset address, at 0xFFFF0000.
@@ -113,7 +111,6 @@ module arm925t #(
 
 	zap_top #(
 		.ARM9_PREDICTOR (ARM9_PREDICTOR),
-        .CORE            (CORE),
 		.V4T             (1'b1),
 		.TI925T          (1'b1),
 		.CP15_ID         (32'h54029252),

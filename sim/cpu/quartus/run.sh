@@ -3,12 +3,9 @@
 # Quartus 17.0.2 trial of the CPU alone (cpu_trial.v around arm925t_gen.v),
 # in the Docker image on the build server.
 #   sim/cpu/quartus/run.sh            full compile, summary and worst paths
-#   TRIAL=arm9_core sim/cpu/quartus/run.sh   experimental integrated ARM9
 #   TRIAL=arm9v2_execute sim/cpu/quartus/run.sh   F1/F2/D1/D2/S/A with registered producers
 #   TRIAL=arm9v2_decode sim/cpu/quartus/run.sh   F1/F2/D1/D2 and register file
 #   TRIAL=arm9v2_frontend sim/cpu/quartus/run.sh   F1/F2 component only
-#   TRIAL=arm9_execute sim/cpu/quartus/run.sh   execute datapath only
-#   TRIAL=arm9_decode_shift sim/cpu/quartus/run.sh   shift in D, including E-to-D bypass
 #   SEED=3 MHZ=96 sim/cpu/quartus/run.sh   another fitter seed / clock
 # Results land in sim/cpu/build/quartus[-SEED-MHZ]/. At most four Quartus
 # builds may run globally, with at most two ARM9V2 builds (session-5 limit).
@@ -24,12 +21,9 @@ dcache_size=${DCACHE_SIZE:-8192}
 [[ $dcache_size == 8192 || $dcache_size == 16384 ]] || { echo "DCACHE_SIZE must be 8192 or 16384" >&2; exit 2; }
 case "$trial" in
     cpu) trial_suffix="" ;;
-    arm9_core) trial_suffix="-arm9-core" ;;
     arm9v2_frontend) trial_suffix="-arm9v2-frontend" ;;
     arm9v2_decode) trial_suffix="-arm9v2-decode" ;;
     arm9v2_execute) trial_suffix="-arm9v2-execute" ;;
-    arm9_execute) trial_suffix="-arm9-execute" ;;
-    arm9_decode_shift) trial_suffix="-arm9-decode-shift" ;;
     *) echo "unknown TRIAL: $trial" >&2; exit 2 ;;
 esac
 sfx="$trial_suffix"
@@ -52,11 +46,7 @@ if [[ $trial == arm9v2_* || $dir == *arm9v2* ]]; then
     fi
 fi
 ssh "$host" "mkdir -p \$HOME/$dir"
-if [[ $trial == arm9_core ]]; then
-    sed -e 's/arm925t #(.DCACHE_SIZE(DCACHE_SIZE))/arm925t #(.CORE("ARM9"),.DCACHE_SIZE(DCACHE_SIZE))/' -e "s/parameter DCACHE_SIZE=8192/parameter DCACHE_SIZE=$dcache_size/" "$here/cpu_trial.v" > "$out/cpu_trial.v"
-    cp "$root/rtl/cpu/arm925t_gen.v" "$out/arm925t_gen.v"
-    rsync -a "$out/cpu_trial.v" "$out/arm925t_gen.v" "$host:$dir/"
-elif [[ $trial == arm9v2_execute ]]; then
+if [[ $trial == arm9v2_execute ]]; then
     sv2v -DSYNTHESIS -I "$root/rtl/cpu/zap" --top=cpu_trial "$root"/rtl/cpu/arm9v2/*.sv \
         "$root/rtl/cpu/arm9/arm9_alu.sv" "$root/rtl/cpu/zap/zap_ram_simple_nopipe.sv" \
         "$root/rtl/cpu/zap/zap_mode16_decoder.sv" "$root/rtl/cpu/zap/zap_register_file.sv" \
@@ -75,14 +65,6 @@ elif [[ $trial == arm9v2_frontend ]]; then
     sv2v -DSYNTHESIS --top=cpu_trial "$root"/rtl/cpu/arm9v2/arm9v2_{fetch,predict}.sv \
         "$root/rtl/cpu/zap/zap_ram_simple_nopipe.sv" "$here/arm9v2_frontend_trial.sv" > "$out/arm925t_gen.v"
     printf '// Component top included in arm925t_gen.v\n' > "$out/cpu_trial.v"
-    rsync -a "$out/arm925t_gen.v" "$out/cpu_trial.v" "$host:$dir/"
-elif [[ $trial != cpu ]]; then
-    defines=(-DSYNTHESIS)
-    [[ $trial != arm9_decode_shift ]] || defines+=(-DARM9_TRIAL_SPLIT)
-    sv2v "${defines[@]}" --top=cpu_trial "$root"/rtl/cpu/arm9/arm9_{execute,forward,shift,alu}.sv \
-        "$root/rtl/cpu/zap/zap_register_file.sv" "$here/arm9_execute_trial.sv" > "$out/arm925t_gen.v"
-    # The generated trial contains its own cpu_trial top.
-    printf '// Top included in arm925t_gen.v\n' > "$out/cpu_trial.v"
     rsync -a "$out/arm925t_gen.v" "$out/cpu_trial.v" "$host:$dir/"
 else
     sed "s/parameter DCACHE_SIZE=8192/parameter DCACHE_SIZE=$dcache_size/" "$here/cpu_trial.v" > "$out/cpu_trial.v"

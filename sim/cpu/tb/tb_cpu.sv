@@ -7,7 +7,6 @@
 // are; main.cpp turns them into a retirement trace. They work on both the
 // generated netlist (rtl/cpu/arm925t_gen.v) and the SystemVerilog sources.
 module tb_cpu #(
-	parameter CORE = "ZAP",
 	parameter bit ARM9_PREDICTOR = 1'b1,
 	parameter bit HIVECS          = 1'b0,
 	parameter int ICACHE_SIZE     = 16384,
@@ -130,7 +129,6 @@ module tb_cpu #(
 
 
 	arm925t #(
-		.CORE (CORE),
 		.ARM9_PREDICTOR (ARM9_PREDICTOR),
 		.HIVECS          (HIVECS),
 		.ICACHE_SIZE     (ICACHE_SIZE),
@@ -187,85 +185,11 @@ module tb_cpu #(
 	`undef TLBI
 	assign p_dacr  = dut.u_zap.cpu_dac_reg;
 	assign p_mmu   = dut.u_zap.cpu_mmu_en;
-    assign p_arm9 = CORE == "ARM9";
+    assign p_arm9 = 1'b1;
     assign p_blocking_load = 1'b0; // V2 uses the shared nonblocking background write port.
-    assign p_arm9_predictor = CORE == "ARM9" && ARM9_PREDICTOR;
+    assign p_arm9_predictor = ARM9_PREDICTOR;
 	wire cp_drain_done;
-	if (CORE == "ZAP") begin : g_zap_probes
-	assign p_dwalk_ctx = '0;
-    assign cp_drain_done = dut.u_zap.g_zap.u_zap_core.u_zap_cp15_cb.o_cp_done &&
-        (dut.u_zap.g_zap.u_zap_core.u_zap_cp15_cb.i_cp_word[27:0] & 28'hfff0fff) == 28'he070f9a;
-    assign p_recovery = p_dabt[1] ? 3'd4 : 3'd0;
-    assign p_recovery_slots = 0; // ZAP has no comparable scalar-retirement flush.
-    assign p_load_capture = 0;
-    assign p_load_commit = 0;
-    assign p_load_value = 0;
-	assign p_valid = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_valid;
-	assign p_cfail = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_decompile_valid;
-	assign p_last  = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_uop_last;
-	assign p_dabt  = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_data_abt;
-	assign p_fiq   = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_fiq;
-	assign p_irq   = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_irq;
-	assign p_iabt  = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_instr_abt;
-	assign p_swi   = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_swi;
-	assign p_und   = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_und;
-	assign p_copro = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_copro_reg_en;
-	assign p_pc8   = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.i_pc_plus_8_buf_ff;
-	assign p_cpsr  = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.cpsr_ff;
-	assign p_regs  = dut.u_zap.g_zap.u_zap_core.u_zap_writeback.u_zap_register_file.mem;
-	assign p_dpc8  = dut.u_zap.g_zap.u_zap_core.postalu_pc_plus_8_ff;
-	assign p_wfi   = dut.u_zap.g_zap.u_zap_core.u_zap_cp15_cb.state == 4'd12;
-	`define PD dut.u_zap.g_zap.u_zap_core.u_zap_predecode
-	`define AL dut.u_zap.g_zap.u_zap_core.u_zap_alu_main
-	assign p_pd_pc    = `PD.skid_pc_ff;
-	assign p_pd_ins   = `PD.mode32_instruction[31:0];
-	assign p_pd_ppc   = `PD.o_ppc_ff;
-	assign p_pd_wpc   = `PD.w_pc_from_decode;
-	assign p_pd_pred  = `PD.skid_pred[31:0];
-	assign p_pd_flags = {`PD.skid_pred[32], `PD.skid_taken, `PD.mode32_instruction_valid,
-	                     `PD.w_clear_from_decode, `PD.o_clear_from_decode, `PD.mem_fetch_stall, `PD.stall,
-	                     `PD.ras_we_ff, 3'(`PD.ras_ptr_ff), `PD.o_taken_ff, `PD.o_instruction_valid_ff};
-	assign p_alu_ppc   = `AL.i_ppc_ff;
-	assign p_alu_flags = {`AL.i_taken_ff, `AL.o_clear_from_alu, `AL.i_data_stall, 4'd0};
-	assign p_uop_ins   = `PD.o_instruction_ff;
-	assign p_uop_flags = {`PD.o_instruction_valid_ff, `PD.o_uop_last, `PD.o_irq_ff, `PD.o_stall_from_decode};
-	assign p_alu_res   = `AL.o_alu_result_ff;
-	assign p_alu_dst   = {`AL.o_dav_ff, 7'(`AL.o_destination_index_ff)};
-	`define SH dut.u_zap.g_zap.u_zap_core.u_zap_shifter_main
-	assign p_sh_dbg    = {8'(`SH.i_alu_source_ff), 8'(`SH.o_destination_index_ff), 7'd0, `SH.i_alu_dav_nxt,
-	                      `SH.rn};
-	assign p_mult_state = {`SH.i_clear_from_writeback || (`SH.i_clear_from_alu && !`SH.i_data_stall),
-	                      dut.u_zap.g_zap.u_zap_core.u_zap_issue_main.skid_condition_code_ff != 4'd15,
-	                      `SH.i_data_stall || `SH.i_stall_from_alu, `SH.multiply_busy};
-	// Check the early decision against execution one stage later. This catches
-	// stale flags/target or metadata misalignment across a hold/redirect.
-	// Disable only when measuring an archived core without the early interface.
-`ifndef ZAP_LEGACY_CORE
-	begin : g_early_branch_check
-		wire [31:0] actual_target = `AL.i_link_branch_ff[32] ?
-			`AL.i_link_branch_ff[31:0] : `AL.quick_sum;
-		always @(posedge clk) begin
-			if (!reset && `SH.o_early_redirect_ff && !`AL.i_data_stall &&
-			    !`AL.o_clear_from_alu && !`AL.i_clear_from_writeback &&
-			    !`AL.sleep_ff && !`AL.i_data_mem_fault) begin
-				if (`AL.o_dav_nxt) begin
-					assert (`SH.o_early_target_ff == actual_target)
-						else $fatal(1, "Early branch target differs from ALU execution");
-					assert (!`AL.i_taken_ff[1] || `AL.i_ppc_ff != actual_target)
-						else $fatal(1, "Early redirect on a correctly predicted branch");
-				end else begin
-					assert (`AL.i_taken_ff[1] && `SH.o_early_target_ff ==
-					        `AL.i_pc_ff + (`AL.flags_ff[5] ? 32'd2 : 32'd4))
-						else $fatal(1, "Early branch used stale condition flags");
-				end
-			end
-		end
-	end
-`endif
-	`undef SH
-	`undef PD
-	`undef AL
-	end else begin : g_arm9_probes
+	if (1) begin : g_arm9_probes
     assign cp_drain_done = dut.u_zap.g_arm9.u_arm9_core.u_zap_cp15_cb.o_cp_done &&
         (dut.u_zap.g_arm9.u_arm9_core.u_zap_cp15_cb.i_cp_word[27:0] & 28'hfff0fff) == 28'he070f9a;
 	`define A9 dut.u_zap.g_arm9.u_arm9_core
@@ -385,7 +309,7 @@ module tb_cpu #(
 		if (reset || `DC.o_idle) dc_installed <= 1'b0;
 		else if (`DC.state_ff[7]) dc_installed <= 1'b1;
 		if (!`DT.i_hold) begin
-            dc_read_set <= CORE == "ARM9" ? `DT.rd_set : `DT.rd_set_del2;
+            dc_read_set <= `DT.rd_set;
             // SHORT_READ adds the registered compare/format response after
             // the RAM edge. Check the set belonging to that response.
             dc_response_set <= dc_read_set;
@@ -407,7 +331,7 @@ module tb_cpu #(
 			assert (!`DC.o_ack) else $fatal(1, "Hit collided with fill installation");
 		if (!reset && (`DC.state_ff[3] || `DC.state_ff[4] || `DC.state_ff[10]) &&
 		    (`DC.i_rd || `DC.i_wr) && `DC.o_ack) begin
-			assert ((CORE == "ARM9" ? dc_response_set : dc_read_set) == `DC.i_address[DLINE_W +: DSET_W])
+			assert (dc_response_set == `DC.i_address[DLINE_W +: DSET_W])
 				else $fatal(1, "Hit under miss used an unaligned cache lookup");
 			assert (dc_installed || `DC.i_address[31:DLINE_W] != `DC.address[31:DLINE_W])
 				else $fatal(1, "Hit under miss accessed the filling line");

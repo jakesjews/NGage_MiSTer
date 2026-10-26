@@ -684,9 +684,6 @@ wire [31:0] tr_d_va, tr_d_wdata, tr_d_rdata;
 wire  [3:0] tr_d_sel;
 
 arm925t #(
-`ifdef NGAGE_CORE_ARM9
-    .CORE("ARM9"),
-`endif
 	.ICACHE_SIZE(ICACHE_SIZE),
 	.ICACHE_PREFETCH(ICACHE_PREFETCH),
 	.DCACHE_SIZE(DCACHE_SIZE),

@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 # Generate rtl/cpu/arm925t_gen.v, the Verilog-2005 netlist of the CPU that
-# Quartus 17 compiles, from rtl/cpu/arm925t.sv and the ZAP sources.
+# Quartus 17 compiles, from rtl/cpu/arm925t.sv, the V2 CPU (rtl/cpu/arm9v2,
+# with arm9/arm9_alu.sv) and the caches, MMU and writeback in rtl/cpu/zap.
 #
 #   tools/gen_cpu.sh [OUTPUT]     default OUTPUT: rtl/cpu/arm925t_gen.v
 #
-# Quartus 17 cannot read ZAP's SystemVerilog, so sv2v (https://github.com/
+# Quartus 17 cannot read this SystemVerilog, so sv2v (https://github.com/
 # zachjs/sv2v) converts it, with SYNTHESIS defined (no simulation trace), and
 # then these fixes are applied:
 #   1. rtl/cpu/port/zap_ram_simple_ben.sv replaces ZAP's byte-enable RAM:
 #      one plain RAM per byte lane, which Quartus infers as M10K (the
 #      original, after sv2v, became 24 KB of flip-flops).
-#   2. rtl/cpu/port/zap_decompile.sv replaces the trace decompiler, whose
-#      output is left undriven when SYNTHESIS is defined.
-#   3. sv2v writes an empty generate branch as "begin ; end", which Quartus
+#   2. sv2v writes an empty generate branch as "begin ; end", which Quartus
 #      17 rejects; the lone ";" is removed (an empty begin-end is legal).
 # `make cpu-gen-check` regenerates into a temporary file and compares, so
 # the committed file must be regenerated after any change to these sources.
@@ -29,7 +28,7 @@ fi
 srcs=(rtl/cpu/arm925t.sv rtl/cpu/port/*.sv rtl/cpu/arm9/*.sv rtl/cpu/arm9v2/*.sv)
 for f in rtl/cpu/zap/*.sv; do
 	case $(basename "$f") in
-	zap_decompile.sv | zap_ram_simple_ben.sv) ;;
+	zap_ram_simple_ben.sv) ;;
 	*) srcs+=("$f") ;;
 	esac
 done
