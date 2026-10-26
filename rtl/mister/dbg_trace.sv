@@ -94,9 +94,9 @@ module dbg_trace #(
 	output logic [31:0] trig_pc       // the first trigger's PC
 );
 
-	localparam int PC_LOG2 = 13;
-	localparam int D_LOG2  = 12;
-	localparam int B_LOG2  = 11;
+	localparam int PC_LOG2 = 10;
+	localparam int D_LOG2  = 8;
+	localparam int B_LOG2  = 8;
 	localparam logic [28:0] DUMP_WORDS = 29'h8000;
 	localparam logic [28:0] PC_OFF = 29'h2000;
 	localparam logic [28:0] D_OFF  = 29'h4000;
