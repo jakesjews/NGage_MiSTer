@@ -1,0 +1,53 @@
+{
+ "clock": "emu:emu|clk_sys",
+ "depth": 2048,
+ "ram": "M10K",
+ "instances": [
+  {
+   "name": "flash",
+   "position": "post",
+   "nodes": [
+    [
+     "emu:emu|tr_d_done",
+     1
+    ],
+    [
+     "emu:emu|tr_d_we",
+     1
+    ],
+    [
+     "emu:emu|tr_d_va",
+     32
+    ],
+    [
+     "emu:emu|tr_d_rdata",
+     32
+    ],
+    [
+     "emu:emu|ngage_mem:ngage_mem|ddram_flash:ddram_flash|cs1_ack",
+     1
+    ],
+    [
+     "emu:emu|ngage_mem:ngage_mem|ddram_flash:ddram_flash|cs1_rdata",
+     16
+    ],
+    [
+     "emu:emu|ngage_mem:ngage_mem|ddram_flash:ddram_flash|bb_hit",
+     2
+    ],
+    [
+     "emu:emu|ngage_mem:ngage_mem|upp_bus:bus|fe_hi",
+     1
+    ]
+   ],
+   "trigger": {
+    "emu:emu|tr_d_done": "1"
+   },
+   "store": {
+    "emu:emu|tr_d_done": "1",
+    "emu:emu|tr_d_we": "0",
+    "emu:emu|tr_d_va": "0x5xxxxxxx"
+   }
+  }
+ ]
+}
