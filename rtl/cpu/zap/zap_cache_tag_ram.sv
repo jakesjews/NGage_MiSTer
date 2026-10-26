@@ -73,7 +73,12 @@ parameter logic [31:0] WAYS       = 32'd1,    // ARM925T: 1 or 2.
 // ARM925T: capacity visible to software's by-index maintenance loops.
 // Larger physical caches visit every set colour for each reported index.
 parameter logic [31:0] INDEX_SIZE = CACHE_SIZE,
-parameter logic        PREFETCH   = 1'd0      // ARM925T: I-cache next-line prefetch check.
+parameter logic        PREFETCH   = 1'd0,     // ARM925T: I-cache next-line prefetch check.
+// ARM9V2: the valid and dirty banks of a way in one byte-lane RAM each
+// group (a bank per byte lane, byte enables): the banks share their read
+// and write addresses, so the RAM ports are the same; one M10K holds four
+// banks instead of one each.
+parameter logic        META_PACK  = SHORT_READ
 
 )(
 
@@ -797,18 +802,35 @@ for (genvar w=0; w<WAYS; w++) begin : g_metadata
                 end
                 if (i_reset) valid_live_q <= 1'b0;
         end
+        logic [3:0] valid_lane_we, valid_lane_wd, valid_lane_q;
+        if (META_PACK) begin : g_valid_lanes
+                zap_cache_metadata_lanes #(.DEPTH(LINES/4), .LANES(4)) valid_rams (
+                        .i_clk(i_clk), .i_read_en(!i_hold || tag_ram_clear || line_clear),
+                        .i_write_en(valid_lane_we), .i_write_data(valid_lane_wd),
+                        .i_read_address(rd_set[SET_W-1:2]),
+                        .i_write_address(valid_write_set[SET_W-1:2]), .o_data(valid_lane_q)
+                );
+        end else begin : g_valid_unpacked
+                assign valid_lane_q = 4'd0;
+        end
         for (genvar b=0; b<4; b++) begin : g_valid_bank
                 logic read_bit, collision, forward_bit;
                 wire write_bank = valid_write_en && valid_write_way[w] &&
                     ((!valid_live[valid_write_set[SET_W-1:2]] && valid_write_data) ||
                      valid_write_set[1:0] == b[1:0]);
                 wire write_bit = valid_write_set[1:0] == b[1:0] && valid_write_data;
+                if (META_PACK) begin : g_packed
+                        assign valid_lane_we[b] = write_bank; assign valid_lane_wd[b] = write_bit;
+                        assign read_bit = valid_lane_q[b];
+                end else begin : g_ram
+                        assign valid_lane_we[b] = 1'b0; assign valid_lane_wd[b] = 1'b0;
                 zap_cache_metadata_ram #(.DEPTH(LINES/4)) valid_ram (
                         .i_clk(i_clk), .i_read_en(!i_hold || tag_ram_clear || line_clear),
                         .i_write_en(write_bank), .i_write_data(write_bit),
                         .i_read_address(rd_set[SET_W-1:2]),
                         .i_write_address(valid_write_set[SET_W-1:2]), .o_data(read_bit)
                 );
+                end
                 always_ff @(posedge i_clk) begin
                         if (!i_hold || tag_ram_clear || line_clear) begin
                                 collision <= write_bank && (SHORT_READ || valid_write_set[SET_W-1:2] == rd_set[SET_W-1:2]);
@@ -836,17 +858,34 @@ for (genvar w=0; w<WAYS; w++) begin : g_metadata
                 if (i_reset) dirty_update_q<=0;
                 if (i_reset) dirty_initialized_q <= 1'b0;
         end
+        logic [15:0] dirty_lane_we, dirty_lane_wd, dirty_lane_q;
+        if (META_PACK) begin : g_dirty_lanes
+                zap_cache_metadata_lanes #(.DEPTH(LINES/16), .LANES(16)) dirty_rams (
+                        .i_clk(i_clk), .i_read_en(!i_hold || tag_ram_clean || line_clear),
+                        .i_write_en(dirty_lane_we), .i_write_data(dirty_lane_wd),
+                        .i_read_address(dirty_read_group),
+                        .i_write_address(dirty_write_set[SET_W-1:4]), .o_data(dirty_lane_q)
+                );
+        end else begin : g_dirty_unpacked
+                assign dirty_lane_q = 16'd0;
+        end
         for (genvar b=0; b<16; b++) begin : g_bank
                 logic read_bit, collision, forward_bit;
                 wire write_bank = dirty_write_en && dirty_write_way[w] &&
                     (!dirty_initialized[dirty_write_set[SET_W-1:4]] || dirty_write_set[3:0] == b[3:0]);
                 wire write_bit = dirty_write_set[3:0] == b[3:0] && dirty_write_data;
+                if (META_PACK) begin : g_packed
+                        assign dirty_lane_we[b] = write_bank; assign dirty_lane_wd[b] = write_bit;
+                        assign read_bit = dirty_lane_q[b];
+                end else begin : g_ram
+                        assign dirty_lane_we[b] = 1'b0; assign dirty_lane_wd[b] = 1'b0;
                 zap_cache_metadata_ram #(.DEPTH(LINES/16)) dirty_ram (
                         .i_clk(i_clk), .i_read_en(!i_hold || tag_ram_clean || line_clear),
                         .i_write_en(write_bank), .i_write_data(write_bit),
                         .i_read_address(dirty_read_group),
                         .i_write_address(dirty_write_set[SET_W-1:4]), .o_data(read_bit)
                 );
+                end
                 always_ff @(posedge i_clk) begin
                         if (!i_hold || tag_ram_clean || line_clear) begin
                                 collision <= write_bank && (SHORT_READ || dirty_write_set[SET_W-1:4] == dirty_read_group);
@@ -1260,6 +1299,33 @@ endmodule : zap_cache_tag_ram
 // A separate inference boundary is intentional. Quartus 17 loses ramstyle
 // on scalar memories inside nested generate loops after sv2v elaboration,
 // and otherwise implements the small dirty banks as registers.
+// ARM9V2 (META_PACK): LANES one-bit banks with shared read and write
+// addresses in one RAM, each bank in its own byte lane with its own write
+// enable (byte enables), so Quartus packs four banks into an M10K. The
+// unused bits of each byte are written zero. Same ports and timing as
+// LANES zap_cache_metadata_ram instances.
+module zap_cache_metadata_lanes #(
+        parameter integer DEPTH = 32,
+        parameter integer LANES = 4
+) (
+        input logic i_clk,
+        input logic i_read_en,
+        input logic [LANES-1:0] i_write_en,
+        input logic [LANES-1:0] i_write_data,
+        input logic [$clog2(DEPTH)-1:0] i_read_address,
+        input logic [$clog2(DEPTH)-1:0] i_write_address,
+        output logic [LANES-1:0] o_data
+);
+        (* ramstyle = "M10K" *) logic [LANES-1:0][7:0] mem [DEPTH-1:0];
+        logic [LANES-1:0][7:0] q;
+        always_ff @(posedge i_clk) begin
+                for (int l = 0; l < LANES; l++)
+                        if (i_write_en[l]) mem[i_write_address][l] <= {7'd0, i_write_data[l]};
+                if (i_read_en) q <= mem[i_read_address];
+        end
+        always_comb for (int l = 0; l < LANES; l++) o_data[l] = q[l][0];
+endmodule
+
 module zap_cache_metadata_ram #(
         parameter integer DEPTH = 32
 ) (

@@ -7872,6 +7872,7 @@ module zap_cache_tag_ram (
 	parameter [31:0] WAYS = 32'd1;
 	parameter [31:0] INDEX_SIZE = CACHE_SIZE;
 	parameter [0:0] PREFETCH = 1'd0;
+	parameter [0:0] META_PACK = SHORT_READ;
 	input wire i_clk;
 	input wire i_reset;
 	input wire [31:0] i_address_nxt;
@@ -8850,6 +8851,26 @@ module zap_cache_tag_ram (
 				if (i_reset)
 					valid_live_q <= 1'b0;
 			end
+			wire [3:0] valid_lane_we;
+			wire [3:0] valid_lane_wd;
+			wire [3:0] valid_lane_q;
+			if (META_PACK) begin : g_valid_lanes
+				zap_cache_metadata_lanes #(
+					.DEPTH(LINES / 4),
+					.LANES(4)
+				) valid_rams(
+					.i_clk(i_clk),
+					.i_read_en((!i_hold || tag_ram_clear) || line_clear),
+					.i_write_en(valid_lane_we),
+					.i_write_data(valid_lane_wd),
+					.i_read_address(rd_set[SET_W - 1:2]),
+					.i_write_address(valid_write_set[SET_W - 1:2]),
+					.o_data(valid_lane_q)
+				);
+			end
+			else begin : g_valid_unpacked
+				assign valid_lane_q = 4'd0;
+			end
 			genvar _gv_b_3;
 			for (_gv_b_3 = 0; _gv_b_3 < 4; _gv_b_3 = _gv_b_3 + 1) begin : g_valid_bank
 				localparam b = _gv_b_3;
@@ -8858,15 +8879,24 @@ module zap_cache_tag_ram (
 				reg forward_bit;
 				wire write_bank = (valid_write_en && valid_write_way[w]) && ((!valid_live[valid_write_set[SET_W - 1:2]] && valid_write_data) || (valid_write_set[1:0] == b[1:0]));
 				wire write_bit = (valid_write_set[1:0] == b[1:0]) && valid_write_data;
-				zap_cache_metadata_ram #(.DEPTH(LINES / 4)) valid_ram(
-					.i_clk(i_clk),
-					.i_read_en((!i_hold || tag_ram_clear) || line_clear),
-					.i_write_en(write_bank),
-					.i_write_data(write_bit),
-					.i_read_address(rd_set[SET_W - 1:2]),
-					.i_write_address(valid_write_set[SET_W - 1:2]),
-					.o_data(read_bit)
-				);
+				if (META_PACK) begin : g_packed
+					assign valid_lane_we[b] = write_bank;
+					assign valid_lane_wd[b] = write_bit;
+					assign read_bit = valid_lane_q[b];
+				end
+				else begin : g_ram
+					assign valid_lane_we[b] = 1'b0;
+					assign valid_lane_wd[b] = 1'b0;
+					zap_cache_metadata_ram #(.DEPTH(LINES / 4)) valid_ram(
+						.i_clk(i_clk),
+						.i_read_en((!i_hold || tag_ram_clear) || line_clear),
+						.i_write_en(write_bank),
+						.i_write_data(write_bit),
+						.i_read_address(rd_set[SET_W - 1:2]),
+						.i_write_address(valid_write_set[SET_W - 1:2]),
+						.o_data(read_bit)
+					);
+				end
 				always @(posedge i_clk)
 					if ((!i_hold || tag_ram_clear) || line_clear) begin
 						collision <= write_bank && (SHORT_READ || (valid_write_set[SET_W - 1:2] == rd_set[SET_W - 1:2]));
@@ -8893,6 +8923,26 @@ module zap_cache_tag_ram (
 					if (i_reset)
 						dirty_initialized_q <= 1'b0;
 				end
+				wire [15:0] dirty_lane_we;
+				wire [15:0] dirty_lane_wd;
+				wire [15:0] dirty_lane_q;
+				if (META_PACK) begin : g_dirty_lanes
+					zap_cache_metadata_lanes #(
+						.DEPTH(LINES / 16),
+						.LANES(16)
+					) dirty_rams(
+						.i_clk(i_clk),
+						.i_read_en((!i_hold || tag_ram_clean) || line_clear),
+						.i_write_en(dirty_lane_we),
+						.i_write_data(dirty_lane_wd),
+						.i_read_address(dirty_read_group),
+						.i_write_address(dirty_write_set[SET_W - 1:4]),
+						.o_data(dirty_lane_q)
+					);
+				end
+				else begin : g_dirty_unpacked
+					assign dirty_lane_q = 16'd0;
+				end
 				genvar _gv_b_4;
 				for (_gv_b_4 = 0; _gv_b_4 < 16; _gv_b_4 = _gv_b_4 + 1) begin : g_bank
 					localparam b = _gv_b_4;
@@ -8901,15 +8951,24 @@ module zap_cache_tag_ram (
 					reg forward_bit;
 					wire write_bank = (dirty_write_en && dirty_write_way[w]) && (!dirty_initialized[dirty_write_set[SET_W - 1:4]] || (dirty_write_set[3:0] == b[3:0]));
 					wire write_bit = (dirty_write_set[3:0] == b[3:0]) && dirty_write_data;
-					zap_cache_metadata_ram #(.DEPTH(LINES / 16)) dirty_ram(
-						.i_clk(i_clk),
-						.i_read_en((!i_hold || tag_ram_clean) || line_clear),
-						.i_write_en(write_bank),
-						.i_write_data(write_bit),
-						.i_read_address(dirty_read_group),
-						.i_write_address(dirty_write_set[SET_W - 1:4]),
-						.o_data(read_bit)
-					);
+					if (META_PACK) begin : g_packed
+						assign dirty_lane_we[b] = write_bank;
+						assign dirty_lane_wd[b] = write_bit;
+						assign read_bit = dirty_lane_q[b];
+					end
+					else begin : g_ram
+						assign dirty_lane_we[b] = 1'b0;
+						assign dirty_lane_wd[b] = 1'b0;
+						zap_cache_metadata_ram #(.DEPTH(LINES / 16)) dirty_ram(
+							.i_clk(i_clk),
+							.i_read_en((!i_hold || tag_ram_clean) || line_clear),
+							.i_write_en(write_bank),
+							.i_write_data(write_bit),
+							.i_read_address(dirty_read_group),
+							.i_write_address(dirty_write_set[SET_W - 1:4]),
+							.o_data(read_bit)
+						);
+					end
 					always @(posedge i_clk)
 						if ((!i_hold || tag_ram_clean) || line_clear) begin
 							collision <= write_bank && (SHORT_READ || (dirty_write_set[SET_W - 1:4] == dirty_read_group));
@@ -9215,6 +9274,46 @@ module zap_cache_tag_ram (
 				o_cache_clean_done = 1'sbx;
 			end
 		endcase
+	end
+	initial _sv2v_0 = 0;
+endmodule
+module zap_cache_metadata_lanes (
+	i_clk,
+	i_read_en,
+	i_write_en,
+	i_write_data,
+	i_read_address,
+	i_write_address,
+	o_data
+);
+	reg _sv2v_0;
+	parameter integer DEPTH = 32;
+	parameter integer LANES = 4;
+	input wire i_clk;
+	input wire i_read_en;
+	input wire [LANES - 1:0] i_write_en;
+	input wire [LANES - 1:0] i_write_data;
+	input wire [$clog2(DEPTH) - 1:0] i_read_address;
+	input wire [$clog2(DEPTH) - 1:0] i_write_address;
+	output reg [LANES - 1:0] o_data;
+	(* ramstyle = "M10K" *) reg [(LANES * 8) - 1:0] mem [DEPTH - 1:0];
+	reg [(LANES * 8) - 1:0] q;
+	always @(posedge i_clk) begin
+		begin : sv2v_autoblock_1
+			reg signed [31:0] l;
+			for (l = 0; l < LANES; l = l + 1)
+				if (i_write_en[l])
+					mem[i_write_address][l * 8+:8] <= {7'd0, i_write_data[l]};
+		end
+		if (i_read_en)
+			q <= mem[i_read_address];
+	end
+	always @(*) begin : sv2v_autoblock_2
+		reg signed [31:0] l;
+		if (_sv2v_0)
+			;
+		for (l = 0; l < LANES; l = l + 1)
+			o_data[l] = q[l * 8];
 	end
 	initial _sv2v_0 = 0;
 endmodule
