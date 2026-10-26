@@ -284,7 +284,7 @@ wire  [1:0] ph_have;
 wire  [4:0] ph_state;
 wire [15:0] ph_errors;
 reg   [2:0] ld_own = 3'd0;             // flat, save, trace, kernel text, Phoenix
-localparam DBG_TRACE = 0;              // debug rings off for a release build
+localparam DBG_TRACE = 1;              // debug rings off for a release build
 
 wire ld_own_cmd = ld_we || ld_rd;
 always @(posedge clk_sys) begin
@@ -1119,8 +1119,8 @@ reg [31:0] dbg_f0 = 0, dbg_f4 = 0, dbg_f8 = 0;
 // (docs/PROGRESS-LOG.md, 2026-10-21 and 2026-10-22)
 localparam [31:0] DBG_TRIG_RD = 32'h0C1F0100;
 localparam [7:0] DBG_TRIG_WR_AFTER_S = 8'd0;
-localparam [7:0] DBG_TRIG_AT1_S = 8'd55;
-localparam [7:0] DBG_TRIG_AT2_S = 8'd130;
+localparam [7:0] DBG_TRIG_AT1_S = 8'd0;
+localparam [7:0] DBG_TRIG_AT2_S = 8'd0;
 reg  [26:0] dbg_sec_pre = 0;
 reg   [7:0] dbg_sec = 0;
 always @(posedge clk_sys) begin
