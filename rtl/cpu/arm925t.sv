@@ -103,7 +103,10 @@ module arm925t #(
 	output logic [31:0] dbg_d_va,
 	output logic [3:0]  dbg_d_sel,
 	output logic [31:0] dbg_d_wdata,
-	output logic [31:0] dbg_d_rdata
+	output logic [31:0] dbg_d_rdata,
+	output logic        dbg_bg_we,     // 2026-10-25 probe: the background register write
+	output logic [5:0]  dbg_bg_idx,
+	output logic [31:0] dbg_bg_data
 );
 
 	localparam logic [31:0] RESET_VECTOR = HIVECS ? 32'hFFFF0000 : 32'h00000000;
@@ -155,6 +158,9 @@ module arm925t #(
 		.o_dbg_d_sel       (dbg_d_sel),
 		.o_dbg_d_wdata     (dbg_d_wdata),
 		.o_dbg_d_rdata     (dbg_d_rdata),
+		.o_dbg_bg_we       (dbg_bg_we),
+		.o_dbg_bg_idx      (dbg_bg_idx),
+		.o_dbg_bg_data     (dbg_bg_data),
 		.o_wb_cyc (wb_cyc),
 		.o_wb_stb (wb_stb),
 		.o_wb_adr (bus_addr),

@@ -674,6 +674,9 @@ wire  [7:0] cpu_dbg_stall;
 wire  [7:0] cpu_dbg_icache;
 wire  [3:0] cpu_dbg_dcache;   // load fills, store fills, write-backs, uncached completions
 wire [31:0] tr_d_va, tr_d_wdata, tr_d_rdata;
+wire        tr_bg_we;                  // 2026-10-25 probe: the background register write
+wire  [5:0] tr_bg_idx;
+wire [31:0] tr_bg_data;
 wire  [3:0] tr_d_sel;
 
 arm925t #(
@@ -723,13 +726,68 @@ arm925t #(
 	.dbg_d_va(tr_d_va),
 	.dbg_d_sel(tr_d_sel),
 	.dbg_d_wdata(tr_d_wdata),
-	.dbg_d_rdata(tr_d_rdata)
+	.dbg_d_rdata(tr_d_rdata),
+	.dbg_bg_we(tr_bg_we),
+	.dbg_bg_idx(tr_bg_idx),
+	.dbg_bg_data(tr_bg_data)
 );
 
 // the hardware trace (rtl/mister/dbg_trace.sv, DBG_TRACE): rings dumped to
 // DDR3 on an abort, an undefined instruction or a trigger (dbg_trig below);
 // tools/mister_trace.py reads them
 wire        dbg_trig;
+// 2026-10-25: SignalTap probe. Every tap is a register kept through synthesis
+// ((* preserve, noprune *)): the headless flow connects a pre-synthesis tap
+// only when Analysis & Synthesis preserved it, and a plain wire with no fanout
+// was swept away before the tap, so the earlier probe cores captured ground
+// (their acquisition clock included). One register stage on every view keeps
+// them aligned. Views: the data port's completions (stp_done/we/va/rdata) and
+// the CPU's Wishbone side (stp_b_*: request, address, ack, read data).
+// stp_trig_q: a read through the C: drive's cached alias (VA 0x59600000-
+// 0x599FFFFF) completing at the first word of a 16-byte line, the position
+// the first capture found wrong 121 times in 128 (0x59a00000 is the EMIF
+// block and 0x59200000 the uncached alias: the second capture triggered
+// on the former); stp_store_q: the cycles worth
+// keeping (window completions, bus acks for the C: half of CS1 at
+// PA 0x02400000-0x027FFFFF, background register writes and SDRAM writes:
+// the evicted lines' write-backs); stp_ctr_q: a free-running counter for a sanity
+// instance.
+(* preserve, noprune *) reg        stp_done_q, stp_we_q, stp_win_q, stp_trig_q, stp_store_q;
+(* preserve, noprune *) reg [31:0] stp_va_q, stp_rdata_q;
+(* preserve, noprune *) reg        stp_b_req_q, stp_b_we_q, stp_b_burst_q, stp_b_ack_q, stp_b_cs1_q;
+(* preserve, noprune *) reg [27:0] stp_b_addr_q;
+(* preserve, noprune *) reg [31:0] stp_b_rdata_q;
+(* preserve, noprune *) reg [7:0]  stp_ctr_q = 8'd0;
+(* preserve, noprune *) reg        stp_bg_we_q;
+(* preserve, noprune *) reg [5:0]  stp_bg_idx_q;
+(* preserve, noprune *) reg [31:0] stp_bg_data_q, stp_b_wdata_q;
+// the C: drive's two aliases, 0x59200000 (uncached) and 0x59600000 (cached), 4 MB each
+wire stp_win   = tr_d_done && tr_d_va[31:21] >= 11'h2C9 && tr_d_va[31:21] <= 11'h2CC;
+// a read through the cached alias completing at the first word of a 16-byte line
+wire stp_cwin0 = tr_d_done && !tr_d_we && tr_d_va[31:21] >= 11'h2CB && tr_d_va[31:21] <= 11'h2CC && tr_d_va[3:2] == 2'b00;
+wire stp_b_ack = wb_ack & ~test_sel;
+wire stp_b_cs1 = cpu_addr[27:22] == 6'd9;
+always @(posedge clk_sys) begin
+	stp_done_q    <= tr_d_done;
+	stp_we_q      <= tr_d_we;
+	stp_va_q      <= tr_d_va;
+	stp_rdata_q   <= tr_d_rdata;
+	stp_win_q     <= stp_win;
+	stp_trig_q    <= stp_cwin0;
+	stp_store_q   <= stp_win || (stp_b_ack && stp_b_cs1) || tr_bg_we || (stp_b_ack && cpu_we && cpu_addr[27:24] == 4'hA);
+	stp_bg_we_q   <= tr_bg_we;
+	stp_bg_idx_q  <= tr_bg_idx;
+	stp_bg_data_q <= tr_bg_data;
+	stp_b_wdata_q <= cpu_wdata;
+	stp_b_req_q   <= cpu_req;
+	stp_b_we_q    <= cpu_we;
+	stp_b_burst_q <= cpu_burst;
+	stp_b_ack_q   <= stp_b_ack;
+	stp_b_cs1_q   <= stp_b_cs1;
+	stp_b_addr_q  <= cpu_addr[27:0];
+	stp_b_rdata_q <= wb_dat_r;
+	stp_ctr_q     <= stp_ctr_q + 8'd1;
+end
 wire  [7:0] tr_dumps, tr_triggers;
 wire        tr_dumping;
 wire [31:0] tr_trig_pc;

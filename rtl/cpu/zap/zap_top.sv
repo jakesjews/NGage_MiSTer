@@ -152,6 +152,11 @@ parameter logic        HIVECS       = 1'd0           // Reset value of control b
         output  logic  [3:0]     o_dbg_d_sel,
         output  logic  [31:0]    o_dbg_d_wdata,
         output  logic  [31:0]    o_dbg_d_rdata,
+        // 2026-10-25 probe: the cache's background register write (a miss's
+        // critical word or an uncached access's data arriving later).
+        output  logic            o_dbg_bg_we,
+        output  logic  [5:0]     o_dbg_bg_idx,
+        output  logic  [31:0]    o_dbg_bg_data,
 
         input   logic            i_clk,
         input   logic            i_reset,
@@ -220,6 +225,12 @@ assign o_dbg_d_va    = cpu_daddr;
 assign o_dbg_d_sel   = cpu_dc_sel;
 assign o_dbg_d_wdata = cpu_dc_dat;
 assign o_dbg_d_rdata = dc_data;
+assign o_dbg_bg_we   = |dc_wreg_idx;
+assign o_dbg_bg_data = dc_reg_data;
+always_comb begin
+        o_dbg_bg_idx = 6'd0;
+        for (int i = 0; i < 64; i++) if (dc_wreg_idx[i]) o_dbg_bg_idx = 6'(i);
+end
 logic [7:0]      dc_fsr;
 logic [31:0]     dc_far;
 logic            cpu_dc_en, cpu_ic_en;
