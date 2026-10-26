@@ -730,6 +730,13 @@ arm925t #(
 // DDR3 on an abort, an undefined instruction or a trigger (dbg_trig below);
 // tools/mister_trace.py reads them
 wire        dbg_trig;
+// 2026-10-25: SignalTap trigger wires computed in RTL (only single high
+// conditions are honoured by the headless flow): the data port completing a
+// read in the media driver's uncached flash window (0x59xxxxxx), a read of
+// the comms database's first word, and any read in the ROM/flash space.
+wire stp_trig_win   = tr_d_done && !tr_d_we && tr_d_va[31:24] == 8'h59;
+wire stp_trig_word  = tr_d_done && !tr_d_we && tr_d_rdata == 32'h10000050;
+wire stp_va_flash   = tr_d_done && !tr_d_we && tr_d_va[31:28] == 4'h5;
 wire  [7:0] tr_dumps, tr_triggers;
 wire        tr_dumping;
 wire [31:0] tr_trig_pc;

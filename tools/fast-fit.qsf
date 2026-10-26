@@ -1,0 +1,16 @@
+# Debug-iteration fitter settings: appended to NGage.qsf by `FAST=1 ./build.sh`
+# (later assignments win). They undo the release tuning (standard fit at 2x
+# placement effort, maximum router timing effort, high-performance mode, the
+# four physical-synthesis passes, final placement always) for a fit that
+# takes roughly a third of the time and lands 1-2 ns worse at the slow
+# corner: fine for a 78 MHz debug core on the board, never for a release.
+set_global_assignment -name FITTER_EFFORT "FAST FIT"
+set_global_assignment -name PLACEMENT_EFFORT_MULTIPLIER 1.0
+set_global_assignment -name ROUTER_EFFORT_MULTIPLIER 1.0
+set_global_assignment -name ROUTER_TIMING_OPTIMIZATION_LEVEL NORMAL
+set_global_assignment -name OPTIMIZATION_MODE BALANCED
+set_global_assignment -name FINAL_PLACEMENT_OPTIMIZATION AUTOMATICALLY
+set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC OFF
+set_global_assignment -name PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION OFF
+set_global_assignment -name PHYSICAL_SYNTHESIS_REGISTER_RETIMING OFF
+set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC_FOR_AREA OFF
