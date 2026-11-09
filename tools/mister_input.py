@@ -107,9 +107,13 @@ def shot(kb):
             for f in files:
                 if f.endswith("-%s.png" % name):
                     p = os.path.join(root, f)
-                    if os.path.getsize(p) > 1000:
-                        time.sleep(0.05)
-                        return t, p
+                    try:
+                        with open(p, "rb") as image:
+                            image.seek(-12, os.SEEK_END)
+                            if image.read() == b"\x00\x00\x00\x00IEND\xaeB\x60\x82":
+                                return t, p
+                    except (OSError, ValueError):
+                        pass  # The screenshot writer has not finished yet.
     return t, None
 
 
