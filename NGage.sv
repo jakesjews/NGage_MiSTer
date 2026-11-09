@@ -242,7 +242,9 @@ always @(posedge clk_sys) por <= {por[0], RESET | ~pll_locked};
 wire sys_reset = por[1];
 // the board: also held while a flash image loads or a CS1 save image is
 // copied in, and for a moment when the memory test is switched on or off
-wire fs_loading;
+// (public: the top bench reads it, and Verilator 5.054 otherwise folds it
+// into the save module's output)
+wire fs_loading /* verilator public_flat_rd */;
 wire ph_busy /* verilator public_flat_rd */;
 wire test_on /* verilator public_flat_rd */ = status[6];
 reg  test_on_q = 1'b0;
