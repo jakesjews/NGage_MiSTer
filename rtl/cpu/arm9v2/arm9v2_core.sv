@@ -5,7 +5,7 @@ module arm9v2_core #(
         parameter logic ARM9_PREDICTOR = 1'b1,
         // Memory addresses summed in S and registered into A; the D-cache and
         // TLB lookup comes from that register (arm9v2_execute, arm9v2_decode).
-        parameter logic S_AGU = 1'b1,
+        parameter logic S_AGU = 1'b0,
         // Lane B of the 104 MHz plan. FREE_SELECT: S's forward grant and A's
         // late bypass (registered one-hot) select data as if W's load hit;
         // the hit and the trust gate only the waits (arm9v2_execute).
@@ -190,6 +190,7 @@ output logic                             o_data_wb_we_check,
 output logic                             o_data_wb_re_check,
 
 // Force user view.
+output logic                             o_data_wb_swp,
 output logic                             o_mem_translate,
 
 // ARM925T: the access on o_data_wb_* breaks the alignment rule (control bit
@@ -266,6 +267,7 @@ output logic                             o_dcache_clean,
 output logic                             o_icache_clean,
 output logic                             o_dtlb_inv,
 output logic                             o_itlb_inv,
+output logic                             o_writebuffer_en,
 output logic                             o_dcache_en,
 output logic                             o_icache_en,
 input   logic                            i_dcache_inv_done,
@@ -447,13 +449,17 @@ output logic [1:0] o_dbg_fetch
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
     // W_CLASS: W's static completion terms.
-    typedef struct packed {logic exc,cp,swp,blkwb;} w_cls_t;
+    typedef struct packed {logic exc,cp,swp,blkwb,pc_load,mem_immediate;} w_cls_t;
     /* verilator lint_off UNUSEDSIGNAL */
     function automatic w_cls_t w_cls_of(input record_t r);
         w_cls_of.exc=r.fault||r.irq||r.fiq||(r.pass&&(r.kind==SWI||r.kind==UND));
         w_cls_of.cp=r.pass&&r.kind==CP;
         w_cls_of.swp=r.kind==SWP;
         w_cls_of.blkwb=r.kind==BLOCK&&r.ins[21];
+        // Decode PC-load retirement before W's completion fanout. These
+        // predicates belong to the same owner as the other W classes.
+        w_cls_of.pc_load=r.memory&&!r.store&&r.dest[0]==15&&r.kind!=SWP;
+        w_cls_of.mem_immediate=r.store||(r.kind!=SWP&&r.dest[0]!=15);
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
     (* dont_retime *) w_cls_t w_cls;
@@ -462,6 +468,8 @@ output logic [1:0] o_dbg_fetch
     wire w_cp=W_CLASS?w_cls.cp:w_cls_ref.cp;
     wire w_swp=W_CLASS?w_cls.swp:w_cls_ref.swp;
     wire w_blkwb=W_CLASS?w_cls.blkwb:w_cls_ref.blkwb;
+    wire w_pc_load=W_CLASS?w_cls.pc_load:w_cls_ref.pc_load;
+    wire w_mem_immediate=W_CLASS?w_cls.mem_immediate:w_cls_ref.mem_immediate;
     typedef enum logic [3:0] {RUN,HOLD,RELOAD0,RELOAD1,RETRY0,RETRY1,
         LOAD_RETURN,SWAP0,SWAP1,RESTORE,ABORT} memory_state_t;
     (* dont_retime *) record_t m,w,skid;
@@ -641,7 +649,7 @@ output logic [1:0] o_dbg_fetch
             else if(memory_state==LOAD_RETURN)complete_class[consumer]=!w_locked&&!w_swp;
             else if(memory_state==RUN||memory_state==HOLD)
                 complete_class[consumer]=!w.memory||(request_done&&!retry&&(COMPLETE_FLAT?
-                    resp_err||w.store||(!w_swp&&(w.dest[0]!=15||fast_pc_hit)):!defer_load));
+                    resp_err||w_mem_immediate||fast_pc_hit:!defer_load));
         end
         // Restore Rn on an aborting block before the exception writes ABT LR.
         if(request_done&&resp_err&&w_blkwb)complete_class[consumer]=0;
@@ -773,7 +781,7 @@ output logic [1:0] o_dbg_fetch
                 RETRY0:memory_state_next=RETRY1;
                 RETRY1:memory_state_next=HOLD;
                 LOAD_RETURN:if(!w_locked)begin
-                    if(w.kind==SWP)begin w_next.store=1;w_next.ld=w_next.load_writer;memory_state_next=SWAP0;end
+                    if(w.kind==SWP)begin w_next.store=1;w_next.ld=w_next.load_writer;w_cls_next.mem_immediate=1;memory_state_next=SWAP0;end
                     else if(done)begin w_next.valid=0;w_next.writes=0;w_next.load_writer=0;memory_state_next=RELOAD0;end
                 end
                 SWAP0:memory_state_next=SWAP1;
@@ -851,6 +859,7 @@ output logic [1:0] o_dbg_fetch
     assign o_data_wb_ldfmt_check=check_ff.format;
     assign o_mem_cpsr=check_ff.mode;
     assign o_mem_translate=check_ff.user_access;
+    assign o_data_wb_swp=w_swp;
     assign o_data_wb_cyc=request;assign o_data_wb_stb=request;assign o_data_wb_we=w.store;
     assign o_data_wb_dat=w.store_data;assign o_data_wb_sel=w.sel;
     assign o_data_wb_va=w.address;assign o_data_wb_ldfmt=w.format;
@@ -894,9 +903,13 @@ output logic [1:0] o_dbg_fetch
     // A first-pass PC hit is already permission-qualified and formatted in
     // the M/W short-response register. Retire it once here; W's registered
     // recovery owns any redirect. Miss/hold/retry/SWP still use LOAD_RETURN.
-    wire fast_pc_hit=w.memory&&!w.store&&w.dest[0]==15&&w.kind!=SWP&&i_data_short_hit&&!w_waited;
+    wire fast_pc_hit=w_pc_load&&i_data_short_hit&&!w_waited;
     assign defer_load=request_done&&!retry&&!resp_err&&!w.store&&((w.dest[0]==15&&!fast_pc_hit)||w.kind==SWP);
     assign load_data=(memory_state==LOAD_RETURN||swap_write)?saved_load:fast_pc_hit?i_data_short_data:resp_dat;
+    // A retiring PC load either owns its saved deferred word or is a
+    // first-pass short hit. The live slow-response formatter is never
+    // consumed by a retiring redirect; keep it out of the target compare.
+    wire [31:0] pc_load_data=(memory_state==LOAD_RETURN||swap_write)?saved_load:i_data_short_data;
 `ifndef SYNTHESIS
     always_ff @(posedge i_clk)if(!i_reset&&fast_pc_hit&&request_done&&!retry&&!resp_err)
         assert(i_data_short_data==resp_dat) else $fatal(1,"PC hit short/normal word mismatch");
@@ -921,18 +934,17 @@ output logic [1:0] o_dbg_fetch
     assign wb_restore=memory_state==RESTORE;
     // REDIRECT_EQ: the return target's upper 30 bits against the prediction,
     // once per source, in parallel; the load-word select then picks one bit.
-    logic [4:0] target_hi_eq;
+    logic [3:0] target_hi_eq;
     logic target_mismatch,target_mismatch_ref;
     logic target_raw_bit1;
     always_comb begin
         target_hi_eq[0]=w.pred_target[31:2]==saved_load[31:2];
         target_hi_eq[1]=w.pred_target[31:2]==i_data_short_data[31:2];
-        target_hi_eq[2]=w.pred_target[31:2]==resp_dat[31:2];
-        target_hi_eq[3]=w.pred_target[31:2]==w.address[31:2];
-        target_hi_eq[4]=w.pred_target[31:2]==w.result[0][31:2];
+        target_hi_eq[2]=w.pred_target[31:2]==w.address[31:2];
+        target_hi_eq[3]=w.pred_target[31:2]==w.result[0][31:2];
     end
-    wire [2:0] target_source=!w.memory?(w.kind==SUFFIX?3'd3:3'd4):
-        (memory_state==LOAD_RETURN||swap_write)?3'd0:fast_pc_hit?3'd1:3'd2;
+    wire [1:0] target_source=!w.memory?(w.kind==SUFFIX?2'd2:2'd3):
+        (memory_state==LOAD_RETURN||swap_write)?2'd0:2'd1;
     always_comb begin
         wb_complete=complete_class[0];
         done=!w.valid||complete_class[1];
@@ -967,7 +979,7 @@ output logic [1:0] o_dbg_fetch
         if(wb_exception)wb_flags=w.flags;
         if(wb_restore)begin wb_tag0=w.dest[1];wb_data0=w.original_base;wb_pair=0;wb_flags=w.flags;end
         return_event=w.pass&&(w.pc_write||(w.memory&&!w.store&&w.dest[0]==15));
-        return_target=w.memory?load_data:w.kind==SUFFIX?w.address:w.result[0];
+        return_target=w.memory?pc_load_data:w.kind==SUFFIX?w.address:w.result[0];
         target_raw_bit1=return_target[1];
         return_thumb=wb_flags[5];
         if(w.memory&&w.dest[0]==15&&!l4_enable)return_thumb=return_target[0];
@@ -986,6 +998,8 @@ output logic [1:0] o_dbg_fetch
 `ifndef SYNTHESIS
     always_ff @(posedge i_clk) if(!i_reset&&w.valid)
         assert(target_mismatch==target_mismatch_ref) else $fatal(1,"W return-target compare");
+    always_ff @(posedge i_clk) if(!i_reset&&wb_complete&&return_event&&!wb_exception&&w.memory)
+        assert(pc_load_data==load_data) else $fatal(1,"retiring PC load source");
 `endif
     always_ff @(posedge i_clk)begin
         if(i_reset)begin
@@ -1180,7 +1194,9 @@ output logic [1:0] o_dbg_fetch
         .i_load_hit(w_hit&&i_data_short_hit),.i_load_trust(load_trust),.i_self_dep(d_self_dep),
         .i_return_select(i_dc_reg_idx),.i_return_data(operand_return_data),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),
-        .i_return_ready(return_ready),.i_return_s_match(d_return_match),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(mw_tag),.i_advance_tag(advance_tag),.i_next_advance(forward_advance),.i_next_write(forward_write),.i_next_write_hold(forward_write_hold),.i_early(d_early),
+        .i_return_ready(return_ready),.i_return_s_match(d_return_match),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(mw_tag),.i_advance_tag(advance_tag),.i_next_advance(forward_advance),
+        .i_advance_a_tag(input_record.dest),.i_advance_skid_tag(skid.dest),
+        .i_advance_skid(memory_state==RELOAD1||memory_state==HOLD),.i_next_write(forward_write),.i_next_write_hold(forward_write_hold),.i_early(d_early),
         .o_btb_pc(a_btb_pc),.o_btb_thumb(a_btb_thumb),
         .o_record_pointer(a_record_pointer),.o_record_count(a_record_count),
         .o_record_pred_hit(a_record_pred_hit),.o_record_pred_state(a_record_pred_state),.o_record_thumb(a_record_thumb),
@@ -1221,6 +1237,7 @@ output logic [1:0] o_dbg_fetch
         .i_ras_pointer(d_ras_pointer),
         .i_ras_count(d_ras_count),
         .i_mw_value(mw_value),
+        .i_w_load_data(i_data_short_data),.i_w_alu_data(w.result[0]),
         .i_mw_tag(mw_tag),
         .i_mw_valid(mw_write),
         .i_ready(backend_ready),
@@ -1329,6 +1346,7 @@ zap_cp15_cb #(
         .o_icache_clean         (o_icache_clean),
         .o_dtlb_inv             (o_dtlb_inv),
         .o_itlb_inv             (o_itlb_inv),
+        .o_writebuffer_en       (o_writebuffer_en),
         .o_dcache_en            (o_dcache_en),
         .o_icache_en            (o_icache_en),
         .i_dcache_inv_done      (i_dcache_inv_done),

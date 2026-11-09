@@ -69,6 +69,7 @@ output logic [31:0]                     o_walk_va,      // ARM925T: the address 
 output logic [7:0]                      o_fsr,          // FSR. 0 means all OK.
 output logic [31:0]                     o_far,          // Fault Address Register.
 output logic                            o_cacheable,    // Cacheble stats of the PTE.
+output logic                            o_bufferable,
 output logic                            o_wt,           // ARM925T: C=1 B=0, write-through.
 output logic [31:0]                     o_phy_addr      // Physical address.
 );
@@ -98,7 +99,7 @@ assign  match[3] = (i_fptlb_rdata[`ZAP_FPAGE_TLB__TAG] == i_va[`ZAP_VA__FPAGE_TA
 
 logic [7:0] fsr_nxt;
 logic [31:0] far_nxt, phy_addr_nxt;
-logic walk_nxt, cacheable_nxt, wt_nxt, dummy_nxt;
+logic walk_nxt, cacheable_nxt, wt_nxt, bufferable_nxt, dummy_nxt;
 
 // ARM925T: the background-hit permission is registered with the normal
 // TLB check. It remains meaningful while the walker waits for cache IDLE.
@@ -111,6 +112,7 @@ always_ff @(posedge i_clk)
                 o_walk_va <= i_va;
                 o_cacheable <= cacheable_nxt;
                 o_wt <= wt_nxt;
+                o_bufferable <= bufferable_nxt;
                 dummy <= dummy_nxt;
                 o_hit_ok <= !walk_nxt && !(|fsr_nxt[3:0]) &&
                             cacheable_nxt && !(i_wr && wt_nxt);
@@ -140,6 +142,7 @@ begin : tlb_match_logic
                 walk_nxt      = 0;        // Walk disabled.
                 cacheable_nxt = MMU_OFF_CACHEABLE; // ARM925T: was 0 (uncacheable).
                 wt_nxt        = 0;
+                bufferable_nxt = 0;
 
 
                 // ==========================================
@@ -167,6 +170,7 @@ begin : tlb_match_logic
                                 phy_addr_nxt = {i_sptlb_rdata[`ZAP_SPAGE_TLB__BASE], i_va[11:0]};
                                 {dummy_nxt, cacheable_nxt} = i_sptlb_rdata[`ZAP_SECTION_TLB__CB] >> 1;
                                 wt_nxt = i_sptlb_rdata[3:2] == 2'b10;
+                                bufferable_nxt = i_sptlb_rdata[2];
 
                         end
 
@@ -187,6 +191,7 @@ begin : tlb_match_logic
                                 phy_addr_nxt = {i_lptlb_rdata[`ZAP_LPAGE_TLB__BASE], i_va[15:0]};
                                 {dummy_nxt, cacheable_nxt} = i_lptlb_rdata[`ZAP_LPAGE_TLB__CB] >> 1;
                                 wt_nxt = i_lptlb_rdata[3:2] == 2'b10;
+                                bufferable_nxt = i_lptlb_rdata[2];
                         end
 
                         4'b0100:
@@ -205,6 +210,7 @@ begin : tlb_match_logic
                                 phy_addr_nxt = {i_setlb_rdata[`ZAP_SECTION_TLB__BASE], i_va[19:0]};
                                 {dummy_nxt, cacheable_nxt} = i_setlb_rdata[`ZAP_SECTION_TLB__CB] >> 1;
                                 wt_nxt = i_setlb_rdata[3:2] == 2'b10;
+                                bufferable_nxt = i_setlb_rdata[2];
                         end
 
                         4'b1000:
@@ -223,6 +229,7 @@ begin : tlb_match_logic
                                 phy_addr_nxt = {i_fptlb_rdata[`ZAP_FPAGE_TLB__BASE], i_va[9:0]};
                                 {dummy_nxt, cacheable_nxt} = i_fptlb_rdata[`ZAP_FPAGE_TLB__CB] >> 1;
                                 wt_nxt = i_fptlb_rdata[3:2] == 2'b10;
+                                bufferable_nxt = i_fptlb_rdata[2];
                         end
 
                         4'b0000:
@@ -247,6 +254,7 @@ begin : tlb_match_logic
                                 far_nxt       = 'X;
                                 cacheable_nxt = 'X;
                                 wt_nxt        = 'X;
+                                bufferable_nxt = 'X;
                         end
                         endcase
 

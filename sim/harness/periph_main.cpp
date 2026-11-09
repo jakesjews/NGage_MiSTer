@@ -56,6 +56,7 @@
 #include "common.h"
 #include "ddram_model.h"
 #include "sdram_model.h"
+#include "sdram_address.h"
 
 #include <cstring>
 #include <fstream>
@@ -264,9 +265,9 @@ struct Bench {
 	void wrn(uint32_t a, uint32_t v, int size) { if (size == 1) wr8(a, v); else if (size == 2) wr16(a, v); else wr(a, v); }
 
 	// SDRAM through the chip model
-	uint8_t sd_byte(uint32_t a) { uint16_t h = chip.lin(((a - SD) & 0xFFFFFF) >> 1); return (uint8_t)(h >> (8 * (a & 1))); }
+	uint8_t sd_byte(uint32_t a) { uint16_t h = chip.lin(sdram_physical_halfword((a - SD) & 0xFFFFFF)); return (uint8_t)(h >> (8 * (a & 1))); }
 	void sd_poke(uint32_t a, uint8_t v) {
-		uint16_t &h = chip.lin(((a - SD) & 0xFFFFFF) >> 1);
+		uint16_t &h = chip.lin(sdram_physical_halfword((a - SD) & 0xFFFFFF));
 		h = (a & 1) ? (uint16_t)((h & 0x00FF) | v << 8) : (uint16_t)((h & 0xFF00) | v);
 	}
 

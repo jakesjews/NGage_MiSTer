@@ -75,7 +75,11 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
     input logic i_return_next_valid,
     input logic [5:0] i_return_next_tag,
     output logic [3:0] o_return_match,
+    // Producer 1's tag is read by the simulation reference only: its
+    // matches come from the forwarding-tag candidates.
+    /* verilator lint_off UNUSEDSIGNAL */
     input logic [1:0][5:0] i_next_load_tag,
+    /* verilator lint_on UNUSEDSIGNAL */
     input logic [1:0] i_next_load_valid,
     output logic o_load_wait,
     // Tags/eligibility of the producers that will exist after this edge.
@@ -566,14 +570,34 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
     // relative positions of load and consumer. All comparisons terminate
     // in the S-entry register; cache ACK never qualifies S admission.
     logic load_wait_next;
+    // Producer 1 is the next M record, already represented by the two
+    // forwarding-tag candidates. Select their one-bit equality after W's
+    // completion decision instead of comparing a late six-bit tag mux.
     always_comb begin
         load_wait_next=0;
         for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)
             if(!out_valid||i_ready)load_wait_next|=d2.used[src]&&
-                (prod==0||d2.early[src])&&i_next_load_valid[prod]&&d2.tag[src]==i_next_load_tag[prod];
+                (prod==0||d2.early[src])&&i_next_load_valid[prod]&&(prod==1 ? d2_candidate_match[i_forward_advance][src][0][0] : d2.tag[src]==i_next_load_tag[0]);
             else load_wait_next|=issued.used[src]&&
+                (prod==0||issued.early[src])&&i_next_load_valid[prod]&&(prod==1 ? held_candidate_match[i_forward_advance][src][0][0] : issued.tag[src]==i_next_load_tag[0]);
+    end
+`ifndef SYNTHESIS
+    logic load_wait_ref;
+    always_comb begin
+        load_wait_ref=0;
+        for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)
+            if(!out_valid||i_ready)load_wait_ref|=d2.used[src]&&
+                (prod==0||d2.early[src])&&i_next_load_valid[prod]&&d2.tag[src]==i_next_load_tag[prod];
+            else load_wait_ref|=issued.used[src]&&
                 (prod==0||issued.early[src])&&i_next_load_valid[prod]&&issued.tag[src]==i_next_load_tag[prod];
     end
+    always_ff @(posedge i_clk) if(!i_reset)begin
+        if(i_next_load_valid[1])
+            assert(i_next_load_tag[1] == (i_forward_advance ? i_advance_tag[0][0] : i_forward_tag[0][0]))
+                else $fatal(1,"next-M load tag contract");
+        assert(load_wait_next==load_wait_ref) else $fatal(1,"next-M load wait match");
+    end
+`endif
     always_ff @(posedge i_clk)
         if(i_reset||i_flush)o_load_wait<=0;
         else o_load_wait<=load_wait_next;
@@ -618,23 +642,51 @@ module arm9v2_decode #(parameter logic S_AGU=1'b1, parameter logic THUMB_HALF=1'
             early_hazard[src]|=early_used[src]&&i_early_valid[pending]&&d2.tag[src]==i_early_tag[pending]&&
                 !(S_AGU&&src==0&&i_early_agu[pending]&&(d2.kind==K_MEM||d2.kind==K_SWP||d2.kind==K_BLOCK));
     end
+    // For a nonspeculative producer, any read or write conflict stalls.
+    // For a speculative one, a consumer may own the destination too: its
+    // pending read protects it from the older fill. Share that decision
+    // per producer instead of nesting it separately under each write port.
+    logic [5:0] producer_hazard;
     always_comb begin
-        load_hazard=0;
+        logic [3:0] reads;
+        logic [1:0] writes;
         for(int pending=0;pending<6;pending++)begin
-            for(int src=0;src<4;src++)load_hazard|=d2.used[src]&&i_load_valid[pending]&&
+            for(int src=0;src<4;src++)
+                reads[src]=d2.used[src] && d2.tag[src]==i_load_tag[pending];
+            for(int dst=0;dst<2;dst++)
+                writes[dst]=d2.writes[dst] && d2.dest[dst]==i_load_tag[pending];
+            producer_hazard[pending]=i_load_valid[pending] &&
+                ((!i_load_speculate[pending] || pending==0) ?
+                    ((|reads)||(|writes)) :
+                    ((pending==1 && |(reads & d2.early)) ||
+                     ((|writes) && !(|reads) && !(pending==4 && i_w_load_hit))));
+        end
+        load_hazard=(|producer_hazard) ||
+            (d2.writes[0] && i_locked[d2.dest[0]]) ||
+            (d2.writes[1] && i_locked[d2.dest[1]]);
+    end
+`ifndef SYNTHESIS
+    logic load_hazard_ref;
+    always_comb begin
+        load_hazard_ref=0;
+        for(int pending=0;pending<6;pending++)begin
+            for(int src=0;src<4;src++)load_hazard_ref|=d2.used[src]&&i_load_valid[pending]&&
                 (!i_load_speculate[pending]||pending==0||(d2.early[src]&&pending==1))&&
                 d2.tag[src]==i_load_tag[pending];
             // No younger destination can be overwritten by an older fill.
             for(int dst=0;dst<2;dst++)
-                load_hazard|=d2.writes[dst]&&i_load_valid[pending]&&d2.dest[dst]==i_load_tag[pending]&&
+                load_hazard_ref|=d2.writes[dst]&&i_load_valid[pending]&&d2.dest[dst]==i_load_tag[pending]&&
                     !(i_load_speculate[pending]&&((pending==4&&i_w_load_hit)||
                     (d2.used[0]&&d2.tag[0]==i_load_tag[pending])||
                     (d2.used[1]&&d2.tag[1]==i_load_tag[pending])||
                     (d2.used[2]&&d2.tag[2]==i_load_tag[pending])||
                     (d2.used[3]&&d2.tag[3]==i_load_tag[pending])));
         end
-        for(int dst=0;dst<2;dst++)load_hazard|=d2.writes[dst]&&i_locked[d2.dest[dst]];
+        for(int dst=0;dst<2;dst++)load_hazard_ref|=d2.writes[dst]&&i_locked[d2.dest[dst]];
     end
+    always_ff @(posedge i_clk) if(!i_reset && d2_valid)
+        assert(load_hazard==load_hazard_ref) else $fatal(1,"factored load hazard");
+`endif
     assign o_hazard=d2_valid&&(load_hazard||fenced||(d2.used[0]&&i_locked[d2.tag[0]]) ||
         (d2.used[1]&&i_locked[d2.tag[1]]) || (d2.used[2]&&i_locked[d2.tag[2]]) || (d2.used[3]&&i_locked[d2.tag[3]]) ||
         (|early_hazard));

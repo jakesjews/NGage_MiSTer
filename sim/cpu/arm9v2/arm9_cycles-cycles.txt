@@ -10,7 +10,8 @@ dp_pc 2 11
 dp_regshift_pc 3 12
 ldr_independent 3 3
 ldr_alu 4 4
-ldr_base 5 5
+# 2026-11-09, S_AGU = 0: the load takes its base without the early-address clock.
+ldr_base 4 4
 ldr_shift_amount 6 6
 ldr_shift_value 5 5
 ldr_store 4 4

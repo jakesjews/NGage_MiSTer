@@ -151,8 +151,10 @@ ifeq ($(RTL),sv)
 RTL_SRC := +incdir+$(ROOT)/rtl/cpu/zap $(ROOT)/rtl/cpu/arm925t.sv $(ARM9_SV) $(ZAP_SV)
 RTL_DEP := $(ROOT)/rtl/cpu/arm925t.sv $(ARM9_SV) $(ZAP_SV) $(wildcard $(ROOT)/rtl/cpu/zap/*.svh)
 else
-RTL_SRC := $(ROOT)/rtl/cpu/arm925t_gen.v $(ROOT)/sim/stubs/altsyncram.sv
-RTL_DEP := $(RTL_SRC)
+RTL_DEP := $(ROOT)/rtl/cpu/arm925t_gen.v $(ROOT)/sim/stubs/altsyncram.sv $(ROOT)/sim/stubs/altdpram.sv
+# The register file's architectural view is simulation-only in the sources;
+# on the netlist the bench rebuilds it from the banks (tb_cpu.sv).
+RTL_SRC := -DRAM_RF_TAP=1 $(RTL_DEP)
 endif
 
 model: $(MODEL)

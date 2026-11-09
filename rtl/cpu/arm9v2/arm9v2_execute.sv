@@ -84,6 +84,8 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     input logic [1:0][3:0][4:0] i_forward_grant,
     input logic [1:0][1:0][5:0] i_next_tag, i_advance_tag,
     input logic i_next_advance,
+    input logic [1:0][5:0] i_advance_a_tag,i_advance_skid_tag,
+    input logic i_advance_skid,
     input logic [1:0][1:0] i_next_write,
     input logic [1:0][1:0] i_next_write_hold,   // LATE_HOLD_STATIC: i_next_write if A stays
     input logic [3:0][31:0] i_value,
@@ -95,6 +97,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     input logic [2:0] i_ras_pointer,
     input logic [3:0] i_ras_count,
     input logic [1:0][1:0][31:0] i_mw_value,
+    input logic [31:0] i_w_load_data,i_w_alu_data,
     input logic [1:0][1:0][5:0] i_mw_tag,
     input logic [1:0][1:0] i_mw_valid,
     input logic i_ready,
@@ -381,8 +384,9 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
         endcase
         if(i_fault)planned_writes_ref=0;
     end
-    // W_ROTATE: src 1's forwarded word without W's load lane (rank 3), and
-    // the shifter input built from it exactly as shift_input is.
+    // W_ROTATE: route the load word directly to its rotator, before the
+    // W load/ALU selection. W's ALU result joins the ordinary operand
+    // mux; the registered load-owner bit selects the finished rotation.
     logic [31:0] operand1_nw,shift_input_nw;
     wire [4:0] grant1=i_forward_grant[s_grant_hit][1];
     // OP1_PRE: decode's registered class bits instead of S's compares.
@@ -394,10 +398,11 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     always_ff @(posedge i_clk) if(!i_reset&&OP1_PRE&&i_valid)
         assert({op1_imm,op1_pc,op1_psr}=={op1_imm_ref,i_tag[1]==6'd15,i_tag[1]==6'd17}) else $fatal(1,"S operand-1 class");
 `endif
-    wire w_take=W_ROTATE&&grant1[3]&&!op1_pc&&!op1_psr&&!op1_imm;
+    wire w_take=W_ROTATE&&i_load_owner[1]&&grant1[3]&&!op1_pc&&!op1_psr&&!op1_imm;
     always_comb begin
         operand1_nw=(i_mw_value[0][1]&{32{grant1[0]}})|(i_mw_value[0][0]&{32{grant1[1]}})|
-            (i_mw_value[1][1]&{32{grant1[2]}})|((holding?held[1]:i_value[1])&{32{grant1[4]}});
+            (i_mw_value[1][1]&{32{grant1[2]}})|(i_w_alu_data&{32{grant1[3]&&!i_load_owner[1]}})|
+            ((holding?held[1]:i_value[1])&{32{grant1[4]}});
         if(op1_pc)operand1_nw=i_reg_shift?i_pc_base+32'd4:i_pc_base;
         if(op1_psr)operand1_nw={flags,i_cpsr[27:8],interrupt_mask,i_cpsr[5:0]};
         shift_input_nw=operand1_nw;
@@ -408,7 +413,7 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     arm9v2_rotate #(.PRE_ROT(SHIFT_PRE)) u_rotate(.i_value(W_ROTATE?shift_input_nw:shift_input),.i_amount(shift_amount),.i_type(shift_type),.i_rot(shift_rot),
         .i_register(shift_register),.i_carry(1'b0),.o_value(shifted_main),
         .o_carry(carry_main),.o_preserve(preserve_main),.o_rrx(rrx_main));
-    arm9v2_rotate #(.PRE_ROT(SHIFT_PRE)) u_rotate_w(.i_value(i_mw_value[1][0]),.i_amount(shift_amount),.i_type(shift_type),.i_rot(shift_rot),
+    arm9v2_rotate #(.PRE_ROT(SHIFT_PRE)) u_rotate_w(.i_value(i_w_load_data),.i_amount(shift_amount),.i_type(shift_type),.i_rot(shift_rot),
         .i_register(shift_register),.i_carry(1'b0),.o_value(shifted_w),
         .o_carry(carry_w),.o_preserve(preserve_w),.o_rrx(rrx_w));
     assign shifted=w_take?shifted_w:shifted_main;
@@ -530,7 +535,21 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     wire [63:0] twos0=((pp0&pp1)|(pp1&pp2)|(pp0&pp2))<<1;
     wire [63:0] ones1=ones0^twos0^pp3;
     wire [63:0] twos1=((ones0&twos0)|(ones0&pp3)|(twos0&pp3))<<1;
-    assign product=ones1+twos1;
+    // The full product takes the same edge as the four original partial
+    // products. Let Quartus map the complete multiply, including its sum,
+    // instead of forcing the combining adders after four DSP output flops.
+    // (Two sign bits above the 64 the instructions use.)
+    /* verilator lint_off UNUSEDSIGNAL */
+    (* multstyle="dsp" *) logic signed [65:0] full_product;
+    /* verilator lint_on UNUSEDSIGNAL */
+    always_ff @(posedge i_clk) if(product_phase)
+        full_product <= $signed({a.kind==MULL&&a.ins[22]&&a.right[31],a.right}) *
+                        $signed({a.kind==MULL&&a.ins[22]&&a.special[31],a.special});
+    assign product=full_product[63:0];
+`ifndef SYNTHESIS
+    always_ff @(posedge i_clk) if(!i_reset&&a_valid&&multiply_product_ready&&(a.kind==MUL||a.kind==MULL))
+        assert(product==ones1+twos1) else $fatal(1,"full DSP product differs from partial products");
+`endif
     assign mac_result=product_saved+(a.kind==MULL?{left_a,store_a}:{32'd0,store_a});
     assign mult_result=a.ins[21]?mac_result:product;
     // MUL_FAST_Z: x + y == 0 without the carry chain.
@@ -540,8 +559,8 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
     function automatic logic zero_sum64(input logic [63:0] x,y);
         zero_sum64=(x^y)=={x[62:0]|y[62:0],1'b0};
     endfunction
-    wire mul_z32=a.ins[21]?zero_sum32(product_saved[31:0],store_a):zero_sum32(ones1[31:0],twos1[31:0]);
-    wire mul_z64=a.ins[21]?zero_sum64(product_saved,{left_a,store_a}):zero_sum64(ones1,twos1);
+    wire mul_z32=a.ins[21]?zero_sum32(product_saved[31:0],store_a):product[31:0]==0;
+    wire mul_z64=a.ins[21]?zero_sum64(product_saved,{left_a,store_a}):product==0;
     assign product_phase=a_valid&&(a.kind==MUL||a.kind==MULL)&&!multiply_product_ready;
     assign mac_phase=a_valid&&(a.kind==MUL||a.kind==MULL)&&multiply_product_ready&&a.ins[21]&&!multiply_accumulate;
     assign space=!a_valid||finish;
@@ -634,6 +653,16 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
                 o_record_thumb=a.kind==BX?right_a[0]:a.thumb;
     end
     (* keep *) logic [1:0][3:0][1:0][1:0] s_candidate_match, a_candidate_match;
+    // Compare both possible next-M owners before selecting a reload.
+    // Memory state chooses one match bit, rather than a six-bit tag
+    // feeding another equality comparator on the acceptance path.
+    (* keep *) logic [1:0][3:0][1:0] s_new_m_match,a_new_m_match;
+    always_comb for(int src=0;src<4;src++)for(int lane=0;lane<2;lane++)begin
+        s_new_m_match[0][src][lane]=i_tag[src]==i_advance_a_tag[lane];
+        s_new_m_match[1][src][lane]=i_tag[src]==i_advance_skid_tag[lane];
+        a_new_m_match[0][src][lane]=a.tag[src]==i_advance_a_tag[lane];
+        a_new_m_match[1][src][lane]=a.tag[src]==i_advance_skid_tag[lane];
+    end
     // a.late's next value on a held edge and on acceptance.
     logic [3:0][1:0][1:0] late_hold,late_accept;
     always_comb for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)begin
@@ -647,9 +676,10 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
         // Current M becomes W on advance. Its match is already registered
         // at D2/S, and is refreshed there throughout a hold.
         s_candidate_match[1][src][prod][lane]=prod==1?i_forward_match[src][0][lane]:
-            i_tag[src]==i_advance_tag[prod][lane];
+            s_new_m_match[i_advance_skid][src][lane];
         a_candidate_match[0][src][prod][lane]=a.tag[src]==i_next_tag[prod][lane];
-        a_candidate_match[1][src][prod][lane]=a.tag[src]==i_advance_tag[prod][lane];
+        a_candidate_match[1][src][prod][lane]=prod==1?a.tag[src]==i_advance_tag[prod][lane]:
+            a_new_m_match[i_advance_skid][src][lane];
     end
 `ifndef SYNTHESIS
     always_ff @(posedge i_clk) if(!i_reset&&!i_flush&&i_valid)
@@ -658,6 +688,10 @@ module arm9v2_execute #(parameter logic S_AGU=1'b1, parameter logic FREE_SELECT=
                 (i_used[src]&&i_next_write[prod][lane]&&i_tag[src]==(i_next_advance?i_advance_tag[prod][lane]:i_next_tag[prod][lane])))
                 else $fatal(1,"next producer match/age");
         end
+    always_ff @(posedge i_clk) if(!i_reset&&!i_flush&&a_valid)
+        for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
+            assert(a_candidate_match[1][src][prod][lane]==(a.tag[src]==i_advance_tag[prod][lane]))
+                else $fatal(1,"held next producer match");
 `endif
     // PAYLOAD_FREE: a flush resets the control and valid state only (the
     // block below); the payload (A's record, the held operands, the

@@ -12,6 +12,8 @@ lint/exclusions.vlt
 lint/pll.sv
 // The behavioural altsyncram (the CPU netlist instantiates it).
 sim/stubs/altsyncram.sv
+// The behavioural altdpram (the register file's banks in the CPU netlist).
+sim/stubs/altdpram.sv
 
 // Framework modules that the video output uses and that are not in a file of
 // their own name.

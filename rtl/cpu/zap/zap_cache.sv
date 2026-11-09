@@ -360,11 +360,13 @@ u_zap_tlb (
         .o_fault        (tlb_fault),
         /* verilator lint_off PINCONNECTEMPTY */
         .o_wt           (),
+.o_bufferable   (),
         .o_hit_ok       (),             // ARM925T: D-side only
         .o_hit_ok_short (),
         /* verilator lint_on PINCONNECTEMPTY */
         .o_cacheable    (tlb_cacheable),
         .o_busy         (tlb_busy),
+        .o_hit_ready    (),
         .o_wb_stb_nxt   (wb_stb[2]),
         .o_wb_cyc_nxt   (wb_cyc[2]),
         .o_wb_adr_nxt   (wb_adr[2]),

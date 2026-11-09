@@ -152,3 +152,13 @@ lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm9v2/arm9v2_decode.sv" -match "*Bit
 // zap_register_file: r0..r39 are the simulation's waveform taps of the
 // architectural view.
 lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_register_file.sv" -match "*Signal is not used: 'r*'*"
+
+// sim/stubs/altdpram.sv models the one configuration the register file uses;
+// the primitive's other ports and parameters are accepted and ignored.
+lint_off -rule UNUSEDSIGNAL -file "sim/stubs/altdpram.sv"
+lint_off -rule UNUSEDPARAM -file "sim/stubs/altdpram.sv"
+
+// The posted-store queue compares its counter with the integer depth, and
+// its bus lane is write-only by construction.
+lint_off -rule WIDTHEXPAND -file "rtl/cpu/zap/zap_store_queue.sv" -match "*'count*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_dcache.sv" -match "*'wb_wen'*"

@@ -95,6 +95,10 @@ output  logic [3:0]                 o_dbg_dcache,
 
 // From/To CP15 unit
 input   logic                      i_cache_en,
+input   logic                      i_writebuffer_en,
+input   logic                      i_bufferable, i_swp,
+input   logic                      i_post_full,
+output  logic                      o_post_push,
 input   logic                      i_cache_inv,
 input   logic                      i_cache_clean,
 
@@ -144,6 +148,7 @@ input   logic                      i_fault,
 input   logic                      i_cacheable,
 input   logic                      i_wt,          // ARM925T: write-through page.
 input   logic                      i_busy,
+input logic                        i_tlb_hit_ready,
 output  logic                      o_hold,
 
 // Cache state
@@ -327,6 +332,19 @@ assign o_line_req        = line_req_ff;        // ARM925T
 
 // Alias (ARM925T: the tag compare is in the tag RAM, i_cache_hit)
 assign cache_dirty = i_cache_tag_dirty;
+// TI925T SPRU671 table 2: W buffers NCB when B=1, including with
+// D-cache disabled, and WT when C=1/B=0 with D-cache enabled. Keep
+// uncached SWP synchronous (the existing conservative locking policy).
+// WB misses retain the dirty physical-synonym clean-before-fill fallback.
+// Physical addresses/data are captured only after permission checks.
+wire post_stream = i_writebuffer_en &&
+                   ((i_cache_en && i_cacheable && i_wt) ||
+                    ((!i_cache_en || !i_cacheable) && i_bufferable && !i_swp));
+wire post_writeback = i_writebuffer_en && i_cache_en && i_cacheable && !i_wt &&
+                      !i_cache_hit && !(i_cache_tag_valid && cache_dirty && victim_alias);
+wire post_eligible = i_wr && (post_stream || post_writeback);
+assign o_post_push = state_ff[IDLE] && post_eligible && !i_post_full &&
+                    !i_align_fault && !i_fault && !i_busy;
 // A VIVT synonym that replaces the same physical line must read the dirty
 // bytes after cleaning them. Retain the old order in that exceptional case.
 assign victim_alias = i_phy_addr[31:$clog2(CACHE_LINE)] == i_cache_tag[`ZAP_CACHE_TAG__PA];
@@ -607,7 +625,8 @@ assign hum_ack = hum_slot_ff && i_hit_ok && i_cache_en &&
 logic err_case, err2_case;
 wire access_now = i_rd || i_wr;
 wire ack_idle_flat = state_ff[IDLE] && (!access_now || i_align_fault || i_fault || i_busy ||
-                     (i_cache_en && i_cacheable && !(i_wr && i_wt)));
+                     (i_cache_en && i_cacheable && !(i_wr && i_wt) && !(i_wr && i_post_full)) ||
+                     (i_wr && post_stream && !i_post_full));
 wire err_flat = (state_ff[IDLE] && access_now && (i_align_fault || i_fault)) ||
                 (state_ff[UNC_DONE] && unc_err_ff);
 wire err2_flat = state_ff[IDLE] && access_now && !i_align_fault && !i_fault && i_busy;
@@ -619,10 +638,7 @@ always_ff @(posedge i_clk) if (!i_reset && $onehot(state_ff))
         assert ({ack_idle_flat || state_ff[UNC_DONE], err_flat, err2_flat} == {idle_ack, err_case, err2_case})
                 else $fatal(1, "flat D-cache acknowledge");
 `endif
-// (Under i_hit_ok, !i_busy equals the walker's IDLE register; using that
-// register instead was tried on 2026-10-26 and fitted worse at seed 2:
-// -2.206 against -1.953 ns, TNS -1592 against -1273.)
-assign o_ack_fast = (state_ff[IDLE] && !i_align_fault && i_cache_en && i_hit_ok && !i_busy) || hum_ack ||
+assign o_ack_fast = (state_ff[IDLE] && !i_align_fault && i_cache_en && i_hit_ok && i_tlb_hit_ready && !(i_wr && i_post_full)) || hum_ack ||
                     state_ff[UNC_DONE];
 assign o_err_fast = state_ff[UNC_DONE] && unc_err_ff;
 `ifndef SYNTHESIS
@@ -644,7 +660,7 @@ always_ff @(posedge i_clk)
 logic live_write, fill_write, saved_write;
 logic [CACHE_LINE*8-1:0] fill_line;
 assign live_write = i_wr && !i_align_fault && i_cache_en &&
-                    ((o_idle && !i_fault && !i_busy && i_cacheable && !i_wt) ||
+                    ((o_idle && !i_fault && !i_busy && i_cacheable && (!i_wt || post_stream) && !i_post_full) ||
                      (hum_slot_ff && i_hit_ok && i_cache_hit_early));
 // ARM925T: one registered state owns the full-line write. The last bus
 // beat is already in buf_ff; no bus response arbitrates with a live hit.
@@ -653,7 +669,7 @@ assign live_write = i_wr && !i_align_fault && i_cache_en &&
 assign fill_write = state_ff[UNLOCK_REG];
 assign saved_write = state_ff[UNC_DONE] && !unc_err_ff && wt_hit;
 assign o_cache_tag_wr_en = live_write || fill_write || saved_write;
-assign o_cache_tag_dirty = live_write || (fill_write && wr) ||
+assign o_cache_tag_dirty = (live_write && (!i_wt || cache_dirty)) || (fill_write && wr) ||
                           (saved_write && wt_dirty);
 assign o_address = o_live_lookup ? i_address : address;
 assign o_cache_way = way;
@@ -689,7 +705,7 @@ end
 // enter with STB low, an invariant of the FSM. Decode requests in parallel
 // so maintenance/relookup state bits do not reach the merger's next owner.
 assign o_wb_stb_nxt =
-        (state_ff[IDLE] && (i_rd || i_wr) && !i_align_fault && !i_fault && !i_busy && !i_cache_en) ||
+        (state_ff[IDLE] && (i_rd || i_wr) && !i_align_fault && !i_fault && !i_busy && !i_cache_en && !(i_wr && post_stream)) ||
         state_ff[UNCACHEABLE_PREPARE] ||
         (state_ff[UNLOCK_REG] && o_writeback_busy) ||
         (state_ff[UNCACHEABLE] && o_wb_stb_ff && !(i_wb_ack || i_wb_err)) ||
@@ -823,7 +839,11 @@ begin:next_state_logic
                 end
                 else if ( i_rd || i_wr )
                 begin
-                        if ( !i_cache_en )
+                        if (i_wr && post_stream) begin
+                                idle_ack = !i_post_full;
+                                o_hold = i_post_full;
+                        end
+                        else if ( !i_cache_en )
                         begin
                                 o_hold          = 1'd1;
 
@@ -877,7 +897,15 @@ begin:next_state_logic
 
                                 // ARM925T: the valid bit is the victim's: a
                                 // hit is a hit whatever it says.
-                                casez ({i_cache_hit,i_cache_tag_valid})
+                                if (i_wr && i_post_full) begin
+                                        // A registered full predicate gates ACK, independently
+                                        // of the tag compare. Hold lookup ownership until space.
+                                        idle_ack = 1'b0;
+                                        o_hold = 1'b1;
+                                end else if (post_eligible) begin
+                                        // The queue owns this store; no line is allocated.
+                                        idle_ack = 1'b1;
+                                end else casez ({i_cache_hit,i_cache_tag_valid})
 
                                 2'b1?: // Cache Hit
                                 begin

@@ -33,7 +33,7 @@
 // a closed bank needs ACTIVE and tRCD; a conflict precharges only that bank,
 // waits tRP and the previous ACTIVE's tRC, then opens the new row. Per-bank
 // saturating ages enforce tRAS even across multiple accesses. The mapping
-// is unchanged: 1 KB rows, bank bits at byte address 24:23. No reordering or
+// uses 1 KB rows with bank bits at byte address 13:12 (4 KB interleaving). No reordering or
 // overlapping accesses. All four rows close for each refresh.
 //
 // Mode: burst length 8 (sequential) for reads, single-location writes. A
@@ -264,8 +264,10 @@ module sdram #(
 
 	assign rdata = {dq_q, dq_hold};
 
-	// the halfword address of an access: column 8:0, row 21:9, bank 23:22
-	wire [23:0] h = {addr, 1'b0};
+	// Physical halfword address: column 8:0, row 21:9, bank 23:22.
+	// Move logical byte bits 13:12 to the bank; preserve every other bit.
+	// This is a bijective remap of all 32 MB; port addresses stay unchanged.
+	wire [23:0] h = {addr[13:12], addr[24:14], addr[11:10], addr[9:2], 1'b0};
 	wire take = ready_q && idle && !ref_due && req;
 	wire hit = row_open[h[23:22]] && row_addr[h[23:22]] == h[21:9];
 	wire hit_start = take && hit;

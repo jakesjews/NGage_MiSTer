@@ -101,9 +101,14 @@ module arm9v2_predict #(
         end
     end
     (* dont_retime *) logic read_valid_bit;
-    wire valid_redirect = valid_next[i_pc_redirect[INDEX_W:1]];
-    wire valid_predicted = valid_next[o_target[INDEX_W:1]];
-    wire valid_sequential = valid_next[i_pc_sequential[INDEX_W:1]];
+    // Read the stored bitmap independently of the late update enable.
+    // A same-edge write bypasses the selected bit, after the wide read mux.
+    wire valid_redirect = valid[i_pc_redirect[INDEX_W:1]] ||
+        (write_enable && wr_index == i_pc_redirect[INDEX_W:1]);
+    wire valid_predicted = valid[o_target[INDEX_W:1]] ||
+        (write_enable && wr_index == o_target[INDEX_W:1]);
+    wire valid_sequential = valid[i_pc_sequential[INDEX_W:1]] ||
+        (write_enable && wr_index == i_pc_sequential[INDEX_W:1]);
     wire valid_launch = i_sel_redirect ? valid_redirect : i_sel_predicted ? valid_predicted : valid_sequential;
     always_ff @(posedge i_clk)
         if (i_reset || i_clear) read_valid_bit <= 1'b0;

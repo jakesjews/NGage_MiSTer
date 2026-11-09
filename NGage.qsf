@@ -51,7 +51,7 @@ set_global_assignment -name ECO_OPTIMIZE_TIMING ON
 set_global_assignment -name PERIPHERY_TO_CORE_PLACEMENT_AND_ROUTING_OPTIMIZATION ON
 set_global_assignment -name PHYSICAL_SYNTHESIS_ASYNCHRONOUS_SIGNAL_PIPELINING ON
 set_global_assignment -name ALM_REGISTER_PACKING_EFFORT MEDIUM
-set_global_assignment -name SEED 2
+set_global_assignment -name SEED 13
 
 #set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
 
@@ -77,7 +77,7 @@ set_global_assignment -name SEED 2
 set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
 
 # CPU I-cache (NGage.sv): the 32 KB variant (1,024 sets, +16 M10K)
-#set_global_assignment -name VERILOG_MACRO "NGAGE_ICACHE_32K=1"
+set_global_assignment -name VERILOG_MACRO "NGAGE_ICACHE_32K=1"
 
 # The measurement core: the debug overlay, its per-second counters and the
 # trace triggers (about 1,700 ALMs, for tools/mister_dbg.py and the board

@@ -15,7 +15,7 @@ for latency in 0 3 9; do
     # intentionally unconnected, like the CPU suite's device-only benches.
     verilator --binary --timing --assert -j 8 -Wno-fatal -Wno-lint -Wno-style \
         --top-module decode_cache_tb -GLATENCY=$latency -GCUTS=$cuts --Mdir "$dir" \
-        "$build/shared-gen.v" "$root/sim/stubs/altsyncram.sv" "$root"/rtl/cpu/arm9v2/*.sv \
+        "$build/shared-gen.v" "$root/sim/stubs/altsyncram.sv" "$root/sim/stubs/altdpram.sv" "$root"/rtl/cpu/arm9v2/*.sv \
         "$root/sim/cpu/arm9v2/decode_cache_tb.sv" > "$dir.log" 2>&1 || {
         cat "$dir.log"; exit 1;
     }

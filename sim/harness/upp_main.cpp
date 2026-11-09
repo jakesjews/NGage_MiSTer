@@ -22,6 +22,7 @@
 #include "common.h"
 #include "ddram_model.h"
 #include "sdram_model.h"
+#include "sdram_address.h"
 
 #include <cstring>
 #include <map>
@@ -93,7 +94,7 @@ struct Bench {
 		oc.assign(OC_BYTES, 0);
 		oc_known.assign(OC_BYTES, 0);
 		for (uint32_t b = 0; b < (16u << 20); b += 2) {
-			uint16_t v = chip.lin(b >> 1);
+			uint16_t v = chip.lin(sdram_physical_halfword(b));
 			sdram[b] = (uint8_t)v;
 			sdram[b + 1] = (uint8_t)(v >> 8);
 		}

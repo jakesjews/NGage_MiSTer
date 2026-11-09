@@ -35,14 +35,14 @@ module arm925t #(
 	// Reset value of control register bit V (the ARM925T's HIVECS pin):
 	// 1 puts the exception vectors, and the reset address, at 0xFFFF0000.
 	parameter bit          HIVECS      = 1'b0,
-	// Cache geometry: the ARM925T's 16 KB I / 8 KB D, 2-way with LRU
-	// replacement, 16-byte lines (docs/CPU.md). ICACHE_SIZE may also be
-	// set to 32768 (32 KB, 1,024 sets).
-	parameter int          ICACHE_SIZE     = 16384,
+	// Cache geometry: 2-way with LRU replacement, 16-byte lines
+	// (docs/CPU.md). The ARM925T has 16 KB I / 8 KB D; the I-cache here is
+	// 32 KB (1,024 sets), and ICACHE_SIZE = 16384 gives the phone's size.
+	parameter int          ICACHE_SIZE     = 32768,
 	parameter int          ICACHE_WAYS     = 2,
-	// The D-cache is 16 KB two-way (512 sets, VA[12:4]); CP15 still reports
-	// the phone's 8 KB, and by-index maintenance visits both physical set
-	// colours of the named architectural set (docs/CPU.md).
+	// The D-cache is 32 KB two-way (1,024 sets, VA[13:4]); CP15 still reports
+	// the phone's 8 KB, and by-index maintenance visits every physical set
+	// colour of the named architectural set (docs/CPU.md).
 	parameter int          DCACHE_WAYS     = 2,
 	parameter int          CACHE_LINE      = 16
 ) (
@@ -115,7 +115,7 @@ module arm925t #(
 		.CODE_CACHE_SIZE     (32'(ICACHE_SIZE)),
 		.CODE_CACHE_LINE     (32'(CACHE_LINE)),
 		.CODE_CACHE_WAYS     (32'(ICACHE_WAYS)),
-		.DATA_CACHE_SIZE     (32'd16384),
+		.DATA_CACHE_SIZE     (32'd32768),
 		.DATA_CACHE_LINE     (32'(CACHE_LINE)),
 		.DATA_CACHE_WAYS     (32'(DCACHE_WAYS))
 	) u_zap (

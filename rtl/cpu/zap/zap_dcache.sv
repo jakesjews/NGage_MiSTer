@@ -110,6 +110,8 @@ output  logic [63:0]     o_reg_idx,
 
 // MMU controls from/to processor.
 input   logic            i_mmu_en,
+input   logic            i_writebuffer_en,
+input   logic            i_swp,
 input   logic            i_cache_en,
 input   logic            i_cache_inv_req,
 input   logic            i_cache_clean_req,
@@ -148,27 +150,29 @@ input  logic              i_wb_err
 `include "zap_defines.svh"
 `include "zap_localparams.svh"
 
-localparam [2:0] SELECT_CCH = 3'b001;
-localparam [2:0] SELECT_TAG = 3'b010;
-localparam [2:0] SELECT_TLB = 3'b100;
+localparam [3:0] SELECT_CCH = 4'b0001;
+localparam [3:0] SELECT_TAG = 4'b0010;
+localparam [3:0] SELECT_TLB = 4'b0100;
+localparam [3:0] SELECT_POST = 4'b1000;
 
-logic [2:0]                      wb_stb;
-logic [2:0]                      wb_cyc;
-logic [2:0]                      wb_wen;
-logic [3:0]                      wb_sel [2:0];
-logic [31:0]                     wb_dat [2:0];
-logic [31:0]                     wb_adr [2:0];
-logic [2:0]                      wb_cti [2:0];
+logic [3:0]                      wb_stb;
+logic [3:0]                      wb_cyc, eligible_cyc;
+logic [3:0]                      wb_wen;
+logic [3:0]                      wb_sel [3:0];
+logic [31:0]                     wb_dat [3:0];
+logic [31:0]                     wb_adr [3:0];
+logic [2:0]                      wb_cti [3:0];
 logic [1:0]                      fill_bte;
 logic [31:0]                     tlb_phy_addr;
 logic [7:0]                      tlb_fsr;
 logic [31:0]                     tlb_far;
 logic                            tlb_fault;
-logic                            tlb_cacheable;
+logic                            tlb_cacheable, tlb_bufferable;
 logic                            tlb_wt;        // ARM925T
 logic                            tlb_busy, tlb_hit_ok, tlb_hit_ok_short;
+logic tlb_hit_ready;
 logic [CACHE_LINE*8-1:0]         tr_cache_line;
-logic [31:0]                     tr_cache_word;    // ARM9V2: the short response's formatted hit word
+(* dont_retime *) logic [31:0]                     tr_cache_word;    // ARM9V2: the short response's formatted hit word
 logic [CACHE_LINE*8-1:0]         cf_cache_line;
 logic [CACHE_LINE-1:0]           cf_cache_line_ben;
 logic                            cf_cache_tag_wr_en;
@@ -189,8 +193,8 @@ logic [31:0] compare_address;
 logic                            cf_cache_clean_req, cf_cache_inv_req;
 logic                            cf_line_req, tr_line_done;   // ARM925T
 logic                            tr_cache_inv_done, tr_cache_clean_done;
-logic [2:0]                      wb_ack;
-logic [2:0]                      state_ff, state_nxt;
+logic [3:0]                      wb_ack;
+logic [3:0]                      state_ff, state_nxt;
 logic [31:0]                     cache_address;
 logic                            hold;
 logic                            idle, live_lookup, live_trust;
@@ -242,7 +246,7 @@ begin
         else if ( relookup[1] ) lookup_address[LINE_W +: SET_W] = lookup_s1;
         else if ( relookup[2] ) lookup_address[LINE_W +: SET_W] = lookup_s0;
 end
-logic  [2:0]                     wb_err;
+logic  [3:0]                     wb_err;
 logic                            unused;
 
 // Selection 2 of Wishbone CTI[2x3] is always on all CPU supported modes.
@@ -271,7 +275,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .o_live_trust           (live_trust),
         .o_relookup             (relookup),
         .o_fill_busy            (fill_busy),
-        .o_writeback_busy       (o_writeback_busy),
+        .o_writeback_busy       (victim_writeback_busy),
         .i_ben                  (i_ben),
         .o_dat                  (o_dat),
         .o_ack                  (o_ack),
@@ -279,6 +283,11 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .o_fsr                  (o_fsr),
         .o_far                  (o_far),
         .i_cache_en             (i_cache_en),
+        .i_writebuffer_en       (i_writebuffer_en && i_mmu_en),
+        .i_bufferable           (tlb_bufferable),
+        .i_swp                  (i_swp),
+        .i_post_full            (post_full),
+        .o_post_push            (post_push),
         .i_cache_inv            (i_cache_inv_req),
         .i_cache_clean          (i_cache_clean_req),
         .o_cache_inv_done       (o_cache_inv_done),
@@ -312,6 +321,7 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_cacheable            (tlb_cacheable),
         .i_wt                   (tlb_wt),
         .i_busy                 (tlb_busy),
+        .i_tlb_hit_ready        (tlb_hit_ready),
         .o_err2                 (o_err2),
         .o_dbg_dcache           (cf_dbg_dcache),
         .o_address              (cache_address),
@@ -352,6 +362,25 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .i_wb_dat               (i_wb_dat),
         .i_wb_ack               (wb_ack[0]),
         .i_wb_err               (wb_err[0])
+);
+
+// Buffered write misses have their own bus source. While entries remain,
+// no later fill, page-table read or maintenance write may pass them. An
+// already launched bus beat is held to completion by the existing arbiter.
+logic post_push, post_full, post_busy, victim_writeback_busy;
+assign o_writeback_busy = victim_writeback_busy || post_busy;
+assign eligible_cyc = {wb_cyc[3], wb_cyc[2:0] & {3{!post_busy && !post_push}}};
+assign wb_stb[3] = wb_cyc[3];
+assign wb_wen[3] = 1'b1;
+assign wb_cti[3] = CTI_EOB;
+zap_store_queue u_post (
+        .i_clk(i_clk), .i_reset(i_reset), .i_push(post_push),
+        .i_address(tlb_phy_addr), .i_data(i_dat),
+        .i_ben(BE_32_ENABLE ? {i_ben[0], i_ben[1], i_ben[2], i_ben[3]} : i_ben),
+        .o_full(post_full), .o_busy(post_busy),
+        .o_cyc_nxt(wb_cyc[3]), .o_address_nxt(wb_adr[3]),
+        .o_data_nxt(wb_dat[3]), .o_ben_nxt(wb_sel[3]),
+        .i_take(wb_ack[3] || wb_err[3])
 );
 
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
@@ -543,7 +572,9 @@ u_zap_tlb (
         .o_fault        (tlb_fault),
         .o_cacheable    (tlb_cacheable),
         .o_wt           (tlb_wt),
+        .o_bufferable   (tlb_bufferable),
         .o_busy         (tlb_busy),
+        .o_hit_ready    (tlb_hit_ready),
         .o_hit_ok       (tlb_hit_ok),
         .o_hit_ok_short (tlb_hit_ok_short),
         .o_wb_stb_nxt   (wb_stb[2]),
@@ -604,10 +635,11 @@ begin
         // Change state only if strobe is inactive or strobe has just completed.
         if ( !o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err)) )
         begin
-                casez({wb_cyc[2],wb_cyc[1],wb_cyc[0]})
-                3'b1?? : state_nxt = SELECT_TLB; // TLB.
-                3'b01? : state_nxt = SELECT_TAG; // Tag.
-                3'b001 : state_nxt = SELECT_CCH; // Cache.
+                casez(eligible_cyc)
+                4'b1??? : state_nxt = SELECT_POST;
+                4'b01?? : state_nxt = SELECT_TLB;
+                4'b001? : state_nxt = SELECT_TAG;
+                4'b0001 : state_nxt = SELECT_CCH;
                 default: state_nxt = state_ff;
                 endcase
         end
@@ -621,10 +653,11 @@ end
 always_comb
 begin
         case(state_ff)
-        SELECT_CCH      : {wb_err, wb_ack} = {2'd0, i_wb_err, 2'd0, i_wb_ack};
-        SELECT_TAG      : {wb_err, wb_ack} = {1'd0, i_wb_err, 2'd0, i_wb_ack, 1'd0};
-        SELECT_TLB      : {wb_err, wb_ack} = {i_wb_err, 2'd0, i_wb_ack, 2'd0};
-        default         : {wb_err, wb_ack } = {6{1'dx}};
+        SELECT_CCH      : {wb_err, wb_ack} = {3'd0, i_wb_err, 3'd0, i_wb_ack};
+        SELECT_TAG      : {wb_err, wb_ack} = {2'd0, i_wb_err, 1'd0, 2'd0, i_wb_ack, 1'd0};
+        SELECT_TLB      : {wb_err, wb_ack} = {1'd0, i_wb_err, 2'd0, 1'd0, i_wb_ack, 2'd0};
+        SELECT_POST     : {wb_err, wb_ack} = {i_wb_err, 3'd0, i_wb_ack, 3'd0};
+        default         : {wb_err, wb_ack } = {8{1'dx}};
         endcase
 end
 
@@ -635,21 +668,31 @@ end
 // chooses has CYC whenever any has; one level after the acknowledge
 // instead of through the select (timing).
 //
-assign o_wb_cyc_nxt = ( !o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err)) ) ? (|wb_cyc) : (|(state_ff & wb_cyc));
+assign o_wb_cyc_nxt = ( !o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err)) ) ? (|eligible_cyc) : (|(state_ff & wb_cyc));
 
 // ARM925T: compute the selected strobe directly, alongside arbitration.
 // The hold case still uses the current owner; a new request retains the
 // TLB > tag > cache priority even if a manager's CYC and STB differ.
-assign o_wb_stb_nxt = ((!o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err))) && (|wb_cyc)) ?
-        ((wb_cyc[2] && wb_stb[2]) ||
-         (!wb_cyc[2] && wb_cyc[1] && wb_stb[1]) ||
-         (!wb_cyc[2] && !wb_cyc[1] && wb_cyc[0] && wb_stb[0])) :
+assign o_wb_stb_nxt = (!o_wb_stb || i_wb_ack || i_wb_err) ?
+        ((eligible_cyc[3] && wb_stb[3]) ||
+         (!eligible_cyc[3] && eligible_cyc[2] && wb_stb[2]) ||
+         (!eligible_cyc[3] && !eligible_cyc[2] && eligible_cyc[1] && wb_stb[1]) ||
+         (!eligible_cyc[3] && !eligible_cyc[2] && !eligible_cyc[1] && eligible_cyc[0] && wb_stb[0])) :
         (|(state_ff & wb_stb));
 
 // Combo signals for external MUXing.
 always_comb
 begin
         case(state_nxt)
+        SELECT_POST:
+        begin
+                o_wb_adr_nxt = wb_adr[3];
+                o_wb_dat_nxt = wb_dat[3];
+                o_wb_cti_nxt = CTI_EOB;
+                o_wb_bte_nxt = 2'b00;
+                o_wb_sel_nxt = wb_sel[3];
+                o_wb_wen_nxt = 1'b1;
+        end
         SELECT_CCH:
         begin
                 o_wb_adr_nxt = wb_adr[0];

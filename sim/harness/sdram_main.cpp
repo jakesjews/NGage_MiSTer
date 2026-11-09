@@ -18,6 +18,7 @@
 #include "verilated.h"
 #include "common.h"
 #include "sdram_model.h"
+#include "sdram_address.h"
 
 #include <cstring>
 #include <deque>
@@ -120,7 +121,7 @@ struct Bench {
 	Bench(uint32_t seed, SdramTiming timing) : chip(seed * 7 + 1, timing), rng(seed), ref(32u << 20) {
 		// the chip's power-up contents are random; the reference follows them
 		for (uint32_t h = 0; h < (16u << 20); h++) {
-			uint16_t v = chip.lin(h);
+			uint16_t v = chip.lin(sdram_physical_halfword(2 * h));
 			ref[2 * h] = (uint8_t)v;
 			ref[2 * h + 1] = (uint8_t)(v >> 8);
 		}
@@ -170,9 +171,9 @@ struct Bench {
 
 	void accepted() {
 		last_taken = cyc;
-		int row = chip.open_row((r_addr >> 23) & 3);
+		int row = chip.open_row((r_addr >> 12) & 3);
 		if (row < 0) row_closed++;
-		else if (row == int((r_addr >> 10) & 8191)) row_hits++;
+		else if (row == int((((r_addr >> 14) & 2047) << 2) | ((r_addr >> 10) & 3))) row_hits++;
 		else row_misses++;
 		for (auto &m : maps) m.access(r_addr);
 		taken[(r_we ? 2 : 0) + (r_line ? 1 : 0)]++;
@@ -308,10 +309,10 @@ struct Bench {
 		timing_cases(exact);
 		fresh_refresh();
 		auto acts = chip.activates;
-		for (int bank = 0; bank < 4; bank++) transfer(false, true, uint32_t(bank) << 23);
+		for (int bank = 0; bank < 4; bank++) transfer(false, true, uint32_t(bank) << 12);
 		CHECK_EQ(chip.activates - acts, 4, "four banks opened independently");
 		acts = chip.activates;
-		for (int bank = 3; bank >= 0; bank--) transfer(false, true, (uint32_t(bank) << 23) | 0x3FC);
+		for (int bank = 3; bank >= 0; bank--) transfer(false, true, (uint32_t(bank) << 12) | 0x3FC);
 		CHECK_EQ(chip.activates, acts, "bank switching preserves all four rows");
 		for (int bank = 0; bank < 4; bank++) CHECK(chip.open_row(bank) == 0, "bank %d lost its row", bank);
 		fresh_refresh();
@@ -326,7 +327,7 @@ struct Bench {
 		// requested word: those must never be written by a word access.
 		for (int prev = 0; prev < 4; prev++) for (int next = 0; next < 4; next++) {
 			fresh_refresh();
-			for (uint32_t dest : {0u, 0x800000u, 0x400u}) {
+			for (uint32_t dest : {0u, 0x1000u, 0x400u}) {
 				transfer(false, true, dest);
 				transfer(prev & 2, prev & 1, 0, 0xA55A);
 				transfer(next & 2, next & 1, dest, 0);
@@ -334,7 +335,7 @@ struct Bench {
 				transfer(false, true, dest);
 			}
 		}
-		for (uint32_t a : {0u, 0x3F0u, 0x7FFFF0u, 0x800000u, 0xFFFFF0u, 0x1000000u, 0x1FFFFF0u}) {
+		for (uint32_t a : {0u, 0x3F0u, 0xFF0u, 0x1000u, 0x3FF0u, 0x4000u, 0x7FFFF0u, 0x800000u, 0xFFFFF0u, 0x1000000u, 0x1FFFFF0u}) {
 			for (int word = 0; word < 4; word++) {
 				transfer(true, true, a + 4 * word, 0x5AA5);
 				transfer(false, true, a + 4 * word);

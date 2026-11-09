@@ -1,8 +1,11 @@
 # ARM9V2 session 7 ras measurements, warmed 0:0.
 # Name, last visit predictor on/off; optional penultimate visit on/off.
 # Exact implementation regression counts, not the design acceptance targets.
-stores_same 9 9
-stores_sets 9 9
+# 2026-11-09, with posted stores and S_AGU = 0: a store miss no longer
+# allocates its line, so the warmed visits of the store windows still miss
+# and drain through the four-entry store queue.
+stores_same 12 12 20 12
+stores_sets 12 12
 loads_same 9 9
 loads_sets 9 9
 stores_index 9 9

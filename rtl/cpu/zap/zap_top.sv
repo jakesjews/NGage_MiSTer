@@ -203,7 +203,7 @@ assign o_dbg_d_wdata = cpu_dc_dat;
 assign o_dbg_d_rdata = dc_data;
 logic [7:0]      dc_fsr;
 logic [31:0]     dc_far;
-logic            cpu_dc_en, cpu_ic_en;
+logic            cpu_dc_en, cpu_ic_en, cpu_writebuffer_en;
 logic [1:0]      cpu_sr;
 logic [31:0]     cpu_baddr, cpu_dac_reg;
 logic            cpu_dc_inv, cpu_ic_inv;
@@ -215,7 +215,7 @@ logic [31:0]     ic_data, dc_data, cpu_dc_dat;
 logic [31:0] dc_short_data;
 logic dc_short_hit, dc_short_live, dc_short_trust;
 logic            cpu_instr_stb;
-logic            cpu_dc_we, cpu_dc_stb;
+logic            cpu_dc_we, cpu_dc_stb, cpu_dc_swp;
 logic [3:0]      cpu_dc_sel;
 logic [1:0]     dbg_fetch;
 logic [3:0]     dbg_icache;
@@ -350,6 +350,7 @@ arm9v2_core #(
 
 // Data related.
 .o_data_wb_we           (cpu_dc_we),
+.o_data_wb_swp          (cpu_dc_swp),
 .o_data_wb_adr          (cpu_daddr),
 .o_data_wb_sel          (cpu_dc_sel),
 .o_data_wb_dat          (cpu_dc_dat),
@@ -395,6 +396,7 @@ arm9v2_core #(
 .o_icache_clean         (cpu_ic_clean),
 .o_dtlb_inv             (cpu_dtlb_inv),
 .o_itlb_inv             (cpu_itlb_inv),
+.o_writebuffer_en       (cpu_writebuffer_en),
 .o_dcache_en            (cpu_dc_en),
 .o_icache_en            (cpu_ic_en),
 .o_data_wb_adr_nxt      (cpu_daddr_nxt),
@@ -559,6 +561,8 @@ u_data_cache (
 .o_cache_clean_done     (dc_clean_done),
 
 .i_mmu_en               (cpu_mmu_en),
+.i_writebuffer_en       (cpu_writebuffer_en),
+.i_swp                  (cpu_dc_swp),
 .i_cache_en             (cpu_dc_en),
 .i_cache_inv_req        (cpu_dc_inv),
 .i_cache_clean_req      (cpu_dc_clean),

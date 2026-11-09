@@ -84,7 +84,7 @@ mmc: $(BUILD)/mmc/Vmmc_card
 
 # The SDRAM controller against the chip model (sim/harness/sdram_model.h)
 SDRAM_RTL := $(ROOT)/rtl/mem/sdram.sv
-SDRAM_DEPS := $(SDRAM_RTL) $(ROOT)/sim/harness/sdram_main.cpp $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/common.h
+SDRAM_DEPS := $(SDRAM_RTL) $(ROOT)/sim/harness/sdram_main.cpp $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/sdram_address.h $(ROOT)/sim/harness/common.h
 $(BUILD)/sdram/Vsdram: $(SDRAM_DEPS)
 	mkdir -p $(BUILD)/sdram && $(VERILATOR) $(VFLAGS) --top-module sdram --Mdir $(BUILD)/sdram -o Vsdram \
 		$(SDRAM_RTL) $(ROOT)/sim/harness/sdram_main.cpp

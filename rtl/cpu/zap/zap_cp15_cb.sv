@@ -140,6 +140,7 @@ module zap_cp15_cb
         output logic                              o_itlb_inv,
 
         // Cache enable.
+        output logic                              o_writebuffer_en,
         output logic                              o_dcache_en,
         output logic                              o_icache_en,
 
@@ -374,6 +375,7 @@ always_ff @ ( posedge i_clk )
 begin
         if ( i_reset )
         begin
+                o_writebuffer_en <= 1'b0;
                 o_dcache_en <= 1'd0;
                 o_icache_en <= 1'd0;
                 o_mmu_en    <= 1'd0;
@@ -384,6 +386,7 @@ begin
         end
         else
         begin
+                o_writebuffer_en <= r[1][3];
                 o_dcache_en <= r[1][2];              // Data cache enable.
                 o_icache_en <= r[1][12];             // Instruction cache enable.
                 o_mmu_en    <= r[1][0];              // MMU enable.

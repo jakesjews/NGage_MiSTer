@@ -8137,3 +8137,137 @@ The four 16384x16 flash-cache data banks have the same registered-read and old-d
 Intel's actual primitive model passes two seeds at the flash banks' real depth (394,912 checked reads), with all addresses/colors, collisions, immediate readback and boundaries. The DDR/flash reference suite passes 393,030 clocks, including both chip ports, read hits/misses, programming/erase writes, reload invalidation, reset and Avalon behavior. The LCD suite passes again over 2,436,315 clocks, and whole-core/source lint passes. No local simulation remains active.
 
 The LCD-only fits remain live. Two additional Ubuntu fits test the combined change at seeds13/14; total four builds, within the user's ceiling. The source-verified collector `research/lcd-ram-packing/collect_core_fits.py` records completed fits and treats missing outputs as pending. Live handles, exact hashes, validation and checkpoints are under `build/timing-closure/research/lcd-ram-packing/` and `active-experiments-lcd-packing.json`. No hardware deployment or performance claim.
+
+
+## 2026-11-09: the Codex session committed, the combined candidate on master, leftovers removed
+
+The Codex Desktop session of 2026-10-26 13:16 to 10-28 09:29 EDT (the
+entries above from "JTAG identifies early game-launch translation fault"
+on) ended on a model-capacity error with nothing committed. Its working
+tree held the translation-fault fix, two tool fixes and the docs; every
+timing and speed trial lived in `build/timing-closure/` on the Mac (gone
+before this entry; no agent session shows who removed it) and in three
+directories on the build server.
+
+Committed today, in this order:
+
+- 2c86989: the MMU fix with `mmu_fault_retry.S`. Checked again before
+  the commit: the test fails on f8752bc (check 9 at all three
+  latencies), passes on the netlist and the sources, matches QEMU; suite
+  345/345, 406,232,597 cycles (the session's own figure).
+- 0e965cb: `ld_rd` driven in the UPP bench; screenshots wait for IEND.
+- 0f9d58a: the session's log entries and its four consults, unchanged.
+- d574446: `fs_loading` public for the top bench, which did not
+  compile on master since Verilator 5.054 (2026-11-01).
+- The commit with this entry: the combined candidate
+  (`tlb-fix-rfcombined104-s13`), kept at the user's instruction ("Keep the candidate too", and that it
+  may fail timing for now).
+
+### What the candidate is
+
+The session never promoted it; it is on master because the user chose
+it over a parked patch. Against 2c86989 it carries, as one unit:
+
+- Posted stores (`zap_store_queue.sv`, four entries): with control bit W
+  set, write-back store misses, write-through stores and bufferable
+  uncached stores go to the queue and a store miss allocates no line
+  (TI SPRU671 tables 1 and 2). docs/CPU.md has the rules and what still
+  differs from the part.
+- 32 KB I-cache (`NGAGE_ICACHE_32K` now set in NGage.qsf, and the
+  default of arm925t.sv) and 32 KB D-cache (fixed in arm925t.sv).
+- `S_AGU = 0`: no early address stage.
+- SDRAM bank bits at byte address 13:12 (4 KB interleaving) instead of
+  24:23, inside `rtl/mem/sdram.sv`; port addresses are unchanged.
+- UPP target decode before the CPU/DMA bus selection.
+- Its timing lineage: the register file in MLAB banks (`altdpram`), the
+  full multiplier product in the DSP blocks (42 DSPs), W's PC-load
+  classes, the factored load hazard and next-M tag matches, the
+  predictor's valid read, the registered TLB hit-ready.
+
+Fit (the server's Quartus, seed 13, stripped): setup -1.735 ns, hold
++0.080 ns, 33,947 ALMs, 519/553 M10Ks, 42 DSPs. NGage.qsf now carries
+seed 13. The bitstream (md5 61392d9a) is kept in
+`build/hardware/combined-s13/` (untracked) with its corner table.
+
+Board evidence is from the frame-counter build of the same sources
+(`tlb-fix-rfcombinedframe104-s13`, md5 4a37250a), not from the stripped
+bitstream: Tony Hawk 18.04 to 21.54 changing uploads/s (+3.5), Call of
+Duty 6.93 to 7.57 complete uploads/s, both booting by 50 s. Sonic and
+Asphalt were not run on it. The stripped bitstream has not been on the
+board.
+
+The regenerated `arm925t_gen.v` equals the fitted tree's netlist module
+for module (31 modules; only their order differs, because the server's
+glob sorts the source files differently).
+
+### What landing it needed
+
+The session validated the candidate with ad-hoc flags and fixtures that
+were lost with its local build directory (`*_legacy`, `*_nwa`,
+`buffer_errors`, a cycle table for S_AGU = 0). Its own regression was
+333/348: fifteen records of the five allocation tests failed. Done here:
+
+- `sim/cpu/Makefile`: the netlist model gets `-DRAM_RF_TAP=1` (the
+  register file's architectural view is simulation-only in the sources;
+  without it only 159 of 348 runs pass, the rest failing in the bench's
+  register checks).
+- walloc_rtl, dstore_rtl, dcsize_rtl, dhold_rtl and dhum_rtl run with W
+  clear: they test allocation on a store miss, which is now the W = 0
+  policy. New `walloc_posted_rtl.S` counts the W = 1 policy on the same
+  debug events (a cold store stream: no allocation, no write-back, the
+  words in memory after the drain; then read allocation, warm stores,
+  cleaning). `buffer_modes.S` is the session's test for WT/NCB posting.
+- Cycle tables: `stm8` 9 to 21/12 (last/penultimate visit; 12/12 without
+  the predictor), `stores_same` 9 to 12/20 (12/12), `stores_sets` 9 to
+  12: a store miss no longer allocates, so the warmed visits still miss
+  and drain through the queue. `ldr_base` 5 to 4 (S_AGU = 0). These
+  store bursts to lines that are not in the cache are slower than
+  before; the games were faster.
+- `sim/harness/sdram_main.cpp` follows the new bank mapping (the
+  standalone bench failed on it); `sdram_address.h` is shared.
+- The standalone execute benches connect the five new execute ports;
+  lint and the component benches get the `altdpram` stub; lint waivers
+  for the new code (the store queue's counter compare and the D-cache's
+  write-only bus lane in `lint/exclusions.vlt`, two unused-bit pragmas
+  inline).
+- Left out of the candidate's tree: its `build.sh` rsync excludes, its
+  QSF edits other than the macro and the seed, `lint/posted.vlt`,
+  `tools/focused_combined.py` and `tools/run_cpu_trial.py` (they are in
+  the archive below).
+
+### Verified on this tree
+
+- Suite 351/351 (117 tests, three latencies) on the netlist and on the
+  sources, the same cycles in both: 402,253,910 over the 345 earlier
+  runs (406,232,597 before, five of them now with W clear).
+- The same 351/351 with the 32 KB I-cache the core builds
+  (`VEXTRA=-GICACHE_SIZE=32768`; the bench's default is 16 KB) and with
+  the predictor off.
+- QEMU ti925t: 77 run, 77 agree (signatures and traces), 40 bench-only.
+- `make -C sim/cpu arm9v2` (front end, decode, execute, with the real
+  caches, both proofs) and `make test` (every bench, the whole-core top
+  bench included) pass; `make lint`, the NGAGE_DEBUG lint and
+  `make cpu-gen-check` are clean.
+- Not done: no Quartus build of this exact tree (the server's lanes were
+  in use), no board run, no whole-core firmware boot in simulation.
+
+### Leftovers removed
+
+- Server: `~/dev/mister/ngage-timing-20261026`, `-20261027`, `-20261028`
+  (182 directories, 177 of them trial trees with sources, 70 GB) deleted. Before that every tree's source diff
+  against the candidate went into
+  `docs/consults/parked-patches/2026-10-codex-trials.tar.zst` (343 KB,
+  README inside); `2026-10-codex-trials.tsv` beside it lists each trial
+  with its setup slack, ALMs and M10Ks (158 of them have a fit).
+- MiSTer: the 40 `Test104MHz_*` folders and `_Timing` under
+  `_Console/_NGage`, 45 trial images in `games/NGage` (`timing-*`,
+  `cod-fixqd-*`, `thps-fixqd-*`, `nos-traffic-*`) and
+  `screenshots/NGage` deleted. It holds `NGage_20261023.rbf` (md5
+  2a28ac5f, without the MMU fix) with its 17 launchers and the 20 game
+  and firmware files again.
+- Mac: the Quartus and simulation output in the checkout deleted.
+- The evidence paths under `build/timing-closure/` that the entries and
+  consults above cite no longer exist anywhere.
+
+Next: a build of this tree when the server's lanes are free (the main
+core on the MiSTer still predates the MMU fix), then timing.

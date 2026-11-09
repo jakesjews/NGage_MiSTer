@@ -218,7 +218,23 @@ module tb_cpu #(
 	assign p_copro = `A9.copro_reg_en;
 	assign p_pc8 = `A9.o_dbg_wb_pc;
 	assign p_cpsr = `A9.o_dbg_wb_cpsr;
+`ifdef RAM_RF_TAP
+    // The banked RF's source-only architectural view is removed by sv2v's
+    // SYNTHESIS pass. Reconstruct this bench-only probe from actual storage.
+    `define RF `A9.u_zap_writeback.u_zap_register_file.g_write_ff
+    wire [79:0] rf_owner_flat = `RF.latest;
+    for(genvar r=0;r<40;r++)begin:g_rf_probe
+        wire [31:0] stored = !`RF.initialized[r] ? 32'd0 :
+            rf_owner_flat[r*2+:2]==0 ? `RF.g_read[0].ram_a.mem[r] :
+            rf_owner_flat[r*2+:2]==1 ? `RF.g_read[0].ram_b.mem[r] :
+                                    `RF.g_read[0].ram_c.mem[r];
+        assign p_regs[r*32+:32] = `RF.held_c[r] ? `RF.held_data_c :
+            `RF.held_b[r] ? `RF.held_data_b : `RF.held_a[r] ? `RF.held_data_a : stored;
+    end
+    `undef RF
+`else
 	assign p_regs = `A9.u_zap_writeback.u_zap_register_file.mem;
+`endif
 	assign p_dpc8 = `A9.data_pc8;
 	assign p_wfi = `A9.o_dbg_wfi;
 	assign p_pd_pc = `A9.pc;
@@ -386,6 +402,14 @@ module tb_cpu #(
 		if (!reset && cp_drain_done)
 			assert (!dc_dirty_pending)
 				else $fatal(1, "CP15 drain completed before the victim write-back");
+    // The allocation scoreboard observes only misses that still allocate.
+    // Predict policy from request attributes, not the DUT enqueue decision.
+    wire bench_store_miss = `DC.o_idle && `DC.i_wr && !`DC.i_align_fault &&
+        !`DC.i_fault && !`DC.i_busy && `DC.i_cache_en && `DC.i_cacheable &&
+        !`DC.i_wt && !`DC.i_cache_hit;
+    wire bench_post_policy = `DC.i_writebuffer_en && `DC.i_wr &&
+        !(`DC.i_cache_tag_valid && `DC.i_cache_tag_dirty &&
+          `DC.i_phy_addr[31:DLINE_W] == `DC.i_cache_tag[$bits(`DC.i_cache_tag)-1 -: 32-DLINE_W]);
 	assign p_dc_events = {
 		`DC.o_wb_cti_ff == 3'b111,
 		`DC.state_ff[3] && `DC.take,
@@ -394,13 +418,40 @@ module tb_cpu #(
 		`DC.wr,
 		`DC.o_idle && (`DC.i_rd || `DC.i_wr) && !`DC.i_align_fault &&
 		!`DC.i_fault && !`DC.i_busy && `DC.i_cache_en && `DC.i_cacheable &&
-		!(`DC.i_wr && `DC.i_wt) && !`DC.i_cache_hit
+		!(`DC.i_wr && `DC.i_wt) && !`DC.i_cache_hit &&
+        !bench_post_policy && !(`DC.i_wr && `DC.i_post_full)
 	};
 	// A cacheable store miss already completes at acceptance on master.
 	always_ff @(posedge clk)
-		if (!reset && p_dc_events[0] && `DC.i_wr)
-			assert (`DC.o_ack && !`DC.o_hold && !`DC.o_err && !`DC.o_err2)
-				else $fatal(1, "Write-back store miss did not complete at acceptance");
+		if (!reset && bench_store_miss) begin
+            if (`DC.i_post_full)
+                assert (!`DC.o_ack && `DC.o_hold && !`DC.o_post_push && !`DC.live_write)
+                    else $fatal(1, "Full posted queue changed a stalled store");
+            else
+                assert (`DC.o_ack && !`DC.o_hold && !`DC.o_err && !`DC.o_err2)
+                    else $fatal(1, "Write-back store miss did not complete at acceptance");
+        end
+    always_ff @(posedge clk) if (!reset && cp_drain_done)
+        assert (!dut.u_zap.l_generate_with_cache_mmu.u_data_cache.post_busy)
+            else $fatal(1, "CP15 drain completed before posted stores");
+    wire bench_post_stream = `DC.i_writebuffer_en &&
+        ((`DC.i_cache_en && `DC.i_cacheable && `DC.i_wt) ||
+         ((!`DC.i_cache_en || !`DC.i_cacheable) && `DC.i_bufferable && !`DC.i_swp));
+    wire bench_post_access = `DC.o_idle && `DC.i_wr && !`DC.i_align_fault &&
+        !`DC.i_fault && !`DC.i_busy && bench_post_stream;
+    always_ff @(posedge clk) if (!reset && bench_post_access) begin
+        assert (`DC.o_post_push == !`DC.i_post_full && `DC.o_ack == !`DC.i_post_full &&
+                `DC.o_hold == `DC.i_post_full && !`DC.o_err && !`DC.o_err2)
+            else $fatal(1, "WT/NCB posted acceptance or full backpressure");
+        assert (!`DC.o_wb_stb_nxt)
+            else $fatal(1, "Posted WT/NCB store also launched synchronous write");
+        if (`DC.i_post_full)
+            assert (!`DC.live_write) else $fatal(1, "Full WT queue changed cache");
+        else if (`DC.i_cache_en && `DC.i_cacheable && `DC.i_wt && `DC.i_cache_hit)
+            assert (`DC.live_write && `DC.o_cache_tag_dirty == `DC.i_cache_tag_dirty)
+                else $fatal(1, "Posted WT hit lost update or changed dirty state");
+    end
+
 	`undef DC
 	`undef DT
 	`undef TC

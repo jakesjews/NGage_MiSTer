@@ -45,7 +45,10 @@ test_main:
 	SETL1	ALIAS, r1
 	TLBFLUSH
 	mrc	p15, 0, r0, c1, c0, 0
-	orr	r0, r0, #(CR_C | CR_W)
+	@ The write buffer stays off (W = 0): a store miss then allocates its
+	@ line, the policy these checks are written for. With W = 1 a store miss
+	@ is posted instead (walloc_posted_rtl.S, buffer_modes.S).
+	orr	r0, r0, #CR_C
 	mcr	p15, 0, r0, c1, c0, 0
 	mrc	p15, 0, r0, c0, c0, 1
 	CHECK	r0, 0x05109149

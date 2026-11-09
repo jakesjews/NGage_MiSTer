@@ -74,6 +74,7 @@ output  logic                     o_fault,
 output  logic   [31:0]            o_phy_addr,
 output  logic                     o_cacheable,
 output  logic                     o_busy,
+(* dont_retime, preserve *) output logic o_hit_ready,
 
 // ----------------------------------------------------------------------------
 // To TLBs
@@ -423,6 +424,13 @@ always_ff @(posedge i_clk) begin
         else if (state_ff[FETCH_L2_DESC])
                 walk_fault_fsr <= {dac_ff, FSR_PAGE_TRANSLATION_FAULT};
 end
+
+// Valid translations may proceed in IDLE or while an unrelated failed
+// walk waits for consumption. Register this state union at its original
+// edge so successful-hit acknowledgement does not re-decode the walker.
+always_ff @(posedge i_clk)
+        if (i_reset) o_hit_ready <= 1'b1;
+        else o_hit_ready <= state_nxt[IDLE] || state_nxt[TRANSLATION_FAULT];
 
 // Clocked Logic.
 always_ff @ (posedge i_clk)

@@ -40,13 +40,17 @@ Parameters:
 - `HIVECS` (0): reset value of control bit V, the ARM925T's HIVECS pin. 1
   puts the vectors and the reset address at 0xFFFF0000. The N-Gage boots
   from CS0 at 0, so the core uses 0.
-- `ICACHE_SIZE` (16384), `CACHE_LINE` (16): cache
-  geometry in bytes. `ICACHE_SIZE` 32768 is a 1,024-set I-cache (16 M10K
-  more); the cache type register still reports 16 KB.
-  The D-cache is 16 KB two-way (512 sets, VA[12:4]), twice the phone's 8 KB,
-  for speed (since 2026-10-26 the only size; the 8 KB form is in git
-  history). CP15 still reports 8 KB, so a D-cache by-index operation visits both physical set
-  colours for the named architectural set/way. By-VA operations stay
+- `ICACHE_SIZE` (32768 since 2026-11-09), `CACHE_LINE` (16): cache
+  geometry in bytes. 32768 is a 1,024-set I-cache (16 M10K more than the
+  phone's 16384); the cache type register still reports 16 KB. The whole
+  core takes its size from `NGAGE_ICACHE_32K` in NGage.qsf, and the CPU
+  bench's default is still 16384 (`VEXTRA=-GICACHE_SIZE=32768` for the
+  built size).
+  The D-cache is 32 KB two-way (1,024 sets, VA[13:4]), four times the
+  phone's 8 KB, for speed (16 KB from 2026-10-26 to 2026-11-09; the 8 KB
+  form is in git history). CP15 still reports 8 KB, so a D-cache by-index
+  operation visits every physical set
+  colour for the named architectural set/way. By-VA operations stay
   targeted. The live two-way compare/select and hit-under-miss protocol
   are unchanged. This VIVT cache still relies on firmware alias/DMA
   maintenance; see [the capacity analysis](consults/2026-10-23-codex-dcache-report.md)
@@ -185,7 +189,8 @@ Instruction set (`V4T = 1`):
 
 Memory system:
 
-- Write-through pages (C=1, B=0): stores go to memory at once and update a
+- Write-through pages (C=1, B=0): stores go to memory at once (through the
+  store queue when control bit W is set) and update a
   line that hits; no allocation on a store miss (upstream treated every
   cacheable page as write-back).
 - Single-line D-cache operations (above), used by the Symbian kernel's
@@ -310,14 +315,21 @@ Functional:
 - Turning a cache off invalidates it (ZAP clears the valid bits while the
   cache is disabled). Dirty D-cache lines are lost if the D-cache is turned
   off without cleaning it first; the ARM925T keeps them.
-- Write-back store misses allocate in ZAP. The TI925T is read-allocate:
-  store misses bypass the cache even in copy-back mode (TI SPRU671,
-  Table 1). Write-through store misses already bypass allocation here.
-- No posted write buffer: uncached and write-through stores wait for the
-  bus response, and the CP15 drain operation is a no-op. The phone enables
-  its 17-word buffer with CP15 W. A faithful posted path also needs drain,
-  memory ordering and fault handling, not just a store-miss bypass; see
-  [the write-allocation analysis](consults/2026-10-23-codex-walloc-report.md).
+- Store misses and the write buffer (since 2026-11-09, `zap_store_queue.sv`):
+  with control bit W set and the MMU on, a write-back store miss is posted
+  to a four-entry queue of permission-checked physical writes and
+  allocates no line, as on the TI925T (read-allocate: TI SPRU671,
+  Table 1). Write-through stores (hits update their line as well) and
+  bufferable uncached stores (C=0, B=1) are posted too (Table 2). The
+  queue drains in order ahead of any later fill, table walk or
+  maintenance write, c7,c10,4 waits for it, and a bus error on a posted
+  write is dropped. Still unlike the part: four entries instead of 17
+  words; an uncached SWP stays synchronous; a store miss whose victim is
+  a dirty copy of the same physical line cleans and fills as before; with
+  W clear a store miss allocates, as every store miss did until this
+  change ([the write-allocation analysis](consults/2026-10-23-codex-walloc-report.md)).
+  Tests: walloc_posted_rtl.S, buffer_modes.S; the allocation tests
+  (walloc, dstore, dcsize, dhold, dhum) run with W clear.
 - TLBs are direct-mapped per page size instead of the ARM925T's
   associative TLBs, and TLB lockdown has no effect.
 - An external abort on a cacheable line fill or write-back is ignored (the
@@ -352,8 +364,8 @@ Timing (instructions take ZAP's cycle counts, not the ARM9TDMI's):
   is used at once; ARM9TDMI: 2-5 by operand size); LDM/STM one cycle per
   register; load-use interlocks differ.
 - A load miss does not stall until the register is used; a line is
-  fetched in full before the next access to the cache; an uncached store
-  stalls until the bus acknowledges it (no write buffer).
+  fetched in full before the next access to the cache; a store that is
+  not posted (W clear, or C=0 B=0) stalls until the bus acknowledges it.
 - CP15 operations wait for the pipeline to empty and refetch afterwards.
 - Interrupt latency is ZAP's (synchroniser + pipeline drain).
 
@@ -703,8 +715,8 @@ The goal is ARM9TDMI cycle counts at 104 MHz, without changing behaviour.
    peripherals see accesses at times close to the real phone's.
 3. Real cache geometry: done, both caches 2-way with LRU, so that hit
    rates (and so the time between bus accesses) match and the index
-   operations address real ways. Still unlike the part: a store miss
-   allocates a line here, and a cache turned off loses its contents.
+   operations address real ways. Still unlike the part: a cache turned off loses its contents (a
+   store miss no longer allocates when W is set, see above).
 4. Measure against the model and known firmware timing loops (the boot's
    delay loops, the kernel's tick calibration), then tune.
 

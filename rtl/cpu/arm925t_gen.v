@@ -56,7 +56,7 @@ module arm925t (
 );
 	parameter [0:0] ARM9_PREDICTOR = 1'b1;
 	parameter [0:0] HIVECS = 1'b0;
-	parameter signed [31:0] ICACHE_SIZE = 16384;
+	parameter signed [31:0] ICACHE_SIZE = 32768;
 	parameter signed [31:0] ICACHE_WAYS = 2;
 	parameter signed [31:0] DCACHE_WAYS = 2;
 	parameter signed [31:0] CACHE_LINE = 16;
@@ -111,7 +111,7 @@ module arm925t (
 		.CODE_CACHE_SIZE(ICACHE_SIZE),
 		.CODE_CACHE_LINE(CACHE_LINE),
 		.CODE_CACHE_WAYS(ICACHE_WAYS),
-		.DATA_CACHE_SIZE(32'd16384),
+		.DATA_CACHE_SIZE(32'd32768),
 		.DATA_CACHE_LINE(CACHE_LINE),
 		.DATA_CACHE_WAYS(DCACHE_WAYS)
 	) u_zap(
@@ -256,6 +256,7 @@ module arm9v2_core (
 	o_data_wb_adr_check,
 	o_data_wb_we_check,
 	o_data_wb_re_check,
+	o_data_wb_swp,
 	o_mem_translate,
 	o_data_wb_align_fault,
 	o_data_wb_va,
@@ -301,6 +302,7 @@ module arm9v2_core (
 	o_icache_clean,
 	o_dtlb_inv,
 	o_itlb_inv,
+	o_writebuffer_en,
 	o_dcache_en,
 	o_icache_en,
 	i_dcache_inv_done,
@@ -341,7 +343,7 @@ module arm9v2_core (
 );
 	reg _sv2v_0;
 	parameter [0:0] ARM9_PREDICTOR = 1'b1;
-	parameter [0:0] S_AGU = 1'b1;
+	parameter [0:0] S_AGU = 1'b0;
 	parameter [0:0] FREE_SELECT = 1'b1;
 	parameter [0:0] TRUST_FF = 1'b1;
 	parameter [0:0] FAST_Z = 1'b1;
@@ -411,6 +413,7 @@ module arm9v2_core (
 	output wire [31:0] o_data_wb_adr_check;
 	output wire o_data_wb_we_check;
 	output wire o_data_wb_re_check;
+	output wire o_data_wb_swp;
 	output wire o_mem_translate;
 	output wire o_data_wb_align_fault;
 	output wire [31:0] o_data_wb_va;
@@ -456,6 +459,7 @@ module arm9v2_core (
 	output wire o_icache_clean;
 	output wire o_dtlb_inv;
 	output wire o_itlb_inv;
+	output wire o_writebuffer_en;
 	output wire o_dcache_en;
 	output wire o_icache_en;
 	input wire i_dcache_inv_done;
@@ -623,22 +627,26 @@ module arm9v2_core (
 		input reg [541:0] r;
 		sp_of = ((r[8-:4] == MEM) || ((r[8-:4] == BLOCK) && r[536])) && (r[92+:6] != 15);
 	endfunction
-	function automatic [3:0] w_cls_of;
+	function automatic [5:0] w_cls_of;
 		input reg [541:0] r;
 		begin
-			w_cls_of[3] = ((r[538] || r[531]) || r[530]) || (r[540] && ((r[8-:4] == SWI) || (r[8-:4] == UND)));
-			w_cls_of[2] = r[540] && (r[8-:4] == CP);
-			w_cls_of[1] = r[8-:4] == SWP;
-			w_cls_of[0] = (r[8-:4] == BLOCK) && r[484];
+			w_cls_of[5] = ((r[538] || r[531]) || r[530]) || (r[540] && ((r[8-:4] == SWI) || (r[8-:4] == UND)));
+			w_cls_of[4] = r[540] && (r[8-:4] == CP);
+			w_cls_of[3] = r[8-:4] == SWP;
+			w_cls_of[2] = (r[8-:4] == BLOCK) && r[484];
+			w_cls_of[1] = ((r[535] && !r[534]) && (r[92+:6] == 15)) && (r[8-:4] != SWP);
+			w_cls_of[0] = r[534] || ((r[8-:4] != SWP) && (r[92+:6] != 15));
 		end
 	endfunction
-	(* dont_retime *) reg [3:0] w_cls;
-	reg [3:0] w_cls_next;
-	wire [3:0] w_cls_ref;
+	(* dont_retime *) reg [5:0] w_cls;
+	reg [5:0] w_cls_next;
+	wire [5:0] w_cls_ref;
 	assign w_cls_ref = w_cls_of(w);
-	wire w_cp = (W_CLASS ? w_cls[2] : w_cls_ref[2]);
-	wire w_swp = (W_CLASS ? w_cls[1] : w_cls_ref[1]);
-	wire w_blkwb = (W_CLASS ? w_cls[0] : w_cls_ref[0]);
+	wire w_cp = (W_CLASS ? w_cls[4] : w_cls_ref[4]);
+	wire w_swp = (W_CLASS ? w_cls[3] : w_cls_ref[3]);
+	wire w_blkwb = (W_CLASS ? w_cls[2] : w_cls_ref[2]);
+	wire w_pc_load = (W_CLASS ? w_cls[1] : w_cls_ref[1]);
+	wire w_mem_immediate = (W_CLASS ? w_cls[0] : w_cls_ref[0]);
 	(* dont_retime *) reg [541:0] m;
 	(* dont_retime *) reg [541:0] w;
 	(* dont_retime *) reg [541:0] skid;
@@ -808,7 +816,7 @@ module arm9v2_core (
 	(* keep, maxfan = 32 *) reg [2:0] complete_class;
 	(* keep, maxfan = 32 *) wire done_forward = !w[541] || complete_class[2];
 	wire quick_forward = (((memory_state == 4'd1) && done_forward) && !(m[541] && m[535])) && !(skid[541] && skid[535]);
-	wire fast_pc_hit = ((((w[535] && !w[534]) && (w[92+:6] == 15)) && (w[8-:4] != SWP)) && i_data_short_hit) && !w_waited;
+	wire fast_pc_hit = (w_pc_load && i_data_short_hit) && !w_waited;
 	always @(*) begin : sv2v_autoblock_1
 		reg signed [31:0] consumer;
 		if (_sv2v_0)
@@ -826,7 +834,7 @@ module arm9v2_core (
 					else if (memory_state == 4'd6)
 						complete_class[consumer] = !w_locked && !w_swp;
 					else if ((memory_state == 4'd0) || (memory_state == 4'd1))
-						complete_class[consumer] = !w[535] || ((request_done && !retry) && (COMPLETE_FLAT ? (resp_err || w[534]) || (!w_swp && ((w[92+:6] != 15) || fast_pc_hit)) : !defer_load));
+						complete_class[consumer] = !w[535] || ((request_done && !retry) && (COMPLETE_FLAT ? (resp_err || w_mem_immediate) || fast_pc_hit : !defer_load));
 				end
 				if ((request_done && resp_err) && w_blkwb)
 					complete_class[consumer] = 0;
@@ -1029,6 +1037,7 @@ module arm9v2_core (
 					if (w[8-:4] == SWP) begin
 						w_next[534] = 1;
 						w_next[1] = w_next[527];
+						w_cls_next[0] = 1;
 						memory_state_next = 4'd7;
 					end
 					else if (done) begin
@@ -1102,6 +1111,7 @@ module arm9v2_core (
 	assign o_data_wb_ldfmt_check = check_ff[7-:6];
 	assign o_mem_cpsr = check_ff[13-:5];
 	assign o_mem_translate = check_ff[8];
+	assign o_data_wb_swp = w_swp;
 	assign o_data_wb_cyc = request;
 	assign o_data_wb_stb = request;
 	assign o_data_wb_we = w[534];
@@ -1121,7 +1131,7 @@ module arm9v2_core (
 	assign o_instr_wb_sel = 15;
 	assign o_cpsr = cpsr[CPSR_MODE:0];
 	assign w_serial = ((((((((w[8-:4] == CP) && !cp_read) || ((w[8-:4] == MSR) && (w[485] || (((w[540] && w[479]) && (w[435:431] != 5'h10)) && (w[243:239] != w[435:431]))))) || (w[8-:4] == SWP)) || (w[8-:4] == SWI)) || (w[8-:4] == UND)) || w[538]) || (((w[8-:4] == DP) && w[483]) && (w[92+:6] == 15))) || (((((w[8-:4] == BLOCK) && w[485]) && w[483]) && w[478]) && w[536]);
-	assign w_exception = (W_CLASS ? w_cls[3] : w_cls_ref[3]);
+	assign w_exception = (W_CLASS ? w_cls[5] : w_cls_ref[5]);
 	assign cp_request = (((w[541] && w_cp) && !w_exception) && (cp_read || (!i_dc_lock_any && !i_data_fill_busy))) && !wb_flush;
 	wire request_raw = (REQ_FF ? request_live : (request_ff && !wb_flush) && !fill_ended);
 	assign request = request_raw && !(REG_DONE && late_done);
@@ -1139,6 +1149,7 @@ module arm9v2_core (
 	end
 	assign defer_load = (((request_done && !retry) && !resp_err) && !w[534]) && (((w[92+:6] == 15) && !fast_pc_hit) || (w[8-:4] == SWP));
 	assign load_data = ((memory_state == 4'd6) || swap_write ? saved_load : (fast_pc_hit ? i_data_short_data : resp_dat));
+	wire [31:0] pc_load_data = ((memory_state == 4'd6) || swap_write ? saved_load : i_data_short_data);
 	(* dont_retime *) reg [5:1] rf_static_class;
 	wire [5:0] rf_class;
 	always @(posedge i_clk)
@@ -1153,7 +1164,7 @@ module arm9v2_core (
 		end
 	assign rf_class = (memory_state == 4'd9 ? 6'd0 : {rf_static_class, (memory_state == 4'd10) || (request_done && resp_err)});
 	assign wb_restore = memory_state == 4'd9;
-	reg [4:0] target_hi_eq;
+	reg [3:0] target_hi_eq;
 	reg target_mismatch;
 	reg target_mismatch_ref;
 	reg target_raw_bit1;
@@ -1162,11 +1173,10 @@ module arm9v2_core (
 			;
 		target_hi_eq[0] = w[174:145] == saved_load[31:2];
 		target_hi_eq[1] = w[174:145] == i_data_short_data[31:2];
-		target_hi_eq[2] = w[174:145] == resp_dat[31:2];
-		target_hi_eq[3] = w[174:145] == w[398:369];
-		target_hi_eq[4] = w[174:145] == w[59-:30];
+		target_hi_eq[2] = w[174:145] == w[398:369];
+		target_hi_eq[3] = w[174:145] == w[59-:30];
 	end
-	wire [2:0] target_source = (!w[535] ? (w[8-:4] == SUFFIX ? 3'd3 : 3'd4) : ((memory_state == 4'd6) || swap_write ? 3'd0 : (fast_pc_hit ? 3'd1 : 3'd2)));
+	wire [1:0] target_source = (!w[535] ? (w[8-:4] == SUFFIX ? 2'd2 : 2'd3) : ((memory_state == 4'd6) || swap_write ? 2'd0 : 2'd1));
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -1230,7 +1240,7 @@ module arm9v2_core (
 			wb_flags = w[462-:32];
 		end
 		return_event = w[540] && (w[533] || ((w[535] && !w[534]) && (w[92+:6] == 15)));
-		return_target = (w[535] ? load_data : (w[8-:4] == SUFFIX ? w[398-:32] : w[28+:32]));
+		return_target = (w[535] ? pc_load_data : (w[8-:4] == SUFFIX ? w[398-:32] : w[28+:32]));
 		target_raw_bit1 = return_target[1];
 		return_thumb = wb_flags[5];
 		if ((w[535] && (w[92+:6] == 15)) && !l4_enable)
@@ -1518,6 +1528,9 @@ module arm9v2_core (
 		.i_next_tag(mw_tag),
 		.i_advance_tag(advance_tag),
 		.i_next_advance(forward_advance),
+		.i_advance_a_tag(input_record[103-:12]),
+		.i_advance_skid_tag(skid[103-:12]),
+		.i_advance_skid((memory_state == 4'd3) || (memory_state == 4'd1)),
 		.i_next_write(forward_write),
 		.i_next_write_hold(forward_write_hold),
 		.i_early(d_early),
@@ -1575,6 +1588,8 @@ module arm9v2_core (
 		.i_ras_pointer(d_ras_pointer),
 		.i_ras_count(d_ras_count),
 		.i_mw_value(mw_value),
+		.i_w_load_data(i_data_short_data),
+		.i_w_alu_data(w[28+:32]),
 		.i_mw_tag(mw_tag),
 		.i_mw_valid(mw_write),
 		.i_ready(backend_ready),
@@ -1706,6 +1721,7 @@ module arm9v2_core (
 		.o_icache_clean(o_icache_clean),
 		.o_dtlb_inv(o_dtlb_inv),
 		.o_itlb_inv(o_itlb_inv),
+		.o_writebuffer_en(o_writebuffer_en),
 		.o_dcache_en(o_dcache_en),
 		.o_icache_en(o_icache_en),
 		.i_dcache_inv_done(i_dcache_inv_done),
@@ -2557,9 +2573,9 @@ module arm9v2_decode (
 					reg signed [31:0] prod;
 					for (prod = 0; prod < 2; prod = prod + 1)
 						if (!out_valid || i_ready)
-							load_wait_next = load_wait_next | (((d2[96 + src] && ((prod == 0) || d2[92 + src])) && i_next_load_valid[prod]) && (d2[100 + (src * 6)+:6] == i_next_load_tag[prod * 6+:6]));
+							load_wait_next = load_wait_next | (((d2[96 + src] && ((prod == 0) || d2[92 + src])) && i_next_load_valid[prod]) && (prod == 1 ? d2_candidate_match[(((i_forward_advance * 4) + src) * 2) * 2] : d2[100 + (src * 6)+:6] == i_next_load_tag[0+:6]));
 						else
-							load_wait_next = load_wait_next | (((issued[96 + src] && ((prod == 0) || issued[92 + src])) && i_next_load_valid[prod]) && (issued[100 + (src * 6)+:6] == i_next_load_tag[prod * 6+:6]));
+							load_wait_next = load_wait_next | (((issued[96 + src] && ((prod == 0) || issued[92 + src])) && i_next_load_valid[prod]) && (prod == 1 ? held_candidate_match[(((i_forward_advance * 4) + src) * 2) * 2] : issued[100 + (src * 6)+:6] == i_next_load_tag[0+:6]));
 				end
 		end
 	end
@@ -2601,31 +2617,30 @@ module arm9v2_decode (
 				end
 		end
 	end
-	always @(*) begin
+	reg [5:0] producer_hazard;
+	always @(*) begin : sv2v_autoblock_23
+		reg [3:0] reads;
+		reg [1:0] writes;
 		if (_sv2v_0)
 			;
-		load_hazard = 0;
-		begin : sv2v_autoblock_23
+		begin : sv2v_autoblock_24
 			reg signed [31:0] pending;
 			for (pending = 0; pending < 6; pending = pending + 1)
 				begin
-					begin : sv2v_autoblock_24
+					begin : sv2v_autoblock_25
 						reg signed [31:0] src;
 						for (src = 0; src < 4; src = src + 1)
-							load_hazard = load_hazard | (((d2[96 + src] && i_load_valid[pending]) && ((!i_load_speculate[pending] || (pending == 0)) || (d2[92 + src] && (pending == 1)))) && (d2[100 + (src * 6)+:6] == i_load_tag[pending * 6+:6]));
+							reads[src] = d2[96 + src] && (d2[100 + (src * 6)+:6] == i_load_tag[pending * 6+:6]);
 					end
-					begin : sv2v_autoblock_25
+					begin : sv2v_autoblock_26
 						reg signed [31:0] dst;
 						for (dst = 0; dst < 2; dst = dst + 1)
-							load_hazard = load_hazard | (((d2[78 + dst] && i_load_valid[pending]) && (d2[80 + (dst * 6)+:6] == i_load_tag[pending * 6+:6])) && !(i_load_speculate[pending] && ((((((pending == 4) && i_w_load_hit) || (d2[96] && (d2[100+:6] == i_load_tag[pending * 6+:6]))) || (d2[97] && (d2[106+:6] == i_load_tag[pending * 6+:6]))) || (d2[98] && (d2[112+:6] == i_load_tag[pending * 6+:6]))) || (d2[99] && (d2[118+:6] == i_load_tag[pending * 6+:6])))));
+							writes[dst] = d2[78 + dst] && (d2[80 + (dst * 6)+:6] == i_load_tag[pending * 6+:6]);
 					end
+					producer_hazard[pending] = i_load_valid[pending] && (!i_load_speculate[pending] || (pending == 0) ? |reads || |writes : ((pending == 1) && |(reads & d2[95-:4])) || ((|writes && !(|reads)) && !((pending == 4) && i_w_load_hit)));
 				end
 		end
-		begin : sv2v_autoblock_26
-			reg signed [31:0] dst;
-			for (dst = 0; dst < 2; dst = dst + 1)
-				load_hazard = load_hazard | (d2[78 + dst] && i_locked[d2[80 + (dst * 6)+:6]]);
-		end
+		load_hazard = (|producer_hazard || (d2[78] && i_locked[d2[80+:6]])) || (d2[79] && i_locked[d2[86+:6]]);
 	end
 	assign o_hazard = d2_valid && ((((((load_hazard || fenced) || (d2[96] && i_locked[d2[100+:6]])) || (d2[97] && i_locked[d2[106+:6]])) || (d2[98] && i_locked[d2[112+:6]])) || (d2[99] && i_locked[d2[118+:6]])) || |early_hazard);
 	assign step = (((d2_valid && (!out_valid || i_ready)) && !o_hazard) && !i_flush) && (!redirect_ff[74] || redirect_in_d2);
@@ -2972,6 +2987,9 @@ module arm9v2_execute (
 	i_next_tag,
 	i_advance_tag,
 	i_next_advance,
+	i_advance_a_tag,
+	i_advance_skid_tag,
+	i_advance_skid,
 	i_next_write,
 	i_next_write_hold,
 	i_value,
@@ -2989,6 +3007,8 @@ module arm9v2_execute (
 	i_ras_pointer,
 	i_ras_count,
 	i_mw_value,
+	i_w_load_data,
+	i_w_alu_data,
 	i_mw_tag,
 	i_mw_valid,
 	i_ready,
@@ -3113,6 +3133,9 @@ module arm9v2_execute (
 	input wire [23:0] i_next_tag;
 	input wire [23:0] i_advance_tag;
 	input wire i_next_advance;
+	input wire [11:0] i_advance_a_tag;
+	input wire [11:0] i_advance_skid_tag;
+	input wire i_advance_skid;
 	input wire [3:0] i_next_write;
 	input wire [3:0] i_next_write_hold;
 	input wire [127:0] i_value;
@@ -3130,6 +3153,8 @@ module arm9v2_execute (
 	input wire [2:0] i_ras_pointer;
 	input wire [3:0] i_ras_count;
 	input wire [127:0] i_mw_value;
+	input wire [31:0] i_w_load_data;
+	input wire [31:0] i_w_alu_data;
 	input wire [23:0] i_mw_tag;
 	input wire [3:0] i_mw_valid;
 	input wire i_ready;
@@ -3420,11 +3445,11 @@ module arm9v2_execute (
 	wire op1_imm = (OP1_PRE ? i_shift_pre[18] : op1_imm_ref);
 	wire op1_pc = (OP1_PRE ? i_shift_pre[17] : i_tag[6+:6] == 15);
 	wire op1_psr = (OP1_PRE ? i_shift_pre[16] : i_tag[6+:6] == 17);
-	wire w_take = (((W_ROTATE && grant1[3]) && !op1_pc) && !op1_psr) && !op1_imm;
+	wire w_take = ((((W_ROTATE && i_load_owner[1]) && grant1[3]) && !op1_pc) && !op1_psr) && !op1_imm;
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		operand1_nw = (((i_mw_value[32+:32] & {32 {grant1[0]}}) | (i_mw_value[0+:32] & {32 {grant1[1]}})) | (i_mw_value[96+:32] & {32 {grant1[2]}})) | ((holding ? held[32+:32] : i_value[32+:32]) & {32 {grant1[4]}});
+		operand1_nw = ((((i_mw_value[32+:32] & {32 {grant1[0]}}) | (i_mw_value[0+:32] & {32 {grant1[1]}})) | (i_mw_value[96+:32] & {32 {grant1[2]}})) | (i_w_alu_data & {32 {grant1[3] && !i_load_owner[1]}})) | ((holding ? held[32+:32] : i_value[32+:32]) & {32 {grant1[4]}});
 		if (op1_pc)
 			operand1_nw = (i_reg_shift ? i_pc_base + 32'd4 : i_pc_base);
 		if (op1_psr)
@@ -3454,7 +3479,7 @@ module arm9v2_execute (
 		.o_rrx(rrx_main)
 	);
 	arm9v2_rotate #(.PRE_ROT(SHIFT_PRE)) u_rotate_w(
-		.i_value(i_mw_value[64+:32]),
+		.i_value(i_w_load_data),
 		.i_amount(shift_amount),
 		.i_type(shift_type),
 		.i_rot(shift_rot),
@@ -3591,7 +3616,11 @@ module arm9v2_execute (
 	wire [63:0] twos0 = (((pp0 & pp1) | (pp1 & pp2)) | (pp0 & pp2)) << 1;
 	wire [63:0] ones1 = (ones0 ^ twos0) ^ pp3;
 	wire [63:0] twos1 = (((ones0 & twos0) | (ones0 & pp3)) | (twos0 & pp3)) << 1;
-	assign product = ones1 + twos1;
+	(* multstyle = "dsp" *) reg signed [65:0] full_product;
+	always @(posedge i_clk)
+		if (product_phase)
+			full_product <= $signed({((a[327-:4] == MULL) && a[474]) && a[249], a[249-:32]}) * $signed({((a[327-:4] == MULL) && a[474]) && a[185], a[185-:32]});
+	assign product = full_product[63:0];
 	assign mac_result = product_saved + (a[327-:4] == MULL ? {left_a, store_a} : {32'd0, store_a});
 	assign mult_result = (a[473] ? mac_result : product);
 	function automatic zero_sum32;
@@ -3604,8 +3633,8 @@ module arm9v2_execute (
 		input reg [63:0] y;
 		zero_sum64 = (x ^ y) == {x[62:0] | y[62:0], 1'b0};
 	endfunction
-	wire mul_z32 = (a[473] ? zero_sum32(product_saved[31:0], store_a) : zero_sum32(ones1[31:0], twos1[31:0]));
-	wire mul_z64 = (a[473] ? zero_sum64(product_saved, {left_a, store_a}) : zero_sum64(ones1, twos1));
+	wire mul_z32 = (a[473] ? zero_sum32(product_saved[31:0], store_a) : product[31:0] == 0);
+	wire mul_z64 = (a[473] ? zero_sum64(product_saved, {left_a, store_a}) : product == 0);
 	assign product_phase = (a_valid && ((a[327-:4] == MUL) || (a[327-:4] == MULL))) && !multiply_product_ready;
 	assign mac_phase = (((a_valid && ((a[327-:4] == MUL) || (a[327-:4] == MULL))) && multiply_product_ready) && a[473]) && !multiply_accumulate;
 	assign space = !a_valid || finish;
@@ -3762,17 +3791,35 @@ module arm9v2_execute (
 	end
 	(* keep *) reg [31:0] s_candidate_match;
 	(* keep *) reg [31:0] a_candidate_match;
-	reg [15:0] late_hold;
-	reg [15:0] late_accept;
+	(* keep *) reg [15:0] s_new_m_match;
+	(* keep *) reg [15:0] a_new_m_match;
 	always @(*) begin : sv2v_autoblock_13
 		reg signed [31:0] src;
 		if (_sv2v_0)
 			;
 		for (src = 0; src < 4; src = src + 1)
 			begin : sv2v_autoblock_14
+				reg signed [31:0] lane;
+				for (lane = 0; lane < 2; lane = lane + 1)
+					begin
+						s_new_m_match[((0 + src) * 2) + lane] = i_tag[src * 6+:6] == i_advance_a_tag[lane * 6+:6];
+						s_new_m_match[((4 + src) * 2) + lane] = i_tag[src * 6+:6] == i_advance_skid_tag[lane * 6+:6];
+						a_new_m_match[((0 + src) * 2) + lane] = a[105 + (src * 6)+:6] == i_advance_a_tag[lane * 6+:6];
+						a_new_m_match[((4 + src) * 2) + lane] = a[105 + (src * 6)+:6] == i_advance_skid_tag[lane * 6+:6];
+					end
+			end
+	end
+	reg [15:0] late_hold;
+	reg [15:0] late_accept;
+	always @(*) begin : sv2v_autoblock_15
+		reg signed [31:0] src;
+		if (_sv2v_0)
+			;
+		for (src = 0; src < 4; src = src + 1)
+			begin : sv2v_autoblock_16
 				reg signed [31:0] prod;
 				for (prod = 0; prod < 2; prod = prod + 1)
-					begin : sv2v_autoblock_15
+					begin : sv2v_autoblock_17
 						reg signed [31:0] lane;
 						for (lane = 0; lane < 2; lane = lane + 1)
 							begin
@@ -3782,22 +3829,22 @@ module arm9v2_execute (
 					end
 			end
 	end
-	always @(*) begin : sv2v_autoblock_16
+	always @(*) begin : sv2v_autoblock_18
 		reg signed [31:0] src;
 		if (_sv2v_0)
 			;
 		for (src = 0; src < 4; src = src + 1)
-			begin : sv2v_autoblock_17
+			begin : sv2v_autoblock_19
 				reg signed [31:0] prod;
 				for (prod = 0; prod < 2; prod = prod + 1)
-					begin : sv2v_autoblock_18
+					begin : sv2v_autoblock_20
 						reg signed [31:0] lane;
 						for (lane = 0; lane < 2; lane = lane + 1)
 							begin
 								s_candidate_match[((((0 + src) * 2) + prod) * 2) + lane] = i_tag[src * 6+:6] == i_next_tag[((prod * 2) + lane) * 6+:6];
-								s_candidate_match[((((4 + src) * 2) + prod) * 2) + lane] = (prod == 1 ? i_forward_match[((src * 2) * 2) + lane] : i_tag[src * 6+:6] == i_advance_tag[((prod * 2) + lane) * 6+:6]);
+								s_candidate_match[((((4 + src) * 2) + prod) * 2) + lane] = (prod == 1 ? i_forward_match[((src * 2) * 2) + lane] : s_new_m_match[(((i_advance_skid * 4) + src) * 2) + lane]);
 								a_candidate_match[((((0 + src) * 2) + prod) * 2) + lane] = a[105 + (src * 6)+:6] == i_next_tag[((prod * 2) + lane) * 6+:6];
-								a_candidate_match[((((4 + src) * 2) + prod) * 2) + lane] = a[105 + (src * 6)+:6] == i_advance_tag[((prod * 2) + lane) * 6+:6];
+								a_candidate_match[((((4 + src) * 2) + prod) * 2) + lane] = (prod == 1 ? a[105 + (src * 6)+:6] == i_advance_tag[((prod * 2) + lane) * 6+:6] : a_new_m_match[(((i_advance_skid * 4) + src) * 2) + lane]);
 							end
 					end
 			end
@@ -3851,10 +3898,10 @@ module arm9v2_execute (
 				flags <= i_cpsr[31:28];
 			if (i_valid && (HELD_FREE || !accept)) begin
 				held <= operand;
-				begin : sv2v_autoblock_19
+				begin : sv2v_autoblock_21
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_20
+						begin : sv2v_autoblock_22
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
 								if (((HELD_FREE ? (holding ? s_pending[src] : i_pending[src]) : s_wait[src]) && !(|i_forward_match[2 * (src * 2)+:4])) && s_return_match[(src * 2) + port])
@@ -3865,10 +3912,10 @@ module arm9v2_execute (
 			if (i_valid && !accept) begin
 				holding <= 1;
 				s_pending <= s_wait;
-				begin : sv2v_autoblock_21
+				begin : sv2v_autoblock_23
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_22
+						begin : sv2v_autoblock_24
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
 								if ((s_wait[src] && !(|i_forward_match[2 * (src * 2)+:4])) && s_return_match[(src * 2) + port])
@@ -3892,10 +3939,10 @@ module arm9v2_execute (
 				a[217-:32] <= store_a;
 				a[185-:32] <= special_a;
 				a[100-:4] <= a_wait;
-				begin : sv2v_autoblock_23
+				begin : sv2v_autoblock_25
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_24
+						begin : sv2v_autoblock_26
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
 								if ((a_wait[src] && !(|a[129 + (2 * (src * 2))+:4])) && a_return_match[(src * 2) + port]) begin
@@ -3909,20 +3956,20 @@ module arm9v2_execute (
 								end
 						end
 				end
-				begin : sv2v_autoblock_25
+				begin : sv2v_autoblock_27
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_26
+						begin : sv2v_autoblock_28
 							reg signed [31:0] prod;
 							for (prod = 0; prod < 2; prod = prod + 1)
-								begin : sv2v_autoblock_27
+								begin : sv2v_autoblock_29
 									reg signed [31:0] lane;
 									for (lane = 0; lane < 2; lane = lane + 1)
 										a[129 + ((((src * 2) + prod) * 2) + lane)] <= late_hold[(((src * 2) + prod) * 2) + lane];
 								end
 						end
 				end
-				begin : sv2v_autoblock_28
+				begin : sv2v_autoblock_30
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
 						a[0 + (src * 6)+:6] <= take_of(late_hold[2 * (src * 2)+:4], ((src == 0) && (a[327-:4] == BLOCK)) && !a[317]);
@@ -4006,22 +4053,22 @@ module arm9v2_execute (
 				a[146] <= rrx;
 				a[95-:8] <= i_writeback_offset;
 				a[128-:24] <= i_tag;
-				begin : sv2v_autoblock_29
+				begin : sv2v_autoblock_31
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
 						begin
 							a[97 + src] <= (i_used[src] && !i_early[src]) && s_wait[src];
-							begin : sv2v_autoblock_30
+							begin : sv2v_autoblock_32
 								reg signed [31:0] prod;
 								for (prod = 0; prod < 2; prod = prod + 1)
 									if (((i_used[src] && !i_early[src]) && i_next_load_owner[prod]) && s_candidate_match[((((i_next_advance * 4) + src) * 2) + prod) * 2])
 										a[97 + src] <= 1;
 							end
 							a[101 + src] <= ((i_used[src] && !i_early[src]) && !tag_pc[src]) && !tag_psr[src];
-							begin : sv2v_autoblock_31
+							begin : sv2v_autoblock_33
 								reg signed [31:0] prod;
 								for (prod = 0; prod < 2; prod = prod + 1)
-									begin : sv2v_autoblock_32
+									begin : sv2v_autoblock_34
 										reg signed [31:0] lane;
 										for (lane = 0; lane < 2; lane = lane + 1)
 											a[129 + ((((src * 2) + prod) * 2) + lane)] <= late_accept[(((src * 2) + prod) * 2) + lane];
@@ -4057,10 +4104,10 @@ module arm9v2_execute (
 					a[249-:32] <= {20'd0, i_instruction[10:0], 1'b0};
 					a[146] <= 0;
 				end
-				begin : sv2v_autoblock_33
+				begin : sv2v_autoblock_35
 					reg signed [31:0] src;
 					for (src = 0; src < 4; src = src + 1)
-						begin : sv2v_autoblock_34
+						begin : sv2v_autoblock_36
 							reg signed [31:0] port;
 							for (port = 0; port < 2; port = port + 1)
 								if ((((i_used[src] && !i_early[src]) && s_wait[src]) && !(|i_forward_match[2 * (src * 2)+:4])) && s_return_match[(src * 2) + port]) begin
@@ -5005,9 +5052,9 @@ module arm9v2_predict (
 		end
 	end
 	(* dont_retime *) reg read_valid_bit;
-	wire valid_redirect = valid_next[i_pc_redirect[INDEX_W:1]];
-	wire valid_predicted = valid_next[o_target[INDEX_W:1]];
-	wire valid_sequential = valid_next[i_pc_sequential[INDEX_W:1]];
+	wire valid_redirect = valid[i_pc_redirect[INDEX_W:1]] || (write_enable && (wr_index == i_pc_redirect[INDEX_W:1]));
+	wire valid_predicted = valid[o_target[INDEX_W:1]] || (write_enable && (wr_index == o_target[INDEX_W:1]));
+	wire valid_sequential = valid[i_pc_sequential[INDEX_W:1]] || (write_enable && (wr_index == i_pc_sequential[INDEX_W:1]));
 	wire valid_launch = (i_sel_redirect ? valid_redirect : (i_sel_predicted ? valid_predicted : valid_sequential));
 	always @(posedge i_clk)
 		if (i_reset || i_clear)
@@ -8011,10 +8058,12 @@ module zap_cache (
 		.o_far(tlb_far),
 		.o_fault(tlb_fault),
 		.o_wt(),
+		.o_bufferable(),
 		.o_hit_ok(),
 		.o_hit_ok_short(),
 		.o_cacheable(tlb_cacheable),
 		.o_busy(tlb_busy),
+		.o_hit_ready(),
 		.o_wb_stb_nxt(wb_stb[2]),
 		.o_wb_cyc_nxt(wb_cyc[2]),
 		.o_wb_adr_nxt(wb_adr[2]),
@@ -8137,6 +8186,7 @@ module zap_cp15_cb (
 	o_icache_clean,
 	o_dtlb_inv,
 	o_itlb_inv,
+	o_writebuffer_en,
 	o_dcache_en,
 	o_icache_en,
 	i_dcache_inv_done,
@@ -8193,6 +8243,7 @@ module zap_cp15_cb (
 	output reg o_icache_clean;
 	output reg o_dtlb_inv;
 	output reg o_itlb_inv;
+	output reg o_writebuffer_en;
 	output reg o_dcache_en;
 	output reg o_icache_en;
 	input wire i_dcache_inv_done;
@@ -8711,7 +8762,7 @@ module zap_cp15_cb (
 			65536: xCACHE_TYPE_WORD[8-:3] = 3'd7;
 			default: begin
 				xCACHE_TYPE_WORD[8-:3] = {3 {1'bx}};
-				$display("Fatal [%0t] rtl/cpu/zap/zap_cp15_cb.sv:284:17 - zap_cp15_cb.<unnamed_block>.<unnamed_block>\n msg: ", $time, "Code cache size not in range.");
+				$display("Fatal [%0t] rtl/cpu/zap/zap_cp15_cb.sv:285:17 - zap_cp15_cb.<unnamed_block>.<unnamed_block>\n msg: ", $time, "Code cache size not in range.");
 				$finish(2);
 			end
 		endcase
@@ -8742,7 +8793,7 @@ module zap_cp15_cb (
 			65536: xCACHE_TYPE_WORD[20-:3] = 3'd7;
 			default: begin
 				xCACHE_TYPE_WORD[20-:3] = {3 {1'bx}};
-				$display("Fatal [%0t] rtl/cpu/zap/zap_cp15_cb.sv:313:17 - zap_cp15_cb.<unnamed_block>.<unnamed_block>\n msg: ", $time, "Data cache size not in range.");
+				$display("Fatal [%0t] rtl/cpu/zap/zap_cp15_cb.sv:314:17 - zap_cp15_cb.<unnamed_block>.<unnamed_block>\n msg: ", $time, "Data cache size not in range.");
 				$finish(2);
 			end
 		endcase
@@ -8778,6 +8829,7 @@ module zap_cp15_cb (
 	end
 	always @(posedge i_clk)
 		if (i_reset) begin
+			o_writebuffer_en <= 1'b0;
 			o_dcache_en <= 1'd0;
 			o_icache_en <= 1'd0;
 			o_mmu_en <= 1'd0;
@@ -8787,6 +8839,7 @@ module zap_cp15_cb (
 			o_align_en <= 1'd0;
 		end
 		else begin
+			o_writebuffer_en <= r[1][3];
 			o_dcache_en <= r[1][2];
 			o_icache_en <= r[1][12];
 			o_mmu_en <= r[1][0];
@@ -9146,6 +9199,11 @@ module zap_dcache_fsm (
 	o_err2,
 	o_dbg_dcache,
 	i_cache_en,
+	i_writebuffer_en,
+	i_bufferable,
+	i_swp,
+	i_post_full,
+	o_post_push,
 	i_cache_inv,
 	i_cache_clean,
 	o_cache_inv_done,
@@ -9180,6 +9238,7 @@ module zap_dcache_fsm (
 	i_cacheable,
 	i_wt,
 	i_busy,
+	i_tlb_hit_ready,
 	o_hold,
 	o_idle,
 	o_live_lookup,
@@ -9249,6 +9308,11 @@ module zap_dcache_fsm (
 	output wire o_err2;
 	output reg [3:0] o_dbg_dcache;
 	input wire i_cache_en;
+	input wire i_writebuffer_en;
+	input wire i_bufferable;
+	input wire i_swp;
+	input wire i_post_full;
+	output wire o_post_push;
 	input wire i_cache_inv;
 	input wire i_cache_clean;
 	output reg o_cache_inv_done;
@@ -9283,6 +9347,7 @@ module zap_dcache_fsm (
 	input wire i_cacheable;
 	input wire i_wt;
 	input wire i_busy;
+	input wire i_tlb_hit_ready;
 	output reg o_hold;
 	(* dont_retime *) output reg o_idle;
 	(* dont_retime *) output reg o_live_lookup;
@@ -9849,6 +9914,10 @@ module zap_dcache_fsm (
 	assign o_cache_inv_req = cache_inv_req_ff;
 	assign o_line_req = line_req_ff;
 	assign cache_dirty = i_cache_tag_dirty;
+	wire post_stream = i_writebuffer_en && (((i_cache_en && i_cacheable) && i_wt) || (((!i_cache_en || !i_cacheable) && i_bufferable) && !i_swp));
+	wire post_writeback = ((((i_writebuffer_en && i_cache_en) && i_cacheable) && !i_wt) && !i_cache_hit) && !((i_cache_tag_valid && cache_dirty) && victim_alias);
+	wire post_eligible = i_wr && (post_stream || post_writeback);
+	assign o_post_push = ((((state_ff[IDLE] && post_eligible) && !i_post_full) && !i_align_fault) && !i_fault) && !i_busy;
 	assign victim_alias = i_phy_addr[31:$clog2(CACHE_LINE)] == i_cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1];
 	always @(posedge i_clk)
 		if (state_ff[IDLE])
@@ -10045,13 +10114,13 @@ module zap_dcache_fsm (
 	reg err_case;
 	reg err2_case;
 	wire access_now = i_rd || i_wr;
-	wire ack_idle_flat = state_ff[IDLE] && ((((!access_now || i_align_fault) || i_fault) || i_busy) || ((i_cache_en && i_cacheable) && !(i_wr && i_wt)));
+	wire ack_idle_flat = state_ff[IDLE] && (((((!access_now || i_align_fault) || i_fault) || i_busy) || (((i_cache_en && i_cacheable) && !(i_wr && i_wt)) && !(i_wr && i_post_full))) || ((i_wr && post_stream) && !i_post_full));
 	wire err_flat = ((state_ff[IDLE] && access_now) && (i_align_fault || i_fault)) || (state_ff[UNC_DONE] && unc_err_ff);
 	wire err2_flat = (((state_ff[IDLE] && access_now) && !i_align_fault) && !i_fault) && i_busy;
 	assign o_ack = (FLAT_ACK ? (ack_idle_flat || state_ff[UNC_DONE]) || hum_ack : idle_ack || hum_ack);
 	assign o_err = (FLAT_ACK ? err_flat : err_case);
 	assign o_err2 = (FLAT_ACK ? err2_flat : err2_case);
-	assign o_ack_fast = (((((state_ff[IDLE] && !i_align_fault) && i_cache_en) && i_hit_ok) && !i_busy) || hum_ack) || state_ff[UNC_DONE];
+	assign o_ack_fast = ((((((state_ff[IDLE] && !i_align_fault) && i_cache_en) && i_hit_ok) && i_tlb_hit_ready) && !(i_wr && i_post_full)) || hum_ack) || state_ff[UNC_DONE];
 	assign o_err_fast = state_ff[UNC_DONE] && unc_err_ff;
 	assign o_fill_busy_nxt = fill_busy_nxt;
 	assign fill_busy_nxt = (((((state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE]) || state_nxt[UNLOCK_REG]) || state_nxt[UNLOCK_WR]) || state_nxt[RELOOKUP0]) || state_nxt[RELOOKUP1]) || state_nxt[RELOOKUP2];
@@ -10064,11 +10133,11 @@ module zap_dcache_fsm (
 	wire fill_write;
 	wire saved_write;
 	wire [(CACHE_LINE * 8) - 1:0] fill_line;
-	assign live_write = ((i_wr && !i_align_fault) && i_cache_en) && (((((o_idle && !i_fault) && !i_busy) && i_cacheable) && !i_wt) || ((hum_slot_ff && i_hit_ok) && i_cache_hit_early));
+	assign live_write = ((i_wr && !i_align_fault) && i_cache_en) && ((((((o_idle && !i_fault) && !i_busy) && i_cacheable) && (!i_wt || post_stream)) && !i_post_full) || ((hum_slot_ff && i_hit_ok) && i_cache_hit_early));
 	assign fill_write = state_ff[UNLOCK_REG];
 	assign saved_write = (state_ff[UNC_DONE] && !unc_err_ff) && wt_hit;
 	assign o_cache_tag_wr_en = (live_write || fill_write) || saved_write;
-	assign o_cache_tag_dirty = (live_write || (fill_write && wr)) || (saved_write && wt_dirty);
+	assign o_cache_tag_dirty = ((live_write && (!i_wt || cache_dirty)) || (fill_write && wr)) || (saved_write && wt_dirty);
 	assign o_address = (o_live_lookup ? i_address : address);
 	assign o_cache_way = way;
 	assign o_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0] = (o_live_lookup ? i_address[31:$clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)] : address[31:$clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)]);
@@ -10093,7 +10162,7 @@ module zap_dcache_fsm (
 	endfunction
 	assign o_cache_line_ben = ((ben_comp(i_address[$clog2(CACHE_LINE) - 1:2], i_ben) & {CACHE_LINE {live_write}}) | (ben_comp(address[$clog2(CACHE_LINE) - 1:2], ben) & {CACHE_LINE {saved_write}})) | {CACHE_LINE {fill_write}};
 	always @(posedge i_clk) o_idle <= state_nxt[IDLE];
-	assign o_wb_stb_nxt = ((((((((state_ff[IDLE] && (i_rd || i_wr)) && !i_align_fault) && !i_fault) && !i_busy) && !i_cache_en) || state_ff[UNCACHEABLE_PREPARE]) || (state_ff[UNLOCK_REG] && o_writeback_busy)) || ((state_ff[UNCACHEABLE] && o_wb_stb_ff) && !(i_wb_ack || i_wb_err))) || ((state_ff[CLEAN_SINGLE] || state_ff[FETCH_SINGLE]) && (take ? beat_inc_ok : beat_cur_ok));
+	assign o_wb_stb_nxt = (((((((((state_ff[IDLE] && (i_rd || i_wr)) && !i_align_fault) && !i_fault) && !i_busy) && !i_cache_en) && !(i_wr && post_stream)) || state_ff[UNCACHEABLE_PREPARE]) || (state_ff[UNLOCK_REG] && o_writeback_busy)) || ((state_ff[UNCACHEABLE] && o_wb_stb_ff) && !(i_wb_ack || i_wb_err))) || ((state_ff[CLEAN_SINGLE] || state_ff[FETCH_SINGLE]) && (take ? beat_inc_ok : beat_cur_ok));
 	assign o_wb_cyc_nxt = o_wb_stb_nxt;
 	task automatic kill_bus_payload;
 		begin
@@ -10177,7 +10246,11 @@ module zap_dcache_fsm (
 					idle_ack = 1'd1;
 				end
 				else if (i_rd || i_wr) begin
-					if (!i_cache_en) begin
+					if (i_wr && post_stream) begin
+						idle_ack = !i_post_full;
+						o_hold = i_post_full;
+					end
+					else if (!i_cache_en) begin
 						o_hold = 1'd1;
 						state_nxt[IDLE] = 1'd0;
 						state_nxt[UNCACHEABLE] = 1'd1;
@@ -10197,41 +10270,49 @@ module zap_dcache_fsm (
 						idle_ack = 1'd0;
 						o_hold = 1'd1;
 					end
-					else if (i_cacheable)
-						casez ({i_cache_hit, i_cache_tag_valid})
-							2'b1z:
-								if (i_rd)
+					else if (i_cacheable) begin
+						if (i_wr && i_post_full) begin
+							idle_ack = 1'b0;
+							o_hold = 1'b1;
+						end
+						else if (post_eligible)
+							idle_ack = 1'b1;
+						else
+							casez ({i_cache_hit, i_cache_tag_valid})
+								2'b1z:
+									if (i_rd)
+										idle_ack = 1'd1;
+									else if (i_wr)
+										idle_ack = 1'd1;
+								2'b01: begin
 									idle_ack = 1'd1;
-								else if (i_wr)
+									if (i_rd) begin
+										lock_nxt[i_reg_idx_bin] = 1'd1;
+										lock_set_nxt = 1'd1;
+									end
+									if (cache_dirty && victim_alias) begin
+										adr_ctr_nxt = 0;
+										state_nxt[IDLE] = 1'd0;
+										state_nxt[CLEAN_SINGLE] = 1'd1;
+									end
+									else if (i_rd | i_wr) begin
+										adr_ctr_nxt = 0;
+										state_nxt[IDLE] = 1'd0;
+										state_nxt[FETCH_SINGLE] = 1'd1;
+									end
+								end
+								default: begin
 									idle_ack = 1'd1;
-							2'b01: begin
-								idle_ack = 1'd1;
-								if (i_rd) begin
-									lock_nxt[i_reg_idx_bin] = 1'd1;
-									lock_set_nxt = 1'd1;
-								end
-								if (cache_dirty && victim_alias) begin
-									adr_ctr_nxt = 0;
-									state_nxt[IDLE] = 1'd0;
-									state_nxt[CLEAN_SINGLE] = 1'd1;
-								end
-								else if (i_rd | i_wr) begin
 									adr_ctr_nxt = 0;
 									state_nxt[IDLE] = 1'd0;
 									state_nxt[FETCH_SINGLE] = 1'd1;
+									if (i_rd) begin
+										lock_nxt[i_reg_idx_bin] = 1'd1;
+										lock_set_nxt = 1'd1;
+									end
 								end
-							end
-							default: begin
-								idle_ack = 1'd1;
-								adr_ctr_nxt = 0;
-								state_nxt[IDLE] = 1'd0;
-								state_nxt[FETCH_SINGLE] = 1'd1;
-								if (i_rd) begin
-									lock_nxt[i_reg_idx_bin] = 1'd1;
-									lock_set_nxt = 1'd1;
-								end
-							end
-						endcase
+							endcase
+					end
 					else begin
 						state_nxt[IDLE] = 1'd0;
 						state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
@@ -10448,6 +10529,8 @@ module zap_dcache (
 	o_reg_dat,
 	o_reg_idx,
 	i_mmu_en,
+	i_writebuffer_en,
+	i_swp,
 	i_cache_en,
 	i_cache_inv_req,
 	i_cache_clean_req,
@@ -10545,6 +10628,8 @@ module zap_dcache (
 	output wire [31:0] o_reg_dat;
 	output wire [63:0] o_reg_idx;
 	input wire i_mmu_en;
+	input wire i_writebuffer_en;
+	input wire i_swp;
 	input wire i_cache_en;
 	input wire i_cache_inv_req;
 	input wire i_cache_clean_req;
@@ -10852,28 +10937,32 @@ module zap_dcache (
 	localparam [31:0] ZAP_DP_RD_EXTEND = 32'd33;
 	localparam [31:0] ZAP_DP_RA_EXTEND = 32'd34;
 	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
-	localparam [2:0] SELECT_CCH = 3'b001;
-	localparam [2:0] SELECT_TAG = 3'b010;
-	localparam [2:0] SELECT_TLB = 3'b100;
-	wire [2:0] wb_stb;
-	wire [2:0] wb_cyc;
-	wire [2:0] wb_wen;
-	wire [3:0] wb_sel [2:0];
-	wire [31:0] wb_dat [2:0];
-	wire [31:0] wb_adr [2:0];
-	wire [2:0] wb_cti [2:0];
+	localparam [3:0] SELECT_CCH = 4'b0001;
+	localparam [3:0] SELECT_TAG = 4'b0010;
+	localparam [3:0] SELECT_TLB = 4'b0100;
+	localparam [3:0] SELECT_POST = 4'b1000;
+	wire [3:0] wb_stb;
+	wire [3:0] wb_cyc;
+	wire [3:0] eligible_cyc;
+	wire [3:0] wb_wen;
+	wire [3:0] wb_sel [3:0];
+	wire [31:0] wb_dat [3:0];
+	wire [31:0] wb_adr [3:0];
+	wire [2:0] wb_cti [3:0];
 	wire [1:0] fill_bte;
 	wire [31:0] tlb_phy_addr;
 	wire [7:0] tlb_fsr;
 	wire [31:0] tlb_far;
 	wire tlb_fault;
 	wire tlb_cacheable;
+	wire tlb_bufferable;
 	wire tlb_wt;
 	wire tlb_busy;
 	wire tlb_hit_ok;
 	wire tlb_hit_ok_short;
+	wire tlb_hit_ready;
 	reg [(CACHE_LINE * 8) - 1:0] tr_cache_line;
-	reg [31:0] tr_cache_word;
+	(* dont_retime *) reg [31:0] tr_cache_word;
 	wire [(CACHE_LINE * 8) - 1:0] cf_cache_line;
 	wire [CACHE_LINE - 1:0] cf_cache_line_ben;
 	wire cf_cache_tag_wr_en;
@@ -10908,9 +10997,9 @@ module zap_dcache (
 	wire tr_line_done;
 	wire tr_cache_inv_done;
 	wire tr_cache_clean_done;
-	reg [2:0] wb_ack;
-	reg [2:0] state_ff;
-	reg [2:0] state_nxt;
+	reg [3:0] wb_ack;
+	reg [3:0] state_ff;
+	reg [3:0] state_nxt;
 	wire [31:0] cache_address;
 	wire hold;
 	wire idle;
@@ -10952,10 +11041,13 @@ module zap_dcache (
 		else if (relookup[2])
 			lookup_address[LINE_W+:SET_W] = lookup_s0;
 	end
-	reg [2:0] wb_err;
+	reg [3:0] wb_err;
 	wire unused;
 	assign wb_cti[2] = CTI_EOB;
 	assign unused = |{wb_err[1]};
+	wire post_full;
+	wire post_push;
+	wire victim_writeback_busy;
 	zap_dcache_fsm #(
 		.CACHE_SIZE(CACHE_SIZE),
 		.CACHE_LINE(CACHE_LINE),
@@ -10982,7 +11074,7 @@ module zap_dcache (
 		.o_live_trust(live_trust),
 		.o_relookup(relookup),
 		.o_fill_busy(fill_busy),
-		.o_writeback_busy(o_writeback_busy),
+		.o_writeback_busy(victim_writeback_busy),
 		.i_ben(i_ben),
 		.o_dat(o_dat),
 		.o_ack(o_ack),
@@ -10990,6 +11082,11 @@ module zap_dcache (
 		.o_fsr(o_fsr),
 		.o_far(o_far),
 		.i_cache_en(i_cache_en),
+		.i_writebuffer_en(i_writebuffer_en && i_mmu_en),
+		.i_bufferable(tlb_bufferable),
+		.i_swp(i_swp),
+		.i_post_full(post_full),
+		.o_post_push(post_push),
 		.i_cache_inv(i_cache_inv_req),
 		.i_cache_clean(i_cache_clean_req),
 		.o_cache_inv_done(o_cache_inv_done),
@@ -11023,6 +11120,7 @@ module zap_dcache (
 		.i_cacheable(tlb_cacheable),
 		.i_wt(tlb_wt),
 		.i_busy(tlb_busy),
+		.i_tlb_hit_ready(tlb_hit_ready),
 		.o_err2(o_err2),
 		.o_dbg_dcache(cf_dbg_dcache),
 		.o_address(cache_address),
@@ -11059,6 +11157,27 @@ module zap_dcache (
 		.i_wb_dat(i_wb_dat),
 		.i_wb_ack(wb_ack[0]),
 		.i_wb_err(wb_err[0])
+	);
+	wire post_busy;
+	assign o_writeback_busy = victim_writeback_busy || post_busy;
+	assign eligible_cyc = {wb_cyc[3], wb_cyc[2:0] & {3 {!post_busy && !post_push}}};
+	assign wb_stb[3] = wb_cyc[3];
+	assign wb_wen[3] = 1'b1;
+	assign wb_cti[3] = CTI_EOB;
+	zap_store_queue u_post(
+		.i_clk(i_clk),
+		.i_reset(i_reset),
+		.i_push(post_push),
+		.i_address(tlb_phy_addr),
+		.i_data(i_dat),
+		.i_ben((BE_32_ENABLE ? {i_ben[0], i_ben[1], i_ben[2], i_ben[3]} : i_ben)),
+		.o_full(post_full),
+		.o_busy(post_busy),
+		.o_cyc_nxt(wb_cyc[3]),
+		.o_address_nxt(wb_adr[3]),
+		.o_data_nxt(wb_dat[3]),
+		.o_ben_nxt(wb_sel[3]),
+		.i_take(wb_ack[3] || wb_err[3])
 	);
 	zap_cache_tag_ram #(
 		.CACHE_SIZE(CACHE_SIZE),
@@ -11250,7 +11369,9 @@ module zap_dcache (
 		.o_fault(tlb_fault),
 		.o_cacheable(tlb_cacheable),
 		.o_wt(tlb_wt),
+		.o_bufferable(tlb_bufferable),
 		.o_busy(tlb_busy),
+		.o_hit_ready(tlb_hit_ready),
 		.o_hit_ok(tlb_hit_ok),
 		.o_hit_ok_short(tlb_hit_ok_short),
 		.o_wb_stb_nxt(wb_stb[2]),
@@ -11297,10 +11418,11 @@ module zap_dcache (
 		if (_sv2v_0)
 			;
 		if (!o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err)))
-			casez ({wb_cyc[2], wb_cyc[1], wb_cyc[0]})
-				3'b1zz: state_nxt = SELECT_TLB;
-				3'b01z: state_nxt = SELECT_TAG;
-				3'b001: state_nxt = SELECT_CCH;
+			casez (eligible_cyc)
+				4'b1zzz: state_nxt = SELECT_POST;
+				4'b01zz: state_nxt = SELECT_TLB;
+				4'b001z: state_nxt = SELECT_TAG;
+				4'b0001: state_nxt = SELECT_CCH;
 				default: state_nxt = state_ff;
 			endcase
 		else
@@ -11310,18 +11432,27 @@ module zap_dcache (
 		if (_sv2v_0)
 			;
 		case (state_ff)
-			SELECT_CCH: {wb_err, wb_ack} = {2'd0, i_wb_err, 2'd0, i_wb_ack};
-			SELECT_TAG: {wb_err, wb_ack} = {1'd0, i_wb_err, 2'd0, i_wb_ack, 1'd0};
-			SELECT_TLB: {wb_err, wb_ack} = {i_wb_err, 2'd0, i_wb_ack, 2'd0};
-			default: {wb_err, wb_ack} = {6 {1'bx}};
+			SELECT_CCH: {wb_err, wb_ack} = {3'd0, i_wb_err, 3'd0, i_wb_ack};
+			SELECT_TAG: {wb_err, wb_ack} = {2'd0, i_wb_err, 3'h0, i_wb_ack, 1'd0};
+			SELECT_TLB: {wb_err, wb_ack} = {1'd0, i_wb_err, 3'h0, i_wb_ack, 2'd0};
+			SELECT_POST: {wb_err, wb_ack} = {i_wb_err, 3'd0, i_wb_ack, 3'd0};
+			default: {wb_err, wb_ack} = {8 {1'bx}};
 		endcase
 	end
-	assign o_wb_cyc_nxt = (!o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err)) ? |wb_cyc : |(state_ff & wb_cyc));
-	assign o_wb_stb_nxt = ((!o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err))) && |wb_cyc ? ((wb_cyc[2] && wb_stb[2]) || ((!wb_cyc[2] && wb_cyc[1]) && wb_stb[1])) || (((!wb_cyc[2] && !wb_cyc[1]) && wb_cyc[0]) && wb_stb[0]) : |(state_ff & wb_stb));
+	assign o_wb_cyc_nxt = (!o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err)) ? |eligible_cyc : |(state_ff & wb_cyc));
+	assign o_wb_stb_nxt = ((!o_wb_stb || i_wb_ack) || i_wb_err ? (((eligible_cyc[3] && wb_stb[3]) || ((!eligible_cyc[3] && eligible_cyc[2]) && wb_stb[2])) || (((!eligible_cyc[3] && !eligible_cyc[2]) && eligible_cyc[1]) && wb_stb[1])) || ((((!eligible_cyc[3] && !eligible_cyc[2]) && !eligible_cyc[1]) && eligible_cyc[0]) && wb_stb[0]) : |(state_ff & wb_stb));
 	always @(*) begin
 		if (_sv2v_0)
 			;
 		case (state_nxt)
+			SELECT_POST: begin
+				o_wb_adr_nxt = wb_adr[3];
+				o_wb_dat_nxt = wb_dat[3];
+				o_wb_cti_nxt = CTI_EOB;
+				o_wb_bte_nxt = 2'b00;
+				o_wb_sel_nxt = wb_sel[3];
+				o_wb_wen_nxt = 1'b1;
+			end
 			SELECT_CCH: begin
 				o_wb_adr_nxt = wb_adr[0];
 				o_wb_dat_nxt = wb_dat[0];
@@ -12199,6 +12330,8 @@ module zap_register_file (
 	i_wr_addr_a,
 	i_wr_addr_b,
 	i_wr_addr_c,
+	i_wr_index_a,
+	i_wr_index_b,
 	i_wr_data_a,
 	i_wr_data_b,
 	i_wr_data_c,
@@ -12214,12 +12347,15 @@ module zap_register_file (
 	o_rd_data_e
 );
 	reg _sv2v_0;
+	parameter [0:0] DIRECT_INDEX = 0;
 	input wire i_clk;
 	input wire i_reset;
 	input wire i_wen;
 	input wire [39:0] i_wr_addr_a;
 	input wire [39:0] i_wr_addr_b;
 	input wire [39:0] i_wr_addr_c;
+	input wire [5:0] i_wr_index_a;
+	input wire [5:0] i_wr_index_b;
 	input wire [31:0] i_wr_data_a;
 	input wire [31:0] i_wr_data_b;
 	input wire [31:0] i_wr_data_c;
@@ -12233,14 +12369,19 @@ module zap_register_file (
 	output wire [31:0] o_rd_data_c;
 	output wire [31:0] o_rd_data_d;
 	output wire [31:0] o_rd_data_e;
-	reg [1279:0] mem;
+	wire [1279:0] mem;
 	function automatic signed [5:0] sv2v_cast_6_signed;
 		input reg signed [5:0] inp;
 		sv2v_cast_6_signed = inp;
 	endfunction
 	generate
 		if (1) begin : g_write_ff
-			(* syn_allow_retiming = 0 *) reg [1279:0] store;
+			(* dont_retime, ramstyle = "logic" *) reg [79:0] latest;
+			(* dont_retime *) reg [39:0] initialized;
+			wire [29:0] read_index;
+			reg [159:0] bank_value;
+			reg [159:0] read_value;
+			assign read_index = {i_rd_addr_e, i_rd_addr_d, i_rd_addr_c, i_rd_addr_b, i_rd_addr_a};
 			(* dont_retime *) reg [39:0] held_a;
 			(* dont_retime *) reg [39:0] held_b;
 			(* dont_retime *) reg [39:0] held_c;
@@ -12253,6 +12394,20 @@ module zap_register_file (
 			(* dont_retime *) reg held_any_a;
 			(* dont_retime *) reg held_any_b;
 			(* dont_retime *) reg held_any_c;
+			(* dont_retime *) reg [2:0] committed_any;
+			(* dont_retime *) reg [17:0] committed_index;
+			(* dont_retime *) reg [95:0] committed_data;
+			always @(posedge i_clk)
+				if (i_reset) begin
+					committed_any <= 0;
+					committed_index <= 0;
+					committed_data <= 0;
+				end
+				else begin
+					committed_any <= {held_any_c, held_any_b, held_any_a};
+					committed_index <= {held_index_c, held_index_b, held_index_a};
+					committed_data <= {held_data_c, held_data_b, held_data_a};
+				end
 			function automatic [5:0] onehot_index;
 				input reg [39:0] m;
 				begin
@@ -12267,7 +12422,8 @@ module zap_register_file (
 			endfunction
 			always @(posedge i_clk)
 				if (i_reset) begin
-					store <= {32'd40 {32'd0}};
+					initialized <= 0;
+					latest <= 0;
 					held_a <= 0;
 					held_b <= 0;
 					held_c <= 0;
@@ -12288,44 +12444,237 @@ module zap_register_file (
 					held_data_a <= i_wr_data_a;
 					held_data_b <= i_wr_data_b;
 					held_data_c <= i_wr_data_c;
-					held_any_a <= i_wen && |i_wr_addr_a;
-					held_any_b <= i_wen && |i_wr_addr_b;
+					held_any_a <= i_wen && (DIRECT_INDEX ? i_wr_index_a < 40 : |i_wr_addr_a);
+					held_any_b <= i_wen && (DIRECT_INDEX ? i_wr_index_b < 40 : |i_wr_addr_b);
 					held_any_c <= |i_wr_addr_c;
-					held_index_a <= onehot_index(i_wr_addr_a);
-					held_index_b <= onehot_index(i_wr_addr_b);
+					held_index_a <= (DIRECT_INDEX ? i_wr_index_a : onehot_index(i_wr_addr_a));
+					held_index_b <= (DIRECT_INDEX ? i_wr_index_b : onehot_index(i_wr_addr_b));
 					held_index_c <= onehot_index(i_wr_addr_c);
 					begin : sv2v_autoblock_2
 						reg signed [31:0] r;
 						for (r = 0; r < 40; r = r + 1)
-							if ((held_a[r] || held_b[r]) || held_c[r])
-								store[r * 32+:32] <= (held_c[r] ? held_data_c : (held_b[r] ? held_data_b : held_data_a));
+							if ((held_a[r] || held_b[r]) || held_c[r]) begin
+								initialized[r] <= 1'b1;
+								latest[r * 2+:2] <= (held_c[r] ? 2'd2 : (held_b[r] ? 2'd1 : 2'd0));
+							end
 					end
 				end
-			function automatic [31:0] view;
-				input reg [5:0] r;
-				if (held_any_c && (held_index_c == r))
-					view = held_data_c;
-				else if (held_any_b && (held_index_b == r))
-					view = held_data_b;
-				else if (held_any_a && (held_index_a == r))
-					view = held_data_a;
-				else
-					view = store[r * 32+:32];
-			endfunction
-			always @(zap_register_file.g_write_ff.store or zap_register_file.g_write_ff.held_data_a or zap_register_file.g_write_ff.held_index_a or zap_register_file.g_write_ff.held_any_a or zap_register_file.g_write_ff.held_data_b or zap_register_file.g_write_ff.held_index_b or zap_register_file.g_write_ff.held_any_b or zap_register_file.g_write_ff.held_data_c or zap_register_file.g_write_ff.held_index_c or zap_register_file.g_write_ff.held_any_c or _sv2v_0) begin : sv2v_autoblock_3
-				reg signed [31:0] r;
-				if (_sv2v_0)
-					;
-				for (r = 0; r < 40; r = r + 1)
-					mem[r * 32+:32] = view(sv2v_cast_6_signed(r));
+			genvar _gv_port_1;
+			for (_gv_port_1 = 0; _gv_port_1 < 5; _gv_port_1 = _gv_port_1 + 1) begin : g_read
+				localparam port = _gv_port_1;
+				wire [31:0] bank_a_q;
+				wire [31:0] bank_b_q;
+				wire [31:0] bank_c_q;
+				altdpram #(
+					.width(32),
+					.widthad(6),
+					.numwords(64),
+					.intended_device_family("Cyclone V"),
+					.ram_block_type("MLAB"),
+					.indata_reg("INCLOCK"),
+					.wraddress_reg("INCLOCK"),
+					.wrcontrol_reg("INCLOCK"),
+					.rdaddress_reg("UNREGISTERED"),
+					.rdcontrol_reg("UNREGISTERED"),
+					.outdata_reg("UNREGISTERED"),
+					.indata_aclr("OFF"),
+					.wraddress_aclr("OFF"),
+					.wrcontrol_aclr("OFF"),
+					.rdaddress_aclr("OFF"),
+					.rdcontrol_aclr("OFF"),
+					.outdata_aclr("OFF"),
+					.outdata_sclr("OFF"),
+					.read_during_write_mode_mixed_ports("DONT_CARE")
+				) ram_a(
+					.inclock(i_clk),
+					.inclocken(1'b1),
+					.outclock(1'b0),
+					.outclocken(1'b1),
+					.aclr(1'b0),
+					.sclr(1'b0),
+					.wren(held_any_a),
+					.rden(1'b1),
+					.byteena(1'b1),
+					.wraddressstall(1'b0),
+					.rdaddressstall(1'b0),
+					.wraddress(held_index_a),
+					.data(held_data_a),
+					.rdaddress(read_index[port * 6+:6]),
+					.q(bank_a_q)
+				);
+				altdpram #(
+					.width(32),
+					.widthad(6),
+					.numwords(64),
+					.intended_device_family("Cyclone V"),
+					.ram_block_type("MLAB"),
+					.indata_reg("INCLOCK"),
+					.wraddress_reg("INCLOCK"),
+					.wrcontrol_reg("INCLOCK"),
+					.rdaddress_reg("UNREGISTERED"),
+					.rdcontrol_reg("UNREGISTERED"),
+					.outdata_reg("UNREGISTERED"),
+					.indata_aclr("OFF"),
+					.wraddress_aclr("OFF"),
+					.wrcontrol_aclr("OFF"),
+					.rdaddress_aclr("OFF"),
+					.rdcontrol_aclr("OFF"),
+					.outdata_aclr("OFF"),
+					.outdata_sclr("OFF"),
+					.read_during_write_mode_mixed_ports("DONT_CARE")
+				) ram_b(
+					.inclock(i_clk),
+					.inclocken(1'b1),
+					.outclock(1'b0),
+					.outclocken(1'b1),
+					.aclr(1'b0),
+					.sclr(1'b0),
+					.wren(held_any_b),
+					.rden(1'b1),
+					.byteena(1'b1),
+					.wraddressstall(1'b0),
+					.rdaddressstall(1'b0),
+					.wraddress(held_index_b),
+					.data(held_data_b),
+					.rdaddress(read_index[port * 6+:6]),
+					.q(bank_b_q)
+				);
+				altdpram #(
+					.width(32),
+					.widthad(6),
+					.numwords(64),
+					.intended_device_family("Cyclone V"),
+					.ram_block_type("MLAB"),
+					.indata_reg("INCLOCK"),
+					.wraddress_reg("INCLOCK"),
+					.wrcontrol_reg("INCLOCK"),
+					.rdaddress_reg("UNREGISTERED"),
+					.rdcontrol_reg("UNREGISTERED"),
+					.outdata_reg("UNREGISTERED"),
+					.indata_aclr("OFF"),
+					.wraddress_aclr("OFF"),
+					.wrcontrol_aclr("OFF"),
+					.rdaddress_aclr("OFF"),
+					.rdcontrol_aclr("OFF"),
+					.outdata_aclr("OFF"),
+					.outdata_sclr("OFF"),
+					.read_during_write_mode_mixed_ports("DONT_CARE")
+				) ram_c(
+					.inclock(i_clk),
+					.inclocken(1'b1),
+					.outclock(1'b0),
+					.outclocken(1'b1),
+					.aclr(1'b0),
+					.sclr(1'b0),
+					.wren(held_any_c),
+					.rden(1'b1),
+					.byteena(1'b1),
+					.wraddressstall(1'b0),
+					.rdaddressstall(1'b0),
+					.wraddress(held_index_c),
+					.data(held_data_c),
+					.rdaddress(read_index[port * 6+:6]),
+					.q(bank_c_q)
+				);
+				always @(*) begin
+					if (_sv2v_0)
+						;
+					case (latest[read_index[port * 6+:6] * 2+:2])
+						0: bank_value[port * 32+:32] = bank_a_q;
+						1: bank_value[port * 32+:32] = bank_b_q;
+						default: bank_value[port * 32+:32] = bank_c_q;
+					endcase
+					if (!initialized[read_index[port * 6+:6]])
+						bank_value[port * 32+:32] = 0;
+					read_value[port * 32+:32] = bank_value[port * 32+:32];
+					begin : sv2v_autoblock_3
+						reg signed [31:0] writer;
+						for (writer = 0; writer < 3; writer = writer + 1)
+							if (committed_any[writer] && (committed_index[writer * 6+:6] == read_index[port * 6+:6]))
+								read_value[port * 32+:32] = committed_data[writer * 32+:32];
+					end
+					if (held_any_a && (held_index_a == read_index[port * 6+:6]))
+						read_value[port * 32+:32] = held_data_a;
+					if (held_any_b && (held_index_b == read_index[port * 6+:6]))
+						read_value[port * 32+:32] = held_data_b;
+					if (held_any_c && (held_index_c == read_index[port * 6+:6]))
+						read_value[port * 32+:32] = held_data_c;
+				end
 			end
-			assign o_rd_data_a = view(i_rd_addr_a);
-			assign o_rd_data_b = view(i_rd_addr_b);
-			assign o_rd_data_c = view(i_rd_addr_c);
-			assign o_rd_data_d = view(i_rd_addr_d);
-			assign o_rd_data_e = view(i_rd_addr_e);
+			assign {o_rd_data_e, o_rd_data_d, o_rd_data_c, o_rd_data_b, o_rd_data_a} = read_value;
 		end
 	endgenerate
+	initial _sv2v_0 = 0;
+endmodule
+module zap_store_queue (
+	i_clk,
+	i_reset,
+	i_push,
+	i_take,
+	i_address,
+	i_data,
+	i_ben,
+	o_full,
+	o_busy,
+	o_cyc_nxt,
+	o_address_nxt,
+	o_data_nxt,
+	o_ben_nxt
+);
+	reg _sv2v_0;
+	parameter integer AW = 2;
+	input wire i_clk;
+	input wire i_reset;
+	input wire i_push;
+	input wire i_take;
+	input wire [31:0] i_address;
+	input wire [31:0] i_data;
+	input wire [3:0] i_ben;
+	output reg o_full;
+	output wire o_busy;
+	output wire o_cyc_nxt;
+	output wire [31:0] o_address_nxt;
+	output wire [31:0] o_data_nxt;
+	output wire [3:0] o_ben_nxt;
+	localparam integer DEPTH = 1 << AW;
+	reg [67:0] entries [0:DEPTH - 1];
+	reg [AW - 1:0] head;
+	reg [AW - 1:0] tail;
+	wire [AW - 1:0] read_index;
+	reg [AW:0] count;
+	reg [AW:0] count_nxt;
+	assign read_index = head + {{AW - 1 {1'b0}}, i_take};
+	assign {o_address_nxt, o_data_nxt, o_ben_nxt} = entries[read_index];
+	assign o_cyc_nxt = count > {{AW {1'b0}}, i_take};
+	assign o_busy = count != 0;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		count_nxt = count;
+		case ({i_push, i_take})
+			2'b10: count_nxt = count + 1'b1;
+			2'b01: count_nxt = count - 1'b1;
+			default:
+				;
+		endcase
+	end
+	always @(posedge i_clk)
+		if (i_reset) begin
+			head <= 1'sb0;
+			tail <= 1'sb0;
+			count <= 1'sb0;
+			o_full <= 1'b0;
+		end
+		else begin
+			count <= count_nxt;
+			o_full <= count_nxt == DEPTH;
+			if (i_push) begin
+				entries[tail] <= {i_address, i_data, i_ben};
+				tail <= tail + 1'b1;
+			end
+			if (i_take)
+				head <= head + 1'b1;
+		end
 	initial _sv2v_0 = 0;
 endmodule
 module zap_tlb_check (
@@ -12353,6 +12702,7 @@ module zap_tlb_check (
 	o_fsr,
 	o_far,
 	o_cacheable,
+	o_bufferable,
 	o_wt,
 	o_phy_addr
 );
@@ -12387,6 +12737,7 @@ module zap_tlb_check (
 	output reg [7:0] o_fsr;
 	output reg [31:0] o_far;
 	output reg o_cacheable;
+	output reg o_bufferable;
 	output reg o_wt;
 	output reg [31:0] o_phy_addr;
 	localparam [1:0] SECTION_ID = 2'b10;
@@ -12677,6 +13028,7 @@ module zap_tlb_check (
 	reg walk_nxt;
 	reg cacheable_nxt;
 	reg wt_nxt;
+	reg bufferable_nxt;
 	reg dummy_nxt;
 	always @(posedge i_clk)
 		if (i_clkena) begin
@@ -12687,6 +13039,7 @@ module zap_tlb_check (
 			o_walk_va <= i_va;
 			o_cacheable <= cacheable_nxt;
 			o_wt <= wt_nxt;
+			o_bufferable <= bufferable_nxt;
 			dummy <= dummy_nxt;
 			o_hit_ok <= ((!walk_nxt && !(|fsr_nxt[3:0])) && cacheable_nxt) && !(i_wr && wt_nxt);
 			o_hit_ok_short <= ((!walk_nxt && !(|fsr_nxt[3:0])) && cacheable_nxt) && !(i_wr && wt_nxt);
@@ -12833,6 +13186,7 @@ module zap_tlb_check (
 		walk_nxt = 0;
 		cacheable_nxt = MMU_OFF_CACHEABLE;
 		wt_nxt = 0;
+		bufferable_nxt = 0;
 		if (i_mmu_en && (i_rd || i_wr))
 			case (match[3:0])
 				4'b0001: begin
@@ -12840,24 +13194,28 @@ module zap_tlb_check (
 					phy_addr_nxt = {i_sptlb_rdata[35:16], i_va[11:0]};
 					{dummy_nxt, cacheable_nxt} = i_sptlb_rdata[3:2] >> 1;
 					wt_nxt = i_sptlb_rdata[3:2] == 2'b10;
+					bufferable_nxt = i_sptlb_rdata[2];
 				end
 				4'b0010: begin
 					fsr_nxt = get_fsr_lpage(i_va[15:14], i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_lptlb_rdata[15:0]);
 					phy_addr_nxt = {i_lptlb_rdata[31:16], i_va[15:0]};
 					{dummy_nxt, cacheable_nxt} = i_lptlb_rdata[3:2] >> 1;
 					wt_nxt = i_lptlb_rdata[3:2] == 2'b10;
+					bufferable_nxt = i_lptlb_rdata[2];
 				end
 				4'b0100: begin
 					fsr_nxt = get_fsr_section(i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_setlb_rdata[19:0]);
 					phy_addr_nxt = {i_setlb_rdata[31:20], i_va[19:0]};
 					{dummy_nxt, cacheable_nxt} = i_setlb_rdata[3:2] >> 1;
 					wt_nxt = i_setlb_rdata[3:2] == 2'b10;
+					bufferable_nxt = i_setlb_rdata[2];
 				end
 				4'b1000: begin
 					fsr_nxt = get_fsr_fpage(i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_fptlb_rdata[9:0]);
 					phy_addr_nxt = {i_fptlb_rdata[31:10], i_va[9:0]};
 					{dummy_nxt, cacheable_nxt} = i_fptlb_rdata[3:2] >> 1;
 					wt_nxt = i_fptlb_rdata[3:2] == 2'b10;
+					bufferable_nxt = i_fptlb_rdata[2];
 				end
 				4'b0000: walk_nxt = 1'd1;
 				default: begin
@@ -12867,6 +13225,7 @@ module zap_tlb_check (
 					far_nxt = 1'sbx;
 					cacheable_nxt = 1'sbx;
 					wt_nxt = 1'sbx;
+					bufferable_nxt = 1'sbx;
 				end
 			endcase
 	end
@@ -12893,6 +13252,7 @@ module zap_tlb_fsm (
 	o_phy_addr,
 	o_cacheable,
 	o_busy,
+	o_hit_ready,
 	o_setlb_wdata,
 	o_setlb_wen,
 	o_sptlb_wdata,
@@ -12940,6 +13300,7 @@ module zap_tlb_fsm (
 	output wire [31:0] o_phy_addr;
 	output wire o_cacheable;
 	output wire o_busy;
+	(* dont_retime, preserve *) output reg o_hit_ready;
 	output wire [(44 - $clog2(SECTION_TLB_ENTRIES)) - 1:0] o_setlb_wdata;
 	output wire o_setlb_wen;
 	output wire [(56 - $clog2(SPAGE_TLB_ENTRIES)) - 1:0] o_sptlb_wdata;
@@ -13403,6 +13764,11 @@ module zap_tlb_fsm (
 		else if (state_ff[FETCH_L2_DESC])
 			walk_fault_fsr <= {dac_ff, FSR_PAGE_TRANSLATION_FAULT};
 	always @(posedge i_clk)
+		if (i_reset)
+			o_hit_ready <= 1'b1;
+		else
+			o_hit_ready <= state_nxt[IDLE] || state_nxt[TRANSLATION_FAULT];
+	always @(posedge i_clk)
 		if (i_reset) begin
 			state_ff <= 1;
 			wb_stb_ff <= 0;
@@ -13455,8 +13821,10 @@ module zap_tlb (
 	o_far,
 	o_fault,
 	o_cacheable,
+	o_bufferable,
 	o_wt,
 	o_busy,
+	o_hit_ready,
 	o_hit_ok,
 	o_hit_ok_short,
 	i_idle,
@@ -13498,8 +13866,10 @@ module zap_tlb (
 	output wire [31:0] o_far;
 	output wire o_fault;
 	output wire o_cacheable;
+	output wire o_bufferable;
 	output wire o_wt;
 	output wire o_busy;
+	output wire o_hit_ready;
 	output wire o_hit_ok;
 	output wire o_hit_ok_short;
 	input wire i_idle;
@@ -14011,6 +14381,7 @@ module zap_tlb (
 		.o_far(far),
 		.o_cacheable(cacheable),
 		.o_wt(wt),
+		.o_bufferable(o_bufferable),
 		.o_phy_addr(phy_addr)
 	);
 	zap_tlb_fsm #(
@@ -14039,6 +14410,7 @@ module zap_tlb (
 		.o_phy_addr(o_phy_addr),
 		.o_cacheable(o_cacheable),
 		.o_busy(fsm_busy),
+		.o_hit_ready(o_hit_ready),
 		.o_setlb_wdata(setlb_wdata),
 		.o_setlb_wen(setlb_wen),
 		.o_sptlb_wdata(sptlb_wdata),
@@ -14638,6 +15010,7 @@ module zap_top (
 	wire [31:0] dc_far;
 	wire cpu_dc_en;
 	wire cpu_ic_en;
+	wire cpu_writebuffer_en;
 	wire [1:0] cpu_sr;
 	wire [31:0] cpu_baddr;
 	wire [31:0] cpu_dac_reg;
@@ -14660,6 +15033,7 @@ module zap_top (
 	wire dc_short_live;
 	wire dc_short_trust;
 	wire cpu_instr_stb;
+	wire cpu_dc_swp;
 	wire [1:0] dbg_fetch;
 	wire [3:0] dbg_icache;
 	wire dbg_data_owner;
@@ -14785,6 +15159,7 @@ module zap_top (
 				.i_instr_wb_ack(instr_ack),
 				.i_instr_wb_err(instr_err),
 				.o_data_wb_we(cpu_dc_we),
+				.o_data_wb_swp(cpu_dc_swp),
 				.o_data_wb_adr(cpu_daddr),
 				.o_data_wb_sel(cpu_dc_sel),
 				.o_data_wb_dat(cpu_dc_dat),
@@ -14825,6 +15200,7 @@ module zap_top (
 				.o_icache_clean(cpu_ic_clean),
 				.o_dtlb_inv(cpu_dtlb_inv),
 				.o_itlb_inv(cpu_itlb_inv),
+				.o_writebuffer_en(cpu_writebuffer_en),
 				.o_dcache_en(cpu_dc_en),
 				.o_icache_en(cpu_ic_en),
 				.o_data_wb_adr_nxt(cpu_daddr_nxt),
@@ -14967,6 +15343,8 @@ module zap_top (
 				.o_cache_inv_done(dc_inv_done),
 				.o_cache_clean_done(dc_clean_done),
 				.i_mmu_en(cpu_mmu_en),
+				.i_writebuffer_en(cpu_writebuffer_en),
+				.i_swp(cpu_dc_swp),
 				.i_cache_en(cpu_dc_en),
 				.i_cache_inv_req(cpu_dc_inv),
 				.i_cache_clean_req(cpu_dc_clean),
@@ -15869,6 +16247,8 @@ module zap_writeback (
 	assign o_dbg_cpsr_ff = cpsr_ff;
 	reg [39:0] rf_sel1;
 	reg [39:0] rf_sel2;
+	reg [5:0] rf_index1;
+	reg [5:0] rf_index2;
 	reg [31:0] rf_data1;
 	reg [31:0] rf_data2;
 	generate
@@ -15876,11 +16256,15 @@ module zap_writeback (
 			always @(*) begin
 				if (_sv2v_0)
 					;
+				rf_index1 = i_wr_index;
+				rf_index2 = (i_mem_load_ff ? i_wr_index_1 : PHY_RAZ_REGISTER);
 				rf_sel1 = write_alu;
 				rf_sel2 = (i_mem_load_ff ? write_load : 40'b0000000000000000000000000000000000000001 << PHY_RAZ_REGISTER);
 				rf_data1 = i_wr_data;
 				rf_data2 = i_wr_data_1;
 				if (i_copro_reg_en) begin
+					rf_index1 = i_copro_reg_wr_index;
+					rf_index2 = PHY_RAZ_REGISTER;
 					rf_sel1 = write_copro;
 					rf_sel2 = 40'b0000000000000000000000000000000000000001 << PHY_RAZ_REGISTER;
 					rf_data1 = i_copro_reg_wr_data;
@@ -15889,31 +16273,43 @@ module zap_writeback (
 				if (|i_rf_class) begin
 					rf_data2 = cpsr_ff;
 					if (i_rf_class[0]) begin
+						rf_index1 = PHY_ABT_R14;
+						rf_index2 = PHY_ABT_SPSR;
 						rf_sel1 = 40'b0000000000000000000000000000000000000001 << PHY_ABT_R14;
 						rf_sel2 = 40'b0000000000000000000000000000000000000001 << PHY_ABT_SPSR;
 						rf_data1 = (mode32 ? i_pc_plus_8_buf_ff : i_pc_plus_8_buf_ff + 32'd4);
 					end
 					else if (i_rf_class[1]) begin
+						rf_index1 = PHY_FIQ_R14;
+						rf_index2 = PHY_FIQ_SPSR;
 						rf_sel1 = 40'b0000000000000000000000000000000000000001 << PHY_FIQ_R14;
 						rf_sel2 = 40'b0000000000000000000000000000000000000001 << PHY_FIQ_SPSR;
 						rf_data1 = (mode32 ? i_wr_data : i_pc_plus_8_buf_ff);
 					end
 					else if (i_rf_class[2]) begin
+						rf_index1 = PHY_IRQ_R14;
+						rf_index2 = PHY_IRQ_SPSR;
 						rf_sel1 = 40'b0000000000000000000000000000000000000001 << PHY_IRQ_R14;
 						rf_sel2 = 40'b0000000000000000000000000000000000000001 << PHY_IRQ_SPSR;
 						rf_data1 = (mode32 ? i_wr_data : i_pc_plus_8_buf_ff);
 					end
 					else if (i_rf_class[3]) begin
+						rf_index1 = PHY_ABT_R14;
+						rf_index2 = PHY_ABT_SPSR;
 						rf_sel1 = 40'b0000000000000000000000000000000000000001 << PHY_ABT_R14;
 						rf_sel2 = 40'b0000000000000000000000000000000000000001 << PHY_ABT_SPSR;
 						rf_data1 = (mode32 ? i_wr_data : i_pc_plus_8_buf_ff);
 					end
 					else if (i_rf_class[4]) begin
+						rf_index1 = PHY_SVC_R14;
+						rf_index2 = PHY_SVC_SPSR;
 						rf_sel1 = 40'b0000000000000000000000000000000000000001 << PHY_SVC_R14;
 						rf_sel2 = 40'b0000000000000000000000000000000000000001 << PHY_SVC_SPSR;
 						rf_data1 = (mode32 ? i_wr_data : i_pc_plus_8_buf_ff - 32'd2);
 					end
 					else begin
+						rf_index1 = PHY_UND_R14;
+						rf_index2 = PHY_UND_SPSR;
 						rf_sel1 = 40'b0000000000000000000000000000000000000001 << PHY_UND_R14;
 						rf_sel2 = 40'b0000000000000000000000000000000000000001 << PHY_UND_SPSR;
 						rf_data1 = (mode32 ? i_wr_data : i_pc_plus_8_buf_ff - 32'd2);
@@ -15923,9 +16319,11 @@ module zap_writeback (
 		end
 	endgenerate
 	wire [31:0] copro_rd_data;
-	zap_register_file u_zap_register_file(
+	zap_register_file #(.DIRECT_INDEX(1)) u_zap_register_file(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
+		.i_wr_index_a(rf_index1),
+		.i_wr_index_b(rf_index2),
 		.i_wr_addr_a(rf_sel1),
 		.i_wr_addr_b(rf_sel2),
 		.i_wr_addr_c(i_wr_index_2),

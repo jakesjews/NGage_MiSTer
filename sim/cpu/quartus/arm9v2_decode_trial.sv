@@ -168,7 +168,7 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
             32'(rf_tag);
     end
     zap_register_file u_rf (.i_clk(i_clk),.i_reset(i_reset),.i_wen(i_wen),
-        .i_wr_addr_a(i_wr_addr_a),.i_wr_addr_b(i_wr_addr_b),.i_wr_addr_c(i_wr_addr_c),
+        .i_wr_index_a(6'd0),.i_wr_index_b(6'd0),.i_wr_addr_a(i_wr_addr_a),.i_wr_addr_b(i_wr_addr_b),.i_wr_addr_c(i_wr_addr_c),
         .i_wr_data_a(i_wr_data_a),.i_wr_data_b(i_wr_data_b),.i_wr_data_c(i_wr_data_c),
         .i_rd_addr_a(rf_tag[0]),.i_rd_addr_b(rf_tag[1]),.i_rd_addr_c(rf_tag[2]),.i_rd_addr_d(rf_tag[3]),.i_rd_addr_e(6'd0),
         .o_rd_data_a(rf_value[0]),.o_rd_data_b(rf_value[1]),.o_rd_data_c(rf_value[2]),.o_rd_data_d(rf_value[3]),.o_rd_data_e());

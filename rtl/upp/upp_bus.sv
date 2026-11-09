@@ -79,6 +79,9 @@ module upp_bus #(
 	input  logic              wb_stb,
 	input  logic              wb_we,
 	input  logic [31:0]       wb_adr,
+    input  logic [31:0]       decode_cpu_adr,
+    input  logic [31:0]       decode_dma_adr,
+    input  logic              decode_dma_owner,
 	input  logic [31:0]       wb_dat_i,
 	input  logic [3:0]        wb_sel,
 	input  logic [2:0]        wb_cti,
@@ -202,7 +205,14 @@ module upp_bus #(
 	endfunction
 
 	tgt_t      tgt;
-	assign     tgt     = decode(wb_adr);
+    (* keep *) wire [2:0] cpu_target = decode(decode_cpu_adr);
+    (* keep *) wire [2:0] dma_target = decode(decode_dma_adr);
+    assign tgt = tgt_t'(decode_dma_owner ? dma_target : cpu_target);
+    // synthesis translate_off
+    always @(posedge clk) if (!reset)
+        assert (tgt == decode(wb_adr))
+            else $fatal(1, "UPP predecode disagrees with selected address");
+    // synthesis translate_on
 	wire       is_sdr  = tgt == T_SDRAM || (ONCHIP_IN_SDRAM && tgt == T_ONCHIP);
 	wire       is_bram = tgt == T_EMIF || (!ONCHIP_IN_SDRAM && tgt == T_ONCHIP);
 	wire       burst   = wb_cti == CTI_INCR;

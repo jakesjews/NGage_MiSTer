@@ -72,8 +72,10 @@ output  logic    [7:0]   o_fsr,
 output  logic    [31:0]  o_far,
 output  logic            o_fault,
 output  logic            o_cacheable,
+output  logic            o_bufferable,
 output  logic            o_wt,          // ARM925T: write-through page (C=1 B=0).
 output  logic            o_busy,
+output logic             o_hit_ready,
 output  logic            o_hit_ok,      // ARM925T: registered check, independent of walker IDLE.
 output  logic            o_hit_ok_short, // ARM9V2: o_hit_ok's unretimed copy (zap_tlb_check)
 input   logic            i_idle,
@@ -374,6 +376,7 @@ u_zap_tlb_check (
 .o_far          (far),
 .o_cacheable    (cacheable),
 .o_wt           (wt),
+.o_bufferable   (o_bufferable),
 .o_phy_addr     (phy_addr)
 
 );
@@ -407,6 +410,7 @@ zap_tlb_fsm #(
 .o_phy_addr     (o_phy_addr),
 .o_cacheable    (o_cacheable),
 .o_busy         (fsm_busy),
+.o_hit_ready    (o_hit_ready),
 
 .o_setlb_wdata  (setlb_wdata),
 .o_setlb_wen    (setlb_wen),
@@ -454,6 +458,10 @@ always_ff @(posedge i_clk)
         else if (!i_hold) check_stale <= 1'b0;
 
 assign o_busy = fsm_busy || (check_stale && walk && i_mmu_en);
+`ifndef SYNTHESIS
+always_ff @(posedge i_clk) if(!i_reset && o_hit_ok)
+        assert (o_hit_ready == !o_busy) else $fatal(1, "TLB ready hit equivalence");
+`endif
 
 endmodule : zap_tlb
 

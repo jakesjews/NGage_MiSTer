@@ -128,34 +128,43 @@ assign  o_dbg_cpsr_ff = cpsr_ff;    // ARM925T: debug trace
 // overrides them late. The original tree below still controls CPSR and
 // wen, and the assertion checks the ports against it.
 logic [39:0] rf_sel1,rf_sel2;
+logic [5:0] rf_index1,rf_index2;
 logic [31:0] rf_data1,rf_data2;
 if (1) begin : g_rf_select
     always_comb begin
+        rf_index1=i_wr_index; rf_index2=i_mem_load_ff?i_wr_index_1:6'(PHY_RAZ_REGISTER);
         rf_sel1=write_alu;
         rf_sel2=i_mem_load_ff?write_load:(40'b1<<PHY_RAZ_REGISTER);
         rf_data1=i_wr_data;rf_data2=i_wr_data_1;
         if(i_copro_reg_en)begin
+            rf_index1=i_copro_reg_wr_index;rf_index2=6'(PHY_RAZ_REGISTER);
             rf_sel1=write_copro;rf_sel2=40'b1<<PHY_RAZ_REGISTER;
             rf_data1=i_copro_reg_wr_data;rf_data2=0;
         end
         if(|i_rf_class)begin
             rf_data2=cpsr_ff;
             if(i_rf_class[0])begin
+                rf_index1=6'(PHY_ABT_R14);rf_index2=6'(PHY_ABT_SPSR);
                 rf_sel1=40'b1<<PHY_ABT_R14;rf_sel2=40'b1<<PHY_ABT_SPSR;
                 rf_data1=mode32?i_pc_plus_8_buf_ff:i_pc_plus_8_buf_ff+32'd4;
             end else if(i_rf_class[1])begin
+                rf_index1=6'(PHY_FIQ_R14);rf_index2=6'(PHY_FIQ_SPSR);
                 rf_sel1=40'b1<<PHY_FIQ_R14;rf_sel2=40'b1<<PHY_FIQ_SPSR;
                 rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff;
             end else if(i_rf_class[2])begin
+                rf_index1=6'(PHY_IRQ_R14);rf_index2=6'(PHY_IRQ_SPSR);
                 rf_sel1=40'b1<<PHY_IRQ_R14;rf_sel2=40'b1<<PHY_IRQ_SPSR;
                 rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff;
             end else if(i_rf_class[3])begin
+                rf_index1=6'(PHY_ABT_R14);rf_index2=6'(PHY_ABT_SPSR);
                 rf_sel1=40'b1<<PHY_ABT_R14;rf_sel2=40'b1<<PHY_ABT_SPSR;
                 rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff;
             end else if(i_rf_class[4])begin
+                rf_index1=6'(PHY_SVC_R14);rf_index2=6'(PHY_SVC_SPSR);
                 rf_sel1=40'b1<<PHY_SVC_R14;rf_sel2=40'b1<<PHY_SVC_SPSR;
                 rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff-32'd2;
             end else begin
+                rf_index1=6'(PHY_UND_R14);rf_index2=6'(PHY_UND_SPSR);
                 rf_sel1=40'b1<<PHY_UND_R14;rf_sel2=40'b1<<PHY_UND_SPSR;
                 rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff-32'd2;
             end
@@ -176,11 +185,12 @@ logic [31:0] copro_rd_data;
 always_ff @(posedge i_clk) if (!i_reset && COPRO_PORT && i_copro_reg_en)
         assert (copro_rd_data == u_zap_register_file.mem[i_copro_reg_rd_index]) else $fatal(1, "coprocessor read port");
 `endif
-zap_register_file u_zap_register_file
+zap_register_file #(.DIRECT_INDEX(1)) u_zap_register_file
 (
 .i_clk(i_clk),
  .i_reset        (       i_reset         ),
 
+ .i_wr_index_a(rf_index1), .i_wr_index_b(rf_index2),
  .i_wr_addr_a    (       rf_sel1         ),
  .i_wr_addr_b    (       rf_sel2         ),
  .i_wr_addr_c    (     i_wr_index_2      ),
