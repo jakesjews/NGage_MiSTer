@@ -5926,9 +5926,10 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   miss`, which garbage-walks section S that the program never
   addresses. (a) reproduces: S unmapped at the trigger, then mapped
   valid with no flush, then loaded: pre-fix V2 aborts on the stale
-  fault entry, ZAP and fixed V2 read the RAM. (b) does not: a cached
-  fault entry surviving a fault-to-valid remap aborts on every core,
-  the ordinary ARM flush rule, and any c8 flush (all or by VA)
+  fault entry, ZAP and fixed V2 read the RAM. **Correction (2026-10-26):**
+  the original note incorrectly called caching fault descriptors ordinary
+  ARM behavior. ARM DDI0100I B4.5.1 prohibits it; the shared walker had a
+  second bug, now covered by `mmu_fault_retry.S`. Any c8 flush (all or by VA)
   invalidates the whole TLB. **(c) reproduces as wrong data**: S mapped
   to PA_A at the trigger (only the garbage walk reads it), remapped to
   PA_B without a flush, then loaded: pre-fix V2 returns PA_A's word
@@ -6936,3 +6937,1203 @@ three by under 0.035 ns). Where it stands, from docs/CPU.md and the sweep:
   ablations and F) has landed between -4030 and -6831. More cuts of this size are
   unlikely to show up at four seeds; a change has to move the leaders by
   more than the lottery (about a factor of two in TNS) to be measurable.
+
+
+### 2026-10-26: JTAG identifies early game-launch translation fault
+
+- On a timing-clean diagnostic build, JTAG captures an invalid L1 entry
+  for VA `0xfffffffc` being installed in the D-TLB. The kernel subsequently
+  maps `0xfff00000`, but Asphalt's first store at `0xfff00f64` aborts without
+  another table walk. This explains the early-launch failure; delayed
+  launches work on both current HEAD and the historical `02566d2` build.
+- Translation faults are now transient walker responses, consumed by the
+  actual cache access, rather than cached descriptors. Replay bubbles must
+  retain that response, including fetches crossing section/page boundaries.
+  Successful translation and ordinary cache-hit schedules are unchanged.
+- The new repair/retry test covers L1 and L2, loads, stores and prefetches,
+  including section/small/tiny-page boundaries. It matches QEMU ti925t at
+  all three bus latencies. Existing suite: 342/342, identical instruction
+  traces and result signatures; 313 identical cycle counts, total cycles
+  reduced by 1,091 of 405,943,620 across the fault-related differences.
+- Hardware: the 78 MHz diagnostic passes all 16 timing checks (minimum
+  setup +0.419 ns), boots by 60 seconds, and starts Asphalt when selected at
+  86 seconds; actual driving works with no fault. This diagnostic frequency
+  is not a performance acceptance result. The MMU-only 104 MHz build also
+  boots to idle at 50 seconds and runs Asphalt, Sonic and Tony Hawk, with
+  gameplay confirmed. Matched stationary-scene LCD-update rates are
+  20.55/20.60 for Asphalt and 28.00/28.00 for Sonic (baseline/fixed).
+  Tony Hawk's automatically moving scene varies between runs.
+- Isolated explicit-MLAB register banks preserve all 345 CPU cases exactly
+  (406,232,597 cycles, trace hashes and signatures), retain the packed cache
+  RAMs, and fit at 33,778 ALMs / 483 M10Ks / 42 DSPs. All three games run;
+  its debug counterpart measures 20.90 Asphalt, 27.95 Sonic and 17.70 Tony
+  Hawk versus the MMU-only 20.60, 28.00 and 17.90 in the short sample windows.
+  These are gameplay spot checks, not a full-game performance guarantee.
+  The user accepts the small observed variation; no extended comparison
+  is required solely to chase fractions of an FPS.
+- Timing still fails at 104 MHz: the best completed isolated fit is
+  -1.262 ns setup (a follow-up balanced seed-13 trial, hardware-untested).
+  The RF seed-13 build supplied for manual testing is -1.301 ns.
+  Full-D2 record banking with explicit MLABs saves area
+  but worsens setup to -2.145 ns and is rejected. The requested five-seed
+  sweep used four Ubuntu builds plus one on the Mac and improved the best
+  result from -1.451 to -1.301 ns. No timing candidate
+  is promoted, and no release is replaced or published.
+- A falling-edge ALU-input experiment preserves the existing rising-edge
+  completion schedule in all 345 source and generated CPU cases, with exact
+  cycles, traces and signatures. Its -3.189 ns fit and the combined
+  shifter/ALU trial's -3.106 ns fit reject that approach despite passing
+  correctness checks. Five subsequent compiler-setting comparisons also
+  fail to improve the best completed timing.
+- Capture details, artifact hashes, timing experiments and a transient
+  host checksum anomaly are recorded in
+  `docs/consults/2026-10-26-game-regression.md`.
+- At the user's request, the best stripped 104 MHz seed-13 RBF is installed
+  under `_Console/_NGage/Test104MHz_Seed13/` with copied launchers using the
+  existing saves. Transfer checksum is verified. Asphalt is loaded for the
+  user's manual testing; automated input and deployments are suspended.
+  The original production RBF and launchers remain available. This candidate
+  still fails setup by 1.301 ns; manual testing is not timing sign-off.
+- The user reports Tony Hawk feels slow versus the Pocket core and an
+  original N-Gage QD video. This raises an absolute-performance concern,
+  beyond the small MiSTer-to-MiSTer differences accepted above. The prior
+  DEBUG capture averages 17.70 LCD updates/s and 44.339 M instructions/s;
+  overlapping bus/stall counters do not yet identify the limiting cause.
+  A 32 KB physical D-cache trial retains CP15 identity and passes all 345
+  source and generated tests, but changes cycle counts and worsens timing
+  to -2.174 ns. No game FPS improvement is established. The fault-address
+  comparison trial preserves all 345 complete result rows in both forms
+  but also worsens timing, to -1.981 ns. Neither is promoted.
+  A diagnostic build adds observations of I/D contention and SDRAM
+  controller busy/queued time. It passes observation proofs, memory tests
+  and lint, and fits at -1.875 ns with 34,958 ALMs / 483 M10Ks / 42 DSPs;
+  the user subsequently hands back the MiSTer for testing without JTAG.
+  It boots by 50 seconds and runs Tony Hawk in timed Warehouse and Free
+  Skate: 24 samples each average 18.75 and 19.17 LCD updates/s. Controller
+  busy time is about 30%, queued requests about 2%, and I/D arbitration
+  waits about 2% in each direction, with no recorded fault/loader errors.
+  This does not show sustained SDRAM saturation or establish a dual-RAM
+  FPS gain. The original display settings and stripped seed-13 build are
+  restored and checksum-verified; the restored core reaches the phone idle
+  screen by 50 seconds. Temporary input/Zaparoo processes are stopped.
+  The observed roughly 33 MB/s CPU bus traffic
+  and theoretical 208 MB/s SDRAM peak both describe this MiSTer, not
+  a comparison with measured original-phone bandwidth. Nokia's RH-29
+  manual documents the same 16-bit, 104 MHz SDRAM interface for the phone,
+  which has the same calculated 208 MB/s peak; achieved phone throughput
+  remains unmeasured.
+
+### 2026-10-27: changing game cards without another phone boot
+
+- On the stripped 104 MHz RF seed-13 build, OSD MMC mounts replace the
+  Tony Hawk card with Sonic N, then Asphalt, without an intervening core
+  load or reset. Sonic reaches Neo Green Hill and responds to controls;
+  Asphalt reaches a Cop Chase race. The same C: save remains mounted.
+- This can skip the roughly 50-second phone startup between functional
+  game tests on one build. Different RBFs still require booting, and FPS
+  comparisons still need a consistent startup and scene procedure.
+- The first swap shows an unsafe-removal notice. The phone's power-key
+  clean-eject menu does not open in the tested F8 presses; clean ejection
+  remains unverified. Sonic's card is write-protected, but the inspected
+  Tony Hawk and Asphalt sidecars permit writes. Do not assume all game
+  images are read-only or swap while a game/write is active.
+- No RTL or framework change. Evidence and the procedure are recorded in
+  `docs/consults/2026-10-27-mmc-hot-swap.md` and
+  `build/timing-closure/hardware/mmc-hot-swap/`.
+- Original display/core settings and the stripped seed-13 Tony Hawk
+  launcher are restored and verified; the phone is idle by the 50-second
+  restore capture. Temporary input helpers and Zaparoo are stopped.
+
+### 2026-10-27: broaden performance work to Call of Duty
+
+- The user identifies Call of Duty as worse than Tony Hawk; both are now
+  primary performance workloads, with Sonic and Asphalt regression checks.
+- The existing 104 MHz memory diagnostic runs Call of Duty without JTAG.
+  The opening forest view averages 6.85 LCD updates/s (6–7); turning right
+  changes the same-position view to 10.38 (8–11). These are separate scene
+  baselines, not a performance gain. Controller busy time is 20–23%, with
+  no sampled fault or loader error. Direct Video is temporarily disabled
+  while this investigation is active.
+- An isolated 32/32 KiB I/D cache experiment and finer CPU pipeline
+  observations are under validation. Neither is promoted or shown to
+  improve hardware FPS. Details: `docs/consults/2026-10-27-game-performance.md`.
+
+- The 32/32 KiB cache hardware trial runs CoD's same untouched starting
+  forest view at 6.97 LCD updates/s versus 6.85 baseline. This does not
+  establish a useful FPS improvement; setup worsens to -2.029 ns and RAM
+  rises to 519 M10Ks, so the experiment is not promoted.
+- Finer pipeline observations reproduce CoD at 6.83 updates/s. Tony Hawk
+  Warehouse Free Skate gives 18.63 and 18.33 updates/s in two windows,
+  with moving-camera variation. Multiply and shift waits are each below
+  1% of clocks in both games; memory/pipeline stalls are much larger and
+  overlap. No +5 FPS gain has been demonstrated.
+- A framebuffer bit-plane experiment passes its reference bench but uses
+  74 LCD M10Ks instead of 72 and still fails timing. It is rejected.
+- Folding a higher PC bit into the predictor's index allows ARM code to
+  use all 256 entries. All 345 source/generated cases pass with identical
+  complete rows; the only reference signature changes are the interrupt
+  sweep's timing statistics. The stripped fit is -2.313 ns, the diagnostic
+  -1.467 ns, both 483 M10Ks / 42 DSPs. CoD averages 6.73 LCD updates/s
+  versus 6.83 baseline; Tony Hawk gives 19.25/18.50 versus 18.63/18.33.
+  The small differences do not establish useful gameplay improvement,
+  and the change is not promoted.
+- Native screenshots sustain only about eight captures/s. A separate
+  observation-only LCD diagnostic verifies full-image upload coordinates
+  and uses a 64-bit checksum to count changed complete payloads, with
+  partial/aborted uploads reported separately. Directed tests and the
+  original LCD reference-model suite pass (4,706,182 clocks). Its fit
+  completes at -1.403 ns setup, 35,292 ALMs / 483 M10Ks / 42 DSPs.
+  Actual Tony Hawk menu uploads fail its window/mode qualification and
+  are classified as untracked; complete/changed counts are not yet usable.
+  A follow-up read-only LCD register snapshot is fitting to identify why.
+- Tony Hawk's 32/32 KiB cache trial gives 21.25 updates/s initially but
+  18.83 after Retry. Camera/workload variation prevents a repeatable
+  speedup claim. A 32/16 KiB trial is being simulated and fitted to isolate
+  the instruction-cache change. No +5 FPS result or timing closure yet.
+- A new stopped-skater procedure reduces that camera variation. Baseline
+  windows give 18.08/18.04 LCD updates/s, while 32/32 KiB gives 19.13/19.17.
+  This is a consistent small gain in the controlled scene, around 6%,
+  with residual pixel differences; it is not deterministic replay or proof
+  of five additional unique frames per second. CoD still shows no useful gain.
+- The 32/16 KiB trial passes 345 source and 345 generated CPU cases with
+  identical complete rows and 406,232,597 clocks. It fits at -2.226 ns,
+  35,608 ALMs / 499 M10Ks / 42 DSPs, so it is not a timing improvement.
+  Its diagnostic RBF is installed separately for CoD/THPS comparison.
+- LCD driver disassembly shows the ending row is start plus row count.
+  The revised observer accepts windows covering the panel, ignores only
+  physically discarded coordinates, and still checks every visible pixel.
+  Its 5,148,612-clock reference/directed suite and whole-core lint pass;
+  its fit is running. A register snapshot remains to verify the real setup.
+- A separate 256-to-1024-entry small-page TLB capacity trial passes the
+  15 focused MMU/TLB/fault cases (1,690,568 clocks). Full source/generated
+  validation and fitting are running. No optimization is promoted.
+
+### 2026-10-27: complete-image measurements and FixQD lead
+
+FrameProfileV2 passes its 5,148,612-clock LCD suite and whole-core lint;
+the fit is -2.365 ns setup, +0.081 ns hold, 34,454 ALMs / 483 M10Ks / 42 DSPs.
+Its paired screenshot reader establishes 6.533 changing complete uploads/s
+for CoD and 18.125 for braked Tony Hawk, with zero incomplete/untracked
+uploads in both steady scenes. These are upload rates, not optical scanout.
+The 1,024-entry small-page-TLB experiment passes all 345 source/generated
+cases with identical complete results; its fit is -1.770 ns, 36,652 ALMs,
+489 M10Ks, 42 DSPs. Its hardware testing is still pending. No trial promoted.
+
+The user supplied the historical FixQD utility. The Archive installer is
+byte-identical to the author's 2006 release; the original source patches
+Sysap/GD1 state in RAM after startup and makes no clock change. An unchanged
+FrameProfileV2 hardware A/B test used separate MMC copies
+containing that recognizer. Original game files/card identities are verified
+unchanged; original cards and the existing C: save are retained. Boot reaches
+phone idle by 50 seconds. CoD averages 6.500 changing complete uploads/s
+with the original recognizer on its test card, versus 6.533 baseline.
+Application of the silent RAM patch remains unconfirmed; this result does
+not establish that FixQD is ineffective. Test-only popup acknowledgements
+also yielded no positive application evidence. A separate build enables
+the existing STI firmware-text logger, with CPU/framework/clock/constraints
+unchanged and whole-core lint passed. One Ubuntu fit is running; no FPGA
+optimization is promoted. See `docs/consults/2026-10-27-fixqd.md`.
+
+The STI follow-up positively confirms FixQD's two RAM writes and successful
+worker exit. Same-RBF controls show no useful gain: CoD 6.800 versus 6.833
+complete uploads/s, Tony Hawk 18.083 versus 18.333 changing complete uploads/s.
+These short tests do not rule out rare hitching. The project's modem stand-in
+also has unconditional per-message guest-kernel logging; a separate two-call
+suppression experiment is being measured without changing its protocol logic.
+
+The 1,024-entry small-page-TLB trial runs both games but gives no useful
+throughput gain: CoD 6.93 LCD starts/s, braked Tony Hawk 18.29. It is not
+promoted. A 64 KiB physical D-cache trial passes all 345 source/generated
+cases with identical complete result rows (416,221,228 clocks), plus three
+upper-colour maintenance checks in each model. Reference signature changes
+are restricted to documented cycle/interrupt statistics. The fit uses
+36,333 ALMs, 545/553 M10Ks and 42 DSPs, with setup -2.066 ns and hold
+at least +0.070 ns. Hardware evaluation is pending; timing still fails.
+
+The 64 KiB D-cache hardware trial boots both games by 50 seconds. Braked
+Tony Hawk gives 19.167 changing complete uploads/s, essentially the same
+one-frame improvement as the smaller 32/32 KiB trial. CoD gives 6.867 full
+uploads/s, no useful throughput gain; turning the camera confirms live
+changing frames. No sampled faults, flash-loader errors or incomplete/
+untracked uploads occur. This does not justify 545 M10Ks and is not promoted.
+
+Suppressing only two ordinary traffic-log calls in a private NOS binary
+copy gives Tony Hawk 18.500 versus 18.083 changing complete uploads/s in one
+paired comparison. This small difference is not a five-FPS result or proof
+of repeatability. CoD stays at 6.800 complete uploads/s against the earlier
+same-RBF control's 6.833. Both have STI capture enabled; a stripped-build
+benefit is unmeasured. Original stand-in sources/binaries and game cards are
+retained. See the FixQD investigation for the controlled-image provenance.
+
+After these tests, the original MiSTer INI and NGage configuration and the
+best stripped 104 MHz seed-13 RBF are restored with verified SHA-256 hashes.
+The original Tony Hawk card reaches phone idle by 50 seconds. Temporary
+input/Zaparoo servers and Quartus containers are absent. Evidence:
+`build/timing-closure/hardware/fixqd-nos-d64-restored-stripped104/`.
+The restored build still has -1.301 ns setup slack. The five-FPS goal and
+104 MHz timing closure remain open; no diagnostic optimization is promoted.
+
+Longer fetch profiles now retain 600 samples per game. Fresh baselines remain
+18.083 changing complete uploads/s in Tony Hawk and 6.533 complete uploads/s
+in CoD. These are raster-latched fetch addresses, not retired PCs or precise
+stall shares. Static inspection recovers Tony Hawk's gzip-compressed EXCL
+payload with verified CRC/length; candidate runtime mappings point toward
+dependent palette/texture loads, but module addresses are not independently
+confirmed. Original cards and game files are unchanged.
+
+Two synthetic rendering loops quantify a pipeline tradeoff: removing only
+early address generation saves 8–16% of loop clocks across three bus latencies.
+All nine source/generated/experiment runs pass; signatures and event/PC
+streams match, and the three trace differences are only pending-load markers.
+This removes a deliberate timing cut and is not a proposed promotion or game
+FPS result. No FPGA build or source RTL change is made. The original settings
+and stripped 104 MHz build are restored, hashes verified, phone idle at 50
+seconds, with no temporary input server or Quartus container left running.
+See `docs/consults/2026-10-27-game-performance.md` and
+`build/timing-closure/hardware/pc-profile-restored-stripped104/`.
+
+### 2026-10-27: selective memory-base bypasses measured on hardware
+
+Two isolated FrameProfileV2-based trials retain registered memory lookup
+addresses. One forwards unconditional ALU results to zero-offset scalar
+memory operations; the other forwards prepared shifted/immediate MOV results
+to scalar memory bases, excluding RRX and late unshifted-register values.
+Each passes 345 source and 345 generated CPU cases with identical complete
+result rows and all 115 first-latency signatures/traces. Compared with the
+baseline, changed signature words are restricted to documented interrupt
+timing/landing statistics and all failure fields stay zero. Focused
+conditional/carry/cold-cache checks and debug/stripped whole-core lint pass.
+
+The zero-offset trial saves about 4% in the synthetic texture loop; MOV
+saves 5–9% in the palette loop. Both fit on Ubuntu, but setup still fails:
+zero-offset -2.334 ns, 34,949 ALMs; MOV -2.466 ns, 35,604 ALMs. Both use
+483 M10Ks and 42 DSPs. Framework files are byte-identical. No root CPU RTL
+is changed by these experiments.
+
+Fresh paired hardware windows give Tony Hawk 18.292 complete changing
+uploads/s for the control, 18.167 for zero-offset and 18.042 for MOV.
+CoD gives 6.533, 6.567 and 6.767 complete uploads/s. The small MOV/CoD
+difference is a single-window observation, not a repeatability result.
+These stopped scenes are not deterministic replay. All six boots are idle
+at 50 seconds; all windows have zero sampled CPU/loader errors and no
+incomplete/untracked uploads. The zero-offset early-hazard counter falls
+from 6.377% to 3.879% without a frame-rate gain, illustrating why overlapping
+stall counters and microbenchmarks cannot substitute for gameplay results.
+Neither trial is promoted. Full evidence and build hashes are recorded in
+`docs/consults/2026-10-27-game-performance.md`.
+
+The original INI/CFG and stripped 104 MHz seed-13 build are restored with
+matching hashes; the original Tony Hawk card reaches phone idle by 50
+seconds. Temporary input servers, simulations and Quartus containers are
+absent. Restoration evidence is under
+`build/timing-closure/hardware/baseforward-restored-stripped104/`.
+The restored setup slack remains -1.301 ns. The five-FPS goal and timing
+closure remain open.
+
+## 2026-10-27 — SDRAM locality measured in both games
+
+A diagnostic observer preserves the original memory controller behavior
+(885/885 formal equivalence cells), CPU and framework while counting actual
+row accesses and shadow 1 KiB/4 KiB bank mappings. Its fit completes with
+35,411 ALMs, 483 M10Ks, 42 DSPs and -2.085 ns setup slack. Both games boot
+by 50 seconds and run the established scenes with no sampled faults or
+incomplete/untracked uploads. Tony Hawk gives 18.042 changing complete
+uploads/s; CoD gives 6.700 complete uploads/s.
+
+Actual row conflicts are 53.24% / 57.95% (THPS/CoD). Shadow 4 KiB
+interleaving raises hit rates from 38.89% / 30.85% to 56.83% / 43.62%.
+The extra-hit scale estimate is only 2.60% / 1.16% of clocks before CPU
+overlap and extra activation costs; this is not an FPS forecast and cannot
+explain the five-FPS gap alone. Full counts and limitations are in
+`docs/consults/2026-10-27-game-performance.md` and
+`build/timing-closure/hardware/row-profile-comparison.json`.
+
+The 4 KiB mapping passes memory/refresh/timing/byte-mask tests, fault
+injections, both UPP configurations and whole-core/HPS-read checks. The
+whole-core harness required updating four loader-overlay reads to the
+existing FrameV2 coordinates; the old-layout failure is preserved separately.
+Diagnostic and stripped 4 KiB variants finish on Ubuntu with setup
+-1.792 / -1.529 ns, respectively, using 35,056 / 33,593 ALMs, 483 M10Ks
+and 42 DSPs. The separate flash chip-selection timing experiment preserves
+all 94 bus performance rows but fits at -1.751 ns, 33,093 ALMs, 483 M10Ks
+and 42 DSPs. Both stripped fits are worse than the existing -1.301 ns best.
+No new root functional RTL is changed and none of these candidates is promoted.
+
+The actual 4 KiB diagnostic gives Tony Hawk 18.583 and 18.500 changing
+complete uploads/s in two 24-pair windows versus 18.042 control: a repeated
+gain of about half a frame/s. CoD gives 6.767 complete uploads/s versus
+6.700 control, no meaningful demonstrated gain. All three candidate windows
+have zero sampled fault/loader errors and incomplete/untracked uploads;
+actual row hits equal the independent 4 KiB observer in every sample. Both
+games boot by 50 seconds and run/pause normally. The stripped 4 KiB and
+flash-selection RBFs are fitted but have not been hardware-tested. Full
+results and limits are in `hardware/bank4k-game-comparison.json` under
+`build/timing-closure/` and the game-performance report.
+
+The original INI/CFG and stripped seed-13 RBF were restored and verified
+between the profiling and bank-layout tests. Final restoration after the
+bank-layout tests is recorded separately in
+`build/timing-closure/hardware/bank4k-restored-stripped104/`.
+The final original INI/CFG/RBF hashes match, phone idle is visible at 50
+seconds, and temporary input/Zaparoo servers, local simulations and all
+Quartus processes/containers are absent. The best restored setup remains
+-1.301 ns.
+Neither timing closure nor the five-FPS goal is met.
+
+### 2026-10-27 — Fill waits measured; shorter restore rejected
+
+An observation-only D-cache profiler proves all 1,686 original FSM cells
+unchanged, passes nine source and nine generated cache cases, and validates
+all counter partitions on hardware. Both original games boot by 50 seconds.
+Already-buffered-word waits occupy 3.198% of clocks in Tony Hawk and 2.816%
+in CoD; lookup repair overlaps those waits. They do not justify expecting
+five more FPS from fill forwarding alone.
+
+An isolated two-edge lookup-restoration candidate passes 345 source and
+345 generated CPU cases with identical cycle counts and all 115 signatures/
+traces between models. Game throughput is effectively unchanged: Tony Hawk
+18.375 versus 18.333 changing uploads/s; CoD 6.667 versus 6.700 full uploads/s.
+No sampled faults, loader errors or incomplete/untracked uploads occur.
+Stripped setup worsens to -2.651 ns versus the existing -1.301 ns best, so
+neither diagnostic nor stripped variant is promoted. Framework files are
+unchanged; root functional RTL is not altered by this experiment.
+
+Original stripped104, original INI/CFG and original Tony Hawk card are
+restored, hash-verified, and visibly at phone idle by 50 seconds. Temporary
+input servers, simulations and Quartus containers/processes are stopped.
+The shared pre-existing Quartus image is retained. See the fill/restore
+section of `docs/consults/2026-10-27-game-performance.md` and
+`build/timing-closure/active-experiments-fill.json`. Timing closure and
+five additional FPS remain unachieved.
+
+### 2026-10-27 — Zero-offset late-base forwarding rejected
+
+An isolated candidate lets zero-offset, preindexed scalar memory operations
+without base writeback use the existing late operand forwarding. All 345
+source and 345 generated CPU cases pass with identical clocks, instructions,
+signatures and traces between models (405,961,903 clocks per suite). Four
+initial source mismatches are retained: one expected cycle reduction and
+three assertions whose old scope assumed every memory base consumed S's
+AGU. Only those test expectations/assertion scopes are corrected; six
+targeted reruns pass, and the assertion change leaves synthesis Verilog
+byte-identical. The full generated regression is an independent clean pass.
+
+Both games boot by 50 seconds and run/pause normally. Tony Hawk measures
+18.542 versus 18.042 changing complete uploads/s in one matched window;
+CoD measures 6.633 versus 6.800 complete uploads/s. No sampled faults,
+loader errors or incomplete/untracked uploads occur. This is not a useful
+two-game improvement or a deterministic replay. Stripped setup worsens to
+-2.653 ns versus the existing -1.301 ns best; the diagnostic misses by
+-2.790 ns. Both retain 483 M10Ks and 42 DSPs. No root functional RTL is
+promoted, and the 57 framework files remain unchanged.
+
+Original stripped104, INI/CFG and the original Tony Hawk card are restored;
+hashes match and phone idle is visible at 50 seconds. Temporary servers,
+simulations and Quartus containers/processes are stopped. See the zero-offset
+section of `docs/consults/2026-10-27-game-performance.md`,
+`build/timing-closure/hardware/zerobase-game-comparison.json` and
+`build/timing-closure/active-experiments-zerobase.json`.
+The five-FPS target and 104 MHz timing closure remain unachieved.
+
+### 2026-10-27 — Cache lookup proofs complete; fits pending
+
+Four isolated stripped104 variants split the cache valid-live lookup across
+its existing register boundary, using four/sixteen selected banks or eight/
+sixteen gated banks with OR reduction. Every variant passes seven unbounded
+induction proofs of the extracted changed block and source/generated cache
+miters in four configurations. All common outputs and metadata state match
+the exact parent; no cycle is added. Whole-core debug/stripped lint passes.
+Top, QSF, SDC, QIP and 57 framework files are unchanged in each variant.
+All four Ubuntu Quartus builds are running; none is hardware-tested or
+promoted. Evidence and process IDs are in
+`build/timing-closure/active-experiments-live-lookup.json`.
+
+Separately, the existing simulation-only `S_AGU=0` option is undergoing the
+full CPU regression. Its only source difference from FrameV2 is that one
+parameter default. The initial cycle check observes the expected load-to-base
+window reduction from five clocks to four; its original failure log remains.
+The generated model is built with the required register-bank probe. A
+sequential validation job waits for the original source suite, checks that
+the cycle-window mismatch is the only failure, reruns that test with an
+isolated expectation, and then runs the generated suite. These validations
+remain pending; no additional Quartus build for that option has started.
+The original stripped104, settings and Tony Hawk card remain on the MiSTer.
+
+### 2026-10-27 — Cache lookup fits and full late-address game comparison
+
+All four cache-only fits complete. Four/sixteen selected banks miss setup by
+2.551/1.613 ns; eight/sixteen gated OR banks miss by 2.084/1.651 ns, versus
+the parent's 1.301 ns miss. All retain 483 M10Ks and 42 DSPs. Seven induction
+proofs and four-configuration source/generated cache miters pass for each,
+but no candidate is promoted or loaded. The sixteen-bank OR arrangement
+improves the local valid-live path family; this does not improve whole-core
+timing. Detailed results are in `research/metadata-live/` under timing-closure.
+
+The separate existing `S_AGU=0` option completes 345 source and 345 generated
+CPU cases: exact source/generated counts, signatures and traces, totaling
+405,345,215 clocks each. Only the configured-predictor `ldr_base` expectation
+changes from five clocks to four, with all three latency cases retested and
+the original mismatch retained. No HDL assertions are relaxed. Three
+baseline signature differences are reviewed timer/interrupt landing fields;
+all functional failure fields are zero. Debug/stripped lint passes, and
+framework/configuration/constraints remain unchanged.
+
+Diagnostic/stripped fits use 34,887/33,301 ALMs, 483 M10Ks and 42 DSPs;
+worst setup is -2.106/-1.529 ns, minimum hold +0.074/+0.088 ns. Neither
+closes timing. The diagnostic runs both original games using the existing
+save. Fresh control and candidate start their input sequence at 120 seconds
+after loading; idle readiness is checked separately and passes at 50 seconds.
+Tony Hawk's 24 paired windows give 18.583 versus 18.375 changing full uploads/s;
+CoD's 30 paired windows give 7.000 versus 6.600 complete uploads/s. These are
+single matched-scene comparisons, not deterministic replays or optical
+frame-pacing tests. No sampled faults, loader errors or incomplete/untracked
+uploads occur. Both games run and pause; screenshots are inspected.
+
+The small gains do not meet the five-FPS goal or justify the worse timing,
+so no root functional RTL is promoted. The original stripped104, original
+INI/CFG and original Tony Hawk launcher/card are restored and checksum-
+verified, with idle visible at 50 seconds. Temporary servers, simulations
+and Quartus processes/containers are absent. Evidence:
+`build/timing-closure/hardware/sagu0-game-comparison.json`,
+`hardware/sagu0-restored-stripped104/`, `active-experiments-sagu0.json`, and
+the full late-address section in `docs/consults/2026-10-27-game-performance.md`.
+The five-FPS target and 104 MHz timing closure remain unachieved.
+
+### 2026-10-27 — Partitioned CPU-cycle profiler prepared and proved
+
+An isolated FrameV2 diagnostic, `tlb-fix-rfcycleprof104-s13`, replaces only
+the existing CPU observation output. Fourteen exclusive categories cover
+every clock; six PC/retirement categories independently cover every clock.
+The oldest-record selection includes W, M, skid, A and S. No active record
+means an unknown PC attribution. Four extra correlations remain explicitly
+overlapping. All completed-image and fault/loader observations are retained.
+
+Formal conservation holds for arbitrary observation inputs. A modular
+noninterference proof treats unchanged child outputs as shared arbitrary
+inputs and compares every child input and original core output: 9,233
+equivalence cells pass, with all four child configurations and the other
+29 generated modules identical. Debug/stripped lint and 13 capture-reader
+checks pass. Top-level configuration, constraints, RAM geometry and the 57
+framework files are unchanged. The initial synthesis was stopped to add
+skid coverage; the corrected Quartus build is running. No hardware or FPS
+result is claimed. The original stripped104 and settings remain restored.
+See `build/timing-closure/active-experiments-cycle-profile.json` and
+`research/cycle-partition/` under the same directory.
+
+The user's YouTube reference is independently inspected as a 60 fps recording.
+A six-second interval is registered from phone-body features and its screen
+rectified, but LCD/camera effects make change thresholds unreliable. No
+numeric original-phone game-FPS estimate is accepted from this analysis,
+and the five-FPS target is unchanged. Evidence and limitations are recorded
+in `research/cycle-partition/reference-video-assessment.json`.
+
+### 2026-10-27 — Cycle partitions measured in both games; original build restored
+
+The corrected cycle profiler completes fitting: 34,787 ALMs, 42,359
+registers, 483 M10Ks, 42 DSPs, setup -1.660 ns and minimum hold +0.113 ns.
+RBF SHA-256 is
+`adf94afc25c41b2d318808df45320b23500337ed4e14323bbc518f5167484cc1`.
+Generated CPU, configuration and all 57 framework files match provenance.
+
+The original cards and existing save boot by the 50-second check. Identical
+scene inputs start at 120 seconds. Tony Hawk's 24 paired windows average
+18.042 changing complete uploads/s and 45.368 M instructions/s; CoD's
+30 pairs average 6.467 complete uploads/s and 55.530 M instructions/s.
+Both games run and pause, with screenshots inspected. All selected snapshots
+have zero CPU/loader faults and zero incomplete/untracked uploads. Both
+independent partitions sum to exactly 104,000,000 clocks for every pair.
+
+Retirement occupies 47.049% / 55.841% of clocks; W data-request waits
+12.221% / 9.978%; M/skid is oldest on 13.977% / 15.549%; WFI is zero
+(Tony Hawk / CoD). Occupancy is not removable stall cost: pipeline bubbles
+may originate upstream. The observed loaded-code address ranges account
+for 70.477% / 73.195% of clocks, ROM records 18.440% / 20.932%, and
+other/unknown records the remainder. No module identity or ROM-only
+speedup bound follows from this attribution. Full tables, overlapping
+correlations and limitations are in the game-performance consult.
+
+This is diagnostic progress, not a demonstrated FPS improvement or timing
+closure. The next investigation is earlier cache-hit load forwarding to
+dependent ALU operations, starting with the ownership and MMU/fault contract
+in isolated simulation. No such RTL change or safe bypass is established yet.
+
+Original stripped104, INI/CFG and original Tony Hawk launcher/card are
+restored with matching hashes and visible idle at 50 seconds. Temporary
+input/Zaparoo servers, local simulations and Ubuntu Quartus jobs/containers
+are absent. No framework or root functional RTL change is promoted. Evidence:
+`build/timing-closure/hardware/cycle-profile-results.json`,
+`hardware/cycleprof-{thps,cod}/`, `hardware/cycleprof-restored-stripped104/`
+and `active-experiments-cycle-profile.json` under timing-closure.
+
+### 2026-10-27 — reject direct early-load forwarding on physical timing
+
+An isolated cache-hit-to-ALU bypass reduces six directed load dependency
+windows from four clocks to three, but produces no improvement in the
+palette/texture kernels. Its stripped and FrameV2 fits miss setup by
+6.757 ns and 7.054 ns; the cache/format/forward/arithmetic path is too long.
+Both retain 483 M10Ks and 42 DSPs. The original stripped -1.301 ns build
+remains on the MiSTer.
+
+The first source regression exposes an older return branch canceling an
+early-offered load. Adding the missing PC-write exclusion, without relaxing
+the assertions, passes 345/345 source cases. The generated model's first
+37 cases match source exactly; the remaining run is stopped because the
+physical result rejects this architecture. No full generated regression
+or hardware success is claimed. A decode-only control also gives unchanged
+directed-cycle and rendering-kernel results and is not fitted.
+
+No candidate is promoted, no framework/root functional source is changed,
+and original RBF/INI/CFG hashes match. Builds and simulation processes are
+cleaned up. The five-FPS improvement and timing closure are still open.
+Details and limitations are in the game-performance consult and
+`build/timing-closure/research/early-load/results.json`.
+
+
+### 2026-10-27: retirement windows on both games
+
+A separate read-only diagnostic records 65,536 retirement events across THPS and CoD. Formal CPU noninterference, component/reader tests and generated lint pass. Its fit remains timing-failing (-1.508 ns setup, +0.103 ns hold; 36,051 ALMs, 496 M10Ks, 42 DSPs). Exact original opcode comparisons confirm the loaded game code bases. THPS remains about 18.4 complete/changing uploads/s and CoD about 6.7 complete uploads/s in the matched scenes. No gain or functional promotion is claimed. The captured streaming-store loop motivates the next cache-policy experiment; stall taps are not causal attribution. Original stripped RBF/settings are restored, hash-verified, and boot to phone idle by 50 seconds. Temporary processes/containers are stopped. Full evidence and limitations: `docs/consults/2026-10-27-game-performance.md`, retirement-window section.
+
+## 2026-10-27: posted-store hardware check and WT/NCB follow-up
+
+The four-entry write-back-miss FIFO passes its directed checks and gives identical source/generated full-regression records (330/345 original cases pass; remaining cases assert the old allocation policy; 21 focused policy/legacy checks pass per model). The stripped fit is -1.993 ns setup and the profiler -1.794 ns, so neither closes timing. Hardware reaches phone idle by 50 seconds and runs both original game cards: THPS 18.917 complete/changing uploads/s, CoD 6.867 complete uploads/s. This is a small THPS gain and essentially unchanged CoD, short of the objective. Original RBF/INI/CFG hashes are restored and verified; restored phone idle is visible at 50 seconds. No promotion or framework edits.
+
+A separate WT/NCB prototype follows TI925T table 2, retaining the same FIFO capacity. Eight directed source model/latency combinations pass with matching signatures; four generated-model error tests verify buffered error discard and precise unbuffered/alignment faults. Both top-level lints pass. Full source/generated regressions and stripped/profile Quartus fits are running; no new hardware performance or timing success is claimed. Detailed evidence, handles and pending validation are in build/timing-closure/research/posted-{store,modes}/ and active-experiments-posted-modes.json.
+
+### 2026-10-27: WT/NCB complete; address-decode timing experiment
+
+The WT/NCB source/generated regressions finish with identical records for all 348 cases: 333 pass; the same 15 old allocation assertions fail. Focused policy, mode and error tests pass in both models. Stripped/profile setup remains negative (-2.084/-2.196 ns). Both original games run and boot by 50 seconds. THPS measures 19.000 complete/changing uploads/s, CoD 6.967 complete uploads/s; these tiny additions over WB-only buffering do not meet the goal. No malformed uploads or sampled faults appear. The original stripped RBF, INI and CFG are restored, hash-verified, and phone idle at 50 seconds is viewed. No source is promoted.
+
+The next isolated timing experiment factors UPP target decoding before CPU/DMA bus selection, on both the original and posted parents. Encoded and one-hot variants each pass all-address formal decode equivalence, top-level lint, and existing memory/peripheral integration suites with exactly unchanged parent cycle/transaction records, including CPU/DMA/audio contention. Four Ubuntu fits are running within the user's limit. CPU, framework, clock and constraints are unchanged. This is not a measured timing improvement yet; see `build/timing-closure/research/address-predecode/` and `active-experiments-address-predecode.json` for state. The five-FPS and timing goals remain open.
+
+
+### 2026-10-27 — Address predecode fits complete; combined performance trial
+
+Four cycle-equivalent address-decode builds complete with setup -2.080, -1.699, -2.008 and -1.613 ns. All fail timing and none beats the original stripped -1.301 ns. The posted parent improves, with encoded predecode using fewer ALMs than one-hot. Two isolated combined candidates now test posted modes + 32 KiB I/D + S_AGU=0 + 4 KiB bank mapping, with encoded predecode. Generated RTL and full top lint pass; CPU regression and two Ubuntu fits are active. Hardware/settings remain restored; no framework or functional root RTL is changed. Five-FPS goal and timing closure remain unachieved. See `docs/consults/2026-10-27-game-performance.md` and `build/timing-closure/active-experiments-combined.json`.
+
+The combined memory/peripheral tests also pass on Ubuntu, including both on-chip RAM sizes. A missing `ld_rd=0` initialization in `sim/harness/upp_main.cpp` caused identical phantom DDR reads in parent/candidate under randomized Linux initialization; the one-line harness fix resolves both and is retained. Bank-interleaved fixtures reuse the existing physical-memory helper. Optional Sonic card fixture was absent/skipped; hardware game validation remains pending.
+
+
+### 2026-10-27 — combined performance measured; timing still open
+
+Combined posted WT/NCB writes, 32 KiB I/D caches, S_AGU=0, 4 KiB SDRAM banks
+and encoded address predecode pass source/generated comparison on all 348
+records (333 passes and the same 15 known allocation-policy assertion failures),
+plus 30/30 focused checks in each model. Memory/peripheral checks pass; absent
+optional replay/game fixtures are explicitly excluded. Stripped fit is
+-1.735/+0.080 ns setup/hold, 33,947 ALMs, 39,316 registers, 519 M10Ks, 42 DSPs.
+FrameV2 fit is -2.082/+0.100 ns. Neither passes timing.
+
+Fresh hardware THPS control/candidate: 18.041667 -> 21.541667 complete/changing
+uploads/s (+3.5, 19.4%), 24 pairs each. CoD settled control/candidate:
+6.933333 -> 7.566667 complete uploads/s (+9.1%), 30 pairs each. The CoD
+comparison uses different elapsed settling windows and is not deterministic
+replay; its separate turn test confirms responsive, changing gameplay.
+Both games boot by the 50-second phone-idle check and show no sampled faults
+or malformed uploads. FixQD is absent from these combined tests. No candidate
+is promoted and the five-FPS goal remains open. Original INI/CFG/RBF hashes are restored and verified, phone idle is visible at
+50 seconds, and the input helper has exited. See active-experiments-combined.json
+and the game-performance consult.
+
+The project-owned screenshot helper now waits for PNG IEND rather than a
+fixed delay after file creation. This fixes the truncated capture that invalidated
+the first CoD control; the replacement run is complete. No framework change.
+Two zero-cycle-cost factored cache-lock summary trials are now fitting, with
+source-extracted induction proofs and exact generated-expression diffs retained.
+
+Both lock-summary fits are now complete and fail setup: original-parent
+-1.526/+0.087 ns setup/minimum hold; combined-parent -2.408/+0.115 ns.
+Neither improves its parent or is promoted. Reports and RBFs are retained;
+all build containers have exited and auto-removed. Hardware remains restored.
+
+### 2026-10-27 — posted-write burst experiment in validation
+
+Four isolated combined-parent trials compare eight-entry classic/burst queues,
+stripped and FrameV2. Queue stress passes 800,203 clocks per configuration;
+source CPU checks pass 30 existing focused and eight SDRAM cases for each.
+All 38 burst-source/generated records match exactly. The dense physical-SDRAM
+fixture positively exercises 93 four-word groups with mixed masks; the
+classic control emits none. Independent memory-controller replay/readback
+passes at three seeds, with only 0.79% fewer clocks in the compressed mixed
+trace. This is not an FPS result. Full CPU regressions and four Ubuntu fits
+are still running. No framework, root functional RTL or hardware build changes;
+original hardware/settings hashes reverified. See the game-performance consult
+and active-experiments-posted-burst.json for evidence and live job handles.
+
+The source regression completes at 339/354 passes with the same 15 parent
+policy-expectation failures, 396,898,200 passed clocks. Changed passing
+signatures are reviewed timer/IRQ statistics only. The generated full
+regression and four fits are still active; no local simulation remains.
+
+### 2026-10-27 — posted-write burst hardware comparison complete
+
+All 354 generated CPU records match source exactly: 339 passes and the same
+15 known policy-expectation failures. All four fits fail setup. Minimum
+setup/hold: classic stripped -2.394/+0.102 ns, burst stripped -1.978/+0.081 ns,
+classic FrameV2 -1.976/+0.084 ns, burst FrameV2 -2.902/+0.080 ns. Each uses
+519 M10Ks and 42 DSPs. No functional source is promoted.
+
+Both eight-entry variants run THPS and CoD with phone idle by 50 seconds.
+THPS measures exactly 21.208333 complete/changing uploads/s for both queues,
+24 verified pairs each. CoD measures 7.533333 classic versus 7.866667 burst
+complete uploads/s, 30 pairs each at matching elapsed 260-second settling,
+with stationary/unchanging images. This 4.4% single-window CoD difference
+needs repetition; it is no THPS gain or timing closure. All four windows
+have zero malformed uploads or observed CPU/loader faults. Sonic/Asphalt
+were not tested on these variants. The earlier combined build's +3.5 THPS
+FPS remains the largest demonstrated gain; the five-FPS goal remains open.
+
+Original INI/CFG/RBF hashes are restored and reverified, phone idle inspected
+at 50 seconds, and temporary input/simulation/build processes are gone.
+Reports, RBFs and original cards are preserved. Evidence:
+`build/timing-closure/research/posted-burst/hardware-comparison.json`,
+`hardware/postedburst104-restored-stripped104`, and the game-performance consult.
+
+An instruction-bus write-data timing lead remains unproved. A first
+over-approximated cache-interface proof exposes missing startup contracts;
+it is not a reproduced gameplay failure. No RTL tie-off or fit was made.
+See `build/timing-closure/research/icache-readbus/checkpoint.md`.
+
+### 2026-10-27 — instruction-bus proof and timing trial
+
+The predicated-off A-stage shortcut passes the new 1,440-case matrix at four
+latencies with exact parent/candidate signatures. Warm load-to-failed-ADD
+timing is unchanged, so it is set aside without fits or hardware tests.
+
+The instruction-write-data lead now has passing proofs of the real
+fetch/CP15 startup contract, read-only I-cache behavior (32 KiB, one/two ways),
+and all 13 merger control outputs plus every active write's data after the
+unused code write data is tied to zero. Strengthening invariants are proved
+from reset; no desired write-output property is assumed. Earlier abstract
+startup and weak-induction failures remain documented as proof-harness
+limitations, not reproduced game faults.
+
+`tlb-fix-rficreadonly104-s13` changes only the core's connection and adds a
+simulation guard, then regenerates the CPU. Its source model and one Ubuntu
+fit are running. No timing/FPS result yet, no root functional promotion,
+and no framework or hardware change. See the experiment's state JSON and
+`research/icache-readbus/checkpoint.md` under timing-closure.
+
+The instruction-bus trial is now rejected. Worst setup is -2.600 ns versus
+the combined parent's -1.735 ns; minimum hold is +0.078 ns. The fit uses
+34,494 ALMs, 38,960 registers, 519 M10Ks and 42 DSPs. Despite removing
+356 registers, overall placement/timing worsens. All 348 source regression
+records match the parent exactly (333 passes and 15 known policy-expectation
+failures); all 37 completed generated records match too. The remaining
+generated run was stopped after rejection, so full generated validation is
+not claimed. All owned build/simulation processes have exited. The trial is
+retained without deployment or root functional promotion.
+
+### 2026-10-27 — larger instruction-cache feasibility trial
+
+`tlb-fix-rfi64combined104-s13` selects a 64 KiB I-cache through the core's
+top-level configuration, retaining the combined parent's CPU RTL, generated
+CPU, 32 KiB D-cache, 16-byte lines, framework and SDC byte-for-byte.
+All 24 focused source/generated cases pass and match exactly. The added
+capacity/invalidation test demonstrably distinguishes the new capacity:
+the smaller-cache parent fails precisely the first retained-code check.
+The 21 shared cases retain parent signatures and retirement traces, with
+nine extra clocks in each of the three redirect-test runs.
+
+Ubuntu synthesis passes with 4,355,497 memory bits and 42 DSPs. The final
+packed M10K use and setup/hold need the fitter. A full stripped 104 MHz fit
+and source regression are running; no game/FPS result, hardware deployment,
+or root functional change. Evidence and live handles are in
+`research/icache-capacity/` and `active-experiments-icache-capacity.json`
+under timing-closure.
+
+### 2026-10-28 — 64 KiB I-cache comparison complete; RAM-enable timing lead
+
+The 64 KiB I-cache occupies all 553 M10Ks. Stripped setup/hold is
+-1.745/+0.104 ns (34,992 ALMs, 41,254 registers); FrameV2 is
+-2.320/+0.079 ns (36,835 ALMs, 44,027 registers). Both use 42 DSPs.
+All 351 source/generated regression records match exactly: 336 passes and
+the parent's same 15 policy-expectation failures, 396,056,242 passed cycles.
+The frame model also passes its 24 matching focused cases after correcting
+its stale pre-posted-store testbench; invalid attempts are retained.
+
+Fresh matched controls show no useful game gain: THPS 21.583333 to 21.708333
+changing complete uploads/s, CoD 7.833333 to 7.800000 complete uploads/s.
+All four windows have zero malformed uploads and no observed CPU/loader
+errors; phone idle is verified by 50 seconds. CoD uses matching 260-second
+settling windows and stationary views. These are single comparisons, not
+deterministic replay or repeatability evidence. The capacity increase is
+set aside. Original stripped build/INI/CFG hashes are restored and verified,
+phone idle inspected at 50 seconds, and the temporary input server is gone.
+
+The worst I-cache path led to a separate 32 KiB timing trial. Formal proofs
+establish that the real read-only cache never writes tag/data RAM while its
+request FSM is idle, for 32/64 KiB and one/two ways. Under that proved
+contract, using the saved fill way directly preserves all RAM write enables.
+Only RAM ports and their collision descriptors use the new selector;
+metadata bookkeeping retains the original selector. All 21 focused
+source/generated records exactly match the parent; whole-core lint and
+generated-source checks pass. One Ubuntu fit is running. No functional
+source or hardware promotion. See `research/icache-fillway/` and its state
+JSON under timing-closure. The five-FPS and timing-closure goals remain open.
+
+The RAM write-enable timing trial is complete and set aside: -1.926 ns setup
+and +0.086 ns hold, versus the combined parent's -1.735 ns setup. It uses
+33,864 ALMs, 39,472 registers, 519 M10Ks and 42 DSPs. The build container
+is removed, reports/RBF are retained, and no hardware deployment or root
+functional promotion occurred.
+
+The retirement observer is refreshed on the combined 32/32 KiB parent.
+CPU-side observation noninterference passes with all original core outputs,
+including pipeline diagnostics, compared. The unchanged recorder/reader
+reuse their existing verified component tests; whole-core lint and generated
+freshness pass. One Ubuntu fit runs under `ngage-timing-20261028` with no
+board change. This refresh is needed because the old traces predate the
+store-buffer and other changes responsible for the demonstrated +3.5 FPS.
+
+A separate timing trial precomputes A's speculative-load class on A's normal
+capture edge. The generated class relation is proved after reset and by
+induction for arbitrary acceptance; all previous execute logic is exactly
+unchanged. Core integration differs only by substituting that proved bit.
+Lint and generated freshness pass. A second Ubuntu fit runs while focused
+CPU interlock/interrupt/flush regressions execute sequentially on the Mac.
+No game-speed claim or hardware deployment is made for this timing trial.
+
+Both combined-candidate retirement captures are complete: 32 windows and
+32,768 events each, matching all 4,031 THPS and 3,350 CoD sampled game PCs
+to original opcodes. THPS measures 21.583 changing uploads/s during capture
+and 21.500 afterward. CoD measures 7.467 early complete uploads/s and 7.833
+afterward; repeated static pictures are not counted as new unique frames.
+Both boot to idle by 50 seconds with no sampled CPU/loader errors or malformed
+uploads. The original stripped RBF, INI and CFG hashes are restored and idle
+verified at 50 seconds; temporary helpers and containers are stopped.
+
+The classification-only timing trial is rejected at -2.185 ns setup and
++0.084 ns hold (34,559 ALMs, 39,598 registers, 519 M10Ks, 42 DSPs). All 45
+source/generated focused records pass and exactly match the parent, including
+249,808,893 cycles per model. No root functional promotion. The new traces
+show repeated two-clock shifted-operand dependency intervals in both games;
+a proposed late constant-shift trial is recorded under
+`research/combined-retire/next-step.md`, but not implemented. The five-FPS
+gain and 104 MHz timing-closure goal remain unachieved.
+
+## Late constant LSL forwarding: prototype under validation
+
+The isolated `tlb-fix-rflateshift104-s13` candidate keeps unconditional ARM
+non-flag-setting LSL-by-1 and LSL-by-8 operands raw through S and selects them
+through the existing permission-qualified late A forwarding. The constant
+shift is applied once at the ALU input; held A records retain the raw word.
+PC operands/destinations, other shifts, Thumb, conditional and flag-setting
+operations retain the parent schedule. Decode/execute eligibility and existing
+forwarding references are asserted. No framework or root functional changes.
+
+The checked palette loop falls from 5,906 to 5,138 clocks (13.0% fewer);
+texture falls from 9,773 to 8,749 at zero bus latency (10.5% fewer). At the
+other two latency settings the same savings persist. All instruction counts,
+architectural trace hashes and signatures match the parent; source and
+generated CPU results match exactly. These are kernel timings, not game FPS.
+
+A new directed test checks 1,152 combinations of twelve ALU operations, both
+shifts, both carry states, four values, producer spacing, and cached/uncached
+load dependencies. Eight RTL runs (source/generated, four bus latencies up to
+2:40) pass and match QEMU's signature. The source coverage probe observes
+50,087 held/waiting A clocks at 2:40, with all 1,152 eligible operations
+finishing. Full source regression runs on the Mac and generated regression
+on Ubuntu. Stripped and existing-frame-counter fits run on Ubuntu. Top-level
+lint and generated freshness pass for both; only the frame parent's ten
+unused observation signals receive exact-name lint waivers. Neither candidate
+is deployed or promoted. Original hardware settings/build remain restored.
+Evidence: `build/timing-closure/research/late-shift/`, the trial validation
+folders and `active-experiments-late-shift.json`.
+
+The full source CPU regression completes: 336/351 pass, with exactly the same
+15 allocation-policy expectations failing as the parent. All 348 parent
+signatures are unchanged; 399,070,475 passing clocks are checked. The three
+trust-sweep trace hashes differ. A full 0:3 comparison audits all 616,351
+records: 27 fields change their pending-register mask; every mutually
+available register, event, PC and CPSR matches. No other trace differences
+are observed in that audited latency. The final signatures match at all
+three latencies. An additional 1,152-case read/modify/write alias test (Rd=Rm
+or Rd=Rn) passes source and generated models at 0:0 and 2:40 and matches QEMU;
+45,310 held/waiting clocks are observed in its longer-latency source run.
+
+Fresh combined-frame controls reach idle by 50 seconds. THPS measures
+21.541667 changing complete uploads/s (24 pairs, 53.253484 M instructions/s).
+CoD, measured after the matched 260-second settling point, gives 7.566667
+complete uploads/s (30 pairs, 61.307488 M instructions/s); its stationary
+view repeats the same image. Both have zero incomplete/untracked uploads
+and no sampled CPU/loader errors. Evidence: `hardware/late-shift-control104-*`.
+Direct Video remains temporarily off for candidate tests; original settings
+are backed up in `hardware/late-shift-control104-staging`. Candidate fits and
+the generated regression remain in progress; no hardware gain is claimed.
+
+The generated regression finishes and exactly matches all 351 source records,
+including counts, trace/signature hashes, 336 passes and the same 15 known
+allocation-policy failures. Both fits finish with timing failures:
+
+| Late-shift variant | ALMs | Registers | M10Ks | DSPs | Setup min | Hold min |
+|---|---:|---:|---:|---:|---:|---:|
+| Stripped | 33,812 | 39,230 | 519 | 42 | -2.125 ns | +0.058 ns |
+| Frame counters | 36,101 | 42,660 | 519 | 42 | -2.514 ns | +0.044 ns |
+
+The stripped worst path goes through late operand selection, the new shift
+selector and the ALU into `check_ff`; data delay is 10.937 ns across seven
+logic levels, with 67% routing delay. The stripped parent's -1.735 ns and
+frame parent's -2.082 ns are both better. No constraint/framework changes.
+
+Hardware boots idle by 50 seconds in both games. Fresh matched stopped THPS
+windows give 21.541667 → 21.750000 complete/changing uploads/s (24 pairs),
+53.253484 → 53.807554 M instructions/s. Settled CoD gives 7.566667 → 7.700000
+complete uploads/s (30 pairs), 61.307488 → 62.513849 M instructions/s; both
+stationary views repeat unchanged images. A supplemental held-right turning
+window gives 10.250000 → 10.333333 complete/changing uploads/s (24 pairs),
+60.315845 → 61.796110 M instructions/s. Screenshots confirm actual movement.
+These are single windows; the turning trajectories and absolute boot times
+are not identical. The initial control turning attempt failed to resume
+from the pause menu and is explicitly rejected, never counted as gameplay.
+All valid samples have no CPU/loader error, incomplete or untracked upload.
+
+The late-shift trial is set aside: the small measured game changes do not
+justify its worse timing. No root functional change is promoted and this
+is not the requested five-FPS gain. Detailed artifacts and comparison:
+`research/late-shift/hardware-comparison.json`, `active-experiments-late-shift.json`.
+Original stripped build and display settings are now being restored.
+
+Restoration is complete: original RBF, INI and CFG hashes match; the phone
+is visibly idle at the 50-second check. Temporary input/capture helpers,
+CPU simulations and Quartus containers are stopped. Evidence:
+`hardware/late-shift-restored-stripped104/manifest.json` and `boot50.png`.
+The original build still has its known -1.301 ns setup failure. Neither the
+five-FPS improvement nor 104 MHz timing closure has been achieved.
+
+
+## Fixed-time PC workload sampler: validated, fitting
+
+The isolated `tlb-fix-rfpcsample104-s13` diagnostic replaces only the combined
+retirement observer with fixed-time samples of the last retired PC/opcode,
+mode and instantaneous pipeline/stall/WFI flags. One sample every 4,093 clocks
+at 104 MHz gives 32 windows of about 40 ms each, roughly 1.29 seconds of
+sampled coverage across the existing jittered capture schedule. A recorded
+PC is a coarse workload location, not the cause of a concurrent stall.
+
+CPU source/generated files, MiSTer framework, QSF and SDC are byte-identical
+to `tlb-fix-rfcombinedretire104-s13`. Whole-core lint with and without debug
+and generated freshness pass. Three independent producer/dump scoreboards
+pass at small geometry, full 1,024-entry depth and the production 4,093-clock
+cadence, including wrap, backpressure and reset during an incomplete dump.
+The reader round-trips these fixtures, rejects 13 malformed/incomplete
+production cases, and reconstructs 32,768 synthetic samples across a 32-bit
+clock wrap. Synthetic opcode mapping locates 513 distinct PCs in each
+original game and rejects unrelated words; an end-to-end synthetic analysis
+also checks 16 ROM words and resolves the EUser module from its ROM header.
+
+A Yosys sequential equivalence proof compares all loader request controls
+with the old recorder under arbitrary reset and loader backpressure. Producer
+inputs are verified absent from the request-schedule cone; payload and trace
+PC intentionally differ. This proves the same request schedule, not physical
+timing or zero diagnostic overhead. The same reserved DDR area is retained.
+An Ubuntu Quartus fit is running; the original board build/settings remain
+restored. No functional optimization, new FPS result or root RTL promotion
+is claimed. Evidence: `build/timing-closure/research/pc-sample/`,
+`tlb-fix-rfpcsample104-s13/build/validation/`, and the active experiment JSON.
+
+The fixed-time sampler fit completes with 36,602 ALMs, 43,316 registers,
+532 M10Ks, 42 DSPs and 4,131,241 block-memory bits. Minimum setup/hold across
+all corners is -2.765/+0.102 ns; it remains a diagnostic with failing setup.
+RBF SHA-256: `f1ab3d3bb0396da238020085d152f7aa23bf0c0d50769c8e2e267bf50b61dc37`.
+A separate `Test104MHz_PCSample` folder uses the original game cards and
+existing C: save. Original INI/CFG are backed up in
+`hardware/pcsample104-staging`; Direct Video is temporarily off. THPS reaches
+phone idle at the 50-second check, the old trace headers are cleared and
+verified, and the established game sequence is running. Hardware profile and
+FPS results remain pending. No functional CPU change or promotion.
+
+The fixed-time diagnostic completes on both games. Whole-region double reads
+are stable; all 32 windows and 32,768 records per game pass production
+geometry/cadence checks (1.28835046 seconds of sampled spans). THPS matches
+5,584/5,584 distinct game PCs at 0xff900000 and 6,023/6,023 sampled ARM ROM
+words. CoD matches 4,628/4,628 PCs at 0xfff00000 and 4,240/4,240 ROM words;
+weak DLL guesses are rejected. Both phone boots are idle by 50 seconds.
+The first CoD attempt missed the scene-start deadline and is explicitly
+excluded; the successful capture is `pcsample104-cod-recheck`.
+
+THPS measures 21.500 complete/changing uploads/s over 24 paired snapshots
+(53.205856 M instructions/s) and 21.666667 over six post-trace pairs. CoD
+gives 7.566667 complete uploads/s over 30 pairs (60.979063 M instructions/s),
+and 7.666667 over six post-trace pairs. Its changing-picture rate settles
+from 1.3 to 0/s as the stationary animation settles; that is not throughput.
+No CPU/loader fault or incomplete/untracked upload is sampled. These results
+are consistent with the prior combined reference and claim no new FPS gain.
+
+Game-code sample shares are 75.906% THPS and 82.739% CoD. The ROM hotspot is
+EUser Mem::Copy/Move (0x503a1d10..0x503a254b), verified from exports and
+disassembly: 8.282%/1.929% of samples. No WFI sample occurs. Multiply wait
+occupies 0.699%/0.421%; no-retirement D-empty 15.958%/11.588%; data-fill-busy
+11.865%/11.084%. These overlapping flags cannot be added as attainable
+speedup or blamed on the last retired instruction. Windows are correlated,
+not 32,768 independent statistical trials. The main THPS renderer region
+0xff999a00..0xff999b1f accounts for 14.014%; CoD's 0xfff3a800/0xfff3a900
+blocks account for 22.333%. Data now supports prioritizing shared memory
+and fetch stalls over multiply latency or the QD service workaround.
+
+The earlier branch-index fold already improved hit counts without useful
+FPS gain, so it is not repeated blindly. The diagnostic's leading hot
+timing path is A[134] through address generation into large-page TLB
+`g_short.read_valid` (11.489 ns data delay, seven levels); the all-corner
+setup minimum remains -2.765 ns. Balancing that validity lookup across its
+existing register edge is a candidate timing experiment, not implemented
+or proven by the profiling work.
+
+Original RBF/INI/CFG restoration is SHA-256 verified, the original phone is
+visibly idle at 50 seconds, and temporary input/capture helpers and Quartus
+containers are stopped. Evidence: `research/pc-sample/hardware-result.json`,
+`hardware/pcsample-restored-stripped104/manifest.json` and `boot50.png`.
+The five-FPS gain and 104 MHz timing closure remain unachieved.
+
+### TLB validity timing experiment completed (2026-10-28)
+
+Two isolated combined-parent variants balance validity selection around its
+existing clock edge, with two banks or a full bitmap snapshot. All 24
+sequential equivalence configurations pass, and all 168 focused CPU records
+match source, generated and parent exactly (40,993,262 passed clocks per
+model). RAM data/ports, other RTL, framework and constraints remain identical.
+Whole-core lint and generated freshness pass; no added CPU cycle is intended.
+
+Both Ubuntu fits fail setup and are worse than the -1.735 ns parent: two-bank
+-2.634/+0.083 ns setup/hold, 33,840 ALMs, 39,326 registers; bitmap
+-2.018/+0.114 ns, 34,686 ALMs, 39,943 registers. Both use 519 M10Ks and 42 DSPs.
+Neither is deployed or promoted. All artifacts and checks are retained under
+`build/timing-closure/research/tlb-valid-balance/` and its active-state file.
+Build containers exited; the original hardware remains restored. The goal
+is still unachieved.
+
+### D-cache set-colour experiment started (2026-10-28)
+
+An isolated combined-parent trial folds VA[17:16] into the extra D-cache
+colours VA[13:12], retaining the software-reported index, capacities and
+16-byte lines. The I-cache mapping is unchanged. The shared mapping is used
+by lookups, writes, LRU, by-MVA maintenance, forwarding and victim exclusion;
+by-index operations still visit every physical colour. Six map proofs pass,
+but they do not establish the full cache protocol or any game performance.
+
+The first broader run identifies a stale raw-index/16 KiB testbench check;
+the isolated scoreboard is corrected for actual geometry without removing
+the alignment/victim/permission checks. A directed store during an eviction
+also catches an incomplete victim comparison in the prototype. The corrected
+version passes all four directed bus latencies and all 51 focused source
+records (86,048,466 clocks), with unchanged shared signatures. Changed trace
+fields still require audit. Whole-core/source lint and generated freshness
+pass with narrow existing-warning waivers. Original failed results remain.
+
+The deliberately conflicting four-buffer loop falls from 8,853 to 1,315
+cycles at zero added latency. This is a synthetic mechanism check, not FPS.
+Full source/generated regressions and two Ubuntu fits are running. An old
+LRU test's assumed collisions change; a matching test using addresses that
+still collide is prepared for separate validation. No hardware deployment
+or root functional promotion. Evidence and remaining checks are recorded in
+`build/timing-closure/research/cache-colour-fold/checkpoint.md` and
+`active-experiments-cache-colour-fold.json`.
+
+### D-cache set-colour experiment completed (2026-10-28)
+
+Full source/generated runs match all 351 records exactly: 330 passes and
+21 failures (15 pre-existing policy expectations, six old test cases whose
+assumed addresses no longer collide). The same positive LRU/way checks with
+colliding addresses pass all 18 parent/source/generated configurations.
+Adapted IRQ-copy checks pass six runs with 37,917 iterations per model and
+zero error fields. All 18 changed non-interrupt trace audits pass across
+11,024,466 records; only pending-register availability differs. Original
+failed results and the prototype victim-exclusion negative test are retained.
+
+Both fits fail: stripped -2.224/+0.095 ns setup/hold (33,708 ALMs), frame
+observer -1.875/+0.108 ns (35,711 ALMs), both 519 M10Ks and 42 DSPs.
+The stripped parent is better at -1.735 ns.
+
+Matched hardware THPS gives 21.083333 → 21.500000 complete/changing uploads/s
+(24 valid pairs); CoD 7.566667 → 7.833333 full uploads/s (30 pairs), with
+near-identical CoD instruction throughput. CoD's animation settles only in
+the candidate; its zero changing-image count is not throughput. The first
+THPS candidate capture repeats one window and fails count validation; it is
+retained, and a capture-helper correction gives the clean repeat above.
+Boots are idle by 50 s; no sampled CPU/loader or upload errors. These small
+single-window differences do not establish a useful FPS gain. Set aside,
+no root functional promotion. RBF/INI/CFG restoration hashes are verified;
+boot verification is pending. Full evidence is in
+`build/timing-closure/research/cache-colour-fold/hardware-result.json`.
+
+Original stripped build is visibly at phone idle by 50 seconds after restoration. INI/CFG/RBF hashes match, and temporary input helpers and Quartus containers are stopped. Restoration evidence: `hardware/dcolour-restored-stripped104/manifest.json`.
+
+### TLB access-permission timing trial (2026-10-28)
+
+An isolated combined-parent variant factors `!(busy || fault)` in the TLB
+producer. A failed-walk fault already implies busy, so its address comparator
+is unnecessary in the normal access-permission path. The existing fault,
+FSR/FAR and wait outputs retain their behavior. The D-cache uses this single
+permission and retains alignment/MMU/wait priority. No pipeline stage, clock,
+cache capacity, framework source or timing constraint changes.
+
+Temporal induction proves the new permission identical after reset for
+arbitrary inputs. A separate Boolean proof includes stale-check handling.
+Full cache-controller equivalence passes 1,417 and 1,420 obligations for
+LOCK_SPLIT 0/1 using that proved identity. Whole-core/source lint and generated
+freshness pass. The isolated bench's D-set reference is corrected from its
+obsolete 16 KiB assumption to the actual 32 KiB, retaining all assertions.
+The source model has matched the first 259 of 348 parent records exactly;
+full source/generated comparisons and one Ubuntu Quartus fit are running.
+No hardware deployment or performance/timing success is claimed. Original
+stripped RBF/INI/CFG remain restored and boot-checked. Details and live handles:
+`build/timing-closure/research/tlb-access-ready/checkpoint.md` and
+`active-experiments-tlb-access-ready.json`.
+
+Full source regression completes: all 348 records exactly match the parent,
+including status, traces, signatures and cycle/instruction counts. There are
+333 passes, the same 15 known policy-expectation failures, and 397,977,778
+passed clocks. This run includes the corrected 32 KiB scoreboard geometry.
+The generated model has matched its first 66 records. It and Quartus are
+still running; no local simulation remains. No hardware change or promotion.
+
+#### TLB permission first fit and matched controls
+
+The candidate seed-13 fit completes: setup **-1.615 ns**, hold **+0.109 ns**,
+34,439 ALMs, 39,431 registers, 519 M10Ks, 42 DSPs, 4,000,169 memory bits.
+The worst path is CPU M[70] to execute o_redirect (10.496 ns, seven levels).
+RBF SHA-256: 806b823c88ff4b14e7be92754a92004fdb08f1ee0d113d66bb24707be58c8c40.
+Timing still fails; it is not deployed.
+
+The 0.120 ns improvement over the historical parent is small enough to be
+placement variation. Three Ubuntu fits now provide matched controls: the
+unchanged combined parent at seeds 13 and 14, and this candidate at seed 14.
+Each arm retains byte-identical RTL/framework/constraints except its intended
+seed. All four fits (including completed candidate seed 13) use generated
+BUILD_DATE 261028; the existing framework timestamp code is not modified.
+This also removes the historical parent's older build-date confound. Verify
+the generated dates after the remaining fits; all final slacks are pending.
+Exactly three Quartus builds are running, plus the single generated CPU
+regression on Ubuntu. The Mac has no active simulation. State handles and
+provenance are retained in active-experiments-tlb-access-ready.json and
+paired-fit-manifest.json. The full source regression already matches all
+348 parent records; full generated validation remains pending.
+
+## Full source/generated validation complete
+
+The generated model also completes all 348 records exactly equal to both
+source and parent: 333 passes, the same 15 known policy-expectation failures,
+397,977,778 passed cycles per model. Every outcome, trace hash, signature and
+cycle/instruction count agrees. The corrected 32 KiB bench is used on both
+models. No simulator is still running. The first fit remains -1.615 ns and
+three matched date/seed fits remain pending; no deployment or promotion.
+All four build dates are now verified as 261028. The historical parent log
+confirms 261027 (its fit finished October 27 at 23:24 UTC).
+
+A possible next timing lead, not implemented: candidate seed 13's worst
+path is M[70] (m.result[1][10], confirmed by generated mw_value = m[91-:64])
+through late operand forwarding and BX target equality into o_redirect.
+Comparing possible forwarded BX targets against the prediction before the
+late source selection may shorten that path without adding a cycle. It
+requires proof over all forwarding priorities, hold/return/shift cases and
+ARM/Thumb target alignment; no improvement is assumed. Wait for paired
+fits before selecting a parent for any next implementation.
+
+### Matched TLB fits and BX comparison trial (2026-10-28)
+
+The matched TLB fits complete with mixed results: seed 13 control/candidate
+setup is -1.970/-1.615 ns, seed 14 -1.657/-1.822 ns. All four use BUILD_DATE
+261028; hold passes, setup fails. This does not establish a repeatable timing
+improvement. Candidate 13 is used only as the best observed isolated parent;
+no root promotion or hardware deployment. Full source/generated CPU results
+remain exactly equal to the parent across all 348 records.
+
+Isolated BX trials at seeds 13 and 14 move target equality before the late
+operand selection, without changing the selected target or adding a stage.
+Combinational proof covers all sources, RRX and ARM/Thumb alignment. Temporal
+induction on the actual execute module proves both the reachable selector
+invariant and the candidate comparison's equality with the original on
+every valid A stage; a positive reachability cover passes. Lint and generated
+freshness pass. Full source/generated regressions and two Ubuntu Quartus
+fits are running. No measured timing or FPS improvement is claimed yet.
+Evidence: build/timing-closure/research/bx-compare/ and
+active-experiments-bx-compare.json. Original stripped hardware remains restored.
+
+Both BX fits fail setup: seed 13 -2.482/+0.085 ns setup/hold, seed 14
+-1.821/+0.074 ns. Compared with their matched parents, this is -0.867/+0.001 ns;
+there is no useful improvement. Both use 519 M10Ks and 42 DSPs. Source and
+generated regressions finish exactly equal to the parent across all 348
+records (333 passes, same 15 known failures, 397,977,778 passed cycles).
+The trial is set aside without hardware deployment or root promotion.
+
+An independent diagnostic on the combined FrameV2 parent now measures
+next-line read-ahead opportunities. It issues no speculative requests and
+changes no memory behavior. One shadow requires an uninterrupted twelve-clock
+idle gap within a physical row; a second ignores fill time to measure
+next-line locality. Every write invalidates both shadows. Formal controller
+equivalence passes all 794 obligations, and 1,218 component event checks cover
+interruptions, refresh, writes, reset and address boundaries. Debug/stripped
+lint pass with narrowly scoped existing warnings verified against the parent.
+CPU/framework files, clocks and constraints are unchanged. One Ubuntu fit is
+running; no hardware result or FPS gain is claimed. Evidence and live handle:
+research/sdram-read-ahead/ and active-experiments-read-ahead.json under
+build/timing-closure. The original stripped board configuration remains restored.
+
+### Load-lock query timing trial (2026-10-28)
+
+The actual cache input derives reads/writes from complementary cpu_dc_we
+polarities. A load cannot enter the posted-store branch, so its lock-query
+summaries can use a direct load-miss condition without waiting for dirty
+physical-victim alias/posting eligibility. Two isolated TLB-ready-parent
+trials at seeds 13/14 retain the original bitmap, cache and bus updates.
+Only zap_dcache_fsm.sv and the regenerated CPU change; no stage or clock is
+added. This differs from the earlier reduction-only lock-any experiment.
+
+Proof verifies and composes the actual production read/write wiring with
+both full controllers. All other inputs and both CPU we/stb inputs remain
+arbitrary. Full equivalence passes 1,419/1,421 obligations for LOCK_SPLIT
+0/1 at 32 KiB/two ways. Lint/freshness pass. Full source/generated CPU
+regressions and two Ubuntu fits are running alongside the one read-ahead
+observer fit. No deployment or measured timing/FPS improvement yet. Evidence:
+build/timing-closure/research/load-lock/ and active-experiments-load-lock.json.
+
+The load-lock trial is complete and set aside. Source/generated results match
+all 348 parent records exactly (333 pass, same 15 known failures, 397,977,778
+passed cycles). Both fits worsen setup: -2.164/+0.077 ns at seed 13,
+-2.041/+0.101 ns at seed 14; both 519 M10Ks/42 DSPs. No deployment/promotion.
+
+### Read-ahead opportunities measured; original hardware restored
+
+The observer fit is -2.039/+0.111 ns setup/hold, 35,700 ALMs, 42,460 registers,
+519 M10Ks and 42 DSPs. It runs the expected THPS/CoD scenes with phone idle
+by 50 seconds. THPS: 24 verified pairs, 21.208333 complete/changing uploads/s,
+17.2121% quiet-buffer line hits and 35.5046% ideal next-line hits. Only 48.6442%
+of quiet attempts finish without interference. CoD: 30 pairs, 7.6 complete
+uploads/s, 11.8463% quiet and 21.3491% ideal hits; 63.3199% complete attempts.
+The CoD background is settled, so zero changing images is not zero throughput.
+All accepted samples have no observed CPU/loader/malformed-upload errors.
+
+These shadows leave memory behavior unchanged and do not demonstrate an FPS
+gain. The first CoD boot misses the scripted launch deadline before game
+input and is excluded; a fresh repeat meets the start/settle schedule.
+Original RBF/INI/CFG hashes are restored, idle is visually checked at 50 s,
+and all temporary helpers, simulators and fit containers have exited. Evidence:
+research/sdram-read-ahead/hardware-result.json and
+hardware/readahead-restored-stripped104/manifest.json under build/timing-closure.
+
+Next candidate is reuse of repeated SDRAM word reads: the measured word-read
+rates are substantial, but repeat frequency/FPS benefit is still unknown.
+Investigation notes are in research/sdram-word-buffer/checkpoint.md; no new
+buffer is implemented. The demonstrated +3.5 THPS FPS remains below the
+requested five-FPS gain, and 104 MHz timing closure remains unachieved.
+
+
+## 2026-10-28 — SDRAM repeated-word buffer tested, set aside
+
+The isolated single-word buffer passes independent SDRAM data/timing checks, refresh stress, all four negative timing controls, disabled-feature equivalence, CPU/DMA integration and stripped/debug lint. The two 104 MHz fits still fail setup: -2.272 ns stripped and -2.109 ns with frame counters; both use 519 M10Ks and 42 DSPs. Fresh paired-scene hardware windows give THPS 21.166667 -> 21.458333 complete/changing uploads/s and CoD 7.900000 -> 7.766667 complete uploads/s. These small single-window differences do not demonstrate a useful two-game gain. Both games boot idle by 50 seconds, run and pause without sampled CPU/loader errors or incomplete/untracked uploads. Trial set aside; original stripped build, INI/CFG and original THPS card restored and hash verified, with idle visible by 50 seconds. Evidence: `build/timing-closure/research/sdram-word-buffer/` and `hardware/wordbuffer-restored-stripped104/` beneath timing-closure.
+
+A separate direct dirty-metadata address selection removes a cascaded selector without adding a cycle. Twenty unrestricted expression equivalence checks, source/generated cache miters in four configurations and whole-core lint pass. Two same-day paired-seed fits are running; no deployment or timing gain is claimed. Evidence: `build/timing-closure/research/dirty-read-address/`. The +5 FPS and timing-closure goals remain unmet.
+
+### 2026-10-28 — Dirty-address fits rejected; explicit LCD RAM packing validated
+
+- The direct dirty-metadata address expression is formally/cycle-equivalent but both completed fits regress matched same-day controls: seed13 -2.462 ns versus -1.970; seed14 -2.089 versus -1.657. Holds remain positive. No deployment or promotion. Source hashes and unrelated-file comparisons pass. Evidence: `build/timing-closure/research/dirty-read-address/`.
+- A standalone Quartus 17 probe confirms the LCD framebuffer can use 59 M10Ks instead of 72 by explicitly selecting 2048x5 memory shapes for three bit planes, plus one inferred bit plane. The previously tried inferred split uses 74 because Quartus splits five-bit planes inefficiently. All 585,728 bits and OLD_DATA behavior are retained; no DDR or clock change. This resource result is not a whole-core timing result.
+- Intel's actual RAM model passes two seeds, 435,360 reads, all pixel addresses/colors, collisions, immediate readback and bank boundaries. A DONT_CARE collision mutant fails as intended. The full LCD reference bench passes 2,436,315 clocks, and whole-core/source lint passes. Only the isolated candidate's LCD source changes; CPU/framework/constraints are byte-identical.
+- Two full-core candidates `tlb-fix-rflcdpack104-s13` and `-s14` are fitting on Ubuntu against same-date combined controls. Evidence and live handles: `build/timing-closure/research/lcd-ram-packing/checkpoint.md`. No hardware deployment or claimed FPS gain; the full timing/performance goal remains active.
+
+### 2026-10-28 — Extend explicit memory packing to flash data banks
+
+The four 16384x16 flash-cache data banks have the same registered-read and old-data collision contract as the LCD memory. Two isolated combined candidates use one shared core-local packed-RAM helper for LCD and flash. The existing generic sdp_ram implementation, flash tags/control, 128 KiB capacity, CPU/generated CPU, framework, clocks and constraints remain unchanged. Expected additional saving is 24 M10Ks, pending full fitting; no whole-core saving or timing result is claimed yet.
+
+Intel's actual primitive model passes two seeds at the flash banks' real depth (394,912 checked reads), with all addresses/colors, collisions, immediate readback and boundaries. The DDR/flash reference suite passes 393,030 clocks, including both chip ports, read hits/misses, programming/erase writes, reload invalidation, reset and Avalon behavior. The LCD suite passes again over 2,436,315 clocks, and whole-core/source lint passes. No local simulation remains active.
+
+The LCD-only fits remain live. Two additional Ubuntu fits test the combined change at seeds13/14; total four builds, within the user's ceiling. The source-verified collector `research/lcd-ram-packing/collect_core_fits.py` records completed fits and treats missing outputs as pending. Live handles, exact hashes, validation and checkpoints are under `build/timing-closure/research/lcd-ram-packing/` and `active-experiments-lcd-packing.json`. No hardware deployment or performance claim.
