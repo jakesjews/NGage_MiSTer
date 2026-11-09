@@ -50,6 +50,9 @@ input   logic   [31:0]           i_baddr,
 
 input   logic   [31:0]           i_address,
 input   logic                    i_idle,
+input   logic                    i_access_done,
+input   logic                    i_access,
+input   logic                    i_inv,
 
 // ----------------------------------------------------------------------------
 // From TLB check unit.
@@ -116,7 +119,8 @@ localparam [2:0]  FETCH_L1_DESC        = 2; // Fetch L1 descriptor
 localparam [2:0]  FETCH_L2_DESC        = 3; // Fetch L2 descriptor
 localparam [2:0]  FETCH_L1_DESC_0      = 4;
 localparam [2:0]  FETCH_L2_DESC_0      = 5;
-localparam [31:0] NUMBER_OF_STATES     = 6;
+localparam [2:0] TRANSLATION_FAULT    = 6;
+localparam [31:0] NUMBER_OF_STATES     = 7;
 
 // ----------------------------------------------------------------------------
 
@@ -131,6 +135,8 @@ logic [3:0]                          wb_sel_nxt, wb_sel_ff;
 logic [31:0]                         dff, dnxt;
 logic                                unused;
 logic                                walk, examine_fsr;
+logic [7:0] walk_fault_fsr;
+logic walk_fault, fault_match;
 
 // ----------------------------------------------------------------------------
 
@@ -178,16 +184,25 @@ assign o_cacheable = i_cacheable;
 
 // Key conditions.
 assign walk        = state_ff[IDLE] & i_mmu_en & i_idle &  i_walk;
-assign examine_fsr = state_ff[IDLE] & i_mmu_en & i_idle & ~i_walk;
+assign examine_fsr = (state_ff[IDLE] || state_ff[TRANSLATION_FAULT]) & i_mmu_en & i_idle & ~i_walk;
 
 // Busy when going to walk or walking.
-assign o_busy  = walk | (~state_ff[IDLE]);
+assign o_busy  = walk | (~state_ff[IDLE] && (!state_ff[TRANSLATION_FAULT] || i_walk));
 
-// Access violation detection condition.
-assign o_fault = examine_fsr & |i_fsr[3:0];
+// ARM DDI0100I B4.5.1: a translation-fault descriptor must not enter a TLB.
+// A failed walk is a response, never a TLB entry. Section faults cover
+// the L1 descriptor's megabyte; page faults use the smallest L2 granule.
+// The check also runs during replay bubbles, so only an actual request
+// may consume or cancel this response (especially across a fetch boundary).
+assign fault_match = walk_fault_fsr[3:0] == FSR_SECTION_TRANSLATION_FAULT ?
+                     i_far[31:20] == address[31:20] :
+                     i_far[31:10] == address[31:10];
+assign walk_fault = state_ff[TRANSLATION_FAULT] && i_mmu_en && !i_inv &&
+                    i_idle && i_walk && fault_match;
+assign o_fault = (examine_fsr & |i_fsr[3:0]) || walk_fault;
 
 // Generate FSR and FAR on fault - else drive 0.
-assign o_fsr   = o_fault ? i_fsr : 'd0;
+assign o_fsr   = walk_fault ? walk_fault_fsr : o_fault ? i_fsr : 'd0;
 assign o_far   = o_fault ? i_far : 'd0;
 
 // Domain access control. Holds DAC_SEL for future use. Useful when reloading
@@ -215,19 +230,16 @@ assign dnxt = (state_ff[FETCH_L2_DESC_0] | state_ff[FETCH_L1_DESC_0])
 ////////////////////////////
 
 // L1
-assign o_setlb_wen = state_ff[FETCH_L1_DESC] && (dff[`ZAP_DESC_ID] inside {SECTION_ID, 2'b00});
+assign o_setlb_wen = state_ff[FETCH_L1_DESC] && (dff[`ZAP_DESC_ID] == SECTION_ID);
 
 // L2
-assign o_sptlb_wen = state_ff[FETCH_L2_DESC] && (dff[`ZAP_DESC_ID] inside {SPAGE_ID, 2'b00});
+assign o_sptlb_wen = state_ff[FETCH_L2_DESC] && (dff[`ZAP_DESC_ID] == SPAGE_ID);
 assign o_lptlb_wen = state_ff[FETCH_L2_DESC] && (dff[`ZAP_DESC_ID] == LPAGE_ID);
 assign o_fptlb_wen = state_ff[FETCH_L2_DESC] && (dff[`ZAP_DESC_ID] == FPAGE_ID);
 
 //////////////////////////
 // TLB WRITE DATA
 //////////////////////////
-
-// NOTE: Assigning errors to LPTLB and FPTLB is no use since those are written
-// as sections/small pages.
 
 // SETLB
 
@@ -307,7 +319,15 @@ begin
 
                 case ( dff[`ZAP_DESC_ID] )
 
-                SECTION_ID, 2'b00:
+                2'b00:
+                begin
+                        wb_stb_nxt = 0;
+                        wb_cyc_nxt = 0;
+                        wb_sel_nxt = 0;
+                        state_nxt = 'd1 << TRANSLATION_FAULT;
+                end
+
+                SECTION_ID:
                 begin
                         //
                         // It is a section itself so there is no need
@@ -363,9 +383,21 @@ begin
                 wb_stb_nxt = 0;
                 wb_cyc_nxt = 0;
                 wb_sel_nxt = 0;
-                state_nxt = 'd1 << IDLE;
+                state_nxt = 'd1 << (dff[`ZAP_DESC_ID] == 2'b00 ? TRANSLATION_FAULT : IDLE);
 
-                // Write to TLB here. See assigns.
+                // Write only valid descriptors to the TLB.
+        end
+
+        state_ff[TRANSLATION_FAULT]:
+        begin
+                wb_stb_nxt = 0;
+                wb_cyc_nxt = 0;
+                wb_sel_nxt = 0;
+                // A retry bubble is not a redirect. Keep the failed walk
+                // until a real access finishes or another miss replaces it.
+                state_nxt = i_access_done || i_inv || !i_mmu_en ||
+                            (i_access && i_walk && !fault_match) ?
+                            'd1 << IDLE : state_ff;
         end
 
         // ---------------------------------------
@@ -382,6 +414,14 @@ begin
         end
 
         endcase
+end
+
+// Preserve the fault type/domain while returning the failed walk.
+always_ff @(posedge i_clk) begin
+        if (state_ff[FETCH_L1_DESC])
+                walk_fault_fsr <= {dff[`ZAP_L1_SECTION__DAC_SEL], FSR_SECTION_TRANSLATION_FAULT};
+        else if (state_ff[FETCH_L2_DESC])
+                walk_fault_fsr <= {dac_ff, FSR_PAGE_TRANSLATION_FAULT};
 end
 
 // Clocked Logic.

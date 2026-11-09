@@ -7995,6 +7995,8 @@ module zap_cache (
 		.i_address_nxt(i_address_nxt),
 		.i_address_check(i_address_check),
 		.i_idle(idle),
+		.i_access(i_rd || i_wr),
+		.i_access_done(((o_ack && (i_rd || i_wr)) && !o_err2) && !i_stall),
 		.i_wr_check(i_wr_check),
 		.i_rd_check(i_rd_check),
 		.i_hold(hold || i_stall),
@@ -11231,6 +11233,8 @@ module zap_dcache (
 		.i_address_nxt(i_address_nxt),
 		.i_address_check(i_address_check),
 		.i_idle(idle),
+		.i_access(i_rd || i_wr),
+		.i_access_done(((o_ack && (i_rd || i_wr)) && !o_err2) && !i_stall),
 		.i_wr_check(i_wr_check),
 		.i_rd_check(i_rd_check),
 		.i_hold((hold || i_stall) || ((fill_busy && (i_rd || i_wr)) && !o_ack)),
@@ -12875,6 +12879,9 @@ module zap_tlb_fsm (
 	i_baddr,
 	i_address,
 	i_idle,
+	i_access_done,
+	i_access,
+	i_inv,
 	i_walk,
 	i_fsr,
 	i_far,
@@ -12919,6 +12926,9 @@ module zap_tlb_fsm (
 	input wire [31:0] i_baddr;
 	input wire [31:0] i_address;
 	input wire i_idle;
+	input wire i_access_done;
+	input wire i_access;
+	input wire i_inv;
 	input wire i_walk;
 	input wire [7:0] i_fsr;
 	input wire [31:0] i_far;
@@ -13229,11 +13239,12 @@ module zap_tlb_fsm (
 	localparam [2:0] FETCH_L2_DESC = 3;
 	localparam [2:0] FETCH_L1_DESC_0 = 4;
 	localparam [2:0] FETCH_L2_DESC_0 = 5;
-	localparam [31:0] NUMBER_OF_STATES = 6;
+	localparam [2:0] TRANSLATION_FAULT = 6;
+	localparam [31:0] NUMBER_OF_STATES = 7;
 	reg [3:0] dac_ff;
 	wire [3:0] dac_nxt;
-	reg [5:0] state_ff;
-	reg [5:0] state_nxt;
+	reg [6:0] state_ff;
+	reg [6:0] state_nxt;
 	reg wb_stb_nxt;
 	reg wb_stb_ff;
 	reg wb_cyc_nxt;
@@ -13248,6 +13259,9 @@ module zap_tlb_fsm (
 	wire unused;
 	wire walk;
 	wire examine_fsr;
+	reg [7:0] walk_fault_fsr;
+	wire walk_fault;
+	wire fault_match;
 	(* preserve, dont_retime *) reg launch_l1_ff;
 	always @(posedge i_clk) begin
 		if (i_reset)
@@ -13275,15 +13289,17 @@ module zap_tlb_fsm (
 	assign o_phy_addr = i_phy_addr;
 	assign o_cacheable = i_cacheable;
 	assign walk = ((state_ff[IDLE] & i_mmu_en) & i_idle) & i_walk;
-	assign examine_fsr = ((state_ff[IDLE] & i_mmu_en) & i_idle) & ~i_walk;
-	assign o_busy = walk | ~state_ff[IDLE];
-	assign o_fault = examine_fsr & |i_fsr[3:0];
-	assign o_fsr = (o_fault ? i_fsr : 'd0);
+	assign examine_fsr = (((state_ff[IDLE] || state_ff[TRANSLATION_FAULT]) & i_mmu_en) & i_idle) & ~i_walk;
+	assign o_busy = walk | (~state_ff[IDLE] && (!state_ff[TRANSLATION_FAULT] || i_walk));
+	assign fault_match = (walk_fault_fsr[3:0] == FSR_SECTION_TRANSLATION_FAULT ? i_far[31:20] == address[31:20] : i_far[31:10] == address[31:10]);
+	assign walk_fault = ((((state_ff[TRANSLATION_FAULT] && i_mmu_en) && !i_inv) && i_idle) && i_walk) && fault_match;
+	assign o_fault = (examine_fsr & |i_fsr[3:0]) || walk_fault;
+	assign o_fsr = (walk_fault ? walk_fault_fsr : (o_fault ? i_fsr : 'd0));
 	assign o_far = (o_fault ? i_far : 'd0);
 	assign dac_nxt = (state_ff[FETCH_L1_DESC] ? (dff[1:0] == PAGE_ID ? dff[8:5] : (dff[1:0] == FINE_ID ? dff[8:5] : dac_ff)) : dac_ff);
 	assign dnxt = (state_ff[FETCH_L2_DESC_0] | state_ff[FETCH_L1_DESC_0] ? (i_wb_ack | i_wb_err ? {i_wb_dat[31:2], (i_wb_err ? 2'd0 : i_wb_dat[1:0])} : dff) : dff);
-	assign o_setlb_wen = state_ff[FETCH_L1_DESC] && |{dff[1:0] == SECTION_ID, dff[1:0] == 2'b00};
-	assign o_sptlb_wen = state_ff[FETCH_L2_DESC] && |{dff[1:0] == SPAGE_ID, dff[1:0] == 2'b00};
+	assign o_setlb_wen = state_ff[FETCH_L1_DESC] && (dff[1:0] == SECTION_ID);
+	assign o_sptlb_wen = state_ff[FETCH_L2_DESC] && (dff[1:0] == SPAGE_ID);
 	assign o_lptlb_wen = state_ff[FETCH_L2_DESC] && (dff[1:0] == LPAGE_ID);
 	assign o_fptlb_wen = state_ff[FETCH_L2_DESC] && (dff[1:0] == FPAGE_ID);
 	assign o_setlb_wdata[31:0] = dff[31:0];
@@ -13330,7 +13346,13 @@ module zap_tlb_fsm (
 			end
 			state_ff[FETCH_L1_DESC]:
 				case (dff[1:0])
-					SECTION_ID, 2'b00: begin
+					2'b00: begin
+						wb_stb_nxt = 0;
+						wb_cyc_nxt = 0;
+						wb_sel_nxt = 0;
+						state_nxt = 64;
+					end
+					SECTION_ID: begin
 						wb_stb_nxt = 'd0;
 						wb_cyc_nxt = 'd0;
 						wb_sel_nxt = 'd0;
@@ -13359,7 +13381,13 @@ module zap_tlb_fsm (
 				wb_stb_nxt = 0;
 				wb_cyc_nxt = 0;
 				wb_sel_nxt = 0;
-				state_nxt = 1;
+				state_nxt = 'd1 << (dff[1:0] == 2'b00 ? TRANSLATION_FAULT : IDLE);
+			end
+			state_ff[TRANSLATION_FAULT]: begin
+				wb_stb_nxt = 0;
+				wb_cyc_nxt = 0;
+				wb_sel_nxt = 0;
+				state_nxt = (((i_access_done || i_inv) || !i_mmu_en) || ((i_access && i_walk) && !fault_match) ? 1 : state_ff);
 			end
 			default: begin
 				wb_stb_nxt = 1'sbx;
@@ -13369,6 +13397,11 @@ module zap_tlb_fsm (
 			end
 		endcase
 	end
+	always @(posedge i_clk)
+		if (state_ff[FETCH_L1_DESC])
+			walk_fault_fsr <= {dff[8:5], FSR_SECTION_TRANSLATION_FAULT};
+		else if (state_ff[FETCH_L2_DESC])
+			walk_fault_fsr <= {dac_ff, FSR_PAGE_TRANSLATION_FAULT};
 	always @(posedge i_clk)
 		if (i_reset) begin
 			state_ff <= 1;
@@ -13427,6 +13460,8 @@ module zap_tlb (
 	o_hit_ok,
 	o_hit_ok_short,
 	i_idle,
+	i_access_done,
+	i_access,
 	o_wb_stb_nxt,
 	o_wb_cyc_nxt,
 	o_wb_adr_nxt,
@@ -13468,6 +13503,8 @@ module zap_tlb (
 	output wire o_hit_ok;
 	output wire o_hit_ok_short;
 	input wire i_idle;
+	input wire i_access_done;
+	input wire i_access;
 	output wire o_wb_stb_nxt;
 	output wire o_wb_cyc_nxt;
 	output wire [31:0] o_wb_adr_nxt;
@@ -13993,6 +14030,9 @@ module zap_tlb (
 		.i_cacheable(cacheable),
 		.i_phy_addr(phy_addr),
 		.i_idle(i_idle),
+		.i_access_done(i_access_done),
+		.i_access(i_access),
+		.i_inv(i_inv),
 		.o_fsr(o_fsr),
 		.o_far(o_far),
 		.o_fault(o_fault),
@@ -14025,7 +14065,7 @@ module zap_tlb (
 	always @(posedge i_clk)
 		if (i_reset || !CHECK_WALK)
 			check_stale <= 1'b0;
-		else if (((setlb_wen || sptlb_wen) || lptlb_wen) || fptlb_wen)
+		else if ((((setlb_wen || sptlb_wen) || lptlb_wen) || fptlb_wen) || (o_fault && i_access_done))
 			check_stale <= 1'b1;
 		else if (!i_hold)
 			check_stale <= 1'b0;

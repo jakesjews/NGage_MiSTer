@@ -77,6 +77,8 @@ output  logic            o_busy,
 output  logic            o_hit_ok,      // ARM925T: registered check, independent of walker IDLE.
 output  logic            o_hit_ok_short, // ARM9V2: o_hit_ok's unretimed copy (zap_tlb_check)
 input   logic            i_idle,
+input   logic            i_access_done,
+input   logic            i_access,
 
 // Wishbone memory interface - Needs to go through some OR gates.
 output logic             o_wb_stb_nxt,
@@ -396,6 +398,9 @@ zap_tlb_fsm #(
 .i_phy_addr     (phy_addr),
 
 .i_idle         (i_idle),
+.i_access_done  (i_access_done),
+.i_access       (i_access),
+.i_inv          (i_inv),
 .o_fsr          (o_fsr),
 .o_far          (o_far),
 .o_fault        (o_fault),
@@ -440,11 +445,12 @@ zap_tlb_fsm #(
 // ARM925T: passed straight on, like o_cacheable through zap_tlb_fsm.
 assign o_wt = wt;
 
-// ARM925T, CHECK_WALK: an install makes the registered check stale until
-// it registers again (at the next edge without i_hold).
+// ARM925T, CHECK_WALK: an install or consumed fault makes the registered
+// check stale until it registers again (at the next edge without i_hold).
+// In particular, a consumed abort must not restart its old miss check.
 always_ff @(posedge i_clk)
         if (i_reset || !CHECK_WALK) check_stale <= 1'b0;
-        else if (setlb_wen || sptlb_wen || lptlb_wen || fptlb_wen) check_stale <= 1'b1;
+        else if (setlb_wen || sptlb_wen || lptlb_wen || fptlb_wen || (o_fault && i_access_done)) check_stale <= 1'b1;
         else if (!i_hold) check_stale <= 1'b0;
 
 assign o_busy = fsm_busy || (check_stale && walk && i_mmu_en);

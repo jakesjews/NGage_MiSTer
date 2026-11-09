@@ -524,6 +524,8 @@ u_zap_tlb (
         .i_address_nxt  (i_address_nxt),
         .i_address_check(i_address_check),
         .i_idle         (idle),
+        .i_access       (i_rd || i_wr),
+        .i_access_done  (o_ack && (i_rd || i_wr) && !o_err2 && !i_stall),
         .i_wr_check     (i_wr_check),
         .i_rd_check     (i_rd_check),
         // Preserve all TLB reads and the permission-check result while

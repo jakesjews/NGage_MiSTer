@@ -5,18 +5,15 @@
 @ at W that address is the ALU result (arm9v2_execute o_address = alu_result
 @ in the default case), so a real miss behind an ALU op whose result is some
 @ section's VA made the walker read that section's L1 descriptor and cache
-@ it, though the program never addresses that section. zap_tlb_fsm's
-@ o_setlb_wen fires for a fault descriptor (id 2'b00) as well as a valid
-@ section, and zap_tlb_check turns a cached fault entry straight into a
-@ translation abort (get_fsr_section, tlb[1:0]==00) with no re-walk, or a
-@ cached valid entry into its old physical base.
+@ it, though the program never addresses that section. At the time of
+@ fe65a2d, the shared walker also cached fault descriptors (id 2'b00), so
+@ an unmapped speculative walk could poison a subsequent valid mapping.
+@ That separate bug is covered by mmu_fault_retry.S and has since been fixed.
 @
-@ A cached fault entry surviving a fault->valid remap without a TLB flush is
-@ ordinary ARM behaviour and happens on ZAP too (the architecture requires
-@ the flush). What is V2-specific is caching an entry for a section nothing
-@ ever translates: the kernel has no reason to flush it, so a later mapping
-@ of that section - the moving model remaps a process's data sections on
-@ each switch - hits the stale entry. ZAP and fixed V2 never walk it.
+@ ARM DDI0100I B4.5.1 prohibits caching translation-fault descriptors;
+@ the former comment claiming that this required a TLB flush was wrong.
+@ Valid entries do still need invalidation when remapped. Thus case (c)
+@ continues to distinguish a walk of the wrong address from a proper walk.
 @
 @ Trigger: S (0x13000000, MOV-able, never loaded or stored by the program)
 @ is garbage-walked by placing `mov r3,#S` (ALU, o_address = S) between a
