@@ -128,8 +128,9 @@ The memory system is ZAP's:
   address, so cleaning needs no table walk.
 - MMU: ARMv4 sections, coarse and fine tables with large, small and tiny
   pages, domains, access permissions with S and R, FCSE PID. Separate I and
-  D TLBs, each four direct-mapped buffers (one per page size: 4 sections,
-  8 large, 16 small, 32 tiny pages). A hardware table walker on the bus.
+  D TLBs, each four direct-mapped buffers (one per page size: 64 sections,
+  32 large, 256 small, 64 tiny pages; zap_top's defaults, which arm925t.sv
+  does not override). A hardware table walker on the bus.
 - CP15 (`zap_cp15_cb.sv`): carries out MCR/MRC while the pipeline waits.
 
 ### What was changed for the ARM925T

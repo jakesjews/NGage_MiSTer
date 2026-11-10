@@ -8462,3 +8462,149 @@ The stripped core has no frame counter, so no frame rates were measured in
 this session; the figures for these sources stay those of the
 frame-counter build (Tony Hawk 21.54, Call of Duty 7.57 uploads/s). The
 board is left on the Call of Duty launcher at the phone's idle screen.
+
+## 2026-11-10: exceptions, kernel calls and process switches in the games
+
+The user asked for a frame counter on the board and for tests of whether
+the games' frame rates suffer from exceptions in kernel calls. They do not
+fault at all; the kernel's cost is its process switches, about a tenth of
+the clock, and it is the phone's own behaviour. What limits Call of Duty is
+the number of instructions in a frame.
+
+### The tools
+
+- **Measurement core** (`NGAGE_DEBUG`): the overlay has a second column
+  (x 56..87; `tools/mister_dbg.py` decodes it by its marker) with 27 more
+  per-second counters and five sampled words: the exceptions taken by
+  type; the clocks in User, Supervisor, Undefined and IRQ mode; the
+  privileged clocks charged to the exception that left User mode;
+  instructions retired in User mode; exceptions taken in privileged modes;
+  long kernel calls; and the RH-29 v4.60 kernel's process switch counted
+  where its instructions retire (the DACR write at `0x50324110`, the
+  conditional invalidations of the I-cache, I-TLB and D-TLB at
+  `0x50324134`/`3C`/`44`, the D-cache clean-and-invalidate loop at
+  `0x503224BC`); the PC of one SWI in 64 and of the last data abort,
+  prefetch abort and undefined instruction. No CPU change: the counters
+  use the existing writeback outputs. Seed 3 fitted at -1.843 ns (36,608
+  ALMs); it is the board's debug slot, `_Debug/NGageDbg_20261110.rbf`,
+  with launchers for Tony Hawk, Call of Duty, Sonic N and Asphalt.
+- **Model**: `model/plugins/excprof.c`, a QEMU plugin (`NGAGE_EXCLOG=FILE`
+  in `model/run.sh`) that logs every exception, interrupt and executed
+  CP15 write with the instruction count; `model/tools/excstat.py` reads it
+  as kernel calls by name, invalidations and what precedes them;
+  `model/tools/pcprof.py` sorts the model's PC samples by mode and ROM
+  file. Two things the plugin has to know about QEMU: a SWI's reported PC
+  is its return address, and a plugin is called for a conditional
+  instruction whether or not it executes (the first version counted an
+  I-cache invalidation at every switch; the board's counter said none).
+  The cards and the save were copied from the MiSTer for the runs and
+  deleted afterwards.
+
+### On the board
+
+40 one-second captures each, keys through tools/mister_input.py: Tony
+Hawk skating the Warehouse, Call of Duty's first mission standing and
+turning.
+
+| Per second | Tony Hawk | Call of Duty, standing | turning |
+|---|---:|---:|---:|
+| LCD uploads | 20.05 | 7.45 | 8.03 |
+| Instructions | 51.6 M | 61.6 M | 61.0 M |
+| SWI | 9,447 | 4,828 | 6,120 |
+| IRQ | 140 | 109 | 119 |
+| FIQ, aborts, undefined | 0 | 0 | 0 |
+| Clocks in User mode | 91.59 % | 90.25 % | 89.50 % |
+| Supervisor | 1.52 % | 0.63 % | 0.78 % |
+| Undefined | 6.57 % | 8.94 % | 9.51 % |
+| IRQ | 0.32 % | 0.18 % | 0.21 % |
+| Process switches | 764 | 265 | 288 |
+| D-TLB / I-TLB invalidations | 764 / 758 | 262 / 0 | 286 / 0 |
+| I-cache invalidations | 0 | 0 | 0 |
+| D-cache clean-and-invalidate loops | 7.1 | 19.9 | 22.3 |
+| D-TLB / I-TLB walk beats | 328,820 / 105,905 | 164,543 / 3,718 | 177,826 / 5,327 |
+| I-cache line fills | 445,315 | 229,953 | 242,397 |
+| D-cache load fills | 577,211 | 498,500 | 507,776 |
+| Fetch wait | 7.41 % | 3.42 % | 3.61 % |
+| User instructions, CPI | 49.7 M, 1.92 | 56.5 M, 1.66 | 55.6 M, 1.67 |
+
+- **No faults.** No data abort, prefetch abort or undefined instruction
+  in any measured second, and the last-abort PCs were still zero: none
+  since the CPU left reset, through the boot and the play.
+- **Undefined mode** is where this kernel runs its scheduler and where
+  the system idles (the NOS side; 99.90 % of the clock at the idle
+  screen). The CPU never waits for an interrupt, so the old "idle 0 %"
+  said nothing about waiting.
+- **A process switch** invalidates the D-TLB (and in Tony Hawk the I-TLB),
+  never the I-cache; Call of Duty also has the whole D-cache cleaned and
+  invalidated about 20 times a second, in pairs 0.3 ms apart. In Tony Hawk
+  the switch path costs about 8,900 clocks a switch (the 6.57 %), with
+  430 D-TLB and 140 I-TLB walk beats after it.
+
+### In the model (62.5 M instructions a second, no cache or memory delays)
+
+Tony Hawk runs at 27.3 uploads/s, Call of Duty at 8.07. Per second in
+play:
+
+- **Tony Hawk:** 6,881 SWIs, all from EUSER's one-instruction stubs:
+  PushTrapFrame and PopTrapFrame 1,090 each, WaitForAnyRequest 804,
+  LockedInc/LockedDec 495 each, Heap 468, and 340 synchronous IPC round
+  trips (SessionSendSync, ServerReceive, MessageComplete). 586 D-TLB and
+  583 I-TLB invalidations, after WaitForAnyRequest (293) and
+  SessionSendSync (284). 98.6 % of the instructions in User mode, 92.2 %
+  in the game's own code; Supervisor 0.32 %.
+- **Call of Duty:** 4,939 SWIs: Heap 713, the trap frames 581 each,
+  LockedInc/LockedDec 559, WaitForAnyRequest 555, 66 synchronous IPC round
+  trips, TimerAfter 87, After 39. 273 D-TLB invalidations, 20.8 D-cache
+  loops (after WaitForAnyRequest: switches to a process whose chunks
+  move). User mode 94.6 %, the game's code 85.6 %, sounddevice.mda 3.1 %;
+  5.3 % in the idle loop.
+- The call names are EKA2L1's Symbian 6 table; the board's SWI samples
+  fall on the same stubs.
+
+### What it says
+
+- **Exceptions are not the problem**: there are none. Kernel calls are
+  cheap executive calls; by instruction count the kernel is 0.1 to 0.3 %.
+- **The kernel's cost is the switch**: 8.4 % of the clock in privileged
+  modes in Tony Hawk; about 10 % in Call of Duty, of which roughly half
+  is idle (the model's 5 %). Add the TLB walks that follow in User mode:
+  Tony Hawk about 435,000 beats a second, Call of Duty 170,000; the beats
+  are not timed separately, at ten clocks each that is some 4 % and under
+  2 % of the clock. This is Symbian 6.1's moving memory model on a CPU
+  without address-space tags; the phone's kernel does the same.
+- **The I-cache fills are the games' own code**, not flushes: caches
+  that are never invalidated still miss 487,000 / 350,000 / 267,000 times
+  a second at 16 / 32 / 64 KB in Tony Hawk and 247,000 / 155,000 / 102,000
+  in Call of Duty (two ways, 16-byte lines, simulated in the model).
+- **Call of Duty needs about 7.3 million User instructions a frame**
+  (the board 6.9 to 7.6 M, the model 7.3 M). The model, with no memory
+  delays at all, shows 8.07 frames a second; the board, at 56 M User
+  instructions a second, 7.45 to 8.03. Frames take whole 1/64 s ticks
+  (the model idles 5 % of the time, half a tick in an eight-tick frame):
+  seven ticks (9.1 frames/s) need about 67 M User instructions a second,
+  a User CPI of 1.40 with the privileged share as it is; six ticks (10.7)
+  need 78 M, CPI 1.20. Tony Hawk needs 2.3 to 2.5 M a frame: three ticks (21.3) at
+  the board's 51.6 M/s with some frames slipping to four, two ticks (32)
+  only from about 75 M/s.
+- **One inefficiency of the core against the phone**: its TLBs are
+  direct-mapped (256 small-page entries a side; docs/CPU.md said 16 and
+  is corrected), the ARM925T's are associative. The board walks about
+  three times the pages the kernel's invalidations force (430 beats a
+  switch against 71 distinct data pages in Tony Hawk; 628 against 100 in
+  Call of Duty). A simulation of the data pages in the model agrees: per
+  second in Tony Hawk 30,600 distinct pages, 103,700 misses direct-mapped,
+  50,100 with two ways of 128, 43,600 with 64 fully associative entries;
+  Call of Duty 21,900, 63,000, 27,700, 32,800. Halving the D-TLB walks
+  would be worth about 1.5 % of the clock in Tony Hawk and under 1 % in
+  Call of Duty by the same ten clocks a beat, and the lookup is on the
+  critical paths; not attempted.
+
+### State
+
+Changed: NGage.sv (the debug-only counters), tools/mister_dbg.py,
+model/plugins/excprof.c, model/build.sh, model/args.sh, model/run.sh,
+model/tools/excstat.py, model/tools/pcprof.py, docs/CPU.md (the TLB
+sizes). The stripped core is unchanged (lint clean both ways, `make -C
+sim top` passes with the overlay on). The board is on the main core's
+Call of Duty launcher;
+the server holds no N-Gage directory.
