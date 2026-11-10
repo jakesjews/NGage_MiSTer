@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Phoenix DCT4 stream -> flash arrays, followed by the RH-29 4.60 patch ROM.
 // F1 MCU / F2 language, hps_io WIDE=1. The first file of a pair fills CS0
-// and ONLY the firmware half of CS1 with FF. Either file may arrive first;
-// repeating a completed file starts a new pair. C: is never touched.
+// and ONLY the firmware half of CS1 with FF. The loader takes the two in
+// either order, but the RH-29 pair is only recognised with the MCU file
+// first: the language pack writes its own entry into the MCU file's
+// integrity table (CS0 0x8F00), which an MCU file loaded after it puts back
+// to FF, and the signature check below then fails (note 2). Repeating a
+// completed file starts a new pair. C: is never touched.
 //
 // Checksums: complemented byte sum, with the +1 data-checksum convention
 // used by the supplied C1/S5 also accepted (fls2bin's d_fix == 1). For 21,

@@ -117,7 +117,7 @@ struct Bench {
 
 	// slot 1, served when slot 0 is quiet: reads of blk_cnt + 1 blocks; a
 	// write request is only counted (nothing should ask for one here)
-	void download(int index, const std::vector<uint8_t> &data) {
+	void download(int index, const std::vector<uint8_t> &data, bool settle = true) {
 		auto &h = *r;
 		h.emu__DOT__hps_io__DOT__sim_index = index;
 		h.emu__DOT__hps_io__DOT__sim_download = 1;
@@ -138,6 +138,7 @@ struct Bench {
 		wait(); ticks(5);
 		h.emu__DOT__hps_io__DOT__sim_download = 0;
 		ticks(5);
+		if (!settle) return;             // as Main: on to the next file at once
 		uint64_t end = clocks + 1000000;
 		while (h.emu__DOT__ph_busy && clocks < end) tick();
 		CHECK(clocks < end, "Phoenix patch/verify timeout");
@@ -321,7 +322,10 @@ static void test_phoenix(const std::string &out) {
 	                                0xE2822001,0xE5802004,0xEAFFFFFE,0x12345678};
 	phoenix::Bytes code(sizeof prog); memcpy(code.data(), prog, sizeof prog);
 	auto mcu = phoenix::mcu(); phoenix::record(mcu, 0x14, 0, code);
-	b.download(1, mcu);
+	// Framework order with no launcher: Main sends boot0.rom, the MCU file
+	// (index 0), and then boot1.rom, the language pack (file number 1 in index
+	// bits 7:6, no menu index: 0x40).
+	b.download(0, mcu);
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "MCU alone cannot boot");
 	CHECK_EQ(b.ddr[0x85], 255, "Phoenix FF gap");
 	CHECK_EQ(b.ddr[0xFFFFFF], 255, "CS0 fill reaches last byte");
@@ -329,7 +333,7 @@ static void test_phoenix(const std::string &out) {
 	CHECK_EQ(b.ddr[0x1400000], 0x5A, "Phoenix fill stops before C:");
 	CHECK_EQ(b.ddr[0x80], 1, "21 record data");
 	CHECK_EQ(b.ddr[0x1000003], 0x11, "14 CS1 record data");
-	b.download(2, phoenix::language());
+	b.download(0x40, phoenix::language());
 	CHECK(r.emu__DOT__ph_ready && r.emu__DOT__cpu_reset, "both files still need C:");
 	CHECK_EQ(b.ddr[0xF00001], 6, "language mapped");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 10), 1, "4.60 OSD message");
@@ -344,7 +348,7 @@ static void test_phoenix(const std::string &out) {
 		for (int i = 0; i < 4; i++) n = (n << 8) | patch[p++];
 		CHECK(!memcmp(b.ddr + chip * 0x1000000 + off, patch.data() + p, n), "full patch payload in DDR3"); p += n;
 	}
-	// Framework order: both ROMs, then boot1.vhd. Only C: is loaded.
+	// Framework order: both ROMs, then boot0.vhd. Only C: is loaded.
 	b.img1.assign(4u << 20, 255);
 	r.emu__DOT__hps_io__DOT__sim_size = b.img1.size();
 	r.emu__DOT__hps_io__DOT__sim_readonly = 0;
@@ -381,10 +385,12 @@ static void test_phoenix(const std::string &out) {
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 12), 1, "companion needs no reload warning");
 
 	// Manual order: the save stays mounted while language arrives before MCU.
-	b.download(2, phoenix::language());
+	// Picked in the OSD under their .rom names: the second extension of F2 and
+	// F1 puts 1 in index bits 7:6 above the menu index (0x42, 0x41).
+	b.download(0x42, phoenix::language());
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "new pair invalidates old firmware");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 12), 2, "language resend also requests both files");
-	b.download(1, mcu);
+	b.download(0x41, mcu);
 	b.ticks(10000);
 	CHECK(r.emu__DOT__ph_ready && !r.emu__DOT__cpu_reset, "reverse order with save already mounted");
 	CHECK(!memcmp(b.ddr + 0x1400000, b.img1.data(), b.img1.size()), "firmware reload preserved C:");
@@ -401,6 +407,8 @@ static void test_phoenix(const std::string &out) {
 	// Read the appended words through the actual video pixels, including while
 	// CPU reset. The first 12 words and counters 0..24 are unchanged. F4 counts saturate at 15.
 	r.emu__DOT__hps_io__DOT__sim_status[0] = (1u << 8) | 1u;
+	// boot2.rom and boot3.rom (0x80, 0xC0) are no firmware files: not counted.
+	b.download(0x80, {}); b.download(0xC0, {});
 	b.download(3, {}); b.download(3, {});
 	for (int i = 0; i < 20; i++) b.download(4, {});
 	b.frame(); auto diag = b.frame();
@@ -410,11 +418,51 @@ static void test_phoenix(const std::string &out) {
 	printf("Phoenix shell: records, patches, version/damage rejection, resend recovery, overlay history and C: isolation (%llu clocks)\n", (unsigned long long)b.clocks);
 }
 
+// The boot files as Main sends them when the core starts: its reset bit
+// (status 0) is held, boot0.rom and boot1.rom go out back to back with no
+// wait for the loader's verify and patch stage, boot0.vhd is mounted straight
+// after them, the clock follows, and only then is the reset bit released.
+static void test_boot_files() {
+	Bench b;
+	auto &r = *b.r;
+	b.ticks(30000);
+	r.emu__DOT__hps_io__DOT__sim_status[0] = 1;
+	static const uint32_t prog[] = {0xE3A0040A,0xE59F1010,0xE5801000,0xE5902000,
+	                                0xE2822001,0xE5802004,0xEAFFFFFE,0x12345678};
+	phoenix::Bytes code(sizeof prog); memcpy(code.data(), prog, sizeof prog);
+	auto mcu = phoenix::mcu(); phoenix::record(mcu, 0x14, 0, code);
+	b.download(0, mcu, false);
+	b.ticks(3000);
+	b.download(0x40, phoenix::language(), false);
+	b.ticks(300);
+	b.img1.assign(4u << 20, 255);
+	r.emu__DOT__hps_io__DOT__sim_size = b.img1.size();
+	r.emu__DOT__hps_io__DOT__sim_readonly = 0;
+	r.emu__DOT__hps_io__DOT__sim_mounted = 2;
+	b.ticks(100);
+	r.emu__DOT__hps_io__DOT__sim_rtc[0] = 0x01120000;    // Main's clock, after the mounts
+	r.emu__DOT__hps_io__DOT__sim_rtc[1] = 0x00000406;
+	r.emu__DOT__hps_io__DOT__sim_rtc[2] = 1;
+	b.ticks(20);
+	r.emu__DOT__hps_io__DOT__sim_status[0] = 0;
+	uint64_t end = b.clocks + 40000000;
+	while (r.emu__DOT__cpu_reset && b.clocks < end) b.tick();
+	CHECK(b.clocks < end, "boot files: the CPU starts after both ROMs and boot0.vhd");
+	CHECK(r.emu__DOT__ph_ready, "boot files: firmware pair ready");
+	CHECK(!memcmp(b.ddr + 0x1400000, b.img1.data(), b.img1.size()), "boot files: C: image loaded");
+	CHECK_EQ(b.ddr[0x80], 1, "boot files: MCU record data");
+	CHECK_EQ(b.ddr[0xF00001], 6, "boot files: language mapped");
+	b.ticks(10000);
+	CHECK(b.cpu_writes.size() == 2, "boot files: the program ran");
+	printf("boot files: both ROMs back to back, boot0.vhd, then the reset bit released (%llu clocks)\n", (unsigned long long)b.clocks);
+}
+
 int main(int argc, char **argv) {
 	Verilated::commandArgs(argc, argv);
 	std::string out = "sim/build/out";
 	for (int i = 1; i < argc; i++)
 		if (!strcmp(argv[i], "--out") && i + 1 < argc) out = argv[++i];
+	test_boot_files();
 	test_phoenix(out);
 	Bench b;
 	auto &R = *b.r;

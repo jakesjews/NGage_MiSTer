@@ -103,6 +103,14 @@ int main(int argc, char **argv) {
 		CHECK(b.t.ready && b.notes[3]==2 && b.notes[4]==1,"real language reload completes pair");
 		CHECK(b.cs0==read_file(argv[3]) && b.cs1==read_file(argv[4]),"reloaded pair byte-identical to both references");
 		printf("real Phoenix including resend/recovery: %llu clocks, %llu DDR writes\n",(unsigned long long)b.cycles,(unsigned long long)b.writes);
+		// The language pack first: the MCU file then puts the pack's entry in its
+		// integrity table (CS0 0x8F00) back to FF, and the pair is refused. So the
+		// game folder's files are boot0.rom (MCU) and boot1.rom, Main's order.
+		{ Bench c; std::fill(c.cs1.begin()+(4u<<20),c.cs1.end(),255);
+		  c.download(2,read_file(argv[2])); CHECK(!c.t.ready && !c.t.errors,"real language pack alone");
+		  c.download(1,read_file(argv[1]));
+		  CHECK(!c.t.ready && !c.t.errors && c.notes[2]==1 && c.notes[3]==0,"real language pack before the MCU file is refused, not started");
+		  CHECK(std::all_of(c.cs0.begin()+0x8f00,c.cs0.begin()+0x8f18,[](uint8_t v){return v==255;}),"the pack's integrity entry is gone"); }
 	} else {
 		for(bool reverse:{false,true}) {
 			Bench b;

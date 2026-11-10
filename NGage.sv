@@ -82,8 +82,8 @@ localparam CONF_STR = {
 	"F2,0S5ROM,Load language pack (RH2946.0S5);",
 	"F3,BIN,Load flash CS0 image;",
 	"F4,BIN,Load flash CS1 image;",
-	"S1,BINVHD,Mount C: save;",
-	"S0,MMCIMGBINVHD,Mount MMC card;",
+	"S0,BINVHD,Mount C: save;",
+	"S1,MMCIMGBINVHD,Mount MMC card;",
 	"-;",
 	"O[2:1],Rotate,Off,Clockwise,Anticlockwise;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
@@ -132,7 +132,17 @@ wire         info_req;
 wire   [7:0] info;
 
 wire         ioctl_download;
-wire  [15:0] ioctl_index;
+// MiSTer sends the game folder's boot0.rom and boot1.rom when the core starts,
+// in that order, with no menu index and the file's number in bits 7:6 (0x00,
+// 0x40): they are the firmware and its language pack, as F1 and F2 are. A
+// file picked in the OSD or named by a launcher keeps its menu index in bits
+// 5:0 (bits 7:6 are then its extension). boot2.rom and boot3.rom (0x80, 0xC0)
+// are not used. boot.rom also arrives as index 0, but after boot1.rom, and
+// the language pack has to follow the firmware (rtl/mister/phoenix_load.sv).
+wire  [15:0] ioctl_index_hps;
+wire  [15:0] ioctl_index = ioctl_index_hps[5:0] != 6'd0 ? ioctl_index_hps :
+                           ioctl_index_hps[7:6] == 2'd0 ? 16'd1 :
+                           ioctl_index_hps[7:6] == 2'd1 ? 16'd2 : ioctl_index_hps;
 wire         ioctl_wr;
 wire  [26:0] ioctl_addr;
 wire  [15:0] ioctl_dout;
@@ -149,7 +159,7 @@ wire  [15:0] sd_buff_dout;
 wire  [15:0] sd_buff_din[2];
 wire         sd_buff_wr;
 
-// SD slot 0: the MMC card; slot 1: the CS1 flash image as a save file
+// SD slot 0: the C: save file (boot0.vhd in the game folder); slot 1: the MMC card
 hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 (
 	.clk_sys(clk_sys),
@@ -189,7 +199,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 	.joystick_1(joystick_1),
 
 	.ioctl_download(ioctl_download),
-	.ioctl_index(ioctl_index),
+	.ioctl_index(ioctl_index_hps),
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
@@ -459,7 +469,7 @@ endgenerate
 
 ///////////////////////   CS1 SAVE   ///////////////////////////
 
-// SD slot 1 loads only C: at CS1 + 4 MB; changed C: blocks go back to
+// SD slot 0 loads only C: at CS1 + 4 MB; changed C: blocks go back to
 // the file. Legacy 8 MB saves use only their upper half.
 wire        save_mark, save_rd, save_taken, save_valid;
 wire [13:0] save_mark_blk, save_blk;
@@ -475,17 +485,17 @@ flash_save flash_save
 (
 	.clk(clk_sys),
 	.reset(sys_reset),
-	.img_mounted(img_mounted[1]),
+	.img_mounted(img_mounted[0]),
 	.img_readonly(img_readonly),
 	.img_size(img_size),
-	.sd_lba(sd_lba[1]),
-	.sd_blk_cnt(sd_blk_cnt[1]),
-	.sd_rd(sd_rd[1]),
-	.sd_wr(sd_wr[1]),
-	.sd_ack(sd_ack[1]),
+	.sd_lba(sd_lba[0]),
+	.sd_blk_cnt(sd_blk_cnt[0]),
+	.sd_rd(sd_rd[0]),
+	.sd_wr(sd_wr[0]),
+	.sd_ack(sd_ack[0]),
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
-	.sd_buff_din(sd_buff_din[1]),
+	.sd_buff_din(sd_buff_din[0]),
 	.sd_buff_wr(sd_buff_wr),
 	.ld_we(fs_we),
 	.ld_addr(fs_addr),
@@ -917,18 +927,18 @@ mmc_card mmc_card
 	.present(),
 	.write_protected(),
 	.active(mmc_active),
-	.img_mounted(img_mounted[0]),
+	.img_mounted(img_mounted[1]),
 	.img_readonly(img_readonly),
 	.img_size(img_size),
-	.sd_lba(sd_lba[0]),
-	.sd_blk_cnt(sd_blk_cnt[0]),
-	.sd_rd(sd_rd[0]),
-	.sd_wr(sd_wr[0]),
-	.sd_ack(sd_ack[0]),
+	.sd_lba(sd_lba[1]),
+	.sd_blk_cnt(sd_blk_cnt[1]),
+	.sd_rd(sd_rd[1]),
+	.sd_wr(sd_wr[1]),
+	.sd_ack(sd_ack[1]),
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
-	.sd_buff_din(sd_buff_din[0]),
-	.sd_buff_wr(sd_buff_wr & sd_ack[0])      // the buffer is shared by both slots
+	.sd_buff_din(sd_buff_din[1]),
+	.sd_buff_wr(sd_buff_wr & sd_ack[1])      // the buffer is shared by both slots
 );
 
 assign LED_DISK = {1'b0, mmc_active | fs_active};

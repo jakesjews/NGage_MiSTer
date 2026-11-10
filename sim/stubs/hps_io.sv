@@ -83,20 +83,25 @@ module hps_io #(
 	reg  [15:0] sim_dout /* verilator public_flat_rw */ = 0;
 	wire        sim_wait /* verilator public_flat_rd */ = ioctl_wait;
 
+	// The benches number the slots by device: slot 0 is the MMC card and slot 1
+	// the C: save file. On the MiSTer the save is image 0 (boot.vhd) and the
+	// card image 1, so the two are crossed here (CARD and SAVE, the port index).
+	localparam int CARD = VDNUM > 1 ? 1 : 0;
+	localparam int SAVE = 0;
 	// sim_mounted and sim_sd_ack: a bit a slot (slot 0, the MMC card, is bit 0)
 	reg [VDNUM-1:0] sim_mounted /* verilator public_flat_rw */ = 0;
 	reg         sim_readonly /* verilator public_flat_rw */ = 0;
 	reg  [63:0] sim_size /* verilator public_flat_rw */ = 0;
-	wire [31:0] sim_sd_lba /* verilator public_flat_rd */ = sd_lba[0];
-	wire  [5:0] sim_sd_blk_cnt /* verilator public_flat_rd */ = sd_blk_cnt[0];
-	wire        sim_sd_rd /* verilator public_flat_rd */ = sd_rd[0];
-	wire        sim_sd_wr /* verilator public_flat_rd */ = sd_wr[0];
-	wire [15:0] sim_sd_din /* verilator public_flat_rd */ = sd_buff_din[0];
-	// slot 1 (the CS1 save file), when there is one
-	wire [31:0] sim_sd_lba1 /* verilator public_flat_rd */ = sd_lba[VDNUM > 1 ? 1 : 0];
-	wire  [5:0] sim_sd_blk_cnt1 /* verilator public_flat_rd */ = sd_blk_cnt[VDNUM > 1 ? 1 : 0];
-	wire        sim_sd_rd1 /* verilator public_flat_rd */ = VDNUM > 1 && sd_rd[VDNUM > 1 ? 1 : 0];
-	wire        sim_sd_wr1 /* verilator public_flat_rd */ = VDNUM > 1 && sd_wr[VDNUM > 1 ? 1 : 0];
+	wire [31:0] sim_sd_lba /* verilator public_flat_rd */ = sd_lba[CARD];
+	wire  [5:0] sim_sd_blk_cnt /* verilator public_flat_rd */ = sd_blk_cnt[CARD];
+	wire        sim_sd_rd /* verilator public_flat_rd */ = sd_rd[CARD];
+	wire        sim_sd_wr /* verilator public_flat_rd */ = sd_wr[CARD];
+	wire [15:0] sim_sd_din /* verilator public_flat_rd */ = sd_buff_din[CARD];
+	// slot 1 (the C: save file), when there is one
+	wire [31:0] sim_sd_lba1 /* verilator public_flat_rd */ = sd_lba[SAVE];
+	wire  [5:0] sim_sd_blk_cnt1 /* verilator public_flat_rd */ = sd_blk_cnt[SAVE];
+	wire        sim_sd_rd1 /* verilator public_flat_rd */ = VDNUM > 1 && sd_rd[SAVE];
+	wire        sim_sd_wr1 /* verilator public_flat_rd */ = VDNUM > 1 && sd_wr[SAVE];
 	reg [VDNUM-1:0] sim_sd_ack /* verilator public_flat_rw */ = 0;
 	reg  [12:0] sim_sd_addr /* verilator public_flat_rw */ = 0;
 	reg  [15:0] sim_sd_dout /* verilator public_flat_rw */ = 0;
@@ -116,10 +121,10 @@ module hps_io #(
 	assign ioctl_wr     = sim_wr;
 	assign ioctl_addr   = sim_addr;
 	assign ioctl_dout   = sim_dout;
-	assign img_mounted  = sim_mounted;
+	assign img_mounted  = VDNUM > 1 ? VDNUM'({sim_mounted[0], sim_mounted[VDNUM > 1 ? 1 : 0]}) : sim_mounted;
 	assign img_readonly = sim_readonly;
 	assign img_size     = sim_size;
-	assign sd_ack       = sim_sd_ack;
+	assign sd_ack       = VDNUM > 1 ? VDNUM'({sim_sd_ack[0], sim_sd_ack[VDNUM > 1 ? 1 : 0]}) : sim_sd_ack;
 	assign sd_buff_addr = sim_sd_addr;
 	assign sd_buff_dout = sim_sd_dout;
 	assign sd_buff_wr   = sim_sd_wr_buf;
