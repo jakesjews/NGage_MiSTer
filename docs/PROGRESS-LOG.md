@@ -8798,3 +8798,110 @@ core's Call of Duty launcher, the debug slot holds the new measurement
 core (local copy build/hardware/NGageDbg-lcd-s3.rbf); the cards and the
 save copied for the model are deleted; the server holds no N-Gage
 directory.
+
+## 2026-11-10 (midday): a clone that builds, boot files instead of launchers, the release of 2026-11-10
+
+The user had master pushed (53e8280) and asked whether someone else could
+pull the repository and run builds and tests, which files a person needs to
+run the core ("no mgls are ideal"), whether `releases/` held the latest core,
+and for a README for users. Answer: a clone builds and tests as it is; the
+launcher-free setup the README described had never worked and does now; the
+release is new.
+
+### A fresh clone of 53e8280
+
+- `make lint`, `make test` (17 benches, 7 min 15 s), `make cpu-gen-check`,
+  `patchrom-check`, `standin-check`: pass. `make -C sim/cpu bins model run`:
+  351 passed, 0 failed; `qemu diff`: 77 agree, 0 differ. `model/build.sh`
+  builds. Four bench parts that replay local recordings are skipped without
+  them.
+- `./build.sh` from the clone (seed 7): the RBF is bit-identical to the core
+  that was on the board (md5 bf0e3fef), -1.526 ns. A build is reproducible
+  from the source, the seed and the date.
+- Not working there, found on the way and fixed below: the firmware bench's
+  adapter test and its profile.
+
+### The boot files
+
+- **They had never worked.** Main sends the game folder's `bootN.rom` when the
+  core starts with N in index bits 7:6 and menu index 0 (`user_io_file_tx(path,
+  i << 6)`); the core took only menu indexes 1 and 2. On the board with
+  `boot1.rom`, `boot2.rom` and `boot1.vhd` (the old README's names) the save
+  mounted and the firmware was ignored; the overlay showed no F1 or F2 start.
+  The whole-core bench had sent index 1 and 2 under the comment "framework
+  order". Every board test so far had used launchers, which name the indexes.
+- **The order matters with the real files.** The loader takes the two files
+  in either order, and the bench's synthetic pair passes both ways, but
+  `RH2946.0S5` writes its own entry into the integrity table of `RH2946.0C1`
+  (CS0 0x8F00, start, end and digest); an MCU file loaded after it puts the
+  entry back to FF and the signature check fails ("Firmware not recognised").
+  Main sends `boot0.rom` to `boot3.rom` and then `boot.rom`, so the firmware
+  is `boot0.rom` and the language pack `boot1.rom`; `boot.rom` and `boot1.rom`
+  were tried first and refused on the board. The old README's "in any order"
+  for the OSD was wrong too.
+- **NGage.sv**: an index with no menu part maps to F1 (file 0) or F2 (file 1).
+  The two image slots are swapped: slot 0 is the C: save (`boot0.vhd`), slot 1
+  the card (`boot1.vhd`), so that the system's files come first. hps_io serves
+  its slots round robin, so the swap changes no priority. Launchers written
+  before today need their two slot numbers swapped.
+- **Benches**: the whole-core bench sends the first pair with indexes 0 and
+  0x40 and a later one with 0x41 and 0x42 (the `.rom` names picked in the OSD),
+  and has a new case for Main's real sequence (its reset bit held, both ROMs
+  back to back without waiting for the patch stage, the mount, the clock, the
+  release). These checks fail on the old top level. `phoenix-real` now also
+  loads the real pair language pack first and expects the refusal. The hps_io
+  stand-in crosses the two slots, so the benches keep their numbering by
+  device (0 the card, 1 the save).
+
+### The release
+
+- Eight seeds of the final source: 5 -1.639, 13 -1.722, 3 -1.868, 21 -1.878,
+  11 -1.884, 15 -2.205, 9 -2.247, 7 -2.395 (the old source's best was 7 at
+  -1.526: any change re-rolls). `NGage.qsf` carries seed 5; 33,952 ALMs,
+  519 M10K, hold +0.231.
+- `releases/NGage_20261110.rbf` (md5 4d50b64a) replaces the build of
+  2026-10-22, which predated the firmware loader. `./build.sh` on the final
+  tree gives the same file bit for bit. The blank C: is `releases/boot0.vhd`
+  (was `ngage-c-drive.bin`), so it is copied without a rename.
+- On the board, no launcher, `boot0.rom`, `boot1.rom`, `boot0.vhd`: the first
+  start shows the Nokia logo, the Time and the Date dialog (Enter for each)
+  and the idle screen within a minute; the second start goes straight to the
+  idle screen with MiSTer's date. Sonic N mounted in the OSD starts by itself
+  and runs its demo. With a card as `boot1.vhd` the phone starts idle and the
+  game is in the menu (F5, three down, Enter). A launcher that names only a
+  card (`type="s" index="1"`) reaches Tony Hawk's menu. The four-file launcher
+  with no boot files reaches Call of Duty's menu on the user's save.
+
+### Smaller things
+
+- `sim/harness/hps_read_test.sh` links the snapshot runtime of the firmware
+  bench's model (it did not link) and passes an empty flag list under bash 3.2.
+- `CORE_PROFILE` is 0 by default in `sim/Makefile`: the profile probe reads
+  the CPU's records by bit position, the writeback record grew by two bits on
+  2026-10-26 (9fc01a3) and the probe's own check has stopped the firmware
+  bench at once since then. Other positions in it (execute's record) are
+  stale as well; the probe is not repaired. With it off, `hps-read-test`,
+  `flashcopy` (126 cases) and `coreboot` (300 M clocks on the 4.60 images)
+  run.
+- `build.sh` no longer copies `model/.qemu-src` and `model/.build` (480 MB)
+  to the server and uses grep instead of ripgrep.
+- README rewritten for users (setup with the three boot files, controls,
+  cards, the gotchas); `docs/BUILDING.md` is new (tests, the Quartus build,
+  the timing state, the measurement core, launchers).
+
+### State
+
+Changed: NGage.sv, NGage.qsf (seed 5), rtl/mister/phoenix_load.sv (comment),
+sim/stubs/hps_io.sv, sim/harness/top_main.cpp, phoenix_main.cpp,
+hps_read_test.sh, sim/Makefile, build.sh, README.md, docs/BUILDING.md,
+releases/. Lint is clean both ways; `make test`, `phoenix-real`,
+`hps-read-test`, `flashcopy` and the generated-file checks pass. The board's
+main core is `NGage_20261110.rbf` on the Call of Duty launcher; its 17
+launchers have their slot numbers swapped (the old ones are in
+build/hardware/mgl-backup-20261110). The debug slot holds the measurement
+core rebuilt from this source (seed 3, -2.233 ns, 36,814 ALMs; local copy
+build/hardware/NGageDbg-rel-s3.rbf) with its four launchers swapped the same
+way; it boots and its overlay decodes. No boot files are on the board. The board's Main (version 261103) prints
+almost nothing, so its file loads were watched through its open files. Left
+open: the loader could ask for the language pack again instead of reporting
+an unknown firmware when the two arrive the wrong way round.
