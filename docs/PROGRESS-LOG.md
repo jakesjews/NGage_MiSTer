@@ -8423,3 +8423,42 @@ No RTL changed: the CPU suite's cycle counts are those of d4ca263
 (the generated clock), tools/report_timing.tcl (the uncertainty check),
 NGage.qsf (seed 7), the parked patch. The server holds no N-Gage directory
 and the MiSTer was not touched (it was running another core).
+
+## 2026-11-10: the seed-7 core on the board
+
+The user allowed the copy and the load. The seed-7 bitstream of afd9642
+(md5 bf0e3fef, -1.526 ns at the slow 100 C corner, -1.560 at the slow
+-40 C corner) is the MiSTer's main core, `NGage_20261109.rbf`; the previous
+one (tag-d16-s9, md5 2a28ac5f) is kept on the Mac as
+`build/hardware/NGage-tag-d16-s9-20261023.rbf`. The board had been running
+another core under its own Main binary (`MiSTer_xl1200`); loading the
+N-Gage launcher brought the stock `/media/fat/MiSTer` back by itself.
+
+About 50 minutes of run time over six loads, keys through
+tools/mister_input.py, captures compared and sampled by eye. No hang, no
+reset and no corrupt picture:
+
+- **Tony Hawk:** boot, menus, two Warehouse runs (three and a half minutes
+  of skating, 36 captures, all different).
+- **Call of Duty:** boot, New Game, the autosave, the pause menu, a load
+  from the save slot, 100 s standing in the opening view and four minutes
+  of turning in place (110 captures, 105 different).
+- **Sonic N:** the first stage through a lost life and the restart.
+- **Asphalt:** the title, a race start and the option menus.
+
+Call of Duty shows "Mission Failed" a few seconds after walking straight
+ahead from the start. That is the game: the previous core does the same
+with the same key script (swapped in for one run, then removed again).
+Standing still or turning does not fail the mission.
+
+For the scripts: the Menu key is ignored until about 105 s after the load
+(at 97 s the idle screen is up but the tap is lost), and tools/run_games.sh's
+Asphalt timings no longer fit this core: the game is past its title by the
+script's first key, and the keys ended in its sound menu. The volumes were
+put back by the bars' widths (music and effects exactly; master one pixel
+under, the first value shown is not on the menu's step grid).
+
+The stripped core has no frame counter, so no frame rates were measured in
+this session; the figures for these sources stay those of the
+frame-counter build (Tony Hawk 21.54, Call of Duty 7.57 uploads/s). The
+board is left on the Call of Duty launcher at the phone's idle screen.
