@@ -8905,3 +8905,22 @@ way; it boots and its overlay decodes. No boot files are on the board. The board
 almost nothing, so its file loads were watched through its open files. Left
 open: the loader could ask for the language pack again instead of reporting
 an unknown firmware when the two arrive the wrong way round.
+
+### Later the same day: the board on boot files, the project compiled directly
+
+- At the user's word the MiSTer runs the way the README describes: in
+  `games/NGage/` the two firmware files are renamed `boot0.rom` and
+  `boot1.rom`, and `boot0.vhd` is a copy of the save (`rh29-460-cs1-save.bin`
+  stays as it was at the switch and is no longer written). All 21 launchers
+  carry only their card (`type="s" index="1"`); `NGage-Fresh` and
+  `NGage-nosave` keep their own C: lines and `NGage-nocard` only names the
+  core. Checked: the core started without a launcher reaches the idle screen
+  on that save, the Call of Duty launcher the game's menu, the measurement
+  core boots with its Sonic N launcher. The four-file launchers of before are
+  in build/hardware/mgl-backup-20261110-fourfile.
+- `build.sh` is not needed to build: `quartus_sh --flow compile NGage` in a
+  fresh clone of d985b06 (Quartus 17.0.2 Lite in the Docker image, nothing
+  prepared, `build_id.v` from the framework's own pre-flow script) ends with
+  0 errors, the timing warning, and the released RBF bit for bit (md5
+  4d50b64a). `docs/BUILDING.md` now puts that first and `build.sh` as the
+  option for a build server.

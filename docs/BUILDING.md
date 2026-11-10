@@ -1,8 +1,8 @@
 # Building and testing
 
 Everything on this page was last run on 2026-11-10 (macOS on Apple silicon,
-Quartus on a Linux server), the tests and the core build also from a fresh
-clone. No firmware is needed unless a section says so: the firmware is Nokia's
+Quartus 17.0.2 Lite on a Linux server), the tests and the core build also
+from a fresh clone. No firmware is needed unless a section says so: the firmware is Nokia's
 and is never in the repository.
 
 ## Tests
@@ -28,25 +28,25 @@ and is never in the repository.
 
 ## The core
 
-The project is an ordinary MiSTer one for Quartus Prime 17.0.2 (the Lite
-edition is enough).
+The project is an ordinary MiSTer one. Open `NGage.qpf` in Quartus Prime
+17.0.2 (the Lite edition is enough) and compile it, or run
+`quartus_sh --flow compile NGage` in the repository root. The core is
+`output_files/NGage.rbf`. Nothing else is needed: a fresh clone compiled this
+way gives the released file bit for bit.
 
-- `./build.sh` copies the tree to a Linux machine over ssh and runs Quartus
-  there in Docker (image `theypsilon/quartus-lite-c5:17.0.2.docker0`):
-  `BUILD_HOST=myserver BUILD_DIR=some/dir ./build.sh`. The core comes back as
-  `output_files/NGage.rbf`, the reports in `build/`. It needs zsh, ssh and
-  rsync here and Docker on the server; a compile takes about twenty minutes.
-- With Quartus installed on the machine itself, the same two commands are
-  `quartus_sh --flow compile NGage` and
-  `quartus_sta -t tools/report_timing.tcl`, run in the repository root. Only
-  the Docker route is tested.
-- **The core does not meet its 104 MHz constraint yet.** The worst setup slack
-  was -1.6 to -2.4 ns over eight fitter seeds on 2026-11-10; `NGage.qsf`
-  carries the best of them (`SEED`). `build.sh` still fetches the RBF and then
-  exits with status 2. The released core is such a build and runs on the
-  board.
-- A build is reproducible: the same source, seed and date give the same RBF,
-  bit for bit.
+- **The core does not meet its 104 MHz constraint yet.** Quartus finishes the
+  compile without errors and with the critical warning "Timing requirements
+  not met". The worst setup slack was -1.6 to -2.4 ns over eight fitter seeds
+  on 2026-11-10; `NGage.qsf` carries the best of them (`SEED`). The released
+  core is such a build and runs on the board.
+- A build is reproducible: the same source, seed and date give the same RBF.
+- `./build.sh` is optional, for a build server: it copies the tree to a Linux
+  machine over ssh, runs the same compile there in Docker (image
+  `theypsilon/quartus-lite-c5:17.0.2.docker0`) and fetches the core and the
+  reports of `tools/report_timing.tcl` into `build/`:
+  `BUILD_HOST=myserver BUILD_DIR=some/dir ./build.sh`. It needs zsh, ssh and
+  rsync here and Docker on the server, and exits with status 2 while timing
+  is not met.
 - `./deploy.sh [host]` copies `output_files/NGage.rbf` to a MiSTer (default
   `root@mister`) and loads it.
 
