@@ -8271,3 +8271,155 @@ were lost with its local build directory (`*_legacy`, `*_nwa`,
 
 Next: a build of this tree when the server's lanes are free (the main
 core on the MiSTer still predates the MMU fix), then timing.
+
+
+## 2026-11-09 (evening): timing pass on master; the framework's gated video clock
+
+The user asked for an optimization pass to meet timing at 104 MHz, with
+reasonable frame rates in Call of Duty and the other games as the goal.
+Timing is not met. One real gain was found (a constraint, no RTL), three
+cheap levers were measured and rejected, and the shape of the wall was
+measured. Server Quartus 17.0.2, whole core, stripped build.
+
+### Where master stood
+
+d4ca263 fitted at -1.970 ns (seed 13) and -1.928 ns (seed 9): 2,913 and
+2,368 failing endpoints, total negative slack -1,139 and -880 ns. (The
+candidate's own tree had given -1.735 at seed 13; the regenerated netlist's
+module order alone re-rolls the fit.)
+
+The failing paths are routing, not logic: nine to eleven LUT levels with
+6.5 to 9 ns of interconnect against 2 to 4 ns of cells (65 to 78 %), about
+0.75 ns a hop. Every stage fails together: the backend (A, M/W, the
+D-cache) at -1.9, decode at -1.9, the front end, the bus, the flash cache
+and the peripherals at about -1.0. TimeQuest also charges -0.5 ns of clock
+skew on every path: the maximum/minimum spread of the global clock tree
+after its last common node, which no assignment changes.
+
+### The gated video clock (kept)
+
+`derive_clock_uncertainty` gave clk_sys 0.300 ns of setup and 0.280 ns of
+hold uncertainty; a two-register test design with the same PLL gets 0.120
+and 0.060. The difference is in the framework. sys_top passes the scaler's
+lltune bus to pll_hdmi_adj as `{16{cfg_done}} & lltune`, and bit 6 of that
+bus is the scaler's input clock: the Delay process of sys/pll_hdmi_adj.vhd
+(41 registers) runs on a copy of CLK_VIDEO gated in a LUT (`comb~0`) and
+routed locally. CLK_VIDEO is clk_sys in this core, the derivation works per
+clock pair, and so every transfer in the core carried the gated branch's
+figures. The fitter had also added 4,404 ns of routing delay to clk_sys
+paths for hold under that 0.280.
+
+NGage.sdc now declares the gate's output a generated clock, `lltune_clk`,
+on clk_sys's side of the framework's exclusive groups. The 41 registers and
+their crossings keep 0.300/0.280 (and 0.220/0.180 from clk_sys); clk_sys
+itself gets 0.140/0.080, the figure of any PLL clock with I/O registers.
+tools/report_timing.tcl prints clk_sys's uncertainty and fails the build
+above 0.2 ns, which is what a framework update that moves `comb~0` would
+show. Hold, recovery and removal are unchanged and no path became
+unconstrained.
+
+How it was found: `write_sdc -expand` lists the derived values; on the
+fitted design, `create_clock` on the clock pins of one module at a time
+and a fresh derivation showed that only pll_hdmi_adj's pins carry the
+large figure. (17.0 has no `set_clock_sense`, and `get_pin_info -net` on
+an input pin kills quartus_sta.)
+
+| Fit | Worst setup | Failing endpoints | Total negative slack |
+|---|---:|---:|---:|
+| seed 13 before | -1.970 | 2,913 | -1,139 |
+| seed 13, same fit re-analysed | -1.810 | | |
+| seed 13 refitted | -1.774 | 1,347 | -496 |
+| seed 9 before | -1.928 | 2,368 | -880 |
+| seed 9 refitted | -2.028 | 1,881 | -732 |
+
+The worst path is as noisy as ever (seed 9 lost 0.1 ns on the re-roll);
+the count of failing endpoints fell by a fifth to a half.
+
+### Measured and rejected
+
+- **A floorplan region for the CPU.** LogicLock is refused by the Lite
+  licence ("Current license file does not support LogicLock regions"), but
+  `set_location_assignment CUSTOM_REGION_X0_Y0_X58_Y44 -to
+  "emu:emu|arm925t:arm925t|*"` is honoured. The CPU (14,510 of 33,892
+  ALMs) otherwise lies along the whole bottom of the device (x 0 to 88,
+  y 0 to 24, fetch at the left, the register file at the right). Confined
+  to 59 x 45 it fitted at -2.798 ns, to 53 x 39 at -3.032 (seed 13,
+  against -1.970). The hops did not get shorter; the region only removed
+  the fitter's freedom.
+- **S_AGU = 1** (the registered D-cache address, the largest single
+  family): -2.177 ns at seed 13 against -1.970. Decode's and execute's
+  chains lead at once.
+- **Retiming allowed** (every `dont_retime` stripped from the netlist):
+  -1.893 ns, 1,313 endpoints at seed 13 against -1.774 and 1,347.
+- **ALM_REGISTER_PACKING_EFFORT LOW:** -1.851 ns, 1,685 endpoints.
+- **The lookup address from parallel sums** (AGU_PAR, with S_AGU = 0),
+  the one RTL change tried: every word A's base can take is summed with
+  the record's own offset from registers and the registered one-hot select
+  picks one, so the D-cache and TLB lookup no longer passes A's late bypass
+  and ALU; a memory access's register offset becomes an early source. With
+  it, the D-cache FSM's two store branches name `!i_rd`, meant to take
+  the store queue's victim-address compare out of a load's lock decision.
+  Correct and free in cycles: 351/351 on the sources and on the netlist
+  with the same counts, 402,515,487 against 402,661,272 (-0.04 %), the
+  component benches, both proofs and `make test` pass. But the fits were
+  no better: -1.929 ns / 1,694 endpoints at seed 13 and -1.910 / 1,766 at
+  seed 3, against -1.774 / 1,347 and -1.583 / 1,422 without it, with 480
+  more ALMs. The RAM address endpoints left the list; the metadata behind
+  them (the valid-live flags, the dirty banks, the TLB's valid bits, 17 to
+  27 cells deep after the adder) did not, and the lock summary still came
+  through the compare. Parked as
+  docs/consults/parked-patches/2026-11-09-agu-par.patch (applies to this
+  commit; 24 runs rechecked from the patch).
+
+### What the wall is
+
+Across six fits the same families come back between -0.9 and -1.3 ns
+whatever the seed: the TLB's physical address into the cache FSM's lock
+summary, D1's classification into D2's packet, W's result through S into A
+and through A's adder into the D-cache RAM address, the cache's load word
+through the late bypass into M, D2's register read. Each fit's worst path
+is whichever of them placed badly (-1.8 to -2.0). They are ten to eleven
+levels each, in every stage; at this device's 0.75 ns a hop a stage has
+room for about eight. Nothing short of re-cutting the stage boundaries
+moves all of them, which is what five rounds of zero-cycle cuts and the
+177 trial trees had already shown from the other side.
+
+### Call of Duty
+
+In the opening forest the core retires about 55 million instructions a
+second (CPI 1.87) for 6.5 to 7.5 uploads a second: about seven million
+instructions a frame, 83 % of the sampled program counters in the game's
+own code. Reviews of the real game describe the same thing: All About
+Symbian calls the port "notorious for its single-digit frame rate", and its
+review says that turning round to check a corner takes five or ten
+seconds. No measured figure from a real phone was found, but the core is
+at or near the phone's speed in this game; the gain left is in the CPI,
+not in something the core does wrong.
+
+### Seeds with the constraint
+
+| Seed | Worst setup | Failing endpoints | Total negative slack |
+|---:|---:|---:|---:|
+| 7 | -1.526 | 878 | -343 |
+| 3 | -1.583 | 1,422 | -408 |
+| 11 | -1.607 | 1,190 | -351 |
+| 13 | -1.774 | 1,347 | -496 |
+| 5 | -1.776 | 2,747 | -1,168 |
+| 9 | -2.028 | 1,881 | -732 |
+| 2 | -2.499 | 4,483 | -1,804 |
+| 17 | -2.680 | 4,089 | -1,943 |
+
+Median -1.775 ns, best -1.526. NGage.qsf carries seed 7; its bitstream
+(md5 bf0e3fef, hold +0.080 ns or better at every corner, 34,486 ALMs, 519
+M10Ks, 42 DSPs) is kept in `build/hardware/lltune-s7/` (untracked). It has
+not been on the board. For comparison under the same accounting, the main
+core on the MiSTer (tag-d16-s9, the tree before the candidate) would read
+about -0.67 ns: the candidate's speed costs most of a nanosecond of margin.
+
+### State
+
+No RTL changed: the CPU suite's cycle counts are those of d4ca263
+(402,661,272 over the 351 runs with the 32 KB I-cache). Changed: NGage.sdc
+(the generated clock), tools/report_timing.tcl (the uncertainty check),
+NGage.qsf (seed 7), the parked patch. The server holds no N-Gage directory
+and the MiSTer was not touched (it was running another core).
