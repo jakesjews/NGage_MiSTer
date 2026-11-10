@@ -25,6 +25,10 @@
 #                 write with the instruction count (model/plugins/excprof.c);
 #                 model/tools/excstat.py turns it into kernel calls, process
 #                 switches and cache/TLB flushes per second
+#   NGAGE_DCSIM   FILE,t0=SEC,t1=SEC: the data accesses of guest seconds t0
+#                 to t1 through simulated data caches of several sizes, with
+#                 and without a next-line prefetch (model/plugins/dcsim.c);
+#                 model/tools/dcstat.py prints the report
 #   NGAGE_ICOUNT  QEMU -icount setting (default shift=4,sleep=off: 16 ns per
 #                 instruction, idle time skipped); "none" for wall-clock time
 #   NGAGE_AUDIO   host audio driver for the HLE audio device, e.g. coreaudio

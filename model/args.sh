@@ -47,3 +47,8 @@ icount=${NGAGE_ICOUNT:-shift=4,sleep=off}
 if [[ -n "${NGAGE_EXCLOG:-}" ]]; then
     qemu+=(-plugin "model/.build/excprof.so,out=$NGAGE_EXCLOG")
 fi
+# NGAGE_DCSIM=FILE,t0=SEC,t1=SEC: the data accesses of guest seconds t0 to
+# t1 through simulated data caches (plugins/dcsim.c; tools/dcstat.py).
+if [[ -n "${NGAGE_DCSIM:-}" ]]; then
+    qemu+=(-plugin "model/.build/dcsim.so,out=$NGAGE_DCSIM")
+fi
