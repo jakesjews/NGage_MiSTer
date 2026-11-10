@@ -4,24 +4,24 @@
 //
 //   Vemu [--out DIR]
 //
-//  * the test picture lcd_testgen draws through the panel's bus comes out of
-//    the MiSTer video outputs, upright, 176x208, against the picture built
-//    here from the same pattern;
-//  * held joystick buttons and keyboard keys reach the matrix, the scan finds
-//    them, and their boxes change colour (and back when released);
-//  * rotation turns the frame and the aspect ratio with it;
+//  * with no firmware the panel sleeps and the outputs show a black 176x208
+//    frame;
+//  * held joystick buttons and keyboard keys reach the key vector at their
+//    matrix positions;
 //  * flash images loaded through ioctl land in DDR3 at 0x31000000 (CS0) and
 //    0x32000000 (CS1), byte for byte, with the port busy at random;
 //  * the CPU stays in reset until both images are in, then runs the small
 //    program at the start of the CS0 image (a store to SDRAM, a load back, a
-//    second store), and is held again while the memory test runs;
+//    second store);
 //  * mounting an MMC image makes the card read its last block (the sidecar);
-//  * the memory system: the SDRAM chip model on the SDRAM pins and the DDRAM
-//    port model behind DDR3; with "Memory test" on, wb_selftest passes over
-//    SDRAM, on-chip RAM, the EMIF block, CS2 and the flash path (built with
-//    small regions) and reports it on the OSD; with SDRAM bits flipped under
-//    it, it reports a failure; the SDRAM and DDRAM models see no timing or
-//    protocol error.
+//  * a second program wakes the panel and draws a picture through the UPP's
+//    LCD interface as the firmware does (MADCTL 0xD4, 12-bit pixels): it
+//    comes out of the MiSTer video outputs upright, against the picture built
+//    here from the same formula; the first frame is the boot milestone;
+//  * rotation turns the frame and the aspect ratio with it; the aspect, scale
+//    and vertical crop options go through video_freak;
+//  * the SDRAM chip model on the SDRAM pins and the DDRAM port model behind
+//    DDR3 see no timing or protocol error.
 // Frames go to DIR as PPM.
 #include "Vemu.h"
 #include "Vemu___024root.h"
@@ -41,33 +41,11 @@ namespace {
 
 constexpr int W = 176, H = 208;
 
-// the same picture as lcd_testgen.sv's pattern(), 12 bpp
-uint16_t pattern(int x, int y, uint32_t st) {
-	int x3 = 3 * x;
-	if (x < 8 && y < 8) return 0xF00;
-	if (x == 0 || y == 0 || x == 175 || y == 207) return 0xFFF;
-	if (y < 64) {
-		static const uint16_t bars[8] = {0xFFF, 0xFF0, 0x0FF, 0x0F0, 0xF0F, 0xF00, 0x00F, 0x000};
-		int b = x3 >> 6;
-		return bars[b > 7 ? 7 : b];
-	}
-	if (y < 128) {
-		int r = x3 >> 5;
-		if (r > 15) r = 15;
-		return (uint16_t)(r << 8 | ((y - 64) >> 2) << 4 | 8);
-	}
-	int c = -1, r = -1;
-	for (int i = 0; i < 5; i++) if (x >= 8 + 34 * i && x < 36 + 34 * i) c = i;
-	for (int i = 0; i < 6; i++) if (y >= 132 + 12 * i && y < 142 + 12 * i) r = i;
-	if (c >= 0 && r >= 0) {
-		int k = r * 5 + c;
-		static const uint32_t fitted = 0x39CEF7FFu;  // 30'b11100_11100_11101_11101_11111_11111
-		if (k == 20) return st >> k & 1 ? 0xF00 : 0x400;
-		if (fitted >> k & 1) return st >> k & 1 ? 0xFF0 : 0x226;
-	}
-	return 0x222;
+// the picture the bench's LCD program draws (lcd_prog in main), 12 bpp
+uint16_t pattern(int x, int y) {
+	return (uint16_t)((x & 15) << 8 | (y & 15) << 4 | (((x >> 4) + (y >> 4)) & 15));
 }
-// 12 bpp through the panel's reset RGBSET table, as lcd_testgen loads it
+// 12 bpp through the panel's reset RGBSET table
 uint16_t to565(uint16_t p) {
 	auto l5 = [](int v) { return v == 15 ? 31 : v * 2; };
 	auto l6 = [](int v) { return v == 15 ? 63 : v * 4; };
@@ -244,7 +222,7 @@ struct Bench {
 		if (ir && !info_prev) infos.push_back(r->emu__DOT__hps_io__DOT__sim_info);
 		info_prev = ir;
 		if (t->LED_DISK & 1) disk_led = true;
-		if (!r->emu__DOT__test_on && r->emu__DOT__wb_cyc && r->emu__DOT__wb_we && r->emu__DOT__wb_ack)
+		if (r->emu__DOT__wb_cyc && r->emu__DOT__wb_we && r->emu__DOT__wb_ack)
 			cpu_writes.emplace_back(r->emu__DOT__wb_adr, r->emu__DOT__wb_dat_w);
 		sd_step();
 		t->CLK_50M = 0; t->eval();
@@ -280,13 +258,8 @@ struct Bench {
 	}
 };
 
-// colour of the memory-test status square (panel pixels x, y < 12) in the
-// frames compared, RGB565, or -1: there is none while the test is off
-// (yellow = running, green = passed, magenta = errors)
-int square565 = -1;
-
-// compare a captured frame with the pattern for key state st, turned by rot
-int compare(const sim::Image &got, uint32_t st, int rot, const char *what, bool activity = false) {
+// compare a captured frame with the picture, turned by rot
+int compare(const sim::Image &got, int rot, const char *what) {
 	bool turned = rot == 1 || rot == 2;
 	int w = turned ? H : W, h = turned ? W : H;
 	if (got.w != w || got.h != h) { sim::fail("%s: frame is %dx%d, want %dx%d", what, got.w, got.h, w, h); return -1; }
@@ -296,14 +269,21 @@ int compare(const sim::Image &got, uint32_t st, int rot, const char *what, bool 
 			int sx = x, sy = y;
 			if (rot == 1) { sx = y; sy = H - 1 - x; }
 			if (rot == 2) { sx = W - 1 - y; sy = x; }
-			bool dot = activity && sx >= 164 && sx < 170 && sy >= 4 && sy < 10;
-			uint32_t want = sim::rgb565_to_888(dot ? 0x07E0 :
-				(square565 >= 0 && sx < 12 && sy < 12) ? (uint16_t)square565 : to565(pattern(sx, sy, st)));
+			uint32_t want = sim::rgb565_to_888(to565(pattern(sx, sy)));
 			if (got.get(x, y) != want && bad++ < 4)
 				sim::fail("%s: pixel (%d,%d) = %06x, want %06x", what, x, y, got.get(x, y), want);
 		}
 	if (bad > 4) sim::fail("%s: %d pixels differ", what, bad);
 	return bad;
+}
+
+// a whole upright frame with every pixel black
+bool dark(const sim::Image &got) {
+	if (got.w != W || got.h != H) return false;
+	for (int y = 0; y < H; y++)
+		for (int x = 0; x < W; x++)
+			if (got.get(x, y)) return false;
+	return true;
 }
 
 }  // namespace
@@ -336,8 +316,8 @@ static void test_phoenix(const std::string &out) {
 	b.download(0x40, phoenix::language());
 	CHECK(r.emu__DOT__ph_ready && r.emu__DOT__cpu_reset, "both files still need C:");
 	CHECK_EQ(b.ddr[0xF00001], 6, "language mapped");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 10), 1, "4.60 OSD message");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 9), 0, "valid checksums");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 8), 1, "4.60 OSD message");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 0, "valid checksums");
 	std::ifstream hex("rtl/mister/phoenix_patch.hex");
 	phoenix::Bytes patch; unsigned x;
 	while (hex >> std::hex >> x) patch.push_back(x);
@@ -369,7 +349,7 @@ static void test_phoenix(const std::string &out) {
 	// with the CPU held in reset. Sending its companion restores the pair.
 	b.download(1, mcu);
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "single MCU resend waits for companion");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 12), 1, "reload both OSD message");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 10), 1, "reload both OSD message");
 	r.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 8;
 	b.frame(); auto reload = b.frame();
 	reload.write_ppm(out + "/top_phoenix_reload.ppm");
@@ -382,14 +362,14 @@ static void test_phoenix(const std::string &out) {
 	CHECK_EQ(word(reload, 193), 0x21000000u, "two MCU starts, one language start, no errors");
 	b.download(2, phoenix::language()); b.ticks(10000);
 	CHECK(r.emu__DOT__ph_ready && !r.emu__DOT__cpu_reset, "companion reload releases reset");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 12), 1, "companion needs no reload warning");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 10), 1, "companion needs no reload warning");
 
 	// Manual order: the save stays mounted while language arrives before MCU.
 	// Picked in the OSD under their .rom names: the second extension of F2 and
 	// F1 puts 1 in index bits 7:6 above the menu index (0x42, 0x41).
 	b.download(0x42, phoenix::language());
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "new pair invalidates old firmware");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 12), 2, "language resend also requests both files");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 10), 2, "language resend also requests both files");
 	b.download(0x41, mcu);
 	b.ticks(10000);
 	CHECK(r.emu__DOT__ph_ready && !r.emu__DOT__cpu_reset, "reverse order with save already mounted");
@@ -397,11 +377,11 @@ static void test_phoenix(const std::string &out) {
 
 	b.download(1, phoenix::mcu(false)); b.download(2, phoenix::language());
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "unknown version holds CPU");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 11), 1, "unknown version OSD message");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 9), 1, "unknown version OSD message");
 	CHECK_EQ(b.ddr[0x9E4D4], 255, "unknown version unpatched");
 	b.download(1, phoenix::mcu(true, true));
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "bad checksum holds CPU");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 9), 1, "damaged file OSD message");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "damaged file OSD message");
 	CHECK(!b.ddr_stray && !b.dm.protocol_errors, "Phoenix shared DDR protocol");
 	CHECK_EQ(b.s1_writes, 0, "firmware loads did not dirty C: save");
 	// Read the appended words through the actual video pixels, including while
@@ -466,17 +446,19 @@ int main(int argc, char **argv) {
 	test_phoenix(out);
 	Bench b;
 	auto &R = *b.r;
+	auto count = [&](int n) { return std::count(b.infos.begin(), b.infos.end(), n); };
 
-	// the test picture, keys released
-	b.frame();  // the one during which lcd_testgen draws
+	// no firmware: the panel sleeps and the picture is black
+	b.frame();
 	sim::Image f = b.frame();
-	f.write_ppm(out + "/top_portrait.ppm");
-	printf("portrait frame %dx%d: %s\n", f.w, f.h, compare(f, 0, 0, "test picture") == 0 ? "matches" : "differs");
+	CHECK(dark(f), "the picture with no firmware");
 	CHECK_EQ(b.t->VIDEO_ARX, W, "aspect X");
 	CHECK_EQ(b.t->VIDEO_ARY, H, "aspect Y");
-	CHECK(b.t->LED_USER, "LED_USER off with the panel lit");
+	CHECK(!b.t->LED_USER, "LED_USER on with the panel dark");
 
-	// keys: Up and 5 on the joystick, Call (F3) and Power (F8) on the keyboard
+	// keys: Up and 5 on the joystick, Call (F3) and Power (F8) on the keyboard,
+	// at their places in the key vector (rtl/board/ngage_keys.sv: K_UP 0,
+	// K_CALL 15, K_5 17; the power key is not in the matrix)
 	R.emu__DOT__hps_io__DOT__sim_joy0 = 1u << 3 | 1u << 4;
 	auto key = [&](int code, bool down) {
 		uint16_t k = R.emu__DOT__hps_io__DOT__sim_ps2_key;
@@ -485,77 +467,16 @@ int main(int argc, char **argv) {
 	};
 	key(0x04, true);
 	key(0x0A, true);
-	b.ticks(50000);
-	// Up (ROW0/COL0), Call (ROW3/COL0) and 5 (ROW3/COL2) close a loop in the
-	// matrix, so the scan also sees ROW0/COL2, the right soft key: a ghost,
-	// as on the real keypad
-	uint32_t st = 1u << 0 | 1u << 17 | 1u << 15 | 1u << 20 | 1u << 2;
-	f = b.frame();
-	f.write_ppm(out + "/top_keys.ppm");
-	printf("keys held: %s\n", compare(f, st, 0, "keys held") == 0 ? "boxes match" : "boxes differ");
+	b.ticks(1000);
+	CHECK_EQ(R.emu__DOT__keys, 1u << 0 | 1u << 15 | 1u << 17, "keys held: Up, Call and 5");
+	CHECK(R.emu__DOT__power_key, "the power key held");
 	R.emu__DOT__hps_io__DOT__sim_joy0 = 0;
 	key(0x04, false);
 	key(0x0A, false);
-	b.ticks(50000);
-	compare(b.frame(), 0, 0, "keys released");
-
-	// rotation
-	for (int rot : {1, 2}) {
-		R.emu__DOT__hps_io__DOT__sim_status[0] = (uint32_t)rot << 1;
-		b.frame();
-		f = b.frame();
-		f.write_ppm(out + (rot == 1 ? "/top_cw.ppm" : "/top_ccw.ppm"));
-		compare(f, 0, rot, rot == 1 ? "turned clockwise" : "turned anticlockwise");
-		CHECK_EQ(b.t->VIDEO_ARX, H, "aspect X turned");
-		CHECK_EQ(b.t->VIDEO_ARY, W, "aspect Y turned");
-	}
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
-
-	// the OSD's video options through video_freak, at 1080p: the aspect
-	// ratio [ARC2] (status 122:121 = 3) is 2:0 to the scaler; V-Integer
-	// scaling (status 14) asks for 5x, 880x1040 (bit 12 set: a size, not a
-	// ratio); the vertical crop (status 9) cuts the 208 lines to 180 for 6x,
-	// centred (lines 14-193), moved by the offset (status 13:10; 5 is +10
-	// lines), whatever height Main reports (1040, the integer-scaled one
-	// its vscale_mode 1-3 send, is the case on the user's MiSTer); turned,
-	// the crop is not offered and the frame stays whole
-	b.t->HDMI_WIDTH = 1920; b.t->HDMI_HEIGHT = 1080;
-	R.emu__DOT__hps_io__DOT__sim_status[3] = 3u << (121 - 96);
-	b.frame(); b.frame();
-	CHECK_EQ(b.t->VIDEO_ARX, 2, "aspect X [ARC2]");
-	CHECK_EQ(b.t->VIDEO_ARY, 0, "aspect Y [ARC2]");
-	R.emu__DOT__hps_io__DOT__sim_status[3] = 0;
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 14;
-	b.frame(); b.frame();
-	CHECK_EQ(b.t->VIDEO_ARX, 0x1000 | 5 * W, "V-Integer X");
-	CHECK_EQ(b.t->VIDEO_ARY, 0x1000 | 5 * H, "V-Integer Y");
-	auto crop = [&](int off, int top, const char *what) {
-		b.frame(); b.frame();
-		sim::Image c = b.frame();
-		if (c.w != W || c.h != 180) { sim::fail("%s: frame is %dx%d, want %dx180", what, c.w, c.h, W); return; }
-		int bad = 0;
-		for (int y = 0; y < 180; y++)
-			for (int x = 0; x < W; x++)
-				if (c.get(x, y) != sim::rgb565_to_888(to565(pattern(x, y + top, 0))) && bad++ < 4)
-					sim::fail("%s: pixel (%d,%d) = %06x, want line %d of the picture", what, x, y, c.get(x, y), y + top);
-		if (bad > 4) sim::fail("%s: %d pixels differ", what, bad);
-		printf("vertical crop, offset %+d: %s (lines %d-%d)\n", off, bad ? "differs" : "matches", top, top + 179);
-	};
-	b.t->HDMI_HEIGHT = 1040;
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 9;
-	crop(0, 14, "vertical crop");
-	CHECK_EQ(b.t->VIDEO_ARX, 2288, "cropped aspect X");   // 176:180 (176*208 : 208*180, normalised)
-	CHECK_EQ(b.t->VIDEO_ARY, 2340, "cropped aspect Y");
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 9 | 5u << 10;
-	crop(10, 24, "vertical crop, offset +10");
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 9 | 1u << 1;
-	b.frame(); b.frame();
-	f = b.frame();
-	if (f.w != H || f.h != W) sim::fail("turned with the crop on: frame is %dx%d, want %dx%d", f.w, f.h, H, W);
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
-	b.t->HDMI_WIDTH = 0; b.t->HDMI_HEIGHT = 0;
-	b.frame(); b.frame();
-	compare(b.frame(), 0, 0, "whole again");
+	b.ticks(1000);
+	CHECK_EQ(R.emu__DOT__keys, 0, "keys released");
+	CHECK(!R.emu__DOT__power_key, "the power key released");
+	printf("keys: joystick and keyboard reach the key vector\n");
 
 	// MiSTer's clock, as hps_io sends it when the core starts (the CPU start
 	// waits for it, up to 3 s): 2004-06-01 12:00:00 in BCD
@@ -600,19 +521,13 @@ int main(int argc, char **argv) {
 			printf("CPU: program ran, stores %llu clocks after the CS1 download\n", (unsigned long long)(b.clocks - t1));
 		}
 	}
-	// the board restarts after a download and draws again; the CPU does not
-	// touch the display, so the test picture stays
+	// this program does not touch the display: the picture stays dark, the
+	// boot has started and has no first frame
 	b.frame();
-	compare(b.frame(), 0, 0, "picture after loading flash", true);
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "one boot-start message");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 8), 0, "testgen is not a firmware frame");
-	CHECK(!R.emu__DOT__boot_done, "testgen must not end Boot only");
-	CHECK(R.emu__DOT__activity_left > 0, "CPU bus beats stretch activity");
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 2u << 16;
-	compare(b.frame(), 0, 0, "activity Off");
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 16;
-	compare(b.frame(), 0, 0, "activity Always during boot", true);
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
+	CHECK(dark(b.frame()), "the picture after loading flash");
+	CHECK_EQ(count(5), 1, "one boot-start message");
+	CHECK_EQ(count(6), 0, "a frame message with no frame");
+	CHECK(!R.emu__DOT__boot_done, "the boot milestone with no frame");
 
 	// an MMC image: the card reads its sidecar block
 	b.img.assign(4096 * 512 + 512, 0x11);
@@ -645,129 +560,154 @@ int main(int argc, char **argv) {
 		CHECK(memcmp(&b.ddr[0x01400000], b.img1.data() + (4u << 20), 4u << 20) == 0, "C: save image in DDR3 at 0x32400000");
 		CHECK(memcmp(&b.ddr[0x01000000], cs1.data(), cs1.size()) == 0, "save did not overwrite CS1 firmware");
 		b.ticks(20);
-		CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 3), 1, "OSD message 3 (CS1 mounted)");
-		CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "boot message after save loading");
+		CHECK_EQ(count(1), 1, "OSD message 1 (C: save mounted)");
+		CHECK_EQ(count(5), 1, "boot message after save loading");
 		CHECK(b.disk_led, "LED_DISK while the save loads");
 		// Save C: now with nothing changed: "C: saved" at once, nothing written
 		R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 7;
 		b.ticks(200);
 		R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
 		b.ticks(200);
-		CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 6), 1, "OSD message 6 (C: saved)");
+		CHECK_EQ(count(4), 1, "OSD message 4 (C: saved)");
 		CHECK_EQ(b.s1_writes, 0, "no write-back with nothing changed");
-		b.frame();
-		compare(b.frame(), 0, 0, "picture after the CS1 save loaded", true);
 	}
 
-	// the memory system under the self-test, with the CPU held in reset
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 6;
-	b.infos.clear();
-	uint64_t t0 = b.clocks;
-	b.ticks(10);
-	b.cpu_writes.clear();
-	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset during the memory test");
-	while (b.infos.empty() && b.clocks < t0 + 3000000) b.tick();
-	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset during the memory test");
-	CHECK(b.infos.size() == 1 && b.infos[0] == 1, "memory test: no 'passed' message after the first pass");
-	printf("memory test: first pass in %llu clocks\n", (unsigned long long)(b.clocks - t0));
-	CHECK((b.t->LED_POWER & 2) != 0, "power LED not taken over by the memory test");
-	{
-		sim::Image f = b.frame();
-		CHECK_EQ(f.get(0, 0), sim::rgb565_to_888(0x07E0), "status square after a passing pass (green)");
-	}
-	// flip SDRAM bits under the test: it must report the failure
-	t0 = b.clocks;
-	while (b.infos.size() < 2 && b.clocks < t0 + 3000000) {
-		if (b.clocks % 64 == 0) b.chip.lin(b.rng.range(0, 8191)) ^= 0x0100;
-		b.tick();
-	}
-	CHECK(b.infos.size() == 2 && b.infos[1] == 2, "memory test: no 'FAILED' message with SDRAM bits flipped");
-	{
-		sim::Image f = b.frame();
-		CHECK_EQ(f.get(0, 0), sim::rgb565_to_888(0xF81F), "status square after errors (magenta)");
-	}
-	b.cpu_writes.clear();
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
-	b.ticks(2000);
-	CHECK_EQ(b.t->LED_POWER, 0, "power LED after the memory test");
-	// the memory test off again: the board restarts and the CPU runs again
-	t0 = b.clocks;
-	while (b.cpu_writes.size() < 2 && b.clocks < t0 + 200000) b.tick();
-	CHECK(b.cpu_writes.size() == 2 && b.cpu_writes[1] == std::make_pair(0x0A000004u, 0x12345679u),
-	      "the CPU's program after the memory test");
-	// A synthetic ARM program drives the real LCD interface: RAMWR begins
-	// a frame. Repeated commands must produce only one boot-up notification.
-	// This is a peripheral smoke test, not the firmware boot bench.
+	// A second program drives the real LCD interface as the firmware does: it
+	// wakes the panel (SLPOUT, DISPON), sets 12-bit pixels and MADCTL 0xD4,
+	// and sends RAMWR and a whole frame, pixel (x, y) = pattern(x, y), two
+	// pixels a FIFO word, waiting for room in the queue; then it stores a mark
+	// in SDRAM. The first RAMWR is the boot milestone.
+	//   ldr r0, =0x0C121200; ldr r1, =0x09280000; ldr r3, =0x09240000
+	//   str r1, [r0]; mov r2, #0x11; str r2, [r0, #8]; mov r2, #0x29; str r2, [r0, #8]
+	//   mov r2, #0x3A; str r2, [r0, #8]; str r3, [r0]; mov r2, #3; str r2, [r0, #8]
+	//   str r1, [r0]; mov r2, #0x36; str r2, [r0, #8]; str r3, [r0]; mov r2, #0xD4; str r2, [r0, #8]
+	//   str r1, [r0]; mov r2, #0x2C; str r2, [r0, #8]; ldr r2, =0x8924D67F; str r2, [r0]
+	//   mov r4, #0
+	// row:  mov r5, #0
+	// pair: and r6, r5, #15; and r7, r4, #15; orr r6, r7, r6, lsl #4
+	//   mov r7, r5, lsr #4; add r7, r7, r4, lsr #4; and r7, r7, #15; orr r6, r7, r6, lsl #4
+	//   add r8, r5, #1; and r9, r8, #15; and r7, r4, #15; orr r9, r7, r9, lsl #4
+	//   mov r7, r8, lsr #4; add r7, r7, r4, lsr #4; and r7, r7, #15; orr r9, r7, r9, lsl #4
+	//   orr r6, r6, r9, lsl #16
+	// wait: ldr r7, [r0, #4]; tst r7, #4; beq wait; str r6, [r0, #8]
+	//   add r5, r5, #2; cmp r5, #176; blo pair; add r4, r4, #1; cmp r4, #208; blo row
+	//   mov r0, #0x0A000000; ldr r1, =0x600D0001; str r1, [r0]; b .
 	static const uint32_t lcd_prog[] = {
-		0xE59F0010, 0xE59F1010, 0xE5801000, 0xE3A0102C,
-		0xE5801008, 0xEAFFFFFC, 0x0C121200, 0x09280000
+		0xE59F00D8, 0xE59F10D8, 0xE59F30D8, 0xE5801000, 0xE3A02011, 0xE5802008,
+		0xE3A02029, 0xE5802008, 0xE3A0203A, 0xE5802008, 0xE5803000, 0xE3A02003,
+		0xE5802008, 0xE5801000, 0xE3A02036, 0xE5802008, 0xE5803000, 0xE3A020D4,
+		0xE5802008, 0xE5801000, 0xE3A0202C, 0xE5802008, 0xE59F208C, 0xE5802000,
+		0xE3A04000, 0xE3A05000, 0xE205600F, 0xE204700F, 0xE1876206, 0xE1A07225,
+		0xE0877224, 0xE207700F, 0xE1876206, 0xE2858001, 0xE208900F, 0xE204700F,
+		0xE1879209, 0xE1A07228, 0xE0877224, 0xE207700F, 0xE1879209, 0xE1866809,
+		0xE5907004, 0xE3170004, 0x0AFFFFFC, 0xE5806008, 0xE2855002, 0xE35500B0,
+		0x3AFFFFE8, 0xE2844001, 0xE35400D0, 0x3AFFFFE4, 0xE3A0040A, 0xE59F1014,
+		0xE5801000, 0xEAFFFFFE, 0x0C121200, 0x09280000, 0x09240000, 0x8924D67F,
+		0x600D0001
+	};
+	const auto drawn = std::make_pair(0x0A000000u, 0x600D0001u);
+	auto draw = [&](const char *what) {
+		uint64_t t1 = b.clocks;
+		while ((b.cpu_writes.empty() || b.cpu_writes.back() != drawn) && b.clocks < t1 + 80000000) b.tick();
+		CHECK(!b.cpu_writes.empty() && b.cpu_writes.back() == drawn, what);
+		return b.clocks - t1;
 	};
 	memcpy(cs0.data(), lcd_prog, sizeof lcd_prog);
 	b.infos.clear();
+	b.cpu_writes.clear();
 	download(3, cs0);
 	b.ticks(20000);
-	CHECK(R.emu__DOT__boot_done, "firmware RAMWR ends Boot only");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "LCD program boot-start message");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 8), 1, "first firmware LCD frame message");
-	// Taking over the LCD before testgen finishes can leave a blank/partial
-	// picture. Compare the actual panel image across modes, not testgen.
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 2u << 16;
-	sim::Image panel = b.frame();
-	auto check_activity_frame = [&](bool dot, const char *what) {
-		sim::Image got = b.frame();
-		CHECK(got.w == panel.w && got.h == panel.h, "activity changes frame size");
-		int bad = 0;
-		for (int y = 0; y < panel.h; y++)
-			for (int x = 0; x < panel.w; x++) {
-				uint32_t want = dot && x >= 164 && x < 170 && y >= 4 && y < 10 ?
-					sim::rgb565_to_888(0x07E0) : panel.get(x, y);
-				if (got.get(x, y) != want) bad++;
-			}
-		CHECK_EQ(bad, 0, what);
-	};
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
-	check_activity_frame(false, "Boot only hidden after firmware frame");
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 16;
-	check_activity_frame(true, "Always after firmware frame");
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 2u << 16;
-	check_activity_frame(false, "Off after firmware frame");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 8), 1, "no repeat frame notification");
-
-	// Overlay data rows keep their black/white encoding, while the dot
-	// itself remains outside their x coordinates.
-	R.emu__DOT__hps_io__DOT__sim_status[0] = (1u << 8) | (1u << 16);
+	CHECK(R.emu__DOT__boot_done, "the first RAMWR is the boot milestone");
+	CHECK_EQ(count(5), 1, "LCD program boot-start message");
+	CHECK_EQ(count(6), 1, "first LCD frame message");
+	printf("LCD program: the frame drawn in %llu clocks\n", (unsigned long long)draw("the LCD program's frame"));
+	CHECK_EQ(count(6), 1, "no repeat frame notification");
+	b.frame();
 	f = b.frame();
-	CHECK_EQ(f.get(164, 4), sim::rgb565_to_888(0x07E0), "activity with debug overlay");
+	f.write_ppm(out + "/top_portrait.ppm");
+	printf("portrait frame %dx%d: %s\n", f.w, f.h, compare(f, 0, "the CPU's picture") == 0 ? "matches" : "differs");
+	CHECK(b.t->LED_USER, "LED_USER off with the panel lit");
+
+	// rotation
+	for (int rot : {1, 2}) {
+		R.emu__DOT__hps_io__DOT__sim_status[0] = (uint32_t)rot << 1;
+		b.frame();
+		f = b.frame();
+		f.write_ppm(out + (rot == 1 ? "/top_cw.ppm" : "/top_ccw.ppm"));
+		compare(f, rot, rot == 1 ? "turned clockwise" : "turned anticlockwise");
+		CHECK_EQ(b.t->VIDEO_ARX, H, "aspect X turned");
+		CHECK_EQ(b.t->VIDEO_ARY, W, "aspect Y turned");
+	}
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
+
+	// the OSD's video options through video_freak, at 1080p: the aspect
+	// ratio [ARC2] (status 122:121 = 3) is 2:0 to the scaler; V-Integer
+	// scaling (status 14) asks for 5x, 880x1040 (bit 12 set: a size, not a
+	// ratio); the vertical crop (status 9) cuts the 208 lines to 180 for 6x,
+	// centred (lines 14-193), moved by the offset (status 13:10; 5 is +10
+	// lines), whatever height Main reports (1040, the integer-scaled one
+	// its vscale_mode 1-3 send, is the case on the user's MiSTer); turned,
+	// the crop is not offered and the frame stays whole
+	b.t->HDMI_WIDTH = 1920; b.t->HDMI_HEIGHT = 1080;
+	R.emu__DOT__hps_io__DOT__sim_status[3] = 3u << (121 - 96);
+	b.frame(); b.frame();
+	CHECK_EQ(b.t->VIDEO_ARX, 2, "aspect X [ARC2]");
+	CHECK_EQ(b.t->VIDEO_ARY, 0, "aspect Y [ARC2]");
+	R.emu__DOT__hps_io__DOT__sim_status[3] = 0;
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 14;
+	b.frame(); b.frame();
+	CHECK_EQ(b.t->VIDEO_ARX, 0x1000 | 5 * W, "V-Integer X");
+	CHECK_EQ(b.t->VIDEO_ARY, 0x1000 | 5 * H, "V-Integer Y");
+	auto crop = [&](int off, int top, const char *what) {
+		b.frame(); b.frame();
+		sim::Image c = b.frame();
+		if (c.w != W || c.h != 180) { sim::fail("%s: frame is %dx%d, want %dx180", what, c.w, c.h, W); return; }
+		int bad = 0;
+		for (int y = 0; y < 180; y++)
+			for (int x = 0; x < W; x++)
+				if (c.get(x, y) != sim::rgb565_to_888(to565(pattern(x, y + top))) && bad++ < 4)
+					sim::fail("%s: pixel (%d,%d) = %06x, want line %d of the picture", what, x, y, c.get(x, y), y + top);
+		if (bad > 4) sim::fail("%s: %d pixels differ", what, bad);
+		printf("vertical crop, offset %+d: %s (lines %d-%d)\n", off, bad ? "differs" : "matches", top, top + 179);
+	};
+	b.t->HDMI_HEIGHT = 1040;
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 9;
+	crop(0, 14, "vertical crop");
+	CHECK_EQ(b.t->VIDEO_ARX, 2288, "cropped aspect X");   // 176:180 (176*208 : 208*180, normalised)
+	CHECK_EQ(b.t->VIDEO_ARY, 2340, "cropped aspect Y");
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 9 | 5u << 10;
+	crop(10, 24, "vertical crop, offset +10");
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 9 | 1u << 1;
+	b.frame(); b.frame();
+	f = b.frame();
+	if (f.w != H || f.h != W) sim::fail("turned with the crop on: frame is %dx%d, want %dx%d", f.w, f.h, H, W);
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
+	b.t->HDMI_WIDTH = 0; b.t->HDMI_HEIGHT = 0;
+	b.frame(); b.frame();
+	compare(b.frame(), 0, "whole again");
+
+	// the debug overlay's data rows are black and white over the picture
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 8;
+	b.frame();
+	f = b.frame();
 	for (int y = 0; y < 127; y++)
-		for (int x = 16; x < 48; x++) {
-			// Existing rows render only black/white; the green dot cannot intrude.
+		for (int x = 16; x < 48; x++)
 			if ((y < 3) || (y >= 8 && y % 4 != 3))
-				CHECK(f.get(x, y) == 0 || f.get(x, y) == 0xFFFFFF, "dot overlaps debug row");
-		}
-	R.emu__DOT__hps_io__DOT__sim_status[0] = 1; // reset rearms messages and clears activity
+				CHECK(f.get(x, y) == 0 || f.get(x, y) == 0xFFFFFF, "an overlay row that is not black and white");
+	// the OSD's reset rearms the boot messages and the milestone
+	R.emu__DOT__hps_io__DOT__sim_status[0] = 1;
 	b.ticks(20);
-	CHECK(!R.emu__DOT__boot_done && R.emu__DOT__activity_left == 0, "reset clears boot/activity");
+	CHECK(!R.emu__DOT__boot_done, "reset clears the boot milestone");
 	b.infos.clear();
+	b.cpu_writes.clear();
 	R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
 	b.ticks(20000);
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "boot message rearmed on reset");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 8), 1, "frame message rearmed on reset");
-
-	// A loop in I-cache stops bus traffic so the real 13,000,000-clock
-	// hold time expires: mov r0,#0x1000; mcr p15,0,r0,c1,c0,0; b .
-	// No CPU implementation changes are involved.
-	static const uint32_t sleep_prog[] = {0xE3A00A01, 0xEE010F10, 0xEAFFFFFE};
-	memcpy(cs0.data(), sleep_prog, sizeof sleep_prog);
-	download(3, cs0);
-	b.ticks(20000);
-	uint32_t left = R.emu__DOT__activity_left;
-	CHECK(left > 0 && left < 13000000, "activity countdown in cached loop");
-	b.ticks(100);
-	CHECK_EQ(R.emu__DOT__activity_left, left - 100, "activity decrements without beats");
-	b.ticks(left);
-	CHECK_EQ(R.emu__DOT__activity_left, 0, "activity expires after 1/8 second");
-	compare(b.frame(), 0, 0, "quiet boot has no activity dot");
-	printf("boot messages and activity modes: checked through CPU/LCD and video outputs\n");
+	CHECK_EQ(count(5), 1, "boot message rearmed on reset");
+	CHECK_EQ(count(6), 1, "frame message rearmed on reset");
+	draw("the LCD program's frame after a reset");
+	b.frame();
+	compare(b.frame(), 0, "the picture drawn again after a reset");
+	printf("boot messages: checked through the CPU, the LCD interface and the video outputs\n");
 	if (b.chip.errors) sim::fail("the SDRAM chip model reported %d error(s)", b.chip.errors);
 	if (b.dm.protocol_errors) sim::fail("%d DDRAM port protocol error(s)", b.dm.protocol_errors);
 	CHECK(!b.dm.bad_access, "DDR3 access outside the model");

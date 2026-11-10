@@ -29,15 +29,15 @@ CLK = 104_000_000
 
 def overlay_on(board):
     # The fallback when the config file did not take: OSD rows before "Debug
-    # overlay" (NGage.sv CONF_STR): the six file slots (F1-F4, S1, S0),
+    # overlay" (NGage.sv CONF_STR): the six file slots (F1-F4, S0, S1),
     # Rotate, Aspect ratio, Scandoubler Fx, Vertical Crop, Crop Offset,
-    # Scale, Memory test; the crop rows are selectable in a profile run
+    # Scale; the crop rows are selectable in a profile run
     # (upright, scandoubler off). Never while a launcher is still loading:
     # an Enter into the MGL sequencer leaves a file entry's browser pending,
     # and a later Enter meant for the phone selects the first file listed
     # (RH2946.0C1 was re-sent that way on 2026-10-23). Two escapes close
     # the OSD from a browser as well as from the menu.
-    for k in ["f12"] + ["down"] * 13 + ["enter", "esc", "esc"]:
+    for k in ["f12"] + ["down"] * 12 + ["enter", "esc", "esc"]:
         board.press(k)
         time.sleep(0.4)
 

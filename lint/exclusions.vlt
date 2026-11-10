@@ -53,7 +53,7 @@ lint_off -rule MULTIDRIVEN -file "rtl/board/tdp_ram.sv"
 // the reset, rotation, scandoubler, video and aspect ratio bits; of the
 // buttons the user button; of a joystick the 17 the J1 line names; of
 // ioctl_index the file number (the upper bits number the extension).
-lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Bits of signal are not used: 'status'[127:123,120:18]*"
+lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Bits of signal are not used: 'status'[127:123,120:16,6]*"
 lint_off -rule UNUSEDSIGNAL -file "NGage.sv" -match "*Bits of signal are not used: 'buttons'[0]*"
 lint_off -rule UNUSEDSIGNAL -file "rtl/mister/ngage_input.sv" -match "*Bits of signal are not used: 'j'[31:17]*"
 lint_off -rule UNUSEDSIGNAL -file "rtl/mister/ddram_loader.sv" -match "*Bits of signal are not used: 'ioctl_index'[15:6]*"
@@ -63,8 +63,6 @@ lint_off -rule UNUSEDSIGNAL -file "rtl/mister/ddram_loader.sv" -match "*Bits of 
 lint_off -rule UNUSEDSIGNAL -file "rtl/mister/dbg_trace.sv" -match "*Bits of signal are not used: 'wb_cpsr'[31:8]*"
 lint_off -rule UNUSEDSIGNAL -file "rtl/mister/dbg_trace.sv" -match "*Bits of signal are not used: 'wb_cpsr_nxt'[27:0]*"
 
-// lcd_testgen: the test picture divides 3x by powers of two.
-lint_off -rule UNUSEDSIGNAL -file "rtl/mister/lcd_testgen.sv" -match "*Bits of function variable are not used: 'x3'*"
 
 // ngage_keys is a package of key positions; each user takes the ones it needs.
 lint_off -rule UNUSEDPARAM -file "rtl/board/ngage_keys.sv"

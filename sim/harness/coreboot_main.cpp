@@ -627,7 +627,7 @@ struct Bench {
 	// registered, so it is high with the beat's data in this clock)
 	void bus_watch() {
 		auto &h = *r;
-		if (h.emu__DOT__test_on || !h.emu__DOT__wb_cyc || !h.emu__DOT__wb_ack) return;
+		if (!h.emu__DOT__wb_cyc || !h.emu__DOT__wb_ack) return;
 		uint32_t a = h.emu__DOT__wb_adr;
 		if (check_store && h.emu__DOT__wb_we && a >= 0x02400000u && a < 0x02800000u) {
 			ubeat[ubeat_n % 32] = {a, (uint32_t)h.emu__DOT__wb_dat_w, (uint32_t)h.emu__DOT__wb_sel, clocks}; ubeat_n++;
@@ -670,7 +670,7 @@ struct Bench {
 			if (arr && !array_prev[c]) array_since[c] = clocks;
 			array_prev[c] = arr;
 		}
-		if (h.emu__DOT__test_on || !h.emu__DOT__wb_cyc || !h.emu__DOT__wb_ack) return;
+		if (!h.emu__DOT__wb_cyc || !h.emu__DOT__wb_ack) return;
 		uint32_t a = h.emu__DOT__wb_adr;
 		bool we = h.emu__DOT__wb_we;
 		unsigned be = h.emu__DOT__wb_sel;

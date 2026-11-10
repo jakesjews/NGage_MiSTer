@@ -93,16 +93,14 @@ Wishbone port (`ngage_mem`, CPU side of its arbiter; the DMA controller is
 the other master), with `irq`/`fiq` from the UPP interrupt controller
 (`upp_periph`).
 
-- Reset: a flip-flop holds the CPU in reset with the memory system, while
-  the memory test runs, and until both flash images are in DDR3: CS0
+- Reset: a flip-flop holds the CPU in reset with the memory system and
+  until both flash images are in DDR3: CS0
   loaded through the OSD (F1) and CS1 loaded (F2) or mounted as the save
   file (S1, once its copy is in). It then boots from CS0 at 0 and runs
   until the next core reset (OSD reset, the user button, a new image).
-- The OSD's "Memory test" gives the port to `wb_selftest` instead, with
-  the CPU in reset; switching it on or off resets the board. The port's
-  multiplexer select is a register (`test_sel`).
-- The test picture (`lcd_testgen`) shows until the UPP's LCD interface
-  first drives the panel, as before.
+- The picture is black until the firmware wakes the panel through the
+  UPP's LCD interface. (A memory test and a test picture shared the bus and
+  the panel until 2026-11-10.)
 
 ## Architecture
 

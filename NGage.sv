@@ -28,10 +28,6 @@
 // timer and MMC clocks divide from it exactly.
 
 module emu #(
-	// the self-test's coverage (the simulation tests a part)
-	parameter int SELFTEST_SDRAM_WORDS_LOG2  = 22,
-	parameter int SELFTEST_ONCHIP_WORDS_LOG2 = 14,
-	parameter int SELFTEST_FLASH_WORDS_LOG2  = 12,
 	// the CPU's I-cache: 32 KB, twice the phone's, as built and as every
 	// bench runs it (16384 gives the phone's size)
 	parameter int ICACHE_SIZE                = 32768,
@@ -87,19 +83,17 @@ localparam CONF_STR = {
 	"d0O[9],Vertical Crop,Disabled,180p(6x);",
 	"d0O[13:10],Crop Offset,0,2,4,6,8,10,-12,-10,-8,-6,-4,-2;",
 	"O[15:14],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
-	"-;",
-	"O[6],Memory test,Off,On;",
 `ifdef NGAGE_DEBUG
+	"-;",
 	"O[8],Debug overlay,Off,On;",
 `endif
 	"-;",
 	"T[7],Save C: now;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
-	"O[17:16],Activity dot,Boot only,Always,Off;",
 	"J,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power;",
 	"jn,A,B,X,L,R,Start,Select;",
-	"I,Memory test passed,Memory test FAILED,C: save mounted,C: save file must be 4 or 8 MB,C: read-only: no saves,C: saved,Booting the phone - about a minute...,Phone kernel is up,Firmware file damaged,Firmware 4.60 loaded,Firmware not recognised: needs RH-29 4.60,Firmware reloaded: load both files;",
+	"I,C: save mounted,C: save file must be 4 or 8 MB,C: read-only: no saves,C: saved,Booting the phone - about a minute...,Phone kernel is up,Firmware file damaged,Firmware 4.60 loaded,Firmware not recognised: needs RH-29 4.60,Firmware reloaded: load both files;",
 	"V,v",`BUILD_DATE
 };
 
@@ -247,29 +241,17 @@ reg [1:0] por = 2'b11;
 always @(posedge clk_sys) por <= {por[0], RESET | ~pll_locked};
 wire sys_reset = por[1];
 // the board: also held while a flash image loads or a CS1 save image is
-// copied in, and for a moment when the memory test is switched on or off
+// copied in
 // (public: the top bench reads it, and Verilator 5.054 otherwise folds it
 // into the save module's output)
 wire fs_loading /* verilator public_flat_rd */;
 wire ph_busy /* verilator public_flat_rd */;
-wire test_on /* verilator public_flat_rd */ = status[6];
-reg  test_on_q = 1'b0;
-reg  [3:0] test_sw = 4'd0;
-always @(posedge clk_sys) begin
-	test_on_q <= test_on;
-	test_sw   <= (test_on != test_on_q) ? 4'hF : {test_sw[2:0], 1'b0};
-end
 // The slow sources (the framework's reset, the OSD's reset bit and button,
-// a download, the two loaders) are registered once; their OR fanned out to
-// the whole memory side from hps_io in one clock. The memory test's pulse
-// stays direct: the bus is in reset in the clock its master select changes
-// (test_sel; the test_on_q multicycle exception in NGage.sdc relies on it).
+// a download, the two loaders) are registered once; their OR fans out to
+// the whole memory side from hps_io in one clock.
 reg  reset_slow = 1'b1;
 always @(posedge clk_sys) reset_slow <= sys_reset | status[0] | buttons[1] | ioctl_download | fs_loading | ph_busy;
-wire reset = reset_slow | test_sw[3];
-// the Wishbone port's master select, from a local register (hps_io's status
-// bit is far away); it changes in the first clock of the reset pulse
-wire test_sel = test_on_q;
+wire reset = reset_slow;
 
 ///////////////////////   MEMORY   ///////////////////////////////
 
@@ -347,8 +329,8 @@ ddram_loader ddram_loader
 assign DDRAM_CLK = clk_sys;
 
 // the memory system's Wishbone port: the CPU's (docs/CPU.md, "In the core")
-// or wb_selftest's while "Memory test" is on; the benches watch it (sim/harness)
-wire        wb_cyc /* verilator public_flat_rd */, wb_stb, wb_we /* verilator public_flat_rd */;
+// (the benches watch it, sim/harness)
+wire        wb_cyc /* verilator public_flat_rd */, wb_stb /* verilator public_flat_rd */, wb_we /* verilator public_flat_rd */;
 wire        wb_ack /* verilator public_flat_rd */, wb_err /* verilator public_flat_rd */;
 wire [31:0] wb_adr /* verilator public_flat_rd */, wb_dat_w /* verilator public_flat_rd */;
 wire [31:0] wb_dat_r /* verilator public_flat_rd */;
@@ -527,7 +509,7 @@ sdram_clkout sdram_clkout
 // interrupts for the CPU (arm925t's irq / fiq, active high)
 wire        cpu_irq, cpu_fiq;
 
-wire        upp_lcd_csx, upp_lcd_dcx, upp_lcd_wrx, upp_lcd_rdx, upp_lcd_resx, upp_lcd_d_oe, upp_lcd_on;
+wire        upp_lcd_csx, upp_lcd_dcx, upp_lcd_wrx, upp_lcd_rdx, upp_lcd_resx, upp_lcd_d_oe;
 wire  [7:0] upp_lcd_d;
 wire  [7:0] panel_d;
 wire        mmc_clk, mmc_cmd_o, mmc_cmd_oe, mmc_dat_o, mmc_dat_oe;
@@ -575,7 +557,7 @@ upp_periph upp_periph
 	.lcd_d_o(upp_lcd_d),
 	.lcd_d_oe(upp_lcd_d_oe),
 	.lcd_d_i(panel_d),
-	.lcd_active(upp_lcd_on),
+	.lcd_active(),
 	.mmc_clk(mmc_clk),
 	.mmc_cmd_o(mmc_cmd_o),
 	.mmc_cmd_oe(mmc_cmd_oe),
@@ -660,7 +642,7 @@ end
 // maxfan: Quartus copies this register near its loads (its one copy
 // crossed the device to the whole CPU, 3.2 ns of routing at 104 MHz).
 (* maxfan = 32 *) reg cpu_reset /* verilator public_flat_rd */ = 1'b1;
-always @(posedge clk_sys) cpu_reset <= mem_reset | test_on | ~images_in | rtc_wait;
+always @(posedge clk_sys) cpu_reset <= mem_reset | ~images_in | rtc_wait;
 
 wire        cpu_req, cpu_we, cpu_burst;
 wire  [1:0] cpu_bte;
@@ -698,8 +680,8 @@ arm925t #(
 	.bus_burst(cpu_burst),
 	.bus_bte(cpu_bte),
 	.bus_rdata(wb_dat_r),
-	.bus_ack(wb_ack & ~test_sel),
-	.bus_err(wb_err & ~test_sel),
+	.bus_ack(wb_ack),
+	.bus_err(wb_err),
 	.bus_no_late_error(wb_no_late_error), // consumed only with CPU ACK
 	.dbg_pc(cpu_dbg_pc),
 	.dbg_wb_valid(tr_wb_valid),
@@ -791,84 +773,43 @@ wire unused_trace = &{1'b0, tr_wb_valid, tr_wb_dvalid, tr_wb_uop_last, tr_wb_dab
                       tr_d_va, tr_d_sel, tr_d_wdata, tr_d_rdata, dbg_trig};
 end endgenerate
 
-// the Wishbone port: the CPU, or the self-test while it runs (test_sel)
-wire        st_cyc, st_stb, st_we;
-wire [31:0] st_adr, st_dat;
-wire  [3:0] st_sel;
-wire  [2:0] st_cti;
-wire  [1:0] st_bte;
+// the Wishbone port is the CPU's
+assign wb_cyc   = cpu_req;
+assign wb_stb   = cpu_req;
+assign wb_we    = cpu_we;
+assign wb_adr   = cpu_addr;
+assign wb_dat_w = cpu_wdata;
+assign wb_sel   = cpu_be;
+assign wb_cti   = cpu_burst ? 3'b010 : 3'b111;
+assign wb_bte   = cpu_bte;
 
-assign wb_cyc   = test_sel ? st_cyc : cpu_req;
-assign wb_stb   = test_sel ? st_stb : cpu_req;
-assign wb_we    = test_sel ? st_we  : cpu_we;
-assign wb_adr   = test_sel ? st_adr : cpu_addr;
-assign wb_dat_w = test_sel ? st_dat : cpu_wdata;
-assign wb_sel   = test_sel ? st_sel : cpu_be;
-assign wb_cti   = test_sel ? st_cti : (cpu_burst ? 3'b010 : 3'b111);
-assign wb_bte   = test_sel ? st_bte : cpu_bte;
-
-wire [15:0] test_errors;
-wire        test_pass_done;
-
-wb_selftest #(
-	.SDRAM_WORDS_LOG2(SELFTEST_SDRAM_WORDS_LOG2),
-	.ONCHIP_WORDS_LOG2(SELFTEST_ONCHIP_WORDS_LOG2),
-	.FLASH_WORDS_LOG2(SELFTEST_FLASH_WORDS_LOG2)
-) wb_selftest (
-	.clk(clk_sys),
-	.reset(mem_reset),
-	.enable(test_on),
-	.wb_cyc(st_cyc),
-	.wb_stb(st_stb),
-	.wb_we(st_we),
-	.wb_adr(st_adr),
-	.wb_dat(st_dat),
-	.wb_sel(st_sel),
-	.wb_cti(st_cti),
-	.wb_bte(st_bte),
-	.wb_ack(wb_ack & test_sel),
-	.wb_err(wb_err & test_sel),
-	.wb_dat_i(wb_dat_r),
-	.passes(),
-	.errors(test_errors),
-	.err_adr(),
-	.err_got(),
-	.err_want(),
-	.pass_done(test_pass_done)
-);
-
-// First firmware LCD frame is a cheap boot milestone. lcd_testgen also
-// emits frame events before images load; only the UPP-owned bus counts.
+// The firmware's first LCD frame is a cheap boot milestone.
 reg         cpu_reset_q = 1'b1;
 reg         boot_done /* verilator public_flat_rd */ = 1'b0;
 wire        boot_start = cpu_reset_q && !cpu_reset;
-wire        boot_up = !cpu_reset && !boot_done && upp_lcd_on && lcd_frame_ev;
+wire        boot_up = !cpu_reset && !boot_done && lcd_frame_ev;
 always @(posedge clk_sys) begin
 	cpu_reset_q <= cpu_reset;
 	if (cpu_reset) boot_done <= 1'b0;
 	else if (boot_up) boot_done <= 1'b1;
 end
 
-// Queue info events, with a low cycle between pulses: a mounted/save/test
+// Queue info events, with a low cycle between pulses: a mounted or save
 // event must not swallow a boot message (or vice versa) on the same clock.
-reg  [15:0] test_reported = 0;
-reg         test_first = 1;
-wire        test_note = test_pass_done && (test_first || test_errors != test_reported);
-wire [11:0] info_events = {ph_note == 3'd4, ph_note == 3'd2, ph_note == 3'd3, ph_note == 3'd1, boot_up, boot_start, fs_saved,
-                          fs_note == 2'd3, fs_note == 2'd2, fs_note == 2'd1,
-                          test_note && test_errors != 16'd0, test_note && test_errors == 16'd0};
-reg  [11:0] info_pending = 0;
+wire  [9:0] info_events = {ph_note == 3'd4, ph_note == 3'd2, ph_note == 3'd3, ph_note == 3'd1, boot_up, boot_start, fs_saved,
+                          fs_note == 2'd3, fs_note == 2'd2, fs_note == 2'd1};
+reg   [9:0] info_pending = 0;
 reg   [7:0] info_q = 0;
 reg         info_req_q = 0;
 reg   [7:0] info_next;
-reg  [11:0] info_mask;
+reg   [9:0] info_mask;
 always @* begin
 	info_next = 0;
 	info_mask = 0;
-	for (int i = 11; i >= 0; i--) begin
+	for (int i = 9; i >= 0; i--) begin
 		if (info_pending[i]) begin
 			info_next = 8'(i + 1);
-			info_mask = 12'(1 << i);
+			info_mask = 10'(1 << i);
 		end
 	end
 end
@@ -880,15 +821,7 @@ always @(posedge clk_sys) begin
 		info_req_q <= 1'b1;
 		info_pending <= (info_pending & ~info_mask) | info_events;
 	end
-	if (test_note) begin
-		test_first <= 1'b0;
-		test_reported <= test_errors;
-	end
-	if (!test_on) begin
-		test_first <= 1'b1;
-		test_reported <= 16'd0;
-	end
-	if (cpu_reset) info_pending[7:6] <= 2'b00;
+	if (cpu_reset) info_pending[5:4] <= 2'b00;
 	if (sys_reset) begin
 		info_pending <= 0;
 		info_req_q <= 1'b0;
@@ -898,10 +831,7 @@ end
 assign info_req = info_req_q;
 assign info     = info_q;
 
-// power LED while the test runs: slow blink passing, fast blink failed
-reg [24:0] blink = 0;
-always @(posedge clk_sys) blink <= blink + 1'd1;
-assign LED_POWER = {test_on, test_on & ((test_errors != 16'd0) ? blink[21] : blink[24])};
+assign LED_POWER = 2'b00;
 
 ///////////////////////   MMC CARD   /////////////////////////////
 
@@ -941,17 +871,8 @@ assign LED_DISK = {1'b0, mmc_active | fs_active};
 
 ///////////////////////   KEYS   /////////////////////////////////
 
-wire [ngage_keys::NKEYS-1:0] keys;
-wire       power_key;
-wire [4:0] kp_col_oe, kp_col_out, tg_col_oe, tg_col_out;
-wire [5:0] kp_row_oe, kp_row_out;
-
-// the matrix lines: lcd_testgen's until the UPP drives the display
-assign kp_col_oe  = upp_lcd_on ? upp_col_oe  : tg_col_oe;
-assign kp_col_out = upp_lcd_on ? upp_col_out : tg_col_out;
-assign kp_row_oe  = upp_lcd_on ? upp_row_oe  : 6'd0;
-assign kp_row_out = upp_lcd_on ? upp_row_out : 6'd0;
-
+wire [ngage_keys::NKEYS-1:0] keys /* verilator public_flat_rd */;
+wire       power_key /* verilator public_flat_rd */;
 ngage_input ngage_input
 (
 	.clk(clk_sys),
@@ -968,10 +889,10 @@ keypad_matrix keypad_matrix
 	.clk(clk_sys),
 	.keys(keys),
 	.power(power_key),
-	.col_oe(kp_col_oe),
-	.col_out(kp_col_out),
-	.row_oe(kp_row_oe),
-	.row_out(kp_row_out),
+	.col_oe(upp_col_oe),
+	.col_out(upp_col_out),
+	.row_oe(upp_row_oe),
+	.row_out(upp_row_out),
 	.col_in(kp_col_in),
 	.row_in(kp_row_in),
 	.pwronx(pwronx)
@@ -979,33 +900,9 @@ keypad_matrix keypad_matrix
 
 ///////////////////////   DISPLAY   //////////////////////////////
 
-wire       tg_csx, tg_dcx, tg_wrx, tg_rdx, tg_resx;
-wire [7:0] tg_d;
-
-lcd_testgen lcd_testgen
-(
-	.clk(clk_sys),
-	.reset(reset),
-	.csx(tg_csx),
-	.dcx(tg_dcx),
-	.wrx(tg_wrx),
-	.rdx(tg_rdx),
-	.resx(tg_resx),
-	.d(tg_d),
-	.col_oe(tg_col_oe),
-	.col_out(tg_col_out),
-	.row_in(kp_row_in),
-	.pwronx(pwronx)
-);
-
-// the panel's bus: lcd_testgen's until the UPP's LCD interface first drives it
-wire       lcd_csx  = upp_lcd_on ? upp_lcd_csx  : tg_csx;
-wire       lcd_dcx  = upp_lcd_on ? upp_lcd_dcx  : tg_dcx;
-wire       lcd_wrx  = upp_lcd_on ? upp_lcd_wrx  : tg_wrx;
-wire       lcd_rdx  = upp_lcd_on ? upp_lcd_rdx  : tg_rdx;
-wire       lcd_resx = upp_lcd_on ? upp_lcd_resx : tg_resx;
+// the panel's bus is the UPP's LCD interface's
 wire       panel_d_oe;
-wire [7:0] lcd_d    = !upp_lcd_on ? tg_d : upp_lcd_d_oe ? upp_lcd_d : panel_d_oe ? panel_d : 8'hFF;
+wire [7:0] lcd_d = upp_lcd_d_oe ? upp_lcd_d : panel_d_oe ? panel_d : 8'hFF;
 
 wire        scan_en;
 wire  [7:0] scan_x, scan_y;
@@ -1020,11 +917,11 @@ lcd_panel lcd_panel
 (
 	.clk(clk_sys),
 	.reset(sys_reset),
-	.csx(lcd_csx),
-	.dcx(lcd_dcx),
-	.wrx(lcd_wrx),
-	.rdx(lcd_rdx),
-	.resx(lcd_resx),
+	.csx(upp_lcd_csx),
+	.dcx(upp_lcd_dcx),
+	.wrx(upp_lcd_wrx),
+	.rdx(upp_lcd_rdx),
+	.resx(upp_lcd_resx),
 	.d_i(lcd_d),
 	.d_o(panel_d),
 	.d_oe(panel_d_oe),
@@ -1041,24 +938,14 @@ lcd_panel lcd_panel
 	.pix_y(lcd_pix_y)
 );
 
-// the memory test's status square, the top-left 12x12 panel pixels (so a
-// screenshot shows the result): yellow until the first pass ends, green
-// passing, magenta errors seen
-reg test_any_pass = 0;
-always @(posedge clk_sys) begin
-	if (!test_on) test_any_pass <= 1'b0;
-	else if (test_pass_done) test_any_pass <= 1'b1;
-end
-wire [15:0] test_rgb = (test_errors != 16'd0)  ? 16'hF81F :
-                       test_any_pass           ? 16'h07E0 : 16'hFFE0;
-// a completed CPU bus beat: the activity dot (below) and the counters
-wire        dbg_bus_beat  = wb_cyc && wb_stb && (wb_ack || wb_err);
 // The debug overlay (OSD "Debug overlay"): the CPU's PC, status bits and
 // 32-bit words as white pixels; tools/mister_dbg.py has the row layout and
 // decodes a screenshot. The overlay, its per-second counters and the trace
 // triggers are built only with NGAGE_DEBUG (NGage.qsf): the measurement
 // core; every other build is the stripped core, about 1,700 ALMs smaller.
 `ifdef NGAGE_DEBUG
+// a completed CPU bus beat, for the counters
+wire        dbg_bus_beat  = wb_cyc && wb_stb && (wb_ack || wb_err);
 // Appended words 37/38 (rows 156-158 and 160-162): loader state and history.
 // Count actual ioctl_download rising edges, including raw F3/F4. These survive
 // CPU/OSD resets; sys_reset (RESET input/PLL unlock) clears the history.
@@ -1103,7 +990,7 @@ always @(posedge clk_sys) begin
 	if (aud_abs_r > aud_peak_r) aud_peak_r <= aud_abs_r;
 	if (scan_en && scan_x == 8'd0 && scan_y == 8'd0) begin
 		dbg_pc_q   <= cpu_dbg_pc;
-		dbg_bits_q <= {cpu_reset, cpu_irq, cpu_fiq, dbg_bus_q, dl_loaded[0], dl_loaded[1], fs_present, test_sel};
+		dbg_bits_q <= {cpu_reset, cpu_irq, cpu_fiq, dbg_bus_q, dl_loaded[0], dl_loaded[1], fs_present, 1'b0};
 		dbg_bus_q  <= 1'b0;
 		dbg_aud_l  <= aud_peak_l;
 		dbg_aud_r  <= aud_peak_r;
@@ -1163,7 +1050,7 @@ always @(posedge clk_sys) dbg_mmc_busy_q <= dbg_src0[22];
 wire        tr_wb_retire = (tr_wb_valid || tr_wb_dvalid) && !tr_wb_dabt[1];
 wire [DBG_CNT-1:0] dbg_ev = {
 	cpu_dbg_icache[7:6],                                  // 32..31 D/I TLB walk beats
-	cpu_dbg_icache[5] && (dbg_dma_owner || test_sel),       // 30 I-fill external grant wait
+	cpu_dbg_icache[5] && dbg_dma_owner,                   // 30 I-fill external grant wait
 	cpu_dbg_icache[4:0],                                  // 29..25 merger wait, true wait, fills, fetch wait, FIFO full
 	cpu_dbg_dcache,                                       // 24..21 D-cache: uncached completions, line write-backs, store-miss fills, load-miss fills
 	dbg_src0[22] && dbg_src0[23] && !card_dat_oe,         // 20 mmc wire waits for Linux
@@ -1431,21 +1318,7 @@ wire unused_dbg = &{1'b0, cpu_dbg_pc, cpu_dbg_stall, cpu_dbg_dcache, cpu_dbg_ica
                     dbg_en0_fiq, tr_trig_pc, tr_dumps, tr_triggers, tr_dumping, kt_count, kt_dropped,
                     lcd_pix_ev, lcd_pix_y, status[8], ph_have, ph_state, ph_errors};
 `endif
-// A six-pixel activity square outside the fixed debug rows (x 16..47).
-// At 104 MHz, keep each completed CPU bus beat visible for 1/8 second.
-reg [23:0] activity_left /* verilator public_flat_rd */ = 0;
-always @(posedge clk_sys) begin
-	if (cpu_reset) activity_left <= 0;
-	else if (dbg_bus_beat) activity_left <= 24'd13_000_000;
-	else if (activity_left != 0) activity_left <= activity_left - 1'd1;
-end
-wire activity_show = !cpu_reset &&
-                     (status[17:16] == 2'd1 || (status[17:16] == 2'd0 && !boot_done));
-wire activity_dot = activity_show && activity_left != 0 &&
-                    scan_x >= 8'd164 && scan_x < 8'd170 && scan_y >= 8'd4 && scan_y < 8'd10;
-assign scan_rgb = (test_on && scan_x < 8'd12 && scan_y < 8'd12) ? test_rgb :
-                  (dbg_on && (dbg_pcrow_q || dbg_strow_q || dbg_wrow_q)) ? dbg_rgb :
-                  activity_dot ? 16'h07E0 : panel_rgb;
+assign scan_rgb = (dbg_on && (dbg_pcrow_q || dbg_strow_q || dbg_wrow_q)) ? dbg_rgb : panel_rgb;
 
 wire       ce_pix;
 wire       hs, vs, hblank, vblank;

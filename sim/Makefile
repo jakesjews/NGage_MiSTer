@@ -213,7 +213,6 @@ $(BUILD)/top/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/top_main.cpp
                    $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h $(ROOT)/sim/harness/phoenix_stream.h \
                    $(ROOT)/rtl/mister/phoenix_patch.hex $(ROOT)/rtl/mister/phoenix_patch.vh
 	mkdir -p $(BUILD)/top && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) --timescale 1ns/1ps --pins-inout-enables \
-		-GSELFTEST_SDRAM_WORDS_LOG2=12 -GSELFTEST_ONCHIP_WORDS_LOG2=12 -GSELFTEST_FLASH_WORDS_LOG2=10 \
 		--top-module emu -DNGAGE_DEBUG=1 --Mdir $(BUILD)/top -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
 		$(TOP_RTL) $(ROOT)/sim/harness/top_main.cpp
 top: $(BUILD)/top/Vemu | $(OUT)

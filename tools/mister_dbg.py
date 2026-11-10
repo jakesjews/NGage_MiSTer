@@ -8,7 +8,7 @@
 With the OSD option "Debug overlay" on, NGage.sv draws the CPU's committed
 PC (32 bits, bit 31 leftmost) in panel rows 0-2 at x 16..47 and eight status
 bits in rows 4-6 at x 16..23: cpu_reset, irq, fiq, bus activity, CS0 loaded,
-CS1 loaded, CS1 save present, memory-test master. White = 1. Rows 8, 12, 16,
+CS1 loaded, CS1 save present, memory-test master (0 in cores from 2026-11-10 on). White = 1. Rows 8, 12, 16,
 20, 24, 28, 32 and 36 (3 lines each, x 16..47) hold 32-bit words: interrupt
 sources of bank 0, the IRQ-plane and FIQ-plane enables of bank 0, the three
 words the kernel writes to on-chip RAM 0x0C0047F0/F4/F8 on Kern::Fault
