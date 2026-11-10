@@ -21,6 +21,10 @@
 #                 off: kern.log is the bare text, as on the hardware
 #   NGAGE_PCSAMPLE file for a PC sample every guest millisecond: "<guest
 #                 seconds> <pc> <mode>" (busy and idle stretches on the clock)
+#   NGAGE_EXCLOG  file for a record of every exception, interrupt and CP15
+#                 write with the instruction count (model/plugins/excprof.c);
+#                 model/tools/excstat.py turns it into kernel calls, process
+#                 switches and cache/TLB flushes per second
 #   NGAGE_ICOUNT  QEMU -icount setting (default shift=4,sleep=off: 16 ns per
 #                 instruction, idle time skipped); "none" for wall-clock time
 #   NGAGE_AUDIO   host audio driver for the HLE audio device, e.g. coreaudio

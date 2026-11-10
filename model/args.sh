@@ -40,3 +40,10 @@ qemu=(model/.build/qemu-system-arm "${audiodev[@]}" -M "$machine" -serial none
 # NGAGE_ICOUNT=none uses wall-clock time instead.
 icount=${NGAGE_ICOUNT:-shift=4,sleep=off}
 [[ "$icount" != none ]] && qemu+=(-icount "$icount")
+# NGAGE_EXCLOG=FILE: every exception, interrupt and CP15 write with the
+# count of instructions executed (plugins/excprof.c; tools/excstat.py).
+# FILE,footprint=on adds the code and data pages touched between the
+# kernel's D-TLB invalidations (several times slower).
+if [[ -n "${NGAGE_EXCLOG:-}" ]]; then
+    qemu+=(-plugin "model/.build/excprof.so,out=$NGAGE_EXCLOG")
+fi

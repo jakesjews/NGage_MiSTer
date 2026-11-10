@@ -53,6 +53,16 @@ fi
 ninja -C "$BUILD" qemu-system-arm
 ls -la "$BUILD/qemu-system-arm"
 
+# The exception-log plugin (plugins/excprof.c; NGAGE_EXCLOG in run.sh).
+if [[ $(uname -s) == Darwin ]]; then
+    plugin_ld=(-bundle -Wl,-undefined,dynamic_lookup)
+else
+    plugin_ld=(-shared -fPIC)
+fi
+cc -O2 -Wall -I"$SRC/include/plugins" $(pkg-config --cflags glib-2.0) $plugin_ld \
+    -o "$BUILD/excprof.so" plugins/excprof.c $(pkg-config --libs glib-2.0)
+ls -la "$BUILD/excprof.so"
+
 # NOS stand-in (model shortcut, see rom-patches.txt), linked at the NOS entry
 # 0x5149E4D4 (CS0 0x9E4D4 seen through the kernel's NOS window at 0x51400000).
 arm-none-eabi-as -march=armv4t -o "$BUILD/nos_stub.o" nos-stub/nos_stub.S
