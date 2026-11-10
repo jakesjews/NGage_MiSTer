@@ -26,6 +26,21 @@ state[18:14]. Word 46 (rows 192-194) holds F1..F4 start counts[31:16] as four
 saturating 4-bit counters and the full current-file error count[15:0]. These
 words keep updating during CPU reset; sys_reset (RESET/PLL unlock) clears history.
 
+A second column at x 56..87 (the same rows from 8 on; cores from 2026-11-10)
+starts with a marker ("NGE2" or "NGE3") and holds the exception counters of NGage.sv
+(dbg_ev2): per second, the SWI, IRQ, FIQ, data-abort, prefetch-abort and
+undefined exceptions taken; the clocks in User mode; the privileged clocks
+after each of those six (charged to the exception that last took the CPU out
+of User mode); the instructions retired in User mode; the aborts/undefined,
+SWIs and interrupts taken in a privileged mode; the kernel calls of 4,096
+clocks or more and of 65,536 or more; with the marker "NGE3" also the
+clocks in Supervisor, Undefined and IRQ mode and the RH-29 v4.60 kernel's
+process switches with their I-cache, I-TLB and D-TLB invalidations and
+D-cache clean loops. Then the PC of one SWI in 64, of the last data abort,
+prefetch abort and undefined instruction (address + 8, + 4 in Thumb) and
+the low CPSR byte before each. A capture without a marker is decoded
+without this part.
+
 usage: tools/mister_dbg.py SHOT.png [SHOT.png ...]
 The screenshot must be the whole 176x208 picture at an integer scale
 (direct_video=0 for the core); the scale is taken from the image width.
@@ -65,7 +80,53 @@ def decode(path):
         path, pc, flags, words[0], words[1], words[2], words[3], words[4], words[5], cat,
         words[6], words[7] >> 24, (words[7] >> 16) & 0xFF, words[7] & 0xFFFF, w11 >> 24,
         w8 >> 31, (w8 >> 16) & 0x1F, (w8 >> 8) & 0x3F, w8 & 0x3F, w9 >> 16, (w9 >> 8) & 0xFF, w9 & 0xFF,
-        w10 >> 16, w10 & 0xFFFF) + counters(words[12:45]) + loader(words[45:47])
+        w10 >> 16, w10 & 0xFFFF) + counters(words[12:45]) + loader(words[45:47]) + exceptions(im, scale)
+
+
+COL2_MARKS = {0x4E474532: 19, 0x4E474533: 27}      # "NGE2", "NGE3": the number of counters
+MODES = {0x10: "usr", 0x11: "fiq", 0x12: "irq", 0x13: "svc", 0x17: "abt", 0x1B: "und", 0x1F: "sys"}
+
+
+def column2(im, scale):
+    """The second column's counters and its five sampled words, or None when
+    the capture has no marker."""
+    def word(row):
+        w = 0
+        for i in range(32):
+            w = (w << 1) | bit(im, scale, 56 + i, row)
+        return w
+    n = COL2_MARKS.get(word(9))
+    if n is None:
+        return None
+    words = [word(row) for row in range(13, 13 + 4 * (n + 5), 4)]
+    return words[:n], words[n:]
+
+
+def exceptions(im, scale):
+    col = column2(im, scale)
+    if col is None:
+        return ""
+    w, sampled = col
+    swi, irq, fiq, dabt, pabt, und, user = w[:7]
+    p_swi, p_irq, p_fiq, p_dabt, p_pabt, p_und = w[7:13]
+    u_instr, k_abt, k_swi, k_int, long1, long2 = w[13:19]
+    swi_pc, dabt_pc, pabt_pc, und_pc, cpsr = sampled
+    clk = 104_000_000
+    pct = lambda n: 100.0 * n / clk
+    other = clk - user - p_swi - p_irq - p_fiq - p_dabt - p_pabt - p_und
+    mode = lambda b: "%s%s" % (MODES.get(b & 0x1F, "%02x" % (b & 0x1F)), "/T" if b & 0x20 else "")
+    more = ""
+    if len(w) >= 27:
+        more = (" | mode clocks: svc %.2f%% und %.2f%% irq %.2f%% | kernel process switches %d/s: I-cache invalidations %d,"
+                " I-TLB %d, D-TLB %d, D-cache clean loops %d" % (pct(w[19]), pct(w[20]), pct(w[21]), w[22], w[23], w[24], w[25], w[26]))
+    return (" | exceptions per s: swi %d irq %d fiq %d dabt %d pabt %d und %d"
+            " | clocks: user %.2f%% after-swi %.2f%% after-irq %.2f%% after-fiq %.2f%% after-dabt %.2f%% after-pabt %.2f%% after-und %.2f%% other %.2f%%"
+            " | user %.2f M instr | in privileged modes: %d abort/und %d swi %d irq/fiq | kernel calls >=4096 clk: %d, >=65536 clk: %d"
+            " | swi sample pc=%08x (%s) last dabt pc=%08x (%s) pabt pc=%08x (%s) und pc=%08x (%s)" % (
+                swi, irq, fiq, dabt, pabt, und,
+                pct(user), pct(p_swi), pct(p_irq), pct(p_fiq), pct(p_dabt), pct(p_pabt), pct(p_und), pct(other),
+                u_instr / 1e6, k_abt, k_swi, k_int, long1, long2,
+                swi_pc, mode(cpsr), dabt_pc, mode(cpsr >> 8), pabt_pc, mode(cpsr >> 16), und_pc, mode(cpsr >> 24)) + more)
 
 
 def loader(w):

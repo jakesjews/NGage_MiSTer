@@ -1183,6 +1183,110 @@ dbg_counters #(.N(DBG_CNT)) dbg_counters
 	.cnt(dbg_cnt)
 );
 
+// Exceptions, and whose clocks the privileged ones are: the overlay's second
+// column (x 56..87, the rows from y = 8; tools/mister_dbg.py). The writeback
+// stage's exception outputs pulse in the clock an exception is taken, and
+// the CPU is in User mode while the CPSR's mode field says so. Privileged
+// clocks are charged to the exception that last took the CPU out of User
+// mode, until the CPSR is back there: an interrupt inside a kernel call is
+// the call's time, and so is a thread the kernel switches to inside it.
+// Word 0 is a marker (the decoder's test for this column). Counters, per
+// second: 0..5 SWI, IRQ, FIQ, data-abort, prefetch-abort and undefined
+// exceptions taken; 6 clocks in User mode; 7..12 privileged clocks after a
+// SWI, IRQ, FIQ, data abort, prefetch abort, undefined instruction; 13
+// instructions retired in User mode; 14 aborts and undefined instructions
+// taken in a privileged mode, 15 SWIs, 16 interrupts; 17/18 kernel calls
+// (SWI to User mode again) of 4,096 clocks or more, of 65,536 or more;
+// 19..21 clocks in Supervisor, Undefined and IRQ mode (this kernel
+// reschedules and switches processes in Undefined mode, and the system
+// idles in it); 22..26 the RH-29 v4.60 kernel's process switch, counted where its
+// instructions retire: the switch itself (the DACR write at 0x50324110),
+// its whole I-cache, I-TLB and D-TLB invalidations (0x50324134, 0x5032413C,
+// 0x50324144; each conditional) and its clean-and-invalidate loop over the
+// D-cache (entered at 0x503224BC). Another firmware has other addresses.
+// Then five words sampled at the frame start: the PC of one SWI in 64
+// (picked by an LFSR), of the last data abort, prefetch abort and undefined
+// instruction (the stage's PC: the address + 8, + 4 in Thumb), and the low
+// CPSR byte before each: {undefined, prefetch abort, data abort, SWI}.
+localparam DBG_CNT2 = 27;
+localparam [31:0] DBG_COL2_MARK = 32'h4E47_4533;        // "NGE3"
+wire        dbg_user  = tr_wb_cpsr[4:0] == 5'b10000;
+wire  [5:0] dbg_exc   = {tr_wb_und, tr_wb_pabt, tr_wb_dabt[0], tr_wb_fiq, tr_wb_irq, tr_wb_swi};
+reg   [5:0] dbg_cause = 0;
+reg         dbg_user_q = 0;
+reg  [16:0] dbg_away  = 0;                               // clocks since User mode, saturating
+reg  [15:0] dbg_lfsr  = 16'hACE1;
+reg  [31:0] dbg_swi_pc = 0, dbg_dabt_pc = 0, dbg_pabt_pc = 0, dbg_und_pc = 0, dbg_exc_cpsr = 0;
+reg  [31:0] dbg_swi_pc_q = 0, dbg_dabt_pc_q = 0, dbg_pabt_pc_q = 0, dbg_und_pc_q = 0, dbg_exc_cpsr_q = 0;
+always @(posedge clk_sys) begin
+	dbg_user_q <= dbg_user;
+	dbg_lfsr   <= {dbg_lfsr[14:0], dbg_lfsr[15] ^ dbg_lfsr[13] ^ dbg_lfsr[12] ^ dbg_lfsr[10]};
+	if (dbg_user && dbg_exc != 6'd0) dbg_cause <= dbg_exc;
+	if (dbg_user) dbg_away <= 17'd0;
+	else if (!dbg_away[16]) dbg_away <= dbg_away + 17'd1;
+	if (tr_wb_swi && dbg_lfsr[5:0] == 6'd0) begin
+		dbg_swi_pc        <= tr_wb_pc;
+		dbg_exc_cpsr[7:0] <= tr_wb_cpsr[7:0];
+	end
+	if (tr_wb_dabt[0]) begin
+		dbg_dabt_pc        <= tr_wb_pc;
+		dbg_exc_cpsr[15:8] <= tr_wb_cpsr[7:0];
+	end
+	if (tr_wb_pabt) begin
+		dbg_pabt_pc         <= tr_wb_pc;
+		dbg_exc_cpsr[23:16] <= tr_wb_cpsr[7:0];
+	end
+	if (tr_wb_und) begin
+		dbg_und_pc          <= tr_wb_pc;
+		dbg_exc_cpsr[31:24] <= tr_wb_cpsr[7:0];
+	end
+	if (cpu_reset) begin
+		dbg_cause    <= 6'd0;
+		dbg_swi_pc   <= 32'd0;
+		dbg_dabt_pc  <= 32'd0;
+		dbg_pabt_pc  <= 32'd0;
+		dbg_und_pc   <= 32'd0;
+		dbg_exc_cpsr <= 32'd0;
+	end
+	if (scan_en && scan_x == 8'd0 && scan_y == 8'd0) begin
+		dbg_swi_pc_q   <= dbg_swi_pc;
+		dbg_dabt_pc_q  <= dbg_dabt_pc;
+		dbg_pabt_pc_q  <= dbg_pabt_pc;
+		dbg_und_pc_q   <= dbg_und_pc;
+		dbg_exc_cpsr_q <= dbg_exc_cpsr;
+	end
+end
+wire        dbg_back = dbg_user && !dbg_user_q;          // the first User clock again
+wire        dbg_ret   = tr_wb_valid && tr_wb_pc[31:16] == 16'h5032;   // an instruction of that kernel page retires
+wire [DBG_CNT2-1:0] dbg_ev2 = {
+	dbg_ret && tr_wb_pc[15:0] == 16'h24C4,                    // 26 D-cache clean-and-invalidate loops
+	dbg_ret && tr_wb_pc[15:0] == 16'h414C,                    // 25 D-TLB invalidations
+	dbg_ret && tr_wb_pc[15:0] == 16'h4144,                    // 24 I-TLB invalidations
+	dbg_ret && tr_wb_pc[15:0] == 16'h413C,                    // 23 I-cache invalidations
+	dbg_ret && tr_wb_pc[15:0] == 16'h4118,                    // 22 process switches (the DACR write)
+	tr_wb_cpsr[4:0] == 5'b10010,                              // 21 clocks in IRQ mode
+	tr_wb_cpsr[4:0] == 5'b11011,                              // 20 clocks in Undefined mode
+	tr_wb_cpsr[4:0] == 5'b10011,                              // 19 clocks in Supervisor mode
+	dbg_back && dbg_cause[0] && dbg_away[16],                 // 18 kernel calls of 65,536 clocks or more
+	dbg_back && dbg_cause[0] && dbg_away[16:12] != 5'd0,      // 17 of 4,096 or more
+	!dbg_user && (tr_wb_irq || tr_wb_fiq),                    // 16 interrupts taken in a privileged mode
+	!dbg_user && tr_wb_swi,                                   // 15 SWIs taken in a privileged mode
+	!dbg_user && (tr_wb_dabt[0] || tr_wb_pabt || tr_wb_und),  // 14 aborts and undefined taken in a privileged mode
+	dbg_user && tr_wb_retire && tr_wb_uop_last,               // 13 instructions retired in User mode
+	{6{!dbg_user}} & dbg_cause,                               // 12..7 privileged clocks after und, pabt, dabt, fiq, irq, swi
+	dbg_user,                                                 // 6 clocks in User mode
+	dbg_exc};                                                 // 5..0 und, pabt, dabt, fiq, irq, swi taken
+wire [DBG_CNT2-1:0][31:0] dbg_cnt2;
+
+dbg_counters #(.N(DBG_CNT2)) dbg_counters2
+(
+	.clk(clk_sys),
+	.reset(sys_reset),
+	.tick(dbg_tick),
+	.ev(dbg_ev2),
+	.cnt(dbg_cnt2)
+);
+
 wire dbg_trig_wr = DBG_TRIG_WR_AFTER_S != 8'd0 && dbg_sec >= DBG_TRIG_WR_AFTER_S &&
                    cpu_req && wb_ack && wb_we && wb_adr[31:24] == 8'h02;
 wire dbg_trig_at = dbg_sec_pre == 27'd0 &&
@@ -1223,6 +1327,20 @@ wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd15 + 6'(DBG_CNT)) ? dbg_load_counts_q :
                         (scan_y[7:2] >= 6'd14 && scan_y[7:2] < 6'd14 + 6'(DBG_CNT)) ? dbg_cnt[$clog2(DBG_CNT)'(scan_y[7:2] - 6'd14)] :
                                                  32'd0;
+// the second column (x 56..87): the marker, the exception counters, the
+// five sampled words
+localparam [7:0] DBG_W2END = 8'd8 + 8'd4 * 8'(1 + DBG_CNT2 + 5) - 8'd1;
+wire        dbg_col2  = scan_x >= 8'd56;
+wire        dbg_wrow2 = scan_y >= 8'd8 && scan_y < DBG_W2END && scan_y[1:0] != 2'd3 && scan_x >= 8'd56 && scan_x < 8'd88;
+wire  [5:0] dbg_row2  = scan_y[7:2] - 6'd3;              // the counter's index; the marker is the row before
+wire [31:0] dbg_word2 = (scan_y[7:2] == 6'd2)           ? DBG_COL2_MARK :
+                        (dbg_row2 == 6'(DBG_CNT2))      ? dbg_swi_pc_q :
+                        (dbg_row2 == 6'(DBG_CNT2 + 1))  ? dbg_dabt_pc_q :
+                        (dbg_row2 == 6'(DBG_CNT2 + 2))  ? dbg_pabt_pc_q :
+                        (dbg_row2 == 6'(DBG_CNT2 + 3))  ? dbg_und_pc_q :
+                        (dbg_row2 == 6'(DBG_CNT2 + 4))  ? dbg_exc_cpsr_q :
+                        (dbg_row2 < 6'(DBG_CNT2))       ? dbg_cnt2[$clog2(DBG_CNT2)'(dbg_row2)] :
+                                                          32'd0;
 // the row select and the word are registered once (scan_x/y hold for the 16
 // clocks of a pixel); the row mux into the bit select was the worst setup path
 logic        dbg_pcrow_q, dbg_strow_q, dbg_wrow_q;
@@ -1231,9 +1349,9 @@ logic [4:0]  dbg_col_q;
 always_ff @(posedge clk_sys) begin
 	dbg_pcrow_q <= dbg_pcrow;
 	dbg_strow_q <= dbg_strow;
-	dbg_wrow_q  <= dbg_wrow;
-	dbg_word_q  <= dbg_word;
-	dbg_col_q   <= 5'(scan_x - 8'd16);
+	dbg_wrow_q  <= dbg_wrow || dbg_wrow2;
+	dbg_word_q  <= dbg_col2 ? dbg_word2 : dbg_word;
+	dbg_col_q   <= dbg_col2 ? 5'(scan_x - 8'd56) : 5'(scan_x - 8'd16);
 end
 wire        dbg_bit   = dbg_pcrow_q ? dbg_pc_q[5'd31 - dbg_col_q] :
                         dbg_strow_q ? dbg_bits_q[3'd7 - 3'(dbg_col_q)] :
