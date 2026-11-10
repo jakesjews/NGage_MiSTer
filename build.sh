@@ -30,7 +30,7 @@ if [[ "$where" == remote ]]; then
     ssh "$host" "mkdir -p \$HOME/$dir"
     rsync -a --delete --exclude build --exclude db --exclude incremental_db --exclude output_files \
         --exclude research --exclude .git --exclude '*.rbf' --exclude 'sim/build' --exclude 'sim/cpu/build' \
-        --exclude 'model/.out' --exclude 'model/qemu*' ./ "$host:$dir/"
+        --exclude 'model/.out' --exclude 'model/.qemu-src' --exclude 'model/.build' ./ "$host:$dir/"
     docker_run="docker run --rm --user \$(id -u):\$(id -g) -e HOME=/tmp -v \$HOME/$dir:/project -w /project $image"
     if [[ "$build_mode" == map ]]; then
         ssh "$host" "$docker_run /opt/intelFPGA_lite/quartus/bin/quartus_map --read_settings_files=on --write_settings_files=off $proj -c $proj" \
@@ -52,7 +52,7 @@ if [[ "$where" == remote ]]; then
         rsync -a "$host:$dir/output_files/$proj.rbf" output_files/
         rsync -a "$host:$dir/output_files/$proj.fit.summary" "$host:$dir/output_files/$proj.sta.summary" output_files/ 2>/dev/null || true
         rsync -a "$host:$dir/build/" build/ 2>/dev/null || true
-        if rg -q 'Timing requirements not met' build/quartus-compile.log; then
+        if grep -q 'Timing requirements not met' build/quartus-compile.log; then
             print -u2 'Quartus produced output, but timing requirements were not met.'
             exit 2
         fi
@@ -70,7 +70,7 @@ else
         run_q quartus_sh.exe --flow compile $proj 2>&1 | tee build/quartus-compile.log
         sta_rc=0
         run_q quartus_sta.exe -t tools/report_timing.tcl 2>&1 | tee build/timing-report.log || sta_rc=$?
-        if rg -q 'Timing requirements not met' build/quartus-compile.log; then
+        if grep -q 'Timing requirements not met' build/quartus-compile.log; then
             print -u2 'Quartus produced output, but timing requirements were not met.'
             exit 2
         fi

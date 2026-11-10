@@ -18,7 +18,11 @@ VFLAGS := --cc --exe --build -j 4 -O3 --x-assign unique --x-initial unique \
           -CFLAGS "-O2 -std=c++17 -I$(ROOT)/sim/harness"
 # Whole-core compile options (Verilator defines or parameters).
 VEXTRA ?=
-CORE_PROFILE ?= 1
+# CORE_PROFILE=1 adds the CPU profile probe to the firmware bench. It is off:
+# the probe (sim/profile/cpu_profile_probe.sv) reads the CPU's records by bit
+# position and has not followed them since 2026-10-26, so its own check stops
+# the bench at once ("profile W layout changed").
+CORE_PROFILE ?= 0
 PROFILE_FILES = $(if $(filter 1,$(CORE_PROFILE)),$(ROOT)/sim/profile/cpu_profile_probe.sv)
 PROFILE_FLAGS = $(if $(filter 1,$(CORE_PROFILE)),-DCPU_PROFILE=1 -CFLAGS "-DCPU_PROFILE=1")
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2

@@ -9,8 +9,10 @@ harness=$(cd "$(dirname "$0")" && pwd)
 vr=$(verilator -getenv VERILATOR_ROOT)
 flags=()
 [[ $(basename "$model") == top ]] && flags+=(-DHPS_TEST_TOP)
+# the firmware bench's model is built --savable: its snapshot runtime goes in too
+objs=("$model/Vemu__ALL.a" "$model/verilated.o" "$model/verilated_threads.o")
+[[ -f "$model/verilated_save.o" ]] && objs+=("$model/verilated_save.o")
 "${CXX:-c++}" -O2 -std=c++17 -pthread -I"$vr/include" -I"$vr/include/vltstd" \
-    -I"$model" -I"$harness" "${flags[@]}" "$@" "$harness/hps_read_test.cpp" \
-    "$model/Vemu__ALL.a" "$model/verilated.o" "$model/verilated_threads.o" \
-    -o "$model/hps_read_test"
+    -I"$model" -I"$harness" ${flags[@]+"${flags[@]}"} "$@" "$harness/hps_read_test.cpp" \
+    "${objs[@]}" -o "$model/hps_read_test"
 "$model/hps_read_test" +verilator+seed+1 +verilator+rand+reset+2
