@@ -43,9 +43,8 @@ Parameters:
 - `ICACHE_SIZE` (32768 since 2026-11-09), `CACHE_LINE` (16): cache
   geometry in bytes. 32768 is a 1,024-set I-cache (16 M10K more than the
   phone's 16384); the cache type register still reports 16 KB. The whole
-  core takes its size from `NGAGE_ICACHE_32K` in NGage.qsf, and the CPU
-  bench's default is still 16384 (`VEXTRA=-GICACHE_SIZE=32768` for the
-  built size).
+  core and the CPU bench have the same default, the size that is built
+  (`VEXTRA=-GICACHE_SIZE=16384` for the phone's).
   The D-cache is 32 KB two-way (1,024 sets, VA[13:4]), four times the
   phone's 8 KB, for speed (16 KB from 2026-10-26 to 2026-11-09; the 8 KB
   form is in git history). CP15 still reports 8 KB, so a D-cache by-index

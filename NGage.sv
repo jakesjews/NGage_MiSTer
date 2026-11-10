@@ -32,13 +32,9 @@ module emu #(
 	parameter int SELFTEST_SDRAM_WORDS_LOG2  = 22,
 	parameter int SELFTEST_ONCHIP_WORDS_LOG2 = 14,
 	parameter int SELFTEST_FLASH_WORDS_LOG2  = 12,
-	// the CPU's I-cache: 16 KB (the phone's) or 32 KB with NGAGE_ICACHE_32K
-	// (a macro in NGage.qsf)
-`ifdef NGAGE_ICACHE_32K
+	// the CPU's I-cache: 32 KB, twice the phone's, as built and as every
+	// bench runs it (16384 gives the phone's size)
 	parameter int ICACHE_SIZE                = 32768,
-`else
-	parameter int ICACHE_SIZE                = 16384,
-`endif
 	parameter int DCACHE_WAYS                = 2
 ) (
 	`include "sys/emu_ports.vh"
