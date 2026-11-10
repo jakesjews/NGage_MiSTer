@@ -227,7 +227,8 @@ struct Model {
 			mrow = sum >= tfa + vsa ? sum - vsa : sum;
 			mrow &= 0xFFFF;
 		}
-		bool in_ptl = sr <= er ? (mrow >= sr && mrow <= er) : (mrow >= sr || mrow <= er);
+		int prow = (madctl & 0x10) ? ((H - 1 - mrow) & 0xFFFF) : mrow;   // ML: counted from the other end
+		bool in_ptl = sr <= er ? (prow >= sr && prow <= er) : (prow >= sr || prow <= er);
 		bool show = !sleep && disp && mrow < H;
 		uint16_t px = show ? fm[mrow * W + nx] : 0;
 		if (madctl & 0x08) px = (uint16_t)((px & 31) << 11 | (px & 0x07E0) | px >> 11);
@@ -453,6 +454,47 @@ void test_reference(Bench &b, const std::string &out) {
 // ---------------------------------------------------------------------------
 // 2. Random command streams against the model
 // ---------------------------------------------------------------------------
+// The screen saver as lcd.ldd sends it (0x50406278) with MADCTL 0xD4: PTLAR
+// rows 4-26, PTLON, IDMON, then a full frame with the date bar in page rows
+// 4-26. The viewer sees the bar in lines 4-26 and black elsewhere, checked
+// against fixed values as well as against the model.
+void test_screensaver(Bench &b) {
+	Model m;
+	b.hw_reset_pin();
+	Both d{b, m};
+	d.cmd(0x11);
+	d.cmd(0x29);
+	d.cmd(0x3A, {0x05});
+	d.cmd(0x36, {0xD4});
+	d.cmd(0x30, {0, 4, 0, 26});
+	d.cmd(0x12);
+	d.cmd(0x39);
+	d.cmd(0x2A, {0, 0, 0, W - 1});
+	d.cmd(0x2B, {0, 0, 0, H - 1});
+	d.cmd(0x2C);
+	b.fast = true;
+	for (int p = 0; p < H; p++)
+		for (int c = 0; c < W; c++) {
+			// a white frame; in the bar's rows a green band with white marks
+			uint16_t v = (p >= 4 && p <= 26 && !(c & 8)) ? 0x0600 : 0xFFFF;
+			d.par((uint8_t)(v >> 8)); d.par((uint8_t)v);
+		}
+	b.fast = false;
+	compare_frame(b, m, "screen saver");
+	CHECK_EQ(b.scan(3, 10), 0x07E0, "screen saver: the bar's band, in eight colours");
+	CHECK_EQ(b.scan(9, 10), 0xFFFF, "screen saver: the bar's marks");
+	CHECK_EQ(b.scan(3, 4), 0x07E0, "screen saver: the bar's first line");
+	CHECK_EQ(b.scan(3, 26), 0x07E0, "screen saver: the bar's last line");
+	CHECK_EQ(b.scan(3, 3), PARTIAL, "screen saver: dark above the bar");
+	CHECK_EQ(b.scan(3, 27), PARTIAL, "screen saver: dark below the bar");
+	CHECK_EQ(b.scan(3, 190), PARTIAL, "screen saver: dark at the other end");
+	d.cmd(0x38);
+	d.cmd(0x13);
+	compare_frame(b, m, "screen saver left");
+	CHECK_EQ(b.scan(3, 190), 0xFFFF, "screen saver left: the whole frame again");
+	printf("screen saver: partial area and bar agree under MADCTL 0xD4\n");
+}
+
 void random_window(Both &d, Rng &r) {
 	bool mv = d.m.madctl & 0x20;
 	int cmax = mv ? H : W, pmax = mv ? W : H;
@@ -617,6 +659,7 @@ int main(int argc, char **argv) {
 	}
 
 	test_reference(b, out);
+	test_screensaver(b);
 
 	// random rounds against the model, which starts from the reference state
 	{

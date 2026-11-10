@@ -38,7 +38,11 @@
 // until the next result. Display state is applied here: sleep and DISPOFF
 // blank the picture, partial mode blanks the lines outside PTLAR, inversion
 // and idle (8-colour) mode change the pixel, BGR swaps red and blue, and the
-// vertical scroll area maps display lines to memory lines.
+// vertical scroll area maps display lines to memory lines. PTLAR's rows are
+// counted in the panel's line order, from the other end with ML set (DCS,
+// set_partial_rows under set_address_mode B4): lcd.ldd's screen saver sets
+// rows 4-26 with MADCTL 0xD4 and draws its date bar in page rows 4-26, which
+// MY puts in memory rows 181-203.
 //
 // Facts the research leaves open, each behind a parameter and marked [assumed]:
 //   * PANEL_ROT180: the module is mounted rotated 180 degrees to its
@@ -518,7 +522,7 @@ module lcd_panel #(
 	end
 
 	// S2: display line to memory line (vertical scroll), partial area
-	logic [15:0] line, mrow, sum;
+	logic [15:0] line, mrow, sum, prow;
 	logic        in_ptl;
 	always_comb begin
 		line = {8'd0, s1_y};
@@ -526,7 +530,8 @@ module lcd_panel #(
 		sum  = ssa + (line - tfa);
 		if (scroll && line >= tfa && line < tfa + vsa)
 			mrow = (sum >= tfa + vsa) ? sum - vsa : sum;
-		in_ptl = (sr <= er) ? (mrow >= sr && mrow <= er) : (mrow >= sr || mrow <= er);
+		prow   = ml ? 16'(H - 1) - mrow : mrow;
+		in_ptl = (sr <= er) ? (prow >= sr && prow <= er) : (prow >= sr || prow <= er);
 	end
 
 	always_ff @(posedge clk) begin
