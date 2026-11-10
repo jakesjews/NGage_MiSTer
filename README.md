@@ -65,21 +65,21 @@ Only the `.mmc` file goes on the MiSTer.
 - **Saves reach `boot0.vhd` a few seconds after the phone writes them.**
   Choose **Save C: now** in the OSD before switching off right after a save.
 - Keep your `boot0.vhd`: replacing it with the blank file starts a new phone.
+- Left alone at its idle screen for a few minutes, the phone shows its screen
+  saver: a bar with the date and time on a black screen. Any key brings the
+  picture back.
 - Leave a game before changing cards: exit to the phone's menu, then mount
   the next card.
 - **Aspect ratio** set to *Original* keeps the screen's own 176:208 shape,
   and **Rotate** turns the picture for a rotated display.
-- The green dot in the corner shows the phone working while it starts.
-  **Activity dot** in the OSD keeps it on or turns it off.
 - **Load firmware**, **Load language pack** and **Mount C: save** in the OSD
   load the same three files by hand, the firmware before the language pack.
-  **Load flash** and **Memory test** are for development.
+  **Load flash** is for development.
 
 ## Troubleshooting
 
-- Colour bars instead of the phone: it starts only when `boot0.rom`,
-  `boot1.rom` and `boot0.vhd` are all in `games/NGage/` under exactly those
-  names.
+- Black screen: the phone starts only when `boot0.rom`, `boot1.rom` and
+  `boot0.vhd` are all in `games/NGage/` under exactly those names.
 - **Firmware not recognised: needs RH-29 4.60**: these are other firmware
   files, or the two are swapped. `boot0.rom` is `RH2946.0C1`.
 - **Firmware file damaged**: copy the two firmware files to the MiSTer again.

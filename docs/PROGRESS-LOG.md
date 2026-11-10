@@ -8924,3 +8924,86 @@ an unknown firmware when the two arrive the wrong way round.
   0 errors, the timing warning, and the released RBF bit for bit (md5
   4d50b64a). `docs/BUILDING.md` now puts that first and `build.sh` as the
   option for a build server.
+
+## 2026-11-10 (afternoon): the screen saver's bar, one I-cache size, three features out
+
+The user came back to a "white stripe" after leaving the core alone, then
+asked what several features cost in the FPGA, to drop the I-cache macro
+("so we don't end up with automated tests against the wrong thing"), and
+had the memory test, the activity dot and the colour-bar picture removed.
+
+### The screen saver
+
+- It is the phone's own: in the model on the user's save it starts five
+  minutes after the last key, a black screen with a bar (date and time, white
+  on green in the eight-colour idle mode) that moves each minute; a key
+  brings the screen back at once.
+- On the board it started between 310 and 340 s, and End (F4) restored the
+  screen at once, but the bar was plain white with no text, at lines 181-203
+  and then 57-79: the mirror images of the rows lcd.ldd sets (4-26, 128-150).
+- Cause: `lcd_panel` compared PTLAR's rows with the memory row whatever
+  MADCTL said. lcd.ldd runs the panel with MADCTL 0xD4, and in DCS the partial
+  area is counted in the panel's line order, from the other end with ML (B4)
+  set. The core lit the mirrored rows (the frame's white ground) and blanked
+  the bar. The model ties the same choice to MY, which is also set.
+- Fix: the partial row is `H - 1 - row` under ML. The panel bench has the
+  screen saver's own sequence (MADCTL 0xD4, PTLAR 4-26, PTLON, IDMON, a frame
+  with a bar in page rows 4-26) checked against fixed pixels as well as the
+  bench model; it fails on the old panel (8,096 pixels) and passes now.
+  Not yet seen on the board: the build with it is in the fitter.
+
+### One I-cache size
+
+- Quartus built a 32 KB I-cache through `NGAGE_ICACHE_32K` in NGage.qsf,
+  while lint, the whole-core benches and the CPU bench ran 16 KB. The macro
+  is gone: `emu` and `tb_cpu` default to 32768, the size that is built. The
+  CPU bench's D-cache assertions still sized their set index for a 16 KB
+  D-cache; that is 32768 now too.
+- With those defaults: 351 CPU tests pass, 77 agree with QEMU.
+
+### The memory test, the activity dot and the test picture removed
+
+- Out of NGage.sv: `wb_selftest` and its switch on the Wishbone port
+  (`test_sel`), its status square, LED and two OSD messages (the message
+  numbers move down by two), the `SELFTEST_*` parameters, the reset pulse and
+  the multicycle exception in NGage.sdc that existed for the switch;
+  the activity dot and its OSD entry; `lcd_testgen` and its hold on the
+  panel's bus and the keypad columns. With no firmware the picture is black.
+  The debug overlay's eighth status bit reads 0.
+- Synthesis (the Mac's Quartus, same source otherwise): 33,299 to 32,593
+  ALMs estimated, 49,651 to 48,399 LUTs, 36,812 to 36,390 registers. By
+  module before: `wb_selftest` 465 LUTs / 170 registers, `lcd_testgen` 438 /
+  171; the rest is the port's switch and the glue.
+- The whole-core bench was built on the test picture. It now checks a black
+  frame with no firmware, the keys at their places in the key vector, and a
+  picture a CPU program draws through the UPP's LCD interface as the firmware
+  does (SLPOUT, DISPON, 12-bit pixels, MADCTL 0xD4, RAMWR, two pixels a FIFO
+  word, 6.0 M clocks); rotation, aspect, scale and crop are checked against
+  that picture, and the first frame is the boot milestone.
+
+### What the video options cost
+
+- Standalone synthesis of the two modules as the core wires them: rotation
+  is 22 ALMs (35 LUTs in `video_out`, a mux in front of `video_freak`); the
+  vertical crop 114 ALMs (146 LUTs, 175 registers in `video_freak`). Both
+  stay. Either could go by tying the inputs off and dropping its OSD lines.
+- Whole-design synthesis is too noisy for such figures: two runs that differ
+  in one tied-off input moved untouched modules by tens of LUTs and
+  registers, and the Mac's Quartus and the server's give different totals
+  for the same source (33,299 against 33,256 ALMs).
+- The patch table (9,610 bytes, 10 M10K in `phoenix_load`, which is 872 LUTs
+  and 412 registers in all) has to exist at power-on; out of block RAM it
+  would be a fourth boot file that must match the core. Left as it is: 34
+  M10K are free.
+
+### State
+
+Changed: rtl/board/lcd_panel.sv, NGage.sv, NGage.qsf, NGage.sdc, files.qip,
+the lint lists, sim/cpu/tb/tb_cpu.sv, the panel, whole-core and firmware
+benches, the board tools' OSD row counts, README.md, docs/CPU.md;
+rtl/upp/wb_selftest.sv and rtl/mister/lcd_testgen.sv are deleted. Lint is
+clean both ways and every bench passes. `releases/` still holds the morning's
+core (with the memory test, the dot, the test picture and the mirrored bar):
+eight seeds of this source are building, and the board check of the screen
+saver waits for them. The Mac's Quartus (CrossOver bottle "Quartus",
+`./build.sh local map`) synthesizes the core in four and a half minutes.
