@@ -8608,3 +8608,193 @@ sizes). The stripped core is unchanged (lint clean both ways, `make -C
 sim top` passes with the overlay on). The board is on the main core's
 Call of Duty launcher;
 the server holds no N-Gage directory.
+
+## 2026-11-10 (morning): Sonic N, the display path, the D-cache's line fills
+
+The user: "What does sonic get in fps? Is it possible something else is
+causing perceived slowness at the lcd emulation level? Check out the data
+cache line fills too. For reference I am comparing to the ngage core right
+now which seems smoother but maybe real hardware was worse." (The N-Gage
+core for the Pocket.) Sonic N runs at 29 of its 32; the display path loses
+no frames and costs no time, but about half the pictures tear for one
+video frame; the line fills are the games walking through pixel buffers
+much larger than any cache, and only a prefetch would cut them.
+
+### Sonic N
+
+Neo Green Hill act 1 on the measurement core, running right with a jump
+every other step, two runs (31 and 29 one-second captures): 29.2 and 29.1
+uploads a second in play (27 to 31), 14 to 16 in the second after a lost
+life. 52 M instructions a second, User mode 87 % of the clock, Undefined
+mode 12 %: the game waits for its tick. In the model (62.5 M instructions
+a second, no memory delays) it shows 29.15 a second: 1,471 of 1,749
+intervals are two 1/64 s ticks and 228 are three. Its cap is 32.
+
+### The display path
+
+- **Counters** (measurement core, second overlay column, marker "NGE4",
+  39 counters): the clocks of a picture upload (a RAMWR from the top line
+  to its 36,608th pixel) in all, in Undefined mode and in User mode; the
+  video frames that were torn (a pixel written on the line the scan-out
+  is drawing) and fresh (an upload ended since the frame before); the
+  uploads ended; the fresh frames sorted by the video frames since the
+  fresh one before. `lcd_panel` has one more debug output for them, the
+  viewer's line of the pixel written. Seed 3 fitted at -2.167 ns (37,075
+  ALMs); it replaced the debug slot's core.
+
+| Per second | Tony Hawk | Sonic N | Call of Duty, standing | turning |
+|---|---:|---:|---:|---:|
+| Uploads ended | 21.20 | 28.03 | 7.60 | 7.90 |
+| An upload lasts | 4.93 ms | 3.97 ms | 4.10 ms | 4.11 ms |
+| of it in User mode | 72.5 % | 63.1 % | 91.8 % | 91.1 % |
+| of it in Undefined mode | 20.8 % | 33.3 % | 6.8 % | 7.4 % |
+| Fresh video frames | 21.13 | 28.00 | 7.55 | 7.75 |
+| Torn video frames | 11.33 | 15.14 | 4.10 | 4.35 |
+| Uploads that tear | 53 % | 54 % | 54 % | 55 % |
+| Fresh frames 1 / 2 / 3 / 4 video frames after the last | 0 / 4.5 / 15.4 / 1.2 | 2.5 / 20.2 / 4.4 / 0.7 | all 7 or more | all 5 or more |
+
+  (30, 29, 20 and 20 one-second captures; Tony Hawk skating the Warehouse.)
+- **Every picture is shown, and whole within a video frame of its
+  upload**: fresh video frames equal the uploads but for the rare two in
+  one frame.
+- **No time is lost to the upload.** I had inferred from the mode clocks
+  that the system idles while the picture goes to the panel (2.8 ms a
+  frame by the bus timing); the counters say no. An upload takes 4 to
+  5 ms (22 to 28 clocks a word where the panel bus needs 16, so the DMA's
+  reads of the SDRAM set the pace) and the CPU is in User mode for most
+  of it. A second build with the panel bus at 1 + 1 clocks instead of
+  2 + 2 was fitted (-3.136 ns) to price the dead time; with no dead time
+  to price it was not run and is deleted. The peripheral bench passes
+  with that timing.
+- **Half the pictures tear.** The scan-out reads the panel's memory
+  while the upload writes it, and the write front (42 to 52 lines a ms)
+  overtakes the scan (15.7 lines a ms) whenever the upload starts with
+  the scan in the upper two thirds of the picture: that video frame
+  shows the old picture above the crossing and the new one below. 53 to
+  55 % of uploads, so 11 torn video frames a second in Tony Hawk and 15
+  of the 60 in Sonic. The Pocket core does the same by its own source
+  (`ngvm_lcd.sv`: its copy takes a millisecond and "a frame scanned
+  meanwhile shows the old picture above one line and the new below it,
+  once"). The phone tears as well (the camera video, below). lcd.ldd
+  switches the panel's tearing-effect output on and the signal goes to
+  GENIO28, but lcd.ldd holds no GENIO address, and the core does not
+  connect it.
+- **A way out without a second frame memory** (36,608 pixels do not fit
+  the 34 free M10K): since nothing waits for the upload, the panel side
+  could hold a write that would overtake the scan until the scan has
+  passed that line, so that frame shows the old picture whole and the
+  next the new one. Not built, and not to be: the phone tears too, so
+  the user's decision (2026-11-10) is to leave the tearing as it is.
+- **Pacing is the games' own.** Tony Hawk's fresh frames come three video
+  frames apart with twos and fours mixed in: it runs free. The model's
+  intervals are continuous from 26 to 62 ms, and the board's seconds hold
+  16 to 25 frames. This corrects the last entry, which put Tony Hawk on
+  the three-tick step. Call of Duty is held to ticks: 290 of the model's
+  475 intervals are exactly 125 ms, eight ticks, the rest six, seven and
+  nine. Sonic N takes two ticks with a three now and then; 32 a second on
+  a 60 Hz output gives twos with a one about every sixteenth frame.
+- **The Pocket core against the phone**, from its documents
+  (`docs/hardware.md`): its kernel ends a short timer wait 1 ms after it
+  is asked, where EKA1 ends it at the next 1/64 s tick, and its authors
+  measured what the tick costs (Virtua Cop 24 % fewer frames, Ashen 30 %,
+  Colin McRae 32 %, at 30 MIPS); its release notes say it has not been
+  compared with the phone. So in a game that waits for ticks it should
+  be smoother than the phone by construction. Its CPU, by the figures
+  read on 2026-10-23, is not faster than this core's (CPI 1.68 to 1.9 at
+  80 MHz, 42 to 48 M instructions a second, against 51 to 61 M here).
+
+### The D-cache's line fills
+
+- **Tool**: `model/plugins/dcsim.c` (`NGAGE_DCSIM=FILE,t0=..,t1=..` in
+  `model/run.sh`), a QEMU plugin that puts every data access through
+  sixteen simulated caches (the core's, the phone's, other sizes, ways
+  and line lengths, four next-line prefetch policies), with the kernel's
+  invalidations applied; `model/tools/dcstat.py` prints the report. Its
+  model of the core's cache agrees with the board in Tony Hawk (11.26
+  load misses per 1000 instructions against the board's 11.2 to 11.8)
+  and Call of Duty (8.31 against 8.1 to 8.4); in Sonic it is 8 to 15 %
+  under (7.85 against 8.5 to 9.2).
+
+| Load misses against the core's 32 KB, two ways, 16-byte lines | Tony Hawk | Call of Duty | Sonic N |
+|---|---:|---:|---:|
+| Per second in the model | 703,663 | 519,457 | 490,851 |
+| The phone's 8 KB | +28.1 % | +27.3 % | +15.7 % |
+| 16 KB | +11.8 % | +14.6 % | +6.6 % |
+| 32 KB, four ways | -2.2 % | -1.7 % | -2.3 % |
+| 64 KB | -11.1 % | -10.5 % | -3.9 % |
+| 128 KB | -21.7 % | -23.4 % | -20.3 % |
+| 4 MB, eight ways | -95.1 % | -80.0 % | -78.1 % |
+| Never invalidated | -0.1 % | -0.8 % | -0.8 % |
+| 32-byte lines | -36.6 % | -32.9 % | -41.5 % |
+| Next line on every miss | -33.8 % | -31.8 % | -41.0 % |
+| Next line on a miss whose previous line is present, and on the first use of a prefetched line | -52.5 % | -47.4 % | -70.9 % |
+| its prefetched lines used | 89 % | 85 % | 93 % |
+| its fills in all | +10 % | +11 % | +6 % |
+
+- **They are walks through buffers**: in 59 to 76 % of the misses the
+  line before is in the cache. A megabyte of the kernel's home section
+  (`0x825xxxxx`, read and written alike: the pictures) takes 32 % of them
+  in Tony Hawk and 64 % in Sonic; EUSER's block copy (`Mem::Copy`, the
+  eight-register loads at `0x503A239C` on) takes 20 %, 10 % and 33 %
+  (Tony Hawk, Call of Duty, Sonic): about one picture copied a frame.
+  The games' own code is 73 %, 80 % and 53 %.
+- **Capacity, not conflicts or flushes**: more ways give 2 %, the
+  kernel's invalidations under 1 %, and even 128 KB only a fifth. The
+  phone's 8 KB cache would miss 16 to 28 % more.
+- **Stores**: 1.25 to 3.3 million store misses a second in the model go
+  to the SDRAM as posted single words (the core does not allocate on a
+  store, as the ARM925T does not).
+- **What a prefetch could be worth**: a fill costs about 19 clocks of
+  data stall on the board (the 15 % data stall less the table walks and
+  write-backs, an estimate), so the fills are 9 to 11 % of the clock.
+  Halving the demand misses with every prefetched line there in time
+  would be 5 to 6 % in Tony Hawk; a copy loop uses a line in fewer clocks
+  than a fill takes, so less: 2.5 to 5 %, under one frame a second in
+  Tony Hawk, no tick step in Call of Duty, nothing in Sonic at its cap.
+  The change is in the D-cache's state machine, on the critical paths.
+  Not attempted.
+
+### The phone's own rate
+
+- **Measured, for the first time: Tony Hawk at 18.7 pictures a second on
+  a real N-Gage QD.** The user's camera video of the Warehouse in Free
+  Skate (https://www.youtube.com/watch?v=83cwIMqt-R8, 60 fps), 60 to
+  156 s: the screen tracked and rectified, each camera frame classed as
+  a new picture or a repeat by the scenery's movement, on the 1080p and
+  the 720p stream separately (they agree on 98.8 % of frames). 1,508
+  runs: 2 camera frames in 6 %, 3 in 68 %, 4 in 25 %; 17.6 to 19.7 a
+  second by 8 s stretch. The static screens (loading tips, pause menu,
+  course select) give no new picture. 14 % of the play frames had too
+  little movement to class. One phone, one session, another route than
+  the board's runs. Scripts, tables and contact sheets:
+  `research/phone-video/2026-11-10-tony-hawk/` (untracked).
+- **The core is not behind the phone there**: 20.05 and 21.20 uploads a
+  second skating the Warehouse (the timed session; Free Skate measured
+  2 % above the timed session on 2026-10-27's core).
+- **The phone's game runs free too**: its rate drifts through 18 to 19
+  instead of sitting on 64/3 or 64/4, and a whole-tick model fits the
+  run lengths far worse than a free period of 50 to 58 ms.
+- **The phone tears**: a new picture replaces the old along a horizontal
+  boundary, caught half-way in 17 % of the pictures. The boundary's
+  position cycles every 2.7 s: the panel scans at 59.6 Hz against the
+  camera's 60, or a multiple; not the 74 Hz of `lcd_panel`'s TE_HZ (an
+  N70 figure, and the core does not connect TE).
+- **By estimate** (no measurement for the other games): an ARM9TDMI at
+  about 1.55 clocks an instruction without misses, 15 clocks a line
+  fill and the phone's 16 KB and 8 KB caches on the model's miss counts
+  give about 54 M instructions a second in Tony Hawk and 58 M in Call of
+  Duty; the Pocket core's authors put the phone at 45 to 50 M. The core
+  does 51 and 61 M. Tony Hawk's measured ratio (18.7 against 20 to 21)
+  sits with the lower estimate.
+
+### State
+
+Changed: NGage.sv (debug-only display counters),
+rtl/board/lcd_panel.sv (the debug output `pix_y`), tools/mister_dbg.py,
+model/plugins/dcsim.c, model/tools/dcstat.py, model/build.sh,
+model/args.sh, model/run.sh. The stripped core is unchanged (lint clean
+both ways; `make -C sim top`, `lcd` pass). The board is on the main
+core's Call of Duty launcher, the debug slot holds the new measurement
+core (local copy build/hardware/NGageDbg-lcd-s3.rbf); the cards and the
+save copied for the model are deleted; the server holds no N-Gage
+directory.
