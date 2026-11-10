@@ -107,8 +107,10 @@ module lcd_panel #(
 	output logic        display_on,
 
 	// debug counters: a RAMWR starting at page 0 (a frame), a pixel written
+	// and the viewer's line it is on (scroll area not applied)
 	output logic        frame_ev,
-	output logic        pix_ev
+	output logic        pix_ev,
+	output logic  [7:0] pix_y
 );
 
 	localparam int W = 176;
@@ -276,6 +278,7 @@ module lcd_panel #(
 	endtask
 
 	assign pix_ev = pix_v;
+	assign pix_y  = PANEL_ROT180 ? 8'(H - 1) - cur_pos[15:8] : cur_pos[15:8];
 
 	always_ff @(posedge clk) begin
 		pix_v    <= 1'b0;

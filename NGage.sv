@@ -1007,7 +1007,8 @@ wire [15:0] scan_rgb;
 wire [15:0] panel_rgb;
 wire        lcd_on;
 
-wire lcd_frame_ev, lcd_pix_ev;
+wire       lcd_frame_ev, lcd_pix_ev;
+wire [7:0] lcd_pix_y;
 
 lcd_panel lcd_panel
 (
@@ -1030,7 +1031,8 @@ lcd_panel lcd_panel
 	.scan_rgb(panel_rgb),
 	.display_on(lcd_on),
 	.frame_ev(lcd_frame_ev),
-	.pix_ev(lcd_pix_ev)
+	.pix_ev(lcd_pix_ev),
+	.pix_y(lcd_pix_y)
 );
 
 // the memory test's status square, the top-left 12x12 panel pixels (so a
@@ -1208,8 +1210,14 @@ dbg_counters #(.N(DBG_CNT)) dbg_counters
 // (picked by an LFSR), of the last data abort, prefetch abort and undefined
 // instruction (the stage's PC: the address + 8, + 4 in Thumb), and the low
 // CPSR byte before each: {undefined, prefetch abort, data abort, SWI}.
-localparam DBG_CNT2 = 27;
-localparam [31:0] DBG_COL2_MARK = 32'h4E47_4533;        // "NGE3"
+// Counters 27 to 38 are the display's (the unrotated picture): an upload is
+// a RAMWR from the top line until its 36,608th pixel (given up after 2.5 ms
+// without one); a video frame is torn when a pixel is written on the line
+// the scan-out is drawing, and fresh when an upload ended since the frame
+// before. The last six sort the fresh frames by the video frames since the
+// fresh one before: 1, 2, 3, 4, 5 or 6, 7 and more.
+localparam DBG_CNT2 = 39;
+localparam [31:0] DBG_COL2_MARK = 32'h4E47_4534;        // "NGE4"
 wire        dbg_user  = tr_wb_cpsr[4:0] == 5'b10000;
 wire  [5:0] dbg_exc   = {tr_wb_und, tr_wb_pabt, tr_wb_dabt[0], tr_wb_fiq, tr_wb_irq, tr_wb_swi};
 reg   [5:0] dbg_cause = 0;
@@ -1256,9 +1264,61 @@ always @(posedge clk_sys) begin
 		dbg_exc_cpsr_q <= dbg_exc_cpsr;
 	end
 end
+reg         dbg_up = 0;                                  // an upload is in progress
+reg  [15:0] dbg_up_pix = 0;
+reg  [17:0] dbg_up_gap = 0;
+reg         dbg_vact = 0;                                // the scan-out is inside the picture
+reg         dbg_torn = 0, dbg_fresh = 0;
+reg   [2:0] dbg_vf_gap = 0;                              // video frames since the last fresh one, up to 7
+wire        dbg_vf      = scan_en && scan_x == 8'd0 && scan_y == 8'd0;   // a video frame's first pixel
+wire        dbg_up_done = dbg_up && lcd_pix_ev && dbg_up_pix == 16'd36607;
+always @(posedge clk_sys) begin
+	if (lcd_frame_ev) begin
+		dbg_up     <= 1'b1;
+		dbg_up_pix <= 16'd0;
+		dbg_up_gap <= 18'd0;
+	end else if (dbg_up && lcd_pix_ev) begin
+		dbg_up_pix <= dbg_up_pix + 16'd1;
+		dbg_up_gap <= 18'd0;
+		if (dbg_up_pix == 16'd36607) dbg_up <= 1'b0;
+	end else if (dbg_up) begin
+		dbg_up_gap <= dbg_up_gap + 18'd1;
+		if (&dbg_up_gap) dbg_up <= 1'b0;
+	end
+	if (dbg_vf) begin
+		dbg_vact  <= 1'b1;
+		dbg_torn  <= 1'b0;
+		dbg_fresh <= 1'b0;
+		if (dbg_fresh) dbg_vf_gap <= 3'd1;
+		else if (dbg_vf_gap != 3'd7) dbg_vf_gap <= dbg_vf_gap + 3'd1;
+	end else if (scan_en && scan_x == 8'd175 && scan_y == 8'd207) begin
+		dbg_vact  <= 1'b0;
+	end
+	if (lcd_pix_ev && dbg_vact && lcd_pix_y == scan_y) dbg_torn <= 1'b1;
+	if (dbg_up_done) dbg_fresh <= 1'b1;
+	if (sys_reset) begin
+		dbg_up     <= 1'b0;
+		dbg_vact   <= 1'b0;
+		dbg_torn   <= 1'b0;
+		dbg_fresh  <= 1'b0;
+		dbg_vf_gap <= 3'd0;
+	end
+end
 wire        dbg_back = dbg_user && !dbg_user_q;          // the first User clock again
 wire        dbg_ret   = tr_wb_valid && tr_wb_pc[31:16] == 16'h5032;   // an instruction of that kernel page retires
 wire [DBG_CNT2-1:0] dbg_ev2 = {
+	dbg_vf && dbg_fresh && dbg_vf_gap == 3'd7,                // 38 fresh frames 7 or more video frames after the last
+	dbg_vf && dbg_fresh && (dbg_vf_gap == 3'd5 || dbg_vf_gap == 3'd6), // 37 5 or 6
+	dbg_vf && dbg_fresh && dbg_vf_gap == 3'd4,                // 36 4
+	dbg_vf && dbg_fresh && dbg_vf_gap == 3'd3,                // 35 3
+	dbg_vf && dbg_fresh && dbg_vf_gap == 3'd2,                // 34 2
+	dbg_vf && dbg_fresh && dbg_vf_gap == 3'd1,                // 33 the very next video frame
+	dbg_up_done,                                              // 32 uploads ended
+	dbg_vf && dbg_fresh,                                      // 31 fresh video frames
+	dbg_vf && dbg_torn,                                       // 30 torn video frames
+	dbg_up && dbg_user,                                       // 29 clocks of an upload in User mode
+	dbg_up && tr_wb_cpsr[4:0] == 5'b11011,                    // 28 clocks of an upload in Undefined mode
+	dbg_up,                                                   // 27 clocks of an upload
 	dbg_ret && tr_wb_pc[15:0] == 16'h24C4,                    // 26 D-cache clean-and-invalidate loops
 	dbg_ret && tr_wb_pc[15:0] == 16'h414C,                    // 25 D-TLB invalidations
 	dbg_ret && tr_wb_pc[15:0] == 16'h4144,                    // 24 I-TLB invalidations
@@ -1363,7 +1423,7 @@ wire [15:0] dbg_rgb = 16'h0000;
 assign dbg_trig = 1'b0;
 wire unused_dbg = &{1'b0, cpu_dbg_pc, cpu_dbg_stall, cpu_dbg_dcache, cpu_dbg_icache, dbg_dma_owner, cpu_dbg_wfi, dbg_src0, dbg_en0_irq,
                     dbg_en0_fiq, tr_trig_pc, tr_dumps, tr_triggers, tr_dumping, kt_count, kt_dropped,
-                    lcd_pix_ev, status[8], ph_have, ph_state, ph_errors};
+                    lcd_pix_ev, lcd_pix_y, status[8], ph_have, ph_state, ph_errors};
 `endif
 // A six-pixel activity square outside the fixed debug rows (x 16..47).
 // At 104 MHz, keep each completed CPU bus beat visible for 1/8 second.

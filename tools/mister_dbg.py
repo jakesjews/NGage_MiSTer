@@ -27,7 +27,7 @@ saturating 4-bit counters and the full current-file error count[15:0]. These
 words keep updating during CPU reset; sys_reset (RESET/PLL unlock) clears history.
 
 A second column at x 56..87 (the same rows from 8 on; cores from 2026-11-10)
-starts with a marker ("NGE2" or "NGE3") and holds the exception counters of NGage.sv
+starts with a marker ("NGE2", "NGE3" or "NGE4") and holds the exception counters of NGage.sv
 (dbg_ev2): per second, the SWI, IRQ, FIQ, data-abort, prefetch-abort and
 undefined exceptions taken; the clocks in User mode; the privileged clocks
 after each of those six (charged to the exception that last took the CPU out
@@ -36,7 +36,13 @@ SWIs and interrupts taken in a privileged mode; the kernel calls of 4,096
 clocks or more and of 65,536 or more; with the marker "NGE3" also the
 clocks in Supervisor, Undefined and IRQ mode and the RH-29 v4.60 kernel's
 process switches with their I-cache, I-TLB and D-TLB invalidations and
-D-cache clean loops. Then the PC of one SWI in 64, of the last data abort,
+D-cache clean loops; with "NGE4" also the display: the clocks of picture
+uploads (a RAMWR from the top line to its last pixel) in all, in Undefined
+mode and in User mode, the video frames that were torn (a pixel written on
+the line being scanned out) and fresh (an upload ended since the frame
+before), the uploads ended, and the fresh frames sorted by the video frames
+since the fresh one before (1, 2, 3, 4, 5 or 6, 7 and more).
+Then the PC of one SWI in 64, of the last data abort,
 prefetch abort and undefined instruction (address + 8, + 4 in Thumb) and
 the low CPSR byte before each. A capture without a marker is decoded
 without this part.
@@ -83,7 +89,7 @@ def decode(path):
         w10 >> 16, w10 & 0xFFFF) + counters(words[12:45]) + loader(words[45:47]) + exceptions(im, scale)
 
 
-COL2_MARKS = {0x4E474532: 19, 0x4E474533: 27}      # "NGE2", "NGE3": the number of counters
+COL2_MARKS = {0x4E474532: 19, 0x4E474533: 27, 0x4E474534: 39}      # "NGE2", "NGE3", "NGE4": the number of counters
 MODES = {0x10: "usr", 0x11: "fiq", 0x12: "irq", 0x13: "svc", 0x17: "abt", 0x1B: "und", 0x1F: "sys"}
 
 
@@ -119,6 +125,12 @@ def exceptions(im, scale):
     if len(w) >= 27:
         more = (" | mode clocks: svc %.2f%% und %.2f%% irq %.2f%% | kernel process switches %d/s: I-cache invalidations %d,"
                 " I-TLB %d, D-TLB %d, D-cache clean loops %d" % (pct(w[19]), pct(w[20]), pct(w[21]), w[22], w[23], w[24], w[25], w[26]))
+    if len(w) >= 39:
+        up, up_und, up_user, torn, fresh, ended = w[27:33]
+        more += (" | display: %d uploads ended, %.2f ms each (undefined mode %.0f%%, user %.0f%%), %d fresh and %d torn video frames,"
+                 " fresh frames by video frames since the last 1:%d 2:%d 3:%d 4:%d 5-6:%d 7+:%d" % (
+                     ended, 1000.0 * up / clk / max(ended, 1), 100.0 * up_und / max(up, 1), 100.0 * up_user / max(up, 1),
+                     fresh, torn, w[33], w[34], w[35], w[36], w[37], w[38]))
     return (" | exceptions per s: swi %d irq %d fiq %d dabt %d pabt %d und %d"
             " | clocks: user %.2f%% after-swi %.2f%% after-irq %.2f%% after-fiq %.2f%% after-dabt %.2f%% after-pabt %.2f%% after-und %.2f%% other %.2f%%"
             " | user %.2f M instr | in privileged modes: %d abort/und %d swi %d irq/fiq | kernel calls >=4096 clk: %d, >=65536 clk: %d"
