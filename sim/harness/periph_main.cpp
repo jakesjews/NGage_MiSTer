@@ -282,7 +282,8 @@ struct Bench {
 		rd(0x0C120000);           // waits for the register store to clear
 	}
 
-	// a DMA transfer as ekern programs one
+	// Count units follow the start control: halfwords for M2M, the fixed
+	// peripheral's width for paced transfers (not always the source width).
 	void dma_setup(int ch, uint32_t src, uint32_t smode, uint32_t sw, uint32_t dst, uint32_t dmode, uint32_t dw, uint32_t units) {
 		uint32_t b = DMA + 0x40 * ch;
 		wr(b + 0x04, 1);
@@ -499,12 +500,12 @@ uint32_t wcode(int bytes) { return bytes == 4 ? 0x20 : bytes == 2 ? 0x10 : 0x08;
 void test_dma(Bench &b) {
 	printf("DMA\n");
 	CpuTraffic &cpu = *b.traffic;
-	// every width pair, incrementing both sides, odd lengths
+	// every width pair, incrementing both sides, including partial 32-bit tails
 	int n = 0;
 	for (int sw : {1, 2, 4}) {
 		for (int dw : {1, 2, 4}) {
 			uint32_t units = (uint32_t)b.rng.range(1, 70);
-			uint32_t bytes = units * sw;
+			uint32_t bytes = units * 2; // control 1 counts halfwords
 			uint32_t src = SD + 0x100000 + 0x1000 * n, dst = SD + 0x200000 + 0x1000 * n;
 			fill_sdram(b, src, bytes, 77 + n);
 			fill_sdram(b, dst, bytes + 8, 99 + n);
@@ -525,13 +526,13 @@ void test_dma(Bench &b) {
 	// a fixed source fills; on-chip RAM to SDRAM with mode 2
 	{
 		b.wr(OC + 0x100, 0xA5C3E1F0);
-		b.dma_setup(2, OC + 0x100, 0, 0x20, SD + 0x300000, 4, 0x20, 64);
+		b.dma_setup(2, OC + 0x100, 0, 0x20, SD + 0x300000, 4, 0x20, 128);
 		b.dma_start(2);
 		while (!b.dma_done(2)) cpu.step(b);
 		for (int i = 0; i < 64; i++) CHECK_EQ(b.rd(SD + 0x300000 + 4 * i), 0xA5C3E1F0, "fixed-source fill");
 		b.dma_finish(2);
 		for (int i = 0; i < 32; i++) b.wr(OC + 0x200 + 4 * i, 0x01010101u * i);
-		b.dma_setup(3, OC + 0x200, 2, 0x20, SD + 0x310000, 4, 0x10, 32);
+		b.dma_setup(3, OC + 0x200, 2, 0x20, SD + 0x310000, 4, 0x10, 64);
 		b.dma_start(3);
 		while (!b.dma_done(3)) cpu.step(b);
 		for (int i = 0; i < 32; i++) CHECK_EQ(b.rd(SD + 0x310000 + 4 * i), 0x01010101u * i, "on-chip RAM to SDRAM");
@@ -542,7 +543,7 @@ void test_dma(Bench &b) {
 		const uint32_t units = 600;
 		for (int ch = 0; ch < 5; ch++) {
 			fill_sdram(b, SD + 0x400000 + 0x10000 * ch, units * 4, 300 + ch);
-			b.dma_setup(ch, SD + 0x400000 + 0x10000 * ch, 4, 0x20, SD + 0x480000 + 0x10000 * ch, 4, ch & 1 ? 0x08 : 0x20, units);
+			b.dma_setup(ch, SD + 0x400000 + 0x10000 * ch, 4, 0x20, SD + 0x480000 + 0x10000 * ch, 4, ch & 1 ? 0x08 : 0x20, units * 2);
 		}
 		for (int ch = 0; ch < 5; ch++) b.dma_start(ch);
 		uint32_t done = 0;
@@ -568,7 +569,7 @@ void test_dma(Bench &b) {
 		const uint32_t units = 20000;
 		b.wr(SD + 0x600000, 0xA5A5A5A5);
 		for (uint32_t i = 0; i < units * 4; i++) b.sd_poke(SD + 0x700000 + i, 0);
-		b.dma_setup(6, SD + 0x600000, 0, 0x20, SD + 0x700000, 4, 0x20, units);
+		b.dma_setup(6, SD + 0x600000, 0, 0x20, SD + 0x700000, 4, 0x20, units * 2);
 		b.dma_start(6);
 		b.run(3000);
 		b.wr(DMA + 0x40 * 6 + 0x08, 0);
@@ -811,8 +812,9 @@ struct Mmc {
 			int n = 120;
 			while ((b.rd(MMC + 0x04) & 1) && --n > 0) {}
 			static const uint32_t widths[3] = {0x20, 0x08, 0x10};
-			// the count is in source units: FIFO bytes for a read, the SDRAM width for a write
-			uint32_t w = widths[k % 3], units = write ? 512 / (w == 0x20 ? 4 : w == 0x10 ? 2 : 1) : 512;
+			// The fixed MMC FIFO is 8-bit in either direction: count 512
+			// peripheral bytes independently of the SDRAM access width.
+			uint32_t w = widths[k % 3], units = 512;
 			if (write) b.dma_setup(5, sdaddr + 512 * k, 4, w, 0x10120624, 0, 0x08, units);
 			else       b.dma_setup(5, 0x10120624, 0, 0x08, sdaddr + 512 * k, 4, w, units);
 			b.dma_start(5, 2);
@@ -1279,7 +1281,7 @@ void test_audio(Bench &b) {
 	// a DMA transfer at the same time: the two take the master port in turns
 	const uint32_t units = 3000, src = SD + 0xD10000, dst = SD + 0xD20000;
 	fill_sdram(b, src, units * 4, 555);
-	b.dma_setup(1, src, 4, 0x20, dst, 4, 0x20, units);
+	b.dma_setup(1, src, 4, 0x20, dst, 4, 0x20, units * 2);
 	b.wr(AU + 0x04, 3);
 	uint64_t run_edge = b.p_edge;
 	b.dma_start(1);

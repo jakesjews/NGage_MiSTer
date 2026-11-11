@@ -103,13 +103,32 @@ transfer (ekern 0x5031B17C).
 | `+0x14` / `+0x20` | source / destination address | physical; `0x1xxxxxxx` = the peripheral at `0x0Cxxxxxx` | tables 0x503401F4, 0x503401D0 | B |
 | `+0x18` / `+0x24` | source / destination mode | 0 fixed (FIFO), 2 incrementing in on-chip RAM, 4 incrementing in SDRAM | 0x5031B344 | B |
 | `+0x1C` / `+0x28` | source / destination width | 8, 0x10, 0x20 = 8, 16, 32 bits | MMC FIFO 8, LCD FIFO 0x20 (0x5034025C) | B |
-| `+0x2C` | count − 1 | in source-width units | 0x5031B5CC | B |
+| `+0x2C` | count − 1 | control 1: halfwords; control 2: fixed peripheral-width units (TX destination, RX source) | NEM-4 `0x50321424`, `0x503215C4`; RH-29 control paths `0x5031B43C`, `0x5031B5D8` | B |
 | `0x0C120064`/`68` | request-line select | 4 bits per channel (MMC = 2, LCD = 7); not modelled | 0x5031EDF8 | B |
 
 DMA peripheral targets: `0x10121208` LCD FIFO (type 4), `0x10120624` MMC FIFO
 (type 5), `0x10150554`/`0x10150500` accessory interface. Completion raises
 IrqDmaChannel*n* (source 6+*n*); the kernel's DMA ISR (0x50326B08) reads no
 status and stops the channel.
+
+Count units are separate from memory access widths. The original NEM-4 DMA
+driver shifts the byte length right by one before programming a control-1
+transfer, even after selecting 32-bit SDRAM accesses (`0x50321424`). For paced
+control-2 transfers it shifts by the peripheral table entry (`0x503215C4`):
+MMC entries select 8-bit units and shift zero, while LCD selects 32-bit units
+and shift two. Thus raw count 7 moves 16 bytes in a 32-to-32 M2M copy; raw
+count 15 moves 16 bytes for MMC TX 32-to-8 or RX 8-to-32. These are original
+NEM-4 instruction observations; a corresponding RH-29 shift instruction PC
+has not been independently checked here. The older universal source-unit
+interpretation overcopied M2M SDRAM words and MMC TX buffers.
+
+The RTL and C model convert the programmed count to a byte budget. Reads and
+writes use their native widths until the final partial unit, which uses only
+the remaining bytes. `make -C sim dma-count` checks the real RTL and the real
+C transfer functions with stubbed memory/IRQ dependencies, including bounded
+10-byte M2M tails, 512-byte MMC TX, MMC RX, retained LCD counts and all width
+conversions. It is a focused contract test, not a full QEMU execution or a
+physical-controller timing measurement.
 
 ## MMC host (0x0C120600) — `ngage_mmc.c`
 
