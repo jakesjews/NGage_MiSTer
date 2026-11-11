@@ -43,7 +43,7 @@ To have a card in the slot at every start, name a copy of its image
 - Left and right soft key: F1 and F2, or L and R
 - Menu: F5 or Home, or Start
 - Call and End: F3 and F4 (Select is Call)
-- 0 to 9: the number keys
+- 0 to 9: the number keys (0 is Y on a gamepad)
 - \* and #: keypad \* and keypad /
 - Clear: Backspace
 - Edit: left Shift
@@ -70,9 +70,12 @@ Only the `.mmc` file goes on the MiSTer.
 - **Saves reach `boot0.vhd` a few seconds after the phone writes them.**
   Choose **Save C: now** in the OSD before switching off right after a save.
 - Keep your `boot0.vhd`: replacing it with the blank file starts a new phone.
-- Left alone at its idle screen for a few minutes, the phone shows its screen
-  saver: a bar with the date and time on a black screen. Any key brings the
-  picture back.
+- Five minutes after the last key press the phone shows its screen saver,
+  over a game too: a bar with the date and time on a black screen. Any key
+  brings the picture back.
+- Sonic N comes back muted, with a crossed-out speaker at the top right, when
+  the screen saver or the phone's menu takes over outside play. Press 0 (Y)
+  a few times to step its volume back up.
 - Leave a game before changing cards: exit to the phone's menu, then mount
   the next card.
 - **Aspect ratio** set to *Original* keeps the screen's own 176:208 shape,

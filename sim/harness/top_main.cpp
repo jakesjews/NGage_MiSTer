@@ -476,6 +476,24 @@ int main(int argc, char **argv) {
 	b.ticks(1000);
 	CHECK_EQ(R.emu__DOT__keys, 0, "keys released");
 	CHECK(!R.emu__DOT__power_key, "the power key released");
+	// every joystick input on its own, in the order of CONF_STR's J line
+	// (the digits other than 5 and 7 come after Power, which is not in the
+	// matrix), at its key's place in the vector
+	static const int joy_key[25] = {
+		6, 1, 5, 0,                                // right, left, down, up
+		17, 18, 9, 10, 2, 4, 15, 7, 27, 19, 3, 8,  // 5 7 OK LSK RSK Menu Call End * # Clear Edit
+		-1,                                        // Power
+		23, 12, 28, 24, 29, 13, 14, 22             // 0 1 2 3 4 6 8 9
+	};
+	for (int i = 0; i < 25; i++) {
+		R.emu__DOT__hps_io__DOT__sim_joy0 = 1u << i;
+		b.ticks(20);
+		CHECK_EQ(R.emu__DOT__keys, joy_key[i] < 0 ? 0u : 1u << joy_key[i], "the key of one joystick input");
+		CHECK_EQ((int)R.emu__DOT__power_key, i == 16, "the power key of one joystick input");
+	}
+	R.emu__DOT__hps_io__DOT__sim_joy0 = 0;
+	b.ticks(20);
+	CHECK_EQ(R.emu__DOT__keys, 0, "keys released after the joystick walk");
 	printf("keys: joystick and keyboard reach the key vector\n");
 
 	// MiSTer's clock, as hps_io sends it when the core starts (the CPU start

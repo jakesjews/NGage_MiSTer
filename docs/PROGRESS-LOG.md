@@ -9111,3 +9111,87 @@ which reads as test code, yet the core ships them.
   present. The Bluetooth retry limit is a shortcut that a small Bluetooth
   controller answering the HCI reset would replace; whether today's core
   shows the EmonServer dialog without it was not checked. Left as it is.
+
+## 2026-11-11 (evening): Sonic N without sound, and the digits on the gamepad
+
+The user's report: now and then Sonic N has no sound, a mute icon was seen
+a few times, and it happens more often around menu changes. The question
+was whether the gamepad's stick or D-pad changes the volume by accident,
+and whether the core is at fault.
+
+It is the game, doing what it does on the phone, and the core gave a
+gamepad no way out of it.
+
+- **The game mutes itself.** Sonic N's foreground handler (app at
+  `0x10016764`; pause `0x10017174`, resume `0x10017118`; addresses with the
+  code section at `0x10000000`) runs when the phone takes the foreground
+  away. In play it goes to its PAUSE screen. Anywhere else (title, menus,
+  character select, cut-scenes, the demo loop) it sets its volume level to 0
+  and shows `volume.mbm`'s first picture, a speaker with a red cross, at the
+  top right for a second or two once it is back. Nothing turns the level up
+  again on the way back.
+- **Its volume is the 0 key** (scan code `0x30` in the key handler
+  `0x100188c8`): the first press shows the speaker, each further press
+  while it shows steps the level 0, 1, 2, 3, 0 (gains 0, 0.1, 0.2, 0.5 in
+  the table at `0x10139284`) and stores it in the save data. A new save
+  starts at level 2. The rocker only sets the game's direction bits (scan
+  codes `0x0E` to `0x11`); the other keys it reads are 5, 7, 1, 3, the two
+  soft keys (left = pause) and #. The level changes nowhere else.
+- **Two things take the foreground away**, both the phone's own:
+  the Menu key (Start on a gamepad with the default map), and the screen
+  saver, five minutes after the last key press, over a running game too.
+- **Seen in the model** (QEMU, `SonicN.aaruf` as the card, key scripts,
+  the HLE device's `audio.wav` measured per second):
+  - Rocker presses in all four directions during the opening cut-scene: the
+    audio is sample for sample that of a run without them.
+  - Menu key during the cut-scene, back through the phone's menu: the red
+    cross shows, the cut-scene runs on in silence; three presses of 0 and
+    the sound is back.
+  - Menu key in play, back: PAUSE; the left soft key resumes with sound.
+  - No keys after the launch: the screen saver at 379 s (300 s after the
+    last key), sound gone from then on; a rocker tap brings the demo loop
+    back with the red cross and no sound for the 400 s that follow, until
+    the next screen saver. A run left in play from 176 s to 432 s shows
+    no interruption.
+  - Leaving the game while it is paused in the background and starting
+    another app starves SoundDevice once (two halves free, `0x2A`): the
+    game opens its stream again half a second later. The stream handling
+    of the stand-in and of `upp_haudio` needed no change.
+- **What the core lacked:** CONF_STR's J line had 5 and 7 but no other
+  digit, so a gamepad could not press 0 (the README said the other keys
+  could be mapped). Now the line ends `...,Power,0,1,2,3,4,6,8,9`, with the
+  digits last so that button maps made before keep their meaning, and the
+  default map gives 0 to Y (`jn,A,B,X,L,R,Start,Select,,,,,,,Y`; Main skips
+  empty names). `ngage_input` takes joystick bits 17 to 24 for them.
+- Checks: `make lint` and the NGAGE_DEBUG lint pass (the waiver for the
+  unused joystick bits is now `[31:25]`); `make -C sim top` passes with a
+  new walk over all 25 joystick inputs, one at a time, each at its key's
+  place in the vector. Not done: a Quartus build, a board run (the board is
+  with another agent today), a commit.
+- README: 0 on Y in the controls; the screen saver's five minutes; one line
+  on Sonic N's mute and the way back.
+- Seed sweep of this source (the user: "way higher seeds", then "spaces of
+  10"), two batches of four on the server, about 29 minutes a build, setup
+  slack in ns at the slow 100C corner (the figure of the earlier sweeps) and
+  at the slow -40C corner:
+
+  | seed | 100C | -40C |
+  |---|---|---|
+  | 30 | -1.456 | -1.540 |
+  | 31337 | -1.540 | -1.500 |
+  | 40 | -1.556 | -1.495 |
+  | 20 | -1.565 | -1.471 |
+  | 9001 | -1.624 | -1.607 |
+  | 1337 | -1.723 | -1.775 |
+  | 65535 | -1.784 | -1.733 |
+  | 10 | -1.826 | -1.855 |
+
+  Hold is positive at every corner of all eight (+0.057 at the least),
+  33,599 to 33,726 ALMs. Neither the size of a seed nor the spacing shows:
+  the band is that of the low seeds (the trimmed source's eight ran -1.453
+  to -2.446). The -40C corner is the worse one for three of the eight, so
+  the 100C figure alone flatters seed 30 by 0.08 ns; by the worse of the
+  two, 30 and 31337 tie at -1.540. The cores are
+  `build/hardware/NGage-pad0-s<seed>.rbf`, the reports
+  `build/sweeps/pad0-s<seed>/`. `NGage.qsf` still carries seed 9; none of
+  the eight has run on the board.
