@@ -1,0 +1,314 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+
+:root {
+	--plastic: #dde3e7;
+	--shell: #f6f8f9;
+	--ink: #16222c;
+	--soft: #4c5b67;
+	--rule: #c2ccd3;
+	--slit: #0e161d;
+	--card: #23405c;
+	--card-ink: #f3f7fa;
+	--card-soft: #b9cbdb;
+	--blank: #cbd3d9;
+	--blank-ink: #55646f;
+	--gold: #c8a13a;
+	--pad-off: #aab5bd;
+	--bad: #a8301f;
+	--focus: #1c62c4;
+
+	--narrow: "Avenir Next Condensed", "Bahnschrift", "Roboto Condensed", "sans-serif-condensed", "Arial Narrow", sans-serif;
+	--text: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+	--mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+	color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--plastic: #10171d;
+		--shell: #19232c;
+		--ink: #e5ebef;
+		--soft: #9eafbc;
+		--rule: #2c3b48;
+		--slit: #04070a;
+		--card: #2c567d;
+		--card-ink: #f4f8fb;
+		--card-soft: #bcd0e2;
+		--blank: #222e39;
+		--blank-ink: #8698a5;
+		--gold: #d6b04b;
+		--pad-off: #3a4a57;
+		--bad: #f29384;
+		--focus: #7fb2ff;
+	}
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+.nowrap { white-space: nowrap; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+	margin: 0;
+	background: var(--plastic);
+	color: var(--ink);
+	font: 1.0625rem/1.55 var(--text);
+}
+
+main {
+	max-width: 42rem;
+	margin: 0 auto;
+	padding: clamp(2rem, 8vh, 5.5rem) 1.25rem 4rem;
+}
+
+h1 {
+	margin: 0 0 1rem;
+	font: 700 clamp(2.4rem, 8.5vw, 4rem)/0.98 var(--narrow);
+	font-stretch: 75%;
+	letter-spacing: -0.01em;
+	text-wrap: balance;
+}
+
+.lead {
+	margin: 0 0 2.25rem;
+	max-width: 36rem;
+	color: var(--soft);
+	font-size: 1.125rem;
+}
+
+.file {
+	font-family: var(--mono);
+	font-size: 0.9em;
+	overflow-wrap: anywhere;
+}
+
+a { color: inherit; text-underline-offset: 0.18em; }
+
+:focus-visible {
+	outline: 3px solid var(--focus);
+	outline-offset: 3px;
+}
+
+/* ------------------------------------------------------------ the bay */
+
+.bay-top {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem 1.5rem;
+	padding: 1.5rem 1.5rem 1.25rem;
+	background: var(--shell);
+	border-radius: 14px 14px 0 0;
+}
+
+.bay-what { flex: 1 1 16rem; }
+
+.bay-ask {
+	margin: 0;
+	font-size: 1.125rem;
+	font-weight: 600;
+}
+
+.bay-name {
+	margin: 0.15rem 0 0;
+	color: var(--soft);
+}
+
+.picker {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
+	overflow: hidden;
+}
+
+.button,
+.save {
+	display: inline-block;
+	padding: 0.6rem 1.1rem;
+	border-radius: 999px;
+	font: 600 1rem/1.2 var(--text);
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.button {
+	background: var(--ink);
+	color: var(--shell);
+}
+
+.picker:focus-visible + .button {
+	outline: 3px solid var(--focus);
+	outline-offset: 3px;
+}
+
+progress {
+	display: block;
+	width: 100%;
+	height: 6px;
+	border: 0;
+	border-radius: 0;
+	background: var(--shell);
+	accent-color: var(--card);
+	appearance: none;
+	-webkit-appearance: none;
+}
+progress::-webkit-progress-bar { background: var(--shell); }
+progress::-webkit-progress-value { background: var(--card); }
+progress::-moz-progress-bar { background: var(--card); }
+
+.status {
+	margin: 0;
+	padding: 0 1.5rem 1.25rem;
+	min-height: 2.9rem;
+	background: var(--shell);
+	color: var(--soft);
+}
+
+.status.is-error {
+	color: var(--bad);
+	font-weight: 600;
+}
+
+noscript .status {
+	margin-top: 1rem;
+	padding: 1rem 1.5rem;
+	border-radius: 14px;
+}
+
+.slit {
+	position: relative;
+	z-index: 1;
+	height: 14px;
+	margin: 0 -0.5rem;
+	border-radius: 7px;
+	background: var(--slit);
+	box-shadow: inset 0 3px 5px rgb(0 0 0 / 0.6);
+}
+
+body.is-over .bay-top,
+body.is-over .status,
+body.is-over progress {
+	background: var(--card);
+	color: var(--card-ink);
+}
+body.is-over .bay-name { color: var(--card-soft); }
+body.is-over .button { background: var(--card-ink); color: var(--card); }
+
+/* ---------------------------------------------------------- the cards */
+
+.cards {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 1rem;
+	margin-top: -7px;
+	padding: 0 1rem;
+	overflow: clip;
+}
+
+.card {
+	--cut: 1.6rem;
+	display: flex;
+	flex-direction: column;
+	min-height: 15.5rem;
+	padding: 0 1.1rem 1.1rem;
+	background: var(--blank);
+	color: var(--blank-ink);
+	clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%);
+	border-radius: 0 0 10px 10px;
+}
+
+/* the seven contacts of a card, at the end that goes into the slot */
+.pads {
+	height: 2.1rem;
+	margin: 0 var(--cut) 1.4rem 0;
+	background: repeating-linear-gradient(90deg, var(--pad-off) 0 9%, transparent 9% 14.28%);
+	opacity: 0.9;
+}
+
+.card h2 {
+	margin: 0;
+	font: 700 clamp(1.5rem, 6vw, 2.1rem)/1 var(--narrow);
+	font-stretch: 75%;
+	color: inherit;
+}
+
+.role {
+	margin: 0.3rem 0 0;
+	font-weight: 600;
+}
+
+.meta {
+	margin: auto 0 0;
+	padding-top: 1rem;
+	font-size: 0.9375rem;
+	line-height: 1.4;
+}
+
+.save {
+	margin-top: 0.8rem;
+	align-self: flex-start;
+	background: var(--card-ink);
+	color: var(--card);
+}
+
+.card.is-ready {
+	background: var(--card);
+	color: var(--card-ink);
+	animation: eject 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.card.is-ready .pads { background: repeating-linear-gradient(90deg, var(--gold) 0 9%, transparent 9% 14.28%); opacity: 1; }
+.card.is-ready .role,
+.card.is-ready .meta { color: var(--card-soft); }
+.card.is-ready + .card.is-ready { animation-delay: 0.08s; }
+
+@keyframes eject {
+	from { transform: translateY(-5rem); }
+	to { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.card.is-ready { animation: none; }
+}
+
+/* ---------------------------------------------------------- the notes */
+
+.notes {
+	margin-top: 3rem;
+	padding-top: 1.5rem;
+	border-top: 1px solid var(--rule);
+	max-width: 36rem;
+}
+
+.notes h2 {
+	margin: 0 0 0.75rem;
+	font: 700 1.5rem/1.1 var(--narrow);
+	font-stretch: 75%;
+}
+
+.notes p { margin: 0 0 0.9rem; color: var(--soft); }
+.notes ol { margin: 0 0 0.9rem; padding-left: 1.3rem; }
+.notes li { margin-bottom: 0.3rem; }
+
+dl {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	gap: 0.35rem 1.25rem;
+	margin: 0 0 0.9rem;
+}
+dt { color: var(--soft); }
+dd { margin: 0; }
+.hash { font-size: 0.8em; line-height: 1.7; }
+
+@media (max-width: 30rem) {
+	.bay-top { padding: 1.25rem 1.1rem 1rem; }
+	.status { padding: 0 1.1rem 1rem; }
+	.cards { gap: 0.6rem; padding: 0 0.4rem; }
+	.card { --cut: 1.2rem; padding: 0 0.8rem 0.9rem; min-height: 14rem; }
+	.save { padding: 0.5rem 0.8rem; font-size: 0.9375rem; }
+}
