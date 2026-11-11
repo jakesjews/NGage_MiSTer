@@ -9007,3 +9007,24 @@ core (with the memory test, the dot, the test picture and the mirrored bar):
 eight seeds of this source are building, and the board check of the screen
 saver waits for them. The Mac's Quartus (CrossOver bottle "Quartus",
 `./build.sh local map`) synthesizes the core in four and a half minutes.
+
+### Later the same afternoon: the trimmed core built and on the board
+
+- Eight seeds of the trimmed source: 9 -1.453, 21 -1.504, 3 -1.628, 5 -1.655,
+  11 -1.758, 13 -1.977, 15 -2.156, 7 -2.446 ns; 33,473 ALMs fitted at seed 9
+  (33,952 in the morning's release), hold +0.243. `NGage.qsf` carries seed 9.
+  `./build.sh` on the tree gives the same file as the seed's own fit, md5
+  12435dc7; it is `releases/NGage_20261110.rbf` now, in place of the
+  morning's build of the same name.
+- On the board (boot files, no launcher): idle screen on the user's save; the
+  screen saver starts between 310 and 345 s and shows the date and time in its
+  bar at both positions captured (white on black at rows 4-26, white on green
+  at 128-150), the same pictures as the model at the same minute; End brings
+  the screen back; the Call of Duty launcher reaches the game's menu.
+- The debug slot holds the measurement core of this source (seed 9, -1.856
+  ns, 36,229 ALMs; build/hardware/NGageDbg-trim-s9.rbf); it boots and its
+  overlay decodes.
+- The service documents the user sent that day (RH-29 schematics 2.0, the
+  RH-29 level 1 and 2 manual, the NEM-4 schematics, the L12/L34 archive) are
+  the files already in research/hardware/rh-29-service-docs, byte for byte;
+  none names the ARM core.
