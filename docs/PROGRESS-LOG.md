@@ -9028,3 +9028,52 @@ saver waits for them. The Mac's Quartus (CrossOver bottle "Quartus",
   RH-29 level 1 and 2 manual, the NEM-4 schematics, the L12/L34 archive) are
   the files already in research/hardware/rh-29-service-docs, byte for byte;
   none names the ARM core.
+
+## 2026-11-11: where the firmware comes from, and a page that unpacks it
+
+The user's question: where a person finds the firmware, with the aim of one
+easy download "without explicitly giving them a download or making them run
+weird scripts".
+
+- The two files come out of one Nokia installer, the Phoenix data package
+  `RH-29_dp_emea_v_10_0_MCUSW4_60.exe` (13,445,186 bytes, sha256
+  2266f290...2efc9). archive.org serves it alone out of the 811 MB zip of
+  `Nokia_DCT4_firmwares` (`.../download/Nokia_DCT4_firmwares/N-GageQD%20RH-29.zip/N-GageQD%20RH-29%2F<name>`;
+  fetched and hashed this day). A web search for the file names finds nothing.
+  RH2946.0C1: md5 d75d37cb4a3cffe48c881c1754de5810, sha1
+  6d25163388b090e118f831459e684a4e6410a30f; RH2946.0S5: md5
+  d65fdde7287947efb66cec137f1378e7, sha1
+  369f73a6452711c423daef4cd99cb021ece3a321 (the SHA-256s are in
+  tools/mkimage.py).
+- The phone dumps cannot stand in. The retail 4.60 SDumper dump (archive.org
+  `symbian-firmware-dumps`) equals our flash images byte for byte where it
+  overlaps, and its ROOT dump equals VA 0x5123ED70-0x5138FFFF, but it lacks
+  the language pack's first 60,675 bytes (VA 0x51230000-0x5123ED6F) and the
+  3,174,400 bytes at VA 0x5000A000-0x50310FFF that the kernel maps away (the
+  encrypted NOS and 368 KB after it), and has the 54 per-phone bytes at 0x12C
+  that the flash files leave out. The developer 4.10 `SYM.ROM` is another
+  version; the RetroBIOS `SYM.ROM` is listed as NEM-4 4.03 (not downloaded).
+- The installer's layout, measured with a zlib-only script that rebuilt both
+  files: a Windows stub, a Microsoft cabinet at byte 296,482 (MSZIP, 408
+  blocks, 313 of them stored, history carried), and in it an InstallShield 7
+  cabinet whose files are 32 KB chunks of raw deflate, each on its own. The
+  MCU file sits before the language pack. Loading the installer in the core
+  was sized (two deflate stages ahead of `phoenix_load`; the two 32 KB
+  windows do not fit the 34 free M10K) and set aside by the user for a page.
+- The page: `web/` (static; `unpack.js` with its own inflate, `app.js`,
+  `style.css`), published at https://ngage-mister.vercel.app/ (Vercel project
+  `ngage-mister`). A dropped package gives `boot0.rom` and `boot1.rom` as
+  downloads, accepted only when their SHA-256s are the 4.60 ones; the two
+  flash files dropped by themselves are recognised too. Its content security
+  policy allows no connections. Checked: `node web/test.mjs` on the real
+  package (both hashes, a cut file, a flipped bit, foreign files); in a
+  browser on the published page the package unpacks, a wrong file is refused
+  by name, and a saved `boot1.rom` has the right hash.
+- README: the firmware is named as the data package and setup step 3 is the
+  page; docs/BUILDING.md has the page's test and deploy commands.
+- No link to the firmware anywhere (the user: "cant do an explicit link"):
+  the page and the README say what to search for instead. The Internet
+  Archive's search finds the collection under "Nokia DCT4 firmwares" (first
+  of two hits) and nothing under the file's own name; the collection's file
+  list has a View Contents link at `N-GageQD RH-29.zip`, which lists the
+  package.

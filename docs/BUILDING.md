@@ -100,3 +100,16 @@ for C: and 1 for the card (the other way round before 2026-11-10):
     <file delay="1" type="s" index="1" path="sonicn.mmc"/>
 </mistergamedescription>
 ```
+
+## The firmware unpacker page
+
+[web/](../web) is the page the README links to
+(<https://ngage-mister.vercel.app/>): static files, no build step.
+`web/unpack.js` reads Nokia's data package (a Microsoft cabinet that holds an
+InstallShield cabinet) and accepts the two files in it by SHA-256.
+
+- `node web/test.mjs RH-29_dp_emea_v_10_0_MCUSW4_60.exe` checks it against the
+  real package.
+- `vercel deploy --prod` in `web/` publishes it (project `ngage-mister`).
+- `web/vercel.json` sends a content security policy that allows no
+  connections: the page cannot send a file anywhere.
