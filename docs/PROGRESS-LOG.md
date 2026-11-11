@@ -9195,3 +9195,20 @@ gamepad no way out of it.
   `build/hardware/NGage-pad0-s<seed>.rbf`, the reports
   `build/sweeps/pad0-s<seed>/`. `NGage.qsf` still carries seed 9; none of
   the eight has run on the board.
+
+## 2026-11-11 (evening): the release of 2026-11-11
+
+The user: make the best seed the release and push it.
+
+- `releases/NGage_20261111.rbf` is the sweep's seed 30 build of the commit
+  before this one (the gamepad's digits, 0 on Y), md5
+  82d5178c5db0425e02475cce8be81824: setup -1.456 ns at the slow 100C corner
+  and -1.540 at the slow -40C one, hold positive at every corner, 33,634
+  ALMs. It was built on the server from a clean checkout of these sources
+  with the seed set; it replaces `NGage_20261110.rbf`. `NGage.qsf` carries
+  seed 30, so the tree is the one that built the file (a build stamps the
+  day's date itself). It still does not meet 104 MHz in the timing report,
+  as the releases before it.
+- Not run on the board: the MiSTer was with another agent that day. The
+  checks behind it are the lint, the top bench's walk over the joystick
+  inputs and the model runs of the entry above.
