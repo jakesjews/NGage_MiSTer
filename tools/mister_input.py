@@ -8,6 +8,12 @@ line on a TCP port:
 
     tap KEY            press and release (about 40 ms)
     hold KEY MS        hold for MS milliseconds
+    pad BUTTON MS      hold a gamepad button for MS milliseconds: a second
+                       virtual device, made at the first pad command, which
+                       Main sees as a USB pad it has no map for, so it gets
+                       Main's default map and through it the core's default
+                       button map (or NGage_input_1209_4e47_v3.map when one
+                       is in config/inputs). Buttons: a b x y l r select start
     shot               Main's own screenshot (its command pipe), reply
                        with the file it wrote under /media/fat/screenshots
     quit
@@ -27,6 +33,10 @@ KEYS = {"esc": 1, "1": 2, "2": 3, "3": 4, "4": 5, "5": 6, "6": 7, "7": 8, "8": 9
         "f1": 59, "f2": 60, "f3": 61, "f4": 62, "f5": 63, "f8": 66, "f12": 88,
         "up": 103, "down": 108, "left": 105, "right": 106, "home": 102,
         "sysrq": 99, "kpasterisk": 55, "kpslash": 98, "lshift": 42}
+# Gamepad buttons by the names of Main's default map for a pad it does not
+# know (input.cpp def_mmap): A east, B south, X north, Y west.
+PAD = {"a": 0x131, "b": 0x130, "x": 0x133, "y": 0x134, "l": 0x136, "r": 0x137,
+       "select": 0x13A, "start": 0x13B}
 EV_SYN, EV_KEY = 0, 1
 UI_SET_EVBIT, UI_SET_KEYBIT = 0x40045564, 0x40045565
 UI_DEV_CREATE, UI_DEV_DESTROY = 0x5501, 0x5502
@@ -71,6 +81,38 @@ class Keyboard:
             fcntl.ioctl(self.fd, UI_DEV_DESTROY)
         finally:
             os.close(self.fd)
+
+
+class Pad:
+    def __init__(self, name="NGage pad"):
+        self.fd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
+        fcntl.ioctl(self.fd, UI_SET_EVBIT, EV_KEY)
+        fcntl.ioctl(self.fd, UI_SET_EVBIT, EV_SYN)
+        for code in sorted(PAD.values()):
+            fcntl.ioctl(self.fd, UI_SET_KEYBIT, code)
+        dev = struct.pack("80sHHHHI", name.encode(), 0x03, 0x1209, 0x4E47, 0x0100, 0) + b"\0" * (4 * 64 * 4)
+        os.write(self.fd, dev)
+        fcntl.ioctl(self.fd, UI_DEV_CREATE)
+        time.sleep(3.0)          # Main opens a new device a moment after it appears
+
+    def hold(self, name, ms):
+        code = PAD[name]
+        t = time.time()
+        for value in (1, 0):
+            os.write(self.fd, struct.pack("llHHi", 0, 0, EV_KEY, code, value))
+            os.write(self.fd, struct.pack("llHHi", 0, 0, EV_SYN, 0, 0))
+            if value:
+                time.sleep(ms / 1000.0)
+        return t
+
+    def close(self):
+        try:
+            fcntl.ioctl(self.fd, UI_DEV_DESTROY)
+        finally:
+            os.close(self.fd)
+
+
+pad = None
 
 
 def newest_shot(after):
@@ -127,6 +169,13 @@ def run(kb, line):
             return "ok %.3f" % kb.tap(parts[1])
         if cmd == "hold" and len(parts) == 3:
             return "ok %.3f" % kb.tap(parts[1], int(parts[2]))
+        if cmd == "pad" and len(parts) == 3:
+            global pad
+            if parts[1] not in PAD:
+                return "err unknown button"
+            if pad is None:
+                pad = Pad()
+            return "ok %.3f" % pad.hold(parts[1], int(parts[2]))
         if cmd == "shot":
             t, p = shot(kb)
             return "ok %.3f %s" % (t, p) if p else "err no screenshot file appeared"
@@ -155,6 +204,8 @@ def serve(port):
             conn.close()
     finally:
         kb.close()
+        if pad:
+            pad.close()
 
 
 def main():
@@ -165,6 +216,8 @@ def main():
         print(run(kb, " ".join(sys.argv[1:])))
     finally:
         kb.close()
+        if pad:
+            pad.close()
 
 
 if __name__ == "__main__":

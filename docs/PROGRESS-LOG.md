@@ -9212,3 +9212,37 @@ The user: make the best seed the release and push it.
 - Not run on the board: the MiSTer was with another agent that day. The
   checks behind it are the lint, the top bench's walk over the joystick
   inputs and the model runs of the entry above.
+
+## 2026-11-11 (night): the release on the board; a dialled number hangs the phone
+
+The user freed the MiSTer. The release of the entry above ran there.
+
+- The main core is `NGage_20261111.rbf` (md5 as released; the build of
+  2026-11-10 removed from the board). `boot0.vhd` was copied aside before
+  the run and put back after it (md5 c6116b2e… both times), so the user's
+  C: is as it was; the board is left at the menu core.
+- Gamepad input without Zaparoo (the user: "you dont need zaparoo to send
+  input btw"): `tools/mister_input.py` has `pad BUTTON MS`, a second
+  virtual device (1209:4e47) that Main has no map for, so it gets Main's
+  default map and through it the core's; `Board.pad()` in
+  `tools/jev_play.py` sends it. Zaparoo's own pad pulses lost the first
+  press after the core load.
+- **The default map:** at the idle screen Y, Y, A, B type 0057, and Clear
+  from the keyboard takes them away again.
+- **All eight digits:** with a temporary `NGage_input_1209_4e47_v3.map`
+  that puts J entries 14 to 21 on the pad's eight buttons, pressing them in
+  order types 01234689. The file is removed again.
+- **Sonic N:** the intro and the demo loop run; Y shows the speaker at
+  level 2; the Menu key and the way back through the phone's menu return
+  to the demo with the red cross at the top right (0.8 s after the return)
+  and Y shows the cross again; two more presses step it to 1 and 2. Then
+  title, GAME START, the character, play with the rocker, L (the left soft
+  key) pauses and resumes.
+- **Open, and older than this release:** a digit at the idle screen and
+  then OK dials the number. The phone sends resource `0x01` message `0x61`
+  [`03 00` and the digits in 16 bits each] (object `0x36`), the stand-in
+  does not answer, and from then on no key does anything until the core is
+  reset. The text cursor goes on blinking (the window server draws it).
+  The model shows the same. On a gamepad that is any of A, B or Y followed
+  by X at the idle screen. `docs/NOS_STANDIN.md` has no entry for the call
+  resource yet.

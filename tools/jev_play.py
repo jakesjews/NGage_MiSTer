@@ -121,6 +121,10 @@ class Board:
         r = self.cmd(f"hold {key} {hold_ms}" if hold_ms else f"tap {key}")
         return float(r[0])
 
+    def pad(self, button, hold_ms=300):
+        """A gamepad button on the board's virtual pad (Main's default map)."""
+        return float(self.cmd(f"pad {button} {hold_ms}")[0])
+
     def shot(self, path):
         """Main ignores screenshot commands while it loads a core or its files: retry for a while."""
         for attempt in range(15):
