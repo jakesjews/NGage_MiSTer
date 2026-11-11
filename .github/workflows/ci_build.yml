@@ -1,0 +1,110 @@
+name: CI Build
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare report directories
+        run: mkdir -p output_files build
+
+      - name: Build with Quartus 17.0.2
+        id: compile
+        shell: bash
+        run: |
+          set -uo pipefail
+          docker run --rm \
+            -v "${{ github.workspace }}:/project" \
+            -w /project \
+            theypsilon/quartus-lite-c5:17.0.2.docker0 \
+            /opt/intelFPGA_lite/quartus/bin/quartus_sh --flow compile NGage \
+            2>&1 | tee quartus_build.log
+          exit "${PIPESTATUS[0]}"
+
+      # The donor's existing script checks every available timing corner and
+      # the gated-video-clock uncertainty. Preserve its failure exit status.
+      - name: Export and check timing
+        id: timing
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          docker run --rm \
+            -v "${{ github.workspace }}:/project" \
+            -w /project \
+            theypsilon/quartus-lite-c5:17.0.2.docker0 \
+            /opt/intelFPGA_lite/quartus/bin/quartus_sta -t tools/report_timing.tcl \
+            2>&1 | tee quartus_timing_details.log
+          exit "${PIPESTATUS[0]}"
+
+      # A compiled core remains available for board experiments when timing
+      # fails. The job stays failed; the artifact explicitly records timing.
+      - name: Check and label build output
+        id: rbf
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+        env:
+          TIMING_RESULT: ${{ steps.timing.outcome }}
+        run: |
+          test -s output_files/NGage.rbf
+          python3 - <<'PY'
+          import hashlib
+          import os
+          import subprocess
+          from pathlib import Path
+          rbf = Path('output_files/NGage.rbf')
+          sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          timing = os.environ['TIMING_RESULT']
+          text = (f'Commit: {sha}\nQuartus: 17.0.2\nProject: NGage\n'
+                  f'Timing check: {timing}\nRBF SHA256: {hashlib.sha256(rbf.read_bytes()).hexdigest()}\n')
+          if timing != 'success':
+              text += 'Experimental build: timing is NOT verified.\n'
+          Path('build-info.txt').write_text(text)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('### NGage build\n\n```text\n' + text + '```\n')
+          PY
+
+      - name: Print errors on failure
+        if: failure()
+        run: |
+          grep -hE 'Error|Critical Warning' quartus_build.log quartus_timing_details.log output_files/*.rpt 2>/dev/null | head -200 || true
+          tail -100 quartus_build.log 2>/dev/null || true
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quartus-logs
+          path: |
+            quartus_build.log
+            quartus_timing_details.log
+            output_files/*.rpt
+            output_files/*.summary
+            output_files/*.smsg
+            build/critical-paths.rpt
+            build/hold-paths.rpt
+            build/unconstrained-paths.rpt
+            build/timing-corners.tsv
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload RBF
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' && steps.rbf.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: NGage-rbf-${{ steps.timing.outcome == 'success' && 'timing-passed' || 'timing-unverified' }}
+          path: |
+            output_files/NGage.rbf
+            build-info.txt
+          if-no-files-found: error
+          retention-days: 14
