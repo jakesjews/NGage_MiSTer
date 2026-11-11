@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generate the core's RH-29 4.60 patch ROM; no Nokia firmware is included.
 
-Run with python3 -I tools/gen_patchrom.py [--check]. Each record is chip u8,
-offset u24 BE, length u32 BE, payload; FF terminates the table. The two MD5
+The patches are firmware-patches/rom-patches.txt and the stand-in binaries it
+names. Run with python3 -I tools/gen_patchrom.py [--check]. Each record is
+chip u8, offset u24 BE, length u32 BE, payload; FF terminates the table. The two MD5
 payloads are the known mkimage.py results, not digests computed by the FPGA.
 The payload fingerprint prevents a changed stand-in/patch list from silently
 using stale digests: recalculate with mkimage.py and update the constants here.
@@ -29,7 +30,7 @@ def record(chip, offset, data):
 
 def generate():
     out = bytearray()
-    for line in (ROOT / "model/rom-patches.txt").read_text().splitlines():
+    for line in (ROOT / "firmware-patches/rom-patches.txt").read_text().splitlines():
         fields = line.split("#", 1)[0].split()
         if not fields:
             continue
@@ -41,7 +42,7 @@ def generate():
             continue
         if kind not in ("cs0", "cs1", "cs0file", "cs1file") or len(value) != 1:
             raise ValueError(f"unsupported patch: {line}")
-        data = ((ROOT / "tools/standin" / Path(value[0]).name).read_bytes()
+        data = ((ROOT / value[0]).read_bytes()
                 if kind.endswith("file") else bytes.fromhex(value[0]))
         out += record(int(kind[2]), off, data)
     if hashlib.sha256(out).hexdigest() != PAYLOAD_SHA256:

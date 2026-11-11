@@ -1,7 +1,8 @@
 /*
- * Model shortcuts: explicit, logged changes to the flash contents the model
- * presents, read from model/rom-patches.txt. The image files on disk are not
- * modified. Each line is one of
+ * Firmware patches: explicit, logged changes to the flash contents the model
+ * presents, read from firmware-patches/rom-patches.txt (the list the core's
+ * patch ROM is generated from). The image files on disk are not modified.
+ * Each line is one of
  *
  *   cs0|cs1 <offset> <hex bytes>      bytes as stored in flash (little-endian)
  *   cs0file|cs1file <offset> <path>   the contents of a file (e.g. assembled code)

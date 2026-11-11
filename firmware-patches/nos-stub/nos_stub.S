@@ -1,5 +1,5 @@
 /*
- * NOS stand-in (model shortcut, see model/rom-patches.txt).
+ * NOS stand-in (firmware patch, see firmware-patches/rom-patches.txt).
  *
  * NOS, the cellular RTOS, is encrypted in our flash image. Symbian reaches it
  * in two ways that matter for boot:
@@ -49,7 +49,8 @@
  * placeholder object for item 3, and sends rtc.dll event 1 with the base
  * date; all placeholder
  * methods return 0 (KErrNone) without touching their arguments. It is assembled to
- * model/.build/nos-stub.bin and placed at the NOS entry by rom-patches.txt.
+ * nos-stub.bin (firmware-patches/bin; the model's own build is in
+ * model/.build) and placed at the NOS entry by rom-patches.txt.
  * It deliberately implements nothing else: every behaviour added here is a
  * guess about NOS and must be justified by the caller's code.
  */

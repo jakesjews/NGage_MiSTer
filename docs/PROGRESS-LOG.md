@@ -9077,3 +9077,37 @@ weird scripts".
   of two hits) and nothing under the file's own name; the collection's file
   list has a View Contents link at `N-GageQD RH-29.zip`, which lists the
   package.
+
+## 2026-11-11 (later): the firmware patches in one directory
+
+The user's point: the patch list and the stand-in sources sat in `model/`,
+which reads as test code, yet the core ships them.
+
+- Moved, with nothing else changed in them but comments and paths:
+  `model/rom-patches.txt` to `firmware-patches/rom-patches.txt`,
+  `model/nos-stub/` to `firmware-patches/nos-stub/`, and the committed
+  stand-in binaries from `tools/standin/` to `firmware-patches/bin/`. Older
+  entries of this log and `docs/consults/` keep the old paths.
+- The list's `cs0file` lines now name the committed binaries
+  (`firmware-patches/bin/...`) instead of `model/.build/...`.
+  `tools/gen_patchrom.py` and `tools/mkimage.py` read them as written. The
+  model still runs its own build of the working tree's sources:
+  `model/args.sh` writes a copy of the list with the paths swapped into its
+  output directory (`NGAGE_PATCHES=FILE` takes another list as it is), and
+  the boot bench's `boot-prep` does the same with git HEAD's sources.
+- `make image-check` needs no model build any more (both sides read the
+  committed binaries). `mkimage.py --standin DIR` has no default;
+  `--model-build` is that option with `model/.build`.
+- Checks: `rtl/mister/phoenix_patch.hex` is byte for byte the same
+  (`make patchrom-check`), so the core is unchanged; the stand-ins built from
+  the moved sources equal the committed binaries; `mkimage.py flat` gives the
+  same two images as before the move; `make image-check` passes; the model,
+  rebuilt, logs all four entries and reaches the NOS traffic; `boot-prep`
+  gives the same images on this change as on the commit before it. Not run:
+  the remote `boot-model`, the Verilator benches, a Quartus build.
+- Whether the patches have to be there (the user's question): the two NOS
+  stand-ins and the digest of entry `0x8F18`, yes. NOS is encrypted, Symbian
+  jumps into it at start-up, and the stored digest matches no image we can
+  present. The Bluetooth retry limit is a shortcut that a small Bluetooth
+  controller answering the HCI reset would replace; whether today's core
+  shows the EmonServer dialog without it was not checked. Left as it is.

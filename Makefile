@@ -17,8 +17,8 @@ help:
 	@echo "make cpu-gen        Regenerate rtl/cpu/arm925t_gen.v (tools/gen_cpu.sh, needs sv2v)"
 	@echo "make cpu-gen-check  Check that rtl/cpu/arm925t_gen.v matches its sources"
 	@echo "make -C sim/cpu     CPU tests (see sim/cpu/Makefile)"
-	@echo "make standin        Rebuild tools/standin (the NOS stand-in binaries mkimage.py puts in CS0)"
-	@echo "make standin-check  Check that tools/standin matches model/nos-stub"
+	@echo "make standin        Rebuild firmware-patches/bin (the NOS stand-in binaries the patches put in CS0)"
+	@echo "make standin-check  Check that firmware-patches/bin matches firmware-patches/nos-stub"
 	@echo "make image-check CS0=.. CS1=..  Check tools/mkimage.py against the model's own patcher"
 
 # The CPU from its sources (rtl/cpu/arm925t_gen.v, which the shell lints, is
@@ -58,22 +58,24 @@ cpu-gen-check:
 		rm -f $$tmp; echo "rtl/cpu/arm925t_gen.v is out of date: run make cpu-gen"; exit 1; \
 	fi
 
-# The NOS stand-in binaries that tools/mkimage.py writes into CS0 (model
-# shortcut, model/rom-patches.txt), built as model/build.sh builds them (needs
-# arm-none-eabi-gcc) from the committed model/nos-stub, so that the committed
-# binaries always go with committed sources; tools/build_standin.sh builds
-# from any directory.
+# The NOS stand-in binaries that the firmware patches write into CS0
+# (firmware-patches/rom-patches.txt), built as model/build.sh builds them
+# (needs arm-none-eabi-gcc) from the committed firmware-patches/nos-stub, so
+# that the committed binaries always go with committed sources;
+# tools/build_standin.sh builds from any directory.
+STANDIN_SRC := firmware-patches/nos-stub
+STANDIN_BIN := firmware-patches/bin
 standin:
-	@tmp=$$(mktemp -d); git archive HEAD model/nos-stub | tar -x -C $$tmp && \
-	tools/build_standin.sh $$tmp/model/nos-stub tools/standin && chmod 644 tools/standin/*.bin; s=$$?; rm -rf $$tmp; exit $$s
+	@tmp=$$(mktemp -d); git archive HEAD $(STANDIN_SRC) | tar -x -C $$tmp && \
+	tools/build_standin.sh $$tmp/$(STANDIN_SRC) $(STANDIN_BIN) && chmod 644 $(STANDIN_BIN)/*.bin; s=$$?; rm -rf $$tmp; exit $$s
 
 standin-check:
-	@tmp=$$(mktemp -d); git archive HEAD model/nos-stub | tar -x -C $$tmp; \
-	if tools/build_standin.sh $$tmp/model/nos-stub $$tmp/out >/dev/null 2>&1 && \
-	   cmp -s $$tmp/out/nos-stub.bin tools/standin/nos-stub.bin && cmp -s $$tmp/out/nos-dll.bin tools/standin/nos-dll.bin; then \
-		rm -rf $$tmp; echo "tools/standin is current"; \
+	@tmp=$$(mktemp -d); git archive HEAD $(STANDIN_SRC) | tar -x -C $$tmp; \
+	if tools/build_standin.sh $$tmp/$(STANDIN_SRC) $$tmp/out >/dev/null 2>&1 && \
+	   cmp -s $$tmp/out/nos-stub.bin $(STANDIN_BIN)/nos-stub.bin && cmp -s $$tmp/out/nos-dll.bin $(STANDIN_BIN)/nos-dll.bin; then \
+		rm -rf $$tmp; echo "$(STANDIN_BIN) is current"; \
 	else \
-		rm -rf $$tmp; echo "tools/standin is out of date: run make standin"; exit 1; \
+		rm -rf $$tmp; echo "$(STANDIN_BIN) is out of date: run make standin"; exit 1; \
 	fi
 
 # mkimage.py against the reference model's patcher on a pair of images

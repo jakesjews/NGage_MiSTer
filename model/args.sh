@@ -10,7 +10,15 @@ machine="ngage-qd,flash0=$flash0,flash1=$flash1,probe-log=$out/probe.log,upp-log
 save1=${NGAGE_SAVE1:-$out/cs1-save.bin}
 [[ "$save1" != none ]] && machine+=",flash1-save=$save1"
 machine+=",quirks=model/upp-quirks.txt,cbus-regs=model/cbus-regs.txt,cbus-log=$out/cbus.log"
-machine+=",rom-patches=${NGAGE_PATCHES:-model/rom-patches.txt},kern-log=$out/kern.log,mmc-log=$out/mmc.log"
+# The firmware patches, with the model's own build of the stand-ins
+# (model/.build, from the working tree) in place of the committed binaries
+# the list names. NGAGE_PATCHES=FILE takes another list as it is.
+patches=${NGAGE_PATCHES:-}
+if [[ -z "$patches" ]]; then
+    patches=$out/rom-patches.txt
+    sed 's|firmware-patches/bin/|model/.build/|' firmware-patches/rom-patches.txt > "$patches"
+fi
+machine+=",rom-patches=$patches,kern-log=$out/kern.log,mmc-log=$out/mmc.log"
 [[ -n "${NGAGE_TRACE:-}" ]] && machine+=",trace=$NGAGE_TRACE"
 [[ -n "${NGAGE_KEYS:-}" ]] && machine+=",keys=$NGAGE_KEYS"
 [[ -n "${NGAGE_MMC:-}" ]] && machine+=",mmc=$NGAGE_MMC"

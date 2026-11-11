@@ -1,16 +1,17 @@
 #!/bin/zsh
-# Build the NOS stand-in binaries that model/rom-patches.txt places into CS0
-# (a model shortcut: NOS, the cellular RTOS, is encrypted in flash), with the
-# same steps as model/build.sh, so that tools/mkimage.py can make the core's
-# images without an ARM toolchain. The binaries are committed in tools/standin.
+# Build the NOS stand-in binaries that firmware-patches/rom-patches.txt places
+# into CS0 (NOS, the cellular RTOS, is encrypted in flash), with the same
+# steps as model/build.sh, so that the core's patch ROM (tools/gen_patchrom.py)
+# and tools/mkimage.py need no ARM toolchain. The binaries are committed in
+# firmware-patches/bin.
 # Usage: tools/build_standin.sh [SRC_DIR [OUT_DIR]]
-#   SRC_DIR  the stand-in sources (default model/nos-stub)
-#   OUT_DIR  where nos-stub.bin and nos-dll.bin go (default tools/standin)
+#   SRC_DIR  the stand-in sources (default firmware-patches/nos-stub)
+#   OUT_DIR  where nos-stub.bin and nos-dll.bin go (default firmware-patches/bin)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-src=${1:-model/nos-stub}
-out=${2:-tools/standin}
+src=${1:-firmware-patches/nos-stub}
+out=${2:-firmware-patches/bin}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$out"

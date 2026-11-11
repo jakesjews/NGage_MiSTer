@@ -1,6 +1,6 @@
 /*
- * NOS stand-in, part 2 (model shortcut, see model/rom-patches.txt): the two
- * exports of the hidden NOS DLL (TRomImageHeader at 0x51168FF0, uid3
+ * NOS stand-in, part 2 (firmware patch, see firmware-patches/rom-patches.txt):
+ * the two exports of the hidden NOS DLL (TRomImageHeader at 0x51168FF0, uid3
  * 0x10005A05, export directory 0x511690BC) that point into the encrypted
  * NOS code. nosdriver.ldd (the NOSDRIVER logical device, loaded by EStart)
  * imports them through 0x511690C8 and 0x511690D0:

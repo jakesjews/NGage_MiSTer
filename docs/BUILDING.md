@@ -20,9 +20,10 @@ and is never in the repository.
   with QEMU (qemu-system-arm and arm-none-eabi-gdb).
 - `make cpu-gen-check`: `rtl/cpu/arm925t_gen.v`, the netlist Quartus compiles,
   matches its sources (sv2v 0.0.13). `make cpu-gen` regenerates it.
-- `make patchrom-check`: the firmware patch ROM matches its generator.
-- `make standin-check`: the binaries in `tools/standin` match
-  `model/nos-stub` (arm-none-eabi-gcc).
+- `make patchrom-check`: the firmware patch ROM (`rtl/mister/phoenix_patch.hex`)
+  matches the patch list, `firmware-patches/rom-patches.txt`.
+- `make standin-check`: the binaries in `firmware-patches/bin` match
+  `firmware-patches/nos-stub` (arm-none-eabi-gcc).
 
 `make help` lists the single benches.
 

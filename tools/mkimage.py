@@ -9,12 +9,13 @@ Input, either:
            bytes 0xFF)
   flat     flat CS0 (16 MB) and CS1 (8 MB) images, e.g. dumps
 
-Then the model shortcuts in model/rom-patches.txt are applied exactly as the
-reference model's model/hw/ngage_patch.c applies them at load:
+Then the firmware patches in firmware-patches/rom-patches.txt are applied
+exactly as the reference model's model/hw/ngage_patch.c applies them at load:
   cs0|cs1 <offset> <hex bytes>        bytes as stored in flash
   cs0file|cs1file <offset> <path>     a file's contents: the NOS stand-in
-                                      binaries, taken from --standin (by file
-                                      name) unless --model-build is given
+                                      binaries, at the path the list gives
+                                      (firmware-patches/bin) unless --standin
+                                      or --model-build names another directory
   md5 <CS0 offset of an entry>        after all byte patches: recompute the
                                       bootstrap's integrity digest of that
                                       table entry {start, end, digest[16]}
@@ -37,9 +38,9 @@ usage:
   mkimage.py flat CS0.bin CS1.bin [-o DIR] [options]
 options:
   -o DIR             where cs0.bin and cs1.bin go (default .)
-  --patches FILE     the patch list (default model/rom-patches.txt)
-  --standin DIR      the stand-in binaries (default tools/standin)
-  --model-build      take cs0file/cs1file paths as written (model/.build/...)
+  --patches FILE     the patch list (default firmware-patches/rom-patches.txt)
+  --standin DIR      take the stand-in binaries from DIR, by file name
+  --model-build      the same with the model's own build (model/.build)
   --phone-data DUMP  restore the per-phone bytes from a ROM dump
   --no-patches       write the images unpatched (the table check then reports
                      the digests the firmware carries)
@@ -207,7 +208,7 @@ def md5_entry(entry, cs0, cs1):
     return start, end, hashlib.md5(rom_read(cs0, cs1, start, length)).digest()
 
 
-def apply_patches(path, cs0, cs1, standin, model_build):
+def apply_patches(path, cs0, cs1, standin):
     md5s = []
     for lineno, line in enumerate(open(path, encoding="latin-1"), 1):
         kind, off, word = scan_line(line)
@@ -221,10 +222,10 @@ def apply_patches(path, cs0, cs1, standin, model_build):
             continue
         if kind in ("cs0file", "cs1file"):
             img = cs0 if kind == "cs0file" else cs1
-            src = os.path.join(ROOT, word) if model_build else os.path.join(standin, os.path.basename(word))
+            src = os.path.join(standin, os.path.basename(word)) if standin else os.path.join(ROOT, word)
             if not os.path.exists(src):
-                fail("%s:%d: %s not found%s" % (path, lineno, src, "" if model_build else
-                     " (make standin builds the stand-ins; --model-build takes model/.build's)"))
+                fail("%s:%d: %s not found (make standin builds the stand-ins, model/build.sh the model's)"
+                     % (path, lineno, src))
             data = open(src, "rb").read()
             if off < 0 or off + len(data) > len(img):
                 fail("%s:%d: rom patch out of range" % (path, lineno))
@@ -290,8 +291,8 @@ def main():
     p.add_argument("mode", choices=("phoenix", "flat"))
     p.add_argument("inputs", nargs="+")
     p.add_argument("-o", "--outdir", default=".")
-    p.add_argument("--patches", default=os.path.join(ROOT, "model", "rom-patches.txt"))
-    p.add_argument("--standin", default=os.path.join(ROOT, "tools", "standin"))
+    p.add_argument("--patches", default=os.path.join(ROOT, "firmware-patches", "rom-patches.txt"))
+    p.add_argument("--standin")
     p.add_argument("--model-build", action="store_true")
     p.add_argument("--phone-data")
     p.add_argument("--no-patches", action="store_true")
@@ -316,7 +317,8 @@ def main():
               % PHONE_DATA[0])
 
     if not a.no_patches:
-        apply_patches(a.patches, cs0, cs1, a.standin, a.model_build)
+        standin = os.path.join(ROOT, "model", ".build") if a.model_build else a.standin
+        apply_patches(a.patches, cs0, cs1, standin)
     ok = check_table(cs0, cs1)
 
     os.makedirs(a.outdir, exist_ok=True)

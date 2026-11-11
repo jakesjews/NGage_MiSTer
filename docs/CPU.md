@@ -518,9 +518,9 @@ The N-Gage boot code from the CS0 image runs on the RTL and on the
 reference model from the same flash images, and their device accesses are
 compared. Three targets:
 
-- `make -C sim/cpu boot-prep` builds the images from git HEAD's model
-  files: the NOS stand-in assembled, `model/rom-patches.txt` applied as the
-  model applies it, and the integrity digests computed through the
+- `make -C sim/cpu boot-prep` builds the images from git HEAD's model and
+  `firmware-patches` files: the NOS stand-in assembled,
+  `firmware-patches/rom-patches.txt` applied as the model applies it, and the integrity digests computed through the
   bootstrap's ROM map (`sim/cpu/boot/prep.py`).
 - `make -C sim/cpu boot-model` builds the model from git HEAD on the
   Verilator server (`sim/cpu/model/build_linux.sh`: the steps of
