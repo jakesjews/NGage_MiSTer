@@ -68,6 +68,10 @@ module upp_lcdif #(
 	output logic [31:0] rdata,
 	output logic        busy,
 
+	input  wire         dma_valid,
+	input  wire [31:0]  dma_data,
+	output wire         dma_ready,
+
 	output logic        tx_ready,       // the queue can take a word (DMA pacing)
 	output logic        active,         // the bus has carried a byte since reset
 
@@ -101,14 +105,25 @@ module upp_lcdif #(
 	wire         q_full, q_empty, q_valid;
 	wire [32:0]  q_dout;
 
-	wire push = wr && (off == 4'h0 || off == 4'h8);
+	wire cpu_push = wr && (off == 4'h0 || off == 4'h8);
+	// Reserve for a selected CPU access before its pipelined ready sample.
+	// Native traffic cannot fill the FIFO between that sample and CPU commit.
+	assign dma_ready = !reset && !acc && !q_full;
+	wire dma_push = dma_valid && dma_ready;
+	wire push = cpu_push || dma_push;
+	reg [31:0] last_word;
+	always @(posedge clk) begin
+		if (dma_push) last_word <= dma_data;
+		if (wr && off == 4'h8) last_word <= wdata;
+		if (reset) last_word <= 0;
+	end
 	wire want_read = acc && !we && off == 4'h8 && read_phase;
 
 	upp_fifo #(.DW(33), .AW(QAW)) queue (
 		.clk(clk),
 		.flush(reset),
 		.push(push),
-		.din({off == 4'h0, wdata}),
+		.din(dma_push ? {1'b0, dma_data} : {off == 4'h0, wdata}),
 		.pop(q_pop),
 		.dout(q_dout),
 		.valid(q_valid),
@@ -135,6 +150,10 @@ module upp_lcdif #(
 					rdata = {29'd0, !q_full, 2'd0};
 				end
 				4'h8: begin
+					if (!read_phase) begin
+						rmask = 32'hffffffff;
+						rdata = last_word;
+					end
 					if (we) begin
 						busy = q_full;
 					end else if (read_phase) begin

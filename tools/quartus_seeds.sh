@@ -32,6 +32,10 @@ if [[ $2 == fetch ]]; then
 	mkdir -p output_files build
 	rsync -a "$host:$d/output_files/NGage.rbf" "$host:$d/output_files/NGage.fit.summary" "$host:$d/output_files/NGage.sta.summary" output_files/
 	rsync -a "$host:$d/build/timing-corners.tsv" "$host:$d/build/critical-paths.rpt" "$host:$d/build/hold-paths.rpt" build/
+	# Historical builds predate the per-corner export directory.
+	if ssh "$host" "test -d $d/build/timing"; then
+		rsync -a "$host:$d/build/timing/" build/timing/
+	fi
 	exit 0
 fi
 seeds=($2)

@@ -524,7 +524,9 @@ wire mmc_dat = (mmc_dat_oe ? mmc_dat_o : 1'b1) & (card_dat_oe ? card_dat_o : 1'b
 
 wire [31:0] dbg_src0, dbg_en0_irq, dbg_en0_fiq;
 
-upp_periph upp_periph
+upp_periph #(
+	.DMA_ENGINES(2)
+) upp_periph
 (
 	.clk(clk_sys),
 	.reset(mem_reset),

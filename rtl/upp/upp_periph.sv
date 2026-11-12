@@ -62,7 +62,7 @@ module upp_periph #(
 	parameter int LCD_WR_HIGH        = 2,
 	parameter int LCD_RD_LOW         = 4,
 	parameter int LCD_RD_HIGH        = 6,
-	parameter int DMA_ENGINES        = 3,
+	parameter int DMA_ENGINES        = 2,
 	parameter int POWER_ON_HOLD_CLKS = 312_000_000,    // 3 s, as the model
 	parameter int CLK_HZ             = 104_000_000     // for the audio device
 ) (
@@ -300,6 +300,8 @@ module upp_periph #(
 		.irq(tmr_irq)
 	);
 
+	wire lcd_dma_valid, lcd_dma_ready;
+	wire [31:0] lcd_dma_data;
 	upp_dma #(.ENGINES(DMA_ENGINES)) dma (
 		.clk(clk),
 		.reset(reset),
@@ -313,6 +315,9 @@ module upp_periph #(
 		.mmc_rx_ready(mmc_rx_ready),
 		.mmc_tx_ready(mmc_tx_ready),
 		.lcd_tx_ready(lcd_tx_ready),
+		.lcd_valid(lcd_dma_valid),
+		.lcd_data(lcd_dma_data),
+		.lcd_ready(lcd_dma_ready && !init_busy),
 		.m_cyc(d_cyc),
 		.m_stb(d_stb),
 		.m_we(d_we),
@@ -401,6 +406,9 @@ module upp_periph #(
 		.rdata(d_lcd),
 		.busy(b_lcd),
 		.tx_ready(lcd_tx_ready),
+		.dma_valid(lcd_dma_valid && !init_busy),
+		.dma_data(lcd_dma_data),
+		.dma_ready(lcd_dma_ready),
 		.active(lcd_active),
 		.csx(lcd_csx),
 		.dcx(lcd_dcx),
