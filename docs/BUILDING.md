@@ -100,3 +100,28 @@ for C: and 1 for the card (the other way round before 2026-11-10):
     <file delay="1" type="s" index="1" path="sonicn.mmc"/>
 </mistergamedescription>
 ```
+
+## Timing investigation (2026-11-12)
+
+After a completed fit, run `quartus_sta -t tools/report_timing.tcl 1000`.
+The optional count defaults to 1000 (range 1..10000). Each operating corner
+exports up to that many **negative setup endpoints**, one worst path per
+endpoint, ordered by slack. This is a bounded sample, not every failing path.
+`build/timing/corners.csv` maps numbered corner directories to their names and
+counts; each contains `failing-setup-full.rpt` (including routing),
+`failing-setup.csv`, `hold-full.rpt` and `fmax.rpt`. A passing corner produces a
+header-only CSV. The legacy `critical-paths.rpt` now also uses the negative
+filter/count, but remains an initial-corner report; use the indexed reports
+for analysis. Per-corner setup/hold/recovery/removal minima and the gated-clock
+uncertainty check retain their failure exit status.
+
+Run `python3 tools/summarize_timing.py build/timing/corner-*/failing-setup.csv`
+for block-pair counts and worst node pairs. CI publishes this summary and all
+reports even when timing fails. A row count equal to the limit can be truncated;
+counts and summed slacks of this subset are not complete endpoint counts/TNS.
+Do not compare different corners as if they were independent endpoint failures.
+
+The change has orchestration tests with a mocked STA API; a real Quartus17
+export and fresh fit are still required. No clock/SDC/RTL changes are included.
+
+Run `python3 tests/timing/check.py` for the mocked orchestration regression.

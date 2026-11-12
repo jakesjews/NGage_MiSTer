@@ -3,7 +3,7 @@ name: CI Build
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [master, codex/ngage2-lcd-fast]
   workflow_dispatch:
 
 permissions:
@@ -34,7 +34,7 @@ jobs:
 
       # The donor's existing script checks every available timing corner and
       # the gated-video-clock uncertainty. Preserve its failure exit status.
-      - name: Export and check timing
+      - name: Export 1000 failing endpoints per corner and check timing
         id: timing
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
         shell: bash
@@ -44,9 +44,16 @@ jobs:
             -v "${{ github.workspace }}:/project" \
             -w /project \
             theypsilon/quartus-lite-c5:17.0.2.docker0 \
-            /opt/intelFPGA_lite/quartus/bin/quartus_sta -t tools/report_timing.tcl \
+            /opt/intelFPGA_lite/quartus/bin/quartus_sta -t tools/report_timing.tcl 1000 \
             2>&1 | tee quartus_timing_details.log
           exit "${PIPESTATUS[0]}"
+
+      - name: Summarize failing path families
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+        run: |
+          python3 tools/summarize_timing.py build/timing/corner-*/failing-setup.csv \
+            --output build/timing/path-summary.md
+          cat build/timing/path-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       # A compiled core remains available for board experiments when timing
       # fails. The job stays failed; the artifact explicitly records timing.
@@ -95,6 +102,7 @@ jobs:
             build/hold-paths.rpt
             build/unconstrained-paths.rpt
             build/timing-corners.tsv
+            build/timing/
           if-no-files-found: warn
           retention-days: 14
 

@@ -27,7 +27,7 @@ PROFILE_FILES = $(if $(filter 1,$(CORE_PROFILE)),$(ROOT)/sim/profile/cpu_profile
 PROFILE_FLAGS = $(if $(filter 1,$(CORE_PROFILE)),-DCPU_PROFILE=1 -CFLAGS "-DCPU_PROFILE=1")
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
-BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash trace upp intc timers haudio dma-count periph save phoenix top
+BENCHES := lcd-fast lcd video keypad flash mmc sdram sdram-faults ddrflash trace upp intc timers haudio dma-count periph save phoenix top
 
 .PHONY: test $(BENCHES) coreboot flashcopy hps-read-test clean
 
@@ -283,3 +283,7 @@ phoenix: $(BUILD)/phoenix/Vphoenix_load | $(OUT)
 	cd $(ROOT) && $<
 phoenix-real: $(BUILD)/phoenix/Vphoenix_load | $(OUT)
 	cd $(ROOT) && $< $(PHOENIX_DIR)/RH2946.0C1 $(PHOENIX_DIR)/RH2946.0S5 $(PHOENIX_REF)/cs0.bin $(PHOENIX_REF)/cs1.bin
+
+# Native LCD DMA path, including ordered panel bytes and cancellation races.
+lcd-fast:
+	sh $(ROOT)/tests/lcd_fast/run.sh
