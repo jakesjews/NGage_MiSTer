@@ -322,6 +322,35 @@ static void isi_request(struct slot *s, const u8 *m, int len)
         r[n - 3] = 0x00;                /* value: sub-block byte 5 */
         isi_send(s, r, n);
         break;
+    case RES_INFO << 8 | 0x00:
+        /* INFO_SERIAL_NUMBER_READ_REQ [41] (oFono info.h: target
+         * INFO_SB_SN_IMEI_PLAIN; phonetsy.tsy 0x5093EC1C sends no other).
+         * Sent for RBasicGsmPhone::GetGsmPhoneId, which an application
+         * calls synchronously for the IMEI (PlpVariant::GetMachineIdL;
+         * SPMark04 does at start-up and never draws its view without an
+         * answer). phonetsy.tsy 0x5093EC38 reads INFO_SERIAL_NUMBER_READ_
+         * RESP 0x01: [10] status (0 = INFO_OK; others complete with -2),
+         * [11] sub-block count, sub-block at [12]; 0x5092F868 takes 15
+         * bytes from its byte 4 as the serial number (isimsg 0x5035343C:
+         * Mid(4, 15)). gnokii nk6510 reads the same reply: the string's
+         * length at sub-block byte 3, the string from byte 4. The stand-in
+         * has no serial number of its own: fifteen zeros. */
+        if (m[10] != 0x41) {
+            break;
+        }
+        n = isi_reply_hdr(r, m, 0x01);
+        r[n++] = 0x00;
+        r[n++] = 0x01;
+        r[n++] = 0x41;
+        r[n++] = 0x14;                  /* sub-block length: 4 + 16 */
+        r[n++] = 0x00;
+        r[n++] = 0x10;                  /* string length with its NUL */
+        for (int i = 0; i < 15; i++) {
+            r[n++] = '0';
+        }
+        r[n++] = 0x00;
+        isi_send(s, r, n);
+        break;
     default:
         if (m[3] == RES_AUDIO) {
             audio_request(s, m, len);
