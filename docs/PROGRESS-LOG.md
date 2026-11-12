@@ -9532,3 +9532,78 @@ matching data package (`RH-29_dp_emea_v_3_0_mcusw4_10-Oct19-151031.exe`):
   (the Verilated loader over the real 4.10 files equals mkimage's images,
   which are the ones that ran on the board), `make lint`,
   `node web/test.mjs`, the model on its new default images.
+
+## 2026-11-12 (late): the 4.10 core on the board; a correction on 2D Image
+
+**The core built from 4f4eb29** (seed 30 of the first four) went on the
+board as the main core with `boot0.rom` = `RH2941.0C1`, `boot1.rom` =
+`RH2941.021` and a blank `boot0.vhd` (the user: "I don't really care about
+the saves"; the 4.60 files and core are in `games/NGage/old-4.60/`). From
+the boot files, through the core's own patch ROM: the first-start
+dialogs, the idle screen, the menu; SPMark04 from its card on a fresh
+scratch C: (`spmark-full-c410.vhd`) opens and runs.
+
+| SPMark04 v1.10, firmware 4.10, fresh start | |
+|---|---|
+| SPMark04 3D Score | 566 |
+| 3D Game | 9.32, 9.29 fps |
+| 3D FillRate | 1.73 Mtexels/s |
+| 3D PolyCount | 37.32 Ktriangles/s |
+| 2D Image | 20.80 fps |
+| Image Scaling | 1.56 bitmaps/s |
+| JPEG Encoding | 164.66 Kpixels/s |
+| Contacts | 3.11 contacts/s |
+| Calendar | 5.75 events/s |
+| Disk Access | 15.20 files/s |
+
+**Correction to the entry on pull request #4.** That entry read 2D Image
+as 30 % lower on the PR's core (26.26 against 37.66 fps). It is not the
+PR. The 4.60 firmware, from a fresh start, gives the same figure on every
+core tried since:
+
+| core | firmware | session | 2D Image |
+|---|---|---|---|
+| `NGage_20261111.rbf` | 4.60 | the one in which the package had just been installed | 37.62, 37.66 fps |
+| PR #4's build | 4.60 | fresh starts | 26.26, 26.26 |
+| the 4.10 core (4f4eb29, seed 30) | 4.60, flat images | fresh start | 26.24 |
+| the IMEI release (same fit as 11-11's) | 4.60, flat images | fresh start | 26.26 |
+| the 4.10 core | 4.10 | fresh start | 20.80 |
+
+So the fit, the seed and the PR's LCD path make no difference to it, and
+the 37.6 belongs to that one long session (installer run, the
+application started twice, results viewed) for a reason not found. The
+core's saved OSD settings and MiSTer.ini were not changed that day. On
+like-for-like fresh starts PR #4's core and the release core agree on
+every SPMark04 test. Whether 4.10's 20.80 against 4.60's 26.25 is the
+firmware or the same kind of session effect is not known either.
+
+Open from the same evening: Settings > Device > Display (resource 0x3A
+message 0x01 from object 0x53 unanswered); `model/stacks.sh` hung on
+this run and was stopped.
+
+## 2026-11-12 (late): the release on firmware 4.10, NGage_20261112.rbf again
+
+Eight seeds of 4f4eb29 on the server, from clean worktrees (the loader's
+new check and the OSD strings moved the fit, unlike the IMEI change):
+
+| seed | setup 100C | setup -40C | hold (worst, slow) |
+|---|---|---|---|
+| 30 | -1.697 | -1.544 | +0.067 |
+| 40 | -1.747 | -1.760 | +0.100 |
+| 31337 | -1.760 | -1.799 | +0.094 |
+| 9 | -1.797 | -1.860 | +0.060 |
+| 13 | -1.921 | -1.842 | +0.031 |
+| 5 | -1.913 | -1.965 | +0.086 |
+| 1337 | -2.123 | -2.244 | +0.110 |
+| 20 | -2.353 | -2.145 | +0.045 |
+
+Seed 30 again, so NGage.qsf stays and the sweep's build is the committed
+tree's own: `releases/NGage_20261112.rbf`, md5 ecf89942…, 33,742 ALMs.
+It has the same name as the IMEI release of this afternoon (the build
+date is the same day), which it replaces: that one (md5 f55a3b80…) runs
+4.60 only, this one 4.10 only. It still does not meet 104 MHz in the
+timing report.
+
+On the board from the boot files (`RH2941.0C1`, `RH2941.021`, a blank C:):
+the first-start dialogs, idle with the MiSTer's date at the next start,
+SPMark04's suite (the table above), Sonic N's intro.
