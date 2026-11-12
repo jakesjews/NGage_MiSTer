@@ -9465,3 +9465,70 @@ Launchers `NGage-spmark.mgl` (the Free install, the user's C:) and
 `NGage-spmark-full.mgl` (v1.10 with its scratch C:) replace the two
 `-dev` ones. The PR #4 core, its launcher and the flat images it needs
 stay on the board for the user's comparison. Not pushed.
+
+## 2026-11-12 (night): the core moves to the retail firmware, 4.10
+
+The user's friend remembered the phone's look as blue, not orange, and the
+user asked whether the core was tied to its firmware; then, with a retail
+dump in hand (`RH-29_FW_V_04.10_Retail.zip`, an SDumper dump) and the
+matching data package (`RH-29_dp_emea_v_3_0_mcusw4_10-Oct19-151031.exe`):
+"Convert to this firmware".
+
+- **What 4.60 was.** The package the core has used ships one variant, and
+  its own description says so: "RH-29 Movistar Spain Full" (`RH2946.0S5`).
+  The wallpaper, "Juegos" and the "emoción" soft key were Movistar's. The
+  retail 4.60 dump on disk is the same variant. A later 4.10 package (DP
+  3.7) carries the same 4.60 pair next to about 75 variants of 4.10.
+- **A 4.10 language pack does not go with the 4.60 firmware file**: the
+  boot stops four seconds in (the pack carries the Z: directory of its own
+  version). So "regular firmware" means the 4.10 MCU file.
+- **The dump is the Romania variant**: its ROM equals `RH2941.0C1` +
+  `RH2941.021` byte for byte outside page 0 and the hidden NOS window, and
+  the ROOT dump lies at `0x5123EB58` in that pack.
+- **Where things are in 4.10** (found by matching code against 4.60;
+  bootstrap, ekern and its export table sit at the same addresses, the
+  page table at CS0 0x744 is the same, most other files lie lower): NOS
+  entry `0x5149E4C4` (nosstarter.ext's literal; 4.60 `0x5149E4D4`), hidden
+  NOS DLL header `0x51163E20` with ordinal 4 `0x514A1C90` and ordinal 6
+  `0x514A260C` (16 bytes lower each), hci.dll's two retry limits at
+  `0x5046DC52` and `0x5046DDAC`, integrity entry 0x8F18 over
+  `0x50009000`-`0x51164FFF`. The stand-in sources carry those addresses
+  now; nothing else in them is tied to the version. The rebuilt binaries
+  and the patch list give digest cd5ec29b… for entry 0x8F18.
+- **Runs.** The model boots 4.10 to the first-start dialogs, the idle
+  screen ("N-GAGE QD" wallpaper, soft keys Contacts and Game) and the
+  menu; a second start goes straight to idle with the host's date. On the
+  board, through the flat route on `NGage_20261112.rbf`: the same, and
+  Sonic N plays its intro. `RH2941.002` (Euro 1) boots in the model too.
+  **The icons are orange in 4.10 as well**: the orange is the QD's own
+  look, not Movistar's.
+- **The loader** (`rtl/mister/phoenix_load.sv`) now recognises the pair by
+  the MCU file's own ROM header time stamp (CS0 0x80: 4.10's), a written
+  language-pack entry (8F00, any pack of 4.10's) and entry 8F18's
+  unpatched digest (4.10's, which the pack carries). A 4.60 MCU file under
+  a 4.10 pack is refused by the stamp; the patch ROM no longer writes the
+  pack's digest. `tools/mkimage.py` knows `RH2941.0C1` and `RH2941.021`
+  and wants `--force` for another pack.
+- **A C: drive made under 4.60 does not work under 4.10**: "App. closed
+  Startup", no wallpaper, no right soft key (model, the user's C: of this
+  morning with the 4.10 flash). The README says to start from the blank
+  file.
+- **Settings.** On either version Settings (GS.app) opened to an empty
+  view: the TSY sends SIM message 0x29 [37] (dynamic flags) and the
+  stand-in did not answer. It answers 0x2A [37 24] now and Settings shows
+  its list (Device, Call, Connection, Date and time...). Device > Display
+  still does not open: resource 0x3A message 0x01 from a new client
+  (object 0x53) goes unanswered. So the colour palette, if this phone has
+  one, has not been seen yet.
+- **Also changed:** the OSD's file labels and messages, the loader benches
+  and their synthetic pair (the time stamp, two more refusal cases), the
+  default images of the model, its tools and the CPU boot bench
+  (`research/firmware/images/nor/rh29-4.10-*`), the unpacker page (the
+  4.10 package, 63.8 MB: boot0.rom and boot1.rom come out with matching
+  hashes; its damaged-bit test moved into the firmware's data), README,
+  BUILDING.md, the notes in NOS_STANDIN.md and UPP_WD2.md that their code
+  addresses are 4.60's.
+- **Checks:** `tools/patchcheck.sh`, `make -C sim phoenix phoenix-real`
+  (the Verilated loader over the real 4.10 files equals mkimage's images,
+  which are the ones that ran on the board), `make lint`,
+  `node web/test.mjs`, the model on its new default images.
