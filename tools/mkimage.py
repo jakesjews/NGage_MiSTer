@@ -3,8 +3,8 @@
 user's own RH-29 firmware.
 
 Input, either:
-  phoenix  the Phoenix flash files: the MCU file (RH2946.0C1) and the language
-           pack (RH2946.0S5, or another .S*), converted as tools/fls2bin.py
+  phoenix  the Phoenix flash files: the MCU file (RH2941.0C1) and a language
+           pack (RH2941.021, or another of 4.10's), converted as tools/fls2bin.py
            does (CS0 at 0x00000000, 16 MB; CS1 at 0x02000000, 8 MB; unwritten
            bytes 0xFF)
   flat     flat CS0 (16 MB) and CS1 (8 MB) images, e.g. dumps
@@ -44,7 +44,7 @@ options:
   --phone-data DUMP  restore the per-phone bytes from a ROM dump
   --no-patches       write the images unpatched (the table check then reports
                      the digests the firmware carries)
-  --force            go on with Phoenix files that are not the RH-29 4.60 ones
+  --force            go on with Phoenix files that are not the RH-29 4.10 pair
                      (the inputs are checked by SHA-256; see KNOWN_INPUTS)
 
 Load cs0.bin and cs1.bin with the OSD's "Load flash CS0" and "Load flash CS1".
@@ -82,13 +82,14 @@ def load_fls2bin():
     return mod
 
 
-# The Phoenix flash files the core is built against (RH-29 software 4.60):
-# the SHA-256 of the whole file, and what it is. Anything else fails unless
-# --force: another version's image loads but its integrity table and patch
-# offsets differ, and the phone does not boot.
+# The Phoenix flash files the core is built against (RH-29 software 4.10, the
+# retail firmware): the SHA-256 of the whole file, and what it is. Anything
+# else fails unless --force. Another of 4.10's language packs is fine with
+# --force (the patches are all in the MCU file's range); another version's
+# image loads but its patch offsets differ, and the phone does not boot.
 KNOWN_INPUTS = {
-    "ba5fea856d378f3e460d9daca11d3f1c254c0141c18c14b6498f348ba56d18f6": "RH2946.0C1 (RH-29 4.60, the MCU file)",
-    "4d2e36f61259b01f564bff89766c9af687f7c8c57248bda47e8776bd3cdc95f5": "RH2946.0S5 (RH-29 4.60, the language pack)",
+    "3ce529d6fbcd6db1f4290fabe8b70c62242a23444c4fa74caec42657d12ab4a0": "RH2941.0C1 (RH-29 4.10, the MCU file)",
+    "657c2d1bafbad6797732c86892999a9e201e10961ee8c1801b0b6cc73bb41fa5": "RH2941.021 (RH-29 4.10, the language pack of the Romania variant)",
 }
 
 
@@ -101,8 +102,9 @@ def check_input(path, force):
     if digest in KNOWN_INPUTS:
         print("%s: %s" % (path, KNOWN_INPUTS[digest]))
         return
-    msg = ("%s is not one of the RH-29 4.60 Phoenix files (RH2946.0C1 and RH2946.0S5; sha256 %s). "
-           "The core is built against 4.60; another version does not boot. --force goes on anyway." % (path, digest))
+    msg = ("%s is not one of the RH-29 4.10 Phoenix files (RH2941.0C1 and RH2941.021; sha256 %s). "
+           "The core is built against 4.10: another of its language packs works, another version "
+           "does not boot. --force goes on anyway." % (path, digest))
     if force:
         sys.stderr.write("mkimage: warning: %s\n" % msg)
     else:
@@ -296,7 +298,7 @@ def main():
     p.add_argument("--model-build", action="store_true")
     p.add_argument("--phone-data")
     p.add_argument("--no-patches", action="store_true")
-    p.add_argument("--force", action="store_true", help="go on with Phoenix files that are not the 4.60 ones")
+    p.add_argument("--force", action="store_true", help="go on with Phoenix files that are not the 4.10 pair")
     a = p.parse_args()
 
     if a.mode == "phoenix":

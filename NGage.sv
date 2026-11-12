@@ -70,8 +70,8 @@ reg         crop_ok;
 localparam CONF_STR = {
 	"NGage;;",
 	"-;",
-	"F1,0C1ROM,Load firmware (RH2946.0C1);",
-	"F2,0S5ROM,Load language pack (RH2946.0S5);",
+	"F1,0C1ROM,Load firmware (RH2941.0C1);",
+	"F2,021ROM,Load language pack (RH2941.021);",
 	"F3,BIN,Load flash CS0 image;",
 	"F4,BIN,Load flash CS1 image;",
 	"S0,BINVHD,Mount C: save;",
@@ -93,7 +93,7 @@ localparam CONF_STR = {
 	"R[0],Reset and close OSD;",
 	"J,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power,0,1,2,3,4,6,8,9;",
 	"jn,A,B,X,L,R,Start,Select,,,,,,,Y;",
-	"I,C: save mounted,C: save file must be 4 or 8 MB,C: read-only: no saves,C: saved,Booting the phone - about a minute...,Phone kernel is up,Firmware file damaged,Firmware 4.60 loaded,Firmware not recognised: needs RH-29 4.60,Firmware reloaded: load both files;",
+	"I,C: save mounted,C: save file must be 4 or 8 MB,C: read-only: no saves,C: saved,Booting the phone - about a minute...,Phone kernel is up,Firmware file damaged,Firmware 4.10 loaded,Firmware not recognised: needs RH-29 4.10,Firmware reloaded: load both files;",
 	"V,v",`BUILD_DATE
 };
 

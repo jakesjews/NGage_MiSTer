@@ -8,8 +8,8 @@ with no SIM.
 ## What you need
 
 - A MiSTer with an SDRAM module (32 MB or larger).
-- The N-Gage QD firmware, version 4.60 (model RH-29): Nokia's data package
-  `RH-29_dp_emea_v_10_0_MCUSW4_60.exe`. It is Nokia's and is not included.
+- The N-Gage QD firmware, version 4.10 (model RH-29): Nokia's data package
+  `RH-29_dp_emea_v_3_0_mcusw4_10-Oct19-151031.exe`. It is Nokia's and is not included.
   Searching the Internet Archive for "Nokia DCT4 firmwares" finds it, inside
   `N-GageQD RH-29.zip`.
 - Game cards as `.mmc` images (see [Game cards](#game-cards)).
@@ -29,8 +29,9 @@ with no SIM.
 7. If the game does not start by itself, press Menu (F5), move to its icon and
    press OK (Enter).
 
-If you have the firmware as `RH2946.0C1` and `RH2946.0S5`, rename them
-`boot0.rom` and `boot1.rom` instead of step 3.
+If you have the firmware as `RH2941.0C1` and a language pack (`RH2941.021`,
+or another from the same package), rename them `boot0.rom` and `boot1.rom`
+instead of step 3.
 
 To have a card in the slot at every start, name a copy of its image
 `boot1.vhd`. The phone then starts at its idle screen with the game in the menu.
@@ -70,6 +71,8 @@ Only the `.mmc` file goes on the MiSTer.
 - **Saves reach `boot0.vhd` a few seconds after the phone writes them.**
   Choose **Save C: now** in the OSD before switching off right after a save.
 - Keep your `boot0.vhd`: replacing it with the blank file starts a new phone.
+- Coming from a release that ran firmware 4.60 (up to 2026-11-12): replace
+  all three files. A `boot0.vhd` made under 4.60 does not work with 4.10.
 - Five minutes after the last key press the phone shows its screen saver,
   over a game too: a bar with the date and time on a black screen. Any key
   brings the picture back.
@@ -88,8 +91,9 @@ Only the `.mmc` file goes on the MiSTer.
 
 - Black screen: the phone starts only when `boot0.rom`, `boot1.rom` and
   `boot0.vhd` are all in `games/NGage/` under exactly those names.
-- **Firmware not recognised: needs RH-29 4.60**: these are other firmware
-  files, or the two are swapped. `boot0.rom` is `RH2946.0C1`.
+- **Firmware not recognised: needs RH-29 4.10**: these are other firmware
+  files (4.60's, from an earlier release of the core), or the two are swapped.
+  `boot0.rom` is `RH2941.0C1`.
 - **Firmware file damaged**: copy the two firmware files to the MiSTer again.
 - **C: save file must be 4 or 8 MB**: start again from a copy of the blank file.
 - **C: read-only: no saves**: `boot0.vhd` is write-protected.

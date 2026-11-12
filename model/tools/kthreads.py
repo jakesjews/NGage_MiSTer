@@ -63,7 +63,7 @@ codenames = {}
 try:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import romdis
-    rom = open('research/firmware/images/nor/rh29-4.60-symrom-from-fls.bin', 'rb').read()
+    rom = open('research/firmware/images/nor/rh29-4.10-symrom-from-fls.bin', 'rb').read()
     for fname, addr, size in romdis.files(rom):
         if size > 0x64:
             codenames[struct.unpack_from('<I', rom, addr - romdis.BASE + 0x14)[0]] = fname

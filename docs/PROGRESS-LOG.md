@@ -9246,3 +9246,364 @@ The user freed the MiSTer. The release of the entry above ran there.
   The model shows the same. On a gamepad that is any of A, B or Y followed
   by X at the idle screen. `docs/NOS_STANDIN.md` has no entry for the call
   resource yet.
+
+## 2026-11-12: a Java game on the board (Prince of Persia: The Sands of Time)
+
+The user put a MIDP game on a card (`princesot.mmc`, a 16 MB FAT12 image
+with `Nokia\Installs\PrinceSOT.jar`: Gameloft, "for Nokia Series 60",
+MIDP-1.0 / CLDC-1.0, 151 KB) and asked whether it runs. It does, on the
+release core `NGage_20261111.rbf`.
+
+- **The Manager does not list jars.** Tools > Manager shows "(no data)"
+  with the card in, although its memory details count the jar (148 kB of
+  "Applications" on the card). `Appctrl.app` in the ROM lists `*.sis` only:
+  its refresh routine (`0x50BE8228`) scans `c:\system\install\` (installed),
+  `c:\nokia\installs\` and `e:\` (the card's root, not `e:\nokia\installs\`)
+  through one routine (`0x50BE7A30`) that appends `*.sis`.
+- **The browser opens it.** Web, then type into the address field at the
+  bottom of Bookmarks: any digit key starts it with `http://`; clear that,
+  `#` once for lower case, then `file:///e:/nokia/installs/princesot.jar`
+  and Go to. The 1 key's symbols here are `. , ? ! 1 @ ' - _ ( ) : ; & /`
+  (`:` is 12 presses, `/` 15). The phone asks "Install PrinceSOT 1.1.0
+  supplied by Gameloft SA?", then for the target (device memory 3490 kB or
+  memory card 16144 kB; the card was chosen), and reports "Installation
+  complete" within a few seconds.
+- **Where it lands:** not in the main menu but in Extras > Apps. (the
+  ROM's `MidpUi.app`, title "Applications"), with the game's icon.
+- **The run:** Gameloft and Ubisoft screens, the title with its loading
+  bar, "Press any key", the menu (New game, Settings, Instructions, About,
+  Exit), the story pages, then level 1: the intro dialogue steps with OK,
+  the Prince runs with the rocker, the screen scrolls, the first hint
+  (up to climb) shows and he climbs to the next ledge. Sound was not
+  checked (nobody at the board), nor the frame rate (release core, no
+  counters).
+- **Files:** the install wrote to both images on the MiSTer (`boot0.vhd`
+  and `princesot.mmc`); copies from before it are in
+  `build/hardware/pop-backup-20261112/` (md5 c6116b2e… and 0f4f33eb…).
+  Captures: `build/hardware/princesot-20261112/`. A launcher
+  `NGage-princesot.mgl` sits with the others. Keys and captures went
+  through `tools/mister_input.py`; the board is left in the game at the
+  user's word ("Leave it running when done").
+
+## 2026-11-12 (afternoon): SPMark04 on the board, and the IMEI the stand-in never gave
+
+The user asked for `spmark.sis` (Futuremark SPMark04 Free v1.1.0, an EPOC
+release 6 package for Series 60: `SPMark.app`, `3dtest.dll`, its own software
+`libGLES_CM.dll`, 1.2 MB installed) to be installed on the core and for its
+results.
+
+- **Install.** A card with the package in its root (`spmark.mmc`, made with
+  `tools/mkcard.py --folder` from a folder holding `SPMark.sis` and an empty
+  `System/Apps`; the tool refuses a folder with no `System`). Tools > Manager
+  lists it; Options > Install, Yes to the untrusted-provider note, Install,
+  memory card, OK to Futuremark's licence text. SPMark04 then sits at the
+  end of the main menu. Release core `NGage_20261111.rbf`.
+- **It hung at start.** Title pane, a white view, only "Exit", and no key
+  taken, Exit included. The reference model on the same images showed why:
+  at the launch the TSY sends resource `0x1B` message `0x00` [`41`]
+  (INFO_SERIAL_NUMBER_READ_REQ, IMEI) and the stand-in had no answer. The
+  application asks for the IMEI synchronously before it draws.
+- **The answer** (`firmware-patches/nos-stub/nos_isi_replies.h`,
+  `docs/NOS_STANDIN.md`): message `0x01`, status 0, one sub-block `41 14 00
+  10` + fifteen digits + NUL, as phonetsy.tsy `0x5093EC38` / `0x5092F868`
+  read it (15 bytes from sub-block byte 4). The IMEI is fifteen zeros. With
+  it the model shows SPMark's main view, and its System Information lists
+  the IMEI. Anything else that reads the IMEI was hanging the same way.
+  `firmware-patches/bin/nos-dll.bin` and the patch ROM
+  (`tools/gen_patchrom.py`: entry 0x8F18 digest ef78f272…, payload
+  fingerprint 2026d162…; `PATCH_BYTES` 9610 → 9762) are regenerated;
+  `tools/patchcheck.sh` and `make -C sim phoenix-real` pass against
+  mkimage's images. **Not committed, and no core has been built with it:**
+  the released core's patch ROM still carries the old stand-in.
+- **On the board without a build:** the flat route. `tools/mkimage.py
+  phoenix` with the new stand-in gives `cs0.bin` / `cs1.bin`; a launcher
+  loads them at file indexes 3 and 4 and then mounts `boot0.vhd` again on
+  slot 0 (a flat CS1 load detaches the save) and the card on slot 1
+  (`NGage-spmark-dev.mgl`, `dev-imei-cs0.bin`, `dev-imei-cs1.bin` on the
+  MiSTer). The boot files still load first; the flat images replace them.
+- **Results** (Options > Run 3D Tests, about two minutes: a helicopter
+  scene, a fill-rate pattern, a polygon-count object), two runs:
+
+  | | run 1 | run 2 |
+  |---|---|---|
+  | SPMark04 3D Score | 566 | 566 |
+  | 3D Game | 9.32 fps | 9.31 fps |
+  | 3D FillRate | 1.73 Mtexels/s | 1.73 Mtexels/s |
+  | 3D PolyCount | 37.40 Ktriangles/s | 37.36 Ktriangles/s |
+
+  System Information: Nokia, NokiaN-GageQD, Symbian OS v6.1, Series60 1.2,
+  CPU ARM, 104 MHz, ARM4T, 4096 colours, 176x208, 11208 KB free. No figure
+  from a real QD to set beside these yet.
+- **Files:** captures and the sheet sent to the user in
+  `build/hardware/spmark-20261112/` (`spmark04-results.png`); the C: image
+  from before the install in `build/hardware/spmark-backup-20261112/`
+  (md5 026c0fb7…). The install wrote to `boot0.vhd` and `spmark.mmc`.
+
+## 2026-11-12 (afternoon, later): SPMark04 v1.10 "business", all nine tests
+
+The user passed a second package, `SPMark04_v1.10_business_S6.x_cracked`
+(a repack: the same `SPMark.app`, `3dtest.dll` and `libGLES_CM.dll` as the
+Free one, byte for byte; a fuller `SPMark.rsc` with Run All Tests, Run Set,
+Run Battery Test, Show Test Results, Save Results, Demo; and the system
+tests' data, `test.jpg`, `agendata.dat`, `Futuremark.gif`).
+
+- **Set-up:** its own card (`spmark-full.mmc`) and a scratch C:
+  (`spmark-full-c.vhd`, the copy of the user's C: from before the first
+  install), because the contacts, calendar and disk tests write to the
+  phone's memory; launcher `NGage-spmark-full-dev.mgl` (the flat images with
+  the IMEI reply again). The installer asks for a language (Russian, the
+  package's only one) and shows two notes from the repack.
+- **Run All Tests runs the three 3D tests only** (566 again). Run Set >
+  System Tests runs the six others; Run Set > Custom lists all nine,
+  ticked, and runs them in one pass of about three and a half minutes
+  (inside the screen saver's five).
+- **The results page shows the 3D lines only** on this build: one press of
+  down moves it a step and it stops at 3D PolyCount (ten single presses, a
+  1.5 s and a 3 s hold, each captured). The user, watching, said the rest
+  is there on pressing down; not seen through `tools/mister_input.py`.
+  Save (left soft key on that page) writes `Result.txt` beside the
+  application on the card, with every test and the system information;
+  read off the card image with mtools.
+- **Results**, release core `NGage_20261111.rbf`:
+
+  | | all nine (Custom) | System Tests set |
+  |---|---|---|
+  | 3D Game | 9.33 fps | |
+  | 3D FillRate | 1.73 Mtexels/s | |
+  | 3D PolyCount | 37.36 Ktriangles/s | |
+  | 2D Image | 37.66 fps | 37.62 fps |
+  | Image Scaling | 1.61 bitmaps/s | 1.61 bitmaps/s |
+  | JPEG Encoding | 163.64 Kpixels/s | 164.66 Kpixels/s |
+  | Contacts | 3.22 contacts/s | 3.13 contacts/s |
+  | Calendar | 5.06 events/s | 4.76 events/s |
+  | Disk Access | 15.24 files/s | 10.34 files/s |
+
+  The 3D score is only given for the 3D set (566); a Custom run reports
+  "N/A" and "SPMarks: 0". Disk Access moved by half between the two runs,
+  the rest by a few percent at most.
+- **Files:** `build/hardware/spmark-20261112/spmark04-full-results.png`,
+  `spmark04-full-Result.txt`, `spmark04-system-Result.txt`, captures
+  `full1-*`, `sys1-*`, `all1-*`.
+- A slip on the way: Back pressed once too often left the application, and
+  the next keys opened the phone menu's Move to folder dialog; cancelled,
+  nothing moved.
+
+- **Addendum (same afternoon):** the user, at the board, confirmed the
+  results page does not scroll past 3D PolyCount ("it doesn't scroll
+  more"); its arrows show "more" all the same. For a friend's core a card
+  with SPMark04 already in place was made (`tools/mkcard.py --folder` on
+  the package's `System` tree, no installer run):
+  `build/hardware/spmark-20261112/spmark04-card.zip` holds `spmark04.mmc`,
+  the plain `spmark04.img` and the files. Checked on the board with a C:
+  that had never seen the package: SPMark04 is in the menu and starts with
+  the full Options list, so the card needs no install record.
+
+## 2026-11-12 (later): SPMark04 on the core of pull request #4 (LCD DMA)
+
+The user asked for the suite on the core GitHub built for PR #4
+("Codex/ngage2 lcd fast", a dedicated LCD DMA reader and the DMA count
+units; its CI run 43278313560 failed at the timing step and kept the RBF).
+The artifact (merge commit bc3b2b4, md5 96da54f6…, setup -2.149 ns at 100C
+and -2.171 at -40C, 34,000 ALMs) went on the board as a temporary second
+core, `_Debug/NGagePR4_20261112.rbf` with `NGagePR4-spmark.mgl`: the same
+flat images with the IMEI answer, the same card and scratch C: as the
+release's runs. It booted and ran every test.
+
+| | release `NGage_20261111.rbf` (two runs) | PR #4 build (two runs) |
+|---|---|---|
+| SPMark04 3D Score | 566 | 567 |
+| 3D Game, fps | 9.33, 9.31 | 9.32, 9.30 |
+| 3D FillRate, Mtexels/s | 1.73 | 1.73 |
+| 3D PolyCount, Ktriangles/s | 37.36 | 37.44 |
+| 2D Image, fps | 37.66, 37.62 | 26.26, 26.26 |
+| Image Scaling, bitmaps/s | 1.61, 1.61 | 1.64, 1.64 |
+| JPEG Encoding, Kpixels/s | 163.64, 164.66 | 164.46, 163.91 |
+| Contacts, contacts/s | 3.22, 3.13 | 3.16, 3.19 |
+| Calendar, events/s | 5.06, 4.76 | 2.59, 4.95 |
+| Disk Access, files/s | 15.24, 10.34 | 14.85, 14.92 |
+
+The one difference that repeats is 2D Image: 30 % lower on the PR's core,
+the same figure to the hundredth both times. The 3D tests and the rest sit
+within the release's own spread (Calendar and Disk Access move from run to
+run on either core). Not looked into: why the picture test is slower with
+the new LCD path. Result files: `build/hardware/spmark-20261112/
+spmark04-pr4-Result.txt`, `spmark04-pr4-system-Result.txt`; captures
+`p3d-*`, `pfull-*`, `psys-*`.
+
+## 2026-11-12 (evening): the release with the IMEI answer, NGage_20261112.rbf
+
+At the user's word ("Let's apply the fix and do a build") the stand-in
+change went in as 05fe43d and four seeds of it were built on the server
+from clean worktrees (`tools/seed_sweep.sh 05fe43d imei "" 30 31337 40 20`,
+about 28 minutes with four lanes busy).
+
+| seed | setup 100C | setup -40C | hold (worst) | ALMs |
+|---|---|---|---|---|
+| 30 | -1.456 | -1.540 | +0.079 | 33,634 |
+| 31337 | -1.540 | -1.500 | +0.079 | 33,628 |
+| 40 | -1.556 | -1.495 | +0.078 | 33,599 |
+| 20 | -1.565 | -1.471 | +0.074 | 33,673 |
+
+Every seed fits as it did for the release of 2026-11-11, to the last
+digit and ALM: the change is in the patch ROM's contents (152 more bytes
+in the same blocks), and the placement did not move. Seed 30 stays, so
+NGage.qsf is unchanged and the sweep's seed-30 build is the committed
+tree's own build: `releases/NGage_20261112.rbf`, md5 f55a3b80…, replacing
+NGage_20261111.rbf. It still does not meet 104 MHz in the timing report.
+
+On the board, as the main core, from the boot files (the Phoenix pair
+through the core's own patch ROM, no flat images):
+
+- the SPMark card with the scratch C:: SPMark04 opens to its main view
+  (on the release before, a white view for good) and its 3D set gives
+  566 (9.31 fps, 1.73 Mtexels/s, 37.32 Ktriangles/s), the earlier core's
+  figures;
+- the user's own C: with the Sonic N card: idle screen, the game in the
+  menu, its intro through to the title.
+
+Launchers `NGage-spmark.mgl` (the Free install, the user's C:) and
+`NGage-spmark-full.mgl` (v1.10 with its scratch C:) replace the two
+`-dev` ones. The PR #4 core, its launcher and the flat images it needs
+stay on the board for the user's comparison. Not pushed.
+
+## 2026-11-12 (night): the core moves to the retail firmware, 4.10
+
+The user's friend remembered the phone's look as blue, not orange, and the
+user asked whether the core was tied to its firmware; then, with a retail
+dump in hand (`RH-29_FW_V_04.10_Retail.zip`, an SDumper dump) and the
+matching data package (`RH-29_dp_emea_v_3_0_mcusw4_10-Oct19-151031.exe`):
+"Convert to this firmware".
+
+- **What 4.60 was.** The package the core has used ships one variant, and
+  its own description says so: "RH-29 Movistar Spain Full" (`RH2946.0S5`).
+  The wallpaper, "Juegos" and the "emoción" soft key were Movistar's. The
+  retail 4.60 dump on disk is the same variant. A later 4.10 package (DP
+  3.7) carries the same 4.60 pair next to about 75 variants of 4.10.
+- **A 4.10 language pack does not go with the 4.60 firmware file**: the
+  boot stops four seconds in (the pack carries the Z: directory of its own
+  version). So "regular firmware" means the 4.10 MCU file.
+- **The dump is the Romania variant**: its ROM equals `RH2941.0C1` +
+  `RH2941.021` byte for byte outside page 0 and the hidden NOS window, and
+  the ROOT dump lies at `0x5123EB58` in that pack.
+- **Where things are in 4.10** (found by matching code against 4.60;
+  bootstrap, ekern and its export table sit at the same addresses, the
+  page table at CS0 0x744 is the same, most other files lie lower): NOS
+  entry `0x5149E4C4` (nosstarter.ext's literal; 4.60 `0x5149E4D4`), hidden
+  NOS DLL header `0x51163E20` with ordinal 4 `0x514A1C90` and ordinal 6
+  `0x514A260C` (16 bytes lower each), hci.dll's two retry limits at
+  `0x5046DC52` and `0x5046DDAC`, integrity entry 0x8F18 over
+  `0x50009000`-`0x51164FFF`. The stand-in sources carry those addresses
+  now; nothing else in them is tied to the version. The rebuilt binaries
+  and the patch list give digest cd5ec29b… for entry 0x8F18.
+- **Runs.** The model boots 4.10 to the first-start dialogs, the idle
+  screen ("N-GAGE QD" wallpaper, soft keys Contacts and Game) and the
+  menu; a second start goes straight to idle with the host's date. On the
+  board, through the flat route on `NGage_20261112.rbf`: the same, and
+  Sonic N plays its intro. `RH2941.002` (Euro 1) boots in the model too.
+  **The icons are orange in 4.10 as well**: the orange is the QD's own
+  look, not Movistar's.
+- **The loader** (`rtl/mister/phoenix_load.sv`) now recognises the pair by
+  the MCU file's own ROM header time stamp (CS0 0x80: 4.10's), a written
+  language-pack entry (8F00, any pack of 4.10's) and entry 8F18's
+  unpatched digest (4.10's, which the pack carries). A 4.60 MCU file under
+  a 4.10 pack is refused by the stamp; the patch ROM no longer writes the
+  pack's digest. `tools/mkimage.py` knows `RH2941.0C1` and `RH2941.021`
+  and wants `--force` for another pack.
+- **A C: drive made under 4.60 does not work under 4.10**: "App. closed
+  Startup", no wallpaper, no right soft key (model, the user's C: of this
+  morning with the 4.10 flash). The README says to start from the blank
+  file.
+- **Settings.** On either version Settings (GS.app) opened to an empty
+  view: the TSY sends SIM message 0x29 [37] (dynamic flags) and the
+  stand-in did not answer. It answers 0x2A [37 24] now and Settings shows
+  its list (Device, Call, Connection, Date and time...). Device > Display
+  still does not open: resource 0x3A message 0x01 from a new client
+  (object 0x53) goes unanswered. So the colour palette, if this phone has
+  one, has not been seen yet.
+- **Also changed:** the OSD's file labels and messages, the loader benches
+  and their synthetic pair (the time stamp, two more refusal cases), the
+  default images of the model, its tools and the CPU boot bench
+  (`research/firmware/images/nor/rh29-4.10-*`), the unpacker page (the
+  4.10 package, 63.8 MB: boot0.rom and boot1.rom come out with matching
+  hashes; its damaged-bit test moved into the firmware's data), README,
+  BUILDING.md, the notes in NOS_STANDIN.md and UPP_WD2.md that their code
+  addresses are 4.60's.
+- **Checks:** `tools/patchcheck.sh`, `make -C sim phoenix phoenix-real`
+  (the Verilated loader over the real 4.10 files equals mkimage's images,
+  which are the ones that ran on the board), `make lint`,
+  `node web/test.mjs`, the model on its new default images.
+
+## 2026-11-12 (late): the 4.10 core on the board; a correction on 2D Image
+
+**The core built from 4f4eb29** (seed 30 of the first four) went on the
+board as the main core with `boot0.rom` = `RH2941.0C1`, `boot1.rom` =
+`RH2941.021` and a blank `boot0.vhd` (the user: "I don't really care about
+the saves"; the 4.60 files and core are in `games/NGage/old-4.60/`). From
+the boot files, through the core's own patch ROM: the first-start
+dialogs, the idle screen, the menu; SPMark04 from its card on a fresh
+scratch C: (`spmark-full-c410.vhd`) opens and runs.
+
+| SPMark04 v1.10, firmware 4.10, fresh start | |
+|---|---|
+| SPMark04 3D Score | 566 |
+| 3D Game | 9.32, 9.29 fps |
+| 3D FillRate | 1.73 Mtexels/s |
+| 3D PolyCount | 37.32 Ktriangles/s |
+| 2D Image | 20.80 fps |
+| Image Scaling | 1.56 bitmaps/s |
+| JPEG Encoding | 164.66 Kpixels/s |
+| Contacts | 3.11 contacts/s |
+| Calendar | 5.75 events/s |
+| Disk Access | 15.20 files/s |
+
+**Correction to the entry on pull request #4.** That entry read 2D Image
+as 30 % lower on the PR's core (26.26 against 37.66 fps). It is not the
+PR. The 4.60 firmware, from a fresh start, gives the same figure on every
+core tried since:
+
+| core | firmware | session | 2D Image |
+|---|---|---|---|
+| `NGage_20261111.rbf` | 4.60 | the one in which the package had just been installed | 37.62, 37.66 fps |
+| PR #4's build | 4.60 | fresh starts | 26.26, 26.26 |
+| the 4.10 core (4f4eb29, seed 30) | 4.60, flat images | fresh start | 26.24 |
+| the IMEI release (same fit as 11-11's) | 4.60, flat images | fresh start | 26.26 |
+| the 4.10 core | 4.10 | fresh start | 20.80 |
+
+So the fit, the seed and the PR's LCD path make no difference to it, and
+the 37.6 belongs to that one long session (installer run, the
+application started twice, results viewed) for a reason not found. The
+core's saved OSD settings and MiSTer.ini were not changed that day. On
+like-for-like fresh starts PR #4's core and the release core agree on
+every SPMark04 test. Whether 4.10's 20.80 against 4.60's 26.25 is the
+firmware or the same kind of session effect is not known either.
+
+Open from the same evening: Settings > Device > Display (resource 0x3A
+message 0x01 from object 0x53 unanswered); `model/stacks.sh` hung on
+this run and was stopped.
+
+## 2026-11-12 (late): the release on firmware 4.10, NGage_20261112.rbf again
+
+Eight seeds of 4f4eb29 on the server, from clean worktrees (the loader's
+new check and the OSD strings moved the fit, unlike the IMEI change):
+
+| seed | setup 100C | setup -40C | hold (worst, slow) |
+|---|---|---|---|
+| 30 | -1.697 | -1.544 | +0.067 |
+| 40 | -1.747 | -1.760 | +0.100 |
+| 31337 | -1.760 | -1.799 | +0.094 |
+| 9 | -1.797 | -1.860 | +0.060 |
+| 13 | -1.921 | -1.842 | +0.031 |
+| 5 | -1.913 | -1.965 | +0.086 |
+| 1337 | -2.123 | -2.244 | +0.110 |
+| 20 | -2.353 | -2.145 | +0.045 |
+
+Seed 30 again, so NGage.qsf stays and the sweep's build is the committed
+tree's own: `releases/NGage_20261112.rbf`, md5 ecf89942…, 33,742 ALMs.
+It has the same name as the IMEI release of this afternoon (the build
+date is the same day), which it replaces: that one (md5 f55a3b80…) runs
+4.60 only, this one 4.10 only. It still does not meet 104 MHz in the
+timing report.
+
+On the board from the boot files (`RH2941.0C1`, `RH2941.021`, a blank C:):
+the first-start dialogs, idle with the MiSTer's date at the next start,
+SPMark04's suite (the table above), Sonic N's intro.

@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import romdis  # noqa: E402
 
 out, mode = sys.argv[1], sys.argv[2]
-ROM = 'research/firmware/images/nor/rh29-4.60-symrom-from-fls.bin'
+ROM = 'research/firmware/images/nor/rh29-4.10-symrom-from-fls.bin'
 SYMS = 'research/firmware/analysis/romsyms.txt'
 CHUNK_VT = 0x50341630
 STACK_BYTES = 0x600

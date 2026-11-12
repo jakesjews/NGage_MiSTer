@@ -252,8 +252,8 @@ remote: bins
 #   make boot         the RTL on the same images, then the comparisons:
 #                     register and CBUS logs, and every device access
 #                     (boot/cmp_dev.py)
-BOOT_CS0    ?= $(ROOT)/research/firmware/images/nor/rh29-4.60-cs0-model.bin
-BOOT_CS1    ?= $(ROOT)/research/firmware/images/nor/rh29-4.60-cs1.bin
+BOOT_CS0    ?= $(ROOT)/research/firmware/images/nor/rh29-4.10-cs0.bin
+BOOT_CS1    ?= $(ROOT)/research/firmware/images/nor/rh29-4.10-cs1.bin
 BOOT_CYCLES ?= 2700000000
 BOOT_ARGS   ?=
 BOOT        := $(BUILD)/boot
@@ -269,7 +269,7 @@ boot-prep:
 	git -C $(ROOT) archive HEAD model | tar -x -C $(HEADM) --strip-components=1
 	git -C $(ROOT) archive HEAD firmware-patches | tar -x -C $(HEADM)
 	$(ARMAS) -o $(HEADM)/.build/nos_stub.o $(HEADP)/nos-stub/nos_stub.S
-	$(CROSS)ld -Ttext=0x5149E4D4 -o $(HEADM)/.build/nos_stub.elf $(HEADM)/.build/nos_stub.o
+	$(CROSS)ld -Ttext=0x5149E4C4 -o $(HEADM)/.build/nos_stub.elf $(HEADM)/.build/nos_stub.o
 	$(CROSS)objcopy -O binary $(HEADM)/.build/nos_stub.elf $(HEADM)/.build/nos-stub.bin
 	$(ARMAS) -o $(HEADM)/.build/nos_dll.o $(HEADP)/nos-stub/nos_dll.S
 	$(CROSS)gcc -march=armv4t -marm -mthumb-interwork -Os -std=gnu11 -ffreestanding \

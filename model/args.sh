@@ -1,7 +1,7 @@
 # Shared QEMU command line for run.sh, where.sh and sample.sh (sourced, zsh).
 # Sets the array "qemu" from NGAGE_FLASH0/1, NGAGE_SAVE1 and NGAGE_OUT.
-flash0=${NGAGE_FLASH0:-research/firmware/images/nor/rh29-4.60-cs0-model.bin}
-flash1=${NGAGE_FLASH1:-research/firmware/images/nor/rh29-4.60-cs1.bin}
+flash0=${NGAGE_FLASH0:-research/firmware/images/nor/rh29-4.10-cs0.bin}
+flash1=${NGAGE_FLASH1:-research/firmware/images/nor/rh29-4.10-cs1.bin}
 out=${NGAGE_OUT:-model/.out}
 mkdir -p "$out"
 machine="ngage-qd,flash0=$flash0,flash1=$flash1,probe-log=$out/probe.log,upp-log=$out/regs.log"

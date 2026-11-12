@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Phoenix DCT4 stream -> flash arrays, followed by the RH-29 4.60 patch ROM.
+// Phoenix DCT4 stream -> flash arrays, followed by the RH-29 4.10 patch ROM.
 // F1 MCU / F2 language, hps_io WIDE=1. The first file of a pair fills CS0
 // and ONLY the firmware half of CS1 with FF. The loader takes the two in
 // either order, but the RH-29 pair is only recognised with the MCU file
@@ -91,12 +91,21 @@ module phoenix_load #(
 	function automatic logic [28:0] image_beat(input logic chip, input logic [20:0] beat);
 		return (chip ? CS1_BASE : CS0_BASE) + {8'd0, beat};
 	endfunction
-	function automatic logic [63:0] signature(input logic [1:0] n);
+	// The pair is recognised by four words of CS0 as the files wrote them:
+	// 0: the MCU file's ROM header time stamp (bytes 0x80-0x87), 4.10's;
+	// 1: the language pack's own integrity entry (8F00) is written, any
+	//    of 4.10's packs;
+	// 2, 3: entry 8F18's unpatched digest, which a 4.10 pack carries for
+	//    the 4.10 MCU file.
+	function automatic logic [28:0] signature_beat(input logic [1:0] n);
+		return n == 0 ? 29'h10 : 29'h11E1 + 29'(n) + 29'(n[1]);
+	endfunction
+	function automatic logic signature_bad(input logic [1:0] n, input logic [63:0] d);
 		case (n)
-			0: return 64'h14c206de0813e5a4; // unpatched entry 8F00 digest
-			1: return 64'h9960dc01f8c92a5c;
-			2: return 64'hf0038f1bffb1002f; // unpatched entry 8F18 digest
-			3: return 64'h517617f355432c59;
+			0: return d != 64'h1844244000000000;
+			1: return d == '1;
+			2: return d != 64'h534cbc6744bc87be;
+			3: return d != 64'h85920dd8e81edef6;
 		endcase
 	endfunction
 	logic version_bad;
@@ -268,14 +277,14 @@ module phoenix_load #(
 		end
 		if (st == VERIFY && !ld_rd) begin
 			ld_rd <= 1;
-			ld_addr <= CS0_BASE + 29'h11E1 + 29'(idx) + 29'(idx[1]);
+			ld_addr <= CS0_BASE + signature_beat(idx);
 			st <= VWAIT;
 		end
 		if (st == VWAIT && ld_valid) begin
-			version_bad <= version_bad || ld_data != signature(idx);
+			version_bad <= version_bad || signature_bad(idx, ld_data);
 			idx <= idx + 2'd1;
 			if (idx != 3) st <= VERIFY;
-			else if (version_bad || ld_data != signature(idx)) begin note <= 2; st <= IDLE; end
+			else if (version_bad || signature_bad(idx, ld_data)) begin note <= 2; st <= IDLE; end
 			else begin
 				rom_ptr <= 0; patch_hi <= 0; patch_data <= 0; st <= PFETCH;
 			end

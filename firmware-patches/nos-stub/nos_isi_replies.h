@@ -1,7 +1,9 @@
 /*
  * ISI replies of the offline-modem stand-in (included by nos_isi.c): a
  * phone with no SIM card and no network. docs/NOS_STANDIN.md lists every
- * reply with the client code that parses it.
+ * reply with the client code that parses it. Code addresses in the comments
+ * are those of the 4.60 image, where the clients were read; 4.10 holds the
+ * same code at other addresses.
  */
 
 /* Resources (PhoNet resource ids as the clients use them). */
@@ -179,6 +181,20 @@ static void isi_request(struct slot *s, const u8 *m, int len)
         r[n++] = SIM_SERV_DATA_NOT_AVAIL;
         isi_send(s, r, n);
         break;
+    case RES_SIM << 8 | 0x29:
+        /* SIM_DYNAMIC_FLAGS_REQ (oFono sim.h) [37]: a read of the SIM's
+         * second dynamic flags, sent when Settings (GS.app) opens; it waits
+         * for the answer and shows an empty view without one. phonetsy.tsy
+         * 0x5093F240 reads the reply 0x2A by the waiting request's type
+         * (0x86, 0x87, 0x89, 0x8A): [11] status, [12] value. Reads
+         * (0x5092F0A8, 0x5092F404): 1 -> the value's bit 0; 0x24 -> "not
+         * supported" and KErrGeneral; every status completes the request.
+         * The SIM has no such file: DATA_NOT_AVAIL. */
+        n = isi_reply_hdr(r, m, 0x2A);
+        r[n++] = m[10];
+        r[n++] = SIM_SERV_DATA_NOT_AVAIL;
+        isi_send(s, r, n);
+        break;
     case RES_SIM << 8 | 0x2D:
         /* Nokia.dsy 0x50FFB400 reads the reply 0x2E: [10] service (must
          * echo 0x3A), [11] SIM_SERV_OK, [12] value: 0x0A/0x5A -> DosSrv
@@ -320,6 +336,35 @@ static void isi_request(struct slot *s, const u8 *m, int len)
             r[n++] = i < len ? m[i] : 0;
         }
         r[n - 3] = 0x00;                /* value: sub-block byte 5 */
+        isi_send(s, r, n);
+        break;
+    case RES_INFO << 8 | 0x00:
+        /* INFO_SERIAL_NUMBER_READ_REQ [41] (oFono info.h: target
+         * INFO_SB_SN_IMEI_PLAIN; phonetsy.tsy 0x5093EC1C sends no other).
+         * Sent for RBasicGsmPhone::GetGsmPhoneId, which an application
+         * calls synchronously for the IMEI (PlpVariant::GetMachineIdL;
+         * SPMark04 does at start-up and never draws its view without an
+         * answer). phonetsy.tsy 0x5093EC38 reads INFO_SERIAL_NUMBER_READ_
+         * RESP 0x01: [10] status (0 = INFO_OK; others complete with -2),
+         * [11] sub-block count, sub-block at [12]; 0x5092F868 takes 15
+         * bytes from its byte 4 as the serial number (isimsg 0x5035343C:
+         * Mid(4, 15)). gnokii nk6510 reads the same reply: the string's
+         * length at sub-block byte 3, the string from byte 4. The stand-in
+         * has no serial number of its own: fifteen zeros. */
+        if (m[10] != 0x41) {
+            break;
+        }
+        n = isi_reply_hdr(r, m, 0x01);
+        r[n++] = 0x00;
+        r[n++] = 0x01;
+        r[n++] = 0x41;
+        r[n++] = 0x14;                  /* sub-block length: 4 + 16 */
+        r[n++] = 0x00;
+        r[n++] = 0x10;                  /* string length with its NUL */
+        for (int i = 0; i < 15; i++) {
+            r[n++] = '0';
+        }
+        r[n++] = 0x00;
         isi_send(s, r, n);
         break;
     default:

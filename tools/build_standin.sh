@@ -16,12 +16,12 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$out"
 
-# the entry stub, linked at the NOS entry 0x5149E4D4 (CS0 0x9E4D4)
+# the entry stub, linked at the NOS entry 0x5149E4C4 (CS0 0x9E4C4)
 arm-none-eabi-as -march=armv4t -o "$tmp/nos_stub.o" "$src/nos_stub.S"
-arm-none-eabi-ld -Ttext=0x5149E4D4 -o "$tmp/nos_stub.elf" "$tmp/nos_stub.o"
+arm-none-eabi-ld -Ttext=0x5149E4C4 -o "$tmp/nos_stub.elf" "$tmp/nos_stub.o"
 arm-none-eabi-objcopy -O binary "$tmp/nos_stub.elf" "$out/nos-stub.bin"
 
-# the hidden NOS DLL's exports (CS0 0xA1CA0) and the ISI layer in C
+# the hidden NOS DLL's exports (CS0 0xA1C90) and the ISI layer in C
 arm-none-eabi-as -march=armv4t -o "$tmp/nos_dll.o" "$src/nos_dll.S"
 arm-none-eabi-gcc -march=armv4t -marm -mthumb-interwork -Os -std=gnu11 -ffreestanding \
     -fno-builtin -fno-pic -fno-common -fno-unwind-tables -fno-asynchronous-unwind-tables \

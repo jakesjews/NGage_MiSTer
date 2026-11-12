@@ -1,10 +1,10 @@
-/* NOS stand-in DLL: flash at 0x514A1CA0 (CS0 0xA1CA0), state in NOS BSS. */
+/* NOS stand-in DLL: flash at 0x514A1C90 (CS0 0xA1C90), state in NOS BSS. */
 ENTRY(_start)
 SECTIONS
 {
-    . = 0x514A1CA0;
+    . = 0x514A1C90;
     .entry4 : { KEEP(*(.entry4)) }
-    . = 0x514A261C;
+    . = 0x514A260C;
     .entry6 : { KEEP(*(.entry6)) }
     .text : { *(.text .text.*) *(.rodata .rodata.*) }
     /* NOS BSS 0x8000C378-0x800CE250 is zeroed by nosstarter.ext; the

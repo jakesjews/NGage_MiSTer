@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
 // Checks web/unpack.js against the real data package:
-//   node web/test.mjs RH-29_dp_emea_v_10_0_MCUSW4_60.exe [RH2946.0C1 RH2946.0S5]
-// The package must give the two 4.60 files; damaged and foreign input must be
+//   node web/test.mjs RH-29_dp_emea_v_3_0_mcusw4_10-Oct19-151031.exe [RH2941.0C1 RH2941.021]
+// The package must give the two 4.10 files; damaged and foreign input must be
 // refused. With the two flash files given, they must be recognised as well.
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -10,7 +10,7 @@ import { createRequire } from 'node:module';
 const { unpack, sha256, PACKAGE, KNOWN } = createRequire(import.meta.url)('./unpack.js');
 const [packagePath, ...flashPaths] = process.argv.slice(2);
 if (!packagePath) {
-	console.error('usage: node web/test.mjs PACKAGE.exe [RH2946.0C1 RH2946.0S5]');
+	console.error('usage: node web/test.mjs PACKAGE.exe [RH2941.0C1 RH2941.021]');
 	process.exit(2);
 }
 
@@ -30,7 +30,7 @@ const refused = async (bytes, code, what) => {
 };
 
 const pkg = new Uint8Array(readFileSync(packagePath));
-check(pkg.length === PACKAGE.size && await sha256(pkg) === PACKAGE.sha256, 'the input is the 4.60 data package');
+check(pkg.length === PACKAGE.size && await sha256(pkg) === PACKAGE.sha256, 'the input is the 4.10 data package');
 
 let last = -1, steps = 0, ordered = true;
 const t0 = performance.now();
@@ -45,7 +45,7 @@ for (const [hash, k] of Object.entries(KNOWN)) {
 
 await refused(pkg.subarray(0, pkg.length - 4096), 'damaged', 'a package cut short');
 const flipped = pkg.slice();
-flipped[6000000] ^= 0x10;
+flipped[54000000] ^= 0x10; // inside the firmware file's data; the other files in the package are not read
 await refused(flipped, ['damaged', 'mismatch'], 'a package with one bit changed');
 await refused(new Uint8Array(4096), 'not-package', 'a file of zeros');
 await refused(pkg.subarray(0, 200000), 'not-package', 'the program without its cabinet');

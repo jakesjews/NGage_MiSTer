@@ -22,9 +22,9 @@
 		const need = 'The core needs ' + PACKAGE.name + ', ' + count(PACKAGE.size) + ' bytes.';
 		switch (error.code) {
 			case 'not-package': return name + ' is not the data package. ' + need;
-			case 'other-version': return name + ' holds another firmware version, and the core runs 4.60 only. ' + need;
+			case 'other-version': return name + ' holds another firmware version, and the core runs 4.10 only. ' + need;
 			case 'damaged': return name + ' is cut short or damaged. Download it again: it should be ' + count(PACKAGE.size) + ' bytes.';
-			case 'mismatch': return 'The files in ' + name + ' are not the 4.60 ones the core accepts. Download the package again.';
+			case 'mismatch': return 'The files in ' + name + ' are not the 4.10 ones the core accepts. Download the package again.';
 			case 'unsupported': return name + ' is packed in a way this page cannot read. ' + need;
 			default: return name + ' could not be read: ' + error.message;
 		}
@@ -37,7 +37,7 @@
 		link.href = URL.createObjectURL(new Blob([file.bytes], { type: 'application/octet-stream' }));
 		link.download = file.save;
 		link.hidden = false;
-		card.querySelector('.meta').textContent = count(file.bytes.length) + ' bytes, checked against firmware 4.60';
+		card.querySelector('.meta').textContent = count(file.bytes.length) + ' bytes, checked against firmware 4.10';
 		card.classList.remove('is-ready');
 		void card.offsetWidth; // so the card comes out of the slot again
 		card.classList.add('is-ready');

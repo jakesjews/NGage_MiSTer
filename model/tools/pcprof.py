@@ -4,7 +4,7 @@
 mode, and by ROM file or RAM region.
 
 usage: pcprof.py ROM PC.TXT T0 T1
-  ROM     linear ROM image (research/firmware/images/nor/rh29-4.60-symrom-from-fls.bin)
+  ROM     linear ROM image (research/firmware/images/nor/rh29-4.10-symrom-from-fls.bin)
   PC.TXT  the model's NGAGE_PCSAMPLE file: "<guest seconds> <pc> <mode>", one a guest millisecond
 This kernel reschedules and switches processes in Undefined mode, and the
 system idles in it (the NOS side), so that mode's samples are both.

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Generate the core's RH-29 4.60 patch ROM; no Nokia firmware is included.
+"""Generate the core's RH-29 4.10 patch ROM; no Nokia firmware is included.
 
 The patches are firmware-patches/rom-patches.txt and the stand-in binaries it
 names. Run with python3 -I tools/gen_patchrom.py [--check]. Each record is
-chip u8, offset u24 BE, length u32 BE, payload; FF terminates the table. The two MD5
-payloads are the known mkimage.py results, not digests computed by the FPGA.
+chip u8, offset u24 BE, length u32 BE, payload; FF terminates the table. The MD5
+payload is the known mkimage.py result, not a digest computed by the FPGA: the
+firmware file's entry 0x8F18, whose range holds every patch. The language
+pack's own entry (0x8F00) is left as the pack wrote it, so any 4.10 pack loads.
 The payload fingerprint prevents a changed stand-in/patch list from silently
 using stale digests: recalculate with mkimage.py and update the constants here.
 """
@@ -14,11 +16,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PATCH_DIGESTS = {
-    0x8F00: "a4e51308de06c2145c2ac9f801dc6099",
-    0x8F18: "50c7d0a4f1cf3f71e9581a2c91c62eff",
+    0x8F18: "cd5ec29ba5e3a4809834e3c469706832",
 }
 # SHA256 of the encoded patch records, before the digest records/terminator.
-PAYLOAD_SHA256 = "693a180a2650efded88d7713f35b9ea722c7d51ab228dd434cd5088e4f7564ed"
+PAYLOAD_SHA256 = "ebd5b7d43d9b52eea5ab8fa718c55f6087cf3b5b9597acadf89f1dbb0821082f"
 
 
 def record(chip, offset, data):
@@ -38,7 +39,7 @@ def generate():
         off = int(addr, 0)
         if kind == "md5":
             if off not in PATCH_DIGESTS:
-                raise ValueError("unknown integrity entry: update 4.60 digest constants")
+                raise ValueError("unknown integrity entry: update the 4.10 digest constant")
             continue
         if kind not in ("cs0", "cs1", "cs0file", "cs1file") or len(value) != 1:
             raise ValueError(f"unsupported patch: {line}")
@@ -46,7 +47,7 @@ def generate():
                 if kind.endswith("file") else bytes.fromhex(value[0]))
         out += record(int(kind[2]), off, data)
     if hashlib.sha256(out).hexdigest() != PAYLOAD_SHA256:
-        raise ValueError("patch payload changed: recompute both 4.60 MD5s with mkimage.py")
+        raise ValueError("patch payload changed: recompute the 4.10 MD5 with mkimage.py")
     for entry, digest in PATCH_DIGESTS.items():
         out += record(0, entry + 8, bytes.fromhex(digest))
     out += b"\xff"

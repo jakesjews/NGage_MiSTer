@@ -60,9 +60,14 @@ screenshot of it. Every build without the macro is the plain core.
 
 ## With your own firmware
 
-- `tools/mkimage.py phoenix RH2946.0C1 RH2946.0S5 -o build/coreboot` makes the
+- `tools/mkimage.py phoenix RH2941.0C1 RH2941.021 -o build/coreboot` makes the
   flat flash images `cs0.bin` and `cs1.bin` that the firmware bench and the
   reference model read.
+- The core recognises the firmware file (4.10's `RH2941.0C1`) and takes any
+  of 4.10's language packs with it: the patches all lie in the firmware
+  file. `RH2941.021` (the Romania variant, English first) is the pack the
+  project runs; `RH2941.002` (Euro 1) has also booted in the model. `mkimage.py`
+  wants `--force` for a pack other than `.021`.
 - `make -C sim coreboot` boots the firmware on the whole core in Verilator.
   It runs for hours. Its CPU profile (`CORE_PROFILE=1`) is out of date and
   stops the bench when switched on.
@@ -95,8 +100,8 @@ for C: and 1 for the card (the other way round before 2026-11-10):
 ```xml
 <mistergamedescription>
     <rbf>_Console/NGage</rbf>
-    <file delay="2" type="f" index="1" path="RH2946.0C1"/>
-    <file delay="1" type="f" index="2" path="RH2946.0S5"/>
+    <file delay="2" type="f" index="1" path="RH2941.0C1"/>
+    <file delay="1" type="f" index="2" path="RH2941.021"/>
     <file delay="1" type="s" index="0" path="my-c-drive.vhd"/>
     <file delay="1" type="s" index="1" path="sonicn.mmc"/>
 </mistergamedescription>

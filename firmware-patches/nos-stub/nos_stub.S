@@ -3,7 +3,7 @@
  *
  * NOS, the cellular RTOS, is encrypted in our flash image. Symbian reaches it
  * in two ways that matter for boot:
- *   1. nosstarter.ext calls its entry at 0x5149E4D4 (ARM, r0 = -1) once,
+ *   1. nosstarter.ext calls its entry at 0x5149E4C4 (ARM, r0 = -1) once,
  *      after copying NOS data and clearing NOS BSS (0x8000C378, 0xC1ED8 bytes).
  *   2. NOS registers kernel "services" with the variant (ecust.dll):
  *      variant = *(0x8000038C) (ekern 0x5032E7AC); vtable +0xFC =
@@ -41,7 +41,7 @@
  *      (NOS keeps it in its flash: the UEMK RTC has only the time of day
  *      and an 8-bit day counter, see model/hw/ngage_cbus.c), to which
  *      rtc.dll adds the UEMK time (0x5034A678); the third is the alarm (0 =
- *      none). The stub gets the base date from nos_rtc_base (0x514A1CA4,
+ *      none). The stub gets the base date from nos_rtc_base (0x514A1C94,
  *      nos_isi.c), which reads the HLE RTC date register, an emulator
  *      invention fed from the host or MiSTer clock, and sends it twice with
  *      no alarm. With no date (0) rtc.dll asks for the time at start-up.
@@ -104,7 +104,7 @@ _start:
     subs    r4, r0, #0
     beq     3f
     ldr     r0, =0x8000C378 + 0x200 @ the base date: 8 bytes in NOS BSS
-    ldr     r3, =0x514A1CA4         @ nos_rtc_base (nos_dll.S, nos_isi.c)
+    ldr     r3, =0x514A1C94         @ nos_rtc_base (nos_dll.S, nos_isi.c)
     mov     lr, pc
     mov     pc, r3
     ldr     r2, =0x8000C378 + 0x200

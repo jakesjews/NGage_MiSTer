@@ -116,14 +116,14 @@ int main(int argc, char **argv) {
 			Bench b;
 			b.download(reverse?2:1,reverse?phoenix::language():phoenix::mcu()); CHECK(!b.t.ready,"needs both files");
 			b.download(reverse?1:2,reverse?phoenix::mcu():phoenix::language());
-			CHECK(b.t.ready && b.notes[3]==1 && !b.t.errors,"synthetic 4.60 accepted in either order");
-			CHECK_EQ(b.cs0[0],255,"skipped records do not map to NOR"); CHECK_EQ(b.cs0[0x85],255,"FF gap");
-			CHECK_EQ(b.cs0[0x80],1,"21 data"); CHECK_EQ(b.cs1[3],0x11,"CS1 firmware data");
+			CHECK(b.t.ready && b.notes[3]==1 && !b.t.errors,"synthetic 4.10 accepted in either order");
+			CHECK_EQ(b.cs0[0],255,"skipped records do not map to NOR"); CHECK_EQ(b.cs0[0x185],255,"FF gap");
+			CHECK_EQ(b.cs0[0x180],1,"21 data"); CHECK_EQ(b.cs1[3],0x11,"CS1 firmware data");
 			CHECK_EQ(b.cs0[0xf00001],6,"language data"); b.check_patches();
 			CHECK_EQ(b.notes[4],0,"initial pair has no reload warning");
 			b.download(reverse?2:1,reverse?phoenix::language():phoenix::mcu());
 			CHECK(!b.t.ready && b.t.debug_have==(reverse?2:1) && b.notes[4]==1,"either repeated file requests companion");
-			CHECK_EQ(b.cs0[0x9e4d4],255,"new pair does not retain old patch bytes");
+			CHECK_EQ(b.cs0[0x9e4c4],255,"new pair does not retain old patch bytes");
 			b.download(reverse?1:2,reverse?phoenix::mcu():phoenix::language());
 			CHECK(b.t.ready && b.notes[3]==2 && b.notes[4]==1,"companion repairs pair without spurious warning");
 			b.check_patches();
@@ -132,7 +132,14 @@ int main(int argc, char **argv) {
 			CHECK(std::all_of(b.cs1.begin()+(4u<<20),b.cs1.end(),[](uint8_t x){return x==0x69;}),"C: preserved");
 		}
 		{ Bench b; b.download(1,phoenix::mcu(false)); b.download(2,phoenix::language());
-		  CHECK(!b.t.ready && b.notes[2]==1,"unknown firmware blocked"); CHECK_EQ(b.cs0[0x9e4d4],255,"unknown version left unpatched"); }
+		  CHECK(!b.t.ready && b.notes[2]==1,"unknown firmware blocked"); CHECK_EQ(b.cs0[0x9e4c4],255,"unknown version left unpatched"); }
+		// Another version's MCU file under a 4.10 language pack's table: the ROM
+		// header's time stamp gives it away.
+		{ Bench b; auto v=phoenix::mcu(); phoenix::record(v,0x14,0x84,{0x80,0x4B,0x2F,0xA2}); b.download(1,v); b.download(2,phoenix::language());
+		  CHECK(!b.t.ready && b.notes[2]==1,"another version's MCU file blocked"); CHECK_EQ(b.cs0[0x9e4c4],255,"and left unpatched"); }
+		// A table with no language pack entry.
+		{ Bench b; auto v=phoenix::mcu(); phoenix::record(v,0x14,0x8F10,{255,255,255,255,255,255,255,255}); b.download(1,v); b.download(2,phoenix::language());
+		  CHECK(!b.t.ready && b.notes[2]==1,"missing language pack entry blocked"); }
 		{ Bench b; b.download(1,phoenix::mcu(true,true)); CHECK(b.t.errors && b.notes[1]==1 && !b.t.ready,"bad checksum blocked");
 		  b.download(1,phoenix::mcu()); b.download(2,phoenix::language()); CHECK(b.t.ready,"retry after damage"); }
 		{ Bench b; auto v=phoenix::stream(); phoenix::record(v,0x14,0x02400000,{0}); b.download(1,v);
