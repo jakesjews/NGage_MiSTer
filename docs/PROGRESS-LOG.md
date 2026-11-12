@@ -9397,3 +9397,71 @@ tests' data, `test.jpg`, `agendata.dat`, `Futuremark.gif`).
   the plain `spmark04.img` and the files. Checked on the board with a C:
   that had never seen the package: SPMark04 is in the menu and starts with
   the full Options list, so the card needs no install record.
+
+## 2026-11-12 (later): SPMark04 on the core of pull request #4 (LCD DMA)
+
+The user asked for the suite on the core GitHub built for PR #4
+("Codex/ngage2 lcd fast", a dedicated LCD DMA reader and the DMA count
+units; its CI run 43278313560 failed at the timing step and kept the RBF).
+The artifact (merge commit bc3b2b4, md5 96da54f6…, setup -2.149 ns at 100C
+and -2.171 at -40C, 34,000 ALMs) went on the board as a temporary second
+core, `_Debug/NGagePR4_20261112.rbf` with `NGagePR4-spmark.mgl`: the same
+flat images with the IMEI answer, the same card and scratch C: as the
+release's runs. It booted and ran every test.
+
+| | release `NGage_20261111.rbf` (two runs) | PR #4 build (two runs) |
+|---|---|---|
+| SPMark04 3D Score | 566 | 567 |
+| 3D Game, fps | 9.33, 9.31 | 9.32, 9.30 |
+| 3D FillRate, Mtexels/s | 1.73 | 1.73 |
+| 3D PolyCount, Ktriangles/s | 37.36 | 37.44 |
+| 2D Image, fps | 37.66, 37.62 | 26.26, 26.26 |
+| Image Scaling, bitmaps/s | 1.61, 1.61 | 1.64, 1.64 |
+| JPEG Encoding, Kpixels/s | 163.64, 164.66 | 164.46, 163.91 |
+| Contacts, contacts/s | 3.22, 3.13 | 3.16, 3.19 |
+| Calendar, events/s | 5.06, 4.76 | 2.59, 4.95 |
+| Disk Access, files/s | 15.24, 10.34 | 14.85, 14.92 |
+
+The one difference that repeats is 2D Image: 30 % lower on the PR's core,
+the same figure to the hundredth both times. The 3D tests and the rest sit
+within the release's own spread (Calendar and Disk Access move from run to
+run on either core). Not looked into: why the picture test is slower with
+the new LCD path. Result files: `build/hardware/spmark-20261112/
+spmark04-pr4-Result.txt`, `spmark04-pr4-system-Result.txt`; captures
+`p3d-*`, `pfull-*`, `psys-*`.
+
+## 2026-11-12 (evening): the release with the IMEI answer, NGage_20261112.rbf
+
+At the user's word ("Let's apply the fix and do a build") the stand-in
+change went in as 05fe43d and four seeds of it were built on the server
+from clean worktrees (`tools/seed_sweep.sh 05fe43d imei "" 30 31337 40 20`,
+about 28 minutes with four lanes busy).
+
+| seed | setup 100C | setup -40C | hold (worst) | ALMs |
+|---|---|---|---|---|
+| 30 | -1.456 | -1.540 | +0.079 | 33,634 |
+| 31337 | -1.540 | -1.500 | +0.079 | 33,628 |
+| 40 | -1.556 | -1.495 | +0.078 | 33,599 |
+| 20 | -1.565 | -1.471 | +0.074 | 33,673 |
+
+Every seed fits as it did for the release of 2026-11-11, to the last
+digit and ALM: the change is in the patch ROM's contents (152 more bytes
+in the same blocks), and the placement did not move. Seed 30 stays, so
+NGage.qsf is unchanged and the sweep's seed-30 build is the committed
+tree's own build: `releases/NGage_20261112.rbf`, md5 f55a3b80…, replacing
+NGage_20261111.rbf. It still does not meet 104 MHz in the timing report.
+
+On the board, as the main core, from the boot files (the Phoenix pair
+through the core's own patch ROM, no flat images):
+
+- the SPMark card with the scratch C:: SPMark04 opens to its main view
+  (on the release before, a white view for good) and its 3D set gives
+  566 (9.31 fps, 1.73 Mtexels/s, 37.32 Ktriangles/s), the earlier core's
+  figures;
+- the user's own C: with the Sonic N card: idle screen, the game in the
+  menu, its intro through to the title.
+
+Launchers `NGage-spmark.mgl` (the Free install, the user's C:) and
+`NGage-spmark-full.mgl` (v1.10 with its scratch C:) replace the two
+`-dev` ones. The PR #4 core, its launcher and the flat images it needs
+stay on the board for the user's comparison. Not pushed.
