@@ -16,11 +16,12 @@
 //          (2 for on-chip RAM, 4 for SDRAM, 0x5031B344)
 //   +0x1C / +0x28  source / destination width: 0x20 and up 32 bits, 0x10 and
 //          up 16, else 8
-//   +0x2C  count - 1, in source-width units (0x5031B5CC)
+//   +0x2C  count - 1: halfwords for control 1, fixed-side
+//          peripheral-width units for control 2 (0x5031B5CC)
 //   other offsets: storage (the generic store in upp_periph).
-// A transfer reads count + 1 source units and writes the same bytes in
-// destination-width units (a last partial unit as a narrower write), as the
-// model does. When it is done the channel's interrupt (source 6 + n,
+// The count is converted to a byte budget independently of the source width.
+// Reads and writes use their native widths, with only the remaining lanes
+// enabled for either final partial unit. When done, the interrupt (source 6 + n,
 // IrqDmaChannel0-7) is raised until +0x08 = 0 or +0x04 = 0; the kernel's ISR
 // (0x50326B08) reads no status. [model guess] 0x0C120064/68 hold 4-bit
 // request-line numbers per channel (MMC = 2, LCD = 7, 0x5031EDF8); the model
@@ -71,7 +72,7 @@ module upp_dma #(
 	// ------------------------------------------------------------------
 	// Channel registers
 	// ------------------------------------------------------------------
-	logic [7:0] req, go_clr, sinc, dinc;
+	logic [7:0] req, go_clr, sinc, dinc, peripheral;
 	logic [1:0] sw [0:7];
 	logic [1:0] dw [0:7];
 
@@ -128,9 +129,9 @@ module upp_dma #(
 	logic [2:0]  ech    [0:ENGINES-1];
 	logic [31:0] esrc   [0:ENGINES-1];
 	logic [31:0] edst   [0:ENGINES-1];
-	logic [32:0] eleft  [0:ENGINES-1];   // source units still to read
-	logic [31:0] ebuf   [0:ENGINES-1];   // bytes read and not yet written, first in 7:0
-	logic [2:0]  efill  [0:ENGINES-1];
+	logic [34:0] eleft  [0:ENGINES-1];   // bytes still to read
+	logic [63:0] ebuf   [0:ENGINES-1];   // bytes read and not yet written, first in 7:0
+	logic [3:0]  efill  [0:ENGINES-1];
 	logic        esinc  [0:ENGINES-1];
 	logic        edinc  [0:ENGINES-1];
 	logic [1:0]  esw    [0:ENGINES-1];
@@ -205,11 +206,12 @@ module upp_dma #(
 	always_ff @(posedge clk) begin
 		// ---- the engines ----
 		for (int e = 0; e < ENGINES; e++) begin
-			logic [2:0] swb, dwb, nw;
+			logic [2:0] swb, dwb, nr, nw;
 			logic       paced;
 			swb = 3'd1 << esw[e];
 			dwb = 3'd1 << edw[e];
-			nw  = (efill[e] < dwb) ? efill[e] : dwb;
+			nr  = (eleft[e] < 35'(swb)) ? 3'(eleft[e]) : swb;
+			nw  = (efill[e] < 4'(dwb)) ? 3'(efill[e]) : dwb;
 
 			// a stop or restart of its channel ends the transfer
 			if (w_go && est[e] != E_FREE && ech[e] == ch) eabort[e] <= 1'b1;
@@ -217,26 +219,26 @@ module upp_dma #(
 			if (est[e] == E_RUN) begin
 				if (eabort[e]) begin
 					est[e] <= E_FREE;
-				end else if (efill[e] >= dwb || (eleft[e] == 33'd0 && efill[e] != 3'd0)) begin
+				end else if (efill[e] >= 4'(dwb) || (eleft[e] == 35'd0 && efill[e] != 4'd0)) begin
 					// a write of nw bytes
 					paced = !edinc[e] && ((edst[e] == LCD_FIFO && !lcd_tx_ready) ||
 					                      (edst[e] == MMC_FIFO && !mmc_tx_ready));
 					if (!paced) begin
 						ewe[e]  <= 1'b1;
 						eadr[e] <= {edst[e][31:2], 2'b00};
-						edat[e] <= ebuf[e] << {edst[e][1:0], 3'b000};
+						edat[e] <= 32'(ebuf[e]) << {edst[e][1:0], 3'b000};
 						esel[e] <= 4'((5'b00001 << nw) - 5'd1) << edst[e][1:0];
 						en[e]   <= nw;
 						est[e]  <= E_BUS;
 					end
-				end else if (eleft[e] != 33'd0) begin
-					// a read of swb bytes
+				end else if (eleft[e] != 35'd0) begin
+					// a read of nr bytes, including a possible partial source unit
 					paced = !esinc[e] && esrc[e] == MMC_FIFO && !mmc_rx_ready;
 					if (!paced) begin
 						ewe[e]  <= 1'b0;
 						eadr[e] <= {esrc[e][31:2], 2'b00};
-						esel[e] <= 4'((5'b00001 << swb) - 5'd1) << esrc[e][1:0];
-						en[e]   <= swb;
+						esel[e] <= 4'((5'b00001 << nr) - 5'd1) << esrc[e][1:0];
+						en[e]   <= nr;
 						est[e]  <= E_BUS;
 					end
 				end else begin
@@ -267,14 +269,14 @@ module upp_dma #(
 			est[p_e] <= E_RUN;
 			if (ewe[p_e]) begin
 				ebuf[p_e]  <= ebuf[p_e] >> {en[p_e], 3'b000};
-				efill[p_e] <= efill[p_e] - en[p_e];
+				efill[p_e] <= efill[p_e] - 4'(en[p_e]);
 				if (edinc[p_e]) edst[p_e] <= edst[p_e] + 32'(en[p_e]);
 			end else begin
 				rb = m_err ? 32'd0 : m_dat_i >> {esrc[p_e][1:0], 3'b000};
 				rb = rb & ((en[p_e] == 3'd4) ? 32'hFFFF_FFFF : (32'd1 << {en[p_e], 3'b000}) - 32'd1);
-				ebuf[p_e]  <= ebuf[p_e] | (rb << {efill[p_e], 3'b000});
-				efill[p_e] <= efill[p_e] + en[p_e];
-				eleft[p_e] <= eleft[p_e] - 33'd1;
+				ebuf[p_e]  <= ebuf[p_e] | ({32'd0, rb} << {efill[p_e], 3'b000});
+				efill[p_e] <= efill[p_e] + 4'(en[p_e]);
+				eleft[p_e] <= eleft[p_e] - 35'(en[p_e]);
 				if (esinc[p_e]) esrc[p_e] <= esrc[p_e] + 32'(en[p_e]);
 			end
 		end
@@ -295,15 +297,20 @@ module upp_dma #(
 				2'd1: ld_src <= pr_q;
 				2'd2: ld_dst <= pr_q;
 				2'd3: begin
+					logic [1:0] count_shift;
+					// M2M counts halfwords, even with 32-bit SDRAM accesses.
+					// Paced TX counts destination units; RX counts source units.
+					count_shift = peripheral[ld_ch] ?
+					              (!dinc[ld_ch] ? dw[ld_ch] : sw[ld_ch]) : 2'd1;
 					ld_busy <= 1'b0;
 					if (!ld_cancel && !(w_go && ch == ld_ch)) begin
 						est[ld_e]    <= E_RUN;
 						ech[ld_e]    <= ld_ch;
 						esrc[ld_e]   <= phys(ld_src);
 						edst[ld_e]   <= phys(ld_dst);
-						eleft[ld_e]  <= {1'b0, pr_q} + 33'd1;
-						ebuf[ld_e]   <= 32'd0;
-						efill[ld_e]  <= 3'd0;
+						eleft[ld_e]  <= ({3'd0, pr_q} + 35'd1) << count_shift;
+						ebuf[ld_e]   <= 64'd0;
+						efill[ld_e]  <= 4'd0;
 						esinc[ld_e]  <= sinc[ld_ch];
 						edinc[ld_e]  <= dinc[ld_ch];
 						esw[ld_e]    <= sw[ld_ch];
@@ -328,7 +335,10 @@ module upp_dma #(
 		end
 		if (w_go) begin
 			go_clr[ch] <= 1'b0;
-			if (w_run) req[ch] <= 1'b1;
+			if (w_run) begin
+				req[ch] <= 1'b1;
+				peripheral[ch] <= wdata == 32'd2;
+			end
 			if (w_stop) begin
 				req[ch] <= 1'b0;
 				irq[ch] <= 1'b0;
@@ -342,6 +352,7 @@ module upp_dma #(
 			irq    <= 8'd0;
 			sinc   <= 8'd0;
 			dinc   <= 8'd0;
+			peripheral <= 8'd0;
 			for (int c = 0; c < 8; c++) begin
 				sw[c] <= 2'd0;
 				dw[c] <= 2'd0;

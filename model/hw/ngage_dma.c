@@ -15,7 +15,8 @@
  *   +0x1C  source width          +0x28  destination width
  *          8, 0x10, 0x20 (= 8, 16, 32 bits; the MMC FIFO uses 8 and the
  *          LCD FIFO 0x20, tables at 0x5034025C/0x503402A4)
- *   +0x2C  transfer count - 1, in source-width units (0x5031B5CC)
+ *   +0x2C  count - 1: halfwords for control 1, fixed-side
+ *          peripheral-width units for control 2 (0x5031B5CC)
  * Peripheral addresses seen by the DMA are 0x1xxxxxxx for register
  * 0x0Cxxxxxx: 0x10121208 = LCD FIFO, 0x10120624 = MMC data FIFO,
  * 0x10150554 and 0x10150500 = accessory interface (tables at
@@ -63,13 +64,14 @@ static void dma_run(NGageDma *s, int ch)
     uint32_t src = r[0x14 >> 2], dst = r[0x20 >> 2];
     unsigned sw = width_bytes(r[0x1C >> 2]), dw = width_bytes(r[0x28 >> 2]);
     bool sinc = r[0x18 >> 2] != 0, dinc = r[0x24 >> 2] != 0;
-    uint32_t units = r[0x2C >> 2] + 1;
-    size_t total = (size_t)units * sw;
+    unsigned unit_bytes = r[0x08 >> 2] == 1 ? 2 : !dinc ? dw : sw;
+    size_t total = ((uint64_t)r[0x2C >> 2] + 1) * unit_bytes;
     g_autofree uint8_t *buf = g_malloc(total);
     hwaddr sa = dma_phys(src), da = dma_phys(dst);
 
-    for (uint32_t i = 0; i < units; i++) {
-        address_space_read(&address_space_memory, sa, MEMTXATTRS_UNSPECIFIED, buf + i * sw, sw);
+    for (size_t o = 0; o < total; o += sw) {
+        address_space_read(&address_space_memory, sa, MEMTXATTRS_UNSPECIFIED, buf + o,
+                           MIN(sw, total - o));
         if (sinc) {
             sa += sw;
         }

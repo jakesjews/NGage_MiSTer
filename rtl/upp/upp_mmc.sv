@@ -101,6 +101,12 @@ module upp_mmc #(
 	localparam int B_DATA_CRC = 0, B_RESP_CRC = 1, B_DATA_BUSY = 2, B_CMD_BUSY = 3,
 	               B_BUSY_TO = 5, B_RESP_TO = 6, B_DATA_TO = 7, B_RESP = 8, B_DATA_ERR = 10;
 
+	// Original NEM-4 response classification clears 0x5f00, 0xdf and
+	// 0x02c00000 at 503f9fbc..503f9fc4: error mask 0xfd3fa020.
+	// CMD16 also cannot succeed after the card reports COM_CRC_ERROR or
+	// ILLEGAL_COMMAND (bits 23/22); these reject it in mmc_card.sv.
+	localparam logic [31:0] R1_CACHE_REJECT = 32'hFDFF_A020;
+
 	// command engine
 	localparam logic [2:0] C_IDLE = 3'd0, C_SEND = 3'd1, C_RWAIT = 3'd2, C_RECV = 3'd3,
 	                       C_BUSY = 3'd4, C_TAIL = 3'd5,
@@ -353,7 +359,13 @@ module upp_mmc #(
 					status[B_RESP] <= 1'b1;
 					if (!nocrc && ty != 4'd2 && f[7:1] != rcrc) status[B_RESP_CRC] <= 1'b1;
 					resp_ok <= 1'b1;
-					if (cmd_idx == 6'd16) blocklen <= (arg[31:12] != 20'd0) ? 13'd4096 : arg[12:0];
+					// Cache only a well-formed, CRC-valid successful R1. Software
+					// CRC suppression cannot establish that CMD16 was accepted.
+					// Keep response delivery/status semantics unchanged here.
+					if (cmd_idx == 6'd16 && !resp_long && ty != 4'd2 &&
+					    f[47:46] == 2'b00 && f[45:40] == cmd_idx && f[0] &&
+					    f[7:1] == rcrc && (f[39:8] & R1_CACHE_REJECT) == 32'd0)
+						blocklen <= (arg[31:12] != 20'd0) ? 13'd4096 : arg[12:0];
 					ccnt   <= 8'd0;
 					cto    <= '0;
 					cstate <= resp_busy ? C_BUSY : C_TAIL;

@@ -13,6 +13,7 @@
 //   16  CID, 16 bytes, most significant first (byte 15, the CRC, is ignored)
 //   32  CSD, 16 bytes, the same
 //   48  OCR, 4 bytes, most significant first (bit 31, the busy bit, ignored)
+// Unknown sidecar versions leave this model absent until another mount.
 // The card's data is then the file without that block. Without the magic the
 // whole file is data, and the card is a writable MiSTer card: CID MID 0,
 // product "MiSTer"; CSD with command classes 0, 2 and 4, 512-byte blocks,
@@ -30,7 +31,8 @@
 // with write protection answers them with WP_VIOLATION. Reads may be any
 // length up to 512 bytes and cross block boundaries when the CSD allows it;
 // writes are 512-byte aligned blocks. Addresses past the CSD capacity give
-// OUT_OF_RANGE; reads past the end of the file read zeros.
+// OUT_OF_RANGE; reads past the end of the file read zeros. Writes must fit
+// the mounted data payload as well: the sidecar and padding are not writable.
 //
 // Timing: everything runs on clk; CLK is the host's, sampled in clk, and
 // must stay high and low for at least two clk cycles each. The card samples
@@ -188,7 +190,7 @@ module mmc_card #(
 	localparam logic [3:0] L_WAITH  = 4'd7;
 	logic   [3:0] l_state;
 	logic   [5:0] l_idx;
-	logic         l_magic;
+	logic         l_magic, l_v1;
 	logic [127:0] l_tmp;
 	logic   [6:0] l_crc;
 	logic  [31:0] l_blocks;      // blocks in the file
@@ -545,6 +547,7 @@ module mmc_card #(
 	                          (d_first ? (!want_spec || (d_state == D_DATA && cmd_quiet))
 	                                   : (cmd_quiet && (d_state == D_DATA || (d_state == D_WAIT && nac > 8'(NAC)))));
 	wire [22:0] w_sec       = sec_of(w_addr);
+	wire [40:0] file_bytes  = {nblk, 9'd0};
 	wire [22:0] h_stream_sec = {h_lba[22:3], sd_buff_addr[10:8]};
 
 	// Precomputed read byte offsets, write slot/quarter indices, and HPS
@@ -563,7 +566,7 @@ module mmc_card #(
 		f_more    <= (d_pos + 10'd2 < bl);
 		d_last    <= (d_pos == bl - 10'd1);
 		w_q       <= mod3(w_sec[22:2]);
-		w_in_file <= ({9'd0, w_sec} < nblk);
+		w_in_file <= !w_addr[32] && ({8'd0, w_addr} + 41'd512 <= file_bytes);
 		for (int m = 0; m < 4; m++) begin
 			w_m_hit[m]   <= tvalid[12 + m] && (tag[12 + m] == w_sec);
 			h_m_match[m] <= (tag[12 + m] == h_stream_sec);
@@ -615,7 +618,8 @@ module mmc_card #(
 			p_crc      <= crc_ok;
 			p_rd_oor   <= rd_end > cap;
 			p_rd_cross <= rd_cross;
-			p_wr_oor   <= {2'b00, cmd_arg} + 34'd512 > cap;
+			p_wr_oor   <= {2'b00, cmd_arg} + 34'd512 > cap ||
+			              {9'd0, cmd_arg} + 41'd512 > file_bytes;
 		end
 	end
 
@@ -672,6 +676,7 @@ module mmc_card #(
 				l_state  <= L_PARSE;
 				l_idx    <= 6'd0;
 				l_magic  <= 1'b1;
+				l_v1     <= 1'b0;
 				tvalid   <= 16'd0;
 				bk_touch <= 1'b1;
 			end
@@ -684,6 +689,7 @@ module mmc_card #(
 						6'd1: l_magic <= l_magic & (c_q == MAGIC1);
 						6'd2: l_magic <= l_magic & (c_q == MAGIC2);
 						6'd3: l_magic <= l_magic & (c_q == MAGIC3);
+						6'd4: l_v1 <= c_q[7:0] == 8'd1;
 						6'd8, 6'd9, 6'd10, 6'd11, 6'd12, 6'd13, 6'd14, 6'd15:
 							cid <= {cid[111:0], c_q[7:0], c_q[15:8]};
 						6'd16, 6'd17, 6'd18, 6'd19, 6'd20, 6'd21, 6'd22, 6'd23:
@@ -697,7 +703,7 @@ module mmc_card #(
 				if (l_idx == 6'd27) begin
 					if (l_magic) begin
 						nblk    <= l_blocks - 32'd1;
-						l_state <= L_CRC;
+						l_state <= l_v1 ? L_CRC : L_OFF;
 						l_idx   <= 6'd0;
 					end else begin
 						l_state <= L_DEFLT;
@@ -949,8 +955,10 @@ module mmc_card #(
 				if (w_n == 13'd15) w_state <= W_END;
 			end
 			W_END: if (rise) begin
-				w_good  <= dat_i && w_crc_rx == w_crc;
-				w_tok   <= (dat_i && w_crc_rx == w_crc) ? 5'b00101 : 5'b01011;
+				w_good  <= dat_i && w_crc_rx == w_crc && w_in_file;
+				// Keep the model's existing negative token; R1 reports range.
+				w_tok   <= (dat_i && w_crc_rx == w_crc && w_in_file) ? 5'b00101 : 5'b01011;
+				if (!w_in_file) err[E_OUT_OF_RANGE] <= 1'b1;
 				w_gap   <= 3'd2;
 				w_state <= W_GAP;
 			end
@@ -999,7 +1007,7 @@ module mmc_card #(
 					sd_wr     <= 1'b1;
 					w_issued  <= 1'b1;
 				end
-				// written, or past the end of the file and so nowhere to write
+				// Never turn a lost payload bound into successful programming.
 				if ((w_issued && h_done) || !w_in_file) begin
 					w_issued <= 1'b0;
 					dat_oe   <= 1'b0;
@@ -1007,12 +1015,14 @@ module mmc_card #(
 					tvalid[{2'b11, w_m_idx}] <= w_in_file;
 					tzero[{2'b11, w_m_idx}]  <= 1'b0;
 					bk_touch                 <= 1'b1;
+					if (!w_in_file) err[E_OUT_OF_RANGE] <= 1'b1;
 					if (!w_multi || w_stop12) begin
 						w_state  <= W_OFF;
 						w_stop12 <= 1'b0;
 						if (st == ST_PRG || st == ST_RCV) st <= ST_TRAN;
 						else if (st == ST_DIS) st <= ST_STBY;
-					end else if ({1'b0, w_addr} + 34'd1024 > cap) begin
+					end else if (!w_in_file || {1'b0, w_addr} + 34'd1024 > cap ||
+				             {8'd0, w_addr} + 41'd1024 > file_bytes) begin
 						err[E_OUT_OF_RANGE] <= 1'b1;
 						w_addr  <= w_addr + 33'd512;
 						w_state <= W_STOP;
