@@ -69,10 +69,10 @@ done
 # NOS stand-in (firmware patch, see ../firmware-patches/rom-patches.txt), built
 # here from the working tree so that the model runs the sources as they are
 # (args.sh); linked at the NOS entry
-# 0x5149E4D4 (CS0 0x9E4D4 seen through the kernel's NOS window at 0x51400000).
+# 0x5149E4C4 (CS0 0x9E4C4 seen through the kernel's NOS window at 0x51400000).
 NOS=../firmware-patches/nos-stub
 arm-none-eabi-as -march=armv4t -o "$BUILD/nos_stub.o" $NOS/nos_stub.S
-arm-none-eabi-ld -Ttext=0x5149E4D4 -o "$BUILD/nos_stub.elf" "$BUILD/nos_stub.o"
+arm-none-eabi-ld -Ttext=0x5149E4C4 -o "$BUILD/nos_stub.elf" "$BUILD/nos_stub.o"
 arm-none-eabi-objcopy -O binary "$BUILD/nos_stub.elf" "$BUILD/nos-stub.bin"
 arm-none-eabi-as -march=armv4t -o "$BUILD/nos_dll.o" $NOS/nos_dll.S
 arm-none-eabi-gcc -march=armv4t -marm -mthumb-interwork -Os -std=gnu11 -ffreestanding \

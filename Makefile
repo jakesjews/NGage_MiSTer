@@ -80,8 +80,8 @@ standin-check:
 
 # mkimage.py against the reference model's patcher on a pair of images
 # (default: the model's own; the firmware is not in the repository)
-CS0 ?= research/firmware/images/nor/rh29-4.60-cs0-model.bin
-CS1 ?= research/firmware/images/nor/rh29-4.60-cs1.bin
+CS0 ?= research/firmware/images/nor/rh29-4.10-cs0.bin
+CS1 ?= research/firmware/images/nor/rh29-4.10-cs1.bin
 image-check:
 	tools/patchcheck.sh $(CS0) $(CS1)
 

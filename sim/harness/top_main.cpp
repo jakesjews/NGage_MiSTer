@@ -307,16 +307,16 @@ static void test_phoenix(const std::string &out) {
 	// bits 7:6, no menu index: 0x40).
 	b.download(0, mcu);
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "MCU alone cannot boot");
-	CHECK_EQ(b.ddr[0x85], 255, "Phoenix FF gap");
+	CHECK_EQ(b.ddr[0x185], 255, "Phoenix FF gap");
 	CHECK_EQ(b.ddr[0xFFFFFF], 255, "CS0 fill reaches last byte");
 	CHECK_EQ(b.ddr[0x13FFFFF], 255, "CS1 firmware fill reaches last byte");
 	CHECK_EQ(b.ddr[0x1400000], 0x5A, "Phoenix fill stops before C:");
-	CHECK_EQ(b.ddr[0x80], 1, "21 record data");
+	CHECK_EQ(b.ddr[0x180], 1, "21 record data");
 	CHECK_EQ(b.ddr[0x1000003], 0x11, "14 CS1 record data");
 	b.download(0x40, phoenix::language());
 	CHECK(r.emu__DOT__ph_ready && r.emu__DOT__cpu_reset, "both files still need C:");
 	CHECK_EQ(b.ddr[0xF00001], 6, "language mapped");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 8), 1, "4.60 OSD message");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 8), 1, "4.10 OSD message");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 0, "valid checksums");
 	std::ifstream hex("rtl/mister/phoenix_patch.hex");
 	phoenix::Bytes patch; unsigned x;
@@ -378,7 +378,7 @@ static void test_phoenix(const std::string &out) {
 	b.download(1, phoenix::mcu(false)); b.download(2, phoenix::language());
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "unknown version holds CPU");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 9), 1, "unknown version OSD message");
-	CHECK_EQ(b.ddr[0x9E4D4], 255, "unknown version unpatched");
+	CHECK_EQ(b.ddr[0x9E4C4], 255, "unknown version unpatched");
 	b.download(1, phoenix::mcu(true, true));
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "bad checksum holds CPU");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "damaged file OSD message");
@@ -430,7 +430,7 @@ static void test_boot_files() {
 	CHECK(b.clocks < end, "boot files: the CPU starts after both ROMs and boot0.vhd");
 	CHECK(r.emu__DOT__ph_ready, "boot files: firmware pair ready");
 	CHECK(!memcmp(b.ddr + 0x1400000, b.img1.data(), b.img1.size()), "boot files: C: image loaded");
-	CHECK_EQ(b.ddr[0x80], 1, "boot files: MCU record data");
+	CHECK_EQ(b.ddr[0x180], 1, "boot files: MCU record data");
 	CHECK_EQ(b.ddr[0xF00001], 6, "boot files: language mapped");
 	b.ticks(10000);
 	CHECK(b.cpu_writes.size() == 2, "boot files: the program ran");

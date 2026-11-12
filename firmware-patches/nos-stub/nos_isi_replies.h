@@ -1,7 +1,9 @@
 /*
  * ISI replies of the offline-modem stand-in (included by nos_isi.c): a
  * phone with no SIM card and no network. docs/NOS_STANDIN.md lists every
- * reply with the client code that parses it.
+ * reply with the client code that parses it. Code addresses in the comments
+ * are those of the 4.60 image, where the clients were read; 4.10 holds the
+ * same code at other addresses.
  */
 
 /* Resources (PhoNet resource ids as the clients use them). */
@@ -175,6 +177,20 @@ static void isi_request(struct slot *s, const u8 *m, int len)
          * (0x5092F3B0); CSP (type 0x4E): 1 -> parse, else -21. DATA_NOT_
          * AVAIL: no ALS, no CSP on this SIM. */
         n = isi_reply_hdr(r, m, 0x32);
+        r[n++] = m[10];
+        r[n++] = SIM_SERV_DATA_NOT_AVAIL;
+        isi_send(s, r, n);
+        break;
+    case RES_SIM << 8 | 0x29:
+        /* SIM_DYNAMIC_FLAGS_REQ (oFono sim.h) [37]: a read of the SIM's
+         * second dynamic flags, sent when Settings (GS.app) opens; it waits
+         * for the answer and shows an empty view without one. phonetsy.tsy
+         * 0x5093F240 reads the reply 0x2A by the waiting request's type
+         * (0x86, 0x87, 0x89, 0x8A): [11] status, [12] value. Reads
+         * (0x5092F0A8, 0x5092F404): 1 -> the value's bit 0; 0x24 -> "not
+         * supported" and KErrGeneral; every status completes the request.
+         * The SIM has no such file: DATA_NOT_AVAIL. */
+        n = isi_reply_hdr(r, m, 0x2A);
         r[n++] = m[10];
         r[n++] = SIM_SERV_DATA_NOT_AVAIL;
         isi_send(s, r, n);

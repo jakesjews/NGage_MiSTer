@@ -7,7 +7,7 @@ were used, and the core's load misses by 1 MB region, by ROM file or RAM
 region of the instruction, and by instruction address.
 
 usage: dcstat.py DCSIM.TXT [ROM]
-  ROM  linear ROM image (research/firmware/images/nor/rh29-4.60-symrom-from-fls.bin):
+  ROM  linear ROM image (research/firmware/images/nor/rh29-4.10-symrom-from-fls.bin):
        names the ROM files; without it instructions are "rom" or "ram xx"
 Run with python3 -I. Files are read as data only.
 """

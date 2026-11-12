@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// Reads Nokia's Phoenix data package for the N-Gage QD (RH-29, firmware 4.60)
-// and returns the two flash files in it, which the core loads as boot0.rom
-// and boot1.rom. Everything happens on the bytes handed in; nothing is sent
+// Reads Nokia's Phoenix data package for the N-Gage QD (RH-29, firmware 4.10)
+// and returns two of the flash files in it, the firmware and one language
+// pack, which the core loads as boot0.rom and boot1.rom. Everything happens on the bytes handed in; nothing is sent
 // anywhere.
 //
 // The package is a Windows program with a Microsoft cabinet (MSZIP) appended.
@@ -12,17 +12,17 @@
 	'use strict';
 
 	const PACKAGE = {
-		name: 'RH-29_dp_emea_v_10_0_MCUSW4_60.exe',
-		size: 13445186,
-		sha256: '2266f2905d12aab1eadc31eec1295c7bbabe02ce7f83750f5983c34a37a2efc9',
+		name: 'RH-29_dp_emea_v_3_0_mcusw4_10-Oct19-151031.exe',
+		size: 63836160,
+		sha256: '2f8c8d66177aaf4f8321c14607c991691e15490dc7887a749c5764c54fc1eee5',
 	};
 
 	// The files the core accepts, by SHA-256.
 	const KNOWN = {
-		'ba5fea856d378f3e460d9daca11d3f1c254c0141c18c14b6498f348ba56d18f6':
-			{ source: 'RH2946.0C1', save: 'boot0.rom', what: 'Firmware' },
-		'4d2e36f61259b01f564bff89766c9af687f7c8c57248bda47e8776bd3cdc95f5':
-			{ source: 'RH2946.0S5', save: 'boot1.rom', what: 'Language pack' },
+		'3ce529d6fbcd6db1f4290fabe8b70c62242a23444c4fa74caec42657d12ab4a0':
+			{ source: 'RH2941.0C1', save: 'boot0.rom', what: 'Firmware' },
+		'657c2d1bafbad6797732c86892999a9e201e10961ee8c1801b0b6cc73bb41fa5':
+			{ source: 'RH2941.021', save: 'boot1.rom', what: 'Language pack' },
 	};
 	const WANTED = Object.values(KNOWN).map((k) => k.source.toLowerCase());
 
@@ -389,7 +389,7 @@
 		// One of the two flash files, already unpacked. They start with A2.
 		if (bytes.length && bytes[0] === 0xA2) {
 			const f = await describe(bytes);
-			if (!f.known) throw new UnpackError('other-version', 'a flash file, but not one of the 4.60 pair');
+			if (!f.known) throw new UnpackError('other-version', 'a flash file, but not one of the 4.10 pair');
 			return [{ ...f.known, bytes, sha256: f.sha256 }];
 		}
 
@@ -401,7 +401,7 @@
 
 		const descriptors = readDescriptors(parts['data1.hdr'])
 			.filter((d) => !(d.flags & 8) && WANTED.includes(d.name.toLowerCase())); // FILE_INVALID
-		if (descriptors.length !== WANTED.length) throw new UnpackError('other-version', 'no RH2946.0C1 and RH2946.0S5 in the package');
+		if (descriptors.length !== WANTED.length) throw new UnpackError('other-version', 'no RH2941.0C1 and RH2941.021 in the package');
 
 		const packed = descriptors.reduce((n, d) => n + d.packed, 0) || 1;
 		const result = [];
@@ -411,7 +411,7 @@
 			before += d.packed;
 			const f = await describe(data);
 			if (!f.known || f.known.source.toLowerCase() !== d.name.toLowerCase())
-				throw new UnpackError('mismatch', d.name + ' is not the 4.60 file');
+				throw new UnpackError('mismatch', d.name + ' is not the 4.10 file');
 			result.push({ ...f.known, bytes: data, sha256: f.sha256 });
 		}
 		progress(1);

@@ -2,7 +2,7 @@
 """Disassemble one file of the EKA1 XIP ROM at its ROM address.
 
 usage: romdis.py ROM NAME [-t] [-o OUT]
-  ROM   linear ROM image (research/firmware/images/nor/rh29-4.60-symrom-from-fls.bin)
+  ROM   linear ROM image (research/firmware/images/nor/rh29-4.10-symrom-from-fls.bin)
   NAME  file name as in `tools/romhdr.py ls` (e.g. cbus.dll), case-insensitive
   -t    disassemble as Thumb (default ARM)
 Prints the TRomImageHeader; writes the objdump listing to OUT (default stdout).

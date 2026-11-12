@@ -383,9 +383,9 @@ static const void *const vtable[16] = {
     (void *)m_ret0, (void *)m_ret0, (void *)m_ret0, (void *)m_ret0,
 };
 
-/* NOS DLL ordinal 6 (0x514A261C): build the object for a channel. A C++
+/* NOS DLL ordinal 6 (0x514A260C): build the object for a channel. A C++
  * constructor: nosdriver stores what it returns in r0 as the object
- * (0x511691F0). */
+ * (0x51164020). */
 u32 *nos_obj_ctor(u32 *obj, int unit)
 {
     u32 old = irq_off();
@@ -408,7 +408,7 @@ u32 *nos_obj_ctor(u32 *obj, int unit)
  * 31:16 year, 15:8 month, 7:0 day; 0 if unknown. */
 #define HLE_RTC_DATE        (*(volatile u32 *)0x581F0100u)
 
-/* Called by the entry stub (0x514A1CA4, nos_stub.S) before it sends
+/* Called by the entry stub (0x514A1C94, nos_stub.S) before it sends
  * rtc.dll its event 1: out = the TTime of midnight on that date, or 0 if
  * there is none, which rtc.dll treats as an unset clock. NOS kept this
  * base date in its own flash; rtc.dll adds the UEMK time of day and day
@@ -440,7 +440,7 @@ void nos_rtc_base(u32 *out)
     out[1] = (u32)(t >> 32);
 }
 
-/* NOS DLL ordinal 4 (0x514A1CA0): (channel, unit) right after the object. */
+/* NOS DLL ordinal 4 (0x514A1C90): (channel, unit) right after the object. */
 int nos_channel_open(void *chan, int unit)
 {
     u32 old = irq_off();

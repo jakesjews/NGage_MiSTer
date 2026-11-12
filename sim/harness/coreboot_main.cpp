@@ -210,7 +210,7 @@ struct Bench {
 	static constexpr uint32_t DDR_BASE = 0x31000000u;
 	// --check-window (2026-10-25): loads from the C: drive's two aliases
 	// (0x59200000 uncached, 0x59600000 cached) against the live flash image.
-	// --check-copy: every Mem::Copy (0x503A1D38) out of those aliases: its
+	// --check-copy: every Mem::Copy (0x503A1BA8) out of those aliases: its
 	// stores against the source bytes in the image, and the buffer's loads
 	// for a while after. The data port reports the word's address and the
 	// byte enables; a value is the selected bytes, shifted down, sign-extended
@@ -291,7 +291,7 @@ struct Bench {
 	void win_watch() {
 		// the CS1 chip answers commands (autoselect, status) instead of the
 		// array: medint reads word 4 of every block in autoselect mode at
-		// 0x503800ac; skip loads near any such mode, as flash_watch does
+		// 0x5037ff1c; skip loads near any such mode, as flash_watch does
 #define WIN_ARRAY (r->emu__DOT__ngage_mem__DOT__flash_cs1__DOT__mode == 0 && r->emu__DOT__ngage_mem__DOT__flash_cs1__DOT__cseq == 0 && \
                    r->emu__DOT__ngage_mem__DOT__flash_cs1__DOT__p_state == 0 && r->emu__DOT__ngage_mem__DOT__flash_cs1__DOT__e_state == 0)
 		if (!WIN_ARRAY) win_last_cmd = clocks;
@@ -618,7 +618,7 @@ struct Bench {
 			fprintf(trace, " %08x\n", cpsr);
 			if (trace_count && retired >= trace_after + trace_count) { trace_done = true; fclose(trace); trace = nullptr; }
 		}
-		if (check_copy && ev == 'R') { if (pc == 0x503A1D38u) copy_entry(cpsr); else if (copy.active && pc == copy.lr) copy.active = false; }
+		if (check_copy && ev == 'R') { if (pc == 0x503A1BA8u) copy_entry(cpsr); else if (copy.active && pc == copy.lr) copy.active = false; }
 		last_ev = ev;
 		if (ev == 'R') last_r_pc = pc;
 	}

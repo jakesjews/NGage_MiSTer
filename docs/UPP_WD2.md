@@ -8,6 +8,12 @@ Symbian reaches the registers through virtual `0x58000000 + (phys -
 (write32), `0x5031E6FC` (read16), `0x5031E708` (write16) and `0x5031E6C8` /
 `0x5031E714` (masked read-modify-write) take that offset.
 
+The core runs firmware 4.10 since 2026-11-12. The code was read in 4.60 and
+the addresses here are 4.60's: the bootstrap and ekern sit at the same
+addresses in 4.10, most other files a little lower (EUser by 0x190, the
+files around hci.dll by 0xEA0, nosdriver.ldd by 0x51D0; `tools/romhdr.py ls`
+on both images gives every file's place).
+
 Confidence: **A** the code leaves no other reading; **B** consistent with all
 uses seen, one plausible reading; **C** a guess the model needs to run.
 

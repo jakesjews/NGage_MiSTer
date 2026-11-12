@@ -1,4 +1,6 @@
-# Firmware patches: every change made to the RH-29 4.60 flash contents. The
+# Firmware patches: every change made to the RH-29 4.10 flash contents (the
+# retail firmware; the addresses were first found in 4.60 and moved over by
+# matching the code, see docs/PROGRESS-LOG.md, 2026-11-12). The
 # firmware files are not modified; the patches go on at load:
 #   the core    rtl/mister/phoenix_patch.hex, generated from this list by
 #               tools/gen_patchrom.py and written by rtl/mister/phoenix_load.sv
@@ -13,25 +15,25 @@
 # binaries (make standin). The model runs its own build of the same sources
 # (model/build.sh, model/args.sh).
 
-# NOS (the cellular RTOS) is encrypted in flash at CS0 0xA000-0x2B6FFF and the
+# NOS (the cellular RTOS) is encrypted in flash from CS0 0xA000 on and the
 # decryption is unknown. nosstarter.ext (code 0x5034B454) copies NOS data, then
-# calls the NOS entry at virtual 0x5149E4D4 (CS0 0x9E4D4, ARM, r0 = -1) and
+# calls the NOS entry at virtual 0x5149E4C4 (CS0 0x9E4C4, ARM, r0 = -1) and
 # ignores its return value; the encrypted bytes raise an undefined-instruction
 # exception and the kernel restarts (reason 0x10000000). Without NOS,
 # product_info.dll faults because variant service 3 is missing, and services
 # 3, 6 and 7 are registered by nothing in the Symbian ROM. Stand-in: register
 # placeholder service objects and return (nos-stub/nos_stub.S).
-cs0file 0x9E4D4 firmware-patches/bin/nos-stub.bin
+cs0file 0x9E4C4 firmware-patches/bin/nos-stub.bin
 
-# The hidden NOS DLL (header 0x51168FF0) exports two functions inside the
-# encrypted code, used by nosdriver.ldd: ordinals 4 (0x514A1CA0) and 6
-# (0x514A261C). Without them EStart's NOSDRIVER channel jumps into the
+# The hidden NOS DLL (header 0x51163E20) exports two functions inside the
+# encrypted code, used by nosdriver.ldd: ordinals 4 (0x514A1C90) and 6
+# (0x514A260C). Without them EStart's NOSDRIVER channel jumps into the
 # encrypted bytes (Kern restart 0x10000000). Stand-in: nos-stub/nos_dll.S
 # (entry points) and nos_isi.c (an offline modem answering the ISI messages
 # that reach NOS through nosdriver.ldd; replies and evidence in
-# docs/NOS_STANDIN.md). Linked by nos_dll.ld: code from CS0 0xA1CA0 upward
+# docs/NOS_STANDIN.md). Linked by nos_dll.ld: code from CS0 0xA1C90 upward
 # inside the encrypted region, state in NOS BSS (RAM 0x8000D000).
-cs0file 0xA1CA0 firmware-patches/bin/nos-dll.bin
+cs0file 0xA1C90 firmware-patches/bin/nos-dll.bin
 
 # No Bluetooth controller answers on the BT UART. BTTestServer.exe (started by
 # SelfTestServer at every boot) opens bt_driver's single channel through its
@@ -44,13 +46,13 @@ cs0file 0xA1CA0 firmware-patches/bin/nos-dll.bin
 # EmonServer dialog); a slower CPU starts it after the give-up (whole-core
 # bench: the 8 KB ARM9V2 asks at 24.6 s, the give-up is at 25.4 s; ZAP asks
 # after it). Shortcut until the core models a Bluetooth controller: hci.dll's
-# retry limit (Thumb "cmp r0, #9" = 0x2809 at 0x5046EAF2 and 0x5046EC4C, both
+# retry limit (Thumb "cmp r0, #9" = 0x2809 at 0x5046DC52 and 0x5046DDAC, both
 # followed by "bgt give_up") becomes "cmp r0, #0": one attempt, and the channel
 # is free 1.5 s after the self test starts.
-cs0 0x46EAF2 0028
-cs0 0x46EC4C 0028
+cs0 0x46DC52 0028
+cs0 0x46DDAC 0028
 
 # The bootstrap checks MD5 digests of ROM ranges (0x3238, table at CS0 0x8F00).
-# Entry 0x8F18 covers 0x50009000-0x51169FFF, which includes the encrypted
+# Entry 0x8F18 covers 0x50009000-0x51164FFF, which includes the encrypted
 # region, so its stored digest cannot match our image; recompute it.
 md5 0x8F18

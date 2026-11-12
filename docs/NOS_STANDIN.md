@@ -22,8 +22,8 @@ the FPGA core run the same binary:
   (variant services, flags, power model, rtc event with the base date; see
   [Clock](#clock)).
 - `firmware-patches/nos-stub/nos_dll.S`, `nos_dll.ld`: entry points of the hidden NOS
-  DLL at its fixed ROM addresses (ordinal 4 `0x514A1CA0`, ordinal 6
-  `0x514A261C`); state lives in NOS BSS at `0x8000D000`.
+  DLL at its fixed ROM addresses (ordinal 4 `0x514A1C90`, ordinal 6
+  `0x514A260C`); state lives in NOS BSS at `0x8000D000`.
 - `firmware-patches/nos-stub/nos_isi.c`: the channel object nosdriver.ldd talks to,
   queues and delivery.
 - `firmware-patches/nos-stub/nos_isi_replies.h`: the replies listed below.
@@ -35,7 +35,10 @@ the FPGA core run the same binary:
   same list.
 
 Every reply is a guess about NOS, written from how the Symbian client
-parses it. The evidence column names the client function that reads the
+parses it. The core runs firmware 4.10; the client code was read in the 4.60
+image, and the addresses of Symbian code given as evidence below are 4.60's
+(4.10 holds the same code, most of it a little lower: `tools/romhdr.py ls`
+on both images gives each file's shift). The evidence column names the client function that reads the
 reply. Clients log their traffic: `NOS< ` is a request, `NOS> ` a reply,
 in `model/.out/kern.log`.
 
@@ -116,6 +119,7 @@ Event 1 is the self-test result, read by Startup.app directly.
 | `0x09` SIM | after the `0x1C` reply, unsolicited | `0xEF` SIM_IND [`0D 0B 08 00`]: SIM_ST_INFO, SIM_SERV_INIT_OK, state 8 | state 8 → DosSrv ord31(7) → DOS event 17 → SA `0x100052E9` = 7 (SIM ready); INFO/INIT_OK → DOS reads the SIM flags (`0x2D`, `0x2B`); state 8 → DOS compares the IMSI (`0x3B`) | Nokia.dsy `0x50FFB21C` reads [10] service, [11] status, [12] state 1..8; `0x50FFB2A0` (13/11 → `0x50FFB610`), `0x50FFB27A`. State 5 gives SA 4 and Startup.app stops (see above) |
 | `0x08` security | after the `0x1C` reply, unsolicited | `0x10` [`05 00 00 00`] | DosSrv ord27(0) → DOS event 23 → SA `0x100052F0` = 0 (no code query) | Nokia.dsy `0x50FFB734` reads [10]: 5 → ord27(0), [13] 0x12/0x13 → ord9; 1/4 with [11] 1/6 → code required. phonetsy.tsy `0x5093D9FC` reads [10..] as one sub-block; id 5 is ignored (`0x5092C568`). 5 = SEC_STARTUP_OK in oFono |
 | `0x09` SIM | `0x3B` [`FA`] (DOS) | `0x3C` [`FA 2A`] | DosSrv ord28(0) → event 9; no more `0x3B` | Nokia.dsy `0x50FFB388` reads [11]: 0x2A SIM_SERV_IMSI_EQUAL → 0, 0x2B → 1 |
+| `0x09` SIM | `0x29` [`37`] (TSY) | `0x2A` [`37 24`] | SIM_DYNAMIC_FLAGS_REQ (oFono sim.h), a read of the SIM's second dynamic flags, sent when Settings (GS.app) opens; without an answer Settings shows an empty view and takes no key. Completes as "not supported" | phonetsy.tsy `0x5093F240` reads the reply by the waiting request's type (0x86, 0x87, 0x89, 0x8A): [11] status, [12] value. Reads (`0x5092F0A8`, `0x5092F404`): 1 → the value's bit 0; 0x24 → not supported, KErrGeneral; every status completes the request |
 | `0x09` SIM | `0x2D` [`3A`] (DOS) | `0x2E` [`3A 01 00 00`] | DosSrv ord6(0) → event 18 | Nokia.dsy `0x50FFB400`: [10] = 0x3A, [11] = 1 (SIM_SERV_OK), [12]: 0x0A/0x5A → 2, 0xA0/0xA5 → 3, 0xAA → 4, else 0 |
 | `0x09` SIM | `0x2B` [`3A`] (DOS) | `0x2C` [`3A 01 01 00 00 00`] | DosSrv ord33(0), ord20(0), ord12(0) → events 19, 20, 21 = 0 | Nokia.dsy `0x50FFB4BC`: [10] = 0x3A, [11] = 1, [12] bit 0 = valid, [13..14] 16-bit flags. Writes with service 0x39 get the same reply shape, which DOS ignores |
 | `0x35` | `0x02` [`01 00`], DOS self test | `0x03` [`00`] | DOS sends `0x35/0x00` | Nokia.dsy `0x50FFBB04` reads [10]: 0/10/11 → next step (`0x50FFBDC4`); 12 → DOS event 1 = 2, "Device start-up failed" (tried); others → ask again |
@@ -206,7 +210,7 @@ as unset, DOS `GetRTCStatus` (304) reports 0 and Startup.app asks for the
 time and date at every start (`0x50BBB08E`; the earlier stand-in sent
 zeros). The stand-in now reads the HLE RTC date register (an emulator
 invention at `0x0C1F0100`, fed from the host or MiSTer clock) in
-`nos_rtc_base` (`0x514A1CA4`), converts it to a TTime in EUser's calendar
+`nos_rtc_base` (`0x514A1C94`), converts it to a TTime in EUser's calendar
 (Julian leap years up to 1600, so 12 days ahead of a proleptic Gregorian
 count: `0x503B8340`, `0x503BA508`), and sends it twice with no alarm.
 After a C: format Startup.app still asks once, because
@@ -240,6 +244,7 @@ Requests seen but left without a reply (the client keeps waiting):
 | `0x3A` | `0x05` [`03 01 00 00 00 00`], [`03 02 ...`] | DOS object `0x4F` | |
 | `0x31` GPDS | `0x19` | TSY | |
 | `0x0A` network | `0x00` | TSY | |
+| `0x3A` | `0x01` [`00 00 00 00 00 20`] | object `0x53` | sent when Settings > Device > Display opens; the page does not come up without an answer (not looked into) |
 | `0x09` SIM | `0x19` [`2F`] | object `0x4C` | READ_HPLMN (oFono) |
 | `0x09` SIM | `0x3D` [`FA 00`] | TSY | reply `0x3E`, phonetsy.tsy `0x5093FA20` (request type 0x4C, reads a string at [11] = 1) |
 | `0x1F` | `0x01` [long] | object `0x4A` (SoundDevice.mda) | reserve, before audio starts after the first boot; playback needs no reply (`0x04`, the release, is answered above) |
