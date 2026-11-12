@@ -277,7 +277,7 @@ kernel faulted in Starter's cleanup (`RArrayBase::Count` on NULL).
 ## Emulator devices (0x0C1F0000) — not UPP_WD2 hardware
 
 Two inventions of this project, for what NOS and the DSP did on the phone
-(both encrypted). Only the NOS stand-in uses them (`model/nos-stub`,
+(both encrypted). Only the NOS stand-in uses them (`firmware-patches/nos-stub`,
 `docs/NOS_STANDIN.md`); the FPGA core implements them as small blocks.
 Nothing in the firmware touches this page: no ROM constant points into it
 and no run accesses it. Symbian maps it at virtual `0x581F0000` with the

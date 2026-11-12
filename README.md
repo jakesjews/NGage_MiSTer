@@ -8,8 +8,10 @@ with no SIM.
 ## What you need
 
 - A MiSTer with an SDRAM module (32 MB or larger).
-- The N-Gage QD firmware, version 4.60 (model RH-29): the files `RH2946.0C1`
-  and `RH2946.0S5`. It is Nokia's and is not included.
+- The N-Gage QD firmware, version 4.60 (model RH-29): Nokia's data package
+  `RH-29_dp_emea_v_10_0_MCUSW4_60.exe`. It is Nokia's and is not included.
+  Searching the Internet Archive for "Nokia DCT4 firmwares" finds it, inside
+  `N-GageQD RH-29.zip`.
 - Game cards as `.mmc` images (see [Game cards](#game-cards)).
 
 ## Setup
@@ -18,14 +20,17 @@ with no SIM.
 2. Create the folder `/media/fat/games/NGage/` and copy
    [boot0.vhd](releases/boot0.vhd) into it. This is the phone's C: drive: its
    settings and your game saves.
-3. Copy `RH2946.0C1` into the folder and rename it `boot0.rom`.
-4. Copy `RH2946.0S5` into the folder and rename it `boot1.rom`.
-5. Copy your `.mmc` images into the folder.
-6. Start **NGage** from the Console menu. The first start formats C: and asks
+3. Drop the data package on the [firmware unpacker](https://ngage-mister.vercel.app/)
+   and save `boot0.rom` and `boot1.rom` into the folder.
+4. Copy your `.mmc` images into the folder.
+5. Start **NGage** from the Console menu. The first start formats C: and asks
    for the time and date: press Enter for each.
-7. Open the OSD, choose **Mount MMC card** and pick a game.
-8. If the game does not start by itself, press Menu (F5), move to its icon and
+6. Open the OSD, choose **Mount MMC card** and pick a game.
+7. If the game does not start by itself, press Menu (F5), move to its icon and
    press OK (Enter).
+
+If you have the firmware as `RH2946.0C1` and `RH2946.0S5`, rename them
+`boot0.rom` and `boot1.rom` instead of step 3.
 
 To have a card in the slot at every start, name a copy of its image
 `boot1.vhd`. The phone then starts at its idle screen with the game in the menu.
@@ -38,7 +43,7 @@ To have a card in the slot at every start, name a copy of its image
 - Left and right soft key: F1 and F2, or L and R
 - Menu: F5 or Home, or Start
 - Call and End: F3 and F4 (Select is Call)
-- 0 to 9: the number keys
+- 0 to 9: the number keys (0 is Y on a gamepad)
 - \* and #: keypad \* and keypad /
 - Clear: Backspace
 - Edit: left Shift
@@ -65,9 +70,12 @@ Only the `.mmc` file goes on the MiSTer.
 - **Saves reach `boot0.vhd` a few seconds after the phone writes them.**
   Choose **Save C: now** in the OSD before switching off right after a save.
 - Keep your `boot0.vhd`: replacing it with the blank file starts a new phone.
-- Left alone at its idle screen for a few minutes, the phone shows its screen
-  saver: a bar with the date and time on a black screen. Any key brings the
-  picture back.
+- Five minutes after the last key press the phone shows its screen saver,
+  over a game too: a bar with the date and time on a black screen. Any key
+  brings the picture back.
+- Sonic N comes back muted, with a crossed-out speaker at the top right, when
+  the screen saver or the phone's menu takes over outside play. Press 0 (Y)
+  a few times to step its volume back up.
 - Leave a game before changing cards: exit to the phone's menu, then mount
   the next card.
 - **Aspect ratio** set to *Original* keeps the screen's own 176:208 shape,

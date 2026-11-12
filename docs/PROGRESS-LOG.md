@@ -9028,3 +9028,221 @@ saver waits for them. The Mac's Quartus (CrossOver bottle "Quartus",
   RH-29 level 1 and 2 manual, the NEM-4 schematics, the L12/L34 archive) are
   the files already in research/hardware/rh-29-service-docs, byte for byte;
   none names the ARM core.
+
+## 2026-11-11: where the firmware comes from, and a page that unpacks it
+
+The user's question: where a person finds the firmware, with the aim of one
+easy download "without explicitly giving them a download or making them run
+weird scripts".
+
+- The two files come out of one Nokia installer, the Phoenix data package
+  `RH-29_dp_emea_v_10_0_MCUSW4_60.exe` (13,445,186 bytes, sha256
+  2266f290...2efc9). archive.org serves it alone out of the 811 MB zip of
+  `Nokia_DCT4_firmwares` (`.../download/Nokia_DCT4_firmwares/N-GageQD%20RH-29.zip/N-GageQD%20RH-29%2F<name>`;
+  fetched and hashed this day). A web search for the file names finds nothing.
+  RH2946.0C1: md5 d75d37cb4a3cffe48c881c1754de5810, sha1
+  6d25163388b090e118f831459e684a4e6410a30f; RH2946.0S5: md5
+  d65fdde7287947efb66cec137f1378e7, sha1
+  369f73a6452711c423daef4cd99cb021ece3a321 (the SHA-256s are in
+  tools/mkimage.py).
+- The phone dumps cannot stand in. The retail 4.60 SDumper dump (archive.org
+  `symbian-firmware-dumps`) equals our flash images byte for byte where it
+  overlaps, and its ROOT dump equals VA 0x5123ED70-0x5138FFFF, but it lacks
+  the language pack's first 60,675 bytes (VA 0x51230000-0x5123ED6F) and the
+  3,174,400 bytes at VA 0x5000A000-0x50310FFF that the kernel maps away (the
+  encrypted NOS and 368 KB after it), and has the 54 per-phone bytes at 0x12C
+  that the flash files leave out. The developer 4.10 `SYM.ROM` is another
+  version; the RetroBIOS `SYM.ROM` is listed as NEM-4 4.03 (not downloaded).
+- The installer's layout, measured with a zlib-only script that rebuilt both
+  files: a Windows stub, a Microsoft cabinet at byte 296,482 (MSZIP, 408
+  blocks, 313 of them stored, history carried), and in it an InstallShield 7
+  cabinet whose files are 32 KB chunks of raw deflate, each on its own. The
+  MCU file sits before the language pack. Loading the installer in the core
+  was sized (two deflate stages ahead of `phoenix_load`; the two 32 KB
+  windows do not fit the 34 free M10K) and set aside by the user for a page.
+- The page: `web/` (static; `unpack.js` with its own inflate, `app.js`,
+  `style.css`), published at https://ngage-mister.vercel.app/ (Vercel project
+  `ngage-mister`). A dropped package gives `boot0.rom` and `boot1.rom` as
+  downloads, accepted only when their SHA-256s are the 4.60 ones; the two
+  flash files dropped by themselves are recognised too. Its content security
+  policy allows no connections. Checked: `node web/test.mjs` on the real
+  package (both hashes, a cut file, a flipped bit, foreign files); in a
+  browser on the published page the package unpacks, a wrong file is refused
+  by name, and a saved `boot1.rom` has the right hash.
+- README: the firmware is named as the data package and setup step 3 is the
+  page; docs/BUILDING.md has the page's test and deploy commands.
+- No link to the firmware anywhere (the user: "cant do an explicit link"):
+  the page and the README say what to search for instead. The Internet
+  Archive's search finds the collection under "Nokia DCT4 firmwares" (first
+  of two hits) and nothing under the file's own name; the collection's file
+  list has a View Contents link at `N-GageQD RH-29.zip`, which lists the
+  package.
+
+## 2026-11-11 (later): the firmware patches in one directory
+
+The user's point: the patch list and the stand-in sources sat in `model/`,
+which reads as test code, yet the core ships them.
+
+- Moved, with nothing else changed in them but comments and paths:
+  `model/rom-patches.txt` to `firmware-patches/rom-patches.txt`,
+  `model/nos-stub/` to `firmware-patches/nos-stub/`, and the committed
+  stand-in binaries from `tools/standin/` to `firmware-patches/bin/`. Older
+  entries of this log and `docs/consults/` keep the old paths.
+- The list's `cs0file` lines now name the committed binaries
+  (`firmware-patches/bin/...`) instead of `model/.build/...`.
+  `tools/gen_patchrom.py` and `tools/mkimage.py` read them as written. The
+  model still runs its own build of the working tree's sources:
+  `model/args.sh` writes a copy of the list with the paths swapped into its
+  output directory (`NGAGE_PATCHES=FILE` takes another list as it is), and
+  the boot bench's `boot-prep` does the same with git HEAD's sources.
+- `make image-check` needs no model build any more (both sides read the
+  committed binaries). `mkimage.py --standin DIR` has no default;
+  `--model-build` is that option with `model/.build`.
+- Checks: `rtl/mister/phoenix_patch.hex` is byte for byte the same
+  (`make patchrom-check`), so the core is unchanged; the stand-ins built from
+  the moved sources equal the committed binaries; `mkimage.py flat` gives the
+  same two images as before the move; `make image-check` passes; the model,
+  rebuilt, logs all four entries and reaches the NOS traffic; `boot-prep`
+  gives the same images on this change as on the commit before it. Not run:
+  the remote `boot-model`, the Verilator benches, a Quartus build.
+- Whether the patches have to be there (the user's question): the two NOS
+  stand-ins and the digest of entry `0x8F18`, yes. NOS is encrypted, Symbian
+  jumps into it at start-up, and the stored digest matches no image we can
+  present. The Bluetooth retry limit is a shortcut that a small Bluetooth
+  controller answering the HCI reset would replace; whether today's core
+  shows the EmonServer dialog without it was not checked. Left as it is.
+
+## 2026-11-11 (evening): Sonic N without sound, and the digits on the gamepad
+
+The user's report: now and then Sonic N has no sound, a mute icon was seen
+a few times, and it happens more often around menu changes. The question
+was whether the gamepad's stick or D-pad changes the volume by accident,
+and whether the core is at fault.
+
+It is the game, doing what it does on the phone, and the core gave a
+gamepad no way out of it.
+
+- **The game mutes itself.** Sonic N's foreground handler (app at
+  `0x10016764`; pause `0x10017174`, resume `0x10017118`; addresses with the
+  code section at `0x10000000`) runs when the phone takes the foreground
+  away. In play it goes to its PAUSE screen. Anywhere else (title, menus,
+  character select, cut-scenes, the demo loop) it sets its volume level to 0
+  and shows `volume.mbm`'s first picture, a speaker with a red cross, at the
+  top right for a second or two once it is back. Nothing turns the level up
+  again on the way back.
+- **Its volume is the 0 key** (scan code `0x30` in the key handler
+  `0x100188c8`): the first press shows the speaker, each further press
+  while it shows steps the level 0, 1, 2, 3, 0 (gains 0, 0.1, 0.2, 0.5 in
+  the table at `0x10139284`) and stores it in the save data. A new save
+  starts at level 2. The rocker only sets the game's direction bits (scan
+  codes `0x0E` to `0x11`); the other keys it reads are 5, 7, 1, 3, the two
+  soft keys (left = pause) and #. The level changes nowhere else.
+- **Two things take the foreground away**, both the phone's own:
+  the Menu key (Start on a gamepad with the default map), and the screen
+  saver, five minutes after the last key press, over a running game too.
+- **Seen in the model** (QEMU, `SonicN.aaruf` as the card, key scripts,
+  the HLE device's `audio.wav` measured per second):
+  - Rocker presses in all four directions during the opening cut-scene: the
+    audio is sample for sample that of a run without them.
+  - Menu key during the cut-scene, back through the phone's menu: the red
+    cross shows, the cut-scene runs on in silence; three presses of 0 and
+    the sound is back.
+  - Menu key in play, back: PAUSE; the left soft key resumes with sound.
+  - No keys after the launch: the screen saver at 379 s (300 s after the
+    last key), sound gone from then on; a rocker tap brings the demo loop
+    back with the red cross and no sound for the 400 s that follow, until
+    the next screen saver. A run left in play from 176 s to 432 s shows
+    no interruption.
+  - Leaving the game while it is paused in the background and starting
+    another app starves SoundDevice once (two halves free, `0x2A`): the
+    game opens its stream again half a second later. The stream handling
+    of the stand-in and of `upp_haudio` needed no change.
+- **What the core lacked:** CONF_STR's J line had 5 and 7 but no other
+  digit, so a gamepad could not press 0 (the README said the other keys
+  could be mapped). Now the line ends `...,Power,0,1,2,3,4,6,8,9`, with the
+  digits last so that button maps made before keep their meaning, and the
+  default map gives 0 to Y (`jn,A,B,X,L,R,Start,Select,,,,,,,Y`; Main skips
+  empty names). `ngage_input` takes joystick bits 17 to 24 for them.
+- Checks: `make lint` and the NGAGE_DEBUG lint pass (the waiver for the
+  unused joystick bits is now `[31:25]`); `make -C sim top` passes with a
+  new walk over all 25 joystick inputs, one at a time, each at its key's
+  place in the vector. Not done: a Quartus build, a board run (the board is
+  with another agent today), a commit.
+- README: 0 on Y in the controls; the screen saver's five minutes; one line
+  on Sonic N's mute and the way back.
+- Seed sweep of this source (the user: "way higher seeds", then "spaces of
+  10"), two batches of four on the server, about 29 minutes a build, setup
+  slack in ns at the slow 100C corner (the figure of the earlier sweeps) and
+  at the slow -40C corner:
+
+  | seed | 100C | -40C |
+  |---|---|---|
+  | 30 | -1.456 | -1.540 |
+  | 31337 | -1.540 | -1.500 |
+  | 40 | -1.556 | -1.495 |
+  | 20 | -1.565 | -1.471 |
+  | 9001 | -1.624 | -1.607 |
+  | 1337 | -1.723 | -1.775 |
+  | 65535 | -1.784 | -1.733 |
+  | 10 | -1.826 | -1.855 |
+
+  Hold is positive at every corner of all eight (+0.057 at the least),
+  33,599 to 33,726 ALMs. Neither the size of a seed nor the spacing shows:
+  the band is that of the low seeds (the trimmed source's eight ran -1.453
+  to -2.446). The -40C corner is the worse one for three of the eight, so
+  the 100C figure alone flatters seed 30 by 0.08 ns; by the worse of the
+  two, 30 and 31337 tie at -1.540. The cores are
+  `build/hardware/NGage-pad0-s<seed>.rbf`, the reports
+  `build/sweeps/pad0-s<seed>/`. `NGage.qsf` still carries seed 9; none of
+  the eight has run on the board.
+
+## 2026-11-11 (evening): the release of 2026-11-11
+
+The user: make the best seed the release and push it.
+
+- `releases/NGage_20261111.rbf` is the sweep's seed 30 build of the commit
+  before this one (the gamepad's digits, 0 on Y), md5
+  82d5178c5db0425e02475cce8be81824: setup -1.456 ns at the slow 100C corner
+  and -1.540 at the slow -40C one, hold positive at every corner, 33,634
+  ALMs. It was built on the server from a clean checkout of these sources
+  with the seed set; it replaces `NGage_20261110.rbf`. `NGage.qsf` carries
+  seed 30, so the tree is the one that built the file (a build stamps the
+  day's date itself). It still does not meet 104 MHz in the timing report,
+  as the releases before it.
+- Not run on the board: the MiSTer was with another agent that day. The
+  checks behind it are the lint, the top bench's walk over the joystick
+  inputs and the model runs of the entry above.
+
+## 2026-11-11 (night): the release on the board; a dialled number hangs the phone
+
+The user freed the MiSTer. The release of the entry above ran there.
+
+- The main core is `NGage_20261111.rbf` (md5 as released; the build of
+  2026-11-10 removed from the board). `boot0.vhd` was copied aside before
+  the run and put back after it (md5 c6116b2e… both times), so the user's
+  C: is as it was; the board is left at the menu core.
+- Gamepad input without Zaparoo (the user: "you dont need zaparoo to send
+  input btw"): `tools/mister_input.py` has `pad BUTTON MS`, a second
+  virtual device (1209:4e47) that Main has no map for, so it gets Main's
+  default map and through it the core's; `Board.pad()` in
+  `tools/jev_play.py` sends it. Zaparoo's own pad pulses lost the first
+  press after the core load.
+- **The default map:** at the idle screen Y, Y, A, B type 0057, and Clear
+  from the keyboard takes them away again.
+- **All eight digits:** with a temporary `NGage_input_1209_4e47_v3.map`
+  that puts J entries 14 to 21 on the pad's eight buttons, pressing them in
+  order types 01234689. The file is removed again.
+- **Sonic N:** the intro and the demo loop run; Y shows the speaker at
+  level 2; the Menu key and the way back through the phone's menu return
+  to the demo with the red cross at the top right (0.8 s after the return)
+  and Y shows the cross again; two more presses step it to 1 and 2. Then
+  title, GAME START, the character, play with the rocker, L (the left soft
+  key) pauses and resumes.
+- **Open, and older than this release:** a digit at the idle screen and
+  then OK dials the number. The phone sends resource `0x01` message `0x61`
+  [`03 00` and the digits in 16 bits each] (object `0x36`), the stand-in
+  does not answer, and from then on no key does anything until the core is
+  reset. The text cursor goes on blinking (the window server draws it).
+  The model shows the same. On a gamepad that is any of A, B or Y followed
+  by X at the idle screen. `docs/NOS_STANDIN.md` has no entry for the call
+  resource yet.

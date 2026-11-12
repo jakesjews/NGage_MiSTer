@@ -6,7 +6,10 @@
 // Joystick (both of the first two pads), in the order of CONF_STR's J line:
 //   d-pad = rocker; 4: 5, 5: 7 (the game keys); 6: OK; 7: left soft key;
 //   8: right soft key; 9: Menu; 10: Call; 11: End; 12: *; 13: #; 14: Clear;
-//   15: Edit; 16: Power.
+//   15: Edit; 16: Power; 17: 0; 18-21: 1-4; 22: 6; 23: 8; 24: 9.
+//   The digits come last so that button maps made before they were added
+//   keep their meaning. Games use them: Sonic N's volume is the 0 key, and
+//   it mutes itself when it loses the foreground outside play.
 // Keyboard (PS/2 set 2 codes from hps_io):
 //   arrows: rocker            Enter, keypad Enter, Space: OK
 //   0-9 and keypad 0-9: 0-9   Z: 5   X: 7
@@ -102,6 +105,14 @@ module ngage_input (
 		jk[K_HASH]  = j[13];
 		jk[K_CLEAR] = j[14];
 		jk[K_EDIT]  = j[15];
+		jk[K_0]     = j[17];
+		jk[K_1]     = j[18];
+		jk[K_2]     = j[19];
+		jk[K_3]     = j[20];
+		jk[K_4]     = j[21];
+		jk[K_6]     = j[22];
+		jk[K_8]     = j[23];
+		jk[K_9]     = j[24];
 	end
 
 	always_ff @(posedge clk) begin

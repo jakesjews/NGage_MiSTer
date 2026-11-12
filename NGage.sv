@@ -91,8 +91,8 @@ localparam CONF_STR = {
 	"T[7],Save C: now;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
-	"J,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power;",
-	"jn,A,B,X,L,R,Start,Select;",
+	"J,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power,0,1,2,3,4,6,8,9;",
+	"jn,A,B,X,L,R,Start,Select,,,,,,,Y;",
 	"I,C: save mounted,C: save file must be 4 or 8 MB,C: read-only: no saves,C: saved,Booting the phone - about a minute...,Phone kernel is up,Firmware file damaged,Firmware 4.60 loaded,Firmware not recognised: needs RH-29 4.60,Firmware reloaded: load both files;",
 	"V,v",`BUILD_DATE
 };

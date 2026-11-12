@@ -242,8 +242,9 @@ remote: bins
 # The real boot code on the RTL (tb/ngage.h: the reference model's memory
 # map and devices) and on the reference model, both on $(REMOTE), from the
 # same flash images, with their register and CBUS logs compared.
-#   make boot-prep    images from git HEAD's model files (NOS stand-in
-#                     assembled here, patches applied as model/hw does)
+#   make boot-prep    images from git HEAD's model and firmware-patches
+#                     files (NOS stand-in assembled here, patches applied
+#                     as model/hw does)
 #   make boot-model   the model, built on $(REMOTE) from git HEAD
 #                     (model/build_linux.sh) and run on those images, with
 #                     every device access in trace.log (model/trace_plugin.c;
@@ -257,6 +258,7 @@ BOOT_CYCLES ?= 2700000000
 BOOT_ARGS   ?=
 BOOT        := $(BUILD)/boot
 HEADM       := $(BOOT)/head
+HEADP       := $(HEADM)/firmware-patches
 MDIR        ?= dev/mister/ngage-model
 MODEL_SECS  ?= 120
 MODEL_TRACE ?= start=0,count=100000000000,insns=0
@@ -265,17 +267,18 @@ boot-prep:
 	@mkdir -p $(BOOT)
 	rm -rf $(HEADM) && mkdir -p $(HEADM)/.build
 	git -C $(ROOT) archive HEAD model | tar -x -C $(HEADM) --strip-components=1
-	$(ARMAS) -o $(HEADM)/.build/nos_stub.o $(HEADM)/nos-stub/nos_stub.S
+	git -C $(ROOT) archive HEAD firmware-patches | tar -x -C $(HEADM)
+	$(ARMAS) -o $(HEADM)/.build/nos_stub.o $(HEADP)/nos-stub/nos_stub.S
 	$(CROSS)ld -Ttext=0x5149E4D4 -o $(HEADM)/.build/nos_stub.elf $(HEADM)/.build/nos_stub.o
 	$(CROSS)objcopy -O binary $(HEADM)/.build/nos_stub.elf $(HEADM)/.build/nos-stub.bin
-	$(ARMAS) -o $(HEADM)/.build/nos_dll.o $(HEADM)/nos-stub/nos_dll.S
+	$(ARMAS) -o $(HEADM)/.build/nos_dll.o $(HEADP)/nos-stub/nos_dll.S
 	$(CROSS)gcc -march=armv4t -marm -mthumb-interwork -Os -std=gnu11 -ffreestanding \
 		-fno-builtin -fno-pic -fno-common -fno-unwind-tables -fno-asynchronous-unwind-tables \
-		-c -o $(HEADM)/.build/nos_isi.o $(HEADM)/nos-stub/nos_isi.c
-	$(CROSS)ld -T $(HEADM)/nos-stub/nos_dll.ld -o $(HEADM)/.build/nos_dll.elf $(HEADM)/.build/nos_dll.o \
+		-c -o $(HEADM)/.build/nos_isi.o $(HEADP)/nos-stub/nos_isi.c
+	$(CROSS)ld -T $(HEADP)/nos-stub/nos_dll.ld -o $(HEADM)/.build/nos_dll.elf $(HEADM)/.build/nos_dll.o \
 		$(HEADM)/.build/nos_isi.o "$$($(CROSS)gcc -march=armv4t -marm -print-libgcc-file-name)"
 	$(CROSS)objcopy -O binary $(HEADM)/.build/nos_dll.elf $(HEADM)/.build/nos-dll.bin
-	sed 's|model/.build/|$(HEADM)/.build/|' $(HEADM)/rom-patches.txt > $(BOOT)/rom-patches.txt
+	sed 's|firmware-patches/bin/|$(HEADM)/.build/|' $(HEADP)/rom-patches.txt > $(BOOT)/rom-patches.txt
 	$(PY) $(HERE)/boot/prep.py --cs0 $(BOOT_CS0) --cs1 $(BOOT_CS1) \
 		--patches $(BOOT)/rom-patches.txt --root $(ROOT) --out $(BOOT)
 	cp $(HEADM)/upp-quirks.txt $(HEADM)/cbus-regs.txt $(BOOT)/

@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Flash images for the boot bench, patched as the reference model loads them.
 
-    python3 -I prep.py --cs0 CS0.bin --cs1 CS1.bin --patches model/rom-patches.txt \
+    python3 -I prep.py --cs0 CS0.bin --cs1 CS1.bin --patches firmware-patches/rom-patches.txt \
         --root REPO --out DIR
 
-Applies model/rom-patches.txt as model/hw/ngage_patch.c does: "cs0|cs1 OFF
+Applies firmware-patches/rom-patches.txt as model/hw/ngage_patch.c does: "cs0|cs1 OFF
 HEX" bytes, "cs0file|cs1file OFF PATH" file contents (PATH relative to the
 repository), then "md5 ENTRY": the integrity-table entry {start, end,
 digest} at CS0 ENTRY gets the MD5 of ROM virtual addresses start..end.

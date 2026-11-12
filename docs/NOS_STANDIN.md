@@ -18,19 +18,21 @@ an expired one, to reach the idle screen.
 The stand-in is ARMv4T code in the patched flash image, so the model and
 the FPGA core run the same binary:
 
-- `model/nos-stub/nos_stub.S`: the NOS entry that nosstarter.ext calls
+- `firmware-patches/nos-stub/nos_stub.S`: the NOS entry that nosstarter.ext calls
   (variant services, flags, power model, rtc event with the base date; see
   [Clock](#clock)).
-- `model/nos-stub/nos_dll.S`, `nos_dll.ld`: entry points of the hidden NOS
+- `firmware-patches/nos-stub/nos_dll.S`, `nos_dll.ld`: entry points of the hidden NOS
   DLL at its fixed ROM addresses (ordinal 4 `0x514A1CA0`, ordinal 6
   `0x514A261C`); state lives in NOS BSS at `0x8000D000`.
-- `model/nos-stub/nos_isi.c`: the channel object nosdriver.ldd talks to,
+- `firmware-patches/nos-stub/nos_isi.c`: the channel object nosdriver.ldd talks to,
   queues and delivery.
-- `model/nos-stub/nos_isi_replies.h`: the replies listed below.
-- `model/nos-stub/nos_audio.h`: PCM playback through the HLE audio device
+- `firmware-patches/nos-stub/nos_isi_replies.h`: the replies listed below.
+- `firmware-patches/nos-stub/nos_audio.h`: PCM playback through the HLE audio device
   (see [Audio](#audio)).
-- `model/rom-patches.txt` places both binaries (`cs0file` lines);
-  `tools/mkimage.py` applies the same file for the core.
+- `firmware-patches/rom-patches.txt` places both binaries (`cs0file`
+  lines, the committed builds in `firmware-patches/bin`); the core's patch
+  ROM (`tools/gen_patchrom.py`) and `tools/mkimage.py` are made from the
+  same list.
 
 Every reply is a guess about NOS, written from how the Symbian client
 parses it. The evidence column names the client function that reads the

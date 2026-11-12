@@ -33,7 +33,7 @@ uint8_t *ngage_flash_data(NGageFlash *f, uint32_t *size);
 bool ngage_flash_c_blank(NGageFlash *f);
 void ngage_flash_changed(NGageFlash *f, uint32_t off, uint32_t len);
 
-/* Model shortcuts applied to the flash images at load (ngage_patch.c). */
+/* Firmware patches applied to the flash images at load (ngage_patch.c). */
 void ngage_apply_rom_patches(const char *path, NGageFlash *cs0, NGageFlash *cs1);
 
 uint32_t ngage_guest_pc(void);
