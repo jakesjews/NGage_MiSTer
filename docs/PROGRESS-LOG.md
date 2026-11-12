@@ -9246,3 +9246,154 @@ The user freed the MiSTer. The release of the entry above ran there.
   The model shows the same. On a gamepad that is any of A, B or Y followed
   by X at the idle screen. `docs/NOS_STANDIN.md` has no entry for the call
   resource yet.
+
+## 2026-11-12: a Java game on the board (Prince of Persia: The Sands of Time)
+
+The user put a MIDP game on a card (`princesot.mmc`, a 16 MB FAT12 image
+with `Nokia\Installs\PrinceSOT.jar`: Gameloft, "for Nokia Series 60",
+MIDP-1.0 / CLDC-1.0, 151 KB) and asked whether it runs. It does, on the
+release core `NGage_20261111.rbf`.
+
+- **The Manager does not list jars.** Tools > Manager shows "(no data)"
+  with the card in, although its memory details count the jar (148 kB of
+  "Applications" on the card). `Appctrl.app` in the ROM lists `*.sis` only:
+  its refresh routine (`0x50BE8228`) scans `c:\system\install\` (installed),
+  `c:\nokia\installs\` and `e:\` (the card's root, not `e:\nokia\installs\`)
+  through one routine (`0x50BE7A30`) that appends `*.sis`.
+- **The browser opens it.** Web, then type into the address field at the
+  bottom of Bookmarks: any digit key starts it with `http://`; clear that,
+  `#` once for lower case, then `file:///e:/nokia/installs/princesot.jar`
+  and Go to. The 1 key's symbols here are `. , ? ! 1 @ ' - _ ( ) : ; & /`
+  (`:` is 12 presses, `/` 15). The phone asks "Install PrinceSOT 1.1.0
+  supplied by Gameloft SA?", then for the target (device memory 3490 kB or
+  memory card 16144 kB; the card was chosen), and reports "Installation
+  complete" within a few seconds.
+- **Where it lands:** not in the main menu but in Extras > Apps. (the
+  ROM's `MidpUi.app`, title "Applications"), with the game's icon.
+- **The run:** Gameloft and Ubisoft screens, the title with its loading
+  bar, "Press any key", the menu (New game, Settings, Instructions, About,
+  Exit), the story pages, then level 1: the intro dialogue steps with OK,
+  the Prince runs with the rocker, the screen scrolls, the first hint
+  (up to climb) shows and he climbs to the next ledge. Sound was not
+  checked (nobody at the board), nor the frame rate (release core, no
+  counters).
+- **Files:** the install wrote to both images on the MiSTer (`boot0.vhd`
+  and `princesot.mmc`); copies from before it are in
+  `build/hardware/pop-backup-20261112/` (md5 c6116b2e… and 0f4f33eb…).
+  Captures: `build/hardware/princesot-20261112/`. A launcher
+  `NGage-princesot.mgl` sits with the others. Keys and captures went
+  through `tools/mister_input.py`; the board is left in the game at the
+  user's word ("Leave it running when done").
+
+## 2026-11-12 (afternoon): SPMark04 on the board, and the IMEI the stand-in never gave
+
+The user asked for `spmark.sis` (Futuremark SPMark04 Free v1.1.0, an EPOC
+release 6 package for Series 60: `SPMark.app`, `3dtest.dll`, its own software
+`libGLES_CM.dll`, 1.2 MB installed) to be installed on the core and for its
+results.
+
+- **Install.** A card with the package in its root (`spmark.mmc`, made with
+  `tools/mkcard.py --folder` from a folder holding `SPMark.sis` and an empty
+  `System/Apps`; the tool refuses a folder with no `System`). Tools > Manager
+  lists it; Options > Install, Yes to the untrusted-provider note, Install,
+  memory card, OK to Futuremark's licence text. SPMark04 then sits at the
+  end of the main menu. Release core `NGage_20261111.rbf`.
+- **It hung at start.** Title pane, a white view, only "Exit", and no key
+  taken, Exit included. The reference model on the same images showed why:
+  at the launch the TSY sends resource `0x1B` message `0x00` [`41`]
+  (INFO_SERIAL_NUMBER_READ_REQ, IMEI) and the stand-in had no answer. The
+  application asks for the IMEI synchronously before it draws.
+- **The answer** (`firmware-patches/nos-stub/nos_isi_replies.h`,
+  `docs/NOS_STANDIN.md`): message `0x01`, status 0, one sub-block `41 14 00
+  10` + fifteen digits + NUL, as phonetsy.tsy `0x5093EC38` / `0x5092F868`
+  read it (15 bytes from sub-block byte 4). The IMEI is fifteen zeros. With
+  it the model shows SPMark's main view, and its System Information lists
+  the IMEI. Anything else that reads the IMEI was hanging the same way.
+  `firmware-patches/bin/nos-dll.bin` and the patch ROM
+  (`tools/gen_patchrom.py`: entry 0x8F18 digest ef78f272…, payload
+  fingerprint 2026d162…; `PATCH_BYTES` 9610 → 9762) are regenerated;
+  `tools/patchcheck.sh` and `make -C sim phoenix-real` pass against
+  mkimage's images. **Not committed, and no core has been built with it:**
+  the released core's patch ROM still carries the old stand-in.
+- **On the board without a build:** the flat route. `tools/mkimage.py
+  phoenix` with the new stand-in gives `cs0.bin` / `cs1.bin`; a launcher
+  loads them at file indexes 3 and 4 and then mounts `boot0.vhd` again on
+  slot 0 (a flat CS1 load detaches the save) and the card on slot 1
+  (`NGage-spmark-dev.mgl`, `dev-imei-cs0.bin`, `dev-imei-cs1.bin` on the
+  MiSTer). The boot files still load first; the flat images replace them.
+- **Results** (Options > Run 3D Tests, about two minutes: a helicopter
+  scene, a fill-rate pattern, a polygon-count object), two runs:
+
+  | | run 1 | run 2 |
+  |---|---|---|
+  | SPMark04 3D Score | 566 | 566 |
+  | 3D Game | 9.32 fps | 9.31 fps |
+  | 3D FillRate | 1.73 Mtexels/s | 1.73 Mtexels/s |
+  | 3D PolyCount | 37.40 Ktriangles/s | 37.36 Ktriangles/s |
+
+  System Information: Nokia, NokiaN-GageQD, Symbian OS v6.1, Series60 1.2,
+  CPU ARM, 104 MHz, ARM4T, 4096 colours, 176x208, 11208 KB free. No figure
+  from a real QD to set beside these yet.
+- **Files:** captures and the sheet sent to the user in
+  `build/hardware/spmark-20261112/` (`spmark04-results.png`); the C: image
+  from before the install in `build/hardware/spmark-backup-20261112/`
+  (md5 026c0fb7…). The install wrote to `boot0.vhd` and `spmark.mmc`.
+
+## 2026-11-12 (afternoon, later): SPMark04 v1.10 "business", all nine tests
+
+The user passed a second package, `SPMark04_v1.10_business_S6.x_cracked`
+(a repack: the same `SPMark.app`, `3dtest.dll` and `libGLES_CM.dll` as the
+Free one, byte for byte; a fuller `SPMark.rsc` with Run All Tests, Run Set,
+Run Battery Test, Show Test Results, Save Results, Demo; and the system
+tests' data, `test.jpg`, `agendata.dat`, `Futuremark.gif`).
+
+- **Set-up:** its own card (`spmark-full.mmc`) and a scratch C:
+  (`spmark-full-c.vhd`, the copy of the user's C: from before the first
+  install), because the contacts, calendar and disk tests write to the
+  phone's memory; launcher `NGage-spmark-full-dev.mgl` (the flat images with
+  the IMEI reply again). The installer asks for a language (Russian, the
+  package's only one) and shows two notes from the repack.
+- **Run All Tests runs the three 3D tests only** (566 again). Run Set >
+  System Tests runs the six others; Run Set > Custom lists all nine,
+  ticked, and runs them in one pass of about three and a half minutes
+  (inside the screen saver's five).
+- **The results page shows the 3D lines only** on this build: one press of
+  down moves it a step and it stops at 3D PolyCount (ten single presses, a
+  1.5 s and a 3 s hold, each captured). The user, watching, said the rest
+  is there on pressing down; not seen through `tools/mister_input.py`.
+  Save (left soft key on that page) writes `Result.txt` beside the
+  application on the card, with every test and the system information;
+  read off the card image with mtools.
+- **Results**, release core `NGage_20261111.rbf`:
+
+  | | all nine (Custom) | System Tests set |
+  |---|---|---|
+  | 3D Game | 9.33 fps | |
+  | 3D FillRate | 1.73 Mtexels/s | |
+  | 3D PolyCount | 37.36 Ktriangles/s | |
+  | 2D Image | 37.66 fps | 37.62 fps |
+  | Image Scaling | 1.61 bitmaps/s | 1.61 bitmaps/s |
+  | JPEG Encoding | 163.64 Kpixels/s | 164.66 Kpixels/s |
+  | Contacts | 3.22 contacts/s | 3.13 contacts/s |
+  | Calendar | 5.06 events/s | 4.76 events/s |
+  | Disk Access | 15.24 files/s | 10.34 files/s |
+
+  The 3D score is only given for the 3D set (566); a Custom run reports
+  "N/A" and "SPMarks: 0". Disk Access moved by half between the two runs,
+  the rest by a few percent at most.
+- **Files:** `build/hardware/spmark-20261112/spmark04-full-results.png`,
+  `spmark04-full-Result.txt`, `spmark04-system-Result.txt`, captures
+  `full1-*`, `sys1-*`, `all1-*`.
+- A slip on the way: Back pressed once too often left the application, and
+  the next keys opened the phone menu's Move to folder dialog; cancelled,
+  nothing moved.
+
+- **Addendum (same afternoon):** the user, at the board, confirmed the
+  results page does not scroll past 3D PolyCount ("it doesn't scroll
+  more"); its arrows show "more" all the same. For a friend's core a card
+  with SPMark04 already in place was made (`tools/mkcard.py --folder` on
+  the package's `System` tree, no installer run):
+  `build/hardware/spmark-20261112/spmark04-card.zip` holds `spmark04.mmc`,
+  the plain `spmark04.img` and the files. Checked on the board with a C:
+  that had never seen the package: SPMark04 is in the menu and starts with
+  the full Options list, so the card needs no install record.
