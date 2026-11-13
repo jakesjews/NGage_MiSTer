@@ -9607,3 +9607,164 @@ timing report.
 On the board from the boot files (`RH2941.0C1`, `RH2941.021`, a blank C:):
 the first-start dialogs, idle with the MiSTer's date at the next start,
 SPMark04's suite (the table above), Sonic N's intro.
+
+## 2026-11-12 (night): NOS decoded; flash held as the chips store it; the firmware files in either order
+
+The user pointed at Andrea Bogazzi's N-Gage core (NEM-4, firmware 4.03;
+https://github.com/asturur/test_template_1, branch
+`codex/ngage2-integration`) and asked for its way of loading the firmware
+here, decryption included; after a write-up of what that meant they chose
+the part that keeps the NOS stand-in ("Let's do scope 1") and, during the
+work, decoding on reads as on the phone.
+
+**What his core does.** The two service files as they are (`boot.rom` the
+MCU file, `boot1.rom` the language pack), in either order: the language
+pack owns the first 64 KB of CS0 and the MCU file never writes there.
+Flash holds the record payloads as the files carry them, and a small
+decoder on the flash read path turns the cellular software's area into
+plain code (16 formulas, one a bit of a 16-bit word; his
+`rtl/ngage_descramble.v`). No firmware patch: the firmware's own MD5 check
+passes on the decoded bytes, and the original NOS runs on models of the
+modem-side hardware.
+
+**It decodes our firmware.** His formulas over CS0 `0xA000`-`0x2ACFFF`
+give the MD5 that table entry `0x8F18` carries, for RH-29 4.10
+(`be87bc4467bc4c53f6de1ee8d80d9285`) and for 4.60
+(`2f00b1ff1b8f03f0592c4355f3177651`). So the entries of this log that call
+the area encrypted with a key in the silicon, and running NOS impossible
+for that reason, are superseded. Corrections to earlier entries:
+
+- The header words at CS0 `0x174` / `0x178` are the area's first byte and
+  the byte after its last (`0xA000`, `0x2AD000`), not a start and a length.
+- `0x2AD000`-`0x310FFF` is plain in flash; it is only the kernel that hides
+  it from dumps (the +0x500000 remap of 0x3384).
+- The decoded NOS entry (CS0 `0x9E4C4`) is an ARM branch and the hidden
+  DLL's ordinals 4 and 6 (`0xA1C90`, `0xA260C`) start with ordinary ARM
+  prologues.
+
+**What NOS does when it is left alone** (the model, the raw images, an
+empty patch list): the bootstrap's MD5 check passes by itself, Symbian
+starts ("TRtcQueue::Add: 2" at 4.33 s), nosstarter.ext calls NOS, and NOS
+loops at `0x514A6DC4`: `bl 0x516C1C1C` (a register read through the
+kernel's `0x58000000` window), `tst r0, #0x2000000`, `beq`. It waits for
+bit 25 of a status register, the first of its hardware checks; Andrea's
+log walks through dozens of them on NEM-4 (clocks, timers, UEM, DSP
+upload, PMM, FBUS, SIM). So the stand-in
+stays: it now replaces NOS because the core lacks the modem's hardware,
+not because NOS cannot be read.
+
+**What changed here.**
+
+- `tools/nos_scramble.py`: the reference (decode, encode, the area from the
+  header, a self-test, the C tables). `model/hw/ngage_scramble.h`: the same
+  in C for the model, `tools/patchcheck` and the benches. The core's copy
+  is two functions in `rtl/mem/ddram_flash.sv`. `make scramble-check` ties
+  the header to the reference; the `ddrflash` bench ties the RTL to the
+  header.
+- `rtl/mem/ddram_flash.sv`: DDR3 holds flash as the chips store it. Every
+  beat read from DDR3 for the flash ports is decoded as it arrives when its
+  line lies in the area, so the cache, the beat buffers and the answers
+  hold what the CPU is to read; the address part is kept in a register, so
+  a beat passes one XOR. The area is the one the image names: the two
+  header words, read from DDR3 after every cache sweep (reset, load) in a
+  new state before the first request; they count only as whole 4 KB pages,
+  in order, inside the chip. A write into the area stores the word it is
+  given and drops the cached copies. That is the one place it is not a
+  chip: a chip ANDs the data into the stored word, `nor_flash` into the
+  word read. Nothing in the firmware programs the area.
+- `rtl/mister/phoenix_load.sv`: one owner a byte. The pack's areas (CS0
+  0-0xFFFF, CS0 from 0xF00000, CS1 0x330000-0x3FFFFF: what every 4.10 pack
+  writes; checked on `.021` and `.002`) take the pack's bytes, the rest the
+  MCU file's, whichever comes first. The result is the flash the old order
+  gave. `boot.rom` works as the firmware's name (Main sends it after
+  `boot1.rom`). The slot still says which file is which, and a repeated
+  file still starts a new pair.
+- The patch ROM: records inside the area are stored scrambled
+  (`tools/gen_patchrom.py`), which needs whole 16-bit words, so
+  `nos_dll.ld` pads the DLL (8549 to 8552 bytes, three zero bytes). The
+  digest of entry `0x8F18` with the patches is now `06baac2b…`.
+- `tools/mkimage.py` patches and checks the flash as the phone reads it and
+  writes it as stored; `phoenix` places bytes by owner as the loader does;
+  `--plain` writes CS0 decoded, for a disassembler. With `--no-patches`
+  both integrity entries now read "matches". The model
+  (`model/hw/ngage_flash.c`) decodes the area when the image is loaded,
+  since its array reads go straight to host memory; its patcher is
+  unchanged and works on what the CPU reads.
+- Flat `cs0.bin` images made before today hold the stand-in as plain bytes
+  inside the area and do not run on this core: make them again.
+
+**Checks.**
+
+- `python3 -I tools/nos_scramble.py --selftest`; both versions' digests
+  from the Python reference; `tools/patchcheck.sh` on 4.10 and 4.60 (the
+  model's patcher and mkimage.py agree byte for byte, through the C
+  header's decode and encode).
+- The model from the raw 4.10 images: the area reported, the patches
+  applied, a fresh C: formatted, the dialogs, the idle screen.
+- `make lint`, `make test` (all benches), `make -C sim flashcopy
+  hps-read-test`. `ddrflash` now plants headers (RH-29's, a small one, the
+  whole chip, three that must not count), reads across both edges, writes
+  inside the area and programs the header through the flash port (the area
+  moves at the next reset, not before); seven seeds, 3,000 to 11,000
+  decoded reads each.
+- `make -C sim phoenix-real`: the loader over `RH2941.0C1` and
+  `RH2941.021`, MCU file first, a resend, and the pack first: the flash
+  equals mkimage's images each time.
+- The whole core in Verilator from mkimage's images: the bootstrap's MD5
+  check passes on the RTL, the kernel prints "TRtcQueue::Add: 2" and "3"
+  (the stand-in's entry ran from the area) after 3.26 s; 4,117,061 CS0 and
+  840,730 CS1 read beats compared with the image, decoded where the area
+  is, no mismatch.
+- Quartus 17 rejects a sized literal inside a cast
+  (`LINE_LOG2'(6'h2E)`); an int localparam goes through.
+
+**The fit.** Eight seeds of the working tree on the server (the flash
+decode is on none of the 30 worst paths of six of them; in seeds 9 and 13
+the beat-buffer hit of `ddram_flash`, which was there before, is):
+
+| seed | setup 100C | setup -40C | hold (worst) |
+|---|---|---|---|
+| 20 | -1.304 | -1.216 | +0.078 |
+| 30 | -1.425 | -1.213 | +0.078 |
+| 40 | -1.533 | -1.423 | +0.079 |
+| 9 | -1.674 | -1.548 | +0.080 |
+| 31337 | -1.817 | -1.727 | +0.080 |
+| 13 | -1.885 | -1.777 | +0.078 |
+| 5 | -1.914 | -1.842 | +0.040 |
+| 1337 | -1.944 | -1.727 | +0.052 |
+
+Seed 20 goes into NGage.qsf; its build is the tree's own
+(`releases/NGage_20261113.rbf`, md5 be6dbcec…, 33,554 ALMs, 519 M10K; the
+server's Docker clock is UTC, so the core carries build date 261113). It
+replaces NGage_20261112.rbf. It still does not meet 104 MHz in the timing
+report.
+
+**On the board** (the user's `boot0.rom` = RH2941.0C1, `boot1.rom` =
+RH2941.021, their `boot0.vhd`), first the seed 30 build, then seed 20:
+
+- from the boot files: the idle screen with the MiSTer's date within 75 s;
+- the firmware renamed `boot.rom`, so that Main sends the language pack
+  first: the same idle screen (seed 30 build; the file was named back);
+- the Sonic N launcher: the menu, the game's title, a level in play (both
+  builds). Sound was not listened to.
+
+The main core on the MiSTer is `NGage_20261113.rbf`.
+
+**Speed** (the user asked whether the decoding could slow the core). A
+beat is decoded in the clock it arrives, so a flash read takes the clocks
+it took. `make -C sim flashcopy` on the source before the change and with
+it: 6,520,313 and 6,520,525 clocks for the same 1,099,806 instructions;
+the 212 are the header reads after the sweeps at the start. No frame rate
+was compared on the board.
+
+A note on the comparison with the last release: two builds carried the
+name NGage_20261112.rbf, the afternoon's (4.60, the IMEI answer) at -1.456
+ns and the evening's (4.10) at -1.697 in the tables above. Between sweeps
+the seeds' spread is noise: this fit is no worse, not better.
+
+Committed and pushed at the user's word ("Ok let's push").
+
+Not done: a program into the scrambled area as a chip would do it (above);
+loading one file again without its companion (a repeated file still starts
+a new pair, so `boot0.rom` and `boot.rom` together in the folder never
+complete); the real NOS, which needs the modem's hardware.
