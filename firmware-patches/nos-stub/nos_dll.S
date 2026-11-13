@@ -1,8 +1,8 @@
 /*
  * NOS stand-in, part 2 (firmware patch, see firmware-patches/rom-patches.txt):
  * the two exports of the hidden NOS DLL (TRomImageHeader at 0x51163E20, uid3
- * 0x10005A05, export directory 0x51163EEC) that point into the encrypted
- * NOS code. nosdriver.ldd (the NOSDRIVER logical device, loaded by EStart)
+ * 0x10005A05, export directory 0x51163EEC) that point into the NOS code,
+ * which is not run. nosdriver.ldd (the NOSDRIVER logical device, loaded by EStart)
  * imports them through 0x51163EF8 and 0x51163F00:
  *   ordinal 6 = 0x514A260C (obj, unit): called on an 8-byte allocation
  *     (nosdriver 0x5116401C); the channel later calls methods through the
@@ -11,7 +11,7 @@
  *   ordinal 4 = 0x514A1C90 (channel, unit & 0xFF) (nosdriver 0x5116402C).
  * Both branch to the ISI responder in nos_isi.c. Linked by nos_dll.ld at
  * 0x514A1C90 (CS0 0xA1C90); the space between the two entry points and
- * after them is encrypted NOS code that nothing else reads.
+ * after them is NOS's own code, which nothing else reads.
  */
     .arm
     .section .entry4, "ax"

@@ -7,32 +7,39 @@
 #   the model   model/hw/ngage_patch.c, which reads this list and logs each line
 #   flat images tools/mkimage.py
 # Every line here is a deviation from real hardware and must say why.
-# <cs0|cs1> <offset> <hex bytes as stored>   # reason (evidence)
+# <cs0|cs1> <offset> <hex bytes>   # reason (evidence)
 # <cs0file|cs1file> <offset> <file>   # a file's contents; the path is from the repository root
 # md5 <CS0 offset of an integrity-table entry>   # recompute its digest after the patches
+#
+# The bytes are what the phone reads. CS0 0xA000-0x2ACFFF is stored scrambled
+# in flash and decoded by the ASIC on every read (tools/nos_scramble.py); the
+# model and mkimage.py patch the decoded bytes, and the core's patch ROM holds
+# a patch in that area scrambled, as flash stores it. The scrambler works on
+# 16-bit words, so a patch there starts and ends on a word.
 #
 # The stand-in code is built from nos-stub/ here; bin/ holds the committed
 # binaries (make standin). The model runs its own build of the same sources
 # (model/build.sh, model/args.sh).
 
-# NOS (the cellular RTOS) is encrypted in flash from CS0 0xA000 on and the
-# decryption is unknown. nosstarter.ext (code 0x5034B454) copies NOS data, then
-# calls the NOS entry at virtual 0x5149E4C4 (CS0 0x9E4C4, ARM, r0 = -1) and
-# ignores its return value; the encrypted bytes raise an undefined-instruction
-# exception and the kernel restarts (reason 0x10000000). Without NOS,
+# NOS (the cellular RTOS, CS0 0xA000-0x2ACFFF) runs the phone's modem side:
+# its clocks, the UEM, the DSP, the SIM. The core has none of that hardware.
+# nosstarter.ext (code 0x5034B454) copies NOS data, then calls the NOS entry
+# at virtual 0x5149E4C4 (CS0 0x9E4C4, ARM, r0 = -1) and ignores its return
+# value. Left as it is, NOS starts and waits for ever at 0x514A6DC4 for bit 25
+# of a status register it reads through 0x516C1C1C (the model, 2026-11-12;
+# the first of its hardware checks), and the boot stops. Without NOS,
 # product_info.dll faults because variant service 3 is missing, and services
 # 3, 6 and 7 are registered by nothing in the Symbian ROM. Stand-in: register
 # placeholder service objects and return (nos-stub/nos_stub.S).
 cs0file 0x9E4C4 firmware-patches/bin/nos-stub.bin
 
-# The hidden NOS DLL (header 0x51163E20) exports two functions inside the
-# encrypted code, used by nosdriver.ldd: ordinals 4 (0x514A1C90) and 6
-# (0x514A260C). Without them EStart's NOSDRIVER channel jumps into the
-# encrypted bytes (Kern restart 0x10000000). Stand-in: nos-stub/nos_dll.S
+# The hidden NOS DLL (header 0x51163E20) exports two functions inside NOS,
+# used by nosdriver.ldd: ordinals 4 (0x514A1C90) and 6 (0x514A260C). NOS's
+# own need the NOS that was never started. Stand-in: nos-stub/nos_dll.S
 # (entry points) and nos_isi.c (an offline modem answering the ISI messages
 # that reach NOS through nosdriver.ldd; replies and evidence in
-# docs/NOS_STANDIN.md). Linked by nos_dll.ld: code from CS0 0xA1C90 upward
-# inside the encrypted region, state in NOS BSS (RAM 0x8000D000).
+# docs/NOS_STANDIN.md). Linked by nos_dll.ld: code from CS0 0xA1C90 upward,
+# over NOS's own code there, state in NOS BSS (RAM 0x8000D000).
 cs0file 0xA1C90 firmware-patches/bin/nos-dll.bin
 
 # No Bluetooth controller answers on the BT UART. BTTestServer.exe (started by
@@ -53,6 +60,7 @@ cs0 0x46DC52 0028
 cs0 0x46DDAC 0028
 
 # The bootstrap checks MD5 digests of ROM ranges (0x3238, table at CS0 0x8F00).
-# Entry 0x8F18 covers 0x50009000-0x51164FFF, which includes the encrypted
-# region, so its stored digest cannot match our image; recompute it.
+# Entry 0x8F18 covers 0x50009000-0x51164FFF. The firmware as it is meets its
+# stored digest (the scrambled area decoded); the patches above lie in that
+# range, so recompute it.
 md5 0x8F18

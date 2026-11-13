@@ -29,6 +29,19 @@
  * boot), from medint.pdd's sector-size rule at 0x5037FC28 (8 KB at and above
  * region size - 64 KB, with its 4 MB region ending at the top of CS1).
  *
+ * Scrambled area: part of CS0 (the cellular software, NOS) is stored
+ * scrambled and the ASIC decodes it on array reads (ngage_scramble.h). The
+ * area is the one the image names at 0x174 / 0x178 (0xA000-0x2ACFFF in RH-29
+ * 4.10 and 4.60) [assumed: nothing in the firmware reads those words; the
+ * ASIC's boot ROM is taken to]. Array reads go straight to host memory, so
+ * the host copy holds that area decoded, from the image load on; everything
+ * that looks at the chip's data (the patches, the integrity digests) sees
+ * what the CPU reads. A program or an erase there leaves what the core's
+ * flash leaves (rtl/mem/ddram_flash.sv): the stored word becomes the word
+ * read before, ANDed with the data (FFFF for an erase), and reads back
+ * decoded. [A chip would AND the data into the stored word; nothing in the
+ * firmware programs this area.]
+ *
  * Persistence: with a save file the chip starts from that file when it
  * exists (instead of the image) and writes its whole contents back to it on
  * exit after any program or erase. CS1 0x400000-0x7FFFFF is the C: drive
@@ -47,6 +60,7 @@
 #include "qapi/error.h"
 #include "system/system.h"
 #include "hw/arm/ngage.h"
+#include "hw/arm/ngage_scramble.h"
 
 /* JAF reads "Flash ID is 0x22F800EC" on RH-29: manufacturer 0xEC, device 0x22F8. */
 #define FLASH_MANUFACTURER  0x00EC
@@ -74,6 +88,7 @@ struct NGageFlash {
     char *save_path;
     bool dirty;
     bool c_blank;       /* sticky until a new CS1 image is loaded */
+    uint32_t scr_first, scr_end;    /* the scrambled area, data[] holds it decoded; 0, 0: none */
     Notifier exit_notifier;
     /* Busy overlay: 0 none, 1 active (erase or fast program), 2 suspended erase. */
     int busy;
@@ -138,11 +153,24 @@ static uint32_t sector_len(NGageFlash *f, uint32_t off)
     return off >= f->size - SECTOR_SIZE ? BOOT_SECTOR_SIZE : SECTOR_SIZE;
 }
 
+/* The words of [off, off + len) in the scrambled area now hold stored
+ * contents (after a program or an erase): decode them as a read does. */
+static void decode_written(NGageFlash *f, uint32_t off, uint32_t len)
+{
+    uint32_t a = MAX(off & ~1u, f->scr_first), b = MIN((off + len + 1) & ~1u, f->scr_end);
+
+    if (a < b) {
+        ngage_descramble_buf(f->data + a, a, b - a);
+    }
+}
+
 static void erase(NGageFlash *f, uint32_t off, uint32_t len)
 {
     if (off < f->size) {
-        memset(f->data + off, 0xFF, MIN(len, f->size - off));
-        memory_region_flush_rom_device(&f->mr, off, MIN(len, f->size - off));
+        len = MIN(len, f->size - off);
+        memset(f->data + off, 0xFF, len);
+        decode_written(f, off, len);
+        memory_region_flush_rom_device(&f->mr, off, len);
         f->dirty = true;
     }
 }
@@ -300,7 +328,9 @@ static void flash_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
                 f->c_blank = false;
             }
         }
-        memory_region_flush_rom_device(&f->mr, addr, size);
+        decode_written(f, addr, size);
+        memory_region_flush_rom_device(&f->mr, addr & ~1u,
+                                       MIN((addr + size + 1) & ~1u, f->size) - (addr & ~1u));
         f->dirty = true;
         f->state = ST_READ;
         if (fast) {
@@ -383,7 +413,12 @@ static void flash_exit(Notifier *n, void *data)
     if (!f->dirty) {
         return;
     }
-    if (!g_file_set_contents(f->save_path, (const char *)f->data, f->size, &err)) {
+    /* the file holds the chip as it is stored */
+    g_autofree uint8_t *stored = g_memdup2(f->data, f->size);
+    if (f->scr_end) {
+        ngage_scramble_buf(stored + f->scr_first, f->scr_first, f->scr_end - f->scr_first);
+    }
+    if (!g_file_set_contents(f->save_path, (const char *)stored, f->size, &err)) {
         error_report("%s: cannot save %s: %s", memory_region_name(&f->mr), f->save_path,
                      err->message);
         g_error_free(err);
@@ -426,6 +461,11 @@ NGageFlash *ngage_flash_create(MemoryRegion *sysmem, const char *name,
         memcpy(f->data, buf, MIN(len, size));
         g_free(buf);
         f->path = g_strdup(path);
+    }
+    if (!base && ngage_scr_window(f->data, size, &f->scr_first, &f->scr_end)) {
+        ngage_descramble_buf(f->data + f->scr_first, f->scr_first, f->scr_end - f->scr_first);
+        info_report("ngage: %s 0x%x-0x%x is scrambled in flash (header 0x%x), decoded on reads",
+                    name, f->scr_first, f->scr_end - 1, NGAGE_SCR_HDR_FIRST);
     }
     f->c_blank = f->device_id == FLASH_DEVICE_CS1;
     ngage_flash_changed(f, 0, size);

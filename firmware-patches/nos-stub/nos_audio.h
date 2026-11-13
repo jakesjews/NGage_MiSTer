@@ -5,7 +5,8 @@
  * resource 0xE8 from PhoNet object 0x48 (receiver 0x505AF8F8); the DSP
  * plays it from two halves of the shared chunk audio.ldd maps at physical
  * 0x0A061000. docs/NOS_STANDIN.md has the messages and their evidence.
- * NOS and the DSP are encrypted, so the stand-in plays the halves with
+ * NOS does not run here and the DSP's code is not known (docs/NOS_STANDIN.md),
+ * so the stand-in plays the halves with
  * the HLE audio device at 0x0C1F0000, an emulator invention (model
  * hw/ngage_audio.c, docs/UPP_WD2.md):
  *   0x20 start  -> program the device and run it; reply 0x21

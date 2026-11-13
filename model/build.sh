@@ -28,6 +28,7 @@ done
 
 # Our sources go into the tree as copies so the checkout stays a plain release.
 cp hw/ngage.h "$SRC/include/hw/arm/ngage.h"
+cp hw/ngage_scramble.h "$SRC/include/hw/arm/ngage_scramble.h"
 for f in hw/ngage*.c; do
     cp "$f" "$SRC/hw/arm/"
 done

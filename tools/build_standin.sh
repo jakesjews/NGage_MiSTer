@@ -1,6 +1,7 @@
 #!/bin/zsh
 # Build the NOS stand-in binaries that firmware-patches/rom-patches.txt places
-# into CS0 (NOS, the cellular RTOS, is encrypted in flash), with the same
+# into CS0 (over the entry points of NOS, the cellular RTOS, which needs modem
+# hardware the core does not have), with the same
 # steps as model/build.sh, so that the core's patch ROM (tools/gen_patchrom.py)
 # and tools/mkimage.py need no ARM toolchain. The binaries are committed in
 # firmware-patches/bin.

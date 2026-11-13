@@ -6,7 +6,7 @@ LINT_TOPS := emu lcd_panel video_out keypad_matrix nor_flash mmc_card ngage_inpu
              sdram ddram_flash upp_bus ngage_mem flash_save rtc_wall \
              upp_periph upp_intc upp_timers upp_dma upp_mmc upp_lcdif upp_uif upp_cbus upp_haudio wb_arb2
 
-.PHONY: help lint lint-prepare test clean cpu-gen cpu-gen-check standin standin-check image-check patchrom patchrom-check
+.PHONY: help lint lint-prepare test clean cpu-gen cpu-gen-check standin standin-check image-check patchrom patchrom-check scramble-check
 
 help:
 	@echo "make lint   Lint the RTL with Verilator (-Wall)"
@@ -20,6 +20,7 @@ help:
 	@echo "make standin        Rebuild firmware-patches/bin (the NOS stand-in binaries the patches put in CS0)"
 	@echo "make standin-check  Check that firmware-patches/bin matches firmware-patches/nos-stub"
 	@echo "make image-check CS0=.. CS1=..  Check tools/mkimage.py against the model's own patcher"
+	@echo "make scramble-check Check the flash scrambler's tables (tools/nos_scramble.py, model/hw/ngage_scramble.h)"
 
 # The CPU from its sources (rtl/cpu/arm925t_gen.v, which the shell lints, is
 # the sv2v output and is excluded from style checks): the same files
@@ -84,6 +85,12 @@ CS0 ?= research/firmware/images/nor/rh29-4.10-cs0.bin
 CS1 ?= research/firmware/images/nor/rh29-4.10-cs1.bin
 image-check:
 	tools/patchcheck.sh $(CS0) $(CS1)
+
+# The flash scrambler: the Python reference against its own formulas, and the
+# tables in the model's header against the ones the reference generates.
+scramble-check:
+	python3 -I tools/nos_scramble.py --selftest
+	python3 -I tools/nos_scramble.py --check-c model/hw/ngage_scramble.h
 
 # Only project-owned NOS code and fixed integrity-table digests enter this ROM.
 patchrom:

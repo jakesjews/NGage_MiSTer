@@ -2,12 +2,16 @@
  * The reference model's flash patcher (model/hw/ngage_patch.c, compiled as it
  * is) on two flash images, outside QEMU: what the model presents in its flash
  * after loading them. tools/patchcheck.sh compares it with tools/mkimage.py.
+ * As in the model's flash (model/hw/ngage_flash.c), the patcher works on what
+ * the CPU reads: CS0's scrambled area is decoded after the load and coded
+ * again for the output, which is the images as flash stores them.
  *   patchcheck PATCHES CS0 CS1 OUT0 OUT1
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "qemu/osdep.h"
 #include "crypto/hash.h"
 #include "hw/arm/ngage.h"
+#include "../../model/hw/ngage_scramble.h"
 #ifdef __APPLE__
 #include <CommonCrypto/CommonDigest.h>
 #define MD5_BYTES(buf, len, out) CC_MD5(buf, (CC_LONG)(len), out)
@@ -50,10 +54,13 @@ static void save(NGageFlash *f, const char *path)
 int main(int argc, char **argv)
 {
     NGageFlash cs0, cs1;
+    uint32_t first = 0, end = 0;
     if (argc != 6) { fprintf(stderr, "usage: patchcheck PATCHES CS0 CS1 OUT0 OUT1\n"); return 2; }
     load(&cs0, argv[2], 16u << 20);
     load(&cs1, argv[3], 8u << 20);
+    if (ngage_scr_window(cs0.data, cs0.size, &first, &end)) ngage_descramble_buf(cs0.data + first, first, end - first);
     ngage_apply_rom_patches(argv[1], &cs0, &cs1);
+    if (end) ngage_scramble_buf(cs0.data + first, first, end - first);
     save(&cs0, argv[4]);
     save(&cs1, argv[5]);
     return 0;

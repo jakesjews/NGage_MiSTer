@@ -1,12 +1,25 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Phoenix DCT4 stream -> flash arrays, followed by the RH-29 4.10 patch ROM.
 // F1 MCU / F2 language, hps_io WIDE=1. The first file of a pair fills CS0
-// and ONLY the firmware half of CS1 with FF. The loader takes the two in
-// either order, but the RH-29 pair is only recognised with the MCU file
-// first: the language pack writes its own entry into the MCU file's
-// integrity table (CS0 0x8F00), which an MCU file loaded after it puts back
-// to FF, and the signature check below then fails (note 2). Repeating a
-// completed file starts a new pair. C: is never touched.
+// and ONLY the firmware half of CS1 with FF. Repeating a completed file
+// starts a new pair. C: is never touched.
+//
+// The two files arrive in either order (the way Andrea Bogazzi's N-Gage core
+// loads its pair). Both write the first 64 KB of CS0: the language pack
+// carries that block again with its own entry in the integrity table (CS0
+// 0x8F00), and a phone flashed in Phoenix's order ends up with the pack's
+// copy. So each byte has one owner, whichever file comes first: the pack's
+// areas (pack_area: CS0's first 64 KB, the pack's ROM at the top of CS0 and
+// the top of CS1's firmware half, what every 4.10 pack writes and the MCU
+// file otherwise does not) take the pack's bytes, everything else the MCU
+// file's; a byte of the other file's area is checked with its record and
+// not written. The slot says which file it is: F1 or boot0.rom / boot.rom
+// the MCU file, F2 or boot1.rom the pack.
+//
+// Flash is written as the files hold it, which is as the chips store it:
+// CS0 0xA000-0x2ACFFF (the cellular software) stays scrambled and
+// rtl/mem/ddram_flash.sv decodes it on reads. The patch ROM's records for
+// that area are scrambled to match (tools/gen_patchrom.py).
 //
 // Checksums: complemented byte sum, with the +1 data-checksum convention
 // used by the supplied C1/S5 also accepted (fls2bin's d_fix == 1). For 21,
@@ -87,16 +100,21 @@ module phoenix_load #(
 	wire [32:0] block_end = {1'b0, addr} + {9'd0, length};
 	wire in_range = (addr < 32'h0100_0000 && block_end <= 33'h00100_0000) ||
 	                (addr >= 32'h0200_0000 && block_end <= 33'h00240_0000);
+	// the language pack's areas, in the files' addresses
+	wire pack_area = addr < 32'h0001_0000 || (addr >= 32'h00F0_0000 && addr < 32'h0100_0000) ||
+	                 (addr >= 32'h0233_0000 && addr < 32'h0240_0000);
 
 	function automatic logic [28:0] image_beat(input logic chip, input logic [20:0] beat);
 		return (chip ? CS1_BASE : CS0_BASE) + {8'd0, beat};
 	endfunction
-	// The pair is recognised by four words of CS0 as the files wrote them:
-	// 0: the MCU file's ROM header time stamp (bytes 0x80-0x87), 4.10's;
+	// The pair is recognised by four words of CS0 as the files wrote them,
+	// all in the first 64 KB, the pack's copy of it:
+	// 0: the ROM header's time stamp (bytes 0x80-0x87), 4.10's;
 	// 1: the language pack's own integrity entry (8F00) is written, any
 	//    of 4.10's packs;
 	// 2, 3: entry 8F18's unpatched digest, which a 4.10 pack carries for
-	//    the 4.10 MCU file.
+	//    the 4.10 MCU file. The bootstrap then checks the MCU file's bytes
+	//    against the digest the patch ROM puts there.
 	function automatic logic [28:0] signature_beat(input logic [1:0] n);
 		return n == 0 ? 29'h10 : 29'h11E1 + 29'(n) + 29'(n[1]);
 	endfunction
@@ -247,8 +265,11 @@ module phoenix_load #(
 					DATA: begin
 						left <= left - 24'd1; dsum <= sum_next;
 						if (mapped) begin
-							ld_we <= 1; ld_addr <= image_beat(addr[25], addr[23:3]);
-							ld_din <= {8{byte_in}}; ld_be <= 8'b1 << addr[2:0];
+							// each byte from its owner, whichever file came first
+							if (pack_area == lang) begin
+								ld_we <= 1; ld_addr <= image_beat(addr[25], addr[23:3]);
+								ld_din <= {8{byte_in}}; ld_be <= 8'b1 << addr[2:0];
+							end
 							addr <= addr + 32'd1;
 						end
 						if (left == 1) begin

@@ -9,17 +9,45 @@ firmware file's entry 0x8F18, whose range holds every patch. The language
 pack's own entry (0x8F00) is left as the pack wrote it, so any 4.10 pack loads.
 The payload fingerprint prevents a changed stand-in/patch list from silently
 using stale digests: recalculate with mkimage.py and update the constants here.
+
+The patch list gives bytes as the phone reads them. The loader writes flash as
+it is stored, and CS0 0xA000-0x2ACFFF is stored scrambled (tools/nos_scramble.py;
+the core decodes it on reads), so a patch there goes into the ROM scrambled. The
+scrambler works on 16-bit words: such a patch must cover whole words, so that
+no stored byte depends on the firmware's own.
 """
 import argparse
 import hashlib
+import importlib.util
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PATCH_DIGESTS = {
-    0x8F18: "cd5ec29ba5e3a4809834e3c469706832",
+    0x8F18: "06baac2bc6671141221ddc082f0b70c9",
 }
 # SHA256 of the encoded patch records, before the digest records/terminator.
-PAYLOAD_SHA256 = "ebd5b7d43d9b52eea5ab8fa718c55f6087cf3b5b9597acadf89f1dbb0821082f"
+PAYLOAD_SHA256 = "64f8579c64d286fe943948928130a0d568ace79373cb7cb39b7ae2501a3136b3"
+
+
+def load_scrambler():
+    sys.dont_write_bytecode = True
+    spec = importlib.util.spec_from_file_location("nos_scramble", ROOT / "tools/nos_scramble.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def stored(scr, chip, offset, data):
+    """The bytes flash holds for a patch the phone is to read as data."""
+    first, end = scr.RH29_WINDOW
+    if chip != 0 or offset >= end or offset + len(data) <= first:
+        return data
+    if offset < first or offset + len(data) > end:
+        raise ValueError("patch at CS0 0x%X crosses the edge of the scrambled area" % offset)
+    if offset & 1 or len(data) & 1:
+        raise ValueError("patch at CS0 0x%X is in the scrambled area and must cover whole 16-bit words" % offset)
+    return scr.encode(data, offset)
 
 
 def record(chip, offset, data):
@@ -30,6 +58,7 @@ def record(chip, offset, data):
 
 
 def generate():
+    scr = load_scrambler()
     out = bytearray()
     for line in (ROOT / "firmware-patches/rom-patches.txt").read_text().splitlines():
         fields = line.split("#", 1)[0].split()
@@ -45,7 +74,7 @@ def generate():
             raise ValueError(f"unsupported patch: {line}")
         data = ((ROOT / value[0]).read_bytes()
                 if kind.endswith("file") else bytes.fromhex(value[0]))
-        out += record(int(kind[2]), off, data)
+        out += record(int(kind[2]), off, stored(scr, int(kind[2]), off, data))
     if hashlib.sha256(out).hexdigest() != PAYLOAD_SHA256:
         raise ValueError("patch payload changed: recompute the 4.10 MD5 with mkimage.py")
     for entry, digest in PATCH_DIGESTS.items():

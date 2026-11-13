@@ -1,8 +1,8 @@
 /*
  * NOS stand-in, part 3: an offline modem at the ISI message level.
  *
- * The real NOS (the cellular side) is encrypted in flash; its key is in the
- * UPP_WD2 silicon. Symbian talks to it through nosdriver.ldd, which hands
+ * The real NOS (the cellular side) needs the phone's modem hardware, which
+ * the core does not have, and is not run. Symbian talks to it through nosdriver.ldd, which hands
  * every channel call to an object built by the hidden NOS DLL (see
  * nos_dll.S): vtable +0x0C cancel(mask), +0x10 request(fn, status, a1, a2),
  * +0x14 control(fn, a1, a2). User code reaches the channel through

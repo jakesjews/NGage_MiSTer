@@ -31,11 +31,17 @@ inline Bytes table(bool known = true) {
 	if (!known) t[32] ^= 1;
 	return t;
 }
-inline Bytes mcu(bool known = true, bool damaged = false) {
+// The loader gives every byte one owner (phoenix_load.sv, pack_area): the
+// first 64 KB of CS0, CS0 from 0xF00000 and CS1 from 0x330000 are the
+// language pack's, the rest the MCU file's. Both files below also carry a
+// record in the other's area (bytes EE), as the real MCU file does for the
+// first 64 KB: those must never reach flash.
+inline Bytes mcu(bool damaged = false) {
 	auto v = stream();
-	record(v, 0x14, 0x80, {0,0,0,0,0x40,0x24,0x44,0x18}); // the 4.10 ROM header's time stamp
-	record(v, 0x21, 0x180, {1,2,3,4,5});
-	record(v, 0x14, 0x8F00, table(known), damaged);
+	record(v, 0x14, 0x80, {0xEE,0xEE,0xEE,0xEE,0xEE,0xEE,0xEE,0xEE}); // its copy of the ROM header: the pack's area
+	record(v, 0x21, 0x10180, {1,2,3,4,5});
+	record(v, 0x14, 0x12000, {0x55,0x66}, damaged);
+	record(v, 0x14, 0x00F00010, {0xEE}); // the pack's ROM area
 	record(v, 0x14, 0x02000003, {0x11,0x22,0x33,0x44}, false, false);
 	v.insert(v.end(), {0x20,0,0,0,3,0, 0x14,0x21,0xFF}); // Bluetooth, not records
 	v.insert(v.end(), {0x25,3,0x14,0x21,0xFF});
@@ -43,5 +49,13 @@ inline Bytes mcu(bool known = true, bool damaged = false) {
 	record(v, 0x2E, 0, {9,8,7}, false, false); // mass memory, never NOR
 	return v;
 }
-inline Bytes language() { auto v = stream(); record(v, 0x14, 0x00F00001, {6,7,8,9}); return v; }
+inline Bytes language(bool known = true) {
+	auto v = stream();
+	record(v, 0x14, 0x80, {0,0,0,0,0x40,0x24,0x44,0x18}); // the 4.10 ROM header's time stamp
+	record(v, 0x14, 0x8F00, table(known));
+	record(v, 0x14, 0x00F00001, {6,7,8,9});
+	record(v, 0x14, 0x20000, {0xEE}); // the MCU file's area
+	record(v, 0x14, 0x02330000, {0x77});
+	return v;
+}
 }

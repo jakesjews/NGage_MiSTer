@@ -2,7 +2,7 @@
  * HLE audio device at 0x0C1F0000: an EMULATOR INVENTION, not UPP_WD2
  * hardware. On the phone, PCM goes from SoundDevice.mda to NOS over ISI
  * (resource 0xE8, docs/NOS_STANDIN.md) and NOS has the DSP play it from a
- * shared SDRAM chunk; both are encrypted. The NOS stand-in answers those
+ * shared SDRAM chunk; neither runs here. The NOS stand-in answers those
  * messages and drives this device, which the FPGA core implements as a
  * small block reading PCM from SDRAM. Nothing in the firmware touches the
  * 0x0C1Fxxxx page (no constant in the ROM, no access in any run), and

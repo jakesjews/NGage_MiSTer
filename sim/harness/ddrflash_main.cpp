@@ -12,11 +12,18 @@
 //    the cache is emptied after a download, so reads see the new image;
 //  * a reset in the middle of requests drops them without an answer, and
 //    the port's Avalon rules hold (commands left waiting are not changed);
-//  * every answer comes while its request is up, and only one.
+//  * every answer comes while its request is up, and only one;
+//  * the scrambled area: reads of CS0 words inside the area the image names
+//    at 0x174 / 0x178 answer with the stored word decoded (the formulas of
+//    model/hw/ngage_scramble.h), everywhere else with the stored word; the
+//    area follows the header after a load or a reset and not before; headers
+//    that are not whole pages, out of order or beyond the chip give no area;
+//    a word written inside the area reads back decoded.
 #include "Vddram_flash.h"
 #include "verilated.h"
 #include "common.h"
 #include "ddram_model.h"
+#include "../../model/hw/ngage_scramble.h"
 
 #include <cstring>
 
@@ -55,8 +62,29 @@ struct Bench {
 	uint32_t ld_addr = 0;
 	uint16_t ld_data = 0;
 	uint64_t ld_writes = 0;
+	// the scrambled area the core has to be using: what the header in DDR3
+	// named when the core last read it (after a reset or a load)
+	bool     win_on = false;
+	uint32_t win_first = 0, win_end = 0;
+	uint64_t win_reads = 0;
 
-	Bench(uint32_t seed) : ddr(48u << 20, seed * 3 + 1), rng(seed) {
+	void latch_window() {
+		win_on = ngage_scr_window(&ddr.mem[CS_BASE[0] - DdramModel::BASE], CS_WORDS[0] * 2, &win_first, &win_end);
+	}
+	bool in_window(int n, uint32_t a) const { return n == 0 && win_on && 2 * a >= win_first && 2 * a < win_end; }
+	// what a read of word a must answer
+	uint16_t view(int n, uint32_t a) const {
+		return in_window(n, a) ? ngage_descramble(shadow[n][a], 2 * a) : shadow[n][a];
+	}
+	static bool header_word(int n, uint32_t a) { return n == 0 && a >= NGAGE_SCR_HDR_FIRST / 2 && a < NGAGE_SCR_HDR_END / 2 + 2; }
+
+	Bench(uint32_t seed, uint32_t first = 0xA000, uint32_t end = 0x2AD000) : ddr(48u << 20, seed * 3 + 1), rng(seed) {
+		// the header RH-29 carries, in the junk DDR3 starts with
+		for (int i = 0; i < 4; i++) {
+			ddr.byte(CS_BASE[0] + NGAGE_SCR_HDR_FIRST + i) = first >> (8 * i);
+			ddr.byte(CS_BASE[0] + NGAGE_SCR_HDR_END + i) = end >> (8 * i);
+		}
+		latch_window();
 		p[0].n = 0; p[1].n = 1;
 		for (int n = 0; n < 2; n++) {
 			shadow[n].resize(CS_WORDS[n]);
@@ -111,7 +139,8 @@ struct Bench {
 					CHECK_EQ(ddr.half(phys(n, q.addr)), q.wdata, "written word in DDR3");
 				} else {
 					q.reads++;
-					uint16_t want = shadow[n][q.addr];
+					uint16_t want = view(n, q.addr);
+					if (in_window(n, q.addr)) win_reads++;
 					if (rdata[n] != want)
 						sim::fail("CS%d read of %06x: got %04x, want %04x (cycle %llu)", n, q.addr, rdata[n], want, (unsigned long long)cyc);
 					if (lat == 0) q.lat0++;
@@ -151,6 +180,9 @@ struct Bench {
 		if (writes && k < 20) {
 			q.we = true;
 			q.addr = (q.hot + (rng.u32() & 1023)) & mask;
+			// the header changes only through loads here; main() programs it
+			// by itself at the end
+			if (header_word(q.n, q.addr)) q.addr += 8;
 			q.wdata = rng.chance(40) ? 0xFFFF : (uint16_t)rng.u32();
 			q.last_write = q.addr;
 			q.wrote = true;
@@ -166,9 +198,19 @@ struct Bench {
 		q.addr = (rng.chance(80) ? q.hot + (rng.u32() & 1023) : rng.u32()) & mask;
 	}
 
-	// move the hot windows
-	void new_windows() {
+	// move the hot windows; on request CS0's goes into the scrambled area
+	// or across one of its edges
+	void new_windows(bool area) {
 		for (auto &q : p) { q.hot = rng.chance(50) ? 0 : (rng.u32() & ~1023u); q.left = 0; }
+		if (win_on && area) {
+			uint32_t w0 = win_first / 2, w1 = win_end / 2;
+			switch (rng.range(0, 2)) {
+			case 0:  p[0].hot = w0 - 512; break;
+			case 1:  p[0].hot = w1 - 512; break;
+			default: p[0].hot = w0 + rng.u32() % (w1 - w0); break;
+			}
+			p[0].hot &= CS_WORDS[0] - 1;
+		}
 	}
 
 	void run(uint64_t n, bool writes) {
@@ -203,6 +245,38 @@ struct Bench {
 		}
 		for (int i = 0; i < 10; i++) tick();
 		reset = false;
+		latch_window();   // the core reads the header again before it answers
+	}
+
+	// load the two header words (reset held, as a download)
+	void plant_window(uint32_t first, uint32_t end) {
+		reset = true;
+		p[0].req = p[1].req = false;
+		tick();
+		const uint32_t at[4] = {NGAGE_SCR_HDR_FIRST, NGAGE_SCR_HDR_FIRST + 2, NGAGE_SCR_HDR_END, NGAGE_SCR_HDR_END + 2};
+		const uint16_t val[4] = {(uint16_t)first, (uint16_t)(first >> 16), (uint16_t)end, (uint16_t)(end >> 16)};
+		for (int i = 0; i < 4; i++) {
+			ld = true; ld_addr = CS_BASE[0] + at[i]; ld_data = val[i];
+			while (ld) tick();
+		}
+		for (int i = 0, n = rng.range(1, 6); i < n; i++) tick();
+		reset = false;
+		latch_window();
+	}
+
+	// one request, answered: a read returns its word
+	uint16_t one(int n, bool we, uint32_t addr, uint16_t wdata = 0) {
+		Port &q = p[n];
+		q.req = true; q.we = we; q.addr = addr; q.wdata = wdata; q.since = cyc;
+		uint16_t got = 0;
+		for (int i = 0; i < 20000 && q.req; i++) {
+			drive(); t->eval();
+			got = n ? t->cs1_rdata : t->cs0_rdata;
+			tick();
+		}
+		CHECK(!q.req, "request not answered");
+		q.we = false;
+		return got;
 	}
 
 	// Version reads must work under reset and drain any preceding chip read.
@@ -263,11 +337,11 @@ struct Bench {
 			CHECK_EQ(first_beat, (int)(beat_addr & 1), "cache-hit line read returns critical 8-byte beat first");
 		uint32_t base_word = (beat_addr & ~1u) * 4;
 		for (int b = 0; b < 2; b++) {
-			uint64_t want = (uint64_t)shadow[n][base_word + 4 * b + 0]
-			              | ((uint64_t)shadow[n][base_word + 4 * b + 1] << 16)
-			              | ((uint64_t)shadow[n][base_word + 4 * b + 2] << 32)
-			              | ((uint64_t)shadow[n][base_word + 4 * b + 3] << 48);
-			CHECK_EQ(beats[b], want, "line read 64-bit beat matches shadow");
+			uint64_t want = (uint64_t)view(n, base_word + 4 * b + 0)
+			              | ((uint64_t)view(n, base_word + 4 * b + 1) << 16)
+			              | ((uint64_t)view(n, base_word + 4 * b + 2) << 32)
+			              | ((uint64_t)view(n, base_word + 4 * b + 3) << 48);
+			CHECK_EQ(beats[b], want, "line read 64-bit beat matches what the CPU is to read");
 		}
 	}
 };
@@ -339,7 +413,10 @@ int main(int argc, char **argv) {
 	b.settle();
 
 	for (int r = 0; r < rounds && sim::failures() < 20; r++) {
-		b.new_windows();
+		// every other round reads and writes in the scrambled area (RH-29's
+		// when an earlier round left the image without one)
+		if ((r & 1) && !b.win_on) { b.settle(); b.plant_window(0xA000, 0x2AD000); }
+		b.new_windows(r & 1);
 		b.run(20000, true);
 		// a reset in the middle of things; nor_flash drops its requests
 		if (r % 3 == 1) {
@@ -352,6 +429,20 @@ int main(int argc, char **argv) {
 		if (r % 4 == 2) {
 			b.settle();
 			b.download(b.rng.range(0, 1), b.p[0].hot + b.rng.range(0, 512), b.rng.range(200, 2000));
+		}
+		// another header: RH-29's, a small area where CS0's reads are, the
+		// whole chip, or one that must not count
+		if (r % 4 == 0 && r) {
+			b.settle();
+			uint32_t at = (2 * b.p[0].hot) & 0xFFF000;
+			switch (b.rng.range(0, 5)) {
+			case 0:  b.plant_window(0xA000, 0x2AD000); break;
+			case 1:  b.plant_window(at, at + 0x1000); break;
+			case 2:  b.plant_window(0, 0x1000000); break;
+			case 3:  b.plant_window(0xA000, 0x2AD800); break;       // not whole pages
+			case 4:  b.plant_window(0x2AD000, 0xA000); break;       // out of order
+			default: b.plant_window(0xF00000, 0x1001000); break;    // beyond the chip
+			}
 		}
 		// loader writes outside reset into CS1's top 2 KB, which the reads
 		// then cover: the cache must be emptied for them
@@ -384,6 +475,55 @@ int main(int argc, char **argv) {
 		b.settle();
 		b.loader_read(CS_BASE[i & 1] + 0x8F08 + 8 * i, true);
 	}
+
+	// ---- the scrambled area, step by step
+	b.settle();
+	b.plant_window(0xA000, 0x2AD000);
+	CHECK(b.win_on && b.win_first == 0xA000 && b.win_end == 0x2AD000, "RH-29's header names its area");
+	{
+		// the edges: the last word before, the first and last inside, the first after
+		const uint32_t edge[4] = {0xA000 / 2 - 1, 0xA000 / 2, 0x2AD000 / 2 - 1, 0x2AD000 / 2};
+		for (int i = 0; i < 4; i++) {
+			uint16_t stored = b.shadow[0][edge[i]], got = b.one(0, false, edge[i]);
+			bool inside = i == 1 || i == 2;
+			CHECK_EQ(got, inside ? ngage_descramble(stored, 2 * edge[i]) : stored, "read at an edge of the area");
+		}
+		// CS1 at the same addresses is never decoded
+		CHECK_EQ(b.one(1, false, 0xA000 / 2), b.shadow[1][0xA000 / 2], "CS1 is not scrambled");
+		// a word written in the area: stored as given, read back decoded, from
+		// a cached line and a beat buffer that held the old word
+		uint32_t a = 0x9E4C4 / 2;
+		b.one(0, false, a); b.one(0, false, a + 1);
+		b.one(0, true, a, 0x1234);
+		CHECK_EQ(b.ddr.half(b.phys(0, a)), 0x1234, "a write in the area is stored as given");
+		CHECK_EQ(b.one(0, false, a), ngage_descramble(0x1234, 2 * a), "and reads back decoded");
+		CHECK_EQ(b.one(0, false, a + 1), ngage_descramble(b.shadow[0][a + 1], 2 * (a + 1)), "its neighbour is unchanged");
+		b.one(0, true, a + 5, 0xFFFF);   // an erased word does not read FFFF there
+		CHECK_EQ(b.one(0, false, a + 5), ngage_descramble(0xFFFF, 2 * (a + 5)), "an erased word in the area reads decoded");
+		// line reads inside and across the end of the area (0x2AD000 is a line start)
+		b.line_read(0, 0x9E4C0 / 8, false);
+		b.line_read(0, 0x9E4C0 / 8 + 1, true);
+		b.line_read(0, 0x2ACFF0 / 8, false);
+		b.line_read(0, 0x2AD000 / 8, false);
+		// The header programmed through the flash port (0x2AD000 -> 0x2A0000,
+		// clearing bits only): the area stays as it was until the next reset.
+		uint32_t probe = 0x2A8000 / 2;
+		b.one(0, true, NGAGE_SCR_HDR_END / 2, 0x0000);
+		CHECK_EQ(b.one(0, false, probe), ngage_descramble(b.shadow[0][probe], 2 * probe), "a programmed header does not move the area at once");
+		b.reset = true; b.p[0].req = b.p[1].req = false;
+		for (int i = 0; i < 3; i++) b.tick();
+		b.reset = false;
+		b.latch_window();
+		CHECK(b.win_on && b.win_end == 0x2A0000, "the bench's own view of the new header");
+		CHECK_EQ(b.one(0, false, probe), b.shadow[0][probe], "after a reset the area is the header's");
+		CHECK_EQ(b.one(0, false, 0x29FFFE / 2), ngage_descramble(b.shadow[0][0x29FFFE / 2], 0x29FFFE), "the new last word is decoded");
+		// an erased header: no area at all
+		b.plant_window(0xFFFFFFFF, 0xFFFFFFFF);
+		CHECK(!b.win_on, "an erased header names no area");
+		CHECK_EQ(b.one(0, false, a), b.shadow[0][a], "no area: the stored word");
+	}
+	CHECK(b.win_reads > 2000, "too few reads inside the scrambled area (%llu)", (unsigned long long)b.win_reads);
+	printf("scrambled area: %llu reads decoded\n", (unsigned long long)b.win_reads);
 
 	for (int i = 0; i < 200; i++) b.tick();
 	CHECK(b.ddr.idle(), "DDR3 reads still in flight at the end");

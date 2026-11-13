@@ -28,7 +28,10 @@
 //                      image in the DDRAM model (the flash contents, writes
 //                      included) when that chip was in read-array mode (no
 //                      command, program or erase) from before the beat
-//                      began; report the first mismatches and the count
+//                      began; report the first mismatches and the count.
+//                      Words of the scrambled area the CS0 image names
+//                      (0x174 / 0x178) are compared decoded, as the core
+//                      has to answer them (model/hw/ngage_scramble.h)
 //   --buslog FILE      one line per CPU beat to CS0/CS1/SDRAM: clock, R|W,
 //                      address, SEL, data, CTI
 //   --until TEXT       stop when the STI text ends with TEXT
@@ -65,6 +68,7 @@
 #include "common.h"
 #include "ddram_model.h"
 #include "sdram_model.h"
+#include "../../model/hw/ngage_scramble.h"
 #include "../profile/cpu_profile.h"
 #include "../profile/load_use.h"
 
@@ -684,9 +688,16 @@ struct Bench {
 		if (!array_prev[chip_n] || array_since[chip_n] >= beat_start) return;
 		uint32_t off = chip_n ? ((a - 0x02000000u) & 0x7FFFFFu) : (a & 0xFFFFFFu);
 		uint32_t base = DDR_BASE + (chip_n ? 0x01000000u : 0) + (off & ~3u) - DdramModel::BASE;
+		uint8_t word[4];
+		memcpy(word, &dm.mem[base], 4);
+		// the scrambled area of CS0 is read decoded
+		uint32_t scr_first = 0, scr_end = 0;
+		if (!chip_n && ngage_scr_window(&dm.mem[DDR_BASE - DdramModel::BASE], 16u << 20, &scr_first, &scr_end) &&
+		    (off & ~3u) >= scr_first && (off & ~3u) < scr_end)
+			ngage_descramble_buf(word, off & ~3u, 4);
 		uint32_t want = 0, mask = 0;
 		for (int i = 0; i < 4; i++)
-			if (be >> i & 1) { want |= (uint32_t)dm.mem[base + i] << (8 * i); mask |= 0xFFu << (8 * i); }
+			if (be >> i & 1) { want |= (uint32_t)word[i] << (8 * i); mask |= 0xFFu << (8 * i); }
 		flash_checked[chip_n]++;
 		if ((d & mask) != want) {
 			if (flash_bad < 20)

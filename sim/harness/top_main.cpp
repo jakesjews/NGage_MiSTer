@@ -301,19 +301,23 @@ static void test_phoenix(const std::string &out) {
 	static const uint32_t prog[] = {0xE3A0040A,0xE59F1010,0xE5801000,0xE5902000,
 	                                0xE2822001,0xE5802004,0xEAFFFFFE,0x12345678};
 	phoenix::Bytes code(sizeof prog); memcpy(code.data(), prog, sizeof prog);
-	auto mcu = phoenix::mcu(); phoenix::record(mcu, 0x14, 0, code);
+	// The program is in the first 64 KB of CS0: the language pack's area
+	// (rtl/mister/phoenix_load.sv), so the pack's stream carries it.
+	auto mcu = phoenix::mcu();
+	auto lang = phoenix::language(); phoenix::record(lang, 0x14, 0, code);
 	// Framework order with no launcher: Main sends boot0.rom, the MCU file
 	// (index 0), and then boot1.rom, the language pack (file number 1 in index
 	// bits 7:6, no menu index: 0x40).
 	b.download(0, mcu);
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "MCU alone cannot boot");
-	CHECK_EQ(b.ddr[0x185], 255, "Phoenix FF gap");
+	CHECK_EQ(b.ddr[0x10185], 255, "Phoenix FF gap");
 	CHECK_EQ(b.ddr[0xFFFFFF], 255, "CS0 fill reaches last byte");
 	CHECK_EQ(b.ddr[0x13FFFFF], 255, "CS1 firmware fill reaches last byte");
 	CHECK_EQ(b.ddr[0x1400000], 0x5A, "Phoenix fill stops before C:");
-	CHECK_EQ(b.ddr[0x180], 1, "21 record data");
+	CHECK_EQ(b.ddr[0x10180], 1, "21 record data");
+	CHECK_EQ(b.ddr[0x84], 255, "the MCU file leaves the first 64 KB to the pack");
 	CHECK_EQ(b.ddr[0x1000003], 0x11, "14 CS1 record data");
-	b.download(0x40, phoenix::language());
+	b.download(0x40, lang);
 	CHECK(r.emu__DOT__ph_ready && r.emu__DOT__cpu_reset, "both files still need C:");
 	CHECK_EQ(b.ddr[0xF00001], 6, "language mapped");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 8), 1, "4.10 OSD message");
@@ -360,14 +364,14 @@ static void test_phoenix(const std::string &out) {
 	};
 	CHECK_EQ(word(reload, 189), (1u << 28) | (1u << 22) | (4u << 19), "MCU-only pair and retained reload note");
 	CHECK_EQ(word(reload, 193), 0x21000000u, "two MCU starts, one language start, no errors");
-	b.download(2, phoenix::language()); b.ticks(10000);
+	b.download(2, lang); b.ticks(10000);
 	CHECK(r.emu__DOT__ph_ready && !r.emu__DOT__cpu_reset, "companion reload releases reset");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 10), 1, "companion needs no reload warning");
 
 	// Manual order: the save stays mounted while language arrives before MCU.
 	// Picked in the OSD under their .rom names: the second extension of F2 and
 	// F1 puts 1 in index bits 7:6 above the menu index (0x42, 0x41).
-	b.download(0x42, phoenix::language());
+	b.download(0x42, lang);
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "new pair invalidates old firmware");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 10), 2, "language resend also requests both files");
 	b.download(0x41, mcu);
@@ -375,11 +379,11 @@ static void test_phoenix(const std::string &out) {
 	CHECK(r.emu__DOT__ph_ready && !r.emu__DOT__cpu_reset, "reverse order with save already mounted");
 	CHECK(!memcmp(b.ddr + 0x1400000, b.img1.data(), b.img1.size()), "firmware reload preserved C:");
 
-	b.download(1, phoenix::mcu(false)); b.download(2, phoenix::language());
+	b.download(1, phoenix::mcu()); b.download(2, phoenix::language(false));
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "unknown version holds CPU");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 9), 1, "unknown version OSD message");
 	CHECK_EQ(b.ddr[0x9E4C4], 255, "unknown version unpatched");
-	b.download(1, phoenix::mcu(true, true));
+	b.download(1, phoenix::mcu(true));
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "bad checksum holds CPU");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "damaged file OSD message");
 	CHECK(!b.ddr_stray && !b.dm.protocol_errors, "Phoenix shared DDR protocol");
@@ -402,7 +406,9 @@ static void test_phoenix(const std::string &out) {
 // (status 0) is held, boot0.rom and boot1.rom go out back to back with no
 // wait for the loader's verify and patch stage, boot0.vhd is mounted straight
 // after them, the clock follows, and only then is the reset bit released.
-static void test_boot_files() {
+// boot_rom: the firmware under the name boot.rom, which Main sends after the
+// numbered files, so the language pack (boot1.rom) arrives first.
+static void test_boot_files(bool boot_rom) {
 	Bench b;
 	auto &r = *b.r;
 	b.ticks(30000);
@@ -410,10 +416,17 @@ static void test_boot_files() {
 	static const uint32_t prog[] = {0xE3A0040A,0xE59F1010,0xE5801000,0xE5902000,
 	                                0xE2822001,0xE5802004,0xEAFFFFFE,0x12345678};
 	phoenix::Bytes code(sizeof prog); memcpy(code.data(), prog, sizeof prog);
-	auto mcu = phoenix::mcu(); phoenix::record(mcu, 0x14, 0, code);
-	b.download(0, mcu, false);
-	b.ticks(3000);
-	b.download(0x40, phoenix::language(), false);
+	auto mcu = phoenix::mcu();
+	auto lang = phoenix::language(); phoenix::record(lang, 0x14, 0, code);
+	if (boot_rom) {
+		b.download(0x40, lang, false);
+		b.ticks(3000);
+		b.download(0, mcu, false);
+	} else {
+		b.download(0, mcu, false);
+		b.ticks(3000);
+		b.download(0x40, lang, false);
+	}
 	b.ticks(300);
 	b.img1.assign(4u << 20, 255);
 	r.emu__DOT__hps_io__DOT__sim_size = b.img1.size();
@@ -430,11 +443,12 @@ static void test_boot_files() {
 	CHECK(b.clocks < end, "boot files: the CPU starts after both ROMs and boot0.vhd");
 	CHECK(r.emu__DOT__ph_ready, "boot files: firmware pair ready");
 	CHECK(!memcmp(b.ddr + 0x1400000, b.img1.data(), b.img1.size()), "boot files: C: image loaded");
-	CHECK_EQ(b.ddr[0x180], 1, "boot files: MCU record data");
+	CHECK_EQ(b.ddr[0x10180], 1, "boot files: MCU record data");
 	CHECK_EQ(b.ddr[0xF00001], 6, "boot files: language mapped");
 	b.ticks(10000);
 	CHECK(b.cpu_writes.size() == 2, "boot files: the program ran");
-	printf("boot files: both ROMs back to back, boot0.vhd, then the reset bit released (%llu clocks)\n", (unsigned long long)b.clocks);
+	printf("boot files (%s): both ROMs back to back, boot0.vhd, then the reset bit released (%llu clocks)\n",
+	       boot_rom ? "boot1.rom, then boot.rom" : "boot0.rom, then boot1.rom", (unsigned long long)b.clocks);
 }
 
 int main(int argc, char **argv) {
@@ -442,7 +456,8 @@ int main(int argc, char **argv) {
 	std::string out = "sim/build/out";
 	for (int i = 1; i < argc; i++)
 		if (!strcmp(argv[i], "--out") && i + 1 < argc) out = argv[++i];
-	test_boot_files();
+	test_boot_files(false);
+	test_boot_files(true);
 	test_phoenix(out);
 	Bench b;
 	auto &R = *b.r;

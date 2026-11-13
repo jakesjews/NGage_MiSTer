@@ -127,8 +127,10 @@ wire         ioctl_download;
 // 0x40): they are the firmware and its language pack, as F1 and F2 are. A
 // file picked in the OSD or named by a launcher keeps its menu index in bits
 // 5:0 (bits 7:6 are then its extension). boot2.rom and boot3.rom (0x80, 0xC0)
-// are not used. boot.rom also arrives as index 0, but after boot1.rom, and
-// the language pack has to follow the firmware (rtl/mister/phoenix_load.sv).
+// are not used. boot.rom also arrives as index 0, after boot1.rom: it is the
+// firmware under the other name, and the loader takes the two in either
+// order (rtl/mister/phoenix_load.sv). With both boot0.rom and boot.rom in
+// the folder the second starts a new pair that no language pack completes.
 wire  [15:0] ioctl_index_hps;
 wire  [15:0] ioctl_index = ioctl_index_hps[5:0] != 6'd0 ? ioctl_index_hps :
                            ioctl_index_hps[7:6] == 2'd0 ? 16'd1 :

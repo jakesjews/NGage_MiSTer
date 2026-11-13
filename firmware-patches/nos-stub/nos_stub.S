@@ -1,8 +1,8 @@
 /*
  * NOS stand-in (firmware patch, see firmware-patches/rom-patches.txt).
  *
- * NOS, the cellular RTOS, is encrypted in our flash image. Symbian reaches it
- * in two ways that matter for boot:
+ * NOS, the cellular RTOS, needs the phone's modem hardware and is not run
+ * (docs/NOS_STANDIN.md). Symbian reaches it in two ways that matter for boot:
  *   1. nosstarter.ext calls its entry at 0x5149E4C4 (ARM, r0 = -1) once,
  *      after copying NOS data and clearing NOS BSS (0x8000C378, 0xC1ED8 bytes).
  *   2. NOS registers kernel "services" with the variant (ecust.dll):

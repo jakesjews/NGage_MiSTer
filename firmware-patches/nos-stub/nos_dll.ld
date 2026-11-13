@@ -6,7 +6,9 @@ SECTIONS
     .entry4 : { KEEP(*(.entry4)) }
     . = 0x514A260C;
     .entry6 : { KEEP(*(.entry6)) }
-    .text : { *(.text .text.*) *(.rodata .rodata.*) }
+    /* Whole words: the patch tools write this into the scrambled part of
+     * CS0 (0xA000-0x2ACFFF), where flash is coded 16 bits at a time. */
+    .text : { *(.text .text.*) *(.rodata .rodata.*) . = ALIGN(4); }
     /* NOS BSS 0x8000C378-0x800CE250 is zeroed by nosstarter.ext; the
      * entry stub uses 0x8000C378-0x8000C588. */
     .bss 0x8000D000 (NOLOAD) : { *(.bss .bss.* COMMON) }

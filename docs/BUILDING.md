@@ -24,6 +24,10 @@ and is never in the repository.
   matches the patch list, `firmware-patches/rom-patches.txt`.
 - `make standin-check`: the binaries in `firmware-patches/bin` match
   `firmware-patches/nos-stub` (arm-none-eabi-gcc).
+- `make scramble-check`: the flash scrambler's three copies agree
+  (`tools/nos_scramble.py`, `model/hw/ngage_scramble.h`; the core's copy in
+  `rtl/mem/ddram_flash.sv` is checked against the header by the `ddrflash`
+  bench).
 
 `make help` lists the single benches.
 
@@ -62,7 +66,14 @@ screenshot of it. Every build without the macro is the plain core.
 
 - `tools/mkimage.py phoenix RH2941.0C1 RH2941.021 -o build/coreboot` makes the
   flat flash images `cs0.bin` and `cs1.bin` that the firmware bench and the
-  reference model read.
+  reference model read. They are flash as the chips store it: CS0
+  `0xA000`-`0x2ACFFF` is scrambled, the patches there included, and the core
+  decodes it on reads. Images made before 2026-11-12 held the patches there
+  as plain bytes and do not run on this core: make them again. `--plain`
+  writes CS0 decoded, for a disassembler.
+- `make -C sim phoenix-real PHOENIX_REF=build/coreboot` runs the core's
+  loader over the two firmware files, in both orders, and compares the flash
+  it writes with those images.
 - The core recognises the firmware file (4.10's `RH2941.0C1`) and takes any
   of 4.10's language packs with it: the patches all lie in the firmware
   file. `RH2941.021` (the Romania variant, English first) is the pack the

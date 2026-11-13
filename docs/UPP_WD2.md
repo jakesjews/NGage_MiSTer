@@ -242,6 +242,9 @@ media type must be 6, EMediaFlash).
 | Erase suspend/resume | `0xB0` suspends (status DQ7 = 1, DQ2 toggles), `0x30` resumes | medint.pdd `0x5037FEE4`, `0x5037FDEC`; completion check treats DQ7 = 1 as suspended | A |
 | C: drive | CS1 `0x400000`-`0x7FFFFF` (4 MB, LFFS), mapped at virtual `0x59200000` and `0x59600000` | medint.pdd object at `0x5037FD64` (base, alias, size `0x400000`), QEMU `gva2gpa` | A |
 | Persistence | `flash1-save` file replaces the image when present, written on exit after changes | model feature | - |
+| Scrambled area | CS0 `0xA000`-`0x2ACFFF` (the cellular software, NOS) is stored scrambled; array reads return it decoded, one 16-bit word at a time, from the stored word and its byte address (16 formulas: `tools/nos_scramble.py`). Status, autoselect and CFI reads are not decoded | Andrea Bogazzi's formulas for the N-Gage (NEM-4 4.03), from his core. They decode RH-29 4.10 and 4.60 to the MD5 the bootstrap checks for `0x50009000` upward (table entry `0x8F18`: `be87bc44…` and `2f00b1ff…`), and the unpatched firmware passes that check in the model | A |
+| The area's bounds | the two words at CS0 `0x174` (first byte) and `0x178` (the byte after the last), taken when both are whole 4 KB pages, in order and inside the chip; read at reset and after an image load | both words hold `0xA000` / `0x2AD000` in 4.10 and 4.60, the area that gives the right MD5; NEM-4's area ends elsewhere (`0x2B3000`), so it is not fixed in the ASIC; nothing in the firmware reads the words, so the ASIC's boot ROM is taken to | C |
+| Writes in the area | the word written is stored as given and reads back decoded (an erased word does not read `0xFFFF`). A chip would AND the data into the stored word; the flash model ANDs it into the word read | nothing in the firmware programs or erases the area | - |
 
 The firmware image's C: area is blank (all `0xFF`); LFFS refuses to mount it
 (KErrCorrupt) and EStart falls back to a RAM drive (`0x503E9D40`-`0x503E9E40`),
@@ -264,7 +267,8 @@ kernel faulted in Starter's cleanup (`RArrayBase::Count` on NULL).
 ## Emulator devices (0x0C1F0000) — not UPP_WD2 hardware
 
 Two inventions of this project, for what NOS and the DSP did on the phone
-(both encrypted). Only the NOS stand-in uses them (`firmware-patches/nos-stub`,
+(NOS needs modem hardware the core does not have, the DSP's code is not
+known). Only the NOS stand-in uses them (`firmware-patches/nos-stub`,
 `docs/NOS_STANDIN.md`); the FPGA core implements them as small blocks.
 Nothing in the firmware touches this page: no ROM constant points into it
 and no run accesses it. Symbian maps it at virtual `0x581F0000` with the

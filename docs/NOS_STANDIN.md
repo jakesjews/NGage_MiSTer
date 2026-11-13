@@ -1,9 +1,12 @@
 # NOS stand-in: the modem side at the ISI level
 
-The N-Gage's cellular software (NOS) is encrypted in flash and its key is
-in the UPP_WD2 silicon, so the core cannot run it. Symbian still expects a
-modem: start-up servers and the telephony stack send ISI messages over
-PhoNet and wait for answers. The stand-in answers them as a phone with
+The N-Gage's cellular software (NOS) runs the modem side of the phone: its
+clocks, the UEM, the DSP, the SIM card. The core has none of that hardware,
+so NOS does not run here: started as it is, it waits for ever at `0x514A6DC4`
+for a status bit of its first hardware check and the boot stops (the model,
+2026-11-12). Symbian still expects a modem: start-up servers and the
+telephony stack send ISI messages over PhoNet and wait for answers. The
+stand-in takes NOS's entry points and answers them as a phone with
 **an inactive SIM card inserted (ready, no PIN or security code, no SIM
 lock), no network, modem state normal**.
 
@@ -14,6 +17,17 @@ SA value 4) it removes the splash, shows a blank view behind the "Insert
 SIM card" note and never goes further (tried: `model/.out/lcd-*` of
 2026-10-20). This matches the S60 1.x behaviour of needing a SIM card, even
 an expired one, to reach the idle screen.
+
+NOS itself is in the flash image as on the phone. Flash stores it scrambled
+(CS0 `0xA000`-`0x2ACFFF`) and the ASIC decodes it on reads, which the core
+and the model do as well since 2026-11-12 (`docs/UPP_WD2.md`, "NOR flash";
+`tools/nos_scramble.py`; the formulas are Andrea Bogazzi's, from his N-Gage
+core). Before that the area was taken for encrypted with a key in the
+silicon. So NOS's own handlers can now be read, and a reply below checked
+against the code that made it on the phone:
+`python3 -I tools/mkimage.py phoenix RH2941.0C1 RH2941.021 --no-patches --plain -o DIR`
+writes CS0 with the area decoded (ROM address = `0x50000000` + offset below
+`0xF00000`). None of the replies has been checked that way yet.
 
 The stand-in is ARMv4T code in the patched flash image, so the model and
 the FPGA core run the same binary:

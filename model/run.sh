@@ -7,6 +7,8 @@
 #        time runs ahead of it while the guest idles (see NGAGE_ICOUNT)
 # Environment:
 #   NGAGE_FLASH0  CS0 image (default research/firmware/images/nor/rh29-4.10-cs0.bin)
+#                 as flash stores it: the model decodes the scrambled area the
+#                 image names at 0x174, as the phone's ASIC does on reads
 #   NGAGE_FLASH1  CS1 image (default research/firmware/images/nor/rh29-4.10-cs1.bin)
 #   NGAGE_OUT     output directory for logs and screenshots (default model/.out)
 #   NGAGE_SAVE1   CS1 save file, the C: drive (default $NGAGE_OUT/cs1-save.bin):

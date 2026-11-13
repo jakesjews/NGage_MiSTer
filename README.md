@@ -84,7 +84,7 @@ Only the `.mmc` file goes on the MiSTer.
 - **Aspect ratio** set to *Original* keeps the screen's own 176:208 shape,
   and **Rotate** turns the picture for a rotated display.
 - **Load firmware**, **Load language pack** and **Mount C: save** in the OSD
-  load the same three files by hand, the firmware before the language pack.
+  load the same three files by hand, in any order.
   **Load flash** is for development.
 
 ## Troubleshooting

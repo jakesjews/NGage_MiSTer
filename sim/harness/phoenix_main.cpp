@@ -103,23 +103,28 @@ int main(int argc, char **argv) {
 		CHECK(b.t.ready && b.notes[3]==2 && b.notes[4]==1,"real language reload completes pair");
 		CHECK(b.cs0==read_file(argv[3]) && b.cs1==read_file(argv[4]),"reloaded pair byte-identical to both references");
 		printf("real Phoenix including resend/recovery: %llu clocks, %llu DDR writes\n",(unsigned long long)b.cycles,(unsigned long long)b.writes);
-		// The language pack first: the MCU file then puts the pack's entry in its
-		// integrity table (CS0 0x8F00) back to FF, and the pair is refused. So the
-		// game folder's files are boot0.rom (MCU) and boot1.rom, Main's order.
+		// The language pack first (boot.rom and boot1.rom, or F2 before F1):
+		// the first 64 KB of CS0 is the pack's whichever file arrives first, so
+		// the MCU file leaves the pack's integrity entry alone and the result is
+		// the same flash, byte for byte.
 		{ Bench c; std::fill(c.cs1.begin()+(4u<<20),c.cs1.end(),255);
 		  c.download(2,read_file(argv[2])); CHECK(!c.t.ready && !c.t.errors,"real language pack alone");
 		  c.download(1,read_file(argv[1]));
-		  CHECK(!c.t.ready && !c.t.errors && c.notes[2]==1 && c.notes[3]==0,"real language pack before the MCU file is refused, not started");
-		  CHECK(std::all_of(c.cs0.begin()+0x8f00,c.cs0.begin()+0x8f18,[](uint8_t v){return v==255;}),"the pack's integrity entry is gone"); }
+		  CHECK(c.t.ready && !c.t.errors && c.notes[3]==1 && c.notes[2]==0,"real language pack before the MCU file is accepted");
+		  CHECK(c.cs0==read_file(argv[3]) && c.cs1==read_file(argv[4]),"reverse order byte-identical to both references"); }
 	} else {
 		for(bool reverse:{false,true}) {
 			Bench b;
 			b.download(reverse?2:1,reverse?phoenix::language():phoenix::mcu()); CHECK(!b.t.ready,"needs both files");
 			b.download(reverse?1:2,reverse?phoenix::mcu():phoenix::language());
 			CHECK(b.t.ready && b.notes[3]==1 && !b.t.errors,"synthetic 4.10 accepted in either order");
-			CHECK_EQ(b.cs0[0],255,"skipped records do not map to NOR"); CHECK_EQ(b.cs0[0x185],255,"FF gap");
-			CHECK_EQ(b.cs0[0x180],1,"21 data"); CHECK_EQ(b.cs1[3],0x11,"CS1 firmware data");
-			CHECK_EQ(b.cs0[0xf00001],6,"language data"); b.check_patches();
+			CHECK_EQ(b.cs0[0],255,"skipped records do not map to NOR"); CHECK_EQ(b.cs0[0x10185],255,"FF gap");
+			CHECK_EQ(b.cs0[0x10180],1,"21 data"); CHECK_EQ(b.cs1[3],0x11,"CS1 firmware data");
+			CHECK_EQ(b.cs0[0xf00001],6,"language data"); CHECK_EQ(b.cs1[0x330000],0x77,"language data in CS1"); b.check_patches();
+			// one owner a byte, whichever file came first
+			CHECK_EQ(b.cs0[0x84],0x40,"the first 64 KB is the pack's copy"); CHECK_EQ(b.cs0[0x12001],0x66,"MCU data above it");
+			CHECK_EQ(b.cs0[0xf00010],255,"the MCU file does not write the pack's ROM area");
+			CHECK_EQ(b.cs0[0x20000],255,"the pack does not write the MCU file's area");
 			CHECK_EQ(b.notes[4],0,"initial pair has no reload warning");
 			b.download(reverse?2:1,reverse?phoenix::language():phoenix::mcu());
 			CHECK(!b.t.ready && b.t.debug_have==(reverse?2:1) && b.notes[4]==1,"either repeated file requests companion");
@@ -127,20 +132,24 @@ int main(int argc, char **argv) {
 			b.download(reverse?1:2,reverse?phoenix::mcu():phoenix::language());
 			CHECK(b.t.ready && b.notes[3]==2 && b.notes[4]==1,"companion repairs pair without spurious warning");
 			b.check_patches();
-			b.download(1,phoenix::mcu(true,true));
+			b.download(1,phoenix::mcu(true));
 			CHECK(!b.t.ready && b.notes[1]==1 && b.notes[4]==1,"damaged resend reports damage instead of reload");
 			CHECK(std::all_of(b.cs1.begin()+(4u<<20),b.cs1.end(),[](uint8_t x){return x==0x69;}),"C: preserved");
 		}
-		{ Bench b; b.download(1,phoenix::mcu(false)); b.download(2,phoenix::language());
+		for(bool reverse:{false,true}) { Bench b; b.download(reverse?2:1,reverse?phoenix::language(false):phoenix::mcu());
+		  b.download(reverse?1:2,reverse?phoenix::mcu():phoenix::language(false));
 		  CHECK(!b.t.ready && b.notes[2]==1,"unknown firmware blocked"); CHECK_EQ(b.cs0[0x9e4c4],255,"unknown version left unpatched"); }
-		// Another version's MCU file under a 4.10 language pack's table: the ROM
-		// header's time stamp gives it away.
-		{ Bench b; auto v=phoenix::mcu(); phoenix::record(v,0x14,0x84,{0x80,0x4B,0x2F,0xA2}); b.download(1,v); b.download(2,phoenix::language());
-		  CHECK(!b.t.ready && b.notes[2]==1,"another version's MCU file blocked"); CHECK_EQ(b.cs0[0x9e4c4],255,"and left unpatched"); }
+		// Another version's language pack: the ROM header's time stamp in its
+		// copy of the first 64 KB gives it away.
+		{ Bench b; auto v=phoenix::language(); phoenix::record(v,0x14,0x84,{0x80,0x4B,0x2F,0xA2}); b.download(1,phoenix::mcu()); b.download(2,v);
+		  CHECK(!b.t.ready && b.notes[2]==1,"another version's pack blocked"); CHECK_EQ(b.cs0[0x9e4c4],255,"and left unpatched"); }
 		// A table with no language pack entry.
-		{ Bench b; auto v=phoenix::mcu(); phoenix::record(v,0x14,0x8F10,{255,255,255,255,255,255,255,255}); b.download(1,v); b.download(2,phoenix::language());
+		{ Bench b; auto v=phoenix::language(); phoenix::record(v,0x14,0x8F10,{255,255,255,255,255,255,255,255}); b.download(1,phoenix::mcu()); b.download(2,v);
 		  CHECK(!b.t.ready && b.notes[2]==1,"missing language pack entry blocked"); }
-		{ Bench b; b.download(1,phoenix::mcu(true,true)); CHECK(b.t.errors && b.notes[1]==1 && !b.t.ready,"bad checksum blocked");
+		// The files in each other's slots: neither writes its own data, nothing boots.
+		{ Bench b; b.download(1,phoenix::language()); b.download(2,phoenix::mcu());
+		  CHECK(!b.t.ready && b.notes[2]==1,"swapped slots are not recognised"); CHECK_EQ(b.cs0[0x9e4c4],255,"and left unpatched"); }
+		{ Bench b; b.download(1,phoenix::mcu(true)); CHECK(b.t.errors && b.notes[1]==1 && !b.t.ready,"bad checksum blocked");
 		  b.download(1,phoenix::mcu()); b.download(2,phoenix::language()); CHECK(b.t.ready,"retry after damage"); }
 		{ Bench b; auto v=phoenix::stream(); phoenix::record(v,0x14,0x02400000,{0}); b.download(1,v);
 		  CHECK(b.t.errors && b.notes[1]==1,"C: record rejected"); CHECK_EQ(b.cs1[0x400000],0x69,"C: guard"); }

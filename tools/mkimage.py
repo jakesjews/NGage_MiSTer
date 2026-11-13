@@ -4,14 +4,23 @@ user's own RH-29 firmware.
 
 Input, either:
   phoenix  the Phoenix flash files: the MCU file (RH2941.0C1) and a language
-           pack (RH2941.021, or another of 4.10's), converted as tools/fls2bin.py
-           does (CS0 at 0x00000000, 16 MB; CS1 at 0x02000000, 8 MB; unwritten
-           bytes 0xFF)
-  flat     flat CS0 (16 MB) and CS1 (8 MB) images, e.g. dumps
+           pack (RH2941.021, or another of 4.10's), in that order, converted as
+           tools/fls2bin.py does (CS0 at 0x00000000, 16 MB; CS1 at 0x02000000,
+           8 MB; unwritten bytes 0xFF) and placed as the core's loader places
+           them (rtl/mister/phoenix_load.sv): the pack's areas (PACK_AREAS)
+           hold what the pack writes, everything else what the MCU file writes
+  flat     flat CS0 (16 MB) and CS1 (8 MB) images as flash stores them
+
+Part of CS0 is scrambled in flash (the cellular software; the image's header
+at 0x174 names the area, 0xA000-0x2ACFFF in RH-29) and the phone decodes it on
+every read (tools/nos_scramble.py). The patches and the integrity check below
+work on the bytes the phone reads; the images are written as flash stores
+them, which is what the core loads. --plain writes CS0 decoded instead, for
+reading in a disassembler: the core does not run such an image.
 
 Then the firmware patches in firmware-patches/rom-patches.txt are applied
 exactly as the reference model's model/hw/ngage_patch.c applies them at load:
-  cs0|cs1 <offset> <hex bytes>        bytes as stored in flash
+  cs0|cs1 <offset> <hex bytes>        bytes as the phone reads them
   cs0file|cs1file <offset> <path>     a file's contents: the NOS stand-in
                                       binaries, at the path the list gives
                                       (firmware-patches/bin) unless --standin
@@ -44,6 +53,7 @@ options:
   --phone-data DUMP  restore the per-phone bytes from a ROM dump
   --no-patches       write the images unpatched (the table check then reports
                      the digests the firmware carries)
+  --plain            write CS0 with its scrambled area decoded (not for the core)
   --force            go on with Phoenix files that are not the RH-29 4.10 pair
                      (the inputs are checked by SHA-256; see KNOWN_INPUTS)
 
@@ -73,13 +83,25 @@ def fail(msg):
 
 # ---------------------------------------------------------------- input
 
-def load_fls2bin():
+def load_tool(name):
     sys.dont_write_bytecode = True      # no __pycache__ next to the tools
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fls2bin.py")
-    spec = importlib.util.spec_from_file_location("fls2bin", path)
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name + ".py")
+    spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+# The language pack's areas, [start, end) in the files' addresses: the first
+# 64 KB of CS0 (which every pack writes again, with its own entry in the
+# integrity table), its ROM at the top of CS0 and the top of CS1's firmware
+# half. The core's loader takes these bytes from the pack and all others from
+# the MCU file, whichever arrives first (rtl/mister/phoenix_load.sv).
+PACK_AREAS = ((0x00000000, 0x00010000), (0x00F00000, 0x01000000), (0x02330000, 0x02400000))
+
+
+def pack_area(addr):
+    return any(a <= addr < b for a, b in PACK_AREAS)
 
 
 # The Phoenix flash files the core is built against (RH-29 software 4.10, the
@@ -112,27 +134,36 @@ def check_input(path, force):
 
 
 def from_phoenix(files, force=False):
-    fls = load_fls2bin()
+    fls = load_tool("fls2bin")
     cs0 = bytearray(b"\xFF" * CS0_SIZE)
     cs1 = bytearray(b"\xFF" * CS1_SIZE)
-    for path in files:
+    if len(files) != 2:
+        fail("phoenix takes the MCU file and a language pack, in that order")
+    for pack, path in enumerate(files):
         check_input(path, force)
         _, records = fls.load(path)
-        placed = 0
+        placed = left = 0
         for r in records:
             if "addr" not in r or r["type"] == 0x2E:
                 continue
             a, d = r["addr"], r["data"]
             if 0 <= a and a + len(d) <= CS0_SIZE:
-                cs0[a:a + len(d)] = d
+                img, base = cs0, 0
             elif CS1_BASE <= a and a + len(d) <= CS1_BASE + CS1_SIZE:
-                cs1[a - CS1_BASE:a - CS1_BASE + len(d)] = d
+                img, base = cs1, CS1_BASE
             else:
                 fail("%s: a block at 0x%08X (%d bytes) is outside CS0 and CS1" % (path, a, len(d)))
-            placed += len(d)
             if r.get("h_ok") is False:
                 fail("%s: block at 0x%08X: header checksum mismatch" % (path, a))
-        print("%s: %d bytes of flash data" % (path, placed))
+            for i, b in enumerate(d):           # byte by byte, as the loader decides
+                if pack_area(a + i) == bool(pack):
+                    img[a + i - base] = b
+                    placed += 1
+                else:
+                    left += 1
+        print("%s: %d bytes of flash data%s" % (path, placed,
+              " (%d more belong to the %s and are left to it)" % (left, "MCU file" if pack else "language pack")
+              if left else ""))
     return cs0, cs1
 
 
@@ -298,6 +329,7 @@ def main():
     p.add_argument("--model-build", action="store_true")
     p.add_argument("--phone-data")
     p.add_argument("--no-patches", action="store_true")
+    p.add_argument("--plain", action="store_true", help="write CS0 with its scrambled area decoded")
     p.add_argument("--force", action="store_true", help="go on with Phoenix files that are not the 4.10 pair")
     a = p.parse_args()
 
@@ -318,11 +350,27 @@ def main():
         print("note: the per-phone bytes at CS0 0x%X are erased (as in the flash files); --phone-data restores them"
               % PHONE_DATA[0])
 
+    # From here on CS0 is what the phone reads: the scrambled area decoded.
+    scr = load_tool("nos_scramble")
+    area = scr.decode_image(cs0)
+    if area:
+        print("CS0 0x%X-0x%X is scrambled in flash (header 0x%X): patched and checked as the phone reads it"
+              % (area[0], area[1] - 1, scr.HEADER[0]))
+        if area != scr.RH29_WINDOW and not a.no_patches:
+            sys.stderr.write("mkimage: warning: the core's patch ROM is made for the area 0x%X-0x%X\n"
+                             % (scr.RH29_WINDOW[0], scr.RH29_WINDOW[1] - 1))
+    else:
+        print("note: the image names no scrambled area at CS0 0x%X" % scr.HEADER[0])
+
     if not a.no_patches:
         standin = os.path.join(ROOT, "model", ".build") if a.model_build else a.standin
         apply_patches(a.patches, cs0, cs1, standin)
     ok = check_table(cs0, cs1)
 
+    if a.plain:
+        print("--plain: CS0 is written decoded; the core and the model expect it as flash stores it")
+    else:
+        scr.encode_image(cs0, area)
     os.makedirs(a.outdir, exist_ok=True)
     for name, img in (("cs0.bin", cs0), ("cs1.bin", cs1)):
         out = os.path.join(a.outdir, name)
