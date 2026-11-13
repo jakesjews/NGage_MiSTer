@@ -1,36 +1,61 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// Reads Nokia's Phoenix data package for the N-Gage QD (RH-29, firmware 4.10)
-// and returns two of the flash files in it, the firmware and one language
-// pack, which the core loads as boot0.rom and boot1.rom. Everything happens on the bytes handed in; nothing is sent
+// Finds the two flash files the N-Gage QD core boots from, the firmware
+// (RH2941.0C1, firmware 4.10) and one of its language packs, in what Nokia's
+// service software shipped them in, and returns them as boot0.rom and
+// boot1.rom. Everything happens on the bytes handed in; nothing is sent
 // anywhere.
 //
-// The package is a Windows program with a Microsoft cabinet (MSZIP) appended.
-// The cabinet holds an InstallShield cabinet (data1.hdr, data1.cab, data2.cab)
-// whose files are stored as chunks of raw deflate, each inflated on its own.
+// It takes, in the order a person is likely to have them:
+//   - N-GageQD RH-29.zip, the archive of every data package for the phone
+//     (the package for 4.10 is picked out of it);
+//   - one data package for firmware 4.10;
+//   - one of the two flash files themselves.
+//
+// A data package is a Windows program with a Microsoft cabinet (MSZIP)
+// appended. The cabinet holds an InstallShield cabinet (data1.hdr, data1.cab,
+// data2.cab) whose files are stored as chunks of raw deflate, each inflated
+// on its own. Next to the flash files it has one .ini a product (a country
+// or operator variant), which names that product's language pack.
 (function (root) {
 	'use strict';
 
+	// The package the core was brought up with; in the zip it is tried first.
 	const PACKAGE = {
 		name: 'RH-29_dp_emea_v_3_0_mcusw4_10-Oct19-151031.exe',
 		size: 63836160,
 		sha256: '2f8c8d66177aaf4f8321c14607c991691e15490dc7887a749c5764c54fc1eee5',
 	};
+	const ARCHIVE = { name: 'N-GageQD RH-29.zip', size: 811528203 };
 
-	// The files the core accepts, by SHA-256.
-	const KNOWN = {
-		'3ce529d6fbcd6db1f4290fabe8b70c62242a23444c4fa74caec42657d12ab4a0':
-			{ source: 'RH2941.0C1', save: 'boot0.rom', what: 'Firmware' },
-		'657c2d1bafbad6797732c86892999a9e201e10961ee8c1801b0b6cc73bb41fa5':
-			{ source: 'RH2941.021', save: 'boot1.rom', what: 'Language pack' },
+	// The firmware file is one exact file: the core's patches and its
+	// integrity digest are made for it.
+	const FIRMWARE = {
+		source: 'RH2941.0C1', save: 'boot0.rom', what: 'Firmware',
+		sha256: '3ce529d6fbcd6db1f4290fabe8b70c62242a23444c4fa74caec42657d12ab4a0',
 	};
-	const WANTED = Object.values(KNOWN).map((k) => k.source.toLowerCase());
+	// A language pack is taken when the core's loader will take it, which it
+	// decides by what the pack writes into the first 64 KB of flash
+	// (rtl/mister/phoenix_load.sv): its own entry in the integrity table and
+	// the digest it carries for the 4.10 firmware file. Any of 4.10's packs
+	// has both. PACK is the one the core was brought up with: it is taken
+	// when a package has it, and held to its hash as well.
+	const PACK = {
+		source: 'RH2941.021', save: 'boot1.rom', what: 'Language pack',
+		sha256: '657c2d1bafbad6797732c86892999a9e201e10961ee8c1801b0b6cc73bb41fa5',
+	};
+	const PREFERRED = PACK.source.toLowerCase();
+	const DIGEST = 'be87bc4467bc4c53f6de1ee8d80d9285';                       // CS0 0x8F20
+	// RH29vv.xxx: vv is the firmware version (41 = 4.10, 46 = 4.60)
+	const FLASH_NAME = /^rh29(\d)(\d)\.([0-9a-z]{3})$/i;
 
 	class UnpackError extends Error {
 		constructor(code, detail) {
 			super(detail || code);
 			this.name = 'UnpackError';
-			this.code = code; // not-package, other-version, damaged, unsupported, mismatch
+			this.code = code; // not-package, other-version, no-pack, damaged, unsupported, mismatch
+			// (no-pack: the firmware file without a language pack for it)
+			this.version = null; // other-version: the firmware version found, when known
 		}
 	}
 	const damaged = (what) => new UnpackError('damaged', what);
@@ -368,57 +393,271 @@
 		return out;
 	}
 
-	// ---------------------------------------------------------------- results
+	// ------------------------------------------------------------ flash files
+
+	// The bytes a Phoenix flash file writes to CS0 0x0000-0xFFFF, with every
+	// flash record's checksums verified on the way (the file starts with A2,
+	// a token block, then records; rtl/mister/phoenix_load.sv reads the same).
+	// A record's data sums to its check byte in one of two ways, one apart;
+	// a file keeps to one of them, which is held here so that an error of
+	// one in a byte does not pass as the other way.
+	function firstBlock(bytes) {
+		if (bytes.length < 9 || bytes[0] !== 0xA2) throw damaged('not a flash file');
+		const dv = view(bytes);
+		const block = new Uint8Array(0x10000).fill(0xFF);
+		let way = -1;
+		let p = 5 + dv.getUint32(1, false);
+		if (p > bytes.length) throw damaged('the flash file ends in its header');
+		while (p < bytes.length) {
+			const type = bytes[p];
+			let head, at = -1, len = 0, addr = -1;
+			switch (type) {
+				case 0x14: head = 10; at = p + 1; break;
+				case 0x21: head = 16; at = p + 7; break;
+				case 0x2E: head = 10; len = -1; break;
+				case 0x20: head = 6; break;
+				case 0x25: head = 2; break;
+				case 0x26: head = 10; break;
+				default: throw damaged('unknown record in the flash file');
+			}
+			if (p + head > bytes.length) throw damaged('the flash file ends in a record');
+			if (at >= 0) {
+				// address, data checksum, length, header checksum
+				addr = dv.getUint32(at, false);
+				len = (bytes[at + 5] << 16) | (bytes[at + 6] << 8) | bytes[at + 7];
+				let sum = 0;
+				for (let i = at; i < at + 8; i++) sum += bytes[i];
+				if (((~sum) & 0xFF) !== bytes[at + 8]) throw damaged('a record header does not add up');
+			} else if (len === -1) {
+				len = (bytes[p + 6] << 16) | (bytes[p + 7] << 8) | bytes[p + 8];
+			} else if (type === 0x20) {
+				len = dv.getUint16(p + 3, false);
+			} else if (type === 0x25) {
+				len = bytes[p + 1];
+			}
+			const data = p + head;
+			if (data + len > bytes.length) throw damaged('the flash file ends in a record');
+			if (at >= 0 && len) {
+				let sum = 0;
+				for (let i = data; i < data + len; i++) sum += bytes[i];
+				const off = (bytes[at + 4] + sum) & 0xFF;   // FF: complement, 00: one more
+				if ((off !== 0xFF && off !== 0) || (way >= 0 && off !== way)) throw damaged('a record does not add up');
+				way = off;
+				if (addr < 0x10000) block.set(bytes.subarray(data, data + Math.min(len, 0x10000 - addr)), addr);
+			}
+			p = data + len;
+		}
+		return block;
+	}
+
+	// Is this flash file a language pack the core's loader takes?
+	function isPack(bytes) {
+		const block = firstBlock(bytes);
+		if (block.subarray(0x8F10, 0x8F18).every((v) => v === 0xFF)) return false;
+		return Array.from(block.subarray(0x8F20, 0x8F30), (x) => x.toString(16).padStart(2, '0')).join('') === DIGEST;
+	}
 
 	async function sha256(bytes) {
 		const digest = await root.crypto.subtle.digest('SHA-256', bytes);
 		return Array.from(new Uint8Array(digest), (x) => x.toString(16).padStart(2, '0')).join('');
 	}
 
-	async function describe(bytes) {
-		const hash = await sha256(bytes);
-		return { bytes, sha256: hash, known: KNOWN[hash] || null };
+	const version = (name) => { const m = FLASH_NAME.exec(name); return m ? m[1] + '.' + m[2] + '0' : null; };
+	function otherVersion(found, detail) {
+		const e = new UnpackError('other-version', detail);
+		e.version = found || null;
+		return e;
 	}
 
-	// Takes the bytes of a dropped file. Returns the flash files in it:
-	// [{ source, save, what, bytes, sha256 }]. The data package gives both;
-	// one of the flash files itself gives that one back. Throws UnpackError.
-	async function unpack(bytes, progress) {
-		progress = progress || (() => {});
-
-		// One of the two flash files, already unpacked. They start with A2.
-		if (bytes.length && bytes[0] === 0xA2) {
-			const f = await describe(bytes);
-			if (!f.known) throw new UnpackError('other-version', 'a flash file, but not one of the 4.10 pair');
-			return [{ ...f.known, bytes, sha256: f.sha256 }];
+	// One of the two flash files, by itself: the firmware by its hash, a
+	// language pack by what it writes.
+	async function flashFile(bytes, name) {
+		const hash = await sha256(bytes);
+		if (hash === FIRMWARE.sha256) return { ...FIRMWARE, bytes, variant: '' };
+		const base = (name || '').replace(/^.*[\\/]/, '');
+		if (/\.0c1$/i.test(base) || !isPack(bytes)) {
+			const v = version(base);
+			throw otherVersion(v === '4.10' ? null : v, 'a flash file, but not the 4.10 firmware file or a language pack for it');
 		}
+		if (base.toLowerCase() === PREFERRED && hash !== PACK.sha256) throw damaged(PACK.source + ' is not as Nokia shipped it');
+		return { ...PACK, source: FLASH_NAME.test(base) ? base.toUpperCase() : 'a 4.10 language pack', sha256: hash, bytes, variant: '' };
+	}
 
+	// --------------------------------------------------------- a data package
+
+	const text = (b) => { let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return s; };
+
+	// What a package holds for the phone, without unpacking the flash files:
+	// { firmware: [names], packs: [{ name, variants: [descriptions] }], parts, descriptors }
+	async function contents(bytes, progress) {
 		const cab = findCabinet(bytes);
 		if (!cab) throw new UnpackError('not-package', 'no cabinet in the file');
 		if (cab.cut) throw damaged('the file is shorter than its cabinet');
-		const parts = await readCabinet(bytes, cab.at, (f) => progress(0.4 * f));
+		const parts = await readCabinet(bytes, cab.at, progress);
 		if (!parts['data1.hdr']) throw new UnpackError('not-package', 'no InstallShield data in the cabinet');
-
-		const descriptors = readDescriptors(parts['data1.hdr'])
-			.filter((d) => !(d.flags & 8) && WANTED.includes(d.name.toLowerCase())); // FILE_INVALID
-		if (descriptors.length !== WANTED.length) throw new UnpackError('other-version', 'no RH2941.0C1 and RH2941.021 in the package');
-
-		const packed = descriptors.reduce((n, d) => n + d.packed, 0) || 1;
-		const result = [];
-		let before = 0;
+		const descriptors = readDescriptors(parts['data1.hdr']).filter((d) => !(d.flags & 8)); // FILE_INVALID
+		const flash = descriptors.filter((d) => FLASH_NAME.test(d.name));
+		// the products' .ini files: which pack belongs to which variant
+		const variants = {};
 		for (const d of descriptors) {
-			const data = await readFile(d, parts, (f) => progress(0.4 + 0.6 * (before + f * d.packed) / packed));
-			before += d.packed;
-			const f = await describe(data);
-			if (!f.known || f.known.source.toLowerCase() !== d.name.toLowerCase())
-				throw new UnpackError('mismatch', d.name + ' is not the 4.10 file');
-			result.push({ ...f.known, bytes: data, sha256: f.sha256 });
+			if (!/^\d+\.ini$/i.test(d.name) || d.size > 65536) continue;
+			const ini = text(await readFile(d, parts, () => {}));
+			const pack = /^\s*PpmId\s*=\s*(\S+)/im.exec(ini);
+			const what = /^\s*Description\s*=\s*(.+?)\s*$/im.exec(ini);
+			if (!pack || !what) continue;
+			const list = variants[pack[1].toLowerCase()] || (variants[pack[1].toLowerCase()] = []);
+			if (!list.includes(what[1])) list.push(what[1]);
 		}
-		progress(1);
-		return result.sort((a, b) => a.save.localeCompare(b.save));
+		const byName = (a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+		return {
+			parts, descriptors,
+			firmware: flash.filter((d) => /\.0c1$/i.test(d.name)).sort(byName),
+			packs: flash.filter((d) => !/\.0c1$/i.test(d.name)).sort(byName)
+				.map((d) => ({ d, name: d.name, variants: variants[d.name.toLowerCase()] || [] })),
+		};
 	}
 
-	const api = { unpack, sha256, UnpackError, PACKAGE, KNOWN };
+	// The order in which a package's language packs are tried: the one the
+	// core was brought up with, then English-speaking countries' variants,
+	// then other variants with English in their name, then the rest by name.
+	function packOrder(packs) {
+		const rank = (p) => {
+			if (p.name.toLowerCase() === PREFERRED) return 0;
+			const v = p.variants.join(' / ');
+			if (/\b(UK|Ireland|Australia|New Zealand)\b/i.test(v)) return 1;
+			if (/\b(English|Euro ?1)\b/i.test(v)) return 2;
+			return v ? 3 : 4;
+		};
+		return packs.map((p, i) => ({ p, r: rank(p), i })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.p);
+	}
+
+	async function fromPackage(bytes, progress) {
+		const c = await contents(bytes, (f) => progress(0.4 * f));
+		const fw = c.firmware.find((d) => d.name.toLowerCase() === FIRMWARE.source.toLowerCase());
+		if (!fw) {
+			const found = c.firmware.map((d) => version(d.name)).filter(Boolean);
+			if (!c.firmware.length && !c.packs.length) throw new UnpackError('not-package', 'no N-Gage QD flash files in the package');
+			throw otherVersion(found[0], c.firmware.length ? 'the firmware file is ' + c.firmware.map((d) => d.name).join(', ')
+				: 'language packs only, no firmware file');
+		}
+		const mine = c.packs.filter((p) => version(p.name) === '4.10');
+
+		const firmware = await readFile(fw, c.parts, (f) => progress(0.4 + 0.5 * f));
+		const hash = await sha256(firmware);
+		if (hash !== FIRMWARE.sha256) throw new UnpackError('mismatch', fw.name + ' is not the 4.10 firmware file the core is made for');
+
+		for (const p of packOrder(mine)) {
+			const pack = await readFile(p.d, c.parts, (f) => progress(0.9 + 0.1 * f));
+			if (!isPack(pack)) continue;
+			const packHash = await sha256(pack);
+			if (p.name.toLowerCase() === PREFERRED && packHash !== PACK.sha256) throw damaged(p.name + ' is not as Nokia shipped it');
+			progress(1);
+			return [
+				{ ...FIRMWARE, bytes: firmware, variant: '' },
+				{ ...PACK, source: p.name.toUpperCase(), sha256: packHash, bytes: pack, variant: p.variants.join(', ') },
+			];
+		}
+		throw new UnpackError('no-pack', 'the firmware file, but no language pack for it');
+	}
+
+	// ------------------------------------------------------------- a zip file
+
+	// Something to read ranges from: bytes in memory or a File / Blob.
+	function reader(source) {
+		if (source instanceof Uint8Array) return { size: source.length, read: async (a, b) => source.subarray(a, b) };
+		return { size: source.size, read: async (a, b) => new Uint8Array(await source.slice(a, b).arrayBuffer()) };
+	}
+
+	// The members of a zip (no zip64, no encryption): [{ name, method, packed, size, at }].
+	async function zipMembers(r) {
+		const tailAt = Math.max(0, r.size - 65557);
+		const tail = await r.read(tailAt, r.size);
+		let e = tail.length - 22;
+		while (e >= 0 && !(tail[e] === 0x50 && tail[e + 1] === 0x4B && tail[e + 2] === 5 && tail[e + 3] === 6)) e--;
+		if (e < 0) throw damaged('the zip file has no directory: it is cut short');
+		const end = view(tail);
+		const count = end.getUint16(e + 10, true), size = end.getUint32(e + 12, true), at = end.getUint32(e + 16, true);
+		if (at === 0xFFFFFFFF || count === 0xFFFF) throw new UnpackError('unsupported', 'a zip64 archive');
+		if (at + size > r.size) throw damaged('the zip file is cut short');
+		const cd = await r.read(at, at + size);
+		const dv = view(cd);
+		const list = [];
+		for (let p = 0, i = 0; i < count; i++) {
+			if (p + 46 > cd.length || dv.getUint32(p, true) !== 0x02014B50) throw damaged('the zip directory is damaged');
+			const n = dv.getUint16(p + 28, true);
+			list.push({
+				name: text(cd.subarray(p + 46, p + 46 + n)),
+				flags: dv.getUint16(p + 8, true),
+				method: dv.getUint16(p + 10, true),
+				packed: dv.getUint32(p + 20, true),
+				size: dv.getUint32(p + 24, true),
+				at: dv.getUint32(p + 42, true),
+			});
+			p += 46 + n + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+		}
+		return list;
+	}
+
+	async function zipMember(r, m, progress) {
+		if (m.flags & 1) throw new UnpackError('unsupported', 'an encrypted zip');
+		if (m.method !== 0 && m.method !== 8) throw new UnpackError('unsupported', 'zip compression ' + m.method);
+		const head = await r.read(m.at, m.at + 30);
+		if (head.length < 30 || view(head).getUint32(0, true) !== 0x04034B50) throw damaged('the zip file is damaged');
+		const data = m.at + 30 + view(head).getUint16(26, true) + view(head).getUint16(28, true);
+		if (data + m.packed > r.size) throw damaged('the zip file is cut short');
+		progress(0);
+		const packed = await r.read(data, data + m.packed);
+		if (m.method === 0) return packed;
+		const out = new Uint8Array(m.size);
+		await pause();
+		if (inflate(packed, 0, packed.length, out, 0, 0) !== m.size) throw damaged(m.name + ' has the wrong size');
+		progress(1);
+		return out;
+	}
+
+	// The archive of the phone's data packages: the package the core was
+	// brought up with first, then the others named for 4.10, then the rest.
+	async function fromZip(r, progress) {
+		const base = (m) => m.name.replace(/^.*[\\/]/, '');
+		const members = (await zipMembers(r)).filter((m) => /\.exe$/i.test(m.name) && m.size > 0);
+		if (!members.length) throw new UnpackError('not-package', 'no data package in the zip file');
+		const rank = (m) => (base(m).toLowerCase() === PACKAGE.name.toLowerCase() ? 0 : /4_10/i.test(base(m)) ? 1 : 2);
+		members.sort((a, b) => rank(a) - rank(b) || base(a).localeCompare(base(b)));
+		let other = null;
+		for (const m of members) {
+			try {
+				const bytes = await zipMember(r, m, (f) => progress(0.3 * f));
+				const out = await fromPackage(bytes, (f) => progress(0.3 + 0.7 * f));
+				out.forEach((f) => { f.from = base(m); });
+				return out;
+			} catch (e) {
+				// a package for another version or of another kind: try the next
+				if (!(e instanceof UnpackError) || (e.code !== 'other-version' && e.code !== 'not-package')) throw e;
+				if (e.code === 'other-version' && !other) other = e;
+			}
+		}
+		throw other || new UnpackError('not-package', 'no data package for the N-Gage QD in the zip file');
+	}
+
+	// ---------------------------------------------------------------- results
+
+	// Takes a dropped file (a File or Blob, or its bytes) and its name.
+	// Returns the flash files found: [{ source, save, what, variant, bytes,
+	// sha256, from }]. The zip and a data package give both; one of the flash
+	// files gives that one back. Throws UnpackError.
+	async function unpack(source, progress, name) {
+		progress = progress || (() => {});
+		const r = reader(source);
+		const head = await r.read(0, Math.min(4, r.size));
+		if (head.length === 4 && head[0] === 0x50 && head[1] === 0x4B && head[2] === 3 && head[3] === 4)
+			return fromZip(r, progress);
+		const bytes = await r.read(0, r.size);
+		// One of the two flash files, already unpacked. They start with A2.
+		if (bytes.length && bytes[0] === 0xA2) return [await flashFile(bytes, name)];
+		return fromPackage(bytes, progress);
+	}
+
+	const api = { unpack, contents, sha256, UnpackError, PACKAGE, ARCHIVE, FIRMWARE, PACK };
 	if (typeof module !== 'undefined' && module.exports) module.exports = api;
 	else root.NGageUnpack = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>N-Gage QD firmware unpacker</title>
-<meta name="description" content="Unpacks Nokia's N-Gage QD data package into boot0.rom and boot1.rom for the N-Gage QD core on MiSTer. It runs in your browser; nothing is uploaded.">
+<meta name="description" content="Unpacks Nokia's N-Gage QD firmware archive into boot0.rom and boot1.rom for the N-Gage QD core on MiSTer. It runs in your browser; nothing is uploaded.">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
@@ -13,16 +13,16 @@
 <main>
 	<h1>Unpack the <span class="nowrap">N-Gage QD</span> firmware</h1>
 	<p class="lead">
-		The N-Gage QD core for MiSTer boots from two files that Nokia ships packed
-		inside its data package for the phone. Drop the package here and save them.
-		It is read in your browser and is not uploaded.
+		The N-Gage QD core for MiSTer boots from two files that Nokia shipped packed
+		inside its service software for the phone. Drop the archive of it here and
+		save them. It is read in your browser and is not uploaded.
 	</p>
 
-	<section class="bay" id="bay" aria-label="Unpack the data package">
+	<section class="bay" id="bay" aria-label="Unpack the firmware archive">
 		<div class="bay-top">
 			<div class="bay-what">
-				<p class="bay-ask" id="ask">Drop the data package here</p>
-				<p class="bay-name file">RH-29_dp_emea_v_3_0_mcusw4_10-Oct19-151031.exe</p>
+				<p class="bay-ask" id="ask">Drop the firmware archive here</p>
+				<p class="bay-name file">N-GageQD RH-29.zip</p>
 			</div>
 			<input class="picker" type="file" id="file" multiple>
 			<label class="button" for="file">Choose the file</label>
@@ -61,11 +61,29 @@
 	</section>
 
 	<section class="notes">
-		<h2>The data package</h2>
+		<h2>The firmware archive</h2>
 		<p>
-			It is Nokia's service installer for the N-Gage QD (model RH-29) with
-			firmware 4.10, the version the core runs. The firmware is Nokia's and is
-			not part of this page or of the core.
+			It holds Nokia's service packages for the N-Gage QD (model RH-29). The
+			firmware is Nokia's and is not part of this page or of the core.
+		</p>
+		<p>
+			To find it, search the Internet Archive for
+			<span class="file">Nokia DCT4 firmwares</span>. From that collection's file
+			list, download <span class="file">N-GageQD RH-29.zip</span> (811,528,203
+			bytes) and drop it here as it is. The page takes the package for firmware
+			4.10, the version the core runs, out of it.
+		</p>
+	</section>
+
+	<section class="notes">
+		<h2>A smaller download</h2>
+		<p>
+			In the same file list, the zip's View Contents link shows the packages
+			inside, and one of them downloads from there by itself. Drop that instead
+			of the zip. Take this one, which is also the one the page picks from the
+			zip: of the others named for 4.10 only
+			<span class="file">RH-29_dp_apac_v_3_0_MCUSW4_10.exe</span> has the
+			firmware as well, with the language packs of Asia and the Pacific.
 		</p>
 		<dl>
 			<dt>Name</dt>
@@ -76,15 +94,9 @@
 			<dd class="file hash">2f8c8d66177aaf4f8321c14607c991691e15490dc7887a749c5764c54fc1eee5</dd>
 		</dl>
 		<p>
-			To find it, search the Internet Archive for
-			<span class="file">Nokia DCT4 firmwares</span>. In that collection's file
-			list, <span class="file">N-GageQD RH-29.zip</span> has a View Contents
-			link, and the package downloads from there by itself.
-		</p>
-		<p>
-			If you already have <span class="file">RH2941.0C1</span> and
-			<span class="file">RH2941.021</span>, drop those instead: they are the same
-			two files under Nokia's names.
+			If you already have <span class="file">RH2941.0C1</span> and one of its
+			language packs (<span class="file">RH2941.021</span> is the one this page
+			hands out), drop those: they are the same two files under Nokia's names.
 		</p>
 	</section>
 </main>

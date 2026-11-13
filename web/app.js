@@ -5,7 +5,7 @@
 (function () {
 	'use strict';
 
-	const { unpack, PACKAGE } = window.NGageUnpack;
+	const { unpack, PACKAGE, ARCHIVE } = window.NGageUnpack;
 	const $ = (id) => document.getElementById(id);
 	const status = $('status'), bar = $('bar'), input = $('file'), ask = $('ask');
 	const cards = { 'boot0.rom': $('card0'), 'boot1.rom': $('card1') };
@@ -19,13 +19,16 @@
 	}
 
 	function explain(error, name) {
-		const need = 'The core needs ' + PACKAGE.name + ', ' + count(PACKAGE.size) + ' bytes.';
+		const want = 'Drop ' + ARCHIVE.name + ', or ' + PACKAGE.name + ' from it.';
 		switch (error.code) {
-			case 'not-package': return name + ' is not the data package. ' + need;
-			case 'other-version': return name + ' holds another firmware version, and the core runs 4.10 only. ' + need;
-			case 'damaged': return name + ' is cut short or damaged. Download it again: it should be ' + count(PACKAGE.size) + ' bytes.';
-			case 'mismatch': return 'The files in ' + name + ' are not the 4.10 ones the core accepts. Download the package again.';
-			case 'unsupported': return name + ' is packed in a way this page cannot read. ' + need;
+			case 'not-package': return name + ' is not the firmware archive or a data package from it. ' + want;
+			case 'other-version': return name + (error.version ? ' holds firmware ' + error.version + ', and the core runs 4.10 only. '
+				: ' does not hold the firmware file for 4.10. ') + want;
+			case 'no-pack': return name + ' holds the firmware file, but no language pack for it. ' + want;
+			case 'damaged': return name + ' is cut short or damaged. Download it again: ' + ARCHIVE.name + ' is ' + count(ARCHIVE.size)
+				+ ' bytes, the package ' + count(PACKAGE.size) + '.';
+			case 'mismatch': return 'The firmware file in ' + name + ' is not the 4.10 one the core accepts. Download it again.';
+			case 'unsupported': return name + ' is packed in a way this page cannot read. ' + want;
 			default: return name + ' could not be read: ' + error.message;
 		}
 	}
@@ -37,7 +40,8 @@
 		link.href = URL.createObjectURL(new Blob([file.bytes], { type: 'application/octet-stream' }));
 		link.download = file.save;
 		link.hidden = false;
-		card.querySelector('.meta').textContent = count(file.bytes.length) + ' bytes, checked against firmware 4.10';
+		card.querySelector('.meta').textContent = (file.variant ? file.variant + ' (' + file.source + '), ' : '')
+			+ count(file.bytes.length) + ' bytes, checked against firmware 4.10';
 		card.classList.remove('is-ready');
 		void card.offsetWidth; // so the card comes out of the slot again
 		card.classList.add('is-ready');
@@ -52,7 +56,8 @@
 				bar.value = 0;
 				say('Unpacking ' + file.name);
 				try {
-					const out = await unpack(new Uint8Array(await file.arrayBuffer()), (f) => { bar.value = f; });
+					// the file itself, not its bytes: the archive is read in pieces
+					const out = await unpack(file, (f) => { bar.value = f; }, file.name);
 					out.forEach(show);
 				} catch (error) {
 					say(explain(error, file.name), true);

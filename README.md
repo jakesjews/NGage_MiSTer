@@ -8,10 +8,10 @@ with no SIM.
 ## What you need
 
 - A MiSTer with an SDRAM module (32 MB or larger).
-- The N-Gage QD firmware, version 4.10 (model RH-29): Nokia's data package
-  `RH-29_dp_emea_v_3_0_mcusw4_10-Oct19-151031.exe`. It is Nokia's and is not included.
-  Searching the Internet Archive for "Nokia DCT4 firmwares" finds it, inside
-  `N-GageQD RH-29.zip`.
+- The N-Gage QD firmware, version 4.10 (model RH-29), as it comes in Nokia's
+  service packages for the phone: `N-GageQD RH-29.zip`. It is Nokia's and is
+  not included. Searching the Internet Archive for "Nokia DCT4 firmwares"
+  finds the collection that has it in its file list.
 - Game cards as `.mmc` images (see [Game cards](#game-cards)).
 
 ## Setup
@@ -20,7 +20,7 @@ with no SIM.
 2. Create the folder `/media/fat/games/NGage/` and copy
    [boot0.vhd](releases/boot0.vhd) into it. This is the phone's C: drive: its
    settings and your game saves.
-3. Drop the data package on the [firmware unpacker](https://ngage-mister.vercel.app/)
+3. Drop the zip on the [firmware unpacker](https://ngage-mister.vercel.app/)
    and save `boot0.rom` and `boot1.rom` into the folder.
 4. Copy your `.mmc` images into the folder.
 5. Start **NGage** from the Console menu. The first start formats C: and asks
@@ -29,8 +29,8 @@ with no SIM.
 7. If the game does not start by itself, press Menu (F5), move to its icon and
    press OK (Enter).
 
-If you have the firmware as `RH2941.0C1` and a language pack (`RH2941.021`,
-or another from the same package), rename them `boot0.rom` and `boot1.rom`
+If you have the firmware as `RH2941.0C1` and one of its language packs
+(`RH2941.021`, or another for 4.10), rename them `boot0.rom` and `boot1.rom`
 instead of step 3.
 
 To have a card in the slot at every start, name a copy of its image

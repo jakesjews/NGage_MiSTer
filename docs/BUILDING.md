@@ -74,11 +74,19 @@ screenshot of it. Every build without the macro is the plain core.
 - `make -C sim phoenix-real PHOENIX_REF=build/coreboot` runs the core's
   loader over the two firmware files, in both orders, and compares the flash
   it writes with those images.
-- The core recognises the firmware file (4.10's `RH2941.0C1`) and takes any
-  of 4.10's language packs with it: the patches all lie in the firmware
-  file. `RH2941.021` (the Romania variant, English first) is the pack the
-  project runs; `RH2941.002` (Euro 1) has also booted in the model. `mkimage.py`
-  wants `--force` for a pack other than `.021`.
+- The core recognises the firmware file (4.10's `RH2941.0C1`, by a word of
+  its own: its build time at CS0 0x6E004) and takes any of 4.10's language
+  packs with it: the patches all lie in the firmware file. `RH2941.021` (the
+  Romania variant, English first) is the pack the project runs; `RH2941.002`
+  (Euro 1) and `RH2941.067` (Australia and New Zealand, from the APAC
+  package) boot in the model as well. `mkimage.py` wants `--force` for a
+  pack other than `.021`. Cores up to NGage_20261113 of 2026-11-12 took
+  `.021` only: they knew the pair by the ROM header's time stamp at CS0
+  0x80, which each pack writes with its own value.
+- For another pack, or a pair that must not load, run the loader bench by
+  hand: `sim/build/phoenix/Vphoenix_load MCU PACK cs0.bin cs1.bin` (the
+  images from `mkimage.py phoenix MCU PACK --force`), or
+  `Vphoenix_load MCU PACK refused`.
 - `make -C sim coreboot` boots the firmware on the whole core in Verilator.
   It runs for hours. Its CPU profile (`CORE_PROFILE=1`) is out of date and
   stops the bench when switched on.
@@ -122,11 +130,21 @@ for C: and 1 for the card (the other way round before 2026-11-10):
 
 [web/](../web) is the page the README links to
 (<https://ngage-mister.vercel.app/>): static files, no build step.
-`web/unpack.js` reads Nokia's data package (a Microsoft cabinet that holds an
-InstallShield cabinet) and accepts the two files in it by SHA-256.
+`web/unpack.js` takes `N-GageQD RH-29.zip` (the archive of the phone's data
+packages, read in pieces: the package for 4.10 is picked out of it), that
+package by itself (a Microsoft cabinet that holds an InstallShield cabinet),
+or the two flash files, and hands out the firmware file (held to its
+SHA-256) and a language pack the core's loader takes (checked the way the
+loader checks it, and its records' checksums).
 
-- `node web/test.mjs RH-29_dp_emea_v_10_0_MCUSW4_60.exe` checks it against the
-  real package.
+- Of the eleven packages in the zip named for 4.10, two have both files:
+  `RH-29_dp_emea_v_3_0_mcusw4_10-Oct19-151031.exe` (56 packs; the page takes
+  `RH2941.021` from it) and `RH-29_dp_apac_v_3_0_MCUSW4_10.exe` (the same
+  firmware file; the page takes `RH2941.067`). The other nine hold language
+  packs alone or the 4.60 firmware file.
+- `node web/test.mjs PACKAGE.exe ["N-GageQD RH-29.zip"] [other packages]
+  [flash files]` checks it against the real files: the package and the zip
+  must give the two files, everything else must be refused.
 - `vercel deploy --prod` in `web/` publishes it (project `ngage-mister`).
 - `web/vercel.json` sends a content security policy that allows no
   connections: the page cannot send a file anywhere.
