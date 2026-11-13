@@ -36,11 +36,16 @@ inline Bytes table(bool known = true) {
 // language pack's, the rest the MCU file's. Both files below also carry a
 // record in the other's area (bytes EE), as the real MCU file does for the
 // first 64 KB: those must never reach flash.
-inline Bytes mcu(bool damaged = false) {
+// The loader knows the pair by the MCU file's word at CS0 0x6E000 (4.10's
+// build time, as stored) and by the pack's table; the ROM header's time
+// stamp at 0x80 is each pack's own and is not looked at (this one is
+// RH2941.002's).
+inline Bytes mcu(bool known = true, bool damaged = false) {
 	auto v = stream();
 	record(v, 0x14, 0x80, {0xEE,0xEE,0xEE,0xEE,0xEE,0xEE,0xEE,0xEE}); // its copy of the ROM header: the pack's area
 	record(v, 0x21, 0x10180, {1,2,3,4,5});
 	record(v, 0x14, 0x12000, {0x55,0x66}, damaged);
+	record(v, 0x14, 0x6E000, {0x87,0x02,0xEB,0xE3,0x73,0xCA,0x95,uint8_t(known ? 0x2F : 0xFA)});
 	record(v, 0x14, 0x00F00010, {0xEE}); // the pack's ROM area
 	record(v, 0x14, 0x02000003, {0x11,0x22,0x33,0x44}, false, false);
 	v.insert(v.end(), {0x20,0,0,0,3,0, 0x14,0x21,0xFF}); // Bluetooth, not records
@@ -51,7 +56,7 @@ inline Bytes mcu(bool damaged = false) {
 }
 inline Bytes language(bool known = true) {
 	auto v = stream();
-	record(v, 0x14, 0x80, {0,0,0,0,0x40,0x24,0x44,0x18}); // the 4.10 ROM header's time stamp
+	record(v, 0x14, 0x80, {0,0,0,0,0x80,0x0D,0x7F,0xE6}); // the pack's own time stamp
 	record(v, 0x14, 0x8F00, table(known));
 	record(v, 0x14, 0x00F00001, {6,7,8,9});
 	record(v, 0x14, 0x20000, {0xEE}); // the MCU file's area

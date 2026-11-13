@@ -112,6 +112,14 @@ int main(int argc, char **argv) {
 		  c.download(1,read_file(argv[1]));
 		  CHECK(c.t.ready && !c.t.errors && c.notes[3]==1 && c.notes[2]==0,"real language pack before the MCU file is accepted");
 		  CHECK(c.cs0==read_file(argv[3]) && c.cs1==read_file(argv[4]),"reverse order byte-identical to both references"); }
+	} else if(argc == 4 && !strcmp(argv[3],"refused")) {
+		// Real files that are no 4.10 pair (another version's MCU file with a
+		// 4.10 pack, say): Vphoenix_load MCU LANG refused
+		for(bool reverse:{false,true}) {
+			Bench b; std::fill(b.cs1.begin()+(4u<<20),b.cs1.end(),255);
+			b.download(reverse?2:1,read_file(argv[reverse?2:1])); b.download(reverse?1:2,read_file(argv[reverse?1:2]));
+			CHECK(!b.t.ready && !b.t.errors && b.notes[2]==1 && b.notes[3]==0,"the pair is refused as not 4.10, in either order");
+		}
 	} else {
 		for(bool reverse:{false,true}) {
 			Bench b;
@@ -122,7 +130,7 @@ int main(int argc, char **argv) {
 			CHECK_EQ(b.cs0[0x10180],1,"21 data"); CHECK_EQ(b.cs1[3],0x11,"CS1 firmware data");
 			CHECK_EQ(b.cs0[0xf00001],6,"language data"); CHECK_EQ(b.cs1[0x330000],0x77,"language data in CS1"); b.check_patches();
 			// one owner a byte, whichever file came first
-			CHECK_EQ(b.cs0[0x84],0x40,"the first 64 KB is the pack's copy"); CHECK_EQ(b.cs0[0x12001],0x66,"MCU data above it");
+			CHECK_EQ(b.cs0[0x84],0x80,"the first 64 KB is the pack's copy"); CHECK_EQ(b.cs0[0x12001],0x66,"MCU data above it");
 			CHECK_EQ(b.cs0[0xf00010],255,"the MCU file does not write the pack's ROM area");
 			CHECK_EQ(b.cs0[0x20000],255,"the pack does not write the MCU file's area");
 			CHECK_EQ(b.notes[4],0,"initial pair has no reload warning");
@@ -132,24 +140,28 @@ int main(int argc, char **argv) {
 			b.download(reverse?1:2,reverse?phoenix::mcu():phoenix::language());
 			CHECK(b.t.ready && b.notes[3]==2 && b.notes[4]==1,"companion repairs pair without spurious warning");
 			b.check_patches();
-			b.download(1,phoenix::mcu(true));
+			b.download(1,phoenix::mcu(true,true));
 			CHECK(!b.t.ready && b.notes[1]==1 && b.notes[4]==1,"damaged resend reports damage instead of reload");
 			CHECK(std::all_of(b.cs1.begin()+(4u<<20),b.cs1.end(),[](uint8_t x){return x==0x69;}),"C: preserved");
 		}
 		for(bool reverse:{false,true}) { Bench b; b.download(reverse?2:1,reverse?phoenix::language(false):phoenix::mcu());
 		  b.download(reverse?1:2,reverse?phoenix::mcu():phoenix::language(false));
 		  CHECK(!b.t.ready && b.notes[2]==1,"unknown firmware blocked"); CHECK_EQ(b.cs0[0x9e4c4],255,"unknown version left unpatched"); }
-		// Another version's language pack: the ROM header's time stamp in its
-		// copy of the first 64 KB gives it away.
-		{ Bench b; auto v=phoenix::language(); phoenix::record(v,0x14,0x84,{0x80,0x4B,0x2F,0xA2}); b.download(1,phoenix::mcu()); b.download(2,v);
-		  CHECK(!b.t.ready && b.notes[2]==1,"another version's pack blocked"); CHECK_EQ(b.cs0[0x9e4c4],255,"and left unpatched"); }
+		// Another version's MCU file under a 4.10 language pack: its own word
+		// at CS0 0x6E000 gives it away, whichever file comes first.
+		for(bool reverse:{false,true}) { Bench b; b.download(reverse?2:1,reverse?phoenix::language():phoenix::mcu(false));
+		  b.download(reverse?1:2,reverse?phoenix::mcu(false):phoenix::language());
+		  CHECK(!b.t.ready && b.notes[2]==1,"another version's MCU file blocked"); CHECK_EQ(b.cs0[0x9e4c4],255,"and left unpatched"); }
+		// The ROM header's time stamp is the pack's own: any value passes.
+		{ Bench b; auto v=phoenix::language(); phoenix::record(v,0x14,0x84,{0x40,0x24,0x44,0x18}); b.download(1,phoenix::mcu()); b.download(2,v);
+		  CHECK(b.t.ready && b.notes[3]==1,"a pack with another time stamp is accepted"); }
 		// A table with no language pack entry.
 		{ Bench b; auto v=phoenix::language(); phoenix::record(v,0x14,0x8F10,{255,255,255,255,255,255,255,255}); b.download(1,phoenix::mcu()); b.download(2,v);
 		  CHECK(!b.t.ready && b.notes[2]==1,"missing language pack entry blocked"); }
 		// The files in each other's slots: neither writes its own data, nothing boots.
 		{ Bench b; b.download(1,phoenix::language()); b.download(2,phoenix::mcu());
 		  CHECK(!b.t.ready && b.notes[2]==1,"swapped slots are not recognised"); CHECK_EQ(b.cs0[0x9e4c4],255,"and left unpatched"); }
-		{ Bench b; b.download(1,phoenix::mcu(true)); CHECK(b.t.errors && b.notes[1]==1 && !b.t.ready,"bad checksum blocked");
+		{ Bench b; b.download(1,phoenix::mcu(true,true)); CHECK(b.t.errors && b.notes[1]==1 && !b.t.ready,"bad checksum blocked");
 		  b.download(1,phoenix::mcu()); b.download(2,phoenix::language()); CHECK(b.t.ready,"retry after damage"); }
 		{ Bench b; auto v=phoenix::stream(); phoenix::record(v,0x14,0x02400000,{0}); b.download(1,v);
 		  CHECK(b.t.errors && b.notes[1]==1,"C: record rejected"); CHECK_EQ(b.cs1[0x400000],0x69,"C: guard"); }

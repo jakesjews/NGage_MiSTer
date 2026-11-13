@@ -107,20 +107,26 @@ module phoenix_load #(
 	function automatic logic [28:0] image_beat(input logic chip, input logic [20:0] beat);
 		return (chip ? CS1_BASE : CS0_BASE) + {8'd0, beat};
 	endfunction
-	// The pair is recognised by four words of CS0 as the files wrote them,
-	// all in the first 64 KB, the pack's copy of it:
-	// 0: the ROM header's time stamp (bytes 0x80-0x87), 4.10's;
-	// 1: the language pack's own integrity entry (8F00) is written, any
-	//    of 4.10's packs;
-	// 2, 3: entry 8F18's unpatched digest, which a 4.10 pack carries for
-	//    the 4.10 MCU file. The bootstrap then checks the MCU file's bytes
-	//    against the digest the patch ROM puts there.
+	// The pair is recognised by four words of CS0 as the files wrote them:
+	// 0: the MCU file's own: CS0 0x6E000-0x6E007, which holds the low half
+	//    of its build time (0x6E004; in the scrambled area, so compared as
+	//    stored). It is the first word in which the other firmware files
+	//    seen differ from 4.10's RH2941.0C1: 4.60's and the three variants
+	//    in the APAC package.
+	// 1: the language pack's own integrity entry (8F00) is written;
+	// 2, 3: entry 8F18's unpatched digest, which every 4.10 pack carries
+	//    for the 4.10 MCU file. The bootstrap then checks the MCU file's
+	//    bytes against the digest the patch ROM puts there.
+	// Words 1 to 3 are in the first 64 KB, the pack's copy of it. Any of
+	// 4.10's packs has them. (Until 2026-11-12 word 0 was the ROM header's
+	// time stamp at 0x80, taken for the MCU file's: each pack writes its
+	// own there, so only RH2941.021 was accepted.)
 	function automatic logic [28:0] signature_beat(input logic [1:0] n);
-		return n == 0 ? 29'h10 : 29'h11E1 + 29'(n) + 29'(n[1]);
+		return n == 0 ? 29'hDC00 : 29'h11E1 + 29'(n) + 29'(n[1]);
 	endfunction
 	function automatic logic signature_bad(input logic [1:0] n, input logic [63:0] d);
 		case (n)
-			0: return d != 64'h1844244000000000;
+			0: return d != 64'h2f95ca73e3eb0287;
 			1: return d == '1;
 			2: return d != 64'h534cbc6744bc87be;
 			3: return d != 64'h85920dd8e81edef6;

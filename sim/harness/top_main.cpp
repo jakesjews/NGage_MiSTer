@@ -383,7 +383,7 @@ static void test_phoenix(const std::string &out) {
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "unknown version holds CPU");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 9), 1, "unknown version OSD message");
 	CHECK_EQ(b.ddr[0x9E4C4], 255, "unknown version unpatched");
-	b.download(1, phoenix::mcu(true));
+	b.download(1, phoenix::mcu(true, true));
 	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "bad checksum holds CPU");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "damaged file OSD message");
 	CHECK(!b.ddr_stray && !b.dm.protocol_errors, "Phoenix shared DDR protocol");
