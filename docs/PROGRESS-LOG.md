@@ -9768,3 +9768,130 @@ Not done: a program into the scrambled area as a chip would do it (above);
 loading one file again without its companion (a repeated file still starts
 a new pair, so `boot0.rom` and `boot.rom` together in the folder never
 complete); the real NOS, which needs the modem's hardware.
+
+## 2026-11-12 (night, later): finding the firmware; the unpacker takes the zip; one language pack only
+
+The user asked whether the two ROM files or the unpacker's package are
+easy to find with a web search or on the Internet Archive, and then to let
+the unpacker take more than the one package ("Discoverability is
+important").
+
+**What a search finds.** The file names (`RH2941.0C1`, `RH2941.021`, the
+package's own) give nothing on the Internet Archive or in a web search. On
+the Internet Archive, "Nokia DCT4 firmwares" (one hit), "Nokia DCT4" and
+"DCT4 firmware" reach the collection; "N-Gage QD firmware", "Nokia N-Gage
+firmware", "N-Gage QD" and "RH-29" do not. In a web search the quoted
+phrase finds the collection's listing first only when the search is limited
+to archive.org. The collection has 215 files; `N-GageQD RH-29.zip` is
+811,528,203 bytes (sha256 8cbfc6e5…) and holds 23 packages, 11 of them
+named for 4.10.
+
+**What those eleven hold** (all downloaded and read with the unpacker's own
+code):
+
+- `RH-29_dp_emea_v_3_0_mcusw4_10-Oct19-151031.exe`: `RH2941.0C1` and 56
+  language packs, `RH2941.021` among them. The only one with both files.
+- `RH-29_dp_apac_v_3_0_MCUSW4_10.exe`: the same `RH2941.0C1` (same
+  SHA-256), 13 packs, no `.021`.
+- emea v3.1 to v3.5 and apac v3.1 to v3.3: language packs only, no firmware
+  file, no `.021`.
+- `RH-29_dp_emea_v_3_7_MCUSW4_10.exe`: the 4.60 firmware file
+  (`RH2946.0C1`) with 93 packs named for 4.10.
+
+**The core's loader takes one language pack, not any of 4.10's.** One of
+the four words `phoenix_load.sv` knows the pair by is the "ROM header's
+time stamp" at CS0 0x80, taken for the firmware file's. It is in the first
+64 KB, which every pack writes again, and each pack writes its own value
+there: 55 different ones among the 56 packs of the package (the firmware
+file's own copy has yet another), and only `RH2941.021` carries the one the
+loader wants. The loader bench on `RH2941.0C1` + `RH2941.002` confirms it:
+refused. This has been so since the move to 4.10 (and in the loader before
+this evening's change as well: the pack's copy of the block was the one
+that stayed); the note that "any 4.10 pack loads" held for the model and
+for flat images only. The other two things the loader looks at, the pack's
+own entry at 0x8F00 and the 4.10 digest at 0x8F20, are in every pack looked
+at (all 56, and two of APAC's). Fixed later the same night (the next
+entry); what follows here is the unpacker as it stood before that, when
+`RH2941.021` was the only pack to hand out.
+
+**The unpacker** (`web/`), since only one package can work with this core:
+
+- It takes `N-GageQD RH-29.zip` itself, the file a person finds in the
+  collection's list, and picks the package out of it; the zip is read in
+  pieces (its directory, then the one member), so the browser never holds
+  811 MB. The package by itself and the two flash files still work.
+- A package is read for what it holds (the firmware file by SHA-256, the
+  language packs by what they write to the first 64 KB, as the loader
+  checks them, then by SHA-256), so a wrong one is refused with the reason:
+  another firmware version, no firmware file, or not the pack the core
+  takes.
+- The page and the README now send people to the zip; the single package
+  is the smaller download.
+
+Checked: `node web/test.mjs` on the package, the real zip (read in pieces
+from disk), the ten other packages, the two flash files, another pack and
+a 4.60 file, and on zips and damaged inputs made in the test; in Chrome on
+the local page: the package, two wrong packages (their messages) and the
+811 MB zip, which gave both files with the right SHA-256.
+
+## 2026-11-12 (night, last): the loader takes any 4.10 language pack; NGage_20261113.rbf again
+
+The user: "Fix loader then deploy and push."
+
+**The loader** (`rtl/mister/phoenix_load.sv`, `signature_beat` /
+`signature_bad`). Word 0 of the four it knows the pair by is no longer the
+time stamp at CS0 0x80 but CS0 0x6E000-0x6E007, in the firmware file's own
+area. Decoded, 0x6E004 holds a 64-bit build time (4.10:
+`00E0C169DC9A1800`, 4.60: `00E0E1B55D125680`), and that word is the first
+in which every other firmware file at hand differs from `RH2941.0C1`:
+4.60's `RH2946.0C1` and the APAC package's `RH2941.0C2`, `.0C4` and `.068`
+(NOS up to there, and ekern's start, are the same bytes in all of them).
+It lies in the scrambled area and is compared as stored
+(`64'h2f95ca73e3eb0287`). Words 1 to 3 stay: the pack's entry at 0x8F00
+written, and the 4.10 digest at 0x8F20. So a pack is known by the two
+things every 4.10 pack has, and the firmware file by a word of its own.
+
+The loader bench on the real files, both orders each: `RH2941.0C1` with
+`.021`, with `.002` (Euro 1) and with APAC's `.067` (Australia and New
+Zealand) loads to flash equal to `mkimage.py`'s; `RH2946.0C1` with `.021`
+and APAC's `RH2941.0C2` with `.067` are refused as not 4.10. The synthetic
+streams got the firmware word and a pack time stamp that is not `.021`'s.
+`.002` and `.067` boot to the idle screen in the model from a fresh C:.
+
+**The unpacker** follows: a language pack is one that has the entry and
+the digest (the time stamp is gone from its check too), its records'
+checksums must add up one way throughout the file, and `.021` is still
+held to its SHA-256. From a package it takes `.021` when it is there, else
+an English-speaking country's variant. Of the eleven packages named for
+4.10 two now give both files: emea v3.0 (`.021`, "RH-29 Romania") and apac
+v3.0 (`.067`). The zip still gives the emea v3.0 pair. The README says
+again that another 4.10 pack will do, which is now true of the core.
+
+**The fit.** Eight seeds of the tree with the changed loader:
+
+| seed | setup 100C | setup -40C | hold (worst) |
+|---|---|---|---|
+| 9 | -1.467 | -1.452 | +0.055 |
+| 30 | -1.508 | -1.528 | +0.078 |
+| 5 | -1.567 | -1.402 | +0.104 |
+| 20 | -1.648 | -1.267 | +0.080 |
+| 13 | -1.748 | -1.682 | +0.079 |
+| 40 | -1.920 | -1.975 | +0.079 |
+| 31337 | -1.930 | -1.640 | +0.078 |
+| 1337 | -2.177 | -2.092 | +0.076 |
+
+Seed 9 goes into NGage.qsf; its build is `releases/NGage_20261113.rbf`
+(md5 52408db5…, 34,206 ALMs, 519 M10K), in place of the build of the same
+name made earlier this night (md5 be6dbcec…, seed 20), which took
+`RH2941.021` only. It still does not meet 104 MHz in the timing report.
+
+**On the board** with that build (the MiSTer's main core):
+
+- the user's boot files (`.021`, their C:): the idle screen;
+- `RH2941.002` and `RH2941.067`, each through a launcher with a blank
+  scratch C: (the user's files untouched): the first start's Time and Date
+  dialogs, then the idle screen, in English;
+- the Sonic N launcher: the game's title and its character select.
+
+The test launchers, packs and scratch drives were removed from the board
+afterwards.
