@@ -9994,3 +9994,57 @@ for by the cellular side. Nokia's own HCI commands, if there are any, were
 not seen. The whole-core simulation of the start was stopped at 3.3 s of
 phone time (the board had answered by then). For a release: a seed
 sweep, and the board on the user's own C:.
+
+## 2026-11-13 (night): the release with the Bluetooth module, NGage_20261114.rbf
+
+The user: "Proceed with releasing this."
+
+**The commit.** The change of the entry above is 6a37a55. With the
+stand-in's sources committed `make standin-check` passes, and `make test`
+passes from a clean checkout of the commit (all 18 benches and the HPS
+read test).
+
+**The fit.** Eight seeds of that commit, the same eight as for the last
+release:
+
+| seed | setup 100C | setup -40C | hold (worst) | ALMs |
+|---|---|---|---|---|
+| 30 | -1.360 | -1.321 | +0.076 | 34,424 |
+| 9 | -1.396 | -1.387 | +0.071 | 34,518 |
+| 1337 | -1.446 | -1.485 | +0.074 | 34,388 |
+| 31337 | -1.527 | -1.404 | +0.080 | 34,454 |
+| 5 | -1.714 | -1.665 | +0.079 | 34,428 |
+| 13 | -1.734 | -1.629 | +0.070 | 34,390 |
+| 20 | -1.968 | -1.946 | +0.045 | 34,387 |
+| 40 | -2.128 | -1.840 | +0.076 | 34,387 |
+
+The release without the module (NGage_20261113, md5 52408db5…) ran from
+-1.467 to -2.177 over the same seeds: the module makes the fit no worse.
+Seed 9 lands where the test build of the afternoon did (-1.396, 34,518
+ALMs) although the build date in the core differs.
+
+Seed 30 goes into NGage.qsf. Rebuilt from the main checkout with it, the
+core is the sweep's seed 30 build byte for byte (md5 8c4db017…, 34,424
+ALMs, 521 M10K): `releases/NGage_20261114.rbf`, in place of
+NGage_20261113.rbf. The name is the core's own build date; the server's
+clock is UTC and was past midnight. It still does not meet 104 MHz in the
+timing report.
+
+**On the board** with that file as the main core:
+
+- the user's boot files and their own C: (copied aside first): a picture
+  every two seconds from 12 to 79 s after the load: the Nokia and N-Gage
+  pictures, the idle screen from about 36 s, and no "App. closed
+  EmonServer" in any of them, nor at 130 s;
+- the Sonic N launcher on the same C:: the Game key, Sega's and the
+  character's pictures, the demo level running;
+- a launcher with the scratch C: of the afternoon (Bluetooth already on):
+  the idle screen with the Bluetooth sign, Tools > Bluetooth showing On,
+  New paired device: "Searching for devices", then the empty list.
+
+Afterwards the user's C: was put back from the copy (the same md5 as
+before the run), and the test core `NGageBT`, its two launchers, the
+scratch C: and the copy were removed from the board. The board is on the
+new main core.
+
+Not pushed.
