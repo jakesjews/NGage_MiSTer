@@ -99,6 +99,14 @@ not looked at, then for type 4 the event's code, length and parameters
 (receiver `0x5046F09C`, type table `0x5046F070`; type 2 is ACL data; event
 `0x10`, hardware error, makes it leave with -20).
 
+`hci.dll` checks the length of some events against the one it knows.
+Inquiry Complete (`0x5046BCE8`) must have one parameter byte, the status:
+with any other length it gives the stack status `0x12`, Invalid HCI
+Command Parameters, and the search ends in error -6018 instead of "no
+more results". The module's first form of the event, a status and a
+count of responses, was such a length. What followed from the error is
+in "Games" below.
+
 ## Who uses it at start-up
 
 Seen in the reference model (`bt.log`), firmware 4.10, a start to the idle
@@ -146,7 +154,7 @@ time, as HCI's flow control has it. Values marked * are this project's:
 | Set_Event_Mask, Set_Event_Filter, Create_New_Unit_Key, Set_Host_Controller_To_Host_Flow_Control, Host_Buffer_Size | complete, nothing kept |
 | Read_, Write_, Delete_Stored_Link_Key | room for no keys, none read, written or deleted |
 | Reset | the kept values back to their defaults, an inquiry dropped |
-| Inquiry | Command Status, then Inquiry Complete with no responses after the length asked for (units of 1.28 s) |
+| Inquiry | Command Status, then, after the length asked for (units of 1.28 s), Inquiry Complete: `04 00 01 01 00`, the status alone |
 | Inquiry_Cancel | stops it; Command Disallowed if none runs |
 | Host_Number_Of_Completed_Packets | no event |
 | any other command of the link control and link policy groups | Command Status: Command Disallowed (there is no link and nobody to page) |
@@ -156,7 +164,47 @@ ACL and SCO data from the phone is dropped: there is never a link.
 
 Tried in the model and on the board: Tools > Bluetooth, the name dialog,
 Bluetooth On, Paired devices > New paired device: "Searching for devices"
-for 12.8 s, then the empty list.
+for 12.8 s, then the phone's note "No Bluetooth devices found. Try
+again?".
+
+## Games
+
+Games use the module through the socket server (`ESock.dll`) and the
+Bluetooth protocol module (`bt.prt`). What they send, from the model's
+`bt.log`: Read_Local_Name and Change_Local_Name, Read_Scan_Enable and
+Write_Scan_Enable (3 to host, 0 while joining), and Inquiry (the general
+access code, 12.8 s). Nothing outside the table above was seen.
+
+Tried in the model, Bluetooth on:
+
+| Game | Host Game | Join Game |
+|---|---|---|
+| Asphalt Urban GT | "Waiting for players to join Asphalt game" | keeps "Looking for Asphalt game" after the search; Back returns to the menu |
+| Tony Hawk's Pro Skater | "Waiting for another player to join" | "Searching for devices", then "No hosts found" |
+| Call of Duty | not tried | "Looking for hosts" through two searches, then "No Host found" |
+| Alien Front | its game settings screen | "Game Server not found" |
+
+On the board, with the release build: the phone's search and its note;
+Call of Duty's "Enable Bluetooth?" answered Yes, then Join Game to "No
+Host found"; Asphalt's Join Game left looking for half a minute, then
+Back.
+
+With Bluetooth off, Call of Duty asks "Enable Bluetooth?" and switches it
+on itself. Asphalt asks "Activate Bluetooth?", reads the local name, goes
+back to its menu and asks again the next time; on the board the phone's
+setting read On after the next start. Why it does not take at once is not
+known; with Bluetooth switched on in Tools > Bluetooth the game's
+multiplayer menu opens.
+
+**The crash this table comes from.** While the module still ended a search
+with a two-byte Inquiry Complete, `bt.prt` (`0x50471410`) passed the
+resulting error -6018 to the socket server's host resolver, which counts a
+client's results and forgets them on an error (`0x50427F68`). Asphalt then
+asked for the next result, and the server panics a client that does so with
+none counted (`0x50427D62`: "eSock panic" 19): "App. closed" 12.8 s after
+Join Game, on the board and in the model. The phone's own search only
+showed its empty list without the note. With the one-byte event the stack
+ends a search with "no more results" and none of this happens.
 
 ## What it does not do
 
@@ -167,3 +215,6 @@ for 12.8 s, then the empty list.
 - Nokia's own HCI commands, if the stack has any for this module, were
   not seen in the traffic above and get "Unknown HCI Command".
 - Sleep and wake-up.
+- Events with a length `hci.dll` checks, other than Inquiry Complete, are
+  never sent (a result of a search, anything about a connection), so their
+  forms are untried.

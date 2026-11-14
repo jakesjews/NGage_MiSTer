@@ -10048,3 +10048,92 @@ scratch C: and the copy were removed from the board. The board is on the
 new main core.
 
 Not pushed.
+
+## 2026-11-14: a game closed at the end of a Bluetooth search; the event corrected; NGage_20261114.rbf again
+
+The user, of the release of the night: "so its all cool and games still
+launch etc?", then "try a few others. there has been crashes around
+bluetooth before". Only Sonic N had been run on it.
+
+**Games on that build** (seed 30, the board, the user's C: copied aside):
+Tony Hawk's Pro Skater into the Warehouse, Asphalt Urban GT into a race,
+Call of Duty into its first mission, Alien Front into its first mission.
+The Game key at the idle screen starts Sonic N's card only; for the
+others the phone says "Applications on memory card can be opened from
+'Menu'", and they start from the menu's last icon.
+
+**The crash.** Asphalt, Multiplayer, with Bluetooth on: Join Game shows
+"Looking for Asphalt game", and 12.8 s later the phone says "App. closed"
+with the game's name. On the board and in the model alike.
+
+How it was read, in the model under GDB (addresses RH-29 4.60; 4.10 has
+`hci.dll`, `bt.prt` and `ESock.dll` 0xEA0 lower):
+
+- the kernel's thread exit (`0x5032D7C8`) is a panic, category "eSock
+  panic", number 19, raised by the socket server from its host
+  resolver's "next result" (`0x50427D62`): the client asked for the next
+  result with none counted;
+- the resolver had just been completed with error -6018 (`0x50427F68`),
+  which clears the count; -6018 is HCI status `0x12`, Invalid HCI Command
+  Parameters, as `bt.prt` turns it into an error (`0x50471410`);
+- the `0x12` is `hci.dll`'s own: its handler for Inquiry Complete
+  (`0x5046BCE8`) takes the event with one parameter byte and reports
+  anything else as `0x12`. The module sent two, a status and a count of
+  responses.
+
+So every search ended in an error instead of "no more results". The
+phone's own search hid it (an empty list, no note); Asphalt does not
+survive it.
+
+**The fix** (ba701f3): Inquiry Complete is `04 00 01 01 00`, in
+`ngage_bt_chip.h`, `bt_module.sv` and the bench's session.
+`docs/BLUETOOTH.md` has the event's form and a new section on games.
+
+In the model with it, Bluetooth on: the phone's search ends with "No
+Bluetooth devices found. Try again?"; Asphalt keeps looking and Back
+returns to its menu; Tony Hawk's Join Game says "No hosts found", Call of
+Duty's "No Host found", Alien Front's "Game Server not found"; Host Game
+waits for a player in Asphalt, Tony Hawk and Alien Front. With Bluetooth
+off Call of Duty asks "Enable Bluetooth?" and switches it on. The games
+send nothing outside the module's command table.
+
+**Left open.** Asphalt's own "Activate Bluetooth?" does not take at once:
+it reads the local name, returns to its menu and asks again; on the board
+the phone's setting read On after the next start. Not understood. With
+Bluetooth on from Tools > Bluetooth its multiplayer menu opens.
+
+**The fit**, eight seeds of ba701f3:
+
+| seed | setup 100C | setup -40C | hold (worst) | ALMs |
+|---|---|---|---|---|
+| 5 | -1.486 | -1.384 | +0.099 | 34,315 |
+| 30 | -1.567 | -1.493 | +0.059 | 34,306 |
+| 40 | -1.365 | -1.689 | +0.065 | 34,243 |
+| 9 | -1.688 | -1.708 | +0.078 | 34,319 |
+| 13 | -1.761 | -1.534 | +0.075 | 34,394 |
+| 31337 | -1.771 | -1.351 | +0.076 | 34,416 |
+| 1337 | -1.848 | -2.012 | +0.064 | 34,230 |
+| 20 | -1.916 | -1.879 | +0.078 | 34,222 |
+
+Two changed constants re-rolled every seed. Seed 40 is best at 100C and
+seed 5 over both slow corners; seed 5 goes into NGage.qsf. Its rebuild
+from the main checkout is the sweep's file byte for byte (md5 15bc782b…,
+521 M10K): `releases/NGage_20261114.rbf`, in place of the file of the
+same name from the night (md5 8c4db017…, seed 30), which has the crash.
+It still does not meet 104 MHz. `make test` passes on the tree.
+
+**On the board** with that file as the main core, the user's C: copied
+aside first and put back after (the same md5):
+
+- a picture every two seconds through the start: the idle screen from
+  about 36 s, no note;
+- Sonic N to its demo level, Tony Hawk skating in the Warehouse, Alien
+  Front in its first mission;
+- Call of Duty: Multiplayer, "Enable Bluetooth?" Yes, "Bluetooth: on",
+  Join Game, "Looking for hosts", "No Host found";
+- Asphalt: Multiplayer, Join Game, "Looking for Asphalt game" for half a
+  minute, Back to the menu;
+- Tools > Bluetooth, New paired device: "Searching for devices", then "No
+  Bluetooth devices found. Try again?".
+
+Not pushed.
