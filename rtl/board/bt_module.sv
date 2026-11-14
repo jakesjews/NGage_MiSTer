@@ -294,11 +294,12 @@ module bt_module #(
 		k  = i - 9'd8;
 		pv = pset ? pq : par_def(idx);
 		if (kind == RX_INQ) begin
-			// Inquiry Complete: status 0, no responses
+			// Inquiry Complete: one parameter, the status (hci.dll takes no
+			// other length)
 			case (i)
 				9'd0: return 8'h04;
 				9'd2: return 8'h01;
-				9'd3: return 8'h02;
+				9'd3: return 8'h01;
 				default: return 8'h00;
 			endcase
 		end
@@ -502,7 +503,7 @@ module bt_module #(
 				v_inqd = 1'b0;
 				v_kind = RX_INQ;
 				v_up   = 1'b1;
-				rx_len <= 9'd6;
+				rx_len <= 9'd5;
 			end
 		end
 		if (v_up) begin

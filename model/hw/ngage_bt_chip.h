@@ -193,9 +193,11 @@ static inline uint8_t bt_rx_byte(const BtChip *c, unsigned i)
     unsigned k = i - 8, e = c->rep_idx;
 
     if (c->rx_kind == BT_RX_INQ) {
-        /* Inquiry Complete: status 0, no responses */
-        static const uint8_t inq[6] = { 0x04, 0x00, 0x01, 0x02, 0x00, 0x00 };
-        return i < 6 ? inq[i] : 0;
+        /* Inquiry Complete: one parameter, the status. hci.dll (0x5046BCE8)
+         * takes no other length: with two bytes (a status and a count of
+         * responses) it hands the stack "Invalid HCI Command Parameters". */
+        static const uint8_t inq[5] = { 0x04, 0x00, 0x01, 0x01, 0x00 };
+        return i < 5 ? inq[i] : 0;
     }
     if (c->rep_cs) {
         /* Command Status: status, one more command may be sent, opcode */
@@ -239,7 +241,7 @@ static inline void bt_chip_pump(BtChip *c)
     } else if (c->inq_done) {
         c->inq_done = false;
         c->rx_kind = BT_RX_INQ;
-        c->rx_len = 6;
+        c->rx_len = 5;
     } else {
         return;
     }
