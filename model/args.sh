@@ -10,6 +10,9 @@ machine="ngage-qd,flash0=$flash0,flash1=$flash1,probe-log=$out/probe.log,upp-log
 save1=${NGAGE_SAVE1:-$out/cs1-save.bin}
 [[ "$save1" != none ]] && machine+=",flash1-save=$save1"
 machine+=",quirks=model/upp-quirks.txt,cbus-regs=model/cbus-regs.txt,cbus-log=$out/cbus.log"
+# The Bluetooth module's resets and the HCI packets either way ("HCI<" from
+# the phone, "HCI>" to it).
+machine+=",bt-log=$out/bt.log"
 # The firmware patches, with the model's own build of the stand-ins
 # (model/.build, from the working tree) in place of the committed binaries
 # the list names. NGAGE_PATCHES=FILE takes another list as it is.

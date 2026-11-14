@@ -37,6 +37,10 @@
 //    CID, CSD and its first sectors; skipped when the file is absent;
 //  * keypad: ekeyb's idle state, a key press raising CTSI bit 2 and
 //    CTSI_IRQ, the column scan finding every key, the acknowledge;
+//  * the Bluetooth module behind CBUS device 5 and its interrupt: the
+//    driver's reset, the line's bit in CTSI's second group (latched, read
+//    and raised only while enabled, cleared by writing 1), a command and
+//    its answer; the module itself has its own bench (bt);
 //  * CBUS: UEMK 0x15, the power-on status and the power key, the A/D
 //    converter's battery-size channel, device 4's ID, storage and read-back,
 //    the transfer length masking; the model's CBUS log (model/.out/cbus.log)
@@ -1199,9 +1203,9 @@ void test_cbus(Bench &b, const std::string &dir) {
 	// ro registers keep their value
 	c.write(1, 0x15, 16, 0x0200);
 	CHECK_EQ(c.read(1, 0x15, 16), 0x0008, "UEMK 0x15 is read-only");
-	// device 5: storage
-	for (int r = 0; r < 8; r++) c.write(5, r, 16, 0x1111u * r + 5);
-	for (int r = 0; r < 8; r++) CHECK_EQ(c.read(5, r, 16), 0x1111u * r + 5, "device 5 storage");
+	// a device nothing is known of: storage (device 5 is the Bluetooth module, test_bt)
+	for (int r = 0; r < 8; r++) c.write(3, r, 16, 0x1111u * r + 5);
+	for (int r = 0; r < 8; r++) CHECK_EQ(c.read(3, r, 16), 0x1111u * r + 5, "device 3 storage");
 	// 32-bit accesses: length and control together, data high and low together
 	b.wr(CBUS + 0, 0x0F | (0x16 | 1 << 5) << 16);       // write UEMK 0x16 (no start bit)
 	b.wr(CBUS + 4, 0x0000 | 0x5A5Au << 16);              // data_hi 0, data_lo 0x5A5A: starts the write
@@ -1243,12 +1247,86 @@ void test_cbus(Bench &b, const std::string &dir) {
 			// the RTC's time and day counter are the wall clock's (test_rtc); the
 			// calibration register's 0xC0 (cbus-regs.txt) is newer than some logs
 			if (dev == 1 && (reg == 0x11 || reg == 0x12 || reg == 0x13 || reg == 0x01 || reg == 0x04)) { nr++; continue; }
+			// the Bluetooth module answers in its own time (the bt bench)
+			if (dev == 5) { nr++; continue; }
 			nr++;
 			if (got != val) sim::fail("cbus.log: dev %u reg %02x read 0x%x, the model logged 0x%x", dev, reg, got, val);
 		}
 	}
 	b.power = false;
 	printf("cbus.log replay: %d writes, %d reads checked\n", nw, nr);
+}
+
+// -------------------------------------------------------------------------
+// the Bluetooth module behind CBUS and its interrupt line
+// -------------------------------------------------------------------------
+void test_bt(Bench &b) {
+	printf("Bluetooth\n");
+	Cbus c(b);
+	const uint32_t EN_CLR = 0x0C150014u, EN_SET = 0x0C150016u, ST2 = 0x0C150102u;
+	const int DEV = 5, DATA = 0x00, RXLEN = 0x01, STATUS = 0x06, REG0 = 0x08, REASON = 0x09, START = 0x0A;
+	auto pending = [&]() { b.run(4); return b.t->irq != 0; };
+
+	b.reset_core();
+	b.wr(INTC + 0x08, 1u << 25);
+	CHECK_EQ(c.read(DEV, STATUS, 16), 0x0004, "the module is awake and has nothing to say");
+	CHECK_EQ(b.rd16(ST2), 0, "its interrupt bit is clear");
+	CHECK_EQ(b.rd16(EN_SET), 0, "and disabled after reset");
+
+	// the driver's open (btldd 0x503F0B14): the reset, then the enable
+	c.write(DEV, STATUS, 16, 0);
+	c.write(DEV, STATUS, 16, 1);
+	CHECK_EQ(c.read(DEV, STATUS, 16), 0, "the module is deaf while it resets");
+	b.run(2100);                    // BT_RESET_CLKS
+	CHECK_EQ(b.rd16(ST2), 0, "the bit does not read as set while it is disabled");
+	CHECK(!pending(), "nor raise CTSI_IRQ");
+	b.wr16(EN_SET, 0x0010);
+	CHECK_EQ(b.rd16(EN_SET), 0x0010, "the enables read back");
+	CHECK_EQ(b.rd16(EN_CLR), 0x0010, "at both addresses");
+	CHECK_EQ(b.rd16(ST2), 0x0010, "enabled, the latched bit shows");
+	CHECK(pending(), "and raises CTSI_IRQ");
+	CHECK_EQ(b.rd(INTC + 0x14), 26, "IRQ number 26: CTSI_IRQ");
+	CHECK_EQ(b.rd16(CTSI) & 0xC, 0, "the key matrix's bits are not touched");
+	b.wr16(ST2, 0x0010);            // the driver's acknowledge (btldd 0x503F0B68)
+	CHECK_EQ(b.rd16(ST2), 0, "writing 1 clears it");
+	CHECK(!pending(), "and the interrupt");
+	CHECK_EQ(c.read(DEV, STATUS, 16), 0x0084, "status: the module has reset");
+	CHECK_EQ(c.read(DEV, STATUS, 16), 0x0004, "the event clears when read");
+	CHECK_EQ(c.read(DEV, REASON, 16), 0x0008, "reset reason: the phone asked");
+	c.write(DEV, START, 16, 0x8000);
+	CHECK(pending(), "the answer raises the interrupt");
+	b.wr16(ST2, 0x0010);
+	CHECK_EQ(c.read(DEV, STATUS, 16), 0x0044, "status: register 8 has an answer");
+	CHECK_EQ(c.read(DEV, REG0, 16), 0x0208, "the buffer size");
+
+	// Read_BD_ADDR the way the driver writes a packet, and its answer
+	static const uint16_t cmd[3] = { 0x0100, 0x0910, 0x0000 };
+	static const uint16_t ans[7] = { 0x0400, 0x0E0A, 0x0109, 0x1000, 0x0000, 0x0057, 0x6000 };
+	c.write(DEV, REG0, 16, 0x8005);
+	CHECK_EQ(c.read(DEV, STATUS, 16), 0x0044, "room granted");
+	CHECK_EQ(c.read(DEV, REG0, 16), 0x0005, "for the five bytes");
+	for (uint16_t w : cmd) c.write(DEV, DATA, 16, w);
+	c.write(DEV, REG0, 16, 0xC005);
+	CHECK(pending(), "the packet's acknowledge and the answer raise the interrupt");
+	b.wr16(ST2, 0x0010);
+	CHECK_EQ(c.read(DEV, STATUS, 16), 0x0054, "status: acknowledge and a packet");
+	CHECK_EQ(c.read(DEV, REG0, 16), 0x4005, "the packet acknowledged");
+	CHECK_EQ(c.read(DEV, RXLEN, 16), 14, "the answer's length");
+	for (uint16_t w : ans) CHECK_EQ(c.read(DEV, DATA, 16), w, "the answer's words (00:60:57:00:00:00)");
+	CHECK_EQ(c.read(DEV, RXLEN, 16), 0, "the phone has all of it");
+	CHECK_EQ(c.read(DEV, 0x1F, 16), 0, "a register the module does not have reads 0");
+
+	// disabled (the driver's close, btldd 0x503F084C), the line is held back
+	b.wr16(EN_CLR, 0x0010);
+	c.write(DEV, START, 16, 0x8000);
+	CHECK_EQ(b.rd16(ST2), 0, "disabled: the bit does not read");
+	CHECK(!pending(), "and does not interrupt");
+	b.wr16(EN_SET, 0x0010);
+	CHECK(pending(), "it was latched all the same");
+	b.wr16(ST2, 0x0010);
+	b.wr16(EN_CLR, 0x0010);
+	(void)c.read(DEV, STATUS, 16);
+	CHECK(!pending(), "quiet again");
 }
 
 // -------------------------------------------------------------------------
@@ -1447,6 +1525,7 @@ int main(int argc, char **argv) {
 	test_timers(b);
 	test_keypad(b);
 	test_cbus(b, model_out);
+	test_bt(b);
 	test_rtc(b);
 	test_audio(b);
 	test_sti(b);

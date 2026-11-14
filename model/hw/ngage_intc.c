@@ -106,6 +106,14 @@ static void intc_update(NGageIntc *s)
     qemu_set_irq(s->fiq, fiq);
 }
 
+void ngage_ctsi_set(int who, bool level)
+{
+    static bool lines[2];
+
+    lines[who & 1] = level;
+    ngage_intc_set_source(NGAGE_IRQ_CTSI_IRQ, lines[0] || lines[1]);
+}
+
 void ngage_intc_set_source(int src, int level)
 {
     NGageIntc *s = the_intc;

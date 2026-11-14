@@ -61,6 +61,12 @@ void ngage_intc_create(MemoryRegion *sysmem, qemu_irq cpu_irq, qemu_irq cpu_fiq)
 /* Drive interrupt source 0..95 (numbering in ngage_intc.c). */
 void ngage_intc_set_source(int src, int level);
 
+/*
+ * Source 25, IrqCTSI_IRQ, is shared: who 0 = the key matrix (ngage_keypad.c),
+ * who 1 = the Bluetooth module's line (ngage_bt.c).
+ */
+void ngage_ctsi_set(int who, bool level);
+
 /* Interrupt source numbers (ngage_intc.c). */
 #define NGAGE_IRQ_TIMER(n)      (n)
 #define NGAGE_IRQ_DMA(n)        (6 + (n))
@@ -98,5 +104,10 @@ void ngage_audio_create(MemoryRegion *sysmem, AudioBackend *be, const char *wav_
 void ngage_cbus_create(MemoryRegion *sysmem, const char *regs_path, FILE *log);
 void ngage_cbus_set_cs1(NGageFlash *flash);
 void ngage_cbus_set_power_key(bool down);
+
+/* Bluetooth module, CBUS device 5, and its CTSI interrupt bit (ngage_bt.c). */
+void ngage_bt_create(MemoryRegion *sysmem, FILE *log);
+uint32_t ngage_bt_read(unsigned reg);
+void ngage_bt_write(unsigned reg, uint32_t val);
 
 #endif

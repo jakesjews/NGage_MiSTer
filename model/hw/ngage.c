@@ -40,6 +40,7 @@ struct NGageMachineState {
     char *quirks;
     char *cbus_regs;
     char *cbus_log;
+    char *bt_log;
     char *rom_patches;
     char *kern_log;
     char *trace;
@@ -220,6 +221,16 @@ static void ngage_init(MachineState *machine)
         }
         ngage_cbus_create(sysmem, s->cbus_regs, cl);
     }
+    {
+        FILE *bl = NULL;
+        if (s->bt_log) {
+            bl = fopen(s->bt_log, "w");
+            if (bl) {
+                setvbuf(bl, NULL, _IOLBF, 0);
+            }
+        }
+        ngage_bt_create(sysmem, bl);
+    }
 
     {
         FILE *kl = NULL;
@@ -316,6 +327,8 @@ static char *get_cbusregs(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(
 static void set_cbusregs(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->cbus_regs = g_strdup(v); }
 static char *get_cbuslog(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->cbus_log); }
 static void set_cbuslog(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->cbus_log = g_strdup(v); }
+static char *get_btlog(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->bt_log); }
+static void set_btlog(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->bt_log = g_strdup(v); }
 static char *get_patches(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->rom_patches); }
 static void set_patches(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->rom_patches = g_strdup(v); }
 static char *get_kernlog(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->kern_log); }
@@ -373,6 +386,8 @@ static void ngage_machine_class_init(ObjectClass *oc, const void *data)
     object_class_property_set_description(oc, "cbus-regs", "CBUS device register initial values");
     object_class_property_add_str(oc, "cbus-log", get_cbuslog, set_cbuslog);
     object_class_property_set_description(oc, "cbus-log", "file that receives every CBUS transaction");
+    object_class_property_add_str(oc, "bt-log", get_btlog, set_btlog);
+    object_class_property_set_description(oc, "bt-log", "file that receives the Bluetooth module's resets and HCI packets");
     object_class_property_add_str(oc, "lcd-log", get_lcd_log, set_lcd_log);
     object_class_property_set_description(oc, "lcd-log", "file that receives LCD commands");
     object_class_property_add_str(oc, "shot-dir", get_shot_dir, set_shot_dir);

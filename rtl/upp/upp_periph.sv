@@ -15,7 +15,9 @@
 //   0x0C121200-0x0C12120F  LCD bus interface                upp_lcdif
 //   0x0C149000             MCU DPLL: storage, bit 0 reads 1 (locked; bootstrap
 //                          0x37FC, model/upp-quirks.txt)
-//   0x0C150100             CTSI interrupt status            upp_uif
+//   0x0C150014, 0x0C150016 CTSI interrupt enables (the Bluetooth module's
+//                          line)                             upp_uif
+//   0x0C150100, 0x0C150102 CTSI interrupt status            upp_uif
 //   0x0C150400-0x0C15041F  UIF ports D/E (keypad)           upp_uif
 //   0x0C150420-0x0C150427  CBUS master, UEMK and the rest   upp_cbus
 //   0x0C1F0000-0x0C1F00FF  HLE audio device (emulator)      upp_haudio
@@ -126,6 +128,15 @@ module upp_periph #(
 	input  logic [5:0]  kp_row_in,
 	input  logic        power_key,
 
+	// the Bluetooth module on CBUS (bt_module) and its interrupt line
+	output logic        bt_rd,
+	output logic        bt_wr,
+	output logic [4:0]  bt_reg,
+	output logic [15:0] bt_wdata,
+	input  logic [15:0] bt_rdata,
+	input  logic        bt_busy,
+	input  logic        bt_irq,
+
 	// the wall clock (rtc_wall) for the UEMK RTC and the date register
 	input  logic        rtc_valid,
 	input  logic [5:0]  rtc_sec,
@@ -164,7 +175,7 @@ module upp_periph #(
 	wire s_mmc  = pg20 && off >= 12'h600 && off < 12'h640;
 	wire s_tmr  = pg20 && off >= 12'hA00 && off < 12'hAC0;
 	wire s_lcd  = pg21 && off >= 12'h200 && off < 12'h210;
-	wire s_ctsi = pg50 && off == 12'h100;
+	wire s_ctsi = pg50 && (off == 12'h100 || off == 12'h014);
 	wire s_kp   = pg50 && off >= 12'h400 && off < 12'h420;
 	wire s_cbus = pg50 && off >= 12'h420 && off < 12'h428;
 	wire s_aud  = pgF0 && off < 12'h100;
@@ -174,8 +185,7 @@ module upp_periph #(
 	wire be32 = p_be == 4'b1111;
 	wire be16 = p_be == 4'b0011 || p_be == 4'b1100;
 	wire size_ok = (s_intc || s_dma || s_tmr || s_lcd || s_aud || s_date) ? be32 :
-	               s_ctsi ? p_be == 4'b0011 :
-	               s_kp ? be16 :
+	               (s_ctsi || s_kp) ? be16 :
 	               s_cbus ? (be16 || be32) : 1'b1;
 
 	// ------------------------------------------------------------------
@@ -422,6 +432,7 @@ module upp_periph #(
 		.wdata(p_wdata),
 		.rmask(m_uif),
 		.rdata(d_uif),
+		.bt_irq(bt_irq),
 		.ctsi_irq(ctsi_irq),
 		.col_oe(kp_col_oe),
 		.col_out(kp_col_out),
@@ -444,6 +455,12 @@ module upp_periph #(
 		.rdata(d_cbus),
 		.busy(b_cbus),
 		.power_key(power_key),
+		.bt_rd(bt_rd),
+		.bt_wr(bt_wr),
+		.bt_reg(bt_reg),
+		.bt_wdata(bt_wdata),
+		.bt_rdata(bt_rdata),
+		.bt_busy(bt_busy),
 		.rtc_valid(rtc_valid),
 		.rtc_sec(rtc_sec),
 		.rtc_min(rtc_min),

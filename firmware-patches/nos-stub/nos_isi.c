@@ -261,6 +261,66 @@ static void queue(struct slot *s, const u8 *m, int n)
 #include "nos_isi_replies.h"
 #include "nos_audio.h"
 
+/* ---------------------------------------------------------------- routing */
+
+/*
+ * Messages between two Symbian programs go through NOS as well. One pair
+ * matters at start-up: the last step of the DOS self test, 0x59/0x01
+ * [08 00] from Nokia.dsy (object 0x4D), is not for NOS. Resource 0x59 is
+ * the "Calypso EPOC SelfTest Server" (SelfTestServer.exe), which opens
+ * PhoNet as object 0x38 (0x5036C984), takes only resource 0x59
+ * (0x5036CC22) and reads [10] as a test number (table 0x5036D2C8): 8 makes
+ * it answer 0x02 [00] and stop its scheduler (0x5036C79C). Its exit closes
+ * its session with BTTestServer.exe, which is what frees the Bluetooth
+ * driver's one channel for the rest of the system (docs/BLUETOOTH.md).
+ * It registers no name, so NOS is taken to know where 0x59 lives.
+ *
+ * A channel's unit is its PhoNet object by phonet.dll's table (RPhoNet
+ * open, 0x50366928): object 0x38 is unit 13. The server has sent nothing
+ * when the request comes, so it is found by the unit; its answer goes to
+ * the object it names, found by what that client sent before.
+ */
+#define OBJ_SELFTEST        0x38
+#define UNIT_SELFTEST       13
+
+static struct slot *slot_by_unit(int unit)
+{
+    for (int i = 0; i < NSLOTS; i++) {
+        if (slots[i].obj && slots[i].chan && slots[i].unit == unit) {
+            return &slots[i];
+        }
+    }
+    return 0;
+}
+
+static struct slot *slot_by_obj_id(int id)
+{
+    for (int i = 0; i < NSLOTS; i++) {
+        if (slots[i].obj && slots[i].chan && slots[i].obj_id == id) {
+            return &slots[i];
+        }
+    }
+    return 0;
+}
+
+/* 1 = the message went to another client's channel. */
+static int isi_route(struct slot *s, const u8 *m, int len)
+{
+    struct slot *d = 0;
+
+    if (m[7] == OBJ_SELFTEST) {
+        d = m[6] ? slot_by_obj_id(m[6]) : 0;
+    } else if (m[3] == RES_59 && m[6] == 0) {
+        d = slot_by_unit(UNIT_SELFTEST);
+    }
+    if (!d || d == s) {
+        return 0;
+    }
+    queue(d, m, len);
+    deliver(d);
+    return 1;
+}
+
 /* Every vtable method runs inside call_begin/call_end. */
 static void call_begin(void)
 {
@@ -369,7 +429,9 @@ static int m_control(void *obj, int fn, u32 *a1, void *a2)
     call_begin();
     log_text(fn == 4 ? "NOS< " : "NOS<6 ", m, len);
     s->obj_id = m[7];
-    isi_request(s, m, len);
+    if (!isi_route(s, m, len)) {
+        isi_request(s, m, len);
+    }
     deliver(s);
     call_end();
     return 0;

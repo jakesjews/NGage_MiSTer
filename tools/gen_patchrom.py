@@ -24,10 +24,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PATCH_DIGESTS = {
-    0x8F18: "06baac2bc6671141221ddc082f0b70c9",
+    0x8F18: "ee36e7ab7ae6a616fc61e2138338116b",
 }
 # SHA256 of the encoded patch records, before the digest records/terminator.
-PAYLOAD_SHA256 = "64f8579c64d286fe943948928130a0d568ace79373cb7cb39b7ae2501a3136b3"
+PAYLOAD_SHA256 = "69886b65988bfcdddf60356fbf9a4ac79ece10d481fb378c678d5b690213bccd"
 
 
 def load_scrambler():

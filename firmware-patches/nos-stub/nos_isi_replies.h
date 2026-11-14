@@ -242,7 +242,10 @@ static void isi_request(struct slot *s, const u8 *m, int len)
     case RES_59 << 8 | 0x01:
         /* Nokia.dsy 0x50FFBC74 reads the reply 0x02 at [10]: 0 -> DOS
          * event 1 = 3, the self test passed (0x50FFBCBC); otherwise it
-         * asks again (0x50FFBD6C). */
+         * asks again (0x50FFBD6C). The request belongs to
+         * SelfTestServer.exe and goes there (isi_route in nos_isi.c);
+         * this answer is only for a start in which that server is not
+         * running, so that the self test still ends. */
         n = isi_reply_hdr(r, m, 0x02);
         r[n++] = 0x00;
         isi_send(s, r, n);

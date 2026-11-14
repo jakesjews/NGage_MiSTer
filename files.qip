@@ -6,6 +6,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/board/video_out.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/board/keypad_matrix.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/board/nor_flash.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/board/mmc_card.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/board/bt_module.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mem/bram32.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mem/sdram.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mem/ddram_flash.sv

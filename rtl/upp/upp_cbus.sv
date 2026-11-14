@@ -46,7 +46,16 @@
 //     and the clock runs from 00:00:00.
 //   Device 4 (probably ZOCUS; cbus.dll's self-test 0x5037E008 needs register 0
 //     to read 0x04xx): register 0 reads 0x0400.
-//   Device 5 and everything else: storage, 0 after reset.
+//   Device 5 is the Bluetooth module (rtl/board/bt_module.sv, outside this
+//     block as it is outside the chip): a read takes bt_rdata in the clock of
+//     bt_rd, a write gives bt_wdata in the clock of bt_wr, with the register
+//     in bt_reg. The write reaches the module a clock after it starts, from
+//     registers (the value comes late in the clock and the module decodes a
+//     command from it); done reads 0 for that clock. While the module makes
+//     its next word (bt_busy) a read waits, done reading 0. A write started
+//     while a read of the module is still on its way is not passed on (the
+//     driver starts nothing before done).
+//   Everything else: storage, 0 after reset.
 // "ro" registers keep the written value but read their fixed one, as the
 // model's ro lines. Reads and writes are masked to the transfer length.
 module upp_cbus #(
@@ -66,6 +75,14 @@ module upp_cbus #(
 	output logic        busy,
 
 	input  logic        power_key,
+
+	// the Bluetooth module, CBUS device 5
+	output logic        bt_rd,
+	output logic        bt_wr,
+	output logic [4:0]  bt_reg,
+	output logic [15:0] bt_wdata,
+	input  logic [15:0] bt_rdata,
+	input  logic        bt_busy,
 
 	// the wall clock (rtc_wall)
 	input  logic        rtc_valid,
@@ -142,7 +159,19 @@ module upp_cbus #(
 	wire [5:0]  w_bits = {1'b0, len[4:0]} + 6'd1;
 	wire [31:0] w_val  = ({16'd0, wdata[31:16]} | ((w_bits > 6'd16) ? {dhi_n, 16'd0} : 32'd0)) & bmask(w_bits);
 
-	wire xfer_busy = rd_pend || rd_q || clearing;
+	// the Bluetooth module: a write goes out a clock later; a read in its
+	// second clock waits while the module is busy or takes a write
+	logic        bt_wr_q;
+	logic [4:0]  bt_wreg_q;
+	logic [15:0] bt_wdata_q;
+	wire rd_bt   = rd_q && rd_dev == 3'd5;
+	wire rd_hold = rd_bt && (bt_busy || bt_wr_q);
+	assign bt_rd    = rd_bt && !rd_hold;
+	assign bt_wr    = bt_wr_q;
+	assign bt_reg   = bt_wr_q ? bt_wreg_q : rd_reg;
+	assign bt_wdata = bt_wdata_q;
+
+	wire xfer_busy = rd_pend || rd_q || clearing || bt_wr_q;
 
 	always_comb begin
 		rmask = 32'd0;
@@ -161,8 +190,11 @@ module upp_cbus #(
 
 	always_ff @(posedge clk) begin
 		rf_we    <= 1'b0;
-		rd_q     <= rd_pend;
+		rd_q     <= rd_pend || rd_hold;
 		rd_pend  <= 1'b0;
+		bt_wr_q    <= start_wr && w_dev == 3'd5 && !rd_bt;
+		bt_wreg_q  <= w_reg;
+		bt_wdata_q <= w_val[15:0];
 		if (hold != '0) hold <= hold - 1'd1;
 
 		if (w_lo) begin
@@ -180,10 +212,11 @@ module upp_cbus #(
 			rd_reg  <= wdata[20:16];
 			rd_bits <= {1'b0, len_n} + 6'd1;
 		end
-		if (rd_q) begin
+		if (rd_q && !rd_hold) begin
 			logic [31:0] v;
 			v = is_ro(rd_dev, rd_reg) ? ro_val(rd_dev, rd_reg) :
-			    (rd_dev == 3'd1 && rd_reg == 5'h1A) ? {22'd0, adc} : rf_q;
+			    (rd_dev == 3'd1 && rd_reg == 5'h1A) ? {22'd0, adc} :
+			    (rd_dev == 3'd5) ? {16'd0, bt_rdata} : rf_q;
 			if (rd_dev == 3'd1) begin
 				case (rd_reg)
 					5'h11: v = {26'd0, rtc_sec};
@@ -232,6 +265,7 @@ module upp_cbus #(
 			adc     <= 10'd0;
 			rd_pend <= 1'b0;
 			rd_q    <= 1'b0;
+			bt_wr_q <= 1'b0;
 			rd_dev  <= 3'd0;
 			rd_reg  <= 5'd0;
 			clr     <= 9'd0;

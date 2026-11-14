@@ -37,27 +37,10 @@ cs0file 0x9E4C4 firmware-patches/bin/nos-stub.bin
 # used by nosdriver.ldd: ordinals 4 (0x514A1C90) and 6 (0x514A260C). NOS's
 # own need the NOS that was never started. Stand-in: nos-stub/nos_dll.S
 # (entry points) and nos_isi.c (an offline modem answering the ISI messages
-# that reach NOS through nosdriver.ldd; replies and evidence in
-# docs/NOS_STANDIN.md). Linked by nos_dll.ld: code from CS0 0xA1C90 upward,
+# that reach NOS through nosdriver.ldd, and passing on the one that is for
+# another Symbian program; replies and evidence in docs/NOS_STANDIN.md). Linked by nos_dll.ld: code from CS0 0xA1C90 upward,
 # over NOS's own code there, state in NOS BSS (RAM 0x8000D000).
 cs0file 0xA1C90 firmware-patches/bin/nos-dll.bin
-
-# No Bluetooth controller answers on the BT UART. BTTestServer.exe (started by
-# SelfTestServer at every boot) opens bt_driver's single channel through its
-# own hci.dll, whose reset times out ten times at 1.5 s ("BTLDD:
-# CompleteWithError: 1 -33"), closing and reopening the channel each time, so
-# the channel is held for about 16 s from 9 s after boot. The EPOC Monitor
-# Server (emon.exe) opens the same channel through ESock when it starts: a CPU
-# fast enough to start it before the tenth timeout gets KErrAlreadyExists,
-# ESock fails the request and emon panics ("Emon server panic" 4: the
-# EmonServer dialog); a slower CPU starts it after the give-up (whole-core
-# bench: the 8 KB ARM9V2 asks at 24.6 s, the give-up is at 25.4 s; ZAP asks
-# after it). Shortcut until the core models a Bluetooth controller: hci.dll's
-# retry limit (Thumb "cmp r0, #9" = 0x2809 at 0x5046DC52 and 0x5046DDAC, both
-# followed by "bgt give_up") becomes "cmp r0, #0": one attempt, and the channel
-# is free 1.5 s after the self test starts.
-cs0 0x46DC52 0028
-cs0 0x46DDAC 0028
 
 # The bootstrap checks MD5 digests of ROM ranges (0x3238, table at CS0 0x8F00).
 # Entry 0x8F18 covers 0x50009000-0x51164FFF. The firmware as it is meets its

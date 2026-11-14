@@ -76,7 +76,8 @@ timer 4 (`0x0C120A80`) is bit 4 (`0x5031C968`); the kernel enables bit 25
 
 Sources enabled so far: IRQ 0 (tick), 1 (high-resolution timer), 4,
 5 (IrqTimer5, bound by the NOS stand-in for the HLE audio device),
-6-12 (DMA), 21-24 (MMC), 25 (CTSI: cbus.dll and ekeyb.dll), 46 (GPIO8High,
+6-12 (DMA), 21-24 (MMC), 25 (CTSI: ekeyb.dll for the keys, cbus.dll for
+the UEMK and for the Bluetooth module's line), 46 (GPIO8High,
 bound by cbus.dll; probably the UEMK interrupt line); FIQ 27.
 
 ## Timers (0x0C120A00) — `ngage_intc.c`
@@ -179,7 +180,10 @@ phone shows; idle mode's colours are DCS behaviour, not checked on a phone.
 |---|---|---|---|---|
 | `0x0C150000` | CTSI reset reason | storage (reads 0) | bootstrap `0x2E58` masks `0x0E`; ecust's start-up reason (`0x503439C0`) takes a different path (boot data in on-chip RAM `0x0C00420x`/`0x0C00428E`) when bits 3:1 are nonzero, i.e. after a reset that was not a power-on | B |
 | `0x0C150024`, `0x0C150028` | CTSI IRQ / FIQ controller enable | storage | ekern `0x5031C730`/`0x5031C73C` write 1 | C |
-| `0x0C150100` | CTSI interrupt status: bit 2 = port E (key rows) interrupt, bit 3 = port D (guess); write 1 to clear; behind main source 25 | `ngage_keypad.c` | ekeyb CTSI ISR 0x5041B9E0 tests bit 2, acks with 0xC at 0x5041CD6C; bootstrap writes 0x8000 (0x2EE4) | B |
+| `0x0C150014`, `0x0C150016` | CTSI interrupt enables, second group: write 1s to disable / to enable; both read the enables | `ngage_bt.c` | btldd `0x503F084C` (close) and `0x503F0B48` (open) write `0x10` | B (use), C (reads) |
+| `0x0C150010`, `0x0C150012` | the same for the first group (guess) | storage | ekern writes `0x8000` to `+0x10`, cbus.dll `0x8000` to `+0x12` after binding its UEMK handler (`0x5037DC20`) | C |
+| `0x0C150100` | CTSI interrupt status: bit 2 = port E (key rows) interrupt, bit 3 = port D (guess); write 1 to clear; behind main source 25. Bit 15 is the UEMK's (cbus.dll `0x5037D4F4`), not modelled | `ngage_keypad.c` | ekeyb CTSI ISR 0x5041B9E0 tests bit 2, acks with 0xC at 0x5041CD6C; bootstrap writes 0x8000 (0x2EE4) | B |
+| `0x0C150102` | CTSI interrupt status, second group: bit 4 = the Bluetooth module's line, latched from its pulse; write 1 to clear; behind source 25 too. It reads as set, and interrupts, only while enabled at `+0x16`: a guess and the safe one, since cbus.dll faults ("CBus:" 7) on the bit with no driver registered | `ngage_bt.c` | cbus.dll's second handler on IrqCTSI_IRQ `0x5037D5BC` tests bit 4 and calls btldd's, which writes `0x10` (`0x503F0B68`); `docs/BLUETOOTH.md` | A (bit, clear), C (masked read) |
 | `0x0C150200`-`0x0C150218` | PUP GENIO set/reset/input/direction | storage | bootstrap `0x3A24`, `0x67C0` (LCD /RES = GENIO4) | B |
 | `0x0C150400`/`0x0C15040C` | UIF port D (key columns, 5 bits) / port E (key rows, 6 bits) data: output latch, reads pin levels | `ngage_keypad.c` | ekeyb 0x5041CBA8 (reads, inverts, keeps 0x1F/0x3F) | A |
 | `+0x02`/`+0x0E` | direction, 1 = output; write: low byte sets, high byte clears | | ekeyb ops 2/3 at 0x5041C804 | A |
@@ -201,8 +205,9 @@ pulled-up inputs with interrupts enabled; a scan drives one line at a time.
 CBUS devices (`model/cbus-regs.txt`): 1 = UEMK (register numbers as TriX's
 DCT4 UEM); 4 = unknown (probably ZOCUS), register 0 must read `0x04xx`
 (cbus.dll self-test `0x5037E008`, else `Kern::Fault("CBus:", 25)`); 5 =
-unknown. cbus.dll's register table is at `0x5037E544` ({device, type,
-register, shadow, width} x 69).
+the Bluetooth module (`docs/BLUETOOTH.md`; `ngage_bt.c`,
+`rtl/board/bt_module.sv`). cbus.dll's register table is at `0x5037E544`
+({device, type, register, shadow, width} x 69).
 
 UEMK registers the start-up path depends on (`model/cbus-regs.txt`, A/D
 converter in `ngage_cbus.c`):

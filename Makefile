@@ -11,7 +11,7 @@ LINT_TOPS := emu lcd_panel video_out keypad_matrix nor_flash mmc_card ngage_inpu
 help:
 	@echo "make lint   Lint the RTL with Verilator (-Wall)"
 	@echo "make test   Build and run every Verilator bench in sim/ (one at a time)"
-	@echo "make -C sim <bench>   One bench: lcd video keypad flash mmc sdram sdram-faults ddrflash upp"
+	@echo "make -C sim <bench>   One bench: lcd video keypad flash mmc bt sdram sdram-faults ddrflash upp"
 	@echo "                      intc timers haudio periph save phoenix phoenix-real top"
 	@echo "make clean  Remove sim/build"
 	@echo "make cpu-gen        Regenerate rtl/cpu/arm925t_gen.v (tools/gen_cpu.sh, needs sv2v)"

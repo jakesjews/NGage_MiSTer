@@ -526,6 +526,11 @@ wire mmc_dat = (mmc_dat_oe ? mmc_dat_o : 1'b1) & (card_dat_oe ? card_dat_o : 1'b
 
 wire [31:0] dbg_src0, dbg_en0_irq, dbg_en0_fiq;
 
+// the Bluetooth module's place on CBUS (device 5) and its interrupt line
+wire        bt_rd, bt_wr, bt_busy, bt_irq;
+wire  [4:0] bt_reg;
+wire [15:0] bt_wdata, bt_rdata;
+
 upp_periph upp_periph
 (
 	.clk(clk_sys),
@@ -574,6 +579,13 @@ upp_periph upp_periph
 	.kp_col_in(kp_col_in),
 	.kp_row_in(kp_row_in),
 	.power_key(~pwronx),
+	.bt_rd(bt_rd),
+	.bt_wr(bt_wr),
+	.bt_reg(bt_reg),
+	.bt_wdata(bt_wdata),
+	.bt_rdata(bt_rdata),
+	.bt_busy(bt_busy),
+	.bt_irq(bt_irq),
 	.rtc_valid(rtc_valid),
 	.rtc_sec(rtc_sec),
 	.rtc_min(rtc_min),
@@ -898,6 +910,22 @@ keypad_matrix keypad_matrix
 	.col_in(kp_col_in),
 	.row_in(kp_row_in),
 	.pwronx(pwronx)
+);
+
+///////////////////////   BLUETOOTH   ////////////////////////////
+
+// the Bluetooth module: a controller with nobody in range
+bt_module bt_module
+(
+	.clk(clk_sys),
+	.reset(mem_reset),
+	.rd(bt_rd),
+	.wr(bt_wr),
+	.rn(bt_reg),
+	.wdata(bt_wdata),
+	.rdata(bt_rdata),
+	.busy(bt_busy),
+	.irq(bt_irq)
 );
 
 ///////////////////////   DISPLAY   //////////////////////////////

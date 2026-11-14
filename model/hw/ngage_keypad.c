@@ -148,7 +148,7 @@ static void kp_update(NGageKeypad *s)
     }
     s->last_r = r;
     s->last_c = c;
-    ngage_intc_set_source(NGAGE_IRQ_CTSI_IRQ, (s->ctsi100 & 0xC) != 0);
+    ngage_ctsi_set(0, (s->ctsi100 & 0xC) != 0);
 }
 
 static uint64_t ctsi_read(void *opaque, hwaddr off, unsigned size)

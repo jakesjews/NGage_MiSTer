@@ -124,6 +124,7 @@ Event 1 is the self-test result, read by Startup.app directly.
 | `0x4D` | Nokia.dsy (DosServer), self test | handler `0x50FFBAB4` |
 | `0x4E` | Nokia.dsy, main | handler `0x50FFAC30`; by resource: 8 `0x50FFB720`, 9 `0x50FFB19C`, 0x0A `0x50FFB65C`, 0x17 `0x50FFAE20`, 0x1C `0x50FFACE4` |
 | `0x4F` | Nokia.dsy | sends 0x3A/0x05 |
+| `0x38` | SelfTestServer.exe | serves resource `0x59`; see [Routing](#routing) |
 
 ## Replies
 
@@ -138,7 +139,7 @@ Event 1 is the self-test result, read by Startup.app directly.
 | `0x09` SIM | `0x2B` [`3A`] (DOS) | `0x2C` [`3A 01 01 00 00 00`] | DosSrv ord33(0), ord20(0), ord12(0) → events 19, 20, 21 = 0 | Nokia.dsy `0x50FFB4BC`: [10] = 0x3A, [11] = 1, [12] bit 0 = valid, [13..14] 16-bit flags. Writes with service 0x39 get the same reply shape, which DOS ignores |
 | `0x35` | `0x02` [`01 00`], DOS self test | `0x03` [`00`] | DOS sends `0x35/0x00` | Nokia.dsy `0x50FFBB04` reads [10]: 0/10/11 → next step (`0x50FFBDC4`); 12 → DOS event 1 = 2, "Device start-up failed" (tried); others → ask again |
 | `0x35` | `0x00` [`02 00`] | `0x01` [`00`] | DOS sends `0x59/0x01` | Nokia.dsy `0x50FFBBBC` reads [10]: 0 → next step (`0x50FFBD6C`); 1/2 → ask again; 12 → failure and MTC_STATE_REQ(SELFTEST_FAIL) |
-| `0x59` | `0x01` [`08 00`] | `0x02` [`00`] | DOS event 1 = 3: self test passed; Startup.app state 1 → 2 → 4 | Nokia.dsy `0x50FFBC74` reads [10]: 0 → event 1 = 3 (`0x50FFBCBC`); others → ask again; Startup.app `0x50BBAF60` |
+| `0x59` | `0x01` [`08 00`] | passed on to SelfTestServer.exe, which answers `0x02` [`00 00`] ([Routing](#routing)); `0x02` [`00`] from the stand-in only if that server is not running | DOS event 1 = 3: self test passed; Startup.app state 1 → 2 → 4 | Nokia.dsy `0x50FFBC74` reads [10]: 0 → event 1 = 3 (`0x50FFBCBC`); others → ask again; Startup.app `0x50BBAF60` |
 | `0x09` SIM | `0x60` [`FA 00`] (TSY) | `0x61` [`FA 31`] | completes RCtmGsmPhone::GetCipheringInfo (indicator not required); Phone.app calls it synchronously when the idle view activates, and the view server panics it (`ViewSrv 11`, then Starter and the kernel, `PLAT`) if it hangs | phonetsy.tsy `0x5093F4C0`, `0x50930EDC` read [11]: 0x30 SIM_SERV_CIPHERING_INDICATOR_DISPLAY_REQUIRED → 1, 0x31 → 0, others → KErrUnknown |
 | `0x09` SIM | `0x21` [`2C`] (TSY) | `0x22` [`2C 24`] | SIM_SERV_PROV_NAME_REQ: no service provider name; GetServiceProviderDisplayInfo (Phone.app, synchronous) completes with KErrGeneral | phonetsy.tsy `0x5093ED20` reads [11]: 1 → parse, others → error from `0x5094E290` (0x24 → -2) |
 | `0x09` SIM | `0x33` [`3E`] (TSY) | `0x34` [`3E 24`] | SIM read of the operator name for GetNetworkProviderName (Phone.app, synchronous); completes with an error | phonetsy.tsy `0x5093EDD0` reads [11]: 1 → parse by service [10]; service 0x13 with 0x24 → parse; others → `0x50930458` error |
@@ -150,6 +151,38 @@ Event 1 is the self-test result, read by Startup.app directly.
 | `0x1B` info | `0x00` INFO_SERIAL_NUMBER_READ_REQ [`41`] (TSY) | `0x01` [`00 01` + `41 14 00 10` + fifteen `30` + `00`] | IMEI "000000000000000": completes RBasicGsmPhone::GetGsmPhoneId, which applications call synchronously for the IMEI (SPMark04 at start-up: without the answer it stays on a blank view and takes no key) | phonetsy.tsy `0x5093EC1C` sends target 0x41 only; `0x5093EC38`: [10] status 0 = INFO_OK (others → -2), [11] sub-block count, INFO_SB_SN_IMEI_PLAIN at [12]; `0x5092F868` takes 15 bytes from its byte 4 (isimsg `0x5035343C`: Mid(4, 15)). gnokii nk6510 reads the string's length at sub-block byte 3 and the string from byte 4. Other targets are not answered |
 | `0x1F` audio resource | `0x04` [`00 00 00`] (SoundDevice, object `0x4A`) | `0x06` [`0D 00`] | SoundDevice's teardown sends this release when `+0x1D8` is set and stays in state 14 until resource `0x1F` message 3, or 6 with [10] = 13, arrives; then state 0. Without it every later stream start is refused (PlayInit `0x505AC264`). It happens from the second boot on: a sound at start-up reserves (`0x1F/0x01`) and releases | receiver `0x505AF722` (ord524 reads [10] for message 6), state table `0x505AF7C4` |
 | `0x0B` | `0x11` [`06 01`] (TSY) | `0x12` [`06 01 06 08 00 00 00 00 00 00`] | completes RCtmGsmPhone::GetHandsfreeMode (hands-free off), which PhoneServer waits on at start-up | phonetsy.tsy `0x5093E1D8`: [10] setting, [11] sub-block count = 1, sub-block at [12], 16-bit big-endian value at its bytes 4-5 (isimsg ord1568); `0x5092E16C` setting 6: 13 → on, else off. Sub-block id and length are guesses |
+
+## Routing
+
+Not every message is for NOS: PhoNet also carries messages from one
+Symbian program to another, and NOS routes them. The stand-in routes one
+pair, the one the start-up needs.
+
+SelfTestServer.exe ("Calypso EPOC SelfTest Server", started at every
+boot) opens PhoNet as object `0x38` (`0x5036C984`), takes only resource
+`0x59` (`0x5036CC22`), message `0x01`, and reads [10] as a test number
+(table `0x5036D2C8`): 1-4, 6 and 9-12 run a test (HelperDrv, Bluetooth
+through BTTestServer.exe, the display); **8 answers `0x02` and stops the
+server** (`0x5036C79C`). The last step of the DOS self test, `0x59/0x01`
+[`08 00`] from Nokia.dsy (object `0x4D`), is that request. The server
+registers no name for the resource, so NOS is taken to know where `0x59`
+lives.
+
+It matters because the server holds a session with BTTestServer.exe,
+which holds the Bluetooth driver's only channel; nothing else can use
+Bluetooth until the server has gone (`docs/BLUETOOTH.md`). With the
+stand-in answering `0x59` itself, as it did until 2026-11-13, the server
+stayed for good.
+
+- A message to resource `0x59` with receiver object 0 goes to the channel
+  of object `0x38`, if that is open. A channel's unit is its object by
+  phonet.dll's table (`0x50366928`: `0x38` is unit 13), so the server is
+  found before it has sent anything.
+- A message from object `0x38` goes to the channel of the object it
+  names, found by what that client sent before.
+
+In `kern.log` both show as a `NOS< ` line followed by a `NOS> ` line with
+the same bytes.
 
 ## Audio
 

@@ -9895,3 +9895,102 @@ name made earlier this night (md5 be6dbcec…, seed 20), which took
 
 The test launchers, packs and scratch drives were removed from the board
 afterwards.
+
+## 2026-11-13: a Bluetooth module in the core; the hci.dll patch is gone
+
+The user asked which hardware the firmware patches stand in for, then to
+build the Bluetooth part. Result: the core has the phone's Bluetooth module
+as a controller with nobody in range, the last patch outside the NOS
+stand-in is removed, and the stand-in routes one PhoNet message it used to
+answer itself. Evidence and tables: `docs/BLUETOOTH.md`.
+
+**Where the module is.** Not on a UART (the patch note said so; nothing in
+the model or the core ever had one). `hci.dll`'s transport is
+"CHCTLCBus": `btldd.ldd` talks to CBUS device 5 through cbus.dll's
+service, registers `0x00` data, `0x01` length, `0x06` status and reset,
+`0x08` the write handshake ("LPRF_MCU_Reg0"), `0x09` reset reason, `0x0A`
+start. Its interrupt is bit 4 of a second CTSI status at `0x0C150102`,
+with enables at `0x0C150014` / `0x0C150016`, behind source 25. All of it
+read from the driver (2,500 lines of ARM, by hand: Homebrew's Ghidra has
+no native decompiler built on this Mac, and Cutter's bundled rizin does
+not start).
+
+**The first model answered and the phone broke.** With a module that
+completes the driver's reset and HCI commands, the self test's ten 1.5 s
+time-outs are gone, and "App. closed EmonServer" came back at every start.
+Cause: SelfTestServer.exe holds a session with BTTestServer.exe, which
+holds the driver's one channel, until the server exits; it exits on test
+number 8 of PhoNet resource `0x59`, which is the last message of the DOS
+self test (`0x59/0x01 [08 00]`). The NOS stand-in answered that message
+itself, so the server never left. The old patch only worked because a
+failed reset made BTTestServer give the channel up. The stand-in now
+passes `0x59` to the server's channel (object `0x38`, unit 13 by
+phonet.dll's table) and its answer back (`nos_isi.c`, `isi_route`;
+`docs/NOS_STANDIN.md`, "Routing"). The start-up then goes: self-test
+session at 9.6 s, server gone at 11.7 s, the Bluetooth stack's own two
+sessions at 12.5 and 15.5 s, "EPOC Monitor Server started succesfully".
+
+**The module.** `model/hw/ngage_bt_chip.h` (plain C: the transport and an
+HCI 1.1 controller: version, features, buffer sizes, address
+`00:60:57:00:00:00`, the local name, sixteen read/write values with the
+specification's defaults, inquiry with its timer and cancel, "Command
+Disallowed" for the other link commands, "Unknown HCI Command" for the
+rest), `model/hw/ngage_bt.c` (time, log, the CTSI bit), and
+`rtl/board/bt_module.sv`, which keeps the same registers and buffers
+nothing: a command is decoded from seven bytes as its packet is written,
+and the answer is made a word at a time as the phone reads it. Two small
+RAMs (a name's words, the written values). `upp_cbus` passes device 5 on,
+`upp_uif` has the CTSI bit and its enables.
+
+**Checks.**
+
+- `make -C sim bt` (new): the phone's own traffic from the model's
+  `bt.log` (`sim/harness/bt_session.txt`: a start, Bluetooth switched on, a
+  device search) replayed the way the driver reads and writes, 27 packets
+  byte for byte; then 400,000 random accesses against the C model, every
+  read and every interrupt pulse compared (seven more seeds, 600,000
+  accesses each, also pass).
+- `make -C sim periph`: a new part through the register bus (reset, the
+  CTSI bit masked, latched, cleared; a command and its answer).
+- `make test` (18 benches), `make lint` (both configurations),
+  `make patchrom-check image-check scramble-check`, `phoenix-real` against
+  images made with the new list: all pass. `make standin-check` will only
+  pass once the stand-in sources are committed (it builds from HEAD).
+- Patch ROM: the list is now the two stand-in binaries and the digest;
+  entry `0x8F18` is `ee36e7ab…`, 9,953 bytes (the stand-in DLL grew to
+  8,720).
+- Model: start from a blank C: and from a formatted one, no EmonServer
+  note; Tools > Bluetooth, name dialog, On, Paired devices > New paired
+  device: "Searching for devices" for 12.8 s (Inquiry length 10), then the
+  empty list.
+
+**The fit** (seed 9, the release's seed):
+
+| build | setup 100C | setup -40C | hold (worst) | ALMs | M10K |
+|---|---|---|---|---|---|
+| NGage_20261113 (release, no module) | -1.467 | -1.452 | +0.055 | 34,206 | 519 |
+| first build with the module | -2.335 | -2.487 | +0.080 | 33,760 | 521 |
+| the CBUS write to the module registered | -1.396 | -1.387 | +0.071 | 34,518 | 521 |
+
+The first build's worst path was new: the CBUS write value (its length
+mask's shifter) straight into the module's command decode and the value
+RAM's write enable. `upp_cbus` now hands the write over from registers, a
+clock later. After that nothing of the module or of `upp_cbus` is among
+the critical paths. One seed each: by the sweeps' rule this says "no
+worse", not "better".
+
+**On the board** (the second build as a test core,
+`_Debug/NGageBT_20261113.rbf`, md5 afb49d01…, with a scratch C:,
+`bt-test-c.vhd`; the user's files untouched): the first start's dialogs
+and the idle screen with no EmonServer note; at the next start the idle
+screen again; Bluetooth On (and its sign on the idle screen afterwards),
+the device search ending in the empty list after about 13 s; Sonic N from
+its card to the demo level. The first build had done the first start and
+the Bluetooth steps the same way. The main core on the board is still the
+release.
+
+**Left as it is.** The self-test server's Bluetooth tests are only asked
+for by the cellular side. Nokia's own HCI commands, if there are any, were
+not seen. The whole-core simulation of the start was stopped at 3.3 s of
+phone time (the board had answered by then). For a release: a seed
+sweep, and the board on the user's own C:.

@@ -8,7 +8,7 @@ and is never in the repository.
 ## Tests
 
 - `make lint`: Verilator lint of the RTL (Verilator 5; 5.054 was used).
-- `make test`: the 17 benches of the board devices, the memory system and the
+- `make test`: the 18 benches of the board devices, the memory system and the
   whole core, about seven minutes (Verilator and a C++17 compiler). Some
   benches also replay recordings from `model/.out` when they are there and
   skip that part when they are not.

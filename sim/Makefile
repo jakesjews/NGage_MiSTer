@@ -1,6 +1,6 @@
 # Verilator benches for the board-level devices, the memory system and the
 # MiSTer shell. Run from the repository root with `make test`, or one bench
-# at a time with `make -C sim lcd` (lcd, video, keypad, flash, mmc, sdram,
+# at a time with `make -C sim lcd` (lcd, video, keypad, flash, mmc, bt, sdram,
 # sdram-faults, ddrflash, upp, intc, timers, periph, save, top). Each bench is built
 # into sim/build/<name> and run at once; pictures go to sim/build/out.
 # The benches run one after the other. `make -C sim coreboot` (not part of
@@ -27,7 +27,7 @@ PROFILE_FILES = $(if $(filter 1,$(CORE_PROFILE)),$(ROOT)/sim/profile/cpu_profile
 PROFILE_FLAGS = $(if $(filter 1,$(CORE_PROFILE)),-DCPU_PROFILE=1 -CFLAGS "-DCPU_PROFILE=1")
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
-BENCHES := lcd video keypad flash mmc sdram sdram-faults ddrflash trace upp intc timers haudio periph save phoenix top
+BENCHES := lcd video keypad flash mmc bt sdram sdram-faults ddrflash trace upp intc timers haudio periph save phoenix top
 
 .PHONY: test $(BENCHES) coreboot flashcopy hps-read-test clean
 
@@ -140,6 +140,17 @@ upp: $(BUILD)/upp/Vngage_mem $(BUILD)/upp256/Vngage_mem
 	$(BUILD)/upp/Vngage_mem $(RUNFLAGS) --seed $(SEED)
 	$(BUILD)/upp256/Vngage_mem $(RUNFLAGS) --seed $(SEED) --onchip 262144 --txns 8000
 
+# The Bluetooth module against the reference model's (model/hw/ngage_bt_chip.h,
+# the same header the model is built from), with the phone's own traffic
+# first; its reset takes 50 clocks here and an inquiry's 1.28 s 200
+BT_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/bt_module.sv
+$(BUILD)/bt/Vbt_module: $(BT_RTL) $(ROOT)/sim/harness/bt_main.cpp $(ROOT)/sim/harness/common.h \
+                        $(ROOT)/model/hw/ngage_bt_chip.h
+	mkdir -p $(BUILD)/bt && $(VERILATOR) $(VFLAGS) --top-module bt_module --Mdir $(BUILD)/bt -o Vbt_module \
+		-GRESET_CLKS=50 -GINQ_UNIT_CLKS=200 $(BT_RTL) $(ROOT)/sim/harness/bt_main.cpp
+bt: $(BUILD)/bt/Vbt_module
+	$< $(RUNFLAGS) --seed $(SEED) --session $(ROOT)/sim/harness/bt_session.txt
+
 # The UPP interrupt controller and timers, each against a port of the model
 $(BUILD)/intc/Vupp_intc: $(ROOT)/rtl/upp/upp_intc.sv $(ROOT)/sim/harness/intc_main.cpp $(ROOT)/sim/harness/common.h
 	mkdir -p $(BUILD)/intc && $(VERILATOR) $(VFLAGS) --top-module upp_intc --Mdir $(BUILD)/intc -o Vupp_intc \
@@ -172,6 +183,7 @@ haudio: $(BUILD)/haudio/Vupp_haudio $(BUILD)/haudio2m/Vupp_haudio | $(OUT)
 # from model/.out when they are there
 PERIPH_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/tdp_ram.sv $(ROOT)/rtl/board/nor_flash.sv \
               $(ROOT)/rtl/board/lcd_panel.sv $(ROOT)/rtl/board/mmc_card.sv $(ROOT)/rtl/board/ngage_keys.sv \
+              $(ROOT)/rtl/board/bt_module.sv \
               $(ROOT)/rtl/board/keypad_matrix.sv $(ROOT)/rtl/mem/bram32.sv $(ROOT)/rtl/mem/sdram.sv \
               $(ROOT)/rtl/mem/ddram_flash.sv $(ROOT)/rtl/upp/upp_bus.sv $(ROOT)/rtl/upp/wb_arb2.sv \
               $(ROOT)/rtl/upp/ngage_mem.sv $(ROOT)/rtl/upp/upp_fifo.sv $(ROOT)/rtl/upp/upp_intc.sv \

@@ -22,7 +22,7 @@
  *   4  unknown, 25 registers, widths 2..20 bits; probably ZOCUS (LM3820)
  *      because of the 20-bit counters (guess). cbus.dll self-test 0x5037E008:
  *      register 0 must read 0x04xx, register 0x0D must read back what is written.
- *   5  unknown, 8 registers.
+ *   5  the Bluetooth module (ngage_bt.c, ngage_bt_chip.h).
  * Register values come from model/cbus-regs.txt; every transaction is logged
  * (with log-time=on led by the guest time in seconds).
  *
@@ -148,6 +148,9 @@ static void cbus_do_read(NGageCbus *s)
     if (dev == 1 && reg == 0x1F) {
         v = (v & ~2u) | (s->power_key ? 2u : 0);
     }
+    if (dev == 5) {
+        v = ngage_bt_read(reg);
+    }
 
     if (bits < 32) {
         v &= (1u << bits) - 1;
@@ -167,6 +170,9 @@ static void cbus_do_write(NGageCbus *s)
     }
     cbus_log(s, "W", dev, reg, bits, v);
     s->regs[dev][reg] = v;
+    if (dev == 5) {
+        ngage_bt_write(reg, v);
+    }
     if (dev == 1 && reg == 0x01) {
         s->rtc_day_off = (int32_t)(v & 0xFF) - (int32_t)(rtc_now(s) / 86400);
     }

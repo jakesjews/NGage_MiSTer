@@ -26,7 +26,17 @@
 // falls, bit 3 when a port D input does ([model guess] for port D); writing 1
 // clears them (ekeyb's CTSI handler 0x5041B9E0 tests bit 2 and writes 0xC,
 // 0x5041CD6C). The other bits are stored (the bootstrap writes 0x8000, 0x2EE4).
-// CTSI_IRQ (source 25, shared with cbus.dll) is high while bit 2 or 3 is set.
+//
+// CTSI's second group, for the Bluetooth module's interrupt line (model/hw/
+// ngage_bt.c, from cbus.dll and btldd.ldd):
+//   +0x102  status: bit 4 latches a pulse of bt_irq; writing 1 clears it
+//           (btldd 0x503F0B68). It reads as set only while enabled, a guess
+//           and the safe one: cbus.dll's handler (0x5037D5D4) faults when it
+//           finds the bit with no driver registered for it.
+//   +0x014  write 1s: disable those bits of the group (btldd 0x503F084C)
+//   +0x016  write 1s: enable them (0x503F0B48); both read the enables
+// CTSI_IRQ (source 25, shared with cbus.dll) is high while bit 2 or 3 is set
+// or the module's bit is, enabled.
 // Accesses are 16-bit (upp_periph drops others, as the model's regions do).
 module upp_uif (
 	input  logic        clk,
@@ -40,6 +50,7 @@ module upp_uif (
 	output logic [31:0] rmask,
 	output logic [31:0] rdata,
 
+	input  logic        bt_irq,       // the Bluetooth module's interrupt line, a pulse
 	output logic        ctsi_irq,
 
 	output logic [4:0]  col_oe,
@@ -51,6 +62,8 @@ module upp_uif (
 );
 
 	logic [15:0] ctsi;
+	logic        bt_latch;
+	logic [15:0] bt_en;
 	logic [4:0]  data_d;
 	logic [5:0]  data_e;
 	logic [7:0]  dir_d, ien_d, misc_d, pull_d, dir_e, ien_e, misc_e, pull_e;
@@ -68,6 +81,7 @@ module upp_uif (
 	assign row_out = data_e;
 
 	wire is_ctsi = off == 12'h100;
+	wire is_cten = off == 12'h014;
 	wire [4:0] w = {off[4:2], hi, 1'b0};          // the 16-bit register's offset
 	wire [15:0] wv = hi ? wdata[31:16] : wdata[15:0];
 
@@ -76,8 +90,11 @@ module upp_uif (
 		rdata = 32'd0;
 		if (acc) begin
 			if (is_ctsi) begin
-				rmask = 32'h0000_FFFF;
-				rdata = {16'd0, ctsi};
+				rmask = '1;
+				rdata = {11'd0, bt_latch && bt_en[4], 4'd0, ctsi};
+			end else if (is_cten) begin
+				rmask = '1;
+				rdata = {bt_en, bt_en};
 			end else begin
 				rmask = '1;
 				case (off[4:2])
@@ -107,10 +124,17 @@ module upp_uif (
 		if (fell_r != 6'd0) ctsi[2] <= 1'b1;
 		if (fell_c != 5'd0) ctsi[3] <= 1'b1;
 
+		if (bt_irq) bt_latch <= 1'b1;
+
 		if (wr) begin
-			if (is_ctsi) begin
+			if (is_ctsi && hi) begin
+				// the module's bit clears when written 1 (and stays set by a pulse now)
+				if (wv[4] && !bt_irq) bt_latch <= 1'b0;
+			end else if (is_ctsi) begin
 				// bits 2 and 3 clear when written 1 (and stay set by an edge now)
 				ctsi <= {wdata[15:4], ctsi[3:2] & ~wdata[3:2] | {fell_c != 5'd0, fell_r != 6'd0}, wdata[1:0]};
+			end else if (is_cten) begin
+				bt_en <= hi ? (bt_en | wv) : (bt_en & ~wv);
 			end else begin
 				case (w)
 					5'h00: data_d <= wv[4:0];
@@ -131,6 +155,8 @@ module upp_uif (
 
 		if (reset) begin
 			ctsi   <= 16'd0;
+			bt_latch <= 1'b0;
+			bt_en  <= 16'd0;
 			data_d <= 5'h1F;
 			data_e <= 6'h3F;
 			dir_d  <= 8'd0;
@@ -147,7 +173,7 @@ module upp_uif (
 		end
 	end
 
-	assign ctsi_irq = ctsi[2] | ctsi[3];
+	assign ctsi_irq = ctsi[2] | ctsi[3] | (bt_latch & bt_en[4]);
 
 
 endmodule

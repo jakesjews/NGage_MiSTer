@@ -4,15 +4,17 @@
 // path) with the UPP peripherals (upp_periph) on its register bus and their
 // DMA master on its second port, and the board devices they drive: the
 // display module (lcd_panel), the MMC card (mmc_card) and the key matrix
-// (keypad_matrix), and the wall clock (rtc_wall, its second RTC_CLK_HZ
-// clocks long here), wired as in NGage.sv. The C++ side plays the CPU's
+// (keypad_matrix), the Bluetooth module (bt_module, its reset BT_RESET_CLKS
+// long here) and the wall clock (rtc_wall, its second RTC_CLK_HZ clocks
+// long here), wired as in NGage.sv. The C++ side plays the CPU's
 // Wishbone master, the SDRAM chip, the DDRAM port and hps_io's SD interface,
 // and watches the register bus.
 module periph_tb #(
 	parameter int MMC_DIV            = 4,
 	parameter int MMC_TIMEOUT_LOG2   = 16,
 	parameter int POWER_ON_HOLD_CLKS = 20000,
-	parameter int RTC_CLK_HZ         = 20000
+	parameter int RTC_CLK_HZ         = 20000,
+	parameter int BT_RESET_CLKS      = 2000
 ) (
 	input  logic         clk,
 	input  logic         reset,
@@ -165,9 +167,22 @@ module periph_tb #(
 		.mmc_dat_o(mmc_dat_o), .mmc_dat_oe(mmc_dat_oe), .mmc_dat_i(mmc_dat),
 		.kp_col_oe(col_oe), .kp_col_out(col_out), .kp_row_oe(row_oe), .kp_row_out(row_out),
 		.kp_col_in(col_in), .kp_row_in(row_in), .power_key(!pwronx),
+		.bt_rd(bt_rd), .bt_wr(bt_wr), .bt_reg(bt_reg), .bt_wdata(bt_wdata), .bt_rdata(bt_rdata),
+		.bt_busy(bt_busy), .bt_irq(bt_irq),
 		.rtc_valid(rtc_valid), .rtc_sec(rtc_sec), .rtc_min(rtc_min), .rtc_hour(rtc_hour), .rtc_days(rtc_days),
 		.rtc_date(rtc_date), .c_blank(1'b0), .audio_l(audio_l), .audio_r(audio_r),
 		.sti_we(sti_we), .sti_addr(), .sti_be(sti_be), .sti_data(sti_data)
+	);
+
+	logic        bt_rd, bt_wr, bt_busy, bt_irq;
+	logic [4:0]  bt_reg;
+	logic [15:0] bt_wdata, bt_rdata;
+
+	bt_module #(.RESET_CLKS(BT_RESET_CLKS)) bt (
+		.clk(clk),
+		.reset(reset || !sdram_ready),
+		.rd(bt_rd), .wr(bt_wr), .rn(bt_reg), .wdata(bt_wdata), .rdata(bt_rdata),
+		.busy(bt_busy), .irq(bt_irq)
 	);
 
 	lcd_panel #(.CLK_HZ(104_000_000)) panel (

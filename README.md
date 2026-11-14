@@ -81,6 +81,8 @@ Only the `.mmc` file goes on the MiSTer.
   a few times to step its volume back up.
 - Leave a game before changing cards: exit to the phone's menu, then mount
   the next card.
+- Bluetooth switches on and searches for devices, and never finds one: the
+  core's Bluetooth module has no radio, so games cannot be played over it.
 - **Aspect ratio** set to *Original* keeps the screen's own 176:208 shape,
   and **Rotate** turns the picture for a rotated display.
 - **Load firmware**, **Load language pack** and **Mount C: save** in the OSD
@@ -104,7 +106,8 @@ Only the `.mmc` file goes on the MiSTer.
 
 - [docs/BUILDING.md](docs/BUILDING.md): building the core and running its tests.
 - [docs/UPP_WD2.md](docs/UPP_WD2.md) describes the hardware as reconstructed,
-  [docs/CPU.md](docs/CPU.md) the processor and
+  [docs/CPU.md](docs/CPU.md) the processor,
+  [docs/BLUETOOTH.md](docs/BLUETOOTH.md) the Bluetooth module and
   [docs/NOS_STANDIN.md](docs/NOS_STANDIN.md) the stand-in for the phone's
   cellular firmware. [docs/PROGRESS-LOG.md](docs/PROGRESS-LOG.md) is the
   development record.

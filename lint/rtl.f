@@ -29,6 +29,7 @@ rtl/board/video_out.sv
 rtl/board/keypad_matrix.sv
 rtl/board/nor_flash.sv
 rtl/board/mmc_card.sv
+rtl/board/bt_module.sv
 rtl/mem/bram32.sv
 rtl/mem/sdram.sv
 rtl/mem/ddram_flash.sv
