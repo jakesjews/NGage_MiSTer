@@ -350,7 +350,13 @@ wire  [3:0] dma_sel;
 wire        dbg_dma_owner;
 wire        sdram_ready;
 wire [15:0] sdram_dq_o, sdram_dq_oe;
-wire        mem_reset = reset | ~sdram_ready;
+// A register, and copied near its loads like cpu_reset below: as a gate
+// behind reset_slow and the SDRAM's ready flag it went from those two
+// flip-flops to the whole memory system in one clock (to -1.0 ns). The
+// memory system and the CPU after it go into and out of reset one clock
+// later than before, in the same order.
+(* maxfan = 32 *) reg mem_reset = 1'b1;
+always @(posedge clk_sys) mem_reset <= reset | ~sdram_ready;
 
 ngage_mem ngage_mem
 (
