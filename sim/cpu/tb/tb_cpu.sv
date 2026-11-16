@@ -11,7 +11,7 @@ module tb_cpu #(
 	parameter bit HIVECS          = 1'b0,
 	parameter int ICACHE_SIZE     = 16384,
 	parameter int ICACHE_WAYS     = 2,
-	parameter int DCACHE_SIZE     = 16384,
+	parameter int DCACHE_SIZE     = 8192,
 	parameter int DCACHE_WAYS     = 2,
 	parameter int CACHE_LINE      = 16,
 	parameter int DTLB_SPAGE_WAYS = 2,

@@ -37,17 +37,19 @@ module arm925t #(
 	parameter bit          HIVECS      = 1'b0,
 	// Cache geometry: 2-way with LRU replacement, 16-byte lines
 	// (docs/CPU.md). The ARM925T has 16 KB I / 8 KB D. The I-cache is the
-	// phone's 16 KB (512 sets); the D-cache is 16 KB (512 sets, VA[12:4]),
-	// twice the phone's: with 8 KB the core fell 4 % short of a real phone
-	// in SPMark04's fill-rate test, with 16 KB nothing is below it, and
-	// larger caches ran well above the phone (docs/PROGRESS-LOG.md,
-	// 2026-11-15). CP15 still reports the phone's 8 KB, and by-index
-	// maintenance visits every physical set colour of the named
-	// architectural set. 32768 gives the caches of the releases up to
-	// NGage_20261114.
+	// phone's 16 KB (512 sets); the D-cache is the phone's 8 KB (256 sets,
+	// VA[11:4]) since 2026-11-16. It was 16 KB in the release before,
+	// because with 8 KB the core was 4 % short of a real phone in
+	// SPMark04's fill-rate test; since a request that waits through a
+	// line fill is taken two clocks after the line is written, 8 KB
+	// holds the phone's figure and nothing is below it
+	// (docs/PROGRESS-LOG.md, 2026-11-16). A larger D-cache still reports
+	// the phone's 8 KB to CP15, and by-index maintenance then visits
+	// every physical set colour of the named architectural set. 32768
+	// each gives the caches of the releases up to NGage_20261114.
 	parameter int          ICACHE_SIZE     = 16384,
 	parameter int          ICACHE_WAYS     = 2,
-	parameter int          DCACHE_SIZE     = 16384,
+	parameter int          DCACHE_SIZE     = 8192,
 	parameter int          DCACHE_WAYS     = 2,
 	parameter int          CACHE_LINE      = 16,
 	// The small-page TLBs: ways (1, 2 or 4) of *_SPAGE_SETS entries each,

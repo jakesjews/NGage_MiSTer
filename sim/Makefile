@@ -275,7 +275,7 @@ flashcopy: $(BUILD)/coreboot/Vemu $(FC_DIR)/cs0.bin
 # What a data line fill costs on the whole core (sim/harness/dfill.S, no
 # firmware needed): loops of loads timed with UPP timer 1 through the real
 # cache, bus and SDRAM controller. VEXTRA sets the cache sizes, e.g.
-# BUILD=$(BUILD)-d8 VEXTRA=-GDCACHE_SIZE=8192 for the phone's D-cache.
+# BUILD=$(BUILD)-d16 VEXTRA=-GDCACHE_SIZE=16384 for a 16 KB D-cache.
 DF_DIR ?= $(BUILD)/dfill
 $(DF_DIR)/cs0.bin: $(ROOT)/sim/harness/dfill.S $(ROOT)/sim/harness/flashcopy_images.py
 	mkdir -p $(DF_DIR)

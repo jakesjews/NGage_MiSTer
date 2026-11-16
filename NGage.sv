@@ -28,10 +28,10 @@
 // timer and MMC clocks divide from it exactly.
 
 module emu #(
-	// the CPU's caches: the phone's 16 KB for instructions, 16 KB for data
-	// (twice the phone's; rtl/cpu/arm925t.sv says why)
+	// the CPU's caches: the phone's 16 KB for instructions and 8 KB for
+	// data (rtl/cpu/arm925t.sv)
 	parameter int ICACHE_SIZE                = 16384,
-	parameter int DCACHE_SIZE                = 16384,
+	parameter int DCACHE_SIZE                = 8192,
 	parameter int DCACHE_WAYS                = 2,
 	// the small-page TLBs' ways and sets (rtl/cpu/arm925t.sv)
 	parameter int DTLB_SPAGE_WAYS            = 2,

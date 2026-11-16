@@ -40,20 +40,19 @@ Parameters:
 - `HIVECS` (0): reset value of control bit V, the ARM925T's HIVECS pin. 1
   puts the vectors and the reset address at 0xFFFF0000. The N-Gage boots
   from CS0 at 0, so the core uses 0.
-- `ICACHE_SIZE` (16384), `DCACHE_SIZE` (16384), `CACHE_LINE` (16): cache
-  geometry in bytes, since 2026-11-15. The I-cache is the phone's 16 KB
-  (512 sets); the D-cache is 16 KB (512 sets, VA[12:4]), twice the phone's
-  8 KB. They were 32 KB each from 2026-11-09 to NGage_20261114, which put
-  SPMark04's 3D tests 18 to 38 % above a real phone; with the phone's own
-  8 KB D-cache the core is 4 % short of the phone in the fill-rate test
-  (the suspicion, not yet measured: a data line fill costs more here than
-  there), and with 16 KB nothing
-  is below it (docs/PROGRESS-LOG.md, 2026-11-15). The whole core and the
-  CPU bench have the same defaults (`VEXTRA="-GICACHE_SIZE=32768
-  -GDCACHE_SIZE=32768"` for the earlier sizes, `-GDCACHE_SIZE=8192` for
-  the phone's). The cache type register reports 16 KB and 8 KB, so a
-  D-cache by-index
-  operation visits every physical set
+- `ICACHE_SIZE` (16384), `DCACHE_SIZE` (8192), `CACHE_LINE` (16): cache
+  geometry in bytes: the phone's own, 16 KB for instructions (512 sets)
+  and 8 KB for data (256 sets, VA[11:4]), since 2026-11-16. They were
+  32 KB each from 2026-11-09 to NGage_20261114, which put SPMark04's 3D
+  tests 18 to 38 % above a real phone, and 16 KB each in the first
+  release of 2026-11-16, because the 8 KB D-cache was then 4 % short of
+  the phone in the fill-rate test; the shorter end of a line fill (below)
+  closed that, and with the phone's sizes nothing is below it
+  (docs/PROGRESS-LOG.md, 2026-11-16). The whole core and the CPU bench
+  have the same defaults (`VEXTRA="-GICACHE_SIZE=32768
+  -GDCACHE_SIZE=32768"` for the earlier sizes, `-GDCACHE_SIZE=16384` for
+  the 16 KB D-cache). The cache type register reports 16 KB and 8 KB; with
+  a larger D-cache a by-index operation visits every physical set
   colour for the named architectural set/way. By-VA operations stay
   targeted. The live two-way compare/select and hit-under-miss protocol
   are unchanged. This VIVT cache still relies on firmware alias/DMA
