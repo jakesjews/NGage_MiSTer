@@ -10975,3 +10975,15 @@ for the board (what it gives over 8 KB with today's fill restore has not
 been measured), and three builds that hold one part at a time to one
 clock and give the rest two: the CPU core alone, what passes between the
 core and the caches alone, the data cache with its TLB alone.
+
+**The 16 KB D-cache with today's tree** (652d823 with `DCACHE_SIZE`
+16384, measurement only; the CPU suite passes at that size, 357 of 357).
+Fits at four seeds: -1.923, -2.335, -1.644, -1.855 (the last with a hold
+violation of 0.009 ns), 32,900 ALMs: no better for timing. On the board
+(seed 13, two passes; the 8 KB figures of today in brackets): 3D Game
+9.19 fps (8.87), PolyCount 29.43 / 29.37 (28.4), JPEG 170.4 (168.5),
+Scaling 1.92 (1.89), FillRate 1.73 on both passes, 2D Image 38.05 / 38.01
+(the same). So the larger cache is worth about 3.6 % in the 3D tests, 1 %
+in JPEG and nothing in 2D Image, which keeps its 1.9 % over the phone
+whatever the D-cache's size: a clock spent on every load or every miss
+would come out of that 1.9 % first.
