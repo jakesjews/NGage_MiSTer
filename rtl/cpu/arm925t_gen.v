@@ -11567,7 +11567,7 @@ module zap_mem_inv_block (
 	generate
 		if (1) begin : g_short
 			reg [DEPTH - 1:0] valid;
-			reg read_valid;
+			reg [$clog2(DEPTH) - 1:0] read_addr;
 			zap_ram_simple #(
 				.WIDTH(WIDTH),
 				.DEPTH(DEPTH)
@@ -11581,17 +11581,17 @@ module zap_mem_inv_block (
 				.o_rd_data_pre(),
 				.o_rd_data(o_rdata_pre)
 			);
-			always @(posedge i_clk)
-				if (i_reset || i_inv) begin
+			always @(posedge i_clk) begin
+				if (i_reset || i_inv)
 					valid <= 1'sb0;
-					read_valid <= 0;
-				end
 				else if (READ_THROUGH || i_clken) begin
 					if (i_wen)
 						valid[i_waddr] <= 1;
-					read_valid <= (i_wen && (i_raddr == i_waddr)) || valid[i_raddr];
 				end
-			assign o_rdav_pre = read_valid;
+				if (READ_THROUGH || i_clken)
+					read_addr <= i_raddr;
+			end
+			assign o_rdav_pre = valid[read_addr];
 			assign o_rdata = o_rdata_pre;
 			assign o_rdav = o_rdav_pre;
 		end
