@@ -34,17 +34,18 @@ jobs:
 
       # The donor's existing script checks every available timing corner and
       # the gated-video-clock uncertainty. Preserve its failure exit status.
-      # The core does not meet 104 MHz yet and is released at about -1.5 ns
-      # (its fitter seeds run from -1.5 to -2.2 ns), so the check accepts a
-      # setup slack down to NGAGE_SETUP_FLOOR and fails below it; hold,
-      # recovery and removal must not be negative. The summary and the
-      # artifact's name say whether timing is met.
+      # The core does not meet 104 MHz yet and is released at about -1.5 ns,
+      # so the check accepts a setup slack down to NGAGE_SETUP_FLOOR (-2.0 ns:
+      # the requirement; the release's eight fitter seeds run from -1.5 to
+      # -2.2, so a poor seed fails) and fails below it; hold, recovery and
+      # removal must not be negative. The summary and the artifact's name
+      # say whether timing is met.
       - name: Export and check timing
         id: timing
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
         shell: bash
         env:
-          NGAGE_SETUP_FLOOR: "-2.5"
+          NGAGE_SETUP_FLOOR: "-2.0"
         run: |
           set -uo pipefail
           docker run --rm \

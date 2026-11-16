@@ -57,7 +57,7 @@ way gives the released file bit for bit.
   is not met.
 - GitHub builds every push to master and every pull request the same way
   (`.github/workflows/ci_build.yml`) and keeps the core and the reports as
-  artifacts. Its timing check accepts a setup slack down to -2.5 ns
+  artifacts. Its timing check accepts a setup slack down to -2.0 ns
   (`NGAGE_SETUP_FLOOR`, read by `tools/report_timing.tcl`; hold, recovery
   and removal must not be negative) and fails below that; the run's summary
   and the artifact's name say whether 104 MHz is met. Without the variable

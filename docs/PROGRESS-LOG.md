@@ -10462,3 +10462,12 @@ the worst slack of each check and whether timing is met, and the core's
 artifact is named `timing-met`, `timing-not-met` or `timing-check-failed`.
 Tried on the server against the release's fit: exit 0 with the floor at
 -2.5, exit 3 at -1.0 and with no floor.
+
+## 2026-11-16: the GitHub build's setup floor is -2.0 ns
+
+The first run with the floor (ed5c1d6) ended green; GitHub's fit is the
+server's to the picosecond (-1.519 / -1.464 ns for seed 9). The user set
+the requirement: "For setup slack requirements set it to -2.0". The
+workflow's `NGAGE_SETUP_FLOOR` is -2.0 ns now (it was my -2.5). The
+release has 0.48 ns to it; two of its eight seeds (5 and 31337, -2.2)
+would not pass.
