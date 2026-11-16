@@ -186,7 +186,11 @@ logic                            tr_cache_hit, tr_cache_hit_dirty; // ARM925T
 logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] tr_cache_way, cf_cache_way; // ARM925T
 logic                            tr_cache_tag_dirty, cf_cache_tag_dirty;
 logic [CACHE_LINE*8-1:0] raw_cache_line, merged_line;
-logic [WAYS-1:0][CACHE_LINE*8-1:0] raw_way_line, merged_way, way_line_ff;
+logic [WAYS-1:0][CACHE_LINE*8-1:0] raw_way_line, way_line_ff;
+logic [WAYS-1:0] fwd_way, fwd_way_ff;
+logic [CACHE_LINE-1:0] fwd_ben_ff;
+logic [31:0] fwd_dat_ff;
+logic [CACHE_LINE*8-1:0] victim_line;
 logic [WAYS-1:0][`ZAP_CACHE_TAG_WDT-1:0] raw_way_tag;
 logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] raw_victim, victim_ff;
 logic [WAYS-1:0][31:0] raw_cache_words;
@@ -480,18 +484,24 @@ end
 // way is the victim hangs on the access accepted in this very clock (the
 // LRU bit it turns), so that choice sat in front of the line's 128
 // registers behind the cache's answer (132 failing endpoints at seed 5, to
-// -1.4 ns). Both ways' lines are registered instead, each with the store
-// merged as the victim's was, and the registered choice picks one behind
-// them, where only the FSM's write-back buffer reads the line. Equal to
-// merged_line registered, in every clock (asserted below).
-always_comb for (int w=0; w<WAYS; w++) begin
-    merged_way[w] = raw_way_line[w];
+// -1.4 ns). Both ways' lines are registered instead, as the RAMs give
+// them, and the registered choice picks one behind them, where only the
+// FSM's write-back buffer reads the line. The store that W may be writing
+// into the victim's line is merged behind the registers too (its word, its
+// byte enables and a flag a way are registered: a store's line is its word
+// four times, asserted further down), so W's store data no longer spreads over
+// both ways' lines. Equal to merged_line registered, in every clock
+// (asserted below).
+always_comb for (int w=0; w<WAYS; w++)
+    fwd_way[w] = forward_store &&
+        raw_way_tag[w][`ZAP_CACHE_TAG__TAG] == cf_cache_tag[`ZAP_CACHE_TAG__TAG];
+always_comb begin
+    victim_line = (WAYS > 1 && victim_ff[0]) ? way_line_ff[WAYS-1] : way_line_ff[0];
+    tr_cache_line = victim_line;
     for (int b=0; b<CACHE_LINE; b++)
-        if (forward_store && cf_cache_line_ben[b] &&
-            raw_way_tag[w][`ZAP_CACHE_TAG__TAG] == cf_cache_tag[`ZAP_CACHE_TAG__TAG])
-            merged_way[w][8*b +: 8] = cf_cache_line[8*b +: 8];
+        if (((WAYS > 1 && victim_ff[0]) ? fwd_way_ff[WAYS-1] : fwd_way_ff[0]) && fwd_ben_ff[b])
+            tr_cache_line[8*b +: 8] = fwd_dat_ff[8*(b%4) +: 8];
 end
-assign tr_cache_line = (WAYS > 1 && victim_ff[0]) ? way_line_ff[WAYS-1] : way_line_ff[0];
 `ifndef SYNTHESIS
 logic [CACHE_LINE*8-1:0] tr_cache_line_ref;      // the register this replaced
 logic tr_line_loaded = 1'b0;
@@ -551,7 +561,10 @@ generate if (1) begin : g_short_response
 `endif
     always_ff @(posedge i_clk) begin
         if (!hold && !i_stall) begin
-            way_line_ff <= merged_way;
+            way_line_ff <= raw_way_line;
+            fwd_way_ff <= fwd_way;
+            fwd_ben_ff <= cf_cache_line_ben;
+            fwd_dat_ff <= cf_cache_line[31:0];
             victim_ff <= raw_victim;
             tr_cache_tag <= raw_cache_tag;
             tr_cache_tag_valid <= raw_cache_tag_valid;
