@@ -27,18 +27,7 @@
 // clk_sys is 104 MHz, 4 x 26 MHz, the phone's reference: the MCU, flash,
 // timer and MMC clocks divide from it exactly.
 
-module emu #(
-	// the CPU's caches: the phone's 16 KB for instructions and 8 KB for
-	// data (rtl/cpu/arm925t.sv)
-	parameter int ICACHE_SIZE                = 16384,
-	parameter int DCACHE_SIZE                = 8192,
-	parameter int DCACHE_WAYS                = 2,
-	// the small-page TLBs' ways and sets (rtl/cpu/arm925t.sv)
-	parameter int DTLB_SPAGE_WAYS            = 2,
-	parameter int DTLB_SPAGE_SETS            = 256,
-	parameter int ITLB_SPAGE_WAYS            = 2,
-	parameter int ITLB_SPAGE_SETS            = 256
-) (
+module emu (
 	`include "sys/emu_ports.vh"
 );
 
@@ -683,15 +672,7 @@ wire  [3:0] cpu_dbg_dcache;   // load fills, store fills, write-backs, uncached 
 wire [31:0] tr_d_va, tr_d_wdata, tr_d_rdata;
 wire  [3:0] tr_d_sel;
 
-arm925t #(
-	.ICACHE_SIZE(ICACHE_SIZE),
-	.DCACHE_SIZE(DCACHE_SIZE),
-	.DCACHE_WAYS(DCACHE_WAYS),
-	.DTLB_SPAGE_WAYS(DTLB_SPAGE_WAYS),
-	.DTLB_SPAGE_SETS(DTLB_SPAGE_SETS),
-	.ITLB_SPAGE_WAYS(ITLB_SPAGE_WAYS),
-	.ITLB_SPAGE_SETS(ITLB_SPAGE_SETS)
-) arm925t
+arm925t arm925t
 (
 	.clk(clk_sys),
 	.reset(cpu_reset),

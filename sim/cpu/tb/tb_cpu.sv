@@ -6,17 +6,7 @@
 // commits at the next rising edge, and the register file and CPSR as they
 // are; main.cpp turns them into a retirement trace. They work on both the
 // generated netlist (rtl/cpu/arm925t_gen.v) and the SystemVerilog sources.
-module tb_cpu #(
-	parameter bit ARM9_PREDICTOR = 1'b1,
-	parameter bit HIVECS          = 1'b0,
-	parameter int ICACHE_SIZE     = 16384,
-	parameter int ICACHE_WAYS     = 2,
-	parameter int DCACHE_SIZE     = 8192,
-	parameter int DCACHE_WAYS     = 2,
-	parameter int CACHE_LINE      = 16,
-	parameter int DTLB_SPAGE_WAYS = 2,
-	parameter int ITLB_SPAGE_WAYS = 2
-) (
+module tb_cpu (
 	`ifdef CPU_PROFILE
     output logic [63:0] p_profile_flags,
     output logic [31:0] p_profile_pc,p_profile_ins,p_profile_retire_ins,p_profile_target,
@@ -120,6 +110,12 @@ module tb_cpu #(
     output logic [5:0]    p_recovery_slots, // valid younger queue/uop slots, V2 only
 	output logic [3:0]    p_mult_state
 );
+
+	// The CPU has one configuration (rtl/cpu/arm925t.sv, constants there);
+	// the bench's checks use these of its values.
+	localparam bit ARM9_PREDICTOR = 1'b1;
+	localparam int DCACHE_WAYS    = 2;
+	localparam int CACHE_LINE     = 16;
 `ifdef CPU_PROFILE
     assign p_profile_flags=dut.profile_probe.flags;
     assign p_profile_pc=dut.profile_probe.decode_pc;
@@ -129,17 +125,7 @@ module tb_cpu #(
 `endif
 
 
-	arm925t #(
-		.ARM9_PREDICTOR (ARM9_PREDICTOR),
-		.HIVECS          (HIVECS),
-		.ICACHE_SIZE     (ICACHE_SIZE),
-		.ICACHE_WAYS     (ICACHE_WAYS),
-		.DCACHE_SIZE     (DCACHE_SIZE),
-		.DCACHE_WAYS     (DCACHE_WAYS),
-		.CACHE_LINE      (CACHE_LINE),
-		.DTLB_SPAGE_WAYS (DTLB_SPAGE_WAYS),
-		.ITLB_SPAGE_WAYS (ITLB_SPAGE_WAYS)
-	) dut (
+	arm925t dut (
 		.clk       (clk),
 		.reset     (reset),
 		.irq       (irq),
@@ -318,7 +304,8 @@ module tb_cpu #(
 	`define DT dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_tag_ram
 	`define TC dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_tlb.u_zap_tlb_check
 	localparam int DLINE_W = $clog2(CACHE_LINE);
-	localparam int DSET_W = $clog2(DCACHE_SIZE / DCACHE_WAYS / CACHE_LINE);
+	// the D-cache is the phone's 8 KB (rtl/cpu/arm925t.sv)
+	localparam int DSET_W = $clog2(8192 / DCACHE_WAYS / CACHE_LINE);
 	logic [DSET_W-1:0] dc_read_set, dc_response_set;
 	logic dc_victim_valid;
 	logic dc_installed;

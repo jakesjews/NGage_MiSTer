@@ -54,17 +54,6 @@ module arm925t (
 	dbg_d_wdata,
 	dbg_d_rdata
 );
-	parameter [0:0] ARM9_PREDICTOR = 1'b1;
-	parameter [0:0] HIVECS = 1'b0;
-	parameter signed [31:0] ICACHE_SIZE = 16384;
-	parameter signed [31:0] ICACHE_WAYS = 2;
-	parameter signed [31:0] DCACHE_SIZE = 8192;
-	parameter signed [31:0] DCACHE_WAYS = 2;
-	parameter signed [31:0] CACHE_LINE = 16;
-	parameter signed [31:0] DTLB_SPAGE_WAYS = 2;
-	parameter signed [31:0] DTLB_SPAGE_SETS = 256;
-	parameter signed [31:0] ITLB_SPAGE_WAYS = 2;
-	parameter signed [31:0] ITLB_SPAGE_SETS = 256;
 	input wire clk;
 	input wire reset;
 	input wire irq;
@@ -103,10 +92,21 @@ module arm925t (
 	output wire [3:0] dbg_d_sel;
 	output wire [31:0] dbg_d_wdata;
 	output wire [31:0] dbg_d_rdata;
+	localparam [0:0] ARM9_PREDICTOR = 1'b1;
+	localparam [0:0] HIVECS = 1'b0;
+	localparam signed [31:0] ICACHE_WAYS = 2;
+	localparam signed [31:0] DCACHE_WAYS = 2;
+	localparam signed [31:0] CACHE_LINE = 16;
+	localparam signed [31:0] DTLB_SPAGE_WAYS = 2;
+	localparam signed [31:0] DTLB_SPAGE_SETS = 256;
+	localparam signed [31:0] ITLB_SPAGE_WAYS = 2;
+	localparam signed [31:0] ITLB_SPAGE_SETS = 256;
 	localparam [31:0] RESET_VECTOR = (HIVECS ? 32'hffff0000 : 32'h00000000);
 	wire wb_cyc;
 	wire wb_stb;
 	wire [2:0] wb_cti;
+	localparam signed [31:0] ICACHE_SIZE = 16384;
+	localparam signed [31:0] DCACHE_SIZE = 8192;
 	zap_top #(
 		.ARM9_PREDICTOR(ARM9_PREDICTOR),
 		.CP15_ID(32'h54029252),

@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
-for size in 8192 16384 32768; do
+# the two cache sizes of the core: the D-cache's 8 KB and the I-cache's 16 KB
+for size in 8192 16384; do
     obj="$PWD/sim/cpu/build/obj-meta-$size"
     mkdir -p "$obj"
     verilator --binary --timing --assert -j 8 -Wno-fatal -Wno-lint -Wno-style \

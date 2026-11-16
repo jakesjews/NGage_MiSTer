@@ -35,29 +35,24 @@ difference from a real ARM925T, how it is tested, and the FPGA numbers.
 `arm925t` has one clock, a synchronous active-high reset, two interrupt
 inputs and one memory bus master.
 
-Parameters:
+Configuration. `arm925t` has no parameters since 2026-11-16: the core has
+one configuration, constants in `arm925t.sv`, so that no build and no
+test runs with another:
 
-- `HIVECS` (0): reset value of control bit V, the ARM925T's HIVECS pin. 1
-  puts the vectors and the reset address at 0xFFFF0000. The N-Gage boots
-  from CS0 at 0, so the core uses 0.
-- `ICACHE_SIZE` (16384), `DCACHE_SIZE` (8192), `CACHE_LINE` (16): cache
-  geometry in bytes: the phone's own, 16 KB for instructions (512 sets)
-  and 8 KB for data (256 sets, VA[11:4]), since 2026-11-16. They were
-  32 KB each from 2026-11-09 to NGage_20261114, which put SPMark04's 3D
-  tests 18 to 38 % above a real phone, and 16 KB each in the first
-  release of 2026-11-16, because the 8 KB D-cache was then 4 % short of
-  the phone in the fill-rate test; the shorter end of a line fill (below)
-  closed that, and with the phone's sizes nothing is below it
-  (docs/PROGRESS-LOG.md, 2026-11-16). The whole core and the CPU bench
-  have the same defaults (`VEXTRA="-GICACHE_SIZE=32768
-  -GDCACHE_SIZE=32768"` for the earlier sizes, `-GDCACHE_SIZE=16384` for
-  the 16 KB D-cache). The cache type register reports 16 KB and 8 KB; with
-  a larger D-cache a by-index operation visits every physical set
-  colour for the named architectural set/way. By-VA operations stay
-  targeted. The live two-way compare/select and hit-under-miss protocol
-  are unchanged. This VIVT cache still relies on firmware alias/DMA
-  maintenance; see [the capacity analysis](consults/2026-10-23-codex-dcache-report.md)
-  for the recommendation, projected cost and validation limits.
+- The reset value of control bit V, the ARM925T's HIVECS pin, is 0
+  (vectors and reset address at 0; the N-Gage boots from CS0 at 0).
+- The caches are 2-way with 16-byte lines, and their sizes are the
+  phone's own, 16 KB for instructions (512 sets) and 8 KB for data (256
+  sets, VA[11:4]). They were 32 KB each from 2026-11-09 to NGage_20261114,
+  which put SPMark04's 3D tests 18 to 38 % above a real phone, and 16 KB
+  each in the first release of 2026-11-16, because the 8 KB D-cache was
+  then 4 % short of the phone in the fill-rate test; the shorter end of
+  a line fill (below) closed that, and with the phone's sizes nothing is
+  below it (docs/PROGRESS-LOG.md, 2026-11-16). The cache type register
+  reports 16 KB and 8 KB. The caches are VIVT and rely on the firmware's
+  alias and DMA maintenance, as the phone's do; the
+  [capacity analysis](consults/2026-10-23-codex-dcache-report.md) of
+  2026-10-23 has what a larger D-cache would cost and need.
 - The one-line sequential I-cache prefetch (`ICACHE_PREFETCH`) was
   removed on 2026-10-26: the ARM925T has none, the games measured no gain
   from it on the board (2026-10-23) and it cost about 1 ns of slack
@@ -130,9 +125,8 @@ The memory system is ZAP's:
 - MMU: ARMv4 sections, coarse and fine tables with large, small and tiny
   pages, domains, access permissions with S and R, FCSE PID. Separate I and
   D TLBs, each four buffers, one per page size: 64 sections, 32 large and
-  64 tiny pages, direct-mapped, and the small pages in ways of 256 entries
-  (`DTLB_SPAGE_WAYS`, `ITLB_SPAGE_WAYS` in arm925t.sv; a set's ways are
-  replaced in turn). A hardware table walker on the bus.
+  64 tiny pages, direct-mapped, and the small pages in two ways of 256
+  entries (a set's ways are replaced in turn). A hardware table walker on the bus.
 - CP15 (`zap_cp15_cb.sv`): carries out MCR/MRC while the pipeline waits.
 
 ### What was changed for the ARM925T
@@ -143,7 +137,7 @@ Identity and CP15 (`TI925T = 1`, `CP15_ID`, `CP15_CTYPE`):
   16-byte lines, 16 KB I, 8 KB D). With TI configuration bit O set the ID
   reads part 0x915, as on QEMU's ti925t. Writes to c0 are ignored.
 - c1 control: M, A, C, W, S, R, I and V are writable; bits 6:4 read 1, B
-  (bit 7) and the rest read 0. Reset value 0x70, plus V from `HIVECS`.
+  (bit 7) and the rest read 0. Reset value 0x70 (V is 0 at reset).
 - c2 TTB, c3 DACR, c5 FSR, c6 FAR: as ARMv4. FSR and FAR change only on
   data aborts (upstream also wrote them on uncached accesses); an external
   abort reports status 0b1000. A prefetch abort does not change them.
@@ -463,8 +457,7 @@ checkpoints (all registers and the CPSR) in the signature.
   and rewritten behind the cache, or data dirtied in turn and read back
   through an uncached alias; what the cache still holds shows the two
   ways and the LRU choice, and the D-side's index operations act on the
-  named way. Both fail on a direct-mapped build (`VEXTRA=-GICACHE_WAYS=1`,
-  `-GDCACHE_WAYS=1`).
+  named way.
 - `iprefetch_rtl` (written for the removed I-cache prefetch; it still
   checks the I-cache's sequential and invalidate behaviour): sequential code over 32 lines
   (cold, warm, backward; an execution-bound variant), a branch away from a

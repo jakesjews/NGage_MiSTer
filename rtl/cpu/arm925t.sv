@@ -30,38 +30,7 @@
 // Interrupts are level-sensitive and active high (the inverse of the
 // ARM925T's nIRQ/nFIQ); they pass a two-flop synchroniser inside ZAP.
 // reset is synchronous and active high; drive it from a flip-flop.
-module arm925t #(
-	parameter bit          ARM9_PREDICTOR = 1'b1,
-	// Reset value of control register bit V (the ARM925T's HIVECS pin):
-	// 1 puts the exception vectors, and the reset address, at 0xFFFF0000.
-	parameter bit          HIVECS      = 1'b0,
-	// Cache geometry: 2-way with LRU replacement, 16-byte lines
-	// (docs/CPU.md). The ARM925T has 16 KB I / 8 KB D. The I-cache is the
-	// phone's 16 KB (512 sets); the D-cache is the phone's 8 KB (256 sets,
-	// VA[11:4]) since 2026-11-16. It was 16 KB in the release before,
-	// because with 8 KB the core was 4 % short of a real phone in
-	// SPMark04's fill-rate test; since a request that waits through a
-	// line fill is taken two clocks after the line is written, 8 KB
-	// holds the phone's figure and nothing is below it
-	// (docs/PROGRESS-LOG.md, 2026-11-16). A larger D-cache still reports
-	// the phone's 8 KB to CP15, and by-index maintenance then visits
-	// every physical set colour of the named architectural set. 32768
-	// each gives the caches of the releases up to NGage_20261114.
-	parameter int          ICACHE_SIZE     = 16384,
-	parameter int          ICACHE_WAYS     = 2,
-	parameter int          DCACHE_SIZE     = 8192,
-	parameter int          DCACHE_WAYS     = 2,
-	parameter int          CACHE_LINE      = 16,
-	// The small-page TLBs: ways (1, 2 or 4) of *_SPAGE_SETS entries each,
-	// indexed by the page number's low bits. The ARM925T's TLBs are
-	// 64-entry and fully associative; with one way, two pages 1 MB apart
-	// (the same offset in two EKA1 chunks) evict each other at every
-	// access (rtl/cpu/zap/zap_tlb.sv).
-	parameter int          DTLB_SPAGE_WAYS = 2,
-	parameter int          DTLB_SPAGE_SETS = 256,
-	parameter int          ITLB_SPAGE_WAYS = 2,
-	parameter int          ITLB_SPAGE_SETS = 256
-) (
+module arm925t (
 	input  logic        clk,
 	input  logic        reset,
 
@@ -117,10 +86,45 @@ module arm925t #(
 	output logic [31:0] dbg_d_rdata
 );
 
+	// The configuration is the core's one configuration: constants, not
+	// parameters, so that no build and no test runs with another (the
+	// cache sizes since 2026-11-16, the rest since the same day).
+	// The CPU has its branch predictor (the ARM925T has none; docs/CPU.md,
+	// the timing-fidelity plan).
+	localparam bit ARM9_PREDICTOR = 1'b1;
+	// Reset value of control register bit V (the ARM925T's HIVECS pin):
+	// 0, vectors and reset address at 0, as the phone has it (1 would put
+	// them at 0xFFFF0000).
+	localparam bit HIVECS = 1'b0;
+	// Cache geometry: 2-way with LRU replacement, 16-byte lines
+	// (docs/CPU.md); the sizes are below.
+	localparam int ICACHE_WAYS = 2;
+	localparam int DCACHE_WAYS = 2;
+	localparam int CACHE_LINE  = 16;
+	// The small-page TLBs: two ways of 256 entries each, indexed by the
+	// page number's low bits. The ARM925T's TLBs are 64-entry and fully
+	// associative; with one way, two pages 1 MB apart (the same offset in
+	// two EKA1 chunks) evict each other at every access
+	// (rtl/cpu/zap/zap_tlb.sv).
+	localparam int DTLB_SPAGE_WAYS = 2;
+	localparam int DTLB_SPAGE_SETS = 256;
+	localparam int ITLB_SPAGE_WAYS = 2;
+	localparam int ITLB_SPAGE_SETS = 256;
+
 	localparam logic [31:0] RESET_VECTOR = HIVECS ? 32'hFFFF0000 : 32'h00000000;
 
 	logic       wb_cyc, wb_stb;
 	logic [2:0] wb_cti;
+
+	// The caches' sizes in bytes: the phone's, 16 KB for instructions (512
+	// sets) and 8 KB for data (256 sets, VA[11:4]). Fixed since
+	// 2026-11-16, so that no build and no test runs with another size
+	// (the releases up to NGage_20261114 had 32 KB each, the first of
+	// 2026-11-16 16 KB each: with 8 KB the core was then 4 % short of a
+	// real phone in SPMark04's fill-rate test, which the shorter end of a
+	// line fill closed; docs/PROGRESS-LOG.md, 2026-11-16).
+	localparam int ICACHE_SIZE = 16384;
+	localparam int DCACHE_SIZE = 8192;
 
 	zap_top #(
 		.ARM9_PREDICTOR (ARM9_PREDICTOR),
