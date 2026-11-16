@@ -10446,3 +10446,19 @@ SPMark04 on the same sources (seed 13's fit): the table of the entry
 before last, 16 / 16 KB.
 
 `releases/NGage_20261114.rbf` is removed.
+
+## 2026-11-16: pushed; the GitHub build's timing check gets a floor
+
+Master with the release went to GitHub (3431651) at the user's word. Every
+run of the GitHub build had ended as failed since it exists: the compile
+and the artifacts are fine, but `tools/report_timing.tcl` counts any
+negative slack as an error and the core does not meet 104 MHz. The user
+asked for it to be put right. `NGAGE_SETUP_FLOOR` (the workflow sets
+-2.5 ns; the eight seeds of the release run from -1.5 to -2.2) is the
+setup slack down to which the script now ends without an error; hold,
+recovery and removal must still not be negative, and without the variable
+the script is as strict as before (`./build.sh`). The run's summary gives
+the worst slack of each check and whether timing is met, and the core's
+artifact is named `timing-met`, `timing-not-met` or `timing-check-failed`.
+Tried on the server against the release's fit: exit 0 with the floor at
+-2.5, exit 3 at -1.0 and with no floor.

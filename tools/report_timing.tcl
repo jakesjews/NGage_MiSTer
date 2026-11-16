@@ -10,6 +10,17 @@ report_ucp -file build/unconstrained-paths.rpt
 set summary [open build/timing-corners.tsv w]
 puts $summary "corner\tcheck\tworst_slack_ns"
 set failed 0
+# The core does not meet its 104 MHz constraint yet and is released with a
+# setup slack of about -1.5 ns (docs/BUILDING.md). NGAGE_SETUP_FLOOR, when
+# set (a negative number of ns), is the setup slack down to which this
+# script still ends without an error, so that a build server can tell the
+# usual state from a real loss. Hold, recovery and removal must not be
+# negative either way; without the variable any negative slack is an error.
+set setup_floor 0
+if {[info exists ::env(NGAGE_SETUP_FLOOR)] && $::env(NGAGE_SETUP_FLOOR) ne ""} {
+    set setup_floor $::env(NGAGE_SETUP_FLOOR)
+    post_message -type info "setup slack accepted down to $setup_floor ns"
+}
 # NGage.sdc declares the framework's gated video clock (comb~0) a clock of
 # its own. If that node is not the gate in this build, clk_sys keeps the
 # gated branch's uncertainty: report it instead of fitting against it.
@@ -35,7 +46,7 @@ foreach_in_collection corner [get_available_operating_conditions] {
             set slack [get_path_info -slack $path]
             puts $summary "$name\t$check\t$slack"
             post_message -type info "$name ${check}: $slack ns"
-            if {$slack < 0} { set failed 1 }
+            if {$slack < ($check eq "setup" ? $setup_floor : 0)} { set failed 1 }
         }
     }
 }
@@ -43,6 +54,6 @@ close $summary
 delete_timing_netlist
 project_close
 if {$failed} {
-    post_message -type error "Negative timing slack; see build/timing-corners.tsv"
+    post_message -type error "Timing slack below the limit; see build/timing-corners.tsv"
     qexit -error
 }

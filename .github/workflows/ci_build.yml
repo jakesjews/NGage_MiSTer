@@ -34,13 +34,21 @@ jobs:
 
       # The donor's existing script checks every available timing corner and
       # the gated-video-clock uncertainty. Preserve its failure exit status.
+      # The core does not meet 104 MHz yet and is released at about -1.5 ns
+      # (its fitter seeds run from -1.5 to -2.2 ns), so the check accepts a
+      # setup slack down to NGAGE_SETUP_FLOOR and fails below it; hold,
+      # recovery and removal must not be negative. The summary and the
+      # artifact's name say whether timing is met.
       - name: Export and check timing
         id: timing
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
         shell: bash
+        env:
+          NGAGE_SETUP_FLOOR: "-2.5"
         run: |
           set -uo pipefail
           docker run --rm \
+            -e NGAGE_SETUP_FLOOR \
             -v "${{ github.workspace }}:/project" \
             -w /project \
             theypsilon/quartus-lite-c5:17.0.2.docker0 \
@@ -65,11 +73,26 @@ jobs:
           rbf = Path('output_files/NGage.rbf')
           sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           timing = os.environ['TIMING_RESULT']
+          # the worst slack of each check over the corners (tools/report_timing.tcl)
+          worst = {}
+          corners = Path('build/timing-corners.tsv')
+          if corners.exists():
+              for line in corners.read_text().splitlines()[1:]:
+                  _, check, slack = line.split('\t')
+                  worst[check] = min(float(slack), worst.get(check, float('inf')))
+          met = bool(worst) and min(worst.values()) >= 0
           text = (f'Commit: {sha}\nQuartus: 17.0.2\nProject: NGage\n'
-                  f'Timing check: {timing}\nRBF SHA256: {hashlib.sha256(rbf.read_bytes()).hexdigest()}\n')
+                  f'Timing check: {timing}\n'
+                  + ''.join(f'Worst {c} slack: {v:.3f} ns\n' for c, v in worst.items())
+                  + f'104 MHz timing met: {"yes" if met else "no"}\n'
+                  f'RBF SHA256: {hashlib.sha256(rbf.read_bytes()).hexdigest()}\n')
           if timing != 'success':
-              text += 'Experimental build: timing is NOT verified.\n'
+              text += 'Experimental build: the timing check failed.\n'
+          elif not met:
+              text += 'Setup slack is negative but inside the accepted range (NGAGE_SETUP_FLOOR).\n'
           Path('build-info.txt').write_text(text)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'label={"timing-met" if met else "timing-not-met" if timing == "success" else "timing-check-failed"}\n')
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
               summary.write('### NGage build\n\n```text\n' + text + '```\n')
           PY
@@ -102,7 +125,7 @@ jobs:
         if: ${{ !cancelled() && steps.compile.outcome == 'success' && steps.rbf.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: NGage-rbf-${{ steps.timing.outcome == 'success' && 'timing-passed' || 'timing-unverified' }}
+          name: NGage-rbf-${{ steps.rbf.outputs.label }}
           path: |
             output_files/NGage.rbf
             build-info.txt
