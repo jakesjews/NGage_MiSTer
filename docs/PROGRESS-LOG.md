@@ -10987,3 +10987,45 @@ Scaling 1.92 (1.89), FillRate 1.73 on both passes, 2D Image 38.05 / 38.01
 in JPEG and nothing in 2D Image, which keeps its 1.9 % over the phone
 whatever the D-cache's size: a clock spent on every load or every miss
 would come out of that 1.9 % first.
+
+## 2026-11-16, 17:45: the core alone, the interfaces alone, the core in a compact region
+
+More builds for measurement only, tree 652d823, seeds 5, 9, 13, 20. Each
+gives every path of the system clock two clocks and puts one part back to
+one, so that nothing else competes with that part for placement:
+
+| held to one clock | worst slack at the four seeds | mean |
+|---|---|---|
+| inside the CPU core (fetch, decode, execute, writeback) | -1.736, -1.881, -1.128, -1.902 | -1.66 |
+| between the core and the two caches, either way | -1.003, -1.117, -1.294, -0.674 | -1.02 |
+
+The core by itself is as short as the whole design. Its failing paths are
+still 8 levels with 6.6 to 6.9 ns of wire and 18 to 21 tiles from start
+to end: the fitter leaves it spread over some 60 columns even then (the
+design uses 80 % of the ALMs and touches 96 % of the logic blocks). They
+are W's and M's values into execute's operands, execute into M and the
+flags, decode's first register into its second, decode into execute, and
+execute and W back into decode.
+
+So the core was confined to a block of its own, x 36 to 82, y 0 to 30
+(`CUSTOM_REGION` on `arm9v2_core` alone, about 70 % full; in October the
+whole CPU with its caches was confined, and it got worse). With the real
+constraints: -2.164, -2.240, -2.041, -2.295, mean -2.22, and 1,640 to
+2,600 failing endpoints: half a nanosecond worse than without the
+region, led by the D-TLB check and the cache's answer into the core and
+the bus merger. A compact core pushes the caches away from it, and what
+passes between them pays. Placement by region is no lever, for the second
+time.
+
+**Where that leaves it.** Nothing cheap is left: fitter effort is in,
+router effort and block RAM do nothing, single paths and wide registers
+change how much fails but not the worst, a register on the cache's answer
+would buy at most 0.15 ns, the 16 KB D-cache gives speed in 3D only and no
+slack, and a region makes it worse. The core's own stages are 1.1 to
+1.9 ns short at 104 MHz on this device. Meeting the clock means a deeper
+pipeline in the core, which is a redesign and costs speed in every test.
+Proposed to the user: keep the accurate 16 KB / 8 KB core as the product
+(today's exact work merged, the best fit of a wider sweep released after a
+board check), and take the deeper pipeline as a project of its own, with
+the 16 KB D-cache as part of its budget. Running: the tree on sixteen
+seeds.
