@@ -10419,3 +10419,30 @@ pipeline getting going again after a fill; the SDRAM itself (CL2, eight
 halfwords) is no slower than the phone's can be. An estimate for the
 phone, from its SDRAM alone (CL3, eight halfwords, a row to open now and
 then): about 15 clocks a fill; nothing measured.
+
+## 2026-11-16: the release with the TLB ways and 16 KB caches, NGage_20261116.rbf
+
+The user: release first, then the restore after a fill ("try the first",
+"after release"), and "merge into the master branch".
+
+**The fit.** Eight seeds of the final tree on the server, setup at 100C /
+-40C: 9 -1.519 / -1.464, 1337 -1.493 / -1.506, 30 -1.530 / -1.683,
+13 -1.595 / -1.554, 40 -1.843 / -1.953, 20 -1.932 / -1.797,
+31337 -2.029 / -2.192, 5 -2.227 / -2.186 ns; hold positive at every
+corner; 34,600 ALMs, 489 M10K, 42 DSPs. Seeds 9 and 1337 are 13 ps apart
+on their worse corner; seed 9 is released because its file is the one
+that ran on the board. `NGage.qsf` carries seed 9. The file,
+`releases/NGage_20261116.rbf`, md5 305e43ac4cda7407c49f8b667c8a5548, came
+out the same from the sweep before the defaults were changed and from the
+tree with them. It still does not meet 104 MHz in the timing report (the
+release before it: -1.486 / -1.384).
+
+**On the board**, that file as a temporary core, each run from a fresh C:
+(the read probe 0 of 40 before and after): Sonic N through its logos and
+intro to the main menu; Tony Hawk's Pro Skater through Career into the
+Warehouse, skating; Call of Duty into its first mission ("Game Saved",
+"Objectives Updated"); Asphalt Urban GT into an Instant Play race.
+SPMark04 on the same sources (seed 13's fit): the table of the entry
+before last, 16 / 16 KB.
+
+`releases/NGage_20261114.rbf` is removed.
