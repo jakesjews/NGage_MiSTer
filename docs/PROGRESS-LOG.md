@@ -10888,3 +10888,19 @@ flip-flops either way. dfill's ifill: 7.08 clocks a code line again.
 
 Building: the fixed eight with the follow-up and the flash change (ans2),
 every seed with its full list of failing endpoints.
+
+**The return stack** (7b04b4d), the same move on the instruction side: a
+write of the predictor's return stack is decided late in its clock (a
+repair's action, or the fetch accepted and predicted taken) and the
+stack's 256 flip-flops sat behind that (57 endpoints behind the I-TLB
+check at seed 5). Both possible writes are registered whole, the decision
+leaves a flag for each, the stack takes the write a clock later and every
+read goes through the stack with that write in. The old stack is kept in
+simulation and compared; dropping the bypass fails the predictor tests.
+
+Queued on the server after the build in hand: this tree on the fixed
+eight, then three builds for measurement only (constraints that pretend,
+on four seeds each): the D-cache's miss decision and bus request with a
+clock more, its answer into the core with a clock more, and both. They
+say how much slack a register at those places could buy, before any
+clock is spent on one.
