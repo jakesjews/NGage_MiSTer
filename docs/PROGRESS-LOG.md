@@ -10838,3 +10838,54 @@ PolyCount, which repeat to a part in a thousand (38.05 and 28.4 against
 the phone's 37.33 and 27.52: 1.9 % and 3.2 % of room); FillRate can only
 confirm. Sonic N (to its menu) and Call of Duty (in play) start from
 their cards on the same build.
+
+## 2026-11-16, afternoon: the first change that moves every seed; the flash read's clock given back
+
+**The two registers (5006c78) on the fixed eight:** -1.543, -1.409, -0.901,
+-1.742, -1.524, -1.506, -1.218, -1.486: mean -1.416, best -0.901 (seed 13:
+-0.873 / -0.901, the best fit this design has had), worst -1.742. The same
+tree without them: mean -1.764, worst -2.479; the release: -1.960. At
+seed 5 724 endpoints fail (total -198 ns) where 1,400 to 2,000 did. So
+the paths that count are not single long ones but wide registers that sit
+directly behind the D-cache's late answer: a hundred endpoints at once,
+each a long hop the fitter has to serve, and nothing else was in the way
+of taking them out of that clock, because what reads them next is cold
+(the register file's table of latest writers; the FSM's write-back
+buffer).
+
+**A follow-up of the same kind** (a2b25de): with both ways' lines
+registered, the store that W may be writing into the victim's line was
+merged into 256 registers instead of 128 (107 endpoints at seed 5 of the
+new tree). The lines are registered as the RAMs give them; the store's
+word, byte enables and a flag a way are registered beside them and merged
+behind the registers. Same assertion, same checks.
+
+**Looked at and left:** execute's operands, decode's second register and
+its forwarding grants, the response word and the victim's tag, the bus
+merger's address and data are also wide and behind the answer, but what
+reads them is the next clock's own critical logic (the ALU, the miss
+decision, the bus decode), so a choice behind those registers would cost
+what it saves. The predictor's return stack (87 endpoints behind the
+I side's accept) is the next candidate.
+
+**On the board**, seed 13 of that build (md5 of
+build/hardware/NGage-t-ans1-s13.rbf in the scratch log): 3D Game 8.87,
+PolyCount 28.38, 2D Image 38.01 / 38.05, Scaling 1.89, JPEG 168.3 / 168.8,
+and FillRate 1.67 on both passes; Sonic N and Call of Duty run.
+
+**FillRate and the flash read's clock.** Sixteen passes since last night:
+every figure but FillRate is the same on every build (3D Game 8.86 to
+8.89, PolyCount 28.35 to 28.44, 2D Image 38.01 or 38.05). FillRate read
+1.73 in nine of twelve passes on the builds without this morning's lookup
+register in the flash store and in one of four with it. Four passes prove
+little, but the register's clock on every code line from flash is the
+only difference those builds have in common, and a fill rate at the edge
+of a whole second shows half a per cent. So the clock is given back
+(fd87725): while idle the flash cache's RAMs read at the bus's line
+address, a register of the bus, and a line request taken finds its tag
+and beat read, two clocks after the request as before; word requests and
+anything else still go through the register. The RAMs' address comes from
+flip-flops either way. dfill's ifill: 7.08 clocks a code line again.
+
+Building: the fixed eight with the follow-up and the flash change (ans2),
+every seed with its full list of failing endpoints.
