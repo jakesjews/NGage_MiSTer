@@ -95,6 +95,12 @@ input   logic    [CACHE_LINE-1:0]        i_cache_line_ben,
 output  logic    [CACHE_LINE*8-1:0]      o_cache_line,
 output  logic    [WAYS-1:0][31:0]        o_cache_words,     // ARM925T: each way's word at the lookup address
 output  logic                             o_cache_word_sel,  // ARM925T: the hit way's word is o_cache_words[1]
+// Each way's line and tag as the RAMs give them, and the way that
+// o_cache_line, o_cache_tag and the victim's flags are of: for a user that
+// registers both ways and chooses afterwards (the D-cache's victim line).
+output  logic    [WAYS-1:0][CACHE_LINE*8-1:0]       o_cache_way_line,
+output  logic    [WAYS-1:0][`ZAP_CACHE_TAG_WDT-1:0] o_cache_way_tag,
+output  logic    [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] o_cache_victim,
 input   logic                            i_cache_tag_wr_en,
 input   logic    [`ZAP_CACHE_TAG_WDT-1:0]i_cache_tag,
 input   logic                            i_cache_tag_dirty,
@@ -398,6 +404,10 @@ always_ff @(posedge i_clk)
         if (i_reset) o_cache_hit_early <= 1'b0;
         else if (!i_hold)
                 o_cache_hit_early <= |hit;
+
+assign o_cache_way_line = line_q;
+assign o_cache_way_tag  = tag_q;
+assign o_cache_victim   = victim;
 
 if ( WAYS == 1 )
 begin : g_direct

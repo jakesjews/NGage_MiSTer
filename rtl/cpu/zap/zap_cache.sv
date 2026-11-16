@@ -256,6 +256,9 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .o_cache_hit            (raw_cache_hit),
         /* verilator lint_off PINCONNECTEMPTY */
         .o_cache_hit_dirty      (),                     // never dirty
+        .o_cache_way_line       (),                     // the D-cache's
+        .o_cache_way_tag        (),
+        .o_cache_victim         (),
         /* verilator lint_on PINCONNECTEMPTY */
         .o_cache_way            (raw_cache_way),
         .i_cache_way            (cf_cache_way),

@@ -174,7 +174,7 @@ logic                            tlb_cacheable, tlb_bufferable;
 logic                            tlb_wt;        // ARM925T
 logic                            tlb_busy, tlb_hit_ok, tlb_hit_ok_short;
 logic tlb_hit_ready;
-logic [CACHE_LINE*8-1:0]         tr_cache_line;
+logic [CACHE_LINE*8-1:0]         tr_cache_line;    // the victim's line: chosen behind the registers, see way_line_ff
 (* dont_retime *) logic [31:0]                     tr_cache_word;    // ARM9V2: the short response's formatted hit word
 logic [CACHE_LINE*8-1:0]         cf_cache_line;
 logic [CACHE_LINE-1:0]           cf_cache_line_ben;
@@ -186,6 +186,9 @@ logic                            tr_cache_hit, tr_cache_hit_dirty; // ARM925T
 logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] tr_cache_way, cf_cache_way; // ARM925T
 logic                            tr_cache_tag_dirty, cf_cache_tag_dirty;
 logic [CACHE_LINE*8-1:0] raw_cache_line, merged_line;
+logic [WAYS-1:0][CACHE_LINE*8-1:0] raw_way_line, merged_way, way_line_ff;
+logic [WAYS-1:0][`ZAP_CACHE_TAG_WDT-1:0] raw_way_tag;
+logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] raw_victim, victim_ff;
 logic [WAYS-1:0][31:0] raw_cache_words;
 logic raw_cache_word_sel, raw_cache_tag_valid, raw_cache_hit, raw_cache_tag_dirty, raw_cache_hit_dirty;
 logic [`ZAP_CACHE_TAG_WDT-1:0] raw_cache_tag;
@@ -407,6 +410,9 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
         .i_cache_en             (i_cache_en),
         .i_cache_line           (cf_cache_line),
         .o_cache_line           (raw_cache_line),
+        .o_cache_way_line       (raw_way_line),
+        .o_cache_way_tag        (raw_way_tag),
+        .o_cache_victim         (raw_victim),
         .o_cache_words          (raw_cache_words),
         .o_cache_word_sel       (raw_cache_word_sel),
         .i_cache_line_ben       (cf_cache_line_ben & {CACHE_LINE{ram_write}}),
@@ -470,6 +476,31 @@ always_comb begin
             merged_line[8*b +: 8] = cf_cache_line[8*b +: 8];
     end
 end
+// The victim's line is registered for a write-back (tr_cache_line). Which
+// way is the victim hangs on the access accepted in this very clock (the
+// LRU bit it turns), so that choice sat in front of the line's 128
+// registers behind the cache's answer (132 failing endpoints at seed 5, to
+// -1.4 ns). Both ways' lines are registered instead, each with the store
+// merged as the victim's was, and the registered choice picks one behind
+// them, where only the FSM's write-back buffer reads the line. Equal to
+// merged_line registered, in every clock (asserted below).
+always_comb for (int w=0; w<WAYS; w++) begin
+    merged_way[w] = raw_way_line[w];
+    for (int b=0; b<CACHE_LINE; b++)
+        if (forward_store && cf_cache_line_ben[b] &&
+            raw_way_tag[w][`ZAP_CACHE_TAG__TAG] == cf_cache_tag[`ZAP_CACHE_TAG__TAG])
+            merged_way[w][8*b +: 8] = cf_cache_line[8*b +: 8];
+end
+assign tr_cache_line = (WAYS > 1 && victim_ff[0]) ? way_line_ff[WAYS-1] : way_line_ff[0];
+`ifndef SYNTHESIS
+logic [CACHE_LINE*8-1:0] tr_cache_line_ref;      // the register this replaced
+logic tr_line_loaded = 1'b0;
+always_ff @(posedge i_clk) begin
+    if (!hold && !i_stall) begin tr_cache_line_ref <= merged_line; tr_line_loaded <= 1'b1; end
+    if (!i_reset && tr_line_loaded)
+        assert (tr_cache_line === tr_cache_line_ref) else $fatal(1, "victim line chosen behind the registers");
+end
+`endif
 `include "zap_load_format.svh"
 generate if (1) begin : g_short_response
     logic [31:0] hit_word, store_word, formatted;
@@ -520,7 +551,8 @@ generate if (1) begin : g_short_response
 `endif
     always_ff @(posedge i_clk) begin
         if (!hold && !i_stall) begin
-            tr_cache_line <= merged_line;
+            way_line_ff <= merged_way;
+            victim_ff <= raw_victim;
             tr_cache_tag <= raw_cache_tag;
             tr_cache_tag_valid <= raw_cache_tag_valid;
             tr_cache_tag_dirty <= raw_cache_tag_dirty || forward_victim;

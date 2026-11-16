@@ -88,13 +88,28 @@ if (1) begin : g_write_ff
 logic [4:0][5:0] read_index;
 logic [4:0][31:0] bank_value, read_value;
 assign read_index={i_rd_addr_e,i_rd_addr_d,i_rd_addr_c,i_rd_addr_b,i_rd_addr_a};
-(* dont_retime *) logic [39:0] held_a, held_b, held_c;
 (* dont_retime *) logic [31:0] held_data_a, held_data_b, held_data_c;
 // The read bypass compares the read address with each held write's binary
 // index (a 6-bit compare beside the storage read) instead of selecting the
 // held one-hot mask's bit with a 40-way mux. The write ports are one-hot.
 (* dont_retime *) logic [5:0] held_index_a, held_index_b, held_index_c;
 (* dont_retime *) logic held_any_a, held_any_b, held_any_c;
+// Which register each held write names, from its index and its flag. Until
+// 2026-11-16 the one-hot masks were registers of their own, ports A and B
+// gated by i_wen: eighty flip-flops behind the write enable, which hangs on
+// the data cache's answer in the same clock and crossed the core to reach
+// them (77 failing endpoints at seed 5, to -1.5 ns). The flag and the index
+// say the same (asserted below against the old registers), and only the
+// two flags are left behind i_wen.
+logic [39:0] held_a, held_b, held_c;
+always_comb for (int r = 0; r < 40; r++) begin
+        held_a[r] = held_any_a && held_index_a == 6'(r);
+        held_b[r] = held_any_b && held_index_b == 6'(r);
+        held_c[r] = held_any_c && held_index_c == 6'(r);
+end
+`ifndef SYNTHESIS
+logic [39:0] held_a_ref, held_b_ref, held_c_ref;   // the registers this replaced
+`endif
 // Mask both the active write and the write just committed to each bank.
 // RAM collision data is never consumed, so asynchronous MLAB read-during-
 // write behavior can be unspecified without changing an architectural read.
@@ -120,16 +135,12 @@ begin
         if ( i_reset )
         begin
                 initialized <= 0; latest <= 0;
-                held_a <= 0; held_b <= 0; held_c <= 0;
                 held_any_a <= 0; held_any_b <= 0; held_any_c <= 0;
                 held_index_a <= 0; held_index_b <= 0; held_index_c <= 0;
                 held_data_a <= 0; held_data_b <= 0; held_data_c <= 0;
         end
         else
         begin
-                held_a <= i_wen ? i_wr_addr_a : 40'd0;
-                held_b <= i_wen ? i_wr_addr_b : 40'd0;
-                held_c <= i_wr_addr_c;
                 held_data_a <= i_wr_data_a; held_data_b <= i_wr_data_b; held_data_c <= i_wr_data_c;
                 held_any_a <= i_wen && (DIRECT_INDEX ? i_wr_index_a < 40 : |i_wr_addr_a); held_any_b <= i_wen && (DIRECT_INDEX ? i_wr_index_b < 40 : |i_wr_addr_b); held_any_c <= |i_wr_addr_c;
                 held_index_a <= DIRECT_INDEX ? i_wr_index_a : onehot_index(i_wr_addr_a); held_index_b <= DIRECT_INDEX ? i_wr_index_b : onehot_index(i_wr_addr_b);
@@ -238,11 +249,16 @@ always_ff @ ( posedge i_clk ) if ( !i_reset ) begin
         end
         assert ($onehot0(i_wr_addr_a) && $onehot0(i_wr_addr_b) && $onehot0(i_wr_addr_c))
                 else $fatal(1, "register file: a write port is not one-hot");
-        for (int r = 0; r < 40; r++)
-                assert ((held_any_c && held_index_c == 6'(r)) == held_c[r] &&
-                        (held_any_b && held_index_b == 6'(r)) == held_b[r] &&
-                        (held_any_a && held_index_a == 6'(r)) == held_a[r])
-                        else $fatal(1, "register file: held index");
+        assert (held_a == held_a_ref && held_b == held_b_ref && held_c == held_c_ref)
+                else $fatal(1, "register file: held index");
+end
+always_ff @ ( posedge i_clk ) begin
+        if (i_reset) begin held_a_ref <= 0; held_b_ref <= 0; held_c_ref <= 0; end
+        else begin
+                held_a_ref <= i_wen ? i_wr_addr_a : 40'd0;
+                held_b_ref <= i_wen ? i_wr_addr_b : 40'd0;
+                held_c_ref <= i_wr_addr_c;
+        end
 end
 `endif
 
