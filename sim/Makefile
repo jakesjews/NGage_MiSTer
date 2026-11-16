@@ -272,6 +272,24 @@ flashcopy: $(BUILD)/coreboot/Vemu $(FC_DIR)/cs0.bin
 	cat $(FC_DIR)/kern.log
 	grep -q ' 0 mismatch(es)' $(FC_DIR)/run.log && grep -q ' 00000000 failures' $(FC_DIR)/kern.log
 
+# What a data line fill costs on the whole core (sim/harness/dfill.S, no
+# firmware needed): loops of loads timed with UPP timer 1 through the real
+# cache, bus and SDRAM controller. VEXTRA sets the cache sizes, e.g.
+# BUILD=$(BUILD)-d8 VEXTRA=-GDCACHE_SIZE=8192 for the phone's D-cache.
+DF_DIR ?= $(BUILD)/dfill
+$(DF_DIR)/cs0.bin: $(ROOT)/sim/harness/dfill.S $(ROOT)/sim/harness/flashcopy_images.py
+	mkdir -p $(DF_DIR)
+	arm-none-eabi-as -mcpu=arm9tdmi -mfloat-abi=soft -o $(DF_DIR)/dfill.o $<
+	arm-none-eabi-ld -Ttext=0 -o $(DF_DIR)/dfill.elf $(DF_DIR)/dfill.o
+	arm-none-eabi-objcopy -O binary -j .text $(DF_DIR)/dfill.elf $(DF_DIR)/dfill.bin
+	python3 $(ROOT)/sim/harness/flashcopy_images.py $(DF_DIR)/dfill.bin $@ $(DF_DIR)/cs1.bin
+.PHONY: dfill
+dfill: $(BUILD)/coreboot/Vemu $(DF_DIR)/cs0.bin
+	cd $(ROOT) && $< $(RUNFLAGS) --cs0 $(DF_DIR)/cs0.bin --cs1 $(DF_DIR)/cs1.bin --out $(DF_DIR) \
+		--until '#END' --cycles 100000000 --progress 0 --no-profile > $(DF_DIR)/run.log
+	cat $(DF_DIR)/kern.log
+	grep -q 'dfill: done' $(DF_DIR)/kern.log
+
 # Exercise the firmware bench's HPS adapter without firmware images.
 hps-read-test: $(BUILD)/coreboot/Vemu
 	cd $(ROOT) && sim/harness/hps_read_test.sh $(BUILD)/coreboot $(if $(filter 1,$(CORE_PROFILE)),-DCPU_PROFILE=1)

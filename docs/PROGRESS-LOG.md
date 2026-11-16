@@ -10137,3 +10137,285 @@ aside first and put back after (the same md5):
   Bluetooth devices found. Try again?".
 
 Not pushed.
+
+## 2026-11-15: SPMark04 figures from a real QD; 2D Image follows the phone's memory layout
+
+**A reference from a phone.** The user gave a results table headed "Nokia
+N-gage QD" and said to take it as a real phone's figures from now on (its
+origin, SPMark04 version and firmware were not given):
+
+| | real QD | core, sheet of 2026-11-12 |
+|---|---|---|
+| SPMark04 Score / 3D / System | 719 / 485 / 465 | - / 566 / - |
+| 3D Game | 8.05 fps | 9.33 (+16 %) |
+| 3D FillRate | 1.73 Mtexels/s | 1.73 |
+| 3D PolyCount | 27.52 Ktriangles/s | 37.36 (+36 %) |
+| 2D Image | 37.33 fps | 37.66 (not reproducible, below) |
+| Image Scaling | 1.58 bitmaps/s | 1.61 |
+| JPEG Encoding | 156.78 Kpixels/s | 163.64 (+4 %) |
+| Contacts | 2.37 contacts/s | 3.22 (+36 %) |
+| Calendar | 2.33 events/s | 5.06 |
+| Disk Access | 2.64 files/s | 15.24 |
+
+**2D Image again**, at the user's word. Release core `NGage_20261114.rbf`
+(md5 15bc782b…), firmware 4.10, the card `spmark-full.mmc`, two temporary
+launchers that mount a scratch C: on slot 0. Figures from Save's
+`Result.txt`.
+
+| C: | run | 2D Image | Image Scaling | JPEG | Contacts | Calendar | Disk |
+|---|---|---|---|---|---|---|---|
+| a copy of the user's C: | fresh start, System Tests | 31.64 | 1.86 | 165.49 | 3.13 | 5.83 | 15.27 |
+| | application closed and started again, System Tests | 31.58 | 1.86 | 164.39 | 3.21 | 5.89 | 15.61 |
+| | Custom, all nine | 31.70 | 1.85 | 164.32 | 3.18 | 5.70 | 15.61 |
+| blank (`releases/boot0.vhd`, first start) | System Tests | 22.29 | 1.60 | 163.98 | 3.11 | 5.94 | 14.88 |
+| | System Tests again | 22.33 | 1.60 | 162.55 | 3.19 | 5.86 | 15.24 |
+| | the same, Contacts opened first and left in the background | 26.20 | 1.63 | 162.75 | 2.98 | 2.29 | 15.13 |
+
+The all-nine run's 3D lines: 9.20 fps, 1.73 Mtexels/s, 37.21 Ktriangles/s.
+
+- 2D Image repeats to a few hundredths inside one state of the phone and
+  moves between levels with the state: 22.3, 26.2 and 31.6 today, 20.80
+  (4.10, a fresh C:) and 26.26 and 37.6 (4.60) on 2026-11-12. Image
+  Scaling moves with it (1.60 to 1.86). JPEG, the 3D tests, Contacts and
+  Disk Access do not.
+- It is not the firmware version, the fit, first-start work or load in the
+  background: the blank C: gave the same figure twice, and another
+  application held open made the test faster, not slower. What changed
+  between the runs is where the phone's heaps and bitmaps lie. So the
+  cause is taken to be conflict misses that depend on addresses, in the
+  D-TLB (direct-mapped here, associative on the ARM925T) or the D-cache.
+  **Not measured:** no counter was read, and which of the two it is is
+  open.
+- The phone's 37.33 fps is the core's best level (37.6) and above every
+  figure of today (60 to 85 % of it). The sheet's 37.66 was one state of
+  the phone, not the core's figure for the test.
+- Open: tell the two apart (the measurement core's counters, or the
+  model with the D-cache plugin and a D-TLB beside it, on the blank C:
+  and on the copy).
+
+Files: `build/hardware/spmark-20261115/` (the six `Result.txt`, captures).
+The board is as it was: the menu core, the release core alone in its
+folder, `boot0.vhd`, MiSTer.ini and NGage.CFG with the md5s they had
+(bbbfd54d…, 5e55c643…, 39c90d04…); the launchers, the two scratch drives
+and the input tool removed. `spmark-full.mmc` holds the last run's
+`Result.txt`.
+
+## 2026-11-15 (evening): the small-page TLB gets ways, and 2D Image runs at the phone's rate
+
+The user, on the entry above: "Your idea sounds right ... Let's prioritize
+correction", and for the measure: "It's ok if our performance in other
+areas decreases as long as nothing dips below the real device." Also from
+this evening: every board test starts from a fresh C: (the blank
+`releases/boot0.vhd`; the MiSTer's own `boot0.vhd` is that file now), the
+full SPMark04 suite is the baseline, and C: is of no account while the
+core is in development. Work is on branch `tlb-ways`, not committed.
+
+**The change.** The small-page TLB of either side is now
+`SPAGE_TLB_WAYS` ways of 256 entries (`zap_tlb.sv`, `zap_tlb_check.sv`;
+`DTLB_SPAGE_WAYS`, `ITLB_SPAGE_WAYS` in arm925t.sv and NGage.sv, two by
+default). A set's ways are replaced in turn (a pointer per set, read into a
+register while the walk runs). The check takes a match and a set of results
+per way and selects by AND-OR among the ways and the other three buffers.
+Sections, large and tiny pages are as they were.
+
+- **Found on the way:** the instruction side walks a page twice after a
+  miss (its next fetch address is checked in the clock of the install,
+  against the entry from before). With ways the second walk put the same
+  page into the next way and the other page out again, so a walk of the
+  page installed last goes back to its way. The double walk itself is
+  still there (two walks a miss on the I side; docs/TODO.md).
+- **Test** `arm9_tlb_assoc_rtl`: N small pages at the same offset in N
+  megabytes, used in turn, data and code. Walks in 16 passes for N = 2, 3,
+  4, data / code: one way 32, 48, 64 / 64, 96, 128 (the test fails); two
+  ways 0, 48, 64 / 0, 96, 128; four ways 0 throughout.
+- **Checks:** lint; the CPU suite 354 of 354 on the regenerated netlist
+  (and with phone-size caches, `-GICACHE_SIZE=16384 -GDCACHE_SIZE=8192`:
+  the D-cache size is a parameter now, `DCACHE_SIZE`); QEMU 77 agree;
+  `make test`, 18 benches.
+
+**Fits** (the server, worst setup slack at 100C / -40C, ALMs, M10K; the
+release with one way: seed 5 -1.486, seed 30 -1.567, seed 9 -1.688; 34,315
+ALMs, 521 M10K):
+
+| data / code ways | seed 5 | seed 9 | seed 13 | seed 30 | seed 40 | ALMs | M10K |
+|---|---|---|---|---|---|---|---|
+| 2 / 1 | -2.014 / -1.639 | | | | | 35,062 | 523 |
+| 2 / 2 | -2.559 / -2.421 | -1.792 / -1.926 | -1.713 / -1.823 | -1.881 / -2.015 | -2.422 / -2.210 | 35,100 | 525 |
+| 4 / 2 | -1.800 / -1.702 | -2.126 / -1.836 | -2.064 / -2.050 | -1.983 / -1.906 | -2.000 / -1.762 | 36,500 | 529 |
+| 4 / 4 | -1.803 / -1.636 | | | | | 39,667 | 533 |
+
+About 0.2 to 0.4 ns worse than one way on the best seed of each (the
+release's eight seeds ran from -1.365 to -1.916 at 100C). The ways' valid
+bits and victim pointers are registers (256 a way), which is most of the
+area.
+
+**On the board**, SPMark04 v1.10, a fresh C: each time, all nine tests as
+booted and again with Contacts opened and left in the background, then the
+3D set for the score (`build/hardware/spmark-20261115/tlb/`):
+
+| | phone | release, booted | release, Contacts open | 2 / 2 ways (seed 9), booted | 2 / 2, Contacts open |
+|---|---|---|---|---|---|
+| 3D Game, fps | 8.05 | 9.22 | 9.20 | 9.53 | 9.53 |
+| 3D FillRate, Mtexels/s | 1.73 | 1.73 | 1.73 | 1.73 | 1.73 |
+| 3D PolyCount, Ktriangles/s | 27.52 | 36.50 | 37.14 | 37.11 | 38.03 |
+| 2D Image, fps | 37.33 | 22.30 | 26.24 | 38.22 | 38.22 |
+| Image Scaling, bitmaps/s | 1.58 | 1.60 | 1.62 | 1.95 | 1.94 |
+| JPEG Encoding, Kpixels/s | 156.78 | 163.91 | 163.84 | 171.64 | 171.56 |
+| Contacts, contacts/s | 2.37 | 3.11 | 3.00 | 3.17 | 3.05 |
+| Calendar, events/s | 2.33 | 5.97 | 6.10 | 5.94 | 5.98 |
+| Disk Access, files/s | 2.64 | 15.24 | 15.17 | 15.61 | 15.42 |
+| 3D score (3D set) | 485 | 562 | | 575 | |
+
+2D Image is the same in both states and 2 % over the phone; the cause was
+the one-way small-page TLB. Everything that touches memory widely rose a
+little with it. The 3D score of the release was 566 with the 3D set run
+first and 562 after an all-nine run.
+
+**The display driver and the GENIO pins.** For the question whether the
+core's tearing is the phone's: lcd.ldd does address the GENIO registers
+(through the kernel's helpers, by offset: `0x150202` set, `0x150204` clear,
+`0x15020A` input, `0x15020E` direction), all with bit 4, the panel's reset
+line GENIO4, with 100 ms waits. The entry of 2026-11-10 that it holds no
+GENIO address looked for whole addresses only. Nothing found in the
+Symbian ROM uses bit 28's line (the panel's TE): the other users of the
+registers are the keypad, MMC, Bluetooth, camera, CBUS and variant code.
+The wait before every panel command (`0x49200000` written, bit 30 polled,
+sixteen tries, then a FIFO reset) is also made before TEON is ever sent and
+in the bootstrap, so it is taken for "interface idle", not for TE. The
+panel's refresh rate and what the ASIC's LCD block does with TE stay
+unknown; the core's reset line is not connected.
+
+**The board's wrong bits.** A core copied to the MiSTer read back with 9
+bytes wrong, each with bit 0x40 cleared; card-to-card copies on the board
+then showed one such byte in 4 of 78, always at an offset ending in 0x7F7
+in its 4 KB page (as on 2026-11-14). Narrowed on the board: the card's
+contents were right in every direct read (0 of 120), RAM held at FF was
+clean (350 MB, 100 s), and the wrong bit appeared in what a reader got
+during cold reads through the page cache (23 of 60 after a page-cache drop,
+13 of 17 cold reads of the card images), a second read of the cached file
+being right. After a reboot all of it was clean (0 of 60, 0 of 17, 0 of 30).
+The cause is not found. A test of mine that took 370 of the board's 400 MB
+free hung it and the user had to reboot. Since then copies are verified by
+a direct read, no test drops caches for a verification, and the board
+script runs a read probe (40 cold reads) before and after each session:
+0 of 40 before and after the run of the two-way core.
+
+## 2026-11-15 (night): phone-size caches beside the TLB ways
+
+The user: "I'd like the phone to play close to real phone speed", and
+asked whether caches of the phone's size would give room. `DCACHE_SIZE`
+is a parameter of arm925t.sv and NGage.sv now (32768 as before); the CPU
+suite passes with `-GICACHE_SIZE=16384 -GDCACHE_SIZE=8192` (354 of 354).
+Benchmark runs are one pass from a fresh C: from here on (the user: no
+second pass with Contacts open).
+
+**Fits**, 16 KB I and 8 KB D with two ways in both small-page TLBs (the
+server; 100C / -40C): seed 9 -1.994 / -1.789, seed 13 -1.811 / -1.822,
+seed 30 -1.844 / -1.687; 33,700 ALMs, 479 M10K. With 32 KB caches the same
+seeds gave -1.792, -1.713, -1.881 at 100C, 35,100 ALMs, 525 M10K. So the
+smaller caches give back about 1,400 ALMs and 46 block RAMs and no slack
+that three seeds can show. Four ways in both TLBs with the small caches:
+seed 13 -2.179 / -2.172, 35,569 ALMs, 487 M10K. The Mac's Quartus on seed
+9: -1.683 / -1.868, 34,184 ALMs (the core measured below).
+
+**On the board** (that Mac build, SPMark04, fresh C:; the read probe 0 of
+40 before and after):
+
+| | phone | 32 KB caches, two ways | 16 KB I, 8 KB D, two ways |
+|---|---|---|---|
+| 3D score | 485 | 575 | 500 |
+| 3D Game, fps | 8.05 | 9.53 | 8.78 (8.74 in the 3D set) |
+| 3D FillRate, Mtexels/s | 1.73 | 1.73 | 1.67 (1.66) |
+| 3D PolyCount, Ktriangles/s | 27.52 | 37.11 | 28.20 (28.16) |
+| 2D Image, fps | 37.33 | 38.22 | 37.79 |
+| Image Scaling, bitmaps/s | 1.58 | 1.95 | 1.88 |
+| JPEG Encoding, Kpixels/s | 156.78 | 171.64 | 167.54 |
+| Contacts, contacts/s | 2.37 | 3.17 | 3.45 |
+| Calendar, events/s | 2.33 | 5.94 | 6.10 |
+| Disk Access, files/s | 2.64 | 15.61 | 15.46 |
+
+The 3D figures come down to the phone's (PolyCount from 35 % over to 2 %
+over), and FillRate goes 3 to 4 % under it, which the rule does not allow.
+Which cache does which is not separated yet: 16/16, 16/32 and 32/8 KB are
+building for it.
+
+**The Tony Hawk figure.** The user asked where the phone's 18.7 pictures a
+second came from: from counting pictures in a camera video on YouTube
+(the entry of 2026-11-10), a kind of source the user does not want relied
+on. It is not a floor any more, and neither that entry's "the phone tears"
+nor its 59.6 Hz are to be quoted as the phone's behaviour. The SPMark04
+table is the reference.
+
+**A timing detail of the TLB ways:** the way logic (the compare with the
+page installed last, the victim pointer's read) now uses a copy of the
+walker's address a clock late, so it does not load the register the
+walker's bus address is made from (that path led one fit). The walk
+counts of `arm9_tlb_assoc_rtl` are unchanged.
+
+**Which cache does what** (the server's fits on seed 13, two ways in both
+small-page TLBs, each on the board from a fresh C:; the read probe 0 of 40
+around every run):
+
+| I / D cache | slack 100C / -40C | ALMs | M10K | 3D score | 3D Game | FillRate | PolyCount | 2D Image | Scaling | JPEG |
+|---|---|---|---|---|---|---|---|---|---|---|
+| the phone | | | | 485 | 8.05 | 1.73 | 27.52 | 37.33 | 1.58 | 156.78 |
+| 32 / 32 KB (seed 9) | -1.792 / -1.926 | 35,070 | 525 | 575 | 9.53 | 1.73 | 37.11 | 38.22 | 1.95 | 171.64 |
+| 16 / 32 KB | -1.974 / -1.889 | 34,992 | 509 | 527 | 9.28 | 1.73 | 29.58 | 38.05 | 1.92 | 170.81 |
+| 32 / 8 KB | -2.046 / -2.193 | 34,226 | 495 | 545 | 9.02 | 1.66 | 35.13 | 38.05 | 1.89 | 169.86 |
+| 16 / 16 KB | -1.595 / -1.554 | 34,646 | 489 | 522 | 9.12 | 1.73 | 29.25 | 38.01 | 1.92 | 170.30 |
+| 16 / 8 KB (the Mac's fit, seed 9) | -1.683 / -1.868 | 34,184 | 479 | 500 | 8.78 | 1.67 | 28.20 | 37.79 | 1.88 | 167.54 |
+
+PolyCount follows the instruction cache (16 KB: 28 to 30; 32 KB: 35 to
+38) and FillRate the data cache (8 KB: 1.66; 16 KB and up: 1.73, the
+phone's figure and apparently a ceiling of the test). So 16 KB and 16 KB
+are the smallest sizes that leave nothing under the phone: the 3D score
+522 against 485, PolyCount 6 % over. With the phone's own 8 KB the core's
+FillRate is 4 % short; the suspicion, not measured yet, is that a data
+line fill costs more here than on the phone. The storage tests are the same in all of them (Contacts 3.1
+to 3.5, Calendar 5.9 to 6.2, Disk Access 15.5). The slack differences are
+one seed each and inside the seeds' spread.
+
+## 2026-11-16: 16 KB and 16 KB are the defaults; what a data line fill costs
+
+The user chose 16 KB and 16 KB ("16/16 is good") and asked for the data
+line fill's cost to be looked at afterwards, so that the phone's own 8 KB
+can come back ("after all the process lets try the data line fill cost
+thing for 16/8 though").
+
+**The defaults.** `ICACHE_SIZE` and `DCACHE_SIZE` are 16384 in arm925t.sv,
+NGage.sv and the CPU bench; the small-page TLBs have two ways. On that
+tree: lint, the CPU suite 354 of 354 on the regenerated netlist, QEMU 77
+agree, `make test` (18 benches), `flashcopy` (126 cases), `hps-read-test`.
+Fits of it (the server, 100C / -40C): seed 9 -1.519 / -1.464, seed 30
+-1.530 / -1.683, seed 13 -1.595 / -1.554, seed 40 -1.843 / -1.953, seed 5
+-2.227 / -2.186; 34,600 ALMs, 489 M10K. The release NGage_20261114 is
+-1.486 / -1.384 with 34,315 ALMs and 521 M10K.
+
+**A bench for the fill** (`make -C sim dfill`, `sim/harness/dfill.S`, seven
+seconds): loops of 8,192 loads on the whole core, timed with UPP timer 1
+through the real cache, bus and SDRAM controller. Clocks a load:
+
+| loop | clocks a load | over the same loop with hits |
+|---|---|---|
+| hit: the same line | 4.0 | |
+| seq: a new line each load, 16 bytes on | 25.3 | 21.3 |
+| use: the same, the word used at once | 25.3 | 21.3 |
+| row: a new line and a new SDRAM row each load | 30.5 | 26.5 |
+| two: two buffers in turn | 30.9 | 26.9 |
+| copy: seq with a store to a second buffer | 40.4 | |
+| seq8: seq with eight adds of the word behind it | 24.2 | 12.2 |
+| seq8i: with eight adds that do not use it | 25.3 | 14.3 |
+
+Fills that follow one another come every 24 to 25 clocks whatever lies
+between them (up to about ten instructions run under a fill). From the
+bus log and a clock-by-clock trace of the D-cache's state machine, one
+period of the seq loop is: 9 clocks from the request to the first word
+(the SDRAM controller's 5 and 4 of the bus's registers), 6 for the other
+three words, then 5 states after the last word (UNLOCK_REG, UNLOCK_WR and
+three RELOOKUP states that restore the access held at the cache and the
+two lookups behind it), 3 clocks until the held load is presented again
+and 1 to take it as a miss. So about 9 of the 25 are the cache and the
+pipeline getting going again after a fill; the SDRAM itself (CL2, eight
+halfwords) is no slower than the phone's can be. An estimate for the
+phone, from its SDRAM alone (CL3, eight halfwords, a row to open now and
+then): about 15 clocks a fill; nothing measured.

@@ -15,7 +15,10 @@ and is never in the repository.
 - `make -C sim flashcopy hps-read-test`: two more checks on the whole core, a
   flash-to-RAM copy by the CPU and the bench's disk adapter (arm-none-eabi
   binutils).
-- `make -C sim/cpu bins model run`: the CPU's 351 directed and random tests on
+- `make -C sim dfill`: not a check but a measurement on the whole core: what
+  a data line fill costs in clocks, from loops of loads timed with a UPP
+  timer (`sim/harness/dfill.S`; arm-none-eabi binutils).
+- `make -C sim/cpu bins model run`: the CPU's 354 directed and random test runs on
   the RTL (arm-none-eabi binutils). `make -C sim/cpu qemu diff` compares them
   with QEMU (qemu-system-arm and arm-none-eabi-gdb).
 - `make cpu-gen-check`: `rtl/cpu/arm925t_gen.v`, the netlist Quartus compiles,
