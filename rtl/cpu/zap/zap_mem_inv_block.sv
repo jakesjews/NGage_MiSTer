@@ -16,10 +16,9 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
 // 02110-1301, USA.
 //
-// This RTL describes RAM with single cycle invalidate via flip-flops. The
-// valid bits per memory row are maintained using flip-flops. This avoids
-// having to do an actual memory write to invalidate the memory. This allows
-// bulk invalidation to happen in a single cycle.
+// This RTL describes RAM with single cycle invalidate. Which rows are valid
+// is kept as a generation number beside each row (see below), so bulk
+// invalidation happens in a single cycle without a memory write.
 //
 
 module zap_mem_inv_block #(
@@ -61,41 +60,63 @@ module zap_mem_inv_block #(
 
 // ARM9: the pre output is the synchronous RAM read, including a same-edge
 // collision bypass. The caller still registers the translation/permission
-// check. Invalidation clears the valid array and its read even while held.
+// check. Invalidation clears every entry in one clock, also while held.
+//
+// Which entries are valid is kept as a generation number. gen counts the
+// invalidations (and resets); a write stores gen beside the entry, in a
+// RAM of its own with the entry's addresses and enables, and the entry
+// read is valid if it was ever written and its number is still gen. An
+// invalidation in the clock of a write wins: the write stores the number
+// that the same edge makes old.
+//
+// Until 2026-11-16 the valid bits were DEPTH flip-flops and the entry's bit
+// was a DEPTH:1 choice among them: before the read edge it hung behind the
+// address adder, after it (4e6c677) in front of the TLB check, and either
+// way it led the core's failing paths. The number's compare runs beside
+// the tag's. The value is the same in every clock (a simulation-only copy
+// of the flip-flops is compared), with one bound: gen must not come round.
+// At GEN_W = 48 that takes 2^48 invalidations, 31 days of one in every
+// clock; the firmware makes a few thousand a second.
 if (1) begin : g_short
-    logic [DEPTH-1:0] valid;
-    // The valid bits are flip-flops (one clock clears them all). The bit
-    // of the entry read is chosen AFTER the edge that takes the read
-    // address, from a copy of that address: until 2026-11-16 it was chosen
-    // before the edge, a DEPTH:1 multiplexer behind the address adder and
-    // the end of many of the core's worst paths. The value is the same in
-    // every clock: a write on the read's own edge is already in the bits,
-    // and the bits change only where the old register was loaded or
-    // cleared too.
-    logic [$clog2(DEPTH)-1:0] read_addr;
+    localparam int GEN_W = 48;
+    logic [GEN_W-1:0] gen = '0;
+    logic [GEN_W:0]   gen_q;     // the entry read: {written, its generation}
+    logic             fwd;       // the read's own edge wrote its entry ...
+    logic             fwd_ok;    // ... and nothing has invalidated it since
+    wire              en = READ_THROUGH || i_clken;
     zap_ram_simple #(.WIDTH(WIDTH), .DEPTH(DEPTH)) u_ram (
-        .i_clk(i_clk), .i_clken(READ_THROUGH || i_clken), .i_wr_en(i_wen),
+        .i_clk(i_clk), .i_clken(en), .i_wr_en(i_wen),
         .i_wr_data(i_wdata), .i_wr_addr(i_waddr), .i_rd_addr(i_raddr),
         .o_rd_data_pre(), .o_rd_data(o_rdata_pre)
     );
+    // read-first, without the RAM's own bypass: a colliding write is
+    // answered from fwd_ok, so the number read goes straight to its compare
+    zap_ram_simple #(.WIDTH(GEN_W + 1), .DEPTH(DEPTH), .SHORT_RAW(1'b1)) u_gen (
+        .i_clk(i_clk), .i_clken(en), .i_wr_en(i_wen),
+        .i_wr_data({1'b1, gen}), .i_wr_addr(i_waddr), .i_rd_addr(i_raddr),
+        .o_rd_data_pre(), .o_rd_data(gen_q)
+    );
     always_ff @(posedge i_clk) begin
-        if (i_reset || i_inv) begin
-            valid <= '0;
-        end else if (READ_THROUGH || i_clken) begin
-            if (i_wen) valid[i_waddr] <= 1;
-        end
-        if (READ_THROUGH || i_clken) read_addr <= i_raddr;
+        if (i_reset || i_inv) gen <= gen + 1'd1;
+        if (en) fwd <= i_wen && i_waddr == i_raddr;
+        if (i_reset || i_inv) fwd_ok <= 1'b0;
+        else if (en) fwd_ok <= 1'b1;
     end
-    assign o_rdav_pre = valid[read_addr];
+    assign o_rdav_pre = fwd ? fwd_ok : (gen_q[GEN_W] && gen_q[GEN_W-1:0] == gen);
 `ifndef SYNTHESIS
-    // the register this replaced, kept for the comparison
-    logic read_valid_ref;
+    // the flip-flops this replaced, kept for the comparison
+    logic [DEPTH-1:0] valid_ref;
+    logic [$clog2(DEPTH)-1:0] read_addr_ref;
+    logic seen_reset = 1'b0;
     always_ff @(posedge i_clk) begin
-        if (i_reset || i_inv) read_valid_ref <= 0;
-        else if (READ_THROUGH || i_clken)
-            read_valid_ref <= (i_wen && i_raddr == i_waddr) || valid[i_raddr];
-        if (!i_reset && !$isunknown(read_valid_ref))
-            assert (o_rdav_pre == read_valid_ref) else $fatal(1, "TLB valid bit read after the edge");
+        if (i_reset || i_inv) valid_ref <= '0;
+        else if (en) begin
+            if (i_wen) valid_ref[i_waddr] <= 1;
+        end
+        if (en) read_addr_ref <= i_raddr;
+        if (i_reset) seen_reset <= 1'b1;
+        if (!i_reset && seen_reset && !$isunknown(valid_ref[read_addr_ref]))
+            assert (o_rdav_pre == valid_ref[read_addr_ref]) else $fatal(1, "TLB valid bit by generation");
     end
 `endif
     // The TLB consumes only the pre outputs. Keep the unused full outputs

@@ -11566,14 +11566,18 @@ module zap_mem_inv_block (
 	output wire o_rdav;
 	generate
 		if (1) begin : g_short
-			reg [DEPTH - 1:0] valid;
-			reg [$clog2(DEPTH) - 1:0] read_addr;
+			localparam signed [31:0] GEN_W = 48;
+			reg [47:0] gen = 1'sb0;
+			wire [GEN_W:0] gen_q;
+			reg fwd;
+			reg fwd_ok;
+			wire en = READ_THROUGH || i_clken;
 			zap_ram_simple #(
 				.WIDTH(WIDTH),
 				.DEPTH(DEPTH)
 			) u_ram(
 				.i_clk(i_clk),
-				.i_clken(READ_THROUGH || i_clken),
+				.i_clken(en),
 				.i_wr_en(i_wen),
 				.i_wr_data(i_wdata),
 				.i_wr_addr(i_waddr),
@@ -11581,17 +11585,31 @@ module zap_mem_inv_block (
 				.o_rd_data_pre(),
 				.o_rd_data(o_rdata_pre)
 			);
+			zap_ram_simple #(
+				.WIDTH(49),
+				.DEPTH(DEPTH),
+				.SHORT_RAW(1'b1)
+			) u_gen(
+				.i_clk(i_clk),
+				.i_clken(en),
+				.i_wr_en(i_wen),
+				.i_wr_data({1'b1, gen}),
+				.i_wr_addr(i_waddr),
+				.i_rd_addr(i_raddr),
+				.o_rd_data_pre(),
+				.o_rd_data(gen_q)
+			);
 			always @(posedge i_clk) begin
 				if (i_reset || i_inv)
-					valid <= 1'sb0;
-				else if (READ_THROUGH || i_clken) begin
-					if (i_wen)
-						valid[i_waddr] <= 1;
-				end
-				if (READ_THROUGH || i_clken)
-					read_addr <= i_raddr;
+					gen <= gen + 1'd1;
+				if (en)
+					fwd <= i_wen && (i_waddr == i_raddr);
+				if (i_reset || i_inv)
+					fwd_ok <= 1'b0;
+				else if (en)
+					fwd_ok <= 1'b1;
 			end
-			assign o_rdav_pre = valid[read_addr];
+			assign o_rdav_pre = (fwd ? fwd_ok : gen_q[GEN_W] && (gen_q[47:0] == gen));
 			assign o_rdata = o_rdata_pre;
 			assign o_rdav = o_rdav_pre;
 		end
