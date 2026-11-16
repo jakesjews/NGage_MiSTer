@@ -263,12 +263,13 @@ module ddram_flash #(
 	// address and its strobe are registers of the chip, and the line
 	// request, which comes from the bus in the same clock, stays off the
 	// path to the answer.
-	wire [GW-1:0] w0 = {1'b0, AW'(cs0_addr)};
-	wire [GW-1:0] w1 = {1'b1, AW'(cs1_addr)};
+	localparam int WBW = AW - 2;                           // a word request's beat in the chip
+	wire [BW-1:0] wb0 = {1'b0, WBW'(cs0_addr[CS0_AW-1:2])};
+	wire [BW-1:0] wb1 = {1'b1, WBW'(cs1_addr[CS1_AW-1:2])};
 	wire can_hit = !reset && state != S_SWEEP && !sweep_req;
 	wire [1:0] bb_hit = {
-		can_hit && cs1_req && !cs1_we && !ack_q[1] && bb_v[1] && bb_beat[1] == w1[GW-1:2],
-		can_hit && cs0_req && !cs0_we && !ack_q[0] && bb_v[0] && bb_beat[0] == w0[GW-1:2]
+		can_hit && cs1_req && !cs1_we && !ack_q[1] && bb_v[1] && bb_beat[1] == wb1,
+		can_hit && cs0_req && !cs0_we && !ack_q[0] && bb_v[0] && bb_beat[0] == wb0
 	};
 `ifndef SYNTHESIS
 	always_ff @(posedge clk) if (!reset) begin
