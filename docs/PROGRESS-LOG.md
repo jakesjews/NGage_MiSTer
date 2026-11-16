@@ -10947,3 +10947,31 @@ the worst slack is the question; (2) the measurement-only builds now
 running say what a register on the cache's answer could buy, which is the
 only kind of change left that can move the worst slack by more than the
 noise.
+
+## 2026-11-16, 16:00: a register on the cache's answer would not buy the wall
+
+A build for measurement only (never for a core that runs): constraints
+that give two clocks to everything that ends in the D-cache's state
+machine or the bus merger (as if the miss decision and the bus request had
+a register) and to everything from the D-TLB check, the cache's response
+registers and its state machine into the core (as if the answer reached
+the core a clock later). The tree is 652d823 (the return stack's staged
+write, the audio counters in the two-clock set, the flash store's
+cached-copy update from a register). The fixed eight: -1.512, -1.538,
+-1.542, -1.727, -1.427, -0.957, -1.302, -2.083: mean -1.511, against
+-1.42 to -1.84 for the real trees of today. With the whole answer out of
+the way the fits are led by the core itself: W's value into execute's
+operands, execute into M (the ALU and the flags), decode's first register
+into its second, decode into execute, the lookup address into the cache's
+flags, the TLB RAMs into the check. 570 to 830 endpoints fail at four of
+the seeds.
+
+So the answer is one of some six places that are all about 1.5 ns short,
+and the clocks a register there would cost (one a load, or one a miss)
+would buy nothing by themselves. The user offered the 16 KB D-cache again
+as a way to pay for clocks; before that is spent the question is which
+parts can meet the clock at all. Queued: the tree with a 16 KB D-cache
+for the board (what it gives over 8 KB with today's fill restore has not
+been measured), and three builds that hold one part at a time to one
+clock and give the rest two: the CPU core alone, what passes between the
+core and the caches alone, the data cache with its TLB alone.
