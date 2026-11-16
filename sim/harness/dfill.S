@@ -22,6 +22,10 @@
 @   hit8, seq8    hit and seq with eight adds of the loaded word after it
 @   hit8i, seq8i  the same with eight adds that do not use the word: what
 @          of a fill the instructions behind the load can run under
+@   ifill  no loads: 1024 lines of straight code (16 KB) behind an
+@          invalidate of the I-cache, so every line is fetched from flash
+@          again (from the flash cache: the first run put the lines there).
+@          Clocks a code line = ticks * 3 / 1024, less 4 for its instructions
 @ Output on the STI window (kern.log): "dfill: NAME ticks", then
 @ "dfill: done" and "#END". Clocks a load = ticks * 3 / N; a fill's cost
 @ is a loop's clocks a load less hit's.
@@ -240,6 +244,15 @@ l_seq8i:
 	bne	1b
 	mov	pc, lr
 
+	.align	5
+l_ifill:
+	mov	r1, #0
+	mcr	p15, 0, r1, c7, c5, 0		@ invalidate the I-cache
+	.rept	4093
+	add	r6, r6, #1
+	.endr
+	mov	pc, lr
+
 putc:
 	ldr	r1, =STI
 	strb	r0, [r1]
@@ -268,7 +281,8 @@ puthex:
 table:
 	.word	l_hit, n_hit, l_seq, n_seq, l_use, n_use, l_row, n_row
 	.word	l_copy, n_copy, l_two, n_two, l_rmw, n_rmw
-	.word	l_hit8, n_hit8, l_seq8, n_seq8, l_hit8i, n_hit8i, l_seq8i, n_seq8i, 0
+	.word	l_hit8, n_hit8, l_seq8, n_seq8, l_hit8i, n_hit8i, l_seq8i, n_seq8i
+	.word	l_ifill, n_ifill, 0
 n_hit:	.asciz	"hit"
 n_seq:	.asciz	"seq"
 n_use:	.asciz	"use"
@@ -280,6 +294,7 @@ n_hit8:	.asciz	"hit8"
 n_seq8:	.asciz	"seq8"
 n_hit8i: .asciz	"hit8i"
 n_seq8i: .asciz	"seq8i"
+n_ifill: .asciz	"ifill"
 s_hello: .asciz	"dfill: start\n"
 s_name:	.asciz	"dfill: "
 s_done:	.asciz	"dfill: done\n"
