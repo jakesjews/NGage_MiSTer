@@ -10674,9 +10674,10 @@ paths; then one fit of the stack in full):
   tag RAM 74, writeback 65, CP15 57, the flash cache 46. Startpoints:
   D-TLB 335, execute 187, CP15 175, D-cache FSM 173, front decode 131,
   the flash side of the memory system about 200.
-- Where the device goes: 34,296 of 41,910 ALMs, 479 M10K, no MLAB at
-  all. The CPU is 14,816 ALMs (core 8,707: execute 2,432, decode 1,805,
-  fetch 1,367, the register file 1,599 in flip-flops; I-cache 2,303,
+- Where the device goes: 34,296 of 41,910 ALMs, 479 M10K; the only LUT
+  RAM is the register file's (600 ALMs, 30,720 bits). The CPU is 14,816
+  ALMs (core 8,707: execute 2,432, decode 1,805, fetch 1,367, the
+  register file 1,599 of which 600 are that LUT RAM; I-cache 2,303,
   D-cache 3,634), ngage_mem 3,678, upp_periph 3,474, mmc_card 2,183, the
   scaler 2,016. Block RAM: the flash cache 133, the LCD frame buffer 72,
   the on-chip RAM 64, upp_periph's storage 32, the scaler 43; the whole
@@ -10686,7 +10687,7 @@ paths; then one fit of the stack in full):
 another within a clock, not logic depth and not a shortage of cells, and
 there are over a thousand endpoints behind the worst one. Path-by-path
 fixes will not reach zero. What has size: a smaller CPU footprint (the
-register file and the TLB valid bits out of flip-flops), fitter settings
+TLB valid bits out of flip-flops; the register file is LUT RAM already), fitter settings
 and more seeds, or registers on the block-to-block answers, which cost
 clocks the benchmarks do not have (FillRate equals the phone's, 2D Image
 +2 %, PolyCount +3 %).
