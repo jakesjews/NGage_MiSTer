@@ -10868,8 +10868,7 @@ decision, the bus decode), so a choice behind those registers would cost
 what it saves. The predictor's return stack (87 endpoints behind the
 I side's accept) is the next candidate.
 
-**On the board**, seed 13 of that build (md5 of
-build/hardware/NGage-t-ans1-s13.rbf in the scratch log): 3D Game 8.87,
+**On the board**, seed 13 of that build (md5 f3913e49): 3D Game 8.87,
 PolyCount 28.38, 2D Image 38.01 / 38.05, Scaling 1.89, JPEG 168.3 / 168.8,
 and FillRate 1.67 on both passes; Sonic N and Call of Duty run.
 
