@@ -38,14 +38,15 @@ derive_clock_uncertainty
 # and the timers and the MMC FIFO change state only on its wr/rd strobes, so
 # these payload registers into the read data and those registers have two
 # clocks. So have the interrupt controller's enable banks (upp_intc: en is
-# written under wr alone) and the audio rate accumulator (upp_haudio: facc
-# takes a value that hangs on the payload only under wr; its count in every
-# clock comes from rate and facc). Not included: upp_periph's first-clock
+# written under wr alone) and three of the audio block's counters
+# (upp_haudio: facc, pos and played take a value that hangs on the payload
+# only under wr; their counting in every clock comes from the block's own
+# registers). Not included: upp_periph's first-clock
 # registers (rdy_q, dma_hit_q, off_q), which an access uses in its second
 # clock, and every other register.
 set periph_payload [get_registers {*upp_bus:bus|p_addr[*] *upp_bus:bus|p_be[*] *upp_bus:bus|p_wdata[*] *upp_bus:bus|p_we}]
 set periph_slow [get_registers {*upp_periph:upp_periph|rd_q[*] *upp_timers:timers|* \
     *upp_mmc:mmc|nfifo[*] *upp_mmc:mmc|fmem* *upp_mmc:mmc|fwp[*] *upp_mmc:mmc|frp[*] *upp_mmc:mmc|fcnt[*] \
-    *upp_intc:intc|en* *upp_haudio:haudio|facc*}]
+    *upp_intc:intc|en* *upp_haudio:haudio|facc* *upp_haudio:haudio|pos* *upp_haudio:haudio|played*}]
 set_multicycle_path -setup -end 2 -from $periph_payload -to $periph_slow
 set_multicycle_path -hold -end 1 -from $periph_payload -to $periph_slow
