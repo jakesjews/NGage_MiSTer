@@ -10694,3 +10694,147 @@ clocks the benchmarks do not have (FillRate equals the phone's, 2D Image
 
 Running: eight more seeds of the stack (50 to 120), then the placement
 effort multiplier at 4 on the fixed eight.
+
+## 2026-11-16, midday: fitter effort, the flash side, block RAM ruled out, TLB valid bits by generation
+
+Branch `timing`, nothing pushed. Every figure is the worse of the two slow
+corners; "the fixed eight" are seeds 5, 9, 13, 20, 30, 40, 1337, 31337.
+
+**Fitter settings.** `PLACEMENT_EFFORT_MULTIPLIER` 4 instead of 2 on the
+fixed eight: mean -1.930 -> -1.667, range -1.536 to -2.021 (b18f27a; 4 is
+the high-performance mode's own default, the 2 was ours). 8 gives the same
+mean (-1.673) with a wider range (-1.352 to -2.467). `ROUTER_EFFORT_
+MULTIPLIER 4.0` with `PHYSICAL_SYNTHESIS_EFFORT EXTRA` on top: four fits
+identical to effort 4 alone to the last digit; this Quartus ignores both.
+
+**Every failing endpoint, not the worst thirty.** The timing script the
+trial builds run (scratch `slack_hist.tcl`) now lists the worst path of
+every failing endpoint with its levels, logic and wire delay, the places of
+its ends and the blocks it passes. Seed 5 at effort 4: 1,548 endpoints,
+median path 8 levels, 3.1 ns of logic, 6.2 ns of wire, 24 tiles from start
+to end (a tenth of them 40 or more). The CPU lies along the bottom of the
+device from x 9 to x 88, y 0 to 30: I-cache and its TLB at the left, fetch
+(median x 25), decode (x 64), execute (x 59 to 71), the register file at
+the right (x 72 to 84), the D-cache and its TLB below the middle (x 14 to
+51). About 430 of the endpoints are wholly outside the CPU, none of those
+worse than -0.9.
+
+**Outside the CPU** (a4147f1, 282a9e9, 1545cc3, f4e6d44, b749b9f):
+
+- The flash store (`ddram_flash`) read its cache RAMs with the address of
+  the request picked in that clock, which came from the bus through both
+  flash chips' request logic to the RAM's 130 blocks. The request now goes
+  into registers first and the RAMs are read from those in a new state: a
+  cache hit answers three clocks after the request instead of two. A code
+  line fetched from flash costs 8.08 clocks instead of 7.08 (dfill's new
+  `ifill` loop: 1024 lines behind an I-cache invalidate; the data loops are
+  unchanged). The phone's flash runs at a third of the CPU clock, so the
+  core is still several times faster here.
+- With the address off the worst paths the fitter moved that RAM away from
+  the HPS bridge, and the bridge's read data into the RAM failed in its
+  place (366 endpoints, to -1.3 ns): the DDR3 read channel goes through a
+  register too (a line that misses the flash cache answers a clock later).
+- The beat buffers look at the word request alone (a chip never has a word
+  and a line request up together; asserted), the save file's block reads
+  are arbitrated from registers and `bk_taken` is a register, and the
+  memory system's reset is a register (it was a gate behind two).
+- NGage.sdc: the interrupt controller's enable banks and the audio rate
+  accumulator join the peripheral bus's two-clock set (they take a value
+  that hangs on the bus payload only under `wr`, which is never up in an
+  access's first clock).
+- Benches: ddrflash, save, upp, phoenix, trace, top, flashcopy (216,853
+  beats, no mismatch), dfill, with assertions.
+
+On four of the fixed seeds the tree with all of this: -1.820, -1.624,
+-2.068, -1.671 (mean -1.80; effort 4 alone on the same four -1.59). Inside
+the noise, and no better: the fitter balances everything near the CPU's
+worst path, so an outside path that is cut makes room for another. These
+changes take structural long paths away; they do not move the worst slack.
+
+**Block RAM is not the limit** (what-if `ram1`, four seeds, not kept). 479
+of 553 M10K are in use, the LCD frame buffer's 72 sat in the columns beside
+the core and the I-cache's RAMs 40 to 60 columns away, so: the flash cache
+at a quarter (133 blocks -> 34) and the LCD panel and the on-chip RAM
+forced into the top-left (`set_location_assignment CUSTOM_REGION_X0_Y37_
+X52_Y80`, which the Lite edition honours). 380 blocks, the columns beside
+the core free, and the CPU lay as before, a strip from x 9 to x 88; mean
+-1.71 against -1.66. Neither free blocks nor where the other memories lie
+decides the CPU's shape.
+
+**TLB valid bits by generation** (ce86f3d). In the fits looked at in full
+the paths in the lead were the TLB buffers' valid choice: last night's
+4e6c677 had only moved the 256:1 multiplexer from before the read edge
+(behind the address adder) to after it (in front of the TLB check, four
+levels and a hop). Each buffer now counts its invalidations in 48 bits, a
+write stores the count beside the entry in a RAM of its own, and the entry
+read is valid if it was ever written and its count is still the buffer's;
+a write on the read's own edge is answered from a flag. About 1,300
+flip-flops and their trees go; ten RAMs of 49 bits come (Quartus makes
+them block RAM). Same value in every clock: the old flip-flops stay in
+simulation and are compared (the suite 357 of 357 on sources and netlist;
+a deliberate break of the compare fails every MMU test on that assertion;
+dfill identical). The one bound is 2^48 invalidations, 31 days of one in
+every clock.
+
+The fixed eight with the generation change (and everything before it):
+mean -1.764, best -1.249 (seed 30: -1.220 / -1.249), worst -2.479; 33,600
+ALMs (550 fewer). Against effort 4 alone (mean -1.667, best -1.536) the mean
+has not moved; the range is wider. Each of these fits is led by something
+else: the D-cache's answer into execute's operands (seed 9, -2.48), the
+lookup address into the dirty flags, decode, the miss decision
+(`o_phy_addr` -> `o_lock_any`), and at seed 5 the fine-page TLB's read
+into the check (RAM, the number's compare, the check: -1.57), where the
+old multiplexer had been.
+
+**Two wide registers out from behind the cache's answer** (5006c78). Both
+exact, old registers kept in simulation and compared, a deliberate break
+of either caught; suite, netlist, QEMU comparison, dfill identical:
+
+- The register file's held write masks (eighty flip-flops gated by the
+  write enable, which hangs on the D-cache's answer: 77 endpoints at seed
+  5, three long hops) are decoded from the held flag and index a clock
+  later; behind the enable only the two flags are left.
+- The D-cache's victim line: which way is the victim hangs on the access
+  accepted in the same clock, and that choice sat in front of the line's
+  128 registers (132 endpoints). Both ways' lines are registered and the
+  registered choice picks one behind them, where only the write-back
+  buffer reads it.
+
+**Where this leaves the timing work.** Everything exact that was tried
+since the fitter setting (two multiplexers, the valid bits twice, the flash
+side, the peripheral paths, the two registers above) has left the mean of
+the fixed eight between -1.67 and -1.80, inside the noise of eight seeds
+(about 0.1). The fits show why: behind whatever leads there are some
+twenty-five families of 8 to 10 levels and about 7 ns of wire within
+0.3 ns of it, and the fitter trades one against another. They are the
+places where one part of the CPU answers another within a clock across
+the device: the D-TLB check and the cache hit in W into the register
+file's write, execute's operands (the load's dependents), decode's
+wake-up, the miss decision and the bus request; the lookup address out of
+execute into the cache and TLB RAMs and the cache's flags; decode's first
+register into its second; the redirect into the I-cache and I-TLB
+address. Taking a level or a hop out of one of them does not change the
+slack; a register on such an answer would, and costs a clock where it
+stands: on every load's result, or on every miss. The benchmarks have no
+clock to give (FillRate equals the phone's), so the next step is on the
+other side: find the clocks the core loses against the phone (the data
+line fill's 19.3 clocks, the I side's double page walk, the four-entry
+write buffer) and spend what that frees on registers at the answers.
+
+**On the board** (seed 30 of the generation build, -1.220 / -1.249, md5
+c8d77874; a fresh C:, all nine tests once): 3D Game 8.88 fps, FillRate
+1.73, PolyCount 28.41, 2D Image 38.05, Scaling 1.89, JPEG 168.4, Contacts
+3.45, Calendar 6.00, Disk Access 15.3: the release's figures, nothing under
+the phone. The same build started half a second later: 8.87, FillRate
+1.67, 28.38, 38.05, 1.89, 167.9. FillRate is timed in whole seconds (29 s
+or 30 s), and over the builds whose CPU is the release's clock for clock
+(the release, last night's seed 20, this one apart from a clock a code
+line from flash) it has now read 29 s ten times and 30 s four (fourteen
+passes since last night): the core's true time is about 29.3 s, on the
+phone's own 29. The test cannot show a
+change under 3.5 %, so for trading clocks the fine
+measures are dfill's loops in simulation and, on the board, 2D Image and
+PolyCount, which repeat to a part in a thousand (38.05 and 28.4 against
+the phone's 37.33 and 27.52: 1.9 % and 3.2 % of room); FillRate can only
+confirm. Sonic N (to its menu) and Call of Duty (in play) start from
+their cards on the same build.

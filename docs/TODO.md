@@ -26,13 +26,19 @@ stand-in code with some reverse engineering; **high** a large design;
   (a 16-bit SDRAM, two clocks a word), 2 to install; after a dirty line's
   write-back the SDRAM's first word takes 23.
 - [ ] **Timing**: the aims are hardware accuracy, the benchmarks (nothing
-  under the phone) and no negative slack (the user, 2026-11-16). The
-  release is at -1.597 ns; in its 30 worst paths 68 % of the delay is
-  wire, and they spread over the data cache, its TLB, the bus merger,
-  fetch, decode, execute and the flash side of the memory system. Means,
-  as they fit: paths that really have two clocks declared as such, a
-  register or a level less where a path crosses between blocks, small
-  memories as LUT RAM beside their logic. Every change on four seeds.
+  under the phone) and no negative slack (the user, 2026-11-16). On the
+  fixed eight seeds the branch `timing` is at mean -1.7, best -1.25 ns
+  (the release: -1.96 and -1.6). What moved it: the fitter's placement
+  effort (0.26 ns). What did not, each exact and each measured: cutting
+  single paths in the caches, TLBs and register file, the flash side and
+  peripheral paths outside the CPU, freeing block RAM. The wall is some
+  twenty-five families of paths where one part of the CPU answers another
+  within a clock across the device (log, 2026-11-16 midday). Next: a
+  register on those answers (the D-cache's hit into the core, the miss
+  decision into the bus) costs a clock a load or a miss, so first the
+  clocks the core loses against the phone: the data line fill (19.3
+  clocks a line), the I side's second page walk, the write buffer's
+  depth. Every change on the fixed eight seeds.
 - [ ] **Benchmark runs**: all nine SPMark04 tests once from a fresh C: for
   each candidate core (no second run of the 3D set, no file checks).
 
