@@ -17,19 +17,24 @@ stand-in code with some reverse engineering; **high** a large design;
 - [x] **Small-page TLB with two ways** and **caches of 16 KB and 16 KB**:
   released as NGage_20261116.rbf (2D Image 38.0 fps against the phone's
   37.33, 3D score 522 against 485, nothing under the phone).
-- [ ] **The data line fill's cost**, so that the phone's own 8 KB D-cache
-  can be used: with 16 KB I and 8 KB D the fill-rate test was 4 % under
-  the phone (1.66 against 1.73 Mtexels/s). The restore after a fill is
-  shortened on branch `fill-restore` (not committed): a waiting request
-  is taken two clocks after the line is written instead of eight; a
-  sequential walk costs 19.3 clocks a line, was 25.3 (`make -C sim
-  dfill`). The suites pass; on the board (16/8, seed 9) FillRate is 1.73
-  and nothing is under the phone. Open: the seed sweep, a few games, the
-  commit and the release. What is left in a fill: 2 clocks to the bus, 8 to the first word,
-  6 for three more (a 16-bit SDRAM, two clocks a word), 2 to install.
-  After a dirty line's write-back the SDRAM's first word takes 23.
-- [ ] **Benchmark baseline**: the full SPMark04 suite from a fresh C:, one
-  pass as booted, plus the 3D set for the score, for each candidate core.
+- [x] **The data line fill's cost** and the phone's own 8 KB D-cache:
+  released on 2026-11-16 (the second NGage_20261116.rbf). A request that
+  waits through a fill is taken two clocks after the line is written
+  instead of eight; with 16 KB I and 8 KB D FillRate is 1.73 Mtexels/s
+  (the phone's; it was 1.66) and nothing is under the phone. What is left
+  in a fill: 2 clocks to the bus, 8 to the first word, 6 for three more
+  (a 16-bit SDRAM, two clocks a word), 2 to install; after a dirty line's
+  write-back the SDRAM's first word takes 23.
+- [ ] **Timing**: the aims are hardware accuracy, the benchmarks (nothing
+  under the phone) and no negative slack (the user, 2026-11-16). The
+  release is at -1.597 ns; in its 30 worst paths 68 % of the delay is
+  wire, and they spread over the data cache, its TLB, the bus merger,
+  fetch, decode, execute and the flash side of the memory system. Means,
+  as they fit: paths that really have two clocks declared as such, a
+  register or a level less where a path crosses between blocks, small
+  memories as LUT RAM beside their logic. Every change on four seeds.
+- [ ] **Benchmark runs**: all nine SPMark04 tests once from a fresh C: for
+  each candidate core (no second run of the 3D set, no file checks).
 
 ## Speed fidelity (the core is faster than the phone here)
 
@@ -115,8 +120,7 @@ stand-in code with some reverse engineering; **high** a large design;
 
 ## Standing
 
-- [ ] 104 MHz timing closure: the release is at -1.486 ns; the TLB ways
-  cost about 0.3 ns more on the seeds tried.
+- [ ] 104 MHz timing closure: see "Timing" under In progress.
 - [ ] The development board's wrong bits on file reads (2026-11-14/15):
   one bit of its own memory, physical `0x1908D7F4` bit 30, takes no
   writes (found 2026-11-16, memtester agrees); not the core. Open, the

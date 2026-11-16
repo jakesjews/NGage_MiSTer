@@ -10557,3 +10557,64 @@ reboot only seemed to cure it, because Linux does not reach that frame
 again until memory has been churned. The user: drop the file checks from
 board runs and releases, and the second run of the 3D set; both are out
 of the scripts.
+
+## 2026-11-16: the second release of the day: the phone's cache sizes, seed 60
+
+The user: "Yes to one and 2" (reserve the board's bad page; commit and
+release as 16 KB I / 8 KB D), then that the work belongs on master, that
+the push follows the release commit, and "remove the build variables for
+other sizes ... to make sure no tests are written against unused
+values", then "Remove the other parameters which could cause deviation
+from the real core and make tests pointless".
+
+**One configuration.** `arm925t`, `emu` and the CPU bench have no
+parameters any more; cache sizes (16 KB, 8 KB), two ways, 16-byte lines,
+the small-page TLBs' two ways of 256, the predictor and the reset value of
+V are constants in `rtl/cpu/arm925t.sv` (a8f2eee; the 8 KB default itself
+ed143ca). The cache metadata check runs the core's two sizes. With these:
+lint, the CPU suite 357 of 357 from the sources with assertions and from
+the netlist, RTL against QEMU 78 agree, the metadata check, `make test`,
+`make -C sim dfill` (at 8 KB the loop with a dirty victim at every fill
+costs 32.1 clocks a load against 41.4 at 16 KB: an 8 KB cache's victim
+lies in another SDRAM bank, so the row being read stays open; the other
+loops as at 16 KB).
+
+**Sixteen seeds** of that hardware on the server, setup at 100C / -40C:
+60 -1.597 / -1.553, 9 -1.490 / -1.616, 1337 -1.617 / -1.442,
+50 -1.682 / -1.591, 30 -1.782 / -1.684, 90 -1.776 / -1.827,
+20 -1.802 / -1.995, 110 -1.994 / -1.919, 5 -2.037 / -1.929,
+80 -2.034 / -2.013, 70 -2.065 / -1.906, 40 -1.914 / -2.099,
+100 -2.128 / -2.115, 120 -2.206 / -1.988, 13 -2.231 / -2.227,
+31337 -2.068 / -2.306 ns; hold positive everywhere; 34,100 ALMs, 479
+M10K. Seed 60 is the best over both corners and is in `NGage.qsf`. About
+0.1 ns behind the 16/16 release's best seed; freeing 500 ALMs and ten
+block RAMs bought nothing, as before.
+
+**The file**: `releases/NGage_20261116.rbf`, md5
+1ce335ec6d6417bc440cccdeb93a87b8, seed 60's build of ed143ca's hardware
+(the build date is the same day, so it has the name of the morning's
+16/16 core and replaces it). No rebuild from the last commit: the
+parameter removal changes no hardware.
+
+**On the board**, each run from a fresh C: (a real QD in brackets). Seed
+60: 3D Game 8.86 fps (8.05), FillRate 1.73 Mtexels/s (1.73), PolyCount
+28.41 Ktriangles/s (27.52), 2D Image 38.05 fps (37.33), Image Scaling
+1.89 (1.58), JPEG 167.90 (156.78), Contacts 3.48 (2.37), Calendar 6.12
+(2.33), Disk Access 15.38 (2.64); Tony Hawk's Pro Skater skating in the
+Warehouse, Call of Duty in its first mission. Seed 9 before it: the same
+figures (3D Game 8.88, JPEG 169.20) and four games (Sonic N at its menu,
+Tony Hawk, Call of Duty, Asphalt Urban GT in a race).
+
+**The board's bad memory bit is fenced off.** MiSTer's kernel ignores
+`memmap=` (and has no crashkernel, initrd or memory-failure support), so
+the boot loader reserves the page: `/media/fat/linux/u-boot.txt` has an
+`mmcboot=` line, the loader's own default (read out of uboot.img) with
+`fdt addr $fdt_addr;fdt resize;fdt rsvmem add 0x1908d000 0x1000` before
+`bootz`. After the reboot the frame is flagged reserved and
+`/sys/kernel/debug/memblock/reserved` lists it; MemTotal is 28 kB less;
+the USB polling settings of the `v=` line are in force as before. The old
+file is beside it (`u-boot.txt.before-reserve-20261116`). memtester 4.6.0
+is at `/media/fat/linux/memtester`.
+
+Next, at the user's word: timing, with three aims: hardware accuracy, the
+benchmarks, no negative slack.
