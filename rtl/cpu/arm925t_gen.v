@@ -11059,31 +11059,8 @@ module zap_dcache (
 	assign o_short_trust = live_trust;
 	localparam integer SET_W = $clog2((CACHE_SIZE / WAYS) / CACHE_LINE);
 	localparam integer LINE_W = $clog2(CACHE_LINE);
-	reg [SET_W - 1:0] lookup_s0;
-	reg [SET_W - 1:0] lookup_s1;
-	reg [31:0] lookup_address;
-	always @(posedge i_clk)
-		if (i_reset) begin
-			lookup_s0 <= 1'sb0;
-			lookup_s1 <= 1'sb0;
-		end
-		else if (!i_stall && !((i_rd || i_wr) && !o_ack)) begin
-			lookup_s0 <= i_address_nxt[LINE_W+:SET_W];
-			lookup_s1 <= lookup_s0;
-		end
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		lookup_address = i_address_nxt;
-		if (|relookup)
-			lookup_address = i_address;
-		else if (relookup[0])
-			lookup_address[LINE_W+:SET_W] = i_address[LINE_W+:SET_W];
-		else if (relookup[1])
-			lookup_address[LINE_W+:SET_W] = lookup_s1;
-		else if (relookup[2])
-			lookup_address[LINE_W+:SET_W] = lookup_s0;
-	end
+	wire [31:0] lookup_address;
+	assign lookup_address = i_address_nxt;
 	reg [3:0] wb_err;
 	wire unused;
 	assign wb_cti[2] = CTI_EOB;
@@ -11287,7 +11264,7 @@ module zap_dcache (
 		.i_wb_dat(i_wb_dat),
 		.i_wb_ack(wb_ack[1])
 	);
-	assign compare_address = (|relookup ? i_address : i_address_check);
+	assign compare_address = i_address_check;
 	assign cache_write_way = (live_lookup ? tr_cache_way : cf_cache_way);
 	assign ram_write = !live_lookup || tr_cache_hit;
 	assign forward_store = ((live_lookup && cf_cache_tag_wr_en) && tr_cache_hit) && (compare_address[LINE_W+:SET_W] == cache_address[LINE_W+:SET_W]);

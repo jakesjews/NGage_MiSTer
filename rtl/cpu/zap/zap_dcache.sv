@@ -216,39 +216,29 @@ assign o_short_live = live_lookup;
 assign o_short_trust = live_trust;
 localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
 localparam integer LINE_W = $clog2(CACHE_LINE);
-logic [SET_W-1:0]                lookup_s0, lookup_s1;
 logic [31:0]                     lookup_address;
 
-// ARM925T: track the two younger cache set indices with the CPU's
-// post-ALU stages. A fill stall must not overwrite them with the ALU's
-// stationary address. Only these indices, not cache data, need saving.
+// ARM9V2: the RAMs look up what the CPU presents, in every clock. While a
+// request waits (a fill, the restore states), the CPU holds it and puts
+// its address on the lookup and check ports itself (arm9v2_core: HOLD
+// presents W on both), so the cache needs no multiplexer of its own in
+// front of the RAMs' address registers and the tag compare. There was
+// one until 2026-11-16 (the request's address while o_relookup was set);
+// it chose between two equal addresses whenever its result was used, and
+// sat on the core's worst timing path with 109 loads. The equality is
+// asserted below for every clock in which the old multiplexer would have
+// switched with a request present.
+assign lookup_address = i_address_nxt;
+`ifndef SYNTHESIS
 always_ff @ (posedge i_clk)
-begin
-        if ( i_reset )
+        if ( !i_reset && (|relookup) && (i_rd || i_wr) )
         begin
-                lookup_s0 <= '0;
-                lookup_s1 <= '0;
+                assert ( i_address_nxt[LINE_W +: SET_W] == i_address[LINE_W +: SET_W] )
+                        else $fatal(1, "a held request is not on the lookup port");
+                assert ( i_address_check[31:2] == i_address[31:2] )
+                        else $fatal(1, "a held request is not on the check port");
         end
-        else if ( !i_stall && !((i_rd || i_wr) && !o_ack) )
-        begin
-                lookup_s0 <= i_address_nxt[LINE_W +: SET_W];
-                lookup_s1 <= lookup_s0;
-        end
-end
-
-// Reload the held lookup, then the two younger ones. At the end of the
-// sequence all three RAM stages again align with the CPU. The mux is before
-// the RAM's first register; the shared tag RAM's hit path is untouched.
-// ARM9: restore the held request during the FSM reload; ordinary reads
-// launch from E in parallel with the TLB and capture their compare next.
-always_comb
-begin
-        lookup_address = i_address_nxt;
-        if      ( |relookup ) lookup_address = i_address;
-        else if ( relookup[0] ) lookup_address[LINE_W +: SET_W] = i_address[LINE_W +: SET_W];
-        else if ( relookup[1] ) lookup_address[LINE_W +: SET_W] = lookup_s1;
-        else if ( relookup[2] ) lookup_address[LINE_W +: SET_W] = lookup_s0;
-end
+`endif
 logic  [3:0]                     wb_err;
 logic                            unused;
 
@@ -462,7 +452,7 @@ zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS
 // The FSM still classifies the ordered request after the registered TLB
 // permission check. A store writes its registered way, never the younger
 // probe's hit way. On a miss no speculative store write reaches the RAM.
-assign compare_address = (|relookup) ? i_address : i_address_check;
+assign compare_address = i_address_check;
 // The FSM exposes its saved victim way. Stores while the lookup is live
 // use the registered live hit way.
 assign cache_write_way = live_lookup ? tr_cache_way : cf_cache_way;
