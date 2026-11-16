@@ -10,12 +10,16 @@
 // buffer per chip in registers:
 //   * the chip's last 8-byte beat answers a read in the clock it is asked
 //     (sequential fetches hit it three times in four);
-//   * a cache hit answers three clocks after the request: the request is
-//     put into registers first (S_READ) and the cache RAMs are read from
-//     those, so their address comes from flip-flops and not from the bus
-//     through both chips' request logic (until 2026-11-16 the RAMs read the
-//     picked request at once, and that address, spread over the RAM's 130
-//     blocks, was the worst path outside the CPU);
+//   * a cache hit answers two clocks after a line request and three after
+//     a word request. The cache RAMs' address comes from flip-flops, not
+//     from the bus through both chips' request logic (until 2026-11-16 the
+//     RAMs read the picked request at once, and that address, spread over
+//     the RAM's 130 blocks, was the worst path outside the CPU): while
+//     idle the RAMs read at the bus's line address, which is a register of
+//     the bus, and a line request taken finds its tag and beat read (the
+//     two chips' line addresses are that one register; checked from
+//     registers for CS1); any other request is put into registers first
+//     and the RAMs are read from those in S_READ;
 //   * a miss reads the whole line as one DDR3 burst from its start, answers
 //     when the wanted beat arrives and keeps the line;
 //   * a 16-byte line read (cs0_lreq / cs1_lreq, beat address cs*_laddr) is
@@ -291,8 +295,9 @@ module ddram_flash #(
 
 	// The port the state machine looks at (round robin), and whether it may
 	// take that request: not answered from a beat buffer, not the one being
-	// answered now. The request taken goes into cur_* and the cache RAMs
-	// read its line in the next clock (S_READ).
+	// answered now. The request taken goes into cur_*. A line request's tag
+	// and beat are read at this edge (spec_ra below); another request's in
+	// the next clock (S_READ).
 	logic last_port = 1'b0;
 	wire  req0  = cs0_req || cs0_lreq;
 	wire  req1  = cs1_req || cs1_lreq;
@@ -317,6 +322,13 @@ module ddram_flash #(
 	// ------------------------------------------------------------------
 	// Cache RAMs
 	// ------------------------------------------------------------------
+	// What the RAMs read while idle: the line address the bus holds out (the
+	// index and the beat of a line request, should one be taken at this
+	// edge). CS0's and CS1's are the same register of the bus; that CS1's
+	// agrees is checked, from registers, rather than assumed.
+	wire [DAW-1:0] spec_ra  = cs0_laddr[2 +: DAW];
+	wire           spec_ok1 = cs1_laddr[2 +: DAW] == spec_ra;
+
 	logic                 tag_we;
 	logic [LINES_LOG2-1:0] tag_waddr;
 	logic [TAGW:0]        tag_wdata;
@@ -464,9 +476,11 @@ module ddram_flash #(
 	wire [63:0] fill_dout = (fill_scr ? mix_of_beat(rd_q) : rd_q) ^ fill_pad;
 
 	always_comb begin
-		// S_READ: the tag and the wanted beat; S_LOOK: a line read's other beat
-		tag_raddr = index_of(cur_g);
-		dat_raddr = {index_of(cur_g), (state == S_LOOK) ? cur_beat ^ LINE_LOG2'(1) : cur_beat};
+		// S_IDLE: the bus's line address; S_READ: the tag and the wanted
+		// beat of the request in cur_g; S_LOOK: a line read's other beat
+		tag_raddr = (state == S_IDLE) ? spec_ra[LINE_LOG2 +: LINES_LOG2] : index_of(cur_g);
+		dat_raddr = (state == S_IDLE) ? spec_ra
+		          : {index_of(cur_g), (state == S_LOOK) ? cur_beat ^ LINE_LOG2'(1) : cur_beat};
 
 		tag_we    = 1'b0;
 		tag_waddr = index_of(cur_g);
@@ -565,7 +579,8 @@ module ddram_flash #(
 					cur_g     <= pick_g;
 					cur_wdata <= pick ? cs1_wdata : cs0_wdata;
 					abandon   <= 1'b0;
-					state     <= S_READ;
+					// a line request's tag and beat are read at this edge
+					state     <= (pick ? (cs1_lreq && spec_ok1) : cs0_lreq) ? S_LOOK : S_READ;
 				end
 			end
 
