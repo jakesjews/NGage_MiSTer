@@ -24,6 +24,7 @@ module zap_cache #( // INSTRUCTION CACHE
 
 parameter [31:0] CACHE_SIZE             = 32'd1024,
 parameter [31:0] SPAGE_TLB_ENTRIES      = 32'd8,
+parameter [31:0] SPAGE_TLB_WAYS         = 32'd1,   // ARM925T: ways of the small-page TLB (zap_tlb).
 parameter [31:0] LPAGE_TLB_ENTRIES      = 32'd8,
 parameter [31:0] SECTION_TLB_ENTRIES    = 32'd8,
 parameter [31:0] FPAGE_TLB_ENTRIES      = 32'd8,
@@ -331,6 +332,7 @@ endgenerate
 zap_tlb #(
         .LPAGE_TLB_ENTRIES      (LPAGE_TLB_ENTRIES),
         .SPAGE_TLB_ENTRIES      (SPAGE_TLB_ENTRIES),
+        .SPAGE_TLB_WAYS         (SPAGE_TLB_WAYS),
         .SECTION_TLB_ENTRIES    (SECTION_TLB_ENTRIES),
         .FPAGE_TLB_ENTRIES      (FPAGE_TLB_ENTRIES),
         .CPSR_MODE              (ZAP_CPSR_MODE),

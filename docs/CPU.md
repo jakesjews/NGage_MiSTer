@@ -40,14 +40,19 @@ Parameters:
 - `HIVECS` (0): reset value of control bit V, the ARM925T's HIVECS pin. 1
   puts the vectors and the reset address at 0xFFFF0000. The N-Gage boots
   from CS0 at 0, so the core uses 0.
-- `ICACHE_SIZE` (32768 since 2026-11-09), `CACHE_LINE` (16): cache
-  geometry in bytes. 32768 is a 1,024-set I-cache (16 M10K more than the
-  phone's 16384); the cache type register still reports 16 KB. The whole
-  core and the CPU bench have the same default, the size that is built
-  (`VEXTRA=-GICACHE_SIZE=16384` for the phone's).
-  The D-cache is 32 KB two-way (1,024 sets, VA[13:4]), four times the
-  phone's 8 KB, for speed (16 KB from 2026-10-26 to 2026-11-09; the 8 KB
-  form is in git history). CP15 still reports 8 KB, so a D-cache by-index
+- `ICACHE_SIZE` (16384), `DCACHE_SIZE` (16384), `CACHE_LINE` (16): cache
+  geometry in bytes, since 2026-11-15. The I-cache is the phone's 16 KB
+  (512 sets); the D-cache is 16 KB (512 sets, VA[12:4]), twice the phone's
+  8 KB. They were 32 KB each from 2026-11-09 to NGage_20261114, which put
+  SPMark04's 3D tests 18 to 38 % above a real phone; with the phone's own
+  8 KB D-cache the core is 4 % short of the phone in the fill-rate test
+  (the suspicion, not yet measured: a data line fill costs more here than
+  there), and with 16 KB nothing
+  is below it (docs/PROGRESS-LOG.md, 2026-11-15). The whole core and the
+  CPU bench have the same defaults (`VEXTRA="-GICACHE_SIZE=32768
+  -GDCACHE_SIZE=32768"` for the earlier sizes, `-GDCACHE_SIZE=8192` for
+  the phone's). The cache type register reports 16 KB and 8 KB, so a
+  D-cache by-index
   operation visits every physical set
   colour for the named architectural set/way. By-VA operations stay
   targeted. The live two-way compare/select and hit-under-miss protocol
@@ -125,9 +130,10 @@ The memory system is ZAP's:
   address, so cleaning needs no table walk.
 - MMU: ARMv4 sections, coarse and fine tables with large, small and tiny
   pages, domains, access permissions with S and R, FCSE PID. Separate I and
-  D TLBs, each four direct-mapped buffers (one per page size: 64 sections,
-  32 large, 256 small, 64 tiny pages; zap_top's defaults, which arm925t.sv
-  does not override). A hardware table walker on the bus.
+  D TLBs, each four buffers, one per page size: 64 sections, 32 large and
+  64 tiny pages, direct-mapped, and the small pages in ways of 256 entries
+  (`DTLB_SPAGE_WAYS`, `ITLB_SPAGE_WAYS` in arm925t.sv; a set's ways are
+  replaced in turn). A hardware table walker on the bus.
 - CP15 (`zap_cp15_cb.sv`): carries out MCR/MRC while the pipeline waits.
 
 ### What was changed for the ARM925T
@@ -328,8 +334,18 @@ Functional:
   change ([the write-allocation analysis](consults/2026-10-23-codex-walloc-report.md)).
   Tests: walloc_posted_rtl.S, buffer_modes.S; the allocation tests
   (walloc, dstore, dcsize, dhold, dhum) run with W clear.
-- TLBs are direct-mapped per page size instead of the ARM925T's
-  associative TLBs, and TLB lockdown has no effect.
+- The TLBs are a buffer per page size instead of the ARM925T's 64-entry
+  fully associative TLBs: sections, large and tiny pages direct-mapped,
+  small pages set-associative (since 2026-11-15). With one way, two small
+  pages 1 MB apart evicted each other at every access, a two-level walk
+  each time, and EKA1's chunks start on megabyte boundaries, so pages at
+  the same offset in two chunks did exactly that: the phone's 2D drawing
+  ran at 60 to 85 % of a real phone's rate depending on where its buffers
+  lay (test `arm9_tlb_assoc_rtl`). The other three buffers can still do
+  it (two sections 64 MB apart share an entry; not measured in the
+  firmware). The instruction side walks a page twice
+  after a miss (the next fetch address is checked against the entry from
+  before the install). TLB lockdown has no effect.
 - An external abort on a cacheable line fill or write-back is ignored (the
   line is filled with the data returned). External aborts on uncached
   accesses and table walks are reported.
@@ -724,8 +740,10 @@ The goal is ARM9TDMI cycle counts at 104 MHz, without changing behaviour.
   seed in use, two seeds in six). The next changes would take the
   CPU's issue-stage register read and the D-cache's stall into the
   pipeline one stage earlier.
-- Direct-mapped caches; no cache or TLB lockdown; cache disable discards
-  the D-cache contents; external aborts on line fills are lost.
+- No cache or TLB lockdown; cache disable discards the D-cache contents;
+  external aborts on line fills are lost. The section, large-page and
+  tiny-page TLBs are direct-mapped; the instruction side walks twice a
+  miss.
 - Stored PC is + 8 (probably + 12 on the ARM925T).
 - Cycle timing is ZAP's (see the plan above).
 - The pre-decoder's return pattern for MOV PC, LR has Rm = 15 (upstream),

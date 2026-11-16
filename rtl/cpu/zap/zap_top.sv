@@ -77,6 +77,7 @@ parameter logic  [31:0]       RAS_DEPTH          = 32'd4,    // Depth of RAS.
 parameter logic [31:0] DATA_SECTION_TLB_ENTRIES =  32'd64,    // Section TLB entries.
 parameter logic [31:0] DATA_LPAGE_TLB_ENTRIES   =  32'd32,    // Large page TLB entries.
 parameter logic [31:0] DATA_SPAGE_TLB_ENTRIES   =  32'd256,   // Small page TLB entries.
+parameter logic [31:0] DATA_SPAGE_TLB_WAYS      =  32'd1,     // ARM925T: small page TLB ways (1, 2 or 4), each of that many entries.
 parameter logic [31:0] DATA_FPAGE_TLB_ENTRIES   =  32'd64,   // Tiny page TLB entries.
 parameter logic [31:0] DATA_CACHE_SIZE          =  32'd8192, // Cache size in bytes.
 parameter logic [31:0] DATA_CACHE_LINE          =  32'd64,   // Cache line size in bytes.
@@ -88,6 +89,7 @@ parameter logic [31:0] DATA_CACHE_WAYS          =  32'd1,    // ARM925T: 1 or 2.
 parameter logic [31:0] CODE_SECTION_TLB_ENTRIES =  32'd64,    // Section TLB entries.
 parameter logic [31:0] CODE_LPAGE_TLB_ENTRIES   =  32'd32,    // Large page TLB entries.
 parameter logic [31:0] CODE_SPAGE_TLB_ENTRIES   =  32'd256,   // Small page TLB entries.
+parameter logic [31:0] CODE_SPAGE_TLB_WAYS      =  32'd1,     // ARM925T: small page TLB ways (1, 2 or 4).
 parameter logic [31:0] CODE_FPAGE_TLB_ENTRIES   =  32'd64,   // Fine page TLB entries.
 parameter logic [31:0] CODE_CACHE_SIZE          =  32'd8192, // Cache size in bytes.
 parameter logic [31:0] CODE_CACHE_LINE          =  32'd64,   // Ccahe line size in bytes.
@@ -496,6 +498,7 @@ begin: l_generate_with_cache_mmu
 zap_dcache #(
         .CACHE_SIZE(DATA_CACHE_SIZE),
         .SPAGE_TLB_ENTRIES(DATA_SPAGE_TLB_ENTRIES),
+        .SPAGE_TLB_WAYS(DATA_SPAGE_TLB_WAYS),
         .LPAGE_TLB_ENTRIES(DATA_LPAGE_TLB_ENTRIES),
         .SECTION_TLB_ENTRIES(DATA_SECTION_TLB_ENTRIES),
         .FPAGE_TLB_ENTRIES(DATA_FPAGE_TLB_ENTRIES),
@@ -602,6 +605,7 @@ u_data_cache (
 zap_cache #(
 .CACHE_SIZE(CODE_CACHE_SIZE),
 .SPAGE_TLB_ENTRIES(CODE_SPAGE_TLB_ENTRIES),
+.SPAGE_TLB_WAYS(CODE_SPAGE_TLB_WAYS),
 .LPAGE_TLB_ENTRIES(CODE_LPAGE_TLB_ENTRIES),
 .SECTION_TLB_ENTRIES(CODE_SECTION_TLB_ENTRIES),
 .FPAGE_TLB_ENTRIES(CODE_FPAGE_TLB_ENTRIES),

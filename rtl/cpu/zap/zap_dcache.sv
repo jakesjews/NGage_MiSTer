@@ -38,6 +38,7 @@ parameter logic FLAT_ACK = 1'b0,
 parameter logic LOCK_SPLIT = 1'b0,
 parameter logic [31:0] CACHE_SIZE             = 32'd1024,
 parameter logic [31:0] SPAGE_TLB_ENTRIES      = 32'd8,
+parameter logic [31:0] SPAGE_TLB_WAYS         = 32'd1,   // ARM925T: ways of the small-page TLB (zap_tlb).
 parameter logic [31:0] LPAGE_TLB_ENTRIES      = 32'd8,
 parameter logic [31:0] SECTION_TLB_ENTRIES    = 32'd8,
 parameter logic [31:0] FPAGE_TLB_ENTRIES      = 32'd8,
@@ -543,6 +544,7 @@ zap_tlb #(
         .CHECK_WALK            (1'b1),
         .LPAGE_TLB_ENTRIES      (LPAGE_TLB_ENTRIES),
         .SPAGE_TLB_ENTRIES      (SPAGE_TLB_ENTRIES),
+        .SPAGE_TLB_WAYS         (SPAGE_TLB_WAYS),
         .SECTION_TLB_ENTRIES    (SECTION_TLB_ENTRIES),
         .FPAGE_TLB_ENTRIES      (FPAGE_TLB_ENTRIES)
 )

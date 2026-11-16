@@ -28,10 +28,16 @@
 // timer and MMC clocks divide from it exactly.
 
 module emu #(
-	// the CPU's I-cache: 32 KB, twice the phone's, as built and as every
-	// bench runs it (16384 gives the phone's size)
-	parameter int ICACHE_SIZE                = 32768,
-	parameter int DCACHE_WAYS                = 2
+	// the CPU's caches: the phone's 16 KB for instructions, 16 KB for data
+	// (twice the phone's; rtl/cpu/arm925t.sv says why)
+	parameter int ICACHE_SIZE                = 16384,
+	parameter int DCACHE_SIZE                = 16384,
+	parameter int DCACHE_WAYS                = 2,
+	// the small-page TLBs' ways and sets (rtl/cpu/arm925t.sv)
+	parameter int DTLB_SPAGE_WAYS            = 2,
+	parameter int DTLB_SPAGE_SETS            = 256,
+	parameter int ITLB_SPAGE_WAYS            = 2,
+	parameter int ITLB_SPAGE_SETS            = 256
 ) (
 	`include "sys/emu_ports.vh"
 );
@@ -679,7 +685,12 @@ wire  [3:0] tr_d_sel;
 
 arm925t #(
 	.ICACHE_SIZE(ICACHE_SIZE),
-	.DCACHE_WAYS(DCACHE_WAYS)
+	.DCACHE_SIZE(DCACHE_SIZE),
+	.DCACHE_WAYS(DCACHE_WAYS),
+	.DTLB_SPAGE_WAYS(DTLB_SPAGE_WAYS),
+	.DTLB_SPAGE_SETS(DTLB_SPAGE_SETS),
+	.ITLB_SPAGE_WAYS(ITLB_SPAGE_WAYS),
+	.ITLB_SPAGE_SETS(ITLB_SPAGE_SETS)
 ) arm925t
 (
 	.clk(clk_sys),

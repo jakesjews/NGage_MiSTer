@@ -28,6 +28,19 @@ parameter logic [31:0] SPAGE_TLB_ENTRIES   = 32'd8,
 parameter logic [31:0] SECTION_TLB_ENTRIES = 32'd8,
 parameter logic [31:0] FPAGE_TLB_ENTRIES   = 32'd8,
 parameter logic [31:0] CPSR_MODE           = 32'd4,
+// ARM925T: the small-page TLB is SPAGE_TLB_WAYS-way set-associative (1, 2
+// or 4 ways of SPAGE_TLB_ENTRIES sets each, indexed by VA[19:12] upward as
+// before). The ARM925T's TLBs are fully associative, so two pages never
+// evict each other there; in one way, two pages with the same index do at
+// every access in turn, a two-level walk each time. EKA1 puts every chunk
+// on a megabyte boundary, so pages at the same offset in two chunks (a
+// bitmap and a stack, two heaps) have the same index; the phone's 2D
+// drawing ran at 60 to 85 % of the phone's rate, by where its buffers lay
+// (docs/PROGRESS-LOG.md, 2026-11-15). The victim of a set is its ways in
+// turn (a pointer per set), so a set keeps the last SPAGE_TLB_WAYS pages
+// installed in it, and after an invalidation every way is used before any
+// is replaced.
+parameter logic [31:0] SPAGE_TLB_WAYS      = 32'd1,
 // ARM925T, V2's D-side (its check address is the next request's, not the
 // cache's i_address, and it looks up speculatively every clock):
 //  * the TLB RAMs read through holds, so the first check after a hold
@@ -104,12 +117,14 @@ assign o_wb_dat_nxt = 32'd0;
 
 logic [`ZAP_SECTION_TLB_WDT-1:0]     setlb_wdata, setlb_rdata, setlb_rdata_pre;
 logic [`ZAP_LPAGE_TLB_WDT-1:0]       lptlb_wdata, lptlb_rdata, lptlb_rdata_pre;
-logic [`ZAP_SPAGE_TLB_WDT-1:0]       sptlb_wdata, sptlb_rdata, sptlb_rdata_pre;
+logic [`ZAP_SPAGE_TLB_WDT-1:0]       sptlb_wdata;
+logic [SPAGE_TLB_WAYS-1:0][`ZAP_SPAGE_TLB_WDT-1:0] sptlb_rdata, sptlb_rdata_pre;
 logic [`ZAP_FPAGE_TLB_WDT-1:0]       fptlb_wdata, fptlb_rdata, fptlb_rdata_pre;
 
 logic                            sptlb_wen, lptlb_wen, setlb_wen;
-logic                            sptlb_ren, lptlb_ren, setlb_ren;
-logic                            sptlb_ren_pre, lptlb_ren_pre, setlb_ren_pre;
+logic                            lptlb_ren, setlb_ren;
+logic                            lptlb_ren_pre, setlb_ren_pre;
+logic [SPAGE_TLB_WAYS-1:0]       sptlb_ren, sptlb_ren_pre, sptlb_wen_way;
 logic                            fptlb_ren, fptlb_ren_pre, fptlb_wen;
 logic                            walk;
 logic [31:0]                     walk_va;
@@ -289,6 +304,84 @@ u_lpage_tlb   (
 
 // ----------------------------------------------------------------------------
 
+// ARM925T: the small-page ways. The way an install goes to is the set's
+// pointer, read into a register while the walk runs (the walker's address
+// is fixed from the walk's start, clocks before the install) and stepped
+// by the install.
+// The pointer is two bits a set, in two vectors (no multiply in the index).
+//
+// A page walked again while it is in the set goes back to the way it has:
+// the instruction side walks a page twice in a row (its next fetch address
+// was checked in the clock of the install, against the entry before it),
+// and a second copy in the next way would put out the other page of the
+// set. So the last page installed and its way are kept, and a walk of that
+// page again uses that way and leaves the pointer.
+logic [SPAGE_TLB_ENTRIES-1:0] sp_victim_lo, sp_victim_hi;
+logic [1:0]                   sp_way;
+logic                         sp_again;
+
+if ( SPAGE_TLB_WAYS > 1 )
+begin: l_sp_ways
+        logic [31:12] sp_last_page;
+        logic [1:0]   sp_last_way;
+        logic         sp_last_valid;
+
+        // The walker's address a clock late (it does not change during a
+        // walk): the compare and the pointer read load this copy, not the
+        // register the walker's bus address is made from.
+        (* preserve, dont_retime *) logic [31:12] sp_page;
+
+        wire sp_again_nxt = sp_last_valid && (sp_page == sp_last_page);
+
+        always_ff @ ( posedge i_clk )
+        begin
+                sp_page  <= tlb_address[31:12];
+                sp_again <= sp_again_nxt;
+                sp_way   <= sp_again_nxt ? sp_last_way :
+                            {sp_victim_hi[sp_page[`ZAP_VA__SPAGE_INDEX]],
+                             sp_victim_lo[sp_page[`ZAP_VA__SPAGE_INDEX]]};
+
+                if ( sptlb_wen )
+                begin
+                        sp_last_page  <= tlb_address[31:12];
+                        sp_last_way   <= sp_way;
+                        sp_last_valid <= 1'd1;
+
+                        if ( !sp_again )
+                        begin
+                                sp_victim_lo[tlb_address[`ZAP_VA__SPAGE_INDEX]] <= !sp_way[0];
+                                sp_victim_hi[tlb_address[`ZAP_VA__SPAGE_INDEX]] <=
+                                        (SPAGE_TLB_WAYS > 2) && (sp_way[1] ^ sp_way[0]);
+                        end
+                end
+
+                if ( i_reset || i_inv || !i_mmu_en )
+                begin
+                        sp_last_valid <= 1'd0;
+                end
+
+                if ( i_reset )
+                begin
+                        sp_victim_lo <= '0;
+                        sp_victim_hi <= '0;
+                        sp_way       <= '0;
+                        sp_again     <= 1'd0;
+                end
+        end
+end
+else
+begin: l_sp_one_way
+        assign sp_victim_lo = '0;
+        assign sp_victim_hi = '0;
+        assign sp_way       = '0;
+        assign sp_again     = 1'd0;
+end
+
+for (genvar w = 0; w < SPAGE_TLB_WAYS; w++)
+begin: l_spage_way
+
+assign sptlb_wen_way[w] = sptlb_wen && (sp_way == w);
+
 zap_mem_inv_block #(.WIDTH(`ZAP_SPAGE_TLB_WDT), .DEPTH(SPAGE_TLB_ENTRIES), .READ_THROUGH(CHECK_WALK))
 u_spage_tlb   (
 .i_clk          (i_clk),
@@ -296,19 +389,21 @@ u_spage_tlb   (
 .i_clken        (!i_hold),
 
 .i_wdata        (sptlb_wdata),
-.i_wen          (sptlb_wen),
+.i_wen          (sptlb_wen_way[w]),
 
 .i_inv          (i_inv | !i_mmu_en),
 
 .i_raddr        (i_address_nxt[`ZAP_VA__SPAGE_INDEX]),
 .i_waddr        (tlb_address[`ZAP_VA__SPAGE_INDEX]),
 
-.o_rdata        (sptlb_rdata),
-.o_rdav         (sptlb_ren),
+.o_rdata        (sptlb_rdata[w]),
+.o_rdav         (sptlb_ren[w]),
 
-.o_rdata_pre    (sptlb_rdata_pre),
-.o_rdav_pre     (sptlb_ren_pre)
+.o_rdata_pre    (sptlb_rdata_pre[w]),
+.o_rdav_pre     (sptlb_ren_pre[w])
 );
+
+end: l_spage_way
 
 // ----------------------------------------------------------------------------
 
@@ -340,6 +435,7 @@ zap_tlb_check #(
 .SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
 .SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
 .FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES),
+.SPAGE_TLB_WAYS(SPAGE_TLB_WAYS),
 .CPSR_MODE(ZAP_CPSR_MODE),
 .MMU_OFF_CACHEABLE(MMU_OFF_CACHEABLE)
 )

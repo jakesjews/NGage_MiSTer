@@ -56,10 +56,15 @@ module arm925t (
 );
 	parameter [0:0] ARM9_PREDICTOR = 1'b1;
 	parameter [0:0] HIVECS = 1'b0;
-	parameter signed [31:0] ICACHE_SIZE = 32768;
+	parameter signed [31:0] ICACHE_SIZE = 16384;
 	parameter signed [31:0] ICACHE_WAYS = 2;
+	parameter signed [31:0] DCACHE_SIZE = 16384;
 	parameter signed [31:0] DCACHE_WAYS = 2;
 	parameter signed [31:0] CACHE_LINE = 16;
+	parameter signed [31:0] DTLB_SPAGE_WAYS = 2;
+	parameter signed [31:0] DTLB_SPAGE_SETS = 256;
+	parameter signed [31:0] ITLB_SPAGE_WAYS = 2;
+	parameter signed [31:0] ITLB_SPAGE_SETS = 256;
 	input wire clk;
 	input wire reset;
 	input wire irq;
@@ -111,9 +116,13 @@ module arm925t (
 		.CODE_CACHE_SIZE(ICACHE_SIZE),
 		.CODE_CACHE_LINE(CACHE_LINE),
 		.CODE_CACHE_WAYS(ICACHE_WAYS),
-		.DATA_CACHE_SIZE(32'd32768),
+		.DATA_CACHE_SIZE(DCACHE_SIZE),
 		.DATA_CACHE_LINE(CACHE_LINE),
-		.DATA_CACHE_WAYS(DCACHE_WAYS)
+		.DATA_CACHE_WAYS(DCACHE_WAYS),
+		.DATA_SPAGE_TLB_ENTRIES(DTLB_SPAGE_SETS),
+		.DATA_SPAGE_TLB_WAYS(DTLB_SPAGE_WAYS),
+		.CODE_SPAGE_TLB_ENTRIES(ITLB_SPAGE_SETS),
+		.CODE_SPAGE_TLB_WAYS(ITLB_SPAGE_WAYS)
 	) u_zap(
 		.i_clk(clk),
 		.i_reset(reset),
@@ -7483,6 +7492,7 @@ module zap_cache (
 	reg _sv2v_0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
+	parameter [31:0] SPAGE_TLB_WAYS = 32'd1;
 	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] SECTION_TLB_ENTRIES = 32'd8;
 	parameter [31:0] FPAGE_TLB_ENTRIES = 32'd8;
@@ -8031,6 +8041,7 @@ module zap_cache (
 	zap_tlb #(
 		.LPAGE_TLB_ENTRIES(LPAGE_TLB_ENTRIES),
 		.SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
+		.SPAGE_TLB_WAYS(SPAGE_TLB_WAYS),
 		.SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
 		.FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES),
 		.CPSR_MODE(ZAP_CPSR_MODE),
@@ -10575,6 +10586,7 @@ module zap_dcache (
 	parameter [0:0] LOCK_SPLIT = 1'b0;
 	parameter [31:0] CACHE_SIZE = 32'd1024;
 	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd8;
+	parameter [31:0] SPAGE_TLB_WAYS = 32'd1;
 	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] SECTION_TLB_ENTRIES = 32'd8;
 	parameter [31:0] FPAGE_TLB_ENTRIES = 32'd8;
@@ -11343,6 +11355,7 @@ module zap_dcache (
 		.CHECK_WALK(1'b1),
 		.LPAGE_TLB_ENTRIES(LPAGE_TLB_ENTRIES),
 		.SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
+		.SPAGE_TLB_WAYS(SPAGE_TLB_WAYS),
 		.SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
 		.FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES)
 	) u_zap_tlb(
@@ -12712,6 +12725,7 @@ module zap_tlb_check (
 	parameter [31:0] SECTION_TLB_ENTRIES = 32'd8;
 	parameter [31:0] FPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] CPSR_MODE = 32'd4;
+	parameter [31:0] SPAGE_TLB_WAYS = 32'd1;
 	parameter [0:0] MMU_OFF_CACHEABLE = 1'd0;
 	input wire i_clk;
 	input wire i_clkena;
@@ -12722,8 +12736,8 @@ module zap_tlb_check (
 	input wire [CPSR_MODE:0] i_cpsr;
 	input wire [1:0] i_sr;
 	input wire [31:0] i_dac_reg;
-	input wire [(56 - $clog2(SPAGE_TLB_ENTRIES)) - 1:0] i_sptlb_rdata;
-	input wire i_sptlb_rdav;
+	input wire [(SPAGE_TLB_WAYS * (56 - $clog2(SPAGE_TLB_ENTRIES))) - 1:0] i_sptlb_rdata;
+	input wire [SPAGE_TLB_WAYS - 1:0] i_sptlb_rdav;
 	input wire [(48 - $clog2(LPAGE_TLB_ENTRIES)) - 1:0] i_lptlb_rdata;
 	input wire i_lptlb_rdav;
 	input wire [(44 - $clog2(SECTION_TLB_ENTRIES)) - 1:0] i_setlb_rdata;
@@ -13014,11 +13028,75 @@ module zap_tlb_check (
 	localparam [31:0] ZAP_OPCODE_EXTEND = 32'd35;
 	localparam [0:0] APSR_BAD = 1'd0;
 	localparam [0:0] APSR_OK = 1'd1;
-	wire [3:0] match;
+	wire [3:1] match;
 	reg dummy;
 	wire unused;
 	assign unused = |dummy;
-	assign match[0] = (i_sptlb_rdata[(56 - $clog2(SPAGE_TLB_ENTRIES)) - 1:36] == i_va[31:12 + $clog2(SPAGE_TLB_ENTRIES)]) && i_sptlb_rdav;
+	wire [SPAGE_TLB_WAYS - 1:0] match_sp;
+	wire [(SPAGE_TLB_WAYS * 8) - 1:0] fsr_sp;
+	wire [(SPAGE_TLB_WAYS * 32) - 1:0] phy_sp;
+	wire [SPAGE_TLB_WAYS - 1:0] cacheable_sp;
+	wire [SPAGE_TLB_WAYS - 1:0] wt_sp;
+	wire [SPAGE_TLB_WAYS - 1:0] bufferable_sp;
+	genvar _gv_w_3;
+	function automatic is_apsr_ok;
+		input user;
+		input rd;
+		input wr;
+		input [3:0] apsr;
+		casez (apsr)
+			APSR_NA_NA: is_apsr_ok = APSR_BAD;
+			APSR_RO_RO: is_apsr_ok = !wr;
+			APSR_RO_NA: is_apsr_ok = !user && rd;
+			APSR_RW_NA: is_apsr_ok = !user;
+			APSR_RW_RO: is_apsr_ok = !user | (user && rd);
+			APSR_RW_RW: is_apsr_ok = APSR_OK;
+			default: is_apsr_ok = APSR_BAD;
+		endcase
+	endfunction
+	function automatic [7:0] get_fsr_spage;
+		input [1:0] ap_sel;
+		input user;
+		input rd;
+		input wr;
+		input [1:0] sr;
+		input [31:0] dac_reg;
+		input [15:0] tlb;
+		reg [3:0] apsr;
+		reg [1:0] dac;
+		reg [5:0] unused;
+		begin
+			{unused, apsr[3:2]} = tlb[11:4] >> ({30'd0, ap_sel} << 32'd1);
+			dac[1:0] = dac_reg[tlb[15:12] * 2+:2];
+			apsr[1:0] = sr[1:0];
+			unused[1:0] = unused[1:0] | tlb[3:2];
+			if (tlb[1:0] == 2'b00)
+				get_fsr_spage = {tlb[15:12], FSR_PAGE_TRANSLATION_FAULT};
+			else if (tlb[1:0] == 2'b11)
+				get_fsr_spage = {tlb[15:12], FSR_L2_EXTERNAL_ABORT};
+			else
+				case (dac)
+					DAC_MANAGER: get_fsr_spage = 1'sb0;
+					DAC_CLIENT:
+						if (is_apsr_ok(user, rd, wr, apsr) == APSR_OK)
+							get_fsr_spage = 1'sb0;
+						else
+							get_fsr_spage = {tlb[15:12], FSR_PAGE_PERMISSION_FAULT};
+					default: get_fsr_spage = {tlb[15:12], FSR_PAGE_DOMAIN_FAULT};
+				endcase
+		end
+	endfunction
+	generate
+		for (_gv_w_3 = 0; _gv_w_3 < SPAGE_TLB_WAYS; _gv_w_3 = _gv_w_3 + 1) begin : g_sp_way
+			localparam w = _gv_w_3;
+			assign match_sp[w] = (i_sptlb_rdata[(w * (56 - $clog2(SPAGE_TLB_ENTRIES))) + (((56 - $clog2(SPAGE_TLB_ENTRIES)) - 1) >= 36 ? (56 - $clog2(SPAGE_TLB_ENTRIES)) - 1 : (((56 - $clog2(SPAGE_TLB_ENTRIES)) - 1) + (((56 - $clog2(SPAGE_TLB_ENTRIES)) - 1) >= 36 ? (56 - $clog2(SPAGE_TLB_ENTRIES)) - 36 : $clog2(SPAGE_TLB_ENTRIES) - 18)) - 1)-:(((56 - $clog2(SPAGE_TLB_ENTRIES)) - 1) >= 36 ? (56 - $clog2(SPAGE_TLB_ENTRIES)) - 36 : $clog2(SPAGE_TLB_ENTRIES) - 18)] == i_va[31:12 + $clog2(SPAGE_TLB_ENTRIES)]) && i_sptlb_rdav[w];
+			assign fsr_sp[w * 8+:8] = get_fsr_spage(i_va[11:10], i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_sptlb_rdata[(w * (56 - $clog2(SPAGE_TLB_ENTRIES))) + 15-:16]);
+			assign phy_sp[w * 32+:32] = {i_sptlb_rdata[(w * (56 - $clog2(SPAGE_TLB_ENTRIES))) + 35-:20], i_va[11:0]};
+			assign cacheable_sp[w] = i_sptlb_rdata[(w * (56 - $clog2(SPAGE_TLB_ENTRIES))) + 3];
+			assign wt_sp[w] = i_sptlb_rdata[(w * (56 - $clog2(SPAGE_TLB_ENTRIES))) + 3-:2] == 2'b10;
+			assign bufferable_sp[w] = i_sptlb_rdata[(w * (56 - $clog2(SPAGE_TLB_ENTRIES))) + 2];
+		end
+	endgenerate
 	assign match[1] = (i_lptlb_rdata[(48 - $clog2(LPAGE_TLB_ENTRIES)) - 1:32] == i_va[31:16 + $clog2(LPAGE_TLB_ENTRIES)]) && i_lptlb_rdav;
 	assign match[2] = (i_setlb_rdata[(44 - $clog2(SECTION_TLB_ENTRIES)) - 1:32] == i_va[31:20 + $clog2(SECTION_TLB_ENTRIES)]) && i_setlb_rdav;
 	assign match[3] = (i_fptlb_rdata[(54 - $clog2(FPAGE_TLB_ENTRIES)) - 1:32] == i_va[31:10 + $clog2(FPAGE_TLB_ENTRIES)]) && i_fptlb_rdav;
@@ -13044,21 +13122,6 @@ module zap_tlb_check (
 			o_hit_ok <= ((!walk_nxt && !(|fsr_nxt[3:0])) && cacheable_nxt) && !(i_wr && wt_nxt);
 			o_hit_ok_short <= ((!walk_nxt && !(|fsr_nxt[3:0])) && cacheable_nxt) && !(i_wr && wt_nxt);
 		end
-	function automatic is_apsr_ok;
-		input user;
-		input rd;
-		input wr;
-		input [3:0] apsr;
-		casez (apsr)
-			APSR_NA_NA: is_apsr_ok = APSR_BAD;
-			APSR_RO_RO: is_apsr_ok = !wr;
-			APSR_RO_NA: is_apsr_ok = !user && rd;
-			APSR_RW_NA: is_apsr_ok = !user;
-			APSR_RW_RO: is_apsr_ok = !user | (user && rd);
-			APSR_RW_RW: is_apsr_ok = APSR_OK;
-			default: is_apsr_ok = APSR_BAD;
-		endcase
-	endfunction
 	function automatic [7:0] get_fsr_fpage;
 		input user;
 		input rd;
@@ -13144,38 +13207,6 @@ module zap_tlb_check (
 				endcase
 		end
 	endfunction
-	function automatic [7:0] get_fsr_spage;
-		input [1:0] ap_sel;
-		input user;
-		input rd;
-		input wr;
-		input [1:0] sr;
-		input [31:0] dac_reg;
-		input [15:0] tlb;
-		reg [3:0] apsr;
-		reg [1:0] dac;
-		reg [5:0] unused;
-		begin
-			{unused, apsr[3:2]} = tlb[11:4] >> ({30'd0, ap_sel} << 32'd1);
-			dac[1:0] = dac_reg[tlb[15:12] * 2+:2];
-			apsr[1:0] = sr[1:0];
-			unused[1:0] = unused[1:0] | tlb[3:2];
-			if (tlb[1:0] == 2'b00)
-				get_fsr_spage = {tlb[15:12], FSR_PAGE_TRANSLATION_FAULT};
-			else if (tlb[1:0] == 2'b11)
-				get_fsr_spage = {tlb[15:12], FSR_L2_EXTERNAL_ABORT};
-			else
-				case (dac)
-					DAC_MANAGER: get_fsr_spage = 1'sb0;
-					DAC_CLIENT:
-						if (is_apsr_ok(user, rd, wr, apsr) == APSR_OK)
-							get_fsr_spage = 1'sb0;
-						else
-							get_fsr_spage = {tlb[15:12], FSR_PAGE_PERMISSION_FAULT};
-					default: get_fsr_spage = {tlb[15:12], FSR_PAGE_DOMAIN_FAULT};
-				endcase
-		end
-	endfunction
 	always @(*) begin : tlb_match_logic
 		if (_sv2v_0)
 			;
@@ -13187,47 +13218,49 @@ module zap_tlb_check (
 		cacheable_nxt = MMU_OFF_CACHEABLE;
 		wt_nxt = 0;
 		bufferable_nxt = 0;
-		if (i_mmu_en && (i_rd || i_wr))
-			case (match[3:0])
-				4'b0001: begin
-					fsr_nxt = get_fsr_spage(i_va[11:10], i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_sptlb_rdata[15:0]);
-					phy_addr_nxt = {i_sptlb_rdata[35:16], i_va[11:0]};
-					{dummy_nxt, cacheable_nxt} = i_sptlb_rdata[3:2] >> 1;
-					wt_nxt = i_sptlb_rdata[3:2] == 2'b10;
-					bufferable_nxt = i_sptlb_rdata[2];
+		if (i_mmu_en && (i_rd || i_wr)) begin
+			if (!(|match_sp) && !(|match))
+				walk_nxt = 1'd1;
+			else begin
+				fsr_nxt = 1'sb0;
+				phy_addr_nxt = 1'sb0;
+				cacheable_nxt = 1'b0;
+				wt_nxt = 1'b0;
+				bufferable_nxt = 1'b0;
+				begin : sv2v_autoblock_1
+					reg [31:0] w;
+					for (w = 0; w < SPAGE_TLB_WAYS; w = w + 1)
+						if (match_sp[w]) begin
+							fsr_nxt = fsr_nxt | fsr_sp[w * 8+:8];
+							phy_addr_nxt = phy_addr_nxt | phy_sp[w * 32+:32];
+							cacheable_nxt = cacheable_nxt | cacheable_sp[w];
+							wt_nxt = wt_nxt | wt_sp[w];
+							bufferable_nxt = bufferable_nxt | bufferable_sp[w];
+						end
 				end
-				4'b0010: begin
-					fsr_nxt = get_fsr_lpage(i_va[15:14], i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_lptlb_rdata[15:0]);
-					phy_addr_nxt = {i_lptlb_rdata[31:16], i_va[15:0]};
-					{dummy_nxt, cacheable_nxt} = i_lptlb_rdata[3:2] >> 1;
-					wt_nxt = i_lptlb_rdata[3:2] == 2'b10;
-					bufferable_nxt = i_lptlb_rdata[2];
+				if (match[1]) begin
+					fsr_nxt = fsr_nxt | get_fsr_lpage(i_va[15:14], i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_lptlb_rdata[15:0]);
+					phy_addr_nxt = phy_addr_nxt | {i_lptlb_rdata[31:16], i_va[15:0]};
+					cacheable_nxt = cacheable_nxt | i_lptlb_rdata[3];
+					wt_nxt = wt_nxt | (i_lptlb_rdata[3:2] == 2'b10);
+					bufferable_nxt = bufferable_nxt | i_lptlb_rdata[2];
 				end
-				4'b0100: begin
-					fsr_nxt = get_fsr_section(i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_setlb_rdata[19:0]);
-					phy_addr_nxt = {i_setlb_rdata[31:20], i_va[19:0]};
-					{dummy_nxt, cacheable_nxt} = i_setlb_rdata[3:2] >> 1;
-					wt_nxt = i_setlb_rdata[3:2] == 2'b10;
-					bufferable_nxt = i_setlb_rdata[2];
+				if (match[2]) begin
+					fsr_nxt = fsr_nxt | get_fsr_section(i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_setlb_rdata[19:0]);
+					phy_addr_nxt = phy_addr_nxt | {i_setlb_rdata[31:20], i_va[19:0]};
+					cacheable_nxt = cacheable_nxt | i_setlb_rdata[3];
+					wt_nxt = wt_nxt | (i_setlb_rdata[3:2] == 2'b10);
+					bufferable_nxt = bufferable_nxt | i_setlb_rdata[2];
 				end
-				4'b1000: begin
-					fsr_nxt = get_fsr_fpage(i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_fptlb_rdata[9:0]);
-					phy_addr_nxt = {i_fptlb_rdata[31:10], i_va[9:0]};
-					{dummy_nxt, cacheable_nxt} = i_fptlb_rdata[3:2] >> 1;
-					wt_nxt = i_fptlb_rdata[3:2] == 2'b10;
-					bufferable_nxt = i_fptlb_rdata[2];
+				if (match[3]) begin
+					fsr_nxt = fsr_nxt | get_fsr_fpage(i_cpsr[ZAP_CPSR_MODE:0] == USR, i_rd, i_wr, i_sr, i_dac_reg, i_fptlb_rdata[9:0]);
+					phy_addr_nxt = phy_addr_nxt | {i_fptlb_rdata[31:10], i_va[9:0]};
+					cacheable_nxt = cacheable_nxt | i_fptlb_rdata[3];
+					wt_nxt = wt_nxt | (i_fptlb_rdata[3:2] == 2'b10);
+					bufferable_nxt = bufferable_nxt | i_fptlb_rdata[2];
 				end
-				4'b0000: walk_nxt = 1'd1;
-				default: begin
-					fsr_nxt = 1'sbx;
-					phy_addr_nxt = 1'sbx;
-					walk_nxt = 1'sbx;
-					far_nxt = 1'sbx;
-					cacheable_nxt = 1'sbx;
-					wt_nxt = 1'sbx;
-					bufferable_nxt = 1'sbx;
-				end
-			endcase
+			end
+		end
 	end
 	initial _sv2v_0 = 0;
 endmodule
@@ -13845,6 +13878,7 @@ module zap_tlb (
 	parameter [31:0] SECTION_TLB_ENTRIES = 32'd8;
 	parameter [31:0] FPAGE_TLB_ENTRIES = 32'd8;
 	parameter [31:0] CPSR_MODE = 32'd4;
+	parameter [31:0] SPAGE_TLB_WAYS = 32'd1;
 	parameter [0:0] CHECK_WALK = 1'b0;
 	parameter [0:0] MMU_OFF_CACHEABLE = 1'd0;
 	input wire i_clk;
@@ -14164,20 +14198,21 @@ module zap_tlb (
 	wire [(48 - $clog2(LPAGE_TLB_ENTRIES)) - 1:0] lptlb_rdata;
 	wire [(48 - $clog2(LPAGE_TLB_ENTRIES)) - 1:0] lptlb_rdata_pre;
 	wire [(56 - $clog2(SPAGE_TLB_ENTRIES)) - 1:0] sptlb_wdata;
-	wire [(56 - $clog2(SPAGE_TLB_ENTRIES)) - 1:0] sptlb_rdata;
-	wire [(56 - $clog2(SPAGE_TLB_ENTRIES)) - 1:0] sptlb_rdata_pre;
+	wire [(SPAGE_TLB_WAYS * (56 - $clog2(SPAGE_TLB_ENTRIES))) - 1:0] sptlb_rdata;
+	wire [(SPAGE_TLB_WAYS * (56 - $clog2(SPAGE_TLB_ENTRIES))) - 1:0] sptlb_rdata_pre;
 	wire [(54 - $clog2(FPAGE_TLB_ENTRIES)) - 1:0] fptlb_wdata;
 	wire [(54 - $clog2(FPAGE_TLB_ENTRIES)) - 1:0] fptlb_rdata;
 	wire [(54 - $clog2(FPAGE_TLB_ENTRIES)) - 1:0] fptlb_rdata_pre;
 	wire sptlb_wen;
 	wire lptlb_wen;
 	wire setlb_wen;
-	wire sptlb_ren;
 	wire lptlb_ren;
 	wire setlb_ren;
-	wire sptlb_ren_pre;
 	wire lptlb_ren_pre;
 	wire setlb_ren_pre;
+	wire [SPAGE_TLB_WAYS - 1:0] sptlb_ren;
+	wire [SPAGE_TLB_WAYS - 1:0] sptlb_ren_pre;
+	wire [SPAGE_TLB_WAYS - 1:0] sptlb_wen_way;
 	wire fptlb_ren;
 	wire fptlb_ren_pre;
 	wire fptlb_wen;
@@ -14312,24 +14347,80 @@ module zap_tlb (
 		.o_rdata_pre(lptlb_rdata_pre),
 		.o_rdav_pre(lptlb_ren_pre)
 	);
-	zap_mem_inv_block #(
-		.WIDTH(56 - $clog2(SPAGE_TLB_ENTRIES)),
-		.DEPTH(SPAGE_TLB_ENTRIES),
-		.READ_THROUGH(CHECK_WALK)
-	) u_spage_tlb(
-		.i_clk(i_clk),
-		.i_reset(i_reset),
-		.i_clken(!i_hold),
-		.i_wdata(sptlb_wdata),
-		.i_wen(sptlb_wen),
-		.i_inv(i_inv | !i_mmu_en),
-		.i_raddr(i_address_nxt[(12 + $clog2(SPAGE_TLB_ENTRIES)) - 1:12]),
-		.i_waddr(tlb_address[(12 + $clog2(SPAGE_TLB_ENTRIES)) - 1:12]),
-		.o_rdata(sptlb_rdata),
-		.o_rdav(sptlb_ren),
-		.o_rdata_pre(sptlb_rdata_pre),
-		.o_rdav_pre(sptlb_ren_pre)
-	);
+	reg [SPAGE_TLB_ENTRIES - 1:0] sp_victim_lo;
+	reg [SPAGE_TLB_ENTRIES - 1:0] sp_victim_hi;
+	reg [1:0] sp_way;
+	reg sp_again;
+	generate
+		if (SPAGE_TLB_WAYS > 1) begin : l_sp_ways
+			reg [31:12] sp_last_page;
+			reg [1:0] sp_last_way;
+			reg sp_last_valid;
+			(* preserve, dont_retime *) reg [31:12] sp_page;
+			wire sp_again_nxt = sp_last_valid && (sp_page == sp_last_page);
+			always @(posedge i_clk) begin
+				sp_page <= tlb_address[31:12];
+				sp_again <= sp_again_nxt;
+				sp_way <= (sp_again_nxt ? sp_last_way : {sp_victim_hi[sp_page[(12 + $clog2(SPAGE_TLB_ENTRIES)) - 1:12]], sp_victim_lo[sp_page[(12 + $clog2(SPAGE_TLB_ENTRIES)) - 1:12]]});
+				if (sptlb_wen) begin
+					sp_last_page <= tlb_address[31:12];
+					sp_last_way <= sp_way;
+					sp_last_valid <= 1'd1;
+					if (!sp_again) begin
+						sp_victim_lo[tlb_address[(12 + $clog2(SPAGE_TLB_ENTRIES)) - 1:12]] <= !sp_way[0];
+						sp_victim_hi[tlb_address[(12 + $clog2(SPAGE_TLB_ENTRIES)) - 1:12]] <= (SPAGE_TLB_WAYS > 2) && (sp_way[1] ^ sp_way[0]);
+					end
+				end
+				if ((i_reset || i_inv) || !i_mmu_en)
+					sp_last_valid <= 1'd0;
+				if (i_reset) begin
+					sp_victim_lo <= 1'sb0;
+					sp_victim_hi <= 1'sb0;
+					sp_way <= 1'sb0;
+					sp_again <= 1'd0;
+				end
+			end
+		end
+		else begin : l_sp_one_way
+			wire [SPAGE_TLB_ENTRIES:1] sv2v_tmp_AFC39;
+			assign sv2v_tmp_AFC39 = 1'sb0;
+			always @(*) sp_victim_lo = sv2v_tmp_AFC39;
+			wire [SPAGE_TLB_ENTRIES:1] sv2v_tmp_F4262;
+			assign sv2v_tmp_F4262 = 1'sb0;
+			always @(*) sp_victim_hi = sv2v_tmp_F4262;
+			wire [2:1] sv2v_tmp_A8694;
+			assign sv2v_tmp_A8694 = 1'sb0;
+			always @(*) sp_way = sv2v_tmp_A8694;
+			wire [1:1] sv2v_tmp_F4695;
+			assign sv2v_tmp_F4695 = 1'd0;
+			always @(*) sp_again = sv2v_tmp_F4695;
+		end
+	endgenerate
+	genvar _gv_w_4;
+	generate
+		for (_gv_w_4 = 0; _gv_w_4 < SPAGE_TLB_WAYS; _gv_w_4 = _gv_w_4 + 1) begin : l_spage_way
+			localparam w = _gv_w_4;
+			assign sptlb_wen_way[w] = sptlb_wen && (sp_way == w);
+			zap_mem_inv_block #(
+				.WIDTH(56 - $clog2(SPAGE_TLB_ENTRIES)),
+				.DEPTH(SPAGE_TLB_ENTRIES),
+				.READ_THROUGH(CHECK_WALK)
+			) u_spage_tlb(
+				.i_clk(i_clk),
+				.i_reset(i_reset),
+				.i_clken(!i_hold),
+				.i_wdata(sptlb_wdata),
+				.i_wen(sptlb_wen_way[w]),
+				.i_inv(i_inv | !i_mmu_en),
+				.i_raddr(i_address_nxt[(12 + $clog2(SPAGE_TLB_ENTRIES)) - 1:12]),
+				.i_waddr(tlb_address[(12 + $clog2(SPAGE_TLB_ENTRIES)) - 1:12]),
+				.o_rdata(sptlb_rdata[w * (56 - $clog2(SPAGE_TLB_ENTRIES))+:56 - $clog2(SPAGE_TLB_ENTRIES)]),
+				.o_rdav(sptlb_ren[w]),
+				.o_rdata_pre(sptlb_rdata_pre[w * (56 - $clog2(SPAGE_TLB_ENTRIES))+:56 - $clog2(SPAGE_TLB_ENTRIES)]),
+				.o_rdav_pre(sptlb_ren_pre[w])
+			);
+		end
+	endgenerate
 	zap_mem_inv_block #(
 		.WIDTH(54 - $clog2(FPAGE_TLB_ENTRIES)),
 		.DEPTH(FPAGE_TLB_ENTRIES),
@@ -14353,6 +14444,7 @@ module zap_tlb (
 		.SPAGE_TLB_ENTRIES(SPAGE_TLB_ENTRIES),
 		.SECTION_TLB_ENTRIES(SECTION_TLB_ENTRIES),
 		.FPAGE_TLB_ENTRIES(FPAGE_TLB_ENTRIES),
+		.SPAGE_TLB_WAYS(SPAGE_TLB_WAYS),
 		.CPSR_MODE(ZAP_CPSR_MODE),
 		.MMU_OFF_CACHEABLE(MMU_OFF_CACHEABLE)
 	) u_zap_tlb_check(
@@ -14495,6 +14587,7 @@ module zap_top (
 	parameter [31:0] DATA_SECTION_TLB_ENTRIES = 32'd64;
 	parameter [31:0] DATA_LPAGE_TLB_ENTRIES = 32'd32;
 	parameter [31:0] DATA_SPAGE_TLB_ENTRIES = 32'd256;
+	parameter [31:0] DATA_SPAGE_TLB_WAYS = 32'd1;
 	parameter [31:0] DATA_FPAGE_TLB_ENTRIES = 32'd64;
 	parameter [31:0] DATA_CACHE_SIZE = 32'd8192;
 	parameter [31:0] DATA_CACHE_LINE = 32'd64;
@@ -14502,6 +14595,7 @@ module zap_top (
 	parameter [31:0] CODE_SECTION_TLB_ENTRIES = 32'd64;
 	parameter [31:0] CODE_LPAGE_TLB_ENTRIES = 32'd32;
 	parameter [31:0] CODE_SPAGE_TLB_ENTRIES = 32'd256;
+	parameter [31:0] CODE_SPAGE_TLB_WAYS = 32'd1;
 	parameter [31:0] CODE_FPAGE_TLB_ENTRIES = 32'd64;
 	parameter [31:0] CODE_CACHE_SIZE = 32'd8192;
 	parameter [31:0] CODE_CACHE_LINE = 32'd64;
@@ -15278,6 +15372,7 @@ module zap_top (
 			zap_dcache #(
 				.CACHE_SIZE(DATA_CACHE_SIZE),
 				.SPAGE_TLB_ENTRIES(DATA_SPAGE_TLB_ENTRIES),
+				.SPAGE_TLB_WAYS(DATA_SPAGE_TLB_WAYS),
 				.LPAGE_TLB_ENTRIES(DATA_LPAGE_TLB_ENTRIES),
 				.SECTION_TLB_ENTRIES(DATA_SECTION_TLB_ENTRIES),
 				.FPAGE_TLB_ENTRIES(DATA_FPAGE_TLB_ENTRIES),
@@ -15377,6 +15472,7 @@ module zap_top (
 			zap_cache #(
 				.CACHE_SIZE(CODE_CACHE_SIZE),
 				.SPAGE_TLB_ENTRIES(CODE_SPAGE_TLB_ENTRIES),
+				.SPAGE_TLB_WAYS(CODE_SPAGE_TLB_WAYS),
 				.LPAGE_TLB_ENTRIES(CODE_LPAGE_TLB_ENTRIES),
 				.SECTION_TLB_ENTRIES(CODE_SECTION_TLB_ENTRIES),
 				.FPAGE_TLB_ENTRIES(CODE_FPAGE_TLB_ENTRIES),

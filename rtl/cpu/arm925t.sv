@@ -36,15 +36,29 @@ module arm925t #(
 	// 1 puts the exception vectors, and the reset address, at 0xFFFF0000.
 	parameter bit          HIVECS      = 1'b0,
 	// Cache geometry: 2-way with LRU replacement, 16-byte lines
-	// (docs/CPU.md). The ARM925T has 16 KB I / 8 KB D; the I-cache here is
-	// 32 KB (1,024 sets), and ICACHE_SIZE = 16384 gives the phone's size.
-	parameter int          ICACHE_SIZE     = 32768,
+	// (docs/CPU.md). The ARM925T has 16 KB I / 8 KB D. The I-cache is the
+	// phone's 16 KB (512 sets); the D-cache is 16 KB (512 sets, VA[12:4]),
+	// twice the phone's: with 8 KB the core fell 4 % short of a real phone
+	// in SPMark04's fill-rate test, with 16 KB nothing is below it, and
+	// larger caches ran well above the phone (docs/PROGRESS-LOG.md,
+	// 2026-11-15). CP15 still reports the phone's 8 KB, and by-index
+	// maintenance visits every physical set colour of the named
+	// architectural set. 32768 gives the caches of the releases up to
+	// NGage_20261114.
+	parameter int          ICACHE_SIZE     = 16384,
 	parameter int          ICACHE_WAYS     = 2,
-	// The D-cache is 32 KB two-way (1,024 sets, VA[13:4]); CP15 still reports
-	// the phone's 8 KB, and by-index maintenance visits every physical set
-	// colour of the named architectural set (docs/CPU.md).
+	parameter int          DCACHE_SIZE     = 16384,
 	parameter int          DCACHE_WAYS     = 2,
-	parameter int          CACHE_LINE      = 16
+	parameter int          CACHE_LINE      = 16,
+	// The small-page TLBs: ways (1, 2 or 4) of *_SPAGE_SETS entries each,
+	// indexed by the page number's low bits. The ARM925T's TLBs are
+	// 64-entry and fully associative; with one way, two pages 1 MB apart
+	// (the same offset in two EKA1 chunks) evict each other at every
+	// access (rtl/cpu/zap/zap_tlb.sv).
+	parameter int          DTLB_SPAGE_WAYS = 2,
+	parameter int          DTLB_SPAGE_SETS = 256,
+	parameter int          ITLB_SPAGE_WAYS = 2,
+	parameter int          ITLB_SPAGE_SETS = 256
 ) (
 	input  logic        clk,
 	input  logic        reset,
@@ -115,9 +129,13 @@ module arm925t #(
 		.CODE_CACHE_SIZE     (32'(ICACHE_SIZE)),
 		.CODE_CACHE_LINE     (32'(CACHE_LINE)),
 		.CODE_CACHE_WAYS     (32'(ICACHE_WAYS)),
-		.DATA_CACHE_SIZE     (32'd32768),
+		.DATA_CACHE_SIZE     (32'(DCACHE_SIZE)),
 		.DATA_CACHE_LINE     (32'(CACHE_LINE)),
-		.DATA_CACHE_WAYS     (32'(DCACHE_WAYS))
+		.DATA_CACHE_WAYS     (32'(DCACHE_WAYS)),
+		.DATA_SPAGE_TLB_ENTRIES (32'(DTLB_SPAGE_SETS)),
+		.DATA_SPAGE_TLB_WAYS    (32'(DTLB_SPAGE_WAYS)),
+		.CODE_SPAGE_TLB_ENTRIES (32'(ITLB_SPAGE_SETS)),
+		.CODE_SPAGE_TLB_WAYS    (32'(ITLB_SPAGE_WAYS))
 	) u_zap (
 		.i_clk    (clk),
 		.i_reset  (reset),

@@ -28,6 +28,9 @@ module zap_tlb_check #(
         parameter logic [31:0] SECTION_TLB_ENTRIES = 32'd8,
         parameter logic [31:0] FPAGE_TLB_ENTRIES   = 32'd8,
         parameter logic [31:0] CPSR_MODE           = 32'd4,
+        // ARM925T: ways of the small-page TLB (1, 2 or 4), each of
+        // SPAGE_TLB_ENTRIES sets (zap_tlb).
+        parameter logic [31:0] SPAGE_TLB_WAYS      = 32'd1,
         // ARM925T: accesses with the MMU off are cacheable (1 for the
         // instruction side: with the MMU off and the I-cache on, every
         // instruction fetch is cacheable; data accesses are not).
@@ -48,8 +51,8 @@ input logic [CPSR_MODE:0]                i_cpsr,         // CPSR.
 input logic [1:0]                        i_sr,           // Status Register.
 input logic [31:0]                       i_dac_reg,      // Domain Access Control Register.
 
-input logic [`ZAP_SPAGE_TLB_WDT  -1:0]   i_sptlb_rdata,  // Small page TLB.
-input logic                              i_sptlb_rdav,   // TLB entry valid.
+input logic [SPAGE_TLB_WAYS-1:0][`ZAP_SPAGE_TLB_WDT-1:0] i_sptlb_rdata, // Small page TLB, a read per way.
+input logic [SPAGE_TLB_WAYS-1:0]         i_sptlb_rdav,   // TLB entry valid, per way.
 
 input logic [`ZAP_LPAGE_TLB_WDT  -1:0]   i_lptlb_rdata,  // Large page TLB read data.
 input logic                              i_lptlb_rdav,   // Large page TLB valid.
@@ -79,14 +82,37 @@ output logic [31:0]                     o_phy_addr      // Physical address.
 localparam logic APSR_BAD = 1'd0;
 localparam logic APSR_OK  = 1'd1;
 
-logic [3:0] match;
+logic [3:1] match;
 logic dummy;
 logic unused;
 
 assign unused = |dummy;
 
-// 0: Small Page
-assign  match[0] = (i_sptlb_rdata[`ZAP_SPAGE_TLB__TAG] == i_va[`ZAP_VA__SPAGE_TAG]) && i_sptlb_rdav;
+// 0: Small Page. ARM925T: one match and one set of results per way; the
+// ways of a set never hold the same page (a page is installed only after
+// a miss in every way), so at most one of them matches.
+logic [SPAGE_TLB_WAYS-1:0]       match_sp;
+logic [SPAGE_TLB_WAYS-1:0][7:0]  fsr_sp;
+logic [SPAGE_TLB_WAYS-1:0][31:0] phy_sp;
+logic [SPAGE_TLB_WAYS-1:0]       cacheable_sp, wt_sp, bufferable_sp;
+
+for (genvar w = 0; w < SPAGE_TLB_WAYS; w++) begin : g_sp_way
+        assign match_sp[w] = (i_sptlb_rdata[w][`ZAP_SPAGE_TLB__TAG] == i_va[`ZAP_VA__SPAGE_TAG]) && i_sptlb_rdav[w];
+        assign fsr_sp[w] = get_fsr_spage
+        (
+                i_va[`ZAP_VA__SPAGE_AP_SEL],
+                i_cpsr[ZAP_CPSR_MODE:0] == USR,
+                i_rd,
+                i_wr,
+                i_sr,
+                i_dac_reg,
+                i_sptlb_rdata[w][15:0]
+        );
+        assign phy_sp[w]        = {i_sptlb_rdata[w][`ZAP_SPAGE_TLB__BASE], i_va[11:0]};
+        assign cacheable_sp[w]  = i_sptlb_rdata[w][3];
+        assign wt_sp[w]         = i_sptlb_rdata[w][3:2] == 2'b10;
+        assign bufferable_sp[w] = i_sptlb_rdata[w][2];
+end : g_sp_way
 
 // 1: Large Page
 assign  match[1] = (i_lptlb_rdata[`ZAP_LPAGE_TLB__TAG] == i_va[`ZAP_VA__LPAGE_TAG]) && i_lptlb_rdav;
@@ -151,113 +177,95 @@ begin : tlb_match_logic
 
                 if ( i_mmu_en && (i_rd || i_wr) ) // MMU enabled and R/W operation.
                 begin
-                        case ( match[3:0] )
-
-                        4'b0001:
-                        begin
-                                // Entry found in small page TLB.
-                                fsr_nxt = get_fsr_spage
-                                (
-                                        i_va[`ZAP_VA__SPAGE_AP_SEL],
-                                        i_cpsr[ZAP_CPSR_MODE:0] == USR,
-                                        i_rd,
-                                        i_wr,
-                                        i_sr,
-                                        i_dac_reg,
-                                        i_sptlb_rdata[15:0]
-                                ) ;
-
-                                phy_addr_nxt = {i_sptlb_rdata[`ZAP_SPAGE_TLB__BASE], i_va[11:0]};
-                                {dummy_nxt, cacheable_nxt} = i_sptlb_rdata[`ZAP_SECTION_TLB__CB] >> 1;
-                                wt_nxt = i_sptlb_rdata[3:2] == 2'b10;
-                                bufferable_nxt = i_sptlb_rdata[2];
-
-                        end
-
-                        4'b0010:
-                        begin
-                                // Entry found in large page TLB.
-                                fsr_nxt = get_fsr_lpage
-                                (
-                                        i_va[`ZAP_VA__LPAGE_AP_SEL],
-                                        i_cpsr[ZAP_CPSR_MODE:0] == USR,
-                                        i_rd,
-                                        i_wr,
-                                        i_sr,
-                                        i_dac_reg,
-                                        i_lptlb_rdata[15:0]
-                                ) ;
-
-                                phy_addr_nxt = {i_lptlb_rdata[`ZAP_LPAGE_TLB__BASE], i_va[15:0]};
-                                {dummy_nxt, cacheable_nxt} = i_lptlb_rdata[`ZAP_LPAGE_TLB__CB] >> 1;
-                                wt_nxt = i_lptlb_rdata[3:2] == 2'b10;
-                                bufferable_nxt = i_lptlb_rdata[2];
-                        end
-
-                        4'b0100:
-                        begin
-                                // Entry found in section TLB.
-                                fsr_nxt = get_fsr_section
-                                (
-                                        i_cpsr[ZAP_CPSR_MODE:0] == USR,
-                                        i_rd,
-                                        i_wr,
-                                        i_sr,
-                                        i_dac_reg,
-                                        i_setlb_rdata[19:0]
-                                ) ;
-
-                                phy_addr_nxt = {i_setlb_rdata[`ZAP_SECTION_TLB__BASE], i_va[19:0]};
-                                {dummy_nxt, cacheable_nxt} = i_setlb_rdata[`ZAP_SECTION_TLB__CB] >> 1;
-                                wt_nxt = i_setlb_rdata[3:2] == 2'b10;
-                                bufferable_nxt = i_setlb_rdata[2];
-                        end
-
-                        4'b1000:
-                        begin
-                                // Entry found in fine page TLB.
-                                fsr_nxt = get_fsr_fpage
-                                (
-                                        i_cpsr[ZAP_CPSR_MODE:0] == USR,
-                                        i_rd,
-                                        i_wr,
-                                        i_sr,
-                                        i_dac_reg,
-                                        i_fptlb_rdata[9:0]
-                                );
-
-                                phy_addr_nxt = {i_fptlb_rdata[`ZAP_FPAGE_TLB__BASE], i_va[9:0]};
-                                {dummy_nxt, cacheable_nxt} = i_fptlb_rdata[`ZAP_FPAGE_TLB__CB] >> 1;
-                                wt_nxt = i_fptlb_rdata[3:2] == 2'b10;
-                                bufferable_nxt = i_fptlb_rdata[2];
-                        end
-
-                        4'b0000:
+                        if ( !(|match_sp) && !(|match) )
                         begin
                                 // No match. Trigger TLB walk.
                                 walk_nxt = 1'd1;
                         end
-
-                        // ================================================
-                        // Default Section
-                        // ================================================
-
-                        default: // Mimics full case.
+                        else
                         begin
-                                //
-                                // OK to assign X. Never happens. Synthsis wil
-                                // OPTIMIZE. OK to do for FPGA synthesis.
-                                //
-                                fsr_nxt       = 'X;
-                                phy_addr_nxt  = 'X;
-                                walk_nxt      = 'X;
-                                far_nxt       = 'X;
-                                cacheable_nxt = 'X;
-                                wt_nxt        = 'X;
-                                bufferable_nxt = 'X;
-                        end
-                        endcase
+                                // ARM925T: the buffers hold different page
+                                // sizes and the small-page ways different
+                                // pages, so one source matches: its results
+                                // are selected by AND-OR, without a
+                                // priority among the sources.
+                                fsr_nxt        = '0;
+                                phy_addr_nxt   = '0;
+                                cacheable_nxt  = 1'b0;
+                                wt_nxt         = 1'b0;
+                                bufferable_nxt = 1'b0;
 
+                                // Entry found in a way of the small page TLB.
+                                for ( int unsigned w = 0 ; w < SPAGE_TLB_WAYS ; w++ )
+                                begin
+                                        if ( match_sp[w] )
+                                        begin
+                                                fsr_nxt        |= fsr_sp[w];
+                                                phy_addr_nxt   |= phy_sp[w];
+                                                cacheable_nxt  |= cacheable_sp[w];
+                                                wt_nxt         |= wt_sp[w];
+                                                bufferable_nxt |= bufferable_sp[w];
+                                        end
+                                end
+
+                                if ( match[1] )
+                                begin
+                                        // Entry found in large page TLB.
+                                        fsr_nxt |= get_fsr_lpage
+                                        (
+                                                i_va[`ZAP_VA__LPAGE_AP_SEL],
+                                                i_cpsr[ZAP_CPSR_MODE:0] == USR,
+                                                i_rd,
+                                                i_wr,
+                                                i_sr,
+                                                i_dac_reg,
+                                                i_lptlb_rdata[15:0]
+                                        ) ;
+
+                                        phy_addr_nxt   |= {i_lptlb_rdata[`ZAP_LPAGE_TLB__BASE], i_va[15:0]};
+                                        cacheable_nxt  |= i_lptlb_rdata[3];
+                                        wt_nxt         |= i_lptlb_rdata[3:2] == 2'b10;
+                                        bufferable_nxt |= i_lptlb_rdata[2];
+                                end
+
+                                if ( match[2] )
+                                begin
+                                        // Entry found in section TLB.
+                                        fsr_nxt |= get_fsr_section
+                                        (
+                                                i_cpsr[ZAP_CPSR_MODE:0] == USR,
+                                                i_rd,
+                                                i_wr,
+                                                i_sr,
+                                                i_dac_reg,
+                                                i_setlb_rdata[19:0]
+                                        ) ;
+
+                                        phy_addr_nxt   |= {i_setlb_rdata[`ZAP_SECTION_TLB__BASE], i_va[19:0]};
+                                        cacheable_nxt  |= i_setlb_rdata[3];
+                                        wt_nxt         |= i_setlb_rdata[3:2] == 2'b10;
+                                        bufferable_nxt |= i_setlb_rdata[2];
+                                end
+
+                                if ( match[3] )
+                                begin
+                                        // Entry found in fine page TLB.
+                                        fsr_nxt |= get_fsr_fpage
+                                        (
+                                                i_cpsr[ZAP_CPSR_MODE:0] == USR,
+                                                i_rd,
+                                                i_wr,
+                                                i_sr,
+                                                i_dac_reg,
+                                                i_fptlb_rdata[9:0]
+                                        );
+
+                                        phy_addr_nxt   |= {i_fptlb_rdata[`ZAP_FPAGE_TLB__BASE], i_va[9:0]};
+                                        cacheable_nxt  |= i_fptlb_rdata[3];
+                                        wt_nxt         |= i_fptlb_rdata[3:2] == 2'b10;
+                                        bufferable_nxt |= i_fptlb_rdata[2];
+                                end
+                        end
                 end // Else MMU disabled.
 end : tlb_match_logic
 
