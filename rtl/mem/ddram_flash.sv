@@ -329,6 +329,7 @@ module ddram_flash #(
 	wire [DAW-1:0] spec_ra  = cs0_laddr[2 +: DAW];
 	wire           spec_ok1 = cs1_laddr[2 +: DAW] == spec_ra;
 
+	logic                 upd_q = 1'b0;      // a write's cached copy is brought up to date now
 	logic                 tag_we;
 	logic [LINES_LOG2-1:0] tag_waddr;
 	logic [TAGW:0]        tag_wdata;
@@ -495,17 +496,6 @@ module ddram_flash #(
 				tag_waddr = sweep_ptr;
 				tag_wdata = '0;
 			end
-			S_LOOK: begin
-				// a write updates a cached copy of its line; in the scrambled
-				// area it drops the line instead (the stored word is not the
-				// word to read)
-				if (cur_we && cur_hit && !abandon) begin
-					if (cur_scr) begin
-						tag_we    = 1'b1;
-						tag_wdata = '0;
-					end else dat_we = 4'b0001 << cur_g[1:0];
-				end
-			end
 			S_FILL: begin
 				if (rd_v) begin
 					dat_we    = 4'b1111;
@@ -516,7 +506,22 @@ module ddram_flash #(
 			end
 			default: ;
 		endcase
+		// A write updates a cached copy of its line; in the scrambled area
+		// it drops the line instead (the stored word is not the word to
+		// read). In the clock after S_LOOK (the first of S_WRITE), from a
+		// register: in S_LOOK itself the tag RAM's output went through the
+		// compare into the data RAM's write enables within the clock (to
+		// -0.9 ns in three fits of four). Nothing reads the cache between.
+		if (upd_q) begin
+			if (cur_scr) begin
+				tag_we    = 1'b1;
+				tag_wdata = '0;
+			end else dat_we = 4'b0001 << cur_g[1:0];
+		end
 	end
+
+	always_ff @(posedge clk)
+		upd_q <= state == S_LOOK && !abandon && !reset && cur_we && cur_hit;
 
 	always_ff @(posedge clk) begin
 		ack_q     <= 2'b00;
