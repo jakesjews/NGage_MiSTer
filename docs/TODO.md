@@ -14,27 +14,22 @@ stand-in code with some reverse engineering; **high** a large design;
 
 ## In progress
 
-- [ ] **Small-page TLB with ways** (branch `tlb-ways`, not committed). The
-  one-way TLB walked at every access when two pages sat 1 MB apart, which
-  held 2D Image at 60 to 85 % of the phone. Done: the RTL, the test
-  `arm9_tlb_assoc_rtl`, the CPU suite, the benches, twelve fits, the board
-  run with two ways (2D Image 38.22 fps against the phone's 37.33). Open:
-  two or four ways, the commit, the release.
-- [ ] **Caches of 16 KB and 16 KB** (the user's choice, 2026-11-15): the
-  smallest sizes with nothing under the phone in SPMark04 (3D score 522
-  against 485). The defaults are changed; the suites, the seed sweep, a
-  few games on the board, the commit and the release are open.
+- [x] **Small-page TLB with two ways** and **caches of 16 KB and 16 KB**:
+  released as NGage_20261116.rbf (2D Image 38.0 fps against the phone's
+  37.33, 3D score 522 against 485, nothing under the phone).
 - [ ] **The data line fill's cost**, so that the phone's own 8 KB D-cache
-  can be used: with 16 KB I and 8 KB D the fill-rate test is 4 % under the
-  phone (1.66 against 1.73 Mtexels/s). Measured (`make -C sim dfill`): a
-  fill costs 21 clocks, fills follow one another every 25; 9 to the first
-  word, 6 for the rest, and about 9 for the cache to restore its lookups
-  and take the next miss (UNLOCK_REG, UNLOCK_WR, three RELOOKUP states,
-  the held load presented again). The 9 are the place to cut; the
-  alternative is a next-line prefetch, which the phone does not have.
-- [ ] **Benchmark baseline**: the full SPMark04 suite from a fresh C:, as
-  booted and with Contacts open, plus the 3D set for the score. Release
-  core measured; each candidate core gets the same run.
+  can be used: with 16 KB I and 8 KB D the fill-rate test was 4 % under
+  the phone (1.66 against 1.73 Mtexels/s). The restore after a fill is
+  shortened on branch `fill-restore` (not committed): a waiting request
+  is taken two clocks after the line is written instead of eight; a
+  sequential walk costs 19.3 clocks a line, was 25.3 (`make -C sim
+  dfill`). The suites pass; on the board (16/8, seed 9) FillRate is 1.73
+  and nothing is under the phone. Open: the seed sweep, a few games, the
+  commit and the release. What is left in a fill: 2 clocks to the bus, 8 to the first word,
+  6 for three more (a 16-bit SDRAM, two clocks a word), 2 to install.
+  After a dirty line's write-back the SDRAM's first word takes 23.
+- [ ] **Benchmark baseline**: the full SPMark04 suite from a fresh C:, one
+  pass as booted, plus the 3D set for the score, for each candidate core.
 
 ## Speed fidelity (the core is faster than the phone here)
 
@@ -58,11 +53,34 @@ stand-in code with some reverse engineering; **high** a large design;
   number freezes the keys until reset), the request behind Settings >
   Device > Display, network, GPRS, SMS, two SIM reads, modem state (low to
   medium each; docs/NOS_STANDIN.md, "Not answered yet").
+  A lead for the Display page (github.com/nortido/NGage-MiSTer,
+  `hps/guest/nos_isi.c`, on the first N-Gage's firmware): resource `0x3A`
+  is the light service; message `0x01` asks for light values by a 32-bit
+  mask in its last four bytes (ours: `00 00 00 20`, bit 5), and the answer
+  is message `0x02` with `[10]` 0, the count at `[11]` and one four-byte
+  sub-block a set bit: id, 4, value, 0 (ids by bit 0-7: 01 05 06 02 07 03
+  04 00; that core answers 100 for every value). Not checked on our
+  firmware.
+- [ ] The System Agent's current-call variable (`0x100052CB`), which the
+  Phone app publishes once its call engine is up: not in our notes. Left
+  unknown, games take it for a call in progress (Snakes pauses its music
+  at start; github.com/plasticbugs/n-gage, docs/hardware.md section 8).
+  Check what our boot leaves there (low).
 - [ ] Sound in Java games, tones and a second audio stream: never checked
   (low to test, medium to fix).
 - [ ] Vibration to gamepad rumble: Call of Duty, Shadowkey and Worms World
-  Party carry the vibration library; the path to the UEMK is not traced
-  (medium).
+  Party carry the vibration library (medium). The path, half traced on
+  2026-11-16: the games' `VIBRACTRL.DLL` (N-Gage SDK 2.5; it reads the
+  profile's `VibrAlert` setting) loads the ROM's `vbrdrv.dll`
+  (`0x510EE1C0` in 4.10), which calls DSClient.dll: start and stop
+  (its export slot at `0x50FF6DFC`, with 0 and 1) and an intensity of 0
+  to 40 (two fifths of the caller's 0 to 100, `0x510EE3D4`). From DosSrv on it is a modem
+  message, not a UEMK access of ours: on the first N-Gage's firmware it is
+  resource `0x1C`, message `0x0C` with `[10]` on/off and `0x0E` with
+  `[10]` the level 0-100, each answered with the message number + 1
+  (github.com/nortido/NGage-MiSTer, `hps/guest/nos_isi.c`). Open: see the
+  request our firmware sends (a game with vibration on, the stand-in's
+  log), answer it and give the level to the gamepad.
 - [ ] Bluetooth play between two cores: a link at HCI level, not a radio
   (high).
 
@@ -99,6 +117,8 @@ stand-in code with some reverse engineering; **high** a large design;
 
 - [ ] 104 MHz timing closure: the release is at -1.486 ns; the TLB ways
   cost about 0.3 ns more on the seeds tried.
-- [ ] The MiSTer's wrong bits on cold file reads (2026-11-15, gone after a
-  reboot): a read probe runs before and after each board session to catch
-  it coming back.
+- [ ] The development board's wrong bits on file reads (2026-11-14/15):
+  one bit of its own memory, physical `0x1908D7F4` bit 30, takes no
+  writes (found 2026-11-16, memtester agrees); not the core. Open, the
+  user's choice: keep Linux off that page (`memmap=4K$0x1908D000`). The
+  read probes around board sessions are dropped.

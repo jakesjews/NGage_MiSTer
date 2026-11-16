@@ -16,6 +16,9 @@
 @   copy   seq, with a store of the word to a second buffer, 16 bytes on
 @          each time (a store miss a load: posted, no line is fetched)
 @   two    two loads a pass from two buffers, a new line each
+@   rmw    seq, with a store of the word back to its own line (a hit once
+@          the line is in): every line leaves the cache dirty, so every
+@          fill but the first thousand has a victim to write back
 @   hit8, seq8    hit and seq with eight adds of the loaded word after it
 @   hit8i, seq8i  the same with eight adds that do not use the word: what
 @          of a fill the instructions behind the load can run under
@@ -193,6 +196,14 @@ l_two:
 	mov	pc, lr
 
 	.align	5
+l_rmw:
+1:	ldr	r1, [r0]
+	str	r1, [r0], #16
+	subs	r2, r2, #1
+	bne	1b
+	mov	pc, lr
+
+	.align	5
 l_hit8:
 1:	ldr	r1, [r0]
 	.rept	8
@@ -256,7 +267,7 @@ puthex:
 
 table:
 	.word	l_hit, n_hit, l_seq, n_seq, l_use, n_use, l_row, n_row
-	.word	l_copy, n_copy, l_two, n_two
+	.word	l_copy, n_copy, l_two, n_two, l_rmw, n_rmw
 	.word	l_hit8, n_hit8, l_seq8, n_seq8, l_hit8i, n_hit8i, l_seq8i, n_seq8i, 0
 n_hit:	.asciz	"hit"
 n_seq:	.asciz	"seq"
@@ -264,6 +275,7 @@ n_use:	.asciz	"use"
 n_row:	.asciz	"row"
 n_copy:	.asciz	"copy"
 n_two:	.asciz	"two"
+n_rmw:	.asciz	"rmw"
 n_hit8:	.asciz	"hit8"
 n_seq8:	.asciz	"seq8"
 n_hit8i: .asciz	"hit8i"

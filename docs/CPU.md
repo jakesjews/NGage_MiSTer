@@ -306,6 +306,24 @@ FPGA resources and timing):
   never be true (upstream's hit-under-miss, which it enabled only with the
   cache off, and a retry for a register that cannot be locked in that
   state) were removed from the tag-compare path.
+- The end of a D-cache line fill (2026-11-16). A request that waits for a
+  fill (the next miss, or a store to the line being filled) used to be
+  looked up again twice after the line was written: by the cache in three
+  restore states (RELOOKUP0-2) and then by the CPU for three more clocks
+  (its RETRY states), eight clocks from the write to the request's
+  acceptance. Now the cache keeps the waiting request on its lookup and
+  compare addresses during the fill; when the request has waited through
+  the three clocks before the first idle clock, the response in that clock
+  is its own and includes the new line (the RAMs' same-edge write bypass),
+  the cache says so (`o_fill_kept`) and the CPU presents the request there:
+  two clocks from the write (UNLOCK_REG, UNLOCK_WR, accepted). A request
+  that arrived in the last two busy clocks is held one or two clocks more
+  instead of the CPU's three. A sequential walk of loads (`make -C sim
+  dfill`, 16 KB D-cache) costs 19.3 clocks a line where it cost 25.3; a
+  load whose word is used at once 20.3 (25.3). A walk that leaves every
+  line dirty is unchanged (41.4, was 42.1): there the SDRAM decides, its
+  first read word comes 23 clocks after the request when a written-back
+  line went before it, 8 otherwise.
 
 ## Differences from a real ARM925T
 

@@ -106,6 +106,8 @@ output  logic           o_lock_return,   // ARM9V2: zap_dcache_fsm
 output  logic           o_ack_fast,      // ARM9V2: zap_dcache_fsm
 output  logic           o_err_fast,      // ARM9V2: zap_dcache_fsm
 output  logic           o_fill_busy_nxt, // ARM9V2: zap_dcache_fsm
+output  logic           o_fill_keep_nxt, // ARM9V2: zap_dcache_fsm
+output  logic           o_fill_kept,     // ARM9V2: zap_dcache_fsm
 output  logic [31:0]     o_reg_dat,
 output  logic [63:0]     o_reg_idx,
 
@@ -340,6 +342,8 @@ zap_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE
         .o_ack_fast             (o_ack_fast),
         .o_err_fast             (o_err_fast),
         .o_fill_busy_nxt        (o_fill_busy_nxt),
+        .o_fill_keep_nxt        (o_fill_keep_nxt),
+        .o_fill_kept            (o_fill_kept),
         .o_reg_dat              (o_reg_dat),
         .o_reg_idx              (o_reg_idx),
 

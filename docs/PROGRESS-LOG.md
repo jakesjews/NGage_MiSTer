@@ -10471,3 +10471,89 @@ the requirement: "For setup slack requirements set it to -2.0". The
 workflow's `NGAGE_SETUP_FLOOR` is -2.0 ns now (it was my -2.5). The
 release has 0.48 ns to it; two of its eight seeds (5 and 31337, -2.2)
 would not pass.
+
+## 2026-11-16: the restore after a data line fill; the phone's 8 KB D-cache holds the fill rate
+
+The user's choice of the two ways to make a line fill cheaper ("try the
+first", after the release): shorten what the cache does after a fill.
+Branch `fill-restore`, not committed.
+
+**What it was.** After the last word of a fill the cache wrote the line
+(UNLOCK_REG), waited a clock (UNLOCK_WR), looked the waiting request up
+again for three clocks (RELOOKUP0-2), and then the CPU, which trusts no
+response from before the installation, looked it up once more for three
+(its RETRY states): eight clocks from the write to the request's
+acceptance, and both lookups did the same thing.
+
+**What it is now.** The lookups run during a fill anyway. In every busy
+clock after one in which a request waited, the cache puts the lookup and
+compare addresses on that request (`o_relookup`; the CPU, holding it,
+presents the same). A request that waited through the three clocks before
+the first idle clock has its own response there, and a current one: the
+line written on the edge that took the RAM address reaches it through the
+RAMs' same-edge bypass, and nothing is written on the edge after. The
+cache says so (`o_fill_kept`, `o_fill_keep_nxt` for the CPU's request
+register) and the CPU presents the request in that clock instead of going
+to RETRY0: two clocks from the write. A request that came in the last two
+busy clocks is held one or two clocks in RELOOKUP2 / RELOOKUP1+2 until it
+has waited as long (the CPU's own second lookup takes three). The end of
+a deferred write-back goes the same way. The short-hit trust still drops
+for the clock a fill ends. Files: zap_dcache_fsm.sv, zap_dcache.sv,
+zap_top.sv, arm9v2_core.sv, the generated netlist.
+
+**Measured** (`make -C sim dfill`, clocks a load, 16 KB D-cache; before ->
+after): seq 25.3 -> 19.3, use 25.3 -> 20.3, row 30.5 -> 24.7, copy
+40.4 -> 34.2, two 30.9 -> 25.0, seq8i 25.3 -> 19.3; hit 4.0, hit8 12.0,
+seq8 24.2 unchanged (seq8 waits for the first word, not for the end). A
+new loop, rmw (load a word and store it back, so every fill has a dirty
+victim): 42.1 -> 41.4. There the SDRAM decides: the write-back's beats
+are acknowledged at once and the next read waits for the chip, 23 clocks
+to its first word against 8. The rest of a fill now: 2 clocks from
+acceptance to the bus, 8 to the first word, 6 for three more (a 16-bit
+SDRAM, two clocks a word), UNLOCK_REG and UNLOCK_WR.
+
+**Checks.** Lint; the CPU suite 354 of 354 from the sources with
+assertions (a new one: a kept request had the cache's lookups in both
+clocks) and 354 of 354 from the netlist; a temporary counter showed the
+cache tests taking the kept ending tens of thousands of times, on hits
+and on misses, and both hold paths, and never ending a fill with a
+request waiting and not kept; QEMU comparison, `make test`, flashcopy,
+hps-read-test.
+
+**Fits**, 16 KB I / 8 KB D with the change, server, 100C / -40C: seed 9
+-1.490 / -1.616, 1337 -1.617 / -1.442, 30 -1.782 / -1.684, 13 -2.231 /
+-2.227 ns; 34,100 ALMs. Seeds 5, 20, 40 and 31337 are running.
+
+**On the board** (seed 9, md5 d6f801e5, a fresh C:, all nine tests once;
+a real QD in brackets): 3D Game 8.88 fps (8.05), FillRate 1.73 Mtexels/s
+(1.73; 1.66 before the change), PolyCount 28.41 Ktriangles/s (27.52), 2D
+Image 38.05 fps (37.33), Image Scaling 1.89 (1.58), JPEG 169.20 (156.78),
+Contacts 3.48 (2.37), Calendar 5.97 (2.33), Disk Access 15.42 (2.64).
+Nothing is under the phone with the phone's own cache sizes.
+
+**Two other cores, read for research we lack** (the user's question,
+against every open task): github.com/plasticbugs/n-gage (the Analogue
+Pocket core: its own kernel, no board) and github.com/nortido/
+NGage-MiSTer (the first N-Gage's firmware on the DE10's second ARM core).
+Nothing on bus timing, the DSP, tones, calls or the QD's display. Three
+leads, now in docs/TODO.md: the vibration path (on the first N-Gage a
+modem message, resource 0x1C, 0x0C / 0x0E; ours runs VIBRACTRL.DLL ->
+vbrdrv.dll -> DSClient, the message not yet seen), the light service
+behind our unanswered Display request (resource 0x3A, message 0x01), and
+the System Agent's current-call variable. One CPU fact: Glimmerati needs
+`STMDB sp!, {..., sp, lr}` to store sp as it was; ours does, and
+`sim/cpu/tests/stm_base.S` now pins it (agrees with QEMU).
+
+**The board's wrong bits on file reads: found.** After the benchmark the
+read probe gave 6 of 40 wrong (0 before). Followed down: a mapped read
+compared with a direct read named one frame, and writing that word through
+/dev/mem with the frame free and the MENU core loaded showed physical
+0x1908D7F4, bit 30, taking no writes: stuck at 0, and after a reboot
+stuck at 1; its neighbours and a control frame hold every pattern.
+memtester (built static with zig, now at /media/fat/linux/memtester)
+fails at the same address and passes a control page. So it is one bit of
+the development board's own memory, not the core and not the card; a
+reboot only seemed to cure it, because Linux does not reach that frame
+again until memory has been churned. The user: drop the file checks from
+board runs and releases, and the second run of the 3D set; both are out
+of the scripts.

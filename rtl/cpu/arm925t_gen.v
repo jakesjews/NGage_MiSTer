@@ -298,6 +298,8 @@ module arm9v2_core (
 	o_data_stall,
 	i_data_fill_busy,
 	i_data_fill_busy_nxt,
+	i_data_fill_keep_nxt,
+	i_data_fill_kept,
 	i_fsr,
 	i_far,
 	o_dac,
@@ -455,6 +457,8 @@ module arm9v2_core (
 	output wire o_data_stall;
 	input wire i_data_fill_busy;
 	input wire i_data_fill_busy_nxt;
+	input wire i_data_fill_keep_nxt;
+	input wire i_data_fill_kept;
 	input wire [31:0] i_fsr;
 	input wire [31:0] i_far;
 	output wire [31:0] o_dac;
@@ -770,7 +774,8 @@ module arm9v2_core (
 	reg return_thumb;
 	reg return_kind;
 	reg fill_was_busy;
-	wire fill_ended = fill_was_busy && !i_data_fill_busy;
+	wire fill_end_raw = fill_was_busy && !i_data_fill_busy;
+	wire fill_ended = fill_end_raw && !i_data_fill_kept;
 	always @(posedge i_clk) fill_was_busy <= !i_reset && i_data_fill_busy;
 	wire [39:0] wa;
 	wire [39:0] wb;
@@ -1107,7 +1112,7 @@ module arm9v2_core (
 			check_ff[1] <= ((next_check_enable && next_check_record[541]) && next_check_record[535]) && !next_check_record[534];
 			check_ff[0] <= ((next_check_enable && next_check_record[541]) && next_check_record[535]) && next_check_record[534];
 			request_ff <= ((w_next[541] && w_next[535]) && !(((w_next[538] || w_next[531]) || w_next[530]) || (w_next[540] && ((w_next[8-:4] == SWI) || (w_next[8-:4] == UND))))) && ((memory_state_next == 4'd0) || (memory_state_next == 4'd1));
-			request_live <= ((((w_next[541] && w_next[535]) && !(((w_next[538] || w_next[531]) || w_next[530]) || (w_next[540] && ((w_next[8-:4] == SWI) || (w_next[8-:4] == UND))))) && ((memory_state_next == 4'd0) || (memory_state_next == 4'd1))) && !wb_redirect) && !(i_data_fill_busy && !i_data_fill_busy_nxt);
+			request_live <= ((((w_next[541] && w_next[535]) && !(((w_next[538] || w_next[531]) || w_next[530]) || (w_next[540] && ((w_next[8-:4] == SWI) || (w_next[8-:4] == UND))))) && ((memory_state_next == 4'd0) || (memory_state_next == 4'd1))) && !wb_redirect) && !((i_data_fill_busy && !i_data_fill_busy_nxt) && !i_data_fill_keep_nxt);
 		end
 	assign check_record = (((memory_state == 4'd1) || (memory_state == 4'd5)) || (memory_state == 4'd8) ? w : m);
 	assign check_enable = ((((memory_state == 4'd0) || (memory_state == 4'd1)) || (memory_state == 4'd3)) || (memory_state == 4'd5)) || (memory_state == 4'd8);
@@ -1367,7 +1372,7 @@ module arm9v2_core (
 	wire [63:0] load_commit = 0;
 	wire [31:0] load_value = load_data;
 	wire unused = &{1'b0, LOAD_FORMATTED, BP_ENTRIES, FIFO_DEPTH, RAS_DEPTH, CP, UND, SWI, MRS, BR, PREFIX, MUL, MULL, i_instr_data_early, i_instr_hit, cp_seen, d_ready, d_raw, d_mode, d_reg_count, d_transfer_reg, d_pred_kind, a_flags, a_write_flags, a_store, a_btb_kind, a_predicted, a_psr_source, a_saved_psr, a_spsr_tag, d_early, data_pc8, pc, ins, ex_result, load_capture, load_commit, load_value};
-	wire load_trust = (TRUST_FF ? i_data_short_trust : i_data_short_live && !fill_ended);
+	wire load_trust = (TRUST_FF ? i_data_short_trust : i_data_short_live && !fill_end_raw);
 	wire w_hit = (TRUST_FF ? w_hit_candidate : w[535] && !w_waited);
 	wire w_load_hit = (w_hit && i_data_short_hit) && load_trust;
 	arm9v2_front_decode #(
@@ -9200,6 +9205,8 @@ module zap_dcache_fsm (
 	o_ack_fast,
 	o_err_fast,
 	o_fill_busy_nxt,
+	o_fill_keep_nxt,
+	o_fill_kept,
 	o_reg_dat,
 	o_reg_idx,
 	o_dat,
@@ -9309,6 +9316,8 @@ module zap_dcache_fsm (
 	output wire o_ack_fast;
 	output wire o_err_fast;
 	output wire o_fill_busy_nxt;
+	output wire o_fill_keep_nxt;
+	(* dont_retime *) output reg o_fill_kept;
 	output wire [31:0] o_reg_dat;
 	(* dont_retime *) output reg [63:0] o_reg_idx;
 	output reg [31:0] o_dat;
@@ -10067,6 +10076,22 @@ module zap_dcache_fsm (
 	wire hum_slot_nxt;
 	wire fill_busy_nxt;
 	assign cpu_wait = (i_rd || i_wr) && !o_ack;
+	reg wait1_ff;
+	reg wait2_ff;
+	wire keep_more = cpu_wait && !wait2_ff;
+	wire keep_nxt = (((o_fill_busy && !fill_busy_nxt) && !state_ff[UNLOCK_REG]) && wait2_ff) && cpu_wait;
+	assign o_fill_keep_nxt = keep_nxt;
+	always @(posedge i_clk)
+		if (i_reset) begin
+			wait1_ff <= 1'b0;
+			wait2_ff <= 1'b0;
+			o_fill_kept <= 1'b0;
+		end
+		else begin
+			wait1_ff <= cpu_wait && fill_busy_nxt;
+			wait2_ff <= (wait1_ff && cpu_wait) && fill_busy_nxt;
+			o_fill_kept <= keep_nxt;
+		end
 	always @(*) begin
 		if (_sv2v_0)
 			;
@@ -10118,7 +10143,7 @@ module zap_dcache_fsm (
 			hum_slot_ff <= hum_slot_nxt;
 			o_live_lookup <= state_nxt[IDLE] || hum_slot_nxt;
 			o_live_trust <= (state_nxt[IDLE] || hum_slot_nxt) && !(o_fill_busy && !fill_busy_nxt);
-			o_relookup <= ((state_nxt[RELOOKUP0] || state_nxt[RELOOKUP1]) || state_nxt[RELOOKUP2] ? {state_nxt[RELOOKUP2], state_nxt[RELOOKUP1], state_nxt[RELOOKUP0]} : repair_nxt);
+			o_relookup <= ((state_nxt[RELOOKUP0] || state_nxt[RELOOKUP1]) || state_nxt[RELOOKUP2] ? {state_nxt[RELOOKUP2], state_nxt[RELOOKUP1], state_nxt[RELOOKUP0]} : repair_nxt | {2'b00, cpu_wait && fill_busy_nxt});
 		end
 	assign hum_slot_nxt = (((state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE]) || state_nxt[UNLOCK_WR]) && lookup_ready_nxt) && (line_safe_nxt || ((state_nxt[CLEAN_SINGLE] && fill_visible_ff) && victim_safe_nxt));
 	assign hum_ack = (((hum_slot_ff && i_hit_ok) && i_cache_en) && !i_align_fault) && i_cache_hit_early;
@@ -10381,8 +10406,9 @@ module zap_dcache_fsm (
 					adr_ctr_nxt = 0;
 					state_nxt[CLEAN_SINGLE] = 1'd0;
 					if (defer_writeback) begin
-						state_nxt[RELOOKUP0] = (i_rd || i_wr) && !o_ack;
-						state_nxt[IDLE] = !(i_rd || i_wr) || o_ack;
+						state_nxt[RELOOKUP1] = keep_more && !wait1_ff;
+						state_nxt[RELOOKUP2] = keep_more && wait1_ff;
+						state_nxt[IDLE] = !keep_more;
 					end
 					else
 						state_nxt[FETCH_SINGLE] = 1'd1;
@@ -10422,8 +10448,9 @@ module zap_dcache_fsm (
 			end
 			state_ff[UNLOCK_WR]: begin
 				state_nxt[UNLOCK_WR] = 1'd0;
-				state_nxt[RELOOKUP0] = (i_rd || i_wr) && !o_ack;
-				state_nxt[IDLE] = !(i_rd || i_wr) || o_ack;
+				state_nxt[RELOOKUP1] = keep_more && !wait1_ff;
+				state_nxt[RELOOKUP2] = keep_more && wait1_ff;
+				state_nxt[IDLE] = !keep_more;
 			end
 			state_ff[RELOOKUP0]: begin
 				state_nxt[RELOOKUP0] = 1'd0;
@@ -10537,6 +10564,8 @@ module zap_dcache (
 	o_ack_fast,
 	o_err_fast,
 	o_fill_busy_nxt,
+	o_fill_keep_nxt,
+	o_fill_kept,
 	o_reg_dat,
 	o_reg_idx,
 	i_mmu_en,
@@ -10637,6 +10666,8 @@ module zap_dcache (
 	output wire o_ack_fast;
 	output wire o_err_fast;
 	output wire o_fill_busy_nxt;
+	output wire o_fill_keep_nxt;
+	output wire o_fill_kept;
 	output wire [31:0] o_reg_dat;
 	output wire [63:0] o_reg_idx;
 	input wire i_mmu_en;
@@ -11150,6 +11181,8 @@ module zap_dcache (
 		.o_ack_fast(o_ack_fast),
 		.o_err_fast(o_err_fast),
 		.o_fill_busy_nxt(o_fill_busy_nxt),
+		.o_fill_keep_nxt(o_fill_keep_nxt),
+		.o_fill_kept(o_fill_kept),
 		.o_reg_dat(o_reg_dat),
 		.o_reg_idx(o_reg_idx),
 		.o_wb_cyc_ff(),
@@ -15164,6 +15197,8 @@ module zap_top (
 	wire dc_ack_fast;
 	wire dc_err_fast;
 	wire data_fill_busy_nxt;
+	wire data_fill_keep_nxt;
+	wire data_fill_kept;
 	wire [5:0] dc_lock_owner_hold;
 	wire [5:0] dc_lock_owner_advance;
 	wire dc_lock_owner_move;
@@ -15314,6 +15349,8 @@ module zap_top (
 				.i_data_ack_fast(dc_ack_fast),
 				.i_data_err_fast(dc_err_fast),
 				.i_data_fill_busy_nxt(data_fill_busy_nxt),
+				.i_data_fill_keep_nxt(data_fill_keep_nxt),
+				.i_data_fill_kept(data_fill_kept),
 				.o_dc_lock_owner_hold(dc_lock_owner_hold),
 				.o_dc_lock_owner_advance(dc_lock_owner_advance),
 				.o_dc_lock_owner_move(dc_lock_owner_move),
@@ -15431,6 +15468,8 @@ module zap_top (
 				.o_ack_fast(dc_ack_fast),
 				.o_err_fast(dc_err_fast),
 				.o_fill_busy_nxt(data_fill_busy_nxt),
+				.o_fill_keep_nxt(data_fill_keep_nxt),
+				.o_fill_kept(data_fill_kept),
 				.o_reg_dat(dc_reg_data),
 				.o_reg_idx(dc_wreg_idx),
 				.o_fsr(dc_fsr),

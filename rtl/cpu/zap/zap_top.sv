@@ -256,6 +256,7 @@ logic [5:0]      dc_rreg_idx_bin;
 logic [63:0]     dc_lock;
 logic dc_lock_any, dc_lock_owner;
 logic dc_lock_return, dc_ack_fast, dc_err_fast, data_fill_busy_nxt;
+logic data_fill_keep_nxt, data_fill_kept;
 logic [5:0] dc_lock_owner_hold, dc_lock_owner_advance;
 logic dc_lock_owner_move;
 logic [31:0]     dc_reg_data;
@@ -421,6 +422,8 @@ arm9v2_core #(
 .i_data_ack_fast        (dc_ack_fast),
 .i_data_err_fast        (dc_err_fast),
 .i_data_fill_busy_nxt   (data_fill_busy_nxt),
+.i_data_fill_keep_nxt   (data_fill_keep_nxt),
+.i_data_fill_kept       (data_fill_kept),
 .o_dc_lock_owner_hold(dc_lock_owner_hold),
 .o_dc_lock_owner_advance(dc_lock_owner_advance),
 .o_dc_lock_owner_move(dc_lock_owner_move),
@@ -556,6 +559,8 @@ u_data_cache (
 .o_ack_fast             (dc_ack_fast),
 .o_err_fast             (dc_err_fast),
 .o_fill_busy_nxt        (data_fill_busy_nxt),
+.o_fill_keep_nxt        (data_fill_keep_nxt),
+.o_fill_kept            (data_fill_kept),
 .o_reg_dat              (dc_reg_data),
 .o_reg_idx              (dc_wreg_idx),
 .o_fsr                  (dc_fsr),

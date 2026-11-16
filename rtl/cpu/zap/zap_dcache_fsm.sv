@@ -81,6 +81,11 @@ input logic i_lock_owner_move,
 // registered bus error; 0 otherwise).
 output logic                      o_ack_fast, o_err_fast,
 output logic                      o_fill_busy_nxt,
+// ARM9V2: in the first IDLE clock after a fill, the request that waited
+// through its end has its own, current lookup response (see keep_nxt).
+// o_fill_keep_nxt is the next value, for the CPU's request register.
+output logic                      o_fill_keep_nxt,
+(* dont_retime *) output logic    o_fill_kept,
 output  logic [31:0]               o_reg_dat,
 (* dont_retime *) output logic [63:0] o_reg_idx,
 output  logic     [31:0]           o_dat,
@@ -549,6 +554,53 @@ logic [2:0] repair_ff, repair_nxt;
 logic cpu_wait, hum_ack, idle_ack, hum_slot_nxt, fill_busy_nxt;
 assign cpu_wait = (i_rd || i_wr) && !o_ack;
 
+// ARM9V2: a request that waits through the end of a fill is taken in the
+// first IDLE clock. The RAMs' lookups run during a fill. In a busy clock
+// that follows one in which the request waited, the lookup address and the
+// compare address are the request's (o_relookup below; the CPU, holding
+// the request, presents the same). So when the request waited through the
+// three clocks before the first IDLE clock, the response registered into
+// that clock is its own: the RAM address taken on the edge two before, the
+// compare in the last busy clock. And it is current. A line written on the
+// edge that took the RAM address reaches the response through the RAMs'
+// collision bypass and the metadata forwards (UNLOCK_REG then UNLOCK_WR is
+// that case); nothing is written on the edge after it: UNLOCK_REG is not
+// the last busy clock here, and a store that hits under the fill is
+// acknowledged, so it does not wait. The CPU then presents the request
+// in that clock instead of looking it up again (its RETRY states). A
+// request that came too late for that (in the last busy clock or the one
+// before) is held in RELOOKUP2, or RELOOKUP1 and RELOOKUP2, until it has
+// waited as long (keep_more below): one or two clocks, where the CPU's own
+// second lookup takes three; with no request waiting, or one that waited
+// long enough, the fill ends at once. Before, every waiting request went
+// through all three restore states and the CPU's three clocks after them.
+logic wait1_ff, wait2_ff;
+wire keep_more = cpu_wait && !wait2_ff;
+wire keep_nxt = o_fill_busy && !fill_busy_nxt && !state_ff[UNLOCK_REG] &&
+                wait2_ff && cpu_wait;
+assign o_fill_keep_nxt = keep_nxt;
+always_ff @(posedge i_clk)
+        if (i_reset) begin
+                wait1_ff <= 1'b0;
+                wait2_ff <= 1'b0;
+                o_fill_kept <= 1'b0;
+        end else begin
+                wait1_ff <= cpu_wait && fill_busy_nxt;
+                wait2_ff <= wait1_ff && cpu_wait && fill_busy_nxt;
+                o_fill_kept <= keep_nxt;
+        end
+`ifndef SYNTHESIS
+// The kept request's lookups were the cache's own in both clocks.
+logic look1_ff, look2_ff;
+always_ff @(posedge i_clk) begin
+        look1_ff <= |o_relookup;
+        look2_ff <= look1_ff;
+        if (!i_reset && o_fill_kept)
+                assert (state_ff[IDLE] && look1_ff && look2_ff)
+                        else $fatal(1, "kept request without its lookups");
+end
+`endif
+
 always_comb begin
         line_safe_nxt = line_safe_ff;
         victim_safe_nxt = victim_safe_ff;
@@ -606,7 +658,8 @@ always_ff @(posedge i_clk)
                 o_live_lookup <= state_nxt[IDLE] || hum_slot_nxt;
                 o_live_trust <= (state_nxt[IDLE] || hum_slot_nxt) && !(o_fill_busy && !fill_busy_nxt);
                 o_relookup <= (state_nxt[RELOOKUP0] || state_nxt[RELOOKUP1] || state_nxt[RELOOKUP2]) ?
-                    {state_nxt[RELOOKUP2], state_nxt[RELOOKUP1], state_nxt[RELOOKUP0]} : repair_nxt;
+                    {state_nxt[RELOOKUP2], state_nxt[RELOOKUP1], state_nxt[RELOOKUP0]} :
+                    repair_nxt | {2'b00, cpu_wait && fill_busy_nxt};
         end
 
 assign hum_slot_nxt = (state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE] ||
@@ -1074,10 +1127,13 @@ begin:next_state_logic
 
                         state_nxt[CLEAN_SINGLE] = 1'd0;
                         if (defer_writeback) begin
-                                // The new line is already installed. Preserve
-                                // aligned lookups when a hit advances the CPU.
-                                state_nxt[RELOOKUP0] = (i_rd || i_wr) && !o_ack;
-                                state_nxt[IDLE] = !(i_rd || i_wr) || o_ack;
+                                // The new line is already installed. A
+                                // request held here is taken in IDLE
+                                // (keep_nxt), after RELOOKUP states when
+                                // it has not waited long enough.
+                                state_nxt[RELOOKUP1] = keep_more && !wait1_ff;
+                                state_nxt[RELOOKUP2] = keep_more && wait1_ff;
+                                state_nxt[IDLE] = !keep_more;
                         end else
                                 state_nxt[FETCH_SINGLE] = 1'd1;
 
@@ -1143,9 +1199,11 @@ begin:next_state_logic
         begin
                 state_nxt[UNLOCK_WR] = 1'd0;
                 // A completed hit advanced the CPU: its lookups stay aligned.
-                // Start restoration only for an access actually held here.
-                state_nxt[RELOOKUP0] = (i_rd || i_wr) && !o_ack;
-                state_nxt[IDLE]      = !(i_rd || i_wr) || o_ack;
+                // A request held here is taken in IDLE (keep_nxt), after
+                // RELOOKUP states when it has not waited long enough.
+                state_nxt[RELOOKUP1] = keep_more && !wait1_ff;
+                state_nxt[RELOOKUP2] = keep_more && wait1_ff;
+                state_nxt[IDLE]      = !keep_more;
         end
 
         // ARM925T: the RAM reads run during fills, even when the CPU is

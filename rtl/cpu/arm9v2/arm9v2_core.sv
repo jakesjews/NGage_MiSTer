@@ -177,7 +177,7 @@ input logic i_data_short_hit,
 input logic i_data_short_live,
 input logic i_data_ack_fast,      // zap_dcache_fsm o_ack_fast (REG_DONE)
 input logic i_data_err_fast,      // zap_dcache_fsm o_err_fast: UNC_DONE's bus error
-input logic i_data_short_trust,   // i_data_short_live && !fill_ended, registered in the cache FSM
+input logic i_data_short_trust,   // i_data_short_live && !fill_end_raw, registered in the cache FSM
 output logic [31:0]                      o_data_wb_dat,
 output logic  [3:0]                      o_data_wb_sel,
 
@@ -254,6 +254,11 @@ output logic                             o_code_stall,
 output logic                             o_data_stall,
 input logic                              i_data_fill_busy,
 input logic                              i_data_fill_busy_nxt,   // REQ_FF
+// The D-cache kept the waiting request's lookups through the end of the
+// fill: in the clock the fill has ended (i_data_fill_kept; its next value
+// for the request register) the response is that request's and current.
+input logic                              i_data_fill_keep_nxt,
+input logic                              i_data_fill_kept,
 input logic      [31:0]                  i_fsr,
 input logic      [31:0]                  i_far,
 output logic      [31:0]                 o_dac,
@@ -566,7 +571,13 @@ output logic [1:0] o_dbg_fetch
     /* verilator lint_on UNUSEDSIGNAL */
     logic backend_ready,wb_restore,return_event,return_thumb,return_kind;
     logic fill_was_busy;
-    wire fill_ended=fill_was_busy&&!i_data_fill_busy;
+    // A fill's end leaves W's response from before the installation, and W
+    // looks it up again (RETRY0), unless the cache kept the lookups of the
+    // request that waited (i_data_fill_kept): that request is presented in
+    // the same clock.
+    // The short-hit trust keeps the plain end of the fill (fill_end_raw).
+    wire fill_end_raw=fill_was_busy&&!i_data_fill_busy;
+    wire fill_ended=fill_end_raw&&!i_data_fill_kept;
     always_ff @(posedge i_clk) fill_was_busy<=!i_reset&&i_data_fill_busy;
     logic [39:0] wa,wb,wc,locked;
     logic [3:0][5:0] rf_tag,early_tag;
@@ -825,7 +836,8 @@ output logic [1:0] o_dbg_fetch
                 (memory_state_next==RUN||memory_state_next==HOLD);
             request_live<=(w_next.valid&&w_next.memory&&
                 !(w_next.fault||w_next.irq||w_next.fiq||(w_next.pass&&(w_next.kind==SWI||w_next.kind==UND)))&&
-                (memory_state_next==RUN||memory_state_next==HOLD))&&!wb_redirect&&!(i_data_fill_busy&&!i_data_fill_busy_nxt);
+                (memory_state_next==RUN||memory_state_next==HOLD))&&!wb_redirect&&
+                !(i_data_fill_busy&&!i_data_fill_busy_nxt&&!i_data_fill_keep_nxt);
         end
     end
 `ifndef SYNTHESIS
@@ -1081,14 +1093,14 @@ output logic [1:0] o_dbg_fetch
     //   at 0x503CBDC6, the user data abort at 25 s). arm9v2_execute
     //   applies i_load_trust only to such writers (d_self_dep); other
     //   readers may take the word, the departing line's current data.
-    wire load_trust=TRUST_FF?i_data_short_trust:i_data_short_live&&!fill_ended;
+    wire load_trust=TRUST_FF?i_data_short_trust:i_data_short_live&&!fill_end_raw;
 `ifndef SYNTHESIS
     // The FSM loads its trust register from the next state: no clock is
     // added or lost against the departing-victim and fill-end terms.
     logic fill_reset_done;
     always_ff @(posedge i_clk) fill_reset_done<=!i_reset;
     always_ff @(posedge i_clk) if(!i_reset&&fill_reset_done)
-        assert(i_data_short_trust==(i_data_short_live&&!fill_ended))
+        assert(i_data_short_trust==(i_data_short_live&&!fill_end_raw))
             else $fatal(1,"short-hit trust register");
 `endif
     wire w_hit=TRUST_FF?w_hit_candidate:w.memory&&!w_waited;
