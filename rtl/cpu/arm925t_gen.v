@@ -5011,6 +5011,13 @@ module arm9v2_predict (
 	(* dont_retime *) reg [3:0] count;
 	reg [31:0] stack [0:7];
 	(* dont_retime *) reg [31:0] ras_top;
+	(* dont_retime *) reg push_r_v;
+	(* dont_retime *) reg push_a_v;
+	(* dont_retime *) reg [2:0] push_ptr_r;
+	(* dont_retime *) reg [2:0] push_ptr_a;
+	(* dont_retime *) reg [31:0] push_link_r;
+	(* dont_retime *) reg [31:0] push_link_a;
+	reg [31:0] stack_now [0:7];
 	wire [31:0] call_link = (read_pc + (read_thumb ? 32'd2 : 32'd4)) | {31'd0, read_thumb};
 	reg [1:0] update_state;
 	wire write_enable = (i_update && !i_reset) && !i_clear;
@@ -5077,7 +5084,30 @@ module arm9v2_predict (
 			read_valid_bit <= valid_launch;
 	assign o_hit = ((VALID_BIT ? read_valid_bit : read_valid[read_pc[INDEX_W:1]]) && (read_entry[TAG_W + 36-:((TAG_W + 36) >= 37 ? TAG_W + 0 : 38 - (TAG_W + 36))] == read_pc[31:INDEX_W + 1])) && (read_entry[36] == read_thumb);
 	assign o_taken = o_hit && read_entry[3];
-	assign o_target = ((read_entry[1-:2] == RETURN) && (count != 0) ? (RAS_TOP_FF ? ras_top : stack[pointer - 1'b1]) : read_entry[35-:32]);
+	assign o_target = ((read_entry[1-:2] == RETURN) && (count != 0) ? (RAS_TOP_FF ? ras_top : stack_now[pointer - 1'b1]) : read_entry[35-:32]);
+	function automatic signed [2:0] sv2v_cast_3_signed;
+		input reg signed [2:0] inp;
+		sv2v_cast_3_signed = inp;
+	endfunction
+	always @(*) begin : sv2v_autoblock_1
+		reg signed [31:0] i;
+		if (_sv2v_0)
+			;
+		for (i = 0; i < 8; i = i + 1)
+			stack_now[i] = (push_r_v && (push_ptr_r == sv2v_cast_3_signed(i)) ? push_link_r : (push_a_v && (push_ptr_a == sv2v_cast_3_signed(i)) ? push_link_a : stack[i]));
+	end
+	always @(posedge i_clk) begin
+		if (push_r_v)
+			stack[push_ptr_r] <= push_link_r;
+		else if (push_a_v)
+			stack[push_ptr_a] <= push_link_a;
+		push_ptr_r <= i_repair_pointer;
+		push_link_r <= i_repair_link;
+		push_ptr_a <= pointer;
+		push_link_a <= call_link;
+		push_r_v <= (!i_reset && i_repair) && (i_repair_action == CALL);
+		push_a_v <= ((((!i_reset && !i_repair) && !i_clear) && i_accept) && o_taken) && (read_entry[1-:2] == CALL);
+	end
 	assign o_state = (o_hit ? read_entry[3-:2] : 2'b01);
 	assign o_kind = read_entry[1-:2];
 	assign o_pointer = pointer;
@@ -5094,17 +5124,16 @@ module arm9v2_predict (
 		else if (i_repair) begin
 			pointer <= i_repair_pointer;
 			count <= i_repair_count;
-			ras_top <= stack[i_repair_pointer - 1'b1];
+			ras_top <= stack_now[i_repair_pointer - 1'b1];
 			case (i_repair_action)
 				CALL: begin
-					stack[i_repair_pointer] <= i_repair_link;
 					ras_top <= i_repair_link;
 					pointer <= i_repair_pointer + 1'b1;
 					count <= (i_repair_count == 8 ? 4'd8 : i_repair_count + 1'b1);
 				end
 				RETURN:
 					if (i_repair_count != 0) begin
-						ras_top <= stack[sv2v_cast_3(i_repair_pointer - 2'd2)];
+						ras_top <= stack_now[sv2v_cast_3(i_repair_pointer - 2'd2)];
 						pointer <= i_repair_pointer - 1'b1;
 						count <= i_repair_count - 1'b1;
 					end
@@ -5123,7 +5152,6 @@ module arm9v2_predict (
 		else if (i_accept && o_taken)
 			case (read_entry[1-:2])
 				CALL: begin
-					stack[pointer] <= call_link;
 					ras_top <= call_link;
 					pointer <= pointer + 1'b1;
 					if (count != 8)
@@ -5131,7 +5159,7 @@ module arm9v2_predict (
 				end
 				RETURN:
 					if (count != 0) begin
-						ras_top <= stack[sv2v_cast_3(pointer - 2'd2)];
+						ras_top <= stack_now[sv2v_cast_3(pointer - 2'd2)];
 						pointer <= pointer - 1'b1;
 						count <= count - 1'b1;
 					end

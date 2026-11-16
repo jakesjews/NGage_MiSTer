@@ -60,7 +60,18 @@ module arm9v2_predict #(
     (* dont_retime *) logic [2:0] pointer;
     (* dont_retime *) logic [3:0] count;
     logic [31:0] stack [0:7];
-    (* dont_retime *) logic [31:0] ras_top;   // RAS_TOP_FF: stack[pointer - 1]
+    (* dont_retime *) logic [31:0] ras_top;   // RAS_TOP_FF: stack_now[pointer - 1]
+    // A write of the stack is decided late in its clock (a repair's action,
+    // or the fetch accepted and predicted taken) and the stack's 256
+    // flip-flops sat behind that decision (57 failing endpoints at seed 5
+    // of 2026-11-16). Both possible writes are registered whole in every
+    // clock, the decision leaves only a flag for each, and the stack takes
+    // the write a clock later; stack_now is the stack with that write in,
+    // and is what the old stack was in every clock (asserted below).
+    (* dont_retime *) logic push_r_v, push_a_v;
+    (* dont_retime *) logic [2:0] push_ptr_r, push_ptr_a;
+    (* dont_retime *) logic [31:0] push_link_r, push_link_a;
+    logic [31:0] stack_now [0:7];
     wire [31:0] call_link = (read_pc + (read_thumb ? 32'd2 : 32'd4)) | {31'd0,read_thumb};
     logic [1:0] update_state;
     wire write_enable = i_update && !i_reset && !i_clear;
@@ -123,11 +134,38 @@ module arm9v2_predict #(
                    read_entry.thumb == read_thumb;
     assign o_taken = o_hit && read_entry.state[1];
     assign o_target = read_entry.kind == RETURN && count != 0 ?
-                      (RAS_TOP_FF ? ras_top : stack[3'(pointer - 1'b1)]) : read_entry.target;
+                      (RAS_TOP_FF ? ras_top : stack_now[3'(pointer - 1'b1)]) : read_entry.target;
 `ifndef SYNTHESIS
     // Only a non-empty stack's top is ever used.
     always_ff @(posedge i_clk) if (!i_reset && RAS_TOP_FF && count != 0)
-        assert (ras_top == stack[3'(pointer - 1'b1)]) else $fatal(1, "RAS top register");
+        assert (ras_top == stack_now[3'(pointer - 1'b1)]) else $fatal(1, "RAS top register");
+`endif
+    always_comb for (int i = 0; i < 8; i++)
+        stack_now[i] = (push_r_v && push_ptr_r == 3'(i)) ? push_link_r :
+                       (push_a_v && push_ptr_a == 3'(i)) ? push_link_a : stack[i];
+    always_ff @(posedge i_clk) begin
+        if (push_r_v) stack[push_ptr_r] <= push_link_r;       // the write decided in the clock before
+        else if (push_a_v) stack[push_ptr_a] <= push_link_a;
+        push_ptr_r  <= i_repair_pointer;
+        push_link_r <= i_repair_link;
+        push_ptr_a  <= pointer;
+        push_link_a <= call_link;
+        push_r_v <= !i_reset && i_repair && i_repair_action == CALL;
+        push_a_v <= !i_reset && !i_repair && !i_clear && i_accept && o_taken && read_entry.kind == CALL;
+    end
+`ifndef SYNTHESIS
+    // the stack as it was, written in the clock of the decision
+    logic [31:0] stack_ref [0:7];
+    logic [7:0] stack_set = 8'd0;
+    always_ff @(posedge i_clk) begin
+        if (!i_reset && i_repair) begin
+            if (i_repair_action == CALL) begin stack_ref[i_repair_pointer] <= i_repair_link; stack_set[i_repair_pointer] <= 1'b1; end
+        end else if (!i_reset && !i_clear && i_accept && o_taken && read_entry.kind == CALL) begin
+            stack_ref[pointer] <= call_link; stack_set[pointer] <= 1'b1;
+        end
+        for (int i = 0; i < 8; i++) if (stack_set[i])
+            assert (stack_now[i] == stack_ref[i]) else $fatal(1, "return stack written a clock later");
+    end
 `endif
     assign o_state = o_hit ? read_entry.state : 2'b01;
     assign o_kind = read_entry.kind;
@@ -144,16 +182,15 @@ module arm9v2_predict #(
         end else if (i_repair) begin
             pointer <= i_repair_pointer;
             count <= i_repair_count;
-            ras_top <= stack[3'(i_repair_pointer - 1'b1)];
+            ras_top <= stack_now[3'(i_repair_pointer - 1'b1)];
             case (i_repair_action)
                 CALL: begin
-                    stack[i_repair_pointer] <= i_repair_link;
                     ras_top <= i_repair_link;
                     pointer <= i_repair_pointer + 1'b1;
                     count <= i_repair_count == 8 ? 4'd8 : i_repair_count + 1'b1;
                 end
                 RETURN: if (i_repair_count != 0) begin
-                    ras_top <= stack[3'(i_repair_pointer - 2'd2)];
+                    ras_top <= stack_now[3'(i_repair_pointer - 2'd2)];
                     pointer <= i_repair_pointer - 1'b1;
                     count <= i_repair_count - 1'b1;
                 end
@@ -165,13 +202,12 @@ module arm9v2_predict #(
         end else if (i_accept && o_taken) begin
             case (read_entry.kind)
                 CALL: begin
-                    stack[pointer] <= call_link;
                     ras_top <= call_link;
                     pointer <= pointer + 1'b1;
                     if (count != 8) count <= count + 1'b1;
                 end
                 RETURN: if (count != 0) begin
-                    ras_top <= stack[3'(pointer - 2'd2)];
+                    ras_top <= stack_now[3'(pointer - 2'd2)];
                     pointer <= pointer - 1'b1;
                     count <= count - 1'b1;
                 end
