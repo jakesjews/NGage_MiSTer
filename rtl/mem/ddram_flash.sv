@@ -141,6 +141,23 @@ module ddram_flash #(
 	output logic              ddram_we
 );
 
+
+	// The DDR3 read channel, through a register: a beat is used the clock
+	// after the port delivers it. The port's data and data-valid come straight
+	// from the HPS bridge and went from there, through the descrambler's XOR,
+	// into the cache RAM's blocks, wherever those lie (with the RAM's address
+	// off the worst paths its blocks moved away, and this became the longest
+	// path outside the CPU: 366 endpoints at seed 5, to -1.3 ns). The state
+	// machine waits for the delayed beats, so nothing new is issued while one
+	// is still in the register; a line that misses the cache answers a clock
+	// later.
+	logic        rd_v = 1'b0;
+	logic [63:0] rd_q;
+	always_ff @(posedge clk) begin
+		rd_v <= ddram_dout_ready;
+		rd_q <= ddram_dout;
+	end
+
 	localparam int AW    = (CS0_AW > CS1_AW) ? CS0_AW : CS1_AW;
 	localparam int GW    = AW + 1;                         // {chip, word}
 	localparam int BW    = GW - 2;                         // beat address
@@ -363,8 +380,8 @@ module ddram_flash #(
 	assign ddram_be       = sel_ld ? ld_be : own_be;
 	assign ddram_burstcnt = (!sel_ld && own_rd) ? (own_bulk ? 8'(BK_BEATS) : 8'(BEATS)) : 8'd1;
 	assign ld_busy        = !(sel_ld && !ddram_busy);
-	assign ld_valid       = ld_pending && ddram_dout_ready;
-	assign ld_data        = ddram_dout;
+	assign ld_valid       = ld_pending && rd_v;
+	assign ld_data        = rd_q;
 
 	always_ff @(posedge clk) begin
 		if (ld_taken && ld_rd) ld_pending <= 1'b1;
@@ -398,8 +415,8 @@ module ddram_flash #(
 	logic bk_taken_q = 1'b0;
 	always_ff @(posedge clk) bk_taken_q <= bk_go;
 	assign bk_taken = bk_taken_q;
-	assign bk_valid = state == S_BULK && ddram_dout_ready;
-	assign bk_data  = ddram_dout;
+	assign bk_valid = state == S_BULK && rd_v;
+	assign bk_data  = rd_q;
 	assign mark     = state == S_LOOK && cur_we && !abandon && cur_g[GW-1];
 	assign mark_blk = cur_g[CS1_AW-1:8];
 
@@ -437,13 +454,13 @@ module ddram_flash #(
 	// and the answers. cur_g holds still from S_LOOK to the fill's end.
 	logic                  fill_scr;
 	logic [63:0]           fill_pad;
-	wire [LINE_LOG2-1:0]   pad_cnt  = (state == S_FILL) ? fill_cnt + LINE_LOG2'(ddram_dout_ready) : '0;
+	wire [LINE_LOG2-1:0]   pad_cnt  = (state == S_FILL) ? fill_cnt + LINE_LOG2'(rd_v) : '0;
 	wire [18:0]            pad_beat = {cur_g[20:2 + LINE_LOG2], pad_cnt};   // of 4 MB
 	always_ff @(posedge clk) begin
 		fill_scr <= cur_scr;
 		fill_pad <= cur_scr ? pad_of_beat(pad_beat) : 64'd0;
 	end
-	wire [63:0] fill_dout = (fill_scr ? mix_of_beat(ddram_dout) : ddram_dout) ^ fill_pad;
+	wire [63:0] fill_dout = (fill_scr ? mix_of_beat(rd_q) : rd_q) ^ fill_pad;
 
 	always_comb begin
 		// S_READ: the tag and the wanted beat; S_LOOK: a line read's other beat
@@ -475,7 +492,7 @@ module ddram_flash #(
 				end
 			end
 			S_FILL: begin
-				if (ddram_dout_ready) begin
+				if (rd_v) begin
 					dat_we    = 4'b1111;
 					dat_waddr = {index_of(cur_g), fill_cnt};
 					dat_wdata = fill_dout;
@@ -607,7 +624,7 @@ module ddram_flash #(
 			end
 
 			S_FILL: begin
-				if (ddram_dout_ready) begin
+				if (rd_v) begin
 					fill_cnt <= fill_cnt + 1'd1;
 					if (cur_line) begin
 						if ((fill_cnt >> 1) == (cur_beat >> 1) && !abandon && !reset) begin
@@ -643,10 +660,10 @@ module ddram_flash #(
 			// the header line: its beats arrive whatever reset does, and a
 			// reset or a load meanwhile sweeps and reads it again
 			S_HDR: begin
-				if (ddram_dout_ready) begin
+				if (rd_v) begin
 					fill_cnt <= fill_cnt + 1'd1;
-					if (fill_cnt == HDR_FIRST) hdr_first <= ddram_dout[63:32];
-					if (fill_cnt == HDR_END)   hdr_end   <= ddram_dout[31:0];
+					if (fill_cnt == HDR_FIRST) hdr_first <= rd_q[63:32];
+					if (fill_cnt == HDR_END)   hdr_end   <= rd_q[31:0];
 					if (fill_cnt == LINE_LOG2'(BEATS - 1)) begin
 						hdr_req <= 1'b0;
 						state   <= S_IDLE;
@@ -656,7 +673,7 @@ module ddram_flash #(
 
 			// a block read for flash_save: its beats arrive whatever reset does
 			S_BULK: begin
-				if (ddram_dout_ready) begin
+				if (rd_v) begin
 					bk_cnt <= bk_cnt + 6'd1;
 					if (bk_cnt == 6'(BK_BEATS - 1)) state <= S_IDLE;
 				end
