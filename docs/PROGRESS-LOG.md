@@ -10618,3 +10618,78 @@ is at `/media/fat/linux/memtester`.
 
 Next, at the user's word: timing, with three aims: hardware accuracy, the
 benchmarks, no negative slack.
+
+## 2026-11-16, morning: the timing work begins; what the failing paths are made of
+
+The user's aims for it: hardware accuracy, the benchmarks, no negative
+slack; the means are left to me. Branch `timing` from the release
+(23541bb); nothing of it pushed.
+
+**How a change is judged.** One fitter seed moves the worst slack by about
+±0.25 ns, so a single path's worth cannot be seen in four seeds, and the
+best seeds of a sweep say nothing about a change (the release's four best
+of sixteen looked 0.2 ns better than the next tree for that reason alone).
+From here every step is built on eight seeds fixed beforehand (5, 9, 13,
+20, 30, 40, 1337, 31337) and compared by mean and best; the release on
+them: mean -1.960, best -1.616 ns (the worse of the two slow corners).
+
+**Two changes that cost no cycle** (dfill identical in every loop, the
+CPU suite 357 of 357 with assertions and from the netlist, RTL against
+QEMU, the cache metadata check and the proofs):
+
+- ea30eb7: the D-cache's own multiplexers in front of the lookup and
+  compare addresses are gone (`|relookup`; the CPU in HOLD presents the
+  same address, asserted). Eight seeds: mean -1.983, best -1.655.
+- 4e6c677: the TLB buffers' valid bit is chosen after the read edge
+  (`zap_mem_inv_block`; it was a 256:1 choice behind the address adder and
+  the most frequent failing endpoint). Exact in every clock (a
+  simulation-only copy of the old register is compared). With both: mean
+  -1.930, best -1.184 (seed 20: -1.184 / -0.943), sd 0.35.
+- Dropped: the same move for the cache's `valid_live` and
+  `dirty_initialized` flags. Not exact: a lookup held while a line is
+  installed must keep the flag it read (the I-cache holds its lookups
+  through its own fills; the assertion fired in 60 tests), and the
+  metadata miter with its random holds failed for the D side too.
+
+So the means have not moved beyond noise, and one seed came out 0.4 ns
+better than any before.
+
+**What the failing paths are** (the release's sixteen seeds, 480 worst
+paths; then one fit of the stack in full):
+
+- Every recurring group is 6 to 9 levels with 3 to 4.5 ns of logic and
+  6 to 7.7 ns of wire. Of 2,995 hops, 16 % travel ten tiles or more and
+  carry 38 % of the wire delay (1.6 to 1.9 ns each); 28 % travel five or
+  more and carry 60 %. A failing path has one or two long hops; meeting
+  the clock means taking about one out of each.
+- The largest family is the data lookup address (execute's operands, held
+  and reloaded accesses, a word just loaded) into the D-TLB and the
+  D-cache's metadata; then decode d1 -> d2_q, issue -> execute, the
+  D-cache's hit response into decode and execute (the wake-up of a load's
+  dependents), the D-TLB's physical address into the bus merger and into
+  the miss decision.
+- A whole fit (seed 30 of the stack, worst slack -2.35): 1,594 endpoints
+  fail, total negative slack -645 ns; 78 % of them by less than 0.6 ns,
+  136 by more than 1.0. Endpoints: front decode 347, execute 220, D-cache
+  tag RAM 74, writeback 65, CP15 57, the flash cache 46. Startpoints:
+  D-TLB 335, execute 187, CP15 175, D-cache FSM 173, front decode 131,
+  the flash side of the memory system about 200.
+- Where the device goes: 34,296 of 41,910 ALMs, 479 M10K, no MLAB at
+  all. The CPU is 14,816 ALMs (core 8,707: execute 2,432, decode 1,805,
+  fetch 1,367, the register file 1,599 in flip-flops; I-cache 2,303,
+  D-cache 3,634), ngage_mem 3,678, upp_periph 3,474, mmc_card 2,183, the
+  scaler 2,016. Block RAM: the flash cache 133, the LCD frame buffer 72,
+  the on-chip RAM 64, upp_periph's storage 32, the scaler 43; the whole
+  CPU about 65.
+
+**Reading.** The wall is distance between parts of the CPU that answer one
+another within a clock, not logic depth and not a shortage of cells, and
+there are over a thousand endpoints behind the worst one. Path-by-path
+fixes will not reach zero. What has size: a smaller CPU footprint (the
+register file and the TLB valid bits out of flip-flops), fitter settings
+and more seeds, or registers on the block-to-block answers, which cost
+clocks the benchmarks do not have (FillRate equals the phone's, 2D Image
++2 %, PolyCount +3 %).
+
+Running: eight more seeds of the stack (50 to 120), then the placement
+effort multiplier at 4 on the fixed eight.
