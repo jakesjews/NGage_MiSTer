@@ -10904,3 +10904,46 @@ on four seeds each): the D-cache's miss decision and bus request with a
 clock more, its answer into the core with a clock more, and both. They
 say how much slack a register at those places could buy, before any
 clock is spent on one.
+
+## 2026-11-16, 15:00: correction; the mean moves from netlist to netlist, not only from seed to seed
+
+The afternoon entry above called the two registers "the first change that
+moves every seed". The next tree says otherwise. On the fixed eight:
+
+| tree | mean | best | worst |
+|---|---|---|---|
+| effort 4 alone (b18f27a) | -1.667 | -1.536 | -2.021 |
+| ... + flash side, peripherals, TLB by generation (ce86f3d) | -1.764 | -1.249 | -2.479 |
+| ... + the two registers (5006c78) | -1.416 | -0.901 | -1.742 |
+| ... + store merge behind the registers, flash line read at two clocks (fd87725) | -1.844 | -1.340 | -2.331 |
+
+The last step changed nothing that the worst paths pass, and the mean
+fell by 0.43; the step before changed 210 endpoints and it rose by 0.35.
+Both are too large for eight seeds of one netlist (about 0.1) and too
+large for what was changed. What differs between two trees is the
+netlist: synthesis with timing-driven resynthesis, duplication and
+register retiming gives every tree its own, and all eight seeds of a tree
+share it (in the last tree Quartus moved the bus's `fl_req` register
+forward into a flash chip, and that one path leads two fits and is near
+the top of two more). Over the six trees since effort 4 the eight-seed (or
+four-seed) means are -1.67, -1.66, -1.80, -1.76, -1.42, -1.84: a standard
+deviation of 0.16. So an eight-seed mean of one tree is good to about
+0.2, not 0.1, and none of today's exact changes is shown to have moved
+the worst slack, in either direction. The fixed eight seeds were not
+enough of a protocol.
+
+What the exact changes did change, in every fit, is how much fails: at
+seed 5 the count of failing endpoints went from 1,400 to 2,000 before the
+two registers to 724 and 836 after, the total negative slack from -460 to
+-760 ns to -198 and -255; the median of the last tree's eight fits is
+860 endpoints. Fewer paths stand between the design and zero. The worst
+ones are where they were: the D-cache's answer into readers that need it
+in the same clock.
+
+From here: (1) a change is judged on the count of failing endpoints and
+the total negative slack as well as the worst slack, and trees are
+compared over several netlists (a synthesis seed beside the fitter's) when
+the worst slack is the question; (2) the measurement-only builds now
+running say what a register on the cache's answer could buy, which is the
+only kind of change left that can move the worst slack by more than the
+noise.
