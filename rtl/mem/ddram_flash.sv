@@ -283,7 +283,15 @@ module ddram_flash #(
 	wire  pick  = (req0 && req1) ? ~last_port : req1;   // 1: CS1
 	wire [GW-1:0] pick_g = pick ? g1 : g0;
 	wire  take  = pick ? want1 : want0;
-	wire  take_go = state == S_IDLE && !sweep_req && !hdr_req && !reset && take && !(bk_req && bk_turn) && !ld_pending && !ld_rd;
+	// A block read goes ahead of the flash requests when it is its turn, or
+	// when no flash request was up in the clock before (bk_pre: registers
+	// only, so the block read's own registers do not hang on this clock's
+	// requests; until 2026-11-16 it looked at this clock's, and a request
+	// that arrives in the very clock a block read starts now waits for it).
+	logic any_req_q = 1'b0;
+	always_ff @(posedge clk) any_req_q <= req0 || req1;
+	wire  bk_pre  = bk_req && (bk_turn || !any_req_q);
+	wire  take_go = state == S_IDLE && !sweep_req && !hdr_req && !reset && take && !bk_pre && !ld_pending && !ld_rd;
 
 	assign cs0_ltaken = take_go && !pick && cs0_lreq;
 	assign cs1_ltaken = take_go &&  pick && cs1_lreq;
@@ -385,7 +393,7 @@ module ddram_flash #(
 	logic                  bk_turn = 1'b0;   // a block read goes first when both wait
 
 	// a block read now, rather than a flash request
-	wire bk_go = state == S_IDLE && !sweep_req && !hdr_req && !reset && bk_req && (bk_turn || !take) && !ld_pending && !ld_rd;
+	wire bk_go = state == S_IDLE && !sweep_req && !hdr_req && !reset && bk_pre && !ld_pending && !ld_rd;
 
 	logic bk_taken_q = 1'b0;
 	always_ff @(posedge clk) bk_taken_q <= bk_go;
@@ -530,7 +538,7 @@ module ddram_flash #(
 					bk_cnt   <= 6'd0;
 					bk_turn  <= 1'b0;
 					state    <= S_BULK;
-				end else if (take && !ld_pending && !ld_rd) begin
+				end else if (take && !bk_pre && !ld_pending && !ld_rd) begin
 					bk_turn   <= 1'b1;
 					cur_port  <= pick;
 					last_port <= pick;
