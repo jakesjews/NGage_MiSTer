@@ -10,16 +10,7 @@
 // buffer per chip in registers:
 //   * the chip's last 8-byte beat answers a read in the clock it is asked
 //     (sequential fetches hit it three times in four);
-//   * a cache hit answers two clocks after a line request and three after
-//     a word request. The cache RAMs' address comes from flip-flops, not
-//     from the bus through both chips' request logic (until 2026-11-16 the
-//     RAMs read the picked request at once, and that address, spread over
-//     the RAM's 130 blocks, was the worst path outside the CPU): while
-//     idle the RAMs read at the bus's line address, which is a register of
-//     the bus, and a line request taken finds its tag and beat read (the
-//     two chips' line addresses are that one register; checked from
-//     registers for CS1); any other request is put into registers first
-//     and the RAMs are read from those in S_READ;
+//   * a cache hit answers two clocks after the request;
 //   * a miss reads the whole line as one DDR3 burst from its start, answers
 //     when the wanted beat arrives and keeps the line;
 //   * a 16-byte line read (cs0_lreq / cs1_lreq, beat address cs*_laddr) is
@@ -66,13 +57,10 @@
 // Saving CS1 (rtl/mister/flash_save.sv): every CS1 word written pulses
 // mark with its 512-byte block (mark_blk). A block read (bk_req, bk_blk)
 // reads that block of CS1 from DDR3 as one 64-beat burst; bk_taken pulses
-// in the clock after the read is issued (a register: the decision hangs on
-// the flash requests of that clock) and bk_valid / bk_data carry its beats,
-// the first not before the clock after bk_taken. mark and bk_taken come from
-// the same state machine and are never high together (a block read is under
-// way in bk_taken's clock); a write issued before bk_taken is in the block's
-// data (the port serves requests in order), one after it marks the block
-// again. A block
+// in the clock the read is issued and bk_valid / bk_data carry its beats.
+// mark and bk_taken come from the same state machine and are never high
+// together; a write issued before bk_taken is in the block's data (the port
+// serves requests in order), one after it marks the block again. A block
 // read alternates with flash requests when both wait, and a reset does not
 // cut one short (its beats still arrive).
 //
@@ -144,23 +132,6 @@ module ddram_flash #(
 	output logic [7:0]        ddram_be,
 	output logic              ddram_we
 );
-
-
-	// The DDR3 read channel, through a register: a beat is used the clock
-	// after the port delivers it. The port's data and data-valid come straight
-	// from the HPS bridge and went from there, through the descrambler's XOR,
-	// into the cache RAM's blocks, wherever those lie (with the RAM's address
-	// off the worst paths its blocks moved away, and this became the longest
-	// path outside the CPU: 366 endpoints at seed 5, to -1.3 ns). The state
-	// machine waits for the delayed beats, so nothing new is issued while one
-	// is still in the register; a line that misses the cache answers a clock
-	// later.
-	logic        rd_v = 1'b0;
-	logic [63:0] rd_q;
-	always_ff @(posedge clk) begin
-		rd_v <= ddram_dout_ready;
-		rd_q <= ddram_dout;
-	end
 
 	localparam int AW    = (CS0_AW > CS1_AW) ? CS0_AW : CS1_AW;
 	localparam int GW    = AW + 1;                         // {chip, word}
@@ -242,10 +213,9 @@ module ddram_flash #(
 	logic          lrbeat_q = 1'b0;
 	logic [63:0]   lrdata_q;
 
-	typedef enum logic [3:0] {
+	typedef enum logic [2:0] {
 		S_SWEEP,
 		S_IDLE,
-		S_READ,
 		S_LOOK,
 		S_LINE,
 		S_FILL,
@@ -261,26 +231,11 @@ module ddram_flash #(
 	// the header's two words are read again after every sweep
 	logic   hdr_req = 1'b1;
 
-	// A chip never has a word request and a line request up together
-	// (nor_flash: mem_req goes with m_active, and a line request needs the
-	// array idle), so the beat buffers look at the word request alone: its
-	// address and its strobe are registers of the chip, and the line
-	// request, which comes from the bus in the same clock, stays off the
-	// path to the answer.
-	localparam int WBW = AW - 2;                           // a word request's beat in the chip
-	wire [BW-1:0] wb0 = {1'b0, WBW'(cs0_addr[CS0_AW-1:2])};
-	wire [BW-1:0] wb1 = {1'b1, WBW'(cs1_addr[CS1_AW-1:2])};
 	wire can_hit = !reset && state != S_SWEEP && !sweep_req;
 	wire [1:0] bb_hit = {
-		can_hit && cs1_req && !cs1_we && !ack_q[1] && bb_v[1] && bb_beat[1] == wb1,
-		can_hit && cs0_req && !cs0_we && !ack_q[0] && bb_v[0] && bb_beat[0] == wb0
+		can_hit && cs1_req && !cs1_lreq && !cs1_we && !ack_q[1] && bb_v[1] && bb_beat[1] == g1[GW-1:2],
+		can_hit && cs0_req && !cs0_lreq && !cs0_we && !ack_q[0] && bb_v[0] && bb_beat[0] == g0[GW-1:2]
 	};
-`ifndef SYNTHESIS
-	always_ff @(posedge clk) if (!reset) begin
-		assert (!(cs0_req && cs0_lreq)) else $fatal(1, "ddram_flash: CS0 word and line request together");
-		assert (!(cs1_req && cs1_lreq)) else $fatal(1, "ddram_flash: CS1 word and line request together");
-	end
-`endif
 
 	assign cs0_ack     = !reset && (ack_q[0] || bb_hit[0]);
 	assign cs1_ack     = !reset && (ack_q[1] || bb_hit[1]);
@@ -295,9 +250,7 @@ module ddram_flash #(
 
 	// The port the state machine looks at (round robin), and whether it may
 	// take that request: not answered from a beat buffer, not the one being
-	// answered now. The request taken goes into cur_*. A line request's tag
-	// and beat are read at this edge (spec_ra below); another request's in
-	// the next clock (S_READ).
+	// answered now. The cache RAMs read the picked request's line at once.
 	logic last_port = 1'b0;
 	wire  req0  = cs0_req || cs0_lreq;
 	wire  req1  = cs1_req || cs1_lreq;
@@ -306,15 +259,7 @@ module ddram_flash #(
 	wire  pick  = (req0 && req1) ? ~last_port : req1;   // 1: CS1
 	wire [GW-1:0] pick_g = pick ? g1 : g0;
 	wire  take  = pick ? want1 : want0;
-	// A block read goes ahead of the flash requests when it is its turn, or
-	// when no flash request was up in the clock before (bk_pre: registers
-	// only, so the block read's own registers do not hang on this clock's
-	// requests; until 2026-11-16 it looked at this clock's, and a request
-	// that arrives in the very clock a block read starts now waits for it).
-	logic any_req_q = 1'b0;
-	always_ff @(posedge clk) any_req_q <= req0 || req1;
-	wire  bk_pre  = bk_req && (bk_turn || !any_req_q);
-	wire  take_go = state == S_IDLE && !sweep_req && !hdr_req && !reset && take && !bk_pre && !ld_pending && !ld_rd;
+	wire  take_go = state == S_IDLE && !sweep_req && !hdr_req && !reset && take && !(bk_req && bk_turn) && !ld_pending && !ld_rd;
 
 	assign cs0_ltaken = take_go && !pick && cs0_lreq;
 	assign cs1_ltaken = take_go &&  pick && cs1_lreq;
@@ -322,13 +267,6 @@ module ddram_flash #(
 	// ------------------------------------------------------------------
 	// Cache RAMs
 	// ------------------------------------------------------------------
-	// What the RAMs read while idle: the line address the bus holds out (the
-	// index and the beat of a line request, should one be taken at this
-	// edge). CS0's and CS1's are the same register of the bus; that CS1's
-	// agrees is checked, from registers, rather than assumed.
-	wire [DAW-1:0] spec_ra  = cs0_laddr[2 +: DAW];
-	wire           spec_ok1 = cs1_laddr[2 +: DAW] == spec_ra;
-
 	logic                 tag_we;
 	logic [LINES_LOG2-1:0] tag_waddr;
 	logic [TAGW:0]        tag_wdata;
@@ -393,8 +331,8 @@ module ddram_flash #(
 	assign ddram_be       = sel_ld ? ld_be : own_be;
 	assign ddram_burstcnt = (!sel_ld && own_rd) ? (own_bulk ? 8'(BK_BEATS) : 8'(BEATS)) : 8'd1;
 	assign ld_busy        = !(sel_ld && !ddram_busy);
-	assign ld_valid       = ld_pending && rd_v;
-	assign ld_data        = rd_q;
+	assign ld_valid       = ld_pending && ddram_dout_ready;
+	assign ld_data        = ddram_dout;
 
 	always_ff @(posedge clk) begin
 		if (ld_taken && ld_rd) ld_pending <= 1'b1;
@@ -423,13 +361,11 @@ module ddram_flash #(
 	logic                  bk_turn = 1'b0;   // a block read goes first when both wait
 
 	// a block read now, rather than a flash request
-	wire bk_go = state == S_IDLE && !sweep_req && !hdr_req && !reset && bk_pre && !ld_pending && !ld_rd;
+	wire bk_go = state == S_IDLE && !sweep_req && !hdr_req && !reset && bk_req && (bk_turn || !take) && !ld_pending && !ld_rd;
 
-	logic bk_taken_q = 1'b0;
-	always_ff @(posedge clk) bk_taken_q <= bk_go;
-	assign bk_taken = bk_taken_q;
-	assign bk_valid = state == S_BULK && rd_v;
-	assign bk_data  = rd_q;
+	assign bk_taken = bk_go;
+	assign bk_valid = state == S_BULK && ddram_dout_ready;
+	assign bk_data  = ddram_dout;
 	assign mark     = state == S_LOOK && cur_we && !abandon && cur_g[GW-1];
 	assign mark_blk = cur_g[CS1_AW-1:8];
 
@@ -467,20 +403,18 @@ module ddram_flash #(
 	// and the answers. cur_g holds still from S_LOOK to the fill's end.
 	logic                  fill_scr;
 	logic [63:0]           fill_pad;
-	wire [LINE_LOG2-1:0]   pad_cnt  = (state == S_FILL) ? fill_cnt + LINE_LOG2'(rd_v) : '0;
+	wire [LINE_LOG2-1:0]   pad_cnt  = (state == S_FILL) ? fill_cnt + LINE_LOG2'(ddram_dout_ready) : '0;
 	wire [18:0]            pad_beat = {cur_g[20:2 + LINE_LOG2], pad_cnt};   // of 4 MB
 	always_ff @(posedge clk) begin
 		fill_scr <= cur_scr;
 		fill_pad <= cur_scr ? pad_of_beat(pad_beat) : 64'd0;
 	end
-	wire [63:0] fill_dout = (fill_scr ? mix_of_beat(rd_q) : rd_q) ^ fill_pad;
+	wire [63:0] fill_dout = (fill_scr ? mix_of_beat(ddram_dout) : ddram_dout) ^ fill_pad;
 
 	always_comb begin
-		// S_IDLE: the bus's line address; S_READ: the tag and the wanted
-		// beat of the request in cur_g; S_LOOK: a line read's other beat
-		tag_raddr = (state == S_IDLE) ? spec_ra[LINE_LOG2 +: LINES_LOG2] : index_of(cur_g);
-		dat_raddr = (state == S_IDLE) ? spec_ra
-		          : {index_of(cur_g), (state == S_LOOK) ? cur_beat ^ LINE_LOG2'(1) : cur_beat};
+		tag_raddr = index_of(pick_g);
+		dat_raddr = (state == S_LOOK) ? {index_of(cur_g), cur_beat ^ LINE_LOG2'(1)}
+		                              : {index_of(pick_g), pick_g[2 +: LINE_LOG2]};
 
 		tag_we    = 1'b0;
 		tag_waddr = index_of(cur_g);
@@ -507,7 +441,7 @@ module ddram_flash #(
 				end
 			end
 			S_FILL: begin
-				if (rd_v) begin
+				if (ddram_dout_ready) begin
 					dat_we    = 4'b1111;
 					dat_waddr = {index_of(cur_g), fill_cnt};
 					dat_wdata = fill_dout;
@@ -570,8 +504,9 @@ module ddram_flash #(
 					bk_cnt   <= 6'd0;
 					bk_turn  <= 1'b0;
 					state    <= S_BULK;
-				end else if (take && !bk_pre && !ld_pending && !ld_rd) begin
+				end else if (take && !ld_pending && !ld_rd) begin
 					bk_turn   <= 1'b1;
+					// the tag and the beat are read at this edge
 					cur_port  <= pick;
 					last_port <= pick;
 					cur_line  <= pick ? cs1_lreq : cs0_lreq;
@@ -579,13 +514,9 @@ module ddram_flash #(
 					cur_g     <= pick_g;
 					cur_wdata <= pick ? cs1_wdata : cs0_wdata;
 					abandon   <= 1'b0;
-					// a line request's tag and beat are read at this edge
-					state     <= (pick ? (cs1_lreq && spec_ok1) : cs0_lreq) ? S_LOOK : S_READ;
+					state     <= S_LOOK;
 				end
 			end
-
-			// the tag and the beat are read at this edge, from cur_g
-			S_READ: state <= S_LOOK;
 
 			S_LOOK: begin
 				if (abandon || reset) begin
@@ -640,7 +571,7 @@ module ddram_flash #(
 			end
 
 			S_FILL: begin
-				if (rd_v) begin
+				if (ddram_dout_ready) begin
 					fill_cnt <= fill_cnt + 1'd1;
 					if (cur_line) begin
 						if ((fill_cnt >> 1) == (cur_beat >> 1) && !abandon && !reset) begin
@@ -676,10 +607,10 @@ module ddram_flash #(
 			// the header line: its beats arrive whatever reset does, and a
 			// reset or a load meanwhile sweeps and reads it again
 			S_HDR: begin
-				if (rd_v) begin
+				if (ddram_dout_ready) begin
 					fill_cnt <= fill_cnt + 1'd1;
-					if (fill_cnt == HDR_FIRST) hdr_first <= rd_q[63:32];
-					if (fill_cnt == HDR_END)   hdr_end   <= rd_q[31:0];
+					if (fill_cnt == HDR_FIRST) hdr_first <= ddram_dout[63:32];
+					if (fill_cnt == HDR_END)   hdr_end   <= ddram_dout[31:0];
 					if (fill_cnt == LINE_LOG2'(BEATS - 1)) begin
 						hdr_req <= 1'b0;
 						state   <= S_IDLE;
@@ -689,7 +620,7 @@ module ddram_flash #(
 
 			// a block read for flash_save: its beats arrive whatever reset does
 			S_BULK: begin
-				if (rd_v) begin
+				if (ddram_dout_ready) begin
 					bk_cnt <= bk_cnt + 6'd1;
 					if (bk_cnt == 6'(BK_BEATS - 1)) state <= S_IDLE;
 				end

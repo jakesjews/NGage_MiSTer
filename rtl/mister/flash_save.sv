@@ -20,8 +20,8 @@
 //     out in the order they were first dirtied (a queue of block numbers,
 //     8192 deep; marks of the block just queued are not queued again), each
 //     read from DDR3 (ddram_flash's block read: the bit is cleared in the
-//     clock after the read is issued, in which no write can be marked, so a
-//     write after the read marks it again and it goes out again) and sent with sd_wr; a block whose bit is clear
+//     clock the read is issued, so a write after that marks it again and
+//     it goes out again) and sent with sd_wr; a block whose bit is clear
 //     by the time its turn comes is skipped. So a core reload or power
 //     loss in the middle of a write-back leaves the file with a prefix of
 //     the firmware's writes, the state a power loss leaves the phone's
@@ -123,8 +123,7 @@ module flash_save #(
 
 	// ------------------------------------------------------------------
 	// The dirty bitmap: one bit a block. Writes: a mark (1), the clear in the
-	// clock after a block read is issued (bk_taken; 0; never with a mark),
-	// the sweep (0).
+	// clock a block read is issued (0; never with a mark), the sweep (0).
 	// ------------------------------------------------------------------
 	logic        bm_we, bm_wd, bm_q;
 	logic [13:0] bm_wa;
@@ -356,8 +355,7 @@ module flash_save #(
 				end
 			end
 
-			// one block: read from DDR3 (the bit clears a clock after the read is
-			// issued),
+			// one block: read from DDR3 (the bit clears as the read is issued),
 			// then to the file
 			S_RD: if (bk_taken) begin
 				beat <= 9'd0;

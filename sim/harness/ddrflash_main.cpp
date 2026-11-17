@@ -144,7 +144,7 @@ struct Bench {
 					if (rdata[n] != want)
 						sim::fail("CS%d read of %06x: got %04x, want %04x (cycle %llu)", n, q.addr, rdata[n], want, (unsigned long long)cyc);
 					if (lat == 0) q.lat0++;
-					else if (lat <= 3) q.lat2++;   // a cache hit: three clocks
+					else if (lat <= 2) q.lat2++;
 					else q.latmiss++;
 					q.latmax = std::max(q.latmax, lat);
 				}
