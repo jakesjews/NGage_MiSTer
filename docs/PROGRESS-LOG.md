@@ -11029,3 +11029,42 @@ Proposed to the user: keep the accurate 16 KB / 8 KB core as the product
 board check), and take the deeper pipeline as a project of its own, with
 the 16 KB D-cache as part of its budget. Running: the tree on sixteen
 seeds.
+
+## 2026-11-16, evening: what goes into the release, and why the flash store went back
+
+The user: merge and release (the accurate 16 KB / 8 KB core with today's
+exact work; the deeper pipeline is a project of its own).
+
+**The tree as it stood (652d823) fitted badly:** -1.902, -2.052, -1.905,
+-2.087 at seeds 5, 9, 13, 20, worse than the release's -1.597. A
+synthesis seed does not re-roll a tree (`SYNTHESIS_SEED` 4 and 5 gave
+seed 1's fits to the last digit), so the only other netlists are other
+trees. The tree three commits back (fd87725) had -1.340 / -1.269 at seed
+9, so the return stack's staged write, the audio counters in the
+two-clock set and the flash store's cached-copy update are held back
+(2c7623a): right, on record, and due back with a sweep of their own.
+
+**That candidate on the board** (md5 aa588024): 3D Game 8.87, PolyCount
+28.35 / 28.44, 2D Image 38.01 / 38.05, Scaling 1.89, JPEG 168.8, and
+FillRate 1.67 on both passes; Sonic N and Call of Duty run. Twenty passes
+now: FillRate read 1.73 in nine of twelve on builds with the release's
+flash store and in one of six on builds with any of today's changes to
+it, also with the line read back at two clocks (what is left of them is a
+clock on a line that misses the flash cache and a clock on word reads);
+on the 16 KB D-cache build twice of two. Every other figure is the same
+on all twenty. The flash-store changes took long paths outside the CPU
+away and never moved the worst slack, so they are not worth a fill rate
+that reads under the phone's: `ddram_flash.sv`, `flash_save.sv` and the
+ddrflash bench are back at the release's (ecd84e1).
+
+**The release tree is the release's clock for clock.** In simulation
+flashcopy ends after 6,458,938 clocks and dfill after 4,073,362 on the
+old release's tree and on this one, and every dfill figure is the same.
+What it has over the old release is all inside that: the fitter's
+placement effort at 4, the D-cache's relookup multiplexers gone, the TLB
+valid bits as generation numbers, the register file's held masks decoded
+from flag and index, the D-cache's victim line and its store merge behind
+their registers, the memory system's reset as a register, and the
+interrupt enables and the audio rate accumulator in the peripheral bus's
+two-clock set. From now a board candidate's two clock counts are compared
+with the release tree's first: a difference there shows in FillRate.
