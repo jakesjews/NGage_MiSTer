@@ -25,20 +25,38 @@ stand-in code with some reverse engineering; **high** a large design;
   in a fill: 2 clocks to the bus, 8 to the first word, 6 for three more
   (a 16-bit SDRAM, two clocks a word), 2 to install; after a dirty line's
   write-back the SDRAM's first word takes 23.
+- [x] **The timing work's exact changes**: released on 2026-11-16 (the
+  third NGage_20261116.rbf, seed 50, -1.362 / -1.414 ns; the release
+  before: -1.597 / -1.553). The fitter's placement effort at 4, the
+  D-cache's relookup multiplexers gone, TLB valid bits as generation
+  numbers, the register file's held masks decoded, the D-cache's victim
+  line and store merge behind their registers, the memory system's reset
+  as a register, two more register sets in the peripheral bus's two-clock
+  set. The core is the release before's clock for clock (the same clock
+  counts in flashcopy and dfill, the same SPMark04 figures).
 - [ ] **Timing**: the aims are hardware accuracy, the benchmarks (nothing
-  under the phone) and no negative slack (the user, 2026-11-16). On the
-  fixed eight seeds the branch `timing` is at mean -1.7, best -1.25 ns
-  (the release: -1.96 and -1.6). What moved it: the fitter's placement
-  effort (0.26 ns). What did not, each exact and each measured: cutting
-  single paths in the caches, TLBs and register file, the flash side and
-  peripheral paths outside the CPU, freeing block RAM. The wall is some
-  twenty-five families of paths where one part of the CPU answers another
-  within a clock across the device (log, 2026-11-16 midday). Next: a
-  register on those answers (the D-cache's hit into the core, the miss
-  decision into the bus) costs a clock a load or a miss, so first the
-  clocks the core loses against the phone: the data line fill (19.3
-  clocks a line), the I side's second page walk, the write buffer's
-  depth. Every change on the fixed eight seeds.
+  under the phone) and no negative slack (the user, 2026-11-16). What a
+  day of measuring says (log, 2026-11-16): the CPU core's own stages are
+  1.1 to 1.9 ns short at 104 MHz on this device, with everything else
+  given two clocks; what passes between the core and the caches 0.7 to
+  1.3 ns. Fitter effort is in (0.26 ns); router effort, a synthesis seed,
+  freeing block RAM, a placement region for the core (0.5 ns worse) and a
+  register on the D-cache's answer (0.15 ns at most) do nothing. An
+  eight-seed mean of one tree is good to 0.2 ns only: trees differ by
+  their synthesis result, so compare over several trees and count failing
+  endpoints too. Meeting the clock means a deeper pipeline in the core:
+  a project of its own, not started, waiting for the user's word. Its
+  budget: the 16 KB D-cache gives 3.6 % in the 3D tests and nothing in
+  2D Image (1.9 % over the phone). Its first step is measurement: which
+  stage splits the core needs.
+- [ ] **Held back from the release, to come back with a sweep of their
+  own** (2c7623a, ecd84e1): the predictor's return stack taking its write
+  a clock later, upp_haudio's pos and played in the two-clock set, and
+  the flash store's registers (lookup, DDR3 read channel, cached-copy
+  update). The first two are exact and only fitted badly; the flash
+  store's cost a clock on flash misses and word reads, and FillRate, on
+  the edge of a whole second, read 1.67 instead of 1.73 with them: they
+  need the fill rate off that edge first.
 - [ ] **Benchmark runs**: all nine SPMark04 tests once from a fresh C: for
   each candidate core (no second run of the 3D set, no file checks).
 
@@ -129,6 +147,6 @@ stand-in code with some reverse engineering; **high** a large design;
 - [ ] 104 MHz timing closure: see "Timing" under In progress.
 - [ ] The development board's wrong bits on file reads (2026-11-14/15):
   one bit of its own memory, physical `0x1908D7F4` bit 30, takes no
-  writes (found 2026-11-16, memtester agrees); not the core. Open, the
-  user's choice: keep Linux off that page (`memmap=4K$0x1908D000`). The
-  read probes around board sessions are dropped.
+  writes (found 2026-11-16, memtester agrees); not the core. Linux is
+  kept off that page since 2026-11-16 (a reservation in the boot loader's
+  `u-boot.txt`). The read probes around board sessions are dropped.

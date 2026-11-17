@@ -11068,3 +11068,43 @@ their registers, the memory system's reset as a register, and the
 interrupt enables and the audio rate accumulator in the peripheral bus's
 two-clock set. From now a board candidate's two clock counts are compared
 with the release tree's first: a difference there shows in FillRate.
+
+## 2026-11-16, night: the third release of the day, NGage_20261116.rbf, seed 50
+
+The release tree (ecd84e1) on sixteen seeds, server, setup at 100C /
+-40C: 50 -1.362 / -1.414, 20 -1.475 / -1.365, 1337 -1.516 / -1.411, 100
+-1.519 / -1.272, 40 and 30 -1.575, the rest down to -2.097 (mean of the
+worse corner -1.747); hold positive at every corner; 33,560 ALMs. Seed 50
+is the best over both corners and is in `NGage.qsf`; the release before
+was -1.597 / -1.553 (seed 60). md5 e7bf772e59ea5a6183c7b33b7da4dc44. The
+build date is the same day as the two releases before it, so the file
+keeps its name and replaces them. It still does not meet 104 MHz in the
+timing report.
+
+On the board from fresh C: drives (a real N-Gage QD in brackets). Seed 50,
+two passes: 3D Game 8.88 / 8.87 fps (8.05), FillRate 1.73 / 1.73 Mtexels/s
+(1.73), PolyCount 28.38 Ktriangles/s (27.52), 2D Image 38.05 / 38.01 fps
+(37.33), Image Scaling 1.89 (1.58), JPEG 168.8 (156.78), Contacts 3.48
+(2.37), Calendar 3.61 / 6.15 (2.33), Disk Access 15.2 / 15.4 (2.64).
+Seed 20 of the same tree, three passes: the same, FillRate 1.73 each
+time. Nothing under the phone, with the phone's own cache sizes. Sonic N
+and Call of Duty start and run on both files.
+
+Checks on the final tree: lint, the generated-file checks, `make test`
+(21 benches), the CPU suite 357 of 357 on the netlist (and on the sources
+with assertions for every change in it), the QEMU comparison, the cache
+metadata check, the proofs, flashcopy, dfill, hps-read-test.
+
+What is in it over the release before, all of it without a clock's
+difference (the two whole-core benches end on the same clock): placement
+effort 4; the D-cache's relookup multiplexers gone; the TLB valid bits as
+generation numbers; the register file's held masks decoded; the D-cache's
+victim line and store merge behind their registers; the memory system's
+reset as a register; upp_intc's enables and upp_haudio's rate accumulator
+in the two-clock set. What is not: the return stack's staged write and
+the audio position counters (fitted badly, 2c7623a), and the flash
+store's registers (FillRate, ecd84e1).
+
+Merged into master and pushed at the user's word ("lets do number 1.
+merge and release"); the deeper pipeline in the core, the only way left
+to the clock, is not started.
