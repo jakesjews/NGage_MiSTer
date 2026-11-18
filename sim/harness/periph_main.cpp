@@ -1045,6 +1045,22 @@ void test_mmc(Bench &b) {
 	m.wait_data(5);
 	CHECK_EQ(m.status() & 0x7FF, 0, "status after the block");
 	read_check(SD + 0xC00000, 7, 1, "CMD17");
+	// the same with the DMA started late: the FIFO fills and the host has to
+	// hold the card's clock until the bytes are taken
+	for (int wait : {0, 600, 4000}) {
+		s = m.cmd(17, 9 * 512, 0x21, 0x200);
+		CHECK_EQ(s & ~4u, 0x100, "CMD17 (late DMA) status");
+		b.run(wait);
+		b.dma_setup(5, 0x10120624, 0, 0x08, SD + 0xC08000, 4, 0x20, 512);
+		b.dma_start(5, 2);
+		uint64_t limit = b.cyc + 4000000;
+		while (!b.dma_done(5) && b.cyc < limit) b.traffic->step(b);
+		CHECK(b.dma_done(5), "CMD17 (late DMA): the DMA finished");
+		m.wait_data(5);
+		printf("  CMD17, DMA started %d clocks late: status %03x\n", wait, m.status() & 0x7FF);
+		char what[64]; snprintf(what, sizeof what, "CMD17, DMA %d clocks late", wait);
+		read_check(SD + 0xC08000, 9, 1, what);
+	}
 	// CMD18 as epbus reads: three blocks (8, 9, 10), then 4 KB (8, six 9s,
 	// 10); every block checked, the last one (type 10) included
 	m.multi(false, 100, 3, SD + 0xC10000, "CMD18 3 blocks");

@@ -275,8 +275,13 @@ module upp_mmc #(
 			D_TWAIT: dat_need = fcnt != '0;
 			default: dat_need = 1'b0;
 		endcase
-		// at a byte boundary, wait for FIFO room (receive) or a byte (send)
-		dat_hold = (dstate == D_RX && dbit == 4'd0 && nrx < blen && fcnt == fdepth) ||
+		// wait for FIFO room (receive) or, at a byte boundary, a byte (send).
+		// Receive holds on a full FIFO at any bit: with an odd DIV the bit is
+		// sampled in the clock that decides the next period (ph == DIV - 1),
+		// so this sees the byte that filled the FIFO a period late, one bit
+		// into the next byte. With an even DIV a full FIFO is always seen at
+		// the byte boundary, as before.
+		dat_hold = (dstate == D_RX && nrx < blen && fcnt == fdepth) ||
 		           (dstate == D_TX && dbit == 4'd0 && ntx < blen && fcnt == '0);
 	end
 
