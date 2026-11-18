@@ -1,7 +1,8 @@
 // Bench for rtl/upp/upp_timers.sv: timers 0-5 against a C++ port of the
 // reference model's timer (model/hw/ngage_intc.c), which runs in continuous
-// time: a timer started at clock edge s with count C reads C - floor((t - s) /
-// 3) after edge t and underflows at edge s + 3C (3 * 2^32 for C = 0).
+// time: a timer started at clock edge s with count C reads
+// C - floor((t - s) * STEP / DIV) after edge t and underflows at the first
+// edge at or after s + C * DIV / STEP (2^32 ticks for C = 0).
 //
 //   Vupp_timers [--seed N] [--cycles N]
 //
@@ -21,23 +22,36 @@
 
 namespace {
 
-constexpr uint64_t DIV = 3;
+#ifndef TIMER_TEST_DIV
+#define TIMER_TEST_DIV 3
+#endif
+#ifndef TIMER_TEST_STEP
+#define TIMER_TEST_STEP 1
+#endif
+
+constexpr uint64_t DIV = TIMER_TEST_DIV;
+constexpr uint64_t STEP = TIMER_TEST_STEP;
+
+uint64_t ceil_edge(uint64_t time_units) { return (time_units + STEP - 1) / STEP; }
 
 struct Timer {
 	bool running = false, irq = false;
-	uint64_t start = 0;        // the edge it was (re)started at
+	uint64_t start_units = 0;  // time in 1/STEP-clock units
 	uint32_t start_count = 0;
 	uint32_t ctrl = 0, reload = 0, stored = 0;   // stored: +0x10 while stopped
 
-	uint64_t expiry() const { return start + DIV * (start_count ? (uint64_t)start_count : (1ull << 32)); }
-	uint32_t count(uint64_t t) const { return start_count - (uint32_t)((t - start) / DIV); }
+	uint64_t expiry_units() const {
+		return start_units + DIV * (start_count ? (uint64_t)start_count : (1ull << 32));
+	}
+	uint64_t expiry() const { return ceil_edge(expiry_units()); }
+	uint32_t count(uint64_t t) const { return start_count - (uint32_t)((t * STEP - start_units) / DIV); }
 	// the underflows up to and including edge t
 	void advance(uint64_t t) {
-		while (running && expiry() <= t) {
-			uint64_t e = expiry();
+		while (running && expiry_units() <= t * STEP) {
+			uint64_t e = expiry_units();
 			irq = true;
 			if (ctrl & 2) {
-				start = e;
+				start_units = e;
 				start_count = reload;
 			} else {
 				running = false;
@@ -54,7 +68,7 @@ struct Timer {
 		switch (r) {
 		case 0x04:
 			if ((v & 3) && !running) {
-				running = true; start = t; start_count = stored;
+				running = true; start_units = t * STEP; start_count = stored;
 			} else if (!(v & 3) && running) {
 				stored = count(t); running = false;
 			}
@@ -62,7 +76,7 @@ struct Timer {
 			break;
 		case 0x08: irq = false; break;
 		case 0x10:
-			if (running || (ctrl & 3)) { running = true; start = t; start_count = v; }
+			if (running || (ctrl & 3)) { running = true; start_units = t * STEP; start_count = v; }
 			stored = v;
 			break;
 		case 0x18: reload = v; break;
@@ -150,9 +164,9 @@ int main(int argc, char **argv) {
 	for (int n = 0; n < 6; n++) b.check_storage_offsets(n);
 
 	// the boot's timer 0: +0x04 = 2 (periodic), +0x10/+0x18 = count, +0x08 = 0
-	// (0x31AC), with a short count; underflow every 3 * C clocks
+	// (0x31AC), with a short count that leaves fractional phase on reload
 	{
-		const uint32_t C = 100;
+		const uint32_t C = 101;
 		b.write(0, 0x10, C);
 		b.write(0, 0x18, C);
 		b.write(0, 0x08, 0);
@@ -160,14 +174,28 @@ int main(int argc, char **argv) {
 		b.write(0, 0x04, 2);
 		for (int k = 0; k < 5; k++) {
 			while (b.irq_edges[0].size() <= (size_t)k) b.idle(1);
-			CHECK_EQ(b.irq_edges[0][k], s + 3 * C * (k + 1), "timer 0 underflow edge");
+			CHECK_EQ(b.irq_edges[0][k], s + ceil_edge(DIV * C * (k + 1)), "timer 0 underflow edge");
 			b.write(0, 0x08, 1);
 		}
 		b.write(0, 0x04, 0);
 	}
-	// the kernel's tick reload 0x843E2 is 1/64 s at 104/3 MHz: the period in
-	// clocks is 3 * 0x843E2 = 1624998 = 15.625 ms at 104 MHz, within a clock
-	CHECK_EQ(3 * 0x843E2, 1624998, "tick period in clocks");
+	// The kernel's actual 64 Hz reload, checked across two periods.
+	{
+		const uint32_t C = 0x843E2;
+		const size_t first = b.irq_edges[0].size();
+		b.write(0, 0x10, C);
+		b.write(0, 0x18, C);
+		b.write(0, 0x04, 2);
+		const uint64_t start = b.edge_n;
+		for (uint64_t period = 1; period <= 2; period++) {
+			const uint64_t expected = start + ceil_edge(DIV * C * period);
+			b.idle(expected - b.edge_n);
+			CHECK_EQ(b.irq_edges[0].size(), first + period, "kernel timer interrupt count");
+			CHECK_EQ(b.irq_edges[0].back(), expected, "kernel timer underflow edge");
+			b.write(0, 0x08, 0);
+		}
+		b.write(0, 0x04, 0);
+	}
 
 	// the high-resolution timer 1: control 1 (one-shot), re-armed by +0x10
 	{
@@ -175,7 +203,7 @@ int main(int argc, char **argv) {
 		b.write(1, 0x10, 40);                // restarts it with 40
 		uint64_t s = b.edge_n;
 		while (b.irq_edges[1].empty()) b.idle(1);
-		CHECK_EQ(b.irq_edges[1][0], s + 3 * 40, "one-shot underflow edge");
+		CHECK_EQ(b.irq_edges[1][0], s + ceil_edge(DIV * 40), "one-shot underflow edge");
 		CHECK_EQ(b.read(1), 0, "a one-shot that ran out reads 0");
 		b.idle(50);
 		CHECK_EQ(b.read(1), 0, "and stays stopped");
@@ -183,11 +211,11 @@ int main(int argc, char **argv) {
 		b.write(1, 0x10, 7);                 // and re-arms
 		s = b.edge_n;
 		while (b.irq_edges[1].size() < 2) b.idle(1);
-		CHECK_EQ(b.irq_edges[1][1], s + 3 * 7, "re-armed one-shot underflow edge");
+		CHECK_EQ(b.irq_edges[1][1], s + ceil_edge(DIV * 7), "re-armed one-shot underflow edge");
 		b.write(1, 0x08, 1);
 		b.write(1, 0x04, 0);
 	}
-	// timer 4: the live count steps every 3 clocks; stop keeps it, start goes on
+	// timer 4: check the live count, stop, and restart
 	{
 		b.write(4, 0x10, 1000);
 		b.write(4, 0x04, 2);

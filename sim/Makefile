@@ -1,7 +1,8 @@
 # Verilator benches for the board-level devices, the memory system and the
 # MiSTer shell. Run from the repository root with `make test`, or one bench
 # at a time with `make -C sim lcd` (lcd, video, keypad, flash, mmc, bt, sdram,
-# sdram-faults, ddrflash, upp, intc, timers, periph, save, top). Each bench is built
+# sdram78, sdram-faults, ddrflash, upp, intc, timers, periph, periph78, save,
+# top). Each bench is built
 # into sim/build/<name> and run at once; pictures go to sim/build/out.
 # The benches run one after the other. `make -C sim coreboot` (not part of
 # `make test`) boots the firmware on the whole core; see its target below.
@@ -27,7 +28,7 @@ PROFILE_FILES = $(if $(filter 1,$(CORE_PROFILE)),$(ROOT)/sim/profile/cpu_profile
 PROFILE_FLAGS = $(if $(filter 1,$(CORE_PROFILE)),-DCPU_PROFILE=1 -CFLAGS "-DCPU_PROFILE=1")
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
-BENCHES := lcd video keypad flash mmc bt sdram sdram-faults ddrflash trace upp intc timers haudio periph save phoenix top
+BENCHES := lcd video keypad flash mmc bt sdram sdram78 sdram-faults ddrflash trace upp intc timers haudio periph periph78 save phoenix top
 
 .PHONY: test $(BENCHES) coreboot flashcopy hps-read-test clean
 
@@ -95,6 +96,12 @@ $(BUILD)/sdram/Vsdram: $(SDRAM_DEPS)
 sdram: $(BUILD)/sdram/Vsdram
 	$< $(RUNFLAGS) --seed $(SEED)
 
+$(BUILD)/sdram78/Vsdram: $(SDRAM_DEPS)
+	mkdir -p $(BUILD)/sdram78 && $(VERILATOR) $(VFLAGS) --top-module sdram --Mdir $(BUILD)/sdram78 -o Vsdram \
+		-GCLK_HZ=78000000 $(SDRAM_RTL) $(ROOT)/sim/harness/sdram_main.cpp
+sdram78: $(BUILD)/sdram78/Vsdram
+	$< $(RUNFLAGS) --seed $(SEED) --clk-hz 78000000
+
 # The same with a timing fault each, which the chip model must report: read
 # capture a clock early, tRCD of one clock, tRFC of five clocks, refreshes
 # too far apart
@@ -158,11 +165,17 @@ $(BUILD)/intc/Vupp_intc: $(ROOT)/rtl/upp/upp_intc.sv $(ROOT)/sim/harness/intc_ma
 intc: $(BUILD)/intc/Vupp_intc
 	$< $(RUNFLAGS) --seed $(SEED)
 
-$(BUILD)/timers/Vupp_timers: $(ROOT)/rtl/upp/upp_timers.sv $(ROOT)/sim/harness/timers_main.cpp $(ROOT)/sim/harness/common.h
+TIMER_RTL := $(ROOT)/rtl/upp/upp_timers.sv
+TIMER_BENCH := $(ROOT)/sim/harness/timers_main.cpp
+$(BUILD)/timers/Vupp_timers: $(TIMER_RTL) $(TIMER_BENCH) $(ROOT)/sim/harness/common.h
 	mkdir -p $(BUILD)/timers && $(VERILATOR) $(VFLAGS) --top-module upp_timers --Mdir $(BUILD)/timers -o Vupp_timers \
-		$(ROOT)/rtl/upp/upp_timers.sv $(ROOT)/sim/harness/timers_main.cpp
-timers: $(BUILD)/timers/Vupp_timers
-	$< $(RUNFLAGS) --seed $(SEED)
+		$(TIMER_RTL) $(TIMER_BENCH)
+$(BUILD)/timers78/Vupp_timers: $(TIMER_RTL) $(TIMER_BENCH) $(ROOT)/sim/harness/common.h
+	mkdir -p $(BUILD)/timers78 && $(VERILATOR) $(VFLAGS) --top-module upp_timers --Mdir $(BUILD)/timers78 -o Vupp_timers \
+		-GTIMER_DIV=9 -GTIMER_STEP=4 -CFLAGS "-DTIMER_TEST_DIV=9 -DTIMER_TEST_STEP=4" $(TIMER_RTL) $(TIMER_BENCH)
+timers: $(BUILD)/timers/Vupp_timers $(BUILD)/timers78/Vupp_timers
+	$(BUILD)/timers/Vupp_timers $(RUNFLAGS) --seed $(SEED)
+	$(BUILD)/timers78/Vupp_timers $(RUNFLAGS) --seed $(SEED)
 
 # The HLE audio device against a port of the model, at the core's clock and at
 # 2 MHz (many more frames a clock: buffer ends, restarts); with the model's
@@ -191,15 +204,19 @@ PERIPH_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/tdp_ram.sv $(ROOT)/
               $(ROOT)/rtl/upp/upp_lcdif.sv $(ROOT)/rtl/upp/upp_uif.sv $(ROOT)/rtl/upp/upp_cbus.sv \
               $(ROOT)/rtl/upp/upp_haudio.sv $(ROOT)/rtl/upp/upp_periph.sv $(ROOT)/rtl/mister/rtc_wall.sv \
               $(ROOT)/sim/harness/periph_tb.sv
-$(BUILD)/periph/Vperiph_tb: $(PERIPH_RTL) $(ROOT)/sim/harness/periph_main.cpp $(ROOT)/sim/harness/common.h \
-                            $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h
-	mkdir -p $(BUILD)/periph && $(VERILATOR) $(VFLAGS) --top-module periph_tb --Mdir $(BUILD)/periph -o Vperiph_tb \
+$(BUILD)/periph78/Vperiph_tb: PERIPH_CLOCK := -GCLK_HZ=78000000
+$(BUILD)/periph/Vperiph_tb $(BUILD)/periph78/Vperiph_tb: $(PERIPH_RTL) $(ROOT)/sim/harness/periph_main.cpp \
+                $(ROOT)/sim/harness/common.h $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h
+	mkdir -p $(@D) && $(VERILATOR) $(VFLAGS) --top-module periph_tb --Mdir $(@D) -o Vperiph_tb $(PERIPH_CLOCK) \
 		$(PERIPH_RTL) $(ROOT)/sim/harness/periph_main.cpp
 # a real game card's image (tools/mkcard.py; local data, never committed): the
 # bench reads its first sectors when the file is there
 MMC_CARD ?= $(ROOT)/model/.out/cards/sonicn.mmc
 periph: $(BUILD)/periph/Vperiph_tb | $(OUT)
 	$< $(RUNFLAGS) --seed $(SEED) --out $(OUT) --model-out $(ROOT)/model/.out --card $(MMC_CARD)
+periph78: $(BUILD)/periph78/Vperiph_tb | $(OUT)
+	mkdir -p $(OUT)/periph78
+	$< $(RUNFLAGS) --seed $(SEED) --out $(OUT)/periph78 --model-out $(ROOT)/model/.out --card $(MMC_CARD)
 
 # The CS1 save file (rtl/mister/flash_save.sv) with the memory system: mount,
 # marks, write-back (sim/harness/save_tb.sv)
@@ -217,14 +234,17 @@ save: $(BUILD)/save/Vsave_tb
 # The whole core: NGage.sv with the board devices; hps_io, the PLL and
 # video_mixer stood in for (sim/stubs); the framework's video_freak (the
 # aspect ratio, the vertical crop and the integer scaling) as it is
+SYS_PLL := $(ROOT)/rtl/pll/pll_0002.v
+SYS_CLK_HZ := $(shell sed -n 's/.*\.output_clock_frequency0("\([0-9.]*\) MHz").*/\1/p' $(SYS_PLL) | awk '{ printf "%.0f", $$1 * 1000000 }')
+TOP_CLK_FLAGS = -CFLAGS "-DNGAGE_SYS_CLK_HZ=$(SYS_CLK_HZ)"
 TOP_RTL := $(ROOT)/sim/stubs/hps_io.sv $(ROOT)/sim/stubs/pll.sv $(ROOT)/sim/stubs/video_mixer.sv \
            $(ROOT)/sys/video_freak.sv $(ROOT)/sys/math.sv \
            $(shell sed -n 's/^set_global_assignment -name \(SYSTEM\)*VERILOG_FILE //p' $(ROOT)/files.qip | sed 's|^|$(ROOT)/|') \
 
-$(BUILD)/top/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/top_main.cpp $(ROOT)/sim/harness/common.h \
+$(BUILD)/top/Vemu: $(TOP_RTL) $(SYS_PLL) $(ROOT)/files.qip $(ROOT)/sim/harness/top_main.cpp $(ROOT)/sim/harness/common.h \
                    $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h $(ROOT)/sim/harness/phoenix_stream.h \
                    $(ROOT)/rtl/mister/phoenix_patch.hex $(ROOT)/rtl/mister/phoenix_patch.vh
-	mkdir -p $(BUILD)/top && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) --timescale 1ns/1ps --pins-inout-enables \
+	mkdir -p $(BUILD)/top && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) $(TOP_CLK_FLAGS) --timescale 1ns/1ps --pins-inout-enables \
 		--top-module emu -DNGAGE_DEBUG=1 --Mdir $(BUILD)/top -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
 		$(TOP_RTL) $(ROOT)/sim/harness/top_main.cpp
 top: $(BUILD)/top/Vemu | $(OUT)
@@ -245,10 +265,10 @@ CORE_MMC     ?=
 CORE_ARGS    ?= --cycles 1000000000
 CORE_OUT     ?= $(BUILD)/coreboot/out
 CORE_THREADS ?= 1
-$(BUILD)/coreboot/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/coreboot_main.cpp $(ROOT)/sim/harness/coreboot.vlt $(ROOT)/sim/profile/cpu_profile.h $(PROFILE_FILES) \
+$(BUILD)/coreboot/Vemu: $(TOP_RTL) $(SYS_PLL) $(ROOT)/files.qip $(ROOT)/sim/harness/coreboot_main.cpp $(ROOT)/sim/harness/coreboot.vlt $(ROOT)/sim/profile/cpu_profile.h $(PROFILE_FILES) \
                         $(ROOT)/sim/harness/common.h $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h $(ROOT)/sim/harness/snapshot.h \
                         $(ROOT)/rtl/mister/phoenix_patch.hex $(ROOT)/rtl/mister/phoenix_patch.vh
-	mkdir -p $(BUILD)/coreboot && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) $(PROFILE_FLAGS) --timescale 1ns/1ps --pins-inout-enables --savable \
+	mkdir -p $(BUILD)/coreboot && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) $(TOP_CLK_FLAGS) $(PROFILE_FLAGS) --timescale 1ns/1ps --pins-inout-enables --savable \
 		$(if $(filter-out 1,$(CORE_THREADS)),--threads $(CORE_THREADS)) \
 		--top-module emu -DNGAGE_DEBUG=1 --Mdir $(BUILD)/coreboot -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
 		$(ROOT)/sim/harness/coreboot.vlt $(TOP_RTL) $(PROFILE_FILES) $(ROOT)/sim/harness/coreboot_main.cpp

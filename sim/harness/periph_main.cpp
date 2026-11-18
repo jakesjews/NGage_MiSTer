@@ -101,6 +101,19 @@ struct Hps {
 	uint64_t reads = 0, writes = 0;
 };
 
+struct PinPulses {
+	struct Pulse { uint64_t start, end; };
+	std::vector<Pulse> pulses;
+	bool capture = false, was_active = false;
+
+	void sample(uint64_t cyc, bool active) {
+		if (!capture) return;
+		if (active && !was_active) pulses.push_back({cyc, 0});
+		if (!active && was_active) pulses.back().end = cyc;
+		was_active = active;
+	}
+};
+
 struct Bench {
 	Vperiph_tb *t = new Vperiph_tb;
 	SdramChip chip;
@@ -116,6 +129,7 @@ struct Bench {
 	std::string sti;
 	uint64_t lcd_bytes = 0;
 	bool wrx_prev = true;
+	PinPulses lcd_write_pulses, lcd_read_pulses, mmc_pulses;
 	uint32_t keys = 0;
 	bool power = false;
 
@@ -129,6 +143,7 @@ struct Bench {
 		t->scan_en = 0; t->scan_x = 0; t->scan_y = 0;
 		t->rtc[0] = 0; t->rtc[1] = 0; t->rtc[2] = 0;
 		t->eval();
+		chip.tm.tck = 1e9 / t->clk_hz;
 		for (int i = 0; i < 4; i++) tick();
 		t->sdram_init = 0;
 		for (int i = 0; i < 4; i++) tick();
@@ -220,6 +235,10 @@ struct Bench {
 		t->eval();
 		if (!t->lcd_wrx && wrx_prev) lcd_bytes++;
 		wrx_prev = t->lcd_wrx;
+		lcd_write_pulses.sample(cyc, !t->lcd_wrx);
+		lcd_read_pulses.sample(cyc, !t->lcd_rdx);
+		mmc_pulses.sample(cyc, t->mmc_clk);
+		if (lcd_read_pulses.capture) CHECK(!(t->lcd_d_oe && t->panel_d_oe), "LCD bus contention");
 	}
 	void run(uint64_t n) { while (n--) tick(); }
 
@@ -644,11 +663,71 @@ struct Lcd {
 uint16_t pix12(int x, int y) { return (uint16_t)(((x * 15 / 175) << 8) | ((y * 15 / 207) << 4) | ((x + y) & 15)); }
 uint16_t pix16(int x, int y) { return (uint16_t)((((x ^ y) & 31) << 11) | ((y * 63 / 207) << 5) | (x * 31 / 175)); }
 
+void test_lcd_strobes(Bench &b, Lcd &l) {
+	const int quarters = b.t->clk_hz / 26000000;
+	for (int packing : {3, 4}) {
+		constexpr int words = 65;
+		const int bytes = words * packing;
+		l.cmd(0x00);
+		l.sync();
+		b.wr(LCD, (packing == 3 ? 0x09240000 : 0x092C0000) | (bytes - 1));
+		auto &trace = b.lcd_write_pulses;
+		trace.pulses.clear();
+		trace.capture = true;
+		for (int i = 0; i < words; ++i) b.wr(LCD + 8, 0x01230456);
+		l.sync();
+		trace.capture = false;
+		CHECK_EQ(trace.pulses.size(), bytes, "LCD packed write pulse count");
+		if (trace.pulses.size() != bytes) continue;
+		uint64_t low_clocks = 0;
+		const uint64_t first = trace.pulses.front().start;
+		for (int i = 0; i < bytes; ++i) {
+			const auto &pulse = trace.pulses[i];
+			const int64_t low = pulse.end - pulse.start;
+			CHECK(low >= quarters / 2 && low <= (quarters + 1) / 2, "LCD /WR low width at byte %d", i);
+			low_clocks += low;
+			// Donor: two low, two high, one to start each byte, one to unpack each word.
+			const int64_t drift = 4 * int64_t(pulse.start - first) - (5 * i + i / packing) * quarters;
+			CHECK(drift > -8 && drift < 8, "LCD packed write timing drift at byte %d", i);
+		}
+		const int64_t low_drift = 4 * int64_t(low_clocks) - 2 * bytes * quarters;
+		CHECK(low_drift > -4 && low_drift < 4, "LCD packed write average /WR low width");
+		// The first 64 packed words fill an integer number of cycles at both rates.
+		const uint64_t elapsed = trace.pulses[64 * packing].start - first;
+		CHECK_EQ(4 * elapsed, 64 * (5 * packing + 1) * quarters, "LCD saturated write rate");
+		printf("  %d-byte LCD words: 64 words in %llu clocks\n", packing, (unsigned long long)elapsed);
+	}
+
+	// The panel's RAM read pipeline starts fetching its next pixel after byte 2.
+	// Verify data across that boundary at the shortest programmed read cadence.
+	l.cmd(0x11);
+	l.cmd(0x3A); l.params({5});
+	l.cmd(0x2A); l.params({0, 0, 0, 1});
+	l.cmd(0x2B); l.params({0, 0, 0, 0});
+	l.cmd(0x2C); l.params({0xF8, 0x00, 0x07, 0xE0});
+	l.cmd(0x2E);
+	l.sync();
+	b.wr(LCD, 0x07840004);
+	auto &trace = b.lcd_read_pulses;
+	trace.capture = true;
+	for (uint32_t expected : {0x00, 0xF8, 0x00, 0x07, 0xE0})
+		CHECK_EQ(b.rd(LCD + 8), expected, "LCD RAMRD byte");
+	trace.capture = false;
+	CHECK_EQ(trace.pulses.size(), 5, "LCD /RD pulse count");
+	uint64_t previous_end = 0;
+	for (const auto &pulse : trace.pulses) {
+		CHECK_EQ(pulse.end - pulse.start, quarters, "LCD /RD low width");
+		CHECK(!previous_end || pulse.start - previous_end >= 5, "LCD /RD high allows panel's RAM read pipeline");
+		previous_end = pulse.end;
+	}
+}
+
 void test_lcd(Bench &b) {
 	printf("LCD\n");
 	Lcd l(b);
 	CHECK_EQ(b.rd(LCD + 4) & 4, 4, "aux bit 2: the FIFO can take a word");
 	CHECK_EQ(b.rd(LCD) & 0x40000000, 0x40000000, "ready at rest");
+	test_lcd_strobes(b, l);
 	// RDDID through the read phase (bootstrap 0x6C44): a dummy byte, then ID1-3
 	l.sync();
 	l.cmd(0x04);
@@ -870,7 +949,18 @@ void test_mmc(Bench &b) {
 	printf("MMC\n");
 	Mmc m(b);
 	// no card: CMD0 goes out, CMD1 times out
+	b.mmc_pulses.capture = true;
 	CHECK_EQ(m.cmd(0, 0, 0x01), 0, "CMD0 status");
+	b.mmc_pulses.capture = false;
+	const uint32_t period = b.t->clk_hz / 26000000;
+	uint64_t previous_start = 0;
+	CHECK(b.mmc_pulses.pulses.size() >= 48, "MMC CMD0 clocked the command bits");
+	for (const auto &pulse : b.mmc_pulses.pulses) {
+		CHECK_EQ(pulse.end - pulse.start, period / 2, "MMC clock high width");
+		if (previous_start) CHECK_EQ(pulse.start - previous_start, period, "MMC clock period");
+		previous_start = pulse.start;
+	}
+	printf("  MMC /%u clock, %u low and %u high cycles\n", period, (period + 1) / 2, period / 2);
 	uint32_t s = m.cmd(1, 0x80008000, 0x49);
 	CHECK_EQ(s, 0x40, "CMD1 with no card: response time-out");
 	CHECK_EQ(b.pending() & 0x01E00000, 0x00A00000, "after a time-out: command and data idle, no response");
@@ -1333,7 +1423,7 @@ void test_bt(Bench &b) {
 // the emulator devices: HLE audio, the RTC and its date register
 // -------------------------------------------------------------------------
 constexpr uint32_t AU = 0x0C1F0000u, RTC_DATE = 0x0C1F0100u;
-constexpr uint64_t CLK = 104000000, RTC_SEC = 20000;
+constexpr uint64_t RTC_SEC = 20000;
 
 void test_audio(Bench &b) {
 	printf("HLE audio device\n");
@@ -1361,7 +1451,7 @@ void test_audio(Bench &b) {
 	b.wr(AU + 0x04, 3);
 	uint64_t run_edge = b.p_edge;
 	b.dma_start(1);
-	auto frame_edge = [&](uint64_t n) { return run_edge + (n * CLK + R - 1) / R; };
+	auto frame_edge = [&](uint64_t n) { return run_edge + (n * b.t->clk_hz + R - 1) / R; };
 	b.run(frame_edge(10) - b.cyc);
 	CHECK_EQ((int16_t)b.t->audio_l, 0x1000, "output in buffer 0, left");
 	CHECK_EQ((int16_t)b.t->audio_r, 0x1000, "output in buffer 0, right");
@@ -1384,7 +1474,7 @@ void test_audio(Bench &b) {
 	CHECK(b.cyc >= frame_edge(L0 + L1) && b.cyc <= frame_edge(L0 + L1) + 4, "DONE1 interrupt");
 	CHECK_EQ(b.rd(AU + 0x2C) >= L0 + L1, 1, "PLAYED");
 	b.wr(AU + 0x04, 0);
-	b.run(CLK / 48000 * 3);
+	b.run(b.t->clk_hz / 48000 * 3);
 	CHECK_EQ(b.t->audio_l, 0, "output 0 when stopped");
 	CHECK(!b.t->irq, "stop clears DONE");
 	b.wr(INTC + 0x0C, 1u << 5);

@@ -7,7 +7,12 @@ model=$(cd "$1" && pwd)
 shift
 harness=$(cd "$(dirname "$0")" && pwd)
 vr=$(verilator -getenv VERILATOR_ROOT)
-flags=()
+clock_flag=$(awk '{for (i = 1; i <= NF; i++) if ($i ~ /^-DNGAGE_SYS_CLK_HZ=[0-9]+$/) print $i}' "$model/Vemu.mk")
+if [[ -z "$clock_flag" ]]; then
+    echo "Rebuild the whole-core simulator to record its clock frequency." >&2
+    exit 1
+fi
+flags=("$clock_flag")
 [[ $(basename "$model") == top ]] && flags+=(-DHPS_TEST_TOP)
 # the firmware bench's model is built --savable: its snapshot runtime goes in too
 objs=("$model/Vemu__ALL.a" "$model/verilated.o" "$model/verilated_threads.o")

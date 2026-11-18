@@ -1,7 +1,7 @@
 // Bench for rtl/mem/sdram.sv against the SDRAM chip model (sdram_model.h).
 //
-//   Vsdram [--seed N] [--cycles N] [--expect-fail] [--ras-ns N] [--rc-ns N]
-// --ras-ns / --rc-ns match RTL timing overrides for long-timing stress runs.
+//   Vsdram [--seed N] [--cycles N] [--expect-fail] [--clk-hz N] [--ras-ns N] [--rc-ns N]
+// Clock and timing options match the RTL overrides for alternate timing runs.
 //
 //  * the power-up sequence, and every command afterwards, meet the chip's
 //    timing (tRCD, tRP, tRAS, tRC, tRRD, tRFC, tWR, tMRD), the refresh
@@ -20,6 +20,7 @@
 #include "sdram_model.h"
 #include "sdram_address.h"
 
+#include <cmath>
 #include <cstring>
 #include <deque>
 #include <string>
@@ -294,7 +295,9 @@ struct Bench {
 				CHECK_EQ(chip.precharges - p, kind == 2 ? 1 : 0, "PRECHARGE only on row conflict");
 				CHECK_EQ(chip.stops - stop, op == 0 ? 1 : 0, "BURST TERMINATE only for word reads");
 				if (exact) {
-					int setup = kind == 0 ? 3 : kind == 1 ? 0 : 6;
+					int rcd = (int)std::ceil(chip.tm.rcd / chip.tm.tck);
+					int rp = (int)std::ceil(chip.tm.rp / chip.tm.tck);
+					int setup = kind == 0 ? rcd : kind == 1 ? 0 : rcd + rp;
 					CHECK_EQ(clocks, setup + ((op & 2) ? 3 : 6) + ((op & 1) ? 6 : 0), "access clocks");
 					if (!(op & 2)) {
 						CHECK_EQ(last_first, setup + 5, "first word clocks");
@@ -317,8 +320,8 @@ struct Bench {
 		for (int bank = 0; bank < 4; bank++) CHECK(chip.open_row(bank) == 0, "bank %d lost its row", bank);
 		fresh_refresh();
 		for (int bank = 0; bank < 4; bank++) CHECK(chip.open_row(bank) == -1, "refresh left bank %d open", bank);
-		CHECK_EQ(refresh_at - pre_all_at, 3, "PRECHARGE ALL to REFRESH");
-		CHECK_EQ(cyc + 2 - refresh_at, 8, "REFRESH to next command");
+		CHECK_EQ(refresh_at - pre_all_at, (int)std::ceil(chip.tm.rp / chip.tm.tck), "PRECHARGE ALL to REFRESH");
+		CHECK_EQ(cyc + 2 - refresh_at, (int)std::ceil(chip.tm.rfc / chip.tm.tck), "REFRESH to next command");
 		printf("timing refresh: PRECHARGE ALL to REFRESH %llu, to next request %llu clocks\n",
 			(unsigned long long)(refresh_at - pre_all_at), (unsigned long long)(cyc + 2 - pre_all_at));
 
@@ -377,6 +380,11 @@ int main(int argc, char **argv) {
 		if (!strcmp(argv[i], "--seed") && i + 1 < argc) seed = (uint32_t)strtoul(argv[++i], nullptr, 0);
 		else if (!strcmp(argv[i], "--cycles") && i + 1 < argc) cycles = strtoull(argv[++i], nullptr, 0);
 		else if (!strcmp(argv[i], "--expect-fail")) expect_fail = true;
+		else if (!strcmp(argv[i], "--clk-hz") && i + 1 < argc) {
+			double frequency = atof(argv[++i]);
+			if (frequency <= 0.0) return 2;
+			timing.tck = 1e9 / frequency;
+		}
 		else if (!strcmp(argv[i], "--ras-ns") && i + 1 < argc) { timing.ras = atof(argv[++i]); exact = false; }
 		else if (!strcmp(argv[i], "--rc-ns") && i + 1 < argc) { timing.rc = atof(argv[++i]); exact = false; }
 	}

@@ -63,7 +63,7 @@ struct Bench {
 	uint8_t *ddr;                    // the flash windows in dm
 	uint64_t ddr_writes = 0;
 	bool ddr_stray = false;
-	SdramChip chip{9};
+	SdramChip chip{9, SdramTiming{1e9 / NGAGE_SYS_CLK_HZ}};
 	// OSD info messages
 	std::vector<int> infos;
 	bool info_prev = false;
@@ -470,6 +470,17 @@ int main(int argc, char **argv) {
 	CHECK_EQ(b.t->VIDEO_ARX, W, "aspect X");
 	CHECK_EQ(b.t->VIDEO_ARY, H, "aspect Y");
 	CHECK(!b.t->LED_USER, "LED_USER on with the panel dark");
+	constexpr uint64_t PIXEL_DIV = NGAGE_SYS_CLK_HZ / 6500000;
+	uint64_t last_pixel = 0;
+	int pixel_enables = 0;
+	for (uint64_t i = 0; i < PIXEL_DIV * 4; i++) {
+		b.tick();
+		if (!b.t->CE_PIXEL) continue;
+		if (last_pixel) CHECK_EQ(b.clocks - last_pixel, PIXEL_DIV, "6.5 MHz pixel enable spacing");
+		last_pixel = b.clocks;
+		pixel_enables++;
+	}
+	CHECK_EQ(pixel_enables, 4, "four pixel enables at 6.5 MHz");
 
 	// keys: Up and 5 on the joystick, Call (F3) and Power (F8) on the keyboard,
 	// at their places in the key vector (rtl/board/ngage_keys.sv: K_UP 0,

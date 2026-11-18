@@ -45,15 +45,17 @@
 // reset). A write byte holds D and D/CX, /WR low for WR_LOW clocks and high
 // for WR_HIGH clocks (the panel takes it on the rising edge); a read holds
 // /RD low for RD_LOW clocks, samples D at the end, then high for RD_HIGH
-// clocks. [assumed] the bus timing: the UPP_WD2's is not known; 2 + 2 clocks
-// is 26 MB/s, a 12-bpp frame in about 2.1 ms.
+// clocks. Durations are given in 104 MHz clocks and are rescaled at 78 MHz.
+// [assumed] the bus timing: the UPP_WD2's is not known; the write strobes also
+// include an idle launch cycle per byte and a load cycle per packed word.
 // Accesses are 32-bit (upp_periph drops others, as the model's region does).
 module upp_lcdif #(
 	parameter int WR_LOW  = 2,
 	parameter int WR_HIGH = 2,
 	parameter int RD_LOW  = 4,
 	parameter int RD_HIGH = 6,
-	parameter int QAW     = 4           // queue depth 2^QAW words
+	parameter int QAW     = 4,          // queue depth 2^QAW words
+	parameter int CLK_HZ  = 104_000_000
 ) (
 	input  logic        clk,
 	input  logic        reset,
@@ -82,6 +84,21 @@ module upp_lcdif #(
 );
 
 	localparam int TW = 4;
+	localparam int BASE_CLK_QUARTERS = (CLK_HZ == 78_000_000) ? 3 : 4;
+
+	function automatic int at_least_one_cycle(input int quarters);
+		return (quarters < 4) ? 4 : quarters;
+	endfunction
+
+	localparam int WR_LOW_QUARTERS = at_least_one_cycle(WR_LOW * BASE_CLK_QUARTERS);
+	// The high interval also contains the next byte's launch and, at the end
+	// of a word, the next word's load cycle. Scale the complete interval, then
+	// subtract those cycles because the state machine still performs them.
+	localparam int WR_HIGH_QUARTERS = at_least_one_cycle((WR_HIGH + 1) * BASE_CLK_QUARTERS - 4);
+	localparam int WR_WORD_HIGH_QUARTERS = at_least_one_cycle((WR_HIGH + 2) * BASE_CLK_QUARTERS - 8);
+	localparam int RD_LOW_QUARTERS = at_least_one_cycle(RD_LOW * BASE_CLK_QUARTERS);
+	localparam int RD_HIGH_QUARTERS = at_least_one_cycle(RD_HIGH * BASE_CLK_QUARTERS);
+
 	localparam logic [2:0] S_IDLE  = 3'd0;
 	localparam logic [2:0] S_WR_LO = 3'd1;
 	localparam logic [2:0] S_WR_HI = 3'd2;
@@ -153,12 +170,22 @@ module upp_lcdif #(
 	// ------------------------------------------------------------------
 	logic [2:0]    st;
 	logic [TW-1:0] tmr;
+	logic [1:0]    low_remainder, high_remainder;
 	logic          cur_dcs;              // bit 31 of the current phase: DCS pixel order
 	logic [1:0]    pack;                 // bits 19:18 of the current phase
 	logic [16:0]   left;                 // data bytes left in the phase
 	logic [31:0]   obuf;                 // bytes of the word being sent, next in 7:0
 	logic [2:0]    ocnt;
 	logic          odata;                // they are data (D/CX high), counted in left
+
+	// Round low and high intervals independently to preserve the average duty
+	// as well as the byte rate. These calculations fold to constants at 104 MHz.
+	wire [TW+2:0] low_frac = (BASE_CLK_QUARTERS == 4) ? '0 : (TW+3)'(low_remainder);
+	wire [TW+2:0] high_frac = (BASE_CLK_QUARTERS == 4) ? '0 : (TW+3)'(high_remainder);
+	wire [TW+2:0] wr_low_time = (TW+3)'(WR_LOW_QUARTERS) + low_frac;
+	wire [TW+2:0] wr_high_time = (TW+3)'((ocnt == 3'd1) ? WR_WORD_HIGH_QUARTERS : WR_HIGH_QUARTERS) + high_frac;
+	wire [TW+2:0] rd_low_time = (TW+3)'(RD_LOW_QUARTERS) + low_frac;
+	wire [TW+2:0] rd_high_time = (TW+3)'(RD_HIGH_QUARTERS) + high_frac;
 
 	assign q_pop = st == S_IDLE && ocnt == 3'd0 && q_valid;
 	wire [11:0] u0    = q_dout[11:0];
@@ -181,7 +208,8 @@ module upp_lcdif #(
 						dcx    <= odata;
 						wrx    <= 1'b0;
 						active <= 1'b1;
-						tmr    <= TW'(WR_LOW - 1);
+						tmr    <= TW'(wr_low_time[TW+2:2] - 1'd1);
+						low_remainder <= wr_low_time[1:0];
 						st     <= S_WR_LO;
 					end
 				end else if (q_valid) begin
@@ -207,14 +235,16 @@ module upp_lcdif #(
 					dcx  <= 1'b1;
 					d_oe <= 1'b0;
 					rdx  <= 1'b0;
-					tmr  <= TW'(RD_LOW - 1);
+					tmr  <= TW'(rd_low_time[TW+2:2] - 1'd1);
+					low_remainder <= rd_low_time[1:0];
 					st   <= S_RD_LO;
 				end
 			end
 			S_WR_LO: begin
 				if (tmr == '0) begin
 					wrx <= 1'b1;
-					tmr <= TW'(WR_HIGH - 1);
+					tmr <= TW'(wr_high_time[TW+2:2] - 1'd1);
+					high_remainder <= wr_high_time[1:0];
 					st  <= S_WR_HI;
 				end else begin
 					tmr <= tmr - 1'd1;
@@ -234,7 +264,8 @@ module upp_lcdif #(
 				if (tmr == '0) begin
 					rd_byte <= d_i;
 					rdx     <= 1'b1;
-					tmr     <= TW'(RD_HIGH - 1);
+					tmr     <= TW'(rd_high_time[TW+2:2] - 1'd1);
+					high_remainder <= rd_high_time[1:0];
 					st      <= S_RD_HI;
 				end else begin
 					tmr <= tmr - 1'd1;
@@ -254,6 +285,8 @@ module upp_lcdif #(
 
 		if (reset) begin
 			st        <= S_IDLE;
+			low_remainder <= 2'd0;
+			high_remainder <= 2'd0;
 			prog_ctrl <= 4'd0;
 			cur_dcs   <= 1'b0;
 			pack      <= 2'd0;

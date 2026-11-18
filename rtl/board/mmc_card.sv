@@ -32,9 +32,10 @@
 // writes are 512-byte aligned blocks. Addresses past the CSD capacity give
 // OUT_OF_RANGE; reads past the end of the file read zeros.
 //
-// Timing: everything runs on clk; CLK is the host's, sampled in clk, and
-// must stay high and low for at least two clk cycles each. The card samples
-// CMD and DAT0 when CLK rises and changes its outputs when it falls. A
+// Timing: everything runs on clk. The synchronous host's CLK must stay
+// high for at least one clk cycle and low for at least two, so the card's
+// outputs settle before the host samples them. The card samples CMD and
+// DAT0 when CLK rises and changes its outputs when it falls. A
 // response starts NCR clocks after the command's end bit (NID for CMD1 and
 // CMD2); read data at least NAC clocks after the response, once the blocks
 // are in the buffer (a read waits for the HPS, so the host's read timeout

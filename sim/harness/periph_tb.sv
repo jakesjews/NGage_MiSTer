@@ -10,7 +10,8 @@
 // Wishbone master, the SDRAM chip, the DDRAM port and hps_io's SD interface,
 // and watches the register bus.
 module periph_tb #(
-	parameter int MMC_DIV            = 4,
+	parameter int CLK_HZ             = 104_000_000,
+	parameter int MMC_DIV            = CLK_HZ / 26_000_000,
 	parameter int MMC_TIMEOUT_LOG2   = 16,
 	parameter int POWER_ON_HOLD_CLKS = 20000,
 	parameter int RTC_CLK_HZ         = 20000,
@@ -92,7 +93,11 @@ module periph_tb #(
 	output logic         sti_we,
 	output logic [3:0]   sti_be,
 	output logic [31:0]  sti_data,
+	output logic [31:0]  clk_hz,
 	output logic         lcd_wrx,
+	output logic         lcd_rdx,
+	output logic         lcd_d_oe,
+	output logic         panel_d_oe,
 	output logic         mmc_clk,
 	output logic         mmc_cmd,
 	output logic         mmc_dat,
@@ -104,9 +109,10 @@ module periph_tb #(
 	logic        dma_stb, dma_we, dma_ack, dma_err;
 	logic [31:0] dma_adr, dma_dat_w, dma_dat_r;
 	logic [3:0]  dma_sel;
+	assign clk_hz = CLK_HZ;
 
 	ngage_mem #(
-		.FLASH_PROGRAM_CLKS(40), .FLASH_SECTOR_ERASE_CLKS(3000), .FLASH_ERASE_WINDOW_CLKS(200)
+		.CLK_HZ(CLK_HZ), .FLASH_PROGRAM_CLKS(40), .FLASH_SECTOR_ERASE_CLKS(3000), .FLASH_ERASE_WINDOW_CLKS(200)
 	) mem (
 		.clk(clk),
 		.reset(reset || !sdram_ready),
@@ -130,7 +136,7 @@ module periph_tb #(
 		.sdram_dqmh(sdram_dqmh), .sdram_dq_o(sdram_dq_o), .sdram_dq_oe(sdram_dq_oe), .sdram_dq_i(sdram_dq_i)
 	);
 
-	logic       lcd_csx, lcd_dcx, lcd_rdx, lcd_resx, lcd_d_oe, panel_d_oe;
+	logic       lcd_csx, lcd_dcx, lcd_resx;
 	logic [7:0] lcd_d_o, panel_d;
 	logic       mmc_cmd_o, mmc_cmd_oe, mmc_dat_o, mmc_dat_oe;
 	logic       card_cmd_o, card_cmd_oe, card_dat_o, card_dat_oe;
@@ -153,7 +159,7 @@ module periph_tb #(
 	assign mmc_dat = (mmc_dat_oe ? mmc_dat_o : 1'b1) & (card_dat_oe ? card_dat_o : 1'b1);
 
 	upp_periph #(
-		.MMC_DIV(MMC_DIV), .MMC_TIMEOUT_LOG2(MMC_TIMEOUT_LOG2), .POWER_ON_HOLD_CLKS(POWER_ON_HOLD_CLKS)
+		.CLK_HZ(CLK_HZ), .MMC_DIV(MMC_DIV), .MMC_TIMEOUT_LOG2(MMC_TIMEOUT_LOG2), .POWER_ON_HOLD_CLKS(POWER_ON_HOLD_CLKS)
 	) periph (
 		.clk(clk),
 		.reset(reset || !sdram_ready),
@@ -185,7 +191,7 @@ module periph_tb #(
 		.busy(bt_busy), .irq(bt_irq)
 	);
 
-	lcd_panel #(.CLK_HZ(104_000_000)) panel (
+	lcd_panel #(.CLK_HZ(CLK_HZ), .TE_HPULSE_CLKS(CLK_HZ / 1_625_000)) panel (
 		.clk(clk),
 		.reset(reset),
 		.csx(lcd_csx), .dcx(lcd_dcx), .wrx(lcd_wrx), .rdx(lcd_rdx), .resx(lcd_resx),

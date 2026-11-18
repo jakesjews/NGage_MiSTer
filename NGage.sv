@@ -24,8 +24,8 @@
 // the MiSTer-side blocks (rtl/mister: the flash images in DDR3, the C: save
 // file, the wall clock, the test picture, the debug rings). The reasons for
 // the choices below are in docs/PROGRESS-LOG.md.
-// clk_sys is 104 MHz, 4 x 26 MHz, the phone's reference: the MCU, flash,
-// timer and MMC clocks divide from it exactly.
+// The CPU and SDRAM run at 78 MHz. The board derives its peripheral rates
+// from this clock and keeps the timer and display cadences of the 104 MHz core.
 
 module emu (
 	`include "sys/emu_ports.vh"
@@ -94,6 +94,7 @@ localparam CONF_STR = {
 
 ///////////////////////   CLOCKS   ///////////////////////////////
 
+localparam int SYS_CLK_HZ = 78_000_000; // rtl/pll/pll_0002.v output 0
 wire clk_sys;
 wire pll_locked;
 pll pll
@@ -219,7 +220,7 @@ wire  [7:0] rtc_days;
 wire [31:0] rtc_date;
 wire        c_blank /* verilator public_flat_rd */;         // from ddram_flash: CS1's C: area is erased
 
-rtc_wall rtc_wall
+rtc_wall #(.CLK_HZ(SYS_CLK_HZ)) rtc_wall
 (
 	.clk(clk_sys),
 	.rtc(rtc_hps),
@@ -358,7 +359,7 @@ wire [15:0] sdram_dq_o, sdram_dq_oe;
 (* maxfan = 32 *) reg mem_reset = 1'b1;
 always @(posedge clk_sys) mem_reset <= reset | ~sdram_ready;
 
-ngage_mem ngage_mem
+ngage_mem #(.CLK_HZ(SYS_CLK_HZ)) ngage_mem
 (
 	.clk(clk_sys),
 	.reset(mem_reset),
@@ -462,7 +463,10 @@ reg   [1:0] dl_cs1 = 2'b00;            // an ioctl load of CS1 starts: the file 
 
 always @(posedge clk_sys) dl_cs1 <= {dl_cs1[0], ioctl_download && ioctl_index[5:0] == 6'd4};
 
-flash_save flash_save
+flash_save #(
+	.QUIET_CLKS(SYS_CLK_HZ / 10),
+	.MAX_CLKS(2 * SYS_CLK_HZ)
+) flash_save
 (
 	.clk(clk_sys),
 	.reset(sys_reset),
@@ -532,7 +536,12 @@ wire        bt_rd, bt_wr, bt_busy, bt_irq;
 wire  [4:0] bt_reg;
 wire [15:0] bt_wdata, bt_rdata;
 
-upp_periph upp_periph
+upp_periph #(
+	.CLK_HZ(SYS_CLK_HZ),
+	.TIMER_DIV(9), .TIMER_STEP(4), // 4 ticks per 9 clocks = 104/3 MHz
+	.MMC_DIV(SYS_CLK_HZ / 26_000_000),
+	.POWER_ON_HOLD_CLKS(3 * SYS_CLK_HZ)
+) upp_periph
 (
 	.clk(clk_sys),
 	.reset(mem_reset),
@@ -644,7 +653,7 @@ end endgenerate
 // waits for MiSTer's clock, up to RTC_WAIT_CLKS: Main sends it once, after
 // the launcher's files, and the stand-in reads the HLE date once at its entry
 // (docs/PROGRESS-LOG.md, 2026-10-21 evening).
-localparam int RTC_WAIT_CLKS = 312_000_000;
+localparam int RTC_WAIT_CLKS = 3 * SYS_CLK_HZ;
 wire        images_in = use_phoenix ? (ph_ready && (fs_present || dl_loaded[1])) : (&dl_loaded);
 reg  [28:0] rtc_timer = 0;
 reg         rtc_wait = 1'b1;
@@ -913,7 +922,7 @@ keypad_matrix keypad_matrix
 ///////////////////////   BLUETOOTH   ////////////////////////////
 
 // the Bluetooth module: a controller with nobody in range
-bt_module bt_module
+bt_module #(.CLK_HZ(SYS_CLK_HZ)) bt_module
 (
 	.clk(clk_sys),
 	.reset(mem_reset),
@@ -941,7 +950,9 @@ wire        lcd_on;
 wire       lcd_frame_ev, lcd_pix_ev;
 wire [7:0] lcd_pix_y;
 
-lcd_panel lcd_panel
+lcd_panel #(
+	.CLK_HZ(SYS_CLK_HZ), .TE_HPULSE_CLKS(48)
+) lcd_panel
 (
 	.clk(clk_sys),
 	.reset(sys_reset),
@@ -1044,14 +1055,14 @@ always @(posedge clk_sys) begin
 	if (cpu_reset) begin
 		dbg_sec_pre <= 0;
 		dbg_sec     <= 0;
-	end else if (dbg_sec_pre == 27'd103_999_999) begin
+	end else if (dbg_sec_pre == 27'(SYS_CLK_HZ - 1)) begin
 		dbg_sec_pre <= 0;
 		if (dbg_sec != 8'hFF) dbg_sec <= dbg_sec + 1'd1;
 	end else begin
 		dbg_sec_pre <= dbg_sec_pre + 1'd1;
 	end
 end
-wire        dbg_tick = dbg_sec_pre == 27'd103_999_999;   // the second's last clock
+wire        dbg_tick = dbg_sec_pre == 27'(SYS_CLK_HZ - 1);   // the second's last clock
 
 // per-second counters for the overlay (rtl/mister/dbg_counters.sv)
 wire        dbg_bus_pend  = wb_cyc && wb_stb && !wb_ack && !wb_err;
@@ -1132,7 +1143,7 @@ dbg_counters #(.N(DBG_CNT)) dbg_counters
 // instruction (the stage's PC: the address + 8, + 4 in Thumb), and the low
 // CPSR byte before each: {undefined, prefetch abort, data abort, SWI}.
 // Counters 27 to 38 are the display's (the unrotated picture): an upload is
-// a RAMWR from the top line until its 36,608th pixel (given up after 2.5 ms
+// a RAMWR from the top line until its 36,608th pixel (given up after 2.52 ms
 // without one); a video frame is torn when a pixel is written on the line
 // the scan-out is drawing, and fresh when an upload ended since the frame
 // before. The last six sort the fresh frames by the video frames since the
@@ -1187,6 +1198,8 @@ always @(posedge clk_sys) begin
 end
 reg         dbg_up = 0;                                  // an upload is in progress
 reg  [15:0] dbg_up_pix = 0;
+// 262,144 clocks at 104 MHz, scaled to preserve the upload timeout.
+localparam int DBG_UPLOAD_GAP_CLKS = (SYS_CLK_HZ / 1_000_000) * 262_144 / 104;
 reg  [17:0] dbg_up_gap = 0;
 reg         dbg_vact = 0;                                // the scan-out is inside the picture
 reg         dbg_torn = 0, dbg_fresh = 0;
@@ -1204,7 +1217,7 @@ always @(posedge clk_sys) begin
 		if (dbg_up_pix == 16'd36607) dbg_up <= 1'b0;
 	end else if (dbg_up) begin
 		dbg_up_gap <= dbg_up_gap + 18'd1;
-		if (&dbg_up_gap) dbg_up <= 1'b0;
+		if (dbg_up_gap == 18'(DBG_UPLOAD_GAP_CLKS - 1)) dbg_up <= 1'b0;
 	end
 	if (dbg_vf) begin
 		dbg_vact  <= 1'b1;
@@ -1352,7 +1365,7 @@ wire       ce_pix;
 wire       hs, vs, hblank, vblank;
 wire [7:0] r, g, b;
 
-video_out video_out
+video_out #(.CE_DIV(SYS_CLK_HZ / 6_500_000)) video_out
 (
 	.clk(clk_sys),
 	.reset(sys_reset),

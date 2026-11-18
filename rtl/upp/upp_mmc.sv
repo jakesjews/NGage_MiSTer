@@ -56,8 +56,8 @@
 //
 // Bus: CLK = clk / DIV, low at rest; the host changes CMD/DAT0 as CLK falls
 // and samples them as it rises (as rtl/board/mmc_card.sv expects). [assumed]
-// DIV = 4 (26 MHz; 12 is the phone's own rate, the service manual's 8.66 MHz,
-// for an accuracy build); time-outs: 64 clocks to a response start bit (NCR
+// DIV = 4 at 104 MHz or 3 at 78 MHz gives 26 MHz (the service manual's rate
+// is 8.66 MHz); time-outs: 64 clocks to a response start bit (NCR
 // max), 2^TIMEOUT_LOG2 clocks (~323 ms at 26 MHz; 21 at DIV = 12) to a read
 // block's start bit and for busy.
 module upp_mmc #(
@@ -95,7 +95,9 @@ module upp_mmc #(
 
 	localparam int PHW = $clog2(DIV);
 	localparam int FAW = $clog2(FIFO_DEPTH);
-	localparam int HALF = DIV / 2;
+	// Both engines sample on clk. The card launches on the first low cycle,
+	// so give an odd period's extra cycle to low for setup before the host samples.
+	localparam int LOW_CLKS = (DIV + 1) / 2;
 
 	// status bits
 	localparam int B_DATA_CRC = 0, B_RESP_CRC = 1, B_DATA_BUSY = 2, B_CMD_BUSY = 3,
@@ -228,10 +230,10 @@ module upp_mmc #(
 	logic [PHW-1:0] ph;
 	logic           run;               // this period is clocked
 	wire            fall = run && ph == '0;
-	wire            rise = run && ph == PHW'(HALF);
+	wire            rise = run && ph == PHW'(LOW_CLKS);
 	logic           cmd_need, dat_need, dat_hold;
 
-	assign mmc_clk = run && ph >= PHW'(HALF);
+	assign mmc_clk = run && ph >= PHW'(LOW_CLKS);
 
 	// ------------------------------------------------------------------
 	// The engines

@@ -66,7 +66,8 @@ module upp_periph #(
 	parameter int LCD_RD_HIGH        = 6,
 	parameter int DMA_ENGINES        = 3,
 	parameter int POWER_ON_HOLD_CLKS = 312_000_000,    // 3 s, as the model
-	parameter int CLK_HZ             = 104_000_000     // for the audio device
+	parameter int CLK_HZ             = 104_000_000,    // for audio and LCD bus timing
+	parameter int TIMER_STEP         = 1              // timer ticks per TIMER_DIV host clocks
 ) (
 	input  logic        clk,
 	input  logic        reset,
@@ -298,7 +299,7 @@ module upp_periph #(
 	);
 	assign dbg_src0 = src[31:0];
 
-	upp_timers #(.TIMER_DIV(TIMER_DIV)) timers (
+	upp_timers #(.TIMER_DIV(TIMER_DIV), .TIMER_STEP(TIMER_STEP)) timers (
 		.clk(clk),
 		.reset(reset),
 		.acc(acc && s_tmr),
@@ -398,7 +399,7 @@ module upp_periph #(
 	);
 
 	upp_lcdif #(.WR_LOW(LCD_WR_LOW), .WR_HIGH(LCD_WR_HIGH), .RD_LOW(LCD_RD_LOW),
-		.RD_HIGH(LCD_RD_HIGH)) lcdif (
+		.RD_HIGH(LCD_RD_HIGH), .CLK_HZ(CLK_HZ)) lcdif (
 		.clk(clk),
 		.reset(reset),
 		.acc(acc && s_lcd),

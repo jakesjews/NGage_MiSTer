@@ -15,7 +15,7 @@
 //   --rtc "Y-M-D h:m:s"  MiSTer's RTC (default 2004-06-01 12:00:00, as
 //                      sim/cpu/model/run_model.sh starts the model)
 //   --keys FILE        key script, as the model's: lines "<seconds> down|up
-//                      <key>", seconds of simulated time (104 MHz clocks)
+//                      <key>", seconds of simulated time at the board clock
 //   --devlog           DIR/dev.log: every CPU access to a device, in the format
 //                      of sim/cpu/model/trace_plugin.c ("M n R|W size pa value
 //                      pc"; n = instructions executed, counted as QEMU's
@@ -205,7 +205,7 @@ const KeyName key_names[] = {
 };
 struct KeyEvent { uint64_t clock; bool down; const KeyName *k; };
 
-constexpr double CLK_HZ = 104e6;
+constexpr uint64_t CLK_HZ = NGAGE_SYS_CLK_HZ;
 
 struct Bench {
 	Vemu *t = new Vemu;
@@ -358,7 +358,7 @@ struct Bench {
 			}
 	}
 	DdramModel dm{40u << 20, 5};
-	SdramChip chip{9};
+	SdramChip chip{9, SdramTiming{1e9 / CLK_HZ}};
 	// MMC image on SD slot 0
 	std::vector<uint8_t> img;
 	int sd_state = 0, sd_delay = 0, sd_word = 0, sd_words = 0;
@@ -726,7 +726,7 @@ struct Bench {
 					write_png(out + "/lcd-last.png", im);
 					last_png = im.rgb;
 					pictures++;
-					printf("picture %d at %.3f s (%s)\n", pictures, clocks / CLK_HZ, name + 1);
+					printf("picture %d at %.3f s (%s)\n", pictures, (double)clocks / CLK_HZ, name + 1);
 					fflush(stdout);
 				}
 			}
@@ -768,10 +768,10 @@ struct Bench {
 			} else {
 				uint16_t k = r->emu__DOT__hps_io__DOT__sim_ps2_key;
 				r->emu__DOT__hps_io__DOT__sim_ps2_key = (uint16_t)((~k & 0x400) | (e.down ? 0x200 : 0) | e.k->ps2);
-				printf("key %s %s at %.3f s\n", e.k->name, e.down ? "down" : "up", clocks / CLK_HZ);
+				printf("key %s %s at %.3f s\n", e.k->name, e.down ? "down" : "up", (double)clocks / CLK_HZ);
 				return;      // one PS/2 event a clock
 			}
-			printf("key %s %s at %.3f s\n", e.k->name, e.down ? "down" : "up", clocks / CLK_HZ);
+			printf("key %s %s at %.3f s\n", e.k->name, e.down ? "down" : "up", (double)clocks / CLK_HZ);
 		}
 	}
 
@@ -846,7 +846,7 @@ struct Bench {
 		if (!f) snap::fail("cannot write the bench file");
 		save_bench(f);
 		fclose(f);
-		printf("snapshot written at clock %" PRIu64 " (%.3f s), %" PRIu64 " instructions retired: %s, %s.bench\n", clocks, clocks / CLK_HZ, retired, path.c_str(), path.c_str());
+		printf("snapshot written at clock %" PRIu64 " (%.3f s), %" PRIu64 " instructions retired: %s, %s.bench\n", clocks, (double)clocks / CLK_HZ, retired, path.c_str(), path.c_str());
 		fflush(stdout);
 	}
 	void restore(const std::string &path) {
@@ -861,7 +861,7 @@ struct Bench {
 		if (!f) snap::fail("cannot read the bench file");
 		load_bench(f);
 		fclose(f);
-		printf("snapshot restored at clock %" PRIu64 " (%.3f s): %s\n", clocks, clocks / CLK_HZ, path.c_str());
+		printf("snapshot restored at clock %" PRIu64 " (%.3f s): %s\n", clocks, (double)clocks / CLK_HZ, path.c_str());
 		fflush(stdout);
 	}
 
@@ -1034,7 +1034,7 @@ int main(int argc, char **argv) {
 	auto last_t = t0;
 	while (b.clocks < max_cycles && !b.stop) {
 		b.tick();
-        if(b.accounting.enabled && b.clocks%104000000==0)b.accounting.second(b.clocks);
+        if (b.accounting.enabled && b.clocks % CLK_HZ == 0) b.accounting.second(b.clocks);
         if(profile_mark_index<profile_marks.size()&&b.clocks==profile_marks[profile_mark_index]){
             char label[48];snprintf(label,sizeof label,"clock_%" PRIu64,b.clocks);b.accounting.mark(label,b.clocks);profile_mark_index++;
         }
@@ -1047,7 +1047,7 @@ int main(int argc, char **argv) {
 			double wall = std::chrono::duration<double>(now - t0).count();
 			double dt = std::chrono::duration<double>(now - last_t).count();
 			printf("clock %" PRIu64 " (%.3f s) retired %" PRIu64 " pc %08x dev %" PRIu64 " pictures %d | wall %.0f s, %.0f k clocks/s\n",
-			       b.clocks, b.clocks / CLK_HZ, b.retired, b.last_r_pc, b.dev_accesses, b.pictures, wall,
+			       b.clocks, (double)b.clocks / CLK_HZ, b.retired, b.last_r_pc, b.dev_accesses, b.pictures, wall,
 			       (b.clocks - last_c) / dt / 1000);
 			fflush(stdout);
 			last_c = b.clocks;
@@ -1062,7 +1062,7 @@ int main(int argc, char **argv) {
 	double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 	printf("END after %" PRIu64 " clocks (%.3f s simulated), %" PRIu64 " instructions, %" PRIu64 " device accesses, "
 	       "%d pictures, %zu audio frames, %.0f s wall clock\n",
-	       b.clocks, b.clocks / CLK_HZ, b.retired, b.dev_accesses, b.pictures, b.audio.size() / 2, wall);
+	       b.clocks, (double)b.clocks / CLK_HZ, b.retired, b.dev_accesses, b.pictures, b.audio.size() / 2, wall);
     b.profile("end");
     b.accounting.finish(b.clocks);
     b.loaduse.finish(b.clocks);
