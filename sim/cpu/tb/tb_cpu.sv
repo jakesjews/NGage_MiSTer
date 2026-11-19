@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Top of the CPU bench (sim/cpu) for Verilator: the arm925t wrapper with its
-// bus and interrupts on ports, which main.cpp drives, plus probes into ZAP's
+// bus and interrupts on ports, which main.cpp drives, plus probes into the
 // writeback stage. The probes show the instruction (or micro-op) that
 // commits at the next rising edge, and the register file and CPSR as they
 // are; main.cpp turns them into a retirement trace. They work on both the
 // generated netlist (rtl/cpu/arm925t_gen.v) and the SystemVerilog sources.
-module tb_cpu (
-	`ifdef CPU_PROFILE
-    output logic [63:0] p_profile_flags,
-    output logic [31:0] p_profile_pc,p_profile_ins,p_profile_retire_ins,p_profile_target,
-`endif
+module tb_cpu #(
+	// the caches' sizes, as arm925t's (speed tests: -GDCACHE_SIZE=...)
+	parameter int ICACHE_SIZE = 16384,
+	parameter int DCACHE_SIZE = 8192
+) (
     input  logic          clk,
 	input  logic          reset,
 	input  logic          irq,
@@ -60,7 +60,7 @@ module tb_cpu (
 	output logic [31:0]   p_dpc8,
 	// TLB walks: [0] a D-side walk starts, [1] of another section than the
 	// check that asked for it, [2] an I-side walk starts, [3] of another
-	// section; the walked and the missed (checked) addresses; for V2 the
+	// section; the walked and the missed (checked) addresses; for the pipeline the
 	// memory pipeline's state and W's request when a D-side walk starts
 	output logic [3:0]    p_tlbwalk,
 	output logic [31:0]   p_dwalk_va, p_dwalk_miss_va, p_iwalk_va, p_iwalk_miss_va,
@@ -106,26 +106,20 @@ module tb_cpu (
 	output logic [7:0]    p_alu_dst,
 	output logic [63:0]   p_sh_dbg,
 	// Multiply occupancy and the selected younger instruction (bench only).
-	output logic [2:0]    p_recovery, // 1 miss, 2 held/retry, 3 late hit, 4 ZAP replay
-    output logic [5:0]    p_recovery_slots, // valid younger queue/uop slots, V2 only
+	output logic [2:0]    p_recovery, // 1 miss, 2 held/retry, 3 late hit
+    output logic [5:0]    p_recovery_slots, // valid younger queue/uop slots
 	output logic [3:0]    p_mult_state
 );
 
-	// The CPU has one configuration (rtl/cpu/arm925t.sv, constants there);
-	// the bench's checks use these of its values.
-	localparam bit ARM9_PREDICTOR = 1'b1;
+	// Apart from the cache sizes the CPU has one configuration
+	// (rtl/cpu/arm925t.sv, constants there); the bench's checks use these
+	// of its values.
+	localparam bit BRANCH_PREDICTOR = 1'b1;
 	localparam int DCACHE_WAYS    = 2;
 	localparam int CACHE_LINE     = 16;
-`ifdef CPU_PROFILE
-    assign p_profile_flags=dut.profile_probe.flags;
-    assign p_profile_pc=dut.profile_probe.decode_pc;
-    assign p_profile_ins=dut.profile_probe.decode_ins;
-    assign p_profile_retire_ins=dut.profile_probe.retire_ins;
-    assign p_profile_target=dut.profile_probe.recovery_target;
-`endif
 
 
-	arm925t dut (
+	arm925t #(.ICACHE_SIZE(ICACHE_SIZE), .DCACHE_SIZE(DCACHE_SIZE)) dut (
 		.clk       (clk),
 		.reset     (reset),
 		.irq       (irq),
@@ -145,42 +139,42 @@ module tb_cpu (
 		.dbg_dcache (p_dcache)
 	);
 
-	assign p_lock  = dut.u_zap.dc_lock;
-	assign p_stall = dut.u_zap.o_dbg_stall;
-	assign p_dreq  = dut.u_zap.cpu_dc_stb;
-	assign p_dva   = dut.u_zap.cpu_daddr_va;
-	assign p_dalign = dut.u_zap.cpu_align_fault;
-	assign p_ttb   = dut.u_zap.cpu_baddr;
+	assign p_lock  = dut.u_top.dc_lock;
+	assign p_stall = dut.u_top.o_dbg_stall;
+	assign p_dreq  = dut.u_top.cpu_dc_stb;
+	assign p_dva   = dut.u_top.cpu_daddr_va;
+	assign p_dalign = dut.u_top.cpu_align_fault;
+	assign p_ttb   = dut.u_top.cpu_baddr;
 	// A walker fetches the descriptor of the address its cache presents
-	// (zap_tlb_fsm i_address, captured while IDLE); the miss that started
+	// (arm925t_tlb_fsm i_address, captured while IDLE); the miss that started
 	// it was decided on the check address registered with o_walk.
-	`define TLBD dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_tlb
-	`define TLBI dut.u_zap.l_generate_with_cache_mmu.u_code_cache.u_zap_tlb
+	`define TLBD dut.u_top.u_data_cache.u_tlb
+	`define TLBI dut.u_top.u_code_cache.u_tlb
 	logic [31:0] dwalk_miss_va = 0, iwalk_miss_va = 0;
 	always @(posedge clk) begin
-		if (`TLBD.u_zap_tlb_check.i_clkena) dwalk_miss_va <= `TLBD.u_zap_tlb_check.i_va;
-		if (`TLBI.u_zap_tlb_check.i_clkena) iwalk_miss_va <= `TLBI.u_zap_tlb_check.i_va;
+		if (`TLBD.u_tlb_check.i_clkena) dwalk_miss_va <= `TLBD.u_tlb_check.i_va;
+		if (`TLBI.u_tlb_check.i_clkena) iwalk_miss_va <= `TLBI.u_tlb_check.i_va;
 	end
-	assign p_tlbwalk = {`TLBI.u_zap_tlb_fsm.walk && `TLBI.u_zap_tlb_fsm.i_address[31:20] != iwalk_miss_va[31:20],
-	                    `TLBI.u_zap_tlb_fsm.walk,
-	                    `TLBD.u_zap_tlb_fsm.walk && `TLBD.u_zap_tlb_fsm.i_address[31:20] != dwalk_miss_va[31:20],
-	                    `TLBD.u_zap_tlb_fsm.walk};
-	assign p_dwalk_va = `TLBD.u_zap_tlb_fsm.i_address;
+	assign p_tlbwalk = {`TLBI.u_tlb_fsm.walk && `TLBI.u_tlb_fsm.i_address[31:20] != iwalk_miss_va[31:20],
+	                    `TLBI.u_tlb_fsm.walk,
+	                    `TLBD.u_tlb_fsm.walk && `TLBD.u_tlb_fsm.i_address[31:20] != dwalk_miss_va[31:20],
+	                    `TLBD.u_tlb_fsm.walk};
+	assign p_dwalk_va = `TLBD.u_tlb_fsm.i_address;
 	assign p_dwalk_miss_va = dwalk_miss_va;
-	assign p_iwalk_va = `TLBI.u_zap_tlb_fsm.i_address;
+	assign p_iwalk_va = `TLBI.u_tlb_fsm.i_address;
 	assign p_iwalk_miss_va = iwalk_miss_va;
 	`undef TLBD
 	`undef TLBI
-	assign p_dacr  = dut.u_zap.cpu_dac_reg;
-	assign p_mmu   = dut.u_zap.cpu_mmu_en;
+	assign p_dacr  = dut.u_top.cpu_dac_reg;
+	assign p_mmu   = dut.u_top.cpu_mmu_en;
     assign p_arm9 = 1'b1;
-    assign p_blocking_load = 1'b0; // V2 uses the shared nonblocking background write port.
-    assign p_arm9_predictor = ARM9_PREDICTOR;
+    assign p_blocking_load = 1'b0; // The pipeline uses the shared nonblocking background write port.
+    assign p_arm9_predictor = BRANCH_PREDICTOR;
 	wire cp_drain_done;
-	if (1) begin : g_arm9_probes
-    assign cp_drain_done = dut.u_zap.g_arm9.u_arm9_core.u_zap_cp15_cb.o_cp_done &&
-        (dut.u_zap.g_arm9.u_arm9_core.u_zap_cp15_cb.i_cp_word[27:0] & 28'hfff0fff) == 28'he070f9a;
-	`define A9 dut.u_zap.g_arm9.u_arm9_core
+	if (1) begin : g_core_probes
+    assign cp_drain_done = dut.u_top.u_core.u_cp15.o_cp_done &&
+        (dut.u_top.u_core.u_cp15.i_cp_word[27:0] & 28'hfff0fff) == 28'he070f9a;
+	`define A9 dut.u_top.u_core
     assign p_dwalk_ctx = {`A9.request, 4'(`A9.memory_state)};
 
     // Snapshot before retirement changes the backend owners. These counters
@@ -213,7 +207,7 @@ module tb_cpu (
 `ifdef RAM_RF_TAP
     // The banked RF's source-only architectural view is removed by sv2v's
     // SYNTHESIS pass. Reconstruct this bench-only probe from actual storage.
-    `define RF `A9.u_zap_writeback.u_zap_register_file.g_write_ff
+    `define RF `A9.u_writeback.u_register_file.g_write_ff
     wire [79:0] rf_owner_flat = `RF.latest;
     for(genvar r=0;r<40;r++)begin:g_rf_probe
         wire [31:0] stored = !`RF.initialized[r] ? 32'd0 :
@@ -225,7 +219,7 @@ module tb_cpu (
     end
     `undef RF
 `else
-	assign p_regs = `A9.u_zap_writeback.u_zap_register_file.mem;
+	assign p_regs = `A9.u_writeback.u_register_file.mem;
 `endif
 	assign p_dpc8 = `A9.data_pc8;
 	assign p_wfi = `A9.o_dbg_wfi;
@@ -269,7 +263,7 @@ module tb_cpu (
                 else $fatal(1,"ARM9 younger work escaped retirement recovery");
         end
     end
-    if(ARM9_PREDICTOR)begin : check_w_ras_repair
+    if(BRANCH_PREDICTOR)begin : check_w_ras_repair
         logic checked;
         logic [2:0] expected_pointer;
         logic [3:0] expected_count;
@@ -300,12 +294,11 @@ module tb_cpu (
 	end
 	// These assertions also run against the baseline netlist: they observe
 	// acknowledged accesses and the real RAM address/permission pipeline.
-	`define DC dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm
-	`define DT dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_tag_ram
-	`define TC dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_tlb.u_zap_tlb_check
+	`define DC dut.u_top.u_data_cache.u_cache_fsm
+	`define DT dut.u_top.u_data_cache.u_cache_tag_ram
+	`define TC dut.u_top.u_data_cache.u_tlb.u_tlb_check
 	localparam int DLINE_W = $clog2(CACHE_LINE);
-	// the D-cache is the phone's 8 KB (rtl/cpu/arm925t.sv)
-	localparam int DSET_W = $clog2(8192 / DCACHE_WAYS / CACHE_LINE);
+	localparam int DSET_W = $clog2(DCACHE_SIZE / DCACHE_WAYS / CACHE_LINE);
 	logic [DSET_W-1:0] dc_read_set, dc_response_set;
 	logic dc_victim_valid;
 	logic dc_installed;
@@ -327,7 +320,7 @@ module tb_cpu (
 		end
 		// Only a presented access consumes the registered match (the HUM ACK,
 		// live write and accepted-hit LRU update all need i_rd or i_wr). With
-		// no request, ZAP's early compare follows the next check address and
+		// no request, the early compare follows the next check address and
 		// may differ (seen in arm9_swi_lock_rtl's long deferred write-backs).
 		if (!reset && `DC.hum_slot_ff && (`DC.i_rd || `DC.i_wr))
 			assert (`DC.i_cache_hit_early == `DC.i_cache_hit)
@@ -425,7 +418,7 @@ module tb_cpu (
                     else $fatal(1, "Write-back store miss did not complete at acceptance");
         end
     always_ff @(posedge clk) if (!reset && cp_drain_done)
-        assert (!dut.u_zap.l_generate_with_cache_mmu.u_data_cache.post_busy)
+        assert (!dut.u_top.u_data_cache.post_busy)
             else $fatal(1, "CP15 drain completed before posted stores");
     wire bench_post_stream = `DC.i_writebuffer_en &&
         ((`DC.i_cache_en && `DC.i_cacheable && `DC.i_wt) ||
@@ -449,34 +442,34 @@ module tb_cpu (
 	`undef DT
 	`undef TC
 
-	assign p_dc_state = 16'(dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.state_ff);
-	assign p_dc_addr  = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_address;
-	assign p_dc_din   = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_din;
-	assign p_dc_dat   = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_dat;
-	assign p_dc_reg_wr = dut.u_zap.dc_wreg_idx;
-	assign p_dc_reg_data = dut.u_zap.dc_reg_data;
-	assign p_dc_fill_addr = dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.phy_addr;
+	assign p_dc_state = 16'(dut.u_top.u_data_cache.u_cache_fsm.state_ff);
+	assign p_dc_addr  = dut.u_top.u_data_cache.u_cache_fsm.i_address;
+	assign p_dc_din   = dut.u_top.u_data_cache.u_cache_fsm.i_din;
+	assign p_dc_dat   = dut.u_top.u_data_cache.u_cache_fsm.o_dat;
+	assign p_dc_reg_wr = dut.u_top.dc_wreg_idx;
+	assign p_dc_reg_data = dut.u_top.dc_reg_data;
+	assign p_dc_fill_addr = dut.u_top.u_data_cache.u_cache_fsm.phy_addr;
 	assign p_dc_fill_take = p_dc_state[4] &&
-		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.take;
+		dut.u_top.u_data_cache.u_cache_fsm.take;
 	assign p_dc_flags = {
-		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_ben,         // 15:12
-		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_cache_tag_wr_en, // 11
-		|dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_cache_line_ben, // 10
-		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_cache_tag_valid, // 9
-		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_cacheable,   // 8
-		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_wt,          // 7
-		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_cache_tag_dirty, // 6
-		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_hold,        // 5
-		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_err2,        // 4
-		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_err,         // 3
-		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.o_ack,         // 2
-		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_wr,          // 1
-		dut.u_zap.l_generate_with_cache_mmu.u_data_cache.u_zap_cache_fsm.i_rd           // 0
+		dut.u_top.u_data_cache.u_cache_fsm.i_ben,         // 15:12
+		dut.u_top.u_data_cache.u_cache_fsm.o_cache_tag_wr_en, // 11
+		|dut.u_top.u_data_cache.u_cache_fsm.o_cache_line_ben, // 10
+		dut.u_top.u_data_cache.u_cache_fsm.i_cache_tag_valid, // 9
+		dut.u_top.u_data_cache.u_cache_fsm.i_cacheable,   // 8
+		dut.u_top.u_data_cache.u_cache_fsm.i_wt,          // 7
+		dut.u_top.u_data_cache.u_cache_fsm.i_cache_tag_dirty, // 6
+		dut.u_top.u_data_cache.u_cache_fsm.o_hold,        // 5
+		dut.u_top.u_data_cache.u_cache_fsm.o_err2,        // 4
+		dut.u_top.u_data_cache.u_cache_fsm.o_err,         // 3
+		dut.u_top.u_data_cache.u_cache_fsm.o_ack,         // 2
+		dut.u_top.u_data_cache.u_cache_fsm.i_wr,          // 1
+		dut.u_top.u_data_cache.u_cache_fsm.i_rd           // 0
 	};
 
 	// End-to-end demand CWF checks independent of the FSM's word selectors.
 	// Count accepted beats; derive the expected order from the original miss.
-	`define IC dut.u_zap.l_generate_with_cache_mmu.u_code_cache.u_zap_cache_fsm
+	`define IC dut.u_top.u_code_cache.u_cache_fsm
 	assign p_ic_fill_active = `IC.state_ff == 4;
 	assign p_ic_fill_terminal = p_ic_fill_active && `IC.take && `IC.o_wb_cti_ff == 3'b111;
 	assign p_ic_fill_first_window = p_ic_fill_active && `IC.adr_ctr_ff == 1 && !`IC.take;

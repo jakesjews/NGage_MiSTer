@@ -1,7 +1,7 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
 @ Warm dependent block tails. The marker convention matches arm9_cycles.
 @ Partial block faults remain covered by mmu_page/align/dhold_rtl.
-@@ bench: --arm9-cycles --arm9-cycle-model arm9v2/arm9_tail-cycles.txt
+@@ bench: --arm9-cycles --arm9-cycle-model units/arm9_tail-cycles.txt
 	.include "test.inc"
 	.include "mmu.inc"
 	.text

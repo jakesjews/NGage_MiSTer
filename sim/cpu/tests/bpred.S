@@ -2,7 +2,7 @@
 @ Branch prediction must never change what runs. A MOV PC, LR whose
 @ branch-predictor entry holds the taken state of another address (same
 @ index, other tag) gets no predicted target, so the fetch goes on past it
-@ and the ALU must send it to LR. Upstream ZAP kept the predicted PC of an
+@ and the ALU must send it to LR. An earlier pipeline kept the predicted PC of an
 @ older instruction for such a MOV and took the MOV as correctly predicted
 @ when that equalled LR, which is what a conditional BL predicted not taken
 @ leaves (BL + 4): the instructions after the MOV ran (found by the boot

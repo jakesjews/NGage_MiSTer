@@ -1,7 +1,7 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
 @ A load whose line is the victim of an in-flight fill, with a younger
-@ writer of the same register (the EKA1 system-call path that killed
-@ V2's kernel, 0x50321564):
+@ writer of the same register (the EKA1 system-call path that stopped
+@ the kernel on the board, 0x50321564):
 @
 @	str	r3, [x2]		@ store miss: allocates over lit1's line
 @	msr	cpsr_fc, r0		@ mode or mask change (or none)

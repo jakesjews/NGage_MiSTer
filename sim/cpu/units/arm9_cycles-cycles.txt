@@ -1,0 +1,73 @@
+# The pipeline's cycle counts (first taken in design session 7), warmed 0:0.
+# Name, last visit predictor on/off; optional penultimate visit on/off.
+# Exact implementation regression counts, not the design acceptance targets.
+dp 9 9
+dp_dependency 5 5
+dp_flags 5 5
+dp_regshift 3 3
+failed_regshift 3 3
+dp_pc 2 11
+dp_regshift_pc 3 12
+ldr_independent 3 3
+ldr_alu 4 4
+# 2026-11-09, S_AGU = 0: the load takes its base without the early-address clock.
+ldr_base 4 4
+ldr_shift_amount 6 6
+ldr_shift_value 5 5
+ldr_store 4 4
+ldrb 4 4
+ldrh 4 4
+ldrsb 4 4
+ldrsh 4 4
+ldr_unaligned 4 4
+ldr_pc 2 11
+str 2 2
+ldm1 2 2
+stm1 2 2
+ldm3 4 4
+stm3 4 4
+ldm_pc 13 13 19 13
+swp 17 17
+swpb 18 18
+b 2 6
+bl 2 6
+bx 2 9
+mrs 2 2
+msr_flags 2 2
+msr_control 5 5
+mcr 26 19 19 19
+mrc 6 6
+mrc_use 11 11
+mrc_pc 11 11
+swi 12 21
+undefined 12 21
+cdp 12 21
+ldc 12 21
+stc 12 21
+mul_m1 3 3
+mul_m2 3 3
+mul_m3 3 3
+mul_m4 3 3
+mla_m1 4 4
+mla_m2 4 4
+mla_m3 4 4
+mla_m4 4 4
+smull_m1 3 3
+smull_m2 3 3
+smull_m3 3 3
+smull_m4 3 3
+umull_m1 3 3
+umull_m2 3 3
+umull_m3 3 3
+umull_m4 3 3
+smlal_m1 4 4
+smlal_m2 4 4
+smlal_m3 4 4
+smlal_m4 4 4
+umlal_m1 4 4
+umlal_m2 4 4
+umlal_m3 4 4
+umlal_m4 4 4
+load_distance1 4 4
+load_distance2 5 5
+load_distance3 6 6

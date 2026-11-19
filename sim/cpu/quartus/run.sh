@@ -3,12 +3,12 @@
 # Quartus 17.0.2 trial of the CPU alone (cpu_trial.v around arm925t_gen.v),
 # in the Docker image on the build server.
 #   sim/cpu/quartus/run.sh            full compile, summary and worst paths
-#   TRIAL=arm9v2_execute sim/cpu/quartus/run.sh   F1/F2/D1/D2/S/A with registered producers
-#   TRIAL=arm9v2_decode sim/cpu/quartus/run.sh   F1/F2/D1/D2 and register file
-#   TRIAL=arm9v2_frontend sim/cpu/quartus/run.sh   F1/F2 component only
+#   TRIAL=arm925t_execute sim/cpu/quartus/run.sh   F1/F2/D1/D2/S/A with registered producers
+#   TRIAL=arm925t_decode sim/cpu/quartus/run.sh   F1/F2/D1/D2 and register file
+#   TRIAL=arm925t_frontend sim/cpu/quartus/run.sh   F1/F2 component only
 #   SEED=3 MHZ=96 sim/cpu/quartus/run.sh   another fitter seed / clock
 # Results land in sim/cpu/build/quartus[-SEED-MHZ]/. At most four Quartus
-# builds may run globally, with at most two ARM9V2 builds (session-5 limit).
+# builds may run globally, with at most two unit-trial builds.
 # Check docker ps before launching.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -19,9 +19,9 @@ mhz=${MHZ:-104}
 trial=${TRIAL:-cpu}
 case "$trial" in
     cpu) trial_suffix="" ;;
-    arm9v2_frontend) trial_suffix="-arm9v2-frontend" ;;
-    arm9v2_decode) trial_suffix="-arm9v2-decode" ;;
-    arm9v2_execute) trial_suffix="-arm9v2-execute" ;;
+    arm925t_frontend) trial_suffix="-unit-frontend" ;;
+    arm925t_decode) trial_suffix="-unit-decode" ;;
+    arm925t_execute) trial_suffix="-unit-execute" ;;
     *) echo "unknown TRIAL: $trial" >&2; exit 2 ;;
 esac
 sfx="$trial_suffix"
@@ -36,32 +36,32 @@ if (( running >= 4 )); then
 	echo "four Quartus builds are already running on $host; try later" >&2
 	exit 1
 fi
-if [[ $trial == arm9v2_* || $dir == *arm9v2* ]]; then
+if [[ $trial == arm925t_* || $dir == *-unit-* ]]; then
     ours=$(ssh "$host" "docker ps -q --filter ancestor=$image | xargs -r docker inspect --format '{{range .Mounts}}{{.Source}} {{end}}' | grep -ic arm9v2 || true")
     if (( ours >= 2 )); then
-        echo "two ARM9V2 Quartus containers already run on $host; try later" >&2
+        echo "two unit-trial Quartus containers already run on $host; try later" >&2
         exit 1
     fi
 fi
 ssh "$host" "mkdir -p \$HOME/$dir"
-if [[ $trial == arm9v2_execute ]]; then
-    sv2v -DSYNTHESIS -I "$root/rtl/cpu/zap" --top=cpu_trial "$root"/rtl/cpu/arm9v2/*.sv \
-        "$root/rtl/cpu/arm9/arm9_alu.sv" "$root/rtl/cpu/zap/zap_ram_simple_nopipe.sv" \
-        "$root/rtl/cpu/zap/zap_mode16_decoder.sv" "$root/rtl/cpu/zap/zap_register_file.sv" \
-        "$root/sim/cpu/arm9v2/front_execute.sv" \
-        "$here/arm9v2_execute_trial.sv" > "$out/arm925t_gen.v"
+if [[ $trial == arm925t_execute ]]; then
+    sv2v -DSYNTHESIS -I "$root/rtl/cpu" --top=cpu_trial "$root"/rtl/cpu/arm925t_{core,decode,execute,fetch,forward,front_decode,predict,rotate}.sv \
+        "$root/rtl/cpu/arm925t_alu.sv" "$root/rtl/cpu/arm925t_ram_nopipe.sv" \
+        "$root/rtl/cpu/arm925t_mode_decoder.sv" "$root/rtl/cpu/arm925t_register_file.sv" \
+        "$root/sim/cpu/units/front_execute.sv" \
+        "$here/arm925t_execute_trial.sv" > "$out/arm925t_gen.v"
     printf '// Component top included in arm925t_gen.v\n' > "$out/cpu_trial.v"
     rsync -a "$out/arm925t_gen.v" "$out/cpu_trial.v" "$host:$dir/"
-elif [[ $trial == arm9v2_decode ]]; then
-    sv2v -DSYNTHESIS -I "$root/rtl/cpu/zap" --top=cpu_trial "$root"/rtl/cpu/arm9v2/*.sv \
-        "$root/rtl/cpu/zap/zap_ram_simple_nopipe.sv" \
-        "$root/rtl/cpu/zap/zap_mode16_decoder.sv" "$root/rtl/cpu/zap/zap_register_file.sv" \
-        "$here/arm9v2_decode_trial.sv" > "$out/arm925t_gen.v"
+elif [[ $trial == arm925t_decode ]]; then
+    sv2v -DSYNTHESIS -I "$root/rtl/cpu" --top=cpu_trial "$root"/rtl/cpu/arm925t_{core,decode,execute,fetch,forward,front_decode,predict,rotate}.sv \
+        "$root/rtl/cpu/arm925t_ram_nopipe.sv" \
+        "$root/rtl/cpu/arm925t_mode_decoder.sv" "$root/rtl/cpu/arm925t_register_file.sv" \
+        "$here/arm925t_decode_trial.sv" > "$out/arm925t_gen.v"
     printf '// Component top included in arm925t_gen.v\n' > "$out/cpu_trial.v"
     rsync -a "$out/arm925t_gen.v" "$out/cpu_trial.v" "$host:$dir/"
-elif [[ $trial == arm9v2_frontend ]]; then
-    sv2v -DSYNTHESIS --top=cpu_trial "$root"/rtl/cpu/arm9v2/arm9v2_{fetch,predict}.sv \
-        "$root/rtl/cpu/zap/zap_ram_simple_nopipe.sv" "$here/arm9v2_frontend_trial.sv" > "$out/arm925t_gen.v"
+elif [[ $trial == arm925t_frontend ]]; then
+    sv2v -DSYNTHESIS --top=cpu_trial "$root"/rtl/cpu/arm925t_{fetch,predict}.sv \
+        "$root/rtl/cpu/arm925t_ram_nopipe.sv" "$here/arm925t_frontend_trial.sv" > "$out/arm925t_gen.v"
     printf '// Component top included in arm925t_gen.v\n' > "$out/cpu_trial.v"
     rsync -a "$out/arm925t_gen.v" "$out/cpu_trial.v" "$host:$dir/"
 else

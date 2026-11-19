@@ -1,5 +1,5 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
-@ The first loads after an exception entry or return (V2 flushes on both),
+@ The first loads after an exception entry or return (the pipeline flushes on both),
 @ in the shapes of the EKA1 executive-call path: a store miss allocates
 @ over the line holding lit1 (or the TLB was flushed), then the flush,
 @ then a window whose first load reads lit1:

@@ -18,9 +18,11 @@ and is never in the repository.
 - `make -C sim dfill`: not a check but a measurement on the whole core: what
   a data line fill costs in clocks, from loops of loads timed with a UPP
   timer (`sim/harness/dfill.S`; arm-none-eabi binutils).
-- `make -C sim/cpu bins model run`: the CPU's 354 directed and random test runs on
-  the RTL (arm-none-eabi binutils). `make -C sim/cpu qemu diff` compares them
-  with QEMU (qemu-system-arm and arm-none-eabi-gdb).
+- `make -C sim/cpu bins model run`: the CPU's directed and random tests on
+  the RTL, each at three bus latencies (arm-none-eabi binutils).
+  `make -C sim/cpu qemu diff` compares them with QEMU (qemu-system-arm and
+  arm-none-eabi-gdb). `make -C sim/cpu units` runs the unit benches of the
+  pipeline's parts and two proofs.
 - `make cpu-gen-check`: `rtl/cpu/arm925t_gen.v`, the netlist Quartus compiles,
   matches its sources (sv2v 0.0.13). `make cpu-gen` regenerates it.
 - `make patchrom-check`: the firmware patch ROM (`rtl/mister/phoenix_patch.hex`)
@@ -99,8 +101,7 @@ screenshot of it. Every build without the macro is the plain core.
   images from `mkimage.py phoenix MCU PACK --force`), or
   `Vphoenix_load MCU PACK refused`.
 - `make -C sim coreboot` boots the firmware on the whole core in Verilator.
-  It runs for hours. Its CPU profile (`CORE_PROFILE=1`) is out of date and
-  stops the bench when switched on.
+  It runs for hours.
 - `model/build.sh` builds the reference model: QEMU 11.1.2 with the `ngage-qd`
   machine in `model/hw` (QEMU's build requirements and arm-none-eabi-gcc).
   `model/run.sh` runs it; its header lists the options.

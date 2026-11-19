@@ -32,7 +32,7 @@ lint_off -rule UNUSEDSIGNAL -file "rtl/upp/upp_haudio.sv" -match "*Bits of signa
 // hps_io's RTC: the weekday and the last byte are not used
 lint_off -rule UNUSEDSIGNAL -file "rtl/mister/rtc_wall.sv" -match "*Bits of signal are not used: 'rtc'[63:48]*"
 
-// The CPU netlist is generated from vendored ZAP by sv2v (tools/gen_cpu.sh)
+// The CPU netlist is generated from the CPU's sources by sv2v (tools/gen_cpu.sh)
 // and checked by the CPU benches (sim/cpu), not by this style lint.
 lint_off -file "rtl/cpu/arm925t_gen.v"
 
@@ -126,30 +126,30 @@ lint_off -file "lint/pll.sv"
 lint_off -rule TIMESCALEMOD -file "lint/pll.sv"
 
 // ---- The CPU sources (make lint's "arm925t sources" step) ----
-// The two caches share zap_cache_tag_ram: dirty tracking and the packed data
+// The two caches share arm925t_cache_tag_ram: dirty tracking and the packed data
 // RAM are the D-cache's (TRACK_DIRTY); in the I-cache's instance these are idle.
-lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_tag_ram.sv" -match "*Signal is not used: 'dirty_write_*'*"
-lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_tag_ram.sv" -match "*Signal is not used: 'meta_d_read'*"
-lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_tag_ram.sv" -match "*Signal is not used: 'packed_read'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm925t_cache_tag_ram.sv" -match "*Signal is not used: 'dirty_write_*'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm925t_cache_tag_ram.sv" -match "*Signal is not used: 'meta_d_read'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm925t_cache_tag_ram.sv" -match "*Signal is not used: 'packed_read'*"
 // Set indices, line offsets and tags carried whole into logic that uses some
 // of their bits (the metadata banks' set groups, the walk's tag, the
 // accepted and line-operation addresses, the D-cache FSM's check address,
 // the I-cache FSM's fill word index).
-lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_tag_ram.sv" -match "*Bits of signal are not used: 'meta_*'*"
-lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_tag_ram.sv" -match "*Bits of signal are not used: 'walk_tag'*"
-lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_tag_ram.sv" -match "*Bits of signal are not used: 'i_accepted_address'*"
-lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_tag_ram.sv" -match "*Bits of signal are not used: 'i_line_addr'*"
-lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_dcache_fsm.sv" -match "*Bits of signal are not used: 'i_address_check'*"
-lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cache_fsm.sv" -match "*Bits of signal are not used: 'fill_lookup'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm925t_cache_tag_ram.sv" -match "*Bits of signal are not used: 'meta_*'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm925t_cache_tag_ram.sv" -match "*Bits of signal are not used: 'walk_tag'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm925t_cache_tag_ram.sv" -match "*Bits of signal are not used: 'i_accepted_address'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm925t_cache_tag_ram.sv" -match "*Bits of signal are not used: 'i_line_addr'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm925t_dcache_fsm.sv" -match "*Bits of signal are not used: 'i_address_check'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm925t_icache_fsm.sv" -match "*Bits of signal are not used: 'fill_lookup'*"
 // CP15's control decode reads the bits it implements of a whole word.
-lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_cp15_cb.sv" -match "*Bits of function variable are not used: 'd'*"
-// V2's whole-record registers: the translation owner reads a few fields of
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm925t_cp15.sv" -match "*Bits of function variable are not used: 'd'*"
+// The pipeline's whole-record registers: the translation owner reads a few fields of
 // the next record; decode's redirect reference is a simulation copy.
-lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm9v2/arm9v2_core.sv" -match "*Bits of signal are not used: 'next_check_record'*"
-lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm9v2/arm9v2_decode.sv" -match "*Bits of signal are not used: 'redirect_ref'*"
-// zap_register_file: r0..r39 are the simulation's waveform taps of the
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm925t_core.sv" -match "*Bits of signal are not used: 'next_check_record'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm925t_decode.sv" -match "*Bits of signal are not used: 'redirect_ref'*"
+// arm925t_register_file: r0..r39 are the simulation's waveform taps of the
 // architectural view.
-lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_register_file.sv" -match "*Signal is not used: 'r*'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm925t_register_file.sv" -match "*Signal is not used: 'r*'*"
 
 // sim/stubs/altdpram.sv models the one configuration the register file uses;
 // the primitive's other ports and parameters are accepted and ignored.
@@ -158,5 +158,5 @@ lint_off -rule UNUSEDPARAM -file "sim/stubs/altdpram.sv"
 
 // The posted-store queue compares its counter with the integer depth, and
 // its bus lane is write-only by construction.
-lint_off -rule WIDTHEXPAND -file "rtl/cpu/zap/zap_store_queue.sv" -match "*'count*"
-lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/zap/zap_dcache.sv" -match "*'wb_wen'*"
+lint_off -rule WIDTHEXPAND -file "rtl/cpu/arm925t_store_queue.sv" -match "*'count*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/cpu/arm925t_dcache.sv" -match "*'wb_wen'*"

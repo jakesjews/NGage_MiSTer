@@ -1,8 +1,8 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
-@ Stale TLB entries from V2's garbage-address walks (the second lead of the
-@ TLB-walk fix, fe65a2d). Before that fix V2's D-side walker walked W's
+@ Stale TLB entries from the pipeline's garbage-address walks (the second lead of the
+@ TLB-walk fix, fe65a2d). Before that fix the pipeline's D-side walker walked W's
 @ address even when the real miss came from M. For a non-memory instruction
-@ at W that address is the ALU result (arm9v2_execute o_address = alu_result
+@ at W that address is the ALU result (arm925t_execute o_address = alu_result
 @ in the default case), so a real miss behind an ALU op whose result is some
 @ section's VA made the walker read that section's L1 descriptor and cache
 @ it, though the program never addresses that section. At the time of
@@ -18,20 +18,20 @@
 @ Trigger: S (0x13000000, MOV-able, never loaded or stored by the program)
 @ is garbage-walked by placing `mov r3,#S` (ALU, o_address = S) between a
 @ load that hits the TLB (so the pipeline is in RUN) and a load that misses
-@ (so the walk fires while W still holds the MOV). Pre-fix V2 walks S; ZAP
-@ and fixed V2 walk the missing load.
+@ (so the walk fires while W still holds the MOV). Before the fix the walker took S;
+@ now it walks the missing load.
 @
 @   (a) S unmapped at the trigger, then mapped valid, no flush, then loaded:
-@       pre-fix V2 aborts (stale fault entry); ZAP and fixed V2 read the RAM.
+@       before the fix an abort (stale fault entry); now the RAM is read.
 @   (b) the same but a TLB flush (all, then single-by-VA) before the load:
 @       every core is clean - the kernel's switch flush covers the entry.
 @   (c) S mapped valid to PA_A at the trigger (only the garbage walk reads
-@       it), then remapped to PA_B, no flush, then loaded: pre-fix V2 returns
-@       PA_A's marker (wrong data, no abort); ZAP and fixed V2 return PA_B's.
+@       it), then remapped to PA_B, no flush, then loaded: before the fix
+@       PA_A's marker came back (wrong data, no abort); now PA_B's.
 @
 @ SIG_DATA: R_A abort count; R_A_D data; R_B_ALL/R_B_ONE abort counts;
 @ R_C data (PA_B marker when correct); R_C_AB abort count for (c). The test
-@ CHECKs the ZAP/fixed-V2 expectation, so the pre-fix run fails and shows it.
+@ CHECKs the fixed behaviour, so a run without the fix fails and shows it.
 @@ qemu: no
 	.include "test.inc"
 	.include "mmu.inc"
@@ -154,7 +154,7 @@ test_main:
 	STORE_RESULT r4, R_C
 	STORE_RESULT r5, R_C_AB
 
-@ ---------------- expectations (ZAP and fixed V2) ----------------
+@ ---------------- expectations ----------------
 	ldr	r10, =SIG_DATA
 	ldr	r4, [r10, #(4*R_A)]
 	CHECK	r4, 0				@ (a) no stale-fault abort

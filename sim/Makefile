@@ -18,13 +18,6 @@ VFLAGS := --cc --exe --build -j 4 -O3 --x-assign unique --x-initial unique \
           -CFLAGS "-O2 -std=c++17 -I$(ROOT)/sim/harness"
 # Whole-core compile options (Verilator defines or parameters).
 VEXTRA ?=
-# CORE_PROFILE=1 adds the CPU profile probe to the firmware bench. It is off:
-# the probe (sim/profile/cpu_profile_probe.sv) reads the CPU's records by bit
-# position and has not followed them since 2026-10-26, so its own check stops
-# the bench at once ("profile W layout changed").
-CORE_PROFILE ?= 0
-PROFILE_FILES = $(if $(filter 1,$(CORE_PROFILE)),$(ROOT)/sim/profile/cpu_profile_probe.sv)
-PROFILE_FLAGS = $(if $(filter 1,$(CORE_PROFILE)),-DCPU_PROFILE=1 -CFLAGS "-DCPU_PROFILE=1")
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
 BENCHES := lcd video keypad flash mmc bt sdram sdram-faults ddrflash trace upp intc timers haudio periph save phoenix top
@@ -245,13 +238,13 @@ CORE_MMC     ?=
 CORE_ARGS    ?= --cycles 1000000000
 CORE_OUT     ?= $(BUILD)/coreboot/out
 CORE_THREADS ?= 1
-$(BUILD)/coreboot/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/coreboot_main.cpp $(ROOT)/sim/harness/coreboot.vlt $(ROOT)/sim/profile/cpu_profile.h $(PROFILE_FILES) \
+$(BUILD)/coreboot/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/coreboot_main.cpp $(ROOT)/sim/harness/coreboot.vlt \
                         $(ROOT)/sim/harness/common.h $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h $(ROOT)/sim/harness/snapshot.h \
                         $(ROOT)/rtl/mister/phoenix_patch.hex $(ROOT)/rtl/mister/phoenix_patch.vh
-	mkdir -p $(BUILD)/coreboot && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) $(PROFILE_FLAGS) --timescale 1ns/1ps --pins-inout-enables --savable \
+	mkdir -p $(BUILD)/coreboot && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) --timescale 1ns/1ps --pins-inout-enables --savable \
 		$(if $(filter-out 1,$(CORE_THREADS)),--threads $(CORE_THREADS)) \
 		--top-module emu -DNGAGE_DEBUG=1 --Mdir $(BUILD)/coreboot -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
-		$(ROOT)/sim/harness/coreboot.vlt $(TOP_RTL) $(PROFILE_FILES) $(ROOT)/sim/harness/coreboot_main.cpp
+		$(ROOT)/sim/harness/coreboot.vlt $(TOP_RTL) $(ROOT)/sim/harness/coreboot_main.cpp
 # The LFFS sector copy on the whole core (sim/harness/flashcopy.S, no
 # firmware needed): the CPU copies C: sectors out of the flash window with
 # Mem::Copy's sequence through the real memory side; --check-flash compares
@@ -268,13 +261,14 @@ $(FC_DIR)/cs0.bin: $(ROOT)/sim/harness/flashcopy.S $(ROOT)/sim/cpu/tests/mem_cop
 	python3 $(ROOT)/sim/harness/flashcopy_images.py $(FC_DIR)/flashcopy.bin $@ $(FC_DIR)/cs1.bin
 flashcopy: $(BUILD)/coreboot/Vemu $(FC_DIR)/cs0.bin
 	cd $(ROOT) && $< $(RUNFLAGS) --cs0 $(FC_DIR)/cs0.bin --cs1 $(FC_DIR)/cs1.bin --out $(FC_DIR) \
-		--check-flash --until '#END' --cycles 400000000 --progress 0 --no-profile $(FC_ARGS) | tee $(FC_DIR)/run.log
+		--check-flash --until '#END' --cycles 400000000 --progress 0 $(FC_ARGS) | tee $(FC_DIR)/run.log
 	cat $(FC_DIR)/kern.log
 	grep -q ' 0 mismatch(es)' $(FC_DIR)/run.log && grep -q ' 00000000 failures' $(FC_DIR)/kern.log
 
 # What a data line fill costs on the whole core (sim/harness/dfill.S, no
 # firmware needed): loops of loads timed with UPP timer 1 through the real
-# cache, bus and SDRAM controller.
+# cache, bus and SDRAM controller. VEXTRA sets the cache sizes, e.g.
+# BUILD=$(BUILD)-d16 VEXTRA=-GDCACHE_SIZE=16384 for a 16 KB D-cache.
 DF_DIR ?= $(BUILD)/dfill
 $(DF_DIR)/cs0.bin: $(ROOT)/sim/harness/dfill.S $(ROOT)/sim/harness/flashcopy_images.py
 	mkdir -p $(DF_DIR)
@@ -285,13 +279,13 @@ $(DF_DIR)/cs0.bin: $(ROOT)/sim/harness/dfill.S $(ROOT)/sim/harness/flashcopy_ima
 .PHONY: dfill
 dfill: $(BUILD)/coreboot/Vemu $(DF_DIR)/cs0.bin
 	cd $(ROOT) && $< $(RUNFLAGS) --cs0 $(DF_DIR)/cs0.bin --cs1 $(DF_DIR)/cs1.bin --out $(DF_DIR) \
-		--until '#END' --cycles 100000000 --progress 0 --no-profile > $(DF_DIR)/run.log
+		--until '#END' --cycles 100000000 --progress 0 > $(DF_DIR)/run.log
 	cat $(DF_DIR)/kern.log
 	grep -q 'dfill: done' $(DF_DIR)/kern.log
 
 # Exercise the firmware bench's HPS adapter without firmware images.
 hps-read-test: $(BUILD)/coreboot/Vemu
-	cd $(ROOT) && sim/harness/hps_read_test.sh $(BUILD)/coreboot $(if $(filter 1,$(CORE_PROFILE)),-DCPU_PROFILE=1)
+	cd $(ROOT) && sim/harness/hps_read_test.sh $(BUILD)/coreboot
 
 coreboot: $(BUILD)/coreboot/Vemu
 	mkdir -p $(CORE_OUT)

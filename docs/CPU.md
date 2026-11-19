@@ -1,43 +1,73 @@
 # CPU: the ARM925T
 
-> Since 2026-10-26 the CPU is V2, this project's eight-stage pipeline
-> ([docs/ARM9V2.md](ARM9V2.md), `rtl/cpu/arm9v2/`). ZAP's caches, MMU, CP15,
-> writeback and register file in `rtl/cpu/zap/` are still the ones V2 uses;
-> the sections below that describe ZAP's own pipeline (fetch, decode, issue,
-> shifter, ALU, memory stages) are history, and those files are in git history.
-
 The N-Gage QD's processor is the TI ARM925T inside Nokia's UPP_WD2 ASIC: an
 ARM9TDMI integer core (ARMv4T: ARM and Thumb), TI's CP15 with an MMU, a
-16 KB instruction cache and an 8 KB data cache (2-way, 16-byte lines). The
-core's CPU is ZAP (Revanth Kamaraj, GPL-3.0-or-later), changed so that it
-behaves as an ARM925T. This document covers the design, every known
-difference from a real ARM925T, how it is tested, and the FPGA numbers.
+16 KB instruction cache and an 8 KB data cache (2-way, 16-byte lines).
+
+The core's CPU is this project's own implementation of it, `arm925t`:
+
+- an eight-stage integer pipeline written for this project
+  (`arm925t_core` and its stage files);
+- caches, an MMU, CP15, a register file, a writeback stage and a bus
+  merger derived from the ZAP processor (Revanth Kamaraj,
+  GPL-3.0-or-later) and changed to behave as the ARM925T's. ZAP's own
+  pipeline is not part of it.
+
+Every module and file is named `arm925t_*`. `rtl/cpu/NOTICE` lists which
+files come from ZAP and what was changed in them.
+
+Earlier names, for reading docs/PROGRESS-LOG.md and the reports in
+docs/consults: until 2026-11-18 the pipeline was called "V2" or "ARM9V2"
+(`arm9v2_*` in `rtl/cpu/arm9v2/`), the ZAP-derived files were `zap_*` in
+`rtl/cpu/zap/`, and the module below the top was `zap_top`. Two other
+pipelines existed in October 2026 and are gone: ZAP's own 17 stages, and a
+first replacement called "ARM9" (`rtl/cpu/arm9/`, of which only the ALU
+remains, as `arm925t_alu`). "ARM9" in a test's name means the architecture.
+
+This document covers the design, every known difference from a real
+ARM925T, how it is tested, and the FPGA numbers.
 
 ## Files
 
-- `rtl/cpu/zap/`: derived from ZAP at commit fc7bd75, with `NOTICE` and
-  `LICENSE`. Changes are tagged `ARM925T:` in the source. Since
-  2026-10-26 the ARM925T behaviour (ARMv4T, the TI925T CP15 registers) is
-  unconditional and the options only V2 never used are removed (ZAP's
-  long cache reads, the I-cache prefetch, the BTB, the byte-lane RAM
-  wrapper in `rtl/cpu/port/`); they are in git history.
-- `rtl/cpu/arm925t.sv`: the wrapper the rest of the core uses.
+- `rtl/cpu/arm925t.sv`: the top, which the rest of the core instantiates.
+  It holds the core's configuration: constants, and the two cache sizes
+  as its only parameters.
+- `rtl/cpu/arm925t_top.sv`: the pipeline, the two caches with their MMUs,
+  the interrupt synchroniser and the bus merger.
+- `arm925t_core.sv` with `arm925t_fetch`, `arm925t_front_decode`,
+  `arm925t_decode`, `arm925t_execute`, `arm925t_forward`, `arm925t_rotate`,
+  `arm925t_alu` and `arm925t_predict`: the pipeline. `arm925t_writeback`
+  and `arm925t_register_file`: retirement and the banked registers.
+  `arm925t_cp15`: the coprocessor.
+- `arm925t_icache` and `arm925t_dcache` (each with its `_fsm`),
+  `arm925t_cache_tag_ram`, `arm925t_store_queue`: the caches.
+  `arm925t_tlb`, `arm925t_tlb_check`, `arm925t_tlb_fsm`,
+  `arm925t_tlb_buffer`: the MMU.
+- `rtl/cpu/NOTICE` and `rtl/cpu/LICENSE`: provenance and licence. Changes
+  to the ZAP-derived files are tagged `ARM925T:` in the source.
+- Every parameter's default in these files is the value the core is built
+  with.
 - `rtl/cpu/arm925t_gen.v`: the Verilog-2005 netlist Quartus compiles,
-  made by `tools/gen_cpu.sh` (sv2v 0.0.13, `-DSYNTHESIS`, plus the Quartus
-  fixes described in the script). `make cpu-gen` regenerates it and
+  made by `tools/gen_cpu.sh` (sv2v, `-DSYNTHESIS`, plus the Quartus
+  fix described in the script). `make cpu-gen` regenerates it and
   `make cpu-gen-check` fails when it is out of date, so regenerate after
   any change under `rtl/cpu/`.
-- `sim/cpu/`: the Verilator bench, the tests, the QEMU comparison, the boot
-  bench and the Quartus trial (see Verification).
+- `sim/cpu/`: the Verilator bench, the tests, the unit benches of the
+  pipeline's parts (`sim/cpu/units`), the QEMU comparison, the boot bench
+  and the Quartus trial (see Verification).
 
 ## Interface
 
 `arm925t` has one clock, a synchronous active-high reset, two interrupt
 inputs and one memory bus master.
 
-Configuration. `arm925t` has no parameters since 2026-11-16: the core has
-one configuration, constants in `arm925t.sv`, so that no build and no
-test runs with another:
+Configuration. `arm925t` has two parameters, the cache sizes in bytes
+(`ICACHE_SIZE`, `DCACHE_SIZE`; `emu` in `NGage.sv` and the CPU bench pass
+them on), kept for speed tests with other sizes: a bench takes
+`VEXTRA=-GDCACHE_SIZE=16384`, a Quartus build a changed default in
+`NGage.sv`. Their defaults are the core's. Everything else is one
+configuration, constants in `arm925t.sv`, so that no build and no test
+runs with another:
 
 - The reset value of control bit V, the ARM925T's HIVECS pin, is 0
   (vectors and reset address at 0; the N-Gage boots from CS0 at 0).
@@ -53,16 +83,14 @@ test runs with another:
   alias and DMA maintenance, as the phone's do; the
   [capacity analysis](consults/2026-10-23-codex-dcache-report.md) of
   2026-10-23 has what a larger D-cache would cost and need.
-- The one-line sequential I-cache prefetch (`ICACHE_PREFETCH`) was
-  removed on 2026-10-26: the ARM925T has none, the games measured no gain
-  from it on the board (2026-10-23) and it cost about 1 ns of slack
-  (docs/consults/2026-10-23-agy-iprefetch-report.md).
+- The small-page TLBs have two ways of 256 entries; the section, large-page
+  and tiny-page buffers are 64, 32 and 64 entries, one way.
 
 Ports:
 
 - `clk`, `reset`: reset is synchronous; drive it from a flip-flop.
 - `irq`, `fiq`: level-sensitive, active high (the inverse of nIRQ/nFIQ).
-  They pass a two-flop synchroniser inside ZAP.
+  They pass a two-flop synchroniser (`arm925t_sync2`).
 - `bus_req`, `bus_we`, `bus_addr[31:0]`, `bus_be[3:0]`, `bus_wdata[31:0]`,
   `bus_burst`: the request, straight from flip-flops.
 - `bus_rdata[31:0]`, `bus_ack`, `bus_err`: the response.
@@ -93,26 +121,49 @@ the other master), with `irq`/`fiq` from the UPP interrupt controller
 (`upp_periph`).
 
 - Reset: a flip-flop holds the CPU in reset with the memory system and
-  until both flash images are in DDR3: CS0
-  loaded through the OSD (F1) and CS1 loaded (F2) or mounted as the save
-  file (S1, once its copy is in). It then boots from CS0 at 0 and runs
-  until the next core reset (OSD reset, the user button, a new image).
+  until the firmware is in DDR3 and the C: save is mounted (`NGage.sv`,
+  `rtl/mister/phoenix_load.sv`). It then boots from CS0 at 0 and runs
+  until the next core reset (OSD reset, the user button, new firmware).
 - The picture is black until the firmware wakes the panel through the
   UPP's LCD interface. (A memory test and a test picture shared the bus and
   the panel until 2026-11-10.)
 
 ## Architecture
 
-ZAP is a single-issue, in-order core with a 17-stage pipeline: fetch
-(address, TLB, cache, memory), instruction buffer, Thumb decoder,
-pre-decoder (micro-op sequencer for LDM/STM, SWP, BL, long multiplies),
-decoder, issue (register read, interlocks), shifter, ALU, two post-ALU
-stages (D-TLB, D-cache), memory and writeback. It has a bimodal branch
-predictor with a BTB and a 4-entry return stack, a 16-word fetch buffer,
-and non-blocking cache-miss loads (the destination register is locked until
-the line arrives).
+### The pipeline
 
-The memory system is ZAP's:
+Eight stages, single issue, in order (`arm925t_core.sv`):
+
+| Stage | Work |
+|---|---|
+| F1 | The PC is a register; the predictor's, the I-cache's and the I-TLB's reads start from it. |
+| F2 | Cache compare, way selection and permission; the raw instruction word goes into the fetch queue with its PC, state and prediction. |
+| D1 | The Thumb expander; instruction class and register tags; the sequencing of LDM/STM. |
+| D2 | The register file read, hazards against pending destinations, unconditional direct branches. |
+| S | Operand selection (forwarding) and the rotator; the multiplier's first stage. |
+| A | ALU, condition and flags, the effective address, the end of a multiply. Redirects are registered here. |
+| M | The D-cache RAMs' read, launched by A; the D-TLB lookup and the cache compare from M's address register. |
+| W | The cache's registered response, register writes, faults and retirement. |
+
+It has a branch predictor with a four-entry return stack (the ARM925T has
+none) and a fetch queue between F2 and D1. A correctly predicted branch
+loses no fetch slot. CP15 operations are carried out in order while the
+pipeline waits.
+
+The cycle shapes are pinned by tests with exact counts (`arm9_cycles`,
+`arm9_slots`, `arm9_branch_slots`, `arm9_predict`, `arm9_stream_timing`,
+`arm9_tail`; the counts are the `*-cycles.txt` files in `sim/cpu/units`),
+and the stages have unit benches there (`make -C sim/cpu units`).
+
+How the pipeline came to this shape, with the measurements behind each
+boundary, is in docs/consults/2026-10-pipeline-design-record.md. That
+record was written during the work under the name ARM9V2 and compares
+against the ZAP pipeline it replaced; it is history, not a description
+of the code.
+
+### The memory system
+
+Derived from ZAP's (rtl/cpu/NOTICE):
 
 - Caches: the ARM925T's geometry, 2-way set-associative with its LRU
   replacement, virtually indexed and tagged, write-back with write
@@ -127,11 +178,11 @@ The memory system is ZAP's:
   D TLBs, each four buffers, one per page size: 64 sections, 32 large and
   64 tiny pages, direct-mapped, and the small pages in two ways of 256
   entries (a set's ways are replaced in turn). A hardware table walker on the bus.
-- CP15 (`zap_cp15_cb.sv`): carries out MCR/MRC while the pipeline waits.
+- CP15 (`arm925t_cp15.sv`): carries out MCR/MRC while the pipeline waits.
 
-### What was changed for the ARM925T
+### ARM925T behaviour
 
-Identity and CP15 (`TI925T = 1`, `CP15_ID`, `CP15_CTYPE`):
+Identity and CP15:
 
 - c0 reads the main ID 0x54029252 and cache type 0x05109149 (2-way,
   16-byte lines, 16 KB I, 8 KB D). With TI configuration bit O set the ID
@@ -139,7 +190,7 @@ Identity and CP15 (`TI925T = 1`, `CP15_ID`, `CP15_CTYPE`):
 - c1 control: M, A, C, W, S, R, I and V are writable; bits 6:4 read 1, B
   (bit 7) and the rest read 0. Reset value 0x70 (V is 0 at reset).
 - c2 TTB, c3 DACR, c5 FSR, c6 FAR: as ARMv4. FSR and FAR change only on
-  data aborts (upstream also wrote them on uncached accesses); an external
+  data aborts (ZAP also wrote them on uncached accesses); an external
   abort reports status 0b1000. A prefetch abort does not change them.
 - c7: the ARM925T operations: c7,c7,0 (flush I+D), c7,c5,0 and c7,c5,1
   (flush I; the entry form flushes the whole I-cache), c7,c6,0 (flush D),
@@ -170,9 +221,9 @@ Exceptions and modes:
   nothing is transferred and the base is not written back. With A clear,
   unaligned LDR and SWP rotate (ARMv4), STR and LDM/STM ignore the low bits.
 - The Thumb SWI and undefined-instruction exceptions return to the next
-  instruction (upstream: to themselves).
+  instruction.
 
-Instruction set (`V4T = 1`):
+Instruction set:
 
 - ARMv5 instructions are UNDEFINED: CLZ, BLX (both), BKPT, QADD and
   friends, the 16-bit multiplies, LDRD/STRD, PLD, the "2" coprocessor
@@ -188,30 +239,24 @@ Memory system:
 
 - Write-through pages (C=1, B=0): stores go to memory at once (through the
   store queue when control bit W is set) and update a
-  line that hits; no allocation on a store miss (upstream treated every
+  line that hits; no allocation on a store miss (ZAP treated every
   cacheable page as write-back).
 - Single-line D-cache operations (above), used by the Symbian kernel's
   index loops and by drivers for DMA buffers.
 - With the MMU on and a cache off, uncached accesses use the physical
-  address (upstream put the virtual address on the bus).
+  address (ZAP put the virtual address on the bus).
 - With the MMU off and the I-cache on, instruction fetches are cacheable,
-  as on the ARM920T family (upstream cached nothing with the MMU off); data
+  as on the ARM920T family (ZAP cached nothing with the MMU off); data
   accesses stay uncached. The firmware's bootstrap runs this way (control
   0x1272 from its first instructions). Uncached, its flash code took about
   20 clocks an instruction, and its delay loops, which count instructions,
   ran about 15 times longer than on the phone.
 
-Upstream bugs fixed (found by the tests; all configurations):
+Bugs fixed in the parts that came from ZAP (found by the tests; fixes to
+ZAP's own pipeline, which is gone, are in git history):
 
 - Fine page tables were walked with the coarse layout.
 - Page faults reported the wrong domain.
-- Thumb B with condition 1110 branched (it is UNDEFINED).
-- The 011x..1 space (e.g. 0xE7F000F0) decoded as a load instead of
-  UNDEFINED.
-- An LDM that loads its own base lost the base-restored abort behaviour.
-- Conditional long multiplies with S set the flags from the low half.
-- SMLALxy was matched with bit 4 = 1, which took STRH Rd, [Rn, #-imm]
-  for it.
 - The CP15 register array had 14 entries, so writes to c14/c15 went out of
   range; the I- and D-cache line-size parameters were swapped (harmless
   while they are equal).
@@ -219,59 +264,22 @@ Upstream bugs fixed (found by the tests; all configurations):
   written when the line arrives; that write took the whole word, so byte,
   halfword, signed and unaligned loads that missed returned the wrong
   value (found by the boot bench: the bootstrap's integrity check reads
-  the stored digest with LDRB from flash). The D-cache now keeps the
-  load's format with the miss and applies the memory stage's transform.
-- An instruction writing a register could issue while an older load to the
-  same register was between issue and the D-cache; if the load then
-  missed, its background write came last and the older value won. Issue
-  now also stalls on a destination that an in-flight load will write
-  (found by the cache-on random tests).
+  the stored digest with LDRB from flash). The D-cache keeps the load's
+  format with the miss and applies it (`arm925t_load_format.svh`).
 - Instruction fetches were permission-checked as User mode whenever the
-  data side's LDRT/STRT flag was set; that flag is also undefined (`'x`)
-  whenever its pipeline stage is empty. Fetches from privileged-only pages
-  therefore aborted while an LDRT/STRT was in flight and at random after
-  flushes (found by the boot bench: the kernel took a prefetch abort in a
-  privileged-only section). Fetches are now checked in the current mode.
+  data side's LDRT/STRT flag was set (found by the boot bench: the kernel
+  took a prefetch abort in a privileged-only section). Fetches are
+  checked in the current mode.
 - A cache line write-back could change its address in the middle of the
   burst (found by the bench's bus checker).
-- The ALU left its branch-target output undefined (`'x`) when nothing was
-  flushed, and the BTB stores it on every confirmed prediction. Quartus
-  happened to resolve it to the branch target (the netlist is the same
-  after the fix), but in simulation loops mispredicted on every iteration
-  and fetched from random addresses (found by the boot bench).
-- Thumb LDR/STR Rd, [SP, #imm] subtracted the offset (the ARM form was
-  built with U = 0). A store and a load both through SP agree with each
-  other, so the tests passed; the kernel stores a local through SP and
-  passes its address (ADD Rd, SP, #imm) to a function that reads it, and
-  one of its threads then waited for ever (found by the boot bench, by
-  comparing instruction traces with the model's).
-- For MOV/ADD to PC the pre-decoder kept the predicted PC of an older
-  instruction, and the ALU takes MOV/ADD PC as correctly predicted when
-  the predicted PC equals the result. A MOV PC, LR whose predictor entry
-  held the taken state of another address (no target, so the fetch went
-  on) therefore ran the instructions after it whenever that stale value
-  was LR, which is what a conditional BL predicted not taken leaves (found
-  by the boot bench: a kernel helper returned into the next function).
-  The predicted PC is now where the fetch goes next.
-- A data-processing micro-op's Rn was decoded without its extend bit, so
-  one that read DUMMY0 as Rn read r9 (upstream this hits the ARMv5 BLX
-  immediate sequence). It broke the Thumb BL second half that runs alone
-  after an interrupt between the halves (found by the full-core boot
-  bench: an IRQ split a BL in a user thread, which then branched into
-  data, and the kernel restarted). The BL link micro-op made from a Thumb
-  branch no longer passes on the branch's bit 34 (its offset shift),
-  which is the Rn extend bit position.
-- Data accesses were permission-checked in the ALU's current mode, which
-  a younger MOVS PC or MSR may already have changed while the access
-  waited at the post-ALU stage. A privileged store right before a return
-  to user mode was checked as user (found by the full-core boot bench: the
-  flash driver's FIQ handler writes the program command through a
-  privileged-only section and returns with MOVEQS PC, LR two instructions
-  later; the kernel restarted after the permission fault). The check now
-  uses the mode carried with the access.
+- Data accesses are permission-checked in the mode carried with the
+  access, not the mode at the time of the check, which a younger MOVS PC
+  or MSR may already have changed (found by the full-core boot bench: the
+  flash driver's FIQ handler writes through a privileged-only section and
+  returns to user mode two instructions later).
 
-Timing changes (no change in behaviour; the first two cost cycles, see
-FPGA resources and timing):
+Timing changes in the caches (no change in behaviour; the first two cost
+cycles):
 
 - Registered bus responses: both cache state machines latch the bus
   acknowledge, error and data of an uncacheable access and complete it in
@@ -281,24 +289,6 @@ FPGA resources and timing):
 - A load that missed the D-cache writes its register in a new state
   (UNLOCK_WR) from a latched value instead of straight from the line
   buffer. One more cycle per load miss.
-- The cache valid and dirty bits are written one cycle after the tag RAM
-  (write-behind), with the reads in that cycle taking the pending write.
-- The cache RAMs' last read stage registers the write collision check and
-  the write data and chooses after the registers.
-- The memory stage rotates, extends and selects load data before its
-  register instead of after it.
-- Return-address-stack pushes are written one cycle late (the pointer
-  moves at once; a pop in that cycle takes the pending value).
-- ARMv5/UNDEFINED classification moved from the decoder to the
-  pre-decoder, and the alignment check registered one stage early.
-- A disabled cache clears its valid bits in every cycle, held or not
-  (upstream only when not held), so the late hold from the cache state
-  machine no longer drives the clear of every valid flip-flop.
-- The D-cache looks at maintenance requests only when it has no access,
-  so they are not in the acknowledge-to-stall path; two terms that could
-  never be true (upstream's hit-under-miss, which it enabled only with the
-  cache off, and a retry for a register that cannot be locked in that
-  state) were removed from the tag-compare path.
 - The end of a D-cache line fill (2026-11-16). A request that waits for a
   fill (the next miss, or a store to the line being filled) used to be
   looked up again twice after the line was written: by the cache in three
@@ -327,10 +317,10 @@ Functional:
   the TI operand (set in bits 11:4, way in bit 31): with TI configuration
   C clear they act on both ways of the set, with C set on the named way.
 - No cache lockdown (c9 reads 0, writes ignored).
-- Turning a cache off invalidates it (ZAP clears the valid bits while the
+- Turning a cache off invalidates it (the valid bits are cleared while the
   cache is disabled). Dirty D-cache lines are lost if the D-cache is turned
   off without cleaning it first; the ARM925T keeps them.
-- Store misses and the write buffer (since 2026-11-09, `zap_store_queue.sv`):
+- Store misses and the write buffer (since 2026-11-09, `arm925t_store_queue.sv`):
   with control bit W set and the MMU on, a write-back store miss is posted
   to a four-entry queue of permission-checked physical writes and
   allocates no line, as on the TI925T (read-allocate: TI SPRU671,
@@ -363,14 +353,14 @@ Functional:
 - The value stored by STR and STM for the PC is the instruction address +
   8 (as QEMU). This is IMPLEMENTATION DEFINED; the ARM7TDMI and, most
   likely, the ARM9TDMI store + 12.
-- Other UNPREDICTABLE cases follow ZAP, not the ARM9TDMI: LDM/STM with an
+- Other UNPREDICTABLE cases are this CPU's own, not the ARM9TDMI's: LDM/STM with an
   empty register list, STM with writeback and the base in the list but not
   first, misaligned LDRH/LDRSH with A clear (not rotated as on the
   ARM7TDMI), register-specified shifts with the PC as an operand (not
   + 12), data-processing tests with Rd = 15 (no mode change). These are the ARM7TDMI-specific
   checks of gba-tests that are skipped (Verification).
-- Instruction fetch runs further ahead: ZAP fetches along predicted paths
-  and up to its 16-word buffer, the ARM9TDMI only the next two
+- Instruction fetch runs further ahead: along predicted paths and up to
+  the fetch queue's depth, the ARM9TDMI only the next two
   instructions. With the I-cache off (or an uncached code page) these
   fetches reach the bus, so memory past the end of the executed code can
   be read. Harmless for memory; a read-sensitive device register would
@@ -379,30 +369,34 @@ Functional:
   EmbeddedICE, JTAG or ETM.
 - Big-endian mode is not available (B reads 0).
 
-Timing (instructions take ZAP's cycle counts, not the ARM9TDMI's):
+Timing (instructions take this pipeline's cycle counts, not the
+ARM9TDMI's; see The pipeline above for where the exact counts are kept):
 
-- The pipeline is 17 stages, not 5: a mispredicted or unpredicted branch
-  costs 12 cycles (ARM9TDMI: 2-3), a correctly predicted taken branch 3,
-  not taken 1. A state change (BX between ARM and Thumb) 12, exception
-  entry and return about 18.
-- Most other instructions take one cycle; multiplies 4 (+1 if the result
-  is used at once; ARM9TDMI: 2-5 by operand size); LDM/STM one cycle per
-  register; load-use interlocks differ.
-- A load miss does not stall until the register is used; a line is
-  fetched in full before the next access to the cache; a store that is
-  not posted (W clear, or C=0 B=0) stalls until the bus acknowledges it.
-- CP15 operations wait for the pipeline to empty and refetch afterwards.
-- Interrupt latency is ZAP's (synchroniser + pipeline drain).
+- Eight stages with a branch predictor instead of five without: a
+  correctly predicted branch costs one issue slot, a mispredicted or
+  unpredicted one a refill of the front end (the ARM9TDMI: three cycles
+  for every taken branch).
+- Multiplies take a fixed number of clocks; there is no early termination
+  by operand size.
+- The wait of an instruction that uses a load's value is this pipeline's,
+  not the ARM9TDMI's one or two interlock cycles.
+- A line is fetched in full on a miss; a store that is not posted (W
+  clear, or C=0 B=0) waits until the bus acknowledges it.
+- CP15 operations wait for older instructions to retire.
+- Memory is the MiSTer's: SDRAM and flash-in-DDR3 timing, not the
+  phone's (docs/UPP_WD2.md).
 
-In short, with caches on ZAP runs ARM code at a similar or higher rate per
-clock than an ARM9TDMI; branchy and Thumb-switching code runs slower.
+SPMark04 on the board against a real N-Gage QD is the measure of the
+whole: docs/PROGRESS-LOG.md, 2026-11-16.
 
 ## Verification
 
-Everything runs on the Verilator machine (`ubuntu`, Verilator 5.032);
-binaries are assembled on the Mac. `make -C sim/cpu all` builds the tests,
-runs them on the RTL (`remote`) and on QEMU (`qemu`), and compares
-(`diff`). Results land in `sim/cpu/build/`.
+`make -C sim/cpu bins run` assembles the tests and runs them on the RTL
+here; `make -C sim/cpu all` runs them on the Verilator machine instead
+(`remote`), runs QEMU (`qemu`) and compares (`diff`). `make -C sim/cpu
+units` runs the unit benches of the pipeline's parts and two proofs (the
+D-cache's lock summary, and the cache metadata against its last reviewed
+form). Results land in `sim/cpu/build/`.
 
 ### Bench
 
@@ -604,120 +598,37 @@ order, and the writes per device block.
 
 ### Results
 
-- Default regression (`make -C sim/cpu all`): 57 tests (21 directed, 32
-  random, 4 gba-tests) at 3 bus latencies, 171 RTL runs, all pass. The 49
-  that QEMU can run (15 directed, 32 random, `gba_arm_q`, `gba_thumb_q`)
-  agree with it in signature and instruction by instruction.
-- Random seeds 1-100 of all four kinds (400 programs): all pass on the RTL
-  and agree with QEMU (seeds 1-40 rerun after the Thumb BL and permission
-  fixes).
-- The same regression on the SystemVerilog sources (`RTL=sv`) gives the
-  same results, which checks the sv2v conversion.
-- gba-tests: 161 of 183 ARM and 101 of 109 Thumb tests pass on the RTL; the
-  QEMU-comparable subsets match QEMU over 1144 and 712 instructions.
-- Boot code (`make -C sim/cpu boot-prep boot-model boot`; the RTL run is
-  2.7 billion cycles, about an hour on the server): from the same images
-  the RTL makes every device access the model makes, in the same order and
-  with the same values, 76,975 of them (only the timers' free-running
-  counters read differently, by a few ticks), through the bootstrap, the
-  kernel start, the NOS stand-in, the LCD and MMC driver start-up and the
-  RTC, up to the model's last one at 581 million instructions; after it
-  both wait (in this configuration: no card, no key presses). The register
-  logs (61 entries), the CBUS logs (79 transfers), the MMC log and the
-  kernel's debug text are identical, and the instruction numbers of the
-  accesses stay within about 40 of the model's. Running it found six of the
-  bugs listed above: the four found earlier, then the Thumb SP-relative
-  offset and the predicted PC of MOV/ADD PC (each by comparing an
-  instruction window with the model's around the first difference). It
-  also showed what the bench lacked: the keypad ports, the RTCs of the
-  current model, the MMC host, and instruction counting as QEMU's icount
-  does (an SWI or undefined instruction counts, a Thumb BL pair counts
-  once), without which the bench's guest time drifted from the model's.
-  The cycle count says nothing about the phone's speed: the bench answers
-  the bus with zero wait states.
+The state at the release of 2026-11-16 (docs/PROGRESS-LOG.md), and again
+after the renaming of 2026-11-18, which changed no logic:
+
+- The CPU suite: every test at three bus latencies on the generated
+  netlist and on the SystemVerilog sources (which checks the sv2v
+  conversion), all passing; the tests QEMU can run agree with it in
+  signature and instruction by instruction.
+- The unit benches and proofs of `sim/cpu/units`.
+- On the whole core: `make test` (the device benches and the top),
+  `make -C sim flashcopy` and `dfill` (the CPU running the flash driver's
+  copy loop and a line-fill walk against the memory system; both end on a
+  fixed clock count, which changes with any change in the CPU's cycle
+  behaviour), and `hps-read-test`.
 
 ## FPGA resources and timing
 
-Standalone trial in Quartus 17.0.2 Lite (`sim/cpu/quartus/run.sh` for one
-compile, `sim/cpu/quartus/sweep.sh` for a fitter-seed sweep, on the build
-server in Docker): `cpu_trial.v` registers every input and every bus
-output to pins, so nothing is optimised away; same device (5CSEBA6U23I7)
-and fitter settings as `NGage.qsf`; 104 MHz (9.615 ns).
+Whole-core compiles of `NGage.qsf` in Quartus 17.0.2 Lite on the build
+server (`./build.sh remote compile`; `tools/seed_sweep.sh` for several
+fitter seeds at once). A given source and seed fit the same every time.
 
-- Resources (seed 1): 12,637 ALMs (30% of 41,910), 13,978 registers, 58
-  M10K blocks (303,732 bits: cache data and tags, TLBs, branch predictor),
-  4 DSP blocks (the multiplier). Other seeds are within 1%.
-- Worst setup slack at 104 MHz over eight fitter seeds (slow 100C / slow
-  -40C corner): seed 1 +0.335 / +0.357 ns, seed 2 +0.434 / +0.580, seed 3
-  +0.325 / +0.326, seed 4 +0.602 / +0.768, seed 5 +0.659 / +0.721, seed 6
-  +0.250 / +0.338, seed 7 +0.200 / +0.531, seed 8 +0.371 / +0.376. Every
-  seed closes at every corner, with 0.20 ns or more; the fast corners have
-  about 4 ns to spare, and hold slack is at least +0.09 ns. Placement
-  alone moves the worst slack by about ±0.3 ns: a netlist one constant bit
-  different (before the Thumb SP fix) gave between -0.095 and +0.808 ns
-  over the same seeds.
-- Before the timing changes (commit 1e4010a) the same four seeds gave
-  +0.317 / +0.379, -0.124 / +0.191, -0.239 / -0.294 and +0.049 / +0.137:
-  ZAP stalled every pipeline stage in the same cycle as the D-cache
-  decided an access, and the worst paths ran from the bus acknowledge,
-  the TLB result or the cache state machine through the stall into the
-  front end, or through the cache RAMs' write forwarding. Each change in
-  "Timing changes" above removed the worst path family of at least one
-  seed. The worst paths left (0.20-0.77 ns) are spread over the issue
-  stage (the register read for the shift operand and the interlock), the
-  TLB result into the front end and the D-cache RAMs, and the decoder
-  (pattern match and register renaming into the operand registers). None
-  dominates; more margin would take one of them each, for example
-  classifying the instruction in the pre-decoder.
-- Cost in cycles: one more cycle per uncacheable access and per load that
-  misses the D-cache; the other changes cost nothing. On the boot bench
-  (zero wait states, so the worst case): the bootstrap, which runs
-  uncached from flash, takes 21% more cycles (5.8 to 7.1 cycles per
-  instruction); with the MMU and caches on (the integrity checks) 6% more
-  (2.39 to 2.54); the kernel with caches on the same (1.57 to 1.56 and
-  2.12 to 2.12 cycles per instruction over 110-290 million instructions).
-  The bench tests, mostly uncached: +12% at zero wait states, +5% at 0-3
-  and +4% at 2-9 wait states (directed tests); `cache` (cached loops with
-  misses) +5%, +3%, +2%.
-- History: upstream ZAP with every output observed missed by 0.448 ns
-  (about 99 MHz). Moving the ARMv5/UNDEFINED classification to the
-  pre-decoder, registering the alignment check, taking the cache
-  maintenance requests out of the acknowledge path and removing two terms
-  that could never be true kept the ARM925T changes and the bug fixes at
-  about the same speed; the changes above then made 104 MHz close.
-
-### In the whole core
-
-Full compiles of `NGage.qsf` on the build server
-(`tools/quartus_seeds.sh TAG "SEEDS"`, two at a time in Docker; Quartus is
-deterministic, so a seed's result repeats):
-
-- With the CPU added and nothing else changed, two seeds missed 104 MHz by
-  1.3 and 1.8 ns, mostly outside the CPU: the memory-test master select
-  straight from hps_io, the NOR flash command decode, upp_bus's read data
-  register packed into an audio DSP block.
-- After the core-side changes (commits cd98c10, c330d6e, b9a38da, 5f2f8ad:
-  a registered master select, the flash's two-clock decode, the audio
-  products after local registers, the flash pop without an adder, the
-  valid-bit clear without the hold, the memory system's request paths, the
-  SDRAM output stage), three of four seeds closed (c12). The CPU fix for
-  the data-side permission mode changed the netlist again; of seeds 1-6
-  then (c13, c14), seeds 3 and 5 meet 104 MHz at every corner, and seed 5,
-  with more margin, is the one in `NGage.qsf`: setup +0.074 ns (slow
-  100C), +0.089 ns (slow -40C), +3.06 / +3.66 ns (fast); hold +0.089 ns or
-  more; recovery and removal positive. The others missed by 0.08-0.26 ns.
-  The worst paths move between families from seed to seed (the CPU's
-  stall and issue paths, the D-cache tag forwarding and fill, the CPU's
-  bus registers into upp_bus), each within about 0.3 ns now. The build
-  date is part of the netlist (build_id.v), so a rebuild on another day
-  can land elsewhere.
-- Resources (seed 5): 30,578 ALMs (73% of 41,910), 38,702 registers, 314
-  M10K blocks (2,265,832 bits), 43 DSP blocks, 3 PLLs. The CPU is about
-  12,600 ALMs of that.
-- `MISTER_DISABLE_YC` and `MISTER_DISABLE_ALSA` saved about 200 ALMs and
-  did not help timing; Physical Synthesis effort Extra gave a bit-identical
-  result in the Lite edition, and LogicLock regions need a subscription
-  licence. None of these is used.
+- The release of 2026-11-16 (seed 50): worst setup slack -1.362 ns at the
+  slow 100C corner and -1.414 ns at slow -40C against 104 MHz; sixteen
+  seeds of the same sources lie between that and -2.097 ns. Hold slack is
+  positive at every corner. 33,560 ALMs for the whole core.
+- So the timing report does not show 104 MHz; the core runs on the board
+  regardless. The failing paths are in the CPU: the D-cache's answer and
+  the TLB result into the pipeline's hot readers. What was tried, and why
+  only a deeper pipeline is left, is in docs/PROGRESS-LOG.md (the entries
+  of 2026-11-09 and 2026-11-16).
+- Changing any name or any logic in the CPU re-rolls the fit: the worst
+  slack then has to be found again over several seeds.
 
 ## Plan for the timing-fidelity pass
 
@@ -734,8 +645,8 @@ The goal is ARM9TDMI cycle counts at 104 MHz, without changing behaviour.
    adds up the ARM9TDMI cost of each retired instruction, and the core
    runs with a clock enable that holds it (all stages, and the bus
    interface's view of time) whenever it is ahead of the accumulated
-   ARM9TDMI time. ZAP is faster on most code, so it mainly waits; where it
-   is slower (mispredicted branches) the debt is paid back later. The
+   ARM9TDMI time. Where the pipeline is faster it waits; where it is
+   slower (mispredicted branches) the debt is paid back later. The
    peripherals see accesses at times close to the real phone's.
 3. Real cache geometry: done, both caches 2-way with LRU, so that hit
    rates (and so the time between bus accesses) match and the index
@@ -746,16 +657,12 @@ The goal is ARM9TDMI cycle counts at 104 MHz, without changing behaviour.
 
 ## Remaining gaps
 
-- In the whole core 104 MHz closes with little margin (+0.07 ns on the
-  seed in use, two seeds in six). The next changes would take the
-  CPU's issue-stage register read and the D-cache's stall into the
-  pipeline one stage earlier.
+- The timing report misses 104 MHz by about 1.4 ns on the best seed (see
+  FPGA resources and timing).
 - No cache or TLB lockdown; cache disable discards the D-cache contents;
   external aborts on line fills are lost. The section, large-page and
   tiny-page TLBs are direct-mapped; the instruction side walks twice a
   miss.
 - Stored PC is + 8 (probably + 12 on the ARM925T).
-- Cycle timing is ZAP's (see the plan above).
-- The pre-decoder's return pattern for MOV PC, LR has Rm = 15 (upstream),
-  so MOV PC, LR is predicted from the BTB, not the return-address stack:
-  slower returns, no wrong results.
+- Cycle timing is this pipeline's, not the ARM9TDMI's (see the plan
+  above).

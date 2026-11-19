@@ -21,7 +21,7 @@
 //     --buslog FILE     write one line per bus access
 //     --walklog FILE    one line per TLB walk: cycle, side, walked VA, the
 //                       checked VA that missed, a mark when they are in
-//                       different sections, V2's W request and memory state,
+//                       different sections, the pipeline's W request and memory state,
 //                       the PC of the data access at W
 //     --lat MIN:MAX     bus latency, cycles from request to ack (default 0:3)
 //     --icache-quarantine  force conservative I-fill class (negative test)
@@ -73,7 +73,6 @@
 // Bus protocol checks: a request must stay unchanged until acked, and a
 // burst beat must be followed by the next word of the same line.
 #include "Vtb_cpu.h"
-#include "../../profile/cpu_profile.h"
 #include "ngage.h"
 #include "verilated.h"
 
@@ -136,7 +135,7 @@ uint32_t rd32(uint32_t a) {
 	return p ? (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24 : 0;
 }
 
-// Current-mode view of ZAP's physical registers (zap_localparams.svh).
+// Current-mode view of the CPU's physical registers (arm925t_localparams.svh).
 int phys_index(int r, uint32_t mode) {
 	if (r < 8) return r;
 	switch (mode & 0x1F) {
@@ -172,7 +171,6 @@ int main(int argc, char **argv) {
 	uint64_t trace_after = 0, trace_count = 0;
 	bool dcdbg = false, pddbg = false, arm9_cycles = false, measure_cycles = false;
     const char *arm9_cycle_model = nullptr;
-    const char *profile_path=nullptr;uint32_t profile_start=~0u,profile_end=~0u;bool profile_marked=false,profile_end_marked=false;
 	bool quiet = false, icache_quarantine = false;
 	bool halt_given = false;
 	std::string machine;
@@ -220,9 +218,6 @@ int main(int argc, char **argv) {
         else if (a == "--measure-cycles") { arm9_cycles = true; measure_cycles = true; }
         else if (a == "--arm9-cycle-model") arm9_cycle_model = next();
 		else if (a == "--pddbg") pddbg = true;
-		else if(a=="--profile") profile_path=next();
-        else if(a=="--profile-start") profile_start=strtoul(next(),nullptr,0);
-        else if(a=="--profile-end") profile_end=strtoul(next(),nullptr,0);
 		else if (a == "--watch") watch.push_back((uint32_t)strtoul(next(), nullptr, 0));
 		else if (a == "--dump") {
 			std::string v = next();
@@ -435,22 +430,12 @@ int main(int argc, char **argv) {
 	t->reset = 0;
 	t->eval();
 
-	cpu_profile::Profile accounting(t->p_arm9);
-    if(profile_path)accounting.open(profile_path);
 	bool halted = false;
 	uint32_t last_pc = 0, last_r_pc = 0;
     uint64_t pending_blocking_load = 0;
     uint32_t pending_blocking_data = 0;
 	char last_ev = 0;
 	while (!stop && cycle < max_cycles) {
-        uint64_t retired_before=retired;
-        cpu_profile::Sample profile_sample;
-#ifdef CPU_PROFILE
-        if(accounting.enabled)profile_sample={t->p_profile_flags,t->p_profile_pc,t->p_profile_ins,
-            t->p_profile_retire_ins,t->p_profile_target,t->p_stall,t->p_icache,t->p_dcache};
-#else
-        if(accounting.enabled)error("--profile requires PROFILE=1 model");
-#endif
 		// ---- before the rising edge: sample what commits at this edge ----
 		// Observe the external request/acknowledge, not the implementation's
 		// eligibility bit. Negative tests can prove an access was withheld.
@@ -610,7 +595,7 @@ int main(int argc, char **argv) {
 		// ---- rising edge ----
 		// A background write must follow the requested beat by exactly one
 		// edge, and the destination stays locked through the completion edge.
-		// ZAP writes RF there; ARM9 captures it and commits at a later W edge.
+		// The CPU captures it there and commits it at a later W edge.
 		uint64_t dc_write = t->p_dc_reg_wr;
 		uint32_t dc_data = t->p_dc_reg_data;
 		uint64_t lock_before = t->p_lock;
@@ -662,7 +647,7 @@ int main(int argc, char **argv) {
 			// guest time and instruction numbers follow the model. An SWI or
 			// undefined instruction counts (it completes; an aborted one does
 			// not), and a Thumb BL pair counts once: QEMU runs the two halves as
-			// one instruction, ZAP as two (QEMU splits it too when the first
+			// one instruction, the RTL as two (QEMU splits it too when the first
 			// half ends a 1 KB page, its smallest page size, as in
 			// tools/cmp_trace.py). The second half is recognised by its
 			// position (right after the first) and its effect (LR = next | 1).
@@ -764,13 +749,9 @@ int main(int argc, char **argv) {
 		t->clk = 0;
 		t->eval();
 
-		accounting.observe(profile_sample,retired!=retired_before,false,ev,pc);
-        if(ev=='R'&&pc==profile_start&&!profile_marked){accounting.mark("post_setup",cycle);profile_marked=true;}
-        if(ev=='R'&&pc==profile_end&&!profile_end_marked){accounting.mark("body_end",cycle);profile_end_marked=true;}
         if (halted) break;
 	}
 
-	accounting.finish(cycle);
 	if (trace) fclose(trace);
 	if (buslog) fclose(buslog);
 	if (walklog) fclose(walklog);

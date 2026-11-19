@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-`include "zap_defines.svh"
+`include "arm925t_defines.svh"
 module tb_cache_metadata #(
     parameter integer CACHE_SIZE = 8192
 );
@@ -11,7 +11,7 @@ module tb_cache_metadata #(
     logic [31:0] accepted_address=0;
     logic [31:0] address=0, lookup=0, next_address=0;
     logic tag_we=0, dirty=0, way=0;
-    logic [`ZAP_CACHE_TAG_WDT-1:0] tag_data=0, tag_out;
+    logic [`ARM925T_CACHE_TAG_WDT-1:0] tag_data=0, tag_out;
     logic [127:0] line_data=0;
     logic [15:0] ben=0;
     logic hit, hit_dirty, victim_valid, victim_dirty, selected;
@@ -23,7 +23,7 @@ module tb_cache_metadata #(
     logic [31:0] bus_addr, bus_data;
     logic [2:0] bus_cti;
     int beats=0;
-    zap_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS),
+    arm925t_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS),
         .ACCEPTED_HIT_UPDATE(1'b1)) dut (
         .i_clk(clk), .i_reset(reset), .i_hold(hold), .i_cache_en(enabled),
         .i_address_nxt(next_address), .i_address(address), .i_lookup_address(lookup),
@@ -55,8 +55,8 @@ module tb_cache_metadata #(
     endtask
     task automatic install(input logic[31:0] a, input bit w, input bit d);
         address=a; way=w; dirty=d; idle=0; tag_we=1; ben='1;
-        tag_data[`ZAP_CACHE_TAG__TAG]=a[`ZAP_VA__CACHE_TAG];
-        tag_data[`ZAP_CACHE_TAG__PA]=a[31:4];
+        tag_data[`ARM925T_CACHE_TAG__TAG]=a[`ARM925T_VA__CACHE_TAG];
+        tag_data[`ARM925T_CACHE_TAG__PA]=a[31:4];
         line_data={32'hcafe000c,32'hcafe0008,32'hcafe0004,32'hcafe0000};
         tick(); tag_we=0; ben=0;
     endtask
@@ -93,8 +93,8 @@ module tb_cache_metadata #(
         // Consecutive clean/dirty tag updates model WT then WB stores.
         // The very next eviction query must see the new dirty bit and LRU.
         settle(32'h10000); address=32'h10000; idle=1; tag_we=1;
-        tag_data[`ZAP_CACHE_TAG__TAG]=address[`ZAP_VA__CACHE_TAG];
-        tag_data[`ZAP_CACHE_TAG__PA]=address[31:4];
+        tag_data[`ARM925T_CACHE_TAG__TAG]=address[`ARM925T_VA__CACHE_TAG];
+        tag_data[`ARM925T_CACHE_TAG__PA]=address[31:4];
         dirty=0; tick(); dirty=1; tick(); tag_we=0; idle=0;
         settle(32'h10000+2*WAY_BYTES);
         assert(selected==1 && !victim_dirty) else $fatal(1,"dirty mark changed wrong victim");

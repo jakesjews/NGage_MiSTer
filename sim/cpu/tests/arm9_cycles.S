@@ -1,8 +1,7 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
 @ ARM9 retirement windows. Three invocations warm caches, next two are checked.
-@ Table expected counts describe this implementation; docs/ARM9.md separates
-@ completed TRM rows from explicit, still-unresolved serial-memory deviations.
-@@ bench: --arm9-cycles --arm9-cycle-model arm9v2/arm9_cycles-cycles.txt
+@ Table expected counts describe this implementation (docs/CPU.md).
+@@ bench: --arm9-cycles --arm9-cycle-model units/arm9_cycles-cycles.txt
 	.include "test.inc"
 	.include "mmu.inc"
 	.text
@@ -1007,8 +1006,8 @@ end_mrc_use:
 	.balign 16
 case_mrc_pc:
 	mov r8,lr
-	@ ZAP predates the MRC-R15 flags fix: keep this shared timing case
-	@ flag-neutral. ARM9's flag update was separately observed against QEMU.
+	@ Keep this timing case flag-neutral; the MRC-R15 flag update is checked
+	@ against QEMU elsewhere.
 	mov r0,#0x50000000
 	msr cpsr_f,r0
 	.rept 8

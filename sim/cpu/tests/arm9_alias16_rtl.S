@@ -7,8 +7,7 @@
 @ differ in bit 12 use different sets (colours); at 8 KB every synonym of
 @ a line shares its set. The cache is VIVT: nothing keeps two cached
 @ copies coherent, so only some outcomes are architectural. Those are
-@ checked here; every other outcome is recorded, and V2's record must
-@ equal ZAP's at the same cache size (the same program, the same cache).
+@ checked here; every other outcome is recorded.
 @
 @ Mappings of PA 0x00500000 (WB = write-back, WT = write-through):
 @   A 0x01000000 section WB            D 0x01100000 section WB

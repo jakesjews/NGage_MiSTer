@@ -20,7 +20,7 @@ following instruction, and so are prefetch aborts (QEMU never logs the
 instruction it could not fetch). They must agree up to (not including) the first visit to the
 halt loop. PSR bit 8 is ignored (QEMU sets the ARMv6 A bit on an ARMv4 CPU), and
 so are the flags until the two first agree (they are unknown after reset;
-QEMU starts with Z set, ZAP with none).
+QEMU starts with Z set, the RTL with none).
 """
 import argparse
 import re
@@ -32,7 +32,7 @@ RESET_CPSR = 0xD3
 
 def merge_thumb_bl(events, image):
     """QEMU runs a Thumb BL pair (prefix 11110, suffix 11111) as one
-    instruction; ZAP retires the halves separately. Keep the prefix's line
+    instruction; the RTL retires the halves separately. Keep the prefix's line
     (its registers are those before the pair) and drop the suffix's. QEMU
     runs the halves separately when the prefix is the last halfword of a
     1 KB page (its page size for ARMv5 and earlier), and so do we then."""

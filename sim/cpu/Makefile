@@ -14,7 +14,8 @@
 #   make all       bins, remote, qemu, diff
 #   make T=alu ... restrict to some tests
 #   VEXTRA=..      extra Verilator options (with MODEL_DIR=... for a model
-#                  of its own); the CPU has no parameters to set
+#                  of its own), e.g. -GDCACHE_SIZE=16384: the two cache
+#                  sizes are the CPU's only parameters
 #   RAND_SEEDS=..  the random tests rand<seed>, trand<seed> (Thumb) and
 #                  crand/ctrand<seed> (caches on), tools/gen_random.py
 #   gba_*          jsmolka/gba-tests (ext/gba-tests), translated by
@@ -40,9 +41,6 @@ REMOTE    ?= ubuntu
 RDIR      ?= dev/mister/ngage-cpu
 LATS      ?= 0:0 0:3 2:9
 JOBS      ?= 8
-PROFILE   ?= 0
-PROFILE_FILES = $(if $(filter 1,$(PROFILE)),$(ROOT)/sim/profile/cpu_profile_probe.sv)
-PROFILE_FLAGS = $(if $(filter 1,$(PROFILE)),-DCPU_PROFILE=1 -CFLAGS "-DCPU_PROFILE=1")
 SHELL     := bash
 
 RAND_SEEDS ?= 1 2 3 4 5 6 7 8
@@ -66,32 +64,32 @@ MODEL     := $(MODEL_DIR)/Vtb_cpu
 
 ASFLAGS := -mcpu=arm9tdmi -mfloat-abi=soft -I $(HERE)/tests
 
-.PHONY: all bins model run qemu diff remote boot boot-prep boot-model clean arm9v2 arm9v2-frontend arm9v2-decode arm9v2-execute arm9v2-proofs
+.PHONY: all bins model run qemu diff remote boot boot-prep boot-model clean units units-frontend units-decode units-execute units-proofs
 .SECONDARY:
 all: bins remote qemu diff
 
-# Standalone V2 component checks (the core's own sources and parameters,
+# Standalone the pipeline component checks (the core's own sources and parameters,
 # on the SystemVerilog and on sv2v's output); no ARM test rebuild or QEMU.
-arm9v2: arm9v2-frontend arm9v2-decode arm9v2-execute arm9v2-proofs
+units: units-frontend units-decode units-execute units-proofs
 
 # The lock summary against its definition, and the cache metadata
 # against its last reviewed implementation (9037af9), over arbitrary inputs.
-arm9v2-proofs:
-	$(PY) $(HERE)/arm9v2/lock_summary.py
-	$(PY) $(HERE)/arm9v2/metadata_miter.py
+units-proofs:
+	$(PY) $(HERE)/units/lock_summary.py
+	$(PY) $(HERE)/units/metadata_miter.py
 
-arm9v2-execute:
-	$(HERE)/arm9v2/execute_leaves.sh
-	$(HERE)/arm9v2/execute.sh
-	$(HERE)/arm9v2/execute_cache.sh
+units-execute:
+	$(HERE)/units/execute_leaves.sh
+	$(HERE)/units/execute.sh
+	$(HERE)/units/execute_cache.sh
 
-arm9v2-decode:
-	$(HERE)/arm9v2/decode.sh
-	$(HERE)/arm9v2/decode_cache.sh
+units-decode:
+	$(HERE)/units/decode.sh
+	$(HERE)/units/decode_cache.sh
 
-arm9v2-frontend:
-	$(HERE)/arm9v2/run.sh
-	$(HERE)/arm9v2/cache.sh
+units-frontend:
+	$(HERE)/units/run.sh
+	$(HERE)/units/cache.sh
 
 # ---------------------------------------------------------------- tests
 bins: $(foreach t,$(T),$(TB)/$(t).bin $(TB)/$(t).lst)
@@ -143,12 +141,11 @@ $(TB)/%.lst: $(TB)/%.elf
 # ---------------------------------------------------------------- model
 VFLAGS := --cc --exe --build --assert -j $(JOBS) -O3 --x-assign unique --x-initial unique \
           -Wno-fatal -Wno-lint -Wno-style -Wno-MULTIDRIVEN -Wno-ASSIGNIN \
-          --top-module tb_cpu -CFLAGS "-O2 -std=c++17" $(VEXTRA) $(PROFILE_FLAGS)
-ARM9_SV := $(wildcard $(ROOT)/rtl/cpu/arm9/*.sv) $(wildcard $(ROOT)/rtl/cpu/arm9v2/*.sv)
-ZAP_SV  := $(wildcard $(ROOT)/rtl/cpu/zap/*.sv)
+          --top-module tb_cpu -CFLAGS "-O2 -std=c++17" $(VEXTRA)
+CPU_SV := $(wildcard $(ROOT)/rtl/cpu/arm925t_*.sv)
 ifeq ($(RTL),sv)
-RTL_SRC := +incdir+$(ROOT)/rtl/cpu/zap $(ROOT)/rtl/cpu/arm925t.sv $(ARM9_SV) $(ZAP_SV)
-RTL_DEP := $(ROOT)/rtl/cpu/arm925t.sv $(ARM9_SV) $(ZAP_SV) $(wildcard $(ROOT)/rtl/cpu/zap/*.svh)
+RTL_SRC := +incdir+$(ROOT)/rtl/cpu $(ROOT)/rtl/cpu/arm925t.sv $(CPU_SV)
+RTL_DEP := $(ROOT)/rtl/cpu/arm925t.sv $(CPU_SV) $(wildcard $(ROOT)/rtl/cpu/*.svh)
 else
 RTL_DEP := $(ROOT)/rtl/cpu/arm925t_gen.v $(ROOT)/sim/stubs/altsyncram.sv $(ROOT)/sim/stubs/altdpram.sv
 # The register file's architectural view is simulation-only in the sources;
@@ -157,10 +154,10 @@ RTL_SRC := -DRAM_RF_TAP=1 $(RTL_DEP)
 endif
 
 model: $(MODEL)
-$(MODEL): $(RTL_DEP) $(HERE)/tb/tb_cpu.sv $(HERE)/tb/main.cpp $(HERE)/tb/ngage.h $(ROOT)/sim/profile/cpu_profile.h $(PROFILE_FILES)
+$(MODEL): $(RTL_DEP) $(HERE)/tb/tb_cpu.sv $(HERE)/tb/main.cpp $(HERE)/tb/ngage.h
 	@mkdir -p $(MODEL_DIR)
 	$(VERILATOR) $(VFLAGS) --Mdir $(MODEL_DIR) -o Vtb_cpu $(RTL_SRC) \
-		$(HERE)/tb/tb_cpu.sv $(PROFILE_FILES) $(HERE)/tb/main.cpp
+		$(HERE)/tb/tb_cpu.sv $(HERE)/tb/main.cpp
 
 # ---------------------------------------------------------------- RTL runs
 # Every test at every latency setting; the first setting's signature and

@@ -241,7 +241,7 @@ struct Bench {
 		tick();
 		return v;
 	}
-	// a 4-beat incrementing burst, as ZAP's line fills and write-backs
+	// a 4-beat incrementing burst, as the CPU's line fills and write-backs
 	void burst(bool we, uint32_t a, uint32_t *d) {
 		uint64_t limit = cyc + 2000000;
 		for (int i = 0; i < 4; i++) {

@@ -25,7 +25,7 @@ help:
 # The CPU from its sources (rtl/cpu/arm925t_gen.v, which the shell lints, is
 # the sv2v output and is excluded from style checks): the same files
 # tools/gen_cpu.sh converts, with the altsyncram simulation model.
-CPU_LINT_SRCS := rtl/cpu/arm925t.sv $(wildcard rtl/cpu/arm9/*.sv rtl/cpu/arm9v2/*.sv rtl/cpu/zap/*.sv)
+CPU_LINT_SRCS := $(wildcard rtl/cpu/arm925t.sv rtl/cpu/arm925t_*.sv)
 
 lint: lint-prepare
 	@for t in $(LINT_TOPS); do \
@@ -33,7 +33,7 @@ lint: lint-prepare
 		$(VERILATOR) --lint-only -Wall --top-module $$t -f lint/rtl.f || exit 1; \
 	done
 	@echo "lint arm925t (sources)"
-	@$(VERILATOR) --lint-only -Wall --top-module arm925t -Irtl/cpu/zap lint/exclusions.vlt \
+	@$(VERILATOR) --lint-only -Wall --top-module arm925t -Irtl/cpu lint/exclusions.vlt \
 		sim/stubs/altsyncram.sv $(CPU_LINT_SRCS)
 
 lint-prepare:

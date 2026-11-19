@@ -1,7 +1,7 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
 @ The short-hit trust, swept over a D-cache fill. A first access misses
 @ (the trigger); after a gap of 0-13 instructions a load reads a target
-@ line whose short hit V2 must not accept at some clock of that fill, and
+@ line whose short hit the pipeline must not accept at some clock of that fill, and
 @ a younger writer of the loaded register that also reads it follows at
 @ distance 1 or 2 (with a plain reader in between). Such a writer waits
 @ for an accepted hit; if it took an unaccepted word and retired, the

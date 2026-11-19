@@ -2,13 +2,16 @@
 //
 // The N-Gage QD's processor: a TI ARM925T (ARMv4T ARM9TDMI integer core,
 // CP15 with the TI extensions, MMU, 16 KB I-cache, 8 KB D-cache) as found in
-// Nokia's UPP_WD2 ASIC. Built from the ZAP core (rtl/cpu/zap, GPL-3.0-or-
-// later, see rtl/cpu/zap/NOTICE) with ARMv4T and ARM925T behaviour switched
-// on through its parameters. docs/CPU.md describes the design, the deviations
-// from a real ARM925T and the tests.
+// Nokia's UPP_WD2 ASIC. This project's own CPU: an eight-stage pipeline
+// (arm925t_core and the stage files beside it) with caches, MMU, CP15,
+// register file and writeback that are derived from the ZAP processor
+// (Revanth Kamaraj, GPL-3.0-or-later; rtl/cpu/NOTICE says which files).
+// Every module is arm925t_*; this file is the top and holds the core's
+// configuration (the two cache sizes are its only parameters). docs/CPU.md describes the design, the deviations from a
+// real ARM925T and the tests.
 //
 // Quartus compiles rtl/cpu/arm925t_gen.v, which tools/gen_cpu.sh makes from
-// this file and rtl/cpu/zap with sv2v.
+// this file and rtl/cpu/arm925t_*.sv with sv2v.
 //
 // Memory bus (one master, req/ack, as elsewhere in this core):
 //   * A request is held, unchanged, until the cycle in which bus_ack (or
@@ -24,13 +27,24 @@
 //     Everything else (uncached data, MMU table walks, cache-off fetches)
 //     is a single beat with bus_burst = 0.
 //   * bus_err completes the beat. Uncached data/table walks can data-abort
-//     and fetches can prefetch-abort. Cacheable D-cache fills retain ZAP's
-//     existing behavior: consume the returned data without a data abort.
-//   * The bus outputs come straight from flip-flops in ZAP's bus merger.
+//     and fetches can prefetch-abort. Cacheable D-cache fills consume the
+//     returned data without a data abort.
+//   * The bus outputs come straight from flip-flops in arm925t_wb_merger.
 // Interrupts are level-sensitive and active high (the inverse of the
-// ARM925T's nIRQ/nFIQ); they pass a two-flop synchroniser inside ZAP.
+// ARM925T's nIRQ/nFIQ); they pass a two-flop synchroniser (arm925t_sync2).
 // reset is synchronous and active high; drive it from a flip-flop.
-module arm925t (
+module arm925t #(
+	// The caches' sizes in bytes. The defaults are the phone's and the
+	// core's: 16 KB for instructions (512 sets) and 8 KB for data (256
+	// sets, VA[11:4]). They are parameters for speed tests with other
+	// sizes (the releases up to NGage_20261114 had 32 KB each, the first
+	// of 2026-11-16 16 KB each: with 8 KB the core was then 4 % short of
+	// a real phone in SPMark04's fill-rate test, which the shorter end
+	// of a line fill closed; docs/PROGRESS-LOG.md, 2026-11-16). CP15's
+	// cache type register reports the phone's sizes whatever these are.
+	parameter int ICACHE_SIZE = 16384,
+	parameter int DCACHE_SIZE = 8192
+) (
 	input  logic        clk,
 	input  logic        reset,
 
@@ -86,12 +100,12 @@ module arm925t (
 	output logic [31:0] dbg_d_rdata
 );
 
-	// The configuration is the core's one configuration: constants, not
-	// parameters, so that no build and no test runs with another (the
-	// cache sizes since 2026-11-16, the rest since the same day).
+	// Apart from the two cache sizes above, the configuration is the
+	// core's one configuration: constants, not parameters, so that no
+	// build and no test runs with another.
 	// The CPU has its branch predictor (the ARM925T has none; docs/CPU.md,
 	// the timing-fidelity plan).
-	localparam bit ARM9_PREDICTOR = 1'b1;
+	localparam bit BRANCH_PREDICTOR = 1'b1;
 	// Reset value of control register bit V (the ARM925T's HIVECS pin):
 	// 0, vectors and reset address at 0, as the phone has it (1 would put
 	// them at 0xFFFF0000).
@@ -105,29 +119,24 @@ module arm925t (
 	// page number's low bits. The ARM925T's TLBs are 64-entry and fully
 	// associative; with one way, two pages 1 MB apart (the same offset in
 	// two EKA1 chunks) evict each other at every access
-	// (rtl/cpu/zap/zap_tlb.sv).
+	// (rtl/cpu/arm925t_tlb.sv).
 	localparam int DTLB_SPAGE_WAYS = 2;
 	localparam int DTLB_SPAGE_SETS = 256;
 	localparam int ITLB_SPAGE_WAYS = 2;
 	localparam int ITLB_SPAGE_SETS = 256;
+	// The other three TLB buffers of either side, one way each: 64
+	// sections, 32 large pages, 64 tiny pages.
+	localparam int TLB_SECTION_ENTRIES = 64;
+	localparam int TLB_LPAGE_ENTRIES   = 32;
+	localparam int TLB_FPAGE_ENTRIES   = 64;
 
 	localparam logic [31:0] RESET_VECTOR = HIVECS ? 32'hFFFF0000 : 32'h00000000;
 
 	logic       wb_cyc, wb_stb;
 	logic [2:0] wb_cti;
 
-	// The caches' sizes in bytes: the phone's, 16 KB for instructions (512
-	// sets) and 8 KB for data (256 sets, VA[11:4]). Fixed since
-	// 2026-11-16, so that no build and no test runs with another size
-	// (the releases up to NGage_20261114 had 32 KB each, the first of
-	// 2026-11-16 16 KB each: with 8 KB the core was then 4 % short of a
-	// real phone in SPMark04's fill-rate test, which the shorter end of a
-	// line fill closed; docs/PROGRESS-LOG.md, 2026-11-16).
-	localparam int ICACHE_SIZE = 16384;
-	localparam int DCACHE_SIZE = 8192;
-
-	zap_top #(
-		.ARM9_PREDICTOR (ARM9_PREDICTOR),
+	arm925t_top #(
+		.BRANCH_PREDICTOR (BRANCH_PREDICTOR),
 		.CP15_ID         (32'h54029252),
 		.CP15_CTYPE      (32'h05109149),
 		.HIVECS          (HIVECS),
@@ -141,8 +150,14 @@ module arm925t (
 		.DATA_SPAGE_TLB_ENTRIES (32'(DTLB_SPAGE_SETS)),
 		.DATA_SPAGE_TLB_WAYS    (32'(DTLB_SPAGE_WAYS)),
 		.CODE_SPAGE_TLB_ENTRIES (32'(ITLB_SPAGE_SETS)),
-		.CODE_SPAGE_TLB_WAYS    (32'(ITLB_SPAGE_WAYS))
-	) u_zap (
+		.CODE_SPAGE_TLB_WAYS    (32'(ITLB_SPAGE_WAYS)),
+		.DATA_SECTION_TLB_ENTRIES (32'(TLB_SECTION_ENTRIES)),
+		.DATA_LPAGE_TLB_ENTRIES   (32'(TLB_LPAGE_ENTRIES)),
+		.DATA_FPAGE_TLB_ENTRIES   (32'(TLB_FPAGE_ENTRIES)),
+		.CODE_SECTION_TLB_ENTRIES (32'(TLB_SECTION_ENTRIES)),
+		.CODE_LPAGE_TLB_ENTRIES   (32'(TLB_LPAGE_ENTRIES)),
+		.CODE_FPAGE_TLB_ENTRIES   (32'(TLB_FPAGE_ENTRIES))
+	) u_top (
 		.i_clk    (clk),
 		.i_reset  (reset),
 		.i_irq    (irq),

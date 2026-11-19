@@ -247,7 +247,7 @@ t_und_ret:
 	str	r0, [r2, #0x10]
 	str	r1, [r2, #0x14]
 	@ SP-relative addresses are SP + offset: store through SP, load through
-	@ another register, and the other way round (upstream ZAP used SP - offset,
+	@ another register, and the other way round (an earlier pipeline used SP - offset,
 	@ which a store and load both through SP do not show)
 	sub	sp, #16
 	ldr	r0, =0x5A5A0001

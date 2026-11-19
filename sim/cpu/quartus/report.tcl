@@ -25,23 +25,23 @@ foreach_in_collection op [get_available_operating_conditions] {
         decode_payload {*u_decode|d2*}
         decode_d1 {*u_decode|d1*}
         decode_issue {*u_decode|issued*}
-        dtlb {*u_data_cache|*u_zap_tlb_check|*}
-        dtlb_hit {*u_data_cache|*u_zap_tlb_check|o_hit_ok*}
-        dtlb_fault {*u_data_cache|*u_zap_tlb_check|o_fsr*}
-        metadata {*u_data_cache|*u_zap_cache_tag_ram|*g_metadata*}
-        metadata_descriptor {*u_data_cache|*u_zap_cache_tag_ram|meta_*}
+        dtlb {*u_data_cache|*u_tlb_check|*}
+        dtlb_hit {*u_data_cache|*u_tlb_check|o_hit_ok*}
+        dtlb_fault {*u_data_cache|*u_tlb_check|o_fsr*}
+        metadata {*u_data_cache|*u_cache_tag_ram|*g_metadata*}
+        metadata_descriptor {*u_data_cache|*u_cache_tag_ram|meta_*}
         icache {*u_code_cache|*}
         serial_mask {*u_execute|interrupt_mask*}
         serial_release {*u_execute|o_serial_continue*}
         short_collision {*u_data_cache|*g_short_ram*addr_q*}
         short_response {*u_data_cache|tr_cache_words*}
-        locks {*u_data_cache|*u_zap_cache_fsm|*lock*}
-        backend {*|g_arm9.u_arm9_core|w*}
-        backend_m {*|g_arm9.u_arm9_core|m*}
-        backend_skid {*|g_arm9.u_arm9_core|skid*}
-        tlb_metadata {*u_data_cache|*u_zap_tlb|*g_short.valid*}
+        locks {*u_data_cache|*u_cache_fsm|*lock*}
+        backend {*|u_core|w*}
+        backend_m {*|u_core|m*}
+        backend_skid {*|u_core|skid*}
+        tlb_metadata {*u_data_cache|*u_tlb|*g_short.valid*}
         fetch {*u_fetch|*}
-        rf {*u_zap_register_file|*}
+        rf {*u_register_file|*}
     } {
         set endpoints [get_registers -nowarn $pattern]
         if {[get_collection_size $endpoints] > 0} {

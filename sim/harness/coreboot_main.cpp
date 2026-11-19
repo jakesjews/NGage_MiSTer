@@ -35,9 +35,6 @@
 //   --buslog FILE      one line per CPU beat to CS0/CS1/SDRAM: clock, R|W,
 //                      address, SEL, data, CTI
 //   --until TEXT       stop when the STI text ends with TEXT
-//   --load-use FILE    the load-to-consumer mix and the modelled cost of the
-//                      104 MHz pipeline cuts (sim/profile/load_use.h), per
-//                      profile segment (needs a CPU_PROFILE build)
 //   --ddr-lat MIN:MAX, --ddr-busy PCT, --ddr-gap PCT, --ddr-stall PCT_X1000
 //                      the DDRAM port's timing (ddram_model.h's DdramProfile)
 //   --fault-history N  retain N retirements in memory; dump on D/P/U and
@@ -69,8 +66,6 @@
 #include "ddram_model.h"
 #include "sdram_model.h"
 #include "../../model/hw/ngage_scramble.h"
-#include "../profile/cpu_profile.h"
-#include "../profile/load_use.h"
 
 #include <chrono>
 #include <cinttypes>
@@ -166,7 +161,7 @@ std::vector<uint8_t> read_file(const std::string &path) {
 	return d;
 }
 
-// the CPU's banked registers (zap_register_file indices, as tb/main.cpp)
+// the CPU's banked registers (arm925t_register_file indices, as tb/main.cpp)
 int phys_index(int r, uint32_t mode) {
 	if (r < 8) return r;
 	switch (mode & 0x1F) {
@@ -187,12 +182,11 @@ bool device(uint32_t a) {
 	       !(a >= 0x0C000000u && a < 0x0C040000u);
 }
 
-#define PROFILE_TAP(n) emu__DOT__arm925t__DOT__profile_probe__DOT__##n
 
-// Register snapshots and V2 held-read profiling use implementation-specific taps.
-#define V2_TAP(n) emu__DOT__arm925t__DOT__u_zap__DOT__g_arm9__DOT__u_arm9_core__DOT__##n
-#define CORE_REGS emu__DOT__arm925t__DOT__u_zap__DOT__g_arm9__DOT__u_arm9_core__DOT__u_zap_writeback__DOT__u_zap_register_file__DOT__mem
-#define CORE_DATA_PC emu__DOT__arm925t__DOT__u_zap__DOT__g_arm9__DOT__u_arm9_core__DOT__data_pc8
+// Register snapshots and the pipeline held-read profiling use implementation-specific taps.
+#define V2_TAP(n) emu__DOT__arm925t__DOT__u_top__DOT__u_core__DOT__##n
+#define CORE_REGS emu__DOT__arm925t__DOT__u_top__DOT__u_core__DOT__u_writeback__DOT__u_register_file__DOT__mem
+#define CORE_DATA_PC emu__DOT__arm925t__DOT__u_top__DOT__u_core__DOT__data_pc8
 
 // keys of the key script: a joystick bit (ngage_input.sv) or a PS/2 code
 struct KeyName { const char *name; int joy; int ps2; };
@@ -227,7 +221,7 @@ struct Bench {
 	struct WinPend { uint32_t va, data, sel; uint64_t clock; bool used; char kind; } win_pend[16] = {};
 	struct { uint32_t dst = 0, src = 0, n = 0, lr = 0; uint64_t clock = 0; bool active = false, dirty = false; } copy;
 	std::string trace_on_bad;
-#define WIN_FSM(x) emu__DOT__arm925t__DOT__u_zap__DOT__l_generate_with_cache_mmu__DOT__u_data_cache__DOT__u_zap_cache_fsm__DOT__##x
+#define WIN_FSM(x) emu__DOT__arm925t__DOT__u_top__DOT__u_data_cache__DOT__u_cache_fsm__DOT__##x
 	uint8_t flash_byte(uint32_t va) {   // the live image behind a C: alias address
 		uint32_t base = va < 0x59600000u ? 0x59200000u : 0x59600000u;
 		uint32_t off = 0x400000u + (va - base);
@@ -374,11 +368,6 @@ struct Bench {
     uint64_t user_retired = 0, user_entries = 0, exec_calls = 0;
     uint64_t stall_clocks[8] = {}, dc_events[4] = {}, ic_events[8] = {};
     uint64_t fill_read_wait = 0;
-    cpu_profile::Profile accounting{true};
-    cpu_profile::Sample accounting_sample;
-    load_use::Observer loaduse;
-    bool profile_exec_seen=false,profile_was_user=false;
-    unsigned profile_threads=0;
     void profile(const char *label) {
         printf("PROFILE %s clock=%" PRIu64 " retired=%" PRIu64 " stall=",label,clocks,retired);
         for (auto n : stall_clocks) printf("%" PRIu64 ",",n);
@@ -522,11 +511,6 @@ struct Bench {
 	// what commits at the coming edge (the CPU's writeback stage)
 	void cpu_before_edge() {
 		auto &h = *r;
-#ifdef CPU_PROFILE
-        if(accounting.enabled) accounting_sample={h.PROFILE_TAP(flags),h.PROFILE_TAP(decode_pc),
-            h.PROFILE_TAP(decode_ins),h.PROFILE_TAP(retire_ins),h.PROFILE_TAP(recovery_target),
-            h.PROFILE_TAP(raw_stall),h.PROFILE_TAP(raw_icache),h.PROFILE_TAP(raw_dcache)};
-#endif
         if (!h.emu__DOT__cpu_reset) {
             for (int n=0;n<8;n++) {
                 stall_clocks[n]+=(h.emu__DOT__cpu_dbg_stall>>n)&1;
@@ -556,14 +540,6 @@ struct Bench {
 		         h.emu__DOT__tr_wb_uop_last)
 			ev = 'R';
 		if (!ev || h.emu__DOT__cpu_reset) { pending_ev = 0; return; }
-		if(accounting.enabled) {
-            bool user=(cpsr&31)==16;
-            if(ev=='S'&&!profile_exec_seen){accounting.mark("first_exec",clocks);loaduse.mark("first_exec",clocks);profile_exec_seen=true;}
-            if(user&&!profile_was_user&&pc==0x503247bc&&!reg(phys_index(14,cpsr))){
-                char label[32];snprintf(label,sizeof label,"thread_%u",++profile_threads);accounting.mark(label,clocks);loaduse.mark(label,clocks);
-            }
-            profile_was_user=user;
-        }
         if (exec_log) {
             bool user = (cpsr & 31) == 16;
             if (ev == 'R' && user) user_retired++;
@@ -592,8 +568,7 @@ struct Bench {
 
 	// after the edge: the registers after the committed instruction
 	void cpu_after_edge() {
-		if (loaduse.enabled) loaduse.clock(accounting_sample.dcache);
-		if (!pending_ev) {accounting.observe(accounting_sample,false,false,0,0);return;}
+		if (!pending_ev) return;
 		char ev = pending_ev;
 		uint32_t pc = pending_pc;
 		uint32_t cpsr = r->emu__DOT__tr_wb_cpsr;
@@ -604,12 +579,6 @@ struct Bench {
 		bool counted=(ev == 'R' && !bl_second) || ev == 'S' || ev == 'U';
         if(counted) retired++;
         record_history(ev, pc, cpsr);
-        accounting.observe(accounting_sample,counted,bl_second,ev,pc);
-        if (loaduse.enabled) {
-            if (ev == 'R') loaduse.retire(accounting_sample.retire_ins, (accounting_sample.flags >> 24) & 1,
-                                          (accounting_sample.flags >> 25) & 1);
-            else loaduse.barrier();
-        }
 		if (devlog && ev != 'R') {
 			// interrupts and exceptions as the plugin records them: "X n exc
 			// from vector" (low vectors; n before an SWI or UND counts it)
@@ -894,9 +863,9 @@ int main(int argc, char **argv) {
 	crc_init();
 	std::string cs0p, cs1p, mmcp, out = ".", keysp, tracep, rtc = "2004-06-01 12:00:00";
 	uint64_t max_cycles = 1000000000ull, progress = 50000000ull, trace_after = 0, trace_count = 0;
-	bool devlog = false, profile_enabled = true, check_flash = false, check_window = false, check_copy = false, check_store = false;
+	bool devlog = false, check_flash = false, check_window = false, check_copy = false, check_store = false;
 	std::string trace_on_bad;
-	std::string buslogp, until, loadusep;
+	std::string buslogp, until;
 	DdramProfile ddr;
 	bool ddr_set = false;
     size_t fault_history = 0;
@@ -918,7 +887,6 @@ int main(int argc, char **argv) {
 		else if (a == "--rtc") rtc = next();
 		else if (a == "--keys") keysp = next();
 		else if (a == "--devlog") devlog = true;
-        else if(a=="--no-profile") profile_enabled=false;
         else if(a=="--profile-at") profile_marks.push_back(strtoull(next(),nullptr,0));
 		else if (a == "--trace") tracep = next();
 		else if (a == "--trace-after") trace_after = strtoull(next(), nullptr, 0);
@@ -930,7 +898,6 @@ int main(int argc, char **argv) {
 		else if (a == "--check-copy") check_copy = true;
 		else if (a == "--check-store") check_store = true;
 		else if (a == "--trace-on-bad") trace_on_bad = next();
-		else if (a == "--load-use") loadusep = next();
 		else if (a == "--buslog") buslogp = next();
 		else if (a == "--until") until = next();
 		else if (a == "--ddr-lat") { ddr_set = true; if (sscanf(next(), "%d:%d", &ddr.lat_min, &ddr.lat_max) != 2) return 2; }
@@ -952,18 +919,12 @@ int main(int argc, char **argv) {
 	auto &R = *b.r;
 	b.out = out;
     b.history.resize(fault_history);
-#ifdef CPU_PROFILE
-    if(profile_enabled){b.accounting.open(out+"/profile.csv");b.accounting.total.clocks=b.clocks;b.accounting.total.why[cpu_profile::Reset]=b.clocks;}
-#else
-    (void)profile_enabled;
-#endif
 	b.kern = fopen((out + "/kern.log").c_str(), "w");
 	b.check_flash = check_flash;
 	b.check_window = check_window;
 	b.check_copy = check_copy;
 	b.check_store = check_store;
 	b.trace_on_bad = trace_on_bad;
-	if (!loadusep.empty()) b.loaduse.open(loadusep);
 	if (ddr_set) b.dm.prof = ddr;
 	b.until = until;
 	if (!buslogp.empty() && !(b.buslog = fopen(buslogp.c_str(), "w"))) { fprintf(stderr, "cannot write %s\n", buslogp.c_str()); return 2; }
@@ -1034,9 +995,8 @@ int main(int argc, char **argv) {
 	auto last_t = t0;
 	while (b.clocks < max_cycles && !b.stop) {
 		b.tick();
-        if(b.accounting.enabled && b.clocks%104000000==0)b.accounting.second(b.clocks);
         if(profile_mark_index<profile_marks.size()&&b.clocks==profile_marks[profile_mark_index]){
-            char label[48];snprintf(label,sizeof label,"clock_%" PRIu64,b.clocks);b.accounting.mark(label,b.clocks);profile_mark_index++;
+            char label[48];snprintf(label,sizeof label,"clock_%" PRIu64,b.clocks);b.profile(label);profile_mark_index++;
         }
 		if (save_at && b.clocks == save_at) {
 			b.save(savep);
@@ -1064,8 +1024,6 @@ int main(int argc, char **argv) {
 	       "%d pictures, %zu audio frames, %.0f s wall clock\n",
 	       b.clocks, b.clocks / CLK_HZ, b.retired, b.dev_accesses, b.pictures, b.audio.size() / 2, wall);
     b.profile("end");
-    b.accounting.finish(b.clocks);
-    b.loaduse.finish(b.clocks);
 	if (b.chip.errors) printf("the SDRAM chip model reported %d error(s)\n", b.chip.errors);
 	if (b.dm.protocol_errors) printf("%d DDRAM port protocol error(s)\n", b.dm.protocol_errors);
 	if (b.check_flash)

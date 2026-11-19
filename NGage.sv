@@ -18,16 +18,21 @@
 //
 //============================================================================
 //
-// The MiSTer shell around the N-Gage's parts: the CPU (rtl/cpu, a TI ARM925T
-// made from ZAP: docs/CPU.md), the UPP_WD2 ASIC's memory system and
+// The MiSTer shell around the N-Gage's parts: the CPU (rtl/cpu, this
+// project's TI ARM925T: docs/CPU.md), the UPP_WD2 ASIC's memory system and
 // peripherals (rtl/upp, docs/UPP_WD2.md), the board devices (rtl/board) and
 // the MiSTer-side blocks (rtl/mister: the flash images in DDR3, the C: save
-// file, the wall clock, the test picture, the debug rings). The reasons for
+// file, the wall clock, the debug rings). The reasons for
 // the choices below are in docs/PROGRESS-LOG.md.
 // clk_sys is 104 MHz, 4 x 26 MHz, the phone's reference: the MCU, flash,
 // timer and MMC clocks divide from it exactly.
 
-module emu (
+module emu #(
+	// the CPU's cache sizes in bytes; the defaults are the phone's and the
+	// core's (rtl/cpu/arm925t.sv). Parameters for speed tests only.
+	parameter int ICACHE_SIZE = 16384,
+	parameter int DCACHE_SIZE = 8192
+) (
 	`include "sys/emu_ports.vh"
 );
 
@@ -678,7 +683,7 @@ wire  [3:0] cpu_dbg_dcache;   // load fills, store fills, write-backs, uncached 
 wire [31:0] tr_d_va, tr_d_wdata, tr_d_rdata;
 wire  [3:0] tr_d_sel;
 
-arm925t arm925t
+arm925t #(.ICACHE_SIZE(ICACHE_SIZE), .DCACHE_SIZE(DCACHE_SIZE)) arm925t
 (
 	.clk(clk_sys),
 	.reset(cpu_reset),
@@ -1059,7 +1064,7 @@ wire        dbg_bus_sdram = wb_adr[27:25] == 3'b101;      // 0x0A000000 window
 wire        dbg_bus_flash = wb_adr[27:26] == 2'b00;       // CS0-CS3
 // the events, one 32-bit count each: LCD frames and pixels, instructions
 // retired, clocks in wait-for-interrupt, bus wait clocks by target, bus
-// beats, the CPU's stall and flush taps (zap_core o_dbg_stall), uops
+// beats, the CPU's stall and flush taps (arm925t_top o_dbg_stall), uops
 // retired, replays, and the MMC card path (512-byte blocks completed,
 // clocks in a data phase, clocks the wire waits for Linux). A replay
 // (dbg_wb_dabt[1]: the writeback sends the
@@ -1122,11 +1127,12 @@ dbg_counters #(.N(DBG_CNT)) dbg_counters
 // (SWI to User mode again) of 4,096 clocks or more, of 65,536 or more;
 // 19..21 clocks in Supervisor, Undefined and IRQ mode (this kernel
 // reschedules and switches processes in Undefined mode, and the system
-// idles in it); 22..26 the RH-29 v4.60 kernel's process switch, counted where its
+// idles in it); 22..26 the RH-29 kernel's process switch, counted where its
 // instructions retire: the switch itself (the DACR write at 0x50324110),
 // its whole I-cache, I-TLB and D-TLB invalidations (0x50324134, 0x5032413C,
 // 0x50324144; each conditional) and its clean-and-invalidate loop over the
-// D-cache (entered at 0x503224BC). Another firmware has other addresses.
+// D-cache (entered at 0x503224BC). Firmware 4.10 and 4.60 have this code at
+// the same addresses; another firmware may not.
 // Then five words sampled at the frame start: the PC of one SWI in 64
 // (picked by an LFSR), of the last data abort, prefetch abort and undefined
 // instruction (the stage's PC: the address + 8, + 4 in Thumb), and the low

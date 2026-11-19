@@ -1,0 +1,87 @@
+The N-Gage QD core's CPU: a TI ARM925T
+======================================
+
+Everything in this directory is this project's CPU. Every module and file is
+named arm925t_*; arm925t.sv is the top and holds the core's configuration.
+The CPU is free software under the GNU General Public License, version 3 or
+(at your option) any later version. The full text is in LICENSE in this
+directory.
+
+Written for this project
+------------------------
+
+  arm925t.sv                the top: the configuration and the memory bus
+  arm925t_core.sv           the eight-stage integer pipeline and its
+                            integration with the parts below
+  arm925t_fetch.sv          the pipeline's stages
+  arm925t_front_decode.sv
+  arm925t_decode.sv
+  arm925t_execute.sv
+  arm925t_forward.sv
+  arm925t_rotate.sv
+  arm925t_alu.sv
+  arm925t_predict.sv        the branch predictor
+  arm925t_store_queue.sv    the data cache's posted stores
+
+arm925t_core.sv and arm925t_decode.sv say in their headers where they reuse
+ZAP's work.
+
+Derived from the ZAP processor
+------------------------------
+
+Origin:    https://github.com/krevanth/ZAP
+Commit:    fc7bd75f0e5049535f0774b3bd0ee20787f9a6fa (2024-05-29), src/rtl/
+Author:    Copyright (C) 2016-2024 Revanth Kamaraj (krevanth)
+           <revanth91kamaraj@gmail.com>
+Licence:   GNU General Public License, version 3 or (at your option) any
+           later version (LICENSE, from ZAP's repository root).
+
+The caches, the MMU, CP15, the register file, the writeback stage and the bus
+merger come from ZAP. Each of these files keeps ZAP's copyright and licence
+header and names the ZAP file it was made from:
+
+  this directory              ZAP
+  arm925t_top.sv              zap_top.sv
+  arm925t_icache.sv           zap_cache.sv
+  arm925t_icache_fsm.sv       zap_cache_fsm.sv
+  arm925t_dcache.sv           zap_dcache.sv
+  arm925t_dcache_fsm.sv       zap_dcache_fsm.sv
+  arm925t_cache_tag_ram.sv    zap_cache_tag_ram.sv
+  arm925t_tlb.sv              zap_tlb.sv
+  arm925t_tlb_check.sv        zap_tlb_check.sv
+  arm925t_tlb_fsm.sv          zap_tlb_fsm.sv
+  arm925t_tlb_buffer.sv       zap_mem_inv_block.sv
+  arm925t_cp15.sv             zap_cp15_cb.sv
+  arm925t_register_file.sv    zap_register_file.sv
+  arm925t_writeback.sv        zap_writeback.sv
+  arm925t_wb_merger.sv        zap_wb_merger.sv
+  arm925t_mode_decoder.sv     zap_mode16_decoder.sv
+  arm925t_sync2.sv            zap_dual_rank_synchronizer.sv
+  arm925t_ram.sv              zap_ram_simple.sv
+  arm925t_ram_nopipe.sv       zap_ram_simple_nopipe.sv
+  arm925t_defines.svh         zap_defines.svh
+  arm925t_functions.svh       zap_functions.svh
+  arm925t_localparams.svh     zap_localparams.svh
+  arm925t_load_format.svh     taken out of zap_dcache_fsm.sv
+
+What was changed
+----------------
+
+These files were copied from the commit above and then changed to make a
+functional model of the TI ARM925T (ARMv4T) of Nokia's UPP_WD2 ASIC. The
+changes are marked in the source with the tag "ARM925T:" and are described
+in docs/CPU.md. In outline:
+
+  * ZAP's own pipeline (fetch, decode, issue, shifter, ALU and memory stages,
+    its branch predictor) is not part of this CPU. The pipeline listed under
+    "Written for this project" replaced it on 2026-10-26; ZAP's is in this
+    repository's git history.
+  * The files and modules were renamed from zap_* to arm925t_* on 2026-11-18,
+    the macros from ZAP_* to ARM925T_*, and constants and macros that only
+    ZAP's pipeline used were removed from the three header files.
+  * Every parameter's default is the value this core is built with, not
+    ZAP's.
+
+rtl/cpu/arm925t_gen.v is generated from the files in this directory by
+tools/gen_cpu.sh (sv2v, and the fix Quartus 17 needs). It is a derived work
+under the same licence.

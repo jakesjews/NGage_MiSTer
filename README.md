@@ -114,7 +114,9 @@ Only the `.mmc` file goes on the MiSTer.
 - [docs/RETROTINK4K.md](docs/RETROTINK4K.md) is a RetroTINK 4K profile shaped
   like the QD's screen.
 
-This project's own files are GPL-2.0-or-later ([LICENSE](LICENSE)). The CPU's
-caches, MMU and writeback come from the ZAP core ([rtl/cpu/zap](rtl/cpu/zap),
-GPL-3.0-or-later), so the core as a whole is distributed under the GPL
-version 3.
+This project's own files are GPL-2.0-or-later ([LICENSE](LICENSE)), except
+the CPU in [rtl/cpu](rtl/cpu), which is GPL-3.0-or-later
+([rtl/cpu/LICENSE](rtl/cpu/LICENSE)): its caches, MMU, register file and
+writeback are derived from the ZAP processor by Revanth Kamaraj
+([rtl/cpu/NOTICE](rtl/cpu/NOTICE)). The core as a whole is therefore
+distributed under the GPL version 3.

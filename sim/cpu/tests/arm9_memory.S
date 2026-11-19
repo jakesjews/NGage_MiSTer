@@ -1,6 +1,6 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
 @ Held scalar-memory context, ordered younger DP, pending load/base tags,
-@ queue backpressure, and precise abort cancellation. Shared with ZAP/QEMU.
+@ queue backpressure, and precise abort cancellation. Shared with QEMU.
 	.include "test.inc"
 	.include "mmu.inc"
 	.text

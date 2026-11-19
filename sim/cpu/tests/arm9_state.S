@@ -1,7 +1,7 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
 @ ARM9 exception-return operand/abort boundaries. A register-shift PC write
 @ needs Rm, Rs AND SPSR; an aborted LDM^ must not restore SPSR before DABT.
-@ These are architectural tests, shared by ZAP, ARM9 and the QEMU reference.
+@ These are architectural tests, shared with the QEMU reference.
 	.include "test.inc"
 	.text
 	.arm

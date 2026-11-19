@@ -11,7 +11,7 @@
 @ it (odd sections uncached, so the request is held; even sections cached,
 @ a new line each pass, so it fills), ALU work on the loaded data (A-stage
 @ addresses of non-memory instructions are data values), and the call.
-@ This is the shape that made V2 re-walk: a check made stale by the hold
+@ This is the shape that made the pipeline re-walk: a check made stale by the hold
 @ or the fill, and walks of W's address instead of the address that
 @ missed (sim/harness/flashcopy.S showed 193,735 re-walks of one entry).
 @ Results: SIG_DATA + 8*k = D walks, I walks for N = 4, 6, 8, 10, 12.
@@ -126,7 +126,7 @@ run_passes:
 
 @ The stub in section A: ALU only. The padding keeps the A-resident
 @ original of loop_b (its literal load, section A = BENCH's TLB index)
-@ off the wrong path after the return: without the predictor, V2 runs
+@ off the wrong path after the return: without the predictor, the pipeline runs
 @ on past `mov pc, r6`, and a wrong-path load that misses is walked too.
 stub:
 	eor	r2, r2, r3

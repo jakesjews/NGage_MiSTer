@@ -1,6 +1,6 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
 @ Long blocks, adjacent dependent blocks, multiply pair forwarding, and squash.
-@@ bench: --arm9-cycles --arm9-cycle-model arm9v2/arm9_slots-cycles.txt
+@@ bench: --arm9-cycles --arm9-cycle-model units/arm9_slots-cycles.txt
     .include "test.inc"
     .include "mmu.inc"
     .text

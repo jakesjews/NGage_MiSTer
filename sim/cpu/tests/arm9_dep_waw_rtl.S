@@ -1,6 +1,6 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
 @ A load hitting a departing line, followed by younger writers of its
-@ destination that also READ it (the board's second V2 death, 25.25 s:
+@ destination that also READ it (the pipeline's second failure on the board, 25.25 s:
 @ Symbian's handle lookup caller at 0x503CBDC4, Thumb):
 @
 @	ldr	r0, [r0, #36]		@ miss: its fill evicts the literal line

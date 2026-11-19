@@ -1,7 +1,7 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
-@ Memory addresses formed in S (V2's S_AGU): every way a base or register
+@ Memory addresses formed in S (the pipeline's S_AGU): every way a base or register
 @ offset can arrive, checked against the same access with its producer far
-@ ahead (and against QEMU's trace, and ZAP).
+@ ahead (and against QEMU's trace).
 @   * base from the instruction just ahead: an ALU result, a load (pointer
 @     chase), a load into a register offset; then at distances 2 and 3
 @   * scaled register offsets (LSL/LSR/ASR/ROR/RRX, +/-), with writeback,

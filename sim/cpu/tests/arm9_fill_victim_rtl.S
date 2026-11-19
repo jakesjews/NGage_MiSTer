@@ -1,6 +1,6 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
 @ A cached block copy whose source lines replace valid lines of other tags
-@ (the board's LFFS copy, 2026-10-25): a SignalTap capture of the V2 core
+@ (the board's LFFS copy, 2026-10-25): a SignalTap capture of the the pipeline core
 @ (8 KB two-way D-cache) showed the first word of each 16-byte source line
 @ coming back as the same set's older line's word (0x596e06a0's word for
 @ 0x596f06a0), one clock after the previous access, and the rest of the

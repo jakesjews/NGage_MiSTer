@@ -8,7 +8,7 @@
 //
 //  * classic single reads and writes with every SEL pattern (byte, halfword,
 //    word) to every region, back to back and with gaps, mirrors included;
-//  * bursts as ZAP makes them (4-beat incrementing line fills and
+//  * bursts as the CPU makes them (4-beat incrementing line fills and
 //    write-backs at 16-byte boundaries), longer linear bursts that cross a
 //    line, and wrap-4 bursts from the middle of a line;
 //  * CS2/CS3 read as no flash, the unmapped space reads 0 and is flagged;

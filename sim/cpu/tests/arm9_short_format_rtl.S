@@ -1,5 +1,5 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
-@ The D-cache's short-port response, formatted per way (V2's WAY_FORMAT),
+@ The D-cache's short-port response, formatted per way (the pipeline's WAY_FORMAT),
 @ with the set collision of a RAM write registered (REG_COLLISION), and
 @ W's load word through S's own rotator (W_ROTATE). Every load form (LDR
 @ at byte offsets 0-3, so rotated; LDRB, LDRSB at 0-3; LDRH, LDRSH at 0
