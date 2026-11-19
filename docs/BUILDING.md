@@ -46,10 +46,10 @@ way gives the released file bit for bit.
 
 - **The core does not meet its 104 MHz constraint yet.** Quartus finishes the
   compile without errors and with the critical warning "Timing requirements
-  not met". The worst setup slack was -1.4 to -2.1 ns over sixteen fitter
-  seeds on 2026-11-16 (the third build of that day); `NGage.qsf` carries the
-  best of them (`SEED`). The released core is such a build and runs on the
-  board.
+  not met". The released build of 2026-11-19 has a worst setup slack of
+  -1.48 ns with the fitter seed in `NGage.qsf` (`SEED`), the one seed fitted
+  for that tree; sixteen seeds of the tree before it gave -1.5 to -2.3 ns.
+  The released core runs on the board.
 - A build is reproducible: the same source, seed and date give the same RBF.
 - `./build.sh` is optional, for a build server: it copies the tree to a Linux
   machine over ssh, runs the same compile there in Docker (image

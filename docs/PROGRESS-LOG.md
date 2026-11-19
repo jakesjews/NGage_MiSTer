@@ -11108,3 +11108,104 @@ store's registers (FillRate, ecd84e1).
 Merged into master and pushed at the user's word ("lets do number 1.
 merge and release"); the deeper pipeline in the core, the only way left
 to the clock, is not started.
+
+## 2026-11-19: a read-ahead line for SDRAM line fills, a restart fix, and the release NGage_20261119.rbf
+
+The question of the day was whether anything is left on the memory side
+that costs no accuracy in the CPU. Two things were tried on the core.
+
+**A section TLB indexed by a folded address: no gain, not adopted.** The
+firmware's RAM is mapped by pages, not sections, so the section TLB's
+conflicts are not what the phone pays for.
+
+**A read-ahead line: adopted** (c24fa5b and 5473d46). A cache line fill
+from the SDRAM is a wrap-4 burst of 16 bytes. The controller
+(`rtl/mem/sdram.sv`) now reads it as a pair: a second READ eight clocks
+after the first, at the row's next 16-byte block, whose eight halfwords
+follow the line's without a gap. The bus (`rtl/upp/upp_bus.sv`) keeps
+those four words in a one-entry read-ahead line and answers a later fill
+of that block from it, the first beat two clocks after it is seen and
+then one a clock, where the SDRAM gives the first after nine and one
+every two. The caches and the CPU are unchanged.
+
+What keeps it from costing anything:
+- once the line's own four words are out, the next read request cuts the
+  second block short and is taken at the clock it would be taken after a
+  line read. The first version, without the cut, made a loop that jumps
+  rows 13 % slower: the SDRAM was busy eight clocks longer after every
+  fill;
+- a refresh that falls due cuts it short too, so the refresh bound is the
+  line read's;
+- a write waits for the pair's end.
+
+What keeps it true: any write beat on the bus whose address maps to the
+line's block, as either mapping into the module would place it, drops the
+line; so do a reset and a cut. A pair is not read across a row's end.
+
+**Measured in simulation** (`make -C sim dfill`, clocks a load, before ->
+after): seq 19.3 -> 17.8, use 20.3 -> 16.8, copy 34.2 -> 21.3, rmw 32.1 ->
+25.5, seq8 24.2 -> 21.3, seq8i 19.3 -> 17.8; hit 4.0, row 24.7, two 25.0,
+hit8 12.0 and ifill unchanged. dfill ends after 3,596,679 clocks (was
+4,073,362) and flashcopy after 6,454,433 (was 6,458,938): these are the
+counts to compare a board candidate with from now on.
+
+**Measured on the board** (SPMark04, one pass of all nine from a fresh
+C:, core, C: and card in the MiSTer's RAM disk; master -> read-ahead,
+seed 5 of each; the read-ahead figures are of the trial tree, the same
+logic with two trial switches left on): 3D Game 8.88 -> 8.98 fps,
+FillRate 1.73 -> 1.73 Mtexels/s, PolyCount 28.41 -> 29.67 Ktriangles/s,
+2D Image 38.05 -> 38.05 fps, Image Scaling 1.89 -> 1.89, JPEG 169.27 ->
+169.42, Contacts 3.48 -> 3.49, Calendar 7.09 -> 7.19, Disk Access 22.07
+-> 22.22. So 1.1 % in 3D Game and 4.4 % in PolyCount, nothing slower:
+less than the 2.5 to 5 % a prefetch was expected to give (2026-11-10).
+(The storage figures read higher than the release's 15 because C: and
+the card were in RAM.)
+
+**Timing** (worst setup slack at 100C / -40C, server). The trial tree on
+four of master's seeds: seed 5 -1.265 / -1.210 (master -1.477 /
+-1.324), seed 100 -1.805 / -1.530 (-1.609 / -1.579), seed 60 -1.464 /
+-1.285 (-1.752 / -1.674), seed 9 -1.721 / -1.676 (-1.802 / -1.803); mean
+of the worse corner -1.564 against -1.660. Two earlier texts of nearly
+the same logic gave -1.94 and -1.68 on seed 5: the netlist's luck is
+larger than anything the change does. The committed text, seed 5: -1.478
+/ -1.412, hold, recovery and removal positive at every corner, 33,924
+ALMs (master 33,410). The worst paths are the CPU's, none in the new
+logic.
+
+**A bug in master, found on the way** (c24fa5b). The bus counts the words
+an SDRAM read still owes and takes no new read until they are in. When
+the controller starts again in the middle of a read (the framework's
+reset, which is the board's reset button, or a PLL unlock; not the OSD's
+reset), the words never come and no SDRAM read was issued again until
+the core was loaded anew. The bus now clears the count while the
+controller is not ready; the bus bench restarts the controller 1 to 15
+clocks into a read and reads afterwards.
+
+**Review.** Codex read the change (read-only) and found no path to stale
+data and no SDRAM protocol violation from the cuts. It found the restart
+bug above, a write check that assumed an aligned on-chip RAM base (now
+exact for any base) and a store that was answered and then lost when a
+reset came while it waited behind a pair's second block (a pending write
+now survives the bus reset).
+
+**Games on the board**, about nine minutes of play each from the RAM
+disk, captures every 30 s, no fault in any: Tony Hawk (free skate) and
+Call of Duty (the first mission) on the trial build; Sonic N (the level
+timer in step with real time) and Asphalt (Cop Chase, nine minutes of
+event cycles and four of driving) on the released file.
+
+**The release: `releases/NGage_20261119.rbf`**, md5
+bbea55ffd866eb31eb09b05a181d54d9, the committed tree with the seed in
+`NGage.qsf` (5), -1.478 / -1.412 ns. It is the only seed fitted for this
+text (the server had one build lane that day); the last release was
+-1.362 / -1.414. SPMark04 was not run on this exact file, only on the
+trial builds. Checks on the tree: lint, the generated-file checks,
+`make test`, flashcopy, dfill. Released at the user's word ("ok lets cut
+the release. id say we are sufficiently tested already").
+
+Also that day: the README names the SHA-256 of the firmware zip and of
+the two firmware files where each is first mentioned (28da7b9).
+
+Next: nothing is queued. A second read-ahead entry or a longer tail has
+little left to find: at most about half of the load misses are in order
+at all (2026-11-10).

@@ -34,6 +34,15 @@ stand-in code with some reverse engineering; **high** a large design;
   as a register, two more register sets in the peripheral bus's two-clock
   set. The core is the release before's clock for clock (the same clock
   counts in flashcopy and dfill, the same SPMark04 figures).
+- [x] **A read-ahead line for SDRAM line fills**: released as
+  NGage_20261119.rbf (seed 5, -1.478 / -1.412 ns). A line fill reads the
+  row's next 16 bytes too and the memory bus keeps them for the next fill
+  (`rtl/upp/upp_bus.sv`, `rtl/mem/sdram.sv`). On the board 3D Game 8.88 ->
+  8.98 fps and PolyCount 28.41 -> 29.67, nothing slower. In `make -C sim
+  dfill`, clocks a load: seq 19.3 -> 17.8, use 20.3 -> 16.8, copy 34.2 ->
+  21.3, rmw 32.1 -> 25.5; row and two (another row every load) unchanged.
+  With it: the board's reset button during an SDRAM read no longer leaves
+  the core unable to read the SDRAM.
 - [ ] **Timing**: the aims are hardware accuracy, the benchmarks (nothing
   under the phone) and no negative slack (the user, 2026-11-16). What a
   day of measuring says (log, 2026-11-16): the CPU core's own stages are

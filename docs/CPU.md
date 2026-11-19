@@ -320,7 +320,11 @@ cycles):
   load whose word is used at once 20.3 (25.3). A walk that leaves every
   line dirty is unchanged (41.4, was 42.1): there the SDRAM decides, its
   first read word comes 23 clocks after the request when a written-back
-  line went before it, 8 otherwise.
+  line went before it, 8 otherwise. Since 2026-11-19 the memory bus reads
+  ahead (`rtl/upp/upp_bus.sv`): a fill of the 16 bytes behind the last one
+  read comes from its read-ahead line, the first word after 2 clocks and
+  one a clock, and the walk costs 17.8 clocks a line, the load whose word
+  is used at once 16.8.
 
 ## Differences from a real ARM925T
 
