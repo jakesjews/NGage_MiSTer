@@ -27,7 +27,14 @@
 //   * SDRAM read: a burst is one line read (16 bytes, the asked word first),
 //     a classic read one word; beats are answered as their words arrive (the
 //     first 9 clocks after the beat is seen, then every 2 clocks); a burst
-//     that runs on past the 16 bytes reads the next line;
+//     that runs on past the 16 bytes reads the next line. A line fill (a
+//     wrap-4 burst) is read as a pair: the row's next 16 bytes come in the
+//     same SDRAM read, eight clocks behind, and wait in the read-ahead
+//     line. A fill that asks for them is answered from it (the first beat
+//     2 clocks after it is seen, then one every clock) without an SDRAM
+//     access. A write that may be to those 16 bytes drops them, and a read
+//     of anything else that comes while they are still arriving cuts the
+//     pair short, so that it waits no longer than after a line read;
 //   * SDRAM write: posted. A classic write is answered as soon as the
 //     request register is free; a burst's beats are gathered (a beat every
 //     2 clocks) into one line write with byte enables;
@@ -124,13 +131,16 @@ module upp_bus #(
 	output logic              sdr_req,
 	output logic              sdr_we,
 	output logic              sdr_line,
+	output logic              sdr_pair,
 	output logic [24:2]       sdr_addr,
 	output logic [127:0]      sdr_wdata,
 	output logic [15:0]       sdr_wbe,
 	input  logic              sdr_busy,
-	input  logic              sdr_ready,      // low while the controller starts (again): no word of a read it had taken comes back
+	input  logic              sdr_ready,      // low while the controller starts (again): nothing it was doing comes back
 	input  logic              sdr_rvalid,
 	input  logic [1:0]        sdr_rword,
+	input  logic              sdr_rsecond,
+	input  logic              sdr_rdrop,
 	input  logic [31:0]       sdr_rdata,
 
 	output logic              p_sel,
@@ -203,6 +213,13 @@ module upp_bus #(
 		if (oc) b = ONCHIP_SDRAM_AT | 25'(a[$clog2(ONCHIP_BYTES)-1:0]);
 		else    b = {1'b0, a[23:0]};
 		return b[24:2];
+	endfunction
+
+	// ... and of its 16-byte block
+	function automatic logic [24:4] sdr_blk(input logic [31:0] a, input logic oc);
+		logic [24:2] w;
+		w = sdr_word(a, oc);
+		return w[24:4];
 	endfunction
 
 	tgt_t      tgt;
@@ -298,8 +315,32 @@ module upp_bus #(
 	logic [3:0]  lb_v;
 	logic [27:0] blk;                    // the block (bus address 31:4) being read or gathered
 	logic        blk_oc;                 // ... in the on-chip RAM's SDRAM copy
-	logic [2:0]  rd_pend = 3'd0;         // read words still to come
+	logic [3:0]  rd_pend = 4'd0;         // read words still to come
 	wire         sdr_free = !sdr_req;
+
+	// The read-ahead line: the second 16 bytes of a pair read, as the SDRAM
+	// held them when they were read. Requests are carried out in order and a
+	// read is only asked for with no write waiting, so they stay true until
+	// a later write to their block, and any write beat on the bus that may
+	// be to it (its address as either mapping into the module would place
+	// it, whatever it is decoded as) drops the line. A read is asked for
+	// with no word outstanding (rd_pend), or, for anything but the line
+	// itself, with only words of a pair's second block outstanding: the
+	// controller then cuts the pair short and the line is dropped, as it is
+	// when a refresh cuts the pair short (sdr_rdrop). So a live line is
+	// whole whenever rd_pend is 0, and it is only used then.
+	logic [31:0] pb [4];
+	logic [24:4] pb_addr;                // its block in the module
+	logic        pb_live = 1'b0;
+	wire [24:2]  rd_word = sdr_word(wb_adr, tgt == T_ONCHIP);
+	wire         line_rd = burst && wb_bte == 2'b01;               // a cache line fill
+	wire         pb_hit  = line_rd && pb_live && rd_word[24:4] == pb_addr;
+	wire         pair_ok = line_rd && wb_adr[9:4] != 6'h3F;      // the row has a next block
+	wire         lb_in   = sdr_rvalid && !sdr_rsecond;             // a word for the line buffer
+	wire         pb_wr   = sdr_blk(wb_adr, 1'b0) == pb_addr || (ONCHIP_IN_SDRAM && sdr_blk(wb_adr, 1'b1) == pb_addr);
+	// the words still to come are all of a pair's second block
+	wire         rd_tail = sdr_pair && rd_pend <= 4'd4;
+	wire         rd_go   = sdr_free && (rd_pend == 4'd0 || (rd_tail && !pb_hit));
 
 	// tb's block test, word index and next block without nxt's adder on the
 	// bus address. In a clock with ack high the bus shows the beat being
@@ -313,8 +354,8 @@ module upp_bus #(
 	wire [27:0] blk_next  = wb_bte == 2'b10 ? {blk[27:1], ~blk[0]} :
 	                        wb_bte == 2'b11 ? {blk[27:2], blk[1:0] + 2'd1} : blk + 28'd1;
 	wire [31:0] tb_start  = ack_q ? {blk_next, 4'b0000} : wb_adr;   // tb, where a new block starts
-	wire        tb_have   = lb_v[tb_idx] || (sdr_rvalid && sdr_rword == tb_idx);
-	wire [31:0] tb_word   = (sdr_rvalid && sdr_rword == tb_idx) ? sdr_rdata : lb[tb_idx];
+	wire        tb_have   = lb_v[tb_idx] || (lb_in && sdr_rword == tb_idx);
+	wire [31:0] tb_word   = (lb_in && sdr_rword == tb_idx) ? sdr_rdata : lb[tb_idx];
 `ifndef SYNTHESIS
 	always_ff @(posedge clk) if (!reset && state == S_SDR_RD && tb_ok) begin
 		if (ack_q) assert (wb_adr[31:4] == blk) else $fatal(1, "upp_bus: an answered SDRAM beat outside blk");
@@ -434,12 +475,18 @@ module upp_bus #(
 		// SDRAM: the request is taken at an edge where it is up and the
 		// controller is not busy; read words fill the line buffer
 		if (sdr_req && !sdr_busy) sdr_req <= 1'b0;
-		rd_pend <= rd_pend + ((sdr_req && !sdr_busy && !sdr_we) ? (sdr_line ? 3'd4 : 3'd1) : 3'd0)
-		                   - ((sdr_rvalid && rd_pend != 3'd0) ? 3'd1 : 3'd0);
-		if (sdr_rvalid) begin
+		// a read that is taken leaves no word of a pair before it to come,
+		// nor does a refresh that cut the pair short
+		if (sdr_req && !sdr_busy && !sdr_we) rd_pend <= sdr_line ? (sdr_pair ? 4'd8 : 4'd4) : 4'd1;
+		else if (sdr_rdrop) rd_pend <= 4'd0;
+		else if (sdr_rvalid && rd_pend != 4'd0) rd_pend <= rd_pend - 4'd1;
+		// (with a read waiting, the line is already that read's or dropped)
+		if (sdr_rdrop && !(sdr_req && !sdr_we)) pb_live <= 1'b0;
+		if (lb_in) begin
 			lb[sdr_rword]   <= sdr_rdata;
 			lb_v[sdr_rword] <= 1'b1;
 		end
+		if (sdr_rvalid && !lb_in) pb[sdr_rword] <= sdr_rdata;
 
 		// flash: wide line read in read-array mode
 		if (fl_ltaken) fl_lreq <= 1'b0;
@@ -591,15 +638,28 @@ module upp_bus #(
 									end
 								end
 							end else if (is_sdr) begin
-								if (sdr_free && rd_pend == 3'd0) begin
+								if (rd_go) begin
 									blk      <= wb_adr[31:4];
 									blk_oc   <= tgt == T_ONCHIP;
-									lb_v     <= 4'b0000;
-									sdr_req  <= 1'b1;
 									sdr_we   <= 1'b0;
-									sdr_line <= burst;
-									sdr_addr <= sdr_word(wb_adr, tgt == T_ONCHIP);
 									state    <= S_SDR_RD;
+									if (pb_hit) begin
+										// the read-ahead line is this fill
+										for (int i = 0; i < 4; i++) lb[i] <= pb[i];
+										lb_v <= 4'b1111;
+									end else begin
+										lb_v     <= 4'b0000;
+										sdr_req  <= 1'b1;
+										sdr_line <= burst;
+										sdr_pair <= pair_ok;
+										sdr_addr <= rd_word;
+										if (pair_ok) begin
+											pb_addr <= rd_word[24:4] + 21'd1;
+											pb_live <= 1'b1;
+										end else if (rd_pend != 4'd0) begin
+											pb_live <= 1'b0;       // cut short
+										end
+									end
 								end
 							end
 						end
@@ -633,12 +693,13 @@ module upp_bus #(
 						dat_q <= tb_word;
 						ack_q <= 1'b1;
 					end
-				end else if (sdr_free && rd_pend == 3'd0) begin
+				end else if (sdr_free && rd_pend == 4'd0) begin
 					// the burst runs on into the next block
 					blk      <= tb_start[31:4];
 					lb_v     <= 4'b0000;
 					sdr_req  <= 1'b1;
 					sdr_line <= 1'b1;
+					sdr_pair <= 1'b0;
 					sdr_addr <= sdr_word(tb_start, blk_oc);
 				end
 			end
@@ -714,12 +775,18 @@ module upp_bus #(
 			default: state <= S_IDLE;
 		endcase
 
+		// a write beat that may be to the read-ahead line's block drops the line
+		if (wb_cyc && wb_stb && wb_we && pb_wr) pb_live <= 1'b0;
+
 		if (reset) begin
+			pb_live  <= 1'b0;
 			state    <= S_IDLE;
 			ack_q    <= 1'b0;
 			err_q    <= 1'b0;
 			no_late_error_q <= 1'b0;
-			sdr_req  <= 1'b0;
+			// a write that has been answered is still carried out: the SDRAM may
+			// be busy with a pair read's second block, which a write waits for
+			if (!sdr_we) sdr_req <= 1'b0;
 			fl_req   <= 1'b0;
 			fl_lreq  <= 1'b0;
 			fl_lpend <= 2'd0;
@@ -728,9 +795,12 @@ module upp_bus #(
 			p_sel_q  <= 1'b0;
 		end
 
-		// the controller starts again (the framework's reset, a PLL unlock):
-		// the words it still owed do not come
-		if (!sdr_ready) rd_pend <= 3'd0;
+		// the controller starts again: no word of a read it had taken comes
+		// back, and nothing is asked of it
+		if (!sdr_ready) begin
+			rd_pend <= 4'd0;
+			sdr_req <= 1'b0;
+		end
 	end
 
 endmodule

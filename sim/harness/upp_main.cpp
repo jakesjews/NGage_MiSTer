@@ -18,6 +18,13 @@
 //    command set reach DDR3, and the autoselect IDs read back;
 //  * the SDRAM controller starting again in the middle of a read (the
 //    framework's reset) leaves the bus able to read the SDRAM;
+//  * SDRAM line fills come as pairs: the fill of the row's next line is
+//    answered from the read-ahead line, with what the SDRAM holds, also
+//    after writes to it (direct, through a mirror, from the DMA master,
+//    while the pair is still arriving), across other accesses, and never
+//    across a row's end; a store answered just before a reset is still
+//    carried out, and nothing of the line is used after the SDRAM
+//    controller has started again;
 //  * the latency of each kind of access, printed.
 #include "Vngage_mem.h"
 #include "verilated.h"
@@ -83,6 +90,21 @@ struct Bench {
 	size_t bi = 0;
 	uint64_t start = 0, beat_seen = 0;
 	uint64_t acks = 0;
+	uint64_t first_lat = 0, next_lat_max = 0;   // of the last burst
+	uint64_t fills = 0, fills_ahead = 0;        // SDRAM line fills, and those answered without the SDRAM
+	// What the read-ahead line may hold: the block after the last line
+	// fill that the SDRAM answered, until a write to it. (A read or a
+	// refresh may have cut the pair short, so it need not hold it.)
+	bool     ra_live = false, last_ahead = false;
+	uint32_t ra_blk = 0;                        // block in the module
+	uint64_t ra_cyc = 0;                        // when its pair's line had been answered
+	uint64_t refresh_cyc = 0, refreshes_seen = 0;   // the chip's last AUTO REFRESH
+	// a refresh may cut a pair short only while its second block arrives
+	bool ra_refreshed() const { return refresh_cyc + 2 >= ra_cyc && refresh_cyc <= ra_cyc + 16; }
+	static bool in_module(Region r) { return r == R_SDRAM || (r == R_ONCHIP && OC_BYTES > 65536); }
+	static uint32_t module_blk(uint32_t a) {
+		return (region(a) == R_ONCHIP ? 0x1000000u | (a & (OC_BYTES - 1)) : (a & 0xFFFFFFu)) >> 4;
+	}
 	// latency (clocks from the beat on the bus to its ack) by region and kind
 	struct Lat { uint64_t n = 0, sum = 0, min = ~0ull, max = 0; void add(uint64_t v) { n++; sum += v; min = std::min(min, v); max = std::max(max, v); } };
 	std::map<std::string, Lat> lat;
@@ -215,6 +237,7 @@ struct Bench {
 		sp.ba = t->sdram_ba; sp.a = t->sdram_a; sp.dqm = t->sdram_dqml | t->sdram_dqmh << 1;
 		sp.dq_oe = t->sdram_dq_oe != 0; sp.dq_o = t->sdram_dq_o;
 		chip.edge(cyc, sp);
+		if (chip.refreshes != refreshes_seen) { refreshes_seen = chip.refreshes; refresh_cyc = cyc; }
 		if (t->unmapped) unmapped_pulses++;
 
 		// the peripheral access completed at this edge
@@ -265,6 +288,23 @@ struct Bench {
 		static const char *rn[] = {"cs0", "cs1", "empty", "emif", "sdram", "onchip", "periph", "unmapped"};
 		std::string k = lat_prefix + rn[r] + (cur.we ? " write" : " read") + (cur.beats.size() > 1 ? (bi == 0 ? " burst first" : " burst next") : "");
 		lat[k].add(cyc - 1 - beat_seen);
+		if (bi == 0) { first_lat = cyc - 1 - beat_seen; next_lat_max = 0; }
+		else next_lat_max = std::max(next_lat_max, cyc - 1 - beat_seen);
+		if (cur.we && in_module(r) && module_blk(b.adr) == ra_blk) ra_live = false;
+		if (bi == 3 && !cur.we && cur.bte == 1 && cur.beats.size() == 4 && in_module(r)) {
+			fills++;
+			// the SDRAM's words come every other clock, the read-ahead line's every clock
+			last_ahead = next_lat_max == 0;
+			if (last_ahead) {
+				fills_ahead++;
+				if (!ra_live || ra_blk != module_blk(b.adr))
+					sim::fail("%s at %08x: answered from a read-ahead line that cannot hold it (cycle %llu)", cur.what.c_str(), b.adr, (unsigned long long)cyc);
+			} else if (((b.adr >> 4) & 63) != 63) {
+				ra_live = true;
+				ra_blk = module_blk(b.adr) + 1;
+				ra_cyc = cyc;
+			}
+		}
 		beat_seen = cyc;
 		if (++bi == cur.beats.size()) busy = false;
 	}
@@ -278,6 +318,25 @@ struct Bench {
 		uint64_t limit = cyc + 20000;
 		while (busy && cyc < limit) tick();
 		if (busy) { sim::fail("%s at %08x: no answer", x.what.c_str(), x.beats[bi].adr); busy = false; }
+	}
+
+	// one classic write from the DMA master, with the CPU's port idle
+	void dma_write(uint32_t a, uint8_t sel, uint32_t d) {
+		t->dma_cyc = 1; t->dma_stb = 1; t->dma_we = 1; t->dma_adr = a; t->dma_dat_i = d; t->dma_sel = sel;
+		uint64_t limit = cyc + 20000;
+		bool done = false;
+		while (!done && cyc < limit) {
+			drive_master();
+			t->eval();
+			done = t->dma_ack;
+			if (t->dma_err) sim::fail("DMA write at %08x: ERR", a);
+			tick();
+		}
+		if (!done) sim::fail("DMA write at %08x: no answer", a);
+		t->dma_cyc = 0; t->dma_stb = 0; t->dma_we = 0;
+		apply_write(a, sel, d);
+		if (in_module(region(a)) && module_blk(a) == ra_blk) ra_live = false;
+		tick();
 	}
 
 	void run_class(Txn x, bool safe_fill) {
@@ -342,7 +401,30 @@ struct Bench {
 		return R_UNMAPPED;
 	}
 
+	// line fills up a buffer as a cache makes them, with writes in between
+	// that may be to the line read ahead (directly or through a mirror)
+	void walk() {
+		bool oc_ram = OC_BYTES > 65536 && rng.chance(30);
+		uint32_t base = oc_ram ? (0x0C000000u | (rng.u32() & (OC_BYTES - 16))) : (0x0A000000u | (rng.u32() & 0xFFF0));
+		// often up to a row's end
+		if (rng.chance(30)) base = (base & ~0x3F0u) | 0x3C0u;
+		for (int i = 0, n = rng.range(2, 7); i < n; i++) {
+			uint32_t a = base + 16 * i;
+			if (oc_ram) a = 0x0C000000u | (a & (OC_BYTES - 1));
+			uint32_t mirror = oc_ram ? (rng.u32() & 0xF0000 & ~(OC_BYTES - 1)) : (rng.chance(50) ? 0x01000000u : 0);
+			run(burst(false, (a + 4 * rng.range(0, 3)) | (rng.chance(20) ? mirror : 0), 4, 1, "walk fill"));
+			if (rng.chance(50)) for (int g = 0, k = rng.range(1, 24); g < k; g++) tick();
+			int w = rng.range(0, 99);
+			uint32_t t2 = (rng.chance(70) ? a + 16 : a + 16 * rng.range(-2, 3)) | (rng.chance(40) ? mirror : 0);
+			if (oc_ram) t2 = 0x0C000000u | (t2 & 0xFFFFF);
+			if (w < 15) { uint32_t x = t2 + 4 * rng.range(0, 3); uint8_t sel = rand_sel(x); run(single(true, x, sel, rng.u32(), "walk write")); }
+			else if (w < 22) run(burst(true, t2 & ~0xFu, 4, 0, "walk write-back"));
+			else if (w < 30) random_txn();
+		}
+	}
+
 	void random_txn() {
+		if (rng.chance(4)) { walk(); return; }
 		Region r = rand_region(true);
 		bool flash = r == R_CS0 || r == R_CS1;
 		bool we = !flash && rng.chance(40);
@@ -360,6 +442,139 @@ struct Bench {
 		if (rng.chance(30)) for (int i = 0, n = rng.range(1, 8); i < n; i++) tick();
 	}
 };
+
+// The read-ahead line. A line fill of the SDRAM is a pair read; the fill of
+// the row's next line is then answered without the SDRAM (its first beat two
+// clocks after it is seen, the others a clock apart), unless that line may
+// have been written since. Every word read is checked against the reference
+// as always; here the clocks say which way each fill was answered.
+void read_ahead(Bench &b) {
+	const uint64_t AHEAD = 2;
+	uint64_t lost = 0, used = 0;
+	bool disturbed = false;      // a refresh cut a pair short: the fills after it are not as written here
+	auto fill = [&](uint32_t a, int ahead, const char *what) {
+		bool held = b.ra_live && b.ra_blk == Bench::module_blk(a);
+		bool cut = b.ra_refreshed();
+		b.run(b.burst(false, a, 4, 1, what));
+		if (b.last_ahead) {
+			used++;
+			// (with no word of its pair still to come)
+			if (ahead == 1) CHECK_EQ(b.first_lat, AHEAD, "first beat from the read-ahead line");
+		} else if (held) {
+			// only a refresh while its pair was read may have taken the line away
+			if (!cut) sim::fail("%s at %08x: not answered from the read-ahead line (%llu clocks)", what, a, (unsigned long long)b.first_lat);
+			else { lost++; disturbed = true; }
+		}
+		if (ahead >= 0 && !disturbed) CHECK(b.last_ahead == bool(ahead), "%s at %08x: first beat after %llu clocks", what, a, (unsigned long long)b.first_lat);
+	};
+	auto quiet = [&]() { for (int i = 0; i < 40; i++) b.tick(); };
+	std::vector<uint32_t> bases = {0x0A012340u, 0x0A7FF000u, 0x0B0A0800u};
+	if (OC_BYTES > 65536) { bases.push_back(0x0C001200u); bases.push_back(0x0C0C8400u); }
+	for (uint32_t B : bases) {
+		disturbed = false;
+		bool oc = (B >> 24) == 0x0C;
+		uint32_t mirror = oc ? (B ^ 0x00040000u) & (0x0C000000u | 0xFFFFF) : B ^ 0x01000000u;
+		for (int i = 0; i < 12; i++) b.run(b.burst(true, B + 16 * i, 4, 0, "read-ahead set-up"));
+		// a walk: every second fill comes from the line read ahead
+		quiet();
+		for (int i = 0; i < 8; i++) { fill(B + 16 * i + 4 * (i & 3), i & 1, "walk"); quiet(); }
+		disturbed = false;
+		// the same back to back: the second half is still arriving when the next fill asks
+		for (int i = 0; i < 8; i++) { fill(B + 16 * i + 4 * (i & 3), -1, "walk, no gaps"); }
+		disturbed = false;
+		// the line stays through reads elsewhere and writes to other lines
+		quiet(); fill(B, 0, "first"); quiet();
+		b.run(b.single(false, B + 0x400, 0xF, 0, "read elsewhere"));
+		b.run(b.burst(false, B + 0x800, 6, 0, "linear read elsewhere"));
+		b.run(b.single(true, B + 0x20, 0xF, 0x11111111, "write to the line after"));
+		b.run(b.single(true, B + 0xC, 0xF, 0x22222222, "write to the line before"));
+		b.run(b.burst(true, B + 0x40, 4, 0, "write-back elsewhere"));
+		quiet(); fill(B + 0x14, 1, "kept"); quiet();
+		// ... and is dropped by every kind of write to it
+		for (int k = 0; k < 6; k++) {
+			disturbed = false;
+			quiet(); fill(B + 8, 0, "first"); if (k < 4) quiet();
+			switch (k) {
+			case 0: b.run(b.single(true, B + 0x18, 0x4, 0x00AB0000, "byte write to the line")); break;
+			case 1: b.run(b.single(true, mirror + 0x1C, 0xF, 0x33333333, "write through a mirror")); break;
+			case 2: b.run(b.burst(true, B + 0x10, 4, 0, "write-back of the line")); break;
+			case 3: if (B & 0x100) b.dma_write(mirror + 0x14, 0x8, 0x77000000); else b.dma_write(B + 0x10, 0xF, 0x66666666);
+			        b.run(b.burst(true, B + 0x8, 5, 0, "write burst running into the line")); break;
+			case 4: b.run(b.single(true, B + 0x10, 0x3, 0x00004444, "write while the pair arrives")); break;
+			default: b.run(b.burst(true, mirror + 0x10, 4, 1, "write-back while the pair arrives")); break;
+			}
+			if (k & 1) quiet();
+			fill(B + 0x10 + 4 * (k & 3), 0, "after a write to the line");
+		}
+		disturbed = false;
+		// read it twice: the line is still there after it has been used
+		quiet(); fill(B, 0, "first"); quiet(); fill(B + 0x10, 1, "used"); quiet(); fill(B + 0x10, 1, "used again");
+		disturbed = false;
+		// a row's last line has no next line
+		uint32_t E = (B & ~0x3FFu) | 0x3F0u;
+		b.run(b.burst(true, E, 4, 0, "row end set-up"));
+		b.run(b.burst(true, E + 16, 4, 0, "row end set-up"));
+		quiet(); fill(E - 16, 0, "before the row's last"); quiet(); fill(E, 1, "the row's last"); quiet();
+		fill(E, 1, "the row's last again"); quiet(); fill(E + 16, 0, "the next row's first");
+		b.run(b.single(false, E + 16, 0xF, 0, "single read"));
+		// ... also when the SDRAM answers its fill: no pair is read there
+		b.run(b.single(true, E + 4, 0xF, 0x55555555, "write to the row's last"));
+		quiet(); fill(E + 8, 0, "the row's last, from the SDRAM"); quiet(); fill(E + 16, 0, "the next row's first");
+		quiet(); fill(E & ~0x3FFu, 0, "the row's first");
+		// a write from the DMA master drops the line like any other
+		disturbed = false;
+		quiet(); fill(B, 0, "first"); quiet();
+		b.dma_write(B + 0x18, 0x2, 0x0000CD00);
+		fill(B + 0x1C, 0, "after a DMA write to the line");
+		quiet(); fill(B + 0x34, 0, "first"); b.dma_write(mirror + 0x40, 0xF, 0x88888888);
+		fill(B + 0x40, 0, "after a DMA write while the pair arrives");
+		// A store that was answered is carried out through a reset of the
+		// guest, also when it waits for a pair read's second block.
+		for (int gap = 0; gap < 12; gap++) {
+			quiet(); fill(B + 0x40, -1, "before a reset");
+			uint32_t v = 0xA5000000u | (B & 0xFFFF00) | gap;
+			b.run(b.single(true, B + 0x60 + 4 * (gap & 3), 0xF, v, "store before a reset"));
+			for (int i = 0; i < gap; i++) b.tick();
+			b.t->reset = 1; for (int i = 0; i < 6; i++) b.tick(); b.t->reset = 0; b.tick();
+			b.ra_live = false;      // the reset drops the line
+			b.run(b.single(false, B + 0x60 + 4 * (gap & 3), 0xF, 0, "read after a reset"));
+			fill(B + 0x50, -1, "after a reset");
+		}
+	}
+	CHECK(used >= 10 * bases.size() && lost < 10, "the read-ahead line was used %llu times and lost to a refresh %llu times", (unsigned long long)used, (unsigned long long)lost);
+	// The SDRAM controller starts again in the middle of a read (the
+	// framework's reset): the words it owed never come, and the bus must
+	// not wait for them afterwards.
+	for (int at = 1; at < 16; at += 2) {
+		for (int i = 0; i < 40; i++) b.tick();
+		b.cur = b.burst(false, bases[0] + 0x100, 4, 1, "fill cut by a restart");
+		b.bi = 0; b.busy = true; b.start = b.beat_seen = b.cyc;
+		for (int i = 0; i < at; i++) b.tick();
+		b.busy = false;
+		// (the controller's power-up wait leaves the chip without a refresh
+		// and with its rows open for 200 us, which the chip model reports:
+		// that is the restart itself, not what is tested here)
+		int chip_errors = b.chip.errors;
+		bool chip_quiet = b.chip.quiet;
+		b.chip.quiet = true;
+		b.t->reset = 1; b.t->sdram_init = 1;
+		for (int i = 0; i < 4; i++) b.tick();
+		b.t->sdram_init = 0;
+		uint64_t limit = b.cyc + 40000;
+		while (!b.t->sdram_ready && b.cyc < limit) b.tick();
+		CHECK(b.t->sdram_ready, "SDRAM not ready after a restart");
+		b.chip.errors = chip_errors;
+		b.chip.quiet = chip_quiet;
+		b.tick(); b.tick();
+		b.t->reset = 0; b.tick();
+		b.ra_live = false;
+		b.run(b.single(false, bases[0] + 0x104, 0xF, 0, "read after a restart"));
+		fill(bases[0] + 0x100, -1, "fill after a restart");
+		fill(bases[0] + 0x110, -1, "fill after a restart");
+	}
+	printf("read-ahead line: walks, kept and dropped lines, mirrors and row ends passed (%llu fills from it, %llu lost to a refresh)\n",
+		(unsigned long long)used, (unsigned long long)lost);
+}
 
 // The SDRAM controller starts again in the middle of a read (sdram_init,
 // the framework's reset or a PLL unlock): the words it owed never come, and
@@ -387,6 +602,7 @@ void restart_mid_read(Bench &b) {
 		b.chip.quiet = chip_quiet;
 		b.tick(); b.tick();
 		b.t->reset = 0; b.tick();
+		b.ra_live = false;      // the reset drops the read-ahead line
 		b.run(b.single(false, 0x0A012444u, 0xF, 0, "read after a restart"));
 		b.run(b.burst(false, 0x0A012440u, 4, 1, "fill after a restart"));
 	}
@@ -764,7 +980,10 @@ int main(int argc, char **argv) {
 	quiet(b.burst(false, 0x00010010, 4, 0, "line fill"));
 	b.lat_prefix = "";
 
+	read_ahead(b);
+	b.fills = b.fills_ahead = 0;
 	for (int i = 0; i < txns && sim::failures() < 20; i++) b.random_txn();
+	read_ahead(b);
 
 	restart_mid_read(b);
 	flash_commands(b);
@@ -779,6 +998,9 @@ int main(int argc, char **argv) {
 
 	printf("%llu beats acked, %llu peripheral accesses, %llu clocks\n", (unsigned long long)b.acks,
 		(unsigned long long)b.p_accesses, (unsigned long long)b.cyc);
+	printf("SDRAM line fills in the random traffic: %llu, %llu of them from the read-ahead line\n",
+		(unsigned long long)b.fills, (unsigned long long)b.fills_ahead);
+	CHECK(b.fills_ahead > 50, "the random traffic hardly used the read-ahead line");
 	printf("clocks from a beat on the bus to its ack (min / mean / max):\n");
 	for (auto &kv : b.lat)
 		printf("  %-26s %6llu x  %3llu / %5.1f / %llu\n", kv.first.c_str(), (unsigned long long)kv.second.n,

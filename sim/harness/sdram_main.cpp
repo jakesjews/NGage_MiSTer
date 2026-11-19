@@ -7,7 +7,8 @@
 //    timing (tRCD, tRP, tRAS, tRC, tRRD, tRFC, tWR, tMRD), the refresh
 //    interval holds through traffic and long idle stretches, and the read
 //    data is captured inside its window (CAS latency and board delay);
-//  * random word reads, line reads (from any word, wrapping), word writes
+//  * random word reads, line reads (from any word, wrapping), pair reads
+//    (a line and the row's next block, cut short by the next read), word writes
 //    and line writes with random byte enables, back to back and with gaps,
 //    against a reference memory: every word read is right and comes in the
 //    chip's order, the requests are taken in order;
@@ -77,6 +78,10 @@ struct Pending {
 	uint64_t taken;
 	bool     first;
 	bool     line;
+	bool     pair = false;
+	uint32_t block2 = 0;  // a pair read's second block
+	uint8_t  data2[16];
+	int      got = 0;     // words returned
 	uint64_t returned = 0;
 };
 
@@ -103,17 +108,19 @@ struct Bench {
 	uint64_t cyc = 0;
 	std::vector<uint8_t> ref;
 	std::deque<Pending> rd;
-	uint64_t words_checked = 0, taken[4] = {0, 0, 0, 0};
+	uint64_t words_checked = 0, taken[4] = {0, 0, 0, 0}, pairs = 0, cuts = 0, cut_words = 0, drops = 0;
+	uint64_t lat_pair_last_max = 0;
 	uint64_t lat_word_min = ~0ull, lat_word_max = 0, lat_line_min = ~0ull, lat_line_max = 0, lat_line_last_max = 0;
 	uint64_t ready_at = 0;
 	uint64_t last_first = 0, last_word = 0, last_taken = 0;
 	uint64_t row_hits = 0, row_closed = 0, row_misses = 0;
 	uint64_t pre_all_at = 0, refresh_at = 0;
+	uint64_t drop_at = 0;      // rdrop seen, its refresh not yet
 	Mapping maps[3] = {{23}, {10}, {12}};
 
 	// the request presented to the controller
 	bool     have = false;
-	bool     r_we = false, r_line = false;
+	bool     r_we = false, r_line = false, r_pair = false;
 	uint32_t r_addr = 0;        // byte address, word aligned
 	uint8_t  r_data[16];
 	uint16_t r_be = 0;
@@ -125,7 +132,7 @@ struct Bench {
 			ref[2 * h] = (uint8_t)v;
 			ref[2 * h + 1] = (uint8_t)(v >> 8);
 		}
-		t->clk = 0; t->init = 1; t->req = 0; t->we = 0; t->line = 0; t->addr = 0; t->wbe = 0;
+		t->clk = 0; t->init = 1; t->req = 0; t->we = 0; t->line = 0; t->pair = 0; t->addr = 0; t->wbe = 0;
 		for (int i = 0; i < 4; i++) t->wdata[i] = 0;
 		t->sdram_dq_i = 0;
 		t->eval();
@@ -148,19 +155,30 @@ struct Bench {
 
 	void tick() {
 		t->sdram_dq_i = chip.sample(cyc + 1);
+		t->eval();           // busy follows req and we: a read may cut a pair short
 		bool take = have && t->req && !t->busy;
 		t->clk = 1;
 		t->eval();
 		cyc++;
 		if (take) accepted();
 		if (t->rvalid) got_word();
+		if (t->rdrop) {
+			// a refresh cut a pair short: only its second block's words may be missing
+			if (rd.size() != 1 || !rd.front().pair || rd.front().got < 4)
+				sim::fail("rdrop with no pair read's second block outstanding (cycle %llu)", (unsigned long long)cyc);
+			else { drops++; cut_words += rd.front().left; rd.pop_front(); }
+			drop_at = cyc;
+		}
 		if (t->ready && !ready_at) ready_at = cyc;
 		SdramPins p;
 		pins(p);
 		chip.edge(cyc, p);
 		int cmd = p.ras_n << 2 | p.cas_n << 1 | p.we_n;
 		if (!p.cs_n && cmd == 2 && (p.a & 1024)) pre_all_at = cyc;
+		// rdrop is for a refresh only: it follows at once, before any request is taken
+		if (drop_at && cyc - drop_at > 16) { sim::fail("rdrop at cycle %llu with no refresh after it", (unsigned long long)drop_at); drop_at = 0; }
 		if (!p.cs_n && cmd == 1) {
+			drop_at = 0;
 			refresh_at = cyc;
 			for (auto &m : maps) m.refresh();
 		}
@@ -170,6 +188,18 @@ struct Bench {
 	void ticks(uint64_t n) { while (n--) tick(); }
 
 	void accepted() {
+		if (drop_at) sim::fail("a request was taken after rdrop, before its refresh (cycle %llu)", (unsigned long long)cyc);
+		// Only a read may be taken with words outstanding, and only the
+		// second block of a pair: the read cuts it short.
+		if (!rd.empty()) {
+			Pending &f = rd.front();
+			if (r_we || rd.size() != 1 || !f.pair || f.got < 4)
+				sim::fail("a %s was taken with %d word(s) of a %s outstanding (cycle %llu)", r_we ? "write" : "read",
+					f.left, f.pair ? "pair read" : "read", (unsigned long long)cyc);
+			cuts++;
+			cut_words += f.left;
+			rd.pop_front();
+		}
 		last_taken = cyc;
 		int row = chip.open_row((r_addr >> 12) & 3);
 		if (row < 0) row_closed++;
@@ -185,11 +215,16 @@ struct Bench {
 			Pending q;
 			q.block = block;
 			q.word = (r_addr >> 2) & 3;
-			q.left = r_line ? 4 : 1;
+			q.left = r_line ? (r_pair ? 8 : 4) : 1;
 			memcpy(q.data, &ref[block], 16);
 			q.taken = cyc;
 			q.first = true;
 			q.line = r_line;
+			q.pair = r_line && r_pair;
+			// the next block of the 1 KB row, the row's first after its last
+			q.block2 = (block & ~0x3F0u) | ((block + 16) & 0x3F0u);
+			memcpy(q.data2, &ref[q.block2], 16);
+			if (q.pair) pairs++;
 			rd.push_back(q);
 		}
 		have = false;
@@ -199,12 +234,15 @@ struct Bench {
 	void got_word() {
 		if (rd.empty()) { sim::fail("rvalid with no read outstanding (cycle %llu)", (unsigned long long)cyc); return; }
 		Pending &q = rd.front();
-		CHECK_EQ(t->rword, q.word, "rword");
+		bool second = q.got >= 4;
+		CHECK_EQ(t->rword, second ? q.got - 4 : q.word, "rword");
+		CHECK_EQ(t->rsecond, second, "rsecond");
 		uint32_t want = 0;
-		for (int i = 3; i >= 0; i--) want = want << 8 | q.data[4 * (t->rword & 3) + i];
+		for (int i = 3; i >= 0; i--) want = want << 8 | (second ? q.data2 : q.data)[4 * (t->rword & 3) + i];
 		if (t->rdata != want)
-			sim::fail("read of 0x%07x word %d (%s): got %08x, want %08x (cycle %llu)", q.block, t->rword,
-				q.line ? "line" : "word", t->rdata, want, (unsigned long long)cyc);
+			sim::fail("read of 0x%07x word %d (%s): got %08x, want %08x (cycle %llu)", second ? q.block2 : q.block, t->rword,
+				q.pair ? "pair" : q.line ? "line" : "word", t->rdata, want, (unsigned long long)cyc);
+		q.got++;
 		words_checked++;
 		uint64_t lat = cyc - q.taken;
 		if (!q.first) CHECK_EQ(cyc - q.returned, 2, "line words two clocks apart");
@@ -218,18 +256,20 @@ struct Bench {
 		q.word = (q.word + 1) & 3;
 		if (--q.left == 0) {
 			last_word = lat;
-			if (q.line) lat_line_last_max = std::max(lat_line_last_max, lat);
+			if (q.pair) lat_pair_last_max = std::max(lat_pair_last_max, lat);
+			else if (q.line) lat_line_last_max = std::max(lat_line_last_max, lat);
 			rd.pop_front();
 		}
 	}
 
-	void present(bool we, bool line, uint32_t addr, uint16_t be, const uint8_t *data) {
+	void present(bool we, bool line, uint32_t addr, uint16_t be, const uint8_t *data, bool pair = false) {
 		have = true;
-		r_we = we; r_line = line; r_addr = addr & ~3u; r_be = be;
+		r_we = we; r_line = line; r_pair = pair; r_addr = addr & ~3u; r_be = be;
 		memcpy(r_data, data, 16);
 		t->req = 1;
 		t->we = we;
 		t->line = line;
+		t->pair = pair;      // also with a word read or a write, where it must do nothing
 		t->addr = r_addr >> 2;
 		t->wbe = be;
 		for (int i = 0; i < 4; i++)
@@ -247,29 +287,50 @@ struct Bench {
 		for (auto &x : d) x = (uint8_t)rng.u32();
 		uint32_t a = rand_addr();
 		int k = rng.range(0, 99);
-		if (k < 35) present(false, false, a, 0, d);
-		else if (k < 60) present(false, true, a, 0, d);
+		// the last blocks of a row more often than chance: the pair wraps there
+		if (rng.chance(10)) a |= 0x3F0;
+		if (k < 35) present(false, false, a, 0, d, rng.chance(20));
+		else if (k < 60) present(false, true, a, 0, d, rng.chance(50));
 		else if (k < 85) {
 			int w = (a >> 2) & 3;
 			uint16_t be = rng.chance(50) ? 0xF : (uint16_t)(rng.u32() & 0xF);
-			present(true, false, a, (uint16_t)(be << (4 * w)), d);
+			present(true, false, a, (uint16_t)(be << (4 * w)), d, rng.chance(20));
 		} else {
 			uint16_t be = rng.chance(50) ? 0xFFFF : (uint16_t)rng.u32();
-			present(true, true, a, be, d);
+			present(true, true, a, be, d, rng.chance(20));
 		}
 	}
 
 	// Finish on the cycle before the next possible acceptance, so repeated
 	// calls exercise the minimum turnaround with no artificial idle cycles.
-	uint64_t transfer(bool we, bool line, uint32_t addr, uint16_t be = 0xFFFF) {
+	uint64_t transfer(bool we, bool line, uint32_t addr, uint16_t be = 0xFFFF, bool pair = false) {
 		while (t->busy) tick();
 		uint8_t data[16];
 		for (int i = 0; i < 16; i++) data[i] = uint8_t(addr + i * 37 + cyc);
-		present(we, line, addr, be, data);
+		present(we, line, addr, be, data, pair);
 		tick();
 		while (t->busy) tick();
 		CHECK(rd.empty(), "transfer completed with a read outstanding");
 		return cyc + 1 - last_taken;
+	}
+
+	// A request held up from `after` clocks after a pair read is taken:
+	// the clock it is taken in, counted from the pair's.
+	uint64_t after_pair(uint32_t pair_addr, int after, bool we, bool line, bool pair, uint32_t addr) {
+		while (t->busy) tick();
+		uint8_t data[16];
+		for (int i = 0; i < 16; i++) data[i] = uint8_t(addr * 3 + i * 41 + cyc);
+		present(false, true, pair_addr, 0xFFFF, data, true);
+		tick();
+		uint64_t t0 = last_taken;
+		for (int i = 0; i < after; i++) tick();
+		present(we, line, addr, 0xFFFF, data, pair);
+		while (have) tick();
+		uint64_t at = last_taken - t0;
+		t->req = 0;
+		while (t->busy) tick();
+		CHECK(rd.empty(), "a read outstanding after the access that followed a pair");
+		return at;
 	}
 
 	void fresh_refresh() {
@@ -305,8 +366,75 @@ struct Bench {
 		}
 	}
 
+	// A pair read: the line's four words, then the next block's, a word
+	// every other clock throughout, one READ more and nothing else.
+	void pair_cases(bool exact) {
+		fresh_refresh();
+		for (int kind = 0; kind < 3; kind++) {
+			auto a = chip.activates, p = chip.precharges, stop = chip.stops, r = chip.reads;
+			auto clocks = transfer(false, true, kind == 2 ? 0x408 : 0x8, 0xFFFF, true);
+			printf("timing pair read %s: first %llu last %llu next %llu\n", kind == 0 ? "closed" : kind == 1 ? "hit" : "miss",
+				(unsigned long long)last_first, (unsigned long long)last_word, (unsigned long long)clocks);
+			CHECK_EQ(chip.activates - a, kind == 1 ? 0 : 1, "pair: ACTIVE only on closed/missing row");
+			CHECK_EQ(chip.precharges - p, kind == 2 ? 1 : 0, "pair: PRECHARGE only on row conflict");
+			CHECK_EQ(chip.stops - stop, 0, "pair: no BURST TERMINATE");
+			CHECK_EQ(chip.reads - r, 2, "pair: two READs");
+			if (exact) {
+				int setup = kind == 0 ? 3 : kind == 1 ? 0 : 6;
+				CHECK_EQ(clocks, setup + 20, "pair access clocks");
+				CHECK_EQ(last_first, setup + 5, "pair first word clocks");
+				CHECK_EQ(last_word, setup + 19, "pair last word clocks");
+			}
+		}
+		// from every word, at a row's end (the second block is the row's
+		// first) and at the ends of banks and of the module; then every
+		// kind of access straight after a pair
+		for (uint32_t a : {0u, 0x3E0u, 0x3F0u, 0xFF0u, 0x3FF0u, 0x7FFFF0u, 0xFFFFF0u, 0x1FFFFF0u})
+			for (int word = 0; word < 4; word++) {
+				transfer(true, true, a, 0xFFFF);
+				transfer(true, true, (a & ~0x3F0u) | ((a + 16) & 0x3F0u), 0xFFFF);
+				transfer(false, true, a + 4 * word, 0xFFFF, true);
+			}
+		for (int next = 0; next < 4; next++) for (uint32_t dest : {0x10u, 0x1000u, 0x400u}) {
+			transfer(false, true, 0x4, 0xFFFF, true);
+			transfer(next & 2, next & 1, dest, 0xA55A);
+			transfer(false, true, 0xC, 0xFFFF, true);
+			transfer(false, true, dest, 0xFFFF, true);
+		}
+		// The next read cuts a pair short: it is taken as after a line read
+		// (12 clocks on a hit), whenever it comes and wherever it goes; a
+		// write waits for the pair's end.
+		// (the clocks are those of a pair on an open row with no refresh
+		// in the way, so only such runs are held to them)
+		uint64_t timed = 0;
+		for (int after = 0; after < 24; after++) for (int kind = 0; kind < 3; kind++) {
+			for (uint32_t dest : {0x44u, 0x1048u, 0x40Cu, 0x34u}) {
+				bool we = dest == 0x34u;
+				auto r0 = chip.refreshes;
+				transfer(false, true, 0x10); transfer(false, true, 0x1010);
+				uint64_t at = after_pair(0x24, after, we, kind >= 1, kind == 2, kind == 2 && we ? 0x1040 : dest);
+				if (!exact || chip.refreshes != r0) continue;
+				timed++;
+				if (we) CHECK_EQ(at, (uint64_t)std::max(after + 1, 20), "a write after a pair read waits for its end");
+				else CHECK_EQ(at, (uint64_t)std::max(after + 1, 12), "a read after a pair read is taken as after a line read");
+			}
+		}
+		if (exact) CHECK(timed > 200, "too few timed runs after a pair (%llu)", (unsigned long long)timed);
+		// a refresh that falls due inside a pair cuts it short as well, and
+		// the request that follows waits for the refresh
+		auto d0 = drops;
+		for (int offset = 0; offset < 800; offset++) {
+			fresh_refresh();
+			ticks(offset);
+			after_pair(0x28, offset % 24, offset & 1, true, !(offset & 2), 0x404);
+		}
+		CHECK(drops - d0 > 5, "no pair read was cut short by a refresh (%llu)", (unsigned long long)(drops - d0));
+		printf("pair reads: timing, every word, row ends, every following access and cuts passed\n");
+	}
+
 	void directed(bool exact) {
 		timing_cases(exact);
+		pair_cases(exact);
 		fresh_refresh();
 		auto acts = chip.activates;
 		for (int bank = 0; bank < 4; bank++) transfer(false, true, uint32_t(bank) << 12);
@@ -425,8 +553,9 @@ int main(int argc, char **argv) {
 
 	// refreshes: one per REFRESH_CLKS, never more than tREFI apart
 	double us = b.cyc * b.chip.tm.tck / 1000;
-	printf("%llu clocks (%.0f us): %llu word reads, %llu line reads, %llu word writes, %llu line writes, %llu words checked\n",
-		(unsigned long long)b.cyc, us, (unsigned long long)b.taken[0], (unsigned long long)b.taken[1],
+	printf("%llu clocks (%.0f us): %llu word reads, %llu line reads (%llu of them pairs, %llu cut short by a read and %llu by a refresh with %llu words unread), %llu word writes, %llu line writes, %llu words checked\n",
+		(unsigned long long)b.cyc, us, (unsigned long long)b.taken[0], (unsigned long long)b.taken[1], (unsigned long long)b.pairs,
+		(unsigned long long)b.cuts, (unsigned long long)b.drops, (unsigned long long)b.cut_words,
 		(unsigned long long)b.taken[2], (unsigned long long)b.taken[3], (unsigned long long)b.words_checked);
 	printf("refreshes %llu, longest gap %.0f ns (tREFI %.1f ns)\n", (unsigned long long)b.chip.refreshes,
 		b.chip.max_refresh_gap, b.chip.tm.refi);
@@ -435,12 +564,12 @@ int main(int argc, char **argv) {
 		100.0 * b.row_hits / (b.row_hits + b.row_closed + b.row_misses));
 	for (auto &m : b.maps) printf("shadow mapping bank bits %d:%d: %.2f%% hits (%llu/%llu)\n", m.shift + 1, m.shift,
 		100.0 * m.hits / m.total, (unsigned long long)m.hits, (unsigned long long)m.total);
-	printf("latency from the request taken to rvalid: word %llu-%llu, line first word %llu-%llu, last word up to %llu clocks\n",
+	printf("latency from the request taken to rvalid: word %llu-%llu, line first word %llu-%llu, last word up to %llu clocks, a pair's up to %llu\n",
 		(unsigned long long)b.lat_word_min, (unsigned long long)b.lat_word_max, (unsigned long long)b.lat_line_min,
-		(unsigned long long)b.lat_line_max, (unsigned long long)b.lat_line_last_max);
+		(unsigned long long)b.lat_line_max, (unsigned long long)b.lat_line_last_max, (unsigned long long)b.lat_pair_last_max);
 	double run_us = (b.cyc - b.ready_at) * b.chip.tm.tck / 1000;
 	CHECK(b.chip.refreshes - 8 + 2 > (uint64_t)(run_us / 7.8125), "too few refreshes");
-	CHECK(b.taken[0] && b.taken[1] && b.taken[2] && b.taken[3], "not every kind of access was made");
+	CHECK(b.taken[0] && b.taken[1] && b.taken[2] && b.taken[3] && b.pairs && b.cuts, "not every kind of access was made");
 	if (b.chip.errors) sim::fail("the chip model reported %d timing or protocol error(s)", b.chip.errors);
 
 	if (expect_fail) {

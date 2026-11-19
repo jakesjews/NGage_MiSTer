@@ -134,7 +134,7 @@ module ngage_mem #(
 	logic [63:0] m1_lrdata;
 
 	// SDRAM controller port
-	logic         sdr_req, sdr_we, sdr_line, sdr_busy, sdr_rvalid;
+	logic         sdr_req, sdr_we, sdr_line, sdr_pair, sdr_busy, sdr_rvalid, sdr_rsecond, sdr_rdrop;
 	logic [24:2]  sdr_addr;
 	logic [127:0] sdr_wdata;
 	logic [15:0]  sdr_wbe;
@@ -177,8 +177,9 @@ module ngage_mem #(
 		.fl1_req(fl1_req), .fl1_we(fl1_we), .fl1_addr(fl1_addr), .fl1_wdata(fl1_wdata), .fl1_rdata(fl1_rdata), .fl1_ack(fl1_ack),
 		.fl1_array(fl1_array), .fl1_lreq(fl1_lreq), .fl1_laddr(fl1_laddr), .fl1_ltaken(fl1_ltaken),
 		.fl1_lrvalid(fl1_lrvalid), .fl1_lrbeat(fl1_lrbeat), .fl1_lrdata(fl1_lrdata),
-		.sdr_req(sdr_req), .sdr_we(sdr_we), .sdr_line(sdr_line), .sdr_addr(sdr_addr), .sdr_wdata(sdr_wdata),
-		.sdr_wbe(sdr_wbe), .sdr_busy(sdr_busy), .sdr_ready(sdram_ready), .sdr_rvalid(sdr_rvalid), .sdr_rword(sdr_rword), .sdr_rdata(sdr_rdata),
+		.sdr_req(sdr_req), .sdr_we(sdr_we), .sdr_line(sdr_line), .sdr_pair(sdr_pair), .sdr_addr(sdr_addr), .sdr_wdata(sdr_wdata),
+		.sdr_wbe(sdr_wbe), .sdr_busy(sdr_busy), .sdr_ready(sdram_ready), .sdr_rvalid(sdr_rvalid), .sdr_rword(sdr_rword), .sdr_rsecond(sdr_rsecond), .sdr_rdrop(sdr_rdrop),
+		.sdr_rdata(sdr_rdata),
 		.p_sel(p_sel), .p_we(p_we), .p_addr(p_addr), .p_wdata(p_wdata), .p_be(p_be), .p_rdata(p_rdata), .p_wait(p_wait),
 		.unmapped(unmapped),
 		.idle(b_idle)
@@ -279,11 +280,14 @@ module ngage_mem #(
 		.busy(sdr_busy),
 		.we(sdr_we),
 		.line(sdr_line),
+		.pair(sdr_pair),
 		.addr(sdr_addr),
 		.wdata(sdr_wdata),
 		.wbe(sdr_wbe),
 		.rvalid(sdr_rvalid),
 		.rword(sdr_rword),
+		.rsecond(sdr_rsecond),
+		.rdrop(sdr_rdrop),
 		.rdata(sdr_rdata),
 		.sdram_cke(sdram_cke),
 		.sdram_cs_n(sdram_cs_n),

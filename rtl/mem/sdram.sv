@@ -37,7 +37,15 @@
 // overlapping accesses. All four rows close for each refresh.
 //
 // Mode: burst length 8 (sequential) for reads, single-location writes. A
-// line read wraps inside the 8-halfword block, requested word first. Word
+// line read wraps inside the 8-halfword block, requested word first. A pair
+// read (line and pair) goes on with the next 16-byte block of the row (the
+// row's first after its last): a second READ eight clocks after the first,
+// at that block's first halfword, so its eight halfwords follow the line's
+// without a gap. The second block is read on the chance that it is wanted:
+// once the line's four words are out, a read request is taken as if the
+// pair had ended (its READ, or the PRECHARGE before it, ends the burst at
+// the chip; nothing more of the pair is returned), and so is a refresh
+// that is due. A write waits. Word
 // reads issue BURST TERMINATE two clocks after READ, leaving two halfwords
 // with the same capture schedule. Writes issue one WRITE per halfword with
 // its DQM (two for a word, eight for a line). Reads finish after capture;
@@ -49,6 +57,7 @@
 //                    column command     words at port     next request
 //   word read hit:    READ 0, STOP 2      5                 6
 //   line read hit:    READ 0              5, 7, 9, 11      12
+//   pair read hit:    READ 0, READ 8      5 ... 11, 13 ... 19  20 (a read: 12)
 //   word write hit:   WRITE 0-1                            3
 //   line write hit:   WRITE 0-7                            9
 // A closed bank adds ACTIVE at 0 and 3 clocks to these numbers; a conflict
@@ -71,7 +80,13 @@
 //   returns its words on rvalid/rword/rdata, one every other clock, in the
 //   chip's order (from addr's word, wrapping in the 16-byte block); rdata
 //   is driven straight from the DQ input registers and is valid only while
-//   rvalid is high. A write needs nothing back: its data is latched.
+//   rvalid is high. A pair read then returns the four words of the next
+//   16-byte block (addr's 1 KB row wraps), in order from its word 0, with
+//   rsecond high, or fewer when a read request cuts it short: busy falls
+//   for a read (req high, we low) from the clock of the line's last word,
+//   as after a line read, and no word of the pair follows the edge that
+//   takes it. A refresh that falls due cuts it short too: rdrop is then
+//   high for a clock, and the words not yet returned do not come. A write needs nothing back: its data is latched.
 //   wdata/wbe are indexed by the byte in the 16-byte block (word k of the
 //   block in wdata[32k+31:32k]); a word write uses the word at addr only.
 //   Accesses are carried out in order.
@@ -103,11 +118,14 @@ module sdram #(
 	output logic         busy,
 	input  logic         we,
 	input  logic         line,      // 1: 16 bytes, 0: one word
+	input  logic         pair,      // with line, a read: then the next 16 bytes of the row
 	input  logic [24:2]  addr,      // word address in the module
 	input  logic [127:0] wdata,
 	input  logic [15:0]  wbe,
 	output logic         rvalid,
 	output logic [1:0]   rword,     // word of the block that rdata holds
+	output logic         rsecond,   // ... of a pair read's second block
+	output logic         rdrop,     // the rest of a pair read's second block will not come (refresh)
 	output logic [31:0]  rdata,
 
 	output logic         sdram_cke,
@@ -153,12 +171,14 @@ module sdram #(
 	// the last halfword (also covers write-to-read and DQM recovery).
 	localparam int END_RW = CAP + 2;
 	localparam int END_RL = CAP + 8;
+	localparam int END_RP = CAP + 16;
 	localparam int END_WW = RCD + 1 + WR;
 	localparam int END_WL = RCD + 7 + WR;
 	localparam int AGE_MAX = imax(RAS, RC);
 	localparam int AW = $clog2(AGE_MAX + 1);
 	// Conservative bounds even for an access accepted just after ACTIVE:
 	// finish tRAS, PRECHARGE, then respect both tRP and the previous tRC.
+	// (a pair read counts as a line read: a due refresh cuts its second block short)
 	localparam int LONGEST = imax(RAS + RP, RC) + imax(imax(END_RW, END_RL), imax(END_WW, END_WL));
 	localparam int REF_CLOSE = RAS + RP;
 
@@ -166,7 +186,7 @@ module sdram #(
 	localparam int REFRESH_CLKS  = REFI_CLKS - LONGEST - REF_CLOSE - RFC - REFRESH_SLACK - 2;
 	localparam int POWERUP_CLKS  = POWERUP_US * (CLK_HZ / 1_000_000);
 
-	localparam int TW = $clog2(imax(LONGEST, RFC) + 2);
+	localparam int TW = $clog2(imax(imax(LONGEST, END_RP), RFC) + 2);
 
 	// Mode register: single-location writes (A9), CAS latency, sequential,
 	// burst length 8
@@ -214,7 +234,7 @@ module sdram #(
 		end
 	endgenerate
 	logic [12:0]    op_row;
-	logic           op_we, op_line;
+	logic           op_we, op_line, op_pair;
 	logic [TW-1:0]  t;
 	logic [TW-1:0]  t_end;
 	logic [1:0]     op_ba = 2'b00;
@@ -228,8 +248,12 @@ module sdram #(
 	logic           ref_due = 1'b0;
 	logic           ready_q = 1'b0;
 
+	// a pair read's line is out: the next read, or a refresh that is due,
+	// may cut its second block short
+	logic           cut_ok = 1'b0;
+	wire cut  = state == ACCESS && cut_ok && (ref_due || (req && !we));
 	wire idle = state == IDLE || (state == ACCESS && t == t_end) ||
-	            (state == REF_WAIT && t == TW'(RFC));
+	            (state == REF_WAIT && t == TW'(RFC)) || cut;
 
 	// the output stage (see Clocking): the schedule sets these, the I/O
 	// registers take them a clock later
@@ -260,7 +284,7 @@ module sdram #(
 	// read capture: halfword k at edge CAP + k; word j complete at CAP + 2j + 1
 	wire [TW:0] tcap = {1'b0, t} - TW'(CAP);
 	wire        cap_word = state == ACCESS && !op_we && t >= TW'(CAP + 1) && tcap[0] &&
-	                       tcap < (op_line ? (TW + 1)'(8) : (TW + 1)'(2));
+	                       tcap < (op_pair ? (TW + 1)'(16) : op_line ? (TW + 1)'(8) : (TW + 1)'(2));
 
 	assign rdata = {dq_q, dq_hold};
 
@@ -274,10 +298,12 @@ module sdram #(
 	wire [8:0] req_col = we && line ? {h[8:3], 3'b000} : h[8:0];
 	wire [127:0] req_wsh = line ? wdata : {96'd0, wdata[32 * addr[3:2] +: 32]};
 	wire [15:0] req_mask = line ? ~wbe : {12'hFFF, ~wbe[4 * addr[3:2] +: 4]};
-	wire read_now = (hit_start && !we) || (state == ACCESS && !idle && !op_we && t == TW'(RCD));
+	// a pair read's second READ: eight clocks after the first, the next block's first halfword
+	wire second_read = state == ACCESS && !idle && !op_we && op_pair && t == TW'(RCD + 8);
+	wire read_now = (hit_start && !we) || (state == ACCESS && !idle && !op_we && t == TW'(RCD)) || second_read;
 	wire write_now = (hit_start && we) || (state == ACCESS && !idle && op_we &&
 	                  t >= TW'(RCD) && t < TW'(RCD) + (op_line ? TW'(8) : TW'(2)));
-	wire [8:0] col_now = hit_start ? req_col : op_col;
+	wire [8:0] col_now = hit_start ? req_col : second_read ? {op_col[8:3] + 6'd1, 3'b000} : op_col;
 	wire [127:0] wsh_now = hit_start ? req_wsh : wsh;
 	wire [15:0] mask_now = hit_start ? req_mask : wmask;
 
@@ -300,10 +326,13 @@ module sdram #(
 		end
 
 		rvalid_q <= 1'b0;
-		if (cap_word) begin
+		rdrop    <= cut && ref_due && t != t_end;
+		if (cap_word && !cut) begin
 			rvalid_q <= 1'b1;
 			rword  <= word;
-			word   <= word + 2'd1;
+			rsecond <= op_pair && tcap >= (TW + 1)'(8);
+			// the second block's words come in order from its word 0
+			word   <= (op_pair && tcap == (TW + 1)'(7)) ? 2'd0 : word + 2'd1;
 		end
 
 		// ---- refresh timer ----
@@ -383,6 +412,7 @@ module sdram #(
 				end
 				ACCESS: begin
 					t <= t + 1'b1;
+					if (op_pair && t == TW'(CAP + 7)) cut_ok <= 1'b1;
 					// BURST TERMINATE has the same CL delay as READ. Issued
 					// two clocks after READ, it leaves exactly two halfwords
 					// on DQ, without closing the row or changing DQM.
@@ -411,6 +441,7 @@ module sdram #(
 			endcase
 		end else if (ready_q) begin
 			state <= IDLE;
+			cut_ok <= 1'b0;
 			if (ref_due) begin
 				// Stop accepting accesses until all banks are precharged,
 				// tRP has elapsed, and AUTO REFRESH has completed its tRFC.
@@ -428,7 +459,9 @@ module sdram #(
 				op_row   <= h[21:9];
 				op_we    <= we;
 				op_line  <= line;
-				t_end    <= we ? (line ? TW'(END_WL) : TW'(END_WW)) : (line ? TW'(END_RL) : TW'(END_RW));
+				op_pair  <= line && pair && !we;
+				t_end    <= we ? (line ? TW'(END_WL) : TW'(END_WW)) :
+				            (line ? (pair ? TW'(END_RP) : TW'(END_RL)) : TW'(END_RW));
 				word     <= addr[3:2];
 				op_col   <= req_col;
 				wsh      <= req_wsh;
@@ -480,6 +513,7 @@ module sdram #(
 		end
 
 		if (init) begin
+			cut_ok  <= 1'b0;
 			istate  <= I_WAIT;
 			icnt    <= '0;
 			ready_q <= 1'b0;
