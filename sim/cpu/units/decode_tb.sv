@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 module decode_tb;
-    // CUTS: the decode timing cuts' parameters, off (original) or on (the core's).
-    parameter bit CUTS=0;
     logic i_clk, i_reset, i_flush;
     logic i_valid;
     logic o_ready;
@@ -81,7 +79,7 @@ module decode_tb;
     logic [2:0] o_redirect_pointer;
     logic [3:0] o_redirect_count;
     logic [1:0] o_redirect_action;
-    arm925t_decode #(.S_AGU(CUTS),.THUMB_HALF(CUTS),.SHIFT_PRE(CUTS),.PAYLOAD_FREE(CUTS),.REDIRECT_PAYLOAD(CUTS),.WT_TAGS(CUTS),.PREFIX_FREE(CUTS)) dut (.i_serial_continue(1'b1),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.*);
+    arm925t_decode dut (.i_serial_continue(1'b1),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.*);
     wire unused = &{1'b0,o_self_dep,o_shift_pre,o_tag_class,o_ready,o_valid,o_pc,o_instruction,o_pc_base,o_next_pc,o_raw,o_mode,o_thumb,o_fault,o_force_align,o_reg_shift,o_kind,o_condition,o_tag,o_used,o_value,o_dest,o_first,o_last,o_reg_count,o_offset,o_writeback_offset,o_transfer_reg,o_branch_target,o_direct,o_match_taken,o_match_fallthrough,o_predicted,o_pred_hit,o_pred_target,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count,o_hazard,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action};
     int checks=0,cycles=0,redirects=0;
     logic [31:0] last_target=0;
@@ -117,7 +115,7 @@ module decode_tb;
         check(o_ready,"D1 capacity");i_valid=1;i_pc=pc;i_thumb=thumb;
         // With THUMB_HALF the core's fetch stores a Thumb instruction at pc[1]
         // in the low halfword (arm925t_fetch), so the bench sends it so.
-        i_word=CUTS&&thumb&&pc[1]?{16'd0,ins[31:16]}:ins;tick();i_valid=0;
+        i_word=thumb&&pc[1]?{16'd0,ins[31:16]}:ins;tick();i_valid=0;
     endtask
     task automatic receive;
         int limit;limit=0;

@@ -58,13 +58,13 @@ module execute_cache_tb;
     logic o_request;
     logic o_stall;
     logic o_retire_valid;
-    arm925t_front_execute #(.RESET_VECTOR(32'h1000)) dut(.*);
+    arm925t_front_execute dut(.*);
     wire unused=&{1'b0,o_execute_ready,o_valid,o_pc,o_instruction,o_cpsr,o_cpsr_next,o_kind,o_thumb,o_fault,o_first,o_last,o_condition_pass,o_dest,o_result,o_write,o_write_flags,o_pc_write,o_memory,o_store,o_data_address,o_store_data,o_flags,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_btb_update,o_btb_taken,o_btb_hit,o_btb_target,o_btb_state,o_btb_kind,o_a_valid,o_a_can_finish,o_s_write,o_a_dest,o_a_write,o_shift_wait,o_multiply_wait,o_address_nxt,o_address_check,o_address,o_retire_pc,o_retire_instruction,o_retire_value,o_request,o_stall,o_retire_valid};
     wire bus_stb,bus_we;
     wire [31:0] bus_addr;
     logic bus_ack=0;
     logic [31:0] bus_data=0;
-    arm925t_icache #(.CACHE_SIZE(16384),.WAYS(2),.CACHE_LINE(16), .FPAGE_TLB_ENTRIES(32'd8), .LPAGE_TLB_ENTRIES(32'd8), .SECTION_TLB_ENTRIES(32'd8), .SPAGE_TLB_ENTRIES(32'd8), .SPAGE_TLB_WAYS(32'd1)) cache (
+    arm925t_icache #(.CACHE_SIZE(16384),.WAYS(2),.CACHE_LINE(16)) cache (
         .i_clk(i_clk),.i_reset(i_reset),.i_stall(o_stall),.i_address_check(o_address_check),
         .i_wr_check(1'b0),.i_rd_check(1'b1),.i_address(o_address),.i_address_nxt(o_address_nxt),
         .i_rd(o_request),.i_wr(1'b0),.i_ben(4'hf),.i_dat(32'd0),.o_dat(i_data),
@@ -84,27 +84,27 @@ module execute_cache_tb;
         if(a==32'h4000)return 32'h00000c0e;
         if(a>=32'h4004&&a<32'h8000)return 0;
         case(a)
-            32'h1000:return 32'he3a00001;
-            32'h1004:return 32'he3a01002;
-            32'h1008:return 32'he0802001;
-            32'h100c:return 32'he0823082;
-            32'h1010:return 32'he3a04001;
-            32'h1014:return 32'he0835412;
-            32'h1018:return 32'he0060395;
-            32'h101c:return 32'he0270496;
-            32'h1020:return 32'he0898697;
-            32'h1024:return 32'he3580000;
-            32'h1028:return 32'h03a0a063;
-            32'h102c:return 32'he287a001;
-            32'h1030:return 32'he08ab009;
-            32'h1034:return 32'hea000001;
-            32'h1038,32'h103c:return 32'he3a0bb01;
-            32'h1040:return 32'he3a0c004;
-            32'h1044:return 32'he25cc001;
-            32'h1048:return 32'h1afffffd;
-            32'h104c:return 32'he3a00a02;
-            32'h1050:return 32'he2800001;
-            32'h1054:return 32'he12fff10;
+            32'h0000:return 32'he3a00001;
+            32'h0004:return 32'he3a01002;
+            32'h0008:return 32'he0802001;
+            32'h000c:return 32'he0823082;
+            32'h0010:return 32'he3a04001;
+            32'h0014:return 32'he0835412;
+            32'h0018:return 32'he0060395;
+            32'h001c:return 32'he0270496;
+            32'h0020:return 32'he0898697;
+            32'h0024:return 32'he3580000;
+            32'h0028:return 32'h03a0a063;
+            32'h002c:return 32'he287a001;
+            32'h0030:return 32'he08ab009;
+            32'h0034:return 32'hea000001;
+            32'h0038,32'h003c:return 32'he3a0bb01;
+            32'h0040:return 32'he3a0c004;
+            32'h0044:return 32'he25cc001;
+            32'h0048:return 32'h1afffffd;
+            32'h004c:return 32'he3a00a02;
+            32'h0050:return 32'he2800001;
+            32'h0054:return 32'he12fff10;
             32'h2000:return 32'h21032002;
             32'h2004:return 32'h00431842;
             32'h2008:return 32'h435a1c54;
@@ -126,13 +126,13 @@ module execute_cache_tb;
         if(o_retire_valid)begin
             retired++;compare=1;want=0;
             case(o_retire_pc)
-                32'h1000:want=1;32'h1004:want=2;32'h1008:want=3;32'h100c:want=9;
-                32'h1010:want=1;32'h1014:want=15;32'h1018:want=135;
-                32'h101c:want=136;32'h1020:want=18360;32'h1024:want=18360;
-                32'h1028:compare=0;32'h102c:want=137;32'h1030:want=137;
-                32'h1034:compare=0;32'h1040:want=4;
-                32'h1044:begin sub_count++;want=32'(4-sub_count);end
-                32'h1048:compare=0;32'h104c:want=32'h2000;32'h1050:want=32'h2001;32'h1054:compare=0;
+                32'h0000:want=1;32'h0004:want=2;32'h0008:want=3;32'h000c:want=9;
+                32'h0010:want=1;32'h0014:want=15;32'h0018:want=135;
+                32'h001c:want=136;32'h0020:want=18360;32'h0024:want=18360;
+                32'h0028:compare=0;32'h002c:want=137;32'h0030:want=137;
+                32'h0034:compare=0;32'h0040:want=4;
+                32'h0044:begin sub_count++;want=32'(4-sub_count);end
+                32'h0048:compare=0;32'h004c:want=32'h2000;32'h0050:want=32'h2001;32'h0054:compare=0;
                 32'h2000:want=2;32'h2002:want=3;32'h2004:want=5;32'h2006:want=4;
                 32'h2008:want=6;32'h200a:want=20;32'h200c:want=0;32'h200e:compare=0;32'h2010:compare=0;
                 32'h2012:begin

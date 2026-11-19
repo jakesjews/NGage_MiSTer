@@ -13,21 +13,13 @@ for bench in predict fetch; do
     for rtl in sv gen; do
         inputs=("${sources[@]}")
         [[ $rtl == sv ]] || inputs=("$build/$bench-gen.v")
-        # Each configuration: the predictor (fetch only), then the the pipeline cuts
-        # RAS_TOP_FF/VALID_BIT off (the original forms) and on (the core's).
-        configs=(1-0 1-1)
-        [[ $bench != fetch ]] || configs=(0-0 1-0 1-1)
-        for pred in "${configs[@]}"; do
-            cuts=${pred#*-}; pred=${pred%-*}
-            args=(-GRAS_TOP_FF=$cuts -GVALID_BIT=$cuts)
-            [[ $bench != fetch ]] || args+=(-GPREDICTOR=$pred -GTHUMB_HALF=$cuts)
-            dir=$build/$bench-$rtl-$pred-$cuts
-            verilator --binary --timing --assert -j 8 -Wall -Wno-DECLFILENAME \
-                --top-module "${bench}_tb" ${args[@]+"${args[@]}"} --Mdir "$dir" \
-                "${inputs[@]}" "$root/sim/cpu/units/${bench}_tb.sv" > "$dir.log" 2>&1 || {
-                cat "$dir.log"; exit 1;
-            }
-            "$dir/V${bench}_tb"
-        done
+        # One configuration, the core's: the modules' own defaults.
+        dir=$build/$bench-$rtl
+        verilator --binary --timing --assert -j 8 -Wall -Wno-DECLFILENAME \
+            --top-module "${bench}_tb" --Mdir "$dir" \
+            "${inputs[@]}" "$root/sim/cpu/units/${bench}_tb.sv" > "$dir.log" 2>&1 || {
+            cat "$dir.log"; exit 1;
+        }
+        "$dir/V${bench}_tb"
     done
 done

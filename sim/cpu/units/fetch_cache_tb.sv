@@ -5,7 +5,7 @@
 module fetch_cache_tb;
     parameter integer LATENCY=0;
     logic clk=0,reset=1,redirect=0,ready=1,mmu=1;
-    logic [31:0] target=32'h1000;
+    logic [31:0] target=32'h0000;
     logic update=0;
     logic [31:0] update_pc=0,update_target=0;
     wire [31:0] addr_next,addr_check,addr,data,pc,word_data,pred_target;
@@ -15,7 +15,7 @@ module fetch_cache_tb;
     logic bus_ack=0;
     logic [31:0] bus_data=0;
     int cycles=0,checks=0,beats=0;
-    arm925t_fetch #(.RESET_VECTOR(32'h1000)) frontend (
+    arm925t_fetch frontend (
         .i_clk(clk),.i_reset(reset),.i_redirect(redirect),.i_redirect_thumb(1'b0),
         .i_redirect_target(target),.i_redirect_pointer(3'd0),.i_redirect_count(4'd0),
         .i_redirect_action(2'd3),.i_redirect_link(32'd0),.i_predictor_clear(1'b0),
@@ -28,7 +28,7 @@ module fetch_cache_tb;
         .o_request(request),.o_stall(stall),.i_ready(ready),.o_valid(valid),
         .o_pc(pc),.o_word(word_data),.o_fault(fault),.o_predicted(predicted),.o_pred_target(pred_target)
     );
-    arm925t_icache #(.CACHE_SIZE(16384),.WAYS(2),.CACHE_LINE(16), .FPAGE_TLB_ENTRIES(32'd8), .LPAGE_TLB_ENTRIES(32'd8), .SECTION_TLB_ENTRIES(32'd8), .SPAGE_TLB_ENTRIES(32'd8), .SPAGE_TLB_WAYS(32'd1)) cache (
+    arm925t_icache #(.CACHE_SIZE(16384),.WAYS(2),.CACHE_LINE(16)) cache (
         .i_clk(clk),.i_reset(reset),.i_stall(stall),.i_address_check(addr_check),
         .i_wr_check(1'b0),.i_rd_check(1'b1),.i_address(addr),.i_address_nxt(addr_next),
         .i_rd(request),.i_wr(1'b0),.i_ben(4'hf),.i_dat(32'd0),.o_dat(data),
@@ -81,17 +81,17 @@ module fetch_cache_tb;
     endtask
     initial begin
         int seen,limit,last_cycle;logic [31:0] want;
-        tick();reset=0;linear(32'h1000,80);
-        go(32'h1000);ready=0;repeat(80)tick();check(stall,"real cache queue saturation");ready=1;linear(32'h1000,40);
+        tick();reset=0;linear(32'h0000,80);
+        go(32'h0000);ready=0;repeat(80)tick();check(stall,"real cache queue saturation");ready=1;linear(32'h0000,40);
         // Train while fetching, then repeat a three-line hot loop.
-        update=1;update_pc=32'h1000;update_target=32'h1080;tick();
-        update_pc=32'h1080;update_target=32'h10c0;tick();
-        update_pc=32'h10c0;update_target=32'h1000;tick();update=0;
-        go(32'h1000);seen=0;limit=0;last_cycle=0;want=32'h1000;
+        update=1;update_pc=32'h0000;update_target=32'h0080;tick();
+        update_pc=32'h0080;update_target=32'h00c0;tick();
+        update_pc=32'h00c0;update_target=32'h0000;tick();update=0;
+        go(32'h0000);seen=0;limit=0;last_cycle=0;want=32'h0000;
         while(seen<100&&limit<2000)begin
             if(valid)begin
                 check(pc==want&&predicted&&!fault,"cache trained loop sequence");
-                want=pc==32'h1000 ? 32'h1080 : pc==32'h1080 ? 32'h10c0 : 32'h1000;
+                want=pc==32'h0000 ? 32'h0080 : pc==32'h0080 ? 32'h00c0 : 32'h0000;
                 check(pred_target==want&&word_data==memory_word(pc),"cache prediction alignment");
                 if(seen>10)check(cycles==last_cycle+1,"real cache zero-slot hot branch");
                 seen++;last_cycle=cycles;
@@ -108,7 +108,7 @@ module fetch_cache_tb;
         while(!valid&&limit<500)begin tick();limit++;end
         check(valid&&pc==32'h00100000&&fault,"TLB permission/translation abort queued");
         // Reset disables prior metadata; MMU-off exercises the uncached response source.
-        reset=1;mmu=0;tick();reset=0;linear(32'h1000,16);
+        reset=1;mmu=0;tick();reset=0;linear(32'h0000,16);
         $display("PASS real I-cache frontend latency=%0d: %0d checks, %0d cycles, %0d beats",LATENCY,checks,cycles,beats);
         $finish;
     end

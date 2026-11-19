@@ -54,7 +54,8 @@ ARM925T, how it is tested, and the FPGA numbers.
   any change under `rtl/cpu/`.
 - `sim/cpu/`: the Verilator bench, the tests, the unit benches of the
   pipeline's parts (`sim/cpu/units`), the QEMU comparison, the boot bench
-  and the Quartus trial (see Verification).
+  (see Verification), and standalone Quartus trials of the CPU and its
+  parts (`sim/cpu/quartus`).
 
 ## Interface
 
@@ -397,6 +398,11 @@ here; `make -C sim/cpu all` runs them on the Verilator machine instead
 units` runs the unit benches of the pipeline's parts and two proofs (the
 D-cache's lock summary, and the cache metadata against its last reviewed
 form). Results land in `sim/cpu/build/`.
+
+Every test and bench runs the CPU in the core's configuration: the
+modules' own defaults, with nothing overridden. The two cache-size
+parameters are for speed trials on a build or a bench run of their own
+(`VEXTRA`), not for tests.
 
 ### Bench
 

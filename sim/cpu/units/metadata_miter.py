@@ -48,8 +48,8 @@ con=lambda golden:',\n'.join([f'.{n}({"gold_" if golden and n in outs+gold_outs 
 checks='\n'.join(f'assert({n} === gold_{n}) else $fatal(1,"cfg %0d cycle %0d {n}",CFG,cycle);' for n in outs)
 checks+='\n'+'\n'.join(f'assert(dut.{n} === gold.{n}) else $fatal(1,"cfg %0d cycle %0d {n}",CFG,cycle);' for n in ['valid_q','dirty_q','lru_q','state_ff'])
 rand='\n'.join(f'{n} = $random(rng);' for n in all_ins if n not in ['i_clk','i_reset'])
-# Deliberately small enough for repeated full maintenance walks, yet all 16
-# metadata banks are exercised (256 sets). A second instance uses 512 I sets.
+# The D-cache's 8 KB (256 sets) and, in a second instance, the I-cache's
+# 16 KB (512 sets): the core's two sizes.
 tb='''`include "arm925t_defines.svh"
 `include "zap_defines.svh"
 module test #(parameter CFG=0, parameter WAYS=2,
@@ -128,11 +128,10 @@ initial begin
 end
 endmodule
 module short_miter;
-wire [2:0] done;
+wire [1:0] done;
 test #(.CFG(0)) a(done[0]);
 test #(.CFG(1),.CACHE_SIZE(16384)) b(done[1]);
-test #(.CFG(2),.WAYS(1),.CACHE_SIZE(4096)) c(done[2]);
-initial begin wait(&done); $display("PASS: old/new cache edges in three configurations, all common outputs and registered metadata"); $finish; end
+initial begin wait(&done); $display("PASS: old/new cache edges at the core's two cache sizes, all common outputs and registered metadata"); $finish; end
 endmodule
 '''
 (b/'tb.sv').write_text(tb)

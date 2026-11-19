@@ -175,7 +175,7 @@ module arm925t_front_execute #(
     logic [3:0][5:0] rf_tag;
     logic [3:0][31:0] rf_value;
     always_comb for(int n=0;n<4;n++)rf_value[n]=(rf_tag[n]<6'd40) ? model_rf[rf_tag[n]] : 32'd0;
-    arm925t_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR), .S_AGU(1'b1)) u_front_decode (
+    arm925t_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR)) u_front_decode (
         .i_serial_continue(1'b1),.o_dbg_fetch(),
         .i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),
         .o_writes(d_writes),.o_early(d_early),.i_forward_tag(forward_tag),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_write(forward_write),
@@ -271,7 +271,7 @@ module arm925t_front_execute #(
         .o_request(o_request),
         .o_stall(o_stall)
     );
-    arm925t_execute #(.S_AGU(1'b1)) u_execute (
+    arm925t_execute u_execute (
         .i_flags_refresh(1'b0),.o_serial_continue(),.i_pending(4'd0),.i_load_owner(2'd0),.i_next_load_owner(2'd0),.i_load_hit(1'b0),.i_return_select(64'd0),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.i_return_ready(1'b0),.i_return_s_match(4'd0),.i_return_data(64'd0),
         .i_shift_pre(d_shift_pre),.i_tag_class(d_tag_class),.i_self_dep(d_self_dep),.i_load_trust(1'b1),.o_ready_payload(execute_ready_payload),
         .i_admit(1'b1),.i_load_wait(1'b0),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(forward_tag),.i_advance_a_tag('0),.i_advance_skid_tag('0),.i_advance_skid(1'b0),.i_w_load_data(mw_value[1][0]),.i_w_alu_data(mw_value[1][0]),.i_advance_tag('0),.i_next_advance(1'b0),.i_next_write(forward_write),.i_next_write_hold(forward_write_hold),.i_early(d_early),

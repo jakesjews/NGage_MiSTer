@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 module decode_cache_tb;
     parameter integer LATENCY=0;
-    parameter bit CUTS=0;   // the front end's timing cuts off or on
     logic i_clk, i_reset, i_flush;
     logic o_ready;
     logic [4:0] i_mode;
@@ -84,8 +83,7 @@ module decode_cache_tb;
     logic i_ack, i_error, i_retry, i_fill_pending, i_fill_done, i_fill_fault;
     logic [31:0] o_address_nxt, o_address_check, o_address;
     logic o_request, o_stall;
-    arm925t_front_decode #(.RESET_VECTOR(32'h1000),.SHIFT_PRE(CUTS),.PAYLOAD_FREE(CUTS),.REDIRECT_PAYLOAD(CUTS),
-        .WT_TAGS(CUTS),.RAS_TOP_FF(CUTS),.PREFIX_FREE(CUTS),.VALID_BIT(CUTS), .S_AGU(1'b1)) dut (.i_serial_continue(1'b1),.o_dbg_fetch(),.o_writes(),.o_early(),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.*);
+    arm925t_front_decode dut (.i_serial_continue(1'b1),.o_dbg_fetch(),.o_writes(),.o_early(),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.*);
     wire unused=&{1'b0,o_self_dep,o_shift_pre,o_tag_class,o_ready,o_valid,o_pc,o_instruction,o_pc_base,o_next_pc,o_raw,o_mode,o_thumb,o_fault,o_force_align,o_reg_shift,o_kind,o_condition,o_tag,o_used,o_value,o_dest,o_first,o_last,o_reg_count,o_offset,o_writeback_offset,o_transfer_reg,o_branch_target,o_direct,o_match_taken,o_match_fallthrough,o_predicted,o_pred_hit,o_pred_target,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count,o_hazard,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_address_nxt,o_address_check,o_address,o_request,o_stall};
     logic mmu=1;
     wire bus_stb,bus_we;
@@ -94,7 +92,7 @@ module decode_cache_tb;
     logic [31:0] bus_data=0;
     int cycles=0,checks=0,beats=0,redirects=0;
     logic [31:0] last_target=0;
-    arm925t_icache #(.CACHE_SIZE(16384),.WAYS(2),.CACHE_LINE(16), .FPAGE_TLB_ENTRIES(32'd8), .LPAGE_TLB_ENTRIES(32'd8), .SECTION_TLB_ENTRIES(32'd8), .SPAGE_TLB_ENTRIES(32'd8), .SPAGE_TLB_WAYS(32'd1)) cache (
+    arm925t_icache #(.CACHE_SIZE(16384),.WAYS(2),.CACHE_LINE(16)) cache (
         .i_clk(i_clk),.i_reset(i_reset),.i_stall(o_stall),.i_address_check(o_address_check),
         .i_wr_check(1'b0),.i_rd_check(1'b1),.i_address(o_address),.i_address_nxt(o_address_nxt),
         .i_rd(o_request),.i_wr(1'b0),.i_ben(4'hf),.i_dat(32'd0),.o_dat(i_data),
@@ -116,9 +114,9 @@ module decode_cache_tb;
         if(a>=32'h4004&&a<32'h8000)return 0;
         if(a>=32'h2000&&a<32'h2100)return 32'h21022001;
         case(a)
-            32'h1000:return 32'hea00001e;
-            32'h1080:return 32'hea00000e;
-            32'h10c0:return 32'heaffffce;
+            32'h0000:return 32'hea00001e;
+            32'h0080:return 32'hea00000e;
+            32'h00c0:return 32'heaffffce;
             32'h3000:return 32'he8b4010a;
             32'h3004:return 32'he92d4003;
             // Upper-halfword Thumb direct branches, untrained hot loop.
@@ -129,7 +127,7 @@ module decode_cache_tb;
         endcase
     endfunction
     function automatic logic [31:0] loop_next(input logic [31:0] pc);
-        return pc==32'h1000 ? 32'h1080 : pc==32'h1080 ? 32'h10c0 : 32'h1000;
+        return pc==32'h0000 ? 32'h0080 : pc==32'h0080 ? 32'h00c0 : 32'h0000;
     endfunction
     task automatic tick;
         bus_ack=0;
@@ -160,7 +158,7 @@ module decode_cache_tb;
         logic [31:0] want;
         i_clk=0;i_reset=0;i_flush=0;i_mode=0;i_wen=0;i_wr_addr_a=0;i_wr_addr_b=0;i_wr_addr_c=0;i_locked=0;i_early_valid=0;i_early_tag=0;i_wr_data_a=0;i_wr_data_b=0;i_wr_data_c=0;i_ready=0;i_backend_target=0;i_backend_link=0;i_backend_thumb=0;i_backend_pointer=0;i_backend_count=0;i_backend_action=0;i_predictor_clear=0;i_update=0;i_update_pc=0;i_update_target=0;i_update_thumb=0;i_update_taken=0;i_update_hit=0;i_update_state=0;i_update_kind=0;
         i_reset=1;i_mode=5'h13;i_ready=1;i_update_taken=1;i_update_state=1;i_backend_action=3;
-        tick();i_reset=0;want=32'h1000;last_cycle=0;unpredicted_spacing=0;
+        tick();i_reset=0;want=32'h0000;last_cycle=0;unpredicted_spacing=0;
         for(int n=0;n<15;n++)begin
             receive();check(o_pc==want&&o_kind==3&&o_direct&&!o_fault,"unpredicted direct loop sequence");
             check(redirects==n+1&&last_target==loop_next(want)&&o_branch_target==loop_next(want),"registered D2 redirect payload");
@@ -169,8 +167,8 @@ module decode_cache_tb;
             last_cycle=cycles;want=loop_next(want);tick();
         end
         check(unpredicted_spacing==4,"measured unpredicted refill with registered queue and redirect");
-        train(32'h1000,32'h1080);train(32'h1080,32'h10c0);train(32'h10c0,32'h1000);
-        go(32'h1000);want=32'h1000;last_cycle=0;
+        train(32'h0000,32'h0080);train(32'h0080,32'h00c0);train(32'h00c0,32'h0000);
+        go(32'h0000);want=32'h0000;last_cycle=0;
         for(int n=0;n<100;n++)begin
             receive();check(o_pc==want&&o_predicted&&o_match_taken&&!o_redirect&&!o_fault,"predicted direct loop sequence");
             check(o_instruction==memory_word(want),"instruction and prediction metadata stay aligned");

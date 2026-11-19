@@ -167,11 +167,11 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
             32'(o_tag_class) ^
             32'(rf_tag);
     end
-    arm925t_register_file #(.DIRECT_INDEX(0)) u_rf (.i_clk(i_clk),.i_reset(i_reset),.i_wen(i_wen),
+    arm925t_register_file u_rf (.i_clk(i_clk),.i_reset(i_reset),.i_wen(i_wen),
         .i_wr_index_a(6'd0),.i_wr_index_b(6'd0),.i_wr_addr_a(i_wr_addr_a),.i_wr_addr_b(i_wr_addr_b),.i_wr_addr_c(i_wr_addr_c),
         .i_wr_data_a(i_wr_data_a),.i_wr_data_b(i_wr_data_b),.i_wr_data_c(i_wr_data_c),
         .i_rd_addr_a(rf_tag[0]),.i_rd_addr_b(rf_tag[1]),.i_rd_addr_c(rf_tag[2]),.i_rd_addr_d(rf_tag[3]),.i_rd_addr_e(6'd0),
         .o_rd_data_a(rf_value[0]),.o_rd_data_b(rf_value[1]),.o_rd_data_c(rf_value[2]),.o_rd_data_d(rf_value[3]),.o_rd_data_e());
-    arm925t_front_decode #(.S_AGU(1'b1)) u_front_decode (.i_serial_continue(serial_continue),.o_dbg_fetch(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_load_valid('0),.i_load_speculate('0),
+    arm925t_front_decode u_front_decode (.i_serial_continue(serial_continue),.o_dbg_fetch(),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_return_next_valid(1'b0),.i_return_next_tag(6'd0),.o_return_match(),.i_load_valid('0),.i_load_speculate('0),
         .i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),.i_rf_value(rf_value),.o_rf_tag(rf_tag),.o_writes(),.o_early(),.i_forward_tag('0),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_load('0),.o_forward_grant(),.i_forward_write('0),.o_forward_match(),.*);
 endmodule

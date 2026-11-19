@@ -6,8 +6,8 @@ module predict_tb;
     logic [1:0] i_update_state=0, i_update_kind=0, i_repair_action=0;
     logic [2:0] i_repair_pointer=0;
     logic [3:0] i_repair_count=0;
-    // VALID_BIT: the bench looks up i_pc itself, as a redirect candidate.
-    parameter bit RAS_TOP_FF=0, VALID_BIT=0;
+    // The predictor in the core's configuration (its defaults); the bench
+    // looks up i_pc itself, as a redirect candidate.
     wire [31:0] i_pc_redirect=i_pc, i_pc_sequential=32'd0;
     wire i_sel_redirect=1'b1, i_sel_predicted=1'b0;
     wire o_hit,o_taken;
@@ -15,7 +15,7 @@ module predict_tb;
     wire [1:0] o_state,o_kind;
     wire [2:0] o_pointer;
     wire [3:0] o_count;
-    arm925t_predict #(.RAS_TOP_FF(RAS_TOP_FF),.VALID_BIT(VALID_BIT)) dut (.*);
+    arm925t_predict dut (.*);
     int checks=0;
     task automatic tick;
         #1; i_clk=1; #1; i_clk=0; #1;

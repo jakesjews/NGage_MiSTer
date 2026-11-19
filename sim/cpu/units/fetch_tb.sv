@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 module fetch_tb;
-    parameter bit PREDICTOR=1;
-    parameter bit RAS_TOP_FF=0, VALID_BIT=0, THUMB_HALF=0;
+    // The core's configuration (arm925t_fetch's defaults); the checks below
+    // are written for it.
+    localparam bit PREDICTOR=1;
+    localparam bit THUMB_HALF=1;
     logic i_clk=0,i_reset=1,i_redirect=0,i_redirect_thumb=0;
     logic [31:0] i_redirect_target=0,i_redirect_link=0;
     logic [2:0] i_redirect_pointer=0;
@@ -22,7 +24,7 @@ module fetch_tb;
     wire [2:0] o_ras_pointer;
     wire [3:0] o_ras_count;
     wire unused = &{1'b0,o_dbg_fetch,o_address_nxt,o_address_check,o_pred_hit,o_pred_state,o_pred_kind,o_ras_pointer,o_ras_count};
-    arm925t_fetch #(.PREDICTOR(PREDICTOR),.RAS_TOP_FF(RAS_TOP_FF),.VALID_BIT(VALID_BIT),.THUMB_HALF(THUMB_HALF)) dut (.*);
+    arm925t_fetch dut (.*);
     int checks=0,cycle=0;
     task automatic tick;
         #1; i_clk=1; #1; i_clk=0; #1; cycle++;
