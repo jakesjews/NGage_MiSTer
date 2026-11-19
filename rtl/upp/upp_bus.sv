@@ -128,6 +128,7 @@ module upp_bus #(
 	output logic [127:0]      sdr_wdata,
 	output logic [15:0]       sdr_wbe,
 	input  logic              sdr_busy,
+	input  logic              sdr_ready,      // low while the controller starts (again): no word of a read it had taken comes back
 	input  logic              sdr_rvalid,
 	input  logic [1:0]        sdr_rword,
 	input  logic [31:0]       sdr_rdata,
@@ -726,6 +727,10 @@ module upp_bus #(
 			fq_v     <= 1'b0;
 			p_sel_q  <= 1'b0;
 		end
+
+		// the controller starts again (the framework's reset, a PLL unlock):
+		// the words it still owed do not come
+		if (!sdr_ready) rd_pend <= 3'd0;
 	end
 
 endmodule

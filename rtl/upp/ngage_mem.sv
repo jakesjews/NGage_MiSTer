@@ -178,7 +178,7 @@ module ngage_mem #(
 		.fl1_array(fl1_array), .fl1_lreq(fl1_lreq), .fl1_laddr(fl1_laddr), .fl1_ltaken(fl1_ltaken),
 		.fl1_lrvalid(fl1_lrvalid), .fl1_lrbeat(fl1_lrbeat), .fl1_lrdata(fl1_lrdata),
 		.sdr_req(sdr_req), .sdr_we(sdr_we), .sdr_line(sdr_line), .sdr_addr(sdr_addr), .sdr_wdata(sdr_wdata),
-		.sdr_wbe(sdr_wbe), .sdr_busy(sdr_busy), .sdr_rvalid(sdr_rvalid), .sdr_rword(sdr_rword), .sdr_rdata(sdr_rdata),
+		.sdr_wbe(sdr_wbe), .sdr_busy(sdr_busy), .sdr_ready(sdram_ready), .sdr_rvalid(sdr_rvalid), .sdr_rword(sdr_rword), .sdr_rdata(sdr_rdata),
 		.p_sel(p_sel), .p_we(p_we), .p_addr(p_addr), .p_wdata(p_wdata), .p_be(p_be), .p_rdata(p_rdata), .p_wait(p_wait),
 		.unmapped(unmapped),
 		.idle(b_idle)

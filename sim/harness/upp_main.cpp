@@ -16,6 +16,8 @@
 //    p_sel through p_wait, and drops it between accesses;
 //  * a flash word program and a parameter-sector erase through the AMD
 //    command set reach DDR3, and the autoselect IDs read back;
+//  * the SDRAM controller starting again in the middle of a read (the
+//    framework's reset) leaves the bus able to read the SDRAM;
 //  * the latency of each kind of access, printed.
 #include "Vngage_mem.h"
 #include "verilated.h"
@@ -358,6 +360,38 @@ struct Bench {
 		if (rng.chance(30)) for (int i = 0, n = rng.range(1, 8); i < n; i++) tick();
 	}
 };
+
+// The SDRAM controller starts again in the middle of a read (sdram_init,
+// the framework's reset or a PLL unlock): the words it owed never come, and
+// the bus must not wait for them afterwards.
+void restart_mid_read(Bench &b) {
+	for (int at = 1; at < 16; at += 2) for (int line = 0; line < 2; line++) {
+		for (int i = 0; i < 40; i++) b.tick();
+		b.cur = line ? b.burst(false, 0x0A012440u, 4, 1, "fill cut by a restart") : b.single(false, 0x0A012448u, 0xF, 0, "read cut by a restart");
+		b.bi = 0; b.busy = true; b.start = b.beat_seen = b.cyc;
+		for (int i = 0; i < at; i++) b.tick();
+		b.busy = false;
+		// (the controller's power-up wait leaves the chip without a refresh
+		// and with its rows open for 200 us, which the chip model reports:
+		// that is the restart itself, not what is tested here)
+		int chip_errors = b.chip.errors;
+		bool chip_quiet = b.chip.quiet;
+		b.chip.quiet = true;
+		b.t->reset = 1; b.t->sdram_init = 1;
+		for (int i = 0; i < 4; i++) b.tick();
+		b.t->sdram_init = 0;
+		uint64_t limit = b.cyc + 40000;
+		while (!b.t->sdram_ready && b.cyc < limit) b.tick();
+		CHECK(b.t->sdram_ready, "SDRAM not ready after a restart");
+		b.chip.errors = chip_errors;
+		b.chip.quiet = chip_quiet;
+		b.tick(); b.tick();
+		b.t->reset = 0; b.tick();
+		b.run(b.single(false, 0x0A012444u, 0xF, 0, "read after a restart"));
+		b.run(b.burst(false, 0x0A012440u, 4, 1, "fill after a restart"));
+	}
+	printf("SDRAM controller restarts in the middle of a read: the bus reads on\n");
+}
 
 // the AMD command set on CS0 through the bus: autoselect, a word program, a
 // parameter-sector erase
@@ -732,6 +766,7 @@ int main(int argc, char **argv) {
 
 	for (int i = 0; i < txns && sim::failures() < 20; i++) b.random_txn();
 
+	restart_mid_read(b);
 	flash_commands(b);
 	flash_line_bursts(b);
 	for (int i = 0; i < 2000 && sim::failures() < 20; i++) b.random_txn();
