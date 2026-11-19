@@ -185,7 +185,8 @@ bool device(uint32_t a) {
 
 // Register snapshots and the pipeline held-read profiling use implementation-specific taps.
 #define V2_TAP(n) emu__DOT__arm925t__DOT__u_top__DOT__u_core__DOT__##n
-#define CORE_REGS emu__DOT__arm925t__DOT__u_top__DOT__u_core__DOT__u_writeback__DOT__u_register_file__DOT__mem
+// the register file's contents, rebuilt from its banks by sim/harness/core_regs_tap.sv
+#define CORE_REGS emu__DOT__u_core_regs_tap__DOT__regs
 #define CORE_DATA_PC emu__DOT__arm925t__DOT__u_top__DOT__u_core__DOT__data_pc8
 
 // keys of the key script: a joystick bit (ngage_input.sv) or a PS/2 code

@@ -2,7 +2,8 @@
 
 // sim/harness/coreboot_main.cpp watches the CPU as tb/tb_cpu.sv does in the
 // CPU bench: the writeback stage for retired instructions and exceptions,
-// the register file, the PC of the instruction at the memory stage.
+// the PC of the instruction at the memory stage (the registers come from
+// sim/harness/core_regs_tap.sv).
 public_flat_rd -module "arm925t_writeback" -var "i_valid"
 public_flat_rd -module "arm925t_writeback" -var "i_decompile_valid"
 public_flat_rd -module "arm925t_writeback" -var "i_uop_last"
@@ -14,7 +15,6 @@ public_flat_rd -module "arm925t_writeback" -var "i_swi"
 public_flat_rd -module "arm925t_writeback" -var "i_und"
 public_flat_rd -module "arm925t_writeback" -var "i_pc_plus_8_buf_ff"
 public_flat_rd -module "arm925t_writeback" -var "cpsr_ff"
-public_flat_rd -module "arm925t_register_file" -var "mem"
 
 // Architectural events use the same wrapper taps as hardware counters.
 public_flat_rd -module "emu" -var "tr_wb_*"
