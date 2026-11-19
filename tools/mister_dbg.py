@@ -34,7 +34,7 @@ after each of those six (charged to the exception that last took the CPU out
 of User mode); the instructions retired in User mode; the aborts/undefined,
 SWIs and interrupts taken in a privileged mode; the kernel calls of 4,096
 clocks or more and of 65,536 or more; with the marker "NGE3" also the
-clocks in Supervisor, Undefined and IRQ mode and the RH-29 v4.60 kernel's
+clocks in Supervisor, Undefined and IRQ mode and the RH-29 kernel's
 process switches with their I-cache, I-TLB and D-TLB invalidations and
 D-cache clean loops; with "NGE4" also the display: the clocks of picture
 uploads (a RAMWR from the top line to its last pixel) in all, in Undefined
@@ -165,7 +165,7 @@ def counters(w):
     # shifter = register-shift/multiply wait, decode = W CP15 occupancy,
     # alu flush = registered A redirect, wb flush = W exception/serial/PC
     # recovery. Scalar misses retain operands and do not count as replays.
-    # uops/instructions count W retirement; D-cache events are shared with ZAP.
+    # uops/instructions count W retirement.
     # Next are the MMC card counters (512-byte blocks completed, data-phase
     # clocks, wire-wait-for-Linux clocks), and the D-cache's events (load-miss
     # fills, store-miss fills, line write-backs, uncached completions)

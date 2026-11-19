@@ -309,9 +309,9 @@ class Run:
 
     def overlay_on(self):
         """The OSD's "Debug overlay" entry (F12, 12 down, enter, two esc), until a capture decodes.
-        Only after a launcher's loads are over: see boot_profile.overlay_on."""
+        Only after a launcher's loads are over (a file load restarts the core and resets the OSD)."""
         for attempt in range(4):
-            for k in ["f12"] + ["down"] * 12 + ["enter", "esc", "esc"]:  # see boot_profile.overlay_on
+            for k in ["f12"] + ["down"] * 12 + ["enter", "esc", "esc"]:
                 self.board.press(k)
                 time.sleep(0.4)
             time.sleep(1.5)
