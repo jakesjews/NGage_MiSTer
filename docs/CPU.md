@@ -47,9 +47,22 @@ ARM925T, how it is tested, and the FPGA numbers.
   to the ZAP-derived files are tagged `ARM925T:` in the source.
 - Every parameter's default in these files is the value the core is built
   with.
+- The sources are the one design the core is built from. They have no
+  feature switches: the timing work's one-bit parameters were folded in on
+  2026-11-18, each at the value the core was built with, and the forms
+  they chose between are gone (git history has them). Seven one-bit
+  parameters remain, each because two instances of a module differ in it
+  (the instruction side and the data side, or two RAMs). Names such as
+  `FREE_SELECT` or `REG_DONE` in comments and in docs/PROGRESS-LOG.md
+  label parts of the design; the head of the file that holds a part says
+  what it is.
+- Nothing in the sources exists only for simulation: no behavioural RAMs,
+  no reference models, no assertions (two checks of the cache parameters'
+  ranges are all that is left). The RAMs are Altera's megafunctions,
+  which the benches model (`sim/stubs`), and the checks are the benches'.
 - `rtl/cpu/arm925t_gen.v`: the Verilog-2005 netlist Quartus compiles,
-  made by `tools/gen_cpu.sh` (sv2v, `-DSYNTHESIS`, plus the Quartus
-  fix described in the script). `make cpu-gen` regenerates it and
+  made by `tools/gen_cpu.sh` (sv2v, plus the Quartus fix described in
+  the script). `make cpu-gen` regenerates it and
   `make cpu-gen-check` fails when it is out of date, so regenerate after
   any change under `rtl/cpu/`.
 - `sim/cpu/`: the Verilator bench, the tests, the unit benches of the
@@ -407,8 +420,8 @@ parameters are for speed trials on a build or a bench run of their own
 ### Bench
 
 `sim/cpu/tb/tb_cpu.sv` instantiates the wrapper (the generated netlist by
-default, `RTL=sv` for the SystemVerilog) with probes into the writeback
-stage. `sim/cpu/tb/main.cpp` provides 16 MB of RAM at 0, 64 KB at
+default, `RTL=sv` for the SystemVerilog; the RAM models of `sim/stubs`
+with either) with probes into the writeback stage. `sim/cpu/tb/main.cpp` provides 16 MB of RAM at 0, 64 KB at
 0xFFFF0000 (high vectors), bench registers at 0xF0000000 (console, stop,
 interrupt lines and timers, cycle and instruction counters, a fixed-latency
 override) and a bus error everywhere else. It answers the bus after a

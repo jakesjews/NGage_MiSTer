@@ -233,12 +233,6 @@ always_ff @(posedge i_clk)
         else if (state_ff == FETCH_SINGLE && take && adr_ctr_ff == 0)
                 fill_no_late_error_ff <= CACHE_LINE == 16 && fetch_wrap_ff &&
                                          i_wb_no_late_error && !i_wb_err;
-// synthesis translate_off
-always @(posedge i_clk)
-        if (!i_reset && state_ff == FETCH_SINGLE && fill_no_late_error_ff && take)
-                assert (!i_wb_err)
-                        else $fatal(1, "I-fill producer broke its first-beat no-late-error guarantee");
-// synthesis translate_on
 assign fill_lookup = i_stall ? i_address : i_address_check;
 assign o_dbg_icache[0] = state_ff == FETCH_SINGLE && take && o_wb_cti_ff == CTI_EOB;
 assign o_dbg_icache[1] = state_ff == FETCH_SINGLE && o_wb_cyc_ff && o_wb_stb_ff && !take;

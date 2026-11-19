@@ -7,7 +7,7 @@
 // out of a zero-sum bit is a|b: (a^b) == {a[30:0]|b[30:0], cin}. Each bit
 // is one function of a, b and their lower neighbours, then one AND tree.
 // Logical N and Z come from the logical result itself, never the adder.
-module arm925t_alu #(parameter logic FAST_Z = 1'b1) (
+module arm925t_alu  (
     input  logic [31:0] i_a,
     input  logic [31:0] i_b,
     input  logic [3:0]  i_op,
@@ -53,10 +53,10 @@ module arm925t_alu #(parameter logic FAST_Z = 1'b1) (
             default: begin o_result = sum[31:0]; arithmetic = 1'b1; end
         endcase
         o_flags = {o_result[31], o_result == 0, i_shift_carry, i_flags[0]};
-        if (FAST_Z) o_flags[3:2] = {logic_result[31], logic_zero};
+        o_flags[3:2] = {logic_result[31], logic_zero};
         if (arithmetic) begin
             // Arithmetic NZ does not need to wait for the logical/result mux.
-            o_flags[3:2] = {sum[31], FAST_Z ? arith_zero : sum[31:0] == 0};
+            o_flags[3:2] = {sum[31], arith_zero};
             o_flags[1] = sum[32];
             o_flags[0] = (a[31] == b[31]) && (a[31] != sum[31]);
         end

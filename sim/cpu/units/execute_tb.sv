@@ -29,12 +29,10 @@ module execute_tb;
     logic i_thumb,i_fault,i_force_align,i_reg_shift,i_first,i_last;
     logic [3:0] i_kind,i_condition;
     logic [3:0][5:0] i_tag;
-    // Ports added by the timing cuts. i_shift_pre is formed from this
-    // record exactly as decode registers it (arm925t_decode shift_controls,
-    // op1_class); execute's own assertions compare it with its formulas.
+    // i_shift_pre is formed from this record exactly as decode registers it
+    // (arm925t_decode shift_controls, op1_class).
     wire i_load_trust=1'b1, i_self_dep=1'b0;
     wire o_ready_payload;
-    wire [31:0] o_alu_address;
     logic [18:0] i_shift_pre;
     // WRITES_PRE: decode's destination mask for this record (arm925t_decode
     // decoded.writes, with the block's register list in ins[15:0]).
@@ -94,7 +92,7 @@ module execute_tb;
     logic [2:0] o_redirect_pointer;
     logic [3:0] o_redirect_count;
     logic [1:0] o_redirect_action;
-    logic o_a_valid,o_a_can_finish,o_a_cond_al,o_a_can_finish_nohit;
+    logic o_a_valid,o_a_can_finish,o_a_can_finish_nohit;
     logic [1:0] o_s_write;
     logic [1:0][5:0] o_a_dest;
     logic [1:0] o_a_write;
@@ -111,7 +109,7 @@ module execute_tb;
     // at M, so datapath semantics are checked after the acceptance edge.
     logic [3:0] i_early;
     logic [3:0][1:0][1:0] i_forward_match;
-    logic [1:0][3:0][4:0] i_forward_grant;
+    logic [3:0][4:0] i_forward_grant;
     logic [1:0][1:0][5:0] i_next_tag,real_tag;
     logic [1:0][1:0] i_next_write,i_next_write_hold,real_write;
     logic [1:0][1:0][31:0] real_value;
@@ -171,13 +169,14 @@ module execute_tb;
     always_comb begin
         logic seen;
         i_forward_grant=0;
-        for(int hit=0;hit<2;hit++)for(int src=0;src<4;src++)begin
+        // The grant that holds if W's load hits (decode's grant_next).
+        for(int src=0;src<4;src++)begin
             seen=0;
             for(int rank=0;rank<4;rank++)begin
-                i_forward_grant[hit][src][rank]=i_forward_match[src][rank/2][1-rank%2]&&!(rank%2==1&&i_load_owner[rank/2]&&(rank/2==0||hit==0))&&!seen;
-                seen|=i_forward_match[src][rank/2][1-rank%2]&&!(rank%2==1&&i_load_owner[rank/2]&&(rank/2==0||hit==0));
+                i_forward_grant[src][rank]=i_forward_match[src][rank/2][1-rank%2]&&!(rank%2==1&&i_load_owner[rank/2]&&rank/2==0)&&!seen;
+                seen|=i_forward_match[src][rank/2][1-rank%2]&&!(rank%2==1&&i_load_owner[rank/2]&&rank/2==0);
             end
-            i_forward_grant[hit][src][4]=!seen;
+            i_forward_grant[src][4]=!seen;
         end
     end
     always_ff @(posedge i_clk)begin
@@ -247,7 +246,7 @@ module execute_tb;
         .i_return_next_valid(|i_return_select[0]),.i_return_next_tag(normal_return_tag),
         .i_return_ready(1'b1),.i_return_s_match(normal_s_match),.i_load_wait(1'b0),.i_ready(ready_m),.i_mw_tag(real_tag),.i_mw_value(real_value),.i_mw_valid(real_write),
 .o_valid(raw_o_valid),.o_pc(raw_o_pc),.o_instruction(raw_o_instruction),.o_cpsr(raw_o_cpsr),.o_cpsr_next(raw_o_cpsr_next),.o_kind(raw_o_kind),.o_thumb(raw_o_thumb),.o_fault(raw_o_fault),.o_first(raw_o_first),.o_last(raw_o_last),.o_condition_pass(raw_o_condition_pass),.o_dest(raw_o_dest),.o_result(raw_o_result),.o_write(raw_o_write),.o_write_flags(raw_o_write_flags),.o_pc_write(raw_o_pc_write),.o_memory(raw_o_memory),.o_store(raw_o_store),.o_address(raw_o_address),.o_store_data(raw_o_store_data),.o_psr_source(raw_o_psr_source),.o_saved_psr(raw_o_saved_psr),.o_original_base(raw_o_original_base),.o_next_pc(raw_o_next_pc),.o_prediction_target(raw_o_prediction_target),.o_spsr_tag(raw_o_spsr_tag),.o_predicted(raw_o_predicted),.*);
-    wire unused=&{1'b0,o_ready_payload,o_alu_address,o_btb_pc,o_btb_thumb,o_record_pointer,o_record_count,o_record_pred_hit,o_record_thumb,o_record_pred_state,i_mw_tag[1],i_mw_value[1],o_a_load,o_predicted,o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target,o_spsr_tag,o_btb_update,o_btb_taken,o_btb_hit,o_btb_target,o_btb_state,o_btb_kind,o_a_can_finish,o_a_cond_al,o_a_can_finish_nohit,o_s_write,o_ready,o_valid,o_pc,o_instruction,o_cpsr,o_cpsr_next,o_kind,o_thumb,o_fault,o_first,o_last,o_condition_pass,o_dest,o_result,o_write,o_write_flags,o_pc_write,o_memory,o_store,o_address,o_store_data,o_flags,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_a_valid,o_a_dest,o_a_write,o_shift_wait,o_multiply_wait};
+    wire unused=&{1'b0,o_ready_payload,o_btb_pc,o_btb_thumb,o_record_pointer,o_record_count,o_record_pred_hit,o_record_thumb,o_record_pred_state,i_mw_tag[1],i_mw_value[1],o_a_load,o_predicted,o_psr_source,o_saved_psr,o_original_base,o_next_pc,o_prediction_target,o_spsr_tag,o_btb_update,o_btb_taken,o_btb_hit,o_btb_target,o_btb_state,o_btb_kind,o_a_can_finish,o_a_can_finish_nohit,o_s_write,o_ready,o_valid,o_pc,o_instruction,o_cpsr,o_cpsr_next,o_kind,o_thumb,o_fault,o_first,o_last,o_condition_pass,o_dest,o_result,o_write,o_write_flags,o_pc_write,o_memory,o_store,o_address,o_store_data,o_flags,o_redirect,o_redirect_thumb,o_redirect_target,o_redirect_link,o_redirect_pointer,o_redirect_count,o_redirect_action,o_a_valid,o_a_dest,o_a_write,o_shift_wait,o_multiply_wait};
     int checks=0,cycles=0;
     logic [31:0] random_state=32'h315d97af;
     function automatic logic [31:0] rnd;

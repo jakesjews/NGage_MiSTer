@@ -48,11 +48,4 @@ module arm925t_store_queue #(
             if (i_take) head <= head + 1'b1;
         end
     end
-`ifndef SYNTHESIS
-    always_ff @(posedge i_clk) if (!i_reset) begin
-        assert (!(i_push && o_full)) else $fatal(1, "Posted store queue overflow");
-        assert (!(i_take && !o_busy)) else $fatal(1, "Posted store queue underflow");
-        assert (o_full == (count == DEPTH)) else $fatal(1, "Posted store queue full flag");
-    end
-`endif
 endmodule

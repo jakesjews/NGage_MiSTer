@@ -26,20 +26,6 @@
 //
 
 module arm925t_dcache #(
-
-// The RAMs are read on the first edge (ZAP's short read; its three-stage
-// form was removed on 2026-10-25).
-// ARM925T: format each way's word, and its store-collision
-// merge, before the hit selects a way (WAY_FORMAT); register the short RAMs'
-// read/write set collision on the RAMs' own edge (REG_COLLISION).
-parameter logic WAY_FORMAT = 1'b1,
-parameter logic REG_COLLISION = 1'b1,
-// ARM925T: the short hit takes the TLB's unretimed hit_ok copy.
-parameter logic HIT_FF = 1'b1,
-// ARM925T: the FSM's acknowledge and errors as flat functions of registers.
-parameter logic FLAT_ACK = 1'b1,
-// ARM925T: the owner lock summaries without the indexed 64-bit lock_nxt.
-parameter logic LOCK_SPLIT = 1'b1,
 parameter logic [31:0] CACHE_SIZE             = 32'd8192,
 parameter logic [31:0] SPAGE_TLB_ENTRIES      = 32'd256,
 parameter logic [31:0] SPAGE_TLB_WAYS         = 32'd2,   // ARM925T: ways of the small-page TLB (arm925t_tlb).
@@ -47,7 +33,6 @@ parameter logic [31:0] LPAGE_TLB_ENTRIES      = 32'd32,
 parameter logic [31:0] SECTION_TLB_ENTRIES    = 32'd64,
 parameter logic [31:0] FPAGE_TLB_ENTRIES      = 32'd64,
 parameter logic [31:0] CACHE_LINE             = 32'd16,
-parameter logic        BE_32_ENABLE           = 1'd0,
 parameter logic [3:0]  EXT_ABORT_FS           = 4'b1000, // ARM925T: see arm925t_dcache_fsm.
 parameter logic [31:0] WAYS                   = 32'd2,   // ARM925T: 1 or 2 (arm925t_cache_tag_ram).
 parameter logic [31:0] CPSR_MODE              = 32'd4
@@ -89,7 +74,6 @@ output logic [31:0] o_short_data,
 output logic o_short_hit,
 // ARM925T: the FSM can acknowledge a hit in this clock (IDLE or a background-
 // hit slot), registered. A short hit outside it is not accepted now.
-output logic o_short_live,
 output logic o_short_trust,   // o_short_live, and not the clock a fill ends (a register)
 output logic  [31:0]     o_dat,
 output  logic            o_ack,
@@ -189,7 +173,6 @@ logic                            tr_cache_hit_early;
 logic                            tr_cache_hit, tr_cache_hit_dirty; // ARM925T
 logic [(WAYS > 1 ? $clog2(WAYS) : 1)-1:0] tr_cache_way, cf_cache_way; // ARM925T
 logic                            tr_cache_tag_dirty, cf_cache_tag_dirty;
-logic [CACHE_LINE*8-1:0] raw_cache_line, merged_line;
 logic [WAYS-1:0][CACHE_LINE*8-1:0] raw_way_line, way_line_ff;
 logic [WAYS-1:0] fwd_way, fwd_way_ff;
 logic [CACHE_LINE-1:0] fwd_ben_ff;
@@ -212,18 +195,16 @@ logic [3:0]                      state_ff, state_nxt;
 logic [31:0]                     cache_address;
 logic                            hold;
 logic                            idle, live_lookup, live_trust;
-logic [2:0]                      relookup;
 logic                            fill_busy;
 logic [3:0]                      cf_dbg_dcache;
 logic                            clean_line_event;
 assign o_fill_busy = fill_busy;
 assign o_short_data = tr_cache_word;
-assign o_short_hit = tr_cache_hit && (HIT_FF ? tlb_hit_ok_short : tlb_hit_ok);
+assign o_short_hit = tr_cache_hit && tlb_hit_ok_short;
 // ARM925T: during a fill, the line it evicts keeps its tag until UNLOCK_REG
 // and still gives a short hit, but its lookups are unsafe: the FSM withholds
 // the ACK, and after installation the access misses. live_lookup is
 // state_ff[IDLE] || hum_slot_ff, the only states with a hit ACK.
-assign o_short_live = live_lookup;
 assign o_short_trust = live_trust;
 localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
 localparam integer LINE_W = $clog2(CACHE_LINE);
@@ -234,22 +215,10 @@ logic [31:0]                     lookup_address;
 // its address on the lookup and check ports itself (arm925t_core: HOLD
 // presents W on both), so the cache needs no multiplexer of its own in
 // front of the RAMs' address registers and the tag compare. There was
-// one until 2026-11-16 (the request's address while o_relookup was set);
-// it chose between two equal addresses whenever its result was used, and
-// sat on the core's worst timing path with 109 loads. The equality is
-// asserted below for every clock in which the old multiplexer would have
-// switched with a request present.
+// one until 2026-11-16 (the request's address while the FSM asked for a
+// second lookup); it chose between two equal addresses whenever its result
+// was used, and sat on the core's worst timing path with 109 loads.
 assign lookup_address = i_address_nxt;
-`ifndef SYNTHESIS
-always_ff @ (posedge i_clk)
-        if ( !i_reset && (|relookup) && (i_rd || i_wr) )
-        begin
-                assert ( i_address_nxt[LINE_W +: SET_W] == i_address[LINE_W +: SET_W] )
-                        else $fatal(1, "a held request is not on the lookup port");
-                assert ( i_address_check[31:2] == i_address[31:2] )
-                        else $fatal(1, "a held request is not on the check port");
-        end
-`endif
 logic  [3:0]                     wb_err;
 logic                            unused;
 
@@ -260,8 +229,8 @@ assign wb_cti[2] = CTI_EOB;
 assign unused = |{wb_err[1]};
 
 // Basic cache FSM - serves as manager 0.
-arm925t_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_ENABLE(BE_32_ENABLE),
-                 .EXT_ABORT_FS(EXT_ABORT_FS), .WAYS(WAYS), .FLAT_ACK(FLAT_ACK), .LOCK_SPLIT(LOCK_SPLIT)) u_cache_fsm (
+arm925t_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), 
+                 .EXT_ABORT_FS(EXT_ABORT_FS), .WAYS(WAYS) ) u_cache_fsm (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address              (i_address),
@@ -277,7 +246,6 @@ arm925t_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .BE_32_EN
         .o_idle                 (idle),
         .o_live_lookup          (live_lookup),
         .o_live_trust           (live_trust),
-        .o_relookup             (relookup),
         .o_fill_busy            (fill_busy),
         .o_writeback_busy       (victim_writeback_busy),
         .i_ben                  (i_ben),
@@ -382,7 +350,7 @@ assign wb_cti[3] = CTI_EOB;
 arm925t_store_queue u_post (
         .i_clk(i_clk), .i_reset(i_reset), .i_push(post_push),
         .i_address(tlb_phy_addr), .i_data(i_dat),
-        .i_ben(BE_32_ENABLE ? {i_ben[0], i_ben[1], i_ben[2], i_ben[3]} : i_ben),
+        .i_ben(i_ben),
         .o_full(post_full), .o_busy(post_busy),
         .o_cyc_nxt(wb_cyc[3]), .o_address_nxt(wb_adr[3]),
         .o_data_nxt(wb_dat[3]), .o_ben_nxt(wb_sel[3]),
@@ -393,7 +361,7 @@ arm925t_store_queue u_post (
 // ARM925T: enlarged two-way D-caches retain the reported 8 KB geometry
 // for index maintenance. The tag manager visits all physical set colours.
 arm925t_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS),
-                   .REG_COLLISION(REG_COLLISION),
+                   .REG_COLLISION(1'b1),
                    .ACCEPTED_HIT_UPDATE(1'b1),
                    .INDEX_SIZE((WAYS == 2 && CACHE_SIZE > 8192) ? 32'd8192 : CACHE_SIZE)) u_cache_tag_ram (
         .i_clk                  (i_clk),
@@ -417,7 +385,7 @@ arm925t_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(
         .i_hold                 (hold || i_stall),
         .i_cache_en             (i_cache_en),
         .i_cache_line           (cf_cache_line),
-        .o_cache_line           (raw_cache_line),
+        .o_cache_line           (),
         .o_cache_way_line       (raw_way_line),
         .o_cache_way_tag        (raw_way_tag),
         .o_cache_victim         (raw_victim),
@@ -477,13 +445,6 @@ assign forward_victim = forward_store &&
                        raw_cache_tag[`ARM925T_CACHE_TAG__TAG] == cf_cache_tag[`ARM925T_CACHE_TAG__TAG];
 // The RAM's collision register covers the E lookup sampled on this write
 // edge. This merge covers the older M1 lookup already outside the RAM.
-always_comb begin
-    merged_line = raw_cache_line;
-    for (int b=0; b<CACHE_LINE; b++) begin
-        if (forward_victim && cf_cache_line_ben[b])
-            merged_line[8*b +: 8] = cf_cache_line[8*b +: 8];
-    end
-end
 // The victim's line is registered for a write-back (tr_cache_line). Which
 // way is the victim hangs on the access accepted in this very clock (the
 // LRU bit it turns), so that choice sat in front of the line's 128
@@ -493,9 +454,7 @@ end
 // FSM's write-back buffer reads the line. The store that W may be writing
 // into the victim's line is merged behind the registers too (its word, its
 // byte enables and a flag a way are registered: a store's line is its word
-// four times, asserted further down), so W's store data no longer spreads over
-// both ways' lines. Equal to merged_line registered, in every clock
-// (asserted below).
+// four times), so W's store data no longer spreads over both ways' lines.
 always_comb for (int w=0; w<WAYS; w++)
     fwd_way[w] = forward_store &&
         raw_way_tag[w][`ARM925T_CACHE_TAG__TAG] == cf_cache_tag[`ARM925T_CACHE_TAG__TAG];
@@ -506,32 +465,13 @@ always_comb begin
         if (((WAYS > 1 && victim_ff[0]) ? fwd_way_ff[WAYS-1] : fwd_way_ff[0]) && fwd_ben_ff[b])
             tr_cache_line[8*b +: 8] = fwd_dat_ff[8*(b%4) +: 8];
 end
-`ifndef SYNTHESIS
-logic [CACHE_LINE*8-1:0] tr_cache_line_ref;      // the register this replaced
-logic tr_line_loaded = 1'b0;
-always_ff @(posedge i_clk) begin
-    if (!hold && !i_stall) begin tr_cache_line_ref <= merged_line; tr_line_loaded <= 1'b1; end
-    if (!i_reset && tr_line_loaded)
-        assert (tr_cache_line === tr_cache_line_ref) else $fatal(1, "victim line chosen behind the registers");
-end
-`endif
 `include "arm925t_load_format.svh"
 generate if (1) begin : g_short_response
-    logic [31:0] hit_word, store_word, formatted;
-    logic store_collision;
+    logic [31:0] formatted;
     // ARM925T: W already owns registered store data, byte enables and way.
     // Build the possible word result independently of the FSM's full-line
     // write enables. Permission/acceptance selects the finished result;
     // it no longer traverses byte merge and load formatting in series.
-    assign hit_word = raw_cache_words[raw_cache_word_sel ? ((WAYS > 1) ? 1 : 0) : 0];
-    always_comb begin
-        store_word = hit_word;
-        for (int b=0; b<4; b++)
-            if (i_ben[b]) store_word[8*b +: 8] = i_dat[8*b +: 8];
-    end
-    assign store_collision = forward_store &&
-        compare_address[LINE_W-1:2] == i_address[LINE_W-1:2] &&
-        cache_write_way == ((WAYS > 1) ? raw_cache_word_sel : 1'b0);
     // WAY_FORMAT: each way's candidate is finished (merge and format)
     // before the hit chooses; the hit, the last-arriving term, drives only
     // the final 2:1 select. Equal to the serial form for every way.
@@ -546,23 +486,7 @@ generate if (1) begin : g_short_response
             cache_write_way == ((WAYS > 1) ? w[0] : 1'b0) ?
             ld_transform(way_store, i_ldfmt_check) : ld_transform(raw_cache_words[w], i_ldfmt_check);
     end
-    assign formatted = WAY_FORMAT ? way_formatted[(WAYS > 1 && raw_cache_word_sel) ? 1 : 0] :
-                       store_collision ? ld_transform(store_word, i_ldfmt_check) :
-                                         ld_transform(hit_word, i_ldfmt_check);
-`ifndef SYNTHESIS
-    always_ff @(posedge i_clk) if (!i_reset && !hold && !i_stall)
-        assert (formatted == (store_collision ? ld_transform(store_word, i_ldfmt_check) :
-                              ld_transform(hit_word, i_ldfmt_check))) else $fatal(1, "way-parallel format");
-`endif
-`ifndef SYNTHESIS
-    // A live lookup cannot own a fill/saved write. These assertions protect
-    // the factoring above if the FSM's ownership states change later.
-    always_ff @(posedge i_clk) if (!i_reset && forward_store && !hold && !i_stall) begin
-        assert (cf_cache_line == {(CACHE_LINE/4){i_dat}});
-        for (int b=0; b<4; b++)
-            assert (cf_cache_line_ben[4*i_address[LINE_W-1:2]+b] == i_ben[b]);
-    end
-`endif
+    assign formatted = way_formatted[(WAYS > 1 && raw_cache_word_sel) ? 1 : 0];
     always_ff @(posedge i_clk) begin
         if (!hold && !i_stall) begin
             way_line_ff <= raw_way_line;

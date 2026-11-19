@@ -3,12 +3,9 @@
 """Prove the FSM's actual summary capture expressions for arbitrary next locks.
 
 The next bitmap is lock_ff with an arbitrary clear mask (o_reg_idx) and at
-most one new lock at an arbitrary index, the form the FSM builds (its source
-suite assertion checks lock_nxt against it); that covers simultaneous clears
-and installs, same-register replacement, and every owner change. The owner
-queries are the FSM's own expressions (LOCK_SPLIT's and the indexed form's).
-The full CPU source suite separately checks that the queried owner follows
-the W schedule.
+most one new lock at an arbitrary index, the form the FSM builds; that covers
+simultaneous clears and installs, same-register replacement, and every owner
+change. The owner queries are the FSM's own expressions.
 """
 from pathlib import Path
 import re
@@ -27,7 +24,6 @@ model = '''module proof(input clk, reset, input [63:0] o_reg_idx,
     input lock_set_nxt, input [5:0] i_reg_idx_bin,
     input [5:0] i_lock_owner_hold, i_lock_owner_advance,
     input i_lock_owner_move);
-localparam LOCK_SPLIT = @SPLIT@;
 reg [63:0] lock_ff;
 wire [63:0] lock_nxt = (lock_ff & ~o_reg_idx) | (lock_set_nxt ? 64'd1 << i_reg_idx_bin : 64'd0);
 reg o_lock_any, o_lock_owner;
@@ -53,9 +49,8 @@ endmodule
 '''
 command = 'read_verilog -formal proof.v; prep -top proof; flatten; chformal -lower; '
 command += 'sat -seq 2 -tempinduct -maxsteps 4 -set-init-zero -prove-asserts -verify'
-for split in (1, 0):
-    (out / 'proof.v').write_text(model.replace('@SPLIT@', str(split)))
-    with (out / f'proof{split}.log').open('w') as log:
-        subprocess.run(['yosys', '-p', command], cwd=out, stdout=log,
-                       stderr=subprocess.STDOUT, check=True)
-print('PASS: next locks (any clears, one install) and owner, reset and every-edge summary equality, split and indexed')
+(out / 'proof.v').write_text(model)
+with (out / 'proof.log').open('w') as log:
+    subprocess.run(['yosys', '-p', command], cwd=out, stdout=log,
+                   stderr=subprocess.STDOUT, check=True)
+print('PASS: next locks (any clears, one install) and owner, reset and every-edge summary equality')

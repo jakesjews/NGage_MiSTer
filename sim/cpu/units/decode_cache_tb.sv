@@ -11,10 +11,8 @@ module decode_cache_tb;
     logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c;
     logic i_ready;
     wire i_ready_payload=i_ready;
-    // Ports added by the timing cuts (S_AGU, WT_TAGS, PAYLOAD_FREE, SHIFT_PRE,
-    // OP1_PRE), driven consistently with the bench's own signals: W's write
-    // tags are the one-hot write masks' indices (16: none).
-    wire [3:0] i_early_agu=4'd0;
+    // W's write tags are the indices of the bench's one-hot write masks
+    // (16: none).
     logic [5:0] i_wr_tag_a, i_wr_tag_b;
     logic i_wr_pair;
     always_comb begin

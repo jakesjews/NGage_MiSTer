@@ -10,7 +10,7 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
     logic o_ready;
     logic [4:0] i_mode;
     logic i_wen;
-    logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked;
+    logic [39:0] i_wr_addr_c, i_locked;
     logic [3:0][5:0] i_early_tag;
     logic [3:0] i_early_valid;
     logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c;
@@ -55,7 +55,6 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
     logic i_ack, i_error, i_retry, i_fill_pending, i_fill_done, i_fill_fault;
     logic [31:0] o_address_nxt, o_address_check, o_address;
     logic o_request, o_stall;
-    logic [3:0] i_early_agu;
     logic [5:0] i_wr_tag_a, i_wr_tag_b;
     logic i_wr_pair, i_ready_payload, serial_continue;
     logic o_self_dep;
@@ -70,8 +69,6 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
     assign i_flush=stimulus[1:1];
     assign i_mode=stimulus[6:2];
     assign i_wen=stimulus[7:7];
-    assign i_wr_addr_a=stimulus[47:8];
-    assign i_wr_addr_b=stimulus[87:48];
     assign i_wr_addr_c=stimulus[127:88];
     assign i_locked=stimulus[167:128];
     assign i_wr_data_a=stimulus[199:168];
@@ -100,14 +97,13 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
     assign i_fill_pending=stimulus[447:447];
     assign i_fill_done=stimulus[448:448];
     assign i_fill_fault=stimulus[449:449];
-    assign i_early_agu=stimulus[453:450];
     assign i_wr_tag_a=stimulus[459:454];
     assign i_wr_tag_b=stimulus[465:460];
     assign i_wr_pair=stimulus[466:466];
     assign serial_continue=stimulus[467:467];
     assign i_ready_payload=i_ready;
     wire [127:0] flat_o_value=o_value;
-    wire unused = &{1'b0,stimulus[479:468]};
+    wire unused = &{1'b0,stimulus[479:468],stimulus[453:450],stimulus[87:8]};
     always_ff @(posedge clk) begin
         stimulus<={stimulus[447:0],serial_in};
         address_o<=o_address_nxt;data_o<=o_instruction;
@@ -168,7 +164,7 @@ module cpu_trial(input logic clk,input logic [31:0] serial_in,
             32'(rf_tag);
     end
     arm925t_register_file u_rf (.i_clk(i_clk),.i_reset(i_reset),.i_wen(i_wen),
-        .i_wr_index_a(6'd0),.i_wr_index_b(6'd0),.i_wr_addr_a(i_wr_addr_a),.i_wr_addr_b(i_wr_addr_b),.i_wr_addr_c(i_wr_addr_c),
+        .i_wr_index_a(6'd0),.i_wr_index_b(6'd0),.i_wr_addr_c(i_wr_addr_c),
         .i_wr_data_a(i_wr_data_a),.i_wr_data_b(i_wr_data_b),.i_wr_data_c(i_wr_data_c),
         .i_rd_addr_a(rf_tag[0]),.i_rd_addr_b(rf_tag[1]),.i_rd_addr_c(rf_tag[2]),.i_rd_addr_d(rf_tag[3]),.i_rd_addr_e(6'd0),
         .o_rd_data_a(rf_value[0]),.o_rd_data_b(rf_value[1]),.o_rd_data_c(rf_value[2]),.o_rd_data_d(rf_value[3]),.o_rd_data_e());

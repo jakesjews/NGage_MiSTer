@@ -25,10 +25,6 @@
 // CPSR. From ZAP's writeback stage; its fetch PC, branch predictor, shelve,
 // decompile and trace (the pipeline has its own front end) were removed on 2026-10-25.
 module arm925t_writeback #(
-        // ARM925T: the coprocessor reads through the register file's own
-        // port E, so D2's port A address is d2.tag[0] alone (no mux on
-        // i_copro_reg_en in front of the operand read). Zero cycles.
-        parameter logic COPRO_PORT = 1,
         parameter logic [31:0] FLAG_WDT     = 32'd32,    // Flags width a.k.a CPSR.
         parameter logic [31:0] PHY_REGS     = 32'd40,    // Number of physical registers.
         parameter logic [31:0] CPSR_INIT = 32'h000000D3      // Initial value of CPSR.
@@ -109,13 +105,8 @@ end
 // ----------------------------------------------------------------------------
 
 logic     [31:0]                  cpsr_ff, cpsr_nxt;
-logic [39:0] write_sel1, write_sel2;
 // ARM925T: decode each normal write address before the control priority
 // mux. CP15/exception selection must not precede the register-file decoder.
-(* keep *) wire [39:0] write_alu = 40'b1 << i_wr_index;
-(* keep *) wire [39:0] write_load = 40'b1 << i_wr_index_1;
-(* keep *) wire [39:0] write_copro = 40'b1 << i_copro_reg_wr_index;
-logic [31:0]                      wdata1, wdata2;
 logic                             wen;
 logic                             mode32;
 
@@ -129,74 +120,49 @@ assign  o_dbg_cpsr_ff = cpsr_ff;    // ARM925T: debug trace
 
 // ARM925T: completion is the write enable, not part of the port's data
 // selection. Static exception classes arrived with W; a data abort alone
-// overrides them late. The original tree below still controls CPSR and
-// wen, and the assertion checks the ports against it.
-logic [39:0] rf_sel1,rf_sel2;
+// overrides them late. The tree below controls CPSR and wen.
 logic [5:0] rf_index1,rf_index2;
 logic [31:0] rf_data1,rf_data2;
 if (1) begin : g_rf_select
     always_comb begin
         rf_index1=i_wr_index; rf_index2=i_mem_load_ff?i_wr_index_1:6'(PHY_RAZ_REGISTER);
-        rf_sel1=write_alu;
-        rf_sel2=i_mem_load_ff?write_load:(40'b1<<PHY_RAZ_REGISTER);
         rf_data1=i_wr_data;rf_data2=i_wr_data_1;
         if(i_copro_reg_en)begin
             rf_index1=i_copro_reg_wr_index;rf_index2=6'(PHY_RAZ_REGISTER);
-            rf_sel1=write_copro;rf_sel2=40'b1<<PHY_RAZ_REGISTER;
             rf_data1=i_copro_reg_wr_data;rf_data2=0;
         end
         if(|i_rf_class)begin
             rf_data2=cpsr_ff;
             if(i_rf_class[0])begin
                 rf_index1=6'(PHY_ABT_R14);rf_index2=6'(PHY_ABT_SPSR);
-                rf_sel1=40'b1<<PHY_ABT_R14;rf_sel2=40'b1<<PHY_ABT_SPSR;
                 rf_data1=mode32?i_pc_plus_8_buf_ff:i_pc_plus_8_buf_ff+32'd4;
             end else if(i_rf_class[1])begin
                 rf_index1=6'(PHY_FIQ_R14);rf_index2=6'(PHY_FIQ_SPSR);
-                rf_sel1=40'b1<<PHY_FIQ_R14;rf_sel2=40'b1<<PHY_FIQ_SPSR;
                 rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff;
             end else if(i_rf_class[2])begin
                 rf_index1=6'(PHY_IRQ_R14);rf_index2=6'(PHY_IRQ_SPSR);
-                rf_sel1=40'b1<<PHY_IRQ_R14;rf_sel2=40'b1<<PHY_IRQ_SPSR;
                 rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff;
             end else if(i_rf_class[3])begin
                 rf_index1=6'(PHY_ABT_R14);rf_index2=6'(PHY_ABT_SPSR);
-                rf_sel1=40'b1<<PHY_ABT_R14;rf_sel2=40'b1<<PHY_ABT_SPSR;
                 rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff;
             end else if(i_rf_class[4])begin
                 rf_index1=6'(PHY_SVC_R14);rf_index2=6'(PHY_SVC_SPSR);
-                rf_sel1=40'b1<<PHY_SVC_R14;rf_sel2=40'b1<<PHY_SVC_SPSR;
                 rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff-32'd2;
             end else begin
                 rf_index1=6'(PHY_UND_R14);rf_index2=6'(PHY_UND_SPSR);
-                rf_sel1=40'b1<<PHY_UND_R14;rf_sel2=40'b1<<PHY_UND_SPSR;
                 rf_data1=mode32?i_wr_data:i_pc_plus_8_buf_ff-32'd2;
             end
         end
     end
-`ifndef SYNTHESIS
-    always_ff @(posedge i_clk) if(!i_reset&&wen)begin
-        assert(rf_sel1==write_sel1&&rf_sel2==write_sel2)else $fatal(1,"RF port class");
-        assert(rf_data1==wdata1&&rf_data2==wdata2)else $fatal(1,"RF data class");
-    end
-`endif
 end
 
 logic [31:0] copro_rd_data;
-`ifndef SYNTHESIS
-// COPRO_PORT: in every clock the coprocessor reads, port E returns what
-// port A returned to it in the original form.
-always_ff @(posedge i_clk) if (!i_reset && COPRO_PORT && i_copro_reg_en)
-        assert (copro_rd_data == u_register_file.mem[i_copro_reg_rd_index]) else $fatal(1, "coprocessor read port");
-`endif
-arm925t_register_file #(.DIRECT_INDEX(1)) u_register_file
+arm925t_register_file u_register_file
 (
 .i_clk(i_clk),
  .i_reset        (       i_reset         ),
 
  .i_wr_index_a(rf_index1), .i_wr_index_b(rf_index2),
- .i_wr_addr_a    (       rf_sel1         ),
- .i_wr_addr_b    (       rf_sel2         ),
  .i_wr_addr_c    (     i_wr_index_2      ),
 
  .i_wr_data_a    (       rf_data1        ),
@@ -205,7 +171,7 @@ arm925t_register_file #(.DIRECT_INDEX(1)) u_register_file
 
  .i_wen          (       wen             ),
 
- .i_rd_addr_a    ( COPRO_PORT ? i_rd_index_0 : i_copro_reg_en ? i_copro_reg_rd_index : i_rd_index_0 ),
+ .i_rd_addr_a    ( i_rd_index_0 ),
  .i_rd_addr_b    (       i_rd_index_1    ),
  .i_rd_addr_c    (       i_rd_index_2    ),
  .i_rd_addr_d    (       i_rd_index_3    ),
@@ -232,10 +198,6 @@ begin: register_file_write
         // ================================================
 
         wen                      = 1'd0;
-        write_sel1 = 40'b1 << PHY_RAZ_REGISTER;
-        write_sel2 = 40'b1 << PHY_RAZ_REGISTER;
-        wdata1                   = 32'd0;
-        wdata2                   = 32'd0;
         cpsr_nxt                 = cpsr_ff;
 
         // ===============================================
@@ -249,12 +211,6 @@ begin: register_file_write
         else if ( i_data_abt[0] )
         begin
                 wen                         = 1;
-                wdata1                      = mode32 ?
-                                              i_pc_plus_8_buf_ff :
-                                              i_pc_plus_8_buf_ff + 4;
-                write_sel1 = 40'b1 << PHY_ABT_R14;
-                write_sel2 = 40'b1 << PHY_ABT_SPSR;
-                wdata2                      = cpsr_ff;
                 cpsr_nxt[ARM925T_CPSR_MODE:0]   = ABT;
 
                 //
@@ -266,10 +222,6 @@ begin: register_file_write
         else if ( i_fiq )
         begin
                 wen                     = 1;
-                wdata1                  = mode32 ? i_wr_data : i_pc_plus_8_buf_ff ;
-                write_sel1 = 40'b1 << PHY_FIQ_R14;
-                write_sel2 = 40'b1 << PHY_FIQ_SPSR;
-                wdata2                  = cpsr_ff;
                 cpsr_nxt[ARM925T_CPSR_MODE:0] = FIQ;
                 cpsr_nxt[F]             = 1'd1; // Mask FIQ interrupts.
 
@@ -278,10 +230,6 @@ begin: register_file_write
         else if ( i_irq )
         begin
                 wen                     = 1;
-                wdata1                  = mode32 ? i_wr_data : i_pc_plus_8_buf_ff ;
-                write_sel1 = 40'b1 << PHY_IRQ_R14;
-                write_sel2 = 40'b1 << PHY_IRQ_SPSR;
-                wdata2                  = cpsr_ff;
                 cpsr_nxt[ARM925T_CPSR_MODE:0] = IRQ;
 
                 `v2_chmod;
@@ -289,10 +237,6 @@ begin: register_file_write
         else if ( i_instr_abt )
         begin
                 wen                        = 1;
-                wdata1                     = mode32 ? i_wr_data : i_pc_plus_8_buf_ff ;
-                write_sel1 = 40'b1 << PHY_ABT_R14;
-                write_sel2 = 40'b1 << PHY_ABT_SPSR;
-                wdata2                     = cpsr_ff;
                 cpsr_nxt[ARM925T_CPSR_MODE:0]  = ABT;
 
                 `v2_chmod;
@@ -302,10 +246,6 @@ begin: register_file_write
                 wen                       = 1;
                 // ARM925T: from Thumb state LR is the next instruction,
                 // PC + 2 (PC + 4 - 2); upstream gave the SWI's own address.
-                wdata1                    = mode32 ? i_wr_data : i_pc_plus_8_buf_ff - 32'd2;
-                write_sel1 = 40'b1 << PHY_SVC_R14;
-                write_sel2 = 40'b1 << PHY_SVC_SPSR;
-                wdata2                    = cpsr_ff;
                 cpsr_nxt[ARM925T_CPSR_MODE:0] = SVC;
 
                 `v2_chmod;
@@ -314,10 +254,6 @@ begin: register_file_write
         begin
                 wen                       = 1;
                 // ARM925T: as for SWI, PC + 2 from Thumb state.
-                wdata1                    = mode32 ? i_wr_data : i_pc_plus_8_buf_ff - 32'd2;
-                write_sel1 = 40'b1 << PHY_UND_R14;
-                write_sel2 = 40'b1 << PHY_UND_SPSR;
-                wdata2                    = cpsr_ff;
                 cpsr_nxt[ARM925T_CPSR_MODE:0] = UND;
 
                 `v2_chmod;
@@ -326,8 +262,6 @@ begin: register_file_write
         begin
                // Write to register (Coprocessor command).
                wen      = 1;
-               write_sel1 = write_copro;
-               wdata1   = i_copro_reg_wr_data;
         end
         else if ( i_valid ) // If valid,
         begin
@@ -338,12 +272,8 @@ begin: register_file_write
                 wen = 1;
 
                 // Port from arithmetic side
-                write_sel1 = write_alu;
-                wdata1 = i_wr_data;
 
                 // Port from memory side.
-                write_sel2 = i_mem_load_ff ? write_load : (40'b1 << PHY_RAZ_REGISTER);
-                wdata2 = i_wr_data_1;
 
                 // A load to the PC switches state from its bit 0, unless L4.
                 if ( i_mem_load_ff && i_wr_index_1 == {2'd0, ARCH_PC})
@@ -368,7 +298,7 @@ begin
         else
         begin
                 cpsr_ff                <= cpsr_nxt;
-                o_copro_reg_rd_data_ff <= COPRO_PORT ? copro_rd_data : o_rd_data_0;
+                o_copro_reg_rd_data_ff <= copro_rd_data;
         end
 end
 

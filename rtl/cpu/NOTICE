@@ -81,6 +81,10 @@ in docs/CPU.md. In outline:
     ZAP's pipeline used were removed from the three header files.
   * Every parameter's default is the value this core is built with, not
     ZAP's.
+  * ZAP's BE_32_ENABLE and CP15_L4_DEFAULT parameters (both off in this
+    core) and its simulation assertions were removed on 2026-11-18, with
+    this project's own switches and simulation-only code: the files hold
+    one configuration, and their checks are in sim/cpu.
 
 rtl/cpu/arm925t_gen.v is generated from the files in this directory by
 tools/gen_cpu.sh (sv2v, and the fix Quartus 17 needs). It is a derived work

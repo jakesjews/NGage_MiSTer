@@ -103,13 +103,6 @@ module arm925t #(
 	// Apart from the two cache sizes above, the configuration is the
 	// core's one configuration: constants, not parameters, so that no
 	// build and no test runs with another.
-	// The CPU has its branch predictor (the ARM925T has none; docs/CPU.md,
-	// the timing-fidelity plan).
-	localparam bit BRANCH_PREDICTOR = 1'b1;
-	// Reset value of control register bit V (the ARM925T's HIVECS pin):
-	// 0, vectors and reset address at 0, as the phone has it (1 would put
-	// them at 0xFFFF0000).
-	localparam bit HIVECS = 1'b0;
 	// Cache geometry: 2-way with LRU replacement, 16-byte lines
 	// (docs/CPU.md); the sizes are below.
 	localparam int ICACHE_WAYS = 2;
@@ -130,16 +123,16 @@ module arm925t #(
 	localparam int TLB_LPAGE_ENTRIES   = 32;
 	localparam int TLB_FPAGE_ENTRIES   = 64;
 
-	localparam logic [31:0] RESET_VECTOR = HIVECS ? 32'hFFFF0000 : 32'h00000000;
+	// Control register bit V is 0 at reset (the ARM925T's HIVECS pin, low in
+	// the phone): the vectors and the reset address are at 0.
+	localparam logic [31:0] RESET_VECTOR = 32'h00000000;
 
 	logic       wb_cyc, wb_stb;
 	logic [2:0] wb_cti;
 
 	arm925t_top #(
-		.BRANCH_PREDICTOR (BRANCH_PREDICTOR),
 		.CP15_ID         (32'h54029252),
 		.CP15_CTYPE      (32'h05109149),
-		.HIVECS          (HIVECS),
 		.RESET_VECTOR    (RESET_VECTOR),
 		.CODE_CACHE_SIZE     (32'(ICACHE_SIZE)),
 		.CODE_CACHE_LINE     (32'(CACHE_LINE)),

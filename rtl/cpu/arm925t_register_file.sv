@@ -31,13 +31,10 @@
 // exactly what it saw with the direct write (the same clock, the same
 // priority C > B > A). The write data and enables then travel to the 40
 // registers from these few flops instead of from W's completion logic.
-// mem is the architectural contents in both forms (the benches read it);
-// with WRITE_FF the storage is store and mem its view with the held write
-// applied, which no synthesised logic reads.
 // ARM925T: the write port is registered (the held writes) and the reads
 // bypass a held write; the direct-write form ZAP used was removed on
 // 2026-10-25 with its EARLY_PORT_SELECT and ALLOW_RETIMING options.
-module arm925t_register_file #(parameter logic DIRECT_INDEX=1)
+module arm925t_register_file 
 (
         // Clock and reset.
         input logic              i_clk,
@@ -47,8 +44,6 @@ module arm925t_register_file #(parameter logic DIRECT_INDEX=1)
         input logic              i_wen,
 
         // Write address. Note that _c does not need write enable.
-        input logic  [39:0]      i_wr_addr_a,   // ARM925T: decoded before write selection.
-        input logic  [39:0]      i_wr_addr_b,   // ARM925T: one-hot, like the background port.
         input logic  [39:0]      i_wr_addr_c,   // 1-Hot address.
 
         input logic [5:0] i_wr_index_a, i_wr_index_b,
@@ -76,10 +71,6 @@ module arm925t_register_file #(parameter logic DIRECT_INDEX=1)
 // ARM925T: keep the RF edge at its architectural write boundary. Otherwise
 // physical synthesis can distribute storage across the RF mux network and
 // replicate registers without changing the HDL array size.
-// The architectural view: read by the simulation taps below (not under SYNTHESIS).
-/* verilator lint_off UNUSEDSIGNAL */
-logic [39:0][31:0] mem;
-/* verilator lint_on UNUSEDSIGNAL */
 
 if (1) begin : g_write_ff
 
@@ -103,17 +94,13 @@ assign read_index={i_rd_addr_e,i_rd_addr_d,i_rd_addr_c,i_rd_addr_b,i_rd_addr_a};
 // gated by i_wen: eighty flip-flops behind the write enable, which hangs on
 // the data cache's answer in the same clock and crossed the core to reach
 // them (77 failing endpoints at seed 5, to -1.5 ns). The flag and the index
-// say the same (asserted below against the old registers), and only the
-// two flags are left behind i_wen.
+// say the same, and only the two flags are left behind i_wen.
 logic [39:0] held_a, held_b, held_c;
 always_comb for (int r = 0; r < 40; r++) begin
         held_a[r] = held_any_a && held_index_a == 6'(r);
         held_b[r] = held_any_b && held_index_b == 6'(r);
         held_c[r] = held_any_c && held_index_c == 6'(r);
 end
-`ifndef SYNTHESIS
-logic [39:0] held_a_ref, held_b_ref, held_c_ref;   // the registers this replaced
-`endif
 // Mask both the active write and the write just committed to each bank.
 // RAM collision data is never consumed, so asynchronous MLAB read-during-
 // write behavior can be unspecified without changing an architectural read.
@@ -146,8 +133,8 @@ begin
         else
         begin
                 held_data_a <= i_wr_data_a; held_data_b <= i_wr_data_b; held_data_c <= i_wr_data_c;
-                held_any_a <= i_wen && (DIRECT_INDEX ? i_wr_index_a < 40 : |i_wr_addr_a); held_any_b <= i_wen && (DIRECT_INDEX ? i_wr_index_b < 40 : |i_wr_addr_b); held_any_c <= |i_wr_addr_c;
-                held_index_a <= DIRECT_INDEX ? i_wr_index_a : onehot_index(i_wr_addr_a); held_index_b <= DIRECT_INDEX ? i_wr_index_b : onehot_index(i_wr_addr_b);
+                held_any_a <= i_wen && (i_wr_index_a < 40); held_any_b <= i_wen && (i_wr_index_b < 40); held_any_c <= |i_wr_addr_c;
+                held_index_a <= i_wr_index_a; held_index_b <= i_wr_index_b;
                 held_index_c <= onehot_index(i_wr_addr_c);
                 for (int r = 0; r < 40; r++)
                         if (held_a[r] || held_b[r] || held_c[r]) begin
@@ -159,19 +146,6 @@ end
 
 for(genvar port=0;port<5;port++)begin : g_read
         wire [31:0] bank_a_q,bank_b_q,bank_c_q;
-`ifndef SYNTHESIS
-        (* ramstyle="MLAB, no_rw_check" *) logic [31:0] bank_a [0:63];
-        (* ramstyle="MLAB, no_rw_check" *) logic [31:0] bank_b [0:63];
-        (* ramstyle="MLAB, no_rw_check" *) logic [31:0] bank_c [0:63];
-        always_ff @(posedge i_clk)begin
-                if(held_any_a)bank_a[held_index_a]<=held_data_a;
-                if(held_any_b)bank_b[held_index_b]<=held_data_b;
-                if(held_any_c)bank_c[held_index_c]<=held_data_c;
-        end
-        assign bank_a_q=bank_a[read_index[port]];
-        assign bank_b_q=bank_b[read_index[port]];
-        assign bank_c_q=bank_c[read_index[port]];
-`else
         altdpram #(.width(32),.widthad(6),.numwords(64),
                 .intended_device_family("Cyclone V"),.ram_block_type("MLAB"),
                 .indata_reg("INCLOCK"),.wraddress_reg("INCLOCK"),.wrcontrol_reg("INCLOCK"),
@@ -205,22 +179,12 @@ for(genvar port=0;port<5;port++)begin : g_read
                 .aclr(1'b0),.sclr(1'b0),.wren(held_any_c),.rden(1'b1),.byteena(1'b1),
                 .wraddressstall(1'b0),.rdaddressstall(1'b0),
                 .wraddress(held_index_c),.data(held_data_c),.rdaddress(read_index[port]),.q(bank_c_q));
-`endif
         always_comb begin
                 case(latest[read_index[port]])
                         0:bank_value[port]=bank_a_q;
                         1:bank_value[port]=bank_b_q;
                         default:bank_value[port]=bank_c_q;
                 endcase
-`ifndef SYNTHESIS
-                // Deliberately poison collision data in simulation. The
-                // explicit bypass below must cover every such observation.
-                if((held_any_a&&held_index_a==read_index[port]) ||
-                   (held_any_b&&held_index_b==read_index[port]) ||
-                   (held_any_c&&held_index_c==read_index[port]))bank_value[port]='x;
-                for(int writer=0;writer<3;writer++)
-                        if(committed_any[writer]&&committed_index[writer]==read_index[port])bank_value[port]='x;
-`endif
                 if(!initialized[read_index[port]])bank_value[port]=0;
                 read_value[port]=bank_value[port];
                 for(int writer=0;writer<3;writer++)
@@ -231,88 +195,9 @@ for(genvar port=0;port<5;port++)begin : g_read
         end
 end
 // Architectural view used by the existing test-bench taps only.
-`ifndef SYNTHESIS
-always_comb for(int r=0;r<40;r++)begin
-        case(latest[r])
-                0:mem[r]=g_read[0].bank_a[r];
-                1:mem[r]=g_read[0].bank_b[r];
-                default:mem[r]=g_read[0].bank_c[r];
-        endcase
-        if(!initialized[r])mem[r]=0;
-        if(held_a[r])mem[r]=held_data_a;
-        if(held_b[r])mem[r]=held_data_b;
-        if(held_c[r])mem[r]=held_data_c;
-end
-`endif
 assign {o_rd_data_e,o_rd_data_d,o_rd_data_c,o_rd_data_b,o_rd_data_a}=read_value;
-`ifndef SYNTHESIS
-always_ff @ ( posedge i_clk ) if ( !i_reset ) begin
-        if (DIRECT_INDEX) begin
-                assert (i_wr_addr_a == (40'd1 << i_wr_index_a) && i_wr_addr_b == (40'd1 << i_wr_index_b))
-                        else $fatal(1, "register file: direct binary address");
-        end
-        assert ($onehot0(i_wr_addr_a) && $onehot0(i_wr_addr_b) && $onehot0(i_wr_addr_c))
-                else $fatal(1, "register file: a write port is not one-hot");
-        assert (held_a == held_a_ref && held_b == held_b_ref && held_c == held_c_ref)
-                else $fatal(1, "register file: held index");
-end
-always_ff @ ( posedge i_clk ) begin
-        if (i_reset) begin held_a_ref <= 0; held_b_ref <= 0; held_c_ref <= 0; end
-        else begin
-                held_a_ref <= i_wen ? i_wr_addr_a : 40'd0;
-                held_b_ref <= i_wen ? i_wr_addr_b : 40'd0;
-                held_c_ref <= i_wr_addr_c;
-        end
-end
-`endif
-
 
 end
-
-`ifndef SYNTHESIS
-
-wire [31:0] r0   =  mem[0];
-wire [31:0] r1   =  mem[1];
-wire [31:0] r2   =  mem[2];
-wire [31:0] r3   =  mem[3];
-wire [31:0] r4   =  mem[4];
-wire [31:0] r5   =  mem[5];
-wire [31:0] r6   =  mem[6];
-wire [31:0] r7   =  mem[7];
-wire [31:0] r8   =  mem[8];
-wire [31:0] r9   =  mem[9];
-wire [31:0] r10  =  mem[10];
-wire [31:0] r11  =  mem[11];
-wire [31:0] r12  =  mem[12];
-wire [31:0] r13  =  mem[13];
-wire [31:0] r14  =  mem[14];
-wire [31:0] r15  =  mem[15];
-wire [31:0] r16  =  mem[16];
-wire [31:0] r17  =  mem[17];
-wire [31:0] r18  =  mem[18];
-wire [31:0] r19  =  mem[19];
-wire [31:0] r20  =  mem[20];
-wire [31:0] r21  =  mem[21];
-wire [31:0] r22  =  mem[22];
-wire [31:0] r23  =  mem[23];
-wire [31:0] r24  =  mem[24];
-wire [31:0] r25  =  mem[25];
-wire [31:0] r26  =  mem[26];
-wire [31:0] r27  =  mem[27];
-wire [31:0] r28  =  mem[28];
-wire [31:0] r29  =  mem[29];
-wire [31:0] r30  =  mem[30];
-wire [31:0] r31  =  mem[31];
-wire [31:0] r32  =  mem[32];
-wire [31:0] r33  =  mem[33];
-wire [31:0] r34  =  mem[34];
-wire [31:0] r35  =  mem[35];
-wire [31:0] r36  =  mem[36];
-wire [31:0] r37  =  mem[37];
-wire [31:0] r38  =  mem[38];
-wire [31:0] r39  =  mem[39];
-
-`endif
 
 endmodule
 

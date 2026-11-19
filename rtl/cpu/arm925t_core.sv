@@ -2,124 +2,37 @@
 // The ARM925T's integer pipeline and its integration. Banked retirement and
 // CP15 reuse ZAP by Revanth Kamaraj (rtl/cpu/NOTICE). See docs/CPU.md (The
 // pipeline) for the stages.
+// The names below label parts of this file; comments here and in the
+// project's log (docs/PROGRESS-LOG.md) use them. The stages have their own
+// (arm925t_fetch, arm925t_predict, arm925t_decode, arm925t_execute).
+// REG_DONE: an access the D-cache acknowledges for certain from registered
+// predicates (i_data_ack_fast: a cacheable IDLE access, hit or miss, a hit
+// under a miss, or an uncached access's UNC_DONE) completes W in its clock;
+// any other acknowledge (an MMU or alignment fault, the TLB busy retry) is
+// registered and completes W one clock later, with the request withdrawn
+// from the cache in that clock.
+// REQ_FF: the cache request (the request, less W's flush and a fill's end)
+// is one register, loaded from their next values.
+// RETURN_READY_FF: the return owner's lock comes from the cache's
+// registered lookup of lock_nxt (arm925t_dcache_fsm o_lock_return).
+// TRUST_FF: the trust (the cache FSM's i_data_short_trust) and W's hit
+// candidate are registers of their own.
+// LOAD_CLASS: M, W and the skid record carry their load-ownership and
+// speculation classes as record bits (ld, sp), set where a record is formed
+// or changed, instead of decoding them from kind, last and dest every clock.
+// W_CLASS: W's static completion terms (exception, coprocessor, SWP, block
+// writeback) are registers loaded from M's record when W takes it.
+// REDIRECT_EQ: W's redirect compares each load-word source with the
+// predicted target in parallel and selects the result.
+// EARLY_NOHIT: A's early locks are released on the clock A finishes only if
+// it finishes without W's short hit, otherwise a clock later: a clock lost
+// only when a load's A consumer and an early (S-needed) user of that
+// consumer meet at exactly that spacing.
 module arm925t_core #(
-        parameter logic BRANCH_PREDICTOR = 1'b1,
-        // Memory addresses summed in S and registered into A; the D-cache and
-        // TLB lookup comes from that register (arm925t_execute, arm925t_decode).
-        parameter logic S_AGU = 1'b0,
-        // Lane B of the 104 MHz plan. FREE_SELECT: S's forward grant and A's
-        // late bypass (registered one-hot) select data as if W's load hit;
-        // the hit and the trust gate only the waits (arm925t_execute).
-        // TRUST_FF: the trust (the cache FSM's i_data_short_trust) and W's
-        // hit candidate are registers of their own. FAST_Z: carry-free Z.
-        parameter logic FREE_SELECT = 1'b1,
-        parameter logic TRUST_FF = 1'b1,
-        parameter logic FAST_Z = 1'b1,
-        // Lane C: W's load word has its own rotator in S (arm925t_execute).
-        parameter logic W_ROTATE = 1'b1,
-        // Lane E: the fetch queue stores a Thumb pc[1] halfword low
-        // (THUMB_HALF); W's redirect compares each load-word source in
-        // parallel and selects the result (REDIRECT_EQ).
-        parameter logic THUMB_HALF = 1'b1,
-        parameter logic REDIRECT_EQ = 1'b1,
-        // S's shifter controls registered by decode (arm925t_decode
-        // SHIFT_PRE): zero cycles.
-        parameter logic SHIFT_PRE = 1'b1,
-        // The D1 queue's and D2's payload enables without the kill
-        // (arm925t_decode PAYLOAD_FREE): zero cycles.
-        parameter logic PAYLOAD_FREE = 1'b1,
-        // D2's redirect payload loads every edge; only valid waits for S
-        // (arm925t_decode REDIRECT_PAYLOAD): zero cycles.
-        parameter logic REDIRECT_PAYLOAD = 1'b1,
-        // Decode's write-through from W's binary tags (arm925t_decode
-        // WT_TAGS): zero cycles.
-        parameter logic WT_TAGS = 1'b1,
-        // The multiplier's partial products without a reset, kept in the
-        // DSP blocks' output registers (arm925t_execute DSP_PRODUCT).
-        parameter logic DSP_PRODUCT = 1'b1,
-        // The return stack's top as a register (arm925t_predict RAS_TOP_FF,
-        // from codex/arm9v2-c4 50ed1e6): zero cycles.
-        parameter logic RAS_TOP_FF = 1'b1,
-        // The coprocessor's own register-file read port (arm925t_writeback
-        // COPRO_PORT): zero cycles.
-        parameter logic COPRO_PORT = 1'b1,
-        // W completion, 104 MHz step 2 (2026-10-25). REG_DONE: an access the
-        // D-cache acknowledges for certain from registered predicates
-        // (i_data_ack_fast: a cacheable IDLE access, hit or miss, a hit
-        // under a miss, or an uncached access's UNC_DONE) completes in its
-        // clock as before; any other acknowledge (an MMU or alignment fault,
-        // the TLB busy retry) is registered
-        // and completes W one clock later, with the request withdrawn from
-        // the cache in that clock. Costs cycles on those accesses only.
-        parameter logic REG_DONE = 1'b1,
-        // The cache request (request_ff, W's flush, the fill end) as one
-        // register loaded from their next values: zero cycles.
-        parameter logic REQ_FF = 1'b1,
-        // The return owner's lock from the cache's registered lookup of
-        // lock_nxt (arm925t_dcache_fsm o_lock_return): zero cycles.
-        parameter logic RETURN_READY_FF = 1'b1,
-        // No reset term in the forwarding/return combinational logic (the
-        // records it reads are reset): zero cycles.
-        parameter logic RESET_LEAN = 1'b1,
-        // decode's prefix_target without S's acceptance (arm925t_decode
-        // PREFIX_FREE): zero cycles.
-        parameter logic PREFIX_FREE = 1'b1,
-        // S's operand-1 class (immediate, PC, PSR) registered by decode
-        // beside the shift controls (arm925t_execute OP1_PRE): zero cycles.
-        parameter logic OP1_PRE = 1'b1,
-        // S's planned writes from decode's registered destination mask
-        // (arm925t_execute WRITES_PRE): zero cycles.
-        parameter logic WRITES_PRE = 1'b1,
-        // S's PC/PSR source classes registered by decode (arm925t_execute
-        // TAG_PRE): zero cycles.
-        parameter logic TAG_PRE = 1'b1,
-        // S's held operands and prepared payload without the readiness
-        // enables (arm925t_execute HELD_FREE): zero cycles.
-        parameter logic HELD_FREE = 1'b1,
-        // The fetch queue's head entry as its own register (arm925t_fetch
-        // HEAD_FF): zero cycles.
-        parameter logic HEAD_FF = 1'b1,
-        // M/W/skid carry their load-ownership and speculation classes as
-        // record bits (ld, sp), set where a record is formed or changed,
-        // instead of decoding them from kind/last/dest every clock: zero cycles.
-        parameter logic LOAD_CLASS = 1'b1,
-        // W's completion class without the defer_load node: request_done &&
-        // !retry && !defer_load written out as one equation (an identity),
-        // so the completion roots do not wait for defer_load: zero cycles.
-        parameter logic COMPLETE_FLAT = 1'b1,
-        // A flag-setting multiply's Z without the carry (arm925t_execute
-        // MUL_FAST_Z): zero cycles.
-        parameter logic MUL_FAST_Z = 1'b1,
-        // W's static completion terms (exception, coprocessor, SWP, block
-        // writeback) as registers loaded from M's record when W takes it,
-        // instead of decoded from W's fields every clock (W_CLASS): zero cycles.
-        parameter logic W_CLASS = 1'b1,
-        // S's base forward from A's MEM writeback only for an unconditional
-        // writer, so the forward needs no condition evaluation; a dependent
-        // of a conditional base writer waits in D2 (AGU_AL): a clock only for
-        // a conditional writeback memory access followed by its base's user.
-        parameter logic AGU_AL = 1'b1,
-        // A's early locks released on the clock A finishes only if it
-        // finishes without W's short hit, otherwise a clock later
-        // (EARLY_NOHIT): a clock only when a load's A consumer and an early
-        // (S-needed) user of that consumer meet at exactly that spacing.
-        parameter logic EARLY_NOHIT = 1'b1,
-        // A's held late matches use the next producers' writes as if A
-        // stays (its own record absent from M), the only case they serve,
-        // so A's finish is not among their inputs (arm925t_execute
-        // LATE_HOLD_STATIC): zero cycles.
-        parameter logic LATE_HOLD_STATIC = 1'b1,
-        // The predictor's looked-up valid bit as a register (arm925t_predict
-        // VALID_BIT): zero cycles.
-        parameter logic VALID_BIT = 1'b1,
-
-        // For CP15 purposes.
-        parameter logic [0:0]  CP15_L4_DEFAULT = 0,
         parameter logic [31:0] DATA_CACHE_SIZE = 8192,
         parameter logic [31:0] CODE_CACHE_SIZE = 16384,
         parameter logic [31:0] DATA_CACHE_LINE = 16,
         parameter logic [31:0] DATA_CACHE_WAYS = 2,     // ARM925T
-        parameter logic        LOAD_FORMATTED  = 1'd1,  // ARM925T: the D-cache formats loads
         parameter logic [31:0] CODE_CACHE_LINE = 16,
 
         // Reset vector. Safe to not override.
@@ -127,9 +40,6 @@ module arm925t_core #(
 
         // Initial CPSR. Safe to not override.
         parameter logic [31:0] CPSR_INIT        = {24'd0, 1'd1,1'd1,1'd0,5'b10011},
-
-        // For CP15 purposes. Actual conversion is handled at a higher module.
-        parameter logic BE_32_ENABLE            = 1'd0,
 
         // Number of branch predictor entries.
         parameter logic [31:0] BP_ENTRIES       = 32'd512,
@@ -145,15 +55,13 @@ module arm925t_core #(
 
         // ARM925T options (see arm925t_top).
         parameter logic [31:0] CP15_ID          = 32'h54029252,
-        parameter logic [31:0] CP15_CTYPE       = 32'h05109149,
-        parameter logic        HIVECS           = 1'd0
+        parameter logic [31:0] CP15_CTYPE       = 32'h05109149
 )
 (
 
 // ------------------------------------------------
 // Trace port
 // ------------------------------------------------
-
 
 // ------------------------------------------------
 // Clock and reset. Reset is synchronous.
@@ -175,7 +83,6 @@ input logic                              i_data_wb_err,
 input logic  [31:0]                      i_data_wb_dat,
 input logic [31:0] i_data_short_data,
 input logic i_data_short_hit,
-input logic i_data_short_live,
 input logic i_data_ack_fast,      // arm925t_dcache_fsm o_ack_fast (REG_DONE)
 input logic i_data_err_fast,      // arm925t_dcache_fsm o_err_fast: UNC_DONE's bus error
 input logic i_data_short_trust,   // i_data_short_live && !fill_end_raw, registered in the cache FSM
@@ -325,7 +232,6 @@ output logic [1:0] o_dbg_fetch
 
 );
 
-
     logic d_ready;
     logic d_valid;
     logic [31:0] d_pc;
@@ -345,8 +251,7 @@ output logic [1:0] o_dbg_fetch
     logic [3:0] d_used,d_early;
     logic d_self_dep;
     logic [3:0][1:0][1:0] d_forward_match;
-    logic [1:0][3:0][4:0] d_forward_grant;
-    logic [1:0][1:0][5:0] forward_tag;
+    logic [3:0][4:0] d_forward_grant;
     logic [1:0][1:0] forward_write;
     logic [31:0] a_btb_pc;
     logic a_btb_thumb,a_record_pred_hit,a_record_thumb;
@@ -394,9 +299,7 @@ output logic [1:0] o_dbg_fetch
     logic a_pc_write;
     logic a_memory;
     logic a_store;
-    logic [31:0] a_data_address,a_alu_address;
-    logic [3:0] early_agu;
-    logic a_a_cond_al;   // AGU_AL: A's record is unconditional
+    logic [31:0] a_data_address;
     logic a_a_can_finish_nohit;   // EARLY_NOHIT
     logic [31:0] a_store_data;
     logic [3:0] a_flags;
@@ -469,19 +372,17 @@ output logic [1:0] o_dbg_fetch
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
     (* dont_retime *) w_cls_t w_cls;
-    w_cls_t w_cls_next,w_cls_ref;
-    assign w_cls_ref=w_cls_of(w);
-    wire w_cp=W_CLASS?w_cls.cp:w_cls_ref.cp;
-    wire w_swp=W_CLASS?w_cls.swp:w_cls_ref.swp;
-    wire w_blkwb=W_CLASS?w_cls.blkwb:w_cls_ref.blkwb;
-    wire w_pc_load=W_CLASS?w_cls.pc_load:w_cls_ref.pc_load;
-    wire w_mem_immediate=W_CLASS?w_cls.mem_immediate:w_cls_ref.mem_immediate;
+    w_cls_t w_cls_next;
+    wire w_cp=w_cls.cp;
+    wire w_swp=w_cls.swp;
+    wire w_blkwb=w_cls.blkwb;
+    wire w_pc_load=w_cls.pc_load;
+    wire w_mem_immediate=w_cls.mem_immediate;
     typedef enum logic [3:0] {RUN,HOLD,RELOAD0,RELOAD1,RETRY0,RETRY1,
         LOAD_RETURN,SWAP0,SWAP1,RESTORE,ABORT} memory_state_t;
     (* dont_retime *) record_t m,w,skid;
     record_t input_record;
     /* verilator lint_off UNUSEDSIGNAL */
-    record_t check_record;
     /* verilator lint_on UNUSEDSIGNAL */
     record_t m_next,w_next,skid_next,next_check_record;
     memory_state_t memory_state_next;
@@ -493,7 +394,6 @@ output logic [1:0] o_dbg_fetch
         logic rd,wr;
     } check_t;
     (* dont_retime *) check_t check_ff;
-    (* dont_retime, maxfan = 32 *) logic request_ff;
     (* dont_retime, maxfan = 32 *) logic request_live;   // REQ_FF
     (* dont_retime *) logic late_done,late_err,late_err2;  // REG_DONE
     (* dont_retime *) logic [31:0] late_dat;
@@ -516,15 +416,8 @@ output logic [1:0] o_dbg_fetch
     assign o_dc_lock_owner_hold=w.dest[0];
     assign o_dc_lock_owner_advance=m.dest[0];
     assign o_dc_lock_owner_move=(memory_state==RUN&&done)||memory_state==RELOAD1||quick_reload;
-`ifndef SYNTHESIS
-    always_ff @(posedge i_clk) if(!i_reset) begin
-        assert(i_dc_lock_any == (|i_dc_lock)) else $fatal(1,"global lock summary");
-        assert(w_locked == (|(i_dc_lock&w_load_select))) else $fatal(1,"W lock summary");
-    end
-`endif
     wire w_return=|(i_dc_reg_idx&w_load_select);
     wire scalar_replay=1'b0; // Retain consumers; scalar completion never flushes independent work.
-    (* dont_retime *) logic [5:0] return_tag;
     (* dont_retime *) logic [31:0] return_data;
     logic return_next_valid,return_ready;
     logic [3:0] d_return_match;
@@ -532,18 +425,14 @@ output logic [1:0] o_dbg_fetch
     logic [1:0] forward_load;
     // Normal completion is qualified against the lock installed on its
     // accepting edge. A miss ACK installs a lock, not a usable data word.
-    assign return_next_valid=(RESET_LEAN||!i_reset)&&wb_complete&&w.memory&&w.load_writer&&!wb_exception;
+    assign return_next_valid=wb_complete&&w.memory&&w.load_writer&&!wb_exception;
     // The accepting edge can install a miss lock. Test the registered
     // return owner after that edge; never qualify it with the old lock.
     // Only this one ready bit fans out to the eight registered matches.
-    assign return_ready=RETURN_READY_FF?!i_dc_lock_return:!i_dc_lock[return_tag];
-`ifndef SYNTHESIS
-    always_ff @(posedge i_clk) if(!i_reset)
-        assert(i_dc_lock_return==i_dc_lock[return_tag]) else $fatal(1,"return owner lock register");
-`endif
+    assign return_ready=!i_dc_lock_return;
     assign operand_return_data={i_dc_reg_dat,return_data};
     always_ff @(posedge i_clk) begin
-        return_tag<=w.dest[0];return_data<=load_data;
+        return_data<=load_data;
     end
     (* dont_retime *) logic swap_write,cp_seen,cp_finished;
     (* dont_retime *) logic [3:0] cp_flags;
@@ -568,7 +457,6 @@ output logic [1:0] o_dbg_fetch
     logic wb_dabt,wb_pabt,wb_irq,wb_fiq,wb_swi,wb_und,wb_exception;
     logic w_exception,w_serial,request,request_done,retry,defer_load,done;
     /* verilator lint_off UNUSEDSIGNAL */
-    logic check_enable;
     /* verilator lint_on UNUSEDSIGNAL */
     logic backend_ready,wb_restore,return_event,return_thumb,return_kind;
     logic fill_was_busy;
@@ -580,13 +468,13 @@ output logic [1:0] o_dbg_fetch
     wire fill_end_raw=fill_was_busy&&!i_data_fill_busy;
     wire fill_ended=fill_end_raw&&!i_data_fill_kept;
     always_ff @(posedge i_clk) fill_was_busy<=!i_reset&&i_data_fill_busy;
-    logic [39:0] wa,wb,wc,locked;
+    logic [39:0] wc,locked;
     logic [3:0][5:0] rf_tag,early_tag;
     logic [3:0][31:0] rf_value;
     logic [3:0] early_valid;
     logic [5:0][5:0] load_tag;
     logic [5:0] load_valid,load_speculate;
-    logic [1:0][5:0] next_load_tag;
+    logic [5:0] next_load_tag;
     logic [1:0] next_load_valid;
     logic d_load_wait;
     logic [3:0] d_pending;
@@ -613,16 +501,13 @@ output logic [1:0] o_dbg_fetch
     wire quick_reload=memory_state==HOLD&&done&&
         !(m.valid&&m.memory)&&!(skid.valid&&skid.memory);
     assign early_tag={a_a_dest,d_dest};
-    // The writeback lane (1) of a scalar MEM in S or A is an S-AGU sum: a
-    // memory base consumer takes it from A's register, without the D2 hold.
-    assign early_agu={a_kind==MEM&&(!AGU_AL||a_a_cond_al),1'b0,d_kind==MEM&&(!AGU_AL||d_condition==4'hE),1'b0};
-    assign early_valid={a_a_write&{2{a_a_valid&&!(EARLY_NOHIT?a_a_can_finish_nohit:a_a_can_finish)}},a_s_write}&
+    assign early_valid={a_a_write&{2{a_a_valid&&!a_a_can_finish_nohit}},a_s_write}&
         {early_tag[3]!=15,early_tag[2]!=15,early_tag[1]!=15,early_tag[0]!=15};
     // Pipeline load ownership and the cache's registered background lock are
     // separate. No cache ACK or producer readiness is searched in forwarding.
     assign load_tag={skid.dest[0],w.dest[0],m.dest[0],a_dest[0],a_a_dest[0],d_dest[0]};
-    assign load_valid={skid.valid&&(LOAD_CLASS?skid.ld:(skid.memory&&!skid.store)||skid.load_writer),
-        w.valid&&(LOAD_CLASS?w.ld:(w.memory&&!w.store)||w.load_writer),m.valid&&(LOAD_CLASS?m.ld:(m.memory&&!m.store)||m.load_writer),
+    assign load_valid={skid.valid&&skid.ld,
+        w.valid&&w.ld,m.valid&&m.ld,
         1'b0,a_a_load,
         d_valid&&!d_fault&&((d_kind==MEM||d_kind==BLOCK)?d_instruction[20]:d_kind==SWP||(d_kind==CP&&d_instruction[20]&&d_dest[0]!=15))};
     // Scalar consumers may enter S/A before the result is known; their
@@ -630,15 +515,15 @@ output logic [1:0] o_dbg_fetch
     // Only the final non-PC block word may use the scalar schedule. Earlier
     // words retain partial-LDM protection; an abort restores Rn and kills
     // younger records before any can retire. SWP/PC retain their interlock.
-    assign load_speculate={LOAD_CLASS?skid.sp:sp_of(skid),LOAD_CLASS?w.sp:sp_of(w),
-        LOAD_CLASS?m.sp:sp_of(m),1'b0,(a_kind==MEM||(a_kind==BLOCK&&a_last))&&a_dest[0]!=15,(d_kind==MEM||(d_kind==BLOCK&&d_last))&&d_dest[0]!=15};
+    assign load_speculate={skid.sp,w.sp,
+        m.sp,1'b0,(a_kind==MEM||(a_kind==BLOCK&&a_last))&&a_dest[0]!=15,(d_kind==MEM||(d_kind==BLOCK&&d_last))&&d_dest[0]!=15};
     assign locked=i_dc_lock[39:0];
     assign mw_tag={w.dest,m.dest};
     assign mw_value[0]=m.result;
     // FREE_SELECT: a W load word is consumed only with W's hit (otherwise
     // its consumers wait), so it needs no hit gate of its own.
     assign mw_value[1]={w.result[1],w.load_writer?
-        (FREE_SELECT||i_data_short_hit?i_data_short_data:32'd0):w.result[0]};
+        i_data_short_data:w.result[0]};
     // Producer masks travel with the registered records. Load ownership
     // produces a match even before data is ready; execute retains the
     // operand instead of selecting the unavailable word. An empty,
@@ -660,8 +545,7 @@ output logic [1:0] o_dbg_fetch
             else if(w_cp)complete_class[consumer]=cp_finished;
             else if(memory_state==LOAD_RETURN)complete_class[consumer]=!w_locked&&!w_swp;
             else if(memory_state==RUN||memory_state==HOLD)
-                complete_class[consumer]=!w.memory||(request_done&&!retry&&(COMPLETE_FLAT?
-                    resp_err||w_mem_immediate||fast_pc_hit:!defer_load));
+                complete_class[consumer]=!w.memory||(request_done&&!retry&&(resp_err||w_mem_immediate||fast_pc_hit));
         end
         // Restore Rn on an aborting block before the exception writes ABT LR.
         if(request_done&&resp_err&&w_blkwb)complete_class[consumer]=0;
@@ -670,57 +554,38 @@ output logic [1:0] o_dbg_fetch
     (* keep, maxfan = 32 *) wire forward_advance=(memory_state==RUN&&done_forward)||memory_state==RELOAD1||quick_forward;
     assign advance_tag={m.dest,(memory_state==RELOAD1||memory_state==HOLD)?skid.dest:input_record.dest};
     always_comb begin
-        forward_tag={w.dest,m.dest};
         forward_write={mw_write[1],mw_write[0]};
         forward_load={w.load_writer,m.load_writer};
         if(memory_state==RUN&&done_forward)begin
-            forward_tag[0]=input_record.dest;forward_write[0]=input_record.writes|{1'b0,input_record.load_writer};
+            forward_write[0]=input_record.writes|{1'b0,input_record.load_writer};
             forward_load={m.load_writer,input_record.load_writer};
-            forward_tag[1]=m.dest;forward_write[1]=m.writes|{1'b0,m.load_writer};
+            forward_write[1]=m.writes|{1'b0,m.load_writer};
         end
         if(memory_state==RELOAD1||quick_forward)begin
-            forward_tag[0]=skid.dest;forward_write[0]=skid.writes|{1'b0,skid.load_writer};
+            forward_write[0]=skid.writes|{1'b0,skid.load_writer};
             forward_load={m.load_writer,skid.load_writer};
-            forward_tag[1]=m.dest;forward_write[1]=m.writes|{1'b0,m.load_writer};
+            forward_write[1]=m.writes|{1'b0,m.load_writer};
         end
         if((memory_state==HOLD&&done_forward&&!quick_forward)||(memory_state==ABORT&&done_forward)||
             (memory_state==LOAD_RETURN&&!w_locked&&w.kind!=SWP&&done_forward))begin forward_write[1]=0;forward_load[1]=0;end
-        next_load_tag={forward_tag[0][0],a_a_dest[0]};
+        next_load_tag=a_a_dest[0];
         next_load_valid={m.load_writer,a_a_load&&!a_a_can_finish};
         if(d_valid&&a_execute_ready)begin
-            next_load_tag[0]=d_dest[0];
+            next_load_tag=d_dest[0];
             next_load_valid[0]=!d_fault&&((d_kind==MEM||d_kind==BLOCK)?d_instruction[20]:d_kind==SWP||(d_kind==CP&&d_instruction[20]&&d_dest[0]!=15));
         end
         if(memory_state==RUN&&done_forward)next_load_valid[1]=input_record.load_writer;
         if(memory_state==RELOAD1||quick_forward)next_load_valid[1]=skid.load_writer;
         if(a_redirect)next_load_valid[0]=0;
-        if((!RESET_LEAN&&i_reset)||wb_flush)begin forward_write=0;forward_load=0;next_load_valid=0;end
+        if(wb_flush)begin forward_write=0;forward_load=0;next_load_valid=0;end
     end
     // LATE_HOLD_STATIC: forward_write with A's record not entering M.
     logic [1:0][1:0] forward_write_hold;
     always_comb begin
         forward_write_hold=forward_write;
         if(memory_state==RUN&&done_forward)forward_write_hold[0]=0;
-        if((!RESET_LEAN&&i_reset)||wb_flush)forward_write_hold=0;
+        if(wb_flush)forward_write_hold=0;
     end
-`ifndef SYNTHESIS
-    always_ff @(posedge i_clk) if(!i_reset&&LOAD_CLASS)begin
-        if(m.valid)assert(m.ld==ld_of(m)&&m.sp==sp_of(m)) else $fatal(1,"M load class");
-        if(w.valid)assert(w.ld==ld_of(w)&&w.sp==sp_of(w)) else $fatal(1,"W load class");
-        if(skid.valid)assert(skid.ld==ld_of(skid)&&skid.sp==sp_of(skid)) else $fatal(1,"skid load class");
-    end
-    always_ff @(posedge i_clk) if(!i_reset&&W_CLASS&&w.valid)
-        assert(w_cls==w_cls_ref) else $fatal(1,"W completion class");
-    always_ff @(posedge i_clk) if(!i_reset&&COMPLETE_FLAT)
-        assert((request_done&&!retry&&!defer_load)==(request_done&&!retry&&
-            (resp_err||w.store||(w.kind!=SWP&&(w.dest[0]!=15||fast_pc_hit))))) else $fatal(1,"flat completion");
-    always_ff @(posedge i_clk) if(!i_reset)begin
-        assert(complete_class=={3{wb_complete}});
-        assert((forward_advance?advance_tag:mw_tag)==forward_tag);
-    end
-`endif
-    assign wa=wb_valid&&wb_tag0!=16?40'd1<<wb_tag0:40'd0;
-    assign wb=wb_valid&&wb_pair&&wb_tag1!=16?40'd1<<wb_tag1:40'd0;
     assign wc=i_dc_reg_idx[39:0];
     assign train=w_train||a_btb_update;
     assign train_pc=w_train?w_train_pc:a_btb_pc;
@@ -747,7 +612,7 @@ output logic [1:0] o_dbg_fetch
         // M/W forwarding, including a permission-qualified short hit.
         if(a_kind==MEM&&input_record.load_writer&&a_dest[0]==a_dest[1])input_record.writes[1]=0;
         input_record.memory=a_memory;input_record.store=a_store&&a_kind!=SWP;
-        input_record.address=S_AGU&&a_kind==SUFFIX?a_alu_address:a_data_address;
+        input_record.address=a_data_address;
         input_record.fcse_address=fcse(a_data_address);input_record.store_data=a_store_data;
         input_record.original_base=a_original_base;input_record.psr_source=a_psr_source;
         input_record.saved_psr=a_saved_psr;input_record.spsr_tag=a_spsr_tag;
@@ -824,7 +689,7 @@ output logic [1:0] o_dbg_fetch
         next_check_enable=memory_state_next==RUN||memory_state_next==HOLD||memory_state_next==RELOAD1||memory_state_next==RETRY1||memory_state_next==SWAP1;
     end
     always_ff @(posedge i_clk) begin
-        if(i_reset)begin check_ff<='0;request_ff<=0;request_live<=0;end
+        if(i_reset)begin check_ff<='0;request_live<=0;end
         else begin
             check_ff.address<={next_check_record.fcse_address[31:2],2'b0};
             check_ff.mode<=next_check_record.flags[CPSR_MODE:0];
@@ -832,35 +697,12 @@ output logic [1:0] o_dbg_fetch
             check_ff.format<=next_check_record.format;
             check_ff.rd<=next_check_enable&&next_check_record.valid&&next_check_record.memory&&!next_check_record.store;
             check_ff.wr<=next_check_enable&&next_check_record.valid&&next_check_record.memory&&next_check_record.store;
-            request_ff<=w_next.valid&&w_next.memory&&
-                !(w_next.fault||w_next.irq||w_next.fiq||(w_next.pass&&(w_next.kind==SWI||w_next.kind==UND)))&&
-                (memory_state_next==RUN||memory_state_next==HOLD);
             request_live<=(w_next.valid&&w_next.memory&&
                 !(w_next.fault||w_next.irq||w_next.fiq||(w_next.pass&&(w_next.kind==SWI||w_next.kind==UND)))&&
                 (memory_state_next==RUN||memory_state_next==HOLD))&&!wb_redirect&&
                 !(i_data_fill_busy&&!i_data_fill_busy_nxt&&!i_data_fill_keep_nxt);
         end
     end
-`ifndef SYNTHESIS
-    logic request_reset_done;
-    always_ff @(posedge i_clk) request_reset_done<=!i_reset;
-    // Compare with the original schedule at every edge, including holds,
-    // relookup, SWP, abort restoration, flush, and fill installation.
-    always_ff @(posedge i_clk) if(!i_reset)begin
-        assert(o_data_wb_re_check==(check_enable&&check_record.valid&&check_record.memory&&!check_record.store&&!wb_flush));
-        assert(o_data_wb_we_check==(check_enable&&check_record.valid&&check_record.memory&&check_record.store&&!wb_flush));
-        if(o_data_wb_re_check||o_data_wb_we_check)begin
-            assert({o_data_wb_adr_check,o_mem_cpsr,o_mem_translate,o_data_wb_ldfmt_check}==
-                {fcse({check_record.address[31:2],2'b0}),check_record.flags[CPSR_MODE:0],check_record.user_access,check_record.format});
-        end
-        assert(request_raw==(w.valid&&w.memory&&!w_exception&&!wb_flush&&!fill_ended&&
-            (memory_state==RUN||memory_state==HOLD)));
-        if(REQ_FF&&request_reset_done)assert(request_live==(request_ff&&!wb_flush&&!fill_ended)) else $fatal(1,"request register");
-        if(request)assert(o_data_wb_adr==fcse({w.address[31:2],2'b0}));
-    end
-`endif
-    assign check_record=(memory_state==HOLD||memory_state==RETRY1||memory_state==SWAP1)?w:m;
-    assign check_enable=memory_state==RUN||memory_state==HOLD||memory_state==RELOAD1||memory_state==RETRY1||memory_state==SWAP1;
     wire [31:2] lookup_address=memory_state==RELOAD0?m.address[31:2]:
         memory_state==RELOAD1?skid.address[31:2]:
         (memory_state==HOLD||memory_state==RETRY0||memory_state==RETRY1||memory_state==SWAP0||memory_state==SWAP1)?w.address[31:2]:a_data_address[31:2];
@@ -888,31 +730,22 @@ output logic [1:0] o_dbg_fetch
         (w.kind==MSR&&(w.ins[22]||(w.pass&&w.ins[16]&&w.flags[4:0]!=5'h10&&w.psr_source[4:0]!=w.flags[4:0])))||w.kind==SWP||w.kind==SWI||w.kind==UND||w.fault||
         (w.kind==DP&&w.ins[20]&&w.dest[0]==15)||
         (w.kind==BLOCK&&w.ins[22]&&w.ins[20]&&w.ins[15]&&w.last);
-    assign w_exception=W_CLASS?w_cls.exc:w_cls_ref.exc;
+    assign w_exception=w_cls.exc;
     assign cp_request=w.valid&&w_cp&&!w_exception&&(cp_read||(!i_dc_lock_any&&!i_data_fill_busy))&&!wb_flush;
-    // REQ_FF: request_ff&&!wb_flush&&!fill_ended as one register.
-    wire request_raw=REQ_FF?request_live:request_ff&&!wb_flush&&!fill_ended;
+    // REQ_FF: the request, less W's flush and a fill's end, as one register.
     // REG_DONE: a non-fast acknowledge waits in late_done for one clock;
     // the request is withdrawn from the cache in that clock.
-    assign request=request_raw&&!(REG_DONE&&late_done);
-    wire ack_now=REG_DONE?request&&i_data_ack_fast:request&&(i_data_wb_ack||i_data_wb_err);
-    assign request_done=ack_now||(REG_DONE&&late_done);
-    assign resp_err=REG_DONE?(late_done?late_err:ack_now&&i_data_err_fast):i_data_wb_err;
-    assign resp_err2=REG_DONE?late_done&&late_err2:i_dcache_err2;
-    assign resp_dat=REG_DONE&&late_done?late_dat:i_data_wb_dat;
+    assign request=request_live&&!late_done;
+    wire ack_now=request&&i_data_ack_fast;
+    assign request_done=ack_now||late_done;
+    assign resp_err=(late_done?late_err:ack_now&&i_data_err_fast);
+    assign resp_err2=late_done&&late_err2;
+    assign resp_dat=late_done?late_dat:i_data_wb_dat;
     assign retry=request_done&&resp_err2;
     always_ff @(posedge i_clk)begin
-        late_done<=!i_reset&&REG_DONE&&request&&(i_data_wb_ack||i_data_wb_err)&&!i_data_ack_fast;
+        late_done<=!i_reset&&request&&(i_data_wb_ack||i_data_wb_err)&&!i_data_ack_fast;
         late_err<=i_data_wb_err;late_err2<=i_dcache_err2;late_dat<=i_data_wb_dat;
     end
-`ifndef SYNTHESIS
-    always_ff @(posedge i_clk) if(!i_reset)begin
-        if(REG_DONE&&request&&i_data_ack_fast)assert(i_data_wb_ack&&!i_dcache_err2&&i_data_wb_err==i_data_err_fast)
-            else $fatal(1,"fast acknowledge without the cache's");
-        if(REG_DONE&&late_done)assert(!wb_flush&&w.valid&&w.memory&&(memory_state==RUN||memory_state==HOLD))
-            else $fatal(1,"registered completion lost its owner");
-    end
-`endif
     // A first-pass PC hit is already permission-qualified and formatted in
     // the M/W short-response register. Retire it once here; W's registered
     // recovery owns any redirect. Miss/hold/retry/SWP still use LOAD_RETURN.
@@ -923,10 +756,6 @@ output logic [1:0] o_dbg_fetch
     // first-pass short hit. The live slow-response formatter is never
     // consumed by a retiring redirect; keep it out of the target compare.
     wire [31:0] pc_load_data=(memory_state==LOAD_RETURN||swap_write)?saved_load:i_data_short_data;
-`ifndef SYNTHESIS
-    always_ff @(posedge i_clk)if(!i_reset&&fast_pc_hit&&request_done&&!retry&&!resp_err)
-        assert(i_data_short_data==resp_dat) else $fatal(1,"PC hit short/normal word mismatch");
-`endif
     // Raw write-port class follows the W owner, independently of its
     // eventual completion. A data abort is the only late class override.
     // Architectural write enable, CPSR/exception control and trace remain
@@ -948,7 +777,7 @@ output logic [1:0] o_dbg_fetch
     // REDIRECT_EQ: the return target's upper 30 bits against the prediction,
     // once per source, in parallel; the load-word select then picks one bit.
     logic [3:0] target_hi_eq;
-    logic target_mismatch,target_mismatch_ref;
+    logic target_mismatch;
     logic target_raw_bit1;
     always_comb begin
         target_hi_eq[0]=w.pred_target[31:2]==saved_load[31:2];
@@ -997,10 +826,8 @@ output logic [1:0] o_dbg_fetch
         return_thumb=wb_flags[5];
         if(w.memory&&w.dest[0]==15&&!l4_enable)return_thumb=return_target[0];
         return_target=return_thumb?{return_target[31:1],1'b0}:{return_target[31:2],2'b0};
-        target_mismatch_ref=w.pred_target!={return_target[31:1],return_thumb};
-        target_mismatch=REDIRECT_EQ?!target_hi_eq[target_source]||
-            w.pred_target[1]!=(return_thumb&&target_raw_bit1)||w.pred_target[0]!=return_thumb:
-            target_mismatch_ref;
+        target_mismatch=!target_hi_eq[target_source]||
+            w.pred_target[1]!=(return_thumb&&target_raw_bit1)||w.pred_target[0]!=return_thumb;
         return_kind=(w.kind==BLOCK&&w.dest[0]==15)||((w.ins&32'h0fffffff)==32'h01a0f00e);
         wb_redirect=wb_complete&&(wb_exception||w_serial||scalar_replay||
             (return_event&&(!w.predicted||target_mismatch||
@@ -1008,12 +835,6 @@ output logic [1:0] o_dbg_fetch
             (w.pass&&w.kind==SWP));
     end
 
-`ifndef SYNTHESIS
-    always_ff @(posedge i_clk) if(!i_reset&&w.valid)
-        assert(target_mismatch==target_mismatch_ref) else $fatal(1,"W return-target compare");
-    always_ff @(posedge i_clk) if(!i_reset&&wb_complete&&return_event&&!wb_exception&&w.memory)
-        assert(pc_load_data==load_data) else $fatal(1,"retiring PC load source");
-`endif
     always_ff @(posedge i_clk)begin
         if(i_reset)begin
             m<='0;w<='0;skid<='0;memory_state<=RUN;saved_load<=0;swap_write<=0;w_cls<=0;
@@ -1072,10 +893,10 @@ output logic [1:0] o_dbg_fetch
     wire load_capture=|i_dc_reg_idx;
     wire [63:0] load_commit=0;
     wire [31:0] load_value=load_data;
-    wire unused=&{1'b0,LOAD_FORMATTED,BP_ENTRIES,FIFO_DEPTH,RAS_DEPTH,CP,UND,SWI,MRS,BR,PREFIX,MUL,MULL,
+    wire unused=&{1'b0,1'b1,BP_ENTRIES,FIFO_DEPTH,RAS_DEPTH,CP,UND,SWI,MRS,BR,PREFIX,MUL,MULL,
         i_instr_data_early,i_instr_hit,cp_seen,d_ready,d_raw,d_mode,d_reg_count,d_transfer_reg,d_pred_kind,
         a_flags,a_write_flags,a_store,a_btb_kind,a_predicted,a_psr_source,a_saved_psr,a_spsr_tag,
-        d_early,data_pc8,pc,ins,ex_result,load_capture,load_commit,load_value};
+        d_early,data_pc8,pc,ins,ex_result,load_capture,load_commit,load_value,i_dc_lock[63:40]};
 
     // A first-clock W short hit is trusted as a load that completes now.
     // A short hit on a fill's departing victim is not accepted
@@ -1094,23 +915,8 @@ output logic [1:0] o_dbg_fetch
     //   at 0x503CBDC6, the user data abort at 25 s). arm925t_execute
     //   applies i_load_trust only to such writers (d_self_dep); other
     //   readers may take the word, the departing line's current data.
-    wire load_trust=TRUST_FF?i_data_short_trust:i_data_short_live&&!fill_end_raw;
-`ifndef SYNTHESIS
-    // The FSM loads its trust register from the next state: no clock is
-    // added or lost against the departing-victim and fill-end terms.
-    logic fill_reset_done;
-    always_ff @(posedge i_clk) fill_reset_done<=!i_reset;
-    always_ff @(posedge i_clk) if(!i_reset&&fill_reset_done)
-        assert(i_data_short_trust==(i_data_short_live&&!fill_end_raw))
-            else $fatal(1,"short-hit trust register");
-`endif
-    wire w_hit=TRUST_FF?w_hit_candidate:w.memory&&!w_waited;
-`ifndef SYNTHESIS
-    always_ff @(posedge i_clk) if(!i_reset)
-        assert(w_hit_candidate==(w.memory&&!w_waited)) else $fatal(1,"W hit candidate register");
-`endif
-    wire w_load_hit=w_hit&&i_data_short_hit&&load_trust;
-    arm925t_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(BRANCH_PREDICTOR),.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS),.RAS_TOP_FF(RAS_TOP_FF),.PREFIX_FREE(PREFIX_FREE),.VALID_BIT(VALID_BIT),.HEAD_FF(HEAD_FF)) u_front_decode (
+    wire w_load_hit=w_hit_candidate&&i_data_short_hit&&i_data_short_trust;
+    arm925t_front_decode #(.RESET_VECTOR(RESET_VECTOR)) u_front_decode (
         .i_w_load_hit(w_load_hit),.o_self_dep(d_self_dep),.o_pending(d_pending),.o_writes(d_writes),.o_early(d_early),.i_forward_tag(mw_tag),.i_advance_tag(advance_tag),.i_forward_advance(forward_advance),
         .i_forward_load(forward_load),.o_forward_grant(d_forward_grant),.i_forward_write(forward_write),.o_forward_match(d_forward_match),.i_clk(i_clk),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),.o_return_match(d_return_match),
@@ -1119,15 +925,12 @@ output logic [1:0] o_dbg_fetch
         .i_serial_continue(a_serial_continue||w_serial_continue),
         .i_mode(cpsr[4:0]),
         .i_wen(wb_valid),
-        .i_wr_addr_a(wa),
         .i_wr_tag_a(wb_tag0),.i_wr_tag_b(wb_tag1),.i_wr_pair(wb_pair),
-        .i_wr_addr_b(wb),
         .i_wr_addr_c(wc),
         .i_locked(locked),
         .i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag(load_tag),.i_load_valid(load_valid),.i_load_speculate(load_speculate),.i_next_load_tag(next_load_tag),.i_next_load_valid(next_load_valid),.o_load_wait(d_load_wait),
         .i_early_tag(early_tag),
         .i_early_valid(early_valid),
-        .i_early_agu(early_agu),
         .i_wr_data_a(wb_data0),
         .i_wr_data_b(wb_data1),
         .i_wr_data_c(i_dc_reg_dat),
@@ -1201,10 +1004,10 @@ output logic [1:0] o_dbg_fetch
         .o_request(o_instr_wb_stb),
         .o_stall(o_code_stall),.o_dbg_fetch(o_dbg_fetch)
     );
-    arm925t_execute #(.S_AGU(S_AGU),.FREE_SELECT(FREE_SELECT),.FAST_Z(FAST_Z),.W_ROTATE(W_ROTATE),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.DSP_PRODUCT(DSP_PRODUCT),.OP1_PRE(OP1_PRE),.WRITES_PRE(WRITES_PRE),.TAG_PRE(TAG_PRE),.HELD_FREE(HELD_FREE),.MUL_FAST_Z(MUL_FAST_Z),.AGU_AL(AGU_AL),.LATE_HOLD_STATIC(LATE_HOLD_STATIC)) u_execute (
+    arm925t_execute u_execute (
         .i_pending(d_pending),.i_admit(backend_ready),.i_load_wait(d_load_wait),
         .i_load_owner({w.load_writer,m.load_writer}),.i_next_load_owner(forward_load),
-        .i_load_hit(w_hit&&i_data_short_hit),.i_load_trust(load_trust),.i_self_dep(d_self_dep),
+        .i_load_hit(w_hit_candidate&&i_data_short_hit),.i_load_trust(i_data_short_trust),.i_self_dep(d_self_dep),
         .i_return_select(i_dc_reg_idx),.i_return_data(operand_return_data),
         .i_return_next_valid(return_next_valid),.i_return_next_tag(w.dest[0]),
         .i_return_ready(return_ready),.i_return_s_match(d_return_match),.i_forward_grant(d_forward_grant),.i_forward_match(d_forward_match),.i_next_tag(mw_tag),.i_advance_tag(advance_tag),.i_next_advance(forward_advance),
@@ -1273,7 +1076,7 @@ output logic [1:0] o_dbg_fetch
         .o_pc_write(a_pc_write),
         .o_memory(a_memory),
         .o_store(a_store),
-        .o_address(a_data_address),.o_alu_address(a_alu_address),
+        .o_address(a_data_address),
         .o_store_data(a_store_data),
         .o_flags(a_flags),
         .o_redirect(a_redirect),
@@ -1290,7 +1093,7 @@ output logic [1:0] o_dbg_fetch
         .o_btb_state(a_btb_state),
         .o_btb_kind(a_btb_kind),
         .o_a_valid(a_a_valid),
-        .o_a_can_finish(a_a_can_finish),.o_a_cond_al(a_a_cond_al),.o_a_can_finish_nohit(a_a_can_finish_nohit),
+        .o_a_can_finish(a_a_can_finish),.o_a_can_finish_nohit(a_a_can_finish_nohit),
         .o_s_write(a_s_write),
         .o_a_dest(a_a_dest),
         .o_a_write(a_a_write),
@@ -1298,7 +1101,7 @@ output logic [1:0] o_dbg_fetch
         .o_multiply_wait(a_multiply_wait)
     );
 
-    arm925t_writeback #(.COPRO_PORT(COPRO_PORT),.PHY_REGS(40),.FLAG_WDT(32),.CPSR_INIT(CPSR_INIT)) u_writeback (
+    arm925t_writeback #(.PHY_REGS(40),.FLAG_WDT(32),.CPSR_INIT(CPSR_INIT)) u_writeback (
         .i_rf_class(rf_class),.i_clk(i_clk),.i_reset(i_reset),.i_valid(wb_valid),
         .i_l4_enable(l4_enable),
         .i_rd_index_0(rf_tag[0]),.i_rd_index_1(rf_tag[1]),
@@ -1309,10 +1112,9 @@ output logic [1:0] o_dbg_fetch
         .i_irq(wb_irq),.i_fiq(wb_fiq),.i_instr_abt(wb_pabt),
         .i_data_abt({1'b0,wb_dabt}),.i_swi(wb_swi),.i_und(wb_und),
         .i_pc_plus_8_buf_ff(o_dbg_wb_pc),.i_copro_reg_en(copro_reg_en),
-        // MRC only writes the RF. Without COPRO_PORT the coprocessor shares
-        // port A: preserve D2's read address there; only the fenced MCR may
-        // borrow it. With COPRO_PORT, port E is the coprocessor's alone.
-        .i_copro_reg_wr_index(copro_reg_wr_index),.i_copro_reg_rd_index(COPRO_PORT?copro_reg_rd_index:w.ins[20]?rf_tag[0]:copro_reg_rd_index),
+        // MRC only writes the RF; the coprocessor reads through the
+        // register file's port E, which is its alone.
+        .i_copro_reg_wr_index(copro_reg_wr_index),.i_copro_reg_rd_index(copro_reg_rd_index),
         .i_copro_reg_wr_data(copro_reg_wr_data),.o_copro_reg_rd_data_ff(copro_reg_rd_data),
         .o_rd_data_0(rf_value[0]),.o_rd_data_1(rf_value[1]),
         .o_rd_data_2(rf_value[2]),.o_rd_data_3(rf_value[3]),
@@ -1320,12 +1122,9 @@ output logic [1:0] o_dbg_fetch
     );
 
 arm925t_cp15 #(
-.BE_32_ENABLE(BE_32_ENABLE),
 .PHY_REGS(40),
-.CP15_L4_DEFAULT(CP15_L4_DEFAULT),
 .CP15_ID(CP15_ID),
 .CP15_CTYPE(CP15_CTYPE),
-.HIVECS(HIVECS),
 .DATA_CACHE_SIZE(DATA_CACHE_SIZE),
 .CODE_CACHE_SIZE(CODE_CACHE_SIZE),
 .DATA_CACHE_LINE(DATA_CACHE_LINE),
@@ -1378,7 +1177,5 @@ arm925t_cp15 #(
         .i_dcache_line_done     (i_dcache_line_done),
         .i_dcache_writeback_busy (i_dcache_writeback_busy)
 );
-
-
 
 endmodule

@@ -29,14 +29,7 @@
 
 module arm925t_ram_nopipe #(
         parameter logic [31:0] WIDTH = 32'd60,
-        parameter logic [31:0] DEPTH = 32'd256,
-        // ARM925T: the predictor keeps an entry stable across a held fetch, including
-        // a write-first collision. Default preserves existing callers.
-        parameter logic HOLD_READ = 1'b1,
-        // ARM925T: compare registered addresses on the response side. This
-        // keeps a late predicted read address out of a compare before the
-        // next edge. Same write-first/held-read contract, default unchanged.
-        parameter logic REGISTER_COLLISION = 1'b1
+        parameter logic [31:0] DEPTH = 32'd256
 )
 (
         // Clock
@@ -76,28 +69,21 @@ logic             concurrent_access;
 
 assign concurrent_access = i_wr_en & i_rd_en;
 
-generate if (REGISTER_COLLISION) begin : g_registered_collision
-        (* dont_retime *) logic [$clog2(DEPTH)-1:0] rd_addr_ff, wr_addr_ff;
-        (* dont_retime *) logic concurrent_ff;
-        always_ff @(posedge i_clk) begin
-                if (!HOLD_READ || i_rd_en) begin
-                        rd_addr_ff <= i_rd_addr;
-                        wr_addr_ff <= i_wr_addr;
-                        concurrent_ff <= concurrent_access;
-                        buffer_ff <= i_wr_data;
-                end
+// ARM925T: the read holds while i_rd_en is low (the predictor keeps an entry
+// stable across a held fetch, including a write-first collision), and the
+// collision is a compare of registered addresses on the response side, which
+// keeps a late read address out of a compare before the edge.
+(* dont_retime *) logic [$clog2(DEPTH)-1:0] rd_addr_ff, wr_addr_ff;
+(* dont_retime *) logic concurrent_ff;
+always_ff @(posedge i_clk) begin
+        if (i_rd_en) begin
+                rd_addr_ff <= i_rd_addr;
+                wr_addr_ff <= i_wr_addr;
+                concurrent_ff <= concurrent_access;
+                buffer_ff <= i_wr_data;
         end
-        assign hazard_ff = concurrent_ff && rd_addr_ff == wr_addr_ff;
-end else begin : g_original_collision
-        wire hazard_nxt = (i_wr_addr == i_rd_addr) && concurrent_access;
-        wire [WIDTH-1:0] buffer_nxt = hazard_nxt ? i_wr_data : {WIDTH{1'dx}};
-        always_ff @(posedge i_clk) begin
-                if (!HOLD_READ || i_rd_en) begin
-                        hazard_ff <= hazard_nxt;
-                        buffer_ff <= buffer_nxt;
-                end
-        end
-end endgenerate
+end
+assign hazard_ff = concurrent_ff && rd_addr_ff == wr_addr_ff;
 
 // And forward it to the output in case of hazard.
 assign o_rd_data = hazard_ff ? buffer_ff : mem_rd_data;

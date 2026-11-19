@@ -9,7 +9,7 @@ sources=("$root"/rtl/cpu/arm925t_{fetch,predict}.sv "$root/rtl/cpu/arm925t_ram_n
 for bench in predict fetch; do
     top=arm925t_$bench
     [[ $bench != predict ]] || top=arm925t_predict
-    sv2v -DSYNTHESIS --top="$top" "${sources[@]}" > "$build/$bench-gen.v"
+    sv2v --top="$top" "${sources[@]}" > "$build/$bench-gen.v"
     for rtl in sv gen; do
         inputs=("${sources[@]}")
         [[ $rtl == sv ]] || inputs=("$build/$bench-gen.v")

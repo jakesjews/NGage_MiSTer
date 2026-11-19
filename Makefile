@@ -34,7 +34,7 @@ lint: lint-prepare
 	done
 	@echo "lint arm925t (sources)"
 	@$(VERILATOR) --lint-only -Wall --top-module arm925t -Irtl/cpu lint/exclusions.vlt \
-		sim/stubs/altsyncram.sv $(CPU_LINT_SRCS)
+		sim/stubs/altsyncram.sv sim/stubs/altdpram.sv $(CPU_LINT_SRCS)
 
 lint-prepare:
 	@mkdir -p lint/gen

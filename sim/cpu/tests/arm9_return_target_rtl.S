@@ -1,5 +1,5 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
-@ W's return-target check (the pipeline's REDIRECT_EQ: the predicted target is
+@ W's return-target check (arm925t_core's REDIRECT_EQ: the predicted target is
 @ compared with each load-word source in parallel) and the fetch queue's
 @ Thumb halfword (THUMB_HALF). PC writes whose target comes from:
 @   * a load hitting the D-cache (W's short word), a cold miss and an

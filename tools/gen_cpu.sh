@@ -6,8 +6,7 @@
 #   tools/gen_cpu.sh [OUTPUT]     default OUTPUT: rtl/cpu/arm925t_gen.v
 #
 # Quartus 17 cannot read this SystemVerilog, so sv2v (https://github.com/
-# zachjs/sv2v) converts it, with SYNTHESIS defined (no simulation trace), and
-# then this fix is applied:
+# zachjs/sv2v) converts it, and then this fix is applied:
 #   sv2v writes an empty generate branch as "begin ; end", which Quartus
 #      17 rejects; the lone ";" is removed (an empty begin-end is legal).
 # `make cpu-gen-check` regenerates into a temporary file and compares, so
@@ -27,7 +26,7 @@ srcs=(rtl/cpu/arm925t.sv rtl/cpu/arm925t_*.sv)
 tmp=$(mktemp "${TMPDIR:-/tmp}/gen_cpu.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
 
-sv2v -DSYNTHESIS -I rtl/cpu --top=arm925t "${srcs[@]}" > "$tmp"
+sv2v -I rtl/cpu --top=arm925t "${srcs[@]}" > "$tmp"
 
 {
 	cat <<'EOF'

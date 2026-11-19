@@ -421,7 +421,7 @@ always_comb
 begin
         //
         // Change state only if strobe is inactive or strobe has just completed.
-        // ERR follows ACK. There's an assertion to check that.
+        // ERR follows ACK.
         //
         if ( !o_wb_stb || (o_wb_stb && (i_wb_ack || i_wb_err) && (o_wb_cti == CTI_EOB)) )
         begin

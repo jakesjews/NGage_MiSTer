@@ -9,17 +9,9 @@
 // edge with the entry that will be at the head after it (the next entry on
 // a pop, the pushed packet when the push lands at the head, the pending
 // and fault bits updated by a finishing fill), so decode reads it straight
-// from flops instead of through the eight-entry select. Asserted equal to
-// the select whenever the queue holds an entry.
-// Parameter defaults are the core's configuration (arm925t_core sets each
-// explicitly); 0 selects a cut's original form, kept for A/B timing trials.
+// from flops instead of through the eight-entry select.
 module arm925t_fetch #(
-    parameter logic [31:0] RESET_VECTOR = 0,
-    parameter logic PREDICTOR = 1'b1,
-    parameter logic THUMB_HALF = 1'b1,
-    parameter logic RAS_TOP_FF = 1'b1,
-    parameter logic VALID_BIT = 1'b1,
-    parameter logic HEAD_FF = 1'b1
+    parameter logic [31:0] RESET_VECTOR = 0
 ) (
     input logic i_clk, i_reset,
     // Backend redirect, payload and predictor update are registered by owner.
@@ -75,7 +67,6 @@ module arm925t_fetch #(
     (* dont_retime *) logic [7:0] head_select;
     (* dont_retime *) logic [3:0] count;
     packet_t queue [0:7];
-    packet_t head_packet;
     prediction_t prediction;
     logic predicted, advance, push, pop, retry, launch_thumb;
     logic [31:0] launch_pc;
@@ -95,7 +86,7 @@ module arm925t_fetch #(
         i_update_target, i_update_thumb, i_update_taken, i_update_hit,
         i_update_state, i_update_kind};
 
-    assign predicted = PREDICTOR && prediction.predicted && f1.valid &&
+    assign predicted = prediction.predicted && f1.valid &&
                        f1.epoch == epoch && !killed;
     assign launch_pc = i_redirect ? {i_redirect_target[31:1],1'b0} : predicted ? {prediction.target[31:1],1'b0} : sequential_pc;
     assign launch_thumb = i_redirect ? i_redirect_thumb : predicted ? prediction.target[0] : sequential_thumb;
@@ -124,10 +115,9 @@ module arm925t_fetch #(
             next_packet |= queue[q] & {$bits(packet_t){next_select[q]}};
         end
     end
-    assign head_packet = HEAD_FF ? head_ff : head_select_packet;
     // The packet a push writes (the queue entries' own write below).
     always_comb begin
-        pushed.word = THUMB_HALF && f2.thumb && f2.pc[1] ? {16'd0,i_data[31:16]} : i_data;
+        pushed.word = f2.thumb && f2.pc[1] ? {16'd0,i_data[31:16]} : i_data;
         pushed.pc = f2.pc;
         pushed.thumb = f2.thumb;
         pushed.epoch = f2.epoch;
@@ -145,26 +135,21 @@ module arm925t_fetch #(
         end
     end
     always_ff @(posedge i_clk) head_ff <= head_next;
-`ifndef SYNTHESIS
-    always_ff @(posedge i_clk) if (!i_reset && HEAD_FF && count != 0)
-        assert (head_ff == head_select_packet) else $fatal(1, "fetch head register");
-`endif
-    assign o_valid = count != 0 && !head_packet.pending && head_packet.epoch == epoch;
+    assign o_valid = count != 0 && !head_ff.pending && head_ff.epoch == epoch;
     assign pop = o_valid && i_ready;
-    assign o_pc = head_packet.pc;
-    assign o_word = head_packet.word;
-    assign o_thumb = head_packet.thumb;
-    assign o_fault = head_packet.fault;
-    assign o_predicted = head_packet.prediction.predicted;
-    assign o_pred_hit = head_packet.prediction.hit;
-    assign o_pred_target = head_packet.prediction.target;
-    assign o_pred_state = head_packet.prediction.state;
-    assign o_pred_kind = head_packet.prediction.kind;
-    assign o_ras_pointer = head_packet.prediction.pointer;
-    assign o_ras_count = head_packet.prediction.count;
+    assign o_pc = head_ff.pc;
+    assign o_word = head_ff.word;
+    assign o_thumb = head_ff.thumb;
+    assign o_fault = head_ff.fault;
+    assign o_predicted = head_ff.prediction.predicted;
+    assign o_pred_hit = head_ff.prediction.hit;
+    assign o_pred_target = head_ff.prediction.target;
+    assign o_pred_state = head_ff.prediction.state;
+    assign o_pred_kind = head_ff.prediction.kind;
+    assign o_ras_pointer = head_ff.prediction.pointer;
+    assign o_ras_count = head_ff.prediction.count;
 
-    if (PREDICTOR) begin : g_predictor
-        arm925t_predict #(.RAS_TOP_FF(RAS_TOP_FF), .VALID_BIT(VALID_BIT)) u_predict (
+    arm925t_predict u_predict (
             .i_clk(i_clk), .i_reset(i_reset), .i_clear(i_predictor_clear),
             .i_lookup(advance), .i_pc(launch_pc), .i_thumb(launch_thumb),
             .i_pc_redirect(i_redirect_target), .i_pc_sequential(sequential_pc),
@@ -182,9 +167,6 @@ module arm925t_fetch #(
             .o_state(prediction.state), .o_kind(prediction.kind),
             .o_pointer(prediction.pointer), .o_count(prediction.count)
         );
-    end else begin : g_no_predictor
-        assign prediction = prediction_t'(0);
-    end
 
     // Separate entry registers prevent the queue from inferring a synchronous
     // RAM and putting its read address behind the decode backpressure chain.

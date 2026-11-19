@@ -461,43 +461,6 @@ begin
         end
 end
 
-always @ (posedge i_clk) // Assertion
-begin
-    if ( state_ff[FETCH_L1_DESC] )
-    begin
-        assert(o_setlb_wdata[19:12] == '0 || i_reset)
-        else $info("Error: Section page table format incorrect. Ignoring bits 15:12.");
-
-        assert(o_setlb_wdata[9] == '0 || i_reset)
-        else $info("Error: Section page table format incorrect. Ignoring bit 9.");
-
-        assert(o_setlb_wdata[4] == '0 || i_reset)
-        else $info("Error: Section page table format incorrect. Ignoring bit 4.");
-    end
-
-    if(o_lptlb_wen)
-    begin
-        assert(o_lptlb_wdata[1:0] == LPAGE_ID) else $fatal(2, "Error injected to LPTLB.");
-    end
-
-    if(o_fptlb_wen)
-    begin
-        assert(o_fptlb_wdata[1:0] == FPAGE_ID) else $fatal(2, "Error injected to FPTLB.");
-    end
-
-    if(o_setlb_wen)
-    begin
-        assert(o_sptlb_wdata[1:0] inside {SPAGE_ID, 2'b00}) else
-        $fatal(2, "SE TLB ID incorrect.");
-    end
-
-    if(o_sptlb_wen)
-    begin
-        assert(o_sptlb_wdata[1:0] inside {SECTION_ID, 2'b00}) else
-        $fatal(2, "SP TLB ID incorrect.");
-    end
-end
-
 endmodule
 
 // ----------------------------------------------------------------------------

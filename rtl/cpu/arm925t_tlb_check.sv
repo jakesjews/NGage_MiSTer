@@ -150,12 +150,6 @@ always_ff @(posedge i_clk)
                             cacheable_nxt && !(i_wr && wt_nxt);
         end
 
-`ifndef SYNTHESIS
-logic hit_ok_loaded = 1'b0;
-always_ff @(posedge i_clk) if (i_clkena) hit_ok_loaded <= 1'b1;
-always_ff @(posedge i_clk) if (hit_ok_loaded) assert (o_hit_ok_short == o_hit_ok) else $fatal(1, "TLB hit_ok copy");
-`endif
-
 always_comb
 begin : tlb_match_logic
 
@@ -173,7 +167,6 @@ begin : tlb_match_logic
                 cacheable_nxt = MMU_OFF_CACHEABLE; // ARM925T: was 0 (uncacheable).
                 wt_nxt        = 0;
                 bufferable_nxt = 0;
-
 
                 // ==========================================
                 // Code Section

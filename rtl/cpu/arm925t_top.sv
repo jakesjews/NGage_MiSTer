@@ -29,13 +29,6 @@
 //
 
 module arm925t_top #(
-        parameter logic BRANCH_PREDICTOR = 1'b1,
-
-// -----------------------------------
-// CP15 L4 bit default.
-// -----------------------------------
-
-parameter logic [0:0] CP15_L4_DEFAULT            = 1'd0,
 
 // -----------------------------------
 // Set reset vector here
@@ -48,12 +41,6 @@ parameter logic [31:0]       RESET_VECTOR      = 32'd0,
 // -----------------------------------
 
 parameter logic [31:0]       CPSR_INIT          = {24'd0, 1'd1,1'd1,1'd0,5'b10011},
-
-// -----------------------------------
-// Enable BE-32
-// -----------------------------------
-
-parameter logic  [0:0]       BE_32_ENABLE       = 1'd0,
 
 // -----------------------------------
 // BP entries, FIFO depths
@@ -99,8 +86,7 @@ parameter logic [31:0] CODE_CACHE_WAYS          =  32'd2,    // ARM925T: 1 or 2.
 // ARM925T identification; see docs/CPU.md.
 // ----------------------------------
 parameter logic [31:0] CP15_ID      = 32'h54029252,  // c0 main ID (TI config O = 0).
-parameter logic [31:0] CP15_CTYPE   = 32'h05109149,  // c0 cache type (0: made from the cache parameters).
-parameter logic        HIVECS       = 1'd0           // Reset value of control bit V (TI925T).
+parameter logic [31:0] CP15_CTYPE   = 32'h05109149  // c0 cache type (0: made from the cache parameters).
 
 )(
         // --------------------------------------
@@ -169,16 +155,6 @@ parameter logic        HIVECS       = 1'd0           // Reset value of control b
 `include "arm925t_localparams.svh"
 `include "arm925t_functions.svh"
 
-// Assertion.
-
-always@(posedge i_clk) // Assertion.
-begin
-        if (!i_reset && o_wb_cyc)
-        begin
-                assert ( |o_wb_cti ) else  $fatal(2, "O_WB_CTI is not EOB.");
-        end
-end
-
 logic            wb_cyc, wb_stb, wb_we;
 logic [3:0]      wb_sel;
 logic [31:0]     wb_dat, wb_idat;
@@ -214,7 +190,7 @@ logic            cpu_dtlb_inv, cpu_itlb_inv;
 logic            data_ack, data_err, instr_ack, instr_err;
 logic [31:0]     ic_data, dc_data, cpu_dc_dat;
 logic [31:0] dc_short_data;
-logic dc_short_hit, dc_short_live, dc_short_trust;
+logic dc_short_hit, dc_short_trust;
 logic            cpu_instr_stb;
 logic            cpu_dc_we, cpu_dc_stb, cpu_dc_swp;
 logic [3:0]      cpu_dc_sel;
@@ -290,24 +266,19 @@ wire dc_writeback_busy; // ARM925T: registered eviction ownership
 
 // The integer pipeline (arm925t_core).
 arm925t_core #(
-.BRANCH_PREDICTOR        (BRANCH_PREDICTOR),
-        .CP15_L4_DEFAULT(CP15_L4_DEFAULT),
         .BP_ENTRIES(BP_ENTRIES),
         .FIFO_DEPTH(FIFO_DEPTH),
         .RAS_DEPTH(RAS_DEPTH),
-        .BE_32_ENABLE(BE_32_ENABLE),
         .RESET_VECTOR(RESET_VECTOR),
         .CPSR_INIT(CPSR_INIT),
         .DATA_CACHE_SIZE(DATA_CACHE_SIZE),
         .DATA_CACHE_LINE(DATA_CACHE_LINE),
         .DATA_CACHE_WAYS(DATA_CACHE_WAYS),
-        .LOAD_FORMATTED(1'b1),     // ARM925T
         .CODE_CACHE_SIZE(CODE_CACHE_SIZE),
         .CODE_CACHE_LINE(CODE_CACHE_LINE),
         .CPSR_MODE(ARM925T_CPSR_MODE),
         .CP15_ID(CP15_ID),
-        .CP15_CTYPE(CP15_CTYPE),
-        .HIVECS(HIVECS)
+        .CP15_CTYPE(CP15_CTYPE)
 ) u_core
 (
 // ARM925T: debug trace taps.
@@ -360,7 +331,7 @@ arm925t_core #(
 .o_pid                  (),
 /* verilator lint_on PINCONNECTEMPTY */
 .o_data_wb_stb          (cpu_dc_stb),
-.i_data_short_data(dc_short_data),.i_data_short_hit(dc_short_hit),.i_data_short_live(dc_short_live),.i_data_short_trust(dc_short_trust),
+.i_data_short_data(dc_short_data),.i_data_short_hit(dc_short_hit),.i_data_short_trust(dc_short_trust),
 .i_data_wb_dat          (dc_data),
 
 .i_data_wb_ack          (data_ack),
@@ -499,12 +470,6 @@ arm925t_dcache #(
         .FPAGE_TLB_ENTRIES(DATA_FPAGE_TLB_ENTRIES),
         .CACHE_LINE(DATA_CACHE_LINE), // ARM925T: upstream passed CODE_CACHE_LINE.
         .WAYS(DATA_CACHE_WAYS),
-        .WAY_FORMAT(1'b1),
-        .REG_COLLISION(1'b1),
-        .HIT_FF(1'b1),
-        .FLAT_ACK(1'b1),
-        .LOCK_SPLIT(1'b1),
-        .BE_32_ENABLE(BE_32_ENABLE),
         .EXT_ABORT_FS(4'b1000)   // TI925T's external abort status
 )
 u_data_cache (
@@ -536,7 +501,7 @@ u_data_cache (
 .i_reg_idx              (dc_rreg_idx),
 .i_reg_idx_bin          (dc_rreg_idx_bin),
 
-.o_short_data(dc_short_data),.o_short_hit(dc_short_hit),.o_short_live(dc_short_live),.o_short_trust(dc_short_trust),
+.o_short_data(dc_short_data),.o_short_hit(dc_short_hit),.o_short_trust(dc_short_trust),
 .o_dat                  (dc_data),
 .o_ack                  (data_ack),
 .o_writeback_busy       (dc_writeback_busy),

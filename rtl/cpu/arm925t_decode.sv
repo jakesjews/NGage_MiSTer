@@ -2,11 +2,8 @@
 // The pipeline's D1/D2 stages, including the registers at the S entrance. ARMv4T class and
 // physical register mapping follow arm925t_functions.svh
 // (ZAP copyright 2016-2024 Revanth Kamaraj). No execution or forwarding here.
-// S_AGU: memory addresses are formed in S and registered into A, so A
-// drives the D-cache/TLB lookup from a register (arm925t_execute). The base,
-// a register offset, the SWP base and a block's first base are then early
-// (S-needed) sources. A base whose pending writer is a scalar MEM writeback
-// (an S-AGU sum) is exempt: S takes that sum from A's register.
+// The names below label parts of these stages; comments here and in the
+// project's log (docs/PROGRESS-LOG.md) use them.
 // THUMB_HALF: the fetch queue already moved a Thumb pc[1] halfword down
 // (arm925t_fetch); every other use of i_word is ARM-only.
 // SHIFT_PRE: S's shifter controls (type, immediate amount, the rotate amount
@@ -24,6 +21,8 @@
 // WT_TAGS: the same-edge write-through compares D2's tags with W's binary
 // write tags (registers) and ANDs W's late write enable at the end,
 // instead of selecting the one-hot write masks' bits after completion.
+// PREFIX_FREE: prefix_target loads while D2 holds a BL prefix, not on S's
+// acceptance (step): it is read only once D2 no longer holds it.
 // PAYLOAD_NORESET: D2's record and the S-entry payload (issued, values and
 // the registers loaded with them) are not cleared by reset; reset loads
 // them on their usual enables instead, so each enable is the load
@@ -33,16 +32,8 @@
 // two banks: the bank D2 does not own captures the admitted packet on every
 // edge and D2's load flips a one-bit owner, so the hazard-dependent load
 // drives one flop instead of the packet's enables. The record's other
-// fields (tags, masks, block counters) stay single. Asserted equal.
-// Parameter defaults are the core's configuration (arm925t_core sets each
-// explicitly); 0 selects a cut's original form, kept for A/B timing trials.
-module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1'b1,
-    parameter logic SHIFT_PRE=1'b1, parameter logic PAYLOAD_FREE=1'b1, parameter logic REDIRECT_PAYLOAD=1'b1,
-    parameter logic WT_TAGS=1'b1,
-    // PREFIX_FREE: prefix_target loads while D2 holds a BL prefix, not on
-    // S's acceptance (step): it is read only once D2 no longer holds it.
-    parameter logic PREFIX_FREE=1'b1,
-    parameter logic PAYLOAD_NORESET=1'b1, parameter logic D2_BANKS=1'b1) (
+// fields (tags, masks, block counters) stay single.
+module arm925t_decode  (
     input logic i_clk, i_reset, i_flush,
     input logic i_serial_continue,
     input logic i_valid,
@@ -57,12 +48,11 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
     input logic [3:0] i_ras_count,
     // These are registered W/scoreboard producers, not live cache responses.
     input logic i_wen,
-    input logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked,
+    input logic [39:0] i_wr_addr_c, i_locked,
     // At most four pending destination lanes (S and A). Compare directly;
     // do not decode a destination mask and index it back by each source.
     input logic [3:0][5:0] i_early_tag,
     input logic [3:0] i_early_valid,
-    input logic [3:0] i_early_agu,      // that pending writer lane is a MEM writeback (S_AGU)
     input logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c,
     input logic [5:0] i_wr_tag_a, i_wr_tag_b,   // WT_TAGS: W's write tags (16: none)
     input logic i_wr_pair,                     // WT_TAGS: port B writes
@@ -75,11 +65,9 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
     input logic i_return_next_valid,
     input logic [5:0] i_return_next_tag,
     output logic [3:0] o_return_match,
-    // Producer 1's tag is read by the simulation reference only: its
-    // matches come from the forwarding-tag candidates.
-    /* verilator lint_off UNUSEDSIGNAL */
-    input logic [1:0][5:0] i_next_load_tag,
-    /* verilator lint_on UNUSEDSIGNAL */
+    // Producer 0's tag; producer 1's matches come from the forwarding-tag
+    // candidates.
+    input logic [5:0] i_next_load_tag,
     input logic [1:0] i_next_load_valid,
     output logic o_load_wait,
     // Tags/eligibility of the producers that will exist after this edge.
@@ -87,7 +75,7 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
     input logic i_forward_advance,
     input logic [1:0][1:0] i_forward_write,
     input logic [1:0] i_forward_load,
-    (* dont_retime *) output logic [1:0][3:0][4:0] o_forward_grant,
+    (* dont_retime *) output logic [3:0][4:0] o_forward_grant,
     (* dont_retime *) output logic [3:0][1:0][1:0] o_forward_match,
     output logic [3:0] o_early,
     // The S-entry instruction writes a register it also reads (ldr r2,[r2],
@@ -177,9 +165,9 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
     (* dont_retime, maxfan = 32 *) logic d2_owner;
     always_comb begin
         d2=d2_q;
-        if(D2_BANKS)d2.p=d2_bank[d2_owner];
+        d2.p=d2_bank[d2_owner];
     end
-    always_ff @(posedge i_clk) if(D2_BANKS) d2_bank[!d2_owner]<=admitted.p;
+    always_ff @(posedge i_clk) d2_bank[!d2_owner]<=admitted.p;
     (* dont_retime *) logic [3:0][31:0] values;
     (* dont_retime *) logic [3:0][2:0] write_through_match;
     (* dont_retime *) logic [2:0][31:0] write_through_data;
@@ -188,7 +176,6 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
     (* dont_retime *) logic [31:0] previous_next_pc, prefix_target;
     packet_t incoming, front;
     decoded_t decoded, fast_branch, admitted;
-    logic [31:0] raw_word;
     logic [34:0] expanded;
     logic thumb_und, thumb_align;
     logic [15:0] reg_list, next_remaining;
@@ -336,15 +323,10 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
         return k;
     endfunction
 
-    assign raw_word = !THUMB_HALF && i_thumb && i_pc[1] ? {16'd0,i_word[31:16]} : i_word;
-`ifndef SYNTHESIS
-    always_ff @(posedge i_clk) if (!i_reset && THUMB_HALF && i_valid && i_thumb && i_pc[1])
-        assert (i_word[31:16] == 0) else $fatal(1, "Thumb upper halfword not moved at push");
-`endif
     // A suffix is kept as its own architectural record. Paired target
     // optimization uses the dedicated prefix register, not Thumb expansion.
     arm925t_mode_decoder u_thumb (
-        .i_instruction(raw_word),.i_instruction_valid(1'b1),.i_offset(11'd0),
+        .i_instruction(i_word),.i_instruction_valid(1'b1),.i_offset(11'd0),
         .i_prev_prefix(1'b0),.i_irq(1'b0),.i_fiq(1'b0),.i_cpsr_ff_t(i_thumb),
         .o_instruction(expanded),.o_und(thumb_und),.o_force32_align(thumb_align),
         .o_instruction_valid(),.o_irq(),.o_fiq()
@@ -353,13 +335,13 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
         // List extraction is parallel to Thumb expansion, not downstream of it.
         reg_list=i_word[15:0];
         if (i_thumb) begin
-            reg_list={8'd0,raw_word[7:0]};
-            if ((raw_word[15:0]&16'hf600)==16'hb400 && raw_word[8]) begin
-                if (raw_word[11]) reg_list[15]=1; else reg_list[14]=1;
+            reg_list={8'd0,i_word[7:0]};
+            if ((i_word[15:0]&16'hf600)==16'hb400 && i_word[8]) begin
+                if (i_word[11]) reg_list[15]=1; else reg_list[14]=1;
             end
         end
         incoming=packet_t'(0);
-        incoming.pc=i_pc; incoming.ins=expanded[31:0]; incoming.raw=raw_word[15:0];
+        incoming.pc=i_pc; incoming.ins=expanded[31:0]; incoming.raw=i_word[15:0];
         incoming.pc_base=i_pc+(i_thumb?32'd4:32'd8);
         incoming.next_pc=i_pc+(i_thumb?32'd2:32'd4);
         incoming.mode=i_mode;incoming.thumb=i_thumb;incoming.fault=i_fault;
@@ -384,7 +366,7 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
     (* keep *) wire [31:0] prefix_sum=front.pc_base+{{9{front.raw[10]}},front.raw[10:0],12'd0};
     (* keep *) wire [31:0] suffix_sum=suffix_base+{20'd0,front.raw[10:0],1'b0};
     wire [31:0] fast_arm_offset={{6{i_word[23]}},i_word[23:0],2'b0};
-    wire [31:0] fast_thumb_offset={{20{raw_word[10]}},raw_word[10:0],1'b0};
+    wire [31:0] fast_thumb_offset={{20{i_word[10]}},i_word[10:0],1'b0};
     // Include the architectural PC bias with carry-save logic. Writing
     // pc+offset+8/4 inferred TWO serial carry chains on the shortcut path.
     (* keep *) wire [31:0] fast_arm_ones=i_pc^fast_arm_offset^32'd8;
@@ -399,7 +381,7 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
         // The source is the REGISTERED fetch queue, never the cache response.
         fast_branch=decoded_t'(0);
         fast_branch.p=incoming;
-        fast_branch.p.ins=i_thumb?{4'he,4'ha,{13{raw_word[10]}},raw_word[10:0]}:i_word;
+        fast_branch.p.ins=i_thumb?{4'he,4'ha,{13{i_word[10]}},i_word[10:0]}:i_word;
         fast_branch.p.list=0;fast_branch.p.rest=0;fast_branch.p.nregs=0;fast_branch.p.first=0;
         fast_branch.kind=K_BRANCH;fast_branch.condition=4'he;
         fast_branch.dest[0]=bank(5'd14,i_mode);
@@ -480,10 +462,7 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
             end
             K_MEM:begin
                 decoded.early[1]=decoded.used[1]&&front.ins[27:26]==1&&front.ins[11:4]!=0;
-                if(S_AGU)begin decoded.early[0]=decoded.used[0];decoded.early[1]=decoded.used[1];end
             end
-            K_SWP:if(S_AGU)decoded.early[0]=1;
-            K_BLOCK:if(S_AGU)decoded.early[0]=decoded.used[0];
             K_MUL,K_MULL:decoded.early=4'b0110;
             default:;
         endcase
@@ -539,31 +518,31 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
     end
     // Data grants are distinct from full age/pending matches. Resolve
     // M's unavailable load and the lane priority before the D2/S edge.
-    // W's permission-qualified hit arrives on that SAME edge. Capture
-    // both finished grant alternatives; its registered hit selects them
-    // in S without looking at either producer's load-writer mask.
-    logic [1:0][3:0][4:0] grant_next;
+    // W's permission-qualified hit arrives on that SAME edge; the grant
+    // is the one that holds if W's load hits (a source whose producer's
+    // load has no accepted hit waits in S and never consumes the word).
+    logic [3:0][4:0] grant_next;
     always_comb begin
         logic [1:0][1:0] data_match;
         logic seen;
         grant_next='0;
-        for(int hit=0;hit<2;hit++)for(int src=0;src<4;src++)begin
+        for(int src=0;src<4;src++)begin
             for(int prod=0;prod<2;prod++)for(int lane=0;lane<2;lane++)
                 data_match[prod][lane]=i_forward_write[prod][lane]&&
                     ((!out_valid||i_ready)?d2.used[src]&&d2_candidate_match[i_forward_advance][src][prod][lane]:
                                           issued.used[src]&&held_candidate_match[i_forward_advance][src][prod][lane])&&
-                    !(lane==0&&i_forward_load[prod]&&(prod==0||hit==0));
+                    !(lane==0&&i_forward_load[prod]&&prod==0);
             seen=0;
             for(int rank=0;rank<4;rank++)begin
-                grant_next[hit][src][rank]=data_match[rank/2][1-rank%2]&&!seen;
+                grant_next[src][rank]=data_match[rank/2][1-rank%2]&&!seen;
                 seen|=data_match[rank/2][1-rank%2];
             end
-            grant_next[hit][src][4]=!seen;
+            grant_next[src][4]=!seen;
         end
     end
     always_ff @(posedge i_clk) begin
-        if(i_reset||i_flush)for(int hit=0;hit<2;hit++)for(int src=0;src<4;src++)
-            o_forward_grant[hit][src]<=5'b10000;
+        if(i_reset||i_flush)for(int src=0;src<4;src++)
+            o_forward_grant[src]<=5'b10000;
         else o_forward_grant<=grant_next;
     end
     // Retain the latency separation when a backend hold compresses the
@@ -577,42 +556,13 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
         load_wait_next=0;
         for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)
             if(!out_valid||i_ready)load_wait_next|=d2.used[src]&&
-                (prod==0||d2.early[src])&&i_next_load_valid[prod]&&(prod==1 ? d2_candidate_match[i_forward_advance][src][0][0] : d2.tag[src]==i_next_load_tag[0]);
+                (prod==0||d2.early[src])&&i_next_load_valid[prod]&&(prod==1 ? d2_candidate_match[i_forward_advance][src][0][0] : d2.tag[src]==i_next_load_tag);
             else load_wait_next|=issued.used[src]&&
-                (prod==0||issued.early[src])&&i_next_load_valid[prod]&&(prod==1 ? held_candidate_match[i_forward_advance][src][0][0] : issued.tag[src]==i_next_load_tag[0]);
+                (prod==0||issued.early[src])&&i_next_load_valid[prod]&&(prod==1 ? held_candidate_match[i_forward_advance][src][0][0] : issued.tag[src]==i_next_load_tag);
     end
-`ifndef SYNTHESIS
-    logic load_wait_ref;
-    always_comb begin
-        load_wait_ref=0;
-        for(int src=0;src<4;src++)for(int prod=0;prod<2;prod++)
-            if(!out_valid||i_ready)load_wait_ref|=d2.used[src]&&
-                (prod==0||d2.early[src])&&i_next_load_valid[prod]&&d2.tag[src]==i_next_load_tag[prod];
-            else load_wait_ref|=issued.used[src]&&
-                (prod==0||issued.early[src])&&i_next_load_valid[prod]&&issued.tag[src]==i_next_load_tag[prod];
-    end
-    always_ff @(posedge i_clk) if(!i_reset)begin
-        if(i_next_load_valid[1])
-            assert(i_next_load_tag[1] == (i_forward_advance ? i_advance_tag[0][0] : i_forward_tag[0][0]))
-                else $fatal(1,"next-M load tag contract");
-        assert(load_wait_next==load_wait_ref) else $fatal(1,"next-M load wait match");
-    end
-`endif
     always_ff @(posedge i_clk)
         if(i_reset||i_flush)o_load_wait<=0;
         else o_load_wait<=load_wait_next;
-`ifndef SYNTHESIS
-    // PREFIX_FREE against the step-loaded original wherever a suffix in
-    // D1's head reads it (D2 not holding a prefix).
-    logic [31:0] prefix_target_ref;
-    always_ff @(posedge i_clk)begin
-        if(i_reset)prefix_target_ref<=0;
-        else if(step&&d2.kind==K_BL_PREFIX)prefix_target_ref<=d2.target;
-        if(!i_reset&&PREFIX_FREE&&count!=0&&prefix_valid&&!(d2_valid&&d2.kind==K_BL_PREFIX)&&
-            front.thumb&&front.raw[15:11]==5'b11111)
-            assert(prefix_target==prefix_target_ref) else $fatal(1,"prefix target register");
-    end
-`endif
     assign next_remaining=clear_first(d2.remaining);
     assign next_register=first16(d2.remaining[14:0]);
     assign taken_match=d2.p.pred_target=={d2.target[31:1],d2.p.thumb};
@@ -621,14 +571,14 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
     assign o_ready=count<2&&!kill_younger;
     assign accept=i_valid&&o_ready;
     assign fast_select=count==0&&!i_fault&&
-        (i_thumb?raw_word[15:11]==5'b11100:i_word[31:25]==7'b1110101);
+        (i_thumb?i_word[15:11]==5'b11100:i_word[31:25]==7'b1110101);
     assign shortcut=accept&&fast_select&&(!d2_valid||(step&&d2.last));
     assign push=accept&&!shortcut;
     // PAYLOAD_FREE: the same terms without kill_younger (or step's i_flush).
     wire step_raw=d2_valid&&(!out_valid||i_ready_payload)&&!o_hazard&&(!redirect_ff.valid||redirect_in_d2);
-    wire d2_load=PAYLOAD_FREE?(count!=0||(i_valid&&count<2&&fast_select))&&(!d2_valid||(step_raw&&d2.last)):new_d2;
-    wire payload_en=!out_valid||(PAYLOAD_FREE?i_ready_payload:i_ready);
-    wire d1_load=PAYLOAD_FREE?count<2:push;
+    wire d2_load=(count!=0||(i_valid&&count<2&&fast_select))&&(!d2_valid||(step_raw&&d2.last));
+    wire payload_en=!out_valid||i_ready_payload;
+    wire d1_load=count<2;
     assign new_d2=pop||shortcut;
     assign admitted=fast_select?fast_branch:decoded;
     assign late_redirect=step&&d2.direct&&!d2.redirected&&(!d2.p.predicted||!taken_match);
@@ -639,8 +589,7 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
     always_comb begin
         early_hazard=0;
         for(int src=0;src<4;src++)for(int pending=0;pending<4;pending++)
-            early_hazard[src]|=early_used[src]&&i_early_valid[pending]&&d2.tag[src]==i_early_tag[pending]&&
-                !(S_AGU&&src==0&&i_early_agu[pending]&&(d2.kind==K_MEM||d2.kind==K_SWP||d2.kind==K_BLOCK));
+            early_hazard[src]|=early_used[src]&&i_early_valid[pending]&&d2.tag[src]==i_early_tag[pending];
     end
     // For a nonspeculative producer, any read or write conflict stalls.
     // For a speculative one, a consumer may own the destination too: its
@@ -665,28 +614,6 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
             (d2.writes[0] && i_locked[d2.dest[0]]) ||
             (d2.writes[1] && i_locked[d2.dest[1]]);
     end
-`ifndef SYNTHESIS
-    logic load_hazard_ref;
-    always_comb begin
-        load_hazard_ref=0;
-        for(int pending=0;pending<6;pending++)begin
-            for(int src=0;src<4;src++)load_hazard_ref|=d2.used[src]&&i_load_valid[pending]&&
-                (!i_load_speculate[pending]||pending==0||(d2.early[src]&&pending==1))&&
-                d2.tag[src]==i_load_tag[pending];
-            // No younger destination can be overwritten by an older fill.
-            for(int dst=0;dst<2;dst++)
-                load_hazard_ref|=d2.writes[dst]&&i_load_valid[pending]&&d2.dest[dst]==i_load_tag[pending]&&
-                    !(i_load_speculate[pending]&&((pending==4&&i_w_load_hit)||
-                    (d2.used[0]&&d2.tag[0]==i_load_tag[pending])||
-                    (d2.used[1]&&d2.tag[1]==i_load_tag[pending])||
-                    (d2.used[2]&&d2.tag[2]==i_load_tag[pending])||
-                    (d2.used[3]&&d2.tag[3]==i_load_tag[pending])));
-        end
-        for(int dst=0;dst<2;dst++)load_hazard_ref|=d2.writes[dst]&&i_locked[d2.dest[dst]];
-    end
-    always_ff @(posedge i_clk) if(!i_reset && d2_valid)
-        assert(load_hazard==load_hazard_ref) else $fatal(1,"factored load hazard");
-`endif
     assign o_hazard=d2_valid&&(load_hazard||fenced||(d2.used[0]&&i_locked[d2.tag[0]]) ||
         (d2.used[1]&&i_locked[d2.tag[1]]) || (d2.used[2]&&i_locked[d2.tag[2]]) || (d2.used[3]&&i_locked[d2.tag[3]]) ||
         (|early_hazard));
@@ -716,19 +643,13 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
     (* dont_retime *) logic [18:0] shift_pre_ff;
     (* dont_retime *) logic [3:0][1:0] tag_class_ff;
     assign o_tag_class=tag_class_ff;
-    assign o_shift_pre={shift_pre_ff[18:16],SHIFT_PRE?shift_pre_ff[15:0]:16'd0};
+    assign o_shift_pre={shift_pre_ff[18:16],shift_pre_ff[15:0]};
     // WT_TAGS: the tag compares, from registers; the late enable joins after.
     logic [3:0] wt_hit_a, wt_hit_b;
     always_comb for(int n=0;n<4;n++)begin
         wt_hit_a[n]=i_wr_tag_a!=16&&i_wr_tag_a<40&&i_wr_tag_a==d2.tag[n];
         wt_hit_b[n]=i_wr_pair&&i_wr_tag_b!=16&&i_wr_tag_b<40&&i_wr_tag_b==d2.tag[n];
     end
-`ifndef SYNTHESIS
-    always_ff @(posedge i_clk) if(!i_reset&&WT_TAGS&&i_wen)
-        for(int n=0;n<4;n++)if(d2.tag[n]<40)
-            assert({wt_hit_b[n],wt_hit_a[n]}=={i_wr_addr_b[d2.tag[n]],i_wr_addr_a[d2.tag[n]]})
-                else $fatal(1,"write-through tags");
-`endif
     // Capture the RF read, write data and same-edge match independently.
     // Retirement qualification ends at the match flops; it cannot traverse
     // the word mux into the wide D2/S capture. The registered write-through
@@ -747,9 +668,8 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
                 for(int n=0;n<4;n++)tag_class_ff[n]<={d2.tag[n]==17,d2.tag[n]==15}; \
                 shift_pre_ff<={op1_class(d2),shift_controls(d2)}; \
                 write_through_data<={i_wr_data_c,i_wr_data_b,i_wr_data_a}; \
-                for(int n=0;n<4;n++)write_through_match[n]<=WT_TAGS? \
-                    {i_wr_addr_c[d2.tag[n]],i_wen&&wt_hit_b[n],i_wen&&wt_hit_a[n]}: \
-                    {i_wr_addr_c[d2.tag[n]],i_wen&&i_wr_addr_b[d2.tag[n]],i_wen&&i_wr_addr_a[d2.tag[n]]}; \
+                for(int n=0;n<4;n++)write_through_match[n]<= \
+                    {i_wr_addr_c[d2.tag[n]],i_wen&&wt_hit_b[n],i_wen&&wt_hit_a[n]}; \
                 matches_taken<=taken_match;matches_fallthrough<=fallthrough_match;
     always_ff @(posedge i_clk) begin
         if(i_reset) begin
@@ -757,27 +677,23 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
             d2_owner<=0;
             previous_prefix<=0;prefix_valid<=0;previous_next_pc<=0;prefix_target<=0;
             o_pending<=0;
-            if(PAYLOAD_NORESET)begin
-                if(d2_load)d2_q<=admitted;
-                if(payload_en)begin
-                    `S_ENTRY_PAYLOAD
-                end
-            end else begin
-                d2_q<=decoded_t'(0);issued<=decoded_t'(0);shift_pre_ff<=0;tag_class_ff<=0;self_dep<=0;values<=0;write_through_match<=0;write_through_data<=0;matches_taken<=0;matches_fallthrough<=0;
+            if(d2_load)d2_q<=admitted;
+            if(payload_en)begin
+                `S_ENTRY_PAYLOAD
             end
             redirect_ff.target<=0;redirect_ff.thumb<=0;redirect_ff.link<=0;
             redirect_ff.pointer<=0;redirect_ff.count<=0;redirect_ff.action<=0;
         end else begin
             redirect_ff.valid<=0;redirect_in_d2<=0;
             if(i_ready)out_valid<=0;
-            if(PREFIX_FREE&&d2_valid&&d2.kind==K_BL_PREFIX)prefix_target<=d2.target;
+            if(d2_valid&&d2.kind==K_BL_PREFIX)prefix_target<=d2.target;
             if(i_serial_continue)fenced<=0;
             if(d1_load)d1[tail]<=incoming;
             if(push)begin
                 tail<=!tail;
             end
             if(accept)begin
-                previous_prefix<=i_thumb&&!i_fault&&raw_word[15:11]==5'b11110;
+                previous_prefix<=i_thumb&&!i_fault&&i_word[15:11]==5'b11110;
                 previous_next_pc<=incoming.next_pc;
             end
             if(pop)head_select<={head_select[0],head_select[1]};
@@ -798,7 +714,7 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
                     (d2.kind==K_DP&&d2.p.ins[20]&&d2.dest[0]==15)||
                     (d2.kind==K_BLOCK&&d2.p.ins[22]&&d2.p.ins[20]&&d2.p.list[15]&&d2.last)))fenced<=1;
                 out_valid<=1;
-                if(d2.kind==K_BL_PREFIX)begin if(!PREFIX_FREE)prefix_target<=d2.target;prefix_valid<=!d2.p.fault;end
+                if(d2.kind==K_BL_PREFIX)prefix_valid<=!d2.p.fault;
                 else prefix_valid<=0;
                 if(d2.last)d2_valid<=0;
                 else begin
@@ -809,7 +725,6 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
                     d2_q.tag[3]<=bank({1'b0,next_register},d2.p.ins[22]&&!(d2.p.ins[20]&&d2.p.list[15])?5'h10:d2.p.mode);
                     d2_q.dest[0]<=bank({1'b0,next_register},d2.p.ins[22]&&!(d2.p.ins[20]&&d2.p.list[15])?5'h10:d2.p.mode);
                     d2_q.used[0]<=0;d2_q.used[2]<=d2.p.ins[20]&&d2.p.ins[22]&&d2.left==2&&next_register==15;
-                    if(S_AGU)d2_q.early[0]<=0;
                 end
                 if(late_redirect)begin
                     redirect_ff.valid<=1;redirect_ff.target<=d2.target;redirect_ff.thumb<=d2.p.thumb;
@@ -836,66 +751,15 @@ module arm925t_decode #(parameter logic S_AGU=1'b0, parameter logic THUMB_HALF=1
             if(i_flush)begin fenced<=0;out_valid<=0;redirect_ff.valid<=0;end
             // A valid redirect is set only by the late (step) or the admit
             // (new_d2) branch; d2_late chooses between them without step.
-            if(REDIRECT_PAYLOAD)begin
-                redirect_ff.target<=d2_late?d2.target:admitted.target;
-                redirect_ff.thumb<=d2_late?d2.p.thumb:admitted.p.thumb;
-                redirect_ff.link<=d2_late?{d2.p.next_pc[31:1],d2.p.thumb}:{admitted.p.next_pc[31:1],admitted.p.thumb};
-                redirect_ff.pointer<=d2_late?d2.p.ras_pointer:admitted.p.ras_pointer;
-                redirect_ff.count<=d2_late?d2.p.ras_count:admitted.p.ras_count;
-                redirect_ff.action<=d2_late?(d2.kind==K_BL_SUFFIX||d2.p.ins[24]?2'd1:2'd0):
-                    (admitted.kind==K_BL_SUFFIX||admitted.p.ins[24]?2'd1:2'd0);
-            end
+            redirect_ff.target<=d2_late?d2.target:admitted.target;
+            redirect_ff.thumb<=d2_late?d2.p.thumb:admitted.p.thumb;
+            redirect_ff.link<=d2_late?{d2.p.next_pc[31:1],d2.p.thumb}:{admitted.p.next_pc[31:1],admitted.p.thumb};
+            redirect_ff.pointer<=d2_late?d2.p.ras_pointer:admitted.p.ras_pointer;
+            redirect_ff.count<=d2_late?d2.p.ras_count:admitted.p.ras_count;
+            redirect_ff.action<=d2_late?(d2.kind==K_BL_SUFFIX||d2.p.ins[24]?2'd1:2'd0):
+                (admitted.kind==K_BL_SUFFIX||admitted.p.ins[24]?2'd1:2'd0);
         end
     end
-`ifndef SYNTHESIS
-    // The old payload, loaded under the step/new_d2 conditions, must equal
-    // the new one whenever a redirect is valid.
-    redirect_t redirect_ref;
-    always_ff @(posedge i_clk) begin
-        if(i_reset)redirect_ref<=redirect_t'(0);
-        else begin
-            if(step&&late_redirect)begin
-                redirect_ref.target<=d2.target;redirect_ref.thumb<=d2.p.thumb;
-                redirect_ref.link<={d2.p.next_pc[31:1],d2.p.thumb};
-                redirect_ref.pointer<=d2.p.ras_pointer;redirect_ref.count<=d2.p.ras_count;
-                redirect_ref.action<=d2.kind==K_BL_SUFFIX||d2.p.ins[24]?2'd1:2'd0;
-            end
-            if(new_d2&&admitted.direct&&!admitted.p.predicted&&!late_redirect)begin
-                redirect_ref.target<=admitted.target;redirect_ref.thumb<=admitted.p.thumb;
-                redirect_ref.link<={admitted.p.next_pc[31:1],admitted.p.thumb};
-                redirect_ref.pointer<=admitted.p.ras_pointer;redirect_ref.count<=admitted.p.ras_count;
-                redirect_ref.action<=admitted.kind==K_BL_SUFFIX||admitted.p.ins[24]?2'd1:2'd0;
-            end
-        end
-    end
-    always_ff @(posedge i_clk) if(!i_reset&&REDIRECT_PAYLOAD&&redirect_ff.valid)
-        assert({redirect_ff.target,redirect_ff.thumb,redirect_ff.link,redirect_ff.pointer,redirect_ff.count,redirect_ff.action}==
-            {redirect_ref.target,redirect_ref.thumb,redirect_ref.link,redirect_ref.pointer,redirect_ref.count,redirect_ref.action})
-            else $fatal(1,"D2 redirect payload");
-`endif
-`ifndef SYNTHESIS
-    // PAYLOAD_FREE: every original load is still a load, and a D2 record that
-    // stays valid across an edge without stepping or a new admission keeps
-    // its payload (a payload-only load never lands on a live record).
-    decoded_t d2_before;
-    packet_t d2_p_ref;   // D2_BANKS: the single-register packet
-    always_ff @(posedge i_clk)
-        if(i_reset&&!PAYLOAD_NORESET)d2_p_ref<=packet_t'(0);
-        else if(d2_load)d2_p_ref<=admitted.p;
-    logic d2_kept;
-    always_ff @(posedge i_clk) begin
-        d2_kept<=!i_reset&&d2_valid&&!new_d2&&!step&&!(kill_younger&&(i_flush||!redirect_in_d2));
-        d2_before<=d2;
-        if(!i_reset&&PAYLOAD_FREE)begin
-            assert(!push||d1_load) else $fatal(1,"D1 payload enable");
-            assert(i_ready==i_ready_payload||i_flush) else $fatal(1,"payload ready outside a flush");
-            assert(!new_d2||d2_load) else $fatal(1,"D2 payload enable");
-            if(D2_BANKS&&d2_valid)assert(d2.p==d2_p_ref) else $fatal(1,"D2 packet banks");
-        end
-        if(!i_reset&&PAYLOAD_FREE&&d2_kept)
-            assert(d2==d2_before) else $fatal(1,"D2 kept record changed");
-    end
-`endif
     assign o_valid=out_valid;assign o_pc=issued.p.pc;assign o_instruction=issued.p.ins;
     assign o_mode=issued.p.mode;assign o_raw=issued.p.raw;
     assign o_pc_base=issued.p.pc_base;assign o_next_pc=issued.p.next_pc;

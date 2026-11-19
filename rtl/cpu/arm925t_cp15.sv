@@ -30,8 +30,6 @@
 module arm925t_cp15
 
 #(
-        parameter logic CP15_L4_DEFAULT          = 1'd0,
-        parameter logic BE_32_ENABLE             = 1'd0,
 
         parameter logic [31:0] PHY_REGS          = 32'd40,
         parameter logic [31:0] CODE_CACHE_LINE   = 32'd16,
@@ -44,7 +42,6 @@ module arm925t_cp15
         // described in research/arm925t/CP15.md and docs/CPU.md.
         parameter logic [31:0] CP15_ID           = 32'h54029252,
         parameter logic [31:0] CP15_CTYPE        = 32'h05109149,
-        parameter logic        HIVECS            = 1'd0,
 
         localparam type t_cp_instruction =
                         struct packed   {
@@ -385,7 +382,7 @@ begin
                 o_mmu_en    <= 1'd0;
                 o_pid       <= 8'd0;
                 o_l4_enable <= 1'd1;
-                o_hivecs    <= HIVECS;
+                o_hivecs    <= 1'b0;
                 o_align_en  <= 1'd0;
         end
         else
@@ -430,7 +427,7 @@ begin
                 o_reg_rd_index <= 0;
                 r[0]           <= 0;
                 r[1]           <= 0;
-                r[1][14]       <= CP15_L4_DEFAULT;
+                r[1][14]       <= 1'b0;
                 r[2]           <= 32'd0;
                 r[3]           <= 32'd0;
                 r[4]           <= 32'd0;
@@ -439,13 +436,13 @@ begin
                 r[13]          <= 32'd0;
                 r[0][15:4]     <= 12'hAAA;
                 r[0][19:16]    <= 4'h5;
-                r[1][7]        <= BE_32_ENABLE;
+                r[1][7]        <= 1'b0;
                 r[1][6:3]      <= 4'b1111;
                 r[1][11]       <= 1'd1;
 
                 // ARM925T: control register 0x70 with V from HIVECS; TI config
                 // with L (SWP lock) set; I_min/I_max as after a flush.
-                r[1]   <= {18'd0, HIVECS, 13'h0070};
+                r[1]   <= {18'd0, 1'b0, 13'h0070};
 
                 ti_config      <= 8'h01;
                 ti_imax        <= 32'd0;

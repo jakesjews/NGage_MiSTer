@@ -24,7 +24,6 @@
 // clearing memories since TLBs are shallow.
 //
 
-
 module arm925t_tlb #(
 
 parameter logic [31:0] LPAGE_TLB_ENTRIES   = 32'd32,
@@ -558,10 +557,6 @@ always_ff @(posedge i_clk)
         else if (!i_hold) check_stale <= 1'b0;
 
 assign o_busy = fsm_busy || (check_stale && walk && i_mmu_en);
-`ifndef SYNTHESIS
-always_ff @(posedge i_clk) if(!i_reset && o_hit_ok)
-        assert (o_hit_ready == !o_busy) else $fatal(1, "TLB ready hit equivalence");
-`endif
 
 endmodule : arm925t_tlb
 

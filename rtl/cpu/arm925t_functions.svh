@@ -206,29 +206,6 @@ function automatic  [5:0] translate (
                 end
         endcase
 
-        if ( cpu_mode inside {USR,SYS,FIQ,IRQ,SVC,UND,ABT} )
-        begin
-                assert((index == ARCH_USR2_R8 && translate  == PHY_USR_R8) || index !=ARCH_USR2_R8 )
-                else $fatal(2, "USR loopback fail");
-
-                assert((index == ARCH_USR2_R9 && translate  == PHY_USR_R9) || index !=ARCH_USR2_R9 )
-                else $fatal(2, "USR loopback fail");
-
-                assert((index == ARCH_USR2_R10 && translate == PHY_USR_R10) || index !=ARCH_USR2_R10)
-                else $fatal(2, "USR loopback fail");
-
-                assert((index == ARCH_USR2_R11 && translate == PHY_USR_R11) || index !=ARCH_USR2_R11)
-                else $fatal(2, "USR loopback fail");
-
-                assert((index == ARCH_USR2_R12 && translate == PHY_USR_R12) || index !=ARCH_USR2_R12)
-                else $fatal(2, "USR loopback fail");
-
-                assert((index == ARCH_USR2_R13 && translate == PHY_USR_R13) || index !=ARCH_USR2_R13)
-                else $fatal(2, "USR loopback fail");
-
-                assert((index == ARCH_USR2_R14 && translate == PHY_USR_R14) || index !=ARCH_USR2_R14)
-                else $fatal(2, "USR loopback fail");
-        end
 endfunction
 
 

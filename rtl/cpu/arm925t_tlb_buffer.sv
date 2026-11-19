@@ -33,7 +33,6 @@ module arm925t_tlb_buffer #(
         parameter logic READ_THROUGH = 1'b0
 )(
 
-
         input logic                           i_clk,
         input logic                           i_reset,
 
@@ -77,8 +76,8 @@ module arm925t_tlb_buffer #(
 // was a DEPTH:1 choice among them: before the read edge it hung behind the
 // address adder, after it (4e6c677) in front of the TLB check, and either
 // way it led the core's failing paths. The number's compare runs beside
-// the tag's. The value is the same in every clock (a simulation-only copy
-// of the flip-flops is compared), with one bound: gen must not come round.
+// the tag's. The value is the same in every clock, with one bound: gen must
+// not come round.
 // At GEN_W = 48 that takes 2^48 invalidations, 31 days of one in every
 // clock; the firmware makes a few thousand a second.
 if (1) begin : g_short
@@ -107,22 +106,6 @@ if (1) begin : g_short
         else if (en) fwd_ok <= 1'b1;
     end
     assign o_rdav_pre = fwd ? fwd_ok : (gen_q[GEN_W] && gen_q[GEN_W-1:0] == gen);
-`ifndef SYNTHESIS
-    // the flip-flops this replaced, kept for the comparison
-    logic [DEPTH-1:0] valid_ref;
-    logic [$clog2(DEPTH)-1:0] read_addr_ref;
-    logic seen_reset = 1'b0;
-    always_ff @(posedge i_clk) begin
-        if (i_reset || i_inv) valid_ref <= '0;
-        else if (en) begin
-            if (i_wen) valid_ref[i_waddr] <= 1;
-        end
-        if (en) read_addr_ref <= i_raddr;
-        if (i_reset) seen_reset <= 1'b1;
-        if (!i_reset && seen_reset && !$isunknown(valid_ref[read_addr_ref]))
-            assert (o_rdav_pre == valid_ref[read_addr_ref]) else $fatal(1, "TLB valid bit by generation");
-    end
-`endif
     // The TLB consumes only the pre outputs. Keep the unused full outputs
     // defined as the same read instead of retaining dead pipeline registers.
     assign o_rdata = o_rdata_pre;

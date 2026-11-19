@@ -28,17 +28,8 @@
 `include "arm925t_defines.svh"
 
 module arm925t_dcache_fsm   #(
-        // ARM925T: o_ack/o_err/o_err2 as flat functions of the state and
-        // the registered access predicates, beside the case statement.
-        parameter logic FLAT_ACK = 1'b1,
-        // ARM925T LOCK_SPLIT: the owner lock summaries from lock_ff, the
-        // completion's clear and the FSM's one new lock separately, so the
-        // FSM's decision enters only their final OR instead of a 64-bit
-        // lock_nxt indexed afterwards. Asserted equal.
-        parameter logic LOCK_SPLIT = 1'b1,
 parameter logic [31:0] CACHE_SIZE    = 32'd8192,  // Bytes.
         parameter logic [31:0] CACHE_LINE    = 32'd16,
-        parameter logic        BE_32_ENABLE  = 1'd0,
         // ARM925T: FSR status for an external abort on an uncached access:
         // upstream's "terminal exception" 0b0010, or the ARM925T's 0b1000
         // (external abort on a non-cacheable access, section).
@@ -164,7 +155,6 @@ output  logic                      o_hold,
 (* dont_retime *) output logic      o_idle,
 (* dont_retime *) output logic      o_live_lookup, // ARM925T: IDLE or background hit-way selection.
 // ARM925T: rebuild the three in-flight cache lookups after holding a fill.
-(* dont_retime *) output logic [2:0] o_relookup,
 (* dont_retime *) output logic      o_fill_busy,
 // ARM925T: the CPU's copy of "a short hit is accepted now": o_live_lookup and
 // not the clock a fill ends (o_fill_busy falling). Loaded from the same next
@@ -286,23 +276,8 @@ logic    [63:0]                           lock_nxt, lock_ff;
 logic lock_set_nxt;
 wire held_set = lock_set_nxt && i_reg_idx_bin == i_lock_owner_hold;
 wire advance_set = lock_set_nxt && i_reg_idx_bin == i_lock_owner_advance;
-(* keep *) wire owner_held_locked = LOCK_SPLIT ? (lock_ff[i_lock_owner_hold] && !o_reg_idx[i_lock_owner_hold]) || held_set :
-                                     lock_nxt[i_lock_owner_hold];
-(* keep *) wire owner_advance_locked = LOCK_SPLIT ? (lock_ff[i_lock_owner_advance] && !o_reg_idx[i_lock_owner_advance]) || advance_set :
-                                     lock_nxt[i_lock_owner_advance];
-`ifndef SYNTHESIS
-logic [5:0] lock_owner_check;
-always_ff @(posedge i_clk) begin
-    lock_owner_check <= i_reset ? 6'd0 : i_lock_owner_move ? i_lock_owner_advance : i_lock_owner_hold;
-    if (!i_reset) begin
-        assert (o_lock_any == (|lock_ff)) else $fatal(1, "lock summary stale");
-        assert (o_lock_owner == lock_ff[lock_owner_check]) else $fatal(1, "lock owner stale");
-        if (LOCK_SPLIT && $onehot(state_ff))
-            assert (lock_nxt == ((lock_ff & ~o_reg_idx) | (lock_set_nxt ? 64'd1 << i_reg_idx_bin : 64'd0)))
-                else $fatal(1, "lock split");
-    end
-end
-`endif
+(* keep *) wire owner_held_locked = (lock_ff[i_lock_owner_hold] && !o_reg_idx[i_lock_owner_hold]) || held_set;
+(* keep *) wire owner_advance_locked = (lock_ff[i_lock_owner_advance] && !o_reg_idx[i_lock_owner_advance]) || advance_set;
 logic                                     victim_valid;
 logic                                     wt_hit, wt_dirty; // ARM925T: write-through store.
 logic    [5:0]                            ldfmt;            // ARM925T: format of a background load.
@@ -423,7 +398,7 @@ always_ff @ ( posedge i_clk )
 begin
         if ( state_ff[UNCACHEABLE] && (i_wb_ack || i_wb_err) )
         begin
-                unc_dat_ff <= BE_32_ENABLE ? be_32(i_wb_dat, o_wb_sel_ff) : i_wb_dat;
+                unc_dat_ff <= i_wb_dat;
                 unc_err_ff <= i_wb_err;
         end
 end
@@ -487,9 +462,6 @@ begin
         end
         else
         begin
-                assert($onehot(state_nxt)) else
-                $fatal(2, "State is not 1-hot encoded.");
-
                 o_wb_cyc_ff             <= o_wb_cyc_nxt;
                 o_wb_stb_ff             <= o_wb_stb_nxt;
                 o_wb_wen_ff             <= o_wb_wen_nxt;
@@ -555,7 +527,7 @@ always_ff @(posedge i_clk)
 logic lookup_ready_ff, lookup_ready_nxt;
 logic [2:0] repair_ff, repair_nxt;
 (* dont_retime *) logic hum_slot_ff;
-logic cpu_wait, hum_ack, idle_ack, hum_slot_nxt, fill_busy_nxt;
+logic cpu_wait, hum_ack, hum_slot_nxt, fill_busy_nxt;
 assign cpu_wait = (i_rd || i_wr) && !o_ack;
 
 // ARM925T: a request that waits through the end of a fill is taken in the
@@ -593,17 +565,6 @@ always_ff @(posedge i_clk)
                 wait2_ff <= wait1_ff && cpu_wait && fill_busy_nxt;
                 o_fill_kept <= keep_nxt;
         end
-`ifndef SYNTHESIS
-// The kept request's lookups were the cache's own in both clocks.
-logic look1_ff, look2_ff;
-always_ff @(posedge i_clk) begin
-        look1_ff <= |o_relookup;
-        look2_ff <= look1_ff;
-        if (!i_reset && o_fill_kept)
-                assert (state_ff[IDLE] && look1_ff && look2_ff)
-                        else $fatal(1, "kept request without its lookups");
-end
-`endif
 
 always_comb begin
         line_safe_nxt = line_safe_ff;
@@ -652,7 +613,6 @@ always_ff @(posedge i_clk)
                 hum_slot_ff <= 1'b0;
                 o_live_lookup <= 1'b1;
                 o_live_trust <= 1'b1;
-                o_relookup <= 3'b0;
         end else begin
                 line_safe_ff <= line_safe_nxt;
                 victim_safe_ff <= victim_safe_nxt;
@@ -661,9 +621,6 @@ always_ff @(posedge i_clk)
                 hum_slot_ff <= hum_slot_nxt;
                 o_live_lookup <= state_nxt[IDLE] || hum_slot_nxt;
                 o_live_trust <= (state_nxt[IDLE] || hum_slot_nxt) && !(o_fill_busy && !fill_busy_nxt);
-                o_relookup <= (state_nxt[RELOOKUP0] || state_nxt[RELOOKUP1] || state_nxt[RELOOKUP2]) ?
-                    {state_nxt[RELOOKUP2], state_nxt[RELOOKUP1], state_nxt[RELOOKUP0]} :
-                    repair_nxt | {2'b00, cpu_wait && fill_busy_nxt};
         end
 
 assign hum_slot_nxt = (state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE] ||
@@ -677,9 +634,7 @@ assign hum_ack = hum_slot_ff && i_hit_ok && i_cache_en &&
                  !i_align_fault && i_cache_hit_early;
 // FLAT_ACK: IDLE acknowledges every access except an uncached one, a
 // cacheable write-through store, or one without the cache enabled (each
-// waits); UNC_DONE acknowledges unconditionally. Equal to the case form in
-// every reachable (one-hot) state.
-logic err_case, err2_case;
+// waits); UNC_DONE acknowledges unconditionally.
 wire access_now = i_rd || i_wr;
 wire ack_idle_flat = state_ff[IDLE] && (!access_now || i_align_fault || i_fault || i_busy ||
                      (i_cache_en && i_cacheable && !(i_wr && i_wt) && !(i_wr && i_post_full)) ||
@@ -687,21 +642,12 @@ wire ack_idle_flat = state_ff[IDLE] && (!access_now || i_align_fault || i_fault 
 wire err_flat = (state_ff[IDLE] && access_now && (i_align_fault || i_fault)) ||
                 (state_ff[UNC_DONE] && unc_err_ff);
 wire err2_flat = state_ff[IDLE] && access_now && !i_align_fault && !i_fault && i_busy;
-assign o_ack = FLAT_ACK ? ack_idle_flat || state_ff[UNC_DONE] || hum_ack : idle_ack || hum_ack;
-assign o_err = FLAT_ACK ? err_flat : err_case;
-assign o_err2 = FLAT_ACK ? err2_flat : err2_case;
-`ifndef SYNTHESIS
-always_ff @(posedge i_clk) if (!i_reset && $onehot(state_ff))
-        assert ({ack_idle_flat || state_ff[UNC_DONE], err_flat, err2_flat} == {idle_ack, err_case, err2_case})
-                else $fatal(1, "flat D-cache acknowledge");
-`endif
+assign o_ack = ack_idle_flat || state_ff[UNC_DONE] || hum_ack;
+assign o_err = err_flat;
+assign o_err2 = err2_flat;
 assign o_ack_fast = (state_ff[IDLE] && !i_align_fault && i_cache_en && i_hit_ok && i_tlb_hit_ready && !(i_wr && i_post_full)) || hum_ack ||
                     state_ff[UNC_DONE];
 assign o_err_fast = state_ff[UNC_DONE] && unc_err_ff;
-`ifndef SYNTHESIS
-always_ff @(posedge i_clk) if (!i_reset && $onehot(state_ff) && (i_rd || i_wr) && o_ack_fast)
-        assert (o_ack && !o_err2 && o_err == o_err_fast) else $fatal(1, "fast D-cache acknowledge");
-`endif
 assign o_fill_busy_nxt = fill_busy_nxt;
 assign fill_busy_nxt = state_nxt[CLEAN_SINGLE] || state_nxt[FETCH_SINGLE] ||
                 state_nxt[UNLOCK_REG] || state_nxt[UNLOCK_WR] ||
@@ -743,14 +689,6 @@ assign o_cache_line_ben =
         (ben_comp(i_address[$clog2(CACHE_LINE)-1:2], i_ben) & {CACHE_LINE{live_write}}) |
         (ben_comp(address[$clog2(CACHE_LINE)-1:2], ben) & {CACHE_LINE{saved_write}}) |
         {CACHE_LINE{fill_write}};
-
-`ifndef SYNTHESIS
-// FETCH exits on the edge that advances beyond the last beat; its
-// complete registered buffer is installed in UNLOCK_REG.
-always_ff @(posedge i_clk)
-        if (!i_reset && state_ff[FETCH_SINGLE])
-                assert (beat_cur_ok) else $fatal(2, "Fill counter outside line");
-`endif
 
 // Idle indication
 always_ff @ ( posedge i_clk )
@@ -807,9 +745,6 @@ begin:next_state_logic
         o_cache_inv_done        = 0;
         o_cache_clean_done      = 0;
         o_hold                  = 1'd0;
-        idle_ack                = 1'b0;
-        err_case                   = 0;
-        err2_case                  = 0;
 
         // ======================================================
         // Generate output data.
@@ -820,8 +755,8 @@ begin:next_state_logic
         // zero extended; ld_transform, the memory stage's transform), each
         // way's word in parallel with the tag compares and the uncached
         // data from its register, so that the hit chooses a finished
-        // value and the memory stage registers it as it is
-        // (LOAD_FORMATTED). The live format for a hit,
+        // value and the memory stage registers it as it is. The live
+        // format for a hit,
         // the latched one for the uncached access that began in IDLE.
         //
         if(state_ff[UNC_DONE])
@@ -853,7 +788,6 @@ begin:next_state_logic
                         // that the requests from CP15 are not in the path
                         // from o_ack to the pipeline stall (timing).
                         //
-                        idle_ack = 1'd1;
 
                         if ( i_cache_inv )
                         begin
@@ -875,29 +809,22 @@ begin:next_state_logic
                 begin
                         // ARM925T: alignment fault, highest priority: FSR
                         // status 0b0001 (no domain), FAR = the address.
-                        err_case = 1'd1;
-                        idle_ack = 1'd1;
                         o_fsr = 8'b0000_0001;
                         o_far = i_va;
                 end
                 else if ( i_fault )
                 begin
                         // MMU access fault.
-                        err_case = 1'd1;
-                        idle_ack = 1'd1;
                         o_fsr = i_fsr;
                         o_far = i_far;
                 end
                 else if ( i_busy )
                 begin
                         // Wait it out - this is what err2 is for.
-                        err2_case = 1'd1;
-                        idle_ack  = 1'd1;
                 end
                 else if ( i_rd || i_wr )
                 begin
                         if (i_wr && post_stream) begin
-                                idle_ack = !i_post_full;
                                 o_hold = i_post_full;
                         end
                         else if ( !i_cache_en )
@@ -907,7 +834,6 @@ begin:next_state_logic
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[UNCACHEABLE] = 1'd1;
 
-                                idle_ack           = 1'd0; // Wait...
                                 // ARM925T: the translated address (the VA with
                                 // the MMU off); upstream put the VA on the bus
                                 // whenever the D-cache was off, MMU on or not.
@@ -915,15 +841,7 @@ begin:next_state_logic
                                 o_wb_wen_nxt    = i_wr;
                                 o_wb_cti_nxt    = CTI_EOB;
                                 o_wb_dat_nxt    = i_din;
-
-                                if ( BE_32_ENABLE )
-                                begin
-                                        o_wb_sel_nxt = be_sel_32(i_ben);
-                                end
-                                else
-                                begin
-                                        o_wb_sel_nxt = i_ben;
-                                end
+                                o_wb_sel_nxt    = i_ben;
                         end
                         else if ( i_cacheable && i_wr && i_wt )
                         begin
@@ -938,7 +856,6 @@ begin:next_state_logic
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
 
-                                idle_ack           = 1'd0; // Wait...
                                 o_hold          = 1'd1;
                         end
                         else if ( i_cacheable )
@@ -957,29 +874,18 @@ begin:next_state_logic
                                 if (i_wr && i_post_full) begin
                                         // A registered full predicate gates ACK, independently
                                         // of the tag compare. Hold lookup ownership until space.
-                                        idle_ack = 1'b0;
                                         o_hold = 1'b1;
                                 end else if (post_eligible) begin
                                         // The queue owns this store; no line is allocated.
-                                        idle_ack = 1'b1;
                                 end else casez ({i_cache_hit,i_cache_tag_valid})
 
                                 2'b1?: // Cache Hit
                                 begin
-                                        if ( i_rd ) // Read request.
-                                        begin
-                                                idle_ack   = 1'd1;
-                                        end
-                                        else if ( i_wr ) // Write request (the write itself is above)
-                                        begin
-                                                idle_ack        = 1'd1;
-                                        end
                                 end
 
                                 2'b01: // Unrelated tag, possibly dirty.
                                 begin
                                         // Acknowledge current entry. Lock the register.
-                                        idle_ack               = 1'd1;
 
                                         // Lock register on load. ARM925T: upstream also
                                         // raised o_err2 if that register was locked, but
@@ -1015,7 +921,6 @@ begin:next_state_logic
                                 default: // Need to generate a new tag.
                                 begin
                                                 // CPU should wait.
-                                                idle_ack  = 1'd1;
 
                                                 // Set up counter
                                                 adr_ctr_nxt = 0;
@@ -1038,7 +943,6 @@ begin:next_state_logic
                                 state_nxt[IDLE] = 1'd0;
                                 state_nxt[UNCACHEABLE_PREPARE] = 1'd1;
 
-                                idle_ack           = 1'd0; // Wait...
                                 o_hold          = 1'd1;
                         end
                 end
@@ -1046,7 +950,6 @@ begin:next_state_logic
 
         state_ff[UNCACHEABLE_PREPARE]:
         begin
-                idle_ack           = 1'd0;
                 o_hold          = 1'd1;
 
                 state_nxt[UNCACHEABLE_PREPARE] = 1'd0;
@@ -1056,20 +959,11 @@ begin:next_state_logic
                 o_wb_wen_nxt    = i_wr;
                 o_wb_cti_nxt    = CTI_EOB;
                 o_wb_dat_nxt    = i_din;
-
-                if ( BE_32_ENABLE )
-                begin
-                        o_wb_sel_nxt = be_sel_32(i_ben);
-                end
-                else
-                begin
-                        o_wb_sel_nxt = i_ben;
-                end
+                o_wb_sel_nxt    = i_ben;
         end
 
         state_ff[UNCACHEABLE]: // Uncacheable reads and writes definitely go through this.
         begin
-                idle_ack  = 1'd0;
                 o_hold = 1'd1;
 
                 if ( i_wb_ack | i_wb_err )
@@ -1084,14 +978,12 @@ begin:next_state_logic
 
         state_ff[UNC_DONE]: // ARM925T: the uncacheable access completes.
         begin
-                idle_ack           = 1'd1;
                 o_hold          = 1'd0;
 
                 state_nxt[UNC_DONE] = 1'd0;
                 state_nxt[IDLE]     = 1'd1;
 
                 begin
-                        err_case      = unc_err_ff;
 
                         // ARM925T: report a fault only for an error. Upstream
                         // set the FSR on every uncached access, so CP15 c5/c6
@@ -1302,9 +1194,6 @@ begin:next_state_logic
                 o_cache_inv_done        = 'x;
                 o_cache_clean_done      = 'x;
                 o_hold                  = 'x;
-                idle_ack                   = 'x;
-                err_case                   = 'x;
-                err2_case                  = 'x;
         end
         endcase
 end : next_state_logic

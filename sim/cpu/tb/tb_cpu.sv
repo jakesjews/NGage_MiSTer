@@ -114,7 +114,6 @@ module tb_cpu #(
 	// Apart from the cache sizes the CPU has one configuration
 	// (rtl/cpu/arm925t.sv, constants there); the bench's checks use these
 	// of its values.
-	localparam bit BRANCH_PREDICTOR = 1'b1;
 	localparam int DCACHE_WAYS    = 2;
 	localparam int CACHE_LINE     = 16;
 
@@ -169,7 +168,7 @@ module tb_cpu #(
 	assign p_mmu   = dut.u_top.cpu_mmu_en;
     assign p_arm9 = 1'b1;
     assign p_blocking_load = 1'b0; // The pipeline uses the shared nonblocking background write port.
-    assign p_arm9_predictor = BRANCH_PREDICTOR;
+    assign p_arm9_predictor = 1'b1;
 	wire cp_drain_done;
 	if (1) begin : g_core_probes
     assign cp_drain_done = dut.u_top.u_core.u_cp15.o_cp_done &&
@@ -204,9 +203,8 @@ module tb_cpu #(
 	assign p_copro = `A9.copro_reg_en;
 	assign p_pc8 = `A9.o_dbg_wb_pc;
 	assign p_cpsr = `A9.o_dbg_wb_cpsr;
-`ifdef RAM_RF_TAP
-    // The banked RF's source-only architectural view is removed by sv2v's
-    // SYNTHESIS pass. Reconstruct this bench-only probe from actual storage.
+    // The register file's architectural contents, from its banks and the
+    // writes it holds for a clock.
     `define RF `A9.u_writeback.u_register_file.g_write_ff
     wire [79:0] rf_owner_flat = `RF.latest;
     for(genvar r=0;r<40;r++)begin:g_rf_probe
@@ -218,9 +216,6 @@ module tb_cpu #(
             `RF.held_b[r] ? `RF.held_data_b : `RF.held_a[r] ? `RF.held_data_a : stored;
     end
     `undef RF
-`else
-	assign p_regs = `A9.u_writeback.u_register_file.mem;
-`endif
 	assign p_dpc8 = `A9.data_pc8;
 	assign p_wfi = `A9.o_dbg_wfi;
 	assign p_pd_pc = `A9.pc;
@@ -263,14 +258,14 @@ module tb_cpu #(
                 else $fatal(1,"ARM9 younger work escaped retirement recovery");
         end
     end
-    if(BRANCH_PREDICTOR)begin : check_w_ras_repair
+    if(1)begin : check_w_ras_repair
         logic checked;
         logic [2:0] expected_pointer;
         logic [3:0] expected_count;
         always @(posedge clk)begin
             if(!reset&&checked)begin
-                assert (`A9.u_front_decode.u_fetch.g_predictor.u_predict.o_pointer==expected_pointer&&
-                        `A9.u_front_decode.u_fetch.g_predictor.u_predict.o_count==expected_count)
+                assert (`A9.u_front_decode.u_fetch.u_predict.o_pointer==expected_pointer&&
+                        `A9.u_front_decode.u_fetch.u_predict.o_count==expected_count)
                     else $fatal(1,"W recovery did not restore its own RAS checkpoint/action");
             end
             checked<=!reset&&`A9.wb_flush;

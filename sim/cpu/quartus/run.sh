@@ -45,7 +45,7 @@ if [[ $trial == arm925t_* || $dir == *-unit-* ]]; then
 fi
 ssh "$host" "mkdir -p \$HOME/$dir"
 if [[ $trial == arm925t_execute ]]; then
-    sv2v -DSYNTHESIS -I "$root/rtl/cpu" --top=cpu_trial "$root"/rtl/cpu/arm925t_{core,decode,execute,fetch,forward,front_decode,predict,rotate}.sv \
+    sv2v -I "$root/rtl/cpu" --top=cpu_trial "$root"/rtl/cpu/arm925t_{core,decode,execute,fetch,forward,front_decode,predict,rotate}.sv \
         "$root/rtl/cpu/arm925t_alu.sv" "$root/rtl/cpu/arm925t_ram_nopipe.sv" \
         "$root/rtl/cpu/arm925t_mode_decoder.sv" "$root/rtl/cpu/arm925t_register_file.sv" \
         "$root/sim/cpu/units/front_execute.sv" \
@@ -53,14 +53,14 @@ if [[ $trial == arm925t_execute ]]; then
     printf '// Component top included in arm925t_gen.v\n' > "$out/cpu_trial.v"
     rsync -a "$out/arm925t_gen.v" "$out/cpu_trial.v" "$host:$dir/"
 elif [[ $trial == arm925t_decode ]]; then
-    sv2v -DSYNTHESIS -I "$root/rtl/cpu" --top=cpu_trial "$root"/rtl/cpu/arm925t_{core,decode,execute,fetch,forward,front_decode,predict,rotate}.sv \
+    sv2v -I "$root/rtl/cpu" --top=cpu_trial "$root"/rtl/cpu/arm925t_{core,decode,execute,fetch,forward,front_decode,predict,rotate}.sv \
         "$root/rtl/cpu/arm925t_ram_nopipe.sv" \
         "$root/rtl/cpu/arm925t_mode_decoder.sv" "$root/rtl/cpu/arm925t_register_file.sv" \
         "$here/arm925t_decode_trial.sv" > "$out/arm925t_gen.v"
     printf '// Component top included in arm925t_gen.v\n' > "$out/cpu_trial.v"
     rsync -a "$out/arm925t_gen.v" "$out/cpu_trial.v" "$host:$dir/"
 elif [[ $trial == arm925t_frontend ]]; then
-    sv2v -DSYNTHESIS --top=cpu_trial "$root"/rtl/cpu/arm925t_{fetch,predict}.sv \
+    sv2v --top=cpu_trial "$root"/rtl/cpu/arm925t_{fetch,predict}.sv \
         "$root/rtl/cpu/arm925t_ram_nopipe.sv" "$here/arm925t_frontend_trial.sv" > "$out/arm925t_gen.v"
     printf '// Component top included in arm925t_gen.v\n' > "$out/cpu_trial.v"
     rsync -a "$out/arm925t_gen.v" "$out/cpu_trial.v" "$host:$dir/"

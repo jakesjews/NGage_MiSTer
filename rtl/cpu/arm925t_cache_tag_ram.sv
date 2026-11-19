@@ -360,12 +360,6 @@ if (1) begin : g_short_ram
                 assign w_dummy[w] = line_q[w];
                 assign w_dummy_1[w] = tag_q[w];
         end
-`ifndef SYNTHESIS
-        logic loaded;
-        always_ff @(posedge i_clk) if (!i_hold) loaded <= 1'b1;
-        always_ff @(posedge i_clk) if (loaded && !i_reset)
-                assert (collision_q == (rd_addr_q == wr_addr_q)) else $fatal(1, "registered set collision");
-`endif
 end : g_short_ram
 
 // ----------------------------------------------------------------------------
@@ -464,17 +458,11 @@ begin : g_lru
         assign walk_line         = rd_way ? line_q[1] : line_q[0];
 
         // The pending updates (last cycle's, registered), forwarded into the
-        // reads in flight at every stage, and this cycle's into the output
-        // stage (as the valid bits); the hit's wins a set.
+        // reads in flight at every stage; the hit's wins a set.
         function automatic logic lru_fwd ( input [SET_W-1:0] set, input logic prev );
                 return set == hit_pend_set && hit_pend_en              ? hit_pend_val :
                        set == pend_addr    && pend_en && (|pend_sel) ? pend_sel[0]  :
                        prev;
-        endfunction
-        function automatic logic lru_fwd_now ( input [SET_W-1:0] set, input logic prev );
-                return set == hit_upd_set     && hit_upd_en                 ? ~hit_upd_way      :
-                       set == tag_ram_wr_addr && tag_ram_wr_en && (|wr_sel) ? wr_sel[0] :
-                       lru_fwd ( set, prev );
         endfunction
 
         always_ff @ ( posedge i_clk )
@@ -524,12 +512,6 @@ begin : g_lru
                         end
                 end
         end
-        `ifndef SYNTHESIS
-        always_ff @(posedge i_clk) if (!i_reset)
-                assert (!(defer_en && hit_pend_en && fill_update &&
-                          hit_pend_set != pend_addr && hit_pend_set != defer_set && pend_addr != defer_set))
-                    else $fatal(1, "cache LRU deferred fill overflow");
-        `endif
         wire lru_first = lru_read_fwd && lru_read_set_q==lru_write_set_q ? lru_read_value : lru_read;
         if (1) begin : g_short
                 logic hit_en,tag_en,deferred_en,hit_value,tag_value,deferred_value;
@@ -549,7 +531,6 @@ end
 assign o_cache_hit       = |hit;
 assign o_cache_way       = sel;
 
-
 // The way a write goes to: idle, the way that hits (a store hit); else the
 // way the FSM buffered with the address (a fill, a clean, a write-through).
 always_comb
@@ -561,7 +542,6 @@ begin
 end
 
 // ----------------------------------------------------------------------------
-
 
 //
 // ARM925T: the valid and dirty bits are written one cycle after the tag RAM
@@ -745,7 +725,6 @@ for (genvar w=0; w<WAYS; w++) begin : g_metadata
                 assign dirty_q[w] = meta_now_d_en[w] && meta_now_d_write==meta_now_d_read ? meta_now_dirty : dirty_s1_raw[w];
         end : g_short
 end
-
 
 // ----------------------------------------------------------------------------
 
@@ -1108,7 +1087,6 @@ endmodule : arm925t_cache_tag_ram
 // END OF FILE
 // ----------------------------------------------------------------------------
 
-
 // A separate inference boundary is intentional. Quartus 17 loses ramstyle
 // on scalar memories inside nested generate loops after sv2v elaboration,
 // and otherwise implements the small dirty banks as registers.
@@ -1131,10 +1109,8 @@ module arm925t_cache_metadata_lanes #(
         logic [LANES-1:0][7:0] wdata, q;
         always_comb for (int l = 0; l < LANES; l++) wdata[l] = {7'd0, i_write_data[l]};
         always_comb for (int l = 0; l < LANES; l++) o_data[l] = q[l][0];
-`ifdef SYNTHESIS
         // Intel's primitive directly (see arm925t_ram_bytes): four lanes per M10K.
         localparam integer W = 8*LANES, BYTES = LANES;
-        wire [$clog2(DEPTH)-1:0] i_wr_addr_x = i_write_address, i_rd_addr_x = i_read_address;
         altsyncram #(
                 .operation_mode("DUAL_PORT"), .ram_block_type("M10K"), .intended_device_family("Cyclone V"),
                 .lpm_type("altsyncram"), .power_up_uninitialized("FALSE"),
@@ -1147,15 +1123,7 @@ module arm925t_cache_metadata_lanes #(
                 .read_during_write_mode_mixed_ports("OLD_DATA"),
                 .address_aclr_b("NONE"), .outdata_aclr_b("NONE")
         ) u_ram (
-                .clock0(i_clk), .clocken0(1'b1), .wren_a(|i_write_en), .address_a(i_wr_addr_x), .data_a(wdata),
-                .byteena_a(i_write_en), .address_b(i_rd_addr_x), .rden_b(i_read_en), .q_b(q)
+                .clock0(i_clk), .clocken0(1'b1), .wren_a(|i_write_en), .address_a(i_write_address), .data_a(wdata),
+                .byteena_a(i_write_en), .address_b(i_read_address), .rden_b(i_read_en), .q_b(q)
         );
-`else
-        logic [LANES-1:0][7:0] mem [DEPTH-1:0];
-        always_ff @(posedge i_clk) begin
-                for (int l = 0; l < LANES; l++)
-                        if (i_write_en[l]) mem[i_write_address][l] <= wdata[l];
-                if (i_read_en) q <= mem[i_read_address];
-        end
-`endif
 endmodule

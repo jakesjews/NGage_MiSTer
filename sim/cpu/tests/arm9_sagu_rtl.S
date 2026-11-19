@@ -1,5 +1,5 @@
 @ SPDX-License-Identifier: GPL-3.0-or-later
-@ Memory addresses formed in S (the pipeline's S_AGU): every way a base or register
+@ Memory addresses whose operands were just produced: every way a base or register
 @ offset can arrive, checked against the same access with its producer far
 @ ahead (and against QEMU's trace).
 @   * base from the instruction just ahead: an ALU result, a load (pointer
@@ -8,7 +8,7 @@
 @     post-indexed, and with the offset or base just produced
 @   * pre/post-indexed and writeback forms, immediate and register, word,
 @     byte, halfword, signed; writeback chains at distance 1 (the base comes
-@     from the scalar MEM ahead: its registered sum), including a
+@     from the scalar MEM ahead), including a
 @     condition-failed writer, a flag-passing one, and readers of the base
 @   * block bases: from an ALU result, a load, a scalar writeback, a block
 @     writeback, the base in the list, the four modes, push/pop

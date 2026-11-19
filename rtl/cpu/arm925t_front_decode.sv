@@ -1,20 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Integration harness shared by the component bench and Quartus trial.
-// Older backend redirects have priority over the registered D2 redirect.
-// Parameter defaults are the core's configuration (arm925t_core sets each
-// explicitly); 0 selects a cut's original form, kept for A/B timing trials.
+// The front end: fetch (F1/F2) and decode (D1/D2) together. Older backend
+// redirects have priority over the registered D2 redirect.
 module arm925t_front_decode #(
-    parameter logic PREDICTOR=1'b1,
-    parameter logic S_AGU=1'b0,
-    parameter logic THUMB_HALF=1'b1,
-    parameter logic SHIFT_PRE=1'b1,
-    parameter logic PAYLOAD_FREE=1'b1,
-    parameter logic REDIRECT_PAYLOAD=1'b1,
-    parameter logic WT_TAGS=1'b1,
-    parameter logic RAS_TOP_FF=1'b1,
-    parameter logic VALID_BIT=1'b1,
-    parameter logic PREFIX_FREE=1'b1,
-    parameter logic HEAD_FF=1'b1,
     parameter logic [31:0] RESET_VECTOR=0
 ) (
     input logic i_clk, i_reset, i_flush,
@@ -22,10 +9,9 @@ module arm925t_front_decode #(
     output logic o_ready,
     input logic [4:0] i_mode,
     input logic i_wen,
-    input logic [39:0] i_wr_addr_a, i_wr_addr_b, i_wr_addr_c, i_locked,
+    input logic [39:0] i_wr_addr_c, i_locked,
     input logic [3:0][5:0] i_early_tag,
     input logic [3:0] i_early_valid,
-    input logic [3:0] i_early_agu,
     input logic [31:0] i_wr_data_a, i_wr_data_b, i_wr_data_c,
     input logic [5:0] i_wr_tag_a, i_wr_tag_b,
     input logic i_wr_pair,
@@ -38,7 +24,7 @@ module arm925t_front_decode #(
     input logic i_return_next_valid,
     input logic [5:0] i_return_next_tag,
     output logic [3:0] o_return_match,
-    input logic [1:0][5:0] i_next_load_tag,
+    input logic [5:0] i_next_load_tag,
     input logic [1:0] i_next_load_valid,
     output logic o_load_wait,
     // Tags/eligibility of the producers that will exist after this edge.
@@ -46,7 +32,7 @@ module arm925t_front_decode #(
     input logic i_forward_advance,
     input logic [1:0][1:0] i_forward_write,
     input logic [1:0] i_forward_load,
-    (* dont_retime *) output logic [1:0][3:0][4:0] o_forward_grant,
+    (* dont_retime *) output logic [3:0][4:0] o_forward_grant,
     output logic [3:0][1:0][1:0] o_forward_match,
     output logic [3:0] o_early,
     output logic o_self_dep,
@@ -102,7 +88,7 @@ module arm925t_front_decode #(
     logic [1:0] f_state,f_kind;
     logic [2:0] f_pointer;
     logic [3:0] f_count;
-    arm925t_fetch #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR),.THUMB_HALF(THUMB_HALF),.RAS_TOP_FF(RAS_TOP_FF),.VALID_BIT(VALID_BIT),.HEAD_FF(HEAD_FF)) u_fetch (
+    arm925t_fetch #(.RESET_VECTOR(RESET_VECTOR)) u_fetch (
         .i_clk(i_clk),.i_reset(i_reset),.i_redirect(i_flush||o_redirect),
         .i_redirect_target(i_flush?i_backend_target:o_redirect_target),
         .i_redirect_thumb(i_flush?i_backend_thumb:o_redirect_thumb),
@@ -122,7 +108,7 @@ module arm925t_front_decode #(
         .o_predicted(f_predicted),.o_pred_hit(f_hit),.o_pred_target(f_target),
         .o_pred_state(f_state),.o_pred_kind(f_kind),.o_ras_pointer(f_pointer),.o_ras_count(f_count)
     );
-    arm925t_decode #(.S_AGU(S_AGU),.THUMB_HALF(THUMB_HALF),.SHIFT_PRE(SHIFT_PRE),.PAYLOAD_FREE(PAYLOAD_FREE),.REDIRECT_PAYLOAD(REDIRECT_PAYLOAD),.WT_TAGS(WT_TAGS),.PREFIX_FREE(PREFIX_FREE)) u_decode (
+    arm925t_decode u_decode (
         .i_valid(f_valid),.i_pc(f_pc),.i_word(f_word),.i_thumb(f_thumb),.i_fault(f_fault),
         .i_predicted(f_predicted),.i_pred_hit(f_hit),.i_pred_target(f_target),
         .i_pred_state(f_state),.i_pred_kind(f_kind),.i_ras_pointer(f_pointer),.i_ras_count(f_count),

@@ -143,14 +143,14 @@ VFLAGS := --cc --exe --build --assert -j $(JOBS) -O3 --x-assign unique --x-initi
           -Wno-fatal -Wno-lint -Wno-style -Wno-MULTIDRIVEN -Wno-ASSIGNIN \
           --top-module tb_cpu -CFLAGS "-O2 -std=c++17" $(VEXTRA)
 CPU_SV := $(wildcard $(ROOT)/rtl/cpu/arm925t_*.sv)
+# The CPU's RAMs are Altera's megafunctions; the bench has models of them.
+RAM_MODELS := $(ROOT)/sim/stubs/altsyncram.sv $(ROOT)/sim/stubs/altdpram.sv
 ifeq ($(RTL),sv)
-RTL_SRC := +incdir+$(ROOT)/rtl/cpu $(ROOT)/rtl/cpu/arm925t.sv $(CPU_SV)
-RTL_DEP := $(ROOT)/rtl/cpu/arm925t.sv $(CPU_SV) $(wildcard $(ROOT)/rtl/cpu/*.svh)
+RTL_SRC := +incdir+$(ROOT)/rtl/cpu $(RAM_MODELS) $(ROOT)/rtl/cpu/arm925t.sv $(CPU_SV)
+RTL_DEP := $(RAM_MODELS) $(ROOT)/rtl/cpu/arm925t.sv $(CPU_SV) $(wildcard $(ROOT)/rtl/cpu/*.svh)
 else
-RTL_DEP := $(ROOT)/rtl/cpu/arm925t_gen.v $(ROOT)/sim/stubs/altsyncram.sv $(ROOT)/sim/stubs/altdpram.sv
-# The register file's architectural view is simulation-only in the sources;
-# on the netlist the bench rebuilds it from the banks (tb_cpu.sv).
-RTL_SRC := -DRAM_RF_TAP=1 $(RTL_DEP)
+RTL_DEP := $(ROOT)/rtl/cpu/arm925t_gen.v $(RAM_MODELS)
+RTL_SRC := $(RTL_DEP)
 endif
 
 model: $(MODEL)

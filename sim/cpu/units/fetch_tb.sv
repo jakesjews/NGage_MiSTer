@@ -1,9 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 module fetch_tb;
-    // The core's configuration (arm925t_fetch's defaults); the checks below
-    // are written for it.
-    localparam bit PREDICTOR=1;
-    localparam bit THUMB_HALF=1;
     logic i_clk=0,i_reset=1,i_redirect=0,i_redirect_thumb=0;
     logic [31:0] i_redirect_target=0,i_redirect_link=0;
     logic [2:0] i_redirect_pointer=0;
@@ -54,7 +50,7 @@ module fetch_tb;
                 check(o_pc==expected_pc && o_thumb==thumb,"linear PC and state");
                 // THUMB_HALF: a Thumb instruction at pc[1] arrives in the low halfword.
                 raw=expected_pc^32'h31415926;
-                check(o_word==(THUMB_HALF&&thumb&&expected_pc[1]?{16'd0,raw[31:16]}:raw),"raw word follows metadata");
+                check(o_word==(thumb&&expected_pc[1]?{16'd0,raw[31:16]}:raw),"raw word follows metadata");
                 check(!o_fault,"no spurious permission fault");
                 received++;expected_pc+=thumb?2:4;
             end
@@ -92,12 +88,10 @@ module fetch_tb;
         while(received<60 && limit<100)begin
             if(o_valid)begin
                 check(o_pc==expected_pc,"predicted target sequence");
-                if(PREDICTOR)begin
-                    check(o_predicted,"trained branch metadata");
-                    if(received!=0)check(cycle==last_cycle+1,"zero lost fetch slots");
-                    expected_pc = o_pc == 32'h100 ? 32'h180 : o_pc == 32'h180 ? 32'h1c0 : 32'h100;
-                    check(o_pred_target==expected_pc,"predicted target travels with word");
-                end else expected_pc+=4;
+                check(o_predicted,"trained branch metadata");
+                if(received!=0)check(cycle==last_cycle+1,"zero lost fetch slots");
+                expected_pc = o_pc == 32'h100 ? 32'h180 : o_pc == 32'h180 ? 32'h1c0 : 32'h100;
+                check(o_pred_target==expected_pc,"predicted target travels with word");
                 last_cycle=cycle;received++;
             end
             tick();limit++;
@@ -116,6 +110,6 @@ module fetch_tb;
         check(received>200,"held stream throughput");
         // Thumb state/halfword PC is metadata; raw word is not expanded here.
         i_ready=1;i_ack=1;redirect(32'h9002,1);expect_linear(32'h9002,30,1);
-        $display("PASS fetch predictor=%0d: %0d checks",PREDICTOR,checks);$finish;
+        $display("PASS fetch: %0d checks",checks);$finish;
     end
 endmodule

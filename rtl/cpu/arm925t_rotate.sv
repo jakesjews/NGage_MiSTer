@@ -4,7 +4,7 @@
 // o_rrx lets A insert its latest C into bit 31 after the S/A boundary.
 // PRE_ROT: i_rot is the rotate amount, already negated for LSL by the
 // stage before (SHIFT_PRE); no adder precedes the rotation.
-module arm925t_rotate #(parameter logic PRE_ROT=1) (
+module arm925t_rotate  (
     input logic [31:0] i_value,
     input logic [7:0] i_amount,
     input logic [1:0] i_type,
@@ -13,12 +13,11 @@ module arm925t_rotate #(parameter logic PRE_ROT=1) (
     output logic [31:0] o_value,
     output logic o_carry, o_preserve, o_rrx
 );
-    wire [4:0] amount=PRE_ROT ? i_rot : i_type==0 ? -i_amount[4:0] : i_amount[4:0];
     wire [31:0] stage[0:5];
     assign stage[0]=i_value;
     for(genvar sa_rot_stage=0;sa_rot_stage<5;sa_rot_stage++)begin:g_rotate
         for(genvar sa_rot_bit=0;sa_rot_bit<32;sa_rot_bit++)begin:g_bit
-            assign stage[sa_rot_stage+1][sa_rot_bit]=amount[sa_rot_stage]?stage[sa_rot_stage][(sa_rot_bit+(1<<sa_rot_stage))%32]:stage[sa_rot_stage][sa_rot_bit];
+            assign stage[sa_rot_stage+1][sa_rot_bit]=i_rot[sa_rot_stage]?stage[sa_rot_stage][(sa_rot_bit+(1<<sa_rot_stage))%32]:stage[sa_rot_stage][sa_rot_bit];
         end
     end
     wire [31:0] left_mask=32'hffffffff<<i_amount[4:0];

@@ -388,9 +388,6 @@ begin
                                 default:
                                 begin
                                         o_instruction = 'X;
-
-                                        assert(1'd0) else
-                                        $fatal(2, "Unexpected case way in decode_alu_hi().");
                                 end
                                 endcase
                         end

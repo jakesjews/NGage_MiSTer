@@ -97,11 +97,10 @@ module arm925t_ram_bytes #(
         input logic [$clog2(DEPTH)-1:0]      i_rd_addr,
         output logic [8*BYTES-1:0]           o_rd_data
 );
-`ifdef SYNTHESIS
         // Intel's primitive directly: Quartus 17 does not infer byte enables
-        // from sv2v's form of the array below (it became flip-flops).
+        // from sv2v's form of an array written a byte at a time (it became
+        // flip-flops).
         localparam integer W = 8*BYTES;
-        wire [$clog2(DEPTH)-1:0] i_wr_addr_x = i_wr_addr, i_rd_addr_x = i_rd_addr;
         altsyncram #(
                 .operation_mode("DUAL_PORT"), .ram_block_type("M10K"), .intended_device_family("Cyclone V"),
                 .lpm_type("altsyncram"), .power_up_uninitialized("FALSE"),
@@ -114,18 +113,8 @@ module arm925t_ram_bytes #(
                 .read_during_write_mode_mixed_ports("OLD_DATA"),
                 .address_aclr_b("NONE"), .outdata_aclr_b("NONE")
         ) u_ram (
-                .clock0(i_clk), .clocken0(i_clken), .wren_a(|i_wr_en), .address_a(i_wr_addr_x), .data_a(i_wr_data),
-                .byteena_a(i_wr_en), .address_b(i_rd_addr_x), .rden_b(1'b1), .q_b(o_rd_data)
+                .clock0(i_clk), .clocken0(i_clken), .wren_a(|i_wr_en), .address_a(i_wr_addr), .data_a(i_wr_data),
+                .byteena_a(i_wr_en), .address_b(i_rd_addr), .rden_b(1'b1), .q_b(o_rd_data)
         );
-`else
-        logic [BYTES-1:0][7:0] mem [DEPTH-1:0];
-        logic [BYTES-1:0][7:0] q;
-        always_ff @(posedge i_clk) if (i_clken) begin
-                for (int b = 0; b < BYTES; b++)
-                        if (i_wr_en[b]) mem[i_wr_addr][b] <= i_wr_data[8*b +: 8];
-                q <= mem[i_rd_addr];
-        end
-        assign o_rd_data = q;
-`endif
 endmodule
 

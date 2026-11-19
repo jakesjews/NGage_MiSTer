@@ -3,7 +3,6 @@
 // M/W arithmetic producer records. No D-cache, memory completion or precise
 // exception retirement exists here. i_ready is registered downstream capacity.
 module arm925t_front_execute #(
-    parameter logic PREDICTOR=1'b1,
     parameter logic [31:0] RESET_VECTOR=0
 ) (
     input logic i_clk,i_reset,i_flush,i_ready,
@@ -84,12 +83,11 @@ module arm925t_front_execute #(
     logic [3:0][1:0] d_tag_class;   // TAG_PRE
     logic d_self_dep, execute_ready_payload;
     logic [1:0] d_writes;   // WRITES_PRE
-    logic [3:0] early_agu;
     logic [3:0] d_condition;
     logic [3:0][5:0] d_tag;
     logic [3:0] d_used;
     logic [3:0][1:0][1:0] d_forward_match;
-    logic [1:0][3:0][4:0] d_forward_grant;
+    logic [3:0][4:0] d_forward_grant;
     logic [1:0][1:0][5:0] forward_tag;
     logic [1:0][1:0] forward_write;
     logic [3:0] d_early;
@@ -132,8 +130,6 @@ module arm925t_front_execute #(
     logic [3:0][5:0] early_tag;
     logic [3:0] early_valid;
     assign forward_tag={i_ready?mw_tag[0]:mw_tag[1],i_ready?o_dest:mw_tag[0]};
-    logic o_a_cond_al;   // AGU_AL: the waiver covers only unconditional writers (as the core)
-    assign early_agu={o_kind==4'd5&&o_a_cond_al,1'b0,d_kind==4'd5&&d_condition==4'hE,1'b0};
     assign forward_write=(i_reset||i_flush)?4'd0:
         {i_ready?(mw_write[0]&{2{mw_valid[0]}}):(mw_write[1]&{2{mw_valid[1]}}),
          i_ready?(o_write&{2{o_valid}}):(mw_write[0]&{2{mw_valid[0]}})};
@@ -175,7 +171,7 @@ module arm925t_front_execute #(
     logic [3:0][5:0] rf_tag;
     logic [3:0][31:0] rf_value;
     always_comb for(int n=0;n<4;n++)rf_value[n]=(rf_tag[n]<6'd40) ? model_rf[rf_tag[n]] : 32'd0;
-    arm925t_front_decode #(.RESET_VECTOR(RESET_VECTOR),.PREDICTOR(PREDICTOR)) u_front_decode (
+    arm925t_front_decode #(.RESET_VECTOR(RESET_VECTOR)) u_front_decode (
         .i_serial_continue(1'b1),.o_dbg_fetch(),
         .i_rf_value(rf_value),.o_rf_tag(rf_tag),.i_load_tag('0),.i_w_load_hit(1'b0),.o_pending(),.i_load_valid('0),.i_load_speculate('0),.i_next_load_tag('0),.i_next_load_valid('0),.o_load_wait(),
         .o_writes(d_writes),.o_early(d_early),.i_forward_tag(forward_tag),.i_advance_tag('0),.i_forward_advance(1'b0),.i_forward_write(forward_write),
@@ -188,8 +184,7 @@ module arm925t_front_execute #(
         // W's write tags: the same writes as wa/wb, as binary tags (16: none).
         .i_wr_tag_a((mw_write[1][0]&&mw_valid[1])?mw_tag[1][0]:6'd16),
         .i_wr_tag_b((mw_write[1][1]&&mw_valid[1])?mw_tag[1][1]:6'd16),
-        .i_wr_pair(mw_write[1][1]&&mw_valid[1]),.i_wr_addr_a(wa),
-        .i_wr_addr_b(wb),
+        .i_wr_pair(mw_write[1][1]&&mw_valid[1]),
         .i_wr_addr_c(wc),
         .i_locked(i_locked),
         .i_early_tag(early_tag),
@@ -199,7 +194,7 @@ module arm925t_front_execute #(
         .i_wr_data_c(mw_cpsr[1]),
         .i_ready(o_execute_ready),
         .i_ready_payload(execute_ready_payload),
-        .o_shift_pre(d_shift_pre),.o_tag_class(d_tag_class),.o_self_dep(d_self_dep),.i_early_agu(early_agu),
+        .o_shift_pre(d_shift_pre),.o_tag_class(d_tag_class),.o_self_dep(d_self_dep),
         .i_backend_target(i_flush?i_backend_target:o_redirect_target),
         .i_backend_link(o_redirect_link),
         .i_backend_thumb(i_flush?i_backend_thumb:o_redirect_thumb),
@@ -351,7 +346,7 @@ module arm925t_front_execute #(
         .o_btb_state(o_btb_state),
         .o_btb_kind(o_btb_kind),
         .o_a_valid(o_a_valid),
-        .o_a_can_finish(o_a_can_finish),.o_a_cond_al(o_a_cond_al),.o_a_can_finish_nohit(),
+        .o_a_can_finish(o_a_can_finish),.o_a_can_finish_nohit(),
         .o_s_write(o_s_write),
         .o_a_dest(o_a_dest),
         .o_a_write(o_a_write),

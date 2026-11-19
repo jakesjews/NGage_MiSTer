@@ -135,7 +135,8 @@ initial begin wait(&done); $display("PASS: old/new cache edges at the core's two
 endmodule
 '''
 (b/'tb.sv').write_text(tb)
-args=['verilator','--binary','--timing','--assert','-Wno-fatal','--top-module','short_miter','-j','6','--Mdir',str(b/'obj'),'-I'+str(root/'rtl/cpu'),'-I'+str(b),str(b/'tb.sv'),str(b/'gold.sv'),str(root/'rtl/cpu/arm925t_cache_tag_ram.sv'),str(root/'rtl/cpu/arm925t_ram.sv')]
+args=['verilator','--binary','--timing','--assert','-Wno-fatal','--top-module','short_miter','-j','6','--Mdir',str(b/'obj'),'-I'+str(root/'rtl/cpu'),'-I'+str(b),str(b/'tb.sv'),str(b/'gold.sv'),str(root/'rtl/cpu/arm925t_cache_tag_ram.sv'),str(root/'rtl/cpu/arm925t_ram.sv'),
+      str(root/'sim/stubs/altsyncram.sv')]   # the RAMs are Altera's megafunction; the bench's model of it
 with (b/'build.log').open('w') as f:subprocess.run(args,stdout=f,stderr=subprocess.STDOUT,check=True)
 with (b/'run.log').open('w') as f:subprocess.run([str(b/'obj/Vshort_miter')],stdout=f,stderr=subprocess.STDOUT,check=True)
 print((b/'run.log').read_text())
