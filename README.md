@@ -12,6 +12,8 @@ with no SIM.
   service packages for the phone: `N-GageQD RH-29.zip`. It is Nokia's and is
   not included. Searching the Internet Archive for "Nokia DCT4 firmwares"
   finds the collection that has it in its file list.
+  - `N-GageQD RH-29.zip` (811,528,203 bytes): SHA-256
+    `8cbfc6e54b9e59b4c8cb72712297629359db443af78505d9f7188eda8f38732b`
 - Game cards as `.mmc` images (see [Game cards](#game-cards)).
 
 ## Setup
@@ -22,6 +24,10 @@ with no SIM.
    settings and your game saves.
 3. Drop the zip on the [firmware unpacker](https://ngage-mister.vercel.app/)
    and save `boot0.rom` and `boot1.rom` into the folder.
+   - `boot0.rom` (18,454,871 bytes): SHA-256
+     `3ce529d6fbcd6db1f4290fabe8b70c62242a23444c4fa74caec42657d12ab4a0`
+   - `boot1.rom` (1,394,513 bytes): SHA-256
+     `657c2d1bafbad6797732c86892999a9e201e10961ee8c1801b0b6cc73bb41fa5`
 4. Copy your `.mmc` images into the folder.
 5. Start **NGage** from the Console menu. The first start formats C: and asks
    for the time and date: press Enter for each.
@@ -31,7 +37,8 @@ with no SIM.
 
 If you have the firmware as `RH2941.0C1` and one of its language packs
 (`RH2941.021`, or another for 4.10), rename them `boot0.rom` and `boot1.rom`
-instead of step 3.
+instead of step 3. The checksums in step 3 are those of `RH2941.0C1` and
+`RH2941.021`; another language pack has its own.
 
 To have a card in the slot at every start, name a copy of its image
 `boot1.vhd`. The phone then starts at its idle screen with the game in the menu.
