@@ -398,7 +398,7 @@ to start SIM reception and enabled bit 2 at `0x0C15000A`. The native
 status collector read zero from both `0x0C150800` and `0x0C1500B8`.
 There were no reads from the receive register `0x0C15080C`. These
 addresses used generic register storage before the SIM port.
-The NEM-4 master SIMIF supplies the response and FIQ on the same
+The `ngage-v5` SIMIF supplies the response and FIQ on the same
 register interface when its test card is present.
 
 QD 4.10 `Startup.app` checks System Agent SIM state
@@ -430,7 +430,43 @@ UPP bus waits for the card between transactions. Source 26 appears only
 on the FIQ plane. The integrated peripheral test checks mask and
 acknowledgement, a fresh ATR after reset, and the SELECT procedure byte
 and status. The peripheral and interrupt-controller benches and RTL lint
-passed. Full QD startup with the SIM path still requires validation.
+passed.
+
+The simulator's standard restore rejects pre-port checkpoints because the
+Verilator model layout changed. The local diagnostic in
+`build/qd-simif.5PgQga/` converts the 440- and 800-million-clock checkpoint
+pairs using the two generated serialization layouts. It preserves shared
+RTL state and the complete host snapshot, initializes the new SIM/card
+state from reset, and transfers the three SIM configuration words from
+the old register storage. The next firmware receive-start write still
+drives the ATR. The original checkpoint pairs are untouched.
+
+The 440-million-clock differential matched 20,000 instruction trace
+entries and all 84 device-log entries over the next two million clocks.
+The 800-million-clock differential matched all 91,868 device-log entries
+over the same interval. Both matched the original core's retired count
+and PC at the stop. Runs from both converted checkpoints and a separate
+cold boot use the same SIM-enabled executable.
+
+Both resumed runs and the cold boot took the native SIM FIQ and read
+ATR `3B 00` and SELECT DF-GSM status `9F 16`. The cold boot did so on the
+first receive-start write after 420 million clocks. All three runs have
+474 identical SIM data-register transfers from ATR onward, including
+266 received bytes. The firmware read IMSI and access class and received
+`94 04` for `6F14` and `6FC6`, matching the `ngage-v5` test card.
+Compact bus evidence is in `late-retry/simif-native.log` under the run
+directory above.
+The original QD transition table at `0x516DBED4` maps event `0x070D`,
+reason `1` to serving state 8. The resumed checkpoint at 1.34 billion
+clocks (12.885 simulated seconds) had `SIM_Server` state 1 and was still
+executing. The Nokia splash was still the latest LCD frame. The original
+cardless control reached `SIM_Server` state 5 at its 1.50-billion-clock
+checkpoint and reproduced **Insert SIM card** at 17.679 simulated
+seconds. The control capture is
+`build/sim/screens/qd-native-cardless/insert-sim.png`. Both runs continue
+across saved checkpoint pairs. The SIM-enabled run's `late-retry` folder
+lists its current pair in `latest-checkpoint.txt`. Use that pair with the
+same frozen `Vemu` beside the run folder.
 
 #### NEM-4 master history for this stage
 
