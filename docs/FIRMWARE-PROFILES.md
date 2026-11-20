@@ -457,16 +457,21 @@ first receive-start write after 420 million clocks. All three runs have
 Compact bus evidence is in `late-retry/simif-native.log` under the run
 directory above.
 The original QD transition table at `0x516DBED4` maps event `0x070D`,
-reason `1` to serving state 8. The resumed checkpoint at 1.34 billion
-clocks (12.885 simulated seconds) had `SIM_Server` state 1 and was still
-executing. The Nokia splash was still the latest LCD frame. The original
-cardless control reached `SIM_Server` state 5 at its 1.50-billion-clock
-checkpoint and reproduced **Insert SIM card** at 17.679 simulated
-seconds. The control capture is
+reason `1` to serving state 8. The resumed run registered for system
+state notifications in `Startup.app`, completed the native RF exchange,
+and read the SIM's BCCH, LOCI, Kc and FPLMN files successfully. At
+1.94 billion clocks (18.654 simulated seconds), the saved QD state was
+`SIM_Server` 8, with MTC status bytes `1, 1`. The latest LCD frame was
+still the Nokia splash. Startup's on-screen handoff remains unverified.
+
+The original cardless control reached `SIM_Server` state 5 by its
+1.50-billion-clock checkpoint and reproduced **Insert SIM card** at
+17.679 simulated seconds. The control capture is
 `build/sim/screens/qd-native-cardless/insert-sim.png`. Both runs continue
-across saved checkpoint pairs. The SIM-enabled run's `late-retry` folder
-lists its current pair in `latest-checkpoint.txt`. Use that pair with the
-same frozen `Vemu` beside the run folder.
+across checkpoint pairs. The SIM-enabled pair at 1.94 billion clocks
+is retained in `serving/` under the run directory above. The `late-retry`
+folder lists the rolling pair in `latest-checkpoint.txt`. Restore either
+with the same frozen `Vemu` in the run directory.
 
 #### NEM-4 master history for this stage
 
