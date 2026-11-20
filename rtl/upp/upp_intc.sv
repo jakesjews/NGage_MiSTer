@@ -32,7 +32,9 @@
 //   other offsets: storage.
 // Accesses are 32-bit (the model's regions take only those); upp_periph
 // drops others before they get here.
-module upp_intc (
+module upp_intc #(
+	parameter logic [95:0] FIQ_ONLY = 96'd0
+) (
 	input  logic        clk,
 	input  logic        reset,
 
@@ -63,7 +65,9 @@ module upp_intc (
 
 	assign dbg_en0_irq = en[0];
 	assign dbg_en0_fiq = en[3];
-	wire [31:0] pend_b  = src[32 * bank +: 32];
+	wire [95:0] irq_src = src & ~FIQ_ONLY;
+	wire [95:0] plane_src = (idx >= 3'd3) ? src : irq_src;
+	wire [31:0] pend_b  = plane_src[32 * bank +: 32];
 	wire [31:0] act_b   = pend_b & en[idx];
 
 	function automatic logic [5:0] lowest(input logic [31:0] v);
@@ -113,7 +117,7 @@ module upp_intc (
 
 
 	always_ff @(posedge clk) begin
-		irq <= |(src[31:0] & en[0]) | |(src[63:32] & en[1]) | |(src[95:64] & en[2]);
+		irq <= |(irq_src[31:0] & en[0]) | |(irq_src[63:32] & en[1]) | |(irq_src[95:64] & en[2]);
 		fiq <= |(src[31:0] & en[3]) | |(src[63:32] & en[4]) | |(src[95:64] & en[5]) |
 		       |(ost_status & ost_en);
 		if (reset) begin

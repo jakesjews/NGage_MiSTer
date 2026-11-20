@@ -1353,6 +1353,47 @@ void test_genio_loopback(Bench &b) {
 	CHECK_EQ(b.rd16(GENIO + 12) & 0x0002, 0, "SIM loop clears when the UEM route closes");
 }
 
+void test_simif(Bench &b) {
+	printf("SIMIF test card\n");
+	const uint32_t STATUS = 0x0C150800, RX_START = 0x0C150808, DATA = 0x0C15080C;
+	const uint32_t FAST_STATUS = 0x0C1500B8, SIM_FIQ = 1u << 26;
+	b.reset_core();
+	CHECK_EQ(b.rd16(FAST_STATUS), 0, "SIMIF idle after reset");
+	b.wr(INTC + 8, SIM_FIQ);
+	b.wr16(0x0C15000A, 4);
+	b.wr16(RX_START, 1);
+	CHECK_EQ(b.rd16(STATUS), 0x10, "SIM reset response pending");
+	CHECK_EQ(b.rd16(FAST_STATUS), 4, "SIM appears in fast status");
+	CHECK_EQ(b.t->irq, 0, "SIM is absent from the IRQ plane");
+	CHECK_EQ(b.t->fiq, 0, "SIM FIQ remains masked at the ICU");
+	b.wr(FINTC + 8, SIM_FIQ);
+	b.run(2);
+	CHECK_EQ(b.t->fiq, 1, "SIM receive event raises FIQ 26");
+	CHECK_EQ(b.rd16(DATA), 0x3B, "reset response TS");
+	CHECK_EQ(b.rd16(DATA), 0, "reset response T0");
+	b.wr16(STATUS, 0x10);
+	CHECK_EQ(b.rd16(FAST_STATUS), 0, "SIM FIQ acknowledgement");
+
+	for (uint8_t value : {0xA0, 0xA4, 0, 0, 2}) b.wr16(DATA, value);
+	CHECK_EQ(b.rd16(STATUS), 8, "SELECT header transmits");
+	b.wr16(STATUS, 0);
+	CHECK_EQ(b.rd16(STATUS), 8, "unrelated acknowledgement preserves transmit status");
+	b.wr16(STATUS, 8);
+	CHECK_EQ(b.rd16(STATUS), 0x10, "SELECT procedure byte ready");
+	CHECK_EQ(b.rd16(DATA), 0xA4, "SELECT procedure byte");
+	b.wr16(DATA, 0x3F);
+	b.wr16(DATA, 0);
+	CHECK_EQ(b.rd16(STATUS), 8, "SELECT file ID transmits");
+	b.wr16(STATUS, 8);
+	CHECK_EQ(b.rd16(DATA), 0x9F, "SELECT response status");
+	CHECK_EQ(b.rd16(DATA), 0x16, "SELECT response length");
+	CHECK_EQ(b.rd16(STATUS), 0, "SIM response drains");
+	b.reset_core();
+	CHECK_EQ(b.rd16(FAST_STATUS), 0, "reset clears pending SIM state");
+	b.wr16(RX_START, 1);
+	CHECK_EQ(b.rd16(DATA), 0x3B, "reset starts a fresh card session");
+}
+
 void test_cbus(Bench &b, const std::string &dir) {
 	printf("CBUS\n");
 	Cbus c(b);
@@ -1720,6 +1761,7 @@ int main(int argc, char **argv) {
 	test_keypad(b);
 	test_cbus(b, model_out);
 	test_genio_loopback(b);
+	test_simif(b);
 	test_bt(b);
 	test_rtc(b);
 	test_audio(b);

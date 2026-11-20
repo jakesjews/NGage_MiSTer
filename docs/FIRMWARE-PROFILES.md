@@ -380,6 +380,58 @@ simulator. Both runs and the executable are in
 `build/qd-native-selftest.3qDi1Y/`. The older post-splash replay used
 the diagnostic MDI checkpoint.
 
+The combined run reached its configured 1.70-billion-clock limit
+(16.346 simulated seconds) with the Nokia splash still on the LCD.
+The window server, Starter, Startup, SysAp and Phone had executed, and
+the previous startup-failure dialog did not appear in this window.
+Native NOS sent the RF version request `127C00F10006012420A00255` and
+consumed reply `12007CF10006240120A10103`, matching the master trace.
+The focused trace is in
+`build/qd-native-selftest.3qDi1Y/cold/rf-exchange.log`. This verifies
+the RF exchange through MDI. The later DOS test result and idle-screen
+handoff remain open. The last saved checkpoint is at 440 million clocks.
+
+#### SIM receive path and resumed run
+
+In the completed native QD trace, NOS wrote 1 to `0x0C150808` four times
+to start SIM reception and enabled bit 2 at `0x0C15000A`. The native
+status collector read zero from both `0x0C150800` and `0x0C1500B8`.
+There were no reads from the receive register `0x0C15080C`. These
+addresses used generic register storage before the SIM port.
+The NEM-4 master SIMIF supplies the response and FIQ on the same
+register interface when its test card is present.
+
+QD 4.10 `Startup.app` checks System Agent SIM state
+`0x100052E9` for 7 and security state `0x100052F0` for 0
+at `0x50BBAD06`–`0x50BBAD26`. The missing receive path is a
+blocker to native SIM readiness and normal startup. The specific UI
+wait at the 1.70-billion-clock cutoff remains unverified. The native
+startup self-test registry has 21 entries and no NEM-4 external ADSP
+test 36.
+
+The replay resumed from the verified 440-million-clock pair in
+`build/qd-continue.1OxfqT/`. It saves and resumes automatically across
+segments, including a retained 1.70-billion-clock pair when reached.
+`simif-transactions.log` records the original hardware accesses and
+`inspect-sim.py` reads the QD SIM state from an available host snapshot.
+
+The user reported **Insert SIM card** on the integration RBF. A direct
+comparison of `integration` at `f616880` with `ngage-v5` at `f2d9c04`
+shows the missing connection. QD enables FIQ source 26 with
+`0x04000000` at `0x0C1201C8`. The pre-port integration left source 26 at zero.
+`ngage-v5` connects `ngage_simif` to that FIQ source and enables
+`ngage_test_sim` in the MiSTer wrapper. Its unmodified board test passed
+all four card configurations, including the same receive-start write,
+ATR `3B 00`, interrupt acknowledgement and SELECT response.
+The test logs are in `build/v5-simif-check.IDoCbP/build/sim/unit-simif-board/`.
+Integration now uses that SIM controller and test card, including the
+single-write reply FIFO, byte pacing, and receive acknowledgement. The
+UPP bus waits for the card between transactions. Source 26 appears only
+on the FIQ plane. The integrated peripheral test checks mask and
+acknowledgement, a fresh ATR after reset, and the SELECT procedure byte
+and status. The peripheral and interrupt-controller benches and RTL lint
+passed. Full QD startup with the SIM path still requires validation.
+
 #### NEM-4 master history for this stage
 
 `NGage_MiSTer` `master` commit `383d915` established the revision and
@@ -397,8 +449,8 @@ corresponding timer and MDI paths. The source repair in `646ac68` taught
 the DSP peer to accept native media `0x12` on RF version requests. QD's
 peer already accepts it. QD emitted the `F2/0A` setup message documented
 before the RF request in NEM-4's `docs/rf-native-media.md`, with a
-different trailing byte. Compare the subsequent guest request and
-reply before changing the peer. NEM-4's `940c0f6` qualified native ADSP
+different trailing byte. The subsequent QD RF exchange matched the
+master trace. NEM-4's `940c0f6` qualified native ADSP
 test 36 and reached MTC NORMAL/READY with the bounded D550 startup
 response, as recorded in `docs/adsp-native-link.md`. `a413b1e` and
 `docs/native-startup-hdl.md` index the native SIMIF and UART work.

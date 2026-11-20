@@ -226,8 +226,9 @@ module upp_periph #(
 	logic [31:0] rd_q;
 	logic        init_busy;
 	logic        blk_busy;
+	wire simif_claim, simif_bad, simif_busy, simif_irq;
 
-	wire done = p_sel && rdy_q && (p_we ? cnt != 2'd0 : cnt[1]);
+	wire done = p_sel && rdy_q && (p_we ? cnt != 2'd0 : cnt[1]) && !(simif_claim && simif_busy);
 	assign p_wait  = p_sel && !done;
 	assign p_rdata = rd_q;
 
@@ -258,7 +259,7 @@ module upp_periph #(
 
 	bram32 #(.AW(13)) storage (
 		.clk(clk),
-		.we(init_busy || (wr && in_c1 && !s_mdi && !s_genio)),
+		.we(init_busy || (wr && in_c1 && !s_mdi && !s_genio && !simif_claim)),
 		.be(init_busy ? 4'b1111 : st_be),
 		.waddr(init_busy ? clr : st_idx),
 		.wdata(init_busy ? 32'd0 : p_wdata),
@@ -297,7 +298,8 @@ module upp_periph #(
 	logic        own_au;               // 1: the audio device has the port
 
 	// interrupt sources, bit 32k + b = bank k bit b (docs/UPP_WD2.md)
-	wire [95:0] src = {70'd0,
+	wire [95:0] src = {69'd0,
+		simif_irq,                     // 26 CTSI_FIQ
 		ctsi_irq,                      // 25 CTSI_IRQ
 		mmc_irq,                       // 24 MMCCmdRdy, 23 MMCCmdIdle, 22 MMCDataRdy, 21 MMCDataIdle
 		5'd0,                          // 16-20 Ir4M
@@ -306,7 +308,7 @@ module upp_periph #(
 		tmr_irq[5] | aud_irq,          // 5 Timer5, the HLE audio device
 		tmr_irq[4:0]};                 // 0-4 Timer0-4
 
-	upp_intc intc (
+	upp_intc #(.FIQ_ONLY(96'd1 << 26)) intc (
 		.clk(clk),
 		.reset(reset),
 		.src(src),
@@ -513,6 +515,48 @@ module upp_periph #(
 		.dout(d_genio)
 	);
 
+	// Keep the native SIM controller and the synthetic card on a byte interface.
+	wire sim_tx_valid, sim_rx_valid, sim_rx_pop, sim_tx_will_emit;
+	wire [7:0] sim_tx_data, sim_rx_data;
+	wire [6:0] sim_rx_available;
+	wire [31:0] d_simif;
+	wire [31:0] m_simif = {32{simif_claim}};
+	upp_simif simif (
+		.clk(clk),
+		.reset(reset),
+		.present(1'b1),
+		.req(acc),
+		.commit(done),
+		.we(p_we),
+		.addr(p_addr[27:2]),
+		.din(p_wdata),
+		.sel(p_be),
+		.claim(simif_claim),
+		.bad(simif_bad),
+		.dout(d_simif),
+		.fiq_pending(simif_irq),
+		.card_tx_valid(sim_tx_valid),
+		.card_tx_data(sim_tx_data),
+		.card_rx_valid(sim_rx_valid),
+		.card_rx_data(sim_rx_data),
+		.card_available(sim_rx_available),
+		.card_tx_will_emit(sim_tx_will_emit),
+		.card_rx_pop(sim_rx_pop)
+	);
+	upp_test_sim #(.CLOCK_DIV(CLK_HZ / 3_250_000)) test_sim (
+		.clk(clk),
+		.reset(reset),
+		.tx_valid(sim_tx_valid),
+		.tx_data(sim_tx_data),
+		.rx_pop(sim_rx_pop),
+		.rx_valid(sim_rx_valid),
+		.rx_data(sim_rx_data),
+		.overflow(),
+		.available(sim_rx_available),
+		.tx_will_emit(sim_tx_will_emit),
+		.busy(simif_busy)
+	);
+
 	upp_cbus #(.POWER_ON_HOLD_CLKS(POWER_ON_HOLD_CLKS)) cbus (
 		.clk(clk),
 		.reset(reset),
@@ -581,11 +625,12 @@ module upp_periph #(
 	                     (off[3:0] == 4'h4) ? {31'd0, c_blank} : 32'd0;
 
 	wire [31:0] rmask = m_intc | m_tmr | m_dma | m_mmc | m_lcd | m_uif | m_cbus | m_aud | m_date | m_mdi |
-	                    m_genio | m_q;
+	                    m_genio | m_simif | m_q;
 	wire [31:0] rbits = (d_intc & m_intc) | (d_tmr & m_tmr) | (d_dma & m_dma) | (d_mmc & m_mmc) |
 	                    (d_lcd & m_lcd) | (d_uif & m_uif) | (d_cbus & m_cbus) | (d_aud & m_aud) |
-	                    (d_date & m_date) | (d_mdi & m_mdi) | (d_genio & m_genio) | d_q;
-	assign blk_busy = (s_mmc && b_mmc) || (s_lcd && b_lcd) || (s_cbus && b_cbus);
+	                    (d_date & m_date) | (d_mdi & m_mdi) | (d_genio & m_genio) |
+	                    (simif_bad ? 32'd0 : (d_simif & m_simif)) | d_q;
+	assign blk_busy = (s_mmc && b_mmc) || (s_lcd && b_lcd) || (s_cbus && b_cbus) || (simif_claim && simif_busy);
 
 	always_ff @(posedge clk) begin
 		cnt   <= p_sel ? (cnt == 2'd3 ? 2'd3 : cnt + 2'd1) : 2'd0;

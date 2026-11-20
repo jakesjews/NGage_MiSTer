@@ -45,6 +45,8 @@ rtl/upp/upp_mdi.v
 rtl/upp/upp_mdi_peer.v
 rtl/upp/upp_cbus.sv
 rtl/upp/upp_gpio.v
+rtl/upp/upp_simif.v
+rtl/upp/upp_test_sim.v
 rtl/upp/upp_haudio.sv
 rtl/upp/upp_periph.sv
 rtl/upp/wb_arb2.sv

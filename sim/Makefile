@@ -178,7 +178,7 @@ PERIPH_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/tdp_ram.sv $(ROOT)/
               $(ROOT)/rtl/upp/ngage_mem.sv $(ROOT)/rtl/upp/upp_fifo.sv $(ROOT)/rtl/upp/upp_intc.sv \
               $(ROOT)/rtl/upp/upp_timers.sv $(ROOT)/rtl/upp/upp_dma.sv $(ROOT)/rtl/upp/upp_mmc.sv \
               $(ROOT)/rtl/upp/upp_lcdif.sv $(ROOT)/rtl/upp/upp_uif.sv $(ROOT)/rtl/upp/upp_cbus.sv \
-              $(ROOT)/rtl/upp/upp_gpio.v \
+              $(ROOT)/rtl/upp/upp_gpio.v $(ROOT)/rtl/upp/upp_simif.v $(ROOT)/rtl/upp/upp_test_sim.v \
               $(ROOT)/rtl/upp/upp_mdi.v $(ROOT)/rtl/upp/upp_mdi_peer.v \
               $(ROOT)/rtl/upp/upp_haudio.sv $(ROOT)/rtl/upp/upp_periph.sv $(ROOT)/rtl/mister/rtc_wall.sv \
               $(ROOT)/sim/harness/periph_tb.sv
