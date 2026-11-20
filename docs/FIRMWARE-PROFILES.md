@@ -461,8 +461,20 @@ reason `1` to serving state 8. The resumed run registered for system
 state notifications in `Startup.app`, completed the native RF exchange,
 and read the SIM's BCCH, LOCI, Kc and FPLMN files successfully. At
 1.94 billion clocks (18.654 simulated seconds), the saved QD state was
-`SIM_Server` 8, with MTC status bytes `1, 1`. The latest LCD frame was
-still the Nokia splash. Startup's on-screen handoff remains unverified.
+`SIM_Server` 8, with MTC status bytes `1, 1`. The unmodified guest then
+left the Nokia splash, played the N-Gage animation, and drew the native
+Time prompt at 20.842 simulated seconds. A separate replay accepted the
+default Time and Date through left-soft-key presses and drew the QD
+Phone screen at 22.790 seconds. Its 2.42-billion-clock checkpoint still
+has `SIM_Server` 8 and MTC status bytes `1, 1`. The run used the seeded
+QD C: image and original QD 4.10 firmware. The Time and Phone captures
+are in `build/sim/screens/qd-native-sim/`.
+
+A second replay restored the Phone checkpoint and drove the normal
+Menu input from 23.400 to 23.600 simulated seconds. Through the saved
+2.56-billion-clock pair (24.615 seconds), the Phone frame remained
+on-screen and the firmware kept executing. `phone-live/` continues
+from that pair to capture later UI activity.
 
 The original cardless control reached `SIM_Server` state 5 by its
 1.50-billion-clock checkpoint and reproduced **Insert SIM card** at
