@@ -26,9 +26,9 @@ lint_off -rule UNUSEDSIGNAL -file "rtl/mem/ddram_flash.sv" -match "*Bits of func
 // the address bits of their size.
 lint_off -rule UNUSEDSIGNAL -file "rtl/upp/upp_bus.sv" -match "*Bits of function variable are not used*"
 lint_off -rule UNUSEDSIGNAL -file "rtl/upp/upp_bus.sv" -match "*Bits of signal are not used: 'ram_raddr'*"
-// the gain product's dropped bits; the interpolation phase is the top of a product
-lint_off -rule UNUSEDSIGNAL -file "rtl/upp/upp_haudio.sv" -match "*Bits of function variable are not used: 'm'*"
-lint_off -rule UNUSEDSIGNAL -file "rtl/upp/upp_haudio.sv" -match "*Bits of signal are not used: 'ph'*"
+// PCM interpolator keeps the fractional phase and the scaled sample step.
+lint_off -rule UNUSEDSIGNAL -file "rtl/upp/upp_pcm.v" -match "*Bits of function variable are not used: 'm'*"
+lint_off -rule UNUSEDSIGNAL -file "rtl/upp/upp_pcm.v" -match "*Bits of signal are not used: 'ph'*"
 // hps_io's RTC: the weekday and the last byte are not used
 lint_off -rule UNUSEDSIGNAL -file "rtl/mister/rtc_wall.sv" -match "*Bits of signal are not used: 'rtc'[63:48]*"
 

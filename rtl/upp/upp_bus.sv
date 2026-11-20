@@ -7,7 +7,7 @@
 //
 //   0x00000000  CS0 NOR flash, 16 MB (mirrored in its 32 MB window)  nor_flash
 //   0x02000000  CS1 NOR flash, 8 MB (mirrored)                       nor_flash
-//   0x04000000  CS2, CS3: no flash on the QD; reads EMPTY_DATA, writes are dropped
+//   0x04000000  CS2 NOR flash on NEM-4; QD CS2 and both CS3 windows are empty
 //   0x08000000  memory controller (EMIF) registers: plain storage,
 //               2^EMIF_WORDS_LOG2 words, mirrored
 //   0x0A000000  SDRAM, 16 MB (mirrored in its 32 MB window)          sdram
@@ -77,6 +77,7 @@ module upp_bus #(
 ) (
 	input  logic              clk,
 	input  logic              reset,
+	input  logic              nem4,
 
 	input  logic              wb_cyc,
 	input  logic              wb_stb,
@@ -124,6 +125,20 @@ module upp_bus #(
 	input  logic              fl1_lrbeat,
 	input  logic [63:0]       fl1_lrdata,
 
+	output logic              fl2_req,
+	output logic              fl2_we,
+	output logic [CS1_AW-1:0] fl2_addr,
+	output logic [15:0]       fl2_wdata,
+	input  logic [15:0]       fl2_rdata,
+	input  logic              fl2_ack,
+	input  logic              fl2_array,
+	output logic              fl2_lreq,
+	output logic [CS1_AW-1:2] fl2_laddr,
+	input  logic              fl2_ltaken,
+	input  logic              fl2_lrvalid,
+	input  logic              fl2_lrbeat,
+	input  logic [63:0]       fl2_lrdata,
+
 	output logic              sdr_req,
 	output logic              sdr_we,
 	output logic              sdr_line,
@@ -163,6 +178,7 @@ module upp_bus #(
 		T_EMPTY,
 		T_CS0,
 		T_CS1,
+		T_CS2,
 		T_EMIF,
 		T_SDRAM,
 		T_ONCHIP,
@@ -175,7 +191,8 @@ module upp_bus #(
 		case (a[27:25])
 			3'd0: return T_CS0;
 			3'd1: return T_CS1;
-			3'd2, 3'd3: return T_EMPTY;
+			3'd2: return nem4 ? T_CS2 : T_EMPTY;
+			3'd3: return T_EMPTY;
 			3'd4: return T_EMIF;
 			3'd5: return T_SDRAM;
 			3'd6: begin
@@ -345,7 +362,7 @@ module upp_bus #(
 	// Flash: the halfword engine and a two-word queue of read beats
 	// ------------------------------------------------------------------
 	logic        fl_req = 1'b0;          // a halfword access is out
-	logic        fl_chip;                // 1: CS1
+	logic [1:0]  fl_chip;
 	logic        fl_we;
 	logic [FL_AW-1:0] fl_ha;             // halfword address in the chip
 	logic [15:0] fl_wdata;
@@ -361,20 +378,24 @@ module upp_bus #(
 	logic [31:0] fw_dat, fw_adr, fq_dat, fq_adr;
 	logic [31:0] fw_prev, fq_prev;       // the beat before each in its burst
 
-	wire [15:0] fl_rdata = fl_chip ? fl1_rdata : fl0_rdata;
-	wire        fl_ack   = fl_req && (fl_chip ? fl1_ack : fl0_ack);
+	wire [15:0] fl_rdata = fl_chip == 2'd2 ? fl2_rdata : fl_chip == 2'd1 ? fl1_rdata : fl0_rdata;
+	wire        fl_ack   = fl_req && (fl_chip == 2'd2 ? fl2_ack : fl_chip == 2'd1 ? fl1_ack : fl0_ack);
 	wire        fe_last  = fl_ack && !(!fe_hi && fe_need_hi);   // the beat's last halfword is taken
 	// the finished word; halves not read are 0
 	wire [31:0] fe_word  = fe_hi ? {fl_rdata, fe_need_hi ? fe_lo : 16'h0000} : {16'h0000, fl_rdata};
 
-	assign fl0_req   = fl_req && !fl_chip;
-	assign fl1_req   = fl_req && fl_chip;
+	assign fl0_req   = fl_req && fl_chip == 2'd0;
+	assign fl1_req   = fl_req && fl_chip == 2'd1;
 	assign fl0_we    = fl_we;
 	assign fl1_we    = fl_we;
 	assign fl0_addr  = fl_ha[CS0_AW-1:0];
 	assign fl1_addr  = fl_ha[CS1_AW-1:0];
 	assign fl0_wdata = fl_wdata;
 	assign fl1_wdata = fl_wdata;
+	assign fl2_req   = fl_req && fl_chip == 2'd2;
+	assign fl2_we    = fl_we;
+	assign fl2_addr  = fl_ha[CS1_AW-1:0];
+	assign fl2_wdata = fl_wdata;
 
 	// a read beat is answered from the head of the queue: the head is tb.
 	// In a clock with ack high tb is nxt(wb_adr), and as nxt is one-to-one
@@ -391,12 +412,12 @@ module upp_bus #(
 	// "fe_next is the beat after the bus's" is fe_adr == wb_adr: no adder on
 	// this path)
 	wire fe_allowed = wb_cyc && (fe_next == wb_adr || (fe_adr == wb_adr && burst)) &&
-	                  fe_next[31:27] == 5'd0 && fe_next[26:25] == {1'b0, fl_chip};
+	                  fe_next[31:27] == 5'd0 && fe_next[26:25] == fl_chip;
 	wire fe_ahead   = state == S_FLASH && !fe_we_op && fe_allowed && (!fl_req || fe_last) && !fq_next;
 
 	// Flash wide line read (16-byte line = two 64-bit beats in read-array mode)
 	logic              fl_lreq = 1'b0;
-	logic              fl_lchip;
+	logic [1:0]        fl_lchip;
 	logic [FL_AW-1:2]  fl_laddr;
 	logic [31:0]       fl_lb [4];
 	logic [3:0]        fl_lb_v;
@@ -406,15 +427,17 @@ module upp_bus #(
 	logic              fl_wrap4;
 
 	wire               fl_lfree   = !fl_lreq && fl_lpend == 2'd0;
-	wire               fl_ltaken  = fl_lreq && (fl_lchip ? fl1_ltaken  : fl0_ltaken);
-	wire               fl_lrvalid = fl_lchip ? fl1_lrvalid : fl0_lrvalid;
-	wire               fl_lrbeat  = fl_lchip ? fl1_lrbeat  : fl0_lrbeat;
-	wire [63:0]        fl_lrdata  = fl_lchip ? fl1_lrdata  : fl0_lrdata;
+	wire               fl_ltaken  = fl_lreq && (fl_lchip == 2'd2 ? fl2_ltaken : fl_lchip == 2'd1 ? fl1_ltaken : fl0_ltaken);
+	wire               fl_lrvalid = fl_lchip == 2'd2 ? fl2_lrvalid : fl_lchip == 2'd1 ? fl1_lrvalid : fl0_lrvalid;
+	wire               fl_lrbeat  = fl_lchip == 2'd2 ? fl2_lrbeat : fl_lchip == 2'd1 ? fl1_lrbeat : fl0_lrbeat;
+	wire [63:0]        fl_lrdata  = fl_lchip == 2'd2 ? fl2_lrdata : fl_lchip == 2'd1 ? fl1_lrdata : fl0_lrdata;
 
-	assign fl0_lreq  = fl_lreq && !fl_lchip;
-	assign fl1_lreq  = fl_lreq &&  fl_lchip;
+	assign fl0_lreq  = fl_lreq && fl_lchip == 2'd0;
+	assign fl1_lreq  = fl_lreq && fl_lchip == 2'd1;
 	assign fl0_laddr = fl_laddr[CS0_AW-1:2];
 	assign fl1_laddr = fl_laddr[CS1_AW-1:2];
+	assign fl2_lreq  = fl_lreq && fl_lchip == 2'd2;
+	assign fl2_laddr = fl_laddr[CS1_AW-1:2];
 
 	wire        fl_hit_live = fl_lrvalid && fl_lrbeat == fl_widx[1];
 	wire        fl_have     = fl_lb_v[fl_widx] || fl_hit_live;
@@ -438,8 +461,10 @@ module upp_bus #(
 	// ------------------------------------------------------------------
 	// a beat for the engine: the first of a transaction (from S_IDLE) or the
 	// next of a burst
-	wire        fl_line_ok = burst && !wb_we && ((tgt == T_CS0) ? fl0_array : fl1_array);
-	wire        fs_go      = (state == S_IDLE && wb_cyc && wb_stb && (tgt == T_CS0 || tgt == T_CS1) &&
+	wire        is_flash   = tgt == T_CS0 || tgt == T_CS1 || tgt == T_CS2;
+	wire [1:0]  flash_chip = tgt == T_CS0 ? 2'd0 : tgt == T_CS1 ? 2'd1 : 2'd2;
+	wire        fl_line_ok = burst && !wb_we && (tgt == T_CS0 ? fl0_array : tgt == T_CS1 ? fl1_array : fl2_array);
+	wire        fs_go      = (state == S_IDLE && wb_cyc && wb_stb && is_flash &&
 	                          fl_lfree && !fl_line_ok) || fe_ahead;
 	wire [31:0] fs_adr = (state == S_IDLE) ? wb_adr : fe_next;
 	wire [1:0]  fs_h   = (state == S_IDLE) ? halves(wb_sel, burst && !wb_we) : 2'b11;
@@ -468,7 +493,7 @@ module upp_bus #(
 		if (fl_ltaken) fl_lreq <= 1'b0;
 		if (!fl_lreq)  fl_laddr <= wb_adr[FL_AW:3];
 		fl_lpend <= fl_lpend + ((state == S_IDLE && wb_cyc && wb_stb &&
-		                         (tgt == T_CS0 || tgt == T_CS1) && fl_lfree && fl_line_ok) ? 2'd2 : 2'd0)
+		                         is_flash && fl_lfree && fl_line_ok) ? 2'd2 : 2'd0)
 		                     - ((fl_lrvalid && fl_lpend != 2'd0) ? 2'd1 : 2'd0);
 		if (fl_lrvalid) begin
 			fl_lb[{fl_lrbeat, 1'b0}]   <= fl_lrdata[31:0];
@@ -550,7 +575,7 @@ module upp_bus #(
 					no_late_error_q <= !wb_we && burst && wb_bte == 2'b01 &&
 					    wb_sel == 4'hf &&
 					    (is_sdr || tgt == T_ASIC_ROM ||
-					     ((tgt == T_CS0 || tgt == T_CS1) && fl_line_ok));
+					     (is_flash && fl_line_ok));
 					case (tgt)
 						T_UNMAPPED, T_EMPTY: begin
 							dat_q    <= (tgt == T_EMPTY) ? EMPTY_DATA : UNMAPPED_DATA;
@@ -559,10 +584,10 @@ module upp_bus #(
 							unmapped <= tgt == T_UNMAPPED;
 							state    <= S_ACK;
 						end
-						T_CS0, T_CS1: begin
+						T_CS0, T_CS1, T_CS2: begin
 							if (fl_lfree) begin
-								fl_chip  <= tgt == T_CS1;
-								fl_lchip <= tgt == T_CS1;
+								fl_chip  <= flash_chip;
+								fl_lchip <= flash_chip;
 								if (fl_line_ok) begin
 									fl_lreq   <= 1'b1;
 									fl_lb_v   <= 4'b0000;

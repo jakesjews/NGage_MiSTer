@@ -1,22 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// The NOR flash images, loaded from the OSD (hps_io ioctl, WIDE = 1), into
-// DDR3 through the framework's DDRAM port, where the flash models' memory
-// ports will read them.
-//
-// ioctl_index 3 is CS0 (16 MB), 4 is CS1 (8 MB). They go to
-// ARM addresses 0x31000000 and 0x32000000, in the 0x30000000 block that
-// MiSTer cores use and Linux does not (research/hps-hybrid/MISTER-DDR3-MAP.md);
-// the SDRAM image the guest will use sits below at 0x30000000. Bytes past a
-// chip's size are dropped. Each 16-bit word is one DDR3 write with two byte
-// lanes enabled; ioctl_wait holds the HPS while a write waits for the port.
-// loaded[n] is set when a whole download for chip n has finished and
-// cleared when a new one starts.
+// F3 loads CS0. F4 loads CS1 followed by CS2 for NEM-4. The ROM lengths
+// select the flash layout. Keep the CPU in reset until both lengths agree.
 module ddram_loader #(
-	parameter logic [28:0] CS0_BASE  = 29'h0620_0000,   // 0x31000000 / 8
-	parameter logic [28:0] CS1_BASE  = 29'h0640_0000,   // 0x32000000 / 8
-	parameter int          CS0_BYTES = 16 << 20,
-	parameter int          CS1_BYTES = 8 << 20
+	parameter logic [28:0] CS0_BASE = 29'h0620_0000,   // 0x31000000 / 8
+	parameter logic [28:0] CS1_BASE = 29'h0640_0000    // 0x32000000 / 8
 ) (
 	input  logic        clk,
 	input  logic        reset,
@@ -27,6 +15,8 @@ module ddram_loader #(
 	input  logic [26:0] ioctl_addr,
 	input  logic [15:0] ioctl_dout,
 	output logic        ioctl_wait,
+	input  logic        preserve_c,
+	output logic        size_error = 1'b0,
 
 	input  logic        ddram_busy,
 	output logic  [7:0] ddram_burstcnt,
@@ -36,14 +26,25 @@ module ddram_loader #(
 	output logic        ddram_we,
 	output logic        ddram_rd,
 
-	output logic  [1:0] loaded
+	output logic  [1:0] loaded,
+	output logic        profile_match,
+	output logic        nem4
 );
-
+	localparam logic [26:0] CHIP_BYTES = 27'h080_0000;
 	wire is_cs0 = ioctl_index[5:0] == 6'd3;
 	wire is_cs1 = ioctl_index[5:0] == 6'd4;
-	wire in_range = (is_cs0 && {5'd0, ioctl_addr} < CS0_BYTES) || (is_cs1 && {5'd0, ioctl_addr} < CS1_BYTES);
+	wire in_range = ioctl_addr < (CHIP_BYTES << 1);
+	wire protected_word = is_cs1 && preserve_c &&
+	                      ioctl_addr >= (CHIP_BYTES >> 1) && ioctl_addr < CHIP_BYTES;
 
-	logic dl_q;
+	logic dl_q, too_large;
+	logic [1:0] chip;
+	logic [26:0] last_addr;
+	logic second_pair;
+
+	wire one_chip = last_addr == CHIP_BYTES - 27'd2;
+	wire two_chips = last_addr == (CHIP_BYTES << 1) - 27'd2;
+	assign profile_match = nem4 == second_pair;
 
 	assign ddram_burstcnt = 8'd1;
 	assign ddram_rd = 1'b0;
@@ -51,28 +52,44 @@ module ddram_loader #(
 
 	always_ff @(posedge clk) begin
 		dl_q <= ioctl_download;
+		size_error <= 1'b0;
 		if (ddram_we && !ddram_busy) ddram_we <= 1'b0;
 
-		if (ioctl_download && ioctl_wr && in_range) begin
-			ddram_we   <= 1'b1;
-			ddram_addr <= (is_cs0 ? CS0_BASE : CS1_BASE) + {5'd0, ioctl_addr[26:3]};
-			ddram_din  <= {4{ioctl_dout}};
-			ddram_be   <= 8'b11 << {ioctl_addr[2:1], 1'b0};
-		end
-
 		if (ioctl_download && !dl_q) begin
-			if (is_cs0) loaded[0] <= 1'b0;
-			if (is_cs1) loaded[1] <= 1'b0;
+			chip <= {is_cs1, is_cs0};
+			loaded <= loaded & ~{is_cs1, is_cs0};
+			last_addr <= '1;
+			too_large <= 1'b0;
+		end
+		if (ioctl_download && ioctl_wr) begin
+			last_addr <= ioctl_addr;
+			if (!in_range) too_large <= 1'b1;
+			if (in_range && !protected_word) begin
+				ddram_we   <= 1'b1;
+				ddram_addr <= (is_cs0 ? CS0_BASE : CS1_BASE) + {5'd0, ioctl_addr[26:3]};
+				ddram_din  <= {4{ioctl_dout}};
+				ddram_be   <= 8'b11 << {ioctl_addr[2:1], 1'b0};
+			end
 		end
 		if (!ioctl_download && dl_q) begin
-			if (is_cs0) loaded[0] <= 1'b1;
-			if (is_cs1) loaded[1] <= 1'b1;
+			if (!too_large && (one_chip || two_chips)) begin
+				loaded <= loaded | chip;
+				if (chip[0]) begin
+					nem4 <= one_chip;
+					size_error <= loaded[1] && one_chip != second_pair;
+				end else begin
+					second_pair <= two_chips;
+					size_error <= loaded[0] && nem4 != two_chips;
+				end
+			end else size_error <= 1'b1;
 		end
 
 		if (reset) begin
 			ddram_we <= 1'b0;
-			loaded   <= 2'b00;
+			loaded <= 2'b00;
+			nem4 <= 1'b0;
+			second_pair <= 1'b0;
+			dl_q <= 1'b0;
 		end
 	end
-
 endmodule

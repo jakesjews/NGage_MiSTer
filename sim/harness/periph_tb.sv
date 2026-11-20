@@ -117,6 +117,7 @@ module periph_tb #(
 		.sdram_init(sdram_init),
 		.sdram_ready(sdram_ready),
 		.flash_rst_n(1'b1),
+		.nem4(1'b0), .pmm_overlay(1'b0),
 		.wb_cyc(wb_cyc), .wb_stb(wb_stb), .wb_we(wb_we), .wb_adr(wb_adr), .wb_dat_i(wb_dat_i),
 		.wb_sel(wb_sel), .wb_cti(wb_cti), .wb_bte(wb_bte), .wb_ack(wb_ack), .wb_err(wb_err), .wb_dat_o(wb_dat_o),
 		.wb_no_late_error(),
@@ -127,7 +128,7 @@ module periph_tb #(
 		.p_sel(p_sel), .p_we(p_we), .p_addr(p_addr), .p_wdata(p_wdata), .p_be(p_be), .p_rdata(p_rdata), .p_wait(p_wait),
 		.flash_busy(), .unmapped(),
 		.ld_rd(1'b0), .ld_valid(), .ld_data(), .ld_we(1'b0), .ld_addr(29'd0), .ld_din(64'd0), .ld_be(8'd0), .ld_busy(),
-		.save_mark(), .save_mark_blk(), .save_rd(1'b0), .save_blk(14'd0), .save_taken(), .save_valid(), .save_data(),
+		.save_mark(), .save_mark_blk(), .pmm_mark(), .pmm_mark_blk(), .save_rd(1'b0), .save_pmm(1'b0), .save_blk(14'd0), .save_taken(), .save_valid(), .save_data(),
 		.ddram_busy(ddram_busy), .ddram_burstcnt(ddram_burstcnt), .ddram_addr(ddram_addr), .ddram_dout(ddram_dout),
 		.ddram_dout_ready(ddram_dout_ready), .ddram_rd(ddram_rd), .ddram_din(ddram_din), .ddram_be(ddram_be),
 		.ddram_we(ddram_we),
@@ -159,7 +160,7 @@ module periph_tb #(
 	assign mmc_dat = (mmc_dat_oe ? mmc_dat_o : 1'b1) & (card_dat_oe ? card_dat_o : 1'b1);
 
 	upp_periph #(
-		.MMC_DIV(MMC_DIV), .MMC_TIMEOUT_LOG2(MMC_TIMEOUT_LOG2), .POWER_ON_HOLD_CLKS(POWER_ON_HOLD_CLKS)
+		.ALARM_CLKS(65536), .MMC_DIV(MMC_DIV), .MMC_TIMEOUT_LOG2(MMC_TIMEOUT_LOG2), .POWER_ON_HOLD_CLKS(POWER_ON_HOLD_CLKS)
 	) periph (
 		.clk(clk),
 		.reset(reset || !sdram_ready),

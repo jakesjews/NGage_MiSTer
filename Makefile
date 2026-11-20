@@ -4,7 +4,7 @@ VERILATOR ?= verilator
 # default parameters even where the shell ties ports off.
 LINT_TOPS := emu lcd_panel video_out keypad_matrix nor_flash mmc_card ngage_input ddram_loader dbg_trace dbg_sti dbg_counters \
              sdram ddram_flash upp_bus ngage_mem flash_save rtc_wall \
-             upp_periph upp_intc upp_timers upp_dma upp_mmc upp_lcdif upp_uif upp_cbus upp_gpio upp_haudio \
+             upp_periph upp_intc upp_timers upp_dma upp_mmc upp_lcdif upp_uif upp_cbus upp_gpio upp_dsp_pcm upp_pcm \
              upp_mdi upp_mdi_peer upp_simif upp_test_sim wb_arb2
 
 .PHONY: help lint lint-prepare test clean cpu-gen cpu-gen-check standin standin-check image-check scramble-check
@@ -13,7 +13,7 @@ help:
 	@echo "make lint   Lint the RTL with Verilator (-Wall)"
 	@echo "make test   Build and run every Verilator bench in sim/ (one at a time)"
 	@echo "make -C sim <bench>   One bench: lcd video keypad flash mmc bt sdram sdram-faults ddrflash upp"
-	@echo "                      intc timers haudio periph save top"
+	@echo "                      intc timers periph save top"
 	@echo "make clean  Remove sim/build"
 	@echo "make cpu-gen        Regenerate rtl/cpu/arm925t_gen.v (tools/gen_cpu.sh, needs sv2v)"
 	@echo "make cpu-gen-check  Check that rtl/cpu/arm925t_gen.v matches its sources"

@@ -27,7 +27,6 @@
 //   0x0C150400-0x0C15041F  UIF ports D/E (keypad)           upp_uif
 //   0x0C150420-0x0C150427  CBUS master, UEMK and the rest   upp_cbus
 //   0x0C150504             idle FBUS transmitter status
-//   0x0C1F0000-0x0C1F00FF  HLE audio device (emulator)      upp_haudio
 //   0x0C1F0100-0x0C1F010F  HLE RTC date register (emulator): +0 the date,
 //                          the rest 0, writes dropped        upp_cbus
 //   0x0DE00000-0x0DFFFFFF  STI trace window: writes go to sti_* (the kernel's
@@ -73,6 +72,7 @@ module upp_periph #(
 	parameter int LCD_RD_HIGH        = 6,
 	parameter int DMA_ENGINES        = 3,
 	parameter int POWER_ON_HOLD_CLKS = 312_000_000,    // 3 s, as the model
+	parameter int ALARM_CLKS         = 7_995_392,
 	parameter int CLK_HZ             = 104_000_000     // for the audio device and CTSI
 ) (
 	input  logic        clk,
@@ -200,7 +200,6 @@ module upp_periph #(
 	wire s_genio = pg50 && off[11:4] == 8'h20;
 	wire s_kp   = pg50 && off >= 12'h400 && off < 12'h420;
 	wire s_cbus = pg50 && off >= 12'h420 && off < 12'h428;
-	wire s_aud  = pgF0 && off < 12'h100;
 	wire s_date = pgF0 && off >= 12'h100 && off < 12'h110;
 	wire s_sti  = p_addr[27:21] == 7'b1101_111;
 	wire s_mdi_control = in_c1 && page == 8'h4B && off == 12'h004;
@@ -209,7 +208,7 @@ module upp_periph #(
 
 	wire be32 = p_be == 4'b1111;
 	wire be16 = p_be == 4'b0011 || p_be == 4'b1100;
-	wire size_ok = (s_intc || s_dma || s_tmr || s_lcd || s_aud || s_date) ? be32 :
+	wire size_ok = (s_intc || s_dma || s_tmr || s_lcd || s_date) ? be32 :
 	               (s_ctsi || s_kp) ? be16 :
 	               s_cbus ? (be16 || be32) : 1'b1;
 
@@ -282,13 +281,16 @@ module upp_periph #(
 	// The blocks
 	// ------------------------------------------------------------------
 	logic [31:0] m_intc, d_intc, m_tmr, d_tmr, m_dma, d_dma, m_mmc, d_mmc, m_lcd, d_lcd,
-	             m_uif, d_uif, m_cbus, d_cbus, m_aud, d_aud, rtc_base;
+	             m_uif, d_uif, m_cbus, d_cbus, rtc_base;
 	logic        b_mmc, b_lcd, b_cbus;
 	logic [5:0]  tmr_irq;
 	logic [7:0]  dma_irq;
 	logic [3:0]  mmc_irq;
 	logic        ctsi_irq;
-	logic        aud_irq;
+	logic        pcm_link_up, pcm_write, alarm_irq;
+	logic [7:0]  pcm_offset;
+	logic [31:0] pcm_data;
+	logic [19:0] pcm_status;
 	logic        mmc_rx_ready, mmc_tx_ready, lcd_tx_ready;
 
 	// the two masters behind the DMA port
@@ -305,8 +307,9 @@ module upp_periph #(
 		5'd0,                          // 16-20 Ir4M
 		2'd0,                          // 14 FlashCopyRdy, 15 LCDBuffer
 		dma_irq,                       // 6-13 DmaChannel0-7
-		tmr_irq[5] | aud_irq,          // 5 Timer5, the HLE audio device
-		tmr_irq[4:0]};                 // 0-4 Timer0-4
+		tmr_irq[5:2],                  // 2-5 Timer2-5
+		tmr_irq[1] | alarm_irq,        // 1 Timer1 / UEM alarm
+		tmr_irq[0]};                 // 0 Timer0
 
 	upp_intc #(.FIQ_ONLY(96'd1 << 26)) intc (
 		.clk(clk),
@@ -362,16 +365,14 @@ module upp_periph #(
 		.m_dat_i(dma_dat_i)
 	);
 
-	upp_haudio #(.CLK_HZ(CLK_HZ)) haudio (
+	upp_pcm #(.CLK_HZ(CLK_HZ)) pcm (
 		.clk(clk),
 		.reset(reset),
-		.acc(acc && s_aud),
-		.wr(wr && s_aud),
-		.off(off[7:0]),
-		.wdata(p_wdata),
-		.rmask(m_aud),
-		.rdata(d_aud),
-		.irq(aud_irq),
+		.enabled(pcm_link_up),
+		.wr(pcm_write),
+		.off(pcm_offset),
+		.wdata(pcm_data),
+		.stream_status(pcm_status),
 		.m_cyc(a_cyc),
 		.m_stb(a_stb),
 		.m_we(a_we),
@@ -383,6 +384,7 @@ module upp_periph #(
 		.m_dat_i(dma_dat_i),
 		.out_l(audio_l),
 		.out_r(audio_r),
+		.out_valid(),
 		.frame_we(),
 		.frame_l(),
 		.frame_r()
@@ -466,6 +468,11 @@ module upp_periph #(
 		.sel(p_be),
 		.dout(d_mdi),
 		.irq_events(mdi_events),
+		.pcm_status(pcm_status),
+		.pcm_link_up(pcm_link_up),
+		.pcm_write(pcm_write),
+		.pcm_offset(pcm_offset),
+		.pcm_data(pcm_data),
 		.mem_req(mdi_req),
 		.mem_we(mdi_we),
 		.mem_word(mdi_word),
@@ -557,7 +564,7 @@ module upp_periph #(
 		.busy(simif_busy)
 	);
 
-	upp_cbus #(.POWER_ON_HOLD_CLKS(POWER_ON_HOLD_CLKS)) cbus (
+	upp_cbus #(.POWER_ON_HOLD_CLKS(POWER_ON_HOLD_CLKS), .ALARM_CLKS(ALARM_CLKS)) cbus (
 		.clk(clk),
 		.reset(reset),
 		.acc(acc && s_cbus),
@@ -570,6 +577,8 @@ module upp_periph #(
 		.rdata(d_cbus),
 		.busy(b_cbus),
 		.power_key(power_key),
+		.alarm_irq_clear(wr && s_intc && off == 12'h10C && p_wdata[1]),
+		.alarm_irq(alarm_irq),
 		.ear_route(ear_route),
 		.sim_route(sim_route),
 		.tx_route(tx_route),
@@ -624,10 +633,10 @@ module upp_periph #(
 	wire [31:0] d_date = (off[3:0] == 4'h0) ? rtc_base :
 	                     (off[3:0] == 4'h4) ? {31'd0, c_blank} : 32'd0;
 
-	wire [31:0] rmask = m_intc | m_tmr | m_dma | m_mmc | m_lcd | m_uif | m_cbus | m_aud | m_date | m_mdi |
+	wire [31:0] rmask = m_intc | m_tmr | m_dma | m_mmc | m_lcd | m_uif | m_cbus | m_date | m_mdi |
 	                    m_genio | m_simif | m_q;
 	wire [31:0] rbits = (d_intc & m_intc) | (d_tmr & m_tmr) | (d_dma & m_dma) | (d_mmc & m_mmc) |
-	                    (d_lcd & m_lcd) | (d_uif & m_uif) | (d_cbus & m_cbus) | (d_aud & m_aud) |
+	                    (d_lcd & m_lcd) | (d_uif & m_uif) | (d_cbus & m_cbus) |
 	                    (d_date & m_date) | (d_mdi & m_mdi) | (d_genio & m_genio) |
 	                    (simif_bad ? 32'd0 : (d_simif & m_simif)) | d_q;
 	assign blk_busy = (s_mmc && b_mmc) || (s_lcd && b_lcd) || (s_cbus && b_cbus) || (simif_claim && simif_busy);

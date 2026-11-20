@@ -70,9 +70,16 @@ reg         crop_ok;
 localparam CONF_STR = {
 	"NGage;;",
 	"-;",
-	"F3,BIN,Load flash CS0 image;",
-	"F4,BIN,Load flash CS1 image;",
-	"S0,BINVHD,Mount C: save;",
+	"P1,Firmware;",
+	"P1F3,ROM,Load boot0.rom;",
+	"P1F4,ROM,Load boot1.rom;",
+	"P1S0,VHD,Mount c.vhd;",
+	"P1S2,VHD,Mount pmm.vhd;",
+	// Stock .mgl finds only entries on the main page during launch.
+	"H1F3,ROM,Load boot0.rom;",
+	"H1F4,ROM,Load boot1.rom;",
+	"H1S0,VHD,Mount c.vhd;",
+	"H1S2,VHD,Mount pmm.vhd;",
 	"S1,MMCIMGBINVHD,Mount MMC card;",
 	"-;",
 	"O[2:1],Rotate,Off,Clockwise,Anticlockwise;",
@@ -86,12 +93,12 @@ localparam CONF_STR = {
 	"O[8],Debug overlay,Off,On;",
 `endif
 	"-;",
-	"T[7],Save C: now;",
+	"T[7],Save C: and PMM now;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
 	"J,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power,0,1,2,3,4,6,8,9;",
 	"jn,A,B,X,L,R,Start,Select,,,,,,,Y;",
-	"I,C: save mounted,C: save file must be 4 or 8 MB,C: read-only: no saves,C: saved,Booting the phone...,Phone kernel is up;",
+	"I,C: save mounted,C: save file must be 4 or 8 MB,C: read-only: no saves,C: saved,Booting the phone...,Phone kernel is up,PMM save mounted,PMM save must be 64 KiB,PMM read-only,PMM saved,Invalid firmware ROM sizes;",
 	"V,v",`BUILD_DATE
 };
 
@@ -126,19 +133,19 @@ wire  [26:0] ioctl_addr;
 wire  [15:0] ioctl_dout;
 wire         ioctl_wait;
 
-wire   [1:0] img_mounted;
+wire   [2:0] img_mounted;
 wire         img_readonly;
 wire  [63:0] img_size;
-wire  [31:0] sd_lba[2];
-wire   [5:0] sd_blk_cnt[2];
-wire   [1:0] sd_rd, sd_wr, sd_ack;
+wire  [31:0] sd_lba[3];
+wire   [5:0] sd_blk_cnt[3];
+wire   [2:0] sd_rd, sd_wr, sd_ack;
 wire  [12:0] sd_buff_addr;
 wire  [15:0] sd_buff_dout;
-wire  [15:0] sd_buff_din[2];
+wire  [15:0] sd_buff_din[3];
 wire         sd_buff_wr;
 
-// SD slot 0: the C: save file (boot0.vhd in the game folder); slot 1: the MMC card
-hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
+// C: and MMC retain slots 0 and 1. PMM uses slot 2.
+hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(3)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -148,7 +155,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 	.forced_scandoubler(forced_scandoubler),
 	.buttons(buttons),
 	.status(status),
-	.status_menumask({15'd0, crop_ok}),
+	.status_menumask({14'd0, images_in, crop_ok}),
 	.status_in(128'd0),
 	.status_set(1'b0),
 	.info_req(info_req),
@@ -233,37 +240,44 @@ wire sys_reset = por[1];
 // (public: the top bench reads it, and Verilator 5.054 otherwise folds it
 // into the save module's output)
 wire fs_loading /* verilator public_flat_rd */;
+wire pm_loading /* verilator public_flat_rd */;
 wire flat_download = ioctl_download && (ioctl_index[5:0] == 6'd3 || ioctl_index[5:0] == 6'd4);
 // The slow sources (the framework's reset, the OSD's reset bit and button,
 // a flash download and a save restore) are registered once; their OR fans out to
 // the whole memory side from hps_io in one clock.
 reg  reset_slow = 1'b1;
-always @(posedge clk_sys) reset_slow <= sys_reset | status[0] | buttons[1] | flat_download | fs_loading;
+always @(posedge clk_sys) reset_slow <= sys_reset | status[0] | buttons[1] | flat_download |
+	fs_loading | pm_loading | img_mounted[0] | img_mounted[2];
 wire reset = reset_slow;
 
 ///////////////////////   MEMORY   ///////////////////////////////
 
 // DDR3 loader clients retain ownership until their command is accepted.
-wire        ld_busy, ld_we, dl_we, fs_we, tr_we, kt_we;
+wire        ld_busy, ld_we, dl_we, fs_we, tr_we, kt_we, pm_we;
 wire  [1:0] dl_loaded;
-wire  [7:0] ld_be, dl_be, fs_be, tr_be, kt_be;
-wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr, kt_addr;
-wire [63:0] ld_din, dl_din, fs_din, tr_din, kt_din;
-reg   [1:0] ld_own = 2'd0;             // flat, save, trace, kernel text
+wire        nem4 /* verilator public_flat_rd */;
+wire        profile_match;
+wire  [7:0] ld_be, dl_be, fs_be, tr_be, kt_be, pm_be;
+wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr, kt_addr, pm_addr;
+wire [63:0] ld_din, dl_din, fs_din, tr_din, kt_din, pm_din;
+localparam logic [2:0] LD_FLASH = 0, LD_C = 1, LD_TRACE = 2, LD_TEXT = 3, LD_PMM = 4;
+reg   [2:0] ld_own = LD_FLASH;
+wire flash_size_error;
 localparam DBG_TRACE = 0;              // debug rings off for a release build
 
 always @(posedge clk_sys) begin
 	if (!ld_we) begin
-		if (dl_we)      ld_own <= 2'd0;
-		else if (fs_we) ld_own <= 2'd1;
-		else if (tr_we) ld_own <= 2'd2;
-		else if (kt_we) ld_own <= 2'd3;
+		if (dl_we)      ld_own <= LD_FLASH;
+		else if (fs_we) ld_own <= LD_C;
+		else if (pm_we) ld_own <= LD_PMM;
+		else if (tr_we) ld_own <= LD_TRACE;
+		else if (kt_we) ld_own <= LD_TEXT;
 	end
 end
-assign ld_we   = (ld_own == 2'd1) ? fs_we   : (ld_own == 2'd2) ? tr_we   : (ld_own == 2'd3) ? kt_we   : dl_we;
-assign ld_addr = (ld_own == 2'd1) ? fs_addr : (ld_own == 2'd2) ? tr_addr : (ld_own == 2'd3) ? kt_addr : dl_addr;
-assign ld_din  = (ld_own == 2'd1) ? fs_din  : (ld_own == 2'd2) ? tr_din  : (ld_own == 2'd3) ? kt_din  : dl_din;
-assign ld_be   = (ld_own == 2'd1) ? fs_be   : (ld_own == 2'd2) ? tr_be   : (ld_own == 2'd3) ? kt_be   : dl_be;
+assign ld_we   = (ld_own == LD_C) ? fs_we : (ld_own == LD_PMM) ? pm_we : (ld_own == LD_TRACE) ? tr_we   : (ld_own == LD_TEXT) ? kt_we   : dl_we;
+assign ld_addr = (ld_own == LD_C) ? fs_addr : (ld_own == LD_PMM) ? pm_addr : (ld_own == LD_TRACE) ? tr_addr : (ld_own == LD_TEXT) ? kt_addr : dl_addr;
+assign ld_din  = (ld_own == LD_C) ? fs_din : (ld_own == LD_PMM) ? pm_din : (ld_own == LD_TRACE) ? tr_din  : (ld_own == LD_TEXT) ? kt_din  : dl_din;
+assign ld_be   = (ld_own == LD_C) ? fs_be : (ld_own == LD_PMM) ? pm_be : (ld_own == LD_TRACE) ? tr_be   : (ld_own == LD_TEXT) ? kt_be   : dl_be;
 
 ddram_loader ddram_loader
 (
@@ -275,14 +289,18 @@ ddram_loader ddram_loader
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
 	.ioctl_wait(ioctl_wait),
-	.ddram_busy(ld_busy || ld_own != 2'd0),
+	.preserve_c(fs_loading || fs_present),
+	.size_error(flash_size_error),
+	.ddram_busy(ld_busy || ld_own != LD_FLASH),
 	.ddram_burstcnt(),           // single writes
 	.ddram_addr(dl_addr),
 	.ddram_din(dl_din),
 	.ddram_be(dl_be),
 	.ddram_we(dl_we),
 	.ddram_rd(),
-	.loaded(dl_loaded)           // for the CPU: which images are in
+	.loaded(dl_loaded),
+	.profile_match(profile_match),
+	.nem4(nem4)
 );
 
 assign DDRAM_CLK = clk_sys;
@@ -332,6 +350,8 @@ ngage_mem ngage_mem
 	.sdram_init(sys_reset),
 	.sdram_ready(sdram_ready),
 	.flash_rst_n(1'b1),
+	.nem4(nem4),
+	.pmm_overlay(pm_present),
 
 	.wb_cyc(wb_cyc),
 	.wb_stb(wb_stb),
@@ -380,8 +400,11 @@ ngage_mem ngage_mem
 
 	.save_mark(save_mark),
 	.save_mark_blk(save_mark_blk),
+	.pmm_mark(pmm_mark),
+	.pmm_mark_blk(pmm_mark_blk),
 	.c_blank(c_blank),
 	.save_rd(save_rd),
+	.save_pmm(save_pmm),
 	.save_blk(save_blk),
 	.save_taken(save_taken),
 	.save_valid(save_valid),
@@ -418,57 +441,50 @@ generate
 	end
 endgenerate
 
-///////////////////////   CS1 SAVE   ///////////////////////////
+///////////////////////   FIRMWARE SAVES   ///////////////////////////
 
-// SD slot 0 loads only C: at CS1 + 4 MB; changed C: blocks go back to
-// the file. Legacy 8 MB saves use only their upper half.
-wire        save_mark, save_rd, save_taken, save_valid;
+wire        save_mark, save_rd, save_taken, save_valid, pmm_mark;
 wire [13:0] save_mark_blk, save_blk;
+wire [6:0]  pmm_mark_blk, pm_blk;
+wire [12:0] fs_blk;
 wire [63:0] save_data;
-wire        fs_active, fs_saved;
-wire        fs_present;                // the save file is mounted and in DDR3
-wire  [1:0] fs_note;
-reg   [1:0] dl_cs1 = 2'b00;            // an ioctl load of CS1 starts: the file is detached
+wire        fs_active, fs_saved, fs_present, fs_bk_req;
+wire        pm_active, pm_saved, pm_present, pm_bk_req;
+wire  [1:0] fs_note, pm_note;
 
-always @(posedge clk_sys) dl_cs1 <= {dl_cs1[0], ioctl_download && ioctl_index[5:0] == 6'd4};
+// The DDR read port accepts one block and returns the whole burst to its owner.
+reg save_owner_pmm = 1'b0;
+wire save_pmm = pm_bk_req && (!fs_bk_req || !save_owner_pmm);
+assign save_rd = fs_bk_req || pm_bk_req;
+assign save_blk = save_pmm ? {7'd0, pm_blk} : {1'b1, fs_blk};
+always @(posedge clk_sys) begin
+	if (save_taken) save_owner_pmm <= save_pmm;
+	if (sys_reset) save_owner_pmm <= 1'b0;
+end
 
-flash_save flash_save
-(
-	.clk(clk_sys),
-	.reset(sys_reset),
-	.img_mounted(img_mounted[0]),
-	.img_readonly(img_readonly),
-	.img_size(img_size),
-	.sd_lba(sd_lba[0]),
-	.sd_blk_cnt(sd_blk_cnt[0]),
-	.sd_rd(sd_rd[0]),
-	.sd_wr(sd_wr[0]),
-	.sd_ack(sd_ack[0]),
-	.sd_buff_addr(sd_buff_addr),
-	.sd_buff_dout(sd_buff_dout),
-	.sd_buff_din(sd_buff_din[0]),
-	.sd_buff_wr(sd_buff_wr),
-	.ld_we(fs_we),
-	.ld_addr(fs_addr),
-	.ld_din(fs_din),
-	.ld_be(fs_be),
-	.ld_busy(ld_busy || ld_own != 2'd1),
-	.mark(save_mark),
-	.mark_blk(save_mark_blk),
-	.bk_req(save_rd),
-	.bk_blk(save_blk),
-	.bk_taken(save_taken),
-	.bk_valid(save_valid),
-	.bk_data(save_data),
-	.detach(dl_cs1 == 2'b01),
-	.save_now(status[7]),
-	.loading(fs_loading),
-	.saving_on(),
-	.unsaved(),
-	.present(fs_present),
-	.active(fs_active),
-	.note(fs_note),
-	.saved(fs_saved)
+flash_save flash_save (
+	.clk(clk_sys), .reset(sys_reset),
+	.img_mounted(img_mounted[0]), .img_readonly(img_readonly), .img_size(img_size),
+	.sd_lba(sd_lba[0]), .sd_blk_cnt(sd_blk_cnt[0]), .sd_rd(sd_rd[0]), .sd_wr(sd_wr[0]), .sd_ack(sd_ack[0]),
+	.sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din[0]), .sd_buff_wr(sd_buff_wr),
+	.ld_we(fs_we), .ld_addr(fs_addr), .ld_din(fs_din), .ld_be(fs_be), .ld_busy(ld_busy || ld_own != LD_C),
+	.mark(save_mark && save_mark_blk[13]), .mark_blk(save_mark_blk[12:0]),
+	.bk_req(fs_bk_req), .bk_blk(fs_blk), .bk_taken(save_taken && !save_pmm),
+	.bk_valid(save_valid && !save_owner_pmm), .bk_data(save_data),
+	.detach(1'b0), .save_now(status[7]), .loading(fs_loading),
+	.saving_on(), .unsaved(), .present(fs_present), .active(fs_active), .note(fs_note), .saved(fs_saved)
+);
+
+flash_save #(.BASE_ADDR(29'h0664_0000), .BLOCK_BITS(7), .LEGACY_FULL_IMAGE(0)) pmm_save (
+	.clk(clk_sys), .reset(sys_reset),
+	.img_mounted(img_mounted[2]), .img_readonly(img_readonly), .img_size(img_size),
+	.sd_lba(sd_lba[2]), .sd_blk_cnt(sd_blk_cnt[2]), .sd_rd(sd_rd[2]), .sd_wr(sd_wr[2]), .sd_ack(sd_ack[2]),
+	.sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din[2]), .sd_buff_wr(sd_buff_wr),
+	.ld_we(pm_we), .ld_addr(pm_addr), .ld_din(pm_din), .ld_be(pm_be), .ld_busy(ld_busy || ld_own != LD_PMM),
+	.mark(pmm_mark), .mark_blk(pmm_mark_blk), .bk_req(pm_bk_req), .bk_blk(pm_blk), .bk_taken(save_taken && save_pmm),
+	.bk_valid(save_valid && save_owner_pmm), .bk_data(save_data),
+	.detach(1'b0), .save_now(status[7]), .loading(pm_loading),
+	.saving_on(), .unsaved(), .present(pm_present), .active(pm_active), .note(pm_note), .saved(pm_saved)
 );
 
 sdram_clkout sdram_clkout
@@ -594,7 +610,7 @@ dbg_sti dbg_sti
 	.ld_addr(kt_addr),
 	.ld_din(kt_din),
 	.ld_be(kt_be),
-	.ld_busy(ld_busy || ld_own != 2'd3),
+	.ld_busy(ld_busy || ld_own != LD_TEXT),
 	.count(kt_count),
 	.dropped(kt_dropped)
 );
@@ -614,7 +630,7 @@ end endgenerate
 // The start also waits for MiSTer's clock, up to RTC_WAIT_CLKS.
 // Main sends it once, after the launcher's files.
 localparam int RTC_WAIT_CLKS = 312_000_000;
-wire        images_in = &dl_loaded;
+wire        images_in /* verilator public_flat_rd */ = (&dl_loaded) && profile_match;
 reg  [28:0] rtc_timer = 0;
 reg         rtc_wait = 1'b1;
 always @(posedge clk_sys) begin
@@ -734,7 +750,7 @@ dbg_trace dbg_trace
 	.ld_addr(tr_addr),
 	.ld_din(tr_din),
 	.ld_be(tr_be),
-	.ld_busy(ld_busy || ld_own != 2'd2),
+	.ld_busy(ld_busy || ld_own != LD_TRACE),
 	.dumps(tr_dumps),
 	.triggers(tr_triggers),
 	.dumping(tr_dumping),
@@ -777,19 +793,20 @@ end
 
 // Queue info events, with a low cycle between pulses: a mounted or save
 // event must not swallow a boot message (or vice versa) on the same clock.
-wire  [5:0] info_events = {boot_up, boot_start, fs_saved, fs_note == 2'd3, fs_note == 2'd2, fs_note == 2'd1};
-reg   [5:0] info_pending = 0;
+wire [10:0] info_events = {flash_size_error, pm_saved, pm_note == 2'd3, pm_note == 2'd2, pm_note == 2'd1,
+                           boot_up, boot_start, fs_saved, fs_note == 2'd3, fs_note == 2'd2, fs_note == 2'd1};
+reg  [10:0] info_pending = 0;
 reg   [7:0] info_q = 0;
 reg         info_req_q = 0;
 reg   [7:0] info_next;
-reg   [5:0] info_mask;
+reg  [10:0] info_mask;
 always @* begin
 	info_next = 0;
 	info_mask = 0;
-	for (int i = 5; i >= 0; i--) begin
+	for (int i = 10; i >= 0; i--) begin
 		if (info_pending[i]) begin
 			info_next = 8'(i + 1);
-			info_mask = 6'(1 << i);
+			info_mask = 11'(1 << i);
 		end
 	end
 end
@@ -844,10 +861,10 @@ mmc_card mmc_card
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din[1]),
-	.sd_buff_wr(sd_buff_wr & sd_ack[1])      // the buffer is shared by both slots
+	.sd_buff_wr(sd_buff_wr & sd_ack[1])      // shared slot buffer
 );
 
-assign LED_DISK = {1'b0, mmc_active | fs_active};
+assign LED_DISK = {1'b0, mmc_active | fs_active | pm_active};
 
 ///////////////////////   KEYS   /////////////////////////////////
 

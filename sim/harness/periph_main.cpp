@@ -45,10 +45,7 @@
 //    converter's battery-size channel, device 4's ID, storage and read-back,
 //    the transfer length masking; the model's CBUS log (model/.out/cbus.log)
 //    replayed;
-//  * the HLE audio device (0x0C1F0000) through the register bus: 32-bit
-//    only, two buffers from SDRAM read through the DMA port while a DMA
-//    transfer runs, DONE0 on interrupt source 5 at the model's time, the
-//    48 kHz output with the volume (rtl/upp/upp_haudio.sv has its own bench);
+//  * stock PCM start, submit, refill and stop through the MDI rings;
 //  * the UEMK RTC and the HLE RTC date register (0x0C1F0100) with the wall
 //    clock (a second is 20000 clocks here): 0 / counting from 00:00:00
 //    before the HPS sends a time, then set from it, midnight, month, year and
@@ -516,6 +513,64 @@ void test_mdi(Bench &b) {
 	for (unsigned i = 0; i < 6; ++i) {
 		CHECK_EQ(b.rd16(d2m + 2 * ((248 + i) % 250)), reply[i], "wrapped RF version reply");
 	}
+
+	printf("Native E8 PCM over the MDI rings\n");
+	b.wr16(ctsi, 0x0600);
+	b.wr(m2d_ptr, 0);
+	b.wr(d2m_ptr, 0);
+	unsigned input_head = 0, output_tail = 0;
+	auto send = [&](std::initializer_list<uint16_t> words) {
+		for (uint16_t word : words) {
+			b.wr16(m2d + 2 * input_head, word);
+			input_head = (input_head + 1) % 250;
+		}
+		b.wr16(m2d_ptr, input_head);
+		b.run(256);
+		CHECK_EQ(b.rd16(m2d_ptr + 2), input_head, "DSP consumed the PCM command");
+	};
+	auto receive = [&](uint16_t command, uint16_t value) {
+		uint64_t deadline = b.cyc + 80000;
+		auto queued = [&]() { return (b.rd16(d2m_ptr) + 250 - output_tail) % 250; };
+		while (queued() < 7 && b.cyc < deadline) b.run(128);
+		unsigned next = (output_tail + 7) % 250;
+		CHECK(queued() >= 7 && queued() % 7 == 0, "DSP publishes complete reply frames");
+		const uint16_t expected[] = {0x1200, 0x7CE8, 0x0008, 0x4C01, command, value, 0};
+		for (unsigned i = 0; i < 7; ++i)
+			CHECK_EQ(b.rd16(d2m + 2 * ((output_tail + i) % 250)), expected[i], "PCM reply word");
+		CHECK(b.rd16(ctsi) & 0x0400, "PCM reply uses the MDI publication interrupt");
+		output_tail = next;
+		b.wr16(d2m_ptr + 2, output_tail);
+		if (!queued()) b.wr16(ctsi, 0x0600);
+	};
+	constexpr uint32_t a0 = 0x0A061000, a1 = 0x0A063BC0;
+	for (unsigned i = 0; i < 64; ++i) {
+		b.sd_poke(a0 + i, i & 1 ? 0x20 : 0);
+		b.sd_poke(a1 + i, i & 1 ? 0xE0 : 0);
+	}
+	send({0x127C, 0x00E8, 0x0012, 0x014C, 0x0120, 0x8202, 32, 0x0A06, 0x1000, 0x0A06, 0x1000, 0x0046});
+	CHECK_EQ(b.rd16(d2m_ptr), output_tail, "overlapping PCM buffers are rejected");
+	send({0x127C, 0x00E8, 0x0012, 0x014C, 0x0020, 0x8202, 32, 0x0A06, 0x1000, 0x0A06, 0x3BC0, 0x0046});
+	receive(0x0021, 0);
+	send({0x127C, 0x00E8, 0x0008, 0x014C, 0x0023, 0x0002, 32});
+	receive(0x0024, 0);
+	receive(0x0026, 1);
+	send({0x127C, 0x00E8, 0x0008, 0x014D, 0x0127, 0x0001, 16});
+	CHECK_EQ(b.rd16(d2m_ptr), output_tail, "only the PCM owner can refill");
+	send({0x127C, 0x00E8, 0x0008, 0x014C, 0x0027, 0x0001, 16});
+	receive(0x0028, 0);
+	b.run(65000);
+	CHECK_EQ((int16_t)b.t->audio_l, 0x2000, "first SDRAM buffer produces positive PCM");
+	CHECK_EQ((int16_t)b.t->audio_r, 0x2000, "mono samples reach both outputs");
+	b.run(195000);
+	CHECK_EQ((int16_t)b.t->audio_l, -0x2000, "refill buffer produces negative PCM");
+	receive(0x002b, 32);
+	b.run(6500);
+	CHECK_EQ(b.t->audio_l, 0, "final completion stops audio");
+	b.wr(INTC + 8, 1u << 5);
+	CHECK_EQ(b.rd(INTC + 0x14), 0, "PCM completion does not raise timer 5");
+	b.wr(INTC + 0x0C, 1u << 5);
+	send({0x127C, 0x00E8, 0x0004, 0x014C, 0x6A2A});
+	receive(0x6A2b, 0);
 
 	b.wr16(control, 0);
 	b.wr16(ctsi, 0x0600);
@@ -1431,7 +1486,26 @@ void test_cbus(Bench &b, const std::string &dir) {
 	CHECK_EQ(c.read(4, 0x0D, 8), 0xDE, "masked to 8 bits");
 	// ro registers keep their value
 	c.write(1, 0x15, 16, 0x0200);
-	CHECK_EQ(c.read(1, 0x15, 16), 0x0008, "UEMK 0x15 is read-only");
+	CHECK_EQ(c.read(1, 0x15, 16), 0x0008, "unrelated write leaves the alarm pending");
+	c.write(1, 0x15, 16, 0x0008);
+	CHECK_EQ(c.read(1, 0x15, 16), 0, "alarm acknowledgement clears bit 3");
+	b.power = true;
+	b.run(20);
+	CHECK_EQ(c.read(1, 0x15, 16), 0x0010, "power-key status is independent of the alarm");
+	b.power = false;
+	c.write(1, 0x16, 16, 0xFFF7);
+	b.wr(INTC + 0x08, 1u << 1);
+	b.run(65536);
+	CHECK_EQ(c.read(1, 0x15, 16), 0x0008, "startup alarm can latch once after acknowledgement");
+	CHECK_EQ(b.rd(INTC + 0x14), 2, "UEM alarm uses interrupt source 1");
+	b.wr(INTC + 0x0C, 1u << 1);
+	c.write(1, 0x15, 16, 0x0008);
+	b.wr(INTC + 0x08, 1u << 1);
+	c.write(1, 0x16, 16, 0xFFF7);
+	b.run(65536);
+	CHECK_EQ(c.read(1, 0x15, 16), 0, "alarm stays clear through the NOS power-off path");
+	CHECK_EQ(b.rd(INTC + 0x14), 0, "acknowledged alarm leaves IRQ 1 clear");
+	b.wr(INTC + 0x0C, 1u << 1);
 	// a device nothing is known of: storage (device 5 is the Bluetooth module, test_bt)
 	for (int r = 0; r < 8; r++) c.write(3, r, 16, 0x1111u * r + 5);
 	for (int r = 0; r < 8; r++) CHECK_EQ(c.read(3, r, 16), 0x1111u * r + 5, "device 3 storage");
@@ -1475,7 +1549,7 @@ void test_cbus(Bench &b, const std::string &dir) {
 			if (dev == 1 && reg == 0x1F) { got &= ~0x0802u; val &= ~0x0802u; }  // historical power/battery inputs
 			// the RTC's time and day counter are the wall clock's (test_rtc); the
 			// calibration register's 0xC0 (cbus-regs.txt) is newer than some logs
-			if (dev == 1 && (reg == 0x11 || reg == 0x12 || reg == 0x13 || reg == 0x01 || reg == 0x04)) { nr++; continue; }
+			if (dev == 1 && (reg == 0x15 || reg == 0x11 || reg == 0x12 || reg == 0x13 || reg == 0x01 || reg == 0x04)) { nr++; continue; }
 			// the Bluetooth module answers in its own time (the bt bench)
 			if (dev == 5) { nr++; continue; }
 			nr++;
@@ -1559,65 +1633,10 @@ void test_bt(Bench &b) {
 }
 
 // -------------------------------------------------------------------------
-// the emulator devices: HLE audio, the RTC and its date register
+// The UEM RTC and historical emulator date register
 // -------------------------------------------------------------------------
-constexpr uint32_t AU = 0x0C1F0000u, RTC_DATE = 0x0C1F0100u;
-constexpr uint64_t CLK = 104000000, RTC_SEC = 20000;
-
-void test_audio(Bench &b) {
-	printf("HLE audio device\n");
-	CHECK_EQ(b.rd(AU), 0x41554431, "ID");
-	CHECK_EQ(b.rd16(AU), 0, "a 16-bit read is dropped");
-	b.wr16(AU + 0x0C, 8000);
-	CHECK_EQ(b.rd(AU + 0x0C), 16000, "a 16-bit write is dropped");
-	b.wr(AU + 0xFC, 0x12345678);
-	CHECK_EQ(b.rd(AU + 0xFC), 0, "the rest of the window reads 0, not storage");
-	// 40 frames of 0x2000 and 30 of -0x1000 at an odd halfword, mono, half volume
-	const uint32_t A0 = SD + 0xD00000, A1 = SD + 0xD01002, L0 = 40, L1 = 30, R = 48000;
-	for (uint32_t i = 0; i < L0; i++) { b.sd_poke(A0 + 2 * i, 0x00); b.sd_poke(A0 + 2 * i + 1, 0x20); }
-	for (uint32_t i = 0; i < L1; i++) { b.sd_poke(A1 + 2 * i, 0x00); b.sd_poke(A1 + 2 * i + 1, 0xF0); }
-	b.wr(AU + 0x0C, R);
-	b.wr(AU + 0x10, A0);
-	b.wr(AU + 0x14, A1);
-	b.wr(AU + 0x18, L0);
-	b.wr(AU + 0x1C, L1);
-	b.wr(AU + 0x28, 0x80);
-	b.wr(INTC + 0x08, 1u << 5);
-	// a DMA transfer at the same time: the two take the master port in turns
-	const uint32_t units = 3000, src = SD + 0xD10000, dst = SD + 0xD20000;
-	fill_sdram(b, src, units * 4, 555);
-	b.dma_setup(1, src, 4, 0x20, dst, 4, 0x20, units);
-	b.wr(AU + 0x04, 3);
-	uint64_t run_edge = b.p_edge;
-	b.dma_start(1);
-	auto frame_edge = [&](uint64_t n) { return run_edge + (n * CLK + R - 1) / R; };
-	b.run(frame_edge(10) - b.cyc);
-	CHECK_EQ((int16_t)b.t->audio_l, 0x1000, "output in buffer 0, left");
-	CHECK_EQ((int16_t)b.t->audio_r, 0x1000, "output in buffer 0, right");
-	while (!b.t->irq && b.cyc < frame_edge(L0) + 1000) b.run(1);
-	CHECK(b.cyc >= frame_edge(L0) && b.cyc <= frame_edge(L0) + 4, "DONE0 interrupt %lld clocks from its frame",
-	      (long long)(b.cyc - frame_edge(L0)));
-	CHECK_EQ(b.rd(INTC + 0x14), 6, "IRQ number 6: source 5");
-	CHECK_EQ(b.rd(AU + 0x20), 0x321, "STATUS: DONE0, FULL1, running, buffer 1");
-	b.wr(AU + 0x20, 1);
-	b.run(4);
-	CHECK(!b.t->irq, "DONE0 acknowledged");
-	b.run(frame_edge(L0 + 10) - b.cyc);
-	CHECK_EQ((int16_t)b.t->audio_l, -0x800, "output in buffer 1");
-	while (!b.dma_done(1) && b.cyc < run_edge + 3000000) b.run(16);
-	for (uint32_t i = 0; i < units * 4; i++) {
-		if (b.sd_byte(dst + i) != b.sd_byte(src + i)) { sim::fail("DMA with the audio device: byte %u differs", i); break; }
-	}
-	b.dma_finish(1);
-	while (!b.t->irq && b.cyc < frame_edge(L0 + L1) + 1000) b.run(1);
-	CHECK(b.cyc >= frame_edge(L0 + L1) && b.cyc <= frame_edge(L0 + L1) + 4, "DONE1 interrupt");
-	CHECK_EQ(b.rd(AU + 0x2C) >= L0 + L1, 1, "PLAYED");
-	b.wr(AU + 0x04, 0);
-	b.run(CLK / 48000 * 3);
-	CHECK_EQ(b.t->audio_l, 0, "output 0 when stopped");
-	CHECK(!b.t->irq, "stop clears DONE");
-	b.wr(INTC + 0x0C, 1u << 5);
-}
+constexpr uint32_t RTC_DATE = 0x0C1F0100u;
+constexpr uint64_t RTC_SEC = 20000;
 
 struct Clock { int y, mo, d, h, mi, s; };
 
@@ -1764,7 +1783,6 @@ int main(int argc, char **argv) {
 	test_simif(b);
 	test_bt(b);
 	test_rtc(b);
-	test_audio(b);
 	test_sti(b);
 	test_dma(b);
 	test_lcd(b);

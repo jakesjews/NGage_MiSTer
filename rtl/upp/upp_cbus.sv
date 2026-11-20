@@ -17,8 +17,8 @@
 // register file of 8 devices x 32 registers, two clocks long (the model's is
 // instant; done reads 0 for those clocks, and the data registers wait).
 // Values (model/cbus-regs.txt):
-//   UEMK (device 1): 0x15 interrupt status reads 0x0008 (bootstrap 0x2EE8 goes
-//     on only with bit 3 or 4 set; [model guess] bit 3 = power-key power-on);
+//   UEMK (device 1): 0x15 interrupt status starts with the RTC alarm latched.
+//     Bit 3 is write-one-to-clear. Bit 4 reflects the power key.
 //     0x1F power-on status includes bit 11 for a good backup battery.
 //     Bit 1 is the power key held (ekeyb
 //     0x5041CCBC reads it as the power key; the bootstrap at 0x3090 takes the
@@ -62,7 +62,8 @@
 // "ro" registers keep the written value but read their fixed one, as the
 // model's ro lines. Reads and writes are masked to the transfer length.
 module upp_cbus #(
-	parameter int POWER_ON_HOLD_CLKS = 312_000_000
+	parameter int POWER_ON_HOLD_CLKS = 312_000_000,
+	parameter int ALARM_CLKS = 7_995_392
 ) (
 	input  logic        clk,
 	input  logic        reset,
@@ -78,6 +79,8 @@ module upp_cbus #(
 	output logic        busy,
 
 	input  logic        power_key,
+	input  logic        alarm_irq_clear,
+	output logic        alarm_irq,
 
 	// UEM path selectors for the UPP GENIO startup-test inputs
 	output logic        ear_route,
@@ -104,10 +107,9 @@ module upp_cbus #(
 
 	// ---- the device model (model/cbus-regs.txt) ----
 	function automatic logic is_ro(input logic [2:0] d, input logic [4:0] r);
-		return (d == 3'd1 && r == 5'h15) || (d == 3'd1 && r == 5'h1F) || (d == 3'd4 && r == 5'h00);
+		return (d == 3'd1 && r == 5'h1F) || (d == 3'd4 && r == 5'h00);
 	endfunction
 	function automatic logic [31:0] ro_val(input logic [2:0] d, input logic [4:0] r);
-		if (d == 3'd1 && r == 5'h15) return 32'h0008;
 		if (d == 3'd1 && r == 5'h1F) return 32'h0800;
 		if (d == 3'd4 && r == 5'h00) return 32'h0400;
 		return 32'h0000;
@@ -138,6 +140,12 @@ module upp_cbus #(
 	logic          read_1f;            // UEMK 0x1F has been read since reset
 	logic [7:0]    day_off;            // day counter = day_off + rtc_days
 	logic          rtc_vq;
+	localparam int ALARM_DIV = 65536;
+	localparam int ALARM_STEPS = (ALARM_CLKS + ALARM_DIV - 1) / ALARM_DIV;
+	localparam int ALARM_BITS = $clog2(ALARM_STEPS + 1);
+	logic [15:0] alarm_div;
+	logic [ALARM_BITS-1:0] alarm_left;
+	logic alarm_status, alarm_started, key_released;
 
 	wire  clearing = !clr[8];
 	wire  power    = power_key || hold != '0 || !read_1f;
@@ -209,6 +217,17 @@ module upp_cbus #(
 		bt_wreg_q  <= w_reg;
 		bt_wdata_q <= w_val[15:0];
 		if (hold != '0) hold <= hold - 1'd1;
+		if (alarm_irq_clear) alarm_irq <= 1'b0;
+		if (alarm_left != '0) begin
+			alarm_div <= alarm_div + 16'd1;
+			if (&alarm_div) begin
+				alarm_left <= alarm_left - 1'b1;
+				if (alarm_left == ALARM_BITS'(1)) begin
+					alarm_status <= 1'b1;
+					alarm_irq <= 1'b1;
+				end
+			end
+		end
 
 		if (w_lo) begin
 			if (!off_hi) len <= wdata[15:0];
@@ -235,6 +254,7 @@ module upp_cbus #(
 					5'h11: v = {26'd0, rtc_sec};
 					5'h12: v = {26'd0, rtc_min};
 					5'h13: v = {27'd0, rtc_hour};
+					5'h15: v = {27'd0, power_key || (!key_released && power), alarm_status, 3'd0};
 					5'h01: v = {24'd0, day_off + rtc_days};
 					default: ;
 				endcase
@@ -256,6 +276,14 @@ module upp_cbus #(
 					5'h01: day_off <= w_val[7:0] - rtc_days;
 					5'h0A: ear_route <= w_val[3];
 					5'h0C: sim_route <= w_val[5];
+					5'h15: if (w_val[3]) alarm_status <= 1'b0;
+					5'h16: if (w_bits == 6'd16 && w_val[15:4] == 12'hFFF && !w_val[3]) begin
+						key_released <= 1'b1;
+						if (!alarm_started) begin
+							alarm_started <= 1'b1;
+							alarm_left <= ALARM_BITS'(ALARM_STEPS);
+						end
+					end
 					5'h19: if (w_val[11]) adc <= adc_val(w_val[15:12]);
 					5'h1A: adc <= w_val[9:0];
 					5'h1B: tx_route <= w_val[10];
@@ -295,6 +323,12 @@ module upp_cbus #(
 			clr     <= 9'd0;
 			hold    <= HW'(POWER_ON_HOLD_CLKS);
 			read_1f <= 1'b0;
+			alarm_status <= 1'b1;
+			alarm_irq <= 1'b0;
+			alarm_started <= 1'b0;
+			alarm_left <= '0;
+			alarm_div <= '0;
+			key_released <= 1'b0;
 			day_off <= 8'd0 - rtc_days;
 			rtc_vq  <= rtc_valid;
 			rtc_base <= rtc_valid ? rtc_date : 32'd0;

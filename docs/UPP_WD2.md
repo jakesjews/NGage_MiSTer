@@ -27,14 +27,14 @@ first access is logged to `model/.out/regs.log`.
 |---|---|---|---|---|
 | `0x00000000` | 16 MB | CS0 NOR flash (AMD command set) | bootstrap reset vector; JAF log | A |
 | `0x02000000` | 8 MB | CS1 NOR flash | bootstrap `0xA40` ID probe | A |
-| `0x04000000` | - | CS2, empty on the QD (reads 0) | bootstrap `0x0C0047B8` probe | A |
+| `0x04000000` | 8 MiB on NEM-4 | CS2, empty on the QD (reads 0) | bootstrap `0x0C0047B8` probe | A |
 | `0x08000000` | 4 KB | memory controller | bootstrap `0xB24` | A |
 | `0x0A000000` | 16 MB | SDRAM | bootstrap memory test `0x264`, stack | A |
 | `0x0C000000` | 4 KiB | Read-only ASIC ROM, modeled as Thumb `BX LR` from ngage-v5 | QD fetch at `0x580003DE` maps to this device | A (guest use), model (contents) |
 | `0x0C001000` | Remainder of 1 MiB window | On-chip RAM mapped above the guest's 16 MiB SDRAM; includes comm RAM at `0x0C004000`, DSP upload at `0x0C030000` and auxiliary upload at `0x0C06FF00` | Bootstrap flash routine at `0x0C004748`, native QD DSP uploads, ngage-v5 region map | A (observed regions), model (other offsets) |
 | `0x0C100000` | `0x3E8` bytes | MDI shared rings in MiSTer SDRAM at byte offset `0x01100000` | native QD NOS ring access | A (guest use), model (backing) |
 | `0x0C1003E8` | rest of the 1 MB page | peripheral registers | bootstrap page table | A |
-| `0x0C1F0000` | 4 KB | **emulator devices** (HLE audio, HLE RTC date): not UPP_WD2 hardware, see the last section | no firmware access to the page (no ROM constant, no access in any run) | - |
+| `0x0C1F0100` | 16 bytes | Historical emulator RTC date and C: blank flag | NOS stand-in | - |
 | `0x0D000000` | 16 MB | second I/O window; only the STI trace window at `0x0DE00000` is used so far | bootstrap table, ekern `0x5031E4A8` | B |
 
 ## Clock and system page (0x0C120000)
@@ -77,7 +77,7 @@ timer 4 (`0x0C120A80`) is bit 4 (`0x5031C968`); the kernel enables bit 25
 | 22 | MMCDataRdy | | 29 + 2*n*, 30 + 2*n* | GPIO*n* Low, High (n = 0-21 named in the kernel) |
 
 Sources enabled so far: IRQ 0 (tick), 1 (high-resolution timer), 4,
-5 (IrqTimer5, bound by the NOS stand-in for the HLE audio device),
+5 (IrqTimer5),
 6-12 (DMA), 21-24 (MMC), 25 (CTSI: ekeyb.dll for the keys, cbus.dll for
 the UEMK and for the Bluetooth module's line), 46 (GPIO8High,
 bound by cbus.dll; probably the UEMK interrupt line); FIQ 27.
@@ -240,7 +240,7 @@ converter in `ngage_cbus.c`):
 | Register | Name / guess | Model | Evidence | Conf. |
 |---|---|---|---|---|
 | `0x0A`, `0x0C`, `0x1B` | Startup loopback routes | Bits 3, 5 and 10 respectively enable the ear, SIM and TX input routes in the UPP. | QD 4.10 NOS writes these fields around the GENIO tests. The latch and route behavior follows the NEM-4 model. | A (guest use), model (routing) |
-| `0x15` | interrupt status | reads `0x0008` | bootstrap `0x2E6C`: without `0x1F` bit 1 the phone stays on only if bit 3 or 4 is set, otherwise it writes `0x12` = 0 (power off, `0x2F00`); ecust `0x50343B64`: bit 4 gives start-up reason 4 | B (bits), C (value) |
+| `0x15` | interrupt status | latched alarm in bit 3 (write-one-to-clear), power key in bit 4 | bootstrap `0x2E6C`: without `0x1F` bit 1 the phone stays on only if bit 3 or 4 is set, otherwise it writes `0x12` = 0 (power off, `0x2F00`); ecust `0x50343B64`: bit 4 gives start-up reason 4 | B (bits), C (value) |
 | `0x16` | interrupt mask | storage | bootstrap `0x2E88` unmasks bits 3-4 around the `0x15` read | B |
 | `0x19` | A/D control: bits 15:12 channel, bit 11 start, bit 7 set by cbus.dll beforehand | starts a conversion | bootstrap `0x3604` writes `0x6800`, cbus.dll `0x5037E1E8` writes `0x6880` (channel 6); TriX names it ADC control | A (use), B (fields) |
 | `0x1A` | A/D result, 10 bits | channel value from `adc` lines | bootstrap `0x3104`, cbus.dll `0x5037E228` read it and mask `0x3FF` | A |
@@ -306,7 +306,17 @@ Nothing in the firmware touches this page: no ROM constant points into it
 and no run accesses it. Symbian maps it at virtual `0x581F0000` with the
 rest of `0x0C1xxxxx`.
 
-### HLE audio device (0x0C1F0000) — `ngage_audio.c`
+### Native MDI game PCM
+
+Stock NOS sends Phonet resource `0xE8` to DSP device `0x7C` through the
+shared MDI rings. The responder plays signed 16-bit mono at 8 or 16 kHz
+from the SDRAM halves and posts replies through the D2M ring. CTSI bit
+10 signals publication. The renderer resamples to 48 kHz for both MiSTer
+channels.
+
+### Historical HLE audio device (0x0C1F0000) — `ngage_audio.c`
+
+The stand-in and the reference software model used this interface.
 
 Plays two PCM buffers from SDRAM alternately. All registers are 32-bit.
 
@@ -330,11 +340,6 @@ empty it takes the other one when that is full, otherwise it outputs
 silence (starved) until one is filled. The interrupt is DONE0 | DONE1 with
 IRQ enable, on interrupt source 5 (IrqTimer5: nothing in Symbian binds it
 and no timer 5 runs; the stand-in binds it by name, id 98).
-
-FPGA: a block that fetches 16-bit words from SDRAM at RATE and resamples to
-MiSTer's 48 kHz AUDIO_L/R (the model interpolates linearly with a 16.16
-phase step RATE / 48000; mono goes to both channels). The stand-in only uses
-mono at 8000 or 16000 Hz with halves of up to 5600 samples.
 
 ### HLE RTC date register (0x0C1F0100) — `ngage_cbus.c`
 

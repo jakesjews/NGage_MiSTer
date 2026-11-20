@@ -607,7 +607,7 @@ peripherals, the LCD and the keypad. The flash images (`tools/mkimage.py`)
 go into DDR3 and are marked loaded with a one-word ioctl download each, as
 the OSD's load does; an MMC image sits on SD slot 0; MiSTer's RTC is set
 to 2004-06-01 12:00:00. The bench writes the LCD picture as a PNG each
-time it changes, the HLE audio output as a WAV, the kernel's STI text,
+time it changes, the audio output as a WAV, the kernel's STI text,
 and with `--devlog` every device access and every interrupt and exception
 in the plugin's format. `--keys` plays a key script (simulated seconds).
 

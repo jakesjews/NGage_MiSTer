@@ -508,6 +508,32 @@ test 36 and reached MTC NORMAL/READY with the bounded D550 startup
 response, as recorded in `docs/adsp-native-link.md`. `a413b1e` and
 `docs/native-startup-hdl.md` index the native SIMIF and UART work.
 
+### Firmware submenu and launchers
+
+Both version directories use `boot0.rom`, `boot1.rom`, `c.vhd`, and
+`pmm.vhd` under `games/ngage/`. The ROM lengths determine the map.
+
+| Firmware | `boot0.rom` | `boot1.rom` | CPU-visible PMM |
+|---|---|---|---|
+| 4.10 QD | 16 MiB CS0 | 8 MiB CS1 | `0x00FF0000–0x00FFFFFF` |
+| 4.03 NEM-4 | 8 MiB CS0 | 8 MiB CS1 followed by 8 MiB CS2 | `0x007F0000–0x007FFFFF` |
+
+CS0 and CS1 retain their bases at `0x00000000` and `0x02000000`.
+NEM-4 adds CS2 at `0x04000000`. C: remains at `0x02400000–0x027FFFFF`.
+The 4.03 NOR behavior uses the `ngage-v5` identification responses and
+16 KiB PMM sectors. Each half of C: ends with four 16 KiB sectors.
+CS0 retains the ROM's own descramble header
+(`0xA000–0x2B3000` for 4.03). The CPU stays in reset while the ROM sizes
+disagree or a required upload is incomplete.
+
+The `.mgl` launchers use F3/F4 for the ROMs and S0/S2 for C: and PMM.
+MiSTer Main finds the shortcuts on the top OSD page before both ROMs load.
+The Firmware submenu remains available throughout the session. Both
+launchers mount the saves before the ROMs. An attached PMM lives in a
+dedicated DDR window (`0x33200000`) that overlays the selected CS0 tail
+and survives a ROM reload. With S2 empty, the guest uses the PMM bytes
+embedded in CS0. S1 remains the MMC slot.
+
 ### Observed QD PMM layout
 
 The unmodified NOS in the ASIC diagnostic replay scanned the eight 8 KiB
@@ -516,32 +542,50 @@ using its native NOR command sequence. The 370-million-clock snapshot
 contains 84 changed CS0 bytes, all in that top 64 KiB. Each sector starts
 with `F0 F0`; sectors at `0x00FF0000` and `0x00FFC000` have `PMMCAT` at
 offset `+6`. The initial raw CS0 image was erased throughout that range.
-The flash command trace and readback are distinct from PMM save and cold
-reload, which still need qualification.
+Slot S2 restores a 64 KiB PMM into that window. It writes changed blocks
+back automatically via the same mechanism as C:, or in response to
+**Save C: and PMM now**. A firmware reload preserves a mounted PMM window.
 
-## Next integration steps
+### Stock audio and RTC alarm
 
-1. **Qualify original QD NOS.** Verify the v5 ASIC model's required behavior
-   at the ASIC interface and continue the native path using the NEM-4
-   hardware models where QD's transactions match. Confirm stock firmware
-   reaches its own UI from a cold boot with the original MD5 checks.
-2. **Persist PMM.** Route QD PMM writes from the top 64 KiB of CS0 to a
-   dedicated backing image. Qualify status, erase, dirty tracking, save
-   drain and cold reload. Give firmware array uploads and PMM separate
-   backing ownership so reloading firmware preserves PMM. NEM-4's 64 KiB
-   window at `0x007F0000–0x007FFFFF` has its own geometry and data.
-3. **Enable the NEM-4 map.** Use the host-prepared three 8 MiB arrays in
-   `build/firmware-profiles/sim/nem4/`, mapping CS0, CS1 and CS2 at
-   `0x00000000`, `0x02000000`, and `0x04000000`. The original images
-   write to CS2, which is empty in the QD configuration. The fixtures match
-   the original core's 20,905,984 immutable flash bytes and use copies of
-   the initialized 4.03 C: and PMM seed. Test seeded boot and erased-first-boot
-   separately.
-4. **Expose the firmware choice after both variants boot.** Use a single
-   **Firmware** option with **QD 4.10** and **N-Gage 4.03**. Keep independent
-   C: and PMM images. Host-prepared flash arrays can be staged into separate
-   DDR regions for a switch without asking users to load MCU and PPM
-   separately. Verify an automatic file layout with stock MiSTer Main
-   before selecting names. Drain the outgoing writes and reboot the guest
-   against the selected region. Verify game launch, C: and PMM writeback,
-   and repeated switches on MiSTer.
+The native MDI transport now routes internal DSP resource `0xE8` to the
+`ngage-v5` PCM responder. It reads 8 or 16 kHz signed mono from the
+handset SDRAM and resamples it to the MiSTer outputs. The D2M ring and
+CTSI status bit 10 publish playback responses and refills. IRQ source 5
+belongs to Timer 5. The historical stand-in audio MMIO remains documented
+as a software-model interface.
+
+The UEM register `0x35` (device 1, register `0x15`) follows the alarm
+acknowledgement fix from `ngage-v5` commit `237117d`. Its alarm bit is
+latched and clears when NOS writes bit 3. An unrelated write and the
+power-key bit leave the alarm state alone. This removes the forced status
+that sent the observed Bomberman session through the RTC hardware-reset
+path on power-off. The upstream shutdown request in that session was
+unattributed.
+
+### Simulation results
+
+The whole-core bench loaded a mixed pair and verified that the CPU stayed
+in reset. Completing the 4.03 pair released it and let a guest program read
+CS2, its mirror, and the mounted PMM through the NEM-4 addresses. The save
+benches checked program, erase, and writeback in both PMM layouts, including
+the interior 16 KiB C: geometry on NEM-4.
+
+The peripheral bench exercised PCM start, submit, refill, and stop through
+the original MDI frame format. It observed signed samples from both SDRAM
+halves and checked MDI publication and Timer 5 ownership. The CBUS test
+checked alarm acknowledgement, the power-key bit, and the one-shot alarm IRQ.
+
+Unmodified 4.03 passed the stock MD5 check and reached NOS user execution
+at clock 267,386,198. The run stopped at its 400-million-clock budget
+with the CPU still executing and one captured frame. The whole-core
+monitor checked 9,305,681 array read beats across the three flash chips
+with zero mismatches. A 150-million-clock checkpoint is available with
+the simulator executable used for the run. Reassembling the three
+decoded flash spans in the firmware table's order produces the stock
+core MD5 `2c09c86ff047484fdcc0e226f49c44a9`.
+
+## Remaining validation
+
+Verify complete 4.03 and 4.10 boots on MiSTer, then check game audio,
+Bomberman, and C: and PMM writeback when switching launchers.

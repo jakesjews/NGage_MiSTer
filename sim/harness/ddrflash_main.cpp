@@ -93,10 +93,12 @@ struct Bench {
 		ddr.prof.busy_pct = 15;
 		ddr.prof.gap_pct = 10;
 		ddr.prof.stall_pct_x1000 = 500;
-		t->clk = 0; t->reset = 1;
+		t->clk = 0; t->reset = 1; t->nem4 = 0; t->pmm_overlay = 0;
+		t->cs2_req = 0; t->cs2_lreq = 0; t->cs2_we = 0; t->cs2_laddr = 0;
+		t->cs2_addr = 0; t->cs2_wdata = 0;
 		t->cs0_req = 0; t->cs0_lreq = 0; t->cs0_laddr = 0;
 		t->cs1_req = 0; t->cs1_lreq = 0; t->cs1_laddr = 0;
-		t->ld_rd = 0; t->ld_we = 0; t->bk_req = 0; t->bk_blk = 0;
+		t->ld_rd = 0; t->ld_we = 0; t->bk_req = 0; t->bk_pmm = 0; t->bk_blk = 0;
 		t->ddram_busy = 0; t->ddram_dout = 0; t->ddram_dout_ready = 0;
 		t->eval();
 	}

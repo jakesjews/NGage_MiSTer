@@ -354,7 +354,7 @@ struct Bench {
 				win_check(win_pend[k].kind == 'w' ? "hit" : "bufhit", win_pend[k].va, win_pend[k].data, win_pend[k].sel, win_pend[k].clock);
 			}
 	}
-	DdramModel dm{40u << 20, 5};
+	DdramModel dm{51u << 20, 5};
 	SdramChip chip{9};
 	// MMC image on SD slot 0
 	std::vector<uint8_t> img;
@@ -430,9 +430,9 @@ struct Bench {
 	uint64_t dev_accesses = 0;
 	// --check-flash, --buslog, --until
 	bool check_flash = false;
-	uint64_t flash_checked[2] = {}, flash_bad = 0;
-	uint64_t beat_start = 0, array_since[2] = {};
-	bool beat_prev = false, ack_prev = false, array_prev[2] = {};
+	uint64_t flash_checked[3] = {}, flash_bad = 0;
+	uint64_t beat_start = 0, array_since[3] = {};
+	bool beat_prev = false, ack_prev = false, array_prev[3] = {};
 	FILE *buslog = nullptr;
 	std::string until, sti_tail;
 	bool stop = false;
@@ -648,8 +648,8 @@ struct Bench {
 		ack_prev = ack;
 #define FL_ARRAY(f) (h.emu__DOT__ngage_mem__DOT__##f##__DOT__mode == 0 && h.emu__DOT__ngage_mem__DOT__##f##__DOT__cseq == 0 && \
                      h.emu__DOT__ngage_mem__DOT__##f##__DOT__p_state == 0 && h.emu__DOT__ngage_mem__DOT__##f##__DOT__e_state == 0)
-		for (int c = 0; c < 2; c++) {
-			bool arr = c ? FL_ARRAY(flash_cs1) : FL_ARRAY(flash_cs0);
+		for (int c = 0; c < 3; c++) {
+			bool arr = c == 2 ? FL_ARRAY(flash_cs2) : c == 1 ? FL_ARRAY(flash_cs1) : FL_ARRAY(flash_cs0);
 			if (arr && !array_prev[c]) array_since[c] = clocks;
 			array_prev[c] = arr;
 		}
@@ -658,20 +658,24 @@ struct Bench {
 		bool we = h.emu__DOT__wb_we;
 		unsigned be = h.emu__DOT__wb_sel;
 		uint32_t d = we ? h.emu__DOT__wb_dat_w : h.emu__DOT__wb_dat_r;
-		bool fl = a < 0x04000000u, sd = a >= 0x0A000000u && a < 0x0C000000u;
+		const bool nem4 = h.emu__DOT__nem4;
+		bool fl = a < (nem4 ? 0x06000000u : 0x04000000u);
+		bool sd = a >= 0x0A000000u && a < 0x0C000000u;
 		if (buslog && (fl || sd))
 			fprintf(buslog, "%" PRIu64 " %c %08x %x %08x %u\n", clocks, we ? 'W' : 'R', a, be, d,
 			        (unsigned)h.emu__DOT__wb_cti);
 		if (!check_flash || we || !fl) return;
-		int chip_n = a >= 0x02000000u;
+		unsigned chip_n = a >> 25;
 		if (!array_prev[chip_n] || array_since[chip_n] >= beat_start) return;
-		uint32_t off = chip_n ? ((a - 0x02000000u) & 0x7FFFFFu) : (a & 0xFFFFFFu);
-		uint32_t base = DDR_BASE + (chip_n ? 0x01000000u : 0) + (off & ~3u) - DdramModel::BASE;
+		uint32_t cs0_size = nem4 ? 8u << 20 : 16u << 20;
+		uint32_t off = a & ((chip_n ? 8u << 20 : cs0_size) - 1);
+		constexpr uint32_t chip_offsets[] = {0, 0x01000000u, 0x01800000u};
+		uint32_t base = DDR_BASE + chip_offsets[chip_n] + (off & ~3u) - DdramModel::BASE;
 		uint8_t word[4];
 		memcpy(word, &dm.mem[base], 4);
 		// the scrambled area of CS0 is read decoded
 		uint32_t scr_first = 0, scr_end = 0;
-		if (!chip_n && ngage_scr_window(&dm.mem[DDR_BASE - DdramModel::BASE], 16u << 20, &scr_first, &scr_end) &&
+		if (!chip_n && ngage_scr_window(&dm.mem[DDR_BASE - DdramModel::BASE], cs0_size, &scr_first, &scr_end) &&
 		    (off & ~3u) >= scr_first && (off & ~3u) < scr_end)
 			ngage_descramble_buf(word, off & ~3u, 4);
 		uint32_t want = 0, mask = 0;
@@ -844,15 +848,15 @@ struct Bench {
 		fflush(stdout);
 	}
 
-	// a one-word ioctl download: the image is already in the DDRAM model
+	// Signal the last word of the image already preloaded in the DDRAM model.
 	void mark_loaded(int index, const std::vector<uint8_t> &data) {
 		auto &h = *r;
 		h.emu__DOT__hps_io__DOT__sim_index = index;
 		h.emu__DOT__hps_io__DOT__sim_download = 1;
 		ticks(5);
 		while (h.emu__DOT__hps_io__DOT__sim_wait) tick();
-		h.emu__DOT__hps_io__DOT__sim_addr = 0;
-		h.emu__DOT__hps_io__DOT__sim_dout = (uint16_t)(data[0] | data[1] << 8);
+		h.emu__DOT__hps_io__DOT__sim_addr = data.size() - 2;
+		h.emu__DOT__hps_io__DOT__sim_dout = (uint16_t)(data[data.size() - 2] | data.back() << 8);
 		h.emu__DOT__hps_io__DOT__sim_wr = 1;
 		tick();
 		h.emu__DOT__hps_io__DOT__sim_wr = 0;
@@ -998,7 +1002,11 @@ int main(int argc, char **argv) {
 
 	// the flash images
 	std::vector<uint8_t> cs0 = read_file(cs0p), cs1 = read_file(cs1p);
-	if (cs0.size() != (16u << 20) || cs1.size() != (8u << 20)) { fprintf(stderr, "images must be 16 MB and 8 MB\n"); return 2; }
+	const bool nem4 = cs0.size() == (8u << 20) && cs1.size() == (16u << 20);
+	if (!nem4 && (cs0.size() != (16u << 20) || cs1.size() != (8u << 20))) {
+		fprintf(stderr, "expected an 8 + 16 MiB NEM-4 pair or a 16 + 8 MiB QD pair\n");
+		return 2;
+	}
 	memcpy(&b.dm.mem[b.DDR_BASE - DdramModel::BASE], cs0.data(), cs0.size());
 	memcpy(&b.dm.mem[b.DDR_BASE + 0x01000000u - DdramModel::BASE], cs1.data(), cs1.size());
 	b.mark_loaded(3, cs0);
@@ -1045,8 +1053,8 @@ int main(int argc, char **argv) {
 	if (b.chip.errors) printf("the SDRAM chip model reported %d error(s)\n", b.chip.errors);
 	if (b.dm.protocol_errors) printf("%d DDRAM port protocol error(s)\n", b.dm.protocol_errors);
 	if (b.check_flash)
-		printf("flash check: %" PRIu64 " CS0 and %" PRIu64 " CS1 read beats in array mode, %" PRIu64 " mismatch(es)\n",
-		       b.flash_checked[0], b.flash_checked[1], b.flash_bad);
+		printf("flash check: %" PRIu64 " CS0, %" PRIu64 " CS1 and %" PRIu64 " CS2 read beats in array mode, %" PRIu64 " mismatch(es)\n",
+		       b.flash_checked[0], b.flash_checked[1], b.flash_checked[2], b.flash_bad);
 	if (b.check_window)
 		printf("window check: %" PRIu64 " uncached, %" PRIu64 " cached-hit, %" PRIu64 " cached-miss loads of the C: drive, %" PRIu64 " wrong\n",
 		       b.win_unc, b.win_hit, b.win_miss, b.win_bad);

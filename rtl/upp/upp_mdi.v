@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// UPP internal DSP MDI startup transport, ported from the N-Gage NEM-4 core.
-// Firmware and the startup peer share two 250-halfword rings in SDRAM.
-// The peer publishes producer pointers only after the payload writes complete.
+// UPP internal DSP MDI transport, ported from the N-Gage NEM-4 core.
+// Firmware and the DSP peers share two 250-halfword rings in SDRAM.
+// The transport publishes producer pointers after the payload writes complete.
 // DSP instructions, external D550 audio and electrical timing are unmodeled.
 module upp_mdi (
     input  wire        clk,
@@ -14,6 +14,11 @@ module upp_mdi (
     input  wire [ 3:0] sel,
     output reg  [31:0] dout,
     output reg  [ 1:0] irq_events,   // CTSI status bits 10:9
+    input  wire [19:0] pcm_status,
+    output wire        pcm_link_up,
+    output wire        pcm_write,
+    output wire [ 7:0] pcm_offset,
+    output wire [31:0] pcm_data,
 
     output wire        mem_req,
     output wire        mem_we,
@@ -36,7 +41,7 @@ module upp_mdi (
     reg [16:0] byte_index, frame_bytes;
     reg [7:0] write_index;
     reg [7:0] high_byte;
-    reg reply_end;
+    reg reply_end, tx_pcm;
     reg [1:0] announce_index;
     wire [31:0] mask = {{8{sel[3]}}, {8{sel[2]}}, {8{sel[1]}}, {8{sel[0]}}};
     wire running = control[15:0] == 16'h0500;
@@ -59,21 +64,45 @@ module upp_mdi (
     wire       peer_rx_valid = state == RX_HIGH || state == RX_LOW;
     wire       peer_rx_last = word_index >= 2 && byte_index + 17'd1 == frame_bytes;
     wire [7:0] peer_rx_data = state == RX_HIGH ? incoming_word[15:8] : incoming_word[7:0];
-    wire       peer_rx_ready, tx_valid, tx_last;
-    wire [7:0] tx_data;
-    wire       peer_tx_ready = state == TX_HIGH || state == TX_LOW;
+    wire rf_rx_ready, rf_tx_valid, rf_tx_last, pcm_rx_ready, pcm_tx_valid, pcm_tx_last;
+    wire [7:0] rf_tx_data, pcm_tx_data;
+    wire peer_tx_ready = state == TX_HIGH || state == TX_LOW;
+    wire peer_rx_ready = rf_rx_ready && pcm_rx_ready;
+    wire peer_tx_valid = rf_tx_valid || pcm_tx_valid;
+    wire tx_valid = tx_pcm ? pcm_tx_valid : rf_tx_valid;
+    wire tx_last = tx_pcm ? pcm_tx_last : rf_tx_last;
+    wire [7:0] tx_data = tx_pcm ? pcm_tx_data : rf_tx_data;
     upp_mdi_peer peer (
         .clk        (clk),
-        .reset      (reset || !running),
-        .rx_valid   (peer_rx_valid),
-        .rx_ready   (peer_rx_ready),
+        .reset      (!pcm_link_up),
+        .rx_valid   (peer_rx_valid && pcm_rx_ready),
+        .rx_ready   (rf_rx_ready),
         .rx_data    (peer_rx_data),
         .rx_last    (peer_rx_last),
-        .tx_valid   (tx_valid),
-        .tx_ready   (peer_tx_ready),
-        .tx_data    (tx_data),
-        .tx_last    (tx_last),
+        .tx_valid   (rf_tx_valid),
+        .tx_ready   (peer_tx_ready && !tx_pcm),
+        .tx_data    (rf_tx_data),
+        .tx_last    (rf_tx_last),
         .unsupported()
+    );
+
+    assign pcm_link_up = running && !reset && !mem_err;
+    upp_dsp_pcm stream (
+        .clk       (clk),
+        .reset     (!pcm_link_up),
+        .rx_valid  (peer_rx_valid && rf_rx_ready),
+        .rx_ready  (pcm_rx_ready),
+        .rx_data   (peer_rx_data),
+        .rx_last   (peer_rx_last),
+        .idle_slot (state == IDLE && producer == consumer),
+        .tx_valid  (pcm_tx_valid),
+        .tx_ready  (peer_tx_ready && tx_pcm),
+        .tx_data   (pcm_tx_data),
+        .tx_last   (pcm_tx_last),
+        .pcm_status(pcm_status),
+        .pcm_write (pcm_write),
+        .pcm_offset(pcm_offset),
+        .pcm_data  (pcm_data)
     );
 
     wire [7:0] output_word = 8'd125 + {1'b0, write_index[7:1]};
@@ -124,6 +153,7 @@ module upp_mdi (
             write_index    <= 0;
             high_byte      <= 0;
             reply_end      <= 0;
+            tx_pcm         <= 0;
             announce_index <= 0;
             irq_events     <= 0;
         end else begin
@@ -162,10 +192,11 @@ module upp_mdi (
                                 write_index    <= output_producer;
                                 announce_index <= 0;
                                 state          <= ANN_WRITE;
-                            end else if (tx_valid && output_free >= 8) begin
+                            end else if (peer_tx_valid && output_free >= 8) begin
                                 write_index <= output_producer;
+                                tx_pcm      <= !rf_tx_valid;
                                 state       <= TX_HIGH;
-                            end else if (peer_rx_ready && !tx_valid && producer != consumer)
+                            end else if (peer_rx_ready && !peer_tx_valid && producer != consumer)
                                 state <= READ_WORD;
                         end
                         READ_WORD: if (mem_ack) begin

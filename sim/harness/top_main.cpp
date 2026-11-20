@@ -2,7 +2,7 @@
 // devices, stand-ins for hps_io and video_mixer (sim/stubs), and a model of
 // the DDRAM port.
 //
-//   Vemu [--out DIR]
+//   Vemu [--out DIR] [--firmware-only]
 //
 //  * with no firmware the panel sleeps and the outputs show a black 176x208
 //    frame;
@@ -29,6 +29,7 @@
 #include "common.h"
 #include "ddram_model.h"
 #include "sdram_model.h"
+#include <algorithm>
 #include <cstring>
 #include <utility>
 #include <vector>
@@ -56,7 +57,7 @@ struct Bench {
 	uint64_t clocks = 0;
 	// DDR3, 0x31000000 to 0x327FFFFF
 	static constexpr uint32_t DDR_BASE = 0x31000000u, DDR_SIZE = 0x01800000u;
-	DdramModel dm{40u << 20, 5};
+	DdramModel dm{51u << 20, 5};
 	uint8_t *ddr;                    // the flash windows in dm
 	uint64_t ddr_writes = 0;
 	bool ddr_stray = false;
@@ -69,7 +70,9 @@ struct Bench {
 	int sd_state = 0, sd_delay = 0, sd_word = 0, sd_words = 0;
 	std::vector<uint32_t> sd_lbas;
 	// slot 1: the CS1 save file
-	std::vector<uint8_t> img1;
+	std::vector<uint8_t> img1, img2;
+	bool serving_pmm = false;
+	uint64_t pmm_reads = 0;
 	int s1_state = 0, s1_delay = 0, s1_word = 0, s1_words = 0;
 	uint32_t s1_lba = 0;
 	uint64_t s1_reads = 0, s1_writes = 0;
@@ -92,7 +95,7 @@ struct Bench {
 
 	// slot 1, served when slot 0 is quiet: reads of blk_cnt + 1 blocks; a
 	// write request is only counted (nothing should ask for one here)
-	void download(int index, const std::vector<uint8_t> &data) {
+	void download(int index, const std::vector<uint8_t> &data, bool complete = true, uint32_t bytes = 0, uint32_t offset = 0) {
 		auto &h = *r;
 		h.emu__DOT__hps_io__DOT__sim_index = index;
 		h.emu__DOT__hps_io__DOT__sim_download = 1;
@@ -104,11 +107,21 @@ struct Bench {
 		};
 		for (size_t a = 0; a < data.size(); a += 2) {
 			wait();
-			h.emu__DOT__hps_io__DOT__sim_addr = (uint32_t)a;
+			h.emu__DOT__hps_io__DOT__sim_addr = offset + (uint32_t)a;
 			h.emu__DOT__hps_io__DOT__sim_dout = data[a] | ((a + 1 < data.size() ? data[a + 1] : 0x7A) << 8);
 			h.emu__DOT__hps_io__DOT__sim_wr = 1;
 			tick(); h.emu__DOT__hps_io__DOT__sim_wr = 0;
 			ticks(rng.range(1, 6));
+		}
+		// Synthetic programs occupy the first page; exercise the complete
+		// upload handshake with a final word at the physical array end.
+		if (complete && (index == 3 || index == 4)) {
+			wait();
+			h.emu__DOT__hps_io__DOT__sim_addr = (bytes ? bytes : (index == 3 ? 16u << 20 : 8u << 20)) - 2;
+			h.emu__DOT__hps_io__DOT__sim_dout = 0x5a5a;
+			h.emu__DOT__hps_io__DOT__sim_wr = 1;
+			tick();
+			h.emu__DOT__hps_io__DOT__sim_wr = 0;
 		}
 		wait(); ticks(5);
 		h.emu__DOT__hps_io__DOT__sim_download = 0;
@@ -118,18 +131,20 @@ struct Bench {
 
 	void s1_step() {
 		auto &h = *r;
-		if (h.emu__DOT__hps_io__DOT__sim_sd_wr1) s1_writes++;
+		if (h.emu__DOT__hps_io__DOT__sim_sd_wr1 || h.emu__DOT__hps_io__DOT__sim_sd_wr2) s1_writes++;
 		switch (s1_state) {
 		case 0:
-			if (h.emu__DOT__hps_io__DOT__sim_sd_rd1 && sd_state == 0) {
-				s1_lba = h.emu__DOT__hps_io__DOT__sim_sd_lba1;
-				s1_words = 256 * (h.emu__DOT__hps_io__DOT__sim_sd_blk_cnt1 + 1);
+			if ((h.emu__DOT__hps_io__DOT__sim_sd_rd1 || h.emu__DOT__hps_io__DOT__sim_sd_rd2) && sd_state == 0) {
+				serving_pmm = !h.emu__DOT__hps_io__DOT__sim_sd_rd1;
+				s1_lba = serving_pmm ? h.emu__DOT__hps_io__DOT__sim_sd_lba2 : h.emu__DOT__hps_io__DOT__sim_sd_lba1;
+				int count = serving_pmm ? h.emu__DOT__hps_io__DOT__sim_sd_blk_cnt2 : h.emu__DOT__hps_io__DOT__sim_sd_blk_cnt1;
+				s1_words = 256 * (count + 1);
 				s1_delay = 40;
 				s1_state = 1;
 			}
 			break;
 		case 1:
-			if (--s1_delay == 0) { h.emu__DOT__hps_io__DOT__sim_sd_ack = 2; s1_word = 0; s1_delay = 3; s1_state = 2; }
+			if (--s1_delay == 0) { h.emu__DOT__hps_io__DOT__sim_sd_ack = serving_pmm ? 4 : 2; s1_word = 0; s1_delay = 3; s1_state = 2; }
 			break;
 		case 2:
 			if (--s1_delay > 0) break;
@@ -137,12 +152,14 @@ struct Bench {
 			if (s1_word < s1_words) {
 				size_t off = (size_t)s1_lba * 512 + s1_word * 2;
 				h.emu__DOT__hps_io__DOT__sim_sd_addr = s1_word;
-				h.emu__DOT__hps_io__DOT__sim_sd_dout = (uint16_t)(img1[off] | img1[off + 1] << 8);
+				const auto &image = serving_pmm ? img2 : img1;
+				h.emu__DOT__hps_io__DOT__sim_sd_dout = (uint16_t)(image.at(off) | image.at(off + 1) << 8);
 				h.emu__DOT__hps_io__DOT__sim_sd_wr_buf = 1;
 				s1_word++;
 			} else {
 				h.emu__DOT__hps_io__DOT__sim_sd_ack = 0;
-				s1_reads++;
+				if (serving_pmm) ++pmm_reads;
+				else ++s1_reads;
 				s1_state = 0;
 			}
 			break;
@@ -154,6 +171,7 @@ struct Bench {
 		r->emu__DOT__hps_io__DOT__sim_mounted = 0;
 		if (s1_state) { s1_step(); return; }
 		s1_step();
+		if (s1_state) return;
 		switch (sd_state) {
 		case 0:
 			if (r->emu__DOT__hps_io__DOT__sim_sd_rd) {
@@ -197,7 +215,8 @@ struct Bench {
 				for (int i = 0; i < 8; i++) {
 					if (!(t->DDRAM_BE >> i & 1)) continue;
 					uint64_t a = byte + i;
-					if (a < DDR_BASE || a >= (uint64_t)DDR_BASE + DDR_SIZE) ddr_stray = true;
+					if ((a < DDR_BASE || a >= 0x33000000u) &&
+					    (a < 0x33200000u || a >= 0x33210000u)) ddr_stray = true;
 				}
 				ddr_writes++;
 			}
@@ -284,18 +303,24 @@ bool dark(const sim::Image &got) {
 int main(int argc, char **argv) {
 	Verilated::commandArgs(argc, argv);
 	std::string out = "sim/build/out";
-	for (int i = 1; i < argc; i++)
+	bool firmware_only = false;
+	for (int i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "--out") && i + 1 < argc) out = argv[++i];
+		else if (!strcmp(argv[i], "--firmware-only")) firmware_only = true;
+	}
 	Bench b;
 	auto &R = *b.r;
 	auto count = [&](int n) { return std::count(b.infos.begin(), b.infos.end(), n); };
 
 	// no firmware: the panel sleeps and the picture is black
-	b.frame();
-	sim::Image f = b.frame();
-	CHECK(dark(f), "the picture with no firmware");
-	CHECK_EQ(b.t->VIDEO_ARX, W, "aspect X");
-	CHECK_EQ(b.t->VIDEO_ARY, H, "aspect Y");
+	sim::Image f;
+	if (!firmware_only) {
+		b.frame();
+		f = b.frame();
+		CHECK(dark(f), "the picture with no firmware");
+		CHECK_EQ(b.t->VIDEO_ARX, W, "aspect X");
+		CHECK_EQ(b.t->VIDEO_ARY, H, "aspect Y");
+	} else b.ticks(20000);
 	CHECK(!b.t->LED_USER, "LED_USER on with the panel dark");
 
 	// keys: Up and 5 on the joystick, Call (F3) and Power (F8) on the keyboard,
@@ -357,20 +382,27 @@ int main(int argc, char **argv) {
 	                                0xE2822001, 0xE5802004, 0xEAFFFFFE, 0x12345678};
 	memcpy(cs0.data(), prog, sizeof prog);
 	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset with no flash image");
+	CHECK(!(R.emu__DOT__hps_io__DOT__sim_menumask & 2), "MGL file slots visible before upload");
 	for (int index : {0, 0x40, 1, 2}) download(index, {0x11, 0x22});
 	CHECK_EQ(b.ddr_writes, 0u, "former service-file indexes do not write DDR");
 	CHECK(R.emu__DOT__cpu_reset, "service-file downloads do not release reset");
+	b.download(3, {}, false);
+	b.ticks(20);
+	CHECK(R.emu__DOT__cpu_reset, "incomplete flash upload must hold reset");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 11), 1, "invalid flash size notice");
+	b.infos.clear();
 	download(3, cs0);
 	b.ticks(1000);
 	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset with only CS0 loaded");
 	CHECK(b.cpu_writes.empty(), "CPU writes before CS1 is loaded");
 	download(4, cs1);
+	CHECK(R.emu__DOT__hps_io__DOT__sim_menumask & 2, "MGL shortcuts hidden after both ROMs load");
 	CHECK(memcmp(&b.ddr[0], cs0.data(), cs0.size()) == 0, "CS0 image in DDR3 at 0x31000000");
 	CHECK(memcmp(&b.ddr[0x01000000], cs1.data(), cs1.size()) == 0, "CS1 image in DDR3 at 0x32000000");
 	CHECK_EQ(b.ddr[cs0.size()], 0x5A, "byte after the CS0 image");
 	CHECK_EQ(b.ddr[0x01000000 + cs1.size()], 0x5A, "byte after the CS1 image");
 	CHECK(!b.ddr_stray, "DDR3 write outside the flash windows");
-	CHECK_EQ(b.ddr_writes, (cs0.size() + cs1.size()) / 2, "DDR3 writes");
+	CHECK_EQ(b.ddr_writes, (cs0.size() + cs1.size()) / 2 + 2, "DDR3 writes");
 	printf("flash images: %llu DDR3 writes\n", (unsigned long long)b.ddr_writes);
 	// both images in: the CPU runs its program from CS0
 	{
@@ -386,8 +418,10 @@ int main(int argc, char **argv) {
 	}
 	// this program does not touch the display: the picture stays dark, the
 	// boot has started and has no first frame
-	b.frame();
-	CHECK(dark(b.frame()), "the picture after loading flash");
+	if (!firmware_only) {
+		b.frame();
+		CHECK(dark(b.frame()), "the picture after loading flash");
+	}
 	CHECK_EQ(count(5), 1, "one boot-start message");
 	CHECK_EQ(count(6), 0, "a frame message with no frame");
 	CHECK(!R.emu__DOT__boot_done, "the boot milestone with no frame");
@@ -435,6 +469,56 @@ int main(int argc, char **argv) {
 		CHECK_EQ(b.s1_writes, 0, "no write-back with nothing changed");
 	}
 
+	// PMM occupies the last 64 KiB of CS0. A subsequent ROM reload must
+	// preserve both mounted save windows, including their final words.
+	b.img2.resize(64u << 10, 0x3c);
+	R.emu__DOT__hps_io__DOT__sim_size = b.img2.size();
+	R.emu__DOT__hps_io__DOT__sim_mounted = 4;
+	b.ticks(30);
+	CHECK(R.emu__DOT__pm_loading, "PMM restore holds the board");
+	uint64_t pmm_deadline = b.clocks + 500000;
+	while (R.emu__DOT__pm_loading && b.clocks < pmm_deadline) b.tick();
+	CHECK(!R.emu__DOT__pm_loading, "PMM restore completed");
+	CHECK_EQ(b.pmm_reads, 16, "PMM reads from slot 2");
+	CHECK(memcmp(&b.ddr[0x02200000], b.img2.data(), b.img2.size()) == 0, "PMM mounted in its shared DDR window");
+	download(4, cs1);
+	CHECK(memcmp(&b.ddr[0x01400000], b.img1.data() + (4u << 20), 4u << 20) == 0, "CS1 reload preserves C:");
+
+	const auto check_nem4 = [&]() {
+		// Switch while both QD saves are mounted. Until F4 is also replaced, the
+		// mixed sizes must hold the CPU. The NEM-4 program then loads the mounted
+		// PMM and reads CS2 at two mirrors before storing the three values in RAM.
+		const uint32_t nem4_prog[] = {
+			0xe59f001c, 0xe5901000, 0xe59f2018, 0xe5923000, 0xe59f0014,
+			0xe5900000, 0xe59f2010, 0xe882000b, 0xeafffffe,
+			0x04000000, 0x04800000, 0x007f0000, 0x0a000000
+		};
+		std::vector<uint8_t> nem4_cs0(sizeof nem4_prog);
+		memcpy(nem4_cs0.data(), nem4_prog, sizeof nem4_prog);
+		b.cpu_writes.clear();
+		b.download(3, nem4_cs0, true, 8u << 20);
+		b.ticks(20000);
+		CHECK(!R.emu__DOT__images_in && b.cpu_writes.empty(), "mixed firmware sizes hold the CPU");
+		const std::vector<uint8_t> cs2_prefix = {0x78, 0x56, 0x34, 0x12};
+		b.download(4, cs2_prefix, true, 16u << 20, 8u << 20);
+		CHECK(R.emu__DOT__nem4 && R.emu__DOT__images_in, "8 + 16 MiB selects NEM-4");
+		CHECK(memcmp(&b.ddr[0x01800000], cs2_prefix.data(), cs2_prefix.size()) == 0, "F4 second half lands in CS2");
+		CHECK(memcmp(&b.ddr[0x01400000], b.img1.data() + (4u << 20), 4u << 20) == 0, "NEM-4 CS2 load preserves C:");
+		b.ticks(50000);
+		CHECK_EQ(b.cpu_writes.size(), 3, "NEM-4 test program executes");
+		if (b.cpu_writes.size() >= 3) {
+			CHECK(b.cpu_writes[0] == std::make_pair(0x0A000000u, 0x3C3C3C3Cu), "NEM-4 uses the mounted PMM at 0x007F0000");
+			CHECK(b.cpu_writes[1] == std::make_pair(0x0A000004u, 0x12345678u), "NEM-4 CS2 array read");
+			CHECK(b.cpu_writes[2] == std::make_pair(0x0A000008u, 0x12345678u), "NEM-4 CS2 mirror read");
+		}
+	};
+	if (firmware_only) {
+		check_nem4();
+		CHECK_EQ(b.dm.protocol_errors, 0, "DDRAM port protocol errors");
+		CHECK(!b.dm.bad_access, "DDR3 accesses stay inside the model");
+		return sim::finish("firmware profiles");
+	}
+
 	// A second program drives the real LCD interface as the firmware does: it
 	// wakes the panel (SLPOUT, DISPON), sets 12-bit pixels and MADCTL 0xD4,
 	// and sends RAMWR and a whole frame, pixel (x, y) = pattern(x, y), two
@@ -479,6 +563,7 @@ int main(int argc, char **argv) {
 	b.infos.clear();
 	b.cpu_writes.clear();
 	download(3, cs0);
+	CHECK(memcmp(&b.ddr[0x02200000], b.img2.data(), b.img2.size()) == 0, "CS0 reload preserves PMM");
 	b.ticks(20000);
 	CHECK(R.emu__DOT__boot_done, "the first RAMWR is the boot milestone");
 	CHECK_EQ(count(5), 1, "LCD program boot-start message");
@@ -571,6 +656,7 @@ int main(int argc, char **argv) {
 	b.frame();
 	compare(b.frame(), 0, "the picture drawn again after a reset");
 	printf("boot messages: checked through the CPU, the LCD interface and the video outputs\n");
+	check_nem4();
 	if (b.chip.errors) sim::fail("the SDRAM chip model reported %d error(s)", b.chip.errors);
 	if (b.dm.protocol_errors) sim::fail("%d DDRAM port protocol error(s)", b.dm.protocol_errors);
 	CHECK(!b.dm.bad_access, "DDR3 access outside the model");
