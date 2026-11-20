@@ -639,12 +639,15 @@ after the renaming of 2026-11-18, which changed no logic:
 
 Whole-core compiles of `NGage.qsf` in Quartus 17.0.2 Lite on the build
 server (`./build.sh remote compile`; `tools/seed_sweep.sh` for several
-fitter seeds at once). A given source and seed fit the same every time.
+fitter seeds at once). A given source, seed and build date fit the same
+every time; the date is the core's version string, and another day's
+build of the same source and seed can fit differently (0.2 ns in the one
+case measured, 2026-11-20).
 
-- The release of 2026-11-16 (seed 50): worst setup slack -1.362 ns at the
-  slow 100C corner and -1.414 ns at slow -40C against 104 MHz; sixteen
-  seeds of the same sources lie between that and -2.097 ns. Hold slack is
-  positive at every corner. 33,560 ALMs for the whole core.
+- The release of 2026-11-20 (seed 31337): worst setup slack -1.148 ns at
+  the slow 100C corner and -1.321 ns at slow -40C against 104 MHz; sixteen
+  seeds of the same sources lie between that and -1.988 ns. Hold slack is
+  positive at every corner. 33,938 ALMs for the whole core.
 - So the timing report does not show 104 MHz; the core runs on the board
   regardless. The failing paths are in the CPU: the D-cache's answer and
   the TLB result into the pipeline's hot readers. What was tried, and why

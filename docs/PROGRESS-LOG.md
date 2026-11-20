@@ -11209,3 +11209,70 @@ the two firmware files where each is first mentioned (28da7b9).
 Next: nothing is queued. A second read-ahead entry or a longer tail has
 little left to find: at most about half of the load misses are in order
 at all (2026-11-10).
+
+## 2026-11-20: sixteen seeds of the released sources, the build date in the fit, and the release NGage_20261120.rbf
+
+No source changed this day. The release of the day before had one fitted
+seed; the build server's one lane now fitted sixteen seeds of the same
+sources (bb05197), each from an empty folder, about 18 minutes a seed.
+
+**The sweep.** Worst setup slack at slow 100C / slow -40C against
+104 MHz, by the worse of the two corners:
+
+    seed 31337   -1.148 / -1.321      seed 70     -1.575 / -1.526
+    seed 13      -1.292 / -1.340      seed 120    -1.639 / -1.601
+    seed 90      -1.286 / -1.395      seed 5      -1.570 / -1.645
+    seed 30      -1.462 / -1.378      seed 9      -1.535 / -1.788
+    seed 50      -1.468 / -1.294      seed 1337   -1.805 / -1.642
+    seed 110     -1.491 / -1.371      seed 40     -1.875 / -1.486
+    seed 20      -1.560 / -1.472      seed 100    -1.931 / -1.816
+    seed 60      -1.520 / -1.569      seed 80     -1.988 / -1.953
+
+Hold, recovery and removal are positive at every corner of every seed.
+The mean of the worse corner is -1.616 ns; the release of the 19th
+(-1.478 / -1.412) would be sixth of seventeen.
+
+**The build date is part of the fit.** Seed 5 was in the sweep as a
+control and did not give the release's fit: -1.570 / -1.645 ns and 33,833
+ALMs, where the release, built the day before from the same sources with
+the same seed, has -1.478 / -1.412 and 33,924. GitHub's build of the
+release commit, also made on the 19th, had matched the release in both
+corners. What differs is the date. The framework writes the build's date
+(UTC) into `build_id.v`, the core shows it as its version, and it is six
+characters of the configuration string, which is logic. Synthesis reports
+the same counts for both dates (75,611 resources, 71,110 logic cells), so
+only the contents of a few lookup tables differ; the fit differs all the
+same. This rests on those three builds; no build was made with the date
+set back. On 2026-11-16 a build made a UTC day after the release did
+match it, so not every date changes the fit. What follows:
+- a seed's slack belongs to the date it was built on, and fits that are
+  compared with each other should be built on the same date;
+- a release takes the sweep's own file, not a rebuild on a later day;
+- GitHub's build of a release commit gives the released file only when it
+  runs on the release build's date.
+
+**The release: `releases/NGage_20261120.rbf`**, md5
+75df8ad856497276b64e7e978bb5522c: the sweep's seed-31337 file, -1.148 /
+-1.321 ns, 33,938 ALMs, with the seed now in `NGage.qsf`. The logic is
+that of NGage_20261119.rbf, which is removed; only the fit and the
+version string differ. On the board:
+- SPMark04, one pass of all nine tests from the RAM disk, beside the
+  release before run the same way: 3D Game 8.98 fps (8.98), FillRate 1.73
+  (1.73), PolyCount 29.76 (29.73), 2D Image 37.96 (38.05), Image Scaling
+  1.89 (1.89), JPEG 169.64 (169.34), Contacts 3.50 (3.49), Calendar 7.15
+  (7.07), Disk Access 22.07 (22.07);
+- then as the board's installed core: Sonic N into its first zone, the
+  level timer in step with real time, and Tony Hawk into the Warehouse,
+  about two minutes each.
+No bench was run: nothing but the seed changed in the tree. Released at
+the user's word ("Let's swap it").
+
+**A 1 GB card**, earlier that day on NGage_20261119.rbf: a FAT16 card
+image of 1,073,480,192 bytes (2,096,640 blocks, 16 KB clusters) with 48
+games mounts, the phone's menu lists the games, and nine of them were
+started from a blank C: and reached play; the image was not written to.
+Games that need a different build of a shared library than the one in
+`System/Libs` run with their own copy beside their program: the loader
+takes the program's folder first.
+
+Next: nothing is queued.
