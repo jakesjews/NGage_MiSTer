@@ -6,7 +6,8 @@
 //
 //   0x0C120000-0x0C12003F  clock and system page: storage; 0x0C120020 bits
 //                          26-28 read 1, the DPLLs locked (bootstrap polls bit
-//                          26 at 0x3770, bit 27 at 0x382C; model/upp-quirks.txt)
+//                          26 at 0x3770, bit 27 at 0x382C). Bit 25 is ready
+//                          while clock control holds 0x20 or 0x40 (native NOS).
 //   0x0C120040-0x0C12007F  OS-timer interrupt unit          upp_intc
 //   0x0C120100-0x0C12027F  interrupt controller             upp_intc
 //   0x0C120300-0x0C1204FF  DMA controller, 8 channels       upp_dma
@@ -18,6 +19,7 @@
 //   0x0C150014, 0x0C150016 CTSI interrupt enables (the Bluetooth module's
 //                          line)                             upp_uif
 //   0x0C150100, 0x0C150102 CTSI interrupt status            upp_uif
+//   0x0C150112, 0x0C150114 CTSI delay calibration           upp_uif
 //   0x0C150400-0x0C15041F  UIF ports D/E (keypad)           upp_uif
 //   0x0C150420-0x0C150427  CBUS master, UEMK and the rest   upp_cbus
 //   0x0C1F0000-0x0C1F00FF  HLE audio device (emulator)      upp_haudio
@@ -66,7 +68,7 @@ module upp_periph #(
 	parameter int LCD_RD_HIGH        = 6,
 	parameter int DMA_ENGINES        = 3,
 	parameter int POWER_ON_HOLD_CLKS = 312_000_000,    // 3 s, as the model
-	parameter int CLK_HZ             = 104_000_000     // for the audio device
+	parameter int CLK_HZ             = 104_000_000     // for the audio device and CTSI
 ) (
 	input  logic        clk,
 	input  logic        reset,
@@ -176,6 +178,8 @@ module upp_periph #(
 	wire s_tmr  = pg20 && off >= 12'hA00 && off < 12'hAC0;
 	wire s_lcd  = pg21 && off >= 12'h200 && off < 12'h210;
 	wire s_ctsi = pg50 && (off == 12'h100 || off == 12'h014);
+	wire s_cal_counter = pg50 && off == 12'h110;
+	wire s_cal_window  = pg50 && off == 12'h114;
 	wire s_kp   = pg50 && off >= 12'h400 && off < 12'h420;
 	wire s_cbus = pg50 && off >= 12'h420 && off < 12'h428;
 	wire s_aud  = pgF0 && off < 12'h100;
@@ -229,11 +233,12 @@ module upp_periph #(
 	logic [12:0] clr;
 	logic [31:0] st_q;
 	wire  [12:0] st_idx = {slot, p_addr[11:2]};
+	wire  [3:0]  st_be = p_be & {{2{!s_cal_counter}}, {2{!s_cal_window}}};
 
 	bram32 #(.AW(13)) storage (
 		.clk(clk),
 		.we(init_busy || (wr && in_c1)),
-		.be(init_busy ? 4'b1111 : p_be),
+		.be(init_busy ? 4'b1111 : st_be),
 		.waddr(init_busy ? clr : st_idx),
 		.wdata(init_busy ? 32'd0 : p_wdata),
 		.raddr(st_idx),
@@ -422,14 +427,15 @@ module upp_periph #(
 		.d_i(lcd_d_i)
 	);
 
-	upp_uif uif (
+	upp_uif #(.CLK_HZ(CLK_HZ)) uif (
 		.clk(clk),
 		.reset(reset),
-		.acc(acc && (s_ctsi || s_kp)),
-		.wr(wr && (s_ctsi || s_kp)),
+		.acc(acc && (s_ctsi || s_kp || s_cal_counter || s_cal_window)),
+		.wr(wr && (s_ctsi || s_kp || s_cal_window)),
 		.off(off),
 		.hi(p_be[2]),
 		.wdata(p_wdata),
+		.calibration_window_be(p_be[1:0]),
 		.rmask(m_uif),
 		.rdata(d_uif),
 		.bt_irq(bt_irq),
@@ -470,9 +476,23 @@ module upp_periph #(
 		.rtc_base(rtc_base)
 	);
 
-	// the read quirks of the clock page and the DPLL (model/upp-quirks.txt)
-	wire [31:0] m_q = (acc && pg20 && off == 12'h020) ? 32'h1C00_0000 :
+	// Mirror the control word so its state is available during a status read.
+	// This is the immediate ready response used by the NEM-4 clock model.
+	logic [31:0] clock_control;
+	always_ff @(posedge clk) begin
+		if (reset) clock_control <= 32'd0;
+		else if (wr && pg20 && off[11:2] == 10'h001) begin
+			for (int lane = 0; lane < 4; lane++) begin
+				if (p_be[lane]) clock_control[8*lane +: 8] <= p_wdata[8*lane +: 8];
+			end
+		end
+	end
+
+	wire nos_clock_ready = clock_control == 32'h20 || clock_control == 32'h40;
+	wire clock_status = acc && pg20 && off == 12'h020;
+	wire [31:0] m_q = clock_status ? 32'h1E00_0000 :
 	                  (acc && pg49 && off == 12'h000) ? 32'h0000_0001 : 32'd0;
+	wire [31:0] d_q = clock_status ? (32'h1C00_0000 | {6'd0, nos_clock_ready, 25'd0}) : m_q;
 	// the HLE RTC date register
 	wire [31:0] m_date = (acc && s_date) ? 32'hFFFF_FFFF : 32'd0;
 	wire [31:0] d_date = (off[3:0] == 4'h0) ? rtc_base :
@@ -481,7 +501,7 @@ module upp_periph #(
 	wire [31:0] rmask = m_intc | m_tmr | m_dma | m_mmc | m_lcd | m_uif | m_cbus | m_aud | m_date | m_q;
 	wire [31:0] rbits = (d_intc & m_intc) | (d_tmr & m_tmr) | (d_dma & m_dma) | (d_mmc & m_mmc) |
 	                    (d_lcd & m_lcd) | (d_uif & m_uif) | (d_cbus & m_cbus) | (d_aud & m_aud) |
-	                    (d_date & m_date) | m_q;
+	                    (d_date & m_date) | d_q;
 	assign blk_busy = (s_mmc && b_mmc) || (s_lcd && b_lcd) || (s_cbus && b_cbus);
 
 	always_ff @(posedge clk) begin

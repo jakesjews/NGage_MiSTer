@@ -20,11 +20,6 @@ year << 16 | month << 8 | day (rows 44-46), the audio peaks of the last
 frame {left[15:0], right[15:0]} (rows 48-50), {kernel-text writes
 dropped[7:0], 7'b0, dumping, 16'b0} (rows 52-54), then the 33 per-second
 counters of rtl/mister/dbg_counters.sv (rows 56-186; NGage.sv names them).
-Appended word 45 (rows 188-190) holds loader ready[31], busy[30], have[29:28]
-(bit 0 MCU, bit 1 language), last ioctl index[27:22], last note[21:19], parser
-state[18:14]. Word 46 (rows 192-194) holds F1..F4 start counts[31:16] as four
-saturating 4-bit counters and the full current-file error count[15:0]. These
-words keep updating during CPU reset; sys_reset (RESET/PLL unlock) clears history.
 
 A second column at x 56..87 (the same rows from 8 on; cores from 2026-11-10)
 starts with a marker ("NGE2", "NGE3" or "NGE4") and holds the exception counters of NGage.sv
@@ -74,7 +69,7 @@ def decode(path):
     bits = [bit(im, scale, 16 + i, 5) for i in range(8)]
     flags = " ".join("%s=%d" % (n, v) for n, v in zip(NAMES, bits))
     words = []
-    for row in range(9, 9 + 4 * 47, 4):     # 12 fixed words, 33 counters, 2 loader words
+    for row in range(9, 9 + 4 * 45, 4):     # 12 fixed words, 33 counters
         w = 0
         for i in range(32):
             w = (w << 1) | bit(im, scale, 16 + i, row)
@@ -86,7 +81,7 @@ def decode(path):
         path, pc, flags, words[0], words[1], words[2], words[3], words[4], words[5], cat,
         words[6], words[7] >> 24, (words[7] >> 16) & 0xFF, words[7] & 0xFFFF, w11 >> 24,
         w8 >> 31, (w8 >> 16) & 0x1F, (w8 >> 8) & 0x3F, w8 & 0x3F, w9 >> 16, (w9 >> 8) & 0xFF, w9 & 0xFF,
-        w10 >> 16, w10 & 0xFFFF) + counters(words[12:45]) + loader(words[45:47]) + exceptions(im, scale)
+        w10 >> 16, w10 & 0xFFFF) + counters(words[12:45]) + exceptions(im, scale)
 
 
 COL2_MARKS = {0x4E474532: 19, 0x4E474533: 27, 0x4E474534: 39}      # "NGE2", "NGE3", "NGE4": the number of counters
@@ -139,18 +134,6 @@ def exceptions(im, scale):
                 pct(user), pct(p_swi), pct(p_irq), pct(p_fiq), pct(p_dabt), pct(p_pabt), pct(p_und), pct(other),
                 u_instr / 1e6, k_abt, k_swi, k_int, long1, long2,
                 swi_pc, mode(cpsr), dabt_pc, mode(cpsr >> 8), pabt_pc, mode(cpsr >> 16), und_pc, mode(cpsr >> 24)) + more)
-
-
-def loader(w):
-    state, history = w
-    counts = [(history >> shift) & 15 for shift in (28, 24, 20, 16)]
-    starts = "/".join("15+" if n == 15 else str(n) for n in counts)
-    notes = {0: "none", 1: "damaged", 2: "unrecognised", 3: "loaded", 4: "reload-both"}
-    note = (state >> 19) & 7
-    return (
-        " | loader: ready=%d busy=%d have=%s last=F%d starts[F1/F2/F3/F4]=%s note=%d(%s) errors=%d state=%d" % (
-            state >> 31, (state >> 30) & 1, format((state >> 28) & 3, "02b"),
-            (state >> 22) & 63, starts, note, notes.get(note, "unknown"), history & 65535, (state >> 14) & 31))
 
 
 def counters(w):

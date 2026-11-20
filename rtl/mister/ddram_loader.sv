@@ -4,7 +4,7 @@
 // DDR3 through the framework's DDRAM port, where the flash models' memory
 // ports will read them.
 //
-// Development ioctl_index 3 is CS0 (16 MB), 4 is CS1 (8 MB). They go to
+// ioctl_index 3 is CS0 (16 MB), 4 is CS1 (8 MB). They go to
 // ARM addresses 0x31000000 and 0x32000000, in the 0x30000000 block that
 // MiSTer cores use and Linux does not (research/hps-hybrid/MISTER-DDR3-MAP.md);
 // the SDRAM image the guest will use sits below at 0x30000000. Bytes past a

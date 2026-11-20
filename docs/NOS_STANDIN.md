@@ -1,5 +1,9 @@
 # NOS stand-in: the modem side at the ISI level
 
+This describes the stand-in in the existing QD release. Integration builds
+load original NOS. Use the release RBF or explicitly enable the stand-in in
+the reference model for comparison.
+
 The N-Gage's cellular software (NOS) runs the modem side of the phone: its
 clocks, the UEM, the DSP, the SIM card. The core has none of that hardware,
 so NOS does not run here: started as it is, it waits for ever at `0x514A6DC4`
@@ -29,8 +33,8 @@ against the code that made it on the phone:
 writes CS0 with the area decoded (ROM address = `0x50000000` + offset below
 `0xF00000`). None of the replies has been checked that way yet.
 
-The stand-in is ARMv4T code in the patched flash image, so the model and
-the FPGA core run the same binary:
+The stand-in is ARMv4T code in the patched flash image. The release RBF and
+the opt-in reference model use the same sources.
 
 - `firmware-patches/nos-stub/nos_stub.S`: the NOS entry that nosstarter.ext calls
   (variant services, flags, power model, rtc event with the base date; see
@@ -44,9 +48,8 @@ the FPGA core run the same binary:
 - `firmware-patches/nos-stub/nos_audio.h`: PCM playback through the HLE audio device
   (see [Audio](#audio)).
 - `firmware-patches/rom-patches.txt` places both binaries (`cs0file`
-  lines, the committed builds in `firmware-patches/bin`); the core's patch
-  ROM (`tools/gen_patchrom.py`) and `tools/mkimage.py` are made from the
-  same list.
+  lines, the committed builds in `firmware-patches/bin`). For a patched
+  comparison image, pass that list to `tools/mkimage.py --patches`.
 
 Every reply is a guess about NOS, written from how the Symbian client
 parses it. The core runs firmware 4.10; the client code was read in the 4.60

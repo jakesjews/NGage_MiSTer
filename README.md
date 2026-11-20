@@ -5,6 +5,13 @@ reconstruction of its hardware, so N-Gage game cards run as they did on the
 phone. The cellular side is not emulated: the phone comes up as a handset
 with no SIM.
 
+The setup below describes the existing RBF in [releases/](releases/).
+New integration builds load flat stock flash arrays (`cs0.bin` and
+`cs1.bin`) through **Load flash CS0 image** and **Load flash CS1 image**.
+The host tool assembles the service files into those arrays. Native NOS
+startup is still under development.
+See the [firmware integration plan](docs/FIRMWARE-PROFILES.md).
+
 ## What you need
 
 - A MiSTer with an SDRAM module (32 MB or larger).

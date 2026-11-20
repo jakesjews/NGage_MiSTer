@@ -13,15 +13,15 @@ machine+=",quirks=model/upp-quirks.txt,cbus-regs=model/cbus-regs.txt,cbus-log=$o
 # The Bluetooth module's resets and the HCI packets either way ("HCI<" from
 # the phone, "HCI>" to it).
 machine+=",bt-log=$out/bt.log"
-# The firmware patches, with the model's own build of the stand-ins
-# (model/.build, from the working tree) in place of the committed binaries
-# the list names. NGAGE_PATCHES=FILE takes another list as it is.
+# A comparison can use the historical stand-in from model/.build or an
+# explicit patch list. The normal model loads the firmware as supplied.
 patches=${NGAGE_PATCHES:-}
-if [[ -z "$patches" ]]; then
+if [[ "$patches" == standin ]]; then
     patches=$out/rom-patches.txt
     sed 's|firmware-patches/bin/|model/.build/|' firmware-patches/rom-patches.txt > "$patches"
 fi
-machine+=",rom-patches=$patches,kern-log=$out/kern.log,mmc-log=$out/mmc.log"
+[[ -n "$patches" ]] && machine+=",rom-patches=$patches"
+machine+=",kern-log=$out/kern.log,mmc-log=$out/mmc.log"
 [[ -n "${NGAGE_TRACE:-}" ]] && machine+=",trace=$NGAGE_TRACE"
 [[ -n "${NGAGE_KEYS:-}" ]] && machine+=",keys=$NGAGE_KEYS"
 [[ -n "${NGAGE_MMC:-}" ]] && machine+=",mmc=$NGAGE_MMC"

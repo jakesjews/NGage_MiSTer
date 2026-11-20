@@ -2,22 +2,22 @@ VERILATOR ?= verilator
 
 # Modules linted as tops of their own, so that a block is checked with its
 # default parameters even where the shell ties ports off.
-LINT_TOPS := emu lcd_panel video_out keypad_matrix nor_flash mmc_card ngage_input ddram_loader phoenix_load dbg_trace dbg_sti dbg_counters \
+LINT_TOPS := emu lcd_panel video_out keypad_matrix nor_flash mmc_card ngage_input ddram_loader dbg_trace dbg_sti dbg_counters \
              sdram ddram_flash upp_bus ngage_mem flash_save rtc_wall \
              upp_periph upp_intc upp_timers upp_dma upp_mmc upp_lcdif upp_uif upp_cbus upp_haudio wb_arb2
 
-.PHONY: help lint lint-prepare test clean cpu-gen cpu-gen-check standin standin-check image-check patchrom patchrom-check scramble-check
+.PHONY: help lint lint-prepare test clean cpu-gen cpu-gen-check standin standin-check image-check scramble-check
 
 help:
 	@echo "make lint   Lint the RTL with Verilator (-Wall)"
 	@echo "make test   Build and run every Verilator bench in sim/ (one at a time)"
 	@echo "make -C sim <bench>   One bench: lcd video keypad flash mmc bt sdram sdram-faults ddrflash upp"
-	@echo "                      intc timers haudio periph save phoenix phoenix-real top"
+	@echo "                      intc timers haudio periph save top"
 	@echo "make clean  Remove sim/build"
 	@echo "make cpu-gen        Regenerate rtl/cpu/arm925t_gen.v (tools/gen_cpu.sh, needs sv2v)"
 	@echo "make cpu-gen-check  Check that rtl/cpu/arm925t_gen.v matches its sources"
 	@echo "make -C sim/cpu     CPU tests (see sim/cpu/Makefile)"
-	@echo "make standin        Rebuild firmware-patches/bin (the NOS stand-in binaries the patches put in CS0)"
+	@echo "make standin        Rebuild the historical NOS stand-in control binaries"
 	@echo "make standin-check  Check that firmware-patches/bin matches firmware-patches/nos-stub"
 	@echo "make image-check CS0=.. CS1=..  Check tools/mkimage.py against the model's own patcher"
 	@echo "make scramble-check Check the flash scrambler's tables (tools/nos_scramble.py, model/hw/ngage_scramble.h)"
@@ -91,10 +91,3 @@ image-check:
 scramble-check:
 	python3 -I tools/nos_scramble.py --selftest
 	python3 -I tools/nos_scramble.py --check-c model/hw/ngage_scramble.h
-
-# Only project-owned NOS code and fixed integrity-table digests enter this ROM.
-patchrom:
-	python3 -I tools/gen_patchrom.py
-
-patchrom-check:
-	python3 -I tools/gen_patchrom.py --check

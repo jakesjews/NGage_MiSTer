@@ -135,8 +135,8 @@ the other master), with `irq`/`fiq` from the UPP interrupt controller
 (`upp_periph`).
 
 - Reset: a flip-flop holds the CPU in reset with the memory system and
-  until the firmware is in DDR3 and the C: save is mounted (`NGage.sv`,
-  `rtl/mister/phoenix_load.sv`). It then boots from CS0 at 0 and runs
+  until both flash arrays are in DDR3 and any active C: restore has finished
+  (`NGage.sv`). It then boots from CS0 at 0 and runs
   until the next core reset (OSD reset, the user button, new firmware).
 - The picture is black until the firmware wakes the panel through the
   UPP's LCD interface. (A memory test and a test picture shared the bus and

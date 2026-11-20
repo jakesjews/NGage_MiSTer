@@ -37,8 +37,13 @@
 //   +0x016  write 1s: enable them (0x503F0B48); both read the enables
 // CTSI_IRQ (source 25, shared with cbus.dll) is high while bit 2 or 3 is set
 // or the module's bit is, enabled.
-// Accesses are 16-bit (upp_periph drops others, as the model's regions do).
-module upp_uif (
+// Native NOS delay calibration uses the free-running down-counter at +0x112
+// and the programmable reload window at +0x114. The model uses the NEM-4
+// approximation of 32.768 kHz. Other lanes retain their register storage.
+// Keypad and interrupt accesses are 16-bit, as enforced by upp_periph.
+module upp_uif #(
+	parameter int CLK_HZ = 104_000_000
+) (
 	input  logic        clk,
 	input  logic        reset,
 
@@ -47,6 +52,7 @@ module upp_uif (
 	input  logic [11:0] off,          // byte offset in the 0x0C150000 page
 	input  logic        hi,           // the access is to the upper halfword (bytes 3:2)
 	input  logic [31:0] wdata,
+	input  logic [1:0]  calibration_window_be,
 	output logic [31:0] rmask,
 	output logic [31:0] rdata,
 
@@ -82,14 +88,50 @@ module upp_uif (
 
 	wire is_ctsi = off == 12'h100;
 	wire is_cten = off == 12'h014;
+	wire is_calibration_counter = off == 12'h110;
+	wire is_calibration_window  = off == 12'h114;
 	wire [4:0] w = {off[4:2], hi, 1'b0};          // the 16-bit register's offset
 	wire [15:0] wv = hi ? wdata[31:16] : wdata[15:0];
+
+	localparam int CAL_DIV = (CLK_HZ + 16_384) / 32_768;
+	localparam int CAL_DIV_BITS = CAL_DIV > 1 ? $clog2(CAL_DIV) : 1;
+	localparam logic [15:0] CAL_DEFAULT_WINDOW = 16'h0080;
+	logic [CAL_DIV_BITS-1:0] calibration_divider;
+	logic [15:0] calibration_counter, calibration_window;
+	wire [15:0] calibration_reload = calibration_window == 16'd0 ? CAL_DEFAULT_WINDOW : calibration_window;
+	wire [15:0] next_calibration_window = {
+		calibration_window_be[1] ? wdata[15:8] : calibration_window[15:8],
+		calibration_window_be[0] ? wdata[7:0] : calibration_window[7:0]
+	};
+	wire calibration_tick = calibration_divider == CAL_DIV_BITS'(CAL_DIV - 1);
+
+	always_ff @(posedge clk) begin
+		if (reset) begin
+			calibration_divider <= '0;
+			calibration_counter <= CAL_DEFAULT_WINDOW;
+			calibration_window  <= 16'd0;
+		end else begin
+			calibration_divider <= calibration_tick ? '0 : calibration_divider + 1'd1;
+			if (wr && is_calibration_window && |calibration_window_be) begin
+				calibration_window <= next_calibration_window;
+				calibration_counter <= next_calibration_window == 16'd0 ? CAL_DEFAULT_WINDOW : next_calibration_window;
+			end else if (calibration_tick) begin
+				calibration_counter <= calibration_counter == 16'd0 ? calibration_reload : calibration_counter - 16'd1;
+			end
+		end
+	end
 
 	always_comb begin
 		rmask = 32'd0;
 		rdata = 32'd0;
 		if (acc) begin
-			if (is_ctsi) begin
+			if (is_calibration_counter) begin
+				rmask = 32'hFFFF_0000;
+				rdata = {calibration_counter, 16'd0};
+			end else if (is_calibration_window) begin
+				rmask = 32'h0000_FFFF;
+				rdata = {16'd0, calibration_reload};
+			end else if (is_ctsi) begin
 				rmask = '1;
 				rdata = {11'd0, bt_latch && bt_en[4], 4'd0, ctsi};
 			end else if (is_cten) begin
@@ -126,7 +168,7 @@ module upp_uif (
 
 		if (bt_irq) bt_latch <= 1'b1;
 
-		if (wr) begin
+		if (wr && !is_calibration_counter && !is_calibration_window) begin
 			if (is_ctsi && hi) begin
 				// the module's bit clears when written 1 (and stays set by a pulse now)
 				if (wv[4] && !bt_irq) bt_latch <= 1'b0;

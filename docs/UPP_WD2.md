@@ -40,7 +40,7 @@ first access is logged to `model/.out/regs.log`.
 | Address | Name / guess | Behaviour in the model | Evidence | Conf. |
 |---|---|---|---|---|
 | `0x0C120004` | clock source select | storage | bootstrap `0x376C` writes `0xC`, ekern restart writes `0x200` | B |
-| `0x0C120020` | clock status | bits 26-28 read as 1 (DPLL locked) | bootstrap polls bit 26 at `0x3770`, bit 27 at `0x382C` (`upp-quirks.txt`) | A |
+| `0x0C120020` | clock status | Bits 26–28 read as 1 (DPLL locked). The RTL reports bit 25 while clock control `0x0C120004` holds `0x20` or `0x40`. | The bootstrap polls bit 26 at `0x3770` and bit 27 at `0x382C`. Original QD 4.10 NOS writes `0x40` then `0x20` and polls bit 25 at `0x514A6DCC`. The immediate ready response follows the NEM-4 model. | A (guest access), model (ready timing) |
 | `0x0C120044` | OS-timer unit: interrupt enable, bits 2:0 | drives FIQ with `+0x50` | ekern `0x5031C7A8` writes 2 (`ngage_intc.c`) | B |
 | `0x0C120050` | OS-timer unit: status, write 1 to clear | nothing sets it yet | FIQ dispatcher `0x5031C99C`: bit 1 = tick (`0x5031C938`) | B (layout), C (source) |
 | `0x0C120074` | OS-timer unit: unknown | storage | ekern `0x5031C724` writes 3 | C |
@@ -183,6 +183,8 @@ phone shows; idle mode's colours are DCS behaviour, not checked on a phone.
 | `0x0C150014`, `0x0C150016` | CTSI interrupt enables, second group: write 1s to disable / to enable; both read the enables | `ngage_bt.c` | btldd `0x503F084C` (close) and `0x503F0B48` (open) write `0x10` | B (use), C (reads) |
 | `0x0C150010`, `0x0C150012` | the same for the first group (guess) | storage | ekern writes `0x8000` to `+0x10`, cbus.dll `0x8000` to `+0x12` after binding its UEMK handler (`0x5037DC20`) | C |
 | `0x0C150100` | CTSI interrupt status: bit 2 = port E (key rows) interrupt, bit 3 = port D (guess); write 1 to clear; behind main source 25. Bit 15 is the UEMK's (cbus.dll `0x5037D4F4`), not modelled | `ngage_keypad.c` | ekeyb CTSI ISR 0x5041B9E0 tests bit 2, acks with 0xC at 0x5041CD6C; bootstrap writes 0x8000 (0x2EE4) | B |
+| `0x0C150112` | Read-only CTSI delay-calibration down-counter | Counts through zero and reloads from the window, at approximately 32.768 kHz | QD 4.10 NOS `0x514C2C7C` computes start minus current modulo window plus one | A (guest arithmetic), model (rate) |
+| `0x0C150114` | CTSI calibration window | Byte-writable 16-bit reload, with `0x0080` selected by reset or zero | The original NOS reads the window and waits for half that many ticks. The default and reload on write are model choices. | A (guest use), model (default) |
 | `0x0C150102` | CTSI interrupt status, second group: bit 4 = the Bluetooth module's line, latched from its pulse; write 1 to clear; behind source 25 too. It reads as set, and interrupts, only while enabled at `+0x16`: a guess and the safe one, since cbus.dll faults ("CBus:" 7) on the bit with no driver registered | `ngage_bt.c` | cbus.dll's second handler on IrqCTSI_IRQ `0x5037D5BC` tests bit 4 and calls btldd's, which writes `0x10` (`0x503F0B68`); `docs/BLUETOOTH.md` | A (bit, clear), C (masked read) |
 | `0x0C150200`-`0x0C150218` | PUP GENIO set/reset/input/direction | storage | bootstrap `0x3A24`, `0x67C0` (LCD /RES = GENIO4) | B |
 | `0x0C150400`/`0x0C15040C` | UIF port D (key columns, 5 bits) / port E (key rows, 6 bits) data: output latch, reads pin levels | `ngage_keypad.c` | ekeyb 0x5041CBA8 (reads, inverts, keeps 0x1F/0x3F) | A |

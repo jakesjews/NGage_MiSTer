@@ -29,9 +29,6 @@
 #include "common.h"
 #include "ddram_model.h"
 #include "sdram_model.h"
-#include "phoenix_stream.h"
-#include <fstream>
-
 #include <cstring>
 #include <utility>
 #include <vector>
@@ -95,7 +92,7 @@ struct Bench {
 
 	// slot 1, served when slot 0 is quiet: reads of blk_cnt + 1 blocks; a
 	// write request is only counted (nothing should ask for one here)
-	void download(int index, const std::vector<uint8_t> &data, bool settle = true) {
+	void download(int index, const std::vector<uint8_t> &data) {
 		auto &h = *r;
 		h.emu__DOT__hps_io__DOT__sim_index = index;
 		h.emu__DOT__hps_io__DOT__sim_download = 1;
@@ -116,11 +113,7 @@ struct Bench {
 		wait(); ticks(5);
 		h.emu__DOT__hps_io__DOT__sim_download = 0;
 		ticks(5);
-		if (!settle) return;             // as Main: on to the next file at once
-		uint64_t end = clocks + 1000000;
-		while (h.emu__DOT__ph_busy && clocks < end) tick();
-		CHECK(clocks < end, "Phoenix patch/verify timeout");
-		ticks(20);
+
 	}
 
 	void s1_step() {
@@ -288,177 +281,11 @@ bool dark(const sim::Image &got) {
 
 }  // namespace
 
-// Exercise the actual ioctl -> shared DDR port -> version read -> patch path.
-// Separate shell instance leaves the existing video/CPU regression independent.
-static void test_phoenix(const std::string &out) {
-	Bench b;
-	auto &r = *b.r;
-	b.ticks(30000);
-	r.emu__DOT__hps_io__DOT__sim_rtc[0] = 0x01120000;
-	r.emu__DOT__hps_io__DOT__sim_rtc[1] = 0x00000406;
-	r.emu__DOT__hps_io__DOT__sim_rtc[2] = 1;
-	b.ticks(20);
-	static const uint32_t prog[] = {0xE3A0040A,0xE59F1010,0xE5801000,0xE5902000,
-	                                0xE2822001,0xE5802004,0xEAFFFFFE,0x12345678};
-	phoenix::Bytes code(sizeof prog); memcpy(code.data(), prog, sizeof prog);
-	// The program is in the first 64 KB of CS0: the language pack's area
-	// (rtl/mister/phoenix_load.sv), so the pack's stream carries it.
-	auto mcu = phoenix::mcu();
-	auto lang = phoenix::language(); phoenix::record(lang, 0x14, 0, code);
-	// Framework order with no launcher: Main sends boot0.rom, the MCU file
-	// (index 0), and then boot1.rom, the language pack (file number 1 in index
-	// bits 7:6, no menu index: 0x40).
-	b.download(0, mcu);
-	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "MCU alone cannot boot");
-	CHECK_EQ(b.ddr[0x10185], 255, "Phoenix FF gap");
-	CHECK_EQ(b.ddr[0xFFFFFF], 255, "CS0 fill reaches last byte");
-	CHECK_EQ(b.ddr[0x13FFFFF], 255, "CS1 firmware fill reaches last byte");
-	CHECK_EQ(b.ddr[0x1400000], 0x5A, "Phoenix fill stops before C:");
-	CHECK_EQ(b.ddr[0x10180], 1, "21 record data");
-	CHECK_EQ(b.ddr[0x84], 255, "the MCU file leaves the first 64 KB to the pack");
-	CHECK_EQ(b.ddr[0x1000003], 0x11, "14 CS1 record data");
-	b.download(0x40, lang);
-	CHECK(r.emu__DOT__ph_ready && r.emu__DOT__cpu_reset, "both files still need C:");
-	CHECK_EQ(b.ddr[0xF00001], 6, "language mapped");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 8), 1, "4.10 OSD message");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 0, "valid checksums");
-	std::ifstream hex("rtl/mister/phoenix_patch.hex");
-	phoenix::Bytes patch; unsigned x;
-	while (hex >> std::hex >> x) patch.push_back(x);
-	CHECK(!patch.empty(), "patch fixture read");
-	for (size_t p = 0; p < patch.size() && patch[p] != 255;) {
-		unsigned chip = patch[p++], off = 0, n = 0;
-		for (int i = 0; i < 3; i++) off = (off << 8) | patch[p++];
-		for (int i = 0; i < 4; i++) n = (n << 8) | patch[p++];
-		CHECK(!memcmp(b.ddr + chip * 0x1000000 + off, patch.data() + p, n), "full patch payload in DDR3"); p += n;
-	}
-	// Framework order: both ROMs, then boot0.vhd. Only C: is loaded.
-	b.img1.assign(4u << 20, 255);
-	r.emu__DOT__hps_io__DOT__sim_size = b.img1.size();
-	r.emu__DOT__hps_io__DOT__sim_readonly = 0;
-	r.emu__DOT__hps_io__DOT__sim_mounted = 2;
-	b.ticks(100);
-	CHECK(r.emu__DOT__cpu_reset && r.emu__DOT__fs_loading, "CPU held through C: load");
-	uint64_t end = b.clocks + 20000000;
-	while (r.emu__DOT__fs_loading && b.clocks < end) b.tick();
-	CHECK(b.clocks < end, "4 MB mount finished");
-	CHECK_EQ(b.s1_reads, 1024, "4 MB save reads");
-	CHECK(!memcmp(b.ddr + 0x1400000, b.img1.data(), b.img1.size()), "C: image loaded");
-	CHECK_EQ(b.ddr[0x1000003], 0x11, "save preserved Phoenix firmware");
-	CHECK(r.emu__DOT__c_blank, "blank C: enables first-boot fast format");
-	b.ticks(10000);
-	CHECK(!r.emu__DOT__cpu_reset && b.cpu_writes.size() == 2, "CPU starts only after patch and save");
-	// Reproduce the board's suspected single MCU resend during a running phone.
-	// The warning must arrive after transfer and the diagnostics remain readable
-	// with the CPU held in reset. Sending its companion restores the pair.
-	b.download(1, mcu);
-	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "single MCU resend waits for companion");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 10), 1, "reload both OSD message");
-	r.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 8;
-	b.frame(); auto reload = b.frame();
-	reload.write_ppm(out + "/top_phoenix_reload.ppm");
-	auto word = [](const auto &frame, int row) {
-		uint32_t value = 0;
-		for (int x = 16; x < 48; x++) value = (value << 1) | (frame.get(x, row) == 0xFFFFFF);
-		return value;
-	};
-	CHECK_EQ(word(reload, 189), (1u << 28) | (1u << 22) | (4u << 19), "MCU-only pair and retained reload note");
-	CHECK_EQ(word(reload, 193), 0x21000000u, "two MCU starts, one language start, no errors");
-	b.download(2, lang); b.ticks(10000);
-	CHECK(r.emu__DOT__ph_ready && !r.emu__DOT__cpu_reset, "companion reload releases reset");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 10), 1, "companion needs no reload warning");
-
-	// Manual order: the save stays mounted while language arrives before MCU.
-	// Picked in the OSD under their .rom names: the second extension of F2 and
-	// F1 puts 1 in index bits 7:6 above the menu index (0x42, 0x41).
-	b.download(0x42, lang);
-	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "new pair invalidates old firmware");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 10), 2, "language resend also requests both files");
-	b.download(0x41, mcu);
-	b.ticks(10000);
-	CHECK(r.emu__DOT__ph_ready && !r.emu__DOT__cpu_reset, "reverse order with save already mounted");
-	CHECK(!memcmp(b.ddr + 0x1400000, b.img1.data(), b.img1.size()), "firmware reload preserved C:");
-
-	b.download(1, phoenix::mcu()); b.download(2, phoenix::language(false));
-	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "unknown version holds CPU");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 9), 1, "unknown version OSD message");
-	CHECK_EQ(b.ddr[0x9E4C4], 255, "unknown version unpatched");
-	b.download(1, phoenix::mcu(true, true));
-	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "bad checksum holds CPU");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "damaged file OSD message");
-	CHECK(!b.ddr_stray && !b.dm.protocol_errors, "Phoenix shared DDR protocol");
-	CHECK_EQ(b.s1_writes, 0, "firmware loads did not dirty C: save");
-	// Read the appended words through the actual video pixels, including while
-	// CPU reset. The first 12 words and counters 0..24 are unchanged. F4 counts saturate at 15.
-	r.emu__DOT__hps_io__DOT__sim_status[0] = (1u << 8) | 1u;
-	// boot2.rom and boot3.rom (0x80, 0xC0) are no firmware files: not counted.
-	b.download(0x80, {}); b.download(0xC0, {});
-	b.download(3, {}); b.download(3, {});
-	for (int i = 0; i < 20; i++) b.download(4, {});
-	b.frame(); auto diag = b.frame();
-	diag.write_ppm(out + "/top_phoenix_loader.ppm");
-	CHECK_EQ(word(diag, 189), (4u << 22) | (1u << 19), "loader status while CPU reset");
-	CHECK_EQ(word(diag, 193), 0x542F0001u, "loader starts saturate; full error count visible");
-	printf("Phoenix shell: records, patches, version/damage rejection, resend recovery, overlay history and C: isolation (%llu clocks)\n", (unsigned long long)b.clocks);
-}
-
-// The boot files as Main sends them when the core starts: its reset bit
-// (status 0) is held, boot0.rom and boot1.rom go out back to back with no
-// wait for the loader's verify and patch stage, boot0.vhd is mounted straight
-// after them, the clock follows, and only then is the reset bit released.
-// boot_rom: the firmware under the name boot.rom, which Main sends after the
-// numbered files, so the language pack (boot1.rom) arrives first.
-static void test_boot_files(bool boot_rom) {
-	Bench b;
-	auto &r = *b.r;
-	b.ticks(30000);
-	r.emu__DOT__hps_io__DOT__sim_status[0] = 1;
-	static const uint32_t prog[] = {0xE3A0040A,0xE59F1010,0xE5801000,0xE5902000,
-	                                0xE2822001,0xE5802004,0xEAFFFFFE,0x12345678};
-	phoenix::Bytes code(sizeof prog); memcpy(code.data(), prog, sizeof prog);
-	auto mcu = phoenix::mcu();
-	auto lang = phoenix::language(); phoenix::record(lang, 0x14, 0, code);
-	if (boot_rom) {
-		b.download(0x40, lang, false);
-		b.ticks(3000);
-		b.download(0, mcu, false);
-	} else {
-		b.download(0, mcu, false);
-		b.ticks(3000);
-		b.download(0x40, lang, false);
-	}
-	b.ticks(300);
-	b.img1.assign(4u << 20, 255);
-	r.emu__DOT__hps_io__DOT__sim_size = b.img1.size();
-	r.emu__DOT__hps_io__DOT__sim_readonly = 0;
-	r.emu__DOT__hps_io__DOT__sim_mounted = 2;
-	b.ticks(100);
-	r.emu__DOT__hps_io__DOT__sim_rtc[0] = 0x01120000;    // Main's clock, after the mounts
-	r.emu__DOT__hps_io__DOT__sim_rtc[1] = 0x00000406;
-	r.emu__DOT__hps_io__DOT__sim_rtc[2] = 1;
-	b.ticks(20);
-	r.emu__DOT__hps_io__DOT__sim_status[0] = 0;
-	uint64_t end = b.clocks + 40000000;
-	while (r.emu__DOT__cpu_reset && b.clocks < end) b.tick();
-	CHECK(b.clocks < end, "boot files: the CPU starts after both ROMs and boot0.vhd");
-	CHECK(r.emu__DOT__ph_ready, "boot files: firmware pair ready");
-	CHECK(!memcmp(b.ddr + 0x1400000, b.img1.data(), b.img1.size()), "boot files: C: image loaded");
-	CHECK_EQ(b.ddr[0x10180], 1, "boot files: MCU record data");
-	CHECK_EQ(b.ddr[0xF00001], 6, "boot files: language mapped");
-	b.ticks(10000);
-	CHECK(b.cpu_writes.size() == 2, "boot files: the program ran");
-	printf("boot files (%s): both ROMs back to back, boot0.vhd, then the reset bit released (%llu clocks)\n",
-	       boot_rom ? "boot1.rom, then boot.rom" : "boot0.rom, then boot1.rom", (unsigned long long)b.clocks);
-}
-
 int main(int argc, char **argv) {
 	Verilated::commandArgs(argc, argv);
 	std::string out = "sim/build/out";
 	for (int i = 1; i < argc; i++)
 		if (!strcmp(argv[i], "--out") && i + 1 < argc) out = argv[++i];
-	test_boot_files(false);
-	test_boot_files(true);
-	test_phoenix(out);
 	Bench b;
 	auto &R = *b.r;
 	auto count = [&](int n) { return std::count(b.infos.begin(), b.infos.end(), n); };
@@ -518,7 +345,7 @@ int main(int argc, char **argv) {
 	b.ticks(4);
 	R.emu__DOT__hps_io__DOT__sim_rtc[2] = 1;             // bit 64: the time is sent
 
-	// Development flat images retain their own indexes.
+	// Only the raw CS0 and CS1 selectors can load flash.
 	auto download = [&](int index, const std::vector<uint8_t> &data) { b.download(index, data); };
 	std::vector<uint8_t> cs0(65536), cs1(32768);
 	for (size_t i = 0; i < cs0.size(); i++) cs0[i] = (uint8_t)(i * 13 + (i >> 8));
@@ -530,6 +357,9 @@ int main(int argc, char **argv) {
 	                                0xE2822001, 0xE5802004, 0xEAFFFFFE, 0x12345678};
 	memcpy(cs0.data(), prog, sizeof prog);
 	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset with no flash image");
+	for (int index : {0, 0x40, 1, 2}) download(index, {0x11, 0x22});
+	CHECK_EQ(b.ddr_writes, 0u, "former service-file indexes do not write DDR");
+	CHECK(R.emu__DOT__cpu_reset, "service-file downloads do not release reset");
 	download(3, cs0);
 	b.ticks(1000);
 	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset with only CS0 loaded");

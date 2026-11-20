@@ -35,6 +35,8 @@
 //   --buslog FILE      one line per CPU beat to CS0/CS1/SDRAM: clock, R|W,
 //                      address, SEL, data, CTI
 //   --until TEXT       stop when the STI text ends with TEXT
+//   --stop-pc ADDRESS  stop when an instruction at this address retires
+//   --stop-pc-hits N   wait for N retirements at the address (default 1)
 //   --ddr-lat MIN:MAX, --ddr-busy PCT, --ddr-gap PCT, --ddr-stall PCT_X1000
 //                      the DDRAM port's timing (ddram_model.h's DdramProfile)
 //   --fault-history N  retain N retirements in memory; dump on D/P/U and
@@ -363,6 +365,8 @@ struct Bench {
 	// the CPU
 	uint64_t retired = 0;
 	uint32_t last_r_pc = 0;
+	uint32_t stop_pc = 0;
+	uint64_t stop_pc_remaining = 0;
 	char last_ev = 0;
 	FILE *devlog = nullptr, *trace = nullptr, *exec_log = nullptr;
     bool was_user = false;
@@ -595,6 +599,11 @@ struct Bench {
 		if (check_copy && ev == 'R') { if (pc == 0x503A1BA8u) copy_entry(cpsr); else if (copy.active && pc == copy.lr) copy.active = false; }
 		last_ev = ev;
 		if (ev == 'R') last_r_pc = pc;
+		if (ev == 'R' && stop_pc_remaining && pc == stop_pc && --stop_pc_remaining == 0) {
+			printf("stop PC %08x at clock %" PRIu64 ", retired %" PRIu64 ", r0=%08x\n",
+			       pc, clocks, retired, reg(phys_index(0, cpsr)));
+			stop = true;
+		}
 	}
 
 	// a completed beat on the CPU's Wishbone port (after the edge: ack is
@@ -864,6 +873,9 @@ int main(int argc, char **argv) {
 	crc_init();
 	std::string cs0p, cs1p, mmcp, out = ".", keysp, tracep, rtc = "2004-06-01 12:00:00";
 	uint64_t max_cycles = 1000000000ull, progress = 50000000ull, trace_after = 0, trace_count = 0;
+	uint32_t stop_pc = 0;
+	uint64_t stop_pc_hits = 1;
+	bool stop_at_pc = false;
 	bool devlog = false, check_flash = false, check_window = false, check_copy = false, check_store = false;
 	std::string trace_on_bad;
 	std::string buslogp, until;
@@ -901,6 +913,8 @@ int main(int argc, char **argv) {
 		else if (a == "--trace-on-bad") trace_on_bad = next();
 		else if (a == "--buslog") buslogp = next();
 		else if (a == "--until") until = next();
+		else if (a == "--stop-pc") { stop_pc = strtoul(next(), nullptr, 0); stop_at_pc = true; }
+		else if (a == "--stop-pc-hits") stop_pc_hits = strtoull(next(), nullptr, 0);
 		else if (a == "--ddr-lat") { ddr_set = true; if (sscanf(next(), "%d:%d", &ddr.lat_min, &ddr.lat_max) != 2) return 2; }
 		else if (a == "--ddr-busy") { ddr_set = true; ddr.busy_pct = atoi(next()); }
 		else if (a == "--ddr-gap") { ddr_set = true; ddr.gap_pct = atoi(next()); }
@@ -914,9 +928,12 @@ int main(int argc, char **argv) {
 	}
 	if (restorep.empty() && (cs0p.empty() || cs1p.empty())) { fprintf(stderr, "--cs0 and --cs1 are needed\n"); return 2; }
 	if (!savep.empty() && !save_at) { fprintf(stderr, "--save needs --save-at\n"); return 2; }
+	if (stop_at_pc && !stop_pc_hits) { fprintf(stderr, "--stop-pc-hits must be positive\n"); return 2; }
 
 	std::sort(profile_marks.begin(),profile_marks.end());
 	Bench b;
+	b.stop_pc = stop_pc;
+	b.stop_pc_remaining = stop_at_pc ? stop_pc_hits : 0;
 	auto &R = *b.r;
 	b.out = out;
     b.history.resize(fault_history);

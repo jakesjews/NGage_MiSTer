@@ -355,6 +355,18 @@ void test_storage(Bench &b) {
 	// the read quirks
 	b.wr(0x0C120020, 0x00000005);
 	CHECK_EQ(b.rd(0x0C120020), 0x1C000005, "0x0C120020 DPLL lock bits");
+	b.wr(0x0C120004, 0x40);
+	CHECK_EQ(b.rd(0x0C120020), 0x1E000005, "NOS clock request 0x40 is ready");
+	b.wr(0x0C120004, 0x20);
+	CHECK_EQ(b.rd(0x0C120020), 0x1E000005, "NOS clock request 0x20 is ready");
+	b.wr8(0x0C120005, 1);
+	CHECK_EQ(b.rd(0x0C120020), 0x1C000005, "upper control byte participates in decode");
+	b.wr8(0x0C120005, 0);
+	CHECK_EQ(b.rd(0x0C120020), 0x1E000005, "byte write restores NOS clock request");
+	b.wr(0x0C120004, 0x10);
+	b.wr(0x0C120008, 0x8000);
+	b.wr(0x0C120020, 0x02000005);
+	CHECK_EQ(b.rd(0x0C120020), 0x1C000005, "clock ready clears and is supplied by the control word");
 	b.wr(0x0C149000, 0x2210);
 	CHECK_EQ(b.rd(0x0C149000), 0x2211, "0x0C149000 DPLL ready");
 	// sizes the model's regions refuse: dropped, read 0
@@ -366,6 +378,37 @@ void test_storage(Bench &b) {
 	b.wr(KP + 0x18, 0x0000FFFF);
 	CHECK_EQ(b.rd16(KP + 0x18), 0x1234, "a word write to a 16-bit block is dropped");
 	CHECK_EQ(b.rd(KP + 0x18), 0, "a word read of a 16-bit block reads 0");
+}
+
+void test_ctsi_calibration(Bench &b) {
+	printf("CTSI delay calibration\n");
+	constexpr uint32_t counter = 0x0C150112;
+	constexpr uint32_t window = 0x0C150114;
+	constexpr uint64_t divider = 3174; // 104 MHz / 32.768 kHz, rounded
+	CHECK_EQ(b.rd16(window), 0x0080, "calibration window starts nonzero");
+	b.wr16(window + 2, 0x52A9);
+	CHECK_EQ(b.rd(window), 0x52A90080, "default window preserves the upper halfword");
+	b.wr8(window, 0x9F);
+	CHECK_EQ(b.rd(window), 0x52A9009F, "window byte write preserves the upper halfword");
+	b.wr8(window + 1, 1);
+	CHECK_EQ(b.rd(window), 0x52A9019F, "window merges both byte lanes");
+	b.wr16(window, 15);
+	b.wr16(counter - 2, 0x4321);
+	CHECK_EQ(b.rd(counter - 2) & 0xFFFFu, 0x4321, "counter preserves the lower halfword");
+	const uint16_t start = b.rd16(counter);
+	CHECK(start == 15 || start == 14, "programming the window reloads the counter");
+	b.wr16(counter, start + 123);
+	b.run(4 * divider);
+	const uint16_t middle = b.rd16(counter);
+	CHECK(start - middle == 4 || start - middle == 5, "counter decrements across a counter write");
+	b.run(14 * divider);
+	const uint16_t wrapped = b.rd16(counter);
+	CHECK(wrapped > middle && wrapped <= 15, "counter wraps at the programmed window");
+	const int elapsed = (middle + 16 - wrapped) % 16;
+	CHECK(elapsed == 14 || elapsed == 15, "counter wrap includes zero");
+	b.wr(window, 0);
+	CHECK_EQ(b.rd(window), 0x00000080, "zero window selects the default");
+	b.wr16(counter - 2, 0);
 }
 
 // model/.out/regs.log: "W|R <block> <address> size=<n> val=<v> pc=<pc>"
@@ -1497,10 +1540,13 @@ void test_sti(Bench &b) {
 void test_reset(Bench &b) {
 	printf("reset\n");
 	b.wr(0x0C150000, 0x0000000E);
-	b.wr(0x0C120004, 0x12345678);
+	b.wr(0x0C120004, 0x20);
+	b.wr16(0x0C150114, 0x9F);
 	b.reset_core();
 	CHECK_EQ(b.rd(0x0C150000), 0, "storage cleared by reset (CTSI reset reason reads 0)");
 	CHECK_EQ(b.rd(0x0C120004), 0, "storage cleared by reset");
+	CHECK_EQ(b.rd(0x0C120020), 0x1C000000, "NOS clock ready clears on reset");
+	CHECK_EQ(b.rd16(0x0C150114), 0x0080, "calibration window returns to its reset default");
 	CHECK_EQ(b.rd(INTC + 0x08), 0, "enables cleared by reset");
 }
 
@@ -1521,6 +1567,7 @@ int main(int argc, char **argv) {
 	CpuTraffic traffic;
 	b.traffic = &traffic;
 	test_storage(b);
+	test_ctsi_calibration(b);
 	test_regs_log(b, model_out);
 	test_timers(b);
 	test_keypad(b);
