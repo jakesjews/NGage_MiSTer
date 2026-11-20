@@ -7,7 +7,7 @@
 //   nor_flash    CS0 (16 MB, K8S2815ETA) and CS1 (8 MB, K8S6415ETA)
 //   ddram_flash  their arrays in DDR3 (the images the OSD loads), shared
 //                with the image loader
-//   sdram        the 16 MB SDRAM on the MiSTer SDRAM module
+//   sdram        the MiSTer module's SDRAM for guest main RAM and private banks
 // The peripheral register bus leaves this module for the UPP peripheral
 // models (rtl/upp/upp_periph.sv); the DMA master port comes back from them.
 //
@@ -17,7 +17,6 @@
 // it while sdram_ready is low and while an image loads. flash_rst_n is the
 // chips' RP# pin.
 module ngage_mem #(
-	parameter int ONCHIP_BYTES            = 64 << 10,
 	parameter int CLK_HZ                  = 104_000_000,
 	// the flash chips' busy times (nor_flash's defaults)
 	parameter int FLASH_PROGRAM_CLKS      = CLK_HZ / 100_000,      // 10 us
@@ -54,6 +53,16 @@ module ngage_mem #(
 	output logic         dma_ack,
 	output logic         dma_err,
 	output logic [31:0]  dma_dat_o,
+
+	// The MDI peer accesses only its SDRAM-backed ring payloads.
+	input  logic         mdi_req,
+	input  logic         mdi_we,
+	input  logic [7:0]   mdi_word,
+	input  logic [31:0]  mdi_wdata,
+	input  logic [3:0]   mdi_be,
+	output logic         mdi_ack,
+	output logic         mdi_err,
+	output logic [31:0]  mdi_rdata,
 
 	output logic         p_sel,
 	output logic         p_we,
@@ -148,28 +157,48 @@ module ngage_mem #(
 	logic [2:0]  b_cti;
 	logic [1:0]  b_bte;
 
+	logic        dev_cyc, dev_stb, dev_we, dev_ack, dev_err;
+	logic [31:0] dev_adr, dev_wdata;
+	logic [3:0]  dev_sel;
+
+	// The device grant may change while the CPU owns the outer arbiter.
+	// While a device owns the bus, wait for the same beat boundary as the CPU.
+	wb_arb2 device_arb (
+		.clk(clk), .reset(reset), .dbg_m1_owner(),
+		.m0_cyc(dma_cyc), .m0_stb(dma_stb), .m0_we(dma_we),
+		.m0_adr(dma_adr), .m0_dat(dma_dat_i), .m0_sel(dma_sel),
+		.m0_cti(3'b111), .m0_bte(2'b00), .m0_ack(dma_ack), .m0_err(dma_err),
+		.m1_cyc(mdi_req), .m1_stb(mdi_req), .m1_we(mdi_we),
+		.m1_adr({22'h030400, mdi_word, 2'b00}), .m1_dat(mdi_wdata), .m1_sel(mdi_be), // 0x0C100000
+		.m1_ack(mdi_ack), .m1_err(mdi_err),
+		.s_cyc(dev_cyc), .s_stb(dev_stb), .s_we(dev_we),
+		.s_adr(dev_adr), .s_dat(dev_wdata), .s_sel(dev_sel), .s_cti(), .s_bte(),
+		.s_ack(dev_ack), .s_err(dev_err), .s_idle(!dbg_dma_owner || b_idle)
+	);
+
 	wb_arb2 arb (
 		.dbg_m1_owner(dbg_dma_owner),
 		.clk(clk),
 		.reset(reset),
 		.m0_cyc(wb_cyc), .m0_stb(wb_stb), .m0_we(wb_we), .m0_adr(wb_adr), .m0_dat(wb_dat_i),
 		.m0_sel(wb_sel), .m0_cti(wb_cti), .m0_bte(wb_bte), .m0_ack(wb_ack), .m0_err(wb_err),
-		.m1_cyc(dma_cyc), .m1_stb(dma_stb), .m1_we(dma_we), .m1_adr(dma_adr), .m1_dat(dma_dat_i),
-		.m1_sel(dma_sel), .m1_ack(dma_ack), .m1_err(dma_err),
+		.m1_cyc(dev_cyc), .m1_stb(dev_stb), .m1_we(dev_we), .m1_adr(dev_adr), .m1_dat(dev_wdata),
+		.m1_sel(dev_sel), .m1_ack(dev_ack), .m1_err(dev_err),
 		.s_cyc(b_cyc), .s_stb(b_stb), .s_we(b_we), .s_adr(b_adr), .s_dat(b_dat_w), .s_sel(b_sel),
 		.s_cti(b_cti), .s_bte(b_bte), .s_ack(b_ack), .s_err(b_err), .s_idle(b_idle)
 	);
 
 	assign wb_dat_o  = b_dat_r;
 	assign dma_dat_o = b_dat_r;
+	assign mdi_rdata = b_dat_r;
 
-	upp_bus #(.ONCHIP_BYTES(ONCHIP_BYTES)) bus (
+	upp_bus bus (
 		.clk(clk),
 		.reset(reset),
 		.wb_cyc(b_cyc), .wb_stb(b_stb), .wb_we(b_we), .wb_adr(b_adr), .wb_dat_i(b_dat_w),
 		.wb_sel(b_sel), .wb_cti(b_cti), .wb_bte(b_bte), .wb_ack(b_ack), .wb_err(b_err), .wb_dat_o(b_dat_r),
 		.wb_no_late_error(wb_no_late_error),
-        .decode_cpu_adr(wb_adr), .decode_dma_adr(dma_adr),
+        .decode_cpu_adr(wb_adr), .decode_dma_adr(dev_adr),
         .decode_dma_owner(dbg_dma_owner),
 		.fl0_req(fl0_req), .fl0_we(fl0_we), .fl0_addr(fl0_addr), .fl0_wdata(fl0_wdata), .fl0_rdata(fl0_rdata), .fl0_ack(fl0_ack),
 		.fl0_array(fl0_array), .fl0_lreq(fl0_lreq), .fl0_laddr(fl0_laddr), .fl0_ltaken(fl0_ltaken),

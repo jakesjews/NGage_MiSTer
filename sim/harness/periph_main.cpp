@@ -73,7 +73,7 @@ namespace {
 
 constexpr int W = 176, H = 208;
 constexpr uint32_t SD = 0x0A000000u;           // SDRAM
-constexpr uint32_t OC = 0x0C000000u;           // on-chip RAM
+constexpr uint32_t OC = 0x0C004000u;           // on-chip communication RAM
 
 // register addresses
 constexpr uint32_t INTC = 0x0C120100u, FINTC = 0x0C1201C0u;
@@ -320,8 +320,8 @@ void test_storage(Bench &b) {
 	std::vector<uint32_t> words = {
 		0x0C120004, 0x0C120008, 0x0C120014, 0x0C120018, 0x0C120034, 0x0C120038, 0x0C120064, 0x0C120068,
 		0x0C120074, 0x0C120C04, 0x0C120C10, 0x0C120C14, 0x0C120C18, 0x0C121000, 0x0C121034, 0x0C12103C,
-		0x0C14D000, 0x0C14D004, 0x0C14F000, 0x0C14F008, 0x0C150000, 0x0C150010, 0x0C150024, 0x0C150200,
-		0x0C150210, 0x0C150538, 0x0C15053C, 0x0C1F0200, 0x0C1E0010, 0x0C100100, 0x0C180800,
+		0x0C14D000, 0x0C14D004, 0x0C14F000, 0x0C14F008, 0x0C150024,
+		0x0C150210, 0x0C150538, 0x0C15053C, 0x0C1F0200, 0x0C1E0010, 0x0C100400, 0x0C180800,
 		// inside the blocks' windows
 		INTC + 0x00, INTC + 0x18, FINTC + 0x3C, TMR + 0x18, TMR + 0x24, TMR + 0x5C, DMA + 0x14, DMA + 0x20 + 0x40 * 3,
 		DMA + 0x30, MMC + 0x00, MMC + 0x0C, MMC + 0x10, MMC + 0x14, MMC + 0x28, MMC + 0x3C, LCD + 0x0C,
@@ -367,8 +367,28 @@ void test_storage(Bench &b) {
 	b.wr(0x0C120008, 0x8000);
 	b.wr(0x0C120020, 0x02000005);
 	CHECK_EQ(b.rd(0x0C120020), 0x1C000005, "clock ready clears and is supplied by the control word");
+	b.wr16(0x0C148000, 0x2000);
+	CHECK_EQ(b.rd16(0x0C148000), 0x2001, "0x0C148000 clock unit locked");
+	b.wr16(0x0C148000, 0x2490);
+	CHECK_EQ(b.rd16(0x0C148000), 0x2491, "0x0C148000 lock survives reconfiguration");
+	b.wr16(0x0C148004, 0x2468);
+	CHECK_EQ(b.rd16(0x0C148004), 0x2468, "clock lock is confined to the base register");
 	b.wr(0x0C149000, 0x2210);
 	CHECK_EQ(b.rd(0x0C149000), 0x2211, "0x0C149000 DPLL ready");
+	CHECK_EQ(b.rd16(0x0C14B000), 0x0080, "QD UPP revision at reset");
+	b.wr(0x0C14B000, 0x1234A57B);
+	CHECK_EQ(b.rd(0x0C14B000), 0x1234A58B, "UPP revision field preserves adjacent bits");
+	b.wr(0x0C150504, 0xABCD0001);
+	CHECK_EQ(b.rd16(0x0C150504), 0x01D1, "idle FBUS reports an empty transmitter");
+	CHECK_EQ(b.rd16(0x0C150506), 0xABCD, "FBUS status preserves the adjacent halfword");
+	b.wr(0x0C150000, 0x00020004);
+	CHECK_EQ(b.rd16(0x0C150002), 0x0042, "QD system type includes the GSM strap");
+	CHECK_EQ(b.rd16(0x0C150000), 0x0004, "GSM strap preserves reset reason");
+	b.wr(0x0C15021C, 0x00809A1B);
+	CHECK_EQ(b.rd16(0x0C15021C), 0x0203, "MBUS command strobes clear on readback");
+	CHECK_EQ(b.rd16(0x0C15021E), 0x00C0, "MBUS input follows the loop output");
+	b.wr16(0x0C15021E, 0x0040);
+	CHECK_EQ(b.rd16(0x0C15021E), 0, "MBUS input clears with the output");
 	// sizes the model's regions refuse: dropped, read 0
 	b.wr(TMR + 0x18, 0x11223344);
 	b.wr8(TMR + 0x18, 0x99);
@@ -384,14 +404,19 @@ void test_ctsi_calibration(Bench &b) {
 	printf("CTSI delay calibration\n");
 	constexpr uint32_t counter = 0x0C150112;
 	constexpr uint32_t window = 0x0C150114;
+	constexpr uint32_t nos_counter = 0x0C150116;
+	constexpr uint32_t nos_compare = 0x0C150118;
+	constexpr uint32_t ctsi_enable = 0x0C150012;
+	constexpr uint32_t ctsi_status = 0x0C150100;
 	constexpr uint64_t divider = 3174; // 104 MHz / 32.768 kHz, rounded
 	CHECK_EQ(b.rd16(window), 0x0080, "calibration window starts nonzero");
-	b.wr16(window + 2, 0x52A9);
-	CHECK_EQ(b.rd(window), 0x52A90080, "default window preserves the upper halfword");
+	const uint16_t original_ticks = b.rd16(nos_counter);
+	b.wr16(nos_counter, 0x52A9);
+	CHECK_EQ(b.rd(window), (uint32_t(original_ticks) << 16) | 0x0080, "NOS counter is read-only");
 	b.wr8(window, 0x9F);
-	CHECK_EQ(b.rd(window), 0x52A9009F, "window byte write preserves the upper halfword");
+	CHECK_EQ(b.rd16(window), 0x009F, "window low byte selects the reload");
 	b.wr8(window + 1, 1);
-	CHECK_EQ(b.rd(window), 0x52A9019F, "window merges both byte lanes");
+	CHECK_EQ(b.rd16(window), 0x019F, "window merges both byte lanes");
 	b.wr16(window, 15);
 	b.wr16(counter - 2, 0x4321);
 	CHECK_EQ(b.rd(counter - 2) & 0xFFFFu, 0x4321, "counter preserves the lower halfword");
@@ -406,9 +431,97 @@ void test_ctsi_calibration(Bench &b) {
 	CHECK(wrapped > middle && wrapped <= 15, "counter wraps at the programmed window");
 	const int elapsed = (middle + 16 - wrapped) % 16;
 	CHECK(elapsed == 14 || elapsed == 15, "counter wrap includes zero");
+	CHECK_EQ(b.rd16(nos_counter), uint16_t(original_ticks + 1), "NOS count advances with the calibration wrap");
+	b.wr(INTC + 0x08, 1u << 25);
+	b.wr16(ctsi_enable, 0x0080);
+	b.wr16(nos_compare + 2, 0x89AB);
+	b.wr8(nos_compare, uint8_t(original_ticks + 2));
+	CHECK_EQ(b.rd(nos_compare), 0x89AB0000u | uint16_t(original_ticks + 2), "compare retains the adjacent halfword");
+	CHECK(!b.t->irq, "CTSI compare waits for the target tick");
+	b.run(16 * divider);
+	CHECK_EQ(b.rd16(ctsi_status) & 0x0080, 0x0080, "CTSI compare latches status bit 7");
+	CHECK_EQ(b.rd(INTC + 0x14), 26, "CTSI compare raises interrupt source 25");
+	b.wr16(ctsi_enable - 2, 0x0080);
+	CHECK_EQ(b.rd(INTC + 0x14), 0, "disabling the compare lowers the IRQ");
+	b.wr16(ctsi_enable, 0x0080);
+	CHECK_EQ(b.rd(INTC + 0x14), 26, "enabling the compare exposes the pending IRQ");
+	b.wr16(ctsi_status, 0x0080);
+	CHECK_EQ(b.rd(INTC + 0x14), 0, "acknowledging the compare clears the IRQ");
+	b.wr16(ctsi_enable, 0x1000);
+	b.wr16(ctsi_enable, 0x2000);
+	CHECK_EQ(b.rd16(ctsi_enable) & 0x3080, 0x3080, "CTSI enable writes accumulate");
+	CHECK_EQ(b.rd16(ctsi_status) & 0x3000, 0x3000, "both software interrupts are pending");
+	CHECK_EQ(b.rd(INTC + 0x14), 26, "software interrupts raise CTSI source 25");
+	b.wr16(ctsi_status, 0x1000);
+	CHECK_EQ(b.rd16(ctsi_status) & 0x3000, 0x2000, "software IRQ acknowledge clears only the selected bit");
+	CHECK_EQ(b.rd16(ctsi_enable) & 0x3000, 0x3000, "acknowledge preserves software IRQ enables");
+	b.wr16(ctsi_enable - 2, 0x2000);
+	CHECK_EQ(b.rd(INTC + 0x14), 0, "disabling the other software IRQ clears the line");
+	b.wr16(ctsi_enable - 2, 0x1000);
+	b.wr(INTC + 0x0C, 1u << 25);
 	b.wr(window, 0);
-	CHECK_EQ(b.rd(window), 0x00000080, "zero window selects the default");
+	CHECK_EQ(b.rd16(window), 0x0080, "zero window selects the default");
 	b.wr16(counter - 2, 0);
+}
+
+void test_mdi(Bench &b) {
+	printf("MDI shared SDRAM rings\n");
+	constexpr uint32_t m2d = 0x0C100000;
+	constexpr uint32_t d2m = 0x0C1001F4;
+	constexpr uint32_t m2d_ptr = 0x0C1003E8;
+	constexpr uint32_t d2m_ptr = 0x0C1003EC;
+	constexpr uint32_t control = 0x0C14B004;
+	constexpr uint32_t ctsi = 0x0C150100;
+	b.wr(0x0C001100, 0xF0);
+	b.wr(m2d + 0x100, 0x89ABCDEF);
+	b.wr8(m2d + 0x101, 0x25);
+	CHECK_EQ(b.rd(m2d + 0x100), 0x89AB25EF, "ring payload retains byte writes");
+	CHECK_EQ(b.rd(0x0C001100), 0xF0, "ring payload is separate from on-chip SDRAM");
+	b.wr16(0x0C150114, 1);
+	b.wr(INTC + 0x08, 1u << 25);
+	b.wr16(0x0C150012, 0x0400);
+	b.wr16(control, 0x0500);
+	b.wr(m2d_ptr, 0);
+	b.wr(d2m_ptr, 0);
+	CHECK_EQ(b.rd(d2m_ptr), 0, "announcement waits for its NOS ticks");
+	b.run(21 * 2 * 3174);
+	CHECK_EQ(b.rd16(ctsi) & 0x0600, 0x0400, "publication latches CTSI bit 10");
+	CHECK_EQ(b.rd(INTC + 0x14), 26, "MDI publication drives source 25");
+	CHECK_EQ(b.rd(d2m_ptr), 4, "publication exposes four complete halfwords");
+	CHECK_EQ(b.rd(d2m), 0x7CD00000, "device announcement header");
+	CHECK_EQ(b.rd(d2m + 4), 0x04000001, "device announcement payload");
+	b.wr16(d2m_ptr + 2, 4);
+	b.wr16(ctsi, 0x0400);
+	CHECK_EQ(b.rd(INTC + 0x14), 0, "guest acknowledges the announcement");
+
+	const uint16_t query[] = {0x127C, 0x00F1, 0x0006, 0x2600, 0x20A0, 0x0200};
+	const uint16_t reply[] = {0x1200, 0x7CF1, 0x0006, 0x0026, 0x20A1, 0x0103};
+	for (unsigned i = 0; i < 6; ++i) b.wr16(m2d + i * 2, query[i]);
+	b.wr16(0x0C150012, 0x0200);
+	b.wr16(m2d_ptr, 6);
+	b.run(2048);
+	CHECK_EQ(b.rd(m2d_ptr), 0x00060006, "peer consumes all request halfwords");
+	CHECK_EQ(b.rd(d2m_ptr), 0x0004000A, "reply preserves the guest consumer pointer");
+	CHECK_EQ(b.rd16(ctsi) & 0x0600, 0x0600, "consumption and publication are separate events");
+	for (unsigned i = 0; i < 6; ++i) CHECK_EQ(b.rd16(d2m + (4 + i) * 2), reply[i], "RF version reply");
+
+	b.wr16(ctsi, 0x0600);
+	b.wr(m2d_ptr, 0x00F800F8);
+	b.wr(d2m_ptr, 0x00F800F8);
+	for (unsigned i = 0; i < 6; ++i) b.wr16(m2d + 2 * ((248 + i) % 250), query[i]);
+	b.wr16(m2d_ptr, 4);
+	b.run(2048);
+	CHECK_EQ(b.rd(m2d_ptr), 0x00040004, "M2D wraps at halfword 250");
+	CHECK_EQ(b.rd(d2m_ptr), 0x00F80004, "D2M wraps at the SDRAM and register boundary");
+	for (unsigned i = 0; i < 6; ++i) {
+		CHECK_EQ(b.rd16(d2m + 2 * ((248 + i) % 250)), reply[i], "wrapped RF version reply");
+	}
+
+	b.wr16(control, 0);
+	b.wr16(ctsi, 0x0600);
+	b.wr16(0x0C150010, 0x0600);
+	b.wr(INTC + 0x0C, 1u << 25);
+	b.wr16(0x0C150114, 0);
 }
 
 // model/.out/regs.log: "W|R <block> <address> size=<n> val=<v> pc=<pc>"
@@ -1210,6 +1323,36 @@ struct Cbus {
 	}
 };
 
+void test_genio_loopback(Bench &b) {
+	printf("GENIO loopback\n");
+	Cbus c(b);
+	const uint32_t GENIO = 0x0C150200;
+	b.reset_core();
+	b.wr16(GENIO + 2, 0x0001);
+	b.wr16(GENIO + 2, 0x0004);
+	CHECK_EQ(b.rd16(GENIO + 2) & 0x0005, 0x0005, "GENIO outputs accumulate on set");
+	CHECK_EQ(b.rd16(GENIO + 10) & 0x000A, 0, "both UEM routes disabled");
+	c.write(1, 0x0A, 16, 0x0008);
+	CHECK_EQ(b.rd16(GENIO + 10) & 0x000A, 0x0002, "EAR loop follows GENIO0");
+	c.write(1, 0x1B, 16, 0x0400);
+	CHECK_EQ(b.rd16(GENIO + 10) & 0x000A, 0x000A, "TX loop follows GENIO2");
+	b.wr16(GENIO + 4, 0x0001);
+	CHECK_EQ(b.rd16(GENIO + 10) & 0x000A, 0x0008, "clear GENIO0 leaves GENIO2");
+	b.wr16(GENIO + 4, 0x0004);
+	CHECK_EQ(b.rd16(GENIO + 10) & 0x000A, 0, "clear GENIO2");
+
+	b.wr16(GENIO + 6, 0x0004);
+	b.wr16(GENIO + 6, 0x0001);
+	CHECK_EQ(b.rd16(GENIO + 12) & 0x0002, 0, "SIM route disabled");
+	b.wr16(GENIO + 8, 0x0001);
+	c.write(1, 0x0C, 16, 0x0020);
+	CHECK_EQ(b.rd16(GENIO + 12) & 0x0002, 0, "SIM loop requires both GPIO outputs");
+	b.wr16(GENIO + 6, 0x0001);
+	CHECK_EQ(b.rd16(GENIO + 12) & 0x0002, 0x0002, "SIM route with both outputs set");
+	c.write(1, 0x0C, 16, 0);
+	CHECK_EQ(b.rd16(GENIO + 12) & 0x0002, 0, "SIM loop clears when the UEM route closes");
+}
+
 void test_cbus(Bench &b, const std::string &dir) {
 	printf("CBUS\n");
 	Cbus c(b);
@@ -1217,27 +1360,29 @@ void test_cbus(Bench &b, const std::string &dir) {
 	// reset, and until 0x1F has been read once
 	b.reset_core();
 	b.run(5000);
-	CHECK_EQ(c.read(1, 0x1F, 16), 0x0002, "UEMK 0x1F: power key held at power-on");
-	CHECK_EQ(c.read(1, 0x1F, 16), 0x0002, "UEMK 0x1F: still held within the hold time");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0802, "UEMK 0x1F: power key held at power-on");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0802, "UEMK 0x1F: still held within the hold time");
 	b.run(30000);
 	CHECK_EQ(c.read(1, 0x15, 16), 0x0008, "UEMK 0x15");
-	CHECK_EQ(c.read(1, 0x1F, 16), 0x0000, "UEMK 0x1F, power key up");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0800, "UEMK 0x1F, power key up");
 	b.reset_core();
 	b.run(30000);
-	CHECK_EQ(c.read(1, 0x1F, 16), 0x0002, "UEMK 0x1F: the first read after the hold time still sees the key");
-	CHECK_EQ(c.read(1, 0x1F, 16), 0x0000, "UEMK 0x1F: released after the first read");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0802, "UEMK 0x1F: the first read after the hold time still sees the key");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0800, "UEMK 0x1F: released after the first read");
 	b.power = true;
 	b.run(20);
-	CHECK_EQ(c.read(1, 0x1F, 16), 0x0002, "UEMK 0x1F bit 1: power key held");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0802, "UEMK 0x1F bit 1: power key held");
 	b.power = false;
 	b.run(20);
-	CHECK_EQ(c.read(1, 0x1F, 16), 0x0000, "UEMK 0x1F after the power key");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0800, "UEMK 0x1F after the power key");
 	// the A/D converter (bootstrap 0x3604/0x3644, cbus.dll 0x5037E1E8)
 	c.write(1, 0x19, 16, 0x6880);
 	CHECK_EQ(c.read(1, 0x1A, 16) & 0x3FF, 485, "ADC channel 6 (BSI)");
 	c.write(1, 0x19, 16, 0xC800);
-	CHECK_EQ(c.read(1, 0x1A, 16), 0, "ADC channel 12");
+	CHECK_EQ(c.read(1, 0x1A, 16), 512, "ADC channel 12 (battery voltage)");
 	CHECK_EQ(c.read(1, 0x19, 16), 0xC800, "0x19 reads back");
+	c.write(1, 0x19, 16, 0xB800);
+	CHECK_EQ(c.read(1, 0x1A, 16), 0, "unmodeled ADC channel");
 	// device 4: the ID cbus.dll's self-test needs, a register that holds a value
 	CHECK_EQ(c.read(4, 0x00, 16) & 0xFF00, 0x0400, "device 4 register 0");
 	c.write(4, 0x0D, 20, 0xABCDE);
@@ -1286,7 +1431,7 @@ void test_cbus(Bench &b, const std::string &dir) {
 			b.wr16(CBUS + 2, ctrl);
 			c.wait_done();
 			uint32_t got = b.rd16(CBUS + 6) | (bits > 16 ? b.rd16(CBUS + 4) << 16 : 0);
-			if (dev == 1 && reg == 0x1F) { got &= ~2u; val &= ~2u; }
+			if (dev == 1 && reg == 0x1F) { got &= ~0x0802u; val &= ~0x0802u; }  // historical power/battery inputs
 			// the RTC's time and day counter are the wall clock's (test_rtc); the
 			// calibration register's 0xC0 (cbus-regs.txt) is newer than some logs
 			if (dev == 1 && (reg == 0x11 || reg == 0x12 || reg == 0x13 || reg == 0x01 || reg == 0x04)) { nr++; continue; }
@@ -1543,7 +1688,8 @@ void test_reset(Bench &b) {
 	b.wr(0x0C120004, 0x20);
 	b.wr16(0x0C150114, 0x9F);
 	b.reset_core();
-	CHECK_EQ(b.rd(0x0C150000), 0, "storage cleared by reset (CTSI reset reason reads 0)");
+	CHECK_EQ(b.rd16(0x0C150000), 0, "CTSI reset reason clears on reset");
+	CHECK_EQ(b.rd16(0x0C150002), 0x0040, "GSM strap remains set after reset");
 	CHECK_EQ(b.rd(0x0C120004), 0, "storage cleared by reset");
 	CHECK_EQ(b.rd(0x0C120020), 0x1C000000, "NOS clock ready clears on reset");
 	CHECK_EQ(b.rd16(0x0C150114), 0x0080, "calibration window returns to its reset default");
@@ -1568,10 +1714,12 @@ int main(int argc, char **argv) {
 	b.traffic = &traffic;
 	test_storage(b);
 	test_ctsi_calibration(b);
+	test_mdi(b);
 	test_regs_log(b, model_out);
 	test_timers(b);
 	test_keypad(b);
 	test_cbus(b, model_out);
+	test_genio_loopback(b);
 	test_bt(b);
 	test_rtc(b);
 	test_audio(b);

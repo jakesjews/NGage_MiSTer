@@ -41,7 +41,10 @@ rtl/upp/upp_dma.sv
 rtl/upp/upp_mmc.sv
 rtl/upp/upp_lcdif.sv
 rtl/upp/upp_uif.sv
+rtl/upp/upp_mdi.v
+rtl/upp/upp_mdi_peer.v
 rtl/upp/upp_cbus.sv
+rtl/upp/upp_gpio.v
 rtl/upp/upp_haudio.sv
 rtl/upp/upp_periph.sv
 rtl/upp/wb_arb2.sv

@@ -11,10 +11,11 @@
 //   0x08000000  memory controller (EMIF) registers: plain storage,
 //               2^EMIF_WORDS_LOG2 words, mirrored
 //   0x0A000000  SDRAM, 16 MB (mirrored in its 32 MB window)          sdram
-//   0x0C000000  on-chip RAM, ONCHIP_BYTES (mirrored in 0x0C000000-0x0C0FFFFF);
-//               block RAM, or SDRAM at ONCHIP_SDRAM_AT if larger than
-//               ONCHIP_BRAM_MAX
-//   0x0C100000  peripheral register bus, up to 0x0DFFFFFF (0x0C1xxxxx, the
+//   0x0C000000  ASIC ROM page, the v5 Thumb-return model
+//   0x0C001000  on-chip RAM through 0x0C0FFFFF, backed by SDRAM above 16 MB;
+//               distinct offsets include NOS comm RAM and both DSP uploads
+//   0x0C100000  MDI rings through 0x0C1003E7, backed by SDRAM above on-chip RAM
+//   0x0C1003E8  peripheral register bus, up to 0x0DFFFFFF (0x0C1xxxxx, the
 //               0x0D000000 window and the STI trace window at 0x0DE00000)
 //   elsewhere   unmapped: reads UNMAPPED_DATA (or an ERR with UNMAPPED_ERR)
 //
@@ -23,7 +24,7 @@
 // shows the beat being answered, and the next beat may follow at once. An
 // incrementing burst (CTI 010, BTE linear or wrap 4/8/16) promises the next
 // beat's address, so the targets fetch it ahead:
-//   * block RAM: a beat every clock after the first (2 clocks);
+//   * EMIF and ASIC ROM reads: a beat every clock after the first (2 clocks);
 //   * SDRAM read: a burst is one line read (16 bytes, the asked word first),
 //     a classic read one word; beats are answered as their words arrive (the
 //     first 9 clocks after the beat is seen, then every 2 clocks); a burst
@@ -45,8 +46,7 @@
 //     port (one or two halfword accesses per beat, only the halfwords SEL
 //     asks for; during a status/query burst the next beat is read while the
 //     current one waits, never past the burst's end or the chip's window);
-//   * peripherals: one access a beat; flash writes, EMIF and on-chip RAM
-//     writes: answered the clock after.
+//   * peripherals: one access a beat; EMIF writes: answered the clock after.
 //
 // Peripheral register bus (for the UPP peripheral models): p_sel rises with
 // p_addr (the physical byte address, bits 27:0), p_we, p_be and p_wdata, and
@@ -62,16 +62,12 @@
 // SDRAM port: see rtl/mem/sdram.sv. Flash ports: nor_flash's bus port (a
 // request is held until the clock in which ack is high).
 //
-// Unknowns, each a parameter: the on-chip RAM size (ONCHIP_BYTES: the
-// firmware's references found so far fall in 0x0C000000-0x0C005FFF, the QEMU
-// model maps 256 KB), what an empty chip select and an unmapped address read
+// Unknowns include the full physical on-chip RAM layout, what an empty chip
+// select and an unmapped address read
 // (EMPTY_DATA and UNMAPPED_DATA: 0, as in the model), whether unmapped
 // accesses abort (UNMAPPED_ERR), the EMIF block's size, and the mirroring of
 // the flash, SDRAM and RAM windows.
 module upp_bus #(
-	parameter int          ONCHIP_BYTES    = 64 << 10,
-	parameter int          ONCHIP_BRAM_MAX = 64 << 10,
-	parameter logic [24:0] ONCHIP_SDRAM_AT = 25'h100_0000,
 	parameter int          EMIF_WORDS_LOG2 = 6,
 	parameter logic [31:0] EMPTY_DATA      = 32'h0000_0000,
 	parameter logic [31:0] UNMAPPED_DATA   = 32'h0000_0000,
@@ -155,15 +151,14 @@ module upp_bus #(
 	output logic              idle         // between transactions (for an arbiter in front)
 );
 
-	localparam bit ONCHIP_IN_SDRAM = ONCHIP_BYTES > ONCHIP_BRAM_MAX;
-	localparam int OC_AW = $clog2(ONCHIP_BYTES) - 2;
+	localparam logic [31:0] ASIC_ROM_RETURN = 32'h4770_4770;
 	localparam logic [2:0] CTI_INCR = 3'b010;
 	localparam int FL_AW = (CS0_AW > CS1_AW) ? CS0_AW : CS1_AW;
 
 	// ------------------------------------------------------------------
 	// Decoding
 	// ------------------------------------------------------------------
-	typedef enum logic [2:0] {
+	typedef enum logic [3:0] {
 		T_UNMAPPED,
 		T_EMPTY,
 		T_CS0,
@@ -171,7 +166,8 @@ module upp_bus #(
 		T_EMIF,
 		T_SDRAM,
 		T_ONCHIP,
-		T_PERIPH
+		T_PERIPH,
+		T_ASIC_ROM
 	} tgt_t;
 
 	function automatic tgt_t decode(input logic [31:0] a);
@@ -182,7 +178,11 @@ module upp_bus #(
 			3'd2, 3'd3: return T_EMPTY;
 			3'd4: return T_EMIF;
 			3'd5: return T_SDRAM;
-			3'd6: return (a[24:20] == 5'd0) ? T_ONCHIP : T_PERIPH;
+			3'd6: begin
+				if (a[24:10] == 15'h0400 && a[9:0] < 10'h3E8) return T_ONCHIP;
+				if (a[24:20] != 5'd0) return T_PERIPH;
+				return (a[19:12] == 8'd0) ? T_ASIC_ROM : T_ONCHIP;
+			end
 			default: return T_UNMAPPED;
 		endcase
 	endfunction
@@ -210,29 +210,21 @@ module upp_bus #(
 	// the SDRAM module's word address of a guest address
 	function automatic logic [24:2] sdr_word(input logic [31:0] a, input logic oc);
 		logic [24:0] b;
-		if (oc) b = ONCHIP_SDRAM_AT | 25'(a[$clog2(ONCHIP_BYTES)-1:0]);
+		if (oc) b = {4'b1000, a[20:0]};
 		else    b = {1'b0, a[23:0]};
 		return b[24:2];
 	endfunction
 
-	// ... and of its 16-byte block
-	function automatic logic [24:4] sdr_blk(input logic [31:0] a, input logic oc);
-		logic [24:2] w;
-		w = sdr_word(a, oc);
-		return w[24:4];
-	endfunction
-
 	tgt_t      tgt;
-    (* keep *) wire [2:0] cpu_target = decode(decode_cpu_adr);
-    (* keep *) wire [2:0] dma_target = decode(decode_dma_adr);
+    (* keep *) wire [3:0] cpu_target = decode(decode_cpu_adr);
+    (* keep *) wire [3:0] dma_target = decode(decode_dma_adr);
     assign tgt = tgt_t'(decode_dma_owner ? dma_target : cpu_target);
     // synthesis translate_off
     always @(posedge clk) if (!reset)
         assert (tgt == decode(wb_adr))
             else $fatal(1, "UPP predecode disagrees with selected address");
     // synthesis translate_on
-	wire       is_sdr  = tgt == T_SDRAM || (ONCHIP_IN_SDRAM && tgt == T_ONCHIP);
-	wire       is_bram = tgt == T_EMIF || (!ONCHIP_IN_SDRAM && tgt == T_ONCHIP);
+	wire       is_sdr  = tgt == T_SDRAM || tgt == T_ONCHIP;
 	wire       burst   = wb_cti == CTI_INCR;
 	wire [31:0] adr_n  = nxt(wb_adr, wb_bte);
 	wire [31:0] adr_nn = nxt2(wb_adr, wb_bte);
@@ -243,7 +235,7 @@ module upp_bus #(
 	typedef enum logic [2:0] {
 		S_IDLE,
 		S_ACK,       // the clock of a single beat's ack
-		S_RAM,       // block RAM read
+		S_RAM,       // EMIF or ASIC ROM read
 		S_SDR_RD,
 		S_SDR_WR,    // gathering a write burst
 		S_FLASH,
@@ -273,16 +265,16 @@ module upp_bus #(
 	wire        tb_ok = wb_cyc && (!ack_q || burst);
 
 	// ------------------------------------------------------------------
-	// Block RAMs: on-chip RAM and the EMIF registers
+	// EMIF registers and the read-only ASIC ROM response
 	// ------------------------------------------------------------------
 	logic        ram_emif;               // the read in S_RAM is of the EMIF block
 	wire  [31:0] ram_raddr = (state == S_IDLE) ? wb_adr : (ack_q ? adr_nn : adr_n);
-	wire         ram_we    = state == S_IDLE && wb_cyc && wb_stb && wb_we && is_bram;
-	logic [31:0] emif_q, oc_q;
+	wire         ram_we    = state == S_IDLE && wb_cyc && wb_stb && wb_we && tgt == T_EMIF;
+	logic [31:0] emif_q;
 
 	bram32 #(.AW(EMIF_WORDS_LOG2)) emif (
 		.clk(clk),
-		.we(ram_we && tgt == T_EMIF),
+		.we(ram_we),
 		.be(wb_sel),
 		.waddr(wb_adr[2 +: EMIF_WORDS_LOG2]),
 		.wdata(wb_dat_i),
@@ -290,23 +282,7 @@ module upp_bus #(
 		.rdata(emif_q)
 	);
 
-	generate
-		if (!ONCHIP_IN_SDRAM) begin : g_onchip
-			bram32 #(.AW(OC_AW)) onchip (
-				.clk(clk),
-				.we(ram_we && tgt == T_ONCHIP),
-				.be(wb_sel),
-				.waddr(wb_adr[2 +: OC_AW]),
-				.wdata(wb_dat_i),
-				.raddr(ram_raddr[2 +: OC_AW]),
-				.rdata(oc_q)
-			);
-		end else begin : g_no_onchip
-			assign oc_q = 32'd0;
-		end
-	endgenerate
-
-	wire [31:0] ram_q = ram_emif ? emif_q : oc_q;
+	wire [31:0] ram_q = ram_emif ? emif_q : ASIC_ROM_RETURN;
 
 	// ------------------------------------------------------------------
 	// SDRAM: one request register; read words land in the line buffer
@@ -337,7 +313,7 @@ module upp_bus #(
 	wire         pb_hit  = line_rd && pb_live && rd_word[24:4] == pb_addr;
 	wire         pair_ok = line_rd && wb_adr[9:4] != 6'h3F;      // the row has a next block
 	wire         lb_in   = sdr_rvalid && !sdr_rsecond;             // a word for the line buffer
-	wire         pb_wr   = sdr_blk(wb_adr, 1'b0) == pb_addr || (ONCHIP_IN_SDRAM && sdr_blk(wb_adr, 1'b1) == pb_addr);
+	wire         pb_wr   = is_sdr && rd_word[24:4] == pb_addr;
 	// the words still to come are all of a pair's second block
 	wire         rd_tail = sdr_pair && rd_pend <= 4'd4;
 	wire         rd_go   = sdr_free && (rd_pend == 4'd0 || (rd_tail && !pb_hit));
@@ -563,8 +539,8 @@ module upp_bus #(
 			S_IDLE: begin
 				if (wb_cyc && wb_stb) begin
 					// Registered with target acceptance, ahead of its first ACK.
-					// A wrap-4 fill cannot cross a decode boundary. SDRAM and
-					// on-chip RAM have no ERR return channel. The flash wide
+					// A wrap-4 fill cannot cross a decode boundary. RAM and
+					// ASIC ROM reads have no ERR return channel. The flash wide
 					// array port also has none (DDR3 wait/data-valid only).
 					// Command/status/query/program/erase accesses, EMIF,
 					// peripherals, empty CS and unmapped targets stay gated.
@@ -573,7 +549,7 @@ module upp_bus #(
 					// during the accepted burst. Reset cancels the CPU too.
 					no_late_error_q <= !wb_we && burst && wb_bte == 2'b01 &&
 					    wb_sel == 4'hf &&
-					    (tgt == T_SDRAM || tgt == T_ONCHIP ||
+					    (is_sdr || tgt == T_ASIC_ROM ||
 					     ((tgt == T_CS0 || tgt == T_CS1) && fl_line_ok));
 					case (tgt)
 						T_UNMAPPED, T_EMPTY: begin
@@ -610,8 +586,13 @@ module upp_bus #(
 							p_be    <= wb_sel;
 							state   <= S_PERIPH;
 						end
+						T_ASIC_ROM: begin
+							ram_emif <= 1'b0;
+							err_q <= wb_we;
+							state <= wb_we ? S_ACK : S_RAM;
+						end
 						default: begin
-							if (is_bram) begin
+							if (tgt == T_EMIF) begin
 								// writes go in at this edge; reads read at it
 								ram_emif <= tgt == T_EMIF;
 								if (wb_we) begin
@@ -674,7 +655,8 @@ module upp_bus #(
 			end
 
 			S_RAM: begin
-				if (!tb_ok) begin
+				// A linear read can leave the ASIC page and continue in SDRAM.
+				if (!tb_ok || (!ram_emif && tb[12])) begin
 					ack_q <= 1'b0;
 					state <= S_IDLE;
 				end else begin

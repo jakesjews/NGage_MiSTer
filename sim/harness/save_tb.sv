@@ -96,6 +96,8 @@ module save_tb #(
 		.wb_no_late_error(),
 		.dma_cyc(1'b0), .dma_stb(1'b0), .dma_we(1'b0), .dma_adr(32'd0), .dma_dat_i(32'd0), .dma_sel(4'd0),
 		.dma_ack(), .dma_err(), .dma_dat_o(),
+		.mdi_req(1'b0), .mdi_we(1'b0), .mdi_word(8'd0), .mdi_wdata(32'd0), .mdi_be(4'd0),
+		.mdi_ack(), .mdi_err(), .mdi_rdata(),
 		.p_sel(), .p_we(), .p_addr(), .p_wdata(), .p_be(), .p_rdata(32'd0), .p_wait(1'b0),
 		.flash_busy(), .unmapped(),
 		.ld_rd(1'b0), .ld_valid(), .ld_data(), .ld_we(ld_we), .ld_addr(ld_addr), .ld_din(ld_din), .ld_be(ld_be), .ld_busy(ld_busy),

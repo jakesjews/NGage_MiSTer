@@ -19,7 +19,8 @@
 // Values (model/cbus-regs.txt):
 //   UEMK (device 1): 0x15 interrupt status reads 0x0008 (bootstrap 0x2EE8 goes
 //     on only with bit 3 or 4 set; [model guess] bit 3 = power-key power-on);
-//     0x1F power-on status reads 0 except bit 1 = the power key held (ekeyb
+//     0x1F power-on status includes bit 11 for a good backup battery.
+//     Bit 1 is the power key held (ekeyb
 //     0x5041CCBC reads it as the power key; the bootstrap at 0x3090 takes the
 //     normal power-on path with it set, start-up reason 0). As in the model the
 //     key counts as held for POWER_ON_HOLD_CLKS after reset (3 s, a user
@@ -31,7 +32,9 @@
 //     A/D converter: a write of 0x19 with bit 11 set converts channel bits
 //     15:12 into 0x1A (10 bits): channel 6, the battery-size indicator, reads
 //     485 ([model guess], inside cbus.dll's 380-590 "normal battery" range,
-//     0x5037E240); other channels read 0.
+//     0x5037E240); channel 12, the battery-voltage input, reads 512 as in
+//     the NEM-4 model. The actual voltage-to-sample conversion is unmeasured.
+//     Other channels read 0.
 //     Real-time clock (rtc.dll; the model's rtc_read): 0x11, 0x12 and 0x13
 //     read the seconds, minutes and hours of the wall clock (rtl/mister/
 //     rtc_wall.sv, MiSTer's RTC, counting in real time), 0x01 the day
@@ -76,6 +79,11 @@ module upp_cbus #(
 
 	input  logic        power_key,
 
+	// UEM path selectors for the UPP GENIO startup-test inputs
+	output logic        ear_route,
+	output logic        sim_route,
+	output logic        tx_route,
+
 	// the Bluetooth module, CBUS device 5
 	output logic        bt_rd,
 	output logic        bt_wr,
@@ -100,11 +108,16 @@ module upp_cbus #(
 	endfunction
 	function automatic logic [31:0] ro_val(input logic [2:0] d, input logic [4:0] r);
 		if (d == 3'd1 && r == 5'h15) return 32'h0008;
+		if (d == 3'd1 && r == 5'h1F) return 32'h0800;
 		if (d == 3'd4 && r == 5'h00) return 32'h0400;
-		return 32'h0000;                  // UEMK 0x1F: bit 1 is the power key
+		return 32'h0000;
 	endfunction
 	function automatic logic [9:0] adc_val(input logic [3:0] ch);
-		return (ch == 4'd6) ? 10'd485 : 10'd0;
+		case (ch)
+			4'd6:  return 10'd485;
+			4'd12: return 10'd512;
+			default: return 10'd0;
+		endcase
 	endfunction
 	// initial values of registers that are not ro: UEMK 0x04 = 0x00C0
 	function automatic logic [31:0] init_val(input logic [7:0] i);
@@ -238,9 +251,17 @@ module upp_cbus #(
 			rf_we    <= 1'b1;
 			rf_waddr <= {w_dev, w_reg};
 			rf_wdata <= w_val;
-			if (w_dev == 3'd1 && w_reg == 5'h1A) adc <= w_val[9:0];
-			if (w_dev == 3'd1 && w_reg == 5'h19 && w_val[11]) adc <= adc_val(w_val[15:12]);
-			if (w_dev == 3'd1 && w_reg == 5'h01) day_off <= w_val[7:0] - rtc_days;
+			if (w_dev == 3'd1) begin
+				case (w_reg)
+					5'h01: day_off <= w_val[7:0] - rtc_days;
+					5'h0A: ear_route <= w_val[3];
+					5'h0C: sim_route <= w_val[5];
+					5'h19: if (w_val[11]) adc <= adc_val(w_val[15:12]);
+					5'h1A: adc <= w_val[9:0];
+					5'h1B: tx_route <= w_val[10];
+					default: ;
+				endcase
+			end
 		end
 
 		// the wall clock's first time from the HPS: the counter starts again
@@ -263,6 +284,9 @@ module upp_cbus #(
 			data_hi <= 16'd0;
 			data_lo <= 16'd0;
 			adc     <= 10'd0;
+			ear_route <= 1'b0;
+			sim_route <= 1'b0;
+			tx_route  <= 1'b0;
 			rd_pend <= 1'b0;
 			rd_q    <= 1'b0;
 			bt_wr_q <= 1'b0;

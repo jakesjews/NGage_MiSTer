@@ -2,6 +2,7 @@
 // reference model's timer (model/hw/ngage_intc.c), which runs in continuous
 // time: a timer started at clock edge s with count C reads C - floor((t - s) /
 // 3) after edge t and underflows at edge s + 3C (3 * 2^32 for C = 0).
+// An explicit zero load on the configured Timer 1 one-shot expires in one tick.
 //
 //   Vupp_timers [--seed N] [--cycles N]
 //
@@ -24,6 +25,7 @@ namespace {
 constexpr uint64_t DIV = 3;
 
 struct Timer {
+	bool high_resolution = false;
 	bool running = false, irq = false;
 	uint64_t start = 0;        // the edge it was (re)started at
 	uint32_t start_count = 0;
@@ -62,6 +64,7 @@ struct Timer {
 			break;
 		case 0x08: irq = false; break;
 		case 0x10:
+			if (high_resolution && (ctrl & 3) == 1 && v == 0) v = 1;
 			if (running || (ctrl & 3)) { running = true; start = t; start_count = v; }
 			stored = v;
 			break;
@@ -81,6 +84,7 @@ struct Bench {
 	std::vector<uint64_t> irq_edges[6];
 
 	explicit Bench(uint32_t seed) : rng(seed) {
+		m[1].high_resolution = true;
 		t->reset = 1; t->acc = 0; t->wr = 0; t->off = 0; t->wdata = 0;
 		for (int i = 0; i < 3; i++) clock();
 		t->reset = 0;
@@ -184,6 +188,16 @@ int main(int argc, char **argv) {
 		s = b.edge_n;
 		while (b.irq_edges[1].size() < 2) b.idle(1);
 		CHECK_EQ(b.irq_edges[1][1], s + 3 * 7, "re-armed one-shot underflow edge");
+		b.write(1, 0x08, 1);
+		b.write(1, 0x10, 0);                 // QD NOS queues a zero-delay callback
+		s = b.edge_n;
+		b.idle(DIV - 1);
+		CHECK_EQ(b.irq_edges[1].size(), 2, "zero-delay Timer 1 waits one tick");
+		b.idle(1);
+		CHECK_EQ(b.irq_edges[1].size(), 3, "zero-delay Timer 1 fires");
+		if (b.irq_edges[1].size() == 3)
+			CHECK_EQ(b.irq_edges[1][2], s + DIV, "zero-delay Timer 1 expiry edge");
+		CHECK_EQ(b.read(1), 0, "zero-delay one-shot stops at zero");
 		b.write(1, 0x08, 1);
 		b.write(1, 0x04, 0);
 	}

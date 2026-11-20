@@ -104,6 +104,10 @@ module periph_tb #(
 	logic        dma_stb, dma_we, dma_ack, dma_err;
 	logic [31:0] dma_adr, dma_dat_w, dma_dat_r;
 	logic [3:0]  dma_sel;
+	logic        mdi_req, mdi_we, mdi_ack, mdi_err;
+	logic [7:0]  mdi_word;
+	logic [31:0] mdi_wdata, mdi_rdata;
+	logic [3:0]  mdi_be;
 
 	ngage_mem #(
 		.FLASH_PROGRAM_CLKS(40), .FLASH_SECTOR_ERASE_CLKS(3000), .FLASH_ERASE_WINDOW_CLKS(200)
@@ -118,6 +122,8 @@ module periph_tb #(
 		.wb_no_late_error(),
 		.dma_cyc(dma_cyc), .dma_stb(dma_stb), .dma_we(dma_we), .dma_adr(dma_adr), .dma_dat_i(dma_dat_w),
 		.dma_sel(dma_sel), .dma_ack(dma_ack), .dma_err(dma_err), .dma_dat_o(dma_dat_r),
+		.mdi_req(mdi_req), .mdi_we(mdi_we), .mdi_word(mdi_word), .mdi_wdata(mdi_wdata),
+		.mdi_be(mdi_be), .mdi_ack(mdi_ack), .mdi_err(mdi_err), .mdi_rdata(mdi_rdata),
 		.p_sel(p_sel), .p_we(p_we), .p_addr(p_addr), .p_wdata(p_wdata), .p_be(p_be), .p_rdata(p_rdata), .p_wait(p_wait),
 		.flash_busy(), .unmapped(),
 		.ld_rd(1'b0), .ld_valid(), .ld_data(), .ld_we(1'b0), .ld_addr(29'd0), .ld_din(64'd0), .ld_be(8'd0), .ld_busy(),
@@ -160,6 +166,8 @@ module periph_tb #(
 		.p_sel(p_sel), .p_we(p_we), .p_addr(p_addr), .p_wdata(p_wdata), .p_be(p_be), .p_rdata(p_rdata), .p_wait(p_wait),
 		.dma_cyc(dma_cyc), .dma_stb(dma_stb), .dma_we(dma_we), .dma_adr(dma_adr), .dma_dat_o(dma_dat_w),
 		.dma_sel(dma_sel), .dma_ack(dma_ack), .dma_err(dma_err), .dma_dat_i(dma_dat_r),
+		.mdi_req(mdi_req), .mdi_we(mdi_we), .mdi_word(mdi_word), .mdi_wdata(mdi_wdata),
+		.mdi_be(mdi_be), .mdi_ack(mdi_ack), .mdi_err(mdi_err), .mdi_rdata(mdi_rdata),
 		.irq(irq), .fiq(fiq), .dbg_src0(dbg_src0),
 		.lcd_csx(lcd_csx), .lcd_dcx(lcd_dcx), .lcd_wrx(lcd_wrx), .lcd_rdx(lcd_rdx), .lcd_resx(lcd_resx),
 		.lcd_d_o(lcd_d_o), .lcd_d_oe(lcd_d_oe), .lcd_d_i(panel_d), .lcd_active(),

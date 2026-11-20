@@ -115,8 +115,8 @@ $(BUILD)/trace/Vdbg_trace: $(TRACE_RTL) $(ROOT)/sim/harness/trace_main.cpp $(ROO
 trace: $(BUILD)/trace/Vdbg_trace
 	$< $(RUNFLAGS) --seed $(SEED)
 
-# The memory system (upp_bus, SDRAM, flash chips, DDR3 path) under a scripted
-# Wishbone master; again with a 256 KB on-chip RAM, which then lives in SDRAM
+# The memory system (upp_bus, SDRAM including the on-chip RAM window,
+# flash chips, DDR3 path) under a scripted Wishbone master
 UPP_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/nor_flash.sv $(ROOT)/rtl/mem/bram32.sv \
            $(ROOT)/rtl/mem/sdram.sv $(ROOT)/rtl/mem/ddram_flash.sv $(ROOT)/rtl/upp/upp_bus.sv $(ROOT)/rtl/upp/wb_arb2.sv \
            $(ROOT)/rtl/upp/ngage_mem.sv
@@ -126,12 +126,8 @@ UPP_G := -GFLASH_PROGRAM_CLKS=40 -GFLASH_SECTOR_ERASE_CLKS=3000 -GFLASH_ERASE_WI
 $(BUILD)/upp/Vngage_mem: $(UPP_DEPS)
 	mkdir -p $(BUILD)/upp && $(VERILATOR) $(VFLAGS) --top-module ngage_mem --Mdir $(BUILD)/upp -o Vngage_mem \
 		$(UPP_G) $(UPP_RTL) $(ROOT)/sim/harness/upp_main.cpp
-$(BUILD)/upp256/Vngage_mem: $(UPP_DEPS)
-	mkdir -p $(BUILD)/upp256 && $(VERILATOR) $(VFLAGS) --top-module ngage_mem --Mdir $(BUILD)/upp256 -o Vngage_mem \
-		$(UPP_G) -GONCHIP_BYTES=262144 $(UPP_RTL) $(ROOT)/sim/harness/upp_main.cpp
-upp: $(BUILD)/upp/Vngage_mem $(BUILD)/upp256/Vngage_mem
-	$(BUILD)/upp/Vngage_mem $(RUNFLAGS) --seed $(SEED)
-	$(BUILD)/upp256/Vngage_mem $(RUNFLAGS) --seed $(SEED) --onchip 262144 --txns 8000
+upp: $(BUILD)/upp/Vngage_mem
+	$< $(RUNFLAGS) --seed $(SEED)
 
 # The Bluetooth module against the reference model's (model/hw/ngage_bt_chip.h,
 # the same header the model is built from), with the phone's own traffic
@@ -182,6 +178,8 @@ PERIPH_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/tdp_ram.sv $(ROOT)/
               $(ROOT)/rtl/upp/ngage_mem.sv $(ROOT)/rtl/upp/upp_fifo.sv $(ROOT)/rtl/upp/upp_intc.sv \
               $(ROOT)/rtl/upp/upp_timers.sv $(ROOT)/rtl/upp/upp_dma.sv $(ROOT)/rtl/upp/upp_mmc.sv \
               $(ROOT)/rtl/upp/upp_lcdif.sv $(ROOT)/rtl/upp/upp_uif.sv $(ROOT)/rtl/upp/upp_cbus.sv \
+              $(ROOT)/rtl/upp/upp_gpio.v \
+              $(ROOT)/rtl/upp/upp_mdi.v $(ROOT)/rtl/upp/upp_mdi_peer.v \
               $(ROOT)/rtl/upp/upp_haudio.sv $(ROOT)/rtl/upp/upp_periph.sv $(ROOT)/rtl/mister/rtc_wall.sv \
               $(ROOT)/sim/harness/periph_tb.sv
 $(BUILD)/periph/Vperiph_tb: $(PERIPH_RTL) $(ROOT)/sim/harness/periph_main.cpp $(ROOT)/sim/harness/common.h \

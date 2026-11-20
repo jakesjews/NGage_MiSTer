@@ -309,6 +309,11 @@ wire        dma_cyc, dma_stb, dma_we, dma_ack, dma_err;
 wire [31:0] dma_adr, dma_dat_w, dma_dat_r;
 wire  [3:0] dma_sel;
 
+wire        mdi_req, mdi_we, mdi_ack, mdi_err;
+wire  [7:0] mdi_word;
+wire [31:0] mdi_wdata, mdi_rdata;
+wire  [3:0] mdi_be;
+
 wire        dbg_dma_owner;
 wire        sdram_ready;
 wire [15:0] sdram_dq_o, sdram_dq_oe;
@@ -351,6 +356,9 @@ ngage_mem ngage_mem
 	.dma_ack(dma_ack),
 	.dma_err(dma_err),
 	.dma_dat_o(dma_dat_r),
+
+	.mdi_req(mdi_req), .mdi_we(mdi_we), .mdi_word(mdi_word), .mdi_wdata(mdi_wdata),
+	.mdi_be(mdi_be), .mdi_ack(mdi_ack), .mdi_err(mdi_err), .mdi_rdata(mdi_rdata),
 
 	.p_sel(p_sel),
 	.p_we(p_we),
@@ -514,6 +522,8 @@ upp_periph upp_periph
 	.dma_ack(dma_ack),
 	.dma_err(dma_err),
 	.dma_dat_i(dma_dat_r),
+	.mdi_req(mdi_req), .mdi_we(mdi_we), .mdi_word(mdi_word), .mdi_wdata(mdi_wdata),
+	.mdi_be(mdi_be), .mdi_ack(mdi_ack), .mdi_err(mdi_err), .mdi_rdata(mdi_rdata),
 	.irq(cpu_irq),
 	.dbg_src0(dbg_src0),
 	.dbg_en0_irq(dbg_en0_irq),

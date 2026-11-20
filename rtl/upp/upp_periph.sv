@@ -14,14 +14,19 @@
 //   0x0C120600-0x0C12063F  MMC host                         upp_mmc
 //   0x0C120A00-0x0C120ABF  timers 0-5                       upp_timers
 //   0x0C121200-0x0C12120F  LCD bus interface                upp_lcdif
+//   0x0C148000             NOS clock unit: storage, bit 0 reads 1 (locked)
 //   0x0C149000             MCU DPLL: storage, bit 0 reads 1 (locked; bootstrap
 //                          0x37FC, model/upp-quirks.txt)
+//   0x0C150002             GSM system-type strap in bit 6
 //   0x0C150014, 0x0C150016 CTSI interrupt enables (the Bluetooth module's
 //                          line)                             upp_uif
 //   0x0C150100, 0x0C150102 CTSI interrupt status            upp_uif
 //   0x0C150112, 0x0C150114 CTSI delay calibration           upp_uif
+//   0x0C150116, 0x0C150118 CTSI NOS counter and compare     upp_uif
+//   0x0C15021C             MBUS command strobes complete immediately
 //   0x0C150400-0x0C15041F  UIF ports D/E (keypad)           upp_uif
 //   0x0C150420-0x0C150427  CBUS master, UEMK and the rest   upp_cbus
+//   0x0C150504             idle FBUS transmitter status
 //   0x0C1F0000-0x0C1F00FF  HLE audio device (emulator)      upp_haudio
 //   0x0C1F0100-0x0C1F010F  HLE RTC date register (emulator): +0 the date,
 //                          the rest 0, writes dropped        upp_cbus
@@ -93,6 +98,16 @@ module upp_periph #(
 	input  logic        dma_ack,
 	input  logic        dma_err,
 	input  logic [31:0] dma_dat_i,
+
+	// The MDI peer's payload access to the shared SDRAM rings.
+	output logic        mdi_req,
+	output logic        mdi_we,
+	output logic [7:0]  mdi_word,
+	output logic [31:0] mdi_wdata,
+	output logic [3:0]  mdi_be,
+	input  logic        mdi_ack,
+	input  logic        mdi_err,
+	input  logic [31:0] mdi_rdata,
 
 	// to the CPU, active high (the ARM925T's nIRQ / nFIQ inverted)
 	output logic        irq,
@@ -168,6 +183,7 @@ module upp_periph #(
 
 	wire pg20 = in_c1 && page == 8'h20;
 	wire pg21 = in_c1 && page == 8'h21;
+	wire pg48 = in_c1 && page == 8'h48;
 	wire pg49 = in_c1 && page == 8'h49;
 	wire pg50 = in_c1 && page == 8'h50;
 	wire pgF0 = in_c1 && page == 8'hF0;
@@ -180,11 +196,16 @@ module upp_periph #(
 	wire s_ctsi = pg50 && (off == 12'h100 || off == 12'h014);
 	wire s_cal_counter = pg50 && off == 12'h110;
 	wire s_cal_window  = pg50 && off == 12'h114;
+	wire s_nos_timer   = pg50 && (off == 12'h010 || off == 12'h118);
+	wire s_genio = pg50 && off[11:4] == 8'h20;
 	wire s_kp   = pg50 && off >= 12'h400 && off < 12'h420;
 	wire s_cbus = pg50 && off >= 12'h420 && off < 12'h428;
 	wire s_aud  = pgF0 && off < 12'h100;
 	wire s_date = pgF0 && off >= 12'h100 && off < 12'h110;
 	wire s_sti  = p_addr[27:21] == 7'b1101_111;
+	wire s_mdi_control = in_c1 && page == 8'h4B && off == 12'h004;
+	wire s_mdi = s_mdi_control || (in_c1 && page == 8'h00 &&
+	                            (off == 12'h3E8 || off == 12'h3EC));
 
 	wire be32 = p_be == 4'b1111;
 	wire be16 = p_be == 4'b0011 || p_be == 4'b1100;
@@ -237,7 +258,7 @@ module upp_periph #(
 
 	bram32 #(.AW(13)) storage (
 		.clk(clk),
-		.we(init_busy || (wr && in_c1)),
+		.we(init_busy || (wr && in_c1 && !s_mdi && !s_genio)),
 		.be(init_busy ? 4'b1111 : st_be),
 		.waddr(init_busy ? clr : st_idx),
 		.wdata(init_busy ? 32'd0 : p_wdata),
@@ -427,18 +448,46 @@ module upp_periph #(
 		.d_i(lcd_d_i)
 	);
 
+	logic       nos_tick;
+	logic [1:0] mdi_events;
+	logic [31:0] d_mdi;
+	wire [31:0] m_mdi = (acc && s_mdi) ? 32'hFFFF_FFFF : 32'd0;
+	wire [1:0] mdi_reg = s_mdi_control ? 2'd0 : {p_addr[2], !p_addr[2]};
+
+	upp_mdi mdi (
+		.clk(clk),
+		.reset(reset),
+		.tick(nos_tick),
+		.wr(wr && s_mdi),
+		.reg_sel(mdi_reg),
+		.din(p_wdata),
+		.sel(p_be),
+		.dout(d_mdi),
+		.irq_events(mdi_events),
+		.mem_req(mdi_req),
+		.mem_we(mdi_we),
+		.mem_word(mdi_word),
+		.mem_wdata(mdi_wdata),
+		.mem_be(mdi_be),
+		.mem_rdata(mdi_rdata),
+		.mem_ack(mdi_ack),
+		.mem_err(mdi_err)
+	);
+
 	upp_uif #(.CLK_HZ(CLK_HZ)) uif (
 		.clk(clk),
 		.reset(reset),
-		.acc(acc && (s_ctsi || s_kp || s_cal_counter || s_cal_window)),
-		.wr(wr && (s_ctsi || s_kp || s_cal_window)),
+		.acc(acc && (s_ctsi || s_kp || s_cal_counter || s_cal_window || s_nos_timer)),
+		.wr(wr && (s_ctsi || s_kp || s_cal_window || s_nos_timer)),
 		.off(off),
 		.hi(p_be[2]),
 		.wdata(p_wdata),
-		.calibration_window_be(p_be[1:0]),
+		.be(p_be),
 		.rmask(m_uif),
 		.rdata(d_uif),
 		.bt_irq(bt_irq),
+		.mdi_events(mdi_events),
+		.nos_tick(nos_tick),
 		.ctsi_irq(ctsi_irq),
 		.col_oe(kp_col_oe),
 		.col_out(kp_col_out),
@@ -446,6 +495,22 @@ module upp_periph #(
 		.row_out(kp_row_out),
 		.col_in(kp_col_in),
 		.row_in(kp_row_in)
+	);
+
+	wire ear_route, sim_route, tx_route;
+	wire [31:0] d_genio;
+	wire [31:0] m_genio = {32{acc && s_genio}};
+	upp_gpio genio (
+		.clk(clk),
+		.reset(reset),
+		.wr(wr && s_genio),
+		.word_addr(p_addr[3:2]),
+		.din(p_wdata),
+		.sel(p_be),
+		.ear_route(ear_route),
+		.sim_route(sim_route),
+		.tx_route(tx_route),
+		.dout(d_genio)
 	);
 
 	upp_cbus #(.POWER_ON_HOLD_CLKS(POWER_ON_HOLD_CLKS)) cbus (
@@ -461,6 +526,9 @@ module upp_periph #(
 		.rdata(d_cbus),
 		.busy(b_cbus),
 		.power_key(power_key),
+		.ear_route(ear_route),
+		.sim_route(sim_route),
+		.tx_route(tx_route),
 		.bt_rd(bt_rd),
 		.bt_wr(bt_wr),
 		.bt_reg(bt_reg),
@@ -490,18 +558,33 @@ module upp_periph #(
 
 	wire nos_clock_ready = clock_control == 32'h20 || clock_control == 32'h40;
 	wire clock_status = acc && pg20 && off == 12'h020;
+	// Both clock units report immediate lock in the peripheral model.
+	wire dpll_status = acc && (pg48 || pg49) && off == 12'h000;
+	// The modeled FBUS transmitter has no traffic in flight.
+	wire fbus_status = acc && pg50 && off == 12'h504;
+	wire gsm_strap = acc && pg50 && off == 12'h000;
+	wire mbus_strobe = acc && pg50 && off == 12'h21C;
+	// The QD NOS checks the UPP_WD2 revision nibble in its native self-test.
+	wire upp_revision = acc && in_c1 && page == 8'h4B && off == 12'h000;
 	wire [31:0] m_q = clock_status ? 32'h1E00_0000 :
-	                  (acc && pg49 && off == 12'h000) ? 32'h0000_0001 : 32'd0;
-	wire [31:0] d_q = clock_status ? (32'h1C00_0000 | {6'd0, nos_clock_ready, 25'd0}) : m_q;
+	                  dpll_status ? 32'h0000_0001 :
+	                  fbus_status ? 32'h0000_01D0 :
+	                  gsm_strap ? 32'h0040_0000 :
+	                  mbus_strobe ? 32'h0040_9818 :
+	                  upp_revision ? 32'h0000_00F0 : 32'd0;
+	wire [31:0] d_q = clock_status ? (32'h1C00_0000 | {6'd0, nos_clock_ready, 25'd0}) :
+	                  mbus_strobe ? {9'd0, st_q[23], 22'd0} :
+	                  upp_revision ? 32'h0000_0080 : m_q;
 	// the HLE RTC date register
 	wire [31:0] m_date = (acc && s_date) ? 32'hFFFF_FFFF : 32'd0;
 	wire [31:0] d_date = (off[3:0] == 4'h0) ? rtc_base :
 	                     (off[3:0] == 4'h4) ? {31'd0, c_blank} : 32'd0;
 
-	wire [31:0] rmask = m_intc | m_tmr | m_dma | m_mmc | m_lcd | m_uif | m_cbus | m_aud | m_date | m_q;
+	wire [31:0] rmask = m_intc | m_tmr | m_dma | m_mmc | m_lcd | m_uif | m_cbus | m_aud | m_date | m_mdi |
+	                    m_genio | m_q;
 	wire [31:0] rbits = (d_intc & m_intc) | (d_tmr & m_tmr) | (d_dma & m_dma) | (d_mmc & m_mmc) |
 	                    (d_lcd & m_lcd) | (d_uif & m_uif) | (d_cbus & m_cbus) | (d_aud & m_aud) |
-	                    (d_date & m_date) | d_q;
+	                    (d_date & m_date) | (d_mdi & m_mdi) | (d_genio & m_genio) | d_q;
 	assign blk_busy = (s_mmc && b_mmc) || (s_lcd && b_lcd) || (s_cbus && b_cbus);
 
 	always_ff @(posedge clk) begin

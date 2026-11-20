@@ -25,7 +25,9 @@
 // Underflow: the count goes C, C-1, ..., 1 and then, at the tick that would
 // make it 0, the interrupt is raised and the count becomes the reload value
 // (bit 1 set) or 0 with the timer stopped (bit 1 clear). A count of 0 runs
-// for 2^32 ticks. So the interrupt comes TIMER_DIV * C clocks after the start.
+// for 2^32 ticks. An explicit zero load on the configured Timer 1 one-shot
+// is due on its next tick, as required by QD NOS's zero-delay callback.
+// Otherwise the interrupt comes TIMER_DIV * C clocks after the start.
 // An underflow and a register write at the same clock edge are taken in that
 // order (the model's timer fires before the next instruction runs): an
 // acknowledge then clears the new interrupt, a write of +0x10 restarts from
@@ -115,7 +117,7 @@ module upp_timers #(
 						end
 						5'h08: irq_n = 1'b0;
 						5'h10: begin
-							c = wdata;
+							c = (t == 1 && ctrl[t] == 2'd1 && wdata == 32'd0) ? 32'd1 : wdata;
 							if (run || ctrl[t] != 2'd0) begin
 								run = 1'b1;
 								p   = '0;

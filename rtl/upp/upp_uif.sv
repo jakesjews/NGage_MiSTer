@@ -39,7 +39,15 @@
 // or the module's bit is, enabled.
 // Native NOS delay calibration uses the free-running down-counter at +0x112
 // and the programmable reload window at +0x114. The model uses the NEM-4
-// approximation of 32.768 kHz. Other lanes retain their register storage.
+// approximation of 32.768 kHz. NOS reads +0x116 only after +0x112 is nonzero,
+// so the model advances the 16-bit NOS counter at each calibration wrap.
+// A match at +0x118 sets status bit 7. Write that bit at +0x012/+0x010 to
+// enable/disable it and at +0x100 to acknowledge it.
+// Bits 12 and 13 are software interrupts in the same CTSI group. +0x012
+// sets and enables them, +0x010 clears and disables them, and +0x100
+// acknowledges their pending status.
+// The MDI peer pulses bits 9 and 10. The same group controls their enable and
+// acknowledges their status, which remains latched until acknowledged.
 // Keypad and interrupt accesses are 16-bit, as enforced by upp_periph.
 module upp_uif #(
 	parameter int CLK_HZ = 104_000_000
@@ -52,11 +60,13 @@ module upp_uif #(
 	input  logic [11:0] off,          // byte offset in the 0x0C150000 page
 	input  logic        hi,           // the access is to the upper halfword (bytes 3:2)
 	input  logic [31:0] wdata,
-	input  logic [1:0]  calibration_window_be,
+	input  logic [3:0]  be,
 	output logic [31:0] rmask,
 	output logic [31:0] rdata,
 
 	input  logic        bt_irq,       // the Bluetooth module's interrupt line, a pulse
+	input  logic [1:0]  mdi_events,
+	output logic        nos_tick,
 	output logic        ctsi_irq,
 
 	output logic [4:0]  col_oe,
@@ -67,6 +77,7 @@ module upp_uif #(
 	input  logic [5:0]  row_in
 );
 
+	localparam logic [15:0] CTSI_NOS_EVENTS = 16'h3680;
 	logic [15:0] ctsi;
 	logic        bt_latch;
 	logic [15:0] bt_en;
@@ -90,6 +101,8 @@ module upp_uif #(
 	wire is_cten = off == 12'h014;
 	wire is_calibration_counter = off == 12'h110;
 	wire is_calibration_window  = off == 12'h114;
+	wire is_nos_enable = off == 12'h010;
+	wire is_nos_compare = off == 12'h118;
 	wire [4:0] w = {off[4:2], hi, 1'b0};          // the 16-bit register's offset
 	wire [15:0] wv = hi ? wdata[31:16] : wdata[15:0];
 
@@ -98,12 +111,30 @@ module upp_uif #(
 	localparam logic [15:0] CAL_DEFAULT_WINDOW = 16'h0080;
 	logic [CAL_DIV_BITS-1:0] calibration_divider;
 	logic [15:0] calibration_counter, calibration_window;
+	logic [15:0] nos_counter, nos_compare;
+	logic        nos_enable, nos_pending, nos_compare_valid;
+	logic [1:0]  nos_soft_enable, nos_soft_pending;
+	logic [1:0]  mdi_enable, mdi_pending;
 	wire [15:0] calibration_reload = calibration_window == 16'd0 ? CAL_DEFAULT_WINDOW : calibration_window;
 	wire [15:0] next_calibration_window = {
-		calibration_window_be[1] ? wdata[15:8] : calibration_window[15:8],
-		calibration_window_be[0] ? wdata[7:0] : calibration_window[7:0]
+		be[1] ? wdata[15:8] : calibration_window[15:8],
+		be[0] ? wdata[7:0] : calibration_window[7:0]
 	};
 	wire calibration_tick = calibration_divider == CAL_DIV_BITS'(CAL_DIV - 1);
+	wire window_written = wr && is_calibration_window && |be[1:0];
+	assign nos_tick = calibration_tick && calibration_counter == 16'd0 && !window_written;
+	wire compare_written = wr && is_nos_compare && |be[1:0];
+	wire [15:0] next_nos_compare = {
+		be[1] ? wdata[15:8] : nos_compare[15:8],
+		be[0] ? wdata[7:0] : nos_compare[7:0]
+	};
+	wire [15:0] active_compare = compare_written ? next_nos_compare : nos_compare;
+	wire [1:0] soft_set = wr && is_nos_enable && be[3] ? wdata[29:28] : 2'd0;
+	wire [1:0] soft_disable = wr && is_nos_enable && be[1] ? wdata[13:12] : 2'd0;
+	wire [1:0] soft_ack = wr && is_ctsi && be[1] ? wdata[13:12] : 2'd0;
+	wire [1:0] mdi_set = wr && is_nos_enable && be[3] ? wdata[26:25] : 2'd0;
+	wire [1:0] mdi_disable = wr && is_nos_enable && be[1] ? wdata[10:9] : 2'd0;
+	wire [1:0] mdi_ack = wr && is_ctsi && be[1] ? wdata[10:9] : 2'd0;
 
 	always_ff @(posedge clk) begin
 		if (reset) begin
@@ -112,12 +143,42 @@ module upp_uif #(
 			calibration_window  <= 16'd0;
 		end else begin
 			calibration_divider <= calibration_tick ? '0 : calibration_divider + 1'd1;
-			if (wr && is_calibration_window && |calibration_window_be) begin
+			if (window_written) begin
 				calibration_window <= next_calibration_window;
 				calibration_counter <= next_calibration_window == 16'd0 ? CAL_DEFAULT_WINDOW : next_calibration_window;
 			end else if (calibration_tick) begin
 				calibration_counter <= calibration_counter == 16'd0 ? calibration_reload : calibration_counter - 16'd1;
 			end
+		end
+	end
+
+	always_ff @(posedge clk) begin
+		if (reset) begin
+			nos_counter       <= 16'd0;
+			nos_compare       <= 16'd0;
+			nos_enable        <= 1'b0;
+			nos_pending       <= 1'b0;
+			nos_compare_valid <= 1'b0;
+			nos_soft_enable   <= 2'd0;
+			nos_soft_pending  <= 2'd0;
+			mdi_enable        <= 2'd0;
+			mdi_pending       <= 2'd0;
+		end else begin
+			if (nos_tick) nos_counter <= nos_counter + 16'd1;
+			if (compare_written) begin
+				nos_compare <= next_nos_compare;
+				nos_compare_valid <= 1'b1;
+			end
+			if (wr && is_nos_enable)
+				nos_enable <= (nos_enable || (be[2] && wdata[23])) && !(be[0] && wdata[7]);
+			if (wr && is_ctsi && be[0] && wdata[7]) nos_pending <= 1'b0;
+			nos_soft_enable  <= (nos_soft_enable | soft_set) & ~soft_disable;
+			nos_soft_pending <= (nos_soft_pending | soft_set) & ~(soft_disable | soft_ack);
+			mdi_enable      <= (mdi_enable | mdi_set) & ~mdi_disable;
+			mdi_pending     <= (mdi_pending & ~mdi_ack) | mdi_events;
+			if ((compare_written && nos_counter == next_nos_compare) ||
+			    (nos_tick && (nos_compare_valid || compare_written) && nos_counter + 16'd1 == active_compare))
+				nos_pending <= 1'b1;
 		end
 	end
 
@@ -129,11 +190,18 @@ module upp_uif #(
 				rmask = 32'hFFFF_0000;
 				rdata = {calibration_counter, 16'd0};
 			end else if (is_calibration_window) begin
+				rmask = '1;
+				rdata = {nos_counter, calibration_reload};
+			end else if (is_nos_compare) begin
 				rmask = 32'h0000_FFFF;
-				rdata = {16'd0, calibration_reload};
+				rdata = {16'd0, nos_compare};
+			end else if (is_nos_enable) begin
+				rmask = 32'h3680_0000;
+				rdata = {2'd0, nos_soft_enable, 1'b0, mdi_enable, 1'b0, nos_enable, 23'd0};
 			end else if (is_ctsi) begin
 				rmask = '1;
-				rdata = {11'd0, bt_latch && bt_en[4], 4'd0, ctsi};
+				rdata = {11'd0, bt_latch && bt_en[4], 4'd0,
+				         ctsi | {2'd0, nos_soft_pending, 1'b0, mdi_pending, 1'b0, nos_pending, 7'd0}};
 			end else if (is_cten) begin
 				rmask = '1;
 				rdata = {bt_en, bt_en};
@@ -168,13 +236,14 @@ module upp_uif #(
 
 		if (bt_irq) bt_latch <= 1'b1;
 
-		if (wr && !is_calibration_counter && !is_calibration_window) begin
+		if (wr && !is_calibration_counter && !is_calibration_window && !is_nos_enable && !is_nos_compare) begin
 			if (is_ctsi && hi) begin
 				// the module's bit clears when written 1 (and stays set by a pulse now)
 				if (wv[4] && !bt_irq) bt_latch <= 1'b0;
 			end else if (is_ctsi) begin
 				// bits 2 and 3 clear when written 1 (and stay set by an edge now)
-				ctsi <= {wdata[15:4], ctsi[3:2] & ~wdata[3:2] | {fell_c != 5'd0, fell_r != 6'd0}, wdata[1:0]};
+				ctsi <= {wdata[15:4], ctsi[3:2] & ~wdata[3:2] | {fell_c != 5'd0, fell_r != 6'd0}, wdata[1:0]}
+				        & ~CTSI_NOS_EVENTS;
 			end else if (is_cten) begin
 				bt_en <= hi ? (bt_en | wv) : (bt_en & ~wv);
 			end else begin
@@ -215,7 +284,9 @@ module upp_uif #(
 		end
 	end
 
-	assign ctsi_irq = ctsi[2] | ctsi[3] | (bt_latch & bt_en[4]);
+	assign ctsi_irq = ctsi[2] | ctsi[3] | (bt_latch & bt_en[4]) |
+	                  (nos_pending & nos_enable) | (|(nos_soft_pending & nos_soft_enable)) |
+	                  (|(mdi_pending & mdi_enable));
 
 
 endmodule
