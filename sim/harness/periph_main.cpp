@@ -118,7 +118,7 @@ struct Bench {
 
 	explicit Bench(uint32_t seed) : chip(seed * 5 + 3), ddr(48u << 20, seed * 11 + 7), rng(seed) {
 		ddr.prof.busy_pct = 10;
-		t->clk = 0; t->reset = 1; t->sdram_init = 1;
+		t->clk = 0; t->reset = 1; t->sdram_init = 1; t->nem4 = 0;
 		t->wb_cyc = 0; t->wb_stb = 0; t->wb_we = 0; t->wb_adr = 0; t->wb_dat_i = 0; t->wb_sel = 0; t->wb_cti = 7; t->wb_bte = 0;
 		t->ddram_busy = 0; t->ddram_dout = 0; t->ddram_dout_ready = 0; t->sdram_dq_i = 0;
 		t->img_mounted = 0; t->img_readonly = 0; t->img_size = 0; t->sd_ack = 0; t->sd_buff_addr = 0;
@@ -428,14 +428,14 @@ void test_ctsi_calibration(Bench &b) {
 	CHECK(wrapped > middle && wrapped <= 15, "counter wraps at the programmed window");
 	const int elapsed = (middle + 16 - wrapped) % 16;
 	CHECK(elapsed == 14 || elapsed == 15, "counter wrap includes zero");
-	CHECK_EQ(b.rd16(nos_counter), uint16_t(original_ticks + 1), "NOS count advances with the calibration wrap");
+	CHECK_EQ(b.rd16(nos_counter), original_ticks, "calibration wraps leave the QD NOS count alone");
 	b.wr(INTC + 0x08, 1u << 25);
 	b.wr16(ctsi_enable, 0x0080);
 	b.wr16(nos_compare + 2, 0x89AB);
-	b.wr8(nos_compare, uint8_t(original_ticks + 2));
-	CHECK_EQ(b.rd(nos_compare), 0x89AB0000u | uint16_t(original_ticks + 2), "compare retains the adjacent halfword");
+	b.wr8(nos_compare, uint8_t(original_ticks + 1));
+	CHECK_EQ(b.rd(nos_compare), 0x89AB0000u | uint16_t(original_ticks + 1), "compare retains the adjacent halfword");
 	CHECK(!b.t->irq, "CTSI compare waits for the target tick");
-	b.run(16 * divider);
+	b.run(104000000 / 64);
 	CHECK_EQ(b.rd16(ctsi_status) & 0x0080, 0x0080, "CTSI compare latches status bit 7");
 	CHECK_EQ(b.rd(INTC + 0x14), 26, "CTSI compare raises interrupt source 25");
 	b.wr16(ctsi_enable - 2, 0x0080);
@@ -474,14 +474,13 @@ void test_mdi(Bench &b) {
 	b.wr8(m2d + 0x101, 0x25);
 	CHECK_EQ(b.rd(m2d + 0x100), 0x89AB25EF, "ring payload retains byte writes");
 	CHECK_EQ(b.rd(0x0C001100), 0xF0, "ring payload is separate from on-chip SDRAM");
-	b.wr16(0x0C150114, 1);
 	b.wr(INTC + 0x08, 1u << 25);
 	b.wr16(0x0C150012, 0x0400);
 	b.wr16(control, 0x0500);
 	b.wr(m2d_ptr, 0);
 	b.wr(d2m_ptr, 0);
 	CHECK_EQ(b.rd(d2m_ptr), 0, "announcement waits for its NOS ticks");
-	b.run(21 * 2 * 3174);
+	b.run(21 * (104000000 / 64));
 	CHECK_EQ(b.rd16(ctsi) & 0x0600, 0x0400, "publication latches CTSI bit 10");
 	CHECK_EQ(b.rd(INTC + 0x14), 26, "MDI publication drives source 25");
 	CHECK_EQ(b.rd(d2m_ptr), 4, "publication exposes four complete halfwords");
@@ -576,7 +575,6 @@ void test_mdi(Bench &b) {
 	b.wr16(ctsi, 0x0600);
 	b.wr16(0x0C150010, 0x0600);
 	b.wr(INTC + 0x0C, 1u << 25);
-	b.wr16(0x0C150114, 0);
 }
 
 // model/.out/regs.log: "W|R <block> <address> size=<n> val=<v> pc=<pc>"
@@ -978,6 +976,71 @@ void test_lcd(Bench &b) {
 	}
 	CHECK_EQ(bad, 0, "16-bpp picture pixels wrong");
 	printf("  %llu bytes on the LCD bus\n", (unsigned long long)b.lcd_bytes);
+}
+
+void test_nem4_lcd(Bench &b) {
+	printf("NEM-4 packed LCD words\n");
+	b.t->nem4 = 1;
+	b.reset_core();
+	auto command = [&](uint8_t opcode) {
+		b.wr(LCD, 0x09200000);
+		b.wr(LCD + 8, opcode);
+	};
+	auto window = [&](uint8_t opcode, uint32_t endpoints) {
+		command(opcode);
+		b.wr(LCD, 0x09240003);
+		b.wr(LCD + 8, endpoints);
+		b.wr(LCD + 8, 0);
+	};
+	auto sample = [&](unsigned x, unsigned y) {
+		b.t->scan_x = x;
+		b.t->scan_y = y;
+		b.t->scan_en = 1;
+		b.tick();
+		b.t->scan_en = 0;
+		b.run(4);
+		return b.t->scan_rgb;
+	};
+
+	window(0x15, 0x0B100002);
+	window(0x75, 0x0D000000);
+	command(0x5C);
+	b.wr(LCD, 0x8924D67F);
+	constexpr unsigned frame_pairs = 176 * 208 / 2;
+	for (unsigned pair = 0; pair < frame_pairs; ++pair) {
+		const uint32_t word = pair == 0 ? 0x000F0F00 : pair == frame_pairs - 1 ? 0x0FFF00F0 : 0;
+		b.wr(LCD + 8, word);
+	}
+	CHECK_EQ(sample(0, 0), 0, "NEM-4 panel starts blank");
+	command(0xAF);
+	CHECK_EQ(sample(0, 0), 0xF800, "lower packed pixel is first");
+	CHECK_EQ(sample(1, 0), 0x001F, "upper packed pixel is second");
+	CHECK_EQ(sample(174, 207), 0x07E0, "full native frame reaches the last row");
+	CHECK_EQ(sample(175, 207), 0xFFFF, "full native frame includes its last pixel");
+
+	constexpr unsigned row = 17, row_pairs = 176 / 2;
+	constexpr uint32_t source = SD + 0x20;
+	for (unsigned pair = 0; pair < row_pairs; ++pair) {
+		const uint32_t word = 0x00F00F00;
+		for (unsigned byte = 0; byte < 4; ++byte)
+			b.sd_poke(source + 4 * pair + byte, uint8_t(word >> (8 * byte)));
+	}
+	window(0x75, ((row + 1) << 20) | row);
+	command(0x5C);
+	b.wr(LCD, 0x89240000 | (3 * row_pairs - 1));
+	b.dma_setup(1, source, 4, 0x20, 0x10121208, 0, 0x20, row_pairs);
+	b.dma_start(1, 2);
+	const uint64_t deadline = b.cyc + 20000;
+	while (!b.dma_done(1) && b.cyc < deadline) b.run(8);
+	CHECK(b.dma_done(1), "NEM-4 row DMA completes");
+	b.dma_finish(1);
+	b.wr(LCD + 8, 0x0FFF0FFF);
+	CHECK_EQ(sample(0, row), 0xF800, "row-band DMA uses the selected start row");
+	CHECK_EQ(sample(175, row), 0x07E0, "row-band DMA delivers the last upper pixel");
+	CHECK_EQ(sample(0, row + 1), 0, "extra words leave the next row alone");
+
+	b.t->nem4 = 0;
+	b.reset_core();
 }
 
 // -------------------------------------------------------------------------
@@ -1449,6 +1512,117 @@ void test_simif(Bench &b) {
 	CHECK_EQ(b.rd16(DATA), 0x3B, "reset starts a fresh card session");
 }
 
+void test_nem4_clocks(Bench &b) {
+	printf("NEM-4 timer clocks\n");
+	constexpr uint64_t nos_period = 104000000 / 64;
+	constexpr uint64_t count = 200;
+	b.t->nem4 = 1;
+	b.t->reset = 1;
+	b.run(5);
+	const uint64_t reset_release = b.cyc;
+	b.t->reset = 0;
+	b.wr(INTC + 0x08, (1u << 25) | 1);
+	b.wr16(0x0C150114, 0x009F);
+	b.wr16(0x0C150118, 1);
+	b.wr16(0x0C150012, 0x0080);
+	b.wr(TMR + 0x10, count);
+	b.wr(TMR + 0x04, 1);
+	const uint64_t start = b.p_edge;
+	while (!b.t->irq && b.cyc < start + 4 * count + 2) b.tick();
+	CHECK_EQ(b.cyc, start + 4 * count + 1, "NEM-4 Timer 0 ticks at 26 MHz");
+	CHECK_EQ(b.rd(INTC + 0x14), 1, "NEM-4 Timer 0 uses IRQ source 0");
+	b.wr(TMR + 0x08, 1);
+	const uint64_t nos_tick = reset_release + nos_period;
+	b.run(nos_tick - 512 - b.cyc);
+	CHECK_EQ(b.rd16(0x0C150116), 0, "calibration wraps do not advance the NEM-4 NOS timer");
+	CHECK(!b.t->irq, "NEM-4 compare waits for a NOS tick");
+	while (!b.t->irq && b.cyc < nos_tick + 2) b.tick();
+	CHECK_EQ(b.cyc, nos_tick + 1, "the NOS event uses an exact 64 Hz period");
+	CHECK_EQ(b.rd16(0x0C150116), 1, "NEM-4 NOS timer advances at 64 Hz");
+	CHECK_EQ(b.rd(INTC + 0x14), 26, "NEM-4 NOS comparison uses IRQ source 25");
+	b.wr16(0x0C150100, 0x0080);
+	CHECK_EQ(b.rd(INTC + 0x14), 0, "NEM-4 compare interrupt clears on acknowledgement");
+	b.t->nem4 = 0;
+	b.reset_core();
+}
+
+void test_d550_boot(Bench &b) {
+	printf("NEM-4 external DSP boot link\n");
+	constexpr uint32_t tx_idle = 0x0C150514, tx_data = 0x0C150554, rx_data = 0x0C150556;
+	constexpr uint32_t batch = 0x0C15055A, status = 0x0C1500B8, rx_enable = 0x0C15000E;
+	b.reset_core();
+	CHECK_EQ(b.rd16(tx_idle), 0, "QD leaves the NEM-4 EUART disabled");
+	b.t->nem4 = 1;
+	b.reset_core();
+	CHECK_EQ(b.rd16(tx_idle) & 4, 4, "NEM-4 idle transmitter clears the original firmware's poll");
+	Cbus c(b);
+	// NEM-4 has no LRB-2 peer. The QD controller would claim this packet,
+	// return 0x000A from register 8 and raise a CTSI interrupt.
+	b.wr16(0x0C150016, 0x0010);
+	c.write(5, 8, 16, 0x800A);
+	CHECK_EQ(c.read(5, 8, 16), 0x800A, "NEM-4 CBUS write retains its stored value");
+	CHECK_EQ(b.rd16(0x0C150102) & 0x0010, 0, "QD Bluetooth responses stay off the NEM-4 bus");
+	c.write(1, 0x0F, 16, 0x00F0);
+	c.write(1, 0x10, 16, 0);
+	b.wr16(rx_enable, 8);
+	b.run(64);
+	CHECK_EQ(b.rd16(status + 2) & 8, 0, "clock-stopped DSP sends no bytes");
+	c.write(1, 0x0F, 16, 0);
+	c.write(1, 0x10, 16, 0x20);
+	b.wr16(0x0C150808, 1);
+	b.wr(FINTC + 8, 1u << 26);
+	b.run(64);
+	CHECK_EQ(b.rd(status) & 0x00080004, 0x00080004, "SIM and EUART share CTSI status");
+	CHECK_EQ(b.rd(FINTC + 0x14), 27, "EUART RX reaches FIQ 26");
+	b.wr16(0x0C150800, 0x10);
+	CHECK_EQ(b.rd(status) & 0x00080004, 0x00080000, "SIM acknowledgement preserves EUART RX");
+
+	auto receive = [&](unsigned size) {
+		std::vector<uint8_t> bytes;
+		while (bytes.size() < size) {
+			unsigned polls = 0;
+			while (!(b.rd16(status + 2) & 8) && ++polls < 256) b.run(4);
+			CHECK(polls < 256, "DSP reply byte arrived");
+			if (polls == 256) break;
+			bytes.push_back(b.rd16(rx_data) >> 8);
+		}
+		bytes.resize(size);
+		return bytes;
+	};
+	auto send = [&](std::vector<uint8_t> bytes) {
+		uint16_t checksum = 0;
+		for (unsigned i = 2; i + 2 < bytes.size(); i += 2)
+			checksum ^= (bytes[i] << 8) | bytes[i + 1];
+		bytes[bytes.size() - 2] = checksum >> 8;
+		bytes.back() = checksum;
+		for (unsigned i = 0; i < bytes.size();) {
+			unsigned count = std::min<unsigned>(16, bytes.size() - i);
+			b.wr16(batch, count - 1);
+			for (unsigned end = i + count; i < end; ++i) b.wr16(tx_data, bytes[i] << 8);
+			unsigned polls = 0;
+			while (!(b.rd16(tx_idle) & 4) && ++polls < 256) b.run(4);
+			CHECK(polls < 256, "EUART reports idle after draining the transmit batch");
+		}
+	};
+	const std::vector<uint8_t> startup = {
+		0x55, 0x55, 0x20, 0x00, 0x78, 0xD0, 0x00, 0x04, 0x01, 0x11, 0x01, 0x60, 0x58, 0xA5,
+		0x55, 0x55, 0x20, 0x00, 0x78, 0xD0, 0x00, 0x03, 0x04, 0x01, 0x60, 0x00, 0x3C, 0xD2
+	};
+	CHECK(receive(28) == startup, "original D0/01 and D0/04 startup frames");
+	CHECK_EQ(b.rd(FINTC + 0x14), 0, "reading the last byte clears EUART RX FIQ");
+	send({0x55, 0x55, 0x20, 0x78, 0, 0xD0, 0, 3, 5, 1, 0x40, 0, 0, 0});
+	send({0x55, 0x55, 0x20, 0x78, 0, 0x82, 0, 12, 0x12, 0x34, 0x0E, 0x2B,
+	      0, 7, 0, 0x42, 0, 0, 1, 0x41, 0, 0});
+	const auto reply = receive(34);
+	CHECK_EQ(reply[5], 0x7F, "DSP acknowledges the native diagnostic frame");
+	CHECK_EQ(reply[23], 0x8B, "DSP publishes the native diagnostic result");
+	CHECK_EQ(reply[27], 0x42, "result belongs to test 42");
+	CHECK_EQ(reply[28] | reply[29], 0, "test 42 passes after the N501 codec reset transaction");
+
+	b.t->nem4 = 0;
+	b.reset_core();
+}
+
 void test_cbus(Bench &b, const std::string &dir) {
 	printf("CBUS\n");
 	Cbus c(b);
@@ -1781,11 +1955,14 @@ int main(int argc, char **argv) {
 	test_cbus(b, model_out);
 	test_genio_loopback(b);
 	test_simif(b);
+	test_nem4_clocks(b);
+	test_d550_boot(b);
 	test_bt(b);
 	test_rtc(b);
 	test_sti(b);
 	test_dma(b);
 	test_lcd(b);
+	test_nem4_lcd(b);
 	test_mmc(b);
 	if (!card.empty()) test_card(b, card);
 	test_reset(b);

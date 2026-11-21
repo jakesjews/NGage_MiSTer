@@ -31,7 +31,7 @@ $(OUT):
 	mkdir -p $@
 
 # The display module through its 8080 bus
-LCD_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/lcd_panel.sv
+LCD_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/lcd_panel.sv $(ROOT)/rtl/board/ngage_nem4_lcd.v
 $(BUILD)/lcd/Vlcd_panel: $(LCD_RTL) $(ROOT)/sim/harness/lcd_main.cpp $(ROOT)/sim/harness/common.h
 	mkdir -p $(BUILD)/lcd && $(VERILATOR) $(VFLAGS) --top-module lcd_panel --Mdir $(BUILD)/lcd -o Vlcd_panel \
 		-GCLK_HZ=2000000 -GTE_HPULSE_CLKS=4 -GID1=69 -GID2=131 -GID3=90 \
@@ -156,8 +156,15 @@ timers: $(BUILD)/timers/Vupp_timers
 # The UPP peripherals in the memory system, with the board devices they drive
 # (sim/harness/periph_tb.sv), under a scripted CPU; replays the model's logs
 # from model/.out when they are there
+ADSP_RTL := $(ROOT)/rtl/board/ngage_aic23.v \
+            $(ROOT)/rtl/board/ngage_adsp_bootstrap_tx.v \
+            $(ROOT)/rtl/board/ngage_adsp_diagnostic.v \
+            $(ROOT)/rtl/board/ngage_adsp.v \
+            $(ROOT)/rtl/board/ngage_d550_boot.v \
+            $(ROOT)/rtl/upp/upp_euart.v
 PERIPH_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/tdp_ram.sv $(ROOT)/rtl/board/nor_flash.sv \
-              $(ROOT)/rtl/board/lcd_panel.sv $(ROOT)/rtl/board/mmc_card.sv $(ROOT)/rtl/board/ngage_keys.sv \
+              $(ROOT)/rtl/board/lcd_panel.sv $(ROOT)/rtl/board/ngage_nem4_lcd.v \
+              $(ROOT)/rtl/board/mmc_card.sv $(ROOT)/rtl/board/ngage_keys.sv \
               $(ROOT)/rtl/board/bt_module.sv \
               $(ROOT)/rtl/board/keypad_matrix.sv $(ROOT)/rtl/mem/bram32.sv $(ROOT)/rtl/mem/sdram.sv \
               $(ROOT)/rtl/mem/ddram_flash.sv $(ROOT)/rtl/upp/upp_bus.sv $(ROOT)/rtl/upp/wb_arb2.sv \
@@ -167,7 +174,7 @@ PERIPH_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/tdp_ram.sv $(ROOT)/
               $(ROOT)/rtl/upp/upp_gpio.v $(ROOT)/rtl/upp/upp_simif.v $(ROOT)/rtl/upp/upp_test_sim.v \
               $(ROOT)/rtl/upp/upp_mdi.v $(ROOT)/rtl/upp/upp_mdi_peer.v \
               $(ROOT)/rtl/upp/upp_pcm.v $(ROOT)/rtl/upp/upp_dsp_pcm.v $(ROOT)/rtl/upp/upp_periph.sv $(ROOT)/rtl/mister/rtc_wall.sv \
-              $(ROOT)/sim/harness/periph_tb.sv
+              $(ADSP_RTL) $(ROOT)/sim/harness/periph_tb.sv
 $(BUILD)/periph/Vperiph_tb: $(PERIPH_RTL) $(ROOT)/sim/harness/periph_main.cpp $(ROOT)/sim/harness/common.h \
                             $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h
 	mkdir -p $(BUILD)/periph && $(VERILATOR) $(VFLAGS) --top-module periph_tb --Mdir $(BUILD)/periph -o Vperiph_tb \

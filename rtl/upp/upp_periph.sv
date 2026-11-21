@@ -27,6 +27,7 @@
 //   0x0C150400-0x0C15041F  UIF ports D/E (keypad)           upp_uif
 //   0x0C150420-0x0C150427  CBUS master, UEMK and the rest   upp_cbus
 //   0x0C150504             idle FBUS transmitter status
+//   0x0C150510–0x0C150563  NEM-4 EUART1 control and data     upp_euart
 //   0x0C1F0100-0x0C1F010F  HLE RTC date register (emulator): +0 the date,
 //                          the rest 0, writes dropped        upp_cbus
 //   0x0DE00000-0x0DFFFFFF  STI trace window: writes go to sti_* (the kernel's
@@ -77,6 +78,7 @@ module upp_periph #(
 ) (
 	input  logic        clk,
 	input  logic        reset,
+	input  logic        nem4,
 
 	// the peripheral register bus (upp_bus)
 	input  logic        p_sel,
@@ -126,6 +128,10 @@ module upp_periph #(
 	output logic        lcd_d_oe,
 	input  logic [7:0]  lcd_d_i,
 	output logic        lcd_active,      // the interface has driven the bus since reset
+	output logic        nem4_lcd_valid,
+	output logic        nem4_lcd_header,
+	output logic [31:0] nem4_lcd_data,
+	input  logic        nem4_lcd_ready,
 
 	// the MMC slot
 	output logic        mmc_clk,
@@ -153,6 +159,16 @@ module upp_periph #(
 	input  logic [15:0] bt_rdata,
 	input  logic        bt_busy,
 	input  logic        bt_irq,
+
+	// Transaction-level byte link to the external NEM-4 D550.
+	output wire         adsp_clock_ready,
+	output wire         adsp_receive_enabled,
+	output wire         adsp_tx_valid,
+	input  logic        adsp_tx_ready,
+	output wire [7:0]   adsp_tx_data,
+	input  logic        adsp_rx_valid,
+	output wire         adsp_rx_ready,
+	input  logic [7:0]  adsp_rx_data,
 
 	// the wall clock (rtc_wall) for the UEMK RTC and the date register
 	input  logic        rtc_valid,
@@ -226,8 +242,10 @@ module upp_periph #(
 	logic        init_busy;
 	logic        blk_busy;
 	wire simif_claim, simif_bad, simif_busy, simif_irq;
+	wire euart_claim, euart_bad, euart_ready, euart_fiq;
 
-	wire done = p_sel && rdy_q && (p_we ? cnt != 2'd0 : cnt[1]) && !(simif_claim && simif_busy);
+	wire done = p_sel && rdy_q && (p_we ? cnt != 2'd0 : cnt[1]) &&
+	            !(simif_claim && simif_busy) && euart_ready;
 	assign p_wait  = p_sel && !done;
 	assign p_rdata = rd_q;
 
@@ -258,7 +276,7 @@ module upp_periph #(
 
 	bram32 #(.AW(13)) storage (
 		.clk(clk),
-		.we(init_busy || (wr && in_c1 && !s_mdi && !s_genio && !simif_claim)),
+		.we(init_busy || (wr && in_c1 && !s_mdi && !s_genio && !simif_claim && !euart_claim)),
 		.be(init_busy ? 4'b1111 : st_be),
 		.waddr(init_busy ? clr : st_idx),
 		.wdata(init_busy ? 32'd0 : p_wdata),
@@ -301,7 +319,7 @@ module upp_periph #(
 
 	// interrupt sources, bit 32k + b = bank k bit b (docs/UPP_WD2.md)
 	wire [95:0] src = {69'd0,
-		simif_irq,                     // 26 CTSI_FIQ
+		simif_irq | euart_fiq,         // 26 CTSI_FIQ
 		ctsi_irq,                      // 25 CTSI_IRQ
 		mmc_irq,                       // 24 MMCCmdRdy, 23 MMCCmdIdle, 22 MMCDataRdy, 21 MMCDataIdle
 		5'd0,                          // 16-20 Ir4M
@@ -329,9 +347,10 @@ module upp_periph #(
 	);
 	assign dbg_src0 = src[31:0];
 
-	upp_timers #(.TIMER_DIV(TIMER_DIV)) timers (
+	upp_timers #(.TIMER_DIV(TIMER_DIV), .NEM4_TIMER_DIV(CLK_HZ / 26_000_000)) timers (
 		.clk(clk),
 		.reset(reset),
+		.nem4(nem4),
 		.acc(acc && s_tmr),
 		.wr(wr && s_tmr),
 		.off(off),
@@ -431,6 +450,7 @@ module upp_periph #(
 		.RD_HIGH(LCD_RD_HIGH)) lcdif (
 		.clk(clk),
 		.reset(reset),
+		.nem4(nem4),
 		.acc(acc && s_lcd),
 		.we(p_we),
 		.wr(wr && s_lcd),
@@ -442,6 +462,10 @@ module upp_periph #(
 		.busy(b_lcd),
 		.tx_ready(lcd_tx_ready),
 		.active(lcd_active),
+		.nem4_word_valid(nem4_lcd_valid),
+		.nem4_word_header(nem4_lcd_header),
+		.nem4_word_data(nem4_lcd_data),
+		.nem4_word_ready(nem4_lcd_ready),
 		.csx(lcd_csx),
 		.dcx(lcd_dcx),
 		.wrx(lcd_wrx),
@@ -494,7 +518,7 @@ module upp_periph #(
 		.be(p_be),
 		.rmask(m_uif),
 		.rdata(d_uif),
-		.bt_irq(bt_irq),
+		.bt_irq(bt_irq && !nem4),
 		.mdi_events(mdi_events),
 		.nos_tick(nos_tick),
 		.ctsi_irq(ctsi_irq),
@@ -564,6 +588,34 @@ module upp_periph #(
 		.busy(simif_busy)
 	);
 
+	// EUART1 status shares the upper halfword at 0x0C1500B8 with the SIMIF.
+	wire [31:0] d_euart;
+	wire [31:0] m_euart = !euart_claim ? 32'd0 :
+	                       off == 12'h0B8 ? 32'hFFFF_0000 : 32'hFFFF_FFFF;
+	upp_euart euart1 (
+		.clk(clk),
+		.reset(reset || !nem4),
+		.enabled(nem4),
+		.req(acc),
+		.commit(done),
+		.we(p_we),
+		.addr(p_addr[27:2]),
+		.din(p_wdata),
+		.sel(p_be),
+		.claim(euart_claim),
+		.bad(euart_bad),
+		.ready(euart_ready),
+		.dout(d_euart),
+		.irq_pending(euart_fiq),
+		.tx_valid(adsp_tx_valid),
+		.tx_ready(adsp_tx_ready),
+		.tx_data(adsp_tx_data),
+		.rx_valid(adsp_rx_valid),
+		.rx_ready(adsp_rx_ready),
+		.rx_data(adsp_rx_data),
+		.receive_enabled(adsp_receive_enabled)
+	);
+
 	upp_cbus #(.POWER_ON_HOLD_CLKS(POWER_ON_HOLD_CLKS), .ALARM_CLKS(ALARM_CLKS)) cbus (
 		.clk(clk),
 		.reset(reset),
@@ -582,6 +634,8 @@ module upp_periph #(
 		.ear_route(ear_route),
 		.sim_route(sim_route),
 		.tx_route(tx_route),
+		.adsp_clock_ready(adsp_clock_ready),
+		.bt_present(!nem4),
 		.bt_rd(bt_rd),
 		.bt_wr(bt_wr),
 		.bt_reg(bt_reg),
@@ -634,12 +688,14 @@ module upp_periph #(
 	                     (off[3:0] == 4'h4) ? {31'd0, c_blank} : 32'd0;
 
 	wire [31:0] rmask = m_intc | m_tmr | m_dma | m_mmc | m_lcd | m_uif | m_cbus | m_date | m_mdi |
-	                    m_genio | m_simif | m_q;
+	                    m_genio | m_simif | m_euart | m_q;
 	wire [31:0] rbits = (d_intc & m_intc) | (d_tmr & m_tmr) | (d_dma & m_dma) | (d_mmc & m_mmc) |
 	                    (d_lcd & m_lcd) | (d_uif & m_uif) | (d_cbus & m_cbus) |
 	                    (d_date & m_date) | (d_mdi & m_mdi) | (d_genio & m_genio) |
-	                    (simif_bad ? 32'd0 : (d_simif & m_simif)) | d_q;
-	assign blk_busy = (s_mmc && b_mmc) || (s_lcd && b_lcd) || (s_cbus && b_cbus) || (simif_claim && simif_busy);
+	                    (simif_bad ? 32'd0 : (d_simif & m_simif)) |
+	                    (euart_bad ? 32'd0 : (d_euart & m_euart)) | d_q;
+	assign blk_busy = (s_mmc && b_mmc) || (s_lcd && b_lcd) || (s_cbus && b_cbus) ||
+	                  (simif_claim && simif_busy) || !euart_ready;
 
 	always_ff @(posedge clk) begin
 		cnt   <= p_sel ? (cnt == 2'd3 ? 2'd3 : cnt + 2'd1) : 2'd0;

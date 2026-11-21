@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
 // UPP_WD2 timers 0-5 (0x0C120A00 + 0x20n), as the reference model has them
-// (model/hw/ngage_intc.c; docs/UPP_WD2.md). The clock is 104/3 MHz = 34.67 MHz:
+// (model/hw/ngage_intc.c; docs/UPP_WD2.md). The QD clock is 104/3 MHz = 34.67 MHz:
 // the kernel converts microseconds with x34666/1000 (ekern 0x5031CB74) and its
 // tick reload 0x843E2 (0x5031C6F0) gives the EKA1 1/64 s tick. Each timer
 // counts down once every TIMER_DIV clocks, the phase counted from the write
 // that (re)started it, as the model counts from the moment of the write.
+// NEM-4 uses the 26 MHz general timer clock with its 406,250-tick reload.
 //
 //   +0x04 control: bit 1 = run, reloading from +0x18 on underflow (kernel tick
 //         timer 0, 0x5031C6E4; boot timer 0, 0x31AC); bit 0 alone = run once
@@ -36,10 +37,12 @@
 // at 0x0C120A80 is bit 4, 0x5031C968).
 // Accesses are 32-bit (upp_periph drops others, as the model's region does).
 module upp_timers #(
-	parameter int TIMER_DIV = 3
+	parameter int TIMER_DIV = 3,
+	parameter int NEM4_TIMER_DIV = 4
 ) (
 	input  logic        clk,
 	input  logic        reset,
+	input  logic        nem4,
 
 	input  logic        acc,
 	input  logic        wr,
@@ -51,7 +54,9 @@ module upp_timers #(
 	output logic [5:0]  irq
 );
 
-	localparam int PW = (TIMER_DIV > 1) ? $clog2(TIMER_DIV) : 1;
+	localparam int MAX_DIV = TIMER_DIV > NEM4_TIMER_DIV ? TIMER_DIV : NEM4_TIMER_DIV;
+	localparam int PW = MAX_DIV > 1 ? $clog2(MAX_DIV) : 1;
+	wire [PW-1:0] last_phase = nem4 ? PW'(NEM4_TIMER_DIV - 1) : PW'(TIMER_DIV - 1);
 
 	logic [31:0]   cnt    [0:5];
 	logic [31:0]   reload [0:5];
@@ -75,7 +80,7 @@ module upp_timers #(
 	generate
 		for (t = 0; t < 6; t++) begin : g_timer
 			wire hit  = wr && n == 3'(t);
-			wire tick = running[t] && pre[t] == PW'(TIMER_DIV - 1);
+			wire tick = running[t] && pre[t] == last_phase;
 
 			always_ff @(posedge clk) begin
 				logic [31:0]   c;
@@ -88,7 +93,7 @@ module upp_timers #(
 
 				// the tick: an underflow comes before a write at the same edge,
 				// as the model's timer fires before the next instruction
-				if (run) p = (p == PW'(TIMER_DIV - 1)) ? '0 : p + 1'd1;
+				if (run) p = tick ? '0 : p + 1'd1;
 				if (tick) begin
 					if (c == 32'd1) begin
 						irq_n = 1'b1;

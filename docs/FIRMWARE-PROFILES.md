@@ -192,13 +192,12 @@ Delivering that one device event in a diagnostic replay caused the guest
 to acknowledge bit 7 at `0x0C150100`, schedule `0x05DC` and run deferred
 work.
 
-The CTSI model now counts the `0x0C150116` ticks on existing calibration
+The initial CTSI implementation advanced `0x0C150116` on calibration
 counter wraps. At `0x514AF288`, the original firmware waits for a nonzero
-calibration count before reading the slow count, which is consistent with
-that relationship. The rate is a model assumption until measured. The
-peripheral bench verifies the shared divider, compare interrupt, enable
-readback and acknowledge. Replay traces and paired snapshots are in
-`build/qd-stock-dpll.koexki/`.
+calibration count before reading the slow count. This established that
+both counters are used during calibration. The later boot work below sets
+the NOS counter to an independent 64 Hz cadence. Replay traces and paired
+snapshots are in `build/qd-stock-dpll.koexki/`.
 
 ### Symbian Supervisor waits for Timer 1
 
@@ -584,6 +583,162 @@ with zero mismatches. A 150-million-clock checkpoint is available with
 the simulator executable used for the run. Reassembling the three
 decoded flash spans in the firmware table's order produces the stock
 core MD5 `2c09c86ff047484fdcc0e226f49c44a9`.
+
+### 4.03 external DSP startup stall
+
+The stock 4.03 run resumed from the 150-million-clock checkpoint using
+the same emulator binary. At 5.000 and 9.615 seconds the display was black
+and the firmware's RF `0x1E` and ADSP `0x36` self-tests both held result
+`0x03` (pending). The result bytes came from the guest SDRAM backing the
+native result array at `0x80024388`.
+
+A separate 20 ms trace from the one-billion-clock checkpoint observed
+63,030 reads of physical `0x0C150514`, all returning zero. The original
+`euart1.pdd` at `0x510E8A14` tests bit 2 and branches back if it is clear.
+The `ngage-v5` EUART model reports that bit when its transmit queue and
+current batch have drained. The baseline integration build exposes the
+FBUS status at `0x0C150504` and lacks the NEM-4 EUART status path. The
+original run completed exactly 60.000 seconds (6,240,000,000 clocks)
+and was still in that loop. The screen stayed black throughout and both
+tests were pending at the cutoff. CPU and host checkpoint pairs are
+preserved at each billion-clock milestone and at the final cutoff in
+`build/nem4-60s/`.
+
+The NEM-4 startup port from `ngage-v5` at `7b10754` adds EUART1, the
+D550 boot peer, the D551 signature model, and the N501 codec control
+transaction. EUART1 derives transmit idle from its FIFO and batch
+state. The byte link starts only after the UEM control writes and EUART
+receive enable. UART status shares the upper halfword of `0x0C1500B8`
+with SIMIF below it, and both sources use FIQ 26.
+
+The integrated peripheral bench verified the initial transmit-idle
+read, FIFO drain, shared status and IRQ handling, both D0 startup frames,
+and a checksummed diagnostic 42 exchange. The QD peripheral regressions
+and top-level lint passed. This port models the external DSP startup
+protocol. The MiSTer PCM output still comes from the internal MDI path.
+
+A separate stock 4.03 cold boot reached
+`RAdspServerSession::Construct` before 9.615 seconds. Its checkpoint
+recorded 1,031,158 device accesses versus 4,908,492 at the same clock
+in the polling baseline. The display was black and the RF and ADSP
+self-tests were still pending at this checkpoint.
+
+By the 19.231-second checkpoint the ported run had reached
+`CSysApAppUi::ConstructL`, with RF `0x1E=00` and ADSP `0x36=03`. The
+stock ADSP caller asserted at `FIG/St_product.c:3570` while checking
+`pResp_adsp->message_id == ST_ADSP_RUN_RESP`, then parked in the kernel
+loop at `0x50324294`. The display stayed black. The same assertion was
+observed in the NEM-4 reference history when a late response reached the
+shared waiter. A read-only replay observed NOS queue the ADSP request
+for resource `0x82` at clock 1,332,538,693. The generic dispatcher
+published the late Bluetooth self-test response to the common slot at
+clock 1,369,716,554. It pointed at the payload at `0x800266C8`, whose
+cached frame was `000000590600233908020100ffffffff`, with resource
+`0x59`, message `0x02`, and test number `0x08`. The original ADSP caller
+loaded `0x02` at `0x516A628A` at clock 1,369,720,969 (13.170 seconds)
+and expected `0x8B`. The EUART trace from 9.615 seconds to that load
+recorded D0 bootstrap and control traffic, with zero diagnostic 42
+requests or replies in that window. The failing message matches the
+original `ngage-v5` capture byte for byte.
+
+A seven-millisecond replay of the saved lead-up to the assertion traced
+the reply back to `SelfTestServer.exe`. It built test `0x08` with result
+`0x01` at `0x5037240A`, then called the PhoNet send path at `0x5037242C`.
+PhoNet wrote source object `0x39`. NOS then published and consumed the
+same frame through the common response slot.
+
+The same trace shows the 4.03 Bluetooth stack completing a CBUS write
+of HCI command `0xFC03` with parameters `00 01 00 00 07`. It acknowledged
+both Bluetooth interrupts through `0x0C150102` and read an HCI Command
+Status event `04 00 0F 04 01 01 03 FC`. The existing QD controller
+returns `0x01` (Unknown HCI Command) for this vendor opcode. This is a
+measured NEM-4 compatibility gap. Its effect on the self-test deadline
+still needs verification.
+
+The UART trace and the dispatcher replay are in
+`build/nem4-d550/reply-probe/` and `build/nem4-d550/dispatch-probe/`.
+The dispatcher replay saved a checkpoint pair at 13.163 seconds, shortly
+before the wrong response reached the slot. The sender trace is in
+`build/nem4-d550/late-bt-probe/`.
+
+### Reference boot comparison
+
+`ngage-v5` displayed the stock 4.03 Nokia logo by two billion clocks in
+its frozen service-firmware simulation. On MiSTer, `2d9605f` seed 44
+reached Phone and a populated Menu after the normal Time and Date prompts.
+That boot used the production D550 startup peer, the serialized SIM
+reply FIFO, the mandatory SIM files `6F74`, `6F20`, and `6F7B`, and an
+initialized six-profile C: image. See `docs/display-bringup.md` and
+`docs/sim-mandatory-files.md` in the reference repository. The reference
+also recorded the `59/02` assertion on other runs with the same D550
+peer, so its successful boot does not establish that the race was fixed.
+
+Integration already contains the corresponding DSP startup behavior, SIM
+FIFO and mandatory SIM files. The simulation's initial C: region matches
+the reference Menu boot's `4a75e4cb…` image. Its initial PMM is the
+`c7075d00…` AAN seed, while the reference used `71189f7f…`. The reference
+leaves the LRB-2 peer disconnected. The earlier integration run served
+CBUS device 5 through the QD Bluetooth model, which produced the `0xFC03`
+status event above.
+
+### Porting the remaining reference startup behavior
+
+The NEM-4 profile now routes CBUS device 5 to unmodeled register backing
+with no Bluetooth IRQ producer. This follows the disconnected LRB-2 in
+`ngage-v5`. The QD profile still selects its existing Bluetooth controller.
+The peripheral bench verifies a CBUS request under each profile.
+
+The old 4.03 trace reads calibration window `0x009F`, which made the
+prior wrap-based NOS counter run at about 205 Hz. Both profiles now
+advance the NOS comparator at exactly 64 Hz at the 104 MHz system clock.
+The existing calibration prescaler supplies the slow tick every 512
+calibration ticks. Programming the calibration reload cannot change its
+period. NEM-4 general timers use 26 MHz, matching the separate timer
+clock in the reference. The QD general timers use their existing divider.
+The timer and peripheral regressions check the compare IRQ, acknowledgement,
+and profile-specific general timer cadence.
+
+NEM-4 sends packed LCD commands `15`, `75`, `5C` and `AF` under header
+`0x09200000`, and RGB444 pairs under `0x8924xxxx`. The QD byte serializer
+does not recognize the NEM-4 command header. The port uses the
+`ngage-v5` full-width row-band decoder for NEM-4 and writes both profiles
+into the same RGB565 framebuffer. The peripheral bench writes a full
+native frame, verifies pair order and scanout, and exercises a row-band
+DMA update. The QD LCD regressions and top-level lint also pass. Both
+stock 4.03 cold boots with the native panel display the initial white
+clear at 0.333 seconds. The run using the SD card's saves displays the
+stock Nokia logo at 3.129 seconds. The capture is
+`build/sim/screens/nem4-v5-media/to-1000000000/lcd-00003129.png`.
+
+Cold boots using the combined changes run with the previous simulation
+inputs under `build/nem4-native-panel/` and with the C: and PMM from the
+SD card's `games/ngage1` under `build/nem4-v5-media/`. The latter preserves
+the stock code bytes and places the two existing saves into their native
+flash windows in private input files. The SD PMM contains a native group
+50, record 1 entry. The three-record AAN simulation seed lacks it. The QD
+control uses the same binary under `build/qd-nos64/` with the previously
+tested stock 4.10 and seeded C:.
+
+At the 1.5-billion-clock checkpoint (14.423 seconds), the stock 4.03
+run with the SD saves has native RF `0x1E=00` and ADSP `0x36=00`. These
+results were read from the original NOS array with resident CPU cache
+data applied. The previous `St_product.c` assertion did not recur in
+that interval. The checkpoint retains the Nokia splash and the run
+continues into SIM and UI startup.
+
+At two billion clocks (19.231 seconds), stock 4.03 has `SIM_Server`
+state 8, MTC state 1, and both RF and ADSP results still `00`. Stock
+4.10 also has SIM state 8 and MTC status `1, 1` at the same checkpoint.
+4.03's packed LCD decoder has accepted an original full-width row
+update since the splash. The most recent visible frame remains Nokia.
+
+The stock 4.03 run with the SD saves then plays the N-Gage animation
+and displays the Phone home screen at 22.640 seconds. The clock appears
+in the status area and the soft keys are Contacts and Messaging. The run
+used the simulator's default RTC and displayed neither a Time nor a Date
+setup prompt before reaching Phone. No key events were supplied. The
+capture is `build/sim/screens/nem4-v5-media/to-2500000000/lcd-00022640.png`.
+The shell, C: save and both PMM profile regressions pass.
 
 ## Remaining validation
 

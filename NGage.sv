@@ -501,6 +501,8 @@ wire        cpu_irq, cpu_fiq;
 wire        upp_lcd_csx, upp_lcd_dcx, upp_lcd_wrx, upp_lcd_rdx, upp_lcd_resx, upp_lcd_d_oe;
 wire  [7:0] upp_lcd_d;
 wire  [7:0] panel_d;
+wire        nem4_lcd_valid, nem4_lcd_header, nem4_lcd_ready;
+wire [31:0] nem4_lcd_data;
 wire        mmc_clk, mmc_cmd_o, mmc_cmd_oe, mmc_dat_o, mmc_dat_oe;
 wire        card_cmd_o, card_cmd_oe, card_dat_o, card_dat_oe;
 wire  [4:0] upp_col_oe, upp_col_out, kp_col_in;
@@ -518,10 +520,36 @@ wire        bt_rd, bt_wr, bt_busy, bt_irq;
 wire  [4:0] bt_reg;
 wire [15:0] bt_wdata, bt_rdata;
 
+wire adsp_clock_ready, adsp_receive_enabled;
+wire adsp_tx_valid, adsp_tx_ready, adsp_rx_valid, adsp_rx_ready;
+wire [7:0] adsp_tx_data, adsp_rx_data;
+
+ngage_d550_boot audio_boot (
+	.clk(clk_sys),
+	.reset(mem_reset || !nem4),
+	.clock_ready(adsp_clock_ready),
+	.receive_enabled(adsp_receive_enabled),
+	.tx_valid(adsp_tx_valid),
+	.tx_ready(adsp_tx_ready),
+	.tx_data(adsp_tx_data),
+	.rx_valid(adsp_rx_valid),
+	.rx_ready(adsp_rx_ready),
+	.rx_data(adsp_rx_data)
+);
+
 upp_periph upp_periph
 (
 	.clk(clk_sys),
 	.reset(mem_reset),
+	.nem4(nem4),
+	.adsp_clock_ready(adsp_clock_ready),
+	.adsp_receive_enabled(adsp_receive_enabled),
+	.adsp_tx_valid(adsp_tx_valid),
+	.adsp_tx_ready(adsp_tx_ready),
+	.adsp_tx_data(adsp_tx_data),
+	.adsp_rx_valid(adsp_rx_valid),
+	.adsp_rx_ready(adsp_rx_ready),
+	.adsp_rx_data(adsp_rx_data),
 	.p_sel(p_sel),
 	.p_we(p_we),
 	.p_addr(p_addr),
@@ -554,6 +582,10 @@ upp_periph upp_periph
 	.lcd_d_oe(upp_lcd_d_oe),
 	.lcd_d_i(panel_d),
 	.lcd_active(),
+	.nem4_lcd_valid(nem4_lcd_valid),
+	.nem4_lcd_header(nem4_lcd_header),
+	.nem4_lcd_data(nem4_lcd_data),
+	.nem4_lcd_ready(nem4_lcd_ready),
 	.mmc_clk(mmc_clk),
 	.mmc_cmd_o(mmc_cmd_o),
 	.mmc_cmd_oe(mmc_cmd_oe),
@@ -929,7 +961,12 @@ wire [7:0] lcd_pix_y;
 lcd_panel lcd_panel
 (
 	.clk(clk_sys),
-	.reset(sys_reset),
+	.reset(sys_reset || (nem4 && mem_reset)),
+	.nem4(nem4),
+	.nem4_word_valid(nem4_lcd_valid),
+	.nem4_word_header(nem4_lcd_header),
+	.nem4_word_data(nem4_lcd_data),
+	.nem4_word_ready(nem4_lcd_ready),
 	.csx(upp_lcd_csx),
 	.dcx(upp_lcd_dcx),
 	.wrx(upp_lcd_wrx),

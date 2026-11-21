@@ -39,8 +39,8 @@
 // or the module's bit is, enabled.
 // Native NOS delay calibration uses the free-running down-counter at +0x112
 // and the programmable reload window at +0x114. The model uses the NEM-4
-// approximation of 32.768 kHz. NOS reads +0x116 only after +0x112 is nonzero,
-// so the model advances the 16-bit NOS counter at each calibration wrap.
+// approximation of 32.768 kHz. The independent NOS deadline counter at
+// +0x116 advances at 64 Hz using the same prescaler.
 // A match at +0x118 sets status bit 7. Write that bit at +0x012/+0x010 to
 // enable/disable it and at +0x100 to acknowledge it.
 // Bits 12 and 13 are software interrupts in the same CTSI group. +0x012
@@ -106,11 +106,15 @@ module upp_uif #(
 	wire [4:0] w = {off[4:2], hi, 1'b0};          // the 16-bit register's offset
 	wire [15:0] wv = hi ? wdata[31:16] : wdata[15:0];
 
-	localparam int CAL_DIV = (CLK_HZ + 16_384) / 32_768;
-	localparam int CAL_DIV_BITS = CAL_DIV > 1 ? $clog2(CAL_DIV) : 1;
+	localparam int CAL_DIV = CLK_HZ / 32_768;
+	localparam int CAL_DIV_BITS = CAL_DIV > 0 ? $clog2(CAL_DIV + 1) : 1;
+	// Use one extra system clock on the first CAL_LONG_TICKS of each 512
+	// calibration ticks so the NOS period is exactly CLK_HZ / 64.
+	localparam int CAL_LONG_TICKS = CLK_HZ / 64 - 512 * CAL_DIV;
 	localparam logic [15:0] CAL_DEFAULT_WINDOW = 16'h0080;
 	logic [CAL_DIV_BITS-1:0] calibration_divider;
 	logic [15:0] calibration_counter, calibration_window;
+	logic [8:0]  calibration_phase;
 	logic [15:0] nos_counter, nos_compare;
 	logic        nos_enable, nos_pending, nos_compare_valid;
 	logic [1:0]  nos_soft_enable, nos_soft_pending;
@@ -120,9 +124,10 @@ module upp_uif #(
 		be[1] ? wdata[15:8] : calibration_window[15:8],
 		be[0] ? wdata[7:0] : calibration_window[7:0]
 	};
-	wire calibration_tick = calibration_divider == CAL_DIV_BITS'(CAL_DIV - 1);
+	wire calibration_long = calibration_phase < 9'(CAL_LONG_TICKS);
+	wire calibration_tick = calibration_divider == CAL_DIV_BITS'(CAL_DIV - 1) + CAL_DIV_BITS'(calibration_long);
 	wire window_written = wr && is_calibration_window && |be[1:0];
-	assign nos_tick = calibration_tick && calibration_counter == 16'd0 && !window_written;
+	assign nos_tick = calibration_tick && (&calibration_phase);
 	wire compare_written = wr && is_nos_compare && |be[1:0];
 	wire [15:0] next_nos_compare = {
 		be[1] ? wdata[15:8] : nos_compare[15:8],
@@ -141,8 +146,10 @@ module upp_uif #(
 			calibration_divider <= '0;
 			calibration_counter <= CAL_DEFAULT_WINDOW;
 			calibration_window  <= 16'd0;
+			calibration_phase   <= 9'd0;
 		end else begin
 			calibration_divider <= calibration_tick ? '0 : calibration_divider + 1'd1;
+			if (calibration_tick) calibration_phase <= calibration_phase + 1'd1;
 			if (window_written) begin
 				calibration_window <= next_calibration_window;
 				calibration_counter <= next_calibration_window == 16'd0 ? CAL_DEFAULT_WINDOW : next_calibration_window;

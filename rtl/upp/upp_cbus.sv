@@ -49,7 +49,7 @@
 //     and the clock runs from 00:00:00.
 //   Device 4 (probably ZOCUS; cbus.dll's self-test 0x5037E008 needs register 0
 //     to read 0x04xx): register 0 reads 0x0400.
-//   Device 5 is the Bluetooth module (rtl/board/bt_module.sv, outside this
+//   On QD, device 5 is the Bluetooth module (rtl/board/bt_module.sv, outside this
 //     block as it is outside the chip): a read takes bt_rdata in the clock of
 //     bt_rd, a write gives bt_wdata in the clock of bt_wr, with the register
 //     in bt_reg. The write reaches the module a clock after it starts, from
@@ -58,6 +58,8 @@
 //     its next word (bt_busy) a read waits, done reading 0. A write started
 //     while a read of the module is still on its way is not passed on (the
 //     driver starts nothing before done).
+//   NEM-4 leaves the LRB-2 disconnected, as on the reference core. Its CBUS
+//     transactions use the same register backing as other unmodeled devices.
 //   Everything else: storage, 0 after reset.
 // "ro" registers keep the written value but read their fixed one, as the
 // model's ro lines. Reads and writes are masked to the transfer length.
@@ -86,8 +88,10 @@ module upp_cbus #(
 	output logic        ear_route,
 	output logic        sim_route,
 	output logic        tx_route,
+	output wire         adsp_clock_ready,
 
 	// the Bluetooth module, CBUS device 5
+	input  logic        bt_present,
 	output logic        bt_rd,
 	output logic        bt_wr,
 	output logic [4:0]  bt_reg,
@@ -140,6 +144,9 @@ module upp_cbus #(
 	logic          read_1f;            // UEMK 0x1F has been read since reset
 	logic [7:0]    day_off;            // day counter = day_off + rtc_days
 	logic          rtc_vq;
+	logic [4:0]    adsp_controls;
+	logic [1:0]    adsp_controls_written;
+	assign adsp_clock_ready = (&adsp_controls_written) && adsp_controls == 5'b00001;
 	localparam int ALARM_DIV = 65536;
 	localparam int ALARM_STEPS = (ALARM_CLKS + ALARM_DIV - 1) / ALARM_DIV;
 	localparam int ALARM_BITS = $clog2(ALARM_STEPS + 1);
@@ -185,7 +192,7 @@ module upp_cbus #(
 	logic        bt_wr_q;
 	logic [4:0]  bt_wreg_q;
 	logic [15:0] bt_wdata_q;
-	wire rd_bt   = rd_q && rd_dev == 3'd5;
+	wire rd_bt   = rd_q && bt_present && rd_dev == 3'd5;
 	wire rd_hold = rd_bt && (bt_busy || bt_wr_q);
 	assign bt_rd    = rd_bt && !rd_hold;
 	assign bt_wr    = bt_wr_q;
@@ -213,7 +220,7 @@ module upp_cbus #(
 		rf_we    <= 1'b0;
 		rd_q     <= rd_pend || rd_hold;
 		rd_pend  <= 1'b0;
-		bt_wr_q    <= start_wr && w_dev == 3'd5 && !rd_bt;
+		bt_wr_q    <= start_wr && bt_present && w_dev == 3'd5 && !rd_bt;
 		bt_wreg_q  <= w_reg;
 		bt_wdata_q <= w_val[15:0];
 		if (hold != '0) hold <= hold - 1'd1;
@@ -248,7 +255,7 @@ module upp_cbus #(
 			logic [31:0] v;
 			v = is_ro(rd_dev, rd_reg) ? ro_val(rd_dev, rd_reg) :
 			    (rd_dev == 3'd1 && rd_reg == 5'h1A) ? {22'd0, adc} :
-			    (rd_dev == 3'd5) ? {16'd0, bt_rdata} : rf_q;
+			    rd_bt ? {16'd0, bt_rdata} : rf_q;
 			if (rd_dev == 3'd1) begin
 				case (rd_reg)
 					5'h11: v = {26'd0, rtc_sec};
@@ -276,6 +283,14 @@ module upp_cbus #(
 					5'h01: day_off <= w_val[7:0] - rtc_days;
 					5'h0A: ear_route <= w_val[3];
 					5'h0C: sim_route <= w_val[5];
+					5'h0F: begin
+						adsp_controls[4:1] <= w_val[7:4];
+						adsp_controls_written[0] <= 1'b1;
+					end
+					5'h10: begin
+						adsp_controls[0] <= w_val[5];
+						adsp_controls_written[1] <= 1'b1;
+					end
 					5'h15: if (w_val[3]) alarm_status <= 1'b0;
 					5'h16: if (w_bits == 6'd16 && w_val[15:4] == 12'hFFF && !w_val[3]) begin
 						key_released <= 1'b1;
@@ -315,6 +330,8 @@ module upp_cbus #(
 			ear_route <= 1'b0;
 			sim_route <= 1'b0;
 			tx_route  <= 1'b0;
+			adsp_controls <= 5'd0;
+			adsp_controls_written <= 2'd0;
 			rd_pend <= 1'b0;
 			rd_q    <= 1'b0;
 			bt_wr_q <= 1'b0;

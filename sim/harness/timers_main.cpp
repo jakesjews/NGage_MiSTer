@@ -85,7 +85,7 @@ struct Bench {
 
 	explicit Bench(uint32_t seed) : rng(seed) {
 		m[1].high_resolution = true;
-		t->reset = 1; t->acc = 0; t->wr = 0; t->off = 0; t->wdata = 0;
+		t->reset = 1; t->nem4 = 0; t->acc = 0; t->wr = 0; t->off = 0; t->wdata = 0;
 		for (int i = 0; i < 3; i++) clock();
 		t->reset = 0;
 	}

@@ -25,6 +25,7 @@ rtl/board/ngage_keys.sv
 rtl/board/sdp_ram.sv
 rtl/board/tdp_ram.sv
 rtl/board/lcd_panel.sv
+rtl/board/ngage_nem4_lcd.v
 rtl/board/video_out.sv
 rtl/board/keypad_matrix.sv
 rtl/board/nor_flash.sv
@@ -49,6 +50,12 @@ rtl/upp/upp_simif.v
 rtl/upp/upp_test_sim.v
 rtl/upp/upp_pcm.v
 rtl/upp/upp_dsp_pcm.v
+rtl/board/ngage_aic23.v
+rtl/board/ngage_adsp_bootstrap_tx.v
+rtl/board/ngage_adsp_diagnostic.v
+rtl/board/ngage_adsp.v
+rtl/board/ngage_d550_boot.v
+rtl/upp/upp_euart.v
 rtl/upp/upp_periph.sv
 rtl/upp/wb_arb2.sv
 rtl/upp/ngage_mem.sv
