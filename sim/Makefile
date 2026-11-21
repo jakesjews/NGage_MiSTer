@@ -20,7 +20,7 @@ VFLAGS := --cc --exe --build -j 4 -O3 --x-assign unique --x-initial unique \
 VEXTRA ?=
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
-BENCHES := lcd video keypad flash mmc bt sdram sdram-faults ddrflash trace upp intc timers haudio periph save phoenix top
+BENCHES := lcd video keypad flash mmc bt sdram sdram-faults ddrflash trace upp intc timers periph save pmm-save top
 
 .PHONY: test $(BENCHES) coreboot flashcopy hps-read-test clean
 
@@ -31,7 +31,7 @@ $(OUT):
 	mkdir -p $@
 
 # The display module through its 8080 bus
-LCD_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/lcd_panel.sv
+LCD_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/lcd_panel.sv $(ROOT)/rtl/board/ngage_nem4_lcd.v
 $(BUILD)/lcd/Vlcd_panel: $(LCD_RTL) $(ROOT)/sim/harness/lcd_main.cpp $(ROOT)/sim/harness/common.h
 	mkdir -p $(BUILD)/lcd && $(VERILATOR) $(VFLAGS) --top-module lcd_panel --Mdir $(BUILD)/lcd -o Vlcd_panel \
 		-GCLK_HZ=2000000 -GTE_HPULSE_CLKS=4 -GID1=69 -GID2=131 -GID3=90 \
@@ -115,8 +115,8 @@ $(BUILD)/trace/Vdbg_trace: $(TRACE_RTL) $(ROOT)/sim/harness/trace_main.cpp $(ROO
 trace: $(BUILD)/trace/Vdbg_trace
 	$< $(RUNFLAGS) --seed $(SEED)
 
-# The memory system (upp_bus, SDRAM, flash chips, DDR3 path) under a scripted
-# Wishbone master; again with a 256 KB on-chip RAM, which then lives in SDRAM
+# The memory system (upp_bus, SDRAM including the on-chip RAM window,
+# flash chips, DDR3 path) under a scripted Wishbone master
 UPP_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/nor_flash.sv $(ROOT)/rtl/mem/bram32.sv \
            $(ROOT)/rtl/mem/sdram.sv $(ROOT)/rtl/mem/ddram_flash.sv $(ROOT)/rtl/upp/upp_bus.sv $(ROOT)/rtl/upp/wb_arb2.sv \
            $(ROOT)/rtl/upp/ngage_mem.sv
@@ -126,12 +126,8 @@ UPP_G := -GFLASH_PROGRAM_CLKS=40 -GFLASH_SECTOR_ERASE_CLKS=3000 -GFLASH_ERASE_WI
 $(BUILD)/upp/Vngage_mem: $(UPP_DEPS)
 	mkdir -p $(BUILD)/upp && $(VERILATOR) $(VFLAGS) --top-module ngage_mem --Mdir $(BUILD)/upp -o Vngage_mem \
 		$(UPP_G) $(UPP_RTL) $(ROOT)/sim/harness/upp_main.cpp
-$(BUILD)/upp256/Vngage_mem: $(UPP_DEPS)
-	mkdir -p $(BUILD)/upp256 && $(VERILATOR) $(VFLAGS) --top-module ngage_mem --Mdir $(BUILD)/upp256 -o Vngage_mem \
-		$(UPP_G) -GONCHIP_BYTES=262144 $(UPP_RTL) $(ROOT)/sim/harness/upp_main.cpp
-upp: $(BUILD)/upp/Vngage_mem $(BUILD)/upp256/Vngage_mem
-	$(BUILD)/upp/Vngage_mem $(RUNFLAGS) --seed $(SEED)
-	$(BUILD)/upp256/Vngage_mem $(RUNFLAGS) --seed $(SEED) --onchip 262144 --txns 8000
+upp: $(BUILD)/upp/Vngage_mem
+	$< $(RUNFLAGS) --seed $(SEED)
 
 # The Bluetooth module against the reference model's (model/hw/ngage_bt_chip.h,
 # the same header the model is built from), with the phone's own traffic
@@ -157,33 +153,28 @@ $(BUILD)/timers/Vupp_timers: $(ROOT)/rtl/upp/upp_timers.sv $(ROOT)/sim/harness/t
 timers: $(BUILD)/timers/Vupp_timers
 	$< $(RUNFLAGS) --seed $(SEED)
 
-# The HLE audio device against a port of the model, at the core's clock and at
-# 2 MHz (many more frames a clock: buffer ends, restarts); with the model's
-# recording when it is there (local data)
-$(BUILD)/haudio/Vupp_haudio: $(ROOT)/rtl/upp/upp_haudio.sv $(ROOT)/sim/harness/haudio_main.cpp $(ROOT)/sim/harness/common.h
-	mkdir -p $(BUILD)/haudio && $(VERILATOR) $(VFLAGS) --top-module upp_haudio --Mdir $(BUILD)/haudio -o Vupp_haudio \
-		$(ROOT)/rtl/upp/upp_haudio.sv $(ROOT)/sim/harness/haudio_main.cpp
-$(BUILD)/haudio2m/Vupp_haudio: $(ROOT)/rtl/upp/upp_haudio.sv $(ROOT)/sim/harness/haudio_main.cpp $(ROOT)/sim/harness/common.h
-	mkdir -p $(BUILD)/haudio2m && $(VERILATOR) $(VFLAGS) --top-module upp_haudio --Mdir $(BUILD)/haudio2m -o Vupp_haudio \
-		-GCLK_HZ=2000000 $(ROOT)/rtl/upp/upp_haudio.sv $(ROOT)/sim/harness/haudio_main.cpp
-AUDIO_WAV ?= $(ROOT)/model/.out/au-rayman/audio.wav
-haudio: $(BUILD)/haudio/Vupp_haudio $(BUILD)/haudio2m/Vupp_haudio | $(OUT)
-	$(BUILD)/haudio/Vupp_haudio $(RUNFLAGS) --seed $(SEED) --wav $(AUDIO_WAV) --out $(OUT)
-	$(BUILD)/haudio2m/Vupp_haudio $(RUNFLAGS) --seed $(SEED) --clk-hz 2000000
-
 # The UPP peripherals in the memory system, with the board devices they drive
 # (sim/harness/periph_tb.sv), under a scripted CPU; replays the model's logs
 # from model/.out when they are there
+ADSP_RTL := $(ROOT)/rtl/board/ngage_aic23.v \
+            $(ROOT)/rtl/board/ngage_adsp_bootstrap_tx.v \
+            $(ROOT)/rtl/board/ngage_adsp_diagnostic.v \
+            $(ROOT)/rtl/board/ngage_adsp.v \
+            $(ROOT)/rtl/board/ngage_d550_boot.v \
+            $(ROOT)/rtl/upp/upp_euart.v
 PERIPH_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/tdp_ram.sv $(ROOT)/rtl/board/nor_flash.sv \
-              $(ROOT)/rtl/board/lcd_panel.sv $(ROOT)/rtl/board/mmc_card.sv $(ROOT)/rtl/board/ngage_keys.sv \
+              $(ROOT)/rtl/board/lcd_panel.sv $(ROOT)/rtl/board/ngage_nem4_lcd.v \
+              $(ROOT)/rtl/board/mmc_card.sv $(ROOT)/rtl/board/ngage_keys.sv \
               $(ROOT)/rtl/board/bt_module.sv \
               $(ROOT)/rtl/board/keypad_matrix.sv $(ROOT)/rtl/mem/bram32.sv $(ROOT)/rtl/mem/sdram.sv \
               $(ROOT)/rtl/mem/ddram_flash.sv $(ROOT)/rtl/upp/upp_bus.sv $(ROOT)/rtl/upp/wb_arb2.sv \
               $(ROOT)/rtl/upp/ngage_mem.sv $(ROOT)/rtl/upp/upp_fifo.sv $(ROOT)/rtl/upp/upp_intc.sv \
               $(ROOT)/rtl/upp/upp_timers.sv $(ROOT)/rtl/upp/upp_dma.sv $(ROOT)/rtl/upp/upp_mmc.sv \
               $(ROOT)/rtl/upp/upp_lcdif.sv $(ROOT)/rtl/upp/upp_uif.sv $(ROOT)/rtl/upp/upp_cbus.sv \
-              $(ROOT)/rtl/upp/upp_haudio.sv $(ROOT)/rtl/upp/upp_periph.sv $(ROOT)/rtl/mister/rtc_wall.sv \
-              $(ROOT)/sim/harness/periph_tb.sv
+              $(ROOT)/rtl/upp/upp_gpio.v $(ROOT)/rtl/upp/upp_simif.v $(ROOT)/rtl/upp/upp_test_sim.v \
+              $(ROOT)/rtl/upp/upp_mdi.v $(ROOT)/rtl/upp/upp_mdi_peer.v \
+              $(ROOT)/rtl/upp/upp_pcm.v $(ROOT)/rtl/upp/upp_dsp_pcm.v $(ROOT)/rtl/upp/upp_periph.sv $(ROOT)/rtl/mister/rtc_wall.sv \
+              $(ADSP_RTL) $(ROOT)/sim/harness/periph_tb.sv
 $(BUILD)/periph/Vperiph_tb: $(PERIPH_RTL) $(ROOT)/sim/harness/periph_main.cpp $(ROOT)/sim/harness/common.h \
                             $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h
 	mkdir -p $(BUILD)/periph && $(VERILATOR) $(VFLAGS) --top-module periph_tb --Mdir $(BUILD)/periph -o Vperiph_tb \
@@ -207,6 +198,14 @@ $(BUILD)/save/Vsave_tb: $(SAVE_RTL) $(ROOT)/sim/harness/save_main.cpp $(ROOT)/si
 save: $(BUILD)/save/Vsave_tb
 	$< $(RUNFLAGS) --seed $(SEED)
 
+$(BUILD)/pmm-save/Vsave_tb: $(SAVE_RTL) $(ROOT)/sim/harness/save_main.cpp $(ROOT)/sim/harness/common.h \
+                            $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h
+	mkdir -p $(BUILD)/pmm-save && $(VERILATOR) $(VFLAGS) --top-module save_tb -GPMM=1 --Mdir $(BUILD)/pmm-save -o Vsave_tb \
+		$(SAVE_RTL) $(ROOT)/sim/harness/save_main.cpp
+pmm-save: $(BUILD)/pmm-save/Vsave_tb
+	$< $(RUNFLAGS) --seed $(SEED) --pmm
+	$< $(RUNFLAGS) --seed $(SEED) --pmm --nem4
+
 # The whole core: NGage.sv with the board devices; hps_io, the PLL and
 # video_mixer stood in for (sim/stubs); the framework's video_freak (the
 # aspect ratio, the vertical crop and the integer scaling) as it is
@@ -215,8 +214,7 @@ TOP_RTL := $(ROOT)/sim/stubs/hps_io.sv $(ROOT)/sim/stubs/pll.sv $(ROOT)/sim/stub
            $(shell sed -n 's/^set_global_assignment -name \(SYSTEM\)*VERILOG_FILE //p' $(ROOT)/files.qip | sed 's|^|$(ROOT)/|') \
 
 $(BUILD)/top/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/top_main.cpp $(ROOT)/sim/harness/common.h \
-                   $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h $(ROOT)/sim/harness/phoenix_stream.h \
-                   $(ROOT)/rtl/mister/phoenix_patch.hex $(ROOT)/rtl/mister/phoenix_patch.vh
+                   $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h
 	mkdir -p $(BUILD)/top && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) --timescale 1ns/1ps --pins-inout-enables \
 		--top-module emu -DNGAGE_DEBUG=1 --Mdir $(BUILD)/top -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
 		$(TOP_RTL) $(ROOT)/sim/harness/top_main.cpp
@@ -240,8 +238,7 @@ CORE_OUT     ?= $(BUILD)/coreboot/out
 CORE_THREADS ?= 1
 $(BUILD)/coreboot/Vemu: $(TOP_RTL) $(ROOT)/files.qip $(ROOT)/sim/harness/coreboot_main.cpp $(ROOT)/sim/harness/coreboot.vlt \
                         $(ROOT)/sim/harness/core_regs_tap.sv \
-                        $(ROOT)/sim/harness/common.h $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h $(ROOT)/sim/harness/snapshot.h \
-                        $(ROOT)/rtl/mister/phoenix_patch.hex $(ROOT)/rtl/mister/phoenix_patch.vh
+                        $(ROOT)/sim/harness/common.h $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h $(ROOT)/sim/harness/snapshot.h
 	mkdir -p $(BUILD)/coreboot && cd $(ROOT) && $(VERILATOR) $(VFLAGS) $(VEXTRA) --timescale 1ns/1ps --pins-inout-enables --savable \
 		$(if $(filter-out 1,$(CORE_THREADS)),--threads $(CORE_THREADS)) \
 		--top-module emu -DNGAGE_DEBUG=1 --Mdir $(BUILD)/coreboot -o Vemu -I$(ROOT) -I$(ROOT)/sim/stubs \
@@ -291,15 +288,3 @@ hps-read-test: $(BUILD)/coreboot/Vemu
 coreboot: $(BUILD)/coreboot/Vemu
 	mkdir -p $(CORE_OUT)
 	cd $(ROOT) && $< $(RUNFLAGS) --cs0 $(CORE_CS0) --cs1 $(CORE_CS1) $(if $(CORE_MMC),--mmc $(CORE_MMC)) --out $(CORE_OUT) $(CORE_ARGS)
-
-
-# Phoenix parser/patch engine. Real firmware stays outside git.
-PHOENIX_DIR ?= $(ROOT)/research/firmware/images/rh29-4.10-dp/inner30/products/RH-29
-PHOENIX_REF ?= $(ROOT)/build/ref
-$(BUILD)/phoenix/Vphoenix_load: $(ROOT)/rtl/mister/phoenix_load.sv $(ROOT)/rtl/mister/phoenix_patch.hex $(ROOT)/rtl/mister/phoenix_patch.vh $(ROOT)/sim/harness/phoenix_main.cpp $(ROOT)/sim/harness/phoenix_stream.h
-	mkdir -p $(BUILD)/phoenix && cd $(ROOT) && $(VERILATOR) $(VFLAGS) -I$(ROOT)/rtl/mister --top-module phoenix_load --Mdir $(BUILD)/phoenix -o Vphoenix_load $(ROOT)/rtl/mister/phoenix_load.sv $(ROOT)/sim/harness/phoenix_main.cpp
-.PHONY: phoenix phoenix-real
-phoenix: $(BUILD)/phoenix/Vphoenix_load | $(OUT)
-	cd $(ROOT) && $<
-phoenix-real: $(BUILD)/phoenix/Vphoenix_load | $(OUT)
-	cd $(ROOT) && $< $(PHOENIX_DIR)/RH2941.0C1 $(PHOENIX_DIR)/RH2941.021 $(PHOENIX_REF)/cs0.bin $(PHOENIX_REF)/cs1.bin

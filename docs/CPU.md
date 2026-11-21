@@ -135,8 +135,8 @@ the other master), with `irq`/`fiq` from the UPP interrupt controller
 (`upp_periph`).
 
 - Reset: a flip-flop holds the CPU in reset with the memory system and
-  until the firmware is in DDR3 and the C: save is mounted (`NGage.sv`,
-  `rtl/mister/phoenix_load.sv`). It then boots from CS0 at 0 and runs
+  until both flash arrays are in DDR3 and any active C: restore has finished
+  (`NGage.sv`). It then boots from CS0 at 0 and runs
   until the next core reset (OSD reset, the user button, new firmware).
 - The picture is black until the firmware wakes the panel through the
   UPP's LCD interface. (A memory test and a test picture shared the bus and
@@ -607,7 +607,7 @@ peripherals, the LCD and the keypad. The flash images (`tools/mkimage.py`)
 go into DDR3 and are marked loaded with a one-word ioctl download each, as
 the OSD's load does; an MMC image sits on SD slot 0; MiSTer's RTC is set
 to 2004-06-01 12:00:00. The bench writes the LCD picture as a PNG each
-time it changes, the HLE audio output as a WAV, the kernel's STI text,
+time it changes, the audio output as a WAV, the kernel's STI text,
 and with `--devlog` every device access and every interrupt and exception
 in the plugin's format. `--keys` plays a key script (simulated seconds).
 

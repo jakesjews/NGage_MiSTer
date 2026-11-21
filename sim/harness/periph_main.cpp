@@ -45,10 +45,7 @@
 //    converter's battery-size channel, device 4's ID, storage and read-back,
 //    the transfer length masking; the model's CBUS log (model/.out/cbus.log)
 //    replayed;
-//  * the HLE audio device (0x0C1F0000) through the register bus: 32-bit
-//    only, two buffers from SDRAM read through the DMA port while a DMA
-//    transfer runs, DONE0 on interrupt source 5 at the model's time, the
-//    48 kHz output with the volume (rtl/upp/upp_haudio.sv has its own bench);
+//  * stock PCM start, submit, refill and stop through the MDI rings;
 //  * the UEMK RTC and the HLE RTC date register (0x0C1F0100) with the wall
 //    clock (a second is 20000 clocks here): 0 / counting from 00:00:00
 //    before the HPS sends a time, then set from it, midnight, month, year and
@@ -73,7 +70,7 @@ namespace {
 
 constexpr int W = 176, H = 208;
 constexpr uint32_t SD = 0x0A000000u;           // SDRAM
-constexpr uint32_t OC = 0x0C000000u;           // on-chip RAM
+constexpr uint32_t OC = 0x0C004000u;           // on-chip communication RAM
 
 // register addresses
 constexpr uint32_t INTC = 0x0C120100u, FINTC = 0x0C1201C0u;
@@ -121,7 +118,7 @@ struct Bench {
 
 	explicit Bench(uint32_t seed) : chip(seed * 5 + 3), ddr(48u << 20, seed * 11 + 7), rng(seed) {
 		ddr.prof.busy_pct = 10;
-		t->clk = 0; t->reset = 1; t->sdram_init = 1;
+		t->clk = 0; t->reset = 1; t->sdram_init = 1; t->nem4 = 0;
 		t->wb_cyc = 0; t->wb_stb = 0; t->wb_we = 0; t->wb_adr = 0; t->wb_dat_i = 0; t->wb_sel = 0; t->wb_cti = 7; t->wb_bte = 0;
 		t->ddram_busy = 0; t->ddram_dout = 0; t->ddram_dout_ready = 0; t->sdram_dq_i = 0;
 		t->img_mounted = 0; t->img_readonly = 0; t->img_size = 0; t->sd_ack = 0; t->sd_buff_addr = 0;
@@ -320,8 +317,8 @@ void test_storage(Bench &b) {
 	std::vector<uint32_t> words = {
 		0x0C120004, 0x0C120008, 0x0C120014, 0x0C120018, 0x0C120034, 0x0C120038, 0x0C120064, 0x0C120068,
 		0x0C120074, 0x0C120C04, 0x0C120C10, 0x0C120C14, 0x0C120C18, 0x0C121000, 0x0C121034, 0x0C12103C,
-		0x0C14D000, 0x0C14D004, 0x0C14F000, 0x0C14F008, 0x0C150000, 0x0C150010, 0x0C150024, 0x0C150200,
-		0x0C150210, 0x0C150538, 0x0C15053C, 0x0C1F0200, 0x0C1E0010, 0x0C100100, 0x0C180800,
+		0x0C14D000, 0x0C14D004, 0x0C14F000, 0x0C14F008, 0x0C150024,
+		0x0C150210, 0x0C150538, 0x0C15053C, 0x0C1F0200, 0x0C1E0010, 0x0C100400, 0x0C180800,
 		// inside the blocks' windows
 		INTC + 0x00, INTC + 0x18, FINTC + 0x3C, TMR + 0x18, TMR + 0x24, TMR + 0x5C, DMA + 0x14, DMA + 0x20 + 0x40 * 3,
 		DMA + 0x30, MMC + 0x00, MMC + 0x0C, MMC + 0x10, MMC + 0x14, MMC + 0x28, MMC + 0x3C, LCD + 0x0C,
@@ -355,8 +352,40 @@ void test_storage(Bench &b) {
 	// the read quirks
 	b.wr(0x0C120020, 0x00000005);
 	CHECK_EQ(b.rd(0x0C120020), 0x1C000005, "0x0C120020 DPLL lock bits");
+	b.wr(0x0C120004, 0x40);
+	CHECK_EQ(b.rd(0x0C120020), 0x1E000005, "NOS clock request 0x40 is ready");
+	b.wr(0x0C120004, 0x20);
+	CHECK_EQ(b.rd(0x0C120020), 0x1E000005, "NOS clock request 0x20 is ready");
+	b.wr8(0x0C120005, 1);
+	CHECK_EQ(b.rd(0x0C120020), 0x1C000005, "upper control byte participates in decode");
+	b.wr8(0x0C120005, 0);
+	CHECK_EQ(b.rd(0x0C120020), 0x1E000005, "byte write restores NOS clock request");
+	b.wr(0x0C120004, 0x10);
+	b.wr(0x0C120008, 0x8000);
+	b.wr(0x0C120020, 0x02000005);
+	CHECK_EQ(b.rd(0x0C120020), 0x1C000005, "clock ready clears and is supplied by the control word");
+	b.wr16(0x0C148000, 0x2000);
+	CHECK_EQ(b.rd16(0x0C148000), 0x2001, "0x0C148000 clock unit locked");
+	b.wr16(0x0C148000, 0x2490);
+	CHECK_EQ(b.rd16(0x0C148000), 0x2491, "0x0C148000 lock survives reconfiguration");
+	b.wr16(0x0C148004, 0x2468);
+	CHECK_EQ(b.rd16(0x0C148004), 0x2468, "clock lock is confined to the base register");
 	b.wr(0x0C149000, 0x2210);
 	CHECK_EQ(b.rd(0x0C149000), 0x2211, "0x0C149000 DPLL ready");
+	CHECK_EQ(b.rd16(0x0C14B000), 0x0080, "QD UPP revision at reset");
+	b.wr(0x0C14B000, 0x1234A57B);
+	CHECK_EQ(b.rd(0x0C14B000), 0x1234A58B, "UPP revision field preserves adjacent bits");
+	b.wr(0x0C150504, 0xABCD0001);
+	CHECK_EQ(b.rd16(0x0C150504), 0x01D1, "idle FBUS reports an empty transmitter");
+	CHECK_EQ(b.rd16(0x0C150506), 0xABCD, "FBUS status preserves the adjacent halfword");
+	b.wr(0x0C150000, 0x00020004);
+	CHECK_EQ(b.rd16(0x0C150002), 0x0042, "QD system type includes the GSM strap");
+	CHECK_EQ(b.rd16(0x0C150000), 0x0004, "GSM strap preserves reset reason");
+	b.wr(0x0C15021C, 0x00809A1B);
+	CHECK_EQ(b.rd16(0x0C15021C), 0x0203, "MBUS command strobes clear on readback");
+	CHECK_EQ(b.rd16(0x0C15021E), 0x00C0, "MBUS input follows the loop output");
+	b.wr16(0x0C15021E, 0x0040);
+	CHECK_EQ(b.rd16(0x0C15021E), 0, "MBUS input clears with the output");
 	// sizes the model's regions refuse: dropped, read 0
 	b.wr(TMR + 0x18, 0x11223344);
 	b.wr8(TMR + 0x18, 0x99);
@@ -366,6 +395,186 @@ void test_storage(Bench &b) {
 	b.wr(KP + 0x18, 0x0000FFFF);
 	CHECK_EQ(b.rd16(KP + 0x18), 0x1234, "a word write to a 16-bit block is dropped");
 	CHECK_EQ(b.rd(KP + 0x18), 0, "a word read of a 16-bit block reads 0");
+}
+
+void test_ctsi_calibration(Bench &b) {
+	printf("CTSI delay calibration\n");
+	constexpr uint32_t counter = 0x0C150112;
+	constexpr uint32_t window = 0x0C150114;
+	constexpr uint32_t nos_counter = 0x0C150116;
+	constexpr uint32_t nos_compare = 0x0C150118;
+	constexpr uint32_t ctsi_enable = 0x0C150012;
+	constexpr uint32_t ctsi_status = 0x0C150100;
+	constexpr uint64_t divider = 3174; // 104 MHz / 32.768 kHz, rounded
+	CHECK_EQ(b.rd16(window), 0x0080, "calibration window starts nonzero");
+	const uint16_t original_ticks = b.rd16(nos_counter);
+	b.wr16(nos_counter, 0x52A9);
+	CHECK_EQ(b.rd(window), (uint32_t(original_ticks) << 16) | 0x0080, "NOS counter is read-only");
+	b.wr8(window, 0x9F);
+	CHECK_EQ(b.rd16(window), 0x009F, "window low byte selects the reload");
+	b.wr8(window + 1, 1);
+	CHECK_EQ(b.rd16(window), 0x019F, "window merges both byte lanes");
+	b.wr16(window, 15);
+	b.wr16(counter - 2, 0x4321);
+	CHECK_EQ(b.rd(counter - 2) & 0xFFFFu, 0x4321, "counter preserves the lower halfword");
+	const uint16_t start = b.rd16(counter);
+	CHECK(start == 15 || start == 14, "programming the window reloads the counter");
+	b.wr16(counter, start + 123);
+	b.run(4 * divider);
+	const uint16_t middle = b.rd16(counter);
+	CHECK(start - middle == 4 || start - middle == 5, "counter decrements across a counter write");
+	b.run(14 * divider);
+	const uint16_t wrapped = b.rd16(counter);
+	CHECK(wrapped > middle && wrapped <= 15, "counter wraps at the programmed window");
+	const int elapsed = (middle + 16 - wrapped) % 16;
+	CHECK(elapsed == 14 || elapsed == 15, "counter wrap includes zero");
+	CHECK_EQ(b.rd16(nos_counter), original_ticks, "calibration wraps leave the QD NOS count alone");
+	b.wr(INTC + 0x08, 1u << 25);
+	b.wr16(ctsi_enable, 0x0080);
+	b.wr16(nos_compare + 2, 0x89AB);
+	b.wr8(nos_compare, uint8_t(original_ticks + 1));
+	CHECK_EQ(b.rd(nos_compare), 0x89AB0000u | uint16_t(original_ticks + 1), "compare retains the adjacent halfword");
+	CHECK(!b.t->irq, "CTSI compare waits for the target tick");
+	b.run(104000000 / 64);
+	CHECK_EQ(b.rd16(ctsi_status) & 0x0080, 0x0080, "CTSI compare latches status bit 7");
+	CHECK_EQ(b.rd(INTC + 0x14), 26, "CTSI compare raises interrupt source 25");
+	b.wr16(ctsi_enable - 2, 0x0080);
+	CHECK_EQ(b.rd(INTC + 0x14), 0, "disabling the compare lowers the IRQ");
+	b.wr16(ctsi_enable, 0x0080);
+	CHECK_EQ(b.rd(INTC + 0x14), 26, "enabling the compare exposes the pending IRQ");
+	b.wr16(ctsi_status, 0x0080);
+	CHECK_EQ(b.rd(INTC + 0x14), 0, "acknowledging the compare clears the IRQ");
+	b.wr16(ctsi_enable, 0x1000);
+	b.wr16(ctsi_enable, 0x2000);
+	CHECK_EQ(b.rd16(ctsi_enable) & 0x3080, 0x3080, "CTSI enable writes accumulate");
+	CHECK_EQ(b.rd16(ctsi_status) & 0x3000, 0x3000, "both software interrupts are pending");
+	CHECK_EQ(b.rd(INTC + 0x14), 26, "software interrupts raise CTSI source 25");
+	b.wr16(ctsi_status, 0x1000);
+	CHECK_EQ(b.rd16(ctsi_status) & 0x3000, 0x2000, "software IRQ acknowledge clears only the selected bit");
+	CHECK_EQ(b.rd16(ctsi_enable) & 0x3000, 0x3000, "acknowledge preserves software IRQ enables");
+	b.wr16(ctsi_enable - 2, 0x2000);
+	CHECK_EQ(b.rd(INTC + 0x14), 0, "disabling the other software IRQ clears the line");
+	b.wr16(ctsi_enable - 2, 0x1000);
+	b.wr(INTC + 0x0C, 1u << 25);
+	b.wr(window, 0);
+	CHECK_EQ(b.rd16(window), 0x0080, "zero window selects the default");
+	b.wr16(counter - 2, 0);
+}
+
+void test_mdi(Bench &b) {
+	printf("MDI shared SDRAM rings\n");
+	constexpr uint32_t m2d = 0x0C100000;
+	constexpr uint32_t d2m = 0x0C1001F4;
+	constexpr uint32_t m2d_ptr = 0x0C1003E8;
+	constexpr uint32_t d2m_ptr = 0x0C1003EC;
+	constexpr uint32_t control = 0x0C14B004;
+	constexpr uint32_t ctsi = 0x0C150100;
+	b.wr(0x0C001100, 0xF0);
+	b.wr(m2d + 0x100, 0x89ABCDEF);
+	b.wr8(m2d + 0x101, 0x25);
+	CHECK_EQ(b.rd(m2d + 0x100), 0x89AB25EF, "ring payload retains byte writes");
+	CHECK_EQ(b.rd(0x0C001100), 0xF0, "ring payload is separate from on-chip SDRAM");
+	b.wr(INTC + 0x08, 1u << 25);
+	b.wr16(0x0C150012, 0x0400);
+	b.wr16(control, 0x0500);
+	b.wr(m2d_ptr, 0);
+	b.wr(d2m_ptr, 0);
+	CHECK_EQ(b.rd(d2m_ptr), 0, "announcement waits for its NOS ticks");
+	b.run(21 * (104000000 / 64));
+	CHECK_EQ(b.rd16(ctsi) & 0x0600, 0x0400, "publication latches CTSI bit 10");
+	CHECK_EQ(b.rd(INTC + 0x14), 26, "MDI publication drives source 25");
+	CHECK_EQ(b.rd(d2m_ptr), 4, "publication exposes four complete halfwords");
+	CHECK_EQ(b.rd(d2m), 0x7CD00000, "device announcement header");
+	CHECK_EQ(b.rd(d2m + 4), 0x04000001, "device announcement payload");
+	b.wr16(d2m_ptr + 2, 4);
+	b.wr16(ctsi, 0x0400);
+	CHECK_EQ(b.rd(INTC + 0x14), 0, "guest acknowledges the announcement");
+
+	const uint16_t query[] = {0x127C, 0x00F1, 0x0006, 0x2600, 0x20A0, 0x0200};
+	const uint16_t reply[] = {0x1200, 0x7CF1, 0x0006, 0x0026, 0x20A1, 0x0103};
+	for (unsigned i = 0; i < 6; ++i) b.wr16(m2d + i * 2, query[i]);
+	b.wr16(0x0C150012, 0x0200);
+	b.wr16(m2d_ptr, 6);
+	b.run(2048);
+	CHECK_EQ(b.rd(m2d_ptr), 0x00060006, "peer consumes all request halfwords");
+	CHECK_EQ(b.rd(d2m_ptr), 0x0004000A, "reply preserves the guest consumer pointer");
+	CHECK_EQ(b.rd16(ctsi) & 0x0600, 0x0600, "consumption and publication are separate events");
+	for (unsigned i = 0; i < 6; ++i) CHECK_EQ(b.rd16(d2m + (4 + i) * 2), reply[i], "RF version reply");
+
+	b.wr16(ctsi, 0x0600);
+	b.wr(m2d_ptr, 0x00F800F8);
+	b.wr(d2m_ptr, 0x00F800F8);
+	for (unsigned i = 0; i < 6; ++i) b.wr16(m2d + 2 * ((248 + i) % 250), query[i]);
+	b.wr16(m2d_ptr, 4);
+	b.run(2048);
+	CHECK_EQ(b.rd(m2d_ptr), 0x00040004, "M2D wraps at halfword 250");
+	CHECK_EQ(b.rd(d2m_ptr), 0x00F80004, "D2M wraps at the SDRAM and register boundary");
+	for (unsigned i = 0; i < 6; ++i) {
+		CHECK_EQ(b.rd16(d2m + 2 * ((248 + i) % 250)), reply[i], "wrapped RF version reply");
+	}
+
+	printf("Native E8 PCM over the MDI rings\n");
+	b.wr16(ctsi, 0x0600);
+	b.wr(m2d_ptr, 0);
+	b.wr(d2m_ptr, 0);
+	unsigned input_head = 0, output_tail = 0;
+	auto send = [&](std::initializer_list<uint16_t> words) {
+		for (uint16_t word : words) {
+			b.wr16(m2d + 2 * input_head, word);
+			input_head = (input_head + 1) % 250;
+		}
+		b.wr16(m2d_ptr, input_head);
+		b.run(256);
+		CHECK_EQ(b.rd16(m2d_ptr + 2), input_head, "DSP consumed the PCM command");
+	};
+	auto receive = [&](uint16_t command, uint16_t value) {
+		uint64_t deadline = b.cyc + 80000;
+		auto queued = [&]() { return (b.rd16(d2m_ptr) + 250 - output_tail) % 250; };
+		while (queued() < 7 && b.cyc < deadline) b.run(128);
+		unsigned next = (output_tail + 7) % 250;
+		CHECK(queued() >= 7 && queued() % 7 == 0, "DSP publishes complete reply frames");
+		const uint16_t expected[] = {0x1200, 0x7CE8, 0x0008, 0x4C01, command, value, 0};
+		for (unsigned i = 0; i < 7; ++i)
+			CHECK_EQ(b.rd16(d2m + 2 * ((output_tail + i) % 250)), expected[i], "PCM reply word");
+		CHECK(b.rd16(ctsi) & 0x0400, "PCM reply uses the MDI publication interrupt");
+		output_tail = next;
+		b.wr16(d2m_ptr + 2, output_tail);
+		if (!queued()) b.wr16(ctsi, 0x0600);
+	};
+	constexpr uint32_t a0 = 0x0A061000, a1 = 0x0A063BC0;
+	for (unsigned i = 0; i < 64; ++i) {
+		b.sd_poke(a0 + i, i & 1 ? 0x20 : 0);
+		b.sd_poke(a1 + i, i & 1 ? 0xE0 : 0);
+	}
+	send({0x127C, 0x00E8, 0x0012, 0x014C, 0x0120, 0x8202, 32, 0x0A06, 0x1000, 0x0A06, 0x1000, 0x0046});
+	CHECK_EQ(b.rd16(d2m_ptr), output_tail, "overlapping PCM buffers are rejected");
+	send({0x127C, 0x00E8, 0x0012, 0x014C, 0x0020, 0x8202, 32, 0x0A06, 0x1000, 0x0A06, 0x3BC0, 0x0046});
+	receive(0x0021, 0);
+	send({0x127C, 0x00E8, 0x0008, 0x014C, 0x0023, 0x0002, 32});
+	receive(0x0024, 0);
+	receive(0x0026, 1);
+	send({0x127C, 0x00E8, 0x0008, 0x014D, 0x0127, 0x0001, 16});
+	CHECK_EQ(b.rd16(d2m_ptr), output_tail, "only the PCM owner can refill");
+	send({0x127C, 0x00E8, 0x0008, 0x014C, 0x0027, 0x0001, 16});
+	receive(0x0028, 0);
+	b.run(65000);
+	CHECK_EQ((int16_t)b.t->audio_l, 0x2000, "first SDRAM buffer produces positive PCM");
+	CHECK_EQ((int16_t)b.t->audio_r, 0x2000, "mono samples reach both outputs");
+	b.run(195000);
+	CHECK_EQ((int16_t)b.t->audio_l, -0x2000, "refill buffer produces negative PCM");
+	receive(0x002b, 32);
+	b.run(6500);
+	CHECK_EQ(b.t->audio_l, 0, "final completion stops audio");
+	b.wr(INTC + 8, 1u << 5);
+	CHECK_EQ(b.rd(INTC + 0x14), 0, "PCM completion does not raise timer 5");
+	b.wr(INTC + 0x0C, 1u << 5);
+	send({0x127C, 0x00E8, 0x0004, 0x014C, 0x6A2A});
+	receive(0x6A2b, 0);
+
+	b.wr16(control, 0);
+	b.wr16(ctsi, 0x0600);
+	b.wr16(0x0C150010, 0x0600);
+	b.wr(INTC + 0x0C, 1u << 25);
 }
 
 // model/.out/regs.log: "W|R <block> <address> size=<n> val=<v> pc=<pc>"
@@ -769,6 +978,71 @@ void test_lcd(Bench &b) {
 	printf("  %llu bytes on the LCD bus\n", (unsigned long long)b.lcd_bytes);
 }
 
+void test_nem4_lcd(Bench &b) {
+	printf("NEM-4 packed LCD words\n");
+	b.t->nem4 = 1;
+	b.reset_core();
+	auto command = [&](uint8_t opcode) {
+		b.wr(LCD, 0x09200000);
+		b.wr(LCD + 8, opcode);
+	};
+	auto window = [&](uint8_t opcode, uint32_t endpoints) {
+		command(opcode);
+		b.wr(LCD, 0x09240003);
+		b.wr(LCD + 8, endpoints);
+		b.wr(LCD + 8, 0);
+	};
+	auto sample = [&](unsigned x, unsigned y) {
+		b.t->scan_x = x;
+		b.t->scan_y = y;
+		b.t->scan_en = 1;
+		b.tick();
+		b.t->scan_en = 0;
+		b.run(4);
+		return b.t->scan_rgb;
+	};
+
+	window(0x15, 0x0B100002);
+	window(0x75, 0x0D000000);
+	command(0x5C);
+	b.wr(LCD, 0x8924D67F);
+	constexpr unsigned frame_pairs = 176 * 208 / 2;
+	for (unsigned pair = 0; pair < frame_pairs; ++pair) {
+		const uint32_t word = pair == 0 ? 0x000F0F00 : pair == frame_pairs - 1 ? 0x0FFF00F0 : 0;
+		b.wr(LCD + 8, word);
+	}
+	CHECK_EQ(sample(0, 0), 0, "NEM-4 panel starts blank");
+	command(0xAF);
+	CHECK_EQ(sample(0, 0), 0xF800, "lower packed pixel is first");
+	CHECK_EQ(sample(1, 0), 0x001F, "upper packed pixel is second");
+	CHECK_EQ(sample(174, 207), 0x07E0, "full native frame reaches the last row");
+	CHECK_EQ(sample(175, 207), 0xFFFF, "full native frame includes its last pixel");
+
+	constexpr unsigned row = 17, row_pairs = 176 / 2;
+	constexpr uint32_t source = SD + 0x20;
+	for (unsigned pair = 0; pair < row_pairs; ++pair) {
+		const uint32_t word = 0x00F00F00;
+		for (unsigned byte = 0; byte < 4; ++byte)
+			b.sd_poke(source + 4 * pair + byte, uint8_t(word >> (8 * byte)));
+	}
+	window(0x75, ((row + 1) << 20) | row);
+	command(0x5C);
+	b.wr(LCD, 0x89240000 | (3 * row_pairs - 1));
+	b.dma_setup(1, source, 4, 0x20, 0x10121208, 0, 0x20, row_pairs);
+	b.dma_start(1, 2);
+	const uint64_t deadline = b.cyc + 20000;
+	while (!b.dma_done(1) && b.cyc < deadline) b.run(8);
+	CHECK(b.dma_done(1), "NEM-4 row DMA completes");
+	b.dma_finish(1);
+	b.wr(LCD + 8, 0x0FFF0FFF);
+	CHECK_EQ(sample(0, row), 0xF800, "row-band DMA uses the selected start row");
+	CHECK_EQ(sample(175, row), 0x07E0, "row-band DMA delivers the last upper pixel");
+	CHECK_EQ(sample(0, row + 1), 0, "extra words leave the next row alone");
+
+	b.t->nem4 = 0;
+	b.reset_core();
+}
+
 // -------------------------------------------------------------------------
 // MMC
 // -------------------------------------------------------------------------
@@ -1167,6 +1441,188 @@ struct Cbus {
 	}
 };
 
+void test_genio_loopback(Bench &b) {
+	printf("GENIO loopback\n");
+	Cbus c(b);
+	const uint32_t GENIO = 0x0C150200;
+	b.reset_core();
+	b.wr16(GENIO + 2, 0x0001);
+	b.wr16(GENIO + 2, 0x0004);
+	CHECK_EQ(b.rd16(GENIO + 2) & 0x0005, 0x0005, "GENIO outputs accumulate on set");
+	CHECK_EQ(b.rd16(GENIO + 10) & 0x000A, 0, "both UEM routes disabled");
+	c.write(1, 0x0A, 16, 0x0008);
+	CHECK_EQ(b.rd16(GENIO + 10) & 0x000A, 0x0002, "EAR loop follows GENIO0");
+	c.write(1, 0x1B, 16, 0x0400);
+	CHECK_EQ(b.rd16(GENIO + 10) & 0x000A, 0x000A, "TX loop follows GENIO2");
+	b.wr16(GENIO + 4, 0x0001);
+	CHECK_EQ(b.rd16(GENIO + 10) & 0x000A, 0x0008, "clear GENIO0 leaves GENIO2");
+	b.wr16(GENIO + 4, 0x0004);
+	CHECK_EQ(b.rd16(GENIO + 10) & 0x000A, 0, "clear GENIO2");
+
+	b.wr16(GENIO + 6, 0x0004);
+	b.wr16(GENIO + 6, 0x0001);
+	CHECK_EQ(b.rd16(GENIO + 12) & 0x0002, 0, "SIM route disabled");
+	b.wr16(GENIO + 8, 0x0001);
+	c.write(1, 0x0C, 16, 0x0020);
+	CHECK_EQ(b.rd16(GENIO + 12) & 0x0002, 0, "SIM loop requires both GPIO outputs");
+	b.wr16(GENIO + 6, 0x0001);
+	CHECK_EQ(b.rd16(GENIO + 12) & 0x0002, 0x0002, "SIM route with both outputs set");
+	c.write(1, 0x0C, 16, 0);
+	CHECK_EQ(b.rd16(GENIO + 12) & 0x0002, 0, "SIM loop clears when the UEM route closes");
+}
+
+void test_simif(Bench &b) {
+	printf("SIMIF test card\n");
+	const uint32_t STATUS = 0x0C150800, RX_START = 0x0C150808, DATA = 0x0C15080C;
+	const uint32_t FAST_STATUS = 0x0C1500B8, SIM_FIQ = 1u << 26;
+	b.reset_core();
+	CHECK_EQ(b.rd16(FAST_STATUS), 0, "SIMIF idle after reset");
+	b.wr(INTC + 8, SIM_FIQ);
+	b.wr16(0x0C15000A, 4);
+	b.wr16(RX_START, 1);
+	CHECK_EQ(b.rd16(STATUS), 0x10, "SIM reset response pending");
+	CHECK_EQ(b.rd16(FAST_STATUS), 4, "SIM appears in fast status");
+	CHECK_EQ(b.t->irq, 0, "SIM is absent from the IRQ plane");
+	CHECK_EQ(b.t->fiq, 0, "SIM FIQ remains masked at the ICU");
+	b.wr(FINTC + 8, SIM_FIQ);
+	b.run(2);
+	CHECK_EQ(b.t->fiq, 1, "SIM receive event raises FIQ 26");
+	CHECK_EQ(b.rd16(DATA), 0x3B, "reset response TS");
+	CHECK_EQ(b.rd16(DATA), 0, "reset response T0");
+	b.wr16(STATUS, 0x10);
+	CHECK_EQ(b.rd16(FAST_STATUS), 0, "SIM FIQ acknowledgement");
+
+	for (uint8_t value : {0xA0, 0xA4, 0, 0, 2}) b.wr16(DATA, value);
+	CHECK_EQ(b.rd16(STATUS), 8, "SELECT header transmits");
+	b.wr16(STATUS, 0);
+	CHECK_EQ(b.rd16(STATUS), 8, "unrelated acknowledgement preserves transmit status");
+	b.wr16(STATUS, 8);
+	CHECK_EQ(b.rd16(STATUS), 0x10, "SELECT procedure byte ready");
+	CHECK_EQ(b.rd16(DATA), 0xA4, "SELECT procedure byte");
+	b.wr16(DATA, 0x3F);
+	b.wr16(DATA, 0);
+	CHECK_EQ(b.rd16(STATUS), 8, "SELECT file ID transmits");
+	b.wr16(STATUS, 8);
+	CHECK_EQ(b.rd16(DATA), 0x9F, "SELECT response status");
+	CHECK_EQ(b.rd16(DATA), 0x16, "SELECT response length");
+	CHECK_EQ(b.rd16(STATUS), 0, "SIM response drains");
+	b.reset_core();
+	CHECK_EQ(b.rd16(FAST_STATUS), 0, "reset clears pending SIM state");
+	b.wr16(RX_START, 1);
+	CHECK_EQ(b.rd16(DATA), 0x3B, "reset starts a fresh card session");
+}
+
+void test_nem4_clocks(Bench &b) {
+	printf("NEM-4 timer clocks\n");
+	constexpr uint64_t nos_period = 104000000 / 64;
+	constexpr uint64_t count = 200;
+	b.t->nem4 = 1;
+	b.t->reset = 1;
+	b.run(5);
+	const uint64_t reset_release = b.cyc;
+	b.t->reset = 0;
+	b.wr(INTC + 0x08, (1u << 25) | 1);
+	b.wr16(0x0C150114, 0x009F);
+	b.wr16(0x0C150118, 1);
+	b.wr16(0x0C150012, 0x0080);
+	b.wr(TMR + 0x10, count);
+	b.wr(TMR + 0x04, 1);
+	const uint64_t start = b.p_edge;
+	while (!b.t->irq && b.cyc < start + 4 * count + 2) b.tick();
+	CHECK_EQ(b.cyc, start + 4 * count + 1, "NEM-4 Timer 0 ticks at 26 MHz");
+	CHECK_EQ(b.rd(INTC + 0x14), 1, "NEM-4 Timer 0 uses IRQ source 0");
+	b.wr(TMR + 0x08, 1);
+	const uint64_t nos_tick = reset_release + nos_period;
+	b.run(nos_tick - 512 - b.cyc);
+	CHECK_EQ(b.rd16(0x0C150116), 0, "calibration wraps do not advance the NEM-4 NOS timer");
+	CHECK(!b.t->irq, "NEM-4 compare waits for a NOS tick");
+	while (!b.t->irq && b.cyc < nos_tick + 2) b.tick();
+	CHECK_EQ(b.cyc, nos_tick + 1, "the NOS event uses an exact 64 Hz period");
+	CHECK_EQ(b.rd16(0x0C150116), 1, "NEM-4 NOS timer advances at 64 Hz");
+	CHECK_EQ(b.rd(INTC + 0x14), 26, "NEM-4 NOS comparison uses IRQ source 25");
+	b.wr16(0x0C150100, 0x0080);
+	CHECK_EQ(b.rd(INTC + 0x14), 0, "NEM-4 compare interrupt clears on acknowledgement");
+	b.t->nem4 = 0;
+	b.reset_core();
+}
+
+void test_d550_boot(Bench &b) {
+	printf("NEM-4 external DSP boot link\n");
+	constexpr uint32_t tx_idle = 0x0C150514, tx_data = 0x0C150554, rx_data = 0x0C150556;
+	constexpr uint32_t batch = 0x0C15055A, status = 0x0C1500B8, rx_enable = 0x0C15000E;
+	b.reset_core();
+	CHECK_EQ(b.rd16(tx_idle), 0, "QD leaves the NEM-4 EUART disabled");
+	b.t->nem4 = 1;
+	b.reset_core();
+	CHECK_EQ(b.rd16(tx_idle) & 4, 4, "NEM-4 idle transmitter clears the original firmware's poll");
+	Cbus c(b);
+	// NEM-4 has no LRB-2 peer. The QD controller would claim this packet,
+	// return 0x000A from register 8 and raise a CTSI interrupt.
+	b.wr16(0x0C150016, 0x0010);
+	c.write(5, 8, 16, 0x800A);
+	CHECK_EQ(c.read(5, 8, 16), 0x800A, "NEM-4 CBUS write retains its stored value");
+	CHECK_EQ(b.rd16(0x0C150102) & 0x0010, 0, "QD Bluetooth responses stay off the NEM-4 bus");
+	c.write(1, 0x0F, 16, 0x00F0);
+	c.write(1, 0x10, 16, 0);
+	b.wr16(rx_enable, 8);
+	b.run(64);
+	CHECK_EQ(b.rd16(status + 2) & 8, 0, "clock-stopped DSP sends no bytes");
+	c.write(1, 0x0F, 16, 0);
+	c.write(1, 0x10, 16, 0x20);
+	b.wr16(0x0C150808, 1);
+	b.wr(FINTC + 8, 1u << 26);
+	b.run(64);
+	CHECK_EQ(b.rd(status) & 0x00080004, 0x00080004, "SIM and EUART share CTSI status");
+	CHECK_EQ(b.rd(FINTC + 0x14), 27, "EUART RX reaches FIQ 26");
+	b.wr16(0x0C150800, 0x10);
+	CHECK_EQ(b.rd(status) & 0x00080004, 0x00080000, "SIM acknowledgement preserves EUART RX");
+
+	auto receive = [&](unsigned size) {
+		std::vector<uint8_t> bytes;
+		while (bytes.size() < size) {
+			unsigned polls = 0;
+			while (!(b.rd16(status + 2) & 8) && ++polls < 256) b.run(4);
+			CHECK(polls < 256, "DSP reply byte arrived");
+			if (polls == 256) break;
+			bytes.push_back(b.rd16(rx_data) >> 8);
+		}
+		bytes.resize(size);
+		return bytes;
+	};
+	auto send = [&](std::vector<uint8_t> bytes) {
+		uint16_t checksum = 0;
+		for (unsigned i = 2; i + 2 < bytes.size(); i += 2)
+			checksum ^= (bytes[i] << 8) | bytes[i + 1];
+		bytes[bytes.size() - 2] = checksum >> 8;
+		bytes.back() = checksum;
+		for (unsigned i = 0; i < bytes.size();) {
+			unsigned count = std::min<unsigned>(16, bytes.size() - i);
+			b.wr16(batch, count - 1);
+			for (unsigned end = i + count; i < end; ++i) b.wr16(tx_data, bytes[i] << 8);
+			unsigned polls = 0;
+			while (!(b.rd16(tx_idle) & 4) && ++polls < 256) b.run(4);
+			CHECK(polls < 256, "EUART reports idle after draining the transmit batch");
+		}
+	};
+	const std::vector<uint8_t> startup = {
+		0x55, 0x55, 0x20, 0x00, 0x78, 0xD0, 0x00, 0x04, 0x01, 0x11, 0x01, 0x60, 0x58, 0xA5,
+		0x55, 0x55, 0x20, 0x00, 0x78, 0xD0, 0x00, 0x03, 0x04, 0x01, 0x60, 0x00, 0x3C, 0xD2
+	};
+	CHECK(receive(28) == startup, "original D0/01 and D0/04 startup frames");
+	CHECK_EQ(b.rd(FINTC + 0x14), 0, "reading the last byte clears EUART RX FIQ");
+	send({0x55, 0x55, 0x20, 0x78, 0, 0xD0, 0, 3, 5, 1, 0x40, 0, 0, 0});
+	send({0x55, 0x55, 0x20, 0x78, 0, 0x82, 0, 12, 0x12, 0x34, 0x0E, 0x2B,
+	      0, 7, 0, 0x42, 0, 0, 1, 0x41, 0, 0});
+	const auto reply = receive(34);
+	CHECK_EQ(reply[5], 0x7F, "DSP acknowledges the native diagnostic frame");
+	CHECK_EQ(reply[23], 0x8B, "DSP publishes the native diagnostic result");
+	CHECK_EQ(reply[27], 0x42, "result belongs to test 42");
+	CHECK_EQ(reply[28] | reply[29], 0, "test 42 passes after the N501 codec reset transaction");
+
+	b.t->nem4 = 0;
+	b.reset_core();
+}
+
 void test_cbus(Bench &b, const std::string &dir) {
 	printf("CBUS\n");
 	Cbus c(b);
@@ -1174,27 +1630,29 @@ void test_cbus(Bench &b, const std::string &dir) {
 	// reset, and until 0x1F has been read once
 	b.reset_core();
 	b.run(5000);
-	CHECK_EQ(c.read(1, 0x1F, 16), 0x0002, "UEMK 0x1F: power key held at power-on");
-	CHECK_EQ(c.read(1, 0x1F, 16), 0x0002, "UEMK 0x1F: still held within the hold time");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0802, "UEMK 0x1F: power key held at power-on");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0802, "UEMK 0x1F: still held within the hold time");
 	b.run(30000);
 	CHECK_EQ(c.read(1, 0x15, 16), 0x0008, "UEMK 0x15");
-	CHECK_EQ(c.read(1, 0x1F, 16), 0x0000, "UEMK 0x1F, power key up");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0800, "UEMK 0x1F, power key up");
 	b.reset_core();
 	b.run(30000);
-	CHECK_EQ(c.read(1, 0x1F, 16), 0x0002, "UEMK 0x1F: the first read after the hold time still sees the key");
-	CHECK_EQ(c.read(1, 0x1F, 16), 0x0000, "UEMK 0x1F: released after the first read");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0802, "UEMK 0x1F: the first read after the hold time still sees the key");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0800, "UEMK 0x1F: released after the first read");
 	b.power = true;
 	b.run(20);
-	CHECK_EQ(c.read(1, 0x1F, 16), 0x0002, "UEMK 0x1F bit 1: power key held");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0802, "UEMK 0x1F bit 1: power key held");
 	b.power = false;
 	b.run(20);
-	CHECK_EQ(c.read(1, 0x1F, 16), 0x0000, "UEMK 0x1F after the power key");
+	CHECK_EQ(c.read(1, 0x1F, 16), 0x0800, "UEMK 0x1F after the power key");
 	// the A/D converter (bootstrap 0x3604/0x3644, cbus.dll 0x5037E1E8)
 	c.write(1, 0x19, 16, 0x6880);
 	CHECK_EQ(c.read(1, 0x1A, 16) & 0x3FF, 485, "ADC channel 6 (BSI)");
 	c.write(1, 0x19, 16, 0xC800);
-	CHECK_EQ(c.read(1, 0x1A, 16), 0, "ADC channel 12");
+	CHECK_EQ(c.read(1, 0x1A, 16), 512, "ADC channel 12 (battery voltage)");
 	CHECK_EQ(c.read(1, 0x19, 16), 0xC800, "0x19 reads back");
+	c.write(1, 0x19, 16, 0xB800);
+	CHECK_EQ(c.read(1, 0x1A, 16), 0, "unmodeled ADC channel");
 	// device 4: the ID cbus.dll's self-test needs, a register that holds a value
 	CHECK_EQ(c.read(4, 0x00, 16) & 0xFF00, 0x0400, "device 4 register 0");
 	c.write(4, 0x0D, 20, 0xABCDE);
@@ -1202,7 +1660,26 @@ void test_cbus(Bench &b, const std::string &dir) {
 	CHECK_EQ(c.read(4, 0x0D, 8), 0xDE, "masked to 8 bits");
 	// ro registers keep their value
 	c.write(1, 0x15, 16, 0x0200);
-	CHECK_EQ(c.read(1, 0x15, 16), 0x0008, "UEMK 0x15 is read-only");
+	CHECK_EQ(c.read(1, 0x15, 16), 0x0008, "unrelated write leaves the alarm pending");
+	c.write(1, 0x15, 16, 0x0008);
+	CHECK_EQ(c.read(1, 0x15, 16), 0, "alarm acknowledgement clears bit 3");
+	b.power = true;
+	b.run(20);
+	CHECK_EQ(c.read(1, 0x15, 16), 0x0010, "power-key status is independent of the alarm");
+	b.power = false;
+	c.write(1, 0x16, 16, 0xFFF7);
+	b.wr(INTC + 0x08, 1u << 1);
+	b.run(65536);
+	CHECK_EQ(c.read(1, 0x15, 16), 0x0008, "startup alarm can latch once after acknowledgement");
+	CHECK_EQ(b.rd(INTC + 0x14), 2, "UEM alarm uses interrupt source 1");
+	b.wr(INTC + 0x0C, 1u << 1);
+	c.write(1, 0x15, 16, 0x0008);
+	b.wr(INTC + 0x08, 1u << 1);
+	c.write(1, 0x16, 16, 0xFFF7);
+	b.run(65536);
+	CHECK_EQ(c.read(1, 0x15, 16), 0, "alarm stays clear through the NOS power-off path");
+	CHECK_EQ(b.rd(INTC + 0x14), 0, "acknowledged alarm leaves IRQ 1 clear");
+	b.wr(INTC + 0x0C, 1u << 1);
 	// a device nothing is known of: storage (device 5 is the Bluetooth module, test_bt)
 	for (int r = 0; r < 8; r++) c.write(3, r, 16, 0x1111u * r + 5);
 	for (int r = 0; r < 8; r++) CHECK_EQ(c.read(3, r, 16), 0x1111u * r + 5, "device 3 storage");
@@ -1243,10 +1720,10 @@ void test_cbus(Bench &b, const std::string &dir) {
 			b.wr16(CBUS + 2, ctrl);
 			c.wait_done();
 			uint32_t got = b.rd16(CBUS + 6) | (bits > 16 ? b.rd16(CBUS + 4) << 16 : 0);
-			if (dev == 1 && reg == 0x1F) { got &= ~2u; val &= ~2u; }
+			if (dev == 1 && reg == 0x1F) { got &= ~0x0802u; val &= ~0x0802u; }  // historical power/battery inputs
 			// the RTC's time and day counter are the wall clock's (test_rtc); the
 			// calibration register's 0xC0 (cbus-regs.txt) is newer than some logs
-			if (dev == 1 && (reg == 0x11 || reg == 0x12 || reg == 0x13 || reg == 0x01 || reg == 0x04)) { nr++; continue; }
+			if (dev == 1 && (reg == 0x15 || reg == 0x11 || reg == 0x12 || reg == 0x13 || reg == 0x01 || reg == 0x04)) { nr++; continue; }
 			// the Bluetooth module answers in its own time (the bt bench)
 			if (dev == 5) { nr++; continue; }
 			nr++;
@@ -1330,65 +1807,10 @@ void test_bt(Bench &b) {
 }
 
 // -------------------------------------------------------------------------
-// the emulator devices: HLE audio, the RTC and its date register
+// The UEM RTC and historical emulator date register
 // -------------------------------------------------------------------------
-constexpr uint32_t AU = 0x0C1F0000u, RTC_DATE = 0x0C1F0100u;
-constexpr uint64_t CLK = 104000000, RTC_SEC = 20000;
-
-void test_audio(Bench &b) {
-	printf("HLE audio device\n");
-	CHECK_EQ(b.rd(AU), 0x41554431, "ID");
-	CHECK_EQ(b.rd16(AU), 0, "a 16-bit read is dropped");
-	b.wr16(AU + 0x0C, 8000);
-	CHECK_EQ(b.rd(AU + 0x0C), 16000, "a 16-bit write is dropped");
-	b.wr(AU + 0xFC, 0x12345678);
-	CHECK_EQ(b.rd(AU + 0xFC), 0, "the rest of the window reads 0, not storage");
-	// 40 frames of 0x2000 and 30 of -0x1000 at an odd halfword, mono, half volume
-	const uint32_t A0 = SD + 0xD00000, A1 = SD + 0xD01002, L0 = 40, L1 = 30, R = 48000;
-	for (uint32_t i = 0; i < L0; i++) { b.sd_poke(A0 + 2 * i, 0x00); b.sd_poke(A0 + 2 * i + 1, 0x20); }
-	for (uint32_t i = 0; i < L1; i++) { b.sd_poke(A1 + 2 * i, 0x00); b.sd_poke(A1 + 2 * i + 1, 0xF0); }
-	b.wr(AU + 0x0C, R);
-	b.wr(AU + 0x10, A0);
-	b.wr(AU + 0x14, A1);
-	b.wr(AU + 0x18, L0);
-	b.wr(AU + 0x1C, L1);
-	b.wr(AU + 0x28, 0x80);
-	b.wr(INTC + 0x08, 1u << 5);
-	// a DMA transfer at the same time: the two take the master port in turns
-	const uint32_t units = 3000, src = SD + 0xD10000, dst = SD + 0xD20000;
-	fill_sdram(b, src, units * 4, 555);
-	b.dma_setup(1, src, 4, 0x20, dst, 4, 0x20, units);
-	b.wr(AU + 0x04, 3);
-	uint64_t run_edge = b.p_edge;
-	b.dma_start(1);
-	auto frame_edge = [&](uint64_t n) { return run_edge + (n * CLK + R - 1) / R; };
-	b.run(frame_edge(10) - b.cyc);
-	CHECK_EQ((int16_t)b.t->audio_l, 0x1000, "output in buffer 0, left");
-	CHECK_EQ((int16_t)b.t->audio_r, 0x1000, "output in buffer 0, right");
-	while (!b.t->irq && b.cyc < frame_edge(L0) + 1000) b.run(1);
-	CHECK(b.cyc >= frame_edge(L0) && b.cyc <= frame_edge(L0) + 4, "DONE0 interrupt %lld clocks from its frame",
-	      (long long)(b.cyc - frame_edge(L0)));
-	CHECK_EQ(b.rd(INTC + 0x14), 6, "IRQ number 6: source 5");
-	CHECK_EQ(b.rd(AU + 0x20), 0x321, "STATUS: DONE0, FULL1, running, buffer 1");
-	b.wr(AU + 0x20, 1);
-	b.run(4);
-	CHECK(!b.t->irq, "DONE0 acknowledged");
-	b.run(frame_edge(L0 + 10) - b.cyc);
-	CHECK_EQ((int16_t)b.t->audio_l, -0x800, "output in buffer 1");
-	while (!b.dma_done(1) && b.cyc < run_edge + 3000000) b.run(16);
-	for (uint32_t i = 0; i < units * 4; i++) {
-		if (b.sd_byte(dst + i) != b.sd_byte(src + i)) { sim::fail("DMA with the audio device: byte %u differs", i); break; }
-	}
-	b.dma_finish(1);
-	while (!b.t->irq && b.cyc < frame_edge(L0 + L1) + 1000) b.run(1);
-	CHECK(b.cyc >= frame_edge(L0 + L1) && b.cyc <= frame_edge(L0 + L1) + 4, "DONE1 interrupt");
-	CHECK_EQ(b.rd(AU + 0x2C) >= L0 + L1, 1, "PLAYED");
-	b.wr(AU + 0x04, 0);
-	b.run(CLK / 48000 * 3);
-	CHECK_EQ(b.t->audio_l, 0, "output 0 when stopped");
-	CHECK(!b.t->irq, "stop clears DONE");
-	b.wr(INTC + 0x0C, 1u << 5);
-}
+constexpr uint32_t RTC_DATE = 0x0C1F0100u;
+constexpr uint64_t RTC_SEC = 20000;
 
 struct Clock { int y, mo, d, h, mi, s; };
 
@@ -1497,10 +1919,14 @@ void test_sti(Bench &b) {
 void test_reset(Bench &b) {
 	printf("reset\n");
 	b.wr(0x0C150000, 0x0000000E);
-	b.wr(0x0C120004, 0x12345678);
+	b.wr(0x0C120004, 0x20);
+	b.wr16(0x0C150114, 0x9F);
 	b.reset_core();
-	CHECK_EQ(b.rd(0x0C150000), 0, "storage cleared by reset (CTSI reset reason reads 0)");
+	CHECK_EQ(b.rd16(0x0C150000), 0, "CTSI reset reason clears on reset");
+	CHECK_EQ(b.rd16(0x0C150002), 0x0040, "GSM strap remains set after reset");
 	CHECK_EQ(b.rd(0x0C120004), 0, "storage cleared by reset");
+	CHECK_EQ(b.rd(0x0C120020), 0x1C000000, "NOS clock ready clears on reset");
+	CHECK_EQ(b.rd16(0x0C150114), 0x0080, "calibration window returns to its reset default");
 	CHECK_EQ(b.rd(INTC + 0x08), 0, "enables cleared by reset");
 }
 
@@ -1521,16 +1947,22 @@ int main(int argc, char **argv) {
 	CpuTraffic traffic;
 	b.traffic = &traffic;
 	test_storage(b);
+	test_ctsi_calibration(b);
+	test_mdi(b);
 	test_regs_log(b, model_out);
 	test_timers(b);
 	test_keypad(b);
 	test_cbus(b, model_out);
+	test_genio_loopback(b);
+	test_simif(b);
+	test_nem4_clocks(b);
+	test_d550_boot(b);
 	test_bt(b);
 	test_rtc(b);
-	test_audio(b);
 	test_sti(b);
 	test_dma(b);
 	test_lcd(b);
+	test_nem4_lcd(b);
 	test_mmc(b);
 	if (!card.empty()) test_card(b, card);
 	test_reset(b);

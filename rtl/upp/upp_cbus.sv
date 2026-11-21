@@ -17,9 +17,10 @@
 // register file of 8 devices x 32 registers, two clocks long (the model's is
 // instant; done reads 0 for those clocks, and the data registers wait).
 // Values (model/cbus-regs.txt):
-//   UEMK (device 1): 0x15 interrupt status reads 0x0008 (bootstrap 0x2EE8 goes
-//     on only with bit 3 or 4 set; [model guess] bit 3 = power-key power-on);
-//     0x1F power-on status reads 0 except bit 1 = the power key held (ekeyb
+//   UEMK (device 1): 0x15 interrupt status starts with the RTC alarm latched.
+//     Bit 3 is write-one-to-clear. Bit 4 reflects the power key.
+//     0x1F power-on status includes bit 11 for a good backup battery.
+//     Bit 1 is the power key held (ekeyb
 //     0x5041CCBC reads it as the power key; the bootstrap at 0x3090 takes the
 //     normal power-on path with it set, start-up reason 0). As in the model the
 //     key counts as held for POWER_ON_HOLD_CLKS after reset (3 s, a user
@@ -31,7 +32,9 @@
 //     A/D converter: a write of 0x19 with bit 11 set converts channel bits
 //     15:12 into 0x1A (10 bits): channel 6, the battery-size indicator, reads
 //     485 ([model guess], inside cbus.dll's 380-590 "normal battery" range,
-//     0x5037E240); other channels read 0.
+//     0x5037E240); channel 12, the battery-voltage input, reads 512 as in
+//     the NEM-4 model. The actual voltage-to-sample conversion is unmeasured.
+//     Other channels read 0.
 //     Real-time clock (rtc.dll; the model's rtc_read): 0x11, 0x12 and 0x13
 //     read the seconds, minutes and hours of the wall clock (rtl/mister/
 //     rtc_wall.sv, MiSTer's RTC, counting in real time), 0x01 the day
@@ -46,7 +49,7 @@
 //     and the clock runs from 00:00:00.
 //   Device 4 (probably ZOCUS; cbus.dll's self-test 0x5037E008 needs register 0
 //     to read 0x04xx): register 0 reads 0x0400.
-//   Device 5 is the Bluetooth module (rtl/board/bt_module.sv, outside this
+//   On QD, device 5 is the Bluetooth module (rtl/board/bt_module.sv, outside this
 //     block as it is outside the chip): a read takes bt_rdata in the clock of
 //     bt_rd, a write gives bt_wdata in the clock of bt_wr, with the register
 //     in bt_reg. The write reaches the module a clock after it starts, from
@@ -55,11 +58,14 @@
 //     its next word (bt_busy) a read waits, done reading 0. A write started
 //     while a read of the module is still on its way is not passed on (the
 //     driver starts nothing before done).
+//   NEM-4 leaves the LRB-2 disconnected, as on the reference core. Its CBUS
+//     transactions use the same register backing as other unmodeled devices.
 //   Everything else: storage, 0 after reset.
 // "ro" registers keep the written value but read their fixed one, as the
 // model's ro lines. Reads and writes are masked to the transfer length.
 module upp_cbus #(
-	parameter int POWER_ON_HOLD_CLKS = 312_000_000
+	parameter int POWER_ON_HOLD_CLKS = 312_000_000,
+	parameter int ALARM_CLKS = 7_995_392
 ) (
 	input  logic        clk,
 	input  logic        reset,
@@ -75,8 +81,17 @@ module upp_cbus #(
 	output logic        busy,
 
 	input  logic        power_key,
+	input  logic        alarm_irq_clear,
+	output logic        alarm_irq,
+
+	// UEM path selectors for the UPP GENIO startup-test inputs
+	output logic        ear_route,
+	output logic        sim_route,
+	output logic        tx_route,
+	output wire         adsp_clock_ready,
 
 	// the Bluetooth module, CBUS device 5
+	input  logic        bt_present,
 	output logic        bt_rd,
 	output logic        bt_wr,
 	output logic [4:0]  bt_reg,
@@ -96,15 +111,19 @@ module upp_cbus #(
 
 	// ---- the device model (model/cbus-regs.txt) ----
 	function automatic logic is_ro(input logic [2:0] d, input logic [4:0] r);
-		return (d == 3'd1 && r == 5'h15) || (d == 3'd1 && r == 5'h1F) || (d == 3'd4 && r == 5'h00);
+		return (d == 3'd1 && r == 5'h1F) || (d == 3'd4 && r == 5'h00);
 	endfunction
 	function automatic logic [31:0] ro_val(input logic [2:0] d, input logic [4:0] r);
-		if (d == 3'd1 && r == 5'h15) return 32'h0008;
+		if (d == 3'd1 && r == 5'h1F) return 32'h0800;
 		if (d == 3'd4 && r == 5'h00) return 32'h0400;
-		return 32'h0000;                  // UEMK 0x1F: bit 1 is the power key
+		return 32'h0000;
 	endfunction
 	function automatic logic [9:0] adc_val(input logic [3:0] ch);
-		return (ch == 4'd6) ? 10'd485 : 10'd0;
+		case (ch)
+			4'd6:  return 10'd485;
+			4'd12: return 10'd512;
+			default: return 10'd0;
+		endcase
 	endfunction
 	// initial values of registers that are not ro: UEMK 0x04 = 0x00C0
 	function automatic logic [31:0] init_val(input logic [7:0] i);
@@ -125,6 +144,15 @@ module upp_cbus #(
 	logic          read_1f;            // UEMK 0x1F has been read since reset
 	logic [7:0]    day_off;            // day counter = day_off + rtc_days
 	logic          rtc_vq;
+	logic [4:0]    adsp_controls;
+	logic [1:0]    adsp_controls_written;
+	assign adsp_clock_ready = (&adsp_controls_written) && adsp_controls == 5'b00001;
+	localparam int ALARM_DIV = 65536;
+	localparam int ALARM_STEPS = (ALARM_CLKS + ALARM_DIV - 1) / ALARM_DIV;
+	localparam int ALARM_BITS = $clog2(ALARM_STEPS + 1);
+	logic [15:0] alarm_div;
+	logic [ALARM_BITS-1:0] alarm_left;
+	logic alarm_status, alarm_started, key_released;
 
 	wire  clearing = !clr[8];
 	wire  power    = power_key || hold != '0 || !read_1f;
@@ -164,7 +192,7 @@ module upp_cbus #(
 	logic        bt_wr_q;
 	logic [4:0]  bt_wreg_q;
 	logic [15:0] bt_wdata_q;
-	wire rd_bt   = rd_q && rd_dev == 3'd5;
+	wire rd_bt   = rd_q && bt_present && rd_dev == 3'd5;
 	wire rd_hold = rd_bt && (bt_busy || bt_wr_q);
 	assign bt_rd    = rd_bt && !rd_hold;
 	assign bt_wr    = bt_wr_q;
@@ -192,10 +220,21 @@ module upp_cbus #(
 		rf_we    <= 1'b0;
 		rd_q     <= rd_pend || rd_hold;
 		rd_pend  <= 1'b0;
-		bt_wr_q    <= start_wr && w_dev == 3'd5 && !rd_bt;
+		bt_wr_q    <= start_wr && bt_present && w_dev == 3'd5 && !rd_bt;
 		bt_wreg_q  <= w_reg;
 		bt_wdata_q <= w_val[15:0];
 		if (hold != '0) hold <= hold - 1'd1;
+		if (alarm_irq_clear) alarm_irq <= 1'b0;
+		if (alarm_left != '0) begin
+			alarm_div <= alarm_div + 16'd1;
+			if (&alarm_div) begin
+				alarm_left <= alarm_left - 1'b1;
+				if (alarm_left == ALARM_BITS'(1)) begin
+					alarm_status <= 1'b1;
+					alarm_irq <= 1'b1;
+				end
+			end
+		end
 
 		if (w_lo) begin
 			if (!off_hi) len <= wdata[15:0];
@@ -216,12 +255,13 @@ module upp_cbus #(
 			logic [31:0] v;
 			v = is_ro(rd_dev, rd_reg) ? ro_val(rd_dev, rd_reg) :
 			    (rd_dev == 3'd1 && rd_reg == 5'h1A) ? {22'd0, adc} :
-			    (rd_dev == 3'd5) ? {16'd0, bt_rdata} : rf_q;
+			    rd_bt ? {16'd0, bt_rdata} : rf_q;
 			if (rd_dev == 3'd1) begin
 				case (rd_reg)
 					5'h11: v = {26'd0, rtc_sec};
 					5'h12: v = {26'd0, rtc_min};
 					5'h13: v = {27'd0, rtc_hour};
+					5'h15: v = {27'd0, power_key || (!key_released && power), alarm_status, 3'd0};
 					5'h01: v = {24'd0, day_off + rtc_days};
 					default: ;
 				endcase
@@ -238,9 +278,33 @@ module upp_cbus #(
 			rf_we    <= 1'b1;
 			rf_waddr <= {w_dev, w_reg};
 			rf_wdata <= w_val;
-			if (w_dev == 3'd1 && w_reg == 5'h1A) adc <= w_val[9:0];
-			if (w_dev == 3'd1 && w_reg == 5'h19 && w_val[11]) adc <= adc_val(w_val[15:12]);
-			if (w_dev == 3'd1 && w_reg == 5'h01) day_off <= w_val[7:0] - rtc_days;
+			if (w_dev == 3'd1) begin
+				case (w_reg)
+					5'h01: day_off <= w_val[7:0] - rtc_days;
+					5'h0A: ear_route <= w_val[3];
+					5'h0C: sim_route <= w_val[5];
+					5'h0F: begin
+						adsp_controls[4:1] <= w_val[7:4];
+						adsp_controls_written[0] <= 1'b1;
+					end
+					5'h10: begin
+						adsp_controls[0] <= w_val[5];
+						adsp_controls_written[1] <= 1'b1;
+					end
+					5'h15: if (w_val[3]) alarm_status <= 1'b0;
+					5'h16: if (w_bits == 6'd16 && w_val[15:4] == 12'hFFF && !w_val[3]) begin
+						key_released <= 1'b1;
+						if (!alarm_started) begin
+							alarm_started <= 1'b1;
+							alarm_left <= ALARM_BITS'(ALARM_STEPS);
+						end
+					end
+					5'h19: if (w_val[11]) adc <= adc_val(w_val[15:12]);
+					5'h1A: adc <= w_val[9:0];
+					5'h1B: tx_route <= w_val[10];
+					default: ;
+				endcase
+			end
 		end
 
 		// the wall clock's first time from the HPS: the counter starts again
@@ -263,6 +327,11 @@ module upp_cbus #(
 			data_hi <= 16'd0;
 			data_lo <= 16'd0;
 			adc     <= 10'd0;
+			ear_route <= 1'b0;
+			sim_route <= 1'b0;
+			tx_route  <= 1'b0;
+			adsp_controls <= 5'd0;
+			adsp_controls_written <= 2'd0;
 			rd_pend <= 1'b0;
 			rd_q    <= 1'b0;
 			bt_wr_q <= 1'b0;
@@ -271,6 +340,12 @@ module upp_cbus #(
 			clr     <= 9'd0;
 			hold    <= HW'(POWER_ON_HOLD_CLKS);
 			read_1f <= 1'b0;
+			alarm_status <= 1'b1;
+			alarm_irq <= 1'b0;
+			alarm_started <= 1'b0;
+			alarm_left <= '0;
+			alarm_div <= '0;
+			key_released <= 1'b0;
 			day_off <= 8'd0 - rtc_days;
 			rtc_vq  <= rtc_valid;
 			rtc_base <= rtc_valid ? rtc_date : 32'd0;

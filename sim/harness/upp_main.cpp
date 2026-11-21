@@ -39,10 +39,11 @@
 
 namespace {
 
-uint32_t OC_BYTES = 64u << 10;   // --onchip: the build's ONCHIP_BYTES
 constexpr uint32_t EMIF_BYTES = 256;
+constexpr uint32_t ONCHIP_BACKING = 0x01000000u;
+constexpr uint32_t ASIC_ROM = 0x0C000000u;
 
-enum Region { R_CS0, R_CS1, R_EMPTY, R_EMIF, R_SDRAM, R_ONCHIP, R_PERIPH, R_UNMAPPED };
+enum Region { R_CS0, R_CS1, R_EMPTY, R_EMIF, R_SDRAM, R_ONCHIP, R_PERIPH, R_UNMAPPED, R_ASIC_ROM };
 
 Region region(uint32_t a) {
 	if (a >> 28) return R_UNMAPPED;
@@ -52,7 +53,10 @@ Region region(uint32_t a) {
 	case 2: case 3: return R_EMPTY;
 	case 4: return R_EMIF;
 	case 5: return R_SDRAM;
-	case 6: return ((a >> 20) & 31) == 0 ? R_ONCHIP : R_PERIPH;
+	case 6:
+		if (a >= 0x0C100000u && a < 0x0C1003E8u) return R_ONCHIP;
+		if (a >= 0x0C100000u) return R_PERIPH;
+		return a < ASIC_ROM + 0x1000 ? R_ASIC_ROM : R_ONCHIP;
 	default: return R_UNMAPPED;
 	}
 }
@@ -74,8 +78,7 @@ struct Bench {
 	uint64_t cyc = 0;
 
 	// references
-	std::vector<uint8_t> sdram = std::vector<uint8_t>(16u << 20);
-	std::vector<uint8_t> oc, oc_known;
+	std::vector<uint8_t> sdram = std::vector<uint8_t>((17u << 20) + 1024);
 	std::vector<uint8_t> emif = std::vector<uint8_t>(EMIF_BYTES), emif_known = std::vector<uint8_t>(EMIF_BYTES, 0);
 	std::map<uint32_t, uint32_t> periph;       // by word address 27:2
 	uint64_t unmapped_pulses = 0, unmapped_txn_beats = 0;
@@ -100,10 +103,15 @@ struct Bench {
 	uint64_t ra_cyc = 0;                        // when its pair's line had been answered
 	uint64_t refresh_cyc = 0, refreshes_seen = 0;   // the chip's last AUTO REFRESH
 	// a refresh may cut a pair short only while its second block arrives
-	bool ra_refreshed() const { return refresh_cyc + 2 >= ra_cyc && refresh_cyc <= ra_cyc + 16; }
-	static bool in_module(Region r) { return r == R_SDRAM || (r == R_ONCHIP && OC_BYTES > 65536); }
+	bool ra_refreshed(uint64_t pair_clock) const {
+		return refresh_cyc + 2 >= pair_clock && refresh_cyc <= pair_clock + 16;
+	}
+	static bool in_module(Region r) { return r == R_SDRAM || r == R_ONCHIP; }
+	static uint32_t module_addr(uint32_t a) {
+		return region(a) == R_ONCHIP ? ONCHIP_BACKING + (a & 0x1FFFFFu) : (a & 0xFFFFFFu);
+	}
 	static uint32_t module_blk(uint32_t a) {
-		return (region(a) == R_ONCHIP ? 0x1000000u | (a & (OC_BYTES - 1)) : (a & 0xFFFFFFu)) >> 4;
+		return module_addr(a) >> 4;
 	}
 	// latency (clocks from the beat on the bus to its ack) by region and kind
 	struct Lat { uint64_t n = 0, sum = 0, min = ~0ull, max = 0; void add(uint64_t v) { n++; sum += v; min = std::min(min, v); max = std::max(max, v); } };
@@ -115,9 +123,7 @@ struct Bench {
 	uint64_t p_accesses = 0;
 
 	Bench(uint32_t seed) : chip(seed * 5 + 3), ddr(48u << 20, seed * 11 + 7), rng(seed) {
-		oc.assign(OC_BYTES, 0);
-		oc_known.assign(OC_BYTES, 0);
-		for (uint32_t b = 0; b < (16u << 20); b += 2) {
+		for (uint32_t b = 0; b < sdram.size(); b += 2) {
 			uint16_t v = chip.lin(sdram_physical_halfword(b));
 			sdram[b] = (uint8_t)v;
 			sdram[b + 1] = (uint8_t)(v >> 8);
@@ -128,6 +134,7 @@ struct Bench {
 		t->wb_cyc = 0; t->wb_stb = 0; t->wb_we = 0; t->wb_adr = 0; t->wb_dat_i = 0; t->wb_sel = 0; t->wb_cti = 0; t->wb_bte = 0;
 		t->p_rdata = 0; t->p_wait = 0;
 		t->dma_cyc = 0; t->dma_stb = 0; t->dma_we = 0; t->dma_adr = 0; t->dma_dat_i = 0; t->dma_sel = 0;
+		t->mdi_req = 0; t->mdi_we = 0; t->mdi_word = 0; t->mdi_wdata = 0; t->mdi_be = 0;
 		t->save_rd = 0; t->save_blk = 0;
 		t->ld_we = 0; t->ld_rd = 0; t->ld_addr = 0; t->ld_din = 0; t->ld_be = 0;
 		t->ddram_busy = 0; t->ddram_dout = 0; t->ddram_dout_ready = 0; t->sdram_dq_i = 0;
@@ -150,8 +157,8 @@ struct Bench {
 			switch (region(a)) {
 			case R_CS0: { uint16_t h = flash_half(0, (b >> 1) & 0x7FFFFF); byte = (uint8_t)(h >> (8 * (b & 1))); break; }
 			case R_CS1: { uint16_t h = flash_half(1, (b >> 1) & 0x3FFFFF); byte = (uint8_t)(h >> (8 * (b & 1))); break; }
-			case R_SDRAM: byte = sdram[b & 0xFFFFFF]; break;
-			case R_ONCHIP: byte = oc[b % OC_BYTES]; known = oc_known[b % OC_BYTES]; break;
+			case R_SDRAM: case R_ONCHIP: byte = sdram[module_addr(b)]; break;
+			case R_ASIC_ROM: byte = (b & 1) ? 0x47 : 0x70; break;
 			case R_EMIF: byte = emif[b % EMIF_BYTES]; known = emif_known[b % EMIF_BYTES]; break;
 			case R_PERIPH: { auto it = periph.find((a & 0x0FFFFFFF) >> 2); byte = it == periph.end() ? 0 : (uint8_t)(it->second >> (8 * i)); known = it != periph.end(); break; }
 			default: byte = 0; break;
@@ -174,8 +181,7 @@ struct Bench {
 			uint8_t byte = (uint8_t)(d >> (8 * i));
 			uint32_t b = w + i;
 			switch (region(a)) {
-			case R_SDRAM: sdram[b & 0xFFFFFF] = byte; break;
-			case R_ONCHIP: oc[b % OC_BYTES] = byte; oc_known[b % OC_BYTES] = 1; break;
+			case R_SDRAM: case R_ONCHIP: sdram[module_addr(b)] = byte; break;
 			case R_EMIF: emif[b % EMIF_BYTES] = byte; emif_known[b % EMIF_BYTES] = 1; break;
 			default: break;   // flash writes are commands; the peripheral model keeps its own
 			}
@@ -212,6 +218,7 @@ struct Bench {
 		t->eval();
 
 		bool ack = t->wb_ack, err = t->wb_err;
+		CHECK(!(ack && err), "Wishbone data ACK and ERR are mutually exclusive");
 		bool safe_fill = t->wb_no_late_error;
 		uint32_t rdat = t->wb_dat_o;
 		bool p_done = psel && !t->p_wait;
@@ -267,11 +274,12 @@ struct Bench {
 			bool wrap_read = !cur.we && cur.bte == 1 && b.cti == 2 && b.sel == 15;
 			int want_safe = cur.safe_fill;
 			if (want_safe < 0 && (!raw || (r != R_CS0 && r != R_CS1) || !wrap_read))
-				want_safe = wrap_read && (r == R_SDRAM || r == R_ONCHIP || r == R_CS0 || r == R_CS1);
+				want_safe = wrap_read && (in_module(r) || r == R_ASIC_ROM || r == R_CS0 || r == R_CS1);
 			if (want_safe >= 0 && safe_fill != bool(want_safe))
 				sim::fail("%s: first-ACK no-late-error=%d, expected %d", cur.what.c_str(), safe_fill, want_safe);
 		}
-		if (err) sim::fail("%s: ERR at %08x", cur.what.c_str(), b.adr);
+		if (err != (cur.we && r == R_ASIC_ROM))
+			sim::fail("%s: unexpected ERR=%d at %08x", cur.what.c_str(), err, b.adr);
 		if (r == R_UNMAPPED) unmapped_txn_beats++;
 		if (cur.we) {
 			apply_write(b.adr, b.sel, b.dat);
@@ -285,7 +293,7 @@ struct Bench {
 				sim::fail("%s: beat %zu read %08x sel %x: got %08x, want %08x (mask %08x, cycle %llu)", cur.what.c_str(), bi,
 					b.adr, b.sel, rdat, want, mask, (unsigned long long)cyc);
 		}
-		static const char *rn[] = {"cs0", "cs1", "empty", "emif", "sdram", "onchip", "periph", "unmapped"};
+		static const char *rn[] = {"cs0", "cs1", "empty", "emif", "sdram", "onchip", "periph", "unmapped", "ASIC ROM"};
 		std::string k = lat_prefix + rn[r] + (cur.we ? " write" : " read") + (cur.beats.size() > 1 ? (bi == 0 ? " burst first" : " burst next") : "");
 		lat[k].add(cyc - 1 - beat_seen);
 		if (bi == 0) { first_lat = cyc - 1 - beat_seen; next_lat_max = 0; }
@@ -377,7 +385,7 @@ struct Bench {
 		case R_EMPTY: return 0x04000000u | (u & 0x03FFFFFC);
 		case R_EMIF: return 0x08000000u | (u & 0xFC) | (rng.chance(10) ? (u & 0x01FFFF00) : 0);
 		case R_SDRAM: return 0x0A000000u | (rng.chance(10) ? 0x01000000u : 0) | (rng.chance(70) ? (u & 0xFFFC) : (u & 0xFFFFFC));
-		case R_ONCHIP: return 0x0C000000u | (u & (OC_BYTES - 4)) | (rng.chance(10) ? (u & 0xF0000 & ~(OC_BYTES - 1)) : 0);
+		case R_ONCHIP: return 0x0C010000u + (u & 0x0007FFFCu);
 		case R_PERIPH: return (rng.chance(70) ? 0x0C100000u : 0x0D000000u) | (u & 0x000FFFFC);
 		default: return rng.chance(50) ? (0x0E000000u | (u & 0x01FFFFFC)) : (0x10000000u | (u & 0xEFFFFFFC));
 		}
@@ -404,19 +412,17 @@ struct Bench {
 	// line fills up a buffer as a cache makes them, with writes in between
 	// that may be to the line read ahead (directly or through a mirror)
 	void walk() {
-		bool oc_ram = OC_BYTES > 65536 && rng.chance(30);
-		uint32_t base = oc_ram ? (0x0C000000u | (rng.u32() & (OC_BYTES - 16))) : (0x0A000000u | (rng.u32() & 0xFFF0));
+		bool oc_ram = rng.chance(30);
+		uint32_t base = oc_ram ? (0x0C010000u | (rng.u32() & 0x7FFF0)) : (0x0A000000u | (rng.u32() & 0xFFF0));
 		// often up to a row's end
 		if (rng.chance(30)) base = (base & ~0x3F0u) | 0x3C0u;
 		for (int i = 0, n = rng.range(2, 7); i < n; i++) {
 			uint32_t a = base + 16 * i;
-			if (oc_ram) a = 0x0C000000u | (a & (OC_BYTES - 1));
-			uint32_t mirror = oc_ram ? (rng.u32() & 0xF0000 & ~(OC_BYTES - 1)) : (rng.chance(50) ? 0x01000000u : 0);
+			uint32_t mirror = !oc_ram && rng.chance(50) ? 0x01000000u : 0;
 			run(burst(false, (a + 4 * rng.range(0, 3)) | (rng.chance(20) ? mirror : 0), 4, 1, "walk fill"));
 			if (rng.chance(50)) for (int g = 0, k = rng.range(1, 24); g < k; g++) tick();
 			int w = rng.range(0, 99);
 			uint32_t t2 = (rng.chance(70) ? a + 16 : a + 16 * rng.range(-2, 3)) | (rng.chance(40) ? mirror : 0);
-			if (oc_ram) t2 = 0x0C000000u | (t2 & 0xFFFFF);
 			if (w < 15) { uint32_t x = t2 + 4 * rng.range(0, 3); uint8_t sel = rand_sel(x); run(single(true, x, sel, rng.u32(), "walk write")); }
 			else if (w < 22) run(burst(true, t2 & ~0xFu, 4, 0, "walk write-back"));
 			else if (w < 30) random_txn();
@@ -454,26 +460,27 @@ void read_ahead(Bench &b) {
 	bool disturbed = false;      // a refresh cut a pair short: the fills after it are not as written here
 	auto fill = [&](uint32_t a, int ahead, const char *what) {
 		bool held = b.ra_live && b.ra_blk == Bench::module_blk(a);
-		bool cut = b.ra_refreshed();
+		const uint64_t pair_clock = b.ra_cyc;
+		bool cut = b.ra_refreshed(pair_clock);
 		b.run(b.burst(false, a, 4, 1, what));
 		if (b.last_ahead) {
 			used++;
 			// (with no word of its pair still to come)
 			if (ahead == 1) CHECK_EQ(b.first_lat, AHEAD, "first beat from the read-ahead line");
 		} else if (held) {
-			// only a refresh while its pair was read may have taken the line away
+			// On a back-to-back fill the refresh can start during b.run().
+			cut = cut || b.ra_refreshed(pair_clock);
 			if (!cut) sim::fail("%s at %08x: not answered from the read-ahead line (%llu clocks)", what, a, (unsigned long long)b.first_lat);
 			else { lost++; disturbed = true; }
 		}
 		if (ahead >= 0 && !disturbed) CHECK(b.last_ahead == bool(ahead), "%s at %08x: first beat after %llu clocks", what, a, (unsigned long long)b.first_lat);
 	};
 	auto quiet = [&]() { for (int i = 0; i < 40; i++) b.tick(); };
-	std::vector<uint32_t> bases = {0x0A012340u, 0x0A7FF000u, 0x0B0A0800u};
-	if (OC_BYTES > 65536) { bases.push_back(0x0C001200u); bases.push_back(0x0C0C8400u); }
+	const std::vector<uint32_t> bases = {0x0A012340u, 0x0A7FF000u, 0x0B0A0800u, 0x0C001200u, 0x0C0C8400u};
 	for (uint32_t B : bases) {
 		disturbed = false;
 		bool oc = (B >> 24) == 0x0C;
-		uint32_t mirror = oc ? (B ^ 0x00040000u) & (0x0C000000u | 0xFFFFF) : B ^ 0x01000000u;
+		uint32_t mirror = oc ? B : B ^ 0x01000000u;
 		for (int i = 0; i < 12; i++) b.run(b.burst(true, B + 16 * i, 4, 0, "read-ahead set-up"));
 		// a walk: every second fill comes from the line read ahead
 		quiet();
@@ -942,7 +949,6 @@ int main(int argc, char **argv) {
 	for (int i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "--seed") && i + 1 < argc) seed = (uint32_t)strtoul(argv[++i], nullptr, 0);
 		else if (!strcmp(argv[i], "--txns") && i + 1 < argc) txns = atoi(argv[++i]);
-		else if (!strcmp(argv[i], "--onchip") && i + 1 < argc) OC_BYTES = (uint32_t)strtoul(argv[++i], nullptr, 0);
 	}
 	Bench b(seed);
 	for (int i = 0; i < 4; i++) b.tick();
@@ -960,22 +966,41 @@ int main(int argc, char **argv) {
 	b.run(b.single(false, 0x04000000u, 0x3, 0, "CS2 manufacturer"));
 	b.run(b.single(false, 0x04000002u, 0xC, 0, "CS2 device"));
 
-	// fill the on-chip RAM and EMIF block with write-back bursts so that every
-	// byte is known
+	// Verify safe read-fill classification and initialize EMIF registers.
 	for (uint32_t base : {0x00000000u, 0x02000000u, 0x04000000u, 0x08000000u,
-							 0x0A000000u, 0x0C000000u, 0x0C100000u, 0x10000000u})
+							 0x0A000000u, ASIC_ROM, 0x0C004000u, 0x0C100000u, 0x10000000u})
 		for (uint32_t off = 0; off < 16; off += 4)
 			b.run(b.burst(false, base + off, 4, 1, "first-ACK target class"));
-	for (uint32_t a = 0; a < OC_BYTES; a += 16) b.run(b.burst(true, 0x0C000000u + a, 4, 0, "on-chip RAM fill"));
 	for (uint32_t a = 0; a < EMIF_BYTES; a += 16) b.run(b.burst(true, 0x08000000u + a, 4, 0, "EMIF fill"));
+
+	// Reproduce the QD upload at the same low offset as the ASIC ROM entry.
+	b.run(b.single(true, 0x0C0303DCu, 0x3, 0x00008E56u, "DSP upload low halfword"));
+	b.run(b.single(true, 0x0C0303DCu, 0xC, 0x18760000u, "DSP upload high halfword"));
+	b.run(b.single(false, 0x0C0303DCu, 0xF, 0, "DSP upload combines both halfwords"));
+	const uint32_t ram_words[][2] = {
+		{0x0C004748u, 0x12345678u},
+		{0x0C00FF00u, 0x89ABCDEFu}, {0x0C03FF00u, 0x76543210u},
+		{0x0C06FF00u, 0x11223344u}, {0x0A06FF00u, 0xA5A5A5A5u},
+	};
+	for (const auto &word : ram_words)
+		b.run(b.single(true, word[0], 0xF, word[1], "write separate RAM windows"));
+	b.run(b.single(false, ASIC_ROM + 0x3DC, 0xC, 0, "ASIC Thumb entry survives the DSP upload"));
+	b.run(b.single(true, ASIC_ROM + 0x3DC, 0xC, 0, "ASIC ROM rejects a write"));
+	b.run(b.burst(false, ASIC_ROM + 0x3DC, 4, 1, "ASIC ROM cache line after rejected write"));
+	b.run(b.burst(false, ASIC_ROM + 0xFF8, 4, 0, "linear read crosses from ASIC ROM to SDRAM"));
+	for (const auto &word : ram_words)
+		b.run(b.single(false, word[0], 0xF, 0, "read separate RAM windows"));
+	CHECK_EQ(b.chip.lin(sdram_physical_halfword(ONCHIP_BACKING + 0x03FF00)), 0x3210, "DSP upload is in SDRAM");
+	CHECK_EQ(b.chip.lin(sdram_physical_halfword(ONCHIP_BACKING + 0x06FF00)), 0x3344, "auxiliary upload is in SDRAM");
+	CHECK_EQ(b.chip.lin(sdram_physical_halfword(ONCHIP_BACKING + 0x004748)), 0x5678, "communication RAM is in SDRAM");
 
 	// latencies on a quiet bus
 	b.lat_prefix = "quiet ";
 	auto quiet = [&](Txn x) { for (int i = 0; i < 40; i++) b.tick(); b.run(x); };
 	quiet(b.single(false, 0x0A001000, 0xF, 0, "single read"));
 	quiet(b.burst(false, 0x0A002000, 4, 0, "line fill"));
-	quiet(b.single(false, 0x0C000100, 0xF, 0, "single read"));
-	quiet(b.burst(false, 0x0C000200, 4, 0, "line fill"));
+	quiet(b.single(false, 0x0C004100, 0xF, 0, "single read"));
+	quiet(b.burst(false, 0x0C004200, 4, 0, "line fill"));
 	quiet(b.burst(false, 0x00010000, 4, 0, "line fill"));
 	quiet(b.burst(false, 0x00010010, 4, 0, "line fill"));
 	b.lat_prefix = "";

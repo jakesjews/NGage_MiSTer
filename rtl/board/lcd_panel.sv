@@ -86,6 +86,11 @@ module lcd_panel #(
 ) (
 	input  logic        clk,
 	input  logic        reset,
+	input  logic        nem4,
+	input  logic        nem4_word_valid,
+	input  logic        nem4_word_header,
+	input  logic [31:0] nem4_word_data,
+	output logic        nem4_word_ready,
 
 	// 8080 bus from the ASIC
 	input  logic        csx,
@@ -504,12 +509,27 @@ module lcd_panel #(
 	logic        s2_show, s3_show, s2_ptl_out, s3_ptl_out;
 	logic [15:0] ram_q;
 	logic [15:0] ram_raddr;
+	logic        nem4_pixel_valid, nem4_on;
+	logic [15:0] nem4_pixel_addr, nem4_pixel_rgb;
+
+	ngage_nem4_lcd native_lcd (
+		.clk(clk),
+		.reset(reset || !nem4),
+		.word_valid(nem4_word_valid),
+		.word_header(nem4_word_header),
+		.word_data(nem4_word_data),
+		.word_ready(nem4_word_ready),
+		.pixel_valid(nem4_pixel_valid),
+		.pixel_addr(nem4_pixel_addr),
+		.pixel_rgb(nem4_pixel_rgb),
+		.display_on(nem4_on)
+	);
 
 	sdp_ram #(.AW(16), .DW(16), .DEPTH(W * H)) fb (
 		.clk  (clk),
-		.we   (w_v),
-		.waddr(fb_addr(w_row, w_col)),
-		.wdata(w_rgb),
+		.we   (nem4 ? nem4_pixel_valid : w_v),
+		.waddr(nem4 ? nem4_pixel_addr : fb_addr(w_row, w_col)),
+		.wdata(nem4 ? nem4_pixel_rgb : w_rgb),
 		.raddr(ram_raddr),
 		.rdata(ram_q)
 	);
@@ -517,8 +537,8 @@ module lcd_panel #(
 	// S1: viewer to native panel coordinates
 	always_ff @(posedge clk) begin
 		s1_v <= scan_en;
-		s1_x <= PANEL_ROT180 ? 8'(W - 1) - scan_x : scan_x;
-		s1_y <= PANEL_ROT180 ? 8'(H - 1) - scan_y : scan_y;
+		s1_x <= PANEL_ROT180 && !nem4 ? 8'(W - 1) - scan_x : scan_x;
+		s1_y <= PANEL_ROT180 && !nem4 ? 8'(H - 1) - scan_y : scan_y;
 	end
 
 	// S2: display line to memory line (vertical scroll), partial area
@@ -528,7 +548,7 @@ module lcd_panel #(
 		line = {8'd0, s1_y};
 		mrow = line;
 		sum  = ssa + (line - tfa);
-		if (scroll && line >= tfa && line < tfa + vsa)
+		if (!nem4 && scroll && line >= tfa && line < tfa + vsa)
 			mrow = (sum >= tfa + vsa) ? sum - vsa : sum;
 		prow   = ml ? 16'(H - 1) - mrow : mrow;
 		in_ptl = (sr <= er) ? (prow >= sr && prow <= er) : (prow >= sr || prow <= er);
@@ -538,8 +558,8 @@ module lcd_panel #(
 		s2_v       <= s1_v;
 		s2_col     <= s1_x;
 		s2_row     <= mrow[7:0];
-		s2_show    <= ~sleep & disp & (mrow < 16'(H));
-		s2_ptl_out <= ptl & ~in_ptl;
+		s2_show    <= (nem4 ? nem4_on : ~sleep & disp) && mrow < 16'(H);
+		s2_ptl_out <= !nem4 && ptl && !in_ptl;
 	end
 
 	// S2 issues the read; RAMRD fetches take the port when the scan does not
@@ -572,9 +592,9 @@ module lcd_panel #(
 	logic [15:0] px;
 	always_comb begin
 		px = ram_q;
-		if (bgr) px = {ram_q[4:0], ram_q[10:5], ram_q[15:11]};
-		if (idle) px = {{5{px[15]}}, {6{px[10]}}, {5{px[4]}}};
-		if (inv) px = ~px;
+		if (bgr && !nem4) px = {ram_q[4:0], ram_q[10:5], ram_q[15:11]};
+		if (idle && !nem4) px = {{5{px[15]}}, {6{px[10]}}, {5{px[4]}}};
+		if (inv && !nem4) px = ~px;
 		if (s3_ptl_out) px = PARTIAL_RGB;
 		if (!s3_show) px = BLANK_RGB;
 	end
@@ -583,7 +603,7 @@ module lcd_panel #(
 		if (s3_v) scan_rgb <= px;
 	end
 
-	assign display_on = disp & ~sleep;
+	assign display_on = nem4 ? nem4_on : disp & ~sleep;
 
 	// ------------------------------------------------------------------
 	// Tearing effect

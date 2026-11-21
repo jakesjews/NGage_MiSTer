@@ -252,6 +252,7 @@ struct Bench {
 
 	Bench(uint32_t seed) : t(new Vlcd_panel), rng(seed) {
 		t->clk = 0; t->reset = 1; t->csx = 1; t->dcx = 1; t->wrx = 1; t->rdx = 1; t->resx = 1;
+		t->nem4 = 0; t->nem4_word_valid = 0; t->nem4_word_header = 0; t->nem4_word_data = 0;
 		t->d_i = 0; t->te_ext_sel = 0; t->te_ext = 0; t->scan_en = 0; t->scan_x = 0; t->scan_y = 0;
 		t->eval();
 		for (int i = 0; i < 4; i++) tick();

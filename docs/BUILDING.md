@@ -25,10 +25,8 @@ and is never in the repository.
   pipeline's parts and two proofs.
 - `make cpu-gen-check`: `rtl/cpu/arm925t_gen.v`, the netlist Quartus compiles,
   matches its sources (sv2v 0.0.13). `make cpu-gen` regenerates it.
-- `make patchrom-check`: the firmware patch ROM (`rtl/mister/phoenix_patch.hex`)
-  matches the patch list, `firmware-patches/rom-patches.txt`.
 - `make standin-check`: the binaries in `firmware-patches/bin` match
-  `firmware-patches/nos-stub` (arm-none-eabi-gcc).
+  `firmware-patches/nos-stub` (arm-none-eabi-gcc) for the historical control.
 - `make scramble-check`: the flash scrambler's three copies agree
   (`tools/nos_scramble.py`, `model/hw/ngage_scramble.h`; the core's copy in
   `rtl/mem/ddram_flash.sv` is checked against the header by the `ddrflash`
@@ -81,61 +79,35 @@ screenshot of it. Every build without the macro is the plain core.
 ## With your own firmware
 
 - `tools/mkimage.py phoenix RH2941.0C1 RH2941.021 -o build/coreboot` makes the
-  flat flash images `cs0.bin` and `cs1.bin` that the firmware bench and the
-  reference model read. They are flash as the chips store it: CS0
-  `0xA000`-`0x2ACFFF` is scrambled, the patches there included, and the core
-  decodes it on reads. Images made before 2026-11-12 held the patches there
-  as plain bytes and do not run on this core: make them again. `--plain`
-  writes CS0 decoded, for a disassembler.
-- `make -C sim phoenix-real PHOENIX_REF=build/coreboot` runs the core's
-  loader over the two firmware files, in both orders, and compares the flash
-  it writes with those images.
-- The core recognises the firmware file (4.10's `RH2941.0C1`, by a word of
-  its own: its build time at CS0 0x6E004) and takes any of 4.10's language
-  packs with it: the patches all lie in the firmware file. `RH2941.021` (the
-  Romania variant, English first) is the pack the project runs; `RH2941.002`
-  (Euro 1) and `RH2941.067` (Australia and New Zealand, from the APAC
-  package) boot in the model as well. `mkimage.py` wants `--force` for a
-  pack other than `.021`. Cores up to NGage_20261113 of 2026-11-12 took
-  `.021` only: they knew the pair by the ROM header's time stamp at CS0
-  0x80, which each pack writes with its own value.
-- For another pack, or a pair that must not load, run the loader bench by
-  hand: `sim/build/phoenix/Vphoenix_load MCU PACK cs0.bin cs1.bin` (the
-  images from `mkimage.py phoenix MCU PACK --force`), or
-  `Vphoenix_load MCU PACK refused`.
+  flat flash images `cs0.bin` and `cs1.bin` for the integration RBF,
+  firmware bench, and reference model. They are flash as the chips store it: CS0
+  `0xA000`-`0x2ACFFF` is scrambled and the core decodes it on reads. The
+  output preserves the original NOS and integrity table. `--plain` writes
+  CS0 decoded for a disassembler. To reproduce the historical patched
+  control, pass `--patches firmware-patches/rom-patches.txt` explicitly.
+- Use the reference pair for bring-up. `mkimage.py` requires `--force` to
+  try language packs other than `RH2941.021`.
 - `make -C sim coreboot` boots the firmware on the whole core in Verilator.
   It runs for hours.
 - `model/build.sh` builds the reference model: QEMU 11.1.2 with the `ngage-qd`
   machine in `model/hw` (QEMU's build requirements and arm-none-eabi-gcc).
-  `model/run.sh` runs it; its header lists the options.
+  `model/run.sh` uses the supplied flash images directly. Set
+  `NGAGE_PATCHES=standin` on a stock image for the patched comparison.
 - `tools/mkcard.py` makes card images, for the core (`.mmc`) and for the model.
 
 ## On the MiSTer
 
-The core takes its files from `/media/fat/games/NGage/` as the
-[README](../README.md) describes: MiSTer sends `boot0.rom` and `boot1.rom`
-and mounts `boot0.vhd` when the core starts. The firmware has to arrive before
-the language pack, which is why it is `boot0.rom` and not `boot.rom` (MiSTer
-sends that one last).
-
-A launcher can add a card to those files:
+For an integration build, select the two host-prepared flash images in the
+OSD. For persistent C:, mount its VHD after the CS1 image. A CS1 upload detaches
+any previous C: mount. The raw flash indexes are 3 for CS0 and 4 for CS1.
+The image slots are 0 for C: and 1 for the card. A launcher can supply all
+four files in this order:
 
 ```xml
 <mistergamedescription>
     <rbf>_Console/NGage</rbf>
-    <file delay="1" type="s" index="1" path="sonicn.mmc"/>
-</mistergamedescription>
-```
-
-Or name every file itself, with no boot files in the folder. The file indexes
-are 1 for the firmware and 2 for the language pack, and the image slots are 0
-for C: and 1 for the card (the other way round before 2026-11-10):
-
-```xml
-<mistergamedescription>
-    <rbf>_Console/NGage</rbf>
-    <file delay="2" type="f" index="1" path="RH2941.0C1"/>
-    <file delay="1" type="f" index="2" path="RH2941.021"/>
+    <file delay="2" type="f" index="3" path="cs0.bin"/>
+    <file delay="1" type="f" index="4" path="cs1.bin"/>
     <file delay="1" type="s" index="0" path="my-c-drive.vhd"/>
     <file delay="1" type="s" index="1" path="sonicn.mmc"/>
 </mistergamedescription>
@@ -149,8 +121,8 @@ for C: and 1 for the card (the other way round before 2026-11-10):
 packages, read in pieces: the package for 4.10 is picked out of it), that
 package by itself (a Microsoft cabinet that holds an InstallShield cabinet),
 or the two flash files, and hands out the firmware file (held to its
-SHA-256) and a language pack the core's loader takes (checked the way the
-loader checks it, and its records' checksums).
+SHA-256) and a language pack for 4.10, with record checksums checked.
+Use the extracted pair as input to `tools/mkimage.py` for an integration build.
 
 - Of the eleven packages in the zip named for 4.10, two have both files:
   `RH-29_dp_emea_v_3_0_mcusw4_10-Oct19-151031.exe` (56 packs; the page takes

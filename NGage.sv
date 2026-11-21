@@ -70,11 +70,16 @@ reg         crop_ok;
 localparam CONF_STR = {
 	"NGage;;",
 	"-;",
-	"F1,0C1ROM,Load firmware (RH2941.0C1);",
-	"F2,021ROM,Load language pack (RH2941.021);",
-	"F3,BIN,Load flash CS0 image;",
-	"F4,BIN,Load flash CS1 image;",
-	"S0,BINVHD,Mount C: save;",
+	"P1,Firmware;",
+	"P1F3,ROM,Load boot0.rom;",
+	"P1F4,ROM,Load boot1.rom;",
+	"P1S0,VHD,Mount c.vhd;",
+	"P1S2,VHD,Mount pmm.vhd;",
+	// Stock .mgl finds only entries on the main page during launch.
+	"H1F3,ROM,Load boot0.rom;",
+	"H1F4,ROM,Load boot1.rom;",
+	"H1S0,VHD,Mount c.vhd;",
+	"H1S2,VHD,Mount pmm.vhd;",
 	"S1,MMCIMGBINVHD,Mount MMC card;",
 	"-;",
 	"O[2:1],Rotate,Off,Clockwise,Anticlockwise;",
@@ -88,12 +93,12 @@ localparam CONF_STR = {
 	"O[8],Debug overlay,Off,On;",
 `endif
 	"-;",
-	"T[7],Save C: now;",
+	"T[7],Save C: and PMM now;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
 	"J,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power,0,1,2,3,4,6,8,9;",
 	"jn,A,B,X,L,R,Start,Select,,,,,,,Y;",
-	"I,C: save mounted,C: save file must be 4 or 8 MB,C: read-only: no saves,C: saved,Booting the phone - about a minute...,Phone kernel is up,Firmware file damaged,Firmware 4.10 loaded,Firmware not recognised: needs RH-29 4.10,Firmware reloaded: load both files;",
+	"I,C: save mounted,C: save file must be 4 or 8 MB,C: read-only: no saves,C: saved,Booting the phone...,Phone kernel is up,PMM save mounted,PMM save must be 64 KiB,PMM read-only,PMM saved,Invalid firmware ROM sizes;",
 	"V,v",`BUILD_DATE
 };
 
@@ -122,37 +127,25 @@ wire         info_req;
 wire   [7:0] info;
 
 wire         ioctl_download;
-// MiSTer sends the game folder's boot0.rom and boot1.rom when the core starts,
-// in that order, with no menu index and the file's number in bits 7:6 (0x00,
-// 0x40): they are the firmware and its language pack, as F1 and F2 are. A
-// file picked in the OSD or named by a launcher keeps its menu index in bits
-// 5:0 (bits 7:6 are then its extension). boot2.rom and boot3.rom (0x80, 0xC0)
-// are not used. boot.rom also arrives as index 0, after boot1.rom: it is the
-// firmware under the other name, and the loader takes the two in either
-// order (rtl/mister/phoenix_load.sv). With both boot0.rom and boot.rom in
-// the folder the second starts a new pair that no language pack completes.
-wire  [15:0] ioctl_index_hps;
-wire  [15:0] ioctl_index = ioctl_index_hps[5:0] != 6'd0 ? ioctl_index_hps :
-                           ioctl_index_hps[7:6] == 2'd0 ? 16'd1 :
-                           ioctl_index_hps[7:6] == 2'd1 ? 16'd2 : ioctl_index_hps;
+wire  [15:0] ioctl_index;
 wire         ioctl_wr;
 wire  [26:0] ioctl_addr;
 wire  [15:0] ioctl_dout;
 wire         ioctl_wait;
 
-wire   [1:0] img_mounted;
+wire   [2:0] img_mounted;
 wire         img_readonly;
 wire  [63:0] img_size;
-wire  [31:0] sd_lba[2];
-wire   [5:0] sd_blk_cnt[2];
-wire   [1:0] sd_rd, sd_wr, sd_ack;
+wire  [31:0] sd_lba[3];
+wire   [5:0] sd_blk_cnt[3];
+wire   [2:0] sd_rd, sd_wr, sd_ack;
 wire  [12:0] sd_buff_addr;
 wire  [15:0] sd_buff_dout;
-wire  [15:0] sd_buff_din[2];
+wire  [15:0] sd_buff_din[3];
 wire         sd_buff_wr;
 
-// SD slot 0: the C: save file (boot0.vhd in the game folder); slot 1: the MMC card
-hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
+// C: and MMC retain slots 0 and 1. PMM uses slot 2.
+hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(3)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -162,7 +155,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 	.forced_scandoubler(forced_scandoubler),
 	.buttons(buttons),
 	.status(status),
-	.status_menumask({15'd0, crop_ok}),
+	.status_menumask({14'd0, images_in, crop_ok}),
 	.status_in(128'd0),
 	.status_set(1'b0),
 	.info_req(info_req),
@@ -191,7 +184,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 	.joystick_1(joystick_1),
 
 	.ioctl_download(ioctl_download),
-	.ioctl_index(ioctl_index_hps),
+	.ioctl_index(ioctl_index),
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
@@ -247,85 +240,67 @@ wire sys_reset = por[1];
 // (public: the top bench reads it, and Verilator 5.054 otherwise folds it
 // into the save module's output)
 wire fs_loading /* verilator public_flat_rd */;
-wire ph_busy /* verilator public_flat_rd */;
+wire pm_loading /* verilator public_flat_rd */;
+wire flat_download = ioctl_download && (ioctl_index[5:0] == 6'd3 || ioctl_index[5:0] == 6'd4);
 // The slow sources (the framework's reset, the OSD's reset bit and button,
-// a download, the two loaders) are registered once; their OR fans out to
+// a flash download and a save restore) are registered once; their OR fans out to
 // the whole memory side from hps_io in one clock.
 reg  reset_slow = 1'b1;
-always @(posedge clk_sys) reset_slow <= sys_reset | status[0] | buttons[1] | ioctl_download | fs_loading | ph_busy;
+always @(posedge clk_sys) reset_slow <= sys_reset | status[0] | buttons[1] | flat_download |
+	fs_loading | pm_loading | img_mounted[0] | img_mounted[2];
 wire reset = reset_slow;
 
 ///////////////////////   MEMORY   ///////////////////////////////
 
 // DDR3 loader clients retain ownership until their command is accepted.
-// Phoenix also reads the version signature; it is the only loader reader.
-wire        ld_busy, ld_we, ld_rd, ld_valid, dl_we, fs_we, tr_we, kt_we, ph_we, ph_rd;
-wire  [1:0] dl_loaded;                 // development flat CS0 / CS1 images
-wire  [7:0] ld_be, dl_be, fs_be, tr_be, kt_be, ph_be;
-wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr, kt_addr, ph_addr;
-wire [63:0] ld_din, dl_din, fs_din, tr_din, kt_din, ph_din, ld_data;
-wire        dl_wait, ph_wait;
-wire        ph_ready /* verilator public_flat_rd */;
-wire  [2:0] ph_note;
-wire  [1:0] ph_have;
-wire  [4:0] ph_state;
-wire [15:0] ph_errors;
-reg   [2:0] ld_own = 3'd0;             // flat, save, trace, kernel text, Phoenix
+wire        ld_busy, ld_we, dl_we, fs_we, tr_we, kt_we, pm_we;
+wire  [1:0] dl_loaded;
+wire        nem4 /* verilator public_flat_rd */;
+wire        profile_match;
+wire  [7:0] ld_be, dl_be, fs_be, tr_be, kt_be, pm_be;
+wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr, kt_addr, pm_addr;
+wire [63:0] ld_din, dl_din, fs_din, tr_din, kt_din, pm_din;
+localparam logic [2:0] LD_FLASH = 0, LD_C = 1, LD_TRACE = 2, LD_TEXT = 3, LD_PMM = 4;
+reg   [2:0] ld_own = LD_FLASH;
+wire flash_size_error;
 localparam DBG_TRACE = 0;              // debug rings off for a release build
 
-wire ld_own_cmd = ld_we || ld_rd;
 always @(posedge clk_sys) begin
-	if (!ld_own_cmd) begin
-		if (ph_we || ph_rd) ld_own <= 3'd4;
-		else if (dl_we)     ld_own <= 3'd0;
-		else if (fs_we)     ld_own <= 3'd1;
-		else if (tr_we)     ld_own <= 3'd2;
-		else if (kt_we)     ld_own <= 3'd3;
+	if (!ld_we) begin
+		if (dl_we)      ld_own <= LD_FLASH;
+		else if (fs_we) ld_own <= LD_C;
+		else if (pm_we) ld_own <= LD_PMM;
+		else if (tr_we) ld_own <= LD_TRACE;
+		else if (kt_we) ld_own <= LD_TEXT;
 	end
 end
-assign ld_we   = (ld_own == 3'd4) ? ph_we   : (ld_own == 3'd1) ? fs_we   : (ld_own == 3'd2) ? tr_we   : (ld_own == 3'd3) ? kt_we   : dl_we;
-assign ld_rd   = ld_own == 3'd4 && ph_rd;
-assign ld_addr = (ld_own == 3'd4) ? ph_addr : (ld_own == 3'd1) ? fs_addr : (ld_own == 3'd2) ? tr_addr : (ld_own == 3'd3) ? kt_addr : dl_addr;
-assign ld_din  = (ld_own == 3'd4) ? ph_din  : (ld_own == 3'd1) ? fs_din  : (ld_own == 3'd2) ? tr_din  : (ld_own == 3'd3) ? kt_din  : dl_din;
-assign ld_be   = (ld_own == 3'd4) ? ph_be   : (ld_own == 3'd1) ? fs_be   : (ld_own == 3'd2) ? tr_be   : (ld_own == 3'd3) ? kt_be   : dl_be;
-assign ioctl_wait = dl_wait || ph_wait;
-
-phoenix_load phoenix_load (
-	.clk(clk_sys), .reset(sys_reset),
-	.ioctl_download(ioctl_download), .ioctl_index(ioctl_index[5:0]),
-	.ioctl_wr(ioctl_wr), .ioctl_dout(ioctl_dout), .ioctl_wait(ph_wait),
-	.ld_we(ph_we), .ld_rd(ph_rd), .ld_addr(ph_addr), .ld_din(ph_din), .ld_be(ph_be),
-	.ld_busy(ld_busy || ld_own != 3'd4), .ld_valid(ld_valid), .ld_data(ld_data),
-	.ready(ph_ready), .busy(ph_busy), .note(ph_note), .errors(ph_errors), .debug_have(ph_have), .debug_state(ph_state)
-);
-
-// A flat CS1 download can supply C: without a save mount. Flat CS0 selects
-// the development route, which requires both flat chips (S1 loads only C:).
-reg use_phoenix = 1'b1;
-always @(posedge clk_sys) begin
-	if (ioctl_download && (ioctl_index[5:0] == 6'd1 || ioctl_index[5:0] == 6'd2)) use_phoenix <= 1'b1;
-	if (ioctl_download && ioctl_index[5:0] == 6'd3) use_phoenix <= 1'b0;
-	if (sys_reset) use_phoenix <= 1'b1;
-end
+assign ld_we   = (ld_own == LD_C) ? fs_we : (ld_own == LD_PMM) ? pm_we : (ld_own == LD_TRACE) ? tr_we   : (ld_own == LD_TEXT) ? kt_we   : dl_we;
+assign ld_addr = (ld_own == LD_C) ? fs_addr : (ld_own == LD_PMM) ? pm_addr : (ld_own == LD_TRACE) ? tr_addr : (ld_own == LD_TEXT) ? kt_addr : dl_addr;
+assign ld_din  = (ld_own == LD_C) ? fs_din : (ld_own == LD_PMM) ? pm_din : (ld_own == LD_TRACE) ? tr_din  : (ld_own == LD_TEXT) ? kt_din  : dl_din;
+assign ld_be   = (ld_own == LD_C) ? fs_be : (ld_own == LD_PMM) ? pm_be : (ld_own == LD_TRACE) ? tr_be   : (ld_own == LD_TEXT) ? kt_be   : dl_be;
 
 ddram_loader ddram_loader
 (
 	.clk(clk_sys),
 	.reset(sys_reset),
-	.ioctl_download(ioctl_download),
+	.ioctl_download(flat_download),
 	.ioctl_index(ioctl_index),
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
-	.ioctl_wait(dl_wait),
-	.ddram_busy(ld_busy || ld_own != 3'd0),
+	.ioctl_wait(ioctl_wait),
+	.preserve_c(fs_loading || fs_present),
+	.size_error(flash_size_error),
+	.ddram_busy(ld_busy || ld_own != LD_FLASH),
 	.ddram_burstcnt(),           // single writes
 	.ddram_addr(dl_addr),
 	.ddram_din(dl_din),
 	.ddram_be(dl_be),
 	.ddram_we(dl_we),
 	.ddram_rd(),
-	.loaded(dl_loaded)           // for the CPU: which images are in
+	.loaded(dl_loaded),
+	.profile_match(profile_match),
+	.nem4(nem4)
 );
 
 assign DDRAM_CLK = clk_sys;
@@ -352,6 +327,11 @@ wire        dma_cyc, dma_stb, dma_we, dma_ack, dma_err;
 wire [31:0] dma_adr, dma_dat_w, dma_dat_r;
 wire  [3:0] dma_sel;
 
+wire        mdi_req, mdi_we, mdi_ack, mdi_err;
+wire  [7:0] mdi_word;
+wire [31:0] mdi_wdata, mdi_rdata;
+wire  [3:0] mdi_be;
+
 wire        dbg_dma_owner;
 wire        sdram_ready;
 wire [15:0] sdram_dq_o, sdram_dq_oe;
@@ -370,6 +350,8 @@ ngage_mem ngage_mem
 	.sdram_init(sys_reset),
 	.sdram_ready(sdram_ready),
 	.flash_rst_n(1'b1),
+	.nem4(nem4),
+	.pmm_overlay(pm_present),
 
 	.wb_cyc(wb_cyc),
 	.wb_stb(wb_stb),
@@ -395,6 +377,9 @@ ngage_mem ngage_mem
 	.dma_err(dma_err),
 	.dma_dat_o(dma_dat_r),
 
+	.mdi_req(mdi_req), .mdi_we(mdi_we), .mdi_word(mdi_word), .mdi_wdata(mdi_wdata),
+	.mdi_be(mdi_be), .mdi_ack(mdi_ack), .mdi_err(mdi_err), .mdi_rdata(mdi_rdata),
+
 	.p_sel(p_sel),
 	.p_we(p_we),
 	.p_addr(p_addr),
@@ -406,7 +391,7 @@ ngage_mem ngage_mem
 	.flash_busy(),
 	.unmapped(),
 
-	.ld_rd(ld_rd), .ld_valid(ld_valid), .ld_data(ld_data),
+	.ld_rd(1'b0), .ld_valid(), .ld_data(),
 	.ld_we(ld_we),
 	.ld_addr(ld_addr),
 	.ld_din(ld_din),
@@ -415,8 +400,11 @@ ngage_mem ngage_mem
 
 	.save_mark(save_mark),
 	.save_mark_blk(save_mark_blk),
+	.pmm_mark(pmm_mark),
+	.pmm_mark_blk(pmm_mark_blk),
 	.c_blank(c_blank),
 	.save_rd(save_rd),
+	.save_pmm(save_pmm),
 	.save_blk(save_blk),
 	.save_taken(save_taken),
 	.save_valid(save_valid),
@@ -453,57 +441,50 @@ generate
 	end
 endgenerate
 
-///////////////////////   CS1 SAVE   ///////////////////////////
+///////////////////////   FIRMWARE SAVES   ///////////////////////////
 
-// SD slot 0 loads only C: at CS1 + 4 MB; changed C: blocks go back to
-// the file. Legacy 8 MB saves use only their upper half.
-wire        save_mark, save_rd, save_taken, save_valid;
+wire        save_mark, save_rd, save_taken, save_valid, pmm_mark;
 wire [13:0] save_mark_blk, save_blk;
+wire [6:0]  pmm_mark_blk, pm_blk;
+wire [12:0] fs_blk;
 wire [63:0] save_data;
-wire        fs_active, fs_saved;
-wire        fs_present;                // the save file is mounted and in DDR3
-wire  [1:0] fs_note;
-reg   [1:0] dl_cs1 = 2'b00;            // an ioctl load of CS1 starts: the file is detached
+wire        fs_active, fs_saved, fs_present, fs_bk_req;
+wire        pm_active, pm_saved, pm_present, pm_bk_req;
+wire  [1:0] fs_note, pm_note;
 
-always @(posedge clk_sys) dl_cs1 <= {dl_cs1[0], ioctl_download && ioctl_index[5:0] == 6'd4};
+// The DDR read port accepts one block and returns the whole burst to its owner.
+reg save_owner_pmm = 1'b0;
+wire save_pmm = pm_bk_req && (!fs_bk_req || !save_owner_pmm);
+assign save_rd = fs_bk_req || pm_bk_req;
+assign save_blk = save_pmm ? {7'd0, pm_blk} : {1'b1, fs_blk};
+always @(posedge clk_sys) begin
+	if (save_taken) save_owner_pmm <= save_pmm;
+	if (sys_reset) save_owner_pmm <= 1'b0;
+end
 
-flash_save flash_save
-(
-	.clk(clk_sys),
-	.reset(sys_reset),
-	.img_mounted(img_mounted[0]),
-	.img_readonly(img_readonly),
-	.img_size(img_size),
-	.sd_lba(sd_lba[0]),
-	.sd_blk_cnt(sd_blk_cnt[0]),
-	.sd_rd(sd_rd[0]),
-	.sd_wr(sd_wr[0]),
-	.sd_ack(sd_ack[0]),
-	.sd_buff_addr(sd_buff_addr),
-	.sd_buff_dout(sd_buff_dout),
-	.sd_buff_din(sd_buff_din[0]),
-	.sd_buff_wr(sd_buff_wr),
-	.ld_we(fs_we),
-	.ld_addr(fs_addr),
-	.ld_din(fs_din),
-	.ld_be(fs_be),
-	.ld_busy(ld_busy || ld_own != 3'd1),
-	.mark(save_mark),
-	.mark_blk(save_mark_blk),
-	.bk_req(save_rd),
-	.bk_blk(save_blk),
-	.bk_taken(save_taken),
-	.bk_valid(save_valid),
-	.bk_data(save_data),
-	.detach(dl_cs1 == 2'b01),
-	.save_now(status[7]),
-	.loading(fs_loading),
-	.saving_on(),
-	.unsaved(),
-	.present(fs_present),
-	.active(fs_active),
-	.note(fs_note),
-	.saved(fs_saved)
+flash_save flash_save (
+	.clk(clk_sys), .reset(sys_reset),
+	.img_mounted(img_mounted[0]), .img_readonly(img_readonly), .img_size(img_size),
+	.sd_lba(sd_lba[0]), .sd_blk_cnt(sd_blk_cnt[0]), .sd_rd(sd_rd[0]), .sd_wr(sd_wr[0]), .sd_ack(sd_ack[0]),
+	.sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din[0]), .sd_buff_wr(sd_buff_wr),
+	.ld_we(fs_we), .ld_addr(fs_addr), .ld_din(fs_din), .ld_be(fs_be), .ld_busy(ld_busy || ld_own != LD_C),
+	.mark(save_mark && save_mark_blk[13]), .mark_blk(save_mark_blk[12:0]),
+	.bk_req(fs_bk_req), .bk_blk(fs_blk), .bk_taken(save_taken && !save_pmm),
+	.bk_valid(save_valid && !save_owner_pmm), .bk_data(save_data),
+	.detach(1'b0), .save_now(status[7]), .loading(fs_loading),
+	.saving_on(), .unsaved(), .present(fs_present), .active(fs_active), .note(fs_note), .saved(fs_saved)
+);
+
+flash_save #(.BASE_ADDR(29'h0664_0000), .BLOCK_BITS(7), .LEGACY_FULL_IMAGE(0)) pmm_save (
+	.clk(clk_sys), .reset(sys_reset),
+	.img_mounted(img_mounted[2]), .img_readonly(img_readonly), .img_size(img_size),
+	.sd_lba(sd_lba[2]), .sd_blk_cnt(sd_blk_cnt[2]), .sd_rd(sd_rd[2]), .sd_wr(sd_wr[2]), .sd_ack(sd_ack[2]),
+	.sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din[2]), .sd_buff_wr(sd_buff_wr),
+	.ld_we(pm_we), .ld_addr(pm_addr), .ld_din(pm_din), .ld_be(pm_be), .ld_busy(ld_busy || ld_own != LD_PMM),
+	.mark(pmm_mark), .mark_blk(pmm_mark_blk), .bk_req(pm_bk_req), .bk_blk(pm_blk), .bk_taken(save_taken && save_pmm),
+	.bk_valid(save_valid && save_owner_pmm), .bk_data(save_data),
+	.detach(1'b0), .save_now(status[7]), .loading(pm_loading),
+	.saving_on(), .unsaved(), .present(pm_present), .active(pm_active), .note(pm_note), .saved(pm_saved)
 );
 
 sdram_clkout sdram_clkout
@@ -520,6 +501,8 @@ wire        cpu_irq, cpu_fiq;
 wire        upp_lcd_csx, upp_lcd_dcx, upp_lcd_wrx, upp_lcd_rdx, upp_lcd_resx, upp_lcd_d_oe;
 wire  [7:0] upp_lcd_d;
 wire  [7:0] panel_d;
+wire        nem4_lcd_valid, nem4_lcd_header, nem4_lcd_ready;
+wire [31:0] nem4_lcd_data;
 wire        mmc_clk, mmc_cmd_o, mmc_cmd_oe, mmc_dat_o, mmc_dat_oe;
 wire        card_cmd_o, card_cmd_oe, card_dat_o, card_dat_oe;
 wire  [4:0] upp_col_oe, upp_col_out, kp_col_in;
@@ -537,10 +520,36 @@ wire        bt_rd, bt_wr, bt_busy, bt_irq;
 wire  [4:0] bt_reg;
 wire [15:0] bt_wdata, bt_rdata;
 
+wire adsp_clock_ready, adsp_receive_enabled;
+wire adsp_tx_valid, adsp_tx_ready, adsp_rx_valid, adsp_rx_ready;
+wire [7:0] adsp_tx_data, adsp_rx_data;
+
+ngage_d550_boot audio_boot (
+	.clk(clk_sys),
+	.reset(mem_reset || !nem4),
+	.clock_ready(adsp_clock_ready),
+	.receive_enabled(adsp_receive_enabled),
+	.tx_valid(adsp_tx_valid),
+	.tx_ready(adsp_tx_ready),
+	.tx_data(adsp_tx_data),
+	.rx_valid(adsp_rx_valid),
+	.rx_ready(adsp_rx_ready),
+	.rx_data(adsp_rx_data)
+);
+
 upp_periph upp_periph
 (
 	.clk(clk_sys),
 	.reset(mem_reset),
+	.nem4(nem4),
+	.adsp_clock_ready(adsp_clock_ready),
+	.adsp_receive_enabled(adsp_receive_enabled),
+	.adsp_tx_valid(adsp_tx_valid),
+	.adsp_tx_ready(adsp_tx_ready),
+	.adsp_tx_data(adsp_tx_data),
+	.adsp_rx_valid(adsp_rx_valid),
+	.adsp_rx_ready(adsp_rx_ready),
+	.adsp_rx_data(adsp_rx_data),
 	.p_sel(p_sel),
 	.p_we(p_we),
 	.p_addr(p_addr),
@@ -557,6 +566,8 @@ upp_periph upp_periph
 	.dma_ack(dma_ack),
 	.dma_err(dma_err),
 	.dma_dat_i(dma_dat_r),
+	.mdi_req(mdi_req), .mdi_we(mdi_we), .mdi_word(mdi_word), .mdi_wdata(mdi_wdata),
+	.mdi_be(mdi_be), .mdi_ack(mdi_ack), .mdi_err(mdi_err), .mdi_rdata(mdi_rdata),
 	.irq(cpu_irq),
 	.dbg_src0(dbg_src0),
 	.dbg_en0_irq(dbg_en0_irq),
@@ -571,6 +582,10 @@ upp_periph upp_periph
 	.lcd_d_oe(upp_lcd_d_oe),
 	.lcd_d_i(panel_d),
 	.lcd_active(),
+	.nem4_lcd_valid(nem4_lcd_valid),
+	.nem4_lcd_header(nem4_lcd_header),
+	.nem4_lcd_data(nem4_lcd_data),
+	.nem4_lcd_ready(nem4_lcd_ready),
 	.mmc_clk(mmc_clk),
 	.mmc_cmd_o(mmc_cmd_o),
 	.mmc_cmd_oe(mmc_cmd_oe),
@@ -627,7 +642,7 @@ dbg_sti dbg_sti
 	.ld_addr(kt_addr),
 	.ld_din(kt_din),
 	.ld_be(kt_be),
-	.ld_busy(ld_busy || ld_own != 3'd3),
+	.ld_busy(ld_busy || ld_own != LD_TEXT),
 	.count(kt_count),
 	.dropped(kt_dropped)
 );
@@ -643,14 +658,11 @@ end endgenerate
 
 ///////////////////////   CPU   ////////////////////////////////
 
-// Out of reset once the board is, the memory test is off and both flash
-// images are in (verified/patched Phoenix pair and C:, or both flat chips).
-// The start also
-// waits for MiSTer's clock, up to RTC_WAIT_CLKS: Main sends it once, after
-// the launcher's files, and the stand-in reads the HLE date once at its entry
-// (docs/PROGRESS-LOG.md, 2026-10-21 evening).
+// Out of reset once the board and both raw flash chips are ready.
+// The start also waits for MiSTer's clock, up to RTC_WAIT_CLKS.
+// Main sends it once, after the launcher's files.
 localparam int RTC_WAIT_CLKS = 312_000_000;
-wire        images_in = use_phoenix ? (ph_ready && (fs_present || dl_loaded[1])) : (&dl_loaded);
+wire        images_in /* verilator public_flat_rd */ = (&dl_loaded) && profile_match;
 reg  [28:0] rtc_timer = 0;
 reg         rtc_wait = 1'b1;
 always @(posedge clk_sys) begin
@@ -770,7 +782,7 @@ dbg_trace dbg_trace
 	.ld_addr(tr_addr),
 	.ld_din(tr_din),
 	.ld_be(tr_be),
-	.ld_busy(ld_busy || ld_own != 3'd2),
+	.ld_busy(ld_busy || ld_own != LD_TRACE),
 	.dumps(tr_dumps),
 	.triggers(tr_triggers),
 	.dumping(tr_dumping),
@@ -813,20 +825,20 @@ end
 
 // Queue info events, with a low cycle between pulses: a mounted or save
 // event must not swallow a boot message (or vice versa) on the same clock.
-wire  [9:0] info_events = {ph_note == 3'd4, ph_note == 3'd2, ph_note == 3'd3, ph_note == 3'd1, boot_up, boot_start, fs_saved,
-                          fs_note == 2'd3, fs_note == 2'd2, fs_note == 2'd1};
-reg   [9:0] info_pending = 0;
+wire [10:0] info_events = {flash_size_error, pm_saved, pm_note == 2'd3, pm_note == 2'd2, pm_note == 2'd1,
+                           boot_up, boot_start, fs_saved, fs_note == 2'd3, fs_note == 2'd2, fs_note == 2'd1};
+reg  [10:0] info_pending = 0;
 reg   [7:0] info_q = 0;
 reg         info_req_q = 0;
 reg   [7:0] info_next;
-reg   [9:0] info_mask;
+reg  [10:0] info_mask;
 always @* begin
 	info_next = 0;
 	info_mask = 0;
-	for (int i = 9; i >= 0; i--) begin
+	for (int i = 10; i >= 0; i--) begin
 		if (info_pending[i]) begin
 			info_next = 8'(i + 1);
-			info_mask = 10'(1 << i);
+			info_mask = 11'(1 << i);
 		end
 	end
 end
@@ -881,10 +893,10 @@ mmc_card mmc_card
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din[1]),
-	.sd_buff_wr(sd_buff_wr & sd_ack[1])      // the buffer is shared by both slots
+	.sd_buff_wr(sd_buff_wr & sd_ack[1])      // shared slot buffer
 );
 
-assign LED_DISK = {1'b0, mmc_active | fs_active};
+assign LED_DISK = {1'b0, mmc_active | fs_active | pm_active};
 
 ///////////////////////   KEYS   /////////////////////////////////
 
@@ -949,7 +961,12 @@ wire [7:0] lcd_pix_y;
 lcd_panel lcd_panel
 (
 	.clk(clk_sys),
-	.reset(sys_reset),
+	.reset(sys_reset || (nem4 && mem_reset)),
+	.nem4(nem4),
+	.nem4_word_valid(nem4_lcd_valid),
+	.nem4_word_header(nem4_lcd_header),
+	.nem4_word_data(nem4_lcd_data),
+	.nem4_word_ready(nem4_lcd_ready),
 	.csx(upp_lcd_csx),
 	.dcx(upp_lcd_dcx),
 	.wrx(upp_lcd_wrx),
@@ -979,37 +996,6 @@ lcd_panel lcd_panel
 `ifdef NGAGE_DEBUG
 // a completed CPU bus beat, for the counters
 wire        dbg_bus_beat  = wb_cyc && wb_stb && (wb_ack || wb_err);
-// Appended words 37/38 (rows 156-158 and 160-162): loader state and history.
-// Count actual ioctl_download rising edges, including raw F3/F4. These survive
-// CPU/OSD resets; sys_reset (RESET input/PLL unlock) clears the history.
-reg         dbg_download_q = 0;
-reg   [5:0] dbg_download_index = 0;
-reg  [15:0] dbg_download_counts = 0; // F1/F2/F3/F4, four saturating nibbles
-reg   [2:0] dbg_ph_note = 0;
-reg  [31:0] dbg_loader_q = 0, dbg_load_counts_q = 0;
-always @(posedge clk_sys) begin
-	dbg_download_q <= ioctl_download;
-	if (ioctl_download && !dbg_download_q) begin
-		dbg_download_index <= ioctl_index[5:0];
-		case (ioctl_index[5:0])
-			6'd1: if (dbg_download_counts[15:12] != 4'hF) dbg_download_counts[15:12] <= dbg_download_counts[15:12] + 4'd1;
-			6'd2: if (dbg_download_counts[11:8] != 4'hF) dbg_download_counts[11:8] <= dbg_download_counts[11:8] + 4'd1;
-			6'd3: if (dbg_download_counts[7:4] != 4'hF) dbg_download_counts[7:4] <= dbg_download_counts[7:4] + 4'd1;
-			6'd4: if (dbg_download_counts[3:0] != 4'hF) dbg_download_counts[3:0] <= dbg_download_counts[3:0] + 4'd1;
-			default: ;
-		endcase
-	end
-	if (ph_note != 0) dbg_ph_note <= ph_note;
-	// Snapshot both words on the same frame boundary, even while CPU reset.
-	if (scan_en && scan_x == 8'd0 && scan_y == 8'd0) begin
-		dbg_loader_q <= {ph_ready, ph_busy, ph_have, dbg_download_index, dbg_ph_note, ph_state, 14'd0};
-		dbg_load_counts_q <= {dbg_download_counts, ph_errors};
-	end
-	if (sys_reset) begin
-		dbg_download_q <= 0; dbg_download_index <= 0; dbg_download_counts <= 0;
-		dbg_ph_note <= 0; dbg_loader_q <= 0; dbg_load_counts_q <= 0;
-	end
-end
 reg  [31:0] dbg_pc_q = 0;
 reg         dbg_bus_q = 0;
 reg   [7:0] dbg_bits_q = 0;
@@ -1076,7 +1062,6 @@ wire        dbg_bus_flash = wb_adr[27:26] == 2'b00;       // CS0-CS3
 // 28 fetch wait with FIFO not full, 29 I-fill waits behind the DATA owner,
 // 30 I-fill waits for the external DMA/self-test grant, 31/32 I/D TLB beats.
 // Overlay word index = counter index + 12 (37..44 for the additions).
-// Loader status/history follow at words 45/46 (rows 188/192).
 localparam DBG_CNT = 33;
 reg         dbg_mmc_busy_q = 0;
 always @(posedge clk_sys) dbg_mmc_busy_q <= dbg_src0[22];
@@ -1296,7 +1281,7 @@ wire        dbg_pcrow = scan_y < 8'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire        dbg_strow = scan_y >= 8'd4 && scan_y < 8'd7 && scan_x >= 8'd16 && scan_x < 8'd24;
 // the 32-bit rows at y = 8, 12, ... (3 lines each; 12 words, then the
 // counters): tools/mister_dbg.py
-localparam [7:0] DBG_WEND = 8'd8 + 8'd4 * 8'(12 + DBG_CNT + 2) - 8'd1;
+localparam [7:0] DBG_WEND = 8'd8 + 8'd4 * 8'(12 + DBG_CNT) - 8'd1;
 wire        dbg_wrow  = scan_y >= 8'd8 && scan_y < DBG_WEND && scan_y[1:0] != 2'd3 && scan_x >= 8'd16 && scan_x < 8'd48;
 wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd3) ? dbg_en0_irq :
@@ -1310,8 +1295,6 @@ wire [31:0] dbg_word  = (scan_y[7:2] == 6'd2) ? dbg_src0 :
                         (scan_y[7:2] == 6'd11) ? rtc_date :
                         (scan_y[7:2] == 6'd12) ? {dbg_aud_l, dbg_aud_r} :
                         (scan_y[7:2] == 6'd13) ? {kt_dropped, 7'd0, tr_dumping, 16'd0} :
-                        (scan_y[7:2] == 6'd14 + 6'(DBG_CNT)) ? dbg_loader_q :
-                        (scan_y[7:2] == 6'd15 + 6'(DBG_CNT)) ? dbg_load_counts_q :
                         (scan_y[7:2] >= 6'd14 && scan_y[7:2] < 6'd14 + 6'(DBG_CNT)) ? dbg_cnt[$clog2(DBG_CNT)'(scan_y[7:2] - 6'd14)] :
                                                  32'd0;
 // the second column (x 56..87): the marker, the exception counters, the
@@ -1350,7 +1333,7 @@ wire [15:0] dbg_rgb = 16'h0000;
 assign dbg_trig = 1'b0;
 wire unused_dbg = &{1'b0, cpu_dbg_pc, cpu_dbg_stall, cpu_dbg_dcache, cpu_dbg_icache, dbg_dma_owner, cpu_dbg_wfi, dbg_src0, dbg_en0_irq,
                     dbg_en0_fiq, tr_trig_pc, tr_dumps, tr_triggers, tr_dumping, kt_count, kt_dropped,
-                    lcd_pix_ev, lcd_pix_y, status[8], ph_have, ph_state, ph_errors};
+                    lcd_pix_ev, lcd_pix_y, status[8], fs_present};
 `endif
 assign scan_rgb = (dbg_on && (dbg_pcrow_q || dbg_strow_q || dbg_wrow_q)) ? dbg_rgb : panel_rgb;
 

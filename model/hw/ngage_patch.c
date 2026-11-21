@@ -1,7 +1,7 @@
 /*
  * Firmware patches: explicit, logged changes to the flash contents the model
- * presents, read from firmware-patches/rom-patches.txt (the list the core's
- * patch ROM is generated from). The image files on disk are not modified.
+ * presents, read from an optional patch list for comparison runs. The
+ * image files on disk are not modified.
  * Each line is one of
  *
  *   cs0|cs1 <offset> <hex bytes>      bytes as stored in flash (little-endian)

@@ -28,15 +28,13 @@
 	};
 	const ARCHIVE = { name: 'N-GageQD RH-29.zip', size: 811528203 };
 
-	// The firmware file is one exact file: the core's patches and its
-	// integrity digest are made for it.
+	// The reference setup uses this firmware version and original digest.
 	const FIRMWARE = {
 		source: 'RH2941.0C1', save: 'boot0.rom', what: 'Firmware',
 		sha256: '3ce529d6fbcd6db1f4290fabe8b70c62242a23444c4fa74caec42657d12ab4a0',
 	};
-	// A language pack is taken when the core's loader will take it, which it
-	// decides by what the pack writes into the first 64 KB of flash
-	// (rtl/mister/phoenix_load.sv): its own entry in the integrity table and
+	// The first 64 KB of flash supplied by the pack must contain its own
+	// entry in the integrity table and
 	// the digest it carries for the 4.10 firmware file. Any of 4.10's packs
 	// has both. PACK is the one the core was brought up with: it is taken
 	// when a package has it, and held to its hash as well.
@@ -397,7 +395,7 @@
 
 	// The bytes a Phoenix flash file writes to CS0 0x0000-0xFFFF, with every
 	// flash record's checksums verified on the way (the file starts with A2,
-	// a token block, then records; rtl/mister/phoenix_load.sv reads the same).
+	// a token block, then records).
 	// A record's data sums to its check byte in one of two ways, one apart;
 	// a file keeps to one of them, which is held here so that an error of
 	// one in a byte does not pass as the other way.

@@ -35,6 +35,8 @@
 //   --buslog FILE      one line per CPU beat to CS0/CS1/SDRAM: clock, R|W,
 //                      address, SEL, data, CTI
 //   --until TEXT       stop when the STI text ends with TEXT
+//   --stop-pc ADDRESS  stop when an instruction at this address retires
+//   --stop-pc-hits N   wait for N retirements at the address (default 1)
 //   --ddr-lat MIN:MAX, --ddr-busy PCT, --ddr-gap PCT, --ddr-stall PCT_X1000
 //                      the DDRAM port's timing (ddram_model.h's DdramProfile)
 //   --fault-history N  retain N retirements in memory; dump on D/P/U and
@@ -352,7 +354,7 @@ struct Bench {
 				win_check(win_pend[k].kind == 'w' ? "hit" : "bufhit", win_pend[k].va, win_pend[k].data, win_pend[k].sel, win_pend[k].clock);
 			}
 	}
-	DdramModel dm{40u << 20, 5};
+	DdramModel dm{51u << 20, 5};
 	SdramChip chip{9};
 	// MMC image on SD slot 0
 	std::vector<uint8_t> img;
@@ -363,6 +365,8 @@ struct Bench {
 	// the CPU
 	uint64_t retired = 0;
 	uint32_t last_r_pc = 0;
+	uint32_t stop_pc = 0;
+	uint64_t stop_pc_remaining = 0;
 	char last_ev = 0;
 	FILE *devlog = nullptr, *trace = nullptr, *exec_log = nullptr;
     bool was_user = false;
@@ -426,9 +430,9 @@ struct Bench {
 	uint64_t dev_accesses = 0;
 	// --check-flash, --buslog, --until
 	bool check_flash = false;
-	uint64_t flash_checked[2] = {}, flash_bad = 0;
-	uint64_t beat_start = 0, array_since[2] = {};
-	bool beat_prev = false, ack_prev = false, array_prev[2] = {};
+	uint64_t flash_checked[3] = {}, flash_bad = 0;
+	uint64_t beat_start = 0, array_since[3] = {};
+	bool beat_prev = false, ack_prev = false, array_prev[3] = {};
 	FILE *buslog = nullptr;
 	std::string until, sti_tail;
 	bool stop = false;
@@ -595,6 +599,11 @@ struct Bench {
 		if (check_copy && ev == 'R') { if (pc == 0x503A1BA8u) copy_entry(cpsr); else if (copy.active && pc == copy.lr) copy.active = false; }
 		last_ev = ev;
 		if (ev == 'R') last_r_pc = pc;
+		if (ev == 'R' && stop_pc_remaining && pc == stop_pc && --stop_pc_remaining == 0) {
+			printf("stop PC %08x at clock %" PRIu64 ", retired %" PRIu64 ", r0=%08x\n",
+			       pc, clocks, retired, reg(phys_index(0, cpsr)));
+			stop = true;
+		}
 	}
 
 	// a completed beat on the CPU's Wishbone port (after the edge: ack is
@@ -639,8 +648,8 @@ struct Bench {
 		ack_prev = ack;
 #define FL_ARRAY(f) (h.emu__DOT__ngage_mem__DOT__##f##__DOT__mode == 0 && h.emu__DOT__ngage_mem__DOT__##f##__DOT__cseq == 0 && \
                      h.emu__DOT__ngage_mem__DOT__##f##__DOT__p_state == 0 && h.emu__DOT__ngage_mem__DOT__##f##__DOT__e_state == 0)
-		for (int c = 0; c < 2; c++) {
-			bool arr = c ? FL_ARRAY(flash_cs1) : FL_ARRAY(flash_cs0);
+		for (int c = 0; c < 3; c++) {
+			bool arr = c == 2 ? FL_ARRAY(flash_cs2) : c == 1 ? FL_ARRAY(flash_cs1) : FL_ARRAY(flash_cs0);
 			if (arr && !array_prev[c]) array_since[c] = clocks;
 			array_prev[c] = arr;
 		}
@@ -649,20 +658,24 @@ struct Bench {
 		bool we = h.emu__DOT__wb_we;
 		unsigned be = h.emu__DOT__wb_sel;
 		uint32_t d = we ? h.emu__DOT__wb_dat_w : h.emu__DOT__wb_dat_r;
-		bool fl = a < 0x04000000u, sd = a >= 0x0A000000u && a < 0x0C000000u;
+		const bool nem4 = h.emu__DOT__nem4;
+		bool fl = a < (nem4 ? 0x06000000u : 0x04000000u);
+		bool sd = a >= 0x0A000000u && a < 0x0C000000u;
 		if (buslog && (fl || sd))
 			fprintf(buslog, "%" PRIu64 " %c %08x %x %08x %u\n", clocks, we ? 'W' : 'R', a, be, d,
 			        (unsigned)h.emu__DOT__wb_cti);
 		if (!check_flash || we || !fl) return;
-		int chip_n = a >= 0x02000000u;
+		unsigned chip_n = a >> 25;
 		if (!array_prev[chip_n] || array_since[chip_n] >= beat_start) return;
-		uint32_t off = chip_n ? ((a - 0x02000000u) & 0x7FFFFFu) : (a & 0xFFFFFFu);
-		uint32_t base = DDR_BASE + (chip_n ? 0x01000000u : 0) + (off & ~3u) - DdramModel::BASE;
+		uint32_t cs0_size = nem4 ? 8u << 20 : 16u << 20;
+		uint32_t off = a & ((chip_n ? 8u << 20 : cs0_size) - 1);
+		constexpr uint32_t chip_offsets[] = {0, 0x01000000u, 0x01800000u};
+		uint32_t base = DDR_BASE + chip_offsets[chip_n] + (off & ~3u) - DdramModel::BASE;
 		uint8_t word[4];
 		memcpy(word, &dm.mem[base], 4);
 		// the scrambled area of CS0 is read decoded
 		uint32_t scr_first = 0, scr_end = 0;
-		if (!chip_n && ngage_scr_window(&dm.mem[DDR_BASE - DdramModel::BASE], 16u << 20, &scr_first, &scr_end) &&
+		if (!chip_n && ngage_scr_window(&dm.mem[DDR_BASE - DdramModel::BASE], cs0_size, &scr_first, &scr_end) &&
 		    (off & ~3u) >= scr_first && (off & ~3u) < scr_end)
 			ngage_descramble_buf(word, off & ~3u, 4);
 		uint32_t want = 0, mask = 0;
@@ -835,15 +848,15 @@ struct Bench {
 		fflush(stdout);
 	}
 
-	// a one-word ioctl download: the image is already in the DDRAM model
+	// Signal the last word of the image already preloaded in the DDRAM model.
 	void mark_loaded(int index, const std::vector<uint8_t> &data) {
 		auto &h = *r;
 		h.emu__DOT__hps_io__DOT__sim_index = index;
 		h.emu__DOT__hps_io__DOT__sim_download = 1;
 		ticks(5);
 		while (h.emu__DOT__hps_io__DOT__sim_wait) tick();
-		h.emu__DOT__hps_io__DOT__sim_addr = 0;
-		h.emu__DOT__hps_io__DOT__sim_dout = (uint16_t)(data[0] | data[1] << 8);
+		h.emu__DOT__hps_io__DOT__sim_addr = data.size() - 2;
+		h.emu__DOT__hps_io__DOT__sim_dout = (uint16_t)(data[data.size() - 2] | data.back() << 8);
 		h.emu__DOT__hps_io__DOT__sim_wr = 1;
 		tick();
 		h.emu__DOT__hps_io__DOT__sim_wr = 0;
@@ -864,6 +877,9 @@ int main(int argc, char **argv) {
 	crc_init();
 	std::string cs0p, cs1p, mmcp, out = ".", keysp, tracep, rtc = "2004-06-01 12:00:00";
 	uint64_t max_cycles = 1000000000ull, progress = 50000000ull, trace_after = 0, trace_count = 0;
+	uint32_t stop_pc = 0;
+	uint64_t stop_pc_hits = 1;
+	bool stop_at_pc = false;
 	bool devlog = false, check_flash = false, check_window = false, check_copy = false, check_store = false;
 	std::string trace_on_bad;
 	std::string buslogp, until;
@@ -901,6 +917,8 @@ int main(int argc, char **argv) {
 		else if (a == "--trace-on-bad") trace_on_bad = next();
 		else if (a == "--buslog") buslogp = next();
 		else if (a == "--until") until = next();
+		else if (a == "--stop-pc") { stop_pc = strtoul(next(), nullptr, 0); stop_at_pc = true; }
+		else if (a == "--stop-pc-hits") stop_pc_hits = strtoull(next(), nullptr, 0);
 		else if (a == "--ddr-lat") { ddr_set = true; if (sscanf(next(), "%d:%d", &ddr.lat_min, &ddr.lat_max) != 2) return 2; }
 		else if (a == "--ddr-busy") { ddr_set = true; ddr.busy_pct = atoi(next()); }
 		else if (a == "--ddr-gap") { ddr_set = true; ddr.gap_pct = atoi(next()); }
@@ -914,9 +932,12 @@ int main(int argc, char **argv) {
 	}
 	if (restorep.empty() && (cs0p.empty() || cs1p.empty())) { fprintf(stderr, "--cs0 and --cs1 are needed\n"); return 2; }
 	if (!savep.empty() && !save_at) { fprintf(stderr, "--save needs --save-at\n"); return 2; }
+	if (stop_at_pc && !stop_pc_hits) { fprintf(stderr, "--stop-pc-hits must be positive\n"); return 2; }
 
 	std::sort(profile_marks.begin(),profile_marks.end());
 	Bench b;
+	b.stop_pc = stop_pc;
+	b.stop_pc_remaining = stop_at_pc ? stop_pc_hits : 0;
 	auto &R = *b.r;
 	b.out = out;
     b.history.resize(fault_history);
@@ -981,7 +1002,11 @@ int main(int argc, char **argv) {
 
 	// the flash images
 	std::vector<uint8_t> cs0 = read_file(cs0p), cs1 = read_file(cs1p);
-	if (cs0.size() != (16u << 20) || cs1.size() != (8u << 20)) { fprintf(stderr, "images must be 16 MB and 8 MB\n"); return 2; }
+	const bool nem4 = cs0.size() == (8u << 20) && cs1.size() == (16u << 20);
+	if (!nem4 && (cs0.size() != (16u << 20) || cs1.size() != (8u << 20))) {
+		fprintf(stderr, "expected an 8 + 16 MiB NEM-4 pair or a 16 + 8 MiB QD pair\n");
+		return 2;
+	}
 	memcpy(&b.dm.mem[b.DDR_BASE - DdramModel::BASE], cs0.data(), cs0.size());
 	memcpy(&b.dm.mem[b.DDR_BASE + 0x01000000u - DdramModel::BASE], cs1.data(), cs1.size());
 	b.mark_loaded(3, cs0);
@@ -1028,8 +1053,8 @@ int main(int argc, char **argv) {
 	if (b.chip.errors) printf("the SDRAM chip model reported %d error(s)\n", b.chip.errors);
 	if (b.dm.protocol_errors) printf("%d DDRAM port protocol error(s)\n", b.dm.protocol_errors);
 	if (b.check_flash)
-		printf("flash check: %" PRIu64 " CS0 and %" PRIu64 " CS1 read beats in array mode, %" PRIu64 " mismatch(es)\n",
-		       b.flash_checked[0], b.flash_checked[1], b.flash_bad);
+		printf("flash check: %" PRIu64 " CS0, %" PRIu64 " CS1 and %" PRIu64 " CS2 read beats in array mode, %" PRIu64 " mismatch(es)\n",
+		       b.flash_checked[0], b.flash_checked[1], b.flash_checked[2], b.flash_bad);
 	if (b.check_window)
 		printf("window check: %" PRIu64 " uncached, %" PRIu64 " cached-hit, %" PRIu64 " cached-miss loads of the C: drive, %" PRIu64 " wrong\n",
 		       b.win_unc, b.win_hit, b.win_miss, b.win_bad);

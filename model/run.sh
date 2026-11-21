@@ -10,6 +10,8 @@
 #                 as flash stores it: the model decodes the scrambled area the
 #                 image names at 0x174, as the phone's ASIC does on reads
 #   NGAGE_FLASH1  CS1 image (default research/firmware/images/nor/rh29-4.10-cs1.bin)
+#   NGAGE_PATCHES Optional patch list, or "standin" to reproduce the legacy NOS
+#                 behavior. The default preserves the supplied firmware.
 #   NGAGE_OUT     output directory for logs and screenshots (default model/.out)
 #   NGAGE_SAVE1   CS1 save file, the C: drive (default $NGAGE_OUT/cs1-save.bin):
 #                 used instead of NGAGE_FLASH1 when present, written on exit

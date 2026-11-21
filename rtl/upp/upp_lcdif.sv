@@ -57,6 +57,7 @@ module upp_lcdif #(
 ) (
 	input  logic        clk,
 	input  logic        reset,
+	input  logic        nem4,
 
 	input  logic        acc,
 	input  logic        we,
@@ -70,6 +71,10 @@ module upp_lcdif #(
 
 	output logic        tx_ready,       // the queue can take a word (DMA pacing)
 	output logic        active,         // the bus has carried a byte since reset
+	output logic        nem4_word_valid,
+	output logic        nem4_word_header,
+	output logic [31:0] nem4_word_data,
+	input  logic        nem4_word_ready,
 
 	output logic        csx,
 	output logic        dcx,
@@ -96,13 +101,18 @@ module upp_lcdif #(
 	logic [7:0]  rd_byte;
 	logic        ready;
 
-	wire read_phase = prog_ctrl == 4'h7;
+	wire read_phase = !nem4 && prog_ctrl == 4'h7;
 	logic        q_pop;
 	wire         q_full, q_empty, q_valid;
 	wire [32:0]  q_dout;
 
-	wire push = wr && (off == 4'h0 || off == 4'h8);
+	wire lcd_word = off == 4'h0 || off == 4'h8;
+	wire push = wr && !nem4 && lcd_word;
 	wire want_read = acc && !we && off == 4'h8 && read_phase;
+	// NEM-4's packed 9-/12-bit controller sees committed UPP words.
+	assign nem4_word_valid  = wr && nem4 && lcd_word;
+	assign nem4_word_header = off == 4'h0;
+	assign nem4_word_data   = wdata;
 
 	upp_fifo #(.DW(33), .AW(QAW)) queue (
 		.clk(clk),
@@ -117,7 +127,7 @@ module upp_lcdif #(
 		.room()
 	);
 
-	assign tx_ready = !q_full;
+	assign tx_ready = nem4 ? nem4_word_ready : !q_full;
 
 	always_comb begin
 		rmask = 32'd0;
@@ -128,15 +138,15 @@ module upp_lcdif #(
 				4'h0: begin
 					rmask = 32'h4000_0000;
 					rdata = {1'b0, ready, 30'd0};
-					busy  = we && q_full;
+					busy  = we && !tx_ready;
 				end
 				4'h4: begin
 					rmask = 32'h0000_0004;
-					rdata = {29'd0, !q_full, 2'd0};
+					rdata = {29'd0, tx_ready, 2'd0};
 				end
 				4'h8: begin
 					if (we) begin
-						busy = q_full;
+						busy = !tx_ready;
 					end else if (read_phase) begin
 						rmask = '1;
 						rdata = {24'd0, rd_byte};
@@ -165,7 +175,7 @@ module upp_lcdif #(
 	wire [11:0] u1    = q_dout[27:16];
 	wire [23:0] v12   = {u1, u0};
 
-	assign ready = q_empty && st == S_IDLE && ocnt == 3'd0;
+	assign ready = nem4 ? nem4_word_ready : q_empty && st == S_IDLE && ocnt == 3'd0;
 
 	always_ff @(posedge clk) begin
 		if (wr && off == 4'h0) prog_ctrl <= wdata[27:24];

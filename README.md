@@ -5,6 +5,23 @@ reconstruction of its hardware, so N-Gage game cards run as they did on the
 phone. The cellular side is not emulated: the phone comes up as a handset
 with no SIM.
 
+## Firmware profiles on the integration build
+
+Put `boot0.rom`, `boot1.rom`, `c.vhd` and `pmm.vhd` in
+`games/ngage/410/`. The ROM files are the 16 MiB and 8 MiB flat arrays
+made by `tools/mkimage.py phoenix`. Copy the
+[NGage 4.10 launcher](releases/NGage%204.10.mgl) beside `NGage.rbf` in
+`_Console/`. Select **NGage 4.10** there to mount both saves and load the
+ROM pair. The **Firmware** submenu has the same four manual actions.
+Use **Save C: and PMM now** to flush pending writes before power-off.
+
+`games/ngage/403/` uses the same four filenames. The
+[NGage 4.03 launcher](releases/NGage%204.03.mgl) loads an 8 MiB `boot0.rom`
+and a 16 MiB `boot1.rom` containing CS1 followed by CS2. The integration
+build selects the map from the two ROM sizes and waits for a matching pair
+before booting. Full 4.03 boot and game testing on MiSTer are pending. See the
+[firmware integration notes](docs/FIRMWARE-PROFILES.md).
+
 ## What you need
 
 - A MiSTer with an SDRAM module (32 MB or larger).
@@ -16,7 +33,7 @@ with no SIM.
     `8cbfc6e54b9e59b4c8cb72712297629359db443af78505d9f7188eda8f38732b`
 - Game cards as `.mmc` images (see [Game cards](#game-cards)).
 
-## Setup
+## Setup for the legacy RBF in `releases/`
 
 1. Copy the `.rbf` from [releases/](releases/) to `/media/fat/_Console/`.
 2. Create the folder `/media/fat/games/NGage/` and copy

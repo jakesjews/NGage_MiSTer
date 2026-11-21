@@ -6,8 +6,7 @@ Input, either:
   phoenix  the Phoenix flash files: the MCU file (RH2941.0C1) and a language
            pack (RH2941.021, or another of 4.10's), in that order, converted as
            tools/fls2bin.py does (CS0 at 0x00000000, 16 MB; CS1 at 0x02000000,
-           8 MB; unwritten bytes 0xFF) and placed as the core's loader places
-           them (rtl/mister/phoenix_load.sv): the pack's areas (PACK_AREAS)
+           8 MB; unwritten bytes 0xFF). The pack's areas (PACK_AREAS)
            hold what the pack writes, everything else what the MCU file writes
   flat     flat CS0 (16 MB) and CS1 (8 MB) images as flash stores them
 
@@ -18,8 +17,9 @@ work on the bytes the phone reads; the images are written as flash stores
 them, which is what the core loads. --plain writes CS0 decoded instead, for
 reading in a disassembler: the core does not run such an image.
 
-Then the firmware patches in firmware-patches/rom-patches.txt are applied
-exactly as the reference model's model/hw/ngage_patch.c applies them at load:
+The default output preserves the original firmware. To reproduce the historical
+NOS stand-in, explicitly pass --patches firmware-patches/rom-patches.txt.
+Patch lists use the same format as the reference model's model/hw/ngage_patch.c:
   cs0|cs1 <offset> <hex bytes>        bytes as the phone reads them
   cs0file|cs1file <offset> <path>     a file's contents: the NOS stand-in
                                       binaries, at the path the list gives
@@ -47,12 +47,12 @@ usage:
   mkimage.py flat CS0.bin CS1.bin [-o DIR] [options]
 options:
   -o DIR             where cs0.bin and cs1.bin go (default .)
-  --patches FILE     the patch list (default firmware-patches/rom-patches.txt)
-  --standin DIR      take the stand-in binaries from DIR, by file name
-  --model-build      the same with the model's own build (model/.build)
+  --patches FILE     apply a patch list for a comparison run
+  --standin DIR      apply the stand-in using binaries from DIR, by file name
+  --model-build      apply the stand-in from the model's build (model/.build)
   --phone-data DUMP  restore the per-phone bytes from a ROM dump
-  --no-patches       write the images unpatched (the table check then reports
-                     the digests the firmware carries)
+  --no-patches       preserve firmware and allow failed integrity checks for
+                     inspection
   --plain            write CS0 with its scrambled area decoded (not for the core)
   --force            go on with Phoenix files that are not the RH-29 4.10 pair
                      (the inputs are checked by SHA-256; see KNOWN_INPUTS)
@@ -95,8 +95,8 @@ def load_tool(name):
 # The language pack's areas, [start, end) in the files' addresses: the first
 # 64 KB of CS0 (which every pack writes again, with its own entry in the
 # integrity table), its ROM at the top of CS0 and the top of CS1's firmware
-# half. The core's loader takes these bytes from the pack and all others from
-# the MCU file, whichever arrives first (rtl/mister/phoenix_load.sv).
+# half. The host assembler takes these bytes from the pack and the rest
+# from the MCU file.
 PACK_AREAS = ((0x00000000, 0x00010000), (0x00F00000, 0x01000000), (0x02330000, 0x02400000))
 
 
@@ -155,7 +155,7 @@ def from_phoenix(files, force=False):
                 fail("%s: a block at 0x%08X (%d bytes) is outside CS0 and CS1" % (path, a, len(d)))
             if r.get("h_ok") is False:
                 fail("%s: block at 0x%08X: header checksum mismatch" % (path, a))
-            for i, b in enumerate(d):           # byte by byte, as the loader decides
+            for i, b in enumerate(d):
                 if pack_area(a + i) == bool(pack):
                     img[a + i - base] = b
                     placed += 1
@@ -324,7 +324,7 @@ def main():
     p.add_argument("mode", choices=("phoenix", "flat"))
     p.add_argument("inputs", nargs="+")
     p.add_argument("-o", "--outdir", default=".")
-    p.add_argument("--patches", default=os.path.join(ROOT, "firmware-patches", "rom-patches.txt"))
+    p.add_argument("--patches")
     p.add_argument("--standin")
     p.add_argument("--model-build", action="store_true")
     p.add_argument("--phone-data")
@@ -332,6 +332,11 @@ def main():
     p.add_argument("--plain", action="store_true", help="write CS0 with its scrambled area decoded")
     p.add_argument("--force", action="store_true", help="go on with Phoenix files that are not the 4.10 pair")
     a = p.parse_args()
+    patches = a.patches
+    if not patches and (a.standin or a.model_build):
+        patches = os.path.join(ROOT, "firmware-patches", "rom-patches.txt")
+    if a.no_patches:
+        patches = None
 
     if a.mode == "phoenix":
         cs0, cs1 = from_phoenix(a.inputs, a.force)
@@ -354,17 +359,17 @@ def main():
     scr = load_tool("nos_scramble")
     area = scr.decode_image(cs0)
     if area:
-        print("CS0 0x%X-0x%X is scrambled in flash (header 0x%X): patched and checked as the phone reads it"
+        print("CS0 0x%X-0x%X is scrambled in flash (header 0x%X): decoded for integrity checks"
               % (area[0], area[1] - 1, scr.HEADER[0]))
-        if area != scr.RH29_WINDOW and not a.no_patches:
-            sys.stderr.write("mkimage: warning: the core's patch ROM is made for the area 0x%X-0x%X\n"
+        if area != scr.RH29_WINDOW and patches:
+            sys.stderr.write("mkimage: warning: the RH-29 stand-in was built for the area 0x%X-0x%X\n"
                              % (scr.RH29_WINDOW[0], scr.RH29_WINDOW[1] - 1))
     else:
         print("note: the image names no scrambled area at CS0 0x%X" % scr.HEADER[0])
 
-    if not a.no_patches:
+    if patches:
         standin = os.path.join(ROOT, "model", ".build") if a.model_build else a.standin
-        apply_patches(a.patches, cs0, cs1, standin)
+        apply_patches(patches, cs0, cs1, standin)
     ok = check_table(cs0, cs1)
 
     if a.plain:
