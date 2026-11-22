@@ -740,6 +740,20 @@ setup prompt before reaching Phone. No key events were supplied. The
 capture is `build/sim/screens/nem4-v5-media/to-2500000000/lcd-00022640.png`.
 The shell, C: save and both PMM profile regressions pass.
 
+### Keypad selection
+
+The ROM profile also selects keypad wiring. MiSTer sends the same logical
+controls for both profiles. QD uses its existing switch matrix. NEM-4 uses the
+`ngage-v5` port D/E and GPIO30 contacts, with the D-pad and OK on GENIO. Menu
+joins D1 and E0 on NEM-4, compared with D4 and E0 on QD. The 4.03 boot replay
+reached the native Menu screen when it drove the original D1/E0 contact.
+
+NEM-4's keypad status overlays its own CTSI bits and shares the existing
+GENIO output latch and UEM EAR loopback. The peripheral bench checks every
+shared key, both scan directions, the matrix and GENIO interrupts, and
+independent key and NOS acknowledgement. Music and Radio contacts remain
+unbound in the MiSTer controls.
+
 ## Remaining validation
 
 Verify complete 4.03 and 4.10 boots on MiSTer, then check game audio,

@@ -487,11 +487,12 @@ int main(int argc, char **argv) {
 	const auto check_nem4 = [&]() {
 		// Switch while both QD saves are mounted. Until F4 is also replaced, the
 		// mixed sizes must hold the CPU. The NEM-4 program then loads the mounted
-		// PMM and reads CS2 at two mirrors before storing the three values in RAM.
+		// PMM, reads CS2 at two mirrors and scans port E with only D1 driven.
 		const uint32_t nem4_prog[] = {
-			0xe59f001c, 0xe5901000, 0xe59f2018, 0xe5923000, 0xe59f0014,
-			0xe5900000, 0xe59f2010, 0xe882000b, 0xeafffffe,
-			0x04000000, 0x04800000, 0x007f0000, 0x0a000000
+			0xe59f002c, 0xe5901000, 0xe59f2028, 0xe5923000, 0xe59f0024, 0xe5900000,
+			0xe59f4020, 0xe59f5020, 0xe5845000, 0xe594400c,
+			0xe59f2018, 0xe882001b, 0xeafffffe,
+			0x04000000, 0x04800000, 0x007f0000, 0x0c150400, 0x1d020000, 0x0a000000
 		};
 		std::vector<uint8_t> nem4_cs0(sizeof nem4_prog);
 		memcpy(nem4_cs0.data(), nem4_prog, sizeof nem4_prog);
@@ -499,17 +500,21 @@ int main(int argc, char **argv) {
 		b.download(3, nem4_cs0, true, 8u << 20);
 		b.ticks(20000);
 		CHECK(!R.emu__DOT__images_in && b.cpu_writes.empty(), "mixed firmware sizes hold the CPU");
+		R.emu__DOT__hps_io__DOT__sim_joy0 = 1u << 9; // Menu
 		const std::vector<uint8_t> cs2_prefix = {0x78, 0x56, 0x34, 0x12};
 		b.download(4, cs2_prefix, true, 16u << 20, 8u << 20);
 		CHECK(R.emu__DOT__nem4 && R.emu__DOT__images_in, "8 + 16 MiB selects NEM-4");
 		CHECK(memcmp(&b.ddr[0x01800000], cs2_prefix.data(), cs2_prefix.size()) == 0, "F4 second half lands in CS2");
 		CHECK(memcmp(&b.ddr[0x01400000], b.img1.data() + (4u << 20), 4u << 20) == 0, "NEM-4 CS2 load preserves C:");
 		b.ticks(50000);
-		CHECK_EQ(b.cpu_writes.size(), 3, "NEM-4 test program executes");
-		if (b.cpu_writes.size() >= 3) {
-			CHECK(b.cpu_writes[0] == std::make_pair(0x0A000000u, 0x3C3C3C3Cu), "NEM-4 uses the mounted PMM at 0x007F0000");
-			CHECK(b.cpu_writes[1] == std::make_pair(0x0A000004u, 0x12345678u), "NEM-4 CS2 array read");
-			CHECK(b.cpu_writes[2] == std::make_pair(0x0A000008u, 0x12345678u), "NEM-4 CS2 mirror read");
+		R.emu__DOT__hps_io__DOT__sim_joy0 = 0;
+		CHECK_EQ(b.cpu_writes.size(), 5, "NEM-4 test program executes");
+		if (b.cpu_writes.size() >= 5) {
+			CHECK(b.cpu_writes[0] == std::make_pair(0x0C150400u, 0x1D020000u), "NEM-4 drives only D1 low");
+			CHECK(b.cpu_writes[1] == std::make_pair(0x0A000000u, 0x3C3C3C3Cu), "NEM-4 uses the mounted PMM at 0x007F0000");
+			CHECK(b.cpu_writes[2] == std::make_pair(0x0A000004u, 0x12345678u), "NEM-4 CS2 array read");
+			CHECK(b.cpu_writes[3] == std::make_pair(0x0A000008u, 0x12345678u), "NEM-4 CS2 mirror read");
+			CHECK(b.cpu_writes[4] == std::make_pair(0x0A00000Cu, 0x3Eu), "the normal MiSTer Menu binding grounds E0 on NEM-4");
 		}
 	};
 	if (firmware_only) {

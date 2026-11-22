@@ -593,6 +593,7 @@ upp_periph upp_periph
 	.mmc_dat_o(mmc_dat_o),
 	.mmc_dat_oe(mmc_dat_oe),
 	.mmc_dat_i(mmc_dat),
+	.keys(keys),
 	.kp_col_oe(upp_col_oe),
 	.kp_col_out(upp_col_out),
 	.kp_row_oe(upp_row_oe),

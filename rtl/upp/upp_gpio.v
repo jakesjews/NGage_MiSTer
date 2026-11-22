@@ -11,6 +11,7 @@ module upp_gpio (
     input  wire        ear_route,
     input  wire        sim_route,
     input  wire        tx_route,
+    output wire [15:0] genio_out,
     output reg  [31:0] dout
 );
     reg [31:0] r200, r204, r208, r20c;
@@ -18,6 +19,7 @@ module upp_gpio (
     localparam [31:0] GENIO1 = 32'h0002_0000;
     localparam [31:0] GENIO3 = 32'h0008_0000;
     localparam [31:0] GENIO17 = 32'h0000_0002;
+    assign genio_out = r200[31:16];
 
     always @* begin
         case (word_addr)

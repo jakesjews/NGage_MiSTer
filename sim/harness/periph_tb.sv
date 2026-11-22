@@ -205,6 +205,7 @@ module periph_tb #(
 		.nem4_lcd_data(nem4_lcd_data), .nem4_lcd_ready(nem4_lcd_ready),
 		.mmc_clk(mmc_clk), .mmc_cmd_o(mmc_cmd_o), .mmc_cmd_oe(mmc_cmd_oe), .mmc_cmd_i(mmc_cmd),
 		.mmc_dat_o(mmc_dat_o), .mmc_dat_oe(mmc_dat_oe), .mmc_dat_i(mmc_dat),
+		.keys(keys),
 		.kp_col_oe(col_oe), .kp_col_out(col_out), .kp_row_oe(row_oe), .kp_row_out(row_out),
 		.kp_col_in(col_in), .kp_row_in(row_in), .power_key(!pwronx),
 		.bt_rd(bt_rd), .bt_wr(bt_wr), .bt_reg(bt_reg), .bt_wdata(bt_wdata), .bt_rdata(bt_rdata),

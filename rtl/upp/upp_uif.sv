@@ -48,7 +48,7 @@
 // acknowledges their pending status.
 // The MDI peer pulses bits 9 and 10. The same group controls their enable and
 // acknowledges their status, which remains latched until acknowledged.
-// Keypad and interrupt accesses are 16-bit, as enforced by upp_periph.
+// The QD keypad and interrupt accesses are 16-bit, as enforced by upp_periph.
 module upp_uif #(
 	parameter int CLK_HZ = 104_000_000
 ) (
@@ -64,6 +64,7 @@ module upp_uif #(
 	output logic [31:0] rmask,
 	output logic [31:0] rdata,
 
+	input  logic        qd_keypad,
 	input  logic        bt_irq,       // the Bluetooth module's interrupt line, a pulse
 	input  logic [1:0]  mdi_events,
 	output logic        nos_tick,
@@ -232,8 +233,8 @@ module upp_uif #(
 		return (v | x[7:0]) & ~x[15:8];
 	endfunction
 
-	wire [5:0] fell_r = last_r & ~rows & ien_e[5:0] & ~dir_e[5:0];
-	wire [4:0] fell_c = last_c & ~cols & ien_d[4:0] & ~dir_d[4:0];
+	wire [5:0] fell_r = last_r & ~rows & ien_e[5:0] & ~dir_e[5:0] & {6{qd_keypad}};
+	wire [4:0] fell_c = last_c & ~cols & ien_d[4:0] & ~dir_d[4:0] & {5{qd_keypad}};
 
 	always_ff @(posedge clk) begin
 		last_r <= rows;
@@ -244,13 +245,13 @@ module upp_uif #(
 		if (bt_irq) bt_latch <= 1'b1;
 
 		if (wr && !is_calibration_counter && !is_calibration_window && !is_nos_enable && !is_nos_compare) begin
-			if (is_ctsi && hi) begin
-				// the module's bit clears when written 1 (and stays set by a pulse now)
-				if (wv[4] && !bt_irq) bt_latch <= 1'b0;
-			end else if (is_ctsi) begin
+			if (is_ctsi) begin
+				// A full NEM-4 ACK can also clear lower-word NOS events.
+				if (be[2] && wdata[20] && !bt_irq) bt_latch <= 1'b0;
 				// bits 2 and 3 clear when written 1 (and stay set by an edge now)
-				ctsi <= {wdata[15:4], ctsi[3:2] & ~wdata[3:2] | {fell_c != 5'd0, fell_r != 6'd0}, wdata[1:0]}
-				        & ~CTSI_NOS_EVENTS;
+				if (be[0])
+					ctsi <= {wdata[15:4], ctsi[3:2] & ~wdata[3:2] | {fell_c != 5'd0, fell_r != 6'd0}, wdata[1:0]}
+					        & ~CTSI_NOS_EVENTS;
 			end else if (is_cten) begin
 				bt_en <= hi ? (bt_en | wv) : (bt_en & ~wv);
 			end else begin

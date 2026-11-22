@@ -143,6 +143,7 @@ module upp_periph #(
 	input  logic        mmc_dat_i,
 
 	// the key matrix lines (keypad_matrix) and the power key (to the UEMK)
+	input  logic [ngage_keys::NKEYS-1:0] keys,
 	output logic [4:0]  kp_col_oe,
 	output logic [4:0]  kp_col_out,
 	output logic [5:0]  kp_row_oe,
@@ -225,7 +226,7 @@ module upp_periph #(
 	wire be32 = p_be == 4'b1111;
 	wire be16 = p_be == 4'b0011 || p_be == 4'b1100;
 	wire size_ok = (s_intc || s_dma || s_tmr || s_lcd || s_date) ? be32 :
-	               (s_ctsi || s_kp) ? be16 :
+	               (s_ctsi || s_kp) ? (be16 || (nem4 && be32)) :
 	               s_cbus ? (be16 || be32) : 1'b1;
 
 	// ------------------------------------------------------------------
@@ -304,7 +305,7 @@ module upp_periph #(
 	logic [5:0]  tmr_irq;
 	logic [7:0]  dma_irq;
 	logic [3:0]  mmc_irq;
-	logic        ctsi_irq;
+	logic        ctsi_irq, nem4_keypad_irq;
 	logic        pcm_link_up, pcm_write, alarm_irq;
 	logic [7:0]  pcm_offset;
 	logic [31:0] pcm_data;
@@ -320,7 +321,7 @@ module upp_periph #(
 	// interrupt sources, bit 32k + b = bank k bit b (docs/UPP_WD2.md)
 	wire [95:0] src = {69'd0,
 		simif_irq | euart_fiq,         // 26 CTSI_FIQ
-		ctsi_irq,                      // 25 CTSI_IRQ
+		(ctsi_irq || nem4_keypad_irq),  // 25 CTSI_IRQ
 		mmc_irq,                       // 24 MMCCmdRdy, 23 MMCCmdIdle, 22 MMCDataRdy, 21 MMCDataIdle
 		5'd0,                          // 16-20 Ir4M
 		2'd0,                          // 14 FlashCopyRdy, 15 LCDBuffer
@@ -518,6 +519,7 @@ module upp_periph #(
 		.be(p_be),
 		.rmask(m_uif),
 		.rdata(d_uif),
+		.qd_keypad(!nem4),
 		.bt_irq(bt_irq && !nem4),
 		.mdi_events(mdi_events),
 		.nos_tick(nos_tick),
@@ -531,6 +533,7 @@ module upp_periph #(
 	);
 
 	wire ear_route, sim_route, tx_route;
+	wire [15:0] genio_out;
 	wire [31:0] d_genio;
 	wire [31:0] m_genio = {32{acc && s_genio}};
 	upp_gpio genio (
@@ -543,7 +546,35 @@ module upp_periph #(
 		.ear_route(ear_route),
 		.sim_route(sim_route),
 		.tx_route(tx_route),
+		.genio_out(genio_out),
 		.dout(d_genio)
+	);
+
+	// The host key names are shared. Pack them in the order of the NEM-4
+	// contacts, including the rocker on GENIO and the keys on GPIO30/KPC.
+	import ngage_keys::*;
+	wire [25:0] nem4_keys = {
+		1'b0, keys[K_END], keys[K_CALL], keys[K_0], keys[K_EDIT], // Music, KPC group
+		keys[K_9], keys[K_8], keys[K_7], keys[K_6], keys[K_5], keys[K_4],
+		keys[K_3], keys[K_2], keys[K_1], keys[K_HASH], keys[K_STAR], keys[K_RSOFT],
+		1'b0, keys[K_CLEAR], keys[K_MENU], keys[K_LSOFT],        // Radio, soft keys
+		keys[K_OK], keys[K_RIGHT], keys[K_LEFT], keys[K_DOWN], keys[K_UP]
+	};
+	wire [31:0] m_nem4_keys, d_nem4_keys;
+	upp_nem4_keypad nem4_keypad (
+		.clk(clk),
+		.reset(reset || !nem4),
+		.keys(nem4_keys),
+		.access(acc && nem4),
+		.write(wr && nem4),
+		.addr({p_addr[27:2], 2'b00}),
+		.din(p_wdata),
+		.sel(p_be),
+		.genio1_driven(ear_route),
+		.genio_out(genio_out),
+		.rmask(m_nem4_keys),
+		.rdata(d_nem4_keys),
+		.irq(nem4_keypad_irq)
 	);
 
 	// Keep the native SIM controller and the synthetic card on a byte interface.
@@ -688,10 +719,11 @@ module upp_periph #(
 	                     (off[3:0] == 4'h4) ? {31'd0, c_blank} : 32'd0;
 
 	wire [31:0] rmask = m_intc | m_tmr | m_dma | m_mmc | m_lcd | m_uif | m_cbus | m_date | m_mdi |
-	                    m_genio | m_simif | m_euart | m_q;
+	                    m_genio | m_nem4_keys | m_simif | m_euart | m_q;
 	wire [31:0] rbits = (d_intc & m_intc) | (d_tmr & m_tmr) | (d_dma & m_dma) | (d_mmc & m_mmc) |
-	                    (d_lcd & m_lcd) | (d_uif & m_uif) | (d_cbus & m_cbus) |
-	                    (d_date & m_date) | (d_mdi & m_mdi) | (d_genio & m_genio) |
+	                    (d_lcd & m_lcd) | (d_uif & m_uif & ~m_nem4_keys) | (d_cbus & m_cbus) |
+	                    (d_date & m_date) | (d_mdi & m_mdi) | (d_genio & m_genio & ~m_nem4_keys) |
+	                    d_nem4_keys |
 	                    (simif_bad ? 32'd0 : (d_simif & m_simif)) |
 	                    (euart_bad ? 32'd0 : (d_euart & m_euart)) | d_q;
 	assign blk_busy = (s_mmc && b_mmc) || (s_lcd && b_lcd) || (s_cbus && b_cbus) ||

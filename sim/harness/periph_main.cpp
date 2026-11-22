@@ -1441,6 +1441,92 @@ struct Cbus {
 	}
 };
 
+void test_nem4_keypad(Bench &b) {
+	printf("NEM-4 keypad\n");
+	constexpr uint32_t kpc_in = 0x0C120C04, kpc_dir = 0x0C120C14;
+	constexpr uint32_t genio_set = 0x0C150202, genio_in = 0x0C15020A;
+	constexpr uint32_t genio_enable = 0x0C150016, nos_enable = 0x0C150012;
+	constexpr uint32_t kpc_pin = 1u << 19;
+	b.t->nem4 = 1;
+	b.reset_core();
+	b.wr(INTC + 8, 1u << 25);
+	CHECK_EQ(b.rd(KP), 0x001F0000, "NEM-4 port D starts driving low");
+	CHECK_EQ(b.rd(KP + 0x0C), 0x0000003F, "NEM-4 port E starts pulled up");
+	CHECK_EQ(b.rd(CTSI), 0, "NEM-4 keypad pending bits reset");
+
+	// Use the same host key positions as the QD test. D5 is GPIO30 on NEM-4.
+	struct Contact { int key, d, e; };
+	constexpr Contact contacts[] = {
+		{4, 1, 0}, {10, 0, 0}, {3, 0, 1},
+		{2, 2, 2}, {27, 3, 2}, {19, 4, 2}, {8, 5, 2},
+		{12, 2, 3}, {28, 3, 3}, {24, 4, 3}, {23, 5, 3},
+		{29, 2, 4}, {17, 3, 4}, {13, 4, 4}, {15, 5, 4},
+		{18, 2, 5}, {14, 3, 5}, {22, 4, 5}, {7, 5, 5}
+	};
+	for (const auto &contact : contacts) {
+		b.wr16(KP + 0x10, 0x003F);
+		b.keys = 1u << contact.key;
+		b.run(8);
+		CHECK_EQ(b.rd16(KP + 0x0C), 0x3F ^ (1u << contact.e), "press grounds the NEM-4 port E input");
+		CHECK_EQ(b.rd(CTSI) & 0xC, 4, "port E edge latches only the NEM-4 matrix status bit");
+		CHECK_EQ(b.rd(INTC + 0x14), 26, "NEM-4 matrix raises CTSI source 25");
+		b.wr16(KP + 0x10, 0x3F00);
+		b.wr16(CTSI, 0xC);
+		b.wr16(KP + 0x02, 0x1F00);
+		b.wr(kpc_dir, kpc_pin);
+		b.wr16(KP + 0x0E, 1u << contact.e);
+		CHECK_EQ(b.rd16(KP), contact.d < 5 ? 0x1F ^ (1u << contact.d) : 0x1F,
+		         "reverse scan identifies the NEM-4 port D contact");
+		CHECK_EQ(b.rd(kpc_in) & kpc_pin, contact.d == 5 ? 0 : kpc_pin,
+		         "GPIO30 reads the shared KPC column in the reverse scan");
+		CHECK_EQ(b.rd(CTSI) & 0xC, 0, "masked matrix scan leaves the interrupt clear");
+		b.keys = 0;
+		b.run(8);
+		b.wr16(KP + 0x0E, 0x3F00);
+		b.wr16(KP + 0x02, 0x001F);
+		b.wr(kpc_dir, 0);
+	}
+
+	struct Rocker { int key, pin, irq; };
+	constexpr Rocker rocker[] = {{0, 1, 5}, {5, 10, 1}, {1, 13, 3}, {6, 2, 7}, {9, 11, 2}};
+	b.wr16(genio_enable, 0x00AE);
+	for (const auto &contact : rocker) {
+		const uint32_t irq_mask = 1u << contact.irq;
+		b.keys = 1u << contact.key;
+		b.run(8);
+		CHECK_EQ(b.rd16(genio_in) & 0x2C06, 0x2C06 ^ (1u << contact.pin), "rocker grounds its NEM-4 GENIO input");
+		CHECK_EQ(b.rd16(CTSI + 2), irq_mask, "direct key latches its upper CTSI bit");
+		CHECK_EQ(b.rd(INTC + 0x14), 26, "NEM-4 GENIO raises CTSI source 25");
+		b.wr16(CTSI + 2, irq_mask);
+		b.run(8);
+		CHECK_EQ(b.rd16(CTSI + 2), 0, "upper halfword ACK clears a held key edge");
+		b.keys = 0;
+		b.run(8);
+	}
+
+	b.wr16(nos_enable, 0x1000);
+	b.keys = 1u << 1;
+	b.run(8);
+	CHECK_EQ(b.rd(CTSI), 0x00081000, "shared CTSI word contains both the GENIO and NOS events");
+	b.wr(CTSI, 0x00080000);
+	CHECK_EQ(b.rd(CTSI), 0x00001000, "GENIO ACK preserves the pending NOS event");
+	b.wr(CTSI, 0x00001000);
+	CHECK_EQ(b.rd(CTSI), 0, "NOS ACK clears the remaining event");
+	b.keys = 0;
+
+	Cbus c(b);
+	b.wr16(0x0C150014, 0x00AE);
+	c.write(1, 0x0A, 16, 0x0008);
+	CHECK_EQ(b.rd16(genio_in) & 2, 0, "UEM EAR routing can drive NEM-4 GENIO1 low");
+	b.wr16(genio_set, 1);
+	CHECK_EQ(b.rd16(genio_in) & 2, 2, "UEM EAR routing can drive NEM-4 GENIO1 high");
+
+	b.t->nem4 = 0;
+	b.reset_core();
+	CHECK_EQ(b.rd16(KP + 0x02), 0, "switching to QD restores its own port D reset state");
+	CHECK_EQ(b.rd16(CTSI + 2), 0, "switching to QD clears NEM-4 key status");
+}
+
 void test_genio_loopback(Bench &b) {
 	printf("GENIO loopback\n");
 	Cbus c(b);
@@ -1952,6 +2038,7 @@ int main(int argc, char **argv) {
 	test_regs_log(b, model_out);
 	test_timers(b);
 	test_keypad(b);
+	test_nem4_keypad(b);
 	test_cbus(b, model_out);
 	test_genio_loopback(b);
 	test_simif(b);
