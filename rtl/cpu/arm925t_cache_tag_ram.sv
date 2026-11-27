@@ -291,6 +291,20 @@ logic [SET_W-1:0]                          set_mask;
 logic [SMALL_FLAT_W-1:0]                   small_flat;          // the clean walk's line, as the small cache counts it
 assign in_small    = (SMALL_SIZE < CACHE_SIZE) && i_small;
 assign set_mask = in_small ? SET_W'(SMALL_LINES - 32'd1) : SET_W'(LINES - 32'd1);
+// The tag bits a lookup compares: all of them in the small cache. In the
+// large one the tag's lowest bits are index bits, equal for every line of
+// the set read; they are left out, so that a compare against the lines
+// of another set (a lookup the FSM does not use) answers as the large
+// cache with its own, shorter tag would: the two then agree in every clock.
+localparam [31:0] TAG_W = 32 - $clog2(CACHE_LINE) - SMALL_SET_W;
+logic [TAG_W-1:0] tag_mask;
+assign tag_mask = in_small ? {TAG_W{1'b1}} : ~TAG_W'(LINES / SMALL_LINES - 32'd1);
+// (Plain vectors for the compares: sv2v writes an operator between two
+// slices of the tag arrays out as one line of 200,000 characters.)
+logic [WAYS-1:0][TAG_W-1:0] tag_va;                             // each way's tag, its address part
+logic [TAG_W-1:0]           lk_tag, line_tag;                   // the same bits of the lookup's and the line operation's address
+assign lk_tag   = i_lookup_address[31 -: TAG_W];
+assign line_tag = i_line_addr[31 -: TAG_W];
 
 logic                                      unused;
 logic [BLK_CTR_PAD-1:0]                    dummy;
@@ -410,8 +424,8 @@ always_comb
 begin
         for ( int w = 0; w < WAYS; w++ )
         begin
-                hit[w] = valid_q[w] &&
-                         ( tag_q[w][`ARM925T_CACHE_TAG__TAG] == i_lookup_address[`ARM925T_VA__CACHE_TAG] );
+                tag_va[w] = tag_q[w][TAG_W-1:0];
+                hit[w] = valid_q[w] && !( |((tag_va[w] ^ lk_tag) & tag_mask) );
         end
 end
 
@@ -924,7 +938,7 @@ begin:blk1
                 for ( int w = 0; w < WAYS; w++ )
                 begin
                         if ( valid_q[w] &&
-                             ( i_line_va ? tag_q[w][`ARM925T_CACHE_TAG__TAG] == i_line_addr[`ARM925T_VA__CACHE_TAG]
+                             ( i_line_va ? !( |((tag_va[w] ^ line_tag) & tag_mask) )
                                          : WAY_W'(w) == rd_way ) )
                         begin
                                 line_hit_nxt = 1'd1;

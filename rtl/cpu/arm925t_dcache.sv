@@ -447,7 +447,7 @@ assign compare_address = i_address_check;
 assign cache_write_way = live_lookup ? tr_cache_way : cf_cache_way;
 assign ram_write = !live_lookup || tr_cache_hit;
 assign forward_store = live_lookup && cf_cache_tag_wr_en && tr_cache_hit &&
-                       ((compare_address[LINE_W +: SET_W] ^ cache_address[LINE_W +: SET_W]) & set_mask) == '0;
+                       !( |((compare_address[LINE_W +: SET_W] ^ cache_address[LINE_W +: SET_W]) & set_mask) );
 assign forward_victim = forward_store &&
                        raw_cache_tag[`ARM925T_CACHE_TAG__TAG] == cf_cache_tag[`ARM925T_CACHE_TAG__TAG];
 // The RAM's collision register covers the E lookup sampled on this write
