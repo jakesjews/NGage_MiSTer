@@ -1,10 +1,9 @@
 #!/bin/zsh
 # Build the NOS stand-in binaries that firmware-patches/rom-patches.txt places
 # into CS0 (over the entry points of NOS, the cellular RTOS, which needs modem
-# hardware the core does not have), with the same
-# steps as model/build.sh, so that the core's patch ROM (tools/gen_patchrom.py)
-# and tools/mkimage.py need no ARM toolchain. The binaries are committed in
-# firmware-patches/bin.
+# hardware), with the same steps as model/build.sh. The committed binaries
+# in firmware-patches/bin let mkimage.py build comparison images without
+# an ARM toolchain.
 # Usage: tools/build_standin.sh [SRC_DIR [OUT_DIR]]
 #   SRC_DIR  the stand-in sources (default firmware-patches/nos-stub)
 #   OUT_DIR  where nos-stub.bin and nos-dll.bin go (default firmware-patches/bin)

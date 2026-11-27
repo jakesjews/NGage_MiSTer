@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// The page around unpack.js: takes dropped or chosen files, shows the two
-// boot files as cards and hands them out as downloads.
+// The page around unpack.js: takes dropped or chosen files and, once it has
+// the firmware file and a language pack, shows the two boot files made from
+// them as cards and hands them out as downloads.
 (function () {
 	'use strict';
 
-	const { unpack, PACKAGE, ARCHIVE } = window.NGageUnpack;
+	const { unpack, images, PACKAGE, ARCHIVE, FIRMWARE, PACK } = window.NGageUnpack;
 	const $ = (id) => document.getElementById(id);
 	const status = $('status'), bar = $('bar'), input = $('file'), ask = $('ask');
 	const cards = { 'boot0.rom': $('card0'), 'boot1.rom': $('card1') };
 	const askText = ask.textContent;
 	const count = (n) => n.toLocaleString('en-US');
+	const have = {};                    // the flash files so far: firmware, pack
 	let busy = false;
 
 	function say(text, isError) {
@@ -27,7 +29,7 @@
 			case 'no-pack': return name + ' holds the firmware file, but no language pack for it. ' + want;
 			case 'damaged': return name + ' is cut short or damaged. Download it again: ' + ARCHIVE.name + ' is ' + count(ARCHIVE.size)
 				+ ' bytes, the package ' + count(PACKAGE.size) + '.';
-			case 'mismatch': return 'The firmware file in ' + name + ' is not the 4.10 one the core accepts. Download it again.';
+			case 'mismatch': return 'The firmware in ' + name + ' is not the 4.10 one the core runs. Download it again.';
 			case 'unsupported': return name + ' is packed in a way this page cannot read. ' + want;
 			default: return name + ' could not be read: ' + error.message;
 		}
@@ -40,8 +42,9 @@
 		link.href = URL.createObjectURL(new Blob([file.bytes], { type: 'application/octet-stream' }));
 		link.download = file.save;
 		link.hidden = false;
-		card.querySelector('.meta').textContent = (file.variant ? file.variant + ' (' + file.source + '), ' : '')
-			+ count(file.bytes.length) + ' bytes, checked against firmware 4.10';
+		card.querySelector('.meta').textContent = count(file.bytes.length) + ' bytes, firmware 4.10'
+			+ (have.pack.variant ? ', ' + have.pack.variant : '') + ' (' + have.pack.source + ')'
+			+ (file.checked ? ', checked' : '');
 		card.classList.remove('is-ready');
 		void card.offsetWidth; // so the card comes out of the slot again
 		card.classList.add('is-ready');
@@ -58,15 +61,19 @@
 				try {
 					// the file itself, not its bytes: the archive is read in pieces
 					const out = await unpack(file, (f) => { bar.value = f; }, file.name);
-					out.forEach(show);
+					out.forEach((part) => { have[part.part] = part; });
+					if (have.firmware && have.pack) {
+						say('Making the boot files');
+						(await images(have.firmware, have.pack)).forEach(show);
+					}
 				} catch (error) {
 					say(explain(error, file.name), true);
 					return;
 				}
 			}
-			const ready = Object.keys(cards).filter((name) => cards[name].classList.contains('is-ready'));
-			if (ready.length === 2) say('Both files are ready. Save them, then copy them to the MiSTer.');
-			else say(ready[0] + ' is ready. Drop the other file for ' + (ready[0] === 'boot0.rom' ? 'boot1.rom' : 'boot0.rom') + '.');
+			if (have.firmware && have.pack) say('Both files are ready. Save them, then copy them to the MiSTer.');
+			else if (have.firmware) say(FIRMWARE.source + ' is taken. Drop a language pack too (' + PACK.source + ', say): the boot files are made from the two.');
+			else say(have.pack.source + ' is taken. Drop the firmware file too (' + FIRMWARE.source + '): the boot files are made from the two.');
 		} finally {
 			bar.hidden = true;
 			busy = false;

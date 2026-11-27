@@ -27,12 +27,14 @@ first access is logged to `model/.out/regs.log`.
 |---|---|---|---|---|
 | `0x00000000` | 16 MB | CS0 NOR flash (AMD command set) | bootstrap reset vector; JAF log | A |
 | `0x02000000` | 8 MB | CS1 NOR flash | bootstrap `0xA40` ID probe | A |
-| `0x04000000` | - | CS2, empty on the QD (reads 0) | bootstrap `0x0C0047B8` probe | A |
+| `0x04000000` | 8 MiB on NEM-4 | CS2, empty on the QD (reads 0) | bootstrap `0x0C0047B8` probe | A |
 | `0x08000000` | 4 KB | memory controller | bootstrap `0xB24` | A |
 | `0x0A000000` | 16 MB | SDRAM | bootstrap memory test `0x264`, stack | A |
-| `0x0C000000` | 256 KB modelled | on-chip RAM; bootstrap copies flash routines to `0x0C004748` | bootstrap | A (exists), C (size) |
-| `0x0C100000` | 1 MB | peripheral registers | bootstrap page table | A |
-| `0x0C1F0000` | 4 KB | **emulator devices** (HLE audio, HLE RTC date): not UPP_WD2 hardware, see the last section | no firmware access to the page (no ROM constant, no access in any run) | - |
+| `0x0C000000` | 4 KiB | Read-only ASIC ROM, modeled as Thumb `BX LR` from ngage-v5 | QD fetch at `0x580003DE` maps to this device | A (guest use), model (contents) |
+| `0x0C001000` | Remainder of 1 MiB window | On-chip RAM mapped above the guest's 16 MiB SDRAM; includes comm RAM at `0x0C004000`, DSP upload at `0x0C030000` and auxiliary upload at `0x0C06FF00` | Bootstrap flash routine at `0x0C004748`, native QD DSP uploads, ngage-v5 region map | A (observed regions), model (other offsets) |
+| `0x0C100000` | `0x3E8` bytes | MDI shared rings in MiSTer SDRAM at byte offset `0x01100000` | native QD NOS ring access | A (guest use), model (backing) |
+| `0x0C1003E8` | rest of the 1 MB page | peripheral registers | bootstrap page table | A |
+| `0x0C1F0100` | 16 bytes | Historical emulator RTC date and C: blank flag | NOS stand-in | - |
 | `0x0D000000` | 16 MB | second I/O window; only the STI trace window at `0x0DE00000` is used so far | bootstrap table, ekern `0x5031E4A8` | B |
 
 ## Clock and system page (0x0C120000)
@@ -40,7 +42,7 @@ first access is logged to `model/.out/regs.log`.
 | Address | Name / guess | Behaviour in the model | Evidence | Conf. |
 |---|---|---|---|---|
 | `0x0C120004` | clock source select | storage | bootstrap `0x376C` writes `0xC`, ekern restart writes `0x200` | B |
-| `0x0C120020` | clock status | bits 26-28 read as 1 (DPLL locked) | bootstrap polls bit 26 at `0x3770`, bit 27 at `0x382C` (`upp-quirks.txt`) | A |
+| `0x0C120020` | clock status | Bits 26–28 read as 1 (DPLL locked). The RTL reports bit 25 while clock control `0x0C120004` holds `0x20` or `0x40`. | The bootstrap polls bit 26 at `0x3770` and bit 27 at `0x382C`. Original QD 4.10 NOS writes `0x40` then `0x20` and polls bit 25 at `0x514A6DCC`. The immediate ready response follows the NEM-4 model. | A (guest access), model (ready timing) |
 | `0x0C120044` | OS-timer unit: interrupt enable, bits 2:0 | drives FIQ with `+0x50` | ekern `0x5031C7A8` writes 2 (`ngage_intc.c`) | B |
 | `0x0C120050` | OS-timer unit: status, write 1 to clear | nothing sets it yet | FIQ dispatcher `0x5031C99C`: bit 1 = tick (`0x5031C938`) | B (layout), C (source) |
 | `0x0C120074` | OS-timer unit: unknown | storage | ekern `0x5031C724` writes 3 | C |
@@ -75,7 +77,7 @@ timer 4 (`0x0C120A80`) is bit 4 (`0x5031C968`); the kernel enables bit 25
 | 22 | MMCDataRdy | | 29 + 2*n*, 30 + 2*n* | GPIO*n* Low, High (n = 0-21 named in the kernel) |
 
 Sources enabled so far: IRQ 0 (tick), 1 (high-resolution timer), 4,
-5 (IrqTimer5, bound by the NOS stand-in for the HLE audio device),
+5 (IrqTimer5),
 6-12 (DMA), 21-24 (MMC), 25 (CTSI: ekeyb.dll for the keys, cbus.dll for
 the UEMK and for the Bluetooth module's line), 46 (GPIO8High,
 bound by cbus.dll; probably the UEMK interrupt line); FIQ 27.
@@ -94,7 +96,7 @@ reload `0x843E2` (`0x5031C6F0`) gives the EKA1 1/64 s tick (B). Uses: timer 0
 |---|---|---|---|---|
 | `+0x04` | control | bit 1 = run, reload from +0x18 on underflow; bit 0 alone = run once and stop at 0 (guess); reads back what was written | boot `0x31AC`; timer 1 started with 1 (`0x5031CA78`); ekern `0x5031EA58` rewrites until it reads back | B (bit 1), C (bit 0) |
 | `+0x08` | interrupt acknowledge | any write clears the latched underflow interrupt; reads return the last value written | tick ISR writes 0 (`0x5031C5C0`); timer-1 ISR writes 1 without disabling its source (`0x5031CACC`); boot and timer-4 ISRs write 1 (`0x3064`, `0x5031C86C`); boot polls the value it wrote (`0x3208`) | B |
-| `+0x10` | counter | live down-count; a write reloads | kernel reads it as a free-running time base (`0x5031E6B4`) | B |
+| `+0x10` | counter | live down-count. A write reloads. An explicit zero load on enabled one-shot Timer 1 expires at the next tick. | The kernel reads it as a free-running time base (`0x5031E6B4`). A wrap on zero delayed the stock Supervisor callback by more than 100 simulated seconds. | B (counter), model (zero load) |
 | `+0x18` | reload | loaded on underflow | boot `0x31B4`, ekern `0x5031EAC4` | B |
 
 ## DMA controller (0x0C120300) — `ngage_dma.c`
@@ -170,21 +172,44 @@ phone shows; idle mode's colours are DCS behaviour, not checked on a phone.
 
 | Address | Name / guess | Behaviour | Evidence | Conf. |
 |---|---|---|---|---|
+| `0x0C148000` | NOS clock unit | configuration latch with bit 0 set on reads (immediate lock) | QD 4.10 writes `0x2000`, then `0x2490`, and polls bit 0 at Thumb `0x5167AF8A`. The NEM-4 firmware uses the same sequence. | A (guest use), model (lock timing) |
 | `0x0C149000` | MCU DPLL | bit 0 reads 1 (locked) | bootstrap writes `0x2210` at `0x37F8`, polls at `0x37FC` (`upp-quirks.txt`) | A |
+| `0x0C14B000` | UPP revision | Low halfword bits 7:4 read as 8 in the QD model | QD 4.10 reads this halfword at `0x515B5E96` and checks bits 7:4 at `0x516A1A8C`. The previous model returned zero and the native test recorded failure. | A (guest test), model (revision) |
 | `0x0C14D000`-`0x0C14D010` | STI (serial trace) control; DCT4 STI `0x0600D000` rebased | storage | ekern `0x5031E40C`: `+0`=2, `+2`=`0x300`, `+4`=`0x205`, `+8`=0, reads `+0xE`, `+0x10` | B |
 | `0x0C14F000`-`0x0C14F010` | TESTIF / pin set-up | storage | bootstrap `0x67F8`, ekern | C |
+
+## Internal DSP MDI
+
+| Address | Function | Behavior |
+|---|---|---|
+| `0x0C100000`–`0x0C1001F3` | MCU to DSP | 250-halfword circular buffer. The peer advances the consumer and latches CTSI bit 9. |
+| `0x0C1001F4`–`0x0C1003E7` | DSP to MCU | 250-halfword circular buffer. The peer publishes the producer after its last payload write and latches CTSI bit 10. |
+| `0x0C1003E8`, `0x0C1003EC` | Ring pointers | Producer in the low halfword, consumer in the high halfword. |
+| `0x0C14B004` | Link control | Low halfword `0x0500` starts the link. After both pointers are initialized, the peer waits 20 CTSI NOS ticks and publishes device `0x7C` on D2M. |
+
+The startup peer uses SDRAM for ring payloads and returns the original
+core's synthetic RF and software versions for F1/A0 queries. QD NOS
+consumed the same native announcement in the checkpoint experiment.
+DSP instruction timing and board behavior remain unverified.
 
 ## CTSI, PUP, UIF (0x0C150000)
 
 | Address | Name / guess | Behaviour | Evidence | Conf. |
 |---|---|---|---|---|
 | `0x0C150000` | CTSI reset reason | storage (reads 0) | bootstrap `0x2E58` masks `0x0E`; ecust's start-up reason (`0x503439C0`) takes a different path (boot data in on-chip RAM `0x0C00420x`/`0x0C00428E`) when bits 3:1 are nonzero, i.e. after a reset that was not a power-on | B |
+| `0x0C150002` | System-type strap | bit 6 reads 1 for GSM | QD 4.10 NOS `0x514C2886` tests `0x40` before MBUS setup. The same strap is modeled on NEM-4. | A (guest use), model (strap) |
 | `0x0C150024`, `0x0C150028` | CTSI IRQ / FIQ controller enable | storage | ekern `0x5031C730`/`0x5031C73C` write 1 | C |
 | `0x0C150014`, `0x0C150016` | CTSI interrupt enables, second group: write 1s to disable / to enable; both read the enables | `ngage_bt.c` | btldd `0x503F084C` (close) and `0x503F0B48` (open) write `0x10` | B (use), C (reads) |
-| `0x0C150010`, `0x0C150012` | the same for the first group (guess) | storage | ekern writes `0x8000` to `+0x10`, cbus.dll `0x8000` to `+0x12` after binding its UEMK handler (`0x5037DC20`) | C |
-| `0x0C150100` | CTSI interrupt status: bit 2 = port E (key rows) interrupt, bit 3 = port D (guess); write 1 to clear; behind main source 25. Bit 15 is the UEMK's (cbus.dll `0x5037D4F4`), not modelled | `ngage_keypad.c` | ekeyb CTSI ISR 0x5041B9E0 tests bit 2, acks with 0xC at 0x5041CD6C; bootstrap writes 0x8000 (0x2EE4) | B |
+| `0x0C150010`, `0x0C150012` | CTSI interrupt enables, first group | Write ones to disable or enable modeled bits 7, 9, 10, 12 and 13. The upper halfword reads back those enables. Enabling software bits 12 and 13 also sets pending. Disabling them clears pending. | NOS `0x514C1BF2` enables MDI or raises deferred work. `0x514C1C5A` disables the selected bits. | A (guest use), model (event sources) |
+| `0x0C150100` | CTSI interrupt status | Source 25 latches keypad bits 2 and 3, deadline bit 7, MDI bits 9 and 10, and software bits 12 and 13. Writing ones acknowledges those bits. Bit 15 is the UEMK's (`0x5037D4F4`) and has storage only. | QD NOS reads the first group's status and enables at `0x514C198A`. ekeyb tests bit 2 and acknowledges it with `0x000C` at `0x5041CD6C`. | A (guest use), model (port D bit) |
+| `0x0C150112` | Read-only CTSI delay-calibration down-counter | Counts through zero and reloads from the window, at approximately 32.768 kHz | QD 4.10 NOS `0x514C2C7C` computes start minus current modulo window plus one | A (guest arithmetic), model (rate) |
+| `0x0C150114` | CTSI calibration window | Byte-writable 16-bit reload, with `0x0080` selected by reset or zero | The original NOS reads the window and waits for half that many ticks. The default and reload on write are model choices. | A (guest use), model (default) |
+| `0x0C150116`, `0x0C150118` | CTSI NOS count and compare | Count advances on each calibration wrap. A match sets CTSI status bit 7. | QD 4.10 NOS `0x514AF288` waits for the fast count to be nonzero before reading the slow count, and `0x514AF37C` writes the deadline. | A (guest use), model (tick relation) |
+| `0x0C15021C`, `0x0C15021E` | MBUS command strobes and loopback | Lower-halfword bits `0x9818` read clear. Upper-halfword bit 6 follows bit 7. | QD 4.10 NOS `0x515B9188` polls bit 15. The MBUS startup test at `0x516A14E2` reads bit 6 after setting bit 7, then verifies that it clears. | A (guest use), model (timing) |
+| `0x0C150504` | FBUS transmit status | bits in `0x01D0` read set in the idle model | QD 4.10 NOS `0x515BA844` reads status, and `0x515BA8A6` checks `0x01C0` for empty. | A (guest use), model (idle transmitter) |
 | `0x0C150102` | CTSI interrupt status, second group: bit 4 = the Bluetooth module's line, latched from its pulse; write 1 to clear; behind source 25 too. It reads as set, and interrupts, only while enabled at `+0x16`: a guess and the safe one, since cbus.dll faults ("CBus:" 7) on the bit with no driver registered | `ngage_bt.c` | cbus.dll's second handler on IrqCTSI_IRQ `0x5037D5BC` tests bit 4 and calls btldd's, which writes `0x10` (`0x503F0B68`); `docs/BLUETOOTH.md` | A (bit, clear), C (masked read) |
-| `0x0C150200`-`0x0C150218` | PUP GENIO set/reset/input/direction | storage | bootstrap `0x3A24`, `0x67C0` (LCD /RES = GENIO4) | B |
+| `0x0C150200`–`0x0C15020F` | PUP GENIO output and input | Output halfwords at `+0x02` and `+0x06` set bits. Writes to `+0x04` and `+0x08` clear them. GENIO1, GENIO3 and GENIO17 read through the modeled UEM routes. | QD 4.10 NOS `0x516A1D20` exercises both levels of each route. The NEM-4 model supplies the routing. | A (guest use), model (pin behavior) |
+| `0x0C150210`–`0x0C150218` | PUP GENIO configuration | storage | bootstrap `0x3A24`, `0x67C0` (LCD /RES = GENIO4) | B |
 | `0x0C150400`/`0x0C15040C` | UIF port D (key columns, 5 bits) / port E (key rows, 6 bits) data: output latch, reads pin levels | `ngage_keypad.c` | ekeyb 0x5041CBA8 (reads, inverts, keeps 0x1F/0x3F) | A |
 | `+0x02`/`+0x0E` | direction, 1 = output; write: low byte sets, high byte clears | | ekeyb ops 2/3 at 0x5041C804 | A |
 | `+0x04`/`+0x10` | interrupt enable, set/clear format | | ops 4/5 | B |
@@ -214,16 +239,18 @@ converter in `ngage_cbus.c`):
 
 | Register | Name / guess | Model | Evidence | Conf. |
 |---|---|---|---|---|
-| `0x15` | interrupt status | reads `0x0008` | bootstrap `0x2E6C`: without `0x1F` bit 1 the phone stays on only if bit 3 or 4 is set, otherwise it writes `0x12` = 0 (power off, `0x2F00`); ecust `0x50343B64`: bit 4 gives start-up reason 4 | B (bits), C (value) |
+| `0x0A`, `0x0C`, `0x1B` | Startup loopback routes | Bits 3, 5 and 10 respectively enable the ear, SIM and TX input routes in the UPP. | QD 4.10 NOS writes these fields around the GENIO tests. The latch and route behavior follows the NEM-4 model. | A (guest use), model (routing) |
+| `0x15` | interrupt status | latched alarm in bit 3 (write-one-to-clear), power key in bit 4 | bootstrap `0x2E6C`: without `0x1F` bit 1 the phone stays on only if bit 3 or 4 is set, otherwise it writes `0x12` = 0 (power off, `0x2F00`); ecust `0x50343B64`: bit 4 gives start-up reason 4 | B (bits), C (value) |
 | `0x16` | interrupt mask | storage | bootstrap `0x2E88` unmasks bits 3-4 around the `0x15` read | B |
 | `0x19` | A/D control: bits 15:12 channel, bit 11 start, bit 7 set by cbus.dll beforehand | starts a conversion | bootstrap `0x3604` writes `0x6800`, cbus.dll `0x5037E1E8` writes `0x6880` (channel 6); TriX names it ADC control | A (use), B (fields) |
 | `0x1A` | A/D result, 10 bits | channel value from `adc` lines | bootstrap `0x3104`, cbus.dll `0x5037E228` read it and mask `0x3FF` | A |
 | ADC channel 6 | battery-size indicator (BSI) | 485 | cbus.dll `0x5037E240`: 5-49 → state 2 (ecust start-up 6, reported as 5), 50-93 → state 3 (5), 380-590 → state 1 (normal battery), else 0 (ecust reports 9, a list Starter does not have); bootstrap `0x3124`: 5-93 = test jig, > `0x3DD` powers off | A (ranges), C (value) |
+| ADC channel 12 | battery voltage | 512 | QD 4.10 writes `0xCFA1` to UEM register `0x19` and reads `0x1A` during MTC startup. Zero causes a low-battery shutdown. The NEM-4 model's sample passes that check. | A (guest use), model (sample) |
 | `0x11`, `0x12`, `0x13` (read) | RTC seconds (bits 5:0), minutes (5:0), hours (4:0); writes go to other functions (vibra PWM, watchdog in TriX's names) | time of day: the QEMU RTC at start-up (`-rtc base=`, local time by default) plus guest time | cbus.dll table entries 32-34 (`0x5037E544`) are read-only aliases of these registers; rtc.dll `0x5034A2C4` reads 32, 33, 34, then register `0x01`, until the seconds read the same twice | A |
 | `0x01` | RTC day counter, 8 bits | days since start-up midnight; a write sets it | rtc.dll adds it to its base date (`0x5034A678`), clears it (`0x5034932C`) and treats 255 as a clock that lost power (`0x50349030`) | A (use), B (meaning) |
 | `0x02`, `0x03` | RTC alarm minutes, hours (bit 7 of `0x03` enables) | storage | rtc.dll `0x5034A3C8` | B |
 | `0x04` | RTC calibration | `0xC0` at start (cbus-regs.txt) | rtc.dll treats 0 as a clock that lost power (`0x50349030`) and sets bits 7:6 when it reads 0 (`0x50349CB0`) | B |
-| `0x1F` | power-on status; bit 1 = power key held | bit 1 follows the power key (held for the first 3 guest seconds, then key "power" in the key script, F6 in the window) | ekeyb `0x5041CC9C`-`0x5041CCC4` reads bit 1 as key bit 28 (scan code `0xA6`, the power key) and polls it while set; bootstrap `0x3090`: set at power-on → normal power-on (backlight and regulators on at `0x2F64`, superpage `0x4000101C` = 1), which ecust copies to variant `+0x80` (`0x50342AF4`) and turns into start-up reason 0 (`0x50343A6C`). If the key stays held, SysAp sees a held power key; if it is released before the bootstrap reads it, the reason becomes 9 and Starter faults. TriX's DCT4 emulator has the opposite polarity | A (use), B (hold time) |
+| `0x1F` | power-on status; bit 1 = power key held | Bit 1 follows the power key. The good-backup-battery model sets bit 11 and clears bit 5. QD NOS tests these bits at `0x516A1B18`. | ekeyb `0x5041CC9C`-`0x5041CCC4` reads bit 1 as key bit 28 (scan code `0xA6`, the power key) and polls it while set; bootstrap `0x3090`: set at power-on → normal power-on (backlight and regulators on at `0x2F64`, superpage `0x4000101C` = 1), which ecust copies to variant `+0x80` (`0x50342AF4`) and turns into start-up reason 0 (`0x50343A6C`). If the key stays held, SysAp sees a held power key; if it is released before the bootstrap reads it, the reason becomes 9 and Starter faults. TriX's DCT4 emulator has the opposite polarity | A (use), B (hold time) |
 
 Start-up reason (`TWD2StartupReason`) as ecust computes it (variant
 `+0xD0` = `0x503439AC`, read by HelperDrv control 0 for EStart and through
@@ -279,7 +306,17 @@ Nothing in the firmware touches this page: no ROM constant points into it
 and no run accesses it. Symbian maps it at virtual `0x581F0000` with the
 rest of `0x0C1xxxxx`.
 
-### HLE audio device (0x0C1F0000) — `ngage_audio.c`
+### Native MDI game PCM
+
+Stock NOS sends Phonet resource `0xE8` to DSP device `0x7C` through the
+shared MDI rings. The responder plays signed 16-bit mono at 8 or 16 kHz
+from the SDRAM halves and posts replies through the D2M ring. CTSI bit
+10 signals publication. The renderer resamples to 48 kHz for both MiSTer
+channels.
+
+### Historical HLE audio device (0x0C1F0000) — `ngage_audio.c`
+
+The stand-in and the reference software model used this interface.
 
 Plays two PCM buffers from SDRAM alternately. All registers are 32-bit.
 
@@ -303,11 +340,6 @@ empty it takes the other one when that is full, otherwise it outputs
 silence (starved) until one is filled. The interrupt is DONE0 | DONE1 with
 IRQ enable, on interrupt source 5 (IrqTimer5: nothing in Symbian binds it
 and no timer 5 runs; the stand-in binds it by name, id 98).
-
-FPGA: a block that fetches 16-bit words from SDRAM at RATE and resamples to
-MiSTer's 48 kHz AUDIO_L/R (the model interpolates linearly with a 16.16
-phase step RATE / 48000; mono goes to both channels). The stand-in only uses
-mono at 8000 or 16000 Hz with halves of up to 5600 samples.
 
 ### HLE RTC date register (0x0C1F0100) — `ngage_cbus.c`
 

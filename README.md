@@ -2,8 +2,8 @@
 
 The Nokia N-Gage QD as a MiSTer core. The phone's own firmware boots on a
 reconstruction of its hardware, so N-Gage game cards run as they did on the
-phone. The cellular side is not emulated: the phone comes up as a handset
-with no SIM.
+phone. Its cellular software runs as well, with a test SIM in the slot and
+no radio behind it.
 
 ## What you need
 
@@ -18,30 +18,39 @@ with no SIM.
 
 ## Setup
 
-1. Copy the `.rbf` from [releases/](releases/) to `/media/fat/_Console/`.
+The `.rbf` in [releases/](releases/) and the published unpacker page are
+still those of `NGage_20261120`, from before this setup: follow
+[its README](https://github.com/jakesjews/NGage_MiSTer/blob/9210fa2/README.md)
+for them. The steps here are for a core built from the current source, with
+the unpacker page as it is in [web/](web/)
+([docs/BUILDING.md](docs/BUILDING.md)).
+
+1. Copy the `.rbf` to `/media/fat/_Console/`.
 2. Create the folder `/media/fat/games/NGage/` and copy
-   [boot0.vhd](releases/boot0.vhd) into it. This is the phone's C: drive: its
-   settings and your game saves.
+   [boot0.vhd](releases/boot0.vhd) and [boot2.vhd](releases/boot2.vhd) into
+   it. Together they are the phone's memory: its C: drive with your settings
+   and game saves, and what the phone keeps about itself.
 3. Drop the zip on the [firmware unpacker](https://ngage-mister.vercel.app/)
    and save `boot0.rom` and `boot1.rom` into the folder.
-   - `boot0.rom` (18,454,871 bytes): SHA-256
-     `3ce529d6fbcd6db1f4290fabe8b70c62242a23444c4fa74caec42657d12ab4a0`
-   - `boot1.rom` (1,394,513 bytes): SHA-256
-     `657c2d1bafbad6797732c86892999a9e201e10961ee8c1801b0b6cc73bb41fa5`
+   - `boot0.rom` (16,777,216 bytes): SHA-256
+     `8ae1f84ae5893a6e5d04649e684ae600b093efb432cd052458294d1db5c2ef2e`
+   - `boot1.rom` (8,388,608 bytes): SHA-256
+     `1058c15e99e363e42362282c4264db8e68776def8fdcc6e4e72ad9b0fcf4a8d1`
 4. Copy your `.mmc` images into the folder.
-5. Start **NGage** from the Console menu. The first start formats C: and asks
-   for the time and date: press Enter for each.
+5. Start **NGage** from the Console menu. The first start formats C:, which
+   keeps the Nokia logo on screen for about two minutes, and then asks for
+   the time and date: press Enter for each.
 6. Open the OSD, choose **Mount MMC card** and pick a game.
 7. If the game does not start by itself, press Menu (F5), move to its icon and
    press OK (Enter).
 
 If you have the firmware as `RH2941.0C1` and one of its language packs
-(`RH2941.021`, or another for 4.10), rename them `boot0.rom` and `boot1.rom`
-instead of step 3. The checksums in step 3 are those of `RH2941.0C1` and
-`RH2941.021`; another language pack has its own.
+(`RH2941.021`, or another for 4.10), drop those two on the unpacker instead
+of the zip. The checksums in step 3 are those of the files made with
+`RH2941.021`; another language pack gives its own.
 
 To have a card in the slot at every start, name a copy of its image
-`boot1.vhd`. The phone then starts at its idle screen with the game in the menu.
+`boot1.vhd`. The game is then in the phone's menu from the start.
 
 ## Controls
 
@@ -76,10 +85,19 @@ Only the `.mmc` file goes on the MiSTer.
 ## Good to know
 
 - **Saves reach `boot0.vhd` a few seconds after the phone writes them.**
-  Choose **Save C: now** in the OSD before switching off right after a save.
-- Keep your `boot0.vhd`: replacing it with the blank file starts a new phone.
-- Coming from a release that ran firmware 4.60 (up to 2026-11-12): replace
-  all three files. A `boot0.vhd` made under 4.60 does not work with 4.10.
+  Choose **Save C: and PMM now** in the OSD before switching off right after
+  a save.
+- The phone takes its date and time from the MiSTer at every start. What
+  you enter at the first start lasts until the next one.
+- `boot0.vhd` and `boot2.vhd` are one phone: keep them together. Replacing
+  both with the files from releases/ starts a new phone. Replacing only one
+  does not work: a new `boot2.vhd` erases the C: beside it at the next start,
+  and a new `boot0.vhd` beside a used `boot2.vhd` is never formatted.
+- Coming from `NGage_20261120` or an earlier release: replace every file in
+  the folder but your cards. The firmware files of those releases are
+  refused, and the new `boot2.vhd` erases an old `boot0.vhd`.
+  [docs/BUILDING.md](docs/BUILDING.md#on-the-mister) has the way to keep
+  an old C:.
 - Five minutes after the last key press the phone shows its screen saver,
   over a game too: a bar with the date and time on a black screen. Any key
   brings the picture back.
@@ -92,32 +110,35 @@ Only the `.mmc` file goes on the MiSTer.
   core's Bluetooth module has no radio, so games cannot be played over it.
 - **Aspect ratio** set to *Original* keeps the screen's own 176:208 shape,
   and **Rotate** turns the picture for a rotated display.
-- **Load firmware**, **Load language pack** and **Mount C: save** in the OSD
-  load the same three files by hand, in any order.
-  **Load flash** is for development.
+- The **Firmware** page of the OSD loads the same four files by hand.
 
 ## Troubleshooting
 
-- Black screen: the phone starts only when `boot0.rom`, `boot1.rom` and
-  `boot0.vhd` are all in `games/NGage/` under exactly those names.
-- **Firmware not recognised: needs RH-29 4.10**: these are other firmware
-  files (4.60's, from an earlier release of the core), or the two are swapped.
-  `boot0.rom` is `RH2941.0C1`.
-- **Firmware file damaged**: copy the two firmware files to the MiSTer again.
-- **C: save file must be 4 or 8 MB**: start again from a copy of the blank file.
-- **C: read-only: no saves**: `boot0.vhd` is write-protected.
-- The Nokia logo stays for a long time: the phone is formatting C: (first
-  start) or repairing it (after power was cut during a save). Leave it running.
+- Black screen: the phone starts only when `boot0.rom` and `boot1.rom` are in
+  `games/NGage/` under exactly those names.
+- **Firmware files not valid: see the README**: `boot0.rom` and `boot1.rom`
+  are not the two files the unpacker makes (step 3 has their sizes). The
+  firmware files of earlier releases get this message: make them again.
+- The Nokia logo stays for more than five minutes on the first start:
+  `boot2.vhd` is missing, or it is not the file from releases/. Start again
+  from both files of step 2.
+- The Nokia logo stays for a long time on a later start: the phone is
+  repairing C: after power was cut during a save. Leave it running.
+- **C: save file must be 4 or 8 MB**, **PMM save must be 64 KiB**: start
+  again from the files of step 2.
+- **C: read-only: no saves**, **PMM read-only**: the file is write-protected.
 
 ## More
 
 - [docs/BUILDING.md](docs/BUILDING.md): building the core and running its tests.
 - [docs/UPP_WD2.md](docs/UPP_WD2.md) describes the hardware as reconstructed,
   [docs/CPU.md](docs/CPU.md) the processor,
-  [docs/BLUETOOTH.md](docs/BLUETOOTH.md) the Bluetooth module and
+  [docs/BLUETOOTH.md](docs/BLUETOOTH.md) the Bluetooth module,
+  [docs/FIRMWARE-PROFILES.md](docs/FIRMWARE-PROFILES.md) how the unmodified
+  firmware was brought up and
   [docs/NOS_STANDIN.md](docs/NOS_STANDIN.md) the stand-in for the phone's
-  cellular firmware. [docs/PROGRESS-LOG.md](docs/PROGRESS-LOG.md) is the
-  development record.
+  cellular software that earlier releases ran.
+  [docs/PROGRESS-LOG.md](docs/PROGRESS-LOG.md) is the development record.
 - [docs/RETROTINK4K.md](docs/RETROTINK4K.md) is a RetroTINK 4K profile shaped
   like the QD's screen.
 

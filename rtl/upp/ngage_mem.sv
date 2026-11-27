@@ -4,10 +4,10 @@
 // controller's (rtl/upp/upp_dma.sv), which wb_arb2 takes in turns:
 //   upp_bus      the UPP_WD2 map (flash, EMIF registers, SDRAM, on-chip RAM,
 //                the peripheral register bus)
-//   nor_flash    CS0 (16 MB, K8S2815ETA) and CS1 (8 MB, K8S6415ETA)
+//   nor_flash    QD CS0 and CS1, or three 8 MiB NEM-4 dies
 //   ddram_flash  their arrays in DDR3 (the images the OSD loads), shared
 //                with the image loader
-//   sdram        the 16 MB SDRAM on the MiSTer SDRAM module
+//   sdram        the MiSTer module's SDRAM for guest main RAM and private banks
 // The peripheral register bus leaves this module for the UPP peripheral
 // models (rtl/upp/upp_periph.sv); the DMA master port comes back from them.
 //
@@ -17,7 +17,6 @@
 // it while sdram_ready is low and while an image loads. flash_rst_n is the
 // chips' RP# pin.
 module ngage_mem #(
-	parameter int ONCHIP_BYTES            = 64 << 10,
 	parameter int CLK_HZ                  = 104_000_000,
 	// the flash chips' busy times (nor_flash's defaults)
 	parameter int FLASH_PROGRAM_CLKS      = CLK_HZ / 100_000,      // 10 us
@@ -29,6 +28,8 @@ module ngage_mem #(
 	input  logic         sdram_init,
 	output logic         sdram_ready,
 	input  logic         flash_rst_n,
+	input  logic         nem4,
+	input  logic         pmm_overlay,
 
 	input  logic         wb_cyc,
 	input  logic         wb_stb,
@@ -55,6 +56,16 @@ module ngage_mem #(
 	output logic         dma_err,
 	output logic [31:0]  dma_dat_o,
 
+	// The MDI peer accesses only its SDRAM-backed ring payloads.
+	input  logic         mdi_req,
+	input  logic         mdi_we,
+	input  logic [7:0]   mdi_word,
+	input  logic [31:0]  mdi_wdata,
+	input  logic [3:0]   mdi_be,
+	output logic         mdi_ack,
+	output logic         mdi_err,
+	output logic [31:0]  mdi_rdata,
+
 	output logic         p_sel,
 	output logic         p_we,
 	output logic [27:0]  p_addr,
@@ -63,7 +74,7 @@ module ngage_mem #(
 	input  logic [31:0]  p_rdata,
 	input  logic         p_wait,
 
-	output logic [1:0]   flash_busy,   // RY/BY# of CS0, CS1 (inverted)
+	output logic [2:0]   flash_busy,   // RY/BY# of the NOR dies (inverted)
 	output logic         unmapped,
 
 	// the image loader's DDRAM side
@@ -76,12 +87,14 @@ module ngage_mem #(
 	output logic         ld_valid,
 	output logic [63:0]  ld_data,
 
-	// saving CS1 (rtl/mister/flash_save.sv): the 512-byte blocks CS1 writes
-	// change, and block reads of CS1 (ddram_flash)
+	// Dirty blocks and shared C:/PMM block reads.
 	output logic         save_mark,
 	output logic [13:0]  save_mark_blk,
+	output logic         pmm_mark,
+	output logic [6:0]   pmm_mark_blk,
 	output logic         c_blank,       // CS1's C: area starts erased (HLE 0x0C1F0104)
 	input  logic         save_rd,
+	input  logic         save_pmm,
 	input  logic [13:0]  save_blk,
 	output logic         save_taken,
 	output logic         save_valid,
@@ -122,6 +135,12 @@ module ngage_mem #(
 	logic        fl1_array, fl1_lreq, fl1_ltaken, fl1_lrvalid, fl1_lrbeat;
 	logic [21:2] fl1_laddr;
 	logic [63:0] fl1_lrdata;
+	logic        fl2_req, fl2_we, fl2_ack;
+	logic [21:0] fl2_addr;
+	logic [15:0] fl2_wdata, fl2_rdata;
+	logic        fl2_array, fl2_lreq, fl2_ltaken, fl2_lrvalid, fl2_lrbeat;
+	logic [21:2] fl2_laddr;
+	logic [63:0] fl2_lrdata;
 	logic        m0_req, m0_we, m0_ack, m1_req, m1_we, m1_ack;
 	logic [22:0] m0_addr;
 	logic [21:0] m1_addr;
@@ -132,6 +151,12 @@ module ngage_mem #(
 	logic        m1_lreq, m1_ltaken, m1_lrvalid, m1_lrbeat;
 	logic [21:2] m1_laddr;
 	logic [63:0] m1_lrdata;
+	logic        m2_req, m2_we, m2_ack;
+	logic [21:0] m2_addr;
+	logic [15:0] m2_wdata, m2_rdata;
+	logic        m2_lreq, m2_ltaken, m2_lrvalid, m2_lrbeat;
+	logic [21:2] m2_laddr;
+	logic [63:0] m2_lrdata;
 
 	// SDRAM controller port
 	logic         sdr_req, sdr_we, sdr_line, sdr_pair, sdr_busy, sdr_rvalid, sdr_rsecond, sdr_rdrop;
@@ -148,28 +173,49 @@ module ngage_mem #(
 	logic [2:0]  b_cti;
 	logic [1:0]  b_bte;
 
+	logic        dev_cyc, dev_stb, dev_we, dev_ack, dev_err;
+	logic [31:0] dev_adr, dev_wdata;
+	logic [3:0]  dev_sel;
+
+	// The device grant may change while the CPU owns the outer arbiter.
+	// While a device owns the bus, wait for the same beat boundary as the CPU.
+	wb_arb2 device_arb (
+		.clk(clk), .reset(reset), .dbg_m1_owner(),
+		.m0_cyc(dma_cyc), .m0_stb(dma_stb), .m0_we(dma_we),
+		.m0_adr(dma_adr), .m0_dat(dma_dat_i), .m0_sel(dma_sel),
+		.m0_cti(3'b111), .m0_bte(2'b00), .m0_ack(dma_ack), .m0_err(dma_err),
+		.m1_cyc(mdi_req), .m1_stb(mdi_req), .m1_we(mdi_we),
+		.m1_adr({22'h030400, mdi_word, 2'b00}), .m1_dat(mdi_wdata), .m1_sel(mdi_be), // 0x0C100000
+		.m1_ack(mdi_ack), .m1_err(mdi_err),
+		.s_cyc(dev_cyc), .s_stb(dev_stb), .s_we(dev_we),
+		.s_adr(dev_adr), .s_dat(dev_wdata), .s_sel(dev_sel), .s_cti(), .s_bte(),
+		.s_ack(dev_ack), .s_err(dev_err), .s_idle(!dbg_dma_owner || b_idle)
+	);
+
 	wb_arb2 arb (
 		.dbg_m1_owner(dbg_dma_owner),
 		.clk(clk),
 		.reset(reset),
 		.m0_cyc(wb_cyc), .m0_stb(wb_stb), .m0_we(wb_we), .m0_adr(wb_adr), .m0_dat(wb_dat_i),
 		.m0_sel(wb_sel), .m0_cti(wb_cti), .m0_bte(wb_bte), .m0_ack(wb_ack), .m0_err(wb_err),
-		.m1_cyc(dma_cyc), .m1_stb(dma_stb), .m1_we(dma_we), .m1_adr(dma_adr), .m1_dat(dma_dat_i),
-		.m1_sel(dma_sel), .m1_ack(dma_ack), .m1_err(dma_err),
+		.m1_cyc(dev_cyc), .m1_stb(dev_stb), .m1_we(dev_we), .m1_adr(dev_adr), .m1_dat(dev_wdata),
+		.m1_sel(dev_sel), .m1_ack(dev_ack), .m1_err(dev_err),
 		.s_cyc(b_cyc), .s_stb(b_stb), .s_we(b_we), .s_adr(b_adr), .s_dat(b_dat_w), .s_sel(b_sel),
 		.s_cti(b_cti), .s_bte(b_bte), .s_ack(b_ack), .s_err(b_err), .s_idle(b_idle)
 	);
 
 	assign wb_dat_o  = b_dat_r;
 	assign dma_dat_o = b_dat_r;
+	assign mdi_rdata = b_dat_r;
 
-	upp_bus #(.ONCHIP_BYTES(ONCHIP_BYTES)) bus (
+	upp_bus bus (
 		.clk(clk),
+		.nem4(nem4),
 		.reset(reset),
 		.wb_cyc(b_cyc), .wb_stb(b_stb), .wb_we(b_we), .wb_adr(b_adr), .wb_dat_i(b_dat_w),
 		.wb_sel(b_sel), .wb_cti(b_cti), .wb_bte(b_bte), .wb_ack(b_ack), .wb_err(b_err), .wb_dat_o(b_dat_r),
 		.wb_no_late_error(wb_no_late_error),
-        .decode_cpu_adr(wb_adr), .decode_dma_adr(dma_adr),
+        .decode_cpu_adr(wb_adr), .decode_dma_adr(dev_adr),
         .decode_dma_owner(dbg_dma_owner),
 		.fl0_req(fl0_req), .fl0_we(fl0_we), .fl0_addr(fl0_addr), .fl0_wdata(fl0_wdata), .fl0_rdata(fl0_rdata), .fl0_ack(fl0_ack),
 		.fl0_array(fl0_array), .fl0_lreq(fl0_lreq), .fl0_laddr(fl0_laddr), .fl0_ltaken(fl0_ltaken),
@@ -177,6 +223,9 @@ module ngage_mem #(
 		.fl1_req(fl1_req), .fl1_we(fl1_we), .fl1_addr(fl1_addr), .fl1_wdata(fl1_wdata), .fl1_rdata(fl1_rdata), .fl1_ack(fl1_ack),
 		.fl1_array(fl1_array), .fl1_lreq(fl1_lreq), .fl1_laddr(fl1_laddr), .fl1_ltaken(fl1_ltaken),
 		.fl1_lrvalid(fl1_lrvalid), .fl1_lrbeat(fl1_lrbeat), .fl1_lrdata(fl1_lrdata),
+		.fl2_req(fl2_req), .fl2_we(fl2_we), .fl2_addr(fl2_addr), .fl2_wdata(fl2_wdata), .fl2_rdata(fl2_rdata), .fl2_ack(fl2_ack),
+		.fl2_array(fl2_array), .fl2_lreq(fl2_lreq), .fl2_laddr(fl2_laddr), .fl2_ltaken(fl2_ltaken),
+		.fl2_lrvalid(fl2_lrvalid), .fl2_lrbeat(fl2_lrbeat), .fl2_lrdata(fl2_lrdata),
 		.sdr_req(sdr_req), .sdr_we(sdr_we), .sdr_line(sdr_line), .sdr_pair(sdr_pair), .sdr_addr(sdr_addr), .sdr_wdata(sdr_wdata),
 		.sdr_wbe(sdr_wbe), .sdr_busy(sdr_busy), .sdr_ready(sdram_ready), .sdr_rvalid(sdr_rvalid), .sdr_rword(sdr_rword), .sdr_rsecond(sdr_rsecond), .sdr_rdrop(sdr_rdrop),
 		.sdr_rdata(sdr_rdata),
@@ -189,18 +238,19 @@ module ngage_mem #(
 		.PROGRAM_CLKS(FLASH_PROGRAM_CLKS), .SECTOR_ERASE_CLKS(FLASH_SECTOR_ERASE_CLKS),
 		.ERASE_WINDOW_CLKS(FLASH_ERASE_WINDOW_CLKS)) flash_cs0 (
 		.c_blank(1'b0),
+		.nem4(nem4),
 		.clk(clk),
 		.reset(reset),
 		.rst_n(flash_rst_n),
 		.bus_req(fl0_req),
 		.bus_we(fl0_we),
-		.bus_addr(fl0_addr),
+		.bus_addr({nem4 || fl0_addr[22], fl0_addr[21:0]}),
 		.bus_wdata(fl0_wdata),
 		.bus_rdata(fl0_rdata),
 		.bus_ack(fl0_ack),
 		.bus_array(fl0_array),
 		.bus_lreq(fl0_lreq),
-		.bus_laddr(fl0_laddr),
+		.bus_laddr({nem4 || fl0_laddr[22], fl0_laddr[21:2]}),
 		.bus_ltaken(fl0_ltaken),
 		.bus_lrvalid(fl0_lrvalid),
 		.bus_lrbeat(fl0_lrbeat),
@@ -220,10 +270,11 @@ module ngage_mem #(
 		.busy(flash_busy[0])
 	);
 
-	nor_flash #(.AW(22), .DEVICE_ID(16'h22FA), .CLK_HZ(CLK_HZ),
+	nor_flash #(.AW(22), .DEVICE_ID(16'h22FA), .NEM4_C_DRIVE(1'b1), .CLK_HZ(CLK_HZ),
 		.PROGRAM_CLKS(FLASH_PROGRAM_CLKS), .SECTOR_ERASE_CLKS(FLASH_SECTOR_ERASE_CLKS),
 		.ERASE_WINDOW_CLKS(FLASH_ERASE_WINDOW_CLKS)) flash_cs1 (
 		.c_blank(c_blank),
+		.nem4(nem4),
 		.clk(clk),
 		.reset(reset),
 		.rst_n(flash_rst_n),
@@ -254,9 +305,46 @@ module ngage_mem #(
 		.mem_lrdata(m1_lrdata),
 		.busy(flash_busy[1])
 	);
+	nor_flash #(.AW(22), .DEVICE_ID(16'h22FA), .CLK_HZ(CLK_HZ),
+		.PROGRAM_CLKS(FLASH_PROGRAM_CLKS), .SECTOR_ERASE_CLKS(FLASH_SECTOR_ERASE_CLKS),
+		.ERASE_WINDOW_CLKS(FLASH_ERASE_WINDOW_CLKS)) flash_cs2 (
+		.c_blank(1'b0),
+		.nem4(nem4),
+		.clk(clk),
+		.reset(reset || !nem4),
+		.rst_n(flash_rst_n),
+		.bus_req(fl2_req),
+		.bus_we(fl2_we),
+		.bus_addr(fl2_addr),
+		.bus_wdata(fl2_wdata),
+		.bus_rdata(fl2_rdata),
+		.bus_ack(fl2_ack),
+		.bus_array(fl2_array),
+		.bus_lreq(fl2_lreq),
+		.bus_laddr(fl2_laddr),
+		.bus_ltaken(fl2_ltaken),
+		.bus_lrvalid(fl2_lrvalid),
+		.bus_lrbeat(fl2_lrbeat),
+		.bus_lrdata(fl2_lrdata),
+		.mem_req(m2_req),
+		.mem_we(m2_we),
+		.mem_addr(m2_addr),
+		.mem_wdata(m2_wdata),
+		.mem_rdata(m2_rdata),
+		.mem_ack(m2_ack),
+		.mem_lreq(m2_lreq),
+		.mem_laddr(m2_laddr),
+		.mem_ltaken(m2_ltaken),
+		.mem_lrvalid(m2_lrvalid),
+		.mem_lrbeat(m2_lrbeat),
+		.mem_lrdata(m2_lrdata),
+		.busy(flash_busy[2])
+	);
 
 	ddram_flash ddram_flash (
 		.clk(clk),
+		.nem4(nem4),
+		.pmm_overlay(pmm_overlay),
 		.reset(reset),
 		.cs0_req(m0_req), .cs0_we(m0_we), .cs0_addr(m0_addr), .cs0_wdata(m0_wdata), .cs0_rdata(m0_rdata), .cs0_ack(m0_ack),
 		.cs0_lreq(m0_lreq), .cs0_laddr(m0_laddr), .cs0_ltaken(m0_ltaken),
@@ -264,8 +352,12 @@ module ngage_mem #(
 		.cs1_req(m1_req), .cs1_we(m1_we), .cs1_addr(m1_addr), .cs1_wdata(m1_wdata), .cs1_rdata(m1_rdata), .cs1_ack(m1_ack),
 		.cs1_lreq(m1_lreq), .cs1_laddr(m1_laddr), .cs1_ltaken(m1_ltaken),
 		.cs1_lrvalid(m1_lrvalid), .cs1_lrbeat(m1_lrbeat), .cs1_lrdata(m1_lrdata),
+		.cs2_req(m2_req), .cs2_we(m2_we), .cs2_addr(m2_addr), .cs2_wdata(m2_wdata), .cs2_rdata(m2_rdata), .cs2_ack(m2_ack),
+		.cs2_lreq(m2_lreq), .cs2_laddr(m2_laddr), .cs2_ltaken(m2_ltaken),
+		.cs2_lrvalid(m2_lrvalid), .cs2_lrbeat(m2_lrbeat), .cs2_lrdata(m2_lrdata),
 		.ld_we(ld_we), .ld_rd(ld_rd), .ld_valid(ld_valid), .ld_data(ld_data), .ld_addr(ld_addr), .ld_din(ld_din), .ld_be(ld_be), .ld_busy(ld_busy),
-		.mark(save_mark), .mark_blk(save_mark_blk), .c_blank(c_blank), .bk_req(save_rd), .bk_blk(save_blk),
+		.mark(save_mark), .mark_blk(save_mark_blk), .pmm_mark(pmm_mark), .pmm_mark_blk(pmm_mark_blk),
+		.c_blank(c_blank), .bk_req(save_rd), .bk_pmm(save_pmm), .bk_blk(save_blk),
 		.bk_taken(save_taken), .bk_valid(save_valid), .bk_data(save_data),
 		.ddram_busy(ddram_busy), .ddram_burstcnt(ddram_burstcnt), .ddram_addr(ddram_addr), .ddram_dout(ddram_dout),
 		.ddram_dout_ready(ddram_dout_ready), .ddram_rd(ddram_rd), .ddram_din(ddram_din), .ddram_be(ddram_be),

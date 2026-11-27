@@ -1,0 +1,7 @@
+<mistergamedescription>
+    <rbf>_Console/NGage</rbf>
+    <file delay="0" type="s" index="0" path="403/c.vhd"/>
+    <file delay="0" type="s" index="2" path="403/pmm.vhd"/>
+    <file delay="0" type="f" index="3" path="403/boot0.rom"/>
+    <file delay="0" type="f" index="4" path="403/boot1.rom"/>
+</mistergamedescription>

@@ -87,6 +87,7 @@ module nor_flash #(
 	parameter logic [15:0] DEVICE_ID2        = 16'h0000,
 	parameter logic [15:0] DEVICE_ID3        = 16'h0000,
 	parameter bit          TOP_BOOT          = 1'b1,
+	parameter bit          NEM4_C_DRIVE      = 1'b0,
 	parameter int          BANKS_LOG2        = 4,
 	parameter int          CLK_HZ            = 104_000_000,
 	parameter int          PROGRAM_CLKS      = CLK_HZ / 100_000,      // 10 us
@@ -99,6 +100,7 @@ module nor_flash #(
 	input  logic          reset,
 	input  logic          rst_n,
 	input  logic          c_blank,
+	input  logic          nem4,
 
 	input  logic          bus_req,
 	input  logic          bus_we,
@@ -132,7 +134,8 @@ module nor_flash #(
 );
 
 	localparam int NMAIN = (1 << (AW - 15)) - 1;   // 32K-word sectors
-	localparam int NSECT = NMAIN + 8;              // plus eight 4K-word sectors
+	localparam int TOP_END = NMAIN + 8;             // QD's eight 4K-word sectors
+	localparam int NSECT = TOP_END + (NEM4_C_DRIVE ? 4 : 0);
 	localparam int SW = $clog2(NSECT + 1);
 	localparam int NBANKS = 1 << BANKS_LOG2;
 
@@ -150,13 +153,18 @@ module nor_flash #(
 	localparam logic [SW-1:0] NSECT_S = NSECT[SW-1:0];
 	localparam logic [SW-1:0] EIGHT_S = 8;
 	localparam logic [SW-1:0] SEVEN_S = 7;
+	localparam logic [SW-1:0] UPPER_FIRST = SW'(1 << (AW - 16));
+	localparam logic [AW-16:0] C_MID_BLOCK = (AW-15)'('h5F);  // CS1 + 0x5F0000
+	wire upper_half_only = nem4 && AW == 23;
+	wire c_mid_sectors = nem4 && NEM4_C_DRIVE;
 
 	function automatic logic [SW-1:0] sector_of(input logic [AW-1:0] a);
 		logic [SW-1:0] blk;
 		blk = '0;
 		blk[AW-16:0] = a[AW-1:15];
+		if (c_mid_sectors && a[AW-1:15] == C_MID_BLOCK) return SW'(TOP_END) + SW'(a[14:13]);
 		if (TOP_BOOT) begin
-			if (&a[AW-1:15]) return NMAIN_S + {{(SW-3){1'b0}}, a[14:12]};
+			if (&a[AW-1:15]) return NMAIN_S + SW'({a[14:13], a[12] && !nem4});
 			return blk;
 		end else begin
 			if (a[AW-1:15] == '0) return {{(SW-3){1'b0}}, a[14:12]};
@@ -171,10 +179,12 @@ module nor_flash #(
 		logic [7:0]     vs;
 		if (TOP_BOOT) begin
 			vm = {1'b0, v[NMAIN-1:0]};
-			vs = v[NSECT-1 -: 8];
-			return (&a[AW-1:15]) ? vs[a[14:12]] : vm[a[AW-1:15]];
+			vs = v[NMAIN +: 8];
+			if (c_mid_sectors && a[AW-1:15] == C_MID_BLOCK)
+				return v[SW'(TOP_END) + SW'(a[14:13])];
+			return (&a[AW-1:15]) ? vs[{a[14:13], a[12] && !nem4}] : vm[a[AW-1:15]];
 		end else begin
-			vm = {v[NSECT-1:8], 1'b0};
+			vm = {v[TOP_END-1:8], 1'b0};
 			vs = v[7:0];
 			return (a[AW-1:15] == '0) ? vs[a[14:12]] : vm[a[AW-1:15]];
 		end
@@ -188,6 +198,8 @@ module nor_flash #(
 		logic [AW-1:0] b;
 		logic [SW-1:0] d;
 		b = '0;
+		if (c_mid_sectors && s >= SW'(TOP_END))
+			return {C_MID_BLOCK, 2'(s - SW'(TOP_END)), 13'd0};
 		if (TOP_BOOT) begin
 			d = s - NMAIN_S;
 			if (s >= NMAIN_S) b = {{(AW-15){1'b1}}, d[2:0], 12'd0};
@@ -211,18 +223,31 @@ module nor_flash #(
 
 	function automatic logic [15:0] autoselect(input logic [7:0] a, input logic locked);
 		case (a)
-			8'h00:   return MANUFACTURER;
-			8'h01:   return DEVICE_ID;
+			8'h00:   return nem4 ? 16'h0001 : MANUFACTURER;
+			8'h01:   return nem4 ? 16'h257E : DEVICE_ID;
 			8'h02:   return {15'd0, locked};
-			8'h0E:   return DEVICE_ID2;
-			8'h0F:   return DEVICE_ID3;
+			8'h03:   return nem4 ? 16'h0042 : 16'h0000;
+			8'h0E:   return nem4 ? 16'h2502 : DEVICE_ID2;
+			8'h0F:   return nem4 ? 16'h2500 : DEVICE_ID3;
 			default: return 16'h0000;
 		endcase
 	endfunction
 
 	function automatic logic [7:0] cfi(input logic [7:0] a);
 		logic [15:0] nm1;
-		nm1 = 16'(NMAIN - 1);
+		nm1 = upper_half_only ? 16'd126 : 16'(NMAIN - 1);
+		if (c_mid_sectors) begin
+			case (a)
+				8'h2C: return 8'd4;
+				8'h2D: return 8'd94;  // 95 main blocks
+				8'h31, 8'h39: return 8'd3;
+				8'h33, 8'h3B: return 8'h40;  // 16 KiB
+				8'h35: return 8'd30;  // 31 main blocks
+				8'h38: return 8'h01;  // 64 KiB
+				8'h32, 8'h34, 8'h36, 8'h37, 8'h3A, 8'h3C: return 8'd0;
+				default: ;
+			endcase
+		end
 		case (a)
 			8'h10: return 8'h51;            // "QRY"
 			8'h11: return 8'h52;
@@ -237,16 +262,16 @@ module nor_flash #(
 			8'h23: return 8'h04;            // maxima: 16 times typical
 			8'h25: return 8'h04;
 			8'h26: return 8'h04;
-			8'h27: return 8'(AW + 1);       // 2^n bytes
+			8'h27: return upper_half_only ? 8'd23 : 8'(AW + 1);
 			8'h28: return 8'h01;            // x16 only
 			8'h2C: return 8'h02;            // two erase block regions
 			8'h2D: return TOP_BOOT ? nm1[7:0] : 8'h07;
 			8'h2E: return TOP_BOOT ? nm1[15:8] : 8'h00;
 			8'h2F: return TOP_BOOT ? 8'h00 : 8'h20;
 			8'h30: return TOP_BOOT ? 8'h01 : 8'h00;
-			8'h31: return TOP_BOOT ? 8'h07 : nm1[7:0];
+			8'h31: return TOP_BOOT ? (nem4 ? 8'h03 : 8'h07) : nm1[7:0];
 			8'h32: return TOP_BOOT ? 8'h00 : nm1[15:8];
-			8'h33: return TOP_BOOT ? 8'h20 : 8'h00;
+			8'h33: return TOP_BOOT ? (nem4 ? 8'h40 : 8'h20) : 8'h00;
 			8'h34: return TOP_BOOT ? 8'h00 : 8'h01;
 			8'h40: return 8'h50;            // "PRI" 1.3
 			8'h41: return 8'h52;
@@ -268,6 +293,7 @@ module nor_flash #(
 	localparam logic [1:0] M_READ = 2'd0;
 	localparam logic [1:0] M_AUTO = 2'd1;
 	localparam logic [1:0] M_CFI  = 2'd2;
+	localparam logic [1:0] M_STATUS = 2'd3;  // NEM-4 PMM's Intel-style commands
 
 	// command sequence
 	localparam logic [3:0] C_IDLE   = 4'd0;
@@ -281,6 +307,8 @@ module nor_flash #(
 	localparam logic [3:0] C_BEXIT  = 4'd8;   // unlock bypass, after 90
 	localparam logic [3:0] C_LOCK   = 4'd9;   // after 60
 	localparam logic [3:0] C_LOCK2  = 4'd10;  // after 60 60
+	localparam logic [3:0] C_PMM_ERASE = 4'd11;
+	localparam logic [3:0] C_PMM_PROG  = 4'd12;
 
 	localparam logic [1:0] P_IDLE = 2'd0;
 	localparam logic [1:0] P_RUN  = 2'd1;
@@ -302,6 +330,8 @@ module nor_flash #(
 	logic [1:0]        mode;
 	logic [3:0]        cseq;
 	logic              bypass;
+	logic              amd_program_tail;
+	logic [1:0]        pmm_erase_sector;
 	logic              tog6, tog2;
 	logic              fast_toggle;           // phase shared by fast status reads
 
@@ -387,8 +417,10 @@ module nor_flash #(
 	wire                  rq_sel  = d_sel;
 	wire                  rq_lock = d_lock;
 	wire                  rq_blank = c_blank && d_addr[AW-1];
-	wire                  rq_ul1  = d_addr[10:0] == 11'h555;
-	wire                  rq_ul2  = d_addr[10:0] == 11'h2AA;
+	wire                  rq_ul1  = d_addr[10:0] == 11'h555 || (nem4 && d_addr[9:0] == 10'h155);
+	wire                  rq_ul2  = d_addr[10:0] == 11'h2AA || (nem4 && d_addr[9:0] == 10'h2AA);
+	wire                  rq_pmm  = upper_half_only && (&d_addr[AW-1:15]);
+	wire                  rq_reset = rq_cmd == 8'hF0 || (nem4 && rq_cmd == 8'hFF);
 	wire [7:0]            rq_cmd  = d_wdata[7:0];
 
 	wire prog_status  = p_state != P_IDLE && rq_bank == bank_of(p_addr);
@@ -404,39 +436,43 @@ module nor_flash #(
 	// ------------------------------------------------------------------
 	// Everything
 	// ------------------------------------------------------------------
-	task automatic start_program();
+	task automatic start_program(input logic pmm_command);
 		p_state <= P_RUN;
 		p_addr  <= d_addr;
 		p_data  <= d_wdata;
 		p_step  <= 2'd0;
 		p_timer <= rq_blank ? 32'd0 : 32'(PROGRAM_CLKS);
-		p_fast  <= rq_blank;
-		p_poll  <= rq_blank;
-		bus_ack <= !rq_blank;
-		mode    <= M_READ;
+		p_fast  <= rq_blank || pmm_command;
+		p_poll  <= rq_blank && !pmm_command;
+		bus_ack <= !(rq_blank || pmm_command);
+		mode    <= pmm_command ? M_STATUS : M_READ;
 	endtask
 
 	task automatic start_chip_erase();
-		sel      <= ~lock;
+		for (int i = 0; i < NSECT; i++)
+			sel[i] <= !lock[i] && (!upper_half_only || i >= int'(UPPER_FIRST)) &&
+			          (i >= TOP_END ? c_mid_sectors :
+			           (!c_mid_sectors || i != int'(C_MID_BLOCK)) &&
+			           (!nem4 || !is_small(SW'(i)) || ((i - NMAIN) % 2 == 0)));
 		bank_sel <= '1;
 		e_state  <= E_RUN;
-		e_sector <= '0;
+		e_sector <= upper_half_only ? UPPER_FIRST : '0;
 		e_step   <= S_FIND;
 		mode     <= M_READ;
 	endtask
 
-	task automatic start_sector_erase();
+	task automatic start_sector_erase(input logic pmm_command);
 		// Known blank C: skips the timer, array writes and suspend/resume,
 		// but must expose busy once, with the erase window already closed.
 		sec_set_q         <= 1'b1;        // sel[rq_sec], unless locked, next clock
 		sec_q             <= rq_sec;
 		bank_sel[rq_bank] <= 1'b1;
-		e_state           <= rq_blank ? E_RUN : E_WINDOW;
+		e_state           <= rq_blank || pmm_command ? E_RUN : E_WINDOW;
 		e_fast            <= rq_blank;
 		e_timer           <= 32'(ERASE_WINDOW_CLKS);
-		e_sector          <= '0;
+		e_sector          <= upper_half_only ? UPPER_FIRST : '0;
 		e_step            <= S_FIND;
-		mode              <= M_READ;
+		mode              <= pmm_command ? M_STATUS : M_READ;
 	endtask
 
 	task automatic sector_bits();
@@ -448,7 +484,7 @@ module nor_flash #(
 
 	task automatic bus_write();
 		if (p_state == P_FAIL) begin
-			if (rq_cmd == 8'hF0) begin
+			if (rq_reset) begin
 				p_state <= P_IDLE;
 				cseq    <= C_IDLE;
 				mode    <= M_READ;
@@ -472,9 +508,10 @@ module nor_flash #(
 			end
 		end else if (e_state == E_RUN) begin
 			if (rq_cmd == 8'hB0 && !e_fast) e_state <= E_SUSP;
-		end else if (rq_cmd == 8'hF0 && cseq != C_PROG) begin
+		end else if (rq_reset && cseq != C_PROG && cseq != C_PMM_PROG) begin
 			cseq <= C_IDLE;
 			mode <= M_READ;
+			amd_program_tail <= 1'b0;
 		end else begin
 			// reading the array (or erase-suspend read): command sequences
 			case (cseq)
@@ -488,6 +525,17 @@ module nor_flash #(
 						endcase
 					end else if (rq_ul1 && rq_cmd == 8'hAA) begin
 						cseq <= C_U1;
+						amd_program_tail <= 1'b0;
+					end else if (nem4 && rq_cmd == 8'h70) begin
+						mode <= M_STATUS;
+					end else if (nem4 && rq_cmd == 8'h50) begin
+						mode <= M_READ;
+					end else if (rq_pmm && rq_cmd == 8'h40) begin
+						cseq <= C_PMM_PROG;
+					end else if (rq_pmm && rq_cmd == 8'h20) begin
+						cseq <= amd_program_tail ? C_IDLE : C_PMM_ERASE;
+						pmm_erase_sector <= d_addr[14:13];
+						amd_program_tail <= 1'b0;
 					end else if (rq_cmd == 8'h98 && (d_addr[7:0] == 8'h55 || rq_ul1)) begin
 						mode <= M_CFI;
 					end else if (rq_cmd == 8'h30 && e_state == E_SUSP) begin
@@ -513,7 +561,19 @@ module nor_flash #(
 				end
 				C_PROG: begin
 					cseq <= C_IDLE;
-					if (prog_ok && !rq_lock) start_program();
+					if (prog_ok && !rq_lock) begin
+						start_program(1'b0);
+						amd_program_tail <= rq_pmm;
+					end
+				end
+				C_PMM_PROG: begin
+					cseq <= C_IDLE;
+					if (rq_pmm && prog_ok && !rq_lock) start_program(1'b1);
+				end
+				C_PMM_ERASE: begin
+					cseq <= C_IDLE;
+					if (rq_pmm && idle_ok && rq_cmd == 8'hD0 && d_addr[14:13] == pmm_erase_sector)
+						start_sector_erase(1'b1);
 				end
 				C_LOCK: cseq <= (rq_cmd == 8'h60) ? C_LOCK2 : C_IDLE;
 				C_LOCK2: begin
@@ -529,12 +589,12 @@ module nor_flash #(
 				C_E3: begin
 					cseq <= C_IDLE;
 					if (rq_cmd == 8'h10 && rq_ul1) start_chip_erase();
-					else if (rq_cmd == 8'h30) start_sector_erase();
+					else if (rq_cmd == 8'h30) start_sector_erase(1'b0);
 				end
 				C_BERASE: begin
 					cseq <= C_IDLE;
 					if (rq_cmd == 8'h10) start_chip_erase();
-					else if (rq_cmd == 8'h30) start_sector_erase();
+					else if (rq_cmd == 8'h30) start_sector_erase(1'b0);
 				end
 				C_BEXIT: begin
 					cseq <= C_IDLE;
@@ -572,6 +632,9 @@ module nor_flash #(
 			end else if (d_we) begin
 				bus_ack <= 1'b1;
 				bus_write();
+			end else if (mode == M_STATUS) begin
+				bus_rdata <= {8'd0, !busy || p_state == P_FAIL, 2'd0, p_state == P_FAIL, 4'd0};
+				bus_ack   <= 1'b1;
 			end else if (prog_status) begin
 				if (p_poll) begin
 					bus_rdata <= status(~p_data[7], fast_toggle, 1'b0, 1'b0, 1'b1);
@@ -639,7 +702,7 @@ module nor_flash #(
 							bank_sel <= '0;
 						end else if (sel[e_sector]) begin
 							e_ptr   <= sector_base(e_sector);
-							e_left  <= is_small(e_sector) ? 16'd4096 : 16'd32768;
+							e_left  <= is_small(e_sector) ? (nem4 ? 16'd8192 : 16'd4096) : 16'd32768;
 							e_timer <= 32'(SECTOR_ERASE_CLKS);
 							e_step  <= S_WRITE;
 						end else begin
@@ -723,6 +786,7 @@ module nor_flash #(
 			mode     <= M_READ;
 			cseq     <= C_IDLE;
 			bypass   <= 1'b0;
+			amd_program_tail <= 1'b0;
 			p_state  <= P_IDLE;
 			p_fast   <= 1'b0;
 			p_poll   <= 1'b0;

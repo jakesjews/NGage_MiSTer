@@ -1,42 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// The C: drive as a save file: a 4 MB file mounted on an hps_io block
-// slot (WIDE = 1, 512-byte blocks) is copied into DDR3 at CS1 + 0x400000
-// (0x32400000). An 8 MB legacy image uses only its upper half; its firmware
-// half is never loaded or written. Every changed 512-byte
-// block the firmware changes there (programs and erases of the C: drive, CS1
-// 0x400000-0x7FFFFF) is written back to the file. So phone settings and game
-// saves survive a power cycle.
-//
-//   * Mount (img_mounted with a 4 MB or 8 MB image): the dirty bitmap is cleared, the
-//     image is read in 4 KB requests (sd_blk_cnt 7) into a buffer and copied
-//     into DDR3 through ngage_mem's loader port; loading is high meanwhile
-//     (hold the core in reset). Another size unmounts (note 2); a read-only
-//     mount loads but never writes back (note 3).
-//   * ddram_flash pulses mark for each CS1 word it writes; the block's bit in
-//     a 16K-bit block RAM is set.
-//   * Write-back starts QUIET_CLKS after the last change, MAX_CLKS after the
-//     first unsaved one at the latest, or at once on save_now. Blocks go
-//     out in the order they were first dirtied (a queue of block numbers,
-//     8192 deep; marks of the block just queued are not queued again), each
-//     read from DDR3 (ddram_flash's block read: the bit is cleared in the
-//     clock the read is issued, so a write after that marks it again and
-//     it goes out again) and sent with sd_wr; a block whose bit is clear
-//     by the time its turn comes is skipped. So a core reload or power
-//     loss in the middle of a write-back leaves the file with a prefix of
-//     the firmware's writes, the state a power loss leaves the phone's
-//     flash in, which the log-structured C: recovers from; blocks out of
-//     order left it with a mix of old and new blocks, and the C: mount
-//     hung. Should the queue fill, the bitmap is swept instead once it is
-//     empty: a pass that finds nothing, with no change during it, ends.
-//   * The state survives a core reset (reset is the power-on reset); an ioctl
-//     load of CS1 detaches the file (nothing more is written to it until the
-//     next mount).
-// CS0 is not saved: in the RH-29 v4.60 ROM only medint.pdd programs or erases
-// flash, in its CS1 region, and the model's saved CS1 images differ from the
-// firmware's only in 0x400000-0x7FFFFF.
+// A writable flash window backed by one hps_io block device. A mount
+// restores 4 KiB at a time while the guest is held in reset. A legacy C:
+// file stores the window in the upper half of a full-chip image.
+// The dirty bitmap and queue keep changes across guest resets and coalesce
+// repeated writes. A block dirtied during write-back is saved again.
 module flash_save #(
-	parameter logic [28:0] CS1_BASE   = 29'h0640_0000,     // 0x32000000 / 8
+	parameter logic [28:0] BASE_ADDR  = 29'h0648_0000,      // 0x32400000 / 8
+	parameter int          BLOCK_BITS = 13,               // 4 MiB window
+	parameter bit          LEGACY_FULL_IMAGE = 1,
 	parameter int          QUIET_CLKS = 104_000_000 / 10,  // 100 ms without a change
 	parameter int          MAX_CLKS   = 2 * 104_000_000    // 2 s after the first change
 ) (
@@ -66,9 +38,9 @@ module flash_save #(
 
 	// ngage_mem's save port (ddram_flash)
 	input  logic        mark,
-	input  logic [13:0] mark_blk,
+	input  logic [BLOCK_BITS-1:0] mark_blk,
 	output logic        bk_req = 1'b0,
-	output logic [13:0] bk_blk,
+	output logic [BLOCK_BITS-1:0] bk_blk,
 	input  logic        bk_taken,
 	input  logic        bk_valid,
 	input  logic [63:0] bk_data,
@@ -95,29 +67,32 @@ module flash_save #(
 	// power-up values as the reset's, so nothing moves before the first reset
 	logic [3:0]  st = S_INIT;
 	logic        ro = 1'b0, attached = 1'b0, pending = 1'b0, during = 1'b0, forced = 1'b0, force_q = 1'b0;
-	logic full_image = 1'b1;          // legacy 8 MB file: C: starts at LBA 8192
-	wire c_mark = mark && mark_blk[13]; // never persist firmware-half writes
-	logic [13:0] ptr;                  // bitmap sweep / scan position, load block
+	logic full_image = 1'b0;          // the legacy payload starts one window later
+	localparam logic [63:0] IMAGE_BYTES = 64'd512 << BLOCK_BITS;
+	localparam logic [31:0] IMAGE_BLOCKS = 32'd1 << BLOCK_BITS;
+	localparam logic [BLOCK_BITS-1:0] LAST_GROUP = {BLOCK_BITS{1'b1}} - BLOCK_BITS'(7);
+	wire dirty_mark = mark && saving_on;
+	logic [BLOCK_BITS-1:0] ptr;                  // bitmap sweep / scan position, load block
 	logic [8:0]  beat;                 // copy beat in the 4 KB buffer
 	logic [1:0]  cph;                  // copy phase
-	logic [13:0] blk;                  // the block being written back
+	logic [BLOCK_BITS-1:0] blk;                  // the block being written back
 	logic [QW-1:0] quiet;
 	logic [MW-1:0] age;
 
 	// ------------------------------------------------------------------
 	// The queue of dirty blocks, in the order they were first marked
 	// ------------------------------------------------------------------
-	logic [12:0] q_wp = '0, q_rp = '0;
+	logic [BLOCK_BITS-1:0] q_wp = '0, q_rp = '0;
 	logic        q_ovf = 1'b0;         // a mark found it full: sweep the bitmap too
 	logic        last_v = 1'b0;        // last_blk was the last block queued
-	logic [13:0] last_blk;
-	logic [13:0] q_head;
+	logic [BLOCK_BITS-1:0] last_blk;
+	logic [BLOCK_BITS-1:0] q_head;
 	logic        qmode = 1'b0;         // this pass takes blocks from the queue
-	wire         q_full  = (q_wp + 13'd1) == q_rp;
+	wire         q_full  = (q_wp + BLOCK_BITS'(1)) == q_rp;
 	wire         q_empty = q_wp == q_rp;
-	wire         q_push  = c_mark && !(last_v && last_blk == mark_blk) && !q_full;
+	wire         q_push  = dirty_mark && !(last_v && last_blk == mark_blk) && !q_full;
 
-	sdp_ram #(.AW(13), .DW(14)) queue (
+	sdp_ram #(.AW(BLOCK_BITS), .DW(BLOCK_BITS)) queue (
 		.clk(clk), .we(q_push), .waddr(q_wp), .wdata(mark_blk), .raddr(q_rp), .rdata(q_head)
 	);
 
@@ -126,13 +101,13 @@ module flash_save #(
 	// clock a block read is issued (0; never with a mark), the sweep (0).
 	// ------------------------------------------------------------------
 	logic        bm_we, bm_wd, bm_q;
-	logic [13:0] bm_wa;
+	logic [BLOCK_BITS-1:0] bm_wa;
 
 	always_comb begin
 		bm_we = 1'b0;
 		bm_wa = ptr;
 		bm_wd = 1'b0;
-		if (c_mark) begin
+		if (dirty_mark) begin
 			bm_we = 1'b1;
 			bm_wa = mark_blk;
 			bm_wd = 1'b1;
@@ -144,7 +119,7 @@ module flash_save #(
 		end
 	end
 
-	sdp_ram #(.AW(14), .DW(1)) bitmap (
+	sdp_ram #(.AW(BLOCK_BITS), .DW(1)) bitmap (
 		.clk(clk), .we(bm_we), .waddr(bm_wa), .wdata(bm_wd), .raddr(ptr), .rdata(bm_q)
 	);
 
@@ -206,13 +181,13 @@ module flash_save #(
 		forced <= save_now;
 
 		// changes
-		if (c_mark) begin
+		if (dirty_mark) begin
 			if (!pending) age <= '0;
 			pending <= 1'b1;
 			during  <= 1'b1;
 			quiet   <= '0;
 			if (q_push) begin
-				q_wp     <= q_wp + 13'd1;
+				q_wp     <= q_wp + BLOCK_BITS'(1);
 				last_v   <= 1'b1;
 				last_blk <= mark_blk;
 			end else if (!(last_v && last_blk == mark_blk)) begin
@@ -231,14 +206,14 @@ module flash_save #(
 
 		case (st)
 			S_INIT: begin
-				ptr <= ptr + 14'd1;
+				ptr <= ptr + BLOCK_BITS'(1);
 				if (&ptr) st <= S_OFF;
 			end
 
 			S_SWEEP: begin
-				ptr <= ptr + 14'd1;
+				ptr <= ptr + BLOCK_BITS'(1);
 				if (&ptr) begin
-					ptr <= 14'h2000;        // first C: block in the chip
+					ptr <= '0;
 					st  <= S_LREQ;
 				end
 			end
@@ -246,7 +221,7 @@ module flash_save #(
 			// the image, 4 KB at a time
 			S_LREQ: begin
 				sd_rd      <= 1'b1;
-				sd_lba     <= full_image ? {18'd0, ptr} : {19'd0, ptr[12:0]};
+				sd_lba     <= 32'(ptr) + (full_image ? IMAGE_BLOCKS : 32'd0);
 				sd_blk_cnt <= 6'd7;
 				if (sd_ack) begin
 					sd_rd <= 1'b0;
@@ -265,7 +240,7 @@ module flash_save #(
 					2'd0: cph <= 2'd1;                    // the buffer reads the beat
 					2'd1: begin
 						ld_we   <= 1'b1;
-						ld_addr <= CS1_BASE + 29'({ptr, 6'd0}) + 29'(beat);
+						ld_addr <= BASE_ADDR + 29'({ptr, 6'd0}) + 29'(beat);
 						cph     <= 2'd2;
 					end
 					default: begin
@@ -273,8 +248,8 @@ module flash_save #(
 							cph  <= 2'd0;
 							beat <= beat + 9'd1;
 							if (&beat) begin
-								ptr <= ptr + 14'd8;
-								if (ptr == 14'h3FF8) begin
+								ptr <= ptr + BLOCK_BITS'(8);
+								if (ptr == LAST_GROUP) begin
 									loading <= 1'b0;
 									pending <= 1'b0;
 									st      <= S_IDLE;
@@ -294,7 +269,7 @@ module flash_save #(
 						st    <= S_QPOP1;
 					end else begin
 						qmode  <= 1'b0;
-						ptr    <= 14'd0;
+						ptr    <= '0;
 						during <= 1'b0;
 						st     <= S_SCAN;
 					end
@@ -308,7 +283,7 @@ module flash_save #(
 			S_QPOP1: st <= S_QPOP2;
 			S_QPOP2: begin
 				ptr  <= q_head;
-				q_rp <= q_rp + 13'd1;
+				q_rp <= q_rp + BLOCK_BITS'(1);
 				st   <= S_SCAN;
 			end
 			S_QNEXT: begin
@@ -317,7 +292,7 @@ module flash_save #(
 				end else if (q_ovf) begin
 					q_ovf  <= 1'b0;
 					qmode  <= 1'b0;
-					ptr    <= 14'd0;
+					ptr    <= '0;
 					during <= 1'b0;
 					st     <= S_SCAN;
 				end else begin
@@ -340,7 +315,7 @@ module flash_save #(
 					st <= S_QNEXT;
 				end else if (&ptr) begin
 					if (during) begin
-						ptr    <= 14'd0;
+						ptr    <= '0;
 						during <= 1'b0;
 						st     <= S_SCAN;
 					end else begin
@@ -350,7 +325,7 @@ module flash_save #(
 						st      <= S_IDLE;
 					end
 				end else begin
-					ptr <= ptr + 14'd1;
+					ptr <= ptr + BLOCK_BITS'(1);
 					st  <= S_SCAN;
 				end
 			end
@@ -367,7 +342,7 @@ module flash_save #(
 			end
 			S_WREQ: begin
 				sd_wr      <= 1'b1;
-				sd_lba     <= full_image ? {18'd0, blk} : {19'd0, blk[12:0]};
+				sd_lba     <= 32'(blk) + (full_image ? IMAGE_BLOCKS : 32'd0);
 				sd_blk_cnt <= 6'd0;
 				if (sd_ack) begin
 					sd_wr <= 1'b0;
@@ -378,10 +353,10 @@ module flash_save #(
 				if (qmode) begin
 					st <= S_QNEXT;
 				end else if (&blk) begin
-					ptr <= 14'h3FFF;        // the pass ends at the next check
+					ptr <= '1;        // the pass ends at the next check
 					st  <= S_CHECK;
 				end else begin
-					ptr <= blk + 14'd1;
+					ptr <= blk + BLOCK_BITS'(1);
 					st  <= S_SCAN;
 				end
 			end
@@ -389,8 +364,9 @@ module flash_save #(
 			default: ;
 		endcase
 
-		// a mount: load C: from a 4 MB file or the upper half of an 8 MB file
+		// A new mount drops pending work for the old backing file.
 		if (img_mounted) begin
+			ld_we   <= 1'b0;
 			sd_rd   <= 1'b0;
 			sd_wr   <= 1'b0;
 			bk_req  <= 1'b0;
@@ -401,12 +377,12 @@ module flash_save #(
 			q_ovf   <= 1'b0;
 			last_v  <= 1'b0;
 			qmode   <= 1'b0;
-			if (img_size == 64'd4194304 || img_size == 64'd8388608) begin
-				full_image <= img_size == 64'd8388608;
+			if (img_size == IMAGE_BYTES || (LEGACY_FULL_IMAGE && img_size == (IMAGE_BYTES << 1))) begin
+				full_image <= img_size == (IMAGE_BYTES << 1);
 				ro       <= img_readonly;
 				attached <= 1'b1;
 				loading  <= 1'b1;
-				ptr      <= 14'd0;
+				ptr      <= '0;
 				note     <= img_readonly ? 2'd3 : 2'd1;
 				st       <= S_SWEEP;
 			end else begin
@@ -419,8 +395,8 @@ module flash_save #(
 
 		if (reset) begin
 			st       <= S_INIT;
-			full_image <= 1'b1;
-			ptr      <= 14'd0;
+			full_image <= 1'b0;
+			ptr      <= '0;
 			ro       <= 1'b0;
 			attached <= 1'b0;
 			pending  <= 1'b0;

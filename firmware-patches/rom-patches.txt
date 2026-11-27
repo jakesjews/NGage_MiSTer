@@ -1,11 +1,8 @@
 # Firmware patches: every change made to the RH-29 4.10 flash contents (the
 # retail firmware; the addresses were first found in 4.60 and moved over by
-# matching the code, see docs/PROGRESS-LOG.md, 2026-11-12). The
-# firmware files are not modified; the patches go on at load:
-#   the core    rtl/mister/phoenix_patch.hex, generated from this list by
-#               tools/gen_patchrom.py and written by rtl/mister/phoenix_load.sv
-#   the model   model/hw/ngage_patch.c, which reads this list and logs each line
-#   flat images tools/mkimage.py
+# matching the code, see docs/PROGRESS-LOG.md, 2026-11-12). Kept for comparisons
+# with the historical patched release. Apply explicitly with model/run.sh
+# (NGAGE_PATCHES=standin) or tools/mkimage.py (--patches FILE).
 # Every line here is a deviation from real hardware and must say why.
 # <cs0|cs1> <offset> <hex bytes>   # reason (evidence)
 # <cs0file|cs1file> <offset> <file>   # a file's contents; the path is from the repository root
@@ -13,9 +10,8 @@
 #
 # The bytes are what the phone reads. CS0 0xA000-0x2ACFFF is stored scrambled
 # in flash and decoded by the ASIC on every read (tools/nos_scramble.py); the
-# model and mkimage.py patch the decoded bytes, and the core's patch ROM holds
-# a patch in that area scrambled, as flash stores it. The scrambler works on
-# 16-bit words, so a patch there starts and ends on a word.
+# model and mkimage.py patch the decoded bytes. The scrambler works on 16-bit
+# words, so a patch there starts and ends on a word.
 #
 # The stand-in code is built from nos-stub/ here; bin/ holds the committed
 # binaries (make standin). The model runs its own build of the same sources

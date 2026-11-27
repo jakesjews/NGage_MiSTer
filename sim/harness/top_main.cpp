@@ -2,7 +2,7 @@
 // devices, stand-ins for hps_io and video_mixer (sim/stubs), and a model of
 // the DDRAM port.
 //
-//   Vemu [--out DIR]
+//   Vemu [--out DIR] [--firmware-only]
 //
 //  * with no firmware the panel sleeps and the outputs show a black 176x208
 //    frame;
@@ -29,9 +29,7 @@
 #include "common.h"
 #include "ddram_model.h"
 #include "sdram_model.h"
-#include "phoenix_stream.h"
-#include <fstream>
-
+#include <algorithm>
 #include <cstring>
 #include <utility>
 #include <vector>
@@ -59,7 +57,7 @@ struct Bench {
 	uint64_t clocks = 0;
 	// DDR3, 0x31000000 to 0x327FFFFF
 	static constexpr uint32_t DDR_BASE = 0x31000000u, DDR_SIZE = 0x01800000u;
-	DdramModel dm{40u << 20, 5};
+	DdramModel dm{51u << 20, 5};
 	uint8_t *ddr;                    // the flash windows in dm
 	uint64_t ddr_writes = 0;
 	bool ddr_stray = false;
@@ -72,7 +70,9 @@ struct Bench {
 	int sd_state = 0, sd_delay = 0, sd_word = 0, sd_words = 0;
 	std::vector<uint32_t> sd_lbas;
 	// slot 1: the CS1 save file
-	std::vector<uint8_t> img1;
+	std::vector<uint8_t> img1, img2;
+	bool serving_pmm = false;
+	uint64_t pmm_reads = 0;
 	int s1_state = 0, s1_delay = 0, s1_word = 0, s1_words = 0;
 	uint32_t s1_lba = 0;
 	uint64_t s1_reads = 0, s1_writes = 0;
@@ -95,7 +95,7 @@ struct Bench {
 
 	// slot 1, served when slot 0 is quiet: reads of blk_cnt + 1 blocks; a
 	// write request is only counted (nothing should ask for one here)
-	void download(int index, const std::vector<uint8_t> &data, bool settle = true) {
+	void download(int index, const std::vector<uint8_t> &data, bool complete = true, uint32_t bytes = 0, uint32_t offset = 0) {
 		auto &h = *r;
 		h.emu__DOT__hps_io__DOT__sim_index = index;
 		h.emu__DOT__hps_io__DOT__sim_download = 1;
@@ -107,36 +107,46 @@ struct Bench {
 		};
 		for (size_t a = 0; a < data.size(); a += 2) {
 			wait();
-			h.emu__DOT__hps_io__DOT__sim_addr = (uint32_t)a;
+			h.emu__DOT__hps_io__DOT__sim_addr = offset + (uint32_t)a;
 			h.emu__DOT__hps_io__DOT__sim_dout = data[a] | ((a + 1 < data.size() ? data[a + 1] : 0x7A) << 8);
 			h.emu__DOT__hps_io__DOT__sim_wr = 1;
 			tick(); h.emu__DOT__hps_io__DOT__sim_wr = 0;
 			ticks(rng.range(1, 6));
 		}
+		// Synthetic programs occupy the first page; exercise the complete
+		// upload handshake with a final word at the physical array end.
+		// Indexes 0x00 and 0x40 are boot0.rom and boot1.rom: CS0 and CS1.
+		bool is_cs0 = index == 3 || index == 0x00, is_cs1 = index == 4 || index == 0x40;
+		if (complete && (is_cs0 || is_cs1)) {
+			wait();
+			h.emu__DOT__hps_io__DOT__sim_addr = (bytes ? bytes : (is_cs0 ? 16u << 20 : 8u << 20)) - 2;
+			h.emu__DOT__hps_io__DOT__sim_dout = 0x5a5a;
+			h.emu__DOT__hps_io__DOT__sim_wr = 1;
+			tick();
+			h.emu__DOT__hps_io__DOT__sim_wr = 0;
+		}
 		wait(); ticks(5);
 		h.emu__DOT__hps_io__DOT__sim_download = 0;
 		ticks(5);
-		if (!settle) return;             // as Main: on to the next file at once
-		uint64_t end = clocks + 1000000;
-		while (h.emu__DOT__ph_busy && clocks < end) tick();
-		CHECK(clocks < end, "Phoenix patch/verify timeout");
-		ticks(20);
+
 	}
 
 	void s1_step() {
 		auto &h = *r;
-		if (h.emu__DOT__hps_io__DOT__sim_sd_wr1) s1_writes++;
+		if (h.emu__DOT__hps_io__DOT__sim_sd_wr1 || h.emu__DOT__hps_io__DOT__sim_sd_wr2) s1_writes++;
 		switch (s1_state) {
 		case 0:
-			if (h.emu__DOT__hps_io__DOT__sim_sd_rd1 && sd_state == 0) {
-				s1_lba = h.emu__DOT__hps_io__DOT__sim_sd_lba1;
-				s1_words = 256 * (h.emu__DOT__hps_io__DOT__sim_sd_blk_cnt1 + 1);
+			if ((h.emu__DOT__hps_io__DOT__sim_sd_rd1 || h.emu__DOT__hps_io__DOT__sim_sd_rd2) && sd_state == 0) {
+				serving_pmm = !h.emu__DOT__hps_io__DOT__sim_sd_rd1;
+				s1_lba = serving_pmm ? h.emu__DOT__hps_io__DOT__sim_sd_lba2 : h.emu__DOT__hps_io__DOT__sim_sd_lba1;
+				int count = serving_pmm ? h.emu__DOT__hps_io__DOT__sim_sd_blk_cnt2 : h.emu__DOT__hps_io__DOT__sim_sd_blk_cnt1;
+				s1_words = 256 * (count + 1);
 				s1_delay = 40;
 				s1_state = 1;
 			}
 			break;
 		case 1:
-			if (--s1_delay == 0) { h.emu__DOT__hps_io__DOT__sim_sd_ack = 2; s1_word = 0; s1_delay = 3; s1_state = 2; }
+			if (--s1_delay == 0) { h.emu__DOT__hps_io__DOT__sim_sd_ack = serving_pmm ? 4 : 2; s1_word = 0; s1_delay = 3; s1_state = 2; }
 			break;
 		case 2:
 			if (--s1_delay > 0) break;
@@ -144,12 +154,14 @@ struct Bench {
 			if (s1_word < s1_words) {
 				size_t off = (size_t)s1_lba * 512 + s1_word * 2;
 				h.emu__DOT__hps_io__DOT__sim_sd_addr = s1_word;
-				h.emu__DOT__hps_io__DOT__sim_sd_dout = (uint16_t)(img1[off] | img1[off + 1] << 8);
+				const auto &image = serving_pmm ? img2 : img1;
+				h.emu__DOT__hps_io__DOT__sim_sd_dout = (uint16_t)(image.at(off) | image.at(off + 1) << 8);
 				h.emu__DOT__hps_io__DOT__sim_sd_wr_buf = 1;
 				s1_word++;
 			} else {
 				h.emu__DOT__hps_io__DOT__sim_sd_ack = 0;
-				s1_reads++;
+				if (serving_pmm) ++pmm_reads;
+				else ++s1_reads;
 				s1_state = 0;
 			}
 			break;
@@ -161,6 +173,7 @@ struct Bench {
 		r->emu__DOT__hps_io__DOT__sim_mounted = 0;
 		if (s1_state) { s1_step(); return; }
 		s1_step();
+		if (s1_state) return;
 		switch (sd_state) {
 		case 0:
 			if (r->emu__DOT__hps_io__DOT__sim_sd_rd) {
@@ -204,7 +217,8 @@ struct Bench {
 				for (int i = 0; i < 8; i++) {
 					if (!(t->DDRAM_BE >> i & 1)) continue;
 					uint64_t a = byte + i;
-					if (a < DDR_BASE || a >= (uint64_t)DDR_BASE + DDR_SIZE) ddr_stray = true;
+					if ((a < DDR_BASE || a >= 0x33000000u) &&
+					    (a < 0x33200000u || a >= 0x33210000u)) ddr_stray = true;
 				}
 				ddr_writes++;
 			}
@@ -288,187 +302,27 @@ bool dark(const sim::Image &got) {
 
 }  // namespace
 
-// Exercise the actual ioctl -> shared DDR port -> version read -> patch path.
-// Separate shell instance leaves the existing video/CPU regression independent.
-static void test_phoenix(const std::string &out) {
-	Bench b;
-	auto &r = *b.r;
-	b.ticks(30000);
-	r.emu__DOT__hps_io__DOT__sim_rtc[0] = 0x01120000;
-	r.emu__DOT__hps_io__DOT__sim_rtc[1] = 0x00000406;
-	r.emu__DOT__hps_io__DOT__sim_rtc[2] = 1;
-	b.ticks(20);
-	static const uint32_t prog[] = {0xE3A0040A,0xE59F1010,0xE5801000,0xE5902000,
-	                                0xE2822001,0xE5802004,0xEAFFFFFE,0x12345678};
-	phoenix::Bytes code(sizeof prog); memcpy(code.data(), prog, sizeof prog);
-	// The program is in the first 64 KB of CS0: the language pack's area
-	// (rtl/mister/phoenix_load.sv), so the pack's stream carries it.
-	auto mcu = phoenix::mcu();
-	auto lang = phoenix::language(); phoenix::record(lang, 0x14, 0, code);
-	// Framework order with no launcher: Main sends boot0.rom, the MCU file
-	// (index 0), and then boot1.rom, the language pack (file number 1 in index
-	// bits 7:6, no menu index: 0x40).
-	b.download(0, mcu);
-	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "MCU alone cannot boot");
-	CHECK_EQ(b.ddr[0x10185], 255, "Phoenix FF gap");
-	CHECK_EQ(b.ddr[0xFFFFFF], 255, "CS0 fill reaches last byte");
-	CHECK_EQ(b.ddr[0x13FFFFF], 255, "CS1 firmware fill reaches last byte");
-	CHECK_EQ(b.ddr[0x1400000], 0x5A, "Phoenix fill stops before C:");
-	CHECK_EQ(b.ddr[0x10180], 1, "21 record data");
-	CHECK_EQ(b.ddr[0x84], 255, "the MCU file leaves the first 64 KB to the pack");
-	CHECK_EQ(b.ddr[0x1000003], 0x11, "14 CS1 record data");
-	b.download(0x40, lang);
-	CHECK(r.emu__DOT__ph_ready && r.emu__DOT__cpu_reset, "both files still need C:");
-	CHECK_EQ(b.ddr[0xF00001], 6, "language mapped");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 8), 1, "4.10 OSD message");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 0, "valid checksums");
-	std::ifstream hex("rtl/mister/phoenix_patch.hex");
-	phoenix::Bytes patch; unsigned x;
-	while (hex >> std::hex >> x) patch.push_back(x);
-	CHECK(!patch.empty(), "patch fixture read");
-	for (size_t p = 0; p < patch.size() && patch[p] != 255;) {
-		unsigned chip = patch[p++], off = 0, n = 0;
-		for (int i = 0; i < 3; i++) off = (off << 8) | patch[p++];
-		for (int i = 0; i < 4; i++) n = (n << 8) | patch[p++];
-		CHECK(!memcmp(b.ddr + chip * 0x1000000 + off, patch.data() + p, n), "full patch payload in DDR3"); p += n;
-	}
-	// Framework order: both ROMs, then boot0.vhd. Only C: is loaded.
-	b.img1.assign(4u << 20, 255);
-	r.emu__DOT__hps_io__DOT__sim_size = b.img1.size();
-	r.emu__DOT__hps_io__DOT__sim_readonly = 0;
-	r.emu__DOT__hps_io__DOT__sim_mounted = 2;
-	b.ticks(100);
-	CHECK(r.emu__DOT__cpu_reset && r.emu__DOT__fs_loading, "CPU held through C: load");
-	uint64_t end = b.clocks + 20000000;
-	while (r.emu__DOT__fs_loading && b.clocks < end) b.tick();
-	CHECK(b.clocks < end, "4 MB mount finished");
-	CHECK_EQ(b.s1_reads, 1024, "4 MB save reads");
-	CHECK(!memcmp(b.ddr + 0x1400000, b.img1.data(), b.img1.size()), "C: image loaded");
-	CHECK_EQ(b.ddr[0x1000003], 0x11, "save preserved Phoenix firmware");
-	CHECK(r.emu__DOT__c_blank, "blank C: enables first-boot fast format");
-	b.ticks(10000);
-	CHECK(!r.emu__DOT__cpu_reset && b.cpu_writes.size() == 2, "CPU starts only after patch and save");
-	// Reproduce the board's suspected single MCU resend during a running phone.
-	// The warning must arrive after transfer and the diagnostics remain readable
-	// with the CPU held in reset. Sending its companion restores the pair.
-	b.download(1, mcu);
-	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "single MCU resend waits for companion");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 10), 1, "reload both OSD message");
-	r.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 8;
-	b.frame(); auto reload = b.frame();
-	reload.write_ppm(out + "/top_phoenix_reload.ppm");
-	auto word = [](const auto &frame, int row) {
-		uint32_t value = 0;
-		for (int x = 16; x < 48; x++) value = (value << 1) | (frame.get(x, row) == 0xFFFFFF);
-		return value;
-	};
-	CHECK_EQ(word(reload, 189), (1u << 28) | (1u << 22) | (4u << 19), "MCU-only pair and retained reload note");
-	CHECK_EQ(word(reload, 193), 0x21000000u, "two MCU starts, one language start, no errors");
-	b.download(2, lang); b.ticks(10000);
-	CHECK(r.emu__DOT__ph_ready && !r.emu__DOT__cpu_reset, "companion reload releases reset");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 10), 1, "companion needs no reload warning");
-
-	// Manual order: the save stays mounted while language arrives before MCU.
-	// Picked in the OSD under their .rom names: the second extension of F2 and
-	// F1 puts 1 in index bits 7:6 above the menu index (0x42, 0x41).
-	b.download(0x42, lang);
-	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "new pair invalidates old firmware");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 10), 2, "language resend also requests both files");
-	b.download(0x41, mcu);
-	b.ticks(10000);
-	CHECK(r.emu__DOT__ph_ready && !r.emu__DOT__cpu_reset, "reverse order with save already mounted");
-	CHECK(!memcmp(b.ddr + 0x1400000, b.img1.data(), b.img1.size()), "firmware reload preserved C:");
-
-	b.download(1, phoenix::mcu()); b.download(2, phoenix::language(false));
-	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "unknown version holds CPU");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 9), 1, "unknown version OSD message");
-	CHECK_EQ(b.ddr[0x9E4C4], 255, "unknown version unpatched");
-	b.download(1, phoenix::mcu(true, true));
-	CHECK(r.emu__DOT__cpu_reset && !r.emu__DOT__ph_ready, "bad checksum holds CPU");
-	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 7), 1, "damaged file OSD message");
-	CHECK(!b.ddr_stray && !b.dm.protocol_errors, "Phoenix shared DDR protocol");
-	CHECK_EQ(b.s1_writes, 0, "firmware loads did not dirty C: save");
-	// Read the appended words through the actual video pixels, including while
-	// CPU reset. The first 12 words and counters 0..24 are unchanged. F4 counts saturate at 15.
-	r.emu__DOT__hps_io__DOT__sim_status[0] = (1u << 8) | 1u;
-	// boot2.rom and boot3.rom (0x80, 0xC0) are no firmware files: not counted.
-	b.download(0x80, {}); b.download(0xC0, {});
-	b.download(3, {}); b.download(3, {});
-	for (int i = 0; i < 20; i++) b.download(4, {});
-	b.frame(); auto diag = b.frame();
-	diag.write_ppm(out + "/top_phoenix_loader.ppm");
-	CHECK_EQ(word(diag, 189), (4u << 22) | (1u << 19), "loader status while CPU reset");
-	CHECK_EQ(word(diag, 193), 0x542F0001u, "loader starts saturate; full error count visible");
-	printf("Phoenix shell: records, patches, version/damage rejection, resend recovery, overlay history and C: isolation (%llu clocks)\n", (unsigned long long)b.clocks);
-}
-
-// The boot files as Main sends them when the core starts: its reset bit
-// (status 0) is held, boot0.rom and boot1.rom go out back to back with no
-// wait for the loader's verify and patch stage, boot0.vhd is mounted straight
-// after them, the clock follows, and only then is the reset bit released.
-// boot_rom: the firmware under the name boot.rom, which Main sends after the
-// numbered files, so the language pack (boot1.rom) arrives first.
-static void test_boot_files(bool boot_rom) {
-	Bench b;
-	auto &r = *b.r;
-	b.ticks(30000);
-	r.emu__DOT__hps_io__DOT__sim_status[0] = 1;
-	static const uint32_t prog[] = {0xE3A0040A,0xE59F1010,0xE5801000,0xE5902000,
-	                                0xE2822001,0xE5802004,0xEAFFFFFE,0x12345678};
-	phoenix::Bytes code(sizeof prog); memcpy(code.data(), prog, sizeof prog);
-	auto mcu = phoenix::mcu();
-	auto lang = phoenix::language(); phoenix::record(lang, 0x14, 0, code);
-	if (boot_rom) {
-		b.download(0x40, lang, false);
-		b.ticks(3000);
-		b.download(0, mcu, false);
-	} else {
-		b.download(0, mcu, false);
-		b.ticks(3000);
-		b.download(0x40, lang, false);
-	}
-	b.ticks(300);
-	b.img1.assign(4u << 20, 255);
-	r.emu__DOT__hps_io__DOT__sim_size = b.img1.size();
-	r.emu__DOT__hps_io__DOT__sim_readonly = 0;
-	r.emu__DOT__hps_io__DOT__sim_mounted = 2;
-	b.ticks(100);
-	r.emu__DOT__hps_io__DOT__sim_rtc[0] = 0x01120000;    // Main's clock, after the mounts
-	r.emu__DOT__hps_io__DOT__sim_rtc[1] = 0x00000406;
-	r.emu__DOT__hps_io__DOT__sim_rtc[2] = 1;
-	b.ticks(20);
-	r.emu__DOT__hps_io__DOT__sim_status[0] = 0;
-	uint64_t end = b.clocks + 40000000;
-	while (r.emu__DOT__cpu_reset && b.clocks < end) b.tick();
-	CHECK(b.clocks < end, "boot files: the CPU starts after both ROMs and boot0.vhd");
-	CHECK(r.emu__DOT__ph_ready, "boot files: firmware pair ready");
-	CHECK(!memcmp(b.ddr + 0x1400000, b.img1.data(), b.img1.size()), "boot files: C: image loaded");
-	CHECK_EQ(b.ddr[0x10180], 1, "boot files: MCU record data");
-	CHECK_EQ(b.ddr[0xF00001], 6, "boot files: language mapped");
-	b.ticks(10000);
-	CHECK(b.cpu_writes.size() == 2, "boot files: the program ran");
-	printf("boot files (%s): both ROMs back to back, boot0.vhd, then the reset bit released (%llu clocks)\n",
-	       boot_rom ? "boot1.rom, then boot.rom" : "boot0.rom, then boot1.rom", (unsigned long long)b.clocks);
-}
-
 int main(int argc, char **argv) {
 	Verilated::commandArgs(argc, argv);
 	std::string out = "sim/build/out";
-	for (int i = 1; i < argc; i++)
+	bool firmware_only = false;
+	for (int i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "--out") && i + 1 < argc) out = argv[++i];
-	test_boot_files(false);
-	test_boot_files(true);
-	test_phoenix(out);
+		else if (!strcmp(argv[i], "--firmware-only")) firmware_only = true;
+	}
 	Bench b;
 	auto &R = *b.r;
 	auto count = [&](int n) { return std::count(b.infos.begin(), b.infos.end(), n); };
 
 	// no firmware: the panel sleeps and the picture is black
-	b.frame();
-	sim::Image f = b.frame();
-	CHECK(dark(f), "the picture with no firmware");
-	CHECK_EQ(b.t->VIDEO_ARX, W, "aspect X");
-	CHECK_EQ(b.t->VIDEO_ARY, H, "aspect Y");
+	sim::Image f;
+	if (!firmware_only) {
+		b.frame();
+		f = b.frame();
+		CHECK(dark(f), "the picture with no firmware");
+		CHECK_EQ(b.t->VIDEO_ARX, W, "aspect X");
+		CHECK_EQ(b.t->VIDEO_ARY, H, "aspect Y");
+	} else b.ticks(20000);
 	CHECK(!b.t->LED_USER, "LED_USER on with the panel dark");
 
 	// keys: Up and 5 on the joystick, Call (F3) and Power (F8) on the keyboard,
@@ -518,7 +372,9 @@ int main(int argc, char **argv) {
 	b.ticks(4);
 	R.emu__DOT__hps_io__DOT__sim_rtc[2] = 1;             // bit 64: the time is sent
 
-	// Development flat images retain their own indexes.
+	// The two flash images load through the menu's F3 and F4 or, as here, as
+	// the boot files MiSTer sends when the core starts (boot0.rom, boot1.rom:
+	// no menu index, the file's number in bits 7:6). Nothing else loads flash.
 	auto download = [&](int index, const std::vector<uint8_t> &data) { b.download(index, data); };
 	std::vector<uint8_t> cs0(65536), cs1(32768);
 	for (size_t i = 0; i < cs0.size(); i++) cs0[i] = (uint8_t)(i * 13 + (i >> 8));
@@ -530,17 +386,36 @@ int main(int argc, char **argv) {
 	                                0xE2822001, 0xE5802004, 0xEAFFFFFE, 0x12345678};
 	memcpy(cs0.data(), prog, sizeof prog);
 	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset with no flash image");
-	download(3, cs0);
+	CHECK(!(R.emu__DOT__hps_io__DOT__sim_menumask & 2), "MGL file slots visible before upload");
+	for (int index : {1, 2, 0x80, 0xC0}) b.download(index, {0x11, 0x22}, false);
+	CHECK_EQ(b.ddr_writes, 0u, "the former service-file indexes, boot2.rom and boot3.rom do not write DDR");
+	CHECK(R.emu__DOT__cpu_reset, "those downloads do not release reset");
+	CHECK(b.infos.empty(), "a notice for a download the core does not take");
+	// a file of another size as boot0.rom (the firmware file of earlier
+	// cores, say): refused with the notice, nothing loaded
+	b.download(0x00, std::vector<uint8_t>(4096, 0x33), false);
+	b.ticks(20);
+	CHECK(R.emu__DOT__cpu_reset, "a boot0.rom of the wrong size must hold reset");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 11), 1, "the notice for a boot0.rom of the wrong size");
+	b.infos.clear();
+	b.ddr_writes = 0;
+	b.download(3, {}, false);
+	b.ticks(20);
+	CHECK(R.emu__DOT__cpu_reset, "incomplete flash upload must hold reset");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 11), 1, "invalid flash size notice");
+	b.infos.clear();
+	download(0x00, cs0);                 // boot0.rom
 	b.ticks(1000);
 	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset with only CS0 loaded");
 	CHECK(b.cpu_writes.empty(), "CPU writes before CS1 is loaded");
-	download(4, cs1);
+	download(0x40, cs1);                 // boot1.rom
+	CHECK(R.emu__DOT__hps_io__DOT__sim_menumask & 2, "MGL shortcuts hidden after both ROMs load");
 	CHECK(memcmp(&b.ddr[0], cs0.data(), cs0.size()) == 0, "CS0 image in DDR3 at 0x31000000");
 	CHECK(memcmp(&b.ddr[0x01000000], cs1.data(), cs1.size()) == 0, "CS1 image in DDR3 at 0x32000000");
 	CHECK_EQ(b.ddr[cs0.size()], 0x5A, "byte after the CS0 image");
 	CHECK_EQ(b.ddr[0x01000000 + cs1.size()], 0x5A, "byte after the CS1 image");
 	CHECK(!b.ddr_stray, "DDR3 write outside the flash windows");
-	CHECK_EQ(b.ddr_writes, (cs0.size() + cs1.size()) / 2, "DDR3 writes");
+	CHECK_EQ(b.ddr_writes, (cs0.size() + cs1.size()) / 2 + 2, "DDR3 writes");
 	printf("flash images: %llu DDR3 writes\n", (unsigned long long)b.ddr_writes);
 	// both images in: the CPU runs its program from CS0
 	{
@@ -556,8 +431,10 @@ int main(int argc, char **argv) {
 	}
 	// this program does not touch the display: the picture stays dark, the
 	// boot has started and has no first frame
-	b.frame();
-	CHECK(dark(b.frame()), "the picture after loading flash");
+	if (!firmware_only) {
+		b.frame();
+		CHECK(dark(b.frame()), "the picture after loading flash");
+	}
 	CHECK_EQ(count(5), 1, "one boot-start message");
 	CHECK_EQ(count(6), 0, "a frame message with no frame");
 	CHECK(!R.emu__DOT__boot_done, "the boot milestone with no frame");
@@ -605,6 +482,118 @@ int main(int argc, char **argv) {
 		CHECK_EQ(b.s1_writes, 0, "no write-back with nothing changed");
 	}
 
+	// PMM occupies the last 64 KiB of CS0. A subsequent ROM reload must
+	// preserve both mounted save windows, including their final words.
+	b.img2.resize(64u << 10, 0x3c);
+	R.emu__DOT__hps_io__DOT__sim_size = b.img2.size();
+	R.emu__DOT__hps_io__DOT__sim_mounted = 4;
+	b.ticks(30);
+	CHECK(R.emu__DOT__pm_loading, "PMM restore holds the board");
+	uint64_t pmm_deadline = b.clocks + 500000;
+	while (R.emu__DOT__pm_loading && b.clocks < pmm_deadline) b.tick();
+	CHECK(!R.emu__DOT__pm_loading, "PMM restore completed");
+	CHECK_EQ(b.pmm_reads, 16, "PMM reads from slot 2");
+	CHECK(memcmp(&b.ddr[0x02200000], b.img2.data(), b.img2.size()) == 0, "PMM mounted in its shared DDR window");
+
+	// The phone's date (rtl/mister/pmm_date.sv): a PMM with the two date
+	// records has MiSTer's date in both before the CPU starts again; the
+	// record after them and the file are left as they were.
+	{
+		const std::vector<uint8_t> plain = b.img2;
+		std::vector<uint8_t> pm(64u << 10, 0xFF);
+		static const uint8_t head[] = {0xF0, 0xF0, 0xF8, 0xFF, 0x02, 0x00, 'P', 'M', 'M', 'C', 'A', 'T', 1, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 2, 0};
+		memcpy(pm.data(), head, sizeof head);
+		for (int n = 0; n < 3; n++) {
+			size_t at = 0x20 + 20 * (size_t)n;
+			const uint8_t rec[12] = {0xF4, 212, (uint8_t)n, 0, 0x55, 0xFF, 0xFF, 0xFF, 8, 0, (uint8_t)(at + 20), 0};
+			memcpy(&pm[at], rec, 12);
+			memset(&pm[at + 12], 0x11 * (n + 1), 8);
+		}
+		b.img2 = pm;
+		R.emu__DOT__hps_io__DOT__sim_size = b.img2.size();
+		R.emu__DOT__hps_io__DOT__sim_mounted = 4;
+		b.ticks(30);
+		uint64_t t1 = b.clocks;
+		bool early = false;
+		while (b.clocks < t1 + 2000000 && !(R.emu__DOT__pd_done && !R.emu__DOT__cpu_reset)) {
+			if (!R.emu__DOT__cpu_reset && !R.emu__DOT__pd_done) early = true;
+			b.tick();
+		}
+		CHECK(R.emu__DOT__pd_done && !R.emu__DOT__cpu_reset, "the date walk ends and the CPU starts");
+		CHECK(!early, "the CPU out of reset before the date is in PMM");
+		CHECK_EQ(R.emu__DOT__pd_patched, 2, "date records written");
+		const uint64_t day = (731958ull + 152) * 86400000000ull;   // 2004-06-01, the bench's RTC
+		uint64_t got[3];
+		for (int n = 0; n < 3; n++) memcpy(&got[n], &b.ddr[0x02200000 + 0x2C + 20 * n], 8);
+		CHECK_EQ(got[0], day, "the date in record 0");
+		CHECK_EQ(got[1], day, "the date in record 1");
+		CHECK_EQ(got[2], 0x3333333333333333ull, "record 2 (the alarm)");
+		memcpy(&pm[0x2C], &day, 8);
+		memcpy(&pm[0x40], &day, 8);
+		CHECK(memcmp(&b.ddr[0x02200000], pm.data(), pm.size()) == 0, "nothing else in PMM changed");
+		CHECK_EQ(b.s1_writes, 0, "the date is not written to the file");
+		// a reset of the phone writes it again
+		memset(&b.ddr[0x02200000 + 0x2C], 0x77, 8);
+		R.emu__DOT__hps_io__DOT__sim_status[0] = 1;
+		b.ticks(200);
+		R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
+		t1 = b.clocks;
+		while (b.clocks < t1 + 2000000 && !(R.emu__DOT__pd_done && !R.emu__DOT__cpu_reset)) b.tick();
+		memcpy(&got[0], &b.ddr[0x02200000 + 0x2C], 8);
+		CHECK_EQ(got[0], day, "the date in record 0 after a reset");
+		// back to the plain image for the checks below
+		b.img2 = plain;
+		R.emu__DOT__hps_io__DOT__sim_size = b.img2.size();
+		R.emu__DOT__hps_io__DOT__sim_mounted = 4;
+		b.ticks(30);
+		t1 = b.clocks;
+		while (R.emu__DOT__pm_loading && b.clocks < t1 + 500000) b.tick();
+		CHECK(memcmp(&b.ddr[0x02200000], b.img2.data(), b.img2.size()) == 0, "the plain PMM mounted again");
+		b.cpu_writes.clear();
+	}
+	download(4, cs1);
+	CHECK(memcmp(&b.ddr[0x01400000], b.img1.data() + (4u << 20), 4u << 20) == 0, "CS1 reload preserves C:");
+
+	const auto check_nem4 = [&]() {
+		// Switch while both QD saves are mounted. Until F4 is also replaced, the
+		// mixed sizes must hold the CPU. The NEM-4 program then loads the mounted
+		// PMM, reads CS2 at two mirrors and scans port E with only D1 driven.
+		const uint32_t nem4_prog[] = {
+			0xe59f002c, 0xe5901000, 0xe59f2028, 0xe5923000, 0xe59f0024, 0xe5900000,
+			0xe59f4020, 0xe59f5020, 0xe5845000, 0xe594400c,
+			0xe59f2018, 0xe882001b, 0xeafffffe,
+			0x04000000, 0x04800000, 0x007f0000, 0x0c150400, 0x1d020000, 0x0a000000
+		};
+		std::vector<uint8_t> nem4_cs0(sizeof nem4_prog);
+		memcpy(nem4_cs0.data(), nem4_prog, sizeof nem4_prog);
+		b.cpu_writes.clear();
+		b.download(3, nem4_cs0, true, 8u << 20);
+		b.ticks(20000);
+		CHECK(!R.emu__DOT__images_in && b.cpu_writes.empty(), "mixed firmware sizes hold the CPU");
+		R.emu__DOT__hps_io__DOT__sim_joy0 = 1u << 9; // Menu
+		const std::vector<uint8_t> cs2_prefix = {0x78, 0x56, 0x34, 0x12};
+		b.download(4, cs2_prefix, true, 16u << 20, 8u << 20);
+		CHECK(R.emu__DOT__nem4 && R.emu__DOT__images_in, "8 + 16 MiB selects NEM-4");
+		CHECK(memcmp(&b.ddr[0x01800000], cs2_prefix.data(), cs2_prefix.size()) == 0, "F4 second half lands in CS2");
+		CHECK(memcmp(&b.ddr[0x01400000], b.img1.data() + (4u << 20), 4u << 20) == 0, "NEM-4 CS2 load preserves C:");
+		b.ticks(50000);
+		R.emu__DOT__hps_io__DOT__sim_joy0 = 0;
+		CHECK_EQ(b.cpu_writes.size(), 5, "NEM-4 test program executes");
+		if (b.cpu_writes.size() >= 5) {
+			CHECK(b.cpu_writes[0] == std::make_pair(0x0C150400u, 0x1D020000u), "NEM-4 drives only D1 low");
+			CHECK(b.cpu_writes[1] == std::make_pair(0x0A000000u, 0x3C3C3C3Cu), "NEM-4 uses the mounted PMM at 0x007F0000");
+			CHECK(b.cpu_writes[2] == std::make_pair(0x0A000004u, 0x12345678u), "NEM-4 CS2 array read");
+			CHECK(b.cpu_writes[3] == std::make_pair(0x0A000008u, 0x12345678u), "NEM-4 CS2 mirror read");
+			CHECK(b.cpu_writes[4] == std::make_pair(0x0A00000Cu, 0x3Eu), "the normal MiSTer Menu binding grounds E0 on NEM-4");
+		}
+	};
+	if (firmware_only) {
+		check_nem4();
+		CHECK_EQ(b.dm.protocol_errors, 0, "DDRAM port protocol errors");
+		CHECK(!b.dm.bad_access, "DDR3 accesses stay inside the model");
+		return sim::finish("firmware profiles");
+	}
+
 	// A second program drives the real LCD interface as the firmware does: it
 	// wakes the panel (SLPOUT, DISPON), sets 12-bit pixels and MADCTL 0xD4,
 	// and sends RAMWR and a whole frame, pixel (x, y) = pattern(x, y), two
@@ -649,6 +638,7 @@ int main(int argc, char **argv) {
 	b.infos.clear();
 	b.cpu_writes.clear();
 	download(3, cs0);
+	CHECK(memcmp(&b.ddr[0x02200000], b.img2.data(), b.img2.size()) == 0, "CS0 reload preserves PMM");
 	b.ticks(20000);
 	CHECK(R.emu__DOT__boot_done, "the first RAMWR is the boot milestone");
 	CHECK_EQ(count(5), 1, "LCD program boot-start message");
@@ -741,6 +731,7 @@ int main(int argc, char **argv) {
 	b.frame();
 	compare(b.frame(), 0, "the picture drawn again after a reset");
 	printf("boot messages: checked through the CPU, the LCD interface and the video outputs\n");
+	check_nem4();
 	if (b.chip.errors) sim::fail("the SDRAM chip model reported %d error(s)", b.chip.errors);
 	if (b.dm.protocol_errors) sim::fail("%d DDRAM port protocol error(s)", b.dm.protocol_errors);
 	CHECK(!b.dm.bad_access, "DDR3 access outside the model");

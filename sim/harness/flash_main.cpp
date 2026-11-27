@@ -57,7 +57,7 @@ struct Bench {
 	Bench(int aw_, uint32_t seed) : rng(seed), aw(aw_), words(1u << aw_), mem(words) {
 		for (uint32_t i = 0; i < words; i++) mem[i] = pattern(i);
 		t->c_blank = 0;
-		t->clk = 0; t->reset = 1; t->rst_n = 1; t->bus_req = 0; t->bus_we = 0; t->bus_addr = 0;
+		t->clk = 0; t->reset = 1; t->nem4 = 0; t->rst_n = 1; t->bus_req = 0; t->bus_we = 0; t->bus_addr = 0;
 		t->bus_wdata = 0; t->bus_lreq = 0; t->bus_laddr = 0;
 		t->mem_rdata = 0; t->mem_ack = 0; t->mem_ltaken = 0; t->mem_lrvalid = 0; t->mem_lrbeat = 0; t->mem_lrdata = 0;
 		t->eval();

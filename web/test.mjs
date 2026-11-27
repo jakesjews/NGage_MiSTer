@@ -2,7 +2,8 @@
 //
 // Checks web/unpack.js against the real files:
 //   node web/test.mjs RH-29_dp_emea_v_3_0_mcusw4_10-Oct19-151031.exe [MORE...]
-// The package must give the two 4.10 files; damaged and foreign input must be
+// The package must give the two 4.10 files, and the two must give the boot
+// files tools/mkimage.py makes from them; damaged and foreign input must be
 // refused; zip files made from the package here must be read. MORE is any of
 //   N-GageQD RH-29.zip          must give the same two files
 //   other data packages (.exe)  what each gives or why it is refused is
@@ -13,7 +14,7 @@
 import { readFileSync, openSync, readSync, fstatSync, closeSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
-const { unpack, sha256, PACKAGE, ARCHIVE, FIRMWARE, PACK } = createRequire(import.meta.url)('./unpack.js');
+const { unpack, images, sha256, PACKAGE, ARCHIVE, FIRMWARE, PACK, CHIPS } = createRequire(import.meta.url)('./unpack.js');
 const [packagePath, ...more] = process.argv.slice(2);
 if (!packagePath) {
 	console.error('usage: node web/test.mjs PACKAGE.exe [N-GageQD RH-29.zip] [other packages] [flash files]');
@@ -36,12 +37,13 @@ const refused = async (source, code, what, name) => {
 	}
 };
 const pair = (files, what) => {
-	const fw = files.find((x) => x.save === 'boot0.rom'), lp = files.find((x) => x.save === 'boot1.rom');
+	const fw = files.find((x) => x.part === 'firmware'), lp = files.find((x) => x.part === 'pack');
 	check(files.length === 2 && !!fw && fw.sha256 === FIRMWARE.sha256 && fw.source === FIRMWARE.source,
-		what + ': boot0.rom is ' + FIRMWARE.source + ', ' + (fw ? fw.bytes.length : 0) + ' bytes, SHA-256 matches');
+		what + ': the firmware file is ' + FIRMWARE.source + ', ' + (fw ? fw.bytes.length : 0) + ' bytes, SHA-256 matches');
 	check(!!lp && lp.sha256 === PACK_SHA256 && lp.source === PACK.source,
-		what + ': boot1.rom is ' + (lp ? lp.source + ' (' + lp.variant + '), ' + lp.bytes.length : 0) + ' bytes, SHA-256 matches');
+		what + ': the language pack is ' + (lp ? lp.source + ' (' + lp.variant + '), ' + lp.bytes.length : 0) + ' bytes, SHA-256 matches');
 };
+const part = (files, name) => files.find((x) => x.part === name);
 // A File-like source that reads from disk in pieces, as the page reads a dropped file.
 const fileSource = (path) => {
 	const fd = openSync(path, 'r');
@@ -81,6 +83,16 @@ check(files.length === 2, 'two files come out (' + Math.round(performance.now() 
 check(ordered && last === 1 && steps > 10, 'progress runs up to 1 (' + steps + ' steps)');
 pair(files, 'the package');
 
+// the boot files: the two flash chips' contents, as tools/mkimage.py makes them
+const t1 = performance.now();
+const boot = await images(part(files, 'firmware'), part(files, 'pack'));
+check(boot.length === 2 && boot.every((b, i) => b.save === CHIPS[i].save && b.bytes.length === CHIPS[i].size),
+	'the boot files are ' + boot.map((b) => b.save + ', ' + b.bytes.length + ' bytes').join(' and ') + ' (' + Math.round(performance.now() - t1) + ' ms)');
+check(boot.every((b, i) => b.checked && b.sha256 === CHIPS[i].sha256), 'their SHA-256 are the reference images\'');
+for (const b of boot) check(await sha256(b.bytes) === b.sha256, b.save + ': the hash given is the hash of the bytes');
+const swapped = async () => { try { await images(part(files, 'pack'), part(files, 'firmware')); return 'accepted'; } catch (e) { return e.code; } };
+check(await swapped() === 'mismatch', 'the two files in each other\'s place are refused');
+
 await refused(pkg.subarray(0, pkg.length - 4096), 'damaged', 'a package cut short');
 const flipped = pkg.slice();
 flipped[54000000] ^= 0x10; // inside the firmware file's data
@@ -92,9 +104,9 @@ await refused(new Uint8Array([0xA2, 0, 0, 0, 1, 2, 3]), ['other-version', 'damag
 // the two flash files by themselves, and one of them with a bit changed
 for (const f of files) {
 	const out = await unpack(f.bytes, null, f.source);
-	check(out.length === 1 && out[0].save === f.save && out[0].sha256 === f.sha256, f.source + ' alone is recognised as ' + out[0].save);
+	check(out.length === 1 && out[0].part === f.part && out[0].sha256 === f.sha256, f.source + ' alone is recognised as the ' + out[0].what.toLowerCase());
 }
-const pack = files.find((x) => x.save === 'boot1.rom').bytes.slice();
+const pack = part(files, 'pack').bytes.slice();
 pack[pack.length - 100] ^= 1;
 await refused(pack, 'damaged', 'the language pack with one bit changed', PACK.source);
 await refused(pack, 'damaged', 'the same under another name (its records no longer add up one way)', 'boot1.rom');
@@ -122,11 +134,14 @@ for (const path of more) {
 	} else if (/\.exe$/i.test(name)) {
 		try {
 			const out = await unpack(new Uint8Array(readFileSync(path)), null, name);
-			const fw = out.find((x) => x.save === 'boot0.rom'), lp = out.find((x) => x.save === 'boot1.rom');
+			const fw = part(out, 'firmware'), lp = part(out, 'pack');
 			check(out.length === 2 && !!fw && fw.sha256 === FIRMWARE.sha256 && !!lp && /^RH2941\.[0-9A-Z]{3}$/.test(lp.source),
 				name + ': gives ' + FIRMWARE.source + ' and ' + (lp ? lp.source + ' (' + lp.variant + '), ' + lp.bytes.length + ' bytes' : 'nothing'));
 			const again = await unpack(lp.bytes, null, lp.source);
-			check(again.length === 1 && again[0].save === 'boot1.rom' && again[0].sha256 === lp.sha256, '  ' + lp.source + ' alone is recognised as boot1.rom');
+			check(again.length === 1 && again[0].part === 'pack' && again[0].sha256 === lp.sha256, '  ' + lp.source + ' alone is recognised as a language pack');
+			const made = await images(fw, lp);
+			check(made.length === 2 && made.every((b, i) => b.bytes.length === CHIPS[i].size) && made[0].checked === (lp.sha256 === PACK.sha256),
+				'  boot files made with ' + lp.source + (made[0].checked ? ' (the reference images)' : ' (no reference to check them against)'));
 		} catch (e) {
 			const ok = ['other-version', 'no-pack'].includes(e.code);
 			check(ok, name + ': refused as "' + e.code + '"' + (e.version ? ' (' + e.version + ')' : '') + ', ' + e.message);
@@ -135,7 +150,7 @@ for (const path of more) {
 		const bytes = new Uint8Array(readFileSync(path));
 		try {
 			const out = await unpack(bytes, null, name);
-			check(out.length === 1 && out[0].sha256 === await sha256(bytes), name + ' alone is recognised as ' + out[0].save + (out[0].save === 'boot1.rom' ? ' (' + out[0].source + ')' : ''));
+			check(out.length === 1 && out[0].sha256 === await sha256(bytes), name + ' alone is recognised as the ' + out[0].what.toLowerCase() + (out[0].part === 'pack' ? ' (' + out[0].source + ')' : ''));
 		} catch (e) {
 			check(e.code === 'other-version', name + ': refused as "' + e.code + '"' + (e.version ? ' (' + e.version + ')' : '') + ', ' + e.message);
 		}

@@ -40,6 +40,7 @@ namespace {
 
 constexpr uint32_t CS1_BYTES = 8u << 20;
 constexpr uint32_t CS1_DDR = 0x32000000u;
+constexpr uint32_t PMM_DDR = 0x33200000u;
 constexpr int QUIET = 80000, MAXC = 300000;     // save_tb's QUIET_CLKS / MAX_CLKS
 constexpr int SCAN = 2 * 16384 + 5000;          // a bitmap pass, a block read and an HPS delay
 
@@ -69,9 +70,13 @@ struct Bench {
 	int saved_pulses = 0;
 	uint64_t first_wr_req = 0;       // the clock of the first write request seen since cleared
 
-	explicit Bench(uint32_t seed) : chip(seed * 5 + 3), ddr(48u << 20, seed * 11 + 7), rng(seed) {
+	const bool pmm;
+	const uint32_t pmm_first;
+
+	explicit Bench(uint32_t seed, bool pmm = false, bool nem4 = false)
+		: chip(seed * 5 + 3), ddr(51u << 20, seed * 11 + 7), rng(seed), pmm(pmm), pmm_first(nem4 ? 0x3F8000u : 0x7F8000u) {
 		ddr.prof.busy_pct = 10;
-		t->clk = 0; t->por = 1; t->reset = 1; t->sdram_init = 1;
+		t->clk = 0; t->nem4 = nem4; t->por = 1; t->reset = 1; t->sdram_init = 1;
 		t->wb_cyc = 0; t->wb_stb = 0; t->wb_we = 0; t->wb_adr = 0; t->wb_dat_i = 0; t->wb_sel = 0; t->wb_cti = 7; t->wb_bte = 0;
 		t->ddram_busy = 0; t->ddram_dout = 0; t->ddram_dout_ready = 0; t->sdram_dq_i = 0;
 		t->img_mounted = 0; t->img_readonly = 0; t->img_size = 0; t->sd_ack = 0; t->sd_buff_addr = 0;
@@ -184,12 +189,15 @@ struct Bench {
 		tick();
 		return v;
 	}
-	// CS1 by word address in the chip
-	void w16(uint32_t word, uint16_t v) { access(true, 0x02000000u + 2 * word, (uint32_t)v * 0x10001u, (word & 1) ? 0xC : 0x3); }
-	uint16_t r16(uint32_t word) { return (uint16_t)(access(false, 0x02000000u + 2 * word, 0, (word & 1) ? 0xC : 0x3) >> ((word & 1) * 16)); }
+	// The chosen flash chip by word address.
+	void w16(uint32_t word, uint16_t v) { access(true, (pmm ? 0u : 0x02000000u) + 2 * word, (uint32_t)v * 0x10001u, (word & 1) ? 0xC : 0x3); }
+	uint16_t r16(uint32_t word) { return (uint16_t)(access(false, (pmm ? 0u : 0x02000000u) + 2 * word, 0, (word & 1) ? 0xC : 0x3) >> ((word & 1) * 16)); }
 	void unlock() { w16(0x555, 0xAA); w16(0x2AA, 0x55); }
 
-	uint16_t chip_word(uint32_t word) { return ddr.half(CS1_DDR + 2 * word); }
+	uint16_t chip_word(uint32_t word) {
+		if (pmm && t->present && word >= pmm_first) return ddr.half(PMM_DDR + 2 * (word - pmm_first));
+		return ddr.half((pmm ? 0x31000000u : CS1_DDR) + 2 * word);
+	}
 	// program a word with the bits of v that are 1 in it now cleared as v
 	// says (a program can only clear bits; asking for a 0-to-1 is DQ5's error)
 	void program(uint32_t word, uint16_t v) {
@@ -221,16 +229,16 @@ struct Bench {
 		int bad = 0;
 		uint32_t base = hps.img.size() == CS1_BYTES ? 0x400000 : 0;
 		for (uint32_t i = base; i < hps.img.size(); i++)
-			if (hps.img[i] != ddr.byte(CS1_DDR + 0x400000 + i - base) && bad++ < 3)
-				sim::fail("file byte 0x%06x is %02x, the chip has %02x", i, hps.img[i], ddr.byte(CS1_DDR + 0x400000 + i - base));
+			if (hps.img[i] != ddr.byte((pmm ? PMM_DDR : CS1_DDR + 0x400000) + i - base) && bad++ < 3)
+				sim::fail("file byte 0x%06x is %02x, the chip has %02x", i, hps.img[i], ddr.byte((pmm ? PMM_DDR : CS1_DDR + 0x400000) + i - base));
 		return bad;
 	}
 	// until nothing is left to save and no transfer is on
 	void settle(uint64_t limit) {
 		uint64_t end = cyc + limit;
-		while (cyc < end && (t->unsaved || t->active || hps.st != Hps::IDLE)) tick();
+		while (cyc < end && (t->loading || t->unsaved || t->active || hps.st != Hps::IDLE)) tick();
 		run(4);                      // the pulses that end it
-		CHECK(!t->unsaved && !t->active, "write-back finished");
+		CHECK(!t->loading && !t->unsaved && !t->active, "save window settled");
 	}
 };
 
@@ -253,13 +261,114 @@ void check_written(Bench &b, const std::set<uint32_t> &want, const char *what) {
 	printf("  %s: %zu blocks written back\n", what, b.hps.written.size());
 }
 
+int check_pmm(uint32_t seed, bool nem4) {
+	Bench b(seed, true, nem4);
+	const uint32_t first = b.pmm_first;
+	std::vector<uint8_t> image(65536, 0xF7);
+	b.mount(&image, 131072, false);
+	b.run(100);
+	CHECK_EQ(b.notes[2], 1, "wrong PMM file size rejected");
+	CHECK_EQ(b.hps.reads, 0, "wrong PMM file was not read");
+
+	b.mount(&image, image.size(), false);
+	CHECK(b.t->loading, "guest held while PMM loads");
+	b.settle(500000);
+	CHECK_EQ(b.hps.reads, 16, "PMM loads sixteen 4 KiB requests");
+	CHECK_EQ(b.file_mismatches(), 0, "loaded PMM bytes");
+	CHECK_EQ(b.r16(first), 0xF7F7, "guest reads the first PMM word");
+
+	b.program(first - 1, 0);
+	CHECK(!b.t->unsaved, "neighboring firmware word is outside the PMM save");
+	if (nem4) {
+		b.w16(0x155, 0xAA); b.w16(0x2AA, 0x55); b.w16(0x155, 0x90);
+		CHECK_EQ(b.r16(0), 0x0001, "NEM-4 manufacturer");
+		CHECK_EQ(b.r16(1), 0x257E, "NEM-4 device ID");
+		CHECK_EQ(b.r16(0xE), 0x2502, "NEM-4 extended device ID");
+		b.w16(0, 0xF0);
+		b.w16(first, 0x40); b.w16(first, 0x1234);
+		CHECK_EQ(b.r16(first), 0x0080, "Intel program returns ready status");
+		b.w16(first, 0xFF);
+		CHECK_EQ(b.r16(first), 0x1234, "Intel program clears bits in the mounted PMM");
+		b.w16(first + 0x2000, 0x20);
+		b.w16(first + 0x4000, 0xD0);
+		CHECK_EQ(b.r16(first + 0x2000), 0xF7F7, "erase confirm must use the selected sector");
+		b.w16(first + 0x2000, 0x20); b.w16(first + 0x2000, 0xD0);
+		b.w16(first + 0x2000, 0x70);
+		unsigned polls = 0;
+		while (!(b.r16(first + 0x2000) & 0x80) && ++polls < 100000) {}
+		CHECK(polls < 100000, "NEM-4 PMM erase reached ready");
+		b.w16(first, 0xFF);
+		CHECK_EQ(b.r16(first + 0x2000), 0xFFFF, "NEM-4 PMM erased at the start of a sector");
+		CHECK_EQ(b.r16(first + 0x3FFF), 0xFFFF, "NEM-4 PMM erase covers 16 KiB");
+		CHECK_EQ(b.r16(first + 0x1FFF), 0xF7F7, "preceding PMM sector survives");
+		CHECK_EQ(b.r16(first + 0x4000), 0xF7F7, "following PMM sector survives");
+	} else {
+		b.program(first, 0x1234);
+		b.erase_sector(first + 0x1000);
+	}
+	b.program(first + 0x7FFF, 0x5678);
+	b.t->reset = 1;
+	b.run(2000);
+	b.t->reset = 0;
+	b.t->save_now = 1;
+	b.run(10);
+	b.t->save_now = 0;
+	b.settle(1000000);
+	std::set<uint32_t> dirty = {0, 127};
+	for (uint32_t lba = nem4 ? 32 : 16; lba < (nem4 ? 64 : 32); ++lba) dirty.insert(lba);
+	check_written(b, dirty, "PMM program and sector erase");
+	CHECK_EQ(b.saved_pulses, 1, "manual PMM flush completes");
+	CHECK_EQ(b.file_mismatches(), 0, "saved PMM bytes");
+
+	Bench reloaded(seed + 1, true, nem4);
+	reloaded.mount(&b.hps.img, b.hps.img.size(), true);
+	reloaded.settle(500000);
+	CHECK_EQ(reloaded.file_mismatches(), 0, "cold PMM reload restores the saved bytes");
+	CHECK_EQ(reloaded.r16(first), b.r16(first), "cold PMM reload visible to guest");
+	reloaded.program(first, 0x0100);
+	reloaded.run(2 * MAXC);
+	CHECK_EQ(reloaded.hps.writes, 0, "read-only PMM never writes back");
+	CHECK_EQ(b.ddr.protocol_errors + reloaded.ddr.protocol_errors, 0, "PMM DDR port protocol errors");
+	if (nem4) {
+		// The C: halves each end in four 16 KiB sectors. Exercise the
+		// interior group at CS1 + 0x5f0000, where QD has a 64 KiB sector.
+		constexpr uint32_t sector = 0x025F4000;
+		auto write_c = [&](uint32_t addr, uint16_t value) {
+			b.access(true, addr, value * 0x10001u, addr & 2 ? 0xC : 0x3);
+		};
+		auto read_c = [&](uint32_t addr) {
+			return (uint16_t)(b.access(false, addr, 0, addr & 2 ? 0xC : 0x3) >> ((addr & 2) * 8));
+		};
+		auto unlock_c = [&]() { write_c(0x02000AAA, 0xAA); write_c(0x02000554, 0x55); };
+		for (uint32_t addr : {sector - 2, sector, sector + 0x3FFE, sector + 0x4000}) {
+			unlock_c(); write_c(0x02000AAA, 0xA0); write_c(addr, 0);
+			unsigned polls = 0;
+			while (read_c(addr) != 0 && ++polls < 10000) {}
+			CHECK(polls < 10000, "NEM-4 C: halfword programs");
+		}
+		unlock_c(); write_c(0x02000AAA, 0x80); unlock_c(); write_c(sector, 0x30);
+		unsigned polls = 0;
+		while (read_c(sector) != 0xFFFF && ++polls < 100000) {}
+		CHECK(polls < 100000, "NEM-4 C: sector erase completes");
+		CHECK_EQ(read_c(sector + 0x3FFE), 0xFFFF, "C: erase covers 16 KiB");
+		CHECK_EQ(read_c(sector - 2), 0, "C: erase preserves the preceding sector");
+		CHECK_EQ(read_c(sector + 0x4000), 0, "C: erase preserves the following sector");
+	}
+	return sim::finish("pmm_save");
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
 	Verilated::commandArgs(argc, argv);
 	uint32_t seed = 1;
-	for (int i = 1; i < argc; i++)
+	bool pmm = false, nem4 = false;
+	for (int i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "--seed") && i + 1 < argc) seed = (uint32_t)strtoul(argv[++i], nullptr, 0);
+		else if (!strcmp(argv[i], "--pmm")) pmm = true;
+		else if (!strcmp(argv[i], "--nem4")) nem4 = true;
+	}
+	if (pmm) return check_pmm(seed, nem4);
 	Bench b(seed);
 
 	// a file that is not 8 MB is refused

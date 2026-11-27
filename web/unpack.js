@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// Finds the two flash files the N-Gage QD core boots from, the firmware
+// Finds the two flash files of the N-Gage QD's firmware, the firmware file
 // (RH2941.0C1, firmware 4.10) and one of its language packs, in what Nokia's
-// service software shipped them in, and returns them as boot0.rom and
-// boot1.rom. Everything happens on the bytes handed in; nothing is sent
+// service software shipped them in, and makes the contents of the phone's
+// two flash chips from them: boot0.rom and boot1.rom, the files the core
+// boots from. Everything happens on the bytes handed in; nothing is sent
 // anywhere.
 //
 // It takes, in the order a person is likely to have them:
@@ -28,22 +29,35 @@
 	};
 	const ARCHIVE = { name: 'N-GageQD RH-29.zip', size: 811528203 };
 
-	// The firmware file is one exact file: the core's patches and its
-	// integrity digest are made for it.
+	// The reference setup uses this firmware version and original digest.
 	const FIRMWARE = {
-		source: 'RH2941.0C1', save: 'boot0.rom', what: 'Firmware',
+		source: 'RH2941.0C1', part: 'firmware', what: 'Firmware',
 		sha256: '3ce529d6fbcd6db1f4290fabe8b70c62242a23444c4fa74caec42657d12ab4a0',
 	};
-	// A language pack is taken when the core's loader will take it, which it
-	// decides by what the pack writes into the first 64 KB of flash
-	// (rtl/mister/phoenix_load.sv): its own entry in the integrity table and
+	// The first 64 KB of flash supplied by the pack must contain its own
+	// entry in the integrity table and
 	// the digest it carries for the 4.10 firmware file. Any of 4.10's packs
 	// has both. PACK is the one the core was brought up with: it is taken
 	// when a package has it, and held to its hash as well.
 	const PACK = {
-		source: 'RH2941.021', save: 'boot1.rom', what: 'Language pack',
+		source: 'RH2941.021', part: 'pack', what: 'Language pack',
 		sha256: '657c2d1bafbad6797732c86892999a9e201e10961ee8c1801b0b6cc73bb41fa5',
 	};
+	// The two flash chips, as the core loads them (tools/mkimage.py makes the
+	// same files). The hashes are those of the images made from FIRMWARE and
+	// PACK; images made with another language pack have no reference.
+	const CHIPS = [
+		{ save: 'boot0.rom', what: 'First flash chip', base: 0x00000000, size: 16 << 20,
+			sha256: '8ae1f84ae5893a6e5d04649e684ae600b093efb432cd052458294d1db5c2ef2e' },
+		{ save: 'boot1.rom', what: 'Second flash chip', base: 0x02000000, size: 8 << 20,
+			sha256: '1058c15e99e363e42362282c4264db8e68776def8fdcc6e4e72ad9b0fcf4a8d1' },
+	];
+	// The language pack's areas, [start, end) in flash addresses: the first
+	// 64 KB (which every pack writes again, with its own entry in the
+	// integrity table), its ROM at the top of the first chip and the top of
+	// the second chip's firmware half. These bytes come from the pack, all
+	// others from the firmware file.
+	const PACK_AREAS = [[0x00000000, 0x00010000], [0x00F00000, 0x01000000], [0x02330000, 0x02400000]];
 	const PREFERRED = PACK.source.toLowerCase();
 	const DIGEST = 'be87bc4467bc4c53f6de1ee8d80d9285';                       // CS0 0x8F20
 	// RH29vv.xxx: vv is the firmware version (41 = 4.10, 46 = 4.60)
@@ -395,16 +409,15 @@
 
 	// ------------------------------------------------------------ flash files
 
-	// The bytes a Phoenix flash file writes to CS0 0x0000-0xFFFF, with every
-	// flash record's checksums verified on the way (the file starts with A2,
-	// a token block, then records; rtl/mister/phoenix_load.sv reads the same).
+	// Walks a Phoenix flash file (A2, a token block, then records) and calls
+	// visit(address, data) for every record that writes flash, with the
+	// record's checksums verified on the way.
 	// A record's data sums to its check byte in one of two ways, one apart;
 	// a file keeps to one of them, which is held here so that an error of
 	// one in a byte does not pass as the other way.
-	function firstBlock(bytes) {
+	function records(bytes, visit) {
 		if (bytes.length < 9 || bytes[0] !== 0xA2) throw damaged('not a flash file');
 		const dv = view(bytes);
-		const block = new Uint8Array(0x10000).fill(0xFF);
 		let way = -1;
 		let p = 5 + dv.getUint32(1, false);
 		if (p > bytes.length) throw damaged('the flash file ends in its header');
@@ -443,14 +456,54 @@
 				const off = (bytes[at + 4] + sum) & 0xFF;   // FF: complement, 00: one more
 				if ((off !== 0xFF && off !== 0) || (way >= 0 && off !== way)) throw damaged('a record does not add up');
 				way = off;
-				if (addr < 0x10000) block.set(bytes.subarray(data, data + Math.min(len, 0x10000 - addr)), addr);
+				visit(addr, bytes.subarray(data, data + len));
 			}
 			p = data + len;
 		}
+	}
+
+	// The bytes a flash file writes to the first 64 KB of flash.
+	function firstBlock(bytes) {
+		const block = new Uint8Array(0x10000).fill(0xFF);
+		records(bytes, (addr, data) => {
+			if (addr < 0x10000) block.set(data.subarray(0, Math.min(data.length, 0x10000 - addr)), addr);
+		});
 		return block;
 	}
 
-	// Is this flash file a language pack the core's loader takes?
+	// The contents of the two flash chips: unwritten bytes are FF, the
+	// language pack's areas come from the pack and everything else from the
+	// firmware file. Returns [{ save, what, bytes, sha256, checked }], checked
+	// being whether a reference hash was there to hold the image to.
+	async function images(firmware, pack) {
+		if (firmware.part !== 'firmware' || pack.part !== 'pack') throw new UnpackError('mismatch', 'the firmware file and a language pack, in that order');
+		const chips = CHIPS.map((c) => ({ ...c, bytes: new Uint8Array(c.size).fill(0xFF) }));
+		const cuts = PACK_AREAS.flat();
+		const inPack = (a) => PACK_AREAS.some(([lo, hi]) => a >= lo && a < hi);
+		for (const [file, isPack] of [[firmware, false], [pack, true]]) {
+			records(file.bytes, (addr, data) => {
+				const chip = chips.find((c) => addr >= c.base && addr + data.length <= c.base + c.size);
+				if (!chip) throw damaged('a record outside the two flash chips');
+				// piece by piece between the areas' edges
+				for (let a = addr; a < addr + data.length;) {
+					const next = cuts.reduce((n, c) => (c > a && c < n ? c : n), addr + data.length);
+					if (inPack(a) === isPack) chip.bytes.set(data.subarray(a - addr, next - addr), a - chip.base);
+					a = next;
+				}
+			});
+		}
+		const reference = firmware.sha256 === FIRMWARE.sha256 && pack.sha256 === PACK.sha256;
+		const out = [];
+		for (const c of chips) {
+			const hash = await sha256(c.bytes);
+			if (reference && hash !== c.sha256) throw new UnpackError('mismatch', c.save + ' did not come out as expected');
+			out.push({ save: c.save, what: c.what, bytes: c.bytes, sha256: hash, checked: reference });
+		}
+		return out;
+	}
+
+	// Is this flash file a language pack for the 4.10 firmware file? It has
+	// its own entry in the integrity table and the firmware file's digest.
 	function isPack(bytes) {
 		const block = firstBlock(bytes);
 		if (block.subarray(0x8F10, 0x8F18).every((v) => v === 0xFF)) return false;
@@ -642,9 +695,10 @@
 	// ---------------------------------------------------------------- results
 
 	// Takes a dropped file (a File or Blob, or its bytes) and its name.
-	// Returns the flash files found: [{ source, save, what, variant, bytes,
-	// sha256, from }]. The zip and a data package give both; one of the flash
-	// files gives that one back. Throws UnpackError.
+	// Returns the flash files found: [{ source, part ('firmware' or 'pack'),
+	// what, variant, bytes, sha256, from }]. The zip and a data package give
+	// both; one of the flash files gives that one back. images() makes the
+	// boot files from the two. Throws UnpackError.
 	async function unpack(source, progress, name) {
 		progress = progress || (() => {});
 		const r = reader(source);
@@ -657,7 +711,7 @@
 		return fromPackage(bytes, progress);
 	}
 
-	const api = { unpack, contents, sha256, UnpackError, PACKAGE, ARCHIVE, FIRMWARE, PACK };
+	const api = { unpack, images, contents, sha256, UnpackError, PACKAGE, ARCHIVE, FIRMWARE, PACK, CHIPS };
 	if (typeof module !== 'undefined' && module.exports) module.exports = api;
 	else root.NGageUnpack = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
