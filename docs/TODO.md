@@ -77,6 +77,13 @@ needs looking at again under the original NOS before it is worked on.
 
 ## Speed fidelity (the core is faster than the phone here)
 
+- [ ] "CPU caches: 32 KB" is faster than any phone by design (SPMark04's 3D
+  Game 9.69 against 8.98 fps, PolyCount 37.5 against 29.7); the default,
+  Real, is the phone's sizes. Built large, the caches cost every build
+  about 0.3 ns of mean slack: the D-cache's valid flags could be grouped
+  by sixteen sets as its dirty bits are (64 flags a way instead of 256),
+  and the storage tests are 2 to 7 % lower at 32 KB (the whole-cache
+  clean's 96 more clocks and four sets for an operation by index).
 - [ ] Flash and SDRAM bus timing: the memory controller's registers are
   storage and flash reads come at the core's own speed; the phone's flash
   runs at a third of the CPU clock (medium).

@@ -110,6 +110,9 @@ Only the `.mmc` file goes on the MiSTer.
   core's Bluetooth module has no radio, so games cannot be played over it.
 - **Aspect ratio** set to *Original* keeps the screen's own 176:208 shape,
   and **Rotate** turns the picture for a rotated display.
+- **CPU caches** set to *32 KB* gives the processor larger caches than the
+  phone's, for a little more speed in 3D. *Real* is the phone's own sizes.
+  A change takes effect at the next **Reset**.
 - The **Firmware** page of the OSD loads the same four files by hand.
 
 ## Troubleshooting

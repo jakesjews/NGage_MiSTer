@@ -11476,3 +11476,104 @@ original NOS. The captures, result files, PMM images and the board
 scripts are in build/pr10-review-20261126 (untracked).
 
 Next: the merge decision.
+
+## 2026-11-27: pull request 10 merged, sixteen seeds of it, and a menu choice for the caches' sizes
+
+**The merge.** Pull request 10 is on master as 63a2946 (one commit: the
+repository takes squash merges only), the tree of the branch as it was run
+on the board on the 26th. The core is not yet published to an audience, so
+that everyone sets up again with the new files was accepted.
+
+**Sixteen seeds of it** (GitHub, built on the 27th; worse of the two slow
+corners, ns): 40 -1.621 (-1.621 / -1.480), 1337 -1.681, 120 -1.704,
+100 -1.722, 80 -1.744, 70 -1.753, 31337 -1.831, 30 -1.866, 20 -1.873,
+5 -1.881, 60 -1.897, 9 -1.956, 110 -2.005, 90 -2.046, 13 -2.052,
+50 -2.148; mean -1.861. Hold, recovery and removal are positive in all.
+36.2 k ALMs, 423 of 553 M10Ks. The sweep of the last release (2026-11-20)
+had -1.321 as its best and -1.616 as its mean: about a quarter of a
+nanosecond more. Every seed's worst path is in the CPU as before; paths of
+the new devices sit close behind it, most often `upp_mdi|control` and
+`wb_arb2|gnt` into `upp_pcm|facc` (43 of the 240 worst paths of eight
+later builds). Thirteen seeds of the branch without the date block
+(76a70a6) had a mean of -1.795 against -1.890 for the same seeds with it:
+inside what the seeds of one netlist scatter, so the date block is not
+where the slack went. A same-day sweep of the sources before the merge
+was started and stopped: the slack is short at the two extreme corners
+only, and the measure that counts is the board, which runs the benchmark
+and the games without a fault.
+
+**A choice of cache sizes.** Asked for the same night: the phone's sizes or
+32 KB each, in the menu ("CPU caches: Real / 32 KB", status 16, Real the
+default). It is the one setting in rtl/cpu, against the rule of 2026-11-18
+(one configuration), by decision. docs/CPU.md has the design: the RAMs are
+built for 32 KB; for the phone's sizes the set index is cut to the smaller
+cache's and the whole-cache clean and the operations by index count as the
+smaller cache does; the tag is the smaller cache's in either setting; the
+choice is taken while the CPU is in reset.
+
+Checked (branch `cache-option`, 41ed568):
+- `sim/cpu/units/small_cache_miter.py`: the cache unit built at 32 KB and
+  told to be small against the unit built small, every output and the
+  registered metadata, 400,000 random clocks, D and I configurations. It
+  fails with any one of eight edits taken out (each index mask, the
+  clean's count, its end, the index loop).
+- The CPU suite on the server, 119 tests at three bus latencies, four
+  times: the sources before the setting (A), the new ones at the phone's
+  sizes (B), the sources before built with 32 KB caches (C), the new ones
+  at 32 KB (D). A against B and C against D: all 595 files equal (357 logs
+  with their clock and instruction counts, the signatures, the traces).
+  Every log of A differs from C's: the start-up code's whole-cache clean
+  alone is 96 clocks longer at 32 KB.
+- The first version differed from C in one log by one clock
+  (`arm9_fetch_redirect_rtl`, latency 0:0). At 32 KB the tag's lowest bits
+  repeat index bits; a lookup compared against the lines of another set,
+  which the FSM does not use, then answered differently from a cache with
+  its own shorter tag, and the LRU bit it turned moved one replacement.
+  Those bits are left out of the compare at 32 KB.
+- sv2v: an operator between two slices of the tag arrays comes out as one
+  line of 200,000 characters, which Verilator 5.032 refuses, and `== '0`
+  beside a loop index as a replication that is not constant. The compares
+  use plain vectors and a reduction.
+- Units, lint, `cpu-gen-check` and the whole-core benches pass; the `top`
+  bench has the menu's choice waiting for a reset.
+
+The fit, the same eight seeds (5 9 13 20 30 40 50 60), worse corner:
+
+    master 63a2946, the phone's sizes   -1.881 -1.956 -2.052 -1.873 -1.866 -1.621 -2.148 -1.897   mean -1.912
+    its caches built at 32 KB (trial)   -2.139 -1.694 -1.904 -1.809 -2.056 -2.452 -2.417 -2.371   mean -2.105
+    the setting, first version          -2.265 -2.301 -1.991 -2.262 -2.751 -2.138 -1.827 -2.477   mean -2.252
+    the setting, 41ed568                -2.130 -2.247 -2.165 -2.786 -2.492 -1.767 -2.142 -2.101   mean -2.229
+    with only the I-cache large (trial) -2.205 -2.124 -2.034 -2.105 -2.364 -2.064 -2.117 -2.026   mean -2.130
+
+37.3 k ALMs (89 %) and 469 M10Ks with the setting; 36.0 k and 439 with
+only the I-cache large. So the larger caches cost about 0.3 ns of mean
+slack, 1,100 ALMs and 46 M10Ks in either setting, the setting's own logic
+nothing that eight seeds show, and leaving the D-cache small buys nothing
+back. Among the worst paths now: the W address into the D-cache's valid
+flags (256 a way instead of 64) and the bus acknowledge into its data
+RAM's byte enables.
+
+On the board (seed 40 of 41ed568, -1.767 / -1.750 ns; boot files, the card
+and the menu's saved settings from RAM, nothing written to the SD card: an
+empty tmpfs over /media/fat/config holds NGageT.CFG, status bit 16 for
+32 KB). First start: Time dialog after 107 s. SPMark04, one pass each:
+
+                          Real     32 KB    NGage_20261120 (26th)
+    3D Game (fps)         8.98     9.69     8.97
+    3D FillRate           1.73     1.80     1.73
+    3D PolyCount         29.67    37.54    29.64
+    2D Image (fps)       38.01    38.22    38.05
+    Image Scaling         1.90     1.96     1.89
+    JPEG Encoding       169.71   172.16   169.49
+    Contacts              3.47     3.23     3.50
+    Calendar              7.21     6.98     7.13
+    Disk Access          22.15    21.69    22.07
+
+Real is the release; 32 KB is where the builds with 32 KB caches were on
+2026-11-19 (9.60, 37.21), the storage tests 2 to 7 % lower as then. Tony
+Hawk at 32 KB: title, menus, the Warehouse in play.
+
+**Open.** The setting is on its branch; whether it goes to master, with
+what it costs every build in slack, is the user's. No release has been
+cut from the merged sources: seed 40 of the sweep above is the candidate
+without the setting. Sound has still not been listened to.

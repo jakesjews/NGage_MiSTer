@@ -85,6 +85,10 @@ in docs/CPU.md. In outline:
     core) and its simulation assertions were removed on 2026-11-18, with
     this project's own switches and simulation-only code: the files hold
     one configuration, and their checks are in sim/cpu.
+  * One setting was added on 2026-11-27: the caches behave as smaller ones
+    while i_small is high (SMALL_SIZE and set_mask in
+    arm925t_cache_tag_ram.sv, the tag macros in arm925t_defines.svh, the
+    same-set compare in arm925t_dcache.sv).
 
 rtl/cpu/arm925t_gen.v is generated from the files in this directory by
 tools/gen_cpu.sh (sv2v, and the fix Quartus 17 needs). It is a derived work

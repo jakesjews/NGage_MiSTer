@@ -30,8 +30,8 @@ ARM925T, how it is tested, and the FPGA numbers.
 ## Files
 
 - `rtl/cpu/arm925t.sv`: the top, which the rest of the core instantiates.
-  It holds the core's configuration: constants, and the two cache sizes
-  as its only parameters.
+  It holds the core's configuration: constants, the two cache sizes as
+  its only parameters, and `real_caches`, its one setting.
 - `rtl/cpu/arm925t_top.sv`: the pipeline, the two caches with their MMUs,
   the interrupt synchroniser and the bus merger.
 - `arm925t_core.sv` with `arm925t_fetch`, `arm925t_front_decode`,
@@ -75,25 +75,42 @@ ARM925T, how it is tested, and the FPGA numbers.
 `arm925t` has one clock, a synchronous active-high reset, two interrupt
 inputs and one memory bus master.
 
-Configuration. `arm925t` has two parameters, the cache sizes in bytes
-(`ICACHE_SIZE`, `DCACHE_SIZE`; `emu` in `NGage.sv` and the CPU bench pass
-them on), kept for speed tests with other sizes: a bench takes
-`VEXTRA=-GDCACHE_SIZE=16384`, a Quartus build a changed default in
-`NGage.sv`. Their defaults are the core's. Everything else is one
-configuration, constants in `arm925t.sv`, so that no build and no test
-runs with another:
+Configuration. `arm925t` has two parameters, the cache sizes in bytes as
+they are built (`ICACHE_SIZE`, `DCACHE_SIZE`, 32 KB each; `emu` in
+`NGage.sv` and the CPU bench pass them on), kept for speed tests with other
+sizes: a bench takes `VEXTRA=-GDCACHE_SIZE=16384`, a Quartus build a
+changed default in `NGage.sv`. It has one setting, the input `real_caches`:
+high, the caches are the phone's sizes; low, the sizes built (the menu's
+"CPU caches", below). Everything else is one configuration, constants in
+`arm925t.sv`, so that no build and no test runs with another:
 
 - The reset value of control bit V, the ARM925T's HIVECS pin, is 0
   (vectors and reset address at 0; the N-Gage boots from CS0 at 0).
-- The caches are 2-way with 16-byte lines, and their sizes are the
-  phone's own, 16 KB for instructions (512 sets) and 8 KB for data (256
-  sets, VA[11:4]). They were 32 KB each from 2026-11-09 to NGage_20261114,
-  which put SPMark04's 3D tests 18 to 38 % above a real phone, and 16 KB
-  each in the first release of 2026-11-16, because the 8 KB D-cache was
-  then 4 % short of the phone in the fill-rate test; the shorter end of
-  a line fill (below) closed that, and with the phone's sizes nothing is
-  below it (docs/PROGRESS-LOG.md, 2026-11-16). The cache type register
-  reports 16 KB and 8 KB. The caches are VIVT and rely on the firmware's
+- The caches are 2-way with 16-byte lines. With `real_caches` their sizes
+  are the phone's own, 16 KB for instructions (512 sets) and 8 KB for data
+  (256 sets, VA[11:4]). They were 32 KB each from 2026-11-09 to
+  NGage_20261114, which put SPMark04's 3D tests 18 to 38 % above a real
+  phone, and 16 KB each in the first release of 2026-11-16, because the
+  8 KB D-cache was then 4 % short of the phone in the fill-rate test; the
+  shorter end of a line fill (below) closed that, and with the phone's
+  sizes nothing is below it (docs/PROGRESS-LOG.md, 2026-11-16).
+- "CPU caches" in the core's menu (2026-11-27) chooses between the phone's
+  sizes (Real, the default) and 32 KB each. The RAMs are built for 32 KB,
+  1024 sets a way. For the phone's sizes the set index is cut to the
+  smaller cache's (`set_mask` in `arm925t_cache_tag_ram.sv`, and the
+  D-cache's own same-set compare), the sets above it are never read or
+  written, the whole-cache clean counts the smaller cache's lines, and an
+  operation by index visits one set. The tag is the smaller cache's in
+  either setting: at 32 KB its lowest bits repeat index bits and are left
+  out of the lookup's compare. So Real does in every clock what a cache
+  built small does, and 32 KB what one built at 32 KB does (Verification).
+  A cache cannot change its size with lines in it: `emu` takes the menu's
+  choice only while the CPU is in reset. Built large, the caches cost the
+  core about 1,100 ALMs, 46 M10Ks and 0.3 ns of mean setup slack in either
+  setting (FPGA resources and timing).
+- The cache type register reports 16 KB and 8 KB in either setting; at
+  32 KB an operation by index then visits the four sets of the D-cache
+  that share the reported index. The caches are VIVT and rely on the firmware's
   alias and DMA maintenance, as the phone's do; the
   [capacity analysis](consults/2026-10-23-codex-dcache-report.md) of
   2026-10-23 has what a larger D-cache would cost and need.
@@ -412,14 +429,27 @@ whole: docs/PROGRESS-LOG.md, 2026-11-16.
 `make -C sim/cpu bins run` assembles the tests and runs them on the RTL
 here; `make -C sim/cpu all` runs them on the Verilator machine instead
 (`remote`), runs QEMU (`qemu`) and compares (`diff`). `make -C sim/cpu
-units` runs the unit benches of the pipeline's parts and two proofs (the
-D-cache's lock summary, and the cache metadata against its last reviewed
-form). Results land in `sim/cpu/build/`.
+units` runs the unit benches of the pipeline's parts and three proofs (the
+D-cache's lock summary, the cache metadata against its last reviewed
+form, and the 32 KB cache told to be the phone's against the phone's).
+Results land in `sim/cpu/build/`.
 
 Every test and bench runs the CPU in the core's configuration: the
-modules' own defaults, with nothing overridden. The two cache-size
-parameters are for speed trials on a build or a bench run of their own
-(`VEXTRA`), not for tests.
+modules' own defaults, with nothing overridden, and the caches at the
+phone's sizes (`real_caches` high). `BENCH=--big-caches` with a `RESULTS`
+folder of its own runs the tests at 32 KB. The two cache-size parameters
+are for speed trials on a build or a bench run of their own (`VEXTRA`),
+not for tests.
+
+The cache setting was checked against the CPU without it (2026-11-27;
+119 tests at three bus latencies, every log with its clock and
+instruction counts, every signature and trace): at the phone's sizes
+equal to the sources before the setting, at 32 KB equal to those sources
+built with 32 KB caches. `sim/cpu/units/small_cache_miter.py` holds the
+first half in the unit targets: the cache unit built at 32 KB with
+`i_small` against the unit built small, every output and the registered
+metadata, 400,000 clocks of random requests, for the D-cache's and the
+I-cache's configurations.
 
 ### Bench
 
@@ -648,6 +678,13 @@ case measured, 2026-11-20).
   the slow 100C corner and -1.321 ns at slow -40C against 104 MHz; sixteen
   seeds of the same sources lie between that and -1.988 ns. Hold slack is
   positive at every corner. 33,938 ALMs for the whole core.
+- With pull request 10 (2026-11-27, sixteen seeds): -1.621 to -2.148 ns at
+  the worse corner, 36.2 k ALMs, 423 of 553 M10Ks. With the caches built
+  at 32 KB for the menu's choice (eight of those seeds): -1.767 to
+  -2.786 ns, mean -2.23 against -1.91 for the same seeds without;
+  37.3 k ALMs (89 %), 469 M10Ks. The larger caches' own paths join the
+  worst: the D-cache's valid flags (a flag for four sets, read through a
+  256:1 multiplexer from the W address) and its data RAM's byte enables.
 - So the timing report does not show 104 MHz; the core runs on the board
   regardless. The failing paths are in the CPU: the D-cache's answer and
   the TLB result into the pipeline's hot readers. What was tried, and why
