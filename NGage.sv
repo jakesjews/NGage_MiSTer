@@ -73,13 +73,13 @@ localparam CONF_STR = {
 	"P1,Firmware;",
 	"P1F3,ROM,Load boot0.rom;",
 	"P1F4,ROM,Load boot1.rom;",
-	"P1S0,VHD,Mount c.vhd;",
-	"P1S2,VHD,Mount pmm.vhd;",
+	"P1S0,VHD,Mount C: save;",
+	"P1S2,VHD,Mount PMM save;",
 	// Stock .mgl finds only entries on the main page during launch.
 	"H1F3,ROM,Load boot0.rom;",
 	"H1F4,ROM,Load boot1.rom;",
-	"H1S0,VHD,Mount c.vhd;",
-	"H1S2,VHD,Mount pmm.vhd;",
+	"H1S0,VHD,Mount C: save;",
+	"H1S2,VHD,Mount PMM save;",
 	"S1,MMCIMGBINVHD,Mount MMC card;",
 	"-;",
 	"O[2:1],Rotate,Off,Clockwise,Anticlockwise;",
@@ -98,7 +98,7 @@ localparam CONF_STR = {
 	"R[0],Reset and close OSD;",
 	"J,5,7,OK,Left soft,Right soft,Menu,Call,End,*,#,Clear,Edit,Power,0,1,2,3,4,6,8,9;",
 	"jn,A,B,X,L,R,Start,Select,,,,,,,Y;",
-	"I,C: save mounted,C: save file must be 4 or 8 MB,C: read-only: no saves,C: saved,Booting the phone...,Phone kernel is up,PMM save mounted,PMM save must be 64 KiB,PMM read-only,PMM saved,Invalid firmware ROM sizes;",
+	"I,C: save mounted,C: save file must be 4 or 8 MB,C: read-only: no saves,C: saved,Booting the phone...,Phone kernel is up,PMM save mounted,PMM save must be 64 KiB,PMM read-only,PMM saved,Firmware files not valid: see the README;",
 	"V,v",`BUILD_DATE
 };
 
@@ -127,7 +127,16 @@ wire         info_req;
 wire   [7:0] info;
 
 wire         ioctl_download;
-wire  [15:0] ioctl_index;
+// MiSTer sends the game folder's boot0.rom and boot1.rom when the core starts,
+// in that order, with no menu index and the file's number in bits 7:6 (0x00,
+// 0x40): they are the two flash images, as F3 and F4 are. A file picked in
+// the OSD or named by a launcher keeps its menu index in bits 5:0 (bits 7:6
+// are then its extension). boot2.rom and boot3.rom (0x80, 0xC0) are not used.
+// A legacy boot.rom also arrives as index 0, after boot1.rom: CS0 again.
+wire  [15:0] ioctl_index_hps;
+wire  [15:0] ioctl_index = ioctl_index_hps[5:0] != 6'd0 ? ioctl_index_hps :
+                           ioctl_index_hps[7:6] == 2'd0 ? 16'd3 :
+                           ioctl_index_hps[7:6] == 2'd1 ? 16'd4 : ioctl_index_hps;
 wire         ioctl_wr;
 wire  [26:0] ioctl_addr;
 wire  [15:0] ioctl_dout;
@@ -184,7 +193,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(3)) hps_io
 	.joystick_1(joystick_1),
 
 	.ioctl_download(ioctl_download),
-	.ioctl_index(ioctl_index),
+	.ioctl_index(ioctl_index_hps),
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),

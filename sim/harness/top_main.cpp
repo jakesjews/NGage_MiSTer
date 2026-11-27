@@ -115,9 +115,11 @@ struct Bench {
 		}
 		// Synthetic programs occupy the first page; exercise the complete
 		// upload handshake with a final word at the physical array end.
-		if (complete && (index == 3 || index == 4)) {
+		// Indexes 0x00 and 0x40 are boot0.rom and boot1.rom: CS0 and CS1.
+		bool is_cs0 = index == 3 || index == 0x00, is_cs1 = index == 4 || index == 0x40;
+		if (complete && (is_cs0 || is_cs1)) {
 			wait();
-			h.emu__DOT__hps_io__DOT__sim_addr = (bytes ? bytes : (index == 3 ? 16u << 20 : 8u << 20)) - 2;
+			h.emu__DOT__hps_io__DOT__sim_addr = (bytes ? bytes : (is_cs0 ? 16u << 20 : 8u << 20)) - 2;
 			h.emu__DOT__hps_io__DOT__sim_dout = 0x5a5a;
 			h.emu__DOT__hps_io__DOT__sim_wr = 1;
 			tick();
@@ -370,7 +372,9 @@ int main(int argc, char **argv) {
 	b.ticks(4);
 	R.emu__DOT__hps_io__DOT__sim_rtc[2] = 1;             // bit 64: the time is sent
 
-	// Only the raw CS0 and CS1 selectors can load flash.
+	// The two flash images load through the menu's F3 and F4 or, as here, as
+	// the boot files MiSTer sends when the core starts (boot0.rom, boot1.rom:
+	// no menu index, the file's number in bits 7:6). Nothing else loads flash.
 	auto download = [&](int index, const std::vector<uint8_t> &data) { b.download(index, data); };
 	std::vector<uint8_t> cs0(65536), cs1(32768);
 	for (size_t i = 0; i < cs0.size(); i++) cs0[i] = (uint8_t)(i * 13 + (i >> 8));
@@ -383,19 +387,28 @@ int main(int argc, char **argv) {
 	memcpy(cs0.data(), prog, sizeof prog);
 	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset with no flash image");
 	CHECK(!(R.emu__DOT__hps_io__DOT__sim_menumask & 2), "MGL file slots visible before upload");
-	for (int index : {0, 0x40, 1, 2}) download(index, {0x11, 0x22});
-	CHECK_EQ(b.ddr_writes, 0u, "former service-file indexes do not write DDR");
-	CHECK(R.emu__DOT__cpu_reset, "service-file downloads do not release reset");
+	for (int index : {1, 2, 0x80, 0xC0}) b.download(index, {0x11, 0x22}, false);
+	CHECK_EQ(b.ddr_writes, 0u, "the former service-file indexes, boot2.rom and boot3.rom do not write DDR");
+	CHECK(R.emu__DOT__cpu_reset, "those downloads do not release reset");
+	CHECK(b.infos.empty(), "a notice for a download the core does not take");
+	// a file of another size as boot0.rom (the firmware file of earlier
+	// cores, say): refused with the notice, nothing loaded
+	b.download(0x00, std::vector<uint8_t>(4096, 0x33), false);
+	b.ticks(20);
+	CHECK(R.emu__DOT__cpu_reset, "a boot0.rom of the wrong size must hold reset");
+	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 11), 1, "the notice for a boot0.rom of the wrong size");
+	b.infos.clear();
+	b.ddr_writes = 0;
 	b.download(3, {}, false);
 	b.ticks(20);
 	CHECK(R.emu__DOT__cpu_reset, "incomplete flash upload must hold reset");
 	CHECK_EQ(std::count(b.infos.begin(), b.infos.end(), 11), 1, "invalid flash size notice");
 	b.infos.clear();
-	download(3, cs0);
+	download(0x00, cs0);                 // boot0.rom
 	b.ticks(1000);
 	CHECK(R.emu__DOT__cpu_reset, "the CPU out of reset with only CS0 loaded");
 	CHECK(b.cpu_writes.empty(), "CPU writes before CS1 is loaded");
-	download(4, cs1);
+	download(0x40, cs1);                 // boot1.rom
 	CHECK(R.emu__DOT__hps_io__DOT__sim_menumask & 2, "MGL shortcuts hidden after both ROMs load");
 	CHECK(memcmp(&b.ddr[0], cs0.data(), cs0.size()) == 0, "CS0 image in DDR3 at 0x31000000");
 	CHECK(memcmp(&b.ddr[0x01000000], cs1.data(), cs1.size()) == 0, "CS1 image in DDR3 at 0x32000000");
