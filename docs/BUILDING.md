@@ -40,15 +40,19 @@ The project is an ordinary MiSTer one. Open `NGage.qpf` in Quartus Prime
 17.0.2 (the Lite edition is enough) and compile it, or run
 `quartus_sh --flow compile NGage` in the repository root. The core is
 `output_files/NGage.rbf`. Nothing else is needed: a fresh clone compiled this
-way gives the released file bit for bit.
+way on the release's date gives the released file bit for bit (the date is
+part of the core, see below).
 
 - **The core does not meet its 104 MHz constraint yet.** Quartus finishes the
   compile without errors and with the critical warning "Timing requirements
-  not met". The released build of 2026-11-19 has a worst setup slack of
-  -1.48 ns with the fitter seed in `NGage.qsf` (`SEED`), the one seed fitted
-  for that tree; sixteen seeds of the tree before it gave -1.5 to -2.3 ns.
-  The released core runs on the board.
+  not met". The released build of 2026-11-20 has a worst setup slack of
+  -1.32 ns with the fitter seed in `NGage.qsf` (`SEED`), the best of sixteen
+  seeds, which gave -1.3 to -2.0 ns. The released core runs on the board.
 - A build is reproducible: the same source, seed and date give the same RBF.
+  The date (UTC) is the core's version string and part of the logic, so
+  another day's build is another file and can fit differently: the release
+  before, built again a day later with its own seed, went from -1.48 to
+  -1.65 ns.
 - `./build.sh` is optional, for a build server: it copies the tree to a Linux
   machine over ssh, runs the same compile there in Docker (image
   `theypsilon/quartus-lite-c5:17.0.2.docker0`) and fetches the core and the

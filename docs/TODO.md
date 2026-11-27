@@ -35,7 +35,9 @@ stand-in code with some reverse engineering; **high** a large design;
   set. The core is the release before's clock for clock (the same clock
   counts in flashcopy and dfill, the same SPMark04 figures).
 - [x] **A read-ahead line for SDRAM line fills**: released as
-  NGage_20261119.rbf (seed 5, -1.478 / -1.412 ns). A line fill reads the
+  NGage_20261119.rbf (seed 5, -1.478 / -1.412 ns), since 2026-11-20
+  NGage_20261120.rbf (the same sources, seed 31337 of sixteen, -1.148 /
+  -1.321 ns). A line fill reads the
   row's next 16 bytes too and the memory bus keeps them for the next fill
   (`rtl/upp/upp_bus.sv`, `rtl/mem/sdram.sv`). On the board 3D Game 8.88 ->
   8.98 fps and PolyCount 28.41 -> 29.67, nothing slower. In `make -C sim

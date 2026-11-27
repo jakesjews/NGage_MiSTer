@@ -15,18 +15,26 @@ line on a TCP port:
                        button map (or NGage_input_1209_4e47_v3.map when one
                        is in config/inputs). Buttons: a b x y l r select start
     shot               Main's own screenshot (its command pipe), reply
-                       with the file it wrote under /media/fat/screenshots
+                       with the file it wrote under /media/fat/screenshots.
+                       Main then shows its "Screen saved" box on the picture
+    grab               the same picture read straight from the scaler's
+                       frame buffer, as Main's screenshot reads it: nothing
+                       appears on screen and nothing is written to the SD
+                       card. Reply with a PNG in /tmp (the RAM disk), which
+                       the caller removes
     quit
 
 Replies: "ok <time>" (the board's time at the press) or "ok <time> <path>"
-for shot, "err <reason>" otherwise. tools/jev_play.py copies this file to
-/tmp on the board, starts it with `python3 /tmp/mister_input.py serve PORT`
-and talks to it; it can also be used by hand:
+for shot and grab, "err <reason>" otherwise. tools/jev_play.py copies this
+file to /tmp on the board, starts it with
+`python3 /tmp/mister_input.py serve PORT` and talks to it; it can also be
+used by hand:
 
     ssh mister 'python3 /tmp/mister_input.py tap f12'
     ssh mister 'python3 /tmp/mister_input.py shot'
+    ssh mister 'python3 /tmp/mister_input.py grab'
 """
-import fcntl, os, socket, struct, sys, time
+import fcntl, mmap, os, socket, struct, sys, time, zlib
 
 KEYS = {"esc": 1, "1": 2, "2": 3, "3": 4, "4": 5, "5": 6, "6": 7, "7": 8, "8": 9, "9": 10, "0": 11,
         "backspace": 14, "enter": 28, "space": 57, "z": 44, "x": 45,
@@ -41,6 +49,11 @@ EV_SYN, EV_KEY = 0, 1
 UI_SET_EVBIT, UI_SET_KEYBIT = 0x40045564, 0x40045565
 UI_DEV_CREATE, UI_DEV_DESTROY = 0x5501, 0x5502
 SHOTS = "/media/fat/screenshots"
+# The scaler's input frame buffer in the FPGA's half of the DDR3, as Main's
+# scaler.cpp reads it: a header (1, 1, header size, attributes, width,
+# height, line length, all big-endian 16-bit after the two marks), then
+# 24-bit RGB lines.
+SCALER_BASE, SCALER_SIZE = 0x20000000, 2048 * 3 * 1024
 
 
 class Keyboard:
@@ -159,6 +172,40 @@ def shot(kb):
     return t, None
 
 
+_grab_n = 0
+
+
+def grab():
+    """The picture from the scaler's frame buffer as a PNG in /tmp."""
+    global _grab_n
+    t = time.time()
+    fd = os.open("/dev/mem", os.O_RDONLY | os.O_SYNC)
+    try:
+        m = mmap.mmap(fd, SCALER_SIZE, mmap.MAP_SHARED, mmap.PROT_READ, offset=SCALER_BASE)
+    finally:
+        os.close(fd)
+    try:
+        if m[0] != 1 or m[1] != 1:
+            return t, None
+        header, _, width, height, line = struct.unpack(">5H", m[2:12])
+        if not (0 < width <= 2048 and 0 < height <= 2048 and line >= width * 3
+                and header + height * line <= SCALER_SIZE):
+            return t, None
+        rows = b"".join(b"\0" + m[header + y * line:header + y * line + width * 3] for y in range(height))
+    finally:
+        m.close()
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+    _grab_n += 1
+    path = "/tmp/ngage-grab-%d-%d.png" % (os.getpid(), _grab_n)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(rows, 6)) + chunk(b"IEND", b""))
+    return t, path
+
+
 def run(kb, line):
     parts = line.strip().split()
     if not parts:
@@ -179,6 +226,9 @@ def run(kb, line):
         if cmd == "shot":
             t, p = shot(kb)
             return "ok %.3f %s" % (t, p) if p else "err no screenshot file appeared"
+        if cmd == "grab":
+            t, p = grab()
+            return "ok %.3f %s" % (t, p) if p else "err no picture in the scaler's buffer"
     except KeyError:
         return "err unknown key"
     return "err bad command"
@@ -211,6 +261,8 @@ def serve(port):
 def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "serve":
         return serve(int(sys.argv[2]) if len(sys.argv) > 2 else 9123)
+    if sys.argv[1:] == ["grab"]:          # needs no keyboard
+        return print(run(None, "grab"))
     kb = Keyboard()
     try:
         print(run(kb, " ".join(sys.argv[1:])))
