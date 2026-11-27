@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>N-Gage QD firmware unpacker</title>
-<meta name="description" content="Unpacks Nokia's N-Gage QD firmware archive into boot0.rom and boot1.rom for the N-Gage QD core on MiSTer. It runs in your browser; nothing is uploaded.">
+<meta name="description" content="Makes boot0.rom and boot1.rom for the N-Gage QD core on MiSTer from Nokia's N-Gage QD firmware archive. It runs in your browser; nothing is uploaded.">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
@@ -13,9 +13,10 @@
 <main>
 	<h1>Unpack the <span class="nowrap">N-Gage QD</span> firmware</h1>
 	<p class="lead">
-		The N-Gage QD core for MiSTer boots from two files that Nokia shipped packed
-		inside its service software for the phone. Drop the archive of it here and
-		save them. It is read in your browser and is not uploaded.
+		The N-Gage QD core for MiSTer boots from the contents of the phone's two
+		flash chips. Nokia shipped them packed inside its service software for the
+		phone. Drop the archive of it here and save the two files made from it. It
+		is read in your browser and is not uploaded.
 	</p>
 
 	<section class="bay" id="bay" aria-label="Unpack the firmware archive">
@@ -34,14 +35,14 @@
 			<article class="card" id="card0">
 				<div class="pads" aria-hidden="true"></div>
 				<h2>boot0.rom</h2>
-				<p class="role">Firmware</p>
+				<p class="role">First flash chip</p>
 				<p class="meta">Not unpacked yet</p>
 				<a class="save" hidden>Save boot0.rom</a>
 			</article>
 			<article class="card" id="card1">
 				<div class="pads" aria-hidden="true"></div>
 				<h2>boot1.rom</h2>
-				<p class="role">Language pack</p>
+				<p class="role">Second flash chip</p>
 				<p class="meta">Not unpacked yet</p>
 				<a class="save" hidden>Save boot1.rom</a>
 			</article>
@@ -54,7 +55,7 @@
 		<h2>Where the files go</h2>
 		<ol>
 			<li>Save <span class="file">boot0.rom</span> and <span class="file">boot1.rom</span>.</li>
-			<li>Copy both into <span class="file">games/NGage/</span> on the MiSTer's SD card, next to <span class="file">boot0.vhd</span>.</li>
+			<li>Copy both into <span class="file">games/NGage/</span> on the MiSTer's SD card, next to <span class="file">boot0.vhd</span> and <span class="file">boot2.vhd</span>.</li>
 			<li>Start NGage from the Console menu.</li>
 		</ol>
 		<p>The <a href="https://github.com/jakesjews/NGage_MiSTer#setup">core's README</a> has the whole setup.</p>
@@ -96,7 +97,7 @@
 		<p>
 			If you already have <span class="file">RH2941.0C1</span> and one of its
 			language packs (<span class="file">RH2941.021</span> is the one this page
-			hands out), drop those: they are the same two files under Nokia's names.
+			takes), drop those two: the boot files are made from them.
 		</p>
 	</section>
 </main>
