@@ -29,6 +29,7 @@
 
 module arm925t_icache_fsm   #(
         parameter logic [31:0] CACHE_SIZE    = 32'd16384,  // Bytes.
+        parameter logic [31:0] SMALL_SIZE    = CACHE_SIZE, // ARM925T: the tags' geometry (arm925t_defines.svh).
         parameter logic [31:0] CACHE_LINE    = 32'd16,
         parameter logic [31:0] WAYS          = 32'd2      // ARM925T: ways (arm925t_cache_tag_ram).
 )

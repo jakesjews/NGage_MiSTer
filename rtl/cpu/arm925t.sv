@@ -34,19 +34,25 @@
 // ARM925T's nIRQ/nFIQ); they pass a two-flop synchroniser (arm925t_sync2).
 // reset is synchronous and active high; drive it from a flip-flop.
 module arm925t #(
-	// The caches' sizes in bytes. The defaults are the phone's and the
-	// core's: 16 KB for instructions (512 sets) and 8 KB for data (256
-	// sets, VA[11:4]). They are parameters for speed tests with other
-	// sizes (the releases up to NGage_20261114 had 32 KB each, the first
-	// of 2026-11-16 16 KB each: with 8 KB the core was then 4 % short of
-	// a real phone in SPMark04's fill-rate test, which the shorter end
-	// of a line fill closed; docs/PROGRESS-LOG.md, 2026-11-16). CP15's
-	// cache type register reports the phone's sizes whatever these are.
-	parameter int ICACHE_SIZE = 16384,
-	parameter int DCACHE_SIZE = 8192
+	// The caches as built, in bytes: 32 KB each. With real_caches they are
+	// the ARM925T's and the phone's, 16 KB for instructions (512 sets)
+	// and 8 KB for data (256 sets, VA[11:4]): the same two ways and
+	// 16-byte lines, with the set index cut to the smaller cache's
+	// (rtl/cpu/arm925t_cache_tag_ram.sv). The core's menu chooses
+	// (NGage.sv, "CPU caches"); the phone's sizes are its default. CP15's
+	// cache type register reports the phone's sizes in either setting.
+	// The releases up to NGage_20261114 had 32 KB each and nothing else,
+	// those from 2026-11-16 the phone's sizes and nothing else
+	// (docs/PROGRESS-LOG.md, 2026-11-16 and 2026-11-27). A size at or
+	// under the phone's builds that cache alone: real_caches then does
+	// nothing to it.
+	parameter int ICACHE_SIZE = 32768,
+	parameter int DCACHE_SIZE = 32768
 ) (
 	input  logic        clk,
 	input  logic        reset,
+	// the caches are the phone's sizes; it may change only while reset is high
+	input  logic        real_caches,
 
 	input  logic        irq,
 	input  logic        fiq,
@@ -108,6 +114,9 @@ module arm925t #(
 	localparam int ICACHE_WAYS = 2;
 	localparam int DCACHE_WAYS = 2;
 	localparam int CACHE_LINE  = 16;
+	// The phone's sizes (TI SPRU671; CP15_CTYPE below says the same).
+	localparam int ICACHE_REAL = 16384;
+	localparam int DCACHE_REAL = 8192;
 	// The small-page TLBs: two ways of 256 entries each, indexed by the
 	// page number's low bits. The ARM925T's TLBs are 64-entry and fully
 	// associative; with one way, two pages 1 MB apart (the same offset in
@@ -135,9 +144,11 @@ module arm925t #(
 		.CP15_CTYPE      (32'h05109149),
 		.RESET_VECTOR    (RESET_VECTOR),
 		.CODE_CACHE_SIZE     (32'(ICACHE_SIZE)),
+		.CODE_CACHE_SMALL    (32'(ICACHE_SIZE > ICACHE_REAL ? ICACHE_REAL : ICACHE_SIZE)),
 		.CODE_CACHE_LINE     (32'(CACHE_LINE)),
 		.CODE_CACHE_WAYS     (32'(ICACHE_WAYS)),
 		.DATA_CACHE_SIZE     (32'(DCACHE_SIZE)),
+		.DATA_CACHE_SMALL    (32'(DCACHE_SIZE > DCACHE_REAL ? DCACHE_REAL : DCACHE_SIZE)),
 		.DATA_CACHE_LINE     (32'(CACHE_LINE)),
 		.DATA_CACHE_WAYS     (32'(DCACHE_WAYS)),
 		.DATA_SPAGE_TLB_ENTRIES (32'(DTLB_SPAGE_SETS)),
@@ -153,6 +164,7 @@ module arm925t #(
 	) u_top (
 		.i_clk    (clk),
 		.i_reset  (reset),
+		.i_small_caches (real_caches),
 		.i_irq    (irq),
 		.i_fiq    (fiq),
 		.o_dbg_pc(dbg_pc),

@@ -65,7 +65,7 @@ module execute_cache_tb;
     logic bus_ack=0;
     logic [31:0] bus_data=0;
     arm925t_icache #(.CACHE_SIZE(16384),.WAYS(2),.CACHE_LINE(16)) cache (
-        .i_clk(i_clk),.i_reset(i_reset),.i_stall(o_stall),.i_address_check(o_address_check),
+        .i_clk(i_clk),.i_reset(i_reset),.i_small(1'b0),.i_stall(o_stall),.i_address_check(o_address_check),
         .i_wr_check(1'b0),.i_rd_check(1'b1),.i_address(o_address),.i_address_nxt(o_address_nxt),
         .i_rd(o_request),.i_wr(1'b0),.i_ben(4'hf),.i_dat(32'd0),.o_dat(i_data),
         .o_ack(i_ack),.o_err(i_error),.o_err2(i_retry),.o_fill_pending(i_fill_pending),

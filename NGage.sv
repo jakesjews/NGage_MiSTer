@@ -28,10 +28,11 @@
 // timer and MMC clocks divide from it exactly.
 
 module emu #(
-	// the CPU's cache sizes in bytes; the defaults are the phone's and the
-	// core's (rtl/cpu/arm925t.sv). Parameters for speed tests only.
-	parameter int ICACHE_SIZE = 16384,
-	parameter int DCACHE_SIZE = 8192
+	// the CPU's cache sizes in bytes as built (rtl/cpu/arm925t.sv): the
+	// menu's "CPU caches" makes them the phone's 16 KB and 8 KB (its
+	// default) or leaves them at these. Parameters for speed tests only.
+	parameter int ICACHE_SIZE = 32768,
+	parameter int DCACHE_SIZE = 32768
 ) (
 	`include "sys/emu_ports.vh"
 );
@@ -93,6 +94,7 @@ localparam CONF_STR = {
 	"O[8],Debug overlay,Off,On;",
 `endif
 	"-;",
+	"O[16],CPU caches,Real,32 KB;",
 	"T[7],Save C: and PMM now;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
@@ -734,10 +736,20 @@ wire  [3:0] cpu_dbg_dcache;   // load fills, store fills, write-backs, uncached 
 wire [31:0] tr_d_va, tr_d_wdata, tr_d_rdata;
 wire  [3:0] tr_d_sel;
 
+// The menu's "CPU caches": Real is the ARM925T's 16 KB for instructions and
+// 8 KB for data, as the phone has; 32 KB is the CPU's caches as they are
+// built, which no phone had: more of a game's code and data stays cached
+// (SPMark04's 3D tests, docs/PROGRESS-LOG.md 2026-11-27). A cache cannot
+// change its size with lines in it, so the choice is taken while the CPU
+// is in reset: a change in the menu waits for the next reset.
+reg real_caches /* verilator public_flat_rd */ = 1'b1;
+always @(posedge clk_sys) if (cpu_reset) real_caches <= ~status[16];
+
 arm925t #(.ICACHE_SIZE(ICACHE_SIZE), .DCACHE_SIZE(DCACHE_SIZE)) arm925t
 (
 	.clk(clk_sys),
 	.reset(cpu_reset),
+	.real_caches(real_caches),
 	.irq(cpu_irq),
 	.fiq(cpu_fiq),
 	.bus_req(cpu_req),

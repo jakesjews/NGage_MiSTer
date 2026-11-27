@@ -7,12 +7,15 @@
 // are; main.cpp turns them into a retirement trace. They work on both the
 // generated netlist (rtl/cpu/arm925t_gen.v) and the SystemVerilog sources.
 module tb_cpu #(
-	// the caches' sizes, as arm925t's (speed tests: -GDCACHE_SIZE=...)
-	parameter int ICACHE_SIZE = 16384,
-	parameter int DCACHE_SIZE = 8192
+	// the caches' sizes as built, as arm925t's: with real_caches they are
+	// the phone's 16 KB and 8 KB. -GICACHE_SIZE=16384 -GDCACHE_SIZE=8192
+	// builds the phone's caches alone (real_caches then does nothing).
+	parameter int ICACHE_SIZE = 32768,
+	parameter int DCACHE_SIZE = 32768
 ) (
     input  logic          clk,
 	input  logic          reset,
+	input  logic          real_caches,  // the bench's default; --big-caches lowers it
 	input  logic          irq,
 	input  logic          fiq,
 
@@ -121,6 +124,7 @@ module tb_cpu #(
 	arm925t #(.ICACHE_SIZE(ICACHE_SIZE), .DCACHE_SIZE(DCACHE_SIZE)) dut (
 		.clk       (clk),
 		.reset     (reset),
+		.real_caches (real_caches),
 		.irq       (irq),
 		.fiq       (fiq),
 		.bus_req   (bus_req),
@@ -294,6 +298,10 @@ module tb_cpu #(
 	`define TC dut.u_top.u_data_cache.u_tlb.u_tlb_check
 	localparam int DLINE_W = $clog2(CACHE_LINE);
 	localparam int DSET_W = $clog2(DCACHE_SIZE / DCACHE_WAYS / CACHE_LINE);
+	// The phone's D-cache: its sets are the ones in use with real_caches,
+	// and its tag is the tag in either setting (arm925t_defines.svh).
+	localparam int DREAL_SET_W = $clog2((DCACHE_SIZE > 8192 ? 8192 : DCACHE_SIZE) / DCACHE_WAYS / CACHE_LINE);
+	wire [DSET_W-1:0] dc_set_mask = real_caches ? DSET_W'((1 << DREAL_SET_W) - 1) : '1;
 	logic [DSET_W-1:0] dc_read_set, dc_response_set;
 	logic dc_victim_valid;
 	logic dc_installed;
@@ -310,8 +318,8 @@ module tb_cpu #(
 
 		if (`DC.o_idle) begin
 			dc_victim_valid <= `DC.i_cache_tag_valid;
-			dc_victim_line <= {`DC.i_cache_tag[31-DLINE_W-DSET_W:0],
-			                   `DC.i_address[DLINE_W +: DSET_W]};
+			dc_victim_line <= {`DC.i_cache_tag[31-DLINE_W-DREAL_SET_W:0],
+			                   `DC.i_address[DLINE_W +: DREAL_SET_W]};
 		end
 		// Only a presented access consumes the registered match (the HUM ACK,
 		// live write and accepted-hit LRU update all need i_rd or i_wr). With
@@ -324,7 +332,7 @@ module tb_cpu #(
 			assert (!`DC.o_ack) else $fatal(1, "Hit collided with fill installation");
 		if (!reset && (`DC.state_ff[3] || `DC.state_ff[4] || `DC.state_ff[10]) &&
 		    (`DC.i_rd || `DC.i_wr) && `DC.o_ack) begin
-			assert (dc_response_set == `DC.i_address[DLINE_W +: DSET_W])
+			assert (dc_response_set == (`DC.i_address[DLINE_W +: DSET_W] & dc_set_mask))
 				else $fatal(1, "Hit under miss used an unaligned cache lookup");
 			assert (dc_installed || `DC.i_address[31:DLINE_W] != `DC.address[31:DLINE_W])
 				else $fatal(1, "Hit under miss accessed the filling line");

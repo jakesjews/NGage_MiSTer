@@ -25,6 +25,8 @@
 //                       the PC of the data access at W
 //     --lat MIN:MAX     bus latency, cycles from request to ack (default 0:3)
 //     --icache-quarantine  force conservative I-fill class (negative test)
+//     --big-caches      the caches at the sizes built (32 KB each) instead of
+//                       the phone's 16 KB and 8 KB (the CPU's real_caches low)
 //     --read-error ADDR  inject a bus error on reads of ADDR (repeatable)
 //     --seed N          RNG seed for the latency (default 1)
 //     --max-cycles N    give up after N cycles (default 50,000,000)
@@ -171,7 +173,7 @@ int main(int argc, char **argv) {
 	uint64_t trace_after = 0, trace_count = 0;
 	bool dcdbg = false, pddbg = false, arm9_cycles = false, measure_cycles = false;
     const char *arm9_cycle_model = nullptr;
-	bool quiet = false, icache_quarantine = false;
+	bool quiet = false, icache_quarantine = false, big_caches = false;
 	bool halt_given = false;
 	std::string machine;
 	NGage::Options nopt;
@@ -198,6 +200,7 @@ int main(int argc, char **argv) {
 		else if (a == "--sig-size") sig_size = (uint32_t)strtoul(next(), nullptr, 0);
 		else if (a == "--trace") trace_path = next();
 		else if (a == "--icache-quarantine") icache_quarantine = true;
+		else if (a == "--big-caches") big_caches = true;
 		else if (a == "--read-error") read_errors.push_back((uint32_t)strtoul(next(), nullptr, 0));
 		else if (a == "--buslog") buslog_path = next();
 		else if (a == "--walklog") walklog_path = next();
@@ -415,6 +418,7 @@ int main(int argc, char **argv) {
 
 	// reset
 	t->clk = 0;
+	t->real_caches = !big_caches;
 	t->reset = 1;
 	t->irq = 0;
 	t->fiq = 0;

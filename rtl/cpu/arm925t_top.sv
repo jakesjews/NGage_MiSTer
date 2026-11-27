@@ -67,6 +67,7 @@ parameter logic [31:0] DATA_SPAGE_TLB_ENTRIES   =  32'd256,   // Small page TLB 
 parameter logic [31:0] DATA_SPAGE_TLB_WAYS      =  32'd2,     // ARM925T: small page TLB ways, each of that many entries.
 parameter logic [31:0] DATA_FPAGE_TLB_ENTRIES   =  32'd64,   // Tiny page TLB entries.
 parameter logic [31:0] DATA_CACHE_SIZE          =  32'd8192, // Cache size in bytes.
+parameter logic [31:0] DATA_CACHE_SMALL         =  DATA_CACHE_SIZE, // ARM925T: the cache it is while i_small_caches.
 parameter logic [31:0] DATA_CACHE_LINE          =  32'd16,   // Cache line size in bytes.
 parameter logic [31:0] DATA_CACHE_WAYS          =  32'd2,    // ARM925T: 1 or 2.
 
@@ -79,6 +80,7 @@ parameter logic [31:0] CODE_SPAGE_TLB_ENTRIES   =  32'd256,   // Small page TLB 
 parameter logic [31:0] CODE_SPAGE_TLB_WAYS      =  32'd2,     // ARM925T: small page TLB ways.
 parameter logic [31:0] CODE_FPAGE_TLB_ENTRIES   =  32'd64,   // Fine page TLB entries.
 parameter logic [31:0] CODE_CACHE_SIZE          =  32'd16384, // Cache size in bytes.
+parameter logic [31:0] CODE_CACHE_SMALL         =  CODE_CACHE_SIZE, // ARM925T: the cache it is while i_small_caches.
 parameter logic [31:0] CODE_CACHE_LINE          =  32'd16,   // Ccahe line size in bytes.
 parameter logic [31:0] CODE_CACHE_WAYS          =  32'd2,    // ARM925T: 1 or 2.
 
@@ -123,6 +125,10 @@ parameter logic [31:0] CP15_CTYPE   = 32'h05109149  // c0 cache type (0: made fr
 
         input   logic            i_clk,
         input   logic            i_reset,
+
+        // ARM925T: the caches behave as CODE_CACHE_SMALL and DATA_CACHE_SMALL
+        // (arm925t_cache_tag_ram). It may change only under reset.
+        input   logic            i_small_caches,
 
         // ---------------------------------------
         // Interrupts.
@@ -463,6 +469,7 @@ arm925t_core #(
 
 arm925t_dcache #(
         .CACHE_SIZE(DATA_CACHE_SIZE),
+        .SMALL_SIZE(DATA_CACHE_SMALL),
         .SPAGE_TLB_ENTRIES(DATA_SPAGE_TLB_ENTRIES),
         .SPAGE_TLB_WAYS(DATA_SPAGE_TLB_WAYS),
         .LPAGE_TLB_ENTRIES(DATA_LPAGE_TLB_ENTRIES),
@@ -479,6 +486,7 @@ u_data_cache (
 .i_stall                (arm9_data_stall),
 .o_fill_busy            (data_fill_busy),
 .i_reset                (s_reset),
+.i_small                (i_small_caches),
 .i_address              (cpu_daddr      ),
 .i_address_nxt          (cpu_daddr_nxt  ),
 .i_address_check        (cpu_daddr_check),
@@ -566,6 +574,7 @@ u_data_cache (
 
 arm925t_icache #(
 .CACHE_SIZE(CODE_CACHE_SIZE),
+.SMALL_SIZE(CODE_CACHE_SMALL),
 .SPAGE_TLB_ENTRIES(CODE_SPAGE_TLB_ENTRIES),
 .SPAGE_TLB_WAYS(CODE_SPAGE_TLB_WAYS),
 .LPAGE_TLB_ENTRIES(CODE_LPAGE_TLB_ENTRIES),
@@ -578,6 +587,7 @@ u_code_cache (
 .i_clk              (i_clk),
 .i_stall            (code_stall),
 .i_reset            (s_reset),
+.i_small            (i_small_caches),
 
 .i_address          ((cpu_iaddr     & 32'hFFFF_FFFC)  ), // Cut off lower 2 bits.
 .i_address_nxt      ((cpu_iaddr_nxt & 32'hFFFF_FFFC)  ), // Cut off lower 2 bits.

@@ -27,6 +27,7 @@
 module arm925t_icache #( // INSTRUCTION CACHE
 
 parameter [31:0] CACHE_SIZE             = 32'd16384,
+parameter [31:0] SMALL_SIZE             = CACHE_SIZE, // ARM925T: the cache it is while i_small (arm925t_cache_tag_ram).
 parameter [31:0] SPAGE_TLB_ENTRIES      = 32'd256,
 parameter [31:0] SPAGE_TLB_WAYS         = 32'd2,   // ARM925T: ways of the small-page TLB (arm925t_tlb).
 parameter [31:0] LPAGE_TLB_ENTRIES      = 32'd32,
@@ -42,6 +43,7 @@ parameter [31:0] CPSR_MODE              = 32'd4
 // Clock and reset.
 input   logic            i_clk,
 input   logic            i_reset,
+input   logic            i_small,        // ARM925T: behave as SMALL_SIZE; changes only under reset
 
 // RAM stall.
 input   logic            i_stall,
@@ -164,7 +166,7 @@ assign wb_cti[2] = CTI_EOB;
 assign unused = |{wb_err[1]};
 
 // Basic cache FSM - serves as manager 0.
-arm925t_icache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u_cache_fsm (
+arm925t_icache_fsm #(.CACHE_SIZE(CACHE_SIZE), .SMALL_SIZE(SMALL_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS)) u_cache_fsm (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
         .i_address              (i_address),
@@ -243,12 +245,13 @@ arm925t_icache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAY
 
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
 // ARM925T: the cache and the TLB are read together, then registers compare/selection.
-arm925t_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .TRACK_DIRTY(1'b0)) u_cache_tag_ram     (
+arm925t_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .SMALL_SIZE(SMALL_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS), .TRACK_DIRTY(1'b0)) u_cache_tag_ram     (
         .i_clk                  (i_clk),
         .i_accepted_hit         (1'b0),
         .i_accepted_address     (32'd0),
         .i_accepted_way         ('0),
         .i_reset                (i_reset),
+        .i_small                (i_small),
         .i_address_nxt          (i_address_nxt),
         .i_address              (cache_address),
         .i_lookup_address       (i_address_check),

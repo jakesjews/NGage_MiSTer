@@ -29,7 +29,7 @@ module fetch_cache_tb;
         .o_pc(pc),.o_word(word_data),.o_fault(fault),.o_predicted(predicted),.o_pred_target(pred_target)
     );
     arm925t_icache #(.CACHE_SIZE(16384),.WAYS(2),.CACHE_LINE(16)) cache (
-        .i_clk(clk),.i_reset(reset),.i_stall(stall),.i_address_check(addr_check),
+        .i_clk(clk),.i_reset(reset),.i_small(1'b0),.i_stall(stall),.i_address_check(addr_check),
         .i_wr_check(1'b0),.i_rd_check(1'b1),.i_address(addr),.i_address_nxt(addr_next),
         .i_rd(request),.i_wr(1'b0),.i_ben(4'hf),.i_dat(32'd0),.o_dat(data),
         .o_ack(ack),.o_err(error),.o_err2(retry),.o_fill_pending(fill_pending),

@@ -19,6 +19,7 @@
 module arm925t (
 	clk,
 	reset,
+	real_caches,
 	irq,
 	fiq,
 	bus_req,
@@ -56,10 +57,11 @@ module arm925t (
 	dbg_d_wdata,
 	dbg_d_rdata
 );
-	parameter signed [31:0] ICACHE_SIZE = 16384;
-	parameter signed [31:0] DCACHE_SIZE = 8192;
+	parameter signed [31:0] ICACHE_SIZE = 32768;
+	parameter signed [31:0] DCACHE_SIZE = 32768;
 	input wire clk;
 	input wire reset;
+	input wire real_caches;
 	input wire irq;
 	input wire fiq;
 	output wire bus_req;
@@ -99,6 +101,8 @@ module arm925t (
 	localparam signed [31:0] ICACHE_WAYS = 2;
 	localparam signed [31:0] DCACHE_WAYS = 2;
 	localparam signed [31:0] CACHE_LINE = 16;
+	localparam signed [31:0] ICACHE_REAL = 16384;
+	localparam signed [31:0] DCACHE_REAL = 8192;
 	localparam signed [31:0] DTLB_SPAGE_WAYS = 2;
 	localparam signed [31:0] DTLB_SPAGE_SETS = 256;
 	localparam signed [31:0] ITLB_SPAGE_WAYS = 2;
@@ -115,9 +119,11 @@ module arm925t (
 		.CP15_CTYPE(32'h05109149),
 		.RESET_VECTOR(RESET_VECTOR),
 		.CODE_CACHE_SIZE(ICACHE_SIZE),
+		.CODE_CACHE_SMALL((ICACHE_SIZE > ICACHE_REAL ? ICACHE_REAL : ICACHE_SIZE)),
 		.CODE_CACHE_LINE(CACHE_LINE),
 		.CODE_CACHE_WAYS(ICACHE_WAYS),
 		.DATA_CACHE_SIZE(DCACHE_SIZE),
+		.DATA_CACHE_SMALL((DCACHE_SIZE > DCACHE_REAL ? DCACHE_REAL : DCACHE_SIZE)),
 		.DATA_CACHE_LINE(CACHE_LINE),
 		.DATA_CACHE_WAYS(DCACHE_WAYS),
 		.DATA_SPAGE_TLB_ENTRIES(DTLB_SPAGE_SETS),
@@ -133,6 +139,7 @@ module arm925t (
 	) u_top(
 		.i_clk(clk),
 		.i_reset(reset),
+		.i_small_caches(real_caches),
 		.i_irq(irq),
 		.i_fiq(fiq),
 		.o_dbg_pc(dbg_pc),
@@ -251,6 +258,7 @@ endmodule
 module arm925t_cache_tag_ram (
 	i_clk,
 	i_reset,
+	i_small,
 	i_address_nxt,
 	i_address,
 	i_hold,
@@ -315,9 +323,11 @@ module arm925t_cache_tag_ram (
 	parameter [31:0] CACHE_LINE = 32'd16;
 	parameter [31:0] WAYS = 32'd2;
 	parameter [31:0] INDEX_SIZE = CACHE_SIZE;
+	parameter [31:0] SMALL_SIZE = CACHE_SIZE;
 	localparam [0:0] DATA_PACK = TRACK_DIRTY;
 	input wire i_clk;
 	input wire i_reset;
+	input wire i_small;
 	input wire [31:0] i_address_nxt;
 	input wire [31:0] i_address;
 	input wire i_hold;
@@ -328,12 +338,12 @@ module arm925t_cache_tag_ram (
 	output reg [(WAYS * 32) - 1:0] o_cache_words;
 	output wire o_cache_word_sel;
 	output wire [(WAYS * (CACHE_LINE * 8)) - 1:0] o_cache_way_line;
-	output wire [((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (WAYS * (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1)) - 1 : (WAYS * (1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) - 1)):((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)] o_cache_way_tag;
+	output wire [((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (WAYS * (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1)) - 1 : (WAYS * (1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) - 1)):((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)] o_cache_way_tag;
 	output wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] o_cache_victim;
 	input wire i_cache_tag_wr_en;
-	input wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] i_cache_tag;
+	input wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] i_cache_tag;
 	input wire i_cache_tag_dirty;
-	output wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] o_cache_tag;
+	output wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] o_cache_tag;
 	output wire o_cache_tag_valid;
 	output wire o_cache_tag_dirty;
 	input wire [31:0] i_lookup_address;
@@ -557,6 +567,10 @@ module arm925t_cache_tag_ram (
 	localparam [31:0] WAY_W = (WAYS > 1 ? $clog2(WAYS) : 32'd1);
 	localparam [31:0] FLAT_W = $clog2(LINES_ALL);
 	localparam [31:0] NUMBER_OF_DIRTY_BLOCKS = LINES_ALL / 16;
+	localparam [31:0] SMALL_LINES = (SMALL_SIZE / WAYS) / CACHE_LINE;
+	localparam [31:0] SMALL_SET_W = $clog2(SMALL_LINES);
+	localparam [31:0] SMALL_FLAT_W = $clog2(SMALL_SIZE / CACHE_LINE);
+	localparam [31:0] SMALL_BLOCKS = (SMALL_SIZE / CACHE_LINE) / 16;
 	localparam [31:0] BLK_CTR_PAD = (32 - $clog2(NUMBER_OF_DIRTY_BLOCKS)) - 1;
 	localparam [31:0] ADR_CTR_PAD = (32 - $clog2(CACHE_LINE / 4)) - 1;
 	localparam [31:0] ZERO_WDT = $clog2(CACHE_LINE / 4) + 1;
@@ -576,7 +590,7 @@ module arm925t_cache_tag_ram (
 	wire [WAYS - 1:0] valid_s1_raw;
 	wire [SET_W - 1:0] hit_upd_set;
 	wire [WAY_W - 1:0] hit_upd_way;
-	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tag_ram_wr_data;
+	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tag_ram_wr_data;
 	reg tag_ram_wr_en;
 	reg [SET_W - 1:0] tag_ram_wr_addr;
 	reg [WAYS - 1:0] wr_sel;
@@ -608,9 +622,9 @@ module arm925t_cache_tag_ram (
 	reg [WAYS - 1:0] hit;
 	wire [WAY_W - 1:0] sel;
 	wire [WAY_W - 1:0] victim;
-	wire [((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (WAYS * (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1)) - 1 : (WAYS * (1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) - 1)):((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)] tag_q;
+	wire [((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (WAYS * (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1)) - 1 : (WAYS * (1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) - 1)):((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)] tag_q;
 	wire [(WAYS * (CACHE_LINE * 8)) - 1:0] line_q;
-	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] walk_tag;
+	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] walk_tag;
 	wire [$clog2(CACHE_LINE) - 3:0] lk_word;
 	wire [(CACHE_LINE * 8) - 1:0] walk_line;
 	wire lru_q;
@@ -631,13 +645,22 @@ module arm925t_cache_tag_ram (
 	reg pend_dirty;
 	reg [SET_W - 1:0] pend_addr;
 	reg [WAYS - 1:0] pend_sel;
+	wire in_small;
+	wire [SET_W - 1:0] set_mask;
+	wire [SMALL_FLAT_W - 1:0] small_flat;
+	assign in_small = (SMALL_SIZE < CACHE_SIZE) && i_small;
+	function automatic [SET_W - 1:0] sv2v_cast_18E2F;
+		input reg [SET_W - 1:0] inp;
+		sv2v_cast_18E2F = inp;
+	endfunction
+	assign set_mask = (in_small ? sv2v_cast_18E2F(SMALL_LINES - 32'd1) : sv2v_cast_18E2F(LINES - 32'd1));
 	wire unused;
 	reg [BLK_CTR_PAD - 1:0] dummy;
 	reg [(CACHE_LINE * 8) - 33:0] line_dummy;
 	wire cache_unused0;
 	wire cache_unused1;
 	wire [(WAYS * (CACHE_LINE * 8)) - 1:0] w_dummy;
-	wire [((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (WAYS * (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1)) - 1 : (WAYS * (1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) - 1)):((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)] w_dummy_1;
+	wire [((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (WAYS * (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1)) - 1 : (WAYS * (1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) - 1)):((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)] w_dummy_1;
 	assign cache_unused0 = |{i_address[31:$clog2(CACHE_LINE) + SET_W], i_address[$clog2(CACHE_LINE) - 1:0], i_lookup_address[$clog2(CACHE_LINE) - 1:0]};
 	assign cache_unused1 = |{i_address_nxt[31:$clog2(CACHE_LINE) + SET_W], i_address_nxt[$clog2(CACHE_LINE) - 1:0]};
 	assign unused = |{dummy, line_dummy, i_wb_dat, cache_unused0, cache_unused1, w_dummy, w_dummy_1};
@@ -656,7 +679,7 @@ module arm925t_cache_tag_ram (
 			(* dont_retime *) reg [SET_W - 1:0] wr_addr_q;
 			reg [WAYS - 1:0] tag_en_q;
 			reg [(WAYS * CACHE_LINE) - 1:0] byte_en_q;
-			reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tag_data_q;
+			reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tag_data_q;
 			reg [(CACHE_LINE * 8) - 1:0] line_data_q;
 			(* dont_retime *) reg collision_q;
 			wire collision = (REG_COLLISION ? collision_q : rd_addr_q == wr_addr_q);
@@ -679,9 +702,9 @@ module arm925t_cache_tag_ram (
 			genvar _gv_w_1;
 			for (_gv_w_1 = 0; _gv_w_1 < WAYS; _gv_w_1 = _gv_w_1 + 1) begin : g_way
 				localparam w = _gv_w_1;
-				wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tag_read;
+				wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tag_read;
 				arm925t_ram #(
-					.WIDTH(((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1),
+					.WIDTH(((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1),
 					.DEPTH(LINES),
 					.SHORT_RAW(1'b1)
 				) u_tag(
@@ -694,7 +717,7 @@ module arm925t_cache_tag_ram (
 					.o_rd_data(tag_read),
 					.o_rd_data_pre()
 				);
-				assign tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)))+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))] = (collision && tag_en_q[w] ? tag_data_q : tag_read);
+				assign tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)))+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))] = (collision && tag_en_q[w] ? tag_data_q : tag_read);
 				wire [(CACHE_LINE * 8) - 1:0] packed_read;
 				if (DATA_PACK) begin : g_packed_data
 					arm925t_ram_bytes #(
@@ -739,11 +762,11 @@ module arm925t_cache_tag_ram (
 					assign line_q[(w * (CACHE_LINE * 8)) + (8 * b)+:8] = (collision && byte_en_q[(w * CACHE_LINE) + b] ? line_data_q[8 * b+:8] : data_read);
 				end
 				assign w_dummy[w * (CACHE_LINE * 8)+:CACHE_LINE * 8] = line_q[w * (CACHE_LINE * 8)+:CACHE_LINE * 8];
-				assign w_dummy_1[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)))+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))] = tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)))+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))];
+				assign w_dummy_1[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)))+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))] = tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)))+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))];
 			end
 		end
 	endgenerate
-	assign lk_set = i_lookup_address[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)];
+	assign lk_set = i_lookup_address[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)] & set_mask;
 	assign lk_word = i_lookup_address[$clog2(CACHE_LINE) - 1:2];
 	always @(*) begin
 		if (_sv2v_0)
@@ -760,7 +783,7 @@ module arm925t_cache_tag_ram (
 		begin : sv2v_autoblock_3
 			reg signed [31:0] w;
 			for (w = 0; w < WAYS; w = w + 1)
-				hit[w] = valid_q[w] && (tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)) : (((w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1))) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)-:((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))] == i_lookup_address[31:$clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)]);
+				hit[w] = valid_q[w] && (tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)) : (((w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1))) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)-:((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))] == i_lookup_address[31:$clog2(CACHE_LINE) + $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)]);
 		end
 	end
 	always @(posedge i_clk)
@@ -785,28 +808,28 @@ module arm925t_cache_tag_ram (
 			wire [SET_W:1] sv2v_tmp_0017A;
 			assign sv2v_tmp_0017A = 1'sb0;
 			always @(*) hit_pend_set = sv2v_tmp_0017A;
-			assign o_cache_tag = tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + 0+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))];
+			assign o_cache_tag = tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + 0+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))];
 			assign o_cache_line = line_q[0+:CACHE_LINE * 8];
 			assign o_cache_word_sel = 1'd0;
 			assign o_cache_tag_valid = valid_q[0];
 			assign o_cache_tag_dirty = dirty_q[0];
 			assign o_cache_hit_dirty = dirty_q[0];
-			assign walk_tag = tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + 0+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))];
+			assign walk_tag = tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + 0+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))];
 			assign walk_line = line_q[0+:CACHE_LINE * 8];
 		end
 		else begin : g_lru
 			assign victim = (!valid_q[0] ? 1'd0 : (!valid_q[1] ? 1'd1 : ((ACCEPTED_HIT_UPDATE && i_accepted_hit) && (hit_upd_set == lk_set) ? ~i_accepted_way : lru_q)));
 			assign sel = (hit[1] ? 1'd1 : (hit[0] ? 1'd0 : victim));
 			assign hit_upd_en = (ACCEPTED_HIT_UPDATE ? i_accepted_hit : i_access && o_cache_hit);
-			assign hit_upd_set = (ACCEPTED_HIT_UPDATE ? i_accepted_address[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)] : lk_set);
+			assign hit_upd_set = (ACCEPTED_HIT_UPDATE ? i_accepted_address[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)] & set_mask : lk_set);
 			assign hit_upd_way = (ACCEPTED_HIT_UPDATE ? i_accepted_way : sel);
-			assign o_cache_tag = (victim ? tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))] : tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + 0+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))]);
+			assign o_cache_tag = (victim ? tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))] : tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + 0+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))]);
 			assign o_cache_line = (victim ? line_q[CACHE_LINE * 8+:CACHE_LINE * 8] : line_q[0+:CACHE_LINE * 8]);
 			assign o_cache_word_sel = hit[1];
 			assign o_cache_tag_valid = (victim ? valid_q[1] : valid_q[0]);
 			assign o_cache_tag_dirty = (victim ? dirty_q[1] : dirty_q[0]);
 			assign o_cache_hit_dirty = (hit[1] ? dirty_q[1] : dirty_q[0]);
-			assign walk_tag = (rd_way ? tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))] : tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + 0+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))]);
+			assign walk_tag = (rd_way ? tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))] : tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) + 0+:((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))]);
 			assign walk_line = (rd_way ? line_q[CACHE_LINE * 8+:CACHE_LINE * 8] : line_q[0+:CACHE_LINE * 8]);
 			function automatic lru_fwd;
 				input [SET_W - 1:0] set;
@@ -945,13 +968,40 @@ module arm925t_cache_tag_ram (
 		if ((state_ff == 13'b0000000000001) && i_cache_clean_req)
 			dirty_read_group = 1'sb0;
 		else if ((!line_mode_ff && (state_ff != 13'b0000000000001)) && (state_ff != 13'b0000001000000))
-			dirty_read_group = blk_ctr_nxt[SET_W - 5:0];
+			dirty_read_group = blk_ctr_nxt[SET_W - 5:0] & set_mask[SET_W - 1:4];
 	end
 	function automatic [WAY_W - 1:0] sv2v_cast_4BDF2;
 		input reg [WAY_W - 1:0] inp;
 		sv2v_cast_4BDF2 = inp;
 	endfunction
-	assign dirty_scan = dirty_group_q[sv2v_cast_4BDF2(blk_ctr_ff >> (SET_W - 4)) * 16+:16];
+	assign dirty_scan = dirty_group_q[(in_small ? sv2v_cast_4BDF2(blk_ctr_ff >> (SMALL_SET_W - 4)) : sv2v_cast_4BDF2(blk_ctr_ff >> (SET_W - 4))) * 16+:16];
+	function automatic [4:0] pri_enc;
+		input [15:0] in;
+		casez (in)
+			16'bzzzzzzzzzzzzzzz1: pri_enc = 5'd0;
+			16'bzzzzzzzzzzzzzz10: pri_enc = 5'd1;
+			16'bzzzzzzzzzzzzz100: pri_enc = 5'd2;
+			16'bzzzzzzzzzzzz1000: pri_enc = 5'd3;
+			16'bzzzzzzzzzzz10000: pri_enc = 5'd4;
+			16'bzzzzzzzzzz100000: pri_enc = 5'd5;
+			16'bzzzzzzzzz1000000: pri_enc = 5'd6;
+			16'bzzzzzzzz10000000: pri_enc = 5'd7;
+			16'bzzzzzzz100000000: pri_enc = 5'd8;
+			16'bzzzzzz1000000000: pri_enc = 5'd9;
+			16'bzzzzz10000000000: pri_enc = 5'd10;
+			16'bzzzz100000000000: pri_enc = 5'd11;
+			16'bzzz1000000000000: pri_enc = 5'd12;
+			16'bzz10000000000000: pri_enc = 5'd13;
+			16'bz100000000000000: pri_enc = 5'd14;
+			16'b1000000000000000: pri_enc = 5'd15;
+			default: pri_enc = 5'b11111;
+		endcase
+	endfunction
+	function automatic [SMALL_FLAT_W - 1:0] sv2v_cast_86DCA;
+		input reg [SMALL_FLAT_W - 1:0] inp;
+		sv2v_cast_86DCA = inp;
+	endfunction
+	assign small_flat = {blk_ctr_ff[$clog2(SMALL_BLOCKS) - 1:0], 4'b0000} + sv2v_cast_86DCA(pri_enc(dirty_scan));
 	always @(posedge i_clk)
 		if ((!i_hold || tag_ram_clean) || line_clear)
 			dirty_read_bit_ff <= rd_set[3:0];
@@ -1155,7 +1205,7 @@ module arm925t_cache_tag_ram (
 			line_done_ff <= line_done_nxt;
 			state_ff <= state_nxt;
 		end
-	assign rd_set = (state_ff == 13'b0000000000001 ? i_address_nxt[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)] : rd_flat_ff[SET_W - 1:0]);
+	assign rd_set = (state_ff == 13'b0000000000001 ? i_address_nxt[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)] & set_mask : rd_flat_ff[SET_W - 1:0]);
 	assign rd_way = sv2v_cast_4BDF2(rd_flat_ff >> SET_W);
 	assign take = i_wb_ack && o_wb_stb_ff;
 	assign adr_ctr_inc = adr_ctr_ff + {{ZERO_WDT - 1 {1'd0}}, 1'd1};
@@ -1163,32 +1213,10 @@ module arm925t_cache_tag_ram (
 	assign beat_inc_ok = {{ADR_CTR_PAD {1'd0}}, adr_ctr_inc} <= ((CACHE_LINE / 4) - 1);
 	assign cti_cur = ({{ADR_CTR_PAD {1'd0}}, adr_ctr_ff} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
 	assign cti_inc = ({{ADR_CTR_PAD {1'd0}}, adr_ctr_inc} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
-	assign wb_adr_cur = {walk_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_CTR_PAD - 2 {1'd0}}, adr_ctr_ff, 2'd0};
-	assign wb_adr_inc = {walk_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_CTR_PAD - 2 {1'd0}}, adr_ctr_inc, 2'd0};
+	assign wb_adr_cur = {walk_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_CTR_PAD - 2 {1'd0}}, adr_ctr_ff, 2'd0};
+	assign wb_adr_inc = {walk_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_CTR_PAD - 2 {1'd0}}, adr_ctr_inc, 2'd0};
 	assign wb_word_cur = walk_line[32 * adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0]+:32];
 	assign wb_word_inc = walk_line[32 * adr_ctr_inc[$clog2(CACHE_LINE / 4) - 1:0]+:32];
-	function automatic [4:0] pri_enc;
-		input [15:0] in;
-		casez (in)
-			16'bzzzzzzzzzzzzzzz1: pri_enc = 5'd0;
-			16'bzzzzzzzzzzzzzz10: pri_enc = 5'd1;
-			16'bzzzzzzzzzzzzz100: pri_enc = 5'd2;
-			16'bzzzzzzzzzzzz1000: pri_enc = 5'd3;
-			16'bzzzzzzzzzzz10000: pri_enc = 5'd4;
-			16'bzzzzzzzzzz100000: pri_enc = 5'd5;
-			16'bzzzzzzzzz1000000: pri_enc = 5'd6;
-			16'bzzzzzzzz10000000: pri_enc = 5'd7;
-			16'bzzzzzzz100000000: pri_enc = 5'd8;
-			16'bzzzzzz1000000000: pri_enc = 5'd9;
-			16'bzzzzz10000000000: pri_enc = 5'd10;
-			16'bzzzz100000000000: pri_enc = 5'd11;
-			16'bzzz1000000000000: pri_enc = 5'd12;
-			16'bzz10000000000000: pri_enc = 5'd13;
-			16'bz100000000000000: pri_enc = 5'd14;
-			16'b1000000000000000: pri_enc = 5'd15;
-			default: pri_enc = 5'b11111;
-		endcase
-	endfunction
 	always @(*) begin : blk1
 		reg [31:0] data;
 		if (_sv2v_0)
@@ -1198,7 +1226,9 @@ module arm925t_cache_tag_ram (
 		dummy = 1'sb0;
 		state_nxt = state_ff;
 		rd_flat_nxt = {blk_ctr_ff[$clog2(NUMBER_OF_DIRTY_BLOCKS) - 1:0], 4'b0000} + sv2v_cast_50C4F(pri_enc(dirty_scan));
-		tag_ram_wr_addr = i_address[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)];
+		if (in_small)
+			rd_flat_nxt = flat(sv2v_cast_4BDF2(small_flat >> SMALL_SET_W), sv2v_cast_18E2F(small_flat[SMALL_SET_W - 1:0]));
+		tag_ram_wr_addr = i_address[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)] & set_mask;
 		tag_ram_wr_en = 0;
 		tag_ram_clear = 0;
 		tag_ram_clean = 0;
@@ -1229,7 +1259,7 @@ module arm925t_cache_tag_ram (
 				o_wb_dat_nxt = 0;
 				o_wb_sel_nxt = 0;
 				o_wb_cti_nxt = CTI_EOB;
-				tag_ram_wr_addr = i_address[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)];
+				tag_ram_wr_addr = i_address[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)] & set_mask;
 				tag_ram_wr_en = i_cache_tag_wr_en;
 				tag_ram_wr_data = i_cache_tag;
 				cache_clean_done_nxt = 1'd0;
@@ -1244,9 +1274,9 @@ module arm925t_cache_tag_ram (
 				end
 				else if (i_line_req && !line_done_ff) begin
 					tag_ram_wr_en = 0;
-					rd_flat_nxt = flat(i_line_way, i_line_addr[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)]);
+					rd_flat_nxt = flat(i_line_way, i_line_addr[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)] & set_mask);
 					if (!i_line_va && (INDEX_SIZE < CACHE_SIZE))
-						rd_flat_nxt = flat(i_line_way, i_line_addr[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)] & INDEX_MASK[SET_W - 1:0]);
+						rd_flat_nxt = flat(i_line_way, (i_line_addr[($clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) - 1:$clog2(CACHE_LINE)] & set_mask) & INDEX_MASK[SET_W - 1:0]);
 					line_mode_nxt = 1'd1;
 					state_nxt = 13'b0000010000000;
 				end
@@ -1273,7 +1303,7 @@ module arm925t_cache_tag_ram (
 				begin : sv2v_autoblock_7
 					reg signed [31:0] w;
 					for (w = 0; w < WAYS; w = w + 1)
-						if (valid_q[w] && (i_line_va ? tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)) : (((w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1))) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)-:((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))] == i_line_addr[31:$clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)] : sv2v_cast_4BDF2_signed(w) == rd_way)) begin
+						if (valid_q[w] && (i_line_va ? tag_q[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)) : (((w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1))) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)-:((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))] == i_line_addr[31:$clog2(CACHE_LINE) + $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)] : sv2v_cast_4BDF2_signed(w) == rd_way)) begin
 							line_hit_nxt = 1'd1;
 							rd_flat_nxt = flat(sv2v_cast_4BDF2_signed(w), rd_flat_ff[SET_W - 1:0]);
 						end
@@ -1290,7 +1320,7 @@ module arm925t_cache_tag_ram (
 				line_mode_nxt = 1'd0;
 				line_done_nxt = 1'd1;
 				state_nxt = 13'b0000000000001;
-				if ((!i_line_va && (INDEX_SIZE < CACHE_SIZE)) && ((rd_flat_ff & sv2v_cast_50C4F(LINES - INDEX_LINES)) != sv2v_cast_50C4F(LINES - INDEX_LINES))) begin
+				if (((!i_line_va && (INDEX_SIZE < CACHE_SIZE)) && !in_small) && ((rd_flat_ff & sv2v_cast_50C4F(LINES - INDEX_LINES)) != sv2v_cast_50C4F(LINES - INDEX_LINES))) begin
 					rd_flat_nxt = rd_flat_ff + sv2v_cast_50C4F(INDEX_LINES);
 					line_mode_nxt = 1'd1;
 					line_done_nxt = 1'd0;
@@ -1300,7 +1330,7 @@ module arm925t_cache_tag_ram (
 			13'b0000000000010: begin
 				if (&pri_enc(dirty_scan)) begin
 					{dummy, blk_ctr_nxt} = {dummy, blk_ctr_ff} + 32'd1;
-					if ({{BLK_CTR_PAD {1'd0}}, blk_ctr_ff} == (NUMBER_OF_DIRTY_BLOCKS - 1)) begin
+					if ({{BLK_CTR_PAD {1'd0}}, blk_ctr_ff} == ((in_small ? SMALL_BLOCKS : NUMBER_OF_DIRTY_BLOCKS) - 1)) begin
 						state_nxt = 13'b0000000000001;
 						cache_clean_done_nxt = 1'd1;
 					end
@@ -3857,6 +3887,7 @@ module arm925t_dcache_fsm (
 );
 	reg _sv2v_0;
 	parameter [31:0] CACHE_SIZE = 32'd8192;
+	parameter [31:0] SMALL_SIZE = CACHE_SIZE;
 	parameter [31:0] CACHE_LINE = 32'd16;
 	parameter [3:0] EXT_ABORT_FS = 4'b1000;
 	parameter [31:0] WAYS = 32'd2;
@@ -3913,13 +3944,13 @@ module arm925t_dcache_fsm (
 	input wire [(CACHE_LINE * 8) - 1:0] i_cache_line;
 	input wire [31:0] i_cache_word;
 	input wire i_cache_tag_dirty;
-	input wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] i_cache_tag;
+	input wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] i_cache_tag;
 	input wire i_cache_tag_valid;
 	input wire i_cache_hit;
 	input wire i_cache_hit_dirty;
 	input wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] i_cache_way;
 	output wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] o_cache_way;
-	output wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] o_cache_tag;
+	output wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] o_cache_tag;
 	output wire o_cache_tag_dirty;
 	output wire o_cache_tag_wr_en;
 	output wire [(CACHE_LINE * 8) - 1:0] o_cache_line;
@@ -4321,7 +4352,7 @@ module arm925t_dcache_fsm (
 	reg [31:0] din;
 	reg [3:0] ben;
 	reg [(CACHE_LINE * 8) - 1:0] cache_line;
-	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cache_tag;
+	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cache_tag;
 	reg [31:0] phy_addr;
 	wire take;
 	wire [$clog2(CACHE_LINE / 4):0] adr_ctr_inc;
@@ -4341,8 +4372,8 @@ module arm925t_dcache_fsm (
 	assign beat_inc_ok = {{ADR_PAD {1'd0}}, adr_ctr_inc} <= ((CACHE_LINE / 4) - 1);
 	assign cti_cur = ({{ADR_PAD {1'd0}}, adr_ctr_ff} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
 	assign cti_inc = ({{ADR_PAD {1'd0}}, adr_ctr_inc} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
-	assign wb_adr_cur = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_ff, 2'd0};
-	assign wb_adr_inc = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_inc, 2'd0};
+	assign wb_adr_cur = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_ff, 2'd0};
+	assign wb_adr_inc = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_inc, 2'd0};
 	assign fetch_word_cur = adr_ctr_ff[$clog2(CACHE_LINE / 4) - 1:0] + (CACHE_LINE == 16 ? address[$clog2(CACHE_LINE) - 1:2] : {$clog2(CACHE_LINE / 4) {1'sb0}});
 	assign fetch_word_inc = adr_ctr_inc[$clog2(CACHE_LINE / 4) - 1:0] + (CACHE_LINE == 16 ? address[$clog2(CACHE_LINE) - 1:2] : {$clog2(CACHE_LINE / 4) {1'sb0}});
 	assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_cur, 2'b00};
@@ -4408,7 +4439,7 @@ module arm925t_dcache_fsm (
 	wire post_writeback = ((((i_writebuffer_en && i_cache_en) && i_cacheable) && !i_wt) && !i_cache_hit) && !((i_cache_tag_valid && cache_dirty) && victim_alias);
 	wire post_eligible = i_wr && (post_stream || post_writeback);
 	assign o_post_push = ((((state_ff[IDLE] && post_eligible) && !i_post_full) && !i_align_fault) && !i_fault) && !i_busy;
-	assign victim_alias = i_phy_addr[31:$clog2(CACHE_LINE)] == i_cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1];
+	assign victim_alias = i_phy_addr[31:$clog2(CACHE_LINE)] == i_cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1];
 	always @(posedge i_clk)
 		if (state_ff[IDLE])
 			defer_writeback <= !victim_alias;
@@ -4519,7 +4550,7 @@ module arm925t_dcache_fsm (
 		end
 	endgenerate
 	localparam integer LINE_W = $clog2(CACHE_LINE);
-	localparam integer SET_W = $clog2((CACHE_SIZE / WAYS) / CACHE_LINE);
+	localparam integer SET_W = $clog2((SMALL_SIZE / WAYS) / CACHE_LINE);
 	reg line_safe_ff;
 	reg line_safe_nxt;
 	reg victim_safe_ff;
@@ -4568,11 +4599,11 @@ module arm925t_dcache_fsm (
 		victim_safe_nxt = victim_safe_ff;
 		if (!cpu_wait) begin
 			if (o_idle) begin
-				victim_safe_nxt = !i_cache_tag_valid || (i_address_check[31:LINE_W] != {i_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0], i_address[LINE_W+:SET_W]});
+				victim_safe_nxt = !i_cache_tag_valid || (i_address_check[31:LINE_W] != {i_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0:0], i_address[LINE_W+:SET_W]});
 				line_safe_nxt = victim_safe_nxt && (i_address_check[31:LINE_W] != i_address[31:LINE_W]);
 			end
 			else begin
-				victim_safe_nxt = !victim_valid || (i_address_check[31:LINE_W] != {cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0], address[LINE_W+:SET_W]});
+				victim_safe_nxt = !victim_valid || (i_address_check[31:LINE_W] != {cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0:0], address[LINE_W+:SET_W]});
 				line_safe_nxt = victim_safe_nxt && (i_address_check[31:LINE_W] != address[31:LINE_W]);
 			end
 		end
@@ -4641,8 +4672,8 @@ module arm925t_dcache_fsm (
 	assign o_cache_tag_dirty = ((live_write && (!i_wt || cache_dirty)) || (fill_write && wr)) || (saved_write && wt_dirty);
 	assign o_address = (o_live_lookup ? i_address : address);
 	assign o_cache_way = way;
-	assign o_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0] = (o_live_lookup ? i_address[31:$clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)] : address[31:$clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)]);
-	assign o_cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1] = (o_live_lookup ? i_phy_addr[31:$clog2(CACHE_LINE)] : phy_addr[31:$clog2(CACHE_LINE)]);
+	assign o_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0:0] = (o_live_lookup ? i_address[31:$clog2(CACHE_LINE) + $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)] : address[31:$clog2(CACHE_LINE) + $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)]);
+	assign o_cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1] = (o_live_lookup ? i_phy_addr[31:$clog2(CACHE_LINE)] : phy_addr[31:$clog2(CACHE_LINE)]);
 	genvar _gv_k_2;
 	generate
 		for (_gv_k_2 = 0; _gv_k_2 < (CACHE_LINE / 4); _gv_k_2 = _gv_k_2 + 1) begin : g_fill_line
@@ -4869,7 +4900,7 @@ module arm925t_dcache_fsm (
 					state_nxt[CLEAN_SINGLE] = 1'b1;
 					o_wb_wen_nxt = 1'b1;
 					o_wb_dat_nxt = cache_line[31:0];
-					o_wb_adr_nxt = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'b0}}};
+					o_wb_adr_nxt = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'b0}}};
 					o_wb_sel_nxt = 4'b1111;
 					o_wb_cti_nxt = CTI_BURST;
 				end
@@ -4954,6 +4985,7 @@ endmodule
 module arm925t_dcache (
 	i_clk,
 	i_reset,
+	i_small,
 	i_stall,
 	o_fill_busy,
 	i_address_check,
@@ -5038,6 +5070,7 @@ module arm925t_dcache (
 );
 	reg _sv2v_0;
 	parameter [31:0] CACHE_SIZE = 32'd8192;
+	parameter [31:0] SMALL_SIZE = CACHE_SIZE;
 	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd256;
 	parameter [31:0] SPAGE_TLB_WAYS = 32'd2;
 	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd32;
@@ -5049,6 +5082,7 @@ module arm925t_dcache (
 	parameter [31:0] CPSR_MODE = 32'd4;
 	input wire i_clk;
 	input wire i_reset;
+	input wire i_small;
 	input wire i_stall;
 	output wire o_fill_busy;
 	input wire [31:0] i_address_check;
@@ -5335,8 +5369,8 @@ module arm925t_dcache (
 	wire [(CACHE_LINE * 8) - 1:0] cf_cache_line;
 	wire [CACHE_LINE - 1:0] cf_cache_line_ben;
 	wire cf_cache_tag_wr_en;
-	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tr_cache_tag;
-	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cf_cache_tag;
+	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tr_cache_tag;
+	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cf_cache_tag;
 	reg tr_cache_tag_valid;
 	wire tr_cache_hit_early;
 	reg tr_cache_hit;
@@ -5352,7 +5386,7 @@ module arm925t_dcache (
 	reg [CACHE_LINE - 1:0] fwd_ben_ff;
 	reg [31:0] fwd_dat_ff;
 	reg [(CACHE_LINE * 8) - 1:0] victim_line;
-	wire [((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (WAYS * (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1)) - 1 : (WAYS * (1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) - 1)):((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)] raw_way_tag;
+	wire [((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (WAYS * (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1)) - 1 : (WAYS * (1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) - 1)):((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? 0 : ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0)] raw_way_tag;
 	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] raw_victim;
 	reg [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] victim_ff;
 	wire [(WAYS * 32) - 1:0] raw_cache_words;
@@ -5361,7 +5395,7 @@ module arm925t_dcache (
 	wire raw_cache_hit;
 	wire raw_cache_tag_dirty;
 	wire raw_cache_hit_dirty;
-	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] raw_cache_tag;
+	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] raw_cache_tag;
 	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] raw_cache_way;
 	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] cache_write_way;
 	wire ram_write;
@@ -5391,6 +5425,12 @@ module arm925t_dcache (
 	assign o_short_trust = live_trust;
 	localparam integer SET_W = $clog2((CACHE_SIZE / WAYS) / CACHE_LINE);
 	localparam integer LINE_W = $clog2(CACHE_LINE);
+	wire [SET_W - 1:0] set_mask;
+	function automatic [SET_W - 1:0] sv2v_cast_18E2F;
+		input reg [SET_W - 1:0] inp;
+		sv2v_cast_18E2F = inp;
+	endfunction
+	assign set_mask = ((SMALL_SIZE < CACHE_SIZE) && i_small ? sv2v_cast_18E2F(((SMALL_SIZE / WAYS) / CACHE_LINE) - 32'd1) : sv2v_cast_18E2F(((CACHE_SIZE / WAYS) / CACHE_LINE) - 32'd1));
 	wire [31:0] lookup_address;
 	assign lookup_address = i_address_nxt;
 	reg [3:0] wb_err;
@@ -5402,6 +5442,7 @@ module arm925t_dcache (
 	wire victim_writeback_busy;
 	arm925t_dcache_fsm #(
 		.CACHE_SIZE(CACHE_SIZE),
+		.SMALL_SIZE(SMALL_SIZE),
 		.CACHE_LINE(CACHE_LINE),
 		.EXT_ABORT_FS(EXT_ABORT_FS),
 		.WAYS(WAYS)
@@ -5531,6 +5572,7 @@ module arm925t_dcache (
 	);
 	arm925t_cache_tag_ram #(
 		.CACHE_SIZE(CACHE_SIZE),
+		.SMALL_SIZE(SMALL_SIZE),
 		.CACHE_LINE(CACHE_LINE),
 		.WAYS(WAYS),
 		.REG_COLLISION(1'b1),
@@ -5539,6 +5581,7 @@ module arm925t_dcache (
 	) u_cache_tag_ram(
 		.i_clk(i_clk),
 		.i_reset(i_reset),
+		.i_small(i_small),
 		.i_address_nxt(lookup_address),
 		.i_address(cache_address),
 		.i_lookup_address(compare_address),
@@ -5598,14 +5641,14 @@ module arm925t_dcache (
 	assign compare_address = i_address_check;
 	assign cache_write_way = (live_lookup ? tr_cache_way : cf_cache_way);
 	assign ram_write = !live_lookup || tr_cache_hit;
-	assign forward_store = ((live_lookup && cf_cache_tag_wr_en) && tr_cache_hit) && (compare_address[LINE_W+:SET_W] == cache_address[LINE_W+:SET_W]);
-	assign forward_victim = forward_store && (raw_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0] == cf_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0]);
+	assign forward_store = ((live_lookup && cf_cache_tag_wr_en) && tr_cache_hit) && (((compare_address[LINE_W+:SET_W] ^ cache_address[LINE_W+:SET_W]) & set_mask) == {(((((LINE_W + SET_W) - 1) >= LINE_W ? (((LINE_W + SET_W) - 1) - LINE_W) + 1 : (LINE_W - ((LINE_W + SET_W) - 1)) + 1) >= (((LINE_W + SET_W) - 1) >= LINE_W ? (((LINE_W + SET_W) - 1) - LINE_W) + 1 : (LINE_W - ((LINE_W + SET_W) - 1)) + 1) ? (((LINE_W + SET_W) - 1) >= LINE_W ? (((LINE_W + SET_W) - 1) - LINE_W) + 1 : (LINE_W - ((LINE_W + SET_W) - 1)) + 1) : (((LINE_W + SET_W) - 1) >= LINE_W ? (((LINE_W + SET_W) - 1) - LINE_W) + 1 : (LINE_W - ((LINE_W + SET_W) - 1)) + 1)) >= SET_W ? ((((LINE_W + SET_W) - 1) >= LINE_W ? (((LINE_W + SET_W) - 1) - LINE_W) + 1 : (LINE_W - ((LINE_W + SET_W) - 1)) + 1) >= (((LINE_W + SET_W) - 1) >= LINE_W ? (((LINE_W + SET_W) - 1) - LINE_W) + 1 : (LINE_W - ((LINE_W + SET_W) - 1)) + 1) ? (((LINE_W + SET_W) - 1) >= LINE_W ? (((LINE_W + SET_W) - 1) - LINE_W) + 1 : (LINE_W - ((LINE_W + SET_W) - 1)) + 1) : (((LINE_W + SET_W) - 1) >= LINE_W ? (((LINE_W + SET_W) - 1) - LINE_W) + 1 : (LINE_W - ((LINE_W + SET_W) - 1)) + 1)) : SET_W) {1'sb0}});
+	assign forward_victim = forward_store && (raw_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0:0] == cf_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0:0]);
 	always @(*) begin : sv2v_autoblock_1
 		reg signed [31:0] w;
 		if (_sv2v_0)
 			;
 		for (w = 0; w < WAYS; w = w + 1)
-			fwd_way[w] = forward_store && (raw_way_tag[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)) : (((w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1))) + ((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)-:((((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0))] == cf_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0]);
+			fwd_way[w] = forward_store && (raw_way_tag[((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? (w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)) : (((w * ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0))) + ((((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) >= 0 ? ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1) : (((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0) - ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0 : ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1))) + ((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))) - 1)-:((((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0) >= 0 ? ((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1 : 1 - (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0))] == cf_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0:0]);
 	end
 	always @(*) begin
 		if (_sv2v_0)
@@ -8808,6 +8851,7 @@ module arm925t_icache_fsm (
 );
 	reg _sv2v_0;
 	parameter [31:0] CACHE_SIZE = 32'd16384;
+	parameter [31:0] SMALL_SIZE = CACHE_SIZE;
 	parameter [31:0] CACHE_LINE = 32'd16;
 	parameter [31:0] WAYS = 32'd2;
 	input wire i_clk;
@@ -8838,12 +8882,12 @@ module arm925t_icache_fsm (
 	input wire [(WAYS * 32) - 1:0] i_cache_words;
 	input wire i_cache_word_sel;
 	input wire i_cache_tag_dirty;
-	input wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] i_cache_tag;
+	input wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] i_cache_tag;
 	input wire i_cache_tag_valid;
 	input wire i_cache_hit;
 	input wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] i_cache_way;
 	output reg [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] o_cache_way;
-	output reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] o_cache_tag;
+	output reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] o_cache_tag;
 	output reg o_cache_tag_dirty;
 	output reg o_cache_tag_wr_en;
 	output reg [(CACHE_LINE * 8) - 1:0] o_cache_line;
@@ -9087,7 +9131,7 @@ module arm925t_icache_fsm (
 	reg [31:0] din;
 	reg [3:0] ben;
 	reg [(CACHE_LINE * 8) - 1:0] cache_line;
-	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cache_tag;
+	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cache_tag;
 	reg [31:0] phy_addr;
 	wire take;
 	wire [$clog2(CACHE_LINE / 4):0] adr_ctr_inc;
@@ -9105,8 +9149,8 @@ module arm925t_icache_fsm (
 	assign beat_inc_ok = {{ADR_PAD {1'd0}}, adr_ctr_inc} <= ((CACHE_LINE / 4) - 1);
 	assign cti_cur = ({{ADR_PAD {1'd0}}, adr_ctr_ff} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
 	assign cti_inc = ({{ADR_PAD {1'd0}}, adr_ctr_inc} != ((CACHE_LINE / 4) - 1) ? CTI_BURST : CTI_EOB);
-	assign wb_adr_cur = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_ff, 2'd0};
-	assign wb_adr_inc = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_inc, 2'd0};
+	assign wb_adr_cur = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_ff, 2'd0};
+	assign wb_adr_inc = {cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1], {$clog2(CACHE_LINE) {1'd0}}} + {{ADR_PAD_MINUS_2 {1'd0}}, adr_ctr_inc, 2'd0};
 	wire [$clog2(CACHE_LINE / 4) - 1:0] fetch_word_cur;
 	assign fetch_adr_cur = {phy_addr[31:$clog2(CACHE_LINE)], fetch_word_cur, 2'b00};
 	wire [$clog2(CACHE_LINE / 4) - 1:0] fetch_word_inc;
@@ -9340,9 +9384,9 @@ module arm925t_icache_fsm (
 									o_cache_line = {CACHE_LINE / 4 {i_din}};
 									o_cache_line_ben = ben_comp(i_address[$clog2(CACHE_LINE) - 1:2], i_ben);
 									o_cache_tag_wr_en = 1'd1;
-									o_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0] = i_address[31:$clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)];
+									o_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0:0] = i_address[31:$clog2(CACHE_LINE) + $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)];
 									o_cache_tag_dirty = 1'd1;
-									o_cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1] = i_phy_addr[31:$clog2(CACHE_LINE)];
+									o_cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1] = i_phy_addr[31:$clog2(CACHE_LINE)];
 									o_address = i_address;
 									o_cache_way = i_cache_way;
 								end
@@ -9416,9 +9460,9 @@ module arm925t_icache_fsm (
 					o_wb_cti_nxt = CTI_EOB;
 					state_nxt = IDLE;
 					o_cache_tag_wr_en = 1'd1;
-					o_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0] = cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0];
+					o_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0:0] = cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0:0];
 					o_cache_tag_dirty = 1'd0;
-					o_cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1] = cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1];
+					o_cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1] = cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1];
 				end
 			end
 			FETCH_SINGLE: begin
@@ -9471,8 +9515,8 @@ module arm925t_icache_fsm (
 						end
 						o_cache_line_ben = {CACHE_LINE {1'd1}};
 						o_cache_tag_wr_en = 1'd1;
-						o_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 0:0] = address[31:$clog2(CACHE_LINE) + $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)];
-						o_cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1] = phy_addr[31:$clog2(CACHE_LINE)];
+						o_cache_tag[((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 0:0] = address[31:$clog2(CACHE_LINE) + $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)];
+						o_cache_tag[(31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1):((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1] = phy_addr[31:$clog2(CACHE_LINE)];
 						o_cache_tag_dirty = wr;
 					end
 					state_nxt = IDLE;
@@ -9549,6 +9593,7 @@ endmodule
 module arm925t_icache (
 	i_clk,
 	i_reset,
+	i_small,
 	i_stall,
 	i_address_check,
 	i_wr_check,
@@ -9605,6 +9650,7 @@ module arm925t_icache (
 );
 	reg _sv2v_0;
 	parameter [31:0] CACHE_SIZE = 32'd16384;
+	parameter [31:0] SMALL_SIZE = CACHE_SIZE;
 	parameter [31:0] SPAGE_TLB_ENTRIES = 32'd256;
 	parameter [31:0] SPAGE_TLB_WAYS = 32'd2;
 	parameter [31:0] LPAGE_TLB_ENTRIES = 32'd32;
@@ -9615,6 +9661,7 @@ module arm925t_icache (
 	parameter [31:0] CPSR_MODE = 32'd4;
 	input wire i_clk;
 	input wire i_reset;
+	input wire i_small;
 	input wire i_stall;
 	input wire [31:0] i_address_check;
 	input wire i_wr_check;
@@ -9867,8 +9914,8 @@ module arm925t_icache (
 	wire [(CACHE_LINE * 8) - 1:0] cf_cache_line;
 	wire [CACHE_LINE - 1:0] cf_cache_line_ben;
 	wire cf_cache_tag_wr_en;
-	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tr_cache_tag;
-	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cf_cache_tag;
+	reg [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] tr_cache_tag;
+	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] cf_cache_tag;
 	reg tr_cache_tag_valid;
 	reg tr_cache_hit;
 	reg [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] tr_cache_way;
@@ -9881,7 +9928,7 @@ module arm925t_icache (
 	wire raw_cache_tag_valid;
 	wire raw_cache_hit;
 	wire raw_cache_tag_dirty;
-	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((CACHE_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] raw_cache_tag;
+	wire [((31 - $clog2(CACHE_LINE)) + (((31 - $clog2(CACHE_LINE)) - $clog2((SMALL_SIZE / WAYS) / CACHE_LINE)) + 1)) + 0:0] raw_cache_tag;
 	wire [(WAYS > 1 ? $clog2(WAYS) : 1) - 1:0] raw_cache_way;
 	wire cf_cache_clean_req;
 	wire cf_cache_inv_req;
@@ -9901,6 +9948,7 @@ module arm925t_icache (
 	assign unused = |{wb_err[1]};
 	arm925t_icache_fsm #(
 		.CACHE_SIZE(CACHE_SIZE),
+		.SMALL_SIZE(SMALL_SIZE),
 		.CACHE_LINE(CACHE_LINE),
 		.WAYS(WAYS)
 	) u_cache_fsm(
@@ -9980,6 +10028,7 @@ module arm925t_icache (
 	localparam [(sv2v_uu_u_cache_tag_ram_WAYS > 1 ? $clog2(sv2v_uu_u_cache_tag_ram_WAYS) : 1) - 1:0] sv2v_uu_u_cache_tag_ram_ext_i_line_way_0 = 1'sb0;
 	arm925t_cache_tag_ram #(
 		.CACHE_SIZE(CACHE_SIZE),
+		.SMALL_SIZE(SMALL_SIZE),
 		.CACHE_LINE(CACHE_LINE),
 		.WAYS(WAYS),
 		.TRACK_DIRTY(1'b0)
@@ -9989,6 +10038,7 @@ module arm925t_icache (
 		.i_accepted_address(32'd0),
 		.i_accepted_way(sv2v_uu_u_cache_tag_ram_ext_i_accepted_way_0),
 		.i_reset(i_reset),
+		.i_small(i_small),
 		.i_address_nxt(i_address_nxt),
 		.i_address(cache_address),
 		.i_lookup_address(i_address_check),
@@ -13148,6 +13198,7 @@ module arm925t_top (
 	o_dbg_d_rdata,
 	i_clk,
 	i_reset,
+	i_small_caches,
 	i_irq,
 	i_fiq,
 	o_wb_cyc,
@@ -13174,6 +13225,7 @@ module arm925t_top (
 	parameter [31:0] DATA_SPAGE_TLB_WAYS = 32'd2;
 	parameter [31:0] DATA_FPAGE_TLB_ENTRIES = 32'd64;
 	parameter [31:0] DATA_CACHE_SIZE = 32'd8192;
+	parameter [31:0] DATA_CACHE_SMALL = DATA_CACHE_SIZE;
 	parameter [31:0] DATA_CACHE_LINE = 32'd16;
 	parameter [31:0] DATA_CACHE_WAYS = 32'd2;
 	parameter [31:0] CODE_SECTION_TLB_ENTRIES = 32'd64;
@@ -13182,6 +13234,7 @@ module arm925t_top (
 	parameter [31:0] CODE_SPAGE_TLB_WAYS = 32'd2;
 	parameter [31:0] CODE_FPAGE_TLB_ENTRIES = 32'd64;
 	parameter [31:0] CODE_CACHE_SIZE = 32'd16384;
+	parameter [31:0] CODE_CACHE_SMALL = CODE_CACHE_SIZE;
 	parameter [31:0] CODE_CACHE_LINE = 32'd16;
 	parameter [31:0] CODE_CACHE_WAYS = 32'd2;
 	parameter [31:0] CP15_ID = 32'h54029252;
@@ -13211,6 +13264,7 @@ module arm925t_top (
 	output wire [31:0] o_dbg_d_rdata;
 	input wire i_clk;
 	input wire i_reset;
+	input wire i_small_caches;
 	input wire i_irq;
 	input wire i_fiq;
 	output wire o_wb_cyc;
@@ -13844,6 +13898,7 @@ module arm925t_top (
 	);
 	arm925t_dcache #(
 		.CACHE_SIZE(DATA_CACHE_SIZE),
+		.SMALL_SIZE(DATA_CACHE_SMALL),
 		.SPAGE_TLB_ENTRIES(DATA_SPAGE_TLB_ENTRIES),
 		.SPAGE_TLB_WAYS(DATA_SPAGE_TLB_WAYS),
 		.LPAGE_TLB_ENTRIES(DATA_LPAGE_TLB_ENTRIES),
@@ -13859,6 +13914,7 @@ module arm925t_top (
 		.i_stall(arm9_data_stall),
 		.o_fill_busy(data_fill_busy),
 		.i_reset(s_reset),
+		.i_small(i_small_caches),
 		.i_address(cpu_daddr),
 		.i_address_nxt(cpu_daddr_nxt),
 		.i_address_check(cpu_daddr_check),
@@ -13939,6 +13995,7 @@ module arm925t_top (
 	);
 	arm925t_icache #(
 		.CACHE_SIZE(CODE_CACHE_SIZE),
+		.SMALL_SIZE(CODE_CACHE_SMALL),
 		.SPAGE_TLB_ENTRIES(CODE_SPAGE_TLB_ENTRIES),
 		.SPAGE_TLB_WAYS(CODE_SPAGE_TLB_WAYS),
 		.LPAGE_TLB_ENTRIES(CODE_LPAGE_TLB_ENTRIES),
@@ -13950,6 +14007,7 @@ module arm925t_top (
 		.i_clk(i_clk),
 		.i_stall(code_stall),
 		.i_reset(s_reset),
+		.i_small(i_small_caches),
 		.i_address(cpu_iaddr & 32'hfffffffc),
 		.i_address_nxt(cpu_iaddr_nxt & 32'hfffffffc),
 		.i_address_check(cpu_iaddr_check & 32'hfffffffc),

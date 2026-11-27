@@ -27,6 +27,7 @@
 
 module arm925t_dcache #(
 parameter logic [31:0] CACHE_SIZE             = 32'd8192,
+parameter logic [31:0] SMALL_SIZE             = CACHE_SIZE, // ARM925T: the cache it is while i_small (arm925t_cache_tag_ram).
 parameter logic [31:0] SPAGE_TLB_ENTRIES      = 32'd256,
 parameter logic [31:0] SPAGE_TLB_WAYS         = 32'd2,   // ARM925T: ways of the small-page TLB (arm925t_tlb).
 parameter logic [31:0] LPAGE_TLB_ENTRIES      = 32'd32,
@@ -43,6 +44,7 @@ parameter logic [31:0] CPSR_MODE              = 32'd4
 // Clock and reset.
 input   logic            i_clk,
 input   logic            i_reset,
+input   logic            i_small,        // ARM925T: behave as SMALL_SIZE; changes only under reset
 
 // RAM stall.
 input   logic            i_stall,
@@ -208,6 +210,10 @@ assign o_short_hit = tr_cache_hit && tlb_hit_ok_short;
 assign o_short_trust = live_trust;
 localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
 localparam integer LINE_W = $clog2(CACHE_LINE);
+// ARM925T: the set index bits of the cache in use (arm925t_cache_tag_ram).
+logic [SET_W-1:0] set_mask;
+assign set_mask = (SMALL_SIZE < CACHE_SIZE && i_small) ? SET_W'(SMALL_SIZE / WAYS / CACHE_LINE - 32'd1) :
+                                                         SET_W'(CACHE_SIZE / WAYS / CACHE_LINE - 32'd1);
 logic [31:0]                     lookup_address;
 
 // ARM925T: the RAMs look up what the CPU presents, in every clock. While a
@@ -229,7 +235,7 @@ assign wb_cti[2] = CTI_EOB;
 assign unused = |{wb_err[1]};
 
 // Basic cache FSM - serves as manager 0.
-arm925t_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), 
+arm925t_dcache_fsm #(.CACHE_SIZE(CACHE_SIZE), .SMALL_SIZE(SMALL_SIZE), .CACHE_LINE(CACHE_LINE), 
                  .EXT_ABORT_FS(EXT_ABORT_FS), .WAYS(WAYS) ) u_cache_fsm (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
@@ -360,12 +366,13 @@ arm925t_store_queue u_post (
 // Cache Tag RAM - As a manager - this performs cache clean - manager 1.
 // ARM925T: enlarged two-way D-caches retain the reported 8 KB geometry
 // for index maintenance. The tag manager visits all physical set colours.
-arm925t_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS),
+arm925t_cache_tag_ram #(.CACHE_SIZE(CACHE_SIZE), .SMALL_SIZE(SMALL_SIZE), .CACHE_LINE(CACHE_LINE), .WAYS(WAYS),
                    .REG_COLLISION(1'b1),
                    .ACCEPTED_HIT_UPDATE(1'b1),
                    .INDEX_SIZE((WAYS == 2 && CACHE_SIZE > 8192) ? 32'd8192 : CACHE_SIZE)) u_cache_tag_ram (
         .i_clk                  (i_clk),
         .i_reset                (i_reset),
+        .i_small                (i_small),
         .i_address_nxt          (lookup_address),
         .i_address              (cache_address),
         .i_lookup_address       (compare_address),            // ARM925T
@@ -440,7 +447,7 @@ assign compare_address = i_address_check;
 assign cache_write_way = live_lookup ? tr_cache_way : cf_cache_way;
 assign ram_write = !live_lookup || tr_cache_hit;
 assign forward_store = live_lookup && cf_cache_tag_wr_en && tr_cache_hit &&
-                       compare_address[LINE_W +: SET_W] == cache_address[LINE_W +: SET_W];
+                       ((compare_address[LINE_W +: SET_W] ^ cache_address[LINE_W +: SET_W]) & set_mask) == '0;
 assign forward_victim = forward_store &&
                        raw_cache_tag[`ARM925T_CACHE_TAG__TAG] == cf_cache_tag[`ARM925T_CACHE_TAG__TAG];
 // The RAM's collision register covers the E lookup sampled on this write

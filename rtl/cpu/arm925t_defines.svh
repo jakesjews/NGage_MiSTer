@@ -98,11 +98,17 @@
 
 // Cache tag width. Tag consists of the tag and the physical address. valid and dirty are stored as flops.
 // ARM925T: CACHE_SIZE is the whole cache; the index addresses the lines of one of its WAYS ways.
+// SMALL_SIZE is the smaller cache it can be told to behave as (i_small of
+// arm925t_cache_tag_ram; equal to CACHE_SIZE when there is none). The tag
+// is the small cache's: it then holds the index bits the large cache has
+// more, which compare equal by construction when the large one is in use.
+// An index taken with ARM925T_VA__CACHE_INDEX is the large cache's and
+// must pass the module's set mask before it is used or compared.
 `define ARM925T_VA__CACHE_INDEX        $clog2(CACHE_LINE)+$clog2(CACHE_SIZE/WAYS/CACHE_LINE)-1:$clog2(CACHE_LINE)
-`define ARM925T_VA__CACHE_TAG          31 : $clog2(CACHE_LINE)+$clog2(CACHE_SIZE/WAYS/CACHE_LINE)
-`define ARM925T_CACHE_TAG__TAG         (31 - $clog2(CACHE_LINE) - $clog2(CACHE_SIZE/WAYS/CACHE_LINE) + 1) -1   : 0
-`define ARM925T_CACHE_TAG__PA          31 - $clog2(CACHE_LINE) + (31 - $clog2(CACHE_LINE) - $clog2(CACHE_SIZE/WAYS/CACHE_LINE) + 1) : 31 - $clog2(CACHE_LINE) - $clog2(CACHE_SIZE/WAYS/CACHE_LINE) + 1
-`define ARM925T_CACHE_TAG_WDT          31 - $clog2(CACHE_LINE) + (31 - $clog2(CACHE_LINE) - $clog2(CACHE_SIZE/WAYS/CACHE_LINE) + 1) + 1
+`define ARM925T_VA__CACHE_TAG          31 : $clog2(CACHE_LINE)+$clog2(SMALL_SIZE/WAYS/CACHE_LINE)
+`define ARM925T_CACHE_TAG__TAG         (31 - $clog2(CACHE_LINE) - $clog2(SMALL_SIZE/WAYS/CACHE_LINE) + 1) -1   : 0
+`define ARM925T_CACHE_TAG__PA          31 - $clog2(CACHE_LINE) + (31 - $clog2(CACHE_LINE) - $clog2(SMALL_SIZE/WAYS/CACHE_LINE) + 1) : 31 - $clog2(CACHE_LINE) - $clog2(SMALL_SIZE/WAYS/CACHE_LINE) + 1
+`define ARM925T_CACHE_TAG_WDT          31 - $clog2(CACHE_LINE) + (31 - $clog2(CACHE_LINE) - $clog2(SMALL_SIZE/WAYS/CACHE_LINE) + 1) + 1
 
 // TLB widths.
 `define ARM925T_SECTION_TLB_WDT       (32 + (32-$clog2(SECTION_TLB_ENTRIES)-20))

@@ -16,6 +16,10 @@
 #   VEXTRA=..      extra Verilator options (with MODEL_DIR=... for a model
 #                  of its own), e.g. -GDCACHE_SIZE=16384: the two cache
 #                  sizes are the CPU's only parameters
+#   BENCH=..       extra arguments for every run of the bench, with RESULTS=...
+#                  for results of their own: BENCH=--big-caches runs the
+#                  tests with the caches at the 32 KB built, not the phone's
+#                  sizes (the CPU's real_caches input; the default is high)
 #   RAND_SEEDS=..  the random tests rand<seed>, trand<seed> (Thumb) and
 #                  crand/ctrand<seed> (caches on), tools/gen_random.py
 #   gba_*          jsmolka/gba-tests (ext/gba-tests), translated by
@@ -40,6 +44,7 @@ PY        := python3 -I
 REMOTE    ?= ubuntu
 RDIR      ?= dev/mister/ngage-cpu
 LATS      ?= 0:0 0:3 2:9
+BENCH     ?=
 JOBS      ?= 8
 SHELL     := bash
 
@@ -72,11 +77,13 @@ all: bins remote qemu diff
 # on the SystemVerilog and on sv2v's output); no ARM test rebuild or QEMU.
 units: units-frontend units-decode units-execute units-proofs
 
-# The lock summary against its definition, and the cache metadata
-# against its last reviewed implementation (9037af9), over arbitrary inputs.
+# The lock summary against its definition, the cache metadata against its
+# last reviewed implementation (9037af9), and the 32 KB cache told to be
+# the phone's against the phone's, over arbitrary inputs.
 units-proofs:
 	$(PY) $(HERE)/units/lock_summary.py
 	$(PY) $(HERE)/units/metadata_miter.py
+	$(PY) $(HERE)/units/small_cache_miter.py
 
 units-execute:
 	$(HERE)/units/execute_leaves.sh
@@ -176,7 +183,7 @@ run: $(MODEL)
 		for lat in $(LATS); do \
 			if [ $$first = 1 ]; then keep="--sig $(RESULTS)/$$t.sig --trace $(RESULTS)/$$t.trace"; else keep=""; fi; \
 			log=$(RESULTS)/$$t.$${lat/:/-}.log; \
-			if $(MODEL) --bin $$bin --lat $$lat --quiet $$keep $$extra > $$log 2>&1; then \
+			if $(MODEL) --bin $$bin --lat $$lat --quiet $(BENCH) $$keep $$extra > $$log 2>&1; then \
 				pass=$$((pass+1)); \
 			else \
 				fail=$$((fail+1)); failed="$$failed $$t@$$lat"; \

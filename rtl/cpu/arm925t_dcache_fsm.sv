@@ -29,6 +29,7 @@
 
 module arm925t_dcache_fsm   #(
 parameter logic [31:0] CACHE_SIZE    = 32'd8192,  // Bytes.
+        parameter logic [31:0] SMALL_SIZE    = CACHE_SIZE, // ARM925T: the tags' geometry (arm925t_defines.svh).
         parameter logic [31:0] CACHE_LINE    = 32'd16,
         // ARM925T: FSR status for an external abort on an uncached access:
         // upstream's "terminal exception" 0b0010, or the ARM925T's 0b1000
@@ -508,7 +509,9 @@ end
 // Register the line exclusions one stage before the access; freeze
 // them with the CPU. On the miss-accept edge use the live victim/context.
 localparam integer LINE_W = $clog2(CACHE_LINE);
-localparam integer SET_W = $clog2(CACHE_SIZE / WAYS / CACHE_LINE);
+// The address bits under the tag: a victim's line address is its tag over
+// these bits of the access that evicts it (the same set in either geometry).
+localparam integer SET_W = $clog2(SMALL_SIZE / WAYS / CACHE_LINE);
 logic line_safe_ff, line_safe_nxt;
 logic victim_safe_ff, victim_safe_nxt;
 logic [1:0] install_delay_ff;

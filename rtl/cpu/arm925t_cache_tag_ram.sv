@@ -76,6 +76,14 @@ parameter logic [31:0] WAYS       = 32'd2,    // ARM925T: 1 or 2.
 // ARM925T: capacity visible to software's by-index maintenance loops.
 // Larger physical caches visit every set colour for each reported index.
 parameter logic [31:0] INDEX_SIZE = CACHE_SIZE,
+// ARM925T: the smaller cache this one behaves as while i_small is high
+// (the core's "real cache sizes" setting): the same ways and lines, fewer
+// sets. Every set index is then cut to the small cache's (set_mask), the
+// sets above it are never read or written, and the whole-cache clean
+// walks the small cache's lines in the small cache's clocks. The tags are
+// the small cache's in either setting (arm925t_defines.svh). i_small may
+// change only under reset. CACHE_SIZE: no such setting, i_small is unused.
+parameter logic [31:0] SMALL_SIZE = CACHE_SIZE,
 // ARM925T: the valid and dirty banks of a way in one byte-lane RAM each
 // group (a bank per byte lane, byte enables): the banks share their read
 // and write addresses, so the RAM ports are the same; one M10K holds four
@@ -90,6 +98,7 @@ localparam logic       DATA_PACK  = TRACK_DIRTY
 
 input   logic                            i_clk,
 input   logic                            i_reset,
+input   logic                            i_small,           // ARM925T: behave as SMALL_SIZE
 input   logic    [31:0]                  i_address_nxt,
 input   logic    [31:0]                  i_address,
 input   logic                            i_hold,
@@ -188,6 +197,13 @@ localparam [31:0] FLAT_W    = $clog2(LINES_ALL);      // A line of any way: {way
 
 localparam [31:0] NUMBER_OF_DIRTY_BLOCKS = LINES_ALL/16; // Keep cache size > 16 bytes.
 
+// ARM925T: the small cache's sets, their width, its lines of all ways as
+// {way, set} and its dirty blocks.
+localparam [31:0] SMALL_LINES  = SMALL_SIZE / WAYS / CACHE_LINE;
+localparam [31:0] SMALL_SET_W  = $clog2(SMALL_LINES);
+localparam [31:0] SMALL_FLAT_W = $clog2(SMALL_SIZE / CACHE_LINE);
+localparam [31:0] SMALL_BLOCKS = SMALL_SIZE / CACHE_LINE / 16;
+
 // States.
 typedef enum logic [12:0] {
         IDLE                           = 13'b0_0000_0000_0001,
@@ -268,6 +284,13 @@ logic                                      line_clear;                    // ARM
 logic                                      pend_en, pend_dirty;           // ARM925T: write-behind
 logic [SET_W-1:0]                          pend_addr;                     // ARM925T
 logic [WAYS-1:0]                           pend_sel;                      // ARM925T: its way, one-hot
+
+// ARM925T: the small cache is in use; the set index bits that count.
+logic                                      in_small;
+logic [SET_W-1:0]                          set_mask;
+logic [SMALL_FLAT_W-1:0]                   small_flat;          // the clean walk's line, as the small cache counts it
+assign in_small    = (SMALL_SIZE < CACHE_SIZE) && i_small;
+assign set_mask = in_small ? SET_W'(SMALL_LINES - 32'd1) : SET_W'(LINES - 32'd1);
 
 logic                                      unused;
 logic [BLK_CTR_PAD-1:0]                    dummy;
@@ -370,7 +393,7 @@ end : g_short_ram
 // sees are that way's: on a hit the line it reads or writes, on a miss the
 // line a fill replaces (its tag and dirty bit decide a write-back).
 //
-assign lk_set  = i_lookup_address[`ARM925T_VA__CACHE_INDEX];
+assign lk_set  = i_lookup_address[`ARM925T_VA__CACHE_INDEX] & set_mask;
 assign lk_word = i_lookup_address[$clog2(CACHE_LINE)-1:2];
 
 // Each way's word at the lookup address, from registers: the way is
@@ -439,7 +462,7 @@ begin : g_lru
             (ACCEPTED_HIT_UPDATE && i_accepted_hit && hit_upd_set == lk_set) ? ~i_accepted_way : lru_q;
         assign sel               = hit[1] ? 1'd1 : hit[0] ? 1'd0 : victim;
         assign hit_upd_en        = ACCEPTED_HIT_UPDATE ? i_accepted_hit : i_access && o_cache_hit;
-        assign hit_upd_set       = ACCEPTED_HIT_UPDATE ? i_accepted_address[`ARM925T_VA__CACHE_INDEX] : lk_set;
+        assign hit_upd_set       = ACCEPTED_HIT_UPDATE ? i_accepted_address[`ARM925T_VA__CACHE_INDEX] & set_mask : lk_set;
         assign hit_upd_way       = ACCEPTED_HIT_UPDATE ? i_accepted_way : sel;
 
         // Explicit 2:1 muxes: a variable part-select of the packed arrays
@@ -598,9 +621,11 @@ always_comb begin
         dirty_read_group = rd_set[SET_W-1:4];
         if (state_ff == IDLE && i_cache_clean_req) dirty_read_group = '0;
         else if (!line_mode_ff && state_ff != IDLE && state_ff != CACHE_INV)
-                dirty_read_group = blk_ctr_nxt[SET_W-5:0];
+                dirty_read_group = blk_ctr_nxt[SET_W-5:0] & set_mask[SET_W-1:4];
 end
-assign dirty_scan = dirty_group_q[WAY_W'(blk_ctr_ff >> (SET_W-4))];
+// The block counter is {way, block of the way}, of the cache in use.
+assign dirty_scan = dirty_group_q[in_small ? WAY_W'(blk_ctr_ff >> (SMALL_SET_W-4)) : WAY_W'(blk_ctr_ff >> (SET_W-4))];
+assign small_flat = {blk_ctr_ff[$clog2(SMALL_BLOCKS)-1:0], 4'b0} + SMALL_FLAT_W'(pri_enc(dirty_scan));
 always_ff @(posedge i_clk) if (!i_hold || tag_ram_clean || line_clear) dirty_read_bit_ff <= rd_set[3:0];
 
 // ARM925T: metadata uses RAM banks; the short port compares captured
@@ -777,7 +802,7 @@ end
 // The set the RAMs read: the next access in IDLE, else the walk's or line
 // operation's line (ARM925T: and its way, for that line's outputs).
 assign rd_set = state_ff == IDLE ?
-                i_address_nxt [`ARM925T_VA__CACHE_INDEX] :
+                i_address_nxt [`ARM925T_VA__CACHE_INDEX] & set_mask :
                 rd_flat_ff [SET_W-1:0];
 
 assign rd_way = WAY_W'(rd_flat_ff >> SET_W);
@@ -814,7 +839,10 @@ begin:blk1
         dummy                   = '0;
         state_nxt               = state_ff;
         rd_flat_nxt             = {blk_ctr_ff[$clog2(NUMBER_OF_DIRTY_BLOCKS)-1:0], 4'b0} + FLAT_W'(pri_enc(dirty_scan));
-        tag_ram_wr_addr         = i_address[`ARM925T_VA__CACHE_INDEX];
+        // ARM925T: the small cache's line, counted as it counts, in this cache's {way, set}.
+        if (in_small)
+                rd_flat_nxt     = flat ( WAY_W'(small_flat >> SMALL_SET_W), SET_W'(small_flat[SMALL_SET_W-1:0]) );
+        tag_ram_wr_addr         = i_address[`ARM925T_VA__CACHE_INDEX] & set_mask;
         tag_ram_wr_en           = 0;
         tag_ram_clear           = 0;
         tag_ram_clean           = 0;
@@ -847,7 +875,7 @@ begin:blk1
         begin
                 `arm925t_kill_access;
 
-                tag_ram_wr_addr = i_address     [`ARM925T_VA__CACHE_INDEX];
+                tag_ram_wr_addr = i_address     [`ARM925T_VA__CACHE_INDEX] & set_mask;
                 tag_ram_wr_en   = i_cache_tag_wr_en;
                 tag_ram_wr_data = i_cache_tag;
 
@@ -869,12 +897,12 @@ begin:blk1
                 begin
                         // ARM925T: read the line's tag, data, valid, dirty.
                         tag_ram_wr_en       = 0;
-                        rd_flat_nxt         = flat ( i_line_way, i_line_addr[`ARM925T_VA__CACHE_INDEX] );
+                        rd_flat_nxt         = flat ( i_line_way, i_line_addr[`ARM925T_VA__CACHE_INDEX] & set_mask );
                         // By-VA names an actual line. By-index names a
                         // reported set: start with its first physical colour.
                         if (!i_line_va && INDEX_SIZE < CACHE_SIZE)
                                 rd_flat_nxt = flat (i_line_way,
-                                    i_line_addr[`ARM925T_VA__CACHE_INDEX] & INDEX_MASK[SET_W-1:0]);
+                                    i_line_addr[`ARM925T_VA__CACHE_INDEX] & set_mask & INDEX_MASK[SET_W-1:0]);
                         line_mode_nxt       = 1'd1;
                         state_nxt           = LINE_W0;
                 end
@@ -928,7 +956,8 @@ begin:blk1
                 // Its index loop must clean/invalidate added sets too.
                 // Reuse the maintenance read/write pipeline, preserving the
                 // selected way and low set bits. No live hit-path logic.
-                if (!i_line_va && INDEX_SIZE < CACHE_SIZE &&
+                // (The small cache has the reported sets and no more: one visit.)
+                if (!i_line_va && INDEX_SIZE < CACHE_SIZE && !in_small &&
                     (rd_flat_ff & FLAT_W'(LINES - INDEX_LINES)) != FLAT_W'(LINES - INDEX_LINES))
                 begin
                         rd_flat_nxt   = rd_flat_ff + FLAT_W'(INDEX_LINES);
@@ -945,7 +974,7 @@ begin:blk1
                         // Move to next block.
                         {dummy, blk_ctr_nxt} = {dummy, blk_ctr_ff} + 32'd1;
 
-                        if ( {{BLK_CTR_PAD{1'd0}}, blk_ctr_ff} == NUMBER_OF_DIRTY_BLOCKS - 1 )
+                        if ( {{BLK_CTR_PAD{1'd0}}, blk_ctr_ff} == (in_small ? SMALL_BLOCKS : NUMBER_OF_DIRTY_BLOCKS) - 1 )
                         begin
                                 state_nxt            = IDLE;
                                 cache_clean_done_nxt = 1'd1;
