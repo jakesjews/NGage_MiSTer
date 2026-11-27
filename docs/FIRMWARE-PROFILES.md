@@ -525,7 +525,7 @@ CS0 retains the ROM's own descramble header
 (`0xA000–0x2B3000` for 4.03). The CPU stays in reset while the ROM sizes
 disagree or a required upload is incomplete.
 
-The `.mgl` launchers use F3/F4 for the ROMs and S0/S2 for C: and PMM.
+The `.mgl` launchers ([launchers/](launchers)) use F3/F4 for the ROMs and S0/S2 for C: and PMM.
 MiSTer Main finds the shortcuts on the top OSD page before both ROMs load.
 The Firmware submenu remains available throughout the session. Both
 launchers mount the saves before the ROMs. An attached PMM lives in a

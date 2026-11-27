@@ -31,6 +31,7 @@ and is never in the repository.
   (`tools/nos_scramble.py`, `model/hw/ngage_scramble.h`; the core's copy in
   `rtl/mem/ddram_flash.sv` is checked against the header by the `ddrflash`
   bench).
+- `make pmm-check`: `releases/boot2.vhd` is the image `tools/mkpmm.py` writes.
 
 `make help` lists the single benches.
 
@@ -79,39 +80,66 @@ screenshot of it. Every build without the macro is the plain core.
 ## With your own firmware
 
 - `tools/mkimage.py phoenix RH2941.0C1 RH2941.021 -o build/coreboot` makes the
-  flat flash images `cs0.bin` and `cs1.bin` for the integration RBF,
-  firmware bench, and reference model. They are flash as the chips store it: CS0
-  `0xA000`-`0x2ACFFF` is scrambled and the core decodes it on reads. The
-  output preserves the original NOS and integrity table. `--plain` writes
-  CS0 decoded for a disassembler. To reproduce the historical patched
+  flat flash images `cs0.bin` and `cs1.bin`: the core's `boot0.rom` and
+  `boot1.rom` (the unpacker page makes the same two files), and the input of
+  the firmware bench and the reference model. They are flash as the chips
+  store it: CS0 `0xA000`-`0x2ACFFF` is scrambled and the core decodes it on
+  reads. The output preserves the original NOS and integrity table. `--plain`
+  writes CS0 decoded for a disassembler. To reproduce the historical patched
   control, pass `--patches firmware-patches/rom-patches.txt` explicitly.
 - Use the reference pair for bring-up. `mkimage.py` requires `--force` to
   try language packs other than `RH2941.021`.
+- `tools/mkpmm.py OUT` writes the PMM of a phone before its first start
+  (`releases/boot2.vhd`); its header says what is in it and why.
+  `--list FILE` prints the records of a PMM image.
 - `make -C sim coreboot` boots the firmware on the whole core in Verilator.
   It runs for hours.
 - `model/build.sh` builds the reference model: QEMU 11.1.2 with the `ngage-qd`
   machine in `model/hw` (QEMU's build requirements and arm-none-eabi-gcc).
-  `model/run.sh` uses the supplied flash images directly. Set
-  `NGAGE_PATCHES=standin` on a stock image for the patched comparison.
+  `model/run.sh` uses the supplied flash images directly. The model does not
+  have the devices the original NOS needs: set `NGAGE_PATCHES=standin` on a
+  stock image to run it with the stand-in, as earlier releases did.
 - `tools/mkcard.py` makes card images, for the core (`.mmc`) and for the model.
 
 ## On the MiSTer
 
-For an integration build, select the two host-prepared flash images in the
-OSD. For persistent C:, mount its VHD after the CS1 image. A CS1 upload detaches
-any previous C: mount. The raw flash indexes are 3 for CS0 and 4 for CS1.
-The image slots are 0 for C: and 1 for the card. A launcher can supply all
-four files in this order:
+The core takes its files from `/media/fat/games/NGage/` as the
+[README](../README.md) describes. When the core starts, MiSTer sends
+`boot0.rom` and `boot1.rom` (the two flash images) and mounts `boot0.vhd`
+(C:), `boot1.vhd` (a card, if there is one) and `boot2.vhd` (PMM). The CPU
+starts once both images are in and their sizes agree.
+
+- File indexes: 3 is CS0 and 4 is CS1 (**Load boot0.rom** and **Load
+  boot1.rom** on the OSD's Firmware page). Image slots: 0 is C:, 1 the card,
+  2 PMM.
+- C: is the upper half of CS1 and PMM the top 64 KiB of CS0. A mounted file
+  takes the place of that part of the image and gets the firmware's writes;
+  without one the phone runs on what the image holds and nothing is kept.
+  A flash image loaded later leaves a mounted C: and PMM as they are.
+- A launcher can name every file itself, with no boot files in the folder:
 
 ```xml
 <mistergamedescription>
     <rbf>_Console/NGage</rbf>
-    <file delay="2" type="f" index="3" path="cs0.bin"/>
+    <file delay="2" type="s" index="0" path="my-c-drive.vhd"/>
+    <file delay="1" type="s" index="2" path="my-pmm.vhd"/>
+    <file delay="1" type="f" index="3" path="cs0.bin"/>
     <file delay="1" type="f" index="4" path="cs1.bin"/>
-    <file delay="1" type="s" index="0" path="my-c-drive.vhd"/>
     <file delay="1" type="s" index="1" path="sonicn.mmc"/>
 </mistergamedescription>
 ```
+
+- **Keeping a C: from an earlier release** (up to `NGage_20261120`): mount it
+  with an erased PMM, `tools/mkpmm.py --erased boot2.vhd`, and not with
+  `releases/boot2.vhd`, whose first start formats C:. The firmware fills the
+  erased PMM in and asks for the time and date once more.
+- Other firmware versions: the launchers in [docs/launchers](launchers) load
+  a version's four files from a folder of its own (`games/NGage/410/`,
+  `403/` and so on, as `boot0.rom`, `boot1.rom`, `c.vhd` and `pmm.vhd`). The
+  original N-Gage's 4.03 is an 8 MiB `boot0.rom` and a 16 MiB `boot1.rom`
+  (CS1 followed by CS2); the core picks the phone from the two sizes.
+  [FIRMWARE-PROFILES.md](FIRMWARE-PROFILES.md) has the state of that work:
+  4.03 has not been run through on a MiSTer.
 
 ## The firmware unpacker page
 
@@ -120,9 +148,10 @@ four files in this order:
 `web/unpack.js` takes `N-GageQD RH-29.zip` (the archive of the phone's data
 packages, read in pieces: the package for 4.10 is picked out of it), that
 package by itself (a Microsoft cabinet that holds an InstallShield cabinet),
-or the two flash files, and hands out the firmware file (held to its
-SHA-256) and a language pack for 4.10, with record checksums checked.
-Use the extracted pair as input to `tools/mkimage.py` for an integration build.
+or the two flash files. From the firmware file (held to its SHA-256) and a
+language pack for 4.10 (record checksums checked) it makes `boot0.rom` and
+`boot1.rom`, the two flash images, as `tools/mkimage.py phoenix` does. Made
+with `RH2941.021`, they are held to the hashes of that tool's output.
 
 - Of the eleven packages in the zip named for 4.10, two have both files:
   `RH-29_dp_emea_v_3_0_mcusw4_10-Oct19-151031.exe` (56 packs; the page takes
@@ -131,7 +160,10 @@ Use the extracted pair as input to `tools/mkimage.py` for an integration build.
   packs alone or the 4.60 firmware file.
 - `node web/test.mjs PACKAGE.exe ["N-GageQD RH-29.zip"] [other packages]
   [flash files]` checks it against the real files: the package and the zip
-  must give the two files, everything else must be refused.
+  must give the two files and the reference images, everything else must be
+  refused.
 - `vercel deploy --prod` in `web/` publishes it (project `ngage-mister`).
+  The page and the released core change together: the published page still
+  hands out the files `NGage_20261120.rbf` takes.
 - `web/vercel.json` sends a content security policy that allows no
   connections: the page cannot send a file anywhere.
