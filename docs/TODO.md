@@ -12,6 +12,10 @@ Difficulty: **low** a parameter or a small block; **medium** new RTL or
 stand-in code with some reverse engineering; **high** a large design;
 **blocked** needs something we do not have.
 
+With pull request 10 the core runs the original NOS, not the stand-in. The
+entries below that name the stand-in describe the core before that: each
+needs looking at again under the original NOS before it is worked on.
+
 ## In progress
 
 - [x] **Small-page TLB with two ways** and **caches of 16 KB and 16 KB**:
@@ -89,6 +93,26 @@ stand-in code with some reverse engineering; **high** a large design;
 
 ## Things a player can run into
 
+- [ ] The UEMK's clock interrupts: rtc.dll sets the clock in nine steps
+  that wait for UEMK interrupts 15 and 12 (register 21 bits 0 and 3, masks
+  in register 22; cbus.dll reads them when CTSI status bit 15 at
+  `0x0C150100` is set) and writes minutes and hours to registers 2 and 3,
+  with bit 7 of 3 set for one purpose and clear for the other (the time's
+  load and the alarm; which is which is open). The core makes none of it,
+  so a time set in the phone is never stored as set; the date comes from
+  MiSTer's clock at each start instead (`rtl/mister/pmm_date.sv`), and a
+  time set in the phone lasts until the next start (medium).
+- [ ] Game audio with the original NOS: PCM now goes through MDI to the
+  DSP peer (`rtl/upp/upp_dsp_pcm.v`, `upp_pcm.v`). The bench covers the
+  path; it has not been listened to on a board in this repository (low to
+  test).
+- [ ] The original N-Gage's firmware 4.03 in this core: not run through on
+  a MiSTer (docs/FIRMWARE-PROFILES.md, "Remaining validation").
+- [ ] The reference model does not run the original NOS: it has none of
+  the devices NOS needs (the MDI rings and the DSP peer, the SIM interface,
+  the CTSI counters) and runs with the stand-in only
+  (`NGAGE_PATCHES=standin`), so a boot of the core can no longer be
+  compared with it (medium to high).
 - [ ] Unanswered modem requests in the stand-in: call set-up (dialling a
   number freezes the keys until reset), the request behind Settings >
   Device > Display, network, GPRS, SMS, two SIM reads, modem state (low to
@@ -146,10 +170,11 @@ stand-in code with some reverse engineering; **high** a large design;
 
 ## Blocked
 
-- [ ] The DSP and the real audio path: type and code unknown.
-- [ ] NOS running for real: needs the DSP, the whole UEMK, the SIM and the
-  radio.
-- [ ] The radio chain and the SIM interface.
+- [ ] The DSP and the real audio path: type and code unknown. NOS runs
+  against a peer that answers at the message level
+  (`rtl/upp/upp_mdi_peer.v`).
+- [ ] The radio chain. The SIM is a test card with made-up identities
+  (`rtl/upp/upp_test_sim.v`).
 - [ ] The ASIC's boot ROM: never dumped.
 - [ ] The LCD controller's identity: needs a module taken apart.
 

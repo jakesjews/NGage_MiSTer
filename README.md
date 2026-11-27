@@ -18,10 +18,11 @@ no radio behind it.
 
 ## Setup
 
-The `.rbf` in [releases/](releases/) is still `NGage_20261120`, from before
-this setup: follow
+The `.rbf` in [releases/](releases/) and the published unpacker page are
+still those of `NGage_20261120`, from before this setup: follow
 [its README](https://github.com/jakesjews/NGage_MiSTer/blob/9210fa2/README.md)
-for that file. The steps here are for a core built from the current source
+for them. The steps here are for a core built from the current source, with
+the unpacker page as it is in [web/](web/)
 ([docs/BUILDING.md](docs/BUILDING.md)).
 
 1. Copy the `.rbf` to `/media/fat/_Console/`.
@@ -49,7 +50,7 @@ of the zip. The checksums in step 3 are those of the files made with
 `RH2941.021`; another language pack gives its own.
 
 To have a card in the slot at every start, name a copy of its image
-`boot1.vhd`. The phone then starts at its idle screen with the game in the menu.
+`boot1.vhd`. The game is then in the phone's menu from the start.
 
 ## Controls
 
@@ -86,6 +87,8 @@ Only the `.mmc` file goes on the MiSTer.
 - **Saves reach `boot0.vhd` a few seconds after the phone writes them.**
   Choose **Save C: and PMM now** in the OSD before switching off right after
   a save.
+- The phone takes its date and time from the MiSTer at every start. What
+  you enter at the first start lasts until the next one.
 - `boot0.vhd` and `boot2.vhd` are one phone: keep them together. Replacing
   both with the files from releases/ starts a new phone. Replacing only one
   does not work: a new `boot2.vhd` erases the C: beside it at the next start,

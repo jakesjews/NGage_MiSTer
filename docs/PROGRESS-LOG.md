@@ -11276,3 +11276,203 @@ Games that need a different build of a shared library than the one in
 takes the program's folder first.
 
 Next: nothing is queued.
+
+## 2026-11-26: pull request 10 on the board, a PMM for the first start, boot files for the flash images
+
+Pull request 10 (Andrea Bogazzi, branch `integration`) runs the firmware
+as Nokia shipped it: no patches, the original NOS in place of the
+stand-in. NOS runs against device models ported from his NEM-4 core: the
+MDI rings with a DSP peer that answers at the message level, PCM through
+MDI, the SIM interface with a test card, the CTSI counters, GENIO
+loopbacks, the UEM's battery and alarm bits. PMM is a second save file,
+and the original N-Gage's 4.03 is a second phone in the same core, chosen
+by the sizes of the two flash images. docs/FIRMWARE-PROFILES.md is his
+record of the work. This entry is what was measured here, and what was
+changed on the branch before a merge.
+
+**The pull request's build on the board** (GitHub's build of 1035b44,
+seed 5; RH-29 4.10 images from `tools/mkimage.py phoenix`, unpatched;
+core, images, C:, PMM and card in the MiSTer's RAM disk, a launcher with
+C: on slot 0, PMM on slot 2, the images as files 3 and 4, the card on
+slot 1):
+- SPMark04, one pass of all nine tests, beside the release run the same
+  way the same evening: 3D Game 8.99 fps (8.97), FillRate 1.73 (1.73),
+  PolyCount 29.73 (29.64), 2D Image 38.05 (38.05), Image Scaling 1.90
+  (1.89), JPEG 169.78 (169.49), Contacts 3.48 (3.50), Calendar 7.23
+  (7.13), Disk Access 21.99 (22.07). The original NOS and the on-chip RAM
+  in SDRAM cost nothing that this measures.
+- Sonic N into Neo Green Hill Act 1, the level timer in step with real
+  time. Sound was not listened to.
+- The idle screen and the menu are the release's.
+
+**The first start needs one PMM record.** With a blank C: and an erased
+PMM the Nokia logo stayed: 4 min 40 s, keys without effect, not one byte
+of C: programmed. NOS had initialised PMM meanwhile (998 bytes, 52
+records in two sectors) and the PMM save had written it back, so the save
+path works. What is missing is PMM group 212, record 3, the "AUX startup
+reason": EStart asks for it at every start (HelperDrv's "auxstart") and
+formats C: only on 105; NOS answers 100 when the record is not there (the
+finding of 2026-11-19 on NEM-4 4.03, and FIRMWARE-PROFILES.md's trace of
+the QD handler). With the record appended at 105 the same build formatted
+C:, showed the Time dialog about 125 s after the load, and wrote the
+record again as 100.
+
+PMM as RH-29 4.10's NOS writes it (read from the board's files, not from
+documentation): the top 64 KiB of CS0 in eight 8 KiB sectors; a sector in
+use starts `F0 F0 F8 FF 02 00 "PMMCAT" 01 00 00 00`, a 32-bit word (0 in
+the first sector, 0x00020000 in the seventh), `FF FF FF FF 02 00`, and
+holds records from offset 0x20; a free sector has `F0 F0 FE` and
+`01 00 00 00` at 0x0C. A record is `F4`, group, record (16 bits),
+`55 FF FF FF`, length, the offset of the next record (16 bits each,
+little-endian), data; a record written again leaves the old one with its
+first byte programmed down to `A4`.
+
+`tools/mkpmm.py` writes the PMM of a phone before its first start: those
+sector marks and the one record, 95 bytes. On the board it does what the
+appended record did, and NOS adds its own records (the same groups as
+from an erased PMM). `releases/boot2.vhd` is that image (`make
+pmm-check`).
+
+**C: and PMM are one phone.** Beside a C: the release had formatted:
+- the factory PMM formats it: the twelve sectors in use were erased and
+  written again (601,412 of 768,946 bytes changed);
+- an erased PMM (`mkpmm.py --erased`) keeps it: no sector erased, 30
+  bytes changed, the Time and Date dialogs once more.
+And a blank C: beside a PMM that holds 100 is the first case again: never
+formatted.
+
+**Changed on the branch** (016bfb4, the merge of master, and the commits
+after it):
+- `boot0.rom` and `boot1.rom`, which MiSTer sends at the start with no
+  menu index, load as the two flash images, as F3 and F4 do; with
+  `boot0.vhd` (C:) and `boot2.vhd` (PMM), which MiSTer mounts by itself,
+  the phone starts without a launcher again. A file of another size is
+  refused with a notice ("Firmware files not valid: see the README"): the
+  firmware files of the releases up to NGage_20261120 get it.
+- The unpacker page makes the two flash images from the firmware file and
+  a language pack, as `mkimage.py` does (the same bytes: SHA-256
+  8ae1f84a... and 1058c15e... with RH2941.021). Not deployed: the
+  published page still serves the release.
+- The memory bench's harness drives `nem4`, `pmm_overlay` and `save_pmm`
+  (`make test` had stopped at `upp`: with random start values the bench
+  ran in the NEM-4 map).
+- The NEM-4 LCD decoder's pixel reaches the frame buffer through a
+  register (below, under timing).
+- The phone's date comes from MiSTer's clock at every start (below, under
+  the clock).
+- README, docs/BUILDING.md and docs/TODO.md for all of it; the launchers
+  for other firmware versions are in docs/launchers.
+
+**The branch's build with nothing but boot files** (GitHub's build of
+2595cb3, seed 31337). The games folder was in RAM: a tmpfs on
+`/media/usb1`, where MiSTer looks before the SD card, and a launcher that
+names the core and a set name and no file. MiSTer sent `boot0.rom` and
+`boot1.rom` and mounted `boot0.vhd`, `boot1.vhd` and `boot2.vhd` from it:
+- fresh files (the two images, the blank C:, `releases/boot2.vhd`, Sonic N
+  as `boot1.vhd`): the Time dialog 120 s after the load, Enter for the
+  time, Enter for the date, the idle screen, and the right soft key starts
+  Sonic N;
+- the same files again, as that start left them: the Time dialog again, 57
+  s after the load;
+- the release's firmware files in place of the images: a dark screen (the
+  notice itself is not in a capture).
+The benches: `make lint` clean; `upp`, `top` (which now loads its first
+pair as boot files), `lcd` and `periph` pass on the changed tree, the
+others on the branch as it came; `node web/test.mjs` on the 4.10 package,
+the archive and single files; the page in Chrome.
+
+**The clock.** That build asked for the time and date at every start and
+never had MiSTer's. The cause is in how the phone keeps its date:
+- the UEMK has the time of day and an 8-bit day counter; the date is PMM
+  group 212, records 0 and 1 (64-bit times), which NOS hands to rtc.dll
+  when the phone starts (in the whole-core bench, at rtc.dll's event method
+  `0x50349394`: 2004-01-01 16:58:00 and 16:57:00 from a PMM in which the
+  time had been set; the third value, record 2, is the alarm);
+- rtc.dll takes the clock as set only when the two are equal and not zero
+  (`0x50349088`), and then makes the time from the first one's date, the
+  UEMK's time of day and its day counter (`0x5034A678`);
+- setting the clock is nine steps (`0x503498AC`): the pair is written a
+  minute apart first, so that a start in the middle finds it not set, and
+  equal at step eight. The steps between wait for UEMK interrupts 15 and 12:
+  register 21 bits 0 and 3 with their masks in register 22, which cbus.dll
+  reads and hands out when CTSI status bit 15 (`0x0C150100`) is set
+  (`0x5037D4D0`; ids by its table at `0x5037EBAC`). rtc.dll never writes
+  the time registers 32 to 34. It writes minutes and hours to registers 2
+  and 3, with bit 7 of register 3 set in one routine (`0x5034A3C8`) and
+  clear in the other (`0x5034A494`): one of them loads the time, the other
+  sets the alarm, and which is which was not settled;
+- the core makes none of those interrupts. The steps then stop at their
+  first wait (read from the code, not watched), and the PMM files from the
+  board do hold the unequal pair. The stand-in had hidden this: it gave
+  rtc.dll MiSTer's date itself, twice.
+The fix is at the same place the stand-in's was: `rtl/mister/pmm_date.sv`
+walks the PMM copy in DDR3 before every CPU start and writes today's date
+(00:00:00) into records 0 and 1, when a PMM file is mounted, the phone is
+the QD and MiSTer has sent the time. The time of day was MiSTer's already.
+A PMM without the records is left alone. It changes data the firmware
+wrote, not code, and nothing goes to the file for it. The UEMK's clock
+interrupts and its time load are in docs/TODO.md.
+In the whole-core bench, a PMM with today's date in both records makes NOS
+hand over two equal values and rtc.dll take its "set" branch
+(`0x50349120`).
+
+**The build with the date block on the board** (GitHub's build of 29b2432,
+seed 6, -1.846 ns; boot files from the folder in RAM, the SPMark04 card as
+`boot1.vhd`):
+- first start, 22:56 by MiSTer's clock: the Time dialog 107 s after the
+  load, Enter, Enter, the idle screen with 01/01/2004 (what the dialogs
+  offered);
+- second start: the idle screen 43 s after the load, no dialog, "Th
+  26/11/2026" in the status bar and the clock's hands at eleven, with
+  MiSTer at 22:59;
+- SPMark04 on that start, one pass, beside the release of the same
+  evening: 3D Game 8.98 fps (8.97), FillRate 1.73 (1.73), PolyCount 29.70
+  (29.64), 2D Image 38.05 (38.05), Image Scaling 1.90 (1.89), JPEG 169.56
+  (169.49), Contacts 3.47 (3.50), Calendar 7.29 (7.13), Disk Access 22.15
+  (22.07);
+- from the 1 GB card, on copies of a C: and PMM after their first start
+  (each start came up at the idle screen with the day's date): Tony Hawk
+  into the Warehouse, Call of Duty into its first mission, Red Faction
+  into the Mines.
+The whole bench suite and lint pass on this tree.
+
+**Games on the pull request's build** (2595cb3, from the 1 GB card, with
+the script and beside the strips of the release's run of 2026-11-20; the
+phone on copies of a C: and PMM that had had their first start): Tony Hawk
+into the Warehouse, Sonic N into Neo Green Hill (0:00.95, 0:24.97, 0:49.03
+on its timer where the release had 0:01.02, 0:24.93, 0:48.70), Splinter
+Cell, Pathway to Glory, WWE Aftershock, Atari Masterpieces (Asteroids),
+High Seize, Ashen, Red Faction and the card's Java game: each at the same
+screen as the release at the same moment. Sound was not listened to.
+
+**Area and timing.** GitHub's builds of the same day, four seeds each:
+
+| Seed | master 09837fe | branch 76a70a6 |
+|---|---|---|
+| 5 | -1.645 ns | -1.643 ns |
+| 6 | -1.829 ns | -1.480 ns |
+| 7 | -1.673 ns | -1.785 ns |
+| 31337 | -1.321 ns | -1.811 ns |
+| mean | -1.617 ns | -1.680 ns |
+
+The two are level. Before 76a70a6 the branch's longest path was not in the
+CPU: the NEM-4 LCD decoder's `pixel_valid`, combinational from the
+register bus's write strobe, drove the frame buffer's write enable across
+all its RAM blocks (-2.132 ns in the build of 2595cb3, seed 31337, the
+first CPU path at -1.888). The buffer's write port now takes the decoder's
+pixel from registers and every worst path is the CPU's again. The branch
+is 36,132 to 36,234 ALMs (86 %) against master's 33,833 to 33,938. Nearly
+all of the difference is the NEM-4 profile: the branch was at 34,078
+before the NEM-4 commits (GitHub's build of 21f2d40, one seed) and at
+33,232 after its first commit, which took the Phoenix loader out.
+
+**Open.** The merge is the user's, and with it a release build and the
+page's deploy: releases/ still holds NGage_20261120.rbf and the published
+page still hands out its files, as the README says. Whether the NEM-4
+profile stays in this core is not decided; its firmware has not been run
+through on a MiSTer. The reference model has none of the new devices and
+runs with the stand-in only. Sound has not been listened to with the
+original NOS. The captures, result files, PMM images and the board
+scripts are in build/pr10-review-20261126 (untracked).
+
+Next: the merge decision.

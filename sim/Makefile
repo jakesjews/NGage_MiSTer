@@ -1,7 +1,7 @@
 # Verilator benches for the board-level devices, the memory system and the
 # MiSTer shell. Run from the repository root with `make test`, or one bench
 # at a time with `make -C sim lcd` (lcd, video, keypad, flash, mmc, bt, sdram,
-# sdram-faults, ddrflash, upp, intc, timers, periph, save, top). Each bench is built
+# sdram-faults, ddrflash, upp, intc, timers, periph, save, pmm-save, pmm-date, top). Each bench is built
 # into sim/build/<name> and run at once; pictures go to sim/build/out.
 # The benches run one after the other. `make -C sim coreboot` (not part of
 # `make test`) boots the firmware on the whole core; see its target below.

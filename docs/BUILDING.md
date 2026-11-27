@@ -116,6 +116,10 @@ starts once both images are in and their sizes agree.
   takes the place of that part of the image and gets the firmware's writes;
   without one the phone runs on what the image holds and nothing is kept.
   A flash image loaded later leaves a mounted C: and PMM as they are.
+- The date: before every start of the phone, with a PMM file mounted and
+  MiSTer's time in, the core writes today's date into the two date records
+  of the PMM copy (`rtl/mister/pmm_date.sv`; the file is not written for
+  it). The phone's time of day is MiSTer's through the UEMK's clock.
 - A launcher can name every file itself, with no boot files in the folder:
 
 ```xml
@@ -164,6 +168,7 @@ with `RH2941.021`, they are held to the hashes of that tool's output.
   refused.
 - `vercel deploy --prod` in `web/` publishes it (project `ngage-mister`).
   The page and the released core change together: the published page still
-  hands out the files `NGage_20261120.rbf` takes.
+  hands out the files `NGage_20261120.rbf` takes. Until then
+  `python3 -m http.server -d web` serves this one on localhost.
 - `web/vercel.json` sends a content security policy that allows no
   connections: the page cannot send a file anywhere.

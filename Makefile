@@ -13,7 +13,7 @@ help:
 	@echo "make lint   Lint the RTL with Verilator (-Wall)"
 	@echo "make test   Build and run every Verilator bench in sim/ (one at a time)"
 	@echo "make -C sim <bench>   One bench: lcd video keypad flash mmc bt sdram sdram-faults ddrflash upp"
-	@echo "                      intc timers periph save top"
+	@echo "                      intc timers periph save pmm-save pmm-date top"
 	@echo "make clean  Remove sim/build"
 	@echo "make cpu-gen        Regenerate rtl/cpu/arm925t_gen.v (tools/gen_cpu.sh, needs sv2v)"
 	@echo "make cpu-gen-check  Check that rtl/cpu/arm925t_gen.v matches its sources"
