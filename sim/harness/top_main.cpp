@@ -541,6 +541,21 @@ int main(int argc, char **argv) {
 		while (b.clocks < t1 + 2000000 && !(R.emu__DOT__pd_done && !R.emu__DOT__cpu_reset)) b.tick();
 		memcpy(&got[0], &b.ddr[0x02200000 + 0x2C], 8);
 		CHECK_EQ(got[0], day, "the date in record 0 after a reset");
+		// the menu's "CPU caches" (status 16): the phone's sizes unless it is
+		// set, and a change is taken only while the CPU is in reset
+		CHECK(R.emu__DOT__real_caches, "the phone's cache sizes by default");
+		R.emu__DOT__hps_io__DOT__sim_status[0] = 1u << 16;
+		b.ticks(200);
+		CHECK(R.emu__DOT__real_caches && !R.emu__DOT__cpu_reset, "a change of the cache option waits for a reset");
+		for (int big = 1; big >= 0; big--) {
+			R.emu__DOT__hps_io__DOT__sim_status[0] = (uint32_t)big << 16 | 1;
+			b.ticks(200);
+			R.emu__DOT__hps_io__DOT__sim_status[0] = (uint32_t)big << 16;
+			t1 = b.clocks;
+			while (b.clocks < t1 + 2000000 && !(R.emu__DOT__pd_done && !R.emu__DOT__cpu_reset)) b.tick();
+			CHECK(!R.emu__DOT__cpu_reset && R.emu__DOT__real_caches == !big,
+			      big ? "32 KB caches after a reset with the option set" : "the phone's sizes again after a reset with it clear");
+		}
 		// back to the plain image for the checks below
 		b.img2 = plain;
 		R.emu__DOT__hps_io__DOT__sim_size = b.img2.size();
