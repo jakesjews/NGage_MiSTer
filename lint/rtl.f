@@ -63,6 +63,7 @@ rtl/upp/ngage_mem.sv
 rtl/mister/ngage_input.sv
 rtl/mister/ddram_loader.sv
 rtl/mister/flash_save.sv
+rtl/mister/pmm_date.sv
 rtl/mister/rtc_wall.sv
 rtl/mister/dbg_trace.sv
 rtl/mister/dbg_sti.sv

@@ -262,31 +262,34 @@ wire reset = reset_slow;
 ///////////////////////   MEMORY   ///////////////////////////////
 
 // DDR3 loader clients retain ownership until their command is accepted.
-wire        ld_busy, ld_we, dl_we, fs_we, tr_we, kt_we, pm_we;
+// The date block (pmm_date) also reads; it is the only loader reader.
+wire        ld_busy, ld_we, ld_rd, ld_valid, dl_we, fs_we, tr_we, kt_we, pm_we, pd_we, pd_rd;
 wire  [1:0] dl_loaded;
 wire        nem4 /* verilator public_flat_rd */;
 wire        profile_match;
-wire  [7:0] ld_be, dl_be, fs_be, tr_be, kt_be, pm_be;
-wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr, kt_addr, pm_addr;
-wire [63:0] ld_din, dl_din, fs_din, tr_din, kt_din, pm_din;
-localparam logic [2:0] LD_FLASH = 0, LD_C = 1, LD_TRACE = 2, LD_TEXT = 3, LD_PMM = 4;
+wire  [7:0] ld_be, dl_be, fs_be, tr_be, kt_be, pm_be, pd_be;
+wire [28:0] ld_addr, dl_addr, fs_addr, tr_addr, kt_addr, pm_addr, pd_addr;
+wire [63:0] ld_din, dl_din, fs_din, tr_din, kt_din, pm_din, pd_din, ld_data;
+localparam logic [2:0] LD_FLASH = 0, LD_C = 1, LD_TRACE = 2, LD_TEXT = 3, LD_PMM = 4, LD_DATE = 5;
 reg   [2:0] ld_own = LD_FLASH;
 wire flash_size_error;
 localparam DBG_TRACE = 0;              // debug rings off for a release build
 
 always @(posedge clk_sys) begin
-	if (!ld_we) begin
+	if (!ld_we && !ld_rd) begin
 		if (dl_we)      ld_own <= LD_FLASH;
 		else if (fs_we) ld_own <= LD_C;
 		else if (pm_we) ld_own <= LD_PMM;
+		else if (pd_we || pd_rd) ld_own <= LD_DATE;
 		else if (tr_we) ld_own <= LD_TRACE;
 		else if (kt_we) ld_own <= LD_TEXT;
 	end
 end
-assign ld_we   = (ld_own == LD_C) ? fs_we : (ld_own == LD_PMM) ? pm_we : (ld_own == LD_TRACE) ? tr_we   : (ld_own == LD_TEXT) ? kt_we   : dl_we;
-assign ld_addr = (ld_own == LD_C) ? fs_addr : (ld_own == LD_PMM) ? pm_addr : (ld_own == LD_TRACE) ? tr_addr : (ld_own == LD_TEXT) ? kt_addr : dl_addr;
-assign ld_din  = (ld_own == LD_C) ? fs_din : (ld_own == LD_PMM) ? pm_din : (ld_own == LD_TRACE) ? tr_din  : (ld_own == LD_TEXT) ? kt_din  : dl_din;
-assign ld_be   = (ld_own == LD_C) ? fs_be : (ld_own == LD_PMM) ? pm_be : (ld_own == LD_TRACE) ? tr_be   : (ld_own == LD_TEXT) ? kt_be   : dl_be;
+assign ld_we   = (ld_own == LD_C) ? fs_we : (ld_own == LD_PMM) ? pm_we : (ld_own == LD_DATE) ? pd_we : (ld_own == LD_TRACE) ? tr_we   : (ld_own == LD_TEXT) ? kt_we   : dl_we;
+assign ld_rd   = ld_own == LD_DATE && pd_rd;
+assign ld_addr = (ld_own == LD_C) ? fs_addr : (ld_own == LD_PMM) ? pm_addr : (ld_own == LD_DATE) ? pd_addr : (ld_own == LD_TRACE) ? tr_addr : (ld_own == LD_TEXT) ? kt_addr : dl_addr;
+assign ld_din  = (ld_own == LD_C) ? fs_din : (ld_own == LD_PMM) ? pm_din : (ld_own == LD_DATE) ? pd_din : (ld_own == LD_TRACE) ? tr_din  : (ld_own == LD_TEXT) ? kt_din  : dl_din;
+assign ld_be   = (ld_own == LD_C) ? fs_be : (ld_own == LD_PMM) ? pm_be : (ld_own == LD_DATE) ? pd_be : (ld_own == LD_TRACE) ? tr_be   : (ld_own == LD_TEXT) ? kt_be   : dl_be;
 
 ddram_loader ddram_loader
 (
@@ -400,7 +403,7 @@ ngage_mem ngage_mem
 	.flash_busy(),
 	.unmapped(),
 
-	.ld_rd(1'b0), .ld_valid(), .ld_data(),
+	.ld_rd(ld_rd), .ld_valid(ld_valid), .ld_data(ld_data),
 	.ld_we(ld_we),
 	.ld_addr(ld_addr),
 	.ld_din(ld_din),
@@ -681,10 +684,36 @@ always @(posedge clk_sys) begin
 	rtc_wait <= !rtc_valid && rtc_timer != 29'(RTC_WAIT_CLKS);
 end
 
+// The phone's date from MiSTer's clock (rtl/mister/pmm_date.sv): once before
+// every CPU start, when a PMM file is mounted (the QD's) and the time is
+// known, today's date goes into the PMM copy. The CPU waits for it. A phone
+// that started without it (no time within RTC_WAIT_CLKS) is not held later.
 // maxfan: Quartus copies this register near its loads (its one copy
 // crossed the device to the whole CPU, 3.2 ns of routing at 104 MHz).
 (* maxfan = 32 *) reg cpu_reset /* verilator public_flat_rd */ = 1'b1;
-always @(posedge clk_sys) cpu_reset <= mem_reset | ~images_in | rtc_wait;
+wire        pd_busy;
+wire  [3:0] pd_patched /* verilator public_flat_rd */;
+reg         pd_start = 1'b0, pd_busy_q = 1'b0;
+reg         pd_done /* verilator public_flat_rd */ = 1'b0;
+wire        pd_wanted = pm_present && !nem4 && rtc_valid;
+always @(posedge clk_sys) begin
+	pd_start  <= 1'b0;
+	pd_busy_q <= pd_busy;
+	if (pd_busy_q && !pd_busy) pd_done <= 1'b1;
+	if (cpu_reset && !mem_reset && images_in && pd_wanted && !pd_done && !pd_busy && !pd_start) pd_start <= 1'b1;
+	if (reset) pd_done <= 1'b0;
+end
+
+pmm_date pmm_date (
+	.clk(clk_sys), .reset(sys_reset),
+	.start(pd_start), .date(rtc_date), .busy(pd_busy), .patched(pd_patched),
+	.ld_rd(pd_rd), .ld_we(pd_we), .ld_addr(pd_addr), .ld_din(pd_din), .ld_be(pd_be),
+	.ld_busy(ld_busy || ld_own != LD_DATE), .ld_valid(ld_valid), .ld_data(ld_data)
+);
+
+always @(posedge clk_sys) cpu_reset <= mem_reset | ~images_in | rtc_wait |
+	(cpu_reset && pd_wanted && !pd_done) | pd_start | pd_busy;
+wire unused_pd = &{1'b0, pd_patched};
 
 wire        cpu_req, cpu_we, cpu_burst;
 wire  [1:0] cpu_bte;

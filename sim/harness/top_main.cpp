@@ -494,6 +494,63 @@ int main(int argc, char **argv) {
 	CHECK(!R.emu__DOT__pm_loading, "PMM restore completed");
 	CHECK_EQ(b.pmm_reads, 16, "PMM reads from slot 2");
 	CHECK(memcmp(&b.ddr[0x02200000], b.img2.data(), b.img2.size()) == 0, "PMM mounted in its shared DDR window");
+
+	// The phone's date (rtl/mister/pmm_date.sv): a PMM with the two date
+	// records has MiSTer's date in both before the CPU starts again; the
+	// record after them and the file are left as they were.
+	{
+		const std::vector<uint8_t> plain = b.img2;
+		std::vector<uint8_t> pm(64u << 10, 0xFF);
+		static const uint8_t head[] = {0xF0, 0xF0, 0xF8, 0xFF, 0x02, 0x00, 'P', 'M', 'M', 'C', 'A', 'T', 1, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 2, 0};
+		memcpy(pm.data(), head, sizeof head);
+		for (int n = 0; n < 3; n++) {
+			size_t at = 0x20 + 20 * (size_t)n;
+			const uint8_t rec[12] = {0xF4, 212, (uint8_t)n, 0, 0x55, 0xFF, 0xFF, 0xFF, 8, 0, (uint8_t)(at + 20), 0};
+			memcpy(&pm[at], rec, 12);
+			memset(&pm[at + 12], 0x11 * (n + 1), 8);
+		}
+		b.img2 = pm;
+		R.emu__DOT__hps_io__DOT__sim_size = b.img2.size();
+		R.emu__DOT__hps_io__DOT__sim_mounted = 4;
+		b.ticks(30);
+		uint64_t t1 = b.clocks;
+		bool early = false;
+		while (b.clocks < t1 + 2000000 && !(R.emu__DOT__pd_done && !R.emu__DOT__cpu_reset)) {
+			if (!R.emu__DOT__cpu_reset && !R.emu__DOT__pd_done) early = true;
+			b.tick();
+		}
+		CHECK(R.emu__DOT__pd_done && !R.emu__DOT__cpu_reset, "the date walk ends and the CPU starts");
+		CHECK(!early, "the CPU out of reset before the date is in PMM");
+		CHECK_EQ(R.emu__DOT__pd_patched, 2, "date records written");
+		const uint64_t day = (731958ull + 152) * 86400000000ull;   // 2004-06-01, the bench's RTC
+		uint64_t got[3];
+		for (int n = 0; n < 3; n++) memcpy(&got[n], &b.ddr[0x02200000 + 0x2C + 20 * n], 8);
+		CHECK_EQ(got[0], day, "the date in record 0");
+		CHECK_EQ(got[1], day, "the date in record 1");
+		CHECK_EQ(got[2], 0x3333333333333333ull, "record 2 (the alarm)");
+		memcpy(&pm[0x2C], &day, 8);
+		memcpy(&pm[0x40], &day, 8);
+		CHECK(memcmp(&b.ddr[0x02200000], pm.data(), pm.size()) == 0, "nothing else in PMM changed");
+		CHECK_EQ(b.s1_writes, 0, "the date is not written to the file");
+		// a reset of the phone writes it again
+		memset(&b.ddr[0x02200000 + 0x2C], 0x77, 8);
+		R.emu__DOT__hps_io__DOT__sim_status[0] = 1;
+		b.ticks(200);
+		R.emu__DOT__hps_io__DOT__sim_status[0] = 0;
+		t1 = b.clocks;
+		while (b.clocks < t1 + 2000000 && !(R.emu__DOT__pd_done && !R.emu__DOT__cpu_reset)) b.tick();
+		memcpy(&got[0], &b.ddr[0x02200000 + 0x2C], 8);
+		CHECK_EQ(got[0], day, "the date in record 0 after a reset");
+		// back to the plain image for the checks below
+		b.img2 = plain;
+		R.emu__DOT__hps_io__DOT__sim_size = b.img2.size();
+		R.emu__DOT__hps_io__DOT__sim_mounted = 4;
+		b.ticks(30);
+		t1 = b.clocks;
+		while (R.emu__DOT__pm_loading && b.clocks < t1 + 500000) b.tick();
+		CHECK(memcmp(&b.ddr[0x02200000], b.img2.data(), b.img2.size()) == 0, "the plain PMM mounted again");
+		b.cpu_writes.clear();
+	}
 	download(4, cs1);
 	CHECK(memcmp(&b.ddr[0x01400000], b.img1.data() + (4u << 20), 4u << 20) == 0, "CS1 reload preserves C:");
 

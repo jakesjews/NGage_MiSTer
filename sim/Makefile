@@ -20,7 +20,7 @@ VFLAGS := --cc --exe --build -j 4 -O3 --x-assign unique --x-initial unique \
 VEXTRA ?=
 RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
-BENCHES := lcd video keypad flash mmc bt sdram sdram-faults ddrflash trace upp intc timers periph save pmm-save top
+BENCHES := lcd video keypad flash mmc bt sdram sdram-faults ddrflash trace upp intc timers periph save pmm-save pmm-date top
 
 .PHONY: test $(BENCHES) coreboot flashcopy hps-read-test clean
 
@@ -151,6 +151,13 @@ $(BUILD)/timers/Vupp_timers: $(ROOT)/rtl/upp/upp_timers.sv $(ROOT)/sim/harness/t
 	mkdir -p $(BUILD)/timers && $(VERILATOR) $(VFLAGS) --top-module upp_timers --Mdir $(BUILD)/timers -o Vupp_timers \
 		$(ROOT)/rtl/upp/upp_timers.sv $(ROOT)/sim/harness/timers_main.cpp
 timers: $(BUILD)/timers/Vupp_timers
+	$< $(RUNFLAGS) --seed $(SEED)
+
+# The date MiSTer's clock gives the phone at power-on (rtl/mister/pmm_date.sv)
+$(BUILD)/pmmdate/Vpmm_date: $(ROOT)/rtl/mister/pmm_date.sv $(ROOT)/sim/harness/pmmdate_main.cpp $(ROOT)/sim/harness/common.h
+	mkdir -p $(BUILD)/pmmdate && $(VERILATOR) $(VFLAGS) --top-module pmm_date --Mdir $(BUILD)/pmmdate -o Vpmm_date \
+		$(ROOT)/rtl/mister/pmm_date.sv $(ROOT)/sim/harness/pmmdate_main.cpp
+pmm-date: $(BUILD)/pmmdate/Vpmm_date
 	$< $(RUNFLAGS) --seed $(SEED)
 
 # The UPP peripherals in the memory system, with the board devices they drive
