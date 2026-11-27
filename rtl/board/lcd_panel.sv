@@ -525,11 +525,23 @@ module lcd_panel #(
 		.display_on(nem4_on)
 	);
 
+	// The NEM-4 decoder's pixel goes into the frame buffer a clock later.
+	// Its pixel_valid is combinational from the register bus's write
+	// strobe, and the buffer's write enable goes to every one of its RAM
+	// blocks: unregistered, that was the core's longest path (-2.1 ns).
+	logic        nem4_we_q = 1'b0;
+	logic [15:0] nem4_addr_q, nem4_rgb_q;
+	always_ff @(posedge clk) begin
+		nem4_we_q   <= nem4_pixel_valid;
+		nem4_addr_q <= nem4_pixel_addr;
+		nem4_rgb_q  <= nem4_pixel_rgb;
+	end
+
 	sdp_ram #(.AW(16), .DW(16), .DEPTH(W * H)) fb (
 		.clk  (clk),
-		.we   (nem4 ? nem4_pixel_valid : w_v),
-		.waddr(nem4 ? nem4_pixel_addr : fb_addr(w_row, w_col)),
-		.wdata(nem4 ? nem4_pixel_rgb : w_rgb),
+		.we   (nem4 ? nem4_we_q : w_v),
+		.waddr(nem4 ? nem4_addr_q : fb_addr(w_row, w_col)),
+		.wdata(nem4 ? nem4_rgb_q : w_rgb),
 		.raddr(ram_raddr),
 		.rdata(ram_q)
 	);
