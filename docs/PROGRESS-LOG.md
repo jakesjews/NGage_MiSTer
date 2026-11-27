@@ -11515,8 +11515,10 @@ Checked (branch `cache-option`, 41ed568):
 - `sim/cpu/units/small_cache_miter.py`: the cache unit built at 32 KB and
   told to be small against the unit built small, every output and the
   registered metadata, 400,000 random clocks, D and I configurations. It
-  fails with any one of eight edits taken out (each index mask, the
-  clean's count, its end, the index loop).
+  failed with each of the eight edits that were taken out in turn (the
+  index masks of the lookup, the RAM read, the accepted hit, the line
+  operation and the dirty group, the clean walk's line and its end, the
+  index loop).
 - The CPU suite on the server, 119 tests at three bus latencies, four
   times: the sources before the setting (A), the new ones at the phone's
   sizes (B), the sources before built with 32 KB caches (C), the new ones
