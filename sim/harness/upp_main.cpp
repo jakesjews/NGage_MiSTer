@@ -135,7 +135,8 @@ struct Bench {
 		t->p_rdata = 0; t->p_wait = 0;
 		t->dma_cyc = 0; t->dma_stb = 0; t->dma_we = 0; t->dma_adr = 0; t->dma_dat_i = 0; t->dma_sel = 0;
 		t->mdi_req = 0; t->mdi_we = 0; t->mdi_word = 0; t->mdi_wdata = 0; t->mdi_be = 0;
-		t->save_rd = 0; t->save_blk = 0;
+		t->nem4 = 0; t->pmm_overlay = 0;   // the QD's map, PMM read from CS0
+		t->save_rd = 0; t->save_pmm = 0; t->save_blk = 0;
 		t->ld_we = 0; t->ld_rd = 0; t->ld_addr = 0; t->ld_din = 0; t->ld_be = 0;
 		t->ddram_busy = 0; t->ddram_dout = 0; t->ddram_dout_ready = 0; t->sdram_dq_i = 0;
 		t->eval();
