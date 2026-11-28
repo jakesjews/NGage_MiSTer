@@ -553,7 +553,8 @@ ngage_d550_boot audio_boot (
 	.rx_data(adsp_rx_data)
 );
 
-upp_periph upp_periph
+// The dedicated NEM-4 LCD reader has its own slot alongside the general DMA pool.
+upp_periph #(.DMA_ENGINES(2)) upp_periph
 (
 	.clk(clk_sys),
 	.reset(mem_reset),
