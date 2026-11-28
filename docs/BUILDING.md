@@ -167,8 +167,8 @@ with `RH2941.021`, they are held to the hashes of that tool's output.
   must give the two files and the reference images, everything else must be
   refused.
 - `vercel deploy --prod` in `web/` publishes it (project `ngage-mister`).
-  The page and the released core change together: the published page still
-  hands out the files `NGage_20261120.rbf` takes. Until then
-  `python3 -m http.server -d web` serves this one on localhost.
+  The page and the released core change together: it makes the files the
+  `.rbf` in releases/ takes. `python3 -m http.server -d web` serves it on
+  localhost.
 - `web/vercel.json` sends a content security policy that allows no
   connections: the page cannot send a file anywhere.

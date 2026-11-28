@@ -11635,3 +11635,30 @@ at a time at most.
 **Open.** No release has been cut: seed 160 is the candidate with the
 setting. Sound has still not been listened to. The reference model, the
 CPU's boot bench and `firmware-patches` are still the stand-in's: next.
+
+## 2026-11-28: the release NGage_20261128.rbf
+
+Asked for when the user saw that releases/ still held NGage_20261120.rbf,
+the file from before pull request 10: seed 160 of the thirty-six goes in
+as `releases/NGage_20261128.rbf` (GitHub's build of bf506ab on the 28th;
+md5 db6b3ca2fe1827c558675b9a245ed7e9, sha256 7b29a725...f80c344). Worst
+setup slack -1.600 ns at the slow 100C corner and -1.629 ns at slow -40C
+against 104 MHz, hold 0.115 ns at the least, recovery and removal
+positive; 37,270 ALMs (89 %), 469 of 553 M10Ks. It does not meet 104 MHz
+in the timing report, as no release has. NGage_20261120.rbf is removed.
+`NGage.qsf` names seed 160; nothing in rtl/ has changed since the build.
+
+It is the first release with the phone's unmodified firmware (the
+cellular software runs, with the test SIM), the PMM file beside C:, the
+date from MiSTer's clock and the menu's **CPU caches** setting. Every
+earlier set-up has to be made again: the README's steps, without the
+note that sent readers to the release before.
+
+Checked: the file itself on the board, the entry above (first start,
+SPMark04 in both cache settings, Tony Hawk in play at 32 KB). On the
+release tree: lint, `cpu-gen-check`, `pmm-check` and `make test` pass.
+The CPU suite in both cache settings was run on these sources on the
+27th. Not checked: sound by ear.
+
+The unpacker page is deployed with it (it makes `boot0.rom` and
+`boot1.rom`, the two flash images, since pull request 10).

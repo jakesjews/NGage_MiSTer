@@ -18,14 +18,7 @@ no radio behind it.
 
 ## Setup
 
-The `.rbf` in [releases/](releases/) and the published unpacker page are
-still those of `NGage_20261120`, from before this setup: follow
-[its README](https://github.com/jakesjews/NGage_MiSTer/blob/9210fa2/README.md)
-for them. The steps here are for a core built from the current source, with
-the unpacker page as it is in [web/](web/)
-([docs/BUILDING.md](docs/BUILDING.md)).
-
-1. Copy the `.rbf` to `/media/fat/_Console/`.
+1. Copy the `.rbf` from [releases/](releases/) to `/media/fat/_Console/`.
 2. Create the folder `/media/fat/games/NGage/` and copy
    [boot0.vhd](releases/boot0.vhd) and [boot2.vhd](releases/boot2.vhd) into
    it. Together they are the phone's memory: its C: drive with your settings

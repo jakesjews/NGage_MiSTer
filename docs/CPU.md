@@ -674,10 +674,14 @@ every time; the date is the core's version string, and another day's
 build of the same source and seed can fit differently (0.2 ns in the one
 case measured, 2026-11-20).
 
-- The release of 2026-11-20 (seed 31337): worst setup slack -1.148 ns at
-  the slow 100C corner and -1.321 ns at slow -40C against 104 MHz; sixteen
-  seeds of the same sources lie between that and -1.988 ns. Hold slack is
-  positive at every corner. 33,938 ALMs for the whole core.
+- The release of 2026-11-28 (seed 160, GitHub's build of bf506ab on that
+  day): worst setup slack -1.600 ns at the slow 100C corner and -1.629 ns
+  at slow -40C against 104 MHz. Hold slack is positive at every corner
+  (0.115 ns at the least). 37,270 ALMs for the whole core (89 %), 469 of
+  553 M10Ks.
+- The release before, of 2026-11-20 (seed 31337, before pull request 10
+  and the cache setting): -1.148 ns and -1.321 ns; sixteen seeds of its
+  sources lay between that and -1.988 ns. 33,938 ALMs.
 - With pull request 10 (2026-11-27, sixteen seeds): -1.621 to -2.148 ns at
   the worse corner, 36.2 k ALMs, 423 of 553 M10Ks. With the caches built
   at 32 KB for the menu's choice (the same sixteen seeds, then twenty
