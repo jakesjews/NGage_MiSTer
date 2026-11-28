@@ -308,7 +308,8 @@ module upp_dma #(
 						en[e]   <= swb;
 						est[e]  <= E_BUS;
 					end
-				end else begin
+				end else if (!nem4 || !ewe[e] || eadr[e] != LCD_FIFO || lcd_idle) begin
+					// A final generic LCD write can still be in the panel input slot.
 					// done (a register write below at the same edge wins)
 					irq[ech[e]]    <= 1'b1;
 					go_clr[ech[e]] <= 1'b1;
