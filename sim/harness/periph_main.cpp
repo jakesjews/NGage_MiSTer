@@ -571,6 +571,30 @@ void test_mdi(Bench &b) {
 	send({0x127C, 0x00E8, 0x0004, 0x014C, 0x6A2A});
 	receive(0x6A2b, 0);
 
+	// What a game sends (Tony Hawk on RH-29 4.10, read from the reference
+	// model's MDI log on 2026-11-28): halves of 5600 samples, a first
+	// buffer of 8192 samples of silence, longer than a half, and after it
+	// 768 samples at a time. The first buffer has to be taken as well: its
+	// reply is what lets the stream start.
+	send({0x127C, 0x00E8, 0x0012, 0x014C, 0x0020, 0x8202, 0x15E0, 0x0A06, 0x1000, 0x0A06, 0x3BC0, 0x0046});
+	receive(0x0021, 0);
+	send({0x127C, 0x00E8, 0x0008, 0x014C, 0x0023, 0x0002, 0x2000});
+	receive(0x0024, 0);
+	receive(0x0026, 1);
+	send({0x127C, 0x00E8, 0x0008, 0x014C, 0x0027, 0x0002, 0x0300});
+	receive(0x0028, 0);
+	send({0x127C, 0x00E8, 0x0004, 0x014C, 0x002A});
+	{
+		// the stop's reply carries the place in the half being played: any value
+		uint64_t deadline = b.cyc + 80000;
+		while ((b.rd16(d2m_ptr) + 250 - output_tail) % 250 < 7 && b.cyc < deadline) b.run(128);
+		CHECK_EQ((b.rd16(d2m_ptr) + 250 - output_tail) % 250, 7, "the stop of a game's stream is answered");
+		CHECK_EQ(b.rd16(d2m + 2 * ((output_tail + 4) % 250)), 0x002b, "with the stop reply");
+		output_tail = (output_tail + 7) % 250;
+		b.wr16(d2m_ptr + 2, output_tail);
+		b.wr16(ctsi, 0x0600);
+	}
+
 	b.wr16(control, 0);
 	b.wr16(ctsi, 0x0600);
 	b.wr16(0x0C150010, 0x0600);

@@ -2,6 +2,13 @@
 // The UPP's internal DSP device 7C owns the game PCM resource E8.
 // The original MDI driver supplies big-endian Phonet frames. The playback
 // engine reads samples from the two handset SDRAM halves named by the client.
+// A buffer's sample count is taken as the client gives it, also when it is
+// more than the half size of the start message: SoundDevice's first buffer
+// of a stream can be (Tony Hawk: 8192 samples of silence with halves of
+// 5600), and without its reply the stream never starts. Such a buffer is
+// played from the half's address on, past the half's end, as the stand-in
+// of the earlier releases played it. What the phone's DSP does with one is
+// not known.
 module upp_dsp_pcm (
     input  wire        clk,
     input  wire        reset,
@@ -27,7 +34,7 @@ module upp_dsp_pcm (
     reg [7:0] header   [0:23];
     reg opened, first_buffer, requested, requested_half, final_valid, final_half;
     reg [1:0] free_halves;
-    reg [15:0] capacity, final_frames;
+    reg [15:0] final_frames;
     reg [7:0] media, device, object_id, dsp_device, dsp_object;
     reg [7:0] reply_transaction, reply_opcode;
     reg [15:0] reply_value;
@@ -61,8 +68,7 @@ module upp_dsp_pcm (
     wire submit_valid = received == 14 && owner && !final_valid &&
                         ((opcode == 8'h23 && header[10] < 2) ||
                          (opcode == 8'h27 && requested)) &&
-                        !full[half] && frames <= capacity &&
-                        (header[11] == 1 || header[11] == 2);
+                        !full[half] && (header[11] == 1 || header[11] == 2);
     wire final_done = final_valid && (done[final_half] || (final_frames == 0 && full == 0));
     wire request_due = free_halves != 0 && !requested && !final_valid;
     wire idle = state == RX && received == 0 && idle_slot && opened;
@@ -159,7 +165,6 @@ module upp_dsp_pcm (
             final_valid       <= 0;
             final_half        <= 0;
             free_halves       <= 0;
-            capacity          <= 0;
             final_frames      <= 0;
             media             <= 0;
             device            <= 0;
@@ -212,7 +217,6 @@ module upp_dsp_pcm (
                         dsp_object <= header[6];
                     end
                     if (opcode == 8'h20 && start_valid) begin
-                        capacity     <= frames;
                         opened       <= 1;
                         first_buffer <= 1;
                         requested    <= 0;
