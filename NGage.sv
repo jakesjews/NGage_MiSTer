@@ -517,7 +517,7 @@ wire        cpu_irq, cpu_fiq;
 wire        upp_lcd_csx, upp_lcd_dcx, upp_lcd_wrx, upp_lcd_rdx, upp_lcd_resx, upp_lcd_d_oe;
 wire  [7:0] upp_lcd_d;
 wire  [7:0] panel_d;
-wire        nem4_lcd_valid, nem4_lcd_header, nem4_lcd_ready;
+wire        nem4_lcd_valid, nem4_lcd_header, nem4_lcd_ready, nem4_lcd_idle;
 wire [31:0] nem4_lcd_data;
 wire        mmc_clk, mmc_cmd_o, mmc_cmd_oe, mmc_dat_o, mmc_dat_oe;
 wire        card_cmd_o, card_cmd_oe, card_dat_o, card_dat_oe;
@@ -603,6 +603,7 @@ upp_periph upp_periph
 	.nem4_lcd_header(nem4_lcd_header),
 	.nem4_lcd_data(nem4_lcd_data),
 	.nem4_lcd_ready(nem4_lcd_ready),
+	.nem4_lcd_idle(nem4_lcd_idle),
 	.mmc_clk(mmc_clk),
 	.mmc_cmd_o(mmc_cmd_o),
 	.mmc_cmd_oe(mmc_cmd_oe),
@@ -1021,6 +1022,7 @@ lcd_panel lcd_panel
 	.nem4_word_header(nem4_lcd_header),
 	.nem4_word_data(nem4_lcd_data),
 	.nem4_word_ready(nem4_lcd_ready),
+	.nem4_word_idle(nem4_lcd_idle),
 	.csx(upp_lcd_csx),
 	.dcx(upp_lcd_dcx),
 	.wrx(upp_lcd_wrx),

@@ -134,6 +134,7 @@ module upp_periph #(
 	output logic        nem4_lcd_header,
 	output logic [31:0] nem4_lcd_data,
 	input  logic        nem4_lcd_ready,
+	input  logic        nem4_lcd_idle,
 
 	// the MMC slot
 	output logic        mmc_clk,
@@ -380,7 +381,7 @@ module upp_periph #(
 		.lcd_tx_ready(lcd_tx_ready),
 		.nem4(nem4),
 		.lcd_valid(lcd_pixel_valid), .lcd_data(lcd_pixel_data),
-		.lcd_ready(lcd_pixel_ready), .lcd_idle(nem4_lcd_ready),
+		.lcd_ready(lcd_pixel_ready), .lcd_idle(nem4_lcd_idle),
 		.m_cyc(d_cyc),
 		.m_stb(d_stb),
 		.m_we(d_we),
@@ -476,6 +477,7 @@ module upp_periph #(
 		.nem4_word_header(nem4_lcd_header),
 		.nem4_word_data(nem4_lcd_data),
 		.nem4_word_ready(nem4_lcd_ready),
+		.nem4_word_idle(nem4_lcd_idle),
 		.dma_pixel_valid(lcd_pixel_valid), .dma_pixel_data(lcd_pixel_data),
 		.dma_pixel_ready(lcd_pixel_ready),
 		.csx(lcd_csx),

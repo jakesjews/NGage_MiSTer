@@ -1034,9 +1034,10 @@ void bench_nem4_lcd(Bench &b, const std::string &profile) {
 		b.dma_start(0);
 	}
 
-	unsigned reads = 0, words = 0;
+	unsigned reads = 0, words = 0, pixels = 0;
 	uint32_t previous_addr = 0;
 	uint64_t first_read = 0, first_word = 0, last_word = 0, irq_cycle = 0, copy_irq = 0;
+	uint64_t first_pixel = 0, last_pixel = 0;
 	bool watch_words = true, mmc_waiting = workers;
 	b.before_edge = [&] {
 		auto *t = b.t;
@@ -1058,6 +1059,11 @@ void bench_nem4_lcd(Bench &b, const std::string &profile) {
 			CHECK_EQ(t->lcd_word_data, word_at(framebuffer + 4 * words++), "LCD packed word");
 			last_word = b.cyc + 1;
 		}
+		if (watch_words && t->lcd_pixel_write) {
+			if (!pixels) first_pixel = b.cyc + 1;
+			++pixels;
+			last_pixel = b.cyc + 1;
+		}
 		if ((t->dma_irq & 2) && !irq_cycle) irq_cycle = b.cyc;
 		if ((t->dma_irq & 1) && !copy_irq) copy_irq = b.cyc;
 		if (mmc_waiting) CHECK(!t->mmc_rx_ready && !(t->dma_irq & 32), "MMC wait ended early");
@@ -1075,9 +1081,10 @@ void bench_nem4_lcd(Bench &b, const std::string &profile) {
 		watch_words = false;
 		open_panel();
 		watch_words = true;
-		reads = words = 0;
+		reads = words = pixels = 0;
 		previous_addr = 0;
 		first_read = first_word = 0;
+		first_pixel = last_pixel = 0;
 	}
 
 	const uint64_t start = b.cyc, pin_reads = b.chip.reads;
@@ -1118,8 +1125,10 @@ void bench_nem4_lcd(Bench &b, const std::string &profile) {
 		}
 	}
 	b.before_edge = {};
-	CHECK(irq_cycle >= last_word && last_word > start, "LCD DMA completion order");
+	CHECK(first_pixel == first_word + 2, "First pixel crosses the LCD and framebuffer registers");
+	CHECK(irq_cycle >= last_pixel && last_pixel > last_word, "DMA IRQ follows the final framebuffer write");
 	CHECK_EQ(words, pairs, "LCD word count");
+	CHECK_EQ(pixels, 2 * pairs, "LCD framebuffer writes");
 	CHECK_EQ(cpu_reads, scalar_count, "contending CPU scalar read count");
 	CHECK_EQ(cpu_refills, refill_count, "contending CPU refill count");
 	const uint64_t read_commands = b.chip.reads - pin_reads;
@@ -1153,13 +1162,14 @@ void bench_nem4_lcd(Bench &b, const std::string &profile) {
 		printf("LCD_RESULT profile=%s clocks=%llu irq_clocks=%llu dma_bus_reads=%u pin_reads=%llu "
 		       "cpu_reads=%u cpu_wait_sum=%llu cpu_wait_max=%llu cpu_offer_max=%llu cpu_period=%u "
 		       "cpu_refills=%u refill_wait_sum=%llu refill_wait_max=%llu "
-		       "first_bus_read=%llu first_word=%llu copy_irq_clocks=%llu\n",
+		       "first_bus_read=%llu first_word=%llu first_pixel=%llu last_pixel=%llu copy_irq_clocks=%llu\n",
 		       profile.c_str(), (unsigned long long)(last_word - start), (unsigned long long)(irq_cycle - start),
 		       reads, (unsigned long long)read_commands, cpu_reads, (unsigned long long)cpu_wait_sum,
 		       (unsigned long long)cpu_wait_max, (unsigned long long)cpu_offer_max, period,
 		       cpu_refills, (unsigned long long)refill_wait_sum, (unsigned long long)refill_wait_max,
 		       (unsigned long long)(reads ? first_read - start : 0),
-		       (unsigned long long)(first_word - start), (unsigned long long)(workers ? copy_irq - start : 0));
+		       (unsigned long long)(first_word - start), (unsigned long long)(first_pixel - start),
+		       (unsigned long long)(last_pixel - start), (unsigned long long)(workers ? copy_irq - start : 0));
 }
 
 void test_nem4_lcd(Bench &b) {

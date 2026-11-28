@@ -100,6 +100,7 @@ module periph_tb #(
 	output logic         mmc_rx_ready,
 	output logic         lcd_word_done,
 	output logic [31:0]  lcd_word_data,
+	output logic         lcd_pixel_write,
 	output logic         sti_we,
 	output logic [3:0]   sti_be,
 	output logic [31:0]  sti_data,
@@ -150,7 +151,7 @@ module periph_tb #(
 
 	logic       lcd_csx, lcd_dcx, lcd_rdx, lcd_resx, lcd_d_oe, panel_d_oe;
 	logic [7:0] lcd_d_o, panel_d;
-	logic        nem4_lcd_valid, nem4_lcd_header, nem4_lcd_ready;
+	logic        nem4_lcd_valid, nem4_lcd_header, nem4_lcd_ready, nem4_lcd_idle;
 	logic [31:0] nem4_lcd_data;
 	logic       mmc_cmd_o, mmc_cmd_oe, mmc_dat_o, mmc_dat_oe;
 	logic       card_cmd_o, card_cmd_oe, card_dat_o, card_dat_oe;
@@ -172,6 +173,7 @@ module periph_tb #(
 	assign mmc_rx_ready = periph.mmc_rx_ready;
 	assign lcd_word_done = nem4_lcd_valid && !nem4_lcd_header && nem4_lcd_ready;
 	assign lcd_word_data = nem4_lcd_data;
+	assign lcd_pixel_write = nem4 && panel.nem4_we_q;
 
 	rtc_wall #(.CLK_HZ(RTC_CLK_HZ)) wall (
 		.clk(clk), .rtc(rtc), .valid(rtc_valid), .sec(rtc_sec), .min(rtc_min), .hour(rtc_hour),
@@ -223,6 +225,7 @@ module periph_tb #(
 		.lcd_d_o(lcd_d_o), .lcd_d_oe(lcd_d_oe), .lcd_d_i(panel_d), .lcd_active(),
 		.nem4_lcd_valid(nem4_lcd_valid), .nem4_lcd_header(nem4_lcd_header),
 		.nem4_lcd_data(nem4_lcd_data), .nem4_lcd_ready(nem4_lcd_ready),
+		.nem4_lcd_idle(nem4_lcd_idle),
 		.mmc_clk(mmc_clk), .mmc_cmd_o(mmc_cmd_o), .mmc_cmd_oe(mmc_cmd_oe), .mmc_cmd_i(mmc_cmd),
 		.mmc_dat_o(mmc_dat_o), .mmc_dat_oe(mmc_dat_oe), .mmc_dat_i(mmc_dat),
 		.keys(keys),
@@ -252,6 +255,7 @@ module periph_tb #(
 		.nem4(nem4),
 		.nem4_word_valid(nem4_lcd_valid), .nem4_word_header(nem4_lcd_header),
 		.nem4_word_data(nem4_lcd_data), .nem4_word_ready(nem4_lcd_ready),
+		.nem4_word_idle(nem4_lcd_idle),
 		.csx(lcd_csx), .dcx(lcd_dcx), .wrx(lcd_wrx), .rdx(lcd_rdx), .resx(lcd_resx),
 		.d_i(lcd_d_oe ? lcd_d_o : panel_d_oe ? panel_d : 8'hFF),
 		.d_o(panel_d), .d_oe(panel_d_oe), .te(),

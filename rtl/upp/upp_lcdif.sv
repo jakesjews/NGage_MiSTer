@@ -75,6 +75,7 @@ module upp_lcdif #(
 	output logic        nem4_word_header,
 	output logic [31:0] nem4_word_data,
 	input  logic        nem4_word_ready,
+	input  logic        nem4_word_idle,
 	input  logic        dma_pixel_valid,
 	input  logic [31:0] dma_pixel_data,
 	output wire         dma_pixel_ready,
@@ -196,7 +197,7 @@ module upp_lcdif #(
 	wire [11:0] u1    = q_dout[27:16];
 	wire [23:0] v12   = {u1, u0};
 
-	assign ready = nem4 ? nem4_word_ready : q_empty && st == S_IDLE && ocnt == 3'd0;
+	assign ready = nem4 ? nem4_word_idle : q_empty && st == S_IDLE && ocnt == 3'd0;
 
 	always_ff @(posedge clk) begin
 		if (wr && off == 4'h0) prog_ctrl <= wdata[27:24];

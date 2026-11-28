@@ -91,6 +91,7 @@ module lcd_panel #(
 	input  logic        nem4_word_header,
 	input  logic [31:0] nem4_word_data,
 	output logic        nem4_word_ready,
+	output logic        nem4_word_idle,
 
 	// 8080 bus from the ASIC
 	input  logic        csx,
@@ -519,16 +520,14 @@ module lcd_panel #(
 		.word_header(nem4_word_header),
 		.word_data(nem4_word_data),
 		.word_ready(nem4_word_ready),
+		.word_idle(nem4_word_idle),
 		.pixel_valid(nem4_pixel_valid),
 		.pixel_addr(nem4_pixel_addr),
 		.pixel_rgb(nem4_pixel_rgb),
 		.display_on(nem4_on)
 	);
 
-	// The NEM-4 decoder's pixel goes into the frame buffer a clock later.
-	// Its pixel_valid is combinational from the register bus's write
-	// strobe, and the buffer's write enable goes to every one of its RAM
-	// blocks: unregistered, that was the core's longest path (-2.1 ns).
+	// Register the decoded pixel before driving the frame buffer RAMs.
 	logic        nem4_we_q = 1'b0;
 	logic [15:0] nem4_addr_q, nem4_rgb_q;
 	always_ff @(posedge clk) begin
