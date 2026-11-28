@@ -11662,3 +11662,58 @@ The CPU suite in both cache settings was run on these sources on the
 
 The unpacker page is deployed with it (it makes `boot0.rom` and
 `boot1.rom`, the two flash images, since pull request 10).
+
+## 2026-11-28: the sound fix's seeds, a path cut in the DSP's writes, seed 90 on the board
+
+(On branch `fix/dsp-first-buffer`; the fault and how it was found are in
+master's entry of the same day on the reference model.)
+
+**The fix** (fc3587f): `upp_dsp_pcm` takes a buffer's sample count as given.
+The peripheral bench has the frames Tony Hawk sends: it fails on the old
+rule at the first buffer's reply and passes now. Forty seeds, built on the
+28th, worse of the two slow corners: best 70 -1.904, 270 -1.921, 31337
+-1.952; mean -2.355, worst -2.883. The released file is -1.629: this
+netlist fits worse.
+
+**Why, and a cut** (b81f6bb). In those forty fits `upp_mdi|control` into
+`upp_pcm|facc` is the most frequent of the ten worst paths (105 of 400)
+and the worst in six. `upp_dsp_pcm` made its writes to the renderer only
+while its reset was low, and its reset is the link being down: the
+control word's compare stood in front of every write's data, the rate's
+clamp and compare, and the rate accumulator. The look at reset is not
+needed, since the same signal holds the renderer in its own reset, whose
+branch comes last for every register a write touches: no register changes
+in any clock. `NGage.sdc`'s two-clock set also still named `upp_haudio`'s
+accumulator, a block gone since pull request 10; removed. Twenty seeds:
+best 90 -1.706 (-1.706 at 100C, -1.533 at -40C; hold 0.012 ns at the
+least), 50 -1.899, mean -2.254, worst -2.635; no path into `facc` among
+any seed's ten worst any more. The worst now end at the D-cache's valid
+flags in eleven seeds (the 32 KB caches' cost, docs/TODO.md), the bus
+merger's address in four, the D-cache FSM's lock in four. Against the
+same twenty seeds before the cut the mean is 0.08 better, ten seeds
+better and ten worse: the cut took the path away, not the level.
+`make test` and lint pass on both commits.
+
+**On the board, from RAM, nothing written to the SD card.** Seed 70 of
+fc3587f and seed 90 of b81f6bb (md5 fe07429d..., sha256 c4f710dd...,
+37,482 ALMs), each: first start to the Time dialog in 106 and 107 s;
+SPMark04, one pass in each cache setting:
+
+                          seed 70          seed 90
+                          Real    32 KB    Real    32 KB
+    3D Game (fps)         8.99    9.69     8.98    9.68
+    3D FillRate           1.73    1.80     1.73    1.80
+    3D PolyCount         29.67   37.50    29.67   37.54
+    2D Image (fps)       38.05   38.22    38.05   38.18
+    Image Scaling         1.90    1.96     1.90    1.96
+    JPEG Encoding       169.49  172.09   169.71  172.09
+    Contacts              3.48    3.24     3.47    3.24
+    Calendar              7.19    6.99     7.25    6.99
+    Disk Access          22.15   21.84    22.15   21.84
+
+and Tony Hawk into the Warehouse at 32 KB. The picture and the speed are
+the release's. Whether the game now has its sound nobody has heard: the
+bench and the model say the stream starts.
+
+**Open.** Seed 90 is the candidate to replace NGage_20261128.rbf once
+someone has listened to it.
