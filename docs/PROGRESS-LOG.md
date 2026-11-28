@@ -11579,3 +11579,59 @@ Hawk at 32 KB: title, menus, the Warehouse in play.
 what it costs every build in slack, is the user's. No release has been
 cut from the merged sources: seed 40 of the sweep above is the candidate
 without the setting. Sound has still not been listened to.
+
+## 2026-11-28: thirty-six seeds of the cache setting, the setting on master, seed 160 on the board
+
+**Seeds.** Sixteen builds of the setting's branch (bf506ab, GitHub), the
+seeds of master's sweep of the 27th, built on the 27th; worse of the two
+slow corners, ns: 40 -1.767, 80 -1.931, 110 -2.029, 60 -2.101, 1337 -2.118,
+100 -2.126, 5 -2.130, 31337 -2.136, 120 -2.141, 50 -2.142, 90 -2.150,
+13 -2.165, 9 -2.247, 70 -2.313, 30 -2.492, 20 -2.786; mean -2.173 against
+master's -1.861, behind on fifteen of the sixteen, best against best 0.15.
+The eight seeds that had been built from 41ed568 the same day came out bit
+for bit the same (the commits between are documents): the same sources,
+seed and build date give the same file.
+
+Twenty more, built on the 28th (another date in the version string, so
+another roll): 160 -1.629 (-1.629 / -1.600), 290 -1.719, 140 -1.897,
+230 -1.975, 220 -2.036, 270 -2.115, 300 -2.119, 150 -2.125, 6 -2.172,
+260 -2.202, 250 -2.215, 280 -2.220, 170 -2.284, 200 -2.286, 7 -2.302,
+180 -2.350, 130 -2.403, 210 -2.422, 240 -2.527, 190 -2.541; mean -2.177.
+Hold, recovery and removal are positive in all thirty-six. The mean has
+not moved: the setting costs every fit about 0.3 ns, and seed 160 is the
+one draw in thirty-six that is level with master's best of sixteen
+(-1.621). Master was not given more draws. 37,270 ALMs, 469 M10Ks.
+
+**On master.** At the user's word after seed 160: master is bf506ab, the
+branch's five commits as they were (a fast-forward, so the builds' commit
+is master's). The branches that were merged are gone, here and on GitHub:
+`cache-option`, `integration` (pull request 10 keeps its commits),
+`fill-restore`, `timing`, `tlb-ways`.
+
+**Seed 160 on the board** (sha256 7b29a725..., built on the 28th; boot
+files, the card and the menu's saved settings from RAM as on the 27th,
+nothing written to the SD card). First start: Time dialog after 107 s.
+SPMark04, one pass each:
+
+                          Real     32 KB
+    3D Game (fps)         8.99     9.68
+    3D FillRate           1.73     1.80
+    3D PolyCount         29.67    37.58
+    2D Image (fps)       38.05    38.22
+    Image Scaling         1.90     1.96
+    JPEG Encoding       169.42   172.16
+    Contacts              3.48     3.23
+    Calendar              7.23     6.98
+    Disk Access          22.15    21.84
+
+The figures of seed 40 on the 27th, to the second decimal in most lines.
+Tony Hawk at 32 KB: title, Free Skate, the Warehouse in play.
+
+**Builds from here.** GitHub's runners build twenty seeds at once (its
+limit for the account, and they cost nothing for a public repository): a
+sweep there is twenty seeds from now on. On the build server, four builds
+at a time at most.
+
+**Open.** No release has been cut: seed 160 is the candidate with the
+setting. Sound has still not been listened to. The reference model, the
+CPU's boot bench and `firmware-patches` are still the stand-in's: next.

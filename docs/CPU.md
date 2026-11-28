@@ -680,11 +680,13 @@ case measured, 2026-11-20).
   positive at every corner. 33,938 ALMs for the whole core.
 - With pull request 10 (2026-11-27, sixteen seeds): -1.621 to -2.148 ns at
   the worse corner, 36.2 k ALMs, 423 of 553 M10Ks. With the caches built
-  at 32 KB for the menu's choice (eight of those seeds): -1.767 to
-  -2.786 ns, mean -2.23 against -1.91 for the same seeds without;
-  37.3 k ALMs (89 %), 469 M10Ks. The larger caches' own paths join the
-  worst: the D-cache's valid flags (a flag for four sets, read through a
-  256:1 multiplexer from the W address) and its data RAM's byte enables.
+  at 32 KB for the menu's choice (the same sixteen seeds, then twenty
+  more built on the 28th): -1.629 to -2.786 ns, mean -2.17 against -1.86
+  for the sixteen and -2.18 for the twenty; three of the thirty-six are
+  above -1.8 ns. 37.3 k ALMs (89 %), 469 M10Ks. The larger caches' own
+  paths join the worst: the D-cache's valid flags (a flag for four sets,
+  read through a 256:1 multiplexer from the W address) and its data RAM's
+  byte enables.
 - So the timing report does not show 104 MHz; the core runs on the board
   regardless. The failing paths are in the CPU: the D-cache's answer and
   the TLB result into the pipeline's hot readers. What was tried, and why
