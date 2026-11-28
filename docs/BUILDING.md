@@ -18,6 +18,16 @@ and is never in the repository.
 - `make -C sim dfill`: not a check but a measurement on the whole core: what
   a data line fill costs in clocks, from loops of loads timed with a UPP
   timer (`sim/harness/dfill.S`; arm-none-eabi binutils).
+- `make -C sim lcd-bench` measures a full NEM-4 SDRAM-to-panel DMA frame at
+  104 MHz. It checks each packed word, the framebuffer, and the completion
+  interrupt under idle, scheduled CPU reads and refills, unaligned source,
+  cancel/restart, and blocked MMC plus copy traffic. The output records
+  first and last word clocks, CPU latency, and SDRAM READ commands.
+  `make -C sim PERIPH_DMA_ENGINES=2 lcd-bench` builds a separate two-worker
+  control. Set `PERIPH_LCD_DMA_WORDS=0` for generic DMA and `1` for the
+  dedicated scalar reader. The default `4` uses 16-byte packets and
+  single-word heads and tails. The bench uses the SDRAM pin model and
+  requires no firmware or card image.
 - `make -C sim/cpu bins model run`: the CPU's directed and random tests on
   the RTL, each at three bus latencies (arm-none-eabi binutils).
   `make -C sim/cpu qemu diff` compares them with QEMU (qemu-system-arm and

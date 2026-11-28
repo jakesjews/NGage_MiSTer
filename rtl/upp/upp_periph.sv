@@ -72,6 +72,7 @@ module upp_periph #(
 	parameter int LCD_RD_LOW         = 4,
 	parameter int LCD_RD_HIGH        = 6,
 	parameter int DMA_ENGINES        = 3,
+	parameter int LCD_DMA_WORDS      = 4,
 	parameter int POWER_ON_HOLD_CLKS = 312_000_000,    // 3 s, as the model
 	parameter int ALARM_CLKS         = 7_995_392,
 	parameter int CLK_HZ             = 104_000_000     // for the audio device and CTSI
@@ -90,13 +91,14 @@ module upp_periph #(
 	output logic        p_wait,
 
 	// the bus master of the DMA controller and the audio device (Wishbone B3
-	// classic, single beats)
+	// classic single beats or one NEM-4 LCD read packet)
 	output logic        dma_cyc,
 	output logic        dma_stb,
 	output logic        dma_we,
 	output logic [31:0] dma_adr,
 	output logic [31:0] dma_dat_o,
 	output logic [3:0]  dma_sel,
+	output logic        dma_burst,
 	input  logic        dma_ack,
 	input  logic        dma_err,
 	input  logic [31:0] dma_dat_i,
@@ -316,6 +318,8 @@ module upp_periph #(
 	logic        d_cyc, d_stb, d_we, a_cyc, a_stb, a_we;
 	logic [31:0] d_adr, d_dat, a_adr, a_dat;
 	logic [3:0]  d_sel, a_sel;
+	logic        d_burst, lcd_pixel_valid, lcd_pixel_ready;
+	logic [31:0] lcd_pixel_data;
 	logic        own_au;               // 1: the audio device has the port
 
 	// interrupt sources, bit 32k + b = bank k bit b (docs/UPP_WD2.md)
@@ -361,7 +365,7 @@ module upp_periph #(
 		.irq(tmr_irq)
 	);
 
-	upp_dma #(.ENGINES(DMA_ENGINES)) dma (
+	upp_dma #(.ENGINES(DMA_ENGINES), .LCD_DMA_WORDS(LCD_DMA_WORDS)) dma (
 		.clk(clk),
 		.reset(reset),
 		.acc(acc && s_dma),
@@ -374,12 +378,16 @@ module upp_periph #(
 		.mmc_rx_ready(mmc_rx_ready),
 		.mmc_tx_ready(mmc_tx_ready),
 		.lcd_tx_ready(lcd_tx_ready),
+		.nem4(nem4),
+		.lcd_valid(lcd_pixel_valid), .lcd_data(lcd_pixel_data),
+		.lcd_ready(lcd_pixel_ready), .lcd_idle(nem4_lcd_ready),
 		.m_cyc(d_cyc),
 		.m_stb(d_stb),
 		.m_we(d_we),
 		.m_adr(d_adr),
 		.m_dat_o(d_dat),
 		.m_sel(d_sel),
+		.m_burst(d_burst),
 		.m_ack(dma_ack && !own_au),
 		.m_err(dma_err && !own_au),
 		.m_dat_i(dma_dat_i)
@@ -421,6 +429,7 @@ module upp_periph #(
 	assign dma_adr   = own_au ? a_adr : d_adr;
 	assign dma_dat_o = own_au ? a_dat : d_dat;
 	assign dma_sel   = own_au ? a_sel : d_sel;
+	assign dma_burst = !own_au && d_burst;
 
 	upp_mmc #(.DIV(MMC_DIV), .TIMEOUT_LOG2(MMC_TIMEOUT_LOG2)) mmc (
 		.clk(clk),
@@ -467,6 +476,8 @@ module upp_periph #(
 		.nem4_word_header(nem4_lcd_header),
 		.nem4_word_data(nem4_lcd_data),
 		.nem4_word_ready(nem4_lcd_ready),
+		.dma_pixel_valid(lcd_pixel_valid), .dma_pixel_data(lcd_pixel_data),
+		.dma_pixel_ready(lcd_pixel_ready),
 		.csx(lcd_csx),
 		.dcx(lcd_dcx),
 		.wrx(lcd_wrx),

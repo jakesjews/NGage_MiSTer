@@ -52,6 +52,7 @@ module ngage_mem #(
 	input  logic [31:0]  dma_adr,
 	input  logic [31:0]  dma_dat_i,
 	input  logic [3:0]   dma_sel,
+	input  logic         dma_burst,
 	output logic         dma_ack,
 	output logic         dma_err,
 	output logic [31:0]  dma_dat_o,
@@ -176,6 +177,7 @@ module ngage_mem #(
 	logic        dev_cyc, dev_stb, dev_we, dev_ack, dev_err;
 	logic [31:0] dev_adr, dev_wdata;
 	logic [3:0]  dev_sel;
+	logic [2:0]  dev_cti;
 
 	// The device grant may change while the CPU owns the outer arbiter.
 	// While a device owns the bus, wait for the same beat boundary as the CPU.
@@ -183,23 +185,23 @@ module ngage_mem #(
 		.clk(clk), .reset(reset), .dbg_m1_owner(),
 		.m0_cyc(dma_cyc), .m0_stb(dma_stb), .m0_we(dma_we),
 		.m0_adr(dma_adr), .m0_dat(dma_dat_i), .m0_sel(dma_sel),
-		.m0_cti(3'b111), .m0_bte(2'b00), .m0_ack(dma_ack), .m0_err(dma_err),
+		.m0_cti(dma_burst ? 3'b010 : 3'b111), .m0_bte(2'b00), .m0_ack(dma_ack), .m0_err(dma_err),
 		.m1_cyc(mdi_req), .m1_stb(mdi_req), .m1_we(mdi_we),
 		.m1_adr({22'h030400, mdi_word, 2'b00}), .m1_dat(mdi_wdata), .m1_sel(mdi_be), // 0x0C100000
-		.m1_ack(mdi_ack), .m1_err(mdi_err),
+		.m1_cti(3'b111), .m1_ack(mdi_ack), .m1_err(mdi_err),
 		.s_cyc(dev_cyc), .s_stb(dev_stb), .s_we(dev_we),
-		.s_adr(dev_adr), .s_dat(dev_wdata), .s_sel(dev_sel), .s_cti(), .s_bte(),
+		.s_adr(dev_adr), .s_dat(dev_wdata), .s_sel(dev_sel), .s_cti(dev_cti), .s_bte(),
 		.s_ack(dev_ack), .s_err(dev_err), .s_idle(!dbg_dma_owner || b_idle)
 	);
 
-	wb_arb2 arb (
+	wb_arb2 #(.CPU_TURN_AFTER_BURST(1'b1)) arb (
 		.dbg_m1_owner(dbg_dma_owner),
 		.clk(clk),
 		.reset(reset),
 		.m0_cyc(wb_cyc), .m0_stb(wb_stb), .m0_we(wb_we), .m0_adr(wb_adr), .m0_dat(wb_dat_i),
 		.m0_sel(wb_sel), .m0_cti(wb_cti), .m0_bte(wb_bte), .m0_ack(wb_ack), .m0_err(wb_err),
 		.m1_cyc(dev_cyc), .m1_stb(dev_stb), .m1_we(dev_we), .m1_adr(dev_adr), .m1_dat(dev_wdata),
-		.m1_sel(dev_sel), .m1_ack(dev_ack), .m1_err(dev_err),
+		.m1_sel(dev_sel), .m1_cti(dev_cti), .m1_ack(dev_ack), .m1_err(dev_err),
 		.s_cyc(b_cyc), .s_stb(b_stb), .s_we(b_we), .s_adr(b_adr), .s_dat(b_dat_w), .s_sel(b_sel),
 		.s_cti(b_cti), .s_bte(b_bte), .s_ack(b_ack), .s_err(b_err), .s_idle(b_idle)
 	);

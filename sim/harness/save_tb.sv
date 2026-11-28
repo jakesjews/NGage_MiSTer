@@ -107,6 +107,7 @@ module save_tb #(
 		.wb_sel(wb_sel), .wb_cti(wb_cti), .wb_bte(wb_bte), .wb_ack(wb_ack), .wb_err(wb_err), .wb_dat_o(wb_dat_o),
 		.wb_no_late_error(),
 		.dma_cyc(1'b0), .dma_stb(1'b0), .dma_we(1'b0), .dma_adr(32'd0), .dma_dat_i(32'd0), .dma_sel(4'd0),
+		.dma_burst(1'b0),
 		.dma_ack(), .dma_err(), .dma_dat_o(),
 		.mdi_req(1'b0), .mdi_we(1'b0), .mdi_word(8'd0), .mdi_wdata(32'd0), .mdi_be(4'd0),
 		.mdi_ack(), .mdi_err(), .mdi_rdata(),

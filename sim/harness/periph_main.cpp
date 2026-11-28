@@ -115,6 +115,7 @@ struct Bench {
 	bool wrx_prev = true;
 	uint32_t keys = 0;
 	bool power = false;
+	std::function<void()> before_edge;
 
 	explicit Bench(uint32_t seed) : chip(seed * 5 + 3), ddr(48u << 20, seed * 11 + 7), rng(seed) {
 		ddr.prof.busy_pct = 10;
@@ -199,6 +200,7 @@ struct Bench {
 		bool pdone = t->p_sel && !t->p_wait;
 		uint32_t pa = t->p_addr;
 		bool sti_we = t->sti_we;
+		if (before_edge) before_edge();
 		ddr.step(t->ddram_rd, t->ddram_we, t->ddram_addr, t->ddram_burstcnt, t->ddram_din, t->ddram_be);
 		t->clk = 1;
 		t->eval();
@@ -239,11 +241,11 @@ struct Bench {
 		return v;
 	}
 	// a 4-beat incrementing burst, as the CPU's line fills and write-backs
-	void burst(bool we, uint32_t a, uint32_t *d) {
+	void burst(bool we, uint32_t a, uint32_t *d, bool wrap = false) {
 		uint64_t limit = cyc + 2000000;
 		for (int i = 0; i < 4; i++) {
 			t->wb_cyc = 1; t->wb_stb = 1; t->wb_we = we; t->wb_adr = (a & ~15u) + 4 * i;
-			t->wb_dat_i = we ? d[i] : 0; t->wb_sel = 0xF; t->wb_cti = i == 3 ? 7 : 2; t->wb_bte = 0;
+			t->wb_dat_i = we ? d[i] : 0; t->wb_sel = 0xF; t->wb_cti = i == 3 ? 7 : 2; t->wb_bte = wrap ? 1 : 0;
 			for (;;) {
 				t->eval();
 				bool ack = t->wb_ack || t->wb_err;
@@ -978,6 +980,188 @@ void test_lcd(Bench &b) {
 	printf("  %llu bytes on the LCD bus\n", (unsigned long long)b.lcd_bytes);
 }
 
+// Match the v5 physical LCD fixture's source words and CPU arrival schedule.
+void bench_nem4_lcd(Bench &b, const std::string &profile) {
+	constexpr unsigned pairs = W * H / 2;
+	constexpr uint32_t cpu_ram = SD + 0x240000;
+	constexpr uint32_t copy_source = SD + 0x10000, copy_destination = SD + 0x20000;
+	constexpr unsigned copy_words = 128;
+	const bool workers = profile == "workers";
+	const uint32_t framebuffer = SD + 0x200000 + (profile == "unaligned" ? 4 : 0);
+	const unsigned scalar_count = profile == "contend" || profile == "moderate" ? 1024 : 0;
+	const unsigned refill_count = profile == "refills" ? 256 : 0;
+	const unsigned period = profile == "moderate" ? 40 : refill_count ? 96 : 24;
+	auto word_at = [](uint32_t addr) {
+		uint32_t offset = addr - SD;
+		return (0x9d4b03a7u ^ offset) + (offset / 4) * 0x1234567u;
+	};
+	auto seed = [&](uint32_t addr, unsigned words) {
+		for (unsigned i = 0; i < words; ++i) {
+			uint32_t word = word_at(addr + 4 * i);
+			for (unsigned byte = 0; byte < 4; ++byte)
+				b.sd_poke(addr + 4 * i + byte, uint8_t(word >> (8 * byte)));
+		}
+	};
+	auto command = [&](uint32_t opcode) {
+		b.wr(LCD, 0x09200000);
+		b.wr(LCD + 8, opcode);
+	};
+	auto open_panel = [&] {
+		command(0x5c);
+		b.wr(LCD, 0x8924d67f);
+	};
+
+	b.t->nem4 = 1;
+	b.reset_core();
+	seed(framebuffer, pairs);
+	seed(cpu_ram, 64);
+	b.wr(LCD + 4, 1);
+	b.wr(0x0c120068, 0xf0);
+	b.wr(0x0c120064, 0x70);
+	command(0xaf);
+	open_panel();
+	b.dma_setup(1, framebuffer, 1, 32, 0x10121208, 0, 32, pairs);
+	if (workers) {
+		seed(copy_source, copy_words);
+		b.dma_setup(0, copy_source, 4, 32, copy_destination, 4, 32, copy_words);
+		b.dma_setup(5, 0x10120624, 0, 8, SD + 0x30000, 4, 32, 256);
+		// A transfer waiting for the next MMC data block keeps the FIFO empty.
+		b.wr(MMC + 8, 256);
+		b.wr(MMC + 4, 0x25);
+		b.dma_start(5, 2);
+		b.run(16);
+		CHECK(!b.t->mmc_rx_ready && !(b.t->dma_irq & 32), "MMC DMA is waiting for data");
+		b.dma_start(0);
+	}
+
+	unsigned reads = 0, words = 0;
+	uint32_t previous_addr = 0;
+	uint64_t first_read = 0, first_word = 0, last_word = 0, irq_cycle = 0, copy_irq = 0;
+	bool watch_words = true, mmc_waiting = workers;
+	b.before_edge = [&] {
+		auto *t = b.t;
+		CHECK(!t->dma_bus_error, "LCD DMA bus error");
+		const bool copy_read = workers && t->dma_read_addr >= copy_source &&
+			t->dma_read_addr < copy_source + 4 * copy_words;
+		if (t->dma_read_done && !copy_read) {
+			if (!reads) first_read = b.cyc + 1;
+			const uint32_t addr = t->dma_read_addr;
+			CHECK(addr >= framebuffer && addr < framebuffer + 4 * pairs &&
+			      !(addr & 3) && addr > previous_addr, "LCD DMA bus read address");
+			CHECK_EQ(t->dma_read_data, word_at(addr), "LCD DMA source word");
+			previous_addr = addr;
+			++reads;
+		}
+		if (watch_words && t->lcd_word_done) {
+			if (!words) first_word = b.cyc + 1;
+			CHECK(words < pairs, "LCD received extra words");
+			CHECK_EQ(t->lcd_word_data, word_at(framebuffer + 4 * words++), "LCD packed word");
+			last_word = b.cyc + 1;
+		}
+		if ((t->dma_irq & 2) && !irq_cycle) irq_cycle = b.cyc;
+		if ((t->dma_irq & 1) && !copy_irq) copy_irq = b.cyc;
+		if (mmc_waiting) CHECK(!t->mmc_rx_ready && !(t->dma_irq & 32), "MMC wait ended early");
+	};
+
+	if (profile == "cancel") {
+		b.dma_start(1, 2);
+		const uint64_t deadline = b.cyc + 1000;
+		while (!reads && !words && b.cyc < deadline) b.tick();
+		CHECK(reads || words, "cancel must reach an active DMA transfer");
+		b.dma_start(1, 0);
+		b.run(64);
+		CHECK(words < pairs && !irq_cycle, "cancel must leave a prefix without an IRQ");
+		CHECK_EQ(b.rd(DMA + 0x48), 0, "cancelled DMA is idle");
+		watch_words = false;
+		open_panel();
+		watch_words = true;
+		reads = words = 0;
+		previous_addr = 0;
+		first_read = first_word = 0;
+	}
+
+	const uint64_t start = b.cyc, pin_reads = b.chip.reads;
+	b.dma_start(1, 2);
+	unsigned cpu_reads = 0, cpu_refills = 0;
+	uint64_t cpu_wait_sum = 0, cpu_wait_max = 0, cpu_offer_max = 0;
+	uint64_t refill_wait_sum = 0, refill_wait_max = 0;
+	while (!irq_cycle && b.cyc < start + 1000000) {
+		const uint64_t planned = start + (cpu_reads + 1) * period;
+		if (mmc_waiting && b.cyc == start + 20000) {
+			CHECK(copy_irq > start, "copy finished while MMC was waiting");
+			b.dma_start(5, 0);
+			mmc_waiting = false;
+		} else if (cpu_reads < scalar_count && b.cyc >= planned) {
+			const uint64_t offered = b.cyc;
+			const uint32_t addr = cpu_ram + 4 * (cpu_reads % 64);
+			CHECK_EQ(b.rd(addr), word_at(addr), "contending CPU scalar read");
+			const uint64_t elapsed = b.cyc - 1 - planned;
+			cpu_wait_sum += elapsed;
+			cpu_wait_max = std::max(cpu_wait_max, elapsed);
+			cpu_offer_max = std::max(cpu_offer_max, b.cyc - 1 - offered);
+			++cpu_reads;
+		} else if (cpu_refills < refill_count && b.cyc >= start + (cpu_refills + 1) * period) {
+			const uint64_t offered = b.cyc;
+			const uint32_t addr = cpu_ram + 32 * (cpu_refills % 8);
+			for (unsigned half = 0; half < 32; half += 16) {
+				uint32_t data[4];
+				b.burst(false, addr + half, data, true);
+				for (unsigned i = 0; i < 4; ++i)
+					CHECK_EQ(data[i], word_at(addr + half + 4 * i), "contending CPU refill");
+			}
+			const uint64_t elapsed = b.cyc - 1 - offered;
+			refill_wait_sum += elapsed;
+			refill_wait_max = std::max(refill_wait_max, elapsed);
+			++cpu_refills;
+		} else {
+			b.tick();
+		}
+	}
+	b.before_edge = {};
+	CHECK(irq_cycle >= last_word && last_word > start, "LCD DMA completion order");
+	CHECK_EQ(words, pairs, "LCD word count");
+	CHECK_EQ(cpu_reads, scalar_count, "contending CPU scalar read count");
+	CHECK_EQ(cpu_refills, refill_count, "contending CPU refill count");
+	const uint64_t read_commands = b.chip.reads - pin_reads;
+	CHECK_EQ(b.rd(LCD + 8), word_at(framebuffer + 4 * (pairs - 1)), "LCD DMA data register readback");
+	if (workers) {
+		CHECK(!mmc_waiting && !(b.t->dma_irq & 32), "blocked MMC DMA stopped without a completion IRQ");
+		CHECK(copy_irq > start && copy_irq < irq_cycle, "copy completes during LCD measurement");
+		b.dma_finish(0);
+		for (unsigned i = 0; i < copy_words * 4; ++i)
+			CHECK_EQ(b.sd_byte(copy_destination + i), b.sd_byte(copy_source + i), "competing DMA copy");
+	}
+	b.dma_finish(1);
+	for (unsigned y = 0; y < H; ++y) {
+		for (unsigned x = 0; x < W; ++x) {
+			const uint32_t packed = word_at(framebuffer + 4 * ((y * W + x) / 2));
+			const unsigned rgb = (packed >> (x % 2 ? 16 : 0)) & 0xfff;
+			const unsigned r = rgb >> 8, g = (rgb >> 4) & 15, blue = rgb & 15;
+			const unsigned expanded = ((r * 2 + r / 8) << 11) |
+				((g * 4 + g / 4) << 5) | (blue * 2 + blue / 8);
+			b.t->scan_x = x;
+			b.t->scan_y = y;
+			b.t->scan_en = 1;
+			b.tick();
+			b.t->scan_en = 0;
+			b.run(4);
+			CHECK_EQ(b.t->scan_rgb, expanded, "LCD framebuffer RGB565");
+		}
+	}
+	CHECK_EQ(b.chip.errors, 0, "SDRAM chip model errors");
+	if (!sim::failures())
+		printf("LCD_RESULT profile=%s clocks=%llu irq_clocks=%llu dma_bus_reads=%u pin_reads=%llu "
+		       "cpu_reads=%u cpu_wait_sum=%llu cpu_wait_max=%llu cpu_offer_max=%llu cpu_period=%u "
+		       "cpu_refills=%u refill_wait_sum=%llu refill_wait_max=%llu "
+		       "first_bus_read=%llu first_word=%llu copy_irq_clocks=%llu\n",
+		       profile.c_str(), (unsigned long long)(last_word - start), (unsigned long long)(irq_cycle - start),
+		       reads, (unsigned long long)read_commands, cpu_reads, (unsigned long long)cpu_wait_sum,
+		       (unsigned long long)cpu_wait_max, (unsigned long long)cpu_offer_max, period,
+		       cpu_refills, (unsigned long long)refill_wait_sum, (unsigned long long)refill_wait_max,
+		       (unsigned long long)(reads ? first_read - start : 0),
+		       (unsigned long long)(first_word - start), (unsigned long long)(workers ? copy_irq - start : 0));
+}
+
 void test_nem4_lcd(Bench &b) {
 	printf("NEM-4 packed LCD words\n");
 	b.t->nem4 = 1;
@@ -1038,6 +1222,20 @@ void test_nem4_lcd(Bench &b) {
 	CHECK_EQ(sample(0, row), 0xF800, "row-band DMA uses the selected start row");
 	CHECK_EQ(sample(175, row), 0x07E0, "row-band DMA delivers the last upper pixel");
 	CHECK_EQ(sample(0, row + 1), 0, "extra words leave the next row alone");
+
+	// On-chip RAM is outside the dedicated reader's SDRAM source window.
+	b.wr(OC + 0x100, 0x000F00F0);
+	window(0x75, ((row + 1) << 20) | row);
+	command(0x5C);
+	b.wr(LCD, 0x89240000 | (3 * row_pairs - 1));
+	b.dma_setup(1, OC + 0x100, 0, 0x20, 0x0c121208, 0, 0x20, 1);
+	b.dma_start(1, 2);
+	const uint64_t fallback_deadline = b.cyc + 20000;
+	while (!b.dma_done(1) && b.cyc < fallback_deadline) {}
+	CHECK(b.cyc < fallback_deadline, "LCD fallback DMA completes");
+	b.dma_finish(1);
+	CHECK_EQ(sample(0, row), 0x07E0, "LCD fallback uses on-chip source");
+	CHECK_EQ(sample(1, row), 0x001F, "LCD fallback writes both pixels");
 
 	b.t->nem4 = 0;
 	b.reset_core();
@@ -2022,14 +2220,25 @@ int main(int argc, char **argv) {
 	Verilated::commandArgs(argc, argv);
 	uint32_t seed = 1;
 	std::string out = ".", model_out = "../model/.out", card;
+	std::string lcd_bench;
 	for (int i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "--seed") && i + 1 < argc) seed = (uint32_t)strtoul(argv[++i], nullptr, 0);
 		else if (!strcmp(argv[i], "--out") && i + 1 < argc) out = argv[++i];
 		else if (!strcmp(argv[i], "--model-out") && i + 1 < argc) model_out = argv[++i];
 		else if (!strcmp(argv[i], "--card") && i + 1 < argc) card = argv[++i];
+		else if (!strcmp(argv[i], "--lcd-bench") && i + 1 < argc) lcd_bench = argv[++i];
 	}
 	Bench b(seed);
 	b.out = out;
+	if (!lcd_bench.empty()) {
+		if (lcd_bench != "aligned" && lcd_bench != "contend" && lcd_bench != "moderate" &&
+		    lcd_bench != "unaligned" && lcd_bench != "cancel" && lcd_bench != "refills" && lcd_bench != "workers") {
+			fprintf(stderr, "Unknown LCD benchmark profile: %s\n", lcd_bench.c_str());
+			return 2;
+		}
+		bench_nem4_lcd(b, lcd_bench);
+		return sim::finish("lcd-bench");
+	}
 	CpuTraffic traffic;
 	b.traffic = &traffic;
 	test_storage(b);

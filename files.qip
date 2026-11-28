@@ -16,6 +16,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/upp/upp_fifo.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/upp/upp_intc.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/upp/upp_timers.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/upp/upp_dma.sv
+set_global_assignment -name VERILOG_FILE rtl/upp/upp_lcd_dma.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/upp/upp_mmc.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/upp/upp_lcdif.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/upp/upp_uif.sv

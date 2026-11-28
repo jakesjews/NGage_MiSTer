@@ -75,6 +75,9 @@ module upp_lcdif #(
 	output logic        nem4_word_header,
 	output logic [31:0] nem4_word_data,
 	input  logic        nem4_word_ready,
+	input  logic        dma_pixel_valid,
+	input  logic [31:0] dma_pixel_data,
+	output wire         dma_pixel_ready,
 
 	output logic        csx,
 	output logic        dcx,
@@ -109,10 +112,25 @@ module upp_lcdif #(
 	wire lcd_word = off == 4'h0 || off == 4'h8;
 	wire push = wr && !nem4 && lcd_word;
 	wire want_read = acc && !we && off == 4'h8 && read_phase;
-	// NEM-4's packed 9-/12-bit controller sees committed UPP words.
-	assign nem4_word_valid  = wr && nem4 && lcd_word;
-	assign nem4_word_header = off == 4'h0;
-	assign nem4_word_data   = wdata;
+	wire mmio_claim  = acc && we && lcd_word;
+	wire mmio_commit = wr && nem4 && lcd_word;
+	wire dma_offer   = nem4 && dma_pixel_valid && !mmio_claim;
+	logic dma_last_valid;
+	logic [31:0] dma_last_word;
+
+	// Reserve the panel for an already-started MMIO write through commit.
+	assign dma_pixel_ready  = nem4 && nem4_word_ready && !mmio_claim;
+	assign nem4_word_valid  = mmio_commit || dma_offer;
+	assign nem4_word_header = mmio_commit && off == 4'h0;
+	assign nem4_word_data   = mmio_commit ? wdata : dma_pixel_data;
+
+	always_ff @(posedge clk) begin
+		if (reset || (mmio_commit && off == 4'h8)) dma_last_valid <= 1'b0;
+		else if (dma_offer && nem4_word_ready) begin
+			dma_last_valid <= 1'b1;
+			dma_last_word  <= dma_pixel_data;
+		end
+	end
 
 	upp_fifo #(.DW(33), .AW(QAW)) queue (
 		.clk(clk),
@@ -151,6 +169,9 @@ module upp_lcdif #(
 						rmask = '1;
 						rdata = {24'd0, rd_byte};
 						busy  = !rd_have;
+					end else if (nem4 && dma_last_valid) begin
+						rmask = '1;
+						rdata = dma_last_word;
 					end
 				end
 				default: ;

@@ -30,12 +30,14 @@
 //
 // Where the model moves the data at once, this moves it over the bus master
 // port (Wishbone B3 classic, one beat a cycle, through the arbiter in
-// ngage_mem): ENGINES transfers run at a time, taking turns on the port;
-// further starts wait for an engine. A start while the channel runs restarts
+// ngage_mem): ENGINES general transfers take turns on the port with the
+// dedicated NEM-4 LCD reader. Further starts wait for an engine.
+// A start while the channel runs restarts
 // it; a stop ends it after the access in flight.
 // Accesses are 32-bit (upp_periph drops others, as the model's region does).
 module upp_dma #(
-	parameter int ENGINES = 3
+	parameter int ENGINES = 3,
+	parameter int LCD_DMA_WORDS = 4
 ) (
 	input  logic        clk,
 	input  logic        reset,
@@ -52,13 +54,19 @@ module upp_dma #(
 	input  logic        mmc_rx_ready,
 	input  logic        mmc_tx_ready,
 	input  logic        lcd_tx_ready,
+	input  logic        nem4,
+	output wire         lcd_valid,
+	output wire [31:0]  lcd_data,
+	input  logic        lcd_ready,
+	input  logic        lcd_idle,
 
-	output logic        m_cyc,
-	output logic        m_stb,
-	output logic        m_we,
-	output logic [31:0] m_adr,
-	output logic [31:0] m_dat_o,
-	output logic [3:0]  m_sel,
+	output wire         m_cyc,
+	output wire         m_stb,
+	output wire         m_we,
+	output wire [31:0]  m_adr,
+	output wire [31:0]  m_dat_o,
+	output wire [3:0]   m_sel,
+	output wire         m_burst,
 	input  logic        m_ack,
 	input  logic        m_err,
 	input  logic [31:0] m_dat_i
@@ -72,6 +80,7 @@ module upp_dma #(
 	// Channel registers
 	// ------------------------------------------------------------------
 	logic [7:0] req, go_clr, sinc, dinc;
+	logic [7:0] paced_start, lcd_destination, lcd_deferred;
 	logic [1:0] sw [0:7];
 	logic [1:0] dw [0:7];
 
@@ -84,6 +93,10 @@ module upp_dma #(
 
 	function automatic logic [31:0] phys(input logic [31:0] a);
 		return (a[31:28] == 4'h1) ? {4'h0, a[27:0]} + 32'h0C00_0000 : a;
+	endfunction
+
+	function automatic logic lcd_address(input logic [31:0] a);
+		return a == LCD_FIFO || a == 32'h10121208;
 	endfunction
 
 	always_comb begin
@@ -147,21 +160,61 @@ module upp_dma #(
 	logic          p_busy;
 	logic [EW-1:0] p_e;
 	logic [EW-1:0] rr;                   // round-robin start
+	logic          g_we;
+	logic [31:0]   g_adr, g_dat;
+	logic [3:0]    g_sel;
 
-	// the loader: picks a requested channel and a free engine, reads src/dst/count
+	// The loader reads src/dst/count before assigning either engine type.
 	logic          ld_busy, ld_cancel;
 	logic [1:0]    ld_step;
 	logic [2:0]    ld_ch;
 	logic [EW-1:0] ld_e;
+	logic          ld_has_engine;
 	logic [31:0]   ld_src, ld_dst;
+	logic [2:0]    req_rr;
+
+	wire fast_enabled = LCD_DMA_WORDS != 0 && nem4;
+	wire lcd_busy, lcd_done, fetch_req, fetch_more;
+	wire [31:0] fetch_addr;
+	logic [2:0] lcd_ch;
+	logic fetch_owned, last_lcd;
+
+	wire lcd_descriptor = fast_enabled && paced_start[ld_ch] && sinc[ld_ch] &&
+		!dinc[ld_ch] && sw[ld_ch] == 2 && dw[ld_ch] == 2 && lcd_address(ld_dst) &&
+		ld_src[31:24] == 8'h0a && ld_src[1:0] == 0 && pr_q <= {10'd0, ~ld_src[23:2]};
+	wire lcd_start = ld_busy && ld_step == 3 && !ld_cancel && !(w_go && ch == ld_ch) &&
+		lcd_descriptor && !lcd_busy;
+	wire lcd_stop = w_go && ch == lcd_ch;
+	wire fetch_ack = fetch_owned && m_ack;
+	wire fetch_err = fetch_owned && m_err;
+
+	generate if (LCD_DMA_WORDS != 0) begin : native_lcd
+		upp_lcd_dma #(.PACKET_WORDS(LCD_DMA_WORDS)) stream (
+			.clk(clk), .reset(reset),
+			.start(lcd_start), .source(ld_src[23:2]), .count_minus_one(pr_q[21:0]),
+			.stop(lcd_stop), .busy(lcd_busy), .done(lcd_done),
+			.read_req(fetch_req), .read_owned(fetch_owned), .read_addr(fetch_addr),
+			.read_more(fetch_more), .read_ack(fetch_ack), .read_err(fetch_err), .read_data(m_dat_i),
+			.pixel_valid(lcd_valid), .pixel_data(lcd_data), .pixel_ready(lcd_ready), .panel_idle(lcd_idle)
+		);
+	end else begin : classic_lcd
+		assign lcd_busy   = 1'b0;
+		assign lcd_done   = 1'b0;
+		assign fetch_req  = 1'b0;
+		assign fetch_more = 1'b0;
+		assign fetch_addr = 32'd0;
+		assign lcd_valid  = 1'b0;
+		assign lcd_data   = 32'd0;
+	end endgenerate
 
 	logic          free_any;
 	logic [EW-1:0] free_e;
+	wire [EW-1:0]  generic_engine = ld_has_engine ? ld_e : free_e;
 	always_comb begin
 		free_any = 1'b0;
 		free_e   = '0;
 		for (int e = ENGINES - 1; e >= 0; e--) begin
-			if (est[e] == E_FREE && !(ld_busy && ld_e == EW'(e))) begin
+			if (est[e] == E_FREE) begin
 				free_any = 1'b1;
 				free_e   = EW'(e);
 			end
@@ -170,13 +223,23 @@ module upp_dma #(
 
 	logic       req_any;
 	logic [2:0] req_ch;
+	logic [7:0] channel_active;
 	always_comb begin
+		channel_active = 8'd0;
+		for (int e = 0; e < ENGINES; e++)
+			if (est[e] != E_FREE) channel_active[ech[e]] = 1'b1;
+		if (lcd_busy) channel_active[lcd_ch] = 1'b1;
+
 		req_any = 1'b0;
 		req_ch  = 3'd0;
-		for (int c = 7; c >= 0; c--) begin
-			if (req[c]) begin
+		for (int i = 7; i >= 0; i--) begin
+			logic [2:0] c;
+			c = (fast_enabled ? req_rr : 3'd0) + 3'(i);
+			if (req[c] && (!fast_enabled || !channel_active[c]) &&
+			    (free_any || (fast_enabled && !lcd_busy && paced_start[c] &&
+			                  lcd_destination[c] && !lcd_deferred[c]))) begin
 				req_any = 1'b1;
-				req_ch  = 3'(c);
+				req_ch  = c;
 			end
 		end
 	end
@@ -200,7 +263,13 @@ module upp_dma #(
 		end
 	end
 
-	assign m_stb = m_cyc;
+	assign m_cyc   = fetch_owned || p_busy;
+	assign m_stb   = m_cyc;
+	assign m_we    = !fetch_owned && g_we;
+	assign m_adr   = fetch_owned ? fetch_addr : g_adr;
+	assign m_dat_o = g_dat;
+	assign m_sel   = fetch_owned ? 4'hf : g_sel;
+	assign m_burst = fetch_owned && fetch_more;
 
 	always_ff @(posedge clk) begin
 		// ---- the engines ----
@@ -249,20 +318,24 @@ module upp_dma #(
 		end
 
 		// ---- the master port ----
-		if (!p_busy) begin
-			if (grant_any && !m_cyc) begin
+		if (fetch_owned) begin
+			if (fetch_err || (fetch_ack && !fetch_more)) fetch_owned <= 1'b0;
+		end else if (!p_busy) begin
+			if (fetch_req && (!grant_any || !last_lcd)) begin
+				fetch_owned <= 1'b1;
+				last_lcd    <= 1'b1;
+			end else if (grant_any) begin
 				p_busy  <= 1'b1;
 				p_e     <= grant_e;
 				rr      <= (grant_e == EW'(ENGINES - 1)) ? '0 : grant_e + 1'd1;
-				m_cyc   <= 1'b1;
-				m_we    <= ewe[grant_e];
-				m_adr   <= eadr[grant_e];
-				m_dat_o <= edat[grant_e];
-				m_sel   <= esel[grant_e];
+				last_lcd <= 1'b0;
+				g_we    <= ewe[grant_e];
+				g_adr   <= eadr[grant_e];
+				g_dat   <= edat[grant_e];
+				g_sel   <= esel[grant_e];
 			end
 		end else if (m_ack || m_err) begin
 			logic [31:0] rb;
-			m_cyc    <= 1'b0;
 			p_busy   <= 1'b0;
 			est[p_e] <= E_RUN;
 			if (ewe[p_e]) begin
@@ -281,12 +354,14 @@ module upp_dma #(
 
 		// ---- the loader ----
 		if (!ld_busy) begin
-			if (req_any && free_any && !(w_go && ch == req_ch)) begin
+			if (req_any && !(w_go && ch == req_ch)) begin
 				ld_busy     <= 1'b1;
 				ld_cancel   <= 1'b0;
 				ld_ch       <= req_ch;
 				ld_e        <= free_e;
+				ld_has_engine <= free_any;
 				ld_step     <= 2'd0;
+				req_rr      <= req_ch + 1'b1;
 				req[req_ch] <= 1'b0;
 			end
 		end else begin
@@ -297,28 +372,42 @@ module upp_dma #(
 				2'd3: begin
 					ld_busy <= 1'b0;
 					if (!ld_cancel && !(w_go && ch == ld_ch)) begin
-						est[ld_e]    <= E_RUN;
-						ech[ld_e]    <= ld_ch;
-						esrc[ld_e]   <= phys(ld_src);
-						edst[ld_e]   <= phys(ld_dst);
-						eleft[ld_e]  <= {1'b0, pr_q} + 33'd1;
-						ebuf[ld_e]   <= 32'd0;
-						efill[ld_e]  <= 3'd0;
-						esinc[ld_e]  <= sinc[ld_ch];
-						edinc[ld_e]  <= dinc[ld_ch];
-						esw[ld_e]    <= sw[ld_ch];
-						edw[ld_e]    <= dw[ld_ch];
-						eabort[ld_e] <= 1'b0;
+						if (lcd_start) begin
+							lcd_ch <= ld_ch;
+						end else if (!lcd_descriptor && free_any) begin
+							est[generic_engine]    <= E_RUN;
+							ech[generic_engine]    <= ld_ch;
+							esrc[generic_engine]   <= phys(ld_src);
+							edst[generic_engine]   <= phys(ld_dst);
+							eleft[generic_engine]  <= {1'b0, pr_q} + 33'd1;
+							ebuf[generic_engine]   <= 32'd0;
+							efill[generic_engine]  <= 3'd0;
+							esinc[generic_engine]  <= sinc[ld_ch];
+							edinc[generic_engine]  <= dinc[ld_ch];
+							esw[generic_engine]    <= sw[ld_ch];
+							edw[generic_engine]    <= dw[ld_ch];
+							eabort[generic_engine] <= 1'b0;
+						end else begin
+							req[ld_ch] <= 1'b1;
+							lcd_deferred[ld_ch] <= !lcd_descriptor;
+						end
 					end
 				end
 				default: ;
 			endcase
 		end
 
+		if (lcd_done || (fetch_err && !lcd_stop)) begin
+			go_clr[lcd_ch] <= 1'b1;
+			if (lcd_done) irq[lcd_ch] <= 1'b1;
+		end
+
 		// ---- register writes ----
 		if (wr) begin
+			if (pr_we || (r >= 6'h18 && r <= 6'h28)) lcd_deferred[ch] <= 1'b0;
 			case (r)
 				6'h04: if (wdata == 32'd0) irq[ch] <= 1'b0;
+				6'h20: lcd_destination[ch] <= lcd_address(wdata);
 				6'h18: sinc[ch] <= wdata != 32'd0;
 				6'h1C: sw[ch] <= wlog(wdata);
 				6'h24: dinc[ch] <= wdata != 32'd0;
@@ -328,7 +417,11 @@ module upp_dma #(
 		end
 		if (w_go) begin
 			go_clr[ch] <= 1'b0;
-			if (w_run) req[ch] <= 1'b1;
+			if (w_run) begin
+				req[ch] <= 1'b1;
+				paced_start[ch] <= wdata == 32'd2;
+				lcd_deferred[ch] <= 1'b0;
+			end
 			if (w_stop) begin
 				req[ch] <= 1'b0;
 				irq[ch] <= 1'b0;
@@ -338,6 +431,9 @@ module upp_dma #(
 
 		if (reset) begin
 			req    <= 8'd0;
+			paced_start <= 8'd0;
+			lcd_destination <= 8'd0;
+			lcd_deferred <= 8'd0;
 			go_clr <= 8'd0;
 			irq    <= 8'd0;
 			sinc   <= 8'd0;
@@ -349,8 +445,10 @@ module upp_dma #(
 			for (int e = 0; e < ENGINES; e++) est[e] <= E_FREE;
 			ld_busy <= 1'b0;
 			p_busy  <= 1'b0;
+			fetch_owned <= 1'b0;
+			last_lcd <= 1'b0;
 			rr      <= '0;
-			m_cyc   <= 1'b0;
+			req_rr  <= '0;
 		end
 	end
 

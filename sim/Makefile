@@ -22,7 +22,7 @@ RUNFLAGS := +verilator+seed+$(SEED) +verilator+rand+reset+2
 
 BENCHES := lcd video keypad flash mmc bt sdram sdram-faults ddrflash trace upp intc timers periph save pmm-save pmm-date top
 
-.PHONY: test $(BENCHES) coreboot flashcopy hps-read-test clean
+.PHONY: test $(BENCHES) lcd-bench coreboot flashcopy hps-read-test clean
 
 test:
 	@for b in $(BENCHES); do $(MAKE) --no-print-directory $$b || exit 1; done
@@ -177,21 +177,31 @@ PERIPH_RTL := $(ROOT)/rtl/board/sdp_ram.sv $(ROOT)/rtl/board/tdp_ram.sv $(ROOT)/
               $(ROOT)/rtl/mem/ddram_flash.sv $(ROOT)/rtl/upp/upp_bus.sv $(ROOT)/rtl/upp/wb_arb2.sv \
               $(ROOT)/rtl/upp/ngage_mem.sv $(ROOT)/rtl/upp/upp_fifo.sv $(ROOT)/rtl/upp/upp_intc.sv \
               $(ROOT)/rtl/upp/upp_timers.sv $(ROOT)/rtl/upp/upp_dma.sv $(ROOT)/rtl/upp/upp_mmc.sv \
+              $(ROOT)/rtl/upp/upp_lcd_dma.v \
               $(ROOT)/rtl/upp/upp_lcdif.sv $(ROOT)/rtl/upp/upp_uif.sv $(ROOT)/rtl/upp/upp_cbus.sv \
               $(ROOT)/rtl/upp/upp_gpio.v $(ROOT)/rtl/upp/upp_nem4_keypad.v \
               $(ROOT)/rtl/upp/upp_simif.v $(ROOT)/rtl/upp/upp_test_sim.v \
               $(ROOT)/rtl/upp/upp_mdi.v $(ROOT)/rtl/upp/upp_mdi_peer.v \
               $(ROOT)/rtl/upp/upp_pcm.v $(ROOT)/rtl/upp/upp_dsp_pcm.v $(ROOT)/rtl/upp/upp_periph.sv $(ROOT)/rtl/mister/rtc_wall.sv \
               $(ADSP_RTL) $(ROOT)/sim/harness/periph_tb.sv
-$(BUILD)/periph/Vperiph_tb: $(PERIPH_RTL) $(ROOT)/sim/harness/periph_main.cpp $(ROOT)/sim/harness/common.h \
-                            $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/ddram_model.h
-	mkdir -p $(BUILD)/periph && $(VERILATOR) $(VFLAGS) --top-module periph_tb --Mdir $(BUILD)/periph -o Vperiph_tb \
-		$(PERIPH_RTL) $(ROOT)/sim/harness/periph_main.cpp
+PERIPH_DMA_ENGINES ?= 3
+PERIPH_LCD_DMA_WORDS ?= 4
+PERIPH_OBJ := $(BUILD)/periph$(if $(filter-out 3,$(PERIPH_DMA_ENGINES)),-dma$(PERIPH_DMA_ENGINES))$(if $(filter-out 4,$(PERIPH_LCD_DMA_WORDS)),-lcd$(PERIPH_LCD_DMA_WORDS))
+$(PERIPH_OBJ)/Vperiph_tb: $(PERIPH_RTL) $(ROOT)/sim/harness/periph_main.cpp $(ROOT)/sim/harness/common.h \
+                            $(ROOT)/sim/harness/sdram_model.h $(ROOT)/sim/harness/sdram_address.h \
+                            $(ROOT)/sim/harness/ddram_model.h $(ROOT)/sim/Makefile
+	mkdir -p $(PERIPH_OBJ) && $(VERILATOR) $(VFLAGS) --top-module periph_tb --Mdir $(PERIPH_OBJ) -o Vperiph_tb \
+		-GDMA_ENGINES=$(PERIPH_DMA_ENGINES) -GLCD_DMA_WORDS=$(PERIPH_LCD_DMA_WORDS) $(PERIPH_RTL) $(ROOT)/sim/harness/periph_main.cpp
 # a real game card's image (tools/mkcard.py; local data, never committed): the
 # bench reads its first sectors when the file is there
 MMC_CARD ?= $(ROOT)/model/.out/cards/sonicn.mmc
-periph: $(BUILD)/periph/Vperiph_tb | $(OUT)
+periph: $(PERIPH_OBJ)/Vperiph_tb | $(OUT)
 	$< $(RUNFLAGS) --seed $(SEED) --out $(OUT) --model-out $(ROOT)/model/.out --card $(MMC_CARD)
+
+lcd-bench: $(PERIPH_OBJ)/Vperiph_tb
+	@set -e; for profile in aligned contend moderate unaligned cancel refills workers; do \
+		$< $(RUNFLAGS) --seed $(SEED) --lcd-bench $$profile; \
+	done
 
 # The CS1 save file (rtl/mister/flash_save.sv) with the memory system: mount,
 # marks, write-back (sim/harness/save_tb.sv)

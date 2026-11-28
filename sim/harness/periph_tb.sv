@@ -14,7 +14,9 @@ module periph_tb #(
 	parameter int MMC_TIMEOUT_LOG2   = 16,
 	parameter int POWER_ON_HOLD_CLKS = 20000,
 	parameter int RTC_CLK_HZ         = 20000,
-	parameter int BT_RESET_CLKS      = 2000
+	parameter int BT_RESET_CLKS      = 2000,
+	parameter int DMA_ENGINES        = 3,
+	parameter int LCD_DMA_WORDS      = 4
 ) (
 	input  logic         clk,
 	input  logic         nem4,
@@ -90,6 +92,14 @@ module periph_tb #(
 	output logic [3:0]   p_be,
 	output logic [31:0]  p_wdata,
 	output logic         dma_cyc,
+	output logic         dma_read_done,
+	output logic         dma_bus_error,
+	output logic [31:0]  dma_read_addr,
+	output logic [31:0]  dma_read_data,
+	output logic [7:0]   dma_irq,
+	output logic         mmc_rx_ready,
+	output logic         lcd_word_done,
+	output logic [31:0]  lcd_word_data,
 	output logic         sti_we,
 	output logic [3:0]   sti_be,
 	output logic [31:0]  sti_data,
@@ -102,7 +112,7 @@ module periph_tb #(
 );
 
 	logic [31:0] p_rdata;
-	logic        dma_stb, dma_we, dma_ack, dma_err;
+	logic        dma_stb, dma_we, dma_ack, dma_err, dma_burst;
 	logic [31:0] dma_adr, dma_dat_w, dma_dat_r;
 	logic [3:0]  dma_sel;
 	logic        mdi_req, mdi_we, mdi_ack, mdi_err;
@@ -123,7 +133,7 @@ module periph_tb #(
 		.wb_sel(wb_sel), .wb_cti(wb_cti), .wb_bte(wb_bte), .wb_ack(wb_ack), .wb_err(wb_err), .wb_dat_o(wb_dat_o),
 		.wb_no_late_error(),
 		.dma_cyc(dma_cyc), .dma_stb(dma_stb), .dma_we(dma_we), .dma_adr(dma_adr), .dma_dat_i(dma_dat_w),
-		.dma_sel(dma_sel), .dma_ack(dma_ack), .dma_err(dma_err), .dma_dat_o(dma_dat_r),
+		.dma_sel(dma_sel), .dma_burst(dma_burst), .dma_ack(dma_ack), .dma_err(dma_err), .dma_dat_o(dma_dat_r),
 		.mdi_req(mdi_req), .mdi_we(mdi_we), .mdi_word(mdi_word), .mdi_wdata(mdi_wdata),
 		.mdi_be(mdi_be), .mdi_ack(mdi_ack), .mdi_err(mdi_err), .mdi_rdata(mdi_rdata),
 		.p_sel(p_sel), .p_we(p_we), .p_addr(p_addr), .p_wdata(p_wdata), .p_be(p_be), .p_rdata(p_rdata), .p_wait(p_wait),
@@ -154,6 +164,15 @@ module periph_tb #(
 	logic [7:0]  rtc_days;
 	logic [31:0] rtc_date;
 
+	assign dma_read_done = dma_ack && !dma_we;
+	assign dma_bus_error = dma_err;
+	assign dma_read_addr = dma_adr;
+	assign dma_read_data = dma_dat_r;
+	assign dma_irq = periph.dma_irq;
+	assign mmc_rx_ready = periph.mmc_rx_ready;
+	assign lcd_word_done = nem4_lcd_valid && !nem4_lcd_header && nem4_lcd_ready;
+	assign lcd_word_data = nem4_lcd_data;
+
 	rtc_wall #(.CLK_HZ(RTC_CLK_HZ)) wall (
 		.clk(clk), .rtc(rtc), .valid(rtc_valid), .sec(rtc_sec), .min(rtc_min), .hour(rtc_hour),
 		.date(rtc_date), .days(rtc_days)
@@ -180,7 +199,8 @@ module periph_tb #(
 	);
 
 	upp_periph #(
-		.ALARM_CLKS(65536), .MMC_DIV(MMC_DIV), .MMC_TIMEOUT_LOG2(MMC_TIMEOUT_LOG2), .POWER_ON_HOLD_CLKS(POWER_ON_HOLD_CLKS)
+		.ALARM_CLKS(65536), .MMC_DIV(MMC_DIV), .MMC_TIMEOUT_LOG2(MMC_TIMEOUT_LOG2),
+		.POWER_ON_HOLD_CLKS(POWER_ON_HOLD_CLKS), .DMA_ENGINES(DMA_ENGINES), .LCD_DMA_WORDS(LCD_DMA_WORDS)
 	) periph (
 		.clk(clk),
 		.reset(reset || !sdram_ready),
@@ -195,7 +215,7 @@ module periph_tb #(
 		.adsp_rx_data(adsp_rx_data),
 		.p_sel(p_sel), .p_we(p_we), .p_addr(p_addr), .p_wdata(p_wdata), .p_be(p_be), .p_rdata(p_rdata), .p_wait(p_wait),
 		.dma_cyc(dma_cyc), .dma_stb(dma_stb), .dma_we(dma_we), .dma_adr(dma_adr), .dma_dat_o(dma_dat_w),
-		.dma_sel(dma_sel), .dma_ack(dma_ack), .dma_err(dma_err), .dma_dat_i(dma_dat_r),
+		.dma_sel(dma_sel), .dma_burst(dma_burst), .dma_ack(dma_ack), .dma_err(dma_err), .dma_dat_i(dma_dat_r),
 		.mdi_req(mdi_req), .mdi_we(mdi_we), .mdi_word(mdi_word), .mdi_wdata(mdi_wdata),
 		.mdi_be(mdi_be), .mdi_ack(mdi_ack), .mdi_err(mdi_err), .mdi_rdata(mdi_rdata),
 		.irq(irq), .fiq(fiq), .dbg_src0(dbg_src0),

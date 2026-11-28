@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
 // Two Wishbone B3 masters onto upp_bus: the CPU (m0, classic cycles and
-// CTI/BTE bursts) and the DMA controller (m1, classic single beats). The
+// CTI/BTE bursts) and the DMA controller (m1, classic or linear bursts). The
 // grant is a register, so the slave sees the granted master's signals through
 // one multiplexer and nothing else; it changes only between transactions:
 //   * at the clock edge where the slave answers the last beat of the owner's
@@ -11,9 +11,11 @@
 //     following clock (after the last beat of a transaction it always is).
 //   * at any edge where the owner has CYC low, the bus is idle and the other
 //     is asking.
-// So with both asking the masters take turns transaction by transaction; a
-// master that is not granted waits with its request up.
-module wb_arb2 (
+// The outer arbiter can give the CPU a second turn after a device burst.
+// This bounds the CPU backlog when the NEM-4 LCD has another packet ready.
+module wb_arb2 #(
+	parameter bit CPU_TURN_AFTER_BURST = 0
+) (
 	input  logic        clk,
 	input  logic        reset,
 
@@ -35,6 +37,7 @@ module wb_arb2 (
 	input  logic [31:0] m1_adr,
 	input  logic [31:0] m1_dat,
 	input  logic [3:0]  m1_sel,
+	input  logic [2:0]  m1_cti,
 	output logic        m1_ack,
 	output logic        m1_err,
 
@@ -63,7 +66,7 @@ module wb_arb2 (
 	assign s_adr = gnt_ad ? m1_adr : m0_adr;
 	assign s_dat = gnt_ad ? m1_dat : m0_dat;
 	assign s_sel = gnt_ad ? m1_sel : m0_sel;
-	assign s_cti = gnt ? 3'b111 : m0_cti;
+	assign s_cti = gnt ? m1_cti : m0_cti;
 	assign s_bte = gnt ? 2'b00  : m0_bte;
 
 	assign m0_ack = s_ack && !gnt;
@@ -73,9 +76,21 @@ module wb_arb2 (
 
 	wire other   = gnt ? m0_cyc : m1_cyc;
 	wire txn_end = (s_ack || s_err) && s_cti != 3'b010;
-	wire swap    = other && (txn_end || (!s_cyc && s_idle));
+	logic m1_packet, cpu_second, cpu_gap;
+	// A CPU master can lower CYC for a cycle between independent requests.
+	// Bridge that one gap after its first turn if a new LCD burst is waiting.
+	wire wait_cpu = CPU_TURN_AFTER_BURST && !gnt && m1_cti == 3'b010 &&
+	                ((txn_end && cpu_second) || (!s_cyc && cpu_gap));
+	wire swap = other && (txn_end || (!s_cyc && s_idle)) && !wait_cpu;
 
 	always_ff @(posedge clk) begin
+		if (CPU_TURN_AFTER_BURST) begin
+			if (gnt && s_cyc && s_cti == 3'b010) m1_packet <= 1'b1;
+			if (txn_end || swap) m1_packet <= 1'b0;
+			cpu_gap <= !gnt && cpu_second && txn_end;
+			if (swap) cpu_second <= gnt && txn_end && m1_packet;
+			else if (!gnt && txn_end) cpu_second <= 1'b0;
+		end
 		if (swap) begin
 			gnt    <= !gnt;
 			gnt_ad <= !gnt;
@@ -83,6 +98,9 @@ module wb_arb2 (
 		if (reset) begin
 			gnt    <= 1'b0;
 			gnt_ad <= 1'b0;
+			m1_packet  <= 1'b0;
+			cpu_second <= 1'b0;
+			cpu_gap    <= 1'b0;
 		end
 	end
 

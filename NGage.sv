@@ -340,6 +340,7 @@ wire  [3:0] p_be;
 wire        dma_cyc, dma_stb, dma_we, dma_ack, dma_err;
 wire [31:0] dma_adr, dma_dat_w, dma_dat_r;
 wire  [3:0] dma_sel;
+wire        dma_burst;
 
 wire        mdi_req, mdi_we, mdi_ack, mdi_err;
 wire  [7:0] mdi_word;
@@ -387,6 +388,7 @@ ngage_mem ngage_mem
 	.dma_adr(dma_adr),
 	.dma_dat_i(dma_dat_w),
 	.dma_sel(dma_sel),
+	.dma_burst(dma_burst),
 	.dma_ack(dma_ack),
 	.dma_err(dma_err),
 	.dma_dat_o(dma_dat_r),
@@ -577,6 +579,7 @@ upp_periph upp_periph
 	.dma_adr(dma_adr),
 	.dma_dat_o(dma_dat_w),
 	.dma_sel(dma_sel),
+	.dma_burst(dma_burst),
 	.dma_ack(dma_ack),
 	.dma_err(dma_err),
 	.dma_dat_i(dma_dat_r),

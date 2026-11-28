@@ -39,6 +39,7 @@ rtl/upp/upp_fifo.sv
 rtl/upp/upp_intc.sv
 rtl/upp/upp_timers.sv
 rtl/upp/upp_dma.sv
+rtl/upp/upp_lcd_dma.v
 rtl/upp/upp_mmc.sv
 rtl/upp/upp_lcdif.sv
 rtl/upp/upp_uif.sv
