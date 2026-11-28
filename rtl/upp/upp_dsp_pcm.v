@@ -97,61 +97,63 @@ module upp_dsp_pcm (
         pcm_write  = 0;
         pcm_offset = 0;
         pcm_data   = 0;
-        if (!reset) begin
-            case (state)
-                CHECK: begin
-                    if (opcode == 8'h20 && start_valid) begin
-                        pcm_write  = 1;
-                        pcm_offset = 8'h04;
-                    end else if (submit_valid) begin
-                        // An explicit half submission can arrive before we have
-                        // consumed its prior DONE. Clear that old completion
-                        // before publishing the new length for this half.
-                        pcm_write  = 1;
-                        pcm_offset = 8'h20;
-                        pcm_data   = {30'd0, half_mask};
-                    end
-                end
-                SUBMIT: begin
-                    pcm_write  = 1;
-                    pcm_offset = half ? 8'h1c : 8'h18;
-                    pcm_data   = {16'd0, frames};
-                end
-                FORMAT: begin
-                    pcm_write  = 1;
-                    pcm_offset = 8'h08;
-                end
-                RATE: begin
-                    pcm_write  = 1;
-                    pcm_offset = 8'h0c;
-                    pcm_data   = header[23] == 8'h32 ? 32'd8000 : 32'd16000;
-                end
-                ADDRESS0: begin
-                    pcm_write  = 1;
-                    pcm_offset = 8'h10;
-                    pcm_data   = address0;
-                end
-                ADDRESS1: begin
-                    pcm_write  = 1;
-                    pcm_offset = 8'h14;
-                    pcm_data   = address1;
-                end
-                START, STOP: begin
+        // No look at reset here: reset is the link being down, and the
+        // renderer, which is held in its own reset for as long, takes
+        // nothing then. With reset in this block the link's control word was
+        // in front of every write's data on its way into the renderer.
+        case (state)
+            CHECK: begin
+                if (opcode == 8'h20 && start_valid) begin
                     pcm_write  = 1;
                     pcm_offset = 8'h04;
-                    // Completion goes back to NOS through MDI, leaving IRQ 5 to the timer.
-                    pcm_data   = state == START ? 32'd1 : 32'd0;
+                end else if (submit_valid) begin
+                    // An explicit half submission can arrive before we have
+                    // consumed its prior DONE. Clear that old completion
+                    // before publishing the new length for this half.
+                    pcm_write  = 1;
+                    pcm_offset = 8'h20;
+                    pcm_data   = {30'd0, half_mask};
                 end
-                RX: begin
-                    if (idle && done != 0 && !final_done) begin
-                        pcm_write  = 1;
-                        pcm_offset = 8'h20;
-                        pcm_data   = {30'd0, done};
-                    end
+            end
+            SUBMIT: begin
+                pcm_write  = 1;
+                pcm_offset = half ? 8'h1c : 8'h18;
+                pcm_data   = {16'd0, frames};
+            end
+            FORMAT: begin
+                pcm_write  = 1;
+                pcm_offset = 8'h08;
+            end
+            RATE: begin
+                pcm_write  = 1;
+                pcm_offset = 8'h0c;
+                pcm_data   = header[23] == 8'h32 ? 32'd8000 : 32'd16000;
+            end
+            ADDRESS0: begin
+                pcm_write  = 1;
+                pcm_offset = 8'h10;
+                pcm_data   = address0;
+            end
+            ADDRESS1: begin
+                pcm_write  = 1;
+                pcm_offset = 8'h14;
+                pcm_data   = address1;
+            end
+            START, STOP: begin
+                pcm_write  = 1;
+                pcm_offset = 8'h04;
+                // Completion goes back to NOS through MDI, leaving IRQ 5 to the timer.
+                pcm_data   = state == START ? 32'd1 : 32'd0;
+            end
+            RX: begin
+                if (idle && done != 0 && !final_done) begin
+                    pcm_write  = 1;
+                    pcm_offset = 8'h20;
+                    pcm_data   = {30'd0, done};
                 end
-                default: ;
-            endcase
-        end
+            end
+            default: ;
+        endcase
     end
 
     always @(posedge clk) begin
