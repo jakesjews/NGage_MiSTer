@@ -115,23 +115,36 @@ needs looking at again under the original NOS before it is worked on.
   test).
 - [ ] The original N-Gage's firmware 4.03 in this core: not run through on
   a MiSTer (docs/FIRMWARE-PROFILES.md, "Remaining validation").
-- [ ] The reference model does not run the original NOS: it has none of
-  the devices NOS needs (the MDI rings and the DSP peer, the SIM interface,
-  the CTSI counters) and runs with the stand-in only
-  (`NGAGE_PATCHES=standin`), so a boot of the core can no longer be
-  compared with it (medium to high).
-- [ ] Unanswered modem requests in the stand-in: call set-up (dialling a
-  number freezes the keys until reset), the request behind Settings >
-  Device > Display, network, GPRS, SMS, two SIM reads, modem state (low to
-  medium each; docs/NOS_STANDIN.md, "Not answered yet").
-  A lead for the Display page (github.com/nortido/NGage-MiSTer,
-  `hps/guest/nos_isi.c`, on the first N-Gage's firmware): resource `0x3A`
-  is the light service; message `0x01` asks for light values by a 32-bit
-  mask in its last four bytes (ours: `00 00 00 20`, bit 5), and the answer
-  is message `0x02` with `[10]` 0, the count at `[11]` and one four-byte
-  sub-block a set bit: id, 4, value, 0 (ids by bit 0-7: 01 05 06 02 07 03
-  04 00; that core answers 100 for every value). Not checked on our
-  firmware.
+- [ ] A boot of the whole core against the reference model, now that both
+  run the unmodified firmware: `make -C sim coreboot` with `--devlog` and
+  `make -C sim/cpu boot-model`, compared by `sim/cpu/boot/cmp_flow.py`. Not
+  run yet with these images (medium; the core's run takes hours).
+  `boot-model` itself has not been run since its change of 2026-11-28: the
+  build server no longer has the glib and pixman development files that
+  `sim/cpu/model/build_linux.sh` takes as its DEPS_ROOT.
+- [ ] The model's first start depends on the two group 50 records in
+  `releases/boot2.vhd`: without them Startup.app asks NOS for one before
+  NOS has written them and waits for ever, where the core has them written
+  in time (`tools/mkpmm.py` has the story). Which of the model's timings
+  makes the order differ is not known (low).
+- [ ] Left from the stand-in, to go at the core's next change: the RTC
+  date register at `0x0C1F0100` (`rtl/upp/upp_periph.sv`, `upp_cbus.sv`,
+  `model/hw/ngage_cbus.c`), the comments in `rtl/upp` and `NGage.sv` that
+  speak of the stand-in or its audio device, and `NGage.sdc`'s two-clock
+  set, which still names `upp_haudio`'s rate accumulator (it matches
+  nothing now; `upp_pcm`'s `facc` is written from the MDI side, and the
+  paths into it from `upp_mdi|control` and `wb_arb2|gnt` are among the
+  worst of the fits since pull request 10: a register on `pcm_link_up`
+  is the lead). And in the CPU's bench: `sim/cpu/tb/ngage.h` and `main.cpp`'s
+  `--machine ngage`, the October copy of the model's devices, which no
+  target uses any more (low; the CPU suite has to be rerun after it).
+- [ ] What the phone's DSP does with a sound buffer longer than a half
+  (docs/UPP_WD2.md, "The DSP's PCM playback"): the core plays it past the
+  half's end, into what the other half holds by then (low).
+- [ ] Requests of Symbian's side that NOS answers on the phone through a
+  network: dialling a number, network search, GPRS, SMS. With the test SIM
+  and no radio NOS answers them itself; what each shows on the phone has
+  not been gone through (low to medium each).
 - [ ] The System Agent's current-call variable (`0x100052CB`), which the
   Phone app publishes once its call engine is up: not in our notes. Left
   unknown, games take it for a call in progress (Snakes pauses its music

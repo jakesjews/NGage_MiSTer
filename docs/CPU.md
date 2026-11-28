@@ -587,46 +587,25 @@ PSRs carry the ARMv6 A bit; the second half of a Thumb BLX pair executes.
 
 ### The real boot code
 
-The N-Gage boot code from the CS0 image runs on the RTL and on the
-reference model from the same flash images, and their device accesses are
-compared. Three targets:
+Until the release of 2026-11-28 the firmware's boot also ran on the CPU
+alone, against a copy of the reference model's devices in the bench
+(`sim/cpu/tb/ngage.h`, `--machine ngage`), device access for device access
+against the model. That bench booted the firmware with the stand-in for
+the cellular software and was last run in October 2026: its copy of the
+devices has neither the flash scrambler nor what the unmodified firmware
+needs, and its make targets are gone with the stand-in. `tb/ngage.h` and
+the option are still in the bench's sources (docs/TODO.md). The firmware
+now boots on the whole core, below, and the model that it is compared
+with runs the same unmodified images.
 
-- `make -C sim/cpu boot-prep` builds the images from git HEAD's model and
-  `firmware-patches` files: the NOS stand-in assembled,
-  `firmware-patches/rom-patches.txt` applied as the model applies it, and the integrity digests computed through the
-  bootstrap's ROM map (`sim/cpu/boot/prep.py`).
 - `make -C sim/cpu boot-model` builds the model from git HEAD on the
   Verilator server (`sim/cpu/model/build_linux.sh`: the steps of
-  `model/build.sh` for Linux) and runs it on those images
-  (`sim/cpu/model/run_model.sh`: `-icount shift=4,sleep=off`, RTC at
-  2004-06-01 12:00:00) with a QEMU plugin (`sim/cpu/model/trace_plugin.c`)
-  that logs every device access and interrupt, and instructions in a
-  window if asked (`MODEL_TRACE=start=N,count=M`).
-- `make -C sim/cpu boot` runs the RTL on the same images and compares the
-  register logs and CBUS logs (`sim/cpu/boot/cmp_regs.py`) and the whole
-  sequence of device accesses (`sim/cpu/boot/cmp_dev.py`).
-
-`sim/cpu/tb/ngage.h` gives the bench the model's memory map and the
-devices the boot uses, ported from `model/hw`: both NOR flash chips (AMD
-command set), SDRAM, on-chip RAM, the emif and upp register blocks as
-storage with `model/upp-quirks.txt`, the interrupt controller and timers,
-the CBUS master with the UEMK registers of `model/cbus-regs.txt` and the
-UEMK RTC, the HLE RTC date register, the keypad ports and CTSI register
-(no key pressed), the MMC host with an empty slot, the LCD interface's
-panel ID and status reads, and the STI window, whose kernel debug text goes
-to `kern.log`. Guest time follows executed instructions, counted as QEMU's
-icount counts them (16 ns each; an SWI or undefined instruction counts, a
-Thumb BL pair counts once), and skips ahead while the CPU waits for an
-interrupt, as the model's `-icount shift=4,sleep=off` does, so timer and
-RTC values agree with the model's to within a few instructions. `--devlog`
-writes every device access in the plugin's format; `--watch ADDR` prints
-the registers whenever an instruction retires at ADDR; `--trace` with
-`--trace-after N` and `--trace-count M` writes an instruction window
-(`--dcdbg` and `--pddbg` add the D-cache state machine and the branch
-prediction every cycle), which
-`sim/cpu/boot/cmp_window.py` compares with the model's (`--pc-only`: the
-plugin's PCs and registers are not reliable for code reached through a
-virtual alias, see the plugin's header).
+  `model/build.sh` for Linux) and runs it on the flash images with the
+  release's C: and PMM (`sim/cpu/model/run_model.sh`: `-icount
+  shift=4,sleep=off`, RTC at 2004-06-01 12:00:00) with a QEMU plugin
+  (`sim/cpu/model/trace_plugin.c`) that logs every device access,
+  interrupt and exception, and instructions in a window if asked
+  (`MODEL_TRACE=start=N,count=M`).
 
 ### The whole core
 

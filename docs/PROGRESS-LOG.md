@@ -11662,3 +11662,105 @@ The CPU suite in both cache settings was run on these sources on the
 
 The unpacker page is deployed with it (it makes `boot0.rom` and
 `boot1.rom`, the two flash images, since pull request 10).
+
+## 2026-11-28: the reference model on the unmodified firmware; the stand-in goes; a sound fault found through the model
+
+Asked for after the release: "do we need the firmware patches directory
+anymore?", and then to bring everything else in line with pull request
+10, which had given the core the devices the phone's cellular software
+(NOS) needs and left the model with the stand-in.
+
+**The model.** `model/hw` has those devices now, each written from the
+core's block and docs/FIRMWARE-PROFILES.md: `ngage_ctsi.c` (the
+calibration counter, the 64 Hz counter with its compare, the software and
+MDI interrupts), `ngage_mdi.c` (the rings and pointer words, the DSP's
+announcement, its version replies and its PCM protocol), `ngage_pcm.c`
+(what was the stand-in's audio device, now without registers of its own,
+driven by the DSP's side), `ngage_sim.c` (the SIM interface and the test
+card), `ngage_genio.c`, and in the files that were there: the UEMK's
+interrupt status, acknowledge, alarm and test routes, source 26 on the
+FIQ plane only, source 1 shared with the alarm, timer 1's zero one-shot,
+the "ready" bit of the clock status, the MBUS loop-back bit, 1 MiB of
+on-chip RAM with the ROM page. The C: drive and PMM are files of their
+own in the core's format (`c-drive`, `pmm`; `NGAGE_C`, `NGAGE_PMM`), and
+today's date goes into PMM's clock records at the start, as in the core.
+The patch loader and `NGAGE_PATCHES` are gone.
+
+It boots the unmodified RH-29 4.10 images. From the files the board left
+after its first start (2026-11-26): the DSP link up at 4.33 s of guest
+time, the announcement, the SIM read (477 accesses to the data register,
+where the core's record has 474), the RF version exchange, NOS's
+configuration frame to the DSP, the rest of the SIM's files, Startup's
+animation, the idle screen with the date of the day at about 20 s.
+
+**The first start, and the PMM for it.** From the release's own two files
+the model stayed at the Nokia logo. Startup.app asks NOS's permanent-data
+server for record 1 of PMM group 50 (two bytes) and goes on only when it
+gets them; on "no such record" (result 17 of NOS's read at 0x5152C9A0,
+asked for at 0x5159841A) it waits for ever. The group's two records are
+NOS's own (defaults 00 02 00 00 and 04 00 00 00 from its table at
+0x516F6A9C, written by 0x5166403C when its network server, id 0x3D,
+starts), and nothing in the firmware makes that come first. On the board
+it does: the PMM after the first start of the 26th has the group right
+after the two group 11 records. In the model Startup asks two seconds
+earlier than the server starts, also with the core's 0.7 s sector erase.
+What in the model's timing turns the order is not found; half the
+instruction rate breaks the power key's hold instead. With the records in
+the image the model does the first start as the board does: C: formatted,
+the Time and Date dialogs, the idle screen with 01/01/2004, and from the
+files it leaves a second start with the day's date.
+
+So `tools/mkpmm.py` writes the two records as well (`releases/boot2.vhd`,
+121 programmed bytes, md5 a18e480b...): the first start then does not
+depend on the order on the core either. On the board with the released
+core, from RAM: with the files as released a first start at the 32 KB
+cache setting, Time dialog after 108 s (the release is sound there);
+with the new image, Time dialog after 107 s (Real) and 106 s (32 KB), a
+second start to the idle screen, SPMark04 at Real 8.99 / 1.73 / 29.67 /
+38.05 / 1.89 / 169.64 / 3.47 / 7.23 / 22.22.
+
+**A fault in the core's sound, found on the way.** Tony Hawk from the
+card in the model opened its stream and never played: the DSP's side took
+a "buffer filled" message only with a sample count of at most the half
+size of the start message, and the game's first buffer of a stream is
+8192 samples of silence with halves of 5600 (then 768 at a time, 20.8 a
+second). No reply, SoundDevice stops after a second or three and starts
+again, for ever. The rule is `rtl/upp/upp_dsp_pcm.v`'s, taken over into
+the model with the rest, so the released NGage_20261128.rbf has it: no
+sound in that game there, by the core's own peripheral bench with the
+game's frames (it fails at the first buffer's reply; its PCM test had only
+frames of its own making, 32 samples). Sonic N's first buffer is 800
+samples and its stream runs. The stand-in of the earlier releases used
+any count as given, and so do the core's block and the model now: branch
+`fix/dsp-first-buffer` (fc3587f) has the core's change with the bench's
+new frames; `make test` and lint pass on it, twenty seeds of it are
+building. The model on master already has the rule of the fix. With it
+Tony Hawk's stream runs in the model: 7,463 buffers taken and 358 s
+recorded in one run. Nobody has listened to the core yet.
+
+**What went.** `firmware-patches/` (the stand-in's sources, its two
+binaries and the patch list), `tools/build_standin.sh`, `tools/patchcheck`,
+`make standin`, `standin-check` and `image-check`, `tools/mkimage.py`'s
+patch options (its two images from the Phoenix files are the README's,
+bit for bit, as before), the model's patch loader. docs/NOS_STANDIN.md
+stays as the record of what Symbian's side asks of NOS, with a note on
+where the sources last were (96d6cfa).
+
+**The CPU's boot bench** (`make -C sim/cpu boot-prep`, `boot`) went with
+it: it booted the stand-in on the CPU alone against `tb/ngage.h`, a copy
+of the model's devices from October, and had not been runnable since the
+flash images became the chips' own on 2026-11-12 (neither its image step
+nor its flash knows the scrambler). `boot-model`, the model's run on the
+server with the trace plugin, stays and takes the unmodified images with
+the release's C: and PMM. `tb/ngage.h` and `--machine ngage` are still in
+the bench's sources: docs/TODO.md.
+
+**The peripheral bench's replay** of the model's register log checks a
+read only when the log has not written the register before: the log has
+first accesses only, and NOS writes registers again between its first
+write and its first read. Against the log of a first start: 78 writes, 28
+reads checked, 10 left out, all agree.
+
+**Open.** The release has the sound fault: a new one from the fix, once
+its seeds are in and someone has listened. A boot of the whole core
+against the model has not been run with these images (docs/TODO.md).

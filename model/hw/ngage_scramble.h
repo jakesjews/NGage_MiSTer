@@ -12,8 +12,8 @@
  * copy. The scrambled area is named by the flash image: the words at CS0
  * 0x174 (first byte) and 0x178 (the byte after the last).
  *
- * Plain C with no QEMU types: the model (ngage_flash.c), tools/patchcheck
- * and the Verilator benches (sim/harness) all include this file.
+ * Plain C with no QEMU types: the model (ngage_flash.c) and the Verilator
+ * benches (sim/harness) include this file.
  *
  * Copyright (c) 2026 the NGage_MiSTer authors
  * SPDX-License-Identifier: GPL-2.0-or-later

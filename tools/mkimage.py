@@ -12,27 +12,18 @@ Input, either:
 
 Part of CS0 is scrambled in flash (the cellular software; the image's header
 at 0x174 names the area, 0xA000-0x2ACFFF in RH-29) and the phone decodes it on
-every read (tools/nos_scramble.py). The patches and the integrity check below
-work on the bytes the phone reads; the images are written as flash stores
-them, which is what the core loads. --plain writes CS0 decoded instead, for
-reading in a disassembler: the core does not run such an image.
+every read (tools/nos_scramble.py). The integrity check below works on the
+bytes the phone reads; the images are written as flash stores them, which is
+what the core and the reference model load. --plain writes CS0 decoded
+instead, for reading in a disassembler: neither runs such an image.
 
-The default output preserves the original firmware. To reproduce the historical
-NOS stand-in, explicitly pass --patches firmware-patches/rom-patches.txt.
-Patch lists use the same format as the reference model's model/hw/ngage_patch.c:
-  cs0|cs1 <offset> <hex bytes>        bytes as the phone reads them
-  cs0file|cs1file <offset> <path>     a file's contents: the NOS stand-in
-                                      binaries, at the path the list gives
-                                      (firmware-patches/bin) unless --standin
-                                      or --model-build names another directory
-  md5 <CS0 offset of an entry>        after all byte patches: recompute the
-                                      bootstrap's integrity digest of that
-                                      table entry {start, end, digest[16]}
-The md5 lines and the integrity check read ROM virtual addresses as the
-bootstrap's page table maps them (entries at CS0 0x744, as the model's
-patcher and sim/cpu/boot/prep.py do): CS0 to 0x50EFFFFF, CS1 0x000000-0x3FFFFF
-at 0x50F00000-0x512FFFFF, CS0 0xF00000-0xFEFFFF at 0x51300000-0x513EFFFF (the
-language pack's ROM, entry 0x8F00, spans the end of CS1 and the top of CS0).
+The firmware is written as it is: nothing in it is changed.
+
+The integrity check reads ROM virtual addresses as the bootstrap's page
+table maps them (entries at CS0 0x744): CS0 to 0x50EFFFFF, CS1
+0x000000-0x3FFFFF at 0x50F00000-0x512FFFFF, CS0 0xF00000-0xFEFFFF at
+0x51300000-0x513EFFFF (the language pack's ROM, entry 0x8F00, spans the end
+of CS1 and the top of CS0).
 The integrity table (CS0 0x8F00) is checked the way the bootstrap does
 (routine 0x3238): every entry that is not erased must hold the MD5 of its ROM
 virtual addresses.
@@ -47,12 +38,10 @@ usage:
   mkimage.py flat CS0.bin CS1.bin [-o DIR] [options]
 options:
   -o DIR             where cs0.bin and cs1.bin go (default .)
-  --patches FILE     apply a patch list for a comparison run
-  --standin DIR      apply the stand-in using binaries from DIR, by file name
-  --model-build      apply the stand-in from the model's build (model/.build)
   --phone-data DUMP  restore the per-phone bytes from a ROM dump
-  --no-patches       preserve firmware and allow failed integrity checks for
-                     inspection
+  --no-patches       write the images also when an integrity digest does not
+                     match, for inspection (the name is from when this tool
+                     could apply patches)
   --plain            write CS0 with its scrambled area decoded (not for the core)
   --force            go on with Phoenix files that are not the RH-29 4.10 pair
                      (the inputs are checked by SHA-256; see KNOWN_INPUTS)
@@ -67,7 +56,6 @@ import importlib.util
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CS0_SIZE = 16 << 20
 CS1_SIZE = 8 << 20
 CS1_BASE = 0x02000000
@@ -107,8 +95,7 @@ def pack_area(addr):
 # The Phoenix flash files the core is built against (RH-29 software 4.10, the
 # retail firmware): the SHA-256 of the whole file, and what it is. Anything
 # else fails unless --force. Another of 4.10's language packs is fine with
-# --force (the patches are all in the MCU file's range); another version's
-# image loads but its patch offsets differ, and the phone does not boot.
+# --force; another version's files give an image for another phone.
 KNOWN_INPUTS = {
     "3ce529d6fbcd6db1f4290fabe8b70c62242a23444c4fa74caec42657d12ab4a0": "RH2941.0C1 (RH-29 4.10, the MCU file)",
     "657c2d1bafbad6797732c86892999a9e201e10961ee8c1801b0b6cc73bb41fa5": "RH2941.021 (RH-29 4.10, the language pack of the Romania variant)",
@@ -177,111 +164,6 @@ def from_flat(cs0_path, cs1_path):
     return cs0, cs1
 
 
-# ---------------------------------------------------------------- patches
-# ngage_patch.c reads each line with sscanf(line, "%7s %li %511s") after
-# cutting it at the first '#'; these helpers do the same.
-
-def c_strtol(s):
-    """strtol(s, &end, 0): returns (value, characters used) or (None, 0)."""
-    i = 0
-    neg = False
-    if i < len(s) and s[i] in "+-":
-        neg = s[i] == "-"
-        i += 1
-    base = 10
-    if s[i:i + 2].lower() == "0x" and i + 2 < len(s) and s[i + 2] in "0123456789abcdefABCDEF":
-        base = 16
-        i += 2
-    elif s[i:i + 1] == "0":
-        base = 8
-    j = i
-    digits = "0123456789abcdef"[:base]
-    while j < len(s) and s[j].lower() in digits:
-        j += 1
-    if j == i:
-        return None, 0
-    v = int(s[i:j], base)
-    return (-v if neg else v), j
-
-
-def scan_line(line):
-    """The fields sscanf("%7s %li %511s") converts: (kind, off, word), None for missing."""
-    line = line.split("#", 1)[0]
-    pos = 0
-    n = len(line)
-
-    def skip_ws(p):
-        while p < n and line[p] in " \t\r\n\v\f":
-            p += 1
-        return p
-
-    pos = skip_ws(pos)
-    if pos >= n:
-        return None, None, None
-    end = pos
-    while end < n and end - pos < 7 and line[end] not in " \t\r\n\v\f":
-        end += 1
-    kind = line[pos:end]
-    pos = skip_ws(end)
-    off, used = c_strtol(line[pos:])
-    if off is None:
-        return kind, None, None
-    pos = skip_ws(pos + used)
-    end = pos
-    while end < n and end - pos < 511 and line[end] not in " \t\r\n\v\f":
-        end += 1
-    word = line[pos:end] if end > pos else None
-    return kind, off, word
-
-
-def md5_entry(entry, cs0, cs1):
-    start = int.from_bytes(cs0[entry:entry + 4], "little")
-    end = int.from_bytes(cs0[entry + 4:entry + 8], "little")
-    length = (end - start + 1) & 0xFFFFFFFF
-    return start, end, hashlib.md5(rom_read(cs0, cs1, start, length)).digest()
-
-
-def apply_patches(path, cs0, cs1, standin):
-    md5s = []
-    for lineno, line in enumerate(open(path, encoding="latin-1"), 1):
-        kind, off, word = scan_line(line)
-        if kind is None or off is None:
-            continue
-        if kind == "md5":
-            if len(md5s) < 16:
-                md5s.append(off)
-            continue
-        if word is None:
-            continue
-        if kind in ("cs0file", "cs1file"):
-            img = cs0 if kind == "cs0file" else cs1
-            src = os.path.join(standin, os.path.basename(word)) if standin else os.path.join(ROOT, word)
-            if not os.path.exists(src):
-                fail("%s:%d: %s not found (make standin builds the stand-ins, model/build.sh the model's)"
-                     % (path, lineno, src))
-            data = open(src, "rb").read()
-            if off < 0 or off + len(data) > len(img):
-                fail("%s:%d: rom patch out of range" % (path, lineno))
-            img[off:off + len(data)] = data
-            print("rom-patch: %s 0x%x <- %s (%d bytes)" % (kind, off, os.path.relpath(src, ROOT), len(data)))
-            continue
-        if kind not in ("cs0", "cs1"):
-            continue
-        img = cs0 if kind == "cs0" else cs1
-        nb = len(word) // 2
-        if off < 0 or off + nb > len(img):
-            fail("%s:%d: rom patch out of range" % (path, lineno))
-        for i in range(nb):
-            pair = word[2 * i:2 * i + 2]
-            v, used = c_strtol("0x" + pair)
-            img[off + i] = v & 0xFF if v is not None else img[off + i]
-        print("rom-patch: %s 0x%x <- %s" % (kind, off, word))
-    for entry in md5s:
-        start, end, digest = md5_entry(entry, cs0, cs1)
-        cs0[entry + 8:entry + 24] = digest
-        print("rom-patch: digest at CS0 0x%x for 0x%08x-0x%08x recomputed (%s)" % (entry, start, end, digest.hex()))
-
-
 # ---------------------------------------------------------------- checks
 
 def rom_read(cs0, cs1, va, length):
@@ -324,20 +206,11 @@ def main():
     p.add_argument("mode", choices=("phoenix", "flat"))
     p.add_argument("inputs", nargs="+")
     p.add_argument("-o", "--outdir", default=".")
-    p.add_argument("--patches")
-    p.add_argument("--standin")
-    p.add_argument("--model-build", action="store_true")
     p.add_argument("--phone-data")
     p.add_argument("--no-patches", action="store_true")
     p.add_argument("--plain", action="store_true", help="write CS0 with its scrambled area decoded")
     p.add_argument("--force", action="store_true", help="go on with Phoenix files that are not the 4.10 pair")
     a = p.parse_args()
-    patches = a.patches
-    if not patches and (a.standin or a.model_build):
-        patches = os.path.join(ROOT, "firmware-patches", "rom-patches.txt")
-    if a.no_patches:
-        patches = None
-
     if a.mode == "phoenix":
         cs0, cs1 = from_phoenix(a.inputs, a.force)
     else:
@@ -361,15 +234,9 @@ def main():
     if area:
         print("CS0 0x%X-0x%X is scrambled in flash (header 0x%X): decoded for integrity checks"
               % (area[0], area[1] - 1, scr.HEADER[0]))
-        if area != scr.RH29_WINDOW and patches:
-            sys.stderr.write("mkimage: warning: the RH-29 stand-in was built for the area 0x%X-0x%X\n"
-                             % (scr.RH29_WINDOW[0], scr.RH29_WINDOW[1] - 1))
     else:
         print("note: the image names no scrambled area at CS0 0x%X" % scr.HEADER[0])
 
-    if patches:
-        standin = os.path.join(ROOT, "model", ".build") if a.model_build else a.standin
-        apply_patches(patches, cs0, cs1, standin)
     ok = check_table(cs0, cs1)
 
     if a.plain:

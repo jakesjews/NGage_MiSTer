@@ -34,7 +34,7 @@ first access is logged to `model/.out/regs.log`.
 | `0x0C001000` | Remainder of 1 MiB window | On-chip RAM mapped above the guest's 16 MiB SDRAM; includes comm RAM at `0x0C004000`, DSP upload at `0x0C030000` and auxiliary upload at `0x0C06FF00` | Bootstrap flash routine at `0x0C004748`, native QD DSP uploads, ngage-v5 region map | A (observed regions), model (other offsets) |
 | `0x0C100000` | `0x3E8` bytes | MDI shared rings in MiSTer SDRAM at byte offset `0x01100000` | native QD NOS ring access | A (guest use), model (backing) |
 | `0x0C1003E8` | rest of the 1 MB page | peripheral registers | bootstrap page table | A |
-| `0x0C1F0100` | 16 bytes | Historical emulator RTC date and C: blank flag | NOS stand-in | - |
+| `0x0C1F0100` | 16 bytes | Emulator RTC date and C: blank flag, from the time of the NOS stand-in; nothing reads it now | - | - |
 | `0x0D000000` | 16 MB | second I/O window; only the STI trace window at `0x0DE00000` is used so far | bootstrap table, ekern `0x5031E4A8` | B |
 
 ## Clock and system page (0x0C120000)
@@ -273,7 +273,7 @@ media type must be 6, EMediaFlash).
 | Sector erase | takes 20 ms of guest time; only the erasing sector reads status (DQ7 = 0, DQ6/DQ2 toggle, DQ3 = 1); other sectors read array data | medint.pdd waits for DQ7 = 0 and DQ3 = 1 after `0x30` (`0x5037FEAC`), then for `0xFFFF` twice (`0x5037FF34`); a real erase takes about 0.7 s | A (status), C (time, bank layout) |
 | Erase suspend/resume | `0xB0` suspends (status DQ7 = 1, DQ2 toggles), `0x30` resumes | medint.pdd `0x5037FEE4`, `0x5037FDEC`; completion check treats DQ7 = 1 as suspended | A |
 | C: drive | CS1 `0x400000`-`0x7FFFFF` (4 MB, LFFS), mapped at virtual `0x59200000` and `0x59600000` | medint.pdd object at `0x5037FD64` (base, alias, size `0x400000`), QEMU `gva2gpa` | A |
-| Persistence | `flash1-save` file replaces the image when present, written on exit after changes | model feature | - |
+| Persistence | the C: drive (CS1's upper 4 MiB) and PMM (the top 64 KiB of CS0) are files of their own, loaded over the image and written back after changes: `boot0.vhd` and `boot2.vhd` on the core, `c-drive` and `pmm` in the model, the same bytes | emulator feature | - |
 | Scrambled area | CS0 `0xA000`-`0x2ACFFF` (the cellular software, NOS) is stored scrambled; array reads return it decoded, one 16-bit word at a time, from the stored word and its byte address (16 formulas: `tools/nos_scramble.py`). Status, autoselect and CFI reads are not decoded | Andrea Bogazzi's formulas for the N-Gage (NEM-4 4.03), from his core. They decode RH-29 4.10 and 4.60 to the MD5 the bootstrap checks for `0x50009000` upward (table entry `0x8F18`: `be87bc44…` and `2f00b1ff…`), and the unpatched firmware passes that check in the model | A |
 | The area's bounds | the two words at CS0 `0x174` (first byte) and `0x178` (the byte after the last), taken when both are whole 4 KB pages, in order and inside the chip; read at reset and after an image load | both words hold `0xA000` / `0x2AD000` in 4.10 and 4.60, the area that gives the right MD5; NEM-4's area ends elsewhere (`0x2B3000`), so it is not fixed in the ASIC; nothing in the firmware reads the words, so the ASIC's boot ROM is taken to | C |
 | Writes in the area | the word written is stored as given and reads back decoded (an erased word does not read `0xFFFF`). A chip would AND the data into the stored word; the flash model ANDs it into the word read | nothing in the firmware programs or erases the area | - |
@@ -296,50 +296,26 @@ kernel faulted in Starter's cleanup (`RArrayBase::Count` on NULL).
 |---|---|---|---|---|
 | `0x0DE00000`-`0x0DFFFFFF` | STI trace output: kernel debug text, one byte per address, `0xC0` at the start, `0xE0` at `0x0DFD0000` on wrap | write sink, text to `model/.out/kern.log` | ekern `0x5031E4A8`, `0x5031E538`; trace mask bit 30 (ROM header `iTraceMask` `0xC0008003`) | B |
 
-## Emulator devices (0x0C1F0000) — not UPP_WD2 hardware
-
-Two inventions of this project, for what NOS and the DSP did on the phone
-(NOS needs modem hardware the core does not have, the DSP's code is not
-known). Only the NOS stand-in uses them (`firmware-patches/nos-stub`,
-`docs/NOS_STANDIN.md`); the FPGA core implements them as small blocks.
-Nothing in the firmware touches this page: no ROM constant points into it
-and no run accesses it. Symbian maps it at virtual `0x581F0000` with the
-rest of `0x0C1xxxxx`.
-
-### Native MDI game PCM
+## The DSP's PCM playback
 
 Stock NOS sends Phonet resource `0xE8` to DSP device `0x7C` through the
 shared MDI rings. The responder plays signed 16-bit mono at 8 or 16 kHz
 from the SDRAM halves and posts replies through the D2M ring. CTSI bit
 10 signals publication. The renderer resamples to 48 kHz for both MiSTer
-channels.
+channels (`rtl/upp/upp_dsp_pcm.v`, `upp_pcm.v`; `model/hw/ngage_mdi.c`,
+`ngage_pcm.c`). A buffer's sample count is used as the client gives it,
+also when it is more than the half size of the start message: the first
+buffer of a stream can be (Tony Hawk: 8192 samples of silence with halves
+of 5600). The messages are in [NOS_STANDIN.md](NOS_STANDIN.md), "Audio".
 
-### Historical HLE audio device (0x0C1F0000) — `ngage_audio.c`
+## Emulator device (0x0C1F0100) — not UPP_WD2 hardware
 
-The stand-in and the reference software model used this interface.
-
-Plays two PCM buffers from SDRAM alternately. All registers are 32-bit.
-
-| Offset | Name | Access | Meaning |
-|---|---|---|---|
-| `+0x00` | ID | R | `0x41554431` ("AUD1") |
-| `+0x04` | CTRL | RW | bit 0 RUN: 0 → 1 starts at buffer 0, position 0; 1 → 0 stops and empties both buffers. Bit 1 IRQ enable |
-| `+0x08` | FORMAT | RW | bit 0: stereo (L, R frames). Samples are signed 16-bit little-endian |
-| `+0x0C` | RATE | RW | frames per second, 4000-48000 |
-| `+0x10`, `+0x14` | ADDR0, ADDR1 | RW | physical byte address of buffer 0 / 1 (even) |
-| `+0x18`, `+0x1C` | LEN0, LEN1 | RW | frames in buffer 0 / 1; writing a nonzero value marks the buffer full |
-| `+0x20` | STATUS | R, W1C | bits 0/1 DONE0/1: the buffer was played to its end (write 1 to clear); bits 4/5 FULL0/1; bit 8 running; bit 9 buffer being played; bit 10 starved |
-| `+0x24` | POS | R | frames played from the current buffer |
-| `+0x28` | VOLUME | RW | gain, `0x100` = unity (reset value), values above are clamped |
-| `+0x2C` | PLAYED | R | frames played since RUN, silence included |
-
-While RUN is set the device plays the current buffer at RATE, multiplying
-each sample by VOLUME / 256. At the end of a buffer it marks it empty,
-sets its DONE bit and moves to the other one. If the current buffer is
-empty it takes the other one when that is full, otherwise it outputs
-silence (starved) until one is filled. The interrupt is DONE0 | DONE1 with
-IRQ enable, on interrupt source 5 (IrqTimer5: nothing in Symbian binds it
-and no timer 5 runs; the stand-in binds it by name, id 98).
+An invention of this project from the time of the NOS stand-in
+([NOS_STANDIN.md](NOS_STANDIN.md)), which read it. The core and the model
+still have it; nothing in the firmware touches this page (no ROM constant
+points into it and no run accesses it), and it can go at the core's next
+change. The audio device that stood beside it at `0x0C1F0000` is gone
+from both.
 
 ### HLE RTC date register (0x0C1F0100) — `ngage_cbus.c`
 

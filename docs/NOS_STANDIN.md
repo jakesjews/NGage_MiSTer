@@ -1,5 +1,15 @@
 # NOS stand-in: the modem side at the ISI level
 
+**History.** The stand-in ran in the releases up to `NGage_20261120`. Since
+`NGage_20261128` the core and the reference model run the phone's cellular
+software itself ([FIRMWARE-PROFILES.md](FIRMWARE-PROFILES.md)), and the
+stand-in's sources, its patch list and the two emulator devices it used
+are no longer in the tree: `git show 96d6cfa:firmware-patches/` has them
+as they last were. This document stays for what it records about the
+firmware: the requests Symbian's side makes of NOS and the answers that
+were enough for it, among them the sound messages that the DSP's side of
+the MDI link now answers ("Audio").
+
 This describes the stand-in in the existing QD release. Integration builds
 load original NOS. Use the release RBF or explicitly enable the stand-in in
 the reference model for comparison.
@@ -205,7 +215,7 @@ invention (`docs/UPP_WD2.md`, "HLE audio device").
 |---|---|---|---|
 | `0x20` | → NOS | `82`, path, half length (16-bit BE, samples), half A, half B (32-bit BE physical), `00`, rate code | Start (ord951 `0x5034F56C`, sent at `0x505AC65A`). Seen: `82 02 15E0 0A061000 0A063BC0 00 46`: two halves of 5600 samples (11200 bytes) at the start of the chunk. Path 3 instead of 2 when a call is active (SA event flag at `+0x28`, `0x505AFDB8`). Rate code 50 only for sources up to 8 kHz during a call, else 70 (`0x505AC5B8`-`0x505AC62C`); outside a call SoundDevice upsamples 8 kHz sources x2 with an 8-tap filter (`0x505AEFEC`) and sends 70. Read as 50 = 8 kHz, 70 = 16 kHz, mono 16-bit (the filter works on one channel) |
 | `0x21` | → client | not read | Start accepted: in a playing state SoundDevice asks for data for half 0 (`0x505AFAE0` → `0x505ABBDC`) |
-| `0x23` | → NOS | half, `1` last buffer / `2` more, samples (16-bit BE) | A half was filled (ord962 `0x5034F6B0`, sent at `0x505AE17A` after the copy at `0x505ADFD2`; the flag is the CMMFBuffer last-buffer bit, `0x505B001A`). Sent only in the playing states |
+| `0x23` | → NOS | half, `1` last buffer / `2` more, samples (16-bit BE) | A half was filled (ord962 `0x5034F6B0`, sent at `0x505AE17A` after the copy at `0x505ADFD2`; the flag is the CMMFBuffer last-buffer bit, `0x505B001A`). Sent only in the playing states. The first one of a stream can name more samples than a half holds: Tony Hawk's is 8192 (silence) with halves of 5600, then 768 at a time with `0x27` (seen in the model, 2026-11-28) |
 | `0x26` | → client | `00`, half | That half is free: SoundDevice fills it next ([11] → `+0x1F9`, `0x505AFB8E` → `0x505ABBDC`) and adds the last buffer's length to the position (`0x505ABBA8`). When two halves are free it sends `0x2A` (underflow, `0x505ABC44`) unless a grace count runs |
 | `0x2A` | → NOS | none | Stop (ord952), on the client's stop (`0x505ADC94`) or underflow |
 | `0x2B` | → client | bytes played (16-bit BE) | Stop done: added to the position, then teardown (`0x505AFBC2` → `0x505ADCB8`: `0x1F/0x04`, audio.ldd control 2, `0x0B/0x19`) |

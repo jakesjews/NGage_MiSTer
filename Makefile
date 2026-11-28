@@ -7,7 +7,7 @@ LINT_TOPS := emu lcd_panel video_out keypad_matrix nor_flash mmc_card ngage_inpu
              upp_periph upp_intc upp_timers upp_dma upp_mmc upp_lcdif upp_uif upp_cbus upp_gpio upp_dsp_pcm upp_pcm \
              upp_mdi upp_mdi_peer upp_nem4_keypad upp_simif upp_test_sim wb_arb2
 
-.PHONY: help lint lint-prepare test clean cpu-gen cpu-gen-check standin standin-check image-check scramble-check pmm-check
+.PHONY: help lint lint-prepare test clean cpu-gen cpu-gen-check scramble-check pmm-check
 
 help:
 	@echo "make lint   Lint the RTL with Verilator (-Wall)"
@@ -18,9 +18,6 @@ help:
 	@echo "make cpu-gen        Regenerate rtl/cpu/arm925t_gen.v (tools/gen_cpu.sh, needs sv2v)"
 	@echo "make cpu-gen-check  Check that rtl/cpu/arm925t_gen.v matches its sources"
 	@echo "make -C sim/cpu     CPU tests (see sim/cpu/Makefile)"
-	@echo "make standin        Rebuild the historical NOS stand-in control binaries"
-	@echo "make standin-check  Check that firmware-patches/bin matches firmware-patches/nos-stub"
-	@echo "make image-check CS0=.. CS1=..  Check tools/mkimage.py against the model's own patcher"
 	@echo "make scramble-check Check the flash scrambler's tables (tools/nos_scramble.py, model/hw/ngage_scramble.h)"
 	@echo "make pmm-check      Check that releases/boot2.vhd is the PMM image tools/mkpmm.py writes"
 
@@ -60,33 +57,6 @@ cpu-gen-check:
 	else \
 		rm -f $$tmp; echo "rtl/cpu/arm925t_gen.v is out of date: run make cpu-gen"; exit 1; \
 	fi
-
-# The NOS stand-in binaries that the firmware patches write into CS0
-# (firmware-patches/rom-patches.txt), built as model/build.sh builds them
-# (needs arm-none-eabi-gcc) from the committed firmware-patches/nos-stub, so
-# that the committed binaries always go with committed sources;
-# tools/build_standin.sh builds from any directory.
-STANDIN_SRC := firmware-patches/nos-stub
-STANDIN_BIN := firmware-patches/bin
-standin:
-	@tmp=$$(mktemp -d); git archive HEAD $(STANDIN_SRC) | tar -x -C $$tmp && \
-	tools/build_standin.sh $$tmp/$(STANDIN_SRC) $(STANDIN_BIN) && chmod 644 $(STANDIN_BIN)/*.bin; s=$$?; rm -rf $$tmp; exit $$s
-
-standin-check:
-	@tmp=$$(mktemp -d); git archive HEAD $(STANDIN_SRC) | tar -x -C $$tmp; \
-	if tools/build_standin.sh $$tmp/$(STANDIN_SRC) $$tmp/out >/dev/null 2>&1 && \
-	   cmp -s $$tmp/out/nos-stub.bin $(STANDIN_BIN)/nos-stub.bin && cmp -s $$tmp/out/nos-dll.bin $(STANDIN_BIN)/nos-dll.bin; then \
-		rm -rf $$tmp; echo "$(STANDIN_BIN) is current"; \
-	else \
-		rm -rf $$tmp; echo "$(STANDIN_BIN) is out of date: run make standin"; exit 1; \
-	fi
-
-# mkimage.py against the reference model's patcher on a pair of images
-# (default: the model's own; the firmware is not in the repository)
-CS0 ?= research/firmware/images/nor/rh29-4.10-cs0.bin
-CS1 ?= research/firmware/images/nor/rh29-4.10-cs1.bin
-image-check:
-	tools/patchcheck.sh $(CS0) $(CS1)
 
 # The flash scrambler: the Python reference against its own formulas, and the
 # tables in the model's header against the ones the reference generates.

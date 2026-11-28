@@ -12,7 +12,9 @@
 //    read 0; the DPLL read quirks; accesses of a size the model's region
 //    refuses read 0 and change nothing; the register file is cleared at reset;
 //  * the model's first-access log (model/.out/regs.log) replayed: every read
-//    gives the value the model logged;
+//    of a register the log has not written before gives the value the model
+//    logged (the log has the first write and the first read of a register,
+//    not what the firmware wrote between the two);
 //  * timers and interrupt controller together: an underflow raises irq
 //    3 * C + 1 clocks after the write that started the timer; the number
 //    register; FIQ routing; acknowledge;
@@ -59,6 +61,7 @@
 #include "sdram_model.h"
 #include "sdram_address.h"
 
+#include <set>
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -583,20 +586,22 @@ void test_regs_log(Bench &b, const std::string &dir) {
 	if (!f) { printf("regs.log replay: %s/regs.log not found, skipped\n", dir.c_str()); return; }
 	b.reset_core();                 // the log starts at power-on
 	std::string line;
-	int writes = 0, reads = 0;
+	std::set<unsigned> written;
+	int writes = 0, reads = 0, skipped = 0;
 	while (std::getline(f, line)) {
 		char rw, blk[32];
 		unsigned a, size, v;
 		if (sscanf(line.c_str(), "%c %31s %x size=%u val=%x", &rw, blk, &a, &size, &v) != 5) continue;
 		if (strcmp(blk, "upp")) continue;             // the EMIF block is upp_bus's
-		if (rw == 'W') { b.wrn(a, v, (int)size); writes++; }
+		if (rw == 'W') { b.wrn(a, v, (int)size); written.insert(a & ~3u); writes++; }
 		else if (rw == 'R') {
+			if (written.count(a & ~3u)) { skipped++; continue; }   // the firmware may have written it again since
 			uint32_t got = b.rdn(a, (int)size);
 			reads++;
 			if (got != v) sim::fail("regs.log: read %08x (%u bytes) gave 0x%x, the model logged 0x%x", a, size, got, v);
 		}
 	}
-	printf("regs.log replay: %d writes, %d reads checked\n", writes, reads);
+	printf("regs.log replay: %d writes, %d reads checked, %d reads after a write left out\n", writes, reads, skipped);
 }
 
 // -------------------------------------------------------------------------

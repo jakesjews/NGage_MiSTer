@@ -58,8 +58,8 @@
 //                      pictures start afresh; audio.wav restarts)
 // Always written: DIR/kern.log (the kernel's debug text through the STI
 // window), DIR/lcd-<ms>.png each time the picture at the video outputs
-// changes (and lcd-last.png), DIR/audio.wav (AUDIO_L/R at 48 kHz, once the
-// HLE audio device has played something), DIR/run.log lines on stdout.
+// changes (and lcd-last.png), DIR/audio.wav (AUDIO_L/R at 48 kHz, once
+// something has been played), DIR/run.log lines on stdout.
 #include "Vemu.h"
 #include "Vemu___024root.h"
 #include "verilated.h"

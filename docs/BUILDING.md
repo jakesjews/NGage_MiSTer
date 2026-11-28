@@ -25,8 +25,6 @@ and is never in the repository.
   pipeline's parts and two proofs.
 - `make cpu-gen-check`: `rtl/cpu/arm925t_gen.v`, the netlist Quartus compiles,
   matches its sources (sv2v 0.0.13). `make cpu-gen` regenerates it.
-- `make standin-check`: the binaries in `firmware-patches/bin` match
-  `firmware-patches/nos-stub` (arm-none-eabi-gcc) for the historical control.
 - `make scramble-check`: the flash scrambler's three copies agree
   (`tools/nos_scramble.py`, `model/hw/ngage_scramble.h`; the core's copy in
   `rtl/mem/ddram_flash.sv` is checked against the header by the `ddrflash`
@@ -84,9 +82,8 @@ screenshot of it. Every build without the macro is the plain core.
   `boot1.rom` (the unpacker page makes the same two files), and the input of
   the firmware bench and the reference model. They are flash as the chips
   store it: CS0 `0xA000`-`0x2ACFFF` is scrambled and the core decodes it on
-  reads. The output preserves the original NOS and integrity table. `--plain`
-  writes CS0 decoded for a disassembler. To reproduce the historical patched
-  control, pass `--patches firmware-patches/rom-patches.txt` explicitly.
+  reads. Nothing in the firmware is changed. `--plain` writes CS0 decoded
+  for a disassembler.
 - Use the reference pair for bring-up. `mkimage.py` requires `--force` to
   try language packs other than `RH2941.021`.
 - `tools/mkpmm.py OUT` writes the PMM of a phone before its first start
@@ -96,9 +93,12 @@ screenshot of it. Every build without the macro is the plain core.
   It runs for hours.
 - `model/build.sh` builds the reference model: QEMU 11.1.2 with the `ngage-qd`
   machine in `model/hw` (QEMU's build requirements and arm-none-eabi-gcc).
-  `model/run.sh` uses the supplied flash images directly. The model does not
-  have the devices the original NOS needs: set `NGAGE_PATCHES=standin` on a
-  stock image to run it with the stand-in, as earlier releases did.
+  `model/run.sh` runs the same flash images as the core, with the phone's
+  C: and PMM in the core's own files (`NGAGE_C`, `NGAGE_PMM`: a `boot0.vhd`
+  and a `boot2.vhd`, so a phone's state can be taken from the MiSTer and
+  back); without them it starts from the two files in releases/, a phone's
+  first start. Its header lists the logs it writes and what else it takes
+  (a card, a key script, the clock).
 - `tools/mkcard.py` makes card images, for the core (`.mmc`) and for the model.
 
 ## On the MiSTer

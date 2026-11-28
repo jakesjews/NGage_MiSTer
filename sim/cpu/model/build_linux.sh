@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Build the N-Gage reference model (the steps of model/build.sh) on Linux,
-# for traces to compare with the RTL boot bench without using the Mac's
+# for traces to compare with a boot of the core without using the Mac's
 # QEMU. Runs on the Verilator machine; sim/cpu/Makefile (boot-model)
 # copies the model sources of git HEAD there first.
 #
@@ -13,9 +13,7 @@
 # root with the glib and pixman development files when the system has none
 # (pkg-config files there must have their prefix pointed at it).
 #
-# Differences from model/build.sh: GNU sed, no SDL display, and the NOS
-# stand-in is not assembled here (no ARM toolchain on this machine; the boot
-# bench's images already carry it, see sim/cpu/boot/prep.py).
+# Differences from model/build.sh: GNU sed and no SDL display.
 set -euo pipefail
 
 msrc=$(cd "$1" && pwd)
@@ -30,7 +28,12 @@ if [[ ! -d $SRC ]]; then
 	git clone -q --depth 1 --branch "$QEMU_TAG" https://gitlab.com/qemu-project/qemu.git "$SRC"
 fi
 
-cp "$msrc/hw/ngage.h" "$SRC/include/hw/arm/ngage.h"
+for p in "$msrc"/qemu-patches/*.patch; do
+	[[ -e $p ]] || continue
+	git -C "$SRC" apply --reverse --check "$p" 2>/dev/null || git -C "$SRC" apply "$p"
+done
+cp "$msrc"/hw/ngage*.h "$SRC/include/hw/arm/"
+rm -f "$SRC"/hw/arm/ngage*.c            # a file that has gone from hw/ goes from the tree
 cp "$msrc"/hw/ngage*.c "$SRC/hw/arm/"
 
 if ! grep -q '^config NGAGE' "$SRC/hw/arm/Kconfig"; then
