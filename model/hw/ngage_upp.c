@@ -115,6 +115,21 @@ void ngage_upp_load_quirks(const char *path)
 
 static bool upp_read_hook(UPPBlock *b, hwaddr pa, uint32_t *val)
 {
+    if (pa == 0x0C120020 && b->base <= 0x0C120004) {
+        /* Clock status: bit 25 is "ready" while the control word at
+         * 0x0C120004 holds 0x20 or 0x40 (NOS's clock routine writes 0x40,
+         * then 0x20, and waits for the bit at 0x514A6DC4). Bits 28:26, the
+         * DPLLs locked, come from the quirks file. */
+        uint32_t control = b->regs[(0x0C120004 - b->base) >> 2];
+
+        *val = (*val & ~(1u << 25)) | ((control == 0x20 || control == 0x40) ? 1u << 25 : 0);
+    }
+    if (pa == 0x0C15021C) {
+        /* MBUS: bit 6 of 0x0C15021E reads what was written to its bit 7
+         * (NOS's receive/transmit loop-back test). The command strobes of
+         * 0x0C15021C read 0: the quirks file. */
+        *val = (*val & ~(1u << 22)) | ((*val >> 1) & (1u << 22));
+    }
     for (int i = 0; i < nquirks; i++) {
         if (quirks[i].pa == pa) {
             *val = (*val | quirks[i].or_mask) & quirks[i].and_mask;

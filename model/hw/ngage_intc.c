@@ -25,7 +25,10 @@
  * MMCCmdIdle 23, MMCCmdRdy 24, CTSI_IRQ 25, CTSI_FIQ 26, APIIOAbort 27,
  * APIMissAlign 28, GPIOnLow/High = 29+2n/30+2n. Checked against: boot timer 0
  * uses bit 0; kernel timer 4 (0x0C120A80) uses bit 4 (0x5031C968); the
- * kernel enables bit 25 at start-up.
+ * kernel enables bit 25 at start-up. Source 26 is on the FIQ plane only: the
+ * IRQ plane neither shows nor takes it. Source 1 is also the UEMK's RTC
+ * alarm (ngage_cbus.c), until a write of bit 1 to the IRQ plane's disable
+ * register.
  *
  * OS-timer interrupt unit, 0x0C120040-0x0C12007F:
  *   +0x04 (0x0C120044) enable bits 2:0 (kernel writes 2 at 0x5031C7A8)
@@ -50,7 +53,9 @@
  *         disabling its source (0x5031CACC), the boot and timer-4 ISRs write
  *         1 (0x3064, 0x5031C86C), starts write 0, and the boot then polls
  *         the value it wrote for nonzero (0x3208).
- *   +0x10 counter: write loads it, read returns the live down-count
+ *   +0x10 counter: write loads it, read returns the live down-count. A 0
+ *         written to timer 1 while it is a one-shot (control 1) is due at
+ *         the next tick (the core's rule, rtl/upp/upp_timers.sv)
  *   +0x18 reload value, loaded on underflow
  *
  * Copyright (c) 2026 the NGage_MiSTer authors
@@ -85,6 +90,7 @@ typedef struct NGageIntc {
     MemoryRegion intc_mr, ostu_mr, timer_mr;
     qemu_irq irq, fiq;
     uint32_t pending[NBANKS];
+    bool src1_timer, src1_alarm;      /* source 1: timer 1 or the UEMK's RTC alarm */
     uint32_t enable[2][NBANKS];       /* [0] IRQ plane, [1] FIQ plane */
     uint32_t other[2][NBANKS][16];    /* registers without known behaviour */
     uint32_t ostu[16];
@@ -93,12 +99,16 @@ typedef struct NGageIntc {
 
 static NGageIntc *the_intc;
 
+/* Sources that exist on the FIQ plane only: 26, IrqCTSI_FIQ (the SIM
+ * interface's; the firmware enables it at 0x0C1201C8 alone). */
+static const uint32_t fiq_only[NBANKS] = { 1u << NGAGE_IRQ_CTSI_FIQ, 0, 0 };
+
 static void intc_update(NGageIntc *s)
 {
     bool irq = false, fiq = false;
 
     for (int k = 0; k < NBANKS; k++) {
-        irq |= (s->pending[k] & s->enable[0][k]) != 0;
+        irq |= (s->pending[k] & ~fiq_only[k] & s->enable[0][k]) != 0;
         fiq |= (s->pending[k] & s->enable[1][k]) != 0;
     }
     fiq |= (s->ostu[0x10 >> 2] & s->ostu[0x04 >> 2] & 7) != 0;
@@ -108,10 +118,20 @@ static void intc_update(NGageIntc *s)
 
 void ngage_ctsi_set(int who, bool level)
 {
-    static bool lines[2];
+    static bool lines[3];
 
-    lines[who & 1] = level;
-    ngage_intc_set_source(NGAGE_IRQ_CTSI_IRQ, lines[0] || lines[1]);
+    lines[who % 3] = level;
+    ngage_intc_set_source(NGAGE_IRQ_CTSI_IRQ, lines[0] || lines[1] || lines[2]);
+}
+
+void ngage_intc_set_alarm(bool level)
+{
+    NGageIntc *s = the_intc;
+
+    if (s) {
+        s->src1_alarm = level;
+        ngage_intc_set_source(1, s->src1_timer);
+    }
 }
 
 void ngage_intc_set_source(int src, int level)
@@ -121,6 +141,10 @@ void ngage_intc_set_source(int src, int level)
 
     if (!s || src < 0 || src >= 32 * NBANKS) {
         return;
+    }
+    if (src == 1) {
+        s->src1_timer = level;
+        level = level || s->src1_alarm;
     }
     if (level) {
         s->pending[src >> 5] |= bit;
@@ -145,17 +169,17 @@ static uint64_t intc_read_(NGageIntc *s, hwaddr off)
     int plane = off >= 0xC0;
     hwaddr o = off - (plane ? 0xC0 : 0);
     int k = o >> 6;
-    uint32_t v;
+    uint32_t v, pend = s->pending[k] & (plane ? ~0u : ~fiq_only[k]);
 
     switch (o & 0x3F) {
     case 0x08:
         v = s->enable[plane][k];
         break;
     case 0x10:
-        v = s->pending[k];
+        v = pend;
         break;
     case 0x14: {
-        uint32_t act = s->pending[k] & s->enable[plane][k];
+        uint32_t act = pend & s->enable[plane][k];
         v = act ? ctz32(act) + 1 : 0;
         break;
     }
@@ -179,6 +203,11 @@ static void intc_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
         break;
     case 0x0C:
         s->enable[plane][k] &= ~(uint32_t)val;
+        if (plane == 0 && k == 0 && (val & 2) && s->src1_alarm) {
+            /* the UEMK's alarm interrupt is taken back with its source */
+            s->src1_alarm = false;
+            ngage_intc_set_source(1, s->src1_timer);
+        }
         break;
     default:
         qemu_log_mask(LOG_UNIMP, "ngage intc: write %08x = %08x pc=%08x\n",
@@ -276,15 +305,21 @@ static void timer_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
     case 0x08:
         ngage_intc_set_source(t->n, 0);
         break;
-    case 0x10:
+    case 0x10: {
+        /* A count of 0 on timer 1 as a one-shot is due at the next tick: the
+         * kernel's zero-delay callback for NOS (0x0C120A30 after control 1)
+         * would otherwise wait 2^32 ticks. */
+        uint32_t count = (t->n == 1 && (t->regs[0x04 >> 2] & 3) == 1 && val == 0) ? 1 : val;
+
         if (t->running) {
-            ngtimer_schedule(t, val);
+            ngtimer_schedule(t, count);
         } else if (t->regs[0x04 >> 2] & 3) {
             /* a one-shot timer that ran out is re-armed by a new count */
             t->running = true;
-            ngtimer_schedule(t, val);
+            ngtimer_schedule(t, count);
         }
         break;
+    }
     }
     t->regs[o >> 2] = val;
 }

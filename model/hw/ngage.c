@@ -1,6 +1,8 @@
 /*
  * Nokia N-Gage QD (RH-29) machine: Nokia UPP_WD2 ASIC (ARM9 MCU + DSP),
- * two burst NOR flashes, SDRAM. Reference model for the MiSTer core.
+ * two burst NOR flashes, SDRAM. Reference model for the MiSTer core. It
+ * runs the phone's firmware as the chips hold it, the cellular side (NOS)
+ * included, as the core does.
  *
  * The UPP_WD2 register map is undocumented. This machine grows as the
  * firmware is reverse engineered: every access to an address no model
@@ -21,6 +23,7 @@
 #include "hw/arm/machines-qom.h"
 #include "system/address-spaces.h"
 #include "system/reset.h"
+#include "system/rtc.h"
 #include "accel/tcg/cpu-loop.h"
 #include "exec/target_page.h"
 #include "target/arm/cpu.h"
@@ -41,7 +44,10 @@ struct NGageMachineState {
     char *cbus_regs;
     char *cbus_log;
     char *bt_log;
-    char *rom_patches;
+    char *mdi_log;
+    char *sim_log;
+    char *c_drive;
+    char *pmm;
     char *kern_log;
     char *trace;
     char *mmc;
@@ -62,6 +68,7 @@ struct NGageMachineState {
     MemoryRegion probe;
     MemoryRegion sdram;
     MemoryRegion iram;
+    MemoryRegion asic_rom;
     FILE *probe_fp;
     uint64_t probe_count;
     ARMCPU *cpu;
@@ -211,6 +218,25 @@ static void ngage_init(MachineState *machine)
 
     ngage_intc_create(sysmem, qdev_get_gpio_in(DEVICE(s->cpu), ARM_CPU_IRQ),
                       qdev_get_gpio_in(DEVICE(s->cpu), ARM_CPU_FIQ));
+    ngage_ctsi_create(sysmem);
+    ngage_genio_create(sysmem);
+    {
+        FILE *ml = NULL, *sl = NULL;
+        if (s->mdi_log) {
+            ml = fopen(s->mdi_log, "w");
+            if (ml) {
+                setvbuf(ml, NULL, _IOLBF, 0);
+            }
+        }
+        if (s->sim_log) {
+            sl = fopen(s->sim_log, "w");
+            if (sl) {
+                setvbuf(sl, NULL, _IOLBF, 0);
+            }
+        }
+        ngage_mdi_create(sysmem, ml);
+        ngage_sim_create(sysmem, sl);
+    }
     {
         FILE *cl = NULL;
         if (s->cbus_log) {
@@ -281,7 +307,7 @@ static void ngage_init(MachineState *machine)
         if (machine->audiodev) {
             be = audio_be_by_name(machine->audiodev, &error_fatal);
         }
-        ngage_audio_create(sysmem, be, s->audio_wav, al);
+        ngage_pcm_create(be, s->audio_wav, al);
     }
 
     /* Everything nothing else claims: log it. */
@@ -293,9 +319,23 @@ static void ngage_init(MachineState *machine)
     memory_region_init_ram(&s->sdram, NULL, "ngage.sdram", NGAGE_SDRAM_SIZE, &error_fatal);
     memory_region_add_subregion(sysmem, NGAGE_SDRAM_BASE, &s->sdram);
 
-    /* On-chip RAM: the boot code copies its flash routines to 0x0C004748 and runs them there. */
+    /* On-chip RAM: the boot code copies its flash routines to 0x0C004748 and
+     * runs them there; NOS has its communication RAM and the DSP's code in it. */
     memory_region_init_ram(&s->iram, NULL, "ngage.iram", NGAGE_IRAM_SIZE, &error_fatal);
     memory_region_add_subregion(sysmem, NGAGE_IRAM_BASE, &s->iram);
+    /* The ASIC ROM page: its contents are not known. NOS calls one routine
+     * in it (0x580003DE, from 0x514C0274) and uses nothing it returns, so
+     * every halfword is a Thumb "bx lr", as in the core. */
+    memory_region_init_rom(&s->asic_rom, NULL, "ngage.asic-rom", NGAGE_ASIC_ROM_SIZE,
+                           &error_fatal);
+    {
+        uint8_t *rom = memory_region_get_ram_ptr(&s->asic_rom);
+
+        for (unsigned i = 0; i < NGAGE_ASIC_ROM_SIZE; i += 2) {
+            stw_le_p(rom + i, 0x4770);
+        }
+    }
+    memory_region_add_subregion_overlap(sysmem, NGAGE_IRAM_BASE, &s->asic_rom, 1);
 
     if (!s->flash0_path) {
         error_report("ngage: -machine flash0=<cs0 image> is required");
@@ -306,8 +346,23 @@ static void ngage_init(MachineState *machine)
     s->flash[1] = ngage_flash_create(sysmem, "ngage.flash1", NGAGE_FLASH1_BASE,
                                      NGAGE_FLASH1_SIZE, s->flash1_path, s->flash1_save);
     ngage_cbus_set_cs1(s->flash[1]);
-    if (s->rom_patches) {
-        ngage_apply_rom_patches(s->rom_patches, s->flash[0], s->flash[1]);
+    /* What the phone writes, in the core's files: C: and PMM. */
+    if (s->c_drive) {
+        ngage_flash_part(s->flash[1], NGAGE_FLASH1_SIZE / 2, NGAGE_FLASH1_SIZE / 2, s->c_drive);
+    }
+    if (s->pmm) {
+        ngage_flash_part(s->flash[0], NGAGE_FLASH0_SIZE - (64u << 10), 64u << 10, s->pmm);
+    }
+    {
+        struct tm tm;
+        int n;
+
+        qemu_get_timedate(&tm, 0);
+        n = ngage_pmm_set_date(s->flash[0], tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+        if (n) {
+            info_report("ngage: PMM's date is %04d-%02d-%02d (%d records)", tm.tm_year + 1900,
+                        tm.tm_mon + 1, tm.tm_mday, n);
+        }
     }
 }
 
@@ -329,8 +384,14 @@ static char *get_cbuslog(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o
 static void set_cbuslog(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->cbus_log = g_strdup(v); }
 static char *get_btlog(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->bt_log); }
 static void set_btlog(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->bt_log = g_strdup(v); }
-static char *get_patches(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->rom_patches); }
-static void set_patches(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->rom_patches = g_strdup(v); }
+static char *get_mdilog(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->mdi_log); }
+static void set_mdilog(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->mdi_log = g_strdup(v); }
+static char *get_simlog(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->sim_log); }
+static void set_simlog(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->sim_log = g_strdup(v); }
+static char *get_cdrive(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->c_drive); }
+static void set_cdrive(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->c_drive = g_strdup(v); }
+static char *get_pmm(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->pmm); }
+static void set_pmm(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->pmm = g_strdup(v); }
 static char *get_kernlog(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->kern_log); }
 static void set_kernlog(Object *o, const char *v, Error **e) { NGAGE_MACHINE(o)->kern_log = g_strdup(v); }
 static char *get_trace(Object *o, Error **e) { return g_strdup(NGAGE_MACHINE(o)->trace); }
@@ -401,9 +462,9 @@ static void ngage_machine_class_init(ObjectClass *oc, const void *data)
     object_class_property_add_str(oc, "keys", get_keys, set_keys);
     object_class_property_set_description(oc, "keys", "key script: lines '<guest seconds> down|up <key>'");
     object_class_property_add_str(oc, "audio-wav", get_audio_wav, set_audio_wav);
-    object_class_property_set_description(oc, "audio-wav", "WAV file that receives what the HLE audio device plays");
+    object_class_property_set_description(oc, "audio-wav", "WAV file that receives what the DSP plays");
     object_class_property_add_str(oc, "audio-log", get_audio_log, set_audio_log);
-    object_class_property_set_description(oc, "audio-log", "file that receives HLE audio device events");
+    object_class_property_set_description(oc, "audio-log", "file that receives the DSP's PCM playback events");
     machine_add_audiodev_property(mc);
     object_class_property_add_str(oc, "mmc", get_mmc, set_mmc);
     object_class_property_set_description(oc, "mmc", "game card image (raw); CID/CSD from <image>.cid/.csd");
@@ -419,8 +480,16 @@ static void ngage_machine_class_init(ObjectClass *oc, const void *data)
     object_class_property_add_str(oc, "pc-sample", get_pc_sample, set_pc_sample);
     object_class_property_set_description(oc, "pc-sample",
                                           "file that receives the guest time, PC and mode every guest millisecond");
-    object_class_property_add_str(oc, "rom-patches", get_patches, set_patches);
-    object_class_property_set_description(oc, "rom-patches", "model shortcuts applied to the flash contents");
+    object_class_property_add_str(oc, "c-drive", get_cdrive, set_cdrive);
+    object_class_property_set_description(oc, "c-drive",
+                                          "the C: drive, CS1's upper 4 MiB (the core's boot0.vhd): loaded if present, written on exit after changes");
+    object_class_property_add_str(oc, "pmm", get_pmm, set_pmm);
+    object_class_property_set_description(oc, "pmm",
+                                          "PMM, the top 64 KiB of CS0 (the core's boot2.vhd): loaded if present, written on exit after changes");
+    object_class_property_add_str(oc, "mdi-log", get_mdilog, set_mdilog);
+    object_class_property_set_description(oc, "mdi-log", "file that receives what the DSP's side of the MDI link does");
+    object_class_property_add_str(oc, "sim-log", get_simlog, set_simlog);
+    object_class_property_set_description(oc, "sim-log", "file that receives the SIM card's selects and unknown commands");
     object_class_property_add_str(oc, "quirks", get_quirks, set_quirks);
     object_class_property_set_description(oc, "quirks", "register read quirks file");
     object_class_property_add_str(oc, "upp-log", get_upp, set_upp);

@@ -155,8 +155,10 @@ static uint64_t ctsi_read(void *opaque, hwaddr off, unsigned size)
 {
     NGageKeypad *s = opaque;
 
-    ngage_trace_log("ctsi", false, 0x0C150100 + off, size, s->ctsi100);
-    return s->ctsi100;
+    uint16_t v = s->ctsi100 | ngage_ctsi_nos_status();
+
+    ngage_trace_log("ctsi", false, 0x0C150100 + off, size, v);
+    return v;
 }
 
 static void ctsi_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
@@ -165,7 +167,8 @@ static void ctsi_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
 
     ngage_trace_log("ctsi", true, 0x0C150100 + off, size, val);
     s->ctsi100 &= ~(val & 0xC);
-    s->ctsi100 = (s->ctsi100 & 0xC) | (val & ~0xC);
+    s->ctsi100 = (s->ctsi100 & 0xC) | (val & ~(0xC | NGAGE_CTSI_NOS_EVENTS));
+    ngage_ctsi_nos_ack(val);    /* bits 13:12, 10:9 and 7: ngage_ctsi.c */
     kp_update(s);
 }
 

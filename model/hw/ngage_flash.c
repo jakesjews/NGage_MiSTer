@@ -44,9 +44,17 @@
  *
  * Persistence: with a save file the chip starts from that file when it
  * exists (instead of the image) and writes its whole contents back to it on
- * exit after any program or erase. CS1 0x400000-0x7FFFFF is the C: drive
- * (medint.pdd maps it at 0x59200000/0x59600000), so this keeps user data
- * across runs as on the phone.
+ * exit after any program or erase. A part file (ngage_flash_part) does the
+ * same for one part of the chip, which is how the core keeps what the phone
+ * writes: CS1 0x400000-0x7FFFFF is the C: drive (medint.pdd maps it at
+ * 0x59200000/0x59600000; the core's boot0.vhd) and the top 64 KiB of CS0 is
+ * PMM, the cellular side's permanent memory (eight 8 KiB sectors that NOS
+ * erases and programs itself; the core's boot2.vhd). The files are the
+ * core's, byte for byte, so a phone's state can go from one to the other.
+ *
+ * PMM holds the date: ngage_pmm_set_date writes today's into its two clock
+ * records before the start, as the core does (rtl/mister/pmm_date.sv has
+ * why; tools/mkpmm.py the record format).
  *
  * Copyright (c) 2026 the NGage_MiSTer authors
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -76,8 +84,16 @@ enum { ST_READ, ST_UNLOCK1, ST_UNLOCK2, ST_CMD80, ST_CMD80_U1, ST_CMD80_U2,
        ST_PROGRAM, ST_AUTOSELECT, ST_CFI };
 enum { FAST_NONE, FAST_ERASE, FAST_PROGRAM };
 
+typedef struct FlashPart {
+    uint32_t off, len;
+    char *path;
+    bool dirty;
+} FlashPart;
+
 struct NGageFlash {
     MemoryRegion mr;
+    FlashPart part[2];
+    int nparts;
     uint8_t *data;
     uint32_t size;
     hwaddr base;
@@ -164,6 +180,19 @@ static void decode_written(NGageFlash *f, uint32_t off, uint32_t len)
     }
 }
 
+/* A program or an erase changed [off, off + len). */
+static void touched(NGageFlash *f, uint32_t off, uint32_t len)
+{
+    f->dirty = true;
+    for (int i = 0; i < f->nparts; i++) {
+        FlashPart *p = &f->part[i];
+
+        if (off < p->off + p->len && off + len > p->off) {
+            p->dirty = true;
+        }
+    }
+}
+
 static void erase(NGageFlash *f, uint32_t off, uint32_t len)
 {
     if (off < f->size) {
@@ -171,7 +200,7 @@ static void erase(NGageFlash *f, uint32_t off, uint32_t len)
         memset(f->data + off, 0xFF, len);
         decode_written(f, off, len);
         memory_region_flush_rom_device(&f->mr, off, len);
-        f->dirty = true;
+        touched(f, off, len);
     }
 }
 
@@ -331,7 +360,7 @@ static void flash_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
         decode_written(f, addr, size);
         memory_region_flush_rom_device(&f->mr, addr & ~1u,
                                        MIN((addr + size + 1) & ~1u, f->size) - (addr & ~1u));
-        f->dirty = true;
+        touched(f, addr, size);
         f->state = ST_READ;
         if (fast) {
             fast_start(f, FAST_PROGRAM, addr, d);
@@ -413,10 +442,28 @@ static void flash_exit(Notifier *n, void *data)
     if (!f->dirty) {
         return;
     }
-    /* the file holds the chip as it is stored */
+    /* the files hold the chip as it is stored */
     g_autofree uint8_t *stored = g_memdup2(f->data, f->size);
     if (f->scr_end) {
         ngage_scramble_buf(stored + f->scr_first, f->scr_first, f->scr_end - f->scr_first);
+    }
+    for (int i = 0; i < f->nparts; i++) {
+        FlashPart *p = &f->part[i];
+
+        if (!p->dirty) {
+            continue;
+        }
+        if (!g_file_set_contents(p->path, (const char *)stored + p->off, p->len, &err)) {
+            error_report("%s: cannot save %s: %s", memory_region_name(&f->mr), p->path,
+                         err->message);
+            g_clear_error(&err);
+            continue;
+        }
+        info_report("ngage: %s 0x%x-0x%x saved to %s", memory_region_name(&f->mr), p->off,
+                    p->off + p->len - 1, p->path);
+    }
+    if (!f->save_path) {
+        return;
     }
     if (!g_file_set_contents(f->save_path, (const char *)stored, f->size, &err)) {
         error_report("%s: cannot save %s: %s", memory_region_name(&f->mr), f->save_path,
@@ -433,10 +480,10 @@ NGageFlash *ngage_flash_create(MemoryRegion *sysmem, const char *name,
 {
     NGageFlash *f = g_new0(NGageFlash, 1);
 
+    f->exit_notifier.notify = flash_exit;
+    qemu_add_exit_notifier(&f->exit_notifier);
     if (save_path && *save_path) {
         f->save_path = g_strdup(save_path);
-        f->exit_notifier.notify = flash_exit;
-        qemu_add_exit_notifier(&f->exit_notifier);
         if (g_file_test(save_path, G_FILE_TEST_EXISTS)) {
             info_report("ngage: %s starts from %s", name, save_path);
             path = save_path;
@@ -475,6 +522,97 @@ NGageFlash *ngage_flash_create(MemoryRegion *sysmem, const char *name,
     memory_region_init_io(&f->busy_mr, NULL, &busy_ops, f, "ngage.flash-busy", SECTOR_SIZE);
     f->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, erase_done, f);
     return f;
+}
+
+void ngage_flash_part(NGageFlash *f, uint32_t off, uint32_t len, const char *path)
+{
+    FlashPart *p;
+
+    assert(f->nparts < ARRAY_SIZE(f->part) && off + len <= f->size);
+    p = &f->part[f->nparts++];
+    p->off = off;
+    p->len = len;
+    p->path = g_strdup(path);
+    if (g_file_test(path, G_FILE_TEST_EXISTS)) {
+        gsize n = 0;
+        gchar *buf = NULL;
+        GError *err = NULL;
+
+        if (!g_file_get_contents(path, &buf, &n, &err)) {
+            error_report("%s: %s", memory_region_name(&f->mr), err->message);
+            exit(1);
+        }
+        if (n != len) {
+            error_report("%s: %s is %zu bytes, this part of the chip is %u",
+                         memory_region_name(&f->mr), path, (size_t)n, len);
+            exit(1);
+        }
+        memcpy(f->data + off, buf, len);
+        g_free(buf);
+        decode_written(f, off, len);
+        if (f->device_id == FLASH_DEVICE_CS1) {
+            f->c_blank = true;          /* as a newly loaded image: looked at again below */
+        }
+        ngage_flash_changed(f, 0, f->size);
+        info_report("ngage: %s 0x%x-0x%x from %s", memory_region_name(&f->mr), off,
+                    off + len - 1, path);
+    }
+}
+
+/*
+ * PMM, the top 64 KiB of CS0, in eight 8 KiB sectors. A sector in use has
+ * "PMMCAT" at offset 6 and records from 0x20: F4 (A4 once replaced), group,
+ * record (16 bits), four bytes, length (16 bits), the offset of the next
+ * record in the sector (16 bits), data. Records 0 and 1 of group 212, eight
+ * bytes each, are the clock's date: microseconds in EUser's calendar.
+ */
+#define PMM_SIZE        (64u << 10)
+#define PMM_SECTOR      (8u << 10)
+#define PMM_FIRST       0x20u
+#define DAY_2000        730497u         /* EUser's day number of 2000-01-01 */
+
+int ngage_pmm_set_date(NGageFlash *f, int year, int month, int day)
+{
+    static const uint16_t before[12] = { 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
+    uint8_t *pmm = f->data + f->size - PMM_SIZE;
+    unsigned y = year - 2000;
+    uint64_t day_no, t;
+    int written = 0;
+
+    if (year < 2000 || year > 2099 || month < 1 || month > 12) {
+        return 0;
+    }
+    day_no = DAY_2000 + y * 365 + (y + 3) / 4 + before[month - 1] +
+             (y % 4 == 0 && month > 2) + day - 1;
+    t = day_no * UINT64_C(86400000000);
+    for (unsigned s = 0; s < PMM_SIZE; s += PMM_SECTOR) {
+        uint8_t *sec = pmm + s;
+        unsigned at = PMM_FIRST;
+
+        if (memcmp(sec + 6, "PMMCAT", 6)) {
+            continue;
+        }
+        for (;;) {
+            unsigned len = lduw_le_p(sec + at + 8), next = lduw_le_p(sec + at + 10);
+            bool goes_on = next < PMM_SECTOR && next > at && next <= PMM_SECTOR - 12;
+
+            if (sec[at] == 0xF4 && sec[at + 1] == 212 && lduw_le_p(sec + at + 2) <= 1 &&
+                len == 8 && at <= PMM_SECTOR - 20) {
+                stq_le_p(sec + at + 12, t);
+                written++;
+            } else if (sec[at] == 0xFF) {
+                break;
+            }
+            if (!goes_on) {
+                break;
+            }
+            at = next;
+        }
+    }
+    if (written) {
+        memory_region_flush_rom_device(&f->mr, f->size - PMM_SIZE, PMM_SIZE);
+    }
+    return written;
 }
 
 uint8_t *ngage_flash_data(NGageFlash *f, uint32_t *size)

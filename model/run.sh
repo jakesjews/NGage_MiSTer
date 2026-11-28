@@ -10,13 +10,15 @@
 #                 as flash stores it: the model decodes the scrambled area the
 #                 image names at 0x174, as the phone's ASIC does on reads
 #   NGAGE_FLASH1  CS1 image (default research/firmware/images/nor/rh29-4.10-cs1.bin)
-#   NGAGE_PATCHES Optional patch list, or "standin" to reproduce the legacy NOS
-#                 behavior. The default preserves the supplied firmware.
 #   NGAGE_OUT     output directory for logs and screenshots (default model/.out)
-#   NGAGE_SAVE1   CS1 save file, the C: drive (default $NGAGE_OUT/cs1-save.bin):
-#                 used instead of NGAGE_FLASH1 when present, written on exit
-#                 after flash writes; "none" disables it. The image has no C:
-#                 file system: format it once with NGAGE_KEYS=model/keys/format-c.txt
+#   NGAGE_C       the C: drive, 4 MiB, the core's boot0.vhd (default
+#                 $NGAGE_OUT/c.vhd, made from releases/boot0.vhd when missing):
+#                 loaded over CS1's upper half, written back on exit after
+#                 flash writes; "none" disables it
+#   NGAGE_PMM     PMM, 64 KiB, the core's boot2.vhd (default $NGAGE_OUT/pmm.vhd,
+#                 made from releases/boot2.vhd when missing): the same for the
+#                 top of CS0. With the two defaults the first run is a phone's
+#                 first start: the firmware formats C: and asks for the time
 #   NGAGE_MMC     game-card image (raw); CID/CSD from <image>.cid / <image>.csd
 #   NGAGE_TRACE   lo-hi[:lo-hi] physical ranges whose every access goes to regs.log
 #   NGAGE_SHOT    LCD screenshot period in guest seconds (default 0 = only on exit)
@@ -35,7 +37,7 @@
 #                 model/tools/dcstat.py prints the report
 #   NGAGE_ICOUNT  QEMU -icount setting (default shift=4,sleep=off: 16 ns per
 #                 instruction, idle time skipped); "none" for wall-clock time
-#   NGAGE_AUDIO   host audio driver for the HLE audio device, e.g. coreaudio
+#   NGAGE_AUDIO   host audio driver for what the DSP plays, e.g. coreaudio
 #                 (default none; $NGAGE_OUT/audio.wav and audio.log are always
 #                 written). Host playback keeps pace only when guest time runs
 #                 in real time: NGAGE_ICOUNT=shift=4,sleep=on,align=on

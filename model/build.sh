@@ -30,6 +30,7 @@ done
 cp hw/ngage.h "$SRC/include/hw/arm/ngage.h"
 cp hw/ngage_scramble.h "$SRC/include/hw/arm/ngage_scramble.h"
 cp hw/ngage_bt_chip.h "$SRC/include/hw/arm/ngage_bt_chip.h"
+rm -f "$SRC"/hw/arm/ngage*.c           # a file that has gone from hw/ goes from the tree
 for f in hw/ngage*.c; do
     cp "$f" "$SRC/hw/arm/"
 done
@@ -67,20 +68,3 @@ for p in excprof dcsim; do
         -o "$BUILD/$p.so" plugins/$p.c $(pkg-config --libs glib-2.0)
     ls -la "$BUILD/$p.so"
 done
-
-# NOS stand-in (firmware patch, see ../firmware-patches/rom-patches.txt), built
-# here from the working tree so that the model runs the sources as they are
-# (args.sh); linked at the NOS entry
-# 0x5149E4C4 (CS0 0x9E4C4 seen through the kernel's NOS window at 0x51400000).
-NOS=../firmware-patches/nos-stub
-arm-none-eabi-as -march=armv4t -o "$BUILD/nos_stub.o" $NOS/nos_stub.S
-arm-none-eabi-ld -Ttext=0x5149E4C4 -o "$BUILD/nos_stub.elf" "$BUILD/nos_stub.o"
-arm-none-eabi-objcopy -O binary "$BUILD/nos_stub.elf" "$BUILD/nos-stub.bin"
-arm-none-eabi-as -march=armv4t -o "$BUILD/nos_dll.o" $NOS/nos_dll.S
-arm-none-eabi-gcc -march=armv4t -marm -mthumb-interwork -Os -std=gnu11 -ffreestanding \
-    -fno-builtin -fno-pic -fno-common -fno-unwind-tables -fno-asynchronous-unwind-tables \
-    -Wall -Wextra -c -o "$BUILD/nos_isi.o" $NOS/nos_isi.c
-arm-none-eabi-ld -T $NOS/nos_dll.ld -o "$BUILD/nos_dll.elf" "$BUILD/nos_dll.o" "$BUILD/nos_isi.o" \
-    "$(arm-none-eabi-gcc -march=armv4t -marm -print-libgcc-file-name)"
-arm-none-eabi-objcopy -O binary "$BUILD/nos_dll.elf" "$BUILD/nos-dll.bin"
-ls -la "$BUILD/nos-stub.bin" "$BUILD/nos-dll.bin"

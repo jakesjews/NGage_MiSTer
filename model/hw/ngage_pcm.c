@@ -1,41 +1,31 @@
 /*
- * HLE audio device at 0x0C1F0000: an EMULATOR INVENTION, not UPP_WD2
- * hardware. On the phone, PCM goes from SoundDevice.mda to NOS over ISI
- * (resource 0xE8, docs/NOS_STANDIN.md) and NOS has the DSP play it from a
- * shared SDRAM chunk; neither runs here. The NOS stand-in answers those
- * messages and drives this device, which the FPGA core implements as a
- * small block reading PCM from SDRAM. Nothing in the firmware touches the
- * 0x0C1Fxxxx page (no constant in the ROM, no access in any run), and
- * Symbian maps it at virtual 0x581F0000 with the rest of 0x0C1xxxxx.
- * Registers (32-bit, docs/UPP_WD2.md "HLE audio device"):
+ * PCM playback of the UPP_WD2's internal DSP, as the core has it
+ * (rtl/upp/upp_pcm.v). On the phone, SoundDevice.mda sends PCM requests to
+ * NOS over ISI (resource 0xE8) and NOS has the DSP play the samples from two
+ * halves of a shared SDRAM chunk. The DSP's side of that exchange is in
+ * ngage_mdi.c; this file is what it drives, and has no registers the CPU can
+ * reach. Its control port (ngage_pcm_write):
  *
- *   +0x00  ID      read 0x41554431 ("AUD1")
- *   +0x04  CTRL    bit 0 RUN (0 resets position and both buffers),
- *                  bit 1 IRQ enable
- *   +0x08  FORMAT  bit 0 stereo (L, R frames); samples are signed 16-bit
- *                  little-endian
- *   +0x0C  RATE    frames per second (4000-48000)
- *   +0x10  ADDR0   physical address of buffer 0     +0x14  ADDR1
- *   +0x18  LEN0    frames in buffer 0; writing a nonzero value marks the
- *                  buffer full                       +0x1C  LEN1
- *   +0x20  STATUS  bit 0/1 DONE0/1: that buffer was played to its end
- *                  (write 1 to clear); bit 4/5 FULL0/1; bit 8 running;
- *                  bit 9 buffer being played; bit 10 starved (both empty)
- *   +0x24  POS     frames played from the current buffer
- *   +0x28  VOLUME  gain 0-0x100 (0x100 = unity), reset 0x100
- *   +0x2C  PLAYED  frames played since RUN, silence included
+ *   0x04  bit 0 RUN; 0 empties both buffers and forgets their DONE
+ *   0x08  bit 0 stereo (L, R frames); samples are signed 16-bit little-endian
+ *   0x0C  frames per second (4000-48000; the DSP asks for 8000 or 16000)
+ *   0x10  physical address of buffer 0             0x14  of buffer 1
+ *   0x18  frames in buffer 0; a value other than 0 marks it full
+ *                                                  0x1C  buffer 1
+ *   0x20  write 1 to bit 0/1: forget DONE of buffer 0/1
  *
- * While RUN is set the device plays the current buffer at RATE. At its
- * end the buffer becomes empty, DONE is set and play moves to the other
- * buffer. When the current buffer is empty play takes the other one if it
- * is full, else outputs silence until one is filled. The interrupt (source
- * 5, IrqTimer5, which nothing in Symbian binds and no timer drives in the
- * model) is DONE0|DONE1 while IRQ enable is set.
+ * and its status (ngage_pcm_status): bits 19:18 DONE, 17:16 full, 15
+ * running, 14:0 the frame being played in the current buffer.
+ *
+ * While RUN is set the current buffer is played at the rate. At its end the
+ * buffer becomes empty, DONE is set and play moves to the other buffer.
+ * When the current buffer is empty play takes the other one if it is full,
+ * else there is silence until one is filled.
  *
  * Time follows QEMU_CLOCK_VIRTUAL (guest time), so what the guest sees is
  * the same however fast the host runs. The model writes what it plays to
  * a WAV file at the first session's rate and format, and resamples to
- * 48 kHz stereo (linear interpolation, as the FPGA does for AUDIO_L/R)
+ * 48 kHz stereo (linear interpolation, as the core does for AUDIO_L/R)
  * for the host audio backend when one is given (-audiodev ...,id=x
  * -M ngage-qd,audiodev=x). Host playback is in real time only when guest
  * time is (NGAGE_ICOUNT=none or sleep=on): otherwise its buffer overflows
@@ -54,39 +44,30 @@
 #include "system/system.h"
 #include "hw/arm/ngage.h"
 
-#define AUD_BASE        0x0C1F0000
-#define AUD_ID          0x41554431u
-#define AUD_IRQ         5
 #define AUD_TICK_NS     (5 * 1000 * 1000)       /* 5 ms of guest time */
 #define OUT_RATE        48000
 #define RING_FRAMES     (OUT_RATE / 2)          /* 0.5 s of host output */
 #define MAX_CHUNK       4096
 
 enum {
-    R_ID = 0x00, R_CTRL = 0x04, R_FORMAT = 0x08, R_RATE = 0x0C,
+    R_CTRL = 0x04, R_FORMAT = 0x08, R_RATE = 0x0C,
     R_ADDR0 = 0x10, R_ADDR1 = 0x14, R_LEN0 = 0x18, R_LEN1 = 0x1C,
-    R_STATUS = 0x20, R_POS = 0x24, R_VOLUME = 0x28, R_PLAYED = 0x2C,
+    R_DONE = 0x20,
 };
 
 #define CTRL_RUN        1u
-#define CTRL_IRQEN      2u
-#define ST_DONE(n)      (1u << (n))
-#define ST_FULL(n)      (1u << (4 + (n)))
-#define ST_RUNNING      (1u << 8)
-#define ST_CUR          (1u << 9)
-#define ST_STARVED      (1u << 10)
 
 typedef struct NGageAudio {
-    MemoryRegion mr;
     QEMUTimer *tick;
     FILE *log;
 
-    uint32_t ctrl, format, rate, addr[2], len[2], volume;
+    uint32_t ctrl, format, rate, addr[2], len[2];
     bool full[2];
-    uint32_t done;              /* DONE0/1 */
+    uint32_t done;              /* bit 0/1: buffer 0/1 was played to its end */
     int cur;
     uint32_t pos, played;
     bool starved;
+    bool ended;                 /* a buffer ended since the DSP side was last told */
     int64_t start_ns;           /* guest time of RUN */
     uint64_t due_base;          /* frames played before the last rate change */
 
@@ -122,11 +103,6 @@ static void aud_log(NGageAudio *s, const char *fmt, ...)
     vfprintf(s->log, fmt, ap);
     va_end(ap);
     fputc('\n', s->log);
-}
-
-static void aud_update_irq(NGageAudio *s)
-{
-    ngage_intc_set_source(AUD_IRQ, (s->ctrl & CTRL_IRQEN) && s->done);
 }
 
 /* ---------------------------------------------------------------- WAV */
@@ -286,8 +262,7 @@ static void aud_play(NGageAudio *s, uint64_t todo)
                            s->addr[b] + (hwaddr)s->pos * 2 * ch,
                            MEMTXATTRS_UNSPECIFIED, buf, n * 2 * ch);
         for (unsigned i = 0; i < n * ch; i++) {
-            int32_t v = (int16_t)le16_to_cpu(buf[i]);
-            buf[i] = (int16_t)((v * (int32_t)s->volume) >> 8);
+            buf[i] = (int16_t)le16_to_cpu(buf[i]);
         }
         aud_output(s, buf, n, ch);
         s->pos += n;
@@ -295,10 +270,10 @@ static void aud_play(NGageAudio *s, uint64_t todo)
         todo -= n;
         if (s->pos >= s->len[b]) {
             s->full[b] = false;
-            s->done |= ST_DONE(b);
+            s->done |= 1u << b;
             s->cur = b ^ 1;
             s->pos = 0;
-            aud_update_irq(s);
+            s->ended = true;
         }
     }
 }
@@ -318,17 +293,42 @@ static void aud_catch_up(NGageAudio *s)
     }
 }
 
+/* The next look: in 5 ms, or when the buffer being played ends if that is
+ * sooner, so that the DSP side hears of the end when it happens. */
+static void aud_next_tick(NGageAudio *s)
+{
+    int64_t at = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + AUD_TICK_NS;
+    int b = (!s->full[s->cur] && s->full[s->cur ^ 1]) ? s->cur ^ 1 : s->cur;
+
+    if (s->full[b] && s->rate) {
+        uint64_t left = b == s->cur ? s->len[b] - MIN(s->pos, s->len[b]) : s->len[b];
+        int64_t end = s->start_ns + muldiv64(s->played - s->due_base + left, NANOSECONDS_PER_SECOND,
+                                            s->rate) + 1;
+        at = MIN(at, MAX(end, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1));
+    }
+    timer_mod(s->tick, at);
+}
+
+static void aud_told(NGageAudio *s)
+{
+    if (s->ended) {
+        s->ended = false;
+        ngage_mdi_kick();
+    }
+}
+
 static void aud_tick(void *opaque)
 {
     NGageAudio *s = opaque;
 
     aud_catch_up(s);
     if (s->ctrl & CTRL_RUN) {
-        timer_mod(s->tick, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + AUD_TICK_NS);
+        aud_next_tick(s);
     }
     if (s->wav && s->wav_rate && ++s->wav_ticks % 200 == 0) {
         wav_header(s);          /* keep the file readable during a run */
     }
+    aud_told(s);
 }
 
 static void aud_run(NGageAudio *s, bool on)
@@ -340,18 +340,14 @@ static void aud_run(NGageAudio *s, bool on)
         s->due_base = 0;
         s->starved = false;
         s->start_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
-        timer_mod(s->tick, s->start_ns + AUD_TICK_NS);
         aud_log(s, "run: rate %u, %s, buffers %08x %08x", s->rate,
                 (s->format & 1) ? "stereo" : "mono", s->addr[0], s->addr[1]);
         if (s->voice) {
             audio_be_set_active_out(s->be, s->voice, true);
         }
     } else {
-        aud_catch_up(s);
         timer_del(s->tick);
         aud_log(s, "stop after %u frames (buffer %d, pos %u)", s->played, s->cur, s->pos);
-        s->full[0] = s->full[1] = false;
-        s->done = 0;
         if (s->wav && s->wav_rate) {
             wav_header(s);
             fflush(s->wav);
@@ -359,50 +355,38 @@ static void aud_run(NGageAudio *s, bool on)
     }
 }
 
-/* ---------------------------------------------------------------- regs */
+/* ---------------------------------------------------------------- the DSP's port */
 
-static uint64_t aud_read(void *opaque, hwaddr off, unsigned size)
+uint32_t ngage_pcm_status(void)
 {
-    NGageAudio *s = opaque;
-    uint32_t v = 0;
+    NGageAudio *s = the_audio;
 
-    aud_catch_up(s);
-    switch (off) {
-    case R_ID: v = AUD_ID; break;
-    case R_CTRL: v = s->ctrl; break;
-    case R_FORMAT: v = s->format; break;
-    case R_RATE: v = s->rate; break;
-    case R_ADDR0: v = s->addr[0]; break;
-    case R_ADDR1: v = s->addr[1]; break;
-    case R_LEN0: v = s->len[0]; break;
-    case R_LEN1: v = s->len[1]; break;
-    case R_STATUS:
-        v = s->done | (s->full[0] ? ST_FULL(0) : 0) | (s->full[1] ? ST_FULL(1) : 0) |
-            ((s->ctrl & CTRL_RUN) ? ST_RUNNING : 0) | (s->cur ? ST_CUR : 0) |
-            (s->starved ? ST_STARVED : 0);
-        break;
-    case R_POS: v = s->pos; break;
-    case R_VOLUME: v = s->volume; break;
-    case R_PLAYED: v = s->played; break;
+    if (!s) {
+        return 0;
     }
-    ngage_trace_log("haudio", false, AUD_BASE + off, size, v);
-    return v;
+    aud_catch_up(s);
+    return s->done << 18 | (uint32_t)s->full[1] << 17 | (uint32_t)s->full[0] << 16 |
+           ((s->ctrl & CTRL_RUN) ? 1u << 15 : 0) | (s->pos & 0x7FFF);
 }
 
-static void aud_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
+void ngage_pcm_write(unsigned off, uint32_t v)
 {
-    NGageAudio *s = opaque;
-    uint32_t v = val;
+    NGageAudio *s = the_audio;
 
-    ngage_trace_log("haudio", true, AUD_BASE + off, size, v);
+    if (!s) {
+        return;
+    }
     aud_catch_up(s);
     switch (off) {
     case R_CTRL:
         if ((v ^ s->ctrl) & CTRL_RUN) {
-            s->ctrl = v;
             aud_run(s, v & CTRL_RUN);
         }
-        s->ctrl = v;
+        s->ctrl = v & CTRL_RUN;
+        if (!(v & CTRL_RUN)) {
+            s->full[0] = s->full[1] = false;
+            s->done = 0;
+        }
         break;
     case R_FORMAT: s->format = v & 1; break;
     case R_RATE:
@@ -422,19 +406,38 @@ static void aud_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
         s->full[b] = v != 0;
         break;
     }
-    case R_STATUS:
-        s->done &= ~(v & (ST_DONE(0) | ST_DONE(1)));
+    case R_DONE:
+        s->done &= ~(v & 3);
         break;
-    case R_VOLUME: s->volume = MIN(v, 0x100u); break;
     }
-    aud_update_irq(s);
+    if (s->ctrl & CTRL_RUN) {
+        aud_next_tick(s);
+    }
 }
 
-static const MemoryRegionOps aud_ops = {
-    .read = aud_read, .write = aud_write,
-    .endianness = DEVICE_LITTLE_ENDIAN,
-    .valid = { .min_access_size = 4, .max_access_size = 4 },
-};
+/* The MDI link is down: the state after reset. */
+void ngage_pcm_reset(void)
+{
+    NGageAudio *s = the_audio;
+
+    if (!s) {
+        return;
+    }
+    if (s->ctrl & CTRL_RUN) {
+        aud_catch_up(s);
+        aud_run(s, false);
+    }
+    s->ctrl = 0;
+    s->format = 0;
+    s->rate = 16000;
+    s->addr[0] = s->addr[1] = 0;
+    s->len[0] = s->len[1] = 0;
+    s->full[0] = s->full[1] = false;
+    s->done = 0;
+    s->cur = 0;
+    s->pos = 0;
+    s->ended = false;
+}
 
 static void aud_exit(Notifier *n, void *data)
 {
@@ -452,14 +455,12 @@ static void aud_exit(Notifier *n, void *data)
 
 static Notifier aud_exit_notifier = { .notify = aud_exit };
 
-void ngage_audio_create(MemoryRegion *sysmem, AudioBackend *be, const char *wav_path,
-                        FILE *log)
+void ngage_pcm_create(AudioBackend *be, const char *wav_path, FILE *log)
 {
     NGageAudio *s = g_new0(NGageAudio, 1);
 
     the_audio = s;
     s->log = log;
-    s->volume = 0x100;
     s->rate = 16000;
     s->tick = timer_new_ns(QEMU_CLOCK_VIRTUAL, aud_tick, s);
     if (wav_path) {
@@ -478,6 +479,4 @@ void ngage_audio_create(MemoryRegion *sysmem, AudioBackend *be, const char *wav_
         }
     }
     qemu_add_exit_notifier(&aud_exit_notifier);
-    memory_region_init_io(&s->mr, NULL, &aud_ops, s, "ngage.haudio", 0x100);
-    memory_region_add_subregion(sysmem, AUD_BASE, &s->mr);
 }

@@ -60,6 +60,19 @@
  * reset for one guest second (a user switching the phone on) and takes
  * "power" from the key script.
  *
+ * What the unmodified firmware's cellular side (NOS) uses of the UEMK, as
+ * the core has it (rtl/upp/upp_cbus.sv; docs/FIRMWARE-PROFILES.md):
+ *   register 0x15, interrupt status: bit 3 the RTC alarm, latched at
+ *     switch-on, cleared by writing 1; bit 4 the power key, which reads as
+ *     held from switch-on until the firmware writes register 0x16 with bits
+ *     15:4 set and bit 3 clear, and after that only while it is pressed.
+ *     The first such write also starts the alarm once more: 76.9 ms later
+ *     bit 3 is set and interrupt source 1 raised (it is timer 1's as well)
+ *     until that source is disabled on the IRQ plane (0x0C12010C bit 1);
+ *   registers 0x0A bit 3, 0x0C bit 5 and 0x1B bit 10 switch on the ear, SIM
+ *     and transmit test paths that NOS's self-tests read through GENIO pins
+ *     (ngage_genio.c).
+ *
  * Copyright (c) 2026 the NGage_MiSTer authors
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -73,6 +86,8 @@
 
 #define CBUS_BASE       0x0C150420
 #define CBUS_DONE       (1u << 10)
+/* 7,995,392 clocks of 104 MHz, the core's ALARM_CLKS (rtl/upp/upp_cbus.sv) */
+#define ALARM_NS        76878769
 #define HLE_RTC_BASE    0x0C1F0100
 
 typedef struct NGageCbus {
@@ -83,6 +98,11 @@ typedef struct NGageCbus {
     uint8_t is_ro[8][32];
     uint16_t adc[16];
     bool power_key;
+    bool power_hold;            /* the key is still the hold from switch-on */
+    bool key_released;          /* the firmware has taken the switch-on as over */
+    bool alarm_status, alarm_started;
+    bool route[3];              /* the test paths: ear, SIM, transmit */
+    QEMUTimer *alarm_timer;
     FILE *log;
     /* UEMK RTC */
     uint32_t rtc_tod0;          /* seconds since midnight at start-up */
@@ -98,7 +118,23 @@ void ngage_cbus_set_power_key(bool down)
 {
     if (the_cbus) {
         the_cbus->power_key = down;
+        if (!down) {
+            the_cbus->power_hold = false;
+        }
     }
+}
+
+bool ngage_cbus_route(int which)
+{
+    return the_cbus && the_cbus->route[which];
+}
+
+static void alarm_fire(void *opaque)
+{
+    NGageCbus *s = opaque;
+
+    s->alarm_status = true;
+    ngage_intc_set_alarm(true);
 }
 
 static void cbus_log(NGageCbus *s, const char *what, unsigned dev, unsigned reg,
@@ -148,6 +184,12 @@ static void cbus_do_read(NGageCbus *s)
     if (dev == 1 && reg == 0x1F) {
         v = (v & ~2u) | (s->power_key ? 2u : 0);
     }
+    if (dev == 1 && reg == 0x15) {
+        /* bit 4 the power key, the hold from switch-on until the firmware
+         * has acknowledged it (register 0x16); bit 3 the RTC alarm */
+        v = ((s->power_key && !(s->power_hold && s->key_released)) ? 0x10 : 0) |
+            (s->alarm_status ? 0x08 : 0);
+    }
     if (dev == 5) {
         v = ngage_bt_read(reg);
     }
@@ -175,6 +217,28 @@ static void cbus_do_write(NGageCbus *s)
     }
     if (dev == 1 && reg == 0x01) {
         s->rtc_day_off = (int32_t)(v & 0xFF) - (int32_t)(rtc_now(s) / 86400);
+    }
+    if (dev == 1) {
+        switch (reg) {
+        case 0x0A: s->route[NGAGE_ROUTE_EAR] = v & 0x008; break;
+        case 0x0C: s->route[NGAGE_ROUTE_SIM] = v & 0x020; break;
+        case 0x1B: s->route[NGAGE_ROUTE_TX] = v & 0x400; break;
+        case 0x15:
+            if (v & 8) {
+                s->alarm_status = false;
+            }
+            break;
+        case 0x16:
+            if (bits == 16 && (v >> 4) == 0xFFF && !(v & 8)) {
+                s->key_released = true;
+                if (!s->alarm_started) {
+                    s->alarm_started = true;
+                    timer_mod(s->alarm_timer,
+                              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + ALARM_NS);
+                }
+            }
+            break;
+        }
     }
     if (dev == 1 && reg == 0x19 && (v & 0x800) && !s->is_ro[1][0x1A]) {
         s->regs[1][0x1A] = s->adc[(v >> 12) & 15];
@@ -308,6 +372,9 @@ void ngage_cbus_create(MemoryRegion *sysmem, const char *regs_path, FILE *log)
 
     the_cbus = s;
     s->power_key = true;                /* held at power-on, see ngage_keypad.c */
+    s->power_hold = true;
+    s->alarm_status = true;             /* the RTC alarm is latched at switch-on */
+    s->alarm_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, alarm_fire, s);
     s->log = log;
     if (regs_path) {
         cbus_load(s, regs_path);

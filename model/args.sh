@@ -1,26 +1,33 @@
 # Shared QEMU command line for run.sh, where.sh and sample.sh (sourced, zsh).
-# Sets the array "qemu" from NGAGE_FLASH0/1, NGAGE_SAVE1 and NGAGE_OUT.
+# Sets the array "qemu" from NGAGE_FLASH0/1, NGAGE_C, NGAGE_PMM and NGAGE_OUT.
 flash0=${NGAGE_FLASH0:-research/firmware/images/nor/rh29-4.10-cs0.bin}
 flash1=${NGAGE_FLASH1:-research/firmware/images/nor/rh29-4.10-cs1.bin}
 out=${NGAGE_OUT:-model/.out}
 mkdir -p "$out"
 machine="ngage-qd,flash0=$flash0,flash1=$flash1,probe-log=$out/probe.log,upp-log=$out/regs.log"
-# C: drive persistence: CS1 starts from $out/cs1-save.bin when it exists and is
-# saved there on exit after any flash write. NGAGE_SAVE1=none starts from the image.
-save1=${NGAGE_SAVE1:-$out/cs1-save.bin}
-[[ "$save1" != none ]] && machine+=",flash1-save=$save1"
+# What the phone writes, in the core's own files: the C: drive (CS1's upper
+# 4 MiB; boot0.vhd on the MiSTer) and PMM (the top 64 KiB of CS0; boot2.vhd).
+# Each is loaded over the image at the start and written back on exit after
+# a flash write to it. A missing file starts as the release's: an erased C:
+# and the PMM of a phone before its first start, with which the firmware
+# formats C: itself. "none" leaves the image's own bytes and saves nothing.
+cdrive=${NGAGE_C:-$out/c.vhd}
+pmm=${NGAGE_PMM:-$out/pmm.vhd}
+if [[ "$cdrive" != none ]]; then
+    [[ -f "$cdrive" ]] || cp releases/boot0.vhd "$cdrive"
+    machine+=",c-drive=$cdrive"
+fi
+if [[ "$pmm" != none ]]; then
+    [[ -f "$pmm" ]] || cp releases/boot2.vhd "$pmm"
+    machine+=",pmm=$pmm"
+fi
 machine+=",quirks=model/upp-quirks.txt,cbus-regs=model/cbus-regs.txt,cbus-log=$out/cbus.log"
 # The Bluetooth module's resets and the HCI packets either way ("HCI<" from
 # the phone, "HCI>" to it).
 machine+=",bt-log=$out/bt.log"
-# A comparison can use the historical stand-in from model/.build or an
-# explicit patch list. The normal model loads the firmware as supplied.
-patches=${NGAGE_PATCHES:-}
-if [[ "$patches" == standin ]]; then
-    patches=$out/rom-patches.txt
-    sed 's|firmware-patches/bin/|model/.build/|' firmware-patches/rom-patches.txt > "$patches"
-fi
-[[ -n "$patches" ]] && machine+=",rom-patches=$patches"
+# What the DSP's side of the MDI link does (its announcement, version
+# replies, PCM playback) and the SIM card's selects.
+machine+=",mdi-log=$out/mdi.log,sim-log=$out/sim.log"
 machine+=",kern-log=$out/kern.log,mmc-log=$out/mmc.log"
 [[ -n "${NGAGE_TRACE:-}" ]] && machine+=",trace=$NGAGE_TRACE"
 [[ -n "${NGAGE_KEYS:-}" ]] && machine+=",keys=$NGAGE_KEYS"
@@ -32,8 +39,8 @@ machine+=",lcd-log=$out/lcd.log,shot-dir=$out,screenshot=${NGAGE_SHOT:-0}"
 machine+=",log-time=${NGAGE_LOGTIME:-on}"
 # NGAGE_PCSAMPLE=FILE: guest time, PC and mode every guest millisecond.
 [[ -n "${NGAGE_PCSAMPLE:-}" ]] && machine+=",pc-sample=$NGAGE_PCSAMPLE"
-# HLE audio device (an emulator invention): what it plays goes to audio.wav;
-# NGAGE_AUDIO=coreaudio (or another -audiodev driver) also plays it on the host.
+# What the DSP plays goes to audio.wav; NGAGE_AUDIO=coreaudio (or another
+# -audiodev driver) also plays it on the host.
 machine+=",audio-wav=$out/audio.wav,audio-log=$out/audio.log"
 audiodev=()
 if [[ -n "${NGAGE_AUDIO:-}" && "${NGAGE_AUDIO}" != none ]]; then
