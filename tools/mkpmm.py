@@ -11,8 +11,20 @@ and formats C: only on 105. NOS answers 100 when the record is missing, C:
 then stays erased and the phone stops at the Nokia logo. With the record at
 105 the firmware formats C: and writes the record again as 100 itself.
 
-So the image holds the sector marks NOS writes to an erased PMM and that one
-record; NOS adds its other records, with their defaults, at the first start.
+So the image holds the sector marks NOS writes to an erased PMM, that
+record, and the two records of group 50; NOS adds its other records, with
+their defaults, at the first start.
+
+Group 50 is there because of an order the firmware does not keep by itself.
+At the first start Startup.app asks NOS for record 1 of group 50 and waits
+for the answer; on "no such record" it never goes on, and the phone stays
+at the Nokia logo. NOS writes the group's two records, from the defaults in
+its own tables (00 02 00 00 and 04 00 00 00, at 0x516F6A9C in RH-29 4.10),
+when its network server starts, and nothing makes that come first. On the
+core it does (the first start was run at both cache sizes); in the
+reference model, whose processor and memory are quicker, Startup.app asks
+first. A phone from the factory has the records. With them in the image
+the first start does not depend on which comes first.
 
 The record also erases a C: that is in use: EStart asks at every start and
 formats on 105 whatever C: holds. To go on with an existing C: under a new
@@ -45,6 +57,8 @@ SECTOR = 0x2000
 SECTORS = 8
 RECORDS_AT = 0x20
 AUX_GROUP, AUX_RECORD, AUX_FORMAT = 212, 3, 105
+# NOS's own defaults for group 50, as it writes them (RH-29 4.10, 0x516F6A9C)
+NET_GROUP, NET_DEFAULTS = 50, (bytes.fromhex("00020000"), bytes.fromhex("04000000"))
 
 
 def catalogue(word):
@@ -66,8 +80,12 @@ def image():
     for s in range(SECTORS):
         head = catalogue(0) if s == 0 else catalogue(0x00020000) if s == 6 else free_sector()
         img[s * SECTOR:s * SECTOR + len(head)] = head
-    rec = record(RECORDS_AT, AUX_GROUP, AUX_RECORD, struct.pack("<H", AUX_FORMAT))
-    img[RECORDS_AT:RECORDS_AT + len(rec)] = rec
+    at = RECORDS_AT
+    for group, number, data in [(AUX_GROUP, AUX_RECORD, struct.pack("<H", AUX_FORMAT))] + [
+            (NET_GROUP, n, d) for n, d in enumerate(NET_DEFAULTS)]:
+        rec = record(at, group, number, data)
+        img[at:at + len(rec)] = rec
+        at += len(rec)
     return bytes(img)
 
 
